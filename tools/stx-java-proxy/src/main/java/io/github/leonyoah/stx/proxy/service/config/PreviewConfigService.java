@@ -65,7 +65,10 @@ public class PreviewConfigService {
     }
 
     public Map<String, Object> deriveSourcePreview(Map<String, Object> request) {
-        JobConfigContext context = jobConfigSupportService.parseJobContext(request);
+        // 数据抽样预览配置推导仅需提取节点拓扑结构，跳过远程 Catalog 连接探测。
+        // Source preview config derivation only needs node graph topology, skipping remote catalog
+        // probes.
+        JobConfigContext context = jobConfigSupportService.parseJobContext(request, true);
         boolean explicitSourceSelection =
                 ProxyRequestUtils.getOptionalString(request, "sourceNodeId") != null
                         || request.get("sourceIndex") != null;
@@ -109,7 +112,10 @@ public class PreviewConfigService {
     }
 
     public Map<String, Object> deriveTransformPreview(Map<String, Object> request) {
-        JobConfigContext context = jobConfigSupportService.parseJobContext(request);
+        // Transform 抽样预览配置推导仅需提取节点拓扑结构，跳过远程 Catalog 连接探测。
+        // Transform preview config derivation only needs node graph topology, skipping remote
+        // catalog probes.
+        JobConfigContext context = jobConfigSupportService.parseJobContext(request, true);
         if (context.getTransforms().isEmpty()) {
             throw new ProxyException(400, "Transform preview requires at least one transform");
         }

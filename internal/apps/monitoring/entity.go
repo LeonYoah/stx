@@ -161,8 +161,11 @@ type NotificationChannel struct {
 	Secret      string                  `json:"secret" gorm:"size:500"`
 	ConfigJSON  string                  `json:"config_json" gorm:"type:text"`
 	Description string                  `json:"description" gorm:"type:text"`
-	CreatedAt   time.Time               `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt   time.Time               `json:"updated_at" gorm:"autoUpdateTime"`
+	// DisabledAt 记录渠道被停用的时间（启用时为空），由 BeforeSave 维护。
+	// DisabledAt records when the channel was disabled (nil while enabled); maintained by BeforeSave.
+	DisabledAt *time.Time `json:"disabled_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt  time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName specifies the table name for NotificationChannel.

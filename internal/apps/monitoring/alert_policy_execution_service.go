@@ -47,12 +47,23 @@ type alertPolicyChannelDispatchResult struct {
 	LastDeliveredAt    *time.Time
 	Successful         bool
 	LastError          string
+	// Failed 表示这个渠道本次没有送达但没有返回 error（首次告警留给退避重试、渠道本轮已失败被跳过），
+	// 汇总时按失败计，策略的最近执行状态不会显示为"命中"。
+	// Failed marks a channel that was not delivered without returning an error (a first alert left to the backoff
+	// retry, a channel skipped because it already failed in this sweep); it counts as a failure in the summary, so
+	// the policy's last execution status does not show "matched".
+	Failed bool
+	// Deferred 表示巡检时间预算用完，本渠道延后到下一轮，不计成功也不计失败。
+	// Deferred means the sweep's time budget ran out and the channel waits for the next sweep; neither success nor
+	// failure.
+	Deferred bool
 }
 
 type alertPolicyDispatchSummary struct {
 	AttemptedChannels   int
 	SuccessfulChannels  int
 	FailedChannels      int
+	DeferredChannels    int
 	DeliveryCountDelta  int
 	LastDeliveredAt     *time.Time
 	LastExecutionStatus AlertPolicyExecutionStatus
@@ -359,6 +370,10 @@ type alertMessage struct {
 	// Build 按渠道类型和邮件收件人拼出消息体。
 	// Build assembles the body for the channel type and email recipients.
 	Build func(channel *NotificationChannel, recipients []string) (interface{}, error)
+	// RenderEmailHTML（可选）按给定提示重新渲染邮件 HTML 正文，提示块放在卡片内；为空表示该消息不支持附加提示。
+	// RenderEmailHTML (optional) re-renders the email HTML body with the given note placed inside the card; nil means
+	// the message does not support an extra note.
+	RenderEmailHTML func(note string) string
 }
 
 // localProcessEventAlertMessage 把本地进程事件包装成 alertMessage，消息内容与重构前一致。
@@ -411,8 +426,15 @@ func (s *Service) dispatchAlertPolicyChannels(
 			continue
 		}
 
-		summary.AttemptedChannels++
 		result, err := s.dispatchAlertDelivery(ctx, message, policy, channel, deliveryEventType, sourceKey, requireFiringSent)
+		if result != nil && result.Deferred && err == nil {
+			summary.DeferredChannels++
+			continue
+		}
+		summary.AttemptedChannels++
+		if result != nil && result.Failed && err == nil {
+			summary.FailedChannels++
+		}
 		if result != nil {
 			if result.Successful {
 				summary.SuccessfulChannels++
@@ -433,6 +455,13 @@ func (s *Service) dispatchAlertPolicyChannels(
 	}
 
 	summary.LastExecutionStatus = summarizeAlertPolicyExecutionStatus(summary)
+	if summary.DeferredChannels > 0 && summary.AttemptedChannels == 0 {
+		// 全部渠道都延后到下一轮：不覆盖策略的最近执行状态。
+		// Every channel was deferred to the next sweep: keep the policy's last execution status.
+		summary.LastExecutionStatus = ""
+		summary.LastExecutionError = ""
+		return summary, errors.Join(dispatchErrs...)
+	}
 	if summary.LastExecutionStatus == AlertPolicyExecutionStatusSent {
 		summary.LastExecutionError = ""
 	}
@@ -473,17 +502,32 @@ func laterUTCTimePointer(current *time.Time, candidate *time.Time) *time.Time {
 	return current
 }
 
+// alertDeliveryOptions 控制 dispatchAlertDeliveryWithOptions 的行为。
+// alertDeliveryOptions controls dispatchAlertDeliveryWithOptions.
+type alertDeliveryOptions struct {
+	// RequireFiringSent 时，只有首次告警（firing）投递成功过才发恢复。
+	// RequireFiringSent sends recovery only after the first alert (firing) delivery succeeded.
+	RequireFiringSent bool
+	// Retry 表示由退避重试发起：允许重发一条已存在但未送达的记录。不带 Retry 时，首次告警发送失败的记录交给退避重试，
+	// 冷却提醒巡检不会去碰它。
+	// Retry marks a call from the backoff retry: an existing undelivered record may be resent. Without it, a first
+	// alert whose delivery failed is left to the backoff retry and the cooldown reminder sweep does not touch it.
+	Retry bool
+}
+
 // dispatchAlertDelivery 投递一条通知到一个渠道：
 //   - 人工关闭的不发；静默期间不发告警（恢复照发）；
 //   - requireFiringSent 时，只有对应的首次告警发送成功过才发恢复；
-//   - 首次告警已送达后，冷却时间到了才发提醒；提醒写独立的 reminder 投递记录，不改首次告警记录的状态 / payload
-//     （与 #85 语义对齐）。
+//   - 首次告警已送达后，冷却时间到了才发提醒；提醒写独立的 reminder 投递记录，不改首次告警记录的状态；
+//   - 首次告警发送失败的记录只由退避重试重发（见 dispatchAlertDeliveryWithOptions 的 Retry）。
 //
 // dispatchAlertDelivery delivers one notification to one channel:
 //   - manually closed alerts are skipped; firing is skipped while silenced (recovery still goes out);
-//   - with requireFiringSent, recovery only goes out after the firing notification was sent successfully;
-//   - once the first alert was delivered, a reminder goes out after the cooldown; reminders write their own
-//     reminder delivery record and never change the first alert record's status / payload (aligned with #85).
+//   - with requireFiringSent, recovery only goes out after the first alert was sent successfully;
+//   - once the first alert was delivered, a reminder goes out after the cooldown; reminders write their own reminder
+//     delivery record and never change the first alert record's status;
+//   - a first alert whose delivery failed is only resent by the backoff retry (Retry in
+//     dispatchAlertDeliveryWithOptions).
 func (s *Service) dispatchAlertDelivery(
 	ctx context.Context,
 	message *alertMessage,
@@ -492,6 +536,21 @@ func (s *Service) dispatchAlertDelivery(
 	deliveryEventType NotificationDeliveryEventType,
 	sourceKey string,
 	requireFiringSent bool,
+) (*alertPolicyChannelDispatchResult, error) {
+	return s.dispatchAlertDeliveryWithOptions(ctx, message, policy, channel, deliveryEventType, sourceKey,
+		alertDeliveryOptions{RequireFiringSent: requireFiringSent})
+}
+
+// dispatchAlertDeliveryWithOptions 是 dispatchAlertDelivery 的完整形式。
+// dispatchAlertDeliveryWithOptions is the full form of dispatchAlertDelivery.
+func (s *Service) dispatchAlertDeliveryWithOptions(
+	ctx context.Context,
+	message *alertMessage,
+	policy *AlertPolicy,
+	channel *NotificationChannel,
+	deliveryEventType NotificationDeliveryEventType,
+	sourceKey string,
+	opts alertDeliveryOptions,
 ) (*alertPolicyChannelDispatchResult, error) {
 	if message == nil || policy == nil || channel == nil {
 		return nil, nil
@@ -509,13 +568,24 @@ func (s *Service) dispatchAlertDelivery(
 	if handlingStatus == AlertHandlingStatusSilenced && deliveryEventType == NotificationDeliveryEventTypeFiring {
 		return nil, nil
 	}
-	if requireFiringSent {
+	if opts.RequireFiringSent {
 		firingDelivery, err := s.repo.GetNotificationDeliveryByDedupKey(ctx, sourceKey, channel.ID, string(NotificationDeliveryEventTypeFiring))
 		if err != nil {
 			return nil, err
 		}
-		if firingDelivery == nil || NotificationDeliveryStatus(strings.TrimSpace(firingDelivery.Status)) != NotificationDeliveryStatusSent {
+		if firingDelivery == nil {
 			return nil, nil
+		}
+		if NotificationDeliveryStatus(strings.TrimSpace(firingDelivery.Status)) != NotificationDeliveryStatusSent {
+			if message.SourceType != AlertSourceTypeSync {
+				return nil, nil
+			}
+			// 同步告警的首次告警尝试过但没送达（渠道当时不可用）就恢复了：仍然发恢复，并在正文里说明首次告警没送达，
+			// 让这一条同时告诉用户"出过告警、现在已恢复"，而不是什么都收不到。
+			// A sync alert recovered while its first alert was attempted but never delivered (the channel was down):
+			// still send the recovery, noting in the body that the alert itself was not delivered, so this one
+			// notification tells the user "there was an alert and it has recovered" instead of nothing at all.
+			message = withUndeliveredFirstAlertNote(message)
 		}
 	}
 
@@ -524,28 +594,27 @@ func (s *Service) dispatchAlertDelivery(
 		return nil, err
 	}
 
-	// 首次告警已送达后再来的 firing：走独立 reminder 记录，不覆盖首次告警 payload。
-	// A later firing after the first alert was sent uses its own reminder record and does not overwrite the first alert payload.
-	if delivery != nil && deliveryEventType == NotificationDeliveryEventTypeFiring &&
-		NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) == NotificationDeliveryStatusSent {
-		return s.dispatchAlertReminder(ctx, message, policy, channel, sourceKey, delivery)
+	if delivery != nil && deliveryEventType == NotificationDeliveryEventTypeFiring {
+		if NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) == NotificationDeliveryStatusSent {
+			return s.dispatchAlertReminder(ctx, message, policy, channel, sourceKey, delivery)
+		}
+		if !opts.Retry && message.SourceType == AlertSourceTypeSync {
+			// 同步告警的首次告警还没送达：交给退避重试（sync_alert_delivery_retry.go，只扫同步告警），这里不重发，
+			// 但按失败汇总，策略状态不显示"命中"。本地 / 远程告警没有退避重试，照旧在下一次派发时重发。
+			// A sync alert's first alert is not delivered yet: the backoff retry (sync_alert_delivery_retry.go, which
+			// only scans sync alerts) owns it, so do not resend here, but report it as failed so the policy status does
+			// not show "matched". Local / remote alerts have no backoff retry and are still resent on the next dispatch.
+			return &alertPolicyChannelDispatchResult{LastError: strings.TrimSpace(delivery.LastError), Failed: true}, nil
+		}
+	}
+	if delivery == nil || NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) != NotificationDeliveryStatusSent {
+		if skipped := alertSweepSkipResult(ctx, channel.ID, opts.Retry); skipped != nil {
+			return skipped, nil
+		}
 	}
 
 	if delivery == nil {
-		delivery = &NotificationDelivery{
-			AlertID:      sourceKey,
-			SourceType:   string(message.SourceType),
-			SourceKey:    sourceKey,
-			PolicyID:     policy.ID,
-			ClusterID:    message.ClusterID,
-			ClusterName:  message.ClusterName,
-			AlertName:    message.AlertName,
-			ChannelID:    channel.ID,
-			ChannelName:  strings.TrimSpace(channel.Name),
-			EventType:    string(deliveryEventType),
-			Status:       string(NotificationDeliveryStatusSending),
-			AttemptCount: 1,
-		}
+		delivery = newAlertNotificationDelivery(message, policy, channel, sourceKey, deliveryEventType)
 		if err := s.repo.CreateNotificationDelivery(ctx, delivery); err != nil {
 			return nil, err
 		}
@@ -556,34 +625,17 @@ func (s *Service) dispatchAlertDelivery(
 				Successful:      true,
 			}, nil
 		}
-		delivery.ClusterID = message.ClusterID
-		delivery.ClusterName = message.ClusterName
-		delivery.PolicyID = policy.ID
-		delivery.AlertName = strings.TrimSpace(firstNonEmpty(policy.Name, delivery.AlertName))
-		delivery.ChannelName = strings.TrimSpace(channel.Name)
-		delivery.EventType = string(deliveryEventType)
-		delivery.Status = string(NotificationDeliveryStatusSending)
-		delivery.LastError = ""
-		delivery.RequestPayload = ""
-		delivery.ResponseStatusCode = 0
-		delivery.ResponseBodyExcerpt = ""
-		delivery.SentAt = nil
-		delivery.AttemptCount++
-		if delivery.AttemptCount <= 0 {
-			delivery.AttemptCount = 1
-		}
+		resetAlertNotificationDelivery(delivery, message, policy, channel, deliveryEventType)
 	}
-
 	return s.sendAndRecordAlertDelivery(ctx, delivery, channel, message, policy)
 }
 
 // dispatchAlertReminder 在首次告警已送达且冷却时间已过时发冷却提醒。提醒用 (source_key, 渠道, reminder) 这条独立记录，
 // 冷却从"首次告警送达时间"和"上次提醒尝试时间"中较晚的那个算起；提醒失败只记在提醒记录上，下个冷却周期再试。
-// 与 #85 语义对齐：首次告警记录的状态、次数、发送时间不再被提醒修改。
 // dispatchAlertReminder sends a cooldown reminder once the first alert was delivered and the cooldown has elapsed. It
 // uses its own (source_key, channel, reminder) record; the cooldown counts from the later of the first alert's send
 // time and the last reminder attempt. A failed reminder is only recorded on the reminder record and is tried again
-// after the next cooldown. Aligned with #85: the first alert record's status, attempts and sent time are never changed by a reminder.
+// after the next cooldown.
 func (s *Service) dispatchAlertReminder(
 	ctx context.Context,
 	message *alertMessage,
@@ -613,47 +665,70 @@ func (s *Service) dispatchAlertReminder(
 	if timeNowUTC().Before(last.Add(time.Duration(policy.CooldownMinutes) * time.Minute)) {
 		return delivered, nil
 	}
+	if skipped := alertSweepSkipResult(ctx, channel.ID, false); skipped != nil {
+		return skipped, nil
+	}
 	if reminder == nil {
-		reminder = &NotificationDelivery{
-			AlertID:      sourceKey,
-			SourceType:   string(message.SourceType),
-			SourceKey:    sourceKey,
-			PolicyID:     policy.ID,
-			ClusterID:    message.ClusterID,
-			ClusterName:  message.ClusterName,
-			AlertName:    message.AlertName,
-			ChannelID:    channel.ID,
-			ChannelName:  strings.TrimSpace(channel.Name),
-			EventType:    string(NotificationDeliveryEventTypeReminder),
-			Status:       string(NotificationDeliveryStatusSending),
-			AttemptCount: 1,
-		}
+		reminder = newAlertNotificationDelivery(message, policy, channel, sourceKey, NotificationDeliveryEventTypeReminder)
 		if err := s.repo.CreateNotificationDelivery(ctx, reminder); err != nil {
 			return nil, err
 		}
 	} else {
-		reminder.ClusterID = message.ClusterID
-		reminder.ClusterName = message.ClusterName
-		reminder.PolicyID = policy.ID
-		reminder.AlertName = strings.TrimSpace(firstNonEmpty(policy.Name, reminder.AlertName))
-		reminder.ChannelName = strings.TrimSpace(channel.Name)
-		reminder.EventType = string(NotificationDeliveryEventTypeReminder)
-		reminder.Status = string(NotificationDeliveryStatusSending)
-		reminder.LastError = ""
-		reminder.RequestPayload = ""
-		reminder.ResponseStatusCode = 0
-		reminder.ResponseBodyExcerpt = ""
-		reminder.SentAt = nil
-		reminder.AttemptCount++
-		if reminder.AttemptCount <= 0 {
-			reminder.AttemptCount = 1
-		}
+		resetAlertNotificationDelivery(reminder, message, policy, channel, NotificationDeliveryEventTypeReminder)
 	}
 	return s.sendAndRecordAlertDelivery(ctx, reminder, channel, message, policy)
 }
 
-// sendAndRecordAlertDelivery 发送并回写投递记录（成功 / 失败）。
-// sendAndRecordAlertDelivery sends and writes back the delivery record (success / failure).
+func newAlertNotificationDelivery(
+	message *alertMessage,
+	policy *AlertPolicy,
+	channel *NotificationChannel,
+	sourceKey string,
+	eventType NotificationDeliveryEventType,
+) *NotificationDelivery {
+	return &NotificationDelivery{
+		AlertID:      sourceKey,
+		SourceType:   string(message.SourceType),
+		SourceKey:    sourceKey,
+		PolicyID:     policy.ID,
+		ClusterID:    message.ClusterID,
+		ClusterName:  message.ClusterName,
+		AlertName:    message.AlertName,
+		ChannelID:    channel.ID,
+		ChannelName:  strings.TrimSpace(channel.Name),
+		EventType:    string(eventType),
+		Status:       string(NotificationDeliveryStatusSending),
+		AttemptCount: 1,
+	}
+}
+
+func resetAlertNotificationDelivery(
+	delivery *NotificationDelivery,
+	message *alertMessage,
+	policy *AlertPolicy,
+	channel *NotificationChannel,
+	eventType NotificationDeliveryEventType,
+) {
+	delivery.ClusterID = message.ClusterID
+	delivery.ClusterName = message.ClusterName
+	delivery.PolicyID = policy.ID
+	delivery.AlertName = strings.TrimSpace(firstNonEmpty(policy.Name, delivery.AlertName))
+	delivery.ChannelName = strings.TrimSpace(channel.Name)
+	delivery.EventType = string(eventType)
+	delivery.Status = string(NotificationDeliveryStatusSending)
+	delivery.LastError = ""
+	delivery.RequestPayload = ""
+	delivery.ResponseStatusCode = 0
+	delivery.ResponseBodyExcerpt = ""
+	delivery.SentAt = nil
+	delivery.AttemptCount++
+	if delivery.AttemptCount <= 0 {
+		delivery.AttemptCount = 1
+	}
+}
+
+// sendAndRecordAlertDelivery 发送消息并把结果写回投递记录。
+// sendAndRecordAlertDelivery sends the message and writes the outcome back to the delivery record.
 func (s *Service) sendAndRecordAlertDelivery(
 	ctx context.Context,
 	delivery *NotificationDelivery,
@@ -661,7 +736,16 @@ func (s *Service) sendAndRecordAlertDelivery(
 	message *alertMessage,
 	policy *AlertPolicy,
 ) (*alertPolicyChannelDispatchResult, error) {
-	attempt, sendErr := s.sendAlertMessage(ctx, channel, message, policy)
+	guard := alertSweepGuardFrom(ctx)
+	sendCtx, cancel := guard.sendContext(ctx)
+	attempt, sendErr := s.sendAlertMessage(sendCtx, channel, message, policy)
+	cancel()
+	if sendErr != nil {
+		guard.recordFailure(channel.ID)
+		s.channelHealth.recordFailure(channel.ID, time.Now())
+	} else {
+		s.channelHealth.recordSuccess(channel.ID)
+	}
 	if attempt != nil {
 		delivery.RequestPayload = attempt.RequestPayload
 		delivery.ResponseStatusCode = attempt.StatusCode
@@ -689,6 +773,19 @@ func (s *Service) sendAndRecordAlertDelivery(
 		LastDeliveredAt:    toUTCTimePointer(delivery.SentAt),
 		Successful:         true,
 	}, nil
+}
+
+// alertSweepSkipResult 在巡检预算守卫要求跳过该渠道时返回对应结果，否则返回 nil。
+// alertSweepSkipResult returns the matching result when the sweep guard says to skip the channel, nil otherwise.
+func alertSweepSkipResult(ctx context.Context, channelID uint, retry bool) *alertPolicyChannelDispatchResult {
+	switch alertSweepGuardFrom(ctx).checkPhase(channelID, retry) {
+	case alertSweepSkipChannelFailed:
+		return &alertPolicyChannelDispatchResult{LastError: alertSweepChannelFailedError, Failed: true}
+	case alertSweepSkipBudget:
+		return &alertPolicyChannelDispatchResult{Deferred: true}
+	default:
+		return nil
+	}
 }
 
 // mergeAlertRecipients 合并策略接收人与额外收件人，按邮箱去重（忽略大小写）。
@@ -885,12 +982,15 @@ func buildLocalAlertPolicyMessageHTML(
 	}
 	visual := resolveLocalAlertMessageVisual(deliveryEventType)
 
-	return renderAlertMessageHTML(title, severity, visual, fields)
+	return renderAlertMessageHTML(title, severity, visual, fields, "")
 }
 
-// renderAlertMessageHTML 渲染告警邮件的 HTML 正文；本地进程事件和同步作业告警共用。
+// renderAlertMessageHTML 渲染告警邮件的 HTML 正文；本地进程事件和同步作业告警共用。note 非空时在卡片内（横幅下方、
+// 字段表之前）渲染一个黄色提示块（HTML 转义），比如"首次告警未送达"的说明。
 // renderAlertMessageHTML renders the HTML body of an alert email; shared by local process events and sync job alerts.
-func renderAlertMessageHTML(title string, severity string, visual localAlertMessageVisual, fields []localAlertMessageField) string {
+// A non-empty note is rendered inside the card (below the banner, before the field table) as an HTML-escaped yellow
+// notice block, e.g. the "first alert was not delivered" note.
+func renderAlertMessageHTML(title string, severity string, visual localAlertMessageVisual, fields []localAlertMessageField, note string) string {
 	var builder strings.Builder
 	builder.WriteString("<!DOCTYPE html><html><body style=\"margin:0;padding:24px;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;\">")
 	builder.WriteString("<div style=\"max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;\">")
@@ -912,6 +1012,11 @@ func renderAlertMessageHTML(title string, severity string, visual localAlertMess
 	builder.WriteString(html.EscapeString(visual.Description))
 	builder.WriteString("</div></div>")
 	builder.WriteString("<div style=\"padding:24px;\">")
+	if note = strings.TrimSpace(note); note != "" {
+		builder.WriteString("<div data-stx-alert-note=\"true\" style=\"margin-bottom:16px;padding:12px 16px;border-radius:12px;background:#fef9c3;border:1px solid #facc15;font-size:13px;line-height:1.7;color:#713f12;font-weight:600;\">")
+		builder.WriteString(strings.ReplaceAll(html.EscapeString(note), "\n", "<br/>"))
+		builder.WriteString("</div>")
+	}
 	builder.WriteString("<div style=\"margin-bottom:16px;padding:14px 16px;border-radius:12px;background:")
 	builder.WriteString(html.EscapeString(visual.PanelBackground))
 	builder.WriteString(";border:1px solid ")
@@ -965,11 +1070,11 @@ func buildLocalAlertPolicyMessageFields(
 		{Label: "状态", Value: resolveLocalAlertDeliveryStateLabel(deliveryEventType)},
 		{Label: "集群", Value: fmt.Sprintf("%s (%d)", strings.TrimSpace(firstNonEmpty(clusterName, "unknown")), event.ClusterID)},
 		{Label: "策略", Value: fmt.Sprintf("%s (%d)", policyName, policyID)},
-		{Label: "触发事件", Value: strings.TrimSpace(firstNonEmpty(string(event.EventType), "unknown"))},
+		{Label: "触发事件", Value: localizeProcessEventType(event.EventType)},
 		{Label: "触发时间", Value: formatAlertNotificationTime(event.CreatedAt)},
 	}
 	if deliveryEventType == NotificationDeliveryEventTypeResolved && recoveryEvent != nil {
-		fields = append(fields, localAlertMessageField{Label: "恢复事件", Value: strings.TrimSpace(firstNonEmpty(string(recoveryEvent.EventType), "unknown"))})
+		fields = append(fields, localAlertMessageField{Label: "恢复事件", Value: localizeProcessEventType(recoveryEvent.EventType)})
 		fields = append(fields, localAlertMessageField{Label: "恢复时间", Value: formatAlertNotificationTime(recoveryEvent.CreatedAt)})
 	}
 
@@ -1012,7 +1117,7 @@ func buildLocalAlertPolicyMessageFields(
 		appendField("操作人", localAlertPolicyDetailValue(details, "operator"))
 		appendField("触发来源", localAlertPolicyDetailValue(details, "trigger"))
 		appendField("已受理", localAlertPolicyDetailValue(details, "success"))
-		appendField("执行结果", localAlertPolicyDetailValue(details, "message"))
+		appendField("执行结果", truncateAlertFieldText(localAlertPolicyDetailValue(details, "message")))
 		appendField("主机", localAlertPolicyDetailValue(details, "host_name"))
 		appendField("主机 IP", localAlertPolicyDetailValue(details, "host_ip"))
 		appendField("角色", strings.TrimSpace(firstNonEmpty(localAlertPolicyDetailValue(details, "role"), event.Role, "unknown")))
@@ -1023,7 +1128,7 @@ func buildLocalAlertPolicyMessageFields(
 			appendField("主机 ID", strconv.FormatUint(uint64(event.HostID), 10))
 		}
 	case monitor.EventTypeNodeOffline:
-		appendField("原因", localAlertPolicyDetailValue(details, "reason"))
+		appendField("原因", truncateAlertFieldText(localAlertPolicyDetailValue(details, "reason")))
 		appendField("主机", localAlertPolicyDetailValue(details, "host_name"))
 		appendField("主机 IP", localAlertPolicyDetailValue(details, "host_ip"))
 		appendField("节点状态", localAlertPolicyDetailValue(details, "node_status"))
@@ -1042,7 +1147,7 @@ func buildLocalAlertPolicyMessageFields(
 			appendField("主机 ID", strconv.FormatUint(uint64(event.HostID), 10))
 		}
 	default:
-		appendField("原因", localAlertPolicyDetailValue(details, "reason"))
+		appendField("原因", truncateAlertFieldText(localAlertPolicyDetailValue(details, "reason")))
 		appendField("进程", strings.TrimSpace(firstNonEmpty(event.ProcessName, "unknown")))
 		appendField("PID", strconv.Itoa(event.PID))
 		appendField("角色", strings.TrimSpace(firstNonEmpty(event.Role, "unknown")))
@@ -1053,35 +1158,49 @@ func buildLocalAlertPolicyMessageFields(
 			appendField("主机 ID", strconv.FormatUint(uint64(event.HostID), 10))
 		}
 		if prettyDetails := prettyLocalAlertPolicyDetails(event.Details); prettyDetails != "" {
-			appendMultilineField("详情", prettyDetails)
+			appendMultilineField("详情", truncateAlertFieldText(prettyDetails))
 		}
 	}
 
 	if policy != nil {
 		if description := strings.TrimSpace(policy.Description); description != "" {
-			appendField("策略说明", description)
+			appendField("策略说明", truncateAlertFieldText(description))
 		}
 	}
+	appendField("链接", monitoringAlertsConsoleLink(strconv.FormatUint(uint64(event.ClusterID), 10)))
 	return fields
 }
 
+// formatAlertNotificationTime 把时间格式化成一行：展示时区的本地时间加 UTC 偏移，如 "2026-10-29 10:30:00 (UTC+8)"。
+// 展示时区来自 app.display_timezone，而不是进程本地时区；结构化的 webhook 字段仍保留 RFC3339 UTC。
+// formatAlertNotificationTime renders the time on one line: local time in the display timezone plus its UTC offset,
+// e.g. "2026-10-29 10:30:00 (UTC+8)". The display timezone comes from app.display_timezone rather than the process
+// zone; structured webhook fields still carry RFC3339 UTC.
 func formatAlertNotificationTime(value time.Time) string {
 	if value.IsZero() {
 		return ""
 	}
+	localValue := value.UTC().In(timex.DisplayLocation())
+	return fmt.Sprintf("%s (%s)", localValue.Format("2006-01-02 15:04:05"), formatUTCOffsetLabel(localValue))
+}
 
-	utcValue := value.UTC()
-	localValue := utcValue.In(timex.DisplayLocation())
-	localPart := fmt.Sprintf(
-		"%s (%s)",
-		localValue.Format("2006-01-02 15:04:05 -07:00"),
-		timex.DisplayTimezone(),
-	)
-	utcPart := fmt.Sprintf("%s (UTC)", utcValue.Format(time.RFC3339))
-
-	// 本地时间与 UTC 合成一行，避免 IM / 邮件里每个时间再另起一行无标签的 “…Z (UTC)”。
-	// Merge local time and UTC on one line so IM / email do not show a bare “…Z (UTC)” line under every timestamp.
-	return localPart + " · " + utcPart
+// formatUTCOffsetLabel 返回 "UTC"、"UTC+8"、"UTC-4"、"UTC+5:30" 这样的偏移标签。
+// formatUTCOffsetLabel returns an offset label such as "UTC", "UTC+8", "UTC-4" or "UTC+5:30".
+func formatUTCOffsetLabel(value time.Time) string {
+	_, offset := value.Zone()
+	if offset == 0 {
+		return "UTC"
+	}
+	sign := "+"
+	if offset < 0 {
+		sign = "-"
+		offset = -offset
+	}
+	hours, minutes := offset/3600, (offset%3600)/60
+	if minutes == 0 {
+		return fmt.Sprintf("UTC%s%d", sign, hours)
+	}
+	return fmt.Sprintf("UTC%s%d:%02d", sign, hours, minutes)
 }
 
 func resolveLocalAlertDeliveryStateLabel(deliveryEventType NotificationDeliveryEventType) string {
@@ -1129,6 +1248,33 @@ func localAlertPolicyDetailValue(payload map[string]interface{}, key string) str
 		return ""
 	}
 	return value
+}
+
+// localizeProcessEventType 把进程事件类型翻成中文，括号里保留原始值便于检索，如 "进程崩溃 (crashed)"。
+// localizeProcessEventType translates a process event type to Chinese and keeps the raw value in parentheses for
+// searching, e.g. "进程崩溃 (crashed)".
+func localizeProcessEventType(eventType monitor.ProcessEventType) string {
+	raw := strings.TrimSpace(string(eventType))
+	labels := map[monitor.ProcessEventType]string{
+		monitor.EventTypeStarted:                 "进程启动",
+		monitor.EventTypeStopped:                 "进程停止",
+		monitor.EventTypeCrashed:                 "进程崩溃",
+		monitor.EventTypeRestarted:               "进程已重启",
+		monitor.EventTypeRestartFailed:           "进程重启失败",
+		monitor.EventTypeRestartLimitReached:     "达到重启次数上限",
+		monitor.EventTypeClusterRestartRequested: "集群重启请求",
+		monitor.EventTypeNodeRestartRequested:    "节点重启请求",
+		monitor.EventTypeNodeStopRequested:       "节点停止请求",
+		monitor.EventTypeNodeOffline:             "节点离线",
+		monitor.EventTypeNodeRecovered:           "节点恢复",
+	}
+	if raw == "" {
+		return "unknown"
+	}
+	if label, ok := labels[monitor.ProcessEventType(raw)]; ok {
+		return fmt.Sprintf("%s (%s)", label, raw)
+	}
+	return raw
 }
 
 func normalizeOperationScope(scope string) string {

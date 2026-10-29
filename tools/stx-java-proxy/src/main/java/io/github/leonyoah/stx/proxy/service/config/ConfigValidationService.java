@@ -20,23 +20,16 @@ package io.github.leonyoah.stx.proxy.service.config;
 import org.apache.seatunnel.shade.com.typesafe.config.Config;
 import org.apache.seatunnel.shade.org.apache.commons.lang3.StringUtils;
 
-import org.apache.seatunnel.api.configuration.ReadonlyConfig;
-
 import io.github.leonyoah.stx.proxy.model.JobConfigContext;
-import io.github.leonyoah.stx.proxy.model.ProxyNode;
 import io.github.leonyoah.stx.proxy.service.plugin.PluginClassLoaderUtils;
 import io.github.leonyoah.stx.proxy.service.support.ProxyRequestUtils;
 
 import java.net.URLClassLoader;
-import java.sql.Connection;
-import java.sql.Driver;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
-
-import static org.apache.seatunnel.api.options.ConnectorCommonOptions.PLUGIN_NAME;
+import java.util.concurrent.CompletableFuture;
 
 public class ConfigValidationService {
 
@@ -66,11 +59,20 @@ public class ConfigValidationService {
 
     public Map<String, Object> validate(Map<String, Object> request) {
         boolean testConnection = ProxyRequestUtils.getBoolean(request, "testConnection", false);
-        // 默认开启 OptionRule 校验；草稿探测可显式关闭。
-        // OptionRule validation is on by default; draft probes may disable it explicitly.
+        // 默认开启 OptionRule 校验；纯连接测试或草稿探测可显式关闭。
+        // OptionRule validation is on by default; pure connection tests or draft probes may disable
+        // it.
         boolean validateOptionRules =
-                ProxyRequestUtils.getBoolean(request, "validateOptionRules", true);
-        JobConfigContext context = jobConfigSupportService.parseJobContext(request);
+                ProxyRequestUtils.getBoolean(request, "validateOptionRules", !testConnection);
+        int timeoutMillis = (int) ProxyRequestUtils.getLong(request, "timeoutMillis", 3500);
+
+        // 纯连接测试时跳过官方元数据推导 (skipOfficialDisplayPaths=true)，避免重复拉取；
+        // 完整校验时执行解析，未安装连接器将快速拦截，外部数据库不可达时将自动带超时保护降级为静态拓扑。
+        // When testing connections, skip official metadata resolution
+        // (skipOfficialDisplayPaths=true);
+        // During full validation, uninstalled connectors are blocked fast, while unreachable DBs
+        // degrade gracefully with timeout protection.
+        JobConfigContext context = jobConfigSupportService.parseJobContext(request, testConnection);
         List<String> warnings = filterUserVisibleWarnings(context.getWarnings());
         List<String> infos = new ArrayList<>();
         List<String> errors = new ArrayList<>();
@@ -82,14 +84,16 @@ public class ConfigValidationService {
 
         boolean allChecksSucceeded = true;
         if (testConnection) {
-            checks = testConnections(context);
+            checks = testConnections(context, timeoutMillis);
             for (Map<String, Object> check : checks) {
                 String status = String.valueOf(check.get("status"));
                 if ("failed".equals(status)) {
                     errors.add(
                             String.format(
                                     "%s 连接失败: %s",
-                                    check.get("connectorType"), check.get("message")));
+                                    StringUtils.defaultIfBlank(
+                                            (String) check.get("connectorType"), "未知连接器"),
+                                    check.get("message")));
                     allChecksSucceeded = false;
                 } else if (!"success".equals(status)) {
                     String severity = String.valueOf(check.get("severity"));
@@ -99,11 +103,10 @@ public class ConfigValidationService {
                                         "%s 无需连接测试: %s",
                                         check.get("connectorType"), check.get("message")));
                     } else {
-                        warnings.add(
+                        infos.add(
                                 String.format(
                                         "%s 暂未完成连接测试: %s",
                                         check.get("connectorType"), check.get("message")));
-                        allChecksSucceeded = false;
                     }
                 }
             }
@@ -127,104 +130,65 @@ public class ConfigValidationService {
         return result;
     }
 
-    private List<Map<String, Object>> testConnections(JobConfigContext context) {
+    private List<Map<String, Object>> testConnections(JobConfigContext context, int timeoutMillis) {
         ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
         URLClassLoader seatunnelHomeClassLoader = null;
         ClassLoader classLoader = originalClassLoader;
+        List<ConnectionProbeSupport.ProbeHandle> handles = new ArrayList<>();
         try {
             seatunnelHomeClassLoader =
                     jobConfigSupportService.createSeatunnelHomeClassLoader(originalClassLoader);
             if (seatunnelHomeClassLoader != null) {
                 classLoader = seatunnelHomeClassLoader;
-                Thread.currentThread().setContextClassLoader(classLoader);
             }
 
-            List<Map<String, Object>> checks = new ArrayList<>();
+            // 每个节点的探测在独立工作线程中并行执行，并受 timeoutMillis 总时限约束（超时即中断）。
+            // Each node is probed on its own worker thread in parallel, bounded by timeoutMillis
+            // (interrupted on timeout).
             for (int i = 0; i < context.getSources().size(); i++) {
-                checks.add(
-                        testConnectorConnection(
+                handles.add(
+                        ConnectionProbeSupport.startProbe(
                                 context.getGraph().getNodes().get(i),
                                 context.getSources().get(i),
-                                classLoader));
+                                classLoader,
+                                timeoutMillis));
             }
             int sinkOffset = context.getSources().size() + context.getTransforms().size();
             for (int i = 0; i < context.getSinks().size(); i++) {
-                checks.add(
-                        testConnectorConnection(
+                handles.add(
+                        ConnectionProbeSupport.startProbe(
                                 context.getGraph().getNodes().get(sinkOffset + i),
                                 context.getSinks().get(i),
-                                classLoader));
+                                classLoader,
+                                timeoutMillis));
+            }
+
+            List<Map<String, Object>> checks = new ArrayList<>();
+            for (ConnectionProbeSupport.ProbeHandle handle : handles) {
+                checks.add(handle.await());
             }
             return checks;
         } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-            PluginClassLoaderUtils.closeQuietly(seatunnelHomeClassLoader);
+            releaseWhenProbesFinish(handles, seatunnelHomeClassLoader);
         }
-    }
-
-    private Map<String, Object> testConnectorConnection(
-            ProxyNode node, Config config, ClassLoader classLoader) {
-        ReadonlyConfig readonlyConfig = ReadonlyConfig.fromConfig(config);
-        String pluginName = readonlyConfig.get(PLUGIN_NAME);
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("nodeId", node.getNodeId());
-        result.put("kind", node.getKind().name().toLowerCase());
-        result.put(
-                "connectorType",
-                String.format(
-                        "%s[%d]-%s",
-                        StringUtils.capitalize(node.getKind().name().toLowerCase()),
-                        node.getConfigIndex(),
-                        pluginName));
-        String target = getString(config, "url");
-        if (StringUtils.isBlank(target)) {
-            String host = getString(config, "hostname");
-            if (StringUtils.isNotBlank(host)) {
-                String port = getString(config, "port");
-                target = port != null ? host + ":" + port : host;
-            }
-        }
-        result.put("target", StringUtils.defaultString(target));
-
-        if (doesNotRequireConnectionProbe(pluginName)) {
-            result.put("status", "skipped");
-            result.put("severity", "info");
-            result.put("message", "该连接器不依赖外部服务，无需连接测试。");
-            return result;
-        }
-
-        if (isJdbcProbeableConnector(pluginName, config)) {
-            try {
-                probeJdbc(pluginName, config, classLoader);
-                result.put("status", "success");
-                result.put("message", "Connection succeeded.");
-                return result;
-            } catch (Exception e) {
-                result.put("status", "failed");
-                result.put("message", firstLine(e.getMessage()));
-                return result;
-            }
-        }
-
-        result.put("status", "skipped");
-        result.put("severity", "warning");
-        result.put("message", "该连接器暂不支持连接探测，请通过配置预览或实际运行进一步验证。");
-        return result;
     }
 
     /**
-     * 判断连接器是否可以通过 JDBC 驱动进行连接探测（包括标准 JDBC 以及支持 JDBC 探测的 CDC 连接器）。 Checks whether the connector can
-     * be probed via JDBC driver (including standard JDBC and CDC connectors with JDBC endpoints).
+     * 所有探测工作线程真正结束后再释放 SeaTunnel home 类加载器，避免超时后仍在使用的类加载器被提前关闭。 Releases the SeaTunnel home
+     * classloader only after every probe worker has really finished, so a timed-out probe never
+     * keeps using a closed classloader.
      */
-    private boolean isJdbcProbeableConnector(String pluginName, Config config) {
-        if ("Jdbc".equalsIgnoreCase(pluginName) || "MySQL-CDC".equalsIgnoreCase(pluginName)) {
-            return true;
+    private static void releaseWhenProbesFinish(
+            List<ConnectionProbeSupport.ProbeHandle> handles, URLClassLoader classLoader) {
+        if (classLoader == null) {
+            return;
         }
-        String url = getString(config, "url");
-        if (StringUtils.isNotBlank(url) && url.toLowerCase().startsWith("jdbc:")) {
-            return true;
+        CompletableFuture<?>[] completions = new CompletableFuture<?>[handles.size()];
+        for (int i = 0; i < handles.size(); i++) {
+            completions[i] = handles.get(i).completion();
         }
-        return false;
+        CompletableFuture.allOf(completions)
+                .whenComplete((ignored, error) -> PluginClassLoaderUtils.closeQuietly(classLoader));
     }
 
     /**
@@ -240,83 +204,6 @@ public class ConfigValidationService {
             result.add(warning);
         }
         return result;
-    }
-
-    /**
-     * 判断连接器是否天然不需要外部连接探测。 Detects connectors that naturally do not need external connection
-     * probing.
-     */
-    private boolean doesNotRequireConnectionProbe(String pluginName) {
-        return "FakeSource".equalsIgnoreCase(pluginName) || "Console".equalsIgnoreCase(pluginName);
-    }
-
-    private void probeJdbc(String pluginName, Config config, ClassLoader classLoader)
-            throws Exception {
-        String url = getString(config, "url");
-        if (StringUtils.isBlank(url)) {
-            String hostname = getString(config, "hostname");
-            if (StringUtils.isNotBlank(hostname)) {
-                String port = getString(config, "port");
-                if (StringUtils.isBlank(port)) {
-                    port = "3306";
-                }
-                url = String.format("jdbc:mysql://%s:%s/", hostname, port);
-            }
-        }
-        if (StringUtils.isBlank(url)) {
-            throw new IllegalArgumentException(
-                    "Missing required connection option: url or hostname.");
-        }
-
-        String username = getString(config, "username");
-        if (StringUtils.isBlank(username)) {
-            username = getString(config, "user");
-        }
-        String password = getString(config, "password");
-        String driverClassName = getString(config, "driver");
-        if (StringUtils.isBlank(driverClassName)) {
-            driverClassName = resolveDefaultJdbcDriver(pluginName, url);
-        }
-
-        if (StringUtils.isNotBlank(driverClassName)) {
-            Class<?> driverClass = Class.forName(driverClassName, true, classLoader);
-            Driver driver = (Driver) driverClass.getDeclaredConstructor().newInstance();
-            Properties properties = new Properties();
-            if (StringUtils.isNotBlank(username)) {
-                properties.setProperty("user", username);
-            }
-            if (password != null) {
-                properties.setProperty("password", password);
-            }
-            try (Connection ignored = driver.connect(url, properties)) {
-                if (ignored == null) {
-                    throw new IllegalStateException("JDBC driver returned null connection.");
-                }
-            }
-            return;
-        }
-        throw new IllegalArgumentException("Missing jdbc driver option.");
-    }
-
-    private String resolveDefaultJdbcDriver(String pluginName, String url) {
-        String lowerUrl = StringUtils.defaultString(url).toLowerCase();
-        if (lowerUrl.startsWith("jdbc:mysql:") || "MySQL-CDC".equalsIgnoreCase(pluginName)) {
-            return "com.mysql.cj.jdbc.Driver";
-        }
-        if (lowerUrl.startsWith("jdbc:postgresql:")
-                || lowerUrl.startsWith("jdbc:postgres:")
-                || "PostgreSQL-CDC".equalsIgnoreCase(pluginName)
-                || "Postgres-CDC".equalsIgnoreCase(pluginName)) {
-            return "org.postgresql.Driver";
-        }
-        if (lowerUrl.startsWith("jdbc:oracle:") || "Oracle-CDC".equalsIgnoreCase(pluginName)) {
-            return "oracle.jdbc.OracleDriver";
-        }
-        if (lowerUrl.startsWith("jdbc:sqlserver:")
-                || "SqlServer-CDC".equalsIgnoreCase(pluginName)) {
-            return "com.microsoft.sqlserver.jdbc.SQLServerDriver";
-        }
-        return null;
     }
 
     private String getRequiredString(Config config, String path) {

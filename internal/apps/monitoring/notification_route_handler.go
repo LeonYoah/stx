@@ -75,7 +75,7 @@ func (h *Handler) TestNotificationChannel(c *gin.Context) {
 // TestNotificationChannelConnection handles POST /api/v1/monitoring/notification-channels/test-connection
 // TestNotificationChannelConnection 处理通知渠道连接测试接口。
 func (h *Handler) TestNotificationChannelConnection(c *gin.Context) {
-	var req UpsertNotificationChannelRequest
+	var req NotificationChannelConnectionTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
 		return
@@ -85,7 +85,7 @@ func (h *Handler) TestNotificationChannelConnection(c *gin.Context) {
 		return
 	}
 
-	data, err := h.service.TestNotificationChannelConnection(c.Request.Context(), &req)
+	data, err := h.service.TestSavedNotificationChannelConnection(c.Request.Context(), req.ChannelID, &req.UpsertNotificationChannelRequest)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to test notification channel connection: " + err.Error()})
 		return
@@ -99,8 +99,11 @@ func getNotificationChannelTestStatusCode(err error) int {
 		return http.StatusOK
 	case errors.Is(err, ErrAlertPolicyReceiverUserNotFound),
 		errors.Is(err, ErrAlertPolicyReceiverUserInactive),
-		errors.Is(err, ErrAlertPolicyReceiverUserEmailMissing):
+		errors.Is(err, ErrAlertPolicyReceiverUserEmailMissing),
+		errors.Is(err, ErrInvalidNotificationChannel):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrNotificationChannelNotFound):
+		return http.StatusNotFound
 	default:
 		return http.StatusInternalServerError
 	}
@@ -134,7 +137,8 @@ func (h *Handler) ListNotificationDeliveries(c *gin.Context) {
 			NotificationDeliveryStatusSent,
 			NotificationDeliveryStatusFailed,
 			NotificationDeliveryStatusRetrying,
-			NotificationDeliveryStatusCanceled:
+			NotificationDeliveryStatusCanceled,
+			NotificationDeliveryStatusExhausted:
 		default:
 			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid status"})
 			return

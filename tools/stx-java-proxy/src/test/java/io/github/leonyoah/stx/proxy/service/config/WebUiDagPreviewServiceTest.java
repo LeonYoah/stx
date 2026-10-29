@@ -17,6 +17,7 @@
 
 package io.github.leonyoah.stx.proxy.service.config;
 
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,8 @@ class WebUiDagPreviewServiceTest {
 
     @Test
     void previewBuildsWebUiCompatibleDag() {
+        Assumptions.assumeTrue(
+                isMysqlFixtureAvailable(), "Requires local MySQL fixture on port 3307");
         WebUiDagPreviewResult result =
                 preview(
                         conf(
@@ -122,6 +125,8 @@ class WebUiDagPreviewServiceTest {
 
     @Test
     void previewUsesOfficialJdbcSingleTableAndSinkPlaceholder() {
+        Assumptions.assumeTrue(
+                isMysqlFixtureAvailable(), "Requires local MySQL fixture on port 3307");
         WebUiDagPreviewResult result =
                 preview(
                         conf(
@@ -165,6 +170,8 @@ class WebUiDagPreviewServiceTest {
 
     @Test
     void previewUsesOfficialJdbcMultiTableAndSinkPlaceholder() {
+        Assumptions.assumeTrue(
+                isMysqlFixtureAvailable(), "Requires local MySQL fixture on port 3307");
         WebUiDagPreviewResult result =
                 preview(
                         conf(
@@ -215,6 +222,8 @@ class WebUiDagPreviewServiceTest {
 
     @Test
     void previewSupportsMultiSourceAndMultiSinkPaths() {
+        Assumptions.assumeTrue(
+                isMysqlFixtureAvailable(), "Requires local MySQL fixture on port 3307");
         WebUiDagPreviewResult result =
                 preview(
                         conf(
@@ -346,5 +355,53 @@ class WebUiDagPreviewServiceTest {
                 .filter(vertex -> connectorType.equals(vertex.getConnectorType()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("missing connector: " + connectorType));
+    }
+
+    /**
+     * 当数据源网络不可达或连接失败时，DAG 预览应直接抛出异常报错，禁止静默降级展示假拓扑。 When source network is unreachable or connection
+     * fails, DAG preview must throw an error fast instead of silently degrading to a fake static
+     * topology.
+     */
+    @Test
+    void previewThrowsWhenSourceUnreachable() {
+        Assumptions.assumeFalse(
+                isMysqlFixtureAvailable(), "Only runs when port 3307 fixture is not running");
+        ProxyException ex =
+                org.junit.jupiter.api.Assertions.assertThrows(
+                        ProxyException.class,
+                        () ->
+                                preview(
+                                        conf(
+                                                "env {",
+                                                "  job.mode = \"batch\"",
+                                                "}",
+                                                "",
+                                                "source {",
+                                                "  Jdbc {",
+                                                "    plugin_output = \"users_src\"",
+                                                "    url = \"jdbc:mysql://127.0.0.1:3307/seatunnel_demo\"",
+                                                "    username = \"root\"",
+                                                "    password = \"seatunnel\"",
+                                                "    driver = \"com.mysql.cj.jdbc.Driver\"",
+                                                "    table_path = \"seatunnel_demo.users\"",
+                                                "  }",
+                                                "}",
+                                                "",
+                                                "sink {",
+                                                "  Console {",
+                                                "    plugin_input = [\"users_src\"]",
+                                                "  }",
+                                                "}")));
+        assertEquals(400, ex.getStatusCode());
+        assertTrue(ex.getMessage().contains("Source[0]-Jdbc official tablePath resolution failed"));
+    }
+
+    private static boolean isMysqlFixtureAvailable() {
+        try (java.net.Socket socket = new java.net.Socket()) {
+            socket.connect(new java.net.InetSocketAddress("127.0.0.1", 3307), 300);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

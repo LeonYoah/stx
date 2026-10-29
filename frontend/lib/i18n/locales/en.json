@@ -2866,7 +2866,8 @@
           "sent": "Sent",
           "failed": "Failed",
           "retrying": "Retrying",
-          "canceled": "Canceled"
+          "canceled": "Canceled",
+          "exhausted": "Retries exhausted"
         }
       },
       "executionLegacyRuntimeRule": "Legacy runtime rule",
@@ -3048,7 +3049,8 @@
         "sent": "Sent",
         "failed": "Failed",
         "retrying": "Retrying",
-        "canceled": "Canceled"
+        "canceled": "Canceled",
+        "exhausted": "Retries exhausted"
       }
     },
     "policyCenterV2": {
@@ -3263,7 +3265,7 @@
       },
       "webhook": {
         "manage": "Webhook Config",
-        "dialogTitle": "Webhook Notification Config",
+        "dialogTitle": "Webhook / IM bot notifications",
         "dialogSubtitle": "Configure outbound webhook / IM channels for unified alerts. The downstream system decides the final recipients; this channel only delivers the alert payload.",
         "savedConfigs": "Saved Webhook Configs",
         "new": "New Config",
@@ -3293,7 +3295,7 @@
         "deleteError": "Failed to delete webhook config",
         "statusOutdated": "The form has changed. The test result above may be outdated.",
         "unsavedChangesConfirm": "This webhook config has unsaved changes. Discard them?",
-        "secretHint": "Optional. Fill it when the downstream system requires a shared secret or signature key.",
+        "secretHint": "Optional. When set, every push carries X-STX-Timestamp and X-STX-Signature headers: sha256=hex(HMAC-SHA256(secret, timestamp + \".\" + raw body)), so the receiver can verify it with the same secret.",
         "sections": {
           "basic": "Basic Info",
           "connection": "Delivery Config"
@@ -3302,21 +3304,49 @@
           "name": "Name",
           "description": "Description",
           "endpoint": "Webhook Endpoint",
-          "secret": "Secret"
+          "secret": "Signing secret (X-STX-Signature)",
+          "type": "Channel type",
+          "signSecret": "Signing secret"
         },
         "placeholders": {
-          "secret": "Optional shared secret or signature key"
+          "secret": "Optional, used to sign the X-STX-Signature header",
+          "signSecret": "Optional, the signing secret from the bot security settings (e.g. starts with SEC)"
         },
         "lastTest": {
           "idle": "No test send has been executed in this session",
           "success": "Test sent successfully",
           "failed": "Test send failed",
           "sentAt": "Sent at: {value}",
-          "statusCode": "Response status code: {value}"
+          "statusCode": "Response status code: {value}",
+          "responseBody": "Platform response:"
         },
         "unsavedChangesTitle": "Discard unsaved changes?",
         "discardChanges": "Discard",
-        "keepEditing": "Keep editing"
+        "keepEditing": "Keep editing",
+        "types": {
+          "webhook": "Generic webhook",
+          "dingtalk": "DingTalk bot",
+          "wecom": "WeCom bot",
+          "feishu": "Feishu bot"
+        },
+        "typeHints": {
+          "webhook": "POSTs JSON (title / message / alert) to any HTTP endpoint.",
+          "dingtalk": "Use the DingTalk group custom bot webhook URL; fill in the secret when the bot uses \"signature\" security.",
+          "wecom": "Use the WeCom group bot webhook URL (with key); text longer than 2048 bytes is truncated automatically.",
+          "feishu": "Use the Feishu group custom bot webhook URL; fill in the secret when signature verification is enabled."
+        },
+        "secretHints": {
+          "dingtalk": "Required when signing is enabled; STX appends timestamp and sign to the URL per DingTalk rules.",
+          "feishu": "Required when signature verification is enabled; STX adds timestamp and sign to the body per Feishu rules."
+        },
+        "maskedKeepHint": "Saved URL tokens and secrets are shown as ******; leave them unchanged to keep the stored values, or enter the full URL when changing the address.",
+        "clearSecret": "Clear saved secret",
+        "undoClearSecret": "Undo",
+        "secretWillBeCleared": "The saved secret will be removed when you save.",
+        "clearSecretConfirmTitle": "Clear the saved secret?",
+        "clearSecretConfirmDescription": "Saving will delete the secret stored for this channel. This cannot be undone; enter a new secret later if signing is needed.",
+        "clearSecretConfirmAction": "Clear and save",
+        "secretDroppedOnTypeChange": "The previous secret is not reused after changing the channel type; enter a new one if signing is needed."
       },
       "conditionThresholdRequired": "Please enter a trigger threshold",
       "conditionWindowInvalid": "Window must be between 0 and 10080 minutes",
@@ -3364,6 +3394,7 @@
         "allPolicies": "All rules",
         "policyFilter": "Filter by rule",
         "resetFilters": "Reset filters",
+        "retriedTimes": "Retried {count} times",
         "columns": {
           "policy": "Alert Rule",
           "channel": "Channel",
@@ -3385,7 +3416,8 @@
           "sending": "Sending",
           "retrying": "Retrying",
           "pending": "Pending",
-          "canceled": "Canceled"
+          "canceled": "Canceled",
+          "exhausted": "Retries exhausted"
         }
       }
     }

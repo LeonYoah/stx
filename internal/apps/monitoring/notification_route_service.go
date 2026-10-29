@@ -72,7 +72,7 @@ func (s *Service) CreateNotificationRoute(ctx context.Context, req *UpsertNotifi
 
 	if _, err := s.repo.GetNotificationChannelByID(ctx, req.ChannelID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("notification channel not found")
+			return nil, ErrNotificationChannelNotFound
 		}
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (s *Service) UpdateNotificationRoute(ctx context.Context, id uint, req *Ups
 	}
 	if _, err := s.repo.GetNotificationChannelByID(ctx, req.ChannelID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("notification channel not found")
+			return nil, ErrNotificationChannelNotFound
 		}
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func (s *Service) TestNotificationChannel(ctx context.Context, id uint, req *Not
 	channel, err := s.repo.GetNotificationChannelByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("notification channel not found")
+			return nil, ErrNotificationChannelNotFound
 		}
 		return nil, err
 	}
@@ -268,7 +268,11 @@ func (s *Service) TestNotificationChannelDraft(ctx context.Context, req *Notific
 		return nil, err
 	}
 
-	channel, err := buildNotificationChannelFromUpsertRequest(req.Channel)
+	channelReq, err := s.restoreDraftNotificationChannel(ctx, req.ChannelID, req.Channel)
+	if err != nil {
+		return nil, err
+	}
+	channel, err := buildNotificationChannelFromUpsertRequest(channelReq)
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +302,37 @@ func (s *Service) TestNotificationChannelDraft(ctx context.Context, req *Notific
 	return result, nil
 }
 
+// restoreDraftNotificationChannel 用已保存渠道的真实值替换草稿里的脱敏密钥 / 地址；channelID 为 0 时只拒绝占位符。
+// restoreDraftNotificationChannel swaps masked secrets / addresses in a draft for the saved channel's real values;
+// with channelID 0 it only rejects placeholders.
+func (s *Service) restoreDraftNotificationChannel(ctx context.Context, channelID uint, req *UpsertNotificationChannelRequest) (*UpsertNotificationChannelRequest, error) {
+	var existing *NotificationChannel
+	if channelID > 0 && s.repo != nil {
+		channel, err := s.repo.GetNotificationChannelByID(ctx, channelID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, ErrNotificationChannelNotFound
+			}
+			return nil, err
+		}
+		existing = channel
+	}
+	return restoreMaskedNotificationChannelFields(req, existing)
+}
+
+// TestSavedNotificationChannelConnection probes a draft connection, reusing the saved channel's masked secrets.
+// TestSavedNotificationChannelConnection 测试草稿连接，脱敏的密钥沿用已保存渠道的真实值。
+func (s *Service) TestSavedNotificationChannelConnection(ctx context.Context, channelID uint, req *UpsertNotificationChannelRequest) (*NotificationChannelConnectionTestResult, error) {
+	if req == nil {
+		return nil, fmt.Errorf("empty request")
+	}
+	restored, err := s.restoreDraftNotificationChannel(ctx, channelID, req)
+	if err != nil {
+		return nil, err
+	}
+	return s.TestNotificationChannelConnection(ctx, restored)
+}
+
 // TestNotificationChannelConnection validates and probes one draft notification channel connection.
 // TestNotificationChannelConnection 校验并测试一份通知渠道草稿配置的连接可用性。
 func (s *Service) TestNotificationChannelConnection(ctx context.Context, req *UpsertNotificationChannelRequest) (*NotificationChannelConnectionTestResult, error) {
@@ -321,7 +356,8 @@ func (s *Service) TestNotificationChannelConnection(ctx context.Context, req *Up
 	}
 	if err := testSMTPConnection(ctx, emailConfig); err != nil {
 		result.Status = string(NotificationDeliveryStatusFailed)
-		result.LastError = err.Error()
+		configJSON, _ := marshalNotificationChannelConfig(NotificationChannelTypeEmail, req.Config)
+		result.LastError = redactNotificationText(err.Error(), &NotificationChannel{Type: NotificationChannelTypeEmail, ConfigJSON: configJSON})
 		return result, nil
 	}
 
@@ -363,11 +399,11 @@ func buildTestPayload(channel *NotificationChannel, recipients []string) (interf
 		return nil, fmt.Errorf("notification channel not found")
 	}
 
-	message := "This is a test notification from STX."
+	message := "这是一条来自 STX 的测试通知，收到即表示渠道配置可用。"
 	switch channel.Type {
 	case NotificationChannelTypeWebhook:
 		return map[string]interface{}{
-			"title":        "STX notification test",
+			"title":        "STX 通知测试",
 			"message":      message,
 			"channel_name": channel.Name,
 			"channel_type": channel.Type,
@@ -389,7 +425,7 @@ func buildTestPayload(channel *NotificationChannel, recipients []string) (interf
 		}, nil
 	case NotificationChannelTypeEmail:
 		return &emailNotificationPayload{
-			Subject: "STX notification test",
+			Subject: "[STX] 通知测试",
 			Text:    fmt.Sprintf("[STX] %s", message),
 			To:      recipients,
 		}, nil

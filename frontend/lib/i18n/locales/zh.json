@@ -2866,7 +2866,8 @@
           "sent": "已发送",
           "failed": "失败",
           "retrying": "重试中",
-          "canceled": "已取消"
+          "canceled": "已取消",
+          "exhausted": "重试已用完"
         }
       },
       "executionLegacyRuntimeRule": "旧运行时规则桥接",
@@ -3048,7 +3049,8 @@
         "sent": "已发送",
         "failed": "失败",
         "retrying": "重试中",
-        "canceled": "已取消"
+        "canceled": "已取消",
+        "exhausted": "重试已用完"
       }
     },
     "policyCenterV2": {
@@ -3263,7 +3265,7 @@
       },
       "webhook": {
         "manage": "Webhook 配置",
-        "dialogTitle": "Webhook 通知配置",
+        "dialogTitle": "Webhook / IM 机器人通知配置",
         "dialogSubtitle": "配置统一告警的 Webhook / IM 出站通道。收件人由对端系统决定，这里只负责把告警发出去。",
         "savedConfigs": "已保存的 Webhook 配置",
         "new": "新建配置",
@@ -3293,7 +3295,7 @@
         "deleteError": "删除 Webhook 配置失败",
         "statusOutdated": "当前表单已发生变更，上面的测试结果可能已过期",
         "unsavedChangesConfirm": "当前 Webhook 配置存在未保存变更，确认放弃吗？",
-        "secretHint": "如对端需要签名或共享密钥，可填写；没有则可留空。",
+        "secretHint": "可选。填写后每次推送都会带 X-STX-Timestamp 与 X-STX-Signature 请求头：sha256=hex(HMAC-SHA256(密钥, 时间戳 + \".\" + 原始请求体))，接收方可用同一密钥校验。",
         "sections": {
           "basic": "基本信息",
           "connection": "推送配置"
@@ -3302,21 +3304,49 @@
           "name": "名称",
           "description": "描述",
           "endpoint": "Webhook Endpoint",
-          "secret": "签名密钥"
+          "secret": "签名密钥（X-STX-Signature）",
+          "type": "渠道类型",
+          "signSecret": "加签密钥"
         },
         "placeholders": {
-          "secret": "可选，用于签名或共享密钥"
+          "secret": "可选，用于生成 X-STX-Signature 请求头",
+          "signSecret": "可选，机器人安全设置里的加签密钥（如 SEC 开头）"
         },
         "lastTest": {
           "idle": "本次会话中尚未执行测试发送",
           "success": "测试发送成功",
           "failed": "测试发送失败",
           "sentAt": "发送时间：{value}",
-          "statusCode": "响应状态码：{value}"
+          "statusCode": "响应状态码：{value}",
+          "responseBody": "平台响应："
         },
         "unsavedChangesTitle": "放弃未保存变更？",
         "discardChanges": "放弃变更",
-        "keepEditing": "继续编辑"
+        "keepEditing": "继续编辑",
+        "types": {
+          "webhook": "通用 Webhook",
+          "dingtalk": "钉钉机器人",
+          "wecom": "企业微信机器人",
+          "feishu": "飞书机器人"
+        },
+        "typeHints": {
+          "webhook": "以 JSON（title / message / alert）POST 到任意 HTTP 地址。",
+          "dingtalk": "填写钉钉群自定义机器人的 Webhook 地址；安全设置选择“加签”时请同时填写 Secret。",
+          "wecom": "填写企业微信群机器人的 Webhook 地址（含 key）；单条文本超过 2048 字节会自动截断。",
+          "feishu": "填写飞书群自定义机器人的 Webhook 地址；安全设置开启“签名校验”时请同时填写 Secret。"
+        },
+        "secretHints": {
+          "dingtalk": "开启“加签”后必填；STX 会按钉钉规则在 URL 上附加 timestamp 和 sign。",
+          "feishu": "开启“签名校验”后必填；STX 会按飞书规则在请求体里附加 timestamp 和 sign。"
+        },
+        "maskedKeepHint": "已保存的地址 token 和密钥以 ****** 显示；不修改则保持原值，修改地址时请填写完整 URL。",
+        "clearSecret": "清除已保存的密钥",
+        "undoClearSecret": "撤销",
+        "secretWillBeCleared": "保存后将清除已保存的密钥。",
+        "clearSecretConfirmTitle": "清除已保存的密钥？",
+        "clearSecretConfirmDescription": "保存后将删除该渠道已保存的密钥，此操作无法撤销。如需加签，之后需要重新填写密钥。",
+        "clearSecretConfirmAction": "清除并保存",
+        "secretDroppedOnTypeChange": "切换渠道类型后不会沿用原来的密钥，如需加签请重新填写。"
       },
       "conditionThresholdRequired": "请输入触发阈值",
       "conditionWindowInvalid": "持续时间必须在 0 到 10080 分钟之间",
@@ -3364,6 +3394,7 @@
         "allPolicies": "全部规则",
         "policyFilter": "按规则筛选",
         "resetFilters": "重置筛选",
+        "retriedTimes": "已重试 {count} 次",
         "columns": {
           "policy": "告警规则",
           "channel": "通知通道",
@@ -3385,7 +3416,8 @@
           "sending": "发送中",
           "retrying": "重试中",
           "pending": "待发送",
-          "canceled": "已取消"
+          "canceled": "已取消",
+          "exhausted": "重试已用完"
         }
       }
     }

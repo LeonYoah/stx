@@ -365,11 +365,39 @@ func (m *Manager) UninstallPlugin(pluginName, version, installPath string, remov
 		return fmt.Errorf("failed to remove connector: %w", err)
 	}
 
-	// Note: Dependencies are not removed by default as they may be shared
-	// 注意：默认不删除依赖，因为它们可能被共享
-	// If removeDependencies is true, the caller should provide the list of dependencies to remove
-	// 如果 removeDependencies 为 true，调用者应提供要删除的依赖列表
+	// When removeDependencies is true, delete the plugin-private dependency directory
+	// (e.g. plugins/connector-cdc-postgres holding pgjdbc). Shared lib/ jars and companion
+	// connectors under connectors/ are left alone — seed profiles put per-plugin drivers
+	// under plugins/<artifactID>/.
+	// removeDependencies=true 时删除插件私有依赖目录（如 plugins/connector-cdc-postgres 下的 pgjdbc）；
+	// 共享 lib/ 与 connectors/ 下的伴生连接器保留不动。
+	if removeDependencies {
+		if err := m.removePluginDependencyDir(pluginName); err != nil {
+			return err
+		}
+	}
 
+	return nil
+}
+
+// removePluginDependencyDir deletes plugins/<artifactID>/ for this plugin when present.
+// removePluginDependencyDir 在存在时删除该插件的 plugins/<artifactID>/ 目录。
+func (m *Manager) removePluginDependencyDir(pluginName string) error {
+	artifactID := getArtifactID(pluginName)
+	if err := validatePluginIdentifier("artifact id", artifactID); err != nil {
+		return err
+	}
+	pluginsRoot := filepath.Clean(filepath.Join(m.seatunnelPath, "plugins"))
+	depDir := filepath.Clean(filepath.Join(pluginsRoot, artifactID))
+	if depDir == pluginsRoot || !strings.HasPrefix(depDir, pluginsRoot+string(filepath.Separator)) {
+		return fmt.Errorf("refusing to remove dependency dir outside plugins/: %s", depDir)
+	}
+	if _, err := os.Stat(depDir); os.IsNotExist(err) {
+		return nil
+	}
+	if err := os.RemoveAll(depDir); err != nil {
+		return fmt.Errorf("failed to remove plugin dependencies at %s: %w", depDir, err)
+	}
 	return nil
 }
 

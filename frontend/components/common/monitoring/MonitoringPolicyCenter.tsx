@@ -118,7 +118,28 @@ import {
 } from '@/components/ui/table';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Textarea} from '@/components/ui/textarea';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {formatDateTimeTz} from '@/lib/timezone';
+import {
+  WEBHOOK_LIKE_CHANNEL_TYPES,
+  NOTIFICATION_SECRET_MASK,
+  buildWebhookChannelPayload,
+  changeWebhookChannelType,
+  channelTypeSupportsSecret,
+  clearWebhookChannelSecret,
+  savedWebhookChannelSecret,
+  setWebhookChannelSecret,
+  webhookChannelSaveNeedsClearSecretConfirm,
+  isFailedDeliveryStatus,
+  deliveryRetriedTimes,
+  createDefaultWebhookChannelForm,
+  createWebhookChannelFormFromChannel,
+  endpointPlaceholderForType,
+  formatChannelTestResponseBody,
+  isWebhookLikeChannel,
+  type WebhookChannelFormState,
+  type WebhookLikeChannelType,
+} from './notification-channel-utils';
 
 // 规则与通知三级分段：告警规则 | 通知通道 | 投递记录
 // Tertiary sections for Rules & Notifications: rules | channels | history
@@ -174,15 +195,6 @@ type EmailChannelFormState = {
   from: string;
   fromName: string;
   recipients: string;
-};
-
-type WebhookChannelFormState = {
-  id: number | null;
-  name: string;
-  enabled: boolean;
-  description: string;
-  endpoint: string;
-  secret: string;
 };
 
 type EmailTestReceiverOption = 'none' | string;
@@ -247,17 +259,6 @@ function createDefaultEmailChannelForm(): EmailChannelFormState {
   };
 }
 
-function createDefaultWebhookChannelForm(): WebhookChannelFormState {
-  return {
-    id: null,
-    name: '',
-    enabled: true,
-    description: '',
-    endpoint: '',
-    secret: '',
-  };
-}
-
 function defaultPortForSecurity(
   security: EmailChannelFormState['security'],
 ): string {
@@ -296,6 +297,7 @@ function resolveDeliveryStatusVariant(
     case 'sent':
       return 'default';
     case 'failed':
+    case 'exhausted':
       return 'destructive';
     case 'sending':
     case 'retrying':
@@ -491,33 +493,6 @@ function serializeEmailChannelForm(form: EmailChannelFormState): string {
   return JSON.stringify(form);
 }
 
-function createWebhookChannelFormFromChannel(
-  channel: NotificationChannel,
-): WebhookChannelFormState {
-  return {
-    id: channel.id,
-    name: channel.name,
-    enabled: channel.enabled,
-    description: channel.description || '',
-    endpoint: channel.endpoint || '',
-    secret: channel.secret || '',
-  };
-}
-
-function buildWebhookChannelPayload(
-  form: WebhookChannelFormState,
-  enabledOverride?: boolean,
-): UpsertNotificationChannelRequest {
-  return {
-    name: form.name.trim(),
-    type: 'webhook',
-    enabled: enabledOverride ?? form.enabled,
-    description: form.description.trim(),
-    endpoint: form.endpoint.trim(),
-    secret: form.secret.trim(),
-  };
-}
-
 function serializeWebhookChannelForm(form: WebhookChannelFormState): string {
   return JSON.stringify(form);
 }
@@ -549,7 +524,7 @@ function createPolicyFormFromPolicy(
   const selectedEmailChannel =
     selectedChannels.find((channel) => channel.type === 'email') || null;
   const selectedWebhookChannel =
-    selectedChannels.find((channel) => channel.type === 'webhook') || null;
+    selectedChannels.find((channel) => isWebhookLikeChannel(channel)) || null;
 
   return {
     ...form,
@@ -823,6 +798,11 @@ export function MonitoringPolicyCenter() {
   const [webhookDialogOpen, setWebhookDialogOpen] = useState<boolean>(false);
   const [webhookDiscardDialogOpen, setWebhookDiscardDialogOpen] =
     useState<boolean>(false);
+  const [webhookClearSecretConfirmOpen, setWebhookClearSecretConfirmOpen] =
+    useState(false);
+  const webhookClearSecretSaveRef = useRef<{enabledOverride?: boolean} | null>(
+    null,
+  );
   const webhookDiscardActionRef = useRef<(() => void) | null>(null);
   const webhookChannelFormRef = useRef<WebhookChannelFormState>(
     createDefaultWebhookChannelForm(),
@@ -918,7 +898,7 @@ export function MonitoringPolicyCenter() {
     [channels],
   );
   const webhookChannels = useMemo(
-    () => channels.filter((channel) => channel.type === 'webhook'),
+    () => channels.filter((channel) => isWebhookLikeChannel(channel)),
     [channels],
   );
   const notifiableUsers = useMemo(
@@ -1681,6 +1661,7 @@ export function MonitoringPolicyCenter() {
       const result = isDraftTest
         ? await services.monitoring.testNotificationChannelDraftSafe({
             channel: buildEmailChannelPayload(emailChannelForm),
+            channel_id: emailChannelForm.id ?? undefined,
             receiver_user_id:
               explicitReceiverUserId > 0 ? explicitReceiverUserId : undefined,
           })
@@ -1707,7 +1688,10 @@ export function MonitoringPolicyCenter() {
   };
 
   const handleTestEmailConnection = async () => {
-    const payload = buildEmailChannelPayload(emailChannelForm);
+    const payload = {
+      ...buildEmailChannelPayload(emailChannelForm),
+      channel_id: emailChannelForm.id ?? undefined,
+    };
     setTestingEmailConnection(true);
     try {
       const result =
@@ -1790,13 +1774,26 @@ export function MonitoringPolicyCenter() {
     [applyWebhookChannelFormSnapshot, requestWebhookChannelDiscard],
   );
 
-  const handleSaveWebhookChannel = async (enabledOverride?: boolean) => {
+  const handleSaveWebhookChannel = async (
+    enabledOverride?: boolean,
+    clearSecretConfirmed = false,
+  ) => {
     if (!webhookChannelForm.name.trim()) {
       toast.error(t('webhook.nameRequired'));
       return;
     }
     if (!webhookChannelForm.endpoint.trim()) {
       toast.error(t('webhook.endpointRequired'));
+      return;
+    }
+    // 清除已保存的密钥不可恢复：保存前先确认。
+    // Clearing the stored secret cannot be undone: confirm before saving.
+    if (
+      !clearSecretConfirmed &&
+      webhookChannelSaveNeedsClearSecretConfirm(webhookChannelForm)
+    ) {
+      webhookClearSecretSaveRef.current = {enabledOverride};
+      setWebhookClearSecretConfirmOpen(true);
       return;
     }
 
@@ -1862,6 +1859,7 @@ export function MonitoringPolicyCenter() {
       const result = isDraftTest
         ? await services.monitoring.testNotificationChannelDraftSafe({
             channel: buildWebhookChannelPayload(webhookChannelForm),
+            channel_id: webhookChannelForm.id ?? undefined,
           })
         : await services.monitoring.testNotificationChannelSafe(
             webhookChannelForm.id as number,
@@ -1977,7 +1975,7 @@ export function MonitoringPolicyCenter() {
     if (channelPillFilter === 'email') {
       rows = rows.filter((c) => c.type === 'email');
     } else if (channelPillFilter === 'webhook') {
-      rows = rows.filter((c) => c.type === 'webhook');
+      rows = rows.filter((c) => isWebhookLikeChannel(c));
     } else if (channelPillFilter === 'enabled') {
       rows = rows.filter((c) => c.enabled);
     }
@@ -2002,7 +2000,7 @@ export function MonitoringPolicyCenter() {
 
   const channelPillItems = useMemo<StatPillItem[]>(() => {
     const emailCount = channels.filter((c) => c.type === 'email').length;
-    const webhookCount = channels.filter((c) => c.type === 'webhook').length;
+    const webhookCount = channels.filter((c) => isWebhookLikeChannel(c)).length;
     const enabledCount = channels.filter((c) => c.enabled).length;
     return [
       {key: 'all', label: t('statPills.all'), count: channels.length},
@@ -2027,7 +2025,7 @@ export function MonitoringPolicyCenter() {
     if (historyStatusFilter === 'sent') {
       rows = rows.filter((d) => d.status === 'sent');
     } else if (historyStatusFilter === 'failed') {
-      rows = rows.filter((d) => d.status === 'failed');
+      rows = rows.filter((d) => isFailedDeliveryStatus(d.status));
     }
     const kw = historySearchKeyword.trim().toLowerCase();
     if (!kw) {
@@ -2052,7 +2050,9 @@ export function MonitoringPolicyCenter() {
     // pill 计数基于当前已载入结果集（与告警事件页一致，不假装全局精确）
     // Pill counts reflect the currently loaded result set (same as alerts page)
     const sentCount = deliveries.filter((d) => d.status === 'sent').length;
-    const failedCount = deliveries.filter((d) => d.status === 'failed').length;
+    const failedCount = deliveries.filter((d) =>
+      isFailedDeliveryStatus(d.status),
+    ).length;
     return [
       {
         key: 'all',
@@ -2523,7 +2523,9 @@ export function MonitoringPolicyCenter() {
                             ) : (
                               <>
                                 <Webhook className='h-3 w-3' />
-                                {t('channelList.typeWebhook')}
+                                {channel.type === 'webhook'
+                                  ? t('channelList.typeWebhook')
+                                  : t(`webhook.types.${channel.type}`)}
                               </>
                             )}
                           </Badge>
@@ -2709,31 +2711,50 @@ export function MonitoringPolicyCenter() {
                         {delivery.channel_name || '-'}
                       </TableCell>
                       <TableCell className='py-2 px-3 text-xs'>
-                        {delivery.event_type === 'resolved'
-                          ? t('deliveryHistory.events.resolved')
-                          : delivery.event_type === 'test'
-                            ? t('deliveryHistory.events.test')
-                            : delivery.event_type === 'reminder'
-                              ? t('deliveryHistory.events.reminder')
-                              : t('deliveryHistory.events.firing')}
-                      </TableCell>
+                        {!delivery.event_type
+                          ? t('deliveryHistory.events.firing')
+                          : t.has(`deliveryHistory.events.${delivery.event_type}`)
+                            ? t(`deliveryHistory.events.${delivery.event_type}`)
+                            : delivery.event_type}                      </TableCell>
                       <TableCell className='py-2 px-3'>
-                        <Badge
-                          variant={resolveDeliveryStatusVariant(delivery.status)}
-                          className='text-[11px]'
-                        >
-                          {delivery.status === 'sent'
-                            ? t('deliveryHistory.statuses.sent')
-                            : delivery.status === 'failed'
-                              ? t('deliveryHistory.statuses.failed')
-                              : delivery.status === 'sending'
-                                ? t('deliveryHistory.statuses.sending')
-                                : delivery.status === 'retrying'
-                                  ? t('deliveryHistory.statuses.retrying')
-                                  : delivery.status === 'canceled'
-                                    ? t('deliveryHistory.statuses.canceled')
-                                    : t('deliveryHistory.statuses.pending')}
-                        </Badge>
+                        {(() => {
+                          // 没有翻译的状态显示原值，不再落到"待发送"；空状态才算待发送。
+                          // A status without a translation shows its raw value instead of falling back to "pending";
+                          // only an empty status means pending.
+                          const statusLabel = !delivery.status
+                            ? t('deliveryHistory.statuses.pending')
+                            : t.has(`deliveryHistory.statuses.${delivery.status}`)
+                              ? t(`deliveryHistory.statuses.${delivery.status}`)
+                              : delivery.status;
+                          const badge = (
+                            <Badge
+                              variant={resolveDeliveryStatusVariant(
+                                delivery.status,
+                              )}
+                              className='text-[11px]'
+                              data-testid={`delivery-status-${delivery.status || 'pending'}`}
+                            >
+                              {statusLabel}
+                            </Badge>
+                          );
+                          if (delivery.status !== 'exhausted') {
+                            return badge;
+                          }
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className='inline-flex'>{badge}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t('deliveryHistory.retriedTimes', {
+                                  count: deliveryRetriedTimes(
+                                    delivery.attempt_count,
+                                  ),
+                                })}
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className='py-2 px-3 text-xs font-mono'>
                         {delivery.response_status_code || '-'}
@@ -3396,6 +3417,9 @@ export function MonitoringPolicyCenter() {
                       {webhookChannels.map((channel) => (
                         <SelectItem key={channel.id} value={String(channel.id)}>
                           {channel.name}
+                          {channel.type !== 'webhook'
+                            ? ` · ${t(`webhook.types.${channel.type}`)}`
+                            : ''}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -4021,8 +4045,23 @@ export function MonitoringPolicyCenter() {
                         </div>
                       ) : null}
                       {lastWebhookChannelTestResult?.last_error ? (
-                        <div className='mt-2 text-xs text-destructive'>
+                        <div className='mt-2 text-xs text-destructive break-all'>
                           {lastWebhookChannelTestResult.last_error}
+                        </div>
+                      ) : null}
+                      {lastWebhookChannelTestResult?.response_body ? (
+                        <div className='mt-2 space-y-1'>
+                          <div className='text-xs text-muted-foreground'>
+                            {t('webhook.lastTest.responseBody')}
+                          </div>
+                          <pre
+                            data-testid='webhook-test-response-body'
+                            className='max-h-40 overflow-auto whitespace-pre-wrap break-all rounded border bg-background px-2 py-1 font-mono text-[11px]'
+                          >
+                            {formatChannelTestResponseBody(
+                              lastWebhookChannelTestResult.response_body,
+                            )}
+                          </pre>
                         </div>
                       ) : null}
                     </div>
@@ -4068,6 +4107,36 @@ export function MonitoringPolicyCenter() {
                   </CardHeader>
                   <CardContent className='space-y-4'>
                     <div className='space-y-2'>
+                      <Label>{t('webhook.fields.type')}</Label>
+                      <Select
+                        value={webhookChannelForm.type}
+                        onValueChange={(value) =>
+                          updateWebhookChannelForm((prev) =>
+                            changeWebhookChannelType(
+                              prev,
+                              value as WebhookLikeChannelType,
+                              savedWebhookChannelSecret(editingWebhookChannel),
+                            ),
+                          )
+                        }
+                      >
+                        <SelectTrigger data-testid='webhook-channel-type'>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {WEBHOOK_LIKE_CHANNEL_TYPES.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {t(`webhook.types.${type}`)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className='text-xs text-muted-foreground'>
+                        {t(`webhook.typeHints.${webhookChannelForm.type}`)}
+                      </p>
+                    </div>
+
+                    <div className='space-y-2'>
                       <Label>{t('webhook.fields.endpoint')}</Label>
                       <Input
                         value={webhookChannelForm.endpoint}
@@ -4077,12 +4146,24 @@ export function MonitoringPolicyCenter() {
                             endpoint: event.target.value,
                           }))
                         }
-                        placeholder='https://hooks.example.com/stx'
+                        placeholder={endpointPlaceholderForType(
+                          webhookChannelForm.type,
+                        )}
                       />
+                      {webhookChannelForm.id !== null ? (
+                        <p className='text-xs text-muted-foreground'>
+                          {t('webhook.maskedKeepHint')}
+                        </p>
+                      ) : null}
                     </div>
 
+                    {channelTypeSupportsSecret(webhookChannelForm.type) ? (
                     <div className='space-y-2'>
-                      <Label>{t('webhook.fields.secret')}</Label>
+                      <Label>
+                        {webhookChannelForm.type === 'webhook'
+                          ? t('webhook.fields.secret')
+                          : t('webhook.fields.signSecret')}
+                      </Label>
                       <div className='relative'>
                         <Input
                           type={showWebhookSecret ? 'text' : 'password'}
@@ -4090,13 +4171,19 @@ export function MonitoringPolicyCenter() {
                           name='stx-webhook-secret'
                           autoComplete='new-password'
                           onChange={(event) =>
-                            updateWebhookChannelForm((prev) => ({
-                              ...prev,
-                              secret: event.target.value,
-                            }))
+                            updateWebhookChannelForm((prev) =>
+                              setWebhookChannelSecret(
+                                prev,
+                                event.target.value,
+                              ),
+                            )
                           }
                           className='pr-20'
-                          placeholder={t('webhook.placeholders.secret')}
+                          placeholder={
+                            webhookChannelForm.type === 'webhook'
+                              ? t('webhook.placeholders.secret')
+                              : t('webhook.placeholders.signSecret')
+                          }
                         />
                         <Button
                           type='button'
@@ -4113,9 +4200,63 @@ export function MonitoringPolicyCenter() {
                         </Button>
                       </div>
                       <p className='text-xs text-muted-foreground'>
-                        {t('webhook.secretHint')}
+                        {webhookChannelForm.type === 'webhook'
+                          ? t('webhook.secretHint')
+                          : t(`webhook.secretHints.${webhookChannelForm.type}`)}
                       </p>
+                      {editingWebhookChannel?.secret &&
+                      editingWebhookChannel.type !== webhookChannelForm.type &&
+                      !webhookChannelForm.secret.trim() ? (
+                        <p
+                          className='text-xs text-amber-600'
+                          data-testid='webhook-secret-type-change-hint'
+                        >
+                          {t('webhook.secretDroppedOnTypeChange')}
+                        </p>
+                      ) : null}
+                      {editingWebhookChannel?.secret &&
+                      editingWebhookChannel.type === webhookChannelForm.type ? (
+                        webhookChannelForm.clearSecret ? (
+                          <div className='flex items-center gap-2 text-xs text-amber-600'>
+                            <span data-testid='webhook-secret-will-clear'>
+                              {t('webhook.secretWillBeCleared')}
+                            </span>
+                            <Button
+                              type='button'
+                              variant='link'
+                              size='sm'
+                              className='h-auto p-0 text-xs'
+                              onClick={() =>
+                                updateWebhookChannelForm((prev) => ({
+                                  ...prev,
+                                  secret: NOTIFICATION_SECRET_MASK,
+                                  clearSecret: false,
+                                }))
+                              }
+                            >
+                              {t('webhook.undoClearSecret')}
+                            </Button>
+                          </div>
+                        ) : webhookChannelForm.secret.trim() ===
+                            NOTIFICATION_SECRET_MASK ||
+                          webhookChannelForm.secret.trim() === '' ? (
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            data-testid='webhook-clear-secret'
+                            onClick={() =>
+                              updateWebhookChannelForm((prev) =>
+                                clearWebhookChannelSecret(prev),
+                              )
+                            }
+                          >
+                            {t('webhook.clearSecret')}
+                          </Button>
+                        ) : null
+                      ) : null}
                     </div>
+                    ) : null}
                   </CardContent>
                 </Card>
 
@@ -4233,6 +4374,44 @@ export function MonitoringPolicyCenter() {
               }}
             >
               {t('webhook.discardChanges')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Webhook 通道：保存时确认清除已保存的密钥 / Webhook channel: confirm clearing the stored secret on save */}
+      <AlertDialog
+        open={webhookClearSecretConfirmOpen}
+        onOpenChange={(open) => {
+          setWebhookClearSecretConfirmOpen(open);
+          if (!open) {
+            webhookClearSecretSaveRef.current = null;
+          }
+        }}
+      >
+        <AlertDialogContent
+          className='border border-border/80 dark:border-border/60 shadow-2xl'
+          data-testid='webhook-clear-secret-confirm'
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('webhook.clearSecretConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('webhook.clearSecretConfirmDescription')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('webhook.keepEditing')}</AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={() => {
+                const pending = webhookClearSecretSaveRef.current;
+                webhookClearSecretSaveRef.current = null;
+                void handleSaveWebhookChannel(pending?.enabledOverride, true);
+              }}
+            >
+              {t('webhook.clearSecretConfirmAction')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

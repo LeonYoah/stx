@@ -1043,6 +1043,17 @@ type NotificationChannelTestRequest struct {
 type NotificationChannelDraftTestRequest struct {
 	Channel        *UpsertNotificationChannelRequest `json:"channel"`
 	ReceiverUserID uint64                            `json:"receiver_user_id"`
+	// ChannelID 是正在编辑的已保存渠道；草稿里的脱敏密钥 / 地址会用它的真实值补齐。
+	// ChannelID is the saved channel being edited; masked secrets / addresses in the draft are filled from it.
+	ChannelID uint `json:"channel_id,omitempty"`
+}
+
+// NotificationChannelConnectionTestRequest is the body of the connection test: a channel draft plus the optional saved
+// channel whose masked secrets should be reused.
+// NotificationChannelConnectionTestRequest 是连接测试请求体：渠道草稿，加上可选的已保存渠道 ID（用于补齐脱敏的密钥）。
+type NotificationChannelConnectionTestRequest struct {
+	UpsertNotificationChannelRequest
+	ChannelID uint `json:"channel_id,omitempty"`
 }
 
 // Validate checks whether the draft test request contains a valid channel payload.
@@ -1069,10 +1080,9 @@ const (
 	// NotificationDeliveryEventTypeTest 表示手动测试通知。
 	NotificationDeliveryEventTypeTest NotificationDeliveryEventType = "test"
 	// NotificationDeliveryEventTypeReminder 表示冷却提醒（告警仍在持续时按冷却时间重发）；提醒有自己的投递记录，
-	// 不覆盖首次告警（firing）记录的状态、次数与 payload（与 #85 语义对齐，便于后续叠合）。
+	// 不会覆盖首次告警（firing）的投递状态。
 	// NotificationDeliveryEventTypeReminder indicates a cooldown reminder (resent while the alert keeps firing); it has
-	// its own delivery record and never overwrites the first alert (firing) record's status, attempts or payload
-	// (aligned with #85 so a later stack merge stays straightforward).
+	// its own delivery record and never overwrites the first alert (firing) delivery status.
 	NotificationDeliveryEventTypeReminder NotificationDeliveryEventType = "reminder"
 )
 
@@ -1099,6 +1109,11 @@ const (
 	// NotificationDeliveryStatusCanceled indicates delivery is canceled.
 	// NotificationDeliveryStatusCanceled 表示投递已取消。
 	NotificationDeliveryStatusCanceled NotificationDeliveryStatus = "canceled"
+	// NotificationDeliveryStatusExhausted indicates the backoff retries are used up (a sync first alert keeps being
+	// retried every syncDeliveryRetryMaxDelay while the alert is firing).
+	// NotificationDeliveryStatusExhausted 表示退避重试次数已用完（同步告警的首次告警在告警持续期间仍每
+	// syncDeliveryRetryMaxDelay 重试一次）。
+	NotificationDeliveryStatusExhausted NotificationDeliveryStatus = "exhausted"
 )
 
 // NotificationRouteDTO is frontend DTO for notification routes.
@@ -1221,11 +1236,15 @@ func (r *UpsertNotificationRouteRequest) Validate() error {
 // UpsertNotificationChannelRequest represents create/update channel payload.
 // UpsertNotificationChannelRequest 表示新增/更新通知渠道请求。
 type UpsertNotificationChannelRequest struct {
-	Name        string                     `json:"name"`
-	Type        NotificationChannelType    `json:"type"`
-	Enabled     *bool                      `json:"enabled"`
-	Endpoint    string                     `json:"endpoint"`
-	Secret      string                     `json:"secret"`
+	Name     string                  `json:"name"`
+	Type     NotificationChannelType `json:"type"`
+	Enabled  *bool                   `json:"enabled"`
+	Endpoint string                  `json:"endpoint"`
+	Secret   string                  `json:"secret"`
+	// ClearSecret 为 true 时清空已保存的签名密钥（Secret 为空或占位符时生效；同时传了新密钥则以新密钥为准）。
+	// ClearSecret clears the stored signing secret (applies when Secret is empty or the placeholder; a new secret in
+	// the same request wins).
+	ClearSecret bool                       `json:"clear_secret,omitempty"`
 	Config      *NotificationChannelConfig `json:"config,omitempty"`
 	Description string                     `json:"description"`
 }

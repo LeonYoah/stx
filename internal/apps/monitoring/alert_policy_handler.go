@@ -65,7 +65,8 @@ func (h *Handler) ListAlertPolicyExecutions(c *gin.Context) {
 			NotificationDeliveryStatusSent,
 			NotificationDeliveryStatusFailed,
 			NotificationDeliveryStatusRetrying,
-			NotificationDeliveryStatusCanceled:
+			NotificationDeliveryStatusCanceled,
+			NotificationDeliveryStatusExhausted:
 		default:
 			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid status"})
 			return

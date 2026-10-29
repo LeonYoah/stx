@@ -102,9 +102,13 @@ func (r *Repository) ApplyAlertPolicyExecutionState(ctx context.Context, policyI
 		return nil
 	}
 
-	updates := map[string]interface{}{
-		"last_execution_status": normalizeAlertPolicyExecutionStatus(state.LastExecutionStatus),
-		"last_execution_error":  state.LastExecutionError,
+	updates := map[string]interface{}{}
+	// 状态为空表示本次没有执行结论（比如巡检预算用完、全部渠道延后），保留原来的最近执行状态。
+	// An empty status means this run reached no conclusion (e.g. the sweep budget ran out and every channel was
+	// deferred), so the last execution status is kept.
+	if state.LastExecutionStatus != "" {
+		updates["last_execution_status"] = normalizeAlertPolicyExecutionStatus(state.LastExecutionStatus)
+		updates["last_execution_error"] = state.LastExecutionError
 	}
 
 	if state.MatchCountDelta > 0 {
@@ -120,6 +124,9 @@ func (r *Repository) ApplyAlertPolicyExecutionState(ctx context.Context, policyI
 		updates["last_delivered_at"] = state.LastDeliveredAt
 	}
 
+	if len(updates) == 0 {
+		return nil
+	}
 	return r.db.WithContext(ctx).
 		Model(&AlertPolicy{}).
 		Where("id = ?", policyID).

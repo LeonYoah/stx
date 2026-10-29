@@ -162,12 +162,14 @@ type ValidateResult struct {
 	Checks        []ValidateCheck   `json:"checks,omitempty"`
 }
 
+// ValidateCheck 表示单个连接器配置/连接探测校验结果条目。
 // ValidateCheck represents one connector config/connection validation entry.
 type ValidateCheck struct {
 	NodeID        string `json:"node_id"`
 	Kind          string `json:"kind"`
 	ConnectorType string `json:"connector_type"`
 	Target        string `json:"target,omitempty"`
+	ProbeMethod   string `json:"probe_method,omitempty"`
 	Status        string `json:"status"`
 	Message       string `json:"message"`
 }

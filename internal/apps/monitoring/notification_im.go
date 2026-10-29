@@ -295,6 +295,9 @@ var notificationProtectedFieldLabels = map[string]bool{
 	"告警名称": true,
 	"级别":   true,
 	"链接":   true,
+	// 首次告警未送达的恢复通知里的说明行（sync_alert_undelivered_note.go）。
+	// The note line of a recovery whose first alert was never delivered (sync_alert_undelivered_note.go).
+	syncAlertUndeliveredFirstAlertNoteLabel: true,
 }
 
 // notificationFieldLinePattern 匹配 "标签：值" 形式的字段首行；不匹配的行是上一字段的续行（比如堆栈）。

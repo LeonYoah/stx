@@ -18,13 +18,18 @@
 package monitoring
 
 import (
-	"html"
 	"strings"
 )
 
+// syncAlertUndeliveredFirstAlertNoteLabel 是说明行的标签，列在 notificationProtectedFieldLabels 里，IM 裁剪不会截掉这一行。
+// 不用通用的"说明"：远程告警的长描述字段也叫"说明"，那个字段必须可裁剪。
+// syncAlertUndeliveredFirstAlertNoteLabel labels the note line; it is in notificationProtectedFieldLabels so IM
+// fitting never cuts the line. It is not the generic "说明", which also labels the (shrinkable) remote alert description.
+const syncAlertUndeliveredFirstAlertNoteLabel = "送达说明"
+
 // syncAlertUndeliveredFirstAlertNote 加在"首次告警没送达就已恢复"的恢复通知标题下面。
 // syncAlertUndeliveredFirstAlertNote goes right under the title of a recovery whose first alert was never delivered.
-const syncAlertUndeliveredFirstAlertNote = "说明：此前的告警通知未能送达（渠道当时不可用），本条同时告知该告警曾经发生、现已恢复。"
+const syncAlertUndeliveredFirstAlertNote = syncAlertUndeliveredFirstAlertNoteLabel + "：此前的告警通知未能送达（渠道当时不可用），本条同时告知该告警曾经发生、现已恢复。"
 
 // withUndeliveredFirstAlertNote 返回一份恢复消息的副本，在各渠道正文里（标题之后）加上首次告警未送达的说明，webhook
 // 结构化字段里加 first_alert_delivered=false。不认识的消息体原样返回。
@@ -58,8 +63,11 @@ func withUndeliveredFirstAlertNote(message *alertMessage) *alertMessage {
 			}
 		case *emailNotificationPayload:
 			body.Text = insertNoteAfterTitle(body.Text)
-			if body.HTML != "" {
-				body.HTML = "<p><strong>" + html.EscapeString(syncAlertUndeliveredFirstAlertNote) + "</strong></p>" + body.HTML
+			// HTML 正文按带说明的版本重新渲染，说明块在卡片内，不能拼在 <!DOCTYPE html> 前面（会进怪异模式、跑到卡片外）。
+			// Re-render the HTML with the note inside the card; prepending it before <!DOCTYPE html> would trigger
+			// quirks mode and leave it outside the card.
+			if body.HTML != "" && message.RenderEmailHTML != nil {
+				body.HTML = message.RenderEmailHTML(syncAlertUndeliveredFirstAlertNote)
 			}
 		}
 		return payload, nil

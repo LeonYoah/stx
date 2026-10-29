@@ -370,6 +370,10 @@ type alertMessage struct {
 	// Build 按渠道类型和邮件收件人拼出消息体。
 	// Build assembles the body for the channel type and email recipients.
 	Build func(channel *NotificationChannel, recipients []string) (interface{}, error)
+	// RenderEmailHTML（可选）按给定提示重新渲染邮件 HTML 正文，提示块放在卡片内；为空表示该消息不支持附加提示。
+	// RenderEmailHTML (optional) re-renders the email HTML body with the given note placed inside the card; nil means
+	// the message does not support an extra note.
+	RenderEmailHTML func(note string) string
 }
 
 // localProcessEventAlertMessage 把本地进程事件包装成 alertMessage，消息内容与重构前一致。
@@ -978,12 +982,15 @@ func buildLocalAlertPolicyMessageHTML(
 	}
 	visual := resolveLocalAlertMessageVisual(deliveryEventType)
 
-	return renderAlertMessageHTML(title, severity, visual, fields)
+	return renderAlertMessageHTML(title, severity, visual, fields, "")
 }
 
-// renderAlertMessageHTML 渲染告警邮件的 HTML 正文；本地进程事件和同步作业告警共用。
+// renderAlertMessageHTML 渲染告警邮件的 HTML 正文；本地进程事件和同步作业告警共用。note 非空时在卡片内（横幅下方、
+// 字段表之前）渲染一个黄色提示块（HTML 转义），比如"首次告警未送达"的说明。
 // renderAlertMessageHTML renders the HTML body of an alert email; shared by local process events and sync job alerts.
-func renderAlertMessageHTML(title string, severity string, visual localAlertMessageVisual, fields []localAlertMessageField) string {
+// A non-empty note is rendered inside the card (below the banner, before the field table) as an HTML-escaped yellow
+// notice block, e.g. the "first alert was not delivered" note.
+func renderAlertMessageHTML(title string, severity string, visual localAlertMessageVisual, fields []localAlertMessageField, note string) string {
 	var builder strings.Builder
 	builder.WriteString("<!DOCTYPE html><html><body style=\"margin:0;padding:24px;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;\">")
 	builder.WriteString("<div style=\"max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;\">")
@@ -1005,6 +1012,11 @@ func renderAlertMessageHTML(title string, severity string, visual localAlertMess
 	builder.WriteString(html.EscapeString(visual.Description))
 	builder.WriteString("</div></div>")
 	builder.WriteString("<div style=\"padding:24px;\">")
+	if note = strings.TrimSpace(note); note != "" {
+		builder.WriteString("<div data-stx-alert-note=\"true\" style=\"margin-bottom:16px;padding:12px 16px;border-radius:12px;background:#fef9c3;border:1px solid #facc15;font-size:13px;line-height:1.7;color:#713f12;font-weight:600;\">")
+		builder.WriteString(strings.ReplaceAll(html.EscapeString(note), "\n", "<br/>"))
+		builder.WriteString("</div>")
+	}
 	builder.WriteString("<div style=\"margin-bottom:16px;padding:14px 16px;border-radius:12px;background:")
 	builder.WriteString(html.EscapeString(visual.PanelBackground))
 	builder.WriteString(";border:1px solid ")

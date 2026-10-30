@@ -223,9 +223,14 @@ export function ClusterDeployWizard({
         enable_http: versionCapabilities.supports_http_service
           ? prev.runtime.enable_http
           : false,
+        // New installs default to per_job via defaultClusterDeployConfig + backend
+        // default_job_log_mode; unsupported versions stay mixed.
+        // 新安装通过 defaultClusterDeployConfig 与后端 default_job_log_mode 默认为 per_job；
+        // 不支持的版本保持 mixed。
         job_log_mode: versionCapabilities.supports_job_log_mode
           ? prev.runtime.job_log_mode ||
-            versionCapabilities.default_job_log_mode
+            versionCapabilities.default_job_log_mode ||
+            'per_job'
           : 'mixed',
       },
     }));

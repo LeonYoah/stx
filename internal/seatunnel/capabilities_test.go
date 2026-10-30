@@ -60,6 +60,9 @@ func TestCapabilitiesForVersion(t *testing.T) {
 		if !capabilities.SupportsHTTPService || !capabilities.SupportsJobLogMode {
 			t.Fatalf("expected 2.3.9 to support http service and job log mode, got %+v", capabilities)
 		}
+		if capabilities.DefaultJobLogMode != "per_job" {
+			t.Fatalf("expected 2.3.9 default job log mode per_job, got %+v", capabilities)
+		}
 		if capabilities.SupportsSlotAllocationStrategy {
 			t.Fatalf("expected 2.3.9 not to support slot allocation strategy yet, got %+v", capabilities)
 		}
@@ -70,8 +73,21 @@ func TestCapabilitiesForVersion(t *testing.T) {
 		if !capabilities.SupportsJobLogMode {
 			t.Fatalf("expected 2.3.8 to support job log mode, got %+v", capabilities)
 		}
+		if capabilities.DefaultJobLogMode != "per_job" {
+			t.Fatalf("expected 2.3.8 default job log mode per_job, got %+v", capabilities)
+		}
 		if capabilities.SupportsHTTPService {
 			t.Fatalf("expected 2.3.8 not to support http service, got %+v", capabilities)
+		}
+	})
+
+	t.Run("below 2.3.8 keeps mixed default job log mode", func(t *testing.T) {
+		capabilities := CapabilitiesForVersion("2.3.7")
+		if capabilities.SupportsJobLogMode {
+			t.Fatalf("expected 2.3.7 not to support job log mode, got %+v", capabilities)
+		}
+		if capabilities.DefaultJobLogMode != "mixed" {
+			t.Fatalf("expected 2.3.7 default job log mode mixed, got %+v", capabilities)
 		}
 	})
 

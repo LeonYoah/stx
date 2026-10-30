@@ -22,7 +22,6 @@ import {useTranslations} from 'next-intl';
 import {Braces} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Skeleton} from '@/components/ui/skeleton';
-import {HelpHint} from '@/components/common/HelpHint';
 import {ExpandableTextPanel, TableLoadingBar} from '@/components/common/layout';
 import {cn} from '@/lib/utils';
 import {formatDateTimeTz} from '@/lib/timezone';
@@ -248,7 +247,12 @@ export function JobEventTimelineContent({
           <Badge variant='outline' className='whitespace-nowrap text-[10px] font-normal' data-testid='sync-job-event-total'>
             {t('totalBadge', {total})}
           </Badge>
-          <HelpHint label={t('open')} content={t('retentionHint')} data-testid='sync-job-event-retention-hint' />
+          <span
+            className='text-[10px] text-muted-foreground'
+            data-testid='sync-job-event-retention-hint'
+          >
+            {t('retentionHint')}
+          </span>
         </div>
         <div className='relative min-h-0 flex-1 overflow-auto'>
           <TableLoadingBar loading={refreshing} />

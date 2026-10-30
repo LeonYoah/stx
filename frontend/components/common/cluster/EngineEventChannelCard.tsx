@@ -201,6 +201,11 @@ export function EngineEventChannelCard({
                 {t('unsupported', {version: status.version || '-'})}
               </p>
             ) : null}
+            {status.supported && !status.enabled ? (
+              <p className='text-muted-foreground' data-testid='cluster-event-channel-purpose'>
+                {t('purposeLine')}
+              </p>
+            ) : null}
             {status.enabled ? (
               <div className='flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground'>
                 <span className='whitespace-nowrap'>{t('lastEvent', {time: formatTime(status.last_event_at)})}</span>

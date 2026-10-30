@@ -153,8 +153,8 @@ export function TaskScheduleSidebarPanel({
                 <Label className='text-xs font-semibold text-foreground'>
                   {t('taskSchedule')}
                 </Label>
-                {/* 生产调度建议收进「轻量」Badge 的 Tooltip；Badge 包成 button 以便键盘聚焦打开，可访问名称沿用可见文字，长建议由 Tooltip 作为描述 */}
-                {/* Production advice lives in the "Lightweight" badge Tooltip; wrapped in a button for keyboard focus, accessible name stays the visible text and the Tooltip supplies the description */}
+                {/* 「轻量」Badge + Tooltip 保留详情；常驻一行生产建议，避免只靠问号/悬停才看见推荐 */}
+                {/* Keep the Lightweight badge Tooltip for detail; show one permanent production suggestion line */}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -170,7 +170,7 @@ export function TaskScheduleSidebarPanel({
                     </button>
                   </TooltipTrigger>
                   <TooltipContent className='max-w-[320px] text-xs leading-5'>
-                    {t('scheduleProductionNoticeDesc')}
+                    {t('scheduleLightweightBadgeHint')}
                   </TooltipContent>
                 </Tooltip>
                 {value.enabled ? (
@@ -190,6 +190,12 @@ export function TaskScheduleSidebarPanel({
                   </Badge>
                 )}
               </div>
+              <p
+                className='mt-1 text-[11px] leading-4 text-muted-foreground'
+                data-testid='schedule-production-notice'
+              >
+                {t('scheduleProductionNoticeDesc')}
+              </p>
             </div>
           </div>
 

@@ -265,6 +265,17 @@ func TestSyncAlertHub_reminderHonorsCooldownAndSilence(t *testing.T) {
 	if f.webhook.count() != 2 {
 		t.Fatalf("expected one reminder after the cooldown, got %d", f.webhook.count())
 	}
+	firing, err := f.repo.GetNotificationDeliveryByDedupKey(f.ctx, sourceKey, f.channel.ID, string(NotificationDeliveryEventTypeFiring))
+	if err != nil || firing == nil || firing.AttemptCount != 1 {
+		t.Fatalf("first alert delivery must stay attempt_count=1 after reminder: %#v err=%v", firing, err)
+	}
+	reminder, err := f.repo.GetNotificationDeliveryByDedupKey(f.ctx, sourceKey, f.channel.ID, string(NotificationDeliveryEventTypeReminder))
+	if err != nil || reminder == nil || reminder.AttemptCount < 1 {
+		t.Fatalf("reminder must use its own delivery record: %#v err=%v", reminder, err)
+	}
+	if reminder.RequestPayload == "" || reminder.RequestPayload == firing.RequestPayload && firing.AttemptCount != 1 {
+		t.Fatalf("reminder payload should be recorded separately")
+	}
 
 	if _, err := f.service.SilenceAlertInstance(f.ctx, sourceKey, "ops", 30, "maintenance"); err != nil {
 		t.Fatalf("silence: %v", err)
@@ -534,7 +545,7 @@ func TestSyncAlertOwnerRecipients(t *testing.T) {
 	}
 
 	episode := &SyncAlertEpisode{ID: 1, Scope: SyncAlertEpisodeScopeTask, TaskID: 7, TaskName: "orders", RuleKey: syncalert.RuleJobFailed, Severity: AlertSeverityCritical, OccurrenceCount: 1}
-	message := buildSyncAlertMessage(episode, &AlertPolicy{Name: "p"}, NotificationDeliveryEventTypeFiring, []string{"owner@example.com"}, f.now)
+	message := buildSyncAlertMessage(episode, &AlertPolicy{Name: "p"}, NotificationDeliveryEventTypeFiring, []string{"owner@example.com"}, f.now, false)
 	payload, err := message.Build(&NotificationChannel{Type: NotificationChannelTypeEmail}, mergeAlertRecipients(nil, message.ExtraRecipients))
 	if err != nil {
 		t.Fatalf("build email: %v", err)

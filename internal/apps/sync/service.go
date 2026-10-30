@@ -80,6 +80,10 @@ type Service struct {
 	// task alert configs.
 	alertReporter syncalert.Reporter
 	alertStore    syncalert.TaskPolicyStore
+	// cdcAlerts 是 B4（CDC 延迟告警）判定器的内存状态：本轮样本、每个作业的阶段与任务配置缓存。
+	// cdcAlerts is the in-memory state of the B4 (CDC delay alert) evaluator: round samples, per-job phase and the
+	// task config cache.
+	cdcAlerts cdcDelayAlertState
 }
 
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.

@@ -79,12 +79,14 @@ export interface SyncTaskTimeoutDefaults {
  * - sync_submit_timeout：提交超时 / submit timed out
  * - sync_job_failed：作业失败 / job failed
  * - sync_stop_timeout：停止超时 / stop timed out
+ * - sync_cdc_delay_high：CDC 读取延迟过高（B4）/ CDC read delay too high (B4)
  */
 export type SyncTaskAlertRule =
   | 'sync_submit_failed'
   | 'sync_submit_timeout'
   | 'sync_job_failed'
-  | 'sync_stop_timeout';
+  | 'sync_stop_timeout'
+  | 'sync_cdc_delay_high';
 
 /** 任务的作业告警配置（GET/PUT /sync/tasks/:id/alert）。/ A task's job alert config (GET/PUT /sync/tasks/:id/alert). */
 export interface SyncTaskAlertConfig {
@@ -97,6 +99,10 @@ export interface SyncTaskAlertConfig {
   notify_task_owner: boolean;
   cooldown_minutes: number;
   send_recovery: boolean;
+  /** B4 阈值（秒），默认 60 / B4 threshold in seconds, default 60 */
+  cdc_delay_threshold_seconds: number;
+  /** B4 持续时间（分钟），默认 5 / B4 duration in minutes, default 5 */
+  cdc_delay_duration_minutes: number;
 }
 
 /** 保存任务告警配置的请求体；enabled、send_recovery 默认 true，cooldown_minutes 默认 60。 */
@@ -109,6 +115,10 @@ export interface SyncTaskAlertRequest {
   notify_task_owner?: boolean;
   cooldown_minutes?: number;
   send_recovery?: boolean;
+  /** 不填保留已保存的值（新建时 60），0 恢复默认 60，范围 10–86400 / Omitted keeps the stored value (60 on create), 0 resets to 60, range 10–86400 */
+  cdc_delay_threshold_seconds?: number;
+  /** 不填保留已保存的值（新建时 5），0 恢复默认 5，范围 1–60 / Omitted keeps the stored value (5 on create), 0 resets to 5, range 1–60 */
+  cdc_delay_duration_minutes?: number;
 }
 
 export interface SyncTaskTreeNode {

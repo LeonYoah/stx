@@ -66,3 +66,44 @@ func TestTruncateMessage(t *testing.T) {
 		t.Fatalf("truncate by characters: %q", got)
 	}
 }
+
+func TestTaskConfigCDCDelayDefaultsAndRange(t *testing.T) {
+	// 旧客户端不带两个新字段（为 0）：补默认值后通过。
+	// Old clients omit both new fields (zero): defaults are applied and the config passes.
+	cfg := (&TaskConfig{Rules: []string{RuleCDCDelayHigh}, ChannelIDs: []uint{1}}).Normalize()
+	if cfg.CDCDelayThresholdSeconds != DefaultCDCDelayThresholdSeconds || cfg.CDCDelayDurationMinutes != DefaultCDCDelayDurationMinutes {
+		t.Fatalf("defaults not applied: %+v", cfg)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("defaults must validate: %v", err)
+	}
+	if !cfg.HasRule(RuleCDCDelayHigh) || cfg.HasRule(RuleJobFailed) {
+		t.Fatalf("HasRule wrong: %+v", cfg.Rules)
+	}
+	// 上下界都可以。 / Both bounds are accepted.
+	for _, ok := range [][2]int{{10, 1}, {86400, 60}} {
+		c := (&TaskConfig{Rules: []string{RuleJobFailed}, ChannelIDs: []uint{1}, CDCDelayThresholdSeconds: ok[0], CDCDelayDurationMinutes: ok[1]}).Normalize()
+		if err := c.Validate(); err != nil {
+			t.Fatalf("bounds %v rejected: %v", ok, err)
+		}
+	}
+	// 超出范围：不论是否勾选 B4 都是 400。 / Out of range is a 400 whether or not B4 is selected.
+	for _, bad := range [][2]int{{9, 5}, {86401, 5}, {60, 61}, {-1, 5}, {60, -1}} {
+		c := (&TaskConfig{Rules: []string{RuleJobFailed}, ChannelIDs: []uint{1}, CDCDelayThresholdSeconds: bad[0], CDCDelayDurationMinutes: bad[1]}).Normalize()
+		if err := c.Validate(); !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("%v: expected ErrInvalidConfig, got %v", bad, err)
+		}
+	}
+	if !IsTaskRule(RuleCDCDelayHigh) || TaskRules()[len(TaskRules())-1] != RuleCDCDelayHigh {
+		t.Fatalf("B4 must be the last task rule: %v", TaskRules())
+	}
+}
+
+func TestFormatDelayZH(t *testing.T) {
+	cases := map[int64]string{0: "0秒", 45_000: "45秒", 192_000: "3分12秒", 180_000: "3分", 300_963: "5分1秒", 3_720_000: "1小时2分", 7_200_000: "2小时"}
+	for ms, want := range cases {
+		if got := FormatDelayZH(ms); got != want {
+			t.Fatalf("FormatDelayZH(%d)=%q want %q", ms, got, want)
+		}
+	}
+}

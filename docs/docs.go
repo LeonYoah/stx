@@ -6511,6 +6511,9 @@ const docTemplate = `{
         "cluster.ClusterInfo": {
             "type": "object",
             "properties": {
+                "cluster_code": {
+                    "type": "string"
+                },
                 "config": {
                     "$ref": "#/definitions/cluster.ClusterConfig"
                 },
@@ -6633,6 +6636,9 @@ const docTemplate = `{
                 "version"
             ],
             "properties": {
+                "cluster_code": {
+                    "type": "string"
+                },
                 "config": {
                     "$ref": "#/definitions/cluster.ClusterConfig"
                 },
@@ -6678,6 +6684,10 @@ const docTemplate = `{
                 "api_port": {
                     "description": "REST API port (optional) / REST API 端口（可选）",
                     "type": "integer"
+                },
+                "cluster_name": {
+                    "description": "Hazelcast cluster-name (optional) / Hazelcast 集群标识（可选）",
+                    "type": "string"
                 },
                 "hazelcast_port": {
                     "description": "Hazelcast cluster port (optional) / Hazelcast 集群端口（可选）",
@@ -8392,6 +8402,10 @@ const docTemplate = `{
                     "description": "REST API port / REST API 端口",
                     "type": "integer"
                 },
+                "cluster_name": {
+                    "description": "Hazelcast cluster-name / Hazelcast 集群标识",
+                    "type": "string"
+                },
                 "hazelcast_port": {
                     "description": "Hazelcast cluster port / Hazelcast 集群端口",
                     "type": "integer"
@@ -8718,6 +8732,10 @@ const docTemplate = `{
                     "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.CheckpointConfig"
                 },
                 "cluster_id": {
+                    "type": "string"
+                },
+                "cluster_name": {
+                    "description": "Cluster identifier (cluster_code) / 集群底层标识",
                     "type": "string"
                 },
                 "cluster_port": {
@@ -12014,6 +12032,14 @@ const docTemplate = `{
         "sync.TaskAlertRequest": {
             "type": "object",
             "properties": {
+                "cdc_delay_duration_minutes": {
+                    "description": "CDCDelayDurationMinutes 是 B4 持续时间（分钟），范围 1~60，超出返回 400。不填时保留已保存的值（新建时为默认 5）；\n明确填 0 表示恢复默认 5。\nCDCDelayDurationMinutes is the B4 duration in minutes, range 1..60, else 400. Omitted keeps the stored value\n(the default 5 on create); an explicit 0 resets to the default 5.",
+                    "type": "integer"
+                },
+                "cdc_delay_threshold_seconds": {
+                    "description": "CDCDelayThresholdSeconds 是 B4 阈值（秒），范围 10~86400，超出返回 400。不填时保留已保存的值（新建时为默认 60）；\n明确填 0 表示恢复默认 60。\nCDCDelayThresholdSeconds is the B4 threshold in seconds, range 10..86400, else 400. Omitted keeps the stored\nvalue (the default 60 on create); an explicit 0 resets to the default 60.",
+                    "type": "integer"
+                },
                 "channel_ids": {
                     "type": "array",
                     "items": {
@@ -12173,6 +12199,14 @@ const docTemplate = `{
         "syncalert.TaskConfig": {
             "type": "object",
             "properties": {
+                "cdc_delay_duration_minutes": {
+                    "description": "CDCDelayDurationMinutes 是 B4 持续时间（分钟），0 或不填按默认 5，范围 1~60。\nCDCDelayDurationMinutes is the B4 duration in minutes; 0 or omitted means the default 5, range 1..60.",
+                    "type": "integer"
+                },
+                "cdc_delay_threshold_seconds": {
+                    "description": "CDCDelayThresholdSeconds 是 B4 阈值（秒），0 或不填按默认 60，范围 10~86400；不论是否勾选 B4 都会返回。\nCDCDelayThresholdSeconds is the B4 threshold in seconds; 0 or omitted means the default 60, range 10..86400.\nIt is always returned, whether or not B4 is selected.",
+                    "type": "integer"
+                },
                 "channel_ids": {
                     "type": "array",
                     "items": {

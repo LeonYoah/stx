@@ -459,3 +459,30 @@ func TestIngestEngineEvents_schemaChangePayloadIsSlimmedAndRedacted(t *testing.T
 		t.Fatalf("table and column info must be kept: %s", encoded)
 	}
 }
+
+func TestIngestEngineEvents_bumpsDelayAcrossBatches(t *testing.T) {
+	withEventConfig(t, "secret", "http://stx")
+	service, _ := newEventTestService(t, "3.0.0")
+	auth := enableChannel(t, service, 5)
+	_ = createEventJob(t, service, "1001", 5)
+	ctx := context.Background()
+	first := []byte(`[{"jobId":"1001","createdTime":1792913173000,"eventType":"READER_MESSAGE_DELAYED","delayTime":4200}]`)
+	if _, err := service.IngestEngineEvents(ctx, 5, auth, first); err != nil {
+		t.Fatalf("first ingest: %v", err)
+	}
+	second := []byte(`[{"jobId":"1001","createdTime":1792913174000,"eventType":"READER_MESSAGE_DELAYED","delayTime":9100}]`)
+	result, err := service.IngestEngineEvents(ctx, 5, auth, second)
+	if err != nil {
+		t.Fatalf("second ingest: %v", err)
+	}
+	if result.Accepted != 0 || result.Duplicates < 1 {
+		t.Fatalf("second batch should collide on the minute bucket: %+v", result)
+	}
+	var minute EngineEvent
+	if err := service.repo.db.Where("event_type = ?", EngineEventTypeMessageDelayed).First(&minute).Error; err != nil {
+		t.Fatalf("load minute bucket: %v", err)
+	}
+	if int64Field(minute.Payload, "delay_ms") != 9100 {
+		t.Fatalf("cross-batch ingest must keep the larger delay, got %v", minute.Payload)
+	}
+}

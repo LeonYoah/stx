@@ -28,7 +28,27 @@ export const TASK_ALERT_RULES: SyncTaskAlertRule[] = [
   'sync_submit_timeout',
   'sync_job_failed',
   'sync_stop_timeout',
+  'sync_cdc_delay_high',
 ];
+
+/** 规则键：CDC 延迟（B4）。/ Rule key: CDC delay (B4). */
+export const TASK_ALERT_RULE_CDC_DELAY: SyncTaskAlertRule = 'sync_cdc_delay_high';
+
+/**
+ * 新配置默认勾选的规则：B4 有前置条件（SeaTunnel 2.3.12 及以上、开启事件通道），需要用户主动开启，所以不默认勾选。
+ * Rules selected by default for a new config: B4 has prerequisites (SeaTunnel 2.3.12+, event channel on) so users opt in.
+ */
+export const TASK_ALERT_DEFAULT_RULES: SyncTaskAlertRule[] = TASK_ALERT_RULES.filter(
+  (rule) => rule !== TASK_ALERT_RULE_CDC_DELAY,
+);
+
+/** B4 阈值（秒）与持续时间（分钟）的默认值和范围。/ B4 threshold (s) and duration (min) defaults and ranges. */
+export const CDC_DELAY_DEFAULT_THRESHOLD = 60;
+export const CDC_DELAY_MIN_THRESHOLD = 10;
+export const CDC_DELAY_MAX_THRESHOLD = 86400;
+export const CDC_DELAY_DEFAULT_DURATION = 5;
+export const CDC_DELAY_MIN_DURATION = 1;
+export const CDC_DELAY_MAX_DURATION = 60;
 
 /** 冷却时间默认值与上限（分钟）。/ Cooldown default and cap (minutes). */
 export const TASK_ALERT_DEFAULT_COOLDOWN = 60;
@@ -43,23 +63,27 @@ export interface TaskAlertFormState {
   notifyTaskOwner: boolean;
   cooldown: string;
   sendRecovery: boolean;
+  cdcDelayThreshold: string;
+  cdcDelayDuration: string;
 }
 
 /**
- * 从已有配置生成表单初值；没有配置时默认勾选全部规则、冷却 60 分钟、发恢复通知。
- * Build the initial form state from a config; without one all rules are selected, cooldown is 60 minutes and
- * recovery notifications are on.
+ * 从已有配置生成表单初值；没有配置时默认勾选除 B4 外的全部规则、冷却 60 分钟、发恢复通知，B4 参数为 60 秒 / 5 分钟。
+ * Build the initial form state from a config; without one every rule except B4 is selected, cooldown is 60 minutes,
+ * recovery notifications are on and the B4 parameters are 60 s / 5 min.
  */
 export function initialTaskAlertForm(config: SyncTaskAlertConfig | null | undefined): TaskAlertFormState {
   if (!config?.configured) {
     return {
       enabled: true,
-      rules: [...TASK_ALERT_RULES],
+      rules: [...TASK_ALERT_DEFAULT_RULES],
       channelIds: [],
       receiverUserIds: [],
       notifyTaskOwner: false,
       cooldown: String(TASK_ALERT_DEFAULT_COOLDOWN),
       sendRecovery: true,
+      cdcDelayThreshold: String(config?.cdc_delay_threshold_seconds || CDC_DELAY_DEFAULT_THRESHOLD),
+      cdcDelayDuration: String(config?.cdc_delay_duration_minutes || CDC_DELAY_DEFAULT_DURATION),
     };
   }
   return {
@@ -70,7 +94,42 @@ export function initialTaskAlertForm(config: SyncTaskAlertConfig | null | undefi
     notifyTaskOwner: config.notify_task_owner,
     cooldown: String(config.cooldown_minutes),
     sendRecovery: config.send_recovery,
+    cdcDelayThreshold: String(config.cdc_delay_threshold_seconds || CDC_DELAY_DEFAULT_THRESHOLD),
+    cdcDelayDuration: String(config.cdc_delay_duration_minutes || CDC_DELAY_DEFAULT_DURATION),
   };
+}
+
+/**
+ * 解析 B4 参数：留空或 0 表示按默认值（与后端 PUT 显式 0 按默认一致），返回 fallback；否则必须是 min~max 的整数，
+ * 非法返回 null。/ Parse a B4 parameter: empty or 0 means the default (matching the backend, where an explicit 0
+ * uses the default) and returns fallback; otherwise an integer within min–max, or null.
+ */
+function parseIntInRangeOrDefault(raw: string, min: number, max: number, fallback: number): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === '' || /^0+$/.test(trimmed)) {
+    return fallback;
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+  const value = Number(trimmed);
+  return value >= min && value <= max ? value : null;
+}
+
+/**
+ * 解析 B4 阈值：10~86400 的整数秒，留空或 0 按默认 60，非法返回 null。
+ * Parse the B4 threshold: integer seconds 10–86400, empty or 0 means the default 60, or null.
+ */
+export function parseCdcDelayThreshold(raw: string): number | null {
+  return parseIntInRangeOrDefault(raw, CDC_DELAY_MIN_THRESHOLD, CDC_DELAY_MAX_THRESHOLD, CDC_DELAY_DEFAULT_THRESHOLD);
+}
+
+/**
+ * 解析 B4 持续时间：1~60 的整数分钟，留空或 0 按默认 5，非法返回 null。
+ * Parse the B4 duration: integer minutes 1–60, empty or 0 means the default 5, or null.
+ */
+export function parseCdcDelayDuration(raw: string): number | null {
+  return parseIntInRangeOrDefault(raw, CDC_DELAY_MIN_DURATION, CDC_DELAY_MAX_DURATION, CDC_DELAY_DEFAULT_DURATION);
 }
 
 /** 解析冷却时间输入：0~1440 的整数，非法返回 null。/ Parse the cooldown input: an integer 0–1440, or null. */
@@ -93,6 +152,8 @@ export type TaskAlertFormError =
   | 'errorNoRule'
   | 'errorNoChannel'
   | 'errorCooldown'
+  | 'errorCdcDelayThreshold'
+  | 'errorCdcDelayDuration'
   | 'errorEmailRecipient';
 
 /**
@@ -112,6 +173,16 @@ export function validateTaskAlertForm(
   }
   if (parseTaskAlertCooldown(form.cooldown) === null) {
     return 'errorCooldown';
+  }
+  // B4 参数只在勾选 B4 时校验；没勾选时提交默认值。
+  // B4 parameters are only checked when B4 is selected; otherwise defaults are sent.
+  if (form.rules.includes(TASK_ALERT_RULE_CDC_DELAY)) {
+    if (parseCdcDelayThreshold(form.cdcDelayThreshold) === null) {
+      return 'errorCdcDelayThreshold';
+    }
+    if (parseCdcDelayDuration(form.cdcDelayDuration) === null) {
+      return 'errorCdcDelayDuration';
+    }
   }
   if (form.receiverUserIds.length === 0 && !form.notifyTaskOwner) {
     const emailWithoutRecipients = channels.some(
@@ -141,6 +212,8 @@ export function buildTaskAlertRequest(
     notify_task_owner: email ? form.notifyTaskOwner : false,
     cooldown_minutes: parseTaskAlertCooldown(form.cooldown) ?? TASK_ALERT_DEFAULT_COOLDOWN,
     send_recovery: form.sendRecovery,
+    cdc_delay_threshold_seconds: parseCdcDelayThreshold(form.cdcDelayThreshold) ?? CDC_DELAY_DEFAULT_THRESHOLD,
+    cdc_delay_duration_minutes: parseCdcDelayDuration(form.cdcDelayDuration) ?? CDC_DELAY_DEFAULT_DURATION,
   };
 }
 
@@ -211,4 +284,23 @@ export function buildWorkbenchDeepLinkQuery(
     query.set('job', String(jobId));
   }
   return query.toString();
+}
+
+/**
+ * 作业告警的自动关闭原因（静默关闭，没有恢复通知），告警中心按它显示 syncAlert.closeReason_*；恢复和人工关闭返回 null。
+ * Auto-close reasons of job alerts (closed silently, no recovery notification); the alert center renders
+ * syncAlert.closeReason_* from it. Recovery and manual close yield null.
+ */
+export const SYNC_AUTO_CLOSE_REASONS = [
+  'job_ended',
+  'channel_unavailable',
+  'rule_removed',
+  'rule_changed',
+  'policy_deleted',
+] as const;
+
+export type SyncAutoCloseReason = (typeof SYNC_AUTO_CLOSE_REASONS)[number];
+
+export function syncAutoCloseReason(reason: string | undefined | null): SyncAutoCloseReason | null {
+  return SYNC_AUTO_CLOSE_REASONS.find((item) => item === reason) ?? null;
 }

@@ -72,7 +72,10 @@ var (
 	ErrAlertPolicySyncJobTaskRequired = errors.New("monitoring: task_id is required for sync_job policies")
 	// ErrAlertPolicySyncJobInvalidRule 表示规则为空或不是作业级规则。
 	// ErrAlertPolicySyncJobInvalidRule means the rules are empty or not job-level rules.
-	ErrAlertPolicySyncJobInvalidRule = errors.New("monitoring: sync_job policies need at least one job rule (sync_submit_failed, sync_submit_timeout, sync_job_failed, sync_stop_timeout)")
+	ErrAlertPolicySyncJobInvalidRule = errors.New("monitoring: sync_job policies need at least one job rule (sync_submit_failed, sync_submit_timeout, sync_job_failed, sync_stop_timeout, sync_cdc_delay_high)")
+	// ErrAlertPolicySyncJobInvalidCDCDelay 表示 B4 条件的阈值或持续时间超出范围。
+	// ErrAlertPolicySyncJobInvalidCDCDelay means the B4 condition threshold or duration is out of range.
+	ErrAlertPolicySyncJobInvalidCDCDelay = errors.New("monitoring: sync_cdc_delay_high needs threshold 10-86400 seconds and window_minutes 1-60 (0 or empty means the default 60 s / 5 min)")
 	// ErrAlertPolicySyncJobChannelRequired 表示作业告警策略没有选择通知渠道。
 	// ErrAlertPolicySyncJobChannelRequired means a job alert policy selects no notification channel.
 	ErrAlertPolicySyncJobChannelRequired = errors.New("monitoring: sync_job policies need at least one notification channel")

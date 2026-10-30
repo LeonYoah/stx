@@ -214,6 +214,7 @@ func getAlertPolicyStatusCode(err error) int {
 		errors.Is(err, ErrAlertPolicyLegacyRuleUnsupported),
 		errors.Is(err, ErrAlertPolicySyncJobTaskRequired),
 		errors.Is(err, ErrAlertPolicySyncJobInvalidRule),
+		errors.Is(err, ErrAlertPolicySyncJobInvalidCDCDelay),
 		errors.Is(err, ErrAlertPolicySyncJobChannelRequired),
 		errors.Is(err, ErrAlertPolicySyncJobChannelDisabled),
 		errors.Is(err, ErrAlertPolicySyncJobEmailRecipientMissing),

@@ -19,26 +19,32 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Loader2} from 'lucide-react';
+import {Info, Loader2} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Switch} from '@/components/ui/switch';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {
   NotificationChannel,
   NotificationRecipientUser,
 } from '@/lib/services/monitoring';
+import services from '@/lib/services';
 import type {
+  SyncEventChannelStatus,
   SyncTaskAlertConfig,
   SyncTaskAlertRequest,
   SyncTaskAlertRule,
 } from '@/lib/services/sync';
 import {
   TASK_ALERT_RULES,
+  TASK_ALERT_RULE_CDC_DELAY,
   buildTaskAlertRequest,
   hasEmailChannel,
   initialTaskAlertForm,
+  parseCdcDelayDuration,
+  parseCdcDelayThreshold,
   validateTaskAlertForm,
   type TaskAlertFormState,
 } from './task-alert-utils';
@@ -50,6 +56,7 @@ import {
  */
 export function TaskAlertForm({
   initial,
+  clusterId,
   channels,
   users,
   saving,
@@ -59,6 +66,8 @@ export function TaskAlertForm({
   onDelete,
 }: {
   initial: SyncTaskAlertConfig | null;
+  /** 任务所在集群，用于提示 B4 的事件通道前置条件；拿不到时不提示。/ Task cluster for the B4 channel hint. */
+  clusterId?: number | null;
   channels: NotificationChannel[];
   users: NotificationRecipientUser[];
   saving?: boolean;
@@ -82,7 +91,50 @@ export function TaskAlertForm({
     [channels, form.channelIds],
   );
   const emailSelected = hasEmailChannel(form.channelIds, channels);
+  const cdcSelected = form.rules.includes(TASK_ALERT_RULE_CDC_DELAY);
+
+  // 勾选 B4 后查询集群事件通道：未开启或不支持时提示这条规则不会触发（保存不拦截）。
+  // Once B4 is selected, look up the cluster event channel: warn when it is off or unsupported (saving is allowed).
+  const [channelStatus, setChannelStatus] = useState<SyncEventChannelStatus | null>(null);
+  useEffect(() => {
+    if (!cdcSelected || !clusterId) {
+      setChannelStatus(null);
+      return;
+    }
+    let cancelled = false;
+    services.sync
+      .getEventChannel(clusterId)
+      .then((status) => {
+        if (!cancelled) {
+          setChannelStatus(status);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setChannelStatus(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cdcSelected, clusterId]);
+  const channelWarning = channelStatus
+    ? !channelStatus.supported
+      ? 'cdcDelayChannelUnsupported'
+      : !channelStatus.enabled || channelStatus.state === 'disabled'
+        ? 'cdcDelayChannelOff'
+        : channelStatus.state === 'pending_restart'
+          ? 'cdcDelayChannelPendingRestart'
+          : null
+    : null;
   const error = validateTaskAlertForm(form, channels);
+  // B4 参数错误显示在输入框下方（与任务超时输入一致），底部不再重复。
+  // B4 parameter errors show under their inputs (like the task timeout input) and are not repeated at the bottom.
+  const cdcThresholdInvalid = cdcSelected && parseCdcDelayThreshold(form.cdcDelayThreshold) === null;
+  const cdcDurationInvalid = cdcSelected && parseCdcDelayDuration(form.cdcDelayDuration) === null;
+  const bottomError = error === 'errorCdcDelayThreshold' || error === 'errorCdcDelayDuration' ? null : error;
+  const cdcInputClass = (invalid: boolean) =>
+    invalid ? 'h-8 w-28 text-xs border-destructive focus-visible:ring-destructive/40' : 'h-8 w-28 text-xs';
 
   const update = (patch: Partial<TaskAlertFormState>) => setForm((current) => ({...current, ...patch}));
   const toggle = <T,>(values: T[], value: T, checked: boolean) =>
@@ -121,6 +173,72 @@ export function TaskAlertForm({
           ))}
         </div>
       </fieldset>
+
+      {cdcSelected ? (
+        <fieldset
+          className='space-y-2 rounded-md border border-dashed border-border/70 p-2.5'
+          disabled={readOnly}
+          data-testid='task-alert-cdc-delay'
+        >
+          <div className='flex flex-wrap items-start gap-3'>
+            <div className='space-y-1'>
+              <Label className='flex items-center gap-1 whitespace-nowrap text-xs font-semibold'>
+                {t('cdcDelayThresholdLabel')}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type='button'
+                      className='text-muted-foreground hover:text-foreground'
+                      data-testid='task-alert-cdc-hint'
+                      aria-label={`${t('cdcDelayThresholdHint')} ${t('cdcDelayScopeHint')}`}
+                    >
+                      <Info className='size-3.5' />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className='max-w-xs space-y-1 text-[11px] leading-snug'>
+                    <p>{t('cdcDelayThresholdHint')}</p>
+                    <p>{t('cdcDelayScopeHint')}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </Label>
+              <Input
+                value={form.cdcDelayThreshold}
+                inputMode='numeric'
+                className={cdcInputClass(cdcThresholdInvalid)}
+                data-testid='task-alert-cdc-threshold'
+                aria-invalid={cdcThresholdInvalid}
+                onChange={(event) => update({cdcDelayThreshold: event.target.value})}
+              />
+              {cdcThresholdInvalid ? (
+                <p className='max-w-56 text-[10px] text-destructive' data-testid='task-alert-cdc-threshold-error'>
+                  {t('errorCdcDelayThreshold')}
+                </p>
+              ) : null}
+            </div>
+            <div className='space-y-1'>
+              <Label className='whitespace-nowrap text-xs font-semibold'>{t('cdcDelayDurationLabel')}</Label>
+              <Input
+                value={form.cdcDelayDuration}
+                inputMode='numeric'
+                className={cdcInputClass(cdcDurationInvalid)}
+                data-testid='task-alert-cdc-duration'
+                aria-invalid={cdcDurationInvalid}
+                onChange={(event) => update({cdcDelayDuration: event.target.value})}
+              />
+              {cdcDurationInvalid ? (
+                <p className='max-w-56 text-[10px] text-destructive' data-testid='task-alert-cdc-duration-error'>
+                  {t('errorCdcDelayDuration')}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          {channelWarning ? (
+            <p className='text-[11px] leading-snug text-amber-600 dark:text-amber-400' data-testid='task-alert-cdc-channel-warning'>
+              {t(channelWarning)}
+            </p>
+          ) : null}
+        </fieldset>
+      ) : null}
 
       <fieldset className='space-y-2' disabled={readOnly}>
         <Label className='text-xs font-semibold'>{t('channelsLabel')}</Label>
@@ -195,9 +313,9 @@ export function TaskAlertForm({
         </label>
       </fieldset>
 
-      {showErrors && error ? (
+      {showErrors && bottomError ? (
         <p className='text-xs text-destructive' data-testid='task-alert-error'>
-          {t(error)}
+          {t(bottomError)}
         </p>
       ) : null}
 

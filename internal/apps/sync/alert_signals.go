@@ -34,16 +34,22 @@ func (s *Service) SetAlertReporter(reporter syncalert.Reporter) { s.alertReporte
 // SetTaskAlertPolicyStore injects the task alert config store; without it the task alert API returns 503.
 func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore) { s.alertStore = store }
 
-// reportAlert 发出一条信号；接收方必须非阻塞，这里不做任何等待。
-// reportAlert emits one signal; the receiver must not block and nothing here waits.
-func (s *Service) reportAlert(signal syncalert.Signal) {
+// reportAlert 发出一条信号；接收方必须非阻塞，这里不做任何等待。返回信号是否被接收（接收方不支持
+// syncalert.AcceptingReporter 时总是 true）。
+// reportAlert emits one signal; the receiver must not block and nothing here waits. It returns whether the signal was
+// accepted (always true when the receiver does not implement syncalert.AcceptingReporter).
+func (s *Service) reportAlert(signal syncalert.Signal) bool {
 	if s == nil || s.alertReporter == nil {
-		return
+		return false
 	}
 	if signal.OccurredAt.IsZero() {
 		signal.OccurredAt = time.Now().UTC()
 	}
+	if accepting, ok := s.alertReporter.(syncalert.AcceptingReporter); ok {
+		return accepting.TryReportSyncAlert(signal)
+	}
 	s.alertReporter.ReportSyncAlert(signal)
+	return true
 }
 
 // alertSignalForJob 用作业和任务的快照组装作业级信号；数据预览不产生信号，返回 false。
@@ -124,10 +130,10 @@ func (s *Service) reportSubmitSucceeded(ctx context.Context, task *Task, instanc
 }
 
 // reportJobTransition 在作业状态成功写入后上报：转为失败报 B1（提交过期已报 A2，不重复）；批作业成功、实时作业转为
-// 运行中时解除 A1、A2、B1；越过停止截止时间的作业到达终态时解除它的 C1。
+// 运行中时解除 A1、A2、B1；实时作业到达终态时静默关闭 B4；越过停止截止时间的作业到达终态时解除它的 C1。
 // reportJobTransition reports after a status write: turning failed reports B1 (expired submits already reported A2,
-// so they are skipped); a batch success or a streaming job turning running resolves A1, A2 and B1; a job past its
-// stop deadline reaching a terminal state resolves its C1.
+// so they are skipped); a batch success or a streaming job turning running resolves A1, A2 and B1; a streaming job
+// reaching a terminal state silently closes B4; a job past its stop deadline reaching a terminal state resolves its C1.
 func (s *Service) reportJobTransition(ctx context.Context, instance *JobInstance, previousStatus JobStatus) {
 	if instance == nil || s.alertReporter == nil || instance.Status == previousStatus {
 		return
@@ -145,6 +151,10 @@ func (s *Service) reportJobTransition(ctx context.Context, instance *JobInstance
 			signal.ResolveScope = syncalert.ResolveTaskRunHealthy
 			s.reportAlert(signal)
 		}
+	}
+	// 实时作业结束：B4 阶段静默关闭（job_ended）。 / A streaming job ended: close its B4 episode silently (job_ended).
+	if isFinalNormalizedJobStatus(instance.Status) {
+		s.reportCDCDelayJobEnded(ctx, instance)
 	}
 	if isFinalNormalizedJobStatus(instance.Status) && strings.TrimSpace(stringValue(instance.ResultPreview, cancelOverdueAtKey)) != "" {
 		if signal, ok := s.alertSignalForJob(ctx, syncalert.KindResolve, "", instance, nil, ""); ok {

@@ -378,7 +378,7 @@ func (h *SyncAlertHub) retrySyncAlertDelivery(ctx context.Context, delivery *Not
 	// 本文件唯一的 buildSyncAlertMessage 调用；重试只补发首次告警/恢复（非提醒），签名增加 reminder 参数时这里传 false。
 	// The only buildSyncAlertMessage call in this file; retries only cover the first alert/recovery (never a reminder),
 	// so if the signature gains a reminder flag pass false here.
-	message := buildSyncAlertMessage(episode, policy, eventType, extra, h.clock())
+	message := buildSyncAlertMessage(episode, policy, eventType, extra, h.clock(), false)
 	result, sendErr := h.service.dispatchAlertDeliveryWithOptions(ctx, message, policy, channel, eventType, delivery.SourceKey,
 		alertDeliveryOptions{RequireFiringSent: eventType == NotificationDeliveryEventTypeResolved, Retry: true})
 	if sendErr != nil {

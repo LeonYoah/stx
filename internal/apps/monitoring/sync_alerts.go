@@ -38,12 +38,18 @@ const (
 	// syncAlertQueueSize 是信号缓冲区容量；满了丢弃新信号，保证 sync 侧永不阻塞。
 	// syncAlertQueueSize is the signal buffer capacity; when full new signals are dropped so sync never blocks.
 	syncAlertQueueSize = 1024
+	// syncAlertRefreshQueueLimit：队列里已有这么多信号时丢弃 B4 Refresh（只更新展示内容，下一轮内容变了还会再发），
+	// 把剩下的一半留给 Fire / Resolve 等会通知的信号。
+	// syncAlertRefreshQueueLimit: with this many signals queued, B4 Refreshes (display-only; a later content change
+	// sends another) are dropped so the other half stays free for notifying signals such as Fire / Resolve.
+	syncAlertRefreshQueueLimit = syncAlertQueueSize / 2
 	// syncAlertSweepInterval 是冷却提醒巡检的间隔。
 	// syncAlertSweepInterval is how often the cooldown reminder sweep runs.
 	syncAlertSweepInterval = time.Minute
-	// syncAlertMessageDisplayLimit 是告警中心和通知里错误摘要的最大字符数。
-	// syncAlertMessageDisplayLimit caps the error summary shown in the alert center and notifications.
-	syncAlertMessageDisplayLimit = 500
+	// syncAlertMessageDisplayLimit 是告警中心和通知里错误摘要的最大字符数，与信号存储上限一致（syncalert.MaxMessageLength）。
+	// syncAlertMessageDisplayLimit caps the error summary shown in the alert center and notifications; it equals the
+	// stored limit (syncalert.MaxMessageLength) so storage and display agree.
+	syncAlertMessageDisplayLimit = syncalert.MaxMessageLength
 	// defaultSyncStatusUnavailableWindow 是 D1 规则窗口未配置时的默认值。
 	// defaultSyncStatusUnavailableWindow is the D1 rule window when none is configured.
 	defaultSyncStatusUnavailableWindow = 300 * time.Second
@@ -61,6 +67,7 @@ var syncAlertRuleCatalog = map[string]syncAlertRuleMeta{
 	syncalert.RuleSubmitTimeout:        {Name: "作业提交超时", Severity: AlertSeverityCritical},
 	syncalert.RuleJobFailed:            {Name: "作业运行失败", Severity: AlertSeverityCritical},
 	syncalert.RuleStopTimeout:          {Name: "作业停止超时", Severity: AlertSeverityWarning},
+	syncalert.RuleCDCDelayHigh:         {Name: "CDC 延迟过高", Severity: AlertSeverityWarning},
 	syncalert.RuleStatusUnavailable:    {Name: "作业状态获取失败", Severity: AlertSeverityWarning},
 	syncalert.RuleEventChannelDegraded: {Name: "事件通道降级", Severity: AlertSeverityWarning},
 }
@@ -86,7 +93,12 @@ type SyncAlertHub struct {
 	// lastDropLogMinute 让缓冲区满的 warning 每分钟最多打一条。
 	// lastDropLogMinute keeps the buffer-full warning to at most one per minute.
 	lastDropLogMinute atomic.Int64
-	now               func() time.Time
+	// droppedRefresh 是队列过半时丢弃的 B4 Refresh 数。 / droppedRefresh counts B4 Refreshes dropped past half capacity.
+	droppedRefresh atomic.Int64
+	now            func() time.Time
+	// beforeRemindDispatch 只给测试用：冷却提醒检查完、放开锁之后、投递之前调用。
+	// beforeRemindDispatch is a test hook called after the reminder check releases the lock and before delivery.
+	beforeRemindDispatch func()
 }
 
 // NewSyncAlertHub 创建告警 hub；调用 Start 之前收到的信号会留在缓冲区里。
@@ -105,14 +117,27 @@ func (h *SyncAlertHub) clock() time.Time {
 // ReportSyncAlert 非阻塞地放入信号；缓冲区满时丢弃并计数。
 // ReportSyncAlert enqueues a signal without blocking; when the buffer is full the signal is dropped and counted.
 func (h *SyncAlertHub) ReportSyncAlert(signal syncalert.Signal) {
+	h.TryReportSyncAlert(signal)
+}
+
+// TryReportSyncAlert 与 ReportSyncAlert 相同，并返回信号是否进了队列。队列已有一半时丢弃 B4 Refresh，改变阶段状态的
+// Refresh（StateChange）除外。
+// TryReportSyncAlert is ReportSyncAlert that also reports whether the signal was queued. B4 Refreshes are dropped once
+// the queue is half full, except state-changing ones (StateChange).
+func (h *SyncAlertHub) TryReportSyncAlert(signal syncalert.Signal) bool {
 	if h == nil {
-		return
+		return false
 	}
 	if signal.OccurredAt.IsZero() {
 		signal.OccurredAt = h.clock()
 	}
+	if signal.Kind == syncalert.KindRefresh && !signal.StateChange && len(h.queue) >= syncAlertRefreshQueueLimit {
+		h.droppedRefresh.Add(1)
+		return false
+	}
 	select {
 	case h.queue <- signal:
+		return true
 	default:
 		dropped := h.dropped.Add(1)
 		minute := h.clock().Unix() / 60
@@ -120,6 +145,7 @@ func (h *SyncAlertHub) ReportSyncAlert(signal syncalert.Signal) {
 			log.Printf("[Monitoring] sync alert buffer full, signal dropped: rule=%s task=%d cluster=%d dropped_total=%d / 同步告警缓冲区已满，信号被丢弃",
 				signal.RuleKey, signal.TaskID, signal.ClusterID, dropped)
 		}
+		return false
 	}
 }
 
@@ -143,12 +169,32 @@ func (h *SyncAlertHub) Start(ctx context.Context) {
 						signal.RuleKey, signal.TaskID, signal.ClusterID, err)
 				}
 			case <-ticker.C:
+				// 先处理已经排队的信号（例如同一时刻的 B4 Refresh / 静默关闭），提醒用的是最新内容。
+				// Handle already-queued signals first (e.g. a B4 Refresh or silent close from the same moment) so
+				// reminders use the latest content.
+				h.drainQueued(ctx)
 				if err := h.sweep(ctx); err != nil {
 					log.Printf("[Monitoring] sweep sync alert reminders failed: %v / 同步告警提醒巡检失败", err)
 				}
 			}
 		}
 	}()
+}
+
+// drainQueued 处理调用时已在队列里的信号（不等待新信号）。
+// drainQueued handles the signals already queued when called (it never waits for new ones).
+func (h *SyncAlertHub) drainQueued(ctx context.Context) {
+	for n := len(h.queue); n > 0; n-- {
+		select {
+		case signal := <-h.queue:
+			if err := h.handle(ctx, signal); err != nil {
+				log.Printf("[Monitoring] handle sync alert failed: rule=%s task=%d cluster=%d err=%v / 处理同步告警失败",
+					signal.RuleKey, signal.TaskID, signal.ClusterID, err)
+			}
+		default:
+			return
+		}
+	}
 }
 
 // handle 处理一条信号。
@@ -178,6 +224,8 @@ func (h *SyncAlertHub) handle(ctx context.Context, signal syncalert.Signal) erro
 		return h.observeCluster(ctx, signal)
 	case syncalert.KindResolve:
 		return h.resolve(ctx, signal)
+	case syncalert.KindRefresh:
+		return h.refreshTask(ctx, signal)
 	default:
 		return nil
 	}
@@ -201,7 +249,7 @@ func (h *SyncAlertHub) fireTask(ctx context.Context, signal syncalert.Signal) er
 	if err != nil || !created {
 		return err
 	}
-	return h.dispatchEpisode(ctx, episode, []*AlertPolicy{policy}, NotificationDeliveryEventTypeFiring, true)
+	return h.dispatchEpisode(ctx, episode, []*AlertPolicy{policy}, NotificationDeliveryEventTypeFiring, true, false)
 }
 
 // fireCluster 处理集群级 Fire：集群规则停用时丢弃；没有策略时只建阶段，告警中心照样能看到。
@@ -226,7 +274,7 @@ func (h *SyncAlertHub) fireCluster(ctx context.Context, signal syncalert.Signal)
 	if err != nil {
 		return err
 	}
-	return h.dispatchEpisode(ctx, episode, policies, NotificationDeliveryEventTypeFiring, true)
+	return h.dispatchEpisode(ctx, episode, policies, NotificationDeliveryEventTypeFiring, true, false)
 }
 
 // observeCluster 处理 D1 观测：持续失败超过规则窗口才算成立；已有阶段时只累计次数。
@@ -303,6 +351,8 @@ func (h *SyncAlertHub) resolve(ctx context.Context, signal syncalert.Signal) err
 			return err
 		}
 		return h.resolveEpisode(ctx, episode, signal.OccurredAt, syncAlertResolveRecovered, policies)
+	case syncalert.ResolveCDCDelay:
+		return h.resolveCDCDelay(ctx, signal)
 	default:
 		return nil
 	}
@@ -315,6 +365,7 @@ func (h *SyncAlertHub) resolveEpisode(ctx context.Context, episode *SyncAlertEpi
 	episode.Status = SyncAlertEpisodeResolved
 	episode.ResolvedAt = &resolvedAt
 	episode.ResolveReason = reason
+	markEpisodeCDCDelayClosed(episode, reason)
 	if err := h.service.repo.SaveSyncAlertEpisode(ctx, episode); err != nil {
 		return err
 	}
@@ -327,7 +378,7 @@ func (h *SyncAlertHub) resolveEpisode(ctx context.Context, episode *SyncAlertEpi
 			recovering = append(recovering, policy)
 		}
 	}
-	return h.dispatchEpisode(ctx, episode, recovering, NotificationDeliveryEventTypeResolved, false)
+	return h.dispatchEpisode(ctx, episode, recovering, NotificationDeliveryEventTypeResolved, false, false)
 }
 
 // upsertEpisode 找到同一个键的 firing 阶段并累计次数；没有（或已被人工关闭）时新建。返回是否新建。
@@ -400,6 +451,9 @@ func applySignalToEpisode(episode *SyncAlertEpisode, signal syncalert.Signal) {
 	if message := normalizeSyncAlertText(signal.Message, syncalert.MaxMessageLength); message != "" {
 		episode.LastMessage = message
 	}
+	if signal.CDCDelay != nil {
+		setEpisodeCDCDelayDetail(episode, signal.CDCDelay)
+	}
 }
 
 // episodeClosed 判断阶段是否在告警中心被人工关闭。
@@ -423,34 +477,7 @@ func (h *SyncAlertHub) sweep(ctx context.Context) error {
 	}
 	var errs []error
 	for _, episode := range episodes {
-		var policies []*AlertPolicy
-		if episode.Scope == SyncAlertEpisodeScopeTask {
-			policy, err := h.service.repo.GetSyncJobAlertPolicyByTaskID(ctx, episode.TaskID)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			if policy == nil || !policy.Enabled || !syncJobPolicyHasRule(policy, episode.RuleKey) {
-				continue
-			}
-			policies = []*AlertPolicy{policy}
-		} else {
-			policies, err = h.clusterPolicies(ctx, episode.ClusterID, episode.RuleKey)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-		}
-		reminding := make([]*AlertPolicy, 0, len(policies))
-		for _, policy := range policies {
-			if policy.CooldownMinutes > 0 {
-				reminding = append(reminding, policy)
-			}
-		}
-		if len(reminding) == 0 {
-			continue
-		}
-		errs = append(errs, h.dispatchEpisode(ctx, episode, reminding, NotificationDeliveryEventTypeFiring, false))
+		errs = append(errs, h.remindEpisode(ctx, episode.ID))
 	}
 	// 失败的恢复通知按退避重试（sync_alert_recovery_retry.go）。
 	// Failed recovery notifications are retried with backoff (sync_alert_recovery_retry.go).
@@ -458,9 +485,85 @@ func (h *SyncAlertHub) sweep(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// dispatchEpisode 把阶段投递到每条策略的渠道，并更新策略的执行统计。
-// dispatchEpisode delivers the episode to each policy's channels and updates the policy execution stats.
-func (h *SyncAlertHub) dispatchEpisode(ctx context.Context, episode *SyncAlertEpisode, policies []*AlertPolicy, eventType NotificationDeliveryEventType, countMatch bool) error {
+// remindEpisode 给一个阶段发冷却提醒。按 ID 重读阶段和策略的检查与策略保存 / 删除互斥（锁只覆盖这次检查，不覆盖网络
+// 投递，渠道卡住也不会拖住保存策略）；投递前再核对一次策略版本和阶段状态，检查之后策略被保存或删除、阶段被关闭的，这次
+// 不发。
+// remindEpisode sends the cooldown reminder for one episode. Re-reading the episode and policy by ID is serialised
+// with policy saves / deletes (the lock covers only this check, never the network delivery, so a hung channel never
+// blocks saving a policy); right before delivery the policy version and episode status are checked again, and a
+// policy saved or deleted, or an episode closed, after the check skips this reminder.
+func (h *SyncAlertHub) remindEpisode(ctx context.Context, episodeID uint) error {
+	episode, reminding, version, err := h.remindCheck(ctx, episodeID)
+	if err != nil || len(reminding) == 0 {
+		return err
+	}
+	if hook := h.beforeRemindDispatch; hook != nil {
+		hook()
+	}
+	if !h.remindStillValid(ctx, episodeID, version) {
+		return nil
+	}
+	return h.dispatchEpisode(ctx, episode, reminding, NotificationDeliveryEventTypeFiring, false, true)
+}
+
+// remindCheck 在锁内重读阶段与策略，返回要提醒的策略和当时的策略版本。
+// remindCheck re-reads the episode and policies under the lock and returns the policies to remind and the policy
+// version at that moment.
+func (h *SyncAlertHub) remindCheck(ctx context.Context, episodeID uint) (*SyncAlertEpisode, []*AlertPolicy, uint64, error) {
+	h.service.syncAlertEpisodeMu.Lock()
+	defer h.service.syncAlertEpisodeMu.Unlock()
+	version := h.service.syncAlertPolicyVersion
+	episode, err := h.service.repo.GetSyncAlertEpisodeByID(ctx, episodeID)
+	if err != nil || episode == nil || episode.Status != SyncAlertEpisodeFiring {
+		return nil, nil, version, err
+	}
+	var policies []*AlertPolicy
+	if episode.Scope == SyncAlertEpisodeScopeTask {
+		policy, err := h.service.repo.GetSyncJobAlertPolicyByTaskID(ctx, episode.TaskID)
+		if err != nil {
+			return nil, nil, version, err
+		}
+		if policy == nil || !policy.Enabled || !syncJobPolicyHasRule(policy, episode.RuleKey) {
+			return nil, nil, version, nil
+		}
+		// B4 "无法确认"超过 24 小时：停止提醒，阶段保留。
+		// B4 "unconfirmable" for over 24 hours: reminders stop while the episode stays open.
+		if syncAlertRemindersPaused(episode) {
+			return nil, nil, version, nil
+		}
+		policies = []*AlertPolicy{policy}
+	} else {
+		policies, err = h.clusterPolicies(ctx, episode.ClusterID, episode.RuleKey)
+		if err != nil {
+			return nil, nil, version, err
+		}
+	}
+	reminding := make([]*AlertPolicy, 0, len(policies))
+	for _, policy := range policies {
+		if policy.CooldownMinutes > 0 {
+			reminding = append(reminding, policy)
+		}
+	}
+	return episode, reminding, version, nil
+}
+
+// remindStillValid 在投递前核对：检查之后没有保存 / 删除过策略，阶段仍在告警中。
+// remindStillValid checks right before delivery that no policy was saved / deleted since the check and the episode
+// is still firing.
+func (h *SyncAlertHub) remindStillValid(ctx context.Context, episodeID uint, version uint64) bool {
+	h.service.syncAlertEpisodeMu.Lock()
+	defer h.service.syncAlertEpisodeMu.Unlock()
+	if h.service.syncAlertPolicyVersion != version {
+		return false
+	}
+	episode, err := h.service.repo.GetSyncAlertEpisodeByID(ctx, episodeID)
+	return err == nil && episode != nil && episode.Status == SyncAlertEpisodeFiring
+}
+
+// dispatchEpisode 把阶段投递到每条策略的渠道，并更新策略的执行统计；reminder 表示冷却提醒（标题不同）。
+// dispatchEpisode delivers the episode to each policy's channels and updates the policy execution stats; reminder
+// marks a cooldown reminder (with a different title).
+func (h *SyncAlertHub) dispatchEpisode(ctx context.Context, episode *SyncAlertEpisode, policies []*AlertPolicy, eventType NotificationDeliveryEventType, countMatch, reminder bool) error {
 	if len(policies) == 0 {
 		return nil
 	}
@@ -486,7 +589,7 @@ func (h *SyncAlertHub) dispatchEpisode(ctx context.Context, episode *SyncAlertEp
 		if episode.Scope == SyncAlertEpisodeScopeTask && policy.NotifyTaskOwner {
 			extra = h.service.resolveUserEmails(ctx, episode.TaskCreatorID)
 		}
-		message := buildSyncAlertMessage(episode, policy, eventType, extra, h.clock())
+		message := buildSyncAlertMessage(episode, policy, eventType, extra, h.clock(), reminder)
 		summary, dispatchErr := h.service.dispatchAlertPolicyChannels(ctx, message, policy, channelMap, eventType, sourceKey, eventType == NotificationDeliveryEventTypeResolved)
 		if dispatchErr != nil {
 			errs = append(errs, dispatchErr)
@@ -631,18 +734,24 @@ func syncAlertSubject(episode *SyncAlertEpisode) string {
 // buildSyncAlertTitle 返回通知标题，格式与本地进程事件一致：[STX][告警|恢复][级别] 主体 · 规则。
 // buildSyncAlertTitle returns the notification title in the local process event format:
 // [STX][告警|恢复][severity] subject · rule.
-func buildSyncAlertTitle(episode *SyncAlertEpisode, eventType NotificationDeliveryEventType) string {
+// B4 的标题带当前延迟，提醒再加"[提醒] 已持续 X 分钟"，见 cdcDelayTitleSuffix。
+// B4 titles carry the current delay and reminders add "[提醒] 已持续 X 分钟"; see cdcDelayTitleSuffix.
+func buildSyncAlertTitle(episode *SyncAlertEpisode, eventType NotificationDeliveryEventType, reminder bool, now time.Time) string {
 	severity := strings.ToUpper(string(normalizeAlertPolicySeverity(episode.Severity)))
 	kind := "告警"
 	if eventType == NotificationDeliveryEventTypeResolved {
 		kind = "恢复"
 	}
-	return fmt.Sprintf("[STX][%s][%s] %s · %s", kind, resolveAlertSeverityLabelZH(severity), syncAlertSubject(episode), syncAlertRuleName(episode.RuleKey))
+	title := fmt.Sprintf("[STX][%s][%s] %s · %s", kind, resolveAlertSeverityLabelZH(severity), syncAlertSubject(episode), syncAlertRuleName(episode.RuleKey))
+	if episode.RuleKey == syncalert.RuleCDCDelayHigh {
+		title += cdcDelayTitleSuffix(episode, eventType, reminder, now)
+	}
+	return title
 }
 
 // buildSyncAlertFields 返回通知正文字段。
 // buildSyncAlertFields returns the notification body fields.
-func buildSyncAlertFields(episode *SyncAlertEpisode, policy *AlertPolicy, eventType NotificationDeliveryEventType, link string) []localAlertMessageField {
+func buildSyncAlertFields(episode *SyncAlertEpisode, policy *AlertPolicy, eventType NotificationDeliveryEventType, link string, now time.Time) []localAlertMessageField {
 	fields := []localAlertMessageField{
 		{Label: "状态", Value: resolveLocalAlertDeliveryStateLabel(eventType)},
 		{Label: "规则", Value: syncAlertRuleName(episode.RuleKey)},
@@ -660,14 +769,26 @@ func buildSyncAlertFields(episode *SyncAlertEpisode, policy *AlertPolicy, eventT
 		appendField("作业", fmt.Sprintf("#%d", episode.LastJobID), false)
 	}
 	appendField("引擎作业 ID", episode.LastEngineJobID, false)
-	appendField("触发来源", syncAlertTriggerSourceLabel(episode.LastTriggerSource), false)
+	// B4 是延迟告警，触发来源（作业提交方式）与延迟无关，不展示以免误解。
+	// B4 is a delay alert; trigger source (how the job was submitted) is unrelated, so omit it to avoid confusion.
+	if episode.RuleKey != syncalert.RuleCDCDelayHigh {
+		appendField("触发来源", syncAlertTriggerSourceLabel(episode.LastTriggerSource), false)
+	}
 	appendField("累计次数", strconv.Itoa(episode.OccurrenceCount), false)
 	appendField("首次发生", formatAlertNotificationTime(episode.FirstFiredAt), false)
 	appendField("最近发生", formatAlertNotificationTime(episode.LastOccurredAt), false)
 	if eventType == NotificationDeliveryEventTypeResolved && episode.ResolvedAt != nil {
 		appendField("恢复时间", formatAlertNotificationTime(*episode.ResolvedAt), false)
 	}
-	appendField("错误摘要", syncalert.TruncateMessage(episode.LastMessage, syncAlertMessageDisplayLimit), true)
+	if episode.RuleKey == syncalert.RuleCDCDelayHigh {
+		// B4 不是错误：延迟数值用单独的字段展示，不放进"错误摘要"。
+		// B4 is not an error: the delay values get their own fields instead of the error summary.
+		for _, field := range cdcDelayFields(episode, eventType, now) {
+			appendField(field.Label, field.Value, field.Multiline)
+		}
+	} else {
+		appendField("错误摘要", syncalert.TruncateMessage(episode.LastMessage, syncAlertMessageDisplayLimit), true)
+	}
 	if policy != nil {
 		appendField("策略", fmt.Sprintf("%s (%d)", firstNonEmpty(policy.Name, "unknown"), policy.ID), false)
 	}
@@ -677,11 +798,11 @@ func buildSyncAlertFields(episode *SyncAlertEpisode, policy *AlertPolicy, eventT
 
 // buildSyncAlertMessage 把阶段组装成与来源无关的 alertMessage，五类渠道都支持。
 // buildSyncAlertMessage assembles the episode into a source-agnostic alertMessage for all five channel types.
-func buildSyncAlertMessage(episode *SyncAlertEpisode, policy *AlertPolicy, eventType NotificationDeliveryEventType, extraRecipients []string, now time.Time) *alertMessage {
+func buildSyncAlertMessage(episode *SyncAlertEpisode, policy *AlertPolicy, eventType NotificationDeliveryEventType, extraRecipients []string, now time.Time, reminder bool) *alertMessage {
 	snapshot := *episode
 	link := syncAlertJobLink(snapshot.TaskID, snapshot.LastJobID)
-	title := buildSyncAlertTitle(&snapshot, eventType)
-	fields := buildSyncAlertFields(&snapshot, policy, eventType, link)
+	title := buildSyncAlertTitle(&snapshot, eventType, reminder, now)
+	fields := buildSyncAlertFields(&snapshot, policy, eventType, link, now)
 	renderHTML := func(note string) string {
 		severity := strings.ToUpper(string(normalizeAlertPolicySeverity(snapshot.Severity)))
 		return renderAlertMessageHTML(title, severity, resolveLocalAlertMessageVisual(eventType), fields, note)
@@ -703,7 +824,7 @@ func buildSyncAlertMessage(episode *SyncAlertEpisode, policy *AlertPolicy, event
 				return map[string]interface{}{
 					"title":   title,
 					"message": text,
-					"alert":   buildSyncAlertWebhookPayload(&snapshot, policy, eventType, link),
+					"alert":   buildSyncAlertWebhookPayload(&snapshot, policy, eventType, link, reminder),
 					"sent_at": now.Format(time.RFC3339),
 				}, nil
 			case NotificationChannelTypeWeCom, NotificationChannelTypeDingTalk:
@@ -739,7 +860,7 @@ func renderAlertMessageText(title string, fields []localAlertMessageField) strin
 
 // buildSyncAlertWebhookPayload 返回 webhook 里结构化的 alert 对象。
 // buildSyncAlertWebhookPayload returns the structured alert object sent to webhooks.
-func buildSyncAlertWebhookPayload(episode *SyncAlertEpisode, policy *AlertPolicy, eventType NotificationDeliveryEventType, link string) map[string]interface{} {
+func buildSyncAlertWebhookPayload(episode *SyncAlertEpisode, policy *AlertPolicy, eventType NotificationDeliveryEventType, link string, reminder bool) map[string]interface{} {
 	alert := map[string]interface{}{
 		"source_type":      AlertSourceTypeSync,
 		"source_key":       buildSyncAlertSourceKey(episode.ID),
@@ -762,7 +883,9 @@ func buildSyncAlertWebhookPayload(episode *SyncAlertEpisode, policy *AlertPolicy
 	if episode.LastJobID > 0 {
 		alert["job_id"] = episode.LastJobID
 		alert["engine_job_id"] = episode.LastEngineJobID
-		alert["trigger_source"] = episode.LastTriggerSource
+		if episode.RuleKey != syncalert.RuleCDCDelayHigh {
+			alert["trigger_source"] = episode.LastTriggerSource
+		}
 	}
 	if episode.ResolvedAt != nil {
 		alert["resolved_at"] = episode.ResolvedAt.UTC().Format(time.RFC3339)
@@ -774,6 +897,15 @@ func buildSyncAlertWebhookPayload(episode *SyncAlertEpisode, policy *AlertPolicy
 		alert["policy_id"] = policy.ID
 		alert["policy_name"] = policy.Name
 		alert["policy_type"] = policy.PolicyType
+	}
+	if episode.ResolveReason != "" {
+		alert["resolve_reason"] = episode.ResolveReason
+	}
+	if reminder {
+		alert["reminder"] = true
+	}
+	if episode.RuleKey == syncalert.RuleCDCDelayHigh {
+		appendCDCDelayWebhookFields(alert, episode)
 	}
 	return alert
 }

@@ -86,6 +86,8 @@ function normalizeTaskAlertConfig(data: SyncTaskAlertConfig | null | undefined):
     notify_task_owner: Boolean(data?.notify_task_owner),
     cooldown_minutes: typeof data?.cooldown_minutes === 'number' ? data.cooldown_minutes : 60,
     send_recovery: data?.send_recovery ?? true,
+    cdc_delay_threshold_seconds: data?.cdc_delay_threshold_seconds || 60,
+    cdc_delay_duration_minutes: data?.cdc_delay_duration_minutes || 5,
   };
 }
 

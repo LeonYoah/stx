@@ -51,6 +51,7 @@ export function TaskAlertDialog({
   open,
   taskId,
   taskName,
+  clusterId,
   config,
   channels,
   users,
@@ -61,6 +62,7 @@ export function TaskAlertDialog({
   open: boolean;
   taskId: number;
   taskName?: string;
+  clusterId?: number | null;
   config: SyncTaskAlertConfig | null;
   channels: NotificationChannel[];
   users: NotificationRecipientUser[];
@@ -115,6 +117,7 @@ export function TaskAlertDialog({
         </DialogHeader>
         <TaskAlertForm
           initial={config}
+          clusterId={clusterId}
           channels={channels}
           users={users}
           saving={saving}
@@ -136,11 +139,13 @@ export function TaskAlertDialog({
 export function TaskAlertSection({
   taskId,
   taskName,
+  clusterId,
   canEdit,
   users,
 }: {
   taskId: number | null;
   taskName?: string;
+  clusterId?: number | null;
   canEdit: boolean;
   users: NotificationRecipientUser[];
 }) {
@@ -253,6 +258,7 @@ export function TaskAlertSection({
         open={open}
         taskId={taskId}
         taskName={taskName}
+        clusterId={clusterId}
         config={config}
         channels={channels}
         users={users}

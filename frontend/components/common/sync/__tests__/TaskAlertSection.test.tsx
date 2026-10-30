@@ -28,6 +28,7 @@ import {TaskAlertSection} from '../TaskAlertSection';
 const getTaskAlert = vi.fn();
 const updateTaskAlert = vi.fn();
 const listNotificationChannels = vi.fn();
+const getEventChannel = vi.fn();
 
 vi.mock('@/lib/services', () => ({
   default: {
@@ -35,6 +36,7 @@ vi.mock('@/lib/services', () => ({
       getTaskAlert: (...args: unknown[]) => getTaskAlert(...args),
       updateTaskAlert: (...args: unknown[]) => updateTaskAlert(...args),
       deleteTaskAlert: vi.fn(),
+      getEventChannel: (...args: unknown[]) => getEventChannel(...args),
     },
     monitoring: {
       listNotificationChannels: (...args: unknown[]) => listNotificationChannels(...args),
@@ -59,10 +61,10 @@ const webhook = {
   updated_at: '',
 };
 
-function renderSection(canEdit = true) {
+function renderSection(canEdit = true, clusterId: number | null = null) {
   return render(
     <NextIntlClientProvider locale='zh' messages={zh}>
-      <TaskAlertSection taskId={42} taskName='orders' canEdit={canEdit} users={[]} />
+      <TaskAlertSection taskId={42} taskName='orders' clusterId={clusterId} canEdit={canEdit} users={[]} />
     </NextIntlClientProvider>,
   );
 }
@@ -117,6 +119,8 @@ describe('TaskAlertSection', () => {
       notify_task_owner: false,
       cooldown_minutes: 60,
       send_recovery: true,
+      cdc_delay_threshold_seconds: 60,
+      cdc_delay_duration_minutes: 5,
     });
     expect(await screen.findByTestId('task-alert-summary')).toHaveTextContent('运维群');
   });
@@ -141,5 +145,70 @@ describe('TaskAlertSection', () => {
     fireEvent.click(screen.getByTestId('task-alert-open'));
     expect(await screen.findByText('你没有这个任务的编辑权限，只能查看告警配置')).toBeInTheDocument();
     expect(screen.queryByTestId('task-alert-save')).not.toBeInTheDocument();
+  });
+
+  it('shows CDC delay parameters with hints and warns when the event channel is off', async () => {
+    getTaskAlert.mockResolvedValue({
+      configured: false,
+      enabled: false,
+      rules: [],
+      channel_ids: [],
+      receiver_user_ids: [],
+      notify_task_owner: false,
+      cooldown_minutes: 60,
+      send_recovery: true,
+      cdc_delay_threshold_seconds: 60,
+      cdc_delay_duration_minutes: 5,
+    });
+    getEventChannel.mockResolvedValue({cluster_id: 7, enabled: false, state: 'disabled', supported: true});
+    updateTaskAlert.mockResolvedValue({
+      configured: true,
+      policy_id: 9,
+      enabled: true,
+      rules: ['sync_cdc_delay_high'],
+      channel_ids: [2],
+      receiver_user_ids: [],
+      notify_task_owner: false,
+      cooldown_minutes: 60,
+      send_recovery: true,
+      cdc_delay_threshold_seconds: 30,
+      cdc_delay_duration_minutes: 5,
+    });
+    renderSection(true, 7);
+
+    fireEvent.click(await screen.findByTestId('task-alert-open'));
+    expect(await screen.findByTestId('task-alert-rule-sync_cdc_delay_high')).toBeInTheDocument();
+    expect(screen.queryByTestId('task-alert-cdc-delay')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('task-alert-rule-sync_cdc_delay_high'));
+    expect(await screen.findByTestId('task-alert-cdc-delay')).toBeInTheDocument();
+    // 提示收进 Tooltip，触发按钮的 aria-label 带完整提示。/ The hint lives in a Tooltip; its trigger carries it.
+    expect(screen.getByTestId('task-alert-cdc-hint').getAttribute('aria-label')).toContain(
+      '建议 ≥30 秒；数据库与 SeaTunnel 节点时间不同步会让延迟偏大',
+    );
+    expect(await screen.findByTestId('task-alert-cdc-channel-warning')).toHaveTextContent('未开启事件通道');
+    expect(getEventChannel).toHaveBeenCalledWith(7);
+
+    fireEvent.change(screen.getByTestId('task-alert-cdc-threshold'), {target: {value: '5'}});
+    // 错误显示在输入框下方并标红边框，底部不重复。/ The error shows under the input with a red border, not at the bottom.
+    expect(await screen.findByTestId('task-alert-cdc-threshold-error')).toHaveTextContent('延迟阈值需要是 10 到 86400');
+    expect(screen.getByTestId('task-alert-cdc-threshold').className).toContain('border-destructive');
+    fireEvent.click(screen.getByTestId('task-alert-channel-2'));
+    fireEvent.click(screen.getByTestId('task-alert-save'));
+    expect(screen.queryByTestId('task-alert-error')).not.toBeInTheDocument();
+    expect(updateTaskAlert).not.toHaveBeenCalled();
+
+    // 留空按默认值，不报错。/ Empty means the default and is not an error.
+    fireEvent.change(screen.getByTestId('task-alert-cdc-threshold'), {target: {value: ''}});
+    expect(screen.queryByTestId('task-alert-cdc-threshold-error')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('task-alert-cdc-threshold'), {target: {value: '30'}});
+    fireEvent.click(screen.getByTestId('task-alert-save'));
+    await waitFor(() => expect(updateTaskAlert).toHaveBeenCalledTimes(1));
+    expect(updateTaskAlert.mock.calls[0][1]).toMatchObject({
+      rules: ['sync_submit_failed', 'sync_submit_timeout', 'sync_job_failed', 'sync_stop_timeout', 'sync_cdc_delay_high'],
+      cdc_delay_threshold_seconds: 30,
+      cdc_delay_duration_minutes: 5,
+    });
   });
 });

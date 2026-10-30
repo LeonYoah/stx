@@ -77,7 +77,7 @@ func TestRenderAlertMessageHTML_NoteInsideCard(t *testing.T) {
 // the plain text has the note right after the title.
 func TestWithUndeliveredFirstAlertNote_EmailNoteInsideCard(t *testing.T) {
 	episode := &SyncAlertEpisode{ID: 1, Scope: SyncAlertEpisodeScopeTask, TaskID: 7, TaskName: "orders", RuleKey: syncalert.RuleJobFailed, Severity: AlertSeverityCritical, OccurrenceCount: 1}
-	message := withUndeliveredFirstAlertNote(buildSyncAlertMessage(episode, &AlertPolicy{Name: "p"}, NotificationDeliveryEventTypeResolved, nil, time.Now()))
+	message := withUndeliveredFirstAlertNote(buildSyncAlertMessage(episode, &AlertPolicy{Name: "p"}, NotificationDeliveryEventTypeResolved, nil, time.Now(), false))
 	payload, err := message.Build(&NotificationChannel{Type: NotificationChannelTypeEmail}, []string{"ops@example.com"})
 	if err != nil {
 		t.Fatalf("build email: %v", err)

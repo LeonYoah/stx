@@ -348,6 +348,14 @@ type AlertInstanceSourceRef struct {
 	TriggerSource   string `json:"trigger_source,omitempty"`
 	OccurrenceCount int    `json:"occurrence_count,omitempty"`
 	Link            string `json:"link,omitempty"`
+	// ResolveReason 是 sync 阶段结束的原因（recovered、job_ended、channel_unavailable、rule_removed、rule_changed、
+	// policy_deleted、closed），前端按它显示中英文的关闭原因。
+	// ResolveReason is why a sync episode ended (recovered, job_ended, channel_unavailable, rule_removed,
+	// rule_changed, policy_deleted, closed); the frontend renders the localized close reason from it.
+	ResolveReason string `json:"resolve_reason,omitempty"`
+	// RemindersPaused 表示 B4 "无法确认"超过 24 小时，已停止提醒（阶段保留）。
+	// RemindersPaused means B4 has been "unconfirmable" for over 24 hours and reminders stopped (episode kept).
+	RemindersPaused bool `json:"reminders_paused,omitempty"`
 }
 
 // AlertInstanceListData represents unified alert list response payload.
@@ -910,13 +918,39 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 		if r.TaskID == 0 {
 			return ErrAlertPolicySyncJobTaskRequired
 		}
-		if len(r.Conditions) == 0 {
-			return ErrAlertPolicySyncJobInvalidRule
-		}
+		ruleCount := 0
+		paramsCount := 0
+		hasCDCDelay := false
 		for _, condition := range r.Conditions {
-			if condition == nil || !syncalert.IsTaskRule(strings.TrimSpace(condition.MetricKey)) {
+			if condition == nil {
 				return ErrAlertPolicySyncJobInvalidRule
 			}
+			key := strings.TrimSpace(condition.MetricKey)
+			switch {
+			case key == syncJobCDCDelayParamsKey:
+				// 没勾选 B4 时保留参数的条件，不算规则，最多一条。
+				// The params-only condition kept while B4 is not selected; it is not a rule and appears at most once.
+				paramsCount++
+			case syncalert.IsTaskRule(key):
+				ruleCount++
+				hasCDCDelay = hasCDCDelay || key == syncalert.RuleCDCDelayHigh
+			default:
+				return ErrAlertPolicySyncJobInvalidRule
+			}
+			// B4 的阈值、持续时间放在条件里；直接调策略接口也要校验范围（0 或空表示默认值）。
+			// B4 keeps its threshold and duration in the condition; direct policy API calls are range-checked too
+			// (0 or empty means the default).
+			if key == syncalert.RuleCDCDelayHigh || key == syncJobCDCDelayParamsKey {
+				if _, _, err := cdcDelayConditionParams(condition); err != nil {
+					return err
+				}
+			}
+		}
+		// 勾选了 B4 时参数只放在 B4 条件里，不能再带只保存参数的条件，否则两处的值可能不一致。
+		// With B4 selected the params live only in the B4 condition; a params-only condition alongside it could
+		// disagree, so the two cannot coexist.
+		if ruleCount == 0 || paramsCount > 1 || (hasCDCDelay && paramsCount > 0) {
+			return ErrAlertPolicySyncJobInvalidRule
 		}
 		if len(r.NotificationChannelIDs) == 0 {
 			return ErrAlertPolicySyncJobChannelRequired

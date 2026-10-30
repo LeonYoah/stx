@@ -29,6 +29,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -228,6 +229,11 @@ func (s *Service) UpdateAlertPolicy(ctx context.Context, id uint, req *UpsertAle
 	}
 
 	var updated *AlertPolicy
+	// 与冷却提醒互斥：停用或删除策略时关闭的阶段不会在同一时刻再被提醒。
+	// Serialised with reminders: an episode closed by disabling or deleting the policy is never reminded at the same moment.
+	s.syncAlertEpisodeMu.Lock()
+	defer s.syncAlertEpisodeMu.Unlock()
+	s.syncAlertPolicyVersion++
 	if err := s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txRepo := &Repository{db: tx}
 		policy, err := txRepo.GetAlertPolicyByID(ctx, id)
@@ -281,6 +287,15 @@ func (s *Service) UpdateAlertPolicy(ctx context.Context, id uint, req *UpsertAle
 		if err := txRepo.SaveAlertPolicy(ctx, policy); err != nil {
 			return err
 		}
+		// 去掉 B4 或停用策略：正在告警的 B4 阶段静默关闭（rule_removed），告警中心显示原因。
+		// Removing B4 or disabling the policy silently closes the firing B4 episode (rule_removed); the alert center
+		// shows the reason.
+		if policy.PolicyType == AlertPolicyBuilderKindSyncJob && policy.TaskID > 0 &&
+			(!policy.Enabled || !syncJobPolicyHasRule(policy, syncalert.RuleCDCDelayHigh)) {
+			if err := closeSyncTaskEpisodesByRules(ctx, txRepo, policy.TaskID, []string{syncalert.RuleCDCDelayHigh}, syncalert.ResolveReasonRuleRemoved); err != nil {
+				return err
+			}
+		}
 
 		nextBridgeRef, err := buildAlertPolicyLegacyBridgeRef(policy)
 		if err != nil {
@@ -315,6 +330,11 @@ func (s *Service) DeleteAlertPolicy(ctx context.Context, id uint) error {
 	if id == 0 {
 		return ErrAlertPolicyInvalidID
 	}
+	// 与冷却提醒互斥：停用或删除策略时关闭的阶段不会在同一时刻再被提醒。
+	// Serialised with reminders: an episode closed by disabling or deleting the policy is never reminded at the same moment.
+	s.syncAlertEpisodeMu.Lock()
+	defer s.syncAlertEpisodeMu.Unlock()
+	s.syncAlertPolicyVersion++
 	return s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txRepo := &Repository{db: tx}
 		policy, err := txRepo.GetAlertPolicyByID(ctx, id)

@@ -73,6 +73,7 @@ import {
   TroubleshootingMemoryCard,
   SaveMemoryDialog,
 } from '@/components/common/troubleshooting';
+import {syncAutoCloseReason} from '@/components/common/sync/task-alert-utils';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
@@ -894,13 +895,41 @@ export function MonitoringAlertsCenter() {
                                   {tAlert('occurrences', {count: alert.source_ref?.occurrence_count ?? 0})}
                                 </Badge>
                               ) : null}
+                              {/* 作业告警：自动关闭原因、停止提醒 / Job alerts: auto-close reason, reminders paused */}
+                              {/* 徽标只显示"自动关闭"，完整原因放在 Tooltip，不挤压告警名称。/ The badge only says
+                                  "auto-closed"; the full reason is in a Tooltip so the alert name is not squeezed. */}
+                              {alert.source_type === 'sync' && syncAutoCloseReason(alert.source_ref?.resolve_reason) ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge
+                                      variant='outline'
+                                      className='shrink-0 whitespace-nowrap px-1 py-0 text-[10px] font-normal text-muted-foreground'
+                                      data-testid='sync-alert-close-reason'
+                                      aria-label={tAlert(`closeReason_${syncAutoCloseReason(alert.source_ref?.resolve_reason)}`)}
+                                    >
+                                      {tAlert('autoClosed')}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {tAlert(`closeReason_${syncAutoCloseReason(alert.source_ref?.resolve_reason)}`)}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : null}
+                              {alert.source_type === 'sync' && alert.source_ref?.reminders_paused ? (
+                                <Badge
+                                  variant='outline'
+                                  className='shrink-0 whitespace-nowrap border-amber-500/30 px-1 py-0 text-[10px] font-normal text-amber-600 dark:text-amber-400'
+                                >
+                                  {tAlert('remindersPaused')}
+                                </Badge>
+                              ) : null}
                               {alertMemoryMap.get(alert.alert_id) && (
                                 <Badge
                                   variant='outline'
                                   className='text-[10px] py-0 px-1 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 gap-0.5 shrink-0 font-normal'
                                 >
                                   <Lightbulb className='h-2.5 w-2.5 text-emerald-500' />
-                                  已有方案
+                                  {tsT('hasSolution')}
                                 </Badge>
                               )}
                             </div>
@@ -1178,6 +1207,17 @@ export function MonitoringAlertsCenter() {
                               {selectedAlert.source_ref.engine_job_id ? ` · ${selectedAlert.source_ref.engine_job_id}` : ''}
                             </span>
                           </div>
+                        ) : null}
+                        {selectedAlert.source_type === 'sync' && syncAutoCloseReason(selectedAlert.source_ref.resolve_reason) ? (
+                          <div className='flex items-center justify-between gap-3 p-3'>
+                            <span className='whitespace-nowrap text-muted-foreground'>{tAlert('closeReasonLabel')}</span>
+                            <span className='min-w-0 text-right'>
+                              {tAlert(`closeReason_${syncAutoCloseReason(selectedAlert.source_ref.resolve_reason)}`)}
+                            </span>
+                          </div>
+                        ) : null}
+                        {selectedAlert.source_type === 'sync' && selectedAlert.source_ref.reminders_paused ? (
+                          <div className='p-3 text-amber-600 dark:text-amber-400'>{tAlert('remindersPausedHint')}</div>
                         ) : null}
                         {selectedAlert.source_type === 'sync' && selectedAlert.source_ref.occurrence_count ? (
                           <div className='flex items-center justify-between p-3'>

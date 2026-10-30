@@ -1027,7 +1027,7 @@ func DefaultInstallParams() *InstallParams {
 		JobScheduleStrategy:     seatunnelmeta.DefaultInstallerJobScheduleStrategy,
 		HistoryJobExpireMinutes: &historyJobExpireMinutes,
 		ScheduledDeletionEnable: &scheduledDeletionEnable,
-		JobLogMode:              JobLogModeMixed,
+		JobLogMode:              JobLogModePerJob,
 		JVM: &JVMConfig{
 			HybridHeapSize: 3, // 3GB for hybrid mode / 混合模式 3GB
 			MasterHeapSize: 2, // 2GB for master / master 2GB

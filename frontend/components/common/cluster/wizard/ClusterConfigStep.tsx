@@ -621,12 +621,10 @@ export function ClusterConfigStep({
                     <Label className='text-xs font-medium'>
                       {t('cluster.wizard.javaProxyPort')}
                     </Label>
-                    <HelpHint
-                      label={t('cluster.wizard.javaProxyPort')}
-                      content={t('installer.javaProxy.logLocationHint')}
-                      data-testid='cluster-wizard-java-proxy-port-hint'
-                    />
                   </div>
+                  <p className='text-[11px] leading-4 text-muted-foreground' data-testid='cluster-wizard-java-proxy-desc'>
+                    {t('installer.javaProxy.description')}
+                  </p>
                   <Input
                     type='number'
                     value={config.javaProxyPort}

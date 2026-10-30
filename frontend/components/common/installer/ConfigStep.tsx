@@ -25,7 +25,7 @@
 
 'use client';
 
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {usePackages} from '@/hooks/use-installer';
 import {
@@ -146,6 +146,23 @@ export function ConfigStep({
     () => resolveSeatunnelVersionCapabilities(packages, config.version),
     [packages, config.version],
   );
+
+  // Unsupported SeaTunnel versions cannot use per_job; coerce to mixed.
+  // 不支持的 SeaTunnel 版本无法使用 per_job，回退为 mixed。
+  useEffect(() => {
+    if (!versionCapabilities || versionCapabilities.supports_job_log_mode) {
+      return;
+    }
+    if (config.runtime.job_log_mode === 'mixed') {
+      return;
+    }
+    onConfigChange({
+      runtime: {
+        ...config.runtime,
+        job_log_mode: 'mixed',
+      },
+    });
+  }, [versionCapabilities]);
 
   // Handle JVM config change / 处理 JVM 配置变化
   const handleJvmChange = (key: keyof JVMConfig, value: number) => {
@@ -784,21 +801,14 @@ export function ConfigStep({
             <CardTitle className='text-base flex items-center gap-2'>
               <Server className='h-4 w-4' />
               {t('installer.javaProxy.title')}
-              <HelpHint
-                label={t('installer.javaProxy.title')}
-                content={t('installer.javaProxy.description')}
-                data-testid='install-java-proxy-hint'
-              />
             </CardTitle>
+            <CardDescription className='text-xs' data-testid='install-java-proxy-desc'>
+              {t('installer.javaProxy.description')}
+            </CardDescription>
           </CardHeader>
           <CardContent className='space-y-2'>
             <div className='flex items-center gap-2'>
               <Label>{t('installer.javaProxy.port')}</Label>
-              <HelpHint
-                label={t('installer.javaProxy.port')}
-                content={t('installer.javaProxy.logLocationHint')}
-                data-testid='install-java-proxy-port-hint'
-              />
             </div>
             <Input
               data-testid='install-java-proxy-port'

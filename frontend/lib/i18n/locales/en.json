@@ -783,9 +783,9 @@
     "selectAtLeastOneNode": "Please select at least one discovered node to register",
     "separatedRequiresMasterAndWorker": "Separated mode cluster must contain at least one Master node and one Worker node",
     "advancedSettings": "Advanced Settings",
-    "stxJavaProxyDesc": "Bridges SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing",
-    "autoStartProxy": "Start this service on Master node immediately after registration",
-    "autoStartProxyHelp": "Recommended. Enables instant checkpoint viewing and storage diagnostics without manual deployment",
+    "stxJavaProxyDesc": "An STX-managed helper process on the Master that bridges the SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing. After registration, start it automatically; otherwise workbench features that depend on it stay unavailable or need a manual deploy.",
+    "autoStartProxy": "Start this service on Master immediately after registration (Recommended)",
+    "autoStartProxyHelp": "Without it, workbench features that rely on Java Proxy—checkpoint viewing, DAG preview, connector metadata, and storage probing—stay unavailable or need a manual deploy.",
     "proxyPort": "Proxy Port",
     "proxyPortPlaceholder": "18080",
     "proxyPortHelp": "If the port is occupied, Agent automatically probes and uses the next free port.",
@@ -1019,7 +1019,7 @@
     },
     "stxJavaProxy": {
       "title": "STX Java Proxy",
-      "description": "Managed proxy service used by install-time probes and runtime storage diagnostics.",
+      "description": "An STX-managed helper process on the Master that bridges the SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing.",
       "healthy": "Healthy",
       "unhealthy": "Running but unhealthy",
       "stopped": "Stopped",
@@ -1242,7 +1242,8 @@
           "title": "Rotate the event token?",
           "body": "A new token is written to seatunnel.yaml. Until the restart the engine keeps the old token, so reports are rejected."
         }
-      }
+      },
+      "purposeLine": "Shows DDL timelines and CDC delay in job details once enabled."
     },
     "observe": {
       "open": "Open SeaTunnel cluster observation",
@@ -1548,10 +1549,10 @@
     "portChangeConfirmImpact": "Subsequent platform API calls, Web UI access, and job submission will all use the new port.",
     "jobLogModeTitle": "Job Log Output Mode",
     "jobLogModePerJobBadge": "Per-Job Log Mode (Recommended)",
-    "jobLogModePerJobTip": "Routes per-job logs via routingAppender so Studio can view each job’s own log.",
+    "jobLogModePerJobTip": "Recommended. Routes each job through routingAppender into its own log so Studio can view job logs in isolation for easier troubleshooting.",
     "jobLogModeRestartHint": "Takes effect after a cluster restart.",
     "jobLogModeMixedBadge": "Shared Mixed Log Mode",
-    "jobLogModeMixedDesc": "All jobs output to a single log file; Studio cannot separate job logs. Switching to per-job mode and restarting is recommended.",
+    "jobLogModeMixedDesc": "All jobs write into the shared engine log file; Studio cannot separate job logs. Use only when you must match older behavior. Switching to per-job mode and restarting is recommended.",
     "switchToPerJobModeBtn": "Switch to Per-Job Log Mode (Recommended)",
     "switchToMixedModeBtn": "Switch to Shared Mixed Log Mode",
     "switchToPerJobSuccess": "Updated to Per-Job Log Mode (version created and synced). Takes effect after cluster restart!",
@@ -1846,14 +1847,14 @@
     },
     "uploadJar": "Upload JAR",
     "uploadJarDesc": "Upload Custom Driver JAR",
-    "uploadJarTip": "For patched or private JARs",
+    "uploadJarTip": "For patched or private JARs. Coordinates are inferred from the filename when Artifact/Version are empty.",
     "uploadJarFile": "JAR File",
     "uploadJarRequired": "Please select a JAR file to upload",
     "uploadDependencySuccess": "Custom driver uploaded successfully",
     "uploadDependencyFailed": "Failed to upload custom driver",
     "uploadGroupIdPlaceholder": "Optional, defaults to uploaded",
-    "uploadArtifactIdPlaceholder": "Optional, inferred from file name by default",
-    "uploadVersionPlaceholder": "Optional, inferred from file name by default",
+    "uploadArtifactIdPlaceholder": "Optional; inferred from filename if empty",
+    "uploadVersionPlaceholder": "Optional; inferred from filename if empty",
     "selectedFile": "Selected File",
     "source": "Source",
     "fileName": "File Name",
@@ -2157,7 +2158,7 @@
       "remoteParams": "Remote storage parameters",
       "remoteStorageInstallHint": "Remote HDFS / OSS / S3 settings are written into the engine during install, but this stage only probes ports. Deep read/write validation can be run after installation completes.",
       "imapGuidanceMeta": "IMAP stores metadata such as job/pipeline/task state, timestamps, slot usage, metrics, checkpoint counters, cleanup records, and completed job history. It does not store source or sink records.",
-      "imapBatchSuggestion": "If the cluster only runs batch jobs, external IMAP is usually not recommended; it may slow cluster recovery.",
+      "imapBatchSuggestion": "If the cluster only runs batch jobs, external IMAP is usually not recommended; it may slow recovery or even cause prolonged unavailability.",
       "imapStreamingSuggestion": "If the cluster runs streaming jobs, enable external IMAP so jobs can recover automatically after a restart or master failover.",
       "imapLocalHint": "Only one node is selected. For validation or lightweight environments, a local path is acceptable; distributed environments should prefer shared storage or keep external IMAP disabled.",
       "imapPathHint": "IMAP namespace/path. LOCAL_FILE uses a local directory, while HDFS/OSS/S3 use a remote namespace.",
@@ -2217,18 +2218,16 @@
     },
     "javaProxy": {
       "title": "stx-java-proxy",
-      "description": "Managed capability proxy for runtime storage probes and metadata inspection.",
-      "port": "Listen port",
-      "logLocationHint": "Service state and logs are stored under the Agent home directory."
+      "description": "An STX-managed helper process on the Master that bridges the SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing.",
+      "port": "Listen port"
     },
     "jobLogMode": {
       "title": "Log output mode",
-      "description": "SeaTunnel 2.3.8 and later support per-job log files. The default mode is mixed logs.",
       "mode": "Log mode",
       "mixed": "Mixed logs",
       "perJob": "Per-job logs",
-      "mixedHint": "All job logs are written into the system log file. This is the default recommended mode.",
-      "perJobHint": "Each job writes to its own log file for easier isolated troubleshooting."
+      "mixedHint": "All job logs go into the shared engine log file; Studio cannot separate them by job. Use only when you must match older behavior.",
+      "perJobHint": "Recommended. Each job writes its own log file so Studio can view job logs in isolation for easier troubleshooting."
     }
   },
   "admin": {
@@ -4686,8 +4685,9 @@
     "switchToPerJobSuccessToast": "Switched to Per-Job Log Mode (new configuration synced to all nodes). Takes effect after cluster restart!",
     "switchLogModeFailed": "Failed to switch log mode",
     "viewClusterDetail": "Go to Cluster Details",
-    "scheduleProductionNoticeDesc": "Built-in scheduling is intended for lightweight periodic tasks. For production high-availability environments and complex workflows, dedicated distributed workflow orchestration tools (e.g., Apache DolphinScheduler, Apache Airflow) are recommended for centralized dependency management, alerts, and retries.",
+    "scheduleProductionNoticeDesc": "For production, prefer DolphinScheduler or Airflow for orchestration and HA.",
     "scheduleLightweightBadge": "Lightweight",
+    "scheduleLightweightBadgeHint": "Built-in scheduling is intended for lightweight periodic tasks. For production high-availability environments and complex workflows, dedicated distributed workflow orchestration tools (e.g., Apache DolphinScheduler, Apache Airflow) are recommended for centralized dependency management, alerts, and retries.",
     "scheduleUnsavedHint": "Schedule has unsaved changes; save to apply.",
     "searchFileOrJobId": "Search file or enter Job ID...",
     "openAdvancedSchedule": "Open Advanced Settings",
@@ -4773,7 +4773,7 @@
     "dolphinNeedPublish": "Publish the task before pushing it to Dolphin.",
     "dolphinNeedNewVersion": "v{pushed} is already pushed. Publish a new version before updating the node.",
     "dolphinPublishedPushed": "Published v{published} · pushed v{pushed}",
-    "dolphinBoundHint": "A later push overwrites this SHELL node script only and leaves edges unchanged.",
+    "dolphinBoundHint": "A later push overwrites this SHELL node script only and leaves edges unchanged. A pushed version must be published as a new version before it can be updated.",
     "dolphinRemoteScript": "Current Dolphin script",
     "dolphinGeneratedScript": "Script that will be written",
     "dolphinScheduleNoticeTitle": "Schedules and release state",
@@ -4870,7 +4870,7 @@
       "viewRaw": "Raw data",
       "hideRaw": "Hide raw data",
       "totalBadge": "{total, plural, one {# event} other {# events}}",
-      "retentionHint": "Engine-reported status changes, schema changes and CDC delay, kept for 7 days."
+      "retentionHint": "Kept for 7 days"
     },
     "cdcDelayBadge": "CDC delay {value}",
     "cdcDelayTooltip": "Max {max} in the last minute, updated {time} (the engine only reports delays ≥ 1s)",

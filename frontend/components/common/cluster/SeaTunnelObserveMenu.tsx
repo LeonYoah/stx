@@ -82,12 +82,15 @@ export function SeaTunnelObserveMenu({
   variant = 'icon',
   align = 'end',
   className,
+  triggerHint,
 }: {
   clusterId: number;
   engineJobId?: string;
   variant?: 'icon' | 'button';
   align?: 'start' | 'end';
   className?: string;
+  /** 按钮形态下触发器的 Tooltip 说明 / Tooltip text for the trigger in button variant */
+  triggerHint?: string;
 }) {
   const t = useTranslations('cluster.observe');
   const [endpoints, setEndpoints] = useState<ClusterWebUIEndpoints | null>(null);
@@ -154,19 +157,30 @@ export function SeaTunnelObserveMenu({
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent side='top' className='text-xs'>
-            {t('open')}
+          <TooltipContent side='top' className='max-w-xs space-y-1 text-xs leading-relaxed'>
+            <p>{t('open')}</p>
+            <p className='opacity-80'>{t('webUiFeaturesHint')}</p>
           </TooltipContent>
         </Tooltip>
       ) : (
-        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        // 按钮形态：调用方的说明与「背压/实时指标」说明合并进同一个 Tooltip
+        // Button variant: the caller's hint and the backpressure/live-metrics note share one tooltip
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side='top' className='max-w-xs space-y-1 text-xs leading-relaxed'>
+            {triggerHint ? <p>{triggerHint}</p> : null}
+            <p>{t('webUiFeaturesHint')}</p>
+          </TooltipContent>
+        </Tooltip>
       )}
       <DropdownMenuContent
         align={align}
         className='min-w-[260px] max-w-[360px]'
         onClick={(event) => event.stopPropagation()}
       >
-        <DropdownMenuLabel className='text-xs'>
+        <DropdownMenuLabel className='truncate text-xs'>
           {engineJobId ? t('jobTitle', {id: engineJobId}) : t('clusterTitle')}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -184,25 +198,45 @@ export function SeaTunnelObserveMenu({
           </DropdownMenuItem>
         ) : endpoints ? (
           <>
-            <DropdownMenuItem onClick={() => open(proxyURL)} data-testid='seatunnel-observe-proxy'>
-              <div className='flex min-w-0 flex-col gap-0.5'>
-                <span>{t('viaProxy')}</span>
-                <span className='truncate font-mono text-[11px] text-muted-foreground'>{proxyURL}</span>
-              </div>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => open(nativeURL)}
-              disabled={!nativeURL}
-              data-testid='seatunnel-observe-native'
-            >
-              <div className='flex min-w-0 flex-col gap-0.5'>
-                <span>{t('native')}</span>
-                <span className='truncate font-mono text-[11px] text-muted-foreground'>{nativeURL || '-'}</span>
-              </div>
-            </DropdownMenuItem>
-            <div className='px-2 pb-1.5 pt-1 text-[11px] leading-snug text-muted-foreground'>
-              {t('hint')}
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuItem onClick={() => open(proxyURL)} data-testid='seatunnel-observe-proxy'>
+                  <div className='flex min-w-0 flex-col gap-0.5'>
+                    <span>{t('viaProxy')}</span>
+                    <span className='truncate font-mono text-[11px] text-muted-foreground'>{proxyURL}</span>
+                  </div>
+                </DropdownMenuItem>
+              </TooltipTrigger>
+              <TooltipContent side='left' className='max-w-[240px] text-xs'>
+                {t('viaProxyHint')}
+              </TooltipContent>
+            </Tooltip>
+            {/* 拿不到原生地址时用 aria-disabled 而不是 disabled：方向键仍能聚焦到这一项，Tooltip 说明原因 */}
+            {/* Without a native address use aria-disabled instead of disabled so arrow keys still reach the item and the tooltip explains why */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuItem
+                  aria-disabled={!nativeURL || undefined}
+                  className={cn(!nativeURL && 'cursor-not-allowed opacity-50')}
+                  onSelect={(event) => {
+                    if (!nativeURL) {
+                      event.preventDefault();
+                      return;
+                    }
+                    open(nativeURL);
+                  }}
+                  data-testid='seatunnel-observe-native'
+                >
+                  <div className='flex min-w-0 flex-col gap-0.5'>
+                    <span>{t('native')}</span>
+                    <span className='truncate font-mono text-[11px] text-muted-foreground'>{nativeURL || '-'}</span>
+                  </div>
+                </DropdownMenuItem>
+              </TooltipTrigger>
+              <TooltipContent side='left' className='max-w-[240px] text-xs'>
+                {nativeURL ? t('nativeHint') : t('nativeUnavailableHint')}
+              </TooltipContent>
+            </Tooltip>
           </>
         ) : null}
       </DropdownMenuContent>

@@ -67,6 +67,15 @@ import {useLocale} from '@/lib/i18n';
 import {PluginService} from '@/lib/services/plugin';
 import {openSeaTunnelAskAi, isKapaAskAiAllowed} from '@/lib/services/kapa-ai';
 import {PluginDependencyConfigSection} from './DependencyConfigDialog';
+import {
+  HELP_HINT_DELAY_MS,
+  HelpHint,
+} from '@/components/common/HelpHint';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {getPluginDependencyStatusMeta} from './dependency-status';
 import {
   generateConnectorDocUrls,
@@ -578,15 +587,10 @@ export function PluginDetailDialog({
 
                 {/* 官方配置文档与样例直达 / Official documentation & configuration samples */}
                 <div className='rounded-lg border bg-muted/20 p-4 space-y-3'>
-                  <div className='space-y-1'>
-                    <h4 className='text-sm font-semibold flex items-center gap-2'>
-                      <BookOpen className='h-4 w-4 text-primary' />
-                      {t('plugin.officialDocGuide')}
-                    </h4>
-                    <p className='text-xs text-muted-foreground leading-relaxed'>
-                      {t('plugin.officialDocGuideDesc')}
-                    </p>
-                  </div>
+                  <h4 className='text-sm font-semibold flex items-center gap-2'>
+                    <BookOpen className='h-4 w-4 text-primary' />
+                    {t('plugin.officialDocGuide')}
+                  </h4>
 
                   <div className='flex items-center gap-2.5 flex-wrap pt-1'>
                     {docUrls.sourceDocUrl && (
@@ -643,11 +647,18 @@ export function PluginDetailDialog({
                   <div className='flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-xs'>
                     <div className='flex items-center gap-2 text-foreground min-w-0'>
                       <Layers3 className='h-4 w-4 text-primary shrink-0' />
-                      <span className='truncate'>
-                        {t('plugin.overviewDependencySnapshotCount', {
+                      <span className='font-medium'>
+                        {t('plugin.officialDependencies')}
+                      </span>
+                      <Badge
+                        variant='secondary'
+                        className='text-[10px]'
+                        data-testid='plugin-dependency-snapshot-count'
+                      >
+                        {t('plugin.dependencySnapshotBadge', {
                           count: effectiveDependencies.length,
                         })}
-                      </span>
+                      </Badge>
                     </div>
                     <Button
                       variant='ghost'
@@ -663,10 +674,19 @@ export function PluginDetailDialog({
 
                 {/* Installation paths explanation / 安装路径与依赖隔离说明 */}
                 <div className='pt-2 border-t space-y-2'>
-                  <h5 className='text-xs font-medium text-muted-foreground flex items-center gap-1.5'>
-                    <FolderOpen className='h-3.5 w-3.5' />
-                    {t('plugin.installPath')}
-                  </h5>
+                  <div className='flex items-center gap-2'>
+                    <h5 className='text-xs font-medium text-muted-foreground flex items-center gap-1.5'>
+                      <FolderOpen className='h-3.5 w-3.5' />
+                      {t('plugin.installPath')}
+                    </h5>
+                    {useIsolatedDeps ? (
+                      <HelpHint
+                        label={t('plugin.installPath')}
+                        content={t('plugin.installPathIsolatedDesc')}
+                        data-testid='plugin-install-path-hint'
+                      />
+                    ) : null}
+                  </div>
                   <div className='text-xs space-y-1.5'>
                     <div className='flex items-center gap-2'>
                       <Badge variant='outline' className='text-[10px]'>
@@ -676,11 +696,11 @@ export function PluginDetailDialog({
                         connectors/
                       </code>
                     </div>
-                    <p className='text-xs text-muted-foreground mt-1'>
-                      {useIsolatedDeps
-                        ? t('plugin.installPathIsolatedDesc')
-                        : t('plugin.installPathLegacyDesc')}
-                    </p>
+                    {useIsolatedDeps ? null : (
+                      <p className='text-xs text-muted-foreground mt-1'>
+                        {t('plugin.installPathLegacyDesc')}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -692,15 +712,10 @@ export function PluginDetailDialog({
                 className='space-y-5 rounded-lg border bg-card p-5 shadow-xs'
                 data-testid='plugin-official-dependencies'
               >
-                <div>
-                  <h4 className='font-medium text-sm flex items-center gap-2'>
-                    <Layers3 className='h-4 w-4 text-primary' />
-                    {t('plugin.officialDependencies')}
-                  </h4>
-                  <p className='text-xs text-muted-foreground mt-1'>
-                    {t('plugin.officialDependenciesDesc')}
-                  </p>
-                </div>
+                <h4 className='font-medium text-sm flex items-center gap-2'>
+                  <Layers3 className='h-4 w-4 text-primary' />
+                  {t('plugin.officialDependencies')}
+                </h4>
 
                 {loadingOfficialDeps ? (
                   <div className='text-sm text-muted-foreground py-6 text-center'>
@@ -812,15 +827,10 @@ export function PluginDetailDialog({
                         data-testid='plugin-active-official-dependencies'
                       >
                         <div className='flex items-center justify-between gap-2 flex-wrap'>
-                          <div>
-                            <h5 className='text-sm font-medium'>
-                              {t('plugin.activeOfficialDependencies')} (
-                              {effectiveDependencies.length})
-                            </h5>
-                            <p className='text-xs text-muted-foreground mt-0.5'>
-                              {t('plugin.activeOfficialDependenciesDesc')}
-                            </p>
-                          </div>
+                          <h5 className='text-sm font-medium'>
+                            {t('plugin.activeOfficialDependencies')} (
+                            {effectiveDependencies.length})
+                          </h5>
                           {dependencyTargetDirs.length > 0 && (
                             <div className='flex flex-wrap justify-end gap-1.5'>
                               {dependencyTargetDirs.map((targetDir) => (
@@ -892,26 +902,37 @@ export function PluginDetailDialog({
                                       </code>
                                     </TableCell>
                                     <TableCell className='text-right'>
-                                      <Button
-                                        variant='ghost'
-                                        size='sm'
-                                        aria-label={`${t('plugin.disable')} ${dep.artifact_id}`}
-                                        data-testid={buildDependencyActionId(
-                                          'plugin-disable-official',
-                                          dep.artifact_id,
-                                        )}
-                                        className='text-amber-600 hover:text-amber-700 h-7 w-7 p-0'
-                                        disabled={busy}
-                                        onClick={() =>
-                                          handleDisableOfficialDependency(dep)
-                                        }
-                                      >
-                                        {busy ? (
-                                          <RefreshCw className='h-3.5 w-3.5 animate-spin' />
-                                        ) : (
-                                          <Ban className='h-3.5 w-3.5' />
-                                        )}
-                                      </Button>
+                                      <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+                                        <TooltipTrigger asChild>
+                                          <Button
+                                            variant='ghost'
+                                            size='sm'
+                                            aria-label={`${t('plugin.disable')} ${dep.artifact_id}`}
+                                            data-testid={buildDependencyActionId(
+                                              'plugin-disable-official',
+                                              dep.artifact_id,
+                                            )}
+                                            className='text-amber-600 hover:text-amber-700 h-7 w-7 p-0'
+                                            disabled={busy}
+                                            onClick={() =>
+                                              handleDisableOfficialDependency(dep)
+                                            }
+                                          >
+                                            {busy ? (
+                                              <RefreshCw className='h-3.5 w-3.5 animate-spin' />
+                                            ) : (
+                                              <Ban className='h-3.5 w-3.5' />
+                                            )}
+                                          </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent className='max-w-xs text-xs leading-relaxed'>
+                                          {t('plugin.disableWithReason', {
+                                            desc: t(
+                                              'plugin.activeOfficialDependenciesDesc',
+                                            ),
+                                          })}
+                                        </TooltipContent>
+                                      </Tooltip>
                                     </TableCell>
                                   </TableRow>
                                 );

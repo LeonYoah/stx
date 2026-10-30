@@ -22,7 +22,6 @@ import {useTranslations} from 'next-intl';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -521,15 +520,15 @@ export function InstallPluginDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={handleClose}>
-        <DialogContent className='w-[96vw] max-w-[96vw] sm:max-w-[920px] max-h-[88vh] overflow-hidden p-0 gap-0'>
+        <DialogContent
+          className='w-[96vw] max-w-[96vw] sm:max-w-[920px] max-h-[88vh] overflow-hidden p-0 gap-0'
+          aria-describedby={undefined}
+        >
           <DialogHeader className='px-6 pt-6 pb-4 shrink-0'>
             <DialogTitle className='flex items-center gap-2'>
               <Download className='h-5 w-5' />
               {t('plugin.managePlugin')}
             </DialogTitle>
-            <DialogDescription>
-              {t('plugin.managePluginDesc')}
-            </DialogDescription>
           </DialogHeader>
 
           <ScrollArea className='max-h-[calc(88vh-92px)]'>
@@ -642,14 +641,9 @@ export function InstallPluginDialog({
 
               <Card>
                 <CardContent className='pt-4 pb-4 space-y-4'>
-                  <div>
-                    <div className='flex items-center gap-2 text-sm font-medium'>
-                      <Layers3 className='h-4 w-4' />
-                      {t('plugin.automaticInstallContent')}
-                    </div>
-                    <p className='mt-1 text-xs text-muted-foreground'>
-                      {t('plugin.automaticInstallContentDesc')}
-                    </p>
+                  <div className='flex items-center gap-2 text-sm font-medium'>
+                    <Layers3 className='h-4 w-4' />
+                    {t('plugin.automaticInstallContent')}
                   </div>
 
                   <div className='space-y-2'>

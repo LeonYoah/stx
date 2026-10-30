@@ -1161,6 +1161,7 @@ export function CheckpointInspectSourceHighlightsSection({
   isManualOpen?: boolean;
   reSpecifyLabel?: string;
 }) {
+  const t = useTranslations('workbenchStudio');
   const sourceStates = Array.isArray(result?.source_state_inspect?.sources)
     ? result.source_state_inspect.sources
     : [];
@@ -1221,7 +1222,7 @@ export function CheckpointInspectSourceHighlightsSection({
                       {friendly.detail ? (
                         <details className='text-[11px] text-muted-foreground'>
                           <summary className='cursor-pointer text-amber-700/80 hover:underline dark:text-amber-300/80'>
-                            查看技术详情 / Technical Details
+                            {t('checkpointTechnicalDetails')}
                           </summary>
                           <pre className='mt-1.5 max-h-28 overflow-auto rounded bg-background/60 p-2 font-mono text-[10px] whitespace-pre-wrap break-all text-foreground'>
                             {friendly.detail}
@@ -1482,9 +1483,11 @@ export function CheckpointInspectSourceHighlightsSection({
                         return (
                           <div className='overflow-hidden rounded-md border border-border/50 bg-background/70 shadow-xs'>
                             <div className='border-b border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground flex items-center justify-between'>
-                              <span>子任务位点明细 (Subtask Progress)</span>
+                              <span>{t('checkpointSubtaskProgress')}</span>
                               <span className='font-mono text-[11px]'>
-                                {subtaskItems.length} 个子任务
+                                {t('checkpointSubtaskCount', {
+                                  count: subtaskItems.length,
+                                })}
                               </span>
                             </div>
                             <Table>
@@ -1660,7 +1663,7 @@ export function CheckpointInspectSourceHighlightsSection({
                           </Badge>
                         </div>
                         <div className='text-[11px] text-muted-foreground'>
-                          两阶段提交事务机制 (Two-Phase Commit / 2PC)
+                          {t('checkpointTwoPhaseCommit')}
                         </div>
                       </div>
                     </div>

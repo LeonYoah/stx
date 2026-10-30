@@ -32,6 +32,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Loader2, Save, RotateCcw, Settings, Activity, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -164,30 +165,52 @@ export function MonitorConfigPanel({ clusterId, clusterName }: MonitorConfigPane
       <CardContent className="space-y-6">
         {/* Main switches / 主开关 */}
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="flex items-start justify-between rounded-lg border p-4">
-            <div className="space-y-0.5">
-              <Label className="flex items-center gap-2">
-                <Activity className="h-4 w-4" />
-                {t('monitor.autoMonitor')}
-              </Label>
-              <p className="text-sm text-muted-foreground">{t('monitor.autoMonitorDesc')}</p>
-            </div>
-            <Badge variant="default" className="shrink-0">
-              {t('monitor.alwaysOn')}
-            </Badge>
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <Label className="flex items-center gap-2">
+              <Activity className="h-4 w-4" />
+              {t('monitor.autoMonitor')}
+            </Label>
+            {/* 「始终开启」说明进 Badge Tooltip，外包 button 让键盘可聚焦 / "Always on" explanation lives in the badge tooltip; the button wrapper makes it keyboard-focusable */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                  aria-label={`${t('monitor.alwaysOn')}: ${t('monitor.autoMonitorDesc')}`}
+                  data-testid="monitor-auto-always-on-trigger"
+                >
+                  <Badge variant="default" className="cursor-help" data-testid="monitor-auto-always-on">
+                    {t('monitor.alwaysOn')}
+                  </Badge>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                {t('monitor.autoMonitorDesc')}
+              </TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center justify-between rounded-lg border p-4">
-            <div className="space-y-0.5">
-              <Label className="flex items-center gap-2">
-                <RefreshCw className="h-4 w-4" />
-                {t('monitor.autoRestart')}
-              </Label>
-              <p className="text-sm text-muted-foreground">{t('monitor.autoRestartDesc')}</p>
-            </div>
-            <Switch
-              checked={formData.auto_restart}
-              onCheckedChange={(checked) => handleChange('auto_restart', checked)}
-            />
+            <Label htmlFor="monitor-auto-restart" className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" />
+              {t('monitor.autoRestart')}
+            </Label>
+            {/* 与「自动监控」同构：说明进开关 Tooltip；外包 span 避免 Tooltip 的 data-state 覆盖 Switch 的选中态，Switch 聚焦时 focus 冒泡仍会弹出 Tooltip */}
+            {/* Same layout as Auto Monitor: the description lives in the switch tooltip; the span keeps the tooltip's data-state off the Switch, and focus bubbling still opens it */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex shrink-0">
+                  <Switch
+                    id="monitor-auto-restart"
+                    checked={formData.auto_restart}
+                    onCheckedChange={(checked) => handleChange('auto_restart', checked)}
+                    data-testid="monitor-auto-restart-switch"
+                  />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                {t('monitor.autoRestartDesc')}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
 

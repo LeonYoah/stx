@@ -133,7 +133,11 @@ export function ClusterBasicStep({
                 <p className='text-[11px] text-destructive'>
                   {t('cluster.clusterCodeInvalid')}
                 </p>
-              ) : null}
+              ) : (
+                <p className='text-[11px] text-muted-foreground'>
+                  {t('cluster.clusterCodeShortHint')}
+                </p>
+              )}
             </div>
           </div>
 

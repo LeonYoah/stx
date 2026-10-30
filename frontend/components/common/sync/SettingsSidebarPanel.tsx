@@ -538,7 +538,8 @@ export function SettingsSidebarPanel({
         </div>
         <Tabs defaultValue='curated' className='w-full'>
           <TabsList className='grid h-8 w-full grid-cols-2'>
-            <Tooltip>
+            {/* Tab 上的 Tooltip 延迟约 400ms，避免切换 Tab 时闪现 / ~400ms delay so the tab Tooltip doesn't flash while switching tabs */}
+            <Tooltip delayDuration={400}>
               <TooltipTrigger asChild>
                 <TabsTrigger value='curated' className='text-[11px]'>
                   {t('curatedTemplates')}
@@ -548,7 +549,7 @@ export function SettingsSidebarPanel({
                 {t('curatedSaveViaSelectionHint')}
               </TooltipContent>
             </Tooltip>
-            <Tooltip>
+            <Tooltip delayDuration={400}>
               <TooltipTrigger asChild>
                 <TabsTrigger value='raw' className='text-[11px]'>
                   {t('rawDefaultParamTemplates')}

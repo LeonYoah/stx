@@ -5710,16 +5710,30 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='max-w-md' aria-describedby={undefined}>
+        <DialogContent
+          className='max-w-md'
+          aria-describedby={undefined}
+          // 打开时焦点直接进备注输入框，避免自动聚焦到标题旁的说明按钮而弹出 Tooltip
+          // Focus the comment input on open so auto-focus doesn't land on the help button and pop its Tooltip
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            document.getElementById('publish-version-comment')?.focus();
+          }}
+        >
           <DialogHeader>
-            <DialogTitle className='flex items-center gap-1.5'>
-              <span>{t('publishNewVersion')}</span>
+            {/* HelpCircle 放在 DialogTitle 外，避免说明进入弹窗可访问名称 */}
+            {/* HelpCircle sits outside DialogTitle so the description stays out of the dialog's accessible name */}
+            <div className='flex items-center gap-1.5'>
+              <DialogTitle>{t('publishNewVersion')}</DialogTitle>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <HelpCircle
-                    className='size-3.5 text-muted-foreground/60 hover:text-foreground cursor-help'
-                    aria-label={t('versionManagementDesc')}
-                  />
+                  <button
+                    type='button'
+                    className='text-muted-foreground/60 hover:text-foreground'
+                    aria-label={t('helpLabel')}
+                  >
+                    <HelpCircle className='size-3.5' />
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent
                   side='bottom'
@@ -5728,7 +5742,7 @@ export function DataSyncStudio() {
                   {t('versionManagementDesc')}
                 </TooltipContent>
               </Tooltip>
-            </DialogTitle>
+            </div>
           </DialogHeader>
           <div className='grid gap-4 py-2'>
             <div className='grid gap-2'>

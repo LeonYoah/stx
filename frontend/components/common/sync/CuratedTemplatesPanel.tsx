@@ -66,6 +66,20 @@ export function CuratedTemplatesPanel({
   refreshToken?: number;
 }) {
   const t = useTranslations('workbenchStudio');
+  // 来源枚举走 i18n，未知值降级原值（与 CuratedTemplatesManagePanel 一致）
+  // Origin enum goes through i18n, unknown values fall back to the raw value (same as CuratedTemplatesManagePanel)
+  const getOriginLabel = (orig: string) => {
+    if (orig === 'builtin') {
+      return t('curatedOriginBuiltin');
+    }
+    if (orig === 'user') {
+      return t('curatedOriginUser');
+    }
+    if (orig === 'override') {
+      return t('curatedOriginOverride');
+    }
+    return orig;
+  };
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<SyncCuratedTemplateView[]>([]);
   const [section, setSection] = useState<string>('all');
@@ -239,7 +253,7 @@ export function CuratedTemplatesPanel({
                         variant='secondary'
                         className='text-[9px] px-1 py-0 shrink-0'
                       >
-                        {item.origin}
+                        {getOriginLabel(item.origin)}
                       </Badge>
                     </div>
                     {item.description ? (

@@ -26,13 +26,22 @@ import services from '@/lib/services';
 import {copyToClipboard} from '@/lib/utils';
 import {toast} from 'sonner';
 
+// Radix Tooltip 打开时测量尺寸，jsdom 没有 ResizeObserver，这里给个空实现
+// Radix Tooltip measures size when open; jsdom lacks ResizeObserver, so stub it
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
+
 // Mock next-intl
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => {
     const messages: Record<string, string> = {
       curatedManage: '模板管理',
       curatedReadonlyEditHint: '系统模板只读，创建副本后可编辑',
-      curatedOwnerOnlyHint: '只能修改和删除自己的模板',
       curatedCreate: '新建精选',
       curatedEdit: '编辑',
       curatedCopy: '复制',
@@ -175,16 +184,38 @@ describe('CuratedTemplatesManagePanel', () => {
     const copyScriptButtons = screen.getAllByRole('button', {name: /复制脚本/});
     expect(copyScriptButtons.length).toBe(2);
 
-    // 内置模板的编辑/删除按钮为禁用态（原因在 Tooltip），自建模板可编辑与删除
-    // Builtin template shows disabled edit/delete (reason in Tooltip); user template can edit & delete
-    const editButtons = screen.getAllByRole('button', {name: /编辑/});
-    expect(editButtons).toHaveLength(2);
-    expect(editButtons.filter((b) => b.hasAttribute('disabled'))).toHaveLength(1);
-    const deleteButtons = screen.getAllByRole('button', {name: /删除/});
-    expect(deleteButtons).toHaveLength(2);
-    expect(deleteButtons.filter((b) => b.hasAttribute('disabled'))).toHaveLength(1);
+    // 系统模板不渲染编辑/删除（只读原因挂在「系统」来源 Badge 上），只有自建模板有可用的编辑与删除
+    // Builtin rows render no edit/delete (read-only reason lives on the origin Badge); only the user template has enabled edit & delete
+    const editButtons = screen.getAllByRole('button', {name: /^编辑$/});
+    expect(editButtons).toHaveLength(1);
+    expect(editButtons[0].hasAttribute('disabled')).toBe(false);
+    const deleteButtons = screen.getAllByRole('button', {name: /^删除$/});
+    expect(deleteButtons).toHaveLength(1);
+    expect(deleteButtons[0].hasAttribute('disabled')).toBe(false);
     // 标题下不再常驻说明文案 / No persistent description under the header
     expect(screen.queryByText(/查看全部精选/)).toBeNull();
+  });
+
+  it('opens the read-only hint from the builtin origin badge via keyboard focus', async () => {
+    render(<CuratedTemplatesManagePanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('MySQL Source Template')).toBeInTheDocument();
+    });
+
+    // 「系统」Badge 包成可聚焦的 button；聚焦后 Tooltip 弹出只读说明
+    // The builtin Badge is a focusable button; focusing it opens the read-only Tooltip
+    const badgeButton = screen.getByRole('button', {name: '系统'});
+    expect(badgeButton.getAttribute('type')).toBe('button');
+    expect(screen.queryByText('系统模板只读，创建副本后可编辑')).toBeNull();
+    fireEvent.focus(badgeButton);
+    await waitFor(() => {
+      expect(
+        screen.getAllByText('系统模板只读，创建副本后可编辑').length,
+      ).toBeGreaterThan(0);
+    });
+    // 自建模板的来源 Badge 不是按钮 / The user template's origin Badge is not a button
+    expect(screen.queryByRole('button', {name: '我的'})).toBeNull();
   });
 
   it('copies HOCON script to clipboard when clicking "复制脚本"', async () => {

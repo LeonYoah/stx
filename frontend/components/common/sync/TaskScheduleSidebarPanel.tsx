@@ -153,16 +153,21 @@ export function TaskScheduleSidebarPanel({
                 <Label className='text-xs font-semibold text-foreground'>
                   {t('taskSchedule')}
                 </Label>
-                {/* 生产调度建议收进「轻量」Badge 的 Tooltip */}
-                {/* Production scheduling advice lives in the "Lightweight" badge tooltip */}
+                {/* 生产调度建议收进「轻量」Badge 的 Tooltip；Badge 包成 button 以便键盘聚焦打开，可访问名称沿用可见文字，长建议由 Tooltip 作为描述 */}
+                {/* Production advice lives in the "Lightweight" badge Tooltip; wrapped in a button for keyboard focus, accessible name stays the visible text and the Tooltip supplies the description */}
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Badge
-                      variant='outline'
-                      className='h-4.5 cursor-help border-amber-500/30 px-1.5 text-[10px] text-amber-600 dark:text-amber-400'
+                    <button
+                      type='button'
+                      className='inline-flex cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
                     >
-                      {t('scheduleLightweightBadge')}
-                    </Badge>
+                      <Badge
+                        variant='outline'
+                        className='h-4.5 border-amber-500/30 px-1.5 text-[10px] text-amber-600 dark:text-amber-400'
+                      >
+                        {t('scheduleLightweightBadge')}
+                      </Badge>
+                    </button>
                   </TooltipTrigger>
                   <TooltipContent className='max-w-[320px] text-xs leading-5'>
                     {t('scheduleProductionNoticeDesc')}
@@ -241,7 +246,7 @@ export function TaskScheduleSidebarPanel({
         </div>
 
         {hasUnsavedChanges ? (
-          <p className='truncate text-[11px] text-amber-600 dark:text-amber-400'>
+          <p className='text-[11px] leading-4 text-amber-600 dark:text-amber-400 break-words'>
             {t('scheduleUnsavedHint')}
           </p>
         ) : null}

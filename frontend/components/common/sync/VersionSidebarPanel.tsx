@@ -80,10 +80,13 @@ export function VersionSidebarPanel({
               <span>{t('versionManagement')}</span>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <HelpCircle
-                    className='size-3 text-muted-foreground/60 hover:text-foreground cursor-help'
+                  <button
+                    type='button'
+                    className='text-muted-foreground/60 hover:text-foreground'
                     aria-label={t('versionManagementDesc')}
-                  />
+                  >
+                    <HelpCircle className='size-3' />
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent
                   side='bottom'

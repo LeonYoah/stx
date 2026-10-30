@@ -478,12 +478,35 @@ export function CuratedTemplatesManagePanel({
                   <span className='text-xs font-medium truncate' title={item.name}>
                     {item.name}
                   </span>
-                  <Badge
-                    variant='secondary'
-                    className='text-[9px] px-1 py-0 shrink-0'
-                  >
-                    {getOriginLabel(item.origin)}
-                  </Badge>
+                  {item.origin === 'builtin' ? (
+                    // 系统模板不渲染禁用的编辑/删除，「只读、创建副本后可编辑」挂在来源 Badge 上；包成 button 以便键盘聚焦触发 Tooltip
+                    // Builtin rows render no disabled edit/delete; the read-only hint lives on the origin Badge, wrapped in a button so keyboard focus opens the Tooltip
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type='button'
+                          className='inline-flex shrink-0 cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
+                        >
+                          <Badge
+                            variant='secondary'
+                            className='text-[9px] px-1 py-0'
+                          >
+                            {getOriginLabel(item.origin)}
+                          </Badge>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side='top' className='max-w-[240px] text-xs'>
+                        {t('curatedReadonlyEditHint')}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <Badge
+                      variant='secondary'
+                      className='text-[9px] px-1 py-0 shrink-0'
+                    >
+                      {getOriginLabel(item.origin)}
+                    </Badge>
+                  )}
                   <Badge
                     variant='outline'
                     className='text-[9px] px-1 py-0 shrink-0 font-mono'
@@ -558,31 +581,7 @@ export function CuratedTemplatesManagePanel({
                       <Pencil className='size-3 mr-1' />
                       {t('curatedEdit')}
                     </Button>
-                  ) : (
-                    // 非本人模板：编辑禁用，原因进 Tooltip；禁用按钮外包 span 才能触发 Tooltip
-                    // Not owned: edit disabled with the reason in a Tooltip; wrap the disabled button in a span so the Tooltip fires
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className='inline-flex' tabIndex={0}>
-                          <Button
-                            type='button'
-                            size='sm'
-                            variant='ghost'
-                            className='h-6 px-1.5 text-[10px] pointer-events-none'
-                            disabled
-                          >
-                            <Pencil className='size-3 mr-1' />
-                            {t('curatedEdit')}
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side='top' className='max-w-[240px] text-xs'>
-                        {item.origin === 'builtin'
-                          ? t('curatedReadonlyEditHint')
-                          : t('curatedOwnerOnlyHint')}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+                  ) : null}
                   {owned ? (
                     <Button
                       type='button'
@@ -595,27 +594,7 @@ export function CuratedTemplatesManagePanel({
                       <Trash2 className='size-3 mr-1' />
                       {t('delete')}
                     </Button>
-                  ) : (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className='inline-flex' tabIndex={0}>
-                          <Button
-                            type='button'
-                            size='sm'
-                            variant='ghost'
-                            className='h-6 px-1.5 text-[10px] pointer-events-none'
-                            disabled
-                          >
-                            <Trash2 className='size-3 mr-1' />
-                            {t('delete')}
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side='top' className='max-w-[240px] text-xs'>
-                        {t('curatedOwnerOnlyHint')}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+                  ) : null}
                   <Button
                     type='button'
                     size='sm'

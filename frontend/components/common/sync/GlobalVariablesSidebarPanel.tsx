@@ -247,14 +247,17 @@ export function GlobalVariablesSidebarPanel({
             {/* 说明收进标题旁 HelpCircle，按当前 Tab 切换 / Description lives in the title HelpCircle, switched by tab */}
             <Tooltip>
               <TooltipTrigger asChild>
-                <HelpCircle
-                  className='size-3 shrink-0 text-muted-foreground/60 hover:text-foreground cursor-help'
+                <button
+                  type='button'
+                  className='shrink-0 text-muted-foreground/60 hover:text-foreground'
                   aria-label={
                     isTimeMode
                       ? t('timeVariablesTabDesc')
                       : t('globalVariablesDesc')
                   }
-                />
+                >
+                  <HelpCircle className='size-3' />
+                </button>
               </TooltipTrigger>
               <TooltipContent side='top' className='text-xs max-w-[260px]'>
                 {isTimeMode

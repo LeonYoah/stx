@@ -561,6 +561,10 @@ func Serve() {
 				discoveryService.SetAgentDiscoverer(&discoveryAgentDiscovererAdapter{manager: agentManager})
 				log.Println("[API] Agent discoverer injected into discovery service / Agent 发现器已注入发现服务")
 			}
+			// Wire ClusterMatcher so 「发现集群」确认可建簇并写入 java_home（AC1e）。
+			// Wire ClusterMatcher so discover-confirm can create clusters and persist java_home (AC1e).
+			discoveryService.SetClusterMatcher(clusterService)
+			log.Println("[API] Cluster matcher injected into discovery service / 集群匹配器已注入发现服务")
 			discoveryHandler := discovery.NewHandler(discoveryService)
 
 			// Discovery routes on hosts 主机发现路由
@@ -2135,20 +2139,13 @@ type discoveryAgentDiscovererAdapter struct {
 // TriggerDiscovery triggers cluster discovery on an agent.
 // TriggerDiscovery 在 Agent 上触发集群发现。
 func (a *discoveryAgentDiscovererAdapter) TriggerDiscovery(ctx context.Context, agentID string) ([]*discovery.DiscoveredCluster, error) {
-	// Send DISCOVER_CLUSTERS command to agent
-	// 向 Agent 发送 DISCOVER_CLUSTERS 命令
-	resp, err := a.manager.SendCommand(ctx, agentID, pb.CommandType_DISCOVER_CLUSTERS, nil, 60*time.Second)
+	// 简化发现只返回进程：先拉进程再按安装目录聚合成集群，供「发现集群」确认建簇（AC1e）。
+	// Simplified discovery returns processes only: fetch processes then group by install dir for confirm (AC1e).
+	processes, err := a.DiscoverProcesses(ctx, agentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send discover clusters command: %w / 发送发现集群命令失败: %w", err, err)
+		return nil, err
 	}
-
-	if resp.Status != pb.CommandStatus_SUCCESS {
-		return nil, fmt.Errorf("discover clusters failed: %s / 发现集群失败: %s", resp.Error, resp.Error)
-	}
-
-	// For now, return empty list - the simplified discovery only returns processes
-	// 目前返回空列表 - 简化版发现只返回进程
-	return []*discovery.DiscoveredCluster{}, nil
+	return discovery.BuildClustersFromProcesses(processes), nil
 }
 
 // DiscoverProcesses discovers SeaTunnel processes on an agent (simplified).

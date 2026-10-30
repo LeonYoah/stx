@@ -343,6 +343,13 @@ func (s *Service) ConfirmDiscovery(ctx context.Context, req *ConfirmDiscoveryReq
 		if req.JavaHomes != nil {
 			if home, ok := req.JavaHomes[cluster.InstallDir]; ok {
 				cluster.JavaHome = home
+				// 同步到节点，便于 matcher / 下游统一读取。
+				// Mirror onto nodes so the matcher and downstream readers see one source.
+				for _, n := range cluster.Nodes {
+					if n != nil {
+						n.JavaHome = home
+					}
+				}
 			}
 		}
 		// Create cluster / 创建集群

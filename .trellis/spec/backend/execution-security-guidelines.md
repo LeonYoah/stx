@@ -388,7 +388,7 @@ if !reused {
 
 ```text
 cluster_id, host_id, node_role, install_dir,
-cluster_port, worker_port, http_port
+cluster_port, worker_port, http_port, java_home
 ```
 
 集群 Service 提供幂等节点登记入口：
@@ -403,6 +403,7 @@ EnsureNodeForInstallation(
     hazelcastPort int,
     apiPort int,
     workerPort int,
+    javaHome string, // 节点 JDK，为空表示自动探测 / node JDK, empty means auto detection
 ) error
 ```
 
@@ -415,7 +416,9 @@ UpgradeTaskStep.retry_count
 ### 10.3 契约
 
 - Agent 完成文件安装后，Control Plane 必须先按“集群、主机、角色”创建或刷新节点，再调用集群 Service 的启动方法。
-- 节点已经存在时只刷新安装目录和端口，不能重复创建相同角色节点。
+- 节点已经存在时只刷新安装目录、端口和 `java_home`，不能重复创建相同角色节点。
+- `cluster_nodes.java_home` 是节点 JDK 的唯一来源（issue #91）：为空表示 Agent 自动探测；扩容节点只取本次请求的值，不继承其他节点。
+- 带 `install_dir` 且调用方没有显式给 `java_home` 键的 Agent 命令，由 `agent.Manager` 的参数补全器按“主机 + 安装目录”从节点记录补上 `java_home`；预检、安装等需要明确语义的调用方必须显式下发该键（可为空）。
 - 节点登记或启动失败时，安装任务必须进入 `failed`，并在 `error`、`message` 中返回真实原因；不能保留 `success`。
 - 安装和启动全部完成后，`current_step` 必须为 `complete`。
 - 升级模板任务默认最多执行 3 次：立即执行、等待 3 秒后执行、再等待 5 秒后执行。
@@ -466,7 +469,7 @@ nodeStarter.StartNodeByClusterAndHostAndRole(ctx, clusterID, hostID, role)
 正确：
 
 ```go
-if err := nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, role, installDir, clusterPort, apiPort, workerPort); err != nil {
+if err := nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, role, installDir, clusterPort, apiPort, workerPort, javaHome); err != nil {
     markInstallationFailed(status, err)
     return
 }

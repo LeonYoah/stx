@@ -48,7 +48,7 @@ func addHostInstallCommands(root *cobra.Command, storeProvider authStoreProvider
 }
 
 func newHostPrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
-	var namespace, installDir, requestFile string
+	var namespace, installDir, javaHome, requestFile string
 	var minMemoryMB, minDiskSpaceMB int64
 	var minCPUCores int
 	var ports []int
@@ -67,6 +67,7 @@ func newHostPrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
 				body = make(map[string]any)
 			}
 			setChangedString(command, body, "install-dir", installDir)
+			setChangedString(command, body, "java-home", javaHome)
 			if command.Flags().Changed("min-memory-mb") {
 				body["min_memory_mb"] = minMemoryMB
 			}
@@ -97,6 +98,7 @@ func newHostPrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
 	}
 	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
 	command.Flags().StringVar(&installDir, "install-dir", "", "SeaTunnel installation directory to check")
+	command.Flags().StringVar(&javaHome, "java-home", "", "Node JDK directory; <java-home>/bin/java is used, empty keeps auto detection")
 	command.Flags().Int64Var(&minMemoryMB, "min-memory-mb", 0, "Minimum available memory in MiB")
 	command.Flags().IntVar(&minCPUCores, "min-cpu-cores", 0, "Minimum CPU core count")
 	command.Flags().Int64Var(&minDiskSpaceMB, "min-disk-space-mb", 0, "Minimum available disk space in MiB")
@@ -107,7 +109,7 @@ func newHostPrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
 
 func newHostInstallStartCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var version, installDir, installMode, mirror, packagePath, deploymentMode, nodeRole, clusterID, requestFile string
+	var version, installDir, installMode, mirror, packagePath, deploymentMode, nodeRole, clusterID, javaHome, requestFile string
 	var masterAddresses, workerAddresses []string
 	var clusterPort, workerPort, httpPort, javaProxyPort int
 	var enableHTTP bool
@@ -133,6 +135,7 @@ func newHostInstallStartCommand(storeProvider authStoreProvider) *cobra.Command 
 			setChangedString(command, body, "deployment-mode", deploymentMode)
 			setChangedString(command, body, "node-role", nodeRole)
 			setChangedString(command, body, "cluster-id", clusterID)
+			setChangedString(command, body, "java-home", javaHome)
 			setDefaultString(body, "install_mode", installMode)
 			setDefaultString(body, "deployment_mode", deploymentMode)
 			setDefaultString(body, "node_role", nodeRole)
@@ -166,6 +169,7 @@ func newHostInstallStartCommand(storeProvider authStoreProvider) *cobra.Command 
 	command.Flags().StringVar(&deploymentMode, "deployment-mode", "hybrid", "Deployment mode: hybrid or separated")
 	command.Flags().StringVar(&nodeRole, "node-role", "master/worker", "Node role: master, worker, or master/worker")
 	command.Flags().StringVar(&clusterID, "cluster-id", "", "Cluster ID to join after installation")
+	command.Flags().StringVar(&javaHome, "java-home", "", "Node JDK directory; <java-home>/bin/java is used, empty keeps auto detection")
 	command.Flags().StringSliceVar(&masterAddresses, "master-address", nil, "Master address; may be specified more than once")
 	command.Flags().StringSliceVar(&workerAddresses, "worker-address", nil, "Worker address; may be specified more than once")
 	command.Flags().IntVar(&clusterPort, "cluster-port", 0, "Master or hybrid Hazelcast port")

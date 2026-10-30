@@ -234,6 +234,7 @@ func (s *ScaleService) stepValidatePlan(ctx context.Context, op *ClusterScaleOpe
 			Mode:       plan.Mode,
 			Role:       plan.Target.Role,
 			InstallDir: plan.Target.InstallDir,
+			JavaHome:   plan.Target.JavaHome,
 			Ports: ScaleNodePorts{
 				HazelcastPort: plan.Target.HazelcastPort,
 				APIPort:       plan.Target.APIPort,
@@ -659,6 +660,7 @@ func buildScaleInstallRequest(view *scaleView, plan *ScalePlan) *installerapp.In
 		ClusterPort:     firstPositive(masterPort, DefaultPorts.MasterHazelcast),
 		WorkerPort:      firstPositive(workerPort, DefaultPorts.WorkerHazelcast),
 		HTTPPort:        target.APIPort,
+		JavaHome:        target.JavaHome,
 		DeferNodeStart:  true,
 	}
 }
@@ -675,7 +677,7 @@ func nonNilStrings(values []string) []string {
 // installer's registration and corrects ports; register mode creates the record and probes the process).
 func (s *ScaleService) stepRegisterNode(ctx context.Context, op *ClusterScaleOperation, plan *ScalePlan, lang string) scaleStepOutcome {
 	target := plan.Target
-	if err := s.svc.EnsureNodeForInstallation(ctx, op.ClusterID, target.HostID, string(target.Role), target.InstallDir, target.HazelcastPort, target.APIPort, target.WorkerPort); err != nil {
+	if err := s.svc.EnsureNodeForInstallation(ctx, op.ClusterID, target.HostID, string(target.Role), target.InstallDir, target.HazelcastPort, target.APIPort, target.WorkerPort, target.JavaHome); err != nil {
 		return stepFailed(err, nil)
 	}
 	node, err := s.svc.repo.GetNodeByClusterAndHostAndRole(ctx, op.ClusterID, target.HostID, string(target.Role))

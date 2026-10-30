@@ -116,6 +116,7 @@ func buildClusterMonitorParams(clusterID uint, nodes []*NodeWithMonitorConfig, f
 			"cluster_id":  node.ClusterID,
 			"install_dir": node.InstallDir,
 			"role":        node.Role,
+			"java_home":   node.JavaHome,
 		})
 	}
 	if config == nil {

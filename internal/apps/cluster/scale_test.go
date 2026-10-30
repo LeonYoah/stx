@@ -43,9 +43,10 @@ import (
 type scaleFakeAgent struct {
 	mu           sync.Mutex
 	javaFail     map[string]bool
-	listening    map[string]bool // agent|port
-	unreachable  map[string]bool // agent|host:port
-	running      map[string]bool // agent|installDir
+	javaVersion  map[string]string // agent -> 指定 JDK 的主版本 / major version of the specified JDK
+	listening    map[string]bool   // agent|port
+	unreachable  map[string]bool   // agent|host:port
+	running      map[string]bool   // agent|installDir
 	members      map[string][]string
 	stopFails    map[string]bool
 	proxyHealthy map[string]bool
@@ -56,6 +57,7 @@ type scaleFakeAgent struct {
 func newScaleFakeAgent() *scaleFakeAgent {
 	return &scaleFakeAgent{
 		javaFail:     map[string]bool{},
+		javaVersion:  map[string]string{},
 		listening:    map[string]bool{},
 		unreachable:  map[string]bool{},
 		running:      map[string]bool{},
@@ -90,6 +92,19 @@ func (a *scaleFakeAgent) handle(agentID, commandType string, params map[string]s
 	isProxy := params["service"] == "stx_java_proxy"
 	switch commandType {
 	case "check_java":
+		if home := params["java_home"]; home != "" {
+			// 指定 JDK：模拟新版 Agent 只检查 <java_home>/bin/java。/ Specified JDK: a new Agent checks only <java_home>/bin/java.
+			details := map[string]string{"java_home_source": "custom", "java_home": home, "java_bin": home + "/bin/java"}
+			if a.javaFail[agentID] {
+				details["error_reason"] = "not_found"
+				return false, precheckJSON(false, "java binary not found: "+home+"/bin/java", details)
+			}
+			details["installed_version"] = "8"
+			if version := a.javaVersion[agentID]; version != "" {
+				details["installed_version"] = version
+			}
+			return true, precheckJSON(true, "java "+details["installed_version"], details)
+		}
 		if a.javaFail[agentID] {
 			return false, precheckJSON(false, "java not found", nil)
 		}

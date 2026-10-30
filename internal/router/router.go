@@ -46,6 +46,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/health"
 	"github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/apps/oauth"
@@ -308,6 +309,7 @@ func Serve() {
 				clusterRouter.POST("/:id/nodes/:nodeId/stop", clusterHandler.StopNode)
 				clusterRouter.POST("/:id/nodes/:nodeId/restart", clusterHandler.RestartNode)
 				clusterRouter.GET("/:id/nodes/:nodeId/logs", clusterHandler.GetNodeLogs)
+				clusterRouter.GET("/:id/nodes/:nodeId/java-runtime", clusterHandler.GetNodeJavaRuntime)
 
 				// Cluster operations 集群操作
 				clusterRouter.POST("/:id/start", clusterHandler.StartCluster)
@@ -1180,6 +1182,11 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	// 设置 Host 状态更新器
 	// Set Host status updater
 	agentManager.SetHostUpdater(&hostStatusUpdaterAdapter{hostService: hostService})
+
+	// 节点 JDK 集中下发：带 install_dir 且未显式给 java_home 的命令从 cluster_nodes.java_home 补全（AC4c）。
+	// Central node-JDK dispatch: commands with install_dir and no explicit java_home are filled from
+	// cluster_nodes.java_home (AC4c).
+	agentManager.SetCommandParamEnricher(newNodeJavaHomeEnricher(hostRepo, clusterRepo))
 
 	// 初始化 Audit Repository 用于日志记录
 	// Initialize Audit Repository for logging
@@ -2377,6 +2384,7 @@ func (a *grpcClusterNodeProviderAdapter) GetNodesByHostID(ctx context.Context, h
 			Role:          string(node.Role),
 			ProcessPID:    node.ProcessPID,
 			MonitorConfig: config,
+			JavaHome:      node.JavaHome,
 		})
 	}
 
@@ -2516,4 +2524,30 @@ func (a *syncEventReportConfigAdapter) ApplyEventReportConfig(ctx context.Contex
 		})
 	}
 	return out, nil
+}
+
+// newNodeJavaHomeEnricher 构建节点 JDK 参数补全器：按 Agent 找主机，再按主机与安装目录找节点记录。
+// newNodeJavaHomeEnricher builds the node-JDK parameter enricher: the host is found by Agent, then node records
+// by host and install directory.
+func newNodeJavaHomeEnricher(hostRepo *host.Repository, clusterRepo *cluster.Repository) agent.CommandParamEnricher {
+	lookup := func(ctx context.Context, agentID, installDir string) ([]string, error) {
+		hostRecord, err := hostRepo.GetByAgentID(ctx, agentID)
+		if err != nil || hostRecord == nil {
+			return nil, err
+		}
+		nodes, err := clusterRepo.GetNodesByHostID(ctx, hostRecord.ID)
+		if err != nil {
+			return nil, err
+		}
+		homes := make([]string, 0, len(nodes))
+		for _, node := range nodes {
+			if node != nil && javaruntime.Normalize(node.InstallDir) == installDir {
+				homes = append(homes, node.JavaHome)
+			}
+		}
+		return homes, nil
+	}
+	return func(ctx context.Context, agentID string, _ pb.CommandType, params map[string]string) map[string]string {
+		return javaruntime.EnrichParams(ctx, agentID, params, lookup)
+	}
 }

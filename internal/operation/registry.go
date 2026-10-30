@@ -2054,6 +2054,10 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 				{Name: "lines", Location: InputQuery, Required: false, Description: "Number of log lines"}, {Name: "mode", Location: InputQuery, Required: false, Description: "Read mode: tail, head, or all"},
 				{Name: "filter", Location: InputQuery, Required: false, Description: "Log filter pattern"}, {Name: "date", Location: InputQuery, Required: false, Description: "Rolling log date suffix"},
 			}),
+		// 节点生效 JDK：只读，但会让 Agent 执行 <java_home>/bin/java -version。
+		// Node effective JDK: read-only, but makes the Agent run <java_home>/bin/java -version.
+		withUsesAgent(clusterGeneratedOperation("cluster.node.java-runtime", []string{"cluster", "node", "java-runtime"}, "Get the effective JDK of a cluster node", "GET", "/api/v1/clusters/:id/nodes/:nodeId/java-runtime", RiskR0,
+			"查询会让目标 Agent 执行一次 java -version，用于确认节点实际使用的 JDK 路径与版本。", "stx cluster node java-runtime 6 1", clusterNodeIDInputs())),
 		clusterGeneratedOperation("cluster.start", []string{"cluster", "start"}, "Start a cluster", "POST", "/api/v1/clusters/:id/start", RiskR1,
 			"启动集群会在所有节点创建 SeaTunnel 进程并占用 CPU、内存和端口。", "stx cluster start 6 --confirm", clusterIDInputs()),
 		clusterGeneratedOperation("cluster.stop", []string{"cluster", "stop"}, "Stop a cluster", "POST", "/api/v1/clusters/:id/stop", RiskR1,
@@ -2351,4 +2355,11 @@ func RegistryDigest() string {
 	}
 	digest := sha256.Sum256(content)
 	return fmt.Sprintf("sha256:%x", digest[:])
+}
+
+// withUsesAgent 把操作标记为经过 Agent 执行。
+// withUsesAgent marks an operation as executed through the Agent.
+func withUsesAgent(spec OperationSpec) OperationSpec {
+	spec.UsesAgent = true
+	return spec
 }

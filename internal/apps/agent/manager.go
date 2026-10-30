@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
@@ -383,6 +384,51 @@ type Manager struct {
 	// mu protects the running state.
 	// mu 保护运行状态。
 	mu sync.RWMutex
+
+	// paramEnricher 在下发前补全命令参数（如节点 JDK），nil 表示不补全。
+	// paramEnricher completes command parameters (such as the node JDK) before dispatch; nil means none.
+	paramEnricher atomic.Pointer[CommandParamEnricher]
+}
+
+// CommandParamEnricher 在命令下发前根据 Agent 与参数返回需要补充的参数；只能新增调用方未给出的键。
+// 返回 nil 或空 map 表示不补充。
+// CommandParamEnricher returns parameters to add before a command is dispatched, based on the Agent and the
+// parameters; it may only add keys the caller did not set. A nil or empty map means nothing to add.
+type CommandParamEnricher func(ctx context.Context, agentID string, cmdType pb.CommandType, params map[string]string) map[string]string
+
+// SetCommandParamEnricher 设置命令参数补全器（传 nil 关闭）。
+// SetCommandParamEnricher sets the command parameter enricher (nil disables it).
+func (m *Manager) SetCommandParamEnricher(enricher CommandParamEnricher) {
+	if enricher == nil {
+		m.paramEnricher.Store(nil)
+		return
+	}
+	m.paramEnricher.Store(&enricher)
+}
+
+// enrichParams 返回补全后的参数副本；调用方已有的键永不覆盖，未补全时返回原 map。
+// enrichParams returns an enriched copy of the parameters; keys set by the caller are never overwritten, and the
+// original map is returned when nothing is added.
+func (m *Manager) enrichParams(ctx context.Context, agentID string, cmdType pb.CommandType, params map[string]string) map[string]string {
+	ptr := m.paramEnricher.Load()
+	if ptr == nil || *ptr == nil {
+		return params
+	}
+	extra := (*ptr)(ctx, agentID, cmdType, params)
+	if len(extra) == 0 {
+		return params
+	}
+	merged := make(map[string]string, len(params)+len(extra))
+	for key, value := range params {
+		merged[key] = value
+	}
+	for key, value := range extra {
+		if _, exists := merged[key]; exists {
+			continue
+		}
+		merged[key] = value
+	}
+	return merged
 }
 
 // NewManager creates a new Agent Manager instance.
@@ -652,6 +698,7 @@ func (m *Manager) SendCommandWithID(ctx context.Context, commandID, agentID stri
 	if stream == nil {
 		return nil, ErrStreamNotAvailable
 	}
+	params = m.enrichParams(ctx, agentID, cmdType, params)
 
 	// Create command context
 	// 创建命令上下文
@@ -715,6 +762,7 @@ func (m *Manager) SendCommandAsync(agentID string, cmdType pb.CommandType, param
 	if stream == nil {
 		return "", ErrStreamNotAvailable
 	}
+	params = m.enrichParams(context.Background(), agentID, cmdType, params)
 
 	// Generate command ID
 	// 生成命令 ID

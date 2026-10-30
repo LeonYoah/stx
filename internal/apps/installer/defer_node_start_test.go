@@ -35,7 +35,7 @@ type orderedNodeStarter struct {
 	recorder *orderRecorder
 }
 
-func (s *orderedNodeStarter) EnsureNodeForInstallation(context.Context, uint, uint, string, string, int, int, int) error {
+func (s *orderedNodeStarter) EnsureNodeForInstallation(context.Context, uint, uint, string, string, int, int, int, string) error {
 	s.recorder.calls = append(s.recorder.calls, "ensure_node")
 	return nil
 }

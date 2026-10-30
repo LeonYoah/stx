@@ -33,6 +33,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
 )
@@ -1221,6 +1222,7 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		errors.Is(err, ErrNodeBatchEntriesRequired),
 		errors.Is(err, ErrInvalidNodeJVMOverride),
 		errors.Is(err, ErrPrecheckFailed),
+		errors.Is(err, javaruntime.ErrInvalidJavaHome),
 		errors.Is(err, ErrSeparatedClusterRequiresMasterAndWorker):
 		return http.StatusBadRequest
 	default:
@@ -1398,4 +1400,39 @@ func (h *Handler) GetNodeLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, GetNodeLogsResponse{Data: &struct {
 		Logs string `json:"logs"`
 	}{Logs: logs}})
+}
+
+// GetNodeJavaRuntimeResponse 是节点 JDK 查询的响应。
+// GetNodeJavaRuntimeResponse is the response of the node JDK query.
+type GetNodeJavaRuntimeResponse struct {
+	ErrorMsg string           `json:"error_msg"`
+	Data     *NodeJavaRuntime `json:"data"`
+}
+
+// GetNodeJavaRuntime 返回节点实际生效的 JDK 路径与版本（AC7）。
+// GetNodeJavaRuntime returns the node's effective JDK path and version (AC7).
+// @Summary 查询节点生效的 JDK / Get the node's effective JDK
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群 ID / Cluster ID"
+// @Param nodeId path int true "节点 ID / Node ID"
+// @Success 200 {object} GetNodeJavaRuntimeResponse
+// @Router /api/v1/clusters/{id}/nodes/{nodeId}/java-runtime [get]
+func (h *Handler) GetNodeJavaRuntime(c *gin.Context) {
+	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, GetNodeJavaRuntimeResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		return
+	}
+	nodeID, err := strconv.ParseUint(c.Param("nodeId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, GetNodeJavaRuntimeResponse{ErrorMsg: "无效的节点 ID / Invalid node ID"})
+		return
+	}
+	runtimeInfo, err := h.service.GetNodeJavaRuntime(c.Request.Context(), uint(clusterID), uint(nodeID))
+	if err != nil {
+		c.JSON(h.getStatusCodeForError(err), GetNodeJavaRuntimeResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, GetNodeJavaRuntimeResponse{Data: runtimeInfo})
 }

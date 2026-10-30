@@ -33,6 +33,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
@@ -708,6 +709,9 @@ type PrecheckRequest struct {
 	MinDiskSpaceMB int64  `json:"min_disk_space_mb"`
 	InstallDir     string `json:"install_dir"`
 	Ports          []int  `json:"ports"`
+	// JavaHome 是该节点指定的 JDK 目录；为空时沿用原有的 PATH 探测。
+	// JavaHome is the JDK directory specified for this node; empty keeps the original PATH detection.
+	JavaHome string `json:"java_home"`
 }
 
 // PrecheckResponse represents the response for precheck.
@@ -807,6 +811,10 @@ func (h *Handler) StartInstallation(c *gin.Context) {
 
 	status, err := h.service.StartInstallation(c.Request.Context(), &req)
 	if err != nil {
+		if errors.Is(err, javaruntime.ErrInvalidJavaHome) {
+			c.JSON(http.StatusBadRequest, InstallResponse{ErrorMsg: err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, InstallResponse{ErrorMsg: err.Error()})
 		return
 	}

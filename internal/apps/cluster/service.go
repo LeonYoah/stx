@@ -29,6 +29,7 @@ import (
 
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -1243,6 +1244,9 @@ func (s *Service) AddNode(ctx context.Context, clusterID uint, req *AddNodeReque
 	if err != nil {
 		return nil, err
 	}
+	if node.JavaHome, err = javaruntime.Validate(req.JavaHome); err != nil {
+		return nil, err
+	}
 
 	if err := s.repo.AddNode(ctx, node); err != nil {
 		return nil, err
@@ -1276,6 +1280,10 @@ func (s *Service) AddNodes(ctx context.Context, clusterID uint, req *AddNodesReq
 	if err := s.ensureHostReady(ctx, req.HostID); err != nil {
 		return nil, err
 	}
+	javaHome, err := javaruntime.Validate(req.JavaHome)
+	if err != nil {
+		return nil, err
+	}
 
 	createdNodes := make([]*ClusterNode, 0, len(req.Entries))
 	seenRoles := make(map[NodeRole]struct{}, len(req.Entries))
@@ -1297,6 +1305,7 @@ func (s *Service) AddNodes(ctx context.Context, clusterID uint, req *AddNodesReq
 				return err
 			}
 
+			node.JavaHome = javaHome
 			if _, exists := seenRoles[node.Role]; exists {
 				return ErrNodeAlreadyExists
 			}
@@ -1376,6 +1385,7 @@ func buildNodeInfo(node *ClusterNode) *NodeInfo {
 		Overrides:     node.Overrides.Normalize(),
 		Status:        node.Status,
 		ProcessPID:    node.ProcessPID,
+		JavaHome:      node.JavaHome,
 		CreatedAt:     node.CreatedAt,
 		UpdatedAt:     node.UpdatedAt,
 	}
@@ -2331,7 +2341,14 @@ func (s *Service) StartNode(ctx context.Context, clusterID uint, nodeID uint) (*
 
 // EnsureNodeForInstallation 确保一键安装完成后的节点已登记，并刷新安装目录与端口。
 // EnsureNodeForInstallation ensures a one-click installation node is registered and refreshes its install directory and ports.
-func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int) error {
+// javaHome 为该节点指定的 JDK（为空表示自动探测），每次安装都覆盖写入，不沿用其他节点或旧值（AC1d）。
+// javaHome is the node's JDK (empty means auto detection); every installation overwrites it and never inherits
+// from other nodes or old values (AC1d).
+func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int, javaHome string) error {
+	normalizedJavaHome, err := javaruntime.Validate(javaHome)
+	if err != nil {
+		return err
+	}
 	cluster, err := s.repo.GetByID(ctx, clusterID, false)
 	if err != nil {
 		return err
@@ -2344,6 +2361,7 @@ func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint,
 	if err != nil {
 		return err
 	}
+	desired.JavaHome = normalizedJavaHome
 	existing, err := s.repo.GetNodeByClusterAndHostAndRole(ctx, clusterID, hostID, string(desired.Role))
 	if err != nil {
 		return err
@@ -2361,6 +2379,7 @@ func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint,
 	existing.HazelcastPort = desired.HazelcastPort
 	existing.APIPort = desired.APIPort
 	existing.WorkerPort = desired.WorkerPort
+	existing.JavaHome = desired.JavaHome
 	if err := s.repo.UpdateNode(ctx, existing); err != nil {
 		return err
 	}
@@ -2777,6 +2796,7 @@ func (s *Service) GetClusterNodesWithAgentInfo(ctx context.Context, clusterID ui
 			WorkerPort:    node.WorkerPort,
 			Status:        node.Status,
 			ProcessPID:    node.ProcessPID,
+			JavaHome:      node.JavaHome,
 			CreatedAt:     node.CreatedAt,
 			UpdatedAt:     node.UpdatedAt,
 		}

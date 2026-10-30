@@ -188,8 +188,8 @@ func (o *NodeOverrides) Scan(value interface{}) error {
 
 // Cluster represents a SeaTunnel cluster consisting of multiple nodes.
 type Cluster struct {
-	ID             uint           `json:"id" gorm:"primaryKey;autoIncrement"`
-	Name           string         `json:"name" gorm:"size:100;uniqueIndex;not null"`
+	ID   uint   `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name string `json:"name" gorm:"size:100;uniqueIndex;not null"`
 	// ClusterCode 是底层的不可变集群标识，仅包含字符与数字 [a-z0-9]
 	// ClusterCode is the immutable engine cluster identifier containing only characters and digits [a-z0-9]
 	ClusterCode    string         `json:"cluster_code" gorm:"column:cluster_code;size:64;index"`
@@ -233,9 +233,13 @@ type ClusterNode struct {
 	Overrides     NodeOverrides `json:"overrides" gorm:"type:json"`            // Node-level JSON overrides / 节点级 JSON 覆盖配置
 	Status        NodeStatus    `json:"status" gorm:"size:20;default:pending"` // Unified status field: pending, installing, running, stopped, error / 统一状态字段
 	ProcessPID    int           `json:"process_pid" gorm:"column:process_pid"` // SeaTunnel process PID / SeaTunnel 进程 PID
-	LastEventAt   *time.Time    `json:"last_event_at"`                         // 最后事件时间 / Last event time
-	CreatedAt     time.Time     `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt     time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
+	// JavaHome 是该节点生效 JDK 的唯一存储位置：为空表示沿用自动探测；SeaTunnel、stx-java-proxy、预检与诊断工具都读这里。
+	// JavaHome is the single storage place of this node's effective JDK: empty keeps auto detection; SeaTunnel,
+	// stx-java-proxy, precheck and diagnostic tools all read it.
+	JavaHome    string     `json:"java_home" gorm:"size:512"`
+	LastEventAt *time.Time `json:"last_event_at"` // 最后事件时间 / Last event time
+	CreatedAt   time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt   time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName specifies the table name for the ClusterNode model.
@@ -339,6 +343,8 @@ type AddNodeRequest struct {
 	APIPort       int            `json:"api_port"`            // REST API port (Master only, optional) / REST API 端口（仅 Master，可选）
 	WorkerPort    int            `json:"worker_port"`         // Worker hazelcast port (Hybrid only) / Worker Hazelcast 端口（仅混合模式）
 	Overrides     *NodeOverrides `json:"overrides,omitempty"` // Node-level JSON overrides / 节点级 JSON 覆盖配置
+	// JavaHome 是该节点指定的 JDK 目录，为空时自动探测。/ JavaHome is the node's JDK directory; empty means auto detection.
+	JavaHome string `json:"java_home"`
 
 	// Whether to skip precheck / 是否跳过预检查
 	SkipPrecheck bool `json:"skip_precheck"`
@@ -362,6 +368,10 @@ type AddNodesRequest struct {
 	InstallDir   string                `json:"install_dir"`
 	Entries      []AddNodeEntryRequest `json:"entries" binding:"required"`
 	SkipPrecheck bool                  `json:"skip_precheck"`
+	// JavaHome 是该主机上这些节点共用的 JDK 目录（同一安装目录只能有一个 JDK），为空时自动探测。
+	// JavaHome is the JDK directory shared by these nodes on the host (one install dir has one JDK); empty means
+	// auto detection.
+	JavaHome string `json:"java_home"`
 }
 
 // UpdateNodeRequest represents a request to update a node in a cluster.
@@ -391,6 +401,7 @@ type NodeInfo struct {
 	Status        NodeStatus    `json:"status"`         // Unified status: pending, installing, running, stopped, error, offline / 统一状态
 	IsOnline      bool          `json:"is_online"`      // Whether host is online; when false, status may be shown as offline / 主机是否在线
 	ProcessPID    int           `json:"process_pid"`    // SeaTunnel process PID / SeaTunnel 进程 PID
+	JavaHome      string        `json:"java_home"`      // 节点指定的 JDK，为空表示自动探测 / Node JDK; empty means auto detection
 	CreatedAt     time.Time     `json:"created_at"`
 	UpdatedAt     time.Time     `json:"updated_at"`
 }

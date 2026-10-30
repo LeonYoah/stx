@@ -267,7 +267,7 @@ func TestRootCommandRegistersClusterReadWriteAndProcessCommands(t *testing.T) {
 	paths := [][]string{
 		{"cluster", "create"}, {"cluster", "update"},
 		{"cluster", "node", "add"}, {"cluster", "node", "add-batch"}, {"cluster", "node", "update"},
-		{"cluster", "node", "precheck"}, {"cluster", "node", "logs"},
+		{"cluster", "node", "precheck"}, {"cluster", "node", "logs"}, {"cluster", "node", "java-runtime"},
 		{"cluster", "start"}, {"cluster", "stop"}, {"cluster", "restart"},
 		{"cluster", "node", "start"}, {"cluster", "node", "stop"}, {"cluster", "node", "restart"},
 		{"cluster", "java-proxy", "status"}, {"cluster", "java-proxy", "logs"},

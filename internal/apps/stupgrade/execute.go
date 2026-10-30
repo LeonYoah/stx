@@ -778,6 +778,8 @@ func (s *Service) executeSmokeTestStep(ctx context.Context, task *UpgradeTask, s
 		output, err = s.runManagedCommand(ctx, target.HostID, map[string]string{
 			"sub_command": "run_smoke_test_template",
 			"install_dir": target.TargetInstallDir,
+			// 新目录还没有节点记录，显式带上节点 JDK。/ The new directory has no node record yet, so send the node JDK explicitly.
+			"java_home": target.JavaHome,
 		})
 		if err == nil || !isRetryableSmokeTestError(err) || attempt == maxAttempts {
 			break

@@ -47,3 +47,14 @@ If you're using Codex or another agent-capable tool, additional project-scoped h
 Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
 
 <!-- TRELLIS:END -->
+
+## Cursor Cloud specific instructions
+
+Cloud Agent 启动后，API 和 Web UI 由环境 start 拉起，一般不用再手工开进程。
+
+- API：在仓库根目录执行 `go run main.go api`，监听 **17800**。`api` 会提示改用 `server`，进程仍提供接口。
+- Web UI：`cd frontend && pnpm dev`，监听 **3000**。页面上的 `/api` 会代理到 `http://127.0.0.1:17800`。
+- 配置：若没有 `config.yaml`，从 `config.example.yaml` 复制。默认 SQLite，文件在 `data/stx.db`。登录不需要 MySQL、PostgreSQL、Java 或 stx-java-proxy。
+- 登录账号：`admin` / `admin123`。
+- 工具链：Go **1.26.10**（以 `go.mod` 为准）。镜像里的 `/usr/bin/go` 更旧，环境会把 1.26.10 装到 `/usr/local/go` 并链接到 `/usr/local/bin/go`。前端使用 Node 22 与 pnpm **10.10.0**（`frontend/package.json` 的 `packageManager`）。
+- 检查命令：`go test ./...`；`cd agent && go test ./...`；`cd frontend && pnpm test`；`cd frontend && pnpm exec tsc --noEmit`。`pnpm lint` 在当前 main 上会报已有的 ESLint 问题，这不是环境没装好。

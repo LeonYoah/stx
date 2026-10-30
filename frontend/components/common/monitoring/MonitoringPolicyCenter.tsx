@@ -119,6 +119,7 @@ import {
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Textarea} from '@/components/ui/textarea';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {HelpHint} from '@/components/common/HelpHint';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {
   WEBHOOK_LIKE_CHANNEL_TYPES,
@@ -1140,7 +1141,8 @@ export function MonitoringPolicyCenter() {
         value: currentUserDisplayName,
       });
     }
-    return t('channel.testRecipientHint');
+    // 默认说明已挪到「测试收件人」标签旁的问号提示 / Default hint now lives in the label tooltip
+    return null;
   }, [
     currentUser,
     currentUserDisplayName,
@@ -3017,12 +3019,7 @@ export function MonitoringPolicyCenter() {
 
                   {selectedTemplateSupportsCondition ? (
                     <div className='space-y-3 rounded-lg border bg-muted/20 p-4'>
-                      <div className='space-y-0.5'>
-                        <Label>{t('fields.triggerCondition')}</Label>
-                        <p className='text-xs text-muted-foreground'>
-                          {t('conditionHint')}
-                        </p>
-                      </div>
+                      <Label>{t('fields.triggerCondition')}</Label>
                       <div className='grid gap-3 sm:grid-cols-3'>
                         <div className='space-y-1.5'>
                           <Label className='text-xs'>{t('fields.operator')}</Label>
@@ -3179,11 +3176,12 @@ export function MonitoringPolicyCenter() {
 
               <div className='space-y-3'>
                 <div className='flex items-center justify-between gap-2'>
-                  <div className='space-y-1'>
+                  <div className='flex items-center gap-1.5'>
                     <Label>{t('fields.receivers')}</Label>
-                    <p className='text-xs text-muted-foreground'>
-                      {t('receiverHint')}
-                    </p>
+                    <HelpHint
+                      content={t('receiverHint')}
+                      data-testid='policy-receiver-hint'
+                    />
                   </div>
                   {preferredDefaultReceiverUserIds.length > 0 ? (
                     <Button
@@ -3488,10 +3486,9 @@ export function MonitoringPolicyCenter() {
           requestEmailChannelDiscard(() => closeEmailChannelDialog(true));
         }}
       >
-        <DialogContent className='flex h-[85vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl'>
+        <DialogContent className='flex h-[85vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl' aria-describedby={undefined}>
           <DialogHeader className='px-6 py-4 border-b bg-muted/15 shrink-0'>
             <DialogTitle className='text-lg font-semibold'>{t('channel.dialogTitle')}</DialogTitle>
-            <DialogDescription className='text-xs text-muted-foreground'>{t('channel.dialogSubtitle')}</DialogDescription>
           </DialogHeader>
 
           <div className='min-h-0 flex-1 overflow-y-auto px-6 py-4'>
@@ -3838,7 +3835,13 @@ export function MonitoringPolicyCenter() {
                   </CardHeader>
                   <CardContent className='space-y-4'>
                     <div className='space-y-2'>
-                      <Label>{t('channel.fields.testRecipient')}</Label>
+                      <div className='flex items-center gap-1.5'>
+                        <Label>{t('channel.fields.testRecipient')}</Label>
+                        <HelpHint
+                          content={t('channel.testRecipientHint')}
+                          data-testid='email-test-recipient-hint'
+                        />
+                      </div>
                       <Select
                         value={emailTestReceiver}
                         onValueChange={(value) => setEmailTestReceiver(value)}
@@ -3863,9 +3866,11 @@ export function MonitoringPolicyCenter() {
                           ))}
                         </SelectContent>
                       </Select>
-                      <p className='text-xs text-muted-foreground'>
-                        {emailTestRecipientHint}
-                      </p>
+                      {emailTestRecipientHint ? (
+                        <p className='text-xs text-muted-foreground'>
+                          {emailTestRecipientHint}
+                        </p>
+                      ) : null}
                     </div>
 
                     {emailFallbackRecipients.length > 0 ? (
@@ -3955,10 +3960,9 @@ export function MonitoringPolicyCenter() {
           requestWebhookChannelDiscard(() => closeWebhookChannelDialog(true));
         }}
       >
-        <DialogContent className='flex h-[85vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl'>
+        <DialogContent className='flex h-[85vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl' aria-describedby={undefined}>
           <DialogHeader className='px-6 py-4 border-b bg-muted/15 shrink-0'>
             <DialogTitle className='text-lg font-semibold'>{t('webhook.dialogTitle')}</DialogTitle>
-            <DialogDescription className='text-xs text-muted-foreground'>{t('webhook.dialogSubtitle')}</DialogDescription>
           </DialogHeader>
 
           <div className='min-h-0 flex-1 overflow-y-auto px-6 py-4'>
@@ -4137,7 +4141,13 @@ export function MonitoringPolicyCenter() {
                     </div>
 
                     <div className='space-y-2'>
-                      <Label>{t('webhook.fields.endpoint')}</Label>
+                      <div className='flex items-center gap-1.5'>
+                        <Label>{t('webhook.fields.endpoint')}</Label>
+                        <HelpHint
+                          content={t('webhook.endpointRecipientTip')}
+                          data-testid='webhook-endpoint-hint'
+                        />
+                      </div>
                       <Input
                         value={webhookChannelForm.endpoint}
                         onChange={(event) =>
@@ -4159,11 +4169,20 @@ export function MonitoringPolicyCenter() {
 
                     {channelTypeSupportsSecret(webhookChannelForm.type) ? (
                     <div className='space-y-2'>
-                      <Label>
-                        {webhookChannelForm.type === 'webhook'
-                          ? t('webhook.fields.secret')
-                          : t('webhook.fields.signSecret')}
-                      </Label>
+                      <div className='flex items-center gap-1.5'>
+                        <Label>
+                          {webhookChannelForm.type === 'webhook'
+                            ? t('webhook.fields.secret')
+                            : t('webhook.fields.signSecret')}
+                        </Label>
+                        {webhookChannelForm.type === 'webhook' ? (
+                          <HelpHint
+                            content={t('webhook.secretHint')}
+                            contentClassName='max-w-sm break-words'
+                            data-testid='webhook-secret-hint'
+                          />
+                        ) : null}
+                      </div>
                       <div className='relative'>
                         <Input
                           type={showWebhookSecret ? 'text' : 'password'}
@@ -4199,11 +4218,11 @@ export function MonitoringPolicyCenter() {
                           )}
                         </Button>
                       </div>
-                      <p className='text-xs text-muted-foreground'>
-                        {webhookChannelForm.type === 'webhook'
-                          ? t('webhook.secretHint')
-                          : t(`webhook.secretHints.${webhookChannelForm.type}`)}
-                      </p>
+                      {webhookChannelForm.type === 'webhook' ? null : (
+                        <p className='text-xs text-muted-foreground'>
+                          {t(`webhook.secretHints.${webhookChannelForm.type}`)}
+                        </p>
+                      )}
                       {editingWebhookChannel?.secret &&
                       editingWebhookChannel.type !== webhookChannelForm.type &&
                       !webhookChannelForm.secret.trim() ? (

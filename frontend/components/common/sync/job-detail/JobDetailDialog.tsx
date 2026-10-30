@@ -182,7 +182,11 @@ export function JobDetailDialog({
                       </Button>
                     </span>
                   </TooltipTrigger>
-                  {!actionContext.canRun ? <TooltipContent>{tStudio('readOnlyRecoverTooltip')}</TooltipContent> : null}
+                  <TooltipContent>
+                    {!actionContext.canRun
+                      ? tStudio('readOnlyRecoverTooltip')
+                      : tStudio('historyRecoverTooltip')}
+                  </TooltipContent>
                 </Tooltip>
               ) : null}
               {actions.showStop ? (

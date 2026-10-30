@@ -24,13 +24,6 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   Table,
   TableBody,
   TableCell,
@@ -39,6 +32,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {Badge} from '@/components/ui/badge';
+import {HelpHint} from '@/components/common/HelpHint';
 import {toast} from 'sonner';
 import {FileCode, Package, Plus, RefreshCw, Trash2, Upload} from 'lucide-react';
 import {PluginService} from '@/lib/services/plugin';
@@ -49,13 +43,6 @@ interface PluginDependencyConfigSectionProps {
   seatunnelVersion?: string;
   compact?: boolean;
   onChanged?: () => void;
-}
-
-interface DependencyConfigDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  pluginName: string;
-  seatunnelVersion?: string;
 }
 
 function parseMavenXml(
@@ -304,11 +291,13 @@ export function PluginDependencyConfigSection({
       data-testid='plugin-custom-dependencies'
     >
       <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-        <div className='min-w-0 flex-1 mr-2'>
+        <div className='min-w-0 flex-1 mr-2 flex items-center gap-2'>
           <h4 className='font-medium'>{t('plugin.configDependency')}</h4>
-          <p className='mt-1 text-xs text-muted-foreground'>
-            {t('plugin.configuredDependenciesDesc')}
-          </p>
+          <HelpHint
+            label={t('plugin.configDependency')}
+            content={t('plugin.configuredDependenciesTip')}
+            data-testid='plugin-custom-dependencies-hint'
+          />
         </div>
         <div className='flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap'>
           <Button
@@ -328,6 +317,7 @@ export function PluginDependencyConfigSection({
             variant='outline'
             size='sm'
             className='whitespace-nowrap shrink-0'
+            data-testid='plugin-add-dependency-trigger'
             onClick={() => {
               setShowAddForm((prev) => !prev);
               setShowXmlParse(false);
@@ -355,16 +345,12 @@ export function PluginDependencyConfigSection({
 
       {showXmlParse && (
         <div className='space-y-4 rounded-lg border bg-background p-4'>
-          <div>
-            <h5 className='text-sm font-medium'>{t('plugin.parseMavenXml')}</h5>
-            <p className='mt-1 text-xs text-muted-foreground'>
-              {t('plugin.parseMavenXmlDesc')}
-            </p>
-          </div>
+          <h5 className='text-sm font-medium'>{t('plugin.parseMavenXml')}</h5>
           <Textarea
             value={mavenXml}
             onChange={(e) => setMavenXml(e.target.value)}
-            placeholder={`<dependency>\n  <groupId>com.mysql</groupId>\n  <artifactId>mysql-connector-j</artifactId>\n  <version>8.0.33</version>\n</dependency>`}
+            aria-label={t('plugin.parseMavenXml')}
+            placeholder={`${t('plugin.parseMavenXmlDesc')}\n\n<dependency>\n  <groupId>com.mysql</groupId>\n  <artifactId>mysql-connector-j</artifactId>\n  <version>8.0.33</version>\n</dependency>`}
             className='min-h-[120px] font-mono text-sm'
           />
           <div className='flex justify-end gap-2'>
@@ -387,13 +373,13 @@ export function PluginDependencyConfigSection({
 
       {showAddForm && (
         <div className='space-y-4 rounded-lg border bg-background p-4'>
-          <div>
-            <h5 className='text-sm font-medium'>
-              {t('plugin.addDependencyDesc')}
-            </h5>
-            <p className='mt-1 text-xs text-muted-foreground'>
-              {t('plugin.dependenciesDesc')}
-            </p>
+          <div className='flex items-center gap-2'>
+            <h5 className='text-sm font-medium'>{t('plugin.addDependencyDesc')}</h5>
+            <HelpHint
+              label={t('plugin.addDependencyDesc')}
+              content={t('plugin.dependenciesDesc')}
+              data-testid='plugin-add-dependency-hint'
+            />
           </div>
           <div className='grid gap-4 md:grid-cols-3'>
             <div className='space-y-2'>
@@ -454,11 +440,13 @@ export function PluginDependencyConfigSection({
           className='space-y-4 rounded-lg border bg-background p-4'
           data-testid='plugin-upload-dependency-form'
         >
-          <div>
+          <div className='flex items-center gap-2'>
             <h5 className='text-sm font-medium'>{t('plugin.uploadJarDesc')}</h5>
-            <p className='mt-1 text-xs text-muted-foreground'>
-              {t('plugin.uploadJarHint')}
-            </p>
+            <HelpHint
+              label={t('plugin.uploadJarDesc')}
+              content={t('plugin.uploadJarTip')}
+              data-testid='plugin-upload-jar-hint'
+            />
           </div>
           <div className='grid gap-4 md:grid-cols-3'>
             <div className='space-y-2 md:col-span-3'>
@@ -607,33 +595,5 @@ export function PluginDependencyConfigSection({
         </div>
       )}
     </div>
-  );
-}
-
-export function DependencyConfigDialog({
-  open,
-  onOpenChange,
-  pluginName,
-  seatunnelVersion,
-}: DependencyConfigDialogProps) {
-  const t = useTranslations();
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-4xl'>
-        <DialogHeader>
-          <DialogTitle>
-            {t('plugin.configDependency')} - {pluginName}
-          </DialogTitle>
-          <DialogDescription>
-            {t('plugin.configuredDependenciesDesc')}
-          </DialogDescription>
-        </DialogHeader>
-        <PluginDependencyConfigSection
-          pluginName={pluginName}
-          seatunnelVersion={seatunnelVersion}
-        />
-      </DialogContent>
-    </Dialog>
   );
 }

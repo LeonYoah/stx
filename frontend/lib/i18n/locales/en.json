@@ -48,7 +48,9 @@
     "itemsUnit": "items",
     "status": "Status",
     "timezone": "Timezone",
-    "noMatchingData": "No matching data"
+    "noMatchingData": "No matching data",
+    "helpLabel": "Help",
+    "helpLabelFor": "{label} help"
   },
   "dashboard": {
     "title": "Console",
@@ -1598,6 +1600,7 @@
     "uninstall": "Uninstall",
     "enable": "Enable",
     "disable": "Disable",
+    "disableWithReason": "Disable: {desc}",
     "update": "Update",
     "version": "Version",
     "versionNote": "Connector version matches the SeaTunnel main version",
@@ -1691,7 +1694,6 @@
     "installPlugin": "Install Plugin",
     "installPluginDesc": "Select a target cluster to install this plugin",
     "managePlugin": "Manage Plugin",
-    "managePluginDesc": "Install this plugin to clusters and auto-attach the required connectors and dependencies.",
     "clusterList": "Cluster List",
     "installedClusters": "Installed Clusters",
     "selectTargetCluster": "Select Target Cluster",
@@ -1785,7 +1787,6 @@
     "mavenXmlParseSuccess": "Parsed successfully, form filled",
     "officialDependencyStatus": "Install Readiness",
     "officialDependencies": "Auxiliary Dependencies",
-    "officialDependenciesDesc": "Driver packages and auxiliary libraries required by this connector; add custom drivers only for special scenarios.",
     "analyzeOfficialDependencies": "Analyze Official Dependencies",
     "analyzeOfficialDependenciesSuccess": "Official dependency analysis completed",
     "analyzeOfficialDependenciesFailed": "Failed to analyze official dependencies",
@@ -1797,7 +1798,7 @@
     "automaticInstallNote": "Automatically attached during install",
     "officialDependenciesNotRequired": "This plugin does not require extra dependencies for installation.",
     "officialDependenciesUnknown": "No standard dependency template matched yet. Add custom drivers if needed.",
-    "configuredDependenciesDesc": "Use this section to add your own custom drivers or libraries. It does not overwrite the system template.",
+    "configuredDependenciesTip": "Add custom drivers only for special scenarios not covered by the system dependencies; they do not overwrite the system template",
     "baselineVersion": "Baseline Version",
     "pluginDependencyPath": "Plugin-specific dependency path",
     "sharedLibPath": "Shared dependency path",
@@ -1810,7 +1811,6 @@
     "selectProfilesToPreview": "Select one or more scenarios to preview the automatic install content.",
     "selectedProfiles": "Selected Scenarios",
     "automaticInstallContent": "This Install Includes",
-    "automaticInstallContentDesc": "The system installs companion connectors and extra dependencies based on the standard template.",
     "noAttachedConnectors": "No extra connectors need to be attached.",
     "noSelectedProfiles": "No extra profile selections were recorded for this plugin.",
     "extraDependencies": "Extra Dependencies",
@@ -1852,7 +1852,7 @@
     },
     "uploadJar": "Upload JAR",
     "uploadJarDesc": "Upload Custom Driver JAR",
-    "uploadJarHint": "Use this when the system template does not fit your case, such as patched or private JARs. Artifact / Version will be inferred from the file name when possible.",
+    "uploadJarTip": "For patched or private JARs",
     "uploadJarFile": "JAR File",
     "uploadJarRequired": "Please select a JAR file to upload",
     "uploadDependencySuccess": "Custom driver uploaded successfully",
@@ -1879,7 +1879,6 @@
     "tabDependencies": "Auxiliary Dependencies",
     "tabCustom": "Custom Drivers",
     "officialDocGuide": "Official Documentation & Samples",
-    "officialDocGuideDesc": "Connectors feature rich parameters and diverse scenarios (stream/batch, multi-table, formats, etc.). Please refer to the official Apache SeaTunnel documentation for complete and authoritative configuration guides.",
     "copyCoordinates": "Copy Coordinates",
     "copyXml": "Copy XML",
     "copied": "Copied to clipboard",
@@ -1901,7 +1900,7 @@
     "downloadedReady": "Cached in Control Plane",
     "cleanAllProfiles": "Clear All",
     "allProfilesSelected": "Select All",
-    "overviewDependencySnapshotCount": "Includes {count} official companion dependencies or drivers for target data source scenarios.",
+    "dependencySnapshotBadge": "Dependencies: {count}",
     "viewDependencyDetails": "Configure Dependencies"
   },
   "installer": {
@@ -3174,7 +3173,6 @@
       "channel": {
         "manageEmail": "Email Config",
         "dialogTitle": "Email Notification Config",
-        "dialogSubtitle": "Configure SMTP sending only; real recipients are chosen on the alert rule. Tests can temporarily pick a recipient.",
         "savedConfigs": "Saved Email Configs",
         "empty": "No email config yet",
         "createTitle": "Create Email Config",
@@ -3269,7 +3267,7 @@
       "webhook": {
         "manage": "Webhook Config",
         "dialogTitle": "Webhook / IM bot notifications",
-        "dialogSubtitle": "Configure outbound webhook / IM channels for unified alerts. The downstream system decides the final recipients; this channel only delivers the alert payload.",
+        "endpointRecipientTip": "Recipients are decided by the receiving system; STX only delivers the alert",
         "savedConfigs": "Saved Webhook Configs",
         "new": "New Config",
         "searchPlaceholder": "Search configs...",
@@ -3298,7 +3296,7 @@
         "deleteError": "Failed to delete webhook config",
         "statusOutdated": "The form has changed. The test result above may be outdated.",
         "unsavedChangesConfirm": "This webhook config has unsaved changes. Discard them?",
-        "secretHint": "Optional. When set, every push carries X-STX-Timestamp and X-STX-Signature headers: sha256=hex(HMAC-SHA256(secret, timestamp + \".\" + raw body)), so the receiver can verify it with the same secret.",
+        "secretHint": "When set, every push carries X-STX-Timestamp and X-STX-Signature headers: sha256=hex(HMAC-SHA256(secret, timestamp + \".\" + raw body)), so the receiver can verify it with the same secret.",
         "sections": {
           "basic": "Basic Info",
           "connection": "Delivery Config"
@@ -3353,7 +3351,6 @@
       },
       "conditionThresholdRequired": "Please enter a trigger threshold",
       "conditionWindowInvalid": "Window must be between 0 and 10080 minutes",
-      "conditionHint": "Keep the template defaults or override the operator, threshold, and evaluation window.",
       "customPromqlLegacy": "Legacy Custom PromQL",
       "customPromqlLegacyDesc": "Custom PromQL is no longer offered for new rules; existing legacy rules remain editable.",
       "metricsUnavailableHint": "Prometheus metric templates are currently unavailable: {reason}",

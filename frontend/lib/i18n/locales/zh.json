@@ -48,7 +48,9 @@
     "itemsUnit": "条",
     "status": "状态",
     "timezone": "时区",
-    "noMatchingData": "没有符合条件的数据"
+    "noMatchingData": "没有符合条件的数据",
+    "helpLabel": "说明",
+    "helpLabelFor": "{label} 说明"
   },
   "dashboard": {
     "title": "控制台",
@@ -1598,6 +1600,7 @@
     "uninstall": "卸载",
     "enable": "启用",
     "disable": "禁用",
+    "disableWithReason": "禁用：{desc}",
     "update": "更新",
     "version": "版本",
     "versionNote": "连接器版本与 SeaTunnel 主版本一致",
@@ -1691,7 +1694,6 @@
     "installPlugin": "安装插件",
     "installPluginDesc": "选择目标集群以安装此插件",
     "managePlugin": "管理插件",
-    "managePluginDesc": "将此插件安装到各个集群，并自动附带所需的 connector 与依赖。",
     "clusterList": "集群列表",
     "installedClusters": "已安装集群",
     "selectTargetCluster": "选择目标集群",
@@ -1785,7 +1787,6 @@
     "mavenXmlParseSuccess": "解析成功，已填充表单",
     "officialDependencyStatus": "安装准备",
     "officialDependencies": "附属依赖",
-    "officialDependenciesDesc": "该连接器运行所需的驱动包与附属依赖库；只有未覆盖的特殊场景才需要补充自定义驱动。",
     "analyzeOfficialDependencies": "分析官方依赖",
     "analyzeOfficialDependenciesSuccess": "官方依赖分析完成",
     "analyzeOfficialDependenciesFailed": "分析官方依赖失败",
@@ -1797,7 +1798,7 @@
     "automaticInstallNote": "安装时自动附带",
     "officialDependenciesNotRequired": "该插件安装时无需额外依赖。",
     "officialDependenciesUnknown": "当前未匹配到标准依赖模板，如有需要请补充自定义驱动。",
-    "configuredDependenciesDesc": "这里用于补充所需的自定义驱动或依赖包，不会覆盖系统标准模板。",
+    "configuredDependenciesTip": "仅在系统标准依赖未覆盖的特殊场景才需补充自定义驱动，且不会覆盖系统标准模板",
     "baselineVersion": "依赖基线",
     "pluginDependencyPath": "插件专属依赖目录",
     "sharedLibPath": "共享依赖目录",
@@ -1810,7 +1811,6 @@
     "selectProfilesToPreview": "请选择一个或多个场景后再查看自动附带内容。",
     "selectedProfiles": "已选场景",
     "automaticInstallContent": "本次安装会自动附带",
-    "automaticInstallContentDesc": "系统会按标准模板自动安装 companion connector 与额外依赖。",
     "noAttachedConnectors": "没有需要额外附带的连接器。",
     "noSelectedProfiles": "该插件未记录额外场景选择。",
     "extraDependencies": "额外依赖",
@@ -1852,7 +1852,7 @@
     },
     "uploadJar": "上传 JAR",
     "uploadJarDesc": "上传自定义驱动 JAR",
-    "uploadJarHint": "适用于系统标准模板不满足时的二开依赖或私有 JAR。未填写 Artifact / Version 时会尝试根据文件名自动识别。",
+    "uploadJarTip": "适用于二开依赖或私有 JAR",
     "uploadJarFile": "JAR 文件",
     "uploadJarRequired": "请选择要上传的 JAR 文件",
     "uploadDependencySuccess": "上传自定义驱动成功",
@@ -1879,7 +1879,6 @@
     "tabDependencies": "附属依赖",
     "tabCustom": "自定义驱动",
     "officialDocGuide": "官方配置文档与样例",
-    "officialDocGuideDesc": "连接器参数及场景（流/批处理、多表并发、格式解析等）多样，请直接查阅 Apache SeaTunnel 官方文档获取最新且权威的配置说明与场景示例。",
     "copyCoordinates": "复制坐标",
     "copyXml": "复制 XML",
     "copied": "已复制到剪贴板",
@@ -1901,7 +1900,7 @@
     "downloadedReady": "已缓存至控制面",
     "cleanAllProfiles": "清空场景",
     "allProfilesSelected": "全选场景",
-    "overviewDependencySnapshotCount": "该连接器包含 {count} 项官方附属依赖或驱动（针对对应的数据源运行场景）。",
+    "dependencySnapshotBadge": "{count} 项依赖",
     "viewDependencyDetails": "查看与配置附属依赖"
   },
   "installer": {
@@ -3174,7 +3173,6 @@
       "channel": {
         "manageEmail": "邮件配置",
         "dialogTitle": "邮件通知配置",
-        "dialogSubtitle": "这里仅配置 SMTP 发信能力；真实收件人由告警规则选择，测试发送可临时指定一个通知对象。",
         "savedConfigs": "已保存邮件配置",
         "empty": "暂无邮件配置",
         "createTitle": "新增邮件配置",
@@ -3269,7 +3267,7 @@
       "webhook": {
         "manage": "Webhook 配置",
         "dialogTitle": "Webhook / IM 机器人通知配置",
-        "dialogSubtitle": "配置统一告警的 Webhook / IM 出站通道。收件人由对端系统决定，这里只负责把告警发出去。",
+        "endpointRecipientTip": "收件人由对端系统决定，这里只负责把告警发出去",
         "savedConfigs": "已保存的 Webhook 配置",
         "new": "新建配置",
         "searchPlaceholder": "搜索配置...",
@@ -3298,7 +3296,7 @@
         "deleteError": "删除 Webhook 配置失败",
         "statusOutdated": "当前表单已发生变更，上面的测试结果可能已过期",
         "unsavedChangesConfirm": "当前 Webhook 配置存在未保存变更，确认放弃吗？",
-        "secretHint": "可选。填写后每次推送都会带 X-STX-Timestamp 与 X-STX-Signature 请求头：sha256=hex(HMAC-SHA256(密钥, 时间戳 + \".\" + 原始请求体))，接收方可用同一密钥校验。",
+        "secretHint": "填写后每次推送都会带 X-STX-Timestamp 与 X-STX-Signature 请求头：sha256=hex(HMAC-SHA256(密钥, 时间戳 + \".\" + 原始请求体))，接收方可用同一密钥校验。",
         "sections": {
           "basic": "基本信息",
           "connection": "推送配置"
@@ -3353,7 +3351,6 @@
       },
       "conditionThresholdRequired": "请输入触发阈值",
       "conditionWindowInvalid": "持续时间必须在 0 到 10080 分钟之间",
-      "conditionHint": "可按模板默认值直接保存，也可以覆盖阈值、比较符和持续时间。",
       "customPromqlLegacy": "历史自定义 PromQL",
       "customPromqlLegacyDesc": "新规则不再提供自定义 PromQL，仅兼容查看和编辑已有历史规则。",
       "metricsUnavailableHint": "Prometheus 指标模板当前不可用：{reason}",

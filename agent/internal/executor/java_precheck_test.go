@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -114,5 +115,20 @@ func TestHandleCheckJavaEmptyKeepsDetection(t *testing.T) {
 	d := result.Details
 	if d["java_home_source"] != "detected" || d["java_bin"] != filepath.Join(jdk11, "bin", "java") || d["java_home"] != jdk11 {
 		t.Fatalf("unexpected details: %+v", d)
+	}
+}
+
+// TestHandleListJavaHomes 覆盖 AC1b：list_java_homes 成功返回 jdks JSON，空列表也不失败。
+// TestHandleListJavaHomes covers AC1b: list_java_homes succeeds with jdks JSON and does not fail on an empty list.
+func TestHandleListJavaHomes(t *testing.T) {
+	result, err := handleListJavaHomes(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !result.Success || result.Details["jdks"] == "" {
+		t.Fatalf("result = %+v", result)
+	}
+	if _, err := strconv.Atoi(result.Details["count"]); err != nil {
+		t.Fatalf("count: %v", err)
 	}
 }

@@ -56,6 +56,10 @@ const (
 	// PrecheckSubCommandCheckJava 检查 Java 是否已安装及其版本
 	PrecheckSubCommandCheckJava PrecheckSubCommand = "check_java"
 
+	// PrecheckSubCommandListJavaHomes 列出本机可探测到的 JDK（路径+版本），供向导下拉选择（AC1b）。
+	// PrecheckSubCommandListJavaHomes lists detectable JDKs (path+version) for the wizard dropdown (AC1b).
+	PrecheckSubCommandListJavaHomes PrecheckSubCommand = "list_java_homes"
+
 	// PrecheckSubCommandCheckTCP checks whether a remote TCP endpoint is reachable.
 	// PrecheckSubCommandCheckTCP 检查远程 TCP 端点是否可达。
 	PrecheckSubCommandCheckTCP PrecheckSubCommand = "check_tcp"
@@ -158,6 +162,8 @@ func HandlePrecheckCommand(ctx context.Context, cmd *pb.CommandRequest, reporter
 		result, err = handleCheckClusterMembers(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckJava:
 		result, err = handleCheckJava(ctx, cmd.Parameters)
+	case PrecheckSubCommandListJavaHomes:
+		result, err = handleListJavaHomes(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckTCP:
 		result, err = handleCheckTCP(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckPathReady:
@@ -360,6 +366,26 @@ func handleCheckJava(ctx context.Context, params map[string]string) (*PrecheckRe
 		Success: item.Status == installer.CheckStatusPassed || item.Status == installer.CheckStatusWarning,
 		Message: item.Message,
 		Details: details,
+	}, nil
+}
+
+// handleListJavaHomes 列出本机 JDK：环境 JAVA_HOME、扫描目录与 PATH；结果写入 details.jdks JSON（AC1b/AC1b2）。
+// 列表为空也成功，不阻塞向导。
+// handleListJavaHomes lists local JDKs: env JAVA_HOME, scan dirs and PATH; results go into details.jdks JSON (AC1b/AC1b2).
+// An empty list still succeeds and does not block the wizard.
+func handleListJavaHomes(ctx context.Context, _ map[string]string) (*PrecheckResult, error) {
+	candidates := javaenv.List(ctx)
+	payload, err := json.Marshal(candidates)
+	if err != nil {
+		return &PrecheckResult{Success: false, Message: err.Error()}, nil
+	}
+	return &PrecheckResult{
+		Success: true,
+		Message: fmt.Sprintf("found %d JDK(s)", len(candidates)),
+		Details: map[string]string{
+			"jdks":  string(payload),
+			"count": strconv.Itoa(len(candidates)),
+		},
 	}, nil
 }
 

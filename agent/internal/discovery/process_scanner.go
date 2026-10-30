@@ -35,6 +35,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 	"github.com/LeonYoah/stx/agent/internal/logger"
 )
 
@@ -64,6 +65,9 @@ type DiscoveredProcess struct {
 	HazelcastPort int    `json:"hazelcast_port"`         // Hazelcast cluster port / Hazelcast 集群端口
 	APIPort       int    `json:"api_port"`               // REST API port (from seatunnel.yaml) / REST API 端口
 	ClusterName   string `json:"cluster_name,omitempty"` // Hazelcast cluster-name / Hazelcast 集群标识
+	// JavaHome 是进程实际使用的 JDK 目录（由 /proc/<pid>/exe 解析）；解析不到为空（AC1f）。
+	// JavaHome is the JDK directory the process actually uses (from /proc/<pid>/exe); empty when unresolved (AC1f).
+	JavaHome string `json:"java_home,omitempty"`
 }
 
 // ScanProcesses scans all Java processes and identifies SeaTunnel processes
@@ -111,6 +115,9 @@ func (s *ProcessScanner) scanProcessesUnix() ([]*DiscoveredProcess, error) {
 		}
 
 		if proc != nil {
+			if rt, ok := javaenv.FromProcess(proc.PID); ok {
+				proc.JavaHome = rt.JavaHome
+			}
 			// Enhance with version and port info / 增强版本和端口信息
 			if proc.InstallDir != "" {
 				// Detect version from connector jars / 从 connector jar 检测版本

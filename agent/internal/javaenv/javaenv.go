@@ -207,14 +207,7 @@ func deriveHome(javaBin string) string {
 			return envHome
 		}
 	}
-	home := filepath.Dir(filepath.Dir(real))
-	if filepath.Base(home) == "jre" {
-		parent := filepath.Dir(home)
-		if _, statErr := os.Stat(filepath.Join(parent, "bin", javaExecutableName("java"))); statErr == nil {
-			return parent
-		}
-	}
-	return home
+	return homeFromBin(javaBin)
 }
 
 // Tool 返回该 JDK 下的工具路径（如 jcmd、jstack、jmap、jstat、jps）；JDK 8 的 jre 目录会回退到上级 JDK 的 bin。

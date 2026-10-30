@@ -2303,6 +2303,7 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 		HazelcastPort int    `json:"hazelcast_port"`
 		APIPort       int    `json:"api_port"`
 		ClusterName   string `json:"cluster_name,omitempty"`
+		JavaHome      string `json:"java_home,omitempty"`
 	}
 	type DiscoveryResult struct {
 		Success   bool          `json:"success"`
@@ -2324,6 +2325,7 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 			HazelcastPort: p.HazelcastPort,
 			APIPort:       p.APIPort,
 			ClusterName:   p.ClusterName,
+			JavaHome:      p.JavaHome,
 		})
 	}
 

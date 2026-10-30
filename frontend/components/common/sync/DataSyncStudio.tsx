@@ -4323,7 +4323,7 @@ export function DataSyncStudio() {
           {/* 左侧：任务面包屑导航与状态指示 / 权限角色胶囊 */}
           {/* Left: Task breadcrumb navigation, status indicator, version & permission badges */}
           <div className='flex min-w-0 items-center gap-2 text-xs'>
-            <div className='flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/30 text-primary'>
+            <div className='flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/30 text-primary'>
               <Layers className='size-3.5' />
             </div>
             {activeTaskBreadcrumbs.length > 0 ? (
@@ -4425,14 +4425,14 @@ export function DataSyncStudio() {
               type='button'
               onClick={() => setQuickOpenOpen(true)}
               aria-label={t('quickOpen')}
-              className='group relative flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/20 text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:hidden'
+              className='group relative flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/20 text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:hidden'
             >
               <Search className='size-3.5 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
             </button>
             <button
               type='button'
               onClick={() => setQuickOpenOpen(true)}
-              className='group relative hidden h-8 w-full min-w-0 items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:flex'
+              className='group relative hidden h-8 w-full min-w-0 items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:flex'
             >
               <Search className='size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
               <span className='truncate text-[11px] text-muted-foreground/70 group-hover:text-muted-foreground'>
@@ -4481,7 +4481,7 @@ export function DataSyncStudio() {
                       variant='ghost'
                       aria-label={t('testConnections')}
                       data-testid='studio-test-connections'
-                      className='size-8 shrink-0 rounded-md px-0 text-muted-foreground hover:text-foreground'
+                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
                       onClick={() => void handleTestConnections()}
                       disabled={
                         saving ||
@@ -4515,7 +4515,7 @@ export function DataSyncStudio() {
                       variant='ghost'
                       aria-label='DAG'
                       data-testid='studio-build-dag'
-                      className='size-8 shrink-0 rounded-md px-0 text-muted-foreground hover:text-foreground'
+                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
                       onClick={() => void handleBuildDag()}
                       disabled={
                         saving || !editor.name.trim() || actionPending !== null
@@ -4542,7 +4542,7 @@ export function DataSyncStudio() {
                       variant='ghost'
                       aria-label={t('preview')}
                       data-testid='studio-preview'
-                      className='size-8 shrink-0 rounded-md px-0 text-muted-foreground hover:text-foreground'
+                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
                       onClick={() => void handlePreview()}
                       disabled={
                         saving ||
@@ -4582,7 +4582,7 @@ export function DataSyncStudio() {
                       size='sm'
                       variant='outline'
                       className={cn(
-                        'h-8 gap-1.5 rounded-md px-2.5 text-xs transition-colors',
+                        'h-8 gap-1.5 rounded-md border-border/60 px-2.5 text-xs transition-colors',
                         isCurrentDirty
                           ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
                           : 'text-foreground',
@@ -4606,7 +4606,7 @@ export function DataSyncStudio() {
                     <Button
                       size='sm'
                       variant='outline'
-                      className='h-8 gap-1.5 rounded-md px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
+                      className='h-8 gap-1.5 rounded-md border-border/60 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
                       onClick={handleOpenPublishDialog}
                       disabled={
                         saving ||
@@ -4676,7 +4676,7 @@ export function DataSyncStudio() {
                     size='sm'
                     variant='outline'
                     className={cn(
-                      'h-8 gap-1 rounded-md px-2.5 text-xs transition-colors',
+                      'h-8 gap-1 rounded-md border-border/60 px-2.5 text-xs transition-colors',
                       activeJobs.length > 0
                         ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
                         : 'text-muted-foreground',
@@ -4731,7 +4731,7 @@ export function DataSyncStudio() {
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 资源管理器标题与工具栏 (VSCode 风格) */}
             {/* Explorer title and action toolbar (VSCode style) */}
-            <div className='flex h-8.5 shrink-0 items-center justify-between border-b border-border/50 bg-muted/15 px-2.5'>
+            <div className='flex h-8.5 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
               <div className='flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground/80'>
                 <FolderTree className='size-3.5 text-primary/80' />
                 <span>{t('resources')}</span>
@@ -4751,7 +4751,7 @@ export function DataSyncStudio() {
                           : null;
                         handleInlineCreateFolder(folderNode);
                       }}
-                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
                       <FolderPlus className='size-3.5' />
                     </button>
@@ -4773,7 +4773,7 @@ export function DataSyncStudio() {
                         }
                         handleInlineCreateFile(folderNode);
                       }}
-                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
                       <FilePlus2 className='size-3.5' />
                     </button>
@@ -4786,7 +4786,7 @@ export function DataSyncStudio() {
                       type='button'
                       aria-label={expandedFolderIds.length > 0 ? t('collapseAll') : t('expandAll')}
                       onClick={handleToggleCollapseAll}
-                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
                       <ChevronsUpDown className='size-3.5' />
                     </button>
@@ -4803,7 +4803,7 @@ export function DataSyncStudio() {
                       type='button'
                       aria-label={t('refresh')}
                       onClick={() => void loadWorkspace(selectedNodeId)}
-                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
                       <RefreshCw
                         className={cn('size-3.5', loading && 'animate-spin')}
@@ -4816,13 +4816,13 @@ export function DataSyncStudio() {
             </div>
             {/* 快捷过滤输入框与范围筛选 */}
             {/* Quick search/filter input and scope selector */}
-            <div className='border-b border-border/40 bg-muted/10 px-2 py-1.5 space-y-1.5'>
+            <div className='border-b border-border/60 bg-muted/10 px-2 py-1.5 space-y-1.5'>
               <div className='relative flex items-center'>
                 <Search className='pointer-events-none absolute left-2 size-3 text-muted-foreground/60' />
                 <Input
                   value={keyword}
                   onChange={(event) => setKeyword(event.target.value)}
-                  className='h-6 rounded border-border/50 bg-background/80 pl-6 pr-6 text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/40'
+                  className='h-6 rounded-md border-border/60 bg-background/80 pl-6 pr-6 text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/40'
                   placeholder={t('filterFiles')}
                 />
                 {keyword ? (
@@ -4838,7 +4838,7 @@ export function DataSyncStudio() {
 
               {/* 任务过滤范围切换：我的与公开（默认，过滤非自己任务）/ 全部 / 仅我创建 */}
               {/* Task filter scope pills: Mine & Public (default, filters non-owned) / All / Only Mine */}
-              <div className='flex items-center rounded-md bg-muted/50 p-0.5 text-[11px] border border-border/40'>
+              <div className='flex items-center rounded-md bg-muted/50 p-0.5 text-[11px] border border-border/60'>
                 <button
                   type='button'
                   onClick={() => handleFilterScopeChange('mine_and_public')}

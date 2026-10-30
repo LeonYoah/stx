@@ -34,6 +34,7 @@ import {
 import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
+import {HelpHint} from '@/components/common/HelpHint';
 import {
   Select,
   SelectContent,
@@ -343,9 +344,16 @@ export function AddNodeDialog({
   const renderHostStep = () => (
     <div className='space-y-4'>
       <div className='space-y-2'>
-        <Label>
-          {t('cluster.selectHost')} <span className='text-destructive'>*</span>
-        </Label>
+        <div className='flex items-center gap-2'>
+          <Label>
+            {t('cluster.selectHost')} <span className='text-destructive'>*</span>
+          </Label>
+          <HelpHint
+            label={t('cluster.selectHost')}
+            content={t('cluster.onlyAgentInstalledHosts')}
+            data-testid='add-node-host-hint'
+          />
+        </div>
         {loadingHosts ? (
           <div className='flex h-9 items-center gap-2 text-sm text-muted-foreground'>
             <Loader2 className='h-4 w-4 animate-spin' />
@@ -377,9 +385,6 @@ export function AddNodeDialog({
             </SelectContent>
           </Select>
         )}
-        <p className='text-xs text-muted-foreground'>
-          {t('cluster.onlyAgentInstalledHosts')}
-        </p>
       </div>
 
       <div className='space-y-2'>
@@ -389,27 +394,22 @@ export function AddNodeDialog({
             {ts('roleHybridFixed')}
           </p>
         ) : (
-          <>
-            <Select
-              value={role}
-              onValueChange={(value) => setRole(value as NodeRole)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={ts('roleSeparatedHint')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NodeRole.MASTER}>
-                  {t('cluster.roles.master')}
-                </SelectItem>
-                <SelectItem value={NodeRole.WORKER}>
-                  {t('cluster.roles.worker')}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <p className='text-xs text-muted-foreground'>
-              {ts('roleSeparatedHint')}
-            </p>
-          </>
+          <Select
+            value={role}
+            onValueChange={(value) => setRole(value as NodeRole)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={ts('roleSeparatedHint')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NodeRole.MASTER}>
+                {t('cluster.roles.master')}
+              </SelectItem>
+              <SelectItem value={NodeRole.WORKER}>
+                {t('cluster.roles.worker')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         )}
       </div>
 
@@ -440,17 +440,25 @@ export function AddNodeDialog({
     const names = restart.nodes.map((node) => node.host_name).join(', ');
     return (
       <section className='mt-4 space-y-1.5 rounded-lg border p-3'>
-        <label className='flex items-start gap-2 text-sm font-medium'>
-          <Checkbox
+        <div className='flex items-start gap-2'>
+          <label className='flex items-start gap-2 text-sm font-medium'>
+            <Checkbox
+              className='mt-0.5'
+              checked={rollingRestart && restart.available}
+              disabled={!restart.available}
+              onCheckedChange={(checked) => setRollingRestart(checked === true)}
+            />
+            <span>
+              {ts('rollingRestartLabel', {count: restart.nodes.length, names})}
+            </span>
+          </label>
+          <HelpHint
             className='mt-0.5'
-            checked={rollingRestart && restart.available}
-            disabled={!restart.available}
-            onCheckedChange={(checked) => setRollingRestart(checked === true)}
+            label={ts('rollingRestartHintLabel')}
+            content={ts('rollingRestartWhyHint')}
+            data-testid='add-node-rolling-restart-hint'
           />
-          <span>
-            {ts('rollingRestartLabel', {count: restart.nodes.length, names})}
-          </span>
-        </label>
+        </div>
         <p className='pl-6 text-xs text-muted-foreground'>
           {ts('rollingRestartDesc')}
         </p>

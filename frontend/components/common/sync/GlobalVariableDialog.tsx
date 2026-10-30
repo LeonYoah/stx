@@ -33,6 +33,7 @@ import {
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
+import {HelpHint} from '@/components/common/HelpHint';
 import {Textarea} from '@/components/ui/textarea';
 import {
   SyncGlobalVariable,
@@ -245,21 +246,30 @@ export function GlobalVariableDialog({
             {/* 变量值输入及安全提示 */}
             {/* Variable Value Input & Security Callout */}
             <div className='space-y-1.5'>
-              <Label
-                htmlFor='variable-value'
-                className='text-xs font-medium text-foreground/90'
-              >
-                {t('variableValue')}
+              <div className='flex items-center gap-2'>
+                <Label
+                  htmlFor='variable-value'
+                  className='text-xs font-medium text-foreground/90'
+                >
+                  {t('variableValue')}
+                  {valueType === 'secret' && !isEditing && (
+                    <span className='text-destructive'> *</span>
+                  )}
+                </Label>
                 {valueType === 'secret' && !isEditing && (
-                  <span className='text-destructive'> *</span>
+                  <HelpHint
+                    label={t('variableValue')}
+                    content={t('secretProtectionNotice')}
+                    data-testid='variable-value-secret-hint'
+                  />
                 )}
-              </Label>
+              </div>
 
               {valueType === 'secret' ? (
                 <div className='space-y-2'>
                   {isEditing ? (
-                    // 编辑敏感凭据提示
-                    // Secret editing notice banner
+                    // 编辑敏感凭据提示（留空保持原值，需常显）
+                    // Secret editing notice banner (blank keeps the current value; stays visible)
                     <div className='flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5 text-xs text-amber-700 dark:text-amber-300/90 leading-relaxed'>
                       <ShieldCheck className='size-4 shrink-0 mt-0.5 text-amber-500' />
                       <div className='text-[11px]'>
@@ -269,19 +279,7 @@ export function GlobalVariableDialog({
                         {t('secretEditNotice')}
                       </div>
                     </div>
-                  ) : (
-                    // 新建敏感凭据提示
-                    // Secret creation security notice
-                    <div className='flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-xs text-muted-foreground leading-relaxed'>
-                      <Lock className='size-4 shrink-0 mt-0.5 text-primary' />
-                      <div className='text-[11px]'>
-                        <span className='font-medium text-foreground block mb-0.5'>
-                          {t('typeSecret')}
-                        </span>
-                        {t('secretProtectionNotice')}
-                      </div>
-                    </div>
-                  )}
+                  ) : null}
 
                   <div className='relative'>
                     <Input

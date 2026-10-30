@@ -67,7 +67,7 @@ export function CustomVariablesSection({
   const t = useTranslations('workbenchStudio');
 
   return (
-    <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
+    <div className='rounded-lg border border-border/60 bg-muted/10 p-3 space-y-2.5'>
       {/* 顶栏：标题 + 数量 + 说明提示 + 新增按钮 */}
       {/* Header: Title + count badge + tooltip + create button */}
       <div className='flex items-center justify-between gap-2'>
@@ -141,7 +141,7 @@ export function CustomVariablesSection({
                         <button
                           type='button'
                           onClick={() => onCopyReference(item.key)}
-                          className='inline-flex items-center gap-1 font-mono font-medium text-xs text-foreground bg-muted/60 hover:bg-primary/10 hover:text-primary px-1.5 py-0.5 rounded border border-border/50 transition-colors cursor-pointer text-left'
+                          className='inline-flex items-center gap-1 font-mono font-medium text-xs text-foreground bg-muted/60 hover:bg-primary/10 hover:text-primary px-1.5 py-0.5 rounded border border-border/60 transition-colors cursor-pointer text-left'
                         >
                           <Code2 className='size-3 shrink-0 text-primary' />
                           <span className='truncate max-w-[140px]'>

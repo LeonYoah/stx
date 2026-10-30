@@ -95,7 +95,7 @@ export function StudioSidebarShell({
             </ScrollArea>
           )}
         </div>
-        <div className='flex min-h-0 w-10 shrink-0 flex-col items-center gap-2 border-l border-border/50 bg-muted/10 py-3'>
+        <div className='flex min-h-0 w-10 shrink-0 flex-col items-center gap-2 border-l border-border/60 bg-muted/10 py-3'>
           {rail}
         </div>
       </CardContent>

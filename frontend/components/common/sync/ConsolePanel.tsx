@@ -190,7 +190,7 @@ export function ConsolePanel({
 
   return (
     <div className='flex h-full min-h-0 min-w-0 flex-col gap-2'>
-      <div className='flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-background/70 px-3 py-2 text-xs'>
+      <div className='flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-background/70 px-3 py-2 text-xs'>
         <Badge variant='outline'>#{job.id}</Badge>
         <Badge variant='outline'>{job.run_type}</Badge>
         <Badge
@@ -228,9 +228,9 @@ export function ConsolePanel({
               : '-'}
         </span>
       </div>
-      <div className='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/50 bg-background/70'>
+      <div className='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/60 bg-background/70'>
         <TableLoadingBar loading={loading && logsResult !== null} />
-        <div className='sticky top-0 z-10 shrink-0 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85'>
+        <div className='sticky top-0 z-10 shrink-0 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85'>
           <div className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-xs text-muted-foreground'>
             <div className='flex min-w-0 items-center gap-2 overflow-hidden'>
               <span className='shrink-0'>{t('liveLogs')}</span>
@@ -244,7 +244,7 @@ export function ConsolePanel({
               ) : null}
             </div>
             <div className='flex items-center justify-self-end gap-2 whitespace-nowrap'>
-              <div className='flex items-center gap-1 rounded-md border border-border/50 bg-background px-1 py-1'>
+              <div className='flex items-center gap-1 rounded-md border border-border/60 bg-background px-1 py-1'>
                 {(['all', 'warn', 'error'] as LogFilterMode[]).map((mode) => (
                   <button
                     key={mode}
@@ -272,7 +272,7 @@ export function ConsolePanel({
               </Button>
             </div>
           </div>
-          <div className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-border/50 px-3 py-2 text-[11px] text-muted-foreground'>
+          <div className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground'>
             <div className='flex min-w-0 items-center gap-3 overflow-hidden'>
               <span className='truncate'>
                 {t('jobId')}: {job.platform_job_id || job.engine_job_id || '-'}
@@ -361,10 +361,10 @@ export function JobRunsPanel({
     );
   }
   return (
-    <div className='h-full overflow-auto rounded-lg border border-border/50 bg-background/70'>
+    <div className='h-full overflow-auto rounded-lg border border-border/60 bg-background/70'>
       <Table className='min-w-[840px]'>
         <TableHeader>
-          <TableRow className='hover:bg-transparent border-border/50'>
+          <TableRow className='hover:bg-transparent border-border/60'>
             <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('task')}</TableHead>
             <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('status')}</TableHead>
             <TableHead className='h-8 py-1 px-2.5 text-xs'>模式 / 通道</TableHead>

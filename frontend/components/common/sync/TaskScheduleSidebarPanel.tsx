@@ -142,10 +142,10 @@ export function TaskScheduleSidebarPanel({
     <div className={cn('min-w-0 space-y-3.5', className)}>
       {/* 调度开关与状态主卡片 */}
       {/* Scheduling toggle and status main card */}
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3.5 space-y-3'>
+      <div className='rounded-lg border border-border/60 bg-muted/10 p-3.5 space-y-3'>
         <div className='flex items-center justify-between gap-2'>
           <div className='flex items-center gap-2'>
-            <div className='flex size-6 shrink-0 items-center justify-center rounded-md border border-border/50 bg-background/80 text-primary'>
+            <div className='flex size-6 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background/80 text-primary'>
               <Clock3 className='size-3.5' />
             </div>
             <div>
@@ -184,7 +184,7 @@ export function TaskScheduleSidebarPanel({
                 ) : (
                   <Badge
                     variant='outline'
-                    className='h-4.5 border-border/50 px-1.5 text-[10px] text-muted-foreground'
+                    className='h-4.5 border-border/60 px-1.5 text-[10px] text-muted-foreground'
                   >
                     {t('suspendedSchedule')}
                   </Badge>
@@ -259,7 +259,7 @@ export function TaskScheduleSidebarPanel({
 
         {/* 最近触发与下一次触发时间统计指标 */}
         {/* Last triggered and next trigger metrics */}
-        <div className='grid gap-2.5 rounded-md border border-border/50 bg-background/70 p-2.5 sm:grid-cols-2'>
+        <div className='grid gap-2.5 rounded-md border border-border/60 bg-background/70 p-2.5 sm:grid-cols-2'>
           <div className='space-y-1 min-w-0'>
             <div className='flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium'>
               <History className='size-3 shrink-0' />
@@ -331,7 +331,7 @@ export function TaskScheduleSidebarPanel({
       </div>
 
       {taskId ? (
-        <div className='rounded-lg border border-border/50 bg-muted/10 p-3.5 space-y-3'>
+        <div className='rounded-lg border border-border/60 bg-muted/10 p-3.5 space-y-3'>
           <div className='flex items-center justify-between gap-2'>
             <div className='text-xs font-semibold'>{t('dolphinExternalSchedule')}</div>
             {dolphin?.binding ? (

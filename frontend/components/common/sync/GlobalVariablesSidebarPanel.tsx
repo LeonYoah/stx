@@ -289,7 +289,7 @@ export function GlobalVariablesSidebarPanel({
             placeholder={
               isTimeMode ? t('searchTimeVariables') : t('searchVariables')
             }
-            className='h-7 pl-7 pr-7 text-xs bg-muted/20 border-border/50'
+            className='h-7 pl-7 pr-7 text-xs bg-muted/20 border-border/60'
           />
           {searchQuery && (
             <button
@@ -485,7 +485,7 @@ export function GlobalVariablesSidebarPanel({
                           <button
                             type='button'
                             onClick={() => onCopyReference(item.expr)}
-                            className='inline-flex items-center gap-1 font-mono font-medium text-xs text-foreground bg-muted/60 hover:bg-sky-500/10 hover:text-sky-600 dark:hover:text-sky-400 px-1.5 py-0.5 rounded border border-border/50 transition-colors cursor-pointer text-left'
+                            className='inline-flex items-center gap-1 font-mono font-medium text-xs text-foreground bg-muted/60 hover:bg-sky-500/10 hover:text-sky-600 dark:hover:text-sky-400 px-1.5 py-0.5 rounded border border-border/60 transition-colors cursor-pointer text-left'
                           >
                             <Code2 className='size-3 shrink-0 text-sky-500' />
                             <span className='truncate max-w-[150px]'>
@@ -621,7 +621,7 @@ export function GlobalVariablesSidebarPanel({
                             <button
                               type='button'
                               onClick={() => onCopyReference(item.key)}
-                              className='inline-flex items-center gap-1 font-mono font-medium text-xs text-foreground bg-muted/60 hover:bg-primary/10 hover:text-primary px-1.5 py-0.5 rounded border border-border/50 transition-colors cursor-pointer text-left'
+                              className='inline-flex items-center gap-1 font-mono font-medium text-xs text-foreground bg-muted/60 hover:bg-primary/10 hover:text-primary px-1.5 py-0.5 rounded border border-border/60 transition-colors cursor-pointer text-left'
                             >
                               <Code2 className='size-3 shrink-0 text-primary' />
                               <span className='truncate max-w-[130px]'>

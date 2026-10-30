@@ -4271,7 +4271,6 @@
     "noGlobalVariables": "暂无全局变量。",
     "noDescription": "无描述",
     "copyValue": "复制值",
-    "moreActions": "更多操作",
     "selectFileToViewVersions": "请选择文件后查看版本历史。",
     "totalItems": "{count} 条",
     "versionManagementDesc": "每次点击保存都会生成一个新版本。DAG、校验、测试连接、预览、运行会直接使用当前编辑器里的草稿内容；顶部 Savepoint 恢复也会使用当前草稿，而任务列表里的恢复会直接基于所选历史实例的脚本发起恢复。",

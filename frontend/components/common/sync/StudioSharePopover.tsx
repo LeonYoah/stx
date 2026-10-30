@@ -115,13 +115,16 @@ export function StudioSharePopover({
         <Button
           variant='ghost'
           size='sm'
+          aria-label={t('shareTask')}
+          title={t('shareTask')}
           className={cn(
-            'group h-6.5 gap-1.5 rounded-full border border-border/60 bg-muted/20 px-2 text-xs font-normal transition-all hover:bg-muted/50 hover:text-foreground active:scale-95',
+            'group h-8 gap-1.5 rounded-md border border-border/60 bg-muted/20 px-2 text-xs font-normal transition-all hover:bg-muted/50 hover:text-foreground active:scale-95',
             open && 'bg-accent text-accent-foreground ring-1 ring-primary/30',
           )}
         >
           <Users className='size-3.5 text-primary shrink-0 transition-transform group-hover:scale-110' />
-          <span className='text-[11px] font-medium'>{t('shareTask')}</span>
+          {/* 宽屏显示文案；窄宽仅保留图标 + 可见性徽章 / Wide: label; narrow: icon + visibility badge */}
+          <span className='hidden text-[11px] font-medium xl:inline'>{t('shareTask')}</span>
 
           {/* 可见性徽章 / Visibility badge */}
           <span
@@ -140,14 +143,14 @@ export function StudioSharePopover({
             <span>{isPublic ? t('public') : t('private')}</span>
           </span>
 
-          {/* 协作者人数计数 / Collaborator count badge */}
+          {/* 协作者人数计数（宽屏） / Collaborator count (wide only) */}
           {collaboratorIds.length > 0 ? (
-            <span className='rounded-full bg-primary/15 px-1 py-0.2 font-mono text-[9px] font-medium text-primary leading-none'>
+            <span className='hidden rounded-full bg-primary/15 px-1 py-0.2 font-mono text-[9px] font-medium text-primary leading-none xl:inline'>
               +{collaboratorIds.length}
             </span>
           ) : null}
 
-          <ChevronDown className='size-3 text-muted-foreground/60 transition-transform group-hover:text-foreground' />
+          <ChevronDown className='hidden size-3 text-muted-foreground/60 transition-transform group-hover:text-foreground xl:block' />
         </Button>
       </PopoverTrigger>
 

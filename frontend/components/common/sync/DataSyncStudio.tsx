@@ -4319,11 +4319,11 @@ export function DataSyncStudio() {
   return (
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
       <Card className='gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
-        <CardContent className='flex h-12 items-center justify-between gap-3 px-3 py-1.5'>
+        <CardContent className='flex h-12 min-w-0 items-center justify-between gap-3 overflow-hidden px-3 py-1.5'>
           {/* 左侧：任务面包屑导航与状态指示 / 权限角色胶囊 */}
           {/* Left: Task breadcrumb navigation, status indicator, version & permission badges */}
           <div className='flex min-w-0 items-center gap-2 text-xs'>
-            <div className='flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/30 text-primary'>
+            <div className='flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/30 text-primary'>
               <Layers className='size-3.5' />
             </div>
             {activeTaskBreadcrumbs.length > 0 ? (
@@ -4407,16 +4407,8 @@ export function DataSyncStudio() {
                       onSavePermissions={handleSavePermissions}
                     />
 
-                    {/* 格式标签 / Format tag */}
-                    <span className='rounded bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground/70 tracking-wider'>
-                      {editor.contentFormat || 'hocon'}
-                    </span>
                   </div>
-                ) : (
-                  <span className='rounded bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground/70 tracking-wider'>
-                    {editor.contentFormat || 'hocon'}
-                  </span>
-                )}
+                ) : null}
               </div>
             ) : (
               <span className='text-xs text-muted-foreground'>
@@ -4427,29 +4419,38 @@ export function DataSyncStudio() {
 
           {/* 中间：全局文件与 Job ID 快速检索跳转栏 (VSCode Quick Open 风格) */}
           {/* Center: Global file and Job ID quick jump search bar (VSCode Quick Open style) */}
-          <div className='mx-2 hidden flex-1 max-w-sm items-center md:flex'>
+          {/* Narrow: icon-only Quick Open; xl+: compact search field */}
+          <div className='mx-1 flex shrink-0 items-center xl:mx-2 xl:min-w-0 xl:flex-1 xl:max-w-[12rem] 2xl:max-w-sm'>
             <button
               type='button'
               onClick={() => setQuickOpenOpen(true)}
-              className='group relative flex h-7.5 w-full items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40'
+              aria-label={t('quickOpen')}
+              className='group relative flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/20 text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:hidden'
             >
               <Search className='size-3.5 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
+            </button>
+            <button
+              type='button'
+              onClick={() => setQuickOpenOpen(true)}
+              className='group relative hidden h-8 w-full min-w-0 items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:flex'
+            >
+              <Search className='size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
               <span className='truncate text-[11px] text-muted-foreground/70 group-hover:text-muted-foreground'>
                 {t('searchFileOrJobId')}
               </span>
-              <kbd className='pointer-events-none ml-auto hidden select-none rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground/80 sm:inline-flex items-center gap-0.5'>
+              <kbd className='pointer-events-none ml-auto hidden select-none rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground/80 2xl:inline-flex items-center gap-0.5'>
                 <span className='text-[10px]'>⌘</span>P
               </kbd>
             </button>
           </div>
 
-          {/* 右侧：执行环境指示与操作按钮梯队 */}
-          {/* Right: Execution environment capsule and hierarchical action buttons */}
-          <div className='flex flex-wrap items-center justify-end gap-1.5'>
-            {/* 环境指示胶囊 */}
-            {/* Environment indicator capsule */}
+          {/* 右侧：环境指示 + IDE 工具栏图标（测试连接/DAG/预览）+ 核心动作；单行 nowrap */}
+          {/* Right: env + IDE-style icon toolbar + primary cluster; single-row nowrap */}
+          <div className='flex shrink-0 flex-nowrap items-center justify-end gap-1.5'>
+            {/* 环境指示（与顶栏控件统一 rounded-md / h-8） */}
+            {/* Environment indicator (aligned rounded-md / h-8 with topbar controls) */}
             <div
-              className='flex h-7 items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground'
+              className='flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground'
               title={t('executionTarget')}
             >
               {executionMode === 'local' ? (
@@ -4467,219 +4468,241 @@ export function DataSyncStudio() {
               )}
             </div>
 
-            <div className='mx-0.5 h-4 w-px bg-border/60' />
+            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
 
-            {/* 校验与探查动作组 */}
-            {/* Verification & inspection actions */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    size='sm'
-                    variant='ghost'
-                    className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-                    onClick={handleTestConnections}
-                    disabled={
-                      saving ||
-                      !editor.name.trim() ||
-                      actionPending !== null ||
-                      !editor.canEdit
-                    }
-                  >
-                    {actionPending === 'test_connections' ? (
-                      <Loader2 className='size-3.5 animate-spin' />
-                    ) : (
-                      <Database className='size-3.5' />
-                    )}
-                    {actionPending === 'test_connections'
+            {/* 探查动作：图标按钮 + Tooltip 常驻顶栏（IDE 工具栏风格，一点即达） */}
+            {/* Inspect actions: always-visible icon+Tooltip toolbar (IDE style) */}
+            <div className='flex shrink-0 flex-nowrap items-center gap-0.5'>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size='sm'
+                      variant='ghost'
+                      aria-label={t('testConnections')}
+                      data-testid='studio-test-connections'
+                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
+                      onClick={() => void handleTestConnections()}
+                      disabled={
+                        saving ||
+                        !editor.name.trim() ||
+                        actionPending !== null ||
+                        !editor.canEdit
+                      }
+                    >
+                      {actionPending === 'test_connections' ? (
+                        <Loader2 className='size-3.5 animate-spin' />
+                      ) : (
+                        <Database className='size-3.5' />
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {!editor.canEdit
+                    ? t('readOnlyTestConnTooltip')
+                    : actionPending === 'test_connections'
                       ? t('testingConnections')
                       : t('testConnections')}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {!editor.canEdit ? (
-                <TooltipContent>{t('readOnlyTestConnTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
+                </TooltipContent>
+              </Tooltip>
 
-            <Button
-              size='sm'
-              variant='ghost'
-              className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-              onClick={handleBuildDag}
-              disabled={saving || !editor.name.trim() || actionPending !== null}
-            >
-              {actionPending === 'dag' ? (
-                <Loader2 className='size-3.5 animate-spin' />
-              ) : (
-                <GitBranch className='size-3.5' />
-              )}
-              {actionPending === 'dag' ? t('buildingDag') : 'DAG'}
-            </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size='sm'
+                      variant='ghost'
+                      aria-label='DAG'
+                      data-testid='studio-build-dag'
+                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
+                      onClick={() => void handleBuildDag()}
+                      disabled={
+                        saving || !editor.name.trim() || actionPending !== null
+                      }
+                    >
+                      {actionPending === 'dag' ? (
+                        <Loader2 className='size-3.5 animate-spin' />
+                      ) : (
+                        <GitBranch className='size-3.5' />
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {actionPending === 'dag' ? t('buildingDag') : 'DAG'}
+                </TooltipContent>
+              </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    size='sm'
-                    variant='ghost'
-                    className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-                    onClick={handlePreview}
-                    disabled={
-                      saving ||
-                      hasActiveRun ||
-                      hasActivePreview ||
-                      actionPending !== null ||
-                      !editor.canRun
-                    }
-                  >
-                    {actionPending === 'preview' ? (
-                      <Loader2 className='size-3.5 animate-spin' />
-                    ) : (
-                      <Eye className='size-3.5' />
-                    )}
-                    {actionPending === 'preview'
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size='sm'
+                      variant='ghost'
+                      aria-label={t('preview')}
+                      data-testid='studio-preview'
+                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
+                      onClick={() => void handlePreview()}
+                      disabled={
+                        saving ||
+                        hasActiveRun ||
+                        hasActivePreview ||
+                        actionPending !== null ||
+                        !editor.canRun
+                      }
+                    >
+                      {actionPending === 'preview' ? (
+                        <Loader2 className='size-3.5 animate-spin' />
+                      ) : (
+                        <Eye className='size-3.5' />
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {!editor.canRun
+                    ? t('readOnlyPreviewTooltip')
+                    : actionPending === 'preview'
                       ? t('preparingPreview')
                       : t('preview')}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {!editor.canRun ? (
-                <TooltipContent>{t('readOnlyPreviewTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
+                </TooltipContent>
+              </Tooltip>
+            </div>
 
-            <div className='mx-0.5 h-4 w-px bg-border/60' />
+            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
 
-            {/* 核心保存与执行动作组 */}
-            {/* Core save and execution action buttons */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
+            {/* 核心动作组：保存 / 发布 / 运行 / 停止 — shrink-0 防止停止单独换行 */}
+            {/* Primary cluster: save / publish / run / stop — shrink-0 so Stop cannot wrap alone */}
+            <div className='flex shrink-0 flex-nowrap items-center gap-1.5'>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className={cn(
+                        'h-8 gap-1.5 rounded-md border-border/60 px-2.5 text-xs transition-colors',
+                        isCurrentDirty
+                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
+                          : 'text-foreground',
+                      )}
+                      onClick={handleSave}
+                      disabled={saving || !editor.name.trim() || !editor.canEdit}
+                    >
+                      <Save className='size-3.5' />
+                      {t('save')}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {!editor.canEdit ? (
+                  <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
+                ) : null}
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className='h-8 gap-1.5 rounded-md border-border/60 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
+                      onClick={handleOpenPublishDialog}
+                      disabled={
+                        saving ||
+                        publishing ||
+                        !editor.name.trim() ||
+                        !editor.canEdit
+                      }
+                    >
+                      <GitCommit className='size-3.5 text-primary' />
+                      <span>{t('publishNewVersion')}</span>
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {!editor.canEdit ? (
+                  <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
+                ) : null}
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size='sm'
+                          className='h-8 gap-1 rounded-md bg-primary px-2.5 text-xs font-medium shadow-xs hover:bg-primary/90'
+                          disabled={
+                            saving ||
+                            hasActiveRun ||
+                            hasActivePreview ||
+                            !editor.canRun
+                          }
+                        >
+                          <Play className='size-3.5' />
+                          <span>{t('run')}</span>
+                          <ChevronDown className='size-3 opacity-70' />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align='end'>
+                        <DropdownMenuItem onClick={() => void handleRun('run')}>
+                          {t('run')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={
+                            executionMode === 'local' ||
+                            hasActiveRun ||
+                            hasActivePreview ||
+                            actionPending !== null ||
+                            preferredRecoverSourceId === null
+                          }
+                          onClick={() => void handleRun('recover')}
+                        >
+                          {t('savepointRecover')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </span>
+                </TooltipTrigger>
+                {!editor.canRun ? (
+                  <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
+                ) : null}
+              </Tooltip>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <Button
                     size='sm'
                     variant='outline'
                     className={cn(
-                      'h-7 gap-1.5 px-2.5 text-xs transition-colors',
-                      isCurrentDirty
-                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
-                        : 'text-foreground',
+                      'h-8 gap-1 rounded-md border-border/60 px-2.5 text-xs transition-colors',
+                      activeJobs.length > 0
+                        ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
+                        : 'text-muted-foreground',
                     )}
-                    onClick={handleSave}
-                    disabled={saving || !editor.name.trim() || !editor.canEdit}
+                    disabled={activeJobs.length === 0}
                   >
-                    <Save className='size-3.5' />
-                    {t('save')}
+                    <Square className='size-3.5' />
+                    <span>{t('stop')}</span>
+                    <ChevronDown className='size-3 opacity-70' />
                   </Button>
-                </span>
-              </TooltipTrigger>
-              {!editor.canEdit ? (
-                <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-                    onClick={handleOpenPublishDialog}
-                    disabled={
-                      saving ||
-                      publishing ||
-                      !editor.name.trim() ||
-                      !editor.canEdit
-                    }
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='end'>
+                  <DropdownMenuItem
+                    onClick={() => void handleStopActiveJob('normal')}
                   >
-                    <GitCommit className='size-3.5 text-primary' />
-                    <span>{t('publishNewVersion')}</span>
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {!editor.canEdit ? (
-                <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size='sm'
-                        className='h-7 gap-1 bg-primary px-2.5 text-xs font-medium shadow-xs hover:bg-primary/90'
-                        disabled={
-                          saving ||
-                          hasActiveRun ||
-                          hasActivePreview ||
-                          !editor.canRun
-                        }
-                      >
-                        <Play className='size-3.5' />
-                        <span>{t('run')}</span>
-                        <ChevronDown className='size-3 opacity-70' />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align='end'>
-                      <DropdownMenuItem onClick={() => void handleRun('run')}>
-                        {t('run')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={
-                          executionMode === 'local' ||
-                          hasActiveRun ||
-                          hasActivePreview ||
-                          actionPending !== null ||
-                          preferredRecoverSourceId === null
-                        }
-                        onClick={() => void handleRun('recover')}
-                      >
-                        {t('savepointRecover')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </span>
-              </TooltipTrigger>
-              {!editor.canRun ? (
-                <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  className={cn(
-                    'h-7 gap-1 px-2.5 text-xs transition-colors',
-                    activeJobs.length > 0
-                      ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
-                      : 'text-muted-foreground',
-                  )}
-                  disabled={activeJobs.length === 0}
-                >
-                  <Square className='size-3.5' />
-                  <span>{t('stop')}</span>
-                  <ChevronDown className='size-3 opacity-70' />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align='end'>
-                <DropdownMenuItem
-                  onClick={() => void handleStopActiveJob('normal')}
-                >
-                  {t('normalStop')}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={executionMode === 'local'}
-                  onClick={() => void handleStopActiveJob('savepoint')}
-                >
-                  {t('savepointStop')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    {t('normalStop')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={executionMode === 'local'}
+                    onClick={() => void handleStopActiveJob('savepoint')}
+                  >
+                    {t('savepointStop')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -4708,7 +4731,7 @@ export function DataSyncStudio() {
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 资源管理器标题与工具栏 (VSCode 风格) */}
             {/* Explorer title and action toolbar (VSCode style) */}
-            <div className='flex h-8.5 shrink-0 items-center justify-between border-b border-border/50 bg-muted/15 px-2.5'>
+            <div className='flex h-8.5 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
               <div className='flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground/80'>
                 <FolderTree className='size-3.5 text-primary/80' />
                 <span>{t('resources')}</span>
@@ -4728,7 +4751,7 @@ export function DataSyncStudio() {
                           : null;
                         handleInlineCreateFolder(folderNode);
                       }}
-                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
                       <FolderPlus className='size-3.5' />
                     </button>
@@ -4750,7 +4773,7 @@ export function DataSyncStudio() {
                         }
                         handleInlineCreateFile(folderNode);
                       }}
-                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
                       <FilePlus2 className='size-3.5' />
                     </button>
@@ -4763,7 +4786,7 @@ export function DataSyncStudio() {
                       type='button'
                       aria-label={expandedFolderIds.length > 0 ? t('collapseAll') : t('expandAll')}
                       onClick={handleToggleCollapseAll}
-                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
                       <ChevronsUpDown className='size-3.5' />
                     </button>
@@ -4780,7 +4803,7 @@ export function DataSyncStudio() {
                       type='button'
                       aria-label={t('refresh')}
                       onClick={() => void loadWorkspace(selectedNodeId)}
-                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
                       <RefreshCw
                         className={cn('size-3.5', loading && 'animate-spin')}
@@ -4793,13 +4816,13 @@ export function DataSyncStudio() {
             </div>
             {/* 快捷过滤输入框与范围筛选 */}
             {/* Quick search/filter input and scope selector */}
-            <div className='border-b border-border/40 bg-muted/10 px-2 py-1.5 space-y-1.5'>
+            <div className='border-b border-border/60 bg-muted/10 px-2 py-1.5 space-y-1.5'>
               <div className='relative flex items-center'>
                 <Search className='pointer-events-none absolute left-2 size-3 text-muted-foreground/60' />
                 <Input
                   value={keyword}
                   onChange={(event) => setKeyword(event.target.value)}
-                  className='h-6 rounded border-border/50 bg-background/80 pl-6 pr-6 text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/40'
+                  className='h-6 rounded-md border-border/60 bg-background/80 pl-6 pr-6 text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/40'
                   placeholder={t('filterFiles')}
                 />
                 {keyword ? (
@@ -4815,12 +4838,12 @@ export function DataSyncStudio() {
 
               {/* 任务过滤范围切换：我的与公开（默认，过滤非自己任务）/ 全部 / 仅我创建 */}
               {/* Task filter scope pills: Mine & Public (default, filters non-owned) / All / Only Mine */}
-              <div className='flex items-center rounded-md bg-muted/50 p-0.5 text-[11px] border border-border/40'>
+              <div className='flex items-center rounded-md bg-muted/50 p-0.5 text-[11px] border border-border/60'>
                 <button
                   type='button'
                   onClick={() => handleFilterScopeChange('mine_and_public')}
                   className={cn(
-                    'flex-1 rounded-[3px] py-0.5 text-center font-medium transition-all',
+                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
                     treeFilterScope === 'mine_and_public'
                       ? 'bg-background text-foreground shadow-2xs font-semibold'
                       : 'text-muted-foreground/80 hover:text-foreground',
@@ -4833,7 +4856,7 @@ export function DataSyncStudio() {
                   type='button'
                   onClick={() => handleFilterScopeChange('all')}
                   className={cn(
-                    'flex-1 rounded-[3px] py-0.5 text-center font-medium transition-all',
+                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
                     treeFilterScope === 'all'
                       ? 'bg-background text-foreground shadow-2xs font-semibold'
                       : 'text-muted-foreground/80 hover:text-foreground',
@@ -4845,7 +4868,7 @@ export function DataSyncStudio() {
                   type='button'
                   onClick={() => handleFilterScopeChange('only_mine')}
                   className={cn(
-                    'flex-1 rounded-[3px] py-0.5 text-center font-medium transition-all',
+                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
                     treeFilterScope === 'only_mine'
                       ? 'bg-background text-foreground shadow-2xs font-semibold'
                       : 'text-muted-foreground/80 hover:text-foreground',
@@ -5058,9 +5081,6 @@ export function DataSyncStudio() {
                     title={t('unsavedChanges')}
                   />
                 ) : null}
-                <span className='ml-1 font-mono text-[10px] uppercase text-muted-foreground/50'>
-                  ({editor.contentFormat || 'hocon'})
-                </span>
               </div>
             ) : null}
 
@@ -5333,13 +5353,13 @@ export function DataSyncStudio() {
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 控制台顶部横向选项卡与操作区 */}
             {/* Console top horizontal tab switcher and action area */}
-            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/50 bg-muted/20 px-2'>
+            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/60 bg-muted/20 px-2'>
               <div className='flex items-center gap-1'>
                 <button
                   type='button'
                   aria-label={t('jobs')}
                   className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
                     bottomConsoleTab === 'jobs'
                       ? 'bg-background text-foreground shadow-xs'
                       : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
@@ -5356,7 +5376,7 @@ export function DataSyncStudio() {
                   type='button'
                   aria-label={t('logs')}
                   className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
                     bottomConsoleTab === 'logs'
                       ? 'bg-background text-foreground shadow-xs'
                       : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
@@ -5370,7 +5390,7 @@ export function DataSyncStudio() {
                   type='button'
                   aria-label={t('preview')}
                   className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
                     bottomConsoleTab === 'preview'
                       ? 'bg-background text-foreground shadow-xs'
                       : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
@@ -5384,7 +5404,7 @@ export function DataSyncStudio() {
                   type='button'
                   aria-label={t('checkpoint')}
                   className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
                     bottomConsoleTab === 'checkpoint'
                       ? 'bg-background text-foreground shadow-xs'
                       : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
@@ -6043,14 +6063,14 @@ export function DataSyncStudio() {
               <Badge variant='outline'>Side by Side</Badge>
             </div>
             <div className='flex flex-wrap items-center gap-2'>
-              <div className='flex items-center gap-2 rounded-md border border-border/50 bg-background/70 px-2 py-1'>
+              <div className='flex items-center gap-2 rounded-md border border-border/60 bg-background/70 px-2 py-1'>
                 <LayoutPanelTop className='size-3.5' />
                 <span>
                   v{compareVersion?.version || '-'} /{' '}
                   {compareVersion?.name_snapshot || t('historicalVersion')}
                 </span>
               </div>
-              <div className='flex items-center gap-2 rounded-md border border-border/50 bg-background/70 px-2 py-1'>
+              <div className='flex items-center gap-2 rounded-md border border-border/60 bg-background/70 px-2 py-1'>
                 <Columns2 className='size-3.5' />
                 <span>
                   {t('currentEditing')} / {editor.name || t('unnamedFile')}
@@ -6114,7 +6134,7 @@ export function DataSyncStudio() {
                 placeholder={t('searchLogKeyword')}
                 className='h-8 w-[320px]'
               />
-              <div className='flex items-center gap-1 rounded-md border border-border/50 bg-background px-1 py-1'>
+              <div className='flex items-center gap-1 rounded-md border border-border/60 bg-background px-1 py-1'>
                 <Funnel className='ml-1 size-3.5 text-muted-foreground' />
                 {(['all', 'warn', 'error'] as LogFilterMode[]).map((mode) => (
                   <button

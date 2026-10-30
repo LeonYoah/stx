@@ -73,7 +73,7 @@ export function VersionSidebarPanel({
     <div className='space-y-3 min-w-0 w-full'>
       {/* 版本总览卡片 */}
       {/* Version summary card */}
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
+      <div className='rounded-lg border border-border/60 bg-muted/10 p-3'>
         <div className='flex items-center justify-between gap-2'>
           <div>
             <div className='flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground'>
@@ -132,7 +132,7 @@ export function VersionSidebarPanel({
                   'rounded-lg border p-2.5 transition-all space-y-2',
                   isActive
                     ? 'border-primary/40 bg-background shadow-xs'
-                    : 'border-border/50 bg-background/60 hover:bg-background/90',
+                    : 'border-border/60 bg-background/60 hover:bg-background/90',
                 )}
               >
                 <div className='flex items-center justify-between gap-2'>
@@ -263,7 +263,7 @@ export function SimplePagination({
     return null;
   }
   return (
-    <div className='flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/10 px-3 py-2 text-xs text-muted-foreground'>
+    <div className='flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/10 px-3 py-2 text-xs text-muted-foreground'>
       <span>{t('paginationSummary', {page, totalPages, total})}</span>
       <div className='flex items-center gap-2'>
         <Button

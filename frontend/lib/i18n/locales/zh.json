@@ -2219,8 +2219,7 @@
     "javaProxy": {
       "title": "stx-java-proxy",
       "description": "STX 侧托管的辅助进程，跑在 Master 上，桥接 SeaTunnel 核心运行时，用于 Checkpoint 反序列化、插件元数据反射、DAG 预览和存储探活。",
-      "port": "监听端口",
-      "logLocationHint": "STX 侧托管的辅助进程，跑在 Master 上，桥接 SeaTunnel 核心运行时，用于 Checkpoint 反序列化、插件元数据反射、DAG 预览和存储探活。服务状态与日志保存在 Agent 主目录下。"
+      "port": "监听端口"
     },
     "jobLogMode": {
       "title": "日志输出模式",
@@ -4688,6 +4687,7 @@
     "viewClusterDetail": "前往集群详情",
     "scheduleProductionNoticeDesc": "生产环境建议使用 DolphinScheduler / Airflow 做编排与高可用。",
     "scheduleLightweightBadge": "轻量",
+    "scheduleLightweightBadgeHint": "内置定时调度仅适用于单机轻量级周期任务。对于生产级复杂工作流与高可用依赖管理，推荐使用专业分布式工作流调度系统（如 Apache DolphinScheduler、Apache Airflow）进行统一编排、告警与故障重试。",
     "scheduleUnsavedHint": "定时配置有未保存改动，保存后生效",
     "searchFileOrJobId": "搜索文件或输入 Job ID...",
     "openAdvancedSchedule": "展开详细配置",

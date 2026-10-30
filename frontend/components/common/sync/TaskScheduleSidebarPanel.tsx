@@ -170,7 +170,7 @@ export function TaskScheduleSidebarPanel({
                     </button>
                   </TooltipTrigger>
                   <TooltipContent className='max-w-[320px] text-xs leading-5'>
-                    {t('scheduleProductionNoticeDesc')}
+                    {t('scheduleLightweightBadgeHint')}
                   </TooltipContent>
                 </Tooltip>
                 {value.enabled ? (

@@ -180,7 +180,7 @@ describe('TaskScheduleSidebarPanel', () => {
     expect(badgeButton.getAttribute('type')).toBe('button');
     fireEvent.focus(badgeButton);
     await waitFor(() => {
-      expect(screen.getAllByText(ws.scheduleProductionNoticeDesc).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(ws.scheduleLightweightBadgeHint).length).toBeGreaterThan(0);
     });
 
     // 已绑定 Dolphin 时禁用开关外层 span 可聚焦，聚焦后弹出锁定原因

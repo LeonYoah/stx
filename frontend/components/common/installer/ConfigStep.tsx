@@ -801,11 +801,6 @@ export function ConfigStep({
             <CardTitle className='text-base flex items-center gap-2'>
               <Server className='h-4 w-4' />
               {t('installer.javaProxy.title')}
-              <HelpHint
-                label={t('installer.javaProxy.title')}
-                content={t('installer.javaProxy.logLocationHint')}
-                data-testid='install-java-proxy-hint'
-              />
             </CardTitle>
             <CardDescription className='text-xs' data-testid='install-java-proxy-desc'>
               {t('installer.javaProxy.description')}
@@ -814,11 +809,6 @@ export function ConfigStep({
           <CardContent className='space-y-2'>
             <div className='flex items-center gap-2'>
               <Label>{t('installer.javaProxy.port')}</Label>
-              <HelpHint
-                label={t('installer.javaProxy.port')}
-                content={t('installer.javaProxy.logLocationHint')}
-                data-testid='install-java-proxy-port-hint'
-              />
             </div>
             <Input
               data-testid='install-java-proxy-port'

@@ -2219,8 +2219,7 @@
     "javaProxy": {
       "title": "stx-java-proxy",
       "description": "An STX-managed helper process on the Master that bridges the SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing.",
-      "port": "Listen port",
-      "logLocationHint": "An STX-managed helper process on the Master that bridges the SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing. Service state and logs live under the Agent home directory."
+      "port": "Listen port"
     },
     "jobLogMode": {
       "title": "Log output mode",
@@ -4688,6 +4687,7 @@
     "viewClusterDetail": "Go to Cluster Details",
     "scheduleProductionNoticeDesc": "For production, prefer DolphinScheduler or Airflow for orchestration and HA.",
     "scheduleLightweightBadge": "Lightweight",
+    "scheduleLightweightBadgeHint": "Built-in scheduling is intended for lightweight periodic tasks. For production high-availability environments and complex workflows, dedicated distributed workflow orchestration tools (e.g., Apache DolphinScheduler, Apache Airflow) are recommended for centralized dependency management, alerts, and retries.",
     "scheduleUnsavedHint": "Schedule has unsaved changes; save to apply.",
     "searchFileOrJobId": "Search file or enter Job ID...",
     "openAdvancedSchedule": "Open Advanced Settings",

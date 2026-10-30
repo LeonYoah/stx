@@ -88,7 +88,7 @@ test.describe.serial('workbench real flows', () => {
 
     await page.goto('/workbench');
     await expect(page.getByLabel(/新建目录|New folder/i)).toBeVisible({timeout: 120000});
-    await expect(page.getByLabel(/任务|Jobs/i)).toBeVisible();
+    await expect(page.getByRole('button', {name: /^(任务|Jobs)$/i})).toBeVisible();
 
     usersTask = await createSyncTask(request, {
       clusterId,
@@ -275,7 +275,7 @@ test.describe.serial('workbench real flows', () => {
     expect((finishedScheduledJob.status ?? '').toLowerCase()).toBe('success');
 
     await page.goto('/workbench');
-    await expect(page.getByLabel(/任务|Jobs/i)).toBeVisible({timeout: 120000});
+    await expect(page.getByRole('button', {name: /^(任务|Jobs)$/i})).toBeVisible({timeout: 120000});
     expect(clusterHttpPort).toBeGreaterThan(0);
   });
 });

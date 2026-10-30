@@ -28,7 +28,6 @@ import {
   Clock3,
   Code2,
   Cpu,
-  HelpCircle,
   Layers,
   Loader2,
 } from 'lucide-react';
@@ -54,6 +53,7 @@ import {
 } from '@/components/ui/select';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {HelpHint} from '@/components/common/HelpHint';
 import type {ClusterInfo} from '@/lib/services/cluster';
 import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {
@@ -234,14 +234,12 @@ function TimeoutSettingsSection({
             </Badge>
           ) : null}
         </CollapsiblePrimitive.Trigger>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <HelpCircle className='size-3 shrink-0 cursor-help text-muted-foreground/70' />
-          </TooltipTrigger>
-          <TooltipContent side='top' className='max-w-[260px] text-xs'>
-            {t('timeoutSettingsHint')}
-          </TooltipContent>
-        </Tooltip>
+        <HelpHint
+          side='top'
+          label={t('timeoutSettings')}
+          content={t('timeoutSettingsHint')}
+          data-testid='sync-timeout-settings-hint'
+        />
       </div>
       <CollapsiblePrimitive.Content forceMount asChild>
         <div
@@ -474,18 +472,16 @@ export function SettingsSidebarPanel({
         {/* Realtime observability: meaningful in cluster mode only, applies on the next submit */}
         {executionMode === 'cluster' && onObservabilityModeChange ? (
           <div className='space-y-1.5 pt-2 border-t border-border/40'>
-            <div className='flex items-center gap-1'>
+            <div className='flex items-center gap-2'>
               <Label className='text-[11px] text-muted-foreground'>
                 {t('observabilitySetting')}
               </Label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <HelpCircle className='size-3 cursor-help text-muted-foreground/70' />
-                </TooltipTrigger>
-                <TooltipContent side='top' className='max-w-[260px] text-xs'>
-                  {t('observabilityHint')}
-                </TooltipContent>
-              </Tooltip>
+              <HelpHint
+                side='top'
+                label={t('observabilitySetting')}
+                content={t('observabilityHint')}
+                data-testid='sync-observability-hint'
+              />
             </div>
             <Select
               value={observabilityMode}
@@ -639,17 +635,12 @@ export function SettingsSidebarPanel({
           <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
             <Code2 className='size-3.5 text-primary' />
             <span>{t('taskVariables')}</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <HelpCircle className='size-3.5 text-muted-foreground/70 hover:text-foreground cursor-help transition-colors' />
-              </TooltipTrigger>
-              <TooltipContent
-                side='top'
-                className='max-w-[280px] text-xs leading-relaxed'
-              >
-                {t('taskVariablesHint')}
-              </TooltipContent>
-            </Tooltip>
+            <HelpHint
+              side='top'
+              label={t('taskVariables')}
+              content={t('taskVariablesHint')}
+              data-testid='sync-task-variables-hint'
+            />
           </div>
         </div>
 

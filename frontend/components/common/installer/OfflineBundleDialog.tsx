@@ -29,7 +29,14 @@
 import {useCallback, useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
-import {Download, Loader2, PackageOpen, Upload} from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Loader2,
+  PackageOpen,
+  Upload,
+} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
 import {
@@ -115,6 +122,16 @@ export function OfflineBundleDialog({
   const [downloading, setDownloading] = useState<string | null>(null);
   const [bundles, setBundles] = useState<OfflineBundleInfo[]>([]);
   const [loadingList, setLoadingList] = useState(false);
+  // null = 跟随是否已有本地安装包；用户点过之后以用户选择为准 / null follows local-package availability until the user toggles it
+  const [prereqOpen, setPrereqOpen] = useState<boolean | null>(null);
+  const prereqExpanded = prereqOpen ?? localPackages.length === 0;
+
+  // 每次打开都回到默认展开规则（父组件不卸载本弹窗）/ Reset to the default rule on every open (the parent keeps this dialog mounted)
+  useEffect(() => {
+    if (open) {
+      setPrereqOpen(null);
+    }
+  }, [open]);
 
   const refreshList = useCallback(async () => {
     setLoadingList(true);
@@ -248,9 +265,6 @@ export function OfflineBundleDialog({
 
           <div className='min-h-0 flex-1 overflow-y-auto py-3 pr-1'>
             <TabsContent value='import' className='mt-0 space-y-4'>
-              <p className='text-xs leading-relaxed text-muted-foreground'>
-                {t('offlineImportHint')}
-              </p>
               <ul className='space-y-1.5 rounded-lg border bg-muted/20 px-3.5 py-3 text-xs text-muted-foreground'>
                 <li>{t('offlineImportHintBundle')}</li>
                 <li>{t('offlineImportHintSingle')}</li>
@@ -302,11 +316,29 @@ export function OfflineBundleDialog({
             </TabsContent>
 
             <TabsContent value='export' className='mt-0 space-y-4'>
-              <div className='space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3.5'>
-                <h4 className='text-sm font-medium text-amber-800 dark:text-amber-300'>
+              {/* 打包前置步骤默认折叠，没有本地安装包时自动展开 / Prerequisites collapse by default and expand when no local package exists */}
+              <div className='rounded-lg border'>
+                <button
+                  type='button'
+                  aria-expanded={prereqExpanded}
+                  aria-controls='offline-bundle-prereq'
+                  data-testid='offline-bundle-prereq-toggle'
+                  onClick={() => setPrereqOpen(!prereqExpanded)}
+                  className='flex w-full items-center gap-1.5 rounded-lg px-3.5 py-2.5 text-left text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                >
+                  {prereqExpanded ? (
+                    <ChevronDown className='h-3.5 w-3.5 shrink-0' />
+                  ) : (
+                    <ChevronRight className='h-3.5 w-3.5 shrink-0' />
+                  )}
                   {t('offlineBundlePrereqTitle')}
-                </h4>
-                <ol className='list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-muted-foreground'>
+                </button>
+                {/* 始终渲染，保证 aria-controls 指向存在的元素 / Always rendered so aria-controls points at a real element */}
+                <ol
+                  id='offline-bundle-prereq'
+                  hidden={!prereqExpanded}
+                  className='list-decimal space-y-1.5 px-3.5 pb-3 pl-8 text-xs leading-relaxed text-muted-foreground'
+                >
                   <li>{t('offlineBundlePrereqStep1')}</li>
                   <li>{t('offlineBundlePrereqStep2')}</li>
                   <li>{t('offlineBundlePrereqStep3')}</li>

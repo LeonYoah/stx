@@ -20,10 +20,17 @@
 
 import React from 'react';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen, fireEvent, waitFor} from '@testing-library/react';
+import {act, render, screen, fireEvent, waitFor} from '@testing-library/react';
 import {GlobalVariableDialog} from '../GlobalVariableDialog';
 import {GlobalVariablesSidebarPanel} from '../GlobalVariablesSidebarPanel';
 import {SyncGlobalVariable} from '@/lib/services/sync/types';
+
+// Radix Popper 依赖 ResizeObserver，jsdom 未提供 / Radix Popper needs ResizeObserver, which jsdom lacks
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as unknown as typeof ResizeObserver;
 
 // Mock next-intl
 vi.mock('next-intl', () => ({
@@ -64,7 +71,7 @@ describe('GlobalVariableDialog', () => {
     expect(screen.getByPlaceholderText('variableKeyPlaceholder')).toBeDefined();
   });
 
-  it('switches to secret mode and displays security notice', async () => {
+  it('switches to secret mode and moves the security notice into a help hint', async () => {
     render(
       <GlobalVariableDialog
         open={true}
@@ -77,7 +84,16 @@ describe('GlobalVariableDialog', () => {
     const secretButton = screen.getByText('typeSecret');
     fireEvent.click(secretButton);
 
-    expect(screen.getByText('secretProtectionNotice')).toBeDefined();
+    // 安全说明不再常驻，收进「变量值」旁的问号 / The notice is no longer inline; it lives in the value label's help hint
+    expect(screen.queryByText('secretProtectionNotice')).toBeNull();
+    const hint = screen.getByTestId('variable-value-secret-hint');
+    await act(async () => {
+      hint.focus();
+      fireEvent.focus(hint);
+    });
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'secretProtectionNotice',
+    );
     expect(
       screen.getByPlaceholderText('secretValueCreatePlaceholder'),
     ).toBeDefined();

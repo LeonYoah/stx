@@ -36,6 +36,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {Label} from '@/components/ui/label';
+import {HelpHint} from '@/components/common/HelpHint';
 import {
   Select,
   SelectContent,
@@ -149,21 +150,19 @@ export function DownloadPackageDialog({
                 onCheckedChange={(checked) => setWithSource(checked === true)}
                 className="mt-0.5"
               />
-              <div className="space-y-1">
+              <div className="flex items-center gap-2">
                 <Label htmlFor="include-source" className="flex cursor-pointer items-center gap-1.5">
                   <FileCode2 className="h-4 w-4" />
                   {t('installer.includeSource')}
                 </Label>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {t('installer.includeSourceHint')}
-                </p>
+                <HelpHint
+                  label={t('installer.includeSource')}
+                  content={t('installer.includeSourceHint')}
+                  data-testid="download-package-include-source-hint"
+                />
               </div>
             </div>
           </div>
-
-          <p className="text-xs text-muted-foreground">
-            {t('installer.sourceMirrorAvailable')}
-          </p>
 
           {error && (
             <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-2.5 text-sm text-destructive">

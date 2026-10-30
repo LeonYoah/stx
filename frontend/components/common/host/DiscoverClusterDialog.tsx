@@ -237,7 +237,6 @@ export function DiscoverClusterDialog({
           {state === 'idle' && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Search className="h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground mb-4">{t('discovery.readyToDiscover')}</p>
               <Button onClick={handleDiscover}>
                 <Search className="mr-2 h-4 w-4" />
                 {t('discovery.startDiscover')}

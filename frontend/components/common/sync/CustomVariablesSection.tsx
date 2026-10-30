@@ -25,6 +25,7 @@ import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {Label} from '@/components/ui/label';
+import {HelpHint} from '@/components/common/HelpHint';
 import {
   Tooltip,
   TooltipContent,
@@ -40,7 +41,6 @@ import {
   Copy,
   KeyRound,
   ShieldCheck,
-  HelpCircle,
 } from 'lucide-react';
 
 export interface CustomVariablesSectionProps {
@@ -81,14 +81,12 @@ export function CustomVariablesSection({
           >
             {variables.length}
           </Badge>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <HelpCircle className='size-3 text-muted-foreground/60 hover:text-foreground cursor-help' />
-            </TooltipTrigger>
-            <TooltipContent side='top' className='text-xs max-w-[260px]'>
-              {t('customVariablesDesc')}
-            </TooltipContent>
-          </Tooltip>
+          <HelpHint
+            side='top'
+            label={t('customVariables')}
+            content={t('customVariablesDesc')}
+            data-testid='custom-variables-hint'
+          />
         </div>
 
         <Button

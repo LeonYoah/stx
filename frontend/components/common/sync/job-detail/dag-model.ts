@@ -438,6 +438,20 @@ export function nodeColors(
   busy?: number | null,
   backpressured?: number | null,
 ): {border: string; background: string; intensity: number} | null {
+  const hue = blendNodeHue(busy, backpressured);
+  if (!hue) {
+    return null;
+  }
+  const [r, g, b] = hue.rgb;
+  const alpha = 0.03 + 0.25 * hue.intensity;
+  return {border: `rgb(${r}, ${g}, ${b})`, background: `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`, intensity: hue.intensity};
+}
+
+/**
+ * 按忙碌度混红、按被反压程度混灰得到节点色相；两者都没有数据时返回 null。
+ * Blend the node hue toward red by busyness and toward gray by backpressure; null when neither has data.
+ */
+function blendNodeHue(busy?: number | null, backpressured?: number | null): {rgb: RGB; intensity: number} | null {
   const hasBusy = typeof busy === 'number' && Number.isFinite(busy);
   const hasBp = typeof backpressured === 'number' && Number.isFinite(backpressured);
   if (!hasBusy && !hasBp) {
@@ -451,9 +465,39 @@ export function nodeColors(
     color = blendRgb(color, FLINK_BACKPRESSURED, backpressured as number);
   }
   const intensity = Math.min(1, Math.max(0, hasBusy ? (busy as number) : 0, hasBp ? (backpressured as number) : 0));
-  const alpha = 0.03 + 0.25 * intensity;
-  const [r, g, b] = color;
-  return {border: `rgb(${r}, ${g}, ${b})`, background: `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`, intensity};
+  return {rgb: color, intensity};
+}
+
+export type DagTheme = 'light' | 'dark';
+
+const WHITE: RGB = [255, 255, 255];
+// 暗色主题 --card（zinc-900 #18181b）。/ The dark theme's --card color (zinc-900 #18181b).
+const DARK_CARD: RGB = [24, 24, 27];
+
+/**
+ * 卡片底色（参照 Flink：每个节点都是同一色相的色块，状态只让这块颜色连续变化，所以颜色不会“突然出现”）。
+ * 色相 = nodeColors 的混合结果（无数据时为 Flink 默认蓝）；底色始终是浅色调，100% 忙碌也只是浅玫红底配红边，文字可读。
+ * 两种主题都从卡片底色向色相混合成实色：浅色从白色混，避免白卡片融进白画布；暗色从深色卡片色混，画布点阵不会透出来。
+ * Card surface (after Flink: every node is a block of the same hue and state only shifts that color continuously, so
+ * color never "suddenly appears"). The hue is nodeColors' blend (Flink default blue without data); the fill stays a
+ * light tint, so even 100% busy is a pale rose fill with a red border and readable text. Both themes mix from the card
+ * color toward the hue into a solid color: light mode from white so white cards no longer melt into the white canvas,
+ * dark mode from the dark card color so the canvas dot grid does not show through.
+ */
+export function nodeSurface(
+  busy: number | null | undefined,
+  backpressured: number | null | undefined,
+  theme: DagTheme,
+): {border: string; background: string} {
+  const hue = blendNodeHue(busy, backpressured);
+  const intensity = hue?.intensity ?? 0;
+  const color = hue?.rgb ?? FLINK_DEFAULT;
+  const dark = theme === 'dark';
+  const base = dark ? DARK_CARD : WHITE;
+  // 暗色底需要更高混合比才看得出色相。/ A dark base needs a higher ratio for the hue to show.
+  const fill = blendRgb(base, color, dark ? 0.12 + 0.16 * intensity : 0.08 + 0.12 * intensity);
+  const border = blendRgb(base, color, 0.45 + 0.4 * intensity);
+  return {background: `rgb(${fill.join(', ')})`, border: `rgb(${border.join(', ')})`};
 }
 
 /**

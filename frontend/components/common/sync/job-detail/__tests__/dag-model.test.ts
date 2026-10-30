@@ -29,6 +29,7 @@ import {
   mergeRuntimeWithPlan,
   middleEllipsis,
   nodeColors,
+  nodeSurface,
   normalizeJobDag,
   parseVertexName,
   shortTablePath,
@@ -222,6 +223,41 @@ describe('nodeColors', () => {
     expect(nodeColors(1, undefined)?.border).toBe('rgb(238, 34, 34)');
     expect(nodeColors(0.05, 0.3)?.intensity).toBe(0.3);
     expect(nodeColors(0, 1)?.border).toBe('rgb(136, 136, 136)');
+  });
+});
+
+describe('nodeSurface', () => {
+  const channels = (color: string) => (color.match(/[\d.]+/g) ?? []).map(Number);
+
+  // 同 Flink：没有数据的节点也有统一底色，浅色模式是比白色深的实色，卡片不会融进白画布。
+  // Like Flink: nodes without data still share one fill; in light mode it is a solid color darker than white so cards
+  // do not melt into the white canvas.
+  it('gives every node the same tinted base, solid in light mode', () => {
+    const idle = nodeSurface(undefined, undefined, 'light');
+    expect(idle).toEqual(nodeSurface(null, null, 'light'));
+    const [r, , b] = channels(idle.background);
+    expect(r).toBeLessThan(255);
+    expect(b).toBeGreaterThan(r);
+    expect(idle.background.startsWith('rgb(')).toBe(true);
+  });
+
+  it('shifts continuously toward red when busy, without a threshold', () => {
+    const calm = channels(nodeSurface(0.1, 0, 'light').border);
+    const busy = channels(nodeSurface(1, 0, 'light').border);
+    expect(busy[0]).toBeGreaterThan(calm[0]);
+    expect(busy[2]).toBeLessThan(calm[2]);
+  });
+
+  // 暗色模式也是实色（画布点阵不透出），底色比深色卡片亮、边框比底色更亮。
+  // Dark mode is solid too (the canvas dot grid does not show through): the fill is lighter than the dark card and the
+  // border lighter than the fill.
+  it('uses solid tints over the dark card color in dark mode', () => {
+    const dark = nodeSurface(0.5, 0.2, 'dark');
+    expect(dark.background.startsWith('rgb(')).toBe(true);
+    const fill = channels(dark.background);
+    expect(fill).toHaveLength(3);
+    expect(Math.max(...fill)).toBeGreaterThan(27);
+    expect(Math.max(...channels(dark.border))).toBeGreaterThan(Math.max(...fill));
   });
 });
 

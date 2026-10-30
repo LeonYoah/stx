@@ -126,6 +126,13 @@ export function OfflineBundleDialog({
   const [prereqOpen, setPrereqOpen] = useState<boolean | null>(null);
   const prereqExpanded = prereqOpen ?? localPackages.length === 0;
 
+  // 每次打开都回到默认展开规则（父组件不卸载本弹窗）/ Reset to the default rule on every open (the parent keeps this dialog mounted)
+  useEffect(() => {
+    if (open) {
+      setPrereqOpen(null);
+    }
+  }, [open]);
+
   const refreshList = useCallback(async () => {
     setLoadingList(true);
     try {
@@ -326,16 +333,16 @@ export function OfflineBundleDialog({
                   )}
                   {t('offlineBundlePrereqTitle')}
                 </button>
-                {prereqExpanded ? (
-                  <ol
-                    id='offline-bundle-prereq'
-                    className='list-decimal space-y-1.5 px-3.5 pb-3 pl-8 text-xs leading-relaxed text-muted-foreground'
-                  >
-                    <li>{t('offlineBundlePrereqStep1')}</li>
-                    <li>{t('offlineBundlePrereqStep2')}</li>
-                    <li>{t('offlineBundlePrereqStep3')}</li>
-                  </ol>
-                ) : null}
+                {/* 始终渲染，保证 aria-controls 指向存在的元素 / Always rendered so aria-controls points at a real element */}
+                <ol
+                  id='offline-bundle-prereq'
+                  hidden={!prereqExpanded}
+                  className='list-decimal space-y-1.5 px-3.5 pb-3 pl-8 text-xs leading-relaxed text-muted-foreground'
+                >
+                  <li>{t('offlineBundlePrereqStep1')}</li>
+                  <li>{t('offlineBundlePrereqStep2')}</li>
+                  <li>{t('offlineBundlePrereqStep3')}</li>
+                </ol>
               </div>
 
               <div className='space-y-3 rounded-lg border bg-muted/20 p-3.5'>

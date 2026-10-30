@@ -4869,7 +4869,7 @@
       },
       "viewRaw": "Raw data",
       "hideRaw": "Hide raw data",
-      "totalBadge": "{total} events",
+      "totalBadge": "{total, plural, one {# event} other {# events}}",
       "retentionHint": "Engine-reported status changes, schema changes and CDC delay, kept for 7 days."
     },
     "cdcDelayBadge": "CDC delay {value}",

@@ -2501,7 +2501,7 @@ export function CheckpointInspectDialog({
                       <div className='flex items-center justify-between gap-2'>
                         <div className='flex items-center gap-2'>
                           <span className='text-xs font-semibold text-foreground'>
-                            {t('manualSpecifyConnector') || '手动指定源端连接器'}
+                            {t('manualSpecifyConnector')}
                           </span>
                           <HelpHint
                             label={t('manualSpecifyConnector')}

@@ -42,8 +42,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {Switch} from '@/components/ui/switch';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import {HELP_HINT_DELAY_MS, HelpHint} from '@/components/common/HelpHint';
+import {HelpHint} from '@/components/common/HelpHint';
+import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {cn} from '@/lib/utils';
 import {SyncService} from '@/lib/services/sync/sync.service';
 import type {
@@ -323,16 +323,17 @@ export function DolphinPushDialog({
     }
   };
 
-  const confirmPushButton = (
-    <Button
-      type='button'
-      data-testid='dolphin-confirm-push'
-      disabled={busy || cycle || Boolean(pushBlocked)}
-      onClick={() => void submit(false)}
-    >
-      {busy ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinConfirmPush')}
-    </Button>
-  );
+  // 不可推送时用 aria-disabled + 原因 Tooltip（按钮仍可聚焦）；推送进行中保持原生 disabled。
+  // Blocked: aria-disabled + reason tooltip (still focusable); while pushing keep the native disabled.
+  const blockedReason = cycle
+    ? t('dolphinCycleBlocked')
+    : pushBlocked === 'unpublished'
+      ? t('dolphinNeedPublish')
+      : pushBlocked === 'no_new_version'
+        ? t('dolphinNeedNewVersion', {pushed: status?.pushed_version || 0})
+        : null;
+  // 可推送且已绑定时，说明再次推送只覆盖 SHELL 节点 / When bound and pushable, explain that a re-push only overwrites the SHELL node
+  const confirmHint = blockedReason ?? (bound ? t('dolphinBoundHint') : null);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -574,26 +575,39 @@ export function DolphinPushDialog({
           <Button type='button' variant='outline' onClick={() => onOpenChange(false)}>
             {t('cancel')}
           </Button>
-          <Button
-            type='button'
-            variant='secondary'
-            disabled={busy || cycle || Boolean(pushBlocked)}
-            onClick={() => void submit(true)}
-          >
-            {t('dolphinDryRun')}
-          </Button>
-          {bound ? (
-            // 已绑定时说明再次推送的覆盖范围；不可推送时原生 disabled，原因见上方警示
-            // When bound, explain what a re-push overwrites; when blocked the warning above gives the reason
-            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-              <TooltipTrigger asChild>{confirmPushButton}</TooltipTrigger>
-              <TooltipContent className='max-w-xs text-xs leading-relaxed'>
-                {t('dolphinBoundHint')}
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            confirmPushButton
-          )}
+          <DisabledReasonTooltip reason={blockedReason}>
+            <Button
+              type='button'
+              variant='secondary'
+              data-testid='dolphin-dry-run'
+              aria-disabled={blockedReason ? 'true' : undefined}
+              disabled={busy}
+              onClick={() => {
+                if (blockedReason) {
+                  return;
+                }
+                void submit(true);
+              }}
+            >
+              {t('dolphinDryRun')}
+            </Button>
+          </DisabledReasonTooltip>
+          <DisabledReasonTooltip reason={confirmHint}>
+            <Button
+              type='button'
+              data-testid='dolphin-confirm-push'
+              aria-disabled={blockedReason ? 'true' : undefined}
+              disabled={busy}
+              onClick={() => {
+                if (blockedReason) {
+                  return;
+                }
+                void submit(false);
+              }}
+            >
+              {busy ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinConfirmPush')}
+            </Button>
+          </DisabledReasonTooltip>
         </DialogFooter>
       </DialogContent>
     </Dialog>

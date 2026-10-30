@@ -350,7 +350,7 @@ export function CustomVariableDialog({
                 </Label>
                 {valueType === 'secret' && !isEditing && (
                   <HelpHint
-                    label={t('typeSecret')}
+                    label={t('variableValue')}
                     content={t('secretProtectionNotice')}
                     data-testid='custom-variable-value-secret-hint'
                   />

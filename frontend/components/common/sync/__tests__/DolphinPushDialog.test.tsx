@@ -27,6 +27,14 @@ import {DolphinPushDialog} from '../DolphinPushDialog';
 const listSchedulerConnections = vi.fn();
 const createSchedulerConnection = vi.fn();
 const listDolphinProjects = vi.fn();
+const pushDolphin = vi.fn();
+
+// Radix Popper 依赖 ResizeObserver，jsdom 未提供 / Radix Popper needs ResizeObserver, which jsdom lacks
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as unknown as typeof ResizeObserver;
 
 vi.mock('@/lib/services/sync/sync.service', () => ({
   SyncService: {
@@ -37,7 +45,7 @@ vi.mock('@/lib/services/sync/sync.service', () => ({
     listDolphinProjects: (...args: unknown[]) => listDolphinProjects(...args),
     listDolphinWorkflows: vi.fn().mockResolvedValue([]),
     getDolphinWorkflow: vi.fn().mockResolvedValue(null),
-    pushDolphin: vi.fn(),
+    pushDolphin: (...args: unknown[]) => pushDolphin(...args),
   },
 }));
 
@@ -139,7 +147,7 @@ describe('DolphinPushDialog', () => {
     });
   });
 
-  it('disables push until a new published version exists', async () => {
+  it('blocks push with aria-disabled and a reason tooltip until a new published version exists', async () => {
     listSchedulerConnections.mockResolvedValue({items: []});
     renderDialog({
       published_version: 1,
@@ -150,7 +158,21 @@ describe('DolphinPushDialog', () => {
     expect(
       await screen.findByText(/已推送 v1，请先发布新版本再更新节点/),
     ).toBeTruthy();
-    expect(screen.getByRole('button', {name: '预演'})).toBeDisabled();
-    expect(screen.getByRole('button', {name: '确认推送'})).toBeDisabled();
+    const dryRun = screen.getByRole('button', {name: '预演'});
+    const confirm = screen.getByRole('button', {name: '确认推送'});
+    // aria-disabled 而不是原生 disabled，按钮仍可聚焦以显示原因 / aria-disabled keeps the buttons focusable for the reason tooltip
+    expect(dryRun).toHaveAttribute('aria-disabled', 'true');
+    expect(confirm).toHaveAttribute('aria-disabled', 'true');
+    expect(confirm).not.toBeDisabled();
+    fireEvent.click(confirm);
+    fireEvent.click(dryRun);
+    expect(pushDolphin).not.toHaveBeenCalled();
+    await act(async () => {
+      confirm.focus();
+      fireEvent.focus(confirm);
+    });
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      /已推送 v1，请先发布新版本再更新节点/,
+    );
   });
 });

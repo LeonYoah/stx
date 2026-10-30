@@ -27,8 +27,7 @@ import {Input} from '@/components/ui/input';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/components/ui/table';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import {HELP_HINT_DELAY_MS} from '@/components/common/HelpHint';
+import {HelpHint} from '@/components/common/HelpHint';
 import {cn} from '@/lib/utils';
 import type {SyncSinkSaveModePreviewTable} from '@/lib/services/sync';
 import {
@@ -191,6 +190,8 @@ export function DagNodeDrawer({
 
   const isSink = vertex.type === 'sink';
   const runtime = mode === 'runtime';
+  // 运行态且计划 DAG 可用时，表结构来自数据库当前状态，需要提示；其余情况没有说明 / Only runtime with an available plan DAG needs the live-schema hint
+  const schemaHint = runtime && plan?.available ? t('schemaLiveHint') : null;
   useEffect(() => {
     if ((tab === 'plan' && !isSink) || (tab === 'metrics' && !runtime)) {
       setTab('overview');
@@ -278,24 +279,8 @@ export function DagNodeDrawer({
       <Tabs value={tab} onValueChange={(value) => setTab(value as DrawerTab)} className='flex min-h-0 flex-1 flex-col gap-0'>
         <TabsList className='mx-3 mt-2 h-8 w-fit'>
           <TabsTrigger value='overview' className='text-xs'>{t('tab.overview')}</TabsTrigger>
-          <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-            <TooltipTrigger asChild>
-              <TabsTrigger value='schema' className='text-xs' data-testid='dag-node-tab-schema'>{t('tab.schema')}</TabsTrigger>
-            </TooltipTrigger>
-            {runtime && plan?.available ? (
-              <TooltipContent className='max-w-xs text-xs leading-relaxed'>{t('schemaLiveHint')}</TooltipContent>
-            ) : null}
-          </Tooltip>
-          {isSink ? (
-            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-              <TooltipTrigger asChild>
-                <TabsTrigger value='plan' className='text-xs' data-testid='dag-node-tab-plan'>{t('tab.plan')}</TabsTrigger>
-              </TooltipTrigger>
-              <TooltipContent className='max-w-xs text-xs leading-relaxed'>
-                {runtime ? t('planReadonlyHint') : t('planPreviewHint')}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
+          <TabsTrigger value='schema' className='text-xs' data-testid='dag-node-tab-schema'>{t('tab.schema')}</TabsTrigger>
+          {isSink ? <TabsTrigger value='plan' className='text-xs' data-testid='dag-node-tab-plan'>{t('tab.plan')}</TabsTrigger> : null}
           {runtime ? <TabsTrigger value='metrics' className='text-xs'>{t('tab.metrics')}</TabsTrigger> : null}
         </TabsList>
 
@@ -360,15 +345,22 @@ export function DagNodeDrawer({
         </TabsContent>
 
         <TabsContent value='schema' className='min-h-0 flex-1 overflow-auto px-3 py-3'>
-          {vertex.tablePaths.length > 0 ? (
-            <div className='flex items-center gap-2'>
-              <div className='min-w-0 flex-1'>
-                <TablePicker tables={vertex.tablePaths} value={table} onChange={setTable} />
-              </div>
+          {/* 说明放在页签内容的选表行末尾，不包在 TabsTrigger 外（Tooltip 的 data-state 会覆盖 Tabs 的 active 样式）；没有说明时不渲染 */}
+          {/* The hint sits at the end of the table picker row instead of wrapping the TabsTrigger (Tooltip's data-state would override the tab's active styling); nothing is rendered without a hint */}
+          {vertex.tablePaths.length > 0 || schemaHint ? (
+            <div className={cn('flex items-center gap-2', vertex.tablePaths.length === 0 && 'justify-end')}>
+              {vertex.tablePaths.length > 0 ? (
+                <div className='min-w-0 flex-1'>
+                  <TablePicker tables={vertex.tablePaths} value={table} onChange={setTable} />
+                </div>
+              ) : null}
               {table ? (
                 <Button variant='ghost' size='icon' className='size-8' onClick={() => copyText(table, t('copied'))} aria-label={t('copyTableName')}>
                   <Copy className='size-3.5' />
                 </Button>
+              ) : null}
+              {schemaHint ? (
+                <HelpHint label={t('tab.schema')} content={schemaHint} data-testid='dag-node-schema-hint' />
               ) : null}
             </div>
           ) : null}
@@ -469,7 +461,18 @@ export function DagNodeDrawer({
 
         {isSink ? (
           <TabsContent value='plan' className='min-h-0 flex-1 overflow-auto px-3 py-3'>
-            {vertex.tablePaths.length > 1 ? <TablePicker tables={vertex.tablePaths} value={table} onChange={setTable} /> : null}
+            <div className={cn('flex items-center gap-2', vertex.tablePaths.length <= 1 && 'justify-end')}>
+              {vertex.tablePaths.length > 1 ? (
+                <div className='min-w-0 flex-1'>
+                  <TablePicker tables={vertex.tablePaths} value={table} onChange={setTable} />
+                </div>
+              ) : null}
+              <HelpHint
+                label={t('tab.plan')}
+                content={runtime ? t('planReadonlyHint') : t('planPreviewHint')}
+                data-testid='dag-node-plan-hint'
+              />
+            </div>
             {planNotice ? <p className='mt-2 text-xs text-muted-foreground'>{planNotice}</p> : null}
             <div className='mt-3'>
               {savePlan ? <SaveModePlanView preview={savePlan} /> : !planNotice ? <p className='text-xs text-muted-foreground'>{t('noPlanActions')}</p> : null}

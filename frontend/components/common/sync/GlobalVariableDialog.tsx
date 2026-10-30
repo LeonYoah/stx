@@ -258,7 +258,7 @@ export function GlobalVariableDialog({
                 </Label>
                 {valueType === 'secret' && !isEditing && (
                   <HelpHint
-                    label={t('typeSecret')}
+                    label={t('variableValue')}
                     content={t('secretProtectionNotice')}
                     data-testid='variable-value-secret-hint'
                   />

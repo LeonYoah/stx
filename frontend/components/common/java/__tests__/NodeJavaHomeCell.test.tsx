@@ -26,6 +26,8 @@ const messages = {
     versionLoading: 'Fetching version…',
     versionUnavailable: 'Version unavailable',
     effectiveVersionValue: 'Java {version}',
+    titlePathOnly: '{path}',
+    titleWithVersion: '{path} · Java {version}',
   },
 };
 
@@ -49,6 +51,7 @@ describe('NodeJavaHomeCell', () => {
     );
     expect(screen.getByText('/opt/jdk11')).toBeInTheDocument();
     expect(screen.getByText('Java 11.0.2')).toBeInTheDocument();
+    expect(screen.getByTitle('/opt/jdk11 · Java 11.0.2')).toBeInTheDocument();
   });
 
   it('shows auto label and version-unavailable when fetch fails (AC7)', () => {

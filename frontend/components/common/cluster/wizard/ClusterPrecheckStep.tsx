@@ -179,8 +179,12 @@ export function ClusterPrecheckStep({
           <ul className='mt-1 list-disc pl-4 space-y-0.5'>
             {jdkFailures.map((f) => (
               <li key={f.host}>
-                <span className='font-medium'>{f.host}</span>
-                {f.detail ? ` — ${f.detail}` : ''}
+                {f.detail
+                  ? t('javaHome.failedNodeItem', {
+                      host: f.host,
+                      detail: f.detail,
+                    })
+                  : f.host}
               </li>
             ))}
           </ul>

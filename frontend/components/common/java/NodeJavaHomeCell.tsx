@@ -90,10 +90,23 @@ export function NodeJavaHomeCell({
     );
   }
 
+  let titleText = t('javaHome.titlePathOnly', {path: pathLabel});
+  if (runtime?.status === 'ok') {
+    const titleVer =
+      (runtime.version_string && runtime.version_string.trim()) ||
+      (runtime.version && runtime.version > 0 ? String(runtime.version) : '');
+    if (titleVer) {
+      titleText = t('javaHome.titleWithVersion', {
+        path: pathLabel,
+        version: titleVer,
+      });
+    }
+  }
+
   return (
     <div
       className={cn('space-y-0.5 font-mono text-xs max-w-[180px]', className)}
-      title={`${pathLabel}${runtime?.status === 'ok' && runtime.version ? ` · Java ${runtime.version_string || runtime.version}` : ''}`}
+      title={titleText}
       data-testid={testId}
     >
       <div className='truncate'>{pathLabel}</div>

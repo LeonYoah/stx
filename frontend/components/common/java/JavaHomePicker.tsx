@@ -76,12 +76,14 @@ export function JavaHomePicker({
   const [customMode, setCustomMode] = useState(false);
   const [appliedPreferred, setAppliedPreferred] = useState(false);
   const [listLoaded, setListLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     setAppliedPreferred(false);
     setCustomMode(false);
     setCandidates([]);
     setListLoaded(false);
+    setLoadError(false);
     if (!hostId) {
       return;
     }
@@ -92,11 +94,13 @@ export function JavaHomePicker({
       .then((list) => {
         if (!cancelled) {
           setCandidates(list || []);
+          setLoadError(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setCandidates([]);
+          setLoadError(true);
         }
       })
       .finally(() => {
@@ -202,7 +206,7 @@ export function JavaHomePicker({
             <SelectItem key={c.java_home} value={c.java_home}>
               {t('javaHome.optionDetected', {
                 path: c.java_home,
-                version: c.version || '?',
+                version: c.version || t('javaHome.versionUnknown'),
               })}
             </SelectItem>
           ))}
@@ -220,7 +224,11 @@ export function JavaHomePicker({
           }
         />
       )}
-      <p className='text-[11px] text-muted-foreground'>{t('javaHome.hint')}</p>
+      {loadError && (
+        <p className='text-[11px] text-amber-700 dark:text-amber-300' role='status'>
+          {t('javaHome.loadFailed')}
+        </p>
+      )}
     </div>
   );
 }

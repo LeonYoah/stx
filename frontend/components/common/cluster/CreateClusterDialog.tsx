@@ -586,7 +586,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className='sm:max-w-[600px] max-h-[90vh] flex flex-col'
+        className='sm:max-w-4xl max-h-[90vh] flex flex-col'
         aria-describedby={undefined}
       >
         <DialogHeader>

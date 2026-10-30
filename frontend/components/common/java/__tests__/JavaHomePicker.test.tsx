@@ -39,7 +39,8 @@ const messages = {
     optionDetected: '{path} (Java {version})',
     optionCustom: 'Custom path…',
     customPlaceholder: '/usr/lib/jvm/java-11',
-    hint: 'hint',
+    versionUnknown: '?',
+    loadFailed: 'Could not load the JDK list',
     badgeCustom: 'Custom',
     badgeDetected: 'Detected',
     badgeAuto: 'Auto',
@@ -77,7 +78,7 @@ describe('JavaHomePicker', () => {
     await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalledWith(1));
     expect(screen.getByText('JDK path')).toBeInTheDocument();
     expect(screen.getByText('Auto')).toBeInTheDocument();
-    expect(screen.getByText('hint')).toBeInTheDocument();
+    expect(screen.queryByText('hint')).not.toBeInTheDocument();
   });
 
   it('prefills process JDK as custom when not in list (AC1f)', async () => {
@@ -107,7 +108,13 @@ describe('JavaHomePicker', () => {
     render(wrap(<JavaHomePicker hostId={3} value='' onChange={onChange} />));
     await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalled());
     expect(screen.getByRole('combobox')).toBeInTheDocument();
-    expect(screen.getByText('hint')).toBeInTheDocument();
+  });
+
+  it('shows a light loadFailed tip when JDK list fetch fails', async () => {
+    listJavaRuntimes.mockRejectedValue(new Error('network'));
+    const onChange = vi.fn();
+    render(wrap(<JavaHomePicker hostId={5} value='' onChange={onChange} />));
+    expect(await screen.findByText('Could not load the JDK list')).toBeInTheDocument();
   });
 
   it('marks a detected list value with Detected badge (AC1b)', async () => {

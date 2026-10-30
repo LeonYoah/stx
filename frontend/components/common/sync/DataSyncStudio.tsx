@@ -4620,6 +4620,7 @@ export function DataSyncStudio() {
                           preferredRecoverSourceId === null
                         }
                         onClick={() => void handleRun('recover')}
+                        title={t('savepointRecoverTooltip')}
                       >
                         {t('savepointRecover')}
                       </DropdownMenuItem>

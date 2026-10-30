@@ -783,9 +783,9 @@
     "selectAtLeastOneNode": "请至少选择一个已发现的节点进行注册",
     "separatedRequiresMasterAndWorker": "分离模式集群必须至少包含一个 Master 节点和一个 Worker 节点",
     "advancedSettings": "高级配置",
-    "stxJavaProxyDesc": "STX Java Proxy 是跑在 Master 上的托管辅助进程，桥接 SeaTunnel 核心运行时，用于 Checkpoint 反序列化、插件元数据反射、DAG 预览和存储探活。注册后建议自动启动，否则工作台相关能力不可用或需手工部署。",
-    "autoStartProxy": "注册后立即在 Master 节点启动该服务",
-    "autoStartProxyHelp": "推荐开启。未启动时，工作台依赖 Java Proxy 的 Checkpoint 查看、DAG 预览、插件元数据与存储探活等能力将不可用，或需要手工部署该服务。",
+    "stxJavaProxyDesc": "STX 侧托管的辅助进程，跑在 Master 上，桥接 SeaTunnel 核心运行时，用于 Checkpoint 反序列化、插件元数据反射、DAG 预览和存储探活。注册后建议自动启动，否则工作台相关能力不可用或需手工部署。",
+    "autoStartProxy": "注册后立即在 Master 节点启动该服务（推荐）",
+    "autoStartProxyHelp": "未启动时，工作台依赖 Java Proxy 的 Checkpoint 查看、DAG 预览、插件元数据与存储探活等能力将不可用，或需要手工部署该服务。",
     "proxyPort": "Proxy 监听端口",
     "proxyPortPlaceholder": "18080",
     "proxyPortHelp": "若端口冲突，Agent 会自动顺延探测空闲端口启动。",
@@ -1242,7 +1242,8 @@
           "title": "轮换事件令牌？",
           "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报将被拒绝。"
         }
-      }
+      },
+      "purposeLine": "用于在作业详情中查看 DDL 事件时间线与 CDC 延迟。"
     },
     "observe": {
       "open": "跳转到 SeaTunnel 集群观测",
@@ -1846,14 +1847,14 @@
     },
     "uploadJar": "上传 JAR",
     "uploadJarDesc": "上传自定义驱动 JAR",
-    "uploadJarTip": "适用于二开依赖或私有 JAR",
+    "uploadJarTip": "适用于二开依赖或私有 JAR。未填 Artifact / Version 时按文件名识别坐标。",
     "uploadJarFile": "JAR 文件",
     "uploadJarRequired": "请选择要上传的 JAR 文件",
     "uploadDependencySuccess": "上传自定义驱动成功",
     "uploadDependencyFailed": "上传自定义驱动失败",
     "uploadGroupIdPlaceholder": "可选，默认 uploaded",
-    "uploadArtifactIdPlaceholder": "可选，默认根据文件名识别",
-    "uploadVersionPlaceholder": "可选，默认根据文件名识别",
+    "uploadArtifactIdPlaceholder": "可选，未填时按文件名识别坐标",
+    "uploadVersionPlaceholder": "可选，未填时按文件名识别坐标",
     "selectedFile": "已选择文件",
     "source": "来源",
     "fileName": "文件名",
@@ -2157,7 +2158,7 @@
       "remoteParams": "远端存储参数",
       "remoteStorageInstallHint": "安装时会将 HDFS / OSS / S3 配置写入引擎，但是当前安装阶段仅做端口探测，深度读写校验可在安装完成后进行",
       "imapGuidanceMeta": "IMAP 保存的是 job/pipeline/task 的状态、时间戳、slot 占用、metrics、checkpoint 计数、清理记录和已完成作业历史等元数据，不是源表或目标表里的数据记录。",
-      "imapBatchSuggestion": "只运行批处理任务时通常不建议启用外部 IMAP，可能拖慢集群恢复。",
+      "imapBatchSuggestion": "只运行批处理任务时通常不建议启用外部 IMAP，可能拖慢集群恢复甚至导致长时间不可用。",
       "imapStreamingSuggestion": "包含实时任务时建议启用外部 IMAP，重启或 master 切换后可自动恢复任务。",
       "imapLocalHint": "当前只有单节点，若只是验证或轻量环境，可优先使用本地路径；分布式环境更适合共享存储或直接禁用外部 IMAP。",
       "imapPathHint": "IMAP namespace/path。LOCAL_FILE 模式使用本地目录，HDFS/OSS/S3 模式使用远端命名空间。",
@@ -2219,11 +2220,10 @@
       "title": "stx-java-proxy",
       "description": "STX 侧托管的辅助进程，跑在 Master 上，桥接 SeaTunnel 核心运行时，用于 Checkpoint 反序列化、插件元数据反射、DAG 预览和存储探活。",
       "port": "监听端口",
-      "logLocationHint": "STX Java Proxy 是 STX 侧的托管辅助进程，跑在 Master 上，桥接 SeaTunnel 核心运行时，用于 Checkpoint 反序列化、插件元数据反射、DAG 预览和存储探活；注册后建议自动启动，否则工作台相关能力不可用或需手工部署。服务状态与日志保存在 Agent 主目录下。"
+      "logLocationHint": "STX 侧托管的辅助进程，跑在 Master 上，桥接 SeaTunnel 核心运行时，用于 Checkpoint 反序列化、插件元数据反射、DAG 预览和存储探活。服务状态与日志保存在 Agent 主目录下。"
     },
     "jobLogMode": {
       "title": "日志输出模式",
-      "description": "SeaTunnel 2.3.8 起支持按 Job 单独输出日志文件；在支持的版本上默认并推荐使用单 Job 日志模式。",
       "mode": "日志模式",
       "mixed": "混合日志",
       "perJob": "单 Job 日志",
@@ -4686,7 +4686,7 @@
     "switchToPerJobSuccessToast": "已成功切换为单 Job 独立日志模式（已生成新配置版本并同步到各节点），需重启集群后生效！",
     "switchLogModeFailed": "切换日志模式失败",
     "viewClusterDetail": "前往集群详情",
-    "scheduleProductionNoticeDesc": "内置定时调度仅适用于单机轻量级周期任务。对于生产级复杂工作流与高可用依赖管理，推荐使用专业分布式工作流调度系统（如 Apache DolphinScheduler、Apache Airflow）进行统一编排、告警与故障重试。",
+    "scheduleProductionNoticeDesc": "生产环境建议使用 DolphinScheduler / Airflow 做编排与高可用。",
     "scheduleLightweightBadge": "轻量",
     "scheduleUnsavedHint": "定时配置有未保存改动，保存后生效",
     "searchFileOrJobId": "搜索文件或输入 Job ID...",
@@ -4773,7 +4773,7 @@
     "dolphinNeedPublish": "请先发布任务后再推送到 Dolphin。",
     "dolphinNeedNewVersion": "已推送 v{pushed}，请先发布新版本再更新节点。",
     "dolphinPublishedPushed": "已发布 v{published} · 已推送 v{pushed}",
-    "dolphinBoundHint": "再次推送只覆盖该 SHELL 节点脚本，不改连线。",
+    "dolphinBoundHint": "再次推送只覆盖该 SHELL 节点脚本，不改连线。已推送版本必须先发布新版本才能更新。",
     "dolphinRemoteScript": "Dolphin 当前脚本",
     "dolphinGeneratedScript": "即将写入的脚本",
     "dolphinScheduleNoticeTitle": "定时与上下线",
@@ -4870,7 +4870,7 @@
       "viewRaw": "原始数据",
       "hideRaw": "收起原始数据",
       "totalBadge": "共 {total} 条",
-      "retentionHint": "引擎上报的状态变化、表结构变更与 CDC 延迟，保留 7 天。"
+      "retentionHint": "保留 7 天"
     },
     "cdcDelayBadge": "CDC 延迟 {value}",
     "cdcDelayTooltip": "近 1 分钟最大 {max}，更新于 {time}（延迟 ≥1 秒时引擎才上报）",

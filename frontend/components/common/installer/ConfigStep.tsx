@@ -803,10 +803,13 @@ export function ConfigStep({
               {t('installer.javaProxy.title')}
               <HelpHint
                 label={t('installer.javaProxy.title')}
-                content={t('installer.javaProxy.description')}
+                content={t('installer.javaProxy.logLocationHint')}
                 data-testid='install-java-proxy-hint'
               />
             </CardTitle>
+            <CardDescription className='text-xs' data-testid='install-java-proxy-desc'>
+              {t('installer.javaProxy.description')}
+            </CardDescription>
           </CardHeader>
           <CardContent className='space-y-2'>
             <div className='flex items-center gap-2'>

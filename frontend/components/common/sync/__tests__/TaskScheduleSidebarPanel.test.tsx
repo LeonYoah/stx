@@ -143,8 +143,9 @@ describe('TaskScheduleSidebarPanel', () => {
       expect(screen.getByRole('button', {name: /更新节点/})).toBeTruthy();
     });
     const ws = zh.workbenchStudio as unknown as Record<string, string>;
-    // 常驻长段建议与保存规则不再出现 / Long advice and save rule are no longer persistent
-    expect(screen.queryByText(ws.scheduleProductionNoticeDesc)).toBeNull();
+    // 生产建议常驻一行；「轻量」Badge 仍保留；保存规则仍按状态显示
+    // Production advice is permanently visible; Lightweight badge remains; save rule stays conditional
+    expect(screen.getByTestId('schedule-production-notice')).toHaveTextContent(ws.scheduleProductionNoticeDesc);
     expect(screen.queryByText(ws.scheduleUnsavedHint)).toBeNull();
     expect(screen.queryByText(ws.dolphinBuiltinLocked)).toBeNull();
     expect(screen.getByText(ws.scheduleLightweightBadge)).toBeTruthy();

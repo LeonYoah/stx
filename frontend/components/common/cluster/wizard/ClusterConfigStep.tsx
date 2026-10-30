@@ -55,6 +55,7 @@ import {
 } from 'lucide-react';
 import {DeploymentMode} from '@/lib/services/cluster/types';
 import {RuntimeAdvancedConfigCard} from '@/components/common/installer/RuntimeAdvancedConfigCard';
+import {HelpHint} from '@/components/common/HelpHint';
 import type {
   MirrorSource,
   CheckpointStorageType,
@@ -616,9 +617,16 @@ export function ClusterConfigStep({
 
                 {/* stx-java-proxy Port / stx-java-proxy 端口 */}
                 <div className='space-y-1 pt-1 border-t border-border/40'>
-                  <Label className='text-xs font-medium'>
-                    {t('cluster.wizard.javaProxyPort')}
-                  </Label>
+                  <div className='flex items-center gap-1.5'>
+                    <Label className='text-xs font-medium'>
+                      {t('cluster.wizard.javaProxyPort')}
+                    </Label>
+                    <HelpHint
+                      label={t('cluster.wizard.javaProxyPort')}
+                      content={t('installer.javaProxy.logLocationHint')}
+                      data-testid='cluster-wizard-java-proxy-port-hint'
+                    />
+                  </div>
                   <Input
                     type='number'
                     value={config.javaProxyPort}
@@ -632,9 +640,6 @@ export function ClusterConfigStep({
                     placeholder='18080'
                     className='h-8 text-xs font-mono'
                   />
-                  <p className='text-[11px] text-muted-foreground'>
-                    {t('cluster.wizard.javaProxyPortDesc')}
-                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -766,9 +771,20 @@ export function ClusterConfigStep({
 
               <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
                 <div className='space-y-1'>
-                  <Label className='text-xs font-medium'>
-                    {t('installer.storageType')}
-                  </Label>
+                  <div className='flex items-center gap-1.5'>
+                    <Label className='text-xs font-medium'>
+                      {t('installer.storageType')}
+                    </Label>
+                    {config.checkpoint.storage_type !== 'LOCAL_FILE' ? (
+                      <HelpHint
+                        label={t('installer.storageType')}
+                        content={t(
+                          'installer.runtimeStorage.remoteStorageInstallHint',
+                        )}
+                        data-testid='cluster-wizard-checkpoint-remote-hint'
+                      />
+                    ) : null}
+                  </div>
                   <Select
                     value={config.checkpoint.storage_type}
                     onValueChange={(value: CheckpointStorageType) =>
@@ -820,9 +836,6 @@ export function ClusterConfigStep({
 
               {config.checkpoint.storage_type !== 'LOCAL_FILE' && (
                 <div className='space-y-2 pt-1 border-t border-border/40'>
-                  <p className='text-[11px] text-muted-foreground leading-relaxed'>
-                    {t('installer.runtimeStorage.remoteStorageInstallHint')}
-                  </p>
                   {renderRemoteStorageFields(
                     'checkpoint',
                     config.checkpoint.storage_type,
@@ -840,6 +853,11 @@ export function ClusterConfigStep({
                   <Database className='h-3.5 w-3.5 text-primary' />
                   {t('installer.runtimeStorage.imapTitle')}
                 </CardTitle>
+                <HelpHint
+                  label={t('installer.runtimeStorage.imapTitle')}
+                  content={t('installer.runtimeStorage.imapGuidanceMeta')}
+                  data-testid='cluster-wizard-imap-hint'
+                />
                 <span className='text-[11px] text-muted-foreground hidden sm:inline'>
                   ({t('installer.runtimeStorage.imapSubtitle', {defaultMessage: '作业恢复元数据'})})
                 </span>
@@ -881,25 +899,31 @@ export function ClusterConfigStep({
                     <Info className='h-4 w-4 text-sky-500 shrink-0' />
                     <span>{t('installer.runtimeStorage.imapInMemoryTitle')}</span>
                   </div>
-                  <p className='text-xs text-muted-foreground leading-relaxed pl-6'>
-                    {t('installer.runtimeStorage.imapInMemoryNotice')}
+                  <p
+                    className='text-xs text-muted-foreground pl-6'
+                    data-testid='cluster-wizard-imap-suggestion'
+                  >
+                    {t('installer.runtimeStorage.imapStreamingSuggestion')}
                   </p>
                 </div>
               ) : (
                 /* 已开启外部存储：展开存储类型与配置 / When enabled: reveal storage options */
                 <>
-                  <div className='rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2.5 flex items-center justify-between gap-3'>
-                    <div className='flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400'>
-                      <CheckCircle2 className='h-3.5 w-3.5 shrink-0' />
-                      <span className='leading-tight'>
-                        {t('installer.runtimeStorage.imapExternalNotice')}
+                  <div className='rounded-lg border border-border/60 bg-muted/15 p-2.5 flex items-center justify-between gap-3'>
+                    <div className='flex items-center gap-2 text-xs text-muted-foreground'>
+                      <Info className='h-3.5 w-3.5 shrink-0 text-sky-500' />
+                      <span
+                        className='leading-tight'
+                        data-testid='cluster-wizard-imap-suggestion'
+                      >
+                        {t('installer.runtimeStorage.imapBatchSuggestion')}
                       </span>
                     </div>
                     <Button
                       variant='outline'
                       size='sm'
                       onClick={applyCheckpointToImap}
-                      className='h-6 text-[11px] px-2 shrink-0 border-emerald-500/30 hover:bg-emerald-500/10'
+                      className='h-6 text-[11px] px-2 shrink-0'
                     >
                       <Copy className='h-3 w-3 mr-1' />
                       {t('installer.runtimeStorage.applyToImap')}
@@ -918,9 +942,20 @@ export function ClusterConfigStep({
 
                   <div className='grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1'>
                     <div className='space-y-1'>
-                      <Label className='text-xs font-medium'>
-                        {t('installer.storageType')}
-                      </Label>
+                      <div className='flex items-center gap-1.5'>
+                        <Label className='text-xs font-medium'>
+                          {t('installer.storageType')}
+                        </Label>
+                        {config.imap.storage_type !== 'LOCAL_FILE' ? (
+                          <HelpHint
+                            label={t('installer.storageType')}
+                            content={t(
+                              'installer.runtimeStorage.remoteStorageInstallHint',
+                            )}
+                            data-testid='cluster-wizard-imap-remote-hint'
+                          />
+                        ) : null}
+                      </div>
                       <Select
                         value={config.imap.storage_type}
                         onValueChange={(value: IMAPStorageType) => {
@@ -977,11 +1012,6 @@ export function ClusterConfigStep({
                   {config.imap.storage_type !== 'LOCAL_FILE' &&
                     config.imap.storage_type !== 'DISABLED' && (
                       <div className='space-y-2 pt-2 border-t border-border/40'>
-                        <p className='text-[11px] text-muted-foreground leading-relaxed'>
-                          {t(
-                            'installer.runtimeStorage.remoteStorageInstallHint',
-                          )}
-                        </p>
                         {renderRemoteStorageFields(
                           'imap',
                           config.imap.storage_type,

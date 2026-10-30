@@ -27,7 +27,6 @@ import {Button} from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -597,12 +596,9 @@ export function AddNodeDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className='sm:max-w-4xl'>
+      <DialogContent className='sm:max-w-4xl' aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('cluster.addNode')}</DialogTitle>
-          <DialogDescription>
-            {t('cluster.addNodeDescription')}
-          </DialogDescription>
         </DialogHeader>
 
         {renderStepIndicator()}

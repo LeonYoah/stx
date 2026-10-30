@@ -110,6 +110,7 @@ import {
   InspectionZeroState,
 } from './InspectionEvidenceView';
 import {DiagnosticResourceSelector} from './DiagnosticResourceSelector';
+import {HelpHint} from '@/components/common/HelpHint';
 import {formatDateTimeTz} from '@/lib/timezone';
 
 const DEFAULT_BUNDLE_OPTIONS: DiagnosticsTaskOptions = {
@@ -1179,9 +1180,16 @@ export function DiagnosticsInspectionCenter({
           </DialogHeader>
           <div className='space-y-4 py-3 text-sm'>
             <div className='space-y-1.5'>
-              <Label htmlFor='bundle-lookback'>
-                {t('inspections.detailPage.lookbackMinutes')}
-              </Label>
+              <div className='flex items-center gap-1.5'>
+                <Label htmlFor='bundle-lookback'>
+                  {t('inspections.detailPage.lookbackMinutes')}
+                </Label>
+                <HelpHint
+                  label={t('inspections.detailPage.lookbackMinutes')}
+                  content={t('inspections.detailPage.bundleLookbackHint')}
+                  data-testid='bundle-lookback-hint'
+                />
+              </div>
               <Input
                 id='bundle-lookback'
                 type='number'
@@ -1197,9 +1205,6 @@ export function DiagnosticsInspectionCenter({
                 onKeyDown={handleBundleInputKeyDown}
                 className='h-8 text-xs'
               />
-              <p className='text-xs text-muted-foreground'>
-                {t('inspections.detailPage.bundleLookbackHint')}
-              </p>
             </div>
             <div className='space-y-2.5'>
               <div className='flex items-center justify-between rounded-lg border p-2.5'>
@@ -1343,27 +1348,33 @@ export function DiagnosticsInspectionCenter({
         open={startInspectionDialogOpen}
         onOpenChange={setStartInspectionDialogOpen}
       >
-        <DialogContent className='max-h-[85vh] overflow-hidden border border-border/80 shadow-2xl sm:max-w-3xl'>
+        <DialogContent
+          className='max-h-[85vh] overflow-hidden border border-border/80 shadow-2xl sm:max-w-3xl'
+          aria-describedby={undefined}
+        >
           <DialogHeader>
             <DialogTitle className='flex items-center gap-2'>
               <ClipboardCheck className='h-5 w-5 text-primary' />
               <span>{t('inspections.startInspection')}</span>
             </DialogTitle>
-            <DialogDescription>
-              {clusterId
-                ? t('inspections.dialogDescription', {
-                    name: clusterName || `#${clusterId}`,
-                  })
-                : t('inspections.dialogDescriptionGlobal')}
-            </DialogDescription>
           </DialogHeader>
 
           <ScrollArea className='max-h-[calc(85vh-160px)] pr-4'>
             <div className='space-y-4 py-2 text-sm'>
               <div className='space-y-1.5'>
-                <Label htmlFor='dialog-inspection-lookback' className='text-xs'>
-                  {t('inspections.lookbackLabel')}
-                </Label>
+                <div className='flex items-center gap-1.5'>
+                  <Label
+                    htmlFor='dialog-inspection-lookback'
+                    className='text-xs'
+                  >
+                    {t('inspections.lookbackLabel')}
+                  </Label>
+                  <HelpHint
+                    label={t('inspections.lookbackLabel')}
+                    content={t('inspections.lookbackHint')}
+                    data-testid='inspection-lookback-hint'
+                  />
+                </div>
                 <div className='flex items-center gap-2'>
                   <Input
                     id='dialog-inspection-lookback'
@@ -1404,18 +1415,22 @@ export function DiagnosticsInspectionCenter({
                     </Badge>
                   ))}
                 </div>
-                <p className='text-[11px] text-muted-foreground'>
-                  {t('inspections.lookbackHint')}
-                </p>
               </div>
 
               <div className='space-y-1.5'>
-                <Label
-                  htmlFor='dialog-inspection-error-threshold'
-                  className='text-xs'
-                >
-                  {t('inspections.errorThresholdLabel')}
-                </Label>
+                <div className='flex items-center gap-1.5'>
+                  <Label
+                    htmlFor='dialog-inspection-error-threshold'
+                    className='text-xs'
+                  >
+                    {t('inspections.errorThresholdLabel')}
+                  </Label>
+                  <HelpHint
+                    label={t('inspections.errorThresholdLabel')}
+                    content={t('inspections.errorThresholdTip')}
+                    data-testid='inspection-error-threshold-hint'
+                  />
+                </div>
                 <Input
                   id='dialog-inspection-error-threshold'
                   type='number'
@@ -1429,11 +1444,9 @@ export function DiagnosticsInspectionCenter({
                     )
                   }
                   onKeyDown={handleInspectionInputKeyDown}
+                  placeholder='1'
                   className='h-8 text-xs'
                 />
-                <p className='text-[11px] text-muted-foreground'>
-                  {t('inspections.errorThresholdHint')}
-                </p>
               </div>
 
               <div className='space-y-2 border-t pt-4'>

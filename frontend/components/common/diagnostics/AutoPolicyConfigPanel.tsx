@@ -42,7 +42,6 @@ import {Checkbox} from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -62,6 +61,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {DiagnosticResourceSelector} from './DiagnosticResourceSelector';
+import {HelpHint} from '@/components/common/HelpHint';
 
 interface AutoPolicyConfigPanelProps {
   open: boolean;
@@ -471,7 +471,10 @@ export function AutoPolicyConfigPanel({
     <>
       {/* 自动巡检策略列表弹窗：加宽至 1120px 匹配全局规范 / Auto inspection policy list dialog: widened to 1120px matching global standards */}
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className='flex h-[85vh] w-[95vw] max-w-[1120px] flex-col overflow-hidden p-0 sm:max-w-[1120px]'>
+        <DialogContent
+          className='flex h-[85vh] w-[95vw] max-w-[1120px] flex-col overflow-hidden p-0 sm:max-w-[1120px]'
+          aria-describedby={undefined}
+        >
           {/* 弹窗头部：右侧预留 pr-14 物理安全避让区，避免与右上角关闭 X 按钮发生重叠 / Dialog header: reserve pr-14 safe area on right to prevent collision with top-right close X button */}
           <DialogHeader className='flex flex-row items-center justify-between border-b pl-6 pr-14 py-4 bg-muted/10'>
             <div>
@@ -484,9 +487,6 @@ export function AutoPolicyConfigPanel({
                   {t('count', {count: policies.length})}
                 </Badge>
               </div>
-              <DialogDescription className='text-xs text-muted-foreground mt-1'>
-                {t('description')}
-              </DialogDescription>
             </div>
             <div className='flex items-center gap-2'>
               <Button
@@ -588,14 +588,14 @@ export function AutoPolicyConfigPanel({
 
       {/* 创建与编辑策略表单弹窗：加宽至 1240px / Create & edit policy form dialog: widened to 1240px */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className='flex h-[88vh] w-[96vw] max-w-[1240px] flex-col overflow-hidden p-0 sm:max-w-[1240px]'>
+        <DialogContent
+          className='flex h-[88vh] w-[96vw] max-w-[1240px] flex-col overflow-hidden p-0 sm:max-w-[1240px]'
+          aria-describedby={undefined}
+        >
           <DialogHeader className='border-b px-6 py-4 bg-muted/10'>
             <DialogTitle className='text-lg font-semibold'>
               {editingPolicy ? t('editTitle') : t('createTitle')}
             </DialogTitle>
-            <DialogDescription className='text-xs text-muted-foreground'>
-              {t('description')}
-            </DialogDescription>
           </DialogHeader>
 
           <div className='flex-1 overflow-y-auto p-6 space-y-6'>
@@ -693,15 +693,21 @@ export function AutoPolicyConfigPanel({
             {/* 2. 自动诊断任务收集编排 / Auto Task Bundle */}
             <div className='rounded-lg border bg-card/60 p-4 space-y-3 shadow-2xs'>
               <div className='flex items-center justify-between'>
-                <div>
-                  <div className='text-sm font-semibold'>
+                <div className='flex items-center gap-1.5'>
+                  <Label
+                    htmlFor='auto-policy-auto-create-task'
+                    className='text-sm font-semibold'
+                  >
                     {t('autoBundleTitle')}
-                  </div>
-                  <div className='text-xs text-muted-foreground'>
-                    {t('autoBundleHint')}
-                  </div>
+                  </Label>
+                  <HelpHint
+                    label={t('autoBundleTitle')}
+                    content={t('autoBundleHint')}
+                    data-testid='auto-policy-auto-bundle-hint'
+                  />
                 </div>
                 <Switch
+                  id='auto-policy-auto-create-task'
                   checked={formAutoCreateTask}
                   onCheckedChange={setFormAutoCreateTask}
                 />
@@ -754,12 +760,21 @@ export function AutoPolicyConfigPanel({
 
                   <div className='flex items-center gap-2 pt-1'>
                     <Switch
+                      id='auto-policy-auto-start-task'
                       checked={formAutoStartTask}
                       onCheckedChange={setFormAutoStartTask}
                     />
-                    <div className='text-xs text-muted-foreground'>
+                    <Label
+                      htmlFor='auto-policy-auto-start-task'
+                      className='text-xs font-normal text-muted-foreground'
+                    >
                       {t('autoStartTaskLabel')}
-                    </div>
+                    </Label>
+                    <HelpHint
+                      label={t('autoStartTaskLabel')}
+                      content={t('autoStartTaskHint')}
+                      data-testid='auto-policy-auto-start-hint'
+                    />
                   </div>
                 </div>
               ) : null}

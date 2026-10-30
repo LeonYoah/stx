@@ -53,6 +53,10 @@ import {
 import {cn} from '@/lib/utils';
 import {AgentNodeList, AgentVersionsPanel} from './AgentNodesPanel';
 import {ExecuteActions} from './ExecuteActions';
+import {
+  ARIA_DISABLED_CLASS,
+  DisabledReasonTooltip,
+} from '@/components/common/DisabledReasonTooltip';
 import {toast} from 'sonner';
 
 // 去掉可选的 v 前缀，便于比较与展示版本号
@@ -308,6 +312,14 @@ export function SystemUpgradeMain() {
     (status.stage.status !== 'staged' || newerThanStaged) &&
     status.overall_status !== 'upgrading' &&
     status.overall_status !== 'succeeded';
+
+  // 预置按钮不可用的原因（忙碌态不算，只禁用不解释）
+  // Why staging is unavailable (plain busy state stays a native disabled)
+  const stageBlockedReason = isDocker
+    ? t('dockerStageDisabled')
+    : !canStage
+      ? t('stageHintDisabled')
+      : null;
 
   const canUpgrade =
     !isDocker &&
@@ -682,15 +694,27 @@ export function SystemUpgradeMain() {
             </TabsList>
             <TabsContent value='online' className='space-y-3 mt-3'>
               <div className='flex flex-wrap gap-2'>
-                <Button
-                  size='sm'
-                  className='active:scale-[0.98]'
-                  disabled={!canStage || busy}
-                  onClick={() => void handleDownload()}
-                >
-                  <Package className='h-4 w-4 mr-1.5' />
-                  {t('download')}
-                </Button>
+                <DisabledReasonTooltip reason={stageBlockedReason}>
+                  <Button
+                    size='sm'
+                    data-testid='self-upgrade-download'
+                    className={cn(
+                      'active:scale-[0.98]',
+                      stageBlockedReason && ARIA_DISABLED_CLASS,
+                    )}
+                    aria-disabled={stageBlockedReason ? 'true' : undefined}
+                    disabled={!stageBlockedReason && busy}
+                    onClick={() => {
+                      if (stageBlockedReason) {
+                        return;
+                      }
+                      void handleDownload();
+                    }}
+                  >
+                    <Package className='h-4 w-4 mr-1.5' />
+                    {t('download')}
+                  </Button>
+                </DisabledReasonTooltip>
                 {status?.stage.cancellable ? (
                   <Button
                     size='sm'
@@ -701,13 +725,6 @@ export function SystemUpgradeMain() {
                   </Button>
                 ) : null}
               </div>
-              {isDocker ? (
-                <p className='text-xs text-blue-600 dark:text-blue-400 font-medium'>{t('dockerStageDisabled')}</p>
-              ) : !canStage ? (
-                <p className='text-xs text-muted-foreground'>{t('stageHintDisabled')}</p>
-              ) : (
-                <p className='text-xs text-muted-foreground'>{t('stageHintOnline')}</p>
-              )}
             </TabsContent>
             <TabsContent value='offline' className='space-y-3 mt-3'>
               <input
@@ -733,24 +750,29 @@ export function SystemUpgradeMain() {
               >
                 <Upload className='h-6 w-6 text-muted-foreground' />
                 <div className='text-xs font-medium text-foreground'>{t('dropHint')}</div>
-                <Button
-                  size='sm'
-                  variant='secondary'
-                  className='active:scale-[0.98] mt-1'
-                  disabled={!canStage || busy}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    fileRef.current?.click();
-                  }}
-                >
-                  {t('import')}
-                </Button>
+                <DisabledReasonTooltip reason={stageBlockedReason}>
+                  <Button
+                    size='sm'
+                    variant='secondary'
+                    data-testid='self-upgrade-import'
+                    className={cn(
+                      'active:scale-[0.98] mt-1',
+                      stageBlockedReason && ARIA_DISABLED_CLASS,
+                    )}
+                    aria-disabled={stageBlockedReason ? 'true' : undefined}
+                    disabled={!stageBlockedReason && busy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (stageBlockedReason) {
+                        return;
+                      }
+                      fileRef.current?.click();
+                    }}
+                  >
+                    {t('import')}
+                  </Button>
+                </DisabledReasonTooltip>
               </div>
-              {isDocker ? (
-                <p className='text-xs text-blue-600 dark:text-blue-400 font-medium'>{t('dockerStageDisabled')}</p>
-              ) : (
-                <p className='text-xs text-muted-foreground'>{t('stageHintOffline')}</p>
-              )}
             </TabsContent>
           </Tabs>
 
@@ -811,6 +833,9 @@ export function SystemUpgradeMain() {
           <ExecuteActions
             targetVersion={stagedVersion}
             canUpgrade={canUpgrade}
+            disabledReason={
+              isDocker ? t('dockerExecuteDisabled') : t('executeHintBlocked')
+            }
             busy={busy}
             restartPlan={status?.restart_plan}
             agents={status?.agents}
@@ -839,13 +864,15 @@ export function SystemUpgradeMain() {
               <div className='text-xs text-muted-foreground'>{t('dryRunDoneDesc')}</div>
             </div>
           ) : null}
-          <p className='text-xs text-muted-foreground'>
-            {isDocker
-              ? t('dockerExecuteDisabled')
-              : canUpgrade
-                ? t('executeHintReady')
-                : t('executeHintBlocked')}
-          </p>
+          {!isDocker && canUpgrade ? (
+            <Badge
+              variant='outline'
+              className='border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+              data-testid='self-upgrade-ready-badge'
+            >
+              {t('executeReadyBadge')}
+            </Badge>
+          ) : null}
           {!isDocker && newerThanStaged && stagedVersion && status?.latest_version ? (
             <p className='text-xs text-amber-700 dark:text-amber-300'>
               {t('stagedOlderThanLatest', {

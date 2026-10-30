@@ -48,6 +48,11 @@ import type {
 } from '@/lib/services/st-upgrade';
 import {cn} from '@/lib/utils';
 import {UpgradeSteps} from './UpgradeSteps';
+import {HelpHint} from '@/components/common/HelpHint';
+import {
+  ARIA_DISABLED_CLASS,
+  DisabledReasonTooltip,
+} from '@/components/common/DisabledReasonTooltip';
 import {
   buildMergeEditorRows,
   getIssueCategoryLabel,
@@ -68,7 +73,6 @@ interface MergeFileSummary {
   state: MergeFileState;
   badgeKey: string;
   titleKey: string;
-  descriptionKey: string;
 }
 
 export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
@@ -446,14 +450,30 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
               <ArrowLeft className='mr-2 h-4 w-4' />
               {t('backToPrepare')}
             </Button>
-            <Button
-              data-testid='upgrade-config-create-plan'
-              onClick={handleCreatePlan}
-              disabled={creatingPlan || unresolvedCount > 0}
-            >
-              <Save className='mr-2 h-4 w-4' />
-              {creatingPlan ? t('creatingPlan') : t('createPlan')}
-            </Button>
+            {unresolvedCount > 0 ? (
+              // 有未处理差异时用 aria-disabled，保留焦点以便 Tooltip 说明原因
+              // Keep the button focusable while blocked so the tooltip can explain why
+              <DisabledReasonTooltip reason={t('createPlanBlockedHint')}>
+                <Button
+                  data-testid='upgrade-config-create-plan'
+                  aria-disabled='true'
+                  className={ARIA_DISABLED_CLASS}
+                  onClick={(event) => event.preventDefault()}
+                >
+                  <Save className='mr-2 h-4 w-4' />
+                  {t('createPlan')}
+                </Button>
+              </DisabledReasonTooltip>
+            ) : (
+              <Button
+                data-testid='upgrade-config-create-plan'
+                onClick={handleCreatePlan}
+                disabled={creatingPlan}
+              >
+                <Save className='mr-2 h-4 w-4' />
+                {creatingPlan ? t('creatingPlan') : t('createPlan')}
+              </Button>
+            )}
           </>
         }
       />
@@ -518,25 +538,24 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
               unresolvedCount === 0 ? 'text-emerald-600' : 'text-amber-600',
             )}
           />
-          <div className='space-y-1 text-sm'>
-            <div className='font-medium'>
-              {unresolvedCount === 0
-                ? t('configReadyToPlan')
-                : t('configManualResolutionNotice')}
-            </div>
-            <div className='text-muted-foreground'>
-              {unresolvedCount === 0
-                ? t('configReadyToPlanDescription')
-                : t('configManualResolutionDescription')}
-            </div>
+          <div className='text-sm font-medium'>
+            {unresolvedCount === 0
+              ? t('configReadyToPlan')
+              : t('configManualResolutionNotice')}
           </div>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>{t('mergePlanFiles')}</CardTitle>
-          <CardDescription>{t('mergeGuide')}</CardDescription>
+          <CardTitle className='flex items-center gap-1.5'>
+            {t('mergePlanFiles')}
+            <HelpHint
+              label={t('mergePlanFiles')}
+              content={t('mergeGuide')}
+              data-testid='upgrade-config-merge-guide-hint'
+            />
+          </CardTitle>
         </CardHeader>
         <CardContent className='space-y-4'>
           {mergePlan.files.length === 0 ? (
@@ -598,13 +617,8 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
           <CardContent className='space-y-6'>
             {selectedFileSummary &&
             selectedFileSummary.state !== 'manual_pending' ? (
-              <div className='rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm'>
-                <div className='font-medium text-foreground'>
-                  {t(selectedFileSummary.titleKey)}
-                </div>
-                <div className='mt-1 text-muted-foreground'>
-                  {t(selectedFileSummary.descriptionKey)}
-                </div>
+              <div className='rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm font-medium text-foreground'>
+                {t(selectedFileSummary.titleKey)}
               </div>
             ) : null}
 
@@ -624,7 +638,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
               <div />
               <PaneHeader
                 title={t('mergedResult')}
-                description={t('mergedResultDescription')}
+                hint={t('mergedResultDescription')}
               />
               <div />
               <PaneHeader
@@ -678,17 +692,21 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
 
 interface PaneHeaderProps {
   title: string;
-  description?: string;
+  hint?: string;
   action?: ReactNode;
 }
 
-function PaneHeader({title, description, action}: PaneHeaderProps) {
+function PaneHeader({title, hint, action}: PaneHeaderProps) {
   return (
     <div className='flex min-h-12 items-start justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2'>
-      <div className='space-y-1'>
-        <div className='text-sm font-medium'>{title}</div>
-        {description ? (
-          <div className='text-xs text-muted-foreground'>{description}</div>
+      <div className='flex items-center gap-1.5 text-sm font-medium'>
+        {title}
+        {hint ? (
+          <HelpHint
+            label={title}
+            content={hint}
+            data-testid='upgrade-config-pane-hint'
+          />
         ) : null}
       </div>
       {action}
@@ -865,7 +883,6 @@ function getMergeFileSummary(file: ConfigMergeFile): MergeFileSummary {
       state: 'manual_pending',
       badgeKey: 'pendingResolution',
       titleKey: 'configManualResolutionNotice',
-      descriptionKey: 'configManualResolutionDescription',
     };
   }
 
@@ -874,7 +891,6 @@ function getMergeFileSummary(file: ConfigMergeFile): MergeFileSummary {
       state: 'manual_resolved',
       badgeKey: 'resolved',
       titleKey: 'manualMergeResolvedTitle',
-      descriptionKey: 'manualMergeResolvedDescription',
     };
   }
 
@@ -882,6 +898,5 @@ function getMergeFileSummary(file: ConfigMergeFile): MergeFileSummary {
     state: 'no_difference',
     badgeKey: 'noConflict',
     titleKey: 'noDifferenceTitle',
-    descriptionKey: 'noDifferenceDescription',
   };
 }

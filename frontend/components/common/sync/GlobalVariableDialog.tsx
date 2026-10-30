@@ -26,7 +26,6 @@ import {toast} from 'sonner';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -146,7 +145,10 @@ export function GlobalVariableDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-[500px] border-border/80 bg-background/95 backdrop-blur shadow-2xl'>
+      <DialogContent
+        className='sm:max-w-[500px] border-border/80 bg-background/95 backdrop-blur shadow-2xl'
+        aria-describedby={undefined}
+      >
         <form onSubmit={handleSubmit}>
           <DialogHeader className='space-y-1.5 pb-2'>
             <div className='flex items-center gap-2 text-primary font-semibold'>
@@ -159,9 +161,6 @@ export function GlobalVariableDialog({
                 {isEditing ? t('editGlobalVariable') : t('newGlobalVariable')}
               </DialogTitle>
             </div>
-            <DialogDescription className='text-xs text-muted-foreground'>
-              {t('globalVariableDialogDesc')}
-            </DialogDescription>
           </DialogHeader>
 
           <div className='space-y-4 py-2'>

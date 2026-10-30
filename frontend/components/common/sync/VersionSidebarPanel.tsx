@@ -18,7 +18,7 @@
 'use client';
 
 import {useTranslations} from 'next-intl';
-import {GitCommit, MoreHorizontal, Trash2} from 'lucide-react';
+import {GitCommit, HelpCircle, MoreHorizontal, Trash2} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {
@@ -76,8 +76,25 @@ export function VersionSidebarPanel({
       <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
         <div className='flex items-center justify-between gap-2'>
           <div>
-            <div className='text-[11px] uppercase tracking-wide text-muted-foreground'>
-              {t('versionManagement')}
+            <div className='flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground'>
+              <span>{t('versionManagement')}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type='button'
+                    className='text-muted-foreground/60 hover:text-foreground'
+                    aria-label={t('versionManagementDesc')}
+                  >
+                    <HelpCircle className='size-3' />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side='bottom'
+                  className='max-w-[300px] text-xs leading-relaxed normal-case tracking-normal'
+                >
+                  {t('versionManagementDesc')}
+                </TooltipContent>
+              </Tooltip>
             </div>
             <div className='mt-0.5 text-base font-semibold text-foreground'>
               v{currentVersion}
@@ -100,9 +117,6 @@ export function VersionSidebarPanel({
             </Badge>
           </div>
         </div>
-        <p className='mt-1 text-[11px] leading-relaxed text-muted-foreground'>
-          {t('versionManagementDesc')}
-        </p>
       </div>
 
       {/* 版本列表卡片 */}

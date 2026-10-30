@@ -38,7 +38,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {ScrollArea} from '@/components/ui/scroll-area';
-import {Download, Server, Layers, Sparkles} from 'lucide-react';
+import {Download, HelpCircle, Server, Layers, Sparkles} from 'lucide-react';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
 import {DeploymentMode} from '@/lib/services/cluster/types';
 import {ClusterDeployConfig} from './types';
@@ -101,9 +102,27 @@ export function ClusterBasicStep({
 
             <div className='space-y-1.5'>
               <div className='flex items-center justify-between'>
-                <Label htmlFor='cluster-code' className='text-sm font-medium'>
-                  {t('cluster.clusterCode')}
-                </Label>
+                <div className='flex items-center gap-1'>
+                  <Label htmlFor='cluster-code' className='text-sm font-medium'>
+                    {t('cluster.clusterCode')}
+                  </Label>
+                  {/* 完整规则进标签旁 HelpCircle，常驻只留短提示 */}
+                  {/* Full rule lives in the label HelpCircle; only a short hint stays visible */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type='button'
+                        className='text-muted-foreground/70 hover:text-foreground'
+                        aria-label={t('cluster.clusterCodeHint')}
+                      >
+                        <HelpCircle className='size-3.5' />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent className='max-w-xs text-xs leading-relaxed'>
+                      {t('cluster.clusterCodeHint')}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
                 <span className='text-[11px] text-muted-foreground'>
                   {t('common.optional')}
                 </span>
@@ -126,8 +145,8 @@ export function ClusterBasicStep({
                   {t('cluster.clusterCodeInvalid')}
                 </p>
               ) : (
-                <p className='text-[11px] text-muted-foreground line-clamp-1' title={t('cluster.clusterCodeHint')}>
-                  {t('cluster.clusterCodeHint')}
+                <p className='text-[11px] text-muted-foreground'>
+                  {t('cluster.clusterCodeShortHint')}
                 </p>
               )}
             </div>

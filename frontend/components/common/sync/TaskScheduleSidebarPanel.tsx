@@ -33,7 +33,6 @@ import {
   Copy,
   ExternalLink,
   History,
-  Info,
   Maximize2,
   Unplug,
   Upload,
@@ -68,6 +67,7 @@ export function TaskScheduleSidebarPanel({
   className,
   taskId,
   canEdit = true,
+  hasUnsavedChanges = false,
 }: {
   value: TaskScheduleValue;
   lastTriggeredAt?: string;
@@ -77,6 +77,8 @@ export function TaskScheduleSidebarPanel({
   className?: string;
   taskId?: number;
   canEdit?: boolean;
+  /** 定时配置相对已保存版本有改动时为 true / True when the schedule differs from the saved version */
+  hasUnsavedChanges?: boolean;
 }) {
   const t = useTranslations('workbenchStudio');
   const [dolphin, setDolphin] = useState<DolphinTaskStatus | null>(null);
@@ -138,24 +140,6 @@ export function TaskScheduleSidebarPanel({
 
   return (
     <div className={cn('min-w-0 space-y-3.5', className)}>
-      {/* 生产调度工具建议提示卡片 */}
-      {/* Production scheduling recommendation callout card */}
-      <div className='rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-xs'>
-        <div className='flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400'>
-          <Info className='size-3.5 shrink-0 text-amber-500' />
-          <span>{t('scheduleProductionNoticeTitle')}</span>
-          <Badge
-            variant='outline'
-            className='ml-auto h-4 border-amber-500/30 px-1 text-[10px] text-amber-600 dark:text-amber-400'
-          >
-            DolphinScheduler / Airflow
-          </Badge>
-        </div>
-        <p className='mt-1 text-[11px] leading-relaxed text-muted-foreground'>
-          {t('scheduleProductionNoticeDesc')}
-        </p>
-      </div>
-
       {/* 调度开关与状态主卡片 */}
       {/* Scheduling toggle and status main card */}
       <div className='rounded-lg border border-border/50 bg-muted/10 p-3.5 space-y-3'>
@@ -169,6 +153,26 @@ export function TaskScheduleSidebarPanel({
                 <Label className='text-xs font-semibold text-foreground'>
                   {t('taskSchedule')}
                 </Label>
+                {/* 生产调度建议收进「轻量」Badge 的 Tooltip；Badge 包成 button 以便键盘聚焦打开，可访问名称沿用可见文字，长建议由 Tooltip 作为描述 */}
+                {/* Production advice lives in the "Lightweight" badge Tooltip; wrapped in a button for keyboard focus, accessible name stays the visible text and the Tooltip supplies the description */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type='button'
+                      className='inline-flex cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
+                    >
+                      <Badge
+                        variant='outline'
+                        className='h-4.5 border-amber-500/30 px-1.5 text-[10px] text-amber-600 dark:text-amber-400'
+                      >
+                        {t('scheduleLightweightBadge')}
+                      </Badge>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className='max-w-[320px] text-xs leading-5'>
+                    {t('scheduleProductionNoticeDesc')}
+                  </TooltipContent>
+                </Tooltip>
                 {value.enabled ? (
                   <Badge
                     variant='outline'
@@ -208,24 +212,44 @@ export function TaskScheduleSidebarPanel({
                 </TooltipContent>
               </Tooltip>
             ) : null}
-            <Switch
-              checked={value.enabled}
-              disabled={Boolean(dolphin?.builtin_locked)}
-              onCheckedChange={(checked) =>
-                onChange({
-                  ...value,
-                  enabled: checked,
-                  cron_expr: value.cron_expr,
-                  timezone: timezoneValue,
-                })
-              }
-            />
+            {dolphin?.builtin_locked ? (
+              // 已绑定 Dolphin：开关禁用，原因进 Tooltip；禁用控件外包 span 才能触发
+              // Bound to Dolphin: switch disabled with the reason in a Tooltip; wrapped in a span so it fires
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className='inline-flex' tabIndex={0}>
+                    <Switch
+                      checked={value.enabled}
+                      disabled
+                      className='pointer-events-none'
+                    />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side='left' className='max-w-[260px] text-xs'>
+                  {t('dolphinBuiltinLocked')}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <Switch
+                checked={value.enabled}
+                onCheckedChange={(checked) =>
+                  onChange({
+                    ...value,
+                    enabled: checked,
+                    cron_expr: value.cron_expr,
+                    timezone: timezoneValue,
+                  })
+                }
+              />
+            )}
           </div>
         </div>
 
-        <p className='text-[11px] leading-relaxed text-muted-foreground'>
-          {t('taskScheduleHint')}
-        </p>
+        {hasUnsavedChanges ? (
+          <p className='text-[11px] leading-4 text-amber-600 dark:text-amber-400 break-words'>
+            {t('scheduleUnsavedHint')}
+          </p>
+        ) : null}
 
         {/* 最近触发与下一次触发时间统计指标 */}
         {/* Last triggered and next trigger metrics */}
@@ -298,9 +322,6 @@ export function TaskScheduleSidebarPanel({
             </Tooltip>
           }
         />
-        {dolphin?.builtin_locked ? (
-          <p className='text-[11px] text-muted-foreground'>{t('dolphinBuiltinLocked')}</p>
-        ) : null}
       </div>
 
       {taskId ? (
@@ -341,9 +362,7 @@ export function TaskScheduleSidebarPanel({
                 </div>
               ))}
             </div>
-          ) : (
-            <p className='text-[11px] text-muted-foreground'>{t('dolphinUnboundHint')}</p>
-          )}
+          ) : null}
           {pushBlocked === 'unpublished' ? (
             <p className='text-[11px] text-amber-600 dark:text-amber-400'>
               {t('dolphinNeedPublish')}

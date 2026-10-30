@@ -625,6 +625,31 @@ var registry = append([]OperationSpec{
 }`,
 	},
 	{
+		ID:           "host.java-runtimes.list",
+		CommandPath:  []string{"host", "java-runtimes"},
+		Summary:      "List detectable JDKs on a host",
+		GeneratedCLI: true,
+		Method:       "GET",
+		Route:        "/api/v1/hosts/:id/java-runtimes",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		UsesAgent:    true,
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "Host ID"},
+		},
+		Impact:  &ImpactSpec{Level: RiskR0, Message: "Reads detectable JDK paths and versions on the target host.", Performance: "Asks the Agent to scan local JDK directories and run java -version."},
+		Example: "stx host java-runtimes 10",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "host.java-runtimes.list",
+  "request_id": "req_example",
+  "data": [{"java_home":"/usr/lib/jvm/java-11","version":11,"source":"scan"}],
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
 		ID:           "host.precheck",
 		CommandPath:  []string{"host", "precheck"},
 		Summary:      "Run installation precheck on a host",
@@ -2054,6 +2079,10 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 				{Name: "lines", Location: InputQuery, Required: false, Description: "Number of log lines"}, {Name: "mode", Location: InputQuery, Required: false, Description: "Read mode: tail, head, or all"},
 				{Name: "filter", Location: InputQuery, Required: false, Description: "Log filter pattern"}, {Name: "date", Location: InputQuery, Required: false, Description: "Rolling log date suffix"},
 			}),
+		// 节点生效 JDK：只读，但会让 Agent 执行 <java_home>/bin/java -version。
+		// Node effective JDK: read-only, but makes the Agent run <java_home>/bin/java -version.
+		withUsesAgent(clusterGeneratedOperation("cluster.node.java-runtime", []string{"cluster", "node", "java-runtime"}, "Get the effective JDK of a cluster node", "GET", "/api/v1/clusters/:id/nodes/:nodeId/java-runtime", RiskR0,
+			"查询会让目标 Agent 执行一次 java -version，用于确认节点实际使用的 JDK 路径与版本。", "stx cluster node java-runtime 6 1", clusterNodeIDInputs())),
 		clusterGeneratedOperation("cluster.start", []string{"cluster", "start"}, "Start a cluster", "POST", "/api/v1/clusters/:id/start", RiskR1,
 			"启动集群会在所有节点创建 SeaTunnel 进程并占用 CPU、内存和端口。", "stx cluster start 6 --confirm", clusterIDInputs()),
 		clusterGeneratedOperation("cluster.stop", []string{"cluster", "stop"}, "Stop a cluster", "POST", "/api/v1/clusters/:id/stop", RiskR1,
@@ -2287,8 +2316,8 @@ var routeExceptions = []RouteException{
 	{Method: "POST", Route: "/api/v1/oauth/callback", Mode: ModeServerOnly, Reason: "OAuth provider callback consumed by the STX server"},
 	{Method: "GET", Route: "/api/v1/oauth/login", Mode: ModeServerOnly, Reason: "OAuth 浏览器跳转入口，不适合作为 CLI 命令"},
 	{Method: "GET", Route: "/api/v1/oauth/providers", Mode: ModeServerOnly, Reason: "OAuth 登录页能力查询，不适合作为 CLI 命令"},
-	{Method: "POST", Route: "/api/v1/hosts/:id/discover", Mode: ModeServerOnly, Reason: "Legacy cluster discovery discards the Agent result and always returns an empty cluster list"},
-	{Method: "POST", Route: "/api/v1/hosts/:id/discover/confirm", Mode: ModeServerOnly, Reason: "Legacy cluster import is not wired with a ClusterMatcher and cannot complete successfully"},
+	{Method: "POST", Route: "/api/v1/hosts/:id/discover", Mode: ModeServerOnly, Reason: "主机「发现集群」由控制台驱动；CLI 使用 host 进程发现与 cluster create"},
+	{Method: "POST", Route: "/api/v1/hosts/:id/discover/confirm", Mode: ModeServerOnly, Reason: "主机「发现集群」确认导入由控制台驱动；CLI 使用 cluster create"},
 	{Method: "DELETE", Route: "/api/v1/clusters/:id/plugins/:name", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "POST", Route: "/api/v1/clusters/:id/runtime-storage/imap/cleanup", Mode: ModeServerOnly, Reason: "运行时存储清理可能影响集群，首版 CLI 不提供"},
 	{Method: "DELETE", Route: "/api/v1/diagnostics/auto-policies/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
@@ -2315,6 +2344,8 @@ var routeExceptions = []RouteException{
 	{Method: "GET", Route: "/api/v1/agent/ca.crt", Mode: ModeDownload, Reason: "Agent CA certificate used by the host setup flow"},
 	{Method: "GET", Route: "/api/v1/agent/download", Mode: ModeDownload, Reason: "Agent binary used by the host setup flow"},
 	{Method: "GET", Route: "/api/v1/agent/assets/stx-java-proxy.jar", Mode: ModeDownload, Reason: "Java Proxy jar used by the managed runtime setup flow"},
+	{Method: "GET", Route: "/api/v1/agent/assets/stx-java-proxy-v2.jar", Mode: ModeDownload, Reason: "Epoch v2 Java Proxy jar used by the managed runtime setup flow"},
+	{Method: "GET", Route: "/api/v1/agent/assets/stx-java-proxy-v3.jar", Mode: ModeDownload, Reason: "Epoch v3 Java Proxy jar used by the managed runtime setup flow"},
 	{Method: "GET", Route: "/api/v1/agent/assets/stx-java-proxy.sh", Mode: ModeDownload, Reason: "Java Proxy launcher used by the managed runtime setup flow"},
 }
 
@@ -2351,4 +2382,11 @@ func RegistryDigest() string {
 	}
 	digest := sha256.Sum256(content)
 	return fmt.Sprintf("sha256:%x", digest[:])
+}
+
+// withUsesAgent 把操作标记为经过 Agent 执行。
+// withUsesAgent marks an operation as executed through the Agent.
+func withUsesAgent(spec OperationSpec) OperationSpec {
+	spec.UsesAgent = true
+	return spec
 }

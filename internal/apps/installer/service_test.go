@@ -238,13 +238,16 @@ type stubInstallationNodeStarter struct {
 	ensureCalls int
 	startCalls  int
 	ensureErr   error
-	startOK     bool
-	startMsg    string
-	startErr    error
+	// ensureJavaHome 记录登记节点时下发的 JDK。/ ensureJavaHome records the JDK passed when registering the node.
+	ensureJavaHome string
+	startOK        bool
+	startMsg       string
+	startErr       error
 }
 
-func (s *stubInstallationNodeStarter) EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int) error {
+func (s *stubInstallationNodeStarter) EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int, javaHome string) error {
 	s.ensureCalls++
+	s.ensureJavaHome = javaHome
 	return s.ensureErr
 }
 

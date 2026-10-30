@@ -647,14 +647,19 @@ if [[ -n "$PACKAGES_DIR" ]]; then
     stx_info "✔ stx-agent"
   fi
 
-  # 同步全部代际 jar（v2/v3），供 2.x / 3.x 集群按版本选型。/ Stage every epoch jar (v2/v3).
-  if compgen -G "$PACKAGES_DIR/stx-java-proxy-*.jar" >/dev/null; then
-    cp "$PACKAGES_DIR"/stx-java-proxy-*.jar "$STAGE_DIR/lib/"
-    stx_info "✔ stx-java-proxy (v2/v3)"
-  fi
+  # 同步全部代际 jar（v2/v3），供 2.x / 3.x 集群按版本选型；缺 jar 时从包根/lib 兜底，仍缺则失败。
+  # Stage every epoch jar (v2/v3). Fall back to bundle root/lib when packages/ omits them; still missing → fail.
+  stx_stage_java_proxy_jars_into_lib "$PACKAGES_DIR" "$SOURCE_DIR" "$STAGE_DIR/lib" || exit 1
+  stx_info "✔ stx-java-proxy (v2/v3)"
   if [[ -f "$SOURCE_DIR/scripts/stx-java-proxy.sh" ]]; then
     cp "$SOURCE_DIR/scripts/stx-java-proxy.sh" "$STAGE_DIR/scripts/"
+  elif [[ -f "$SCRIPT_DIR/scripts/stx-java-proxy.sh" ]]; then
+    cp "$SCRIPT_DIR/scripts/stx-java-proxy.sh" "$STAGE_DIR/scripts/"
+  else
+    stx_err "missing scripts/stx-java-proxy.sh (served to Agents via /api/v1/agent/assets/stx-java-proxy.sh)"
+    exit 1
   fi
+  stx_info "✔ stx-java-proxy.sh"
 
   SOURCE_DIR="$STAGE_DIR"
 else
@@ -666,9 +671,15 @@ else
     fi
   done
   if ! compgen -G "$SOURCE_DIR/lib/stx-java-proxy-*.jar" >/dev/null; then
-    stx_warn "missing lib/stx-java-proxy-*.jar (Agent capability proxy epochs v2/v3)"
+    stx_err "missing lib/stx-java-proxy-*.jar (Agent capability proxy epochs v2/v3)"
+    exit 1
   elif [[ ! -e "$SOURCE_DIR/lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" ]]; then
-    stx_warn "missing default lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar (Agent capability proxy)"
+    stx_err "missing default lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar (Agent capability proxy)"
+    exit 1
+  fi
+  if [[ ! -f "$SOURCE_DIR/scripts/stx-java-proxy.sh" ]]; then
+    stx_err "missing scripts/stx-java-proxy.sh (Agent capability proxy launcher)"
+    exit 1
   fi
 fi
 stx_step_ok
@@ -718,6 +729,19 @@ chmod +x \
 if [[ -f "$INSTALL_DIR/scripts/stx-java-proxy.sh" ]]; then
   chmod +x "$INSTALL_DIR/scripts/stx-java-proxy.sh"
 fi
+# 安装完成后再次确认 Agent 资产已落盘，避免控制面资产接口 404。
+# After install, re-check Agent assets are on disk so Control Plane asset APIs do not 404.
+if [[ ! -f "$INSTALL_DIR/scripts/stx-java-proxy.sh" ]]; then
+  stx_err "install incomplete: $INSTALL_DIR/scripts/stx-java-proxy.sh missing"
+  exit 1
+fi
+for _epoch in v2 v3; do
+  if [[ ! -f "$INSTALL_DIR/lib/stx-java-proxy-${_epoch}.jar" ]]; then
+    stx_err "install incomplete: $INSTALL_DIR/lib/stx-java-proxy-${_epoch}.jar missing"
+    exit 1
+  fi
+done
+unset _epoch
 mkdir -p "$INSTALL_DIR/run" "$INSTALL_DIR/logs" "$INSTALL_DIR/data"
 stx_step_ok "$(du -sh "$INSTALL_DIR" 2>/dev/null | awk '{print $1}')"
 

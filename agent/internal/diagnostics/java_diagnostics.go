@@ -31,6 +31,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 )
 
 const (
@@ -72,7 +74,10 @@ type JVMDumpResult struct {
 	CollectedAt    time.Time  `json:"collected_at"`
 }
 
-func CollectThreadDump(ctx context.Context, installDir, role, outputDir string) (*ThreadDumpResult, error) {
+// CollectThreadDump 采集线程栈；javaHome 是节点配置的 JDK，非空时只使用其 bin 下的 jcmd/jstack。
+// CollectThreadDump collects a thread dump; javaHome is the node's configured JDK and, when set, only its bin
+// jcmd/jstack are used.
+func CollectThreadDump(ctx context.Context, installDir, role, outputDir, javaHome string) (*ThreadDumpResult, error) {
 	pid, err := findSeaTunnelPID(installDir, role)
 	if err != nil {
 		return nil, err
@@ -84,7 +89,7 @@ func CollectThreadDump(ctx context.Context, installDir, role, outputDir string) 
 		return nil, fmt.Errorf("create diagnostics output dir: %w", err)
 	}
 
-	content, tool, err := runThreadDumpCommand(ctx, pid)
+	content, tool, err := runThreadDumpCommand(ctx, pid, javaHome)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +113,10 @@ func CollectThreadDump(ctx context.Context, installDir, role, outputDir string) 
 	}, nil
 }
 
-func CollectJVMDump(ctx context.Context, installDir, role, outputDir string, minFreeBytes int64) (*JVMDumpResult, error) {
+// CollectJVMDump 生成 JVM Dump；javaHome 是节点配置的 JDK，非空时只使用其 bin 下的 jcmd/jmap。
+// CollectJVMDump creates a JVM dump; javaHome is the node's configured JDK and, when set, only its bin jcmd/jmap
+// are used.
+func CollectJVMDump(ctx context.Context, installDir, role, outputDir string, minFreeBytes int64, javaHome string) (*JVMDumpResult, error) {
 	pid, err := findSeaTunnelPID(installDir, role)
 	if err != nil {
 		return nil, err
@@ -153,7 +161,7 @@ func CollectJVMDump(ctx context.Context, installDir, role, outputDir string, min
 	}
 
 	filePath := filepath.Join(outputDir, buildDumpFileName("jvm-dump", role, "hprof"))
-	tool, err := runJVMDumpCommand(ctx, pid, filePath)
+	tool, err := runJVMDumpCommand(ctx, pid, filePath, javaHome)
 	if err != nil {
 		return nil, err
 	}
@@ -186,16 +194,31 @@ func MarshalJVMDumpResult(result *JVMDumpResult) (string, error) {
 	return string(payload), nil
 }
 
-func runThreadDumpCommand(ctx context.Context, pid int) ([]byte, string, error) {
+// lookupJDKTool 是诊断工具定位入口，测试可替换。
+// lookupJDKTool is the diagnostic tool lookup entry; tests may replace it.
+var lookupJDKTool = javaenv.LookupTool
+
+// jdkToolHint 返回工具缺失时的提示：配置了节点 JDK 时指出具体目录，否则保留原有 PATH 提示。
+// jdkToolHint returns the missing-tool hint: the concrete directory for a configured node JDK, otherwise the
+// original PATH hint.
+func jdkToolHint(javaHome, first, second string) error {
+	if strings.TrimSpace(javaHome) != "" {
+		binDir := filepath.Join(javaenv.NormalizeHome(javaHome), "bin")
+		return fmt.Errorf("节点 JDK 目录 %s 下未找到 %s 或 %s，请确认该路径是完整 JDK / %s or %s not found under the node JDK directory %s; make sure the path is a full JDK", binDir, first, second, first, second, binDir)
+	}
+	return fmt.Errorf("未检测到 %s 或 %s，请安装 JDK 并确保命令在 PATH 中 / %s or %s not found; install a JDK and ensure the tools are in PATH", first, second, first, second)
+}
+
+func runThreadDumpCommand(ctx context.Context, pid int, javaHome string) ([]byte, string, error) {
 	var failures []string
-	if path, err := exec.LookPath("jcmd"); err == nil {
+	if path, err := lookupJDKTool(javaHome, "jcmd"); err == nil {
 		output, cmdErr := exec.CommandContext(ctx, path, strconv.Itoa(pid), "Thread.print", "-l").CombinedOutput()
 		if cmdErr == nil {
 			return output, "jcmd", nil
 		}
 		failures = append(failures, formatCommandFailure("jcmd", cmdErr, output))
 	}
-	if path, err := exec.LookPath("jstack"); err == nil {
+	if path, err := lookupJDKTool(javaHome, "jstack"); err == nil {
 		output, cmdErr := exec.CommandContext(ctx, path, "-l", strconv.Itoa(pid)).CombinedOutput()
 		if cmdErr == nil {
 			return output, "jstack", nil
@@ -203,21 +226,21 @@ func runThreadDumpCommand(ctx context.Context, pid int) ([]byte, string, error) 
 		failures = append(failures, formatCommandFailure("jstack", cmdErr, output))
 	}
 	if len(failures) == 0 {
-		return nil, "", fmt.Errorf("未检测到 jcmd 或 jstack，请安装 JDK 并确保命令在 PATH 中 / jcmd or jstack not found; install a JDK and ensure the tools are in PATH")
+		return nil, "", jdkToolHint(javaHome, "jcmd", "jstack")
 	}
 	return nil, "", fmt.Errorf("线程栈采集失败 / failed to collect thread dump: %s", strings.Join(failures, "; "))
 }
 
-func runJVMDumpCommand(ctx context.Context, pid int, outputPath string) (string, error) {
+func runJVMDumpCommand(ctx context.Context, pid int, outputPath, javaHome string) (string, error) {
 	var failures []string
-	if path, err := exec.LookPath("jcmd"); err == nil {
+	if path, err := lookupJDKTool(javaHome, "jcmd"); err == nil {
 		output, cmdErr := exec.CommandContext(ctx, path, strconv.Itoa(pid), "GC.heap_dump", outputPath).CombinedOutput()
 		if cmdErr == nil {
 			return "jcmd", nil
 		}
 		failures = append(failures, formatCommandFailure("jcmd", cmdErr, output))
 	}
-	if path, err := exec.LookPath("jmap"); err == nil {
+	if path, err := lookupJDKTool(javaHome, "jmap"); err == nil {
 		output, cmdErr := exec.CommandContext(ctx, path, fmt.Sprintf("-dump:live,format=b,file=%s", outputPath), strconv.Itoa(pid)).CombinedOutput()
 		if cmdErr == nil {
 			return "jmap", nil
@@ -225,7 +248,7 @@ func runJVMDumpCommand(ctx context.Context, pid int, outputPath string) (string,
 		failures = append(failures, formatCommandFailure("jmap", cmdErr, output))
 	}
 	if len(failures) == 0 {
-		return "", fmt.Errorf("未检测到 jcmd 或 jmap，请安装 JDK 并确保命令在 PATH 中 / jcmd or jmap not found; install a JDK and ensure the tools are in PATH")
+		return "", jdkToolHint(javaHome, "jcmd", "jmap")
 	}
 	return "", fmt.Errorf("JVM Dump 采集失败 / failed to create jvm dump: %s", strings.Join(failures, "; "))
 }

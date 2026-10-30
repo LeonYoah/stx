@@ -155,9 +155,9 @@ type PrecheckParams struct {
 // DefaultPrecheckParams 返回默认预检查参数
 func DefaultPrecheckParams() *PrecheckParams {
 	return &PrecheckParams{
-		MinMemoryMB:    2048,                    // 2GB minimum / 最小 2GB
-		MinCPUCores:    2,                       // 2 cores minimum / 最小 2 核
-		MinDiskSpaceMB: 5120,                    // 5GB minimum / 最小 5GB
+		MinMemoryMB:    2048, // 2GB minimum / 最小 2GB
+		MinCPUCores:    2,    // 2 cores minimum / 最小 2 核
+		MinDiskSpaceMB: 5120, // 5GB minimum / 最小 5GB
 		InstallDir:     "/opt/seatunnel",
 		Ports:          []int{5801, 5802, 8080}, // Default SeaTunnel ports / 默认 SeaTunnel 端口
 		Architecture:   "amd64",                 // Default architecture / 默认架构
@@ -490,6 +490,34 @@ func GetJavaDownloadInfo(version int, arch string) *JavaDownloadInfo {
 // 支持的版本：8、11（推荐）
 // 版本 > 11 将显示警告，因为可能存在兼容性问题
 func (p *Prechecker) CheckJava(ctx context.Context) PrecheckItem {
+	return p.checkJavaWith(p.systemInfoProvider.GetJavaVersion)
+}
+
+// CheckJavaAt 用指定的 java 可执行文件（节点配置的 <java_home>/bin/java）检查版本，规则与 CheckJava 相同。
+// CheckJavaAt checks the version of a specific java executable (the node's configured <java_home>/bin/java) with
+// the same rules as CheckJava.
+func (p *Prechecker) CheckJavaAt(ctx context.Context, javaBin string) PrecheckItem {
+	return p.checkJavaWith(func() (int, string, error) {
+		return JavaVersionFromBinary(ctx, javaBin)
+	})
+}
+
+// JavaVersionFromBinary 执行 `<javaBin> -version` 并解析主版本号。
+// JavaVersionFromBinary runs `<javaBin> -version` and parses the major version.
+func JavaVersionFromBinary(ctx context.Context, javaBin string) (int, string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	output, err := exec.CommandContext(ctx, javaBin, "-version").CombinedOutput()
+	if err != nil {
+		return 0, "", fmt.Errorf("%s -version failed: %w", javaBin, err)
+	}
+	return parseJavaVersion(string(output))
+}
+
+// checkJavaWith 按统一的版本规则生成 Java 检查项。
+// checkJavaWith builds the Java check item with the shared version rules.
+func (p *Prechecker) checkJavaWith(getVersion func() (int, string, error)) PrecheckItem {
 	item := PrecheckItem{
 		Name:    CheckNameJava,
 		Details: make(map[string]interface{}),
@@ -499,7 +527,7 @@ func (p *Prechecker) CheckJava(ctx context.Context) PrecheckItem {
 	item.Details["max_recommended_version"] = JavaMaxRecommendedVersion
 	item.Details["recommended_versions"] = []int{8, 11}
 
-	version, versionStr, err := p.systemInfoProvider.GetJavaVersion()
+	version, versionStr, err := getVersion()
 	if err != nil {
 		item.Status = CheckStatusFailed
 		item.Message = fmt.Sprintf(

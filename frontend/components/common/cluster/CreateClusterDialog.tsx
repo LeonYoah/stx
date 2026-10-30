@@ -31,6 +31,7 @@ import {useState, useEffect} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {JavaHomePicker} from '@/components/common/java/JavaHomePicker';
 import {Label} from '@/components/ui/label';
 import {HelpHint} from '@/components/common/HelpHint';
 import {Textarea} from '@/components/ui/textarea';
@@ -96,6 +97,8 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
     Map<number, DiscoveredProcess[]>
   >(new Map());
   const [selectedProcesses, setSelectedProcesses] = useState<Set<string>>(new Set());
+  /** process key -> java_home (AC1e/AC1f) / 进程键到 JDK */
+  const [javaHomesByKey, setJavaHomesByKey] = useState<Record<string, string>>({});
 
   // Advanced settings state (stx-java-proxy & JVM) / 高级配置状态（stx-java-proxy 与 JVM 参数）
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -246,6 +249,17 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
           procs.forEach((p) => allKeys.add(getProcessKey(hId, p)));
         });
         setSelectedProcesses(allKeys);
+        // Prefill process JDK when Agent reported it (AC1f) / 有进程 JDK 时预填（AC1f）
+        const seeded: Record<string, string> = {};
+        newProcessesByHost.forEach((procs, hId) => {
+          procs.forEach((proc) => {
+            const key = getProcessKey(hId, proc);
+            if (proc.java_home) {
+              seeded[key] = proc.java_home;
+            }
+          });
+        });
+        setJavaHomesByKey(seeded);
 
         // Auto-detect deployment mode from all discovered processes
         // 从所有发现的进程自动检测部署模式
@@ -362,6 +376,8 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
       hazelcastPort: number;
       apiPort: number;
       clusterName?: string;
+      processKey: string;
+      javaHome?: string;
     }> = [];
 
     selectedProcesses.forEach((key) => {
@@ -378,6 +394,8 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
             hazelcastPort: proc.hazelcast_port || 0,
             apiPort: proc.api_port || 0,
             clusterName: proc.cluster_name,
+            processKey: key,
+            javaHome: javaHomesByKey[key] || proc.java_home || '',
           });
         }
       }
@@ -436,6 +454,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
           hazelcastPort: number;
           apiPort: number;
           clusterName?: string;
+          javaHome?: string;
         }
       >();
 
@@ -456,6 +475,9 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
           if (!existing.clusterName && proc.clusterName) {
             existing.clusterName = proc.clusterName;
           }
+          if (!existing.javaHome && proc.javaHome) {
+            existing.javaHome = proc.javaHome;
+          }
         } else {
           nodeMap.set(nodeKey, {
             hostId: proc.hostId,
@@ -465,6 +487,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
             hazelcastPort: proc.hazelcastPort,
             apiPort: proc.apiPort,
             clusterName: proc.clusterName,
+            javaHome: proc.javaHome,
           });
         }
       });
@@ -478,6 +501,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
         hazelcast_port: node.hazelcastPort > 0 ? node.hazelcastPort : undefined,
         api_port: node.apiPort > 0 ? node.apiPort : undefined,
         cluster_name: node.clusterName,
+        java_home: node.javaHome || undefined,
       }));
 
       const effectivePort = Number(proxyPort) > 0 ? Number(proxyPort) : 18080;
@@ -563,7 +587,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className='sm:max-w-[600px] max-h-[90vh] flex flex-col'
+        className='sm:max-w-4xl max-h-[90vh] flex flex-col'
         aria-describedby={undefined}
       >
         <DialogHeader>
@@ -845,6 +869,24 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                                   </span>
                                 )}
                               </div>
+                              {isSelected && (
+                                <div
+                                  className='mt-2'
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <JavaHomePicker
+                                    hostId={hostId}
+                                    value={javaHomesByKey[key] || proc.java_home || ''}
+                                    preferredJavaHome={proc.java_home}
+                                    onChange={({javaHome}) =>
+                                      setJavaHomesByKey((prev) => ({
+                                        ...prev,
+                                        [key]: javaHome,
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              )}
                             </div>
                           </div>
                         );

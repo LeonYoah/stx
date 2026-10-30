@@ -46,6 +46,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/health"
 	"github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/apps/oauth"
@@ -249,6 +250,9 @@ func Serve() {
 			// 初始化集群服务和处理器
 			clusterService := cluster.NewService(clusterRepo, hostService, &cluster.ServiceConfig{
 				HeartbeatTimeout: time.Duration(config.Config.GRPC.HeartbeatTimeout) * time.Second,
+				// Agent 启动 java-proxy 时可按此基址拉取脚本/jar（DEF-R2-1）。
+				// Agents may pull script/jar from this base when starting java-proxy (DEF-R2-1).
+				AssetBaseURL: strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 			})
 
 			// Inject agent command sender if agent manager is available
@@ -308,6 +312,7 @@ func Serve() {
 				clusterRouter.POST("/:id/nodes/:nodeId/stop", clusterHandler.StopNode)
 				clusterRouter.POST("/:id/nodes/:nodeId/restart", clusterHandler.RestartNode)
 				clusterRouter.GET("/:id/nodes/:nodeId/logs", clusterHandler.GetNodeLogs)
+				clusterRouter.GET("/:id/nodes/:nodeId/java-runtime", clusterHandler.GetNodeJavaRuntime)
 
 				// Cluster operations 集群操作
 				clusterRouter.POST("/:id/start", clusterHandler.StartCluster)
@@ -559,6 +564,10 @@ func Serve() {
 				discoveryService.SetAgentDiscoverer(&discoveryAgentDiscovererAdapter{manager: agentManager})
 				log.Println("[API] Agent discoverer injected into discovery service / Agent 发现器已注入发现服务")
 			}
+			// Wire ClusterMatcher so 「发现集群」确认可建簇并写入 java_home（AC1e）。
+			// Wire ClusterMatcher so discover-confirm can create clusters and persist java_home (AC1e).
+			discoveryService.SetClusterMatcher(clusterService)
+			log.Println("[API] Cluster matcher injected into discovery service / 集群匹配器已注入发现服务")
 			discoveryHandler := discovery.NewHandler(discoveryService)
 
 			// Discovery routes on hosts 主机发现路由
@@ -595,9 +604,18 @@ func Serve() {
 				// GET /api/v1/agent/download - Download Agent binary
 				agentRouter.GET("/download", agentHandler.DownloadAgent)
 
-				// GET /api/v1/agent/assets/stx-java-proxy.jar - 下载 stx-java-proxy 薄 jar
-				// GET /api/v1/agent/assets/stx-java-proxy.jar - Download stx-java-proxy thin jar
+				// GET /api/v1/agent/assets/stx-java-proxy.jar - 下载 stx-java-proxy 薄 jar（?version= 选代际）
+				// GET /api/v1/agent/assets/stx-java-proxy.jar - Download stx-java-proxy thin jar (?version= selects epoch)
 				agentRouter.GET("/assets/stx-java-proxy.jar", agentHandler.DownloadSTXJavaProxyJar)
+
+				// GET /api/v1/agent/assets/stx-java-proxy-v{2,3}.jar - 按文件名下载代际 jar（与 .sh 资产路径风格一致）
+				// GET /api/v1/agent/assets/stx-java-proxy-v{2,3}.jar - Download epoch jars by filename (same style as .sh)
+				agentRouter.GET("/assets/stx-java-proxy-v2.jar", func(c *gin.Context) {
+					agentHandler.DownloadSTXJavaProxyEpochJarFor(c, "v2")
+				})
+				agentRouter.GET("/assets/stx-java-proxy-v3.jar", func(c *gin.Context) {
+					agentHandler.DownloadSTXJavaProxyEpochJarFor(c, "v3")
+				})
 
 				// GET /api/v1/agent/assets/stx-java-proxy.sh - 下载 stx-java-proxy 启动脚本
 				// GET /api/v1/agent/assets/stx-java-proxy.sh - Download stx-java-proxy launcher script
@@ -1115,6 +1133,7 @@ func Serve() {
 			// Installation routes on hosts 主机安装路由
 			// POST /api/v1/hosts/:id/precheck - 运行预检查
 			// POST /api/v1/hosts/:id/precheck - Run precheck
+			hostRouter.GET("/:id/java-runtimes", installerHandler.ListJavaRuntimes)
 			hostRouter.POST("/:id/precheck", installerHandler.RunPrecheck)
 			apiV1Router.POST("/installer/runtime-storage/validate", auth.LoginRequired(), installerHandler.ValidateRuntimeStorage)
 
@@ -1181,6 +1200,11 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	// Set Host status updater
 	agentManager.SetHostUpdater(&hostStatusUpdaterAdapter{hostService: hostService})
 
+	// 节点 JDK 集中下发：带 install_dir 且未显式给 java_home 的命令从 cluster_nodes.java_home 补全（AC4c）。
+	// Central node-JDK dispatch: commands with install_dir and no explicit java_home are filled from
+	// cluster_nodes.java_home (AC4c).
+	agentManager.SetCommandParamEnricher(newNodeJavaHomeEnricher(hostRepo, clusterRepo))
+
 	// 初始化 Audit Repository 用于日志记录
 	// Initialize Audit Repository for logging
 	auditRepo := audit.NewRepository(db.DB(ctx))
@@ -1206,6 +1230,7 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	// 设置 gRPC 处理器的集群节点提供者（用于 Agent 注册后推送监控配置）
 	clusterService := cluster.NewService(clusterRepo, hostService, &cluster.ServiceConfig{
 		HeartbeatTimeout: time.Duration(grpcConfig.HeartbeatTimeout) * time.Second,
+		AssetBaseURL:     strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 	})
 	monitorRepo := monitor.NewRepository(db.DB(ctx))
 	monitorService := monitor.NewService(monitorRepo)
@@ -1555,7 +1580,7 @@ func commandStatusFromAgentResponse(status pb.CommandStatus) audit.CommandStatus
 // stringToCommandType 将命令类型字符串转换为 pb.CommandType。
 func (a *agentCommandSenderAdapter) stringToCommandType(cmdType string) pb.CommandType {
 	switch cmdType {
-	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "sync_local_logs", "sync_job_logs", "full":
+	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "list_java_homes", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "sync_local_logs", "sync_job_logs", "full":
 		return pb.CommandType_PRECHECK
 	case "install":
 		return pb.CommandType_INSTALL
@@ -1809,7 +1834,7 @@ func (a *installerAgentManagerAdapter) SendCommand(ctx context.Context, agentID 
 // stringToCommandType 将命令类型字符串转换为 pb.CommandType。
 func (a *installerAgentManagerAdapter) stringToCommandType(cmdType string) pb.CommandType {
 	switch cmdType {
-	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "full":
+	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "list_java_homes", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "full":
 		return pb.CommandType_PRECHECK
 	case "install":
 		return pb.CommandType_INSTALL
@@ -2127,20 +2152,13 @@ type discoveryAgentDiscovererAdapter struct {
 // TriggerDiscovery triggers cluster discovery on an agent.
 // TriggerDiscovery 在 Agent 上触发集群发现。
 func (a *discoveryAgentDiscovererAdapter) TriggerDiscovery(ctx context.Context, agentID string) ([]*discovery.DiscoveredCluster, error) {
-	// Send DISCOVER_CLUSTERS command to agent
-	// 向 Agent 发送 DISCOVER_CLUSTERS 命令
-	resp, err := a.manager.SendCommand(ctx, agentID, pb.CommandType_DISCOVER_CLUSTERS, nil, 60*time.Second)
+	// 简化发现只返回进程：先拉进程再按安装目录聚合成集群，供「发现集群」确认建簇（AC1e）。
+	// Simplified discovery returns processes only: fetch processes then group by install dir for confirm (AC1e).
+	processes, err := a.DiscoverProcesses(ctx, agentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send discover clusters command: %w / 发送发现集群命令失败: %w", err, err)
+		return nil, err
 	}
-
-	if resp.Status != pb.CommandStatus_SUCCESS {
-		return nil, fmt.Errorf("discover clusters failed: %s / 发现集群失败: %s", resp.Error, resp.Error)
-	}
-
-	// For now, return empty list - the simplified discovery only returns processes
-	// 目前返回空列表 - 简化版发现只返回进程
-	return []*discovery.DiscoveredCluster{}, nil
+	return discovery.BuildClustersFromProcesses(processes), nil
 }
 
 // DiscoverProcesses discovers SeaTunnel processes on an agent (simplified).
@@ -2176,6 +2194,7 @@ func parseDiscoveredProcessesJSON(output string) ([]*discovery.DiscoveredProcess
 		HazelcastPort int    `json:"hazelcast_port"`           // Hazelcast cluster port / Hazelcast 集群端口
 		APIPort       int    `json:"api_port"`                 // REST API port / REST API 端口
 		ClusterName   string `json:"cluster_name,omitempty"`   // Hazelcast cluster-name / Hazelcast 集群标识
+		JavaHome      string `json:"java_home,omitempty"`
 	}
 	type DiscoveryResult struct {
 		Success   bool          `json:"success"`
@@ -2206,6 +2225,7 @@ func parseDiscoveredProcessesJSON(output string) ([]*discovery.DiscoveredProcess
 			HazelcastPort: p.HazelcastPort,
 			APIPort:       p.APIPort,
 			ClusterName:   p.ClusterName,
+			JavaHome:      p.JavaHome,
 		})
 	}
 
@@ -2377,6 +2397,7 @@ func (a *grpcClusterNodeProviderAdapter) GetNodesByHostID(ctx context.Context, h
 			Role:          string(node.Role),
 			ProcessPID:    node.ProcessPID,
 			MonitorConfig: config,
+			JavaHome:      node.JavaHome,
 		})
 	}
 
@@ -2480,6 +2501,7 @@ func (a *clusterProcessDiscovererAdapter) DiscoverSeaTunnelProcesses(ctx context
 			HazelcastPort: process.HazelcastPort,
 			APIPort:       process.APIPort,
 			ClusterName:   process.ClusterName,
+			JavaHome:      process.JavaHome,
 		})
 	}
 	return processes, nil
@@ -2516,4 +2538,30 @@ func (a *syncEventReportConfigAdapter) ApplyEventReportConfig(ctx context.Contex
 		})
 	}
 	return out, nil
+}
+
+// newNodeJavaHomeEnricher 构建节点 JDK 参数补全器：按 Agent 找主机，再按主机与安装目录找节点记录。
+// newNodeJavaHomeEnricher builds the node-JDK parameter enricher: the host is found by Agent, then node records
+// by host and install directory.
+func newNodeJavaHomeEnricher(hostRepo *host.Repository, clusterRepo *cluster.Repository) agent.CommandParamEnricher {
+	lookup := func(ctx context.Context, agentID, installDir string) ([]string, error) {
+		hostRecord, err := hostRepo.GetByAgentID(ctx, agentID)
+		if err != nil || hostRecord == nil {
+			return nil, err
+		}
+		nodes, err := clusterRepo.GetNodesByHostID(ctx, hostRecord.ID)
+		if err != nil {
+			return nil, err
+		}
+		homes := make([]string, 0, len(nodes))
+		for _, node := range nodes {
+			if node != nil && javaruntime.Normalize(node.InstallDir) == installDir {
+				homes = append(homes, node.JavaHome)
+			}
+		}
+		return homes, nil
+	}
+	return func(ctx context.Context, agentID string, _ pb.CommandType, params map[string]string) map[string]string {
+		return javaruntime.EnrichParams(ctx, agentID, params, lookup)
+	}
 }

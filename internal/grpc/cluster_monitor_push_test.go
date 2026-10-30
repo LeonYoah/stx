@@ -41,6 +41,7 @@ type trackedProcessParam struct {
 	ClusterID  uint   `json:"cluster_id"`
 	InstallDir string `json:"install_dir"`
 	Role       string `json:"role"`
+	JavaHome   string `json:"java_home"`
 }
 
 func decodeTracked(t *testing.T, params map[string]string) []trackedProcessParam {
@@ -186,5 +187,23 @@ func TestPushClusterMonitorConfigToHostValidatesInput(t *testing.T) {
 	}
 	if err := server.PushClusterMonitorConfigToHost(context.Background(), 1, 1); !errors.Is(err, ErrClusterMonitorPushUnavailable) {
 		t.Fatalf("expected ErrClusterMonitorPushUnavailable, got %v", err)
+	}
+}
+
+// TestBuildClusterMonitorParamsCarriesNodeJavaHome 覆盖 AC4：自动拉起使用节点自己的 JDK，未指定的节点保持为空（AC6）。
+// TestBuildClusterMonitorParamsCarriesNodeJavaHome covers AC4: auto-restart uses each node's own JDK, and nodes
+// without one stay empty (AC6).
+func TestBuildClusterMonitorParamsCarriesNodeJavaHome(t *testing.T) {
+	nodes := []*NodeWithMonitorConfig{
+		{ClusterID: 6, NodeID: 61, InstallDir: "/opt/st-a", Role: "master", JavaHome: "/opt/jdk8"},
+		{ClusterID: 6, NodeID: 62, InstallDir: "/opt/st-b", Role: "worker"},
+	}
+	params, _, err := buildClusterMonitorParams(6, nodes, nil)
+	if err != nil {
+		t.Fatalf("buildClusterMonitorParams: %v", err)
+	}
+	tracked := decodeTracked(t, params)
+	if len(tracked) != 2 || tracked[0].JavaHome != "/opt/jdk8" || tracked[1].JavaHome != "" {
+		t.Fatalf("tracked java_home = %+v", tracked)
 	}
 }

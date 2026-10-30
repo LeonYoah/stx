@@ -54,6 +54,7 @@ import (
 	"github.com/LeonYoah/stx/agent/internal/executor"
 	agentgrpc "github.com/LeonYoah/stx/agent/internal/grpc"
 	"github.com/LeonYoah/stx/agent/internal/installer"
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 	"github.com/LeonYoah/stx/agent/internal/logger"
 	"github.com/LeonYoah/stx/agent/internal/logtime"
 	"github.com/LeonYoah/stx/agent/internal/monitor"
@@ -1356,6 +1357,10 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 			getParamString(cmd.Parameters, "version", seatunnel.DefaultVersion()),
 			getParamInt(cmd.Parameters, "port", 0),
 			getParamString(cmd.Parameters, "jvm_opts", ""),
+			javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")),
+			// 控制面下发的资产基址；本地缺脚本/jar 时按此拉取（DEF-R2-1）。
+			// Asset base URL from Control Plane; used to pull script/jar when local copies are missing (DEF-R2-1).
+			getParamString(cmd.Parameters, "asset_base_url", ""),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
@@ -1377,6 +1382,9 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		Role:       role,
 		ConfigDir:  getParamString(cmd.Parameters, "config_dir", ""),
 		LogDir:     getParamString(cmd.Parameters, "log_dir", ""),
+		// 节点 JDK 由控制面 cluster_nodes.java_home 下发；为空沿用原有 PATH java。
+		// The node JDK comes from the Control Plane's cluster_nodes.java_home; empty keeps the original PATH java.
+		JavaHome: javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")),
 	}
 
 	// Check if auto-restart is enabled to avoid conflict
@@ -1478,6 +1486,8 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 			getParamString(cmd.Parameters, "version", seatunnel.DefaultVersion()),
 			getParamInt(cmd.Parameters, "port", 0),
 			getParamString(cmd.Parameters, "jvm_opts", ""),
+			javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")),
+			getParamString(cmd.Parameters, "asset_base_url", ""),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
@@ -1497,6 +1507,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 	startParams := &process.StartParams{
 		InstallDir: installDir,
 		Role:       role,
+		JavaHome:   javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")),
 	}
 	stopParams := &process.StopParams{
 		Graceful:   true,
@@ -1780,7 +1791,7 @@ func (a *Agent) handleThreadDumpCommand(ctx context.Context, cmd *pb.CommandRequ
 	role := getParamString(cmd.Parameters, "role", "")
 	outputDir := getParamString(cmd.Parameters, "output_dir", filepath.Join(installDir, "logs", "diagnostics"))
 
-	result, err := agentdiagnostics.CollectThreadDump(ctx, installDir, role, outputDir)
+	result, err := agentdiagnostics.CollectThreadDump(ctx, installDir, role, outputDir, javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")))
 	if err != nil {
 		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to collect thread dump: %v / 采集线程栈失败：%v", err, err)), nil
 	}
@@ -1876,7 +1887,7 @@ func (a *Agent) handleJVMDumpCommand(ctx context.Context, cmd *pb.CommandRequest
 	outputDir := getParamString(cmd.Parameters, "output_dir", filepath.Join(installDir, "logs", "diagnostics"))
 	minFreeMB := getParamInt(cmd.Parameters, "min_free_mb", agentdiagnostics.DefaultJVMDumpMinFreeMB)
 
-	result, err := agentdiagnostics.CollectJVMDump(ctx, installDir, role, outputDir, int64(minFreeMB)*1024*1024)
+	result, err := agentdiagnostics.CollectJVMDump(ctx, installDir, role, outputDir, int64(minFreeMB)*1024*1024, javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")))
 	if err != nil {
 		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to create JVM dump: %v / 生成 JVM Dump 失败：%v", err, err)), nil
 	}
@@ -2296,6 +2307,7 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 		HazelcastPort int    `json:"hazelcast_port"`
 		APIPort       int    `json:"api_port"`
 		ClusterName   string `json:"cluster_name,omitempty"`
+		JavaHome      string `json:"java_home,omitempty"`
 	}
 	type DiscoveryResult struct {
 		Success   bool          `json:"success"`
@@ -2317,6 +2329,7 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 			HazelcastPort: p.HazelcastPort,
 			APIPort:       p.APIPort,
 			ClusterName:   p.ClusterName,
+			JavaHome:      p.JavaHome,
 		})
 	}
 
@@ -2402,6 +2415,8 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 			ClusterID  uint   `json:"cluster_id"`
 			InstallDir string `json:"install_dir"`
 			Role       string `json:"role"`
+			// JavaHome 是节点配置的 JDK，自动拉起时继续使用。/ JavaHome is the node's configured JDK, reused by auto-restart.
+			JavaHome string `json:"java_home"`
 		}
 		if err := json.Unmarshal([]byte(trackedProcessesJSON), &trackedProcesses); err != nil {
 			logger.ErrorF(ctx, "[Agent] Failed to parse tracked_processes: %v / 解析 tracked_processes 失败：%v", err, err)
@@ -2438,6 +2453,7 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 				startParams := &process.StartParams{
 					InstallDir: proc.InstallDir,
 					Role:       proc.Role,
+					JavaHome:   javaenv.NormalizeHome(proc.JavaHome),
 				}
 
 				if resolvedPID > 0 {

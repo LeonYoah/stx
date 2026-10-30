@@ -21,12 +21,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	pb "github.com/LeonYoah/stx/agent"
 	"github.com/LeonYoah/stx/agent/internal/installer"
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 )
 
 // PrecheckSubCommand defines the sub-command types for precheck
@@ -53,6 +55,10 @@ const (
 	// PrecheckSubCommandCheckJava checks if Java is installed and its version
 	// PrecheckSubCommandCheckJava 检查 Java 是否已安装及其版本
 	PrecheckSubCommandCheckJava PrecheckSubCommand = "check_java"
+
+	// PrecheckSubCommandListJavaHomes 列出本机可探测到的 JDK（路径+版本），供向导下拉选择（AC1b）。
+	// PrecheckSubCommandListJavaHomes lists detectable JDKs (path+version) for the wizard dropdown (AC1b).
+	PrecheckSubCommandListJavaHomes PrecheckSubCommand = "list_java_homes"
 
 	// PrecheckSubCommandCheckTCP checks whether a remote TCP endpoint is reachable.
 	// PrecheckSubCommandCheckTCP 检查远程 TCP 端点是否可达。
@@ -156,6 +162,8 @@ func HandlePrecheckCommand(ctx context.Context, cmd *pb.CommandRequest, reporter
 		result, err = handleCheckClusterMembers(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckJava:
 		result, err = handleCheckJava(ctx, cmd.Parameters)
+	case PrecheckSubCommandListJavaHomes:
+		result, err = handleListJavaHomes(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckTCP:
 		result, err = handleCheckTCP(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckPathReady:
@@ -315,21 +323,69 @@ func handleCheckProcess(ctx context.Context, params map[string]string) (*Prechec
 	}, nil
 }
 
-// handleCheckJava handles the check_java sub-command
-// handleCheckJava 处理 check_java 子命令
+// handleCheckJava handles the check_java sub-command.
+// handleCheckJava 处理 check_java 子命令。
+// 参数 java_home 非空时只检查 <java_home>/bin/java，路径缺失或不可执行直接失败；为空时沿用原有 PATH 探测。
+// 两种情况都在 details 中返回实际检查的 java_home、java_bin 与来源（custom / detected）。
+// A non-empty java_home parameter checks only <java_home>/bin/java and fails on a missing or non-executable path;
+// an empty one keeps the original PATH detection. Both report the checked java_home, java_bin and source
+// (custom / detected) in details.
 func handleCheckJava(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
 	prechecker := installer.NewPrechecker(nil)
-	item := prechecker.CheckJava(ctx)
+	configured := javaenv.NormalizeHome(params[javaenv.ParamJavaHome])
 
+	var item installer.PrecheckItem
 	details := make(map[string]string)
+	if configured != "" {
+		details["java_home_source"] = string(javaenv.SourceCustom)
+		details["java_home"] = configured
+		rt, err := javaenv.ValidateHome(configured)
+		if err != nil {
+			details["error_reason"] = javaenv.ReasonOf(err)
+			details["java_bin"] = filepath.Join(configured, "bin", "java")
+			return &PrecheckResult{Success: false, Message: err.Error(), Details: details}, nil
+		}
+		details["java_bin"] = rt.JavaBin
+		item = prechecker.CheckJavaAt(ctx, rt.JavaBin)
+	} else {
+		details["java_home_source"] = string(javaenv.SourceDetected)
+		if rt, err := javaenv.Detect(); err == nil {
+			details["java_home"] = rt.JavaHome
+			details["java_bin"] = rt.JavaBin
+		}
+		item = prechecker.CheckJava(ctx)
+	}
+
 	for k, v := range item.Details {
 		details[k] = fmt.Sprintf("%v", v)
 	}
+	// 回传检查状态，控制面据此区分通过与警告。/ Report the check status so the Control Plane can tell pass from warning.
+	details["check_status"] = string(item.Status)
 
 	return &PrecheckResult{
 		Success: item.Status == installer.CheckStatusPassed || item.Status == installer.CheckStatusWarning,
 		Message: item.Message,
 		Details: details,
+	}, nil
+}
+
+// handleListJavaHomes 列出本机 JDK：环境 JAVA_HOME、扫描目录与 PATH；结果写入 details.jdks JSON（AC1b/AC1b2）。
+// 列表为空也成功，不阻塞向导。
+// handleListJavaHomes lists local JDKs: env JAVA_HOME, scan dirs and PATH; results go into details.jdks JSON (AC1b/AC1b2).
+// An empty list still succeeds and does not block the wizard.
+func handleListJavaHomes(ctx context.Context, _ map[string]string) (*PrecheckResult, error) {
+	candidates := javaenv.List(ctx)
+	payload, err := json.Marshal(candidates)
+	if err != nil {
+		return &PrecheckResult{Success: false, Message: err.Error()}, nil
+	}
+	return &PrecheckResult{
+		Success: true,
+		Message: fmt.Sprintf("found %d JDK(s)", len(candidates)),
+		Details: map[string]string{
+			"jdks":  string(payload),
+			"count": strconv.Itoa(len(candidates)),
+		},
 	}, nil
 }
 

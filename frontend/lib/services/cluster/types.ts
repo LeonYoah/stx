@@ -210,6 +210,8 @@ export interface NodeInfo {
   role: NodeRole;
   /** SeaTunnel installation directory / SeaTunnel 安装目录 */
   install_dir: string;
+  /** Configured node JDK; empty means auto detection / 节点配置的 JDK，空表示自动探测 */
+  java_home?: string;
   /** Hazelcast cluster port / Hazelcast 集群端口 */
   hazelcast_port: number;
   /** REST API port (Master only) / REST API 端口（仅 Master） */
@@ -622,6 +624,8 @@ export interface CreateClusterRequest {
     hazelcast_port?: number;
     api_port?: number;
     cluster_name?: string;
+    /** Node JDK; empty means auto; prefer process JDK on register (AC1e/AC1f) */
+    java_home?: string;
   }>;
 }
 
@@ -653,6 +657,8 @@ export interface AddNodeRequest {
   role: NodeRole;
   /** SeaTunnel installation directory / SeaTunnel 安装目录 */
   install_dir?: string;
+  /** Node JDK directory; empty means auto detection / 节点 JDK 目录，空表示自动探测 */
+  java_home?: string;
   /** Hazelcast cluster port / Hazelcast 集群端口 */
   hazelcast_port?: number;
   /** REST API port (Master only, optional) / REST API 端口（仅 Master，可选） */

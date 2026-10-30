@@ -741,6 +741,9 @@ type NodeWithMonitorConfig struct {
 	Role          string                 `json:"role"`
 	ProcessPID    int                    `json:"process_pid"`
 	MonitorConfig *monitor.MonitorConfig `json:"monitor_config"`
+	// JavaHome 是节点指定的 JDK（cluster_nodes.java_home），Agent 自动拉起时使用；为空表示自动探测。
+	// JavaHome is the node JDK (cluster_nodes.java_home) used by Agent auto-restart; empty means auto detection.
+	JavaHome string `json:"java_home"`
 }
 
 // monitorService is the monitor service for handling process events.
@@ -1255,6 +1258,7 @@ func (s *Server) pushMonitorConfigToAgent(ctx context.Context, agentID string, h
 				"cluster_id":  node.ClusterID,
 				"install_dir": node.InstallDir,
 				"role":        node.Role,
+				"java_home":   node.JavaHome,
 			})
 		}
 		if firstConfig == nil && node.MonitorConfig != nil {

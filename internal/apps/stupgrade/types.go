@@ -262,6 +262,9 @@ type NodeTarget struct {
 	TargetVersion    string `json:"target_version"`
 	SourceInstallDir string `json:"source_install_dir"`
 	TargetInstallDir string `json:"target_install_dir"`
+	// JavaHome 是节点指定的 JDK（来自 cluster_nodes.java_home），新目录尚无节点记录时随命令显式下发。
+	// JavaHome is the node JDK (from cluster_nodes.java_home), sent explicitly while the new directory has no node record yet.
+	JavaHome string `json:"java_home,omitempty"`
 }
 
 // PlanStep 描述升级计划中的有序步骤。

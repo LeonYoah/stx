@@ -1165,7 +1165,7 @@ func TestService_EnsureNodeForInstallationCreatesAndRefreshesNode(t *testing.T) 
 		t.Fatalf("Create returned error: %v", err)
 	}
 
-	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master/worker", "/tmp/seatunnel-2.3.12-retry", 15822, 18099, 15823); err != nil {
+	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master/worker", "/tmp/seatunnel-2.3.12-retry", 15822, 18099, 15823, ""); err != nil {
 		t.Fatalf("EnsureNodeForInstallation create returned error: %v", err)
 	}
 	node, err := repo.GetNodeByClusterAndHostAndRole(ctx, clusterInfo.ID, 10, "master/worker")
@@ -1179,7 +1179,7 @@ func TestService_EnsureNodeForInstallationCreatesAndRefreshesNode(t *testing.T) 
 		t.Fatalf("unexpected created node: %+v", node)
 	}
 
-	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master/worker", "/tmp/seatunnel-2.3.12-refreshed", 15832, 18109, 15833); err != nil {
+	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master/worker", "/tmp/seatunnel-2.3.12-refreshed", 15832, 18109, 15833, ""); err != nil {
 		t.Fatalf("EnsureNodeForInstallation refresh returned error: %v", err)
 	}
 	refreshed, err := repo.GetNodeByClusterAndHostAndRole(ctx, clusterInfo.ID, 10, "master/worker")
@@ -1191,6 +1191,54 @@ func TestService_EnsureNodeForInstallationCreatesAndRefreshesNode(t *testing.T) 
 	}
 	if refreshed.InstallDir != "/tmp/seatunnel-2.3.12-refreshed" || refreshed.HazelcastPort != 15832 || refreshed.APIPort != 18109 || refreshed.WorkerPort != 15833 {
 		t.Fatalf("unexpected refreshed node: %+v", refreshed)
+	}
+}
+
+// TestService_EnsureNodeForInstallationStoresJavaHome 覆盖 AC1/AC4c/AC1d：节点 JDK 存到 cluster_nodes.java_home，
+// 重新登记时以本次请求为准（为空即恢复自动探测），非法路径被拒绝。
+// TestService_EnsureNodeForInstallationStoresJavaHome covers AC1/AC4c/AC1d: the node JDK is stored in
+// cluster_nodes.java_home, re-registration follows the current request (empty restores auto detection), and
+// invalid paths are rejected.
+func TestService_EnsureNodeForInstallationStoresJavaHome(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	mockHostProvider := NewMockHostProvider()
+	now := time.Now()
+	mockHostProvider.AddHost(&HostInfo{ID: 10, Name: "jdk-host", HostType: "bare_metal", IPAddress: "127.0.0.1", AgentStatus: "installed", LastHeartbeat: &now})
+	mockHostProvider.AddHost(&HostInfo{ID: 11, Name: "jdk-host-2", HostType: "bare_metal", IPAddress: "127.0.0.2", AgentStatus: "installed", LastHeartbeat: &now})
+	service := NewService(repo, mockHostProvider, nil)
+	ctx := context.Background()
+	clusterInfo, err := service.Create(ctx, &CreateClusterRequest{Name: "jdk-cluster", DeploymentMode: DeploymentModeHybrid, Version: "2.3.12", InstallDir: "/opt/seatunnel"})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master/worker", "/opt/seatunnel", 5801, 8080, 5802, " /opt/jdk8/ "); err != nil {
+		t.Fatalf("EnsureNodeForInstallation returned error: %v", err)
+	}
+	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 11, "master/worker", "/opt/seatunnel", 5801, 8080, 5802, "/opt/jdk11"); err != nil {
+		t.Fatalf("EnsureNodeForInstallation second host returned error: %v", err)
+	}
+	first, _ := repo.GetNodeByClusterAndHostAndRole(ctx, clusterInfo.ID, 10, "master/worker")
+	second, _ := repo.GetNodeByClusterAndHostAndRole(ctx, clusterInfo.ID, 11, "master/worker")
+	if first == nil || first.JavaHome != "/opt/jdk8" {
+		t.Fatalf("first node java_home = %+v, want /opt/jdk8", first)
+	}
+	if second == nil || second.JavaHome != "/opt/jdk11" {
+		t.Fatalf("second node java_home = %+v, want /opt/jdk11 (per-node path)", second)
+	}
+
+	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master/worker", "/opt/seatunnel", 5801, 8080, 5802, ""); err != nil {
+		t.Fatalf("EnsureNodeForInstallation refresh returned error: %v", err)
+	}
+	refreshed, _ := repo.GetNodeByClusterAndHostAndRole(ctx, clusterInfo.ID, 10, "master/worker")
+	if refreshed.JavaHome != "" {
+		t.Fatalf("refreshed java_home = %q, want empty (auto detection)", refreshed.JavaHome)
+	}
+	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master/worker", "/opt/seatunnel", 5801, 8080, 5802, "relative/jdk"); err == nil {
+		t.Fatal("expected relative java_home to be rejected")
 	}
 }
 
@@ -1231,7 +1279,7 @@ func TestService_StartNodeByClusterAndHostAndRoleNormalizesHybridRole(t *testing
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
-	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master", "/tmp/seatunnel-2.3.13", 38181, 38080, 38182); err != nil {
+	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master", "/tmp/seatunnel-2.3.13", 38181, 38080, 38182, ""); err != nil {
 		t.Fatalf("EnsureNodeForInstallation returned error: %v", err)
 	}
 
@@ -1816,8 +1864,6 @@ func TestService_CreateFromDiscovery_SynchronizesAndAutoStartsSTXJavaProxy(t *te
 		t.Errorf("expected start stx_java_proxy command to be sent, recorded commands: %+v", agentSender.commands)
 	}
 }
-
-
 
 // TestService_GetWithInfo_populatesOnlineNodesAndHealth 确保详情接口与列表口径一致地返回 online_nodes/health_status。
 // TestService_GetWithInfo_populatesOnlineNodesAndHealth ensures the detail API fills online_nodes/health_status like the list API.

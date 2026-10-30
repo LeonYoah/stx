@@ -423,7 +423,11 @@ esac
 PROXY_PORT="$(resolve_proxy_port "$@")"
 kill_existing_proxy_listener "${PROXY_PORT}"
 
+# 使用 Agent 传入的节点 JDK（STX_JAVA_BIN），与同节点 SeaTunnel 一致；未传入时保持原行为，使用 PATH 上的 java。
+# Use the node JDK passed by the Agent (STX_JAVA_BIN) so it matches SeaTunnel on the node; without it keep the
+# original behavior and use java on PATH.
+JAVA_CMD="${STX_JAVA_BIN:-java}"
 if [ ${#APP_ARGS[@]} -eq 0 ]; then
-  exec java ${JAVA_OPTS} -cp "${CLASS_PATH}" ${APP_MAIN}
+  exec "${JAVA_CMD}" ${JAVA_OPTS} -cp "${CLASS_PATH}" ${APP_MAIN}
 fi
-exec java ${JAVA_OPTS} -cp "${CLASS_PATH}" ${APP_MAIN} "${APP_ARGS[@]}"
+exec "${JAVA_CMD}" ${JAVA_OPTS} -cp "${CLASS_PATH}" ${APP_MAIN} "${APP_ARGS[@]}"

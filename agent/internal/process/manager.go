@@ -42,6 +42,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 	"github.com/LeonYoah/stx/agent/internal/logger"
 )
 
@@ -228,6 +229,13 @@ type StartParams struct {
 	// Timeout for startup (optional, defaults to DefaultStartTimeout)
 	// 启动超时时间（可选，默认为 DefaultStartTimeout）
 	Timeout time.Duration `json:"timeout,omitempty"`
+
+	// JavaHome 是节点配置的 JDK 目录（控制面 cluster_nodes.java_home 下发）；为空时沿用 Agent 环境中的 java。
+	// 非空时只对该 SeaTunnel 子进程设置 JAVA_HOME 并把 <JavaHome>/bin 放到 PATH 最前面，首次启动与之后的重启都使用它。
+	// JavaHome is the node's configured JDK directory (sent from the Control Plane's cluster_nodes.java_home); empty
+	// keeps the java from the Agent environment. When set, only this SeaTunnel child process gets JAVA_HOME and
+	// <JavaHome>/bin prepended to PATH, for the first start and every restart.
+	JavaHome string `json:"java_home,omitempty"`
 }
 
 // StopParams contains parameters for stopping a process
@@ -492,6 +500,14 @@ func (m *ProcessManager) StartProcess(ctx context.Context, name string, params *
 	startScript := getStartScript(params.InstallDir)
 	if _, err := os.Stat(startScript); os.IsNotExist(err) {
 		return fmt.Errorf("%w: start script not found at %s", ErrInvalidInstallDir, startScript)
+	}
+
+	// 配置了节点 JDK 时先校验，避免脚本悄悄回退到 PATH 上的其他 java。
+	// Validate the configured node JDK first so the script never silently falls back to another java on PATH.
+	if strings.TrimSpace(params.JavaHome) != "" {
+		if _, err := javaenv.ValidateHome(params.JavaHome); err != nil {
+			return fmt.Errorf("invalid node JDK / 节点 JDK 不可用: %w", err)
+		}
 	}
 
 	// Create managed process / 创建托管进程
@@ -949,6 +965,11 @@ func buildStartCommand(ctx context.Context, params *StartParams) *exec.Cmd {
 		jvmOpts := strings.Join(params.JVMOptions, " ")
 		cmd.Env = append(cmd.Env, fmt.Sprintf("JAVA_OPTS=%s", jvmOpts))
 	}
+
+	// 节点 JDK：seatunnel-cluster.sh 直接调用 PATH 上的 java，所以同时设置 JAVA_HOME 与 PATH；为空时环境保持不变。
+	// Node JDK: seatunnel-cluster.sh runs the java on PATH, so both JAVA_HOME and PATH are set; empty leaves the
+	// environment unchanged.
+	cmd.Env = javaenv.ApplyEnv(cmd.Env, params.JavaHome)
 
 	return cmd
 }

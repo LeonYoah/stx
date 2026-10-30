@@ -33,6 +33,8 @@ import (
 	"syscall"
 	"text/template"
 	"time"
+
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 )
 
 type syncLocalStatusFile struct {
@@ -184,7 +186,10 @@ func handleSyncLocalRun(ctx context.Context, params map[string]string) (*Prechec
 		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, "bash", "-lc", fmt.Sprintf("nohup %s >/dev/null 2>&1 & echo $!", shellQuote(runnerFile)))
+	// 节点配置了 JDK 时在 profile 之后导出，保证本地作业与该节点 SeaTunnel 使用同一个 JDK；未配置时命令不变。
+	// A configured node JDK is exported after the profiles so local jobs use the node's SeaTunnel JDK; without one
+	// the command is unchanged.
+	cmd := exec.CommandContext(ctx, "bash", "-lc", javaenv.ShellExportPrefix(javaenv.HomeFromContext(ctx))+fmt.Sprintf("nohup %s >/dev/null 2>&1 & echo $!", shellQuote(runnerFile)))
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("start local sync job: %w", err)

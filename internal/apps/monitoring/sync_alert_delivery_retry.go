@@ -156,6 +156,9 @@ func (h *SyncAlertHub) retryFailedDeliveries(ctx context.Context) error {
 	health := &h.service.channelHealth
 	now := timeNowUTC()
 	guard := alertSweepGuardFrom(ctx)
+	// 提醒阶段的 DB 巡检也可能吃掉墙钟；进入重试前保住至少一半预算。
+	// Reminder-phase DB walks can burn wall clock too; reserve at least half the budget before retries.
+	guard.beginRetryPhase()
 	var (
 		errs    []error
 		afterID uint

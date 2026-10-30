@@ -29,6 +29,7 @@ import (
 	"strings"
 
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/clustermembers"
 	"github.com/LeonYoah/stx/internal/processidentity"
 	"gopkg.in/yaml.v3"
@@ -55,6 +56,10 @@ type ScaleOutRequest struct {
 	Role       NodeRole       `json:"role"`
 	InstallDir string         `json:"install_dir"`
 	Ports      ScaleNodePorts `json:"ports"`
+	// JavaHome 是新节点指定的 JDK 目录；为空时自动探测，不继承已有节点的路径（AC1d）。
+	// JavaHome is the new node's JDK directory; empty means auto detection and never inherits an existing node's
+	// path (AC1d).
+	JavaHome string `json:"java_home"`
 }
 
 // ScaleOutSubmitRequest 是扩容提交请求：计划参数 + 计划指纹 + 回环重启确认。
@@ -109,6 +114,7 @@ type ScaleTarget struct {
 	APIPort       int      `json:"api_port"`
 	WorkerPort    int      `json:"worker_port"`
 	Address       string   `json:"address"`
+	JavaHome      string   `json:"java_home,omitempty"`
 }
 
 // ScaleLoopbackNode 是 member-list 或运行时成员中含回环地址的现有节点。
@@ -508,6 +514,7 @@ func (s *ScaleService) PlanScaleOut(ctx context.Context, clusterID uint, req *Sc
 		APIPort:       desired.APIPort,
 		WorkerPort:    desired.WorkerPort,
 		Address:       nodeAddress(desired, host),
+		JavaHome:      desired.JavaHome,
 	}
 
 	// 成员地址：现有节点 → 加入新节点后的完整列表。
@@ -735,7 +742,23 @@ func (s *ScaleService) resolveScaleOutNode(cluster *Cluster, nodes []*ClusterNod
 	if installDir == "" && peer != nil {
 		installDir = strings.TrimSpace(peer.InstallDir)
 	}
-	return buildNodeForCreate(cluster.ID, req.HostID, cluster, role, installDir, hazelcastPort, apiPort, workerPort, nil)
+	// JDK：请求值优先；纳管且未填时预选进程实际 JDK（AC1f）；绝不从同角色节点或集群继承（AC1d）。
+	// JDK: request wins; register mode with an empty request preselects the process JDK (AC1f); never inherit from a
+	// peer or the cluster (AC1d).
+	javaHomeInput := req.JavaHome
+	if strings.TrimSpace(javaHomeInput) == "" && mode == ScaleModeRegister && process != nil {
+		javaHomeInput = process.JavaHome
+	}
+	javaHome, err := javaruntime.Validate(javaHomeInput)
+	if err != nil {
+		return nil, err
+	}
+	node, err := buildNodeForCreate(cluster.ID, req.HostID, cluster, role, installDir, hazelcastPort, apiPort, workerPort, nil)
+	if err != nil {
+		return nil, err
+	}
+	node.JavaHome = javaHome
+	return node, nil
 }
 
 func firstPositive(values ...int) int {
@@ -810,15 +833,11 @@ func (s *ScaleService) addInstallChecks(ctx context.Context, plan *ScalePlan, cl
 		return
 	}
 
-	javaCheck := ScaleCheck{Name: "java", Blocking: true}
-	if ok, message, err := s.runAgentCheck(ctx, host.AgentID, "check_java", map[string]string{}); err != nil || !ok {
-		javaCheck.Status = ScaleCheckFailed
-		javaCheck.Message = scaleText(lang, "未检测到可用的 Java（STX 不负责安装 JDK）："+message, "no usable Java found (STX does not install a JDK): "+message)
+	if desired.JavaHome != "" {
+		plan.addCheck(s.customJavaCheck(ctx, host, desired.JavaHome, lang))
 	} else {
-		javaCheck.Status = ScaleCheckPassed
-		javaCheck.Message = message
+		plan.addCheck(s.detectedJavaCheck(ctx, host, lang))
 	}
-	plan.addCheck(javaCheck)
 
 	for _, port := range scaleListenPorts(desired) {
 		check := ScaleCheck{Name: "port_free", Blocking: true, Target: strconv.Itoa(port)}
@@ -862,6 +881,70 @@ func (s *ScaleService) addInstallChecks(ctx context.Context, plan *ScalePlan, cl
 	plan.addCheck(diskCheck)
 }
 
+// detectedJavaCheck 未指定 JDK 时的原有 Java 预检（AC6：行为不变）。
+// detectedJavaCheck is the original Java precheck without a specified JDK (AC6: unchanged behavior).
+func (s *ScaleService) detectedJavaCheck(ctx context.Context, host *HostInfo, lang string) ScaleCheck {
+	javaCheck := ScaleCheck{Name: "java", Blocking: true}
+	success, output, err := s.svc.agentSender.SendCommand(ctx, host.AgentID, "check_java", map[string]string{})
+	message := parseCommandMessage(output)
+	if err != nil {
+		message = err.Error()
+	}
+	if err != nil || !success {
+		javaCheck.Status = ScaleCheckFailed
+		javaCheck.Message = scaleText(lang, "未检测到可用的 Java（STX 不负责安装 JDK）："+message, "no usable Java found (STX does not install a JDK): "+message)
+		return javaCheck
+	}
+	javaCheck.Status = ScaleCheckPassed
+	javaCheck.Message = message
+	// 只回传探测到的 JDK 目录供前端预填（AC1b），判定保持不变（AC6）。
+	// Only report the detected JDK directory for frontend prefill (AC1b); the verdict is unchanged (AC6).
+	if rt := javaruntime.Interpret("", success, output); rt.Source == javaruntime.SourceDetected && rt.JavaHome != "" {
+		javaCheck.Target = rt.JavaHome
+	}
+	return javaCheck
+}
+
+// customJavaCheck 检查新节点指定的 JDK：只检查 <java_home>/bin/java；路径缺失或不可执行阻断并带上路径与原因，
+// 8 或 11 通过，其他版本警告（AC2/AC3）。
+// customJavaCheck checks the new node's specified JDK: only <java_home>/bin/java is checked; a missing path or a
+// non-executable binary blocks with the path and reason, 8 or 11 pass and other versions warn (AC2/AC3).
+func (s *ScaleService) customJavaCheck(ctx context.Context, host *HostInfo, javaHome string, lang string) ScaleCheck {
+	check := ScaleCheck{Name: "java", Blocking: true, Target: javaHome}
+	nodeName := hostLabel(host, 0)
+	success, output, err := s.svc.agentSender.SendCommand(ctx, host.AgentID, "check_java", javaruntime.CheckParams(javaHome))
+	if err != nil {
+		check.Status = ScaleCheckFailed
+		check.Message = scaleText(lang,
+			fmt.Sprintf("节点 %s 无法检查 JDK %s：%v", nodeName, javaHome, err),
+			fmt.Sprintf("cannot check JDK %s on node %s: %v", javaHome, nodeName, err))
+		return check
+	}
+	rt := javaruntime.Interpret(javaHome, success, output)
+	if rt.JavaBin != "" {
+		check.Target = rt.JavaBin
+	}
+	switch rt.Status {
+	case javaruntime.StatusPassed:
+		check.Status = ScaleCheckPassed
+		check.Message = scaleText(lang,
+			fmt.Sprintf("使用 JDK %s，Java %d（%s）", rt.JavaBin, rt.Version, rt.VersionString),
+			fmt.Sprintf("uses JDK %s, Java %d (%s)", rt.JavaBin, rt.Version, rt.VersionString))
+	case javaruntime.StatusWarning:
+		check.Status = ScaleCheckWarning
+		check.Message = scaleText(lang,
+			fmt.Sprintf("使用 JDK %s，Java %d（%s），推荐 8 或 11", rt.JavaBin, rt.Version, rt.VersionString),
+			fmt.Sprintf("uses JDK %s, Java %d (%s); Java 8 or 11 is recommended", rt.JavaBin, rt.Version, rt.VersionString))
+	default:
+		check.Status = ScaleCheckFailed
+		reason := firstNonEmpty(rt.Message, rt.Reason)
+		check.Message = scaleText(lang,
+			fmt.Sprintf("节点 %s 的 JDK 不可用（%s）：%s", nodeName, firstNonEmpty(rt.JavaBin, javaHome), reason),
+			fmt.Sprintf("JDK on node %s is not usable (%s): %s", nodeName, firstNonEmpty(rt.JavaBin, javaHome), reason))
+	}
+	return check
+}
+
 // scaleListenPorts 返回新节点会监听的端口（Hazelcast 端口与 REST API 端口）。
 // scaleListenPorts returns the ports the new node will listen on (Hazelcast and REST API ports).
 func scaleListenPorts(node *ClusterNode) []int {
@@ -889,6 +972,11 @@ func (s *ScaleService) addRegisterChecks(ctx context.Context, plan *ScalePlan, c
 				Message: scaleText(lang, "Agent 不可用，已跳过", "skipped because the Agent is unavailable")})
 		}
 		return
+	}
+	// 纳管模式只有指定了 JDK 时才检查 Java；未指定时与原来一致（AC6）。
+	// Register mode only checks Java when a JDK is specified; otherwise it is unchanged (AC6).
+	if desired.JavaHome != "" {
+		plan.addCheck(s.customJavaCheck(ctx, host, desired.JavaHome, lang))
 	}
 	portCheck := ScaleCheck{Name: "port_listening", Blocking: true, Target: strconv.Itoa(desired.HazelcastPort)}
 	if listening, _, err := s.runAgentCheck(ctx, host.AgentID, "check_port", map[string]string{"port": strconv.Itoa(desired.HazelcastPort)}); err != nil || !listening {
@@ -1504,6 +1592,8 @@ type scaleFingerprintInput struct {
 	JobsKnown       bool      `json:"jobs_known"`
 	JavaProxyFrom   uint      `json:"java_proxy_from"`
 	JavaProxyTo     uint      `json:"java_proxy_to"`
+	// omitempty：未指定 JDK 时指纹与改动前一致。/ omitempty keeps the fingerprint unchanged without a JDK.
+	JavaHome string `json:"java_home,omitempty"`
 }
 
 // scalePlanFingerprint 计算计划指纹；扩容只有存在回环节点时才把运行中作业纳入（作业只影响回环重启护栏）。
@@ -1525,6 +1615,7 @@ func scalePlanFingerprint(plan *ScalePlan) string {
 		HazelcastPort:   plan.Target.HazelcastPort,
 		APIPort:         plan.Target.APIPort,
 		WorkerPort:      plan.Target.WorkerPort,
+		JavaHome:        plan.Target.JavaHome,
 		MembersBefore:   append([]string{}, plan.MembersBefore...),
 		MembersAfter:    append([]string{}, plan.MembersAfter...),
 		LoopbackNodeIDs: []uint{},

@@ -33,6 +33,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
@@ -708,6 +709,9 @@ type PrecheckRequest struct {
 	MinDiskSpaceMB int64  `json:"min_disk_space_mb"`
 	InstallDir     string `json:"install_dir"`
 	Ports          []int  `json:"ports"`
+	// JavaHome 是该节点指定的 JDK 目录；为空时沿用原有的 PATH 探测。
+	// JavaHome is the JDK directory specified for this node; empty keeps the original PATH detection.
+	JavaHome string `json:"java_home"`
 }
 
 // PrecheckResponse represents the response for precheck.
@@ -733,6 +737,38 @@ type RuntimeStorageValidationResponse struct {
 // @Param request body PrecheckRequest false "预检查参数"
 // @Success 200 {object} PrecheckResponse
 // @Router /api/v1/hosts/{id}/precheck [post]
+
+// ListJavaRuntimesResponse 是主机 JDK 列表响应。
+// ListJavaRuntimesResponse is the host JDK list response.
+type ListJavaRuntimesResponse struct {
+	ErrorMsg string                  `json:"error_msg"`
+	Data     []javaruntime.Candidate `json:"data"`
+}
+
+// ListJavaRuntimes handles GET /api/v1/hosts/:id/java-runtimes — 列出主机可探测 JDK（AC1b）。
+// ListJavaRuntimes handles GET /api/v1/hosts/:id/java-runtimes — lists detectable JDKs on the host (AC1b).
+// @Tags installation
+// @Produce json
+// @Param id path int true "主机ID"
+// @Success 200 {object} ListJavaRuntimesResponse
+// @Router /api/v1/hosts/{id}/java-runtimes [get]
+func (h *Handler) ListJavaRuntimes(c *gin.Context) {
+	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ListJavaRuntimesResponse{ErrorMsg: "无效的主机 ID / Invalid host ID"})
+		return
+	}
+	list, err := h.service.ListJavaRuntimes(c.Request.Context(), uint(hostID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ListJavaRuntimesResponse{ErrorMsg: err.Error()})
+		return
+	}
+	if list == nil {
+		list = []javaruntime.Candidate{}
+	}
+	c.JSON(http.StatusOK, ListJavaRuntimesResponse{Data: list})
+}
+
 func (h *Handler) RunPrecheck(c *gin.Context) {
 	hostID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -807,6 +843,10 @@ func (h *Handler) StartInstallation(c *gin.Context) {
 
 	status, err := h.service.StartInstallation(c.Request.Context(), &req)
 	if err != nil {
+		if errors.Is(err, javaruntime.ErrInvalidJavaHome) {
+			c.JSON(http.StatusBadRequest, InstallResponse{ErrorMsg: err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, InstallResponse{ErrorMsg: err.Error()})
 		return
 	}

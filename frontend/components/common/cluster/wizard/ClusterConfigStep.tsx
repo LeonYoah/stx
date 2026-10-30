@@ -56,6 +56,7 @@ import {
 import {DeploymentMode} from '@/lib/services/cluster/types';
 import {RuntimeAdvancedConfigCard} from '@/components/common/installer/RuntimeAdvancedConfigCard';
 import {HelpHint} from '@/components/common/HelpHint';
+import {JavaHomePicker} from '@/components/common/java/JavaHomePicker';
 import type {
   MirrorSource,
   CheckpointStorageType,
@@ -83,6 +84,10 @@ interface ClusterConfigStepProps {
   httpServiceSupported: boolean;
   /** Apply checkpoint config to IMAP / 同步检查点配置到 IMAP */
   applyCheckpointToImap: () => void;
+  /** Update one host JDK (AC1) / 更新单个主机 JDK（AC1） */
+  setHostJavaHome: (hostId: number, javaHome: string) => void;
+  /** Fill all selected hosts with one JDK (AC1a) / 一键填到全部已选主机（AC1a） */
+  fillAllJavaHome: (javaHome: string) => void;
 }
 
 export function ClusterConfigStep({
@@ -93,6 +98,8 @@ export function ClusterConfigStep({
   versionCapabilities,
   httpServiceSupported,
   applyCheckpointToImap,
+  setHostJavaHome,
+  fillAllJavaHome,
 }: ClusterConfigStepProps) {
   const t = useTranslations();
 
@@ -522,6 +529,55 @@ export function ClusterConfigStep({
               </Button>
             </div>
           </div>
+
+
+          {/* JDK path per host (AC1 / AC1a / AC1b) / 每主机 JDK 路径 */}
+          {selectedHosts.length > 0 && (
+            <Card className='shadow-none border-border/70' data-testid='cluster-wizard-jdk-card'>
+              <CardHeader className='py-2.5 px-3.5 border-b bg-muted/15'>
+                <div className='flex items-center justify-between gap-2'>
+                  <CardTitle className='text-xs font-semibold flex items-center gap-1.5'>
+                    {t('javaHome.label')}
+                  </CardTitle>
+                  {selectedHosts.length > 1 && (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      className='h-6 text-[11px] px-2'
+                      onClick={() => {
+                        const first = selectedHosts[0]?.javaHome || '';
+                        fillAllJavaHome(first);
+                      }}
+                      data-testid='cluster-wizard-jdk-fill-all'
+                    >
+                      {t('javaHome.fillAll')}
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className='p-3.5 space-y-3'>
+                {selectedHosts.map((h) => (
+                  <div key={h.host.id} className='rounded-md border border-border/50 p-2.5 space-y-2'>
+                    <div className='text-xs font-medium flex items-center gap-2'>
+                      <span>{h.host.name}</span>
+                      {h.host.ip_address && (
+                        <code className='font-mono text-[10px] text-muted-foreground'>
+                          {h.host.ip_address}
+                        </code>
+                      )}
+                    </div>
+                    <JavaHomePicker
+                      id={`jdk-host-${h.host.id}`}
+                      hostId={h.host.id}
+                      value={h.javaHome || ''}
+                      onChange={({javaHome}) => setHostJavaHome(h.host.id, javaHome)}
+                    />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* 2. Ports & JVM Grid / 端口与 JVM 资源紧凑网格 */}
           <div className='grid grid-cols-1 md:grid-cols-2 gap-3'>

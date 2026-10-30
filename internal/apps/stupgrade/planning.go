@@ -309,6 +309,7 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			TargetVersion:    targetVersion,
 			SourceInstallDir: node.InstallDir,
 			TargetInstallDir: resolveTargetInstallDir(node.InstallDir, sourceVersion, targetVersion, resolvedTargetInstallDir),
+			JavaHome:         node.JavaHome,
 		}
 		targets = append(targets, target)
 

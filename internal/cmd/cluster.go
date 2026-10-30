@@ -180,7 +180,7 @@ func newClusterUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
 func newClusterNodeAddCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
 	var hostID uint
-	var role, installDir, overridesFile, requestFile string
+	var role, installDir, overridesFile, javaHome, requestFile string
 	var hazelcastPort, apiPort, workerPort int
 	var skipPrecheck bool
 	command := &cobra.Command{
@@ -202,6 +202,7 @@ func newClusterNodeAddCommand(storeProvider authStoreProvider) *cobra.Command {
 				setChangedInt(command, body, "hazelcast-port", hazelcastPort)
 				setChangedInt(command, body, "api-port", apiPort)
 				setChangedInt(command, body, "worker-port", workerPort)
+				setChangedString(command, body, "java-home", javaHome)
 				if err := setJSONFileValue(body, "overrides", overridesFile); err != nil {
 					return err
 				}
@@ -214,6 +215,7 @@ func newClusterNodeAddCommand(storeProvider authStoreProvider) *cobra.Command {
 	addNodeDefinitionFlags(command, &hostID, &role, &installDir, &hazelcastPort, &apiPort, &workerPort)
 	command.Flags().BoolVar(&skipPrecheck, "skip-precheck", false, "Skip the remote node precheck")
 	command.Flags().StringVar(&overridesFile, "overrides-file", "", "JSON file containing node overrides")
+	command.Flags().StringVar(&javaHome, "java-home", "", "Node JDK directory; <java-home>/bin/java is used, empty keeps auto detection")
 	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
 	return command
 }
@@ -221,7 +223,7 @@ func newClusterNodeAddCommand(storeProvider authStoreProvider) *cobra.Command {
 func newClusterNodeAddBatchCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
 	var hostID uint
-	var installDir, entriesFile, requestFile string
+	var installDir, entriesFile, javaHome, requestFile string
 	var skipPrecheck bool
 	command := &cobra.Command{
 		Use:     "add-batch <cluster-id>",
@@ -239,6 +241,7 @@ func newClusterNodeAddBatchCommand(storeProvider authStoreProvider) *cobra.Comma
 				}
 				body = map[string]any{"host_id": hostID, "skip_precheck": skipPrecheck}
 				setChangedString(command, body, "install-dir", installDir)
+				setChangedString(command, body, "java-home", javaHome)
 				if err := setJSONFileValue(body, "entries", entriesFile); err != nil {
 					return err
 				}
@@ -251,6 +254,7 @@ func newClusterNodeAddBatchCommand(storeProvider authStoreProvider) *cobra.Comma
 	command.Flags().UintVar(&hostID, "host-id", 0, "Host ID")
 	command.Flags().StringVar(&installDir, "install-dir", "", "Default node installation directory")
 	command.Flags().StringVar(&entriesFile, "entries-file", "", "JSON file containing the node entry array")
+	command.Flags().StringVar(&javaHome, "java-home", "", "Node JDK directory; <java-home>/bin/java is used, empty keeps auto detection")
 	command.Flags().BoolVar(&skipPrecheck, "skip-precheck", false, "Skip the remote node precheck")
 	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
 	return command

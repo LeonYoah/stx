@@ -29,6 +29,7 @@ import (
 
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -186,6 +187,9 @@ type Service struct {
 	repo                     *Repository
 	hostProvider             HostProvider
 	heartbeatTimeout         time.Duration
+	// assetBaseURL is passed to Agents on java-proxy start so they can pull missing script/jar.
+	// assetBaseURL 在 java-proxy 启动时下发给 Agent，便于本地缺资产时拉取脚本/jar。
+	assetBaseURL             string
 	agentSender              AgentCommandSender
 	configAgentClient        ConfigAgentClient
 	runtimeConfigStore       runtimeConfigStore
@@ -201,20 +205,30 @@ type Service struct {
 // ServiceConfig 保存 Cluster Service 的配置。
 type ServiceConfig struct {
 	HeartbeatTimeout time.Duration
+	// AssetBaseURL is the Control Plane base for Agent asset downloads
+	// (e.g. http://cp:17800/api/v1/agent/assets). Empty disables push-on-start hints.
+	// AssetBaseURL 是 Agent 拉取辅助资产的控制面基址
+	// （如 http://cp:17800/api/v1/agent/assets）。为空则不下发启动拉取提示。
+	AssetBaseURL string
 }
 
 // NewService creates a new Service instance.
 // NewService 创建一个新的 Service 实例。
 func NewService(repo *Repository, hostProvider HostProvider, cfg *ServiceConfig) *Service {
 	timeout := 30 * time.Second
-	if cfg != nil && cfg.HeartbeatTimeout > 0 {
-		timeout = cfg.HeartbeatTimeout
+	assetBase := ""
+	if cfg != nil {
+		if cfg.HeartbeatTimeout > 0 {
+			timeout = cfg.HeartbeatTimeout
+		}
+		assetBase = strings.TrimSpace(cfg.AssetBaseURL)
 	}
 
 	return &Service{
 		repo:             repo,
 		hostProvider:     hostProvider,
 		heartbeatTimeout: timeout,
+		assetBaseURL:     assetBase,
 	}
 }
 
@@ -436,6 +450,7 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 				HazelcastPort: hazelcastPort,
 				APIPort:       apiPort,
 				WorkerPort:    workerPort,
+				JavaHome:      nodeReq.JavaHome, // 纳管写入节点生效 JDK（AC1e/AC1f / AC4c）
 				SkipPrecheck:  true, // Skip precheck for discovered nodes / 跳过发现节点的预检查
 			}
 
@@ -1243,6 +1258,9 @@ func (s *Service) AddNode(ctx context.Context, clusterID uint, req *AddNodeReque
 	if err != nil {
 		return nil, err
 	}
+	if node.JavaHome, err = javaruntime.Validate(req.JavaHome); err != nil {
+		return nil, err
+	}
 
 	if err := s.repo.AddNode(ctx, node); err != nil {
 		return nil, err
@@ -1276,6 +1294,10 @@ func (s *Service) AddNodes(ctx context.Context, clusterID uint, req *AddNodesReq
 	if err := s.ensureHostReady(ctx, req.HostID); err != nil {
 		return nil, err
 	}
+	javaHome, err := javaruntime.Validate(req.JavaHome)
+	if err != nil {
+		return nil, err
+	}
 
 	createdNodes := make([]*ClusterNode, 0, len(req.Entries))
 	seenRoles := make(map[NodeRole]struct{}, len(req.Entries))
@@ -1297,6 +1319,7 @@ func (s *Service) AddNodes(ctx context.Context, clusterID uint, req *AddNodesReq
 				return err
 			}
 
+			node.JavaHome = javaHome
 			if _, exists := seenRoles[node.Role]; exists {
 				return ErrNodeAlreadyExists
 			}
@@ -1376,6 +1399,7 @@ func buildNodeInfo(node *ClusterNode) *NodeInfo {
 		Overrides:     node.Overrides.Normalize(),
 		Status:        node.Status,
 		ProcessPID:    node.ProcessPID,
+		JavaHome:      node.JavaHome,
 		CreatedAt:     node.CreatedAt,
 		UpdatedAt:     node.UpdatedAt,
 	}
@@ -2331,7 +2355,14 @@ func (s *Service) StartNode(ctx context.Context, clusterID uint, nodeID uint) (*
 
 // EnsureNodeForInstallation 确保一键安装完成后的节点已登记，并刷新安装目录与端口。
 // EnsureNodeForInstallation ensures a one-click installation node is registered and refreshes its install directory and ports.
-func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int) error {
+// javaHome 为该节点指定的 JDK（为空表示自动探测），每次安装都覆盖写入，不沿用其他节点或旧值（AC1d）。
+// javaHome is the node's JDK (empty means auto detection); every installation overwrites it and never inherits
+// from other nodes or old values (AC1d).
+func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int, javaHome string) error {
+	normalizedJavaHome, err := javaruntime.Validate(javaHome)
+	if err != nil {
+		return err
+	}
 	cluster, err := s.repo.GetByID(ctx, clusterID, false)
 	if err != nil {
 		return err
@@ -2344,6 +2375,7 @@ func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint,
 	if err != nil {
 		return err
 	}
+	desired.JavaHome = normalizedJavaHome
 	existing, err := s.repo.GetNodeByClusterAndHostAndRole(ctx, clusterID, hostID, string(desired.Role))
 	if err != nil {
 		return err
@@ -2361,6 +2393,7 @@ func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint,
 	existing.HazelcastPort = desired.HazelcastPort
 	existing.APIPort = desired.APIPort
 	existing.WorkerPort = desired.WorkerPort
+	existing.JavaHome = desired.JavaHome
 	if err := s.repo.UpdateNode(ctx, existing); err != nil {
 		return err
 	}
@@ -2777,6 +2810,7 @@ func (s *Service) GetClusterNodesWithAgentInfo(ctx context.Context, clusterID ui
 			WorkerPort:    node.WorkerPort,
 			Status:        node.Status,
 			ProcessPID:    node.ProcessPID,
+			JavaHome:      node.JavaHome,
 			CreatedAt:     node.CreatedAt,
 			UpdatedAt:     node.UpdatedAt,
 		}

@@ -105,7 +105,8 @@ for plat in linux-amd64 linux-arm64 linux-amd64-centos7; do
     && ok "bundle $plat sha256 verifies" || bad "bundle $plat sha256 does not verify"
   d="$T/out/stx-${VER}-${plat}-offline"
   for f in install.sh install-core.sh download-lib.sh config.example.yaml MANIFEST.json README-OFFLINE.md SHA256SUMS \
-    bin/start.sh bin/stop.sh bin/status.sh bin/lib/observability.sh scripts/stx-java-proxy.sh; do
+    bin/start.sh bin/stop.sh bin/status.sh bin/lib/observability.sh scripts/stx-java-proxy.sh \
+    packages/stx-java-proxy-v2.jar packages/stx-java-proxy-v3.jar; do
     assert_file "bundle $plat has $f" "$d/$f"
   done
 done
@@ -176,6 +177,9 @@ assert_grep "install prints summary" "STX 安装完成" "$T/install-bundled.log"
 assert_grep "install prints default password" "admin123" "$T/install-bundled.log"
 assert_grep "install prints next steps" "后续步骤" "$T/install-bundled.log"
 assert_file "install writes stx.env" "$inst/stx.env"
+assert_file "install stages stx-java-proxy.sh" "$inst/scripts/stx-java-proxy.sh"
+assert_file "install stages stx-java-proxy-v2.jar" "$inst/lib/stx-java-proxy-v2.jar"
+assert_file "install stages stx-java-proxy-v3.jar" "$inst/lib/stx-java-proxy-v3.jar"
 
 # ---------- 2b. bundled node is preferred even if host has node ----------
 make_fake_node "$T/hostnode" v20.11.1

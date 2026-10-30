@@ -396,6 +396,20 @@ func (r *Repository) GetClustersWithHostID(ctx context.Context, hostID uint) ([]
 	return clusters, nil
 }
 
+// GetNodeByHostAndInstallDir 按主机与安装目录查找任一节点（发现匹配用，不区分角色）。
+// GetNodeByHostAndInstallDir finds any node by host and install directory (for discovery matching; role-agnostic).
+// Returns clusterID, nodeID, found, error
+func (r *Repository) GetNodeByHostAndInstallDir(ctx context.Context, hostID uint, installDir string) (uint, uint, bool, error) {
+	var node ClusterNode
+	if err := r.db.WithContext(ctx).Where("host_id = ? AND install_dir = ?", hostID, installDir).First(&node).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, 0, false, nil
+		}
+		return 0, 0, false, err
+	}
+	return node.ClusterID, node.ID, true, nil
+}
+
 // GetNodeByHostAndInstallDirAndRole retrieves a cluster node by host ID, install directory and role.
 // GetNodeByHostAndInstallDirAndRole 根据主机 ID、安装目录和角色获取集群节点。
 // Returns clusterID, nodeID, found, error

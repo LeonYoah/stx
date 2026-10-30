@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 272)
+	require.Len(t, Registry(), 274)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -108,12 +108,12 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"host.discovery.process.list": {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
 		"cluster.java-proxy.config": {}, "cluster.webui.endpoints": {},
-		"cluster.health.list":       {}, "cluster.runtime-storage.get": {},
+		"cluster.health.list": {}, "cluster.runtime-storage.get": {},
 		"cluster.runtime-storage.validate": {}, "cluster.runtime-storage.list": {},
 		"cluster.runtime-storage.preview": {}, "cluster.runtime-storage.checkpoint.inspect": {},
 		"cluster.runtime-storage.imap.inspect": {}, "installer.runtime-storage.validate": {},
-		"cluster.node.logs": {},
-		"cluster.start":     {}, "cluster.stop": {}, "cluster.restart": {},
+		"cluster.node.logs": {}, "host.java-runtimes.list": {}, "cluster.node.java-runtime": {},
+		"cluster.start": {}, "cluster.stop": {}, "cluster.restart": {},
 		"cluster.node.start": {}, "cluster.node.stop": {}, "cluster.node.restart": {},
 		"cluster.java-proxy.status": {}, "cluster.java-proxy.logs": {},
 		"cluster.java-proxy.start": {}, "cluster.java-proxy.stop": {}, "cluster.java-proxy.restart": {},
@@ -328,7 +328,7 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 35)
+	require.Len(t, RouteExceptions(), 37)
 	require.Contains(t, exceptions, "GET /api/v1/version")
 	require.Contains(t, exceptions, "POST /api/v1/sync/engine-events/:cluster_id")
 	require.Contains(t, exceptions, "GET /api/v1/monitoring/prometheus/jobs/metrics")
@@ -358,6 +358,8 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 		"GET /api/v1/agent/ca.crt",
 		"GET /api/v1/agent/download",
 		"GET /api/v1/agent/assets/stx-java-proxy.jar",
+		"GET /api/v1/agent/assets/stx-java-proxy-v2.jar",
+		"GET /api/v1/agent/assets/stx-java-proxy-v3.jar",
 		"GET /api/v1/agent/assets/stx-java-proxy.sh",
 	} {
 		require.Contains(t, exceptions, route)

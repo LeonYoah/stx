@@ -5316,5 +5316,33 @@
     "autoClosed": "Auto-closed",
     "remindersPaused": "Reminders stopped",
     "remindersPausedHint": "Recovery could not be confirmed for over 24 hours, so reminders stopped; the alert stays open. Check the job and the event channel."
+  },
+  "javaHome": {
+    "label": "JDK path",
+    "help": "Pick a JDK detected on this host, or enter a custom path. Leave empty to keep auto detection. Nodes can differ.",
+    "placeholder": "Select or customize a JDK",
+    "optionAuto": "Auto detect (unspecified)",
+    "optionDetected": "{path} (Java {version})",
+    "optionCustom": "Custom path…",
+    "customPlaceholder": "/usr/lib/jvm/java-11",
+    "badgeCustom": "Custom",
+    "badgeDetected": "Detected",
+    "badgeAuto": "Auto",
+    "fillAll": "Apply to all nodes",
+    "fillAllDone": "Applied to {count} nodes",
+    "failedNodes": "JDK precheck failed on these nodes; install is blocked:",
+    "effectiveTitle": "Effective JDK",
+    "effectiveConfigured": "Configured path",
+    "effectiveActual": "Actual path",
+    "effectiveVersion": "Version",
+    "effectiveSource": "Source",
+    "versionUnknown": "?",
+    "failedNodeItem": "{host} — {detail}",
+    "titlePathOnly": "{path}",
+    "titleWithVersion": "{path} · Java {version}",
+    "loadFailed": "Could not load the JDK list; enter a custom path or retry later",
+    "versionLoading": "Fetching version…",
+    "versionUnavailable": "Version unavailable",
+    "effectiveVersionValue": "Java {version}"
   }
 }

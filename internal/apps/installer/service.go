@@ -41,6 +41,7 @@ import (
 	"time"
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -146,7 +147,9 @@ type NodeStatusUpdater interface {
 type NodeStarter interface {
 	// EnsureNodeForInstallation ensures the installed node exists in cluster metadata before startup.
 	// EnsureNodeForInstallation 在启动前确保已安装节点存在于集群元数据中。
-	EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int) error
+	// javaHome 是节点指定的 JDK（为空表示自动探测），写入 cluster_nodes.java_home 作为唯一来源。
+	// javaHome is the node JDK (empty means auto detection), stored in cluster_nodes.java_home as the single source.
+	EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int, javaHome string) error
 	// StartNodeByClusterAndHost starts a node by cluster ID and host ID
 	// StartNodeByClusterAndHost 根据集群 ID 和主机 ID 启动节点
 	StartNodeByClusterAndHost(ctx context.Context, clusterID uint, hostID uint) (bool, string, error)
@@ -1861,10 +1864,30 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 	}
 	javaItem.Details["supported_versions"] = []int{8, 11}
 
+	// 指定了节点 JDK 时只检查 <java_home>/bin/java（AC2），失败直接阻断并带上节点、路径与原因；
+	// 未指定时下面的原有逻辑保持不变（AC6）。
+	// With a node JDK specified only <java_home>/bin/java is checked (AC2) and failures block with the node, path
+	// and reason; without one the original logic below is unchanged (AC6).
+	javaHome := ""
+	if req != nil {
+		javaHome = req.JavaHome
+	}
+	if strings.TrimSpace(javaHome) != "" {
+		s.runCustomJavaPrecheck(ctx, hostInfo, javaHome, &javaItem)
+		if javaItem.Status == CheckStatusFailed {
+			result.OverallStatus = CheckStatusFailed
+		}
+		result.Items = append(result.Items, javaItem)
+		return s.finishPrecheckSummary(ctx, hostID, result), nil
+	}
+
 	// Check Java version via Agent command
 	// 通过 Agent 命令检查 Java 版本
 	javaParams := map[string]string{
 		"sub_command": "check_java",
+		// 显式为空：表示自动探测，中心化注入不会按节点记录覆盖。
+		// Explicitly empty: auto detection; the central injection does not override it from node records.
+		javaruntime.ParamJavaHome: "",
 	}
 	success, output, err := s.agentManager.SendCommand(ctx, hostInfo.AgentID, "check_java", javaParams)
 	if err != nil {
@@ -1892,6 +1915,13 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 		// 从输出解析 Java 版本
 		javaVersion := parseJavaVersionFromOutput(output)
 		javaItem.Details["detected_version"] = javaVersion
+		// 只补充探测到的路径供前端预填（AC1b / AC3），不影响原有判定（AC6）。
+		// Only add the detected path for frontend prefill (AC1b / AC3); the original verdict is unchanged (AC6).
+		if rt := javaruntime.Interpret("", success, output); rt.JavaHome != "" || rt.JavaBin != "" {
+			javaItem.Details["java_home"] = rt.JavaHome
+			javaItem.Details["java_bin"] = rt.JavaBin
+			javaItem.Details["java_home_source"] = javaruntime.SourceDetected
+		}
 
 		if javaVersion == 8 || javaVersion == 11 {
 			// Supported version
@@ -1911,7 +1941,12 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 		}
 	}
 	result.Items = append(result.Items, javaItem)
+	return s.finishPrecheckSummary(ctx, hostID, result), nil
+}
 
+// finishPrecheckSummary 汇总各检查项得到整体状态与摘要。
+// finishPrecheckSummary aggregates the check items into the overall status and summary.
+func (s *Service) finishPrecheckSummary(ctx context.Context, hostID uint, result *PrecheckResult) *PrecheckResult {
 	// Set summary
 	// 设置摘要
 	passedCount := 0
@@ -1954,7 +1989,61 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 	}
 
 	logger.InfoF(ctx, "[Installer] 预检查完成 / Precheck completed: host=%d, status=%s", hostID, result.OverallStatus)
-	return result, nil
+	return result
+}
+
+// runCustomJavaPrecheck 检查节点指定的 JDK：路径格式不合法、路径缺失、bin/java 不可执行或 Agent 不支持时失败；
+// 8、11 通过，其他版本警告。details 记录实际检查的 java_home、java_bin、来源与版本（AC3）。
+// runCustomJavaPrecheck checks the node's specified JDK: a malformed path, a missing path, a non-executable
+// bin/java or an unsupported Agent fails; 8 and 11 pass, other versions warn. Details record the checked
+// java_home, java_bin, source and version (AC3).
+func (s *Service) runCustomJavaPrecheck(ctx context.Context, hostInfo *HostInfo, javaHome string, item *PrecheckItem) {
+	nodeName := strings.TrimSpace(hostInfo.Name)
+	if nodeName == "" {
+		nodeName = fmt.Sprintf("#%d", hostInfo.ID)
+	}
+	item.Details["java_home_source"] = javaruntime.SourceCustom
+	item.Details["java_home"] = javaruntime.Normalize(javaHome)
+
+	normalized, err := javaruntime.Validate(javaHome)
+	if err != nil {
+		item.Status = CheckStatusFailed
+		item.Message = fmt.Sprintf("节点 %s 的 JDK 路径不合法：%v / Invalid JDK path on node %s: %v", nodeName, err, nodeName, err)
+		item.Details["error_reason"] = "invalid_path"
+		return
+	}
+
+	success, output, sendErr := s.agentManager.SendCommand(ctx, hostInfo.AgentID, "check_java", javaruntime.CheckParams(normalized))
+	if sendErr != nil {
+		// 指定了路径却无法验证时必须阻断，避免装上后才发现 JDK 不可用。
+		// A specified path that cannot be verified must block, so a broken JDK is not found only after install.
+		item.Status = CheckStatusFailed
+		item.Message = fmt.Sprintf("节点 %s 无法检查 JDK %s：%v / Cannot check JDK %s on node %s: %v", nodeName, normalized, sendErr, normalized, nodeName, sendErr)
+		item.Details["error_reason"] = "agent_unreachable"
+		return
+	}
+	rt := javaruntime.Interpret(normalized, success, output)
+	item.Details["java_home"] = rt.JavaHome
+	item.Details["java_bin"] = rt.JavaBin
+	item.Details["java_home_source"] = rt.Source
+	item.Details["detected_version"] = rt.Version
+	if rt.VersionString != "" {
+		item.Details["version_string"] = rt.VersionString
+	}
+	if rt.Reason != "" {
+		item.Details["error_reason"] = rt.Reason
+	}
+	switch rt.Status {
+	case javaruntime.StatusPassed:
+		item.Status = CheckStatusPassed
+		item.Message = fmt.Sprintf("节点 %s 使用 JDK %s，Java %d（支持）/ Node %s uses JDK %s, Java %d (supported)", nodeName, rt.JavaBin, rt.Version, nodeName, rt.JavaBin, rt.Version)
+	case javaruntime.StatusWarning:
+		item.Status = CheckStatusWarning
+		item.Message = fmt.Sprintf("节点 %s 使用 JDK %s，Java %d，推荐 8 或 11 / Node %s uses JDK %s, Java %d; Java 8 or 11 is recommended", nodeName, rt.JavaBin, rt.Version, nodeName, rt.JavaBin, rt.Version)
+	default:
+		item.Status = CheckStatusFailed
+		item.Message = rt.FailureMessage(nodeName)
+	}
 }
 
 // ValidateRuntimeStorage validates checkpoint or IMAP storage reachability from selected hosts.
@@ -2290,6 +2379,11 @@ func (s *Service) StartInstallation(ctx context.Context, req *InstallationReques
 	if req.InstallMode == "" {
 		req.InstallMode = InstallModeOnline
 	}
+	javaHome, err := javaruntime.Validate(req.JavaHome)
+	if err != nil {
+		return nil, err
+	}
+	req.JavaHome = javaHome
 
 	s.resolveInstallationJVM(ctx, req)
 
@@ -2915,7 +3009,7 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 
 	// Agent 安装完成后，先登记或刷新控制面的节点元数据，再使用统一的集群启动逻辑。
 	// After the Agent installation completes, register or refresh control-plane node metadata before using the shared startup logic.
-	if err := s.nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, nodeRole, req.InstallDir, req.ClusterPort, req.HTTPPort, req.WorkerPort); err != nil {
+	if err := s.nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, nodeRole, req.InstallDir, req.ClusterPort, req.HTTPPort, req.WorkerPort, req.JavaHome); err != nil {
 		logger.ErrorF(ctx, "[Installer] 登记安装节点失败 / Failed to register installed node: cluster=%d, host=%d, role=%s, error=%v",
 			clusterID, hostID, nodeRole, err)
 		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to register node (%s): %v / 安装完成但登记节点 (%s) 失败: %v", nodeRole, err, nodeRole, err))
@@ -3192,6 +3286,10 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 	if req.JavaProxyPort > 0 {
 		params["java_proxy_port"] = fmt.Sprintf("%d", req.JavaProxyPort)
 	}
+	// 始终显式下发节点 JDK（可能为空=自动探测），安装期间按需启动的 Java 子进程与 SeaTunnel 使用同一个 JDK。
+	// Always send the node JDK explicitly (possibly empty = auto detection) so Java children started during
+	// installation use the same JDK as SeaTunnel.
+	params[javaruntime.ParamJavaHome] = javaruntime.Normalize(req.JavaHome)
 	if req.EnableHTTP != nil {
 		params["enable_http"] = strconv.FormatBool(*req.EnableHTTP)
 	}
@@ -3699,3 +3797,32 @@ func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string
 
 	return remotePath, checksum, nil
 }
+
+
+// ListJavaRuntimes 列出主机上可探测到的 JDK（路径+版本），供安装/扩容/纳管向导下拉选择（AC1b / AC1b2）。
+// Agent 不可达或旧版本时返回空列表，不报错，前端进入自定义填写。
+// ListJavaRuntimes lists detectable JDKs (path+version) on a host for the install/scale/register wizard dropdown
+// (AC1b / AC1b2). An unreachable or old Agent yields an empty list without error so the UI falls back to custom entry.
+func (s *Service) ListJavaRuntimes(ctx context.Context, hostID uint) ([]javaruntime.Candidate, error) {
+	if s.hostProvider == nil {
+		return nil, fmt.Errorf("host provider not configured / 主机提供者未配置")
+	}
+	hostInfo, err := s.hostProvider.GetHostByID(ctx, hostID)
+	if err != nil {
+		return nil, err
+	}
+	if s.agentManager == nil || hostInfo.AgentID == "" {
+		return []javaruntime.Candidate{}, nil
+	}
+	success, output, err := s.agentManager.SendCommand(ctx, hostInfo.AgentID, "list_java_homes", javaruntime.ListParams())
+	if err != nil {
+		logger.WarnF(ctx, "[Installer] list_java_homes failed for host %d: %v / 主机 %d 列出 JDK 失败: %v", hostID, err, hostID, err)
+		return []javaruntime.Candidate{}, nil
+	}
+	list := javaruntime.ParseList(success, output)
+	if list == nil {
+		list = []javaruntime.Candidate{}
+	}
+	return list, nil
+}
+

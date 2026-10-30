@@ -109,9 +109,14 @@ $INSTALL_DIR/frontend/server.js
 $INSTALL_DIR/config.yaml
 $INSTALL_DIR/bin/{start,stop,status}.sh
 $INSTALL_DIR/bin/lib/observability.sh   # internal helper sourced by bin/*
+$INSTALL_DIR/scripts/stx-java-proxy.sh  # required; served via GET /api/v1/agent/assets/stx-java-proxy.sh
+$INSTALL_DIR/lib/stx-java-proxy-v2.jar  # required; GET .../assets/stx-java-proxy-v2.jar and ?version=v2
+$INSTALL_DIR/lib/stx-java-proxy-v3.jar  # required; GET .../assets/stx-java-proxy-v3.jar and ?version=v3
 $INSTALL_DIR/runtime/node/bin/node      # optional
 $INSTALL_DIR/observability/{prometheus,alertmanager,grafana}  # optional bundled stack
 ```
+
+离线 `packages/` 布局必须含 `stx-java-proxy-v2.jar` / `stx-java-proxy-v3.jar`；`install.sh` 缺 jar 或脚本时必须失败，不得静默跳过（DEF-R2-1）。
 
 `bin/start.sh` / `stop.sh` 默认 `--observability auto`（CLI 优先于 `START_OBSERVABILITY` / `STOP_OBSERVABILITY`）。
 ### 3.4 配置键（安装器写入）

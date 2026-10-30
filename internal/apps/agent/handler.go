@@ -352,12 +352,62 @@ func (h *Handler) DownloadCA(c *gin.Context) {
 }
 
 // DownloadSTXJavaProxyJar handles GET /api/v1/agent/assets/stx-java-proxy.jar - downloads the stx-java-proxy thin jar.
+// Optional query `version` selects the epoch (v2/v3 or a SeaTunnel version mapped to an epoch).
 // DownloadSTXJavaProxyJar 处理 GET /api/v1/agent/assets/stx-java-proxy.jar - 下载 stx-java-proxy 薄 jar。
+// 可选查询参数 `version` 选择代际（v2/v3，或可映射到代际的 SeaTunnel 版本）。
 func (h *Handler) DownloadSTXJavaProxyJar(c *gin.Context) {
-	assetPath, downloadName, err := h.resolveSTXJavaProxyJarAsset(c.Query("version"))
+	// 查询参数形式保留「缺代际则回退默认 jar」行为，兼容旧 Agent 安装脚本。
+	// Query-param form keeps fallback-to-default for older Agent install scripts.
+	h.serveSTXJavaProxyJar(c, c.Query("version"), false)
+}
+
+// DownloadSTXJavaProxyEpochJar handles GET /api/v1/agent/assets/stx-java-proxy-v{2,3}.jar
+// (filename-style URLs mirroring stx-java-proxy.sh so Agents and operators can download jars the same way).
+// DownloadSTXJavaProxyEpochJar 处理 GET /api/v1/agent/assets/stx-java-proxy-v{2,3}.jar
+// （与 stx-java-proxy.sh 相同的「文件名路径」风格，便于 Agent/运维按同样方式下载 jar）。
+func (h *Handler) DownloadSTXJavaProxyEpochJar(c *gin.Context) {
+	h.DownloadSTXJavaProxyEpochJarFor(c, c.Param("epoch"))
+}
+
+// DownloadSTXJavaProxyEpochJarFor serves a specific epoch jar by filename-style route.
+// DownloadSTXJavaProxyEpochJarFor 按文件名风格路由下发指定代际 jar。
+func (h *Handler) DownloadSTXJavaProxyEpochJarFor(c *gin.Context, epoch string) {
+	epoch = strings.TrimSpace(epoch)
+	switch epoch {
+	case seatunnelmeta.STXJavaProxyEpochV2, seatunnelmeta.STXJavaProxyEpochV3:
+		// 文件名路径必须返回该代际本身，禁止回退到默认 jar，避免把 v2 误标成 v3。
+		// Filename routes must serve that exact epoch; never fall back to the default jar.
+		h.serveSTXJavaProxyJar(c, epoch, true)
+	default:
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			ErrorMsg: "invalid stx-java-proxy jar epoch: only v2 and v3 are supported / 无效的 stx-java-proxy jar 代际：仅支持 v2 与 v3",
+		})
+	}
+}
+
+// serveSTXJavaProxyJar resolves and serves a proxy jar for the requested epoch/version.
+// When strictEpoch is true, missing versioned jars return 404 instead of falling back to the default jar.
+// serveSTXJavaProxyJar 按请求的代际/版本解析并下发 proxy jar。
+// strictEpoch 为 true 时，缺失的代际 jar 直接 404，不回退默认 jar。
+func (h *Handler) serveSTXJavaProxyJar(c *gin.Context, version string, strictEpoch bool) {
+	assetPath, downloadName, err := h.resolveSTXJavaProxyJarAsset(version)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{ErrorMsg: err.Error()})
 		return
+	}
+	if strictEpoch {
+		expected := seatunnelmeta.STXJavaProxyJarFileName(version)
+		if downloadName != expected {
+			h.serveStaticAssetDownload(
+				c,
+				filepath.Join(filepath.Dir(assetPath), expected),
+				expected,
+				"application/java-archive",
+				"Capability proxy jar",
+				"Capability proxy jar",
+			)
+			return
+		}
 	}
 	h.serveStaticAssetDownload(
 		c,

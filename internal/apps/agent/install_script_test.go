@@ -122,6 +122,7 @@ func TestInstallScriptGenerate(t *testing.T) {
 		"/api/v1/agent/assets/stx-java-proxy.sh",
 		"STX_JAVA_PROXY_HOME",
 		"STX_JAVA_PROXY_SCRIPT",
+		"STX_JAVA_PROXY_ASSET_BASE",
 		"stx-agent",
 		seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion),
 		"stx-java-proxy-${epoch}.jar",

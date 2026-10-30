@@ -106,12 +106,24 @@ func shortSweepBudget(t *testing.T, budget, sendTimeout time.Duration) {
 	t.Cleanup(func() { syncAlertSweepBudget, syncAlertSweepSendTimeout = prevBudget, prevTimeout })
 }
 
+// fairnessSweepBudget / fairnessSweepSendTimeout 是公平性用例的短预算。
+// 约束：budget/2 > sendTimeout，这样 beginRetryPhase 保住的重试半额里，排在前面的卡住渠道超时后，
+// 后面的健康渠道仍有时间被轮到（500ms/300ms 在慢 CI 上会把半额吃光，healthy 得到 0 次重试）。
+// fairnessSweepBudget / fairnessSweepSendTimeout are the short budgets for fairness cases.
+// Constraint: budget/2 > sendTimeout so that after beginRetryPhase reserves half for retries, a leading hung
+// channel's send timeout still leaves time for a later healthy channel (500ms/300ms can exhaust that half on
+// slow CI and leave the healthy channel with 0 retries).
+const (
+	fairnessSweepBudget      = 2 * time.Second
+	fairnessSweepSendTimeout = 300 * time.Millisecond
+)
+
 // #85 复审 P2：巡检预算不能饿死排在后面的健康渠道。重试按渠道轮转、健康渠道优先、可疑渠道按最近失败轮换。
 // #85 review P2: the sweep budget must not starve a healthy channel that sorts late. Retries round-robin by channel,
 // healthy channels first, suspect ones rotated by least recent failure.
 func TestSyncAlertHub_RetryRoundRobinDoesNotStarveLateChannel(t *testing.T) {
 	t.Run("one-hung-channel-many-rows", func(t *testing.T) {
-		shortSweepBudget(t, 500*time.Millisecond, 300*time.Millisecond)
+		shortSweepBudget(t, fairnessSweepBudget, fairnessSweepSendTimeout)
 		f := setupSyncAlertFixture(t)
 		hung, healthy := newSwitchableServer(t), newSwitchableServer(t)
 		a, c := f.addWebhookChannel(t, "A", hung), f.addWebhookChannel(t, "C", healthy)
@@ -132,7 +144,7 @@ func TestSyncAlertHub_RetryRoundRobinDoesNotStarveLateChannel(t *testing.T) {
 	})
 
 	t.Run("two-hung-channels-rotate", func(t *testing.T) {
-		shortSweepBudget(t, 500*time.Millisecond, 300*time.Millisecond)
+		shortSweepBudget(t, fairnessSweepBudget, fairnessSweepSendTimeout)
 		f := setupSyncAlertFixture(t)
 		hungA, hungB, healthy := newSwitchableServer(t), newSwitchableServer(t), newSwitchableServer(t)
 		a, b, c := f.addWebhookChannel(t, "A", hungA), f.addWebhookChannel(t, "B", hungB), f.addWebhookChannel(t, "C", healthy)
@@ -158,7 +170,7 @@ func TestSyncAlertHub_RetryRoundRobinDoesNotStarveLateChannel(t *testing.T) {
 	})
 
 	t.Run("healthy-channel-before-suspect", func(t *testing.T) {
-		shortSweepBudget(t, 500*time.Millisecond, 300*time.Millisecond)
+		shortSweepBudget(t, fairnessSweepBudget, fairnessSweepSendTimeout)
 		f := setupSyncAlertFixture(t)
 		hungA, hungB, healthy := newSwitchableServer(t), newSwitchableServer(t), newSwitchableServer(t)
 		a, b, c := f.addWebhookChannel(t, "A", hungA), f.addWebhookChannel(t, "B", hungB), f.addWebhookChannel(t, "C", healthy)

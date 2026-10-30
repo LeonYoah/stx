@@ -28,8 +28,8 @@ import (
 //   - 超过 syncAlertSweepBudget 后不再发起新的发送（剩下的留到下一轮）；
 //   - 每次发送最多等 syncAlertSweepSendTimeout；
 //   - 同一个渠道本轮失败一次后，跳过它本轮剩下的所有投递；
-//   - 冷却提醒最多用一半预算；退避重试按渠道轮转（健康渠道优先，见 retryFailedDeliveries），排在后面的健康渠道不会被
-//     卡住的渠道饿死。
+//   - 冷却提醒最多用一半预算；进入退避重试前 beginRetryPhase 再保住至少一半预算（提醒阶段的 DB 巡检也会吃墙钟）；
+//     退避重试按渠道轮转（健康渠道优先，见 retryFailedDeliveries），排在后面的健康渠道不会被卡住的渠道饿死。
 //
 // Sweep budget: the sync alert sweep and signal handling run serially on one goroutine, so a hung channel (each send
 // may wait notificationSendTimeout) could stretch one sweep past ten minutes while the signal queue fills up and drops
@@ -37,7 +37,8 @@ import (
 //   - starts no new send after syncAlertSweepBudget (the rest waits for the next sweep);
 //   - waits at most syncAlertSweepSendTimeout for one send;
 //   - skips every remaining delivery of a channel for the rest of the sweep once it failed in this sweep;
-//   - lets cooldown reminders use at most half the budget; backoff retries round-robin across channels (healthy ones
+//   - lets cooldown reminders use at most half the budget; beginRetryPhase then reserves at least half again before
+//     backoff retries (reminder-phase DB walks burn wall clock too); retries round-robin across channels (healthy ones
 //     first, see retryFailedDeliveries), so a healthy channel sorting late is not starved by hung ones.
 var (
 	syncAlertSweepBudget      = 30 * time.Second
@@ -118,12 +119,36 @@ func (g *alertSweepGuard) checkPhase(channelID uint, retry bool) alertSweepSkip 
 	return alertSweepSend
 }
 
+// beginRetryPhase 在进入退避重试前调用：冷却提醒阶段即使不发网络（cooldown=0 只做 DB 巡检）也会消耗墙钟，
+// 若已用掉超过一半预算，则把计时起点前移，保证重试阶段至少还有一半预算。这样"提醒最多半额、重试总有时间"
+// 的契约在慢 CI / 大量 firing 阶段时也成立。
+// beginRetryPhase is called before backoff retries: even a reminder phase with no network sends (cooldown=0, DB-only
+// walks) burns wall clock; if more than half the budget is already gone, shift startedAt forward so the retry phase
+// still has at least half the budget. This keeps the "reminders at most half, retries always get time" contract under
+// slow CI or many firing episodes.
+func (g *alertSweepGuard) beginRetryPhase() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	half := g.budget / 2
+	elapsed := time.Since(g.startedAt)
+	if remaining := g.budget - elapsed; remaining < half {
+		// 让 time.Since(startedAt) == budget-half，即剩余刚好半额。
+		// Make time.Since(startedAt) == budget-half so remaining equals half.
+		g.startedAt = time.Now().Add(-(g.budget - half))
+	}
+}
+
 // budgetExceeded 报告本轮时间预算是否已用完。
 // budgetExceeded reports whether the sweep's time budget is used up.
 func (g *alertSweepGuard) budgetExceeded() bool {
 	if g == nil {
 		return false
 	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return time.Since(g.startedAt) >= g.budget
 }
 

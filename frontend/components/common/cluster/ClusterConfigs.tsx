@@ -37,7 +37,7 @@ import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {toast} from 'sonner';
-import {Settings, RefreshCw, FileText, Server, Check, AlertTriangle, Edit, History, Upload, Download, Loader2, FolderSync, Eye, GitCompareArrows, WandSparkles, CircleHelp, Search, MoreHorizontal} from 'lucide-react';
+import {Settings, RefreshCw, FileText, Server, Check, AlertTriangle, Edit, History, Upload, Download, Loader2, FolderSync, Eye, GitCompareArrows, WandSparkles, Search, MoreHorizontal} from 'lucide-react';
 import {ConfigService} from '@/lib/services/config';
 import type {ConfigInfo, ConfigVersionInfo} from '@/lib/services/config';
 import {ConfigType, ConfigTypeNames, getConfigTypesForMode, summarizeSyncResult} from '@/lib/services/config';
@@ -47,7 +47,6 @@ import {EmptyState, StatPillsBar, TableLoadingBar, TableSkeletonRows} from '@/co
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/components/ui/table';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '@/components/ui/dropdown-menu';
 import {Skeleton} from '@/components/ui/skeleton';
-import {cn} from '@/lib/utils';
 import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ClusterConfigsProps {
@@ -636,30 +635,39 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-foreground">{t('config.jobLogModeTitle')}:</span>
-                          {/* 单 Job 模式的实现说明进 Badge / 切换按钮 Tooltip / Per-job mode details live in the badge and switch button tooltips */}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  'px-2 py-0.5 font-medium',
-                                  isPerJobLogMode
-                                    ? 'cursor-help border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                                    : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                                )}
-                                data-testid="cluster-configs-log-mode-badge"
-                              >
-                                {isPerJobLogMode
-                                  ? t('config.jobLogModePerJobBadge')
-                                  : t('config.jobLogModeMixedBadge')}
-                              </Badge>
-                            </TooltipTrigger>
-                            {isPerJobLogMode ? (
+                          {/* 单 Job 模式的实现说明进 Badge Tooltip，外包 button 让键盘可聚焦；混合模式无补充说明，只显示 Badge */}
+                          {/* Per-job mode details live in the badge tooltip, wrapped in a button so it is keyboard-focusable; mixed mode has no extra note */}
+                          {isPerJobLogMode ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                                  aria-label={`${t('config.jobLogModePerJobBadge')}: ${t('config.jobLogModePerJobTip')}`}
+                                  data-testid="cluster-configs-log-mode-badge-trigger"
+                                >
+                                  <Badge
+                                    variant="outline"
+                                    className="cursor-help border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-700 dark:text-emerald-400"
+                                    data-testid="cluster-configs-log-mode-badge"
+                                  >
+                                    {t('config.jobLogModePerJobBadge')}
+                                  </Badge>
+                                </button>
+                              </TooltipTrigger>
                               <TooltipContent side="top" className="max-w-xs text-xs">
                                 {t('config.jobLogModePerJobTip')}
                               </TooltipContent>
-                            ) : null}
-                          </Tooltip>
+                            </Tooltip>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-400"
+                              data-testid="cluster-configs-log-mode-badge"
+                            >
+                              {t('config.jobLogModeMixedBadge')}
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-muted-foreground">
                           {isPerJobLogMode
@@ -819,7 +827,12 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                                 // Nodes matching the template: both actions disabled, reason in a Tooltip (span wrapper so it fires)
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <span className="inline-flex items-center gap-1" tabIndex={0} data-testid={`cluster-configs-node-actions-disabled-${config.id}`}>
+                                    <span
+                                      className="inline-flex items-center gap-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      tabIndex={0}
+                                      aria-label={t('config.tabNodeHint')}
+                                      data-testid={`cluster-configs-node-actions-disabled-${config.id}`}
+                                    >
                                       <Button variant="outline" size="sm" className="pointer-events-none h-8" disabled>
                                         <Download className="mr-1 size-3.5" />
                                         {t('config.syncFromTemplate')}
@@ -949,21 +962,7 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Label>{t('config.content')}</Label>
-                  {isYamlConfigType(editingConfig?.config_type) && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button type="button" className="text-muted-foreground transition-colors hover:text-foreground">
-                          <CircleHelp className="h-4 w-4" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs">
-                        {t('config.smartRepairHint')}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
+                <Label>{t('config.content')}</Label>
                 {isYamlConfigType(editingConfig?.config_type) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -983,8 +982,8 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                         {t('config.smartRepair')}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-xs text-xs">
-                      {t('config.smartRepairLimitHint')}
+                    <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                      {t('config.smartRepairHint')}
                     </TooltipContent>
                   </Tooltip>
                 )}

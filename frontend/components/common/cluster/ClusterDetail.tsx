@@ -1410,6 +1410,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     runtimeConfig.enableHTTP,
   );
   const webUIProxyURL = webUINode ? `/api/v1/clusters/${clusterId}/webui/` : '';
+  const webUIMasterAddress = webUINode
+    ? `${webUINode.host_ip || webUINode.host_name || '-'}:${webUINode.api_port}`
+    : '';
   const upgradeTaskTotalPages = Math.max(
     1,
     Math.ceil(upgradeTasksTotal / upgradeTasksPageSize),
@@ -2354,23 +2357,31 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           {webUINode && (
             <TabsContent value='webui' className='space-y-6'>
               <Card>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0'>
+                <CardHeader className='flex flex-row items-center justify-between gap-3 space-y-0'>
                   <CardTitle className='flex min-w-0 items-center gap-2'>
                     <MonitorSmartphone className='h-5 w-5 shrink-0' />
-                    {t('cluster.webUiTitle')}
-                    {/* 主节点地址收成标题旁 Badge / Master address shown as a badge next to the title */}
+                    <span className='shrink-0 whitespace-nowrap'>{t('cluster.webUiTitle')}</span>
+                    {/* 外包 button 让地址 Badge 可被键盘聚焦；长主机名截断，完整地址进 Tooltip */}
+                    {/* Button wrapper makes the address badge keyboard-focusable; long hosts truncate and the full address lives in the tooltip */}
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Badge
-                          variant='outline'
-                          className='cursor-help whitespace-nowrap font-mono text-[11px] font-normal'
-                          data-testid='cluster-webui-master-address'
+                        <button
+                          type='button'
+                          className='min-w-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1'
+                          aria-label={t('cluster.webUiMasterAddressTip', {address: webUIMasterAddress})}
+                          data-testid='cluster-webui-master-address-trigger'
                         >
-                          {`${webUINode.host_ip || webUINode.host_name || '-'}:${webUINode.api_port}`}
-                        </Badge>
+                          <Badge
+                            variant='outline'
+                            className='block max-w-[260px] cursor-help truncate font-mono text-[11px] font-normal'
+                            data-testid='cluster-webui-master-address'
+                          >
+                            {webUIMasterAddress}
+                          </Badge>
+                        </button>
                       </TooltipTrigger>
-                      <TooltipContent side='top' className='text-xs'>
-                        {t('cluster.webUiMasterAddress')}
+                      <TooltipContent side='top' className='max-w-sm break-all text-xs'>
+                        {t('cluster.webUiMasterAddressTip', {address: webUIMasterAddress})}
                       </TooltipContent>
                     </Tooltip>
                   </CardTitle>
@@ -2379,6 +2390,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   <SeaTunnelObserveMenu
                     clusterId={clusterId}
                     variant='button'
+                    className='shrink-0'
                     triggerHint={t('cluster.webUiHint')}
                   />
                 </CardHeader>

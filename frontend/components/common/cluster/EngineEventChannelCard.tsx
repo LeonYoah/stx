@@ -20,7 +20,8 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
-import {Radio, RefreshCw} from 'lucide-react';
+import {HelpCircle, Radio, RefreshCw} from 'lucide-react';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -135,6 +136,21 @@ export function EngineEventChannelCard({
       <CardHeader className='flex flex-row flex-wrap items-center gap-2 space-y-0 pb-3'>
         <Radio className='size-4 text-primary' />
         <CardTitle className='text-sm'>{t('title')}</CardTitle>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type='button'
+              className='text-muted-foreground/70 hover:text-foreground'
+              aria-label={t('description')}
+              data-testid='cluster-event-channel-help'
+            >
+              <HelpCircle className='size-3.5' />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side='top' className='max-w-xs text-xs leading-relaxed'>
+            {t('description')}
+          </TooltipContent>
+        </Tooltip>
         {status ? (
           <Badge variant='outline' className={cn('whitespace-nowrap text-[11px]', eventChannelStateClass(status.state))}>
             {t(`state.${status.state}`)}
@@ -180,9 +196,11 @@ export function EngineEventChannelCard({
           </div>
         ) : !status ? null : (
           <>
-            <p className='text-muted-foreground'>
-              {status.supported ? t('description') : t('unsupported', {version: status.version || '-'})}
-            </p>
+            {!status.supported ? (
+              <p className='text-amber-700 dark:text-amber-300'>
+                {t('unsupported', {version: status.version || '-'})}
+              </p>
+            ) : null}
             {status.enabled ? (
               <div className='flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground'>
                 <span className='whitespace-nowrap'>{t('lastEvent', {time: formatTime(status.last_event_at)})}</span>

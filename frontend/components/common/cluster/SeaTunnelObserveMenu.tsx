@@ -19,7 +19,7 @@
 
 import {useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {ChevronDown, Telescope} from 'lucide-react';
+import {ChevronDown, HelpCircle, Telescope} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -82,12 +82,15 @@ export function SeaTunnelObserveMenu({
   variant = 'icon',
   align = 'end',
   className,
+  triggerHint,
 }: {
   clusterId: number;
   engineJobId?: string;
   variant?: 'icon' | 'button';
   align?: 'start' | 'end';
   className?: string;
+  /** 按钮形态下触发器的 Tooltip 说明 / Tooltip text for the trigger in button variant */
+  triggerHint?: string;
 }) {
   const t = useTranslations('cluster.observe');
   const [endpoints, setEndpoints] = useState<ClusterWebUIEndpoints | null>(null);
@@ -158,6 +161,15 @@ export function SeaTunnelObserveMenu({
             {t('open')}
           </TooltipContent>
         </Tooltip>
+      ) : triggerHint ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side='top' className='max-w-xs text-xs leading-relaxed'>
+            {triggerHint}
+          </TooltipContent>
+        </Tooltip>
       ) : (
         <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       )}
@@ -166,8 +178,23 @@ export function SeaTunnelObserveMenu({
         className='min-w-[260px] max-w-[360px]'
         onClick={(event) => event.stopPropagation()}
       >
-        <DropdownMenuLabel className='text-xs'>
-          {engineJobId ? t('jobTitle', {id: engineJobId}) : t('clusterTitle')}
+        <DropdownMenuLabel className='flex items-center gap-1.5 text-xs'>
+          <span className='truncate'>
+            {engineJobId ? t('jobTitle', {id: engineJobId}) : t('clusterTitle')}
+          </span>
+          {/* 背压/实时指标说明挂到标题 HelpCircle / Backpressure and live metrics note in the label HelpCircle */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <HelpCircle
+                className='size-3 shrink-0 cursor-help text-muted-foreground/70 hover:text-foreground'
+                aria-label={t('webUiFeaturesHint')}
+                data-testid='seatunnel-observe-features-hint'
+              />
+            </TooltipTrigger>
+            <TooltipContent side='left' className='max-w-[260px] text-xs leading-relaxed'>
+              {t('webUiFeaturesHint')}
+            </TooltipContent>
+          </Tooltip>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {loading && !endpoints ? (
@@ -184,25 +211,39 @@ export function SeaTunnelObserveMenu({
           </DropdownMenuItem>
         ) : endpoints ? (
           <>
-            <DropdownMenuItem onClick={() => open(proxyURL)} data-testid='seatunnel-observe-proxy'>
-              <div className='flex min-w-0 flex-col gap-0.5'>
-                <span>{t('viaProxy')}</span>
-                <span className='truncate font-mono text-[11px] text-muted-foreground'>{proxyURL}</span>
-              </div>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => open(nativeURL)}
-              disabled={!nativeURL}
-              data-testid='seatunnel-observe-native'
-            >
-              <div className='flex min-w-0 flex-col gap-0.5'>
-                <span>{t('native')}</span>
-                <span className='truncate font-mono text-[11px] text-muted-foreground'>{nativeURL || '-'}</span>
-              </div>
-            </DropdownMenuItem>
-            <div className='px-2 pb-1.5 pt-1 text-[11px] leading-snug text-muted-foreground'>
-              {t('hint')}
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuItem onClick={() => open(proxyURL)} data-testid='seatunnel-observe-proxy'>
+                  <div className='flex min-w-0 flex-col gap-0.5'>
+                    <span>{t('viaProxy')}</span>
+                    <span className='truncate font-mono text-[11px] text-muted-foreground'>{proxyURL}</span>
+                  </div>
+                </DropdownMenuItem>
+              </TooltipTrigger>
+              <TooltipContent side='left' className='max-w-[240px] text-xs'>
+                {t('viaProxyHint')}
+              </TooltipContent>
+            </Tooltip>
+            {/* 原生地址可能禁用，外包 span 以便 Tooltip 仍可触发 / Native item may be disabled; wrap in a span so the tooltip still fires */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <DropdownMenuItem
+                    onClick={() => open(nativeURL)}
+                    disabled={!nativeURL}
+                    data-testid='seatunnel-observe-native'
+                  >
+                    <div className='flex min-w-0 flex-col gap-0.5'>
+                      <span>{t('native')}</span>
+                      <span className='truncate font-mono text-[11px] text-muted-foreground'>{nativeURL || '-'}</span>
+                    </div>
+                  </DropdownMenuItem>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side='left' className='max-w-[240px] text-xs'>
+                {t('nativeHint')}
+              </TooltipContent>
+            </Tooltip>
           </>
         ) : null}
       </DropdownMenuContent>

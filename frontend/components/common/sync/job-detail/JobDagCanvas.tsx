@@ -48,7 +48,9 @@ import {
   formatCount,
   formatPercent,
   nodeColors,
+  nodeSurface,
   shortTablePath,
+  type DagTheme,
   structureKey,
   type DagGraph,
   type DagVertex,
@@ -77,6 +79,7 @@ interface OperatorNodeData extends Record<string, unknown> {
   backpressured?: number;
   selected: boolean;
   dimmed: boolean;
+  theme: DagTheme;
 }
 
 interface OperatorEdgeData extends Record<string, unknown> {
@@ -88,11 +91,6 @@ interface OperatorEdgeData extends Record<string, unknown> {
 
 type OperatorNodeType = Node<OperatorNodeData, 'operator'>;
 type OperatorEdgeType = Edge<OperatorEdgeData, 'operator'>;
-
-// 被反压程度达到这个值才给卡片染色，低负载时保持中性，颜色只用来提示问题。
-// A card is tinted only once busyness / backpressure reaches this level; at low load it stays neutral, so color only
-// signals problems.
-const HEALTH_TINT_THRESHOLD = 0.2;
 
 /**
  * 卡片里的迷你进度条：忙碌度用 Flink 的蓝→红混色，被反压用与连线相同的分档色。
@@ -114,16 +112,18 @@ function HealthBar({label, value, color, hint}: {label: string; value?: number; 
 }
 
 /**
- * 算子卡片：类型只靠小图标和一行灰色元信息表达；运行中按 Flink 规则用边框和底色表达健康度，且只在负载明显时出现。
- * Operator card: the type is conveyed only by a small icon and a muted meta line; in runtime mode health follows Flink's
- * rules through border and background color, shown only when the load is noticeable.
+ * 算子卡片：类型只靠小图标和一行灰色元信息表达；卡片统一铺浅色底，运行中按 Flink 规则让边框与底色随负载连续混色。
+ * Operator card: the type is conveyed only by a small icon and a muted meta line; every card gets a light tinted fill,
+ * and in runtime mode the border and fill blend continuously with load following Flink's rules.
  */
 const OperatorNode = memo(function OperatorNode({data}: NodeProps<OperatorNodeType>) {
   const t = useTranslations('workbenchStudio.jobDetail');
-  const {vertex, mode, stats, busy, backpressured, selected, dimmed} = data;
+  const {vertex, mode, stats, busy, backpressured, selected, dimmed, theme} = data;
   const runtime = mode === 'runtime';
-  const colors = runtime ? nodeColors(busy, backpressured) : null;
-  const tinted = colors !== null && colors.intensity >= HEALTH_TINT_THRESHOLD;
+  // 所有节点都铺同一色相的浅色底（同 Flink），运行模式下按忙碌度 / 被反压程度连续变化，编辑器预览保持默认蓝。
+  // Every node gets the same light hue (like Flink); in runtime mode it shifts continuously with busyness /
+  // backpressure, while the editor preview keeps the default blue.
+  const surface = nodeSurface(runtime ? busy : undefined, runtime ? backpressured : undefined, theme);
   const firstTable = vertex.tablePaths[0];
   const moreTables = vertex.tablePaths.length - 1;
   const isSink = vertex.type === 'sink';
@@ -132,11 +132,11 @@ const OperatorNode = memo(function OperatorNode({data}: NodeProps<OperatorNodeTy
   return (
     <div
       className={cn(
-        'group relative flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-xs transition-[opacity,box-shadow,border-color] duration-200',
-        selected ? 'ring-2 ring-primary/50 shadow-md' : 'hover:border-foreground/25 hover:shadow-sm',
+        'group relative flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-xs transition-[opacity,box-shadow,border-color,background-color] duration-200',
+        selected ? 'ring-2 ring-primary/50 shadow-md' : 'hover:shadow-md',
         dimmed && 'opacity-35',
       )}
-      style={tinted ? {borderColor: colors.border, backgroundColor: colors.background} : undefined}
+      style={{borderColor: surface.border, backgroundColor: surface.background}}
       data-testid={`dag-node-${vertex.vertexId}`}
     >
       <Handle type='target' position={Position.Left} isConnectable={false} className='!size-1.5 !border-0 !bg-muted-foreground/40' />
@@ -245,6 +245,7 @@ export interface JobDagCanvasProps {
 
 function JobDagCanvasInner({graph, mode, metricIndex, overlay, selectedVertexId, onSelectVertex}: JobDagCanvasProps) {
   const {resolvedTheme} = useTheme();
+  const theme: DagTheme = resolvedTheme === 'dark' ? 'dark' : 'light';
   const reactFlow = useReactFlow<OperatorNodeType, OperatorEdgeType>();
   const nodeHeight = NODE_HEIGHT[mode];
   const layoutKey = `${structureKey(graph)}|${mode}`;
@@ -293,9 +294,10 @@ function JobDagCanvasInner({graph, mode, metricIndex, overlay, selectedVertexId,
           backpressured: overlay?.backpressured.get(vertex.vertexId),
           selected: vertex.vertexId === selectedVertexId,
           dimmed: selectedVertexId !== null && !neighbors.has(vertex.vertexId),
+          theme,
         },
       })),
-    [graph.vertices, positions, nodeHeight, mode, metricIndex, overlay, selectedVertexId, neighbors],
+    [graph.vertices, positions, nodeHeight, mode, metricIndex, overlay, selectedVertexId, neighbors, theme],
   );
 
   const edges = useMemo<OperatorEdgeType[]>(
@@ -348,7 +350,7 @@ function JobDagCanvasInner({graph, mode, metricIndex, overlay, selectedVertexId,
       edges={edges}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
-      colorMode={resolvedTheme === 'dark' ? 'dark' : 'light'}
+      colorMode={theme}
       nodesDraggable={false}
       nodesConnectable={false}
       elementsSelectable={false}

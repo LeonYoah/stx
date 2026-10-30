@@ -609,9 +609,11 @@ export function JobRunsPanel({
                                 </Button>
                               </span>
                             </TooltipTrigger>
-                            {!canRun ? (
-                              <TooltipContent>{t('readOnlyRecoverTooltip')}</TooltipContent>
-                            ) : null}
+                            <TooltipContent>
+                              {!canRun
+                                ? t('readOnlyRecoverTooltip')
+                                : t('historyRecoverTooltip')}
+                            </TooltipContent>
                           </Tooltip>
                         ) : null}
                         {actions.showStop ? (

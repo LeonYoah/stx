@@ -157,7 +157,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
-import {HelpHint} from '@/components/common/HelpHint';
+import {HELP_HINT_DELAY_MS, HelpHint} from '@/components/common/HelpHint';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {
@@ -4316,6 +4316,15 @@ export function DataSyncStudio() {
     }
   }, [editor.id, editor.definition, editor.isPublic, t]);
 
+  // 顶栏 Savepoint 恢复是否不可用（本地模式 / 有进行中作业 / 无恢复源）
+  // Whether top-bar Savepoint Recover is unavailable (local mode / active job / no recover source)
+  const isSavepointRecoverDisabled =
+    executionMode === 'local' ||
+    hasActiveRun ||
+    hasActivePreview ||
+    actionPending !== null ||
+    preferredRecoverSourceId === null;
+
   return (
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
       <Card className='gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
@@ -4625,7 +4634,9 @@ export function DataSyncStudio() {
                 ) : null}
               </Tooltip>
 
-              <Tooltip>
+              {/* delayDuration：菜单关闭后焦点回到触发器时不要立刻误弹只读提示 */}
+              {/* delayDuration: avoid an instant read-only tooltip when focus returns after the menu closes */}
+              <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
                 <TooltipTrigger asChild>
                   <span>
                     <DropdownMenu>
@@ -4649,18 +4660,36 @@ export function DataSyncStudio() {
                         <DropdownMenuItem onClick={() => void handleRun('run')}>
                           {t('run')}
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={
-                            executionMode === 'local' ||
-                            hasActiveRun ||
-                            hasActivePreview ||
-                            actionPending !== null ||
-                            preferredRecoverSourceId === null
-                          }
-                          onClick={() => void handleRun('recover')}
-                        >
-                          {t('savepointRecover')}
-                        </DropdownMenuItem>
+                        {/* 禁用项用 aria-disabled，保证 Tooltip 仍可悬停说明两种恢复差异 */}
+                        {/* aria-disabled keeps the item hoverable so the Tooltip can explain recover semantics */}
+                        <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+                          <TooltipTrigger asChild>
+                            <DropdownMenuItem
+                              aria-disabled={
+                                isSavepointRecoverDisabled || undefined
+                              }
+                              className={cn(
+                                isSavepointRecoverDisabled &&
+                                  'cursor-not-allowed opacity-50',
+                              )}
+                              onSelect={(event) => {
+                                if (isSavepointRecoverDisabled) {
+                                  event.preventDefault();
+                                  return;
+                                }
+                                void handleRun('recover');
+                              }}
+                            >
+                              {t('savepointRecover')}
+                            </DropdownMenuItem>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side='left'
+                            className='max-w-xs text-xs leading-relaxed'
+                          >
+                            {t('savepointRecoverTooltip')}
+                          </TooltipContent>
+                        </Tooltip>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </span>

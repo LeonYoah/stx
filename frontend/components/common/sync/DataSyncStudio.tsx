@@ -4319,7 +4319,7 @@ export function DataSyncStudio() {
   return (
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
       <Card className='gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
-        <CardContent className='flex h-12 items-center justify-between gap-3 px-3 py-1.5'>
+        <CardContent className='flex h-12 min-w-0 items-center justify-between gap-3 overflow-hidden px-3 py-1.5'>
           {/* 左侧：任务面包屑导航与状态指示 / 权限角色胶囊 */}
           {/* Left: Task breadcrumb navigation, status indicator, version & permission badges */}
           <div className='flex min-w-0 items-center gap-2 text-xs'>
@@ -4407,16 +4407,8 @@ export function DataSyncStudio() {
                       onSavePermissions={handleSavePermissions}
                     />
 
-                    {/* 格式标签 / Format tag */}
-                    <span className='rounded bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground/70 tracking-wider'>
-                      {editor.contentFormat || 'hocon'}
-                    </span>
                   </div>
-                ) : (
-                  <span className='rounded bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground/70 tracking-wider'>
-                    {editor.contentFormat || 'hocon'}
-                  </span>
-                )}
+                ) : null}
               </div>
             ) : (
               <span className='text-xs text-muted-foreground'>
@@ -4427,29 +4419,38 @@ export function DataSyncStudio() {
 
           {/* 中间：全局文件与 Job ID 快速检索跳转栏 (VSCode Quick Open 风格) */}
           {/* Center: Global file and Job ID quick jump search bar (VSCode Quick Open style) */}
-          <div className='mx-2 hidden flex-1 max-w-sm items-center md:flex'>
+          {/* Narrow: icon-only Quick Open; xl+: compact search field */}
+          <div className='mx-1 flex shrink-0 items-center xl:mx-2 xl:min-w-0 xl:flex-1 xl:max-w-[12rem] 2xl:max-w-sm'>
             <button
               type='button'
               onClick={() => setQuickOpenOpen(true)}
-              className='group relative flex h-7.5 w-full items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40'
+              aria-label={t('quickOpen')}
+              className='group relative flex size-7.5 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/20 text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:hidden'
             >
               <Search className='size-3.5 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
+            </button>
+            <button
+              type='button'
+              onClick={() => setQuickOpenOpen(true)}
+              className='group relative hidden h-7.5 w-full min-w-0 items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:flex'
+            >
+              <Search className='size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
               <span className='truncate text-[11px] text-muted-foreground/70 group-hover:text-muted-foreground'>
                 {t('searchFileOrJobId')}
               </span>
-              <kbd className='pointer-events-none ml-auto hidden select-none rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground/80 sm:inline-flex items-center gap-0.5'>
+              <kbd className='pointer-events-none ml-auto hidden select-none rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground/80 2xl:inline-flex items-center gap-0.5'>
                 <span className='text-[10px]'>⌘</span>P
               </kbd>
             </button>
           </div>
 
-          {/* 右侧：执行环境指示与操作按钮梯队 */}
-          {/* Right: Execution environment capsule and hierarchical action buttons */}
-          <div className='flex flex-wrap items-center justify-end gap-1.5'>
+          {/* 右侧：执行环境指示与操作按钮梯队（单行 nowrap，次要动作收入 More） */}
+          {/* Right: env capsule + nowrap actions; secondary ops in MoreHorizontal menu */}
+          <div className='flex shrink-0 flex-nowrap items-center justify-end gap-1.5'>
             {/* 环境指示胶囊 */}
             {/* Environment indicator capsule */}
             <div
-              className='flex h-7 items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground'
+              className='flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground'
               title={t('executionTarget')}
             >
               {executionMode === 'local' ? (
@@ -4467,219 +4468,221 @@ export function DataSyncStudio() {
               )}
             </div>
 
-            <div className='mx-0.5 h-4 w-px bg-border/60' />
+            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
 
-            {/* 校验与探查动作组 */}
-            {/* Verification & inspection actions */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    size='sm'
-                    variant='ghost'
-                    className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-                    onClick={handleTestConnections}
-                    disabled={
-                      saving ||
-                      !editor.name.trim() ||
-                      actionPending !== null ||
-                      !editor.canEdit
-                    }
-                  >
-                    {actionPending === 'test_connections' ? (
-                      <Loader2 className='size-3.5 animate-spin' />
-                    ) : (
-                      <Database className='size-3.5' />
-                    )}
-                    {actionPending === 'test_connections'
-                      ? t('testingConnections')
-                      : t('testConnections')}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {!editor.canEdit ? (
-                <TooltipContent>{t('readOnlyTestConnTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
-
-            <Button
-              size='sm'
-              variant='ghost'
-              className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-              onClick={handleBuildDag}
-              disabled={saving || !editor.name.trim() || actionPending !== null}
-            >
-              {actionPending === 'dag' ? (
-                <Loader2 className='size-3.5 animate-spin' />
-              ) : (
-                <GitBranch className='size-3.5' />
-              )}
-              {actionPending === 'dag' ? t('buildingDag') : 'DAG'}
-            </Button>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    size='sm'
-                    variant='ghost'
-                    className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-                    onClick={handlePreview}
-                    disabled={
-                      saving ||
-                      hasActiveRun ||
-                      hasActivePreview ||
-                      actionPending !== null ||
-                      !editor.canRun
-                    }
-                  >
-                    {actionPending === 'preview' ? (
-                      <Loader2 className='size-3.5 animate-spin' />
-                    ) : (
-                      <Eye className='size-3.5' />
-                    )}
-                    {actionPending === 'preview'
-                      ? t('preparingPreview')
-                      : t('preview')}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {!editor.canRun ? (
-                <TooltipContent>{t('readOnlyPreviewTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
-
-            <div className='mx-0.5 h-4 w-px bg-border/60' />
-
-            {/* 核心保存与执行动作组 */}
-            {/* Core save and execution action buttons */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    className={cn(
-                      'h-7 gap-1.5 px-2.5 text-xs transition-colors',
-                      isCurrentDirty
-                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
-                        : 'text-foreground',
-                    )}
-                    onClick={handleSave}
-                    disabled={saving || !editor.name.trim() || !editor.canEdit}
-                  >
-                    <Save className='size-3.5' />
-                    {t('save')}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {!editor.canEdit ? (
-                <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-                    onClick={handleOpenPublishDialog}
-                    disabled={
-                      saving ||
-                      publishing ||
-                      !editor.name.trim() ||
-                      !editor.canEdit
-                    }
-                  >
-                    <GitCommit className='size-3.5 text-primary' />
-                    <span>{t('publishNewVersion')}</span>
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {!editor.canEdit ? (
-                <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size='sm'
-                        className='h-7 gap-1 bg-primary px-2.5 text-xs font-medium shadow-xs hover:bg-primary/90'
-                        disabled={
-                          saving ||
-                          hasActiveRun ||
-                          hasActivePreview ||
-                          !editor.canRun
-                        }
-                      >
-                        <Play className='size-3.5' />
-                        <span>{t('run')}</span>
-                        <ChevronDown className='size-3 opacity-70' />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align='end'>
-                      <DropdownMenuItem onClick={() => void handleRun('run')}>
-                        {t('run')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={
-                          executionMode === 'local' ||
-                          hasActiveRun ||
-                          hasActivePreview ||
-                          actionPending !== null ||
-                          preferredRecoverSourceId === null
-                        }
-                        onClick={() => void handleRun('recover')}
-                      >
-                        {t('savepointRecover')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </span>
-              </TooltipTrigger>
-              {!editor.canRun ? (
-                <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
-
+            {/* 次要探查动作：测试连接 / DAG / 预览 → More 菜单（红线 6） */}
+            {/* Secondary inspect actions collapsed into More (red line 6) */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   size='sm'
-                  variant='outline'
-                  className={cn(
-                    'h-7 gap-1 px-2.5 text-xs transition-colors',
-                    activeJobs.length > 0
-                      ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
-                      : 'text-muted-foreground',
-                  )}
-                  disabled={activeJobs.length === 0}
+                  variant='ghost'
+                  aria-label={t('moreActions')}
+                  className='h-7 shrink-0 gap-1 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
+                  disabled={saving || actionPending !== null}
                 >
-                  <Square className='size-3.5' />
-                  <span>{t('stop')}</span>
-                  <ChevronDown className='size-3 opacity-70' />
+                  {actionPending === 'test_connections' ||
+                  actionPending === 'dag' ||
+                  actionPending === 'preview' ? (
+                    <Loader2 className='size-3.5 animate-spin' />
+                  ) : (
+                    <MoreHorizontal className='size-3.5' />
+                  )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align='end'>
+              <DropdownMenuContent align='end' className='min-w-[10rem] text-xs'>
                 <DropdownMenuItem
-                  onClick={() => void handleStopActiveJob('normal')}
+                  disabled={
+                    saving ||
+                    !editor.name.trim() ||
+                    actionPending !== null ||
+                    !editor.canEdit
+                  }
+                  onClick={() => void handleTestConnections()}
                 >
-                  {t('normalStop')}
+                  {actionPending === 'test_connections' ? (
+                    <Loader2 className='size-3.5 animate-spin' />
+                  ) : (
+                    <Database className='size-3.5' />
+                  )}
+                  <span>
+                    {actionPending === 'test_connections'
+                      ? t('testingConnections')
+                      : t('testConnections')}
+                  </span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={executionMode === 'local'}
-                  onClick={() => void handleStopActiveJob('savepoint')}
+                  disabled={
+                    saving || !editor.name.trim() || actionPending !== null
+                  }
+                  onClick={() => void handleBuildDag()}
                 >
-                  {t('savepointStop')}
+                  {actionPending === 'dag' ? (
+                    <Loader2 className='size-3.5 animate-spin' />
+                  ) : (
+                    <GitBranch className='size-3.5' />
+                  )}
+                  <span>
+                    {actionPending === 'dag' ? t('buildingDag') : 'DAG'}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={
+                    saving ||
+                    hasActiveRun ||
+                    hasActivePreview ||
+                    actionPending !== null ||
+                    !editor.canRun
+                  }
+                  onClick={() => void handlePreview()}
+                >
+                  {actionPending === 'preview' ? (
+                    <Loader2 className='size-3.5 animate-spin' />
+                  ) : (
+                    <Eye className='size-3.5' />
+                  )}
+                  <span>
+                    {actionPending === 'preview'
+                      ? t('preparingPreview')
+                      : t('preview')}
+                  </span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
+
+            {/* 核心动作组：保存 / 发布 / 运行 / 停止 — shrink-0 防止停止单独换行 */}
+            {/* Primary cluster: save / publish / run / stop — shrink-0 so Stop cannot wrap alone */}
+            <div className='flex shrink-0 flex-nowrap items-center gap-1.5'>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className={cn(
+                        'h-7 gap-1.5 px-2.5 text-xs transition-colors',
+                        isCurrentDirty
+                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
+                          : 'text-foreground',
+                      )}
+                      onClick={handleSave}
+                      disabled={saving || !editor.name.trim() || !editor.canEdit}
+                    >
+                      <Save className='size-3.5' />
+                      {t('save')}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {!editor.canEdit ? (
+                  <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
+                ) : null}
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size='sm'
+                      variant='outline'
+                      className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
+                      onClick={handleOpenPublishDialog}
+                      disabled={
+                        saving ||
+                        publishing ||
+                        !editor.name.trim() ||
+                        !editor.canEdit
+                      }
+                    >
+                      <GitCommit className='size-3.5 text-primary' />
+                      <span>{t('publishNewVersion')}</span>
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {!editor.canEdit ? (
+                  <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
+                ) : null}
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size='sm'
+                          className='h-7 gap-1 bg-primary px-2.5 text-xs font-medium shadow-xs hover:bg-primary/90'
+                          disabled={
+                            saving ||
+                            hasActiveRun ||
+                            hasActivePreview ||
+                            !editor.canRun
+                          }
+                        >
+                          <Play className='size-3.5' />
+                          <span>{t('run')}</span>
+                          <ChevronDown className='size-3 opacity-70' />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align='end'>
+                        <DropdownMenuItem onClick={() => void handleRun('run')}>
+                          {t('run')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={
+                            executionMode === 'local' ||
+                            hasActiveRun ||
+                            hasActivePreview ||
+                            actionPending !== null ||
+                            preferredRecoverSourceId === null
+                          }
+                          onClick={() => void handleRun('recover')}
+                        >
+                          {t('savepointRecover')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </span>
+                </TooltipTrigger>
+                {!editor.canRun ? (
+                  <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
+                ) : null}
+              </Tooltip>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    className={cn(
+                      'h-7 gap-1 px-2.5 text-xs transition-colors',
+                      activeJobs.length > 0
+                        ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
+                        : 'text-muted-foreground',
+                    )}
+                    disabled={activeJobs.length === 0}
+                  >
+                    <Square className='size-3.5' />
+                    <span>{t('stop')}</span>
+                    <ChevronDown className='size-3 opacity-70' />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='end'>
+                  <DropdownMenuItem
+                    onClick={() => void handleStopActiveJob('normal')}
+                  >
+                    {t('normalStop')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={executionMode === 'local'}
+                    onClick={() => void handleStopActiveJob('savepoint')}
+                  >
+                    {t('savepointStop')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </CardContent>
       </Card>

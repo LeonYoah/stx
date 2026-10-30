@@ -27,6 +27,8 @@ import apiClient from '../core/api-client';
 // DiscoveredProcess represents a discovered SeaTunnel process (enhanced).
 // DiscoveredProcess 表示发现的 SeaTunnel 进程（增强版）。
 export interface DiscoveredProcess {
+  /** Process JDK when resolved from /proc/<pid>/exe / 从进程可执行文件解析到的 JDK */
+  java_home?: string;
   pid: number;
   role: string; // master, worker, or hybrid
   install_dir: string;
@@ -52,6 +54,8 @@ export interface DiscoveredNode {
   hazelcast_port: number;
   api_port: number;
   start_time: string;
+  /** Process JDK when Agent resolved it (AC1f) / 进程 JDK（Agent 解析到时，AC1f） */
+  java_home?: string;
 }
 
 // DiscoveredCluster represents a discovered SeaTunnel cluster.
@@ -83,6 +87,8 @@ export interface DiscoveryResult {
 export interface ConfirmDiscoveryRequest {
   cluster_ids?: string[];
   install_dirs?: string[];
+  /** install_dir -> java_home for each imported cluster node (AC1e) */
+  java_homes?: Record<string, string>;
 }
 
 // ConfirmDiscoveryResponse represents the response for confirming discovery.

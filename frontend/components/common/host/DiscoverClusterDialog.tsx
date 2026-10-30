@@ -39,6 +39,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Search, CheckCircle, AlertCircle, Server, FolderOpen, Tag } from 'lucide-react';
+import { JavaHomePicker } from '@/components/common/java/JavaHomePicker';
 import { toast } from 'sonner';
 import {
   DiscoveredCluster,
@@ -69,6 +70,8 @@ export function DiscoverClusterDialog({
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedDirs, setSelectedDirs] = useState<Set<string>>(new Set());
+  /** install_dir -> java_home (AC1e) */
+  const [javaHomes, setJavaHomes] = useState<Record<string, string>>({});
 
   // Start discovery / 开始发现
   const handleDiscover = useCallback(async () => {
@@ -86,7 +89,15 @@ export function DiscoverClusterDialog({
         }
       });
       setSelectedDirs(newDirs);
-      
+      // Prefill from first node's process JDK when available (AC1f) / 有进程 JDK 时预填
+      const seeded: Record<string, string> = {};
+      discoveryResult.clusters?.forEach((cluster) => {
+        const fromNode = cluster.nodes?.find((n) => n.java_home)?.java_home;
+        if (fromNode) {
+          seeded[cluster.install_dir] = fromNode;
+        }
+      });
+      setJavaHomes(seeded);
       setState('discovered');
     } catch (err) {
       console.error('Discovery failed:', err);
@@ -104,8 +115,16 @@ export function DiscoverClusterDialog({
 
     try {
       setState('confirming');
+      const homes: Record<string, string> = {};
+      selectedDirs.forEach((dir) => {
+        const v = (javaHomes[dir] || '').trim();
+        if (v) {
+          homes[dir] = v;
+        }
+      });
       const response = await confirmDiscovery(hostId, {
         install_dirs: Array.from(selectedDirs),
+        java_homes: Object.keys(homes).length > 0 ? homes : undefined,
       });
       
       setState('confirmed');
@@ -125,7 +144,7 @@ export function DiscoverClusterDialog({
       setError(t('discovery.confirmFailed'));
       setState('error');
     }
-  }, [hostId, selectedDirs, t, onSuccess, onOpenChange]);
+  }, [hostId, selectedDirs, javaHomes, t, onSuccess, onOpenChange]);
 
   // Reset state / 重置状态
   const resetState = () => {
@@ -133,6 +152,7 @@ export function DiscoverClusterDialog({
     setResult(null);
     setError(null);
     setSelectedDirs(new Set());
+    setJavaHomes({});
   };
 
   // Handle dialog close / 处理对话框关闭
@@ -212,6 +232,23 @@ export function DiscoverClusterDialog({
               <p className="text-xs text-muted-foreground">
                 {t('discovery.existingClusterId', { id: cluster.existing_id })}
               </p>
+            )}
+            {isNew && isSelected && (
+              <div onClick={(e) => e.stopPropagation()}>
+                <JavaHomePicker
+                  hostId={hostId}
+                  value={javaHomes[cluster.install_dir] || ''}
+                  preferredJavaHome={
+                    cluster.nodes?.find((n) => n.java_home)?.java_home
+                  }
+                  onChange={({ javaHome }) =>
+                    setJavaHomes((prev) => ({
+                      ...prev,
+                      [cluster.install_dir]: javaHome,
+                    }))
+                  }
+                />
+              </div>
             )}
           </div>
         </div>

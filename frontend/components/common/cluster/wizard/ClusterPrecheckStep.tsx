@@ -77,6 +77,25 @@ export function ClusterPrecheckStep({
     }
   }, [precheckHasRun, precheckRunning, selectedHosts.length, runPrecheck]);
 
+
+  const jdkFailures = precheckResults
+    .map((r) => {
+      const javaCheck = r.result?.items?.find((c) =>
+        c.name?.toLowerCase().includes('java'),
+      );
+      if (r.error) {
+        return {host: r.hostName, detail: r.error};
+      }
+      if (javaCheck && javaCheck.status === 'failed') {
+        return {
+          host: r.hostName,
+          detail: javaCheck.message || '',
+        };
+      }
+      return null;
+    })
+    .filter(Boolean) as Array<{host: string; detail: string}>;
+
   const getStatusIcon = (status: CheckStatus) => {
     switch (status) {
       case 'passed':
@@ -150,6 +169,23 @@ export function ClusterPrecheckStep({
       </div>
 
       {/* Host Precheck Results List / 主机检查明细列表 */}
+      
+      {jdkFailures.length > 0 && !precheckRunning && (
+        <div
+          className='mb-3 rounded-md border border-red-500/30 bg-red-500/10 p-2.5 text-xs text-red-700 dark:text-red-300'
+          data-testid='cluster-wizard-jdk-failures'
+        >
+          <p className='font-medium'>{t('javaHome.failedNodes')}</p>
+          <ul className='mt-1 list-disc pl-4 space-y-0.5'>
+            {jdkFailures.map((f) => (
+              <li key={f.host}>
+                <span className='font-medium'>{f.host}</span>
+                {f.detail ? ` — ${f.detail}` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <ScrollArea className='flex-1 min-h-0 pr-4 mt-3'>
         <div className='space-y-3 max-w-4xl mx-auto'>
           {precheckResults.map((hostResult) => {

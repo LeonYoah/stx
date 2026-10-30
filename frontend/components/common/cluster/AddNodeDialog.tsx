@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/dialog';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
+import {JavaHomePicker} from '@/components/common/java/JavaHomePicker';
 import {Label} from '@/components/ui/label';
 import {
   Select,
@@ -122,6 +123,7 @@ export function AddNodeDialog({
   const [mode, setMode] = useState<ScaleMode | ''>('');
   const [modeTouched, setModeTouched] = useState(false);
   const [installDir, setInstallDir] = useState('');
+  const [javaHome, setJavaHome] = useState('');
   const [ports, setPorts] = useState<ScaleNodePorts>(EMPTY_PORTS);
   const [dirty, setDirty] = useState(false);
   const [restartAck, setRestartAck] = useState(false);
@@ -144,6 +146,7 @@ export function AddNodeDialog({
     setMode('');
     setModeTouched(false);
     setInstallDir('');
+    setJavaHome('');
     setPorts(EMPTY_PORTS);
     setDirty(false);
     setRestartAck(false);
@@ -201,6 +204,7 @@ export function AddNodeDialog({
       }
       request.install_dir = installDir.trim() || undefined;
       request.ports = ports;
+      request.java_home = javaHome.trim() || undefined;
     }
     return request;
   };
@@ -216,6 +220,7 @@ export function AddNodeDialog({
       setPlan(next);
       setMode(next.mode ?? next.detected_mode ?? 'install');
       setInstallDir(next.target.install_dir);
+      setJavaHome(next.target.java_home || '');
       setPorts({
         hazelcast_port: next.target.hazelcast_port,
         api_port: next.target.api_port,
@@ -561,6 +566,19 @@ export function AddNodeDialog({
               </div>
             )}
           </div>
+          <JavaHomePicker
+            hostId={Number(hostId) || null}
+            value={javaHome}
+            preferredJavaHome={
+              plan.detected_mode === 'register'
+                ? plan.target.java_home || undefined
+                : undefined
+            }
+            onChange={({javaHome: next}) => {
+              setJavaHome(next);
+              markDirty();
+            }}
+          />
           <div className='space-y-0.5 text-xs text-muted-foreground'>
             <p>{ts('installDirHint')}</p>
             <p>{ts('portsHint')}</p>

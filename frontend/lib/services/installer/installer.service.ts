@@ -312,6 +312,23 @@ export async function importOfflineBundle(file: File): Promise<OfflineBundleInfo
  * Run precheck on a host
  * 在主机上运行预检查
  */
+/**
+ * List detectable JDKs on a host for the wizard dropdown (AC1b).
+ * 列出主机上可探测的 JDK，供向导下拉选择（AC1b）。
+ */
+export async function listJavaRuntimes(
+  hostId: number | string,
+): Promise<import('./types').JavaRuntimeCandidate[]> {
+  const response = await apiClient.get<{
+    error_msg?: string;
+    data?: import('./types').JavaRuntimeCandidate[];
+  }>(`${API_PREFIX}/hosts/${hostId}/java-runtimes`);
+  if (response.data.error_msg) {
+    throw new Error(response.data.error_msg);
+  }
+  return response.data.data || [];
+}
+
 export async function runPrecheck(
   hostId: number | string,
   options?: PrecheckRequest,
@@ -547,6 +564,7 @@ export const installerService = {
   // Version management / 版本管理
   refreshVersions,
   // Precheck / 预检查
+  listJavaRuntimes,
   runPrecheck,
   validateRuntimeStorage,
   // Installation / 安装

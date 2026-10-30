@@ -231,6 +231,23 @@ export function ClusterDeployWizard({
     }));
   }, [versionCapabilities]);
 
+
+  /** Update one host's JDK path (AC1) / 更新单个主机的 JDK 路径（AC1） */
+  const setHostJavaHome = useCallback((hostId: number, javaHome: string) => {
+    setHostsWithRole((prev) =>
+      prev.map((h) =>
+        h.host.id === hostId ? {...h, javaHome} : h,
+      ),
+    );
+  }, []);
+
+  /** Apply one JDK path to all selected hosts (AC1a) / 一键把同一路径填到全部已选主机（AC1a） */
+  const fillAllJavaHome = useCallback((javaHome: string) => {
+    setHostsWithRole((prev) =>
+      prev.map((h) => (h.selected ? {...h, javaHome} : h)),
+    );
+  }, []);
+
   // Run precheck for selected hosts / 运行选定主机的环境预检查
   const runPrecheck = useCallback(async () => {
     if (selectedHosts.length === 0) {
@@ -273,6 +290,7 @@ export function ClusterDeployWizard({
           {
             install_dir: config.installDir,
             ports: portsToCheck,
+            java_home: hostWithRole.javaHome || undefined,
           },
         );
         return {
@@ -584,10 +602,13 @@ export function ClusterDeployWizard({
           t('cluster.wizard.steps.addingNode'),
           label,
         );
+        const hostJava =
+          selectedHosts.find((h) => h.host.id === host.id)?.javaHome || '';
         await services.cluster.addNodeSafe(clusterId, {
           host_id: host.id,
           role,
           install_dir: config.installDir,
+          java_home: hostJava || undefined,
           hazelcast_port:
             role === 'worker' &&
             config.deploymentMode === DeploymentMode.SEPARATED
@@ -649,12 +670,15 @@ export function ClusterDeployWizard({
           label,
           0,
         );
+        const hostJavaHome =
+          selectedHosts.find((h) => h.host.id === host.id)?.javaHome || '';
         const installResult = await services.installer.startInstallation(
           host.id,
           {
             cluster_id: String(clusterId),
             version: config.version,
             install_dir: config.installDir,
+            java_home: hostJavaHome || undefined,
             install_mode: 'online',
             mirror: config.mirror,
             deployment_mode: config.deploymentMode,
@@ -858,6 +882,8 @@ export function ClusterDeployWizard({
             versionCapabilities={versionCapabilities}
             httpServiceSupported={httpServiceSupported}
             applyCheckpointToImap={applyCheckpointToImap}
+            setHostJavaHome={setHostJavaHome}
+            fillAllJavaHome={fillAllJavaHome}
           />
         );
       case 'precheck':

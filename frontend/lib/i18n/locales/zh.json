@@ -5322,5 +5322,27 @@
     "autoClosed": "自动关闭",
     "remindersPaused": "已停止提醒",
     "remindersPausedHint": "无法确认是否恢复已超过 24 小时，已停止提醒；告警保持未恢复，请检查作业和事件通道。"
+  },
+  "javaHome": {
+    "label": "JDK 路径",
+    "help": "先从本机探测到的 JDK 中选择；也可直接自定义路径。留空则沿用自动探测。不同节点可以不同。",
+    "placeholder": "选择或自定义 JDK",
+    "optionAuto": "自动探测（不指定）",
+    "optionDetected": "{path}（Java {version}）",
+    "optionCustom": "自定义路径…",
+    "customPlaceholder": "/usr/lib/jvm/java-11",
+    "hint": "探测不到时也可直接填写。自定义与探测选中会有标记区分。",
+    "badgeCustom": "自定义",
+    "badgeDetected": "探测选中",
+    "badgeAuto": "自动探测",
+    "fillAll": "一键填到全部节点",
+    "fillAllDone": "已填到 {count} 个节点",
+    "failedNodes": "以下节点 JDK 预检失败，已阻塞安装：",
+    "effectiveTitle": "生效 JDK",
+    "effectiveConfigured": "配置路径",
+    "effectiveActual": "实际路径",
+    "effectiveVersion": "版本",
+    "effectiveSource": "来源",
+    "loadFailed": "无法加载 JDK 列表，请自定义路径或稍后重试"
   }
 }

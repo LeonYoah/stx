@@ -124,6 +124,8 @@ export interface HostWithRole {
   selected: boolean;
   /** Single role for hybrid; one or both of MASTER/WORKER for separated / 混合模式为单角色；分离模式为 MASTER/WORKER 之一或两者 */
   roles: NodeRole[];
+  /** Per-host JDK path; empty means auto detection (AC1) / 每主机 JDK 路径，空表示自动探测（AC1） */
+  javaHome?: string;
 }
 
 /**

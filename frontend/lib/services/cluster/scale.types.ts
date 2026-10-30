@@ -77,6 +77,8 @@ export interface ScaleOutRequest {
   role?: NodeRole;
   install_dir?: string;
   ports?: Partial<ScaleNodePorts>;
+  /** Node JDK; empty means auto detection / 节点 JDK，空表示自动探测 */
+  java_home?: string;
 }
 
 /** 扩容提交请求 / Scale-out submit request */
@@ -115,6 +117,8 @@ export interface ScaleTarget {
   api_port: number;
   worker_port: number;
   address: string;
+  /** Prefill / selected JDK for this target / 该目标节点的预填或已选 JDK */
+  java_home?: string;
 }
 
 /** 回环成员节点 / Loopback member node */

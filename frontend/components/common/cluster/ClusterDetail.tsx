@@ -2894,6 +2894,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                       <TableHead>{t('cluster.hostIP')}</TableHead>
                       <TableHead>{t('cluster.nodeRole')}</TableHead>
                       <TableHead>{t('cluster.installDir')}</TableHead>
+                      <TableHead>{t('javaHome.effectiveTitle')}</TableHead>
                       <TableHead>{t('cluster.nodeStatus')}</TableHead>
                       <TableHead>{t('cluster.processPID')}</TableHead>
                       <TableHead className='text-right pr-4'>
@@ -2905,7 +2906,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                     {filteredNodes.length === 0 ? (
                       <TableRow>
                         <TableCell
-                          colSpan={9}
+                          colSpan={10}
                           className='text-center py-12 text-muted-foreground text-sm'
                         >
                           {nodeSearchTerm || nodeStatusFilter !== 'all'
@@ -2946,6 +2947,19 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                               title={node.install_dir || '-'}
                             >
                               {node.install_dir || '-'}
+                            </div>
+                          </TableCell>
+                          <TableCell className='font-mono text-xs max-w-[160px]'>
+                            <div
+                              className='truncate'
+                              title={
+                                node.java_home
+                                  ? node.java_home
+                                  : t('javaHome.badgeAuto')
+                              }
+                              data-testid={`node-java-home-${node.id}`}
+                            >
+                              {node.java_home || t('javaHome.badgeAuto')}
                             </div>
                           </TableCell>
                           <TableCell>

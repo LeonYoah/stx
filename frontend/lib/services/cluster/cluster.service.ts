@@ -1402,6 +1402,47 @@ export class ClusterService extends BaseService {
    * @param params.filter - Filter pattern / 过滤模式
    * @param params.date - Date for rolling logs / 滚动日志日期
    */
+
+  /**
+   * Get the effective JDK of a cluster node (AC7).
+   * 获取集群节点生效的 JDK（AC7）。
+   */
+  static async getNodeJavaRuntime(
+    clusterId: number,
+    nodeId: number,
+  ): Promise<{
+    node_id: number;
+    host_id: number;
+    configured_java_home: string;
+    status: string;
+    message: string;
+    java_home: string;
+    java_bin: string;
+    source: string;
+    version: number;
+    version_string?: string;
+  }> {
+    const response = await apiClient.get<{
+      error_msg: string;
+      data: {
+        node_id: number;
+        host_id: number;
+        configured_java_home: string;
+        status: string;
+        message: string;
+        java_home: string;
+        java_bin: string;
+        source: string;
+        version: number;
+        version_string?: string;
+      };
+    }>(`${this.basePath}/${clusterId}/nodes/${nodeId}/java-runtime`);
+    if (response.data.error_msg) {
+      throw new Error(response.data.error_msg);
+    }
+    return response.data.data;
+  }
+
   static async getNodeLogs(
     clusterId: number,
     nodeId: number,

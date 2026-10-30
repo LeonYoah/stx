@@ -297,6 +297,8 @@ export interface InstallationRequest {
   worker_port?: number; // Worker hazelcast port / Worker Hazelcast 端口
   http_port?: number; // HTTP API port / HTTP API 端口
   java_proxy_port?: number; // Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口
+  /** Node JDK directory; empty means auto detection / 节点 JDK 目录，空表示自动探测 */
+  java_home?: string;
   enable_http?: boolean; // Enable SeaTunnel HTTP/Web UI / 是否开启 SeaTunnel HTTP/Web UI
   dynamic_slot?: boolean;
   slot_num?: number;
@@ -359,6 +361,8 @@ export interface PrecheckRequest {
   min_disk_space_mb?: number;
   install_dir?: string;
   ports?: number[];
+  /** Node JDK directory; empty means auto detection / 节点 JDK 目录，空表示自动探测 */
+  java_home?: string;
 }
 
 /**
@@ -598,4 +602,14 @@ export interface DownloadResponse {
 export interface DownloadListResponse {
   error_msg: string;
   data: DownloadTask[] | null;
+}
+
+
+/** Detectable JDK on a host (AC1b) / 主机上可探测到的 JDK（AC1b） */
+export interface JavaRuntimeCandidate {
+  java_home: string;
+  java_bin?: string;
+  version: number;
+  version_string?: string;
+  source: string;
 }

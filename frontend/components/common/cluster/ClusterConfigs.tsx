@@ -37,7 +37,7 @@ import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {toast} from 'sonner';
-import {Settings, RefreshCw, FileText, Server, Check, AlertTriangle, Edit, History, Upload, Download, Loader2, FolderSync, Eye, GitCompareArrows, WandSparkles, CircleHelp, Search, MoreHorizontal} from 'lucide-react';
+import {Settings, RefreshCw, FileText, Server, Check, AlertTriangle, Edit, History, Upload, Download, Loader2, FolderSync, Eye, GitCompareArrows, WandSparkles, Search, MoreHorizontal} from 'lucide-react';
 import {ConfigService} from '@/lib/services/config';
 import type {ConfigInfo, ConfigVersionInfo} from '@/lib/services/config';
 import {ConfigType, ConfigTypeNames, getConfigTypesForMode, summarizeSyncResult} from '@/lib/services/config';
@@ -47,7 +47,6 @@ import {EmptyState, StatPillsBar, TableLoadingBar, TableSkeletonRows} from '@/co
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/components/ui/table';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '@/components/ui/dropdown-menu';
 import {Skeleton} from '@/components/ui/skeleton';
-import {cn} from '@/lib/utils';
 import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ClusterConfigsProps {
@@ -636,44 +635,73 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-foreground">{t('config.jobLogModeTitle')}:</span>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              'px-2 py-0.5 font-medium',
-                              isPerJobLogMode
-                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                                : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400'
-                            )}
-                          >
-                            {isPerJobLogMode
-                              ? t('config.jobLogModePerJobBadge')
-                              : t('config.jobLogModeMixedBadge')}
-                          </Badge>
+                          {/* 单 Job 模式的实现说明进 Badge Tooltip，外包 button 让键盘可聚焦；混合模式无补充说明，只显示 Badge */}
+                          {/* Per-job mode details live in the badge tooltip, wrapped in a button so it is keyboard-focusable; mixed mode has no extra note */}
+                          {isPerJobLogMode ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                                  aria-label={`${t('config.jobLogModePerJobBadge')}: ${t('config.jobLogModePerJobTip')}`}
+                                  data-testid="cluster-configs-log-mode-badge-trigger"
+                                >
+                                  <Badge
+                                    variant="outline"
+                                    className="cursor-help border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-700 dark:text-emerald-400"
+                                    data-testid="cluster-configs-log-mode-badge"
+                                  >
+                                    {t('config.jobLogModePerJobBadge')}
+                                  </Badge>
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs text-xs">
+                                {t('config.jobLogModePerJobTip')}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-400"
+                              data-testid="cluster-configs-log-mode-badge"
+                            >
+                              {t('config.jobLogModeMixedBadge')}
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-muted-foreground">
                           {isPerJobLogMode
-                            ? t('config.jobLogModePerJobDesc')
+                            ? t('config.jobLogModeRestartHint')
                             : t('config.jobLogModeMixedDesc')}
                         </p>
                       </div>
-                      <Button
-                        variant={isPerJobLogMode ? 'outline' : 'default'}
-                        size="sm"
-                        className="shrink-0"
-                        disabled={logModeSwitching}
-                        onClick={() => handleSwitchLogMode(isPerJobLogMode ? 'mixed' : 'per_job')}
-                      >
-                        {logModeSwitching ? (
-                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                        ) : isPerJobLogMode ? (
-                          <Settings className="mr-1.5 h-3.5 w-3.5" />
-                        ) : (
-                          <WandSparkles className="mr-1.5 h-3.5 w-3.5" />
-                        )}
-                        {isPerJobLogMode
-                          ? t('config.switchToMixedModeBtn')
-                          : t('config.switchToPerJobModeBtn')}
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant={isPerJobLogMode ? 'outline' : 'default'}
+                            size="sm"
+                            className="shrink-0"
+                            disabled={logModeSwitching}
+                            onClick={() => handleSwitchLogMode(isPerJobLogMode ? 'mixed' : 'per_job')}
+                          >
+                            {logModeSwitching ? (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            ) : isPerJobLogMode ? (
+                              <Settings className="mr-1.5 h-3.5 w-3.5" />
+                            ) : (
+                              <WandSparkles className="mr-1.5 h-3.5 w-3.5" />
+                            )}
+                            {isPerJobLogMode
+                              ? t('config.switchToMixedModeBtn')
+                              : t('config.switchToPerJobModeBtn')}
+                          </Button>
+                        </TooltipTrigger>
+                        {!isPerJobLogMode ? (
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            {t('config.jobLogModePerJobTip')}
+                          </TooltipContent>
+                        ) : null}
+                      </Tooltip>
                     </div>
                   )}
                   <p className="text-xs text-muted-foreground">{t('config.tabTemplateHint')}</p>
@@ -703,7 +731,6 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
               )}
             </TabsContent>
             <TabsContent value="nodes" className="mt-4 space-y-3">
-              <p className="text-xs text-muted-foreground">{t('config.tabNodeHint')}</p>
               <StatPillsBar
                 activeKey={nodeFilter}
                 onChange={(key) => setNodeFilter(key as 'all' | 'matched' | 'mismatched')}
@@ -770,7 +797,7 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTimeTz(config.updated_at)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
-                              {!config.match_template && (
+                              {!config.match_template ? (
                                 <>
                                   <Button
                                     variant="outline"
@@ -795,6 +822,31 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                                     {t('config.promoteToCluster')}
                                   </Button>
                                 </>
+                              ) : (
+                                // 与模板一致的节点：两个操作禁用，原因进 Tooltip（外包 span 才能触发）
+                                // Nodes matching the template: both actions disabled, reason in a Tooltip (span wrapper so it fires)
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span
+                                      className="inline-flex items-center gap-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                      tabIndex={0}
+                                      aria-label={t('config.tabNodeHint')}
+                                      data-testid={`cluster-configs-node-actions-disabled-${config.id}`}
+                                    >
+                                      <Button variant="outline" size="sm" className="pointer-events-none h-8" disabled>
+                                        <Download className="mr-1 size-3.5" />
+                                        {t('config.syncFromTemplate')}
+                                      </Button>
+                                      <Button variant="outline" size="sm" className="pointer-events-none h-8" disabled>
+                                        <Upload className="mr-1 size-3.5" />
+                                        {t('config.promoteToCluster')}
+                                      </Button>
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs text-xs">
+                                    {t('config.tabNodeHint')}
+                                  </TooltipContent>
+                                </Tooltip>
                               )}
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -910,37 +962,30 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
           <div className="space-y-4">
             <div>
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Label>{t('config.content')}</Label>
-                  {isYamlConfigType(editingConfig?.config_type) && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button type="button" className="text-muted-foreground transition-colors hover:text-foreground">
-                          <CircleHelp className="h-4 w-4" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs">
-                        {t('config.smartRepairHint')}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
+                <Label>{t('config.content')}</Label>
                 {isYamlConfigType(editingConfig?.config_type) && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSmartRepair}
-                    disabled={repairing || saving}
-                    data-testid="cluster-configs-smart-repair"
-                  >
-                    {repairing ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <WandSparkles className="mr-2 h-4 w-4" />
-                    )}
-                    {t('config.smartRepair')}
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSmartRepair}
+                        disabled={repairing || saving}
+                        data-testid="cluster-configs-smart-repair"
+                      >
+                        {repairing ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <WandSparkles className="mr-2 h-4 w-4" />
+                        )}
+                        {t('config.smartRepair')}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                      {t('config.smartRepairHint')}
+                    </TooltipContent>
+                  </Tooltip>
                 )}
               </div>
               <Textarea
@@ -950,11 +995,6 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                 className="font-mono text-sm h-[500px]"
                 data-testid="cluster-configs-edit-content"
               />
-              {isYamlConfigType(editingConfig?.config_type) && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {t('config.yamlValidationHint')}
-                </p>
-              )}
             </div>
             <div>
               <Label>{t('config.comment')}</Label>

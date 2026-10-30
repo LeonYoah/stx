@@ -18,11 +18,21 @@
 // 推送侧栏只负责 SHELL 节点，不得带令牌管理入口。
 // The push sidebar only owns the SHELL node and must not open token management.
 
-import {render, screen, waitFor} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
 import {TaskScheduleSidebarPanel} from '../TaskScheduleSidebarPanel';
+
+// Radix Tooltip 打开时测量尺寸，jsdom 没有 ResizeObserver，这里给个空实现
+// Radix Tooltip measures size when open; jsdom lacks ResizeObserver, so stub it
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
 
 const getDolphinTaskStatus = vi.fn();
 
@@ -113,5 +123,72 @@ describe('TaskScheduleSidebarPanel', () => {
     expect(
       document.querySelector('a[href="/admin/users?tab=tokens"]'),
     ).toBeNull();
+  });
+
+  it('moves schedule copy into the badge tooltip and shows the unsaved hint only when dirty', async () => {
+    const renderPanel = (hasUnsavedChanges: boolean) => (
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <TaskScheduleSidebarPanel
+          value={{enabled: false, cron_expr: '0 0 * * *', timezone: 'Asia/Shanghai'}}
+          onChange={vi.fn()}
+          taskId={42}
+          canEdit
+          hasUnsavedChanges={hasUnsavedChanges}
+        />
+      </NextIntlClientProvider>
+    );
+    const {rerender} = render(renderPanel(false));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', {name: /更新节点/})).toBeTruthy();
+    });
+    const ws = zh.workbenchStudio as unknown as Record<string, string>;
+    // 常驻长段建议与保存规则不再出现 / Long advice and save rule are no longer persistent
+    expect(screen.queryByText(ws.scheduleProductionNoticeDesc)).toBeNull();
+    expect(screen.queryByText(ws.scheduleUnsavedHint)).toBeNull();
+    expect(screen.queryByText(ws.dolphinBuiltinLocked)).toBeNull();
+    expect(screen.getByText(ws.scheduleLightweightBadge)).toBeTruthy();
+    // 绑定 Dolphin 时开关禁用 / Switch is disabled while bound to Dolphin
+    expect(screen.getByRole('switch').hasAttribute('disabled')).toBe(true);
+
+    rerender(renderPanel(true));
+    const unsavedHint = screen.getByText(ws.scheduleUnsavedHint);
+    // 未保存提示允许换行，不截断 / The unsaved hint wraps instead of truncating
+    expect(unsavedHint.className).not.toContain('truncate');
+  });
+
+  it('opens the lightweight badge and locked switch tooltips via keyboard focus', async () => {
+    render(
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <TaskScheduleSidebarPanel
+          value={{enabled: false, cron_expr: '0 0 * * *', timezone: 'Asia/Shanghai'}}
+          onChange={vi.fn()}
+          taskId={42}
+          canEdit
+        />
+      </NextIntlClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('button', {name: /更新节点/})).toBeTruthy();
+    });
+    const ws = zh.workbenchStudio as unknown as Record<string, string>;
+
+    // 「轻量」Badge 包在 button 里，可访问名称就是可见文字；聚焦后弹出生产调度建议
+    // The "Lightweight" badge sits in a button named by its visible text; focus opens the production advice
+    const badgeButton = screen.getByRole('button', {name: ws.scheduleLightweightBadge});
+    expect(badgeButton.getAttribute('type')).toBe('button');
+    fireEvent.focus(badgeButton);
+    await waitFor(() => {
+      expect(screen.getAllByText(ws.scheduleProductionNoticeDesc).length).toBeGreaterThan(0);
+    });
+
+    // 已绑定 Dolphin 时禁用开关外层 span 可聚焦，聚焦后弹出锁定原因
+    // While bound to Dolphin the disabled switch's wrapper is focusable and opens the lock reason
+    const switchWrapper = screen.getByRole('switch').parentElement as HTMLElement;
+    expect(switchWrapper.getAttribute('tabindex')).toBe('0');
+    fireEvent.focus(switchWrapper);
+    await waitFor(() => {
+      expect(screen.getAllByText(ws.dolphinBuiltinLocked).length).toBeGreaterThan(0);
+    });
   });
 });

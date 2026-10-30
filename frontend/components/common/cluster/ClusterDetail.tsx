@@ -104,7 +104,9 @@ import {
   MoreHorizontal,
   Cpu,
   SlidersHorizontal,
+  HelpCircle,
 } from 'lucide-react';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Checkbox} from '@/components/ui/checkbox';
 import {motion} from 'motion/react';
 import {
@@ -1408,6 +1410,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     runtimeConfig.enableHTTP,
   );
   const webUIProxyURL = webUINode ? `/api/v1/clusters/${clusterId}/webui/` : '';
+  const webUIMasterAddress = webUINode
+    ? `${webUINode.host_ip || webUINode.host_name || '-'}:${webUINode.api_port}`
+    : '';
   const upgradeTaskTotalPages = Math.max(
     1,
     Math.ceil(upgradeTasksTotal / upgradeTasksPageSize),
@@ -2270,9 +2275,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                     <Database className='size-4 text-primary' />
                     <span>{t('cluster.storageSummary')}</span>
                   </CardTitle>
-                  <CardDescription className='text-xs'>
-                    {t('cluster.runtimeStorage.description')}
-                  </CardDescription>
                 </div>
                 <Button
                   variant='ghost'
@@ -2355,27 +2357,44 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           {webUINode && (
             <TabsContent value='webui' className='space-y-6'>
               <Card>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0'>
-                  <div>
-                    <CardTitle className='flex items-center gap-2'>
-                      <MonitorSmartphone className='h-5 w-5' />
-                      {t('cluster.webUiTitle')}
-                    </CardTitle>
-                    <CardDescription>
-                      {t('cluster.webUiDescription', {
-                        host: webUINode.host_ip || webUINode.host_name || '-',
-                        port: webUINode.api_port,
-                      })}
-                    </CardDescription>
-                  </div>
-                  {/* 通用观测入口：代理或原生地址（原生地址由后端按 active master 给出） */}
-                  {/* Shared observation entry: proxy or native address (native picked by the backend, preferring the active master) */}
-                  <SeaTunnelObserveMenu clusterId={clusterId} variant='button' />
+                <CardHeader className='flex flex-row items-center justify-between gap-3 space-y-0'>
+                  <CardTitle className='flex min-w-0 items-center gap-2'>
+                    <MonitorSmartphone className='h-5 w-5 shrink-0' />
+                    <span className='shrink-0 whitespace-nowrap'>{t('cluster.webUiTitle')}</span>
+                    {/* 外包 button 让地址 Badge 可被键盘聚焦；长主机名截断，完整地址进 Tooltip */}
+                    {/* Button wrapper makes the address badge keyboard-focusable; long hosts truncate and the full address lives in the tooltip */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type='button'
+                          className='min-w-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1'
+                          aria-label={t('cluster.webUiMasterAddressTip', {address: webUIMasterAddress})}
+                          data-testid='cluster-webui-master-address-trigger'
+                        >
+                          <Badge
+                            variant='outline'
+                            className='block max-w-[260px] cursor-help truncate font-mono text-[11px] font-normal'
+                            data-testid='cluster-webui-master-address'
+                          >
+                            {webUIMasterAddress}
+                          </Badge>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side='top' className='max-w-sm break-all text-xs'>
+                        {t('cluster.webUiMasterAddressTip', {address: webUIMasterAddress})}
+                      </TooltipContent>
+                    </Tooltip>
+                  </CardTitle>
+                  {/* 通用观测入口：代理或原生地址（原生地址由后端按 active master 给出）；嵌入方式说明进按钮 Tooltip */}
+                  {/* Shared observation entry: proxy or native address (native picked by the backend, preferring the active master); embedding note lives in the button tooltip */}
+                  <SeaTunnelObserveMenu
+                    clusterId={clusterId}
+                    variant='button'
+                    className='shrink-0'
+                    triggerHint={t('cluster.webUiHint')}
+                  />
                 </CardHeader>
                 <CardContent className='space-y-4'>
-                  <div className='rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground'>
-                    {t('cluster.webUiHint')}
-                  </div>
                   <div className='overflow-hidden rounded-xl border bg-background'>
                     <iframe
                       key={webUIProxyURL}
@@ -2493,12 +2512,23 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               <TableLoadingBar loading={stxJavaProxyLoading} />
               <CardHeader className='flex flex-row items-start justify-between gap-4 space-y-0'>
                 <div className='min-w-0'>
-                  <CardTitle className='text-base'>
-                    {t('cluster.stxJavaProxy.title')}
+                  <CardTitle className='flex items-center gap-1.5 text-base'>
+                    <span>{t('cluster.stxJavaProxy.title')}</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type='button'
+                          className='text-muted-foreground/70 hover:text-foreground'
+                          aria-label={t('cluster.stxJavaProxy.description')}
+                        >
+                          <HelpCircle className='size-3.5' />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side='top' className='max-w-xs text-xs font-normal leading-relaxed'>
+                        {t('cluster.stxJavaProxy.description')}
+                      </TooltipContent>
+                    </Tooltip>
                   </CardTitle>
-                  <p className='mt-1 text-xs text-muted-foreground'>
-                    {t('cluster.stxJavaProxy.description')}
-                  </p>
                 </div>
                 <div className='flex items-center gap-2 shrink-0'>
                   <Badge
@@ -3143,9 +3173,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   <Activity className='h-5 w-5' />
                   {t('stUpgrade.upgradeRecordsTitle')}
                 </CardTitle>
-                <CardDescription>
-                  {t('stUpgrade.upgradeRecordsDescription')}
-                </CardDescription>
               </CardHeader>
               <CardContent className='space-y-4'>
                 {upgradeTasksLoading ? (

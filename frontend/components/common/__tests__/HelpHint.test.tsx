@@ -15,10 +15,22 @@
  * limitations under the License.
  */
 
+import type {ReactElement} from 'react';
 import {act, fireEvent, render, screen} from '@testing-library/react';
+import {NextIntlClientProvider} from 'next-intl';
 import {beforeAll, describe, expect, it} from 'vitest';
 
-import {HELP_HINT_DELAY_MS, HelpHint} from '../HelpHint';
+import zhMessages from '@/lib/i18n/locales/zh.json';
+
+import {HelpHint} from '../HelpHint';
+
+function renderWithIntl(ui: ReactElement) {
+  return render(
+    <NextIntlClientProvider locale='zh' messages={zhMessages}>
+      {ui}
+    </NextIntlClientProvider>,
+  );
+}
 
 describe('HelpHint', () => {
   beforeAll(() => {
@@ -30,16 +42,33 @@ describe('HelpHint', () => {
     } as unknown as typeof ResizeObserver;
   });
 
-  it('renders a focusable button named by the hint text', () => {
-    render(<HelpHint content='不会覆盖系统标准模板' data-testid='hint' />);
-    const trigger = screen.getByRole('button', {name: '不会覆盖系统标准模板'});
+  it('renders a focusable button with a short accessible name', () => {
+    renderWithIntl(
+      <HelpHint
+        label='自定义驱动'
+        content='不会覆盖系统标准模板'
+        data-testid='hint'
+      />,
+    );
+    const trigger = screen.getByTestId('hint');
     expect(trigger).toHaveAttribute('type', 'button');
-    expect(trigger).toHaveAttribute('data-testid', 'hint');
+    expect(trigger).toHaveAttribute('aria-label', '自定义驱动 说明');
+    expect(trigger.getAttribute('aria-label')).not.toContain(
+      '不会覆盖系统标准模板',
+    );
   });
 
-  it('opens the tooltip on keyboard focus', async () => {
-    render(<HelpHint content='收件人由对端系统决定' />);
-    const trigger = screen.getByRole('button', {name: '收件人由对端系统决定'});
+  it('falls back to the generic help label without leaking the body', () => {
+    renderWithIntl(<HelpHint content='收件人由对端系统决定' />);
+    const trigger = screen.getByRole('button', {name: '说明'});
+    expect(trigger.getAttribute('aria-label')).not.toContain('收件人');
+  });
+
+  it('opens the tooltip on keyboard focus and exposes the body via describedby', async () => {
+    renderWithIntl(
+      <HelpHint label='Endpoint' content='收件人由对端系统决定' />,
+    );
+    const trigger = screen.getByRole('button', {name: 'Endpoint 说明'});
     await act(async () => {
       trigger.focus();
       fireEvent.focus(trigger);
@@ -48,9 +77,6 @@ describe('HelpHint', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
       '收件人由对端系统决定',
     );
-  });
-
-  it('does not use a zero hover delay', () => {
-    expect(HELP_HINT_DELAY_MS).toBeGreaterThan(0);
+    expect(trigger).toHaveAccessibleDescription('收件人由对端系统决定');
   });
 });

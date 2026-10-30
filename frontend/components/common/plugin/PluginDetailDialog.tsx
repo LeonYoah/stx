@@ -679,6 +679,7 @@ export function PluginDetailDialog({
                     {t('plugin.installPath')}
                     {useIsolatedDeps ? (
                       <HelpHint
+                        label={t('plugin.installPath')}
                         content={t('plugin.installPathIsolatedDesc')}
                         data-testid='plugin-install-path-hint'
                       />
@@ -923,6 +924,7 @@ export function PluginDetailDialog({
                                           </Button>
                                         </TooltipTrigger>
                                         <TooltipContent className='max-w-xs text-xs leading-relaxed'>
+                                          {t('plugin.disable')}：
                                           {t('plugin.activeOfficialDependenciesDesc')}
                                         </TooltipContent>
                                       </Tooltip>

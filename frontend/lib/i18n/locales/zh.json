@@ -48,7 +48,9 @@
     "itemsUnit": "条",
     "status": "状态",
     "timezone": "时区",
-    "noMatchingData": "没有符合条件的数据"
+    "noMatchingData": "没有符合条件的数据",
+    "helpLabel": "说明",
+    "helpLabelFor": "{label} 说明"
   },
   "dashboard": {
     "title": "控制台",
@@ -1781,7 +1783,6 @@
     "mavenXmlParseSuccess": "解析成功，已填充表单",
     "officialDependencyStatus": "安装准备",
     "officialDependencies": "附属依赖",
-    "addDependencyTip": "仅在系统标准依赖未覆盖的特殊场景才需补充自定义驱动",
     "analyzeOfficialDependencies": "分析官方依赖",
     "analyzeOfficialDependenciesSuccess": "官方依赖分析完成",
     "analyzeOfficialDependenciesFailed": "分析官方依赖失败",
@@ -1793,7 +1794,7 @@
     "automaticInstallNote": "安装时自动附带",
     "officialDependenciesNotRequired": "该插件安装时无需额外依赖。",
     "officialDependenciesUnknown": "当前未匹配到标准依赖模板，如有需要请补充自定义驱动。",
-    "configuredDependenciesTip": "自定义驱动不会覆盖系统标准模板",
+    "configuredDependenciesTip": "仅在系统标准依赖未覆盖的特殊场景才需补充自定义驱动，且不会覆盖系统标准模板",
     "baselineVersion": "依赖基线",
     "pluginDependencyPath": "插件专属依赖目录",
     "sharedLibPath": "共享依赖目录",
@@ -1847,7 +1848,7 @@
     },
     "uploadJar": "上传 JAR",
     "uploadJarDesc": "上传自定义驱动 JAR",
-    "uploadJarTip": "适用于系统标准模板不满足时的二开依赖或私有 JAR",
+    "uploadJarTip": "适用于二开依赖或私有 JAR",
     "uploadJarFile": "JAR 文件",
     "uploadJarRequired": "请选择要上传的 JAR 文件",
     "uploadDependencySuccess": "上传自定义驱动成功",

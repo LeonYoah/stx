@@ -3179,6 +3179,7 @@ export function MonitoringPolicyCenter() {
                   <div className='flex items-center gap-1.5'>
                     <Label>{t('fields.receivers')}</Label>
                     <HelpHint
+                      label={t('fields.receivers')}
                       content={t('receiverHint')}
                       data-testid='policy-receiver-hint'
                     />
@@ -3838,6 +3839,7 @@ export function MonitoringPolicyCenter() {
                       <div className='flex items-center gap-1.5'>
                         <Label>{t('channel.fields.testRecipient')}</Label>
                         <HelpHint
+                          label={t('channel.fields.testRecipient')}
                           content={t('channel.testRecipientHint')}
                           data-testid='email-test-recipient-hint'
                         />
@@ -4144,6 +4146,7 @@ export function MonitoringPolicyCenter() {
                       <div className='flex items-center gap-1.5'>
                         <Label>{t('webhook.fields.endpoint')}</Label>
                         <HelpHint
+                          label={t('webhook.fields.endpoint')}
                           content={t('webhook.endpointRecipientTip')}
                           data-testid='webhook-endpoint-hint'
                         />
@@ -4177,6 +4180,7 @@ export function MonitoringPolicyCenter() {
                         </Label>
                         {webhookChannelForm.type === 'webhook' ? (
                           <HelpHint
+                            label={t('webhook.fields.secret')}
                             content={t('webhook.secretHint')}
                             contentClassName='max-w-sm break-words'
                             data-testid='webhook-secret-hint'

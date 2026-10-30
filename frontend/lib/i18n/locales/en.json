@@ -48,7 +48,9 @@
     "itemsUnit": "items",
     "status": "Status",
     "timezone": "Timezone",
-    "noMatchingData": "No matching data"
+    "noMatchingData": "No matching data",
+    "helpLabel": "Help",
+    "helpLabelFor": "{label} help"
   },
   "dashboard": {
     "title": "Console",
@@ -1781,7 +1783,6 @@
     "mavenXmlParseSuccess": "Parsed successfully, form filled",
     "officialDependencyStatus": "Install Readiness",
     "officialDependencies": "Auxiliary Dependencies",
-    "addDependencyTip": "Add custom drivers only for special scenarios not covered by the system dependencies",
     "analyzeOfficialDependencies": "Analyze Official Dependencies",
     "analyzeOfficialDependenciesSuccess": "Official dependency analysis completed",
     "analyzeOfficialDependenciesFailed": "Failed to analyze official dependencies",
@@ -1793,7 +1794,7 @@
     "automaticInstallNote": "Automatically attached during install",
     "officialDependenciesNotRequired": "This plugin does not require extra dependencies for installation.",
     "officialDependenciesUnknown": "No standard dependency template matched yet. Add custom drivers if needed.",
-    "configuredDependenciesTip": "Custom drivers do not overwrite the system template",
+    "configuredDependenciesTip": "Add custom drivers only for special scenarios not covered by the system dependencies; they do not overwrite the system template",
     "baselineVersion": "Baseline Version",
     "pluginDependencyPath": "Plugin-specific dependency path",
     "sharedLibPath": "Shared dependency path",
@@ -1847,7 +1848,7 @@
     },
     "uploadJar": "Upload JAR",
     "uploadJarDesc": "Upload Custom Driver JAR",
-    "uploadJarTip": "Use this when the system template does not fit your case, such as patched or private JARs",
+    "uploadJarTip": "For patched or private JARs",
     "uploadJarFile": "JAR File",
     "uploadJarRequired": "Please select a JAR file to upload",
     "uploadDependencySuccess": "Custom driver uploaded successfully",
@@ -1895,7 +1896,7 @@
     "downloadedReady": "Cached in Control Plane",
     "cleanAllProfiles": "Clear All",
     "allProfilesSelected": "Select All",
-    "dependencySnapshotBadge": "{count} dependencies",
+    "dependencySnapshotBadge": "Dependencies: {count}",
     "viewDependencyDetails": "Configure Dependencies"
   },
   "installer": {

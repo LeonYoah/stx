@@ -24,12 +24,6 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   Table,
   TableBody,
   TableCell,
@@ -38,15 +32,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {Badge} from '@/components/ui/badge';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
-  HELP_HINT_DELAY_MS,
-  HelpHint,
-} from '@/components/common/HelpHint';
+import {HelpHint} from '@/components/common/HelpHint';
 import {toast} from 'sonner';
 import {FileCode, Package, Plus, RefreshCw, Trash2, Upload} from 'lucide-react';
 import {PluginService} from '@/lib/services/plugin';
@@ -57,13 +43,6 @@ interface PluginDependencyConfigSectionProps {
   seatunnelVersion?: string;
   compact?: boolean;
   onChanged?: () => void;
-}
-
-interface DependencyConfigDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  pluginName: string;
-  seatunnelVersion?: string;
 }
 
 function parseMavenXml(
@@ -315,6 +294,7 @@ export function PluginDependencyConfigSection({
         <h4 className='min-w-0 flex-1 mr-2 flex items-center gap-1.5 font-medium'>
           {t('plugin.configDependency')}
           <HelpHint
+            label={t('plugin.configDependency')}
             content={t('plugin.configuredDependenciesTip')}
             data-testid='plugin-custom-dependencies-hint'
           />
@@ -333,27 +313,20 @@ export function PluginDependencyConfigSection({
             <FileCode className='mr-2 h-4 w-4' />
             {t('plugin.parseMavenXml')}
           </Button>
-          <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-            <TooltipTrigger asChild>
-              <Button
-                variant='outline'
-                size='sm'
-                className='whitespace-nowrap shrink-0'
-                data-testid='plugin-add-dependency-trigger'
-                onClick={() => {
-                  setShowAddForm((prev) => !prev);
-                  setShowXmlParse(false);
-                  setShowUploadForm(false);
-                }}
-              >
-                <Plus className='mr-2 h-4 w-4' />
-                {t('plugin.addDependency')}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent className='max-w-xs text-xs leading-relaxed'>
-              {t('plugin.addDependencyTip')}
-            </TooltipContent>
-          </Tooltip>
+          <Button
+            variant='outline'
+            size='sm'
+            className='whitespace-nowrap shrink-0'
+            data-testid='plugin-add-dependency-trigger'
+            onClick={() => {
+              setShowAddForm((prev) => !prev);
+              setShowXmlParse(false);
+              setShowUploadForm(false);
+            }}
+          >
+            <Plus className='mr-2 h-4 w-4' />
+            {t('plugin.addDependency')}
+          </Button>
           <Button
             size='sm'
             data-testid='plugin-upload-dependency-trigger'
@@ -403,6 +376,7 @@ export function PluginDependencyConfigSection({
           <h5 className='flex items-center gap-1.5 text-sm font-medium'>
             {t('plugin.addDependencyDesc')}
             <HelpHint
+              label={t('plugin.addDependencyDesc')}
               content={t('plugin.dependenciesDesc')}
               data-testid='plugin-add-dependency-hint'
             />
@@ -469,6 +443,7 @@ export function PluginDependencyConfigSection({
           <h5 className='flex items-center gap-1.5 text-sm font-medium'>
             {t('plugin.uploadJarDesc')}
             <HelpHint
+              label={t('plugin.uploadJarDesc')}
               content={t('plugin.uploadJarTip')}
               data-testid='plugin-upload-jar-hint'
             />
@@ -620,30 +595,5 @@ export function PluginDependencyConfigSection({
         </div>
       )}
     </div>
-  );
-}
-
-export function DependencyConfigDialog({
-  open,
-  onOpenChange,
-  pluginName,
-  seatunnelVersion,
-}: DependencyConfigDialogProps) {
-  const t = useTranslations();
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-4xl' aria-describedby={undefined}>
-        <DialogHeader>
-          <DialogTitle>
-            {t('plugin.configDependency')} - {pluginName}
-          </DialogTitle>
-        </DialogHeader>
-        <PluginDependencyConfigSection
-          pluginName={pluginName}
-          seatunnelVersion={seatunnelVersion}
-        />
-      </DialogContent>
-    </Dialog>
   );
 }

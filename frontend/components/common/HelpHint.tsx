@@ -19,6 +19,7 @@
 'use client';
 
 import {HelpCircle} from 'lucide-react';
+import {useTranslations} from 'next-intl';
 
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
@@ -27,8 +28,13 @@ import {cn} from '@/lib/utils';
 export const HELP_HINT_DELAY_MS = 300;
 
 interface HelpHintProps {
-  /** 提示内容，同时作为按钮的无障碍名称 / Hint text, also used as the accessible name */
+  /** 提示正文，经 Tooltip 的 aria-describedby 朗读 / Hint body, announced via the tooltip's aria-describedby */
   content: string;
+  /**
+   * 所说明对象的短名（通常是字段或标题文字），按钮名称为「{label} 说明」；缺省为「说明」。
+   * Short name of the described field or heading; the button is named "{label} help", or "Help" when omitted.
+   */
+  label?: string;
   className?: string;
   contentClassName?: string;
   side?: 'top' | 'right' | 'bottom' | 'left';
@@ -41,20 +47,26 @@ interface HelpHintProps {
  */
 export function HelpHint({
   content,
+  label,
   className,
   contentClassName,
   side,
   'data-testid': testId,
 }: HelpHintProps) {
+  const t = useTranslations('common');
+  // 名称只放短名，正文交给 Tooltip 的 describedby，避免读屏重复朗读或污染标题的可访问名称
+  // Keep the accessible name short; the body is exposed through the tooltip's describedby.
+  const accessibleName = label ? t('helpLabelFor', {label}) : t('helpLabel');
+
   return (
     <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
       <TooltipTrigger asChild>
         <button
           type='button'
-          aria-label={content}
+          aria-label={accessibleName}
           data-testid={testId}
           className={cn(
-            'inline-flex shrink-0 items-center rounded-sm text-muted-foreground/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            '-m-1 inline-flex shrink-0 items-center rounded-sm p-1 text-muted-foreground/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
             className,
           )}
         >

@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/dialog';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
+import {HelpHint} from '@/components/common/HelpHint';
 import {Switch} from '@/components/ui/switch';
 import {
   ClusterConfig,
@@ -361,11 +362,13 @@ export function EditNodeDialog({
             </div>
 
             <div className='space-y-3 rounded-lg border p-4'>
-              <div className='space-y-1'>
+              <div className='flex items-center gap-2'>
                 <Label>{t('cluster.portConfig')}</Label>
-                <p className='text-xs text-muted-foreground'>
-                  {t('cluster.portConfigDescription')}
-                </p>
+                <HelpHint
+                  label={t('cluster.portConfig')}
+                  content={t('cluster.portConfigDescription')}
+                  data-testid='edit-node-port-config-hint'
+                />
               </div>
               <div className='grid gap-4 md:grid-cols-3'>
                 <div className='space-y-1'>
@@ -406,15 +409,15 @@ export function EditNodeDialog({
               <div className='flex items-center justify-between gap-4'>
                 <div className='space-y-1'>
                   <Label>{t('cluster.jvmOverrideTitle')}</Label>
-                  <p className='text-xs text-muted-foreground'>
-                    {jvmOverrideEnabled
-                      ? t('cluster.jvmOverrideEnabledHint')
-                      : clusterDefaultHeap
+                  {!jvmOverrideEnabled && (
+                    <p className='text-xs text-muted-foreground'>
+                      {clusterDefaultHeap
                         ? t('cluster.jvmInheritDefault', {
                             value: clusterDefaultHeap,
                           })
                         : t('cluster.jvmNoClusterDefault')}
-                  </p>
+                    </p>
+                  )}
                 </div>
                 <Switch
                   checked={jvmOverrideEnabled}
@@ -429,10 +432,17 @@ export function EditNodeDialog({
 
               {jvmOverrideEnabled && (
                 <div className='max-w-xs space-y-2'>
-                  <Label className='text-xs'>
-                    {t('cluster.jvmHeapSize')}{' '}
-                    <span className='text-destructive'>*</span>
-                  </Label>
+                  <div className='flex items-center gap-2'>
+                    <Label className='text-xs'>
+                      {t('cluster.jvmHeapSize')}{' '}
+                      <span className='text-destructive'>*</span>
+                    </Label>
+                    <HelpHint
+                      label={t('cluster.jvmHeapSize')}
+                      content={t('cluster.jvmHeapSizeHint')}
+                      data-testid='edit-node-jvm-heap-hint'
+                    />
+                  </div>
                   <Input
                     type='number'
                     min={1}
@@ -441,9 +451,6 @@ export function EditNodeDialog({
                       setJvmHeapSize(parseInt(e.target.value, 10) || 0)
                     }
                   />
-                  <p className='text-xs text-muted-foreground'>
-                    {t('cluster.jvmHeapSizeHint')}
-                  </p>
                 </div>
               )}
             </div>

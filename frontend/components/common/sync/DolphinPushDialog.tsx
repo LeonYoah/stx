@@ -42,6 +42,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {Switch} from '@/components/ui/switch';
+import {HelpHint} from '@/components/common/HelpHint';
+import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {cn} from '@/lib/utils';
 import {SyncService} from '@/lib/services/sync/sync.service';
 import type {
@@ -321,6 +323,16 @@ export function DolphinPushDialog({
     }
   };
 
+  // 不可推送时用 aria-disabled + 原因 Tooltip（按钮仍可聚焦）；推送进行中保持原生 disabled。
+  // Blocked: aria-disabled + reason tooltip (still focusable); while pushing keep the native disabled.
+  const blockedReason = cycle
+    ? t('dolphinCycleBlocked')
+    : pushBlocked === 'unpublished'
+      ? t('dolphinNeedPublish')
+      : pushBlocked === 'no_new_version'
+        ? t('dolphinNeedNewVersion', {pushed: status?.pushed_version || 0})
+        : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -425,7 +437,15 @@ export function DolphinPushDialog({
 
             {bound ? (
               <div className='space-y-3 rounded-lg border border-border/50 bg-muted/10 p-3 text-xs'>
-                <div className='font-medium'>{t('dolphinBoundHint')}</div>
+                {/* 已绑定状态行：再次推送的覆盖范围放进问号 / Bound status row; what a re-push overwrites lives in the help hint */}
+                <div className='flex items-center gap-2 font-medium' data-testid='dolphin-bound-status'>
+                  <span>{t('dolphinBound')}</span>
+                  <HelpHint
+                    label={t('dolphinBound')}
+                    content={t('dolphinBoundHint')}
+                    data-testid='dolphin-bound-hint'
+                  />
+                </div>
                 {boundRemoteScript ? (
                   <div className='min-w-0'>
                     <div className='mb-1 text-[11px] text-muted-foreground'>
@@ -562,21 +582,39 @@ export function DolphinPushDialog({
           <Button type='button' variant='outline' onClick={() => onOpenChange(false)}>
             {t('cancel')}
           </Button>
-          <Button
-            type='button'
-            variant='secondary'
-            disabled={busy || cycle || Boolean(pushBlocked)}
-            onClick={() => void submit(true)}
-          >
-            {t('dolphinDryRun')}
-          </Button>
-          <Button
-            type='button'
-            disabled={busy || cycle || Boolean(pushBlocked)}
-            onClick={() => void submit(false)}
-          >
-            {busy ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinConfirmPush')}
-          </Button>
+          <DisabledReasonTooltip reason={blockedReason}>
+            <Button
+              type='button'
+              variant='secondary'
+              data-testid='dolphin-dry-run'
+              aria-disabled={blockedReason ? 'true' : undefined}
+              disabled={busy}
+              onClick={() => {
+                if (blockedReason) {
+                  return;
+                }
+                void submit(true);
+              }}
+            >
+              {t('dolphinDryRun')}
+            </Button>
+          </DisabledReasonTooltip>
+          <DisabledReasonTooltip reason={blockedReason}>
+            <Button
+              type='button'
+              data-testid='dolphin-confirm-push'
+              aria-disabled={blockedReason ? 'true' : undefined}
+              disabled={busy}
+              onClick={() => {
+                if (blockedReason) {
+                  return;
+                }
+                void submit(false);
+              }}
+            >
+              {busy ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinConfirmPush')}
+            </Button>
+          </DisabledReasonTooltip>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -655,7 +693,14 @@ function ConnectionCreateFields({
           </p>
         </div>
         <div className='space-y-1.5 min-w-0 sm:col-span-2'>
-          <Label htmlFor='dolphin-connection-version'>{t('dolphinVersion')}</Label>
+          <div className='flex items-center gap-2'>
+            <Label htmlFor='dolphin-connection-version'>{t('dolphinVersion')}</Label>
+            <HelpHint
+              label={t('dolphinVersion')}
+              content={t('dolphinVersionHint')}
+              data-testid='dolphin-connection-version-hint'
+            />
+          </div>
           <Input
             id='dolphin-connection-version'
             value={connVersion}
@@ -664,9 +709,6 @@ function ConnectionCreateFields({
           />
         </div>
       </div>
-      <p className='text-[11px] leading-relaxed text-muted-foreground'>
-        {t('dolphinVersionHint')}
-      </p>
       <Button type='button' size='sm' disabled={creating} onClick={onSave}>
         {creating ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinSaveConnection')}
       </Button>

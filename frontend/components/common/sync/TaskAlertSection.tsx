@@ -26,7 +26,6 @@ import {Button} from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -106,14 +105,13 @@ export function TaskAlertDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
-      <DialogContent className='max-h-[88vh] overflow-y-auto border border-border/80 shadow-2xl dark:border-border/60 sm:max-w-[640px]'>
+      <DialogContent className='max-h-[88vh] overflow-y-auto border border-border/80 shadow-2xl dark:border-border/60 sm:max-w-[640px]' aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             <BellRing className='size-4 text-primary' />
             <span>{t('dialogTitle')}</span>
             {taskName ? <span className='truncate text-sm font-normal text-muted-foreground'>· {taskName}</span> : null}
           </DialogTitle>
-          <DialogDescription className='text-xs'>{t('dialogDescription')}</DialogDescription>
         </DialogHeader>
         <TaskAlertForm
           initial={config}

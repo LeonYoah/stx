@@ -623,6 +623,12 @@ func ensureSTXJavaProxyService(
 		return "", fmt.Errorf("seatunnel runtime is unavailable under %s; managed stx-java-proxy service requires extracted runtime", installDir)
 	}
 
+	// 探测/启动前尽量补齐脚本与 jar（同机 CP 目录或资产 API）。
+	// Best-effort materialize script/jar before probe/start (co-located CP dirs or asset API).
+	if err := EnsureSTXJavaProxySupportAssets(ctx, installDir, seatunnelVersion, ""); err != nil {
+		logger.WarnF(ctx, "[stx-java-proxy] ensure support assets before resolve failed: %v", err)
+	}
+
 	scriptPath, err := resolveSTXJavaProxyScriptPath(installDir)
 	if err != nil {
 		return "", err
@@ -1310,6 +1316,9 @@ func stxJavaProxyScriptCandidates(installDir string) []string {
 	}
 	candidates = append(candidates,
 		filepath.Join(stxJavaProxyDefaultSupportDir, "scripts", seatunnelmeta.STXJavaProxyScriptFileName),
+		// 同机控制面安装目录（离线包装后的 /opt/stx），避免 Agent 主目录未下发时误报 unavailable。
+		// Co-located Control Plane install (/opt/stx after offline install) so missing Agent-home assets are not false unavailable.
+		filepath.Join(stxJavaProxyControlPlaneScriptsDir, seatunnelmeta.STXJavaProxyScriptFileName),
 		filepath.Join(installDir, "scripts", "stx-java-proxy.sh"),
 		filepath.Join(installDir, "bin", "stx-java-proxy.sh"),
 		filepath.Join("scripts", "stx-java-proxy.sh"),
@@ -1356,7 +1365,13 @@ func stxJavaProxyLibDirCandidates(installDir string) []string {
 	if homeDir := strings.TrimSpace(os.Getenv(stxJavaProxyHomeEnvVar)); homeDir != "" {
 		candidates = append(candidates, filepath.Join(homeDir, "lib"))
 	}
-	candidates = append(candidates, filepath.Join(stxJavaProxyDefaultSupportDir, "lib"), filepath.Join(installDir, "lib"), "lib")
+	candidates = append(candidates,
+		filepath.Join(stxJavaProxyDefaultSupportDir, "lib"),
+		stxJavaProxyControlPlaneLibDir,
+		"/opt/stx/default-lib",
+		filepath.Join(installDir, "lib"),
+		"lib",
+	)
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		candidates = append(candidates, filepath.Join(home, stxJavaProxyUserSupportDirName, "lib"))
 	}

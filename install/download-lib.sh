@@ -362,6 +362,45 @@ stx_fetch_repo_file() {
   }
 }
 
+# 将 stx-java-proxy-v2/v3.jar 落入安装目录 lib/，供控制面 /api/v1/agent/assets/ 下发。
+# 查找顺序：packages/ → 包根 → 包根/lib；缺 v2 或 v3 任一则失败（不再静默跳过）。
+# Stage stx-java-proxy-v2/v3.jar into install lib/ for Control Plane /api/v1/agent/assets/.
+# Search order: packages/ → bundle root → bundle root/lib; missing v2 or v3 fails (no silent skip).
+# 用法 / Usage: stx_stage_java_proxy_jars_into_lib <packages-dir> <source-dir> <dest-lib-dir>
+stx_stage_java_proxy_jars_into_lib() {
+  local packages_dir="${1:-}"
+  local source_dir="${2:-}"
+  local dest_lib="${3:-}"
+  local epoch="" candidate="" staged_from=""
+
+  if [[ -z "$dest_lib" ]]; then
+    echo "[ERROR] stx_stage_java_proxy_jars_into_lib: dest lib dir is required" >&2
+    return 1
+  fi
+  mkdir -p "$dest_lib"
+
+  for epoch in v2 v3; do
+    staged_from=""
+    for candidate in \
+      "${packages_dir:+${packages_dir%/}/stx-java-proxy-${epoch}.jar}" \
+      "${source_dir:+${source_dir%/}/stx-java-proxy-${epoch}.jar}" \
+      "${source_dir:+${source_dir%/}/lib/stx-java-proxy-${epoch}.jar}"
+    do
+      [[ -n "$candidate" && -f "$candidate" ]] || continue
+      cp "$candidate" "$dest_lib/stx-java-proxy-${epoch}.jar"
+      staged_from="$candidate"
+      break
+    done
+    if [[ -z "$staged_from" ]]; then
+      echo "[ERROR] missing stx-java-proxy-${epoch}.jar (looked in packages/, bundle root, and lib/)" >&2
+      return 1
+    fi
+  done
+
+  echo "[INFO] staged stx-java-proxy-v2.jar and stx-java-proxy-v3.jar into $dest_lib" >&2
+  return 0
+}
+
 # 准备 Agent 启动脚本 stx-java-proxy.sh：Release 资产 → 仓库同 tag 的 raw 文件 → 本地仓库/bootstrap 副本
 # （bootstrap 默认取 main，放最后，保证旧版本安装拿到与版本匹配的脚本）。
 # 保证安装目录 scripts/stx-java-proxy.sh 始终存在（控制面经 /api/v1/agent/assets/stx-java-proxy.sh 下发给 Agent）。

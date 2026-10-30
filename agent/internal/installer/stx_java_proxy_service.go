@@ -68,6 +68,7 @@ func StartManagedSTXJavaProxyService(
 	preferredPort int,
 	jvmOpts string,
 	javaHome string,
+	assetBaseURL ...string,
 ) (*STXJavaProxyServiceStatus, error) {
 	desiredJvmOpts := strings.TrimSpace(jvmOpts)
 	javaHome = javaenv.NormalizeHome(javaHome)
@@ -81,6 +82,16 @@ func StartManagedSTXJavaProxyService(
 			return nil, fmt.Errorf("invalid node JDK for stx-java-proxy / stx-java-proxy 的节点 JDK 不可用: %w", err)
 		}
 		ctx = javaenv.WithHome(ctx, javaHome)
+	}
+
+	// 启动前补齐本地脚本/jar：同机控制面目录拷贝或从控制面资产 API 拉取（DEF-R2-1）。
+	// Materialize local script/jar before start: copy from co-located CP dirs or pull asset API (DEF-R2-1).
+	assetBase := ""
+	if len(assetBaseURL) > 0 {
+		assetBase = strings.TrimSpace(assetBaseURL[0])
+	}
+	if err := EnsureSTXJavaProxySupportAssets(ctx, installDir, seatunnelVersion, assetBase); err != nil {
+		logger.WarnF(ctx, "[stx-java-proxy] ensure support assets failed (will still try local candidates): %v / 补齐辅助资产失败（仍尝试本地候选）: %v", err, err)
 	}
 
 	status, _ := GetManagedSTXJavaProxyServiceStatus(ctx, installDir)

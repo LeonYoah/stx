@@ -16,8 +16,8 @@
 
 # 安装冒烟（CI 与本地通用）：先用 install/build-offline-bundle.sh 把真实 Release（默认 v1.2.0）的产物组装成 amd64 离线整包，
 # 再在不含 python3 的 debian:bookworm 容器中用 install-online.sh --bundle-file 安装，
-# 校验 python3 不存在、安装成功、/opt/stx/scripts/stx-java-proxy.sh 存在且与 Release SHA256SUMS 一致、
-# Agent 资产接口 GET /api/v1/agent/assets/stx-java-proxy.sh 返回 200。
+# 校验 python3 不存在、安装成功、/opt/stx/scripts/stx-java-proxy.sh 与 lib/stx-java-proxy-v{2,3}.jar 存在且与 Release SHA256SUMS 一致、
+# Agent 资产接口 GET /api/v1/agent/assets/stx-java-proxy.sh 与 stx-java-proxy-v{2,3}.jar 返回 200。
 #   mode=plain   : --no-systemd，start.sh 直接启动
 #   mode=systemd : systemd 作为 PID1（--privileged），安装 → stop.sh 停进程 → 重装，验证 systemctl restart 真正拉起进程
 #   mode=mysql   : 外部 MySQL 8 容器；首次安装设置密码 → 清空库后保留配置重装并设置新密码（必须生效）→ 库里已有管理员时
@@ -26,8 +26,8 @@
 #                  用 --db-type pg 参数重装并设新密码（库里已有管理员，必须不生效）；全程日志不含任何密码
 # Install smoke (CI and local): assemble an amd64 offline bundle from a real release (default v1.2.0) with
 # install/build-offline-bundle.sh, then install it with install-online.sh --bundle-file inside a
-# python3-free debian:bookworm container; assert no python3, install OK, scripts/stx-java-proxy.sh present and
-# matching the release SHA256SUMS, and the agent asset endpoint returns 200.
+# python3-free debian:bookworm container; assert no python3, install OK, scripts/stx-java-proxy.sh and
+# lib/stx-java-proxy-v{2,3}.jar present and matching the release SHA256SUMS, and agent asset endpoints return 200.
 #   mode=plain   : --no-systemd, started by start.sh
 #   mode=systemd : systemd as PID1 (--privileged); install -> stop.sh -> reinstall, asserting restart really runs it
 #   mode=mysql   : external MySQL 8 container; first install sets a password -> empty the database and reinstall over
@@ -75,6 +75,8 @@ api_port() { awk "/^app:/{a=1} a&&/^  addr:/{gsub(/[^0-9]/,\"\",\$2);print \$2;e
 verify() {
   local port code got
   check "/opt/stx/scripts/stx-java-proxy.sh exists" "[[ -x /opt/stx/scripts/stx-java-proxy.sh ]]"
+  check "/opt/stx/lib/stx-java-proxy-v2.jar exists" "[[ -s /opt/stx/lib/stx-java-proxy-v2.jar ]]"
+  check "/opt/stx/lib/stx-java-proxy-v3.jar exists" "[[ -s /opt/stx/lib/stx-java-proxy-v3.jar ]]"
   got="$(sha256sum /opt/stx/scripts/stx-java-proxy.sh 2>/dev/null | cut -d\  -f1)"
   [[ -n "$WANT_SHA" ]] && check "stx-java-proxy.sh sha256 matches release SHA256SUMS ($got)" "[[ \"$got\" == \"$WANT_SHA\" ]]"
   port="$(api_port)"
@@ -83,6 +85,12 @@ verify() {
     [[ "$code" == 200 ]] && break; sleep 2
   done
   check "GET /api/v1/agent/assets/stx-java-proxy.sh -> $code" "[[ \"$code\" == 200 ]]"
+  code="$(curl -s -o /tmp/asset-v2.jar -w "%{http_code}" "http://127.0.0.1:${port}/api/v1/agent/assets/stx-java-proxy-v2.jar" || true)"
+  check "GET /api/v1/agent/assets/stx-java-proxy-v2.jar -> $code" "[[ \"$code\" == 200 ]]"
+  code="$(curl -s -o /tmp/asset-v3.jar -w "%{http_code}" "http://127.0.0.1:${port}/api/v1/agent/assets/stx-java-proxy-v3.jar" || true)"
+  check "GET /api/v1/agent/assets/stx-java-proxy-v3.jar -> $code" "[[ \"$code\" == 200 ]]"
+  code="$(curl -s -o /tmp/asset-q.jar -w "%{http_code}" "http://127.0.0.1:${port}/api/v1/agent/assets/stx-java-proxy.jar?version=v2" || true)"
+  check "GET /api/v1/agent/assets/stx-java-proxy.jar?version=v2 -> $code" "[[ \"$code\" == 200 ]]"
   check "/opt/stx/bin/status.sh reports backend running" "grep -q \"backend: running\" <<<\"\$(/opt/stx/bin/status.sh)\""
 }
 '

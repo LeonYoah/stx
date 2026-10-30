@@ -1358,6 +1358,9 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 			getParamInt(cmd.Parameters, "port", 0),
 			getParamString(cmd.Parameters, "jvm_opts", ""),
 			javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")),
+			// 控制面下发的资产基址；本地缺脚本/jar 时按此拉取（DEF-R2-1）。
+			// Asset base URL from Control Plane; used to pull script/jar when local copies are missing (DEF-R2-1).
+			getParamString(cmd.Parameters, "asset_base_url", ""),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
@@ -1484,6 +1487,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 			getParamInt(cmd.Parameters, "port", 0),
 			getParamString(cmd.Parameters, "jvm_opts", ""),
 			javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")),
+			getParamString(cmd.Parameters, "asset_base_url", ""),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err

@@ -1096,6 +1096,9 @@ if [ -n "\$JAVA_HOME" ] && [ -d "\$JAVA_HOME/bin" ]; then
 fi
 export STX_JAVA_PROXY_HOME="${SUPPORT_DIR}"
 export STX_JAVA_PROXY_SCRIPT="${CAPABILITY_PROXY_SCRIPT}"
+# 控制面资产基址：本地缺脚本/jar 时 Agent 可按此拉取（与安装时下载同源）。
+# Control Plane asset base: Agent may pull missing script/jar from here (same source as install downloads).
+export STX_JAVA_PROXY_ASSET_BASE="${CONTROL_PLANE_ADDR}/api/v1/agent/assets"
 exec "${BIN_DIR}/${AGENT_BINARY}" "\$@"
 EOF
     chmod +x "${START_WRAPPER}"

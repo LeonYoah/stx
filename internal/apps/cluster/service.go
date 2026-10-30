@@ -187,6 +187,9 @@ type Service struct {
 	repo                     *Repository
 	hostProvider             HostProvider
 	heartbeatTimeout         time.Duration
+	// assetBaseURL is passed to Agents on java-proxy start so they can pull missing script/jar.
+	// assetBaseURL 在 java-proxy 启动时下发给 Agent，便于本地缺资产时拉取脚本/jar。
+	assetBaseURL             string
 	agentSender              AgentCommandSender
 	configAgentClient        ConfigAgentClient
 	runtimeConfigStore       runtimeConfigStore
@@ -202,20 +205,30 @@ type Service struct {
 // ServiceConfig 保存 Cluster Service 的配置。
 type ServiceConfig struct {
 	HeartbeatTimeout time.Duration
+	// AssetBaseURL is the Control Plane base for Agent asset downloads
+	// (e.g. http://cp:17800/api/v1/agent/assets). Empty disables push-on-start hints.
+	// AssetBaseURL 是 Agent 拉取辅助资产的控制面基址
+	// （如 http://cp:17800/api/v1/agent/assets）。为空则不下发启动拉取提示。
+	AssetBaseURL string
 }
 
 // NewService creates a new Service instance.
 // NewService 创建一个新的 Service 实例。
 func NewService(repo *Repository, hostProvider HostProvider, cfg *ServiceConfig) *Service {
 	timeout := 30 * time.Second
-	if cfg != nil && cfg.HeartbeatTimeout > 0 {
-		timeout = cfg.HeartbeatTimeout
+	assetBase := ""
+	if cfg != nil {
+		if cfg.HeartbeatTimeout > 0 {
+			timeout = cfg.HeartbeatTimeout
+		}
+		assetBase = strings.TrimSpace(cfg.AssetBaseURL)
 	}
 
 	return &Service{
 		repo:             repo,
 		hostProvider:     hostProvider,
 		heartbeatTimeout: timeout,
+		assetBaseURL:     assetBase,
 	}
 }
 

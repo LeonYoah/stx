@@ -2344,6 +2344,8 @@ var routeExceptions = []RouteException{
 	{Method: "GET", Route: "/api/v1/agent/ca.crt", Mode: ModeDownload, Reason: "Agent CA certificate used by the host setup flow"},
 	{Method: "GET", Route: "/api/v1/agent/download", Mode: ModeDownload, Reason: "Agent binary used by the host setup flow"},
 	{Method: "GET", Route: "/api/v1/agent/assets/stx-java-proxy.jar", Mode: ModeDownload, Reason: "Java Proxy jar used by the managed runtime setup flow"},
+	{Method: "GET", Route: "/api/v1/agent/assets/stx-java-proxy-v2.jar", Mode: ModeDownload, Reason: "Epoch v2 Java Proxy jar used by the managed runtime setup flow"},
+	{Method: "GET", Route: "/api/v1/agent/assets/stx-java-proxy-v3.jar", Mode: ModeDownload, Reason: "Epoch v3 Java Proxy jar used by the managed runtime setup flow"},
 	{Method: "GET", Route: "/api/v1/agent/assets/stx-java-proxy.sh", Mode: ModeDownload, Reason: "Java Proxy launcher used by the managed runtime setup flow"},
 }
 

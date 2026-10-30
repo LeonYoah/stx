@@ -250,6 +250,9 @@ func Serve() {
 			// 初始化集群服务和处理器
 			clusterService := cluster.NewService(clusterRepo, hostService, &cluster.ServiceConfig{
 				HeartbeatTimeout: time.Duration(config.Config.GRPC.HeartbeatTimeout) * time.Second,
+				// Agent 启动 java-proxy 时可按此基址拉取脚本/jar（DEF-R2-1）。
+				// Agents may pull script/jar from this base when starting java-proxy (DEF-R2-1).
+				AssetBaseURL: strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 			})
 
 			// Inject agent command sender if agent manager is available
@@ -601,9 +604,18 @@ func Serve() {
 				// GET /api/v1/agent/download - Download Agent binary
 				agentRouter.GET("/download", agentHandler.DownloadAgent)
 
-				// GET /api/v1/agent/assets/stx-java-proxy.jar - 下载 stx-java-proxy 薄 jar
-				// GET /api/v1/agent/assets/stx-java-proxy.jar - Download stx-java-proxy thin jar
+				// GET /api/v1/agent/assets/stx-java-proxy.jar - 下载 stx-java-proxy 薄 jar（?version= 选代际）
+				// GET /api/v1/agent/assets/stx-java-proxy.jar - Download stx-java-proxy thin jar (?version= selects epoch)
 				agentRouter.GET("/assets/stx-java-proxy.jar", agentHandler.DownloadSTXJavaProxyJar)
+
+				// GET /api/v1/agent/assets/stx-java-proxy-v{2,3}.jar - 按文件名下载代际 jar（与 .sh 资产路径风格一致）
+				// GET /api/v1/agent/assets/stx-java-proxy-v{2,3}.jar - Download epoch jars by filename (same style as .sh)
+				agentRouter.GET("/assets/stx-java-proxy-v2.jar", func(c *gin.Context) {
+					agentHandler.DownloadSTXJavaProxyEpochJarFor(c, "v2")
+				})
+				agentRouter.GET("/assets/stx-java-proxy-v3.jar", func(c *gin.Context) {
+					agentHandler.DownloadSTXJavaProxyEpochJarFor(c, "v3")
+				})
 
 				// GET /api/v1/agent/assets/stx-java-proxy.sh - 下载 stx-java-proxy 启动脚本
 				// GET /api/v1/agent/assets/stx-java-proxy.sh - Download stx-java-proxy launcher script
@@ -1218,6 +1230,7 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	// 设置 gRPC 处理器的集群节点提供者（用于 Agent 注册后推送监控配置）
 	clusterService := cluster.NewService(clusterRepo, hostService, &cluster.ServiceConfig{
 		HeartbeatTimeout: time.Duration(grpcConfig.HeartbeatTimeout) * time.Second,
+		AssetBaseURL:     strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 	})
 	monitorRepo := monitor.NewRepository(db.DB(ctx))
 	monitorService := monitor.NewService(monitorRepo)

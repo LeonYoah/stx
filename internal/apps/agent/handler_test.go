@@ -41,6 +41,12 @@ func setupTestRouter(handler *Handler) *gin.Engine {
 	r.GET("/api/v1/agent/ca.crt", handler.DownloadCA)
 	r.GET("/api/v1/agent/download", handler.DownloadAgent)
 	r.GET("/api/v1/agent/assets/stx-java-proxy.jar", handler.DownloadSTXJavaProxyJar)
+	r.GET("/api/v1/agent/assets/stx-java-proxy-v2.jar", func(c *gin.Context) {
+		handler.DownloadSTXJavaProxyEpochJarFor(c, "v2")
+	})
+	r.GET("/api/v1/agent/assets/stx-java-proxy-v3.jar", func(c *gin.Context) {
+		handler.DownloadSTXJavaProxyEpochJarFor(c, "v3")
+	})
 	r.GET("/api/v1/agent/assets/stx-java-proxy.sh", handler.DownloadSTXJavaProxyScript)
 	return r
 }
@@ -538,6 +544,64 @@ func TestDownloadSTXJavaProxyJarServesV3Epoch(t *testing.T) {
 	}
 	if w.Body.String() != "v3-jar" {
 		t.Fatalf("Unexpected v3 jar content: %q", w.Body.String())
+	}
+}
+
+// TestDownloadSTXJavaProxyEpochJarByFilename 覆盖 DEF-R2-1：文件名路径 /assets/stx-java-proxy-v{2,3}.jar 可下载。
+// TestDownloadSTXJavaProxyEpochJarByFilename covers DEF-R2-1: filename paths /assets/stx-java-proxy-v{2,3}.jar are downloadable.
+func TestDownloadSTXJavaProxyEpochJarByFilename(t *testing.T) {
+	tempDir := t.TempDir()
+	v2Path := filepath.Join(tempDir, "stx-java-proxy-v2.jar")
+	v3Path := filepath.Join(tempDir, "stx-java-proxy-v3.jar")
+	if err := os.WriteFile(v2Path, []byte("epoch-v2"), 0o644); err != nil {
+		t.Fatalf("write v2 jar: %v", err)
+	}
+	if err := os.WriteFile(v3Path, []byte("epoch-v3"), 0o644); err != nil {
+		t.Fatalf("write v3 jar: %v", err)
+	}
+
+	handler := NewHandler(&HandlerConfig{STXJavaProxyJarPath: v2Path})
+	router := setupTestRouter(handler)
+
+	for _, tc := range []struct {
+		path string
+		body string
+		name string
+	}{
+		{"/api/v1/agent/assets/stx-java-proxy-v2.jar", "epoch-v2", "stx-java-proxy-v2.jar"},
+		{"/api/v1/agent/assets/stx-java-proxy-v3.jar", "epoch-v3", "stx-java-proxy-v3.jar"},
+	} {
+		req, _ := http.NewRequest("GET", tc.path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d body=%s", tc.path, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Header().Get("Content-Disposition"), tc.name) {
+			t.Fatalf("%s: expected disposition %s, got %q", tc.path, tc.name, w.Header().Get("Content-Disposition"))
+		}
+		if w.Body.String() != tc.body {
+			t.Fatalf("%s: unexpected body %q", tc.path, w.Body.String())
+		}
+	}
+}
+
+// TestDownloadSTXJavaProxyEpochJarMissingIs404 文件名路径在代际 jar 缺失时必须 404，不能回退成默认 jar。
+// TestDownloadSTXJavaProxyEpochJarMissingIs404 requires filename routes to 404 when the epoch jar is absent (no default fallback).
+func TestDownloadSTXJavaProxyEpochJarMissingIs404(t *testing.T) {
+	tempDir := t.TempDir()
+	v2Path := filepath.Join(tempDir, "stx-java-proxy-v2.jar")
+	if err := os.WriteFile(v2Path, []byte("only-v2"), 0o644); err != nil {
+		t.Fatalf("write v2 jar: %v", err)
+	}
+	handler := NewHandler(&HandlerConfig{STXJavaProxyJarPath: v2Path})
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/stx-java-proxy-v3.jar", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing v3 filename asset, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

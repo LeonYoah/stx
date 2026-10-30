@@ -161,6 +161,11 @@ func (s *Service) executeSTXJavaProxyCommand(ctx context.Context, clusterID uint
 		"install_dir": node.InstallDir,
 		"version":     clusterInfo.Version,
 	}
+	// 启动/重启时带上资产基址，Agent 本地缺脚本/jar 时可从控制面拉取（DEF-R2-1）。
+	// On start/restart, pass asset base so Agents can pull missing script/jar from Control Plane (DEF-R2-1).
+	if (commandType == "start" || commandType == "restart") && strings.TrimSpace(s.assetBaseURL) != "" {
+		params["asset_base_url"] = strings.TrimRight(strings.TrimSpace(s.assetBaseURL), "/")
+	}
 	// 启动/重启/状态查询时把集群配置的 java-proxy 端口与 JVM 参数下发给 Agent。
 	// Pass cluster-configured java-proxy port and JVM options to Agent.
 	if proxyCfg := clusterInfo.Config.GetSTXJavaProxyConfig(); proxyCfg != nil {

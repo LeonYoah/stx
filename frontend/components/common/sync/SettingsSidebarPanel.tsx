@@ -538,12 +538,26 @@ export function SettingsSidebarPanel({
         </div>
         <Tabs defaultValue='curated' className='w-full'>
           <TabsList className='grid h-8 w-full grid-cols-2'>
-            <TabsTrigger value='curated' className='text-[11px]'>
-              {t('curatedTemplates')}
-            </TabsTrigger>
-            <TabsTrigger value='raw' className='text-[11px]'>
-              {t('rawDefaultParamTemplates')}
-            </TabsTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value='curated' className='text-[11px]'>
+                  {t('curatedTemplates')}
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent side='top' className='max-w-[260px] text-xs'>
+                {t('curatedSaveViaSelectionHint')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value='raw' className='text-[11px]'>
+                  {t('rawDefaultParamTemplates')}
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent side='top' className='max-w-[280px] text-xs leading-relaxed'>
+                {t('rawDefaultParamHint')}
+              </TooltipContent>
+            </Tooltip>
           </TabsList>
           <TabsContent value='curated' className='mt-2.5'>
             <CuratedTemplatesPanel
@@ -596,17 +610,17 @@ export function SettingsSidebarPanel({
                   placeholder={t('selectSinkPlugin')}
                   onSelect={(value) => onInsertPluginTemplate('sink', value)}
                 />
-                <p className='text-[11px] leading-5 text-muted-foreground'>
-                  {!clusterId
-                    ? t('selectClusterFirst')
-                    : pluginPanelLoading
-                      ? t('loadingPluginTemplates')
-                      : pluginTemplateLoadingText
-                        ? t('generatingPluginTemplate', {
-                            plugin: pluginTemplateLoadingText,
-                          })
-                        : t('rawDefaultParamHint')}
-                </p>
+                {!clusterId || pluginPanelLoading || pluginTemplateLoadingText ? (
+                  <p className='text-[11px] leading-5 text-muted-foreground'>
+                    {!clusterId
+                      ? t('selectClusterFirst')
+                      : pluginPanelLoading
+                        ? t('loadingPluginTemplates')
+                        : t('generatingPluginTemplate', {
+                            plugin: pluginTemplateLoadingText ?? '',
+                          })}
+                  </p>
+                ) : null}
               </>
             ) : (
               <p className='text-[11px] leading-5 text-muted-foreground'>

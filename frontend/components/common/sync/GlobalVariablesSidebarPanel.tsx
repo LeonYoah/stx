@@ -44,6 +44,7 @@ import {
 } from './builtin-time-variables';
 import {
   Globe2,
+  HelpCircle,
   Plus,
   Search,
   Lock,
@@ -243,6 +244,24 @@ export function GlobalVariablesSidebarPanel({
             >
               {isTimeMode ? BUILTIN_TIME_VARIABLE_ITEMS.length : total}
             </Badge>
+            {/* 说明收进标题旁 HelpCircle，按当前 Tab 切换 / Description lives in the title HelpCircle, switched by tab */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <HelpCircle
+                  className='size-3 shrink-0 text-muted-foreground/60 hover:text-foreground cursor-help'
+                  aria-label={
+                    isTimeMode
+                      ? t('timeVariablesTabDesc')
+                      : t('globalVariablesDesc')
+                  }
+                />
+              </TooltipTrigger>
+              <TooltipContent side='top' className='text-xs max-w-[260px]'>
+                {isTimeMode
+                  ? t('timeVariablesTabDesc')
+                  : t('globalVariablesDesc')}
+              </TooltipContent>
+            </Tooltip>
           </div>
 
           {!isTimeMode && (
@@ -256,10 +275,6 @@ export function GlobalVariablesSidebarPanel({
             </Button>
           )}
         </div>
-
-        <p className='text-[11px] leading-relaxed text-muted-foreground'>
-          {isTimeMode ? t('timeVariablesTabDesc') : t('globalVariablesDesc')}
-        </p>
 
         {/* 快捷搜索栏 */}
         {/* Search input */}

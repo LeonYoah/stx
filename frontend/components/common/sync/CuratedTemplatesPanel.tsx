@@ -24,6 +24,7 @@ import {toast} from 'sonner';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {
   Select,
   SelectContent,
@@ -288,20 +289,34 @@ export function CuratedTemplatesPanel({
               <Copy className='size-3 mr-1' />
               {t('curatedCopyScript')}
             </Button>
-            <Button
-              type='button'
-              size='sm'
-              className='h-6 px-2 text-[11px]'
-              disabled={!selected}
-              onClick={() => {
-                if (selected) {
-                  onInsert(selected);
-                }
-              }}
-            >
-              <Plus className='size-3 mr-1' />
-              {t('curatedInsert')}
-            </Button>
+            {/* 「插入」旁提示：修改模板请到「模板管理」；禁用时也能触发，故外包 span */}
+            {/* Hint next to Insert: edit templates in Template Manage; wrapped in a span so it also fires while disabled */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className='inline-flex' tabIndex={selected ? -1 : 0}>
+                  <Button
+                    type='button'
+                    size='sm'
+                    className={cn(
+                      'h-6 px-2 text-[11px]',
+                      !selected && 'pointer-events-none',
+                    )}
+                    disabled={!selected}
+                    onClick={() => {
+                      if (selected) {
+                        onInsert(selected);
+                      }
+                    }}
+                  >
+                    <Plus className='size-3 mr-1' />
+                    {t('curatedInsert')}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side='top' className='max-w-[240px] text-xs'>
+                {t('curatedEditInManageHint')}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
         {selected ? (
@@ -314,10 +329,6 @@ export function CuratedTemplatesPanel({
           </p>
         )}
       </div>
-
-      <p className='text-[11px] leading-5 text-muted-foreground'>
-        {t('curatedTemplateHint')}
-      </p>
     </div>
   );
 }

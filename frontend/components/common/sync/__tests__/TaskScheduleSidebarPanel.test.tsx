@@ -114,4 +114,34 @@ describe('TaskScheduleSidebarPanel', () => {
       document.querySelector('a[href="/admin/users?tab=tokens"]'),
     ).toBeNull();
   });
+
+  it('moves schedule copy into the badge tooltip and shows the unsaved hint only when dirty', async () => {
+    const renderPanel = (hasUnsavedChanges: boolean) => (
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <TaskScheduleSidebarPanel
+          value={{enabled: false, cron_expr: '0 0 * * *', timezone: 'Asia/Shanghai'}}
+          onChange={vi.fn()}
+          taskId={42}
+          canEdit
+          hasUnsavedChanges={hasUnsavedChanges}
+        />
+      </NextIntlClientProvider>
+    );
+    const {rerender} = render(renderPanel(false));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', {name: /更新节点/})).toBeTruthy();
+    });
+    const ws = zh.workbenchStudio as Record<string, string>;
+    // 常驻长段建议与保存规则不再出现 / Long advice and save rule are no longer persistent
+    expect(screen.queryByText(ws.scheduleProductionNoticeDesc)).toBeNull();
+    expect(screen.queryByText(ws.scheduleUnsavedHint)).toBeNull();
+    expect(screen.queryByText(ws.dolphinBuiltinLocked)).toBeNull();
+    expect(screen.getByText(ws.scheduleLightweightBadge)).toBeTruthy();
+    // 绑定 Dolphin 时开关禁用 / Switch is disabled while bound to Dolphin
+    expect(screen.getByRole('switch').hasAttribute('disabled')).toBe(true);
+
+    rerender(renderPanel(true));
+    expect(screen.getByText(ws.scheduleUnsavedHint)).toBeTruthy();
+  });
 });

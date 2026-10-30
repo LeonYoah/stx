@@ -40,6 +40,7 @@ import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -401,9 +402,6 @@ export function CuratedTemplatesManagePanel({
             {t('curatedCreate')}
           </Button>
         </div>
-        <p className='text-[11px] leading-5 text-muted-foreground'>
-          {t('curatedManageHint')}
-        </p>
 
         <div className='flex flex-col gap-2'>
           <div className='flex gap-2'>
@@ -561,9 +559,29 @@ export function CuratedTemplatesManagePanel({
                       {t('curatedEdit')}
                     </Button>
                   ) : (
-                    <span className='text-[10px] text-muted-foreground px-1 hidden sm:inline'>
-                      {t('curatedBuiltinReadonly')}
-                    </span>
+                    // 非本人模板：编辑禁用，原因进 Tooltip；禁用按钮外包 span 才能触发 Tooltip
+                    // Not owned: edit disabled with the reason in a Tooltip; wrap the disabled button in a span so the Tooltip fires
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className='inline-flex' tabIndex={0}>
+                          <Button
+                            type='button'
+                            size='sm'
+                            variant='ghost'
+                            className='h-6 px-1.5 text-[10px] pointer-events-none'
+                            disabled
+                          >
+                            <Pencil className='size-3 mr-1' />
+                            {t('curatedEdit')}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side='top' className='max-w-[240px] text-xs'>
+                        {item.origin === 'builtin'
+                          ? t('curatedReadonlyEditHint')
+                          : t('curatedOwnerOnlyHint')}
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                   {owned ? (
                     <Button
@@ -577,7 +595,27 @@ export function CuratedTemplatesManagePanel({
                       <Trash2 className='size-3 mr-1' />
                       {t('delete')}
                     </Button>
-                  ) : null}
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className='inline-flex' tabIndex={0}>
+                          <Button
+                            type='button'
+                            size='sm'
+                            variant='ghost'
+                            className='h-6 px-1.5 text-[10px] pointer-events-none'
+                            disabled
+                          >
+                            <Trash2 className='size-3 mr-1' />
+                            {t('delete')}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side='top' className='max-w-[240px] text-xs'>
+                        {t('curatedOwnerOnlyHint')}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                   <Button
                     type='button'
                     size='sm'

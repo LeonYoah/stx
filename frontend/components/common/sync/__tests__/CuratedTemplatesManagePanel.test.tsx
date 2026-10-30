@@ -31,7 +31,8 @@ vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => {
     const messages: Record<string, string> = {
       curatedManage: '模板管理',
-      curatedManageHint: '查看全部精选；可预览脚本、复制脚本或创建副本。',
+      curatedReadonlyEditHint: '系统模板只读，创建副本后可编辑',
+      curatedOwnerOnlyHint: '只能修改和删除自己的模板',
       curatedCreate: '新建精选',
       curatedEdit: '编辑',
       curatedCopy: '复制',
@@ -174,10 +175,16 @@ describe('CuratedTemplatesManagePanel', () => {
     const copyScriptButtons = screen.getAllByRole('button', {name: /复制脚本/});
     expect(copyScriptButtons.length).toBe(2);
 
-    // 验证内置模板显示只读标识，而自建模板显示编辑与删除按钮
-    // Verify builtin template shows readonly label, and user template shows edit & delete
-    expect(screen.getByText('系统只读')).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: /编辑/})).toBeInTheDocument();
+    // 内置模板的编辑/删除按钮为禁用态（原因在 Tooltip），自建模板可编辑与删除
+    // Builtin template shows disabled edit/delete (reason in Tooltip); user template can edit & delete
+    const editButtons = screen.getAllByRole('button', {name: /编辑/});
+    expect(editButtons).toHaveLength(2);
+    expect(editButtons.filter((b) => b.hasAttribute('disabled'))).toHaveLength(1);
+    const deleteButtons = screen.getAllByRole('button', {name: /删除/});
+    expect(deleteButtons).toHaveLength(2);
+    expect(deleteButtons.filter((b) => b.hasAttribute('disabled'))).toHaveLength(1);
+    // 标题下不再常驻说明文案 / No persistent description under the header
+    expect(screen.queryByText(/查看全部精选/)).toBeNull();
   });
 
   it('copies HOCON script to clipboard when clicking "复制脚本"', async () => {

@@ -636,6 +636,21 @@ export function DataSyncStudio() {
   // Whether current active editor has unsaved changes
   const isCurrentDirty = Boolean(editor.id && editorDrafts[editor.id]?.dirty);
 
+  // 已保存版本中的定时配置，用于判断定时是否有未保存改动
+  // Schedule from the saved baseline, used to tell whether the schedule has unsaved changes
+  const savedScheduleValue = useMemo(() => {
+    const draft = editor.id ? editorDrafts[editor.id] : undefined;
+    const baseline = draft?.dirty
+      ? draft.baselineEditor.definition
+      : editor.definition;
+    return extractTaskScheduleValue(baseline || {});
+  }, [editor.id, editor.definition, editorDrafts]);
+  const isScheduleUnsaved = (value: TaskScheduleValue) =>
+    Boolean(editor.id) &&
+    (value.enabled !== savedScheduleValue.enabled ||
+      value.cron_expr !== savedScheduleValue.cron_expr ||
+      value.timezone !== savedScheduleValue.timezone);
+
   // 存在未保存草稿的任务 ID 集合
   // Set of task IDs that have unsaved drafts
   const dirtyNodeIds = useMemo(
@@ -5259,6 +5274,9 @@ export function DataSyncStudio() {
                 selectedScheduleNode?.schedule_next_triggered_at
               }
               onChange={handleScheduleChange}
+              hasUnsavedChanges={isScheduleUnsaved(
+                extractTaskScheduleValue(editor.definition || {}),
+              )}
               taskId={editor.id}
               canEdit={editor.canEdit ?? true}
               onOpenAdvanced={() => {
@@ -5542,6 +5560,7 @@ export function DataSyncStudio() {
                 selectedScheduleNode?.schedule_next_triggered_at
               }
               onChange={handleScheduleDraftChange}
+              hasUnsavedChanges={isScheduleUnsaved(scheduleDraft)}
               taskId={editor.id}
               canEdit={editor.canEdit ?? true}
               className='mx-auto w-full max-w-6xl'
@@ -5691,12 +5710,25 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='max-w-md'>
+        <DialogContent className='max-w-md' aria-describedby={undefined}>
           <DialogHeader>
-            <DialogTitle>{t('publishNewVersion')}</DialogTitle>
-            <DialogDescription>
-              {t('versionManagementDesc')}
-            </DialogDescription>
+            <DialogTitle className='flex items-center gap-1.5'>
+              <span>{t('publishNewVersion')}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <HelpCircle
+                    className='size-3.5 text-muted-foreground/60 hover:text-foreground cursor-help'
+                    aria-label={t('versionManagementDesc')}
+                  />
+                </TooltipTrigger>
+                <TooltipContent
+                  side='bottom'
+                  className='max-w-[320px] text-xs font-normal leading-relaxed'
+                >
+                  {t('versionManagementDesc')}
+                </TooltipContent>
+              </Tooltip>
+            </DialogTitle>
           </DialogHeader>
           <div className='grid gap-4 py-2'>
             <div className='grid gap-2'>

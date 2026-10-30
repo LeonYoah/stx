@@ -24,6 +24,7 @@ import {toast} from 'sonner';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {
   Select,
   SelectContent,
@@ -65,6 +66,20 @@ export function CuratedTemplatesPanel({
   refreshToken?: number;
 }) {
   const t = useTranslations('workbenchStudio');
+  // 来源枚举走 i18n，未知值降级原值（与 CuratedTemplatesManagePanel 一致）
+  // Origin enum goes through i18n, unknown values fall back to the raw value (same as CuratedTemplatesManagePanel)
+  const getOriginLabel = (orig: string) => {
+    if (orig === 'builtin') {
+      return t('curatedOriginBuiltin');
+    }
+    if (orig === 'user') {
+      return t('curatedOriginUser');
+    }
+    if (orig === 'override') {
+      return t('curatedOriginOverride');
+    }
+    return orig;
+  };
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<SyncCuratedTemplateView[]>([]);
   const [section, setSection] = useState<string>('all');
@@ -238,7 +253,7 @@ export function CuratedTemplatesPanel({
                         variant='secondary'
                         className='text-[9px] px-1 py-0 shrink-0'
                       >
-                        {item.origin}
+                        {getOriginLabel(item.origin)}
                       </Badge>
                     </div>
                     {item.description ? (
@@ -288,20 +303,34 @@ export function CuratedTemplatesPanel({
               <Copy className='size-3 mr-1' />
               {t('curatedCopyScript')}
             </Button>
-            <Button
-              type='button'
-              size='sm'
-              className='h-6 px-2 text-[11px]'
-              disabled={!selected}
-              onClick={() => {
-                if (selected) {
-                  onInsert(selected);
-                }
-              }}
-            >
-              <Plus className='size-3 mr-1' />
-              {t('curatedInsert')}
-            </Button>
+            {/* 「插入」旁提示：修改模板请到「模板管理」；禁用时也能触发，故外包 span */}
+            {/* Hint next to Insert: edit templates in Template Manage; wrapped in a span so it also fires while disabled */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className='inline-flex' tabIndex={selected ? -1 : 0}>
+                  <Button
+                    type='button'
+                    size='sm'
+                    className={cn(
+                      'h-6 px-2 text-[11px]',
+                      !selected && 'pointer-events-none',
+                    )}
+                    disabled={!selected}
+                    onClick={() => {
+                      if (selected) {
+                        onInsert(selected);
+                      }
+                    }}
+                  >
+                    <Plus className='size-3 mr-1' />
+                    {t('curatedInsert')}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side='top' className='max-w-[240px] text-xs'>
+                {t('curatedEditInManageHint')}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
         {selected ? (
@@ -314,10 +343,6 @@ export function CuratedTemplatesPanel({
           </p>
         )}
       </div>
-
-      <p className='text-[11px] leading-5 text-muted-foreground'>
-        {t('curatedTemplateHint')}
-      </p>
     </div>
   );
 }

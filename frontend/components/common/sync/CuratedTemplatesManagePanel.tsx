@@ -40,6 +40,7 @@ import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -401,9 +402,6 @@ export function CuratedTemplatesManagePanel({
             {t('curatedCreate')}
           </Button>
         </div>
-        <p className='text-[11px] leading-5 text-muted-foreground'>
-          {t('curatedManageHint')}
-        </p>
 
         <div className='flex flex-col gap-2'>
           <div className='flex gap-2'>
@@ -480,12 +478,35 @@ export function CuratedTemplatesManagePanel({
                   <span className='text-xs font-medium truncate' title={item.name}>
                     {item.name}
                   </span>
-                  <Badge
-                    variant='secondary'
-                    className='text-[9px] px-1 py-0 shrink-0'
-                  >
-                    {getOriginLabel(item.origin)}
-                  </Badge>
+                  {item.origin === 'builtin' ? (
+                    // 系统模板不渲染禁用的编辑/删除，「只读、创建副本后可编辑」挂在来源 Badge 上；包成 button 以便键盘聚焦触发 Tooltip
+                    // Builtin rows render no disabled edit/delete; the read-only hint lives on the origin Badge, wrapped in a button so keyboard focus opens the Tooltip
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type='button'
+                          className='inline-flex shrink-0 cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
+                        >
+                          <Badge
+                            variant='secondary'
+                            className='text-[9px] px-1 py-0'
+                          >
+                            {getOriginLabel(item.origin)}
+                          </Badge>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side='top' className='max-w-[240px] text-xs'>
+                        {t('curatedReadonlyEditHint')}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <Badge
+                      variant='secondary'
+                      className='text-[9px] px-1 py-0 shrink-0'
+                    >
+                      {getOriginLabel(item.origin)}
+                    </Badge>
+                  )}
                   <Badge
                     variant='outline'
                     className='text-[9px] px-1 py-0 shrink-0 font-mono'
@@ -560,11 +581,7 @@ export function CuratedTemplatesManagePanel({
                       <Pencil className='size-3 mr-1' />
                       {t('curatedEdit')}
                     </Button>
-                  ) : (
-                    <span className='text-[10px] text-muted-foreground px-1 hidden sm:inline'>
-                      {t('curatedBuiltinReadonly')}
-                    </span>
-                  )}
+                  ) : null}
                   {owned ? (
                     <Button
                       type='button'

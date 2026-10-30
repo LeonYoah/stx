@@ -291,14 +291,14 @@ export function PluginDependencyConfigSection({
       data-testid='plugin-custom-dependencies'
     >
       <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-        <h4 className='min-w-0 flex-1 mr-2 flex items-center gap-1.5 font-medium'>
-          {t('plugin.configDependency')}
+        <div className='min-w-0 flex-1 mr-2 flex items-center gap-2'>
+          <h4 className='font-medium'>{t('plugin.configDependency')}</h4>
           <HelpHint
             label={t('plugin.configDependency')}
             content={t('plugin.configuredDependenciesTip')}
             data-testid='plugin-custom-dependencies-hint'
           />
-        </h4>
+        </div>
         <div className='flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap'>
           <Button
             variant='outline'
@@ -373,14 +373,14 @@ export function PluginDependencyConfigSection({
 
       {showAddForm && (
         <div className='space-y-4 rounded-lg border bg-background p-4'>
-          <h5 className='flex items-center gap-1.5 text-sm font-medium'>
-            {t('plugin.addDependencyDesc')}
+          <div className='flex items-center gap-2'>
+            <h5 className='text-sm font-medium'>{t('plugin.addDependencyDesc')}</h5>
             <HelpHint
               label={t('plugin.addDependencyDesc')}
               content={t('plugin.dependenciesDesc')}
               data-testid='plugin-add-dependency-hint'
             />
-          </h5>
+          </div>
           <div className='grid gap-4 md:grid-cols-3'>
             <div className='space-y-2'>
               <Label htmlFor='groupId'>{t('plugin.groupId')} *</Label>
@@ -440,14 +440,14 @@ export function PluginDependencyConfigSection({
           className='space-y-4 rounded-lg border bg-background p-4'
           data-testid='plugin-upload-dependency-form'
         >
-          <h5 className='flex items-center gap-1.5 text-sm font-medium'>
-            {t('plugin.uploadJarDesc')}
+          <div className='flex items-center gap-2'>
+            <h5 className='text-sm font-medium'>{t('plugin.uploadJarDesc')}</h5>
             <HelpHint
               label={t('plugin.uploadJarDesc')}
               content={t('plugin.uploadJarTip')}
               data-testid='plugin-upload-jar-hint'
             />
-          </h5>
+          </div>
           <div className='grid gap-4 md:grid-cols-3'>
             <div className='space-y-2 md:col-span-3'>
               <Label htmlFor='uploadJar'>{t('plugin.uploadJarFile')} *</Label>

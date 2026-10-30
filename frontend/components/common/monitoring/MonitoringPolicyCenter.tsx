@@ -3176,7 +3176,7 @@ export function MonitoringPolicyCenter() {
 
               <div className='space-y-3'>
                 <div className='flex items-center justify-between gap-2'>
-                  <div className='flex items-center gap-1.5'>
+                  <div className='flex items-center gap-2'>
                     <Label>{t('fields.receivers')}</Label>
                     <HelpHint
                       label={t('fields.receivers')}
@@ -3836,7 +3836,7 @@ export function MonitoringPolicyCenter() {
                   </CardHeader>
                   <CardContent className='space-y-4'>
                     <div className='space-y-2'>
-                      <div className='flex items-center gap-1.5'>
+                      <div className='flex items-center gap-2'>
                         <Label>{t('channel.fields.testRecipient')}</Label>
                         <HelpHint
                           label={t('channel.fields.testRecipient')}
@@ -4143,7 +4143,7 @@ export function MonitoringPolicyCenter() {
                     </div>
 
                     <div className='space-y-2'>
-                      <div className='flex items-center gap-1.5'>
+                      <div className='flex items-center gap-2'>
                         <Label>{t('webhook.fields.endpoint')}</Label>
                         <HelpHint
                           label={t('webhook.fields.endpoint')}
@@ -4172,7 +4172,7 @@ export function MonitoringPolicyCenter() {
 
                     {channelTypeSupportsSecret(webhookChannelForm.type) ? (
                     <div className='space-y-2'>
-                      <div className='flex items-center gap-1.5'>
+                      <div className='flex items-center gap-2'>
                         <Label>
                           {webhookChannelForm.type === 'webhook'
                             ? t('webhook.fields.secret')

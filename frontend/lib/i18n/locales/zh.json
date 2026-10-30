@@ -1597,6 +1597,7 @@
     "uninstall": "卸载",
     "enable": "启用",
     "disable": "禁用",
+    "disableWithReason": "禁用：{desc}",
     "update": "更新",
     "version": "版本",
     "versionNote": "连接器版本与 SeaTunnel 主版本一致",

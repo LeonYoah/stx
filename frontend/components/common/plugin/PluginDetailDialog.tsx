@@ -674,9 +674,11 @@ export function PluginDetailDialog({
 
                 {/* Installation paths explanation / 安装路径与依赖隔离说明 */}
                 <div className='pt-2 border-t space-y-2'>
-                  <h5 className='text-xs font-medium text-muted-foreground flex items-center gap-1.5'>
-                    <FolderOpen className='h-3.5 w-3.5' />
-                    {t('plugin.installPath')}
+                  <div className='flex items-center gap-2'>
+                    <h5 className='text-xs font-medium text-muted-foreground flex items-center gap-1.5'>
+                      <FolderOpen className='h-3.5 w-3.5' />
+                      {t('plugin.installPath')}
+                    </h5>
                     {useIsolatedDeps ? (
                       <HelpHint
                         label={t('plugin.installPath')}
@@ -684,7 +686,7 @@ export function PluginDetailDialog({
                         data-testid='plugin-install-path-hint'
                       />
                     ) : null}
-                  </h5>
+                  </div>
                   <div className='text-xs space-y-1.5'>
                     <div className='flex items-center gap-2'>
                       <Badge variant='outline' className='text-[10px]'>
@@ -924,8 +926,11 @@ export function PluginDetailDialog({
                                           </Button>
                                         </TooltipTrigger>
                                         <TooltipContent className='max-w-xs text-xs leading-relaxed'>
-                                          {t('plugin.disable')}：
-                                          {t('plugin.activeOfficialDependenciesDesc')}
+                                          {t('plugin.disableWithReason', {
+                                            desc: t(
+                                              'plugin.activeOfficialDependenciesDesc',
+                                            ),
+                                          })}
                                         </TooltipContent>
                                       </Tooltip>
                                     </TableCell>

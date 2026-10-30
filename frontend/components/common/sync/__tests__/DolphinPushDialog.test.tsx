@@ -175,4 +175,31 @@ describe('DolphinPushDialog', () => {
       /已推送 v1，请先发布新版本再更新节点/,
     );
   });
+  it('keeps an enabled confirm button tooltip-free and exposes the bound hint via HelpHint', async () => {
+    listSchedulerConnections.mockResolvedValue({items: []});
+    renderDialog({
+      published_version: 2,
+      pushed_version: 1,
+      binding: {id: 4},
+    });
+
+    const confirm = await screen.findByRole('button', {name: '确认推送'});
+    expect(confirm).not.toHaveAttribute('aria-disabled');
+    await act(async () => {
+      confirm.focus();
+      fireEvent.focus(confirm);
+    });
+    // 可用按钮不挂 Tooltip，也不带 describedby / An enabled button gets no tooltip and no describedby
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(confirm).not.toHaveAttribute('aria-describedby');
+
+    // 再次推送的覆盖范围在「已绑定」状态行的问号里 / The re-push scope lives in the bound status row's help hint
+    expect(screen.getByTestId('dolphin-bound-status')).toHaveTextContent(zh.workbenchStudio.dolphinBound);
+    const hint = screen.getByTestId('dolphin-bound-hint');
+    await act(async () => {
+      hint.focus();
+      fireEvent.focus(hint);
+    });
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(zh.workbenchStudio.dolphinBoundHint);
+  });
 });

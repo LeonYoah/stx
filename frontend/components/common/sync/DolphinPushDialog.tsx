@@ -332,8 +332,6 @@ export function DolphinPushDialog({
       : pushBlocked === 'no_new_version'
         ? t('dolphinNeedNewVersion', {pushed: status?.pushed_version || 0})
         : null;
-  // 可推送且已绑定时，说明再次推送只覆盖 SHELL 节点 / When bound and pushable, explain that a re-push only overwrites the SHELL node
-  const confirmHint = blockedReason ?? (bound ? t('dolphinBoundHint') : null);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -439,6 +437,15 @@ export function DolphinPushDialog({
 
             {bound ? (
               <div className='space-y-3 rounded-lg border border-border/50 bg-muted/10 p-3 text-xs'>
+                {/* 已绑定状态行：再次推送的覆盖范围放进问号 / Bound status row; what a re-push overwrites lives in the help hint */}
+                <div className='flex items-center gap-2 font-medium' data-testid='dolphin-bound-status'>
+                  <span>{t('dolphinBound')}</span>
+                  <HelpHint
+                    label={t('dolphinBound')}
+                    content={t('dolphinBoundHint')}
+                    data-testid='dolphin-bound-hint'
+                  />
+                </div>
                 {boundRemoteScript ? (
                   <div className='min-w-0'>
                     <div className='mb-1 text-[11px] text-muted-foreground'>
@@ -592,7 +599,7 @@ export function DolphinPushDialog({
               {t('dolphinDryRun')}
             </Button>
           </DisabledReasonTooltip>
-          <DisabledReasonTooltip reason={confirmHint}>
+          <DisabledReasonTooltip reason={blockedReason}>
             <Button
               type='button'
               data-testid='dolphin-confirm-push'

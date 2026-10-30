@@ -360,7 +360,7 @@ export function DagNodeDrawer({
                 </Button>
               ) : null}
               {schemaHint ? (
-                <HelpHint label={t('tab.schema')} content={schemaHint} data-testid='dag-node-schema-hint' />
+                <HelpHint side='left' label={t('tab.schema')} content={schemaHint} data-testid='dag-node-schema-hint' />
               ) : null}
             </div>
           ) : null}
@@ -468,6 +468,7 @@ export function DagNodeDrawer({
                 </div>
               ) : null}
               <HelpHint
+                side='left'
                 label={t('tab.plan')}
                 content={runtime ? t('planReadonlyHint') : t('planPreviewHint')}
                 data-testid='dag-node-plan-hint'

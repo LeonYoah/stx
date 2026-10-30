@@ -4425,14 +4425,14 @@ export function DataSyncStudio() {
               type='button'
               onClick={() => setQuickOpenOpen(true)}
               aria-label={t('quickOpen')}
-              className='group relative flex size-7.5 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/20 text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:hidden'
+              className='group relative flex size-8 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/20 text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:hidden'
             >
               <Search className='size-3.5 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
             </button>
             <button
               type='button'
               onClick={() => setQuickOpenOpen(true)}
-              className='group relative hidden h-7.5 w-full min-w-0 items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:flex'
+              className='group relative hidden h-8 w-full min-w-0 items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:flex'
             >
               <Search className='size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
               <span className='truncate text-[11px] text-muted-foreground/70 group-hover:text-muted-foreground'>
@@ -4444,13 +4444,13 @@ export function DataSyncStudio() {
             </button>
           </div>
 
-          {/* 右侧：执行环境指示与操作按钮梯队（单行 nowrap，次要动作收入 More） */}
-          {/* Right: env capsule + nowrap actions; secondary ops in MoreHorizontal menu */}
+          {/* 右侧：环境指示 + IDE 工具栏图标（测试连接/DAG/预览）+ 核心动作；单行 nowrap */}
+          {/* Right: env + IDE-style icon toolbar + primary cluster; single-row nowrap */}
           <div className='flex shrink-0 flex-nowrap items-center justify-end gap-1.5'>
-            {/* 环境指示胶囊 */}
-            {/* Environment indicator capsule */}
+            {/* 环境指示（与顶栏控件统一 rounded-md / h-8） */}
+            {/* Environment indicator (aligned rounded-md / h-8 with topbar controls) */}
             <div
-              className='flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground'
+              className='flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground'
               title={t('executionTarget')}
             >
               {executionMode === 'local' ? (
@@ -4470,85 +4470,105 @@ export function DataSyncStudio() {
 
             <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
 
-            {/* 次要探查动作：测试连接 / DAG / 预览 → More 菜单（红线 6） */}
-            {/* Secondary inspect actions collapsed into More (red line 6) */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size='sm'
-                  variant='ghost'
-                  aria-label={t('moreActions')}
-                  className='h-7 shrink-0 gap-1 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-                  disabled={saving || actionPending !== null}
-                >
-                  {actionPending === 'test_connections' ||
-                  actionPending === 'dag' ||
-                  actionPending === 'preview' ? (
-                    <Loader2 className='size-3.5 animate-spin' />
-                  ) : (
-                    <MoreHorizontal className='size-3.5' />
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align='end' className='min-w-[10rem] text-xs'>
-                <DropdownMenuItem
-                  disabled={
-                    saving ||
-                    !editor.name.trim() ||
-                    actionPending !== null ||
-                    !editor.canEdit
-                  }
-                  onClick={() => void handleTestConnections()}
-                >
-                  {actionPending === 'test_connections' ? (
-                    <Loader2 className='size-3.5 animate-spin' />
-                  ) : (
-                    <Database className='size-3.5' />
-                  )}
+            {/* 探查动作：图标按钮 + Tooltip 常驻顶栏（IDE 工具栏风格，一点即达） */}
+            {/* Inspect actions: always-visible icon+Tooltip toolbar (IDE style) */}
+            <div className='flex shrink-0 flex-nowrap items-center gap-0.5'>
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <span>
-                    {actionPending === 'test_connections'
+                    <Button
+                      size='sm'
+                      variant='ghost'
+                      aria-label={t('testConnections')}
+                      data-testid='studio-test-connections'
+                      className='size-8 shrink-0 rounded-md px-0 text-muted-foreground hover:text-foreground'
+                      onClick={() => void handleTestConnections()}
+                      disabled={
+                        saving ||
+                        !editor.name.trim() ||
+                        actionPending !== null ||
+                        !editor.canEdit
+                      }
+                    >
+                      {actionPending === 'test_connections' ? (
+                        <Loader2 className='size-3.5 animate-spin' />
+                      ) : (
+                        <Database className='size-3.5' />
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {!editor.canEdit
+                    ? t('readOnlyTestConnTooltip')
+                    : actionPending === 'test_connections'
                       ? t('testingConnections')
                       : t('testConnections')}
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={
-                    saving || !editor.name.trim() || actionPending !== null
-                  }
-                  onClick={() => void handleBuildDag()}
-                >
-                  {actionPending === 'dag' ? (
-                    <Loader2 className='size-3.5 animate-spin' />
-                  ) : (
-                    <GitBranch className='size-3.5' />
-                  )}
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <span>
-                    {actionPending === 'dag' ? t('buildingDag') : 'DAG'}
+                    <Button
+                      size='sm'
+                      variant='ghost'
+                      aria-label='DAG'
+                      data-testid='studio-build-dag'
+                      className='size-8 shrink-0 rounded-md px-0 text-muted-foreground hover:text-foreground'
+                      onClick={() => void handleBuildDag()}
+                      disabled={
+                        saving || !editor.name.trim() || actionPending !== null
+                      }
+                    >
+                      {actionPending === 'dag' ? (
+                        <Loader2 className='size-3.5 animate-spin' />
+                      ) : (
+                        <GitBranch className='size-3.5' />
+                      )}
+                    </Button>
                   </span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={
-                    saving ||
-                    hasActiveRun ||
-                    hasActivePreview ||
-                    actionPending !== null ||
-                    !editor.canRun
-                  }
-                  onClick={() => void handlePreview()}
-                >
-                  {actionPending === 'preview' ? (
-                    <Loader2 className='size-3.5 animate-spin' />
-                  ) : (
-                    <Eye className='size-3.5' />
-                  )}
+                </TooltipTrigger>
+                <TooltipContent>
+                  {actionPending === 'dag' ? t('buildingDag') : 'DAG'}
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <span>
-                    {actionPending === 'preview'
+                    <Button
+                      size='sm'
+                      variant='ghost'
+                      aria-label={t('preview')}
+                      data-testid='studio-preview'
+                      className='size-8 shrink-0 rounded-md px-0 text-muted-foreground hover:text-foreground'
+                      onClick={() => void handlePreview()}
+                      disabled={
+                        saving ||
+                        hasActiveRun ||
+                        hasActivePreview ||
+                        actionPending !== null ||
+                        !editor.canRun
+                      }
+                    >
+                      {actionPending === 'preview' ? (
+                        <Loader2 className='size-3.5 animate-spin' />
+                      ) : (
+                        <Eye className='size-3.5' />
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {!editor.canRun
+                    ? t('readOnlyPreviewTooltip')
+                    : actionPending === 'preview'
                       ? t('preparingPreview')
                       : t('preview')}
-                  </span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </TooltipContent>
+              </Tooltip>
+            </div>
 
             <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
 
@@ -4562,7 +4582,7 @@ export function DataSyncStudio() {
                       size='sm'
                       variant='outline'
                       className={cn(
-                        'h-7 gap-1.5 px-2.5 text-xs transition-colors',
+                        'h-8 gap-1.5 rounded-md px-2.5 text-xs transition-colors',
                         isCurrentDirty
                           ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
                           : 'text-foreground',
@@ -4586,7 +4606,7 @@ export function DataSyncStudio() {
                     <Button
                       size='sm'
                       variant='outline'
-                      className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
+                      className='h-8 gap-1.5 rounded-md px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
                       onClick={handleOpenPublishDialog}
                       disabled={
                         saving ||
@@ -4612,7 +4632,7 @@ export function DataSyncStudio() {
                       <DropdownMenuTrigger asChild>
                         <Button
                           size='sm'
-                          className='h-7 gap-1 bg-primary px-2.5 text-xs font-medium shadow-xs hover:bg-primary/90'
+                          className='h-8 gap-1 rounded-md bg-primary px-2.5 text-xs font-medium shadow-xs hover:bg-primary/90'
                           disabled={
                             saving ||
                             hasActiveRun ||
@@ -4656,7 +4676,7 @@ export function DataSyncStudio() {
                     size='sm'
                     variant='outline'
                     className={cn(
-                      'h-7 gap-1 px-2.5 text-xs transition-colors',
+                      'h-8 gap-1 rounded-md px-2.5 text-xs transition-colors',
                       activeJobs.length > 0
                         ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
                         : 'text-muted-foreground',

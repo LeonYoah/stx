@@ -5343,6 +5343,9 @@
     "effectiveActual": "实际路径",
     "effectiveVersion": "版本",
     "effectiveSource": "来源",
-    "loadFailed": "无法加载 JDK 列表，请自定义路径或稍后重试"
+    "loadFailed": "无法加载 JDK 列表，请自定义路径或稍后重试",
+    "versionLoading": "获取版本中…",
+    "versionUnavailable": "版本未取到",
+    "effectiveVersionValue": "Java {version}"
   }
 }

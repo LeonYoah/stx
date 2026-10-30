@@ -152,6 +152,10 @@ import {
 } from './upgrade/utils';
 import {EditClusterDialog} from './EditClusterDialog';
 import {AddNodeDialog} from './AddNodeDialog';
+import {
+  NodeJavaHomeCell,
+  type NodeJavaRuntimeView,
+} from '@/components/common/java/NodeJavaHomeCell';
 import {RemoveNodeDialog} from './RemoveNodeDialog';
 import {ScaleOperationProgress} from './scale/ScaleOperationProgress';
 import type {ScaleOperationInfo} from '@/lib/services/cluster/scale.types';
@@ -444,6 +448,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     new Set(),
   );
   const [nodeOperating, setNodeOperating] = useState<number | null>(null);
+  /** Per-node JDK version fetch (AC7); never blocks the page / 每节点 JDK 版本拉取（AC7），不阻塞页面 */
+  const [nodeJavaRuntimes, setNodeJavaRuntimes] = useState<
+    Record<number, NodeJavaRuntimeView>
+  >({});
   // Confirmation for batch start/stop/restart (user must confirm)
   const [confirmBatchOp, setConfirmBatchOp] = useState<
     'start' | 'stop' | 'restart' | null
@@ -469,6 +477,52 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // 日志输出模式切换状态 / Job log mode switching state
   const [logModeSwitching, setLogModeSwitching] = useState(false);
 
+
+  /**
+   * Fetch effective JDK version for each node once detail opens (AC7). Failures only mark version unavailable.
+   * 详情打开时为每个节点拉一次生效 JDK 版本（AC7）；失败只标记版本未取到。
+   */
+  const loadNodeJavaRuntimes = useCallback(
+    async (nodeList: NodeInfo[]) => {
+      if (nodeList.length === 0) {
+        setNodeJavaRuntimes({});
+        return;
+      }
+      setNodeJavaRuntimes((prev) => {
+        const next: Record<number, NodeJavaRuntimeView> = {...prev};
+        for (const n of nodeList) {
+          next[n.id] = {status: 'loading'};
+        }
+        return next;
+      });
+      await Promise.all(
+        nodeList.map(async (n) => {
+          try {
+            const rt = await services.cluster.getNodeJavaRuntime(
+              clusterId,
+              n.id,
+            );
+            setNodeJavaRuntimes((prev) => ({
+              ...prev,
+              [n.id]: {
+                status: 'ok',
+                version: rt.version,
+                version_string: rt.version_string,
+                java_home: rt.java_home,
+              },
+            }));
+          } catch {
+            setNodeJavaRuntimes((prev) => ({
+              ...prev,
+              [n.id]: {status: 'error'},
+            }));
+          }
+        }),
+      );
+    },
+    [clusterId],
+  );
+
   /**
    * Load cluster data
    * 加载集群数据
@@ -493,6 +547,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
 
         if (nodesResult.success && nodesResult.data) {
           setNodes(nodesResult.data);
+          void loadNodeJavaRuntimes(nodesResult.data);
         }
 
         if (statusResult.success && statusResult.data) {
@@ -508,7 +563,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         }
       }
     },
-    [clusterId, t],
+    [clusterId, t, loadNodeJavaRuntimes],
   );
 
   // 进行中的伸缩操作（页面刷新后恢复）/ Scaling operation in progress (restored after a page refresh)
@@ -2949,18 +3004,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                               {node.install_dir || '-'}
                             </div>
                           </TableCell>
-                          <TableCell className='font-mono text-xs max-w-[160px]'>
-                            <div
-                              className='truncate'
-                              title={
-                                node.java_home
-                                  ? node.java_home
-                                  : t('javaHome.badgeAuto')
-                              }
+                          <TableCell>
+                            <NodeJavaHomeCell
+                              configuredJavaHome={node.java_home}
+                              runtime={nodeJavaRuntimes[node.id]}
                               data-testid={`node-java-home-${node.id}`}
-                            >
-                              {node.java_home || t('javaHome.badgeAuto')}
-                            </div>
+                            />
                           </TableCell>
                           <TableCell>
                             <Badge variant={getStatusBadgeVariant(node.status)} className='text-xs'>

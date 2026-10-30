@@ -5343,6 +5343,9 @@
     "effectiveActual": "Actual path",
     "effectiveVersion": "Version",
     "effectiveSource": "Source",
-    "loadFailed": "Could not load the JDK list; enter a custom path or retry later"
+    "loadFailed": "Could not load the JDK list; enter a custom path or retry later",
+    "versionLoading": "Fetching version…",
+    "versionUnavailable": "Version unavailable",
+    "effectiveVersionValue": "Java {version}"
   }
 }

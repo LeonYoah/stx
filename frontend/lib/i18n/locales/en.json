@@ -784,9 +784,9 @@
     "selectAtLeastOneNode": "Please select at least one discovered node to register",
     "separatedRequiresMasterAndWorker": "Separated mode cluster must contain at least one Master node and one Worker node",
     "advancedSettings": "Advanced Settings",
-    "stxJavaProxyDesc": "Bridges SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing",
+    "stxJavaProxyDesc": "STX Java Proxy is an STX-managed helper process on the Master that bridges the SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing. After registration, start it automatically; otherwise workbench features that depend on it stay unavailable or need a manual deploy.",
     "autoStartProxy": "Start this service on Master node immediately after registration",
-    "autoStartProxyHelp": "Recommended. Enables instant checkpoint viewing and storage diagnostics without manual deployment",
+    "autoStartProxyHelp": "Recommended. Without it, workbench features that rely on Java Proxy—checkpoint viewing, DAG preview, connector metadata, and storage probing—stay unavailable or need a manual deploy.",
     "proxyPort": "Proxy Port",
     "proxyPortPlaceholder": "18080",
     "proxyPortHelp": "Default is 18080. If occupied, Agent will automatically probe and assign an open port",
@@ -1021,7 +1021,7 @@
     },
     "stxJavaProxy": {
       "title": "STX Java Proxy",
-      "description": "Managed proxy service used by install-time probes and runtime storage diagnostics.",
+      "description": "An STX-managed helper process on the Master that bridges the SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing.",
       "healthy": "Healthy",
       "unhealthy": "Running but unhealthy",
       "stopped": "Stopped",
@@ -1548,10 +1548,10 @@
     "portChangeConfirmImpact": "Subsequent platform API calls, Web UI access, and job submission will all use the new port.",
     "jobLogModeTitle": "Job Log Output Mode",
     "jobLogModePerJobBadge": "Per-Job Log Mode (Recommended)",
-    "jobLogModePerJobTip": "Routes per-job logs via routingAppender so Studio can view each job’s own log.",
+    "jobLogModePerJobTip": "Recommended. Routes each job through routingAppender into its own log so Studio can view job logs in isolation for easier troubleshooting.",
     "jobLogModeRestartHint": "Takes effect after a cluster restart.",
     "jobLogModeMixedBadge": "Shared Mixed Log Mode",
-    "jobLogModeMixedDesc": "All jobs output to a single log file; Studio cannot separate job logs. Switching to per-job mode and restarting is recommended.",
+    "jobLogModeMixedDesc": "All jobs write into the shared engine log file; Studio cannot separate job logs. Use only when you must match older behavior. Switching to per-job mode and restarting is recommended.",
     "switchToPerJobModeBtn": "Switch to Per-Job Log Mode (Recommended)",
     "switchToMixedModeBtn": "Switch to Shared Mixed Log Mode",
     "switchToPerJobSuccess": "Updated to Per-Job Log Mode (version created and synced). Takes effect after cluster restart!",
@@ -2220,18 +2220,18 @@
     },
     "javaProxy": {
       "title": "stx-java-proxy",
-      "description": "Managed capability proxy for runtime storage probes and metadata inspection.",
+      "description": "An STX-managed helper process on the Master that bridges the SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing.",
       "port": "Listen port",
-      "logLocationHint": "Service state and logs are stored under the Agent home directory."
+      "logLocationHint": "STX Java Proxy is an STX-managed helper process on the Master that bridges the SeaTunnel core runtime for checkpoint deserialization, connector metadata reflection, DAG preview, and storage probing. After registration, start it automatically; otherwise workbench features that depend on it stay unavailable or need a manual deploy. Service state and logs live under the Agent home directory."
     },
     "jobLogMode": {
       "title": "Log output mode",
-      "description": "SeaTunnel 2.3.8 and later support per-job log files. The default mode is mixed logs.",
+      "description": "SeaTunnel 2.3.8 and later support per-job log files. When supported, the default and recommended mode is per-job logs.",
       "mode": "Log mode",
       "mixed": "Mixed logs",
       "perJob": "Per-job logs",
-      "mixedHint": "All job logs are written into the system log file. This is the default recommended mode.",
-      "perJobHint": "Each job writes to its own log file for easier isolated troubleshooting."
+      "mixedHint": "All job logs go into the shared engine log file; Studio cannot separate them by job. Use only when you must match older behavior.",
+      "perJobHint": "Recommended. Each job writes its own log file so Studio can view job logs in isolation for easier troubleshooting."
     }
   },
   "admin": {

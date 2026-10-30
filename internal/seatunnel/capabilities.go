@@ -107,6 +107,7 @@ func CapabilitiesForVersion(version string) VersionCapabilities {
 	}
 	if CompareVersions(version, "2.3.8") >= 0 {
 		capabilities.SupportsJobLogMode = true
+		capabilities.DefaultJobLogMode = "per_job"
 	}
 
 	return capabilities

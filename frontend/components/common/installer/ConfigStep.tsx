@@ -25,7 +25,7 @@
 
 'use client';
 
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {usePackages} from '@/hooks/use-installer';
 import {
@@ -146,6 +146,23 @@ export function ConfigStep({
     () => resolveSeatunnelVersionCapabilities(packages, config.version),
     [packages, config.version],
   );
+
+  // Unsupported SeaTunnel versions cannot use per_job; coerce to mixed.
+  // 不支持的 SeaTunnel 版本无法使用 per_job，回退为 mixed。
+  useEffect(() => {
+    if (!versionCapabilities || versionCapabilities.supports_job_log_mode) {
+      return;
+    }
+    if (config.runtime.job_log_mode === 'mixed') {
+      return;
+    }
+    onConfigChange({
+      runtime: {
+        ...config.runtime,
+        job_log_mode: 'mixed',
+      },
+    });
+  }, [versionCapabilities]);
 
   // Handle JVM config change / 处理 JVM 配置变化
   const handleJvmChange = (key: keyof JVMConfig, value: number) => {

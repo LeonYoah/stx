@@ -16,8 +16,10 @@
 
 # 安装冒烟（CI 与本地通用）：先用 install/build-offline-bundle.sh 把真实 Release（默认 v1.2.0）的产物组装成 amd64 离线整包，
 # 再在不含 python3 的 debian:bookworm 容器中用 install-online.sh --bundle-file 安装，
-# 校验 python3 不存在、安装成功、/opt/stx/scripts/stx-java-proxy.sh 与 lib/stx-java-proxy-v{2,3}.jar 存在且与 Release SHA256SUMS 一致、
-# Agent 资产接口 GET /api/v1/agent/assets/stx-java-proxy.sh 与 stx-java-proxy-v{2,3}.jar 返回 200。
+# 校验 python3 不存在、安装成功、/opt/stx/scripts/stx-java-proxy.sh 与 lib/stx-java-proxy-v{2,3}.jar 落盘、
+# Agent 资产接口 GET .../stx-java-proxy.sh 与 GET .../stx-java-proxy.jar?version=v{2,3} 返回 200。
+# 注意：冒烟装的是 Release 控制面二进制，不能断言本 PR 才有的文件名路由
+# GET .../stx-java-proxy-v{2,3}.jar（那部分由 handler 单测 / test-offline-bundle 覆盖）。
 #   mode=plain   : --no-systemd，start.sh 直接启动
 #   mode=systemd : systemd 作为 PID1（--privileged），安装 → stop.sh 停进程 → 重装，验证 systemctl restart 真正拉起进程
 #   mode=mysql   : 外部 MySQL 8 容器；首次安装设置密码 → 清空库后保留配置重装并设置新密码（必须生效）→ 库里已有管理员时
@@ -27,7 +29,9 @@
 # Install smoke (CI and local): assemble an amd64 offline bundle from a real release (default v1.2.0) with
 # install/build-offline-bundle.sh, then install it with install-online.sh --bundle-file inside a
 # python3-free debian:bookworm container; assert no python3, install OK, scripts/stx-java-proxy.sh and
-# lib/stx-java-proxy-v{2,3}.jar present and matching the release SHA256SUMS, and agent asset endpoints return 200.
+# lib/stx-java-proxy-v{2,3}.jar on disk, and legacy asset endpoints (script + jar?version=) return 200.
+# Do not assert filename routes GET .../stx-java-proxy-v{2,3}.jar against the release control plane
+# (those exist only on this PR's binary; covered by handler unit tests / test-offline-bundle).
 #   mode=plain   : --no-systemd, started by start.sh
 #   mode=systemd : systemd as PID1 (--privileged); install -> stop.sh -> reinstall, asserting restart really runs it
 #   mode=mysql   : external MySQL 8 container; first install sets a password -> empty the database and reinstall over
@@ -85,12 +89,12 @@ verify() {
     [[ "$code" == 200 ]] && break; sleep 2
   done
   check "GET /api/v1/agent/assets/stx-java-proxy.sh -> $code" "[[ \"$code\" == 200 ]]"
-  code="$(curl -s -o /tmp/asset-v2.jar -w "%{http_code}" "http://127.0.0.1:${port}/api/v1/agent/assets/stx-java-proxy-v2.jar" || true)"
-  check "GET /api/v1/agent/assets/stx-java-proxy-v2.jar -> $code" "[[ \"$code\" == 200 ]]"
-  code="$(curl -s -o /tmp/asset-v3.jar -w "%{http_code}" "http://127.0.0.1:${port}/api/v1/agent/assets/stx-java-proxy-v3.jar" || true)"
-  check "GET /api/v1/agent/assets/stx-java-proxy-v3.jar -> $code" "[[ \"$code\" == 200 ]]"
-  code="$(curl -s -o /tmp/asset-q.jar -w "%{http_code}" "http://127.0.0.1:${port}/api/v1/agent/assets/stx-java-proxy.jar?version=v2" || true)"
+  # Release CP only has the query-param jar route; filename routes are covered elsewhere on this branch.
+  # Release 控制面只有 ?version= 形式的 jar 路由；文件名路由由本分支其它测试覆盖。
+  code="$(curl -s -o /tmp/asset-q-v2.jar -w "%{http_code}" "http://127.0.0.1:${port}/api/v1/agent/assets/stx-java-proxy.jar?version=v2" || true)"
   check "GET /api/v1/agent/assets/stx-java-proxy.jar?version=v2 -> $code" "[[ \"$code\" == 200 ]]"
+  code="$(curl -s -o /tmp/asset-q-v3.jar -w "%{http_code}" "http://127.0.0.1:${port}/api/v1/agent/assets/stx-java-proxy.jar?version=v3" || true)"
+  check "GET /api/v1/agent/assets/stx-java-proxy.jar?version=v3 -> $code" "[[ \"$code\" == 200 ]]"
   check "/opt/stx/bin/status.sh reports backend running" "grep -q \"backend: running\" <<<\"\$(/opt/stx/bin/status.sh)\""
 }
 '

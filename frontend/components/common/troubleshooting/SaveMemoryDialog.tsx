@@ -46,7 +46,6 @@ import {Button} from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -421,6 +420,7 @@ export function SaveMemoryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
+        aria-describedby={undefined}
         className={cn(
           // 必须保留 fixed 居中；勿加 relative，否则会覆盖 DialogContent 默认 fixed，弹窗落到视口外
           // Keep fixed centering; do not add relative or it overrides DialogContent fixed and drops the dialog off-screen
@@ -447,9 +447,6 @@ export function SaveMemoryDialog({
               {t('title')}
             </Badge>
           </div>
-          <DialogDescription className='text-xs text-muted-foreground mt-1'>
-            {t('dialogSubtitle')}
-          </DialogDescription>
 
           {/* 右上角快捷操作区：放大/还原 + 关闭窗口 */}
           <div className='absolute right-3 top-3 flex items-center gap-1 z-40'>

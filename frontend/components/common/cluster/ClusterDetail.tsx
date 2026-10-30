@@ -3681,15 +3681,15 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         open={stxJavaProxyConfigOpen}
         onOpenChange={setStxJavaProxyConfigOpen}
       >
-        <DialogContent className='max-w-xl sm:max-w-xl'>
+        <DialogContent
+          className='max-w-xl sm:max-w-xl'
+          aria-describedby={undefined}
+        >
           <DialogHeader>
             <DialogTitle className='flex items-center gap-2'>
               <Cpu className='h-5 w-5 text-primary' />
               {t('cluster.stxJavaProxy.configDialogTitle')}
             </DialogTitle>
-            <DialogDescription>
-              {t('cluster.stxJavaProxy.configDialogDescription')}
-            </DialogDescription>
           </DialogHeader>
 
           <div className='space-y-5 py-3 text-sm'>
@@ -3752,7 +3752,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               </p>
             </div>
 
-            <div className='flex items-start space-x-2 pt-2 border-t'>
+            <div className='flex items-center space-x-2 pt-2 border-t'>
               <Checkbox
                 id='stx-java-proxy-restart-save'
                 checked={stxJavaProxyRestartOnSave}
@@ -3760,17 +3760,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   setStxJavaProxyRestartOnSave(Boolean(checked))
                 }
               />
-              <div className='grid gap-1 leading-none'>
-                <Label
-                  htmlFor='stx-java-proxy-restart-save'
-                  className='text-sm font-medium cursor-pointer'
-                >
-                  {t('cluster.stxJavaProxy.restartImmediately')}
-                </Label>
-                <p className='text-xs text-muted-foreground'>
-                  {t('cluster.stxJavaProxy.restartImmediatelyHelp')}
-                </p>
-              </div>
+              <Label
+                htmlFor='stx-java-proxy-restart-save'
+                className='text-sm font-medium cursor-pointer'
+              >
+                {t('cluster.stxJavaProxy.restartImmediately')}
+              </Label>
             </div>
           </div>
 

@@ -81,6 +81,15 @@ import {Button} from '@/components/ui/button';
 import {toast} from 'sonner';
 import {RuntimeAdvancedConfigCard} from '@/components/common/installer/RuntimeAdvancedConfigCard';
 import {
+  HELP_HINT_DELAY_MS,
+  HelpHint,
+} from '@/components/common/HelpHint';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   buildSeatunnelInstallDir,
   resolveSeatunnelVersionCapabilities,
 } from '@/lib/seatunnel-version';
@@ -507,9 +516,16 @@ export function ConfigStep({
             )}
 
             <div className='mt-4 space-y-2'>
-              <Label htmlFor='install-config-install-dir'>
-                {t('installer.installDirLabel')}
-              </Label>
+              <div className='flex items-center gap-2'>
+                <Label htmlFor='install-config-install-dir'>
+                  {t('installer.installDirLabel')}
+                </Label>
+                <HelpHint
+                  label={t('installer.installDirLabel')}
+                  content={t('installer.installDirDesc')}
+                  data-testid='install-config-install-dir-hint'
+                />
+              </div>
               <Input
                 id='install-config-install-dir'
                 data-testid='install-config-install-dir'
@@ -519,9 +535,6 @@ export function ConfigStep({
                 }
                 placeholder={buildSeatunnelInstallDir(config.version)}
               />
-              <p className='text-xs text-muted-foreground'>
-                {t('installer.installDirDesc')}
-              </p>
             </div>
           </CardContent>
         </Card>
@@ -691,36 +704,58 @@ export function ConfigStep({
               <CardTitle className='text-base flex items-center gap-2'>
                 <Server className='h-4 w-4' />
                 {t('installer.httpService.title')}
+                <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type='button'
+                      data-testid='install-runtime-http-version-badge'
+                      className='inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                    >
+                      <Badge variant='outline' className='text-[10px] font-normal'>
+                        {t('installer.httpService.versionBadge')}
+                      </Badge>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className='max-w-xs text-xs leading-relaxed'>
+                    {t('installer.httpService.description')}
+                  </TooltipContent>
+                </Tooltip>
               </CardTitle>
-              <CardDescription>
-                {t('installer.httpService.description')}
-              </CardDescription>
             </CardHeader>
             <CardContent className='space-y-4'>
-              <label className='flex items-start gap-3 rounded-md border p-3'>
-                <Checkbox
-                  data-testid='install-runtime-http-enable'
-                  checked={config.runtime.enable_http}
-                  onCheckedChange={(checked) =>
-                    onConfigChange({
-                      runtime: {
-                        ...config.runtime,
-                        enable_http: checked === true,
-                      },
-                    })
-                  }
-                />
-                <div className='space-y-1'>
-                  <div className='text-sm font-medium'>
+              <div className='flex items-center gap-2 rounded-md border p-3'>
+                <label className='flex items-center gap-3'>
+                  <Checkbox
+                    data-testid='install-runtime-http-enable'
+                    checked={config.runtime.enable_http}
+                    onCheckedChange={(checked) =>
+                      onConfigChange({
+                        runtime: {
+                          ...config.runtime,
+                          enable_http: checked === true,
+                        },
+                      })
+                    }
+                  />
+                  <span className='text-sm font-medium'>
                     {t('installer.httpService.enableLabel')}
-                  </div>
-                  <p className='text-xs text-muted-foreground'>
-                    {t('installer.httpService.enableHint')}
-                  </p>
-                </div>
-              </label>
+                  </span>
+                </label>
+                <HelpHint
+                  label={t('installer.httpService.enableLabel')}
+                  content={t('installer.httpService.enableHint')}
+                  data-testid='install-runtime-http-enable-hint'
+                />
+              </div>
               <div className='space-y-2'>
-                <Label>{t('installer.httpService.port')}</Label>
+                <div className='flex items-center gap-2'>
+                  <Label>{t('installer.httpService.port')}</Label>
+                  <HelpHint
+                    label={t('installer.httpService.port')}
+                    content={t('installer.httpService.portHint')}
+                    data-testid='install-runtime-http-port-hint'
+                  />
+                </div>
                 <Input
                   data-testid='install-runtime-http-port'
                   type='number'
@@ -737,10 +772,8 @@ export function ConfigStep({
                   max={65535}
                   step={1}
                   disabled={!config.runtime.enable_http}
+                  placeholder='8080'
                 />
-                <p className='text-xs text-muted-foreground'>
-                  {t('installer.httpService.portHint')}
-                </p>
               </div>
             </CardContent>
           </Card>
@@ -751,13 +784,22 @@ export function ConfigStep({
             <CardTitle className='text-base flex items-center gap-2'>
               <Server className='h-4 w-4' />
               {t('installer.javaProxy.title')}
+              <HelpHint
+                label={t('installer.javaProxy.title')}
+                content={t('installer.javaProxy.description')}
+                data-testid='install-java-proxy-hint'
+              />
             </CardTitle>
-            <CardDescription>
-              {t('installer.javaProxy.description')}
-            </CardDescription>
           </CardHeader>
           <CardContent className='space-y-2'>
-            <Label>{t('installer.javaProxy.port')}</Label>
+            <div className='flex items-center gap-2'>
+              <Label>{t('installer.javaProxy.port')}</Label>
+              <HelpHint
+                label={t('installer.javaProxy.port')}
+                content={t('installer.javaProxy.logLocationHint')}
+                data-testid='install-java-proxy-port-hint'
+              />
+            </div>
             <Input
               data-testid='install-java-proxy-port'
               type='number'
@@ -773,10 +815,8 @@ export function ConfigStep({
               min={1}
               max={65535}
               step={1}
+              placeholder='18080'
             />
-            <p className='text-xs text-muted-foreground'>
-              {t('installer.javaProxy.portHint')}
-            </p>
           </CardContent>
         </Card>
 
@@ -790,9 +830,6 @@ export function ConfigStep({
                   <Database className='h-4 w-4' />
                   {t('installer.checkpointConfig')}
                 </CardTitle>
-                <CardDescription>
-                  {t('installer.runtimeStorage.checkpointDescription')}
-                </CardDescription>
               </div>
               <Button
                 variant='outline'
@@ -825,7 +862,16 @@ export function ConfigStep({
               </div>
             )}
             <div className='space-y-2'>
-              <Label>{t('installer.storageType')}</Label>
+              <div className='flex items-center gap-2'>
+                <Label>{t('installer.storageType')}</Label>
+                {config.checkpoint.storage_type === 'OSS' ? (
+                  <HelpHint
+                    label={'Aliyun OSS'}
+                    content={t('installer.runtimeStorage.ossLibHint')}
+                    data-testid='install-checkpoint-oss-lib-hint'
+                  />
+                ) : null}
+              </div>
               <Select
                 value={config.checkpoint.storage_type}
                 onValueChange={(value: CheckpointStorageType) =>
@@ -1049,9 +1095,6 @@ export function ConfigStep({
 
             {config.checkpoint.storage_type === 'OSS' && (
               <div className='space-y-4'>
-                <div className='rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200'>
-                  {t('installer.runtimeStorage.ossLibHint')}
-                </div>
                 <div className='space-y-2'>
                   <Label>{t('installer.endpoint')}</Label>
                   <Input
@@ -1181,13 +1224,13 @@ export function ConfigStep({
             )}
 
             <div className='flex items-center justify-between rounded-md border p-3'>
-              <div className='space-y-1'>
-                <div className='text-sm font-medium'>
-                  {t('installer.runtimeStorage.validateConnectivity')}
-                </div>
-                <div className='text-xs text-muted-foreground'>
-                  {t('installer.runtimeStorage.validationHint')}
-                </div>
+              <div className='flex items-center gap-2 text-sm font-medium'>
+                {t('installer.runtimeStorage.validateConnectivity')}
+                <HelpHint
+                  label={t('installer.runtimeStorage.validateConnectivity')}
+                  content={t('installer.runtimeStorage.validationHint')}
+                  data-testid='install-checkpoint-validate-hint'
+                />
               </div>
               <Button
                 data-testid='install-checkpoint-validate'
@@ -1249,10 +1292,12 @@ export function ConfigStep({
                 <CardTitle className='text-base flex items-center gap-2'>
                   <Database className='h-4 w-4' />
                   {t('installer.runtimeStorage.imapTitle')}
+                  <HelpHint
+                    label={t('installer.runtimeStorage.imapTitle')}
+                    content={t('installer.runtimeStorage.imapGuidanceMeta')}
+                    data-testid='install-imap-hint'
+                  />
                 </CardTitle>
-                <CardDescription>
-                  {t('installer.runtimeStorage.imapDescription')}
-                </CardDescription>
               </div>
               <Button
                 variant='outline'
@@ -1265,27 +1310,28 @@ export function ConfigStep({
             </div>
           </CardHeader>
           <CardContent className='space-y-4'>
-            <div className='rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-100'>
-              <div className='flex items-start gap-2'>
-                <Info className='mt-0.5 h-4 w-4 shrink-0' />
-                <div className='space-y-1'>
-                  <p>{t('installer.runtimeStorage.imapGuidanceMeta')}</p>
-                  <p>{t('installer.runtimeStorage.imapGuidanceBatch')}</p>
-                  <p>{t('installer.runtimeStorage.imapGuidanceStreaming')}</p>
-                </div>
-              </div>
-            </div>
-            {imapLocalRecommended && (
-              <div className='rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100'>
-                <div className='flex items-start gap-2'>
-                  <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' />
-                  <div>{t('installer.runtimeStorage.imapLocalHint')}</div>
-                </div>
-              </div>
-            )}
+            {/* 按场景只给一行建议 / One scenario-specific suggestion line */}
+            <p
+              className='flex items-center gap-1.5 text-xs text-muted-foreground'
+              data-testid='install-imap-suggestion'
+            >
+              <Info className='h-3.5 w-3.5 shrink-0' />
+              {imapExternalEnabled
+                ? t('installer.runtimeStorage.imapBatchSuggestion')
+                : t('installer.runtimeStorage.imapStreamingSuggestion')}
+            </p>
 
             <div className='space-y-2'>
-              <Label>{t('installer.storageType')}</Label>
+              <div className='flex items-center gap-2'>
+                <Label>{t('installer.storageType')}</Label>
+                {config.imap.storage_type === 'OSS' ? (
+                  <HelpHint
+                    label={'Aliyun OSS'}
+                    content={t('installer.runtimeStorage.ossLibHint')}
+                    data-testid='install-imap-oss-lib-hint'
+                  />
+                ) : null}
+              </div>
               <Select
                 value={config.imap.storage_type}
                 onValueChange={(value: IMAPStorageType) =>
@@ -1312,7 +1358,16 @@ export function ConfigStep({
             {config.imap.storage_type !== 'DISABLED' && (
               <>
                 <div className='space-y-2'>
-                  <Label>{t('installer.namespace')}</Label>
+                  <div className='flex items-center gap-2'>
+                    <Label>{t('installer.namespace')}</Label>
+                    {imapLocalRecommended ? (
+                      <HelpHint
+                        label={t('installer.namespace')}
+                        content={t('installer.runtimeStorage.imapLocalHint')}
+                        data-testid='install-imap-namespace-hint'
+                      />
+                    ) : null}
+                  </div>
                   <Input
                     data-testid='install-imap-namespace'
                     value={config.imap.namespace}
@@ -1513,9 +1568,6 @@ export function ConfigStep({
 
                 {config.imap.storage_type === 'OSS' && (
                   <div className='space-y-4'>
-                    <div className='rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200'>
-                      {t('installer.runtimeStorage.ossLibHint')}
-                    </div>
                     <div className='space-y-2'>
                       <Label>{t('installer.endpoint')}</Label>
                       <Input
@@ -1649,13 +1701,13 @@ export function ConfigStep({
             {imapExternalEnabled && (
               <>
                 <div className='flex items-center justify-between rounded-md border p-3'>
-                  <div className='space-y-1'>
-                    <div className='text-sm font-medium'>
-                      {t('installer.runtimeStorage.validateConnectivity')}
-                    </div>
-                    <div className='text-xs text-muted-foreground'>
-                      {t('installer.runtimeStorage.validationHint')}
-                    </div>
+                  <div className='flex items-center gap-2 text-sm font-medium'>
+                    {t('installer.runtimeStorage.validateConnectivity')}
+                    <HelpHint
+                      label={t('installer.runtimeStorage.validateConnectivity')}
+                      content={t('installer.runtimeStorage.validationHint')}
+                      data-testid='install-imap-validate-hint'
+                    />
                   </div>
                   <Button
                     data-testid='install-imap-validate'

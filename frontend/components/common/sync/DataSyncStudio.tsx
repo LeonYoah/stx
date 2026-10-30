@@ -157,6 +157,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
+import {HelpHint} from '@/components/common/HelpHint';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {
@@ -5623,14 +5624,22 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='max-w-md'>
+        <DialogContent className='max-w-md' aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{t('saveAsCurated')}</DialogTitle>
-            <DialogDescription>{t('curatedSaveDialogDesc')}</DialogDescription>
           </DialogHeader>
           <div className='grid gap-4 py-2'>
             <div className='grid gap-2'>
-              <Label htmlFor='curated-save-name'>{t('curatedSaveName')}</Label>
+              <div className='flex items-center gap-2'>
+                <Label htmlFor='curated-save-name'>
+                  {t('curatedSaveName')}
+                </Label>
+                <HelpHint
+                  label={t('saveAsCurated')}
+                  content={t('curatedVarsHint')}
+                  data-testid='curated-save-vars-hint'
+                />
+              </div>
               <Input
                 id='curated-save-name'
                 value={curatedSaveName}
@@ -6090,10 +6099,12 @@ export function DataSyncStudio() {
       </Dialog>
 
       <Dialog open={logsDialogOpen} onOpenChange={setLogsDialogOpen}>
-        <DialogContent className='flex h-[88vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden sm:max-w-[1400px]'>
+        <DialogContent
+          className='flex h-[88vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden sm:max-w-[1400px]'
+          aria-describedby={undefined}
+        >
           <DialogHeader>
             <DialogTitle>{t('logViewer')}</DialogTitle>
-            <DialogDescription>{t('logViewerDesc')}</DialogDescription>
           </DialogHeader>
           <div className='flex flex-wrap items-center justify-between gap-2'>
             <div className='flex items-center gap-2'>

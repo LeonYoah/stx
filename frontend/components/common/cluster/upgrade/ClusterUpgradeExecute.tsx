@@ -47,6 +47,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {Pagination} from '@/components/ui/pagination';
+import {HELP_HINT_DELAY_MS, HelpHint} from '@/components/common/HelpHint';
 import {Progress} from '@/components/ui/progress';
 import {
   Select,
@@ -68,7 +69,6 @@ import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {ScrollArea} from '@/components/ui/scroll-area';
@@ -565,12 +565,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
           data-testid='upgrade-execute-success'
         >
           <CardContent className='flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between'>
-            <div className='space-y-1'>
-              <div className='font-medium'>{t('upgradeCompletedTitle')}</div>
-              <div className='text-sm text-muted-foreground'>
-                {t('upgradeCompletedDescription')}
-              </div>
-            </div>
+            <div className='font-medium'>{t('upgradeCompletedTitle')}</div>
             <div className='flex flex-wrap gap-2'>
               <Button
                 variant='outline'
@@ -601,14 +596,20 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
           <CardContent className='flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between'>
             <div className='flex items-start gap-3'>
               <AlertTriangle className='mt-0.5 h-5 w-5 shrink-0 text-amber-600' />
-              <div className='space-y-1'>
-                <div className='font-medium'>{t('restartExecutionTitle')}</div>
-                <div className='text-sm text-muted-foreground'>
-                  {t('restartExecutionDescription')}
-                </div>
+              <div className='flex items-center gap-2 font-medium'>
+                {t('restartExecutionTitle')}
+                <HelpHint
+                  label={t('restartCurrentPlan')}
+                  content={t('restartExecutionDescription')}
+                  data-testid='upgrade-execute-restart-hint'
+                />
               </div>
             </div>
-            <Button onClick={handleStartExecution} disabled={starting || !plan}>
+            <Button
+              data-testid='upgrade-execute-restart'
+              onClick={handleStartExecution}
+              disabled={starting || !plan}
+            >
               {starting ? (
                 <Loader2 className='mr-2 h-4 w-4 animate-spin' />
               ) : (
@@ -626,7 +627,6 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
           <Card data-testid='upgrade-plan-review'>
             <CardHeader>
               <CardTitle>{t('planReviewTitle')}</CardTitle>
-              <CardDescription>{t('planReviewDescription')}</CardDescription>
             </CardHeader>
             <CardContent className='space-y-4'>
               <div className='flex flex-wrap items-center gap-2 text-sm text-muted-foreground'>
@@ -690,9 +690,6 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                   <ListOrdered className='h-4 w-4' />
                   {t('plannedSteps')}
                 </CardTitle>
-                <CardDescription>
-                  {t('plannedStepsDescription')}
-                </CardDescription>
               </CardHeader>
               <CardContent className='flex min-h-0 flex-1 flex-col'>
                 <ScrollArea className='min-h-0 flex-1 pr-4'>
@@ -880,61 +877,59 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                   </ScrollArea>
                 ) : (
                   <ScrollArea className='min-h-0 flex-1 pr-4'>
-                    <TooltipProvider delayDuration={300}>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>{t('host')}</TableHead>
-                            <TableHead>{t('role')}</TableHead>
-                            <TableHead>{t('statusLabel')}</TableHead>
-                            <TableHead>{t('currentStep')}</TableHead>
-                            <TableHead>{t('messageLabel')}</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {nodeOptions.map((node) => {
-                            const messageText =
-                              node.message || node.error || '-';
-                            return (
-                              <TableRow key={node.id}>
-                                <TableCell>{node.host_name}</TableCell>
-                                <TableCell>{node.role}</TableCell>
-                                <TableCell>
-                                  <Badge
-                                    variant={getStatusBadgeVariant(
-                                      node.status,
-                                    )}
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t('host')}</TableHead>
+                          <TableHead>{t('role')}</TableHead>
+                          <TableHead>{t('statusLabel')}</TableHead>
+                          <TableHead>{t('currentStep')}</TableHead>
+                          <TableHead>{t('messageLabel')}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {nodeOptions.map((node) => {
+                          const messageText =
+                            node.message || node.error || '-';
+                          return (
+                            <TableRow key={node.id}>
+                              <TableCell>{node.host_name}</TableCell>
+                              <TableCell>{node.role}</TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={getStatusBadgeVariant(
+                                    node.status,
+                                  )}
+                                >
+                                  {getExecutionStatusLabel(node.status)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {node.current_step || '-'}
+                              </TableCell>
+                              <TableCell>
+                                {/* 截断 + Tooltip 完整展示 / Truncate with full Tooltip */}
+                                <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+                                  <TooltipTrigger asChild>
+                                    <div className='max-w-[340px] cursor-help truncate text-left'>
+                                      {messageText}
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent
+                                    side='bottom'
+                                    className='max-w-md break-words'
                                   >
-                                    {getExecutionStatusLabel(node.status)}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  {node.current_step || '-'}
-                                </TableCell>
-                                <TableCell>
-                                  {/* 截断 + Tooltip 完整展示 / Truncate with full Tooltip */}
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <div className='max-w-[340px] cursor-help truncate text-left'>
-                                        {messageText}
-                                      </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent
-                                      side='bottom'
-                                      className='max-w-md break-words'
-                                    >
-                                      <p className='whitespace-pre-wrap'>
-                                        {messageText}
-                                      </p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </TooltipProvider>
+                                    <p className='whitespace-pre-wrap'>
+                                      {messageText}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
                   </ScrollArea>
                 )}
               </CardContent>

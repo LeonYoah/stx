@@ -74,7 +74,8 @@ export type WizardStepType =
 interface StepConfig {
   id: WizardStepType;
   titleKey: string;
-  descKey: string;
+  /** 步骤说明；与标题重复时省略 / Step description, omitted when it would just repeat the title */
+  descKey?: string;
 }
 
 const WIZARD_STEPS: StepConfig[] = [
@@ -91,7 +92,6 @@ const WIZARD_STEPS: StepConfig[] = [
   {
     id: 'plugins',
     titleKey: 'installer.pluginSelection',
-    descKey: 'installer.pluginSelectionDesc',
   },
   {
     id: 'install',
@@ -444,6 +444,9 @@ export function InstallWizard({
       <DialogContent
         data-testid='install-wizard-dialog'
         className='max-w-4xl max-h-[90vh] overflow-hidden flex flex-col'
+        // 没有步骤说明时显式去掉 aria-describedby，避免 Radix 告警
+        // Drop aria-describedby explicitly when the step has no description
+        {...(currentStep.descKey ? {} : {'aria-describedby': undefined})}
       >
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
@@ -454,7 +457,9 @@ export function InstallWizard({
               </span>
             )}
           </DialogTitle>
-          <DialogDescription>{t(currentStep.descKey)}</DialogDescription>
+          {currentStep.descKey ? (
+            <DialogDescription>{t(currentStep.descKey)}</DialogDescription>
+          ) : null}
         </DialogHeader>
 
         {/* Step indicator / 步骤指示器 */}

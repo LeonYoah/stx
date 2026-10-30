@@ -31,7 +31,6 @@ import {useAvailablePlugins} from '@/hooks/use-plugin';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
@@ -235,10 +234,6 @@ export function PluginSelectStep({
                 <Package className='h-5 w-5' />
                 {t('installer.pluginSelection') || 'Plugin Selection'}
               </CardTitle>
-              <CardDescription>
-                {t('installer.pluginSelectionDesc') ||
-                  'Select plugins to install with SeaTunnel'}
-              </CardDescription>
             </div>
             <div className='flex flex-wrap items-center gap-2'>
               <Badge variant='outline' className='gap-1'>

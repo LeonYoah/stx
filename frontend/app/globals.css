@@ -158,8 +158,12 @@ html[lang='en'] {
   scrollbar-width: none;
 }
 
-button {
-  cursor: pointer;
+/* 放在 base 层，cursor-not-allowed 等工具类才能覆盖（未分层样式优先级高于所有层）
+   Kept in the base layer so cursor utilities (e.g. aria-disabled:cursor-not-allowed) can override it */
+@layer base {
+  button {
+    cursor: pointer;
+  }
 }
 
 @keyframes slide {

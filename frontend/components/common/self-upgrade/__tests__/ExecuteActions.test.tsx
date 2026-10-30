@@ -18,6 +18,7 @@
 import React from 'react';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -77,6 +78,15 @@ const plan: RestartPlanInfo = {
 };
 
 afterEach(cleanup);
+
+// Radix Tooltip 依赖 ResizeObserver / Radix Tooltip needs ResizeObserver in jsdom
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??=
+  ResizeObserverStub as unknown as typeof ResizeObserver;
 
 function renderActions(
   overrides: Partial<React.ComponentProps<typeof ExecuteActions>> = {},
@@ -172,6 +182,37 @@ describe('ExecuteActions', () => {
       (screen.getByTestId('self-upgrade-dry-run') as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+});
+
+describe('ExecuteActions disabled reason', () => {
+  it('uses aria-disabled, blocks clicks and explains the reason in a tooltip', async () => {
+    const onExecute = renderActions({
+      canUpgrade: false,
+      disabledReason: 'executeHintBlocked',
+    });
+    const start = screen.getByTestId('self-upgrade-start') as HTMLButtonElement;
+    const dryRun = screen.getByTestId(
+      'self-upgrade-dry-run',
+    ) as HTMLButtonElement;
+    // 保持可聚焦，原因靠 Tooltip 说明 / stays focusable; the tooltip explains why
+    expect(start.disabled).toBe(false);
+    expect(start).toHaveAttribute('aria-disabled', 'true');
+    expect(dryRun).toHaveAttribute('aria-disabled', 'true');
+
+    fireEvent.click(start);
+    fireEvent.click(dryRun);
+    expect(onExecute).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('self-upgrade-confirm')).toBeNull();
+
+    await act(async () => {
+      start.focus();
+      fireEvent.focus(start);
+    });
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'executeHintBlocked',
+    );
+    expect(start).toHaveAccessibleDescription('executeHintBlocked');
   });
 });
 

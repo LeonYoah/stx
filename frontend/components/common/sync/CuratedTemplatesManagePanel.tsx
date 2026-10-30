@@ -41,6 +41,7 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {HelpHint} from '@/components/common/HelpHint';
 import {
   Dialog,
   DialogContent,
@@ -674,7 +675,10 @@ export function CuratedTemplatesManagePanel({
           }
         }}
       >
-        <DialogContent className='w-full sm:max-w-4xl lg:max-w-5xl h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border border-border/80 shadow-2xl'>
+        <DialogContent
+          className='w-full sm:max-w-4xl lg:max-w-5xl h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border border-border/80 shadow-2xl'
+          {...(previewItem?.description ? {} : {'aria-describedby': undefined})}
+        >
           <DialogHeader className='p-6 pb-4 border-b border-border/60 shrink-0 bg-background'>
             <div className='flex flex-wrap items-center justify-between gap-2 pr-6'>
               <div className='flex items-center gap-2 min-w-0'>
@@ -705,9 +709,11 @@ export function CuratedTemplatesManagePanel({
                 ) : null}
               </div>
             </div>
-            <DialogDescription className='text-xs text-muted-foreground mt-1'>
-              {previewItem?.description || t('curatedPreviewDialogDesc')}
-            </DialogDescription>
+            {previewItem?.description ? (
+              <DialogDescription className='text-xs text-muted-foreground mt-1'>
+                {previewItem.description}
+              </DialogDescription>
+            ) : null}
           </DialogHeader>
 
           <div className='flex-1 min-h-0 p-6 flex flex-col gap-2 overflow-hidden bg-muted/5'>
@@ -820,7 +826,10 @@ export function CuratedTemplatesManagePanel({
           }
         }}
       >
-        <DialogContent className='w-full sm:max-w-4xl lg:max-w-5xl h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border border-border/80 shadow-2xl'>
+        <DialogContent
+          className='w-full sm:max-w-4xl lg:max-w-5xl h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border border-border/80 shadow-2xl'
+          aria-describedby={undefined}
+        >
           <DialogHeader className='p-6 pb-4 border-b border-border/60 shrink-0 bg-background'>
             <div className='flex items-center justify-between gap-2 pr-6'>
               <DialogTitle className='text-base sm:text-lg font-semibold flex items-center gap-2'>
@@ -833,9 +842,6 @@ export function CuratedTemplatesManagePanel({
                 </Badge>
               ) : null}
             </div>
-            <DialogDescription className='text-xs text-muted-foreground mt-1'>
-              {t('curatedEditDialogDesc')}
-            </DialogDescription>
           </DialogHeader>
 
           <div className='flex-1 min-h-0 p-6 flex flex-col gap-3.5 overflow-hidden bg-muted/5'>
@@ -905,17 +911,21 @@ export function CuratedTemplatesManagePanel({
 
             <div className='flex-1 min-h-0 flex flex-col gap-2'>
               <div className='flex items-center justify-between gap-2 shrink-0'>
-                <Label
-                  htmlFor='curated-mgmt-content'
-                  className='text-xs font-medium flex items-center gap-1.5'
-                >
-                  <FileCode className='size-3.5 text-muted-foreground' />
-                  <span>{t('curatedEditContent')}</span>
-                </Label>
                 <div className='flex items-center gap-2'>
-                  <span className='text-[11px] text-muted-foreground hidden sm:inline'>
-                    {t('curatedEditContentHint')}
-                  </span>
+                  <Label
+                    htmlFor='curated-mgmt-content'
+                    className='text-xs font-medium flex items-center gap-1.5'
+                  >
+                    <FileCode className='size-3.5 text-muted-foreground' />
+                    <span>{t('curatedEditContent')}</span>
+                  </Label>
+                  <HelpHint
+                    label={t('curatedEditContent')}
+                    content={t('curatedVarsHint')}
+                    data-testid='curated-mgmt-content-hint'
+                  />
+                </div>
+                <div className='flex items-center gap-2'>
                   <Button
                     type='button'
                     variant='outline'

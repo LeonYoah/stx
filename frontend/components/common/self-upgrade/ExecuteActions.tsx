@@ -36,6 +36,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {Button} from '@/components/ui/button';
+import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {
   countUpgradeNodes,
   restartingProcesses,
@@ -47,6 +48,8 @@ import {
 export interface ExecuteActionsProps {
   targetVersion?: string;
   canUpgrade: boolean;
+  /** 不能升级时的原因，会挂在按钮 Tooltip 上 / Why upgrade is unavailable, shown in the button tooltip */
+  disabledReason?: string | null;
   busy: boolean;
   restartPlan?: RestartPlanInfo | null;
   agents?: AgentVersionInfo[];
@@ -59,6 +62,7 @@ export interface ExecuteActionsProps {
 export function ExecuteActions({
   targetVersion,
   canUpgrade,
+  disabledReason,
   busy,
   restartPlan,
   agents,
@@ -86,29 +90,50 @@ export function ExecuteActions({
     }
   };
 
+  // 有原因时用 aria-disabled + Tooltip；没有原因时保持原生 disabled
+  // With a reason: aria-disabled + tooltip; without one: keep the native disabled
+  const blockedReason = !canUpgrade && disabledReason ? disabledReason : null;
+  const nativeDisabled = blockedReason ? false : !canUpgrade || busy;
+
   return (
     <div className='flex flex-wrap items-center gap-2'>
-      <Button
-        size='sm'
-        variant='outline'
-        className='active:scale-[0.98]'
-        disabled={!canUpgrade || busy}
-        onClick={() => void onExecute('dry_run')}
-        data-testid='self-upgrade-dry-run'
-      >
-        <FlaskConical className='h-4 w-4 mr-1.5' />
-        {t('dryRunButton')}
-      </Button>
-      <Button
-        size='sm'
-        className='active:scale-[0.98]'
-        disabled={!canUpgrade || busy}
-        onClick={() => setConfirmOpen(true)}
-        data-testid='self-upgrade-start'
-      >
-        <ArrowUpCircle className='h-4 w-4 mr-1.5' />
-        {t('startUpgrade')}
-      </Button>
+      <DisabledReasonTooltip reason={blockedReason}>
+        <Button
+          size='sm'
+          variant='outline'
+          className='active:scale-[0.98]'
+          aria-disabled={blockedReason ? 'true' : undefined}
+          disabled={nativeDisabled}
+          onClick={() => {
+            if (blockedReason) {
+              return;
+            }
+            void onExecute('dry_run');
+          }}
+          data-testid='self-upgrade-dry-run'
+        >
+          <FlaskConical className='h-4 w-4 mr-1.5' />
+          {t('dryRunButton')}
+        </Button>
+      </DisabledReasonTooltip>
+      <DisabledReasonTooltip reason={blockedReason}>
+        <Button
+          size='sm'
+          className='active:scale-[0.98]'
+          aria-disabled={blockedReason ? 'true' : undefined}
+          disabled={nativeDisabled}
+          onClick={() => {
+            if (blockedReason) {
+              return;
+            }
+            setConfirmOpen(true);
+          }}
+          data-testid='self-upgrade-start'
+        >
+          <ArrowUpCircle className='h-4 w-4 mr-1.5' />
+          {t('startUpgrade')}
+        </Button>
+      </DisabledReasonTooltip>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent data-testid='self-upgrade-confirm'>

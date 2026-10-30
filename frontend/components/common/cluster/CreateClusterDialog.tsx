@@ -36,7 +36,6 @@ import {Textarea} from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -562,10 +561,12 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='sm:max-w-[600px] max-h-[90vh] flex flex-col'>
+      <DialogContent
+        className='sm:max-w-[600px] max-h-[90vh] flex flex-col'
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>{t('cluster.registerCluster')}</DialogTitle>
-          <DialogDescription>{t('cluster.registerClusterDescription')}</DialogDescription>
         </DialogHeader>
 
         <div className='flex-1 overflow-y-auto space-y-4 py-4 pr-2'>

@@ -129,8 +129,7 @@ export function DiagnosticResourceSelector({
 
   return (
     <div className={cn('space-y-2', className)}>
-      <div className='flex items-center justify-between gap-3 text-xs text-muted-foreground'>
-        <span>{t('hint')}</span>
+      <div className='flex justify-end text-xs text-muted-foreground'>
         <span className='whitespace-nowrap'>
           {t('selectedCount', {count: selectedResources.length})}
         </span>

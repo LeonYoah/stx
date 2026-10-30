@@ -79,9 +79,6 @@ export function ClusterCompleteStep({
       <h2 className='text-lg font-bold text-foreground'>
         {t('cluster.wizard.completeTitle')}
       </h2>
-      <p className='text-xs text-muted-foreground mt-1 max-w-md'>
-        {t('cluster.wizard.completeSubtitle')}
-      </p>
 
       {/* Cluster Summary Card / 集群规格摘要卡片 */}
       <Card className='w-full mt-5 text-left border-border/70 shadow-none bg-muted/20'>

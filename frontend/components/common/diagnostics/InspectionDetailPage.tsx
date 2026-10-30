@@ -63,6 +63,7 @@ import {Label} from '@/components/ui/label';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Switch} from '@/components/ui/switch';
 import {localizeDiagnosticsText} from './text-utils';
+import {HelpHint} from '@/components/common/HelpHint';
 import {
   InspectionFindingCard,
   InspectionZeroState,
@@ -706,9 +707,16 @@ export default function InspectionDetailPage({
           </DialogHeader>
           <div className='space-y-4 py-4'>
             <div className='space-y-2'>
-              <Label htmlFor='bundle-lookback'>
-                {t('inspections.lookbackLabel')}
-              </Label>
+              <div className='flex items-center gap-2'>
+                <Label htmlFor='bundle-lookback'>
+                  {t('inspections.lookbackLabel')}
+                </Label>
+                <HelpHint
+                  label={t('inspections.lookbackLabel')}
+                  content={t('inspections.detailPage.bundleLookbackHint')}
+                  data-testid='bundle-lookback-hint'
+                />
+              </div>
               <Input
                 id='bundle-lookback'
                 type='number'
@@ -723,9 +731,6 @@ export default function InspectionDetailPage({
                 }
                 onKeyDown={handleBundleInputKeyDown}
               />
-              <p className='text-xs text-muted-foreground'>
-                {t('inspections.detailPage.bundleLookbackHint')}
-              </p>
             </div>
             <div className='space-y-3'>
               <div className='flex items-center justify-between rounded-lg border p-3'>

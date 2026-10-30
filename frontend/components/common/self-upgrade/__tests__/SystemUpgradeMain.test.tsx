@@ -65,7 +65,7 @@ const {selfUpgrade} = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/services', () => ({default: {selfUpgrade}}));
 
-import {SystemUpgradeMain} from '../SystemUpgradeMain';
+import {SystemUpgradeMain, stageBlockKind} from '../SystemUpgradeMain';
 
 function stagedStatus(extra: Partial<StatusResponse> = {}): StatusResponse {
   return {
@@ -281,5 +281,91 @@ describe('SystemUpgradeMain check for updates', () => {
     render(<SystemUpgradeMain />);
     await screen.findByText('v1.0.1');
     expect(screen.queryByTestId('self-upgrade-check-inline')).toBeNull();
+  });
+});
+
+describe('stage (download / import) blocked reasons', () => {
+  const idle = {status: 'idle', progress: 0, assets: [], cancellable: false};
+
+  it.each([
+    [
+      'unchecked',
+      stagedStatus({checked: false, update_available: false, overall_status: 'idle', stage: idle}),
+      false,
+      'checkFirst',
+    ],
+    [
+      'checked without an update',
+      stagedStatus({update_available: false, overall_status: 'up_to_date', stage: idle}),
+      false,
+      'checkFirst',
+    ],
+    ['same version already staged', stagedStatus(), false, 'alreadyStaged'],
+    ['a newer version than the staged one', stagedStatus(), true, null],
+    ['update available', stagedStatus({overall_status: 'available', stage: idle}), false, null],
+    [
+      'staging',
+      stagedStatus({overall_status: 'staging', stage: {...idle, status: 'staging', progress: 40}}),
+      false,
+      'staging',
+    ],
+    ['upgrading', stagedStatus({overall_status: 'upgrading'}), false, 'upgrading'],
+    [
+      'succeeded',
+      stagedStatus({overall_status: 'succeeded', update_available: false, stage: idle}),
+      false,
+      'completed',
+    ],
+    ['docker', stagedStatus({deployment_type: 'docker'}), false, 'docker'],
+  ] as const)('%s', (_name, status, newer, expected) => {
+    expect(stageBlockKind(status as StatusResponse, newer)).toBe(expected);
+  });
+
+  it('gives the download button a state-specific reason', async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    render(<SystemUpgradeMain />);
+    const download = await screen.findByTestId('self-upgrade-download');
+    await waitFor(() =>
+      expect(download).toHaveAttribute('aria-disabled', 'true'),
+    );
+    expect((download as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.focus(download);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'blockedAlreadyStaged',
+    );
+    fireEvent.click(download);
+    expect(selfUpgrade.startDownload).not.toHaveBeenCalled();
+  });
+
+  it('keeps the download button a native disabled while staging', async () => {
+    selfUpgrade.getStatus.mockResolvedValue(
+      stagedStatus({
+        overall_status: 'staging',
+        stage: {status: 'staging', progress: 40, assets: [], cancellable: false},
+      }),
+    );
+    render(<SystemUpgradeMain />);
+    const staging = await screen.findByTestId('self-upgrade-download');
+    await waitFor(() =>
+      expect((staging as HTMLButtonElement).disabled).toBe(true),
+    );
+    expect(staging).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('explains why start upgrade is unavailable while an upgrade is running', async () => {
+    selfUpgrade.getStatus.mockResolvedValue(
+      stagedStatus({overall_status: 'upgrading'}),
+    );
+    render(<SystemUpgradeMain />);
+    const start = await screen.findByTestId('self-upgrade-start');
+    await waitFor(() => expect(start).toHaveAttribute('aria-disabled', 'true'));
+    expect(screen.getByTestId('self-upgrade-download')).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 });

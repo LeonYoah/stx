@@ -22,6 +22,7 @@ import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
 import {
+  AlertTriangle,
   ArrowLeft,
   ChevronDown,
   ChevronRight,
@@ -77,6 +78,8 @@ import type {
   PrecheckResult,
 } from '@/lib/services/st-upgrade';
 import {UpgradeSteps} from './UpgradeSteps';
+import {HelpHint} from '@/components/common/HelpHint';
+import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {getIssueCategoryLabel} from './utils';
 
 interface ClusterUpgradePrepareProps {
@@ -356,6 +359,17 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
     [blockingIssues, canContinueThroughConfig, isPrecheckStale, precheck],
   );
 
+  // 「进入配置合并页」不可用时的原因 / Why continuing to the merge page is blocked
+  // 能继续时为 null；aria-disabled + Tooltip 共用同一个按钮
+  // null when continuing is allowed; the same button takes aria-disabled + tooltip otherwise
+  const continueBlockedReason = canContinueToConfig
+    ? null
+    : !precheck
+      ? t('runPrecheckFirst')
+      : isPrecheckStale
+        ? t('draftChangedNoticeTitle')
+        : t('continueBlockedHint');
+
   // 零塌陷加载：首屏骨架屏占位 / Zero-collapse loading skeleton
   if (loading && !cluster) {
     return (
@@ -447,13 +461,23 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
             <Button variant='outline' onClick={handleClearDraft}>
               {t('clearDraft')}
             </Button>
-            <Button
-              onClick={handleContinue}
-              data-testid='upgrade-prepare-continue'
-              disabled={!canContinueToConfig}
-            >
-              {t('continueToConfig')}
-            </Button>
+            {/* 只渲染一个 Button，状态变化时不重新挂载，键盘焦点不丢 */}
+            {/* A single Button so state changes do not remount it and keyboard focus stays */}
+            <DisabledReasonTooltip reason={continueBlockedReason}>
+              <Button
+                data-testid='upgrade-prepare-continue'
+                aria-disabled={continueBlockedReason ? 'true' : undefined}
+                onClick={(event) => {
+                  if (continueBlockedReason) {
+                    event.preventDefault();
+                    return;
+                  }
+                  handleContinue();
+                }}
+              >
+                {t('continueToConfig')}
+              </Button>
+            </DisabledReasonTooltip>
           </>
         }
       />
@@ -498,9 +522,16 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
             </div>
 
             <div className='space-y-2'>
-              <Label htmlFor='target-install-dir'>
-                {t('targetInstallDir')}
-              </Label>
+              <div className='flex items-center gap-2'>
+                <Label htmlFor='target-install-dir'>
+                  {t('targetInstallDir')}
+                </Label>
+                <HelpHint
+                  label={t('targetInstallDir')}
+                  content={t('targetInstallDirDescription')}
+                  data-testid='upgrade-prepare-target-install-dir-hint'
+                />
+              </div>
               <Input
                 id='target-install-dir'
                 data-testid='upgrade-prepare-target-install-dir'
@@ -511,9 +542,6 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                 }}
                 placeholder={t('targetInstallDirPlaceholder')}
               />
-              <p className='text-xs text-muted-foreground'>
-                {t('targetInstallDirDescription')}
-              </p>
             </div>
 
             {/* 高级选项折叠：checksum / connector 非首屏必填 / Advanced options collapsible */}
@@ -601,9 +629,6 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
           <Card data-testid='upgrade-prepare-summary'>
             <CardHeader>
               <CardTitle>{t('precheckSummary')}</CardTitle>
-              <CardDescription>
-                {t('precheckSummaryDescription')}
-              </CardDescription>
             </CardHeader>
             <CardContent className='space-y-4'>
               {!precheck ? (
@@ -651,20 +676,32 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                     />
                   </div>
 
-                  <div className='rounded-lg border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground'>
-                    <p className='font-medium text-foreground'>
+                  <div className='space-y-2 rounded-lg border border-dashed bg-muted/30 p-4 text-sm'>
+                    <div className='flex items-center gap-2 font-medium text-foreground'>
                       {t('pluginUpgradeBehaviorTitle')}
-                    </p>
-                    <p className='mt-2'>
-                      {t('pluginUpgradeBehaviorDescription')}
-                    </p>
-                    <p className='mt-3'>
-                      <span className='font-medium text-foreground'>
-                        {t('upgradeSmokeCheckTitle')}
-                      </span>
-                      {' · '}
-                      {t('upgradeSmokeCheckDescription')}
-                    </p>
+                      <HelpHint
+                        label={t('pluginUpgradeBehaviorTitle')}
+                        content={t('pluginUpgradeBehaviorTip')}
+                        data-testid='upgrade-prepare-plugin-behavior-hint'
+                      />
+                    </div>
+                    {issuesByCategory.connector ? (
+                      <p
+                        className='flex items-center gap-1.5 text-amber-700 dark:text-amber-300'
+                        data-testid='upgrade-prepare-plugin-missing-warning'
+                      >
+                        <AlertTriangle className='h-3.5 w-3.5 shrink-0' />
+                        {t('pluginPackageMissingWarning')}
+                      </p>
+                    ) : null}
+                    <div className='flex items-center gap-2 font-medium text-foreground'>
+                      {t('upgradeSmokeCheckTitle')}
+                      <HelpHint
+                        label={t('upgradeSmokeCheckTitle')}
+                        content={t('upgradeSmokeCheckDescription')}
+                        data-testid='upgrade-prepare-smoke-check-hint'
+                      />
+                    </div>
                   </div>
                 </>
               )}
@@ -675,7 +712,6 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
             <Card data-testid='upgrade-prepare-issues'>
               <CardHeader>
                 <CardTitle>{t('issuesTitle')}</CardTitle>
-                <CardDescription>{t('issuesDescription')}</CardDescription>
               </CardHeader>
               <CardContent className='space-y-4'>
                 {precheck.issues.length === 0 ? (

@@ -625,6 +625,31 @@ var registry = append([]OperationSpec{
 }`,
 	},
 	{
+		ID:           "host.java-runtimes.list",
+		CommandPath:  []string{"host", "java-runtimes"},
+		Summary:      "List detectable JDKs on a host",
+		GeneratedCLI: true,
+		Method:       "GET",
+		Route:        "/api/v1/hosts/:id/java-runtimes",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		UsesAgent:    true,
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "Host ID"},
+		},
+		Impact:  &ImpactSpec{Level: RiskR0, Message: "Reads detectable JDK paths and versions on the target host.", Performance: "Asks the Agent to scan local JDK directories and run java -version."},
+		Example: "stx host java-runtimes 10",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "host.java-runtimes.list",
+  "request_id": "req_example",
+  "data": [{"java_home":"/usr/lib/jvm/java-11","version":11,"source":"scan"}],
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
 		ID:           "host.precheck",
 		CommandPath:  []string{"host", "precheck"},
 		Summary:      "Run installation precheck on a host",

@@ -93,6 +93,9 @@ type ScaleDiscoveredProcess struct {
 	HazelcastPort int
 	APIPort       int
 	ClusterName   string
+	// JavaHome 是进程实际使用的 JDK；纳管时优先预选（AC1f）。
+	// JavaHome is the JDK the process actually uses; register mode prefers it as the preselection (AC1f).
+	JavaHome string
 }
 
 // ScaleProcessDiscoverer 读取主机上运行中的 SeaTunnel 进程（由 router 适配 discovery 服务注入）。

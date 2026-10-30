@@ -47,7 +47,7 @@ func (a *javaPrecheckAgent) SendCommand(_ context.Context, _ string, commandType
 		return false, "", nil
 	case "check_directory":
 		return true, "", nil
-	case "check_java":
+	case "check_java", "list_java_homes":
 		copied := make(map[string]string, len(params))
 		for k, v := range params {
 			copied[k] = v
@@ -194,5 +194,25 @@ func TestStartClusterAfterInstallPersistsJavaHome(t *testing.T) {
 	}, &InstallationStatus{Status: StepStatusRunning})
 	if starter.ensureCalls != 1 || starter.ensureJavaHome != "/opt/jdk8" {
 		t.Fatalf("ensure calls=%d java_home=%q, want 1 and /opt/jdk8", starter.ensureCalls, starter.ensureJavaHome)
+	}
+}
+
+// TestListJavaRuntimesParsesAgentList 覆盖 AC1b：列出主机 JDK；Agent 失败时返回空列表不报错。
+// TestListJavaRuntimesParsesAgentList covers AC1b: listing host JDKs; Agent failure yields an empty list without error.
+func TestListJavaRuntimesParsesAgentList(t *testing.T) {
+	agent := &javaPrecheckAgent{javaSuccess: true, javaDetails: map[string]string{
+		"jdks":  `[{"java_home":"/opt/jdk8","version":8,"source":"scan"},{"java_home":"/opt/jdk17","version":17,"source":"env"}]`,
+		"count": "2",
+	}}
+	list, err := newJavaPrecheckService(t, agent).ListJavaRuntimes(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ListJavaRuntimes: %v", err)
+	}
+	if len(list) != 2 || list[0].JavaHome != "/opt/jdk8" || list[1].Version != 17 {
+		t.Fatalf("list = %+v", list)
+	}
+	empty, err := newJavaPrecheckService(t, &javaPrecheckAgent{javaSuccess: false}).ListJavaRuntimes(context.Background(), 10)
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("failure must yield empty list, got %v err=%v", empty, err)
 	}
 }

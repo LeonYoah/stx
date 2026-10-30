@@ -317,6 +317,9 @@ type CreateNodeFromDiscovery struct {
 	HazelcastPort int    `json:"hazelcast_port,omitempty"` // Hazelcast cluster port (optional) / Hazelcast 集群端口（可选）
 	APIPort       int    `json:"api_port,omitempty"`       // REST API port (optional) / REST API 端口（可选）
 	ClusterName   string `json:"cluster_name,omitempty"`   // Hazelcast cluster-name (optional) / Hazelcast 集群标识（可选）
+	// JavaHome 是纳管时给定的节点 JDK；空表示自动探测。优先填进程实际 JDK（AC1e / AC1f）。
+	// JavaHome is the node JDK given at registration; empty means auto detection. Prefer the process's actual JDK (AC1e / AC1f).
+	JavaHome string `json:"java_home,omitempty"`
 }
 
 // UpdateClusterRequest represents a request to update an existing cluster.

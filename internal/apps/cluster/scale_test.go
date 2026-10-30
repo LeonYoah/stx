@@ -108,7 +108,7 @@ func (a *scaleFakeAgent) handle(agentID, commandType string, params map[string]s
 		if a.javaFail[agentID] {
 			return false, precheckJSON(false, "java not found", nil)
 		}
-		return true, precheckJSON(true, "java 11", nil)
+		return true, precheckJSON(true, "java 11", map[string]string{"java_home_source": "detected", "java_home": "/usr/lib/jvm/default"})
 	case "check_port":
 		listening := a.listening[agentID+"|"+params["port"]]
 		return listening, precheckJSON(listening, "port", nil)

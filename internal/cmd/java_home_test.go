@@ -133,3 +133,27 @@ func TestClusterNodeJavaRuntimeCommand(t *testing.T) {
 		t.Fatalf("输出缺少生效 JDK / output misses the effective JDK: %s", stdout)
 	}
 }
+
+// TestHostJavaRuntimesCommand 覆盖 AC1b 的 CLI：stx host java-runtimes 列出主机可探测 JDK。
+// TestHostJavaRuntimesCommand covers the AC1b CLI: stx host java-runtimes lists detectable JDKs on a host.
+func TestHostJavaRuntimesCommand(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeClusterCapabilities(t, writer, "host.java-runtimes.list", "R0")
+			return
+		}
+		if request.Method != http.MethodGet || request.URL.Path != "/api/v1/hosts/10/java-runtimes" {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"api_version":"v1","operation_id":"host.java-runtimes.list","request_id":"r1","data":[{"java_home":"/opt/jdk8","version":8,"source":"scan"}],"result_meta":{"complete":true}}`))
+	}))
+	defer server.Close()
+	stdout, stderr, code := runClusterCommand(t, newExecutionTestStore(t, server.URL, "test-token"), "host", "java-runtimes", "10")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	if !strings.Contains(stdout, "/opt/jdk8") {
+		t.Fatalf("stdout=%s", stdout)
+	}
+}

@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 273)
+	require.Len(t, Registry(), 274)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -112,7 +112,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"cluster.runtime-storage.validate": {}, "cluster.runtime-storage.list": {},
 		"cluster.runtime-storage.preview": {}, "cluster.runtime-storage.checkpoint.inspect": {},
 		"cluster.runtime-storage.imap.inspect": {}, "installer.runtime-storage.validate": {},
-		"cluster.node.logs": {}, "cluster.node.java-runtime": {},
+		"cluster.node.logs": {}, "host.java-runtimes.list": {}, "cluster.node.java-runtime": {},
 		"cluster.start": {}, "cluster.stop": {}, "cluster.restart": {},
 		"cluster.node.start": {}, "cluster.node.stop": {}, "cluster.node.restart": {},
 		"cluster.java-proxy.status": {}, "cluster.java-proxy.logs": {},

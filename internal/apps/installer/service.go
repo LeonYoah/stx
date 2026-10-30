@@ -3797,3 +3797,32 @@ func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string
 
 	return remotePath, checksum, nil
 }
+
+
+// ListJavaRuntimes 列出主机上可探测到的 JDK（路径+版本），供安装/扩容/纳管向导下拉选择（AC1b / AC1b2）。
+// Agent 不可达或旧版本时返回空列表，不报错，前端进入自定义填写。
+// ListJavaRuntimes lists detectable JDKs (path+version) on a host for the install/scale/register wizard dropdown
+// (AC1b / AC1b2). An unreachable or old Agent yields an empty list without error so the UI falls back to custom entry.
+func (s *Service) ListJavaRuntimes(ctx context.Context, hostID uint) ([]javaruntime.Candidate, error) {
+	if s.hostProvider == nil {
+		return nil, fmt.Errorf("host provider not configured / 主机提供者未配置")
+	}
+	hostInfo, err := s.hostProvider.GetHostByID(ctx, hostID)
+	if err != nil {
+		return nil, err
+	}
+	if s.agentManager == nil || hostInfo.AgentID == "" {
+		return []javaruntime.Candidate{}, nil
+	}
+	success, output, err := s.agentManager.SendCommand(ctx, hostInfo.AgentID, "list_java_homes", javaruntime.ListParams())
+	if err != nil {
+		logger.WarnF(ctx, "[Installer] list_java_homes failed for host %d: %v / 主机 %d 列出 JDK 失败: %v", hostID, err, hostID, err)
+		return []javaruntime.Candidate{}, nil
+	}
+	list := javaruntime.ParseList(success, output)
+	if list == nil {
+		list = []javaruntime.Candidate{}
+	}
+	return list, nil
+}
+

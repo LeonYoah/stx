@@ -742,9 +742,14 @@ func (s *ScaleService) resolveScaleOutNode(cluster *Cluster, nodes []*ClusterNod
 	if installDir == "" && peer != nil {
 		installDir = strings.TrimSpace(peer.InstallDir)
 	}
-	// JDK 只取请求值：不从同角色节点或集群继承（AC1d），为空即自动探测。
-	// The JDK only comes from the request: never inherited from a peer or the cluster (AC1d); empty means auto.
-	javaHome, err := javaruntime.Validate(req.JavaHome)
+	// JDK：请求值优先；纳管且未填时预选进程实际 JDK（AC1f）；绝不从同角色节点或集群继承（AC1d）。
+	// JDK: request wins; register mode with an empty request preselects the process JDK (AC1f); never inherit from a
+	// peer or the cluster (AC1d).
+	javaHomeInput := req.JavaHome
+	if strings.TrimSpace(javaHomeInput) == "" && mode == ScaleModeRegister && process != nil {
+		javaHomeInput = process.JavaHome
+	}
+	javaHome, err := javaruntime.Validate(javaHomeInput)
 	if err != nil {
 		return nil, err
 	}
@@ -880,12 +885,22 @@ func (s *ScaleService) addInstallChecks(ctx context.Context, plan *ScalePlan, cl
 // detectedJavaCheck is the original Java precheck without a specified JDK (AC6: unchanged behavior).
 func (s *ScaleService) detectedJavaCheck(ctx context.Context, host *HostInfo, lang string) ScaleCheck {
 	javaCheck := ScaleCheck{Name: "java", Blocking: true}
-	if ok, message, err := s.runAgentCheck(ctx, host.AgentID, "check_java", map[string]string{}); err != nil || !ok {
+	success, output, err := s.svc.agentSender.SendCommand(ctx, host.AgentID, "check_java", map[string]string{})
+	message := parseCommandMessage(output)
+	if err != nil {
+		message = err.Error()
+	}
+	if err != nil || !success {
 		javaCheck.Status = ScaleCheckFailed
 		javaCheck.Message = scaleText(lang, "未检测到可用的 Java（STX 不负责安装 JDK）："+message, "no usable Java found (STX does not install a JDK): "+message)
-	} else {
-		javaCheck.Status = ScaleCheckPassed
-		javaCheck.Message = message
+		return javaCheck
+	}
+	javaCheck.Status = ScaleCheckPassed
+	javaCheck.Message = message
+	// 只回传探测到的 JDK 目录供前端预填（AC1b），判定保持不变（AC6）。
+	// Only report the detected JDK directory for frontend prefill (AC1b); the verdict is unchanged (AC6).
+	if rt := javaruntime.Interpret("", success, output); rt.Source == javaruntime.SourceDetected && rt.JavaHome != "" {
+		javaCheck.Target = rt.JavaHome
 	}
 	return javaCheck
 }

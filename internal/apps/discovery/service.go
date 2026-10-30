@@ -46,6 +46,9 @@ type DiscoveredProcess struct {
 	HazelcastPort int    `json:"hazelcast_port"`           // Hazelcast cluster port / Hazelcast 集群端口
 	APIPort       int    `json:"api_port"`                 // REST API port / REST API 端口
 	ClusterName   string `json:"cluster_name,omitempty"`   // Hazelcast cluster-name / Hazelcast 集群标识
+	// JavaHome 是进程实际使用的 JDK（由 Agent 从 /proc/<pid>/exe 解析）；解析不到为空（AC1f）。
+	// JavaHome is the JDK the process actually uses (resolved by the Agent from /proc/<pid>/exe); empty when unresolved (AC1f).
+	JavaHome string `json:"java_home,omitempty"`
 }
 
 // ProcessDiscoveryResult represents the result of process discovery.
@@ -68,6 +71,9 @@ type DiscoveredCluster struct {
 	DiscoveredAt   time.Time              `json:"discovered_at"`
 	IsNew          bool                   `json:"is_new"`           // 是否为新发现的集群 / Whether it's a newly discovered cluster
 	ExistingID     uint                   `json:"existing_id"`      // 如果已存在，关联的集群 ID / If exists, the associated cluster ID
+	// JavaHome 是纳管时用户选定的节点 JDK；空表示自动探测（AC1e）。实现 CreateClusterFromDiscovery 时应写入节点。
+	// JavaHome is the node JDK chosen at import; empty means auto detection (AC1e). CreateClusterFromDiscovery should persist it.
+	JavaHome string `json:"java_home,omitempty"`
 }
 
 // DiscoveredNode represents a discovered SeaTunnel node.
@@ -78,6 +84,8 @@ type DiscoveredNode struct {
 	HazelcastPort int       `json:"hazelcast_port"`
 	APIPort       int       `json:"api_port"`
 	StartTime     time.Time `json:"start_time"`
+	// JavaHome 是进程实际 JDK（AC1f）/ Process actual JDK (AC1f)
+	JavaHome string `json:"java_home,omitempty"`
 }
 
 // DiscoveryResult represents the result of a discovery operation.
@@ -96,6 +104,9 @@ type ConfirmDiscoveryRequest struct {
 	HostID      uint     `json:"host_id" binding:"required"`
 	ClusterIDs  []string `json:"cluster_ids"`  // 要纳管的集群标识 / Cluster identifiers to manage
 	InstallDirs []string `json:"install_dirs"` // 要纳管的安装目录 / Install directories to manage
+	// JavaHomes 按安装目录指定节点 JDK；空值表示自动探测（AC1e）。
+	// JavaHomes maps install directories to node JDKs; empty means auto detection (AC1e).
+	JavaHomes map[string]string `json:"java_homes,omitempty"`
 }
 
 // AgentDiscoverer defines the interface for triggering agent discovery.
@@ -328,6 +339,12 @@ func (s *Service) ConfirmDiscovery(ctx context.Context, req *ConfirmDiscoveryReq
 			continue
 		}
 
+		// Apply user-selected JDK for this install dir (AC1e) / 应用该安装目录用户选定的 JDK（AC1e）
+		if req.JavaHomes != nil {
+			if home, ok := req.JavaHomes[cluster.InstallDir]; ok {
+				cluster.JavaHome = home
+			}
+		}
 		// Create cluster / 创建集群
 		clusterID, err := s.clusterMatcher.CreateClusterFromDiscovery(ctx, host.ID, cluster)
 		if err != nil {

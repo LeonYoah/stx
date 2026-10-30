@@ -437,6 +437,7 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 				HazelcastPort: hazelcastPort,
 				APIPort:       apiPort,
 				WorkerPort:    workerPort,
+				JavaHome:      nodeReq.JavaHome, // 纳管写入节点生效 JDK（AC1e/AC1f / AC4c）
 				SkipPrecheck:  true, // Skip precheck for discovered nodes / 跳过发现节点的预检查
 			}
 

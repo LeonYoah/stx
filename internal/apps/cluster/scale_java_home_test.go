@@ -101,7 +101,8 @@ func TestPlanScaleOutDoesNotInheritPeerJavaHome(t *testing.T) {
 	if _, ok := params[0]["java_home"]; ok {
 		t.Fatalf("auto detection must keep the original empty params, got %v", params[0])
 	}
-	if checks := findCheck(plan, "java"); len(checks) != 1 || checks[0].Status != ScaleCheckPassed {
+	// 探测到的目录回传在 target 上供前端预填（AC1b）。/ The detected directory is reported in target for prefill (AC1b).
+	if checks := findCheck(plan, "java"); len(checks) != 1 || checks[0].Status != ScaleCheckPassed || checks[0].Target != "/usr/lib/jvm/default" {
 		t.Fatalf("java check = %+v", checks)
 	}
 }
@@ -213,5 +214,50 @@ func TestServiceAddNodeJavaHome(t *testing.T) {
 	}
 	if _, err := env.svc.AddNode(ctx, env.cluster.ID, &AddNodeRequest{HostID: 3, Role: NodeRoleMasterWorker, InstallDir: scaleTestInstallDir, HazelcastPort: 5801, JavaHome: "jdk", SkipPrecheck: true}); err == nil {
 		t.Fatal("relative java_home must be rejected")
+	}
+}
+
+// TestPlanScaleOutRegisterPrefersProcessJavaHome 覆盖 AC1f：纳管已运行节点时预选进程实际 JDK，不继承 peer。
+// TestPlanScaleOutRegisterPrefersProcessJavaHome covers AC1f: register mode preselects the process JDK and does not inherit a peer.
+func TestPlanScaleOutRegisterPrefersProcessJavaHome(t *testing.T) {
+	ctx := context.Background()
+	env := newScaleTestEnv(t, DeploymentModeHybrid, map[uint]NodeRole{1: NodeRoleMasterWorker})
+	nodes, _ := env.svc.repo.GetNodesByClusterID(ctx, env.cluster.ID)
+	nodes[0].JavaHome = "/opt/peer-jdk"
+	_ = env.svc.repo.UpdateNode(ctx, nodes[0])
+
+	env.discover.processes[2] = []ScaleDiscoveredProcess{{
+		PID: 4242, Role: "hybrid", InstallDir: scaleTestInstallDir, Version: env.cluster.Version,
+		HazelcastPort: 5801, APIPort: 8080, JavaHome: "/opt/process-jdk8",
+	}}
+
+	plan := env.mustPlanOut(t, ScaleOutRequest{HostID: 2, Mode: ScaleModeRegister})
+	if plan.Mode != ScaleModeRegister {
+		t.Fatalf("mode = %s", plan.Mode)
+	}
+	if plan.Target.JavaHome != "/opt/process-jdk8" {
+		t.Fatalf("expected process JDK preselected, got %q", plan.Target.JavaHome)
+	}
+}
+
+
+// TestCreateDiscoveryPersistsJavaHome 覆盖 AC1e：创建集群时发现节点携带的 java_home 写入节点记录。
+// TestCreateDiscoveryPersistsJavaHome covers AC1e: java_home on discovered nodes is stored when creating a cluster.
+func TestCreateDiscoveryPersistsJavaHome(t *testing.T) {
+	ctx := context.Background()
+	env := newScaleTestEnv(t, DeploymentModeHybrid, map[uint]NodeRole{})
+	cluster, err := env.svc.Create(ctx, &CreateClusterRequest{
+		Name: "disc-jdk", DeploymentMode: DeploymentModeHybrid, Version: "2.3.12", InstallDir: scaleTestInstallDir,
+		Nodes: []CreateNodeFromDiscovery{{
+			HostID: 1, InstallDir: scaleTestInstallDir, Role: "hybrid", PID: 99,
+			HazelcastPort: 5801, APIPort: 8080, JavaHome: "/opt/process-jdk8/",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	nodes, _ := env.svc.repo.GetNodesByClusterID(ctx, cluster.ID)
+	if len(nodes) != 1 || nodes[0].JavaHome != "/opt/process-jdk8" {
+		t.Fatalf("nodes = %+v", nodes)
 	}
 }

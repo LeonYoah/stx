@@ -1117,6 +1117,7 @@ func Serve() {
 			// Installation routes on hosts 主机安装路由
 			// POST /api/v1/hosts/:id/precheck - 运行预检查
 			// POST /api/v1/hosts/:id/precheck - Run precheck
+			hostRouter.GET("/:id/java-runtimes", installerHandler.ListJavaRuntimes)
 			hostRouter.POST("/:id/precheck", installerHandler.RunPrecheck)
 			apiV1Router.POST("/installer/runtime-storage/validate", auth.LoginRequired(), installerHandler.ValidateRuntimeStorage)
 
@@ -1562,7 +1563,7 @@ func commandStatusFromAgentResponse(status pb.CommandStatus) audit.CommandStatus
 // stringToCommandType 将命令类型字符串转换为 pb.CommandType。
 func (a *agentCommandSenderAdapter) stringToCommandType(cmdType string) pb.CommandType {
 	switch cmdType {
-	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "sync_local_logs", "sync_job_logs", "full":
+	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "list_java_homes", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "sync_local_logs", "sync_job_logs", "full":
 		return pb.CommandType_PRECHECK
 	case "install":
 		return pb.CommandType_INSTALL
@@ -1816,7 +1817,7 @@ func (a *installerAgentManagerAdapter) SendCommand(ctx context.Context, agentID 
 // stringToCommandType 将命令类型字符串转换为 pb.CommandType。
 func (a *installerAgentManagerAdapter) stringToCommandType(cmdType string) pb.CommandType {
 	switch cmdType {
-	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "full":
+	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "list_java_homes", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "full":
 		return pb.CommandType_PRECHECK
 	case "install":
 		return pb.CommandType_INSTALL
@@ -2183,6 +2184,7 @@ func parseDiscoveredProcessesJSON(output string) ([]*discovery.DiscoveredProcess
 		HazelcastPort int    `json:"hazelcast_port"`           // Hazelcast cluster port / Hazelcast 集群端口
 		APIPort       int    `json:"api_port"`                 // REST API port / REST API 端口
 		ClusterName   string `json:"cluster_name,omitempty"`   // Hazelcast cluster-name / Hazelcast 集群标识
+		JavaHome      string `json:"java_home,omitempty"`
 	}
 	type DiscoveryResult struct {
 		Success   bool          `json:"success"`
@@ -2213,6 +2215,7 @@ func parseDiscoveredProcessesJSON(output string) ([]*discovery.DiscoveredProcess
 			HazelcastPort: p.HazelcastPort,
 			APIPort:       p.APIPort,
 			ClusterName:   p.ClusterName,
+			JavaHome:      p.JavaHome,
 		})
 	}
 
@@ -2488,6 +2491,7 @@ func (a *clusterProcessDiscovererAdapter) DiscoverSeaTunnelProcesses(ctx context
 			HazelcastPort: process.HazelcastPort,
 			APIPort:       process.APIPort,
 			ClusterName:   process.ClusterName,
+			JavaHome:      process.JavaHome,
 		})
 	}
 	return processes, nil

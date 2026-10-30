@@ -39,6 +39,7 @@ import (
 	"time"
 
 	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 	"github.com/LeonYoah/stx/agent/internal/process"
 )
 
@@ -1113,7 +1114,14 @@ type jvmProcessInfo struct {
 // findSeaTunnelJVMProcesses 使用 jps 查找 SeaTunnel JVM 进程
 func (c *MetricsCollector) findSeaTunnelJVMProcesses() []jvmProcessInfo {
 	// Try to run jps command / 尝试运行 jps 命令
-	cmd := exec.Command("jps", "-l")
+	// jps 是主机级发现，没有节点上下文：取 Agent 生效 JDK 的 jps，缺失时回退 PATH（原有行为）。
+	// jps is host-level discovery without node context: use the Agent's effective JDK jps, falling back to PATH
+	// (the original behavior).
+	jpsPath, lookupErr := javaenv.LookupTool("", "jps")
+	if lookupErr != nil {
+		jpsPath = "jps"
+	}
+	cmd := exec.Command(jpsPath, "-l")
 	output, err := cmd.Output()
 	if err != nil {
 		// jps not available, try alternative method
@@ -1235,10 +1243,21 @@ func (c *MetricsCollector) collectJVMMetricsForPID(pid int, name string) *JVMMet
 	return metrics
 }
 
+// jstatPath 返回目标 JVM 对应的 jstat；无法定位时回退到 PATH 上的 jstat（原有行为）。
+// jstatPath returns the jstat matching the target JVM; it falls back to jstat on PATH (the original behavior).
+func jstatPath(pid int) string {
+	if path, err := javaenv.ToolForPID(pid, "jstat"); err == nil {
+		return path
+	}
+	return "jstat"
+}
+
 // collectJStatGC collects GC statistics using jstat -gc
 // collectJStatGC 使用 jstat -gc 采集 GC 统计信息
 func (c *MetricsCollector) collectJStatGC(pid int, metrics *JVMMetrics) {
-	cmd := exec.Command("jstat", "-gc", strconv.Itoa(pid))
+	// jstat 取目标 JVM 自身 JDK（/proc/<pid>/exe），与节点生效的 JAVA_HOME 一致。
+	// jstat comes from the target JVM's own JDK (/proc/<pid>/exe), matching the node's effective JAVA_HOME.
+	cmd := exec.Command(jstatPath(pid), "-gc", strconv.Itoa(pid))
 	output, err := cmd.Output()
 	if err != nil {
 		return
@@ -1305,7 +1324,9 @@ func (c *MetricsCollector) collectJStatGC(pid int, metrics *JVMMetrics) {
 // collectJStatClass collects class loading statistics using jstat -class
 // collectJStatClass 使用 jstat -class 采集类加载统计信息
 func (c *MetricsCollector) collectJStatClass(pid int, metrics *JVMMetrics) {
-	cmd := exec.Command("jstat", "-class", strconv.Itoa(pid))
+	// jstat 取目标 JVM 自身 JDK（/proc/<pid>/exe），与节点生效的 JAVA_HOME 一致。
+	// jstat comes from the target JVM's own JDK (/proc/<pid>/exe), matching the node's effective JAVA_HOME.
+	cmd := exec.Command(jstatPath(pid), "-class", strconv.Itoa(pid))
 	output, err := cmd.Output()
 	if err != nil {
 		return

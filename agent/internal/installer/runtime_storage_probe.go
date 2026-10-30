@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 	"github.com/LeonYoah/stx/agent/internal/logger"
 	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 	"gopkg.in/yaml.v3"
@@ -680,7 +681,8 @@ func ensureSTXJavaProxyService(
 		if pid <= 0 {
 			pid = stxJavaProxyPIDByPort(ctx, port)
 		}
-		if pid > 0 && !stxJavaProxyCommandLineMatchesDesired(stxJavaProxyProcessCommandLine(pid), installDir, seatunnelVersion) {
+		if pid > 0 && (!stxJavaProxyCommandLineMatchesDesired(stxJavaProxyProcessCommandLine(pid), installDir, seatunnelVersion) ||
+			!stxJavaProxyJavaMatchesDesired(pid, javaenv.HomeFromContext(ctx))) {
 			logger.WarnF(ctx, "[stx-java-proxy] healthy listener mismatches desired runtime, restarting: port=%d, pid=%d, installDir=%s, version=%s", port, pid, installDir, seatunnelVersion)
 			if _, stopErr := StopManagedSTXJavaProxyService(ctx, installDir); stopErr != nil {
 				logger.WarnF(ctx, "[stx-java-proxy] stop mismatched healthy listener failed: port=%d, pid=%d, error=%v", port, pid, stopErr)
@@ -756,6 +758,7 @@ func startSTXJavaProxyService(
 	if effectiveJvmOpts != "" {
 		env = append(env, fmt.Sprintf("%s=%s", stxJavaProxyJvmOptsEnvVar, effectiveJvmOpts))
 	}
+	env = appendSTXJavaProxyJavaEnv(ctx, env)
 	cmd.Env = env
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -775,6 +778,24 @@ func startSTXJavaProxyService(
 		return "", fmt.Errorf("wait for managed stx-java-proxy service on %s: %w", baseURL, err)
 	}
 	return baseURL, nil
+}
+
+// appendSTXJavaProxyJavaEnv 让 stx-java-proxy 与同节点 SeaTunnel 使用同一个 JDK：通过 STX_JAVA_BIN 传入 java 可执行文件，
+// 避免 bash -lc 读取 profile 后换成别的 java。配置了 java_home 时同时设置 JAVA_HOME；无法解析时不设置，脚本回退到 PATH 上的 java。
+// appendSTXJavaProxyJavaEnv makes stx-java-proxy use the same JDK as SeaTunnel on the node: the java executable
+// is passed through STX_JAVA_BIN so bash -lc profiles cannot swap in another java. A configured java_home also sets
+// JAVA_HOME; when nothing resolves, nothing is set and the script falls back to java on PATH.
+func appendSTXJavaProxyJavaEnv(ctx context.Context, env []string) []string {
+	javaHome := javaenv.HomeFromContext(ctx)
+	rt, err := javaenv.Resolve(javaHome)
+	if err != nil || rt == nil || strings.TrimSpace(rt.JavaBin) == "" {
+		return env
+	}
+	env = append(env, fmt.Sprintf("%s=%s", javaenv.EnvJavaBin, rt.JavaBin))
+	if rt.Source == javaenv.SourceCustom {
+		env = append(env, "JAVA_HOME="+rt.JavaHome)
+	}
+	return env
 }
 
 func probeSTXJavaProxyHealth(ctx context.Context, baseURL string, timeout time.Duration) (error, map[string]interface{}) {

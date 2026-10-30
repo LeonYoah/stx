@@ -34,6 +34,7 @@ import (
 	"time"
 
 	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 )
 
 // Common errors for command execution
@@ -174,6 +175,9 @@ func (e *CommandExecutor) Execute(ctx context.Context, cmd *pb.CommandRequest, r
 	// Create context with timeout / 创建带超时的上下文
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	// 控制面按节点下发的 java_home 放入上下文，同一命令内按需启动的 Java 子进程统一读取。
+	// Put the per-node java_home sent by the Control Plane into the context for Java children started by this command.
+	execCtx = javaenv.WithHome(execCtx, cmd.Parameters[javaenv.ParamJavaHome])
 
 	// Create a channel for the result / 创建结果通道
 	resultCh := make(chan *pb.CommandResponse, 1)

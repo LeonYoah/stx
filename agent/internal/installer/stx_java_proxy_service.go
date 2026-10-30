@@ -32,6 +32,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 	"github.com/LeonYoah/stx/agent/internal/logger"
 	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 )
@@ -57,16 +58,29 @@ type STXJavaProxyServiceStatus struct {
 // StartManagedSTXJavaProxyService ensures the managed stx-java-proxy service is available.
 // preferredPort>0 时优先使用该端口；否则回退到环境变量 / 落盘端口 / 默认 18080。
 // When preferredPort > 0 it is tried first; otherwise env / persisted / default 18080 apply.
+// javaHome 是代理所在节点配置的 JDK（cluster_nodes.java_home），为空时与 SeaTunnel 一样使用 Agent 环境中的 java。
+// javaHome is the configured JDK of the node hosting the proxy (cluster_nodes.java_home); empty uses the Agent
+// environment java, just like SeaTunnel.
 func StartManagedSTXJavaProxyService(
 	ctx context.Context,
 	installDir string,
 	seatunnelVersion string,
 	preferredPort int,
-	optionalJvmOpts ...string,
+	jvmOpts string,
+	javaHome string,
 ) (*STXJavaProxyServiceStatus, error) {
-	desiredJvmOpts := ""
-	if len(optionalJvmOpts) > 0 && strings.TrimSpace(optionalJvmOpts[0]) != "" {
-		desiredJvmOpts = strings.TrimSpace(optionalJvmOpts[0])
+	desiredJvmOpts := strings.TrimSpace(jvmOpts)
+	javaHome = javaenv.NormalizeHome(javaHome)
+	if javaHome == "" {
+		javaHome = javaenv.HomeFromContext(ctx)
+	}
+	if javaHome != "" {
+		// 配置的 JDK 不可用时直接失败，不回退到其他 java。
+		// Fail fast on an unusable configured JDK instead of falling back to another java.
+		if _, err := javaenv.ValidateHome(javaHome); err != nil {
+			return nil, fmt.Errorf("invalid node JDK for stx-java-proxy / stx-java-proxy 的节点 JDK 不可用: %w", err)
+		}
+		ctx = javaenv.WithHome(ctx, javaHome)
 	}
 
 	status, _ := GetManagedSTXJavaProxyServiceStatus(ctx, installDir)
@@ -76,7 +90,8 @@ func StartManagedSTXJavaProxyService(
 		portMatches := preferredPort <= 0 || status.Port <= 0 || status.Port == preferredPort
 		jvmMatches := desiredJvmOpts == "" || status.JvmOpts == desiredJvmOpts
 		runtimeMatches := stxJavaProxyStatusMatchesDesired(status, installDir, seatunnelVersion)
-		if portMatches && jvmMatches && runtimeMatches {
+		javaMatches := stxJavaProxyJavaMatchesDesired(status.PID, javaHome)
+		if portMatches && jvmMatches && runtimeMatches && javaMatches {
 			return status, nil
 		}
 		// 端口、JVM、安装目录或代际不一致时先停旧实例，再按目标参数启动。
@@ -107,6 +122,21 @@ func StartManagedSTXJavaProxyService(
 	}
 	status.Message = firstNonBlank(status.Message, "stx-java-proxy service started")
 	return status, nil
+}
+
+// stxJavaProxyJavaMatchesDesired 判断运行中的代理是否使用节点配置的 JDK；未配置或无法读取进程时视为匹配（保持原有行为）。
+// stxJavaProxyJavaMatchesDesired reports whether the running proxy uses the node's configured JDK; no configured
+// JDK or an unreadable process counts as a match (the original behavior).
+func stxJavaProxyJavaMatchesDesired(pid int, javaHome string) bool {
+	javaHome = javaenv.NormalizeHome(javaHome)
+	if javaHome == "" || pid <= 0 {
+		return true
+	}
+	exe := javaenv.ProcessExecutable(pid)
+	if exe == "" {
+		return true
+	}
+	return javaenv.SameExecutable(exe, filepath.Join(javaHome, "bin", "java"))
 }
 
 // GetManagedSTXJavaProxyServiceStatus returns the current stx-java-proxy state.

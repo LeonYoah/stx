@@ -26,6 +26,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 )
 
 // BackupInstallDir 备份安装目录，并跳过 logs 目录。
@@ -158,7 +160,9 @@ func (m *InstallerManager) RunSmokeTestTemplate(ctx context.Context, installDir 
 	smokeCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(smokeCtx, "bash", "-lc", "./bin/seatunnel.sh -c config/v2.batch.config.template")
+	// 节点配置了 JDK 时在 profile 之后导出；未配置时命令不变。
+	// A configured node JDK is exported after the profiles; without one the command is unchanged.
+	cmd := exec.CommandContext(smokeCtx, "bash", "-lc", javaenv.ShellExportPrefix(javaenv.HomeFromContext(ctx))+"./bin/seatunnel.sh -c config/v2.batch.config.template")
 	cmd.Dir = installDir
 	output, err := cmd.CombinedOutput()
 	summary := summarizeCommandOutput(string(output))

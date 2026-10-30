@@ -21,12 +21,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	pb "github.com/LeonYoah/stx/agent"
 	"github.com/LeonYoah/stx/agent/internal/installer"
+	"github.com/LeonYoah/stx/agent/internal/javaenv"
 )
 
 // PrecheckSubCommand defines the sub-command types for precheck
@@ -315,16 +317,44 @@ func handleCheckProcess(ctx context.Context, params map[string]string) (*Prechec
 	}, nil
 }
 
-// handleCheckJava handles the check_java sub-command
-// handleCheckJava 处理 check_java 子命令
+// handleCheckJava handles the check_java sub-command.
+// handleCheckJava 处理 check_java 子命令。
+// 参数 java_home 非空时只检查 <java_home>/bin/java，路径缺失或不可执行直接失败；为空时沿用原有 PATH 探测。
+// 两种情况都在 details 中返回实际检查的 java_home、java_bin 与来源（custom / detected）。
+// A non-empty java_home parameter checks only <java_home>/bin/java and fails on a missing or non-executable path;
+// an empty one keeps the original PATH detection. Both report the checked java_home, java_bin and source
+// (custom / detected) in details.
 func handleCheckJava(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
 	prechecker := installer.NewPrechecker(nil)
-	item := prechecker.CheckJava(ctx)
+	configured := javaenv.NormalizeHome(params[javaenv.ParamJavaHome])
 
+	var item installer.PrecheckItem
 	details := make(map[string]string)
+	if configured != "" {
+		details["java_home_source"] = string(javaenv.SourceCustom)
+		details["java_home"] = configured
+		rt, err := javaenv.ValidateHome(configured)
+		if err != nil {
+			details["error_reason"] = javaenv.ReasonOf(err)
+			details["java_bin"] = filepath.Join(configured, "bin", "java")
+			return &PrecheckResult{Success: false, Message: err.Error(), Details: details}, nil
+		}
+		details["java_bin"] = rt.JavaBin
+		item = prechecker.CheckJavaAt(ctx, rt.JavaBin)
+	} else {
+		details["java_home_source"] = string(javaenv.SourceDetected)
+		if rt, err := javaenv.Detect(); err == nil {
+			details["java_home"] = rt.JavaHome
+			details["java_bin"] = rt.JavaBin
+		}
+		item = prechecker.CheckJava(ctx)
+	}
+
 	for k, v := range item.Details {
 		details[k] = fmt.Sprintf("%v", v)
 	}
+	// 回传检查状态，控制面据此区分通过与警告。/ Report the check status so the Control Plane can tell pass from warning.
+	details["check_status"] = string(item.Status)
 
 	return &PrecheckResult{
 		Success: item.Status == installer.CheckStatusPassed || item.Status == installer.CheckStatusWarning,

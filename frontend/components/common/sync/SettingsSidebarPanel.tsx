@@ -420,7 +420,7 @@ export function SettingsSidebarPanel({
     <div className='min-w-0 w-full space-y-3.5'>
       {/* 运行与集群环境配置（置顶） */}
       {/* Execution mode and cluster environment settings (top) */}
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
+      <div className='rounded-lg border border-border/60 bg-muted/10 p-3 space-y-2.5'>
         <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
           <Cpu className='size-3.5 text-primary' />
           <span>{t('executionAndCluster')}</span>
@@ -527,7 +527,7 @@ export function SettingsSidebarPanel({
 
       {/* 模板：精选列表 + 预览，再是原始默认参数 */}
       {/* Templates: curated list + preview, then raw defaults */}
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
+      <div className='rounded-lg border border-border/60 bg-muted/10 p-3 space-y-2.5'>
         <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
           <Layers className='size-3.5 text-primary' />
           <span>{t('templates')}</span>
@@ -630,7 +630,7 @@ export function SettingsSidebarPanel({
 
       {/* 任务变量管理（自定义、模板提取与内置时间变量） */}
       {/* Task variables management (custom, detected, and builtin time variables) */}
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-3'>
+      <div className='rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3'>
         <div className='flex items-center justify-between'>
           <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
             <Code2 className='size-3.5 text-primary' />

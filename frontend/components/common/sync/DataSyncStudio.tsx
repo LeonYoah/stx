@@ -4843,7 +4843,7 @@ export function DataSyncStudio() {
                   type='button'
                   onClick={() => handleFilterScopeChange('mine_and_public')}
                   className={cn(
-                    'flex-1 rounded-[3px] py-0.5 text-center font-medium transition-all',
+                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
                     treeFilterScope === 'mine_and_public'
                       ? 'bg-background text-foreground shadow-2xs font-semibold'
                       : 'text-muted-foreground/80 hover:text-foreground',
@@ -4856,7 +4856,7 @@ export function DataSyncStudio() {
                   type='button'
                   onClick={() => handleFilterScopeChange('all')}
                   className={cn(
-                    'flex-1 rounded-[3px] py-0.5 text-center font-medium transition-all',
+                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
                     treeFilterScope === 'all'
                       ? 'bg-background text-foreground shadow-2xs font-semibold'
                       : 'text-muted-foreground/80 hover:text-foreground',
@@ -4868,7 +4868,7 @@ export function DataSyncStudio() {
                   type='button'
                   onClick={() => handleFilterScopeChange('only_mine')}
                   className={cn(
-                    'flex-1 rounded-[3px] py-0.5 text-center font-medium transition-all',
+                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
                     treeFilterScope === 'only_mine'
                       ? 'bg-background text-foreground shadow-2xs font-semibold'
                       : 'text-muted-foreground/80 hover:text-foreground',
@@ -5081,9 +5081,6 @@ export function DataSyncStudio() {
                     title={t('unsavedChanges')}
                   />
                 ) : null}
-                <span className='ml-1 font-mono text-[10px] uppercase text-muted-foreground/50'>
-                  ({editor.contentFormat || 'hocon'})
-                </span>
               </div>
             ) : null}
 
@@ -5356,13 +5353,13 @@ export function DataSyncStudio() {
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 控制台顶部横向选项卡与操作区 */}
             {/* Console top horizontal tab switcher and action area */}
-            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/50 bg-muted/20 px-2'>
+            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/60 bg-muted/20 px-2'>
               <div className='flex items-center gap-1'>
                 <button
                   type='button'
                   aria-label={t('jobs')}
                   className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
                     bottomConsoleTab === 'jobs'
                       ? 'bg-background text-foreground shadow-xs'
                       : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
@@ -5379,7 +5376,7 @@ export function DataSyncStudio() {
                   type='button'
                   aria-label={t('logs')}
                   className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
                     bottomConsoleTab === 'logs'
                       ? 'bg-background text-foreground shadow-xs'
                       : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
@@ -5393,7 +5390,7 @@ export function DataSyncStudio() {
                   type='button'
                   aria-label={t('preview')}
                   className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
                     bottomConsoleTab === 'preview'
                       ? 'bg-background text-foreground shadow-xs'
                       : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
@@ -5407,7 +5404,7 @@ export function DataSyncStudio() {
                   type='button'
                   aria-label={t('checkpoint')}
                   className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
                     bottomConsoleTab === 'checkpoint'
                       ? 'bg-background text-foreground shadow-xs'
                       : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
@@ -6066,14 +6063,14 @@ export function DataSyncStudio() {
               <Badge variant='outline'>Side by Side</Badge>
             </div>
             <div className='flex flex-wrap items-center gap-2'>
-              <div className='flex items-center gap-2 rounded-md border border-border/50 bg-background/70 px-2 py-1'>
+              <div className='flex items-center gap-2 rounded-md border border-border/60 bg-background/70 px-2 py-1'>
                 <LayoutPanelTop className='size-3.5' />
                 <span>
                   v{compareVersion?.version || '-'} /{' '}
                   {compareVersion?.name_snapshot || t('historicalVersion')}
                 </span>
               </div>
-              <div className='flex items-center gap-2 rounded-md border border-border/50 bg-background/70 px-2 py-1'>
+              <div className='flex items-center gap-2 rounded-md border border-border/60 bg-background/70 px-2 py-1'>
                 <Columns2 className='size-3.5' />
                 <span>
                   {t('currentEditing')} / {editor.name || t('unnamedFile')}
@@ -6137,7 +6134,7 @@ export function DataSyncStudio() {
                 placeholder={t('searchLogKeyword')}
                 className='h-8 w-[320px]'
               />
-              <div className='flex items-center gap-1 rounded-md border border-border/50 bg-background px-1 py-1'>
+              <div className='flex items-center gap-1 rounded-md border border-border/60 bg-background px-1 py-1'>
                 <Funnel className='ml-1 size-3.5 text-muted-foreground' />
                 {(['all', 'warn', 'error'] as LogFilterMode[]).map((mode) => (
                   <button

@@ -241,7 +241,7 @@ export function CuratedTemplatesPanel({
                       'w-full rounded-md border px-2.5 py-1.5 text-left transition-colors',
                       active
                         ? 'border-primary/50 bg-primary/5'
-                        : 'border-border/50 bg-background/60 hover:border-primary/40 hover:bg-muted/30',
+                        : 'border-border/60 bg-background/60 hover:border-primary/40 hover:bg-muted/30',
                     )}
                     onClick={() => setSelectedKey(key)}
                   >
@@ -271,7 +271,7 @@ export function CuratedTemplatesPanel({
 
       {/* 预览区：选中后展示 HOCON */}
       {/* Preview pane: show HOCON after selection */}
-      <div className='rounded-md border border-border/50 bg-background/70 overflow-hidden'>
+      <div className='rounded-md border border-border/60 bg-background/70 overflow-hidden'>
         <div className='flex items-center justify-between gap-2 border-b border-border/40 px-2.5 py-1.5'>
           <div className='flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground'>
             <Eye className='size-3' />

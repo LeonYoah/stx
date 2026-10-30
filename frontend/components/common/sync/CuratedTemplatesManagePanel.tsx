@@ -387,7 +387,7 @@ export function CuratedTemplatesManagePanel({
 
   return (
     <div className='flex h-full min-h-0 w-full min-w-0 flex-col gap-3.5'>
-      <div className='shrink-0 rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
+      <div className='shrink-0 rounded-lg border border-border/60 bg-muted/10 p-3 space-y-2.5'>
         <div className='flex items-center justify-between gap-2'>
           <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
             <Wrench className='size-3.5 text-primary' />
@@ -471,7 +471,7 @@ export function CuratedTemplatesManagePanel({
               <div
                 key={key}
                 className={cn(
-                  'rounded-md border border-border/50 bg-background/60 px-2.5 py-2 transition-colors',
+                  'rounded-md border border-border/60 bg-background/60 px-2.5 py-2 transition-colors',
                   !owned && 'opacity-95',
                 )}
               >
@@ -625,7 +625,7 @@ export function CuratedTemplatesManagePanel({
                 {/* 卡片内联速览区 */}
                 {/* Inline script preview card */}
                 {isExpanded ? (
-                  <div className='mt-2 rounded-md border border-border/50 bg-muted/20 overflow-hidden'>
+                  <div className='mt-2 rounded-md border border-border/60 bg-muted/20 overflow-hidden'>
                     <div className='flex items-center justify-between border-b border-border/40 bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground'>
                       <span className='font-mono font-medium'>
                         HOCON ({item.section})

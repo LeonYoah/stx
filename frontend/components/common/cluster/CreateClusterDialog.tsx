@@ -32,6 +32,7 @@ import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
+import {HelpHint} from '@/components/common/HelpHint';
 import {Textarea} from '@/components/ui/textarea';
 import {
   Dialog,
@@ -730,7 +731,6 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                 </Button>
               </div>
             )}
-            <p className='text-xs text-muted-foreground'>{t('discovery.discoverMultiHostHint')}</p>
           </div>
 
           {/* Discovered Processes by Host / 按主机分组的发现进程 */}
@@ -887,45 +887,55 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                 {/* Proxy Service Description & Toggle / 代理服务说明与开关 */}
                 <div className='space-y-2'>
                   <div className='flex items-center justify-between'>
-                    <div className='flex items-center gap-1.5'>
+                    <div className='flex items-center gap-2'>
                       <Label className='text-xs font-semibold'>
                         {t('cluster.stxJavaProxy.title')}
                       </Label>
+                      <HelpHint
+                        label={t('cluster.stxJavaProxy.title')}
+                        content={t('cluster.stxJavaProxyDesc')}
+                        data-testid='register-cluster-java-proxy-hint'
+                      />
                       <span className='inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary'>
                         <Sparkles className='h-2.5 w-2.5' />
                         {t('cluster.wizard.modeBadgeProduction')}
                       </span>
                     </div>
                   </div>
-                  <p className='text-xs text-muted-foreground leading-relaxed'>
-                    {t('cluster.stxJavaProxyDesc')}
-                  </p>
-
                   <div className='flex items-start gap-2 pt-1'>
                     <Checkbox
                       id='auto-start-proxy'
                       checked={autoStartProxy}
                       onCheckedChange={(checked) => setAutoStartProxy(Boolean(checked))}
                     />
-                    <div className='grid gap-0.5 leading-none'>
+                    <div className='flex items-center gap-2 leading-none'>
                       <Label
                         htmlFor='auto-start-proxy'
                         className='text-xs font-medium cursor-pointer'
                       >
                         {t('cluster.autoStartProxy')}
                       </Label>
-                      <p className='text-[11px] text-muted-foreground'>
-                        {t('cluster.autoStartProxyHelp')}
-                      </p>
+                      <HelpHint
+                        label={t('cluster.autoStartProxy')}
+                        content={t('cluster.autoStartProxyHelp')}
+                        data-testid='register-cluster-auto-start-proxy-hint'
+                      />
                     </div>
                   </div>
                 </div>
 
                 {/* Proxy Port / 代理端口 */}
                 <div className='space-y-1.5'>
-                  <Label htmlFor='proxy-port' className='text-xs font-medium'>
-                    {t('cluster.proxyPort')}
-                  </Label>
+                  <div className='flex items-center gap-2'>
+                    <Label htmlFor='proxy-port' className='text-xs font-medium'>
+                      {t('cluster.proxyPort')}
+                    </Label>
+                    <HelpHint
+                      label={t('cluster.proxyPort')}
+                      content={t('cluster.proxyPortHelp')}
+                      data-testid='register-cluster-proxy-port-hint'
+                    />
+                  </div>
                   <Input
                     id='proxy-port'
                     type='number'
@@ -936,9 +946,6 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                     placeholder={t('cluster.proxyPortPlaceholder') || '18080'}
                     className='h-8 text-xs font-mono'
                   />
-                  <p className='text-[11px] text-muted-foreground'>
-                    {t('cluster.proxyPortHelp')}
-                  </p>
                 </div>
 
                 {/* JVM Options / JVM 参数与预设 */}
@@ -986,9 +993,6 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                     placeholder='-Xms128m -Xmx512m'
                     className='h-8 text-xs font-mono'
                   />
-                  <p className='text-[11px] text-muted-foreground'>
-                    {t('cluster.proxyJvmOptsHelp')}
-                  </p>
                 </div>
               </div>
             )}

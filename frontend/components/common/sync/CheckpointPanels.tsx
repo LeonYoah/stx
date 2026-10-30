@@ -72,6 +72,7 @@ import {
 } from '@/components/ui/table';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {HelpHint} from '@/components/common/HelpHint';
 import {cn} from '@/lib/utils';
 import type {
   RuntimeStorageCheckpointInspectResult,
@@ -2496,11 +2497,18 @@ export function CheckpointInspectDialog({
                     <div className='mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary'>
                       <Sparkles className='size-3.5' />
                     </div>
-                    <div className='min-w-0 flex-1 space-y-1'>
+                    <div className='min-w-0 flex-1'>
                       <div className='flex items-center justify-between gap-2'>
-                        <span className='text-xs font-semibold text-foreground'>
-                          {t('manualSpecifyConnector') || '手动指定源端连接器'}
-                        </span>
+                        <div className='flex items-center gap-2'>
+                          <span className='text-xs font-semibold text-foreground'>
+                            {t('manualSpecifyConnector') || '手动指定源端连接器'}
+                          </span>
+                          <HelpHint
+                            label={t('manualSpecifyConnector')}
+                            content={t('manualSpecifyConnectorDesc')}
+                            data-testid='checkpoint-manual-connector-hint'
+                          />
+                        </div>
                         {hasSourceStates && (
                           <Button
                             variant='ghost'
@@ -2511,10 +2519,6 @@ export function CheckpointInspectDialog({
                             收起 / Close
                           </Button>
                         )}
-                      </div>
-                      <div className='text-[11px] leading-relaxed text-muted-foreground'>
-                        {t('manualSpecifyConnectorDesc') ||
-                          '当前快照未自动关联作业配置。您可以手动指定源端所属连接器，系统将基于对应驱动反序列化增量位点（如 MySQL Binlog、Kafka Offset）：'}
                       </div>
                     </div>
                   </div>

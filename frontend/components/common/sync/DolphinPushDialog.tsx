@@ -42,6 +42,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {Switch} from '@/components/ui/switch';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {HELP_HINT_DELAY_MS, HelpHint} from '@/components/common/HelpHint';
 import {cn} from '@/lib/utils';
 import {SyncService} from '@/lib/services/sync/sync.service';
 import type {
@@ -321,6 +323,17 @@ export function DolphinPushDialog({
     }
   };
 
+  const confirmPushButton = (
+    <Button
+      type='button'
+      data-testid='dolphin-confirm-push'
+      disabled={busy || cycle || Boolean(pushBlocked)}
+      onClick={() => void submit(false)}
+    >
+      {busy ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinConfirmPush')}
+    </Button>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -425,7 +438,6 @@ export function DolphinPushDialog({
 
             {bound ? (
               <div className='space-y-3 rounded-lg border border-border/50 bg-muted/10 p-3 text-xs'>
-                <div className='font-medium'>{t('dolphinBoundHint')}</div>
                 {boundRemoteScript ? (
                   <div className='min-w-0'>
                     <div className='mb-1 text-[11px] text-muted-foreground'>
@@ -570,13 +582,18 @@ export function DolphinPushDialog({
           >
             {t('dolphinDryRun')}
           </Button>
-          <Button
-            type='button'
-            disabled={busy || cycle || Boolean(pushBlocked)}
-            onClick={() => void submit(false)}
-          >
-            {busy ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinConfirmPush')}
-          </Button>
+          {bound ? (
+            // 已绑定时说明再次推送的覆盖范围；不可推送时原生 disabled，原因见上方警示
+            // When bound, explain what a re-push overwrites; when blocked the warning above gives the reason
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>{confirmPushButton}</TooltipTrigger>
+              <TooltipContent className='max-w-xs text-xs leading-relaxed'>
+                {t('dolphinBoundHint')}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            confirmPushButton
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -655,7 +672,14 @@ function ConnectionCreateFields({
           </p>
         </div>
         <div className='space-y-1.5 min-w-0 sm:col-span-2'>
-          <Label htmlFor='dolphin-connection-version'>{t('dolphinVersion')}</Label>
+          <div className='flex items-center gap-2'>
+            <Label htmlFor='dolphin-connection-version'>{t('dolphinVersion')}</Label>
+            <HelpHint
+              label={t('dolphinVersion')}
+              content={t('dolphinVersionHint')}
+              data-testid='dolphin-connection-version-hint'
+            />
+          </div>
           <Input
             id='dolphin-connection-version'
             value={connVersion}
@@ -664,9 +688,6 @@ function ConnectionCreateFields({
           />
         </div>
       </div>
-      <p className='text-[11px] leading-relaxed text-muted-foreground'>
-        {t('dolphinVersionHint')}
-      </p>
       <Button type='button' size='sm' disabled={creating} onClick={onSave}>
         {creating ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinSaveConnection')}
       </Button>

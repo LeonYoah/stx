@@ -18,7 +18,7 @@
 // 节点抽屉：作业列表轮询会换掉 tablePaths 数组引用，用户选的表和搜索词不能因此被重置。
 // Node drawer: job list polling replaces the tablePaths array, which must not reset the user's table or search text.
 
-import {fireEvent, render, screen} from '@testing-library/react';
+import {act, fireEvent, render, screen} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import type {ReactNode} from 'react';
 import {describe, expect, it, vi} from 'vitest';
@@ -27,6 +27,13 @@ import {normalizeJobDag, type DagVertex} from '../dag-model';
 import {DagNodeDrawer} from '../DagNodeDrawer';
 
 vi.mock('sonner', () => ({toast: {success: vi.fn()}}));
+
+// Radix Popper 依赖 ResizeObserver，jsdom 未提供 / Radix Popper needs ResizeObserver, which jsdom lacks
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as unknown as typeof ResizeObserver;
 
 function sourceVertex(): DagVertex {
   return normalizeJobDag({
@@ -64,7 +71,7 @@ describe('DagNodeDrawer', () => {
     expect(screen.queryByText('name')).toBeNull();
   });
 
-  it('keeps the plan-DAG refresh control visible when available=true', () => {
+  it('keeps the plan-DAG refresh control visible when available=true', async () => {
     const onRefresh = vi.fn();
     const labels = zh.workbenchStudio.jobDetail;
     render(
@@ -83,7 +90,14 @@ describe('DagNodeDrawer', () => {
     // Open schema via a table click (same path as production) so TabsContent mounts.
     // 通过点击表名进入表结构页签（与线上一致），确保 TabsContent 挂载。
     fireEvent.click(screen.getByText('db.public.mt_customers'));
-    expect(screen.getByText(labels.schemaLiveHint)).toBeTruthy();
+    // 说明不再常驻，收进「表结构」页签的 Tooltip / The hint moved from the panel into the schema tab tooltip
+    expect(screen.queryByText(labels.schemaLiveHint)).toBeNull();
+    const schemaTab = screen.getByTestId('dag-node-tab-schema');
+    await act(async () => {
+      schemaTab.focus();
+      fireEvent.focus(schemaTab);
+    });
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(labels.schemaLiveHint);
     const refresh = screen.getByTestId('plan-dag-refresh');
     expect(refresh).toBeTruthy();
     fireEvent.click(refresh);

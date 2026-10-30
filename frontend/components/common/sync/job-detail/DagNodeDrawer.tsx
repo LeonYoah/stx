@@ -27,6 +27,8 @@ import {Input} from '@/components/ui/input';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/components/ui/table';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {HELP_HINT_DELAY_MS} from '@/components/common/HelpHint';
 import {cn} from '@/lib/utils';
 import type {SyncSinkSaveModePreviewTable} from '@/lib/services/sync';
 import {
@@ -276,8 +278,24 @@ export function DagNodeDrawer({
       <Tabs value={tab} onValueChange={(value) => setTab(value as DrawerTab)} className='flex min-h-0 flex-1 flex-col gap-0'>
         <TabsList className='mx-3 mt-2 h-8 w-fit'>
           <TabsTrigger value='overview' className='text-xs'>{t('tab.overview')}</TabsTrigger>
-          <TabsTrigger value='schema' className='text-xs'>{t('tab.schema')}</TabsTrigger>
-          {isSink ? <TabsTrigger value='plan' className='text-xs'>{t('tab.plan')}</TabsTrigger> : null}
+          <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+            <TooltipTrigger asChild>
+              <TabsTrigger value='schema' className='text-xs' data-testid='dag-node-tab-schema'>{t('tab.schema')}</TabsTrigger>
+            </TooltipTrigger>
+            {runtime && plan?.available ? (
+              <TooltipContent className='max-w-xs text-xs leading-relaxed'>{t('schemaLiveHint')}</TooltipContent>
+            ) : null}
+          </Tooltip>
+          {isSink ? (
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>
+                <TabsTrigger value='plan' className='text-xs' data-testid='dag-node-tab-plan'>{t('tab.plan')}</TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent className='max-w-xs text-xs leading-relaxed'>
+                {runtime ? t('planReadonlyHint') : t('planPreviewHint')}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
           {runtime ? <TabsTrigger value='metrics' className='text-xs'>{t('tab.metrics')}</TabsTrigger> : null}
         </TabsList>
 
@@ -386,9 +404,6 @@ export function DagNodeDrawer({
               </Button>
             </div>
           ) : null}
-          {runtime && plan?.available ? (
-            <p className='mt-2 text-[11px] text-muted-foreground'>{t('schemaLiveHint')}</p>
-          ) : null}
           {schema ? (
             <div className='mt-3 space-y-3'>
               <dl className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs'>
@@ -455,7 +470,6 @@ export function DagNodeDrawer({
         {isSink ? (
           <TabsContent value='plan' className='min-h-0 flex-1 overflow-auto px-3 py-3'>
             {vertex.tablePaths.length > 1 ? <TablePicker tables={vertex.tablePaths} value={table} onChange={setTable} /> : null}
-            <p className='mt-2 text-[11px] text-muted-foreground'>{runtime ? t('planReadonlyHint') : t('planPreviewHint')}</p>
             {planNotice ? <p className='mt-2 text-xs text-muted-foreground'>{planNotice}</p> : null}
             <div className='mt-3'>
               {savePlan ? <SaveModePlanView preview={savePlan} /> : !planNotice ? <p className='text-xs text-muted-foreground'>{t('noPlanActions')}</p> : null}

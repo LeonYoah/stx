@@ -26,7 +26,6 @@ import { useState, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -167,12 +166,9 @@ export function UploadPackageDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px]" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('installer.uploadPackage')}</DialogTitle>
-          <DialogDescription>
-            {t('installer.uploadPackageDesc')}
-          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">

@@ -17,13 +17,13 @@
 
 'use client';
 
-import type {ReactElement} from 'react';
+import {useState, type ReactElement} from 'react';
 
 import {HELP_HINT_DELAY_MS} from '@/components/common/HelpHint';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 
 interface DisabledReasonTooltipProps {
-  /** 不可用原因；为空时原样渲染子元素 / Why the control is unavailable; renders children as-is when empty */
+  /** 不可用原因；为空时不弹 Tooltip / Why the control is unavailable; no tooltip when empty */
   reason?: string | null;
   /**
    * 子元素需自行设置 aria-disabled 并拦截点击，保持可聚焦以便键盘打开 Tooltip。
@@ -34,23 +34,29 @@ interface DisabledReasonTooltipProps {
 
 /**
  * 给「不可用」按钮挂上原因 Tooltip / Attach a reason tooltip to an unavailable control.
+ *
+ * 无论有没有原因都渲染同一棵 Tooltip 树，原因出现或消失时子按钮不会重新挂载，键盘焦点不丢。
+ * The Tooltip tree is rendered whether or not there is a reason, so the child is never
+ * remounted when the reason appears or clears and keyboard focus is kept.
  */
 export function DisabledReasonTooltip({
   reason,
   children,
 }: DisabledReasonTooltipProps) {
-  if (!reason) {
-    return children;
-  }
+  // 始终受控，没有原因时保持关闭 / Always controlled; stays closed without a reason
+  const [open, setOpen] = useState(false);
   return (
-    <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+    <Tooltip
+      delayDuration={HELP_HINT_DELAY_MS}
+      open={Boolean(reason) && open}
+      onOpenChange={setOpen}
+    >
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent className='max-w-xs text-xs leading-relaxed'>
-        {reason}
-      </TooltipContent>
+      {reason ? (
+        <TooltipContent className='max-w-xs text-xs leading-relaxed'>
+          {reason}
+        </TooltipContent>
+      ) : null}
     </Tooltip>
   );
 }
-
-/** aria-disabled 按钮的通用样式 / Shared look for aria-disabled buttons */
-export const ARIA_DISABLED_CLASS = 'cursor-not-allowed opacity-50';

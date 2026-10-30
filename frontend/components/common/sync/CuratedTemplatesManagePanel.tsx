@@ -894,7 +894,7 @@ export function CuratedTemplatesManagePanel({
 
             <div className='flex-1 min-h-0 flex flex-col gap-2'>
               <div className='flex items-center justify-between gap-2 shrink-0'>
-                <div className='flex items-center gap-1.5'>
+                <div className='flex items-center gap-2'>
                   <Label
                     htmlFor='curated-mgmt-content'
                     className='text-xs font-medium flex items-center gap-1.5'

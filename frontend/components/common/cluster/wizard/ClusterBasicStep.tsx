@@ -40,6 +40,7 @@ import {
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Download, Server, Layers, Sparkles} from 'lucide-react';
 import {cn} from '@/lib/utils';
+import {HelpHint} from '@/components/common/HelpHint';
 import {DeploymentMode} from '@/lib/services/cluster/types';
 import {ClusterDeployConfig} from './types';
 import {buildSeatunnelInstallDir} from '@/lib/seatunnel-version';
@@ -101,9 +102,16 @@ export function ClusterBasicStep({
 
             <div className='space-y-1.5'>
               <div className='flex items-center justify-between'>
-                <Label htmlFor='cluster-code' className='text-sm font-medium'>
-                  {t('cluster.clusterCode')}
-                </Label>
+                <div className='flex items-center gap-2'>
+                  <Label htmlFor='cluster-code' className='text-sm font-medium'>
+                    {t('cluster.clusterCode')}
+                  </Label>
+                  <HelpHint
+                    label={t('cluster.clusterCode')}
+                    content={t('cluster.clusterCodeHint')}
+                    data-testid='cluster-wizard-cluster-code-hint'
+                  />
+                </div>
                 <span className='text-[11px] text-muted-foreground'>
                   {t('common.optional')}
                 </span>
@@ -125,11 +133,7 @@ export function ClusterBasicStep({
                 <p className='text-[11px] text-destructive'>
                   {t('cluster.clusterCodeInvalid')}
                 </p>
-              ) : (
-                <p className='text-[11px] text-muted-foreground line-clamp-1' title={t('cluster.clusterCodeHint')}>
-                  {t('cluster.clusterCodeHint')}
-                </p>
-              )}
+              ) : null}
             </div>
           </div>
 

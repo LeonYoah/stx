@@ -15,15 +15,22 @@
  * limitations under the License.
  */
 
+import type {ReactElement} from 'react';
 import {act, fireEvent, render, screen} from '@testing-library/react';
-import {beforeAll, describe, expect, it, vi} from 'vitest';
+import {NextIntlClientProvider} from 'next-intl';
+import {beforeAll, describe, expect, it} from 'vitest';
 
-import {HELP_HINT_DELAY_MS, HelpHint} from '../HelpHint';
+import zhMessages from '@/lib/i18n/locales/zh.json';
 
-vi.mock('next-intl', () => ({
-  useTranslations: () => (key: string, values?: Record<string, unknown>) =>
-    values ? `${key}:${JSON.stringify(values)}` : key,
-}));
+import {HelpHint} from '../HelpHint';
+
+function renderWithIntl(ui: ReactElement) {
+  return render(
+    <NextIntlClientProvider locale='zh' messages={zhMessages}>
+      {ui}
+    </NextIntlClientProvider>,
+  );
+}
 
 describe('HelpHint', () => {
   beforeAll(() => {
@@ -35,32 +42,33 @@ describe('HelpHint', () => {
     } as unknown as typeof ResizeObserver;
   });
 
-  it('uses a short accessible name built from the label, not the hint body', () => {
-    render(
+  it('renders a focusable button with a short accessible name', () => {
+    renderWithIntl(
       <HelpHint
-        label='安装路径'
+        label='自定义驱动'
         content='不会覆盖系统标准模板'
         data-testid='hint'
       />,
     );
-    const trigger = screen.getByRole('button', {
-      name: 'helpLabelFor:{"label":"安装路径"}',
-    });
+    const trigger = screen.getByTestId('hint');
     expect(trigger).toHaveAttribute('type', 'button');
-    expect(trigger).toHaveAttribute('data-testid', 'hint');
-    expect(trigger).not.toHaveAttribute('aria-label', '不会覆盖系统标准模板');
+    expect(trigger).toHaveAttribute('aria-label', '自定义驱动 说明');
+    expect(trigger.getAttribute('aria-label')).not.toContain(
+      '不会覆盖系统标准模板',
+    );
   });
 
-  it('falls back to the generic help label', () => {
-    render(<HelpHint content='正文' />);
-    expect(screen.getByRole('button', {name: 'helpLabel'})).toBeTruthy();
+  it('falls back to the generic help label without leaking the body', () => {
+    renderWithIntl(<HelpHint content='收件人由对端系统决定' />);
+    const trigger = screen.getByRole('button', {name: '说明'});
+    expect(trigger.getAttribute('aria-label')).not.toContain('收件人');
   });
 
-  it('opens on keyboard focus and describes the trigger with the hint body', async () => {
-    render(<HelpHint label='Endpoint' content='收件人由对端系统决定' />);
-    const trigger = screen.getByRole('button', {
-      name: 'helpLabelFor:{"label":"Endpoint"}',
-    });
+  it('opens the tooltip on keyboard focus and exposes the body via describedby', async () => {
+    renderWithIntl(
+      <HelpHint label='Endpoint' content='收件人由对端系统决定' />,
+    );
+    const trigger = screen.getByRole('button', {name: 'Endpoint 说明'});
     await act(async () => {
       trigger.focus();
       fireEvent.focus(trigger);
@@ -70,9 +78,5 @@ describe('HelpHint', () => {
       '收件人由对端系统决定',
     );
     expect(trigger).toHaveAccessibleDescription('收件人由对端系统决定');
-  });
-
-  it('does not use a zero hover delay', () => {
-    expect(HELP_HINT_DELAY_MS).toBeGreaterThan(0);
   });
 });

@@ -693,7 +693,7 @@ export function AutoPolicyConfigPanel({
             {/* 2. 自动诊断任务收集编排 / Auto Task Bundle */}
             <div className='rounded-lg border bg-card/60 p-4 space-y-3 shadow-2xs'>
               <div className='flex items-center justify-between'>
-                <div className='flex items-center gap-1.5'>
+                <div className='flex items-center gap-2'>
                   <Label
                     htmlFor='auto-policy-auto-create-task'
                     className='text-sm font-semibold'
@@ -787,7 +787,9 @@ export function AutoPolicyConfigPanel({
                   {t('conditionsLabel')}
                 </Label>
                 <span className='text-xs text-muted-foreground'>
-                  已选条件：{formConditions.filter((c) => c.enabled).length}
+                  {t('selectedConditionsCount', {
+                    count: formConditions.filter((c) => c.enabled).length,
+                  })}
                 </span>
               </div>
 

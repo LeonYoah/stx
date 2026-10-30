@@ -5611,7 +5611,7 @@ export function DataSyncStudio() {
           </DialogHeader>
           <div className='grid gap-4 py-2'>
             <div className='grid gap-2'>
-              <div className='flex items-center gap-1.5'>
+              <div className='flex items-center gap-2'>
                 <Label htmlFor='curated-save-name'>
                   {t('curatedSaveName')}
                 </Label>

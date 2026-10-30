@@ -617,7 +617,7 @@ export function ClusterConfigStep({
 
                 {/* stx-java-proxy Port / stx-java-proxy 端口 */}
                 <div className='space-y-1 pt-1 border-t border-border/40'>
-                  <div className='flex items-center gap-1.5'>
+                  <div className='flex items-center gap-2'>
                     <Label className='text-xs font-medium'>
                       {t('cluster.wizard.javaProxyPort')}
                     </Label>
@@ -771,7 +771,7 @@ export function ClusterConfigStep({
 
               <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
                 <div className='space-y-1'>
-                  <div className='flex items-center gap-1.5'>
+                  <div className='flex items-center gap-2'>
                     <Label className='text-xs font-medium'>
                       {t('installer.storageType')}
                     </Label>
@@ -942,7 +942,7 @@ export function ClusterConfigStep({
 
                   <div className='grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1'>
                     <div className='space-y-1'>
-                      <div className='flex items-center gap-1.5'>
+                      <div className='flex items-center gap-2'>
                         <Label className='text-xs font-medium'>
                           {t('installer.storageType')}
                         </Label>

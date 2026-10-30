@@ -1180,7 +1180,7 @@ export function DiagnosticsInspectionCenter({
           </DialogHeader>
           <div className='space-y-4 py-3 text-sm'>
             <div className='space-y-1.5'>
-              <div className='flex items-center gap-1.5'>
+              <div className='flex items-center gap-2'>
                 <Label htmlFor='bundle-lookback'>
                   {t('inspections.detailPage.lookbackMinutes')}
                 </Label>
@@ -1362,7 +1362,7 @@ export function DiagnosticsInspectionCenter({
           <ScrollArea className='max-h-[calc(85vh-160px)] pr-4'>
             <div className='space-y-4 py-2 text-sm'>
               <div className='space-y-1.5'>
-                <div className='flex items-center gap-1.5'>
+                <div className='flex items-center gap-2'>
                   <Label
                     htmlFor='dialog-inspection-lookback'
                     className='text-xs'
@@ -1418,7 +1418,7 @@ export function DiagnosticsInspectionCenter({
               </div>
 
               <div className='space-y-1.5'>
-                <div className='flex items-center gap-1.5'>
+                <div className='flex items-center gap-2'>
                   <Label
                     htmlFor='dialog-inspection-error-threshold'
                     className='text-xs'

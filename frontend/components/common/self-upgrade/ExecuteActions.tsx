@@ -36,11 +36,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {Button} from '@/components/ui/button';
-import {
-  ARIA_DISABLED_CLASS,
-  DisabledReasonTooltip,
-} from '@/components/common/DisabledReasonTooltip';
-import {cn} from '@/lib/utils';
+import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {
   countUpgradeNodes,
   restartingProcesses,
@@ -105,10 +101,7 @@ export function ExecuteActions({
         <Button
           size='sm'
           variant='outline'
-          className={cn(
-            'active:scale-[0.98]',
-            blockedReason && ARIA_DISABLED_CLASS,
-          )}
+          className='active:scale-[0.98]'
           aria-disabled={blockedReason ? 'true' : undefined}
           disabled={nativeDisabled}
           onClick={() => {
@@ -126,10 +119,7 @@ export function ExecuteActions({
       <DisabledReasonTooltip reason={blockedReason}>
         <Button
           size='sm'
-          className={cn(
-            'active:scale-[0.98]',
-            blockedReason && ARIA_DISABLED_CLASS,
-          )}
+          className='active:scale-[0.98]'
           aria-disabled={blockedReason ? 'true' : undefined}
           disabled={nativeDisabled}
           onClick={() => {

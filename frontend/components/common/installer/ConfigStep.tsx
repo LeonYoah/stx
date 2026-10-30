@@ -516,7 +516,7 @@ export function ConfigStep({
             )}
 
             <div className='mt-4 space-y-2'>
-              <div className='flex items-center gap-1.5'>
+              <div className='flex items-center gap-2'>
                 <Label htmlFor='install-config-install-dir'>
                   {t('installer.installDirLabel')}
                 </Label>
@@ -723,7 +723,7 @@ export function ConfigStep({
               </CardTitle>
             </CardHeader>
             <CardContent className='space-y-4'>
-              <div className='flex items-center gap-1.5 rounded-md border p-3'>
+              <div className='flex items-center gap-2 rounded-md border p-3'>
                 <label className='flex items-center gap-3'>
                   <Checkbox
                     data-testid='install-runtime-http-enable'
@@ -748,7 +748,7 @@ export function ConfigStep({
                 />
               </div>
               <div className='space-y-2'>
-                <div className='flex items-center gap-1.5'>
+                <div className='flex items-center gap-2'>
                   <Label>{t('installer.httpService.port')}</Label>
                   <HelpHint
                     label={t('installer.httpService.port')}
@@ -792,7 +792,7 @@ export function ConfigStep({
             </CardTitle>
           </CardHeader>
           <CardContent className='space-y-2'>
-            <div className='flex items-center gap-1.5'>
+            <div className='flex items-center gap-2'>
               <Label>{t('installer.javaProxy.port')}</Label>
               <HelpHint
                 label={t('installer.javaProxy.port')}
@@ -862,7 +862,7 @@ export function ConfigStep({
               </div>
             )}
             <div className='space-y-2'>
-              <div className='flex items-center gap-1.5'>
+              <div className='flex items-center gap-2'>
                 <Label>{t('installer.storageType')}</Label>
                 {config.checkpoint.storage_type === 'OSS' ? (
                   <HelpHint
@@ -1224,7 +1224,7 @@ export function ConfigStep({
             )}
 
             <div className='flex items-center justify-between rounded-md border p-3'>
-              <div className='flex items-center gap-1.5 text-sm font-medium'>
+              <div className='flex items-center gap-2 text-sm font-medium'>
                 {t('installer.runtimeStorage.validateConnectivity')}
                 <HelpHint
                   label={t('installer.runtimeStorage.validateConnectivity')}
@@ -1322,7 +1322,7 @@ export function ConfigStep({
             </p>
 
             <div className='space-y-2'>
-              <div className='flex items-center gap-1.5'>
+              <div className='flex items-center gap-2'>
                 <Label>{t('installer.storageType')}</Label>
                 {config.imap.storage_type === 'OSS' ? (
                   <HelpHint
@@ -1358,7 +1358,7 @@ export function ConfigStep({
             {config.imap.storage_type !== 'DISABLED' && (
               <>
                 <div className='space-y-2'>
-                  <div className='flex items-center gap-1.5'>
+                  <div className='flex items-center gap-2'>
                     <Label>{t('installer.namespace')}</Label>
                     {imapLocalRecommended ? (
                       <HelpHint
@@ -1701,7 +1701,7 @@ export function ConfigStep({
             {imapExternalEnabled && (
               <>
                 <div className='flex items-center justify-between rounded-md border p-3'>
-                  <div className='flex items-center gap-1.5 text-sm font-medium'>
+                  <div className='flex items-center gap-2 text-sm font-medium'>
                     {t('installer.runtimeStorage.validateConnectivity')}
                     <HelpHint
                       label={t('installer.runtimeStorage.validateConnectivity')}

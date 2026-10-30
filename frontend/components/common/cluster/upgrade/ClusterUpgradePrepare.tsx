@@ -79,10 +79,7 @@ import type {
 } from '@/lib/services/st-upgrade';
 import {UpgradeSteps} from './UpgradeSteps';
 import {HelpHint} from '@/components/common/HelpHint';
-import {
-  ARIA_DISABLED_CLASS,
-  DisabledReasonTooltip,
-} from '@/components/common/DisabledReasonTooltip';
+import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {getIssueCategoryLabel} from './utils';
 
 interface ClusterUpgradePrepareProps {
@@ -363,11 +360,15 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
   );
 
   // 「进入配置合并页」不可用时的原因 / Why continuing to the merge page is blocked
-  const continueBlockedReason = !precheck
-    ? t('runPrecheckFirst')
-    : isPrecheckStale
-      ? t('draftChangedNoticeTitle')
-      : t('continueBlockedHint');
+  // 能继续时为 null；aria-disabled + Tooltip 共用同一个按钮
+  // null when continuing is allowed; the same button takes aria-disabled + tooltip otherwise
+  const continueBlockedReason = canContinueToConfig
+    ? null
+    : !precheck
+      ? t('runPrecheckFirst')
+      : isPrecheckStale
+        ? t('draftChangedNoticeTitle')
+        : t('continueBlockedHint');
 
   // 零塌陷加载：首屏骨架屏占位 / Zero-collapse loading skeleton
   if (loading && !cluster) {
@@ -460,27 +461,23 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
             <Button variant='outline' onClick={handleClearDraft}>
               {t('clearDraft')}
             </Button>
-            {canContinueToConfig ? (
+            {/* 只渲染一个 Button，状态变化时不重新挂载，键盘焦点不丢 */}
+            {/* A single Button so state changes do not remount it and keyboard focus stays */}
+            <DisabledReasonTooltip reason={continueBlockedReason}>
               <Button
-                onClick={handleContinue}
                 data-testid='upgrade-prepare-continue'
+                aria-disabled={continueBlockedReason ? 'true' : undefined}
+                onClick={(event) => {
+                  if (continueBlockedReason) {
+                    event.preventDefault();
+                    return;
+                  }
+                  handleContinue();
+                }}
               >
                 {t('continueToConfig')}
               </Button>
-            ) : (
-              // 用 aria-disabled 保留焦点，Tooltip 说明不可用原因
-              // aria-disabled keeps focus so the tooltip can explain the reason
-              <DisabledReasonTooltip reason={continueBlockedReason}>
-                <Button
-                  data-testid='upgrade-prepare-continue'
-                  aria-disabled='true'
-                  className={ARIA_DISABLED_CLASS}
-                  onClick={(event) => event.preventDefault()}
-                >
-                  {t('continueToConfig')}
-                </Button>
-              </DisabledReasonTooltip>
-            )}
+            </DisabledReasonTooltip>
           </>
         }
       />
@@ -525,7 +522,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
             </div>
 
             <div className='space-y-2'>
-              <div className='flex items-center gap-1.5'>
+              <div className='flex items-center gap-2'>
                 <Label htmlFor='target-install-dir'>
                   {t('targetInstallDir')}
                 </Label>
@@ -680,7 +677,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                   </div>
 
                   <div className='space-y-2 rounded-lg border border-dashed bg-muted/30 p-4 text-sm'>
-                    <div className='flex items-center gap-1.5 font-medium text-foreground'>
+                    <div className='flex items-center gap-2 font-medium text-foreground'>
                       {t('pluginUpgradeBehaviorTitle')}
                       <HelpHint
                         label={t('pluginUpgradeBehaviorTitle')}
@@ -697,7 +694,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                         {t('pluginPackageMissingWarning')}
                       </p>
                     ) : null}
-                    <div className='flex items-center gap-1.5 font-medium text-foreground'>
+                    <div className='flex items-center gap-2 font-medium text-foreground'>
                       {t('upgradeSmokeCheckTitle')}
                       <HelpHint
                         label={t('upgradeSmokeCheckTitle')}

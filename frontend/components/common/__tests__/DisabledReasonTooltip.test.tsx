@@ -30,14 +30,47 @@ describe('DisabledReasonTooltip', () => {
     } as unknown as typeof ResizeObserver;
   });
 
-  it('renders the child untouched when there is no reason', () => {
+  it('shows no tooltip and no description when there is no reason', async () => {
     render(
       <DisabledReasonTooltip reason={null}>
         <button type='button'>go</button>
       </DisabledReasonTooltip>,
     );
     const button = screen.getByRole('button', {name: 'go'});
-    expect(button).not.toHaveAttribute('data-state');
+    await act(async () => {
+      button.focus();
+      fireEvent.focus(button);
+    });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(button).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('keeps the same focused button when the reason appears or clears', async () => {
+    const {rerender} = render(
+      <DisabledReasonTooltip reason={null}>
+        <button type='button'>go</button>
+      </DisabledReasonTooltip>,
+    );
+    const button = screen.getByRole('button', {name: 'go'});
+    await act(async () => {
+      button.focus();
+    });
+    rerender(
+      <DisabledReasonTooltip reason='先完成预检'>
+        <button type='button' aria-disabled='true'>
+          go
+        </button>
+      </DisabledReasonTooltip>,
+    );
+    expect(screen.getByRole('button', {name: 'go'})).toBe(button);
+    expect(button).toHaveFocus();
+    rerender(
+      <DisabledReasonTooltip reason={null}>
+        <button type='button'>go</button>
+      </DisabledReasonTooltip>,
+    );
+    expect(screen.getByRole('button', {name: 'go'})).toBe(button);
+    expect(button).toHaveFocus();
   });
 
   it('describes the focused trigger with the disabled reason', async () => {

@@ -49,10 +49,7 @@ import type {
 import {cn} from '@/lib/utils';
 import {UpgradeSteps} from './UpgradeSteps';
 import {HelpHint} from '@/components/common/HelpHint';
-import {
-  ARIA_DISABLED_CLASS,
-  DisabledReasonTooltip,
-} from '@/components/common/DisabledReasonTooltip';
+import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {
   buildMergeEditorRows,
   getIssueCategoryLabel,
@@ -163,6 +160,9 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
   );
 
   const unresolvedCount = mergePlan?.conflict_count || 0;
+  // 有未处理差异时不能生成计划 / Plan creation is blocked while differences remain unresolved
+  const createPlanBlockedReason =
+    unresolvedCount > 0 ? t('createPlanBlockedHint') : null;
 
   const updateMergeFile = (
     configType: string,
@@ -450,30 +450,25 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
               <ArrowLeft className='mr-2 h-4 w-4' />
               {t('backToPrepare')}
             </Button>
-            {unresolvedCount > 0 ? (
-              // 有未处理差异时用 aria-disabled，保留焦点以便 Tooltip 说明原因
-              // Keep the button focusable while blocked so the tooltip can explain why
-              <DisabledReasonTooltip reason={t('createPlanBlockedHint')}>
-                <Button
-                  data-testid='upgrade-config-create-plan'
-                  aria-disabled='true'
-                  className={ARIA_DISABLED_CLASS}
-                  onClick={(event) => event.preventDefault()}
-                >
-                  <Save className='mr-2 h-4 w-4' />
-                  {t('createPlan')}
-                </Button>
-              </DisabledReasonTooltip>
-            ) : (
+            {/* 只渲染一个 Button：有未处理差异时用 aria-disabled + Tooltip，状态变化不重新挂载 */}
+            {/* A single Button: aria-disabled + tooltip while differences remain, never remounted */}
+            <DisabledReasonTooltip reason={createPlanBlockedReason}>
               <Button
                 data-testid='upgrade-config-create-plan'
-                onClick={handleCreatePlan}
-                disabled={creatingPlan}
+                aria-disabled={createPlanBlockedReason ? 'true' : undefined}
+                onClick={(event) => {
+                  if (createPlanBlockedReason) {
+                    event.preventDefault();
+                    return;
+                  }
+                  void handleCreatePlan();
+                }}
+                disabled={!createPlanBlockedReason && creatingPlan}
               >
                 <Save className='mr-2 h-4 w-4' />
                 {creatingPlan ? t('creatingPlan') : t('createPlan')}
               </Button>
-            )}
+            </DisabledReasonTooltip>
           </>
         }
       />
@@ -548,7 +543,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle className='flex items-center gap-1.5'>
+          <CardTitle className='flex items-center gap-2'>
             {t('mergePlanFiles')}
             <HelpHint
               label={t('mergePlanFiles')}
@@ -699,7 +694,7 @@ interface PaneHeaderProps {
 function PaneHeader({title, hint, action}: PaneHeaderProps) {
   return (
     <div className='flex min-h-12 items-start justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2'>
-      <div className='flex items-center gap-1.5 text-sm font-medium'>
+      <div className='flex items-center gap-2 text-sm font-medium'>
         {title}
         {hint ? (
           <HelpHint

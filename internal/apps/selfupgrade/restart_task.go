@@ -105,13 +105,17 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 			}
 		}
 	}
-	if err := writeJSONFile(s.restartPlanPath(), plan); err != nil {
+	// 落盘前绝对化路径，确保独立会话 / systemd 单元即使用 cwd=/ 也能读写 plan/ready/result（DEF-UPG-1）。
+	// Absolutize before persist so a detached / systemd unit with cwd=/ can still read/write plan/ready/result (DEF-UPG-1).
+	absolutizeRestartPlan(plan)
+	planPath := absPath(s.restartPlanPath())
+	if err := writeJSONFile(planPath, plan); err != nil {
 		_ = os.Remove(s.activeTaskPath())
 		return fmt.Errorf("persist restart plan: %w", err)
 	}
-	if err := spawnWatchdogFn(s.restartPlanPath(), plan); err != nil {
+	if err := spawnWatchdogFn(planPath, plan); err != nil {
 		_ = os.Remove(s.activeTaskPath())
-		_ = os.Remove(s.restartPlanPath())
+		_ = os.Remove(planPath)
 		return fmt.Errorf("start restart watchdog: %w", err)
 	}
 	log.Printf("[self-upgrade] task %s: restarting control plane onto %s via %s (watchdog started)", taskID, target, plan.Strategy.Kind)

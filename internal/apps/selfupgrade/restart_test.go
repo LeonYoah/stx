@@ -756,3 +756,199 @@ func TestResumeMarksTaskWithoutPlanAsInterrupted(t *testing.T) {
 		t.Fatalf("task = %+v %v", got, err)
 	}
 }
+
+// TestNewServiceAbsolutizesDataDir 验证 staging 根目录为绝对路径，避免 systemd watchdog cwd=/ 读错文件（DEF-UPG-1）。
+// TestNewServiceAbsolutizesDataDir verifies the staging root is absolute so a systemd watchdog with cwd=/ cannot miss files (DEF-UPG-1).
+func TestNewServiceAbsolutizesDataDir(t *testing.T) {
+	parent := t.TempDir()
+	// 用相对 data 路径模拟 router 里的 NewService("./data")。
+	// Simulate NewService("./data") from the router with a relative data path.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(parent); err != nil {
+		t.Fatal(err)
+	}
+	s := NewService("data-rel")
+	if !filepath.IsAbs(s.stagingDir) {
+		t.Fatalf("stagingDir must be absolute, got %q", s.stagingDir)
+	}
+	want := filepath.Join(parent, "data-rel", "self-upgrade")
+	if s.stagingDir != want {
+		t.Fatalf("stagingDir = %q, want %q", s.stagingDir, want)
+	}
+}
+
+// TestBuildWatchdogArgvSystemdPinsWorkingDirectoryAndAbsolutePlan 覆盖 DEF-UPG-1：systemd-run 必须带工作目录与绝对 --plan。
+// TestBuildWatchdogArgvSystemdPinsWorkingDirectoryAndAbsolutePlan covers DEF-UPG-1: systemd-run must pin cwd and absolute --plan.
+func TestBuildWatchdogArgvSystemdPinsWorkingDirectoryAndAbsolutePlan(t *testing.T) {
+	dir := t.TempDir()
+	planPath := filepath.Join(".", filepath.Base(dir), "restart-plan.json")
+	// 相对 plan 路径 + 相对 Dir/Backup，模拟升级前未绝对化的交棒信息。
+	// Relative plan path + relative Dir/Backup simulate a pre-absolutized handover.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Dir(dir)
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(parent); err != nil {
+		t.Fatal(err)
+	}
+	relDir := filepath.Base(dir)
+	plan := &restartPlan{
+		TaskID: "0841ad8a-eea2-4dec-b6ce-501c5c1040f6",
+		Strategy: restartStrategy{
+			Kind:    RestartStrategySystemd,
+			Command: []string{"systemctl", "--no-block", "restart", "stx.service"},
+		},
+		Backup: filepath.Join(relDir, "stx.bak"),
+		Dir:    relDir,
+	}
+	oldLook := restartLookPath
+	t.Cleanup(func() { restartLookPath = oldLook })
+	restartLookPath = func(file string) (string, error) {
+		if file == "systemd-run" {
+			return "/usr/bin/systemd-run", nil
+		}
+		return oldLook(file)
+	}
+
+	argv := buildWatchdogArgv(planPath, plan)
+	if len(argv) < 6 || argv[0] != "/usr/bin/systemd-run" {
+		t.Fatalf("argv = %#v", argv)
+	}
+	joined := strings.Join(argv, "\x00")
+	if !strings.Contains(joined, "--working-directory="+dir) {
+		t.Fatalf("missing absolute --working-directory in %#v", argv)
+	}
+	if !strings.Contains(joined, "--unit\x00stx-self-upgrade-0841ad8a") && !strings.Contains(joined, "stx-self-upgrade-0841ad8a") {
+		t.Fatalf("missing unit name in %#v", argv)
+	}
+	// --plan 与 backup 必须是绝对路径 / --plan and backup must be absolute
+	planFlag := ""
+	backup := ""
+	for i, a := range argv {
+		if a == "--plan" && i+1 < len(argv) {
+			planFlag = argv[i+1]
+		}
+		if strings.HasSuffix(a, "stx.bak") {
+			backup = a
+		}
+	}
+	if !filepath.IsAbs(planFlag) || filepath.Base(planFlag) != "restart-plan.json" {
+		t.Fatalf("plan flag = %q", planFlag)
+	}
+	if !filepath.IsAbs(backup) {
+		t.Fatalf("backup = %q", backup)
+	}
+	if !filepath.IsAbs(plan.Dir) || plan.Dir != dir {
+		t.Fatalf("plan.Dir = %q, want %q", plan.Dir, dir)
+	}
+}
+
+// TestRunRestartWatchdogWritesResultWithAbsolutePathsUnderRootCwd 模拟 systemd 单元 cwd=/：绝对 plan 仍能写出 result。
+// TestRunRestartWatchdogWritesResultWithAbsolutePathsUnderRootCwd simulates a systemd unit cwd=/: an absolute plan still writes the result.
+func TestRunRestartWatchdogWritesResultWithAbsolutePathsUnderRootCwd(t *testing.T) {
+	installWatchdogHooks(t)
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "stx")
+	ready := filepath.Join(dir, "ready.json")
+	result := filepath.Join(dir, "result.json")
+	planFile := filepath.Join(dir, "restart-plan.json")
+	writeScript(t, exe, fakeControlPlane("1.0.1"))
+	writeScript(t, exe+".bak", fakeControlPlane("1.0.0"))
+	procs := &procs{}
+	t.Cleanup(procs.killAll)
+	oldPID := startProcess(t, procs, "sleep", "0.05")
+	_ = writeJSONFile(planFile, restartPlan{
+		TaskID: "task-cwd", TargetVersion: "1.0.1", FromVersion: "1.0.0",
+		Strategy:   restartStrategy{Kind: RestartStrategyStandalone},
+		Executable: exe, Backup: exe + ".bak",
+		Argv: []string{exe, "server"},
+		Env:  append(os.Environ(), "STX_TEST_READY="+ready),
+		Dir:  dir, StdoutPath: filepath.Join(dir, "cp.log"), StderrPath: filepath.Join(dir, "cp.log"),
+		OldPID: oldPID, ReadyPath: ready, ResultPath: result, TimeoutSeconds: 3,
+	})
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir("/"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunRestartWatchdog(planFile); err != nil {
+		t.Fatalf("RunRestartWatchdog: %v", err)
+	}
+	var res restartResult
+	if err := readJSONFile(result, &res); err != nil || res.Status != restartOutcomeSucceeded {
+		t.Fatalf("result = %+v err=%v", res, err)
+	}
+}
+
+// TestBeginControlPlaneRestartPersistsAbsolutePlanPaths 确保交棒计划落盘路径均为绝对路径（systemd watchdog 可读）。
+// TestBeginControlPlaneRestartPersistsAbsolutePlanPaths ensures the persisted handover plan uses absolute paths (readable by a systemd watchdog).
+func TestBeginControlPlaneRestartPersistsAbsolutePlanPaths(t *testing.T) {
+	h := newApplyHarness(t)
+	// beginControlPlaneRestart 要求已有 .bak（真实 apply 在替换二进制时写入）。
+	// beginControlPlaneRestart requires an existing .bak (a real apply writes it when replacing the binary).
+	if err := os.WriteFile(h.exe+".bak", []byte("old-binary-1.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.s.mu.Lock()
+	h.s.task = &TaskState{ID: "abs-plan", Status: StatusUpgrading, TargetVersion: "1.0.1",
+		Steps: []StepState{{Code: StepRestart, Status: StepPending}}}
+	h.s.mu.Unlock()
+
+	oldSpawn, oldExit, oldDelay, oldGetenv, oldRead := spawnWatchdogFn, restartExit, restartHandoverDelay, restartGetenv, restartReadFile
+	t.Cleanup(func() {
+		spawnWatchdogFn, restartExit, restartHandoverDelay, restartGetenv, restartReadFile = oldSpawn, oldExit, oldDelay, oldGetenv, oldRead
+	})
+	restartHandoverDelay = time.Hour // 避免测试结束前发出重启命令 / avoid issuing the restart command before the test ends
+	restartExit = func() {}
+	// 强制 systemd 策略，覆盖独立部署默认值。/ force the systemd strategy over the standalone default.
+	restartGetenv = func(k string) string {
+		if k == "INVOCATION_ID" {
+			return "test-invocation"
+		}
+		return ""
+	}
+	restartReadFile = func(name string) ([]byte, error) {
+		if name == "/proc/self/cgroup" {
+			return []byte("0::/system.slice/stx.service\n"), nil
+		}
+		return oldRead(name)
+	}
+	var gotPath string
+	var gotPlan *restartPlan
+	spawnWatchdogFn = func(path string, p *restartPlan) error {
+		gotPath, gotPlan = path, p
+		return nil
+	}
+
+	if err := h.s.beginControlPlaneRestart("abs-plan", "1.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(gotPath) {
+		t.Fatalf("spawn plan path = %q", gotPath)
+	}
+	if gotPlan == nil || !filepath.IsAbs(gotPlan.ReadyPath) || !filepath.IsAbs(gotPlan.ResultPath) || !filepath.IsAbs(gotPlan.Dir) || !filepath.IsAbs(gotPlan.Backup) {
+		t.Fatalf("plan paths not absolute: %+v", gotPlan)
+	}
+	var persisted restartPlan
+	if err := readJSONFile(gotPath, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{persisted.ReadyPath, persisted.ResultPath, persisted.Dir, persisted.Backup, persisted.Executable} {
+		if !filepath.IsAbs(p) {
+			t.Fatalf("persisted path not absolute: %q in %+v", p, persisted)
+		}
+	}
+	if persisted.Strategy.Kind != RestartStrategySystemd {
+		t.Fatalf("strategy = %s", persisted.Strategy.Kind)
+	}
+}

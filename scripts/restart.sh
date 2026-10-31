@@ -870,8 +870,15 @@ step=0
 FRONTEND_PREPARED=false
 
 if $DO_BUILD && $RUN_BACKEND; then
+  # 组装版本注入 ldflags，确保本地编译产物携带正确的版本号、提交哈希与构建时间。
+  # Assemble ldflags for version injection so local binaries carry proper version, commit, and build timestamp.
+  git_version="$(git describe --tags --always 2>/dev/null | sed 's/^v//')"
+  git_commit="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  ldflags="-X github.com/LeonYoah/stx/internal/version.Version=${git_version} -X github.com/LeonYoah/stx/internal/version.GitCommit=${git_commit} -X github.com/LeonYoah/stx/internal/version.BuildTime=${build_time}"
+
   step=$((step + 1)); echo "[$step/$total] 构建 stx ..."
-  go build -o stx .
+  go build -ldflags "$ldflags" -o stx .
   echo "      stx 构建完成."
 
   agent_goos="$(detect_agent_goos)"
@@ -879,7 +886,7 @@ if $DO_BUILD && $RUN_BACKEND; then
   agent_binary_name="$(agent_binary_name_for_target "$agent_goos" "$agent_goarch")"
 
   step=$((step + 1)); echo "[$step/$total] 构建 stx-agent ..."
-  (cd agent && GOOS="$agent_goos" GOARCH="$agent_goarch" go build -o stx-agent ./cmd)
+  (cd agent && GOOS="$agent_goos" GOARCH="$agent_goarch" go build -ldflags "$ldflags" -o stx-agent ./cmd)
   echo "      stx-agent 构建完成: ${agent_goos}/${agent_goarch}"
 
   if [[ -f agent/stx-agent ]]; then

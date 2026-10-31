@@ -129,6 +129,9 @@ func NewService(dataDir string) *Service {
 	if dataDir == "" {
 		dataDir = "./data"
 	}
+	// 绝对路径：systemd-run 启动的 watchdog 默认 WorkingDirectory=/，相对 data 路径会读错 plan/result（DEF-UPG-1）。
+	// Absolute paths: systemd-run watchdogs default to WorkingDirectory=/; relative data paths miss plan/result (DEF-UPG-1).
+	dataDir = absPath(dataDir)
 	staging := filepath.Join(dataDir, "self-upgrade")
 	_ = os.MkdirAll(staging, 0o755)
 	history := filepath.Join(staging, "history.json")

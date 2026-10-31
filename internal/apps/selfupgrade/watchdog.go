@@ -51,10 +51,14 @@ import (
 //
 // It only operates on STX's own control plane and frontend processes, never on SeaTunnel/Hazelcast.
 func RunRestartWatchdog(planPath string) error {
+	// 绝对化 --plan：systemd-run 单元默认 cwd=/，相对路径会读不到交棒计划（DEF-UPG-1）。
+	// Absolutize --plan: systemd-run units default to cwd=/ and miss a relative handover plan (DEF-UPG-1).
+	planPath = absPath(planPath)
 	var plan restartPlan
 	if err := readJSONFile(planPath, &plan); err != nil {
 		return fmt.Errorf("read restart plan: %w", err)
 	}
+	absolutizeRestartPlan(&plan)
 	res := watchdogRun(context.Background(), &plan)
 	res.At = time.Now().UTC()
 	log.Printf("[self-upgrade watchdog] task %s finished: %s %s", plan.TaskID, res.Status, res.Reason)

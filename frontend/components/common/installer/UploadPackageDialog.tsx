@@ -22,7 +22,7 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import {useState} from 'react';
 import {
   Dialog,
   DialogContent,
@@ -30,13 +30,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Progress } from '@/components/ui/progress';
-import { Upload, File, X, AlertCircle } from 'lucide-react';
-import { useTranslations } from 'next-intl';
-import { cn } from '@/lib/utils';
+import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
+import {Label} from '@/components/ui/label';
+import {Progress} from '@/components/ui/progress';
+import {FileUpload} from '@/components/ui/file-upload';
+import {AlertCircle} from 'lucide-react';
+import {useTranslations} from 'next-intl';
 
 interface UploadPackageDialogProps {
   open: boolean;
@@ -63,64 +63,35 @@ export function UploadPackageDialog({
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [dragActive, setDragActive] = useState(false);
 
-  // Extract version from filename / 从文件名提取版本
+  // 从文件名提取版本 / Extract version from filename
   const extractVersion = (filename: string): string => {
     // Format: apache-seatunnel-{version}-bin.tar.gz
     const match = filename.match(/apache-seatunnel-(.+)-bin\.tar\.gz/);
     return match ? match[1] : '';
   };
 
-  // Handle file selection / 处理文件选择
-  const handleFileSelect = (selectedFile: File) => {
+  // 处理运行包选择 / Handle runtime package selection
+  const handleFileSelect = (selectedFile: File | null) => {
     setFile(selectedFile);
     setError(null);
-
-    // Auto-extract version from filename / 自动从文件名提取版本
+    if (!selectedFile) {
+      return;
+    }
     const extractedVersion = extractVersion(selectedFile.name);
     if (extractedVersion) {
       setVersion(extractedVersion);
     }
   };
 
-  // Handle drag events / 处理拖拽事件
-  const handleDrag = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  }, []);
-
-  // Handle drop / 处理放置
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileSelect(e.dataTransfer.files[0]);
-    }
-  };
-
-  // Handle file input change / 处理文件输入变化
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFileSelect(e.target.files[0]);
-    }
-  };
-
-  // Validate and upload / 验证并上传
+  // 验证并上传 / Validate and upload
   const handleUpload = async () => {
     if (!file || !version) {
       setError(t('installer.pleaseSelectFileAndVersion'));
       return;
     }
 
-    // Validate file extension / 验证文件扩展名
+    // 验证文件扩展名 / Validate file extension
     if (!file.name.endsWith('.tar.gz')) {
       setError(t('installer.invalidFileFormat'));
       return;
@@ -137,7 +108,7 @@ export function UploadPackageDialog({
 
       setProgress(100);
 
-      // Reset and close / 重置并关闭
+      // 重置并关闭 / Reset and close
       setTimeout(() => {
         setFile(null);
         setSourceFile(null);
@@ -152,130 +123,108 @@ export function UploadPackageDialog({
     }
   };
 
-  // Reset state when dialog closes / 对话框关闭时重置状态
-  const handleOpenChange = (open: boolean) => {
-    if (!open) {
+  // 对话框关闭时重置状态 / Reset state when dialog closes
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
       setFile(null);
       setSourceFile(null);
       setVersion('');
       setProgress(0);
       setError(null);
     }
-    onOpenChange(open);
+    onOpenChange(nextOpen);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px]" aria-describedby={undefined}>
+      <DialogContent className='sm:max-w-[500px]' aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('installer.uploadPackage')}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {/* Drop zone / 拖放区域 */}
-          <div
-            className={cn(
-              'relative border-2 border-dashed rounded-lg p-8 text-center transition-colors',
-              dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25',
-              file ? 'bg-muted/50' : ''
-            )}
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-          >
-            {file ? (
-              <div className="flex items-center justify-center gap-3">
-                <File className="h-8 w-8 text-primary" />
-                <div className="text-left">
-                  <p className="font-medium">{file.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setFile(null)}
-                  disabled={uploading}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
-                <p className="text-muted-foreground">
-                  {t('installer.dragDropOrClick')}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('installer.supportedFormat')}
-                </p>
-                <input
-                  type="file"
-                  accept=".tar.gz"
-                  onChange={handleFileInputChange}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  disabled={uploading}
-                />
-              </div>
-            )}
-          </div>
+        <div className='space-y-4 py-4'>
+          {/* 运行包拖放区 / Runtime package dropzone */}
+          <FileUpload
+            variant='dropzone'
+            accept='.tar.gz'
+            value={file}
+            uploading={uploading}
+            emptyLabel={t('installer.dragDropOrClick')}
+            emptyHint={t('installer.supportedFormat')}
+            data-testid='upload-package-bin'
+            onFileChange={handleFileSelect}
+          />
 
           {/* 可选源码包：运行包上传成功后再补传，失败不会撤销运行包。 / Optional source archive: uploaded after runtime; failure does not remove runtime. */}
-          <div className="space-y-2">
-            <Label htmlFor="source-file">{t('installer.sourcePackageOptional')}</Label>
-            <Input
-              id="source-file"
-              type="file"
-              accept=".tar.gz"
-              disabled={uploading}
-              onChange={(event) => setSourceFile(event.target.files?.[0] || null)}
+          <div className='space-y-2'>
+            <Label htmlFor='source-file'>
+              {t('installer.sourcePackageOptional')}
+            </Label>
+            <FileUpload
+              id='source-file'
+              variant='input'
+              accept='.tar.gz'
+              value={sourceFile}
+              uploading={uploading}
+              showSelectedFile={false}
+              data-testid='upload-package-source'
+              onFileChange={setSourceFile}
             />
-            <p className="text-xs text-muted-foreground">
+            <p className='text-xs text-muted-foreground'>
               {sourceFile ? sourceFile.name : t('installer.sourcePackageHint')}
             </p>
           </div>
 
-          {/* Version input / 版本输入 */}
-          <div className="space-y-2">
-            <Label htmlFor="version">{t('installer.version')}</Label>
+          {/* 版本输入 / Version input */}
+          <div className='space-y-2'>
+            <Label htmlFor='version'>{t('installer.version')}</Label>
             <Input
-              id="version"
+              id='version'
               value={version}
               onChange={(e) => setVersion(e.target.value)}
-              placeholder={existingLocalVersions[0] ? `e.g., ${existingLocalVersions[0]}` : 'e.g., 2.x.y'}
+              placeholder={
+                existingLocalVersions[0]
+                  ? `e.g., ${existingLocalVersions[0]}`
+                  : 'e.g., 2.x.y'
+              }
               disabled={uploading}
             />
-            <p className="text-xs text-muted-foreground">
+            <p className='text-xs text-muted-foreground'>
               {t('installer.versionHint')}
             </p>
           </div>
 
-          {/* Progress bar / 进度条 */}
+          {/* 进度条 / Progress bar */}
           {uploading && (
-            <div className="space-y-2">
+            <div className='space-y-2'>
               <Progress value={progress} />
-              <p className="text-sm text-center text-muted-foreground">
+              <p className='text-sm text-center text-muted-foreground'>
                 {t('installer.uploading')} {progress}%
               </p>
             </div>
           )}
 
-          {/* Error message / 错误消息 */}
+          {/* 表单级错误（版本缺失 / 格式 / 上传失败） / Form-level errors (version, format, upload) */}
           {error && (
-            <div className="flex items-center gap-2 text-destructive text-sm">
-              <AlertCircle className="h-4 w-4" />
+            <div className='flex items-center gap-2 text-destructive text-sm'>
+              <AlertCircle className='h-4 w-4' />
               {error}
             </div>
           )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={uploading}>
+          <Button
+            variant='outline'
+            onClick={() => handleOpenChange(false)}
+            disabled={uploading}
+          >
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleUpload} disabled={!file || !version || uploading}>
+          <Button
+            onClick={handleUpload}
+            disabled={!file || !version || uploading}
+          >
             {uploading ? t('installer.uploading') : t('installer.upload')}
           </Button>
         </DialogFooter>

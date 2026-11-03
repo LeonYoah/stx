@@ -15,198 +15,391 @@
  * limitations under the License.
  */
 
+'use client';
+
+import * as React from 'react';
+import {AlertCircle, File as FileIcon, Loader2, Upload, X} from 'lucide-react';
+import {useTranslations} from 'next-intl';
+
+import {Button, buttonVariants} from '@/components/ui/button';
 import {cn} from '@/lib/utils';
-import React, {useRef, useState} from 'react';
-import {motion} from 'motion/react';
-import {IconUpload} from '@tabler/icons-react';
-import {useDropzone} from 'react-dropzone';
+import type {VariantProps} from 'class-variance-authority';
 
-const mainVariant = {
-  initial: {
-    x: 0,
-    y: 0,
-  },
-  animate: {
-    x: 20,
-    y: -20,
-    opacity: 0.9,
-  },
+/** 统一上传入口的展示形态 / Visual variants for the shared file picker */
+export type FileUploadVariant = 'dropzone' | 'button' | 'input' | 'menu-item';
+
+export type FileUploadHandle = {
+  /** 打开系统文件选择器 / Open the native file picker */
+  open: () => void;
+  /** 清空原生 input 值 / Clear the native input value */
+  clearInput: () => void;
 };
 
-const secondaryVariant = {
-  initial: {
-    opacity: 0,
-  },
-  animate: {
-    opacity: 1,
-  },
+export type FileUploadProps = {
+  id?: string;
+  accept?: string;
+  disabled?: boolean;
+  /** 上传中：禁用交互，按钮形态可显示转圈 / Busy: block interaction; button variant may show a spinner */
+  uploading?: boolean;
+  /**
+   * 受控选中文件（用于展示文件名 / 清除）。fire-and-forget 场景可不传。
+   * Controlled selected file for display / clear. Omit for fire-and-forget uploads.
+   */
+  value?: File | null;
+  /** 选中或清除文件时回调；清除时传 null / Called on select or clear; null means cleared */
+  onFileChange?: (file: File | null) => void;
+  /**
+   * 选中后立刻清空原生 input，便于再次选同一文件（立即上传场景）。
+   * Clear the native input after each pick so the same file can be re-selected (immediate upload).
+   */
+  resetOnSelect?: boolean;
+  /** 内联错误文案；父级负责校验逻辑 / Inline error text; parents own validation */
+  error?: string | null;
+  variant?: FileUploadVariant;
+  /** 是否展示已选文件名（input/dropzone 默认开，button/menu-item 默认关） */
+  showSelectedFile?: boolean;
+  /** 是否展示清除按钮（需有 value） / Show clear when a controlled value is set */
+  showClear?: boolean;
+  /** 是否展示文件大小（dropzone 选中态） / Show file size in dropzone selected state */
+  showFileSize?: boolean;
+  /** dropzone 空态主文案 / Dropzone empty-state title */
+  emptyLabel?: React.ReactNode;
+  /** dropzone 空态次要提示 / Dropzone empty-state hint */
+  emptyHint?: React.ReactNode;
+  /** button 形态按钮文案 / Button-variant label */
+  buttonLabel?: React.ReactNode;
+  buttonVariant?: VariantProps<typeof buttonVariants>['variant'];
+  buttonSize?: VariantProps<typeof buttonVariants>['size'];
+  /** 覆盖默认空态内容（仍保留拖放与点击选文件） / Replace default empty chrome; keep drag/click */
+  dropzoneContent?: React.ReactNode;
+  /** menu-item 形态的触发内容（图标 + 文案） / Menu-item trigger content */
+  children?: React.ReactNode;
+  className?: string;
+  inputClassName?: string;
+  'data-testid'?: string;
 };
 
-export const FileUpload = ({
-  onChange,
-}: {
-  onChange?: (files: File[]) => void;
-}) => {
-  const [files, setFiles] = useState<File[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileChange = (newFiles: File[]) => {
-    setFiles((prevFiles) => [...prevFiles, ...newFiles]);
-    if (onChange) {
-      onChange(newFiles);
-    }
-  };
-
-  const handleClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const {getRootProps, isDragActive} = useDropzone({
-    multiple: false,
-    noClick: true,
-    onDrop: handleFileChange,
-    onDropRejected: (error) => {
-      console.log(error);
+/**
+ * 全站统一的文件选择入口：唯一允许出现原生 `<input type="file">` 的组件。
+ * Shared file picker — the only place native `<input type="file">` is allowed.
+ *
+ * 由原 react-dropzone 演示组件重构为 shadcn Button + 原生 input / DnD，符合 ui-conventions。
+ * Refactored from the old react-dropzone demo into shadcn Button + native input / DnD per ui-conventions.
+ *
+ * 校验、上传请求与 toast 仍由调用方负责；本组件只负责选文件、展示、清除与禁用态。
+ * Validation, upload requests, and toasts stay in the caller; this component picks, shows, clears, and disables.
+ */
+export const FileUpload = React.forwardRef<FileUploadHandle, FileUploadProps>(
+  function FileUpload(
+    {
+      id,
+      accept,
+      disabled = false,
+      uploading = false,
+      value,
+      onFileChange,
+      resetOnSelect = false,
+      error = null,
+      variant = 'button',
+      showSelectedFile,
+      showClear,
+      showFileSize = true,
+      emptyLabel,
+      emptyHint,
+      buttonLabel,
+      buttonVariant = 'default',
+      buttonSize = 'default',
+      dropzoneContent,
+      children,
+      className,
+      inputClassName,
+      'data-testid': testId,
     },
-  });
+    ref,
+  ) {
+    const t = useTranslations('common.fileUpload');
+    const inputRef = React.useRef<HTMLInputElement>(null);
+    const [dragActive, setDragActive] = React.useState(false);
+    const generatedId = React.useId();
+    const inputId = id ?? generatedId;
 
-  return (
-    <div className='w-full' {...getRootProps()}>
-      <motion.div
-        onClick={handleClick}
-        whileHover='animate'
-        className='p-10 group/file block rounded-lg cursor-pointer w-full relative overflow-hidden'
-      >
-        <input
-          ref={fileInputRef}
-          id='file-upload-handle'
-          type='file'
-          onChange={(e) => handleFileChange(Array.from(e.target.files || []))}
-          className='hidden'
-        />
-        <div className='absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,white,transparent)]'>
-          <GridPattern />
+    const isDisabled = disabled || uploading;
+    const shouldShowSelected =
+      showSelectedFile ?? (variant === 'dropzone' || variant === 'input');
+    const shouldShowClear =
+      showClear ?? (variant === 'dropzone' && value != null);
+
+    const openPicker = React.useCallback(() => {
+      if (isDisabled) {
+        return;
+      }
+      inputRef.current?.click();
+    }, [isDisabled]);
+
+    const clearInput = React.useCallback(() => {
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
+    }, []);
+
+    React.useImperativeHandle(
+      ref,
+      () => ({
+        open: openPicker,
+        clearInput,
+      }),
+      [openPicker, clearInput],
+    );
+
+    const emitFile = React.useCallback(
+      (file: File | null) => {
+        onFileChange?.(file);
+        if (resetOnSelect || file == null) {
+          clearInput();
+        }
+      },
+      [onFileChange, resetOnSelect, clearInput],
+    );
+
+    const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0] ?? null;
+      if (file) {
+        emitFile(file);
+      } else if (!resetOnSelect) {
+        // 用户取消选择时不强制清空受控 value / Cancelling the picker must not clear a controlled value
+        clearInput();
+      }
+    };
+
+    const handleClear = (event?: React.MouseEvent) => {
+      event?.preventDefault();
+      event?.stopPropagation();
+      if (isDisabled) {
+        return;
+      }
+      emitFile(null);
+    };
+
+    const handleDrag = (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (isDisabled) {
+        return;
+      }
+      if (event.type === 'dragenter' || event.type === 'dragover') {
+        setDragActive(true);
+      } else if (event.type === 'dragleave') {
+        setDragActive(false);
+      }
+    };
+
+    const handleDrop = (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setDragActive(false);
+      if (isDisabled) {
+        return;
+      }
+      const file = event.dataTransfer.files?.[0] ?? null;
+      if (file) {
+        emitFile(file);
+      }
+    };
+
+    const hiddenInput = (
+      <input
+        ref={inputRef}
+        id={inputId}
+        type='file'
+        accept={accept}
+        disabled={isDisabled}
+        className='sr-only'
+        tabIndex={-1}
+        aria-hidden={variant === 'input' ? undefined : true}
+        data-testid={testId ? `${testId}-input` : undefined}
+        onChange={handleInputChange}
+      />
+    );
+
+    const errorBlock =
+      error != null && error !== '' ? (
+        <div
+          role='alert'
+          className='flex items-center gap-2 text-destructive text-sm'
+          data-testid={testId ? `${testId}-error` : undefined}
+        >
+          <AlertCircle className='h-4 w-4 shrink-0' />
+          <span className='min-w-0 break-words'>{error}</span>
         </div>
-        <div className='flex flex-col items-center justify-center'>
-          <p className='relative z-20 font-sans font-bold text-neutral-700 dark:text-neutral-300 text-base'>
-            上传文件
-          </p>
-          <p className='relative z-20 font-sans font-normal text-neutral-400 dark:text-neutral-400 text-base mt-2'>
-            拖拽或点击上传文件
-          </p>
-          <div className='relative w-full mt-10 max-w-xl mx-auto'>
-            {files.length > 0 &&
-              files.map((file, idx) => (
-                <motion.div
-                  key={'file' + idx}
-                  layoutId={idx === 0 ? 'file-upload' : 'file-upload-' + idx}
-                  className={cn(
-                    'relative overflow-hidden z-40 bg-white dark:bg-neutral-900 flex flex-col items-start justify-start md:h-24 p-4 mt-4 w-full mx-auto rounded-md',
-                    'shadow-sm',
-                  )}
+      ) : null;
+
+    const selectedBanner =
+      shouldShowSelected && value ? (
+        <div
+          className='rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground'
+          data-testid={testId ? `${testId}-selected` : undefined}
+        >
+          <span className='whitespace-nowrap'>{t('selectedFile')}: </span>
+          <span className='font-medium text-foreground break-all'>
+            {value.name}
+          </span>
+        </div>
+      ) : null;
+
+    if (variant === 'menu-item') {
+      // 样式交给 DropdownMenuItem asChild 合并；这里只做 label + 隐藏 input
+      // Let DropdownMenuItem asChild own the chrome; we only provide label + hidden input
+      return (
+        <label
+          className={cn(
+            'relative cursor-pointer',
+            isDisabled && 'pointer-events-none opacity-50',
+            className,
+          )}
+          data-testid={testId}
+        >
+          {children}
+          {hiddenInput}
+        </label>
+      );
+    }
+
+    if (variant === 'input') {
+      // 直接渲染带 shadcn Input 样式的 file input，保证 ref / open() 可用
+      // Render a file input with shadcn Input styles so ref / open() keep working
+      return (
+        <div className={cn('space-y-2', className)} data-testid={testId}>
+          <input
+            ref={inputRef}
+            id={inputId}
+            type='file'
+            accept={accept}
+            disabled={isDisabled}
+            data-slot='input'
+            data-testid={testId ? `${testId}-input` : undefined}
+            className={cn(
+              'file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+              'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
+              'aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive',
+              inputClassName,
+            )}
+            aria-invalid={error ? true : undefined}
+            onChange={handleInputChange}
+          />
+          {selectedBanner}
+          {errorBlock}
+        </div>
+      );
+    }
+
+    if (variant === 'button') {
+      return (
+        <div className={cn('space-y-2', className)} data-testid={testId}>
+          {hiddenInput}
+          <Button
+            type='button'
+            variant={buttonVariant}
+            size={buttonSize}
+            disabled={isDisabled}
+            className={cn(buttonSize === 'default' && 'w-full')}
+            data-testid={testId ? `${testId}-trigger` : undefined}
+            onClick={openPicker}
+          >
+            {uploading ? (
+              <Loader2 className='h-4 w-4 animate-spin' />
+            ) : (
+              <Upload className='h-4 w-4' />
+            )}
+            {buttonLabel ?? t('chooseFile')}
+          </Button>
+          {selectedBanner}
+          {errorBlock}
+        </div>
+      );
+    }
+
+    // dropzone
+    return (
+      <div className={cn('space-y-2', className)} data-testid={testId}>
+        <div
+          role='button'
+          tabIndex={isDisabled ? -1 : 0}
+          aria-disabled={isDisabled || undefined}
+          aria-label={
+            typeof emptyLabel === 'string' ? emptyLabel : t('chooseFile')
+          }
+          className={cn(
+            'relative rounded-lg border-2 border-dashed p-5 text-center transition-colors',
+            dragActive
+              ? 'border-primary bg-primary/5'
+              : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/20',
+            value ? 'bg-muted/50' : '',
+            isDisabled
+              ? 'pointer-events-none cursor-not-allowed opacity-50'
+              : 'cursor-pointer',
+          )}
+          onClick={openPicker}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              openPicker();
+            }
+          }}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+        >
+          {hiddenInput}
+          {value ? (
+            <div className='flex items-center justify-center gap-3'>
+              <FileIcon className='h-8 w-8 shrink-0 text-primary' />
+              <div className='min-w-0 text-left'>
+                <p className='truncate font-medium' title={value.name}>
+                  {value.name}
+                </p>
+                {showFileSize ? (
+                  <p className='text-sm text-muted-foreground whitespace-nowrap'>
+                    {(value.size / 1024 / 1024).toFixed(2)} MB
+                  </p>
+                ) : null}
+              </div>
+              {shouldShowClear ? (
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon'
+                  aria-label={t('clearFile')}
+                  disabled={isDisabled}
+                  data-testid={testId ? `${testId}-clear` : undefined}
+                  onClick={handleClear}
                 >
-                  <div className='flex justify-between w-full items-center gap-4'>
-                    <motion.p
-                      initial={{opacity: 0}}
-                      animate={{opacity: 1}}
-                      layout
-                      className='text-base text-neutral-700 dark:text-neutral-300 truncate max-w-xs'
-                    >
-                      {file.name}
-                    </motion.p>
-                    <motion.p
-                      initial={{opacity: 0}}
-                      animate={{opacity: 1}}
-                      layout
-                      className='rounded-lg px-2 py-1 w-fit shrink-0 text-sm text-neutral-600 dark:bg-neutral-800 dark:text-white shadow-input'
-                    >
-                      {(file.size / (1024 * 1024)).toFixed(2)} MB
-                    </motion.p>
-                  </div>
-
-                  <div className='flex text-sm md:flex-row flex-col items-start md:items-center w-full mt-2 justify-between text-neutral-600 dark:text-neutral-400'>
-                    <motion.p
-                      initial={{opacity: 0}}
-                      animate={{opacity: 1}}
-                      layout
-                      className='px-1 py-0.5 rounded-md bg-gray-100 dark:bg-neutral-800 '
-                    >
-                      {file.type}
-                    </motion.p>
-
-                    <motion.p
-                      initial={{opacity: 0}}
-                      animate={{opacity: 1}}
-                      layout
-                    >
-                      modified
-                      {new Date(file.lastModified).toLocaleDateString()}
-                    </motion.p>
-                  </div>
-                </motion.div>
-              ))}
-            {!files.length && (
-              <motion.div
-                layoutId='file-upload'
-                variants={mainVariant}
-                transition={{
-                  type: 'spring',
-                  stiffness: 300,
-                  damping: 20,
-                }}
-                className={cn(
-                  'relative group-hover/file:shadow-2xl z-40 bg-white dark:bg-neutral-900 flex items-center justify-center h-32 mt-4 w-full max-w-[8rem] mx-auto rounded-md',
-                  'shadow-[0px_10px_50px_rgba(0,0,0,0.1)]',
-                )}
-              >
-                {isDragActive ? (
-                  <motion.p
-                    initial={{opacity: 0}}
-                    animate={{opacity: 1}}
-                    className='text-neutral-600 flex flex-col items-center'
-                  >
-                    拖拽到此处
-                    <IconUpload className='h-4 w-4 text-neutral-600 dark:text-neutral-400' />
-                  </motion.p>
-                ) : (
-                  <IconUpload className='h-4 w-4 text-neutral-600 dark:text-neutral-300' />
-                )}
-              </motion.div>
-            )}
-
-            {!files.length && (
-              <motion.div
-                variants={secondaryVariant}
-                className='absolute opacity-0 border border-dashed border-sky-400 inset-0 z-30 bg-transparent flex items-center justify-center h-32 mt-4 w-full max-w-[8rem] mx-auto rounded-md'
-              ></motion.div>
-            )}
-          </div>
+                  <X className='h-4 w-4' />
+                </Button>
+              ) : null}
+            </div>
+          ) : dropzoneContent != null ? (
+            dropzoneContent
+          ) : (
+            <div className='space-y-2'>
+              <Upload className='mx-auto h-10 w-10 text-muted-foreground' />
+              <p className='text-muted-foreground'>
+                {emptyLabel ?? t('dragDropOrClick')}
+              </p>
+              {emptyHint ? (
+                <p className='text-xs text-muted-foreground'>{emptyHint}</p>
+              ) : null}
+              {uploading ? (
+                <p className='text-xs text-muted-foreground'>{t('uploading')}</p>
+              ) : null}
+            </div>
+          )}
         </div>
-      </motion.div>
-    </div>
-  );
-};
+        {variant !== 'dropzone' || !value ? selectedBanner : null}
+        {errorBlock}
+      </div>
+    );
+  },
+);
 
-export function GridPattern() {
-  const columns = 41;
-  const rows = 11;
-  return (
-    <div className='flex bg-gray-100 dark:bg-neutral-900 shrink-0 flex-wrap justify-center items-center gap-x-px gap-y-px  scale-105'>
-      {Array.from({length: rows}).map((_, row) =>
-        Array.from({length: columns}).map((_, col) => {
-          const index = row * columns + col;
-          return (
-            <div
-              key={`${col}-${row}`}
-              className={`w-10 h-10 flex shrink-0 rounded-[2px] ${
-                index % 2 === 0
-                  ? 'bg-gray-50 dark:bg-neutral-950'
-                  : 'bg-gray-50 dark:bg-neutral-950 shadow-[0px_0px_1px_3px_rgba(255,255,255,1)_inset] dark:shadow-[0px_0px_1px_3px_rgba(0,0,0,1)_inset]'
-              }`}
-            />
-          );
-        }),
-      )}
-    </div>
-  );
-}
+FileUpload.displayName = 'FileUpload';

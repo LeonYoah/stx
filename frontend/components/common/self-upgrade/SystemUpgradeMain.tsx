@@ -38,6 +38,7 @@ import {TableLoadingBar} from '@/components/common/layout/TableLoadingBar';
 import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
+import {FileUpload, type FileUploadHandle} from '@/components/ui/file-upload';
 import {Progress} from '@/components/ui/progress';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Skeleton} from '@/components/ui/skeleton';
@@ -249,7 +250,7 @@ export function SystemUpgradeMain() {
   const [reconnecting, setReconnecting] = useState(false);
   const [history, setHistory] = useState<UpgradeHistoryRecord[]>([]);
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const fileUploadRef = useRef<FileUploadHandle>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadHistory = useCallback(async () => {
@@ -772,49 +773,46 @@ export function SystemUpgradeMain() {
               </div>
             </TabsContent>
             <TabsContent value='offline' className='space-y-3 mt-3'>
-              <input
-                ref={fileRef}
-                type='file'
+              <FileUpload
+                ref={fileUploadRef}
+                variant='dropzone'
                 accept='.tar.gz,.tgz,.zip'
-                className='hidden'
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handleImport(f);
-                  e.target.value = '';
+                resetOnSelect
+                showClear={false}
+                data-testid='self-upgrade-offline-upload'
+                onFileChange={(file) => {
+                  if (file) {
+                    void handleImport(file);
+                  }
                 }}
+                dropzoneContent={
+                  <div className='flex flex-col items-center justify-center gap-2'>
+                    <Upload className='h-6 w-6 text-muted-foreground' />
+                    <div className='text-xs font-medium text-foreground'>
+                      {t('dropHint')}
+                    </div>
+                    <DisabledReasonTooltip reason={stageBlockedReason}>
+                      <Button
+                        size='sm'
+                        variant='secondary'
+                        data-testid='self-upgrade-import'
+                        className='active:scale-[0.98] mt-1'
+                        aria-disabled={stageBlockedReason ? 'true' : undefined}
+                        disabled={!stageBlockedReason && (busy || !canStage)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (stageBlockedReason) {
+                            return;
+                          }
+                          fileUploadRef.current?.open();
+                        }}
+                      >
+                        {t('import')}
+                      </Button>
+                    </DisabledReasonTooltip>
+                  </div>
+                }
               />
-              <div
-                className='border-2 border-dashed border-border/70 hover:border-primary/50 hover:bg-muted/20 rounded-lg p-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors text-center'
-                onClick={() => fileRef.current?.click()}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const f = e.dataTransfer.files?.[0];
-                  if (f) void handleImport(f);
-                }}
-              >
-                <Upload className='h-6 w-6 text-muted-foreground' />
-                <div className='text-xs font-medium text-foreground'>{t('dropHint')}</div>
-                <DisabledReasonTooltip reason={stageBlockedReason}>
-                  <Button
-                    size='sm'
-                    variant='secondary'
-                    data-testid='self-upgrade-import'
-                    className='active:scale-[0.98] mt-1'
-                    aria-disabled={stageBlockedReason ? 'true' : undefined}
-                    disabled={!stageBlockedReason && (busy || !canStage)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (stageBlockedReason) {
-                        return;
-                      }
-                      fileRef.current?.click();
-                    }}
-                  >
-                    {t('import')}
-                  </Button>
-                </DisabledReasonTooltip>
-              </div>
             </TabsContent>
           </Tabs>
 

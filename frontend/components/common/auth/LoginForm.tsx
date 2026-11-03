@@ -52,7 +52,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/animate-ui/radix/dialog';
+} from '@/components/ui/dialog';
 import {LoaderCircle, Github, Lock, User} from 'lucide-react';
 import {useAuth} from '@/hooks/use-auth';
 import {useThemeUtils} from '@/hooks/use-theme-utils';

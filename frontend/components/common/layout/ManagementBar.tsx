@@ -61,7 +61,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/animate-ui/radix/dialog';
+} from '@/components/ui/dialog';
 import {Avatar, AvatarFallback, AvatarImage} from '@/components/ui/avatar';
 import {TrustLevel} from '@/lib/services/core';
 import {useLocale, locales, localeNames, Locale} from '@/lib/i18n';

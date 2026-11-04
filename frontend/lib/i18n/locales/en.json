@@ -50,7 +50,14 @@
     "timezone": "Timezone",
     "noMatchingData": "No matching data",
     "helpLabel": "Help",
-    "helpLabelFor": "{label} help"
+    "helpLabelFor": "{label} help",
+    "fileUpload": {
+      "chooseFile": "Choose file",
+      "dragDropOrClick": "Drag and drop a file here, or click to choose",
+      "selectedFile": "Selected file",
+      "clearFile": "Clear selected file",
+      "uploading": "Uploading…"
+    }
   },
   "dashboard": {
     "title": "Console",

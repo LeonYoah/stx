@@ -40,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
+import { FileUpload } from '@/components/ui/file-upload';
 import { Download, Trash2, MoreHorizontal, Star, Loader2, CheckCircle, XCircle, FileCode2, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useGSAP } from '@gsap/react';
@@ -386,22 +387,20 @@ export function PackageTable({
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem asChild>
-                        <label className="cursor-pointer">
-                          <Upload className="h-4 w-4 mr-2" />
+                        <FileUpload
+                          variant="menu-item"
+                          accept=".tar.gz"
+                          resetOnSelect
+                          data-testid={`package-source-upload-${pkg.version}`}
+                          onFileChange={(selected) => {
+                            if (selected) {
+                              onSourceUpload?.(pkg.version, selected);
+                            }
+                          }}
+                        >
+                          <Upload className="h-4 w-4" />
                           {pkg.has_source ? t('installer.replaceSource') : t('installer.uploadSource')}
-                          <input
-                            type="file"
-                            accept=".tar.gz"
-                            className="hidden"
-                            onChange={(event) => {
-                              const selected = event.target.files?.[0];
-                              if (selected) {
-                                onSourceUpload?.(pkg.version, selected);
-                              }
-                              event.target.value = '';
-                            }}
-                          />
-                        </label>
+                        </FileUpload>
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"

@@ -32,6 +32,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {Badge} from '@/components/ui/badge';
+import {FileUpload} from '@/components/ui/file-upload';
 import {HelpHint} from '@/components/common/HelpHint';
 import {toast} from 'sonner';
 import {FileCode, Package, Plus, RefreshCw, Trash2, Upload} from 'lucide-react';
@@ -451,12 +452,15 @@ export function PluginDependencyConfigSection({
           <div className='grid gap-4 md:grid-cols-3'>
             <div className='space-y-2 md:col-span-3'>
               <Label htmlFor='uploadJar'>{t('plugin.uploadJarFile')} *</Label>
-              <Input
+              <FileUpload
                 id='uploadJar'
-                type='file'
+                variant='input'
                 accept='.jar'
-                data-testid='plugin-upload-jar-input'
-                onChange={(e) => handleSelectFile(e.target.files?.[0] || null)}
+                value={uploadFile}
+                uploading={uploading}
+                showSelectedFile={false}
+                data-testid='plugin-upload-jar'
+                onFileChange={handleSelectFile}
               />
             </div>
             <div className='space-y-2'>

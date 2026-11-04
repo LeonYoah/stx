@@ -52,7 +52,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/animate-ui/radix/dialog';
+} from '@/components/ui/dialog';
 import {LoaderCircle, Github, Lock, User} from 'lucide-react';
 import {useAuth} from '@/hooks/use-auth';
 import {useThemeUtils} from '@/hooks/use-theme-utils';
@@ -144,7 +144,9 @@ function AuthLegalLinks() {
           <DialogTrigger asChild>
             <button type='button'>{t('terms.termsOfService')}</button>
           </DialogTrigger>
-          <DialogContent className='max-w-3xl max-h-[80vh] overflow-y-auto'>
+          {/* sm:max-w-3xl 覆盖 dialog 底座的 sm:max-w-lg，恢复条款弹窗宽度
+              sm:max-w-3xl overrides the dialog primitive's sm:max-w-lg so width matches main */}
+          <DialogContent className='sm:max-w-3xl max-h-[80vh] overflow-y-auto'>
             <DialogHeader>
               <DialogTitle>{t('terms.termsDialog.title')}</DialogTitle>
               <DialogDescription>
@@ -293,7 +295,7 @@ function AuthLegalLinks() {
           <DialogTrigger asChild>
             <button type='button'>{t('terms.privacyPolicy')}</button>
           </DialogTrigger>
-          <DialogContent className='max-w-3xl max-h-[80vh] overflow-y-auto'>
+          <DialogContent className='sm:max-w-3xl max-h-[80vh] overflow-y-auto'>
             <DialogHeader>
               <DialogTitle>{t('terms.privacyDialog.title')}</DialogTitle>
               <DialogDescription>

@@ -28,7 +28,6 @@ import {
 } from '@/components/ui/dialog';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {ScrollArea} from '@/components/ui/scroll-area';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
@@ -395,7 +394,9 @@ export function PluginDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid={`plugin-detail-dialog-${plugin.name}`}
-        className='w-[94vw] max-w-[94vw] sm:max-w-[760px] lg:max-w-[820px] h-[72vh] sm:h-[75vh] max-h-[75vh] overflow-hidden p-0 gap-0 flex flex-col'
+        // 高度随内容收缩，上限 85vh；去掉写死 h-[..] 避免概览 tab 大块留白（DEF-101-1）
+        // Hug content with max-h 85vh; drop fixed h-[..] so overview tab has no empty gap (DEF-101-1)
+        className='w-[94vw] max-w-[94vw] sm:max-w-[760px] lg:max-w-[820px] min-h-[240px] max-h-[85vh] overflow-hidden p-0 gap-0 flex flex-col'
       >
         {/* Header with high-density visual hierarchy / 高辨识度强化头部 */}
         <DialogHeader className='px-6 pt-5 pb-4 border-b shrink-0 bg-muted/10'>
@@ -516,9 +517,9 @@ export function PluginDetailDialog({
           </Tabs>
         </div>
 
-        {/* Main scrollable body with fixed flex layout / 固定高度防抖动的独立滚动主体 */}
-        <div className='flex-1 min-h-0 overflow-hidden'>
-          <ScrollArea className='h-full w-full'>
+        {/* 中间内容区独立滚动：父级达 max-h 后 flex-1 + min-h-0 才能裁切
+            Body scrolls alone; flex-1 + min-h-0 clips once the dialog hits max-h */}
+        <div className='flex-1 min-h-0 overflow-y-auto'>
             <div className='p-6 space-y-6'>
             {/* Section 1: Overview & Official Documentation Guide / 第一部分：概览与官方文档直达 */}
             {shouldRenderOverview && (
@@ -1053,7 +1054,6 @@ export function PluginDetailDialog({
               </div>
             )}
           </div>
-        </ScrollArea>
         </div>
 
         {/* Footer actions / 底部操作栏 */}

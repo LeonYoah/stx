@@ -21,6 +21,12 @@ import {fireEvent, render, screen} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 
 import {FileUpload, type FileUploadHandle} from '@/components/ui/file-upload';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import zh from '@/lib/i18n/locales/zh.json';
 
 function renderUpload(ui: React.ReactElement) {
@@ -121,5 +127,74 @@ describe('FileUpload', () => {
     );
     expect(screen.getByText('上传源码')).toBeInTheDocument();
     expect(screen.getByTestId('fu-menu-input')).toHaveAttribute('type', 'file');
+  });
+
+  it('menu-item 将 forwarded ref 挂到 label DOM，选文件不抛错', () => {
+    let node: HTMLLabelElement | null = null;
+    const onFileChange = vi.fn();
+    const refCb = ((value: unknown) => {
+      node = value as HTMLLabelElement | null;
+    }) as React.Ref<FileUploadHandle>;
+
+    renderUpload(
+      <FileUpload
+        ref={refCb}
+        variant='menu-item'
+        accept='.tar.gz'
+        resetOnSelect
+        data-testid='fu-menu'
+        onFileChange={onFileChange}
+      >
+        <span>上传源码包</span>
+      </FileUpload>,
+    );
+
+    // asChild / Slot 需要 DOM 节点，不能是 {open, clearInput}
+    // asChild / Slot needs a DOM node, not an imperative {open, clearInput} object
+    expect(node).toBeInstanceOf(HTMLLabelElement);
+    expect(node).toBe(screen.getByTestId('fu-menu'));
+
+    const input = screen.getByTestId('fu-menu-input') as HTMLInputElement;
+    const file = makeFile('source.tar.gz');
+    expect(() => {
+      fireEvent.change(input, {target: {files: [file]}});
+    }).not.toThrow();
+    expect(onFileChange).toHaveBeenCalledWith(file);
+  });
+
+  it('menu-item 在 DropdownMenuItem asChild 下选文件不抛错且可关闭菜单', () => {
+    const onFileChange = vi.fn();
+    const onOpenChange = vi.fn();
+    renderUpload(
+      <DropdownMenu open onOpenChange={onOpenChange}>
+        <DropdownMenuTrigger asChild>
+          <button type='button'>更多</button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem asChild>
+            <FileUpload
+              variant='menu-item'
+              accept='.tar.gz'
+              resetOnSelect
+              data-testid='fu-menu'
+              onFileChange={onFileChange}
+            >
+              <span>上传源码包</span>
+            </FileUpload>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+
+    const input = screen.getByTestId('fu-menu-input') as HTMLInputElement;
+    expect(() => {
+      fireEvent.change(input, {target: {files: [makeFile('src.tar.gz')]}});
+    }).not.toThrow();
+    expect(onFileChange).toHaveBeenCalled();
+
+    // 点击菜单外或 Escape 应能正常关闭（ref 指向 DOM 后 Radix 焦点逻辑可用）
+    // Escape / outside click can close once the ref points at a real DOM node
+    fireEvent.keyDown(document, {key: 'Escape'});
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

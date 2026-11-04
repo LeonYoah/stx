@@ -25,6 +25,27 @@ import {Button, buttonVariants} from '@/components/ui/button';
 import {cn} from '@/lib/utils';
 import type {VariantProps} from 'class-variance-authority';
 
+/**
+ * 合并多个 ref，避免 asChild（DropdownMenuItem）拿到的 DOM ref 被 imperative handle 覆盖。
+ * Merge refs so an asChild DOM ref is not overwritten by an imperative handle.
+ */
+function composeRefs<T>(
+  ...refs: Array<React.Ref<T> | undefined | null>
+): React.RefCallback<T> {
+  return (node) => {
+    for (const ref of refs) {
+      if (!ref) {
+        continue;
+      }
+      if (typeof ref === 'function') {
+        ref(node);
+      } else {
+        (ref as React.MutableRefObject<T | null>).current = node;
+      }
+    }
+  };
+}
+
 /** 统一上传入口的展示形态 / Visual variants for the shared file picker */
 export type FileUploadVariant = 'dropzone' | 'button' | 'input' | 'menu-item';
 
@@ -142,8 +163,11 @@ export const FileUpload = React.forwardRef<FileUploadHandle, FileUploadProps>(
       }
     }, []);
 
+    // menu-item 走 asChild，必须把 forwarded ref 挂到 label DOM；其它形态才暴露 imperative API
+    // menu-item uses asChild — forward the ref to the label DOM; other variants expose the handle API
+    const imperativeRef = variant === 'menu-item' ? null : ref;
     React.useImperativeHandle(
-      ref,
+      imperativeRef,
       () => ({
         open: openPicker,
         clearInput,
@@ -247,10 +271,11 @@ export const FileUpload = React.forwardRef<FileUploadHandle, FileUploadProps>(
       ) : null;
 
     if (variant === 'menu-item') {
-      // 样式交给 DropdownMenuItem asChild 合并；这里只做 label + 隐藏 input
-      // Let DropdownMenuItem asChild own the chrome; we only provide label + hidden input
+      // 样式交给 DropdownMenuItem asChild；composeRefs 保留 Slot 传入的 DOM ref
+      // DropdownMenuItem asChild owns chrome; composeRefs keeps the Slot DOM ref
       return (
         <label
+          ref={composeRefs(ref as React.Ref<HTMLLabelElement>)}
           className={cn(
             'relative cursor-pointer',
             isDisabled && 'pointer-events-none opacity-50',

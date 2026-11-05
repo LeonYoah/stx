@@ -75,6 +75,10 @@ type StudioSidebarShellProps = {
   className?: string;
   contentMode?: 'scroll' | 'fill';
   ariaHidden?: boolean;
+  /** 收起时设 inert，整棵侧栏移出键盘焦点序 / When collapsed, inert removes the sidebar from keyboard focus */
+  inert?: boolean;
+  /** 透传到根节点，便于收起时判断焦点是否仍在侧栏内 / Forwarded to root for focus-contains checks while collapsing */
+  'data-studio-right-sidebar'?: string;
 } & (
   | {
       /** 提供收起回调时必须同时给 i18n 文案，禁止英文硬编码兜底 / collapseLabel is required with onCollapse */
@@ -95,14 +99,18 @@ export function StudioSidebarShell({
   onCollapse,
   collapseLabel,
   ariaHidden,
+  inert: inertProp,
+  'data-studio-right-sidebar': dataStudioRightSidebar,
 }: StudioSidebarShellProps) {
   return (
     <Card
+      data-studio-right-sidebar={dataStudioRightSidebar}
       className={cn(
         'row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm',
         className,
       )}
       aria-hidden={ariaHidden || undefined}
+      inert={inertProp ? true : undefined}
     >
       <CardContent className='grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)_40px] p-0'>
         <div className='min-h-0 min-w-0 overflow-hidden'>

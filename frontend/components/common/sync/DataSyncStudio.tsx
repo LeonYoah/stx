@@ -650,12 +650,35 @@ export function DataSyncStudio() {
     });
   }, [isLeftSidebarCollapsed, isRightSidebarCollapsed]);
 
+  // 顶栏展开/收起按钮：收起侧栏时若焦点仍在侧栏内，迁到可见控件上
+  // Topbar toggles: when collapsing, move focus out of the soon-inert sidebar subtree
+  const leftSidebarToggleRef = useRef<HTMLButtonElement>(null);
+  const rightSidebarToggleRef = useRef<HTMLButtonElement>(null);
+
   const handleToggleLeftSidebar = useCallback(() => {
-    setIsLeftSidebarCollapsed((prev) => !prev);
+    setIsLeftSidebarCollapsed((prev) => {
+      const next = !prev;
+      if (next) {
+        const active = document.activeElement;
+        if (active?.closest?.('[data-studio-left-sidebar]')) {
+          queueMicrotask(() => leftSidebarToggleRef.current?.focus());
+        }
+      }
+      return next;
+    });
   }, []);
 
   const handleToggleRightSidebar = useCallback(() => {
-    setIsRightSidebarCollapsed((prev) => !prev);
+    setIsRightSidebarCollapsed((prev) => {
+      const next = !prev;
+      if (next) {
+        const active = document.activeElement;
+        if (active?.closest?.('[data-studio-right-sidebar]')) {
+          queueMicrotask(() => rightSidebarToggleRef.current?.focus());
+        }
+      }
+      return next;
+    });
   }, []);
 
   // 当前激活任务的面包屑路径列表
@@ -4501,6 +4524,7 @@ export function DataSyncStudio() {
               <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
                 <TooltipTrigger asChild>
                   <Button
+                    ref={leftSidebarToggleRef}
                     size='sm'
                     variant='ghost'
                     aria-label={
@@ -4533,6 +4557,7 @@ export function DataSyncStudio() {
               <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
                 <TooltipTrigger asChild>
                   <Button
+                    ref={rightSidebarToggleRef}
                     size='sm'
                     variant='ghost'
                     aria-label={
@@ -4877,11 +4902,15 @@ export function DataSyncStudio() {
         }}
       >
         <Card
+          data-studio-left-sidebar=''
           className={cn(
             'col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
             isLeftSidebarCollapsed && 'pointer-events-none border-transparent opacity-0',
           )}
           aria-hidden={isLeftSidebarCollapsed || undefined}
+          // inert：收起后移出 Tab 序，避免焦点落在 aria-hidden 子树内（Codex P2）
+          // inert: drop collapsed subtree from tab order so focus cannot land in aria-hidden (Codex P2)
+          inert={isLeftSidebarCollapsed ? true : undefined}
         >
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 资源管理器标题与工具栏 (VSCode 风格) */}
@@ -5390,12 +5419,14 @@ export function DataSyncStudio() {
         </Card>
 
         <StudioSidebarShell
+          data-studio-right-sidebar=''
           className={cn(
             'col-start-3 row-start-1 row-span-2 min-w-0 transition-all duration-200',
             isRightSidebarCollapsed &&
               'pointer-events-none border-transparent opacity-0',
           )}
           ariaHidden={isRightSidebarCollapsed}
+          inert={isRightSidebarCollapsed}
           contentMode={
             rightSidebarTab === 'templates' ? 'fill' : 'scroll'
           }

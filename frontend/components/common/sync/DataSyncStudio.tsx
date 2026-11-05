@@ -60,7 +60,6 @@ import {
   Minimize2,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightClose,
   PanelRightOpen,
   PlugZap,
   Play,
@@ -650,19 +649,18 @@ export function DataSyncStudio() {
     });
   }, [isLeftSidebarCollapsed, isRightSidebarCollapsed]);
 
-  // 顶栏展开/收起按钮：收起侧栏时若焦点仍在侧栏内，迁到可见控件上
-  // Topbar toggles: when collapsing, move focus out of the soon-inert sidebar subtree
-  const leftSidebarToggleRef = useRef<HTMLButtonElement>(null);
-  const rightSidebarToggleRef = useRef<HTMLButtonElement>(null);
+  // 收起态边缘展开条：收起后焦点迁到对应侧展开入口（#110 AC11 / Codex P2）
+  // Collapsed-edge expand rails: move focus to the matching expand control after collapse (#110 AC11 / Codex P2)
+  const leftEdgeExpandRef = useRef<HTMLButtonElement>(null);
+  const rightEdgeExpandRef = useRef<HTMLButtonElement>(null);
+  const pendingFocusLeftExpandRef = useRef(false);
+  const pendingFocusRightExpandRef = useRef(false);
 
   const handleToggleLeftSidebar = useCallback(() => {
     setIsLeftSidebarCollapsed((prev) => {
       const next = !prev;
       if (next) {
-        const active = document.activeElement;
-        if (active?.closest?.('[data-studio-left-sidebar]')) {
-          queueMicrotask(() => leftSidebarToggleRef.current?.focus());
-        }
+        pendingFocusLeftExpandRef.current = true;
       }
       return next;
     });
@@ -672,14 +670,25 @@ export function DataSyncStudio() {
     setIsRightSidebarCollapsed((prev) => {
       const next = !prev;
       if (next) {
-        const active = document.activeElement;
-        if (active?.closest?.('[data-studio-right-sidebar]')) {
-          queueMicrotask(() => rightSidebarToggleRef.current?.focus());
-        }
+        pendingFocusRightExpandRef.current = true;
       }
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    if (isLeftSidebarCollapsed && pendingFocusLeftExpandRef.current) {
+      pendingFocusLeftExpandRef.current = false;
+      leftEdgeExpandRef.current?.focus();
+    }
+  }, [isLeftSidebarCollapsed]);
+
+  useEffect(() => {
+    if (isRightSidebarCollapsed && pendingFocusRightExpandRef.current) {
+      pendingFocusRightExpandRef.current = false;
+      rightEdgeExpandRef.current?.focus();
+    }
+  }, [isRightSidebarCollapsed]);
 
   // 当前激活任务的面包屑路径列表
   // Breadcrumb segments for the currently active task
@@ -4515,82 +4524,9 @@ export function DataSyncStudio() {
             </button>
           </div>
 
-          {/* 右侧：侧栏开合 + 环境指示 + IDE 工具栏图标 + 核心动作；单行 nowrap */}
-          {/* Right: sidebar toggles + env + IDE icon toolbar + primary cluster; single-row nowrap */}
+          {/* 右侧：环境指示 + IDE 工具栏图标 + 核心动作；侧栏开合入口贴在侧栏自身（#110 AC11） */}
+          {/* Right: env + IDE icon toolbar + primary cluster; sidebar collapse lives on each sidebar (#110 AC11) */}
           <div className='flex shrink-0 flex-nowrap items-center justify-end gap-1.5'>
-            {/* 左右侧栏独立开合（无「一键两边都收」入口） */}
-            {/* Independent left/right sidebar toggles (no collapse-both entry) */}
-            <div className='flex shrink-0 flex-nowrap items-center gap-0.5'>
-              <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-                <TooltipTrigger asChild>
-                  <Button
-                    ref={leftSidebarToggleRef}
-                    size='sm'
-                    variant='ghost'
-                    aria-label={
-                      isLeftSidebarCollapsed
-                        ? t('expandLeftSidebar')
-                        : t('collapseLeftSidebar')
-                    }
-                    aria-pressed={!isLeftSidebarCollapsed}
-                    data-testid='studio-toggle-left-sidebar'
-                    className={cn(
-                      'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
-                      isLeftSidebarCollapsed &&
-                        'border-primary/40 bg-primary/10 text-primary',
-                    )}
-                    onClick={handleToggleLeftSidebar}
-                  >
-                    {isLeftSidebarCollapsed ? (
-                      <PanelLeftOpen className='size-3.5' />
-                    ) : (
-                      <PanelLeftClose className='size-3.5' />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isLeftSidebarCollapsed
-                    ? t('expandLeftSidebar')
-                    : t('collapseLeftSidebar')}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-                <TooltipTrigger asChild>
-                  <Button
-                    ref={rightSidebarToggleRef}
-                    size='sm'
-                    variant='ghost'
-                    aria-label={
-                      isRightSidebarCollapsed
-                        ? t('expandRightSidebar')
-                        : t('collapseRightSidebar')
-                    }
-                    aria-pressed={!isRightSidebarCollapsed}
-                    data-testid='studio-toggle-right-sidebar'
-                    className={cn(
-                      'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
-                      isRightSidebarCollapsed &&
-                        'border-primary/40 bg-primary/10 text-primary',
-                    )}
-                    onClick={handleToggleRightSidebar}
-                  >
-                    {isRightSidebarCollapsed ? (
-                      <PanelRightOpen className='size-3.5' />
-                    ) : (
-                      <PanelRightClose className='size-3.5' />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isRightSidebarCollapsed
-                    ? t('expandRightSidebar')
-                    : t('collapseRightSidebar')}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-
-            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
-
             {/* 环境指示（与顶栏控件统一 rounded-md / h-8） */}
             {/* Environment indicator (aligned rounded-md / h-8 with topbar controls) */}
             <div
@@ -4893,24 +4829,38 @@ export function DataSyncStudio() {
               : 'grid-rows-[minmax(0,1fr)_260px]',
         )}
         style={{
-          // 收起列用 0px 释放宽度，避免 hidden 仍占轨；编辑列始终 minmax(0,1fr)。
-          // Collapsed tracks use 0px to free width (not hidden-but-reserved); editor stays minmax(0,1fr).
+          // 收起列保留窄轨给展开条（#110 AC11）；编辑列始终 minmax(0,1fr)。
+          // Collapsed tracks keep a slim expand rail (#110 AC11); editor stays minmax(0,1fr).
           gridTemplateColumns: buildStudioGridTemplateColumns(
             isLeftSidebarCollapsed,
             isRightSidebarCollapsed,
           ),
         }}
       >
+        {isLeftSidebarCollapsed ? (
+          // 收起态：原左侧位置的竖向展开条（#110 AC11）
+          // Collapsed: vertical expand rail where the left explorer was (#110 AC11)
+          <div className='col-start-1 row-start-1 row-span-2 flex min-h-0 min-w-0'>
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>
+                <button
+                  ref={leftEdgeExpandRef}
+                  type='button'
+                  aria-label={t('expandLeftSidebar')}
+                  data-testid='studio-edge-expand-left'
+                  onClick={handleToggleLeftSidebar}
+                  className='flex h-full w-full flex-col items-center justify-center rounded-md border border-border/60 bg-background/85 text-muted-foreground shadow-xs transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary'
+                >
+                  <PanelLeftOpen className='size-3.5 shrink-0' />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side='right'>{t('expandLeftSidebar')}</TooltipContent>
+            </Tooltip>
+          </div>
+        ) : (
         <Card
           data-studio-left-sidebar=''
-          className={cn(
-            'col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
-            isLeftSidebarCollapsed && 'pointer-events-none border-transparent opacity-0',
-          )}
-          aria-hidden={isLeftSidebarCollapsed || undefined}
-          // inert：收起后移出 Tab 序，避免焦点落在 aria-hidden 子树内（Codex P2）
-          // inert: drop collapsed subtree from tab order so focus cannot land in aria-hidden (Codex P2)
-          inert={isLeftSidebarCollapsed ? true : undefined}
+          className='col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200'
         >
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 资源管理器标题与工具栏 (VSCode 风格) */}
@@ -4929,6 +4879,7 @@ export function DataSyncStudio() {
                     <button
                       type='button'
                       aria-label={t('collapseLeftSidebar')}
+                      data-testid='studio-collapse-left-sidebar'
                       onClick={handleToggleLeftSidebar}
                       className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
@@ -5128,47 +5079,14 @@ export function DataSyncStudio() {
             </ScrollArea>
           </CardContent>
         </Card>
+        )}
 
         <Card
           className={cn(
-            'relative col-start-2 row-start-1 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            'col-start-2 row-start-1 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
             isConsoleMaximized && 'hidden',
           )}
         >
-          {/* 侧栏收起后的边缘展开手柄，保证仍有明显再展开入口 */}
-          {/* Edge expand handles when a sidebar is collapsed so re-expand stays obvious */}
-          {isLeftSidebarCollapsed ? (
-            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-              <TooltipTrigger asChild>
-                <button
-                  type='button'
-                  aria-label={t('expandLeftSidebar')}
-                  data-testid='studio-edge-expand-left'
-                  onClick={handleToggleLeftSidebar}
-                  className='absolute left-0 top-1/2 z-20 flex h-16 w-4 -translate-y-1/2 items-center justify-center rounded-r-md border border-l-0 border-border/60 bg-background/95 text-muted-foreground shadow-xs transition-colors hover:bg-primary/10 hover:text-primary'
-                >
-                  <PanelLeftOpen className='size-3.5' />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side='right'>{t('expandLeftSidebar')}</TooltipContent>
-            </Tooltip>
-          ) : null}
-          {isRightSidebarCollapsed ? (
-            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-              <TooltipTrigger asChild>
-                <button
-                  type='button'
-                  aria-label={t('expandRightSidebar')}
-                  data-testid='studio-edge-expand-right'
-                  onClick={handleToggleRightSidebar}
-                  className='absolute right-0 top-1/2 z-20 flex h-16 w-4 -translate-y-1/2 items-center justify-center rounded-l-md border border-r-0 border-border/60 bg-background/95 text-muted-foreground shadow-xs transition-colors hover:bg-primary/10 hover:text-primary'
-                >
-                  <PanelRightOpen className='size-3.5' />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side='left'>{t('expandRightSidebar')}</TooltipContent>
-            </Tooltip>
-          ) : null}
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* VS Code 风格平铺直角标签页栏 */}
             {/* VS Code style flat rectangular tab bar */}
@@ -5418,15 +5336,30 @@ export function DataSyncStudio() {
           </CardContent>
         </Card>
 
+        {isRightSidebarCollapsed ? (
+          // 收起态：原右侧位置的竖向展开条（#110 AC11）
+          // Collapsed: vertical expand rail where the right advanced sidebar was (#110 AC11)
+          <div className='col-start-3 row-start-1 row-span-2 flex min-h-0 min-w-0'>
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>
+                <button
+                  ref={rightEdgeExpandRef}
+                  type='button'
+                  aria-label={t('expandRightSidebar')}
+                  data-testid='studio-edge-expand-right'
+                  onClick={handleToggleRightSidebar}
+                  className='flex h-full w-full flex-col items-center justify-center rounded-md border border-border/60 bg-background/85 text-muted-foreground shadow-xs transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary'
+                >
+                  <PanelRightOpen className='size-3.5 shrink-0' />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side='left'>{t('expandRightSidebar')}</TooltipContent>
+            </Tooltip>
+          </div>
+        ) : (
         <StudioSidebarShell
           data-studio-right-sidebar=''
-          className={cn(
-            'col-start-3 row-start-1 row-span-2 min-w-0 transition-all duration-200',
-            isRightSidebarCollapsed &&
-              'pointer-events-none border-transparent opacity-0',
-          )}
-          ariaHidden={isRightSidebarCollapsed}
-          inert={isRightSidebarCollapsed}
+          className='col-start-3 row-start-1 row-span-2 min-w-0 transition-all duration-200'
           contentMode={
             rightSidebarTab === 'templates' ? 'fill' : 'scroll'
           }
@@ -5585,6 +5518,7 @@ export function DataSyncStudio() {
             />
           )}
         </StudioSidebarShell>
+        )}
 
         <Card
           className={cn(

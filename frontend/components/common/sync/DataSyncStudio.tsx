@@ -62,6 +62,7 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  PlugZap,
   Play,
   RefreshCw,
   Save,
@@ -4611,7 +4612,9 @@ export function DataSyncStudio() {
                       {actionPending === 'test_connections' ? (
                         <Loader2 className='size-3.5 animate-spin' />
                       ) : (
-                        <Database className='size-3.5' />
+                        // 测试连接空闲态用 PlugZap，避免 Database 被读成「数据库」入口（#110 AC8）
+                        // Idle test-connections uses PlugZap so Database is not read as a DB entry (#110 AC8)
+                        <PlugZap className='size-3.5' />
                       )}
                     </Button>
                   </span>

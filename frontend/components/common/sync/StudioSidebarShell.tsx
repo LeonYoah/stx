@@ -69,6 +69,24 @@ export function SidebarIconTab({
  * Studio sidebar shell. scroll = page scroll; fill = child owns height (manage list fills leftover).
  * Optional onCollapse: simple collapse icon at the top of the icon rail (#110 right advanced sidebar).
  */
+type StudioSidebarShellProps = {
+  children: ReactNode;
+  rail: ReactNode;
+  className?: string;
+  contentMode?: 'scroll' | 'fill';
+  ariaHidden?: boolean;
+} & (
+  | {
+      /** 提供收起回调时必须同时给 i18n 文案，禁止英文硬编码兜底 / collapseLabel is required with onCollapse */
+      onCollapse: () => void;
+      collapseLabel: string;
+    }
+  | {
+      onCollapse?: undefined;
+      collapseLabel?: undefined;
+    }
+);
+
 export function StudioSidebarShell({
   children,
   rail,
@@ -77,15 +95,7 @@ export function StudioSidebarShell({
   onCollapse,
   collapseLabel,
   ariaHidden,
-}: {
-  children: ReactNode;
-  rail: ReactNode;
-  className?: string;
-  contentMode?: 'scroll' | 'fill';
-  onCollapse?: () => void;
-  collapseLabel?: string;
-  ariaHidden?: boolean;
-}) {
+}: StudioSidebarShellProps) {
   return (
     <Card
       className={cn(
@@ -112,7 +122,7 @@ export function StudioSidebarShell({
               <TooltipTrigger asChild>
                 <button
                   type='button'
-                  aria-label={collapseLabel || 'Collapse sidebar'}
+                  aria-label={collapseLabel}
                   data-testid='studio-sidebar-shell-collapse'
                   className='flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
                   onClick={onCollapse}
@@ -120,9 +130,7 @@ export function StudioSidebarShell({
                   <PanelRightClose className='size-4' />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side='left'>
-                {collapseLabel || 'Collapse sidebar'}
-              </TooltipContent>
+              <TooltipContent side='left'>{collapseLabel}</TooltipContent>
             </Tooltip>
           ) : null}
           {rail}

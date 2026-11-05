@@ -638,8 +638,8 @@ export function DataSyncStudio() {
   const studioLayoutHydratedRef = useRef(false);
 
   useEffect(() => {
-    // 跳过首帧写入，保留「无记录 → 两侧展开」语义，直到用户真正切换开合。
-    // Skip the first write so "no record → both open" stays until the user toggles.
+    // 跳过首帧写入，保留「无记录 → 左展开 / 右收起」语义，直到用户真正切换开合。
+    // Skip the first write so "no record → left open / right collapsed" stays until the user toggles.
     if (!studioLayoutHydratedRef.current) {
       studioLayoutHydratedRef.current = true;
       return;
@@ -4895,7 +4895,7 @@ export function DataSyncStudio() {
                 </span>
               </div>
               <div className='flex shrink-0 items-center gap-0.5'>
-                <Tooltip>
+                <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
                   <TooltipTrigger asChild>
                     <button
                       type='button'

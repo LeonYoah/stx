@@ -18,9 +18,11 @@
 'use client';
 
 import type {ReactNode} from 'react';
+import {PanelRightClose} from 'lucide-react';
 import {Card, CardContent} from '@/components/ui/card';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {HELP_HINT_DELAY_MS} from '@/components/common/HelpHint';
 import {cn} from '@/lib/utils';
 
 /**
@@ -39,7 +41,7 @@ export function SidebarIconTab({
   onClick: () => void;
 }) {
   return (
-    <Tooltip>
+    <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
       <TooltipTrigger asChild>
         <button
           type='button'
@@ -63,18 +65,26 @@ export function SidebarIconTab({
 /**
  * 工作台侧边栏外壳容器。
  * contentMode=scroll：整页滚动（设置/版本等）；fill：子面板自管高度（模板管理列表吃满剩余空间）。
+ * 可选 onCollapse：在 icon rail 顶部放简单收起图标（#110 右侧高级配置）。
  * Studio sidebar shell. scroll = page scroll; fill = child owns height (manage list fills leftover).
+ * Optional onCollapse: simple collapse icon at the top of the icon rail (#110 right advanced sidebar).
  */
 export function StudioSidebarShell({
   children,
   rail,
   className,
   contentMode = 'scroll',
+  onCollapse,
+  collapseLabel,
+  ariaHidden,
 }: {
   children: ReactNode;
   rail: ReactNode;
   className?: string;
   contentMode?: 'scroll' | 'fill';
+  onCollapse?: () => void;
+  collapseLabel?: string;
+  ariaHidden?: boolean;
 }) {
   return (
     <Card
@@ -82,6 +92,7 @@ export function StudioSidebarShell({
         'row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm',
         className,
       )}
+      aria-hidden={ariaHidden || undefined}
     >
       <CardContent className='grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)_40px] p-0'>
         <div className='min-h-0 min-w-0 overflow-hidden'>
@@ -96,6 +107,24 @@ export function StudioSidebarShell({
           )}
         </div>
         <div className='flex min-h-0 w-10 shrink-0 flex-col items-center gap-2 border-l border-border/60 bg-muted/10 py-3'>
+          {onCollapse ? (
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>
+                <button
+                  type='button'
+                  aria-label={collapseLabel || 'Collapse sidebar'}
+                  data-testid='studio-sidebar-shell-collapse'
+                  className='flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
+                  onClick={onCollapse}
+                >
+                  <PanelRightClose className='size-4' />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side='left'>
+                {collapseLabel || 'Collapse sidebar'}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
           {rail}
         </div>
       </CardContent>

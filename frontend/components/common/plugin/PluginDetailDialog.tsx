@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   Dialog,
@@ -161,6 +161,9 @@ export function PluginDetailDialog({
   const [profileFilter, setProfileFilter] = useState('');
   const [copiedCoord, setCopiedCoord] = useState(false);
   const [copiedXml, setCopiedXml] = useState(false);
+  // 记录已成功加载的插件+版本，重复打开同键时静默刷新不闪 spinner。
+  // Track last successful plugin+version load so reopen/silent refresh skips spinner flash.
+  const loadedOfficialDepsKeyRef = useRef<string | null>(null);
 
   // Version and metadata resolution / 版本与元数据推导
   const effectiveVersion = seatunnelVersion || plugin.version;
@@ -169,32 +172,45 @@ export function PluginDetailDialog({
   const capability = getConnectorCapability(plugin.name, plugin.category);
   const dependencyStatusMeta = getPluginDependencyStatusMeta(plugin, t);
   const useIsolatedDeps = supportsIsolatedDependency(effectiveVersion);
+  const officialDepsKey = `${plugin?.name || ''}@${effectiveVersion || ''}`;
 
   // Load official dependencies / 加载官方依赖画像
   const loadOfficialDeps = useCallback(async () => {
     if (!plugin?.name) {
       return;
     }
-    setLoadingOfficialDeps(true);
+    const requestKey = `${plugin.name}@${seatunnelVersion || plugin.version || ''}`;
+    const silentRefresh = loadedOfficialDepsKeyRef.current === requestKey;
+    if (!silentRefresh) {
+      setLoadingOfficialDeps(true);
+    }
     try {
       const data = await PluginService.getOfficialDependencies(
         plugin.name,
         seatunnelVersion || plugin.version,
       );
       setOfficialDeps(data);
+      loadedOfficialDepsKeyRef.current = requestKey;
     } catch (error) {
       console.error('Failed to load official dependencies:', error);
       setOfficialDeps(null);
+      loadedOfficialDepsKeyRef.current = null;
     } finally {
       setLoadingOfficialDeps(false);
     }
   }, [plugin?.name, plugin?.version, seatunnelVersion]);
 
   useEffect(() => {
-    if (open && plugin?.name) {
-      void loadOfficialDeps();
+    if (!open || !plugin?.name) {
+      return;
     }
-  }, [loadOfficialDeps, open, plugin?.name]);
+    // 插件或版本切换时清掉旧画像，避免短暂展示错误依赖。
+    // Clear stale profiles when plugin/version changes to avoid briefly showing wrong deps.
+    if (loadedOfficialDepsKeyRef.current !== officialDepsKey) {
+      setOfficialDeps(null);
+    }
+    void loadOfficialDeps();
+  }, [loadOfficialDeps, officialDepsKey, open, plugin?.name]);
 
   // Profiles resolution / 画像列表与过滤
   const availableProfiles = useMemo(

@@ -1733,6 +1733,21 @@ export function formatSyncUserFacingError(
     };
   }
 
+  // 1.2 未定义模板变量检查 / Undefined template variable check
+  if (
+    /undefined template variable/i.test(cleanMessage) ||
+    /未在任务自定义变量或全局变量中配置/i.test(cleanMessage) ||
+    /未加双引号的 \{\{变量\}\}/i.test(cleanMessage)
+  ) {
+    return {
+      title: t('undefinedVariableTitle') || '未定义的模板变量',
+      description: cleanMessage,
+      category: 'syntax',
+      suggestion: '检测到任务配置中引用了未定义的 {{变量}}。请在右侧栏“自定义变量”或“全局变量”中配置该变量，或者在配置中为占位符加上双引号包裹。',
+      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
+    };
+  }
+
   // 2. 库表未找到或 Schema 映射失败
   if (
     /table.*(?:doesn't exist|not found|resolution failed)/i.test(cleanMessage) ||

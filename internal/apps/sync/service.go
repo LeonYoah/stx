@@ -970,14 +970,20 @@ func (s *Service) ValidateTask(ctx context.Context, id uint, draft *TaskDraftPay
 	if strings.TrimSpace(task.Content.String()) == "" {
 		errorsList = append(errorsList, ErrTaskDefinitionEmpty.Error())
 	}
+	taskRuntime := buildTaskVariableRuntime(task, "")
+	if _, resolveErr := s.resolveTaskContent(ctx, task, taskRuntime); resolveErr != nil {
+		errorsList = append(errorsList, resolveErr.Error())
+	}
 	if task.ClusterID == 0 && taskExecutionMode(task) != "local" {
 		warnings = append(warnings, "cluster_id is empty, runtime submission will fail until a target cluster is selected")
 	}
-	if s.configToolClient != nil && s.configToolResolver != nil {
+	if s.configToolClient != nil && s.configToolResolver != nil && len(errorsList) == 0 {
 		endpoint, endpointErr := s.configToolResolver.ResolveConfigToolEndpoint(ctx, task.ClusterID, task.Definition)
 		if endpointErr == nil {
-			req, buildErr := s.buildConfigToolContentRequest(ctx, task, nil)
-			if buildErr == nil {
+			req, buildErr := s.buildConfigToolContentRequest(ctx, task, taskRuntime)
+			if buildErr != nil {
+				errorsList = append(errorsList, buildErr.Error())
+			} else {
 				validateResp, validateErr := s.configToolClient.ValidateConfig(ctx, endpoint, &ConfigToolValidateRequest{
 					ConfigToolContentRequest: *req,
 					TestConnection:           false,
@@ -1018,6 +1024,19 @@ func (s *Service) TestTaskConnections(ctx context.Context, id uint, draft *TaskD
 	if task.NodeType != TaskNodeTypeFile {
 		return nil, ErrTaskNotFile
 	}
+	req, err := s.buildConfigToolContentRequest(ctx, task, buildTaskVariableRuntime(task, ""))
+	if err != nil {
+		if errors.Is(err, ErrUndefinedTemplateVariable) {
+			return &ValidateResult{
+				Valid:        false,
+				Errors:       []string{err.Error()},
+				Summary:      "Connection test failed: undefined template variable.",
+				Resolved:     map[string]string{"mode": string(task.Mode), "content_format": string(task.ContentFormat)},
+				DetectedVars: detectTemplateVariables(task.Content.String()),
+			}, nil
+		}
+		return nil, err
+	}
 	if s.configToolClient == nil || s.configToolResolver == nil {
 		return &ValidateResult{
 			Valid:    false,
@@ -1027,10 +1046,6 @@ func (s *Service) TestTaskConnections(ctx context.Context, id uint, draft *TaskD
 		}, nil
 	}
 	endpoint, err := s.configToolResolver.ResolveConfigToolEndpoint(ctx, task.ClusterID, task.Definition)
-	if err != nil {
-		return nil, err
-	}
-	req, err := s.buildConfigToolContentRequest(ctx, task, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1066,7 +1081,7 @@ func (s *Service) BuildTaskDAG(ctx context.Context, id uint, draft *TaskDraftPay
 		if err != nil {
 			return nil, err
 		}
-		req, buildErr := s.buildConfigToolContentRequest(ctx, task, nil)
+		req, buildErr := s.buildConfigToolContentRequest(ctx, task, buildTaskVariableRuntime(task, ""))
 		if buildErr != nil {
 			return nil, buildErr
 		}
@@ -2901,7 +2916,11 @@ func (s *Service) resolveTaskContent(ctx context.Context, task *Task, runtime *t
 	if err != nil {
 		return "", err
 	}
-	return replaceTemplateVariables(content, variables, runtime), nil
+	replaced, undefinedVars := replaceTemplateVariablesWithTrack(content, variables, runtime)
+	if len(undefinedVars) > 0 {
+		return "", fmt.Errorf("%w: {{%s}} (未在任务自定义变量或全局变量中配置)", ErrUndefinedTemplateVariable, strings.Join(undefinedVars, "}}, {{"))
+	}
+	return replaced, nil
 }
 
 func buildTaskVariableRuntime(task *Task, platformJobID string) *taskVariableRuntime {

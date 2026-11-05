@@ -36,6 +36,7 @@ import {
   resolveOptionAssignmentContext,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
+  formatSyncUserFacingError,
 } from '../sync-studio-utils';
 
 describe('formatValueConstraintHints', () => {
@@ -711,3 +712,23 @@ describe('formatRateDisplay', () => {
     expect(formatRateDisplay(undefined)).toBe('-');
   });
 });
+
+describe('formatSyncUserFacingError', () => {
+  const t = ((key: string) => key) as any;
+
+  it('formats undefined template variable errors nicely', () => {
+    const raw = 'sync: undefined template variable: {{asdad}} (未在任务自定义变量或全局变量中配置)';
+    const formatted = formatSyncUserFacingError(raw, t);
+    expect(formatted.title).toBe('undefinedVariableTitle');
+    expect(formatted.description).toContain('{{asdad}}');
+    expect(formatted.suggestion).toBeDefined();
+  });
+
+  it('formats HOCON brace syntax errors with clear suggestion', () => {
+    const raw = "String: 46: expecting a close parentheses ')' here, not: '{'";
+    const formatted = formatSyncUserFacingError(raw, t);
+    expect(formatted.title).toBe('syntaxErrorTitle');
+    expect(formatted.suggestion).toBeDefined();
+  });
+});
+

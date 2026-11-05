@@ -17,6 +17,7 @@
 
 'use client';
 
+import {Loader2} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {
   AlertDialog,
@@ -95,10 +96,18 @@ export function WorkbenchLeaveDialog({
           <Button
             type='button'
             data-testid='studio-leave-save'
+            className='gap-1.5'
             disabled={busy}
             onClick={onSaveAndLeave}
           >
-            {t('leaveSaveAndLeave')}
+            {busy ? (
+              <>
+                <Loader2 className='size-3.5 animate-spin' aria-hidden />
+                <span>{t('leaveSavingAndLeaving')}</span>
+              </>
+            ) : (
+              t('leaveSaveAndLeave')
+            )}
           </Button>
           <Button
             type='button'

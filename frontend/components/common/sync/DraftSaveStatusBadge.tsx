@@ -19,6 +19,8 @@
 
 import {AlertCircle, Check, Loader2} from 'lucide-react';
 import {useTranslations} from 'next-intl';
+import {HELP_HINT_DELAY_MS} from '@/components/common/HelpHint';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
 import type {DraftSaveStatus} from './sync-studio-utils';
 
@@ -46,13 +48,13 @@ export function DraftSaveStatusBadge({
       <span
         data-testid='studio-draft-save-status'
         data-status='saving'
+        aria-live='polite'
         className={cn(
           'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 text-[11px] text-muted-foreground',
           className,
         )}
-        title={t('draftSaving')}
       >
-        <Loader2 className='size-3 animate-spin' />
+        <Loader2 className='size-3 animate-spin' aria-hidden />
         <span className='whitespace-nowrap'>{t('draftSaving')}</span>
       </span>
     );
@@ -63,32 +65,38 @@ export function DraftSaveStatusBadge({
       <span
         data-testid='studio-draft-save-status'
         data-status='saved'
+        aria-live='polite'
         className={cn(
           'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 text-[11px] text-emerald-700 dark:text-emerald-300',
           className,
         )}
-        title={t('draftSaved')}
       >
-        <Check className='size-3' />
+        <Check className='size-3' aria-hidden />
         <span className='whitespace-nowrap'>{t('draftSaved')}</span>
       </span>
     );
   }
 
   return (
-    <button
-      type='button'
-      data-testid='studio-draft-save-status'
-      data-status='error'
-      className={cn(
-        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2 text-[11px] text-destructive transition-colors hover:bg-destructive/15',
-        className,
-      )}
-      title={t('draftSaveFailedRetry')}
-      onClick={onRetry}
-    >
-      <AlertCircle className='size-3' />
-      <span className='whitespace-nowrap'>{t('draftSaveFailed')}</span>
-    </button>
+    <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+      <TooltipTrigger asChild>
+        <button
+          type='button'
+          data-testid='studio-draft-save-status'
+          data-status='error'
+          aria-live='polite'
+          aria-label={t('draftSaveFailedRetry')}
+          className={cn(
+            'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2 text-[11px] text-destructive transition-colors hover:bg-destructive/15',
+            className,
+          )}
+          onClick={onRetry}
+        >
+          <AlertCircle className='size-3' aria-hidden />
+          <span className='whitespace-nowrap'>{t('draftSaveFailed')}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{t('draftSaveFailedRetry')}</TooltipContent>
+    </Tooltip>
   );
 }

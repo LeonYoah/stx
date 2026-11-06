@@ -36,6 +36,8 @@ data/
 lib/
 !frontend/lib/
 !frontend/lib/**
+!frontend/components/arc/lib/
+!frontend/components/arc/lib/**
 !install/bin/lib/
 !install/bin/lib/**
 

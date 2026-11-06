@@ -251,24 +251,16 @@ export function writeStudioLayoutPrefs(
   }
 }
 
-/** 收起后保留窄轨给边缘展开条，既释放空间又标示原侧栏位置（#110 AC11） */
-/** Collapsed track keeps a slim rail for the expand strip and marks where the sidebar was (#110 AC11) */
-export const STUDIO_SIDEBAR_COLLAPSED_RAIL_PX = 28;
-
 /**
- * 按左右开合状态生成主网格列宽（收起用窄轨而非 hidden 占位）。
- * Build main grid column widths from collapse flags (slim rail when collapsed, not hidden-but-reserved).
+ * 按左右开合状态生成主网格列宽（收起列 0px 释放宽度；开关在顶栏两端，#110 AC11）。
+ * Build main grid column widths (0px when collapsed frees width; toggles live on topbar ends, #110 AC11).
  */
 export function buildStudioGridTemplateColumns(
   leftCollapsed: boolean,
   rightCollapsed: boolean,
 ): string {
-  const left = leftCollapsed
-    ? `${STUDIO_SIDEBAR_COLLAPSED_RAIL_PX}px`
-    : '240px';
-  const right = rightCollapsed
-    ? `${STUDIO_SIDEBAR_COLLAPSED_RAIL_PX}px`
-    : '360px';
+  const left = leftCollapsed ? '0px' : '240px';
+  const right = rightCollapsed ? '0px' : '360px';
   return `${left} minmax(0,1fr) ${right}`;
 }
 

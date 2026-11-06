@@ -74,12 +74,12 @@ describe('studio layout prefs (#110)', () => {
     });
   });
 
-  it('builds grid columns with a slim expand rail when collapsed (#110 AC11)', () => {
+  it('builds grid columns that free collapsed tracks with 0px (#110 AC11 topbar toggles)', () => {
     expect(buildStudioGridTemplateColumns(false, true)).toBe(
-      '240px minmax(0,1fr) 28px',
+      '240px minmax(0,1fr) 0px',
     );
     expect(buildStudioGridTemplateColumns(true, true)).toBe(
-      '28px minmax(0,1fr) 28px',
+      '0px minmax(0,1fr) 0px',
     );
     expect(buildStudioGridTemplateColumns(false, false)).toBe(
       '240px minmax(0,1fr) 360px',

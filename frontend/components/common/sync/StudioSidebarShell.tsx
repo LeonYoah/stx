@@ -18,7 +18,6 @@
 'use client';
 
 import type {ReactNode} from 'react';
-import {PanelRightClose} from 'lucide-react';
 import {Card, CardContent} from '@/components/ui/card';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
@@ -65,11 +64,19 @@ export function SidebarIconTab({
 /**
  * 工作台侧边栏外壳容器。
  * contentMode=scroll：整页滚动（设置/版本等）；fill：子面板自管高度（模板管理列表吃满剩余空间）。
- * 可选 onCollapse：在 icon rail 顶部放简单收起图标（#110 右侧高级配置）。
- * Studio sidebar shell. scroll = page scroll; fill = child owns height (manage list fills leftover).
- * Optional onCollapse: simple collapse icon at the top of the icon rail (#110 right advanced sidebar).
+ * 收起入口在顶栏两端（#110 AC11），本组件不再放收起按钮。
+ * Studio sidebar shell. scroll = page scroll; fill = child owns height.
+ * Collapse lives on the topbar ends (#110 AC11); this shell has no collapse control.
  */
-type StudioSidebarShellProps = {
+export function StudioSidebarShell({
+  children,
+  rail,
+  className,
+  contentMode = 'scroll',
+  ariaHidden,
+  inert: inertProp,
+  'data-studio-right-sidebar': dataStudioRightSidebar,
+}: {
   children: ReactNode;
   rail: ReactNode;
   className?: string;
@@ -77,31 +84,8 @@ type StudioSidebarShellProps = {
   ariaHidden?: boolean;
   /** 收起时设 inert，整棵侧栏移出键盘焦点序 / When collapsed, inert removes the sidebar from keyboard focus */
   inert?: boolean;
-  /** 透传到根节点，便于收起时判断焦点是否仍在侧栏内 / Forwarded to root for focus-contains checks while collapsing */
   'data-studio-right-sidebar'?: string;
-} & (
-  | {
-      /** 提供收起回调时必须同时给 i18n 文案，禁止英文硬编码兜底 / collapseLabel is required with onCollapse */
-      onCollapse: () => void;
-      collapseLabel: string;
-    }
-  | {
-      onCollapse?: undefined;
-      collapseLabel?: undefined;
-    }
-);
-
-export function StudioSidebarShell({
-  children,
-  rail,
-  className,
-  contentMode = 'scroll',
-  onCollapse,
-  collapseLabel,
-  ariaHidden,
-  inert: inertProp,
-  'data-studio-right-sidebar': dataStudioRightSidebar,
-}: StudioSidebarShellProps) {
+}) {
   return (
     <Card
       data-studio-right-sidebar={dataStudioRightSidebar}
@@ -125,22 +109,6 @@ export function StudioSidebarShell({
           )}
         </div>
         <div className='flex min-h-0 w-10 shrink-0 flex-col items-center gap-2 border-l border-border/60 bg-muted/10 py-3'>
-          {onCollapse ? (
-            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-              <TooltipTrigger asChild>
-                <button
-                  type='button'
-                  aria-label={collapseLabel}
-                  data-testid='studio-sidebar-shell-collapse'
-                  className='flex h-9 w-9 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
-                  onClick={onCollapse}
-                >
-                  <PanelRightClose className='size-4' />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side='left'>{collapseLabel}</TooltipContent>
-            </Tooltip>
-          ) : null}
           {rail}
         </div>
       </CardContent>

@@ -58,6 +58,11 @@ import {
   Layers,
   Maximize2,
   Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  PlugZap,
   Play,
   RefreshCw,
   Save,
@@ -278,6 +283,10 @@ import {
   LOG_CHUNK_MAX_BYTES,
   WORKSPACE_NAME_PATTERN,
   WORKSPACE_TABS_STORAGE_KEY,
+  buildStudioGridTemplateColumns,
+  readStudioLayoutPrefs,
+  studioSidebarOpenSpacingClass,
+  writeStudioLayoutPrefs,
   buildCheckpointActionViewModels,
   buildCheckpointInspectJobConfig,
   buildCheckpointInspectSummary,
@@ -618,6 +627,39 @@ export function DataSyncStudio() {
   // 底部控制台高度档位：默认 260px，展开 390px
   // Bottom console height mode: default 260px, expanded 390px
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
+
+  // 左右侧栏独立开合：无记录时左展开、右收起；之后记住上次（#110；无专注模式）
+  // Independent left/right collapse: no record → left open / right collapsed; then remember (#110; no Focus Mode)
+  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(() =>
+    readStudioLayoutPrefs().leftCollapsed,
+  );
+  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(() =>
+    readStudioLayoutPrefs().rightCollapsed,
+  );
+  const studioLayoutHydratedRef = useRef(false);
+
+  useEffect(() => {
+    // 跳过首帧写入，保留「无记录 → 左展开 / 右收起」语义，直到用户真正切换开合。
+    // Skip the first write so "no record → left open / right collapsed" stays until the user toggles.
+    if (!studioLayoutHydratedRef.current) {
+      studioLayoutHydratedRef.current = true;
+      return;
+    }
+    writeStudioLayoutPrefs({
+      leftCollapsed: isLeftSidebarCollapsed,
+      rightCollapsed: isRightSidebarCollapsed,
+    });
+  }, [isLeftSidebarCollapsed, isRightSidebarCollapsed]);
+
+  // 顶栏两端开关始终挂载：点击收起后焦点自然留在该按钮上（#110 AC11 / Codex P2）
+  // Topbar-end toggles stay mounted so focus remains on the control after collapse (#110 AC11 / Codex P2)
+  const handleToggleLeftSidebar = useCallback(() => {
+    setIsLeftSidebarCollapsed((prev) => !prev);
+  }, []);
+
+  const handleToggleRightSidebar = useCallback(() => {
+    setIsRightSidebarCollapsed((prev) => !prev);
+  }, []);
 
   // 当前激活任务的面包屑路径列表
   // Breadcrumb segments for the currently active task
@@ -4329,9 +4371,42 @@ export function DataSyncStudio() {
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
       <Card className='gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
         <CardContent className='flex h-12 min-w-0 items-center justify-between gap-3 overflow-hidden px-3 py-1.5'>
-          {/* 左侧：任务面包屑导航与状态指示 / 权限角色胶囊 */}
-          {/* Left: Task breadcrumb navigation, status indicator, version & permission badges */}
+          {/* 左侧：顶栏最左端左栏开关（#110 AC11）+ 面包屑 / 状态 */}
+          {/* Left: leftmost left-sidebar toggle (#110 AC11) + breadcrumb / status */}
           <div className='flex min-w-0 items-center gap-2 text-xs'>
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  aria-label={
+                    isLeftSidebarCollapsed
+                      ? t('expandLeftSidebar')
+                      : t('collapseLeftSidebar')
+                  }
+                  aria-pressed={!isLeftSidebarCollapsed}
+                  data-testid='studio-toggle-left-sidebar'
+                  className={cn(
+                    'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
+                    // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
+                    !isLeftSidebarCollapsed &&
+                      'border-primary/40 bg-primary/10 text-primary',
+                  )}
+                  onClick={handleToggleLeftSidebar}
+                >
+                  {isLeftSidebarCollapsed ? (
+                    <PanelLeftOpen className='size-3.5' />
+                  ) : (
+                    <PanelLeftClose className='size-3.5' />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isLeftSidebarCollapsed
+                  ? t('expandLeftSidebar')
+                  : t('collapseLeftSidebar')}
+              </TooltipContent>
+            </Tooltip>
             <div className='flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/30 text-primary'>
               <Layers className='size-3.5' />
             </div>
@@ -4453,8 +4528,8 @@ export function DataSyncStudio() {
             </button>
           </div>
 
-          {/* 右侧：环境指示 + IDE 工具栏图标（测试连接/DAG/预览）+ 核心动作；单行 nowrap */}
-          {/* Right: env + IDE-style icon toolbar + primary cluster; single-row nowrap */}
+          {/* 右侧：环境指示 + IDE 工具栏 + 核心动作 + 顶栏最右端右栏开关（#110 AC11） */}
+          {/* Right: env + IDE toolbar + primary cluster + rightmost right-sidebar toggle (#110 AC11) */}
           <div className='flex shrink-0 flex-nowrap items-center justify-end gap-1.5'>
             {/* 环境指示（与顶栏控件统一 rounded-md / h-8） */}
             {/* Environment indicator (aligned rounded-md / h-8 with topbar controls) */}
@@ -4502,7 +4577,9 @@ export function DataSyncStudio() {
                       {actionPending === 'test_connections' ? (
                         <Loader2 className='size-3.5 animate-spin' />
                       ) : (
-                        <Database className='size-3.5' />
+                        // 测试连接空闲态用 PlugZap，避免 Database 被读成「数据库」入口（#110 AC8）
+                        // Idle test-connections uses PlugZap so Database is not read as a DB entry (#110 AC8)
+                        <PlugZap className='size-3.5' />
                       )}
                     </Button>
                   </span>
@@ -4732,6 +4809,44 @@ export function DataSyncStudio() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+
+            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
+
+            {/* 顶栏最右端：右侧高级配置开合（始终可见，#110 AC11） */}
+            {/* Rightmost topbar: right advanced sidebar toggle (always visible, #110 AC11) */}
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  aria-label={
+                    isRightSidebarCollapsed
+                      ? t('expandRightSidebar')
+                      : t('collapseRightSidebar')
+                  }
+                  aria-pressed={!isRightSidebarCollapsed}
+                  data-testid='studio-toggle-right-sidebar'
+                  className={cn(
+                    'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
+                    // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
+                    !isRightSidebarCollapsed &&
+                      'border-primary/40 bg-primary/10 text-primary',
+                  )}
+                  onClick={handleToggleRightSidebar}
+                >
+                  {isRightSidebarCollapsed ? (
+                    <PanelRightOpen className='size-3.5' />
+                  ) : (
+                    <PanelRightClose className='size-3.5' />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isRightSidebarCollapsed
+                  ? t('expandRightSidebar')
+                  : t('collapseRightSidebar')}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </CardContent>
       </Card>
@@ -4748,27 +4863,50 @@ export function DataSyncStudio() {
 
       <div
         className={cn(
-          'grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)_360px] gap-2 transition-all duration-200',
+          // 横向不用 gap：0px 收起列旁的 column-gap 会留细缝；展开侧用侧栏自身 mr/ml-2 补间距
+          // No horizontal gap: column-gap beside 0px tracks leaves a seam; open sides use mr/ml-2 on the panel
+          'grid min-h-0 min-w-0 flex-1 gap-y-2 transition-all duration-200',
           isConsoleMaximized
             ? 'grid-rows-[0px_minmax(0,1fr)]'
             : isConsoleExpanded
               ? 'grid-rows-[minmax(0,1fr)_390px]'
               : 'grid-rows-[minmax(0,1fr)_260px]',
         )}
+        style={{
+          // 收起列 0px 释放宽度；开关在顶栏两端（#110 AC11）；编辑列始终 minmax(0,1fr)。
+          // Collapsed tracks use 0px; toggles live on topbar ends (#110 AC11); editor stays minmax(0,1fr).
+          gridTemplateColumns: buildStudioGridTemplateColumns(
+            isLeftSidebarCollapsed,
+            isRightSidebarCollapsed,
+          ),
+          columnGap: 0,
+        }}
       >
-        <Card className='col-start-1 row-start-1 row-span-2 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs'>
+        <Card
+          data-studio-left-sidebar=''
+          className={cn(
+            'col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            isLeftSidebarCollapsed
+              ? 'pointer-events-none border-transparent opacity-0'
+              : studioSidebarOpenSpacingClass(false, 'left'),
+          )}
+          aria-hidden={isLeftSidebarCollapsed || undefined}
+          // inert：收起后移出 Tab 序（入口在顶栏，#110 AC11 / Codex P2）
+          // inert: drop collapsed subtree from tab order (toggle stays on topbar, #110 AC11 / Codex P2)
+          inert={isLeftSidebarCollapsed ? true : undefined}
+        >
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 资源管理器标题与工具栏 (VSCode 风格) */}
             {/* Explorer title and action toolbar (VSCode style) */}
             <div className='flex h-8.5 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
-              <div className='flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground/80'>
-                <FolderTree className='size-3.5 text-primary/80' />
-                <span>{t('resources')}</span>
+              <div className='flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground/80'>
+                <FolderTree className='size-3.5 shrink-0 text-primary/80' />
+                <span className='truncate'>{t('resources')}</span>
                 <span className='rounded-full bg-muted/60 px-1.5 py-0.2 font-mono text-[10px] font-normal text-muted-foreground'>
                   {fileCount}
                 </span>
               </div>
-              <div className='flex items-center gap-0.5'>
+              <div className='flex shrink-0 items-center gap-0.5'>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -4961,7 +5099,7 @@ export function DataSyncStudio() {
 
         <Card
           className={cn(
-            'col-start-2 row-start-1 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            'col-start-2 row-start-1 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
             isConsoleMaximized && 'hidden',
           )}
         >
@@ -5215,7 +5353,15 @@ export function DataSyncStudio() {
         </Card>
 
         <StudioSidebarShell
-          className='col-start-3 row-start-1 row-span-2'
+          data-studio-right-sidebar=''
+          className={cn(
+            'col-start-3 row-start-1 row-span-2 min-w-0 transition-all duration-200',
+            isRightSidebarCollapsed
+              ? 'pointer-events-none border-transparent opacity-0'
+              : studioSidebarOpenSpacingClass(false, 'right'),
+          )}
+          ariaHidden={isRightSidebarCollapsed}
+          inert={isRightSidebarCollapsed}
           contentMode={
             rightSidebarTab === 'templates' ? 'fill' : 'scroll'
           }
@@ -5375,7 +5521,7 @@ export function DataSyncStudio() {
 
         <Card
           className={cn(
-            'col-start-2 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            'col-start-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
             isConsoleMaximized ? 'row-start-1 row-span-2' : 'row-start-2',
           )}
         >

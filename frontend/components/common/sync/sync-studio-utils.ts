@@ -167,6 +167,122 @@ export const EXPANDED_LOG_CHUNK_BASE_BYTES = 256 * 1024;
 export const EXPANDED_LOG_CHUNK_MAX_BYTES = 2 * 1024 * 1024;
 export const WORKSPACE_TABS_STORAGE_KEY = 'data-sync-studio:workspace-tabs';
 
+/**
+ * 工作台左右侧栏开合偏好（localStorage）。
+ * 左右各自独立；无「一键两边都收 / 专注模式」入口（#110 AC3）。
+ * Workbench left/right sidebar collapse prefs (localStorage).
+ * Sides are independent; no one-click collapse-both / Focus Mode entry (#110 AC3).
+ */
+export const STUDIO_LAYOUT_STORAGE_KEY = 'stx_studio_layout_prefs';
+
+export type StudioLayoutPrefs = {
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+};
+
+/**
+ * 无 localStorage 记录时：左目录展开、右高级配置收起；之后记住上次开合。
+ * With no stored record: left explorer open, right advanced sidebar collapsed; then remember last state.
+ */
+export const DEFAULT_STUDIO_LAYOUT_PREFS: StudioLayoutPrefs = {
+  leftCollapsed: false,
+  rightCollapsed: true,
+};
+
+/**
+ * 从 localStorage 读取工作台侧栏开合偏好；非法或缺失时回落默认值。
+ * Read workbench sidebar collapse prefs from localStorage; fall back on invalid/missing data.
+ */
+export function readStudioLayoutPrefs(
+  storage?: Pick<Storage, 'getItem'> | null,
+): StudioLayoutPrefs {
+  const store =
+    storage ??
+    (typeof window !== 'undefined' ? window.localStorage : null);
+  if (!store) {
+    return {...DEFAULT_STUDIO_LAYOUT_PREFS};
+  }
+  try {
+    const raw = store.getItem(STUDIO_LAYOUT_STORAGE_KEY);
+    if (!raw) {
+      return {...DEFAULT_STUDIO_LAYOUT_PREFS};
+    }
+    const parsed = JSON.parse(raw) as Partial<StudioLayoutPrefs>;
+    return {
+      leftCollapsed:
+        typeof parsed.leftCollapsed === 'boolean'
+          ? parsed.leftCollapsed
+          : DEFAULT_STUDIO_LAYOUT_PREFS.leftCollapsed,
+      rightCollapsed:
+        typeof parsed.rightCollapsed === 'boolean'
+          ? parsed.rightCollapsed
+          : DEFAULT_STUDIO_LAYOUT_PREFS.rightCollapsed,
+    };
+  } catch {
+    return {...DEFAULT_STUDIO_LAYOUT_PREFS};
+  }
+}
+
+/**
+ * 将工作台侧栏开合偏好写入 localStorage（忽略配额等写入失败）。
+ * Persist workbench sidebar collapse prefs to localStorage (ignore write failures).
+ */
+export function writeStudioLayoutPrefs(
+  prefs: StudioLayoutPrefs,
+  storage?: Pick<Storage, 'setItem'> | null,
+): void {
+  const store =
+    storage ??
+    (typeof window !== 'undefined' ? window.localStorage : null);
+  if (!store) {
+    return;
+  }
+  try {
+    store.setItem(
+      STUDIO_LAYOUT_STORAGE_KEY,
+      JSON.stringify({
+        leftCollapsed: Boolean(prefs.leftCollapsed),
+        rightCollapsed: Boolean(prefs.rightCollapsed),
+      } satisfies StudioLayoutPrefs),
+    );
+  } catch {
+    // 隐私模式 / 配额满时静默忽略，不影响本次会话布局。
+    // Ignore private-mode / quota errors; in-session layout still works.
+  }
+}
+
+/**
+ * 按左右开合状态生成主网格列宽（收起列 0px 释放宽度；开关在顶栏两端，#110 AC11）。
+ * Build main grid column widths (0px when collapsed frees width; toggles live on topbar ends, #110 AC11).
+ *
+ * 注意：主网格必须 column-gap:0，展开侧用侧栏自身 mr-2/ml-2 补间距，
+ * 否则 0px 列旁的 gap 会留下细缝。
+ * Note: the main grid must use column-gap:0 and open-side mr-2/ml-2 for spacing,
+ * otherwise gap beside a 0px track leaves a hairline seam.
+ */
+export function buildStudioGridTemplateColumns(
+  leftCollapsed: boolean,
+  rightCollapsed: boolean,
+): string {
+  const left = leftCollapsed ? '0px' : '240px';
+  const right = rightCollapsed ? '0px' : '360px';
+  return `${left} minmax(0,1fr) ${right}`;
+}
+
+/**
+ * 展开侧栏相对编辑区的外边距 class（收起时不加，避免 0px 列外再占缝）。
+ * Margin class between an open sidebar and the editor (omit when collapsed so 0px tracks stay seamless).
+ */
+export function studioSidebarOpenSpacingClass(
+  collapsed: boolean,
+  side: 'left' | 'right',
+): string {
+  if (collapsed) {
+    return '';
+  }
+  return side === 'left' ? 'mr-2' : 'ml-2';
+}
+
 export const EMPTY_EDITOR: EditorState = {
   name: '',
   description: '',

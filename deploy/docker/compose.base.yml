@@ -48,7 +48,9 @@ services:
     environment:
       PORT: "17880"
       HOSTNAME: "0.0.0.0"
-      NEXT_PUBLIC_BACKEND_BASE_URL: ${STX_BACKEND_PUBLIC_URL:-http://127.0.0.1:17800}
+      # 容器内 /api 转发走 compose DNS，浏览器只访问前端 17880。
+      # In-container /api rewrite uses compose DNS; browsers only hit the frontend.
+      BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://stx-backend:17800}
     ports:
       - "17880:17880"
     depends_on:

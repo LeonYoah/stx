@@ -58,6 +58,8 @@ docker compose up -d
 
 `data/` 已 gitignore，备份/迁移直接拷整个 `data/` 目录即可。
 
+浏览器只访问控制台 `17880`；前端容器把 `/api` 转到 compose 服务名 `stx-backend:17800`，不必再配后端地址。覆盖时在 `.env` 设 `BACKEND_BASE_URL`。
+
 | 服务 | 地址 |
 | --- | --- |
 | 控制台 | http://127.0.0.1:17880 |

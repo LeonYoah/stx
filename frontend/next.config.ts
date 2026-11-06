@@ -16,6 +16,7 @@
  */
 
 import type {NextConfig} from 'next';
+import {resolveBackendBaseURL} from './lib/backend-base-url';
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -47,7 +48,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_BACKEND_BASE_URL || 'http://127.0.0.1:17800'}/api/:path*`,
+        destination: `${resolveBackendBaseURL()}/api/:path*`,
       },
     ];
   },

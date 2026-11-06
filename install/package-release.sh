@@ -793,7 +793,19 @@ if [[ "$LAYOUT" == "split" ]]; then
   # Docker Compose 包：先从单源模板渲染可观测性配置。
   if [[ -d "$ROOT_DIR/deploy/docker" ]]; then
     "$ROOT_DIR/install/observability/render.sh" docker "$ROOT_DIR/deploy/docker/observability"
-    tar -C "$ROOT_DIR/deploy" -czf "$OUTPUT_DIR/stx-docker-compose.tar.gz" docker
+    docker_stage="$STAGE_DIR/docker-pack"
+    rm -rf "$docker_stage"
+    mkdir -p "$docker_stage"
+    cp -a "$ROOT_DIR/deploy/docker" "$docker_stage/docker"
+    rm -rf "$docker_stage/docker/data"
+    mkdir -p "$docker_stage/docker/data"
+    if [[ -f "$ROOT_DIR/deploy/docker/data/.gitignore" ]]; then
+      cp "$ROOT_DIR/deploy/docker/data/.gitignore" "$docker_stage/docker/data/.gitignore"
+    fi
+    # 包内自带可挂载的 config.yaml，解压后不必 cp。
+    # Ship a bind-mountable config.yaml so users do not copy the example.
+    cp "$docker_stage/docker/config.example.yaml" "$docker_stage/docker/config.yaml"
+    tar -C "$docker_stage" -czf "$OUTPUT_DIR/stx-docker-compose.tar.gz" docker
     write_sha256 "$OUTPUT_DIR/stx-docker-compose.tar.gz"
   fi
 

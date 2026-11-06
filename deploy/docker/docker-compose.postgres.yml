@@ -16,7 +16,6 @@
 # PostgreSQL 全量
 # PostgreSQL full stack
 #
-#   cp config.example.yaml config.yaml   # database.type=postgres / host=postgres
 #   mkdir -p data
 #   docker compose -f docker-compose.postgres.yml up -d
 
@@ -34,8 +33,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stx}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stx} -d ${POSTGRES_DB:-stx}"]
       interval: 10s
@@ -45,6 +42,13 @@ services:
     networks: [stx]
 
   stx-backend:
+    environment:
+      STX_DATABASE_TYPE: postgres
+      STX_DATABASE_HOST: postgres
+      STX_DATABASE_PORT: "5432"
+      STX_DATABASE_USERNAME: ${POSTGRES_USER:-stx}
+      STX_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-stx}
+      STX_DATABASE_DATABASE: ${POSTGRES_DB:-stx}
     depends_on:
       postgres:
         condition: service_healthy

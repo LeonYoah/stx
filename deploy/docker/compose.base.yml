@@ -39,6 +39,12 @@ services:
     ports:
       - "17800:17800"
       - "17890:17890"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/17800'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
     networks: [stx]
 
   stx-frontend:
@@ -53,9 +59,21 @@ services:
       BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://stx-backend:17800}
     ports:
       - "17880:17880"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:17880/').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     depends_on:
       stx-backend:
-        condition: service_started
+        condition: service_healthy
     networks: [stx]
 
   prometheus:
@@ -72,8 +90,6 @@ services:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./observability/prometheus/rules:/etc/prometheus/rules:ro
       - ./data/prometheus:/prometheus
-    ports:
-      - "9090:9090"
     depends_on:
       - stx-backend
     networks: [stx]
@@ -91,8 +107,6 @@ services:
     volumes:
       - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - ./data/alertmanager:/alertmanager
-    ports:
-      - "9093:9093"
     depends_on:
       - stx-backend
     networks: [stx]
@@ -117,8 +131,6 @@ services:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - ./data/grafana:/var/lib/grafana
-    ports:
-      - "3000:3000"
     depends_on:
       - prometheus
     networks: [stx]

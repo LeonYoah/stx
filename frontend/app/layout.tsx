@@ -27,6 +27,7 @@ import '@fontsource-variable/inter/index.css';
 import '@fontsource-variable/noto-sans-sc/index.css';
 import '@fontsource-variable/jetbrains-mono/index.css';
 import './globals.css';
+import '@/components/arc/foundation.css';
 
 export const metadata: Metadata = {
   title: {
@@ -69,7 +70,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang='zh-CN' className='hide-scrollbar font-sans' suppressHydrationWarning>
+    <html lang='zh-CN' data-theme='dark' className='hide-scrollbar font-sans' suppressHydrationWarning>
       <body className='hide-scrollbar font-sans antialiased'>
         <I18nProvider>
           <ThemeProvider

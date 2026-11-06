@@ -19,8 +19,9 @@
 
 import {useMemo, useState, type ReactNode} from 'react';
 import dynamic from 'next/dynamic';
-import {AlertTriangle, Copy} from 'lucide-react';
+import {AlertTriangle} from 'lucide-react';
 import {useTranslations} from 'next-intl';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} from '@/components/ui/dialog';
@@ -48,7 +49,6 @@ import {
   getSyncJobClusterId,
   submitSpecExecutionMode,
 } from '../sync-studio-utils';
-import {copyText} from './copy-text';
 import {normalizeJobDag} from './dag-model';
 import type {JobDetailTab} from './types';
 
@@ -210,9 +210,14 @@ export function JobDetailDialog({
                     {item.value}
                   </dd>
                   {item.copy ? (
-                    <button type='button' className='text-muted-foreground hover:text-foreground' onClick={() => copyText(item.value, t('copied'))} aria-label={t('copy')}>
-                      <Copy className='size-3' />
-                    </button>
+                    <CopyButton
+                      value={item.value}
+                      label={t('copy')}
+                      copiedLabel={t('copied')}
+                      failedLabel={t('copyFailed')}
+                      iconOnly
+                      variant='plain'
+                    />
                   ) : null}
                 </div>
               ))}

@@ -21,6 +21,15 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  // Arc 组件带 CSS Module。Vite 读到 postcss.config.mjs 里的字符串插件会报 Invalid PostCSS Plugin，
+  // 单测不需要 Tailwind 处理这些文件，所以这里改用空插件列表。
+  // Arc ships CSS modules. Vite rejects the string plugin in postcss.config.mjs, and unit tests
+  // do not need Tailwind to process those files, so use an empty plugin list here.
+  css: {
+    postcss: {
+      plugins: [],
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

@@ -65,15 +65,12 @@ import {
   PlugZap,
   Play,
   RefreshCw,
-  Save,
-  Search,
   SquareTerminal,
   FolderTree,
   Database,
   ListTree,
   Square,
   Trash2,
-  Funnel,
   GitCompareArrows,
   LayoutPanelTop,
   Globe2,
@@ -96,6 +93,12 @@ import {
   HelpCircle,
   X,
 } from 'lucide-react';
+import {ActionButton} from '@/components/arc/action-button/action-button';
+import {ExpandingButtonGroup} from '@/components/arc/expanding-button-group/expanding-button-group';
+import {ExpandingSearch} from '@/components/arc/expanding-search/expanding-search';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import {SplitButton} from '@/components/arc/split-button/split-button';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {useAuth} from '@/hooks/use-auth';
 import services from '@/lib/services';
 import {cn} from '@/lib/utils';
@@ -717,6 +720,28 @@ export function DataSyncStudio() {
   const handleToggleCollapseAll = useCallback(() => {
     setExpandedFolderIds((prev) => (prev.length > 0 ? [] : allFolderIds));
   }, [allFolderIds]);
+
+  // 顶栏展开搜索只覆盖本地文件和已加载作业。不在列表里的数字 Job ID 仍走 Cmd/Ctrl+P。
+  // The toolbar expanding search covers local files and loaded jobs. Numeric Job IDs outside that list stay on Cmd/Ctrl+P.
+  const quickOpenItems = useMemo(() => {
+    const files = flattenTree(tree)
+      .filter((node) => node.node_type === 'file')
+      .map((node) => ({
+        id: `file-${node.id}`,
+        title: node.name,
+        meta: getNodeBreadcrumbSegments(tree, node.id).slice(0, -1).join(' / '),
+        group: t('matchingFiles'),
+        keywords: [String(node.id)],
+      }));
+    const jobItems = jobs.slice(0, 50).map((job) => ({
+      id: `job-${job.id}`,
+      title: `#${job.id}`,
+      meta: findTreeNode(tree, job.task_id)?.name || job.platform_job_id || '',
+      group: t('matchingJobs'),
+      keywords: [String(job.id), job.platform_job_id || ''].filter(Boolean),
+    }));
+    return [...files, ...jobItems];
+  }, [jobs, t, tree]);
 
   const [customVariableRows, setCustomVariableRows] = useState<VariableRow[]>(
     [],
@@ -3479,12 +3504,17 @@ export function DataSyncStudio() {
   const handleSave = async () => {
     if (editor.id && !editor.canEdit) {
       toast.error(t('readOnlySaveTooltip'));
-      return;
+      // 拒绝后 ActionButton 回到空闲，不会误显示已保存。
+      // Reject so ActionButton returns to idle instead of showing saved.
+      throw new Error(t('readOnlySaveTooltip'));
     }
     const task = await persistCurrentFile(false);
-    if (task) {
-      toast.success(t('saveFileSuccess'));
+    if (!task) {
+      // 失败提示已在 persistCurrentFile 内弹出。
+      // The failure toast is already raised inside persistCurrentFile.
+      throw new Error(t('saveFileFailed'));
     }
+    toast.success(t('saveFileSuccess'));
   };
 
   const handleOpenPublishDialog = () => {
@@ -4501,31 +4531,32 @@ export function DataSyncStudio() {
             )}
           </div>
 
-          {/* 中间：全局文件与 Job ID 快速检索跳转栏 (VSCode Quick Open 风格) */}
-          {/* Center: Global file and Job ID quick jump search bar (VSCode Quick Open style) */}
-          {/* Narrow: icon-only Quick Open; xl+: compact search field */}
-          <div className='mx-1 flex shrink-0 items-center xl:mx-2 xl:min-w-0 xl:flex-1 xl:max-w-[12rem] 2xl:max-w-sm'>
-            <button
-              type='button'
-              onClick={() => setQuickOpenOpen(true)}
-              aria-label={t('quickOpen')}
-              className='group relative flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/20 text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:hidden'
-            >
-              <Search className='size-3.5 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
-            </button>
-            <button
-              type='button'
-              onClick={() => setQuickOpenOpen(true)}
-              className='group relative hidden h-8 w-full min-w-0 items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:flex'
-            >
-              <Search className='size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
-              <span className='truncate text-[11px] text-muted-foreground/70 group-hover:text-muted-foreground'>
-                {t('searchFileOrJobId')}
-              </span>
-              <kbd className='pointer-events-none ml-auto hidden select-none rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground/80 2xl:inline-flex items-center gap-0.5'>
-                <span className='text-[10px]'>⌘</span>P
-              </kbd>
-            </button>
+          {/* 中间：Arc 展开搜索。不在本地列表里的数字 Job ID 仍用 Cmd/Ctrl+P 对话框。 */}
+          {/* Center: Arc expanding search. Numeric Job IDs missing from the local list stay on the Cmd/Ctrl+P dialog. */}
+          <div className='mx-1 flex min-w-0 shrink items-center xl:mx-2 xl:max-w-sm xl:flex-1'>
+            <ExpandingSearch
+              label={t('quickOpen')}
+              placeholder={t('searchFileOrJobId')}
+              items={quickOpenItems}
+              suggestions={quickOpenItems
+                .filter((item) => item.id.startsWith('job-'))
+                .slice(0, 6)}
+              suggestionsLabel={t('recentSuggestions')}
+              emptyHint={t('noMatchingFileOrJob')}
+              anchor='start'
+              expandedWidth={320}
+              maxResults={8}
+              onSelect={(item) => {
+                if (item.id.startsWith('job-')) {
+                  void handleLocateJobId(item.id.slice(4));
+                  return;
+                }
+                const node = findTreeNode(tree, Number(item.id.slice(5)));
+                if (node) {
+                  void handleQuickOpenFile(node);
+                }
+              }}
+            />
           </div>
 
           {/* 右侧：环境指示 + IDE 工具栏 + 核心动作 + 顶栏最右端右栏开关（#110 AC11） */}
@@ -4554,106 +4585,47 @@ export function DataSyncStudio() {
 
             <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
 
-            {/* 探查动作：图标按钮 + Tooltip 常驻顶栏（IDE 工具栏风格，一点即达） */}
-            {/* Inspect actions: always-visible icon+Tooltip toolbar (IDE style) */}
-            <div className='flex shrink-0 flex-nowrap items-center gap-0.5'>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      aria-label={t('testConnections')}
-                      data-testid='studio-test-connections'
-                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
-                      onClick={() => void handleTestConnections()}
-                      disabled={
-                        saving ||
-                        !editor.name.trim() ||
-                        actionPending !== null ||
-                        !editor.canEdit
-                      }
-                    >
-                      {actionPending === 'test_connections' ? (
-                        <Loader2 className='size-3.5 animate-spin' />
-                      ) : (
-                        // 测试连接空闲态用 PlugZap，避免 Database 被读成「数据库」入口（#110 AC8）
-                        // Idle test-connections uses PlugZap so Database is not read as a DB entry (#110 AC8)
-                        <PlugZap className='size-3.5' />
-                      )}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {!editor.canEdit
-                    ? t('readOnlyTestConnTooltip')
-                    : actionPending === 'test_connections'
-                      ? t('testingConnections')
-                      : t('testConnections')}
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      aria-label='DAG'
-                      data-testid='studio-build-dag'
-                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
-                      onClick={() => void handleBuildDag()}
-                      disabled={
-                        saving || !editor.name.trim() || actionPending !== null
-                      }
-                    >
-                      {actionPending === 'dag' ? (
-                        <Loader2 className='size-3.5 animate-spin' />
-                      ) : (
-                        <GitBranch className='size-3.5' />
-                      )}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {actionPending === 'dag' ? t('buildingDag') : 'DAG'}
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      aria-label={t('preview')}
-                      data-testid='studio-preview'
-                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
-                      onClick={() => void handlePreview()}
-                      disabled={
-                        saving ||
-                        hasActiveRun ||
-                        hasActivePreview ||
-                        actionPending !== null ||
-                        !editor.canRun
-                      }
-                    >
-                      {actionPending === 'preview' ? (
-                        <Loader2 className='size-3.5 animate-spin' />
-                      ) : (
-                        <Eye className='size-3.5' />
-                      )}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {!editor.canRun
-                    ? t('readOnlyPreviewTooltip')
-                    : actionPending === 'preview'
-                      ? t('preparingPreview')
-                      : t('preview')}
-                </TooltipContent>
-              </Tooltip>
+            {/* 探查动作：Arc 展开按钮组。打开结果的动作不写 doneLabel，避免误显示已完成。 */}
+            {/* Inspect actions: Arc expanding group. Actions that open a result omit doneLabel so they do not flash as finished. */}
+            <div className='flex min-w-[220px] shrink-0 items-center'>
+              <ExpandingButtonGroup
+                size='sm'
+                label={t('inspectActions')}
+                defaultExpanded='test'
+                items={[
+                  {
+                    id: 'test',
+                    label: t('testConnections'),
+                    icon: <PlugZap />,
+                    disabled:
+                      saving ||
+                      !editor.name.trim() ||
+                      actionPending !== null ||
+                      !editor.canEdit,
+                    onSelect: () => handleTestConnections(),
+                  },
+                  {
+                    id: 'dag',
+                    label: 'DAG',
+                    icon: <GitBranch />,
+                    disabled:
+                      saving || !editor.name.trim() || actionPending !== null,
+                    onSelect: () => handleBuildDag(),
+                  },
+                  {
+                    id: 'preview',
+                    label: t('preview'),
+                    icon: <Eye />,
+                    disabled:
+                      saving ||
+                      hasActiveRun ||
+                      hasActivePreview ||
+                      actionPending !== null ||
+                      !editor.canRun,
+                    onSelect: () => handlePreview(),
+                  },
+                ]}
+              />
             </div>
 
             <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
@@ -4661,55 +4633,33 @@ export function DataSyncStudio() {
             {/* 核心动作组：保存 / 发布 / 运行 / 停止 — shrink-0 防止停止单独换行 */}
             {/* Primary cluster: save / publish / run / stop — shrink-0 so Stop cannot wrap alone */}
             <div className='flex shrink-0 flex-nowrap items-center gap-1.5'>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      className={cn(
-                        'h-8 gap-1.5 rounded-md border-border/60 px-2.5 text-xs transition-colors',
-                        isCurrentDirty
-                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
-                          : 'text-foreground',
-                      )}
-                      onClick={handleSave}
-                      disabled={saving || !editor.name.trim() || !editor.canEdit}
-                    >
-                      <Save className='size-3.5' />
-                      {t('save')}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                {!editor.canEdit ? (
-                  <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
-                ) : null}
-              </Tooltip>
+              <ActionButton
+                label={t('save')}
+                pendingLabel={t('savePending')}
+                successLabel={t('saveDone')}
+                disabled={saving || !editor.name.trim() || !editor.canEdit}
+                title={!editor.canEdit ? t('readOnlySaveTooltip') : undefined}
+                onAction={handleSave}
+              />
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      className='h-8 gap-1.5 rounded-md border-border/60 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-                      onClick={handleOpenPublishDialog}
-                      disabled={
-                        saving ||
-                        publishing ||
-                        !editor.name.trim() ||
-                        !editor.canEdit
-                      }
-                    >
-                      <GitCommit className='size-3.5 text-primary' />
-                      <span>{t('publishNewVersion')}</span>
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                {!editor.canEdit ? (
-                  <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
-                ) : null}
-              </Tooltip>
+              <SplitButton
+                variant='secondary'
+                label={t('publishNewVersion')}
+                icon={<GitCommit className='size-3.5' />}
+                disabled={
+                  saving || publishing || !editor.name.trim() || !editor.canEdit
+                }
+                onClick={handleOpenPublishDialog}
+                actions={[
+                  {
+                    label: t('versionManagement'),
+                    onSelect: () => {
+                      setIsRightSidebarCollapsed(false);
+                      setRightSidebarTab('versions');
+                    },
+                  },
+                ]}
+              />
 
               {/* delayDuration：菜单关闭后焦点回到触发器时不要立刻误弹只读提示 */}
               {/* delayDuration: avoid an instant read-only tooltip when focus returns after the menu closes */}
@@ -4983,67 +4933,31 @@ export function DataSyncStudio() {
             </div>
             {/* 快捷过滤输入框与范围筛选 */}
             {/* Quick search/filter input and scope selector */}
-            <div className='border-b border-border/60 bg-muted/10 px-2 py-1.5 space-y-1.5'>
-              <div className='relative flex items-center'>
-                <Search className='pointer-events-none absolute left-2 size-3 text-muted-foreground/60' />
-                <Input
-                  value={keyword}
-                  onChange={(event) => setKeyword(event.target.value)}
-                  className='h-6 rounded-md border-border/60 bg-background/80 pl-6 pr-6 text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/40'
-                  placeholder={t('filterFiles')}
-                />
-                {keyword ? (
-                  <button
-                    type='button'
-                    onClick={() => setKeyword('')}
-                    className='absolute right-1.5 text-muted-foreground/60 hover:text-foreground'
-                  >
-                    <X className='size-3' />
-                  </button>
-                ) : null}
-              </div>
-
-              {/* 任务过滤范围切换：我的与公开（默认，过滤非自己任务）/ 全部 / 仅我创建 */}
-              {/* Task filter scope pills: Mine & Public (default, filters non-owned) / All / Only Mine */}
-              <div className='flex items-center rounded-md bg-muted/50 p-0.5 text-[11px] border border-border/60'>
-                <button
-                  type='button'
-                  onClick={() => handleFilterScopeChange('mine_and_public')}
-                  className={cn(
-                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
-                    treeFilterScope === 'mine_and_public'
-                      ? 'bg-background text-foreground shadow-2xs font-semibold'
-                      : 'text-muted-foreground/80 hover:text-foreground',
-                  )}
-                  title={t('treeFilterMineAndPublicTooltip')}
-                >
-                  {t('treeFilterMineAndPublic')}
-                </button>
-                <button
-                  type='button'
-                  onClick={() => handleFilterScopeChange('all')}
-                  className={cn(
-                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
-                    treeFilterScope === 'all'
-                      ? 'bg-background text-foreground shadow-2xs font-semibold'
-                      : 'text-muted-foreground/80 hover:text-foreground',
-                  )}
-                >
-                  {t('treeFilterAll')}
-                </button>
-                <button
-                  type='button'
-                  onClick={() => handleFilterScopeChange('only_mine')}
-                  className={cn(
-                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
-                    treeFilterScope === 'only_mine'
-                      ? 'bg-background text-foreground shadow-2xs font-semibold'
-                      : 'text-muted-foreground/80 hover:text-foreground',
-                  )}
-                >
-                  {t('treeFilterOnlyMine')}
-                </button>
-              </div>
+            <div className='space-y-1.5 border-b border-border/60 bg-muted/10 px-2 py-1.5'>
+              <SearchField
+                label={t('filterFilesLabel')}
+                value={keyword}
+                onValueChange={setKeyword}
+                placeholder={t('filterFiles')}
+                clearLabel={t('clearSearch')}
+              />
+              {/* 任务过滤范围：我的与公开 / 全部 / 仅我创建 */}
+              {/* Task filter scope: mine and public / all / only mine */}
+              <SegmentedControl
+                label={t('treeFilterMineAndPublicTooltip')}
+                value={treeFilterScope}
+                onValueChange={(value) =>
+                  handleFilterScopeChange(value as TreeFilterScope)
+                }
+                options={[
+                  {
+                    value: 'mine_and_public',
+                    label: t('treeFilterMineAndPublic'),
+                  },
+                  {value: 'all', label: t('treeFilterAll')},
+                  {value: 'only_mine', label: t('treeFilterOnlyMine')},
+                ]}
+              />
             </div>
 
             {/* 文件树滚动区域 */}
@@ -6306,30 +6220,27 @@ export function DataSyncStudio() {
           </DialogHeader>
           <div className='flex flex-wrap items-center justify-between gap-2'>
             <div className='flex items-center gap-2'>
-              <Input
-                value={logSearchTerm}
-                onChange={(event) => setLogSearchTerm(event.target.value)}
-                placeholder={t('searchLogKeyword')}
-                className='h-8 w-[320px]'
-              />
-              <div className='flex items-center gap-1 rounded-md border border-border/60 bg-background px-1 py-1'>
-                <Funnel className='ml-1 size-3.5 text-muted-foreground' />
-                {(['all', 'warn', 'error'] as LogFilterMode[]).map((mode) => (
-                  <button
-                    key={mode}
-                    type='button'
-                    className={cn(
-                      'rounded px-2 py-1 text-xs',
-                      logFilterMode === mode
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground',
-                    )}
-                    onClick={() => setLogFilterMode(mode)}
-                  >
-                    {mode === 'all' ? t('all') : mode.toUpperCase()}
-                  </button>
-                ))}
+              <div className='w-[320px]'>
+                <SearchField
+                  label={t('searchLogKeyword')}
+                  value={logSearchTerm}
+                  onValueChange={setLogSearchTerm}
+                  placeholder={t('searchLogKeyword')}
+                  clearLabel={t('clearSearch')}
+                />
               </div>
+              <SegmentedControl
+                label={t('logs')}
+                value={logFilterMode}
+                onValueChange={(value) =>
+                  setLogFilterMode(value as LogFilterMode)
+                }
+                options={[
+                  {value: 'all', label: t('all')},
+                  {value: 'warn', label: 'WARN'},
+                  {value: 'error', label: 'ERROR'},
+                ]}
+              />
             </div>
             <div className='flex items-center gap-2 text-xs text-muted-foreground'>
               <span>

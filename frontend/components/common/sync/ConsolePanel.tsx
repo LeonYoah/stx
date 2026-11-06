@@ -25,6 +25,7 @@ import {
   Maximize2,
   PanelRightOpen,
 } from 'lucide-react';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Badge} from '@/components/ui/badge';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
@@ -244,23 +245,18 @@ export function ConsolePanel({
               ) : null}
             </div>
             <div className='flex items-center justify-self-end gap-2 whitespace-nowrap'>
-              <div className='flex items-center gap-1 rounded-md border border-border/60 bg-background px-1 py-1'>
-                {(['all', 'warn', 'error'] as LogFilterMode[]).map((mode) => (
-                  <button
-                    key={mode}
-                    type='button'
-                    className={cn(
-                      'rounded px-2 py-0.5 text-[11px]',
-                      filterMode === mode
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground',
-                    )}
-                    onClick={() => onFilterChange(mode)}
-                  >
-                    {mode === 'all' ? t('all') : mode.toUpperCase()}
-                  </button>
-                ))}
-              </div>
+              <SegmentedControl
+                label={t('logs')}
+                value={filterMode}
+                onValueChange={(value) =>
+                  onFilterChange(value as LogFilterMode)
+                }
+                options={[
+                  {value: 'all', label: t('all')},
+                  {value: 'warn', label: 'WARN'},
+                  {value: 'error', label: 'ERROR'},
+                ]}
+              />
               <Button
                 size='sm'
                 variant='ghost'

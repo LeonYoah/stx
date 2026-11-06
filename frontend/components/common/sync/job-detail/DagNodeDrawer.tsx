@@ -20,6 +20,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import {ChevronsLeft, ChevronsRight, ChevronsUpDown, Copy, RefreshCw, X} from 'lucide-react';
 import {useTranslations} from 'next-intl';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Command, CommandEmpty, CommandInput, CommandItem, CommandList} from '@/components/ui/command';
@@ -289,9 +290,14 @@ export function DagNodeDrawer({
             <dt className='text-muted-foreground'>{t('rawName')}</dt>
             <dd className='flex min-w-0 items-start gap-1'>
               <span className='break-all font-mono'>{vertex.rawName}</span>
-              <button type='button' className='shrink-0 text-muted-foreground hover:text-foreground' onClick={() => copyText(vertex.rawName, t('copied'))} aria-label={t('copy')}>
-                <Copy className='size-3' />
-              </button>
+              <CopyButton
+                value={vertex.rawName}
+                label={t('copy')}
+                copiedLabel={t('copied')}
+                failedLabel={t('copyFailed')}
+                iconOnly
+                variant='plain'
+              />
             </dd>
             {vertex.metricPrefix ? (
               <>
@@ -355,9 +361,14 @@ export function DagNodeDrawer({
                 </div>
               ) : null}
               {table ? (
-                <Button variant='ghost' size='icon' className='size-8' onClick={() => copyText(table, t('copied'))} aria-label={t('copyTableName')}>
-                  <Copy className='size-3.5' />
-                </Button>
+                <CopyButton
+                  value={table}
+                  label={t('copyTableName')}
+                  copiedLabel={t('copied')}
+                  failedLabel={t('copyFailed')}
+                  iconOnly
+                  variant='plain'
+                />
               ) : null}
               {schemaHint ? (
                 <HelpHint side='left' label={t('tab.schema')} content={schemaHint} data-testid='dag-node-schema-hint' />

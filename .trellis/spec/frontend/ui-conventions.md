@@ -303,6 +303,17 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 
 ---
 
+## 14. Arc 组件（工作台）
+
+- 免费组件放在 `frontend/components/arc/`。从 `frontend/` 执行 `pnpm dlx shadcn@latest add @uiarc/<name> --yes`。注册表是 `frontend/components.json` 的 `@uiarc`。不要覆盖 `components/ui/`，也不要安装 `@uiarc-pro`。
+- `app/layout.tsx` 引入一次 `@/components/arc/foundation.css`。Arc 只认 `html[data-theme]`。`ThemeProvider` 里的 `ArcThemeAttribute` 把 `resolvedTheme` 写成 `light` 或 `dark`。Tailwind 继续用 `class`。
+- 界面文案仍走 next-intl，一次只显示一种语言。`SearchField.clearLabel`、`CopyButton.copiedLabel` 和 `failedLabel` 是给中文用的可选文案，默认保持英文。不要改组件的动画实现。
+- 保存用 `ActionButton`。`onAction` 保存失败必须 reject，否则按钮会显示已保存。发布用 `SplitButton`：主按钮打开发布说明对话框，菜单只打开版本侧栏。测试、DAG、预览用 `ExpandingButtonGroup`，不写 `doneLabel`。顶栏展开搜索只覆盖本地文件和已加载作业；不在列表里的数字 Job ID 仍走 Cmd/Ctrl+P 对话框。
+- 左侧文件树和拖拽移动不要换成 Arc Tree view 或 File dropzone。这两个组件没有右键、重命名、新建和目录移动。
+- 单测一旦引入 Arc 的 CSS Module，`vitest.config.ts` 的 `css.postcss.plugins` 必须是空数组。否则 Vite 会拒绝 `postcss.config.mjs` 里的字符串插件 `@tailwindcss/postcss`。
+
+---
+
 ## 一致性检查项
 
 在提交代码前，必须核对以下检查清单：
@@ -324,3 +335,4 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] 动态后端值是否在调用翻译函数前使用 `t.has()` 检查，并准备原值或兜底文案？
 - [ ] 国际化覆盖测试是否通过，确认深层键、静态代码引用和 ICU 参数均无缺失？
 - [ ] 自增/修改的代码注释是否严格遵循“中文在前，英文在后”的双语规范？
+- [ ] 工作台若改用 Arc 控件，是否仍保留 `components/ui`、`data-theme` 同步，以及保存失败时 `ActionButton` 的 reject？

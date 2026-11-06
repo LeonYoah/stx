@@ -31,6 +31,7 @@ import {
   Layers,
   Loader2,
 } from 'lucide-react';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Badge} from '@/components/ui/badge';
 import {cn} from '@/lib/utils';
 import {Button} from '@/components/ui/button';
@@ -465,20 +466,17 @@ export function SettingsSidebarPanel({
             <Label className='text-[11px] text-muted-foreground'>
               {t('executionMode')}
             </Label>
-            <Select
+            <SegmentedControl
+              label={t('executionMode')}
               value={executionMode}
               onValueChange={(value) =>
                 onExecutionModeChange(value as ExecutionMode)
               }
-            >
-              <SelectTrigger className='h-8 w-full text-xs'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className='w-[var(--radix-select-trigger-width)] min-w-0'>
-                <SelectItem value='cluster'>{t('clusterMode')}</SelectItem>
-                <SelectItem value='local'>{t('localMode')}</SelectItem>
-              </SelectContent>
-            </Select>
+              options={[
+                {value: 'cluster', label: t('clusterMode')},
+                {value: 'local', label: t('localMode')},
+              ]}
+            />
           </div>
 
           {executionMode === 'cluster' ? (
@@ -628,24 +626,20 @@ export function SettingsSidebarPanel({
                   data-testid='sync-observability-hint'
                 />
               </div>
-              <Select
-                value={observabilityMode}
-                onValueChange={(value) =>
-                  onObservabilityModeChange(value as ObservabilityMode)
-                }
-              >
-                <SelectTrigger
-                  className='h-8 w-full text-xs'
-                  data-testid='sync-observability-mode'
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className='w-[var(--radix-select-trigger-width)] min-w-0'>
-                  <SelectItem value='auto'>{t('observabilityAuto')}</SelectItem>
-                  <SelectItem value='on'>{t('observabilityOn')}</SelectItem>
-                  <SelectItem value='off'>{t('observabilityOff')}</SelectItem>
-                </SelectContent>
-              </Select>
+              <div data-testid='sync-observability-mode'>
+                <SegmentedControl
+                  label={t('observabilitySetting')}
+                  value={observabilityMode}
+                  onValueChange={(value) =>
+                    onObservabilityModeChange(value as ObservabilityMode)
+                  }
+                  options={[
+                    {value: 'auto', label: t('observabilityAuto')},
+                    {value: 'on', label: t('observabilityOn')},
+                    {value: 'off', label: t('observabilityOff')},
+                  ]}
+                />
+              </div>
             </div>
           ) : null}
 

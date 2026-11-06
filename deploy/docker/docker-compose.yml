@@ -18,7 +18,7 @@
 #
 #   mkdir -p data
 #   docker compose up -d
-# SeaTunnel 不在本机时改 config.yaml 的 app.external_url / app.console_url。
+# SeaTunnel 不在本机时改挂载的 config.yaml（发版包）或根目录 config.example.yaml（仓库）的 app.external_url / app.console_url。
 
 include:
   - path: compose.base.yml

@@ -33,9 +33,17 @@ services:
     container_name: stx-backend
     restart: unless-stopped
     volumes:
-      - ./config.yaml:/opt/stx/config.yaml:ro
+      # 仓库内默认挂根目录 example。发版 tar 会把默认改成 ./config.yaml（包内已从 example 拷出）。
+      # In-repo default is the root example. The release tarball rewrites this to ./config.yaml.
+      - ${STX_CONFIG_FILE:-../../config.example.yaml}:/opt/stx/config.yaml:ro
       - ./data/stx:/opt/stx/data
       - ./data/stx-lib:/opt/stx/lib
+    environment:
+      # 监控走 compose DNS；yaml 保持根目录 example 的 127.0.0.1。
+      # Observability uses compose DNS; yaml keeps the root example localhost URLs.
+      STX_OBSERVABILITY_PROMETHEUS_URL: ${STX_OBSERVABILITY_PROMETHEUS_URL:-http://prometheus:9090}
+      STX_OBSERVABILITY_ALERTMANAGER_URL: ${STX_OBSERVABILITY_ALERTMANAGER_URL:-http://alertmanager:9093}
+      STX_OBSERVABILITY_GRAFANA_URL: ${STX_OBSERVABILITY_GRAFANA_URL:-http://grafana:3000}
     ports:
       - "17800:17800"
       - "17890:17890"

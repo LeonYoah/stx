@@ -13,7 +13,6 @@ logs
 
 # config
 config.yaml
-!deploy/docker/config.yaml
 
 # frontend
 frontend/build

@@ -8,7 +8,8 @@ mkdir -p stx-docker && cd stx-docker
 curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz | tar -xz
 # GitHub 直连：把上面 URL 里的 https://v4.gh-proxy.org/ 去掉
 cd docker
-# SeaTunnel 不在本机时：改 config.yaml 的 app.external_url / app.console_url 为其他机器能访问的安装机 IP
+# SeaTunnel 不在本机时：改包内 config.yaml 的 app.external_url / app.console_url 为其他机器能访问的安装机 IP
+# （该文件由发版脚本从仓库根目录 config.example.yaml 拷出，不要另维护一份 Docker 配置。）
 mkdir -p data
 docker compose up -d
 ```
@@ -26,7 +27,9 @@ docker compose up -d
 | SQLite | `docker compose -f docker-compose.sqlite.yml up -d` |
 | PostgreSQL | `docker compose -f docker-compose.postgres.yml up -d` |
 
-库类型由对应 compose 注入，不必改 `config.yaml` 的 database 段。
+库类型由对应 compose 注入 `STX_DATABASE_*`，监控地址注入 `STX_OBSERVABILITY_*`，不必改 `config.yaml` 的 database / observability 段。
+
+仓库内直接 `docker compose up` 时默认挂载根目录 `config.example.yaml`；发版 tar 里是它的副本 `config.yaml`。
 
 宿主机只暴露：
 

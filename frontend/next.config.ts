@@ -16,7 +16,6 @@
  */
 
 import type {NextConfig} from 'next';
-import {resolveBackendBaseURL} from './lib/backend-base-url';
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -44,14 +43,10 @@ const nextConfig: NextConfig = {
     // 只在构建时跳过 ESLint，开发时照常在编辑器里提示
     ignoreDuringBuilds: true,
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${resolveBackendBaseURL()}/api/:path*`,
-      },
-    ];
-  },
+  // /api 转发改在 middleware 运行时解析 BACKEND_BASE_URL。
+  // next.config rewrites 会在 next build 时写进镜像，Docker 里改环境变量不会生效。
+  // Proxy /api in middleware at runtime. next.config rewrites are baked at build
+  // and ignore container env (the 127.0.0.1:17800 ECONNREFUSED in split Docker).
 
   // 确保代理请求正确传递headers和cookie
   async headers() {

@@ -21,7 +21,6 @@ import {resolveBackendBaseURL} from './lib/backend-base-url';
 const HCAPTCHA_VERIFY_URL = 'https://hcaptcha.com/siteverify';
 const HCAPTCHA_SECRET_KEY =
   process.env.HCAPTCHA_SECRET_KEY || 'your-hcaptcha-secret-key';
-const BACKEND_BASE_URL = resolveBackendBaseURL();
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
 
 interface HCaptchaResponse {
@@ -142,7 +141,7 @@ async function handleReceiveRequest(
     // 准备转发到后端的请求
     // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
     const {captcha_token: _captchaToken, ...backendBody} = body;
-    const backendUrl = `${BACKEND_BASE_URL}${pathname}`;
+    const backendUrl = `${resolveBackendBaseURL()}${pathname}`;
 
     const backendResponse = await fetch(backendUrl, {
       method: request.method,
@@ -200,8 +199,14 @@ export async function middleware(request: NextRequest) {
     return handleReceiveRequest(request, pathname);
   }
 
-  // 其他请求直接通过
-  return NextResponse.next();
+  // 运行时把 /api 转到后端，避免 next.config rewrite 在构建期写死 127.0.0.1。
+  // Rewrite /api to the backend at runtime so Docker env is not baked at build.
+  const backend = resolveBackendBaseURL();
+  const destination = new URL(
+    `${pathname}${request.nextUrl.search}`,
+    `${backend}/`,
+  );
+  return NextResponse.rewrite(destination);
 }
 
 export const config = {

@@ -91,8 +91,8 @@ function TaskTimeoutInput({
         placeholder={t('timeoutDefaultPlaceholder', {minutes: defaultMinutes})}
         className={
           invalid
-            ? 'h-8 text-xs border-destructive focus-visible:ring-destructive/40'
-            : 'h-8 text-xs'
+            ? 'h-9 rounded-[var(--radius-control)] text-xs border-destructive focus-visible:ring-destructive/40'
+            : 'h-9 rounded-[var(--radius-control)] text-xs'
         }
         onChange={(event) => {
           const next = event.target.value;
@@ -395,7 +395,7 @@ export function SettingsSidebarPanel({
                 type='button'
                 size='sm'
                 variant='outline'
-                className='h-7 gap-1 px-2 text-xs'
+                className='h-9 gap-1 rounded-[var(--radius-control)] px-2.5 text-xs'
                 onClick={onOpenCreateCustomVariable}
               >
                 <Plus className='size-3.5' />

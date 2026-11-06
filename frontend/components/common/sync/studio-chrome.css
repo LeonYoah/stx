@@ -23,6 +23,15 @@
   --control-height-sm: 1.75rem;
 }
 
+/*
+ * 右侧栏、控制台工具条与顶栏同一套 Arc 行高，避免 Combobox / Segmented 用默认 2.75rem。
+ * Right sidebar and console chrome share the top-bar Arc height so Combobox / Segmented are not 2.75rem.
+ */
+.studio-sidebar-chrome {
+  --control-height-md: 2.25rem;
+  --control-height-sm: 1.75rem;
+}
+
 .studio-search-field > div {
   gap: 0;
 }

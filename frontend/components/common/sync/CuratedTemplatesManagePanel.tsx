@@ -431,9 +431,9 @@ export function CuratedTemplatesManagePanel({
     >
       {/* 精选与插件默认是同一套模板库的两个视图，不再把插件默认藏进折叠条。 */}
       {/* Curated and plugin defaults are two views of one library; plugin defaults stay a first-class view. */}
-      <div className='shrink-0 border-b border-border/60 px-3 py-2'>
+      <div className='flex shrink-0 items-center gap-1.5 border-b border-border/60 px-3 py-2'>
         <SegmentedControl
-          className='w-full'
+          className='min-w-0 flex-1'
           label={t('curatedManage')}
           value={library}
           onValueChange={(value) =>
@@ -444,16 +444,18 @@ export function CuratedTemplatesManagePanel({
             {value: 'plugins', label: t('templateLibraryPlugins')},
           ]}
         />
+        {library === 'plugins' ? (
+          <HelpHint
+            side='left'
+            label={t('templateLibraryPlugins')}
+            content={t('rawDefaultParamHint')}
+            data-testid='sync-plugin-defaults-hint'
+          />
+        ) : null}
       </div>
 
       {library === 'plugins' ? (
         <div className='min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3'>
-          <p
-            className='text-[11px] leading-5 text-muted-foreground'
-            data-testid='sync-plugin-defaults-hint'
-          >
-            {t('rawDefaultParamHint')}
-          </p>
           {pluginInsert?.executionMode === 'cluster' ? (
             <>
               <TemplatePluginSelect

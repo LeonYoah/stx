@@ -190,7 +190,7 @@ export function ConsolePanel({
   const clusterId = logsResult?.cluster_id || getSyncJobClusterId(job);
 
   return (
-    <div className='flex h-full min-h-0 min-w-0 flex-col gap-2'>
+    <div className='studio-sidebar-chrome flex h-full min-h-0 min-w-0 flex-col gap-2'>
       <div className='flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-background/70 px-3 py-2 text-xs'>
         <Badge variant='outline'>#{job.id}</Badge>
         <Badge variant='outline'>{job.run_type}</Badge>
@@ -260,7 +260,7 @@ export function ConsolePanel({
               <Button
                 size='sm'
                 variant='ghost'
-                className='h-7 px-1.5 text-xs'
+                className='h-9 rounded-[var(--radius-control)] px-2 text-xs'
                 onClick={onExpand}
               >
                 <Maximize2 className='mr-1 size-3.5' />

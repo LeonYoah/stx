@@ -17,6 +17,10 @@
 - [x] 顶栏齐高：运行/停止改 SplitButton，搜索放正中，`--control-height-md` 收到 2.25rem
 - [x] 设置页任务变量只留一个标题；精选模板插入并进模板管理
 - [x] 模板管理用分段视图露出插件默认；分区 Chip 多选、插件 Combobox；缩短会被截断的文案
+- [x] 文件树范围改成「我的 | 全部」，去掉含糊的「可见」；旧 only_mine 并入我的
+- [x] 顶栏搜索槽固定 280px 并靠左，展开不盖住保存/运行
+- [x] 全局变量筛选换成 SearchField + Segmented + ChipGroup；侧栏/控制台共用 `.studio-sidebar-chrome`
+- [x] 底部控制台四个视图改 SegmentedControl；插件默认长说明收进 HelpHint
 - [ ] 树和 File dropzone 单独立项，不在第一批
 - [ ] 变量列表里的复制按钮仍走原来的回调。一行一个 CopyButton 会在长列表上挂很多 ResizeObserver，现有单测也直接断言回调。
 

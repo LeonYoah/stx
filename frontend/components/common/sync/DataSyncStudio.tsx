@@ -38,7 +38,6 @@ import {useTheme} from 'next-themes';
 import {toast} from 'sonner';
 import {
   AlertTriangle,
-  Bug,
   Check,
   Copy,
   ChevronRight,
@@ -63,10 +62,8 @@ import {
   PlugZap,
   Play,
   RefreshCw,
-  SquareTerminal,
   FolderTree,
   Database,
-  ListTree,
   Square,
   Trash2,
   GitCompareArrows,
@@ -474,8 +471,18 @@ export function DataSyncStudio() {
   const [treeFilterScope, setTreeFilterScope] = useState<TreeFilterScope>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('stx_studio_tree_filter_scope');
-      if (saved === 'all' || saved === 'mine_and_public' || saved === 'only_mine') {
-        return saved;
+      // 「可见」三档里的 only_mine 已从界面拿掉；旧值并入「我的」（自己的 + 公开的）。
+      // The old three-way "Visible" filter is gone; only_mine migrates into Mine (own + public).
+      if (saved === 'all') {
+        return 'all';
+      }
+      if (saved === 'only_mine') {
+        try {
+          localStorage.setItem(
+            'stx_studio_tree_filter_scope',
+            'mine_and_public',
+          );
+        } catch {}
       }
     }
     return 'mine_and_public';
@@ -489,9 +496,8 @@ export function DataSyncStudio() {
   // VSCode Quick Open 快捷检索浮层状态 (Cmd+P)
   // VSCode Quick Open command palette state (Cmd+P)
   const [quickOpenOpen, setQuickOpenOpen] = useState(false);
-  // 顶栏搜索在正中展开，宽度变化时左右两列对等收缩，图标仍落在中间。
-  // Centered top-bar search; the side columns shrink together so the icon stays in the middle.
-  const [quickSearchExpanded, setQuickSearchExpanded] = useState(false);
+  // 顶栏搜索槽位固定 280px：字段从左往右在槽内展开，绝对定位的壳不会盖住保存/运行。
+  // Top-bar search keeps a 280px slot so the absolutely positioned shell never covers Save/Run.
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   // 树节点行内重命名、新建与拖拽状态（VSCode 风格交互）
@@ -4399,7 +4405,7 @@ export function DataSyncStudio() {
   return (
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
       <Card className='relative z-20 gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
-        <CardContent className='studio-topbar grid h-12 min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 overflow-visible px-3'>
+        <CardContent className='studio-topbar grid h-12 min-w-0 grid-cols-[minmax(0,max-content)_280px_minmax(max-content,1fr)] items-center gap-3 overflow-visible px-3'>
           {/* 左侧：顶栏最左端左栏开关（#110 AC11）+ 面包屑 / 状态 */}
           {/* Left: leftmost left-sidebar toggle (#110 AC11) + breadcrumb / status */}
           <div className='flex min-w-0 items-center gap-2 text-xs'>
@@ -4534,16 +4540,9 @@ export function DataSyncStudio() {
             )}
           </div>
 
-          {/* 正中：展开搜索。左右 1fr 对等收缩，收起时图标落在顶栏中线。 */}
-          {/* Dead center: expanding search. The 1fr columns shrink together so the collapsed icon sits on the midline. */}
-          <div
-            className='relative z-30 flex justify-center'
-            style={{
-              width: quickSearchExpanded
-                ? 280
-                : 'var(--control-height-md)',
-            }}
-          >
+          {/* 搜索槽固定 280px 并靠左：壳从左往右在槽内展开，不会盖住保存/运行。 */}
+          {/* Fixed 280px slot, left of the actions. The shell grows right inside the slot, never over Save/Run. */}
+          <div className='relative z-20 w-[280px] shrink-0 justify-self-start'>
             <ExpandingSearch
               label={t('quickOpen')}
               placeholder={t('searchFileOrJobId')}
@@ -4556,7 +4555,6 @@ export function DataSyncStudio() {
               anchor='start'
               expandedWidth={280}
               maxResults={8}
-              onExpandedChange={setQuickSearchExpanded}
               onSelect={(item) => {
                 if (item.id.startsWith('job-')) {
                   void handleLocateJobId(item.id.slice(4));
@@ -4572,7 +4570,7 @@ export function DataSyncStudio() {
 
           {/* 右侧：环境指示 + IDE 工具栏 + 核心动作 + 顶栏最右端右栏开关（#110 AC11） */}
           {/* Right: env + IDE toolbar + primary cluster + rightmost right-sidebar toggle (#110 AC11) */}
-          <div className='flex min-w-0 flex-nowrap items-center justify-end gap-2'>
+          <div className='flex min-w-max flex-nowrap items-center justify-end gap-2'>
             {/* 环境指示与 Arc 控件同一行高，不再另做一套圆角。 */}
             {/* Environment chip shares the Arc control height instead of a second radius. */}
             <div
@@ -4807,7 +4805,7 @@ export function DataSyncStudio() {
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 资源管理器标题与工具栏 (VSCode 风格) */}
             {/* Explorer title and action toolbar (VSCode style) */}
-            <div className='flex h-8.5 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
+            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
               <div className='flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground/80'>
                 <FolderTree className='size-3.5 shrink-0 text-primary/80' />
                 <span className='truncate'>{t('resources')}</span>
@@ -4827,7 +4825,7 @@ export function DataSyncStudio() {
                           : null;
                         handleInlineCreateFolder(folderNode);
                       }}
-                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
                     >
                       <FolderPlus className='size-3.5' />
                     </button>
@@ -4849,7 +4847,7 @@ export function DataSyncStudio() {
                         }
                         handleInlineCreateFile(folderNode);
                       }}
-                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
                     >
                       <FilePlus2 className='size-3.5' />
                     </button>
@@ -4862,7 +4860,7 @@ export function DataSyncStudio() {
                       type='button'
                       aria-label={expandedFolderIds.length > 0 ? t('collapseAll') : t('expandAll')}
                       onClick={handleToggleCollapseAll}
-                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
                     >
                       <ChevronsUpDown className='size-3.5' />
                     </button>
@@ -4879,7 +4877,7 @@ export function DataSyncStudio() {
                       type='button'
                       aria-label={t('refresh')}
                       onClick={() => void loadWorkspace(selectedNodeId)}
-                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
                     >
                       <RefreshCw
                         className={cn('size-3.5', loading && 'animate-spin')}
@@ -4902,8 +4900,8 @@ export function DataSyncStudio() {
                   clearLabel={t('clearSearch')}
                 />
               </div>
-              {/* 任务过滤范围：我的与公开 / 全部 / 仅我创建 */}
-              {/* Task filter scope: mine and public / all / only mine */}
+              {/* 任务过滤：我的=自己的+公开的；全部=不过滤。去掉含糊的「可见」。 */}
+              {/* Mine = own + public. All = unfiltered. The old "Visible" label is gone. */}
               <SegmentedControl
                 label={t('treeFilterMineAndPublicTooltip')}
                 value={treeFilterScope}
@@ -4916,7 +4914,6 @@ export function DataSyncStudio() {
                     label: t('treeFilterMineAndPublic'),
                   },
                   {value: 'all', label: t('treeFilterAll')},
-                  {value: 'only_mine', label: t('treeFilterOnlyMine')},
                 ]}
               />
             </div>
@@ -5408,68 +5405,30 @@ export function DataSyncStudio() {
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 控制台顶部横向选项卡与操作区 */}
             {/* Console top horizontal tab switcher and action area */}
-            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/60 bg-muted/20 px-2'>
-              <div className='flex items-center gap-1'>
-                <button
-                  type='button'
-                  aria-label={t('jobs')}
-                  className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
-                    bottomConsoleTab === 'jobs'
-                      ? 'bg-background text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
-                  )}
-                  onClick={() => setBottomConsoleTab('jobs')}
-                >
-                  <ListTree className='size-3.5' />
-                  <span>{t('jobs')}</span>
-                  {activeJobs.length > 0 ? (
-                    <span className='size-1.5 rounded-full bg-emerald-500 animate-pulse' />
-                  ) : null}
-                </button>
-                <button
-                  type='button'
-                  aria-label={t('logs')}
-                  className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
-                    bottomConsoleTab === 'logs'
-                      ? 'bg-background text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
-                  )}
-                  onClick={() => setBottomConsoleTab('logs')}
-                >
-                  <SquareTerminal className='size-3.5' />
-                  <span>{t('logs')}</span>
-                </button>
-                <button
-                  type='button'
-                  aria-label={t('preview')}
-                  className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
-                    bottomConsoleTab === 'preview'
-                      ? 'bg-background text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
-                  )}
-                  onClick={() => setBottomConsoleTab('preview')}
-                >
-                  <Bug className='size-3.5' />
-                  <span>{t('preview')}</span>
-                </button>
-                <button
-                  type='button'
-                  aria-label={t('checkpoint')}
-                  className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
-                    bottomConsoleTab === 'checkpoint'
-                      ? 'bg-background text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
-                  )}
-                  onClick={() => setBottomConsoleTab('checkpoint')}
-                >
-                  <Columns2 className='size-3.5' />
-                  <span>{t('checkpoint')}</span>
-                </button>
-              </div>
+            <div className='studio-sidebar-chrome flex min-h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-2 py-1'>
+              {/* 底部四个视图用同一套分段控件，不再手写一套胶囊 Tab。 */}
+              {/* The four console views share the same SegmentedControl instead of a handmade pill row. */}
+              <SegmentedControl
+                className='min-w-0'
+                label={t('jobs')}
+                value={bottomConsoleTab}
+                onValueChange={(value) =>
+                  setBottomConsoleTab(value as BottomConsoleTab)
+                }
+                options={[
+                  {
+                    value: 'jobs',
+                    label: t('jobs'),
+                    accessory:
+                      activeJobs.length > 0 ? (
+                        <span className='ml-1 inline-block size-1.5 rounded-full bg-emerald-500 animate-pulse' />
+                      ) : undefined,
+                  },
+                  {value: 'logs', label: t('logs')},
+                  {value: 'preview', label: t('preview')},
+                  {value: 'checkpoint', label: t('checkpoint')},
+                ]}
+              />
 
               {/* 右侧：全屏与还原切换 */}
               {/* Right: Full-screen and restore toggle */}
@@ -5481,7 +5440,7 @@ export function DataSyncStudio() {
                         size='icon'
                         variant='ghost'
                         className={cn(
-                          'size-6 text-muted-foreground hover:text-foreground',
+                          'size-7 rounded-[var(--radius-control)] text-muted-foreground hover:text-foreground',
                           isConsoleExpanded && 'text-primary bg-primary/10',
                         )}
                         onClick={() => setIsConsoleExpanded((prev) => !prev)}
@@ -5499,7 +5458,7 @@ export function DataSyncStudio() {
                     <Button
                       size='icon'
                       variant='ghost'
-                      className='size-6 text-muted-foreground hover:text-foreground'
+                      className='size-7 rounded-[var(--radius-control)] text-muted-foreground hover:text-foreground'
                       onClick={() => setIsConsoleMaximized((prev) => !prev)}
                     >
                       {isConsoleMaximized ? (
@@ -6181,7 +6140,7 @@ export function DataSyncStudio() {
           <DialogHeader>
             <DialogTitle>{t('logViewer')}</DialogTitle>
           </DialogHeader>
-          <div className='flex flex-wrap items-center justify-between gap-2'>
+          <div className='studio-sidebar-chrome flex flex-wrap items-center justify-between gap-2'>
             <div className='flex items-center gap-2'>
               <div className='studio-search-field w-[320px]'>
                 <SearchField

@@ -46,7 +46,7 @@ export function SidebarIconTab({
           type='button'
           aria-label={label}
           className={cn(
-            'flex h-9 w-9 items-center justify-center rounded-md border transition-colors',
+            'flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] border transition-colors',
             active
               ? 'border-primary/40 bg-primary/10 text-primary'
               : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -95,7 +95,7 @@ export function StudioSidebarShell({
     <Card
       data-studio-right-sidebar={dataStudioRightSidebar}
       className={cn(
-        'row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm',
+        'studio-sidebar-chrome row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm',
         className,
       )}
       aria-hidden={ariaHidden || undefined}

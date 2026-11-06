@@ -261,7 +261,7 @@ export function TaskScheduleSidebarPanel({
         {/* Last triggered and next trigger metrics */}
         <div className='grid gap-2.5 rounded-md border border-border/60 bg-background/70 p-2.5 sm:grid-cols-2'>
           <div className='space-y-1 min-w-0'>
-            <div className='flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium'>
+            <div className='flex items-center gap-1 text-[10px] font-medium text-muted-foreground'>
               <History className='size-3 shrink-0' />
               <span>{t('scheduleLastTriggeredAt')}</span>
             </div>
@@ -271,7 +271,7 @@ export function TaskScheduleSidebarPanel({
           </div>
 
           <div className='space-y-1 min-w-0'>
-            <div className='flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium'>
+            <div className='flex items-center gap-1 text-[10px] font-medium text-muted-foreground'>
               <CalendarClock className='size-3 shrink-0' />
               <span>{t('scheduleNextTriggeredAt')}</span>
             </div>

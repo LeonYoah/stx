@@ -5363,8 +5363,11 @@ export function DataSyncStudio() {
           ariaHidden={isRightSidebarCollapsed}
           inert={isRightSidebarCollapsed}
           contentMode={
-            rightSidebarTab === 'templates' ? 'fill' : 'scroll'
+            rightSidebarTab === 'templates' || rightSidebarTab === 'settings'
+              ? 'fill'
+              : 'scroll'
           }
+          flush={rightSidebarTab === 'settings'}
           rail={
             <>
               <SidebarIconTab

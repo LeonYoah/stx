@@ -4707,6 +4707,8 @@
     "activeSchedule": "Active",
     "suspendedSchedule": "Suspended",
     "executionAndCluster": "Execution & Cluster",
+    "advancedPropertiesTask": "Task properties",
+    "advancedPropertiesRuntime": "Runtime properties",
     "taskVariables": "Task Variables",
     "taskVariablesHint": "The platform only resolves double-brace variable syntax. Hover to preview real-time results based on the current time baseline; native placeholders remain reserved for SeaTunnel.",
     "jobIdLocated": "Successfully located the corresponding task file and job instance",

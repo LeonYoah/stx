@@ -4707,6 +4707,8 @@
     "activeSchedule": "已启用",
     "suspendedSchedule": "已停用",
     "executionAndCluster": "运行与集群",
+    "advancedPropertiesTask": "任务高级属性",
+    "advancedPropertiesRuntime": "运行高级属性",
     "taskVariables": "任务变量",
     "taskVariablesHint": "平台只解析双花括号变量语法。鼠标悬停可实时预览当前时间基准下的解析结果；原生占位符仍保留给 SeaTunnel。",
     "jobIdLocated": "已成功定位至对应的任务文件与作业实例",

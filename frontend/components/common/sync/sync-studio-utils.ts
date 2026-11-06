@@ -254,6 +254,11 @@ export function writeStudioLayoutPrefs(
 /**
  * 按左右开合状态生成主网格列宽（收起列 0px 释放宽度；开关在顶栏两端，#110 AC11）。
  * Build main grid column widths (0px when collapsed frees width; toggles live on topbar ends, #110 AC11).
+ *
+ * 注意：主网格必须 column-gap:0，展开侧用侧栏自身 mr-2/ml-2 补间距，
+ * 否则 0px 列旁的 gap 会留下细缝。
+ * Note: the main grid must use column-gap:0 and open-side mr-2/ml-2 for spacing,
+ * otherwise gap beside a 0px track leaves a hairline seam.
  */
 export function buildStudioGridTemplateColumns(
   leftCollapsed: boolean,
@@ -262,6 +267,20 @@ export function buildStudioGridTemplateColumns(
   const left = leftCollapsed ? '0px' : '240px';
   const right = rightCollapsed ? '0px' : '360px';
   return `${left} minmax(0,1fr) ${right}`;
+}
+
+/**
+ * 展开侧栏相对编辑区的外边距 class（收起时不加，避免 0px 列外再占缝）。
+ * Margin class between an open sidebar and the editor (omit when collapsed so 0px tracks stay seamless).
+ */
+export function studioSidebarOpenSpacingClass(
+  collapsed: boolean,
+  side: 'left' | 'right',
+): string {
+  if (collapsed) {
+    return '';
+  }
+  return side === 'left' ? 'mr-2' : 'ml-2';
 }
 
 export const EMPTY_EDITOR: EditorState = {

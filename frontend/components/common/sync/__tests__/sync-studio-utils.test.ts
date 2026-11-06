@@ -20,6 +20,7 @@ import {
   buildInsertedCuratedContent,
   buildStudioGridTemplateColumns,
   DEFAULT_STUDIO_LAYOUT_PREFS,
+  studioSidebarOpenSpacingClass,
   formatRateDisplay,
   isZeroMetricValue,
   detectVariables,
@@ -84,6 +85,13 @@ describe('studio layout prefs (#110)', () => {
     expect(buildStudioGridTemplateColumns(false, false)).toBe(
       '240px minmax(0,1fr) 360px',
     );
+  });
+
+  it('only adds open-side spacing class when the sidebar is expanded', () => {
+    expect(studioSidebarOpenSpacingClass(false, 'left')).toBe('mr-2');
+    expect(studioSidebarOpenSpacingClass(true, 'left')).toBe('');
+    expect(studioSidebarOpenSpacingClass(false, 'right')).toBe('ml-2');
+    expect(studioSidebarOpenSpacingClass(true, 'right')).toBe('');
   });
 });
 

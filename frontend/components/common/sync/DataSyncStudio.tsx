@@ -285,6 +285,7 @@ import {
   WORKSPACE_TABS_STORAGE_KEY,
   buildStudioGridTemplateColumns,
   readStudioLayoutPrefs,
+  studioSidebarOpenSpacingClass,
   writeStudioLayoutPrefs,
   buildCheckpointActionViewModels,
   buildCheckpointInspectJobConfig,
@@ -4387,7 +4388,8 @@ export function DataSyncStudio() {
                   data-testid='studio-toggle-left-sidebar'
                   className={cn(
                     'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
-                    isLeftSidebarCollapsed &&
+                    // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
+                    !isLeftSidebarCollapsed &&
                       'border-primary/40 bg-primary/10 text-primary',
                   )}
                   onClick={handleToggleLeftSidebar}
@@ -4826,7 +4828,8 @@ export function DataSyncStudio() {
                   data-testid='studio-toggle-right-sidebar'
                   className={cn(
                     'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
-                    isRightSidebarCollapsed &&
+                    // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
+                    !isRightSidebarCollapsed &&
                       'border-primary/40 bg-primary/10 text-primary',
                   )}
                   onClick={handleToggleRightSidebar}
@@ -4860,7 +4863,9 @@ export function DataSyncStudio() {
 
       <div
         className={cn(
-          'grid min-h-0 min-w-0 flex-1 gap-2 transition-all duration-200',
+          // 横向不用 gap：0px 收起列旁的 column-gap 会留细缝；展开侧用侧栏自身 mr/ml-2 补间距
+          // No horizontal gap: column-gap beside 0px tracks leaves a seam; open sides use mr/ml-2 on the panel
+          'grid min-h-0 min-w-0 flex-1 gap-y-2 transition-all duration-200',
           isConsoleMaximized
             ? 'grid-rows-[0px_minmax(0,1fr)]'
             : isConsoleExpanded
@@ -4874,14 +4879,16 @@ export function DataSyncStudio() {
             isLeftSidebarCollapsed,
             isRightSidebarCollapsed,
           ),
+          columnGap: 0,
         }}
       >
         <Card
           data-studio-left-sidebar=''
           className={cn(
             'col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
-            isLeftSidebarCollapsed &&
-              'pointer-events-none border-transparent opacity-0',
+            isLeftSidebarCollapsed
+              ? 'pointer-events-none border-transparent opacity-0'
+              : studioSidebarOpenSpacingClass(false, 'left'),
           )}
           aria-hidden={isLeftSidebarCollapsed || undefined}
           // inert：收起后移出 Tab 序（入口在顶栏，#110 AC11 / Codex P2）
@@ -5349,8 +5356,9 @@ export function DataSyncStudio() {
           data-studio-right-sidebar=''
           className={cn(
             'col-start-3 row-start-1 row-span-2 min-w-0 transition-all duration-200',
-            isRightSidebarCollapsed &&
-              'pointer-events-none border-transparent opacity-0',
+            isRightSidebarCollapsed
+              ? 'pointer-events-none border-transparent opacity-0'
+              : studioSidebarOpenSpacingClass(false, 'right'),
           )}
           ariaHidden={isRightSidebarCollapsed}
           inert={isRightSidebarCollapsed}

@@ -83,7 +83,7 @@ STX 控制台采用现代化控制台体验架构：
 - **严禁全量平铺展开（Anti-Flat-Dumping）**：
   - **严禁**在同一个长滚动容器中，将“基础属性 + 多个多行数据表格 + 复杂新增/编辑表单”从上到下全量平铺堆叠；
   - 这种反模式会导致用户首屏抓不住重点，视觉充斥大量同等权重的边框与输入框，产生极强的拥挤感和压迫感。
-- **工作台右侧是高级属性，上下两段都是**：设置页上段只放任务属性（执行模式、集群、变量），下段只放运行属性（可观测性、超时、告警）。插入模板默认折叠，不和中间编辑器抢同一屏。两段各自滚动，不要再合成一条长列表。
+- **工作台右侧是高级属性，上下两段都是**：设置页上段只放任务属性（执行模式、集群、变量），下段只放运行属性（可观测性、超时、告警）。任务变量只保留一个标题，不要再套「自定义变量」卡片。精选模板和插件默认参数都在「模板管理」页签里用分段视图切换，不要把模板浏览器再塞进设置页。两段各自滚动，不要再合成一条长列表。
 - **多维信息物理隔离（Dimensional Isolation）**：
   - 复杂实体必须按职责维度进行物理分流：
     - **概览（Overview）**：仅展示决策核心（核心指标、关键状态胶囊、基础属性、主操作入口），保持清爽克制与视觉呼吸感；
@@ -308,7 +308,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - 免费组件放在 `frontend/components/arc/`。从 `frontend/` 执行 `pnpm dlx shadcn@latest add @uiarc/<name> --yes`。注册表是 `frontend/components.json` 的 `@uiarc`。不要覆盖 `components/ui/`，也不要安装 `@uiarc-pro`。
 - `app/layout.tsx` 引入一次 `@/components/arc/foundation.css`。Arc 只认 `html[data-theme]`。`ThemeProvider` 里的 `ArcThemeAttribute` 把 `resolvedTheme` 写成 `light` 或 `dark`。Tailwind 继续用 `class`。
 - 界面文案仍走 next-intl，一次只显示一种语言。`SearchField.clearLabel`、`CopyButton.copiedLabel` 和 `failedLabel` 是给中文用的可选文案，默认保持英文。不要改组件的动画实现。
-- 保存用 `ActionButton`。`onAction` 保存失败必须 reject，否则按钮会显示已保存。发布用 `SplitButton`：主按钮打开发布说明对话框，菜单只打开版本侧栏。测试、DAG、预览用 `ExpandingButtonGroup`，不写 `doneLabel`。顶栏展开搜索只覆盖本地文件和已加载作业；不在列表里的数字 Job ID 仍走 Cmd/Ctrl+P 对话框。
+- 保存用 `ActionButton`。`onAction` 保存失败必须 reject，否则按钮会显示已保存。发布、运行、停止都用 `SplitButton`（主点击是默认动作，菜单是邻近动作）。测试、DAG、预览用 `ExpandingButtonGroup`，不写 `doneLabel`。顶栏用三列网格把展开搜索放在正中；不在本地列表里的数字 Job ID 仍走 Cmd/Ctrl+P 对话框。顶栏容器把 `--control-height-md` 收到 `2.25rem`，避免 Arc 控件和旧按钮参差不齐。`SplitButton` secondary 主区默认 142px，顶栏要用 `.studio-action-cluster` 取消这段最小宽度，否则运行/停止会比保存宽一截。发布按钮用短文案「发布」，弹窗标题仍用「发布新版本」。模板管理用分段控件切换「精选」和「插件默认」，不要把插件默认藏进折叠条。精选分区用 `chip-group` 多选，来源用分段控件，插件列表用 `combobox`（选中即插入）。侧栏文案用短标签，长说明放 tooltip 或 hint，不要靠 `truncate` 把功能入口吞掉。
 - 左侧文件树和拖拽移动不要换成 Arc Tree view 或 File dropzone。这两个组件没有右键、重命名、新建和目录移动。
 - 单测一旦引入 Arc 的 CSS Module，`vitest.config.ts` 的 `css.postcss.plugins` 必须是空数组。否则 Vite 会拒绝 `postcss.config.mjs` 里的字符串插件 `@tailwindcss/postcss`。
 

@@ -41,7 +41,6 @@ import {
   Bug,
   Check,
   Copy,
-  ChevronDown,
   ChevronRight,
   ChevronsUpDown,
   Columns2,
@@ -55,7 +54,6 @@ import {
   GitBranch,
   GitCommit,
   BarChart3,
-  Layers,
   Maximize2,
   Minimize2,
   PanelLeftClose,
@@ -93,6 +91,7 @@ import {
   HelpCircle,
   X,
 } from 'lucide-react';
+import './studio-chrome.css';
 import {ActionButton} from '@/components/arc/action-button/action-button';
 import {ExpandingButtonGroup} from '@/components/arc/expanding-button-group/expanding-button-group';
 import {ExpandingSearch} from '@/components/arc/expanding-search/expanding-search';
@@ -224,10 +223,7 @@ import {
   SidebarIconTab,
   StudioSidebarShell,
 } from './StudioSidebarShell';
-import {
-  SettingsSidebarPanel,
-  TemplatePluginSelect,
-} from './SettingsSidebarPanel';
+import {SettingsSidebarPanel} from './SettingsSidebarPanel';
 import {CuratedTemplatesManagePanel} from './CuratedTemplatesManagePanel';
 import {
   VersionSidebarPanel,
@@ -493,6 +489,9 @@ export function DataSyncStudio() {
   // VSCode Quick Open 快捷检索浮层状态 (Cmd+P)
   // VSCode Quick Open command palette state (Cmd+P)
   const [quickOpenOpen, setQuickOpenOpen] = useState(false);
+  // 顶栏搜索在正中展开，宽度变化时左右两列对等收缩，图标仍落在中间。
+  // Centered top-bar search; the side columns shrink together so the icon stays in the middle.
+  const [quickSearchExpanded, setQuickSearchExpanded] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   // 树节点行内重命名、新建与拖拽状态（VSCode 风格交互）
@@ -4399,8 +4398,8 @@ export function DataSyncStudio() {
 
   return (
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
-      <Card className='gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
-        <CardContent className='flex h-12 min-w-0 items-center justify-between gap-3 overflow-hidden px-3 py-1.5'>
+      <Card className='relative z-20 gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
+        <CardContent className='studio-topbar grid h-12 min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 overflow-visible px-3'>
           {/* 左侧：顶栏最左端左栏开关（#110 AC11）+ 面包屑 / 状态 */}
           {/* Left: leftmost left-sidebar toggle (#110 AC11) + breadcrumb / status */}
           <div className='flex min-w-0 items-center gap-2 text-xs'>
@@ -4417,7 +4416,7 @@ export function DataSyncStudio() {
                   aria-pressed={!isLeftSidebarCollapsed}
                   data-testid='studio-toggle-left-sidebar'
                   className={cn(
-                    'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
+                    'size-9 shrink-0 rounded-[var(--radius-control)] border border-border/60 px-0 text-muted-foreground hover:text-foreground',
                     // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
                     !isLeftSidebarCollapsed &&
                       'border-primary/40 bg-primary/10 text-primary',
@@ -4437,9 +4436,6 @@ export function DataSyncStudio() {
                   : t('collapseLeftSidebar')}
               </TooltipContent>
             </Tooltip>
-            <div className='flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/30 text-primary'>
-              <Layers className='size-3.5' />
-            </div>
             {activeTaskBreadcrumbs.length > 0 ? (
               <div className='flex min-w-0 items-center gap-1.5'>
                 {activeTaskBreadcrumbs.slice(0, -1).map((seg, idx) => (
@@ -4447,11 +4443,18 @@ export function DataSyncStudio() {
                     key={idx}
                     className='flex items-center gap-1.5 text-muted-foreground'
                   >
-                    <span className='max-w-[120px] truncate'>{seg}</span>
+                    <span className='max-w-[120px] truncate' title={seg}>
+                      {seg}
+                    </span>
                     <span className='text-muted-foreground/40'>/</span>
                   </span>
                 ))}
-                <span className='max-w-[180px] truncate font-semibold text-foreground'>
+                <span
+                  className='max-w-[180px] truncate font-semibold text-foreground'
+                  title={
+                    activeTaskBreadcrumbs[activeTaskBreadcrumbs.length - 1]
+                  }
+                >
                   {activeTaskBreadcrumbs[activeTaskBreadcrumbs.length - 1]}
                 </span>
                 {isCurrentDirty ? (
@@ -4531,9 +4534,16 @@ export function DataSyncStudio() {
             )}
           </div>
 
-          {/* 中间：Arc 展开搜索。不在本地列表里的数字 Job ID 仍用 Cmd/Ctrl+P 对话框。 */}
-          {/* Center: Arc expanding search. Numeric Job IDs missing from the local list stay on the Cmd/Ctrl+P dialog. */}
-          <div className='mx-1 flex min-w-0 shrink items-center xl:mx-2 xl:max-w-sm xl:flex-1'>
+          {/* 正中：展开搜索。左右 1fr 对等收缩，收起时图标落在顶栏中线。 */}
+          {/* Dead center: expanding search. The 1fr columns shrink together so the collapsed icon sits on the midline. */}
+          <div
+            className='relative z-30 flex justify-center'
+            style={{
+              width: quickSearchExpanded
+                ? 280
+                : 'var(--control-height-md)',
+            }}
+          >
             <ExpandingSearch
               label={t('quickOpen')}
               placeholder={t('searchFileOrJobId')}
@@ -4544,8 +4554,9 @@ export function DataSyncStudio() {
               suggestionsLabel={t('recentSuggestions')}
               emptyHint={t('noMatchingFileOrJob')}
               anchor='start'
-              expandedWidth={320}
+              expandedWidth={280}
               maxResults={8}
+              onExpandedChange={setQuickSearchExpanded}
               onSelect={(item) => {
                 if (item.id.startsWith('job-')) {
                   void handleLocateJobId(item.id.slice(4));
@@ -4561,41 +4572,43 @@ export function DataSyncStudio() {
 
           {/* 右侧：环境指示 + IDE 工具栏 + 核心动作 + 顶栏最右端右栏开关（#110 AC11） */}
           {/* Right: env + IDE toolbar + primary cluster + rightmost right-sidebar toggle (#110 AC11) */}
-          <div className='flex shrink-0 flex-nowrap items-center justify-end gap-1.5'>
-            {/* 环境指示（与顶栏控件统一 rounded-md / h-8） */}
-            {/* Environment indicator (aligned rounded-md / h-8 with topbar controls) */}
+          <div className='flex min-w-0 flex-nowrap items-center justify-end gap-2'>
+            {/* 环境指示与 Arc 控件同一行高，不再另做一套圆角。 */}
+            {/* Environment chip shares the Arc control height instead of a second radius. */}
             <div
-              className='flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground'
-              title={t('executionTarget')}
+              className='flex h-9 min-w-0 max-w-[11rem] shrink items-center gap-1.5 rounded-[var(--radius-control)] border border-border/60 px-2.5 text-xs text-muted-foreground'
+              title={
+                executionMode === 'local'
+                  ? t('localMode')
+                  : currentCluster?.name || t('unassignedCluster')
+              }
             >
               {executionMode === 'local' ? (
                 <>
-                  <Cpu className='size-3 text-primary' />
-                  <span className='text-[11px] font-medium'>{t('localMode')}</span>
+                  <Cpu className='size-3 shrink-0' />
+                  <span className='truncate font-medium'>{t('localMode')}</span>
                 </>
               ) : (
                 <>
-                  <Globe2 className='size-3 text-sky-500' />
-                  <span className='max-w-[110px] truncate text-[11px] font-medium'>
+                  <Globe2 className='size-3 shrink-0' />
+                  <span className='truncate font-medium'>
                     {currentCluster?.name || t('unassignedCluster')}
                   </span>
                 </>
               )}
             </div>
 
-            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
-
             {/* 探查动作：Arc 展开按钮组。打开结果的动作不写 doneLabel，避免误显示已完成。 */}
             {/* Inspect actions: Arc expanding group. Actions that open a result omit doneLabel so they do not flash as finished. */}
-            <div className='flex min-w-[220px] shrink-0 items-center'>
+            <div className='flex shrink-0 items-center'>
               <ExpandingButtonGroup
-                size='sm'
+                size='md'
                 label={t('inspectActions')}
                 defaultExpanded='test'
                 items={[
                   {
                     id: 'test',
-                    label: t('testConnections'),
+                    label: t('inspectTest'),
                     icon: <PlugZap />,
                     disabled:
                       saving ||
@@ -4628,11 +4641,9 @@ export function DataSyncStudio() {
               />
             </div>
 
-            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
-
-            {/* 核心动作组：保存 / 发布 / 运行 / 停止 — shrink-0 防止停止单独换行 */}
-            {/* Primary cluster: save / publish / run / stop — shrink-0 so Stop cannot wrap alone */}
-            <div className='flex shrink-0 flex-nowrap items-center gap-1.5'>
+            {/* 核心动作全部走 Arc：保存 / 发布 / 运行 / 停止同一行高。 */}
+            {/* Primary actions stay Arc: save / publish / run / stop share one height. */}
+            <div className='studio-action-cluster flex shrink-0 flex-nowrap items-center gap-1.5'>
               <ActionButton
                 label={t('save')}
                 pendingLabel={t('savePending')}
@@ -4644,7 +4655,7 @@ export function DataSyncStudio() {
 
               <SplitButton
                 variant='secondary'
-                label={t('publishNewVersion')}
+                label={t('publish')}
                 icon={<GitCommit className='size-3.5' />}
                 disabled={
                   saving || publishing || !editor.name.trim() || !editor.canEdit
@@ -4661,106 +4672,54 @@ export function DataSyncStudio() {
                 ]}
               />
 
-              {/* delayDuration：菜单关闭后焦点回到触发器时不要立刻误弹只读提示 */}
-              {/* delayDuration: avoid an instant read-only tooltip when focus returns after the menu closes */}
               <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
                 <TooltipTrigger asChild>
                   <span>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          size='sm'
-                          className='h-8 gap-1 rounded-md bg-primary px-2.5 text-xs font-medium shadow-xs hover:bg-primary/90'
-                          disabled={
-                            saving ||
-                            hasActiveRun ||
-                            hasActivePreview ||
-                            !editor.canRun
-                          }
-                        >
-                          <Play className='size-3.5' />
-                          <span>{t('run')}</span>
-                          <ChevronDown className='size-3 opacity-70' />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end'>
-                        <DropdownMenuItem onClick={() => void handleRun('run')}>
-                          {t('run')}
-                        </DropdownMenuItem>
-                        {/* 禁用项用 aria-disabled，保证 Tooltip 仍可悬停说明两种恢复差异 */}
-                        {/* aria-disabled keeps the item hoverable so the Tooltip can explain recover semantics */}
-                        <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-                          <TooltipTrigger asChild>
-                            <DropdownMenuItem
-                              aria-disabled={
-                                isSavepointRecoverDisabled || undefined
-                              }
-                              className={cn(
-                                isSavepointRecoverDisabled &&
-                                  'cursor-not-allowed opacity-50',
-                              )}
-                              onSelect={(event) => {
-                                if (isSavepointRecoverDisabled) {
-                                  event.preventDefault();
-                                  return;
-                                }
-                                void handleRun('recover');
-                              }}
-                            >
-                              {t('savepointRecover')}
-                            </DropdownMenuItem>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            side='left'
-                            className='max-w-xs text-xs leading-relaxed'
-                          >
-                            {t('savepointRecoverTooltip')}
-                          </TooltipContent>
-                        </Tooltip>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <SplitButton
+                      variant='secondary'
+                      label={t('run')}
+                      icon={<Play className='size-3.5' />}
+                      disabled={
+                        saving ||
+                        hasActiveRun ||
+                        hasActivePreview ||
+                        !editor.canRun
+                      }
+                      onClick={() => void handleRun('run')}
+                      actions={[
+                        {
+                          label: t('savepointRecover'),
+                          disabled: isSavepointRecoverDisabled,
+                          onSelect: () => void handleRun('recover'),
+                        },
+                      ]}
+                    />
                   </span>
                 </TooltipTrigger>
                 {!editor.canRun ? (
                   <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
+                ) : isSavepointRecoverDisabled ? (
+                  <TooltipContent className='max-w-xs text-xs leading-relaxed'>
+                    {t('savepointRecoverTooltip')}
+                  </TooltipContent>
                 ) : null}
               </Tooltip>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    className={cn(
-                      'h-8 gap-1 rounded-md border-border/60 px-2.5 text-xs transition-colors',
-                      activeJobs.length > 0
-                        ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
-                        : 'text-muted-foreground',
-                    )}
-                    disabled={activeJobs.length === 0}
-                  >
-                    <Square className='size-3.5' />
-                    <span>{t('stop')}</span>
-                    <ChevronDown className='size-3 opacity-70' />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align='end'>
-                  <DropdownMenuItem
-                    onClick={() => void handleStopActiveJob('normal')}
-                  >
-                    {t('normalStop')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={executionMode === 'local'}
-                    onClick={() => void handleStopActiveJob('savepoint')}
-                  >
-                    {t('savepointStop')}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <SplitButton
+                variant='secondary'
+                label={t('stop')}
+                icon={<Square className='size-3.5' />}
+                disabled={activeJobs.length === 0}
+                onClick={() => void handleStopActiveJob('normal')}
+                actions={[
+                  {
+                    label: t('savepointStop'),
+                    disabled: executionMode === 'local',
+                    onSelect: () => void handleStopActiveJob('savepoint'),
+                  },
+                ]}
+              />
             </div>
-
-            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
 
             {/* 顶栏最右端：右侧高级配置开合（始终可见，#110 AC11） */}
             {/* Rightmost topbar: right advanced sidebar toggle (always visible, #110 AC11) */}
@@ -4777,7 +4736,7 @@ export function DataSyncStudio() {
                   aria-pressed={!isRightSidebarCollapsed}
                   data-testid='studio-toggle-right-sidebar'
                   className={cn(
-                    'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
+                    'size-9 shrink-0 rounded-[var(--radius-control)] border border-border/60 px-0 text-muted-foreground hover:text-foreground',
                     // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
                     !isRightSidebarCollapsed &&
                       'border-primary/40 bg-primary/10 text-primary',
@@ -4849,7 +4808,7 @@ export function DataSyncStudio() {
             {/* 资源管理器标题与工具栏 (VSCode 风格) */}
             {/* Explorer title and action toolbar (VSCode style) */}
             <div className='flex h-8.5 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
-              <div className='flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground/80'>
+              <div className='flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground/80'>
                 <FolderTree className='size-3.5 shrink-0 text-primary/80' />
                 <span className='truncate'>{t('resources')}</span>
                 <span className='rounded-full bg-muted/60 px-1.5 py-0.2 font-mono text-[10px] font-normal text-muted-foreground'>
@@ -4933,14 +4892,16 @@ export function DataSyncStudio() {
             </div>
             {/* 快捷过滤输入框与范围筛选 */}
             {/* Quick search/filter input and scope selector */}
-            <div className='space-y-1.5 border-b border-border/60 bg-muted/10 px-2 py-1.5'>
-              <SearchField
-                label={t('filterFilesLabel')}
-                value={keyword}
-                onValueChange={setKeyword}
-                placeholder={t('filterFiles')}
-                clearLabel={t('clearSearch')}
-              />
+            <div className='studio-explorer-filter space-y-1.5 border-b border-border/60 bg-muted/10 px-2 py-1.5'>
+              <div className='studio-search-field'>
+                <SearchField
+                  label={t('filterFilesLabel')}
+                  value={keyword}
+                  onValueChange={setKeyword}
+                  placeholder={t('filterFiles')}
+                  clearLabel={t('clearSearch')}
+                />
+              </div>
               {/* 任务过滤范围：我的与公开 / 全部 / 仅我创建 */}
               {/* Task filter scope: mine and public / all / only mine */}
               <SegmentedControl
@@ -5281,7 +5242,9 @@ export function DataSyncStudio() {
               ? 'fill'
               : 'scroll'
           }
-          flush={rightSidebarTab === 'settings'}
+          flush={
+            rightSidebarTab === 'settings' || rightSidebarTab === 'templates'
+          }
           rail={
             <>
               <SidebarIconTab
@@ -5346,19 +5309,6 @@ export function DataSyncStudio() {
                 }
                 updateEditor('clusterId', next);
               }}
-              pluginPanelLoading={pluginPanelLoading}
-              pluginTemplatePendingType={pluginTemplatePendingType}
-              pluginTemplateLoadingText={pluginTemplateLoadingText}
-              sourceTemplateItems={sourceTemplateItems}
-              transformTemplateItems={transformTemplateItems}
-              sinkTemplateItems={sinkTemplateItems}
-              onInsertPluginTemplate={(pluginType, factoryIdentifier) =>
-                void insertPluginTemplate(pluginType, factoryIdentifier)
-              }
-              onInsertCuratedTemplate={(item) =>
-                void insertCuratedTemplate(item)
-              }
-              curatedRefreshToken={curatedRefreshToken}
               onOpenCreateCustomVariable={handleOpenCreateCustomVariable}
               onOpenEditCustomVariable={handleOpenEditCustomVariable}
               onDeleteCustomVariable={handleDeleteCustomVariable}
@@ -5376,6 +5326,19 @@ export function DataSyncStudio() {
               refreshToken={curatedRefreshToken}
               clusterId={editor.clusterId}
               onChanged={() => setCuratedRefreshToken((n) => n + 1)}
+              onInsert={(item) => void insertCuratedTemplate(item)}
+              pluginInsert={{
+                executionMode,
+                clusterId: editor.clusterId,
+                loading: pluginPanelLoading,
+                pendingType: pluginTemplatePendingType,
+                loadingText: pluginTemplateLoadingText,
+                sourceItems: sourceTemplateItems,
+                transformItems: transformTemplateItems,
+                sinkItems: sinkTemplateItems,
+                onInsertPlugin: (pluginType, factoryIdentifier) =>
+                  void insertPluginTemplate(pluginType, factoryIdentifier),
+              }}
             />
           ) : rightSidebarTab === 'schedule' ? (
             <TaskScheduleSidebarPanel
@@ -6220,7 +6183,7 @@ export function DataSyncStudio() {
           </DialogHeader>
           <div className='flex flex-wrap items-center justify-between gap-2'>
             <div className='flex items-center gap-2'>
-              <div className='w-[320px]'>
+              <div className='studio-search-field w-[320px]'>
                 <SearchField
                   label={t('searchLogKeyword')}
                   value={logSearchTerm}

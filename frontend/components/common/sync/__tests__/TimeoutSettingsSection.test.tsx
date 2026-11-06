@@ -43,18 +43,10 @@ function renderPanel(props: {
           onTaskTimeoutChange={onTaskTimeoutChange}
           clusterId='1'
           clusters={[{id: 1, name: 'c1'} as never]}
-          pluginPanelLoading={false}
-          pluginTemplatePendingType={null}
-          pluginTemplateLoadingText={null}
-          sourceTemplateItems={[]}
-          transformTemplateItems={[]}
-          sinkTemplateItems={[]}
           detectedVariables={[]}
           customVariableRows={[]}
           onExecutionModeChange={() => undefined}
           onClusterChange={() => undefined}
-          onInsertPluginTemplate={() => undefined}
-          onInsertCuratedTemplate={() => undefined}
           onOpenCreateCustomVariable={() => undefined}
           onOpenEditCustomVariable={() => undefined}
           onDeleteCustomVariable={() => undefined}
@@ -72,22 +64,21 @@ describe('TimeoutSettingsSection', () => {
     window.localStorage.clear();
   });
 
-  it('splits task properties above runtime properties and hides templates', async () => {
+  it('splits task properties above runtime properties and keeps a single variables heading', () => {
     renderPanel({});
     const task = screen.getByRole('region', {name: '任务高级属性'});
     const runtime = screen.getByRole('region', {name: '运行高级属性'});
     expect(
       task.compareDocumentPosition(runtime) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    expect(screen.getAllByText('任务变量')).toHaveLength(1);
+    expect(screen.queryByText('自定义变量')).toBeNull();
     expect(
       screen.queryByRole('tab', {name: zh.workbenchStudio.curatedTemplates}),
     ).toBeNull();
-    fireEvent.click(screen.getByTestId('sync-templates-section-trigger'));
     expect(
-      await screen.findByRole('tab', {
-        name: zh.workbenchStudio.curatedTemplates,
-      }),
-    ).toBeTruthy();
+      screen.queryByTestId('sync-templates-section-trigger'),
+    ).toBeNull();
   });
 
   it('defaults to collapsed with a default summary', async () => {

@@ -14,6 +14,9 @@
 - [x] 顶栏：Action button 保存，Split button 发布，Expanding button group 测试 / DAG / 预览，Expanding search
 - [x] 左侧过滤用 Search field，范围用 Segmented control
 - [x] 复制（作业详情与节点名称/当前表）、日志筛选、执行模式、可观测性换对应 Arc 控件
+- [x] 顶栏齐高：运行/停止改 SplitButton，搜索放正中，`--control-height-md` 收到 2.25rem
+- [x] 设置页任务变量只留一个标题；精选模板插入并进模板管理
+- [x] 模板管理用分段视图露出插件默认；分区 Chip 多选、插件 Combobox；缩短会被截断的文案
 - [ ] 树和 File dropzone 单独立项，不在第一批
 - [ ] 变量列表里的复制按钮仍走原来的回调。一行一个 CopyButton 会在长列表上挂很多 ResizeObserver，现有单测也直接断言回调。
 

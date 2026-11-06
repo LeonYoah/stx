@@ -1,0 +1,40 @@
+/*
+ * 工作台顶栏与过滤条把 Arc 控件压到同一行高，搜索字段的可见 label 收成屏幕阅读器专用。
+ * Workbench chrome: one Arc control height on the top bar, and SearchField labels for assistive tech only.
+ */
+
+.studio-topbar {
+  --control-height-md: 2.25rem;
+  --control-height-sm: 2.25rem;
+}
+
+/*
+ * SplitButton secondary 主区写死 142px，运行/停止会比保存宽一截。顶栏让主区跟文案走。
+ * SplitButton secondary locks the main hit at 142px, so Run/Stop outgrow Save. Let the label size the top-bar actions.
+ */
+.studio-action-cluster > div > button:first-of-type,
+.studio-action-cluster > span > div > button:first-of-type {
+  min-width: 0;
+}
+
+.studio-explorer-filter,
+.studio-template-library {
+  --control-height-md: 1.75rem;
+  --control-height-sm: 1.75rem;
+}
+
+.studio-search-field > div {
+  gap: 0;
+}
+
+.studio-search-field > div > label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

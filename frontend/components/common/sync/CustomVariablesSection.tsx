@@ -50,6 +50,11 @@ export interface CustomVariablesSectionProps {
   onDelete: (id: string) => void;
   onCopyReference: (key: string) => void;
   onCopyValue: (value: string) => void;
+  /**
+   * 嵌进「任务变量」时不再套一层标题和卡片，避免双 header。
+   * When nested under Task variables, skip the extra title and card so the pane has one header.
+   */
+  embedded?: boolean;
 }
 
 /**
@@ -63,66 +68,77 @@ export function CustomVariablesSection({
   onDelete,
   onCopyReference,
   onCopyValue,
+  embedded = false,
 }: CustomVariablesSectionProps) {
   const t = useTranslations('workbenchStudio');
 
   return (
-    <div className='rounded-lg border border-border/60 bg-muted/10 p-3 space-y-2.5'>
-      {/* 顶栏：标题 + 数量 + 说明提示 + 新增按钮 */}
-      {/* Header: Title + count badge + tooltip + create button */}
-      <div className='flex items-center justify-between gap-2'>
-        <div className='flex items-center gap-1.5'>
-          <Label className='text-xs font-semibold text-foreground'>
-            {t('customVariables')}
-          </Label>
-          <Badge
-            variant='secondary'
-            className='h-4 px-1.5 text-[10px] font-normal text-muted-foreground'
-          >
-            {variables.length}
-          </Badge>
-          <HelpHint
-            side='top'
-            label={t('customVariables')}
-            content={t('customVariablesDesc')}
-            data-testid='custom-variables-hint'
-          />
-        </div>
+    <div
+      className={
+        embedded
+          ? 'space-y-2.5'
+          : 'space-y-2.5 rounded-lg border border-border/60 bg-muted/10 p-3'
+      }
+    >
+      {embedded ? null : (
+        <div className='flex items-center justify-between gap-2'>
+          <div className='flex items-center gap-1.5'>
+            <Label className='text-xs font-medium text-foreground'>
+              {t('customVariables')}
+            </Label>
+            <Badge
+              variant='secondary'
+              className='h-4 px-1.5 text-[10px] font-normal text-muted-foreground'
+            >
+              {variables.length}
+            </Badge>
+            <HelpHint
+              side='top'
+              label={t('customVariables')}
+              content={t('customVariablesDesc')}
+              data-testid='custom-variables-hint'
+            />
+          </div>
 
-        <Button
-          type='button'
-          size='sm'
-          variant='outline'
-          className='h-7 px-2 text-xs gap-1'
-          onClick={onOpenCreate}
-        >
-          <Plus className='size-3.5' />
-          {t('add')}
-        </Button>
-      </div>
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
+            className='h-7 gap-1 px-2 text-xs'
+            onClick={onOpenCreate}
+          >
+            <Plus className='size-3.5' />
+            {t('add')}
+          </Button>
+        </div>
+      )}
 
       {/* 变量列表 */}
       {/* Variables list */}
       <div className='space-y-2'>
         {variables.length === 0 ? (
-          // 空状态
-          // Empty state
-          <div className='flex flex-col items-center justify-center py-6 px-2 text-center rounded-lg border border-dashed border-border/60 bg-background/50'>
-            <KeyRound className='size-7 text-muted-foreground/40 mb-1.5' />
-            <p className='text-xs font-medium text-muted-foreground'>
+          embedded ? (
+            <p className='text-[11px] leading-5 text-muted-foreground'>
               {t('noCustomVariables')}
             </p>
-            <Button
-              type='button'
-              variant='outline'
-              size='sm'
-              className='h-7 text-xs mt-2.5 gap-1'
-              onClick={onOpenCreate}
-            >
-              <Plus className='size-3' />
-              {t('addCustomVariable')}
-            </Button>
-          </div>
+          ) : (
+            <div className='flex flex-col items-center justify-center rounded-lg border border-dashed border-border/60 bg-background/50 px-2 py-6 text-center'>
+              <KeyRound className='mb-1.5 size-7 text-muted-foreground/40' />
+              <p className='text-xs font-medium text-muted-foreground'>
+                {t('noCustomVariables')}
+              </p>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='mt-2.5 h-7 gap-1 text-xs'
+                onClick={onOpenCreate}
+              >
+                <Plus className='size-3' />
+                {t('addCustomVariable')}
+              </Button>
+            </div>
+          )
         ) : (
           variables.map((item) => {
             const isSecret = item.type === 'secret';

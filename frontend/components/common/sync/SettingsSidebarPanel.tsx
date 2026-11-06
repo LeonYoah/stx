@@ -21,57 +21,27 @@ import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Collapsible as CollapsiblePrimitive} from 'radix-ui';
 import {isSoleDefaultCluster} from '@/lib/cluster-preference';
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Clock3,
-  Code2,
-  Cpu,
-  Layers,
-  Loader2,
-} from 'lucide-react';
+import {ChevronRight, Plus} from 'lucide-react';
+import {Combobox} from '@/components/arc/combobox/combobox';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Badge} from '@/components/ui/badge';
 import {cn} from '@/lib/utils';
 import {Button} from '@/components/ui/button';
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
-import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {HelpHint} from '@/components/common/HelpHint';
 import type {ClusterInfo} from '@/lib/services/cluster';
 import type {NotificationRecipientUser} from '@/lib/services/monitoring';
-import type {
-  SyncCuratedTemplateView,
-  SyncPluginType,
-  SyncTaskTimeoutDefaults,
-} from '@/lib/services/sync';
+import type {SyncTaskTimeoutDefaults} from '@/lib/services/sync';
 import {CustomVariablesSection} from './CustomVariablesSection';
 import {TaskAlertSection} from './TaskAlertSection';
-import {CuratedTemplatesPanel} from './CuratedTemplatesPanel';
 import {resolveBuiltinPreviewExpression} from './builtin-time-variables';
 import {parseTaskTimeoutInput} from './sync-studio-utils';
 import type {
   ExecutionMode,
   ObservabilityMode,
   TaskTimeoutKey,
-  TemplatePluginItem,
   VariableRow,
 } from './sync-studio-utils';
 
@@ -227,7 +197,7 @@ function TimeoutSettingsSection({
         }
         setOpen(next);
       }}
-      className='space-y-1.5 border-t border-border/40 pt-2'
+      className='space-y-1.5'
     >
       <div className='flex min-w-0 items-center gap-1'>
         <CollapsiblePrimitive.Trigger
@@ -241,7 +211,7 @@ function TimeoutSettingsSection({
               forcedOpen && 'rotate-90',
             )}
           />
-          <span className='w-0 min-w-0 flex-1 truncate text-[11px] text-muted-foreground'>
+          <span className='min-w-0 flex-1 text-[11px] leading-4 text-muted-foreground'>
             {t('timeoutSettings')}
             {'：'}
             {custom
@@ -304,74 +274,6 @@ function TimeoutSettingsSection({
   );
 }
 
-export function TemplatePluginSelect({
-  label,
-  placeholder,
-  items,
-  disabled,
-  loading,
-  loadingText,
-  onSelect,
-}: {
-  label: string;
-  placeholder: string;
-  items: TemplatePluginItem[];
-  disabled?: boolean;
-  loading?: boolean;
-  loadingText?: string | null;
-  onSelect: (value: string) => void;
-}) {
-  const t = useTranslations('workbenchStudio');
-  const [open, setOpen] = useState(false);
-  const selectedLabel = loading ? loadingText || placeholder : placeholder;
-
-  return (
-    <div className='space-y-1.5'>
-      <Label className='text-[11px] text-muted-foreground'>{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            type='button'
-            variant='outline'
-            role='combobox'
-            aria-expanded={open}
-            disabled={disabled}
-            className='w-full justify-between'
-          >
-            <span className='truncate text-left'>{selectedLabel}</span>
-            {loading ? (
-              <Loader2 className='ml-2 size-4 shrink-0 animate-spin opacity-70' />
-            ) : (
-              <ChevronDown className='ml-2 size-4 shrink-0 opacity-50' />
-            )}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className='w-[var(--radix-popover-trigger-width)] min-w-0 p-0'>
-          <Command>
-            <CommandInput placeholder={`${placeholder}...`} />
-            <CommandList>
-              <CommandEmpty>{t('noMatchingPlugins')}</CommandEmpty>
-              {items.map((item) => (
-                <CommandItem
-                  key={`${label}:${item.value}`}
-                  value={`${item.label} ${item.value}`}
-                  onSelect={() => {
-                    setOpen(false);
-                    onSelect(item.value);
-                  }}
-                >
-                  <Check className='size-4 opacity-0' />
-                  <span className='truncate'>{item.label}</span>
-                </CommandItem>
-              ))}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
 export function SettingsSidebarPanel({
   executionMode,
   observabilityMode = 'auto',
@@ -386,19 +288,10 @@ export function SettingsSidebarPanel({
   alertUsers = [],
   clusterId,
   clusters,
-  pluginPanelLoading,
-  pluginTemplatePendingType,
-  pluginTemplateLoadingText,
-  sourceTemplateItems,
-  transformTemplateItems,
-  sinkTemplateItems,
   detectedVariables,
   customVariableRows,
   onExecutionModeChange,
   onClusterChange,
-  onInsertPluginTemplate,
-  onInsertCuratedTemplate,
-  curatedRefreshToken = 0,
   onOpenCreateCustomVariable,
   onOpenEditCustomVariable,
   onDeleteCustomVariable,
@@ -420,22 +313,10 @@ export function SettingsSidebarPanel({
   alertUsers?: NotificationRecipientUser[];
   clusterId: string;
   clusters: ClusterInfo[];
-  pluginPanelLoading: boolean;
-  pluginTemplatePendingType: SyncPluginType | null;
-  pluginTemplateLoadingText: string | null;
-  sourceTemplateItems: TemplatePluginItem[];
-  transformTemplateItems: TemplatePluginItem[];
-  sinkTemplateItems: TemplatePluginItem[];
   detectedVariables: string[];
   customVariableRows: VariableRow[];
   onExecutionModeChange: (value: ExecutionMode) => void;
   onClusterChange: (value: string) => void;
-  onInsertPluginTemplate: (
-    pluginType: SyncPluginType,
-    factoryIdentifier: string,
-  ) => void;
-  onInsertCuratedTemplate: (item: SyncCuratedTemplateView) => void;
-  curatedRefreshToken?: number;
   onOpenCreateCustomVariable: () => void;
   onOpenEditCustomVariable: (item: VariableRow) => void;
   onDeleteCustomVariable: (id: string) => void;
@@ -446,8 +327,6 @@ export function SettingsSidebarPanel({
   const t = useTranslations('workbenchStudio');
   const tCluster = useTranslations('cluster');
   const builtinPreviewNow = useMemo(() => new Date(), []);
-  // 模板插入默认收起，避免和编辑器抢焦点。/ Keep template insertion collapsed so it does not compete with the editor.
-  const [templatesOpen, setTemplatesOpen] = useState(false);
   return (
     <div className='flex h-full min-h-0 w-full min-w-0 flex-col'>
       {/* 上段：任务高级属性，贴着编辑器。/ Top: task properties beside the editor. */}
@@ -455,61 +334,56 @@ export function SettingsSidebarPanel({
         aria-label={t('advancedPropertiesTask')}
         className='flex min-h-0 flex-1 flex-col'
       >
-        <div className='flex shrink-0 items-center gap-1.5 border-b border-border/60 px-3 py-2'>
-          <Cpu className='size-3.5 text-primary' />
+        <div className='flex shrink-0 items-center border-b border-border/60 px-3 py-2'>
           <h2 className='text-xs font-medium text-foreground'>
             {t('advancedPropertiesTask')}
           </h2>
         </div>
-        <div className='min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3'>
-          <div className='space-y-1.5'>
-            <Label className='text-[11px] text-muted-foreground'>
-              {t('executionMode')}
-            </Label>
-            <SegmentedControl
-              label={t('executionMode')}
-              value={executionMode}
-              onValueChange={(value) =>
-                onExecutionModeChange(value as ExecutionMode)
-              }
-              options={[
-                {value: 'cluster', label: t('clusterMode')},
-                {value: 'local', label: t('localMode')},
-              ]}
-            />
+        <div className='min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3'>
+          <div className='space-y-3'>
+            <div className='space-y-1.5'>
+              <Label className='text-[11px] text-muted-foreground'>
+                {t('executionMode')}
+              </Label>
+              <SegmentedControl
+                className='w-full'
+                label={t('executionMode')}
+                value={executionMode}
+                onValueChange={(value) =>
+                  onExecutionModeChange(value as ExecutionMode)
+                }
+                options={[
+                  {value: 'cluster', label: t('clusterMode')},
+                  {value: 'local', label: t('localMode')},
+                ]}
+              />
+            </div>
+
+            {executionMode === 'cluster' ? (
+              <Combobox
+                label={t('zetaCluster')}
+                placeholder={t('selectCluster')}
+                emptyMessage={t('unselected')}
+                value={clusterId}
+                onValueChange={onClusterChange}
+                options={clusters.map((cluster) => ({
+                  value: String(cluster.id),
+                  label: isSoleDefaultCluster(clusters, cluster.id)
+                    ? `${cluster.name} · ${tCluster('defaultBadge')}`
+                    : cluster.name,
+                }))}
+              />
+            ) : null}
           </div>
 
-          {executionMode === 'cluster' ? (
-            <div className='space-y-1.5 pt-2 border-t border-border/40'>
-              <Label className='text-[11px] text-muted-foreground'>
-                {t('zetaCluster')}
-              </Label>
-              <Select
-                value={clusterId || '__empty__'}
-                onValueChange={onClusterChange}
-              >
-                <SelectTrigger className='h-8 w-full text-xs'>
-                  <SelectValue placeholder={t('selectCluster')} />
-                </SelectTrigger>
-                <SelectContent className='w-[var(--radix-select-trigger-width)] min-w-0'>
-                  <SelectItem value='__empty__'>{t('unselected')}</SelectItem>
-                  {clusters.map((cluster) => (
-                    <SelectItem key={cluster.id} value={String(cluster.id)}>
-                      {cluster.name}
-                      {isSoleDefaultCluster(clusters, cluster.id)
-                        ? ` · ${tCluster('defaultBadge')}`
-                        : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
-          <div className='rounded-lg border border-border/60 bg-muted/10 p-3 space-y-3'>
-            <div className='flex items-center justify-between'>
-              <div className='flex items-center gap-1.5 text-xs font-medium text-foreground'>
-                <Code2 className='size-3.5 text-primary' />
-                <span>{t('taskVariables')}</span>
+          {/* 任务变量只保留一个标题。自定义变量、检测到的引用、时间变量都落在这一块里。 */}
+          {/* One Task variables heading. Custom rows, detected refs, and time variables live in this block. */}
+          <div className='space-y-2.5'>
+            <div className='flex items-center justify-between gap-2'>
+              <div className='flex min-w-0 items-center gap-1.5'>
+                <span className='text-xs font-medium text-foreground'>
+                  {t('taskVariables')}
+                </span>
                 <HelpHint
                   side='top'
                   label={t('taskVariables')}
@@ -517,11 +391,20 @@ export function SettingsSidebarPanel({
                   data-testid='sync-task-variables-hint'
                 />
               </div>
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                className='h-7 gap-1 px-2 text-xs'
+                onClick={onOpenCreateCustomVariable}
+              >
+                <Plus className='size-3.5' />
+                {t('add')}
+              </Button>
             </div>
 
-            {/* 自定义变量列表 */}
-            {/* Custom variables */}
             <CustomVariablesSection
+              embedded
               variables={customVariableRows}
               onOpenCreate={onOpenCreateCustomVariable}
               onOpenEdit={onOpenEditCustomVariable}
@@ -530,70 +413,52 @@ export function SettingsSidebarPanel({
               onCopyValue={onCopyCustomVariableValue}
             />
 
-            {/* 模板提取的占位符变量 */}
-            {/* Detected placeholder variables in template */}
-            <div className='space-y-1.5 pt-2 border-t border-border/40'>
-              <Label className='block text-[11px] text-muted-foreground font-medium'>
-                {t('detectedVariables')}
-              </Label>
-              <div className='flex flex-wrap gap-1.5'>
-                {detectedVariables.length > 0 ? (
-                  detectedVariables.map((variable) => (
-                    <Tooltip key={variable}>
-                      <TooltipTrigger asChild>
-                        <Badge
-                          variant='outline'
-                          className='font-mono text-[10px] px-1.5 py-0 cursor-help bg-background/80'
-                        >
-                          {`{{${variable}}}`}
-                        </Badge>
-                      </TooltipTrigger>
-                      <TooltipContent className='max-w-[320px] break-all text-xs'>
-                        <div>{`{{${variable}}}`}</div>
-                        {resolveBuiltinPreviewExpression(
-                          variable,
-                          builtinPreviewNow,
-                        ) ? (
-                          <div className='mt-1 text-muted-foreground'>
-                            {t('builtinPreviewResult', {
-                              value:
-                                resolveBuiltinPreviewExpression(
-                                  variable,
-                                  builtinPreviewNow,
-                                ) || '-',
-                            })}
-                          </div>
-                        ) : null}
-                      </TooltipContent>
-                    </Tooltip>
-                  ))
-                ) : (
-                  <span className='text-xs text-muted-foreground'>
-                    {t('noDetectedVariables')}
-                  </span>
-                )}
+            {detectedVariables.length > 0 ? (
+              <div
+                className='flex flex-wrap gap-1.5'
+                aria-label={t('detectedVariables')}
+              >
+                {detectedVariables.map((variable) => (
+                  <Tooltip key={variable}>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant='outline'
+                        className='cursor-help bg-background/80 px-1.5 py-0 font-mono text-[10px]'
+                      >
+                        {`{{${variable}}}`}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent className='max-w-[320px] break-all text-xs'>
+                      <div>{`{{${variable}}}`}</div>
+                      {resolveBuiltinPreviewExpression(
+                        variable,
+                        builtinPreviewNow,
+                      ) ? (
+                        <div className='mt-1 text-muted-foreground'>
+                          {t('builtinPreviewResult', {
+                            value:
+                              resolveBuiltinPreviewExpression(
+                                variable,
+                                builtinPreviewNow,
+                              ) || '-',
+                          })}
+                        </div>
+                      ) : null}
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
               </div>
-            </div>
+            ) : null}
 
-            {/* 内置时间系统变量快捷入口 */}
-            {/* Built-in time system variables quick entry */}
             {onOpenTimeVariables ? (
-              <div className='flex items-center justify-between pt-2 border-t border-border/40 text-[11px] text-muted-foreground'>
-                <div className='flex items-center gap-1.5 font-medium'>
-                  <Clock3 className='size-3 text-sky-500' />
-                  <span>{t('builtinTimeVariables')}</span>
-                </div>
-                <Button
-                  type='button'
-                  size='sm'
-                  variant='ghost'
-                  className='h-5 px-1.5 text-[10px] text-primary hover:text-primary/80 gap-0.5'
-                  onClick={onOpenTimeVariables}
-                >
-                  <span>{t('viewDetails')}</span>
-                  <ChevronRight className='size-3' />
-                </Button>
-              </div>
+              <button
+                type='button'
+                className='inline-flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground'
+                onClick={onOpenTimeVariables}
+              >
+                <span>{t('builtinTimeVariables')}</span>
+                <ChevronRight className='size-3' />
+              </button>
             ) : null}
           </div>
         </div>
@@ -604,17 +469,16 @@ export function SettingsSidebarPanel({
         aria-label={t('advancedPropertiesRuntime')}
         className='flex min-h-0 flex-1 flex-col border-t border-border/70'
       >
-        <div className='flex shrink-0 items-center gap-1.5 border-b border-border/60 px-3 py-2'>
-          <Clock3 className='size-3.5 text-sky-500' />
+        <div className='flex shrink-0 items-center border-b border-border/60 px-3 py-2'>
           <h2 className='text-xs font-medium text-foreground'>
             {t('advancedPropertiesRuntime')}
           </h2>
         </div>
-        <div className='min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3'>
+        <div className='min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3'>
           {/* 实时可观测性：仅集群模式有意义，下次提交生效 */}
           {/* Realtime observability: meaningful in cluster mode only, applies on the next submit */}
           {executionMode === 'cluster' && onObservabilityModeChange ? (
-            <div className='space-y-1.5 pt-2 border-t border-border/40'>
+            <div className='space-y-1.5'>
               <div className='flex items-center gap-2'>
                 <Label className='text-[11px] text-muted-foreground'>
                   {t('observabilitySetting')}
@@ -628,6 +492,7 @@ export function SettingsSidebarPanel({
               </div>
               <div data-testid='sync-observability-mode'>
                 <SegmentedControl
+                  className='w-full'
                   label={t('observabilitySetting')}
                   value={observabilityMode}
                   onValueChange={(value) =>
@@ -655,149 +520,14 @@ export function SettingsSidebarPanel({
           ) : null}
           {/* 作业告警：不跟随任务版本，保存即生效 / Job alerts: not versioned with the task, effective on save */}
           {alertTaskId ? (
-            <div className='space-y-1.5 border-t border-border/40 pt-2.5'>
-              <TaskAlertSection
-                taskId={alertTaskId}
-                taskName={alertTaskName}
-                clusterId={Number(clusterId) || null}
-                canEdit={alertCanEdit}
-                users={alertUsers}
-              />
-            </div>
+            <TaskAlertSection
+              taskId={alertTaskId}
+              taskName={alertTaskName}
+              clusterId={Number(clusterId) || null}
+              canEdit={alertCanEdit}
+              users={alertUsers}
+            />
           ) : null}
-
-          <CollapsiblePrimitive.Root
-            open={templatesOpen}
-            onOpenChange={setTemplatesOpen}
-            className='space-y-2 border-t border-border/40 pt-2'
-          >
-            <CollapsiblePrimitive.Trigger
-              type='button'
-              data-testid='sync-templates-section-trigger'
-              className='flex w-full min-w-0 items-center gap-1 rounded-md px-0.5 py-0.5 text-left hover:bg-muted/40'
-            >
-              <ChevronRight
-                className={cn(
-                  'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200',
-                  templatesOpen && 'rotate-90',
-                )}
-              />
-              <Layers className='size-3.5 shrink-0 text-primary' />
-              <span className='min-w-0 flex-1 truncate text-[11px] text-muted-foreground'>
-                {t('templates')}
-              </span>
-            </CollapsiblePrimitive.Trigger>
-            <CollapsiblePrimitive.Content>
-              <div className='space-y-2.5 pt-1'>
-                <Tabs defaultValue='curated' className='w-full'>
-                  <TabsList className='grid h-8 w-full grid-cols-2'>
-                    {/* Tab 上的 Tooltip 延迟约 400ms，避免切换 Tab 时闪现 / ~400ms delay so the tab Tooltip doesn't flash while switching tabs */}
-                    <Tooltip delayDuration={400}>
-                      <TooltipTrigger asChild>
-                        <TabsTrigger value='curated' className='text-[11px]'>
-                          {t('curatedTemplates')}
-                        </TabsTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        side='top'
-                        className='max-w-[260px] text-xs'
-                      >
-                        {t('curatedSaveViaSelectionHint')}
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip delayDuration={400}>
-                      <TooltipTrigger asChild>
-                        <TabsTrigger value='raw' className='text-[11px]'>
-                          {t('rawDefaultParamTemplates')}
-                        </TabsTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        side='top'
-                        className='max-w-[280px] text-xs leading-relaxed'
-                      >
-                        {t('rawDefaultParamHint')}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TabsList>
-                  <TabsContent value='curated' className='mt-2.5'>
-                    <CuratedTemplatesPanel
-                      onInsert={onInsertCuratedTemplate}
-                      clusterId={clusterId}
-                      refreshToken={curatedRefreshToken}
-                    />
-                  </TabsContent>
-                  <TabsContent value='raw' className='mt-2.5 space-y-2.5'>
-                    {executionMode === 'cluster' ? (
-                      <>
-                        <TemplatePluginSelect
-                          disabled={!clusterId || pluginPanelLoading}
-                          items={sourceTemplateItems}
-                          label={t('sourceTemplate')}
-                          loading={pluginTemplatePendingType === 'source'}
-                          loadingText={
-                            pluginTemplatePendingType === 'source'
-                              ? pluginTemplateLoadingText
-                              : null
-                          }
-                          placeholder={t('selectSourcePlugin')}
-                          onSelect={(value) =>
-                            onInsertPluginTemplate('source', value)
-                          }
-                        />
-                        <TemplatePluginSelect
-                          disabled={!clusterId || pluginPanelLoading}
-                          items={transformTemplateItems}
-                          label={t('transformTemplate')}
-                          loading={pluginTemplatePendingType === 'transform'}
-                          loadingText={
-                            pluginTemplatePendingType === 'transform'
-                              ? pluginTemplateLoadingText
-                              : null
-                          }
-                          placeholder={t('selectTransformPlugin')}
-                          onSelect={(value) =>
-                            onInsertPluginTemplate('transform', value)
-                          }
-                        />
-                        <TemplatePluginSelect
-                          disabled={!clusterId || pluginPanelLoading}
-                          items={sinkTemplateItems}
-                          label={t('sinkTemplate')}
-                          loading={pluginTemplatePendingType === 'sink'}
-                          loadingText={
-                            pluginTemplatePendingType === 'sink'
-                              ? pluginTemplateLoadingText
-                              : null
-                          }
-                          placeholder={t('selectSinkPlugin')}
-                          onSelect={(value) =>
-                            onInsertPluginTemplate('sink', value)
-                          }
-                        />
-                        {!clusterId ||
-                        pluginPanelLoading ||
-                        pluginTemplateLoadingText ? (
-                          <p className='text-[11px] leading-5 text-muted-foreground'>
-                            {!clusterId
-                              ? t('selectClusterFirst')
-                              : pluginPanelLoading
-                                ? t('loadingPluginTemplates')
-                                : t('generatingPluginTemplate', {
-                                    plugin: pluginTemplateLoadingText ?? '',
-                                  })}
-                          </p>
-                        ) : null}
-                      </>
-                    ) : (
-                      <p className='text-[11px] leading-5 text-muted-foreground'>
-                        {t('rawDefaultNeedsCluster')}
-                      </p>
-                    )}
-                  </TabsContent>
-                </Tabs>
-              </div>
-            </CollapsiblePrimitive.Content>
-          </CollapsiblePrimitive.Root>
         </div>
       </section>
     </div>

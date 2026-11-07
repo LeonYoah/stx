@@ -442,7 +442,7 @@ func (s *Service) PreviewSinkSaveMode(
 	if err != nil {
 		return nil, err
 	}
-	contentReq, err := s.buildConfigToolContentRequest(ctx, task, nil)
+	contentReq, err := s.buildConfigToolContentRequest(ctx, task, buildTaskVariableRuntime(task, ""))
 	if err != nil {
 		return nil, err
 	}

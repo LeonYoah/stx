@@ -72,6 +72,7 @@ var (
 	ErrCuratedTemplatePermissionDenied = errors.New("sync: curated template permission denied")
 	ErrCuratedBuiltinIDRequired        = errors.New("sync: curated builtin_id is required")
 	ErrUnreplacedVariable              = errors.New("sync: variable value still contains an unreplaced ${...} placeholder")
+	ErrUndefinedTemplateVariable       = errors.New("sync: undefined template variable")
 	ErrInvalidScheduleTime             = errors.New("sync: schedule_time must be RFC3339 or yyyyMMddHHmmss")
 	ErrAttachGenerationMismatch        = errors.New("sync: attach_generation does not match the current job")
 	ErrJobCancellingTimeout            = errors.New("sync: timed out waiting for the previous job on this external_ref to finish cancelling")

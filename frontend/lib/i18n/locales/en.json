@@ -4365,6 +4365,7 @@
     "workspaceNameInvalid": "Only letters, numbers, dots, underscores, and hyphens are allowed. Spaces are not supported.",
     "unknownError": "An unknown error occurred. Please try again later.",
     "configParseFailedTitle": "Configuration Parse Failed",
+    "undefinedVariableTitle": "Undefined Template Variable",
     "loadStudioFailed": "Failed to load the workbench",
     "loadRunsFailed": "Failed to load run history",
     "loadVersionsFailed": "Failed to load version history",

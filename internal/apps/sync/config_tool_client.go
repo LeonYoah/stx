@@ -536,6 +536,9 @@ func humanizeConfigToolMessage(path string, message string) string {
 		if detail == "" {
 			return "sync: 配置解析失败，请检查括号、引号、逗号和换行"
 		}
+		if strings.Contains(detail, "expecting a close parentheses ')' here, not: '{'") {
+			return fmt.Sprintf("sync: 配置解析失败，检测到未加双引号的 {{变量}} 或未闭合括号（若引用了变量请确认变量已定义，或使用双引号包裹 \"{{变量}}\"）：%s", detail)
+		}
 		return fmt.Sprintf("sync: 配置解析失败，请检查括号、引号、逗号和换行：%s", detail)
 	}
 	switch path {

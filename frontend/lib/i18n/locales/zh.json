@@ -4110,6 +4110,8 @@
     "savePending": "保存中",
     "saveDone": "已保存",
     "savePublishGroup": "保存与发布",
+    "toolbarActions": "任务操作",
+    "moreActions": "更多",
     "publish": "发布",
     "inspectActions": "探查",
     "inspectTest": "测试",

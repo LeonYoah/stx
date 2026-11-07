@@ -9,13 +9,9 @@
 }
 
 /*
- * SplitButton secondary 主区写死 142px，运行/停止会比保存宽一截。顶栏让主区跟文案走。
- * SplitButton secondary locks the main hit at 142px, so Run/Stop outgrow Save. Let the label size the top-bar actions.
+ * 顶栏只给「组」描边：探查一组、提交/运行一组。状态和侧栏开关不要再各自套边框。
+ * Toolbar chrome is per group (inspect, persist/run). Status and sidebar toggles stay borderless.
  */
-.studio-action-cluster > div > button:first-of-type,
-.studio-action-cluster > span > div > button:first-of-type {
-  min-width: 0;
-}
 
 .studio-explorer-filter,
 .studio-template-library {

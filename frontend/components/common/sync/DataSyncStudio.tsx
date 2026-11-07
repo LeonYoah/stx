@@ -51,7 +51,6 @@ import {
   FileCode2,
   FilePlus2,
   GitBranch,
-  GitCommit,
   BarChart3,
   Maximize2,
   Minimize2,
@@ -91,11 +90,12 @@ import {
   X,
 } from 'lucide-react';
 import './studio-chrome.css';
+import {Button as ArcButton} from '@/components/arc/button/button';
 import {ButtonGroup} from '@/components/arc/button-group/button-group';
+import {Input as ArcField} from '@/components/arc/input/input';
 import {ExpandingButtonGroup} from '@/components/arc/expanding-button-group/expanding-button-group';
 import {ExpandingSearch} from '@/components/arc/expanding-search/expanding-search';
 import {SearchField} from '@/components/arc/search-field/search-field';
-import {SplitButton} from '@/components/arc/split-button/split-button';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {useAuth} from '@/hooks/use-auth';
 import services from '@/lib/services';
@@ -4460,10 +4460,10 @@ export function DataSyncStudio() {
                   aria-pressed={!isLeftSidebarCollapsed}
                   data-testid='studio-toggle-left-sidebar'
                   className={cn(
-                    'size-9 shrink-0 rounded-[var(--radius-control)] border border-border/60 px-0 text-muted-foreground hover:text-foreground',
-                    // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
-                    !isLeftSidebarCollapsed &&
-                      'border-primary/40 bg-primary/10 text-primary',
+                    'size-9 shrink-0 rounded-[var(--radius-control)] px-0 text-muted-foreground hover:bg-muted hover:text-foreground',
+                    // 对齐 Cursor：侧栏开关无描边，展开时只换底色。
+                    // Match Cursor: panel toggles have no border; open state is a quiet fill.
+                    !isLeftSidebarCollapsed && 'bg-muted text-foreground',
                   )}
                   onClick={handleToggleLeftSidebar}
                 >
@@ -4606,13 +4606,13 @@ export function DataSyncStudio() {
             />
           </div>
 
-          {/* 右侧：环境指示 + IDE 工具栏 + 核心动作 + 顶栏最右端右栏开关（#110 AC11） */}
-          {/* Right: env + IDE toolbar + primary cluster + rightmost right-sidebar toggle (#110 AC11) */}
-          <div className='flex min-w-max flex-nowrap items-center justify-end gap-2'>
-            {/* 环境指示与 Arc 控件同一行高，不再另做一套圆角。 */}
-            {/* Environment chip shares the Arc control height instead of a second radius. */}
+          {/* 右侧按大厂工具栏分组：状态无描边，探查一组，提交/运行一组，侧栏开关 ghost。 */}
+          {/* Right cluster like Figma/Cursor: status has no chrome, inspect is one group, persist/run is one group, sidebar is ghost. */}
+          <div className='flex min-w-max flex-nowrap items-center justify-end gap-3'>
+            {/* 集群是状态，不是按钮，不再套胶囊边框。 */}
+            {/* Cluster is status, not a control, so it does not get a pill border. */}
             <div
-              className='flex h-9 min-w-0 max-w-[11rem] shrink items-center gap-1.5 rounded-[var(--radius-control)] border border-border/60 px-2.5 text-xs text-muted-foreground'
+              className='flex h-9 min-w-0 max-w-[11rem] shrink items-center gap-1.5 px-1 text-xs text-muted-foreground'
               title={
                 executionMode === 'local'
                   ? t('localMode')
@@ -4636,153 +4636,140 @@ export function DataSyncStudio() {
 
             {/* 探查动作：Arc 展开按钮组。打开结果的动作不写 doneLabel，避免误显示已完成。 */}
             {/* Inspect actions: Arc expanding group. Actions that open a result omit doneLabel so they do not flash as finished. */}
-            <div className='flex shrink-0 items-center'>
-              <ExpandingButtonGroup
-                size='md'
-                label={t('inspectActions')}
-                defaultExpanded='test'
-                items={[
-                  {
-                    id: 'test',
-                    label: t('inspectTest'),
-                    icon: <PlugZap />,
-                    disabled:
-                      saving ||
-                      !editor.name.trim() ||
-                      actionPending !== null ||
-                      !editor.canEdit,
-                    onSelect: () => handleTestConnections(),
-                  },
-                  {
-                    id: 'dag',
-                    label: 'DAG',
-                    icon: <GitBranch />,
-                    disabled:
-                      saving || !editor.name.trim() || actionPending !== null,
-                    onSelect: () => handleBuildDag(),
-                  },
-                  {
-                    id: 'preview',
-                    label: t('preview'),
-                    icon: <Eye />,
-                    disabled:
-                      saving ||
-                      hasActiveRun ||
-                      hasActivePreview ||
-                      actionPending !== null ||
-                      !editor.canRun,
-                    onSelect: () => handlePreview(),
-                  },
-                ]}
-              />
-            </div>
+            <ExpandingButtonGroup
+              size='md'
+              label={t('inspectActions')}
+              defaultExpanded='test'
+              items={[
+                {
+                  id: 'test',
+                  label: t('inspectTest'),
+                  icon: <PlugZap />,
+                  disabled:
+                    saving ||
+                    !editor.name.trim() ||
+                    actionPending !== null ||
+                    !editor.canEdit,
+                  onSelect: () => handleTestConnections(),
+                },
+                {
+                  id: 'dag',
+                  label: 'DAG',
+                  icon: <GitBranch />,
+                  disabled:
+                    saving || !editor.name.trim() || actionPending !== null,
+                  onSelect: () => handleBuildDag(),
+                },
+                {
+                  id: 'preview',
+                  label: t('preview'),
+                  icon: <Eye />,
+                  disabled:
+                    saving ||
+                    hasActiveRun ||
+                    hasActivePreview ||
+                    actionPending !== null ||
+                    !editor.canRun,
+                  onSelect: () => handlePreview(),
+                },
+              ]}
+            />
 
-            {/* 核心动作全部走 Arc：保存+发布一条 Button Group，运行/停止仍是 SplitButton。 */}
-            {/* Primary actions stay Arc: save+publish as one Button Group; run/stop stay SplitButtons. */}
-            <div className='studio-action-cluster flex shrink-0 flex-nowrap items-center gap-1.5'>
-              {/* 保存和发布是同一份任务上的提交动作，拼成一条；保存成功改文案，发布只打开对话框，菜单不挂版本管理。 */}
-              {/* Save and publish are persist actions on the same job. Save confirms in-segment; publish only opens the dialog. Version management stays out of the menu. */}
-              <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-                <TooltipTrigger asChild>
-                  <span>
-                    <ButtonGroup
-                      label={t('savePublishGroup')}
-                      variant='solid'
-                      size='md'
-                      items={[
+            {/* 保存/发布/运行/停止同一条 Button Group，Savepoint 变体进末尾菜单，避免四颗独立描边按钮。 */}
+            {/* Save, publish, run, and stop share one Button Group. Savepoint variants live in the trailing menu so the bar is not four outlined pills. */}
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>
+                <span>
+                  <ButtonGroup
+                    label={t('toolbarActions')}
+                    size='md'
+                    items={[
+                      {
+                        id: 'save',
+                        label:
+                          saveAck === 'pending'
+                            ? t('savePending')
+                            : saveAck === 'success'
+                              ? t('saveDone')
+                              : t('save'),
+                        reserve: [t('save'), t('savePending'), t('saveDone')],
+                        icon: saveAck === 'success' ? <Check /> : <Save />,
+                        disabled:
+                          saving ||
+                          saveAck === 'pending' ||
+                          !editor.name.trim() ||
+                          !editor.canEdit,
+                        onSelect: () => {
+                          void handleToolbarSave();
+                        },
+                      },
+                      {
+                        id: 'publish',
+                        label: t('publish'),
+                        icon: <Upload />,
+                        disabled:
+                          saving ||
+                          publishing ||
+                          saveAck === 'pending' ||
+                          !editor.name.trim() ||
+                          !editor.canEdit,
+                        onSelect: handleOpenPublishDialog,
+                      },
+                      {
+                        id: 'run',
+                        label: t('run'),
+                        icon: <Play />,
+                        disabled:
+                          saving ||
+                          hasActiveRun ||
+                          hasActivePreview ||
+                          !editor.canRun,
+                        onSelect: () => {
+                          void handleRun('run');
+                        },
+                      },
+                      {
+                        id: 'stop',
+                        label: t('stop'),
+                        icon: <Square />,
+                        disabled: activeJobs.length === 0,
+                        onSelect: () => {
+                          void handleStopActiveJob('normal');
+                        },
+                      },
+                    ]}
+                    menu={{
+                      label: t('moreActions'),
+                      items: [
                         {
-                          id: 'save',
-                          label:
-                            saveAck === 'pending'
-                              ? t('savePending')
-                              : saveAck === 'success'
-                                ? t('saveDone')
-                                : t('save'),
-                          reserve: [
-                            t('save'),
-                            t('savePending'),
-                            t('saveDone'),
-                          ],
-                          icon:
-                            saveAck === 'success' ? <Check /> : <Save />,
-                          disabled:
-                            saving ||
-                            saveAck === 'pending' ||
-                            !editor.name.trim() ||
-                            !editor.canEdit,
+                          id: 'recover',
+                          label: t('savepointRecover'),
+                          disabled: isSavepointRecoverDisabled,
                           onSelect: () => {
-                            void handleToolbarSave();
+                            void handleRun('recover');
                           },
                         },
                         {
-                          id: 'publish',
-                          label: t('publish'),
-                          icon: <Upload />,
+                          id: 'savepoint-stop',
+                          label: t('savepointStop'),
                           disabled:
-                            saving ||
-                            publishing ||
-                            saveAck === 'pending' ||
-                            !editor.name.trim() ||
-                            !editor.canEdit,
-                          onSelect: handleOpenPublishDialog,
+                            executionMode === 'local' ||
+                            activeJobs.length === 0,
+                          onSelect: () => {
+                            void handleStopActiveJob('savepoint');
+                          },
                         },
-                      ]}
-                    />
-                  </span>
-                </TooltipTrigger>
-                {!editor.canEdit ? (
-                  <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
-                ) : null}
-              </Tooltip>
-
-              <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-                <TooltipTrigger asChild>
-                  <span>
-                    <SplitButton
-                      variant='secondary'
-                      label={t('run')}
-                      icon={<Play className='size-3.5' />}
-                      disabled={
-                        saving ||
-                        hasActiveRun ||
-                        hasActivePreview ||
-                        !editor.canRun
-                      }
-                      onClick={() => void handleRun('run')}
-                      actions={[
-                        {
-                          label: t('savepointRecover'),
-                          disabled: isSavepointRecoverDisabled,
-                          onSelect: () => void handleRun('recover'),
-                        },
-                      ]}
-                    />
-                  </span>
-                </TooltipTrigger>
-                {!editor.canRun ? (
-                  <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
-                ) : isSavepointRecoverDisabled ? (
-                  <TooltipContent className='max-w-xs text-xs leading-relaxed'>
-                    {t('savepointRecoverTooltip')}
-                  </TooltipContent>
-                ) : null}
-              </Tooltip>
-
-              <SplitButton
-                variant='secondary'
-                label={t('stop')}
-                icon={<Square className='size-3.5' />}
-                disabled={activeJobs.length === 0}
-                onClick={() => void handleStopActiveJob('normal')}
-                actions={[
-                  {
-                    label: t('savepointStop'),
-                    disabled: executionMode === 'local',
-                    onSelect: () => void handleStopActiveJob('savepoint'),
-                  },
-                ]}
-              />
-            </div>
+                      ],
+                    }}
+                  />
+                </span>
+              </TooltipTrigger>
+              {!editor.canEdit ? (
+                <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
+              ) : !editor.canRun ? (
+                <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
+              ) : null}
+            </Tooltip>
 
             {/* 顶栏最右端：右侧高级配置开合（始终可见，#110 AC11） */}
             {/* Rightmost topbar: right advanced sidebar toggle (always visible, #110 AC11) */}
@@ -4799,10 +4786,8 @@ export function DataSyncStudio() {
                   aria-pressed={!isRightSidebarCollapsed}
                   data-testid='studio-toggle-right-sidebar'
                   className={cn(
-                    'size-9 shrink-0 rounded-[var(--radius-control)] border border-border/60 px-0 text-muted-foreground hover:text-foreground',
-                    // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
-                    !isRightSidebarCollapsed &&
-                      'border-primary/40 bg-primary/10 text-primary',
+                    'size-9 shrink-0 rounded-[var(--radius-control)] px-0 text-muted-foreground hover:bg-muted hover:text-foreground',
+                    !isRightSidebarCollapsed && 'bg-muted text-foreground',
                   )}
                   onClick={handleToggleRightSidebar}
                 >
@@ -5852,47 +5837,42 @@ export function DataSyncStudio() {
               </Tooltip>
             </div>
           </DialogHeader>
-          <div className='grid gap-4 py-2'>
-            <div className='grid gap-2'>
-              <Label htmlFor='publish-version-comment'>
-                {t('publishComment')}
-              </Label>
-              <Input
-                id='publish-version-comment'
-                value={publishComment}
-                onChange={(e) => setPublishComment(e.target.value)}
-                placeholder={t('publishCommentPlaceholder')}
-                disabled={publishing}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    void handleConfirmPublish();
-                  }
-                }}
-              />
-            </div>
+          <div className='py-2'>
+            {/* 弹窗里的字段和确认也走 Arc，不再混 shadcn 主按钮。 */}
+            {/* The dialog field and confirm actions stay Arc instead of mixing a shadcn primary. */}
+            <ArcField
+              id='publish-version-comment'
+              label={t('publishComment')}
+              value={publishComment}
+              onChange={(e) => setPublishComment(e.target.value)}
+              placeholder={t('publishCommentPlaceholder')}
+              disabled={publishing}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  void handleConfirmPublish();
+                }
+              }}
+            />
           </div>
           <DialogFooter>
-            <Button
+            <ArcButton
               type='button'
-              variant='outline'
+              variant='secondary'
+              size='sm'
               onClick={() => setPublishDialogOpen(false)}
               disabled={publishing}
             >
               {t('cancel')}
-            </Button>
-            <Button
+            </ArcButton>
+            <ArcButton
               type='button'
+              variant='primary'
+              size='sm'
+              loading={publishing}
               onClick={() => void handleConfirmPublish()}
-              disabled={publishing}
-              className='gap-1.5'
             >
-              {publishing ? (
-                <Loader2 className='size-3.5 animate-spin' />
-              ) : (
-                <GitCommit className='size-3.5' />
-              )}
-              <span>{t('confirm')}</span>
-            </Button>
+              {t('confirm')}
+            </ArcButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

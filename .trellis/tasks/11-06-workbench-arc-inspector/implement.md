@@ -21,7 +21,8 @@
 - [x] 顶栏搜索槽固定 280px 并靠左，展开不盖住保存/运行
 - [x] 全局变量筛选换成 SearchField + Segmented + ChipGroup；侧栏/控制台共用 `.studio-sidebar-chrome`
 - [x] 底部控制台四个视图改 SegmentedControl；插件默认长说明收进 HelpHint
-- [x] 保存和发布改成 Arc Button Group solid；保存成功改段上文案，失败不切到已保存；发布只打开对话框，不挂版本管理
+- [x] 保存和发布改成 Arc Button Group outline（不要 solid，深色主题会反成白）；保存成功改段上文案，失败不切到已保存；发布只打开对话框，不挂版本管理；弹窗确认/取消用 Arc Button
+- [x] 顶栏按组收口：状态/侧栏开关无描边，探查一组，保存/发布/运行/停止一组，Savepoint 进菜单
 - [x] 定时侧栏去掉套娃卡片，换 Arc Switch / Badge / Input / ChipGroup / ConfirmMorph
 - [ ] 树和 File dropzone 单独立项，不在第一批
 - [ ] 变量列表里的复制按钮仍走原来的回调。一行一个 CopyButton 会在长列表上挂很多 ResizeObserver，现有单测也直接断言回调。

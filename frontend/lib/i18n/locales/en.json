@@ -4110,6 +4110,8 @@
     "savePending": "Saving",
     "saveDone": "Saved",
     "savePublishGroup": "Save and publish",
+    "toolbarActions": "Job actions",
+    "moreActions": "More",
     "publish": "Publish",
     "inspectActions": "Inspect",
     "inspectTest": "Test",

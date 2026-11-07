@@ -19,9 +19,9 @@
 
 import {useState} from 'react';
 import {useTranslations} from 'next-intl';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {MetricsDialogContent} from '../StudioDialogs';
 import type {SyncJobInstance} from '@/lib/services/sync';
-import {cn} from '@/lib/utils';
 import {MetricsTrendView} from './MetricsTrendView';
 
 type MetricsView = 'snapshot' | 'trend';
@@ -37,23 +37,15 @@ export function JobMetricsPanel({job, active}: {job: SyncJobInstance | null; act
   return (
     <div className='flex h-full min-h-0 flex-col gap-2'>
       <div className='flex shrink-0 items-center gap-3'>
-        <div className='inline-flex h-7 items-center rounded-md bg-muted p-0.5'>
-          {(['snapshot', 'trend'] as const).map((key) => (
-            <button
-              key={key}
-              type='button'
-              className={cn(
-                'rounded-[5px] px-3 text-xs transition-colors',
-                view === key
-                  ? 'bg-background text-foreground shadow-sm border border-border'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-              onClick={() => setView(key)}
-            >
-              {t(key)}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          label={`${t('snapshot')} / ${t('trend')}`}
+          value={view}
+          onValueChange={(value) => setView(value as MetricsView)}
+          options={[
+            {value: 'snapshot', label: t('snapshot')},
+            {value: 'trend', label: t('trend')},
+          ]}
+        />
         <span className='text-xs text-muted-foreground'>
           {view === 'snapshot' ? t('snapshotHint') : t('trendHint')}
         </span>

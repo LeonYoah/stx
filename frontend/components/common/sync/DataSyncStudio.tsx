@@ -5529,7 +5529,14 @@ export function DataSyncStudio() {
 
             {/* 控制台内容面板 */}
             {/* Console content panel */}
-            <div className='min-h-0 flex-1 overflow-auto p-3'>
+            <div
+              className={cn(
+                'min-h-0 flex-1',
+                bottomConsoleTab === 'jobs' || bottomConsoleTab === 'preview'
+                  ? 'overflow-hidden'
+                  : 'overflow-auto p-3',
+              )}
+            >
               {bottomConsoleTab === 'jobs' ? (
                 <JobRunsPanel
                   jobs={jobs}

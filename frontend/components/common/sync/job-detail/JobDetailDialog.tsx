@@ -21,12 +21,12 @@ import {useMemo, useState, type ReactNode} from 'react';
 import dynamic from 'next/dynamic';
 import {AlertTriangle} from 'lucide-react';
 import {useTranslations} from 'next-intl';
+import {Badge, type BadgeTone} from '@/components/arc/badge/badge';
+import {Button} from '@/components/arc/button/button';
 import {CopyButton} from '@/components/arc/copy-button/copy-button';
-import {Badge} from '@/components/ui/badge';
-import {Button} from '@/components/ui/button';
+import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/arc/tabs/tabs';
 import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} from '@/components/ui/dialog';
 import {Skeleton} from '@/components/ui/skeleton';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {ExpandableTextPanel} from '@/components/common/layout';
 import {SeaTunnelObserveMenu} from '@/components/common/cluster/SeaTunnelObserveMenu';
@@ -42,7 +42,6 @@ import {
   getDisplayJobLifecycleStatus,
   getEngineAPIMode,
   getJobActionState,
-  getJobStatusBadgeClass,
   getJobStatusLabel,
   getRealtimeEntry,
   getRunModeLabel,
@@ -83,6 +82,24 @@ export interface JobDetailActionContext {
   canRun: boolean;
   currentUserId?: number;
   disableRecover: boolean;
+}
+
+function jobStatusTone(status: string): BadgeTone {
+  switch (status.trim().toUpperCase()) {
+    case 'SUCCESS':
+    case 'FINISHED':
+    case 'SAVEPOINT_DONE':
+      return 'success';
+    case 'RUNNING':
+      return 'info';
+    case 'FAILED':
+      return 'danger';
+    case 'CANCELED':
+    case 'CANCELLED':
+      return 'neutral';
+    default:
+      return 'warning';
+  }
 }
 
 function stringifyValue(value: unknown): string {
@@ -165,7 +182,7 @@ export function JobDetailDialog({
         <DialogHeader className='space-y-2 border-b border-border/60 px-5 pb-3 pt-4 text-left'>
           <div className='flex flex-wrap items-center gap-2 pr-8'>
             <DialogTitle className='text-base'>{t('title', {id: job.id})}</DialogTitle>
-            <Badge variant='outline' className={cn('rounded-sm px-2 py-0 text-[11px]', getJobStatusBadgeClass(displayStatus))}>
+            <Badge tone={jobStatusTone(displayStatus)} size='sm' dot outline>
               {getJobStatusLabel(displayStatus)}
             </Badge>
             <JobOutcomeHints job={job} />
@@ -177,7 +194,7 @@ export function JobDetailDialog({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span>
-                      <Button size='sm' variant='outline' className='h-8 text-xs' disabled={!actions.canRecover} onClick={() => onRecover(job.id)}>
+                      <Button size='sm' variant='secondary' disabled={!actions.canRecover} onClick={() => onRecover(job.id)}>
                         {tStudio('recover')}
                       </Button>
                     </span>
@@ -191,10 +208,10 @@ export function JobDetailDialog({
               ) : null}
               {actions.showStop ? (
                 <>
-                  <Button size='sm' variant='outline' className='h-8 text-xs' disabled={!actions.canStop} onClick={() => onSavepointStop(job.id)}>
+                  <Button size='sm' variant='secondary' disabled={!actions.canStop} onClick={() => onSavepointStop(job.id)}>
                     {tStudio('savepointStop')}
                   </Button>
-                  <Button size='sm' variant='outline' className='h-8 text-xs text-destructive hover:text-destructive' disabled={!actions.canStop} onClick={() => onCancel(job.id)}>
+                  <Button size='sm' variant='danger' disabled={!actions.canStop} onClick={() => onCancel(job.id)}>
                     {tStudio('stop')}
                   </Button>
                 </>
@@ -241,28 +258,30 @@ export function JobDetailDialog({
           ) : null}
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(value) => onTabChange(value as JobDetailTab)} className='flex min-h-0 flex-1 flex-col gap-0'>
-          <TabsList className='mx-5 mt-2.5 h-8 w-fit'>
-            <TabsTrigger value='topology' className='text-xs'>{t('tabs.topology')}</TabsTrigger>
-            <TabsTrigger value='metrics' className='text-xs'>{t('tabs.metrics')}</TabsTrigger>
-            <TabsTrigger value='checkpoint' className='text-xs'>{t('tabs.checkpoint')}</TabsTrigger>
-            <TabsTrigger value='logs' className='text-xs'>{t('tabs.logs')}</TabsTrigger>
+        <Tabs value={tab} onValueChange={(value) => onTabChange(value as JobDetailTab)} className='flex min-h-0 flex-1 flex-col'>
+          <div className='px-5 pt-2.5'>
+          <TabsList aria-label={t('title', {id: job.id})}>
+            <TabsTrigger value='topology'>{t('tabs.topology')}</TabsTrigger>
+            <TabsTrigger value='metrics'>{t('tabs.metrics')}</TabsTrigger>
+            <TabsTrigger value='checkpoint'>{t('tabs.checkpoint')}</TabsTrigger>
+            <TabsTrigger value='logs'>{t('tabs.logs')}</TabsTrigger>
             <Tooltip>
               <TooltipTrigger asChild>
                 <span>
-                  <TabsTrigger value='events' className='text-xs' disabled={!realtimeEntry.supported}>
+                  <TabsTrigger value='events' disabled={!realtimeEntry.supported}>
                     {t('tabs.events')}
                   </TabsTrigger>
                 </span>
               </TooltipTrigger>
               {!realtimeEntry.supported ? <TooltipContent>{t('eventsUnsupported')}</TooltipContent> : null}
             </Tooltip>
-            <TabsTrigger value='config' className='text-xs'>{t('tabs.config')}</TabsTrigger>
-            <TabsTrigger value='script' className='text-xs'>{t('tabs.script')}</TabsTrigger>
+            <TabsTrigger value='config'>{t('tabs.config')}</TabsTrigger>
+            <TabsTrigger value='script'>{t('tabs.script')}</TabsTrigger>
           </TabsList>
+          </div>
 
-          <div className='min-h-0 flex-1 px-5 pb-4 pt-2.5'>
-            <TabsContent value='topology' className='mt-0 h-full'>
+          <div className='min-h-0 flex-1 px-5 pb-4'>
+            <TabsContent value='topology' className='mt-0! h-full min-h-0 overflow-hidden'>
               {jobDag ? (
                 <JobTopology
                   mode='runtime'
@@ -276,19 +295,19 @@ export function JobDetailDialog({
                 <div className='flex h-full items-center justify-center text-sm text-muted-foreground'>{t('noRuntimeDag')}</div>
               )}
             </TabsContent>
-            <TabsContent value='metrics' className='mt-0 flex h-full min-h-0 flex-col overflow-hidden'>
+            <TabsContent value='metrics' className='mt-0! flex h-full min-h-0 flex-col overflow-hidden'>
               {tab === 'metrics' ? <JobMetricsPanel job={job} active={tab === 'metrics'} /> : null}
             </TabsContent>
-            <TabsContent value='checkpoint' className='mt-0 h-full min-h-0 overflow-auto'>
+            <TabsContent value='checkpoint' className='mt-0! h-full min-h-0 overflow-auto'>
               {tab === 'checkpoint' ? checkpointSlot : null}
             </TabsContent>
-            <TabsContent value='logs' className='mt-0 h-full min-h-0 overflow-hidden'>
+            <TabsContent value='logs' className='mt-0! h-full min-h-0 overflow-hidden'>
               {tab === 'logs' ? logsSlot : null}
             </TabsContent>
-            <TabsContent value='events' className='mt-0 h-full min-h-0'>
+            <TabsContent value='events' className='mt-0! h-full min-h-0'>
               <JobEventTimelineContent job={job} active={tab === 'events' && realtimeEntry.supported} />
             </TabsContent>
-            <TabsContent value='config' className='mt-0 h-full min-h-0 overflow-auto'>
+            <TabsContent value='config' className='mt-0! h-full min-h-0 overflow-auto'>
               <div className='grid gap-4 lg:grid-cols-2'>
                 <section>
                   <h3 className='mb-1.5 text-xs font-semibold'>{t('config.env')}</h3>
@@ -318,7 +337,7 @@ export function JobDetailDialog({
                 </section>
               </div>
             </TabsContent>
-            <TabsContent value='script' className='mt-0 flex h-full min-h-0 flex-col overflow-hidden'>
+            <TabsContent value='script' className='mt-0! flex h-full min-h-0 flex-col overflow-hidden'>
               {tab === 'script' ? <JobScriptDialogContent job={job} monacoTheme={monacoTheme} /> : null}
             </TabsContent>
           </div>

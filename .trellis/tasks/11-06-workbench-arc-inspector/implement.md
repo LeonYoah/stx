@@ -24,6 +24,8 @@
 - [x] 保存和发布改成 Arc Button Group outline（不要 solid，深色主题会反成白）；保存成功改段上文案，失败不切到已保存；发布只打开对话框，不挂版本管理；弹窗确认/取消用 Arc Button
 - [x] 顶栏按组收口：状态/侧栏开关无描边，探查一组，保存/发布/运行/停止一组，Savepoint 进菜单
 - [x] 定时侧栏去掉套娃卡片，换 Arc Switch / Badge / Input / ChipGroup / ConfirmMorph
+- [x] 底部控制台任务表、预览表改 `StudioDataTable`（HeroUI 解剖 + Arc token），分页进底栏，预览零塌陷加载
+- [x] 预览左右栏用 Arc `ResizablePanels`；作业详情页签用 Arc `Tabs`，指标切换用 `SegmentedControl`
 - [ ] 树和 File dropzone 单独立项，不在第一批
 - [ ] 变量列表里的复制按钮仍走原来的回调。一行一个 CopyButton 会在长列表上挂很多 ResizeObserver，现有单测也直接断言回调。
 

@@ -20,7 +20,7 @@
 import Link from 'next/link';
 import {useTranslations} from 'next-intl';
 import {Check} from 'lucide-react';
-import {cn} from '@/lib/utils';
+import './upgrade-chrome.css';
 
 export type UpgradeStage = 'prepare' | 'config' | 'execute';
 
@@ -31,8 +31,10 @@ interface UpgradeStepsProps {
 }
 
 /**
- * 升级三阶段流程导航（准备 → 配置 → 执行）
- * Three-stage upgrade flow navigator (prepare → config → execute)
+ * 升级三阶段导航。外形对齐 Arc 分段轨道：当前步是抬起的选中块，已完成步只留勾。
+ * 不用 SegmentedControl：那是互斥模式切换，这里每一步都是独立路由。
+ * Three-stage upgrade navigator, shaped like an Arc segmented track.
+ * SegmentedControl is a mode switch; each step here is its own route.
  */
 export function UpgradeSteps({current, clusterId}: UpgradeStepsProps) {
   const t = useTranslations('stUpgrade');
@@ -64,7 +66,7 @@ export function UpgradeSteps({current, clusterId}: UpgradeStepsProps) {
   return (
     <nav
       aria-label={t('upgradeStagesAria')}
-      className='flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2.5'
+      className='upgrade-steps'
       data-testid='upgrade-steps'
     >
       {steps.map((step, index) => {
@@ -72,50 +74,22 @@ export function UpgradeSteps({current, clusterId}: UpgradeStepsProps) {
         const isCompleted = index < currentIndex;
 
         return (
-          <div key={step.key} className='flex items-center gap-2'>
-            {index > 0 ? (
-              <div
-                aria-hidden
-                className={cn(
-                  'hidden h-px w-6 sm:block',
-                  isCompleted || isCurrent ? 'bg-primary/50' : 'bg-border',
-                )}
-              />
-            ) : null}
-            <Link
-              href={step.href}
-              aria-current={isCurrent ? 'step' : undefined}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors',
-                isCurrent &&
-                  'bg-background font-medium text-foreground shadow-sm ring-1 ring-border',
-                isCompleted &&
-                  !isCurrent &&
-                  'text-muted-foreground hover:text-foreground',
-                !isCompleted &&
-                  !isCurrent &&
-                  'text-muted-foreground/70 hover:text-muted-foreground',
+          <Link
+            key={step.key}
+            href={step.href}
+            className='upgrade-steps__link'
+            aria-current={isCurrent ? 'step' : undefined}
+            data-complete={isCompleted && !isCurrent ? 'true' : undefined}
+          >
+            <span className='upgrade-steps__index' aria-hidden>
+              {isCompleted && !isCurrent ? (
+                <Check className='size-3' />
+              ) : (
+                index + 1
               )}
-            >
-              <span
-                className={cn(
-                  'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-medium',
-                  isCurrent && 'bg-primary text-primary-foreground',
-                  isCompleted && !isCurrent && 'bg-primary/15 text-primary',
-                  !isCompleted &&
-                    !isCurrent &&
-                    'bg-muted text-muted-foreground',
-                )}
-              >
-                {isCompleted && !isCurrent ? (
-                  <Check className='h-3 w-3' />
-                ) : (
-                  index + 1
-                )}
-              </span>
-              <span className='whitespace-nowrap'>{step.label}</span>
-            </Link>
-          </div>
+            </span>
+            <span>{step.label}</span>
+          </Link>
         );
       })}
     </nav>

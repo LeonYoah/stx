@@ -72,6 +72,30 @@ export function getExecutionStatusLabel(status: ExecutionStatus): string {
   }
 }
 
+/** Arc Badge 色调，对应执行状态。成功绿、失败红、进行中黄。 / Arc badge tone for an execution status. */
+export function upgradeStatusTone(
+  status: ExecutionStatus,
+): 'neutral' | 'success' | 'warning' | 'danger' {
+  switch (status) {
+    case 'succeeded':
+    case 'rollback_succeeded':
+      return 'success';
+    case 'failed':
+    case 'rollback_failed':
+    case 'blocked':
+      return 'danger';
+    case 'running':
+    case 'rollback_running':
+      return 'warning';
+    case 'cancelled':
+    case 'skipped':
+    case 'ready':
+    case 'pending':
+    default:
+      return 'neutral';
+  }
+}
+
 export function getStatusBadgeVariant(
   status: ExecutionStatus,
 ): 'default' | 'secondary' | 'destructive' | 'outline' {

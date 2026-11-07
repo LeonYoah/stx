@@ -1,0 +1,70 @@
+/* 升级三阶段：一条轨道，当前步是面上的选中块。不要再套一层大边框步骤条。
+   Upgrade stages sit on one track. The current step is the raised selection, not a second outlined bar. */
+.upgrade-steps {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.upgrade-steps__link {
+  display: inline-flex;
+  min-height: var(--control-height-sm);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-control) - 4px);
+  padding: 0 12px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.upgrade-steps__link:hover {
+  color: var(--foreground);
+}
+
+.upgrade-steps__link[aria-current='step'] {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: var(--shadow-resting);
+}
+
+.upgrade-steps__index {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--foreground) 8%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.upgrade-steps__link[aria-current='step'] .upgrade-steps__index {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.upgrade-steps__link[data-complete='true'] .upgrade-steps__index {
+  color: var(--success, var(--tone-teal, var(--foreground)));
+}
+
+/* 页内卡片间距收一档，和顶栏控件同一密度。
+   Tighten the page stack so it matches the toolbar control density. */
+.upgrade-page {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}

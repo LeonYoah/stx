@@ -21,6 +21,7 @@ import type {ReactNode} from 'react';
 import {Card, CardContent} from '@/components/ui/card';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {HELP_HINT_DELAY_MS} from '@/components/common/HelpHint';
 import {cn} from '@/lib/utils';
 
 /**
@@ -39,7 +40,7 @@ export function SidebarIconTab({
   onClick: () => void;
 }) {
   return (
-    <Tooltip>
+    <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
       <TooltipTrigger asChild>
         <button
           type='button'
@@ -63,25 +64,37 @@ export function SidebarIconTab({
 /**
  * 工作台侧边栏外壳容器。
  * contentMode=scroll：整页滚动（设置/版本等）；fill：子面板自管高度（模板管理列表吃满剩余空间）。
- * Studio sidebar shell. scroll = page scroll; fill = child owns height (manage list fills leftover).
+ * 收起入口在顶栏两端（#110 AC11），本组件不再放收起按钮。
+ * Studio sidebar shell. scroll = page scroll; fill = child owns height.
+ * Collapse lives on the topbar ends (#110 AC11); this shell has no collapse control.
  */
 export function StudioSidebarShell({
   children,
   rail,
   className,
   contentMode = 'scroll',
+  ariaHidden,
+  inert: inertProp,
+  'data-studio-right-sidebar': dataStudioRightSidebar,
 }: {
   children: ReactNode;
   rail: ReactNode;
   className?: string;
   contentMode?: 'scroll' | 'fill';
+  ariaHidden?: boolean;
+  /** 收起时设 inert，整棵侧栏移出键盘焦点序 / When collapsed, inert removes the sidebar from keyboard focus */
+  inert?: boolean;
+  'data-studio-right-sidebar'?: string;
 }) {
   return (
     <Card
+      data-studio-right-sidebar={dataStudioRightSidebar}
       className={cn(
         'row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm',
         className,
       )}
+      aria-hidden={ariaHidden || undefined}
+      inert={inertProp ? true : undefined}
     >
       <CardContent className='grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)_40px] p-0'>
         <div className='min-h-0 min-w-0 overflow-hidden'>

@@ -18,6 +18,9 @@
 import {describe, expect, it} from 'vitest';
 import {
   buildInsertedCuratedContent,
+  buildStudioGridTemplateColumns,
+  DEFAULT_STUDIO_LAYOUT_PREFS,
+  studioSidebarOpenSpacingClass,
   formatRateDisplay,
   isZeroMetricValue,
   detectVariables,
@@ -31,13 +34,67 @@ import {
   isNodeMatchingScope,
   formatValueConstraintHints,
   isCursorAtFinishedEnumValue,
+  readStudioLayoutPrefs,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveOptionAssignmentContext,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
   formatSyncUserFacingError,
+  STUDIO_LAYOUT_STORAGE_KEY,
+  writeStudioLayoutPrefs,
 } from '../sync-studio-utils';
+
+describe('studio layout prefs (#110)', () => {
+  it('defaults to left expanded and right collapsed when no record', () => {
+    expect(DEFAULT_STUDIO_LAYOUT_PREFS).toEqual({
+      leftCollapsed: false,
+      rightCollapsed: true,
+    });
+    expect(readStudioLayoutPrefs({getItem: () => null})).toEqual(
+      DEFAULT_STUDIO_LAYOUT_PREFS,
+    );
+  });
+
+  it('reads and writes independent left/right collapse flags', () => {
+    const memory = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        memory.set(key, value);
+      },
+    };
+
+    writeStudioLayoutPrefs(
+      {leftCollapsed: true, rightCollapsed: false},
+      storage,
+    );
+    expect(memory.get(STUDIO_LAYOUT_STORAGE_KEY)).toContain('"leftCollapsed":true');
+    expect(readStudioLayoutPrefs(storage)).toEqual({
+      leftCollapsed: true,
+      rightCollapsed: false,
+    });
+  });
+
+  it('builds grid columns that free collapsed tracks with 0px (#110 AC11 topbar toggles)', () => {
+    expect(buildStudioGridTemplateColumns(false, true)).toBe(
+      '240px minmax(0,1fr) 0px',
+    );
+    expect(buildStudioGridTemplateColumns(true, true)).toBe(
+      '0px minmax(0,1fr) 0px',
+    );
+    expect(buildStudioGridTemplateColumns(false, false)).toBe(
+      '240px minmax(0,1fr) 360px',
+    );
+  });
+
+  it('only adds open-side spacing class when the sidebar is expanded', () => {
+    expect(studioSidebarOpenSpacingClass(false, 'left')).toBe('mr-2');
+    expect(studioSidebarOpenSpacingClass(true, 'left')).toBe('');
+    expect(studioSidebarOpenSpacingClass(false, 'right')).toBe('ml-2');
+    expect(studioSidebarOpenSpacingClass(true, 'right')).toBe('');
+  });
+});
 
 describe('formatValueConstraintHints', () => {
   it('summarizes matching value constraints for hover', () => {
@@ -729,6 +786,17 @@ describe('formatSyncUserFacingError', () => {
     const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
     expect(formatted.title).toBe('configParseFailedTitle');
     expect(formatted.suggestion).toBeDefined();
+  });
+
+  // 普通 HOCON 括号错误经后端 humanize 后仍会提到「{{变量}}」，不能误报为未定义变量。
+  // Ordinary HOCON brace errors whose humanized text still mentions "{{变量}}" must stay syntax errors.
+  it('keeps ambiguous HOCON humanized brace errors as syntax errors, not undefined variables', () => {
+    const raw =
+      "sync: 配置解析失败，检测到未加双引号的 {{变量}} 或未闭合括号（若引用了变量请确认变量已定义，或使用双引号包裹 \"{{变量}}\"）：String: 46: expecting a close parentheses ')' here, not: '{'";
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.title).toBe('configParseFailedTitle');
+    expect(formatted.title).not.toBe('undefinedVariableTitle');
+    expect(formatted.suggestion).toContain('语法结构');
   });
 });
 

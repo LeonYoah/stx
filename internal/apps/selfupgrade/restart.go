@@ -424,22 +424,23 @@ func (s *Service) buildRestartPlan(taskID, target, from string) (*restartPlan, e
 		return nil, fmt.Errorf("no backup of the previous control plane binary at %s; refusing to restart without a rollback path / 缺少控制面旧二进制备份，拒绝在无回滚路径时重启", backup)
 	}
 	cwd, _ := os.Getwd()
+	staging := absPath(s.stagingDir)
 	plan := &restartPlan{
 		TaskID:         taskID,
 		TargetVersion:  target,
 		FromVersion:    from,
 		Strategy:       st,
-		Executable:     exe,
-		Backup:         backup,
+		Executable:     absPath(exe),
+		Backup:         absPath(backup),
 		Argv:           append([]string(nil), os.Args...),
 		Env:            os.Environ(),
-		Dir:            cwd,
+		Dir:            absPath(cwd),
 		StdoutPath:     fdTarget(1),
 		StderrPath:     fdTarget(2),
 		OldPID:         os.Getpid(),
 		HealthURL:      healthURLFromAddr(config.Config.App.Addr),
-		ReadyPath:      filepath.Join(s.stagingDir, restartReadyFile),
-		ResultPath:     filepath.Join(s.stagingDir, restartResultFile),
+		ReadyPath:      filepath.Join(staging, restartReadyFile),
+		ResultPath:     filepath.Join(staging, restartResultFile),
 		TimeoutSeconds: int(restartTimeout().Seconds()),
 	}
 	if plan.TimeoutSeconds <= 0 {
@@ -448,10 +449,14 @@ func (s *Service) buildRestartPlan(taskID, target, from string) (*restartPlan, e
 	// 原输出不是普通文件（终端/管道）时，新进程输出写到自升级目录，避免丢日志。
 	// When the original output is not a regular file (tty/pipe), write the new process output under the staging dir.
 	if plan.StdoutPath == "" {
-		plan.StdoutPath = filepath.Join(s.stagingDir, "control-plane.out")
+		plan.StdoutPath = filepath.Join(staging, "control-plane.out")
+	} else {
+		plan.StdoutPath = absPath(plan.StdoutPath)
 	}
 	if plan.StderrPath == "" {
 		plan.StderrPath = plan.StdoutPath
+	} else {
+		plan.StderrPath = absPath(plan.StderrPath)
 	}
 	if pidFile := filepath.Join(filepath.Dir(exe), "run", "backend.pid"); fileHasPID(pidFile, plan.OldPID) {
 		plan.BackendPIDFile = pidFile
@@ -511,23 +516,80 @@ func readJSONFile(path string, v any) error {
 	return json.Unmarshal(data, v)
 }
 
+// absPath 将路径转为绝对路径；空串保持为空。/ absPath makes a path absolute; empty stays empty.
+func absPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return filepath.Clean(p)
+	}
+	return abs
+}
+
+// absolutizeRestartPlan 确保 plan 内路径均为绝对路径，避免 systemd-run 默认 cwd=/ 时读错文件（DEF-UPG-1）。
+// absolutizeRestartPlan makes plan paths absolute so systemd-run's default cwd=/ cannot miss files (DEF-UPG-1).
+func absolutizeRestartPlan(plan *restartPlan) {
+	if plan == nil {
+		return
+	}
+	plan.Dir = absPath(plan.Dir)
+	plan.Executable = absPath(plan.Executable)
+	plan.Backup = absPath(plan.Backup)
+	plan.ReadyPath = absPath(plan.ReadyPath)
+	plan.ResultPath = absPath(plan.ResultPath)
+	plan.StdoutPath = absPath(plan.StdoutPath)
+	plan.StderrPath = absPath(plan.StderrPath)
+	plan.BackendPIDFile = absPath(plan.BackendPIDFile)
+	if fp := plan.Frontend; fp != nil {
+		fp.Dir = absPath(fp.Dir)
+		fp.LogPath = absPath(fp.LogPath)
+		fp.PIDFile = absPath(fp.PIDFile)
+		fp.AppDir = absPath(fp.AppDir)
+		fp.NewDir = absPath(fp.NewDir)
+	}
+}
+
+// buildWatchdogArgv 构造 watchdog 启动参数；systemd 下经 systemd-run 拉起，并固定工作目录与绝对 --plan。
+// buildWatchdogArgv builds watchdog argv; under systemd it uses systemd-run with a fixed working directory and absolute --plan.
+func buildWatchdogArgv(planPath string, plan *restartPlan) []string {
+	absolutizeRestartPlan(plan)
+	planPath = absPath(planPath)
+	args := []string{plan.Backup, WatchdogCommand, "--plan", planPath}
+	if plan.Strategy.Kind != RestartStrategySystemd {
+		return args
+	}
+	run, err := restartLookPath("systemd-run")
+	if err != nil {
+		return args
+	}
+	unitArgs := []string{run}
+	if strings.Contains(strings.Join(plan.Strategy.Command, " "), "--user") {
+		unitArgs = append(unitArgs, "--user")
+	}
+	// DEF-UPG-1：systemd-run 默认 WorkingDirectory=/，相对 --plan / result 会落到错误位置。
+	// DEF-UPG-1: systemd-run defaults WorkingDirectory=/; relative --plan/result resolve in the wrong place.
+	if wd := plan.Dir; wd != "" {
+		unitArgs = append(unitArgs, "--working-directory="+wd)
+	}
+	unitArgs = append(unitArgs, "--collect", "--unit", "stx-self-upgrade-"+shortID(plan.TaskID))
+	return append(unitArgs, args...)
+}
+
 // spawnWatchdog 以旧二进制（即 .bak，当前运行的代码）启动 watchdog，并让它脱离当前进程树与会话。
 // systemd 下优先用 systemd-run 把它放到独立单元，避免随服务 cgroup 一起被停止。
 // spawnWatchdog starts the watchdog from the old binary (the .bak, i.e. the code running now) detached from this
 // process tree and session. Under systemd it prefers systemd-run so the watchdog lives outside the service cgroup.
 func spawnWatchdog(planPath string, plan *restartPlan) error {
+	absolutizeRestartPlan(plan)
+	planPath = absPath(planPath)
 	logPath := filepath.Join(filepath.Dir(planPath), restartLogFile)
-	args := []string{plan.Backup, WatchdogCommand, "--plan", planPath}
-	if plan.Strategy.Kind == RestartStrategySystemd {
-		if run, err := restartLookPath("systemd-run"); err == nil {
-			unitArgs := []string{run}
-			if strings.Contains(strings.Join(plan.Strategy.Command, " "), "--user") {
-				unitArgs = append(unitArgs, "--user")
-			}
-			unitArgs = append(unitArgs, "--collect", "--unit", "stx-self-upgrade-"+shortID(plan.TaskID))
-			args = append(unitArgs, args...)
-		}
-	}
+	args := buildWatchdogArgv(planPath, plan)
 	return runDetachedWithLog(args, plan.Env, plan.Dir, logPath)
 }
 

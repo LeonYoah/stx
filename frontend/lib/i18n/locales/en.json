@@ -50,7 +50,14 @@
     "timezone": "Timezone",
     "noMatchingData": "No matching data",
     "helpLabel": "Help",
-    "helpLabelFor": "{label} help"
+    "helpLabelFor": "{label} help",
+    "fileUpload": {
+      "chooseFile": "Choose file",
+      "dragDropOrClick": "Drag and drop a file here, or click to choose",
+      "selectedFile": "Selected file",
+      "clearFile": "Clear selected file",
+      "uploading": "Uploading…"
+    }
   },
   "dashboard": {
     "title": "Console",
@@ -4085,6 +4092,10 @@
     "unassignedCluster": "No Cluster Selected",
     "maximizeConsole": "Maximize Console",
     "restoreConsole": "Restore Console",
+    "collapseLeftSidebar": "Collapse left explorer",
+    "expandLeftSidebar": "Expand left explorer",
+    "collapseRightSidebar": "Collapse right advanced sidebar",
+    "expandRightSidebar": "Expand right advanced sidebar",
     "activeJobs": "Running",
     "unsavedChanges": "Unsaved Changes",
     "settings": "Settings",
@@ -4350,6 +4361,16 @@
     "loadFileFailed": "Failed to load the file",
     "savedNewVersion": "File saved and a new version was created",
     "saveFileSuccess": "File saved",
+    "draftSaving": "Saving",
+    "draftSaved": "Saved",
+    "draftSaveFailed": "Save failed",
+    "draftSaveFailedRetry": "Save failed — click to retry",
+    "leaveUnsavedTitle": "Unsaved drafts",
+    "leaveUnsavedDescription": "You still have unsaved drafts. You can save and leave, discard changes and leave, or stay and keep editing.",
+    "leaveStay": "Stay and keep editing",
+    "leaveSaveAndLeave": "Save and leave",
+    "leaveSavingAndLeaving": "Saving…",
+    "leaveDiscardAndLeave": "Discard and leave",
     "publishNewVersion": "Publish Version",
     "publishVersionSuccess": "New version published successfully",
     "publishVersionFailed": "Failed to publish version",

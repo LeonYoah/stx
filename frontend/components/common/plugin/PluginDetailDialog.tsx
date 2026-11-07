@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   Dialog,
@@ -28,7 +28,6 @@ import {
 } from '@/components/ui/dialog';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {ScrollArea} from '@/components/ui/scroll-area';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
@@ -162,6 +161,9 @@ export function PluginDetailDialog({
   const [profileFilter, setProfileFilter] = useState('');
   const [copiedCoord, setCopiedCoord] = useState(false);
   const [copiedXml, setCopiedXml] = useState(false);
+  // 记录已成功加载的插件+版本，重复打开同键时静默刷新不闪 spinner。
+  // Track last successful plugin+version load so reopen/silent refresh skips spinner flash.
+  const loadedOfficialDepsKeyRef = useRef<string | null>(null);
 
   // Version and metadata resolution / 版本与元数据推导
   const effectiveVersion = seatunnelVersion || plugin.version;
@@ -170,32 +172,45 @@ export function PluginDetailDialog({
   const capability = getConnectorCapability(plugin.name, plugin.category);
   const dependencyStatusMeta = getPluginDependencyStatusMeta(plugin, t);
   const useIsolatedDeps = supportsIsolatedDependency(effectiveVersion);
+  const officialDepsKey = `${plugin?.name || ''}@${effectiveVersion || ''}`;
 
   // Load official dependencies / 加载官方依赖画像
   const loadOfficialDeps = useCallback(async () => {
     if (!plugin?.name) {
       return;
     }
-    setLoadingOfficialDeps(true);
+    const requestKey = `${plugin.name}@${seatunnelVersion || plugin.version || ''}`;
+    const silentRefresh = loadedOfficialDepsKeyRef.current === requestKey;
+    if (!silentRefresh) {
+      setLoadingOfficialDeps(true);
+    }
     try {
       const data = await PluginService.getOfficialDependencies(
         plugin.name,
         seatunnelVersion || plugin.version,
       );
       setOfficialDeps(data);
+      loadedOfficialDepsKeyRef.current = requestKey;
     } catch (error) {
       console.error('Failed to load official dependencies:', error);
       setOfficialDeps(null);
+      loadedOfficialDepsKeyRef.current = null;
     } finally {
       setLoadingOfficialDeps(false);
     }
   }, [plugin?.name, plugin?.version, seatunnelVersion]);
 
   useEffect(() => {
-    if (open && plugin?.name) {
-      void loadOfficialDeps();
+    if (!open || !plugin?.name) {
+      return;
     }
-  }, [loadOfficialDeps, open, plugin?.name]);
+    // 插件或版本切换时清掉旧画像，避免短暂展示错误依赖。
+    // Clear stale profiles when plugin/version changes to avoid briefly showing wrong deps.
+    if (loadedOfficialDepsKeyRef.current !== officialDepsKey) {
+      setOfficialDeps(null);
+    }
+    void loadOfficialDeps();
+  }, [loadOfficialDeps, officialDepsKey, open, plugin?.name]);
 
   // Profiles resolution / 画像列表与过滤
   const availableProfiles = useMemo(
@@ -395,7 +410,9 @@ export function PluginDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid={`plugin-detail-dialog-${plugin.name}`}
-        className='w-[94vw] max-w-[94vw] sm:max-w-[760px] lg:max-w-[820px] h-[72vh] sm:h-[75vh] max-h-[75vh] overflow-hidden p-0 gap-0 flex flex-col'
+        // 高度随内容收缩，上限 85vh；去掉写死 h-[..] 避免概览 tab 大块留白（DEF-101-1）
+        // Hug content with max-h 85vh; drop fixed h-[..] so overview tab has no empty gap (DEF-101-1)
+        className='w-[94vw] max-w-[94vw] sm:max-w-[760px] lg:max-w-[820px] min-h-[240px] max-h-[85vh] overflow-hidden p-0 gap-0 flex flex-col'
       >
         {/* Header with high-density visual hierarchy / 高辨识度强化头部 */}
         <DialogHeader className='px-6 pt-5 pb-4 border-b shrink-0 bg-muted/10'>
@@ -516,9 +533,9 @@ export function PluginDetailDialog({
           </Tabs>
         </div>
 
-        {/* Main scrollable body with fixed flex layout / 固定高度防抖动的独立滚动主体 */}
-        <div className='flex-1 min-h-0 overflow-hidden'>
-          <ScrollArea className='h-full w-full'>
+        {/* 中间内容区独立滚动：父级达 max-h 后 flex-1 + min-h-0 才能裁切
+            Body scrolls alone; flex-1 + min-h-0 clips once the dialog hits max-h */}
+        <div className='flex-1 min-h-0 overflow-y-auto'>
             <div className='p-6 space-y-6'>
             {/* Section 1: Overview & Official Documentation Guide / 第一部分：概览与官方文档直达 */}
             {shouldRenderOverview && (
@@ -1053,7 +1070,6 @@ export function PluginDetailDialog({
               </div>
             )}
           </div>
-        </ScrollArea>
         </div>
 
         {/* Footer actions / 底部操作栏 */}

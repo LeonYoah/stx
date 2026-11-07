@@ -1107,6 +1107,8 @@ func Serve() {
 			}
 
 			// STX console self-upgrade (admin only) / STX 控制台自升级（仅管理员）
+			// NewService 会把 data 目录绝对化，供 systemd-run watchdog 在 cwd=/ 时仍能读写交棒文件（DEF-UPG-1）。
+			// NewService absolutizes the data dir so a systemd-run watchdog with cwd=/ can still read/write handover files (DEF-UPG-1).
 			selfUpgradeService := selfupgrade.NewService("./data")
 			if agentManager != nil {
 				// 自升级通过 gRPC 通道把新 Agent/Proxy 下发到各节点；离线节点重连后补升级。

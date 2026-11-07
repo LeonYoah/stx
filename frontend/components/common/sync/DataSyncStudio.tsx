@@ -58,6 +58,11 @@ import {
   Layers,
   Maximize2,
   Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  PlugZap,
   Play,
   RefreshCw,
   Save,
@@ -92,6 +97,7 @@ import {
   X,
 } from 'lucide-react';
 import {useAuth} from '@/hooks/use-auth';
+import {useWorkbenchLeaveGuard} from '@/hooks/use-workbench-leave-guard';
 import services from '@/lib/services';
 import {cn} from '@/lib/utils';
 import type {ClusterInfo} from '@/lib/services/cluster';
@@ -216,6 +222,8 @@ import {
   SidebarIconTab,
   StudioSidebarShell,
 } from './StudioSidebarShell';
+import {DraftSaveStatusBadge} from './DraftSaveStatusBadge';
+import {WorkbenchLeaveDialog} from './WorkbenchLeaveDialog';
 import {
   SettingsSidebarPanel,
   TemplatePluginSelect,
@@ -237,6 +245,7 @@ import {
 } from './CheckpointPanels';
 import {
   ValidationResultPanel,
+  StudioActionErrorDialog,
   StudioErrorDiagnosticsView,
   VirtualizedLogViewer,
 } from './StudioDialogs';
@@ -278,6 +287,10 @@ import {
   LOG_CHUNK_MAX_BYTES,
   WORKSPACE_NAME_PATTERN,
   WORKSPACE_TABS_STORAGE_KEY,
+  buildStudioGridTemplateColumns,
+  readStudioLayoutPrefs,
+  studioSidebarOpenSpacingClass,
+  writeStudioLayoutPrefs,
   buildCheckpointActionViewModels,
   buildCheckpointInspectJobConfig,
   buildCheckpointInspectSummary,
@@ -286,7 +299,11 @@ import {
   buildDisplayLogLines,
   buildInsertedTemplateContent,
   buildInsertedCuratedContent,
+  buildTaskPayloadFromEditor,
   buildMetricGroups,
+  WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS,
+  hasWorkbenchUnsavedRisk,
+  type DraftSaveStatus,
   buildMetricHighlights,
   buildPairedMetricRows,
   buildPerTableMetricRows,
@@ -496,6 +513,9 @@ export function DataSyncStudio() {
   const [dagResult, setDagResult] = useState<SyncDagResult | null>(null);
   const [dagError, setDagError] = useState<UserFacingErrorState | null>(null);
   const [dagOpen, setDagOpen] = useState(false);
+  // 运行 / 预览 / 恢复失败走限高诊断弹窗，不把整段堆栈塞进 toast。
+  // Run / preview / recover failures use the height-capped dialog instead of a toast.
+  const [actionError, setActionError] = useState<UserFacingErrorState | null>(null);
   // 查看运行中/已结束作业的实时执行拓扑
   // View execution DAG of running or finished jobs
   // 作业详情：只记作业 ID，作业对象从 jobs 取，随轮询刷新状态。
@@ -559,6 +579,17 @@ export function DataSyncStudio() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [expandedLogsLoading, setExpandedLogsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 手动保存与自动保存共用的顶栏状态 / Shared top-bar status for manual + autosave
+  const [draftSaveStatus, setDraftSaveStatus] =
+    useState<DraftSaveStatus>('idle');
+  const persistCurrentFileRef = useRef<
+    | ((
+        publishAfterSave?: boolean,
+        options?: {reason?: 'manual' | 'autosave' | 'leave'},
+      ) => Promise<SyncTask | null>)
+    | null
+  >(null);
+  const [leaveActionBusy, setLeaveActionBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState<PendingActionKind | null>(
     null,
@@ -609,6 +640,7 @@ export function DataSyncStudio() {
   const [editorDrafts, setEditorDrafts] = useState<
     Record<number, EditorDraftState>
   >({});
+  const editorDraftsRef = useRef(editorDrafts);
   const [expandedFolderIds, setExpandedFolderIds] = useState<number[]>([]);
 
   // 底部控制台全屏与还原状态
@@ -618,6 +650,39 @@ export function DataSyncStudio() {
   // 底部控制台高度档位：默认 260px，展开 390px
   // Bottom console height mode: default 260px, expanded 390px
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
+
+  // 左右侧栏独立开合：无记录时左展开、右收起；之后记住上次（#110；无专注模式）
+  // Independent left/right collapse: no record → left open / right collapsed; then remember (#110; no Focus Mode)
+  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(() =>
+    readStudioLayoutPrefs().leftCollapsed,
+  );
+  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(() =>
+    readStudioLayoutPrefs().rightCollapsed,
+  );
+  const studioLayoutHydratedRef = useRef(false);
+
+  useEffect(() => {
+    // 跳过首帧写入，保留「无记录 → 左展开 / 右收起」语义，直到用户真正切换开合。
+    // Skip the first write so "no record → left open / right collapsed" stays until the user toggles.
+    if (!studioLayoutHydratedRef.current) {
+      studioLayoutHydratedRef.current = true;
+      return;
+    }
+    writeStudioLayoutPrefs({
+      leftCollapsed: isLeftSidebarCollapsed,
+      rightCollapsed: isRightSidebarCollapsed,
+    });
+  }, [isLeftSidebarCollapsed, isRightSidebarCollapsed]);
+
+  // 顶栏两端开关始终挂载：点击收起后焦点自然留在该按钮上（#110 AC11 / Codex P2）
+  // Topbar-end toggles stay mounted so focus remains on the control after collapse (#110 AC11 / Codex P2)
+  const handleToggleLeftSidebar = useCallback(() => {
+    setIsLeftSidebarCollapsed((prev) => !prev);
+  }, []);
+
+  const handleToggleRightSidebar = useCallback(() => {
+    setIsRightSidebarCollapsed((prev) => !prev);
+  }, []);
 
   // 当前激活任务的面包屑路径列表
   // Breadcrumb segments for the currently active task
@@ -902,8 +967,24 @@ export function DataSyncStudio() {
   }, [customVariableRows]);
 
   useEffect(() => {
+    editorDraftsRef.current = editorDrafts;
+  }, [editorDrafts]);
+
+  useEffect(() => {
     currentClusterIdRef.current = editor.clusterId;
   }, [editor.clusterId]);
+
+  // 「已保存」提示短暂展示后回到 idle，避免顶栏常驻噪音。
+  // Fade the Saved badge back to idle so the top bar stays quiet.
+  useEffect(() => {
+    if (draftSaveStatus !== 'saved') {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDraftSaveStatus((prev) => (prev === 'saved' ? 'idle' : prev));
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [draftSaveStatus]);
 
   // 唯一集群或已记住偏好时，自动填入编辑器空的集群选择，避免各处重复手选。
   // Auto-fill empty editor cluster from sole/default or remembered preference.
@@ -2763,70 +2844,23 @@ export function DataSyncStudio() {
   }, []);
 
   const buildTaskPayload = useCallback(
-    (): CreateSyncTaskRequest => ({
-      parent_id: editor.parentId,
-      node_type: 'file',
-      name: editor.name.trim(),
-      description: editor.description.trim(),
-      cluster_id: editor.clusterId ? Number(editor.clusterId) : 0,
-      content_format: 'hocon',
-      content: editor.content,
-      job_name: editor.name.trim(),
-      definition: {
-        ...editor.definition,
-        is_public:
-          editor.definition?.is_public !== undefined
-            ? editor.definition.is_public
-            : (editor.isPublic ?? true),
-        collaborators: Array.isArray(editor.definition?.collaborators)
-          ? editor.definition.collaborators
-          : Array.isArray(editor.definition?.collaborator_ids)
-            ? editor.definition.collaborator_ids
-            : [],
-        collaborator_ids: Array.isArray(editor.definition?.collaborator_ids)
-          ? editor.definition.collaborator_ids
-          : Array.isArray(editor.definition?.collaborators)
-            ? editor.definition.collaborators
-            : [],
-        custom_variables: fromVariableRows(customVariableRows),
-        custom_variable_types: fromVariableTypes(customVariableRows),
-        execution_mode: getExecutionMode(editor.definition),
-        observability: getObservabilityMode(editor.definition),
-        preview_mode: 'source',
-        preview_output_format: 'hocon',
-        preview_row_limit:
-          Number(toObject(editor.definition).preview_row_limit) > 0
-            ? Math.min(
-                Number(toObject(editor.definition).preview_row_limit),
-                10000,
-              )
-            : 100,
-        preview_timeout_minutes:
-          Number(toObject(editor.definition).preview_timeout_minutes) > 0
-            ? Math.min(
-                Number(toObject(editor.definition).preview_timeout_minutes),
-                24 * 60,
-              )
-            : 10,
-        preview_http_sink: {
-          url:
-            typeof toObject(toObject(editor.definition).preview_http_sink)
-              .url === 'string'
-              ? String(
-                  toObject(toObject(editor.definition).preview_http_sink).url,
-                )
-              : resolveDefaultPreviewHTTPSinkURL(),
-          array_mode: false,
-        },
-      },
-    }),
+    (): CreateSyncTaskRequest =>
+      buildTaskPayloadFromEditor(editor, customVariableRows),
     [customVariableRows, editor],
   );
 
   const persistCurrentFile = useCallback(
-    async (publishAfterSave = false) => {
+    async (
+      publishAfterSave = false,
+      options?: {reason?: 'manual' | 'autosave' | 'leave'},
+    ) => {
+      const reason = options?.reason || 'manual';
       if (!editor.name.trim()) {
-        toast.error(t('fileNameRequired'));
+        // 自动保存遇到无名文件时静默跳过，避免打扰；手动/离开仍提示。
+        // Skip nameless autosave quietly; still toast for manual/leave.
+        if (reason !== 'autosave') {
+          toast.error(t('fileNameRequired'));
+        }
         return null;
       }
       // 仅发布时强制要求正文；草稿允许空内容保存。
@@ -2835,15 +2869,26 @@ export function DataSyncStudio() {
         toast.error(t('fileContentRequired'));
         return null;
       }
+      // 自动保存路径严禁发布，双保险避免误传 publishAfterSave=true。
+      // Autosave must never publish — belt-and-suspenders against a true flag.
+      if (reason === 'autosave' && publishAfterSave) {
+        publishAfterSave = false;
+      }
       const customVariableError = validateCustomVariableRows(
         customVariableRowsRef.current,
         t,
       );
       if (customVariableError) {
-        toast.error(customVariableError);
+        if (reason !== 'autosave') {
+          toast.error(customVariableError);
+        } else {
+          setDraftSaveStatus('error');
+          toast.error(customVariableError);
+        }
         return null;
       }
       setSaving(true);
+      setDraftSaveStatus('saving');
       try {
         const payload = buildTaskPayload();
         let task: SyncTask;
@@ -2873,8 +2918,10 @@ export function DataSyncStudio() {
         } else {
           setTree((current) => patchTreeNode(current, task));
         }
+        setDraftSaveStatus('saved');
         return task;
       } catch (error) {
+        setDraftSaveStatus('error');
         toast.error(
           error instanceof Error ? error.message : t('saveFileFailed'),
         );
@@ -2883,8 +2930,186 @@ export function DataSyncStudio() {
         setSaving(false);
       }
     },
-    [buildTaskPayload, editor, loadWorkspace, markEditorDraft, syncOpenTabs],
+    [buildTaskPayload, editor, loadWorkspace, markEditorDraft, syncOpenTabs, t],
   );
+
+  useEffect(() => {
+    persistCurrentFileRef.current = persistCurrentFile;
+  }, [persistCurrentFile]);
+
+  // 当前可编辑草稿内容指纹：变更后触发防抖自动保存。
+  // Fingerprint of the active editable draft — changes schedule debounced autosave.
+  const currentDraftFingerprint = useMemo(() => {
+    if (!editor.id || editor.canEdit === false) {
+      return '';
+    }
+    return JSON.stringify({
+      id: editor.id,
+      name: editor.name,
+      description: editor.description,
+      clusterId: editor.clusterId,
+      content: editor.content,
+      definition: editor.definition,
+      rows: customVariableRows,
+    });
+  }, [
+    customVariableRows,
+    editor.canEdit,
+    editor.clusterId,
+    editor.content,
+    editor.definition,
+    editor.description,
+    editor.id,
+    editor.name,
+  ]);
+
+  useEffect(() => {
+    if (!editor.id || editor.canEdit === false || !isCurrentDirty) {
+      return;
+    }
+    if (!currentDraftFingerprint) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void persistCurrentFileRef.current?.(false, {reason: 'autosave'});
+    }, WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [
+    currentDraftFingerprint,
+    editor.canEdit,
+    editor.id,
+    isCurrentDirty,
+  ]);
+
+  /**
+   * 将内存中所有可编辑 dirty 草稿落盘（离开前「保存并离开」）。
+   * Persist every editable dirty in-memory draft (Save & Leave).
+   */
+  const persistAllDirtyDrafts = useCallback(async (): Promise<boolean> => {
+    const drafts = editorDraftsRef.current;
+    const dirtyEntries = Object.entries(drafts).filter(
+      ([, draft]) =>
+        Boolean(draft?.dirty) && draft.editor.canEdit !== false,
+    );
+    // 先保存当前编辑器（含未写入 drafts 竞态时的最新内容）。
+    // Persist the active editor first (latest content, including races not yet in drafts).
+    if (editor.id && editor.canEdit !== false && isCurrentDirty) {
+      const current = await persistCurrentFile(false, {reason: 'leave'});
+      if (!current) {
+        return false;
+      }
+    }
+    for (const [idText, draft] of dirtyEntries) {
+      const taskId = Number(idText);
+      if (editor.id && taskId === editor.id) {
+        continue;
+      }
+      if (!draft.editor.name.trim()) {
+        toast.error(t('fileNameRequired'));
+        setDraftSaveStatus('error');
+        return false;
+      }
+      const customVariableError = validateCustomVariableRows(
+        draft.customVariableRows,
+        t,
+      );
+      if (customVariableError) {
+        toast.error(customVariableError);
+        setDraftSaveStatus('error');
+        return false;
+      }
+      setDraftSaveStatus('saving');
+      setSaving(true);
+      try {
+        const payload = buildTaskPayloadFromEditor(
+          draft.editor,
+          draft.customVariableRows,
+        );
+        const task = await services.sync.updateTask(taskId, payload);
+        const savedEditor = extractEditorState(task);
+        const savedRows = extractVariableRowsFromDefinition(
+          task.definition || {},
+        );
+        markEditorDraft(taskId, savedEditor, savedRows, false);
+        setTree((current) => patchTreeNode(current, task));
+      } catch (error) {
+        setDraftSaveStatus('error');
+        toast.error(
+          error instanceof Error ? error.message : t('saveFileFailed'),
+        );
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    }
+    setDraftSaveStatus('saved');
+    return true;
+  }, [
+    editor.canEdit,
+    editor.id,
+    isCurrentDirty,
+    markEditorDraft,
+    persistCurrentFile,
+    t,
+  ]);
+
+  const discardAllDirtyDrafts = useCallback(() => {
+    setEditorDrafts({});
+    setDraftSaveStatus('idle');
+  }, []);
+
+  const hasUnsavedRisk = useMemo(
+    () =>
+      hasWorkbenchUnsavedRisk({
+        drafts: editorDrafts,
+        saveStatus: draftSaveStatus,
+      }),
+    [draftSaveStatus, editorDrafts],
+  );
+
+  // 只读当前文件且无其它可编辑脏草稿时不拦截（AC6）。
+  // Skip leave guard when the active file is read-only and no other editable dirty drafts (AC6).
+  const leaveGuardEnabled = useMemo(() => {
+    if (editor.canEdit === false) {
+      return Object.values(editorDrafts).some(
+        (draft) => Boolean(draft?.dirty) && draft.editor.canEdit !== false,
+      );
+    }
+    return true;
+  }, [editor.canEdit, editorDrafts]);
+
+  const leaveGuard = useWorkbenchLeaveGuard({
+    enabled: leaveGuardEnabled,
+    hasUnsavedRisk,
+  });
+
+  const handleLeaveStay = useCallback(() => {
+    leaveGuard.stay();
+  }, [leaveGuard]);
+
+  const handleLeaveSaveAndLeave = useCallback(async () => {
+    if (leaveActionBusy) {
+      return;
+    }
+    setLeaveActionBusy(true);
+    try {
+      const ok = await persistAllDirtyDrafts();
+      if (!ok) {
+        return;
+      }
+      leaveGuard.proceedToPending();
+    } finally {
+      setLeaveActionBusy(false);
+    }
+  }, [leaveActionBusy, leaveGuard, persistAllDirtyDrafts]);
+
+  const handleLeaveDiscardAndLeave = useCallback(() => {
+    if (leaveActionBusy) {
+      return;
+    }
+    discardAllDirtyDrafts();
+    leaveGuard.proceedToPending();
+  }, [discardAllDirtyDrafts, leaveActionBusy, leaveGuard]);
 
   const openTreeDialog = useCallback(
     (
@@ -3439,10 +3664,9 @@ export function DataSyncStudio() {
       toast.error(t('readOnlySaveTooltip'));
       return;
     }
-    const task = await persistCurrentFile(false);
-    if (task) {
-      toast.success(t('saveFileSuccess'));
-    }
+    // 与自动保存共用顶栏状态，成功不再额外 toast，避免双重打扰。
+    // Share top-bar status with autosave; skip success toast to avoid double noise.
+    await persistCurrentFile(false, {reason: 'manual'});
   };
 
   const handleOpenPublishDialog = () => {
@@ -3555,7 +3779,8 @@ export function DataSyncStudio() {
         formatSyncUserFacingError(error, t('dagParseFailedTitle'), t),
       );
       setDagOpen(true);
-      toast.error(error instanceof Error ? error.message : t('dagBuildFailed'));
+      // 详情已在限高弹窗里，不再把整段异常塞进 toast。
+      // Details stay in the height-capped dialog; do not dump the full exception into a toast.
     } finally {
       setActionPending((current) => (current === 'dag' ? null : current));
     }
@@ -3708,8 +3933,9 @@ export function DataSyncStudio() {
       setBottomConsoleTab('preview');
       toast.success(t('previewSubmitted'));
     } catch (error) {
-      const uiError = formatSyncUserFacingError(error, t('previewFailed'), t);
-      toast.error(uiError.description);
+      // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
+      // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
+      setActionError(formatSyncUserFacingError(error, t('previewFailed'), t));
     } finally {
       setActionPending((current) => (current === 'preview' ? null : current));
     }
@@ -3772,8 +3998,9 @@ export function DataSyncStudio() {
         );
       }
     } catch (error) {
-      const uiError = formatSyncUserFacingError(error, t('runFailed'), t);
-      toast.error(uiError.description);
+      // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
+      // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
+      setActionError(formatSyncUserFacingError(error, t('runFailed'), t));
     } finally {
       setActionPending((current) => (current === 'recover' ? null : current));
     }
@@ -3824,12 +4051,11 @@ export function DataSyncStudio() {
         setBottomConsoleTab('jobs');
         toast.success(t('recoverSubmitted'));
       } catch (error) {
-        const uiError = formatSyncUserFacingError(
-          error,
-          t('recoverActionLabel'),
-          t,
+        // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
+        // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
+        setActionError(
+          formatSyncUserFacingError(error, t('recoverActionLabel'), t),
         );
-        toast.error(uiError.description);
       } finally {
         setActionPending((current) => (current === 'recover' ? null : current));
       }
@@ -4329,9 +4555,42 @@ export function DataSyncStudio() {
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
       <Card className='gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
         <CardContent className='flex h-12 min-w-0 items-center justify-between gap-3 overflow-hidden px-3 py-1.5'>
-          {/* 左侧：任务面包屑导航与状态指示 / 权限角色胶囊 */}
-          {/* Left: Task breadcrumb navigation, status indicator, version & permission badges */}
+          {/* 左侧：顶栏最左端左栏开关（#110 AC11）+ 面包屑 / 状态 */}
+          {/* Left: leftmost left-sidebar toggle (#110 AC11) + breadcrumb / status */}
           <div className='flex min-w-0 items-center gap-2 text-xs'>
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  aria-label={
+                    isLeftSidebarCollapsed
+                      ? t('expandLeftSidebar')
+                      : t('collapseLeftSidebar')
+                  }
+                  aria-pressed={!isLeftSidebarCollapsed}
+                  data-testid='studio-toggle-left-sidebar'
+                  className={cn(
+                    'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
+                    // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
+                    !isLeftSidebarCollapsed &&
+                      'border-primary/40 bg-primary/10 text-primary',
+                  )}
+                  onClick={handleToggleLeftSidebar}
+                >
+                  {isLeftSidebarCollapsed ? (
+                    <PanelLeftOpen className='size-3.5' />
+                  ) : (
+                    <PanelLeftClose className='size-3.5' />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isLeftSidebarCollapsed
+                  ? t('expandLeftSidebar')
+                  : t('collapseLeftSidebar')}
+              </TooltipContent>
+            </Tooltip>
             <div className='flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/30 text-primary'>
               <Layers className='size-3.5' />
             </div>
@@ -4453,8 +4712,8 @@ export function DataSyncStudio() {
             </button>
           </div>
 
-          {/* 右侧：环境指示 + IDE 工具栏图标（测试连接/DAG/预览）+ 核心动作；单行 nowrap */}
-          {/* Right: env + IDE-style icon toolbar + primary cluster; single-row nowrap */}
+          {/* 右侧：环境指示 + IDE 工具栏 + 核心动作 + 顶栏最右端右栏开关（#110 AC11） */}
+          {/* Right: env + IDE toolbar + primary cluster + rightmost right-sidebar toggle (#110 AC11) */}
           <div className='flex shrink-0 flex-nowrap items-center justify-end gap-1.5'>
             {/* 环境指示（与顶栏控件统一 rounded-md / h-8） */}
             {/* Environment indicator (aligned rounded-md / h-8 with topbar controls) */}
@@ -4502,7 +4761,9 @@ export function DataSyncStudio() {
                       {actionPending === 'test_connections' ? (
                         <Loader2 className='size-3.5 animate-spin' />
                       ) : (
-                        <Database className='size-3.5' />
+                        // 测试连接空闲态用 PlugZap，避免 Database 被读成「数据库」入口（#110 AC8）
+                        // Idle test-connections uses PlugZap so Database is not read as a DB entry (#110 AC8)
+                        <PlugZap className='size-3.5' />
                       )}
                     </Button>
                   </span>
@@ -4581,9 +4842,18 @@ export function DataSyncStudio() {
 
             <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
 
-            {/* 核心动作组：保存 / 发布 / 运行 / 停止 — shrink-0 防止停止单独换行 */}
-            {/* Primary cluster: save / publish / run / stop — shrink-0 so Stop cannot wrap alone */}
+            {/* 核心动作组：保存状态 / 保存 / 发布 / 运行 / 停止 — shrink-0 防止停止单独换行 */}
+            {/* Primary cluster: save status / save / publish / run / stop — shrink-0 so Stop cannot wrap alone */}
             <div className='flex shrink-0 flex-nowrap items-center gap-1.5'>
+              <DraftSaveStatusBadge
+                status={draftSaveStatus}
+                onRetry={() => {
+                  if (editor.id && !editor.canEdit) {
+                    return;
+                  }
+                  void persistCurrentFile(false, {reason: 'manual'});
+                }}
+              />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
@@ -4598,6 +4868,7 @@ export function DataSyncStudio() {
                       )}
                       onClick={handleSave}
                       disabled={saving || !editor.name.trim() || !editor.canEdit}
+                      data-testid='studio-save-draft'
                     >
                       <Save className='size-3.5' />
                       {t('save')}
@@ -4732,6 +5003,44 @@ export function DataSyncStudio() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+
+            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
+
+            {/* 顶栏最右端：右侧高级配置开合（始终可见，#110 AC11） */}
+            {/* Rightmost topbar: right advanced sidebar toggle (always visible, #110 AC11) */}
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  aria-label={
+                    isRightSidebarCollapsed
+                      ? t('expandRightSidebar')
+                      : t('collapseRightSidebar')
+                  }
+                  aria-pressed={!isRightSidebarCollapsed}
+                  data-testid='studio-toggle-right-sidebar'
+                  className={cn(
+                    'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
+                    // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
+                    !isRightSidebarCollapsed &&
+                      'border-primary/40 bg-primary/10 text-primary',
+                  )}
+                  onClick={handleToggleRightSidebar}
+                >
+                  {isRightSidebarCollapsed ? (
+                    <PanelRightOpen className='size-3.5' />
+                  ) : (
+                    <PanelRightClose className='size-3.5' />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isRightSidebarCollapsed
+                  ? t('expandRightSidebar')
+                  : t('collapseRightSidebar')}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </CardContent>
       </Card>
@@ -4748,27 +5057,50 @@ export function DataSyncStudio() {
 
       <div
         className={cn(
-          'grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)_360px] gap-2 transition-all duration-200',
+          // 横向不用 gap：0px 收起列旁的 column-gap 会留细缝；展开侧用侧栏自身 mr/ml-2 补间距
+          // No horizontal gap: column-gap beside 0px tracks leaves a seam; open sides use mr/ml-2 on the panel
+          'grid min-h-0 min-w-0 flex-1 gap-y-2 transition-all duration-200',
           isConsoleMaximized
             ? 'grid-rows-[0px_minmax(0,1fr)]'
             : isConsoleExpanded
               ? 'grid-rows-[minmax(0,1fr)_390px]'
               : 'grid-rows-[minmax(0,1fr)_260px]',
         )}
+        style={{
+          // 收起列 0px 释放宽度；开关在顶栏两端（#110 AC11）；编辑列始终 minmax(0,1fr)。
+          // Collapsed tracks use 0px; toggles live on topbar ends (#110 AC11); editor stays minmax(0,1fr).
+          gridTemplateColumns: buildStudioGridTemplateColumns(
+            isLeftSidebarCollapsed,
+            isRightSidebarCollapsed,
+          ),
+          columnGap: 0,
+        }}
       >
-        <Card className='col-start-1 row-start-1 row-span-2 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs'>
+        <Card
+          data-studio-left-sidebar=''
+          className={cn(
+            'col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            isLeftSidebarCollapsed
+              ? 'pointer-events-none border-transparent opacity-0'
+              : studioSidebarOpenSpacingClass(false, 'left'),
+          )}
+          aria-hidden={isLeftSidebarCollapsed || undefined}
+          // inert：收起后移出 Tab 序（入口在顶栏，#110 AC11 / Codex P2）
+          // inert: drop collapsed subtree from tab order (toggle stays on topbar, #110 AC11 / Codex P2)
+          inert={isLeftSidebarCollapsed ? true : undefined}
+        >
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 资源管理器标题与工具栏 (VSCode 风格) */}
             {/* Explorer title and action toolbar (VSCode style) */}
             <div className='flex h-8.5 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
-              <div className='flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground/80'>
-                <FolderTree className='size-3.5 text-primary/80' />
-                <span>{t('resources')}</span>
+              <div className='flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground/80'>
+                <FolderTree className='size-3.5 shrink-0 text-primary/80' />
+                <span className='truncate'>{t('resources')}</span>
                 <span className='rounded-full bg-muted/60 px-1.5 py-0.2 font-mono text-[10px] font-normal text-muted-foreground'>
                   {fileCount}
                 </span>
               </div>
-              <div className='flex items-center gap-0.5'>
+              <div className='flex shrink-0 items-center gap-0.5'>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -4961,7 +5293,7 @@ export function DataSyncStudio() {
 
         <Card
           className={cn(
-            'col-start-2 row-start-1 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            'col-start-2 row-start-1 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
             isConsoleMaximized && 'hidden',
           )}
         >
@@ -5215,7 +5547,15 @@ export function DataSyncStudio() {
         </Card>
 
         <StudioSidebarShell
-          className='col-start-3 row-start-1 row-span-2'
+          data-studio-right-sidebar=''
+          className={cn(
+            'col-start-3 row-start-1 row-span-2 min-w-0 transition-all duration-200',
+            isRightSidebarCollapsed
+              ? 'pointer-events-none border-transparent opacity-0'
+              : studioSidebarOpenSpacingClass(false, 'right'),
+          )}
+          ariaHidden={isRightSidebarCollapsed}
+          inert={isRightSidebarCollapsed}
           contentMode={
             rightSidebarTab === 'templates' ? 'fill' : 'scroll'
           }
@@ -5375,7 +5715,7 @@ export function DataSyncStudio() {
 
         <Card
           className={cn(
-            'col-start-2 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            'col-start-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
             isConsoleMaximized ? 'row-start-1 row-span-2' : 'row-start-2',
           )}
         >
@@ -5846,6 +6186,15 @@ export function DataSyncStudio() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <StudioActionErrorDialog
+        error={actionError}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActionError(null);
+          }
+        }}
+      />
 
       <Dialog open={validationOpen} onOpenChange={setValidationOpen}>
         <DialogContent
@@ -6413,6 +6762,22 @@ export function DataSyncStudio() {
             : null;
           handleInlineCreateFolder(folderNode);
         }}
+      />
+
+      {/* 未落盘草稿离开确认 / Leave confirm when drafts are still unsaved */}
+      <WorkbenchLeaveDialog
+        open={leaveGuard.leaveDialogOpen}
+        busy={leaveActionBusy || draftSaveStatus === 'saving'}
+        onOpenChange={(open) => {
+          if (!open) {
+            handleLeaveStay();
+          }
+        }}
+        onStay={handleLeaveStay}
+        onSaveAndLeave={() => {
+          void handleLeaveSaveAndLeave();
+        }}
+        onDiscardAndLeave={handleLeaveDiscardAndLeave}
       />
     </div>
   );

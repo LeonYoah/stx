@@ -42,6 +42,12 @@ import {
 import {toast} from 'sonner';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {Input} from '@/components/ui/input';
 import {
   Table,
@@ -150,8 +156,9 @@ export function StudioErrorDiagnosticsView({
         </Button>
       </div>
 
-      {/* 核心错误描述 */}
-      <div className='rounded-md border border-destructive/15 bg-background/60 p-3 text-xs leading-relaxed text-foreground font-mono whitespace-pre-wrap break-all'>
+      {/* 核心错误描述：限高内滚，避免长堆栈把弹窗撑出视口 */}
+      {/* Core error text scrolls inside a cap so a long stack cannot stretch the dialog */}
+      <div className='max-h-[40vh] overflow-auto rounded-md border border-destructive/15 bg-background/60 p-3 text-xs leading-relaxed text-foreground font-mono whitespace-pre-wrap break-all'>
         {error.description}
       </div>
 
@@ -189,6 +196,35 @@ export function StudioErrorDiagnosticsView({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * 运行 / 预览 / 恢复失败的限高诊断弹窗，与 DAG 失败共用同一套诊断视图。
+ * Height-capped diagnostics dialog for run / preview / recover failures; same view as DAG failures.
+ */
+export function StudioActionErrorDialog({
+  error,
+  onOpenChange,
+}: {
+  error: UserFacingErrorState | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={error !== null} onOpenChange={onOpenChange}>
+      <DialogContent
+        aria-describedby={undefined}
+        data-testid='studio-action-error-dialog'
+        className='flex h-auto max-h-[85vh] w-[94vw] max-w-2xl flex-col overflow-hidden border border-border/80 p-6 shadow-2xl sm:max-w-2xl dark:border-border/60'
+      >
+        <DialogHeader className='shrink-0 pb-2'>
+          <DialogTitle>{error?.title ?? ''}</DialogTitle>
+        </DialogHeader>
+        <div className='min-h-0 flex-1 overflow-auto pr-1'>
+          <StudioErrorDiagnosticsView error={error} />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

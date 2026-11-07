@@ -51,7 +51,7 @@ cd "$BASE_DIR"
 FRONTEND_ENABLE="${FRONTEND_ENABLE:-true}"
 FRONTEND_PORT="${FRONTEND_PORT:-17880}"
 FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
-NEXT_PUBLIC_BACKEND_BASE_URL="${NEXT_PUBLIC_BACKEND_BASE_URL:-http://127.0.0.1:17800}"
+BACKEND_BASE_URL="${BACKEND_BASE_URL:-${NEXT_PUBLIC_BACKEND_BASE_URL:-http://127.0.0.1:17800}}"
 
 OBS_CLI=""
 while [[ $# -gt 0 ]]; do
@@ -74,7 +74,7 @@ Default: --observability auto (start local stack only if present and enabled in 
 Environment:
   START_OBSERVABILITY   Same as --observability (CLI wins)
   FRONTEND_PORT / FRONTEND_HOST / FRONTEND_ENABLE
-  NEXT_PUBLIC_BACKEND_BASE_URL
+  BACKEND_BASE_URL  (NEXT_PUBLIC_BACKEND_BASE_URL still accepted)
   CONFIG_PATH
 USAGE
       exit 0
@@ -148,7 +148,7 @@ start_frontend() {
     exit 1
   fi
 
-  setsid sh -c "exec env HOSTNAME=\"$FRONTEND_HOST\" PORT=\"$FRONTEND_PORT\" NEXT_PUBLIC_BACKEND_BASE_URL=\"$NEXT_PUBLIC_BACKEND_BASE_URL\" \"$FRONTEND_NODE_BIN\" \"$FRONTEND_SERVER\" >>\"$LOG_DIR/frontend.log\" 2>&1" < /dev/null &
+  setsid sh -c "exec env HOSTNAME=\"$FRONTEND_HOST\" PORT=\"$FRONTEND_PORT\" BACKEND_BASE_URL=\"$BACKEND_BASE_URL\" NEXT_PUBLIC_BACKEND_BASE_URL=\"$BACKEND_BASE_URL\" \"$FRONTEND_NODE_BIN\" \"$FRONTEND_SERVER\" >>\"$LOG_DIR/frontend.log\" 2>&1" < /dev/null &
   echo $! >"$pidfile"
   sleep 1
   if kill -0 "$(cat "$pidfile")" 2>/dev/null; then

@@ -793,7 +793,29 @@ if [[ "$LAYOUT" == "split" ]]; then
   # Docker Compose 包：先从单源模板渲染可观测性配置。
   if [[ -d "$ROOT_DIR/deploy/docker" ]]; then
     "$ROOT_DIR/install/observability/render.sh" docker "$ROOT_DIR/deploy/docker/observability"
-    tar -C "$ROOT_DIR/deploy" -czf "$OUTPUT_DIR/stx-docker-compose.tar.gz" docker
+    docker_stage="$STAGE_DIR/docker-pack"
+    rm -rf "$docker_stage"
+    mkdir -p "$docker_stage"
+    cp -a "$ROOT_DIR/deploy/docker" "$docker_stage/docker"
+    rm -rf "$docker_stage/docker/data"
+    mkdir -p "$docker_stage/docker/data"
+    if [[ -f "$ROOT_DIR/deploy/docker/data/.gitignore" ]]; then
+      cp "$ROOT_DIR/deploy/docker/data/.gitignore" "$docker_stage/docker/data/.gitignore"
+    fi
+    # 包内 config.yaml 只来自根目录 example，不另维护一份 Docker schema。
+    # Ship config.yaml copied from the root example; do not keep a Docker-specific schema.
+    rm -f "$docker_stage/docker/config.yaml" "$docker_stage/docker/config.example.yaml"
+    cp "$ROOT_DIR/config.example.yaml" "$docker_stage/docker/config.yaml"
+    # 解压后在 docker/ 目录启动，挂载改为 ./config.yaml。
+    # Tarball is started from docker/; rewrite the bind-mount default to ./config.yaml.
+    sed -i.bak 's|STX_CONFIG_FILE:-../../config.example.yaml|STX_CONFIG_FILE:-./config.yaml|' \
+      "$docker_stage/docker/compose.base.yml"
+    rm -f "$docker_stage/docker/compose.base.yml.bak"
+    if ! grep -q 'STX_CONFIG_FILE:-./config.yaml' "$docker_stage/docker/compose.base.yml"; then
+      echo "package-release: failed to rewrite docker config bind-mount for tarball" >&2
+      exit 1
+    fi
+    tar -C "$docker_stage" -czf "$OUTPUT_DIR/stx-docker-compose.tar.gz" docker
     write_sha256 "$OUTPUT_DIR/stx-docker-compose.tar.gz"
   fi
 

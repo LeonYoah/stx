@@ -21,6 +21,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/logger"
@@ -353,5 +356,73 @@ func decodeSTXJavaProxyStatus(clusterInfo *Cluster, node *NodeInfo, hostInfo *Ho
 			status.JvmOpts = proxyCfg.JvmOpts
 		}
 	}
+	// Agent 本机探活上报 127.0.0.1；控制面直连需改写为部署节点可达 IP（#115）。
+	// Agent reports loopback for local health checks; rewrite for Control Plane direct dial (#115).
+	status.Endpoint = advertiseSTXJavaProxyEndpoint(status.Endpoint, status.HostIP, status.Port)
 	return status
+}
+
+// advertiseSTXJavaProxyEndpoint 把环回 endpoint 改写成节点可达地址，供控制面直连 java-proxy。
+// advertiseSTXJavaProxyEndpoint rewrites a loopback endpoint to the node advertise IP for Control Plane dials.
+func advertiseSTXJavaProxyEndpoint(endpoint, hostIP string, port int) string {
+	raw := strings.TrimSpace(endpoint)
+	advertiseIP := strings.TrimSpace(hostIP)
+	if raw == "" || advertiseIP == "" {
+		return raw
+	}
+	if isLoopbackHost(advertiseIP) {
+		return raw
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		// 兼容无 scheme 的 host:port / bare host:port without a scheme.
+		host, portPart, splitErr := net.SplitHostPort(raw)
+		if splitErr != nil {
+			host = raw
+			portPart = ""
+		}
+		if !isLoopbackHost(host) {
+			return raw
+		}
+		if portPart == "" && port > 0 {
+			portPart = strconv.Itoa(port)
+		}
+		if portPart == "" {
+			return "http://" + advertiseIP
+		}
+		return "http://" + net.JoinHostPort(advertiseIP, portPart)
+	}
+
+	host := parsed.Hostname()
+	if !isLoopbackHost(host) {
+		return raw
+	}
+	portPart := parsed.Port()
+	if portPart == "" && port > 0 {
+		portPart = strconv.Itoa(port)
+	}
+	if portPart == "" {
+		parsed.Host = advertiseIP
+	} else {
+		parsed.Host = net.JoinHostPort(advertiseIP, portPart)
+	}
+	return parsed.String()
+}
+
+// isLoopbackHost 判断是否为环回地址（含 localhost / ::1）。
+// isLoopbackHost reports whether host is a loopback name or address.
+func isLoopbackHost(host string) bool {
+	h := strings.TrimSpace(strings.ToLower(host))
+	h = strings.Trim(h, "[]")
+	if h == "" {
+		return false
+	}
+	if h == "localhost" || h == "127.0.0.1" || h == "::1" || h == "0:0:0:0:0:0:0:1" {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }

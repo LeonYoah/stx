@@ -35,7 +35,6 @@ import {
   Download,
   Loader2,
   PackageOpen,
-  Upload,
 } from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
@@ -47,6 +46,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {FileUpload} from '@/components/ui/file-upload';
 import {Label} from '@/components/ui/label';
 import {
   Select,
@@ -269,36 +269,20 @@ export function OfflineBundleDialog({
                 <li>{t('offlineImportHintBundle')}</li>
                 <li>{t('offlineImportHintSingle')}</li>
               </ul>
-              <div>
-                <input
-                  id='offline-assets-import-input'
-                  type='file'
-                  accept='.tar.gz,application/gzip'
-                  className='hidden'
-                  disabled={importing}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null;
-                    e.target.value = '';
+              <FileUpload
+                id='offline-assets-import-input'
+                variant='button'
+                accept='.tar.gz,application/gzip'
+                uploading={importing}
+                resetOnSelect
+                buttonLabel={t('offlineImportChooseFile')}
+                data-testid='offline-assets-import'
+                onFileChange={(file) => {
+                  if (file) {
                     void handleImportFile(file);
-                  }}
-                />
-                <Button
-                  className='w-full'
-                  disabled={importing}
-                  onClick={() =>
-                    document
-                      .getElementById('offline-assets-import-input')
-                      ?.click()
                   }
-                >
-                  {importing ? (
-                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  ) : (
-                    <Upload className='mr-2 h-4 w-4' />
-                  )}
-                  {t('offlineImportChooseFile')}
-                </Button>
-              </div>
+                }}
+              />
               {onOpenSinglePackageUpload ? (
                 <Button
                   variant='link'

@@ -64,6 +64,7 @@ describe('PostLoginSplash', () => {
     destroy.mockReset();
     skip.mockReset();
     setWelcomeText.mockReset();
+    document.body.style.overflow = '';
   });
 
   it('starts engine, exposes skip, and cleans up on unmount', () => {
@@ -87,5 +88,39 @@ describe('PostLoginSplash', () => {
     fireEvent.keyDown(window, {key: 'Escape'});
     expect(skip).toHaveBeenCalled();
     expect(onDismiss).toHaveBeenCalled();
+  });
+
+  it('associates status text via aria-describedby and locks body scroll while open', () => {
+    const onDismiss = vi.fn();
+    const {unmount} = render(
+      <div>
+        <button type='button'>behind</button>
+        <PostLoginSplash onDismiss={onDismiss} />
+      </div>,
+    );
+
+    const dialog = screen.getByRole('dialog', {name: 'STX 开屏动画'});
+    const describedBy = dialog.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)).toHaveTextContent('正在播放');
+    expect(document.body.style.overflow).toBe('hidden');
+
+    unmount();
+    expect(document.body.style.overflow).toBe('');
+  });
+
+  it('marks sibling shell nodes inert while the overlay is mounted', () => {
+    const onDismiss = vi.fn();
+    const {unmount} = render(
+      <div>
+        <div data-testid='shell-sibling'>shell</div>
+        <PostLoginSplash onDismiss={onDismiss} />
+      </div>,
+    );
+
+    const sibling = screen.getByTestId('shell-sibling');
+    expect(sibling.inert).toBe(true);
+    unmount();
+    expect(sibling.inert).toBe(false);
   });
 });

@@ -17,6 +17,7 @@
 
 import {describe, expect, it} from 'vitest';
 import {
+  ASSET_LOAD_TIMEOUT_MS,
   REDUCED_MOTION_HOLD_MS,
   SPLASH_TIMELINE,
 } from '../meteor-intro-engine';
@@ -37,5 +38,10 @@ describe('SPLASH_TIMELINE (v4 prototype contract)', () => {
   it('keeps reduced-motion hold shorter than the full freeze', () => {
     expect(REDUCED_MOTION_HOLD_MS).toBeLessThan(SPLASH_TIMELINE.total);
     expect(REDUCED_MOTION_HOLD_MS).toBeGreaterThan(0);
+  });
+
+  it('keeps asset hang timeout finite and shorter than the full splash', () => {
+    expect(ASSET_LOAD_TIMEOUT_MS).toBe(2500);
+    expect(ASSET_LOAD_TIMEOUT_MS).toBeLessThan(SPLASH_TIMELINE.total);
   });
 });

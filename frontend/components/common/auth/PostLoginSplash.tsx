@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useCallback, useEffect, useRef} from 'react';
+import {useCallback, useEffect, useId, useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {MeteorIntroEngine} from '@/lib/splash/meteor-intro-engine';
 import {shouldReduceMotion} from '@/lib/animations/gsap-motion';
@@ -33,6 +33,8 @@ export type PostLoginSplashProps = {
  */
 export function PostLoginSplash({onDismiss}: PostLoginSplashProps) {
   const t = useTranslations('auth.splash');
+  const statusId = useId();
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<MeteorIntroEngine | null>(null);
   const skipBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -89,6 +91,24 @@ export function PostLoginSplash({onDismiss}: PostLoginSplashProps) {
     // 首焦落到可跳过控件，保证键盘可达 / Move initial focus to the skip control for keyboard access
     skipBtnRef.current?.focus();
 
+    // 锁 body 滚动，避免遮罩下工作台被滚走 / Lock body scroll so the workbench cannot scroll under the overlay
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    // 对同级主壳节点设 inert，避免焦点落到遮罩后的控件（不 inert 开屏自身）
+    // Mark sibling shell nodes inert so focus cannot land behind the overlay (never inert the splash itself)
+    const inerted: HTMLElement[] = [];
+    const root = rootRef.current;
+    const parent = root?.parentElement;
+    if (parent && root) {
+      for (const child of Array.from(parent.children)) {
+        if (child !== root && child instanceof HTMLElement) {
+          child.inert = true;
+          inerted.push(child);
+        }
+      }
+    }
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -106,6 +126,10 @@ export function PostLoginSplash({onDismiss}: PostLoginSplashProps) {
 
     return () => {
       window.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      for (const el of inerted) {
+        el.inert = false;
+      }
       engine.destroy();
       engineRef.current = null;
       const prev = previousFocusRef.current;
@@ -125,19 +149,23 @@ export function PostLoginSplash({onDismiss}: PostLoginSplashProps) {
 
   return (
     <div
+      ref={rootRef}
       className='fixed inset-0 z-[100] bg-[#05070c]'
       role='dialog'
       aria-modal='true'
       aria-label={t('ariaLabel')}
+      aria-describedby={statusId}
     >
       <canvas
         ref={canvasRef}
         className='absolute inset-0 h-full w-full'
         aria-hidden='true'
       />
-      {/* 装饰性 Canvas：对读屏隐藏，文案由 dialog 标签与欢迎字提供 */}
-      {/* Decorative canvas: hidden from AT; dialog label + welcome text carry meaning */}
-      <span className='sr-only'>{t('statusAnnouncement')}</span>
+      {/* 装饰性 Canvas：对读屏隐藏；说明文案经 aria-describedby 关联 dialog */}
+      {/* Decorative canvas: hidden from AT; status text is linked via aria-describedby */}
+      <span id={statusId} className='sr-only'>
+        {t('statusAnnouncement')}
+      </span>
       <button
         ref={skipBtnRef}
         type='button'

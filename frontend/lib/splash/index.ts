@@ -24,6 +24,7 @@ export {
 } from './post-login-splash-session';
 
 export {
+  ASSET_LOAD_TIMEOUT_MS,
   MeteorIntroEngine,
   REDUCED_MOTION_HOLD_MS,
   SPLASH_BG_SRC,

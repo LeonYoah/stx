@@ -34,6 +34,14 @@ const PostLoginSplash = dynamic(
 /**
  * 主壳门控：仅在会话 pending 时挂载开屏；失败/跳过/结束不阻塞工作台。
  * Main-shell gate: mount splash only when session pending; never block the workbench on failure/skip/end.
+ *
+ * W2 说明 / W2 note:
+ * StrictMode 会二次跑 effect，但会保留 state：第一次 consume 后 setActive(true)，
+ * 第二次 consume 为 false 时不会写回 false，因此不会「一定丢播」。
+ * 已用 StrictMode 单测验证。刻意不使用模块级 latch，以免布局软 remount / 切页误重播。
+ * StrictMode re-runs effects but preserves state: the first consume sets active true;
+ * the second consume returning false does not clear it — verified by StrictMode tests.
+ * We intentionally avoid a module-level latch that could replay across soft remounts / nav.
  */
 export function PostLoginSplashGate() {
   const [active, setActive] = useState(false);

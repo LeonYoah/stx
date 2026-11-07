@@ -45,12 +45,20 @@ const IMPACT_MS = 2100;
 /** reduced-motion 下终态短暂展示后自动结束，避免卡死 / Brief final-frame hold under reduced-motion before auto-finish */
 export const REDUCED_MOTION_HOLD_MS = 1200;
 
+/**
+ * 资源 onload/onerror 均未触发时的挂起超时；超时后按失败降级并启动时间轴，避免永久黑屏遮罩。
+ * Hang timeout when neither onload nor onerror fires; degrade as failure and start timeline so the overlay cannot block forever.
+ */
+export const ASSET_LOAD_TIMEOUT_MS = 2500;
+
 export type MeteorIntroEngineOptions = {
   canvas: HTMLCanvasElement;
   markSrc?: string;
   bgSrc?: string;
   welcomeText: string;
   reducedMotion?: boolean;
+  /** 测试或定制资源加载超时（毫秒） / Override asset hang timeout (ms) for tests or customization */
+  assetLoadTimeoutMs?: number;
   onComplete?: () => void;
   onFatalError?: (error: unknown) => void;
 };
@@ -149,6 +157,7 @@ export class MeteorIntroEngine {
   private readonly bgSrc: string;
   private welcomeText: string;
   private readonly reducedMotion: boolean;
+  private readonly assetLoadTimeoutMs: number;
   private readonly onComplete?: () => void;
   private readonly onFatalError?: (error: unknown) => void;
 
@@ -170,6 +179,7 @@ export class MeteorIntroEngine {
   private timelineStarted = false;
   private rafId: number | null = null;
   private reducedHoldTimer: ReturnType<typeof setTimeout> | null = null;
+  private assetLoadTimer: ReturnType<typeof setTimeout> | null = null;
   private completed = false;
   private destroyed = false;
   private markLoaded = false;
@@ -190,6 +200,7 @@ export class MeteorIntroEngine {
       options.reducedMotion ??
       (typeof window !== 'undefined' &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    this.assetLoadTimeoutMs = options.assetLoadTimeoutMs ?? ASSET_LOAD_TIMEOUT_MS;
     this.onComplete = options.onComplete;
     this.onFatalError = options.onFatalError;
   }
@@ -210,6 +221,24 @@ export class MeteorIntroEngine {
     try {
       this.paintLoading();
       window.addEventListener('resize', this.onResize);
+
+      // 挂起超时：永不 load/error 时仍降级开播，避免遮罩永久阻塞
+      // Hang timeout: if neither load nor error fires, degrade and start so the overlay cannot block forever
+      this.clearAssetLoadTimer();
+      this.assetLoadTimer = setTimeout(() => {
+        this.assetLoadTimer = null;
+        if (this.destroyed || this.timelineStarted) {
+          return;
+        }
+        if (!this.markLoaded) {
+          this.markLoaded = true;
+        }
+        if (!this.bgLoaded) {
+          this.bgReady = false;
+          this.bgLoaded = true;
+        }
+        this.tryStart();
+      }, this.assetLoadTimeoutMs);
 
       this.markImg = new Image();
       this.markImg.decoding = 'async';
@@ -261,6 +290,7 @@ export class MeteorIntroEngine {
       clearTimeout(this.reducedHoldTimer);
       this.reducedHoldTimer = null;
     }
+    this.clearAssetLoadTimer();
     window.removeEventListener('resize', this.onResize);
     if (this.markImg) {
       this.markImg.onload = null;
@@ -278,6 +308,13 @@ export class MeteorIntroEngine {
     this.trail = [];
     this.sparks = [];
     this.targets = [];
+  }
+
+  private clearAssetLoadTimer(): void {
+    if (this.assetLoadTimer != null) {
+      clearTimeout(this.assetLoadTimer);
+      this.assetLoadTimer = null;
+    }
   }
 
   private fail(error: unknown): void {
@@ -299,6 +336,7 @@ export class MeteorIntroEngine {
       clearTimeout(this.reducedHoldTimer);
       this.reducedHoldTimer = null;
     }
+    this.clearAssetLoadTimer();
     this.onComplete?.();
   }
 
@@ -309,6 +347,7 @@ export class MeteorIntroEngine {
     if (!(this.markLoaded && this.bgLoaded)) {
       return;
     }
+    this.clearAssetLoadTimer();
     this.startTimeline();
   }
 
@@ -354,26 +393,32 @@ export class MeteorIntroEngine {
     if (this.destroyed || this.completed) {
       return;
     }
-    if (!this.lastFrame) {
-      this.lastFrame = now;
-    }
-    const dt = Math.min(0.05, (now - this.lastFrame) / 1000);
-    this.lastFrame = now;
-    if (this.playing) {
-      this.tMs += dt * 1000;
-      if (this.tMs >= T.total) {
-        this.tMs = T.total;
-        this.playing = false;
-        this.render(this.tMs);
-        this.finish();
-        return;
+    try {
+      if (!this.lastFrame) {
+        this.lastFrame = now;
       }
+      const dt = Math.min(0.05, (now - this.lastFrame) / 1000);
+      this.lastFrame = now;
+      if (this.playing) {
+        this.tMs += dt * 1000;
+        if (this.tMs >= T.total) {
+          this.tMs = T.total;
+          this.playing = false;
+          this.render(this.tMs);
+          this.finish();
+          return;
+        }
+      }
+      if (this.tMs < IMPACT_MS) {
+        this.sparks = [];
+      }
+      this.render(this.tMs);
+      this.rafId = requestAnimationFrame((t) => this.frame(t));
+    } catch (error) {
+      // rAF 绘制异常不得停表卡死遮罩；fail-safe 结束开屏
+      // Drawing errors in rAF must not freeze the overlay; fail-safe dismisses the splash
+      this.fail(error);
     }
-    if (this.tMs < IMPACT_MS) {
-      this.sparks = [];
-    }
-    this.render(this.tMs);
-    this.rafId = requestAnimationFrame((t) => this.frame(t));
   }
 
   private resize(): void {

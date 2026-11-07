@@ -27,20 +27,19 @@ import {
   ChevronDown,
   ChevronRight,
   FileSearch,
-  Loader2,
   Package,
   PlugZap,
   RefreshCw,
   ServerCog,
   ShieldAlert,
 } from 'lucide-react';
-import {Button} from '@/components/ui/button';
-import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/arc/button/button';
+import {Badge} from '@/components/arc/badge/badge';
+import {ButtonGroup} from '@/components/arc/button-group/button-group';
 import {WorkspaceHeader} from '@/components/common/layout';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
@@ -373,7 +372,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
   // 零塌陷加载：首屏骨架屏占位 / Zero-collapse loading skeleton
   if (loading && !cluster) {
     return (
-      <div className='space-y-6' data-testid='upgrade-prepare-page'>
+      <div className='upgrade-page' data-testid='upgrade-prepare-page'>
         <WorkspaceHeader
           breadcrumbs={[
             {
@@ -389,7 +388,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
           subtitle={<span>{t('prepareDescription')}</span>}
         />
         <UpgradeSteps current='prepare' clusterId={clusterId} />
-        <div className='grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]'>
+        <div className='grid gap-3 xl:grid-cols-[420px_minmax(0,1fr)]'>
           <Card>
             <CardHeader>
               <Skeleton className='h-6 w-48' />
@@ -426,7 +425,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
   }
 
   return (
-    <div className='space-y-6' data-testid='upgrade-prepare-page'>
+    <div className='upgrade-page' data-testid='upgrade-prepare-page'>
       <WorkspaceHeader
         breadcrumbs={[
           {
@@ -440,31 +439,42 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
         icon={<FileSearch />}
         title={t('prepareTitle')}
         subtitle={
-          <>
-            <span>{t('prepareDescription')}</span>
-            {cluster ? (
-              <span className='mt-0.5 block'>
-                {cluster.name} · {t('currentVersion')}: {cluster.version || '-'}
-              </span>
-            ) : null}
-          </>
+          <span className='inline-flex flex-wrap items-center gap-1.5'>
+            <span>
+              {cluster
+                ? `${cluster.name} · ${t('currentVersion')}: ${cluster.version || '-'}`
+                : t('prepareStage')}
+            </span>
+            <HelpHint
+              label={t('prepareTitle')}
+              content={t('prepareDescription')}
+            />
+          </span>
         }
         actions={
-          <>
-            <Button
-              variant='outline'
-              onClick={() => router.push(`/clusters/${clusterId}`)}
-            >
-              <ArrowLeft className='mr-2 h-4 w-4' />
-              {t('backToCluster')}
-            </Button>
-            <Button variant='outline' onClick={handleClearDraft}>
-              {t('clearDraft')}
-            </Button>
-            {/* 只渲染一个 Button，状态变化时不重新挂载，键盘焦点不丢 */}
-            {/* A single Button so state changes do not remount it and keyboard focus stays */}
+          <div className='flex flex-wrap items-center gap-2'>
+            {/* 返回和清空是一组次要动作；继续单独用主按钮，禁用原因留在 tooltip。 */}
+            {/* Back and clear share one group. Continue stays a primary button so the blocked reason can sit on a tooltip. */}
+            <ButtonGroup
+              label={t('upgradeStagesAria')}
+              size='sm'
+              items={[
+                {
+                  id: 'back',
+                  label: t('backToCluster'),
+                  icon: <ArrowLeft />,
+                  onSelect: () => router.push(`/clusters/${clusterId}`),
+                },
+                {
+                  id: 'clear',
+                  label: t('clearDraft'),
+                  onSelect: handleClearDraft,
+                },
+              ]}
+            />
             <DisabledReasonTooltip reason={continueBlockedReason}>
               <Button
+                size='sm'
                 data-testid='upgrade-prepare-continue'
                 aria-disabled={continueBlockedReason ? 'true' : undefined}
                 onClick={(event) => {
@@ -478,7 +488,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                 {t('continueToConfig')}
               </Button>
             </DisabledReasonTooltip>
-          </>
+          </div>
         }
       />
 
@@ -495,11 +505,16 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
         </div>
       ) : null}
 
-      <div className='grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]'>
+      <div className='grid gap-3 xl:grid-cols-[420px_minmax(0,1fr)]'>
         <Card>
           <CardHeader>
-            <CardTitle>{t('upgradeInput')}</CardTitle>
-            <CardDescription>{t('upgradeInputDescription')}</CardDescription>
+            <CardTitle className='flex items-center gap-1.5'>
+              {t('upgradeInput')}
+              <HelpHint
+                label={t('upgradeInput')}
+                content={t('upgradeInputDescription')}
+              />
+            </CardTitle>
           </CardHeader>
           <CardContent className='space-y-4'>
             <div className='space-y-2'>
@@ -596,25 +611,24 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
 
             <Separator />
 
-            <div className='grid gap-3 sm:grid-cols-2'>
+            <div className='flex flex-wrap items-center gap-2'>
               <Button
-                variant='outline'
+                variant='secondary'
+                size='sm'
                 onClick={() => void loadInitialData()}
                 disabled={loading}
               >
-                <RefreshCw className='mr-2 h-4 w-4' />
+                <RefreshCw className='size-3.5' />
                 {commonT('refresh')}
               </Button>
               <Button
+                size='sm'
                 onClick={handleRunPrecheck}
                 data-testid='upgrade-prepare-run-precheck'
-                disabled={runningPrecheck || loading}
+                loading={runningPrecheck}
+                disabled={loading}
               >
-                {runningPrecheck ? (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                ) : (
-                  <ShieldAlert className='mr-2 h-4 w-4' />
-                )}
+                <ShieldAlert className='size-3.5' />
                 {runningPrecheck
                   ? t('runningPrecheck')
                   : precheck
@@ -625,7 +639,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
           </CardContent>
         </Card>
 
-        <div className='space-y-6'>
+        <div className='space-y-3'>
           <Card data-testid='upgrade-prepare-summary'>
             <CardHeader>
               <CardTitle>{t('precheckSummary')}</CardTitle>
@@ -640,7 +654,10 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                   <div className='flex flex-wrap items-center gap-2'>
                     <Badge
                       data-testid='upgrade-prepare-ready-badge'
-                      variant={precheck.ready ? 'default' : 'destructive'}
+                      tone={precheck.ready ? 'success' : 'danger'}
+                      outline
+                      dot
+                      size='sm'
                     >
                       {precheck.ready ? t('readyToPlan') : t('blocked')}
                     </Badge>
@@ -732,7 +749,9 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                                 category as BlockingIssue['category'],
                               )}
                             </div>
-                            <Badge variant='destructive'>{issues.length}</Badge>
+                            <Badge tone='danger' outline size='sm'>
+                              {issues.length}
+                            </Badge>
                           </div>
                           <ul className='space-y-2 text-sm text-muted-foreground'>
                             {issues.map((issue) => (
@@ -757,41 +776,45 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                   <div className='flex flex-wrap gap-2'>
                     {issuesByCategory.package ? (
                       <Button
-                        variant='outline'
+                        variant='secondary'
+                        size='sm'
                         onClick={() => router.push('/packages')}
                         data-testid='upgrade-prepare-go-packages'
                       >
-                        <Package className='mr-2 h-4 w-4' />
+                        <Package className='size-3.5' />
                         {t('goPackages')}
                       </Button>
                     ) : null}
                     {issuesByCategory.connector ? (
                       <Button
-                        variant='outline'
+                        variant='secondary'
+                        size='sm'
                         onClick={() => router.push('/plugins')}
                         data-testid='upgrade-prepare-go-plugins'
                       >
-                        <PlugZap className='mr-2 h-4 w-4' />
+                        <PlugZap className='size-3.5' />
                         {t('goPlugins')}
                       </Button>
                     ) : null}
                     {issuesByCategory.node ? (
                       <Button
-                        variant='outline'
+                        variant='secondary'
+                        size='sm'
                         onClick={() => router.push(`/clusters/${clusterId}`)}
                         data-testid='upgrade-prepare-resolve-node-issues'
                       >
-                        <ServerCog className='mr-2 h-4 w-4' />
+                        <ServerCog className='size-3.5' />
                         {t('resolveNodeIssues')}
                       </Button>
                     ) : null}
                     {issuesByCategory.config && hasConfigMissingIssue ? (
                       <Button
-                        variant='outline'
+                        variant='secondary'
+                        size='sm'
                         onClick={() => void handleInitClusterConfigs()}
                         data-testid='upgrade-prepare-init-configs'
+                        loading={initializingConfigs}
                         disabled={
-                          initializingConfigs ||
                           runningPrecheck ||
                           !precheck?.node_targets?.[0]?.source_install_dir
                         }
@@ -810,12 +833,17 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
           {precheck?.node_targets?.length ? (
             <Card data-testid='upgrade-prepare-node-targets'>
               <CardHeader>
-                <CardTitle>{t('nodeTargets')}</CardTitle>
-                <CardDescription>
-                  {isPrecheckStale
-                    ? t('nodeTargetsPreviewDescription')
-                    : t('nodeTargetsDescription')}
-                </CardDescription>
+                <CardTitle className='flex items-center gap-1.5'>
+                  {t('nodeTargets')}
+                  <HelpHint
+                    label={t('nodeTargets')}
+                    content={
+                      isPrecheckStale
+                        ? t('nodeTargetsPreviewDescription')
+                        : t('nodeTargetsDescription')
+                    }
+                  />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <Table>

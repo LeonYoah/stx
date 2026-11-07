@@ -76,7 +76,7 @@ export function VersionSidebarPanel({
       <div className='rounded-lg border border-border/60 bg-muted/10 p-3'>
         <div className='flex items-center justify-between gap-2'>
           <div>
-            <div className='flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground'>
+            <div className='flex items-center gap-1 text-[11px] font-medium text-muted-foreground'>
               <span>{t('versionManagement')}</span>
               <Tooltip>
                 <TooltipTrigger asChild>

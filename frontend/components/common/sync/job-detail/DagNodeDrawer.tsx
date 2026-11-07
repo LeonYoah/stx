@@ -20,13 +20,14 @@
 import {useEffect, useMemo, useState} from 'react';
 import {ChevronsLeft, ChevronsRight, ChevronsUpDown, Copy, RefreshCw, X} from 'lucide-react';
 import {useTranslations} from 'next-intl';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Command, CommandEmpty, CommandInput, CommandItem, CommandList} from '@/components/ui/command';
 import {Input} from '@/components/ui/input';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/components/ui/table';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
+import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/arc/tabs/tabs';
 import {HelpHint} from '@/components/common/HelpHint';
 import {cn} from '@/lib/utils';
 import type {SyncSinkSaveModePreviewTable} from '@/lib/services/sync';
@@ -276,22 +277,29 @@ export function DagNodeDrawer({
         </Button>
       </div>
 
-      <Tabs value={tab} onValueChange={(value) => setTab(value as DrawerTab)} className='flex min-h-0 flex-1 flex-col gap-0'>
-        <TabsList className='mx-3 mt-2 h-8 w-fit'>
-          <TabsTrigger value='overview' className='text-xs'>{t('tab.overview')}</TabsTrigger>
-          <TabsTrigger value='schema' className='text-xs' data-testid='dag-node-tab-schema'>{t('tab.schema')}</TabsTrigger>
-          {isSink ? <TabsTrigger value='plan' className='text-xs' data-testid='dag-node-tab-plan'>{t('tab.plan')}</TabsTrigger> : null}
-          {runtime ? <TabsTrigger value='metrics' className='text-xs'>{t('tab.metrics')}</TabsTrigger> : null}
+      <Tabs value={tab} onValueChange={(value) => setTab(value as DrawerTab)} className='flex min-h-0 flex-1 flex-col'>
+        <div className='px-3 pt-2'>
+        <TabsList aria-label={vertex.displayName}>
+          <TabsTrigger value='overview'>{t('tab.overview')}</TabsTrigger>
+          <TabsTrigger value='schema' data-testid='dag-node-tab-schema'>{t('tab.schema')}</TabsTrigger>
+          {isSink ? <TabsTrigger value='plan' data-testid='dag-node-tab-plan'>{t('tab.plan')}</TabsTrigger> : null}
+          {runtime ? <TabsTrigger value='metrics'>{t('tab.metrics')}</TabsTrigger> : null}
         </TabsList>
+        </div>
 
-        <TabsContent value='overview' className='min-h-0 flex-1 overflow-auto px-3 py-3'>
+        <TabsContent value='overview' className='mt-0! h-full min-h-0 flex-1 overflow-auto px-3 py-3'>
           <dl className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs'>
             <dt className='text-muted-foreground'>{t('rawName')}</dt>
             <dd className='flex min-w-0 items-start gap-1'>
               <span className='break-all font-mono'>{vertex.rawName}</span>
-              <button type='button' className='shrink-0 text-muted-foreground hover:text-foreground' onClick={() => copyText(vertex.rawName, t('copied'))} aria-label={t('copy')}>
-                <Copy className='size-3' />
-              </button>
+              <CopyButton
+                value={vertex.rawName}
+                label={t('copy')}
+                copiedLabel={t('copied')}
+                failedLabel={t('copyFailed')}
+                iconOnly
+                variant='plain'
+              />
             </dd>
             {vertex.metricPrefix ? (
               <>
@@ -344,7 +352,7 @@ export function DagNodeDrawer({
           ) : null}
         </TabsContent>
 
-        <TabsContent value='schema' className='min-h-0 flex-1 overflow-auto px-3 py-3'>
+        <TabsContent value='schema' className='mt-0! h-full min-h-0 flex-1 overflow-auto px-3 py-3'>
           {/* 说明放在页签内容的选表行末尾，不包在 TabsTrigger 外（Tooltip 的 data-state 会覆盖 Tabs 的 active 样式）；没有说明时不渲染 */}
           {/* The hint sits at the end of the table picker row instead of wrapping the TabsTrigger (Tooltip's data-state would override the tab's active styling); nothing is rendered without a hint */}
           {vertex.tablePaths.length > 0 || schemaHint ? (
@@ -355,9 +363,14 @@ export function DagNodeDrawer({
                 </div>
               ) : null}
               {table ? (
-                <Button variant='ghost' size='icon' className='size-8' onClick={() => copyText(table, t('copied'))} aria-label={t('copyTableName')}>
-                  <Copy className='size-3.5' />
-                </Button>
+                <CopyButton
+                  value={table}
+                  label={t('copyTableName')}
+                  copiedLabel={t('copied')}
+                  failedLabel={t('copyFailed')}
+                  iconOnly
+                  variant='plain'
+                />
               ) : null}
               {schemaHint ? (
                 <HelpHint side='left' label={t('tab.schema')} content={schemaHint} data-testid='dag-node-schema-hint' />
@@ -460,7 +473,7 @@ export function DagNodeDrawer({
         </TabsContent>
 
         {isSink ? (
-          <TabsContent value='plan' className='min-h-0 flex-1 overflow-auto px-3 py-3'>
+          <TabsContent value='plan' className='mt-0! h-full min-h-0 flex-1 overflow-auto px-3 py-3'>
             <div className={cn('flex items-center gap-2', vertex.tablePaths.length <= 1 && 'justify-end')}>
               {vertex.tablePaths.length > 1 ? (
                 <div className='min-w-0 flex-1'>
@@ -482,7 +495,7 @@ export function DagNodeDrawer({
         ) : null}
 
         {runtime ? (
-          <TabsContent value='metrics' className='min-h-0 flex-1 overflow-auto px-3 py-3'>
+          <TabsContent value='metrics' className='mt-0! h-full min-h-0 flex-1 overflow-auto px-3 py-3'>
             <div className='flex items-center gap-2'>
               <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('searchTables')} className='h-7 flex-1 text-xs' />
               <Button variant={metricSort === 'count' ? 'secondary' : 'ghost'} size='sm' className='h-7 text-xs' onClick={() => setMetricSort('count')}>

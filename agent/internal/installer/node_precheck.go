@@ -166,15 +166,14 @@ func CheckPathReady(path string) *NodePrecheckResult {
 		}
 	}
 
-	parent := filepath.Dir(normalized)
-	if parent == "." || parent == "" {
-		parent = "/"
-	}
+	// 安装用的是 MkdirAll：中间目录可以还不存在，真正要可写的是最近一个已经存在的祖先。
+	// Install uses MkdirAll: intermediate directories may be missing. The nearest existing ancestor must be writable.
+	parent := nearestExistingAncestor(normalized)
 	parentResult := CheckDirectoryExists(parent)
 	if !parentResult.Success {
 		return &NodePrecheckResult{
 			Success: false,
-			Message: fmt.Sprintf("Path %s does not exist and parent %s is not writable", trimmed, parent),
+			Message: fmt.Sprintf("Path %s does not exist and cannot be created: %s", trimmed, parentResult.Message),
 			Details: map[string]string{
 				"path":   trimmed,
 				"parent": parent,
@@ -189,6 +188,25 @@ func CheckPathReady(path string) *NodePrecheckResult {
 			"path":   trimmed,
 			"parent": parent,
 		},
+	}
+}
+
+// nearestExistingAncestor 从目标的父目录往上找，直到碰到已经存在的路径。
+// nearestExistingAncestor walks up from the target's parent until it finds a path that exists.
+func nearestExistingAncestor(path string) string {
+	parent := filepath.Dir(path)
+	if parent == "." || parent == "" {
+		return "/"
+	}
+	for {
+		if _, err := os.Stat(parent); err == nil || !os.IsNotExist(err) {
+			return parent
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			return parent
+		}
+		parent = next
 	}
 }
 

@@ -73,7 +73,30 @@ import {
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {HelpHint} from '@/components/common/HelpHint';
+import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {
+  ResizablePanel,
+  ResizablePanels,
+} from '@/components/arc/resizable-panels/resizable-panels';
+import {Pagination} from '@/components/ui/pagination';
 import {cn} from '@/lib/utils';
+import {
+  StudioSortableColumnHeader,
+  StudioTable,
+  StudioTableBody,
+  StudioTableCell,
+  StudioTableColumn,
+  StudioTableContent,
+  StudioTableEmpty,
+  StudioTableEmptyRow,
+  StudioTableFooter,
+  StudioTableHeader,
+  StudioTableRow,
+  StudioTableScroll,
+  applyStudioSort,
+  nextStudioSort,
+  type StudioSortDescriptor,
+} from './StudioDataTable';
 import type {
   RuntimeStorageCheckpointInspectResult,
   RuntimeStorageListItem,
@@ -171,6 +194,27 @@ export function renderCheckpointFieldValue(
   );
 }
 
+const PREVIEW_DATASET_SHARE_KEY = 'stx.studio.preview.datasetsShare';
+
+function readPreviewDatasetShare(): number {
+  if (typeof window === 'undefined') {
+    return 24;
+  }
+  const raw = Number(window.sessionStorage.getItem(PREVIEW_DATASET_SHARE_KEY));
+  if (!Number.isFinite(raw) || raw < 12 || raw > 60) {
+    return 24;
+  }
+  return raw;
+}
+
+function rememberPreviewDatasetShare(sizes: number[]) {
+  const share = sizes[0];
+  if (typeof window === 'undefined' || share === undefined || share < 12 || share > 60) {
+    return;
+  }
+  window.sessionStorage.setItem(PREVIEW_DATASET_SHARE_KEY, String(Math.round(share)));
+}
+
 export function PreviewWorkspacePanel({
   job,
   previewSnapshot,
@@ -194,9 +238,20 @@ export function PreviewWorkspacePanel({
 }) {
   const t = useTranslations('workbenchStudio');
   const [previewScriptOpen, setPreviewScriptOpen] = useState(false);
+  const [sort, setSort] = useState<StudioSortDescriptor | null>(null);
+  // 记住数据集栏的占比，刷新预览时不要把人拖过的宽度复位。
+  // Remember the dataset pane share so a preview refresh does not reset a dragged width.
+  const [datasetShare] = useState(readPreviewDatasetShare);
+
+  useEffect(() => {
+    setSort(null);
+  }, [selectedDatasetName]);
+
   if (!job) {
     return (
-      <div className='text-sm text-muted-foreground'>{t('noPreviewJobs')}</div>
+      <StudioTable label={t('preview')}>
+        <StudioTableEmpty>{t('noPreviewJobs')}</StudioTableEmpty>
+      </StudioTable>
     );
   }
   const activeDataset =
@@ -224,21 +279,42 @@ export function PreviewWorkspacePanel({
       ? t('preparingPreview')
       : t('noPreviewDataFallback');
   const pageSize = Math.max(activeDataset?.page_size || 20, 1);
-  const total = Math.max(activeDataset?.total || rows.length, rows.length);
+  const sortedRows = applyStudioSort(rows, sort, (row, key) => row[key]);
+  const total = Math.max(
+    activeDataset?.total || sortedRows.length,
+    sortedRows.length,
+  );
   const totalPages = Math.max(Math.ceil(total / pageSize), 1);
   const currentPage = Math.min(Math.max(previewPage, 1), totalPages);
-  const pageRows = rows.slice(
+  const pageRows = sortedRows.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
+  const showSkeleton = Boolean(loading) && columns.length === 0;
+  const skeletonColumns = 5;
+
   return (
-    <div className='grid h-full min-h-0 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]'>
-      <div className='flex min-h-0 flex-col rounded-lg border border-border/50 bg-muted/10 p-3'>
-        <div className='mb-3 shrink-0 text-sm font-medium'>
+    <div className='studio-preview-split'>
+      {/* 左右栏用 Arc ResizablePanels：拖动分隔条改宽度，拖过最小宽度或按 Enter 收起。 */}
+      {/* Arc ResizablePanels: drag the divider to resize, and drag past the minimum or press Enter to collapse. */}
+      <ResizablePanels
+        label={t('preview')}
+        onLayoutChange={rememberPreviewDatasetShare}
+      >
+      <ResizablePanel
+        id='preview-datasets'
+        label={t('tableTabs')}
+        defaultSize={datasetShare}
+        minSize={148}
+        maxSize={420}
+        collapsible
+      >
+      <div className='studio-preview-split__datasets h-full px-2 py-2'>
+        <div className='mb-2 shrink-0 px-1 text-xs font-medium text-muted-foreground'>
           {t('tableTabs')}
         </div>
         <ScrollArea className='min-h-0 flex-1'>
-          <div className='space-y-2 pr-2'>
+          <div className='space-y-0.5 pr-1'>
             {datasets.length > 0 ? (
               datasets.map((dataset) => (
                 <Tooltip key={dataset.name}>
@@ -246,18 +322,16 @@ export function PreviewWorkspacePanel({
                     <button
                       type='button'
                       title={dataset.name}
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm',
-                        dataset.name === activeDataset?.name
-                          ? 'border-primary/30 bg-primary/5'
-                          : 'border-border/50 bg-background/60',
-                      )}
+                      className='studio-preview-split__dataset'
+                      data-selected={
+                        dataset.name === activeDataset?.name ? 'true' : undefined
+                      }
                       onClick={() => onSelectDataset(dataset.name)}
                     >
                       <span className='min-w-0 truncate'>{dataset.name}</span>
-                      <Badge variant='outline'>
+                      <span className='shrink-0 font-mono text-[10px] text-muted-foreground'>
                         {dataset.total ?? (dataset.rows || []).length}
-                      </Badge>
+                      </span>
                     </button>
                   </TooltipTrigger>
                   <TooltipContent
@@ -269,75 +343,87 @@ export function PreviewWorkspacePanel({
                 </Tooltip>
               ))
             ) : (
-              <div className='rounded-md border border-border/50 bg-background/60 px-3 py-2 text-sm text-muted-foreground'>
+              <div className='px-2 py-2 text-xs text-muted-foreground'>
                 {t('noDatasets')}
               </div>
             )}
           </div>
         </ScrollArea>
       </div>
-      <div className='flex min-h-0 flex-col rounded-lg border border-border/50 bg-background/70'>
-        <div className='flex items-center justify-between border-b border-border/50 px-3 py-2 text-sm font-medium'>
-          <span>{t('dataTable')}</span>
-          <div className='flex items-center gap-2 text-xs text-muted-foreground'>
-            {previewContent ? (
-              <Button
-                size='sm'
-                variant='outline'
-                className='h-7 px-2 text-xs'
-                onClick={() => setPreviewScriptOpen(true)}
-              >
-                {t('injectedScript')}
-              </Button>
-            ) : null}
+      </ResizablePanel>
+      <ResizablePanel
+        id='preview-table'
+        label={t('dataTable')}
+        defaultSize={Math.max(100 - datasetShare, 40)}
+        minSize={240}
+      >
+      <StudioTable label={t('dataTable')} busy={Boolean(loading)}>
+        <div className='flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3'>
+          <span className='min-w-0 truncate text-xs font-medium'>
+            {activeDataset?.name || t('dataTable')}
+          </span>
+          {previewContent ? (
             <Button
               size='sm'
-              variant='outline'
-              className='h-7 px-2 text-xs'
-              onClick={() => onChangePage(Math.max(currentPage - 1, 1))}
-              disabled={currentPage <= 1}
+              variant='ghost'
+              className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground'
+              onClick={() => setPreviewScriptOpen(true)}
             >
-              {t('prevPage')}
+              {t('injectedScript')}
             </Button>
-            <span>
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              size='sm'
-              variant='outline'
-              className='h-7 px-2 text-xs'
-              onClick={() =>
-                onChangePage(Math.min(currentPage + 1, totalPages))
-              }
-              disabled={currentPage >= totalPages}
-            >
-              {t('nextPage')}
-            </Button>
-          </div>
+          ) : null}
         </div>
-        {loading ? (
-          <div className='flex min-h-0 flex-1 items-center justify-center'>
-            <div className='flex items-center gap-2 text-sm text-muted-foreground'>
-              <Loader2 className='size-4 animate-spin' />
-              <span>{t('preparingPreview')}</span>
-            </div>
-          </div>
+        <TableLoadingBar loading={Boolean(loading)} />
+        {showSkeleton ? (
+          <StudioTableScroll>
+            <StudioTableContent>
+              <StudioTableHeader>
+                {Array.from({length: skeletonColumns}).map((_, index) => (
+                  <StudioTableColumn key={index}>
+                    <span className='sr-only'>{t('columns')}</span>
+                  </StudioTableColumn>
+                ))}
+              </StudioTableHeader>
+              <StudioTableBody>
+                <TableSkeletonRows
+                  columns={skeletonColumns}
+                  rows={6}
+                  rowHeight='h-8'
+                />
+              </StudioTableBody>
+            </StudioTableContent>
+          </StudioTableScroll>
         ) : columns.length > 0 ? (
-          <div className='min-h-0 flex-1 overflow-auto'>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {columns.map((column) => (
-                    <TableHead key={column}>{column}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          <StudioTableScroll>
+            <StudioTableContent minWidth={Math.max(columns.length * 120, 480)}>
+              <StudioTableHeader>
+                {columns.map((column) => (
+                  <StudioTableColumn
+                    key={column}
+                    allowsSorting
+                    sortDirection={
+                      sort?.key === column ? sort.direction : undefined
+                    }
+                  >
+                    <StudioSortableColumnHeader
+                      label={column}
+                      sortDirection={
+                        sort?.key === column ? sort.direction : undefined
+                      }
+                      aria-label={t('sortColumn', {column})}
+                      onSort={() =>
+                        setSort((current) => nextStudioSort(current, column))
+                      }
+                    />
+                  </StudioTableColumn>
+                ))}
+              </StudioTableHeader>
+              <StudioTableBody dimmed={Boolean(loading)}>
                 {pageRows.length > 0 ? (
                   pageRows.map((row, index) => (
-                    <TableRow key={index}>
+                    <StudioTableRow key={index}>
                       {columns.map((column) => (
-                        <TableCell key={`${index}-${column}`}>
+                        <StudioTableCell key={`${index}-${column}`}>
                           {column === 'RowKind' ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -360,7 +446,7 @@ export function PreviewWorkspacePanel({
                           ) : (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className='block truncate'>
+                                <span className='block max-w-[22rem] truncate'>
                                   {formatCellValue(row[column])}
                                 </span>
                               </TooltipTrigger>
@@ -369,29 +455,35 @@ export function PreviewWorkspacePanel({
                               </TooltipContent>
                             </Tooltip>
                           )}
-                        </TableCell>
+                        </StudioTableCell>
                       ))}
-                    </TableRow>
+                    </StudioTableRow>
                   ))
                 ) : (
-                  <TableRow>
-                    <TableCell
-                      colSpan={columns.length}
-                      className='text-center text-muted-foreground'
-                    >
-                      {t('noPreviewDataFallback')}
-                    </TableCell>
-                  </TableRow>
+                  <StudioTableEmptyRow colSpan={columns.length}>
+                    {t('noPreviewDataFallback')}
+                  </StudioTableEmptyRow>
                 )}
-              </TableBody>
-            </Table>
-          </div>
+              </StudioTableBody>
+            </StudioTableContent>
+          </StudioTableScroll>
         ) : (
-          <div className='flex min-h-0 flex-1 items-center justify-center p-3 text-sm text-muted-foreground'>
-            {previewEmptyMessage}
-          </div>
+          <StudioTableEmpty>{previewEmptyMessage}</StudioTableEmpty>
         )}
-      </div>
+        <StudioTableFooter>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={total}
+            onPageChange={onChangePage}
+            showPageSizeSelector={false}
+            className='w-full gap-2'
+          />
+        </StudioTableFooter>
+      </StudioTable>
+      </ResizablePanel>
+      </ResizablePanels>
       <Dialog open={previewScriptOpen} onOpenChange={setPreviewScriptOpen}>
         <DialogContent className='flex h-[86vh] w-[94vw] max-w-[94vw] flex-col overflow-hidden sm:max-w-[1380px]'>
           <DialogHeader>

@@ -25,7 +25,7 @@
 
 'use client';
 
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {usePackages} from '@/hooks/use-installer';
 import {
@@ -91,6 +91,7 @@ import {
 } from '@/components/ui/tooltip';
 import {
   buildSeatunnelInstallDir,
+  nextEventChannelEnabled,
   resolveSeatunnelVersionCapabilities,
 } from '@/lib/seatunnel-version';
 
@@ -146,6 +147,10 @@ export function ConfigStep({
     () => resolveSeatunnelVersionCapabilities(packages, config.version),
     [packages, config.version],
   );
+  const eventChannelUserSet = useRef(false);
+  const eventChannelSupported = Boolean(
+    versionCapabilities?.supports_event_channel,
+  );
 
   // Unsupported SeaTunnel versions cannot use per_job; coerce to mixed.
   // 不支持的 SeaTunnel 版本无法使用 per_job，回退为 mixed。
@@ -160,6 +165,28 @@ export function ConfigStep({
       runtime: {
         ...config.runtime,
         job_log_mode: 'mixed',
+      },
+    });
+  }, [versionCapabilities]);
+
+  // 3.0 及以上默认勾选事件通道；用户改过之后保留选择。低于 3.0 不写。
+  // 3.0+ defaults the event channel on; a user change is kept. Older versions leave it off.
+  useEffect(() => {
+    if (!versionCapabilities) {
+      return;
+    }
+    const next = nextEventChannelEnabled(
+      versionCapabilities.supports_event_channel,
+      config.runtime.enable_event_channel,
+      eventChannelUserSet.current,
+    );
+    if (next === config.runtime.enable_event_channel) {
+      return;
+    }
+    onConfigChange({
+      runtime: {
+        ...config.runtime,
+        enable_event_channel: next,
       },
     });
   }, [versionCapabilities]);
@@ -714,6 +741,60 @@ export function ConfigStep({
             })
           }
         />
+
+        {eventChannelSupported && (
+          <Card>
+            <CardHeader className='pb-3'>
+              <CardTitle className='text-base flex items-center gap-2'>
+                <Server className='h-4 w-4' />
+                {t('installer.eventChannel.title')}
+                <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type='button'
+                      data-testid='install-event-channel-version-badge'
+                      className='inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                    >
+                      <Badge variant='outline' className='text-[10px] font-normal'>
+                        {t('installer.eventChannel.versionBadge')}
+                      </Badge>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className='max-w-xs text-xs leading-relaxed'>
+                    {t('installer.eventChannel.description')}
+                  </TooltipContent>
+                </Tooltip>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className='flex items-center gap-2 rounded-md border p-3'>
+                <label className='flex items-center gap-3'>
+                  <Checkbox
+                    data-testid='install-event-channel-enable'
+                    checked={config.runtime.enable_event_channel}
+                    onCheckedChange={(checked) => {
+                      eventChannelUserSet.current = true;
+                      onConfigChange({
+                        runtime: {
+                          ...config.runtime,
+                          enable_event_channel: checked === true,
+                        },
+                      });
+                    }}
+                  />
+                  <span className='text-sm font-medium'>
+                    {t('installer.eventChannel.enableLabel')}
+                  </span>
+                </label>
+                <HelpHint
+                  label={t('installer.eventChannel.enableLabel')}
+                  content={t('installer.eventChannel.enableHint')}
+                  data-testid='install-event-channel-enable-hint'
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {httpSupported && (
           <Card>

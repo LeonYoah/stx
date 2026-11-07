@@ -28,6 +28,13 @@
   --control-height-sm: 1.75rem;
 }
 
+/* 详情页签和右侧「快照 | 趋势」同一行高，避免再叠成两条导航。 */
+/* Detail tabs and the snapshot/trend switch share one row height, so they do not stack as two navs. */
+.studio-detail-tabs {
+  --control-height-md: 2rem;
+  --control-height-sm: 2rem;
+}
+
 .studio-search-field > div {
   gap: 0;
 }
@@ -82,6 +89,7 @@
   top: 0;
   z-index: 1;
   height: 2rem;
+  min-width: 7rem;
   padding: 0.25rem 0.625rem;
   text-align: left;
   vertical-align: middle;

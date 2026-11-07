@@ -281,6 +281,7 @@ import {
   LOG_CHUNK_MAX_BYTES,
   WORKSPACE_NAME_PATTERN,
   WORKSPACE_TABS_STORAGE_KEY,
+  DEFAULT_STUDIO_LAYOUT_PREFS,
   buildStudioGridTemplateColumns,
   readStudioLayoutPrefs,
   studioSidebarOpenSpacingClass,
@@ -651,21 +652,29 @@ export function DataSyncStudio() {
   // Bottom console height mode: default 260px, expanded 390px
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
 
-  // 左右侧栏独立开合：无记录时左展开、右收起；之后记住上次（#110；无专注模式）
-  // Independent left/right collapse: no record → left open / right collapsed; then remember (#110; no Focus Mode)
-  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(() =>
-    readStudioLayoutPrefs().leftCollapsed,
+  // 左右侧栏独立开合：无记录时左展开、右收起；之后记住上次（#110；无专注模式）。
+  // 首帧固定用默认值。useState 里读 localStorage 会让「客户端已记住右侧展开」和
+  // 服务端默认「右侧收起」对不上，水合改掉开关的 aria-label 和图标，Next 弹出红色报错层，按钮也点不了。
+  // Independent left/right collapse: no record → left open / right collapsed; then remember (#110; no Focus Mode).
+  // First paint stays on the defaults. Reading localStorage in useState mismatches SSR when the
+  // client remembers an open right sidebar, hydrates a different toggle label and icon, and Next
+  // covers the page with its red error overlay so the button cannot be clicked.
+  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(
+    DEFAULT_STUDIO_LAYOUT_PREFS.leftCollapsed,
   );
-  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(() =>
-    readStudioLayoutPrefs().rightCollapsed,
+  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(
+    DEFAULT_STUDIO_LAYOUT_PREFS.rightCollapsed,
   );
   const studioLayoutHydratedRef = useRef(false);
 
   useEffect(() => {
-    // 跳过首帧写入，保留「无记录 → 左展开 / 右收起」语义，直到用户真正切换开合。
-    // Skip the first write so "no record → left open / right collapsed" stays until the user toggles.
+    // 挂载后再套用上次开合，并跳过这次写入，避免把默认值盖掉已记住的偏好。
+    // Apply the remembered layout after mount, and skip that write so defaults do not clobber it.
     if (!studioLayoutHydratedRef.current) {
       studioLayoutHydratedRef.current = true;
+      const prefs = readStudioLayoutPrefs();
+      setIsLeftSidebarCollapsed(prefs.leftCollapsed);
+      setIsRightSidebarCollapsed(prefs.rightCollapsed);
       return;
     }
     writeStudioLayoutPrefs({

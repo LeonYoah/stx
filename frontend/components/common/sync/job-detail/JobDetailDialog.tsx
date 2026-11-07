@@ -24,7 +24,9 @@ import {useTranslations} from 'next-intl';
 import {Badge, type BadgeTone} from '@/components/arc/badge/badge';
 import {Button} from '@/components/arc/button/button';
 import {CopyButton} from '@/components/arc/copy-button/copy-button';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/arc/tabs/tabs';
+import {HelpHint} from '@/components/common/HelpHint';
 import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} from '@/components/ui/dialog';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
@@ -144,8 +146,10 @@ export function JobDetailDialog({
   monacoTheme: string;
 }) {
   const t = useTranslations('workbenchStudio.jobDetail');
+  const tMetrics = useTranslations('workbenchStudio.jobDetail.metricsView');
   const tStudio = useTranslations('workbenchStudio');
   const [errorExpanded, setErrorExpanded] = useState(false);
+  const [metricsView, setMetricsView] = useState<'snapshot' | 'trend'>('snapshot');
 
   const jobDag = job?.result_preview?.job_dag;
   const envOptions = useMemo(() => normalizeJobDag(jobDag).envOptions, [jobDag]);
@@ -259,7 +263,8 @@ export function JobDetailDialog({
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={(value) => onTabChange(value as JobDetailTab)} className='flex min-h-0 flex-1 flex-col'>
-          <div className='px-5 pt-2.5'>
+          <div className='studio-detail-tabs flex min-w-0 items-center gap-3 px-5 pt-2.5'>
+          <div className='min-w-0'>
           <TabsList aria-label={t('title', {id: job.id})}>
             <TabsTrigger value='topology'>{t('tabs.topology')}</TabsTrigger>
             <TabsTrigger value='metrics'>{t('tabs.metrics')}</TabsTrigger>
@@ -279,6 +284,24 @@ export function JobDetailDialog({
             <TabsTrigger value='script'>{t('tabs.script')}</TabsTrigger>
           </TabsList>
           </div>
+          {tab === 'metrics' ? (
+            <div className='ml-auto flex shrink-0 items-center gap-1.5'>
+              <SegmentedControl
+                label={t('tabs.metrics')}
+                value={metricsView}
+                onValueChange={(value) => setMetricsView(value as 'snapshot' | 'trend')}
+                options={[
+                  {value: 'snapshot', label: tMetrics('snapshot')},
+                  {value: 'trend', label: tMetrics('trend')},
+                ]}
+              />
+              <HelpHint
+                label={t('tabs.metrics')}
+                content={metricsView === 'snapshot' ? tMetrics('snapshotHint') : tMetrics('trendHint')}
+              />
+            </div>
+          ) : null}
+          </div>
 
           <div className='min-h-0 flex-1 px-5 pb-4'>
             <TabsContent value='topology' className='mt-0! h-full min-h-0 overflow-hidden'>
@@ -296,7 +319,7 @@ export function JobDetailDialog({
               )}
             </TabsContent>
             <TabsContent value='metrics' className='mt-0! flex h-full min-h-0 flex-col overflow-hidden'>
-              {tab === 'metrics' ? <JobMetricsPanel job={job} active={tab === 'metrics'} /> : null}
+              {tab === 'metrics' ? <JobMetricsPanel job={job} active={tab === 'metrics'} view={metricsView} /> : null}
             </TabsContent>
             <TabsContent value='checkpoint' className='mt-0! h-full min-h-0 overflow-auto'>
               {tab === 'checkpoint' ? checkpointSlot : null}

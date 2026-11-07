@@ -11,7 +11,7 @@
 .item[data-state="done"]:not([data-tone="danger"]) .icon { color: var(--success); }
 .item[aria-busy="true"] { cursor: progress; }
 .item[aria-busy="true"] .icon { animation: busy 1.1s var(--ease-in-out) infinite; }
-.item[aria-disabled="true"] { cursor: not-allowed; color: var(--text-muted); opacity: .5; }
+.item[aria-disabled="true"] { cursor: default; color: var(--text-muted); opacity: .5; }
 .item[aria-disabled="true"][data-expanded] { background: var(--surface-muted); color: var(--text-secondary); }
 :global(:root[data-theme="dark"]) .item[data-tone="danger"][data-expanded] { background: color-mix(in oklab, var(--danger) 14%, var(--surface)); }
 :global(:root[data-theme="dark"]) .item[data-state="done"]:not([data-tone="danger"]) { background: color-mix(in oklab, var(--success) 14%, var(--surface)); }

@@ -17,39 +17,27 @@
 
 'use client';
 
-import {useState} from 'react';
-import {useTranslations} from 'next-intl';
-import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {MetricsDialogContent} from '../StudioDialogs';
 import type {SyncJobInstance} from '@/lib/services/sync';
 import {MetricsTrendView} from './MetricsTrendView';
 
-type MetricsView = 'snapshot' | 'trend';
+export type MetricsView = 'snapshot' | 'trend';
 
 /**
- * 指标页签：顶部「快照 | 趋势」分段；快照复用现有指标 UI，趋势走 Prometheus 时序。
- * Metrics tab: top "Snapshot | Trend" segment; snapshot reuses the existing metrics UI, trend uses Prometheus timeseries.
+ * 指标页签内容。快照 / 趋势切换放在详情页签同一行右侧，避免再叠一条分段条。
+ * Metrics body. Snapshot / trend sits on the detail tab row, so it does not stack as a second strip.
  */
-export function JobMetricsPanel({job, active}: {job: SyncJobInstance | null; active: boolean}) {
-  const t = useTranslations('workbenchStudio.jobDetail.metricsView');
-  const [view, setView] = useState<MetricsView>('snapshot');
-
+export function JobMetricsPanel({
+  job,
+  active,
+  view,
+}: {
+  job: SyncJobInstance | null;
+  active: boolean;
+  view: MetricsView;
+}) {
   return (
-    <div className='flex h-full min-h-0 flex-col gap-2'>
-      <div className='flex shrink-0 items-center gap-3'>
-        <SegmentedControl
-          label={`${t('snapshot')} / ${t('trend')}`}
-          value={view}
-          onValueChange={(value) => setView(value as MetricsView)}
-          options={[
-            {value: 'snapshot', label: t('snapshot')},
-            {value: 'trend', label: t('trend')},
-          ]}
-        />
-        <span className='text-xs text-muted-foreground'>
-          {view === 'snapshot' ? t('snapshotHint') : t('trendHint')}
-        </span>
-      </div>
+    <div className='flex h-full min-h-0 flex-col'>
       <div className='min-h-0 flex-1 overflow-auto'>
         {view === 'snapshot' ? (
           <MetricsDialogContent job={job} />

@@ -17,7 +17,7 @@
 .trigger:active { color: var(--foreground); }.trigger[data-state="active"] { color: var(--accent-strong); }
 .selection { position: absolute; z-index: -1; inset: 0; border: 1px solid var(--border); border-radius: inherit; background: var(--surface); box-shadow: var(--shadow-resting); will-change: transform; }
 .triggerLabel { position: relative; z-index: 1; }
-.trigger:disabled { cursor: not-allowed; opacity: .5; }
+.trigger:disabled { cursor: default; opacity: .5; }
 .content { margin-top: var(--space-4); color: var(--text-secondary); font-size: var(--text-sm); line-height: var(--leading-body); }
 /* The outgoing panel is lifted out of flow by the presence animation; drop its margin so it stays in place and ignore stray clicks. */
 .content[data-motion-pop-id] { margin-top: 0; }

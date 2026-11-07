@@ -19,9 +19,11 @@
 .iconOnly { width: calc(var(--bg-h) - 2px); padding: 0; }
 .trigger { width: calc(var(--bg-h) - 6px); min-width: 0; padding: 0; color: var(--bg-muted-ink); transition: color var(--duration-fast) var(--ease-standard); }
 .trigger[data-state="open"] { color: inherit; }
-.segment[aria-disabled="true"] { cursor: not-allowed; }
+/* 禁用用默认箭头。not-allowed 在当前系统光标里是一块红色禁止标，悬在按钮上很突兀。
+   Disabled uses the default arrow. not-allowed paints a large red prohibition cursor on this system. */
+.segment[aria-disabled="true"] { cursor: default; }
 .segment[aria-disabled="true"] .content { opacity: .4; }
-.group[aria-disabled="true"] .segment { cursor: not-allowed; }
+.group[aria-disabled="true"] .segment { cursor: default; }
 /* Collapsed rows keep the icon and drop the label; the label moves to aria-label and the tooltip. */
 .compact .segment[data-collapsible] { width: calc(var(--bg-h) - 2px); padding: 0; }
 .compact .label[data-collapsible] { display: none; }

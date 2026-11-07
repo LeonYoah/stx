@@ -55,7 +55,7 @@
   transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 .trigger:active:not(:disabled) { background: color-mix(in oklab, var(--foreground) 9%, transparent); transition-duration: 0ms; }
-.trigger:disabled { color: var(--text-muted); cursor: not-allowed; }
+.trigger:disabled { color: var(--text-muted); cursor: default; }
 .trigger:disabled .icon { opacity: .7; }
 .icon { display: grid; width: 16px; height: 16px; place-items: center; color: var(--text-secondary); }
 .trigger:disabled .icon { color: inherit; }

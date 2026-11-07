@@ -18,7 +18,7 @@
   .secondary .primary:hover:not(:disabled), .secondary .trigger:hover:not(:disabled) { background: var(--surface-muted); }
 }
 .primary:active:not(:disabled), .trigger:active:not(:disabled), .trigger[data-state="open"] { background: color-mix(in oklab, var(--foreground) 80%, var(--background)); }
-.primary:disabled, .trigger:disabled { cursor: not-allowed; opacity: .52; }
+.primary:disabled, .trigger:disabled { cursor: default; opacity: .52; }
 .secondary { border-color: var(--border); border-radius: var(--radius-pill); background: var(--surface); }
 .secondary .primary, .secondary .trigger { min-height: var(--control-height-sm); background: var(--surface); color: var(--foreground); }
 .secondary .primary { min-width: 142px; border-radius: var(--radius-pill) 0 0 var(--radius-pill); padding-inline: var(--space-3); font-size: var(--text-xs); }

@@ -5368,5 +5368,10 @@
     "versionLoading": "获取版本中…",
     "versionUnavailable": "版本未取到",
     "effectiveVersionValue": "Java {version}"
+  },
+  "splash": {
+    "welcomeBack": "欢迎回来",
+    "skip": "跳过",
+    "ariaLabel": "欢迎动画"
   }
 }

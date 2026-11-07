@@ -249,3 +249,21 @@ html[lang='en'] {
   /* bg-gray-700 */
   color: var(--sidebar-primary-foreground);
 }
+
+/*
+ * 登录开屏首帧遮罩：<head> 内联脚本命中后给 <html> 打上 data-stx-splash，
+ * 在 React 接手前先用纯黑盖住页面，避免首页先闪现。
+ * Login splash pre-paint cover: once the <head> boot script marks <html>
+ * with data-stx-splash, solid black hides the page until React takes over.
+ */
+html[data-stx-splash] body {
+  overflow: hidden;
+}
+
+html[data-stx-splash] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  background: #000;
+}

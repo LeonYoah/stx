@@ -115,6 +115,9 @@ func TestGetSTXJavaProxyStatusUsesOnlineMasterNode(t *testing.T) {
 	if !status.Healthy || !status.Running {
 		t.Fatalf("expected running healthy status, got %#v", status)
 	}
+	if status.Endpoint != "http://10.0.0.1:18080" {
+		t.Fatalf("expected loopback endpoint rewritten to host IP, got %q", status.Endpoint)
+	}
 	if agentSender.lastCommand != "status" {
 		t.Fatalf("expected status command, got %s", agentSender.lastCommand)
 	}
@@ -378,4 +381,67 @@ func TestEnsureSTXJavaProxyOnHostStartsOnlyLocalAutoStartClusters(t *testing.T) 
 
 func uintString(value uint) string {
 	return fmt.Sprintf("%d", value)
+}
+
+func TestAdvertiseSTXJavaProxyEndpoint(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		endpoint string
+		hostIP   string
+		port     int
+		want     string
+	}{
+		{
+			name:     "rewrites loopback http url",
+			endpoint: "http://127.0.0.1:18080",
+			hostIP:   "10.74.108.2",
+			port:     18080,
+			want:     "http://10.74.108.2:18080",
+		},
+		{
+			name:     "rewrites localhost",
+			endpoint: "http://localhost:18080",
+			hostIP:   "10.0.0.1",
+			port:     18080,
+			want:     "http://10.0.0.1:18080",
+		},
+		{
+			name:     "keeps non-loopback endpoint",
+			endpoint: "http://10.1.2.3:18080",
+			hostIP:   "10.74.108.2",
+			port:     18080,
+			want:     "http://10.1.2.3:18080",
+		},
+		{
+			name:     "fills missing port from status",
+			endpoint: "http://127.0.0.1",
+			hostIP:   "10.0.0.9",
+			port:     18081,
+			want:     "http://10.0.0.9:18081",
+		},
+		{
+			name:     "empty host ip leaves endpoint unchanged",
+			endpoint: "http://127.0.0.1:18080",
+			hostIP:   "",
+			port:     18080,
+			want:     "http://127.0.0.1:18080",
+		},
+		{
+			name:     "loopback advertise ip leaves endpoint unchanged",
+			endpoint: "http://127.0.0.1:18080",
+			hostIP:   "127.0.0.1",
+			port:     18080,
+			want:     "http://127.0.0.1:18080",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := advertiseSTXJavaProxyEndpoint(tc.endpoint, tc.hostIP, tc.port)
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
 }

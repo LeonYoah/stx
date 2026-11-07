@@ -344,6 +344,8 @@ case "${subcmd}" in
         ;;
 
       stop|restart)
+        # stop / restart 共用停服逻辑；restart 不停在此，继续走下方 start（兼容 Bash 3.2，不用 ;&）。
+        # Shared stop for stop|restart; restart continues into start below (Bash 3.2–safe, no ;&).
         target_pid=""
         if [ -f "${pid_file}" ]; then
           pid_from_file="$(tr -d ' \r\n' < "${pid_file}" 2>/dev/null || true)"
@@ -365,9 +367,13 @@ case "${subcmd}" in
           echo "stx-java-proxy stopped"
           exit 0
         fi
-        ;&
+        ;;
+    esac
 
-      start)
+    # start 与 restart（停服后）共用启动逻辑；单独 case 避免 Bash 4+ 的 ;& 穿透。
+    # Shared start for start and post-stop restart; separate case avoids Bash 4+ ;& fall-through.
+    case "${subcmd}" in
+      start|restart)
         # 检查是否已在运行
         # Check if already running
         if [ -f "${pid_file}" ]; then

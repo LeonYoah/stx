@@ -18,6 +18,9 @@
 import {describe, expect, it} from 'vitest';
 import {
   buildInsertedCuratedContent,
+  buildStudioGridTemplateColumns,
+  DEFAULT_STUDIO_LAYOUT_PREFS,
+  studioSidebarOpenSpacingClass,
   formatRateDisplay,
   isZeroMetricValue,
   detectVariables,
@@ -31,12 +34,66 @@ import {
   isNodeMatchingScope,
   formatValueConstraintHints,
   isCursorAtFinishedEnumValue,
+  readStudioLayoutPrefs,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveOptionAssignmentContext,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
+  STUDIO_LAYOUT_STORAGE_KEY,
+  writeStudioLayoutPrefs,
 } from '../sync-studio-utils';
+
+describe('studio layout prefs (#110)', () => {
+  it('defaults to left expanded and right collapsed when no record', () => {
+    expect(DEFAULT_STUDIO_LAYOUT_PREFS).toEqual({
+      leftCollapsed: false,
+      rightCollapsed: true,
+    });
+    expect(readStudioLayoutPrefs({getItem: () => null})).toEqual(
+      DEFAULT_STUDIO_LAYOUT_PREFS,
+    );
+  });
+
+  it('reads and writes independent left/right collapse flags', () => {
+    const memory = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        memory.set(key, value);
+      },
+    };
+
+    writeStudioLayoutPrefs(
+      {leftCollapsed: true, rightCollapsed: false},
+      storage,
+    );
+    expect(memory.get(STUDIO_LAYOUT_STORAGE_KEY)).toContain('"leftCollapsed":true');
+    expect(readStudioLayoutPrefs(storage)).toEqual({
+      leftCollapsed: true,
+      rightCollapsed: false,
+    });
+  });
+
+  it('builds grid columns that free collapsed tracks with 0px (#110 AC11 topbar toggles)', () => {
+    expect(buildStudioGridTemplateColumns(false, true)).toBe(
+      '240px minmax(0,1fr) 0px',
+    );
+    expect(buildStudioGridTemplateColumns(true, true)).toBe(
+      '0px minmax(0,1fr) 0px',
+    );
+    expect(buildStudioGridTemplateColumns(false, false)).toBe(
+      '240px minmax(0,1fr) 360px',
+    );
+  });
+
+  it('only adds open-side spacing class when the sidebar is expanded', () => {
+    expect(studioSidebarOpenSpacingClass(false, 'left')).toBe('mr-2');
+    expect(studioSidebarOpenSpacingClass(true, 'left')).toBe('');
+    expect(studioSidebarOpenSpacingClass(false, 'right')).toBe('ml-2');
+    expect(studioSidebarOpenSpacingClass(true, 'right')).toBe('');
+  });
+});
 
 describe('formatValueConstraintHints', () => {
   it('summarizes matching value constraints for hover', () => {

@@ -245,6 +245,7 @@ import {
 } from './CheckpointPanels';
 import {
   ValidationResultPanel,
+  StudioActionErrorDialog,
   StudioErrorDiagnosticsView,
   VirtualizedLogViewer,
 } from './StudioDialogs';
@@ -512,6 +513,9 @@ export function DataSyncStudio() {
   const [dagResult, setDagResult] = useState<SyncDagResult | null>(null);
   const [dagError, setDagError] = useState<UserFacingErrorState | null>(null);
   const [dagOpen, setDagOpen] = useState(false);
+  // 运行 / 预览 / 恢复失败走限高诊断弹窗，不把整段堆栈塞进 toast。
+  // Run / preview / recover failures use the height-capped dialog instead of a toast.
+  const [actionError, setActionError] = useState<UserFacingErrorState | null>(null);
   // 查看运行中/已结束作业的实时执行拓扑
   // View execution DAG of running or finished jobs
   // 作业详情：只记作业 ID，作业对象从 jobs 取，随轮询刷新状态。
@@ -3775,7 +3779,8 @@ export function DataSyncStudio() {
         formatSyncUserFacingError(error, t('dagParseFailedTitle'), t),
       );
       setDagOpen(true);
-      toast.error(error instanceof Error ? error.message : t('dagBuildFailed'));
+      // 详情已在限高弹窗里，不再把整段异常塞进 toast。
+      // Details stay in the height-capped dialog; do not dump the full exception into a toast.
     } finally {
       setActionPending((current) => (current === 'dag' ? null : current));
     }
@@ -3928,8 +3933,9 @@ export function DataSyncStudio() {
       setBottomConsoleTab('preview');
       toast.success(t('previewSubmitted'));
     } catch (error) {
-      const uiError = formatSyncUserFacingError(error, t('previewFailed'), t);
-      toast.error(uiError.description);
+      // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
+      // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
+      setActionError(formatSyncUserFacingError(error, t('previewFailed'), t));
     } finally {
       setActionPending((current) => (current === 'preview' ? null : current));
     }
@@ -3992,8 +3998,9 @@ export function DataSyncStudio() {
         );
       }
     } catch (error) {
-      const uiError = formatSyncUserFacingError(error, t('runFailed'), t);
-      toast.error(uiError.description);
+      // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
+      // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
+      setActionError(formatSyncUserFacingError(error, t('runFailed'), t));
     } finally {
       setActionPending((current) => (current === 'recover' ? null : current));
     }
@@ -4044,12 +4051,11 @@ export function DataSyncStudio() {
         setBottomConsoleTab('jobs');
         toast.success(t('recoverSubmitted'));
       } catch (error) {
-        const uiError = formatSyncUserFacingError(
-          error,
-          t('recoverActionLabel'),
-          t,
+        // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
+        // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
+        setActionError(
+          formatSyncUserFacingError(error, t('recoverActionLabel'), t),
         );
-        toast.error(uiError.description);
       } finally {
         setActionPending((current) => (current === 'recover' ? null : current));
       }
@@ -6180,6 +6186,15 @@ export function DataSyncStudio() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <StudioActionErrorDialog
+        error={actionError}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActionError(null);
+          }
+        }}
+      />
 
       <Dialog open={validationOpen} onOpenChange={setValidationOpen}>
         <DialogContent

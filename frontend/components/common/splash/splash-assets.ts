@@ -164,37 +164,19 @@ export function buildBrandArt(
   const baseline = cy + ((unitAscent - unitDescent) * scale) / 2;
   const textX = x0 + (unitMarkW + unitGap) * scale;
 
-  // LOGO 图形按透明度重新着色为与字面同一套银白金属渐变，整幅品牌保持单色。
-  // Recolor the mark by its alpha with the same silver gradient as the
-  // wordmark so the whole brand stays monochrome.
+  // LOGO 图形保留品牌蓝原色（整段开屏唯一的色彩），字面与其余元素保持银白。
+  // The mark keeps its original brand blue (the only color in the splash);
+  // the wordmark and everything else stay silver.
   const markH = unitMarkH * scale;
   const markW = unitMarkW * scale;
-  let silverMark: HTMLCanvasElement | null = null;
-  if (mark) {
-    silverMark = document.createElement('canvas');
-    silverMark.width = Math.max(1, Math.round(markW * dpr));
-    silverMark.height = Math.max(1, Math.round(markH * dpr));
-    const mctx = silverMark.getContext('2d');
-    if (mctx) {
-      mctx.drawImage(mark, 0, 0, silverMark.width, silverMark.height);
-      mctx.globalCompositeOperation = 'source-in';
-      const mg = mctx.createLinearGradient(0, 0, 0, silverMark.height);
-      mg.addColorStop(0, '#ffffff');
-      mg.addColorStop(0.48, '#e9ecf0');
-      mg.addColorStop(0.56, '#b7bdc6');
-      mg.addColorStop(1, '#dfe3e8');
-      mctx.fillStyle = mg;
-      mctx.fillRect(0, 0, silverMark.width, silverMark.height);
-    }
-  }
 
   const paint = (ctx: CanvasRenderingContext2D, withGlow: boolean) => {
-    if (silverMark) {
+    if (mark) {
       if (withGlow) {
-        ctx.shadowColor = 'rgba(255,255,255,0.22)';
-        ctx.shadowBlur = 20 * scale;
+        ctx.shadowColor = 'rgba(60,160,255,0.55)';
+        ctx.shadowBlur = 24 * scale;
       }
-      ctx.drawImage(silverMark, x0, cy - markH / 2, markW, markH);
+      ctx.drawImage(mark, x0, cy - markH / 2, markW, markH);
     }
     ctx.font = `400 ${fontPx}px ${BRAND_FONT_FAMILY}, sans-serif`;
     ctx.textBaseline = 'alphabetic';

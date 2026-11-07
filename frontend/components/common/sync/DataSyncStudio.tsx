@@ -51,6 +51,8 @@ import {
   FileCode2,
   FilePlus2,
   GitBranch,
+  History,
+  LayoutTemplate,
   BarChart3,
   Maximize2,
   Minimize2,
@@ -62,8 +64,8 @@ import {
   Play,
   RefreshCw,
   FolderTree,
-  Database,
   Save,
+  Settings,
   Square,
   Trash2,
   Upload,
@@ -84,7 +86,6 @@ import {
   Share2,
   Workflow,
   WandSparkles,
-  Wrench,
   Code2,
   HelpCircle,
   X,
@@ -5305,13 +5306,13 @@ export function DataSyncStudio() {
             <>
               <SidebarIconTab
                 active={rightSidebarTab === 'settings'}
-                icon={<Database className='size-4' />}
+                icon={<Settings className='size-4' />}
                 label={t('settings')}
                 onClick={() => setRightSidebarTab('settings')}
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'templates'}
-                icon={<Wrench className='size-4' />}
+                icon={<LayoutTemplate className='size-4' />}
                 label={t('curatedManage')}
                 onClick={() => setRightSidebarTab('templates')}
               />
@@ -5323,7 +5324,7 @@ export function DataSyncStudio() {
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'versions'}
-                icon={<GitBranch className='size-4' />}
+                icon={<History className='size-4' />}
                 label={t('versionManagement')}
                 onClick={() => setRightSidebarTab('versions')}
               />

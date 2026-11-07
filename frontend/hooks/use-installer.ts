@@ -500,6 +500,7 @@ const defaultConfig: InstallWizardConfig = {
     history_job_expire_minutes: 1440,
     scheduled_deletion_enable: true,
     enable_http: true,
+    enable_event_channel: true,
     job_log_mode: 'per_job',
   },
   jvm: {
@@ -594,6 +595,7 @@ export function useInstallWizard(): UseInstallWizardReturn {
       http_port: config.httpPort,
       java_proxy_port: config.javaProxyPort,
       enable_http: config.runtime.enable_http,
+      enable_event_channel: config.runtime.enable_event_channel,
       dynamic_slot: config.runtime.dynamic_slot,
       slot_num: config.runtime.slot_num,
       slot_allocation_strategy: config.runtime.slot_allocation_strategy,

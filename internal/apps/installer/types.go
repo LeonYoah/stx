@@ -315,26 +315,30 @@ const (
 // InstallationRequest is the request for one-click installation
 // InstallationRequest 是一键安装的请求
 type InstallationRequest struct {
-	HostID                  string                 `json:"host_id"`
-	ClusterID               string                 `json:"cluster_id"`
-	ClusterName             string                 `json:"cluster_name,omitempty"` // Cluster identifier (cluster_code) / 集群底层标识
-	Version                 string                 `json:"version" binding:"required"`
-	InstallDir              string                 `json:"install_dir"`
-	InstallMode             InstallMode            `json:"install_mode"`
-	Mirror                  MirrorSource           `json:"mirror,omitempty"`
-	PackagePath             string                 `json:"package_path,omitempty"`
-	PackageChecksum         string                 `json:"-"`                            // SHA256 of the package transferred to the Agent (internal) / 已传给 Agent 的安装包 SHA256（内部字段）
-	AgentPackagePath        string                 `json:"agent_package_path,omitempty"` // Agent-side file/dir used when CP transfer fails (no internet fallback) / CP 传输失败时使用的 Agent 侧文件或目录（不回退互联网下载）
-	DeploymentMode          DeploymentMode         `json:"deployment_mode"`
-	NodeRole                NodeRole               `json:"node_role"`
-	MasterAddresses         []string               `json:"master_addresses,omitempty"`
-	WorkerAddresses         []string               `json:"worker_addresses,omitempty"` // Worker addresses for separated mode / 分离模式的 worker 地址
-	ClusterPort             int                    `json:"cluster_port,omitempty"`     // Master hazelcast port / Master Hazelcast 端口
-	WorkerPort              int                    `json:"worker_port,omitempty"`      // Worker hazelcast port / Worker Hazelcast 端口
-	HTTPPort                int                    `json:"http_port,omitempty"`        // SeaTunnel HTTP API 端口
-	JavaProxyPort           int                    `json:"java_proxy_port,omitempty"`  // Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口
-	JavaHome                string                 `json:"java_home,omitempty"`        // 节点指定的 JDK 目录，为空时自动探测 / Node JDK directory; empty means auto detection
-	EnableHTTP              *bool                  `json:"enable_http,omitempty"`      // 是否开启 SeaTunnel HTTP / Web UI
+	HostID           string         `json:"host_id"`
+	ClusterID        string         `json:"cluster_id"`
+	ClusterName      string         `json:"cluster_name,omitempty"` // Cluster identifier (cluster_code) / 集群底层标识
+	Version          string         `json:"version" binding:"required"`
+	InstallDir       string         `json:"install_dir"`
+	InstallMode      InstallMode    `json:"install_mode"`
+	Mirror           MirrorSource   `json:"mirror,omitempty"`
+	PackagePath      string         `json:"package_path,omitempty"`
+	PackageChecksum  string         `json:"-"`                            // SHA256 of the package transferred to the Agent (internal) / 已传给 Agent 的安装包 SHA256（内部字段）
+	AgentPackagePath string         `json:"agent_package_path,omitempty"` // Agent-side file/dir used when CP transfer fails (no internet fallback) / CP 传输失败时使用的 Agent 侧文件或目录（不回退互联网下载）
+	DeploymentMode   DeploymentMode `json:"deployment_mode"`
+	NodeRole         NodeRole       `json:"node_role"`
+	MasterAddresses  []string       `json:"master_addresses,omitempty"`
+	WorkerAddresses  []string       `json:"worker_addresses,omitempty"` // Worker addresses for separated mode / 分离模式的 worker 地址
+	ClusterPort      int            `json:"cluster_port,omitempty"`     // Master hazelcast port / Master Hazelcast 端口
+	WorkerPort       int            `json:"worker_port,omitempty"`      // Worker hazelcast port / Worker Hazelcast 端口
+	HTTPPort         int            `json:"http_port,omitempty"`        // SeaTunnel HTTP API 端口
+	JavaProxyPort    int            `json:"java_proxy_port,omitempty"`  // Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口
+	JavaHome         string         `json:"java_home,omitempty"`        // 节点指定的 JDK 目录，为空时自动探测 / Node JDK directory; empty means auto detection
+	EnableHTTP       *bool          `json:"enable_http,omitempty"`      // 是否开启 SeaTunnel HTTP / Web UI
+	// EnableEventChannel 是否在安装后、节点启动前写入事件通道。nil 且版本 ≥3.0.0 时默认开启；更低版本忽略。
+	// EnableEventChannel writes the event channel after install and before the node starts. Nil defaults to on for
+	// ≥3.0.0 and is ignored on older versions.
+	EnableEventChannel      *bool                  `json:"enable_event_channel,omitempty"`
 	DynamicSlot             *bool                  `json:"dynamic_slot,omitempty"`
 	SlotNum                 *int                   `json:"slot_num,omitempty"`
 	SlotAllocationStrategy  SlotAllocationStrategy `json:"slot_allocation_strategy,omitempty"`

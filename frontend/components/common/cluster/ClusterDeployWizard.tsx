@@ -27,7 +27,7 @@
 
 'use client';
 
-import React, {useState, useCallback, useEffect, useMemo} from 'react';
+import React, {useState, useCallback, useEffect, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   Dialog,
@@ -44,6 +44,7 @@ import services from '@/lib/services';
 import {usePackages} from '@/hooks/use-installer';
 import {
   buildSeatunnelInstallDir,
+  nextEventChannelEnabled,
   resolveSeatunnelVersion,
   resolveSeatunnelVersionCapabilities,
 } from '@/lib/seatunnel-version';
@@ -187,6 +188,12 @@ export function ClusterDeployWizard({
   const httpServiceSupported = Boolean(
     versionCapabilities?.supports_http_service,
   );
+  const eventChannelSupported = Boolean(
+    versionCapabilities?.supports_event_channel,
+  );
+  // 用户手动改过事件通道之后，切换仍支持的版本不再把默认值盖回去。
+  // After the user toggles the event channel, later supported versions keep that choice.
+  const eventChannelUserSet = useRef(false);
 
   useEffect(() => {
     if (!open || !resolvedRecommendedVersion || config.version) {
@@ -223,6 +230,11 @@ export function ClusterDeployWizard({
         enable_http: versionCapabilities.supports_http_service
           ? prev.runtime.enable_http
           : false,
+        enable_event_channel: nextEventChannelEnabled(
+          versionCapabilities.supports_event_channel,
+          prev.runtime.enable_event_channel,
+          eventChannelUserSet.current,
+        ),
         // New installs default to per_job via defaultClusterDeployConfig + backend
         // default_job_log_mode; unsupported versions stay mixed.
         // 新安装通过 defaultClusterDeployConfig 与后端 default_job_log_mode 默认为 per_job；
@@ -695,6 +707,9 @@ export function ClusterDeployWizard({
             http_port: config.httpPort,
             java_proxy_port: config.javaProxyPort,
             enable_http: config.runtime.enable_http,
+            enable_event_channel: eventChannelSupported
+              ? config.runtime.enable_event_channel
+              : false,
             dynamic_slot: config.runtime.dynamic_slot,
             slot_num: config.runtime.slot_num,
             slot_allocation_strategy: config.runtime.slot_allocation_strategy,
@@ -886,6 +901,10 @@ export function ClusterDeployWizard({
             localPackages={localPackages}
             versionCapabilities={versionCapabilities}
             httpServiceSupported={httpServiceSupported}
+            eventChannelSupported={eventChannelSupported}
+            onEventChannelUserSet={() => {
+              eventChannelUserSet.current = true;
+            }}
             applyCheckpointToImap={applyCheckpointToImap}
             setHostJavaHome={setHostJavaHome}
             fillAllJavaHome={fillAllJavaHome}

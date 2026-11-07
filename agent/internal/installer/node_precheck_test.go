@@ -20,6 +20,7 @@ package installer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,41 @@ func TestCheckPathReadyAllowsCreatablePath(t *testing.T) {
 	}
 	if got := result.Details["parent"]; got != root {
 		t.Fatalf("unexpected parent directory: %s", got)
+	}
+}
+
+func TestCheckPathReadyAllowsMissingIntermediateDirectory(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "opt", "seatunnel-3.0.0")
+
+	result := CheckPathReady(target)
+	if !result.Success {
+		t.Fatalf("expected nested path to be creatable, got %+v", result)
+	}
+	if got := result.Details["parent"]; got != root {
+		t.Fatalf("ancestor = %s, want %s", got, root)
+	}
+}
+
+func TestCheckPathReadyRejectsUnwritableAncestor(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o555); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o755) })
+	probe, err := os.Create(filepath.Join(root, ".probe"))
+	if err == nil {
+		probe.Close()
+		_ = os.Remove(filepath.Join(root, ".probe"))
+		t.Skip("process can still write this directory, so permission bits are not enforced")
+	}
+
+	result := CheckPathReady(filepath.Join(root, "seatunnel-3.0.0"))
+	if result.Success {
+		t.Fatalf("expected unwritable parent to fail, got %+v", result)
+	}
+	if !strings.Contains(result.Message, "cannot be created") {
+		t.Fatalf("message = %q", result.Message)
 	}
 }
 

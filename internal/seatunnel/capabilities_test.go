@@ -37,6 +37,9 @@ func TestCapabilitiesForVersion(t *testing.T) {
 		if capabilities.SupportsHTTPService || capabilities.SupportsJobLogMode {
 			t.Fatalf("expected 2.3.2 not to support http service or job log mode, got %+v", capabilities)
 		}
+		if capabilities.SupportsEventChannel || capabilities.DefaultEventChannelEnabled {
+			t.Fatalf("expected 2.3.2 not to support the event channel, got %+v", capabilities)
+		}
 	})
 
 	t.Run("2.3.3 supports historical retention only", func(t *testing.T) {
@@ -98,6 +101,20 @@ func TestCapabilitiesForVersion(t *testing.T) {
 		}
 		if capabilities.DefaultSlotAllocationStrategy != "RANDOM" {
 			t.Fatalf("expected default slot allocation strategy RANDOM, got %+v", capabilities)
+		}
+		if capabilities.SupportsEventChannel {
+			t.Fatalf("expected 2.3.10 not to offer the install event channel, got %+v", capabilities)
+		}
+	})
+
+	t.Run("3.0.0 defaults the event channel on", func(t *testing.T) {
+		capabilities := CapabilitiesForVersion("3.0.0")
+		if !capabilities.SupportsEventChannel || !capabilities.DefaultEventChannelEnabled {
+			t.Fatalf("expected 3.0.0 to default the event channel on, got %+v", capabilities)
+		}
+		older := CapabilitiesForVersion("2.3.12")
+		if older.SupportsEventChannel || older.DefaultEventChannelEnabled {
+			t.Fatalf("expected 2.3.12 to leave the event channel off in the installer, got %+v", older)
 		}
 	})
 }

@@ -108,6 +108,34 @@ func TestEngineEventToken(t *testing.T) {
 	}
 }
 
+func TestEnableEventChannelForInstallUsesPackageVersion(t *testing.T) {
+	withEventConfig(t, "secret", "http://stx.example.com:17800/")
+	ctx := context.Background()
+
+	t.Run("3.0 package enables non-terminal reporting even when the cluster record is older", func(t *testing.T) {
+		service, applier := newEventTestService(t, "2.3.11")
+		if err := service.EnableEventChannelForInstall(ctx, 7, "3.0.0"); err != nil {
+			t.Fatalf("enable: %v", err)
+		}
+		if len(applier.calls) != 1 || !applier.calls[0].ReportNonTerminal {
+			t.Fatalf("expected one non-terminal write, got %+v", applier.calls)
+		}
+		if applier.calls[0].URL != "http://stx.example.com:17800/api/v1/sync/engine-events/7" {
+			t.Fatalf("unexpected url: %+v", applier.calls[0])
+		}
+	})
+
+	t.Run("older package is a no-op", func(t *testing.T) {
+		service, applier := newEventTestService(t, "3.0.0")
+		if err := service.EnableEventChannelForInstall(ctx, 7, "2.3.12"); err != nil {
+			t.Fatalf("enable: %v", err)
+		}
+		if len(applier.calls) != 0 {
+			t.Fatalf("2.3.12 install must not write the event channel, got %d calls", len(applier.calls))
+		}
+	})
+}
+
 func TestUpdateEventChannel(t *testing.T) {
 	withEventConfig(t, "secret", "http://stx.example.com:17800/")
 	ctx := context.Background()

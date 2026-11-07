@@ -36,6 +36,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import {DeploymentMode, NodeRole} from '@/lib/services/cluster/types';
+import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
 import {ClusterDeployConfig, HostWithRole} from './types';
 
 interface ClusterCompleteStepProps {
@@ -140,6 +141,19 @@ export function ClusterCompleteStep({
                   : t('cluster.wizard.httpDisabled')}
               </span>
             </div>
+
+            {isSeatunnelVersionAtLeast(config.version, '3.0.0') && (
+              <div>
+                <span className='text-muted-foreground block text-[11px]'>
+                  {t('cluster.wizard.summaryEventChannel')}
+                </span>
+                <span className='font-medium text-foreground mt-0.5 block'>
+                  {config.runtime.enable_event_channel
+                    ? t('cluster.wizard.eventChannelEnabled')
+                    : t('cluster.wizard.eventChannelDisabled')}
+                </span>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

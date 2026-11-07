@@ -45,8 +45,8 @@ func (a *javaPrecheckAgent) SendCommand(_ context.Context, _ string, commandType
 	switch commandType {
 	case "check_port":
 		return false, "", nil
-	case "check_directory":
-		return true, "", nil
+	case "check_directory", "check_path_ready":
+		return true, `{"success":true,"message":"Path can be created (parent is writable)"}`, nil
 	case "check_java", "list_java_homes":
 		copied := make(map[string]string, len(params))
 		for k, v := range params {
@@ -76,6 +76,90 @@ func javaItemOf(t *testing.T, result *PrecheckResult) PrecheckItem {
 	}
 	t.Fatalf("java item missing: %+v", result.Items)
 	return PrecheckItem{}
+}
+
+type pathReadyAgent struct {
+	AgentManager
+	success bool
+	output  string
+	command string
+}
+
+func (a *pathReadyAgent) SendCommand(_ context.Context, _ string, commandType string, _ map[string]string) (bool, string, error) {
+	if commandType == "check_path_ready" || commandType == "check_directory" {
+		a.command = commandType
+		return a.success, a.output, nil
+	}
+	if commandType == "check_port" {
+		return false, "", nil
+	}
+	if commandType == "check_java" {
+		return true, `{"success":true,"message":"java","details":{"installed_version":"11","java_home_source":"detected"}}`, nil
+	}
+	return false, "", nil
+}
+
+func diskItemOf(t *testing.T, result *PrecheckResult) PrecheckItem {
+	t.Helper()
+	for _, item := range result.Items {
+		if item.Name == "disk" {
+			return item
+		}
+	}
+	t.Fatalf("disk item missing: %+v", result.Items)
+	return PrecheckItem{}
+}
+
+func newPathPrecheckService(t *testing.T, agent AgentManager) *Service {
+	t.Helper()
+	now := time.Now()
+	service := NewService(t.TempDir(), agent)
+	service.SetHostProvider(&javaPrecheckHostProvider{host: &HostInfo{ID: 10, Name: "local", AgentID: "agent-a", AgentStatus: "installed", LastSeen: &now}})
+	return service
+}
+
+// TestRunPrecheckBlocksUnwritableInstallDir 目录还不存在时，父目录没写权限必须在预检失败，不能写成「将被创建」。
+// TestRunPrecheckBlocksUnwritableInstallDir: a missing install dir whose parent is not writable fails precheck
+// instead of reporting that the directory will be created.
+func TestRunPrecheckBlocksUnwritableInstallDir(t *testing.T) {
+	agent := &pathReadyAgent{
+		success: false,
+		output:  `{"success":false,"message":"Path /opt/seatunnel-3.0.0 does not exist and cannot be created: Directory /opt is not writable: permission denied"}`,
+	}
+	result, err := newPathPrecheckService(t, agent).RunPrecheck(context.Background(), 10, &PrecheckRequest{InstallDir: "/opt/seatunnel-3.0.0"})
+	if err != nil {
+		t.Fatalf("RunPrecheck: %v", err)
+	}
+	if agent.command != "check_path_ready" {
+		t.Fatalf("command = %q, want check_path_ready", agent.command)
+	}
+	item := diskItemOf(t, result)
+	if item.Status != CheckStatusFailed || result.OverallStatus != CheckStatusFailed {
+		t.Fatalf("disk=%s overall=%s, want failed (%s)", item.Status, result.OverallStatus, item.Message)
+	}
+	if strings.Contains(item.Message, "将被创建") || !strings.Contains(item.Message, "无法创建") || !strings.Contains(item.Message, "permission denied") {
+		t.Fatalf("message = %q", item.Message)
+	}
+}
+
+// TestRunPrecheckAllowsCreatableInstallDir 父目录可写时，仍提示目录将被创建，且预检通过。
+// TestRunPrecheckAllowsCreatableInstallDir keeps the "will be created" message when the parent is writable.
+func TestRunPrecheckAllowsCreatableInstallDir(t *testing.T) {
+	agent := &pathReadyAgent{
+		success: true,
+		output:  `{"success":true,"message":"Path /tmp/seatunnel-3.0.0 can be created (parent /tmp is writable)"}`,
+	}
+	result, err := newPathPrecheckService(t, agent).RunPrecheck(context.Background(), 10, &PrecheckRequest{InstallDir: "/tmp/seatunnel-3.0.0"})
+	if err != nil {
+		t.Fatalf("RunPrecheck: %v", err)
+	}
+	item := diskItemOf(t, result)
+	if item.Status != CheckStatusPassed || result.OverallStatus == CheckStatusFailed {
+		t.Fatalf("disk=%s overall=%s message=%s", item.Status, result.OverallStatus, item.Message)
+	}
+	if !strings.Contains(item.Message, "将被创建") {
+		t.Fatalf("message = %q", item.Message)
+	}
 }
 
 // TestRunPrecheckCustomJavaHome 覆盖 AC2/AC3/AC1c：指定路径时只检查该 JDK，结果带实际路径与版本，失败阻断并点名节点与路径。

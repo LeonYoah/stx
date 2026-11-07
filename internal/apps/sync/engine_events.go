@@ -299,10 +299,31 @@ func (s *Service) GetEventChannel(ctx context.Context, clusterID uint) (*EventCh
 	return s.toEventChannelStatus(ctx, clusterID, channel), nil
 }
 
+// EnableEventChannelForInstall 供一键安装在节点启动前开启事件通道。
+// version 用安装包版本，不看集群记录里可能还没刷新的版本；低于 3.0.0 直接返回。
+// EnableEventChannelForInstall turns the event channel on for one-click install before the node starts.
+// version is the package being installed, not the cluster record which may still be stale; below 3.0.0 it returns.
+func (s *Service) EnableEventChannelForInstall(ctx context.Context, clusterID uint, version string) error {
+	version = strings.TrimSpace(version)
+	if !seatunnel.SupportsNonTerminalJobStateEvents(version) {
+		return nil
+	}
+	enabled := true
+	_, err := s.updateEventChannel(ctx, executionapp.Actor{IsAdmin: true}, clusterID, &UpdateEventChannelRequest{Enabled: &enabled}, version)
+	return err
+}
+
 // UpdateEventChannelForActor 开启、关闭或轮换事件通道，并把 event-report-http 写入 seatunnel.yaml；仅管理员可操作。
 // UpdateEventChannelForActor enables, disables or rotates the event channel and writes event-report-http into
 // seatunnel.yaml; admins only.
 func (s *Service) UpdateEventChannelForActor(ctx context.Context, actor executionapp.Actor, clusterID uint, req *UpdateEventChannelRequest) (*EventChannelStatus, error) {
+	return s.updateEventChannel(ctx, actor, clusterID, req, "")
+}
+
+// updateEventChannel 开启、关闭或轮换事件通道。versionOverride 非空时用它做版本门槛，而不是集群记录上的版本。
+// updateEventChannel enables, disables or rotates the event channel. A non-empty versionOverride is the version gate
+// instead of the version stored on the cluster record.
+func (s *Service) updateEventChannel(ctx context.Context, actor executionapp.Actor, clusterID uint, req *UpdateEventChannelRequest, versionOverride string) (*EventChannelStatus, error) {
 	if !actor.IsAdmin {
 		return nil, ErrEventChannelPermissionDenied
 	}
@@ -329,7 +350,10 @@ func (s *Service) UpdateEventChannelForActor(ctx context.Context, actor executio
 
 	var settings *EngineEventReportSettings
 	if enable {
-		version := s.clusterVersion(ctx, clusterID)
+		version := strings.TrimSpace(versionOverride)
+		if version == "" {
+			version = s.clusterVersion(ctx, clusterID)
+		}
 		if !seatunnel.SupportsJobStateEvents(version) {
 			return nil, ErrEventChannelVersionUnsupported
 		}

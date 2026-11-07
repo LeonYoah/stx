@@ -8751,6 +8751,10 @@ const docTemplate = `{
                 "dynamic_slot": {
                     "type": "boolean"
                 },
+                "enable_event_channel": {
+                    "description": "是否在安装后、节点启动前写入事件通道。省略时 3.0.0 及以上默认开启，更低版本忽略。",
+                    "type": "boolean"
+                },
                 "enable_http": {
                     "description": "是否开启 SeaTunnel HTTP / Web UI",
                     "type": "boolean"
@@ -10847,6 +10851,10 @@ const docTemplate = `{
                 "default_dynamic_slot": {
                     "type": "boolean"
                 },
+                "default_event_channel_enabled": {
+                    "description": "安装向导在该版本上的事件通道默认值（3.0.0 起为 true）",
+                    "type": "boolean"
+                },
                 "default_history_job_expire_minutes": {
                     "type": "integer"
                 },
@@ -10869,6 +10877,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "supports_dynamic_slot": {
+                    "type": "boolean"
+                },
+                "supports_event_channel": {
+                    "description": "一键安装可以写入事件通道（3.0.0 起）",
                     "type": "boolean"
                 },
                 "supports_history_job_expire_minutes": {

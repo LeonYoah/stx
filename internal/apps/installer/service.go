@@ -166,6 +166,12 @@ type NodeJVMResolver interface {
 	ResolveNodeJVMByClusterAndHostAndRole(ctx context.Context, clusterID uint, hostID uint, role string) (*JVMConfig, error)
 }
 
+// EventChannelEnabler 在一键安装登记 seatunnel.yaml 之后、节点启动之前写入事件通道。
+// EventChannelEnabler writes the event channel after one-click install registers seatunnel.yaml and before the node starts.
+type EventChannelEnabler interface {
+	EnableEventChannelForInstall(ctx context.Context, clusterID uint, version string) error
+}
+
 // ConfigInitializer is the interface for initializing cluster configs after installation
 // ConfigInitializer 是安装完成后初始化集群配置的接口
 type ConfigInitializer interface {
@@ -268,6 +274,10 @@ type Service struct {
 	// configInitializer is used to initialize cluster configs after installation
 	// configInitializer 用于安装完成后初始化集群配置
 	configInitializer ConfigInitializer
+
+	// eventChannelEnabler 在 3.0+ 一键安装时写入事件通道。
+	// eventChannelEnabler writes the event channel during a 3.0+ one-click install.
+	eventChannelEnabler EventChannelEnabler
 
 	// heartbeatTimeout is the timeout for agent heartbeat
 	// heartbeatTimeout 是 Agent 心跳超时时间
@@ -423,6 +433,12 @@ func (s *Service) SetNodeJVMResolver(resolver NodeJVMResolver) {
 // SetConfigInitializer 设置用于初始化集群配置的配置初始化器。
 func (s *Service) SetConfigInitializer(initializer ConfigInitializer) {
 	s.configInitializer = initializer
+}
+
+// SetEventChannelEnabler 注入一键安装使用的事件通道写入器。
+// SetEventChannelEnabler injects the event-channel writer used by one-click install.
+func (s *Service) SetEventChannelEnabler(enabler EventChannelEnabler) {
+	s.eventChannelEnabler = enabler
 }
 
 // SetExecutionService sets the shared execution service used by package operations.
@@ -1692,6 +1708,26 @@ func (s *Service) markDownloadFailed(task *DownloadTask, message, tempPath strin
 // DefaultPrecheckPorts 是 SeaTunnel 安装时默认检查的端口列表
 var DefaultPrecheckPorts = []int{5801, 5802, 8080, 18080}
 
+// precheckAgentMessage 从 Agent 预检 JSON 里取出 message；不是 JSON 时原样返回。
+// precheckAgentMessage reads message from an Agent precheck JSON payload, or returns the raw text.
+func precheckAgentMessage(output string) string {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return ""
+	}
+	var payload struct {
+		Message string `json:"message"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return trimmed
+	}
+	if strings.TrimSpace(payload.Message) != "" {
+		return strings.TrimSpace(payload.Message)
+	}
+	return strings.TrimSpace(payload.Error)
+}
+
 // RunPrecheck runs precheck on a host via Agent.
 // RunPrecheck 通过 Agent 在主机上运行预检查。
 // This is for INSTALLATION precheck - ports should be AVAILABLE (not in use).
@@ -1834,19 +1870,33 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 	params := map[string]string{
 		"path": installDir,
 	}
-	success, _, err := s.agentManager.SendCommand(ctx, hostInfo.AgentID, "check_directory", params)
+	// 目录不存在时不能直接判通过。解压会 MkdirAll，父目录没写权限会到这一步才爆
+	// “mkdir /opt/seatunnel-3.0.0: permission denied”。预检要用 check_path_ready 提前拦住。
+	// A missing directory is not automatically OK. Extraction calls MkdirAll, and a parent without write
+	// permission only fails later as "mkdir /opt/seatunnel-3.0.0: permission denied". Precheck must use
+	// check_path_ready and block first.
+	success, output, err := s.agentManager.SendCommand(ctx, hostInfo.AgentID, "check_path_ready", params)
 	if err != nil {
 		dirItem.Status = CheckStatusFailed
 		dirItem.Message = fmt.Sprintf("Failed to check directory: %v / 检查目录失败: %v", err, err)
 		result.OverallStatus = CheckStatusFailed
 	} else if success {
 		dirItem.Status = CheckStatusPassed
-		dirItem.Message = fmt.Sprintf("Directory %s is writable / 目录 %s 可写", installDir, installDir)
+		agentMessage := precheckAgentMessage(output)
+		if strings.Contains(agentMessage, "can be created") {
+			dirItem.Message = fmt.Sprintf("Directory %s will be created / 目录 %s 将被创建", installDir, installDir)
+		} else {
+			dirItem.Message = fmt.Sprintf("Directory %s is writable / 目录 %s 可写", installDir, installDir)
+		}
 	} else {
-		// Directory doesn't exist or not writable - this is OK for installation, we can create it
-		// 目录不存在或不可写 - 对于安装来说这是可以的，我们可以创建它
-		dirItem.Status = CheckStatusPassed
-		dirItem.Message = fmt.Sprintf("Directory %s will be created / 目录 %s 将被创建", installDir, installDir)
+		reason := precheckAgentMessage(output)
+		if reason == "" {
+			reason = "parent directory is not writable"
+		}
+		dirItem.Status = CheckStatusFailed
+		dirItem.Message = fmt.Sprintf("Directory %s cannot be created: %s / 目录 %s 无法创建: %s", installDir, reason, installDir, reason)
+		dirItem.Details["agent_message"] = reason
+		result.OverallStatus = CheckStatusFailed
 	}
 	result.Items = append(result.Items, dirItem)
 
@@ -1889,7 +1939,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 		// Explicitly empty: auto detection; the central injection does not override it from node records.
 		javaruntime.ParamJavaHome: "",
 	}
-	success, output, err := s.agentManager.SendCommand(ctx, hostInfo.AgentID, "check_java", javaParams)
+	success, output, err = s.agentManager.SendCommand(ctx, hostInfo.AgentID, "check_java", javaParams)
 	if err != nil {
 		// Cannot check Java, treat as warning
 		// 无法检查 Java，视为警告
@@ -3026,6 +3076,14 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 		return
 	}
 
+	// 先把节点上的 seatunnel.yaml 登记进 STX，再按安装选项写入事件通道，最后才启动。
+	// 这样第一次启动读到的就是带 event-report-http 的配置，不用装完再重启一次。
+	// Register the node's seatunnel.yaml into STX, then write the event channel from the install option, and only then
+	// start. The first start reads the config that already contains event-report-http, so install does not need a second restart.
+	if s.registerInstalledConfigs(ctx, clusterID, hostID, req, status) {
+		s.enableInstalledEventChannel(ctx, clusterID, req, status)
+	}
+
 	// Use role to start the specific node; same host may have both master and worker (separated mode)
 	// 按角色启动对应节点；同一主机可能同时有 master 与 worker（分离模式）
 	success, message, err := s.nodeStarter.StartNodeByClusterAndHostAndRole(ctx, clusterID, hostID, nodeRole)
@@ -3069,22 +3127,6 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 		}
 	}
 
-	// Register node configs after successful installation without overwriting existing cluster templates
-	// 安装成功后登记节点配置；集群模板已存在时不被新节点的默认配置覆盖
-	if s.configInitializer != nil {
-		logger.InfoF(ctx, "[Installer] 初始化集群配置 / Initializing cluster configs: cluster=%d, host=%d",
-			clusterID, hostID)
-		if err := s.configInitializer.EnsureClusterConfigsForHost(ctx, clusterID, hostID, req.InstallDir, 0); err != nil {
-			// Only log warning, don't fail the installation
-			// 只记录警告，不要让安装失败
-			logger.WarnF(ctx, "[Installer] 初始化集群配置失败（不影响安装）/ Failed to initialize cluster configs (non-fatal): cluster=%d, host=%d, error=%v",
-				clusterID, hostID, err)
-		} else {
-			logger.InfoF(ctx, "[Installer] 集群配置初始化成功 / Cluster configs initialized successfully: cluster=%d, host=%d",
-				clusterID, hostID)
-		}
-	}
-
 	// Final status update
 	// 最终状态更新
 	s.installMu.Lock()
@@ -3102,6 +3144,63 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 		status.Message = fmt.Sprintf("Installation and node (%s) startup completed / 安装和节点 (%s) 启动完成", nodeRole, nodeRole)
 	}
 	s.installMu.Unlock()
+}
+
+// shouldEnableEventChannel 判断这次一键安装要不要写事件通道。
+// 版本低于 3.0.0 一律不写；请求没带开关时，3.0.0 及以上默认开启。
+// shouldEnableEventChannel reports whether this one-click install should write the event channel.
+// Versions below 3.0.0 never write it; when the request omits the switch, 3.0.0 and newer default to on.
+func shouldEnableEventChannel(req *InstallationRequest) bool {
+	if req == nil || !seatunnel.SupportsNonTerminalJobStateEvents(req.Version) {
+		return false
+	}
+	if req.EnableEventChannel == nil {
+		return true
+	}
+	return *req.EnableEventChannel
+}
+
+// registerInstalledConfigs 把刚装好的节点配置登记进 STX。失败只记警告，安装继续。
+// 返回 true 表示 seatunnel.yaml 已经在 STX 里，可以接着写事件通道。
+// registerInstalledConfigs registers the freshly installed node configs into STX. Failure is a warning and install continues.
+// True means seatunnel.yaml is now in STX, so the event channel can be written next.
+func (s *Service) registerInstalledConfigs(ctx context.Context, clusterID uint, hostID uint, req *InstallationRequest, status *InstallationStatus) bool {
+	if s.configInitializer == nil {
+		if shouldEnableEventChannel(req) {
+			logger.WarnF(ctx, "[Installer] 未配置配置初始化器，跳过事件通道 / Config initializer is not set; skipping event channel: cluster=%d", clusterID)
+			appendInstallationWarning(status, "Warning: event channel was not enabled because cluster config registration is unavailable / 警告：无法登记集群配置，事件通道未开启")
+		}
+		return false
+	}
+	logger.InfoF(ctx, "[Installer] 初始化集群配置 / Initializing cluster configs: cluster=%d, host=%d", clusterID, hostID)
+	if err := s.configInitializer.EnsureClusterConfigsForHost(ctx, clusterID, hostID, req.InstallDir, 0); err != nil {
+		logger.WarnF(ctx, "[Installer] 初始化集群配置失败（不影响安装）/ Failed to initialize cluster configs (non-fatal): cluster=%d, host=%d, error=%v",
+			clusterID, hostID, err)
+		appendInstallationWarning(status, fmt.Sprintf("Warning: cluster config registration failed: %v / 警告：集群配置登记失败: %v", err, err))
+		return false
+	}
+	logger.InfoF(ctx, "[Installer] 集群配置初始化成功 / Cluster configs initialized successfully: cluster=%d, host=%d", clusterID, hostID)
+	return true
+}
+
+// enableInstalledEventChannel 按安装选项把 event-report-http 写入 seatunnel.yaml。失败只记警告，不挡住启动。
+// enableInstalledEventChannel writes event-report-http into seatunnel.yaml from the install option. Failure is a warning and does not block startup.
+func (s *Service) enableInstalledEventChannel(ctx context.Context, clusterID uint, req *InstallationRequest, status *InstallationStatus) {
+	if !shouldEnableEventChannel(req) {
+		return
+	}
+	if s.eventChannelEnabler == nil {
+		logger.WarnF(ctx, "[Installer] 未配置事件通道写入器，跳过 / Event channel enabler is not set; skipping: cluster=%d version=%s", clusterID, req.Version)
+		appendInstallationWarning(status, "Warning: event channel was not enabled because the writer is not configured / 警告：事件通道写入器未配置，未开启")
+		return
+	}
+	if err := s.eventChannelEnabler.EnableEventChannelForInstall(ctx, clusterID, req.Version); err != nil {
+		logger.WarnF(ctx, "[Installer] 开启事件通道失败（不影响安装）/ Failed to enable event channel (non-fatal): cluster=%d version=%s error=%v",
+			clusterID, req.Version, err)
+		appendInstallationWarning(status, fmt.Sprintf("Warning: event channel was not enabled: %v / 警告：事件通道未开启: %v", err, err))
+		return
+	}
+	logger.InfoF(ctx, "[Installer] 已开启事件通道 / Event channel enabled: cluster=%d version=%s", clusterID, req.Version)
 }
 
 // markDeferredStartComplete 将“安装并登记完成、启动交由调用方”的任务标记为成功终态。
@@ -3798,7 +3897,6 @@ func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string
 	return remotePath, checksum, nil
 }
 
-
 // ListJavaRuntimes 列出主机上可探测到的 JDK（路径+版本），供安装/扩容/纳管向导下拉选择（AC1b / AC1b2）。
 // Agent 不可达或旧版本时返回空列表，不报错，前端进入自定义填写。
 // ListJavaRuntimes lists detectable JDKs (path+version) on a host for the install/scale/register wizard dropdown
@@ -3825,4 +3923,3 @@ func (s *Service) ListJavaRuntimes(ctx context.Context, hostID uint) ([]javarunt
 	}
 	return list, nil
 }
-

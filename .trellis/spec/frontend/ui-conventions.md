@@ -312,6 +312,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - 左侧文件树和拖拽移动不要换成 Arc Tree view 或 File dropzone。这两个组件没有右键、重命名、新建和目录移动。
 - 工作台左右侧栏开合记在 `localStorage`，但首帧必须用默认值（左展开、右收起），挂载后再套用上次记录。不要在 `useState` 初始值里读存储：服务端没有这份记录，客户端若记住了「右侧展开」，水合会改掉顶栏开关的 `aria-label` 和图标。Next 开发态会因此弹出红色报错层，开关点不了。那不是 Arc 的禁用样式。
 - 点不了的按钮用默认箭头，不要 `cursor: not-allowed`。这套系统光标会把禁止光标画成一块红色大图标，盖在「停止」这类禁用按钮上。禁用只靠变淡，原因放 tooltip。
+- 工作台右侧图标栏用 lucide 的语义图标：设置 `Settings`，模板 `LayoutTemplate`，定时 `Clock3`，版本 `History`，全局变量 `Globe2`。Arc 没有自己的图标集。不要用数据库、扳手或 Git 分支冒充设置、模板和版本。
 - 集群升级三页（准备 / 配置合并 / 执行）共用 `.upgrade-steps` 轨道，当前步是抬起的选中块。返回、清空、刷新这类次要动作进 `ButtonGroup` 或 Arc `Button` secondary；继续、生成计划、启动执行用 primary，进行中走 `loading`，阻断原因用 `aria-disabled` + tooltip。状态用 Arc `Badge`。配置文件切换用 Arc `Tabs`。执行页「步骤 | 节点」用 `SegmentedControl`。长说明进 HelpHint，不要在标题下再铺一整段。状态摘要是一行四格，不要四张大卡片。
 - 单测一旦引入 Arc 的 CSS Module，`vitest.config.ts` 的 `css.postcss.plugins` 必须是空数组。否则 Vite 会拒绝 `postcss.config.mjs` 里的字符串插件 `@tailwindcss/postcss`。
 

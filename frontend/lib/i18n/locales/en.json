@@ -886,6 +886,11 @@
       "masterWebUiPort": "Master Web UI port",
       "javaProxyPort": "stx-java-proxy port",
       "enableRestService": "Enable Web UI",
+      "eventChannel": "Event channel",
+      "enableEventChannel": "Enable event channel",
+      "summaryEventChannel": "Event channel",
+      "eventChannelEnabled": "Enabled",
+      "eventChannelDisabled": "Disabled",
       "jvmHeapConfigGb": "JVM heap (GB)",
       "hybridNodeHeap": "Hybrid node heap",
       "masterHeap": "Master heap",
@@ -2211,6 +2216,13 @@
       "slotAllocationRandomDesc": "RANDOM: distribute work randomly across available slots or workers.",
       "slotAllocationSystemLoadDesc": "SYSTEM_LOAD: prefer lower CPU/memory load nodes.",
       "slotAllocationSlotRatioDesc": "SLOT_RATIO: prefer nodes with lower slot usage ratio."
+    },
+    "eventChannel": {
+      "title": "Event channel",
+      "description": "SeaTunnel 3.0 and newer can report job state events to STX. One-click install turns this on by default and writes the config before the first start.",
+      "versionBadge": "3.0+",
+      "enableLabel": "Enable event channel",
+      "enableHint": "Writes event-report-http into seatunnel.yaml. Checked by default on 3.0 and newer, and can be turned off for this install."
     },
     "httpService": {
       "title": "HTTP Service / Web UI",

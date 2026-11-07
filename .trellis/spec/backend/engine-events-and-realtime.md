@@ -97,6 +97,7 @@ CLI：`stx sync job realtime <id> [--window_ms 180000]`
 
 ### 1. 范围 / 触发条件
 - 集群级开关会改写 seatunnel.yaml，需要滚动重启后生效。
+- **一键安装**：`InstallationRequest.enable_event_channel`。版本 ≥3.0.0 且字段省略时默认开启；显式 `false` 不写；低于 3.0.0 忽略该字段。安装向导（集群部署、主机安装配置）用与「启用 Web UI」相同的勾选，3.0 及以上默认勾上。CLI：`stx host install start --enable-event-channel` / `--enable-event-channel=false`，省略时走服务端默认。写入发生在登记 seatunnel.yaml 之后、节点启动之前，失败只记安装警告，不让安装失败。版本门槛用安装包版本，不看集群记录里可能还没刷新的版本。
 - 引擎每 10 秒 POST 一批事件（JSON 数组），收到 2xx 才前进；**只要返回非 2xx，就会一直重试同一批，后面的事件全被堵住**。
 
 ### 2. 签名

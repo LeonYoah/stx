@@ -886,6 +886,11 @@
       "masterWebUiPort": "Master Web UI 端口",
       "javaProxyPort": "stx-java-proxy 端口",
       "enableRestService": "启用 Web UI",
+      "eventChannel": "事件通道",
+      "enableEventChannel": "开启事件通道",
+      "summaryEventChannel": "事件通道",
+      "eventChannelEnabled": "已开启",
+      "eventChannelDisabled": "未开启",
       "jvmHeapConfigGb": "JVM 堆内存配置 (GB)",
       "hybridNodeHeap": "混合节点堆内存",
       "masterHeap": "Master 堆内存",
@@ -2211,6 +2216,13 @@
       "slotAllocationRandomDesc": "RANDOM：在可用 Slot/节点间随机分配，适合通用默认。",
       "slotAllocationSystemLoadDesc": "SYSTEM_LOAD：结合 CPU/内存采样优先选低负载节点。",
       "slotAllocationSlotRatioDesc": "SLOT_RATIO：按 Slot 使用率优先选占用更低的节点。"
+    },
+    "eventChannel": {
+      "title": "事件通道",
+      "description": "SeaTunnel 3.0 起可以把作业状态事件上报到 STX。安装时默认开启，需要滚动重启后才生效；一键安装会在第一次启动前写好配置。",
+      "versionBadge": "3.0+",
+      "enableLabel": "开启事件通道",
+      "enableHint": "把 event-report-http 写入 seatunnel.yaml。3.0 及以上默认勾选，可按安装取消。"
     },
     "httpService": {
       "title": "HTTP 服务 / Web UI",

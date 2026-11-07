@@ -37,52 +37,58 @@ type Kpi = { label: string; value: number; suffix?: string; change: string }; //
 type Source = { id: string; source: string; signups: number; conversion: string };
 type Data = { kpis: Kpi[]; trend: LineChartDatum[]; sources: Source[] };
 type Props = {
- range: string;
- onRangeChange: (range: string) => void;
- state: { status: "loading" } | { status: "error"; retry: () => void } | { status: "ready"; data: Data };
- onExport: () => void;
+  range: string;
+  onRangeChange: (range: string) => void;
+  state: { status: "loading" } | { status: "error"; retry: () => void } | { status: "ready"; data: Data };
+  onExport: () => void;
 };
 
 const ranges = [{ value: "7d", label: "7 days" }, { value: "30d", label: "30 days" }, { value: "90d", label: "90 days" }];
 
 export function Overview({ range, onRangeChange, state, onExport }: Props) {
- return (
- 
- 
- Signups 
- 
- 
- Export 
- 
- 
+  return (
+    <main className={styles.page}>
+      <header className={styles.header}>
+        <h1 className={styles.title}>Signups</h1>
+        <div className={styles.tools}>
+          <SegmentedControl label="Range" options={ranges} value={range} onValueChange={onRangeChange} />
+          <Button onClick={onExport}><Download size={16} strokeWidth={1.75} aria-hidden="true" />Export</Button>
+        </div>
+      </header>
 
- {state.status === "error" && (
- 
- Try again 
- 
- )}
+      {state.status === "error" && (
+        <Alert tone="danger" title="Signups could not load">
+          <Button variant="secondary" size="sm" onClick={state.retry}>Try again</Button>
+        </Alert>
+      )}
 
- 
- {state.status === "ready"
- ? state.data.kpis.map(kpi =>)
- : [0, 1, 2, 3].map(i =>)}
- 
+      <section className={styles.kpis} aria-label="Key numbers" aria-busy={state.status === "loading"}>
+        {state.status === "ready"
+          ? state.data.kpis.map(kpi => <MetricCard key={kpi.label} label={kpi.label} value={kpi.value} suffix={kpi.suffix} change={kpi.change} context="vs previous period" />)
+          : [0, 1, 2, 3].map(i => <Skeleton key={i} lines={2} className={styles.kpiSkeleton} />)}
+      </section>
 
- 
- {state.status === "ready"
- ? 
- :}
- 
+      <section className={styles.card} aria-label="Signups over time">
+        {state.status === "ready"
+          ? <LineChart label="Signups" data={state.data.trend} series={[{ key: "signups", label: "Signups" }]} height={280} />
+          : <Skeleton lines={6} />}
+      </section>
 
- 
- {state.status !== "ready" ? : state.data.sources.length === 0
- ? 
- : 
- 
-}
- 
- 
- );
+      <section className={styles.card} aria-label="Top sources">
+        {state.status !== "ready" ? <Skeleton lines={5} /> : state.data.sources.length === 0
+          ? <EmptyState title="No sources yet" description="Sources appear after your first tracked signup." />
+          : <div className={styles.tableScroll}>
+              <SortableDataTable rows={state.data.sources} rowKey="id" caption="Top sources"
+                columns={[
+                  { key: "source", label: "Source" },
+                  { key: "signups", label: "Signups", numeric: true, sortable: true },
+                  { key: "conversion", label: "Conversion", numeric: true },
+                ]}
+                defaultSort={{ key: "signups", direction: "desc" }} />
+            </div>}
+      </section>
+    </main>
+  );
 }
 ```
 

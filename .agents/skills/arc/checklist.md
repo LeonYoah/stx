@@ -7,12 +7,12 @@ Run this before you finish any Arc task. Copy it into your response, check each 
 Run these over the files you changed (adjust the paths). Each hit is a fix unless it is inside a string the user supplied.
 
 ```bash
-grep -rn "$(printf '\342\200\224')" app components # em dashes in copy
+grep -rn "$(printf '\342\200\224')" app components   # em dashes in copy
 grep -rniE "uppercase|eyebrow|overline|kicker" app components
 grep -rnE "outline:|:focus-visible|(^|[^a-z])ring-[0-9]" app components
-grep -rnE --include="*.css" "#[0-9a-fA-F]{3,8}\b|rgb\(|hsl\(" app components # raw colors
+grep -rnE --include="*.css" "#[0-9a-fA-F]{3,8}\b|rgb\(|hsl\(" app components   # raw colors
 grep -rnE "font-weight: *(600|700|800|bold)" app components
-grep -rnE --include="*.css" "linear-gradient|radial-gradient" app components # allowed only for a marketing backdrop or metallic mark
+grep -rnE --include="*.css" "linear-gradient|radial-gradient" app components     # allowed only for a marketing backdrop or metallic mark
 grep -rn --include="*.css" "100vw" app components
 ```
 

@@ -21,6 +21,7 @@ import type {
   RuntimeStorageCheckpointInspectResult,
 } from '@/lib/services/cluster/types';
 import type {
+  CreateSyncTaskRequest,
   SyncFormat,
   SyncGlobalVariable,
   SyncJobInstance,
@@ -32,6 +33,12 @@ import type {
   SyncTaskTreeNode,
 } from '@/lib/services/sync';
 export type { SyncTaskTreeNode, SyncTask };
+
+/** 草稿自动保存防抖间隔（毫秒） / Debounce interval for draft autosave (ms) */
+export const WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS = 1500;
+
+/** 顶栏草稿保存状态 / Top-bar draft save status */
+export type DraftSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 import type {CustomVariableItem} from './CustomVariableDialog';
 import type {TaskScheduleValue} from './TaskScheduleSidebarPanel';
 import {formatDateTimeTz} from '@/lib/timezone';
@@ -1256,6 +1263,131 @@ export function studioSaveSegment(input: {
     return 'save';
   }
   return 'saved';
+}
+
+/**
+ * 从编辑器状态构建保存草稿 / 更新任务的请求体（纯函数，供手动保存、自动保存与离开前批量落盘复用）。
+ * Build create/update task payload from editor state (pure; reused by manual save, autosave, and leave flush).
+ */
+export function buildTaskPayloadFromEditor(
+  editor: EditorState,
+  customVariableRows: VariableRow[],
+): CreateSyncTaskRequest {
+  return {
+    parent_id: editor.parentId,
+    node_type: 'file',
+    name: editor.name.trim(),
+    description: editor.description.trim(),
+    cluster_id: editor.clusterId ? Number(editor.clusterId) : 0,
+    content_format: 'hocon',
+    content: editor.content,
+    job_name: editor.name.trim(),
+    definition: {
+      ...editor.definition,
+      is_public:
+        editor.definition?.is_public !== undefined
+          ? editor.definition.is_public
+          : (editor.isPublic ?? true),
+      collaborators: Array.isArray(editor.definition?.collaborators)
+        ? editor.definition.collaborators
+        : Array.isArray(editor.definition?.collaborator_ids)
+          ? editor.definition.collaborator_ids
+          : [],
+      collaborator_ids: Array.isArray(editor.definition?.collaborator_ids)
+        ? editor.definition.collaborator_ids
+        : Array.isArray(editor.definition?.collaborators)
+          ? editor.definition.collaborators
+          : [],
+      custom_variables: fromVariableRows(customVariableRows),
+      custom_variable_types: fromVariableTypes(customVariableRows),
+      execution_mode: getExecutionMode(editor.definition),
+      observability: getObservabilityMode(editor.definition),
+      preview_mode: 'source',
+      preview_output_format: 'hocon',
+      preview_row_limit:
+        Number(toObject(editor.definition).preview_row_limit) > 0
+          ? Math.min(
+              Number(toObject(editor.definition).preview_row_limit),
+              10000,
+            )
+          : 100,
+      preview_timeout_minutes:
+        Number(toObject(editor.definition).preview_timeout_minutes) > 0
+          ? Math.min(
+              Number(toObject(editor.definition).preview_timeout_minutes),
+              24 * 60,
+            )
+          : 10,
+      preview_http_sink: {
+        url:
+          typeof toObject(toObject(editor.definition).preview_http_sink).url ===
+          'string'
+            ? String(
+                toObject(toObject(editor.definition).preview_http_sink).url,
+              )
+            : resolveDefaultPreviewHTTPSinkURL(),
+        array_mode: false,
+      },
+    },
+  };
+}
+
+/**
+ * 是否存在未落盘草稿风险（用于离开拦截 / beforeunload）。
+ * Whether unsaved draft risk exists (for leave intercept / beforeunload).
+ * 只读任务不计入；保存中或失败未恢复也算风险。
+ * Read-only tasks are excluded; in-flight or unrecovered failed saves also count.
+ */
+export function hasWorkbenchUnsavedRisk(options: {
+  drafts: Record<number, EditorDraftState>;
+  saveStatus: DraftSaveStatus;
+}): boolean {
+  const {drafts, saveStatus} = options;
+  if (saveStatus === 'saving' || saveStatus === 'error') {
+    return true;
+  }
+  return Object.values(drafts).some(
+    (draft) => Boolean(draft?.dirty) && draft.editor.canEdit !== false,
+  );
+}
+
+/**
+ * 判断站内导航目标是否会离开工作台路由。
+ * Whether an in-app navigation target leaves the workbench route.
+ */
+export function isLeavingWorkbenchPath(
+  href: string,
+  currentPathname: string,
+): boolean {
+  if (!href || href.startsWith('#') || href.startsWith('mailto:')) {
+    return false;
+  }
+  let pathname = href;
+  try {
+    if (href.startsWith('http://') || href.startsWith('https://')) {
+      const url = new URL(href);
+      if (
+        typeof window !== 'undefined' &&
+        url.origin !== window.location.origin
+      ) {
+        return true;
+      }
+      pathname = url.pathname;
+    } else {
+      pathname = href.split('?')[0]?.split('#')[0] || href;
+    }
+  } catch {
+    return false;
+  }
+  const onWorkbench =
+    currentPathname === '/workbench' ||
+    currentPathname.startsWith('/workbench/');
+  if (!onWorkbench) {
+    return false;
+  }
+  const stayingOnWorkbench =
+    pathname === '/workbench' || pathname.startsWith('/workbench/');
+  return !stayingOnWorkbench;
 }
 
 // ==========================================

@@ -22,7 +22,7 @@
 
 'use client';
 
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import {PluginService} from '@/lib/services/plugin';
 import type {
   Plugin,
@@ -64,10 +64,31 @@ export function useAvailablePlugins(
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(initialVersion);
   const [mirror, setMirror] = useState<MirrorSource>(initialMirror);
+  const hasLoadedPluginsRef = useRef(false);
+
+  // 同步父组件传入的 version/mirror，避免仅用 initial state 导致错版或反复重挂载刷新。
+  // Sync version/mirror from parent props so we do not stick to initial state or remount-refresh.
+  useEffect(() => {
+    setVersion(initialVersion);
+  }, [initialVersion]);
+  useEffect(() => {
+    setMirror(initialMirror);
+  }, [initialMirror]);
 
   const fetchPlugins = useCallback(async () => {
+    if (!version) {
+      setPlugins([]);
+      setTotal(0);
+      setLoading(false);
+      hasLoadedPluginsRef.current = false;
+      return;
+    }
     try {
-      setLoading(true);
+      // 已有列表时静默刷新，避免详情弹窗打开期间列表整页转圈。
+      // Soft refresh when list already loaded so detail dialog does not flash full-page spinner.
+      if (!hasLoadedPluginsRef.current) {
+        setLoading(true);
+      }
       setError(null);
       const response = await PluginService.listAvailablePlugins(
         version,
@@ -75,17 +96,22 @@ export function useAvailablePlugins(
       );
       setPlugins(response.plugins || []);
       setTotal(response.total || 0);
+      hasLoadedPluginsRef.current = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch plugins');
       setPlugins([]);
       setTotal(0);
+      hasLoadedPluginsRef.current = false;
     } finally {
       setLoading(false);
     }
   }, [version, mirror]);
 
   useEffect(() => {
-    fetchPlugins();
+    // 版本/镜像变化时重置「已加载」标记，允许展示首次 loading。
+    // Reset loaded flag on version/mirror change so first-load spinner can show again.
+    hasLoadedPluginsRef.current = false;
+    void fetchPlugins();
   }, [fetchPlugins]);
 
   // Filter plugins by category / 按分类过滤插件

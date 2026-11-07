@@ -321,6 +321,15 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - 集群升级三页（准备 / 配置合并 / 执行）共用 `.upgrade-steps` 轨道，当前步是抬起的选中块。返回、清空、刷新这类次要动作进 `ButtonGroup` 或 Arc `Button` secondary；继续、生成计划、启动执行用 primary，进行中走 `loading`，阻断原因用 `aria-disabled` + tooltip。状态用 Arc `Badge`。配置文件切换用 Arc `Tabs`。执行页「步骤 | 节点」用 `SegmentedControl`。长说明进 HelpHint，不要在标题下再铺一整段。状态摘要是一行四格，不要四张大卡片。
 - 单测一旦引入 Arc 的 CSS Module，`vitest.config.ts` 的 `css.postcss.plugins` 必须是空数组。否则 Vite 会拒绝 `postcss.config.mjs` 里的字符串插件 `@tailwindcss/postcss`。
 
+## 15. 工作台草稿自动保存与离开拦截（Workbench Draft Autosave）
+
+适用于 `/workbench` → `DataSyncStudio` 的未落盘草稿防丢：
+
+- **自动保存只走草稿**：防抖（`WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS`，1–2s）后仅调用 `persistCurrentFile(false)` / `updateTask`，**严禁**自动 `publishTask`。
+- **共享状态**：手动保存与自动保存共用草稿状态机；顶栏 Arc 保存段展示「保存 / 保存中 / 已保存」，失败时另用 `DraftSaveStatusBadge` 提供重试。成功以状态指示为准，避免双重成功 toast。
+- **离开风险**：任意可编辑 `editorDrafts.dirty`，或保存中 / 失败未恢复时，挂 `beforeunload`，并捕获站内离开 `/workbench` 的链接点击；对话框提供留下 / 保存并离开 / 丢弃并离开，默认焦点不在「丢弃」。
+- **只读**：`!editor.canEdit` 时不自动保存；无其它可编辑脏草稿时不拦截离开。
+
 ---
 
 ## 一致性检查项
@@ -347,3 +356,4 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] 自增/修改的代码注释是否严格遵循“中文在前，英文在后”的双语规范？
 - [ ] 工作台若改用 Arc 控件，是否仍保留 `components/ui`、`data-theme` 同步？保存段是否跟随草稿：干净显示「已保存」，一改回到「保存」，失败且仍脏时不显示「已保存」？
 - [ ] 工作台任务 / 预览表是否用 `StudioDataTable`（粘头、排序、底栏、空状态），颜色是否仍走 Arc token 而不是另一套主题？预览左右栏是否用 Arc `ResizablePanels`，而不是写死宽度？
+- [ ] 工作台草稿变更是否走防抖自动保存草稿（非发布），并在未落盘时提供离开拦截与共享保存状态？

@@ -16,9 +16,9 @@
 # 默认：MySQL 全量
 # Default: MySQL full stack
 #
-#   cp config.example.yaml config.yaml   # 确认 database 为 mysql / host=mysql
-#   mkdir -p data && chmod -R 777 data
+#   mkdir -p data
 #   docker compose up -d
+# SeaTunnel 不在本机时改挂载的 config.yaml（发版包）或根目录 config.example.yaml（仓库）的 app.external_url / app.console_url。
 
 include:
   - path: compose.base.yml
@@ -35,8 +35,6 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-stx}
     volumes:
       - ./data/mysql:/var/lib/mysql
-    ports:
-      - "${MYSQL_PORT:-3306}:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-stxroot}"]
       interval: 10s
@@ -46,6 +44,13 @@ services:
     networks: [stx]
 
   stx-backend:
+    environment:
+      STX_DATABASE_TYPE: mysql
+      STX_DATABASE_HOST: mysql
+      STX_DATABASE_PORT: "3306"
+      STX_DATABASE_USERNAME: ${MYSQL_USER:-stx}
+      STX_DATABASE_PASSWORD: ${MYSQL_PASSWORD:-stx}
+      STX_DATABASE_DATABASE: ${MYSQL_DATABASE:-stx}
     depends_on:
       mysql:
         condition: service_healthy

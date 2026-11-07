@@ -17,7 +17,7 @@ Arc copy is short, specific, and honest.
 
 | Incorrect | Correct |
 | --- | --- |
-| ` PRICING Simple, Transparent Pricing. ` | ` Pricing that grows with your team ` |
+| `<p class="eyebrow">PRICING</p><h2>Simple, Transparent Pricing.</h2>` | `<h2>Pricing that grows with your team</h2>` |
 | Two clauses joined by an em dash ("Fast builds, em dash, every time") | "Builds finish in under a minute." |
 | Button: "Submit" | Button: "Save changes" |
 | "Oops! Something went wrong!!" | "We could not save your changes. Check your connection and try again." |

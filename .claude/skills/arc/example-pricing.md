@@ -32,62 +32,63 @@ import { FaqSection } from "@/components/arc/blocks/faq-section/faq-section";
 import styles from "./pricing.module.css";
 
 const plans = [
- { id: "starter", name: "Starter", monthly: 0, yearly: 0, blurb: "For one person trying things out.", cta: "Start free", points: ["3 projects", "Community support"] },
- { id: "team", name: "Team", monthly: 24, yearly: 19, blurb: "For small teams shipping together.", cta: "Start 14-day trial", points: ["Unlimited projects", "Shared workspaces", "Email support"], recommended: true },
- { id: "business", name: "Business", monthly: 49, yearly: 39, blurb: "For companies with review and security needs.", cta: "Talk to sales", points: ["Everything in Team", "SSO and audit log", "Priority support"] },
+  { id: "starter", name: "Starter", monthly: 0, yearly: 0, blurb: "For one person trying things out.", cta: "Start free", points: ["3 projects", "Community support"] },
+  { id: "team", name: "Team", monthly: 24, yearly: 19, blurb: "For small teams shipping together.", cta: "Start 14-day trial", points: ["Unlimited projects", "Shared workspaces", "Email support"], recommended: true },
+  { id: "business", name: "Business", monthly: 49, yearly: 39, blurb: "For companies with review and security needs.", cta: "Talk to sales", points: ["Everything in Team", "SSO and audit log", "Priority support"] },
 ];
 
 const sections: ComparisonSection[] = [
- { id: "core", title: "Core", rows: [
- { id: "projects", feature: "Projects", values: { starter: "3", team: "Unlimited", business: "Unlimited" } },
- { id: "history", feature: "Version history", values: { starter: "7 days", team: "90 days", business: "Unlimited" } },
- ] },
- { id: "security", title: "Security", rows: [
- { id: "sso", feature: "Single sign-on", values: { starter: false, team: false, business: true } },
- { id: "audit", feature: "Audit log", values: { starter: false, team: false, business: true } },
- ] },
+  { id: "core", title: "Core", rows: [
+    { id: "projects", feature: "Projects", values: { starter: "3", team: "Unlimited", business: "Unlimited" } },
+    { id: "history", feature: "Version history", values: { starter: "7 days", team: "90 days", business: "Unlimited" } },
+  ] },
+  { id: "security", title: "Security", rows: [
+    { id: "sso", feature: "Single sign-on", values: { starter: false, team: false, business: true } },
+    { id: "audit", feature: "Audit log", values: { starter: false, team: false, business: true } },
+  ] },
 ];
 
 const faq = [
- { question: "Can I switch plans later?", answer: "Yes. Upgrades apply right away and downgrades at the end of the billing period." },
- { question: "What happens after the trial?", answer: "You choose a plan or stay on Starter. Nothing is charged without your confirmation." },
+  { question: "Can I switch plans later?", answer: "Yes. Upgrades apply right away and downgrades at the end of the billing period." },
+  { question: "What happens after the trial?", answer: "You choose a plan or stay on Starter. Nothing is charged without your confirmation." },
 ];
 
 export function Pricing({ onChoose }: { onChoose: (planId: string, period: string) => void }) {
- const id = useId();
- const [period, setPeriod] = useState("yearly");
- const yearly = period === "yearly";
+  const id = useId();
+  const [period, setPeriod] = useState("yearly");
+  const yearly = period === "yearly";
 
- return (
- 
- 
- Pricing that grows with your team 
- Start free. Upgrade when you invite your first teammate. 
- 
- 
+  return (
+    <section className={styles.section} aria-labelledby={`${id}-title`}>
+      <header className={styles.header}>
+        <h2 id={`${id}-title`} className={styles.title}>Pricing that grows with your team</h2>
+        <p className={styles.lede}>Start free. Upgrade when you invite your first teammate.</p>
+        <BillingToggle value={period} onValueChange={setPeriod} />
+      </header>
 
- 
- {plans.map(plan => (
- 
- 
- {plan.name} 
- {plan.recommended && Recommended}
- 
- plan.yearly ? plan.monthly : undefined}
- period={plan.monthly === 0 ? "forever" : yearly ? "per seat per month, billed yearly" : "per seat per month"} />
- {plan.blurb} 
- 
- {plan.points.map(point => {point})}
- 
- onChoose(plan.id, period)}>{plan.cta} 
- 
- ))}
- 
+      <ul className={styles.plans}>
+        {plans.map(plan => (
+          <li key={plan.id} className={styles.plan} data-recommended={plan.recommended || undefined}>
+            <div className={styles.planHead}>
+              <h3 className={styles.planName}>{plan.name}</h3>
+              {plan.recommended && <Badge tone="info" size="sm">Recommended</Badge>}
+            </div>
+            <BillingPrice amount={yearly ? plan.yearly : plan.monthly} was={yearly && plan.monthly > plan.yearly ? plan.monthly : undefined}
+              period={plan.monthly === 0 ? "forever" : yearly ? "per seat per month, billed yearly" : "per seat per month"} />
+            <p className={styles.blurb}>{plan.blurb}</p>
+            <ul className={styles.points}>
+              {plan.points.map(point => <li key={point}><Check size={16} strokeWidth={1.75} aria-hidden="true" />{point}</li>)}
+            </ul>
+            <Button variant={plan.recommended ? "primary" : "secondary"} className={styles.cta} onClick={() => onChoose(plan.id, period)}>{plan.cta}</Button>
+          </li>
+        ))}
+      </ul>
 
- ({ id, name, highlight: recommended }))} sections={sections} stickyTop={64} />
- 
- 
- );
+      <ComparisonTable title="Compare plans" description="What each plan includes."
+        columns={plans.map(({ id, name, recommended }) => ({ id, name, highlight: recommended }))} sections={sections} stickyTop={64} />
+      <FaqSection title="Questions about billing" items={faq} contact={{ label: "Talk to billing", href: "mailto:billing@example.com" }} />
+    </section>
+  );
 }
 ```
 
@@ -110,9 +111,9 @@ export function Pricing({ onChoose }: { onChoose: (planId: string, period: strin
 .cta { margin-top: auto; width: 100%; }
 ```
 
-`onChoose` starts checkout or opens sign up; the buttons act, so they are buttons. A CTA that only navigates is a link (` ` styled in your module, or a block action with `href`).
+`onChoose` starts checkout or opens sign up; the buttons act, so they are buttons. A CTA that only navigates is a link (`<a>` styled in your module, or a block action with `href`).
 
-Place ` ` inside the page's one container; the section adds vertical rhythm only, no gutters or max width of its own.
+Place `<Pricing onChoose={...} />` inside the page's one container; the section adds vertical rhythm only, no gutters or max width of its own.
 
 ## Why it passes the checklist
 

@@ -39,4 +39,4 @@ Render at **390, 768, 1024, and 1440px** (and 320px for anything with long label
 
 ## Before placing a component
 
-Each item's markdown has a "Responsive behavior" section (`https://uiarc.dev/components/ /markdown`). Read it before putting the item in a narrow column, and pass its props (such as `stackBelow` or `stickyTop`) instead of wrapping it in your own media queries.
+Each item's markdown has a "Responsive behavior" section (`https://uiarc.dev/components/<id>/markdown`). Read it before putting the item in a narrow column, and pass its props (such as `stackBelow` or `stickyTop`) instead of wrapping it in your own media queries.

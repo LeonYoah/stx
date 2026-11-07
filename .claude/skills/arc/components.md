@@ -1,6 +1,6 @@
 # Choosing Arc components and blocks
 
-Pick the item whose job matches, not the one that looks closest. Ids below are the install names (`npx shadcn@latest add @uiarc/ `). Items marked Pro need Arc Pro (a Pro account signed in to the MCP server, or a Pro token); offer the free pick otherwise. Only ids listed here or returned by `search_components` exist; do not guess others.
+Pick the item whose job matches, not the one that looks closest. Ids below are the install names (`npx shadcn@latest add @uiarc/<id>`). Items marked Pro need Arc Pro (a Pro account signed in to the MCP server, or a Pro token); offer the free pick otherwise. Only ids listed here or returned by `search_components` exist; do not guess others.
 
 ## Contents
 - How to decide
@@ -18,7 +18,7 @@ Pick the item whose job matches, not the one that looks closest. Ids below are t
 
 1. Name the job in one line ("pick one of three plans", "confirm deleting a project").
 2. Find candidates in the tables below or with `search_components`.
-3. Read each candidate's markdown (`https://uiarc.dev/components/ /markdown` or `get_component`). "When not to use" names the better alternative; follow it.
+3. Read each candidate's markdown (`https://uiarc.dev/components/<id>/markdown` or `get_component`). "When not to use" names the better alternative; follow it.
 4. Prefer a block for a whole region, a component for a single control. Replace block sample data; do not keep placeholder names or numbers.
 5. Use the same item for the same job everywhere in the app: one confirmation pattern, one menu, one table.
 
@@ -27,10 +27,10 @@ Pick the item whose job matches, not the one that looks closest. Ids below are t
 | Job | Pick | Instead of |
 | --- | --- | --- |
 | The main action on a surface | `button` (its default `variant` is `"primary"`), once per surface | Several primary buttons |
-| Other actions | `button` with `variant="secondary"` or `"ghost"` set explicitly | A bare ` `, which renders primary |
+| Other actions | `button` with `variant="secondary"` or `"ghost"` set explicitly | A bare `<Button>`, which renders primary |
 | Dense toolbar action | `action-button` | Full buttons in a toolbar |
 | Main action plus alternatives | `split-button` | A row of equal buttons |
-| Navigate somewhere | A link (` ` or your router's `Link`), or a block action with `href` (`hero-section`, `cta-section`) | `button` with a router push |
+| Navigate somewhere | A link (`<a>` or your router's `Link`), or a block action with `href` (`hero-section`, `cta-section`) | `button` with a router push |
 | A list of actions on a trigger | `dropdown-menu` | Custom popovers |
 | Actions on a right-click or long press | `context-menu` | Hidden gestures without a menu |
 | Copy a value | `copy-button` | A button plus a toast |
@@ -118,7 +118,7 @@ Pick the item whose job matches, not the one that looks closest. Ids below are t
 | A year of daily activity | `activity-heatmap` | |
 | Events, newest first | `timeline` | |
 | Nested structure | `tree-view` | |
-| Code or JSON | `code-block`, `json-viewer` | ` ` |
+| Code or JSON | `code-block`, `json-viewer` | `<pre>` |
 | Comments and chat | `comment-thread`, `chat-thread` | |
 | Feature comparison across plans or products | `comparison-table` (block) | A hand-built table |
 | A row of slides | `carousel` | |
@@ -172,7 +172,7 @@ Notes:
 
 ## Wiring rules
 
-- Copy the import from the usage example: `import { Button } from "@/components/arc/button/button";`, `import SegmentedControl from "@/components/arc/segmented-control/segmented-control";`, blocks from `@/components/arc/blocks/ / `.
+- Copy the import from the usage example: `import { Button } from "@/components/arc/button/button";`, `import SegmentedControl from "@/components/arc/segmented-control/segmented-control";`, blocks from `@/components/arc/blocks/<id>/<id>`.
 - Use only documented props. Where an item accepts `className` or native props (check its props table), use them for layout (margin, grid placement), never to restyle internals.
 - Pick controlled (`value` plus a change handler) or uncontrolled (`defaultValue`), not both.
 - Async callbacks (`onConfirm`, `onSubmit`, `onSave`) return the promise; reject to show the item's error state. Do not add a second spinner.

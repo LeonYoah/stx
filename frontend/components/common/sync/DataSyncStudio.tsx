@@ -52,7 +52,7 @@ import {
   FilePlus2,
   GitBranch,
   FileStack,
-  Layers,
+  Tags,
   BarChart3,
   Maximize2,
   Minimize2,
@@ -88,7 +88,6 @@ import {
   WandSparkles,
   Code2,
   HelpCircle,
-  Variable,
   X,
 } from 'lucide-react';
 import './studio-chrome.css';
@@ -407,6 +406,25 @@ import {
 } from './sync-option-rule-assist';
 
 const OPTION_RULE_MARKER_OWNER = 'stx-option-rule';
+
+// Gravity UI 的 curly-brackets，16px 实心花括号。HeroUI 文档用这套图标，这里只内联这一枚，不引入整包。
+// Gravity UI curly-brackets, a 16px filled brace pair. HeroUI docs use that set; only this glyph is inlined.
+function CurlyBracketsIcon({className}: {className?: string}) {
+  return (
+    <svg
+      viewBox='0 0 16 16'
+      fill='currentColor'
+      aria-hidden='true'
+      className={className}
+    >
+      <path
+        fillRule='evenodd'
+        clipRule='evenodd'
+        d='M3.413 3.421A.84.84 0 0 1 4.25 2.5a.75.75 0 0 0 0-1.5a2.34 2.34 0 0 0-2.33 2.563l.199 2.096a.9.9 0 0 1-.677.957l-.139.035a1.39 1.39 0 0 0 0 2.698l.14.035a.9.9 0 0 1 .676.957l-.2 2.096A2.34 2.34 0 0 0 4.25 15a.75.75 0 0 0 0-1.5a.84.84 0 0 1-.837-.921l.2-2.096A2.4 2.4 0 0 0 2.04 8a2.4 2.4 0 0 0 1.571-2.483zm9.175 9.158a.84.84 0 0 1-.838.921a.75.75 0 0 0 0 1.5a2.34 2.34 0 0 0 2.33-2.563l-.199-2.096a.9.9 0 0 1 .677-.957l.139-.035a1.39 1.39 0 0 0 0-2.698l-.14-.035a.9.9 0 0 1-.676-.957l.2-2.096A2.34 2.34 0 0 0 11.75 1a.75.75 0 0 0 0 1.5c.496 0 .884.427.838.921l-.2 2.096A2.4 2.4 0 0 0 13.959 8a2.4 2.4 0 0 0-1.571 2.483z'
+      />
+    </svg>
+  );
+}
 
 export function DataSyncStudio() {
   const t = useTranslations('workbenchStudio');
@@ -5317,13 +5335,13 @@ export function DataSyncStudio() {
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'versions'}
-                icon={<Layers className='size-4' />}
+                icon={<Tags className='size-4' />}
                 label={t('versionManagement')}
                 onClick={() => setRightSidebarTab('versions')}
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'globals'}
-                icon={<Variable className='size-4' />}
+                icon={<CurlyBracketsIcon className='size-4' />}
                 label={t('globalVariables')}
                 onClick={() => {
                   setGlobalVariablesDefaultTab('all');

@@ -56,6 +56,7 @@
 
 - **布局与导航**：页面放在 `app/(main)/...` 下；底部留出 `pb-28` 避免被 Dock 栏遮挡；新业务组件置于 `components/common/<domain>/`。
 - **页面头部**：统一使用 `<WorkspaceHeader />`，配置语义化图标、标题、说明文案及主操作区，严禁手写样式不一致的 flex 标题栏。
+- **图标**：不要按名字随手挑。先查 Lucide、Tabler，以及 Arc / HeroUI（文档用 Gravity UI）。按实际尺寸（侧栏 16px）列出至少 3 个候选，等开发者确认后再改。详见 [UI 约定](./ui-conventions.md) 的「图标选型先确认，再改代码」。
 - **状态统计与筛选**：列表页存在按状态分类（如 全部 / 在线 / 离线 / 警告）时，优先采用 `<StatPillsBar />` 提供统揽和联动。
 - **加载态平滑度**：严格执行“零塌陷加载规范”，配备 `TableSkeletonRows` 和 `TableLoadingBar`。
 - **分页设计**：分页组件放置于表格卡片底部 footer，包含页码指示、跳页及每页条数切换器。

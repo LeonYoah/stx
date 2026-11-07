@@ -49,6 +49,11 @@ STX 控制台采用现代化控制台体验架构：
   - 审计日志：`FileText`
   - 命令历史：`Terminal`
   - 用户管理：`Users`
+- **图标选型先确认，再改代码**：
+  - 换图标或加一枚新图标时，不要按名字从 Lucide 里随手挑一个就提交。先去项目已经依赖的 `lucide-react`、`@tabler/icons-react` 里找，再看当前界面用的组件库：Arc / `@uiarc` 没有图标集；HeroUI 文档用的是 Gravity UI（`@gravity-ui/icons`），不是 HeroUI 自带。需要时再看 Heroicons、Phosphor。
+  - 按图标真正出现的尺寸看，侧栏是 16px。放大图好看不够。和旁边已经定下来的图标放在一起比，避免时钟撞上定时、地球当成全局、分支当成版本。
+  - 至少列出 3 个候选，写清来源、图标名，以及不建议的原因。等开发者点名确认后再改代码。开发者没点头之前，保持现有图标。
+  - 确认后优先用已经装上的库。只有一枚、且来自还没安装的库时，内联这一个 SVG，不要为了一枚图标加整包。
 - **结构化配置**：
   - 支持清晰的面包屑导航（`breadcrumbs`）；
   - 副标题简要阐述页面职责（如“STX 集群运行状态与节点拓扑”）；
@@ -312,7 +317,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - 左侧文件树和拖拽移动不要换成 Arc Tree view 或 File dropzone。这两个组件没有右键、重命名、新建和目录移动。
 - 工作台左右侧栏开合记在 `localStorage`，但首帧必须用默认值（左展开、右收起），挂载后再套用上次记录。不要在 `useState` 初始值里读存储：服务端没有这份记录，客户端若记住了「右侧展开」，水合会改掉顶栏开关的 `aria-label` 和图标。Next 开发态会因此弹出红色报错层，开关点不了。那不是 Arc 的禁用样式。
 - 点不了的按钮用默认箭头，不要 `cursor: not-allowed`。这套系统光标会把禁止光标画成一块红色大图标，盖在「停止」这类禁用按钮上。禁用只靠变淡，原因放 tooltip。
-- 工作台右侧图标栏用 lucide 的语义图标：设置 `Settings`（齿轮），模板 `FileStack`（叠放的模板文件），定时 `Clock3`，版本 `Layers`（叠放的版本层），全局变量 `Variable`（花括号里的 x）。Arc 没有自己的图标集。不要用数据库、扳手、地球、Git 分支，或和定时相同的时钟，冒充设置、模板、全局变量和版本。
+- 工作台右侧图标栏：设置 `Settings`（齿轮），模板 `FileStack`（叠放的模板文件），定时 `Clock3`，版本 Lucide `Tags`（两枚标签），全局变量用 Gravity UI 的 `curly-brackets`（16px 实心花括号，内联 SVG，不引入整包）。Arc 和 HeroUI 都没有自己的图标集。不要用数据库、扳手、地球、Git 分支、叠放菱形，或和定时相同的时钟，冒充设置、模板、全局变量和版本。
 - 集群升级三页（准备 / 配置合并 / 执行）共用 `.upgrade-steps` 轨道，当前步是抬起的选中块。返回、清空、刷新这类次要动作进 `ButtonGroup` 或 Arc `Button` secondary；继续、生成计划、启动执行用 primary，进行中走 `loading`，阻断原因用 `aria-disabled` + tooltip。状态用 Arc `Badge`。配置文件切换用 Arc `Tabs`。执行页「步骤 | 节点」用 `SegmentedControl`。长说明进 HelpHint，不要在标题下再铺一整段。状态摘要是一行四格，不要四张大卡片。
 - 单测一旦引入 Arc 的 CSS Module，`vitest.config.ts` 的 `css.postcss.plugins` 必须是空数组。否则 Vite 会拒绝 `postcss.config.mjs` 里的字符串插件 `@tailwindcss/postcss`。
 
@@ -322,6 +327,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 
 在提交代码前，必须核对以下检查清单：
 - [ ] 页面头部是否使用了统一的 `WorkspaceHeader`？语义图标是否与 Dock 栏对齐？
+- [ ] 新增或替换图标前，是否查过 Lucide、Tabler、Arc、HeroUI（Gravity UI），并列了至少 3 个候选给开发者确认？没确认就不要改。
 - [ ] 页面是否没有再手写冲突的外层 `container` 或冗余的大 Padding？
 - [ ] 顶部是否有状态量化？是否优先使用了 `StatPillsBar` 并支持快捷筛选？
 - [ ] 是否消除了卡片顶部的“大篇幅无效说明文字”，保证高密度垂直视口？

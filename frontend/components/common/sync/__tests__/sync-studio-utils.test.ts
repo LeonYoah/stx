@@ -40,9 +40,36 @@ import {
   resolveOptionAssignmentContext,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
+  studioSaveSegment,
   STUDIO_LAYOUT_STORAGE_KEY,
   writeStudioLayoutPrefs,
 } from '../sync-studio-utils';
+
+describe('studio save segment', () => {
+  it('shows saved only while an existing file is clean', () => {
+    expect(
+      studioSaveSegment({pending: false, hasFile: true, dirty: false}),
+    ).toBe('saved');
+  });
+
+  it('returns to save when the draft changes, including a clean file that becomes dirty', () => {
+    expect(
+      studioSaveSegment({pending: false, hasFile: true, dirty: true}),
+    ).toBe('save');
+    expect(
+      studioSaveSegment({pending: false, hasFile: false, dirty: false}),
+    ).toBe('save');
+  });
+
+  it('keeps pending ahead of the draft, and a failed save that stays dirty is save', () => {
+    expect(
+      studioSaveSegment({pending: true, hasFile: true, dirty: false}),
+    ).toBe('pending');
+    expect(
+      studioSaveSegment({pending: false, hasFile: true, dirty: true}),
+    ).toBe('save');
+  });
+});
 
 describe('studio layout prefs (#110)', () => {
   it('defaults to left expanded and right collapsed when no record', () => {

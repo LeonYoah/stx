@@ -51,8 +51,8 @@ import {
   FileCode2,
   FilePlus2,
   GitBranch,
-  History,
-  LayoutTemplate,
+  FileStack,
+  Layers,
   BarChart3,
   Maximize2,
   Minimize2,
@@ -88,6 +88,7 @@ import {
   WandSparkles,
   Code2,
   HelpCircle,
+  Variable,
   X,
 } from 'lucide-react';
 import './studio-chrome.css';
@@ -357,6 +358,7 @@ import {
   hasDuplicateWorkspaceName,
   isCursorInsideValueRegion,
   isEditorDraftDirty,
+  studioSaveSegment,
   isJobLifecycleActive,
   isJobLifecycleTerminal,
   isReservedBuiltinVariableKey,
@@ -580,19 +582,9 @@ export function DataSyncStudio() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [expandedLogsLoading, setExpandedLogsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  // 保存段的就地确认：空闲 / 保存中 / 已保存，失败必须回到空闲。
-  // Save-segment confirmation: idle / pending / saved. Failure must return to idle.
-  const [saveAck, setSaveAck] = useState<'idle' | 'pending' | 'success'>(
-    'idle',
-  );
-  const saveAckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    return () => {
-      if (saveAckTimerRef.current) {
-        clearTimeout(saveAckTimerRef.current);
-      }
-    };
-  }, []);
+  // 保存中单独占一段；成功后的「已保存」由草稿是否变脏决定，不再用定时器收回。
+  // Pending is its own segment. Saved after success follows draft dirtiness and is not cleared by a timer.
+  const [saveAck, setSaveAck] = useState<'idle' | 'pending'>('idle');
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState<PendingActionKind | null>(
     null,
@@ -711,6 +703,13 @@ export function DataSyncStudio() {
   // 当前编辑器文件是否存在未保存改动
   // Whether current active editor has unsaved changes
   const isCurrentDirty = Boolean(editor.id && editorDrafts[editor.id]?.dirty);
+  // 干净的已有文件显示已保存；右侧栏或正文一改，立刻回到保存。
+  // A clean existing file shows Saved. Any edit in the body or the right sidebar returns to Save.
+  const saveSegment = studioSaveSegment({
+    pending: saveAck === 'pending',
+    hasFile: Boolean(editor.id),
+    dirty: isCurrentDirty,
+  });
 
   // 已保存版本中的定时配置，用于判断定时是否有未保存改动
   // Schedule from the saved baseline, used to tell whether the schedule has unsaved changes
@@ -3547,25 +3546,19 @@ export function DataSyncStudio() {
     toast.success(t('saveFileSuccess'));
   };
 
-  // Button Group 不会自己画 pending/success，保存段的文案由这里切换；失败保持「保存」。
-  // Button Group does not draw pending/success itself. This flips the save label and keeps Save on failure.
+  // Button Group 不会自己画 pending。保存中走 pending；结束后文案跟草稿脏状态走。
+  // Button Group does not draw pending itself. Pending covers the request; afterwards the label follows draft dirtiness.
   const handleToolbarSave = async () => {
     if (saveAck === 'pending') {
       return;
     }
-    if (saveAckTimerRef.current) {
-      clearTimeout(saveAckTimerRef.current);
-      saveAckTimerRef.current = null;
-    }
     setSaveAck('pending');
     try {
       await handleSave();
-      setSaveAck('success');
-      saveAckTimerRef.current = setTimeout(() => {
-        setSaveAck('idle');
-        saveAckTimerRef.current = null;
-      }, 2400);
     } catch {
+      // 失败时草稿仍脏，回到空闲后文案是「保存」。
+      // On failure the draft stays dirty, so idle renders as Save.
+    } finally {
       setSaveAck('idle');
     }
   };
@@ -4697,13 +4690,13 @@ export function DataSyncStudio() {
                       {
                         id: 'save',
                         label:
-                          saveAck === 'pending'
+                          saveSegment === 'pending'
                             ? t('savePending')
-                            : saveAck === 'success'
+                            : saveSegment === 'saved'
                               ? t('saveDone')
                               : t('save'),
                         reserve: [t('save'), t('savePending'), t('saveDone')],
-                        icon: saveAck === 'success' ? <Check /> : <Save />,
+                        icon: saveSegment === 'saved' ? <Check /> : <Save />,
                         disabled:
                           saving ||
                           saveAck === 'pending' ||
@@ -5312,7 +5305,7 @@ export function DataSyncStudio() {
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'templates'}
-                icon={<LayoutTemplate className='size-4' />}
+                icon={<FileStack className='size-4' />}
                 label={t('curatedManage')}
                 onClick={() => setRightSidebarTab('templates')}
               />
@@ -5324,13 +5317,13 @@ export function DataSyncStudio() {
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'versions'}
-                icon={<History className='size-4' />}
+                icon={<Layers className='size-4' />}
                 label={t('versionManagement')}
                 onClick={() => setRightSidebarTab('versions')}
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'globals'}
-                icon={<Globe2 className='size-4' />}
+                icon={<Variable className='size-4' />}
                 label={t('globalVariables')}
                 onClick={() => {
                   setGlobalVariablesDefaultTab('all');

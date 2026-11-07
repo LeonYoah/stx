@@ -164,6 +164,12 @@ func TestDefaultConfigToolClientHumanizesResolutionErrors(t *testing.T) {
 			rawMsg:     "Communications link failure: Connection refused",
 			expectedSub: "无法连接到目标数据库",
 		},
+		{
+			name:       "Unquoted brace variable syntax error",
+			path:       "/api/v1/config/validate",
+			rawMsg:     "Config parse failed: String: 46: expecting a close parentheses ')' here, not: '{'",
+			expectedSub: "检测到未加双引号的 {{变量}} 或未闭合括号",
+		},
 	}
 
 	for _, tc := range testCases {

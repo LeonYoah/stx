@@ -127,19 +127,36 @@ func resolveTemplateExpression(expr string, variables map[string]string, runtime
 }
 
 func replaceTemplateVariables(content string, variables map[string]string, runtime *taskVariableRuntime) string {
+	replaced, _ := replaceTemplateVariablesWithTrack(content, variables, runtime)
+	return replaced
+}
+
+func replaceTemplateVariablesWithTrack(content string, variables map[string]string, runtime *taskVariableRuntime) (string, []string) {
 	if strings.TrimSpace(content) == "" {
-		return content
+		return content, nil
 	}
-	return platformVariablePattern.ReplaceAllStringFunc(content, func(match string) string {
+	seen := map[string]struct{}{}
+	var undefined []string
+	replaced := platformVariablePattern.ReplaceAllStringFunc(content, func(match string) string {
 		parts := platformVariablePattern.FindStringSubmatch(match)
 		if len(parts) < 2 {
 			return match
 		}
-		if value, ok := resolveTemplateExpression(parts[1], variables, runtime); ok {
+		rawExpr := strings.TrimSpace(parts[1])
+		if rawExpr == "" {
+			return match
+		}
+		if value, ok := resolveTemplateExpression(rawExpr, variables, runtime); ok {
 			return value
+		}
+		if _, ok := seen[rawExpr]; !ok {
+			seen[rawExpr] = struct{}{}
+			undefined = append(undefined, rawExpr)
 		}
 		return match
 	})
+	sort.Strings(undefined)
+	return replaced, undefined
 }
 
 func resolveBuiltinVariable(key string, runtime *taskVariableRuntime) (string, bool) {

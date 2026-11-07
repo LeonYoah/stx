@@ -4337,6 +4337,7 @@
     "workspaceNameInvalid": "仅支持字母、数字、点、下划线和短横线，不支持空格",
     "unknownError": "发生未知错误，请稍后重试",
     "configParseFailedTitle": "配置解析失败",
+    "undefinedVariableTitle": "未定义的模板变量",
     "loadStudioFailed": "加载工作台失败",
     "loadRunsFailed": "加载运行历史失败",
     "loadVersionsFailed": "加载版本历史失败",

@@ -844,6 +844,97 @@ func TestResolveTaskContentSupportsBuiltinTimeVariables(t *testing.T) {
 	}
 }
 
+func TestResolveTaskContentRejectsUndefinedTemplateVariables(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+
+	task := &Task{
+		Name:          "undefined-demo",
+		ContentFormat: ContentFormatHOCON,
+		Content:       "password = {{asdad}}",
+	}
+
+	_, err := service.resolveTaskContent(ctx, task, &taskVariableRuntime{
+		ReferenceTime: time.Now(),
+	})
+	if err == nil || !errors.Is(err, ErrUndefinedTemplateVariable) {
+		t.Fatalf("expected ErrUndefinedTemplateVariable, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "{{asdad}}") {
+		t.Fatalf("expected error to mention {{asdad}}, got: %v", err)
+	}
+}
+
+func TestValidateTaskReportsUndefinedTemplateVariable(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType: string(TaskNodeTypeFolder),
+		Name:     "validate_folder",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create folder failed: %v", err)
+	}
+
+	task, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      uintPtr(folder.ID),
+		Name:          "undefined-validate-task",
+		NodeType:      string(TaskNodeTypeFile),
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "password = {{asdad}}",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+
+	result, err := service.ValidateTask(ctx, task.ID, nil)
+	if err != nil {
+		t.Fatalf("validate task returned unexpected error: %v", err)
+	}
+	if result.Valid {
+		t.Fatalf("expected result to be invalid due to undefined variable")
+	}
+	if len(result.Errors) == 0 || !strings.Contains(result.Errors[0], "{{asdad}}") {
+		t.Fatalf("expected errors to mention {{asdad}}, got: %#v", result.Errors)
+	}
+}
+
+func TestTestTaskConnectionsReportsUndefinedTemplateVariable(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType: string(TaskNodeTypeFolder),
+		Name:     "test_conn_folder",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create folder failed: %v", err)
+	}
+
+	task, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      uintPtr(folder.ID),
+		Name:          "undefined-test-conn-task",
+		NodeType:      string(TaskNodeTypeFile),
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "password = {{asdad}}",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+
+	result, err := service.TestTaskConnections(ctx, task.ID, nil)
+	if err != nil {
+		t.Fatalf("test task connections returned unexpected error: %v", err)
+	}
+	if result.Valid {
+		t.Fatalf("expected connection test to fail due to undefined variable")
+	}
+	if len(result.Errors) == 0 || !strings.Contains(result.Errors[0], "{{asdad}}") {
+		t.Fatalf("expected errors to mention {{asdad}}, got: %#v", result.Errors)
+	}
+}
+
 func TestCreateGlobalVariableRejectsReservedBuiltinVariableKey(t *testing.T) {
 	service := newTestSyncService(t)
 	ctx := context.Background()

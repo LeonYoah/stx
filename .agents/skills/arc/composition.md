@@ -30,21 +30,21 @@ An app has one page container that sets the max width and the gutters, usually i
 ```css
 /* Correct: one container, children fill it */
 .page {
- width: 100%;
- max-width: 1200px;
- margin-inline: auto;
- padding: 32px clamp(16px, 4vw, 32px);
- display: grid;
- gap: 24px;
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding: 32px clamp(16px, 4vw, 32px);
+  display: grid;
+  gap: 24px;
 }
 .page > * { min-width: 0; }
 ```
 
 ```tsx
 // Incorrect: a second container inside the page doubles the gutter
- 
-... 
- 
+<main className={styles.page}>
+  <section style={{ maxWidth: 960, margin: "0 auto", padding: "0 24px" }}>...</section>
+</main>
 ```
 
 Checks:
@@ -69,18 +69,18 @@ Checks:
 
 ```tsx
 // Correct: one group, divided rows
- 
- Notifications 
- 
- Product updates 
- Weekly summary 
- 
- 
+<section aria-labelledby="notifications">
+  <h2 id="notifications">Notifications</h2>
+  <div className={styles.group}>
+    <div className={styles.row}><span id="updates">Product updates</span><Switch aria-labelledby="updates" /></div>
+    <div className={styles.row}><span id="summary">Weekly summary</span><Switch aria-labelledby="summary" /></div>
+  </div>
+</section>
 
 // Incorrect: a card per row, an eyebrow, and a second heading level for nothing
- PREFERENCES 
- 
- 
+<p className="eyebrow">PREFERENCES</p>
+<Card title="Product updates"><Switch /></Card>
+<Card title="Weekly summary"><Switch /></Card>
 ```
 
 ## Marketing pages
@@ -115,8 +115,8 @@ const [theme] = useState(localStorage.getItem("theme") ?? "light");
 
 // Correct: the server snapshot ("light") is also the first client render, then it syncs
 const subscribe = (onChange: () => void) => {
- window.addEventListener("storage", onChange);
- return () => window.removeEventListener("storage", onChange);
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
 };
 const theme = useSyncExternalStore(subscribe, () => localStorage.getItem("theme") ?? "light", () => "light");
 ```

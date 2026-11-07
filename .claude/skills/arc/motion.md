@@ -53,31 +53,31 @@ import { motionTokens } from "@/components/arc/lib/motion-tokens";
 
 const reduce = useReducedMotion();
 {options.map(option => (
- setValue(option.value)} aria-pressed={value === option.value}>
- {value === option.value && (
- <motion.span layoutId="view-highlight" className={styles.highlight}
- transition={reduce ? { duration: 0 } : motionTokens.spring.morph} aria-hidden="true" />
- )}
- {option.label} 
- 
+  <button key={option.value} onClick={() => setValue(option.value)} aria-pressed={value === option.value}>
+    {value === option.value && (
+      <motion.span layoutId="view-highlight" className={styles.highlight}
+        transition={reduce ? { duration: 0 } : motionTokens.spring.morph} aria-hidden="true" />
+    )}
+    <span className={styles.label}>{option.label}</span>
+  </button>
 ))}
 ```
 
 Panel that opens with height and opacity together, no overshoot:
 
 ```tsx
- 
- {open && (
- <motion.div key="details"
- initial={{ height: 0, opacity: 0 }}
- animate={{ height: "auto", opacity: 1 }}
- exit={{ height: 0, opacity: 0, transition: { duration: motionTokens.duration.exit, ease: [...motionTokens.ease.exit] } }}
- transition={reduce ? { duration: 0 } : motionTokens.spring.smooth}
- style={{ overflow: "hidden" }}>
- {children}
- </motion.div>
- )}
- 
+<AnimatePresence initial={false}>
+  {open && (
+    <motion.div key="details"
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: "auto", opacity: 1 }}
+      exit={{ height: 0, opacity: 0, transition: { duration: motionTokens.duration.exit, ease: [...motionTokens.ease.exit] } }}
+      transition={reduce ? { duration: 0 } : motionTokens.spring.smooth}
+      style={{ overflow: "hidden" }}>
+      {children}
+    </motion.div>
+  )}
+</AnimatePresence>
 ```
 
 Hover and press in CSS:

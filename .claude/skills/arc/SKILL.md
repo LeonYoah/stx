@@ -21,7 +21,7 @@ Arc task:
 - [ ] 6. Review: run checklist.md, fix, run it again until every line passes
 ```
 
-**Find.** With the Arc MCP server (`https://uiarc.dev/api/mcp`): `search_components` with the user's intent, then `get_component` on the top two or three and compare `whenToUse` and `whenNotToUse`. The first connection opens a browser sign-in to an Arc account (free is enough); if a tool call fails with an auth error, ask the user to reconnect the server rather than guessing. Results mark Pro items `pro, unlocked` when the signed-in account has Pro; otherwise pass `tier: "free"`. Without MCP: read `https://uiarc.dev/llms.txt`, then `https://uiarc.dev/components/ /markdown`. Never rebuild an Arc item from scratch, and never reconstruct or imitate Pro source.
+**Find.** With the Arc MCP server (`https://uiarc.dev/api/mcp`): `search_components` with the user's intent, then `get_component` on the top two or three and compare `whenToUse` and `whenNotToUse`. The first connection opens a browser sign-in to an Arc account (free is enough); if a tool call fails with an auth error, ask the user to reconnect the server rather than guessing. Results mark Pro items `pro, unlocked` when the signed-in account has Pro; otherwise pass `tier: "free"`. Without MCP: read `https://uiarc.dev/llms.txt`, then `https://uiarc.dev/components/<id>/markdown`. Never rebuild an Arc item from scratch, and never reconstruct or imitate Pro source.
 
 **Install.**
 
@@ -29,7 +29,7 @@ Arc task:
 npx shadcn@latest add @uiarc/button @uiarc/input @uiarc/switch
 ```
 
-This needs `{ "registries": { "@uiarc": "https://uiarc.dev/r/{name}.json" } }` in `components.json`; without it use full URLs (`https://uiarc.dev/r/button.json`). Once per project: `import "@/components/arc/foundation.css";` in the root layout (Arc installs into an `arc/` folder under the `components` alias from `components.json`, for example `src/components/arc/`, and its files import each other with relative paths, so no `tsconfig.json` change is needed), and load Geist and Inter as `--font-geist` and `--font-inter`. Pro members install `@uiarc-pro/ ` with a Pro token (`https://uiarc.dev/docs/ai#pro-access`).
+This needs `{ "registries": { "@uiarc": "https://uiarc.dev/r/{name}.json" } }` in `components.json`; without it use full URLs (`https://uiarc.dev/r/button.json`). Once per project: `import "@/components/arc/foundation.css";` in the root layout (Arc installs into an `arc/` folder under the `components` alias from `components.json`, for example `src/components/arc/`, and its files import each other with relative paths, so no `tsconfig.json` change is needed), and load Geist and Inter as `--font-geist` and `--font-inter`. Pro members install `@uiarc-pro/<id>` with a Pro token (`https://uiarc.dev/docs/ai#pro-access`).
 
 **Wire.** Copy the import line from the item's usage example (a few use a default export, such as `segmented-control`). Selection components take `value` and `onValueChange`; pickers and editors (`date-picker`, `calendar`, `time-picker`) take `value` and `onChange`. When a callback is typed `void | Promise<…>`, return the promise: the item shows its own pending, success, and error states.
 
@@ -78,21 +78,21 @@ Read only the file the task needs. Each is one level from here.
 
 | File | Read it when |
 | --- | --- |
-| components.md | Choosing an item: every live id by job, overlays, inputs, data, marketing blocks |
-| composition.md | Laying out a page: containers, dashboards, marketing sections, states, React correctness |
-| design.md | Tokens for color, type, surfaces, radii, spacing, icons, metallic and brand treatments |
-| copy.md | Writing any visible text: headings, buttons, errors, empty states, claims |
-| motion.md | Adding or reviewing animation |
-| accessibility.md | Semantics, keyboard, names, announcements |
-| responsive.md | Widths, touch targets, overflow, tables on phones |
-| checklist.md | Before you finish. Always |
-| example-settings.md | Worked example: account settings page |
-| example-pricing.md | Worked example: pricing section with plans, comparison, and FAQ |
-| example-dashboard.md | Worked example: analytics overview with KPIs, chart, and table |
-| INSTRUCTIONS.md | Short always-on rules for AGENTS.md, CLAUDE.md, or Cursor rules |
+| [components.md](components.md) | Choosing an item: every live id by job, overlays, inputs, data, marketing blocks |
+| [composition.md](composition.md) | Laying out a page: containers, dashboards, marketing sections, states, React correctness |
+| [design.md](design.md) | Tokens for color, type, surfaces, radii, spacing, icons, metallic and brand treatments |
+| [copy.md](copy.md) | Writing any visible text: headings, buttons, errors, empty states, claims |
+| [motion.md](motion.md) | Adding or reviewing animation |
+| [accessibility.md](accessibility.md) | Semantics, keyboard, names, announcements |
+| [responsive.md](responsive.md) | Widths, touch targets, overflow, tables on phones |
+| [checklist.md](checklist.md) | Before you finish. Always |
+| [example-settings.md](example-settings.md) | Worked example: account settings page |
+| [example-pricing.md](example-pricing.md) | Worked example: pricing section with plans, comparison, and FAQ |
+| [example-dashboard.md](example-dashboard.md) | Worked example: analytics overview with KPIs, chart, and table |
+| [INSTRUCTIONS.md](INSTRUCTIONS.md) | Short always-on rules for AGENTS.md, CLAUDE.md, or Cursor rules |
 
-Over MCP, `get_skill` returns any of these by file name without `.md` (`get_skill { "id": "checklist" }`). Raw copies: `https://uiarc.dev/r/skills/arc/ `.
+Over MCP, `get_skill` returns any of these by file name without `.md` (`get_skill { "id": "checklist" }`). Raw copies: `https://uiarc.dev/r/skills/arc/<file>`.
 
 ## Before you finish
 
-Run checklist.md against your diff. Fix every failing line, then run it again. Then run the project's type check and lint.
+Run [checklist.md](checklist.md) against your diff. Fix every failing line, then run it again. Then run the project's type check and lint.

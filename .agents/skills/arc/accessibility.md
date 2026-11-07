@@ -10,8 +10,8 @@ Do not write your own outlines, ring `box-shadow`s, or halos. Tune the shared ri
 
 ```css
 /* Correct: adjust the shared keyboard ring */
-.tab { --focus-outline-offset: -2px; } /* inside a container that clips */
-:root { --focus-outline: var(--accent); } /* a stronger ring for the whole app */
+.tab { --focus-outline-offset: -2px; }          /* inside a container that clips */
+:root { --focus-outline: var(--accent); }       /* a stronger ring for the whole app */
 
 /* Correct: highlighted items in composite widgets look like the hovered one */
 .item:hover, .item[data-highlighted] { background: var(--surface-muted); }

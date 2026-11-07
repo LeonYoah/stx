@@ -40,17 +40,17 @@ Components and pages use semantic roles only. Never the `--neutral-*` ramp, raw 
 
 ```css
 .premium {
- --metal-plate: linear-gradient(112deg, oklch(93.4% .003 260), oklch(98.6% .002 260) 24%, oklch(91.2% .004 260) 50%, oklch(96.8% .003 260) 74%, oklch(92.6% .004 260));
- --metal-edge: inset 0 0 0 1px oklch(0% 0 0 / .075), inset 0 1px 0 oklch(100% 0 0 / .95);
- --metal-ink: oklch(26% .012 260);
- background: var(--metal-plate);
- box-shadow: var(--metal-edge);
- color: var(--metal-ink);
+  --metal-plate: linear-gradient(112deg, oklch(93.4% .003 260), oklch(98.6% .002 260) 24%, oklch(91.2% .004 260) 50%, oklch(96.8% .003 260) 74%, oklch(92.6% .004 260));
+  --metal-edge: inset 0 0 0 1px oklch(0% 0 0 / .075), inset 0 1px 0 oklch(100% 0 0 / .95);
+  --metal-ink: oklch(26% .012 260);
+  background: var(--metal-plate);
+  box-shadow: var(--metal-edge);
+  color: var(--metal-ink);
 }
 :root[data-theme="dark"] .premium {
- --metal-plate: linear-gradient(112deg, oklch(24.5% .004 260), oklch(30.5% .005 260) 24%, oklch(22.5% .004 260) 50%, oklch(28.5% .005 260) 74%, oklch(24% .004 260));
- --metal-edge: inset 0 0 0 1px oklch(100% 0 0 / .09), inset 0 1px 0 oklch(100% 0 0 / .06);
- --metal-ink: oklch(95.5% .004 260);
+  --metal-plate: linear-gradient(112deg, oklch(24.5% .004 260), oklch(30.5% .005 260) 24%, oklch(22.5% .004 260) 50%, oklch(28.5% .005 260) 74%, oklch(24% .004 260));
+  --metal-edge: inset 0 0 0 1px oklch(100% 0 0 / .09), inset 0 1px 0 oklch(100% 0 0 / .06);
+  --metal-ink: oklch(95.5% .004 260);
 }
 ```
 
@@ -82,7 +82,7 @@ A nested corner is the outer radius minus the padding between them, so the curve
 
 ```css
 /* Correct: inner = outer - padding */
-.card { border-radius: var(--radius-surface); padding: 8px; }
+.card  { border-radius: var(--radius-surface); padding: 8px; }
 .inner { border-radius: calc(var(--radius-surface) - 8px); } /* 26px, same as --radius-panel */
 
 .panel { border-radius: var(--radius-surface); padding: 24px; }
@@ -91,7 +91,7 @@ A nested corner is the outer radius minus the padding between them, so the curve
 
 ```css
 /* Incorrect: the same radius inside and out makes a thick, uneven corner */
-.card { border-radius: 34px; padding: 16px; }
+.card  { border-radius: 34px; padding: 16px; }
 .inner { border-radius: 34px; }
 ```
 
@@ -112,5 +112,5 @@ Clamp the result at a small positive value (`max(6px, calc(...))`) when padding 
 
 ## Themes and accents
 
-- Dark mode is `data-theme="dark"` on ` `; the accent is `data-accent` (`neutral`, `violet`, `blue`, `green`, `amber`, `orange`, `coral`, `rose`). Every token already has a dark value, so tokens alone make a screen work in both themes.
+- Dark mode is `data-theme="dark"` on `<html>`; the accent is `data-accent` (`neutral`, `violet`, `blue`, `green`, `amber`, `orange`, `coral`, `rose`). Every token already has a dark value, so tokens alone make a screen work in both themes.
 - Check both themes and at least two accents (neutral and one saturated hue). A screen that only works in neutral is using the accent wrong.

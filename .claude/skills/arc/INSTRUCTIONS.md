@@ -14,7 +14,7 @@ The full skill (component choice, layout, motion, examples, review checklist) is
 
 ## Always
 
-1. Use an existing Arc component or block before writing UI. Search with the Arc MCP server (`https://uiarc.dev/api/mcp`, tools `search_components` and `get_component`; the first connection opens a browser sign-in) or `https://uiarc.dev/llms.txt`, and read `https://uiarc.dev/components/ /markdown` before using an item. Follow its "When not to use".
+1. Use an existing Arc component or block before writing UI. Search with the Arc MCP server (`https://uiarc.dev/api/mcp`, tools `search_components` and `get_component`; the first connection opens a browser sign-in) or `https://uiarc.dev/llms.txt`, and read `https://uiarc.dev/components/<id>/markdown` before using an item. Follow its "When not to use".
 2. Use only documented props. Compose and wrap Arc components; never fork or restyle their internals, and never reconstruct Pro source.
 3. One page container per app. Blocks fill their column with no second gutter or max width.
 4. One `h1`, one primary button per surface (`button` defaults to `variant="primary"`, so set `secondary` or `ghost` on the rest), one memorable detail per view.

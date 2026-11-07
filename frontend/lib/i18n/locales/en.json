@@ -223,6 +223,12 @@
       "processingFailed": "Login processing failed",
       "sessionExpired": "Your login session has expired. Please sign in again.",
       "footer": "STX - Making data integration easier"
+    },
+    "splash": {
+      "welcomeBack": "Welcome back",
+      "skip": "Skip",
+      "ariaLabel": "STX splash animation",
+      "statusAnnouncement": "Playing the STX welcome animation. Press Escape or choose Skip to enter the workbench."
     }
   },
   "terms": {

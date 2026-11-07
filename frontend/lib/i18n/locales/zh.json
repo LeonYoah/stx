@@ -223,6 +223,12 @@
       "processingFailed": "登录处理失败",
       "sessionExpired": "登录会话已过期，请重新登录",
       "footer": "STX - 让数据集成更简单"
+    },
+    "splash": {
+      "welcomeBack": "欢迎回来",
+      "skip": "跳过",
+      "ariaLabel": "STX 开屏动画",
+      "statusAnnouncement": "正在播放 STX 欢迎动画，可按 Escape 或点击跳过进入工作台。"
     }
   },
   "terms": {

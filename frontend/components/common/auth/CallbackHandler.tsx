@@ -41,6 +41,7 @@ import {CheckCircle2, AlertCircle} from 'lucide-react';
 import services from '@/lib/services';
 import {cn} from '@/lib/utils';
 import {STXMark} from '@/components/icons/logo';
+import {markPostLoginSplashPending} from '@/lib/splash/post-login-splash-session';
 
 /**
  * 回调处理组件属性
@@ -88,6 +89,9 @@ export function CallbackHandler({className, ...props}: CallbackHandlerProps) {
         sessionStorage.removeItem('oauth_redirect_to');
 
         setTimeout(() => {
+          // OAuth 成功后进入主壳前标记开屏；保持原 redirect 目标不变
+          // Arm splash before entering the main shell after OAuth; keep the original redirect target
+          markPostLoginSplashPending();
           window.location.href = targetPath;
         }, 1000);
       } catch (err) {

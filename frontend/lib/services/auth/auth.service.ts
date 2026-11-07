@@ -25,6 +25,10 @@ import {
   UserInfoResponse,
 } from './types';
 import {setSystemTimezone, setUserTimezonePreference} from '@/lib/timezone';
+import {
+  clearPostLoginSplashSession,
+  markPostLoginSplashPending,
+} from '@/lib/splash/post-login-splash-session';
 
 function syncUserLocale(
   user?: {language?: string; timezone?: string; system_timezone?: string} | null,
@@ -83,6 +87,9 @@ export class AuthService extends BaseService {
   ): Promise<void> {
     try {
       await this.loginWithCredentials(credentials);
+      // 登录成功后标记会话级开屏；不改写原 redirect 目标
+      // Arm session-scoped splash after success; keep the original redirect target
+      markPostLoginSplashPending();
       window.location.href = redirectTo;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '登录失败';
@@ -129,6 +136,9 @@ export class AuthService extends BaseService {
     try {
       // 清除会话存储
       sessionStorage.removeItem('oauth_redirect_to');
+      // 清除开屏门控，保证下次登录可再播
+      // Clear splash gate so the next login can play again
+      clearPostLoginSplashSession();
 
       // 调用后端API
       await this.callLogoutAPI();
@@ -145,7 +155,9 @@ export class AuthService extends BaseService {
         error instanceof Error ? error.message : '未知错误',
       );
 
-      // 出错时仍然重定向
+      // 出错时仍清理开屏门控并重定向
+      // Still clear the splash gate and redirect on failure
+      clearPostLoginSplashSession();
       const finalRedirect =
         redirectTo === '/login' ? '/login?logout=true' : redirectTo;
 

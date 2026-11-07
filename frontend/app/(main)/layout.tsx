@@ -17,6 +17,7 @@
 
 'use client';
 
+import {PostLoginSplashGate} from '@/components/common/auth/PostLoginSplashGate';
 import {KapaWidgetMount} from '@/components/common/layout/KapaWidgetMount';
 import {ManagementBar} from '@/components/common/layout/ManagementBar';
 import {RouteProgressBar} from '@/components/common/layout/RouteProgressBar';
@@ -30,6 +31,10 @@ export default function ProjectLayout({children}: {children: React.ReactNode}) {
 
   return (
     <div className='min-h-screen flex flex-col'>
+      {/* 登录成功后会话级开屏（不改 redirect，失败不阻塞工作台） */}
+      {/* Session-scoped post-login splash (keeps redirect; never blocks workbench on failure) */}
+      <PostLoginSplashGate />
+
       {/* 顶部轻量路由加载进度条 / Top lightweight route loading progress bar */}
       <Suspense fallback={null}>
         <RouteProgressBar />

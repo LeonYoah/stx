@@ -313,6 +313,15 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 
 ---
 
+## 15. 登录开屏动画（Welcome Splash）
+
+- **触发**：只在登录成功后播放一次（密码登录 `AuthService.login`、OAuth `CallbackHandler`）。两者都是整页跳转，跳转前统一调用 `beginWelcomeSplashTransition()`：写入带时间戳的 `sessionStorage['stx:welcome-splash']`，并把当前页淡入纯黑。
+- **防首页先露出**：根布局 `<head>` 里的内联脚本 `welcomeSplashBootScript` 在首帧前读取并消费标记，命中后给 `<html>` 加 `data-stx-splash`，`globals.css` 用 `body::before` 先铺纯黑遮罩；`WelcomeSplash` 水合后接手，退场开始时才撤遮罩。遮罩有 15 秒兜底超时，不会永久黑屏。
+- **不播放的情况**：标记超过 60 秒、落地页是 `/login`、自动化浏览器（`navigator.webdriver`）。E2E 要验证动画时，先设置 `localStorage['stx:welcome-splash-force'] = '1'`。
+- **可跳过**：右下角「跳过」按钮和 `Esc` 都会进入快速退场；`prefers-reduced-motion` 下只渐显品牌和欢迎语，约 2 秒结束。
+- **视觉约束**：颜色只来自奇点漩涡着色器（移植自 Inspira UI Singularity Background，MIT）。品牌字和欢迎语统一用单色银白，不加彩色渐变，也不用书法类艺术字。品牌字用 Michroma，中文欢迎语用 Noto Serif SC 细字重，英文欢迎语用 Michroma 大写，均为本地托管字体。
+- **实现分层**：`splash-timeline.ts` 放时间轴和纯数学，有单测；`singularity-renderer.ts` 是原生 WebGL2，不可用时降级为 CSS 漩涡；`splash-assets.ts` 负责品牌排版和粒子采样；`splash-director.ts` 用单条 rAF 时间轴驱动画面，逐帧不触发 React 渲染。
+
 ## 一致性检查项
 
 在提交代码前，必须核对以下检查清单：
@@ -335,3 +344,4 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] 国际化覆盖测试是否通过，确认深层键、静态代码引用和 ICU 参数均无缺失？
 - [ ] 自增/修改的代码注释是否严格遵循“中文在前，英文在后”的双语规范？
 - [ ] 工作台草稿变更是否走防抖自动保存草稿（非发布），并在未落盘时提供离开拦截与共享保存状态？
+- [ ] 登录后的整页跳转是否先走 `beginWelcomeSplashTransition()`？新增登录入口时不要绕过开屏契约。

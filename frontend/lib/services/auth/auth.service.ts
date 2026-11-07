@@ -25,9 +25,14 @@ import {
   UserInfoResponse,
 } from './types';
 import {setSystemTimezone, setUserTimezonePreference} from '@/lib/timezone';
+import {beginWelcomeSplashTransition} from '@/lib/welcome-splash';
 
 function syncUserLocale(
-  user?: {language?: string; timezone?: string; system_timezone?: string} | null,
+  user?: {
+    language?: string;
+    timezone?: string;
+    system_timezone?: string;
+  } | null,
 ): void {
   if (user?.language && isLocale(user.language)) {
     saveLocale(user.language);
@@ -83,6 +88,9 @@ export class AuthService extends BaseService {
   ): Promise<void> {
     try {
       await this.loginWithCredentials(credentials);
+      // 登录成功：先平滑淡入黑幕并预约开屏动画，再整页跳转。
+      // Login succeeded: fade to black and arm the welcome splash, then navigate.
+      await beginWelcomeSplashTransition();
       window.location.href = redirectTo;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '登录失败';

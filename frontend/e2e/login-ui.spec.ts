@@ -42,4 +42,32 @@ test('authenticates with the default admin account', async ({page}) => {
     /控制台|Dashboard/i,
   );
   await expect(page.getByRole('button', {name: /刷新|Refresh/i})).toBeVisible();
+  // 自动化浏览器默认不播放开屏，避免遮挡后续用例。
+  // Automated browsers skip the splash by default so later steps aren't blocked.
+  await expect(page.getByTestId('welcome-splash')).toHaveCount(0);
+  await expect(page.locator('html')).not.toHaveAttribute('data-stx-splash');
+});
+
+test('plays the welcome splash after login and can be skipped', async ({
+  page,
+}) => {
+  // 强制开关：让自动化浏览器也播放开屏 / Force switch so the automated browser plays it.
+  await page.addInitScript(() => {
+    localStorage.setItem('stx:welcome-splash-force', '1');
+  });
+  await page.goto('/login');
+  await fillAndSubmitLoginForm(page);
+
+  await page.waitForURL('**/dashboard');
+  const splash = page.getByTestId('welcome-splash');
+  await expect(splash).toBeVisible();
+  // 首页已在遮罩下渲染完毕，跳过即可直接露出 / The dashboard renders beneath and is revealed on skip.
+  await expect(page.getByRole('heading', {level: 1})).toHaveText(
+    /控制台|Dashboard/i,
+  );
+
+  await page.getByRole('button', {name: /跳过|Skip/i}).click();
+  await expect(splash).toHaveCount(0);
+  await expect(page.locator('html')).not.toHaveAttribute('data-stx-splash');
+  await expect(page.getByRole('button', {name: /刷新|Refresh/i})).toBeVisible();
 });

@@ -41,6 +41,7 @@ import {CheckCircle2, AlertCircle} from 'lucide-react';
 import services from '@/lib/services';
 import {cn} from '@/lib/utils';
 import {STXMark} from '@/components/icons/logo';
+import {beginWelcomeSplashTransition} from '@/lib/welcome-splash';
 
 /**
  * 回调处理组件属性
@@ -87,8 +88,13 @@ export function CallbackHandler({className, ...props}: CallbackHandlerProps) {
 
         sessionStorage.removeItem('oauth_redirect_to');
 
+        // 成功提示停留片刻后淡入黑幕并预约开屏动画，再整页跳转。
+        // Hold the success state briefly, fade to black and arm the welcome
+        // splash, then navigate.
         setTimeout(() => {
-          window.location.href = targetPath;
+          void beginWelcomeSplashTransition().then(() => {
+            window.location.href = targetPath;
+          });
         }, 1000);
       } catch (err) {
         console.error('回调处理错误:', err);
@@ -122,10 +128,7 @@ export function CallbackHandler({className, ...props}: CallbackHandlerProps) {
       >
         <div className='flex flex-col gap-6'>
           <div className='flex flex-col items-center gap-2'>
-            <STXMark
-              className='size-12 object-contain'
-              priority
-            />
+            <STXMark className='size-12 object-contain' priority />
             <h1 className='text-xl font-bold'>{t('title')}</h1>
           </div>
           <div className='flex flex-col items-center gap-4'>

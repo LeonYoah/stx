@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/split-button.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { isValidElement, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -24,7 +55,7 @@ const iconEnter = { ...motionTokens.spring.snappy, opacity: { duration: motionTo
 
 /** Names the icon element, so swapping Copy for Check morphs while a re-render of the same icon stays still. */
 function iconKey(node: ReactNode): string {
-  if (!isValidElement(node)) return node == null || typeof node === "boolean" ? "" : String(node);
+  if (!isValidElement(node)) {return node == null || typeof node === "boolean" ? "" : String(node);}
   const type = node.type as string | { displayName?: string; name?: string };
   return typeof type === "string" ? type : type?.displayName ?? type?.name ?? "icon";
 }
@@ -32,18 +63,18 @@ function iconKey(node: ReactNode): string {
 /** Springs the slot to the natural width of its content when the label changes; other resizes (a late web font) jump. */
 function useMorphWidth(content: RefObject<HTMLElement | null>, key: string, reduced: boolean) {
   const width = useMotionValue<number | "auto">("auto");
-  const lastKey = useRef(key), armedUntil = useRef(0);
+  const lastKey = useRef(key); const armedUntil = useRef(0);
   useLayoutEffect(() => {
-    if (lastKey.current === key) return;
+    if (lastKey.current === key) {return;}
     lastKey.current = key;
     armedUntil.current = performance.now() + 700;
   }, [key]);
   useEffect(() => {
-    const node = content.current, slot = node?.parentElement;
-    if (!node || !slot || typeof ResizeObserver === "undefined") return;
+    const node = content.current; const slot = node?.parentElement;
+    if (!node || !slot || typeof ResizeObserver === "undefined") {return;}
     let measured = false;
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
+      if (!entry) {return;}
       const next = entry.contentRect.width;
       if (!next || !measured || reduced || performance.now() > armedUntil.current) { measured = next > 0; width.jump(next || "auto"); delete slot.dataset.morphing; return; }
       slot.dataset.morphing = "";
@@ -61,13 +92,13 @@ const toGlyphs = (chars: string[], seq: number): Glyph[] => chars.map((char, ord
 /** Shared leading and trailing characters keep their identity, so "Copy page" to "Copied" only replaces the changed letters. */
 function useGlyphs(text: string) {
   const [state, setState] = useState(() => ({ text, seq: 0, glyphs: toGlyphs([...text], 0) }));
-  if (state.text === text) return state.glyphs;
-  const prev = [...state.text], next = [...text];
-  let start = 0, end = 0;
-  while (start < prev.length && start < next.length && prev[start] === next[start]) start++;
-  while (end < prev.length - start && end < next.length - start && prev[prev.length - 1 - end] === next[next.length - 1 - end]) end++;
-  if (start < 2) start = 0;
-  if (end < 2) end = 0;
+  if (state.text === text) {return state.glyphs;}
+  const prev = [...state.text]; const next = [...text];
+  let start = 0; let end = 0;
+  while (start < prev.length && start < next.length && prev[start] === next[start]) {start++;}
+  while (end < prev.length - start && end < next.length - start && prev[prev.length - 1 - end] === next[next.length - 1 - end]) {end++;}
+  if (start < 2) {start = 0;}
+  if (end < 2) {end = 0;}
   const seq = state.seq + 1;
   const glyphs = [...state.glyphs.slice(0, start), ...toGlyphs(next.slice(start, next.length - end), seq), ...state.glyphs.slice(state.glyphs.length - end)];
   setState({ text, seq, glyphs });

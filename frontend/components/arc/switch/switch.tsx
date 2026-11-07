@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/switch.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { forwardRef, useEffect, useRef, useState } from "react";
@@ -34,10 +65,10 @@ export const Switch = forwardRef<ElementRef<typeof SwitchPrimitive.Root>, Switch
   // A pointer or Space press already stretched the thumb, so its release should not add a second stretch on top.
   const releasedAt = useRef(-Infinity);
   useEffect(() => {
-    if (shown.current === on) return;
+    if (shown.current === on) {return;}
     shown.current = on;
     const fromPress = performance.now() - releasedAt.current < 250;
-    if (reduceMotion || fromPress) return;
+    if (reduceMotion || fromPress) {return;}
     const controls = animate(scaleX, [1, 1.16, 1], { duration: 0.34, times: [0, 0.4, 1], ease: ["easeOut", "easeInOut"] });
     return () => controls.stop();
   }, [on, reduceMotion, scaleX]);
@@ -49,13 +80,13 @@ export const Switch = forwardRef<ElementRef<typeof SwitchPrimitive.Root>, Switch
       {...props}
       ref={ref}
       checked={on}
-      onCheckedChange={next => { if (checked === undefined) setInternal(next); onCheckedChange?.(next); }}
-      onPointerDown={event => { onPointerDown?.(event); if (event.button === 0) setPressed(true); }}
-      onPointerUp={event => { onPointerUp?.(event); if (pressed && !props.disabled) releasedAt.current = performance.now(); setPressed(false); }}
+      onCheckedChange={next => { if (checked === undefined) {setInternal(next);} onCheckedChange?.(next); }}
+      onPointerDown={event => { onPointerDown?.(event); if (event.button === 0) {setPressed(true);} }}
+      onPointerUp={event => { onPointerUp?.(event); if (pressed && !props.disabled) {releasedAt.current = performance.now();} setPressed(false); }}
       onPointerLeave={event => { onPointerLeave?.(event); setPressed(false); }}
       onPointerCancel={event => { onPointerCancel?.(event); setPressed(false); }}
-      onKeyDown={event => { onKeyDown?.(event); if (event.key === " ") setPressed(true); }}
-      onKeyUp={event => { onKeyUp?.(event); if (pressed && !props.disabled) releasedAt.current = performance.now(); setPressed(false); }}
+      onKeyDown={event => { onKeyDown?.(event); if (event.key === " ") {setPressed(true);} }}
+      onKeyUp={event => { onKeyUp?.(event); if (pressed && !props.disabled) {releasedAt.current = performance.now();} setPressed(false); }}
       onBlur={event => { onBlur?.(event); setPressed(false); }}
       className={classes}
       aria-label={props["aria-label"] ?? label}

@@ -816,7 +816,7 @@ export function ClusterDeployWizard({
     } finally {
       setDeploying(false);
     }
-  }, [config, selectedHosts, deployNodes, t, createdClusterId]);
+  }, [config, selectedHosts, deployNodes, t, createdClusterId, eventChannelSupported]);
 
   // Handle next step / 处理进入下一步
   const handleNext = useCallback(() => {

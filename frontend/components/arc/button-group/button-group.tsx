@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/button-group.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { isValidElement, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -76,7 +107,7 @@ const fadeOut: TargetAndTransition = { opacity: 0, transition: { duration: motio
 
 /** Names the icon element, so swapping Link for Check morphs while a re-render of the same icon stays still. */
 function iconKey(node: ReactNode): string {
-  if (!isValidElement(node)) return node == null || typeof node === "boolean" ? "" : String(node);
+  if (!isValidElement(node)) {return node == null || typeof node === "boolean" ? "" : String(node);}
   const type = node.type as string | { displayName?: string; name?: string };
   return typeof type === "string" ? type : type?.displayName ?? type?.name ?? "icon";
 }
@@ -84,18 +115,18 @@ function iconKey(node: ReactNode): string {
 /** Springs the slot to the natural width of its content when the label changes; other resizes (a late web font, collapsing labels) jump. */
 function useMorphWidth(content: RefObject<HTMLElement | null>, key: string, reduced: boolean) {
   const width = useMotionValue<number | "auto">("auto");
-  const lastKey = useRef(key), armedUntil = useRef(0);
+  const lastKey = useRef(key); const armedUntil = useRef(0);
   useLayoutEffect(() => {
-    if (lastKey.current === key) return;
+    if (lastKey.current === key) {return;}
     lastKey.current = key;
     armedUntil.current = performance.now() + 700;
   }, [key]);
   useEffect(() => {
-    const node = content.current, slot = node?.parentElement;
-    if (!node || !slot || typeof ResizeObserver === "undefined") return;
+    const node = content.current; const slot = node?.parentElement;
+    if (!node || !slot || typeof ResizeObserver === "undefined") {return;}
     let measured = false;
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
+      if (!entry) {return;}
       const next = entry.contentRect.width;
       if (!next || !measured || reduced || performance.now() > armedUntil.current) { measured = next > 0; width.jump(next || "auto"); delete slot.dataset.morphing; return; }
       slot.dataset.morphing = "";
@@ -139,7 +170,7 @@ const segmentsIn = (root: HTMLElement | null) => Array.from(root?.querySelectorA
 const segmentIn = (root: HTMLElement | null, key: string | null) => key === null ? undefined : segmentsIn(root).find(node => node.dataset.key === key);
 /** The segment's box inside the group at sub-pixel precision, undoing any scale an ancestor applies. */
 function boxOf(group: HTMLElement, node: HTMLElement) {
-  const outer = group.getBoundingClientRect(), inner = node.getBoundingClientRect();
+  const outer = group.getBoundingClientRect(); const inner = node.getBoundingClientRect();
   // offsetWidth is rounded to whole pixels, so only a real transform (more than a pixel apart) counts as scale.
   const scale = group.offsetWidth && Math.abs(outer.width - group.offsetWidth) > 1 ? outer.width / group.offsetWidth : 1;
   return [(inner.left - outer.left) / scale - group.clientLeft + group.scrollLeft, (inner.top - outer.top) / scale - group.clientTop + group.scrollTop, inner.width / scale, inner.height / scale];
@@ -166,14 +197,14 @@ export function ButtonGroup({ items, menu, label, variant = "outline", size = "m
   const activeIndex = active ? keys.indexOf(active) : -1;
   const inertKey = `${disabled}${items.map(item => item.disabled ? 1 : 0).join("")}`;
 
-  const x = useMotionValue(0), y = useMotionValue(0), width = useMotionValue(0), height = useMotionValue(0), opacity = useMotionValue(0);
+  const x = useMotionValue(0); const y = useMotionValue(0); const width = useMotionValue(0); const height = useMotionValue(0); const opacity = useMotionValue(0);
   const shown = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     const node = segmentIn(root.current, active);
     // Hovering a disabled segment shows nothing; focus on one still shows where the keyboard is.
     if (!node || (inert(node) && active !== focused)) {
-      if (shown.current) animate(opacity, 0, { duration: reduced ? motionTokens.duration.instant : motionTokens.duration.fast, ease: [...motionTokens.ease.standard] });
+      if (shown.current) {animate(opacity, 0, { duration: reduced ? motionTokens.duration.instant : motionTokens.duration.fast, ease: [...motionTokens.ease.standard] });}
       shown.current = null;
       return;
     }
@@ -196,14 +227,14 @@ export function ButtonGroup({ items, menu, label, variant = "outline", size = "m
   const keyList = keys.join("\u0000");
   useEffect(() => {
     const group = root.current;
-    if (!group || typeof ResizeObserver === "undefined") return;
+    if (!group || typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(() => {
       const node = segmentIn(group, shown.current);
-      if (!node) return;
+      if (!node) {return;}
       const target = boxOf(group, node);
       [x, y, width, height].forEach((value, index) => {
-        if (Math.abs(value.get() - target[index]!) < .01) return;
-        if (value.isAnimating() && !reduced) animate(value, target[index]!, motionTokens.spring.snappy); else value.jump(target[index]!);
+        if (Math.abs(value.get() - target[index]!) < .01) {return;}
+        if (value.isAnimating() && !reduced) {animate(value, target[index]!, motionTokens.spring.snappy);} else {value.jump(target[index]!);}
       });
     });
     observer.observe(group);
@@ -213,18 +244,18 @@ export function ButtonGroup({ items, menu, label, variant = "outline", size = "m
 
   // Labels collapse to icons when the row overflows, and come back once the container is wide enough for the full row again.
   const [overflowing, setCompact] = useState(false);
-  const fullWidth = useRef(0), blockedAt = useRef(0);
+  const fullWidth = useRef(0); const blockedAt = useRef(0);
   const collapsible = collapseLabels && !vertical && items.some(item => item.icon && !item.iconOnly && item.content === undefined);
   const compact = collapsible && overflowing;
   useEffect(() => {
-    const group = root.current, parent = group?.parentElement;
-    if (!group || !parent || !collapsible || typeof ResizeObserver === "undefined") return;
+    const group = root.current; const parent = group?.parentElement;
+    if (!group || !parent || !collapsible || typeof ResizeObserver === "undefined") {return;}
     const check = () => {
       const box = getComputedStyle(parent);
       const available = parent.clientWidth - parseFloat(box.paddingLeft) - parseFloat(box.paddingRight);
       if (group.dataset.compact === undefined) {
         if (group.scrollWidth > group.clientWidth + 1) { fullWidth.current = group.scrollWidth + 2; blockedAt.current = available; setCompact(true); }
-      } else if (available > blockedAt.current && available >= fullWidth.current) setCompact(false);
+      } else if (available > blockedAt.current && available >= fullWidth.current) {setCompact(false);}
     };
     const observer = new ResizeObserver(check);
     observer.observe(group);
@@ -234,7 +265,7 @@ export function ButtonGroup({ items, menu, label, variant = "outline", size = "m
 
   // Pressing tracks the segment under the finger, so touch gets the same highlight a pointer gets on hover.
   useEffect(() => {
-    if (!pressed) return;
+    if (!pressed) {return;}
     const release = () => setPressed(null);
     window.addEventListener("pointerup", release);
     window.addEventListener("pointercancel", release);
@@ -242,37 +273,37 @@ export function ButtonGroup({ items, menu, label, variant = "outline", size = "m
   }, [pressed]);
 
   const hit = (event: PointerEvent) => {
-    for (const node of segmentsIn(root.current)) if (inside(node, event.clientX, event.clientY)) return inert(node) ? null : node.dataset.key ?? null;
+    for (const node of segmentsIn(root.current)) {if (inside(node, event.clientX, event.clientY)) {return inert(node) ? null : node.dataset.key ?? null;}}
     return null;
   };
-  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => { if (event.pointerType !== "touch") setHover(hit(event)); };
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => { if (event.pointerType !== "touch") {setHover(hit(event));} };
   const onPointerLeave = () => setHover(null);
-  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => { if (event.button === 0) setPressed(hit(event)); };
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => { if (event.button === 0) {setPressed(hit(event));} };
 
   // Keyboard focus shows the highlight; a mouse click focuses without it, so nothing stays lit after the pointer leaves.
   const onFocus = (event: FocusEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     const key = target.dataset.key;
-    if (key === undefined) return;
+    if (key === undefined) {return;}
     let visible = true;
     try { visible = target.matches(":focus-visible"); } catch { /* older engines */ }
     setFocused(visible ? key : null);
   };
-  const onBlur = (event: FocusEvent<HTMLDivElement>) => { if (!root.current?.contains(event.relatedTarget as Node | null)) setFocused(null); };
+  const onBlur = (event: FocusEvent<HTMLDivElement>) => { if (!root.current?.contains(event.relatedTarget as Node | null)) {setFocused(null);} };
 
   // Tab visits every segment in order; arrow keys along the orientation, Home and End also move between them.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented) return;
+    if (event.defaultPrevented) {return;}
     // Disabled segments stay focusable (aria-disabled), so the keyboard can find them and hear why nothing happens.
     const list = segmentsIn(root.current).filter(node => !(node as HTMLButtonElement).disabled);
     const index = list.findIndex(node => node === document.activeElement);
-    if (index < 0) return;
+    if (index < 0) {return;}
     const rtl = !vertical && getComputedStyle(root.current!).direction === "rtl";
     const forward = vertical ? "ArrowDown" : rtl ? "ArrowLeft" : "ArrowRight";
     const backward = vertical ? "ArrowUp" : rtl ? "ArrowRight" : "ArrowLeft";
     const last = list.length - 1;
     const target = event.key === forward ? (index === last ? 0 : index + 1) : event.key === backward ? (index === 0 ? last : index - 1) : event.key === "Home" ? 0 : event.key === "End" ? last : -1;
-    if (target < 0) return;
+    if (target < 0) {return;}
     event.preventDefault();
     list[target]!.focus();
   };
@@ -285,10 +316,10 @@ export function ButtonGroup({ items, menu, label, variant = "outline", size = "m
   useEffect(() => {
     const previous = labels.current;
     labels.current = new Map(items.map(item => [item.id, item.label]));
-    if (!previous) return;
+    if (!previous) {return;}
     const recent = performance.now() - activated.current.at < 1000;
     const changed = items.filter(item => recent && item.id === activated.current.key && previous.has(item.id) && previous.get(item.id) !== item.label && item.content === undefined);
-    if (changed.length) setAnnouncement(changed.map(item => item.label).join(", "));
+    if (changed.length) {setAnnouncement(changed.map(item => item.label).join(", "));}
     // labelList carries the only part of items this effect reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [labelList]);
@@ -308,7 +339,7 @@ export function ButtonGroup({ items, menu, label, variant = "outline", size = "m
       title: item.iconOnly || (compact && item.icon) ? item.label : undefined,
     };
     const body = <span className={styles.content}><SegmentContent item={item} reduced={reduced} /></span>;
-    if (item.href && !off && !disabled) return <a key={item.id} {...common} href={item.href} onClick={() => select(item)}>{body}{named ? null : <span className={styles.srOnly}>{item.label}</span>}</a>;
+    if (item.href && !off && !disabled) {return <a key={item.id} {...common} href={item.href} onClick={() => select(item)}>{body}{named ? null : <span className={styles.srOnly}>{item.label}</span>}</a>;}
     return <button key={item.id} {...common} type="button" disabled={disabled} aria-disabled={off || undefined} onClick={off ? undefined : () => select(item)}>{body}{named ? null : <span className={styles.srOnly}>{item.label}</span>}</button>;
   });
 
@@ -322,7 +353,7 @@ export function ButtonGroup({ items, menu, label, variant = "outline", size = "m
     <span className={styles.srOnly} aria-live="polite">{announcement}</span>
   </div>;
 
-  if (!menu) return group;
+  if (!menu) {return group;}
   // Non-modal: no scroll lock, so opening the menu never shifts the page by a scrollbar's width.
   return <DropdownPrimitive.Root open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
     {group}

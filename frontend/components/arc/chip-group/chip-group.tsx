@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/chip-group.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -49,10 +80,10 @@ function useWidthLag(node: RefObject<HTMLElement | null>, key: string, reduce: b
   const width = useRef<number | null>(null);
   useLayoutEffect(() => {
     const element = node.current;
-    if (!element) return;
-    const next = element.offsetWidth, previous = width.current;
+    if (!element) {return;}
+    const next = element.offsetWidth; const previous = width.current;
     width.current = next;
-    if (previous === null || previous === next) return;
+    if (previous === null || previous === next) {return;}
     if (reduce) { lag.jump(0); return; }
     // Retarget from wherever the edge is now and keep its speed, so fast toggling never snaps.
     const velocity = lag.getVelocity();
@@ -61,7 +92,7 @@ function useWidthLag(node: RefObject<HTMLElement | null>, key: string, reduce: b
   }, [key, lag, node, reduce]);
   useEffect(() => {
     const element = node.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
+    if (!element || typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(() => { width.current = element.offsetWidth; });
     observer.observe(element);
     return () => observer.disconnect();
@@ -83,33 +114,33 @@ function HeightFrame({ morphKey, reduce, children }: { morphKey: string; reduce:
   useLayoutEffect(() => {
     changedAt.current = performance.now();
     const node = frame.current;
-    if (reduce || !node || last.current === undefined) return;
+    if (reduce || !node || last.current === undefined) {return;}
     const current = height.get();
     const from = typeof current === "number" ? current : last.current;
     height.jump(from);
     Object.assign(node.style, { overflow: "clip", height: `${from}px`, minHeight: `${from}px` });
     // If the change leaves the height alone, no resize follows, so release the pin after a frame.
     let inner = 0;
-    const outer = requestAnimationFrame(() => { inner = requestAnimationFrame(() => { if (animating.current) return; height.jump("auto"); if (frame.current) Object.assign(frame.current.style, { overflow: "", height: "auto", minHeight: "" }); }); });
+    const outer = requestAnimationFrame(() => { inner = requestAnimationFrame(() => { if (animating.current) {return;} height.jump("auto"); if (frame.current) {Object.assign(frame.current.style, { overflow: "", height: "auto", minHeight: "" });} }); });
     return () => { cancelAnimationFrame(outer); cancelAnimationFrame(inner); };
   }, [morphKey, reduce, height]);
   useEffect(() => {
     const node = content.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
+    if (!node || typeof ResizeObserver === "undefined") {return;}
     let controls: AnimationPlaybackControls | undefined;
-    const settle = () => { animating.current = false; height.jump("auto"); if (frame.current) Object.assign(frame.current.style, { overflow: "", height: "auto", minHeight: "" }); };
+    const settle = () => { animating.current = false; height.jump("auto"); if (frame.current) {Object.assign(frame.current.style, { overflow: "", height: "auto", minHeight: "" });} };
     // The minimum follows the moving height, so a flex parent short on room cannot squeeze the frame mid-morph and snap it when the morph ends.
-    const unfollow = height.on("change", value => { if (frame.current) frame.current.style.minHeight = typeof value === "number" ? `${value}px` : ""; });
+    const unfollow = height.on("change", value => { if (frame.current) {frame.current.style.minHeight = typeof value === "number" ? `${value}px` : "";} });
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
+      if (!entry) {return;}
       const next = entry.borderBoxSize?.[0]?.blockSize ?? node.offsetHeight;
       const current = height.get();
       const from = typeof current === "number" ? current : last.current;
       last.current = next;
       controls?.stop();
-      if (reduce || from === undefined || Math.abs(from - next) < .5 || performance.now() - changedAt.current > 160) return settle();
+      if (reduce || from === undefined || Math.abs(from - next) < .5 || performance.now() - changedAt.current > 160) {return settle();}
       // Pin the old height before this frame paints, then spring to the new one.
-      if (frame.current) Object.assign(frame.current.style, { overflow: "clip", height: `${from}px`, minHeight: `${from}px` });
+      if (frame.current) {Object.assign(frame.current.style, { overflow: "clip", height: `${from}px`, minHeight: `${from}px` });}
       animating.current = true;
       controls = animate(height, [from, next], { ...motionTokens.spring.smooth, onComplete: settle });
     });
@@ -127,7 +158,7 @@ function Swap({ follow, style, ...props }: HTMLMotionProps<"span"> & { follow?: 
   const present = useIsPresent();
   const held = useMotionValue(0);
   // Runs before the chip re-measures its width in the same commit, so this reads the offset from before the change.
-  useLayoutEffect(() => { if (!present && follow) held.jump(follow.get()); }, [present, follow, held]);
+  useLayoutEffect(() => { if (!present && follow) {held.jump(follow.get());} }, [present, follow, held]);
   return <motion.span {...props} style={follow ? { ...style, x: present ? follow : held } : style} aria-hidden={present ? props["aria-hidden"] : true} />;
 }
 
@@ -220,22 +251,22 @@ export function ChipGroup({ options, value, onValueChange, label, multiple = tru
 
   function toggle(next: string) {
     const on = value.includes(next);
-    if (!multiple) return onValueChange(on ? [] : [next]);
+    if (!multiple) {return onValueChange(on ? [] : [next]);}
     onValueChange(options.filter(option => option.value === next ? !on : value.includes(option.value)).map(option => option.value));
   }
 
   function toggleMore() {
-    if (expanded) setPinned(value);
+    if (expanded) {setPinned(value);}
     setExpanded(!expanded);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(":is(button[data-chip], button[data-more]):not([aria-hidden='true'])"));
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    if (index < 0) return;
+    if (index < 0) {return;}
     const last = buttons.length - 1;
     const moves: Record<string, number> = { ArrowRight: index === last ? 0 : index + 1, ArrowDown: index === last ? 0 : index + 1, ArrowLeft: index === 0 ? last : index - 1, ArrowUp: index === 0 ? last : index - 1, Home: 0, End: last };
-    if (!(event.key in moves)) return;
+    if (!(event.key in moves)) {return;}
     event.preventDefault();
     buttons[moves[event.key]!]!.focus();
   }

@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/expanding-search.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -62,14 +93,14 @@ function rank(items: ExpandingSearchItem[], query: string, limit: number) {
     const at = title.indexOf(q);
     const extra = [item.meta ?? "", ...(item.keywords ?? [])].some(word => word.toLocaleLowerCase().includes(q));
     const score = at === 0 ? 0 : at > 0 && /[\s\-/]/.test(title[at - 1]!) ? 1 : at > 0 ? 2 : extra ? 3 : -1;
-    if (score >= 0) scored.push({ item, score, order });
+    if (score >= 0) {scored.push({ item, score, order });}
   });
   return scored.sort((a, b) => a.score - b.score || a.order - b.order).slice(0, limit).map(entry => entry.item);
 }
 
 function groupBy(list: ExpandingSearchItem[], source: ExpandingSearchItem[]): Group[] {
   const order = new Map<string, number>();
-  source.forEach((item, index) => { const name = item.group ?? ""; if (!order.has(name)) order.set(name, index); });
+  source.forEach((item, index) => { const name = item.group ?? ""; if (!order.has(name)) {order.set(name, index);} });
   const groups = new Map<string, ExpandingSearchItem[]>();
   list.forEach(item => { const name = item.group ?? ""; groups.set(name, [...(groups.get(name) ?? []), item]); });
   return [...groups].sort((a, b) => (order.get(a[0]) ?? 0) - (order.get(b[0]) ?? 0)).map(([name, items]) => ({ name, items }));
@@ -77,7 +108,7 @@ function groupBy(list: ExpandingSearchItem[], source: ExpandingSearchItem[]): Gr
 
 function Match({ text, query }: { text: string; query: string }) {
   const at = query ? text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase()) : -1;
-  if (at < 0) return text;
+  if (at < 0) {return text;}
   return <>{text.slice(0, at)}<mark className={styles.mark}>{text.slice(at, at + query.length)}</mark>{text.slice(at + query.length)}</>;
 }
 
@@ -87,12 +118,12 @@ function Panel({ width, reduced, children }: { width: MotionValue<number>; reduc
   const bodyRef = useRef<HTMLDivElement>(null);
   const height = useMotionValue(0);
   useLayoutEffect(() => {
-    const panel = panelRef.current, body = bodyRef.current;
-    if (!panel || !body || typeof ResizeObserver === "undefined") return;
+    const panel = panelRef.current; const body = bodyRef.current;
+    if (!panel || !body || typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(() => {
       const next = body.offsetHeight + panel.offsetHeight - panel.clientHeight;
-      if (reduced) height.jump(next);
-      else animate(height, next, motionTokens.spring.smooth);
+      if (reduced) {height.jump(next);}
+      else {animate(height, next, motionTokens.spring.smooth);}
     });
     observer.observe(body);
     return () => observer.disconnect();
@@ -135,7 +166,7 @@ function Listbox({ id, label, groups, query, activeIndex, optionId, reduced, key
     const previous = last.current;
     last.current = { id: activeId, set: layoutKey, top };
     // Same row: its highlight is already in place, and any travel still in flight stays relative to it.
-    if (previous?.id === activeId) return;
+    if (previous?.id === activeId) {return;}
     if (previous && previous.set === layoutKey && !reduced) {
       const velocity = travel.getVelocity();
       travel.jump(previous.top + travel.get() - top);
@@ -143,9 +174,9 @@ function Listbox({ id, label, groups, query, activeIndex, optionId, reduced, key
     } else {
       // Nothing was highlighted, or new results arrived: it fades in on its row, without travel.
       travel.jump(0);
-      if (reduced) fade.jump(1); else { fade.jump(0); animate(fade, 1, { duration: motionTokens.duration.instant, ease: enter }); }
+      if (reduced) {fade.jump(1);} else { fade.jump(0); animate(fade, 1, { duration: motionTokens.duration.instant, ease: enter }); }
     }
-    if (keyboard.current) row.scrollIntoView({ block: "nearest" });
+    if (keyboard.current) {row.scrollIntoView({ block: "nearest" });}
   }, [activeId, layoutKey, reduced, travel, fade, keyboard]);
 
   return <div ref={listRef} id={id} role="listbox" aria-label={label} className={styles.listbox}>
@@ -209,31 +240,31 @@ export function ExpandingSearch({ label, items, suggestions = [], suggestionsLab
 
   // The field grows to its own limit or its container, whichever is smaller. Container resizes are followed at once; they are not the person's action.
   useLayoutEffect(() => {
-    const root = rootRef.current, shell = shellRef.current;
-    if (!root || !shell) return;
+    const root = rootRef.current; const shell = shellRef.current;
+    if (!root || !shell) {return;}
     const measure = () => {
       const collapsed = shell.offsetHeight || FALLBACK_SIZE;
       const full = Math.max(collapsed, Math.min(expandedWidth, root.clientWidth));
       size.current = { collapsed, expanded: full };
       root.style.setProperty("--es-width", `${full}px`);
       const goal = open.current ? full : collapsed;
-      if (width.isAnimating()) animate(width, goal, motionTokens.spring.morph);
-      else width.jump(goal);
+      if (width.isAnimating()) {animate(width, goal, motionTokens.spring.morph);}
+      else {width.jump(goal);}
       syncShape(width.get());
     };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(measure);
     observer.observe(root);
     return () => observer.disconnect();
   }, [expandedWidth, width, syncShape]);
 
   // Opening grows on the morph spring with a hint of overshoot; folding back settles without one, so the circle never dips below its own size.
-  const morphTo = (goal: number) => { if (reduced) width.jump(goal); else animate(width, goal, goal >= width.get() ? motionTokens.spring.morph : motionTokens.spring.smooth); };
+  const morphTo = (goal: number) => { if (reduced) {width.jump(goal);} else {animate(width, goal, goal >= width.get() ? motionTokens.spring.morph : motionTokens.spring.smooth);} };
 
   // Focus moves inside the same click, so touch keyboards open; the field is inert until this flush makes it focusable.
   function expand() {
-    if (open.current) return;
+    if (open.current) {return;}
     open.current = true;
     flushSync(() => { setExpanded(true); setFocused(true); });
     inputRef.current?.focus({ preventScroll: true });
@@ -242,10 +273,10 @@ export function ExpandingSearch({ label, items, suggestions = [], suggestionsLab
   }
 
   function collapse(returnFocus: boolean) {
-    if (!open.current) return;
+    if (!open.current) {return;}
     open.current = false;
     flushSync(() => { setExpanded(false); setFocused(false); setQuery(""); setActive(-1); });
-    if (returnFocus) buttonRef.current?.focus({ preventScroll: true });
+    if (returnFocus) {buttonRef.current?.focus({ preventScroll: true });}
     morphTo(size.current.collapsed);
     onExpandedChange?.(false);
   }
@@ -269,7 +300,7 @@ export function ExpandingSearch({ label, items, suggestions = [], suggestionsLab
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") { event.preventDefault(); collapse(true); return; }
-    if (!panelOpen || !flat.length) return;
+    if (!panelOpen || !flat.length) {return;}
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
@@ -298,9 +329,9 @@ export function ExpandingSearch({ label, items, suggestions = [], suggestionsLab
         onFocus={() => setFocused(true)}
         onBlur={() => {
           // Switching windows keeps the search as it was; the field refocuses on return.
-          if (typeof document !== "undefined" && !document.hasFocus()) return;
+          if (typeof document !== "undefined" && !document.hasFocus()) {return;}
           setFocused(false);
-          if (open.current && !inputRef.current?.value.trim()) collapse(false);
+          if (open.current && !inputRef.current?.value.trim()) {collapse(false);}
         }}
         onKeyDown={handleKeyDown} />
       <AnimatePresence initial={false}>

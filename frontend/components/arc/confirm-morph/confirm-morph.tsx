@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/confirm-morph.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -85,7 +116,7 @@ const physical = ({ visualDuration, bounce }: { visualDuration: number; bounce: 
   return { type: "spring", stiffness: root * root, damping: 2 * (1 - bounce) * root, mass: 1 };
 };
 /** Growing follows new content with a little life; shrinking settles without overshoot. */
-const GROW = physical(motionTokens.spring.morph), SHRINK = physical(motionTokens.spring.smooth);
+const GROW = physical(motionTokens.spring.morph); const SHRINK = physical(motionTokens.spring.smooth);
 
 const subscribe = () => () => {};
 function useReducedFlag() {
@@ -117,11 +148,11 @@ function Face({ id, reduced, onSize, children, labelledBy }: { id: FaceKey; redu
   const present = useIsPresent();
   useLayoutEffect(() => {
     const node = ref.current;
-    if (!node || !present) return;
+    if (!node || !present) {return;}
     // Fractional widths, so the spring lands exactly where the pill's natural width is and the hand back to auto is seamless.
     const report = () => onSize(id, node.getBoundingClientRect().width);
     report();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(report);
     observer.observe(node);
     return () => observer.disconnect();
@@ -198,11 +229,11 @@ export function ConfirmMorph({
   }, []);
 
   const go = useCallback((next: ConfirmMorphState) => {
-    if (next !== "confirming") setCounting(false);
-    if (next === live.current.state) return;
+    if (next !== "confirming") {setCounting(false);}
+    if (next === live.current.state) {return;}
     keepFocus();
-    if (next === "confirming") askedAt.current = performance.now();
-    if (!live.current.controlled) setInner(next);
+    if (next === "confirming") {askedAt.current = performance.now();}
+    if (!live.current.controlled) {setInner(next);}
     live.current.state = next;
     live.current.onStateChange?.(next);
   }, [keepFocus]);
@@ -211,7 +242,7 @@ export function ConfirmMorph({
   const [seenState, setSeenState] = useState(state);
   if (seenState !== state) {
     setSeenState(state);
-    if (state !== "confirming") setCounting(false);
+    if (state !== "confirming") {setCounting(false);}
   }
 
   const toIdle = useCallback(() => { run.current++; go("idle"); }, [go]);
@@ -229,12 +260,12 @@ export function ConfirmMorph({
       setAnnouncement(kind === "confirm" ? pendingLabel : undoingLabel);
       try { await result; }
       catch {
-        if (token !== run.current) return;
+        if (token !== run.current) {return;}
         go("error");
         setAnnouncement(errorLabel);
         return;
       }
-      if (token !== run.current) return;
+      if (token !== run.current) {return;}
     }
     if (kind === "undo") { go("idle"); setAnnouncement("Undone"); return; }
     go("done");
@@ -243,7 +274,7 @@ export function ConfirmMorph({
 
   const cancel = useCallback(() => { onCancel?.(); toIdle(); setAnnouncement("Cancelled"); }, [onCancel, toIdle]);
   const expire = useRef(() => {});
-  useLayoutEffect(() => { expire.current = () => { if (live.current.state === "confirming") cancel(); else toIdle(); }; });
+  useLayoutEffect(() => { expire.current = () => { if (live.current.state === "confirming") {cancel();} else {toIdle();} }; });
 
   /* The shape: one pill whose width springs to whichever face is current. At rest it is auto, so it renders right before hydration. */
   const width = useMotionValue<number | "auto">("auto");
@@ -251,14 +282,14 @@ export function ConfirmMorph({
   const flight = useRef(0);
   // Only the present face reports (a leaving face stops observing), so every report is the current face's width.
   const onFaceSize = useCallback((_id: FaceKey, w: number) => {
-    if (Math.abs(w - target.current) < .25) return;
+    if (Math.abs(w - target.current) < .25) {return;}
     const from = target.current;
     target.current = w;
     if (!from || reduced) { flight.current++; width.jump("auto"); return; }
     const now = width.get();
-    if (now === "auto") width.jump(from);
+    if (now === "auto") {width.jump(from);}
     const token = ++flight.current;
-    animate(width, w, w > (typeof now === "number" ? now : from) ? GROW : SHRINK).then(() => { if (token === flight.current) width.jump("auto"); });
+    animate(width, w, w > (typeof now === "number" ? now : from) ? GROW : SHRINK).then(() => { if (token === flight.current) {width.jump("auto");} });
   }, [reduced, width]);
 
   /* The timeout runs as an invisible clock. A pointer resting on the control holds it, and so does a hidden tab. */
@@ -268,18 +299,18 @@ export function ConfirmMorph({
   const timeout = state === "confirming" && !counting ? confirmTimeout : state === "done" || state === "error" ? resultTimeout : 0;
   const sync = useCallback(() => {
     const control = clock.current;
-    if (!control) return;
+    if (!control) {return;}
     const held = holds.current.hover || holds.current.hidden;
-    if (held) control.pause(); else control.play();
+    if (held) {control.pause();} else {control.play();}
   }, []);
   useEffect(() => {
-    if (!timeout) return;
+    if (!timeout) {return;}
     drain.jump(1);
     const control = animate(drain, 0, { duration: timeout / 1000, ease: "linear" });
     clock.current = control;
     control.then(() => { if (clock.current === control) { clock.current = null; expire.current(); } });
     sync();
-    return () => { if (clock.current === control) clock.current = null; control.stop(); };
+    return () => { if (clock.current === control) {clock.current = null;} control.stop(); };
   }, [drain, state, sync, timeout]);
   useEffect(() => {
     const onVisibility = () => { holds.current.hidden = document.hidden; sync(); };
@@ -294,7 +325,7 @@ export function ConfirmMorph({
   useLayoutEffect(() => { performRef.current = perform; });
   useMotionValueEvent(remaining, "change", value => setSeconds(Math.max(1, Math.ceil(value * countdown))));
   useEffect(() => {
-    if (!counting) return;
+    if (!counting) {return;}
     remaining.jump(1);
     const control = animate(remaining, 0, { duration: countdown, ease: "linear" });
     control.then(() => { void performRef.current("confirm"); });
@@ -306,18 +337,18 @@ export function ConfirmMorph({
   const holding = useRef<AnimationPlaybackControls | null>(null);
   const fillClip = useTransform(hold, value => `inset(0 ${(1 - value) * 100}% 0 0 round 999px)`);
   const startHold = () => {
-    if (holding.current) return;
+    if (holding.current) {return;}
     const control = animate(hold, 1, { duration: holdDuration / 1000 * (1 - hold.get()), ease: "linear" });
     holding.current = control;
     control.then(() => {
-      if (holding.current !== control) return;
+      if (holding.current !== control) {return;}
       holding.current = null;
       void perform("confirm");
     });
   };
   const releaseHold = () => {
     const control = holding.current;
-    if (!control) return;
+    if (!control) {return;}
     holding.current = null;
     control.stop();
     if (hold.get() < 1) {
@@ -328,7 +359,7 @@ export function ConfirmMorph({
   useEffect(() => { if (state !== "confirming") { holding.current?.stop(); holding.current = null; hold.jump(0); } }, [hold, state]);
 
   const answer = () => {
-    if (performance.now() - askedAt.current < ARM_MS) return;
+    if (performance.now() - askedAt.current < ARM_MS) {return;}
     if (confirmMode === "countdown") {
       keepFocus();
       setCounting(true);
@@ -340,18 +371,18 @@ export function ConfirmMorph({
 
   // An outside press answers the question with no.
   useEffect(() => {
-    if (state !== "confirming" || !cancelOnOutsidePress) return;
-    const down = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) cancel(); };
+    if (state !== "confirming" || !cancelOnOutsidePress) {return;}
+    const down = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) {cancel();} };
     document.addEventListener("pointerdown", down);
     return () => document.removeEventListener("pointerdown", down);
   }, [cancel, cancelOnOutsidePress, state]);
 
   // Focus moves with the morph: Confirm while asking, the root while counting or working, Undo or Retry on a result, the trigger at rest.
   useLayoutEffect(() => {
-    if (!pendingFocus.current) return;
+    if (!pendingFocus.current) {return;}
     pendingFocus.current = false;
     const root = rootRef.current;
-    if (!root) return;
+    if (!root) {return;}
     const face = root.querySelector<HTMLElement>(`[data-face="${faceKey}"]`);
     const autofocus = face?.querySelector<HTMLElement>("[data-autofocus]:not(:disabled)");
     (autofocus ?? root).focus({ preventScroll: true });
@@ -366,19 +397,19 @@ export function ConfirmMorph({
     // Enter answers yes from anywhere in the question except a button of its own (Cancel keeps meaning Cancel).
     if (event.key === "Enter" && state === "confirming" && !event.repeat && !(event.target instanceof HTMLButtonElement)) {
       event.preventDefault();
-      if (counting) void perform("confirm");
-      else if (confirmMode !== "hold") answer();
+      if (counting) {void perform("confirm");}
+      else if (confirmMode !== "hold") {answer();}
     }
   };
 
   const holdKeys = (event: ReactKeyboardEvent<HTMLButtonElement>, down: boolean) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
+    if (event.key !== "Enter" && event.key !== " ") {return;}
     event.preventDefault();
-    if (down) { if (!event.repeat) startHold(); }
-    else releaseHold();
+    if (down) { if (!event.repeat) {startHold();} }
+    else {releaseHold();}
   };
   const holdPointer = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0) {return;}
     event.currentTarget.setPointerCapture?.(event.pointerId);
     startHold();
   };
@@ -392,7 +423,7 @@ export function ConfirmMorph({
       <span>{confirmLabel}</span>
       <motion.span className={styles.fill} style={{ clipPath: fillClip }} aria-hidden="true"><span>{confirmLabel}</span></motion.span>
     </button>
-    : <button type="button" className={styles.confirm} data-autofocus onClick={answer} onKeyDown={event => { if (event.repeat) event.preventDefault(); }}>{confirmLabel}</button>;
+    : <button type="button" className={styles.confirm} data-autofocus onClick={answer} onKeyDown={event => { if (event.repeat) {event.preventDefault();} }}>{confirmLabel}</button>;
 
   const face = (() => {
     switch (faceKey) {

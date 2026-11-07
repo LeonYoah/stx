@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/copy-button.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
@@ -45,22 +76,22 @@ export function CopyButton({ value, label = "Copy", className, iconOnly = false,
   const measures = useRef<Record<string, HTMLSpanElement | null>>({});
   const [widths, setWidths] = useState<Record<string, number>>({});
   useLayoutEffect(() => {
-    if (iconOnly) return;
+    if (iconOnly) {return;}
     const read = () => setWidths(Object.fromEntries(Object.entries(measures.current).map(([key, node]) => [key, node?.offsetWidth ?? 0])));
     read();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(read);
-    Object.values(measures.current).forEach(node => { if (node) observer.observe(node); });
+    Object.values(measures.current).forEach(node => { if (node) {observer.observe(node);} });
     return () => observer.disconnect();
   }, [label, copiedLabel, failedLabel, iconOnly]);
   const width = widths[state === "copied" ? "copied" : state === "error" ? "error" : "idle"];
   // The first measured width applies at once; only later changes ease, so the very first copy animates too.
   const [shown, setShown] = useState<number | undefined>(undefined);
   const first = shown === undefined;
-  if (width !== undefined && width !== shown) setShown(width);
+  if (width !== undefined && width !== shown) {setShown(width);}
 
   async function handleCopy() {
-    if (await copy(value)) onCopied?.();
+    if (await copy(value)) {onCopied?.();}
   }
 
   return <><button

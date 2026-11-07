@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/segmented-control.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
@@ -24,7 +55,7 @@ export default function SegmentedControl({ options, value, onValueChange, label,
   // When the options are wider than the container, the track scrolls inside itself. Edges fade only on the side with more to see.
   useLayoutEffect(() => {
     const node = track.current;
-    if (!node) return;
+    if (!node) {return;}
     const edges = () => {
       const rest = node.scrollWidth - node.clientWidth - node.scrollLeft;
       node.toggleAttribute("data-fade-start", node.scrollLeft > 1);
@@ -43,9 +74,9 @@ export default function SegmentedControl({ options, value, onValueChange, label,
     const node = track.current;
     const button = node?.querySelector<HTMLElement>('[aria-pressed="true"]');
     if (!node || !button || node.scrollWidth <= node.clientWidth) { first.current = false; return; }
-    const room = 20, start = button.offsetLeft - room, end = button.offsetLeft + button.offsetWidth + room - node.clientWidth;
+    const room = 20; const start = button.offsetLeft - room; const end = button.offsetLeft + button.offsetWidth + room - node.clientWidth;
     const left = node.scrollLeft > start ? start : node.scrollLeft < end ? end : node.scrollLeft;
-    if (left !== node.scrollLeft) node.scrollTo({ left: Math.max(0, left), behavior: first.current || reduced ? "auto" : "smooth" });
+    if (left !== node.scrollLeft) {node.scrollTo({ left: Math.max(0, left), behavior: first.current || reduced ? "auto" : "smooth" });}
     first.current = false;
   }, [value, reduced]);
 
@@ -56,7 +87,7 @@ export default function SegmentedControl({ options, value, onValueChange, label,
     const target = event.key === "ArrowRight" || event.key === "ArrowDown" ? (selectedIndex === last ? 0 : selectedIndex + 1)
       : event.key === "ArrowLeft" || event.key === "ArrowUp" ? (selectedIndex === 0 ? last : selectedIndex - 1)
         : event.key === "Home" ? 0 : event.key === "End" ? last : -1;
-    if (target < 0 || !options[target]) return;
+    if (target < 0 || !options[target]) {return;}
     event.preventDefault();
     onValueChange(options[target].value);
     track.current?.querySelector<HTMLElement>(`[data-value="${CSS.escape(options[target].value)}"]`)?.focus({ preventScroll: true });

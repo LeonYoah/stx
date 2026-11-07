@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/button.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { forwardRef, isValidElement, useCallback, useEffect, useLayoutEffect, useRef } from "react";
@@ -37,10 +68,10 @@ const iconEnter = { ...motionTokens.spring.snappy, opacity: { duration: motionTo
 
 /** A key for the label content: text plus element names, so a new label or icon crossfades while prop-only updates stay in place. */
 function labelKey(node: ReactNode): string {
-  if (node == null || typeof node === "boolean") return "";
-  if (typeof node === "string" || typeof node === "number" || typeof node === "bigint") return String(node);
-  if (Array.isArray(node)) return node.map(labelKey).join("");
-  if (!isValidElement(node)) return "";
+  if (node == null || typeof node === "boolean") {return "";}
+  if (typeof node === "string" || typeof node === "number" || typeof node === "bigint") {return String(node);}
+  if (Array.isArray(node)) {return node.map(labelKey).join("");}
+  if (!isValidElement(node)) {return "";}
   const type = node.type as string | { displayName?: string; name?: string };
   return `<${typeof type === "string" ? type : type?.displayName ?? type?.name ?? ""}>${labelKey((node.props as { children?: ReactNode }).children)}`;
 }
@@ -49,18 +80,18 @@ function labelKey(node: ReactNode): string {
  *  The outgoing label is popped out of flow at once, so it never holds the old width. Other resizes (a late web font, a parent reflow) jump straight to the new width, so nothing wobbles on first paint. */
 function useMorphWidth(content: RefObject<HTMLElement | null>, key: string, reduced: boolean) {
   const width = useMotionValue<number | "auto">("auto");
-  const lastKey = useRef(key), armedUntil = useRef(0);
+  const lastKey = useRef(key); const armedUntil = useRef(0);
   useLayoutEffect(() => {
-    if (lastKey.current === key) return;
+    if (lastKey.current === key) {return;}
     lastKey.current = key;
     armedUntil.current = performance.now() + 700;
   }, [key]);
   useEffect(() => {
-    const node = content.current, slot = node?.parentElement;
-    if (!node || !slot || typeof ResizeObserver === "undefined") return;
+    const node = content.current; const slot = node?.parentElement;
+    if (!node || !slot || typeof ResizeObserver === "undefined") {return;}
     let measured = false;
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
+      if (!entry) {return;}
       const next = entry.contentRect.width;
       if (!next || !measured || reduced || performance.now() > armedUntil.current) { measured = next > 0; width.jump(next || "auto"); delete slot.dataset.morphing; return; }
       slot.dataset.morphing = "";
@@ -88,7 +119,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   const width = useMorphWidth(contentRef, key, reduceMotion);
   const setRefs = useCallback((node: HTMLButtonElement | null) => {
     buttonRef.current = node;
-    if (typeof ref === "function") ref(node); else if (ref) ref.current = node;
+    if (typeof ref === "function") {ref(node);} else if (ref) {ref.current = node;}
   }, [ref]);
   // A trigger that anchors a menu, popover, or dialog keeps its rect still while pressed, so the layer never measures a scaled anchor.
   // Radix triggers (asChild) pass aria-haspopup or data-state through; the stylesheet repeats the guard.

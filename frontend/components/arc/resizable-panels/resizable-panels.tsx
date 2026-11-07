@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/resizable-panels.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { Children, Fragment, isValidElement, useEffect, useRef, useState } from "react";
@@ -49,7 +80,7 @@ const DEFAULT_MIN = 80;
 /** How far in px a pane can be pulled past a limit before it stops giving. */
 const STRETCH = 44;
 /** Keyboard steps in px; Shift takes the larger one. */
-const STEP = 16, BIG_STEP = 64;
+const STEP = 16; const BIG_STEP = 64;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 /** Past a limit every pixel costs more, like pulling against elastic. */
 const rubber = (overshoot: number) => overshoot * STRETCH * .55 / (STRETCH + .55 * overshoot);
@@ -67,9 +98,9 @@ const tabEnter = { ...motionTokens.spring.snappy, opacity: { duration: motionTok
 
 function velocityOf(samples: [number, number][], now: number) {
   const recent = samples.filter(([time]) => now - time <= 90);
-  const first = recent[0], last = recent[recent.length - 1];
-  if (!first || !last || recent.length < 2 || now - last[0] > 50) return 0;
-  const [firstTime, firstX] = first, [lastTime, lastX] = last;
+  const first = recent[0]; const last = recent[recent.length - 1];
+  if (!first || !last || recent.length < 2 || now - last[0] > 50) {return 0;}
+  const [firstTime, firstX] = first; const [lastTime, lastX] = last;
   return lastTime > firstTime ? (lastX - firstX) / ((lastTime - firstTime) / 1000) : 0;
 }
 
@@ -115,7 +146,7 @@ export function ResizablePanels({ label, children, onLayoutChange, className }: 
 
   useEffect(() => {
     const group = groupRef.current;
-    if (!group || typeof ResizeObserver === "undefined") return;
+    if (!group || typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(() => {
       stale.current = true;
       setAvailable(panelRefs.current.reduce((sum, node) => sum + (node?.getBoundingClientRect().width ?? 0), 0));
@@ -134,10 +165,10 @@ export function ResizablePanels({ label, children, onLayoutChange, className }: 
     if (stale.current) {
       stale.current = false;
       const widths = panelRefs.current.slice(0, count).map(node => node?.getBoundingClientRect().width ?? 0);
-      if (widths.some((width, index) => Math.abs(width - sizes[index]!.get()) > .5)) widths.forEach((width, index) => sizes[index]!.jump(width));
+      if (widths.some((width, index) => Math.abs(width - sizes[index]!.get()) > .5)) {widths.forEach((width, index) => sizes[index]!.jump(width));}
     }
     // Freed panes drop their CSS limits while JS owns them, so rubber-banding and collapsing can go past them.
-    if (involved.some(index => !free[index])) setFree(current => current.map((value, index) => value || involved.includes(index)));
+    if (involved.some(index => !free[index])) {setFree(current => current.map((value, index) => value || involved.includes(index)));}
     return sizes.map(size => size.get());
   }
 
@@ -157,23 +188,23 @@ export function ResizablePanels({ label, children, onLayoutChange, className }: 
     setShares(toShares(finals));
     const moving = targets.flatMap((target, index) => target === null || Math.abs(target - sizes[index]!.get()) < .01 ? [] : [[index, target] as const]);
     let pending = moving.length;
-    const done = () => { if (token.current === mine) commit(); };
+    const done = () => { if (token.current === mine) {commit();} };
     if (reduced || !pending) { moving.forEach(([index, target]) => sizes[index]!.jump(target)); done(); return; }
-    running.current = moving.map(([index, target]) => animate(sizes[index], target, { ...transition, onComplete: () => { pending -= 1; if (!pending) done(); } }));
+    running.current = moving.map(([index, target]) => animate(sizes[index], target, { ...transition, onComplete: () => { pending -= 1; if (!pending) {done();} } }));
   }
 
   function limits(handle: number, a: number, b: number) {
     const pair = a + b;
-    let lo = Math.max(minOf(handle), pair - maxOf(handle + 1)), hi = Math.min(maxOf(handle), pair - minOf(handle + 1));
+    let lo = Math.max(minOf(handle), pair - maxOf(handle + 1)); let hi = Math.min(maxOf(handle), pair - minOf(handle + 1));
     // A group too narrow for every minimum may already hold a pane below it; never yank it to the limit on grab.
     if (a > 0 && b > 0) { lo = Math.min(lo, a); hi = Math.max(hi, a); }
-    if (lo > hi) lo = hi = clamp((lo + hi) / 2, 0, pair);
+    if (lo > hi) {lo = hi = clamp((lo + hi) / 2, 0, pair);}
     return { pair, lo: clamp(lo, 0, pair), hi: clamp(hi, 0, pair) };
   }
 
   function resolve(handle: number, raw: number, pair: number, lo: number, hi: number): { mode: Mode; size: number } {
-    if (configs[handle]!.collapsible && raw < collapseAt(minOf(handle))) return { mode: "before", size: 0 };
-    if (configs[handle + 1]!.collapsible && pair - raw < collapseAt(minOf(handle + 1))) return { mode: "after", size: pair };
+    if (configs[handle]!.collapsible && raw < collapseAt(minOf(handle))) {return { mode: "before", size: 0 };}
+    if (configs[handle + 1]!.collapsible && pair - raw < collapseAt(minOf(handle + 1))) {return { mode: "after", size: pair };}
     return { mode: "open", size: band(raw, lo, hi) };
   }
 
@@ -182,8 +213,8 @@ export function ResizablePanels({ label, children, onLayoutChange, className }: 
   }
 
   function remember(handle: number, a: number, b: number, mode: Mode) {
-    if (mode === "before" && a > 0) restoreSizes.current[handle] = a;
-    if (mode === "after" && b > 0) restoreSizes.current[handle + 1] = b;
+    if (mode === "before" && a > 0) {restoreSizes.current[handle] = a;}
+    if (mode === "after" && b > 0) {restoreSizes.current[handle + 1] = b;}
   }
 
   function modeOf(handle: number): Mode {
@@ -202,7 +233,7 @@ export function ResizablePanels({ label, children, onLayoutChange, className }: 
   }
 
   function onPointerDown(handle: number, event: ReactPointerEvent<HTMLDivElement>) {
-    if (drag.current || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (drag.current || (event.pointerType === "mouse" && event.button !== 0)) {return;}
     const values = begin([handle, handle + 1]);
     const { pair, lo, hi } = limits(handle, values[handle]!, values[handle + 1]!);
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -212,26 +243,26 @@ export function ResizablePanels({ label, children, onLayoutChange, className }: 
 
   function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const current = drag.current;
-    if (!current || current.pointer !== event.pointerId) return;
+    if (!current || current.pointer !== event.pointerId) {return;}
     const dx = event.clientX - current.startX;
-    if (!current.moved) { if (Math.abs(dx) < 2) return; current.moved = true; setResizing(current.handle); }
+    if (!current.moved) { if (Math.abs(dx) < 2) {return;} current.moved = true; setResizing(current.handle); }
     const next = resolve(current.handle, current.a0 + dx, current.pair, current.lo, current.hi);
     if (next.mode !== current.mode) { current.mode = next.mode; current.catching = true; }
     moveBoundary(current, next.size);
     current.samples.push([event.timeStamp, event.clientX]);
-    if (current.samples.length > 16) current.samples.shift();
+    if (current.samples.length > 16) {current.samples.shift();}
   }
 
   function finish(event: ReactPointerEvent<HTMLDivElement>, cancelled: boolean) {
     const current = drag.current;
-    if (!current || current.pointer !== event.pointerId) return;
+    if (!current || current.pointer !== event.pointerId) {return;}
     drag.current = null;
     setResizing(null);
     const { handle, pair, lo, hi } = current;
     if (!current.moved) {
       // A press on a divider that hides a pane brings it back.
-      if (current.startMode !== "open" && !cancelled) restore(handle, current.startMode);
-      else commit();
+      if (current.startMode !== "open" && !cancelled) {restore(handle, current.startMode);}
+      else {commit();}
       return;
     }
     const raw = current.a0 + event.clientX - current.startX;
@@ -273,13 +304,13 @@ export function ResizablePanels({ label, children, onLayoutChange, className }: 
       const share = wanted.reduce((sum, value, index) => frozen[index] ? sum : sum + value, 0);
       let violated = false;
       targets.forEach((_, index) => {
-        if (frozen[index]) return;
+        if (frozen[index]) {return;}
         const size = share ? wanted[index]! / share * (total - fixed) : 0;
         const bounded = clamp(size, minOf(index), maxOf(index));
         targets[index] = size;
         if (bounded !== size) { targets[index] = bounded; frozen[index] = true; violated = true; }
       });
-      if (!violated) break;
+      if (!violated) {break;}
     }
     setCollapsed(configs.map(startsCollapsed));
     glide(targets);
@@ -296,28 +327,28 @@ export function ResizablePanels({ label, children, onLayoutChange, className }: 
       glide(sizes.map((_, index) => index === handle ? current.a0 : index === handle + 1 ? current.b0 : null));
       return;
     }
-    if (current || !["ArrowLeft", "ArrowRight", "Home", "End", "Enter"].includes(event.key)) return;
+    if (current || !["ArrowLeft", "ArrowRight", "Home", "End", "Enter"].includes(event.key)) {return;}
     event.preventDefault();
     const mode = modeOf(handle);
-    const canCollapseBefore = Boolean(configs[handle]!.collapsible), canCollapseAfter = Boolean(configs[handle + 1]!.collapsible);
+    const canCollapseBefore = Boolean(configs[handle]!.collapsible); const canCollapseAfter = Boolean(configs[handle + 1]!.collapsible);
     if (event.key === "Enter") {
-      if (mode !== "open") restore(handle, mode);
-      else if (canCollapseBefore) collapse(handle, "before");
-      else if (canCollapseAfter) collapse(handle, "after");
+      if (mode !== "open") {restore(handle, mode);}
+      else if (canCollapseBefore) {collapse(handle, "before");}
+      else if (canCollapseAfter) {collapse(handle, "after");}
       return;
     }
     // Repeated presses build on where the divider is heading, not on where the spring happens to be this frame.
     const heading = goals.current && (sizes[handle]!.isAnimating() || sizes[handle + 1]!.isAnimating()) ? goals.current : null;
     const values = begin([handle, handle + 1]);
     const pair = values[handle]! + values[handle + 1]!;
-    const a = heading ? clamp(heading[handle]!, 0, pair) : values[handle]!, step = event.shiftKey ? BIG_STEP : STEP;
+    const a = heading ? clamp(heading[handle]!, 0, pair) : values[handle]!; const step = event.shiftKey ? BIG_STEP : STEP;
     const { lo, hi } = limits(handle, a, pair - a);
     // Arrows walk out of a collapsed pane at its minimum, and past a limit into collapse when the pane allows it.
-    if (event.key === "ArrowLeft" && mode === "after") return restoreTo(handle, hi, pair);
-    if (event.key === "ArrowRight" && mode === "before") return restoreTo(handle, lo, pair);
-    if (event.key === "ArrowLeft" && a <= lo + .5 && canCollapseBefore && mode === "open") return collapse(handle, "before");
-    if (event.key === "ArrowRight" && a >= hi - .5 && canCollapseAfter && mode === "open") return collapse(handle, "after");
-    if (mode !== "open") return;
+    if (event.key === "ArrowLeft" && mode === "after") {return restoreTo(handle, hi, pair);}
+    if (event.key === "ArrowRight" && mode === "before") {return restoreTo(handle, lo, pair);}
+    if (event.key === "ArrowLeft" && a <= lo + .5 && canCollapseBefore && mode === "open") {return collapse(handle, "before");}
+    if (event.key === "ArrowRight" && a >= hi - .5 && canCollapseAfter && mode === "open") {return collapse(handle, "after");}
+    if (mode !== "open") {return;}
     const size = event.key === "Home" ? lo : event.key === "End" ? hi : clamp(a + (event.key === "ArrowLeft" ? -step : step), lo, hi);
     glide(sizes.map((_, index) => index === handle ? size : index === handle + 1 ? pair - size : null), event.key.startsWith("Arrow") ? motionTokens.spring.snappy : motionTokens.spring.smooth);
   }

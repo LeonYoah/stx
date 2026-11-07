@@ -4,7 +4,7 @@
 @media (hover: hover) and (pointer: fine) { .control:hover:not(.disabled) { border-color: var(--border-strong); background: var(--surface-muted); } }
 .control:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
 .control.open { border-color: var(--border-strong); background: var(--surface-muted); }
-.control.disabled { opacity: .5; cursor: not-allowed; }
+.control.disabled { opacity: .5; cursor: default; }
 .searchIcon { flex: 0 0 auto; color: var(--text-muted); }
 .control input { width: 100%; min-width: 0; border: 0; outline: 0; padding: 0; background: transparent; color: var(--foreground); font: inherit; font-size: var(--text-sm); }
 .control input:focus-visible { outline: none; }
@@ -22,7 +22,7 @@
 .option { display: flex; min-height: 36px; align-items: center; justify-content: space-between; gap: var(--space-3); border-radius: calc(var(--radius-panel) - 5px); padding: 0 12px; color: var(--foreground); font-size: var(--text-sm); cursor: pointer; outline: none; user-select: none; transition: background-color 80ms var(--ease-standard), color 80ms var(--ease-standard); }
 .option > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .option[data-active="true"] { background: var(--surface-muted); }
-.option[data-disabled="true"] { opacity: .42; cursor: not-allowed; }
+.option[data-disabled="true"] { opacity: .42; cursor: default; }
 .check { flex: 0 0 auto; color: var(--foreground); }
 .empty { padding: var(--space-3); color: var(--text-muted); font-size: var(--text-sm); }
 @media (prefers-reduced-motion: reduce) { .control, .chevron, .clear, .option { transition: none; } }

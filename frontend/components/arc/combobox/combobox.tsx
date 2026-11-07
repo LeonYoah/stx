@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/combobox.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { animate, AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -41,7 +72,7 @@ function AutoHeight({ children, reduceMotion }: { children: ReactNode; reduceMot
   const [height, setHeight] = useState<number | "auto">("auto");
   useEffect(() => {
     const inner = innerRef.current;
-    if (!inner) return;
+    if (!inner) {return;}
     const observer = new ResizeObserver(() => setHeight(inner.offsetHeight));
     observer.observe(inner);
     return () => observer.disconnect();
@@ -88,10 +119,10 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
   // placeholder in instead of snapping from the old label.
   const settledValue = useRef(selectedValue);
   useEffect(() => {
-    if (settledValue.current === selectedValue) return;
+    if (settledValue.current === selectedValue) {return;}
     settledValue.current = selectedValue;
     const input = inputRef.current;
-    if (!input || reduceMotion || (selectedValue && open)) return;
+    if (!input || reduceMotion || (selectedValue && open)) {return;}
     const controls = selectedValue
       ? animate(input, { opacity: [0, 1], y: ["0.35em", "0em"], filter: [`blur(${motionTokens.blur.soft}px)`, "blur(0px)"] }, { duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] })
       : animate(input, { opacity: [0, 1] }, { duration: motionTokens.duration.fast, ease: [...motionTokens.ease.enter] });
@@ -100,27 +131,27 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
 
   const filteredOptions = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    if (!normalizedQuery) return options;
+    if (!normalizedQuery) {return options;}
     return options.filter((option) =>
       [option.label, ...(option.keywords ?? [])].some((term) => term.toLocaleLowerCase().includes(normalizedQuery)),
     );
   }, [options, query]);
 
   const enabledIndices = filteredOptions.reduce<number[]>((indices, option, index) => {
-    if (!option.disabled) indices.push(index);
+    if (!option.disabled) {indices.push(index);}
     return indices;
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {return;}
     const activeOption = activeIndex >= 0 ? filteredOptions[activeIndex] : undefined;
     const option = activeOption ? optionRefs.current[activeOption.value] : null;
     const listbox = option?.parentElement;
     if (option && listbox) {
       const top = option.offsetTop;
       const bottom = top + option.offsetHeight;
-      if (top < listbox.scrollTop) listbox.scrollTop = top;
-      else if (bottom > listbox.scrollTop + listbox.clientHeight) listbox.scrollTop = bottom - listbox.clientHeight;
+      if (top < listbox.scrollTop) {listbox.scrollTop = top;}
+      else if (bottom > listbox.scrollTop + listbox.clientHeight) {listbox.scrollTop = bottom - listbox.clientHeight;}
     }
   }, [activeIndex, filteredOptions, open]);
 
@@ -136,7 +167,7 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
   }, []);
 
   const choose = (option: ComboboxOption) => {
-    if (option.disabled) return;
+    if (option.disabled) {return;}
     setUncontrolledValue(option.value);
     onValueChange?.(option.value);
     setQuery("");
@@ -154,21 +185,21 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
   };
 
   const openMenu = () => {
-    if (disabled) return;
+    if (disabled) {return;}
     setOpen(true);
     setQuery("");
     setActiveIndex(-1);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (disabled) return;
+    if (disabled) {return;}
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (!open) {
         openMenu();
         return;
       }
-      if (!enabledIndices.length) return;
+      if (!enabledIndices.length) {return;}
       const currentPosition = enabledIndices.indexOf(activeIndex);
       const nextPosition = event.key === "ArrowDown"
         ? (currentPosition + 1) % enabledIndices.length
@@ -179,7 +210,7 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
     if (event.key === "Enter" && open && activeIndex >= 0) {
       event.preventDefault();
       const option = filteredOptions[activeIndex];
-      if (option) choose(option);
+      if (option) {choose(option);}
       return;
     }
     if (event.key === "Escape" && open) {

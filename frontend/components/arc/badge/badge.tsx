@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/badge.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { isValidElement, useEffect, useLayoutEffect, useRef } from "react";
@@ -39,7 +70,7 @@ function Swap(props: HTMLMotionProps<"span">) {
 
 /** A new icon component crossfades in; re-rendering the same icon stays still. */
 function iconKey(icon: ReactNode) {
-  if (!isValidElement(icon)) return "icon";
+  if (!isValidElement(icon)) {return "icon";}
   const type = icon.type as string | { displayName?: string; name?: string };
   return typeof type === "string" ? type : type.displayName ?? type.name ?? "icon";
 }
@@ -56,20 +87,20 @@ export function Badge({ tone = "neutral", size = "md", icon, dot = false, color,
   useLayoutEffect(() => { changedAt.current = performance.now(); }, [text, glyphKey]);
   useEffect(() => {
     const node = content.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
+    if (!node || typeof ResizeObserver === "undefined") {return;}
     let last: number | undefined;
     let controls: AnimationPlaybackControls | undefined;
-    const settle = () => { width.jump("auto"); if (body.current) body.current.style.width = "auto"; };
+    const settle = () => { width.jump("auto"); if (body.current) {body.current.style.width = "auto";} };
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
+      if (!entry) {return;}
       const next = entry.borderBoxSize?.[0]?.inlineSize ?? node.offsetWidth;
       const current = width.get();
       const from = typeof current === "number" ? current : last;
       last = next;
       controls?.stop();
-      if (reduce || from === undefined || from === next || performance.now() - changedAt.current > 120) return settle();
+      if (reduce || from === undefined || from === next || performance.now() - changedAt.current > 120) {return settle();}
       // Pin the old width before this frame paints, then spring to the new one.
-      if (body.current) body.current.style.width = `${from}px`;
+      if (body.current) {body.current.style.width = `${from}px`;}
       controls = animate(width, [from, next], { ...motionTokens.spring.morph, onComplete: settle });
     });
     observer.observe(node);

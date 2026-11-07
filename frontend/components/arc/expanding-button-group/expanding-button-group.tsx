@@ -1,3 +1,34 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/expanding-button-group.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations, if any, remain under the same MIT terms and do not
+ * relicense the upstream Arc source as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -111,10 +142,10 @@ function Item({ item, size, expanded, done, busy, tabStop, reduced, onPointerDow
       setText(current => Math.abs(current - next) < .5 ? current : next);
     };
     measure();
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {return;}
     const observer = new ResizeObserver(measure);
-    if (labelRef.current) observer.observe(labelRef.current);
-    if (doneRef.current) observer.observe(doneRef.current);
+    if (labelRef.current) {observer.observe(labelRef.current);}
+    if (doneRef.current) {observer.observe(doneRef.current);}
     return () => observer.disconnect();
   }, [item.label, item.doneLabel, size]);
 
@@ -129,7 +160,7 @@ function Item({ item, size, expanded, done, busy, tabStop, reduced, onPointerDow
   useLayoutEffect(() => {
     if (!settled.current || reduced) {
       width.jump(target);
-      if (measured) settled.current = true;
+      if (measured) {settled.current = true;}
       return;
     }
     animate(width, target, motionTokens.spring.morph);
@@ -198,7 +229,7 @@ export function ExpandingButtonGroup({ items, label, size = "md", defaultExpande
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; if (timer.current) clearTimeout(timer.current); };
+    return () => { mounted.current = false; if (timer.current) {clearTimeout(timer.current);} };
   }, []);
 
   const has = (id: string | null) => !!id && items.some(item => item.id === id);
@@ -210,9 +241,9 @@ export function ExpandingButtonGroup({ items, label, size = "md", defaultExpande
 
   // A tap outside closes a label opened by a first tap.
   useEffect(() => {
-    if (!intent || touchOpen.current !== intent) return;
+    if (!intent || touchOpen.current !== intent) {return;}
     const onDown = (event: globalThis.PointerEvent) => {
-      if (root.current?.contains(event.target as Node)) return;
+      if (root.current?.contains(event.target as Node)) {return;}
       touchOpen.current = null;
       setIntent(doneRef.current ?? keyFocus.current);
     };
@@ -221,7 +252,7 @@ export function ExpandingButtonGroup({ items, label, size = "md", defaultExpande
   }, [intent]);
 
   const confirm = useCallback((item: ExpandingButtonGroupItem) => {
-    if (timer.current) clearTimeout(timer.current);
+    if (timer.current) {clearTimeout(timer.current);}
     seq.current += 1;
     doneRef.current = item.id;
     setDone({ id: item.id, seq: seq.current });
@@ -232,14 +263,14 @@ export function ExpandingButtonGroup({ items, label, size = "md", defaultExpande
       setDone(null);
       // Collapse unless the pointer or the keyboard is still on it.
       if (pointerOver.current !== item.id && keyFocus.current !== item.id) {
-        if (touchOpen.current === item.id) touchOpen.current = null;
+        if (touchOpen.current === item.id) {touchOpen.current = null;}
         setIntent(current => current === item.id ? pointerOver.current ?? keyFocus.current : current);
       }
     }, confirmDuration);
   }, [confirmDuration]);
 
   const activate = useCallback(async (item: ExpandingButtonGroupItem) => {
-    if (item.disabled || busy === item.id || doneRef.current === item.id) return;
+    if (item.disabled || busy === item.id || doneRef.current === item.id) {return;}
     setIntent(item.id);
     onAction?.(item.id);
     let result: void | boolean;
@@ -248,13 +279,13 @@ export function ExpandingButtonGroup({ items, label, size = "md", defaultExpande
       if (pending instanceof Promise) {
         setBusy(item.id);
         result = await pending;
-      } else result = pending;
+      } else {result = pending;}
     } catch {
       result = false;
     } finally {
-      if (mounted.current) setBusy(current => current === item.id ? null : current);
+      if (mounted.current) {setBusy(current => current === item.id ? null : current);}
     }
-    if (!mounted.current || result === false || !item.doneLabel) return;
+    if (!mounted.current || result === false || !item.doneLabel) {return;}
     confirm(item);
   }, [busy, confirm, onAction]);
 
@@ -271,7 +302,7 @@ export function ExpandingButtonGroup({ items, label, size = "md", defaultExpande
       setIntent(item.id);
       return;
     }
-    if (last?.kind === "touch") touchOpen.current = item.id;
+    if (last?.kind === "touch") {touchOpen.current = item.id;}
     void activate(item);
   };
 
@@ -280,13 +311,13 @@ export function ExpandingButtonGroup({ items, label, size = "md", defaultExpande
     // Only keyboard focus expands; a mouse click or a tap already has its own path, and would otherwise leave the label open.
     let visible = true;
     try { visible = event.currentTarget.matches(":focus-visible"); } catch { /* older engines expand on any focus */ }
-    if (!visible) return;
+    if (!visible) {return;}
     keyFocus.current = item.id;
     setIntent(item.id);
   };
 
   const onBlur = (event: FocusEvent<HTMLDivElement>) => {
-    if (root.current?.contains(event.relatedTarget as Node | null)) return;
+    if (root.current?.contains(event.relatedTarget as Node | null)) {return;}
     keyFocus.current = null;
     touchOpen.current = null;
     setIntent(pointerOver.current ?? doneRef.current);
@@ -295,25 +326,25 @@ export function ExpandingButtonGroup({ items, label, size = "md", defaultExpande
   // Hover follows real pointer movement only. Expanding moves the buttons, and a button that slides under a resting pointer
   // must not take over, or two neighbours could trade places back and forth.
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== "mouse") return;
+    if (event.pointerType !== "mouse") {return;}
     const at = pointerAt.current;
-    if (at && Math.abs(at.x - event.clientX) < 1 && Math.abs(at.y - event.clientY) < 1) return;
+    if (at && Math.abs(at.x - event.clientX) < 1 && Math.abs(at.y - event.clientY) < 1) {return;}
     pointerAt.current = { x: event.clientX, y: event.clientY };
     const button = (event.target as HTMLElement).closest<HTMLElement>("[data-ebg-item]");
     const id = button?.dataset.id;
-    if (!button || !id || id === pointerOver.current) return;
+    if (!button || !id || id === pointerOver.current) {return;}
     // Hysteresis: moving from one action to the next needs the pointer a few pixels inside the new one, so resting on a
     // boundary never flips between them.
     if (pointerOver.current) {
       const box = button.getBoundingClientRect();
-      if (event.clientX < box.left + hysteresis || event.clientX > box.right - hysteresis) return;
+      if (event.clientX < box.left + hysteresis || event.clientX > box.right - hysteresis) {return;}
     }
     pointerOver.current = id;
     setIntent(id);
   };
 
   const onPointerLeave = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== "mouse") return;
+    if (event.pointerType !== "mouse") {return;}
     pointerAt.current = null;
     pointerOver.current = null;
     setIntent(doneRef.current ?? keyFocus.current);
@@ -322,12 +353,12 @@ export function ExpandingButtonGroup({ items, label, size = "md", defaultExpande
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const list = Array.from(root.current?.querySelectorAll<HTMLButtonElement>("[data-ebg-item]") ?? []);
     const index = list.findIndex(button => button === document.activeElement);
-    if (index < 0) return;
+    if (index < 0) {return;}
     const last = list.length - 1;
     const target = event.key === "ArrowRight" ? (index === last ? 0 : index + 1)
       : event.key === "ArrowLeft" ? (index === 0 ? last : index - 1)
         : event.key === "Home" ? 0 : event.key === "End" ? last : -1;
-    if (target < 0) return;
+    if (target < 0) {return;}
     event.preventDefault();
     list[target]!.focus();
   };

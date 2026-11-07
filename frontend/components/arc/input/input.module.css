@@ -6,7 +6,7 @@
 @media (hover: hover) and (pointer: fine) { .input:hover:not(:disabled, [aria-invalid="true"]) { border-color: var(--foreground); } }
 .input:focus-visible { border-color: var(--foreground); }
 .input[aria-invalid="true"] { border-color: var(--danger); }
-.input:disabled { cursor: not-allowed; opacity: .5; background: var(--surface-muted); }
+.input:disabled { cursor: default; opacity: .5; background: var(--surface-muted); }
 /* The row's space is padding inside the clipped slot, so the height animates from a true zero. */
 .messageSlot { display: block; overflow: hidden; }
 .description, .error { display: block; padding-top: var(--space-2); font-size: var(--text-xs); line-height: var(--leading-body); }

@@ -59,6 +59,7 @@ APACHE_MARKERS = (
 MIT_MARKERS = ("MIT License",)
 HEADER_SCAN_BYTES = 4096
 DEFAULT_ALLOWLIST = "licenses/legacy_mit_files.txt"
+DEFAULT_THIRD_PARTY_MIT_ALLOWLIST = "licenses/third_party_mit_files.txt"
 
 
 @dataclass(frozen=True)
@@ -266,6 +267,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Path to legacy MIT allowlist (default: {DEFAULT_ALLOWLIST})",
     )
     parser.add_argument(
+        "--third-party-mit-allowlist",
+        default=DEFAULT_THIRD_PARTY_MIT_ALLOWLIST,
+        help=(
+            "Path to third-party MIT allowlist for vendored upstream sources "
+            f"(default: {DEFAULT_THIRD_PARTY_MIT_ALLOWLIST})"
+        ),
+    )
+    parser.add_argument(
         "--base-ref",
         help="Base git ref/SHA for diff mode, e.g. origin/main or github.event.before",
     )
@@ -296,6 +305,12 @@ def main() -> int:
         allowlist = load_allowlist(allowlist_path)
         missing_allowlist_entries = validate_allowlist_entries(allowlist)
 
+        # 第三方 MIT 白名单：允许保留上游版权，禁止伪造 ASF Apache 头。
+        # Third-party MIT allowlist: keep upstream copyright; never forge ASF Apache headers.
+        third_party_path = Path(args.third_party_mit_allowlist)
+        third_party_mit = load_allowlist(third_party_path)
+        missing_third_party_entries = validate_allowlist_entries(third_party_mit)
+
         changes = collect_changes(args)
         relevant_changes = [change for change in changes if is_supported_source(change.path)]
     except LicenseCheckError as exc:
@@ -311,13 +326,34 @@ def main() -> int:
             "legacy MIT allowlist contains missing paths; update "
             f"{allowlist_path}:\n  - " + "\n  - ".join(missing_allowlist_entries)
         )
+    if missing_third_party_entries:
+        errors.append(
+            "third-party MIT allowlist contains missing paths; update "
+            f"{third_party_path}:\n  - " + "\n  - ".join(missing_third_party_entries)
+        )
 
     for change in relevant_changes:
         path = Path(change.path)
         license_kind = detect_license(path)
+        is_third_party_mit = change.path in third_party_mit or (
+            change.old_path in third_party_mit if change.old_path else False
+        )
+        is_legacy_mit = change.path in allowlist or (
+            change.old_path in allowlist if change.old_path else False
+        )
 
         if change.status == "A":
-            if license_kind != "apache":
+            # 新文件默认 Apache-2.0；白名单内的第三方 MIT 源码必须保留 MIT 头而非伪造 Apache。
+            # New files default to Apache-2.0; allowlisted third-party MIT sources must keep MIT headers.
+            if is_third_party_mit:
+                if license_kind != "mit":
+                    errors.append(
+                        f"third-party MIT file must carry an MIT header: {change.path} "
+                        f"(detected: {license_kind})"
+                    )
+                else:
+                    notices.append(f"MIT OK (third-party new): {change.path}")
+            elif license_kind != "apache":
                 errors.append(
                     f"new file must carry an Apache 2.0 header: {change.path} "
                     f"(detected: {license_kind})"
@@ -326,7 +362,16 @@ def main() -> int:
                 notices.append(f"Apache OK (new): {change.path}")
             continue
 
-        is_legacy_mit = change.path in allowlist or (change.old_path in allowlist if change.old_path else False)
+        if is_third_party_mit:
+            if license_kind != "mit":
+                errors.append(
+                    f"third-party MIT file must keep an MIT header: {change.path} "
+                    f"(detected: {license_kind})"
+                )
+            else:
+                notices.append(f"MIT OK (third-party): {change.path}")
+            continue
+
         if is_legacy_mit:
             if license_kind != "mit":
                 errors.append(

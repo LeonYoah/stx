@@ -64,8 +64,10 @@ import {
   RefreshCw,
   FolderTree,
   Database,
+  Save,
   Square,
   Trash2,
+  Upload,
   GitCompareArrows,
   LayoutPanelTop,
   Globe2,
@@ -89,7 +91,7 @@ import {
   X,
 } from 'lucide-react';
 import './studio-chrome.css';
-import {ActionButton} from '@/components/arc/action-button/action-button';
+import {ButtonGroup} from '@/components/arc/button-group/button-group';
 import {ExpandingButtonGroup} from '@/components/arc/expanding-button-group/expanding-button-group';
 import {ExpandingSearch} from '@/components/arc/expanding-search/expanding-search';
 import {SearchField} from '@/components/arc/search-field/search-field';
@@ -576,6 +578,19 @@ export function DataSyncStudio() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [expandedLogsLoading, setExpandedLogsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 保存段的就地确认：空闲 / 保存中 / 已保存，失败必须回到空闲。
+  // Save-segment confirmation: idle / pending / saved. Failure must return to idle.
+  const [saveAck, setSaveAck] = useState<'idle' | 'pending' | 'success'>(
+    'idle',
+  );
+  const saveAckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (saveAckTimerRef.current) {
+        clearTimeout(saveAckTimerRef.current);
+      }
+    };
+  }, []);
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState<PendingActionKind | null>(
     null,
@@ -3509,8 +3524,8 @@ export function DataSyncStudio() {
   const handleSave = async () => {
     if (editor.id && !editor.canEdit) {
       toast.error(t('readOnlySaveTooltip'));
-      // 拒绝后 ActionButton 回到空闲，不会误显示已保存。
-      // Reject so ActionButton returns to idle instead of showing saved.
+      // 拒绝后保存段回到空闲，不会误显示已保存。
+      // Reject so the save segment returns to idle instead of showing saved.
       throw new Error(t('readOnlySaveTooltip'));
     }
     const task = await persistCurrentFile(false);
@@ -3520,6 +3535,29 @@ export function DataSyncStudio() {
       throw new Error(t('saveFileFailed'));
     }
     toast.success(t('saveFileSuccess'));
+  };
+
+  // Button Group 不会自己画 pending/success，保存段的文案由这里切换；失败保持「保存」。
+  // Button Group does not draw pending/success itself. This flips the save label and keeps Save on failure.
+  const handleToolbarSave = async () => {
+    if (saveAck === 'pending') {
+      return;
+    }
+    if (saveAckTimerRef.current) {
+      clearTimeout(saveAckTimerRef.current);
+      saveAckTimerRef.current = null;
+    }
+    setSaveAck('pending');
+    try {
+      await handleSave();
+      setSaveAck('success');
+      saveAckTimerRef.current = setTimeout(() => {
+        setSaveAck('idle');
+        saveAckTimerRef.current = null;
+      }, 2400);
+    } catch {
+      setSaveAck('idle');
+    }
   };
 
   const handleOpenPublishDialog = () => {
@@ -4639,36 +4677,63 @@ export function DataSyncStudio() {
               />
             </div>
 
-            {/* 核心动作全部走 Arc：保存 / 发布 / 运行 / 停止同一行高。 */}
-            {/* Primary actions stay Arc: save / publish / run / stop share one height. */}
+            {/* 核心动作全部走 Arc：保存+发布一条 Button Group，运行/停止仍是 SplitButton。 */}
+            {/* Primary actions stay Arc: save+publish as one Button Group; run/stop stay SplitButtons. */}
             <div className='studio-action-cluster flex shrink-0 flex-nowrap items-center gap-1.5'>
-              <ActionButton
-                label={t('save')}
-                pendingLabel={t('savePending')}
-                successLabel={t('saveDone')}
-                disabled={saving || !editor.name.trim() || !editor.canEdit}
-                title={!editor.canEdit ? t('readOnlySaveTooltip') : undefined}
-                onAction={handleSave}
-              />
-
-              <SplitButton
-                variant='secondary'
-                label={t('publish')}
-                icon={<GitCommit className='size-3.5' />}
-                disabled={
-                  saving || publishing || !editor.name.trim() || !editor.canEdit
-                }
-                onClick={handleOpenPublishDialog}
-                actions={[
-                  {
-                    label: t('versionManagement'),
-                    onSelect: () => {
-                      setIsRightSidebarCollapsed(false);
-                      setRightSidebarTab('versions');
-                    },
-                  },
-                ]}
-              />
+              {/* 保存和发布是同一份任务上的提交动作，拼成一条；保存成功改文案，发布只打开对话框，菜单不挂版本管理。 */}
+              {/* Save and publish are persist actions on the same job. Save confirms in-segment; publish only opens the dialog. Version management stays out of the menu. */}
+              <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+                <TooltipTrigger asChild>
+                  <span>
+                    <ButtonGroup
+                      label={t('savePublishGroup')}
+                      variant='solid'
+                      size='md'
+                      items={[
+                        {
+                          id: 'save',
+                          label:
+                            saveAck === 'pending'
+                              ? t('savePending')
+                              : saveAck === 'success'
+                                ? t('saveDone')
+                                : t('save'),
+                          reserve: [
+                            t('save'),
+                            t('savePending'),
+                            t('saveDone'),
+                          ],
+                          icon:
+                            saveAck === 'success' ? <Check /> : <Save />,
+                          disabled:
+                            saving ||
+                            saveAck === 'pending' ||
+                            !editor.name.trim() ||
+                            !editor.canEdit,
+                          onSelect: () => {
+                            void handleToolbarSave();
+                          },
+                        },
+                        {
+                          id: 'publish',
+                          label: t('publish'),
+                          icon: <Upload />,
+                          disabled:
+                            saving ||
+                            publishing ||
+                            saveAck === 'pending' ||
+                            !editor.name.trim() ||
+                            !editor.canEdit,
+                          onSelect: handleOpenPublishDialog,
+                        },
+                      ]}
+                    />
+                  </span>
+                </TooltipTrigger>
+                {!editor.canEdit ? (
+                  <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
+                ) : null}
+              </Tooltip>
 
               <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
                 <TooltipTrigger asChild>

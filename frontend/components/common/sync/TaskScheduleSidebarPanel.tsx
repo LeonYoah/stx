@@ -22,14 +22,14 @@ import {useEffect, useMemo, useState} from 'react';
 import {cn} from '@/lib/utils';
 import {useTranslations} from 'next-intl';
 
-import {Badge} from '@/components/ui/badge';
-import {Button} from '@/components/ui/button';
-import {Label} from '@/components/ui/label';
-import {Switch} from '@/components/ui/switch';
+import {Badge} from '@/components/arc/badge/badge';
+import {Button} from '@/components/arc/button/button';
+import {ConfirmMorph} from '@/components/arc/confirm-morph/confirm-morph';
+import {Switch} from '@/components/arc/switch/switch';
+import {HelpHint} from '@/components/common/HelpHint';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {
   CalendarClock,
-  Clock3,
   Copy,
   ExternalLink,
   History,
@@ -83,6 +83,7 @@ export function TaskScheduleSidebarPanel({
   const t = useTranslations('workbenchStudio');
   const [dolphin, setDolphin] = useState<DolphinTaskStatus | null>(null);
   const [pushOpen, setPushOpen] = useState(false);
+  const [copyingScript, setCopyingScript] = useState(false);
 
   const reloadDolphin = async () => {
     if (!taskId) {
@@ -138,76 +139,88 @@ export function TaskScheduleSidebarPanel({
     }).format(parsed);
   };
 
-  return (
-    <div className={cn('min-w-0 space-y-3.5', className)}>
-      {/* 调度开关与状态主卡片 */}
-      {/* Scheduling toggle and status main card */}
-      <div className='rounded-lg border border-border/60 bg-muted/10 p-3.5 space-y-3'>
-        <div className='flex items-center justify-between gap-2'>
-          <div className='flex items-center gap-2'>
-            <div className='flex size-6 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background/80 text-primary'>
-              <Clock3 className='size-3.5' />
-            </div>
-            <div>
-              <div className='flex items-center gap-1.5'>
-                <Label className='text-xs font-semibold text-foreground'>
-                  {t('taskSchedule')}
-                </Label>
-                {/* 「轻量」Badge + Tooltip 保留详情；常驻一行生产建议，避免只靠问号/悬停才看见推荐 */}
-                {/* Keep the Lightweight badge Tooltip for detail; show one permanent production suggestion line */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      className='inline-flex cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
-                    >
-                      <Badge
-                        variant='outline'
-                        className='h-4.5 border-amber-500/30 px-1.5 text-[10px] text-amber-600 dark:text-amber-400'
-                      >
-                        {t('scheduleLightweightBadge')}
-                      </Badge>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent className='max-w-[320px] text-xs leading-5'>
-                    {t('scheduleLightweightBadgeHint')}
-                  </TooltipContent>
-                </Tooltip>
-                {value.enabled ? (
-                  <Badge
-                    variant='outline'
-                    className='h-4.5 gap-1 border-emerald-500/40 bg-emerald-500/10 px-1.5 text-[10px] text-emerald-600 dark:text-emerald-400'
-                  >
-                    <span className='size-1.5 rounded-full bg-emerald-500 animate-pulse' />
-                    {t('activeSchedule')}
-                  </Badge>
-                ) : (
-                  <Badge
-                    variant='outline'
-                    className='h-4.5 border-border/60 px-1.5 text-[10px] text-muted-foreground'
-                  >
-                    {t('suspendedSchedule')}
-                  </Badge>
-                )}
-              </div>
-              <p
-                className='mt-1 text-[11px] leading-4 text-muted-foreground'
-                data-testid='schedule-production-notice'
-              >
-                {t('scheduleProductionNoticeDesc')}
-              </p>
-            </div>
-          </div>
+  const scheduleSwitch = dolphin?.builtin_locked ? (
+    // 已绑定 Dolphin：开关禁用，原因进 Tooltip；禁用控件外包 span 才能触发。
+    // Bound to Dolphin: switch disabled with the reason in a Tooltip; wrap so it still fires.
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className='inline-flex' tabIndex={0}>
+          <Switch
+            checked={value.enabled}
+            disabled
+            aria-label={t('scheduleEnable')}
+            className='pointer-events-none'
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side='left' className='max-w-[260px] text-xs'>
+        {t('dolphinBuiltinLocked')}
+      </TooltipContent>
+    </Tooltip>
+  ) : (
+    <Switch
+      checked={value.enabled}
+      aria-label={t('scheduleEnable')}
+      onCheckedChange={(checked) =>
+        onChange({
+          ...value,
+          enabled: checked,
+          cron_expr: value.cron_expr,
+          timezone: timezoneValue,
+        })
+      }
+    />
+  );
 
-          <div className='flex items-center gap-1.5'>
+  return (
+    <div className={cn('studio-sidebar-chrome min-w-0 space-y-4', className)}>
+      {/* 标题、状态、开关一行排开，不再套卡片，长说明进 HelpHint。 */}
+      {/* Title, status, and switch on one row. No nested card; long copy lives in HelpHint. */}
+      <div className='space-y-2'>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
+          <div className='flex min-w-0 items-center gap-1.5'>
+            <h2 className='truncate text-xs font-medium text-foreground'>
+              {t('taskSchedule')}
+            </h2>
+            <HelpHint
+              side='bottom'
+              label={t('taskSchedule')}
+              content={t('scheduleLightweightBadgeHint')}
+              data-testid='schedule-production-notice'
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type='button'
+                  className='inline-flex cursor-help rounded-[var(--radius-control)]'
+                >
+                  <Badge tone='warning' size='sm' outline>
+                    {t('scheduleLightweightBadge')}
+                  </Badge>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className='max-w-[320px] text-xs leading-5'>
+                {t('scheduleLightweightBadgeHint')}
+              </TooltipContent>
+            </Tooltip>
+            <Badge
+              tone={value.enabled ? 'success' : 'neutral'}
+              size='sm'
+              dot
+              pill
+            >
+              {value.enabled ? t('activeSchedule') : t('suspendedSchedule')}
+            </Badge>
+          </div>
+          <div className='flex shrink-0 items-center gap-1.5'>
             {onOpenAdvanced ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     type='button'
-                    size='icon'
                     variant='ghost'
-                    className='size-7 text-muted-foreground hover:text-foreground'
+                    size='sm'
+                    aria-label={t('openAdvancedSchedule')}
                     onClick={onOpenAdvanced}
                   >
                     <Maximize2 className='size-3.5' />
@@ -218,74 +231,43 @@ export function TaskScheduleSidebarPanel({
                 </TooltipContent>
               </Tooltip>
             ) : null}
-            {dolphin?.builtin_locked ? (
-              // 已绑定 Dolphin：开关禁用，原因进 Tooltip；禁用控件外包 span 才能触发
-              // Bound to Dolphin: switch disabled with the reason in a Tooltip; wrapped in a span so it fires
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className='inline-flex' tabIndex={0}>
-                    <Switch
-                      checked={value.enabled}
-                      disabled
-                      className='pointer-events-none'
-                    />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side='left' className='max-w-[260px] text-xs'>
-                  {t('dolphinBuiltinLocked')}
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Switch
-                checked={value.enabled}
-                onCheckedChange={(checked) =>
-                  onChange({
-                    ...value,
-                    enabled: checked,
-                    cron_expr: value.cron_expr,
-                    timezone: timezoneValue,
-                  })
-                }
-              />
-            )}
+            {scheduleSwitch}
           </div>
         </div>
-
         {hasUnsavedChanges ? (
-          <p className='text-[11px] leading-4 text-amber-600 dark:text-amber-400 break-words'>
+          <p className='break-words text-[11px] leading-4 text-amber-600 dark:text-amber-400'>
             {t('scheduleUnsavedHint')}
           </p>
         ) : null}
-
-        {/* 最近触发与下一次触发时间统计指标 */}
-        {/* Last triggered and next trigger metrics */}
-        <div className='grid gap-2.5 rounded-md border border-border/60 bg-background/70 p-2.5 sm:grid-cols-2'>
-          <div className='space-y-1 min-w-0'>
-            <div className='flex items-center gap-1 text-[10px] font-medium text-muted-foreground'>
+        {/* 上次/下次触发：两列纯文本，不再套一层格子卡片。 */}
+        {/* Last/next trigger as two plain columns, not a nested metric card. */}
+        <div className='grid grid-cols-2 gap-3'>
+          <div className='min-w-0 space-y-1'>
+            <div className='flex items-center gap-1 text-[11px] font-medium text-muted-foreground'>
               <History className='size-3 shrink-0' />
-              <span>{t('scheduleLastTriggeredAt')}</span>
+              <span className='truncate'>{t('scheduleLastTriggeredAt')}</span>
             </div>
-            <div className='font-mono text-xs font-medium text-foreground truncate'>
+            <div className='truncate font-mono text-xs tabular-nums text-foreground'>
               {formatScheduleTime(lastTriggeredAt)}
             </div>
           </div>
-
-          <div className='space-y-1 min-w-0'>
-            <div className='flex items-center gap-1 text-[10px] font-medium text-muted-foreground'>
+          <div className='min-w-0 space-y-1'>
+            <div className='flex items-center gap-1 text-[11px] font-medium text-muted-foreground'>
               <CalendarClock className='size-3 shrink-0' />
-              <span>{t('scheduleNextTriggeredAt')}</span>
+              <span className='truncate'>{t('scheduleNextTriggeredAt')}</span>
             </div>
-            <div className='font-mono text-xs font-medium text-foreground truncate'>
+            <div className='truncate font-mono text-xs tabular-nums text-foreground'>
               {value.enabled
                 ? formatScheduleTime(nextTriggeredAt)
                 : t('scheduleDisabled')}
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Cron 表达式编辑器 */}
-        {/* Cron expression editor */}
-        <CronExpressionEditor
+      {/* Cron 表达式编辑器 */}
+      {/* Cron expression editor */}
+      <CronExpressionEditor
           expression={value.cron_expr}
           onExpressionChange={(cron_expr) =>
             onChange({...value, cron_expr, timezone: timezoneValue})
@@ -297,6 +279,7 @@ export function TaskScheduleSidebarPanel({
           translator={(key, values) => t(key, values as never)}
           labels={{
             cronExpression: t('cronExpression'),
+            cronPresets: t('cronPresets'),
             timezone: t('timezone'),
             cronFiveField: t('cronFiveField'),
             cronTimezonePlaceholder: t('cronTimezonePlaceholder'),
@@ -315,12 +298,11 @@ export function TaskScheduleSidebarPanel({
           footer={
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge
-                  variant='outline'
-                  className='cursor-help rounded-sm text-[10px]'
-                >
-                  {t('savedVersionOnly')}
-                </Badge>
+                <button type='button' className='inline-flex cursor-help'>
+                  <Badge tone='neutral' size='sm' outline>
+                    {t('savedVersionOnly')}
+                  </Badge>
+                </button>
               </TooltipTrigger>
               <TooltipContent className='max-w-[320px] text-xs leading-5'>
                 {t('scheduleSavedVersionHint')}
@@ -328,20 +310,23 @@ export function TaskScheduleSidebarPanel({
             </Tooltip>
           }
         />
-      </div>
 
       {taskId ? (
-        <div className='rounded-lg border border-border/60 bg-muted/10 p-3.5 space-y-3'>
+        <section className='space-y-2.5 border-t border-border/60 pt-3'>
+          {/* 外部调度是同一页的下一段，不再套第二张卡。 */}
+          {/* External schedule is the next section of this page, not a second card. */}
           <div className='flex items-center justify-between gap-2'>
-            <div className='text-xs font-semibold'>{t('dolphinExternalSchedule')}</div>
+            <h3 className='text-xs font-medium text-foreground'>
+              {t('dolphinExternalSchedule')}
+            </h3>
             {dolphin?.binding ? (
-              <Badge variant='outline' className='h-4 px-1.5 text-[10px]'>
+              <Badge tone='info' size='sm' outline>
                 {t('dolphinBound')}
               </Badge>
             ) : null}
           </div>
           {dolphin?.binding ? (
-            <div className='space-y-2 text-[11px] text-muted-foreground'>
+            <div className='space-y-1.5 text-[11px] text-muted-foreground'>
               <div className='overflow-x-auto whitespace-nowrap font-mono'>
                 {dolphin.binding.workflow_name || dolphin.binding.workflow_code} / {dolphin.binding.task_code}
               </div>
@@ -383,13 +368,14 @@ export function TaskScheduleSidebarPanel({
           ) : null}
           {/* 推送只写 SHELL 节点；Worker stx_ 登录令牌由用户自行绑定，侧栏不开放令牌管理。 */}
           {/* Push only writes the SHELL node; the worker stx_ login token is bound by the user, not from this sidebar. */}
-          <div className='flex flex-wrap gap-1.5'>
+          <div className='flex flex-wrap items-center gap-1.5'>
             <Button
               type='button'
               size='sm'
-              variant='outline'
-              className='h-7 px-2 text-[11px]'
+              variant='secondary'
+              loading={copyingScript}
               onClick={async () => {
+                setCopyingScript(true);
                 try {
                   const script = await SyncService.getDolphinScript(taskId);
                   await navigator.clipboard.writeText(
@@ -400,20 +386,22 @@ export function TaskScheduleSidebarPanel({
                   toast.error(
                     error instanceof Error ? error.message : t('dolphinPushFailed'),
                   );
+                } finally {
+                  setCopyingScript(false);
                 }
               }}
             >
-              <Copy className='size-3' />
+              <Copy className='size-3.5' />
               {t('dolphinCopyScript')}
             </Button>
             {canEdit ? (
               <Button
                 type='button'
                 size='sm'
-                className='h-7 px-2 text-[11px]'
+                variant='secondary'
                 onClick={() => setPushOpen(true)}
               >
-                <Upload className='size-3' />
+                <Upload className='size-3.5' />
                 {dolphin?.binding ? t('dolphinUpdateNode') : t('dolphinPushTo')}
               </Button>
             ) : null}
@@ -422,37 +410,36 @@ export function TaskScheduleSidebarPanel({
                 type='button'
                 size='sm'
                 variant='ghost'
-                className='h-7 px-2 text-[11px]'
-                onClick={() => window.open(dolphin.binding?.console_url, '_blank')}
+                onClick={() =>
+                  window.open(dolphin.binding?.console_url, '_blank')
+                }
               >
-                <ExternalLink className='size-3' />
+                <ExternalLink className='size-3.5' />
                 {t('dolphinOpen')}
               </Button>
             ) : null}
-            {canEdit && dolphin?.binding ? (
-              <Button
-                type='button'
-                size='sm'
-                variant='ghost'
-                className='h-7 px-2 text-[11px] text-destructive'
-                onClick={async () => {
-                  try {
-                    await SyncService.unbindDolphin(taskId);
-                    toast.success(t('dolphinUnbound'));
-                    await reloadDolphin();
-                  } catch (error) {
-                    toast.error(
-                      error instanceof Error ? error.message : t('dolphinPushFailed'),
-                    );
-                  }
-                }}
-              >
-                <Unplug className='size-3' />
-                {t('dolphinUnbind')}
-              </Button>
-            ) : null}
           </div>
-        </div>
+          {canEdit && dolphin?.binding ? (
+            // ConfirmMorph 展开后比侧栏按钮宽，单独占一行以免挤开复制/更新。
+            // ConfirmMorph grows wider than a sidebar button; keep it on its own row.
+            <ConfirmMorph
+              tone='danger'
+              confirmMode='press'
+              icon={<Unplug className='size-3.5' />}
+              label={t('dolphinUnbind')}
+              prompt={t('dolphinUnbindPrompt')}
+              confirmLabel={t('dolphinUnbind')}
+              cancelLabel={t('cancel')}
+              pendingLabel={t('dolphinUnbindPending')}
+              doneLabel={t('dolphinUnbound')}
+              errorLabel={t('dolphinPushFailed')}
+              onConfirm={async () => {
+                await SyncService.unbindDolphin(taskId);
+                await reloadDolphin();
+              }}
+            />
+          ) : null}
+        </section>
       ) : null}
 
       {taskId ? (

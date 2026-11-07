@@ -84,6 +84,10 @@ curl -fsSL <raw-or-mirrored-url>/install-online.sh | bash -s -- [options]
 | `START_OBSERVABILITY` | `auto` | `auto` \| `true` \| `false`（start.sh） |
 | `STX_IMAGE_REGISTRY` | `ghcr.io/leonyoah` | Docker Compose 镜像前缀；中国华为云用 `swr.cn-east-3.myhuaweicloud.com/stx` |
 | `STX_IMAGE_TAG` | `latest` | Docker Compose / 单镜像 tag |
+| `STX_CONFIG_FILE` | 仓库 `../../config.example.yaml`；发版 tar `./config.yaml` | Compose 挂载到容器的服务端配置；勿另维护 Docker schema |
+| `STX_OBSERVABILITY_PROMETHEUS_URL` | `http://prometheus:9090`（Compose） | 覆盖 yaml 里的 Prometheus 地址 |
+| `STX_OBSERVABILITY_ALERTMANAGER_URL` | `http://alertmanager:9093`（Compose） | 覆盖 yaml 里的 Alertmanager 地址 |
+| `STX_OBSERVABILITY_GRAFANA_URL` | `http://grafana:3000`（Compose） | 覆盖 yaml 里的 Grafana 地址 |
 
 ### 3.2 gh-proxy 节点（中国默认）
 
@@ -125,7 +129,8 @@ $INSTALL_DIR/observability/{prometheus,alertmanager,grafana}  # optional bundled
 - `app.addr` / gRPC 端口：端口探测结果  
 - `app.external_url`：本机可达 URL  
 - `observability.enabled` / `observability.*.url`：bundled 或 remote  
-- **不要**在 all-in-one 镜像默认启用 bundled 三件套进程  
+- **不要**在 all-in-one 镜像默认启用 bundled 三件套进程
+- Docker Compose 包：`config.yaml` 从仓库根目录 `config.example.yaml` 拷出；Compose 用 `STX_DATABASE_*` / `STX_OBSERVABILITY_*` 覆盖容器 DNS，不另维护一份 Docker schema  
 
 ### 3.5 systemd（对齐 agent）
 

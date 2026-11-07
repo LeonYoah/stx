@@ -59,3 +59,38 @@ func TestLoadConfigPreservesExplicitObservabilityDisabled(t *testing.T) {
 		t.Fatalf("显式关闭可观测性时不应被默认值覆盖 / explicit observability disablement must be preserved")
 	}
 }
+
+func TestApplyEnvironmentOverridesObservabilityURLs(t *testing.T) {
+	t.Setenv("STX_OBSERVABILITY_PROMETHEUS_URL", "http://prometheus:9090")
+	t.Setenv("STX_OBSERVABILITY_ALERTMANAGER_URL", "http://alertmanager:9093")
+	t.Setenv("STX_OBSERVABILITY_GRAFANA_URL", "http://grafana:3000")
+
+	c := &configModel{}
+	c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
+	c.Observability.Alertmanager.URL = "http://127.0.0.1:9093"
+	c.Observability.Grafana.URL = "http://127.0.0.1:3000"
+	applyEnvironmentOverrides(c)
+
+	if c.Observability.Prometheus.URL != "http://prometheus:9090" {
+		t.Fatalf("prometheus url: got %q", c.Observability.Prometheus.URL)
+	}
+	if c.Observability.Alertmanager.URL != "http://alertmanager:9093" {
+		t.Fatalf("alertmanager url: got %q", c.Observability.Alertmanager.URL)
+	}
+	if c.Observability.Grafana.URL != "http://grafana:3000" {
+		t.Fatalf("grafana url: got %q", c.Observability.Grafana.URL)
+	}
+}
+
+func TestApplyEnvironmentOverridesObservabilityURLsKeepYAMLWhenUnset(t *testing.T) {
+	t.Setenv("STX_OBSERVABILITY_PROMETHEUS_URL", "")
+	t.Setenv("STX_OBSERVABILITY_ALERTMANAGER_URL", "")
+	t.Setenv("STX_OBSERVABILITY_GRAFANA_URL", "")
+
+	c := &configModel{}
+	c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
+	applyEnvironmentOverrides(c)
+	if c.Observability.Prometheus.URL != "http://127.0.0.1:9090" {
+		t.Fatalf("unset env must not override yaml: got %q", c.Observability.Prometheus.URL)
+	}
+}

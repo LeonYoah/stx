@@ -37,3 +37,24 @@ Original project: https://github.com/linux-do/cdk
 
 Third-party dependencies and their licenses can be found in the go.mod and
 frontend/package.json files.
+
+================================================================================
+
+Splash WebGL vortex (frontend/components/common/splash/singularity-renderer.ts):
+
+STX ships an original polar-spiral accretion-disk fragment shader under Apache-2.0.
+
+A prior draft considered porting "Singularity" by @XorDev on ShaderToy
+(https://www.shadertoy.com/view/3csSWB), as also embedded by Inspira UI's
+Singularity Background. Findings:
+
+- The ShaderToy source comment does not grant MIT/Apache; Inspira's MIT license
+  covers its Vue wrapper only and does not relicense the embedded GLSL.
+- ShaderToy's default when no license is pasted in the shader is
+  Creative Commons Attribution-NonCommercial-ShareAlike 3.0 (CC BY-NC-SA 3.0),
+  which is incompatible with Apache-2.0 commercial redistribution of this product.
+- Independent redistributions of the same algorithm (e.g. AppKade/singularity)
+  likewise label the shader CC BY-NC-SA 3.0.
+
+Therefore that third-party algorithm is not retained. Do not reintroduce it
+under a forged Apache/ASF header.

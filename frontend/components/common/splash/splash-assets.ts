@@ -99,14 +99,24 @@ export async function loadFont(spec: string, text: string, timeoutMs: number) {
   ]);
 }
 
-/** 加载品牌图形，失败返回 null（只聚合文字）/ Load the brand mark; null means text only. */
-export async function loadMark(): Promise<HTMLImageElement | null> {
+/**
+ * 加载品牌图形；失败或超时返回 null（只聚合文字，系统字体仍可画出 STX）。
+ * Load the brand mark; null on failure/timeout (text-only brand with system fonts).
+ */
+export async function loadMark(
+  timeoutMs = 1800,
+): Promise<HTMLImageElement | null> {
   const img = new Image();
   img.decoding = 'async';
   img.src = BRAND_MARK_SRC;
   try {
-    await img.decode();
-    return img;
+    const result = await Promise.race([
+      img.decode().then(() => img as HTMLImageElement | null),
+      new Promise<HTMLImageElement | null>((resolve) => {
+        window.setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+    return result && result.naturalWidth > 0 ? result : null;
   } catch {
     return null;
   }

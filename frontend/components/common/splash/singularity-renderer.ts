@@ -21,10 +21,11 @@
  *
  * 着色器移植自 Inspira UI 的 Singularity Background（MIT），
  * 原作为 XorDev 的 ShaderToy “Singularity”（https://www.shadertoy.com/view/3csSWB）。
- * 在原算法外只加了开屏需要的统一变量：鼠标视差偏移、整体亮度、穿心闪光。
+ * 在原算法外只加了开屏需要的统一变量：鼠标视差偏移、内爆缩放、整体亮度、穿心闪光，以及单色调色。
  * Shader ported from Inspira UI's Singularity Background (MIT), originally
  * "Singularity" by XorDev on ShaderToy. Only splash uniforms were added on top
- * of the original math: pointer parallax offset, global intensity, impact flash.
+ * of the original math: pointer parallax offset, implosion zoom, global
+ * intensity, impact flash, and a monochrome grade.
  *
  * 直接使用原生 WebGL2 画一个全屏三角形，不额外引入 ogl 等依赖。
  * Draws one full-screen triangle with raw WebGL2; no extra dependency like ogl.
@@ -45,13 +46,14 @@ uniform float uTime;
 uniform vec2 uOffset;
 uniform float uIntensity;
 uniform float uFlash;
+uniform float uZoom;
 
 out vec4 fragColor;
 
 // "Singularity" by @XorDev — 原始算法保持不变 / original math kept intact.
 vec3 singularity(vec2 F, vec2 r, float t, out vec2 pOut) {
   float i = .2, a;
-  vec2 p = (F + F - r) / r.y / .7 - uOffset,
+  vec2 p = ((F + F - r) / r.y / .7 - uOffset) * uZoom,
     d = vec2(-1, 1),
     b = p - i * d,
     c = p * mat2(1, 1, d / (.1 + i / dot(b, b))),
@@ -73,9 +75,15 @@ vec3 singularity(vec2 F, vec2 r, float t, out vec2 pOut) {
 void main() {
   vec2 p;
   vec3 col = singularity(gl_FragCoord.xy, uResolution, uTime, p);
-  col *= uIntensity * (1. + uFlash * .6);
+  // 单色调色：去掉原作的红蓝，只保留明暗与纹理，略偏冷的银白。
+  // Monochrome grade: drop the original red/blue, keep only luminance and
+  // texture, in a slightly cool silver.
+  float l = dot(col, vec3(.2126, .7152, .0722));
+  l = pow(clamp(l * 1.35, 0., 1.), .92);
+  col = l * vec3(.97, .985, 1.);
+  col *= uIntensity * (1. + uFlash * .8);
   // 流星穿心时的中心白热闪光 / White-hot core flash as the meteor passes through.
-  col += uFlash * vec3(1., .94, .9) * exp(-dot(p, p) * 5.);
+  col += uFlash * exp(-dot(p, p) * 4.);
   fragColor = vec4(col, 1.);
 }
 `;
@@ -88,6 +96,8 @@ export interface SingularityFrame {
   offset: [number, number];
   intensity: number;
   flash: number;
+  /** 内爆缩放：>1 时漩涡向中心收缩 / Implosion zoom: >1 pulls the vortex inward. */
+  zoom: number;
 }
 
 function compileShader(
@@ -120,6 +130,7 @@ export class SingularityRenderer {
     offset: WebGLUniformLocation | null;
     intensity: WebGLUniformLocation | null;
     flash: WebGLUniformLocation | null;
+    zoom: WebGLUniformLocation | null;
   };
 
   /**
@@ -188,6 +199,7 @@ export class SingularityRenderer {
       offset: gl.getUniformLocation(program, 'uOffset'),
       intensity: gl.getUniformLocation(program, 'uIntensity'),
       flash: gl.getUniformLocation(program, 'uFlash'),
+      zoom: gl.getUniformLocation(program, 'uZoom'),
     };
   }
 
@@ -222,6 +234,7 @@ export class SingularityRenderer {
     gl.uniform2f(this.uniforms.offset, frame.offset[0], frame.offset[1]);
     gl.uniform1f(this.uniforms.intensity, frame.intensity);
     gl.uniform1f(this.uniforms.flash, frame.flash);
+    gl.uniform1f(this.uniforms.zoom, frame.zoom);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
   }

@@ -319,7 +319,8 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - **防首页先露出**：根布局 `<head>` 里的内联脚本 `welcomeSplashBootScript` 在首帧前读取并消费标记，命中后给 `<html>` 加 `data-stx-splash`，`globals.css` 用 `body::before` 先铺纯黑遮罩；`WelcomeSplash` 水合后接手，退场开始时才撤遮罩。遮罩有 15 秒兜底超时，不会永久黑屏。
 - **不播放的情况**：标记超过 60 秒、落地页是 `/login`、自动化浏览器（`navigator.webdriver`）。E2E 要验证动画时，先设置 `localStorage['stx:welcome-splash-force'] = '1'`。
 - **可跳过**：右下角「跳过」按钮和 `Esc` 都会进入快速退场；`prefers-reduced-motion` 下只渐显品牌和欢迎语，约 2 秒结束。
-- **视觉约束**：颜色只来自奇点漩涡着色器（移植自 Inspira UI Singularity Background，MIT）。品牌字和欢迎语统一用单色银白，不加彩色渐变，也不用书法类艺术字。品牌字用 Michroma，中文欢迎语用 Noto Serif SC 细字重，英文欢迎语用 Michroma 大写，均为本地托管字体。
+- **视觉约束**：整段开屏为单色银白。奇点着色器（移植自 Inspira UI Singularity Background，MIT）在片元里去色，LOGO 图形按透明度重新着色为银白，粒子、尾迹、冲击波一律中性白。不要加彩色背景、彩色渐变字，也不要用书法类艺术字。品牌字用 Michroma，中文欢迎语用 Noto Serif SC 细字重，英文欢迎语用 Michroma 大写，均为本地托管字体。
+- **碎裂节奏**：撞击前内爆收缩（`uZoom`）→ 撞击瞬间短暂慢放（顿帧）+ 径向过曝 → 镜头震动、放射光芒、双冲击波、碎片带边缘高光，部分碎片朝镜头放大飞出 → 粒子带速度拖影炸开。
 - **实现分层**：`splash-timeline.ts` 放时间轴和纯数学，有单测；`singularity-renderer.ts` 是原生 WebGL2，不可用时降级为 CSS 漩涡；`splash-assets.ts` 负责品牌排版和粒子采样；`splash-director.ts` 用单条 rAF 时间轴驱动画面，逐帧不触发 React 渲染。
 
 ## 一致性检查项

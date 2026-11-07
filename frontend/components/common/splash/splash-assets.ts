@@ -53,14 +53,14 @@ function makeSprite(
   return canvas;
 }
 
-/** 暖白核心 + 冷色外晕的光斑贴图 / Glow sprite: warm-white core with a cool halo. */
+/** 中性银白光斑贴图 / Neutral silver-white glow sprite. */
 export function createGlowSprite(): HTMLCanvasElement {
   return makeSprite(128, (ctx, s) => {
     const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-    g.addColorStop(0, 'rgba(255,250,242,0.9)');
-    g.addColorStop(0.06, 'rgba(255,226,196,0.5)');
-    g.addColorStop(0.2, 'rgba(255,170,120,0.16)');
-    g.addColorStop(0.5, 'rgba(120,150,255,0.05)');
+    g.addColorStop(0, 'rgba(255,255,255,0.9)');
+    g.addColorStop(0.06, 'rgba(244,247,255,0.5)');
+    g.addColorStop(0.2, 'rgba(225,232,248,0.16)');
+    g.addColorStop(0.5, 'rgba(200,210,235,0.05)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, s, s);
@@ -75,11 +75,11 @@ export function createFlareSprite(): HTMLCanvasElement {
   const ctx = canvas.getContext('2d');
   if (ctx) {
     const g = ctx.createLinearGradient(0, 0, 256, 0);
-    g.addColorStop(0, 'rgba(160,190,255,0)');
-    g.addColorStop(0.42, 'rgba(255,236,220,0.55)');
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(0.42, 'rgba(240,244,255,0.55)');
     g.addColorStop(0.5, 'rgba(255,255,255,1)');
-    g.addColorStop(0.58, 'rgba(255,236,220,0.55)');
-    g.addColorStop(1, 'rgba(160,190,255,0)');
+    g.addColorStop(0.58, 'rgba(240,244,255,0.55)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 2, 256, 2);
     ctx.globalAlpha = 0.35;
@@ -164,15 +164,37 @@ export function buildBrandArt(
   const baseline = cy + ((unitAscent - unitDescent) * scale) / 2;
   const textX = x0 + (unitMarkW + unitGap) * scale;
 
+  // LOGO 图形按透明度重新着色为与字面同一套银白金属渐变，整幅品牌保持单色。
+  // Recolor the mark by its alpha with the same silver gradient as the
+  // wordmark so the whole brand stays monochrome.
+  const markH = unitMarkH * scale;
+  const markW = unitMarkW * scale;
+  let silverMark: HTMLCanvasElement | null = null;
+  if (mark) {
+    silverMark = document.createElement('canvas');
+    silverMark.width = Math.max(1, Math.round(markW * dpr));
+    silverMark.height = Math.max(1, Math.round(markH * dpr));
+    const mctx = silverMark.getContext('2d');
+    if (mctx) {
+      mctx.drawImage(mark, 0, 0, silverMark.width, silverMark.height);
+      mctx.globalCompositeOperation = 'source-in';
+      const mg = mctx.createLinearGradient(0, 0, 0, silverMark.height);
+      mg.addColorStop(0, '#ffffff');
+      mg.addColorStop(0.48, '#e9ecf0');
+      mg.addColorStop(0.56, '#b7bdc6');
+      mg.addColorStop(1, '#dfe3e8');
+      mctx.fillStyle = mg;
+      mctx.fillRect(0, 0, silverMark.width, silverMark.height);
+    }
+  }
+
   const paint = (ctx: CanvasRenderingContext2D, withGlow: boolean) => {
-    if (mark) {
-      const mh = unitMarkH * scale;
-      const mw = unitMarkW * scale;
+    if (silverMark) {
       if (withGlow) {
-        ctx.shadowColor = 'rgba(70,170,255,0.65)';
-        ctx.shadowBlur = 26 * scale;
+        ctx.shadowColor = 'rgba(255,255,255,0.22)';
+        ctx.shadowBlur = 20 * scale;
       }
-      ctx.drawImage(mark, x0, cy - mh / 2, mw, mh);
+      ctx.drawImage(silverMark, x0, cy - markH / 2, markW, markH);
     }
     ctx.font = `400 ${fontPx}px ${BRAND_FONT_FAMILY}, sans-serif`;
     ctx.textBaseline = 'alphabetic';

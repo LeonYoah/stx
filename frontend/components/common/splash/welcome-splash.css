@@ -26,27 +26,22 @@
   transform-origin: 50% 46%;
 }
 
-/* 碎裂后露出的深空底色 / Deep-space backdrop revealed once the vortex shatters. */
+/* 碎裂后露出的中性深空底色（带暗角）/ Neutral deep-space backdrop with vignette, revealed after the shatter. */
 .stx-splash__backdrop {
   position: absolute;
   inset: 0;
   background:
     radial-gradient(
-      ellipse 60% 45% at 50% 46%,
-      rgba(52, 30, 74, 0.5),
+      ellipse 55% 42% at 50% 46%,
+      rgba(255, 255, 255, 0.05),
       transparent 70%
     ),
     radial-gradient(
-      circle at 16% 82%,
-      rgba(255, 120, 70, 0.1),
-      transparent 42%
+      ellipse 120% 90% at 50% 50%,
+      transparent 55%,
+      rgba(0, 0, 0, 0.6)
     ),
-    radial-gradient(
-      circle at 84% 16%,
-      rgba(80, 130, 255, 0.12),
-      transparent 44%
-    ),
-    #030207;
+    #050506;
 }
 
 .stx-splash__gl,
@@ -90,11 +85,11 @@
   border-radius: 50%;
   background: conic-gradient(
     from 0deg,
-    rgba(255, 140, 80, 0.9),
-    rgba(255, 90, 70, 0.4),
-    rgba(110, 150, 255, 0.85),
-    rgba(170, 130, 255, 0.4),
-    rgba(255, 140, 80, 0.9)
+    rgba(255, 255, 255, 0.9),
+    rgba(160, 166, 176, 0.35),
+    rgba(236, 240, 246, 0.85),
+    rgba(120, 126, 138, 0.3),
+    rgba(255, 255, 255, 0.9)
   );
   mask: radial-gradient(
     circle,

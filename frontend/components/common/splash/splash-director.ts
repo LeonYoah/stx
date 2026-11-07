@@ -70,22 +70,35 @@ const GATHER_DURATION = 920;
 const STAR_TAIL_MS = 300;
 const SPARK_CAPACITY = 360;
 
-/** 流星尾迹色带：白热 → 琥珀 → 星蓝 / Meteor tail ramp: white-hot → amber → star blue. */
+/**
+ * 穿心顿帧：撞击后这段时间轴时长以慢速播放，制造“定格一瞬再爆开”的力量感。
+ * Impact hit-stop: this slice of timeline after impact plays in slow motion,
+ * giving a beat of stillness before the blast.
+ */
+const HITSTOP_SPAN = 70;
+const HITSTOP_SCALE = 0.2;
+/** 撞击前内爆收缩时长 / Implosion lead-in before impact. */
+const IMPLODE_MS = 420;
+/** 镜头震动 / Camera shake. */
+const SHAKE_PX = 16;
+const SHAKE_MS = 650;
+/** 爆心放射光芒数量 / Number of light rays at the blast. */
+const RAY_COUNT = 22;
+
+/** 流星尾迹色带：白热 → 银白 → 冷灰 / Meteor tail ramp: white-hot → silver → cool grey. */
 const TAIL_RAMP: Array<[number, number, number]> = [
-  [255, 252, 245],
-  [255, 196, 140],
-  [255, 128, 92],
-  [120, 150, 255],
+  [255, 255, 255],
+  [236, 240, 246],
+  [196, 204, 216],
+  [140, 150, 168],
 ];
 
-/** 奇点主题色（无 WebGL 截图时的粒子取色）/ Singularity palette (particle colors without a snapshot). */
+/** 单色粒子色阶（无 WebGL 截图时取用）/ Monochrome particle tones (used without a snapshot). */
 const VORTEX_PALETTE: Array<[number, number, number]> = [
-  [255, 160, 96],
-  [255, 112, 82],
-  [255, 214, 170],
-  [120, 168, 255],
-  [176, 146, 255],
-  [255, 244, 232],
+  [255, 255, 255],
+  [236, 240, 246],
+  [214, 220, 230],
+  [188, 196, 210],
 ];
 
 export interface SplashDirectorOptions {
@@ -119,6 +132,8 @@ interface Shard {
   dist: number;
   tangent: number;
   spin: number;
+  /** 终点缩放：>1 表示朝镜头飞来 / Final scale: >1 means flying toward the camera. */
+  depth: number;
   delay: number;
   dur: number;
 }
@@ -203,6 +218,7 @@ export class SplashDirector {
     head: 0,
   };
   private readonly rand = createRandom(20251107);
+  private rays: Array<{angle: number; len: number; width: number}> = [];
 
   private welcomeShown = false;
   private exitAt: number;
@@ -368,8 +384,15 @@ export class SplashDirector {
       return;
     }
     // 单帧步长上限 50ms：后台标签页回来时不跳过分镜 / Cap step at 50ms so hidden tabs don't skip scenes.
-    const dt = Math.min(50, Math.max(0, now - this.lastNow));
+    const raw = Math.min(50, Math.max(0, now - this.lastNow));
     this.lastNow = now;
+    // 撞击后短暂慢放（顿帧）/ Brief slow motion right after impact (hit-stop).
+    const impact = SPLASH_TIMELINE.impact;
+    const inHitStop =
+      !this.opts.reducedMotion &&
+      this.t >= impact &&
+      this.t < impact + HITSTOP_SPAN;
+    const dt = inHitStop ? raw * HITSTOP_SCALE : raw;
     this.t += dt;
 
     if (this.opts.reducedMotion) {
@@ -471,9 +494,15 @@ export class SplashDirector {
       this.t < T.impact
         ? Math.pow(progress(this.t, T.impact - 200, T.impact), 2)
         : 0;
+    // 内爆：撞击前漩涡被吸向中心并增亮 / Implosion: vortex pulled inward and brightened before impact.
+    const implode = Math.pow(
+      progress(this.t, T.impact - IMPLODE_MS, T.impact),
+      2.2,
+    );
     const intensity =
       progress(this.t, 0, 520) *
-      lerp(0.2, 1, easeInOutCubic(progress(this.t, 150, T.glide[1])));
+      lerp(0.2, 1, easeInOutCubic(progress(this.t, 150, T.glide[1]))) *
+      (1 + implode * 0.5);
     if (!this.shattered) {
       if (this.renderer) {
         this.renderer.render({
@@ -481,6 +510,7 @@ export class SplashDirector {
           offset: this.offset,
           intensity,
           flash,
+          zoom: 1 + implode * 0.55,
         });
       } else {
         const center = this.vortexCenter();
@@ -499,10 +529,22 @@ export class SplashDirector {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.width, this.height);
 
-    // —— 2. 碎片与冲击波 / Shards and shockwave ——
+    // —— 2. 碎片与冲击波（带镜头震动）/ Shards and shockwave, with camera shake ——
     if (this.shattered) {
+      const since = this.t - T.impact;
+      const shake =
+        SHAKE_PX * Math.exp(-since / 170) * (since < SHAKE_MS ? 1 : 0);
+      ctx.save();
+      if (shake > 0.2) {
+        ctx.translate(
+          Math.sin(since * 0.21) * shake + Math.sin(since * 0.53) * shake * 0.4,
+          Math.cos(since * 0.27) * shake * 0.8 +
+            Math.sin(since * 0.61) * shake * 0.35,
+        );
+      }
       this.drawShards(ctx);
       this.drawShockwave(ctx);
+      ctx.restore();
     }
 
     // —— 3. 品牌清晰层 / Crisp brand ——
@@ -522,6 +564,27 @@ export class SplashDirector {
     this.emitSparks(dt);
     this.drawSparks(ctx);
     this.drawStar(ctx);
+
+    // —— 5. 撞击白屏过曝 / Impact white-out ——
+    if (this.shattered) {
+      // 径向过曝：中心炽白、边缘迅速衰减，时长极短，避免整屏发灰。
+      // Radial overexposure: blazing core, fast falloff, very short so the
+      // screen never turns flat grey.
+      const whiteout = Math.pow(1 - progress(this.t - T.impact, 0, 150), 2);
+      if (whiteout > 0) {
+        const {x, y} = this.impactCenter;
+        const radius = Math.hypot(this.width, this.height) * 0.55;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.18, 'rgba(255,255,255,0.85)');
+        g.addColorStop(0.5, 'rgba(255,255,255,0.25)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = whiteout;
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, this.width, this.height);
+      }
+    }
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
   }
@@ -543,7 +606,14 @@ export class SplashDirector {
     }
   }
 
-  /** 四芒星 / Four-point sparkle. */
+  /**
+   * 四芒星：按真实光学星芒分层绘制——大范围柔光、紧致辉光、四道由亮到透明渐隐的主芒、
+   * 贯穿的衍射细线、45° 次级芒、白热核心。每道主芒长度独立闪烁，像大气中的星光。
+   * Four-point star drawn in optical layers: wide bloom, tight glow, four main
+   * spikes fading from white to transparent, through-going diffraction
+   * hairlines, 45° secondary spikes, and a white-hot core. Each main spike
+   * flickers independently, like starlight through atmosphere.
+   */
   private drawSparkle(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -556,48 +626,87 @@ export class SplashDirector {
     if (alpha <= 0.002 || r <= 0.1) {
       return;
     }
+    const t = this.t;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rot);
     ctx.scale(stretch, 1);
 
-    // 柔光只做氛围，不能盖住星形轮廓 / The halo is ambience only; it must not swallow the star's silhouette.
-    ctx.globalAlpha = alpha * 0.8;
-    ctx.drawImage(this.glowSprite, -r * 2.6, -r * 2.6, r * 5.2, r * 5.2);
+    // 1. 大范围柔光 + 紧致辉光 / Wide bloom plus tight glow.
+    ctx.globalAlpha = alpha * 0.32;
+    ctx.drawImage(this.glowSprite, -r * 4, -r * 4, r * 8, r * 8);
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.drawImage(this.glowSprite, -r * 1.5, -r * 1.5, r * 3, r * 3);
 
-    // 长光芒（十字），细到接近发丝 / Long hairline cross flares.
-    ctx.globalAlpha = alpha * 0.75;
-    ctx.drawImage(this.flareSprite, -r * 3, -1.5, r * 6, 3);
+    // 2. 衍射细线：贯穿整星的发丝光 / Diffraction hairlines through the whole star.
+    ctx.globalAlpha = alpha * 0.6;
+    ctx.drawImage(this.flareSprite, -r * 3.4, -1.2, r * 6.8, 2.4);
     ctx.save();
     ctx.rotate(Math.PI / 2);
-    ctx.drawImage(this.flareSprite, -r * 2.4, -1.3, r * 4.8, 2.6);
+    ctx.drawImage(this.flareSprite, -r * 2.8, -1.1, r * 5.6, 2.2);
     ctx.restore();
 
-    // 内凹四角星体：尖端细长、腰身收紧，一眼可辨是四芒星。
-    // Concave four-point body: long thin tips and a tight waist read clearly as a sparkle.
-    const w = r * 0.07;
+    // 3. 四道主芒：根部宽、尖端细，亮度沿长度渐隐 / Main spikes: wide root, needle tip, fading along length.
+    const drawSpike = (len: number, width: number, a: number) => {
+      const g = ctx.createLinearGradient(0, 0, len, 0);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.35, 'rgba(250,252,255,0.85)');
+      g.addColorStop(1, 'rgba(235,242,255,0)');
+      ctx.globalAlpha = a;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(0, -width);
+      ctx.quadraticCurveTo(len * 0.18, -width * 0.18, len, 0);
+      ctx.quadraticCurveTo(len * 0.18, width * 0.18, 0, width);
+      ctx.closePath();
+      ctx.fill();
+    };
+    for (let i = 0; i < 4; i += 1) {
+      const flicker =
+        1 +
+        0.09 * Math.sin(t / 53 + i * 1.7) +
+        0.05 * Math.sin(t / 19 + i * 2.9);
+      ctx.save();
+      ctx.rotate((Math.PI / 2) * i);
+      drawSpike(r * 1.25 * flicker, r * 0.13, alpha);
+      ctx.restore();
+    }
+
+    // 4. 45° 次级芒 / Secondary 45° spikes.
+    for (let i = 0; i < 4; i += 1) {
+      ctx.save();
+      ctx.rotate(Math.PI / 4 + (Math.PI / 2) * i);
+      drawSpike(
+        r * 0.5 * (1 + 0.12 * Math.sin(t / 41 + i)),
+        r * 0.06,
+        alpha * 0.55,
+      );
+      ctx.restore();
+    }
+
+    // 5. 白热核心 / White-hot core.
+    const core = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 0.32);
+    core.addColorStop(0, 'rgba(255,255,255,1)');
+    core.addColorStop(0.45, 'rgba(255,255,255,0.9)');
+    core.addColorStop(1, 'rgba(240,245,255,0)');
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#fffaf2';
+    ctx.fillStyle = core;
     ctx.beginPath();
-    ctx.moveTo(r, 0);
-    ctx.quadraticCurveTo(w, w, 0, r);
-    ctx.quadraticCurveTo(-w, w, -r, 0);
-    ctx.quadraticCurveTo(-w, -w, 0, -r);
-    ctx.quadraticCurveTo(w, -w, r, 0);
+    ctx.arc(0, 0, r * 0.32, 0, Math.PI * 2);
     ctx.fill();
 
-    // 45° 次级小芒 / Secondary 45° glints.
-    const r2 = r * 0.38;
-    const w2 = r2 * 0.12;
-    ctx.rotate(Math.PI / 4);
-    ctx.globalAlpha = alpha * 0.55;
-    ctx.beginPath();
-    ctx.moveTo(r2, 0);
-    ctx.quadraticCurveTo(w2, w2, 0, r2);
-    ctx.quadraticCurveTo(-w2, w2, -r2, 0);
-    ctx.quadraticCurveTo(-w2, -w2, 0, -r2);
-    ctx.quadraticCurveTo(w2, -w2, r2, 0);
-    ctx.fill();
+    // 6. 极淡的镜头光环，增加光学质感；高速拉伸时隐藏，避免变成椭圆。
+    // A faint lens ring for optical texture; hidden when stretched at speed so
+    // it never turns into an ellipse.
+    const ringAlpha = alpha * 0.07 * clamp01(1 - (stretch - 1) * 6);
+    if (ringAlpha > 0.003) {
+      ctx.globalAlpha = ringAlpha;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 1.9, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -657,24 +766,27 @@ export class SplashDirector {
       return;
     }
     const tailMs = t < T.dive[0] ? STAR_TAIL_MS * 0.5 : STAR_TAIL_MS;
-    const segments = 26;
+    const segments = 40;
     let prev = this.starPosition(t);
-    ctx.lineCap = 'round';
+    // 平头端点：圆头在叠加混合下会在接缝处叠亮成“珠串” / Butt caps: round caps double up into beads under additive blending.
+    ctx.lineCap = 'butt';
     for (let i = 1; i <= segments; i += 1) {
       const age = (i / segments) * tailMs;
       const tt = Math.max(T.glide[0], t - age);
       const p = this.starPosition(tt);
       const k = i / segments;
-      const fade = Math.pow(1 - k, 1.6) * alpha;
-      if (
-        fade > 0.01 &&
-        (Math.abs(p.x - prev.x) > 0.05 || Math.abs(p.y - prev.y) > 0.05)
-      ) {
+      const step = Math.hypot(p.x - prev.x, p.y - prev.y);
+      // 按段长（即速度）衰减：星光静止时尾迹为零，不会叠成一团白斑。
+      // Fade by segment length (speed): a resting star has no tail, so
+      // segments never pile up into a white blob.
+      const speedFade = clamp01((step - 0.6) / 4);
+      const fade = Math.pow(1 - k, 1.6) * alpha * speedFade;
+      if (fade > 0.01) {
         const [r, g, b] = sampleRamp(k);
         const width = base * 0.36 * Math.pow(1 - k, 1.2) + 0.5;
-        ctx.globalAlpha = fade * 0.16;
+        ctx.globalAlpha = fade * 0.14;
         ctx.strokeStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
-        ctx.lineWidth = width * 4.5;
+        ctx.lineWidth = width * 3;
         ctx.beginPath();
         ctx.moveTo(prev.x, prev.y);
         ctx.lineTo(p.x, p.y);
@@ -720,7 +832,7 @@ export class SplashDirector {
 
   private drawSparks(ctx: CanvasRenderingContext2D): void {
     const s = this.sparks;
-    ctx.fillStyle = 'rgb(255,206,160)';
+    ctx.fillStyle = 'rgb(236,240,246)';
     for (let i = 0; i < SPARK_CAPACITY; i += 1) {
       const age = this.t - s.born[i];
       if (age < 0 || age > s.life[i]) {
@@ -763,6 +875,14 @@ export class SplashDirector {
       this.renderer = null;
     }
 
+    // 爆心放射光芒 / Light rays from the blast core.
+    const rr = createRandom(77);
+    this.rays = Array.from({length: RAY_COUNT}, () => ({
+      angle: rr() * Math.PI,
+      len: this.height * (0.45 + rr() * 0.75),
+      width: 1.5 + rr() * 4,
+    }));
+
     if (!this.brand) {
       this.layoutBrand();
     }
@@ -781,15 +901,17 @@ export class SplashDirector {
       ) * 1.04;
     const ringRatios = [
       0,
-      0.08,
-      0.16,
-      RIM_RADIUS_RATIO * 1.08,
-      0.36,
-      0.52,
-      0.74,
-      1.04,
-      1.46,
-      2.05,
+      0.05,
+      0.1,
+      0.165,
+      RIM_RADIUS_RATIO * 1.06,
+      0.33,
+      0.44,
+      0.6,
+      0.8,
+      1.06,
+      1.42,
+      2,
     ];
     const radii: number[] = [];
     for (const r of ringRatios) {
@@ -816,7 +938,7 @@ export class SplashDirector {
 
     const shards: Shard[] = [];
     for (let k = 0; k < radii.length - 1; k += 1) {
-      const n = k === 0 ? 7 : 8 + k * 4;
+      const n = k === 0 ? 9 : 10 + k * 5;
       const angles: number[] = [];
       const ringRot = rand() * Math.PI * 2;
       for (let j = 0; j < n; j += 1) {
@@ -883,11 +1005,15 @@ export class SplashDirector {
           bh: maxY - minY + 2,
           dirX: dx / len,
           dirY: dy / len,
-          dist: h * (0.1 + 0.3 * rand() + 0.05 * k),
-          tangent: h * (0.04 + 0.12 * rand()),
-          spin: (rand() - 0.5) * 1.9,
-          delay: 40 + k * 42 + rand() * 70,
-          dur: 900 + rand() * 320,
+          dist: h * (0.28 + 0.62 * rand() + 0.07 * k),
+          tangent: h * (0.05 + 0.16 * rand()),
+          spin: (rand() - 0.5) * 3.2,
+          // 内圈约四成碎片朝镜头飞来（放大），其余向远处缩小。
+          // About 40% of inner shards fly toward the camera (grow); the rest recede.
+          depth:
+            k <= 5 && rand() < 0.4 ? 1.5 + rand() * 0.9 : 0.45 + rand() * 0.3,
+          delay: k * 22 + rand() * 40,
+          dur: 1000 + rand() * 450,
         });
       }
     }
@@ -909,20 +1035,22 @@ export class SplashDirector {
 
     for (const shard of this.shards) {
       const k = clamp01((since - shard.delay) / shard.dur);
-      const alpha = 1 - easeInOutCubic(progress(k, 0.12, 1));
+      const alpha =
+        1 - easeInOutCubic(progress(k, shard.depth > 1 ? 0.05 : 0.15, 1));
       if (alpha <= 0.01) {
         continue;
       }
-      const e = easeOutCubic(k);
+      // 指数缓出：起速极快，随后减速飘散 / Exponential ease-out: violent start, then drift.
+      const e = k >= 1 ? 1 : 1 - Math.pow(2, -9 * k);
       const x =
         shard.cx + shard.dirX * shard.dist * e - shard.dirY * shard.tangent * e;
       const y =
         shard.cy + shard.dirY * shard.dist * e + shard.dirX * shard.tangent * e;
+      const sc = lerp(1, shard.depth, e);
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.translate(x, y);
       ctx.rotate(shard.spin * e);
-      const sc = 1 - 0.22 * e;
       ctx.scale(sc, sc);
       ctx.beginPath();
       const p = shard.poly;
@@ -931,6 +1059,7 @@ export class SplashDirector {
         ctx.lineTo(p[i], p[i + 1]);
       }
       ctx.closePath();
+      ctx.save();
       ctx.clip();
       ctx.drawImage(
         snap,
@@ -944,20 +1073,30 @@ export class SplashDirector {
         shard.bh,
       );
       ctx.restore();
+      // 碎片边缘高光：像玻璃断面反光 / Edge highlight like light catching a glass fracture.
+      if (shard.ring <= 5 && k > 0) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = alpha * Math.max(0, 1 - e * 1.4) * 0.5;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.2 / sc;
+        ctx.stroke();
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      ctx.restore();
     }
 
-    // 裂纹高光：只在漩涡本体附近一闪，外圈暗区不画，避免满屏蛛网。
-    // Crack glints flash only around the vortex body; the dark outskirts stay
-    // clean so the screen doesn't turn into a spider web.
-    const crack = 1 - progress(since, 0, 260);
+    // 裂纹高光：碎片分离前只在漩涡本体附近一闪，外圈暗区不画，避免满屏蛛网。
+    // Crack glints flash only around the vortex body before separation; the
+    // dark outskirts stay clean so the screen doesn't turn into a spider web.
+    const crack = 1 - progress(since, 0, 160);
     if (crack > 0) {
       ctx.globalCompositeOperation = 'lighter';
-      ctx.strokeStyle = 'rgb(255,214,180)';
-      ctx.lineWidth = 1.1;
-      ctx.globalAlpha = crack * 0.75;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.4;
+      ctx.globalAlpha = crack * 0.9;
       ctx.beginPath();
       for (const shard of this.shards) {
-        if (shard.ring > 3) {
+        if (shard.ring > 4) {
           continue;
         }
         const p = shard.poly;
@@ -973,35 +1112,78 @@ export class SplashDirector {
     }
   }
 
-  /** 穿心闪光 + 冲击波环 / Impact flash and shockwave ring. */
+  /**
+   * 爆心：核心闪光、放射光芒、两道冲击波（主波带柔光，次波稍后跟进）。
+   * Blast core: core flash, radiating light rays, and two shockwaves (a
+   * glowing primary and a delayed secondary).
+   */
   private drawShockwave(ctx: CanvasRenderingContext2D): void {
     const since = this.t - SPLASH_TIMELINE.impact;
     const {x, y} = this.impactCenter;
+    const diag = Math.hypot(this.width, this.height);
     ctx.globalCompositeOperation = 'lighter';
 
-    const flash = 1 - progress(since, 0, 380);
+    const flash = 1 - progress(since, 0, 520);
     if (flash > 0) {
-      const r = this.height * 0.55;
+      const r = this.height * (0.35 + 0.5 * (1 - flash));
       ctx.globalAlpha = flash * flash;
       ctx.drawImage(this.glowSprite, x - r, y - r, r * 2, r * 2);
     }
 
-    const ring = progress(since, 0, 900);
-    if (ring > 0 && ring < 1) {
-      const r = easeOutCubic(ring) * Math.hypot(this.width, this.height) * 0.62;
-      ctx.globalAlpha = (1 - ring) * 0.55;
-      ctx.lineWidth = 1.5 + (1 - ring) * 3;
-      ctx.strokeStyle = 'rgb(255,198,160)';
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = (1 - ring) * 0.3;
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgb(140,176,255)';
-      ctx.beginPath();
-      ctx.arc(x, y, r * 0.93, 0, Math.PI * 2);
-      ctx.stroke();
+    // 放射光芒：瞬间拉长后渐隐 / Rays: snap outward, then fade.
+    const rayK = progress(since, 0, 700);
+    if (rayK > 0 && rayK < 1) {
+      const grow = easeOutCubic(progress(since, 0, 260));
+      ctx.save();
+      ctx.translate(x, y);
+      for (const ray of this.rays) {
+        ctx.save();
+        ctx.rotate(ray.angle);
+        ctx.globalAlpha = Math.pow(1 - rayK, 1.6) * 0.7;
+        const len = ray.len * grow;
+        ctx.drawImage(
+          this.flareSprite,
+          -len,
+          -ray.width / 2,
+          len * 2,
+          ray.width,
+        );
+        ctx.restore();
+      }
+      ctx.restore();
     }
+
+    const drawRing = (
+      start: number,
+      dur: number,
+      reach: number,
+      strength: number,
+    ) => {
+      const k = progress(since, start, start + dur);
+      if (k <= 0 || k >= 1) {
+        return;
+      }
+      const r = easeOutCubic(k) * diag * reach;
+      const fade = Math.pow(1 - k, 1.3) * strength;
+      ctx.strokeStyle = '#ffffff';
+      // 三层叠描：外层宽而淡做柔光，内层细而亮做锋线。
+      // Three passes: wide faint glow outside, thin bright edge inside.
+      const passes: Array<[number, number]> = [
+        [14 + 18 * (1 - k), 0.08],
+        [5 + 6 * (1 - k), 0.22],
+        [1.6, 0.9],
+      ];
+      for (const [w, a] of passes) {
+        ctx.globalAlpha = fade * a;
+        ctx.lineWidth = w;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    };
+    drawRing(0, 950, 0.7, 1);
+    drawRing(130, 1150, 0.55, 0.55);
+
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
   }
@@ -1088,7 +1270,7 @@ export class SplashDirector {
       const dx = o.x - cx;
       const dy = o.y - cy;
       const len = Math.hypot(dx, dy) || 1;
-      const speed = this.height * (0.22 + 0.8 * Math.pow(rand(), 1.6));
+      const speed = this.height * (0.45 + 1.5 * Math.pow(rand(), 1.6));
       // 径向炸开 + 顺漩涡切向 / Radial burst plus tangential vortex drift.
       field.vx[i] = (dx / len) * speed - (dy / len) * speed * 0.55;
       field.vy[i] = (dy / len) * speed + (dx / len) * speed * 0.55;
@@ -1127,10 +1309,15 @@ export class SplashDirector {
         g = c[1];
         b = c[2];
       }
-      // 提亮，保证在叠加混合下够亮 / Brighten for additive blending.
-      field.c0[i * 3] = Math.min(255, r * 1.25 + 30);
-      field.c0[i * 3 + 1] = Math.min(255, g * 1.25 + 24);
-      field.c0[i * 3 + 2] = Math.min(255, b * 1.25 + 24);
+      // 提亮并统一为中性银白，保证叠加混合下够亮且无色偏。
+      // Brighten and neutralize to silver so additive blending stays bright and hue-free.
+      const lum = Math.min(
+        255,
+        (r * 0.2126 + g * 0.7152 + b * 0.0722) * 1.3 + 40,
+      );
+      field.c0[i * 3] = lum * 0.97;
+      field.c0[i * 3 + 1] = lum * 0.985;
+      field.c0[i * 3 + 2] = lum;
       field.c1[i * 3] = Math.min(255, brand.targets[ti + 2] * 1.05 + 20);
       field.c1[i * 3 + 1] = Math.min(255, brand.targets[ti + 3] * 1.05 + 20);
       field.c1[i * 3 + 2] = Math.min(255, brand.targets[ti + 4] * 1.05 + 20);
@@ -1159,7 +1346,7 @@ export class SplashDirector {
     }
     const T = SPLASH_TIMELINE;
     const since = (this.t - T.impact) / 1000;
-    const drag = 2.3;
+    const drag = 3.4;
     const travel = (1 - Math.exp(-drag * since)) / drag;
     const {x: cx, y: cy} = this.impactCenter;
     const gatherStart = T.gather[0];
@@ -1236,9 +1423,23 @@ export class SplashDirector {
       }
 
       const size = f.size[i] * (g >= 1 ? 1 : 1.25);
+      const fill = this.color(r, gg, b);
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = this.color(r, gg, b);
-      ctx.fillRect(x - size / 2, y - size / 2, size, size);
+      // 炸开初期按瞬时速度画拖影，体现爆发速度 / Early burst draws velocity streaks to sell the speed.
+      if (g <= 0 && since < 0.5) {
+        const decay = Math.exp(-drag * since) * 0.022;
+        const sx = f.vx[i] * decay;
+        const sy = f.vy[i] * decay;
+        ctx.strokeStyle = fill;
+        ctx.lineWidth = size * 0.9;
+        ctx.beginPath();
+        ctx.moveTo(x - sx, y - sy);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = fill;
+        ctx.fillRect(x - size / 2, y - size / 2, size, size);
+      }
       if (f.glow[i]) {
         const gs = size * 7;
         ctx.globalAlpha = alpha * 0.35;

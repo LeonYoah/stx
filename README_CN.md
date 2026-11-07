@@ -193,39 +193,26 @@ node -v
 
 ### Docker 全量启动
 
-发版会打 `stx-docker-compose.tar.gz`（仓库已接入；**新 tag 发布后** `latest` 才有该文件）。
-
 ```bash
 mkdir -p stx-docker && cd stx-docker
-curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz | tar -xz
+# 中国
+curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz | tar -xz
+# GitHub 直连：去掉 https://v4.gh-proxy.org/
 cd docker
-cp config.example.yaml config.yaml   # 改 external_url / 密码，并按库类型改 database
-docker compose up -d                 # 默认 MySQL
-```
-
-中国：链接贴 [gh-proxy.com](https://gh-proxy.com/)，或  
-`https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz`
-
-中国拉镜像（华为云 SWR）：把 `.env` 的 `STX_IMAGE_REGISTRY` 改为 `swr.cn-east-3.myhuaweicloud.com/stx`，或：
-
-```bash
-cp .env.cn.example .env
+# SeaTunnel 不在本机时，改 config.yaml 的 app.external_url / app.console_url 为可达 IP
+mkdir -p data
 docker compose up -d
 ```
 
-| 数据库 | 启动（先改好 config.yaml 的 database） |
+中国拉镜像（华为云 SWR）：`cp .env.cn.example .env` 后 `docker compose up -d`。
+
+| 数据库 | 启动 |
 | --- | --- |
 | MySQL（默认） | `docker compose up -d` |
 | SQLite | `docker compose -f docker-compose.sqlite.yml up -d` |
 | PostgreSQL | `docker compose -f docker-compose.postgres.yml up -d` |
 
-| 服务 | 地址 |
-| --- | --- |
-| 控制台 | http://127.0.0.1:17880 |
-| API | http://127.0.0.1:17800 |
-| Grafana | http://127.0.0.1:3000 |
-| Prometheus | http://127.0.0.1:9090 |
-| Alertmanager | http://127.0.0.1:9093 |
+宿主机端口：Web UI `17880`、API `17800`、gRPC `17890`。
 
 单容器体验（无监控）：
 

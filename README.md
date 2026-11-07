@@ -185,24 +185,18 @@ node -v
 
 ### Docker full stack
 
-Release asset: `stx-docker-compose.tar.gz` (wired in packaging; available on **new tags**, not yet on older `latest` if 404).
-
 ```bash
 mkdir -p stx-docker && cd stx-docker
-curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz | tar -xz
+# China
+curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz | tar -xz
+# Direct: drop the https://v4.gh-proxy.org/ prefix
 cd docker
-cp config.example.yaml config.yaml   # edit database for the compose file you use
-docker compose up -d                 # MySQL default
-```
-
-China: paste into [gh-proxy.com](https://gh-proxy.com/), or use the `v4.gh-proxy.org/https://github.com/...` URL.
-
-China images (Huawei SWR): set `STX_IMAGE_REGISTRY=swr.cn-east-3.myhuaweicloud.com/stx` in `.env`, or:
-
-```bash
-cp .env.cn.example .env
+# If SeaTunnel is not on this host, set app.external_url / app.console_url in config.yaml to a reachable IP
+mkdir -p data
 docker compose up -d
 ```
+
+China images (Huawei SWR): `cp .env.cn.example .env` then `docker compose up -d`.
 
 | DB | Start |
 | --- | --- |
@@ -210,13 +204,7 @@ docker compose up -d
 | SQLite | `docker compose -f docker-compose.sqlite.yml up -d` |
 | PostgreSQL | `docker compose -f docker-compose.postgres.yml up -d` |
 
-| Service | URL |
-| --- | --- |
-| UI | http://127.0.0.1:17880 |
-| API | http://127.0.0.1:17800 |
-| Grafana | http://127.0.0.1:3000 |
-| Prometheus | http://127.0.0.1:9090 |
-| Alertmanager | http://127.0.0.1:9093 |
+Host ports: Web UI `17880`, API `17800`, gRPC `17890`.
 
 Single container (no monitoring):
 

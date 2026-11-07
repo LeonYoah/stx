@@ -404,6 +404,141 @@ export function PluginMain() {
   );
 
   /**
+   * 合并下载中集合：内容不变时复用旧 Set，避免无意义重渲染。
+   * Merge downloading set; reuse previous Set when membership is unchanged.
+   */
+  const mergeDownloadingPlugins = useCallback(
+    (
+      prev: Set<string>,
+      downloadsResult: PluginDownloadProgress[] | null | undefined,
+      downloadedKeys: Set<string>,
+    ) => {
+      const downloading = new Set(
+        downloadsResult
+          ?.filter((d) => d.status === 'downloading')
+          .map((d) => pluginDownloadKey(d.plugin_name, d.version)) || [],
+      );
+      const next = new Set<string>();
+      for (const key of downloading) {
+        if (!downloadedKeys.has(key)) {
+          next.add(key);
+        }
+      }
+      for (const key of prev) {
+        if (downloadedKeys.has(key)) {
+          continue;
+        }
+        const listed = (downloadsResult || []).find(
+          (d) => pluginDownloadKey(d.plugin_name, d.version) === key,
+        );
+        if (listed) {
+          if (listed.status === 'downloading') {
+            next.add(key);
+          }
+          continue;
+        }
+        if (!notifiedFailedDownloadsRef.current.has(key)) {
+          next.add(key);
+        }
+      }
+      if (next.size === prev.size && [...next].every((key) => prev.has(key))) {
+        return prev;
+      }
+      return next;
+    },
+    [],
+  );
+
+  /**
+   * 轻量轮询：只拉活动下载与本地落盘，不打集群安装态、不闪 loading。
+   * Lightweight poll: active downloads + local disk only; skip cluster status and loading flash.
+   */
+  const pollActiveDownloads = useCallback(async () => {
+    try {
+      const [localResult, downloadsResult] = await Promise.all([
+        PluginService.listLocalPlugins(),
+        PluginService.listActiveDownloads(),
+      ]);
+
+      const downloadedKeys = new Set(
+        (localResult || []).map((item) =>
+          pluginDownloadKey(item.name, item.version),
+        ),
+      );
+      setDownloadedPlugins((prev) => {
+        if (
+          prev.size === downloadedKeys.size &&
+          [...downloadedKeys].every((key) => prev.has(key))
+        ) {
+          return prev;
+        }
+        return downloadedKeys;
+      });
+      setLocalPlugins((prev) => {
+        const next = localResult || [];
+        if (
+          prev.length === next.length &&
+          prev.every(
+            (item, index) =>
+              item.name === next[index]?.name &&
+              item.version === next[index]?.version &&
+              item.size === next[index]?.size,
+          )
+        ) {
+          return prev;
+        }
+        return next;
+      });
+      setActiveDownloads((prev) => {
+        const next = downloadsResult || [];
+        if (
+          prev.length === next.length &&
+          prev.every(
+            (item, index) =>
+              item.plugin_name === next[index]?.plugin_name &&
+              item.version === next[index]?.version &&
+              item.status === next[index]?.status &&
+              item.progress === next[index]?.progress &&
+              item.error === next[index]?.error &&
+              item.message === next[index]?.message,
+          )
+        ) {
+          return prev;
+        }
+        return next;
+      });
+
+      for (const item of downloadsResult || []) {
+        if (item.status !== 'failed') {
+          continue;
+        }
+        const failKey = pluginDownloadKey(item.plugin_name, item.version);
+        if (notifiedFailedDownloadsRef.current.has(failKey)) {
+          continue;
+        }
+        notifiedFailedDownloadsRef.current.add(failKey);
+        toast.error(
+          t('plugin.downloadFailedNamed', {
+            name: item.plugin_name,
+            version: item.version,
+          }),
+          {
+            description:
+              item.error || item.message || t('plugin.downloadFailedHint'),
+            duration: 10000,
+          },
+        );
+      }
+
+      setDownloadingPlugins((prev) =>
+        mergeDownloadingPlugins(prev, downloadsResult, downloadedKeys),
+      );
+    } catch (err) {
+      console.error('Failed to poll active downloads:', err);
+    }
+  }, [mergeDownloadingPlugins, t]);
+
+  /**
    * Load local downloaded plugins and their cluster installation status
    * 加载本地已下载插件列表及其集群安装状态
    */
@@ -458,49 +593,9 @@ export function PluginMain() {
         );
       }
 
-      // 活动下载中的 downloading 集合；保留刚入队、尚未出现在列表中的乐观态，并剔除已落盘就绪的插件。
-      // Build downloading set from active tasks; retain optimistic queued keys and drop already downloaded ones.
-      const downloading = new Set(
-        downloadsResult
-          ?.filter((d) => d.status === 'downloading')
-          .map((d) => pluginDownloadKey(d.plugin_name, d.version)) || [],
+      setDownloadingPlugins((prev) =>
+        mergeDownloadingPlugins(prev, downloadsResult, downloadedKeys),
       );
-      setDownloadingPlugins((prev) => {
-        const next = new Set<string>();
-        // 1. 保留后端活跃下载列表中且尚未在本地就绪的插件
-        // 1. In-flight tasks from active downloads reported by backend (excluding downloaded ones)
-        for (const key of downloading) {
-          if (!downloadedKeys.has(key)) {
-            next.add(key);
-          }
-        }
-        // 2. 检查前序乐观任务
-        // 2. Check optimistic tasks from previous state
-        for (const key of prev) {
-          // 若已在本地就绪，坚决移出 downloading 状态
-          // If already downloaded locally, strictly remove from downloading state
-          if (downloadedKeys.has(key)) {
-            continue;
-          }
-          // 若后端已有记录，仅在仍处于 downloading 状态时保留
-          // If listed in backend, only retain if still in downloading status
-          const listed = (downloadsResult || []).find(
-            (d) => pluginDownloadKey(d.plugin_name, d.version) === key,
-          );
-          if (listed) {
-            if (listed.status === 'downloading') {
-              next.add(key);
-            }
-            continue;
-          }
-          // 若尚未进入后端列表但前序存在，且未进入失败记录，短时间保留乐观态
-          // If not listed in backend yet, not downloaded, and not failed, retain optimistic state
-          if (!notifiedFailedDownloadsRef.current.has(key)) {
-            next.add(key);
-          }
-        }
-        return next;
-      });
 
       // Load installed plugins for each cluster / 加载每个集群的已安装插件
       const statusMap = new Map<string, Map<number, InstalledPlugin>>();
@@ -532,7 +627,7 @@ export function PluginMain() {
     } finally {
       setLocalPluginsLoading(false);
     }
-  }, [t]);
+  }, [mergeDownloadingPlugins, t]);
 
   const getSelectedProfileKeysForPlugin = useCallback(
     (pluginName: string) => selectedProfileKeysByPlugin[pluginName] || [],
@@ -804,8 +899,8 @@ export function PluginMain() {
     }
   }, [activeTab, loadLocalPlugins]);
 
-  // 有下载中任务时持续轮询（不限本地 Tab），以便异步失败能 toast。
-  // Poll while downloads are in flight (any tab) so async failures can surface.
+  // 有下载中任务时轻量轮询进度（不限本地 Tab）；避免全量 loadLocalPlugins 拖动详情/列表闪烁。
+  // Lightweight progress poll while downloads run; avoid full loadLocalPlugins flashing detail/list UI.
   useEffect(() => {
     const hasDownloading =
       activeDownloads.some((d) => d.status === 'downloading') ||
@@ -815,11 +910,11 @@ export function PluginMain() {
     }
 
     const interval = setInterval(() => {
-      void loadLocalPlugins();
+      void pollActiveDownloads();
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [activeDownloads, downloadingPlugins, loadLocalPlugins]);
+  }, [activeDownloads, downloadingPlugins, pollActiveDownloads]);
 
   /**
    * Handle search

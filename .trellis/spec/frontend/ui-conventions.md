@@ -302,6 +302,17 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 
 ---
 
+## 14. 工作台草稿自动保存与离开拦截（Workbench Draft Autosave）
+
+适用于 `/workbench` → `DataSyncStudio` 的未落盘草稿防丢：
+
+- **自动保存只走草稿**：防抖（`WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS`，1–2s）后仅调用 `persistCurrentFile(false)` / `updateTask`，**严禁**自动 `publishTask`。
+- **共享状态**：顶栏 `DraftSaveStatusBadge`（保存中 / 已保存 / 保存失败）供手动「保存草稿」与自动保存共用；成功以状态条为准，避免双重成功 toast。
+- **离开风险**：任意可编辑 `editorDrafts.dirty`，或保存中 / 失败未恢复时，挂 `beforeunload`，并捕获站内离开 `/workbench` 的链接点击；对话框提供留下 / 保存并离开 / 丢弃并离开，默认焦点不在「丢弃」。
+- **只读**：`!editor.canEdit` 时不自动保存；无其它可编辑脏草稿时不拦截离开。
+
+---
+
 ## 一致性检查项
 
 在提交代码前，必须核对以下检查清单：
@@ -323,3 +334,4 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] 动态后端值是否在调用翻译函数前使用 `t.has()` 检查，并准备原值或兜底文案？
 - [ ] 国际化覆盖测试是否通过，确认深层键、静态代码引用和 ICU 参数均无缺失？
 - [ ] 自增/修改的代码注释是否严格遵循“中文在前，英文在后”的双语规范？
+- [ ] 工作台草稿变更是否走防抖自动保存草稿（非发布），并在未落盘时提供离开拦截与共享保存状态？

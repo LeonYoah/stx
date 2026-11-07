@@ -67,7 +67,7 @@ STX 构建/重启脚本
   CONFIG_PATH                    后端配置文件路径，默认 ./config.yaml
   APP_EXTERNAL_URL               写入 config.yaml 的 app.external_url，默认 http://10.0.0.211:8000
   FRONTEND_PORT                  前端端口，默认 80
-  NEXT_PUBLIC_BACKEND_BASE_URL   前端访问后端的基础地址，默认 http://127.0.0.1:8000
+  BACKEND_BASE_URL               前端服务端转发 /api 的后端地址，默认 http://127.0.0.1:8000（兼容 NEXT_PUBLIC_BACKEND_BASE_URL）
   LOCAL_AGENT_INSTALL_DIR        本机 Agent 二进制目录，默认 $HOME/.stx/agent/bin
   LOCAL_AGENT_BINARY             本机 Agent 二进制名，默认 stx-agent
   LOCAL_AGENT_SERVICE            本机 Agent systemd 服务名（Linux），默认 stx-agent
@@ -185,7 +185,8 @@ PM2_UI="${PM2_UI:-stx-ui}"
 CONFIG_PATH="${CONFIG_PATH:-$PROJECT_ROOT/config.yaml}"
 APP_EXTERNAL_URL="${APP_EXTERNAL_URL:-http://10.0.0.211:8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-80}"
-NEXT_PUBLIC_BACKEND_BASE_URL="${NEXT_PUBLIC_BACKEND_BASE_URL:-http://127.0.0.1:8000}"
+BACKEND_BASE_URL="${BACKEND_BASE_URL:-${NEXT_PUBLIC_BACKEND_BASE_URL:-http://127.0.0.1:8000}}"
+NEXT_PUBLIC_BACKEND_BASE_URL="$BACKEND_BASE_URL"
 CAPABILITY_PROXY_DEFAULT_VERSION="${CAPABILITY_PROXY_DEFAULT_VERSION:-v2}"
 LOCAL_AGENT_INSTALL_DIR="${LOCAL_AGENT_INSTALL_DIR:-$HOME/.stx/agent/bin}"
 LOCAL_AGENT_BINARY="${LOCAL_AGENT_BINARY:-stx-agent}"
@@ -758,7 +759,7 @@ prepare_frontend_standalone() {
 
   if [[ "$should_build" == "true" ]]; then
     echo "      构建前端（next build）..."
-    NEXT_PUBLIC_BACKEND_BASE_URL="$NEXT_PUBLIC_BACKEND_BASE_URL" pnpm run build
+    BACKEND_BASE_URL="$BACKEND_BASE_URL" NEXT_PUBLIC_BACKEND_BASE_URL="$BACKEND_BASE_URL" pnpm run build
   fi
 
   if [[ -f "$next_standalone_dir/server.js" ]]; then
@@ -809,7 +810,7 @@ start_frontend_dev() {
 
   pm2_delete_if_exists "$PM2_UI"
   kill_port_listeners_if_exists "$FRONTEND_PORT"
-  HOSTNAME="0.0.0.0" PORT="$FRONTEND_PORT" NEXT_PUBLIC_BACKEND_BASE_URL="$NEXT_PUBLIC_BACKEND_BASE_URL" \
+  HOSTNAME="0.0.0.0" PORT="$FRONTEND_PORT" BACKEND_BASE_URL="$BACKEND_BASE_URL" NEXT_PUBLIC_BACKEND_BASE_URL="$BACKEND_BASE_URL" \
     pm2 start pnpm --name "$PM2_UI" --cwd "$FRONTEND_DIR" --update-env -- exec next dev --turbopack --hostname 0.0.0.0 --port "$FRONTEND_PORT"
   echo "      前端开发模式已启动 (http://127.0.0.1:$FRONTEND_PORT, command: pnpm run dev)."
   return 0
@@ -984,7 +985,7 @@ if $DO_RESTART && $RUN_FRONTEND; then
     fi
     pm2_delete_if_exists "$PM2_UI"
     kill_port_listeners_if_exists "$FRONTEND_PORT"
-    HOSTNAME="0.0.0.0" PORT="$FRONTEND_PORT" NEXT_PUBLIC_BACKEND_BASE_URL="$NEXT_PUBLIC_BACKEND_BASE_URL" \
+    HOSTNAME="0.0.0.0" PORT="$FRONTEND_PORT" BACKEND_BASE_URL="$BACKEND_BASE_URL" NEXT_PUBLIC_BACKEND_BASE_URL="$BACKEND_BASE_URL" \
       pm2 start "$FRONTEND_ENTRY" --name "$PM2_UI" --cwd "$FRONTEND_RUNTIME_DIR" --update-env
     echo "      前端已启动 (http://127.0.0.1:$FRONTEND_PORT)."
   fi

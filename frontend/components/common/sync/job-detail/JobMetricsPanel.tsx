@@ -17,47 +17,27 @@
 
 'use client';
 
-import {useState} from 'react';
-import {useTranslations} from 'next-intl';
 import {MetricsDialogContent} from '../StudioDialogs';
 import type {SyncJobInstance} from '@/lib/services/sync';
-import {cn} from '@/lib/utils';
 import {MetricsTrendView} from './MetricsTrendView';
 
-type MetricsView = 'snapshot' | 'trend';
+export type MetricsView = 'snapshot' | 'trend';
 
 /**
- * 指标页签：顶部「快照 | 趋势」分段；快照复用现有指标 UI，趋势走 Prometheus 时序。
- * Metrics tab: top "Snapshot | Trend" segment; snapshot reuses the existing metrics UI, trend uses Prometheus timeseries.
+ * 指标页签内容。快照 / 趋势切换放在详情页签同一行右侧，避免再叠一条分段条。
+ * Metrics body. Snapshot / trend sits on the detail tab row, so it does not stack as a second strip.
  */
-export function JobMetricsPanel({job, active}: {job: SyncJobInstance | null; active: boolean}) {
-  const t = useTranslations('workbenchStudio.jobDetail.metricsView');
-  const [view, setView] = useState<MetricsView>('snapshot');
-
+export function JobMetricsPanel({
+  job,
+  active,
+  view,
+}: {
+  job: SyncJobInstance | null;
+  active: boolean;
+  view: MetricsView;
+}) {
   return (
-    <div className='flex h-full min-h-0 flex-col gap-2'>
-      <div className='flex shrink-0 items-center gap-3'>
-        <div className='inline-flex h-7 items-center rounded-md bg-muted p-0.5'>
-          {(['snapshot', 'trend'] as const).map((key) => (
-            <button
-              key={key}
-              type='button'
-              className={cn(
-                'rounded-[5px] px-3 text-xs transition-colors',
-                view === key
-                  ? 'bg-background text-foreground shadow-sm border border-border'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-              onClick={() => setView(key)}
-            >
-              {t(key)}
-            </button>
-          ))}
-        </div>
-        <span className='text-xs text-muted-foreground'>
-          {view === 'snapshot' ? t('snapshotHint') : t('trendHint')}
-        </span>
-      </div>
+    <div className='flex h-full min-h-0 flex-col'>
       <div className='min-h-0 flex-1 overflow-auto'>
         {view === 'snapshot' ? (
           <MetricsDialogContent job={job} />

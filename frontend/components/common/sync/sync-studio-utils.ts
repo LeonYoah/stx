@@ -1245,6 +1245,26 @@ export function isEditorDraftDirty(
   );
 }
 
+// 顶栏保存段跟随草稿，而不是保存成功后的短暂确认。
+// The toolbar save segment follows the draft instead of a short post-save confirmation.
+export type StudioSaveSegment = 'pending' | 'save' | 'saved';
+
+export function studioSaveSegment(input: {
+  pending: boolean;
+  hasFile: boolean;
+  dirty: boolean;
+}): StudioSaveSegment {
+  if (input.pending) {
+    return 'pending';
+  }
+  // 没有文件，或正文 / 右侧栏把草稿弄脏，都回到「保存」。
+  // No file, or a dirty draft from the body or the right sidebar, returns to Save.
+  if (!input.hasFile || input.dirty) {
+    return 'save';
+  }
+  return 'saved';
+}
+
 /**
  * 从编辑器状态构建保存草稿 / 更新任务的请求体（纯函数，供手动保存、自动保存与离开前批量落盘复用）。
  * Build create/update task payload from editor state (pure; reused by manual save, autosave, and leave flush).

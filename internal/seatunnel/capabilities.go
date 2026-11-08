@@ -57,22 +57,28 @@ const (
 // one SeaTunnel release from the install wizard perspective.
 // VersionCapabilities 描述安装向导视角下某个 SeaTunnel 版本支持的高级运行时配置能力。
 type VersionCapabilities struct {
-	SupportsDynamicSlot             bool   `json:"supports_dynamic_slot"`
-	SupportsSlotNum                 bool   `json:"supports_slot_num"`
-	SupportsHistoryJobExpireMinutes bool   `json:"supports_history_job_expire_minutes"`
-	SupportsScheduledDeletionEnable bool   `json:"supports_scheduled_deletion_enable"`
-	SupportsJobScheduleStrategy     bool   `json:"supports_job_schedule_strategy"`
-	SupportsSlotAllocationStrategy  bool   `json:"supports_slot_allocation_strategy"`
-	SupportsHTTPService             bool   `json:"supports_http_service"`
-	SupportsJobLogMode              bool   `json:"supports_job_log_mode"`
-	DefaultDynamicSlot              bool   `json:"default_dynamic_slot"`
-	DefaultStaticSlotNum            int    `json:"default_static_slot_num"`
-	DefaultHistoryJobExpireMinutes  int    `json:"default_history_job_expire_minutes"`
-	DefaultScheduledDeletionEnable  bool   `json:"default_scheduled_deletion_enable"`
-	DefaultJobScheduleStrategy      string `json:"default_job_schedule_strategy"`
-	DefaultSlotAllocationStrategy   string `json:"default_slot_allocation_strategy"`
-	DefaultHTTPEnabled              bool   `json:"default_http_enabled"`
-	DefaultJobLogMode               string `json:"default_job_log_mode"`
+	SupportsDynamicSlot             bool `json:"supports_dynamic_slot"`
+	SupportsSlotNum                 bool `json:"supports_slot_num"`
+	SupportsHistoryJobExpireMinutes bool `json:"supports_history_job_expire_minutes"`
+	SupportsScheduledDeletionEnable bool `json:"supports_scheduled_deletion_enable"`
+	SupportsJobScheduleStrategy     bool `json:"supports_job_schedule_strategy"`
+	SupportsSlotAllocationStrategy  bool `json:"supports_slot_allocation_strategy"`
+	SupportsHTTPService             bool `json:"supports_http_service"`
+	SupportsJobLogMode              bool `json:"supports_job_log_mode"`
+	// SupportsEventChannel 表示一键安装可以写入 event-report-http（3.0.0 起，安装向导默认勾选）。
+	// SupportsEventChannel means one-click install can write event-report-http (since 3.0.0; the wizard checks it by default).
+	SupportsEventChannel bool `json:"supports_event_channel"`
+	// DefaultEventChannelEnabled 是安装向导在该版本上的事件通道默认值。
+	// DefaultEventChannelEnabled is the install wizard default for the event channel on this version.
+	DefaultEventChannelEnabled     bool   `json:"default_event_channel_enabled"`
+	DefaultDynamicSlot             bool   `json:"default_dynamic_slot"`
+	DefaultStaticSlotNum           int    `json:"default_static_slot_num"`
+	DefaultHistoryJobExpireMinutes int    `json:"default_history_job_expire_minutes"`
+	DefaultScheduledDeletionEnable bool   `json:"default_scheduled_deletion_enable"`
+	DefaultJobScheduleStrategy     string `json:"default_job_schedule_strategy"`
+	DefaultSlotAllocationStrategy  string `json:"default_slot_allocation_strategy"`
+	DefaultHTTPEnabled             bool   `json:"default_http_enabled"`
+	DefaultJobLogMode              string `json:"default_job_log_mode"`
 }
 
 // CapabilitiesForVersion returns the SeaTunnel runtime capability matrix used by
@@ -108,6 +114,12 @@ func CapabilitiesForVersion(version string) VersionCapabilities {
 	if CompareVersions(version, "2.3.8") >= 0 {
 		capabilities.SupportsJobLogMode = true
 		capabilities.DefaultJobLogMode = "per_job"
+	}
+	// 3.0.0 起才默认打开事件通道：更早版本要么没有非终态上报，要么还要用户到集群详情里手动开。
+	// Default the event channel on from 3.0.0: earlier versions either lack non-terminal reports or stay a manual cluster-detail toggle.
+	if SupportsNonTerminalJobStateEvents(version) {
+		capabilities.SupportsEventChannel = true
+		capabilities.DefaultEventChannelEnabled = true
 	}
 
 	return capabilities

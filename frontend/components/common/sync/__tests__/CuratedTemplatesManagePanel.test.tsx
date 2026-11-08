@@ -41,7 +41,24 @@ vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => {
     const messages: Record<string, string> = {
       curatedManage: '模板管理',
+      templateLibraryCurated: '精选',
+      templateLibraryPlugins: '插件默认',
+      curatedSectionFilter: '筛选分区',
+      curatedOriginOverrideShort: '副本',
+      searchCurated: '搜索精选…',
+      clearSearch: '清除搜索',
+      all: '全部',
+      rawDefaultParamHint: '按集群已装插件生成全部参数清单',
+      rawDefaultNeedsCluster: '请先切换到集群模式并选择集群',
+      sourceTemplate: 'Source',
+      transformTemplate: 'Transform',
+      sinkTemplate: 'Sink',
+      selectSourcePlugin: '选择 Source 插件',
+      selectTransformPlugin: '选择 Transform 插件',
+      selectSinkPlugin: '选择 Sink 插件',
+      noMatchingPlugins: '暂无匹配插件',
       curatedReadonlyEditHint: '系统模板只读，创建副本后可编辑',
+      curatedInsert: '插入',
       curatedCreate: '新建精选',
       curatedEdit: '编辑',
       curatedCopy: '复制',
@@ -203,17 +220,25 @@ describe('CuratedTemplatesManagePanel', () => {
 
     // 「系统」Badge 包成可聚焦的 button；聚焦后 Tooltip 弹出只读说明
     // The builtin Badge is a focusable button; focusing it opens the read-only Tooltip
-    const badgeButton = screen.getByRole('button', {name: '系统'});
-    expect(badgeButton.getAttribute('type')).toBe('button');
+    const badgeButton = screen
+      .getAllByRole('button', {name: '系统'})
+      .find((el) => el.getAttribute('data-slot') === 'tooltip-trigger');
+    expect(badgeButton).toBeTruthy();
+    expect(badgeButton?.getAttribute('type')).toBe('button');
     expect(screen.queryByText('系统模板只读，创建副本后可编辑')).toBeNull();
-    fireEvent.focus(badgeButton);
+    fireEvent.focus(badgeButton!);
     await waitFor(() => {
       expect(
         screen.getAllByText('系统模板只读，创建副本后可编辑').length,
       ).toBeGreaterThan(0);
     });
-    // 自建模板的来源 Badge 不是按钮 / The user template's origin Badge is not a button
-    expect(screen.queryByRole('button', {name: '我的'})).toBeNull();
+    // 自建模板的来源 Badge 不是按钮；来源分段控件里的「我的」不算 Badge
+    // The user origin Badge is not a button; the origin segmented control's Mine is not that Badge
+    expect(
+      screen
+        .getAllByRole('button', {name: '我的'})
+        .filter((el) => el.getAttribute('data-slot') === 'tooltip-trigger'),
+    ).toHaveLength(0);
   });
 
   it('copies HOCON script to clipboard when clicking "复制脚本"', async () => {
@@ -264,6 +289,51 @@ describe('CuratedTemplatesManagePanel', () => {
       expect(monacoEditors.length).toBeGreaterThan(0);
       expect(monacoEditors[0]).toHaveAttribute('data-readonly', 'true');
     });
+  });
+
+  it('inserts a template when onInsert is provided', async () => {
+    const onInsert = vi.fn();
+    render(<CuratedTemplatesManagePanel onInsert={onInsert} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('MySQL Source Template')).toBeInTheDocument();
+    });
+
+    const insertButtons = screen.getAllByRole('button', {name: /^插入$/});
+    expect(insertButtons.length).toBe(2);
+    fireEvent.click(insertButtons[0]);
+    expect(onInsert).toHaveBeenCalledTimes(1);
+    expect(onInsert.mock.calls[0][0].name).toBe('MySQL Source Template');
+  });
+
+  it('shows plugin defaults as a first-class library view', async () => {
+    const onInsertPlugin = vi.fn();
+    render(
+      <CuratedTemplatesManagePanel
+        pluginInsert={{
+          executionMode: 'cluster',
+          clusterId: '1',
+          loading: false,
+          pendingType: null,
+          loadingText: null,
+          sourceItems: [{value: 'mysql', label: 'MySQL'}],
+          transformItems: [],
+          sinkItems: [],
+          onInsertPlugin,
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', {name: '插件默认'})).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', {name: '插件默认'}));
+    await waitFor(() => {
+      expect(screen.getByTestId('sync-plugin-defaults-hint')).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Source')).toBeInTheDocument();
+    expect(screen.getByLabelText('Transform')).toBeInTheDocument();
+    expect(screen.getByLabelText('Sink')).toBeInTheDocument();
   });
 
   it('opens wide edit dialog with Monaco Editor when clicking "新建精选"', async () => {

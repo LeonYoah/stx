@@ -28,7 +28,6 @@ import {
   Clock3,
   History,
   ListOrdered,
-  Loader2,
   Package,
   PlayCircle,
   PlugZap,
@@ -36,8 +35,10 @@ import {
   Server,
   Terminal,
 } from 'lucide-react';
-import {Button} from '@/components/ui/button';
-import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/arc/button/button';
+import {Badge} from '@/components/arc/badge/badge';
+import {ButtonGroup} from '@/components/arc/button-group/button-group';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {WorkspaceHeader} from '@/components/common/layout';
 import {
   Card,
@@ -65,7 +66,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {
   Tooltip,
   TooltipContent,
@@ -91,7 +91,7 @@ import {
   buildPlanStepMap,
   calculateExecutionProgress,
   getExecutionStatusLabel,
-  getStatusBadgeVariant,
+  upgradeStatusTone,
   getStepNodeCount,
 } from './utils';
 import {useRefreshOnSettle} from './useRefreshOnSettle';
@@ -399,7 +399,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
 
   if (loading) {
     return (
-      <div className='space-y-6' data-testid='upgrade-execute-page'>
+      <div className='upgrade-page' data-testid='upgrade-execute-page'>
         <WorkspaceHeader
           breadcrumbs={[
             {
@@ -420,7 +420,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
         />
         <UpgradeSteps current='execute' clusterId={clusterId} />
         <div className='space-y-6'>
-          <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
+          <div className='grid gap-2 md:grid-cols-2 xl:grid-cols-4'>
             <Skeleton className='h-24 w-full' />
             <Skeleton className='h-24 w-full' />
             <Skeleton className='h-24 w-full' />
@@ -452,11 +452,12 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
         </CardHeader>
         <CardContent>
           <Button
+            size='sm'
             onClick={() =>
               router.push(`/clusters/${clusterId}/upgrade/prepare`)
             }
           >
-            <ArrowLeft className='mr-2 h-4 w-4' />
+            <ArrowLeft className='size-3.5' />
             {t('startFromPrepare')}
           </Button>
         </CardContent>
@@ -468,7 +469,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
   const canLoadEarlierLogs = currentLogsPage > 1;
 
   return (
-    <div className='space-y-6' data-testid='upgrade-execute-page'>
+    <div className='upgrade-page' data-testid='upgrade-execute-page'>
       <div className='space-y-3'>
         <WorkspaceHeader
           breadcrumbs={[
@@ -487,56 +488,64 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
           icon={<PlayCircle />}
           title={t('executeTitle')}
           subtitle={
-            <>
-              <span>{t('executeDescription')}</span>
-              {currentPlan ? (
-                <span className='mt-0.5 block'>
-                  {currentPlan.source_version} → {currentPlan.target_version}
-                </span>
-              ) : null}
-            </>
+            <span className='inline-flex flex-wrap items-center gap-1.5'>
+              <span>
+                {currentPlan
+                  ? `${currentPlan.source_version} → ${currentPlan.target_version}`
+                  : t('executeStage')}
+              </span>
+              <HelpHint
+                label={t('executeTitle')}
+                content={t('executeDescription')}
+              />
+            </span>
           }
           actions={
-            <>
-              <Button
-                variant='outline'
-                onClick={() =>
-                  router.push(`/clusters/${clusterId}/upgrade/config`)
-                }
-              >
-                <ArrowLeft className='mr-2 h-4 w-4' />
-                {t('backToConfig')}
-              </Button>
-              <Button
-                variant='outline'
-                onClick={() => task?.id && void loadTaskState(task.id, logsQuery)}
-                disabled={!task?.id}
-              >
-                <RefreshCw className='mr-2 h-4 w-4' />
-                {commonT('refresh')}
-              </Button>
+            <div className='flex flex-wrap items-center gap-2'>
+              <ButtonGroup
+                label={t('upgradeStagesAria')}
+                size='sm'
+                items={[
+                  {
+                    id: 'back',
+                    label: t('backToConfig'),
+                    icon: <ArrowLeft />,
+                    onSelect: () =>
+                      router.push(`/clusters/${clusterId}/upgrade/config`),
+                  },
+                  {
+                    id: 'refresh',
+                    label: commonT('refresh'),
+                    icon: <RefreshCw />,
+                    disabled: !task?.id,
+                    onSelect: () => {
+                      if (task?.id) {
+                        void loadTaskState(task.id, logsQuery);
+                      }
+                    },
+                  },
+                ]}
+              />
               {showPrimaryExecutionButton ? (
                 <Button
+                  size='sm'
                   data-testid='upgrade-execute-start'
                   onClick={handleStartExecution}
-                  disabled={starting || !plan || hasActiveTask}
+                  loading={starting}
+                  disabled={!plan || hasActiveTask}
                 >
-                  {starting ? (
-                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  ) : (
-                    <PlayCircle className='mr-2 h-4 w-4' />
-                  )}
+                  <PlayCircle className='size-3.5' />
                   {startExecutionLabel}
                 </Button>
               ) : null}
-            </>
+            </div>
           }
         />
       </div>
 
       <UpgradeSteps current='execute' clusterId={clusterId} />
 
-      <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
+      <div className='grid gap-2 md:grid-cols-2 xl:grid-cols-4'>
         <StatusCard
           title={t('taskStatus')}
           value={task ? getExecutionStatusLabel(task.status) : t('notStarted')}
@@ -568,22 +577,21 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
             <div className='font-medium'>{t('upgradeCompletedTitle')}</div>
             <div className='flex flex-wrap gap-2'>
               <Button
-                variant='outline'
+                variant='secondary'
+                size='sm'
                 onClick={handleStartExecution}
-                disabled={starting || !plan}
+                loading={starting}
+                disabled={!plan}
               >
-                {starting ? (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                ) : (
-                  <RefreshCw className='mr-2 h-4 w-4' />
-                )}
+                <RefreshCw className='size-3.5' />
                 {t('restartCurrentPlan')}
               </Button>
               <Button
-                variant='outline'
+                variant='secondary'
+                size='sm'
                 onClick={() => router.push(`/clusters/${clusterId}`)}
               >
-                <ArrowLeft className='mr-2 h-4 w-4' />
+                <ArrowLeft className='size-3.5' />
                 {t('backToClusterDetail')}
               </Button>
             </div>
@@ -606,15 +614,13 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
               </div>
             </div>
             <Button
+              size='sm'
               data-testid='upgrade-execute-restart'
               onClick={handleStartExecution}
-              disabled={starting || !plan}
+              loading={starting}
+              disabled={!plan}
             >
-              {starting ? (
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-              ) : (
-                <RefreshCw className='mr-2 h-4 w-4' />
-              )}
+              <RefreshCw className='size-3.5' />
               {t('restartCurrentPlan')}
             </Button>
           </CardContent>
@@ -630,7 +636,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
             </CardHeader>
             <CardContent className='space-y-4'>
               <div className='flex flex-wrap items-center gap-2 text-sm text-muted-foreground'>
-                <Badge variant='default'>
+                <Badge tone='info' outline size='sm'>
                   {currentPlan.source_version} → {currentPlan.target_version}
                 </Badge>
                 <span>
@@ -708,7 +714,11 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                               {step.sequence}. {step.code}
                             </div>
                           </div>
-                          <Badge variant={step.required ? 'default' : 'outline'}>
+                          <Badge
+                            tone={step.required ? 'info' : 'neutral'}
+                            outline
+                            size='sm'
+                          >
                             {step.required
                               ? t('requiredStep')
                               : t('optionalStep')}
@@ -790,10 +800,13 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
         <>
           <Card>
             <CardHeader>
-              <CardTitle>{t('executionProgress')}</CardTitle>
-              <CardDescription>
-                {t('executionProgressDescription')}
-              </CardDescription>
+              <CardTitle className='flex items-center gap-1.5'>
+                {t('executionProgress')}
+                <HelpHint
+                  label={t('executionProgress')}
+                  content={t('executionProgressDescription')}
+                />
+              </CardTitle>
             </CardHeader>
             <CardContent className='space-y-3'>
               <div className='flex items-center justify-between text-sm text-muted-foreground'>
@@ -814,27 +827,25 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                   </CardDescription>
                 </div>
                 {/* 步骤 / 节点 Tabs，释放横向空间 / Steps↔nodes tabs for more room */}
-                <Tabs
+                <SegmentedControl
+                  label={t('executionDetailTitle')}
                   value={executionView}
                   onValueChange={(value) =>
                     setExecutionView(value as 'steps' | 'nodes')
                   }
-                >
-                  <TabsList>
-                    <TabsTrigger
-                      value='steps'
-                      data-testid='upgrade-view-steps'
-                    >
-                      {t('stepTree')}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value='nodes'
-                      data-testid='upgrade-view-nodes'
-                    >
-                      {t('nodeExecutions')}
-                    </TabsTrigger>
-                  </TabsList>
-                </Tabs>
+                  options={[
+                    {
+                      value: 'steps',
+                      label: t('stepTree'),
+                      testId: 'upgrade-view-steps',
+                    },
+                    {
+                      value: 'nodes',
+                      label: t('nodeExecutions'),
+                      testId: 'upgrade-view-nodes',
+                    },
+                  ]}
+                />
               </CardHeader>
               <CardContent className='flex min-h-0 flex-1 flex-col'>
                 {executionView === 'steps' ? (
@@ -853,11 +864,14 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                             </div>
                             <div className='flex items-center gap-2'>
                               <Badge
-                                variant={getStatusBadgeVariant(step.status)}
+                                tone={upgradeStatusTone(step.status)}
+                                outline
+                                dot
+                                size='sm'
                               >
                                 {getExecutionStatusLabel(step.status)}
                               </Badge>
-                              <Badge variant='outline'>
+                              <Badge tone='neutral' outline size='sm'>
                                 {t('stepNodeCount')}:{' '}
                                 {getStepNodeCount(step, stepsData)}
                               </Badge>
@@ -897,9 +911,10 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                               <TableCell>{node.role}</TableCell>
                               <TableCell>
                                 <Badge
-                                  variant={getStatusBadgeVariant(
-                                    node.status,
-                                  )}
+                                  tone={upgradeStatusTone(node.status)}
+                                  outline
+                                  dot
+                                  size='sm'
                                 >
                                   {getExecutionStatusLabel(node.status)}
                                 </Badge>
@@ -1020,7 +1035,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
             <div className='flex items-center justify-between gap-3'>
               {canLoadEarlierLogs ? (
                 <Button
-                  variant='outline'
+                  variant='secondary'
                   size='sm'
                   data-testid='upgrade-load-earlier-logs'
                   onClick={() =>
@@ -1030,7 +1045,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                     }))
                   }
                 >
-                  <History className='mr-2 h-3.5 w-3.5' />
+                  <History className='size-3.5' />
                   {t('loadEarlierLogs')}
                 </Button>
               ) : (
@@ -1058,13 +1073,15 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                     >
                       <div className='flex flex-wrap items-center gap-2 text-xs text-muted-foreground'>
                         <Badge
-                          variant={
+                          tone={
                             log.level === 'ERROR'
-                              ? 'destructive'
+                              ? 'danger'
                               : log.level === 'WARN'
-                                ? 'outline'
-                                : 'secondary'
+                                ? 'warning'
+                                : 'neutral'
                           }
+                          outline
+                          size='sm'
                         >
                           {log.level}
                         </Badge>
@@ -1128,12 +1145,10 @@ interface StatusCardProps {
  */
 function StatusCard({title, value}: StatusCardProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardDescription>{title}</CardDescription>
-        <CardTitle className='text-base'>{value}</CardTitle>
-      </CardHeader>
-    </Card>
+    <div className='min-w-0 rounded-lg border border-border/60 bg-background px-3 py-2'>
+      <div className='truncate text-xs text-muted-foreground'>{title}</div>
+      <div className='mt-0.5 truncate text-sm font-medium'>{value}</div>
+    </div>
   );
 }
 

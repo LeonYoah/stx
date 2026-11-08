@@ -86,12 +86,35 @@ describe('JobRunsPanel', () => {
     expect(screen.getByRole('button', {name: labels.savepointStop})).toBeTruthy();
     expect(screen.getByRole('button', {name: labels.stop})).toBeTruthy();
     // 只读入口（事件、脚本、指标、拓扑）已收进详情。/ Read-only entries (events, script, metrics, topology) moved into the detail.
-    expect(screen.getAllByRole('button')).toHaveLength(4);
     expect((screen.getByRole('button', {name: labels.recover}) as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByRole('button', {name: labels.stop}));
     expect(props.onCancel).toHaveBeenCalledWith(26);
     // 行内按钮不能冒泡成打开详情。/ Inline buttons must not bubble into opening the detail.
+    expect(props.onOpenDetail).not.toHaveBeenCalled();
+  });
+
+  it('keeps table chrome when there are no job runs', () => {
+    renderPanel([]);
+    expect(screen.getByText(zh.workbenchStudio.noJobRuns)).toBeTruthy();
+    expect(
+      screen.getByRole('button', {
+        name: zh.workbenchStudio.sortColumn.replace('{column}', zh.workbenchStudio.task),
+      }),
+    ).toBeTruthy();
+  });
+
+  it('sorts by job id without opening the detail', () => {
+    const older = job({id: 9, started_at: '2026-01-01T00:00:00Z'});
+    const newer = job({id: 26, started_at: '2026-02-01T00:00:00Z'});
+    const props = renderPanel([newer, older]);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: zh.workbenchStudio.sortColumn.replace('{column}', zh.workbenchStudio.task),
+      }),
+    );
+    const ids = screen.getAllByText(/^#\d+$/).map((node) => node.textContent);
+    expect(ids).toEqual(['#9', '#26']);
     expect(props.onOpenDetail).not.toHaveBeenCalled();
   });
 

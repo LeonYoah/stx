@@ -1067,6 +1067,7 @@ func Serve() {
 			// Inject config initializer into installer service for initializing configs after installation
 			// 将配置初始化器注入安装服务，用于安装后初始化配置
 			installerService.SetConfigInitializer(configService)
+			installerService.SetEventChannelEnabler(syncService)
 			log.Println("[API] Config initializer injected into installer service / 配置初始化器已注入安装服务")
 
 			// Config management routes 配置管理路由
@@ -2192,10 +2193,10 @@ func parseDiscoveredProcessesJSON(output string) ([]*discovery.DiscoveredProcess
 		PID           int    `json:"pid"`
 		Role          string `json:"role"`
 		InstallDir    string `json:"install_dir"`
-		Version       string `json:"version"`                  // SeaTunnel version / SeaTunnel 版本
-		HazelcastPort int    `json:"hazelcast_port"`           // Hazelcast cluster port / Hazelcast 集群端口
-		APIPort       int    `json:"api_port"`                 // REST API port / REST API 端口
-		ClusterName   string `json:"cluster_name,omitempty"`   // Hazelcast cluster-name / Hazelcast 集群标识
+		Version       string `json:"version"`                // SeaTunnel version / SeaTunnel 版本
+		HazelcastPort int    `json:"hazelcast_port"`         // Hazelcast cluster port / Hazelcast 集群端口
+		APIPort       int    `json:"api_port"`               // REST API port / REST API 端口
+		ClusterName   string `json:"cluster_name,omitempty"` // Hazelcast cluster-name / Hazelcast 集群标识
 		JavaHome      string `json:"java_home,omitempty"`
 	}
 	type DiscoveryResult struct {

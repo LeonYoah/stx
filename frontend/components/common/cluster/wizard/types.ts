@@ -206,6 +206,7 @@ export const defaultClusterDeployConfig: ClusterDeployConfig = {
     history_job_expire_minutes: 1440,
     scheduled_deletion_enable: true,
     enable_http: true,
+    enable_event_channel: true,
     job_log_mode: 'per_job',
   },
   jvm: {

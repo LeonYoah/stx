@@ -33,7 +33,6 @@ import {
   Pencil,
   Plus,
   Trash2,
-  Wrench,
 } from 'lucide-react';
 import {toast} from 'sonner';
 import {Badge} from '@/components/ui/badge';
@@ -71,8 +70,17 @@ import {cn, copyToClipboard} from '@/lib/utils';
 import type {
   SyncCuratedSection,
   SyncCuratedTemplateView,
+  SyncPluginType,
 } from '@/lib/services/sync';
 import services from '@/lib/services';
+import {ChipGroup} from '@/components/arc/chip-group/chip-group';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {TemplatePluginSelect} from './TemplatePluginSelect';
+import type {
+  ExecutionMode,
+  TemplatePluginItem,
+} from './sync-studio-utils';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -98,10 +106,29 @@ export function CuratedTemplatesManagePanel({
   refreshToken = 0,
   onChanged,
   clusterId,
+  onInsert,
+  pluginInsert,
 }: {
   refreshToken?: number;
   onChanged?: () => void;
   clusterId?: string;
+  /** 把精选模板插入当前编辑器。Insert the curated template into the current editor. */
+  onInsert?: (item: SyncCuratedTemplateView) => void;
+  /** 插件默认参数插入，从设置页挪到模板管理。Plugin default inserts, moved here from settings. */
+  pluginInsert?: {
+    executionMode: ExecutionMode;
+    clusterId: string;
+    loading: boolean;
+    pendingType: SyncPluginType | null;
+    loadingText: string | null;
+    sourceItems: TemplatePluginItem[];
+    transformItems: TemplatePluginItem[];
+    sinkItems: TemplatePluginItem[];
+    onInsertPlugin: (
+      pluginType: SyncPluginType,
+      factoryIdentifier: string,
+    ) => void;
+  };
 }) {
   const t = useTranslations('workbenchStudio');
   const {resolvedTheme} = useTheme();
@@ -110,7 +137,8 @@ export function CuratedTemplatesManagePanel({
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<SyncCuratedTemplateView[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<string>('all');
+  const [library, setLibrary] = useState<'curated' | 'plugins'>('curated');
+  const [sections, setSections] = useState<string[]>([]);
   const [origin, setOrigin] = useState<string>('all');
   const [query, setQuery] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -145,7 +173,6 @@ export function CuratedTemplatesManagePanel({
     setError(null);
     try {
       const data = await services.sync.listCuratedTemplates({
-        section: section === 'all' ? undefined : section,
         q: query.trim() || undefined,
         origin: origin === 'all' ? undefined : origin,
       });
@@ -160,16 +187,28 @@ export function CuratedTemplatesManagePanel({
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section, origin, refreshToken]);
+  }, [origin, refreshToken]);
 
   const visibleItems = useMemo(() => {
-    // API 已按 section/origin/q 过滤；本地再按 origin 兜底（builtin 带 has_override 仍属 builtin）
-    // API already filters; client keeps origin guard for builtin+has_override rows
-    if (origin === 'all') {
-      return items;
-    }
-    return items.filter((item) => item.origin === origin);
-  }, [items, origin]);
+    // 分区用 Chip 多选在本地筛；来源和关键字再兜一层。
+    // Section chips filter locally; origin and the query get a second local pass.
+    const needle = query.trim().toLocaleLowerCase();
+    return items.filter((item) => {
+      if (origin !== 'all' && item.origin !== origin) {
+        return false;
+      }
+      if (sections.length > 0 && !sections.includes(item.section)) {
+        return false;
+      }
+      if (!needle) {
+        return true;
+      }
+      return (
+        item.name.toLocaleLowerCase().includes(needle) ||
+        (item.description || '').toLocaleLowerCase().includes(needle)
+      );
+    });
+  }, [items, origin, query, sections]);
 
   /**
    * 复制 HOCON 脚本到剪贴板
@@ -386,82 +425,172 @@ export function CuratedTemplatesManagePanel({
   };
 
   return (
-    <div className='flex h-full min-h-0 w-full min-w-0 flex-col gap-3.5'>
-      <div className='shrink-0 rounded-lg border border-border/60 bg-muted/10 p-3 space-y-2.5'>
-        <div className='flex items-center justify-between gap-2'>
-          <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
-            <Wrench className='size-3.5 text-primary' />
-            <span>{t('curatedManage')}</span>
+    <div
+      className='studio-template-library flex h-full min-h-0 w-full min-w-0 flex-col'
+      aria-label={t('curatedManage')}
+    >
+      {/* 精选与插件默认是同一套模板库的两个视图，不再把插件默认藏进折叠条。 */}
+      {/* Curated and plugin defaults are two views of one library; plugin defaults stay a first-class view. */}
+      <div className='flex shrink-0 items-center gap-1.5 border-b border-border/60 px-3 py-2'>
+        <SegmentedControl
+          className='min-w-0 flex-1'
+          label={t('curatedManage')}
+          value={library}
+          onValueChange={(value) =>
+            setLibrary(value === 'plugins' ? 'plugins' : 'curated')
+          }
+          options={[
+            {value: 'curated', label: t('templateLibraryCurated')},
+            {value: 'plugins', label: t('templateLibraryPlugins')},
+          ]}
+        />
+        {library === 'plugins' ? (
+          <HelpHint
+            side='left'
+            label={t('templateLibraryPlugins')}
+            content={t('rawDefaultParamHint')}
+            data-testid='sync-plugin-defaults-hint'
+          />
+        ) : null}
+      </div>
+
+      {library === 'plugins' ? (
+        <div className='min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3'>
+          {pluginInsert?.executionMode === 'cluster' ? (
+            <>
+              <TemplatePluginSelect
+                disabled={!pluginInsert.clusterId || pluginInsert.loading}
+                items={pluginInsert.sourceItems}
+                label={t('sourceTemplate')}
+                loading={pluginInsert.pendingType === 'source'}
+                loadingText={
+                  pluginInsert.pendingType === 'source'
+                    ? pluginInsert.loadingText
+                    : null
+                }
+                placeholder={t('selectSourcePlugin')}
+                onSelect={(value) =>
+                  pluginInsert.onInsertPlugin('source', value)
+                }
+              />
+              <TemplatePluginSelect
+                disabled={!pluginInsert.clusterId || pluginInsert.loading}
+                items={pluginInsert.transformItems}
+                label={t('transformTemplate')}
+                loading={pluginInsert.pendingType === 'transform'}
+                loadingText={
+                  pluginInsert.pendingType === 'transform'
+                    ? pluginInsert.loadingText
+                    : null
+                }
+                placeholder={t('selectTransformPlugin')}
+                onSelect={(value) =>
+                  pluginInsert.onInsertPlugin('transform', value)
+                }
+              />
+              <TemplatePluginSelect
+                disabled={!pluginInsert.clusterId || pluginInsert.loading}
+                items={pluginInsert.sinkItems}
+                label={t('sinkTemplate')}
+                loading={pluginInsert.pendingType === 'sink'}
+                loadingText={
+                  pluginInsert.pendingType === 'sink'
+                    ? pluginInsert.loadingText
+                    : null
+                }
+                placeholder={t('selectSinkPlugin')}
+                onSelect={(value) =>
+                  pluginInsert.onInsertPlugin('sink', value)
+                }
+              />
+              {!pluginInsert.clusterId ||
+              pluginInsert.loading ||
+              pluginInsert.loadingText ? (
+                <p className='text-[11px] leading-5 text-muted-foreground'>
+                  {!pluginInsert.clusterId
+                    ? t('selectClusterFirst')
+                    : pluginInsert.loading
+                      ? t('loadingPluginTemplates')
+                      : t('generatingPluginTemplate', {
+                          plugin: pluginInsert.loadingText ?? '',
+                        })}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p className='text-[11px] leading-5 text-muted-foreground'>
+              {t('rawDefaultNeedsCluster')}
+            </p>
+          )}
+        </div>
+      ) : (
+        <>
+      <div className='flex shrink-0 flex-col gap-2 border-b border-border/60 px-3 py-2'>
+        <div className='flex items-center gap-2'>
+          <div className='studio-search-field min-w-0 flex-1'>
+            <SearchField
+              label={t('searchCurated')}
+              value={query}
+              onValueChange={setQuery}
+              placeholder={t('searchCurated')}
+              clearLabel={t('clearSearch')}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  void load();
+                }
+              }}
+            />
           </div>
           <Button
             type='button'
             size='sm'
-            className='h-7 px-2 text-[11px]'
+            className='h-9 shrink-0 px-2 text-[11px]'
             onClick={openCreate}
           >
-            <Plus className='size-3.5 mr-1' />
+            <Plus className='mr-1 size-3.5' />
             {t('curatedCreate')}
           </Button>
         </div>
-
-        <div className='flex flex-col gap-2'>
-          <div className='flex gap-2'>
-            <Select value={section} onValueChange={setSection}>
-              <SelectTrigger className='h-8 text-xs'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>{t('curatedSectionAll')}</SelectItem>
-                <SelectItem value='env'>env</SelectItem>
-                <SelectItem value='source'>source</SelectItem>
-                <SelectItem value='transform'>transform</SelectItem>
-                <SelectItem value='sink'>sink</SelectItem>
-                <SelectItem value='combo'>combo</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={origin} onValueChange={setOrigin}>
-              <SelectTrigger className='h-8 text-xs'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>{t('curatedOriginAll')}</SelectItem>
-                <SelectItem value='builtin'>
-                  {t('curatedOriginBuiltin')}
-                </SelectItem>
-                <SelectItem value='user'>{t('curatedOriginUser')}</SelectItem>
-                <SelectItem value='override'>
-                  {t('curatedOriginOverride')}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                void load();
-              }
-            }}
-            placeholder={t('searchCurated')}
-            className='h-8 text-xs'
-          />
-        </div>
+        <ChipGroup
+          label={t('curatedSectionFilter')}
+          multiple
+          value={sections}
+          onValueChange={setSections}
+          options={[
+            {value: 'env', label: 'env'},
+            {value: 'source', label: 'source'},
+            {value: 'transform', label: 'transform'},
+            {value: 'sink', label: 'sink'},
+            {value: 'combo', label: 'combo'},
+          ]}
+        />
+        <SegmentedControl
+          className='w-full'
+          label={t('curatedOriginAll')}
+          value={origin}
+          onValueChange={setOrigin}
+          options={[
+            {value: 'all', label: t('all')},
+            {value: 'builtin', label: t('curatedOriginBuiltin')},
+            {value: 'user', label: t('curatedOriginUser')},
+            {value: 'override', label: t('curatedOriginOverrideShort')},
+          ]}
+        />
       </div>
 
       {loading ? (
-        <div className='flex items-center gap-2 text-xs text-muted-foreground py-3'>
+        <div className='flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground'>
           <Loader2 className='size-3.5 animate-spin' />
           {t('loadingCurated')}
         </div>
       ) : error ? (
-        <p className='text-[11px] text-destructive'>{error}</p>
+        <p className='px-3 text-[11px] text-destructive'>{error}</p>
       ) : visibleItems.length === 0 ? (
-        <p className='text-[11px] text-muted-foreground px-1'>
+        <p className='px-3 py-3 text-[11px] text-muted-foreground'>
           {t('noCuratedTemplates')}
         </p>
       ) : (
-        <div className='min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1'>
+        <div className='min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-2'>
           {visibleItems.map((item) => {
             const key = itemKey(item);
             const owned = isOwned(item);
@@ -532,6 +661,18 @@ export function CuratedTemplatesManagePanel({
                 {/* 操作栏：预览、复制脚本、创建副本、编辑、删除、展开速览 */}
                 {/* Action toolbar: preview, copy script, create copy, edit, delete, toggle inline preview */}
                 <div className='mt-1.5 flex flex-wrap items-center gap-1'>
+                  {onInsert ? (
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='outline'
+                      className='h-6 px-1.5 text-[10px]'
+                      onClick={() => onInsert(item)}
+                    >
+                      <Plus className='mr-1 size-3' />
+                      {t('curatedInsert')}
+                    </Button>
+                  ) : null}
                   <Button
                     type='button'
                     size='sm'
@@ -662,6 +803,8 @@ export function CuratedTemplatesManagePanel({
             );
           })}
         </div>
+      )}
+        </>
       )}
 
       {/* 完整脚本预览弹窗（遵循重内容 4xl/5xl 规范，Monaco 只读高亮） */}

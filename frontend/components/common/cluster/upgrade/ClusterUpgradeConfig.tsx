@@ -22,8 +22,8 @@ import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
 import {AlertTriangle, ArrowLeft, FileDiff, Save} from 'lucide-react';
-import {Button} from '@/components/ui/button';
-import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/arc/button/button';
+import {Badge} from '@/components/arc/badge/badge';
 import {WorkspaceHeader} from '@/components/common/layout';
 import {
   Card,
@@ -34,7 +34,7 @@ import {
 } from '@/components/ui/card';
 import {Textarea} from '@/components/ui/textarea';
 import {Skeleton} from '@/components/ui/skeleton';
-import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
+import {Tabs, TabsList, TabsTrigger} from '@/components/arc/tabs/tabs';
 import services from '@/lib/services';
 import {
   loadStUpgradeSession,
@@ -342,7 +342,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
 
   if (!hydrated) {
     return (
-      <div className='space-y-6' data-testid='upgrade-config-page'>
+      <div className='upgrade-page' data-testid='upgrade-config-page'>
         <WorkspaceHeader
           breadcrumbs={[
             {
@@ -392,11 +392,12 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
         </CardHeader>
         <CardContent>
           <Button
+            size='sm'
             onClick={() =>
               router.push(`/clusters/${clusterId}/upgrade/prepare`)
             }
           >
-            <ArrowLeft className='mr-2 h-4 w-4' />
+            <ArrowLeft className='size-3.5' />
             {t('startFromPrepare')}
           </Button>
         </CardContent>
@@ -405,7 +406,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
   }
 
   return (
-    <div className='space-y-6' data-testid='upgrade-config-page'>
+    <div className='upgrade-page' data-testid='upgrade-config-page'>
       <WorkspaceHeader
         breadcrumbs={[
           {
@@ -423,7 +424,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
         icon={<FileDiff />}
         title={t('configTitle')}
         subtitle={
-          <span className='inline-flex flex-wrap items-center gap-2'>
+          <span className='inline-flex flex-wrap items-center gap-1.5'>
             <span>
               {t('targetVersion')}: {request.target_version}
             </span>
@@ -431,31 +432,39 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
             <span>
               {t('unresolvedConflicts')}: {unresolvedCount}
             </span>
-            <Badge variant={unresolvedCount === 0 ? 'default' : 'destructive'}>
+            <Badge
+              tone={unresolvedCount === 0 ? 'success' : 'warning'}
+              outline
+              dot
+              size='sm'
+            >
               {unresolvedCount === 0
                 ? t('allConflictsResolved')
                 : t('manualResolutionRequired')}
             </Badge>
-            <span className='basis-full text-xs'>{t('configDescription')}</span>
+            <HelpHint label={t('configTitle')} content={t('configDescription')} />
           </span>
         }
         actions={
-          <>
+          <div className='flex flex-wrap items-center gap-2'>
             <Button
-              variant='outline'
+              variant='secondary'
+              size='sm'
               onClick={() =>
                 router.push(`/clusters/${clusterId}/upgrade/prepare`)
               }
             >
-              <ArrowLeft className='mr-2 h-4 w-4' />
+              <ArrowLeft className='size-3.5' />
               {t('backToPrepare')}
             </Button>
             {/* 只渲染一个 Button：有未处理差异时用 aria-disabled + Tooltip，状态变化不重新挂载 */}
             {/* A single Button: aria-disabled + tooltip while differences remain, never remounted */}
             <DisabledReasonTooltip reason={createPlanBlockedReason}>
               <Button
+                size='sm'
                 data-testid='upgrade-config-create-plan'
                 aria-disabled={createPlanBlockedReason ? 'true' : undefined}
+                loading={!createPlanBlockedReason && creatingPlan}
                 onClick={(event) => {
                   if (createPlanBlockedReason) {
                     event.preventDefault();
@@ -463,13 +472,12 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
                   }
                   void handleCreatePlan();
                 }}
-                disabled={!createPlanBlockedReason && creatingPlan}
               >
-                <Save className='mr-2 h-4 w-4' />
+                <Save className='size-3.5' />
                 {creatingPlan ? t('creatingPlan') : t('createPlan')}
               </Button>
             </DisabledReasonTooltip>
-          </>
+          </div>
         }
       />
 
@@ -494,7 +502,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
                 className='rounded-md border bg-background/70 p-3 text-sm'
               >
                 <div className='flex flex-wrap items-center gap-2'>
-                  <Badge variant='destructive'>
+                  <Badge tone='danger' outline size='sm'>
                     {getIssueCategoryLabel(issue.category)}
                   </Badge>
                   <span className='font-medium text-foreground'>{issue.code}</span>
@@ -504,13 +512,13 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
             ))}
             <div className='flex flex-wrap gap-2 pt-1'>
               <Button
-                variant='outline'
+                variant='secondary'
                 size='sm'
                 onClick={() =>
                   router.push(`/clusters/${clusterId}/upgrade/prepare`)
                 }
               >
-                <ArrowLeft className='mr-2 h-4 w-4' />
+                <ArrowLeft className='size-3.5' />
                 {t('backToPrepare')}
               </Button>
             </div>
@@ -562,25 +570,25 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
               value={selectedConfigType}
               onValueChange={setSelectedConfigType}
             >
-              <TabsList className='flex h-auto w-full flex-wrap justify-start gap-2 bg-transparent p-0'>
+              <TabsList aria-label={t('mergePlanFiles')}>
                 {mergePlan.files.map((file) => (
                   <TabsTrigger
                     key={file.config_type}
                     value={file.config_type}
-                    className='border'
                   >
-                    <span className='mr-2'>{file.config_type}</span>
+                    <span>{file.config_type}</span>
                     {/* 冲突文件用红色数字角标，无冲突用状态文案 / Conflict count badge vs status label */}
                     {file.conflict_count > 0 ? (
                       <Badge
-                        variant='destructive'
-                        className='h-5 min-w-5 rounded-full px-1.5 text-[11px] tabular-nums'
+                        tone='danger'
+                        outline
+                        size='sm'
                         title={`${file.conflict_count} ${t('pendingResolution')}`}
                       >
                         {file.conflict_count}
                       </Badge>
                     ) : (
-                      <Badge variant='default'>
+                      <Badge tone='success' outline size='sm'>
                         {getFileBadgeLabel(file, t)}
                       </Badge>
                     )}
@@ -601,9 +609,10 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
                 <CardDescription>{selectedFile.target_path}</CardDescription>
               </div>
               <Badge
-                variant={
-                  selectedFile.conflict_count > 0 ? 'destructive' : 'default'
-                }
+                tone={selectedFile.conflict_count > 0 ? 'danger' : 'success'}
+                outline
+                dot
+                size='sm'
               >
                 {getFileBadgeLabel(selectedFile, t)}
               </Badge>
@@ -617,13 +626,13 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
               </div>
             ) : null}
 
-            <div className='grid gap-3 xl:grid-cols-[minmax(0,1fr)_92px_minmax(0,1fr)_92px_minmax(0,1fr)]'>
+            <div className='grid gap-3 xl:grid-cols-[minmax(0,1fr)_7.5rem_minmax(0,1fr)_7.5rem_minmax(0,1fr)]'>
               <PaneHeader
                 title={t('localConfig')}
                 action={
                   <Button
                     size='sm'
-                    variant='outline'
+                    variant='secondary'
                     onClick={() => handleApplyFileSource('old')}
                   >
                     {t('applyOldFile')}
@@ -641,7 +650,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
                 action={
                   <Button
                     size='sm'
-                    variant='outline'
+                    variant='secondary'
                     onClick={() => handleApplyFileSource('new')}
                   >
                     {t('applyNewFile')}
@@ -729,7 +738,7 @@ function MergeEditorRowItem({
   return (
     <div
       className={cn(
-        'grid grid-cols-[minmax(0,1fr)_92px_minmax(0,1fr)_92px_minmax(0,1fr)] items-stretch border-b last:border-b-0',
+        'grid grid-cols-[minmax(0,1fr)_7.5rem_minmax(0,1fr)_7.5rem_minmax(0,1fr)] items-stretch border-b last:border-b-0',
         row.changed ? 'bg-amber-500/[0.03]' : 'bg-background',
       )}
     >
@@ -741,7 +750,6 @@ function MergeEditorRowItem({
       <RowActionCell
         visible={row.changed}
         label={t('acceptOld')}
-        arrow='>>'
         onClick={onUseOld}
       />
       <ResultLineCell
@@ -754,7 +762,6 @@ function MergeEditorRowItem({
       <RowActionCell
         visible={row.changed}
         label={t('acceptNew')}
-        arrow='<<'
         onClick={onUseNew}
       />
       <CodeLineCell
@@ -769,22 +776,15 @@ function MergeEditorRowItem({
 interface RowActionCellProps {
   visible: boolean;
   label: string;
-  arrow: '>>' | '<<';
   onClick: () => void;
 }
 
-function RowActionCell({visible, label, arrow, onClick}: RowActionCellProps) {
+function RowActionCell({visible, label, onClick}: RowActionCellProps) {
   return (
     <div className='flex items-stretch justify-center border-x bg-muted/20 p-2'>
       {visible ? (
-        <Button
-          size='sm'
-          variant='outline'
-          className='h-full w-full border-dashed px-2 text-xs'
-          onClick={onClick}
-        >
-          <span className='font-mono text-base font-semibold'>{arrow}</span>
-          <span className='ml-1 whitespace-normal text-center'>{label}</span>
+        <Button size='sm' variant='secondary' onClick={onClick}>
+          {label}
         </Button>
       ) : (
         <div className='w-full' />

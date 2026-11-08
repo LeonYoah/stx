@@ -425,6 +425,7 @@ UpgradeTaskStep.retry_count
 - 只有错误包含 `Unable to connect to any cluster`、`connection refused` 或 `cluster is not ready` 时允许重试。
 - 每次重试前更新 `retry_count`，并记录 `attempt`、`max_attempts`、`retryable`、`retry_delay_seconds`。
 - 脚本不存在、模板不存在、配置解析失败、插件缺失和权限错误不能重试。
+- 安装预检的安装目录必须走 `check_path_ready`：目录已存在且可写才通过；不存在时，最近一个已存在的祖先目录必须可写，才能提示「将被创建」。祖先不可写（例如 `/opt` 没有写权限，解压时会 `mkdir ...: permission denied`）必须在预检失败，不能留到解压。
 - 模板任务达到最大次数仍失败时，遵守升级模块已有的非阻塞告警规则，但必须保留最后一次错误和总尝试次数。
 
 ### 10.4 校验与错误对应表

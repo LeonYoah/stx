@@ -26,7 +26,7 @@ import {createRandom} from './splash-timeline';
 /** 品牌字体（Michroma）/ Brand display font (Michroma). */
 export const BRAND_FONT_FAMILY = '"Michroma"';
 /** 中文欢迎语字体 / Chinese greeting font. */
-export const GREETING_FONT_FAMILY = '"Noto Serif SC Variable"';
+export const GREETING_FONT_FAMILY = '"STX Splash Greeting"';
 /** 品牌图形资源 / Brand mark asset. */
 export const BRAND_MARK_SRC = '/brand/stx-mark.png';
 

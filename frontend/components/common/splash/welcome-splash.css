@@ -4,6 +4,21 @@
  * type is single-tone silver, with texture from weight, tracking and sheen.
  */
 
+/*
+ * 中文欢迎语字体：只含欢迎语字形的 Noto Serif SC Light 子集（约 2KB）。
+ * 修改 zh.json 的 splash.welcomeBack 后需运行 scripts/fonts/build-splash-greeting-font.sh 重新生成。
+ * Chinese greeting font: a ~2KB Noto Serif SC Light subset with only the
+ * greeting glyphs. Re-run scripts/fonts/build-splash-greeting-font.sh after
+ * changing splash.welcomeBack in zh.json.
+ */
+@font-face {
+  font-family: 'STX Splash Greeting';
+  src: url('/fonts/stx-splash-greeting.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
 .stx-splash {
   --stx-splash-silver: #eef0f3;
   --stx-splash-exit: 780ms;
@@ -146,7 +161,7 @@
 }
 
 .stx-splash__greeting[data-script='cjk'] {
-  font-family: 'Noto Serif SC Variable', 'Songti SC', 'STSong', serif;
+  font-family: 'STX Splash Greeting', 'Songti SC', 'STSong', serif;
   font-weight: 300;
   font-size: clamp(26px, 2.6vw, 36px);
   letter-spacing: 0.62em;

@@ -25,14 +25,15 @@ import {
 } from '@/lib/welcome-splash';
 import {SplashDirector} from './splash-director';
 /**
- * 开屏专用展示字体（OFL，本地托管）：Michroma 用于品牌字与英文欢迎语，思源宋体（Noto Serif SC）细字重用于中文欢迎语。
- * 只注册 @font-face，未进入开屏时浏览器不会下载字体文件。
- * Splash-only display fonts (OFL, self-hosted): Michroma for the wordmark,
- * a light Noto Serif SC for the Chinese greeting. Only @font-face rules are
- * registered; files download only when the splash actually renders.
+ * 开屏专用展示字体（OFL，本地托管）：Michroma 用于品牌字与英文欢迎语；
+ * 中文欢迎语用 public/fonts 下仅含欢迎语字形的 Noto Serif SC Light 子集（约 2KB），
+ * 在 welcome-splash.css 中声明。未进入开屏时浏览器不会下载字体文件。
+ * Splash-only display fonts (OFL, self-hosted): Michroma for the wordmark and
+ * Latin greeting; the Chinese greeting uses a ~2KB Noto Serif SC Light subset
+ * in public/fonts holding only the greeting glyphs, declared in
+ * welcome-splash.css. Files download only when the splash renders.
  */
 import '@fontsource/michroma/400.css';
-import '@fontsource-variable/noto-serif-sc/index.css';
 import './welcome-splash.css';
 
 /**

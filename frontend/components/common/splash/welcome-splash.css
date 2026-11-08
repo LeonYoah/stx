@@ -1,0 +1,320 @@
+/*
+ * 登录后开屏动画样式。色彩只交给奇点漩涡本身，文字统一为单色银白，靠字重、字距与光泽出质感。
+ * Post-login splash styles. Color lives only in the singularity itself; all
+ * type is single-tone silver, with texture from weight, tracking and sheen.
+ */
+
+/*
+ * 中文欢迎语字体：只含欢迎语字形的 Noto Serif SC Light 子集（约 2KB）。
+ * 修改 zh.json 的 splash.welcomeBack 后需运行 scripts/fonts/build-splash-greeting-font.sh 重新生成。
+ * Chinese greeting font: a ~2KB Noto Serif SC Light subset with only the
+ * greeting glyphs. Re-run scripts/fonts/build-splash-greeting-font.sh after
+ * changing splash.welcomeBack in zh.json.
+ */
+@font-face {
+  font-family: 'STX Splash Greeting';
+  src: url('/fonts/stx-splash-greeting.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+.stx-splash {
+  --stx-splash-silver: #eef0f3;
+  --stx-splash-exit: 780ms;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  overflow: hidden;
+  background: #000;
+  color: var(--stx-splash-silver);
+  isolation: isolate;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.stx-splash__stage {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 46%;
+}
+
+/* 碎裂后露出的中性深空底色（带暗角）/ Neutral deep-space backdrop with vignette, revealed after the shatter. */
+.stx-splash__backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse 55% 42% at 50% 46%,
+      rgba(255, 255, 255, 0.05),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 120% 90% at 50% 50%,
+      transparent 55%,
+      rgba(0, 0, 0, 0.6)
+    ),
+    #050506;
+}
+
+.stx-splash__gl,
+.stx-splash__fx {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stx-splash[data-shattered='on'] .stx-splash__gl {
+  visibility: hidden;
+}
+
+/* 无 WebGL2 时的 CSS 漩涡 / CSS vortex used when WebGL2 is unavailable. */
+.stx-splash__vortex-fallback {
+  display: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stx-splash[data-vortex='css'] .stx-splash__gl {
+  display: none;
+}
+
+.stx-splash[data-vortex='css'] .stx-splash__vortex-fallback {
+  display: block;
+}
+
+.stx-splash__vortex-fallback::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 72vmin;
+  height: 72vmin;
+  margin: -36vmin 0 0 -36vmin;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    rgba(255, 255, 255, 0.9),
+    rgba(160, 166, 176, 0.35),
+    rgba(236, 240, 246, 0.85),
+    rgba(120, 126, 138, 0.3),
+    rgba(255, 255, 255, 0.9)
+  );
+  mask: radial-gradient(
+    circle,
+    transparent 30%,
+    #000 34%,
+    #000 38%,
+    transparent 70%
+  );
+  -webkit-mask: radial-gradient(
+    circle,
+    transparent 30%,
+    #000 34%,
+    #000 38%,
+    transparent 70%
+  );
+  filter: blur(6px);
+  animation: stx-splash-spin 3.2s linear infinite;
+}
+
+.stx-splash[data-shattered='on'] .stx-splash__vortex-fallback::before {
+  animation-duration: 0.9s;
+  transform: scale(1.7);
+  opacity: 0;
+  transition:
+    transform 900ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 700ms ease-out;
+}
+
+@keyframes stx-splash-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+/* —— 欢迎语 / Greeting —— */
+.stx-splash__welcome {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 62%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  pointer-events: none;
+}
+
+.stx-splash__greeting {
+  margin: 0;
+  display: flex;
+  white-space: nowrap;
+  line-height: 1.2;
+  filter: drop-shadow(0 0 14px rgba(255, 255, 255, 0.16));
+}
+
+.stx-splash__greeting[data-script='cjk'] {
+  font-family: 'STX Splash Greeting', 'Songti SC', 'STSong', serif;
+  font-weight: 300;
+  font-size: clamp(26px, 2.6vw, 36px);
+  letter-spacing: 0.62em;
+  /* 抵消末字后的字距，保证视觉居中 / Offset trailing tracking so it centers visually. */
+  padding-left: 0.62em;
+}
+
+.stx-splash__greeting[data-script='latin'] {
+  font-family: 'Michroma', 'Inter Variable', sans-serif;
+  font-size: clamp(14px, 1.3vw, 18px);
+  letter-spacing: 0.5em;
+  padding-left: 0.5em;
+  text-transform: uppercase;
+}
+
+.stx-splash__char {
+  display: inline-block;
+  /* 逐字银白竖向光泽（与品牌字同一套金属渐变）/ Per-glyph vertical silver sheen, same metal as the wordmark. */
+  color: var(--stx-splash-silver);
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #eef0f3 46%,
+    #c3c8cf 56%,
+    #e6e9ec 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  opacity: 0;
+  filter: blur(12px);
+  transform: translateY(0.4em) scale(1.08);
+  transition:
+    opacity 760ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 900ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 900ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--i, 0) * 95ms);
+}
+
+.stx-splash[data-welcome='on'] .stx-splash__char {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+}
+
+/* 欢迎语下的一线星光 / A hairline of starlight beneath the greeting. */
+.stx-splash__rule {
+  width: clamp(140px, 18vw, 260px);
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.55) 30%,
+    #fff 50%,
+    rgba(255, 255, 255, 0.55) 70%,
+    transparent
+  );
+  transform: scaleX(0);
+  opacity: 0;
+  transition:
+    transform 1100ms cubic-bezier(0.22, 1, 0.36, 1) 380ms,
+    opacity 600ms ease 380ms;
+}
+
+.stx-splash[data-welcome='on'] .stx-splash__rule {
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+/* —— 跳过 / Skip —— */
+.stx-splash__skip {
+  position: absolute;
+  right: clamp(16px, 2.4vw, 32px);
+  bottom: clamp(16px, 3vh, 30px);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 8px 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(238, 240, 243, 0.7);
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  animation: stx-splash-fade-in 600ms ease 500ms forwards;
+  transition:
+    color 200ms ease,
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+
+.stx-splash__skip:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.stx-splash__skip:focus {
+  outline: none;
+}
+
+.stx-splash__skip:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.7);
+  outline-offset: 3px;
+}
+
+.stx-splash__skip kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(238, 240, 243, 0.5);
+  font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+@keyframes stx-splash-fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+/* —— 退场：整层淡出并轻微推近，露出首页 / Exit: fade out with a gentle push-in. —— */
+.stx-splash[data-exit='on'] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--stx-splash-exit) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stx-splash[data-exit='on'] .stx-splash__stage {
+  transform: scale(1.05);
+  transition: transform var(--stx-splash-exit) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stx-splash__char,
+  .stx-splash__rule {
+    filter: none;
+    transform: none;
+    transition-duration: 300ms;
+    transition-delay: 0ms;
+  }
+
+  .stx-splash[data-exit='on'] .stx-splash__stage {
+    transform: none;
+  }
+}

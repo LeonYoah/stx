@@ -5405,5 +5405,10 @@
     "versionLoading": "Fetching version…",
     "versionUnavailable": "Version unavailable",
     "effectiveVersionValue": "Java {version}"
+  },
+  "splash": {
+    "welcomeBack": "Welcome back",
+    "skip": "Skip",
+    "ariaLabel": "Welcome animation"
   }
 }

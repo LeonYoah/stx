@@ -19,6 +19,8 @@ import type {Metadata} from 'next';
 import {Toaster} from '@/components/ui/sonner';
 import {ThemeProvider} from '@/components/common/layout/ThemeProvider';
 import {I18nProvider} from '@/lib/i18n';
+import {WelcomeSplash} from '@/components/common/splash/WelcomeSplash';
+import {welcomeSplashBootScript} from '@/lib/welcome-splash';
 /**
  * 本地自托管字体（OFL），构建与运行均不依赖 Google 外部网络。
  * Self-hosted OFL fonts; no Google external network at build or runtime.
@@ -70,7 +72,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang='zh-CN' data-theme='dark' className='hide-scrollbar font-sans' suppressHydrationWarning>
+    <html
+      lang='zh-CN'
+      data-theme='dark'
+      className='hide-scrollbar font-sans'
+      suppressHydrationWarning
+    >
+      <head>
+        {/*
+         * 首帧前判定是否播放登录开屏，命中则先铺黑色遮罩，杜绝首页先露出。
+         * Decide before first paint whether to play the login splash; if so,
+         * a black cover goes up first so the home page never flashes.
+         */}
+        <script dangerouslySetInnerHTML={{__html: welcomeSplashBootScript}} />
+      </head>
       <body className='hide-scrollbar font-sans antialiased'>
         <I18nProvider>
           <ThemeProvider
@@ -81,6 +96,7 @@ export default function RootLayout({
           >
             {children}
             <Toaster />
+            <WelcomeSplash />
           </ThemeProvider>
         </I18nProvider>
       </body>

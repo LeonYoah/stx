@@ -17,7 +17,10 @@
 
 package sync
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // CreateTaskRequest represents the payload for creating a sync workspace node.
 type CreateTaskRequest struct {
@@ -160,6 +163,24 @@ type ValidateResult struct {
 	DetectedVars  []string          `json:"detected_vars,omitempty"`
 	DetectedFiles []string          `json:"detected_files,omitempty"`
 	Checks        []ValidateCheck   `json:"checks,omitempty"`
+}
+
+// MarshalJSON 保证 errors / warnings 始终序列化为数组而不是 null。
+// 多条提前返回路径（如未定义模板变量）只填了部分字段，nil 切片会被编码成 null，
+// 前端按数组读取 length 时会直接崩溃。
+// MarshalJSON guarantees errors / warnings always encode as arrays, never null.
+// Several early-return paths (e.g. undefined template variables) fill only some
+// fields; nil slices would encode as null and crash clients reading .length.
+func (r ValidateResult) MarshalJSON() ([]byte, error) {
+	type validateResultJSON ValidateResult
+	out := validateResultJSON(r)
+	if out.Errors == nil {
+		out.Errors = []string{}
+	}
+	if out.Warnings == nil {
+		out.Warnings = []string{}
+	}
+	return json.Marshal(out)
 }
 
 // ValidateCheck 表示单个连接器配置/连接探测校验结果条目。

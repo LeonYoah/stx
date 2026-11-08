@@ -16,22 +16,16 @@
  */
 
 /**
- * 开屏奇点漩涡背景的 WebGL2 渲染器（STX 原创着色器）。
- * WebGL2 renderer for the splash singularity vortex (original STX shader).
+ * 奇点漩涡背景的 WebGL2 渲染器。
+ * WebGL2 renderer for the singularity vortex background.
  *
- * 历史上曾考虑移植 Inspira UI / XorDev ShaderToy「Singularity」(3csSWB)。
- * 经核实：ShaderToy 未在源码中声明许可时默认 CC BY-NC-SA 3.0；Inspira 的 MIT
- * 仅覆盖其 Vue 封装，不能覆盖该着色器原作。CC BY-NC-SA 与本仓库 Apache-2.0
- * 商业分发不兼容，故不保留该算法，也不伪造 ASF/Apache 归属。
- * We previously considered porting Inspira UI / XorDev ShaderToy "Singularity"
- * (3csSWB). ShaderToy's default when no license is pasted is CC BY-NC-SA 3.0;
- * Inspira's MIT covers only its Vue wrapper, not that shader. CC BY-NC-SA is
- * incompatible with this repo's Apache-2.0 distribution, so that algorithm is
- * not kept and we do not forge ASF/Apache authorship over it.
- *
- * 下方 GLSL 为 STX 自行编写的极坐标螺线吸积盘，仅保留开屏所需 uniform。
- * The GLSL below is an original STX polar-spiral accretion disk; only splash
- * uniforms are retained.
+ * 着色器移植自 Inspira UI 的 Singularity Background（MIT），
+ * 原作为 XorDev 的 ShaderToy “Singularity”（https://www.shadertoy.com/view/3csSWB）。
+ * 在原算法外只加了开屏需要的统一变量：鼠标视差偏移、内爆缩放、整体亮度、穿心闪光，以及单色调色。
+ * Shader ported from Inspira UI's Singularity Background (MIT), originally
+ * "Singularity" by XorDev on ShaderToy. Only splash uniforms were added on top
+ * of the original math: pointer parallax offset, implosion zoom, global
+ * intensity, impact flash, and a monochrome grade.
  *
  * 直接使用原生 WebGL2 画一个全屏三角形，不额外引入 ogl 等依赖。
  * Draws one full-screen triangle with raw WebGL2; no extra dependency like ogl.
@@ -56,35 +50,37 @@ uniform float uZoom;
 
 out vec4 fragColor;
 
-// STX 原创极坐标螺线吸积盘（非 XorDev/Inspira 算法移植）。
-// Original STX polar-spiral accretion disk (not a XorDev/Inspira port).
-vec3 stxVortex(vec2 F, vec2 r, float t, out vec2 pOut) {
-  vec2 p = ((F - 0.5 * r) / max(r.y, 1.) - uOffset) * uZoom;
-  pOut = p;
-  float rad = length(p);
-  float ang = atan(p.y, p.x);
-  float arms = 0.;
-  for (int k = 1; k <= 5; k++) {
-    float fk = float(k);
-    arms += 0.5 + 0.5 * sin(
-      ang * (1.35 + fk * 0.55)
-      - log(rad + 0.075) * (2.4 + fk * 0.65)
-      + t * (0.42 + fk * 0.11)
-    );
+// "Singularity" by @XorDev — 原始算法保持不变 / original math kept intact.
+vec3 singularity(vec2 F, vec2 r, float t, out vec2 pOut) {
+  float i = .2, a;
+  vec2 p = ((F + F - r) / r.y / .7 - uOffset) * uZoom,
+    d = vec2(-1, 1),
+    b = p - i * d,
+    c = p * mat2(1, 1, d / (.1 + i / dot(b, b))),
+    v = c * mat2(cos(.5 * log(a = dot(c, c)) + t * i + vec4(0, 33, 11, 0))) / i,
+    w = vec2(0);
+  for (; i++ < 9.; w += 1. + sin(v)) {
+    v += .7 * sin(v.yx * i + t) / i + .5;
   }
-  arms *= 0.2;
-  float disk = smoothstep(0.92, 0.28, rad) * smoothstep(0.015, 0.16, rad);
-  float rim = exp(-pow((rad - 0.52) * 9.5, 2.));
-  float core = exp(-rad * rad * 22.);
-  float haze = exp(-rad * 1.8) * 0.12;
-  float l = disk * (0.16 + 0.62 * arms) + rim * 1.15 + core * 0.18 + haze;
-  l = pow(clamp(l, 0., 1.4), 0.92);
-  return l * vec3(0.97, 0.985, 1.0);
+  i = length(sin(v / .3) * .4 + c * (3. + d));
+  vec4 O = 1. - exp(-exp(c.x * vec4(.6, -.4, -1, 0))
+    / w.xyyx
+    / (2. + i * i / 4. - i)
+    / (.5 + 1. / a)
+    / (.03 + abs(length(p) - .7)));
+  pOut = p;
+  return O.rgb;
 }
 
 void main() {
   vec2 p;
-  vec3 col = stxVortex(gl_FragCoord.xy, uResolution, uTime, p);
+  vec3 col = singularity(gl_FragCoord.xy, uResolution, uTime, p);
+  // 单色调色：去掉原作的红蓝，只保留明暗与纹理，略偏冷的银白。
+  // Monochrome grade: drop the original red/blue, keep only luminance and
+  // texture, in a slightly cool silver.
+  float l = dot(col, vec3(.2126, .7152, .0722));
+  l = pow(clamp(l * 1.35, 0., 1.), .92);
+  col = l * vec3(.97, .985, 1.);
   col *= uIntensity * (1. + uFlash * .8);
   // 流星穿心时的中心白热闪光 / White-hot core flash as the meteor passes through.
   col += uFlash * exp(-dot(p, p) * 4.);

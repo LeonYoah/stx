@@ -58,19 +58,13 @@ import {
   loadMark,
   type BrandArt,
 } from './splash-assets';
-import {
-  REDUCED_MOTION_MAX_HOLD_MS,
-  SPLASH_FONT_TIMEOUT_MS,
-  SPLASH_MARK_TIMEOUT_MS,
-  canReducedMotionBeginExit,
-} from './splash-brand-policy';
 
-/** 漩涡吸积盘半径 ≈ 0.52 × 视口高（与 STX 着色器 rim 峰值对齐）/ Accretion rim radius aligned to the STX shader. */
-const RIM_RADIUS_RATIO = 0.52;
+/** 漩涡吸积盘半径 ≈ 0.245 × 视口高（由着色器 length(p) = .7 推得）/ Accretion rim radius from the shader. */
+const RIM_RADIUS_RATIO = 0.245;
 /** 视差在着色器 p 空间的最大偏移 / Max parallax offset in shader p-space. */
 const PARALLAX_STRENGTH = 0.11;
-/** p 空间单位 → 像素（× 视口高；STX 着色器 1 单位 = 视口高）/ p-space → px (× height; 1 unit = viewport height). */
-const P_TO_PX = 1;
+/** p 空间单位 → 像素（× 视口高）/ p-space unit → pixels (× viewport height). */
+const P_TO_PX = 0.35;
 
 const GATHER_DURATION = 920;
 const STAR_TAIL_MS = 300;
@@ -231,10 +225,6 @@ export class SplashDirector {
   private exitDuration: number;
   private exiting = false;
   private finished = false;
-  /** 已有可绘制品牌（含系统字体 fallback）/ Drawable brand exists (incl. system-font fallback). */
-  private brandReady = false;
-  /** 字体/徽标准备已结束（成功、失败或超时）/ Font/mark prep finished (ok, fail, or timeout). */
-  private assetsSettled = false;
 
   constructor(opts: SplashDirectorOptions) {
     this.opts = opts;
@@ -264,10 +254,6 @@ export class SplashDirector {
     window.addEventListener('resize', this.resize);
     this.opts.root.addEventListener('pointermove', this.onPointerMove);
     this.opts.root.addEventListener('pointerleave', this.onPointerLeave);
-    // 先用系统字体画出 fallback 品牌，避免减弱动态在字体预热结束前退场导致品牌空白。
-    // Paint a system-font fallback brand first so reduced-motion cannot exit blank
-    // while webfonts are still warming.
-    this.ensureBrandLayout();
     void this.prepareAssets();
     this.lastNow = performance.now();
     this.raf = requestAnimationFrame(this.frame);
@@ -296,39 +282,20 @@ export class SplashDirector {
   }
 
   private async prepareAssets(): Promise<void> {
-    try {
-      const [mark] = await Promise.all([
-        loadMark(SPLASH_MARK_TIMEOUT_MS),
-        loadFont(
-          `400 80px ${BRAND_FONT_FAMILY}`,
-          'STX',
-          SPLASH_FONT_TIMEOUT_MS,
-        ),
-        // 欢迎语字体预热，避免出场时回退字体闪烁 / Warm the greeting font to avoid a fallback flash.
-        loadFont(
-          `300 40px ${GREETING_FONT_FAMILY}`,
-          '欢迎回来',
-          SPLASH_FONT_TIMEOUT_MS,
-        ),
-      ]);
-      if (this.disposed) {
-        return;
-      }
-      this.mark = mark;
-      this.assetsReady = true;
-      // 字体/徽标就绪后升级品牌层（粒子已生成则不再重排）/ Upgrade brand once assets settle.
-      this.ensureBrandLayout();
-    } finally {
-      this.assetsSettled = true;
-    }
-  }
-
-  /** 生成或刷新品牌层；失败时保持 brandReady=false。/ Build or refresh brand; leave brandReady false on failure. */
-  private ensureBrandLayout(): void {
-    if (this.particles) {
+    const [mark] = await Promise.all([
+      loadMark(),
+      loadFont(`400 80px ${BRAND_FONT_FAMILY}`, 'STX', 2200),
+      // 欢迎语字体预热，避免出场时回退字体闪烁 / Warm the greeting font to avoid a fallback flash.
+      loadFont(`300 40px ${GREETING_FONT_FAMILY}`, '欢迎回来', 2200),
+    ]);
+    if (this.disposed) {
       return;
     }
-    this.layoutBrand();
+    this.mark = mark;
+    this.assetsReady = true;
+    if (!this.particles) {
+      this.layoutBrand();
+    }
   }
 
   private layoutBrand(): void {
@@ -343,10 +310,8 @@ export class SplashDirector {
       );
     } catch {
       this.brand = null;
-      this.brandReady = false;
       return;
     }
-    this.brandReady = this.brand !== null;
     const {y, h} = this.brand.bounds;
     this.opts.welcome.style.top = `${Math.round(y + h + Math.max(26, this.height * 0.045))}px`;
   }
@@ -360,8 +325,10 @@ export class SplashDirector {
     fx.width = Math.round(this.width * this.dpr);
     fx.height = Math.round(this.height * this.dpr);
     this.renderer?.resize(this.width, this.height);
-    // 粒子尚未生成前，按新尺寸重排品牌（含 fallback）/ Re-layout brand until particles exist.
-    this.ensureBrandLayout();
+    // 粒子尚未生成前，按新尺寸重排品牌 / Re-layout the brand until particles exist.
+    if (this.assetsReady && !this.particles) {
+      this.layoutBrand();
+    }
   };
 
   private readonly onPointerMove = (event: PointerEvent): void => {
@@ -442,19 +409,8 @@ export class SplashDirector {
       this.welcomeShown = true;
       this.opts.root.dataset.welcome = 'on';
     }
-    if (!this.exiting) {
-      const mayExit = this.opts.reducedMotion
-        ? canReducedMotionBeginExit({
-            t: this.t,
-            exitAt: this.exitAt,
-            brandReady: this.brandReady,
-            assetsSettled: this.assetsSettled,
-            maxHoldMs: REDUCED_MOTION_MAX_HOLD_MS,
-          })
-        : this.t >= this.exitAt;
-      if (mayExit) {
-        this.beginExit();
-      }
+    if (!this.exiting && this.t >= this.exitAt) {
+      this.beginExit();
     }
     if (this.exiting && this.t >= this.exitAt + this.exitDuration) {
       this.finish();

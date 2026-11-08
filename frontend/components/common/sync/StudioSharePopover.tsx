@@ -118,7 +118,7 @@ export function StudioSharePopover({
           aria-label={t('shareTask')}
           title={t('shareTask')}
           className={cn(
-            'group h-8 gap-1.5 rounded-md border border-border/60 bg-muted/20 px-2 text-xs font-normal transition-all hover:bg-muted/50 hover:text-foreground active:scale-95',
+            'group h-9 gap-1.5 rounded-[var(--radius-control)] border border-border/60 bg-muted/20 px-2 text-xs font-normal transition-all hover:bg-muted/50 hover:text-foreground',
             open && 'bg-accent text-accent-foreground ring-1 ring-primary/30',
           )}
         >

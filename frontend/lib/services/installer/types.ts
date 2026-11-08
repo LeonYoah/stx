@@ -148,6 +148,8 @@ export interface SeaTunnelVersionCapabilities {
   supports_slot_allocation_strategy: boolean;
   supports_http_service: boolean;
   supports_job_log_mode: boolean;
+  supports_event_channel: boolean;
+  default_event_channel_enabled: boolean;
   default_dynamic_slot: boolean;
   default_static_slot_num: number;
   default_history_job_expire_minutes: number;
@@ -170,6 +172,8 @@ export interface RuntimeEngineConfig {
   history_job_expire_minutes: number;
   scheduled_deletion_enable: boolean;
   enable_http: boolean;
+  /** 一键安装时写入事件通道；3.0 及以上默认 true。 / Write the event channel during one-click install; default true on 3.0+. */
+  enable_event_channel: boolean;
   job_log_mode: JobLogMode;
 }
 
@@ -300,6 +304,8 @@ export interface InstallationRequest {
   /** Node JDK directory; empty means auto detection / 节点 JDK 目录，空表示自动探测 */
   java_home?: string;
   enable_http?: boolean; // Enable SeaTunnel HTTP/Web UI / 是否开启 SeaTunnel HTTP/Web UI
+  /** 是否在安装后开启事件通道；省略时 3.0 及以上由服务端默认开启。 / Enable the event channel after install; omitted requests default on for 3.0+. */
+  enable_event_channel?: boolean;
   dynamic_slot?: boolean;
   slot_num?: number;
   slot_allocation_strategy?: SlotAllocationStrategy;

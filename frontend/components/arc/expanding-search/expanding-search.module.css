@@ -1,0 +1,50 @@
+.root { position: relative; width: 100%; min-width: var(--control-height-md); height: var(--control-height-md); pointer-events: none; }
+/* One shell is both the button and the field. Its width rides a spring and its radius follows the width, from a circle to the control radius. */
+.shell { position: absolute; top: 0; right: 0; height: 100%; overflow: hidden; border: 1px solid var(--border); border-radius: calc(var(--control-height-md) / 2 - (var(--control-height-md) / 2 - var(--radius-control)) * var(--es-open, 0)); background: var(--surface); color: var(--text-secondary); pointer-events: auto; transition: border-color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-standard) var(--ease-standard), transform var(--duration-spring) var(--ease-spring); }
+.root[data-anchor="start"] .shell { right: auto; left: 0; }
+.shell[data-expanded] { border-color: var(--border-strong); color: var(--foreground); }
+.shell:has(> .trigger:focus-visible), .shell:has(> .input:focus) { border-color: var(--foreground); box-shadow: 0 0 0 3px var(--focus-ring); color: var(--foreground); }
+@media (hover: hover) and (pointer: fine) {
+  .shell:not([data-expanded]):hover { background: var(--surface-muted); color: var(--foreground); }
+  .shell[data-expanded]:not(:has(> .input:focus)):hover { border-color: var(--foreground); }
+  .clear:hover { background: var(--surface-muted); color: var(--foreground); }
+}
+/* A compact press while it is still a button; the morph takes over on release. */
+.shell:not([data-expanded]):has(> .trigger:active) { transform: scale(.97); transition-duration: var(--duration-fast), var(--duration-fast), var(--duration-fast), var(--duration-standard), var(--duration-instant); }
+.trigger { position: absolute; z-index: 1; inset: 0; margin: 0; padding: 0; border: 0; border-radius: inherit; background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.trigger:focus-visible { outline: none; }
+/* The glass sits at the leading edge, so it is centered in the circle and rides that edge to its place in the open field. */
+.icon { position: absolute; top: calc(50% - 9px); left: calc(var(--control-height-md) / 2 - 10px); pointer-events: none; }
+.input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0 40px 0 38px; border: 0; background: transparent; color: var(--foreground); font: inherit; font-size: var(--text-sm); letter-spacing: var(--tracking-body); text-overflow: ellipsis; outline: none; }
+.input:focus-visible { outline: none; }
+.input::placeholder { color: var(--text-muted); opacity: 1; }
+.input[inert] { pointer-events: none; }
+.clear { position: absolute; z-index: 1; top: calc(50% - 14px); right: 7px; display: grid; width: 28px; height: 28px; place-items: center; margin: 0; padding: 0; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--text-muted); cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); -webkit-tap-highlight-color: transparent; }
+
+/* A floating layer: its width is the field's, so it unfolds from the field on first open; its content keeps the final width and rides the leading edge. */
+.panel { position: absolute; z-index: 40; top: calc(100% + 8px); right: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); box-shadow: var(--shadow-floating); pointer-events: auto; }
+.root[data-anchor="start"] .panel { right: auto; left: 0; }
+.body { position: relative; width: calc(var(--es-width, 360px) - 2px); max-height: min(22rem, 60vh); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 6px; scrollbar-width: thin; }
+.view { position: relative; }
+/* A flex gap, not margins: a group popping out while it leaves never lets the next one's margin collapse through the list. */
+.listbox { position: relative; isolation: isolate; display: flex; flex-direction: column; gap: 4px; }
+.group { position: relative; }
+.groupLabel { padding: 8px 12px 4px; color: var(--text-muted); font-size: var(--text-xs); font-weight: 500; line-height: var(--leading-body); }
+/* Nested corners step down from the panel by its inset. The highlight paints under every row's content, so text never hides while it travels. */
+.option { position: relative; display: flex; min-height: 48px; align-items: center; gap: 12px; padding: 6px 12px; border-radius: calc(var(--radius-panel) - 6px); color: var(--foreground); cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+.highlight { position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: color-mix(in oklab, var(--foreground) 6%, transparent); pointer-events: none; }
+.optionIcon { display: grid; flex: none; width: 18px; place-items: center; color: var(--text-muted); transition: color var(--duration-fast) var(--ease-standard); }
+.option[data-active] .optionIcon { color: var(--foreground); }
+.optionText { display: grid; min-width: 0; }
+.optionTitle, .optionMeta { overflow: hidden; line-height: var(--leading-body); text-overflow: ellipsis; white-space: nowrap; }
+.optionTitle { color: var(--foreground); font-size: var(--text-sm); }
+.optionMeta { color: var(--text-muted); font-size: var(--text-xs); }
+.mark { background: none; color: var(--foreground); font-weight: 500; }
+.empty { display: grid; gap: 2px; padding: 12px 12px 14px; }
+.emptyTitle { margin: 0; overflow-wrap: anywhere; color: var(--foreground); font-size: var(--text-sm); font-weight: 500; line-height: var(--leading-body); }
+.emptyHint { margin: 0; color: var(--text-muted); font-size: var(--text-xs); line-height: var(--leading-body); }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  .shell, .clear, .optionIcon { transition: none; }
+  .shell:not([data-expanded]):has(> .trigger:active) { transform: none; }
+}

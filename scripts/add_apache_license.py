@@ -43,7 +43,13 @@ APACHE_MARKERS = (
     "The ASF licenses this file to You under the Apache License, Version 2.0",
     "Apache License, Version 2.0",
 )
-MIT_MARKERS = ("MIT License",)
+# 与 check_license.py 对齐：完整 MIT 才视为已有 MIT 头，避免单行标题被跳过加 Apache。
+# Match check_license.py: only a complete MIT notice skips Apache insertion.
+MIT_TITLE_MARKER = "MIT License"
+MIT_REQUIRED_BODY_MARKERS = (
+    "Copyright",
+    "Permission is hereby granted",
+)
 
 BLOCK_HEADER = """/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -167,7 +173,9 @@ def extract_leading_comment(text: str, suffix: str) -> str:
 
 def detect_existing_license(text: str, suffix: str) -> str:
     header = extract_leading_comment(text, suffix)
-    if any(marker in header for marker in MIT_MARKERS):
+    if MIT_TITLE_MARKER in header and all(
+        marker in header for marker in MIT_REQUIRED_BODY_MARKERS
+    ):
         return "mit"
     if any(marker in header for marker in APACHE_MARKERS):
         return "apache"

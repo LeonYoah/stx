@@ -59,6 +59,22 @@ func (c *orderedConfigInitializer) EnsureClusterConfigsForHost(context.Context, 
 	return nil
 }
 
+type orderedEventEnabler struct {
+	recorder *orderRecorder
+	err      error
+	version  string
+}
+
+func (e *orderedEventEnabler) EnableEventChannelForInstall(_ context.Context, _ uint, version string) error {
+	e.recorder.calls = append(e.recorder.calls, "enable_event_channel")
+	e.version = version
+	return e.err
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
 func newOrderedInstallerService(t *testing.T) (*Service, *orderRecorder) {
 	t.Helper()
 	recorder := &orderRecorder{}
@@ -79,11 +95,75 @@ func TestStartClusterAfterInstallRegistersBeforeStartAndEnsuresConfigs(t *testin
 		InstallDir: "/opt/seatunnel",
 	}, status)
 
-	if want := []string{"ensure_node", "start_node", "ensure_configs"}; !reflect.DeepEqual(recorder.calls, want) {
+	if want := []string{"ensure_node", "ensure_configs", "start_node"}; !reflect.DeepEqual(recorder.calls, want) {
 		t.Fatalf("post-install call order = %v, want %v", recorder.calls, want)
 	}
 	if status.Status != StepStatusSuccess || status.CurrentStep != InstallStepComplete {
 		t.Fatalf("expected success/complete, got %s/%s", status.Status, status.CurrentStep)
+	}
+}
+
+func TestStartClusterAfterInstallEnablesEventChannelBeforeStartForSeaTunnel30(t *testing.T) {
+	service, recorder := newOrderedInstallerService(t)
+	enabler := &orderedEventEnabler{recorder: recorder}
+	service.SetEventChannelEnabler(enabler)
+	status := &InstallationStatus{Status: StepStatusRunning}
+
+	service.startClusterAfterInstall(context.Background(), "agent-test", &InstallationRequest{
+		HostID:     "10",
+		ClusterID:  "9",
+		Version:    "3.0.1",
+		NodeRole:   NodeRoleMasterWorker,
+		InstallDir: "/opt/seatunnel",
+	}, status)
+
+	if want := []string{"ensure_node", "ensure_configs", "enable_event_channel", "start_node"}; !reflect.DeepEqual(recorder.calls, want) {
+		t.Fatalf("post-install call order = %v, want %v", recorder.calls, want)
+	}
+	if enabler.version != "3.0.1" {
+		t.Fatalf("event channel version = %q", enabler.version)
+	}
+	if status.Status != StepStatusSuccess || len(status.Warnings) != 0 {
+		t.Fatalf("expected success without warnings, got %s warnings=%v", status.Status, status.Warnings)
+	}
+}
+
+func TestStartClusterAfterInstallSkipsEventChannelWhenUncheckedOrOlder(t *testing.T) {
+	for _, req := range []*InstallationRequest{
+		{HostID: "10", ClusterID: "9", Version: "3.0.0", NodeRole: NodeRoleMasterWorker, InstallDir: "/opt/seatunnel", EnableEventChannel: boolPtr(false)},
+		{HostID: "10", ClusterID: "9", Version: "2.3.12", NodeRole: NodeRoleMasterWorker, InstallDir: "/opt/seatunnel", EnableEventChannel: boolPtr(true)},
+	} {
+		service, recorder := newOrderedInstallerService(t)
+		service.SetEventChannelEnabler(&orderedEventEnabler{recorder: recorder})
+		status := &InstallationStatus{Status: StepStatusRunning}
+		service.startClusterAfterInstall(context.Background(), "agent-test", req, status)
+		if want := []string{"ensure_node", "ensure_configs", "start_node"}; !reflect.DeepEqual(recorder.calls, want) {
+			t.Fatalf("version %s enable=%v calls = %v, want %v", req.Version, req.EnableEventChannel, recorder.calls, want)
+		}
+	}
+}
+
+func TestStartClusterAfterInstallEventChannelFailureDoesNotBlockStart(t *testing.T) {
+	service, recorder := newOrderedInstallerService(t)
+	service.SetEventChannelEnabler(&orderedEventEnabler{recorder: recorder, err: context.DeadlineExceeded})
+	status := &InstallationStatus{Status: StepStatusRunning}
+
+	service.startClusterAfterInstall(context.Background(), "agent-test", &InstallationRequest{
+		HostID:     "10",
+		ClusterID:  "9",
+		Version:    "3.0.0",
+		NodeRole:   NodeRoleMasterWorker,
+		InstallDir: "/opt/seatunnel",
+	}, status)
+
+	if want := []string{"ensure_node", "ensure_configs", "enable_event_channel", "start_node"}; !reflect.DeepEqual(recorder.calls, want) {
+		t.Fatalf("post-install call order = %v, want %v", recorder.calls, want)
+	}
+	if status.Status != StepStatusSuccess {
+		t.Fatalf("expected success, got %s", status.Status)
+	}
+	if len(status.Warnings) != 1 || !strings.Contains(status.Warnings[0], "event channel") {
+		t.Fatalf("expected an event channel warning, got %v", status.Warnings)
 	}
 }
 

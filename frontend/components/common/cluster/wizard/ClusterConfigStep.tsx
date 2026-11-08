@@ -82,6 +82,10 @@ interface ClusterConfigStepProps {
   versionCapabilities?: SeaTunnelVersionCapabilities | null;
   /** HTTP service supported / 是否支持 HTTP 服务 */
   httpServiceSupported: boolean;
+  /** Event channel supported (SeaTunnel 3.0+) / 是否支持事件通道（SeaTunnel 3.0+） */
+  eventChannelSupported: boolean;
+  /** Mark the event-channel checkbox as user-controlled / 标记事件通道勾选已被用户改过 */
+  onEventChannelUserSet: () => void;
   /** Apply checkpoint config to IMAP / 同步检查点配置到 IMAP */
   applyCheckpointToImap: () => void;
   /** Update one host JDK (AC1) / 更新单个主机 JDK（AC1） */
@@ -97,6 +101,8 @@ export function ClusterConfigStep({
   localPackages,
   versionCapabilities,
   httpServiceSupported,
+  eventChannelSupported,
+  onEventChannelUserSet,
   applyCheckpointToImap,
   setHostJavaHome,
   fillAllJavaHome,
@@ -670,6 +676,31 @@ export function ClusterConfigStep({
                     className='h-8 text-xs font-mono'
                   />
                 </div>
+
+                {eventChannelSupported && (
+                  <div className='flex items-center justify-between pt-1 border-t border-border/40'>
+                    <Label className='text-xs font-medium'>
+                      {t('cluster.wizard.eventChannel')}
+                    </Label>
+                    <label className='flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer'>
+                      <Checkbox
+                        data-testid='cluster-wizard-event-channel'
+                        checked={config.runtime.enable_event_channel}
+                        onCheckedChange={(checked) => {
+                          onEventChannelUserSet();
+                          updateConfig({
+                            runtime: {
+                              ...config.runtime,
+                              enable_event_channel: checked === true,
+                            },
+                          });
+                        }}
+                        className='h-3.5 w-3.5'
+                      />
+                      <span>{t('cluster.wizard.enableEventChannel')}</span>
+                    </label>
+                  </div>
+                )}
 
                 {/* stx-java-proxy Port / stx-java-proxy 端口 */}
                 <div className='space-y-1 pt-1 border-t border-border/40'>

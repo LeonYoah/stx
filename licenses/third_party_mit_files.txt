@@ -1,0 +1,36 @@
+# Third-party MIT-licensed source files vendored into STX
+#
+# These files are NOT Apache-2.0 project originals. They retain upstream MIT
+# copyright notices. Do not add forged Apache ASF headers to them.
+#
+# New third-party MIT imports must:
+# 1) keep a file-level MIT header with the upstream copyright,
+# 2) be listed here,
+# 3) be recorded in NOTICE with source URL and license link.
+#
+# Arc UI free components (MIT, Copyright (c) 2026 Elia Kuratli):
+# License: https://uiarc.dev/license
+# Public repo: https://github.com/kuratlielia/arc-library
+# Registry: https://uiarc.dev/r/{name}.json
+# llms index: https://uiarc.dev/llms.txt
+
+frontend/components/arc/action-button/action-button.tsx
+frontend/components/arc/badge/badge.tsx
+frontend/components/arc/button/button.tsx
+frontend/components/arc/button-group/button-group.tsx
+frontend/components/arc/chip-group/chip-group.tsx
+frontend/components/arc/combobox/combobox.tsx
+frontend/components/arc/confirm-morph/confirm-morph.tsx
+frontend/components/arc/copy-button/copy-button.tsx
+frontend/components/arc/expanding-button-group/expanding-button-group.tsx
+frontend/components/arc/expanding-search/expanding-search.tsx
+frontend/components/arc/input/input.tsx
+frontend/components/arc/lib/motion-tokens.ts
+frontend/components/arc/lib/use-copy-feedback.ts
+frontend/components/arc/motion-tokens.ts
+frontend/components/arc/resizable-panels/resizable-panels.tsx
+frontend/components/arc/search-field/search-field.tsx
+frontend/components/arc/segmented-control/segmented-control.tsx
+frontend/components/arc/split-button/split-button.tsx
+frontend/components/arc/switch/switch.tsx
+frontend/components/arc/tabs/tabs.tsx

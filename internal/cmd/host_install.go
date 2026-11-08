@@ -113,6 +113,7 @@ func newHostInstallStartCommand(storeProvider authStoreProvider) *cobra.Command 
 	var masterAddresses, workerAddresses []string
 	var clusterPort, workerPort, httpPort, javaProxyPort int
 	var enableHTTP bool
+	var enableEventChannel bool
 	command := &cobra.Command{
 		Use:     "start <host-id>",
 		Short:   "Install SeaTunnel on a host",
@@ -152,6 +153,9 @@ func newHostInstallStartCommand(storeProvider authStoreProvider) *cobra.Command 
 			if command.Flags().Changed("enable-http") {
 				body["enable_http"] = enableHTTP
 			}
+			if command.Flags().Changed("enable-event-channel") {
+				body["enable_event_channel"] = enableEventChannel
+			}
 			if strings.TrimSpace(stringValue(body["version"])) == "" {
 				return clioutput.NewError(clioutput.CodeUsage, "--version or version in --request-file is required", clioutput.ExitUsage, false)
 			}
@@ -177,6 +181,7 @@ func newHostInstallStartCommand(storeProvider authStoreProvider) *cobra.Command 
 	command.Flags().IntVar(&httpPort, "http-port", 0, "SeaTunnel HTTP API port")
 	command.Flags().IntVar(&javaProxyPort, "java-proxy-port", 0, "Managed stx-java-proxy port")
 	command.Flags().BoolVar(&enableHTTP, "enable-http", false, "Enable the SeaTunnel HTTP API")
+	command.Flags().BoolVar(&enableEventChannel, "enable-event-channel", true, "Enable the SeaTunnel event channel; omitted requests default on for 3.0 and newer")
 	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete installation request")
 	return command
 }

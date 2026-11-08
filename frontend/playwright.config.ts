@@ -113,6 +113,7 @@ export default defineConfig({
       : []),
     {
       command:
+        `BACKEND_BASE_URL=${backendBaseURL} ` +
         `NEXT_PUBLIC_BACKEND_BASE_URL=${backendBaseURL} ` +
         `NEXT_PUBLIC_FRONTEND_BASE_URL=${frontendBaseURL} ` +
         `pnpm exec next dev --hostname ${frontendHost} --port ${frontendPort}`,

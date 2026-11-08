@@ -38,10 +38,8 @@ import {useTheme} from 'next-themes';
 import {toast} from 'sonner';
 import {
   AlertTriangle,
-  Bug,
   Check,
   Copy,
-  ChevronDown,
   ChevronRight,
   ChevronsUpDown,
   Columns2,
@@ -53,9 +51,9 @@ import {
   FileCode2,
   FilePlus2,
   GitBranch,
-  GitCommit,
+  FileStack,
+  Tags,
   BarChart3,
-  Layers,
   Maximize2,
   Minimize2,
   PanelLeftClose,
@@ -65,15 +63,12 @@ import {
   PlugZap,
   Play,
   RefreshCw,
-  Save,
-  Search,
-  SquareTerminal,
   FolderTree,
-  Database,
-  ListTree,
+  Save,
+  Settings,
   Square,
   Trash2,
-  Funnel,
+  Upload,
   GitCompareArrows,
   LayoutPanelTop,
   Globe2,
@@ -91,11 +86,18 @@ import {
   Share2,
   Workflow,
   WandSparkles,
-  Wrench,
   Code2,
   HelpCircle,
   X,
 } from 'lucide-react';
+import './studio-chrome.css';
+import {Button as ArcButton} from '@/components/arc/button/button';
+import {ButtonGroup} from '@/components/arc/button-group/button-group';
+import {Input as ArcField} from '@/components/arc/input/input';
+import {ExpandingButtonGroup} from '@/components/arc/expanding-button-group/expanding-button-group';
+import {ExpandingSearch} from '@/components/arc/expanding-search/expanding-search';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {useAuth} from '@/hooks/use-auth';
 import {useWorkbenchLeaveGuard} from '@/hooks/use-workbench-leave-guard';
 import services from '@/lib/services';
@@ -224,10 +226,7 @@ import {
 } from './StudioSidebarShell';
 import {DraftSaveStatusBadge} from './DraftSaveStatusBadge';
 import {WorkbenchLeaveDialog} from './WorkbenchLeaveDialog';
-import {
-  SettingsSidebarPanel,
-  TemplatePluginSelect,
-} from './SettingsSidebarPanel';
+import {SettingsSidebarPanel} from './SettingsSidebarPanel';
 import {CuratedTemplatesManagePanel} from './CuratedTemplatesManagePanel';
 import {
   VersionSidebarPanel,
@@ -245,6 +244,7 @@ import {
 } from './CheckpointPanels';
 import {
   ValidationResultPanel,
+  StudioActionErrorDialog,
   StudioErrorDiagnosticsView,
   VirtualizedLogViewer,
 } from './StudioDialogs';
@@ -286,6 +286,7 @@ import {
   LOG_CHUNK_MAX_BYTES,
   WORKSPACE_NAME_PATTERN,
   WORKSPACE_TABS_STORAGE_KEY,
+  DEFAULT_STUDIO_LAYOUT_PREFS,
   buildStudioGridTemplateColumns,
   readStudioLayoutPrefs,
   studioSidebarOpenSpacingClass,
@@ -364,6 +365,7 @@ import {
   hasDuplicateWorkspaceName,
   isCursorInsideValueRegion,
   isEditorDraftDirty,
+  studioSaveSegment,
   isJobLifecycleActive,
   isJobLifecycleTerminal,
   isReservedBuiltinVariableKey,
@@ -412,6 +414,25 @@ import {
 } from './sync-option-rule-assist';
 
 const OPTION_RULE_MARKER_OWNER = 'stx-option-rule';
+
+// Gravity UI 的 curly-brackets，16px 实心花括号。HeroUI 文档用这套图标，这里只内联这一枚，不引入整包。
+// Gravity UI curly-brackets, a 16px filled brace pair. HeroUI docs use that set; only this glyph is inlined.
+function CurlyBracketsIcon({className}: {className?: string}) {
+  return (
+    <svg
+      viewBox='0 0 16 16'
+      fill='currentColor'
+      aria-hidden='true'
+      className={className}
+    >
+      <path
+        fillRule='evenodd'
+        clipRule='evenodd'
+        d='M3.413 3.421A.84.84 0 0 1 4.25 2.5a.75.75 0 0 0 0-1.5a2.34 2.34 0 0 0-2.33 2.563l.199 2.096a.9.9 0 0 1-.677.957l-.139.035a1.39 1.39 0 0 0 0 2.698l.14.035a.9.9 0 0 1 .676.957l-.2 2.096A2.34 2.34 0 0 0 4.25 15a.75.75 0 0 0 0-1.5a.84.84 0 0 1-.837-.921l.2-2.096A2.4 2.4 0 0 0 2.04 8a2.4 2.4 0 0 0 1.571-2.483zm9.175 9.158a.84.84 0 0 1-.838.921a.75.75 0 0 0 0 1.5a2.34 2.34 0 0 0 2.33-2.563l-.199-2.096a.9.9 0 0 1 .677-.957l.139-.035a1.39 1.39 0 0 0 0-2.698l-.14-.035a.9.9 0 0 1-.676-.957l.2-2.096A2.34 2.34 0 0 0 11.75 1a.75.75 0 0 0 0 1.5c.496 0 .884.427.838.921l-.2 2.096A2.4 2.4 0 0 0 13.959 8a2.4 2.4 0 0 0-1.571 2.483z'
+      />
+    </svg>
+  );
+}
 
 export function DataSyncStudio() {
   const t = useTranslations('workbenchStudio');
@@ -482,8 +503,18 @@ export function DataSyncStudio() {
   const [treeFilterScope, setTreeFilterScope] = useState<TreeFilterScope>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('stx_studio_tree_filter_scope');
-      if (saved === 'all' || saved === 'mine_and_public' || saved === 'only_mine') {
-        return saved;
+      // 「可见」三档里的 only_mine 已从界面拿掉；旧值并入「我的」（自己的 + 公开的）。
+      // The old three-way "Visible" filter is gone; only_mine migrates into Mine (own + public).
+      if (saved === 'all') {
+        return 'all';
+      }
+      if (saved === 'only_mine') {
+        try {
+          localStorage.setItem(
+            'stx_studio_tree_filter_scope',
+            'mine_and_public',
+          );
+        } catch {}
       }
     }
     return 'mine_and_public';
@@ -497,6 +528,8 @@ export function DataSyncStudio() {
   // VSCode Quick Open 快捷检索浮层状态 (Cmd+P)
   // VSCode Quick Open command palette state (Cmd+P)
   const [quickOpenOpen, setQuickOpenOpen] = useState(false);
+  // 顶栏搜索槽位固定 280px：字段从左往右在槽内展开，绝对定位的壳不会盖住保存/运行。
+  // Top-bar search keeps a 280px slot so the absolutely positioned shell never covers Save/Run.
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
   // 树节点行内重命名、新建与拖拽状态（VSCode 风格交互）
@@ -512,6 +545,9 @@ export function DataSyncStudio() {
   const [dagResult, setDagResult] = useState<SyncDagResult | null>(null);
   const [dagError, setDagError] = useState<UserFacingErrorState | null>(null);
   const [dagOpen, setDagOpen] = useState(false);
+  // 运行 / 预览 / 恢复失败走限高诊断弹窗，不把整段堆栈塞进 toast。
+  // Run / preview / recover failures use the height-capped dialog instead of a toast.
+  const [actionError, setActionError] = useState<UserFacingErrorState | null>(null);
   // 查看运行中/已结束作业的实时执行拓扑
   // View execution DAG of running or finished jobs
   // 作业详情：只记作业 ID，作业对象从 jobs 取，随轮询刷新状态。
@@ -575,6 +611,9 @@ export function DataSyncStudio() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [expandedLogsLoading, setExpandedLogsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 保存中单独占一段；成功后的「已保存」由草稿是否变脏决定，不再用定时器收回。
+  // Pending is its own segment. Saved after success follows draft dirtiness and is not cleared by a timer.
+  const [saveAck, setSaveAck] = useState<'idle' | 'pending'>('idle');
   // 手动保存与自动保存共用的顶栏状态 / Shared top-bar status for manual + autosave
   const [draftSaveStatus, setDraftSaveStatus] =
     useState<DraftSaveStatus>('idle');
@@ -647,21 +686,29 @@ export function DataSyncStudio() {
   // Bottom console height mode: default 260px, expanded 390px
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
 
-  // 左右侧栏独立开合：无记录时左展开、右收起；之后记住上次（#110；无专注模式）
-  // Independent left/right collapse: no record → left open / right collapsed; then remember (#110; no Focus Mode)
-  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(() =>
-    readStudioLayoutPrefs().leftCollapsed,
+  // 左右侧栏独立开合：无记录时左展开、右收起；之后记住上次（#110；无专注模式）。
+  // 首帧固定用默认值。useState 里读 localStorage 会让「客户端已记住右侧展开」和
+  // 服务端默认「右侧收起」对不上，水合改掉开关的 aria-label 和图标，Next 弹出红色报错层，按钮也点不了。
+  // Independent left/right collapse: no record → left open / right collapsed; then remember (#110; no Focus Mode).
+  // First paint stays on the defaults. Reading localStorage in useState mismatches SSR when the
+  // client remembers an open right sidebar, hydrates a different toggle label and icon, and Next
+  // covers the page with its red error overlay so the button cannot be clicked.
+  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(
+    DEFAULT_STUDIO_LAYOUT_PREFS.leftCollapsed,
   );
-  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(() =>
-    readStudioLayoutPrefs().rightCollapsed,
+  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(
+    DEFAULT_STUDIO_LAYOUT_PREFS.rightCollapsed,
   );
   const studioLayoutHydratedRef = useRef(false);
 
   useEffect(() => {
-    // 跳过首帧写入，保留「无记录 → 左展开 / 右收起」语义，直到用户真正切换开合。
-    // Skip the first write so "no record → left open / right collapsed" stays until the user toggles.
+    // 挂载后再套用上次开合，并跳过这次写入，避免把默认值盖掉已记住的偏好。
+    // Apply the remembered layout after mount, and skip that write so defaults do not clobber it.
     if (!studioLayoutHydratedRef.current) {
       studioLayoutHydratedRef.current = true;
+      const prefs = readStudioLayoutPrefs();
+      setIsLeftSidebarCollapsed(prefs.leftCollapsed);
+      setIsRightSidebarCollapsed(prefs.rightCollapsed);
       return;
     }
     writeStudioLayoutPrefs({
@@ -697,6 +744,13 @@ export function DataSyncStudio() {
   // 当前编辑器文件是否存在未保存改动
   // Whether current active editor has unsaved changes
   const isCurrentDirty = Boolean(editor.id && editorDrafts[editor.id]?.dirty);
+  // 干净的已有文件显示已保存；右侧栏或正文一改，立刻回到保存。
+  // A clean existing file shows Saved. Any edit in the body or the right sidebar returns to Save.
+  const saveSegment = studioSaveSegment({
+    pending: saveAck === 'pending' || draftSaveStatus === 'saving',
+    hasFile: Boolean(editor.id),
+    dirty: isCurrentDirty,
+  });
 
   // 已保存版本中的定时配置，用于判断定时是否有未保存改动
   // Schedule from the saved baseline, used to tell whether the schedule has unsaved changes
@@ -736,6 +790,28 @@ export function DataSyncStudio() {
   const handleToggleCollapseAll = useCallback(() => {
     setExpandedFolderIds((prev) => (prev.length > 0 ? [] : allFolderIds));
   }, [allFolderIds]);
+
+  // 顶栏展开搜索只覆盖本地文件和已加载作业。不在列表里的数字 Job ID 仍走 Cmd/Ctrl+P。
+  // The toolbar expanding search covers local files and loaded jobs. Numeric Job IDs outside that list stay on Cmd/Ctrl+P.
+  const quickOpenItems = useMemo(() => {
+    const files = flattenTree(tree)
+      .filter((node) => node.node_type === 'file')
+      .map((node) => ({
+        id: `file-${node.id}`,
+        title: node.name,
+        meta: getNodeBreadcrumbSegments(tree, node.id).slice(0, -1).join(' / '),
+        group: t('matchingFiles'),
+        keywords: [String(node.id)],
+      }));
+    const jobItems = jobs.slice(0, 50).map((job) => ({
+      id: `job-${job.id}`,
+      title: `#${job.id}`,
+      meta: findTreeNode(tree, job.task_id)?.name || job.platform_job_id || '',
+      group: t('matchingJobs'),
+      keywords: [String(job.id), job.platform_job_id || ''].filter(Boolean),
+    }));
+    return [...files, ...jobItems];
+  }, [jobs, t, tree]);
 
   const [customVariableRows, setCustomVariableRows] = useState<VariableRow[]>(
     [],
@@ -3658,11 +3734,30 @@ export function DataSyncStudio() {
   const handleSave = async () => {
     if (editor.id && !editor.canEdit) {
       toast.error(t('readOnlySaveTooltip'));
-      return;
+      // 拒绝后保存段回到空闲，不会误显示已保存。
+      // Reject so the save segment returns to idle instead of showing saved.
+      throw new Error(t('readOnlySaveTooltip'));
     }
     // 与自动保存共用顶栏状态，成功不再额外 toast，避免双重打扰。
     // Share top-bar status with autosave; skip success toast to avoid double noise.
     await persistCurrentFile(false, {reason: 'manual'});
+  };
+
+  // Button Group 不会自己画 pending。保存中走 pending；结束后文案跟草稿脏状态走。
+  // Button Group does not draw pending itself. Pending covers the request; afterwards the label follows draft dirtiness.
+  const handleToolbarSave = async () => {
+    if (saveAck === 'pending' || draftSaveStatus === 'saving') {
+      return;
+    }
+    setSaveAck('pending');
+    try {
+      await handleSave();
+    } catch {
+      // 失败时草稿仍脏，回到空闲后文案是「保存」。
+      // On failure the draft stays dirty, so idle renders as Save.
+    } finally {
+      setSaveAck('idle');
+    }
   };
 
   const handleOpenPublishDialog = () => {
@@ -3775,7 +3870,8 @@ export function DataSyncStudio() {
         formatSyncUserFacingError(error, t('dagParseFailedTitle'), t),
       );
       setDagOpen(true);
-      toast.error(error instanceof Error ? error.message : t('dagBuildFailed'));
+      // 详情已在限高弹窗里，不再把整段异常塞进 toast。
+      // Details stay in the height-capped dialog; do not dump the full exception into a toast.
     } finally {
       setActionPending((current) => (current === 'dag' ? null : current));
     }
@@ -3928,8 +4024,9 @@ export function DataSyncStudio() {
       setBottomConsoleTab('preview');
       toast.success(t('previewSubmitted'));
     } catch (error) {
-      const uiError = formatSyncUserFacingError(error, t('previewFailed'), t);
-      toast.error(uiError.description);
+      // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
+      // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
+      setActionError(formatSyncUserFacingError(error, t('previewFailed'), t));
     } finally {
       setActionPending((current) => (current === 'preview' ? null : current));
     }
@@ -3992,8 +4089,9 @@ export function DataSyncStudio() {
         );
       }
     } catch (error) {
-      const uiError = formatSyncUserFacingError(error, t('runFailed'), t);
-      toast.error(uiError.description);
+      // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
+      // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
+      setActionError(formatSyncUserFacingError(error, t('runFailed'), t));
     } finally {
       setActionPending((current) => (current === 'recover' ? null : current));
     }
@@ -4044,12 +4142,11 @@ export function DataSyncStudio() {
         setBottomConsoleTab('jobs');
         toast.success(t('recoverSubmitted'));
       } catch (error) {
-        const uiError = formatSyncUserFacingError(
-          error,
-          t('recoverActionLabel'),
-          t,
+        // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
+        // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
+        setActionError(
+          formatSyncUserFacingError(error, t('recoverActionLabel'), t),
         );
-        toast.error(uiError.description);
       } finally {
         setActionPending((current) => (current === 'recover' ? null : current));
       }
@@ -4547,8 +4644,8 @@ export function DataSyncStudio() {
 
   return (
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
-      <Card className='gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
-        <CardContent className='flex h-12 min-w-0 items-center justify-between gap-3 overflow-hidden px-3 py-1.5'>
+      <Card className='relative z-20 gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
+        <CardContent className='studio-topbar grid h-12 min-w-0 grid-cols-[minmax(0,max-content)_280px_minmax(max-content,1fr)] items-center gap-3 overflow-visible px-3'>
           {/* 左侧：顶栏最左端左栏开关（#110 AC11）+ 面包屑 / 状态 */}
           {/* Left: leftmost left-sidebar toggle (#110 AC11) + breadcrumb / status */}
           <div className='flex min-w-0 items-center gap-2 text-xs'>
@@ -4565,10 +4662,10 @@ export function DataSyncStudio() {
                   aria-pressed={!isLeftSidebarCollapsed}
                   data-testid='studio-toggle-left-sidebar'
                   className={cn(
-                    'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
-                    // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
-                    !isLeftSidebarCollapsed &&
-                      'border-primary/40 bg-primary/10 text-primary',
+                    'size-9 shrink-0 rounded-[var(--radius-control)] px-0 text-muted-foreground hover:bg-muted hover:text-foreground',
+                    // 对齐 Cursor：侧栏开关无描边，展开时只换底色。
+                    // Match Cursor: panel toggles have no border; open state is a quiet fill.
+                    !isLeftSidebarCollapsed && 'bg-muted text-foreground',
                   )}
                   onClick={handleToggleLeftSidebar}
                 >
@@ -4585,9 +4682,6 @@ export function DataSyncStudio() {
                   : t('collapseLeftSidebar')}
               </TooltipContent>
             </Tooltip>
-            <div className='flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/30 text-primary'>
-              <Layers className='size-3.5' />
-            </div>
             {activeTaskBreadcrumbs.length > 0 ? (
               <div className='flex min-w-0 items-center gap-1.5'>
                 {activeTaskBreadcrumbs.slice(0, -1).map((seg, idx) => (
@@ -4595,11 +4689,18 @@ export function DataSyncStudio() {
                     key={idx}
                     className='flex items-center gap-1.5 text-muted-foreground'
                   >
-                    <span className='max-w-[120px] truncate'>{seg}</span>
+                    <span className='max-w-[120px] truncate' title={seg}>
+                      {seg}
+                    </span>
                     <span className='text-muted-foreground/40'>/</span>
                   </span>
                 ))}
-                <span className='max-w-[180px] truncate font-semibold text-foreground'>
+                <span
+                  className='max-w-[180px] truncate font-semibold text-foreground'
+                  title={
+                    activeTaskBreadcrumbs[activeTaskBreadcrumbs.length - 1]
+                  }
+                >
                   {activeTaskBreadcrumbs[activeTaskBreadcrumbs.length - 1]}
                 </span>
                 {isCurrentDirty ? (
@@ -4679,166 +4780,106 @@ export function DataSyncStudio() {
             )}
           </div>
 
-          {/* 中间：全局文件与 Job ID 快速检索跳转栏 (VSCode Quick Open 风格) */}
-          {/* Center: Global file and Job ID quick jump search bar (VSCode Quick Open style) */}
-          {/* Narrow: icon-only Quick Open; xl+: compact search field */}
-          <div className='mx-1 flex shrink-0 items-center xl:mx-2 xl:min-w-0 xl:flex-1 xl:max-w-[12rem] 2xl:max-w-sm'>
-            <button
-              type='button'
-              onClick={() => setQuickOpenOpen(true)}
-              aria-label={t('quickOpen')}
-              className='group relative flex size-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/20 text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:hidden'
-            >
-              <Search className='size-3.5 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
-            </button>
-            <button
-              type='button'
-              onClick={() => setQuickOpenOpen(true)}
-              className='group relative hidden h-8 w-full min-w-0 items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40 xl:flex'
-            >
-              <Search className='size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
-              <span className='truncate text-[11px] text-muted-foreground/70 group-hover:text-muted-foreground'>
-                {t('searchFileOrJobId')}
-              </span>
-              <kbd className='pointer-events-none ml-auto hidden select-none rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground/80 2xl:inline-flex items-center gap-0.5'>
-                <span className='text-[10px]'>⌘</span>P
-              </kbd>
-            </button>
+          {/* 搜索槽固定 280px 并靠左：壳从左往右在槽内展开，不会盖住保存/运行。 */}
+          {/* Fixed 280px slot, left of the actions. The shell grows right inside the slot, never over Save/Run. */}
+          <div className='relative z-20 w-[280px] shrink-0 justify-self-start'>
+            <ExpandingSearch
+              label={t('quickOpen')}
+              placeholder={t('searchFileOrJobId')}
+              items={quickOpenItems}
+              suggestions={quickOpenItems
+                .filter((item) => item.id.startsWith('job-'))
+                .slice(0, 6)}
+              suggestionsLabel={t('recentSuggestions')}
+              emptyHint={t('noMatchingFileOrJob')}
+              anchor='start'
+              expandedWidth={280}
+              maxResults={8}
+              onSelect={(item) => {
+                if (item.id.startsWith('job-')) {
+                  void handleLocateJobId(item.id.slice(4));
+                  return;
+                }
+                const node = findTreeNode(tree, Number(item.id.slice(5)));
+                if (node) {
+                  void handleQuickOpenFile(node);
+                }
+              }}
+            />
           </div>
 
-          {/* 右侧：环境指示 + IDE 工具栏 + 核心动作 + 顶栏最右端右栏开关（#110 AC11） */}
-          {/* Right: env + IDE toolbar + primary cluster + rightmost right-sidebar toggle (#110 AC11) */}
-          <div className='flex shrink-0 flex-nowrap items-center justify-end gap-1.5'>
-            {/* 环境指示（与顶栏控件统一 rounded-md / h-8） */}
-            {/* Environment indicator (aligned rounded-md / h-8 with topbar controls) */}
+          {/* 右侧按大厂工具栏分组：状态无描边，探查一组，提交/运行一组，侧栏开关 ghost。 */}
+          {/* Right cluster like Figma/Cursor: status has no chrome, inspect is one group, persist/run is one group, sidebar is ghost. */}
+          <div className='flex min-w-max flex-nowrap items-center justify-end gap-3'>
+            {/* 集群是状态，不是按钮，不再套胶囊边框。 */}
+            {/* Cluster is status, not a control, so it does not get a pill border. */}
             <div
-              className='flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground'
-              title={t('executionTarget')}
+              className='flex h-9 min-w-0 max-w-[11rem] shrink items-center gap-1.5 px-1 text-xs text-muted-foreground'
+              title={
+                executionMode === 'local'
+                  ? t('localMode')
+                  : currentCluster?.name || t('unassignedCluster')
+              }
             >
               {executionMode === 'local' ? (
                 <>
-                  <Cpu className='size-3 text-primary' />
-                  <span className='text-[11px] font-medium'>{t('localMode')}</span>
+                  <Cpu className='size-3 shrink-0' />
+                  <span className='truncate font-medium'>{t('localMode')}</span>
                 </>
               ) : (
                 <>
-                  <Globe2 className='size-3 text-sky-500' />
-                  <span className='max-w-[110px] truncate text-[11px] font-medium'>
+                  <Globe2 className='size-3 shrink-0' />
+                  <span className='truncate font-medium'>
                     {currentCluster?.name || t('unassignedCluster')}
                   </span>
                 </>
               )}
             </div>
 
-            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
+            {/* 探查动作：Arc 展开按钮组。打开结果的动作不写 doneLabel，避免误显示已完成。 */}
+            {/* Inspect actions: Arc expanding group. Actions that open a result omit doneLabel so they do not flash as finished. */}
+            <ExpandingButtonGroup
+              size='md'
+              label={t('inspectActions')}
+              defaultExpanded='test'
+              items={[
+                {
+                  id: 'test',
+                  label: t('inspectTest'),
+                  icon: <PlugZap />,
+                  disabled:
+                    saving ||
+                    !editor.name.trim() ||
+                    actionPending !== null ||
+                    !editor.canEdit,
+                  onSelect: () => handleTestConnections(),
+                },
+                {
+                  id: 'dag',
+                  label: 'DAG',
+                  icon: <GitBranch />,
+                  disabled:
+                    saving || !editor.name.trim() || actionPending !== null,
+                  onSelect: () => handleBuildDag(),
+                },
+                {
+                  id: 'preview',
+                  label: t('preview'),
+                  icon: <Eye />,
+                  disabled:
+                    saving ||
+                    hasActiveRun ||
+                    hasActivePreview ||
+                    actionPending !== null ||
+                    !editor.canRun,
+                  onSelect: () => handlePreview(),
+                },
+              ]}
+            />
 
-            {/* 探查动作：图标按钮 + Tooltip 常驻顶栏（IDE 工具栏风格，一点即达） */}
-            {/* Inspect actions: always-visible icon+Tooltip toolbar (IDE style) */}
-            <div className='flex shrink-0 flex-nowrap items-center gap-0.5'>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      aria-label={t('testConnections')}
-                      data-testid='studio-test-connections'
-                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
-                      onClick={() => void handleTestConnections()}
-                      disabled={
-                        saving ||
-                        !editor.name.trim() ||
-                        actionPending !== null ||
-                        !editor.canEdit
-                      }
-                    >
-                      {actionPending === 'test_connections' ? (
-                        <Loader2 className='size-3.5 animate-spin' />
-                      ) : (
-                        // 测试连接空闲态用 PlugZap，避免 Database 被读成「数据库」入口（#110 AC8）
-                        // Idle test-connections uses PlugZap so Database is not read as a DB entry (#110 AC8)
-                        <PlugZap className='size-3.5' />
-                      )}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {!editor.canEdit
-                    ? t('readOnlyTestConnTooltip')
-                    : actionPending === 'test_connections'
-                      ? t('testingConnections')
-                      : t('testConnections')}
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      aria-label='DAG'
-                      data-testid='studio-build-dag'
-                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
-                      onClick={() => void handleBuildDag()}
-                      disabled={
-                        saving || !editor.name.trim() || actionPending !== null
-                      }
-                    >
-                      {actionPending === 'dag' ? (
-                        <Loader2 className='size-3.5 animate-spin' />
-                      ) : (
-                        <GitBranch className='size-3.5' />
-                      )}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {actionPending === 'dag' ? t('buildingDag') : 'DAG'}
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size='sm'
-                      variant='ghost'
-                      aria-label={t('preview')}
-                      data-testid='studio-preview'
-                      className='size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground'
-                      onClick={() => void handlePreview()}
-                      disabled={
-                        saving ||
-                        hasActiveRun ||
-                        hasActivePreview ||
-                        actionPending !== null ||
-                        !editor.canRun
-                      }
-                    >
-                      {actionPending === 'preview' ? (
-                        <Loader2 className='size-3.5 animate-spin' />
-                      ) : (
-                        <Eye className='size-3.5' />
-                      )}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {!editor.canRun
-                    ? t('readOnlyPreviewTooltip')
-                    : actionPending === 'preview'
-                      ? t('preparingPreview')
-                      : t('preview')}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-
-            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
-
-            {/* 核心动作组：保存状态 / 保存 / 发布 / 运行 / 停止 — shrink-0 防止停止单独换行 */}
-            {/* Primary cluster: save status / save / publish / run / stop — shrink-0 so Stop cannot wrap alone */}
-            <div className='flex shrink-0 flex-nowrap items-center gap-1.5'>
+            {/* 仅在失败时展示可重试徽章；保存中/已保存由 Arc 保存段承担，避免双指示。 */}
+            {/* Show a retryable badge only on failure; Arc save segment covers saving/saved. */}
+            {draftSaveStatus === 'error' ? (
               <DraftSaveStatusBadge
                 status={draftSaveStatus}
                 onRetry={() => {
@@ -4848,157 +4889,105 @@ export function DataSyncStudio() {
                   void persistCurrentFile(false, {reason: 'manual'});
                 }}
               />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      className={cn(
-                        'h-8 gap-1.5 rounded-md border-border/60 px-2.5 text-xs transition-colors',
-                        isCurrentDirty
-                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
-                          : 'text-foreground',
-                      )}
-                      onClick={handleSave}
-                      disabled={saving || !editor.name.trim() || !editor.canEdit}
-                      data-testid='studio-save-draft'
-                    >
-                      <Save className='size-3.5' />
-                      {t('save')}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                {!editor.canEdit ? (
-                  <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
-                ) : null}
-              </Tooltip>
+            ) : null}
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      className='h-8 gap-1.5 rounded-md border-border/60 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
-                      onClick={handleOpenPublishDialog}
-                      disabled={
-                        saving ||
-                        publishing ||
-                        !editor.name.trim() ||
-                        !editor.canEdit
-                      }
-                    >
-                      <GitCommit className='size-3.5 text-primary' />
-                      <span>{t('publishNewVersion')}</span>
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                {!editor.canEdit ? (
-                  <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
-                ) : null}
-              </Tooltip>
-
-              {/* delayDuration：菜单关闭后焦点回到触发器时不要立刻误弹只读提示 */}
-              {/* delayDuration: avoid an instant read-only tooltip when focus returns after the menu closes */}
-              <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-                <TooltipTrigger asChild>
-                  <span>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          size='sm'
-                          className='h-8 gap-1 rounded-md bg-primary px-2.5 text-xs font-medium shadow-xs hover:bg-primary/90'
-                          disabled={
-                            saving ||
-                            hasActiveRun ||
-                            hasActivePreview ||
-                            !editor.canRun
-                          }
-                        >
-                          <Play className='size-3.5' />
-                          <span>{t('run')}</span>
-                          <ChevronDown className='size-3 opacity-70' />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end'>
-                        <DropdownMenuItem onClick={() => void handleRun('run')}>
-                          {t('run')}
-                        </DropdownMenuItem>
-                        {/* 禁用项用 aria-disabled，保证 Tooltip 仍可悬停说明两种恢复差异 */}
-                        {/* aria-disabled keeps the item hoverable so the Tooltip can explain recover semantics */}
-                        <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
-                          <TooltipTrigger asChild>
-                            <DropdownMenuItem
-                              aria-disabled={
-                                isSavepointRecoverDisabled || undefined
-                              }
-                              className={cn(
-                                isSavepointRecoverDisabled &&
-                                  'cursor-not-allowed opacity-50',
-                              )}
-                              onSelect={(event) => {
-                                if (isSavepointRecoverDisabled) {
-                                  event.preventDefault();
-                                  return;
-                                }
-                                void handleRun('recover');
-                              }}
-                            >
-                              {t('savepointRecover')}
-                            </DropdownMenuItem>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            side='left'
-                            className='max-w-xs text-xs leading-relaxed'
-                          >
-                            {t('savepointRecoverTooltip')}
-                          </TooltipContent>
-                        </Tooltip>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </span>
-                </TooltipTrigger>
-                {!editor.canRun ? (
-                  <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
-                ) : null}
-              </Tooltip>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    className={cn(
-                      'h-8 gap-1 rounded-md border-border/60 px-2.5 text-xs transition-colors',
-                      activeJobs.length > 0
-                        ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
-                        : 'text-muted-foreground',
-                    )}
-                    disabled={activeJobs.length === 0}
-                  >
-                    <Square className='size-3.5' />
-                    <span>{t('stop')}</span>
-                    <ChevronDown className='size-3 opacity-70' />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align='end'>
-                  <DropdownMenuItem
-                    onClick={() => void handleStopActiveJob('normal')}
-                  >
-                    {t('normalStop')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    disabled={executionMode === 'local'}
-                    onClick={() => void handleStopActiveJob('savepoint')}
-                  >
-                    {t('savepointStop')}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <div className='mx-0.5 h-4 w-px shrink-0 bg-border/60' />
+            {/* 保存/发布/运行/停止同一条 Button Group，Savepoint 变体进末尾菜单，避免四颗独立描边按钮。 */}
+            {/* Save, publish, run, and stop share one Button Group. Savepoint variants live in the trailing menu so the bar is not four outlined pills. */}
+            <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+              <TooltipTrigger asChild>
+                <span>
+                  <ButtonGroup
+                    label={t('toolbarActions')}
+                    size='md'
+                    items={[
+                      {
+                        id: 'save',
+                        label:
+                          saveSegment === 'pending'
+                            ? t('savePending')
+                            : saveSegment === 'saved'
+                              ? t('saveDone')
+                              : t('save'),
+                        reserve: [t('save'), t('savePending'), t('saveDone')],
+                        icon: saveSegment === 'saved' ? <Check /> : <Save />,
+                        disabled:
+                          saving ||
+                          saveAck === 'pending' ||
+                          draftSaveStatus === 'saving' ||
+                          !editor.name.trim() ||
+                          !editor.canEdit,
+                        onSelect: () => {
+                          void handleToolbarSave();
+                        },
+                      },
+                      {
+                        id: 'publish',
+                        label: t('publish'),
+                        icon: <Upload />,
+                        disabled:
+                          saving ||
+                          publishing ||
+                          saveAck === 'pending' ||
+                          draftSaveStatus === 'saving' ||
+                          !editor.name.trim() ||
+                          !editor.canEdit,
+                        onSelect: handleOpenPublishDialog,
+                      },
+                      {
+                        id: 'run',
+                        label: t('run'),
+                        icon: <Play />,
+                        disabled:
+                          saving ||
+                          hasActiveRun ||
+                          hasActivePreview ||
+                          !editor.canRun,
+                        onSelect: () => {
+                          void handleRun('run');
+                        },
+                      },
+                      {
+                        id: 'stop',
+                        label: t('stop'),
+                        icon: <Square />,
+                        disabled: activeJobs.length === 0,
+                        onSelect: () => {
+                          void handleStopActiveJob('normal');
+                        },
+                      },
+                    ]}
+                    menu={{
+                      label: t('moreActions'),
+                      items: [
+                        {
+                          id: 'recover',
+                          label: t('savepointRecover'),
+                          disabled: isSavepointRecoverDisabled,
+                          onSelect: () => {
+                            void handleRun('recover');
+                          },
+                        },
+                        {
+                          id: 'savepoint-stop',
+                          label: t('savepointStop'),
+                          disabled:
+                            executionMode === 'local' ||
+                            activeJobs.length === 0,
+                          onSelect: () => {
+                            void handleStopActiveJob('savepoint');
+                          },
+                        },
+                      ],
+                    }}
+                  />
+                </span>
+              </TooltipTrigger>
+              {!editor.canEdit ? (
+                <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
+              ) : !editor.canRun ? (
+                <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
+              ) : null}
+            </Tooltip>
 
             {/* 顶栏最右端：右侧高级配置开合（始终可见，#110 AC11） */}
             {/* Rightmost topbar: right advanced sidebar toggle (always visible, #110 AC11) */}
@@ -5015,10 +5004,8 @@ export function DataSyncStudio() {
                   aria-pressed={!isRightSidebarCollapsed}
                   data-testid='studio-toggle-right-sidebar'
                   className={cn(
-                    'size-8 shrink-0 rounded-md border border-border/60 px-0 text-muted-foreground hover:text-foreground',
-                    // 对齐 Cursor：侧栏展开时高亮，收起时不高亮 / Match Cursor: highlight when the sidebar is open
-                    !isRightSidebarCollapsed &&
-                      'border-primary/40 bg-primary/10 text-primary',
+                    'size-9 shrink-0 rounded-[var(--radius-control)] px-0 text-muted-foreground hover:bg-muted hover:text-foreground',
+                    !isRightSidebarCollapsed && 'bg-muted text-foreground',
                   )}
                   onClick={handleToggleRightSidebar}
                 >
@@ -5086,8 +5073,8 @@ export function DataSyncStudio() {
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 资源管理器标题与工具栏 (VSCode 风格) */}
             {/* Explorer title and action toolbar (VSCode style) */}
-            <div className='flex h-8.5 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
-              <div className='flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground/80'>
+            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
+              <div className='flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground/80'>
                 <FolderTree className='size-3.5 shrink-0 text-primary/80' />
                 <span className='truncate'>{t('resources')}</span>
                 <span className='rounded-full bg-muted/60 px-1.5 py-0.2 font-mono text-[10px] font-normal text-muted-foreground'>
@@ -5106,7 +5093,7 @@ export function DataSyncStudio() {
                           : null;
                         handleInlineCreateFolder(folderNode);
                       }}
-                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
                     >
                       <FolderPlus className='size-3.5' />
                     </button>
@@ -5128,7 +5115,7 @@ export function DataSyncStudio() {
                         }
                         handleInlineCreateFile(folderNode);
                       }}
-                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
                     >
                       <FilePlus2 className='size-3.5' />
                     </button>
@@ -5141,7 +5128,7 @@ export function DataSyncStudio() {
                       type='button'
                       aria-label={expandedFolderIds.length > 0 ? t('collapseAll') : t('expandAll')}
                       onClick={handleToggleCollapseAll}
-                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
                     >
                       <ChevronsUpDown className='size-3.5' />
                     </button>
@@ -5158,7 +5145,7 @@ export function DataSyncStudio() {
                       type='button'
                       aria-label={t('refresh')}
                       onClick={() => void loadWorkspace(selectedNodeId)}
-                      className='flex size-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
                     >
                       <RefreshCw
                         className={cn('size-3.5', loading && 'animate-spin')}
@@ -5171,67 +5158,32 @@ export function DataSyncStudio() {
             </div>
             {/* 快捷过滤输入框与范围筛选 */}
             {/* Quick search/filter input and scope selector */}
-            <div className='border-b border-border/60 bg-muted/10 px-2 py-1.5 space-y-1.5'>
-              <div className='relative flex items-center'>
-                <Search className='pointer-events-none absolute left-2 size-3 text-muted-foreground/60' />
-                <Input
+            <div className='studio-explorer-filter space-y-1.5 border-b border-border/60 bg-muted/10 px-2 py-1.5'>
+              <div className='studio-search-field'>
+                <SearchField
+                  label={t('filterFilesLabel')}
                   value={keyword}
-                  onChange={(event) => setKeyword(event.target.value)}
-                  className='h-6 rounded-md border-border/60 bg-background/80 pl-6 pr-6 text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/40'
+                  onValueChange={setKeyword}
                   placeholder={t('filterFiles')}
+                  clearLabel={t('clearSearch')}
                 />
-                {keyword ? (
-                  <button
-                    type='button'
-                    onClick={() => setKeyword('')}
-                    className='absolute right-1.5 text-muted-foreground/60 hover:text-foreground'
-                  >
-                    <X className='size-3' />
-                  </button>
-                ) : null}
               </div>
-
-              {/* 任务过滤范围切换：我的与公开（默认，过滤非自己任务）/ 全部 / 仅我创建 */}
-              {/* Task filter scope pills: Mine & Public (default, filters non-owned) / All / Only Mine */}
-              <div className='flex items-center rounded-md bg-muted/50 p-0.5 text-[11px] border border-border/60'>
-                <button
-                  type='button'
-                  onClick={() => handleFilterScopeChange('mine_and_public')}
-                  className={cn(
-                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
-                    treeFilterScope === 'mine_and_public'
-                      ? 'bg-background text-foreground shadow-2xs font-semibold'
-                      : 'text-muted-foreground/80 hover:text-foreground',
-                  )}
-                  title={t('treeFilterMineAndPublicTooltip')}
-                >
-                  {t('treeFilterMineAndPublic')}
-                </button>
-                <button
-                  type='button'
-                  onClick={() => handleFilterScopeChange('all')}
-                  className={cn(
-                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
-                    treeFilterScope === 'all'
-                      ? 'bg-background text-foreground shadow-2xs font-semibold'
-                      : 'text-muted-foreground/80 hover:text-foreground',
-                  )}
-                >
-                  {t('treeFilterAll')}
-                </button>
-                <button
-                  type='button'
-                  onClick={() => handleFilterScopeChange('only_mine')}
-                  className={cn(
-                    'flex-1 rounded-md py-0.5 text-center font-medium transition-all',
-                    treeFilterScope === 'only_mine'
-                      ? 'bg-background text-foreground shadow-2xs font-semibold'
-                      : 'text-muted-foreground/80 hover:text-foreground',
-                  )}
-                >
-                  {t('treeFilterOnlyMine')}
-                </button>
-              </div>
+              {/* 任务过滤：我的=自己的+公开的；全部=不过滤。去掉含糊的「可见」。 */}
+              {/* Mine = own + public. All = unfiltered. The old "Visible" label is gone. */}
+              <SegmentedControl
+                label={t('treeFilterMineAndPublicTooltip')}
+                value={treeFilterScope}
+                onValueChange={(value) =>
+                  handleFilterScopeChange(value as TreeFilterScope)
+                }
+                options={[
+                  {
+                    value: 'mine_and_public',
+                    label: t('treeFilterMineAndPublic'),
+                  },
+                  {value: 'all', label: t('treeFilterAll')},
+                ]}
+              />
             </div>
 
             {/* 文件树滚动区域 */}
@@ -5551,19 +5503,24 @@ export function DataSyncStudio() {
           ariaHidden={isRightSidebarCollapsed}
           inert={isRightSidebarCollapsed}
           contentMode={
-            rightSidebarTab === 'templates' ? 'fill' : 'scroll'
+            rightSidebarTab === 'templates' || rightSidebarTab === 'settings'
+              ? 'fill'
+              : 'scroll'
+          }
+          flush={
+            rightSidebarTab === 'settings' || rightSidebarTab === 'templates'
           }
           rail={
             <>
               <SidebarIconTab
                 active={rightSidebarTab === 'settings'}
-                icon={<Database className='size-4' />}
+                icon={<Settings className='size-4' />}
                 label={t('settings')}
                 onClick={() => setRightSidebarTab('settings')}
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'templates'}
-                icon={<Wrench className='size-4' />}
+                icon={<FileStack className='size-4' />}
                 label={t('curatedManage')}
                 onClick={() => setRightSidebarTab('templates')}
               />
@@ -5575,13 +5532,13 @@ export function DataSyncStudio() {
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'versions'}
-                icon={<GitBranch className='size-4' />}
+                icon={<Tags className='size-4' />}
                 label={t('versionManagement')}
                 onClick={() => setRightSidebarTab('versions')}
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'globals'}
-                icon={<Globe2 className='size-4' />}
+                icon={<CurlyBracketsIcon className='size-4' />}
                 label={t('globalVariables')}
                 onClick={() => {
                   setGlobalVariablesDefaultTab('all');
@@ -5617,19 +5574,6 @@ export function DataSyncStudio() {
                 }
                 updateEditor('clusterId', next);
               }}
-              pluginPanelLoading={pluginPanelLoading}
-              pluginTemplatePendingType={pluginTemplatePendingType}
-              pluginTemplateLoadingText={pluginTemplateLoadingText}
-              sourceTemplateItems={sourceTemplateItems}
-              transformTemplateItems={transformTemplateItems}
-              sinkTemplateItems={sinkTemplateItems}
-              onInsertPluginTemplate={(pluginType, factoryIdentifier) =>
-                void insertPluginTemplate(pluginType, factoryIdentifier)
-              }
-              onInsertCuratedTemplate={(item) =>
-                void insertCuratedTemplate(item)
-              }
-              curatedRefreshToken={curatedRefreshToken}
               onOpenCreateCustomVariable={handleOpenCreateCustomVariable}
               onOpenEditCustomVariable={handleOpenEditCustomVariable}
               onDeleteCustomVariable={handleDeleteCustomVariable}
@@ -5647,6 +5591,19 @@ export function DataSyncStudio() {
               refreshToken={curatedRefreshToken}
               clusterId={editor.clusterId}
               onChanged={() => setCuratedRefreshToken((n) => n + 1)}
+              onInsert={(item) => void insertCuratedTemplate(item)}
+              pluginInsert={{
+                executionMode,
+                clusterId: editor.clusterId,
+                loading: pluginPanelLoading,
+                pendingType: pluginTemplatePendingType,
+                loadingText: pluginTemplateLoadingText,
+                sourceItems: sourceTemplateItems,
+                transformItems: transformTemplateItems,
+                sinkItems: sinkTemplateItems,
+                onInsertPlugin: (pluginType, factoryIdentifier) =>
+                  void insertPluginTemplate(pluginType, factoryIdentifier),
+              }}
             />
           ) : rightSidebarTab === 'schedule' ? (
             <TaskScheduleSidebarPanel
@@ -5716,68 +5673,30 @@ export function DataSyncStudio() {
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
             {/* 控制台顶部横向选项卡与操作区 */}
             {/* Console top horizontal tab switcher and action area */}
-            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/60 bg-muted/20 px-2'>
-              <div className='flex items-center gap-1'>
-                <button
-                  type='button'
-                  aria-label={t('jobs')}
-                  className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
-                    bottomConsoleTab === 'jobs'
-                      ? 'bg-background text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
-                  )}
-                  onClick={() => setBottomConsoleTab('jobs')}
-                >
-                  <ListTree className='size-3.5' />
-                  <span>{t('jobs')}</span>
-                  {activeJobs.length > 0 ? (
-                    <span className='size-1.5 rounded-full bg-emerald-500 animate-pulse' />
-                  ) : null}
-                </button>
-                <button
-                  type='button'
-                  aria-label={t('logs')}
-                  className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
-                    bottomConsoleTab === 'logs'
-                      ? 'bg-background text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
-                  )}
-                  onClick={() => setBottomConsoleTab('logs')}
-                >
-                  <SquareTerminal className='size-3.5' />
-                  <span>{t('logs')}</span>
-                </button>
-                <button
-                  type='button'
-                  aria-label={t('preview')}
-                  className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
-                    bottomConsoleTab === 'preview'
-                      ? 'bg-background text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
-                  )}
-                  onClick={() => setBottomConsoleTab('preview')}
-                >
-                  <Bug className='size-3.5' />
-                  <span>{t('preview')}</span>
-                </button>
-                <button
-                  type='button'
-                  aria-label={t('checkpoint')}
-                  className={cn(
-                    'flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
-                    bottomConsoleTab === 'checkpoint'
-                      ? 'bg-background text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
-                  )}
-                  onClick={() => setBottomConsoleTab('checkpoint')}
-                >
-                  <Columns2 className='size-3.5' />
-                  <span>{t('checkpoint')}</span>
-                </button>
-              </div>
+            <div className='studio-sidebar-chrome flex min-h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-2 py-1'>
+              {/* 底部四个视图用同一套分段控件，不再手写一套胶囊 Tab。 */}
+              {/* The four console views share the same SegmentedControl instead of a handmade pill row. */}
+              <SegmentedControl
+                className='min-w-0'
+                label={t('jobs')}
+                value={bottomConsoleTab}
+                onValueChange={(value) =>
+                  setBottomConsoleTab(value as BottomConsoleTab)
+                }
+                options={[
+                  {
+                    value: 'jobs',
+                    label: t('jobs'),
+                    accessory:
+                      activeJobs.length > 0 ? (
+                        <span className='ml-1 inline-block size-1.5 rounded-full bg-emerald-500 animate-pulse' />
+                      ) : undefined,
+                  },
+                  {value: 'logs', label: t('logs')},
+                  {value: 'preview', label: t('preview')},
+                  {value: 'checkpoint', label: t('checkpoint')},
+                ]}
+              />
 
               {/* 右侧：全屏与还原切换 */}
               {/* Right: Full-screen and restore toggle */}
@@ -5789,7 +5708,7 @@ export function DataSyncStudio() {
                         size='icon'
                         variant='ghost'
                         className={cn(
-                          'size-6 text-muted-foreground hover:text-foreground',
+                          'size-7 rounded-[var(--radius-control)] text-muted-foreground hover:text-foreground',
                           isConsoleExpanded && 'text-primary bg-primary/10',
                         )}
                         onClick={() => setIsConsoleExpanded((prev) => !prev)}
@@ -5807,7 +5726,7 @@ export function DataSyncStudio() {
                     <Button
                       size='icon'
                       variant='ghost'
-                      className='size-6 text-muted-foreground hover:text-foreground'
+                      className='size-7 rounded-[var(--radius-control)] text-muted-foreground hover:text-foreground'
                       onClick={() => setIsConsoleMaximized((prev) => !prev)}
                     >
                       {isConsoleMaximized ? (
@@ -5828,7 +5747,14 @@ export function DataSyncStudio() {
 
             {/* 控制台内容面板 */}
             {/* Console content panel */}
-            <div className='min-h-0 flex-1 overflow-auto p-3'>
+            <div
+              className={cn(
+                'min-h-0 flex-1',
+                bottomConsoleTab === 'jobs' || bottomConsoleTab === 'preview'
+                  ? 'overflow-hidden'
+                  : 'overflow-auto p-3',
+              )}
+            >
               {bottomConsoleTab === 'jobs' ? (
                 <JobRunsPanel
                   jobs={jobs}
@@ -6136,50 +6062,54 @@ export function DataSyncStudio() {
               </Tooltip>
             </div>
           </DialogHeader>
-          <div className='grid gap-4 py-2'>
-            <div className='grid gap-2'>
-              <Label htmlFor='publish-version-comment'>
-                {t('publishComment')}
-              </Label>
-              <Input
-                id='publish-version-comment'
-                value={publishComment}
-                onChange={(e) => setPublishComment(e.target.value)}
-                placeholder={t('publishCommentPlaceholder')}
-                disabled={publishing}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    void handleConfirmPublish();
-                  }
-                }}
-              />
-            </div>
+          <div className='py-2'>
+            {/* 弹窗里的字段和确认也走 Arc，不再混 shadcn 主按钮。 */}
+            {/* The dialog field and confirm actions stay Arc instead of mixing a shadcn primary. */}
+            <ArcField
+              id='publish-version-comment'
+              label={t('publishComment')}
+              value={publishComment}
+              onChange={(e) => setPublishComment(e.target.value)}
+              placeholder={t('publishCommentPlaceholder')}
+              disabled={publishing}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  void handleConfirmPublish();
+                }
+              }}
+            />
           </div>
           <DialogFooter>
-            <Button
+            <ArcButton
               type='button'
-              variant='outline'
+              variant='secondary'
+              size='sm'
               onClick={() => setPublishDialogOpen(false)}
               disabled={publishing}
             >
               {t('cancel')}
-            </Button>
-            <Button
+            </ArcButton>
+            <ArcButton
               type='button'
+              variant='primary'
+              size='sm'
+              loading={publishing}
               onClick={() => void handleConfirmPublish()}
-              disabled={publishing}
-              className='gap-1.5'
             >
-              {publishing ? (
-                <Loader2 className='size-3.5 animate-spin' />
-              ) : (
-                <GitCommit className='size-3.5' />
-              )}
-              <span>{t('confirm')}</span>
-            </Button>
+              {t('confirm')}
+            </ArcButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <StudioActionErrorDialog
+        error={actionError}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActionError(null);
+          }
+        }}
+      />
 
       <Dialog open={validationOpen} onOpenChange={setValidationOpen}>
         <DialogContent
@@ -6489,32 +6419,29 @@ export function DataSyncStudio() {
           <DialogHeader>
             <DialogTitle>{t('logViewer')}</DialogTitle>
           </DialogHeader>
-          <div className='flex flex-wrap items-center justify-between gap-2'>
+          <div className='studio-sidebar-chrome flex flex-wrap items-center justify-between gap-2'>
             <div className='flex items-center gap-2'>
-              <Input
-                value={logSearchTerm}
-                onChange={(event) => setLogSearchTerm(event.target.value)}
-                placeholder={t('searchLogKeyword')}
-                className='h-8 w-[320px]'
-              />
-              <div className='flex items-center gap-1 rounded-md border border-border/60 bg-background px-1 py-1'>
-                <Funnel className='ml-1 size-3.5 text-muted-foreground' />
-                {(['all', 'warn', 'error'] as LogFilterMode[]).map((mode) => (
-                  <button
-                    key={mode}
-                    type='button'
-                    className={cn(
-                      'rounded px-2 py-1 text-xs',
-                      logFilterMode === mode
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground',
-                    )}
-                    onClick={() => setLogFilterMode(mode)}
-                  >
-                    {mode === 'all' ? t('all') : mode.toUpperCase()}
-                  </button>
-                ))}
+              <div className='studio-search-field w-[320px]'>
+                <SearchField
+                  label={t('searchLogKeyword')}
+                  value={logSearchTerm}
+                  onValueChange={setLogSearchTerm}
+                  placeholder={t('searchLogKeyword')}
+                  clearLabel={t('clearSearch')}
+                />
               </div>
+              <SegmentedControl
+                label={t('logs')}
+                value={logFilterMode}
+                onValueChange={(value) =>
+                  setLogFilterMode(value as LogFilterMode)
+                }
+                options={[
+                  {value: 'all', label: t('all')},
+                  {value: 'warn', label: 'WARN'},
+                  {value: 'error', label: 'ERROR'},
+                ]}
+              />
             </div>
             <div className='flex items-center gap-2 text-xs text-muted-foreground'>
               <span>

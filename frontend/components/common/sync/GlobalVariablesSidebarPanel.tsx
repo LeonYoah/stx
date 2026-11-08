@@ -22,8 +22,10 @@
 
 import React, {useState, useMemo, useEffect} from 'react';
 import {useTranslations} from 'next-intl';
+import ChipGroup from '@/components/arc/chip-group/chip-group';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
 import {Badge} from '@/components/ui/badge';
 import {
   Tooltip,
@@ -46,21 +48,17 @@ import {
   Globe2,
   HelpCircle,
   Plus,
-  Search,
   Lock,
-  FileText,
   Copy,
   Pencil,
   Trash2,
   MoreHorizontal,
   Code2,
   ShieldCheck,
-  X,
   KeyRound,
   Clock3,
   CalendarDays,
 } from 'lucide-react';
-import {cn} from '@/lib/utils';
 
 export type GlobalVariableTabType = 'all' | 'string' | 'time' | 'secret';
 
@@ -228,7 +226,7 @@ export function GlobalVariablesSidebarPanel({
   const isTimeMode = typeFilter === 'time';
 
   return (
-    <div className='min-w-0 w-full space-y-3'>
+    <div className='studio-sidebar-chrome min-w-0 w-full space-y-3'>
       {/* 顶部标题栏与操作 */}
       {/* Header bar and action */}
       <div className='space-y-2.5 border-b border-border/40 pb-3'>
@@ -270,7 +268,7 @@ export function GlobalVariablesSidebarPanel({
           {!isTimeMode && (
             <Button
               size='sm'
-              className='h-7 px-2.5 text-xs gap-1 shadow-xs'
+              className='h-9 gap-1 rounded-[var(--radius-control)] px-2.5 text-xs shadow-xs'
               onClick={onOpenCreate}
             >
               <Plus className='size-3.5' />
@@ -279,162 +277,59 @@ export function GlobalVariablesSidebarPanel({
           )}
         </div>
 
-        {/* 快捷搜索栏 */}
-        {/* Search input */}
-        <div className='relative'>
-          <Search className='absolute left-2.5 top-1/2 -translate-y-1/2 size-3 text-muted-foreground' />
-          <Input
+        {/* 快捷搜索与类型筛选走同一套 Arc 控件，不再手写 Input / 胶囊。 */}
+        {/* Search and type filter use the same Arc controls instead of a custom Input / pill row. */}
+        <div className='studio-search-field'>
+          <SearchField
+            label={
+              isTimeMode ? t('searchTimeVariables') : t('searchVariables')
+            }
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onValueChange={setSearchQuery}
             placeholder={
               isTimeMode ? t('searchTimeVariables') : t('searchVariables')
             }
-            className='h-7 pl-7 pr-7 text-xs bg-muted/20 border-border/60'
+            clearLabel={t('clearSearch')}
           />
-          {searchQuery && (
-            <button
-              type='button'
-              onClick={() => setSearchQuery('')}
-              className='absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
-            >
-              <X className='size-3' />
-            </button>
-          )}
         </div>
+        <SegmentedControl
+          className='w-full'
+          label={t('globalVariables')}
+          value={typeFilter}
+          onValueChange={(value) =>
+            setTypeFilter(value as GlobalVariableTabType)
+          }
+          options={[
+            {value: 'all', label: t('filterAll')},
+            {value: 'string', label: t('filterText')},
+            {value: 'time', label: t('filterTime')},
+            {value: 'secret', label: t('filterSecret')},
+          ]}
+        />
 
-        {/* 类型切换标签：全部 / 文本 / 时间 / 保密 */}
-        {/* Type filter tabs: All / Text / Time / Secret */}
-        <div className='grid grid-cols-4 gap-1 p-0.5 rounded-md bg-muted/30 border border-border/40 text-[11px]'>
-          <button
-            type='button'
-            onClick={() => setTypeFilter('all')}
-            className={cn(
-              'py-1 rounded transition-colors text-center font-medium',
-              typeFilter === 'all'
-                ? 'bg-background text-foreground shadow-2xs font-semibold'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {t('filterAll')}
-          </button>
-          <button
-            type='button'
-            onClick={() => setTypeFilter('string')}
-            className={cn(
-              'py-1 rounded transition-colors text-center font-medium flex items-center justify-center gap-1',
-              typeFilter === 'string'
-                ? 'bg-background text-foreground shadow-2xs font-semibold'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <FileText className='size-2.5' />
-            <span>{t('filterText')}</span>
-          </button>
-          <button
-            type='button'
-            onClick={() => setTypeFilter('time')}
-            className={cn(
-              'py-1 rounded transition-colors text-center font-medium flex items-center justify-center gap-1',
-              typeFilter === 'time'
-                ? 'bg-background text-sky-600 dark:text-sky-400 shadow-2xs font-semibold'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Clock3 className='size-2.5' />
-            <span>{t('filterTime')}</span>
-          </button>
-          <button
-            type='button'
-            onClick={() => setTypeFilter('secret')}
-            className={cn(
-              'py-1 rounded transition-colors text-center font-medium flex items-center justify-center gap-1',
-              typeFilter === 'secret'
-                ? 'bg-background text-amber-500 shadow-2xs font-semibold'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Lock className='size-2.5' />
-            <span>{t('filterSecret')}</span>
-          </button>
-        </div>
-
-        {/* 当切换至“时间”类型时，展示类别筛选细分胶囊 */}
-        {/* Category filter pills shown only under Time tab */}
+        {/* 时间变量类别用 Chip 单选；清空则回到全部。 */}
+        {/* Time-variable categories are a single ChipGroup; clearing returns to all. */}
         {isTimeMode && (
-          <div className='flex flex-wrap gap-1 pt-1 border-t border-border/30'>
-            <button
-              type='button'
-              onClick={() => setTimeCategoryFilter('all')}
-              className={cn(
-                'rounded px-2 py-0.5 text-[10px] font-medium transition-colors',
-                timeCategoryFilter === 'all'
-                  ? 'bg-primary text-primary-foreground shadow-2xs'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              {t('filterAll')}
-            </button>
-            <button
-              type='button'
-              onClick={() => setTimeCategoryFilter('business')}
-              className={cn(
-                'rounded px-2 py-0.5 text-[10px] font-medium transition-colors',
-                timeCategoryFilter === 'business'
-                  ? 'bg-primary text-primary-foreground shadow-2xs'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              {t('categoryBusiness')}
-            </button>
-            <button
-              type='button'
-              onClick={() => setTimeCategoryFilter('datetime')}
-              className={cn(
-                'rounded px-2 py-0.5 text-[10px] font-medium transition-colors',
-                timeCategoryFilter === 'datetime'
-                  ? 'bg-primary text-primary-foreground shadow-2xs'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              {t('categoryDatetime')}
-            </button>
-            <button
-              type='button'
-              onClick={() => setTimeCategoryFilter('format')}
-              className={cn(
-                'rounded px-2 py-0.5 text-[10px] font-medium transition-colors',
-                timeCategoryFilter === 'format'
-                  ? 'bg-primary text-primary-foreground shadow-2xs'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              {t('categoryFormat')}
-            </button>
-            <button
-              type='button'
-              onClick={() => setTimeCategoryFilter('offset')}
-              className={cn(
-                'rounded px-2 py-0.5 text-[10px] font-medium transition-colors',
-                timeCategoryFilter === 'offset'
-                  ? 'bg-primary text-primary-foreground shadow-2xs'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              {t('categoryOffset')}
-            </button>
-            <button
-              type='button'
-              onClick={() => setTimeCategoryFilter('calendar')}
-              className={cn(
-                'rounded px-2 py-0.5 text-[10px] font-medium transition-colors',
-                timeCategoryFilter === 'calendar'
-                  ? 'bg-primary text-primary-foreground shadow-2xs'
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              {t('categoryCalendar')}
-            </button>
-          </div>
+          <ChipGroup
+            multiple={false}
+            maxVisible={4}
+            label={t('filterTime')}
+            value={[timeCategoryFilter]}
+            onValueChange={(next) =>
+              setTimeCategoryFilter(
+                (next[0] as BuiltinTimeVariableItem['category'] | 'all') ||
+                  'all',
+              )
+            }
+            options={[
+              {value: 'all', label: t('filterAll')},
+              {value: 'business', label: t('categoryBusiness')},
+              {value: 'datetime', label: t('categoryDatetime')},
+              {value: 'format', label: t('categoryFormat')},
+              {value: 'offset', label: t('categoryOffset')},
+              {value: 'calendar', label: t('categoryCalendar')},
+            ]}
+          />
         )}
       </div>
 

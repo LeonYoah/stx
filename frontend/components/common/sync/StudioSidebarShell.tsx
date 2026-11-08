@@ -46,7 +46,7 @@ export function SidebarIconTab({
           type='button'
           aria-label={label}
           className={cn(
-            'flex h-9 w-9 items-center justify-center rounded-md border transition-colors',
+            'flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)] border transition-colors',
             active
               ? 'border-primary/40 bg-primary/10 text-primary'
               : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -63,9 +63,11 @@ export function SidebarIconTab({
 
 /**
  * 工作台侧边栏外壳容器。
- * contentMode=scroll：整页滚动（设置/版本等）；fill：子面板自管高度（模板管理列表吃满剩余空间）。
+ * contentMode=scroll：整页滚动（版本等）；fill：子面板自管高度（模板管理、设置页上下两段）。
+ * flush：fill 时不再加外壳内边距，由子面板自己分段留白。
  * 收起入口在顶栏两端（#110 AC11），本组件不再放收起按钮。
- * Studio sidebar shell. scroll = page scroll; fill = child owns height.
+ * Studio sidebar shell. scroll = page scroll; fill = child owns height (templates, split settings).
+ * flush = fill without shell padding so the child can pad each pane.
  * Collapse lives on the topbar ends (#110 AC11); this shell has no collapse control.
  */
 export function StudioSidebarShell({
@@ -73,6 +75,7 @@ export function StudioSidebarShell({
   rail,
   className,
   contentMode = 'scroll',
+  flush = false,
   ariaHidden,
   inert: inertProp,
   'data-studio-right-sidebar': dataStudioRightSidebar,
@@ -81,6 +84,8 @@ export function StudioSidebarShell({
   rail: ReactNode;
   className?: string;
   contentMode?: 'scroll' | 'fill';
+  /** fill 时去掉外壳 padding，让设置页上下两段自己滚动 / Drop shell padding in fill mode so the settings panes scroll themselves */
+  flush?: boolean;
   ariaHidden?: boolean;
   /** 收起时设 inert，整棵侧栏移出键盘焦点序 / When collapsed, inert removes the sidebar from keyboard focus */
   inert?: boolean;
@@ -90,7 +95,7 @@ export function StudioSidebarShell({
     <Card
       data-studio-right-sidebar={dataStudioRightSidebar}
       className={cn(
-        'row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm',
+        'studio-sidebar-chrome row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm',
         className,
       )}
       aria-hidden={ariaHidden || undefined}
@@ -99,7 +104,12 @@ export function StudioSidebarShell({
       <CardContent className='grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)_40px] p-0'>
         <div className='min-h-0 min-w-0 overflow-hidden'>
           {contentMode === 'fill' ? (
-            <div className='flex h-full min-h-0 min-w-0 flex-col overflow-hidden p-3'>
+            <div
+              className={cn(
+                'flex h-full min-h-0 min-w-0 flex-col overflow-hidden',
+                flush ? '' : 'p-3',
+              )}
+            >
               {children}
             </div>
           ) : (

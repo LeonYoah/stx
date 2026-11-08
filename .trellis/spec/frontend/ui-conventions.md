@@ -49,6 +49,11 @@ STX 控制台采用现代化控制台体验架构：
   - 审计日志：`FileText`
   - 命令历史：`Terminal`
   - 用户管理：`Users`
+- **图标选型先确认，再改代码**：
+  - 换图标或加一枚新图标时，不要按名字从 Lucide 里随手挑一个就提交。先去项目已经依赖的 `lucide-react`、`@tabler/icons-react` 里找，再看当前界面用的组件库：Arc / `@uiarc` 没有图标集；HeroUI 文档用的是 Gravity UI（`@gravity-ui/icons`），不是 HeroUI 自带。需要时再看 Heroicons、Phosphor。
+  - 按图标真正出现的尺寸看，侧栏是 16px。放大图好看不够。和旁边已经定下来的图标放在一起比，避免时钟撞上定时、地球当成全局、分支当成版本。
+  - 至少列出 3 个候选，写清来源、图标名，以及不建议的原因。等开发者点名确认后再改代码。开发者没点头之前，保持现有图标。
+  - 确认后优先用已经装上的库。只有一枚、且来自还没安装的库时，内联这一个 SVG，不要为了一枚图标加整包。
 - **结构化配置**：
   - 支持清晰的面包屑导航（`breadcrumbs`）；
   - 副标题简要阐述页面职责（如“STX 集群运行状态与节点拓扑”）；
@@ -83,6 +88,7 @@ STX 控制台采用现代化控制台体验架构：
 - **严禁全量平铺展开（Anti-Flat-Dumping）**：
   - **严禁**在同一个长滚动容器中，将“基础属性 + 多个多行数据表格 + 复杂新增/编辑表单”从上到下全量平铺堆叠；
   - 这种反模式会导致用户首屏抓不住重点，视觉充斥大量同等权重的边框与输入框，产生极强的拥挤感和压迫感。
+- **工作台右侧是高级属性，上下两段都是**：设置页上段只放任务属性（执行模式、集群、变量），下段只放运行属性（可观测性、超时、告警）。任务变量只保留一个标题，不要再套「自定义变量」卡片。精选模板和插件默认参数都在「模板管理」页签里用分段视图切换，不要把模板浏览器再塞进设置页。两段各自滚动，不要再合成一条长列表。
 - **多维信息物理隔离（Dimensional Isolation）**：
   - 复杂实体必须按职责维度进行物理分流：
     - **概览（Overview）**：仅展示决策核心（核心指标、关键状态胶囊、基础属性、主操作入口），保持清爽克制与视觉呼吸感；
@@ -302,12 +308,25 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 
 ---
 
-## 14. 工作台草稿自动保存与离开拦截（Workbench Draft Autosave）
+## 14. Arc 组件（工作台）
+
+- 免费组件放在 `frontend/components/arc/`。从 `frontend/` 执行 `pnpm dlx shadcn@latest add @uiarc/<name> --yes`。注册表是 `frontend/components.json` 的 `@uiarc`。不要覆盖 `components/ui/`，也不要安装 `@uiarc-pro`。
+- `app/layout.tsx` 引入一次 `@/components/arc/foundation.css`。Arc 只认 `html[data-theme]`。`ThemeProvider` 里的 `ArcThemeAttribute` 把 `resolvedTheme` 写成 `light` 或 `dark`。Tailwind 继续用 `class`。
+- 界面文案仍走 next-intl，一次只显示一种语言。`SearchField.clearLabel`、`CopyButton.copiedLabel` 和 `failedLabel` 是给中文用的可选文案，默认保持英文。不要改组件的动画实现。
+- 顶栏不要给每个动作单独描边再留缝，那会像一串胶囊。按 Cursor / Figma / HeroUI Toolbar：状态和侧栏开关无边框；探查用一组 `ExpandingButtonGroup`；保存、发布、运行、停止用一组 `button-group` outline，Savepoint 变体进末尾菜单。不要用 `solid`（深色主题会反成白）。不要把「版本管理」塞进菜单。发布弹窗取消用 Arc `button` secondary，确认用 primary（`loading` 跟发布中）。保存段跟随当前草稿：保存中显示「保存中」；已有文件且草稿干净显示「已保存」；没有文件，或正文、右侧栏、全局变量把草稿弄脏，立刻回到「保存」。不要用定时器把已保存打回保存。`reserve` 锁住「保存 / 保存中 / 已保存」宽度。保存失败且草稿仍脏时必须停在「保存」。发布段只打开对话框。测试、DAG、预览不写 `doneLabel`。定时侧栏不要套卡片：标题 + `switch` + 状态 `badge` 一行，长说明进 HelpHint；Cron 预设用 `chip-group`，解除绑定用 `confirm-morph`，展开后单独占一行。顶栏三列是「面包屑 0.7fr / 搜索 280px / 动作 max-content」。搜索槽固定 280px 并靠左，`ExpandingSearch` 的壳是绝对定位，必须在槽内从左往右展开，不要盖住保存/运行。不在本地列表里的数字 Job ID 仍走 Cmd/Ctrl+P 对话框。顶栏把 `--control-height-md` 收到 `2.25rem`。右侧栏和控制台用 `.studio-sidebar-chrome` 同一套行高。发布按钮用短文案「发布」，弹窗标题仍用「发布新版本」。文件树范围只保留「我的 | 全部」：我的 = 自己的任务 + 公开任务。模板管理用分段控件切换「精选」和「插件默认」；插件默认的长说明收进 HelpHint，不要在列表上堆一段静态提示。精选分区用 `chip-group` 多选，来源用分段控件，插件列表用 `combobox`（选中即插入）。全局变量类型用分段控件，时间类别用 `chip-group` 单选。底部控制台「任务 / 日志 / 预览 / Checkpoint」也用分段控件。任务表和预览表用 `StudioDataTable`：HeroUI Table 的解剖（粘性表头、列排序、表内空状态、底栏分页），颜色走 Arc token，不要装 `@heroui/react`，也不要 uppercase 表头。任务 / 预览贴满控制台，不要再套一层卡片边框；预览分页放 `StudioTableFooter`，刷新用 `TableLoadingBar` 而不是居中 Spinner。行内操作保持 ghost。预览左右栏用 Arc `ResizablePanels`：拖动分隔条改宽度，拖过最小宽度或按 Enter 收起数据集栏，不要再写死 12.5rem。作业详情页签用 Arc `Tabs`。指标「快照 | 趋势」用 `SegmentedControl`，放在页签同一行右侧，说明进 HelpHint，不要在页签下面再叠一条分段。状态用 Arc `Badge`，恢复 / 停止用 Arc `Button`。侧栏文案用短标签，长说明放 tooltip 或 hint，不要靠 `truncate` 把功能入口吞掉。侧栏标题不要 uppercase。
+- 左侧文件树和拖拽移动不要换成 Arc Tree view 或 File dropzone。这两个组件没有右键、重命名、新建和目录移动。
+- 工作台左右侧栏开合记在 `localStorage`，但首帧必须用默认值（左展开、右收起），挂载后再套用上次记录。不要在 `useState` 初始值里读存储：服务端没有这份记录，客户端若记住了「右侧展开」，水合会改掉顶栏开关的 `aria-label` 和图标。Next 开发态会因此弹出红色报错层，开关点不了。那不是 Arc 的禁用样式。
+- 点不了的按钮用默认箭头，不要 `cursor: not-allowed`。这套系统光标会把禁止光标画成一块红色大图标，盖在「停止」这类禁用按钮上。禁用只靠变淡，原因放 tooltip。
+- 工作台右侧图标栏：设置 `Settings`（齿轮），模板 `FileStack`（叠放的模板文件），定时 `Clock3`，版本 Lucide `Tags`（两枚标签），全局变量用 Gravity UI 的 `curly-brackets`（16px 实心花括号，内联 SVG，不引入整包）。Arc 和 HeroUI 都没有自己的图标集。不要用数据库、扳手、地球、Git 分支、叠放菱形，或和定时相同的时钟，冒充设置、模板、全局变量和版本。
+- 集群升级三页（准备 / 配置合并 / 执行）共用 `.upgrade-steps` 轨道，当前步是抬起的选中块。返回、清空、刷新这类次要动作进 `ButtonGroup` 或 Arc `Button` secondary；继续、生成计划、启动执行用 primary，进行中走 `loading`，阻断原因用 `aria-disabled` + tooltip。状态用 Arc `Badge`。配置文件切换用 Arc `Tabs`。执行页「步骤 | 节点」用 `SegmentedControl`。长说明进 HelpHint，不要在标题下再铺一整段。状态摘要是一行四格，不要四张大卡片。
+- 单测一旦引入 Arc 的 CSS Module，`vitest.config.ts` 的 `css.postcss.plugins` 必须是空数组。否则 Vite 会拒绝 `postcss.config.mjs` 里的字符串插件 `@tailwindcss/postcss`。
+
+## 15. 工作台草稿自动保存与离开拦截（Workbench Draft Autosave）
 
 适用于 `/workbench` → `DataSyncStudio` 的未落盘草稿防丢：
 
 - **自动保存只走草稿**：防抖（`WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS`，1–2s）后仅调用 `persistCurrentFile(false)` / `updateTask`，**严禁**自动 `publishTask`。
-- **共享状态**：顶栏 `DraftSaveStatusBadge`（保存中 / 已保存 / 保存失败）供手动「保存草稿」与自动保存共用；成功以状态条为准，避免双重成功 toast。
+- **共享状态**：手动保存与自动保存共用草稿状态机；顶栏 Arc 保存段展示「保存 / 保存中 / 已保存」，失败时另用 `DraftSaveStatusBadge` 提供重试。成功以状态指示为准，避免双重成功 toast。
 - **离开风险**：任意可编辑 `editorDrafts.dirty`，或保存中 / 失败未恢复时，挂 `beforeunload`，并捕获站内离开 `/workbench` 的链接点击；对话框提供留下 / 保存并离开 / 丢弃并离开，默认焦点不在「丢弃」。
 - **只读**：`!editor.canEdit` 时不自动保存；无其它可编辑脏草稿时不拦截离开。
 
@@ -328,6 +347,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 
 在提交代码前，必须核对以下检查清单：
 - [ ] 页面头部是否使用了统一的 `WorkspaceHeader`？语义图标是否与 Dock 栏对齐？
+- [ ] 新增或替换图标前，是否查过 Lucide、Tabler、Arc、HeroUI（Gravity UI），并列了至少 3 个候选给开发者确认？没确认就不要改。
 - [ ] 页面是否没有再手写冲突的外层 `container` 或冗余的大 Padding？
 - [ ] 顶部是否有状态量化？是否优先使用了 `StatPillsBar` 并支持快捷筛选？
 - [ ] 是否消除了卡片顶部的“大篇幅无效说明文字”，保证高密度垂直视口？
@@ -345,6 +365,8 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] 动态后端值是否在调用翻译函数前使用 `t.has()` 检查，并准备原值或兜底文案？
 - [ ] 国际化覆盖测试是否通过，确认深层键、静态代码引用和 ICU 参数均无缺失？
 - [ ] 自增/修改的代码注释是否严格遵循“中文在前，英文在后”的双语规范？
+- [ ] 工作台若改用 Arc 控件，是否仍保留 `components/ui`、`data-theme` 同步？保存段是否跟随草稿：干净显示「已保存」，一改回到「保存」，失败且仍脏时不显示「已保存」？
+- [ ] 工作台任务 / 预览表是否用 `StudioDataTable`（粘头、排序、底栏、空状态），颜色是否仍走 Arc token 而不是另一套主题？预览左右栏是否用 Arc `ResizablePanels`，而不是写死宽度？
 - [ ] 工作台草稿变更是否走防抖自动保存草稿（非发布），并在未落盘时提供离开拦截与共享保存状态？
 - [ ] 登录后的整页跳转是否先走 `beginWelcomeSplashTransition()`？新增登录入口时不要绕过开屏契约。
 - [ ] 修改开屏中文欢迎语后，是否已重跑 `build-splash-greeting-font.sh` 并提交子集字体？

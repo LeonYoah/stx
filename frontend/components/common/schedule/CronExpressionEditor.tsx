@@ -19,12 +19,9 @@
 
 import {useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction} from 'react';
 
-import {Badge} from '@/components/ui/badge';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import {cn} from '@/lib/utils';
+import ChipGroup from '@/components/arc/chip-group/chip-group';
+import {Input} from '@/components/arc/input/input';
+import {Input as CompactInput} from '@/components/ui/input';
 
 import {
   cronToText,
@@ -54,6 +51,7 @@ export interface CronExpressionEditorLabels {
   schedulePreview: string;
   nextRuns: string;
   invalidCronExpression: string;
+  cronPresets?: string;
 }
 
 function formatDate(date: Date, timeZone?: string) {
@@ -77,16 +75,17 @@ function BuilderFields({
         const fullLabel = labels[`cron${key.charAt(0).toUpperCase()}${key.slice(1)}` as keyof CronExpressionEditorLabels] as string;
         return (
           <div key={key} className='min-w-0 space-y-1 text-center'>
-            <Label
+            <span
               title={fullLabel}
               className='block truncate text-[10px] font-medium text-muted-foreground whitespace-nowrap'
             >
               {fullLabel}
-            </Label>
-            <Input
+            </span>
+            <CompactInput
+              aria-label={fullLabel}
               value={parts[key]}
               onChange={(e) => setParts((prev) => ({...prev, [key]: e.target.value}))}
-              className='h-8 px-1 text-center text-xs font-mono bg-background/70'
+              className='h-9 rounded-[var(--radius-control)] px-1 text-center font-mono text-xs'
             />
           </div>
         );
@@ -155,44 +154,41 @@ export function CronExpressionEditor({
     }
   }, [derivedExpression, expression, labels.invalidCronExpression, timezone, translator]);
 
+  const selectedPreset = presets.find(
+    (preset) => (expression || derivedExpression) === preset.expr,
+  );
+
   return (
     <div className='space-y-3'>
       {onTimezoneChange ? (
-        <div className='space-y-1.5'>
-          <Label className='text-xs'>{labels.timezone}</Label>
-          <Input
-            value={timezone || ''}
-            onChange={(e) => onTimezoneChange(e.target.value)}
-            className='h-9 text-xs'
-            placeholder={labels.cronTimezonePlaceholder}
-          />
-        </div>
+        <Input
+          label={labels.timezone}
+          value={timezone || ''}
+          onChange={(e) => onTimezoneChange(e.target.value)}
+          placeholder={labels.cronTimezonePlaceholder}
+        />
       ) : null}
 
-      <div className='space-y-1.5'>
-        <div className='flex items-center justify-between gap-2'>
-          <Label className='text-xs'>{labels.cronExpression}</Label>
-          <Badge variant='outline' className='rounded-sm text-[10px]'>
-            {labels.cronFiveField}
-          </Badge>
-        </div>
-        <Input
-          value={expression}
-          onChange={(e) => {
-            const nextExpr = e.target.value;
-            try {
-              setParts(parseExpressionToParts(nextExpr));
-            } catch {
-              onExpressionChange(nextExpr);
-              return;
-            }
+      <Input
+        label={labels.cronExpression}
+        description={labels.cronFiveField}
+        value={expression}
+        onChange={(e) => {
+          const nextExpr = e.target.value;
+          try {
+            setParts(parseExpressionToParts(nextExpr));
+          } catch {
             onExpressionChange(nextExpr);
-          }}
-          className='h-9 text-xs font-mono'
-          placeholder={labels.cronExpressionPlaceholder}
-        />
-        {helper ? <div className='text-xs text-muted-foreground'>{helper}</div> : null}
-      </div>
+            return;
+          }
+          onExpressionChange(nextExpr);
+        }}
+        className='font-mono'
+        placeholder={labels.cronExpressionPlaceholder}
+      />
+      {helper ? (
+        <div className='text-xs text-muted-foreground'>{helper}</div>
+      ) : null}
 
       <BuilderFields
         parts={parts}
@@ -204,67 +200,59 @@ export function CronExpressionEditor({
         labels={labels}
       />
 
-      {/* 快捷预设按钮组 */}
-      {/* Quick preset buttons */}
-      <div className='flex flex-wrap gap-1.5'>
-        {presets.map((preset) => {
-          const isSelected = (expression || derivedExpression) === preset.expr;
-          return (
-            <Button
-              key={preset.key}
-              type='button'
-              variant={isSelected ? 'default' : 'secondary'}
-              className={cn(
-                'h-7 rounded-md px-2.5 text-[11px] transition-all',
-                isSelected && 'shadow-xs font-medium',
-              )}
-              onClick={() => {
-                setParts(parseExpressionToParts(preset.expr));
-                onExpressionChange(preset.expr);
-              }}
-            >
-              {renderPresetLabel(preset.key)}
-            </Button>
-          );
-        })}
-      </div>
+      {/* 预设用 Chip 单选，侧栏里全部摊开，避免溢出芯片写成英文 +N more。 */}
+      {/* Presets are a single ChipGroup. Show every chip so the overflow control never says "+N more". */}
+      {presets.length > 0 ? (
+        <ChipGroup
+          multiple={false}
+          label={labels.cronPresets ?? labels.cronExpression}
+          value={selectedPreset ? [selectedPreset.key] : []}
+          onValueChange={(next) => {
+            const preset = presets.find((item) => item.key === next[0]);
+            if (!preset) {
+              return;
+            }
+            setParts(parseExpressionToParts(preset.expr));
+            onExpressionChange(preset.expr);
+          }}
+          options={presets.map((preset) => ({
+            value: preset.key,
+            label: renderPresetLabel(preset.key),
+          }))}
+        />
+      ) : null}
 
-      {/* 执行预览与即将触发时间 */}
-      {/* Schedule preview and upcoming triggers */}
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
-        <div className='mb-2 flex items-center justify-between gap-2'>
-          <Label className='text-xs font-medium'>{labels.schedulePreview}</Label>
+      {/* 预览只留表达式、说明和下次运行，不再套三层边框。 */}
+      {/* Preview keeps the expression, the prose, and next runs. No nested cards. */}
+      <div className='space-y-2'>
+        <div className='flex items-center justify-between gap-2'>
+          <span className='text-xs font-medium text-foreground'>
+            {labels.schedulePreview}
+          </span>
           {footer}
         </div>
         {previewState.ok ? (
-          <div className='flex flex-col gap-2.5 text-xs'>
-            {/* 上半部分：Cron 表达式与可读描述 */}
-            {/* Top section: Cron expression and human readable description */}
-            <div className='rounded-md border border-border/50 bg-background/70 p-2.5'>
-              <div className='font-mono text-xs font-semibold text-primary'>
+          <div className='space-y-2 text-xs'>
+            <div>
+              <div className='font-mono text-xs text-foreground'>
                 {expression || derivedExpression}
               </div>
-              <div className='mt-1 text-muted-foreground leading-relaxed text-xs'>
+              <div className='mt-1 leading-relaxed text-muted-foreground'>
                 {previewState.text}
               </div>
             </div>
-
-            {/* 下半部分：未来运行时间（单列平铺，避免窄栏挤压导致时间戳换行） */}
-            {/* Bottom section: Next runs (single column to avoid squishing timestamps) */}
-            <div className='min-w-0 space-y-1.5'>
-              <div className='text-[11px] text-muted-foreground font-medium'>
+            <div className='min-w-0 space-y-1'>
+              <div className='text-[11px] font-medium text-muted-foreground'>
                 {labels.nextRuns}
               </div>
-              <div className='space-y-1'>
-                {previewState.nextRuns.map((run, index) => (
-                  <div
-                    key={`${run.toISOString()}-${index}`}
-                    className='flex items-center justify-between rounded-md border border-border/50 bg-background/60 px-2.5 py-1 font-mono text-[11px] text-foreground/90'
-                  >
-                    <span>{formatDate(run, timezone)}</span>
-                  </div>
-                ))}
-              </div>
+              {previewState.nextRuns.map((run, index) => (
+                <div
+                  key={`${run.toISOString()}-${index}`}
+                  className='overflow-x-auto whitespace-nowrap font-mono text-[11px] tabular-nums text-foreground/90'
+                >
+                  {formatDate(run, timezone)}
+                </div>
+              ))}
             </div>
           </div>
         ) : (

@@ -25,6 +25,9 @@
 - `internal/proto/agent/agent.pb.go`
 - `internal/proto/agent/agent_grpc.pb.go`
 
+## Arc UI
+
+工作台改用 [Arc](https://uiarc.dev/docs/ai) 时，先读 `.claude/skills/arc/SKILL.md`（`.agents/skills/arc/` 是同一份）。组件从 `frontend/` 用 shadcn CLI 安装，注册表已写在 `frontend/components.json` 的 `@uiarc`。不要手写或仿造 Pro 组件。界面文案仍走 next-intl。第一次真正装入组件时，再在根布局引入 `@/components/arc/foundation.css`。
 
 <!-- TRELLIS:START -->
 # Trellis Instructions

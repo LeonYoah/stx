@@ -40,9 +40,37 @@ import {
   resolveOptionAssignmentContext,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
+  studioSaveSegment,
+  formatSyncUserFacingError,
   STUDIO_LAYOUT_STORAGE_KEY,
   writeStudioLayoutPrefs,
 } from '../sync-studio-utils';
+
+describe('studio save segment', () => {
+  it('shows saved only while an existing file is clean', () => {
+    expect(
+      studioSaveSegment({pending: false, hasFile: true, dirty: false}),
+    ).toBe('saved');
+  });
+
+  it('returns to save when the draft changes, including a clean file that becomes dirty', () => {
+    expect(
+      studioSaveSegment({pending: false, hasFile: true, dirty: true}),
+    ).toBe('save');
+    expect(
+      studioSaveSegment({pending: false, hasFile: false, dirty: false}),
+    ).toBe('save');
+  });
+
+  it('keeps pending ahead of the draft, and a failed save that stays dirty is save', () => {
+    expect(
+      studioSaveSegment({pending: true, hasFile: true, dirty: false}),
+    ).toBe('pending');
+    expect(
+      studioSaveSegment({pending: false, hasFile: true, dirty: true}),
+    ).toBe('save');
+  });
+});
 
 describe('studio layout prefs (#110)', () => {
   it('defaults to left expanded and right collapsed when no record', () => {
@@ -768,3 +796,34 @@ describe('formatRateDisplay', () => {
     expect(formatRateDisplay(undefined)).toBe('-');
   });
 });
+
+describe('formatSyncUserFacingError', () => {
+  const t = ((key: string) => key) as any;
+
+  it('formats undefined template variable errors nicely', () => {
+    const raw = 'sync: undefined template variable: {{asdad}} (未在任务自定义变量或全局变量中配置)';
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.title).toBe('undefinedVariableTitle');
+    expect(formatted.description).toContain('{{asdad}}');
+    expect(formatted.suggestion).toBeDefined();
+  });
+
+  it('formats HOCON brace syntax errors with clear suggestion', () => {
+    const raw = "String: 46: expecting a close parentheses ')' here, not: '{'";
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.title).toBe('configParseFailedTitle');
+    expect(formatted.suggestion).toBeDefined();
+  });
+
+  // 普通 HOCON 括号错误经后端 humanize 后仍会提到「{{变量}}」，不能误报为未定义变量。
+  // Ordinary HOCON brace errors whose humanized text still mentions "{{变量}}" must stay syntax errors.
+  it('keeps ambiguous HOCON humanized brace errors as syntax errors, not undefined variables', () => {
+    const raw =
+      "sync: 配置解析失败，检测到未加双引号的 {{变量}} 或未闭合括号（若引用了变量请确认变量已定义，或使用双引号包裹 \"{{变量}}\"）：String: 46: expecting a close parentheses ')' here, not: '{'";
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.title).toBe('configParseFailedTitle');
+    expect(formatted.title).not.toBe('undefinedVariableTitle');
+    expect(formatted.suggestion).toContain('语法结构');
+  });
+});
+

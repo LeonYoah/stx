@@ -36,22 +36,17 @@ function renderPanel(props: {
           onObservabilityModeChange={() => undefined}
           submitTimeoutMinutes={props.submitTimeoutMinutes ?? ''}
           stopTimeoutMinutes={props.stopTimeoutMinutes ?? ''}
-          timeoutDefaults={{submit_timeout_seconds: 300, stop_timeout_seconds: 300}}
+          timeoutDefaults={{
+            submit_timeout_seconds: 300,
+            stop_timeout_seconds: 300,
+          }}
           onTaskTimeoutChange={onTaskTimeoutChange}
           clusterId='1'
           clusters={[{id: 1, name: 'c1'} as never]}
-          pluginPanelLoading={false}
-          pluginTemplatePendingType={null}
-          pluginTemplateLoadingText={null}
-          sourceTemplateItems={[]}
-          transformTemplateItems={[]}
-          sinkTemplateItems={[]}
           detectedVariables={[]}
           customVariableRows={[]}
           onExecutionModeChange={() => undefined}
           onClusterChange={() => undefined}
-          onInsertPluginTemplate={() => undefined}
-          onInsertCuratedTemplate={() => undefined}
           onOpenCreateCustomVariable={() => undefined}
           onOpenEditCustomVariable={() => undefined}
           onDeleteCustomVariable={() => undefined}
@@ -69,12 +64,31 @@ describe('TimeoutSettingsSection', () => {
     window.localStorage.clear();
   });
 
+  it('splits task properties above runtime properties and keeps a single variables heading', () => {
+    renderPanel({});
+    const task = screen.getByRole('region', {name: '任务高级属性'});
+    const runtime = screen.getByRole('region', {name: '运行高级属性'});
+    expect(
+      task.compareDocumentPosition(runtime) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getAllByText('任务变量')).toHaveLength(1);
+    expect(screen.queryByText('自定义变量')).toBeNull();
+    expect(
+      screen.queryByRole('tab', {name: zh.workbenchStudio.curatedTemplates}),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId('sync-templates-section-trigger'),
+    ).toBeNull();
+  });
+
   it('defaults to collapsed with a default summary', async () => {
     renderPanel({});
     const trigger = await screen.findByTestId('sync-timeout-section-trigger');
     expect(trigger.textContent).toMatch(/默认/);
     expect(trigger.textContent).toMatch(/提交 5 分钟/);
-    expect(screen.getByTestId('sync-submit-timeout-minutes')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('sync-submit-timeout-minutes'),
+    ).toBeInTheDocument();
     expect(screen.getByTestId('sync-stop-timeout-minutes')).toBeInTheDocument();
   });
 

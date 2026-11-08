@@ -94,6 +94,26 @@ export function isSeatunnelVersionAtLeast(version: string | undefined, baseline:
   return compareSeatunnelVersions(version, baseline) >= 0;
 }
 
+/**
+ * 安装向导里事件通道勾选的下一个值。
+ * 版本不支持时关掉；用户没动过开关时，支持的版本默认开启。
+ * Next event-channel checkbox value in the install wizard.
+ * Unsupported versions turn it off; a supported version defaults on until the user changes the switch.
+ */
+export function nextEventChannelEnabled(
+  supported: boolean,
+  current: boolean,
+  userSet: boolean,
+): boolean {
+  if (!supported) {
+    return false;
+  }
+  if (userSet) {
+    return current;
+  }
+  return true;
+}
+
 export function resolveSeatunnelVersionCapabilities(
   metadata?: Pick<AvailableVersions, 'version_capabilities'> | null,
   version?: string,

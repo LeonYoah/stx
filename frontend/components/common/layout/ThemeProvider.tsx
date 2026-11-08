@@ -18,11 +18,29 @@
 'use client';
 
 import * as React from 'react';
-import {ThemeProvider as NextThemesProvider} from 'next-themes';
+import {ThemeProvider as NextThemesProvider, useTheme} from 'next-themes';
+
+/**
+ * 把 next-themes 的解析结果写到 html[data-theme]，Arc 的 CSS Module 只认这个属性。
+ * Mirror the resolved next-themes value onto html[data-theme]; Arc CSS modules read that attribute.
+ */
+function ArcThemeAttribute() {
+  const {resolvedTheme} = useTheme();
+  React.useEffect(() => {
+    document.documentElement.dataset.theme =
+      resolvedTheme === 'light' ? 'light' : 'dark';
+  }, [resolvedTheme]);
+  return null;
+}
 
 export function ThemeProvider({
   children,
   ...props
 }: React.ComponentProps<typeof NextThemesProvider>) {
-  return <NextThemesProvider {...props}>{children}</NextThemesProvider>;
+  return (
+    <NextThemesProvider {...props}>
+      <ArcThemeAttribute />
+      {children}
+    </NextThemesProvider>
+  );
 }

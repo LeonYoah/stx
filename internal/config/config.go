@@ -130,6 +130,18 @@ func applyEnvironmentOverrides(c *configModel) {
 	if sqlitePath := os.Getenv("STX_DATABASE_SQLITE_PATH"); sqlitePath != "" {
 		c.Database.SQLitePath = sqlitePath
 	}
+
+	// 可观测地址环境变量覆盖（Compose 内用服务名，yaml 保持根目录 example 的 localhost）。
+	// Observability URL env overrides (compose DNS in Docker; yaml keeps the root example localhost).
+	if u := os.Getenv("STX_OBSERVABILITY_PROMETHEUS_URL"); u != "" {
+		c.Observability.Prometheus.URL = u
+	}
+	if u := os.Getenv("STX_OBSERVABILITY_ALERTMANAGER_URL"); u != "" {
+		c.Observability.Alertmanager.URL = u
+	}
+	if u := os.Getenv("STX_OBSERVABILITY_GRAFANA_URL"); u != "" {
+		c.Observability.Grafana.URL = u
+	}
 }
 
 // isTestEnvironment 检测是否在测试环境中运行

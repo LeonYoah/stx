@@ -231,6 +231,24 @@ describe('CustomVariablesSection', () => {
     expect(onOpenCreate).toHaveBeenCalled();
   });
 
+  it('skips the extra heading and empty-state add button when embedded', () => {
+    render(
+      <CustomVariablesSection
+        embedded
+        variables={[]}
+        onOpenCreate={vi.fn()}
+        onOpenEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onCopyReference={vi.fn()}
+        onCopyValue={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('noCustomVariables')).toBeDefined();
+    expect(screen.queryByText('customVariables')).toBeNull();
+    expect(screen.queryByText('addCustomVariable')).toBeNull();
+  });
+
   it('renders list with secret masked badge and string value', () => {
     const onCopyRef = vi.fn();
     const onCopyVal = vi.fn();

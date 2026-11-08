@@ -59,7 +59,7 @@ export function HostInstallGuideDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-w-[680px] max-h-[90vh] overflow-y-auto p-5 sm:p-6'>
+      <DialogContent className='sm:max-w-[680px] max-h-[90vh] overflow-y-auto p-5 sm:p-6'>
         <DialogHeader className='pb-3 border-b'>
           <div className='flex items-center gap-2 text-primary'>
             <Terminal className='h-5 w-5' />

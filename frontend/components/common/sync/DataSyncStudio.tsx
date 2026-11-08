@@ -5856,7 +5856,7 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='flex h-[90vh] w-[min(96vw,1280px)] max-w-none flex-col overflow-hidden p-0'>
+        <DialogContent className='flex h-[90vh] w-[min(96vw,1280px)] sm:max-w-none flex-col overflow-hidden p-0'>
           <DialogHeader className='border-b border-border/60 px-6 py-4'>
             <DialogTitle>{t('taskSchedule')}</DialogTitle>
           </DialogHeader>
@@ -5933,7 +5933,7 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='max-w-md' aria-describedby={undefined}>
+        <DialogContent className='sm:max-w-md' aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{t('saveAsCurated')}</DialogTitle>
           </DialogHeader>
@@ -6029,7 +6029,7 @@ export function DataSyncStudio() {
         }}
       >
         <DialogContent
-          className='max-w-md'
+          className='sm:max-w-md'
           aria-describedby={undefined}
           // 打开时焦点直接进备注输入框，避免自动聚焦到标题旁的说明按钮而弹出 Tooltip
           // Focus the comment input on open so auto-focus doesn't land on the help button and pop its Tooltip
@@ -6140,7 +6140,7 @@ export function DataSyncStudio() {
           setPreviewRunDialog((current) => ({...current, open}))
         }
       >
-        <DialogContent className='max-w-md'>
+        <DialogContent className='sm:max-w-md'>
           <DialogHeader>
             <DialogTitle>{t('previewSettings')}</DialogTitle>
             <DialogDescription>{t('previewRowLimitDesc')}</DialogDescription>
@@ -6318,7 +6318,7 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='max-w-5xl'>
+        <DialogContent className='sm:max-w-5xl'>
           <DialogHeader>
             <DialogTitle>
               {t('versionPreview')}{' '}
@@ -6491,7 +6491,7 @@ export function DataSyncStudio() {
         open={treeDialog.open}
         onOpenChange={(open) => setTreeDialog((prev) => ({...prev, open}))}
       >
-        <DialogContent className='max-w-md'>
+        <DialogContent className='sm:max-w-md'>
           <DialogHeader>
             <DialogTitle>
               {treeDialog.action === 'create-folder'

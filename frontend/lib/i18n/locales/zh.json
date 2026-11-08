@@ -53,6 +53,7 @@
     "helpLabelFor": "{label} 说明",
     "fileUpload": {
       "chooseFile": "选择文件",
+      "noFileChosen": "未选择文件",
       "dragDropOrClick": "拖拽文件到此处，或点击选择",
       "selectedFile": "已选文件",
       "clearFile": "清除已选文件",

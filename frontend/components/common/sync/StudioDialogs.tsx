@@ -237,13 +237,18 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
       </div>
     );
   }
-  const checks = result.checks || [];
+  // 列表字段统一兜底为数组：旧版后端在部分路径（如未定义模板变量）会返回 null。
+  // Normalize list fields to arrays: older backends return null on some paths
+  // (e.g. undefined template variables), which used to crash this panel.
+  const errors = result.errors ?? [];
+  const warnings = result.warnings ?? [];
+  const checks = result.checks ?? [];
   const hasChecks = checks.length > 0;
 
   // 错误去重与智能过滤
   // Error deduplication and smart filtering
   const cleanSummary = (result.summary || '').replace(/^sync:\s*/, '').trim();
-  const filteredErrors = (result.errors || []).filter((item) => {
+  const filteredErrors = errors.filter((item) => {
     const cleanItem = item.replace(/^sync:\s*/, '').trim();
     return cleanItem !== cleanSummary;
   });
@@ -295,7 +300,7 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
             hasChecks ? 'lg:grid-cols-2' : 'grid-cols-1',
           )}
         >
-          {result.errors.length > 0 ? (
+          {errors.length > 0 ? (
             <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
               <div className='mb-3 flex items-center justify-between'>
                 <div className='text-sm font-medium flex items-center gap-1.5'>
@@ -303,11 +308,11 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
                   <span>{t('errors')}</span>
                 </div>
                 <Badge variant='outline' className='text-[10px] text-destructive'>
-                  {result.errors.length}
+                  {errors.length}
                 </Badge>
               </div>
               <div className='space-y-2'>
-                {(filteredErrors.length > 0 ? filteredErrors : result.errors).map((item, index) => (
+                {(filteredErrors.length > 0 ? filteredErrors : errors).map((item, index) => (
                   <div
                     key={`${item}-${index}`}
                     className='rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-relaxed text-destructive break-all font-mono'
@@ -319,7 +324,7 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
             </div>
           ) : null}
 
-          {result.warnings.length > 0 ? (
+          {warnings.length > 0 ? (
             <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
               <div className='mb-3 flex items-center justify-between'>
                 <div className='text-sm font-medium flex items-center gap-1.5'>
@@ -327,11 +332,11 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
                   <span>{t('warnings')}</span>
                 </div>
                 <Badge variant='outline' className='text-[10px] text-amber-600 dark:text-amber-400'>
-                  {result.warnings.length}
+                  {warnings.length}
                 </Badge>
               </div>
               <div className='space-y-2'>
-                {result.warnings.map((item, index) => (
+                {warnings.map((item, index) => (
                   <div
                     key={`${item}-${index}`}
                     className='rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 break-all'

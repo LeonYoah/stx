@@ -3598,7 +3598,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         open={runtimeStoragePreviewOpen}
         onOpenChange={setRuntimeStoragePreviewOpen}
       >
-        <DialogContent className='max-w-4xl'>
+        <DialogContent className='sm:max-w-4xl'>
           <DialogHeader>
             <div className='flex items-center justify-between gap-3 pr-6'>
               <div className='min-w-0'>
@@ -3871,7 +3871,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       />
 
       <Dialog open={imapInspectOpen} onOpenChange={setImapInspectOpen}>
-        <DialogContent className='max-w-5xl'>
+        <DialogContent className='sm:max-w-5xl'>
           <DialogHeader>
             <DialogTitle>{t('cluster.runtimeStorage.inspectWal')}</DialogTitle>
             <DialogDescription className='break-all'>

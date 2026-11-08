@@ -93,7 +93,7 @@ export function ConfigVersionHistory({
   return (
     <>
       <Dialog open={true} onOpenChange={onClose}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <History className="h-5 w-5" />
@@ -175,7 +175,7 @@ export function ConfigVersionHistory({
 
       {/* View content dialog / 查看内容对话框 */}
       <Dialog open={showContent} onOpenChange={setShowContent}>
-        <DialogContent className="max-w-3xl max-h-[80vh]">
+        <DialogContent className="sm:max-w-3xl max-h-[80vh]">
           <DialogHeader>
             <DialogTitle>
               {t('config.versionContent', { version: selectedVersion?.version ?? '' })}

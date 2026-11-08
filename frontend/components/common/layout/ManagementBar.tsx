@@ -344,7 +344,7 @@ export const ProfileButton = memo(() => {
         </button>
       </DialogTrigger>
       <DialogContent
-        className='max-w-md max-h-[min(85vh,720px)] overflow-y-auto'
+        className='sm:max-w-md max-h-[min(85vh,720px)] overflow-y-auto'
         data-testid='profile-dialog'
         onOpenAutoFocus={(event) => {
           // Do not autofocus Logout / 检查更新; Enter/Space that opened the dialog

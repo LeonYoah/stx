@@ -321,12 +321,15 @@ export function InstallWizard({
     cancelInstallation,
     resetWizard,
     resetPrecheck,
-    onOpenChange
+    onOpenChange,
   ]);
 
   // Handle precheck / 处理预检查
   const handleRunPrecheck = useCallback(async () => {
-    const supportsHTTPService = isSeatunnelVersionAtLeast(config.version, '2.3.9');
+    const supportsHTTPService = isSeatunnelVersionAtLeast(
+      config.version,
+      '2.3.9',
+    );
     const ports =
       supportsHTTPService && config.runtime.enable_http
         ? [config.clusterPort, config.httpPort, config.javaProxyPort]
@@ -443,7 +446,7 @@ export function InstallWizard({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         data-testid='install-wizard-dialog'
-        className='max-w-4xl max-h-[90vh] overflow-hidden flex flex-col'
+        className='sm:max-w-4xl max-h-[90vh] overflow-hidden flex flex-col'
         // 没有步骤说明时显式去掉 aria-describedby，避免 Radix 告警
         // Drop aria-describedby explicitly when the step has no description
         {...(currentStep.descKey ? {} : {'aria-describedby': undefined})}
@@ -497,7 +500,9 @@ export function InstallWizard({
                 {/* Step label / 步骤标签 */}
                 <span
                   className={cn(
-                    'ml-2 text-sm font-medium hidden sm:inline',
+                    // 步骤名是原子标签，禁止被挤成「预检/查」式折行
+                    // Step names are atomic labels; never let them wrap mid-word
+                    'ml-2 text-sm font-medium hidden sm:inline whitespace-nowrap',
                     index === currentStepIndex && 'text-primary',
                     index !== currentStepIndex && 'text-muted-foreground',
                   )}
@@ -556,9 +561,7 @@ export function InstallWizard({
 
             {currentStep.id === 'complete' ? (
               <Button onClick={handleClose}>{t('common.close')}</Button>
-            ) : currentStep.id ===
-              'install' ? // No next button during installation / 安装过程中没有下一步按钮
-            null : (
+            ) : currentStep.id === 'install' ? null : ( // No next button during installation / 安装过程中没有下一步按钮
               <Button
                 onClick={handleNext}
                 data-testid='install-wizard-next'

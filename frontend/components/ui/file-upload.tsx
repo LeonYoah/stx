@@ -290,27 +290,50 @@ export const FileUpload = React.forwardRef<FileUploadHandle, FileUploadProps>(
     }
 
     if (variant === 'input') {
-      // 直接渲染带 shadcn Input 样式的 file input，保证 ref / open() 可用
-      // Render a file input with shadcn Input styles so ref / open() keep working
+      // 输入框形态：自绘「选择文件」按钮 + 文件名，不再直接露出原生 file input。
+      // 原生控件的文案由浏览器语言决定（如中文界面里出现 "Choose File / No file chosen"），
+      // 无法跟随 next-intl 切换，所以原生 input 只做隐藏的选择器。
+      // Input variant: a self-drawn "choose file" chip plus file name instead of
+      // the bare native input, whose labels follow the browser language (e.g.
+      // "Choose File / No file chosen" inside the Chinese UI) and ignore next-intl.
+      const emptyText =
+        typeof emptyLabel === 'string' ? emptyLabel : t('noFileChosen');
       return (
         <div className={cn('space-y-2', className)} data-testid={testId}>
-          <input
-            ref={inputRef}
-            id={inputId}
-            type='file'
-            accept={accept}
+          {hiddenInput}
+          <button
+            type='button'
             disabled={isDisabled}
             data-slot='input'
-            data-testid={testId ? `${testId}-input` : undefined}
+            data-testid={testId ? `${testId}-trigger` : undefined}
             className={cn(
-              'file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+              'dark:bg-input/30 border-input flex h-9 w-full min-w-0 items-center gap-2 rounded-md border bg-transparent px-1.5 py-1 text-left text-base shadow-xs transition-[color,box-shadow] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
               'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
-              'aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive',
+              // 错误态用类名标红；文案由下方 role=alert 播报 / Error styling via classes; the alert below announces it
+              error &&
+                'border-destructive ring-destructive/20 dark:ring-destructive/40',
               inputClassName,
             )}
-            aria-invalid={error ? true : undefined}
-            onChange={handleInputChange}
-          />
+            onClick={openPicker}
+          >
+            <span className='inline-flex h-6 shrink-0 items-center gap-1.5 rounded-sm bg-muted px-2 text-xs font-medium text-foreground whitespace-nowrap'>
+              {uploading ? (
+                <Loader2 className='h-3.5 w-3.5 animate-spin' />
+              ) : (
+                <Upload className='h-3.5 w-3.5' />
+              )}
+              {t('chooseFile')}
+            </span>
+            <span
+              className={cn(
+                'min-w-0 truncate',
+                value ? 'text-foreground' : 'text-muted-foreground',
+              )}
+              title={value?.name}
+            >
+              {value?.name ?? emptyText}
+            </span>
+          </button>
           {selectedBanner}
           {errorBlock}
         </div>
@@ -415,7 +438,9 @@ export const FileUpload = React.forwardRef<FileUploadHandle, FileUploadProps>(
                 <p className='text-xs text-muted-foreground'>{emptyHint}</p>
               ) : null}
               {uploading ? (
-                <p className='text-xs text-muted-foreground'>{t('uploading')}</p>
+                <p className='text-xs text-muted-foreground'>
+                  {t('uploading')}
+                </p>
               ) : null}
             </div>
           )}

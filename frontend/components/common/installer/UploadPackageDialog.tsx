@@ -171,7 +171,8 @@ export function UploadPackageDialog({
               onFileChange={setSourceFile}
             />
             <p className='text-xs text-muted-foreground'>
-              {sourceFile ? sourceFile.name : t('installer.sourcePackageHint')}
+              {/* 文件名已在控件内展示，这里只保留说明 / The control already shows the file name; keep only the hint */}
+              {t('installer.sourcePackageHint')}
             </p>
           </div>
 

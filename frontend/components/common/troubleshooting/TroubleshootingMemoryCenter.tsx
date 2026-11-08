@@ -682,7 +682,7 @@ export function TroubleshootingMemoryCenter({
       {/* 完整排障方案阅读弹窗 */}
       {/* Full Troubleshooting Solution Detail Dialog */}
       <Dialog open={detailModalOpen} onOpenChange={setDetailModalOpen}>
-        <DialogContent className='max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0'>
+        <DialogContent className='sm:max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0'>
           {(() => {
             const detail =
               getLocalizedMemory(selectedDetail, locale) || selectedDetail;

@@ -53,6 +53,7 @@
     "helpLabelFor": "{label} help",
     "fileUpload": {
       "chooseFile": "Choose file",
+      "noFileChosen": "No file chosen",
       "dragDropOrClick": "Drag and drop a file here, or click to choose",
       "selectedFile": "Selected file",
       "clearFile": "Clear selected file",

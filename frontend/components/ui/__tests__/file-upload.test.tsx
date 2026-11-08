@@ -113,6 +113,48 @@ describe('FileUpload', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('文件格式不正确');
   });
 
+  // 输入框形态不能露出浏览器原生文案（中文界面曾显示 "Choose File / No file chosen"）
+  // The input variant must not expose browser-native labels such as "Choose File"
+  it('input 形态使用本地化文案并展示已选文件名', () => {
+    const onFileChange = vi.fn();
+    const {rerender} = renderUpload(
+      <FileUpload
+        variant='input'
+        data-testid='fu'
+        onFileChange={onFileChange}
+      />,
+    );
+    const trigger = screen.getByTestId('fu-trigger');
+    expect(trigger).toHaveTextContent('选择文件');
+    expect(trigger).toHaveTextContent('未选择文件');
+    expect(trigger).not.toHaveTextContent(/Choose File|No file chosen/);
+    // 原生 input 只做隐藏选择器 / The native input is only a hidden picker
+    expect(screen.getByTestId('fu-input')).toHaveClass('sr-only');
+
+    const input = screen.getByTestId('fu-input') as HTMLInputElement;
+    const clickSpy = vi.spyOn(input, 'click');
+    fireEvent.click(trigger);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    const file = makeFile('connector-jdbc.jar', 'application/java-archive');
+    fireEvent.change(input, {target: {files: [file]}});
+    expect(onFileChange).toHaveBeenCalledWith(file);
+
+    rerender(
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <FileUpload
+          variant='input'
+          value={file}
+          data-testid='fu'
+          onFileChange={onFileChange}
+        />
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByTestId('fu-trigger')).toHaveTextContent(
+      'connector-jdbc.jar',
+    );
+  });
+
   it('menu-item 形态包含隐藏 file input', () => {
     renderUpload(
       <FileUpload

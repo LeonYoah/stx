@@ -155,6 +155,8 @@ STX 控制台采用现代化控制台体验架构：
      - 高度限制：`max-h-[85vh]` 或 `h-[88vh]`；
      - 结构收口：`flex flex-col overflow-hidden`，内部内容区通过 `overflow-auto min-h-0 flex-1` 自行滚动；**长 mono 日志/堆栈/证据禁止用 `ScrollArea` 包一层**（默认只有纵向条，易裁切长行）。
 
+> **断点前缀是硬要求**：`DialogContent` / `AlertDialogContent` 底座自带 `sm:max-w-lg`，调用处写不带前缀的 `max-w-4xl` 会在宽屏被底座覆盖，大弹窗被锁成 512px（曾导致步骤名被挤成「预检/查」）。宽度一律写 `sm:max-w-*`；`components/ui/__tests__/dialog-width-classes.test.ts` 会扫描全部弹窗并拦截违规写法。
+
 ### 7.3 只读长文本面板（ExpandableTextPanel）
 适用于错误堆栈、运行日志、配置/JSON 预览、证据样本等**只读长文本**：
 

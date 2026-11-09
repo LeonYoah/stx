@@ -24,7 +24,9 @@
  *   glide   星光沿弧线平滑滑向左上角 / star glides along an arc to top-left
  *   charge  蓄力闪烁，漩涡加速 / charge flare, vortex spins up
  *   dive    流星加速下坠，从左上划向右下并穿过漩涡中心 / meteor dives TL→BR through the vortex
- *   impact  穿心瞬间漩涡碎裂、粒子炸开 / vortex shatters, particles burst
+ *   impact  穿心瞬间顿帧定格 / impact freeze beat
+ *   collapse 漩涡被加速吸入奇点，核心增亮 / vortex sucked into the point, core flares
+ *   release 奇点闪白释放：单道冲击波 + 粒子涌出 / singularity flash, one ring, particles pour out
  *   gather  粒子从左到右聚合成 LOGO + STX / particles converge into LOGO + STX
  *   brand   清晰品牌层淡入 / crisp brand layer fades in
  *   welcome “欢迎回来”逐字渐入 / "Welcome back" fades in letter by letter
@@ -45,6 +47,11 @@ const IMPACT_AT = Math.round(
   DIVE_START + DIVE_DURATION * Math.pow(0.5, 1 / DIVE_EASE_POWER),
 );
 
+/** 内爆时长：穿心后漩涡被吸入奇点 / Implosion window: vortex sucked into the point. */
+const COLLAPSE_MS = 430;
+/** 奇点释放时刻 / Moment the singularity releases. */
+const RELEASE_AT = IMPACT_AT + COLLAPSE_MS;
+
 /** 时间轴（毫秒）/ Timeline in milliseconds. */
 export const SPLASH_TIMELINE = {
   starIn: [0, 900],
@@ -52,13 +59,15 @@ export const SPLASH_TIMELINE = {
   charge: [1850, DIVE_START],
   dive: [DIVE_START, DIVE_START + DIVE_DURATION],
   impact: IMPACT_AT,
-  shatterDuration: 1150,
-  gather: [IMPACT_AT + 820, IMPACT_AT + 2050],
+  /** 坍缩窗口：漩涡截图螺旋吸入奇点 / Collapse window: the snapshot spirals into the point. */
+  collapse: [IMPACT_AT, RELEASE_AT],
+  release: RELEASE_AT,
+  gather: [RELEASE_AT + 760, RELEASE_AT + 1980],
   /** 粒子按目标横坐标从左到右错峰启动的最大延迟 / Max left-to-right stagger. */
   gatherSweep: 380,
-  brand: [IMPACT_AT + 2050, IMPACT_AT + 2750],
-  welcome: IMPACT_AT + 2400,
-  exit: IMPACT_AT + 4050,
+  brand: [RELEASE_AT + 1980, RELEASE_AT + 2640],
+  welcome: RELEASE_AT + 2280,
+  exit: RELEASE_AT + 3760,
   exitDuration: 780,
   skipExitDuration: 460,
 } as const;

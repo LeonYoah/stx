@@ -23,6 +23,7 @@
 'use client';
 
 import {useState, useMemo} from 'react';
+import {motion, useReducedMotion} from 'motion/react';
 import {toast} from 'sonner';
 import {usePackages} from '@/hooks/use-installer';
 import {PackageTable} from './PackageTable';
@@ -50,10 +51,16 @@ import {
   ModuleNavTabs,
   type StatPillItem,
 } from '@/components/common/layout';
+import {buildMarketplacePageVariants} from '@/lib/animations/marketplace-motion';
 import type {MirrorSource} from '@/lib/services/installer/types';
 
 export function PackageMain() {
   const t = useTranslations();
+  const reduceMotion = useReducedMotion() ?? false;
+  const {container: containerVariants, item: itemVariants} = useMemo(
+    () => buildMarketplacePageVariants(reduceMotion),
+    [reduceMotion],
+  );
   const {
     packages,
     loading,
@@ -149,66 +156,76 @@ export function PackageMain() {
   );
 
   return (
-    <div className='w-full space-y-3.5'>
+    <motion.div
+      data-testid='package-management-root'
+      data-reduce-motion={reduceMotion ? 'true' : 'false'}
+      className='w-full space-y-3.5'
+      initial='hidden'
+      animate='visible'
+      variants={containerVariants}
+    >
       {/* 头部标题区域（全局紧凑型规范） / Unified Compact Workspace Header */}
-      <WorkspaceHeader
-        icon={<Package />}
-        title={t('installer.packageManagement')}
-        subtitle={t('installer.packageManagementDesc')}
-        tabs={
-          <ModuleNavTabs
+      <motion.div variants={itemVariants}>
+        <WorkspaceHeader
+          icon={<Package />}
+          title={t('installer.packageManagement')}
+          subtitle={t('installer.packageManagementDesc')}
+          tabs={
+            <ModuleNavTabs
               reorderGroupId='packages-plugins'
               items={[
-              {
-                key: 'packages',
-                label: t('installer.packageManagement'),
-                href: '/packages',
-                icon: <Package className='size-3.5' />,
-              },
-              {
-                key: 'plugins',
-                label: t('dock.pluginMarketplace'),
-                href: '/plugins',
-                icon: <Puzzle className='size-3.5' />,
-              },
-            ]}
-            activeKey='packages'
-          />
-        }
-        actions={
-          <div className='flex items-center gap-2'>
-            {packages?.recommended_version && (
-              <Badge
+                {
+                  key: 'packages',
+                  label: t('installer.packageManagement'),
+                  href: '/packages',
+                  icon: <Package className='size-3.5' />,
+                },
+                {
+                  key: 'plugins',
+                  label: t('dock.pluginMarketplace'),
+                  href: '/plugins',
+                  icon: <Puzzle className='size-3.5' />,
+                },
+              ]}
+              activeKey='packages'
+            />
+          }
+          actions={
+            <div className='flex items-center gap-2'>
+              {packages?.recommended_version && (
+                <Badge
+                  variant='outline'
+                  data-testid='package-recommended-version-pill'
+                  className='h-7.5 px-2 text-xs bg-primary/10 text-primary border-primary/30 font-medium'
+                >
+                  {t('installer.recommendedVersion')}: v
+                  {packages.recommended_version}
+                </Badge>
+              )}
+              <Button
                 variant='outline'
-                className='h-7.5 px-2 text-xs bg-primary/10 text-primary border-primary/30 font-medium'
+                size='sm'
+                onClick={refresh}
+                disabled={loading}
+                className='h-8 text-xs'
               >
-                {t('installer.recommendedVersion')}: v
-                {packages.recommended_version}
-              </Badge>
-            )}
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={refresh}
-              disabled={loading}
-              className='h-8 text-xs'
-            >
-              <RefreshCw
-                className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`}
-              />
-              {t('common.refresh')}
-            </Button>
-            <Button
-              size='sm'
-              onClick={() => setOfflineBundleOpen(true)}
-              className='h-8 text-xs'
-            >
-              <PackageOpen className='h-3.5 w-3.5 mr-1.5' />
-              {t('installer.offlineAssetsTitle')}
-            </Button>
-          </div>
-        }
-      />
+                <RefreshCw
+                  className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`}
+                />
+                {t('common.refresh')}
+              </Button>
+              <Button
+                size='sm'
+                onClick={() => setOfflineBundleOpen(true)}
+                className='h-8 text-xs'
+              >
+                <PackageOpen className='h-3.5 w-3.5 mr-1.5' />
+                {t('installer.offlineAssetsTitle')}
+              </Button>
+            </div>
+          }
+        />
+      </motion.div>
 
       {/* 错误显示 / Error banner */}
       {error && (
@@ -217,7 +234,9 @@ export function PackageMain() {
         </div>
       )}
 
-      {/* 一体化紧凑卡片容器 / Unified Compact Table Container */}
+      {/* 一体化紧凑卡片容器：两个 Tab 仍各自只有表格视图，不做表/卡切换。
+          Unified table card: both tabs remain table-only — no table/card toggle. */}
+      <motion.div variants={itemVariants} className='flex flex-1 flex-col'>
       <Card className='border-border/70 shadow-xs overflow-hidden flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
         {/* 工具栏：状态胶囊切换器 + 快速操作 / Toolbar: Segmented pills + Quick actions */}
         <div className='p-3 sm:p-3.5 border-b bg-muted/20 flex flex-wrap items-center justify-between gap-2.5'>
@@ -268,6 +287,7 @@ export function PackageMain() {
           )}
         </div>
       </Card>
+      </motion.div>
 
       {/* 离线导入 / 导出（资产包 + 单包上传收敛入口）
           Offline import / export (asset bundle + single-package upload) */}
@@ -333,6 +353,6 @@ export function PackageMain() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </motion.div>
   );
 }

@@ -17,127 +17,17 @@
 
 /**
  * Plugin marketplace Motion helpers (reduced-motion aware).
- * 插件市场 Motion 动效辅助（兼容减少动态效果偏好）。
+ * Re-exports shared marketplace helpers and keeps cluster-stack specifics here.
+ * 插件市场 Motion 辅助：复用共享 marketplace helpers，集群堆叠逻辑留在本文件。
  */
 
-import type {Transition, Variants} from 'motion/react';
-
-/** Instant transition used under reduced motion. / 减少动效时的瞬时过渡。 */
-export const PLUGIN_MOTION_INSTANT: Transition = {duration: 0.01};
-
-/** Card entrance spring-like ease. / 卡片入场缓动。 */
-export const PLUGIN_CARD_ENTRANCE_TRANSITION: Transition = {
-  duration: 0.26,
-  ease: [0.22, 1, 0.36, 1],
-};
-
-/**
- * Build staggered grid variants. Reduced motion keeps opacity-only fades.
- * 构建网格交错入场 variants；减少动效时仅保留轻微淡入。
- */
-export function buildPluginGridVariants(reduceMotion: boolean): {
-  container: Variants;
-  item: Variants;
-} {
-  if (reduceMotion) {
-    return {
-      container: {
-        hidden: {},
-        visible: {
-          transition: {staggerChildren: 0, delayChildren: 0},
-        },
-      },
-      item: {
-        hidden: {opacity: 0},
-        visible: {
-          opacity: 1,
-          transition: {duration: 0.12, ease: 'linear'},
-        },
-      },
-    };
-  }
-
-  return {
-    container: {
-      hidden: {},
-      visible: {
-        transition: {
-          staggerChildren: 0.04,
-          delayChildren: 0.02,
-        },
-      },
-    },
-    item: {
-      hidden: {opacity: 0, y: 8, scale: 0.98},
-      visible: {
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        transition: PLUGIN_CARD_ENTRANCE_TRANSITION,
-      },
-    },
-  };
-}
-
-/**
- * Hover feedback for marketplace cards. Reduced motion disables lift.
- * 市场卡片悬停反馈；减少动效时关闭抬起位移。
- */
-export function buildPluginCardHover(reduceMotion: boolean) {
-  if (reduceMotion) {
-    return undefined;
-  }
-  return {
-    y: -3,
-    transition: {duration: 0.18, ease: 'easeOut' as const},
-  };
-}
-
-/**
- * Page-level fade/slide variants for PluginMain shell.
- * PluginMain 外壳页级淡入/位移 variants。
- */
-export function buildPluginPageVariants(reduceMotion: boolean): {
-  container: Variants;
-  item: Variants;
-} {
-  if (reduceMotion) {
-    return {
-      container: {
-        hidden: {opacity: 0},
-        visible: {
-          opacity: 1,
-          transition: {duration: 0.15, staggerChildren: 0},
-        },
-      },
-      item: {
-        hidden: {opacity: 0},
-        visible: {opacity: 1, transition: {duration: 0.12}},
-      },
-    };
-  }
-
-  return {
-    container: {
-      hidden: {opacity: 0},
-      visible: {
-        opacity: 1,
-        transition: {
-          duration: 0.45,
-          staggerChildren: 0.08,
-        },
-      },
-    },
-    item: {
-      hidden: {opacity: 0, y: 16},
-      visible: {
-        opacity: 1,
-        y: 0,
-        transition: {duration: 0.45},
-      },
-    },
-  };
-}
+export {
+  MARKETPLACE_MOTION_INSTANT as PLUGIN_MOTION_INSTANT,
+  MARKETPLACE_ENTRANCE_TRANSITION as PLUGIN_CARD_ENTRANCE_TRANSITION,
+  buildMarketplaceGridVariants as buildPluginGridVariants,
+  buildMarketplaceCardHover as buildPluginCardHover,
+  buildMarketplacePageVariants as buildPluginPageVariants,
+} from '@/lib/animations/marketplace-motion';
 
 /**
  * Cluster stack overlap / expand metrics.

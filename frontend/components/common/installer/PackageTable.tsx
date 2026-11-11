@@ -17,17 +17,17 @@
 
 /**
  * Package Table Component
- * 安装包表格组件
+ * 安装包表格组件（在线版本 / 本地安装包均为表格，不做卡片墙）
  */
 
 'use client';
 
-import { useRef } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import {useMemo} from 'react';
+import {motion, useReducedMotion} from 'motion/react';
+import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
 import {
   Table,
-  TableBody,
   TableCell,
   TableHead,
   TableHeader,
@@ -39,14 +39,27 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Progress } from '@/components/ui/progress';
-import { FileUpload } from '@/components/ui/file-upload';
-import { Download, Trash2, MoreHorizontal, Star, Loader2, CheckCircle, XCircle, FileCode2, Upload } from 'lucide-react';
-import { useTranslations } from 'next-intl';
-import { useGSAP } from '@gsap/react';
-import { TableLoadingBar, TableSkeletonRows } from '@/components/common/layout';
-import { animateTableRows } from '@/lib/animations/gsap-motion';
-import type { PackageInfo, DownloadTask } from '@/lib/services/installer/types';
+import {Progress} from '@/components/ui/progress';
+import {FileUpload} from '@/components/ui/file-upload';
+import {
+  Download,
+  Trash2,
+  MoreHorizontal,
+  Star,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  FileCode2,
+  Upload,
+} from 'lucide-react';
+import {useTranslations} from 'next-intl';
+import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {
+  buildMarketplaceTableRowHover,
+  buildMarketplaceTableRowVariants,
+} from '@/lib/animations/marketplace-motion';
+import {cn} from '@/lib/utils';
+import type {PackageInfo, DownloadTask} from '@/lib/services/installer/types';
 import {formatDateTimeTz} from '@/lib/timezone';
 
 interface PackageTableProps {
@@ -82,6 +95,44 @@ function formatDate(dateStr?: string): string {
   return formatDateTimeTz(dateStr);
 }
 
+/**
+ * Motion-aware table row: entrance stagger + hover tint, no layout scale/push.
+ * 带动效的表格行：交错入场 + 悬停底色，不做布局缩放/推让。
+ */
+function PackageMotionRow({
+  children,
+  className,
+  reduceMotion,
+  itemVariants,
+  hover,
+  'data-testid': dataTestId,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  reduceMotion: boolean;
+  itemVariants: import('motion/react').Variants;
+  hover: ReturnType<typeof buildMarketplaceTableRowHover>;
+  'data-testid'?: string;
+}) {
+  return (
+    <motion.tr
+      data-slot='table-row'
+      data-testid={dataTestId}
+      data-reduce-motion={reduceMotion ? 'true' : 'false'}
+      variants={itemVariants}
+      initial='hidden'
+      animate='visible'
+      whileHover={hover}
+      className={cn(
+        'package-data-row hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors',
+        className,
+      )}
+    >
+      {children}
+    </motion.tr>
+  );
+}
+
 export function PackageTable({
   type,
   versions = [],
@@ -96,6 +147,15 @@ export function PackageTable({
   onSourceDownload,
 }: PackageTableProps) {
   const t = useTranslations();
+  const reduceMotion = useReducedMotion() ?? false;
+  const {container, item} = useMemo(
+    () => buildMarketplaceTableRowVariants(reduceMotion),
+    [reduceMotion],
+  );
+  const rowHover = useMemo(
+    () => buildMarketplaceTableRowHover(reduceMotion),
+    [reduceMotion],
+  );
 
   // Get download task for a version / 获取某版本的下载任务
   const getDownloadTask = (version: string): DownloadTask | undefined => {
@@ -119,24 +179,14 @@ export function PackageTable({
     return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s`;
   };
 
-  const tableContainerRef = useRef<HTMLDivElement>(null);
-
-  // 安装包列表数据更新后执行平滑交错入场动效
-  // Trigger staggered entrance animation when package data updates
-  useGSAP(
-    () => {
-      const hasData = type === 'online' ? versions.length > 0 : localPackages.length > 0;
-      if (hasData && !loading) {
-        animateTableRows('.package-data-row');
-      }
-    },
-    {dependencies: [type, versions, localPackages, loading], scope: tableContainerRef},
-  );
-
   // Online versions table / 在线版本表格
   if (type === 'online') {
     return (
-      <div ref={tableContainerRef} className="border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex-1 flex flex-col">
+      <div
+        data-testid='package-online-table'
+        data-reduce-motion={reduceMotion ? 'true' : 'false'}
+        className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex-1 flex flex-col'
+      >
         <TableLoadingBar loading={Boolean(loading)} />
         <Table>
           <TableHeader>
@@ -147,64 +197,98 @@ export function PackageTable({
               <TableHead>{t('installer.downloadLinks')}</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <motion.tbody
+            variants={container}
+            initial='hidden'
+            animate='visible'
+            data-slot='table-body'
+            className='[&_tr:last-child]:border-0'
+          >
             {loading && versions.length === 0 ? (
               <TableSkeletonRows columns={4} rows={5} />
             ) : versions.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center py-12 text-muted-foreground">
+                <TableCell
+                  colSpan={4}
+                  className='text-center py-12 text-muted-foreground'
+                >
                   {t('installer.noVersionsAvailable')}
                 </TableCell>
               </TableRow>
             ) : (
               versions.map((version) => (
-                <TableRow
+                <PackageMotionRow
                   key={version}
-                  className={`package-data-row transition-opacity duration-200 ${
-                    loading ? 'opacity-60 pointer-events-none' : ''
-                  }`}
+                  reduceMotion={reduceMotion}
+                  itemVariants={item}
+                  hover={rowHover}
+                  data-testid={`package-online-row-${version}`}
+                  className={cn(
+                    loading ? 'opacity-60 pointer-events-none' : '',
+                    version === recommendedVersion && 'bg-primary/[0.03]',
+                  )}
                 >
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      {version}
+                  <TableCell className='font-medium'>
+                    <div className='flex items-center gap-2 flex-wrap'>
+                      <span className='whitespace-nowrap'>{version}</span>
                       {version === recommendedVersion && (
-                        <Badge variant="default" className="flex items-center gap-1">
-                          <Star className="h-3 w-3" />
+                        <Badge
+                          variant='default'
+                          data-testid={`package-recommended-${version}`}
+                          className='flex items-center gap-1'
+                        >
+                          <Star className='h-3 w-3' />
                           {t('installer.recommended')}
                         </Badge>
                       )}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{t('installer.available')}</Badge>
+                    <Badge variant='outline'>{t('installer.available')}</Badge>
                   </TableCell>
                   <TableCell>
                     {(() => {
-                      const localPackage = localPackages.find((pkg) => pkg.version === version);
+                      const localPackage = localPackages.find(
+                        (pkg) => pkg.version === version,
+                      );
                       const task = getDownloadTask(version);
 
                       // 优先展示本地文件状态，其次展示当前下载任务的源码状态。
                       // Prefer local file state, then show source state from the active download task.
-                      if (localPackage?.has_source || task?.source_status === 'completed') {
+                      if (
+                        localPackage?.has_source ||
+                        task?.source_status === 'completed'
+                      ) {
                         return (
-                          <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-                            <CheckCircle className="h-3 w-3 mr-1" />
+                          <Badge
+                            variant='outline'
+                            className='border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                          >
+                            <CheckCircle className='h-3 w-3 mr-1' />
                             {t('installer.sourceDownloaded')}
                           </Badge>
                         );
                       }
 
                       if (
-                        task?.source_requested
-                        && (task.source_status === 'pending' || task.source_status === 'downloading')
+                        task?.source_requested &&
+                        (task.source_status === 'pending' ||
+                          task.source_status === 'downloading')
                       ) {
                         return (
-                          <div className="flex items-center gap-2 min-w-[150px]">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            <div className="flex-1">
-                              <Progress value={task.source_progress || 0} className="h-1.5" />
-                              <span className="mt-1 block text-xs text-muted-foreground">
-                                {t('installer.sourceDownloading')} {task.source_progress || 0}%
+                          <div
+                            data-testid={`package-source-progress-${version}`}
+                            className='flex items-center gap-2 min-w-[150px]'
+                          >
+                            <Loader2 className='h-3.5 w-3.5 animate-spin motion-reduce:animate-none' />
+                            <div className='flex-1'>
+                              <Progress
+                                value={task.source_progress || 0}
+                                className='h-1.5'
+                              />
+                              <span className='mt-1 block text-xs text-muted-foreground tabular-nums'>
+                                {t('installer.sourceDownloading')}{' '}
+                                {task.source_progress || 0}%
                               </span>
                             </div>
                           </div>
@@ -213,7 +297,22 @@ export function PackageTable({
 
                       if (localPackage || task?.source_status === 'failed') {
                         return (
-                          <Badge variant="secondary" title={task?.source_error}>
+                          <Badge
+                            variant={
+                              task?.source_status === 'failed'
+                                ? 'destructive'
+                                : 'secondary'
+                            }
+                            title={task?.source_error}
+                            data-testid={
+                              task?.source_status === 'failed'
+                                ? `package-source-failed-${version}`
+                                : `package-source-missing-${version}`
+                            }
+                          >
+                            {task?.source_status === 'failed' ? (
+                              <XCircle className='h-3 w-3 mr-1' />
+                            ) : null}
                             {task?.source_status === 'failed'
                               ? t('installer.sourceFailed')
                               : t('installer.sourceMissing')}
@@ -222,8 +321,11 @@ export function PackageTable({
                       }
 
                       return (
-                        <Badge variant="outline" className="text-muted-foreground">
-                          <FileCode2 className="h-3 w-3 mr-1" />
+                        <Badge
+                          variant='outline'
+                          className='text-muted-foreground'
+                        >
+                          <FileCode2 className='h-3 w-3 mr-1' />
                           {t('installer.sourceAvailable')}
                         </Badge>
                       );
@@ -238,21 +340,33 @@ export function PackageTable({
                       // 显示已下载状态（优先检查本地文件）
                       if (isDownloaded) {
                         return (
-                          <div className="flex items-center gap-2 text-green-600">
-                            <CheckCircle className="h-4 w-4" />
-                            <span className="text-sm">{t('installer.downloaded')}</span>
+                          <div
+                            data-testid={`package-download-done-${version}`}
+                            className='flex items-center gap-2 text-green-600'
+                          >
+                            <CheckCircle className='h-4 w-4' />
+                            <span className='text-sm'>
+                              {t('installer.downloaded')}
+                            </span>
                           </div>
                         );
                       }
 
                       // Show download progress / 显示下载进度
-                      if (task && (task.status === 'downloading' || task.status === 'pending')) {
+                      if (
+                        task &&
+                        (task.status === 'downloading' ||
+                          task.status === 'pending')
+                      ) {
                         return (
-                          <div className="flex items-center gap-2 min-w-[200px]">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <div className="flex-1">
-                              <Progress value={task.progress} className="h-2" />
-                              <div className="text-xs text-muted-foreground mt-1">
+                          <div
+                            data-testid={`package-download-progress-${version}`}
+                            className='flex items-center gap-2 min-w-[200px]'
+                          >
+                            <Loader2 className='h-4 w-4 animate-spin motion-reduce:animate-none' />
+                            <div className='flex-1'>
+                              <Progress value={task.progress} className='h-2' />
+                              <div className='text-xs text-muted-foreground mt-1 tabular-nums'>
                                 {task.progress}% - {formatSpeed(task.speed)}
                               </div>
                             </div>
@@ -264,9 +378,11 @@ export function PackageTable({
                       // 显示完成状态（刚刚下载完成）
                       if (task?.status === 'completed') {
                         return (
-                          <div className="flex items-center gap-2 text-green-600">
-                            <CheckCircle className="h-4 w-4" />
-                            <span className="text-sm">{t('installer.downloadSuccess')}</span>
+                          <div className='flex items-center gap-2 text-green-600'>
+                            <CheckCircle className='h-4 w-4' />
+                            <span className='text-sm'>
+                              {t('installer.downloadSuccess')}
+                            </span>
                           </div>
                         );
                       }
@@ -274,17 +390,22 @@ export function PackageTable({
                       // Show failed status / 显示失败状态
                       if (task?.status === 'failed') {
                         return (
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1 text-destructive">
-                              <XCircle className="h-4 w-4" />
-                              <span className="text-sm">{t('installer.downloadFailed')}</span>
+                          <div
+                            data-testid={`package-download-failed-${version}`}
+                            className='flex items-center gap-2 flex-wrap'
+                          >
+                            <div className='flex items-center gap-1 text-destructive'>
+                              <XCircle className='h-4 w-4' />
+                              <span className='text-sm'>
+                                {t('installer.downloadFailed')}
+                              </span>
                             </div>
                             <Button
-                              variant="outline"
-                              size="sm"
+                              variant='outline'
+                              size='sm'
                               onClick={() => onDownloadRequest?.(version)}
                             >
-                              <Download className="h-4 w-4 mr-2" />
+                              <Download className='h-4 w-4 mr-2' />
                               {t('installer.retry')}
                             </Button>
                           </div>
@@ -294,20 +415,20 @@ export function PackageTable({
                       // Show download button / 显示下载按钮
                       return (
                         <Button
-                          variant="outline"
-                          size="sm"
+                          variant='outline'
+                          size='sm'
                           onClick={() => onDownloadRequest?.(version)}
                         >
-                          <Download className="h-4 w-4 mr-2" />
+                          <Download className='h-4 w-4 mr-2' />
                           {t('installer.downloadToServer')}
                         </Button>
                       );
                     })()}
                   </TableCell>
-                </TableRow>
+                </PackageMotionRow>
               ))
             )}
-          </TableBody>
+          </motion.tbody>
         </Table>
       </div>
     );
@@ -315,7 +436,11 @@ export function PackageTable({
 
   // Local packages table / 本地安装包表格
   return (
-    <div ref={tableContainerRef} className="border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex-1 flex flex-col">
+    <div
+      data-testid='package-local-table'
+      data-reduce-motion={reduceMotion ? 'true' : 'false'}
+      className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex-1 flex flex-col'
+    >
       <TableLoadingBar loading={Boolean(loading)} />
       <Table>
         <TableHeader>
@@ -325,71 +450,103 @@ export function PackageTable({
             <TableHead>{t('installer.fileSize')}</TableHead>
             <TableHead>{t('installer.sourcePackage')}</TableHead>
             <TableHead>{t('installer.uploadedAt')}</TableHead>
-            <TableHead className="w-[100px]">{t('common.actions')}</TableHead>
+            <TableHead className='w-[100px]'>{t('common.actions')}</TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
+        <motion.tbody
+          variants={container}
+          initial='hidden'
+          animate='visible'
+          data-slot='table-body'
+          className='[&_tr:last-child]:border-0'
+        >
           {loading && localPackages.length === 0 ? (
             <TableSkeletonRows columns={6} rows={5} />
           ) : localPackages.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+              <TableCell
+                colSpan={6}
+                className='text-center py-12 text-muted-foreground'
+              >
                 {t('installer.noLocalPackages')}
               </TableCell>
             </TableRow>
           ) : (
             localPackages.map((pkg) => (
-              <TableRow
+              <PackageMotionRow
                 key={pkg.version}
-                className={`package-data-row transition-opacity duration-200 ${
-                  loading ? 'opacity-60 pointer-events-none' : ''
-                }`}
+                reduceMotion={reduceMotion}
+                itemVariants={item}
+                hover={rowHover}
+                data-testid={`package-local-row-${pkg.version}`}
+                className={loading ? 'opacity-60 pointer-events-none' : ''}
               >
-                <TableCell className="font-medium">{pkg.version}</TableCell>
-                <TableCell className="font-mono text-sm">{pkg.file_name}</TableCell>
+                <TableCell className='font-medium'>{pkg.version}</TableCell>
+                <TableCell className='font-mono text-sm'>
+                  {pkg.file_name}
+                </TableCell>
                 <TableCell>{formatFileSize(pkg.file_size)}</TableCell>
                 <TableCell>
                   {pkg.has_source ? (
-                    <div className="flex items-center gap-2 min-w-max">
-                      <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-                        <CheckCircle className="h-3 w-3 mr-1" />
+                    <div className='flex items-center gap-2 min-w-max'>
+                      <Badge
+                        variant='outline'
+                        className='border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                      >
+                        <CheckCircle className='h-3 w-3 mr-1' />
                         {t('installer.sourceImported')}
                       </Badge>
-                      <span className="text-xs text-muted-foreground">{formatFileSize(pkg.source_file_size || 0)}</span>
+                      <span className='text-xs text-muted-foreground'>
+                        {formatFileSize(pkg.source_file_size || 0)}
+                      </span>
                     </div>
                   ) : pkg.source_status === 'failed' ? (
-                    <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive" title={pkg.source_error}>
-                      <XCircle className="h-3 w-3 mr-1" />
+                    <Badge
+                      variant='outline'
+                      className='border-destructive/30 bg-destructive/10 text-destructive'
+                      title={pkg.source_error}
+                      data-testid={`package-local-source-failed-${pkg.version}`}
+                    >
+                      <XCircle className='h-3 w-3 mr-1' />
                       {t('installer.sourceFailed')}
                     </Badge>
                   ) : (
-                    <Badge variant="secondary">{t('installer.sourceMissing')}</Badge>
+                    <Badge
+                      variant='secondary'
+                      data-testid={`package-local-source-missing-${pkg.version}`}
+                    >
+                      {t('installer.sourceMissing')}
+                    </Badge>
                   )}
                 </TableCell>
                 <TableCell>{formatDate(pkg.uploaded_at)}</TableCell>
                 <TableCell>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
+                      <Button variant='ghost' size='icon'>
+                        <MoreHorizontal className='h-4 w-4' />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align='end'>
                       {pkg.has_source ? (
-                        <DropdownMenuItem onClick={() => onSourceDownload?.(pkg.version)}>
-                          <Download className="h-4 w-4 mr-2" />
+                        <DropdownMenuItem
+                          onClick={() => onSourceDownload?.(pkg.version)}
+                        >
+                          <Download className='h-4 w-4 mr-2' />
                           {t('installer.downloadSource')}
                         </DropdownMenuItem>
                       ) : (
-                        <DropdownMenuItem onClick={() => onSourceFetch?.(pkg.version)}>
-                          <FileCode2 className="h-4 w-4 mr-2" />
+                        <DropdownMenuItem
+                          onClick={() => onSourceFetch?.(pkg.version)}
+                        >
+                          <FileCode2 className='h-4 w-4 mr-2' />
                           {t('installer.fetchSource')}
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem asChild>
                         <FileUpload
-                          variant="menu-item"
-                          accept=".tar.gz"
+                          variant='menu-item'
+                          accept='.tar.gz'
                           resetOnSelect
                           data-testid={`package-source-upload-${pkg.version}`}
                           onFileChange={(selected) => {
@@ -398,28 +555,30 @@ export function PackageTable({
                             }
                           }}
                         >
-                          <Upload className="h-4 w-4" />
-                          {pkg.has_source ? t('installer.replaceSource') : t('installer.uploadSource')}
+                          <Upload className='h-4 w-4' />
+                          {pkg.has_source
+                            ? t('installer.replaceSource')
+                            : t('installer.uploadSource')}
                         </FileUpload>
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        className="text-destructive"
+                        className='text-destructive'
                         onSelect={() => {
                           // 等下拉菜单关闭后再弹出确认框，避免与 AlertDialog 双重焦点陷阱
                           // Close the dropdown first, then open the confirm dialog to avoid nested focus traps
                           window.setTimeout(() => onDelete?.(pkg.version), 0);
                         }}
                       >
-                        <Trash2 className="h-4 w-4 mr-2" />
+                        <Trash2 className='h-4 w-4 mr-2' />
                         {t('common.delete')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
-              </TableRow>
+              </PackageMotionRow>
             ))
           )}
-        </TableBody>
+        </motion.tbody>
       </Table>
     </div>
   );

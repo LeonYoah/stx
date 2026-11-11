@@ -22,12 +22,14 @@
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Pagination } from '@/components/ui/pagination';
-import type { Plugin } from '@/lib/services/plugin';
-import { PluginCard } from './PluginCard';
+import {useEffect, useMemo, useState} from 'react';
+import {motion, useReducedMotion} from 'motion/react';
+import {useTranslations} from 'next-intl';
+import {Skeleton} from '@/components/ui/skeleton';
+import {Pagination} from '@/components/ui/pagination';
+import type {Plugin} from '@/lib/services/plugin';
+import {PluginCard} from './PluginCard';
+import {buildPluginGridVariants} from './plugin-motion';
 
 interface PluginGridProps {
   plugins: Plugin[];
@@ -42,6 +44,10 @@ interface PluginGridProps {
   downloadedPlugins?: Set<string>;
   /** Map of plugin name + version to download progress percentage / 插件名称+版本到下载进度数值(0-100)的映射 */
   downloadProgressMap?: Map<string, number>;
+  /** Failed download messages keyed by name:version / 失败下载信息，键为 name:version */
+  failedDownloadMap?: Map<string, string>;
+  /** Installed cluster counts keyed by name:version / 已安装集群数量，键为 name:version */
+  installedClusterCountMap?: Map<string, number>;
 }
 
 // Default page size / 默认每页数量
@@ -49,11 +55,11 @@ const DEFAULT_PAGE_SIZE = 12;
 
 /**
  * Plugin Grid Component
- * 插件网格组件 - 以卡片网格形式展示插件列表，支持分页
+ * 插件网格组件 - 以卡片网格形式展示插件列表，支持分页与入场微动效
  */
-export function PluginGrid({ 
-  plugins, 
-  loading, 
+export function PluginGrid({
+  plugins,
+  loading,
   onViewDetail,
   showInstallButton = false,
   onInstall,
@@ -61,8 +67,15 @@ export function PluginGrid({
   downloadingPlugins = new Set(),
   downloadedPlugins = new Set(),
   downloadProgressMap = new Map(),
+  failedDownloadMap = new Map(),
+  installedClusterCountMap = new Map(),
 }: PluginGridProps) {
   const t = useTranslations();
+  const reduceMotion = useReducedMotion() ?? false;
+  const {container, item} = useMemo(
+    () => buildPluginGridVariants(reduceMotion),
+    [reduceMotion],
+  );
 
   // Pagination state / 分页状态
   const [currentPage, setCurrentPage] = useState(1);
@@ -91,7 +104,7 @@ export function PluginGrid({
     setCurrentPage(page);
   };
 
-  // Handle page size change / 处理每页数量变化
+  // Handle page size change / 处理每页条数变化
   const handlePageSizeChange = (newPageSize: number) => {
     setPageSize(newPageSize);
     setCurrentPage(1); // Reset to first page / 重置到第一页
@@ -99,16 +112,16 @@ export function PluginGrid({
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {Array.from({ length: pageSize }).map((_, i) => (
-          <div key={i} className="p-4 border rounded-lg space-y-3">
-            <Skeleton className="h-10 w-10 rounded" />
-            <Skeleton className="h-5 w-3/4" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-2/3" />
-            <div className="flex gap-2">
-              <Skeleton className="h-6 w-16" />
-              <Skeleton className="h-6 w-16" />
+      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'>
+        {Array.from({length: pageSize}).map((_, i) => (
+          <div key={i} className='p-4 border rounded-lg space-y-3'>
+            <Skeleton className='h-10 w-10 rounded' />
+            <Skeleton className='h-5 w-3/4' />
+            <Skeleton className='h-4 w-full' />
+            <Skeleton className='h-4 w-2/3' />
+            <div className='flex gap-2'>
+              <Skeleton className='h-6 w-16' />
+              <Skeleton className='h-6 w-16' />
             </div>
           </div>
         ))}
@@ -118,25 +131,39 @@ export function PluginGrid({
 
   if (plugins.length === 0) {
     return (
-      <div className="text-center py-12 text-muted-foreground">
+      <div className='text-center py-12 text-muted-foreground'>
         {t('plugin.noPluginsFound')}
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Plugin grid / 插件网格 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    <div className='space-y-6' data-testid='plugin-available-grid'>
+      {/* Plugin grid / 插件网格 — 仅卡片墙，不提供表视图 */}
+      <motion.div
+        className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'
+        variants={container}
+        initial='hidden'
+        animate='visible'
+        data-reduce-motion={reduceMotion ? 'true' : 'false'}
+      >
         {currentPlugins.map((plugin) => {
           const downloadKey = `${plugin.name}:${plugin.version}`;
           // 已下载状态优先判定；已就绪的插件不可再标记为下载中。
           // Check downloaded state first; downloaded plugins must never remain marked as downloading.
           const isDownloaded = downloadedPlugins.has(downloadKey);
-          const isDownloading = !isDownloaded && downloadingPlugins.has(downloadKey);
+          const failedMessage = failedDownloadMap.get(downloadKey) ?? null;
+          const isDownloading =
+            !isDownloaded &&
+            !failedMessage &&
+            downloadingPlugins.has(downloadKey);
           // 若已下载进度为 100%，否则从进度映射中读取实时百分比。
           // Progress is 100% when downloaded; otherwise retrieve real-time percentage from progress map.
-          const progress = isDownloaded ? 100 : (downloadProgressMap.get(downloadKey) ?? 0);
+          const progress = isDownloaded
+            ? 100
+            : (downloadProgressMap.get(downloadKey) ?? 0);
+          const installedClusterCount =
+            installedClusterCountMap.get(downloadKey) ?? 0;
 
           return (
             <PluginCard
@@ -144,15 +171,18 @@ export function PluginGrid({
               plugin={plugin}
               onClick={() => onViewDetail(plugin)}
               showInstallButton={showInstallButton}
+              installedClusterCount={installedClusterCount}
               isDownloading={isDownloading}
               isDownloaded={isDownloaded}
               downloadProgress={progress}
+              downloadFailedMessage={failedMessage}
               onInstall={onInstall ? () => onInstall(plugin) : undefined}
               onDownload={onDownload ? () => onDownload(plugin) : undefined}
+              motionVariants={item}
             />
           );
         })}
-      </div>
+      </motion.div>
 
       {/* Pagination / 分页 */}
       {totalPages > 1 && (

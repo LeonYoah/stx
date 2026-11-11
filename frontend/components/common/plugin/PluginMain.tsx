@@ -62,8 +62,7 @@ import {
   DownloadCloud,
   AlertTriangle,
 } from 'lucide-react';
-import {motion} from 'motion/react';
-import {easeOut} from 'motion';
+import {motion, useReducedMotion} from 'motion/react';
 import {
   WorkspaceHeader,
   StatPillsBar,
@@ -93,6 +92,8 @@ import {PluginGrid} from './PluginGrid';
 import {PluginDetailDialog} from './PluginDetailDialog';
 import {InstallPluginDialog} from './InstallPluginDialog';
 import {BatchInstallDialog} from './BatchInstallDialog';
+import {InstalledClusterStack} from './InstalledClusterStack';
+import {buildPluginPageVariants} from './plugin-motion';
 import {Pagination} from '@/components/ui/pagination';
 import {
   Table,
@@ -154,6 +155,11 @@ function pluginClusterInstallKey(name: string, version: string): string {
  */
 export function PluginMain() {
   const t = useTranslations();
+  const reduceMotion = useReducedMotion() ?? false;
+  const {container: containerVariants, item: itemVariants} = useMemo(
+    () => buildPluginPageVariants(reduceMotion),
+    [reduceMotion],
+  );
 
   // Data state / 数据状态
   const [plugins, setPlugins] = useState<Plugin[]>([]);
@@ -878,19 +884,14 @@ export function PluginMain() {
     selectedVersion,
   ]);
 
+  // 预加载本地下载、失败进度与集群安装量，供「在线可用」卡片与「本地插件」表共用。
+  // Preload local downloads, failures, and cluster install counts for both available cards and the local table.
   useEffect(() => {
-    void PluginService.listLocalPlugins()
-      .then((items) => {
-        setDownloadedPlugins(
-          new Set(
-            (items || []).map((item) => pluginDownloadKey(item.name, item.version)),
-          ),
-        );
-      })
-      .catch(() => {
-        // ignore preload errors
-      });
-  }, [selectedVersion]);
+    if (!selectedVersion) {
+      return;
+    }
+    void loadLocalPlugins();
+  }, [selectedVersion, loadLocalPlugins]);
 
   // Load local plugins when switching to local tab / 切换到本地插件标签时加载
   useEffect(() => {
@@ -1353,26 +1354,31 @@ export function PluginMain() {
   // Count plugins by category is no longer needed since all are connectors
   // 不再需要按分类统计，因为所有插件都是连接器
 
-  const containerVariants = {
-    hidden: {opacity: 0},
-    visible: {
-      opacity: 1,
-      transition: {
-        duration: 0.5,
-        staggerChildren: 0.1,
-        ease: easeOut,
-      },
-    },
-  };
+  // 失败下载映射：在线卡片与本地表共享同一套失败语义。
+  // Failed-download map: available cards and local table share the same failure meaning.
+  const failedDownloadMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of activeDownloads) {
+      if (item.status !== 'failed') {
+        continue;
+      }
+      map.set(
+        pluginDownloadKey(item.plugin_name, item.version),
+        item.error || item.message || '',
+      );
+    }
+    return map;
+  }, [activeDownloads]);
 
-  const itemVariants = {
-    hidden: {opacity: 0, y: 20},
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: {duration: 0.6, ease: easeOut},
-    },
-  };
+  // 已安装集群数量：供在线卡片展示安装量，语义与本地表一致。
+  // Installed cluster counts for available cards; same meaning as the local table.
+  const installedClusterCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [key, clusterMap] of pluginClusterStatus.entries()) {
+      map.set(key, clusterMap.size);
+    }
+    return map;
+  }, [pluginClusterStatus]);
 
   const formatCatalogRefreshedAt = useCallback((value: string) => {
     if (!value) {
@@ -1647,6 +1653,8 @@ export function PluginMain() {
               downloadingPlugins={downloadingPlugins}
               downloadedPlugins={downloadedPlugins}
               downloadProgressMap={downloadProgressMap}
+              failedDownloadMap={failedDownloadMap}
+              installedClusterCountMap={installedClusterCountMap}
             />
           )}
 
@@ -1874,24 +1882,15 @@ export function PluginMain() {
                               </Badge>
                             </TableCell>
                             <TableCell>v{plugin.version}</TableCell>
-                            <TableCell>
-                              {installedClusters.length === 0 ? (
-                                <span className='text-muted-foreground text-sm'>
-                                  {t('plugin.notInstalled')}
-                                </span>
-                              ) : (
-                                <div className='flex flex-wrap gap-1'>
-                                  {installedClusters.map((cluster) => (
-                                    <Badge
-                                      key={cluster.id}
-                                      variant='outline'
-                                      className='text-xs'
-                                    >
-                                      {cluster.name}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              )}
+                            <TableCell className='align-middle'>
+                              {/* 多集群时用悬停推让堆叠，避免 flex-wrap 把行高撑乱。
+                                  Hover-push stack for many clusters; avoids flex-wrap blowing up row height. */}
+                              <InstalledClusterStack
+                                clusters={installedClusters.map((cluster) => ({
+                                  id: cluster.id,
+                                  name: cluster.name,
+                                }))}
+                              />
                             </TableCell>
                             <TableCell>{formatFileSize(plugin.size)}</TableCell>
                             <TableCell className='text-right space-x-1'>

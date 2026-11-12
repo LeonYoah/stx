@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import {useThemeUtils} from '@/hooks/use-theme-utils';
 import {useAuth} from '@/hooks/use-auth';
+import {useOnboardingOptional} from '@/components/common/onboarding/OnboardingContext';
 import {CountingNumber} from '@/components/animate-ui/text/counting-number';
 import {Button} from '@/components/ui/button';
 import {
@@ -115,6 +116,7 @@ export const ProfileButton = memo(() => {
   const themeUtils = useThemeUtils();
   const router = useRouter();
   const {user, isLoading, logout, checkAuthStatus} = useAuth();
+  const onboarding = useOnboardingOptional();
   const {locale, syncLocale} = useLocale();
   const [open, setOpen] = useState(false);
   // Arm upgrade CTA after open so the same click that opened the dialog
@@ -599,6 +601,28 @@ export const ProfileButton = memo(() => {
               </div>
             </div>
           )}
+
+          {/* 上手指南恢复：现有 Profile 对话框内，不另造顶栏帮助 / Resume onboarding from Profile dialog */}
+          {onboarding?.ready ? (
+            <div>
+              <h4 className='text-sm font-semibold mb-3 text-muted-foreground'>
+                {t('onboardingHelp')}
+              </h4>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='w-full justify-start'
+                data-testid='stx-onboarding-resume'
+                onClick={() => {
+                  onboarding.resumeGuide();
+                  setOpen(false);
+                }}
+              >
+                {t('resumeOnboarding')}
+              </Button>
+            </div>
+          ) : null}
 
           {/* 快速链接区域 */}
           <div>

@@ -214,6 +214,12 @@ export function InstallPluginDialog({
         setIsDownloaded(true);
         setDownloading(false);
         onDownloadComplete?.();
+        // Inventory is ready only after download completes — refresh onboarding (AC5/AC6).
+        // 仅下载完成后库存才就绪——刷新上手清单（AC5/AC6）。
+        const {notifyOnboardingResourcesChanged} = await import(
+          '@/lib/onboarding/events'
+        );
+        notifyOnboardingResourcesChanged();
       } else if (status.status === 'downloading') {
         setDownloading(true);
       } else if (status.status === 'failed') {
@@ -235,6 +241,10 @@ export function InstallPluginDialog({
             progress: 100,
           });
           onDownloadComplete?.();
+          const {notifyOnboardingResourcesChanged} = await import(
+            '@/lib/onboarding/events'
+          );
+          notifyOnboardingResourcesChanged();
         } else if (downloading) {
           // 若既非 downloading 也非 completed 且本地尚未存在，退出下载中标记避免停留在 0%。
           // If neither downloading nor completed and not local, clear downloading flag to avoid sticking at 0%.

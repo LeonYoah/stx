@@ -28,14 +28,36 @@ describe('formatStepStatusDetail (#109 copy)', () => {
     'errors.generic': '检查失败，请重试',
     missingHosts: '未连接：{hosts}',
   };
-  const t = ((key: string, values?: Record<string, string | number>) => {
-    let out = catalog[key] || key;
+  /** Minimal ICU plural stub for en one/other used in assertions. */
+  const enCatalog: Record<string, string> = {
+    'errors.hosts_not_connected':
+      '{count, plural, one {A server is not connected} other {Some servers are not connected}}',
+    missingHosts:
+      '{count, plural, one {Offline host: {hosts}} other {Offline hosts: {hosts}}}',
+  };
+  const resolvePlural = (
+    template: string,
+    values?: Record<string, string | number>,
+  ) => {
+    let out = template;
+    if (values && typeof values.count === 'number' && out.includes('plural')) {
+      const count = values.count;
+      const match = out.match(
+        /\{count,\s*plural,\s*one\s*\{([^}]*)\}\s*other\s*\{([^}]*)\}\}/,
+      );
+      if (match) {
+        out = count === 1 ? match[1] : match[2];
+      }
+    }
     if (values) {
       for (const [k, v] of Object.entries(values)) {
         out = out.replace(`{${k}}`, String(v));
       }
     }
     return out;
+  };
+  const t = ((key: string, values?: Record<string, string | number>) => {
+    return resolvePlural(catalog[key] || key, values);
   }) as ((
     key: string,
     values?: Record<string, string | number>,
@@ -52,6 +74,36 @@ describe('formatStepStatusDetail (#109 copy)', () => {
     expect(
       formatStepStatusDetail(t, 'incomplete', 'hosts_not_connected', ['b']),
     ).toBe('有服务器未连接 未连接：b');
+  });
+
+  it('uses English singular/plural for offline host detail', () => {
+    // Stub next-intl ICU one/other without a full plural parser.
+    // 用简易分支模拟 next-intl 的 one/other，避免在单测里嵌套解析 ICU。
+    const tEn = ((key: string, values?: Record<string, string | number>) => {
+      const count = typeof values?.count === 'number' ? values.count : 0;
+      const hosts = values?.hosts != null ? String(values.hosts) : '';
+      if (key === 'errors.hosts_not_connected') {
+        return count === 1
+          ? 'A server is not connected'
+          : 'Some servers are not connected';
+      }
+      if (key === 'missingHosts') {
+        return count === 1
+          ? `Offline host: ${hosts}`
+          : `Offline hosts: ${hosts}`;
+      }
+      return resolvePlural(enCatalog[key] || catalog[key] || key, values);
+    }) as typeof t;
+    tEn.has = (key: string) => key in enCatalog || key in catalog;
+    expect(
+      formatStepStatusDetail(tEn, 'incomplete', 'hosts_not_connected', ['b']),
+    ).toBe('A server is not connected Offline host: b');
+    expect(
+      formatStepStatusDetail(tEn, 'incomplete', 'hosts_not_connected', [
+        'a',
+        'b',
+      ]),
+    ).toBe('Some servers are not connected Offline hosts: a, b');
   });
 
   it('maps errors to check-failed copy', () => {

@@ -31,6 +31,39 @@ export type HostAgentSnapshot = {
   agentReady: boolean;
 };
 
+/**
+ * AC7: a host Agent is ready only when installed AND currently online.
+ * Offline-but-installed (or online-but-not-installed) must not count as ready.
+ * AC7：主机 Agent 仅在「已安装且当前在线」时就绪；已安装但离线（或在线未安装）均不算就绪。
+ */
+export function isHostAgentReady(host: {
+  is_online?: boolean;
+  isOnline?: boolean;
+  status?: string;
+  agent_status?: string;
+  agentStatus?: string;
+}): boolean {
+  const online =
+    !!(host.is_online ?? host.isOnline) ||
+    host.status === 'connected';
+  const installed =
+    (host.agent_status ?? host.agentStatus) === 'installed';
+  return online && installed;
+}
+
+/**
+ * AC4: once finished, do not re-evaluate progress — Agent offline / scale-out
+ * must not reopen the guide or roll back completed state.
+ * AC4：完成后不再重评进度；Agent 离线或扩容不得让引导重现或回退完成态。
+ * AC7 offline-incomplete only applies while this returns true (guide still in progress).
+ * AC7「有主机离线则未完成」仅在本函数为 true（引导未走完）时生效。
+ */
+export function shouldEvaluateOnboardingProgress(
+  state: Pick<OnboardingPersistedState, 'path' | 'finished'>,
+): boolean {
+  return !!state.path && !state.finished;
+}
+
 /** Cluster node snapshot / 集群节点快照 */
 export type ClusterNodeSnapshot = {
   hostId: number;

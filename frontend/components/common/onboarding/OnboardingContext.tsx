@@ -30,14 +30,15 @@ import {
 import {usePathname} from 'next/navigation';
 import {useAuth} from '@/hooks/use-auth';
 import services from '@/lib/services';
-import {AgentStatus, HostStatus} from '@/lib/services/host/types';
 import {NodeStatus} from '@/lib/services/cluster/types';
 import {getSyncJobClusterId} from '@/components/common/sync/sync-studio-utils';
 import {
   completedIdsFromResults,
   evaluateAllSteps,
+  isHostAgentReady,
   isPathFullyComplete,
   resolveOnboardingTargetCluster,
+  shouldEvaluateOnboardingProgress,
   stepsForPath,
   type JobSnapshot,
 } from '@/lib/onboarding/completion';
@@ -80,24 +81,6 @@ type OnboardingContextValue = {
 };
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
-
-function isHostAgentReady(host: {
-  is_online?: boolean;
-  status?: string;
-  agent_status?: string;
-  last_heartbeat?: string | null;
-}): boolean {
-  if (host.is_online) {
-    return true;
-  }
-  if (host.status === HostStatus.CONNECTED || host.status === 'connected') {
-    return true;
-  }
-  return (
-    host.agent_status === AgentStatus.INSTALLED ||
-    host.agent_status === 'installed'
-  );
-}
 
 /**
  * Provides per-user onboarding state, persistence, and real resource aggregation.
@@ -161,7 +144,9 @@ export function OnboardingProvider({children}: {children: ReactNode}) {
 
   const refresh = useCallback(async () => {
     const current = stateRef.current;
-    if (!ready || !current.path || current.finished) {
+    // AC4 finished latch: skip re-evaluation so offline/scale-out cannot roll back.
+    // AC4 完成闩锁：跳过重评，避免离线/扩容回退完成态。
+    if (!ready || !shouldEvaluateOnboardingProgress(current)) {
       setStepResults([]);
       return;
     }
@@ -337,8 +322,15 @@ export function OnboardingProvider({children}: {children: ReactNode}) {
       }));
 
       const latest = stateRef.current;
+      // Refresh entry already requires a path; re-check after awaits (race-safe).
+      // 入口已要求有 path；await 后再确认一次，避免竞态下 path 被清空。
+      const path = latest.path || current.path;
+      if (!path) {
+        setStepResults([]);
+        return;
+      }
       const results = evaluateAllSteps({
-        path: latest.path || current.path,
+        path,
         state: latest,
         localPackages,
         localPlugins: (localPlugins || []).map((p) => ({
@@ -396,7 +388,14 @@ export function OnboardingProvider({children}: {children: ReactNode}) {
   // Poll + re-check on route return / focus / resource-changed (AC5).
   // 轮询；从业务页返回、获焦、资源变更时重查（AC5）。
   useEffect(() => {
-    if (!ready || !state.path || state.finished) {
+    // AC4: finished guide must not poll resources / AC4：已完成引导不得再轮询资源
+    if (
+      !ready ||
+      !shouldEvaluateOnboardingProgress({
+        path: state.path,
+        finished: state.finished,
+      })
+    ) {
       return;
     }
     void refresh();

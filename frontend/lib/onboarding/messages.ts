@@ -72,18 +72,24 @@ export function formatStepStatusDetail(
     return t('checkFailed');
   }
   // incomplete — concrete shortage messages / 未完成：具体缺项
+  const missingValues =
+    missing && missing.length > 0
+      ? {count: missing.length, hosts: missing.join(', ')}
+      : undefined;
   if (errorMessage) {
     const errorKey = `errors.${errorMessage}`;
     const known =
       ERROR_KEYS.has(errorMessage) && (!t.has || t.has(errorKey));
-    let detail = known ? t(errorKey) : t('errors.generic');
-    if (missing?.length) {
-      detail = `${detail} ${t('missingHosts', {hosts: missing.join(', ')})}`;
+    // Pass count so en ICU plurals resolve (one/other).
+    // 传入 count，英文 ICU 单复数才能正确解析。
+    let detail = known ? t(errorKey, missingValues) : t('errors.generic');
+    if (missingValues) {
+      detail = `${detail} ${t('missingHosts', missingValues)}`;
     }
     return detail;
   }
-  if (missing?.length) {
-    return t('missingHosts', {hosts: missing.join(', ')});
+  if (missingValues) {
+    return t('missingHosts', missingValues);
   }
   return t('errors.generic');
 }

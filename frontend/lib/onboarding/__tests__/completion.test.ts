@@ -23,8 +23,10 @@ import {
   evaluateHostsAgents,
   evaluateResources,
   findReadyInventoryCombo,
+  isHostAgentReady,
   normalizeInventoryVersion,
   resolveOnboardingTargetCluster,
+  shouldEvaluateOnboardingProgress,
   stepsForPath,
 } from '../completion';
 import {DEFAULT_ONBOARDING_STATE, ONBOARDING_STEP_IDS} from '../types';
@@ -114,6 +116,23 @@ describe('findReadyInventoryCombo AC6', () => {
   });
 });
 
+describe('isHostAgentReady AC7', () => {
+  it('requires installed AND online together', () => {
+    expect(
+      isHostAgentReady({is_online: true, agent_status: 'installed'}),
+    ).toBe(true);
+    expect(
+      isHostAgentReady({is_online: false, agent_status: 'installed'}),
+    ).toBe(false);
+    expect(
+      isHostAgentReady({is_online: true, agent_status: 'not_installed'}),
+    ).toBe(false);
+    expect(
+      isHostAgentReady({status: 'connected', agent_status: 'installed'}),
+    ).toBe(true);
+  });
+});
+
 describe('evaluateHostsAgents AC7', () => {
   it('incomplete with no hosts before cluster', () => {
     expect(
@@ -121,18 +140,86 @@ describe('evaluateHostsAgents AC7', () => {
     ).toBe('hosts_missing');
   });
 
-  it('requires every host connected before cluster', () => {
-    const result = evaluateHostsAgents(
-      [
-        {id: 1, name: 'a', isOnline: true, agentReady: true},
-        {id: 2, name: 'b', isOnline: false, agentReady: false},
-      ],
-      [],
-      null,
-    );
+  it('completes when every managed host is online and ready', () => {
+    const hosts = [
+      {
+        id: 1,
+        name: 'alpha',
+        isOnline: true,
+        agentReady: isHostAgentReady({
+          is_online: true,
+          agent_status: 'installed',
+        }),
+      },
+      {
+        id: 2,
+        name: 'beta',
+        isOnline: true,
+        agentReady: isHostAgentReady({
+          is_online: true,
+          agent_status: 'installed',
+        }),
+      },
+    ];
+    const result = evaluateHostsAgents(hosts, [], null);
+    expect(result.status).toBe('complete');
+    expect(result.missing).toBeUndefined();
+  });
+
+  it('stays incomplete and names the offline host when one of many is down', () => {
+    const hosts = [
+      {
+        id: 1,
+        name: 'alpha',
+        isOnline: true,
+        agentReady: isHostAgentReady({
+          is_online: true,
+          agent_status: 'installed',
+        }),
+      },
+      {
+        id: 2,
+        name: 'beta',
+        isOnline: false,
+        // Bug repro: installed but offline must NOT be ready.
+        // 缺陷复现：已安装但离线不得算就绪。
+        agentReady: isHostAgentReady({
+          is_online: false,
+          agent_status: 'installed',
+        }),
+      },
+    ];
+    const result = evaluateHostsAgents(hosts, [], null);
     expect(result.status).toBe('incomplete');
     expect(result.errorMessage).toBe('hosts_not_connected');
-    expect(result.missing).toContain('b');
+    expect(result.missing).toEqual(['beta']);
+  });
+
+  it('lists every host name when all managed hosts are offline', () => {
+    const hosts = [
+      {
+        id: 1,
+        name: 'alpha',
+        isOnline: false,
+        agentReady: isHostAgentReady({
+          is_online: false,
+          agent_status: 'installed',
+        }),
+      },
+      {
+        id: 2,
+        name: 'beta',
+        isOnline: false,
+        agentReady: isHostAgentReady({
+          is_online: false,
+          agent_status: 'installed',
+        }),
+      },
+    ];
+    const result = evaluateHostsAgents(hosts, [], null);
+    expect(result.status).toBe('incomplete');
+    expect(result.errorMessage).toBe('hosts_not_connected');
+    expect(result.missing).toEqual(['alpha', 'beta']);
   });
 
   it('after bind checks all node hosts, not unrelated hosts', () => {
@@ -165,6 +252,47 @@ describe('evaluateHostsAgents AC7', () => {
     );
     expect(result.status).toBe('incomplete');
     expect(result.missing).toContain('b');
+  });
+});
+
+describe('finished latch AC4 vs AC7 offline', () => {
+  it('does not re-evaluate progress after finished even if Agents go offline', () => {
+    const finishedState = {
+      ...DEFAULT_ONBOARDING_STATE,
+      path: 'existing' as const,
+      finished: true,
+      displayMode: 'hidden' as const,
+      completedStepIds: [
+        ONBOARDING_STEP_IDS.hostsAgents,
+        ONBOARDING_STEP_IDS.cluster,
+        ONBOARDING_STEP_IDS.firstScript,
+      ],
+    };
+    // AC7 would mark hosts incomplete if evaluated — but AC4 latch blocks evaluation.
+    // 若仍评估，AC7 会判主机未完成；AC4 闩锁禁止评估，避免引导回退/重现。
+    const offlineEval = evaluateHostsAgents(
+      [
+        {
+          id: 1,
+          name: 'alpha',
+          isOnline: false,
+          agentReady: isHostAgentReady({
+            is_online: false,
+            agent_status: 'installed',
+          }),
+        },
+      ],
+      [],
+      null,
+    );
+    expect(offlineEval.status).toBe('incomplete');
+    expect(shouldEvaluateOnboardingProgress(finishedState)).toBe(false);
+    expect(
+      shouldEvaluateOnboardingProgress({
+        ...finishedState,
+        finished: false,
+      }),
+    ).toBe(true);
   });
 });
 

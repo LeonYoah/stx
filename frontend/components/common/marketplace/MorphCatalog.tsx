@@ -415,11 +415,13 @@ function MorphItem({
     ? MARKETPLACE_MOTION_INSTANT
     : MORPH_TRANSITION;
 
+  const openTestId =
+    item.testIds?.open || `marketplace-open-${item.id}`;
   const titleNode = item.onOpen ? (
     <Button
       type='button'
       variant='link'
-      data-testid={`marketplace-open-${item.id}`}
+      data-testid={openTestId}
       className='h-auto max-w-full min-w-0 justify-start p-0 text-base font-semibold tracking-tight text-foreground'
       onClick={() => item.onOpen?.()}
       aria-label={t('openItem', {name: item.title})}
@@ -584,7 +586,7 @@ function MorphItem({
     // Table rows: no layoutId / scale variants — transforms would skew subgrid edges.
     return (
       <div
-        data-testid={`marketplace-row-${item.id}`}
+        data-testid={item.testIds?.row || `marketplace-row-${item.id}`}
         data-selected={isSelected ? 'true' : 'false'}
         className={cn(
           tableGridClass,
@@ -801,7 +803,7 @@ function MorphItem({
       initial='hidden'
       animate='visible'
       whileHover={cardHover}
-      data-testid={`marketplace-card-${item.id}`}
+      data-testid={item.testIds?.card || `marketplace-card-${item.id}`}
       data-flipped={canFlip && flipped ? 'true' : 'false'}
       // layoutId 只在此外壳；FlipCard 内层负责 rotateY，二者不叠加。
       // layoutId stays on this shell; FlipCard owns rotateY — never the same node.

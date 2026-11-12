@@ -304,6 +304,13 @@ export function PluginGrid({
         primaryActions,
         menuActions,
         onOpen: () => onViewDetail(plugin),
+        // e2e 兼容：点击标题即打开详情（plugin-card-*）。
+        // e2e compat: title click opens detail (plugin-card-*).
+        testIds: {
+          open: `plugin-card-${plugin.name}`,
+          card: `plugin-card-shell-${plugin.name}`,
+          row: `plugin-card-row-${plugin.name}`,
+        },
       };
     });
   }, [

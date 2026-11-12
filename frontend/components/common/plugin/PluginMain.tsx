@@ -1975,6 +1975,13 @@ export function PluginMain() {
           title: plugin.name,
           subtitle: `v${plugin.version}`,
           onOpen: () => handleViewDetail(pluginForDetail),
+          // e2e：本地行/卡稳定 testid（plugin-local-row-*）。
+          // e2e: stable local row/card test ids (plugin-local-row-*).
+          testIds: {
+            row: `plugin-local-row-${plugin.name}-${plugin.version}`,
+            card: `plugin-local-row-${plugin.name}-${plugin.version}`,
+            open: `plugin-local-open-${plugin.name}-${plugin.version}`,
+          },
           icon: (
             <span
               className={`inline-flex size-9 items-center justify-center rounded-full ${semanticIcon.bgColor} ${semanticIcon.textColor}`}
@@ -2065,6 +2072,7 @@ export function PluginMain() {
           menuActions: (
             <DropdownMenuItem
               className='text-destructive'
+              data-testid={`plugin-local-delete-${plugin.name}-${plugin.version}`}
               onClick={(e) => {
                 e.stopPropagation();
                 openDeleteLocalPluginDialog(plugin);

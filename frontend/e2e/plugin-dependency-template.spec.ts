@@ -147,6 +147,10 @@ test.describe('plugin dependency template', () => {
     await expect(localRow.getByLabel('template-cluster')).toBeVisible();
     await expect(localRow).toContainText('template-cluster');
 
+    // 删除入口在「…」菜单内；先打开菜单再点删除。
+    // Delete lives in the «…» menu — open it before clicking delete.
+    const localItemId = `${pluginDependencyTemplate.pluginName}:${pluginDependencyTemplate.seatunnelVersion}`;
+    await page.getByTestId(`marketplace-more-${localItemId}`).click();
     await page
       .getByTestId(
         `plugin-local-delete-${pluginDependencyTemplate.pluginName}-${pluginDependencyTemplate.seatunnelVersion}`,

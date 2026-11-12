@@ -79,4 +79,13 @@ export interface MarketplaceCatalogItem {
    * 仅标题控件打开详情；卡片空白区域用于翻转，不会打开详情。
    */
   onOpen?: () => void;
+  /**
+   * Stable e2e test ids (override marketplace-* defaults when set).
+   * 稳定 e2e test id（设置后覆盖 marketplace-* 默认值）。
+   */
+  testIds?: {
+    card?: string;
+    row?: string;
+    open?: string;
+  };
 }

@@ -34,20 +34,11 @@ import {
 import {MarketplaceStatusDot} from '@/components/common/marketplace';
 import {hasMarketplaceMenuActions} from '@/components/common/marketplace/MorphCatalog';
 import {
-  PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS,
-  PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS,
+  PACKAGE_APPLE_CARD_HEIGHT_CLASS,
   PACKAGE_APPLE_CARD_WIDTH_CLASS,
 } from '@/components/common/marketplace/marketplace-card-size';
 import type {MarketplaceCatalogItem} from '@/components/common/marketplace';
 import {cn} from '@/lib/utils';
-
-/** ≥4 real fields → rich height; fewer → compact (no hollow band). / ≥4 真实字段用丰富高度，否则压缩。 */
-function packageCardHeightClass(item: MarketplaceCatalogItem): string {
-  const fieldCount = item.fields?.length ?? 0;
-  return fieldCount >= 4
-    ? PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS
-    : PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS;
-}
 
 /**
  * Apple-style package carousel for card view (Inspira layout, STX package data).
@@ -95,7 +86,7 @@ export function PackageCardCarousel({
             className={cn(
               'shrink-0 rounded-3xl',
               PACKAGE_APPLE_CARD_WIDTH_CLASS,
-              PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS,
+              PACKAGE_APPLE_CARD_HEIGHT_CLASS,
             )}
           />
         ))}
@@ -127,19 +118,23 @@ export function PackageCardCarousel({
           <AppleCarouselItem key={item.id} index={index}>
             <article
               data-testid={`package-carousel-card-${item.id}`}
-              // Inspira AppleCard 大卡比例；STX 用元信息/操作填满避免空洞。
-              // Inspira AppleCard large-card proportions; STX fills with meta/actions.
+              // 统一高度；overflow-visible 避免底栏按钮边框与 focus 环被裁。
+              // Unified height; overflow-visible so footer button borders/focus rings stay intact.
               className={cn(
-                'relative flex flex-col overflow-hidden rounded-3xl border border-border/60 bg-card shadow-xs',
+                'relative flex flex-col overflow-visible rounded-3xl border border-border/60 bg-card shadow-xs',
                 PACKAGE_APPLE_CARD_WIDTH_CLASS,
-                packageCardHeightClass(item),
+                PACKAGE_APPLE_CARD_HEIGHT_CLASS,
               )}
-              data-density={
-                (item.fields?.length ?? 0) >= 4 ? 'rich' : 'compact'
-              }
             >
-              <div className='pointer-events-none absolute inset-x-0 top-0 z-10 h-32 bg-gradient-to-b from-primary/30 via-primary/5 to-transparent' />
-              <div className='relative z-20 flex flex-1 flex-col p-6 md:p-7'>
+              {/* 渐变单独裁切圆角，不牵连底栏交互层。
+                  Gradient clips to radius alone; does not clip the footer actions. */}
+              <div
+                aria-hidden='true'
+                className='pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-[inherit]'
+              >
+                <div className='absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-primary/30 via-primary/5 to-transparent' />
+              </div>
+              <div className='relative z-20 flex min-h-0 flex-1 flex-col p-6 pb-8 md:p-7 md:pb-9'>
                 <div className='flex items-start gap-3.5'>
                   {item.icon ? (
                     <div className='flex size-12 shrink-0 items-center justify-center rounded-2xl bg-background/80 ring-1 ring-border/50 md:size-14'>
@@ -223,27 +218,31 @@ export function PackageCardCarousel({
                   )}
                 </div>
 
-                <div className='mt-auto flex items-center justify-end gap-1.5 border-t border-border/40 pt-4'>
-                  {item.primaryActions}
-                  {showMenu ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='icon'
-                          className='size-9 rounded-md'
-                          aria-label={t('moreActions')}
-                          data-testid={`package-carousel-more-${item.id}`}
-                        >
-                          <MoreHorizontal className='size-4' />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align='end' className='min-w-[10rem]'>
-                        {item.menuActions}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : null}
+                <div className='mt-auto flex min-h-9 shrink-0 items-center justify-end gap-1.5 border-t border-border/40 pt-4'>
+                  {/* py-0.5：下载按钮边框/焦点环不被卡片底部裁切。
+                      py-0.5 keeps download borders/focus rings clear of the card bottom. */}
+                  <div className='flex min-h-9 items-center justify-end gap-1.5 py-0.5'>
+                    {item.primaryActions}
+                    {showMenu ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon'
+                            className='size-9 rounded-md'
+                            aria-label={t('moreActions')}
+                            data-testid={`package-carousel-more-${item.id}`}
+                          >
+                            <MoreHorizontal className='size-4' />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align='end' className='min-w-[10rem]'>
+                          {item.menuActions}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </article>

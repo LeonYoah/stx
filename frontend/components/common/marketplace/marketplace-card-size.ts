@@ -54,16 +54,23 @@ export const PACKAGE_APPLE_CARD_WIDTH_CLASS = [
   'xl:w-[26rem]',
 ].join(' ');
 
-/** Rich meta (downloaded / many fields). / 已下载或字段较多时的高度。 */
+/**
+ * Unified package Apple card height (downloaded / online share one band).
+ * 安装包 Apple 卡统一高度（已下载与未下载同一档，略高于旧 rich，避免底栏按钮边框/焦点环被裁）。
+ */
+export const PACKAGE_APPLE_CARD_HEIGHT_CLASS =
+  'h-[23rem] sm:h-[24rem] md:h-[25rem] xl:h-[25.5rem]';
+
+/** @deprecated Use PACKAGE_APPLE_CARD_HEIGHT_CLASS. / 已废弃：请用统一高度常量。 */
 export const PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS =
-  'h-[22rem] sm:h-[23rem] md:h-[24rem] xl:h-[24.5rem]';
+  PACKAGE_APPLE_CARD_HEIGHT_CLASS;
 
-/** Compact meta (online-only / few fields). / 仅在线或字段少时压缩高度。 */
+/** @deprecated Use PACKAGE_APPLE_CARD_HEIGHT_CLASS — compact branching removed. / 已废弃：不再按字段数压缩。 */
 export const PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS =
-  'h-[19.5rem] sm:h-[20rem] md:h-[21rem] xl:h-[21.5rem]';
+  PACKAGE_APPLE_CARD_HEIGHT_CLASS;
 
-/** @deprecated Prefer width + rich/compact height. / 兼容旧引用：宽 + 丰富高度。 */
+/** Width + unified height. / 宽 + 统一高度。 */
 export const PACKAGE_APPLE_CARD_SIZE_CLASS = [
   PACKAGE_APPLE_CARD_WIDTH_CLASS,
-  PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS,
+  PACKAGE_APPLE_CARD_HEIGHT_CLASS,
 ].join(' ');

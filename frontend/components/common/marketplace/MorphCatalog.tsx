@@ -277,7 +277,9 @@ export function MarketplaceMorphCatalog({
             loading && 'pointer-events-none opacity-60',
             viewMode === 'card'
               ? MARKETPLACE_PLUGIN_CARD_GRID_CLASS
-              : 'overflow-x-auto rounded-xl border border-border/60 bg-card/40 shadow-xs',
+              : // 外层不裁切；横向滚动放到内容层，避免贴边按钮边框/焦点环被切。
+                // No clip on the shell; horizontal scroll lives on the content layer.
+                'rounded-xl border border-border/60 bg-card/40 shadow-xs',
           )}
           variants={container}
           initial='hidden'
@@ -286,7 +288,7 @@ export function MarketplaceMorphCatalog({
           {viewMode === 'table' ? (
             <div
               className={cn(
-                'grid gap-x-3 px-3.5',
+                'grid gap-x-3 overflow-x-auto px-3.5 py-0.5',
                 tableColumnsClass,
                 tableMinWidth,
               )}
@@ -526,7 +528,7 @@ function MorphItem({
           type='button'
           variant='ghost'
           size='icon'
-          className='size-8 shrink-0 rounded-md'
+          className='size-9 shrink-0 rounded-md'
           aria-label={t('moreActions')}
           data-testid={`marketplace-more-${item.id}`}
         >
@@ -557,11 +559,13 @@ function MorphItem({
       </div>
     ) : null;
 
+  // min-h-9 + py-0.5：已下载空操作列也稳住行高，并给 1px 边框/焦点环留缝。
+  // min-h-9 + py-0.5: keep empty (downloaded) action cells tall and unclipped for borders/rings.
   const tableActions = (
     <div
       data-col='actions'
       data-testid={`marketplace-actions-${item.id}`}
-      className='flex w-full min-w-0 items-center justify-end gap-1'
+      className='flex min-h-9 w-full min-w-0 items-center justify-end gap-1 py-0.5'
     >
       {item.primaryActions}
       {moreMenu}
@@ -709,9 +713,13 @@ function MorphItem({
         <div className='flex-1' />
       )}
 
-      <div className='mt-auto flex items-center justify-end gap-1.5 border-t border-border/40 pt-3'>
-        {item.primaryActions}
-        {moreMenu}
+      <div className='mt-auto flex min-h-9 shrink-0 items-center justify-end gap-1.5 border-t border-border/40 pt-3'>
+        {/* py-0.5：焦点环/描边不贴 overflow 裁切边。
+            py-0.5 keeps focus rings/borders clear of overflow clipping edges. */}
+        <div className='flex min-h-9 items-center justify-end gap-1.5 py-0.5'>
+          {item.primaryActions}
+          {moreMenu}
+        </div>
       </div>
     </div>
   );
@@ -783,9 +791,11 @@ function MorphItem({
     <div
       data-testid={`marketplace-flip-${item.id}`}
       data-flipped='false'
+      // overflow-visible：底栏按钮边框与 focus 环不被外壳裁掉。
+      // overflow-visible: footer button borders/focus rings are not clipped by the shell.
       className={cn(
         MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS,
-        'overflow-hidden rounded-2xl border border-border/70 bg-card',
+        'overflow-visible rounded-2xl border border-border/70 bg-card',
       )}
     >
       {frontFace}

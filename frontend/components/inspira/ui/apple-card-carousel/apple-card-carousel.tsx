@@ -147,7 +147,9 @@ export function AppleCardCarousel({
         // focus-visible：键盘聚焦时显示环，鼠标点击不抢戏。
         // focus-visible: show ring for keyboard focus without click noise.
         className={cn(
-          'flex w-full overflow-x-auto overscroll-x-contain rounded-md py-4 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          // 纵向多留一点内边距：overflow-x 会连带裁竖向，避免卡片底栏 focus 环被切。
+          // Extra vertical padding: overflow-x also clips Y, so footer focus rings stay visible.
+          'flex w-full overflow-x-auto overscroll-x-contain rounded-md py-5 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
           'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           !reduceMotion && 'scroll-smooth',
         )}
@@ -155,7 +157,7 @@ export function AppleCardCarousel({
       >
         {/* 吃满内容区宽度；右侧留窥视距，窄屏下一张只露边。
             Fill the content width; right peek margin so the next card barely shows on narrow. */}
-        <div className='flex w-full flex-row justify-start gap-4 pl-1 pr-6 md:gap-5 md:pr-10 lg:pr-14'>
+        <div className='flex w-full flex-row justify-start gap-4 py-1 pl-1 pr-6 md:gap-5 md:pr-10 lg:pr-14'>
           {children}
         </div>
       </div>

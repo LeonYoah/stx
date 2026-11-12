@@ -183,13 +183,15 @@ export function PackageTable({
 
         // Visible download / retry only — whole row must not trigger download.
         // 仅可见下载/重试按钮；整行不得触发下载。
+        // 已下载行不渲染按钮；操作列靠 MorphCatalog min-h-9 占位稳住行高。
+        // Downloaded rows omit the button; MorphCatalog min-h-9 keeps action-column height stable.
         const showDownloadButton = !isDownloaded || isFailed;
         const primaryActions = showDownloadButton ? (
           <Button
             type='button'
             variant='outline'
             size='sm'
-            className='h-8 rounded-md text-xs'
+            className='h-9 rounded-md text-xs'
             data-testid={`package-download-btn-${version}`}
             disabled={isBusy}
             onClick={(e) => {
@@ -209,8 +211,8 @@ export function PackageTable({
           </Button>
         ) : undefined;
 
-        // 仅用接口真实字段填卡；无数据不编造，字段少时由轮播用紧凑高度。
-        // Only real API fields; never invent values — few fields → compact carousel height.
+        // 仅用接口真实字段填卡；无数据不编造（高度已统一，不再按字段数压缩）。
+        // Only real API fields; never invent values (height is unified — no field-count compacting).
         const fields: NonNullable<MarketplaceCatalogItem['fields']> = [
           {
             label: t('marketplaceUi.fieldRecommended'),

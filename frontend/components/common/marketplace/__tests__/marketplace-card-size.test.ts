@@ -19,6 +19,7 @@ import {describe, expect, it} from 'vitest';
 import {
   MARKETPLACE_PLUGIN_CARD_GRID_CLASS,
   MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS,
+  PACKAGE_APPLE_CARD_HEIGHT_CLASS,
   PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS,
   PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS,
   PACKAGE_APPLE_CARD_WIDTH_CLASS,
@@ -36,12 +37,19 @@ describe('marketplace-card-size', () => {
     expect(MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS).not.toContain('12.75rem');
   });
 
-  it('narrows 1440 package cards toward ~3 per screen without a 40rem hero', () => {
+  it('keeps a single taller package height and unchanged 1440 width band', () => {
     expect(PACKAGE_APPLE_CARD_WIDTH_CLASS).toContain('md:w-96');
     expect(PACKAGE_APPLE_CARD_WIDTH_CLASS).toContain('xl:w-[26rem]');
     expect(PACKAGE_APPLE_CARD_WIDTH_CLASS).toContain('calc(100vw-2.75rem)');
-    expect(PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS).toContain('xl:h-[24.5rem]');
-    expect(PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS).toContain('xl:h-[21.5rem]');
-    expect(PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS).not.toContain('40rem');
+    expect(PACKAGE_APPLE_CARD_HEIGHT_CLASS).toContain('xl:h-[25.5rem]');
+    expect(PACKAGE_APPLE_CARD_HEIGHT_CLASS).not.toContain('40rem');
+    // Compact/rich aliases collapse to the same unified band.
+    // compact/rich 别名合并为同一统一高度带。
+    expect(PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS).toBe(
+      PACKAGE_APPLE_CARD_HEIGHT_CLASS,
+    );
+    expect(PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS).toBe(
+      PACKAGE_APPLE_CARD_HEIGHT_CLASS,
+    );
   });
 });

@@ -75,8 +75,8 @@ export interface MarketplaceCatalogItem {
   /** Extra status-area node (e.g. cluster stack); card back in card view. / 状态区额外节点（如集群堆叠）；卡片视图放背面。 */
   aside?: ReactNode;
   /**
-   * Open detail — title control + explicit「查看详情」; never whole-shell click.
-   * 打开详情：标题控件 + 显式「查看详情」；绝不靠外壳空白点击。
+   * Open detail via title control only. Blank card area flips (does not open).
+   * 仅标题控件打开详情；卡片空白区域用于翻转，不会打开详情。
    */
   onOpen?: () => void;
 }

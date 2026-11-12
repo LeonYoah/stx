@@ -178,7 +178,7 @@ describe('MarketplaceMorphCatalog', () => {
     );
   });
 
-  it('does not open detail from blank card areas; only title or view-detail', () => {
+  it('opens detail only from title; blank card flips and never opens detail', () => {
     const onOpen = vi.fn();
     const items: MarketplaceCatalogItem[] = [
       {
@@ -193,23 +193,30 @@ describe('MarketplaceMorphCatalog', () => {
     ];
     render(<MarketplaceMorphCatalog items={items} viewMode='card' />);
 
-    const card = screen.getByTestId('marketplace-card-plugin');
-    expect(card.className).not.toMatch(/cursor-pointer/);
+    expect(
+      screen.queryByTestId('marketplace-detail-plugin'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('marketplace-flip-plugin-front'),
+    ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('marketplace-icon-plugin'));
     fireEvent.click(screen.getByTestId('marketplace-subtitle-plugin'));
     fireEvent.click(screen.getByTestId('marketplace-badge-plugin'));
-    fireEvent.click(card);
     expect(onOpen).not.toHaveBeenCalled();
+
+    // 空白区域点击翻转，不打开详情。 / Blank click flips; does not open detail.
+    fireEvent.click(screen.getByTestId('marketplace-flip-plugin'));
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.getByTestId('marketplace-card-plugin')).toHaveAttribute(
+      'data-flipped',
+      'true',
+    );
 
     fireEvent.click(screen.getByTestId('marketplace-open-plugin'));
     expect(onOpen).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByTestId('marketplace-detail-plugin'));
-    expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
-  it('flips card via explicit button and keeps primary action on the front', () => {
+  it('flips via blank click, keeps primary on front, and has no flip/detail buttons', () => {
     const onPrimary = vi.fn();
     const items: MarketplaceCatalogItem[] = [
       {
@@ -231,9 +238,12 @@ describe('MarketplaceMorphCatalog', () => {
     expect(screen.getByTestId('nested-primary')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('nested-primary'));
     expect(onPrimary).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('marketplace-card-plugin')).toHaveAttribute(
+      'data-flipped',
+      'false',
+    );
 
-    const flip = screen.getByTestId('marketplace-flip-plugin-front');
-    fireEvent.click(flip);
+    fireEvent.click(screen.getByTestId('marketplace-flip-plugin'));
     expect(screen.getByTestId('marketplace-card-plugin')).toHaveAttribute(
       'data-flipped',
       'true',
@@ -242,6 +252,9 @@ describe('MarketplaceMorphCatalog', () => {
       'Full connector blurb',
     );
     expect(screen.getByText('jdbc')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('marketplace-detail-plugin'),
+    ).not.toBeInTheDocument();
   });
 
   it('does not open detail from … menu, menu Enter, or primary action buttons', () => {
@@ -350,7 +363,7 @@ describe('MarketplaceMorphCatalog', () => {
     ).toBeInTheDocument();
   });
 
-  it('hides flip control under reduced motion', async () => {
+  it('still toggles faces under reduced motion without a flip button', async () => {
     const motionMock = await import('motion/react');
     (
       motionMock as unknown as {__setReducedMotionForTest: (v: boolean) => void}
@@ -373,7 +386,17 @@ describe('MarketplaceMorphCatalog', () => {
     expect(
       screen.queryByTestId('marketplace-flip-plugin-front'),
     ).not.toBeInTheDocument();
+    const shell = screen.getByTestId('marketplace-flip-plugin');
+    expect(shell.getAttribute('data-reduce-motion')).toBe('true');
     expect(screen.getByTestId('marketplace-card-front-plugin')).toBeInTheDocument();
+    fireEvent.click(shell);
+    expect(screen.getByTestId('marketplace-card-plugin')).toHaveAttribute(
+      'data-flipped',
+      'true',
+    );
+    expect(screen.getByTestId('marketplace-description-plugin')).toHaveTextContent(
+      'blurb',
+    );
   });
 
   it('keeps cards visible after switching table → card', () => {

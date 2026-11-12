@@ -27,7 +27,7 @@ import {
   type ReactNode,
 } from 'react';
 import {LayoutGroup, motion, useReducedMotion} from 'motion/react';
-import {Eye, MoreHorizontal, RotateCcw} from 'lucide-react';
+import {MoreHorizontal} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Progress} from '@/components/ui/progress';
 import {Skeleton} from '@/components/ui/skeleton';
+import {FlipCard} from '@/components/inspira/ui/flip-card';
 import {
   buildMarketplaceCardHover,
   buildMarketplaceGridVariants,
@@ -60,13 +61,6 @@ import type {MarketplaceCatalogItem, MarketplaceViewMode} from './types';
 const MORPH_TRANSITION = {
   type: 'tween' as const,
   duration: 0.2,
-  ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
-};
-
-/** Card 3D flip duration (ignored under reduced motion). / 卡片 3D 翻转时长（减少动效时忽略）。 */
-const FLIP_TRANSITION = {
-  type: 'tween' as const,
-  duration: 0.35,
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
@@ -135,8 +129,8 @@ export function shouldSkipMarketplaceShellOpen(
 
 /**
  * Shared table ↔ card catalog with layoutId morph per item id.
- * Table header/rows share CATALOG_TABLE_GRID; card flip is button-only with a11y faces.
- * 表/卡共用目录：表头与行共用 CATALOG_TABLE_GRID；卡片翻面仅按钮触发并做好正背面 a11y。
+ * Cards use Inspira-style click-to-flip (blank area); title opens detail.
+ * 表/卡共用目录：表头与行共用 CATALOG_TABLE_GRID；卡片空白点击翻转（Inspira 风格），标题打开详情。
  */
 export function MarketplaceMorphCatalog({
   items,
@@ -213,9 +207,9 @@ export function MarketplaceMorphCatalog({
       <div
         data-testid={`${dataTestId}-loading`}
         className={cn(
-          viewMode === 'card'
-            ? 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3'
-            : 'space-y-2 rounded-xl border border-border/60 bg-card/40 p-2',
+            viewMode === 'card'
+              ? 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3'
+              : 'space-y-2 rounded-xl border border-border/60 bg-card/40 p-2',
           className,
         )}
       >
@@ -223,7 +217,7 @@ export function MarketplaceMorphCatalog({
           <Skeleton
             key={i}
             className={
-              viewMode === 'card' ? 'h-44 rounded-xl' : 'h-14 rounded-md'
+              viewMode === 'card' ? 'h-[12.75rem] rounded-2xl' : 'h-14 rounded-md'
             }
           />
         ))}
@@ -270,7 +264,7 @@ export function MarketplaceMorphCatalog({
             'transition-opacity duration-200',
             loading && 'pointer-events-none opacity-60',
             viewMode === 'card'
-              ? 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3'
+              ? 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
               : 'overflow-x-auto rounded-xl border border-border/60 bg-card/40 shadow-xs',
           )}
           variants={container}
@@ -482,12 +476,11 @@ function MorphItem({
   const fields = item.fields || [];
   const progress = item.progress;
   const showMenu = hasMarketplaceMenuActions(item.menuActions);
-  const hasBackContent = Boolean(
-    fields.length > 0 || item.aside || item.description,
+  // 有次要信息即可翻面；减少动态时改为无旋转切换，两面仍可访问。
+  // Flip whenever secondary content exists; reduced motion keeps a non-3D toggle.
+  const canFlip = Boolean(
+    fields.length > 0 || item.aside || item.description || item.meta,
   );
-  // 减少动态：不翻面、不显示翻转按钮，背面信息改走详情。
-  // Reduced motion: no flip UI; secondary info lives in the detail dialog.
-  const flipEnabled = hasBackContent && !reduceMotion;
   const itemSelectable = selection
     ? selection.isItemSelectable
       ? selection.isItemSelectable(item)
@@ -531,37 +524,6 @@ function MorphItem({
       </DropdownMenuContent>
     </DropdownMenu>
   ) : null;
-
-  const viewDetailButton = item.onOpen ? (
-    <Button
-      type='button'
-      variant='outline'
-      size='sm'
-      className='h-8 rounded-md text-xs'
-      data-testid={`marketplace-detail-${item.id}`}
-      onClick={() => item.onOpen?.()}
-    >
-      <Eye className='mr-1.5 size-3.5' />
-      {t('viewDetail')}
-    </Button>
-  ) : null;
-
-  const renderFlipButton = (face: 'front' | 'back') =>
-    flipEnabled ? (
-      <Button
-        type='button'
-        variant='ghost'
-        size='sm'
-        className='h-8 rounded-md text-xs'
-        data-testid={`marketplace-flip-${item.id}-${face}`}
-        aria-pressed={flipped}
-        aria-label={flipped ? t('flipCardFront') : t('flipCard')}
-        onClick={() => setFlipped((prev) => !prev)}
-      >
-        <RotateCcw className='mr-1.5 size-3.5' />
-        {flipped ? t('flipCardFront') : t('flipCard')}
-      </Button>
-    ) : null;
 
   const selectCell =
     selection && mode === 'table' ? (
@@ -638,87 +600,126 @@ function MorphItem({
     );
   }
 
-  const frontHidden = flipped && flipEnabled;
-  const backHidden = !flipped;
-
+  // 正面：紧凑身份区 + 徽章/状态 + 至多一个主操作与「…」；无「查看详情」「翻转」按钮。
+  // Front: compact identity + badges/status + at most one primary + «…»; no detail/flip buttons.
   const frontFace = (
     <div
       data-testid={`marketplace-card-front-${item.id}`}
-      className='flex h-full flex-col'
-      aria-hidden={frontHidden || undefined}
-      {...(frontHidden ? ({inert: true} as Record<string, unknown>) : {})}
+      className='flex h-full flex-col gap-2.5 p-3'
     >
-      <div className='flex items-start justify-between gap-2'>
-        {identity}
-        {moreMenu && !item.primaryActions && !viewDetailButton ? moreMenu : null}
+      <div className='flex min-w-0 items-start gap-2.5'>
+        {item.icon ? (
+          <motion.div
+            layoutId={iconLayoutId}
+            transition={layoutTransition}
+            data-testid={`marketplace-icon-${item.id}`}
+            className='flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/80 text-muted-foreground ring-1 ring-border/50'
+          >
+            {item.icon}
+          </motion.div>
+        ) : null}
+        <div className='min-w-0 flex-1'>
+          <motion.div
+            layoutId={titleLayoutId}
+            transition={layoutTransition}
+            className='min-w-0 max-w-full'
+          >
+            {titleNode}
+          </motion.div>
+          {item.subtitle ? (
+            <div
+              data-testid={`marketplace-subtitle-${item.id}`}
+              className='truncate text-xs text-muted-foreground'
+            >
+              {item.subtitle}
+            </div>
+          ) : null}
+        </div>
       </div>
 
-      <div className='mt-3 flex flex-wrap items-center gap-1.5'>
+      <div className='flex flex-wrap items-center gap-1.5'>
         {badges}
         {status}
       </div>
 
-      {progressBlock ? <div className='mt-3'>{progressBlock}</div> : null}
+      {progressBlock ? <div>{progressBlock}</div> : null}
 
-      {item.meta && !hasBackContent ? (
-        <div className='mt-auto pt-3 text-xs text-muted-foreground'>{item.meta}</div>
-      ) : (
-        <div className='mt-auto' />
-      )}
-
-      <div className='mt-3 flex flex-wrap items-center justify-end gap-1 border-t border-border/50 pt-3'>
+      <div className='mt-auto flex items-center justify-end gap-1 border-t border-border/40 pt-2.5'>
         {item.primaryActions}
-        {viewDetailButton}
-        {item.primaryActions || viewDetailButton ? moreMenu : null}
-        {renderFlipButton('front')}
+        {moreMenu}
       </div>
     </div>
   );
 
+  // 背面：仅次要信息（简介/字段/aside），不堆操作按钮；再点空白翻回。
+  // Back: secondary info only — no action pile; blank click flips back.
   const backFace = (
     <div
       data-testid={`marketplace-card-back-${item.id}`}
-      className='flex h-full flex-col'
-      aria-hidden={backHidden || undefined}
-      {...(backHidden ? ({inert: true} as Record<string, unknown>) : {})}
+      className='flex h-full flex-col gap-2 p-3'
     >
-      <div className='flex items-start justify-between gap-2'>
-        <div className='min-w-0'>
-          <div className='truncate text-sm font-medium text-foreground'>
-            {item.title}
-          </div>
-          <div className='text-[11px] text-muted-foreground'>{t('cardBackHint')}</div>
+      <div className='min-w-0'>
+        <div className='truncate text-sm font-semibold text-foreground'>
+          {item.title}
         </div>
-        {renderFlipButton('back')}
+        <div className='text-[11px] text-muted-foreground'>{t('cardBackHint')}</div>
       </div>
 
       {item.description ? (
         <p
           data-testid={`marketplace-description-${item.id}`}
-          className='mt-3 max-h-24 overflow-y-auto text-xs leading-relaxed text-muted-foreground'
+          className='max-h-[3.75rem] overflow-y-auto border-t border-border/50 pt-2 text-xs leading-relaxed text-muted-foreground'
         >
           {item.description}
         </p>
-      ) : null}
+      ) : (
+        <div className='border-t border-border/50' />
+      )}
 
-      {item.aside ? <div className='mt-3'>{item.aside}</div> : null}
+      {item.aside ? <div>{item.aside}</div> : null}
 
       {fields.length > 0 ? (
-        <div className='mt-3 grid grid-cols-2 gap-x-3 gap-y-2'>
+        <div className='grid grid-cols-2 gap-x-3 gap-y-1.5'>
           {fields.map((field) => (
             <div key={`${item.id}-${field.label}`} className='min-w-0'>
               <div className='text-[11px] text-muted-foreground'>{field.label}</div>
-              <div className='truncate text-xs font-medium'>{field.value}</div>
+              <div className='truncate text-xs font-medium text-foreground'>
+                {field.value}
+              </div>
             </div>
           ))}
         </div>
       ) : null}
 
       {item.meta ? (
-        <div className='mt-auto pt-3 text-xs text-muted-foreground'>{item.meta}</div>
+        <div className='mt-auto text-[11px] text-muted-foreground'>{item.meta}</div>
       ) : (
         <div className='mt-auto' />
       )}
+    </div>
+  );
+
+  // 无可翻内容时仍渲染单面卡，保持网格高度一致。
+  // Single-face tile when nothing to flip — keeps grid height stable.
+  const body = canFlip ? (
+    <FlipCard
+      flipped={flipped}
+      onFlippedChange={setFlipped}
+      reduceMotion={reduceMotion}
+      rotate='y'
+      flipLabel={flipped ? t('flipCardFront') : t('flipCard')}
+      shouldIgnoreActivate={shouldSkipMarketplaceShellOpen}
+      data-testid={`marketplace-flip-${item.id}`}
+      front={frontFace}
+      back={backFace}
+    />
+  ) : (
+    <div
+      data-testid={`marketplace-flip-${item.id}`}
+      data-flipped='false'
+      className='h-[12.75rem] overflow-hidden rounded-2xl border border-border/70 bg-card'
+    >
+      {frontFace}
     </div>
   );
 
@@ -734,44 +735,12 @@ function MorphItem({
       animate='visible'
       whileHover={cardHover}
       data-testid={`marketplace-card-${item.id}`}
-      data-flipped={flipped && flipEnabled ? 'true' : 'false'}
-      className='group flex flex-col rounded-xl border border-border/60 bg-card/70 p-4 shadow-xs hover:border-border'
+      data-flipped={canFlip && flipped ? 'true' : 'false'}
+      // layoutId 只在此外壳；FlipCard 内层负责 rotateY，二者不叠加。
+      // layoutId stays on this shell; FlipCard owns rotateY — never the same node.
+      className='group'
     >
-      {/* Inner flip layer: rotateY only — no layoutId here. / 内层只做 rotateY，不挂 layoutId。 */}
-      {flipEnabled ? (
-        <div className='relative min-h-[11rem] flex-1 [perspective:1200px]'>
-          <motion.div
-            className='relative h-full w-full'
-            style={{transformStyle: 'preserve-3d'}}
-            animate={{rotateY: flipped ? 180 : 0}}
-            transition={FLIP_TRANSITION}
-            data-testid={`marketplace-flip-layer-${item.id}`}
-          >
-            <div
-              className='h-full'
-              style={{
-                transform: 'rotateY(0deg)',
-                backfaceVisibility: 'hidden',
-                WebkitBackfaceVisibility: 'hidden',
-              }}
-            >
-              {frontFace}
-            </div>
-            <div
-              className='absolute inset-0 h-full'
-              style={{
-                transform: 'rotateY(180deg)',
-                backfaceVisibility: 'hidden',
-                WebkitBackfaceVisibility: 'hidden',
-              }}
-            >
-              {backFace}
-            </div>
-          </motion.div>
-        </div>
-      ) : (
-        <div className='flex min-h-[11rem] flex-1 flex-col'>{frontFace}</div>
-      )}
+      {body}
     </motion.div>
   );
 }

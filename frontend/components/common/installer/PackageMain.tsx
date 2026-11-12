@@ -241,60 +241,75 @@ export function PackageMain() {
     [localIds, selectedLocalIds],
   );
 
-  const handleBatchDownloadOnline = useCallback(async () => {
-    const versions = Array.from(selectedOnlineIds)
-      .map((id) => id.replace(/^online-/, ''))
-      .filter((version) => !localVersionSet.has(version));
-    const skipped = selectedOnlineIds.size - versions.length;
-    if (versions.length === 0) {
-      toast.info(t('marketplaceUi.batchAllSkipped'));
+  /** Batch download online packages; idsOverride re-runs only failed ids (AC10). */
+  const handleBatchDownloadOnline = useCallback(
+    async (idsOverride?: ReadonlySet<string>) => {
+      const selectedIds = idsOverride ?? selectedOnlineIds;
+      const versions = Array.from(selectedIds)
+        .map((id) => id.replace(/^online-/, ''))
+        .filter((version) => !localVersionSet.has(version));
+      const skipped = selectedIds.size - versions.length;
+      if (versions.length === 0) {
+        toast.info(t('marketplaceUi.batchAllSkipped'));
+        return;
+      }
+      if (skipped > 0) {
+        toast.info(
+          t('marketplaceUi.batchSkipHint', {
+            process: versions.length,
+            skip: skipped,
+          }),
+        );
+      }
+      const failed: string[] = [];
+      const succeeded: string[] = [];
+      // 多项时用默认镜像并发入队，避免反复弹下载对话框。
+      // Queue selected versions with the default mirror; skip the per-item download dialog.
+      await runWithConcurrency(versions, async (version) => {
+        const id = `online-${version}`;
+        try {
+          await startDownload(
+            version,
+            'aliyun',
+            false,
+            `batch-${version}-${Date.now()}`,
+          );
+          succeeded.push(id);
+        } catch {
+          failed.push(id);
+        }
+      });
+      setBatchFailedIds(new Set(failed));
+      if (failed.length === 0) {
+        setSelectedOnlineIds(new Set());
+        toast.success(
+          t('marketplaceUi.batchSummary', {
+            success: succeeded.length,
+            failed: 0,
+          }),
+        );
+      } else {
+        setSelectedOnlineIds(new Set(failed));
+        toast.error(
+          t('marketplaceUi.batchSummary', {
+            success: succeeded.length,
+            failed: failed.length,
+          }),
+        );
+      }
+    },
+    [localVersionSet, selectedOnlineIds, startDownload, t],
+  );
+
+  /** AC10: re-execute only previously failed online downloads. */
+  const handleRetryFailedOnlineDownloads = useCallback(async () => {
+    if (batchFailedIds.size === 0) {
       return;
     }
-    if (skipped > 0) {
-      toast.info(
-        t('marketplaceUi.batchSkipHint', {
-          process: versions.length,
-          skip: skipped,
-        }),
-      );
-    }
-    const failed: string[] = [];
-    const succeeded: string[] = [];
-    // 多项时用默认镜像并发入队，避免反复弹下载对话框。
-    // Queue selected versions with the default mirror; skip the per-item download dialog.
-    await runWithConcurrency(versions, async (version) => {
-      const id = `online-${version}`;
-      try {
-        await startDownload(
-          version,
-          'aliyun',
-          false,
-          `batch-${version}-${Date.now()}`,
-        );
-        succeeded.push(id);
-      } catch {
-        failed.push(id);
-      }
-    });
-    setBatchFailedIds(new Set(failed));
-    if (failed.length === 0) {
-      setSelectedOnlineIds(new Set());
-      toast.success(
-        t('marketplaceUi.batchSummary', {
-          success: succeeded.length,
-          failed: 0,
-        }),
-      );
-    } else {
-      setSelectedOnlineIds(new Set(failed));
-      toast.error(
-        t('marketplaceUi.batchSummary', {
-          success: succeeded.length,
-          failed: failed.length,
-        }),
-      );
-    }
-  }, [localVersionSet, selectedOnlineIds, startDownload, t]);
+    const failedIds = new Set(batchFailedIds);
+    setSelectedOnlineIds(failedIds);
+    await handleBatchDownloadOnline(failedIds);
+  }, [batchFailedIds, handleBatchDownloadOnline]);
 
   const handleBatchDeleteLocal = useCallback(async () => {
     const versions = Array.from(selectedLocalIds).map((id) =>
@@ -496,8 +511,7 @@ export function PackageMain() {
                           variant='secondary'
                           className='h-8 rounded-md text-xs'
                           onClick={() => {
-                            setSelectedOnlineIds(new Set(batchFailedIds));
-                            void handleBatchDownloadOnline();
+                            void handleRetryFailedOnlineDownloads();
                           }}
                         >
                           {t('marketplaceUi.batchRetryFailed')}

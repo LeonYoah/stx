@@ -96,6 +96,11 @@ interface InstallPluginDialogProps {
   dependencies?: PluginDependency[];
   /** 下载完成回调 / Callback invoked when plugin download is completed */
   onDownloadComplete?: () => void;
+  /**
+   * 本会话发生安装/卸载/下载等变更时通知父级（供 AC11 关闭时按需同步）。
+   * Notify parent when this session mutates (install/uninstall/download) for AC11 close sync.
+   */
+  onSessionMutated?: () => void;
 }
 
 interface ClusterPluginStatus {
@@ -158,6 +163,7 @@ export function InstallPluginDialog({
   attachedConnectors = [],
   dependencies = [],
   onDownloadComplete,
+  onSessionMutated,
 }: InstallPluginDialogProps) {
   const t = useTranslations();
   const [clusterStatuses, setClusterStatuses] = useState<ClusterPluginStatus[]>(
@@ -190,6 +196,8 @@ export function InstallPluginDialog({
   // Keep volatile callback/flags in refs so checkDownloadStatus identity stays stable.
   const onDownloadCompleteRef = useRef(onDownloadComplete);
   onDownloadCompleteRef.current = onDownloadComplete;
+  const onSessionMutatedRef = useRef(onSessionMutated);
+  onSessionMutatedRef.current = onSessionMutated;
   const downloadingRef = useRef(downloading);
   downloadingRef.current = downloading;
   const selectedProfileKeysRef = useRef(confirmedProfileKeys);
@@ -261,6 +269,9 @@ export function InstallPluginDialog({
       return;
     }
     observedDownloadingInSessionRef.current = false;
+    // 下载完成即记为会话变更，供关闭时按需同步（AC11）。
+    // Mark session mutated on download complete for optional close sync (AC11).
+    onSessionMutatedRef.current?.();
     onDownloadCompleteRef.current?.();
   }, []);
 
@@ -551,6 +562,7 @@ export function InstallPluginDialog({
       toast.success(
         t('plugin.installSuccess', {name: plugin.display_name || plugin.name}),
       );
+      onSessionMutatedRef.current?.();
       await refreshClusterStatus(clusterId);
 
       const targetCluster = clusterStatuses.find(
@@ -623,6 +635,7 @@ export function InstallPluginDialog({
     try {
       await PluginService.uninstallPlugin(clusterId, plugin.name);
       toast.success(t('plugin.uninstallSuccess'));
+      onSessionMutatedRef.current?.();
       await refreshClusterStatus(clusterId);
     } catch (uninstallError) {
       const errorMsg =

@@ -117,6 +117,8 @@ export function PackageCardCarousel({
   return (
     <AppleCardCarousel
       aria-label={t('packageCarouselAria')}
+      prevAriaLabel={t('packageCarouselPrev')}
+      nextAriaLabel={t('packageCarouselNext')}
       data-testid={dataTestId}
     >
       {items.map((item, index) => {
@@ -182,7 +184,10 @@ export function PackageCardCarousel({
 
                 {item.progress ? (
                   <div className='mt-3 text-sm text-muted-foreground'>
-                    {item.progress.label}: {item.progress.display}
+                    {t('progressAria', {
+                      label: item.progress.label,
+                      display: item.progress.display,
+                    })}
                   </div>
                 ) : null}
 

@@ -103,6 +103,7 @@ import {
   pluginRequiresProfileSelection,
   resolveInstallProfileKeys,
 } from './plugin-profile-selection';
+import {shouldRefreshAfterInstallDialogClose} from './install-dialog-session';
 import {Pagination} from '@/components/ui/pagination';
 import {
   AlertDialog,
@@ -232,6 +233,9 @@ export function PluginMain() {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isInstallOpen, setIsInstallOpen] = useState(false);
   const [installContext, setInstallContext] = useState<InstallDialogContext | null>(null);
+  // AC11：本安装弹窗会话是否发生过下载/安装/卸载。
+  // AC11: whether this install-dialog session mutated (download/install/uninstall).
+  const installDialogMutatedRef = useRef(false);
   const [selectedProfileKeysByPlugin, setSelectedProfileKeysByPlugin] = useState<Record<string, string[]>>({});
   const [isBatchProfileDialogOpen, setIsBatchProfileDialogOpen] = useState(false);
   const [batchProfilePlugins, setBatchProfilePlugins] = useState<Plugin[]>([]);
@@ -240,6 +244,30 @@ export function PluginMain() {
   >({});
   const [batchProfileLoading, setBatchProfileLoading] = useState(false);
   const [activeBatchProfileTab, setActiveBatchProfileTab] = useState('');
+  // AC16：'selected' 时一次选 profile 并应用到所有待下载项；'all' 为一键下载全部。
+  // AC16: 'selected' applies one profile pick to all pending downloads; 'all' is download-all.
+  const [batchProfilePurpose, setBatchProfilePurpose] = useState<'all' | 'selected'>(
+    'all',
+  );
+  const [pendingSelectedDownloads, setPendingSelectedDownloads] = useState<
+    Plugin[] | null
+  >(null);
+  // AC10：记录失败批次动作，便于「重试失败项」真正重跑。
+  // AC10: remember failed batch action so retry re-executes those items.
+  const [batchFailedKind, setBatchFailedKind] = useState<
+    'download-available' | 'delete-local' | 'uninstall-local' | null
+  >(null);
+  // 可用插件多选与失败项集合提前声明，供上方批量回调闭包使用。
+  // Declare available multi-select + failed ids early for batch callbacks above.
+  const [selectedAvailablePlugins, setSelectedAvailablePlugins] = useState<
+    Set<string>
+  >(new Set());
+  const [batchFailedIds, setBatchFailedIds] = useState<Set<string>>(new Set());
+  const [batchConfirm, setBatchConfirm] = useState<null | {
+    kind: 'delete-local' | 'uninstall-local';
+    ids: string[];
+    names: string[];
+  }>(null);
 
   // Download state / 下载状态
   const [downloadingPlugins, setDownloadingPlugins] = useState<Set<string>>(
@@ -694,50 +722,57 @@ export function PluginMain() {
     [],
   );
 
-  const openBatchProfileDialog = useCallback(async () => {
-    const requiredPlugins = plugins.filter(requiresProfileSelection);
-    if (requiredPlugins.length === 0) {
-      return false;
-    }
+  const openBatchProfileDialog = useCallback(
+    async (requiredPlugins: Plugin[], purpose: 'all' | 'selected' = 'all') => {
+      if (requiredPlugins.length === 0) {
+        return false;
+      }
 
-    setBatchProfilePlugins(requiredPlugins);
-    setActiveBatchProfileTab(requiredPlugins[0]?.name || '');
-    setBatchProfileOfficialDeps({});
-    setBatchProfileLoading(true);
-    setIsBatchProfileDialogOpen(true);
+      // AC16：批量选中下载只弹一次共享画像；一键全部仍按插件 Tab 分别确认。
+      // AC16: selected batch picks shared profiles once; download-all keeps per-plugin tabs.
+      const uiPlugins =
+        purpose === 'selected' ? [requiredPlugins[0]] : requiredPlugins;
 
-    try {
-      const version = selectedVersion || resolvedDefaultVersion || '';
-      const entries = await Promise.all(
-        requiredPlugins.map(async (plugin) => {
-          const data = await PluginService.getOfficialDependencies(
-            plugin.name,
-            version || plugin.version,
-          );
-          return [plugin.name, data] as const;
-        }),
-      );
-      const nextMap = Object.fromEntries(entries);
-      setBatchProfileOfficialDeps(nextMap);
-      applyDefaultBatchProfiles(requiredPlugins, nextMap);
-      return true;
-    } catch (err) {
-      const errorMsg =
-        err instanceof Error ? err.message : t('plugin.loadError');
-      toast.error(errorMsg);
-      setIsBatchProfileDialogOpen(false);
-      return false;
-    } finally {
-      setBatchProfileLoading(false);
-    }
-  }, [
-    applyDefaultBatchProfiles,
-    plugins,
-    resolvedDefaultVersion,
-    requiresProfileSelection,
-    selectedVersion,
-    t,
-  ]);
+      setBatchProfilePurpose(purpose);
+      setBatchProfilePlugins(uiPlugins);
+      setActiveBatchProfileTab(uiPlugins[0]?.name || '');
+      setBatchProfileOfficialDeps({});
+      setBatchProfileLoading(true);
+      setIsBatchProfileDialogOpen(true);
+
+      try {
+        const version = selectedVersion || resolvedDefaultVersion || '';
+        const entries = await Promise.all(
+          uiPlugins.map(async (plugin) => {
+            const data = await PluginService.getOfficialDependencies(
+              plugin.name,
+              version || plugin.version,
+            );
+            return [plugin.name, data] as const;
+          }),
+        );
+        const nextMap = Object.fromEntries(entries);
+        setBatchProfileOfficialDeps(nextMap);
+        applyDefaultBatchProfiles(uiPlugins, nextMap);
+        return true;
+      } catch (err) {
+        const errorMsg =
+          err instanceof Error ? err.message : t('plugin.loadError');
+        toast.error(errorMsg);
+        setIsBatchProfileDialogOpen(false);
+        setPendingSelectedDownloads(null);
+        return false;
+      } finally {
+        setBatchProfileLoading(false);
+      }
+    },
+    [
+      applyDefaultBatchProfiles,
+      resolvedDefaultVersion,
+      selectedVersion,
+      t,
+    ],
+  );
 
   const executeDownloadAllPlugins = useCallback(
     async (selectedProfiles?: Record<string, string[]>) => {
@@ -794,7 +829,100 @@ export function PluginMain() {
     ],
   );
 
+  /** Run selected-plugin downloads with optional shared profile map (AC10/AC16). */
+  const runBatchDownloadAvailable = useCallback(
+    async (
+      toProcess: Plugin[],
+      profileOverride?: Record<string, string[]>,
+    ) => {
+      if (toProcess.length === 0) {
+        toast.info(t('marketplaceUi.batchAllSkipped'));
+        return;
+      }
+      const failed: string[] = [];
+      const succeeded: string[] = [];
+      await runWithConcurrency(toProcess, async (plugin) => {
+        const pluginVersion = selectedVersion || plugin.version;
+        const key = pluginDownloadKey(plugin.name, pluginVersion);
+        const profileKeys =
+          profileOverride?.[plugin.name] ??
+          getSelectedProfileKeysForPlugin(plugin.name);
+        try {
+          setDownloadingPlugins((prev) => new Set(prev).add(key));
+          await PluginService.downloadPlugin(
+            plugin.name,
+            pluginVersion,
+            selectedMirror,
+            profileKeys,
+          );
+          succeeded.push(`${plugin.name}:${plugin.version}`);
+        } catch {
+          setDownloadingPlugins((prev) => {
+            const next = new Set(prev);
+            next.delete(key);
+            return next;
+          });
+          failed.push(`${plugin.name}:${plugin.version}`);
+        }
+      });
+      setSelectedAvailablePlugins((prev) => {
+        const next = new Set(prev);
+        for (const id of succeeded) {
+          next.delete(id);
+        }
+        return next;
+      });
+      setBatchFailedIds(new Set(failed));
+      setBatchFailedKind(failed.length > 0 ? 'download-available' : null);
+      if (failed.length === 0) {
+        toast.success(
+          t('marketplaceUi.batchSummary', {
+            success: succeeded.length,
+            failed: 0,
+          }),
+        );
+      } else {
+        toast.error(
+          t('marketplaceUi.batchSummary', {
+            success: succeeded.length,
+            failed: failed.length,
+          }),
+        );
+        setSelectedAvailablePlugins(new Set(failed));
+      }
+      void loadLocalPlugins();
+    },
+    [
+      getSelectedProfileKeysForPlugin,
+      loadLocalPlugins,
+      selectedMirror,
+      selectedVersion,
+      t,
+    ],
+  );
+
   const handleConfirmBatchProfileDownload = useCallback(async () => {
+    if (batchProfilePurpose === 'selected' && pendingSelectedDownloads) {
+      // AC16：一次勾选的 profile 应用到所有需要画像的待下载项。
+      // AC16: apply the one profile pick to every pending item that needs profiles.
+      const sourceName = batchProfilePlugins[0]?.name;
+      const sharedKeys = normalizeProfileKeys(
+        sourceName ? selectedProfileKeysByPlugin[sourceName] : [],
+      );
+      const profileOverride: Record<string, string[]> = {};
+      for (const plugin of pendingSelectedDownloads) {
+        if (requiresProfileSelection(plugin)) {
+          profileOverride[plugin.name] = sharedKeys;
+          setSelectedProfileKeysForPlugin(plugin.name, sharedKeys);
+        }
+      }
+      const pending = pendingSelectedDownloads;
+      setPendingSelectedDownloads(null);
+      setIsBatchProfileDialogOpen(false);
+      await runBatchDownloadAvailable(pending, profileOverride);
+      return;
+    }
+
     const selectedProfiles = batchProfilePlugins.reduce<Record<string, string[]>>(
       (acc, plugin) => {
         const keys = normalizeProfileKeys(selectedProfileKeysByPlugin[plugin.name]);
@@ -807,7 +935,16 @@ export function PluginMain() {
     );
     setIsBatchProfileDialogOpen(false);
     await executeDownloadAllPlugins(selectedProfiles);
-  }, [batchProfilePlugins, executeDownloadAllPlugins, selectedProfileKeysByPlugin]);
+  }, [
+    batchProfilePlugins,
+    batchProfilePurpose,
+    executeDownloadAllPlugins,
+    pendingSelectedDownloads,
+    requiresProfileSelection,
+    runBatchDownloadAvailable,
+    selectedProfileKeysByPlugin,
+    setSelectedProfileKeysForPlugin,
+  ]);
 
   const batchProfileDialogIncomplete = useMemo(
     () =>
@@ -825,6 +962,7 @@ export function PluginMain() {
       dependencies: PluginDependency[],
       attachedConnectors: string[],
     ) => {
+      installDialogMutatedRef.current = false;
       setInstallContext({
         plugin,
         version,
@@ -840,8 +978,13 @@ export function PluginMain() {
   // 稳定下载完成回调身份，避免 InstallPluginDialog effect 因 inline 函数自激重入。
   // Stable download-complete callback so InstallPluginDialog effects do not self-reenter on identity churn.
   const handleInstallDownloadComplete = useCallback(() => {
+    installDialogMutatedRef.current = true;
     void loadLocalPlugins();
   }, [loadLocalPlugins]);
+
+  const handleInstallSessionMutated = useCallback(() => {
+    installDialogMutatedRef.current = true;
+  }, []);
 
   // 预加载集群列表，用于解析默认版本（不依赖「本地插件」Tab）。
   // Prefetch clusters to resolve default version (independent of local-plugins tab).
@@ -1229,18 +1372,6 @@ export function PluginMain() {
     }
   };
 
-  // 可用插件表格多选（与本地下载键一致：name:version）。
-  // Available-plugin table multi-select (same name:version key as downloads).
-  const [selectedAvailablePlugins, setSelectedAvailablePlugins] = useState<
-    Set<string>
-  >(new Set());
-  const [batchFailedIds, setBatchFailedIds] = useState<Set<string>>(new Set());
-  const [batchConfirm, setBatchConfirm] = useState<null | {
-    kind: 'delete-local' | 'uninstall-local';
-    ids: string[];
-    names: string[];
-  }>(null);
-
   const availableSelection: MarketplaceSelectionState = useMemo(
     () => ({
       selectedIds: selectedAvailablePlugins,
@@ -1277,6 +1408,7 @@ export function PluginMain() {
       onClear: () => {
         setSelectedAvailablePlugins(new Set());
         setBatchFailedIds(new Set());
+        setBatchFailedKind(null);
       },
       isItemSelectable: () => true,
     }),
@@ -1303,6 +1435,7 @@ export function PluginMain() {
       onClear: () => {
         setSelectedLocalPlugins(new Set());
         setBatchFailedIds(new Set());
+        setBatchFailedKind(null);
       },
       isItemSelectable: (item) => !item.id.startsWith('download-'),
     }),
@@ -1335,85 +1468,68 @@ export function PluginMain() {
   );
 
   /** Batch download selected available plugins (skip ready/busy). / 批量下载可用插件（跳过已就绪/下载中）。 */
-  const handleBatchDownloadAvailable = useCallback(async () => {
-    const selected = filteredAvailablePlugins.filter((p) =>
-      selectedAvailablePlugins.has(`${p.name}:${p.version}`),
-    );
-    const toProcess = selected.filter((p) => {
-      const key = `${p.name}:${p.version}`;
-      return !downloadedPlugins.has(key) && !downloadingPlugins.has(key);
-    });
-    const skip = selected.length - toProcess.length;
-    if (toProcess.length === 0) {
-      toast.info(t('marketplaceUi.batchAllSkipped'));
+  const handleBatchDownloadAvailable = useCallback(
+    async (idsOverride?: ReadonlySet<string>) => {
+      const selectedIds = idsOverride ?? selectedAvailablePlugins;
+      const selected = filteredAvailablePlugins.filter((p) =>
+        selectedIds.has(`${p.name}:${p.version}`),
+      );
+      const toProcess = selected.filter((p) => {
+        const key = `${p.name}:${p.version}`;
+        return !downloadedPlugins.has(key) && !downloadingPlugins.has(key);
+      });
+      const skip = selected.length - toProcess.length;
+      if (toProcess.length === 0) {
+        toast.info(t('marketplaceUi.batchAllSkipped'));
+        return;
+      }
+      if (skip > 0) {
+        toast.info(
+          t('marketplaceUi.batchSkipHint', {
+            process: toProcess.length,
+            skip,
+          }),
+        );
+      }
+
+      // AC16：选中项含 JDBC 等时先弹一次 profile，再应用到所有待下载项。
+      // AC16: when selection includes JDBC etc., pick profiles once then apply to all pending.
+      const needingProfile = toProcess.filter(requiresProfileSelection);
+      if (needingProfile.length > 0) {
+        setPendingSelectedDownloads(toProcess);
+        const opened = await openBatchProfileDialog(needingProfile, 'selected');
+        if (!opened) {
+          setPendingSelectedDownloads(null);
+        }
+        return;
+      }
+
+      await runBatchDownloadAvailable(toProcess);
+    },
+    [
+      downloadedPlugins,
+      downloadingPlugins,
+      filteredAvailablePlugins,
+      openBatchProfileDialog,
+      requiresProfileSelection,
+      runBatchDownloadAvailable,
+      selectedAvailablePlugins,
+      t,
+    ],
+  );
+
+  /** AC10: re-execute only previously failed available downloads. */
+  const handleRetryFailedAvailableDownloads = useCallback(async () => {
+    if (batchFailedKind !== 'download-available' || batchFailedIds.size === 0) {
       return;
     }
-    if (skip > 0) {
-      toast.info(
-        t('marketplaceUi.batchSkipHint', {
-          process: toProcess.length,
-          skip,
-        }),
-      );
-    }
-    const failed: string[] = [];
-    const succeeded: string[] = [];
-    await runWithConcurrency(toProcess, async (plugin) => {
-      const pluginVersion = selectedVersion || plugin.version;
-      const key = pluginDownloadKey(plugin.name, pluginVersion);
-      try {
-        setDownloadingPlugins((prev) => new Set(prev).add(key));
-        await PluginService.downloadPlugin(
-          plugin.name,
-          pluginVersion,
-          selectedMirror,
-          getSelectedProfileKeysForPlugin(plugin.name),
-        );
-        succeeded.push(`${plugin.name}:${plugin.version}`);
-      } catch {
-        setDownloadingPlugins((prev) => {
-          const next = new Set(prev);
-          next.delete(key);
-          return next;
-        });
-        failed.push(`${plugin.name}:${plugin.version}`);
-      }
-    });
-    setSelectedAvailablePlugins((prev) => {
-      const next = new Set(prev);
-      for (const id of succeeded) {
-        next.delete(id);
-      }
-      return next;
-    });
-    setBatchFailedIds(new Set(failed));
-    if (failed.length === 0) {
-      toast.success(
-        t('marketplaceUi.batchSummary', {
-          success: succeeded.length,
-          failed: 0,
-        }),
-      );
-    } else {
-      toast.error(
-        t('marketplaceUi.batchSummary', {
-          success: succeeded.length,
-          failed: failed.length,
-        }),
-      );
-      setSelectedAvailablePlugins(new Set(failed));
-    }
-    void loadLocalPlugins();
+    const failedIds = new Set(batchFailedIds);
+    setSelectedAvailablePlugins(failedIds);
+    await handleBatchDownloadAvailable(failedIds);
   }, [
-    downloadedPlugins,
-    downloadingPlugins,
-    filteredAvailablePlugins,
-    getSelectedProfileKeysForPlugin,
-    loadLocalPlugins,
-    selectedAvailablePlugins,
-    selectedMirror,
-    selectedVersion,
-    t,
+    batchFailedIds,
+    batchFailedKind,
+    handleBatchDownloadAvailable,
   ]);
 
   const handleBatchInstallAvailable = useCallback(() => {
@@ -1452,6 +1568,7 @@ export function PluginMain() {
     });
     setBatchConfirm(null);
     setBatchFailedIds(new Set(failed));
+    setBatchFailedKind(failed.length > 0 ? 'delete-local' : null);
     if (failed.length === 0) {
       setSelectedLocalPlugins(new Set());
       toast.success(
@@ -1498,6 +1615,7 @@ export function PluginMain() {
     });
     setBatchConfirm(null);
     setBatchFailedIds(new Set(failed));
+    setBatchFailedKind(failed.length > 0 ? 'uninstall-local' : null);
     if (failed.length === 0) {
       setSelectedLocalPlugins(new Set());
       toast.success(
@@ -1517,6 +1635,25 @@ export function PluginMain() {
     }
     void loadLocalPlugins();
   }, [batchConfirm, loadLocalPlugins, pluginClusterStatus, t]);
+
+  /** AC10: re-run only failed local delete/uninstall via confirm dialog. */
+  const handleRetryFailedLocalBatch = useCallback(() => {
+    if (
+      (batchFailedKind !== 'delete-local' &&
+        batchFailedKind !== 'uninstall-local') ||
+      batchFailedIds.size === 0
+    ) {
+      return;
+    }
+    const ids = Array.from(batchFailedIds);
+    const names = ids.map((id) => id.split(':')[0]);
+    setSelectedLocalPlugins(new Set(ids));
+    setBatchConfirm({
+      kind: batchFailedKind,
+      ids,
+      names,
+    });
+  }, [batchFailedIds, batchFailedKind]);
 
   /**
    * Get selected plugins for batch install
@@ -1541,10 +1678,10 @@ export function PluginMain() {
    * Handle view plugin detail
    * 处理查看插件详情
    */
-  const handleViewDetail = (plugin: Plugin) => {
+  const handleViewDetail = useCallback((plugin: Plugin) => {
     setSelectedPlugin(plugin);
     setIsDetailOpen(true);
-  };
+  }, []);
 
   /**
    * Clear all filters
@@ -1658,7 +1795,7 @@ export function PluginMain() {
   const handleDownloadAllPlugins = async () => {
     const requiredPlugins = plugins.filter(requiresProfileSelection);
     if (requiredPlugins.length > 0) {
-      await openBatchProfileDialog();
+      await openBatchProfileDialog(requiredPlugins, 'all');
       return;
     }
     await executeDownloadAllPlugins();
@@ -1761,7 +1898,7 @@ export function PluginMain() {
               className={`inline-flex size-9 items-center justify-center rounded-full ${
                 failed
                   ? 'bg-destructive/10 text-destructive'
-                  : 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
+                  : 'bg-primary/15 text-primary'
               }`}
             >
               {failed ? (
@@ -1821,10 +1958,23 @@ export function PluginMain() {
           plugin.category,
         );
         const IconComponent = semanticIcon.icon;
+        // AC12：本地卡片可点标题/眼睛打开详情（与可用列表一致）。
+        // AC12: local cards open detail via title/Eye like the available list.
+        const pluginForDetail: Plugin = {
+          name: plugin.name,
+          display_name: plugin.name,
+          category: plugin.category,
+          version: plugin.version,
+          description: '',
+          group_id: 'org.apache.seatunnel',
+          artifact_id: plugin.artifact_id || `connector-${plugin.name}`,
+          dependencies: plugin.dependencies || [],
+        };
         return {
           id: key,
           title: plugin.name,
           subtitle: `v${plugin.version}`,
+          onOpen: () => handleViewDetail(pluginForDetail),
           icon: (
             <span
               className={`inline-flex size-9 items-center justify-center rounded-full ${semanticIcon.bgColor} ${semanticIcon.textColor}`}
@@ -1897,21 +2047,10 @@ export function PluginMain() {
               className='h-8 rounded-md text-xs'
               onClick={(e) => {
                 e.stopPropagation();
-                const pluginForInstall: Plugin = {
-                  name: plugin.name,
-                  display_name: plugin.name,
-                  category: plugin.category,
-                  version: plugin.version,
-                  description: '',
-                  group_id: 'org.apache.seatunnel',
-                  artifact_id:
-                    plugin.artifact_id || `connector-${plugin.name}`,
-                  dependencies: plugin.dependencies || [],
-                };
                 // 本地安装入口始终带上产物画像，供弹窗预填后再确认。
                 // Local manage entry always passes artifact profiles for dialog prefill + confirm.
                 openInstallDialog(
-                  pluginForInstall,
+                  pluginForDetail,
                   plugin.version,
                   normalizeProfileKeys(plugin.selected_profile_keys),
                   plugin.dependencies || [],
@@ -1944,6 +2083,7 @@ export function PluginMain() {
     activeDownloads,
     getInstalledClustersForLocalPlugin,
     getPaginatedLocalPlugins,
+    handleViewDetail,
     openDeleteLocalPluginDialog,
     openInstallDialog,
     t,
@@ -2205,7 +2345,8 @@ export function PluginMain() {
                       <CheckSquare className='mr-1.5 size-3.5' />
                       {t('marketplaceUi.batchInstall')}
                     </Button>
-                    {batchFailedIds.size > 0 ? (
+                    {batchFailedIds.size > 0 &&
+                    batchFailedKind === 'download-available' ? (
                       <Button
                         type='button'
                         size='sm'
@@ -2213,8 +2354,7 @@ export function PluginMain() {
                         className='h-8 rounded-md text-xs'
                         data-testid='plugin-batch-retry'
                         onClick={() => {
-                          setSelectedAvailablePlugins(new Set(batchFailedIds));
-                          void handleBatchDownloadAvailable();
+                          void handleRetryFailedAvailableDownloads();
                         }}
                       >
                         {t('marketplaceUi.batchRetryFailed')}
@@ -2292,15 +2432,16 @@ export function PluginMain() {
                       <Trash2 className='mr-1.5 size-3.5' />
                       {t('marketplaceUi.batchDelete')}
                     </Button>
-                    {batchFailedIds.size > 0 ? (
+                    {batchFailedIds.size > 0 &&
+                    (batchFailedKind === 'delete-local' ||
+                      batchFailedKind === 'uninstall-local') ? (
                       <Button
                         type='button'
                         size='sm'
                         variant='secondary'
                         className='h-8 rounded-md text-xs'
-                        onClick={() =>
-                          setSelectedLocalPlugins(new Set(batchFailedIds))
-                        }
+                        data-testid='plugin-local-batch-retry'
+                        onClick={handleRetryFailedLocalBatch}
                       >
                         {t('marketplaceUi.batchRetryFailed')}
                       </Button>
@@ -2375,12 +2516,20 @@ export function PluginMain() {
             setIsInstallOpen(next);
             if (!next) {
               setInstallContext(null);
-              // 弹窗关闭时静默同步本地已下载插件与安装状态。
-              // Silently refresh local plugins and cluster install status on dialog close.
-              void loadLocalPlugins();
+              // AC11：仅当本会话发生下载/安装/卸载时才静默同步本地列表。
+              // AC11: refresh local list only when this session mutated.
+              if (
+                shouldRefreshAfterInstallDialogClose(
+                  installDialogMutatedRef.current,
+                )
+              ) {
+                void loadLocalPlugins();
+              }
+              installDialogMutatedRef.current = false;
             }
           }}
           onDownloadComplete={handleInstallDownloadComplete}
+          onSessionMutated={handleInstallSessionMutated}
           plugin={installContext.plugin}
           version={installContext.version}
           selectedProfileKeys={installContext.selectedProfileKeys}
@@ -2396,13 +2545,24 @@ export function PluginMain() {
             return;
           }
           setIsBatchProfileDialogOpen(next);
+          if (!next) {
+            setPendingSelectedDownloads(null);
+          }
         }}
       >
         <DialogContent className='sm:max-w-3xl max-h-[85vh] overflow-hidden flex flex-col'>
           <DialogHeader>
-            <DialogTitle>{t('plugin.downloadAllProfileDialogTitle')}</DialogTitle>
+            <DialogTitle>
+              {batchProfilePurpose === 'selected'
+                ? t('plugin.downloadSelectedProfileDialogTitle')
+                : t('plugin.downloadAllProfileDialogTitle')}
+            </DialogTitle>
             <DialogDescription>
-              {t('plugin.downloadAllProfileDialogDescription')}
+              {batchProfilePurpose === 'selected'
+                ? t('plugin.downloadSelectedProfileDialogDescription', {
+                    count: pendingSelectedDownloads?.length ?? 0,
+                  })
+                : t('plugin.downloadAllProfileDialogDescription')}
             </DialogDescription>
           </DialogHeader>
 
@@ -2415,6 +2575,101 @@ export function PluginMain() {
               <div className='py-8 text-sm text-muted-foreground'>
                 {t('plugin.downloadAllProfileEmpty')}
               </div>
+            ) : batchProfilePurpose === 'selected' ? (
+              // AC16：选中批量下载只展示一次共享场景选择。
+              // AC16: selected batch download shows one shared profile picker.
+              (() => {
+                const plugin = batchProfilePlugins[0];
+                const officialDeps = batchProfileOfficialDeps[plugin.name];
+                const profiles = officialDeps?.profiles || [];
+                const selectedKeys = normalizeProfileKeys(
+                  selectedProfileKeysByPlugin[plugin.name],
+                );
+                return (
+                  <div className='mt-1 space-y-4' data-testid='plugin-batch-shared-profile'>
+                    <div className='flex items-center justify-between gap-3'>
+                      <div>
+                        <h3 className='font-medium'>
+                          {t('plugin.downloadSelectedProfileSharedHeading')}
+                        </h3>
+                        <p className='text-sm text-muted-foreground'>
+                          {t('plugin.downloadSelectedProfileApplyHint', {
+                            count: pendingSelectedDownloads?.length ?? 0,
+                          })}
+                        </p>
+                      </div>
+                      <div className='flex items-center gap-2'>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          onClick={() =>
+                            setSelectedProfileKeysForPlugin(
+                              plugin.name,
+                              profiles.map((profile) => profile.profile_key),
+                            )
+                          }
+                        >
+                          {t('plugin.selectAllProfiles')}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          onClick={() =>
+                            setSelectedProfileKeysForPlugin(plugin.name, [])
+                          }
+                        >
+                          {t('plugin.clearAllProfiles')}
+                        </Button>
+                      </div>
+                    </div>
+                    {profiles.length === 0 ? (
+                      <div className='rounded-md border border-dashed p-4 text-sm text-muted-foreground'>
+                        {t('plugin.downloadAllProfileEmpty')}
+                      </div>
+                    ) : (
+                      <div className='space-y-3'>
+                        {profiles.map((profile) => {
+                          const checked = selectedKeys.includes(
+                            profile.profile_key,
+                          );
+                          return (
+                            <label
+                              key={profile.profile_key}
+                              className='flex cursor-pointer items-start gap-3 rounded-md border p-3'
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(nextChecked) => {
+                                  const next = new Set(selectedKeys);
+                                  if (nextChecked) {
+                                    next.add(profile.profile_key);
+                                  } else {
+                                    next.delete(profile.profile_key);
+                                  }
+                                  setSelectedProfileKeysForPlugin(
+                                    plugin.name,
+                                    Array.from(next),
+                                  );
+                                }}
+                              />
+                              <div className='space-y-1'>
+                                <div className='font-medium'>
+                                  {profile.profile_name || profile.profile_key}
+                                </div>
+                                <div className='text-xs text-muted-foreground'>
+                                  {profile.profile_key}
+                                </div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
             ) : (
               <Tabs
                 value={activeBatchProfileTab}
@@ -2528,7 +2783,10 @@ export function PluginMain() {
             <Button
               type='button'
               variant='outline'
-              onClick={() => setIsBatchProfileDialogOpen(false)}
+              onClick={() => {
+                setIsBatchProfileDialogOpen(false);
+                setPendingSelectedDownloads(null);
+              }}
               disabled={batchProfileLoading || isDownloadingAll}
             >
               {t('common.cancel')}

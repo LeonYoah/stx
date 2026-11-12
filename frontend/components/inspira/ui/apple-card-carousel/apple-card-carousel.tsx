@@ -51,6 +51,9 @@ export type AppleCardCarouselProps = {
   className?: string;
   /** Accessible label for the carousel region. / 轮播区域无障碍名称。 */
   'aria-label'?: string;
+  /** Previous/next control labels (pass i18n from caller). / 上一张/下一张控件文案（由调用方传入 i18n）。 */
+  prevAriaLabel?: string;
+  nextAriaLabel?: string;
   'data-testid'?: string;
 };
 
@@ -65,6 +68,8 @@ export function AppleCardCarousel({
   children,
   className,
   'aria-label': ariaLabel = 'Card carousel',
+  prevAriaLabel = 'Previous',
+  nextAriaLabel = 'Next',
   'data-testid': dataTestId = 'apple-card-carousel',
 }: AppleCardCarouselProps) {
   const reduceMotion = useReducedMotion() ?? false;
@@ -139,8 +144,11 @@ export function AppleCardCarousel({
         tabIndex={0}
         onKeyDown={onKeyDown}
         // Inspira: flex overflow-x-scroll overscroll-x-auto scroll-smooth …
+        // focus-visible：键盘聚焦时显示环，鼠标点击不抢戏。
+        // focus-visible: show ring for keyboard focus without click noise.
         className={cn(
-          'flex w-full overflow-x-auto overscroll-x-contain py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          'flex w-full overflow-x-auto overscroll-x-contain rounded-md py-4 outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           !reduceMotion && 'scroll-smooth',
         )}
         data-testid={`${dataTestId}-scroller`}
@@ -159,7 +167,7 @@ export function AppleCardCarousel({
           size='icon'
           className='size-9 rounded-full'
           disabled={!canScrollLeft}
-          aria-label='Previous'
+          aria-label={prevAriaLabel}
           data-testid={`${dataTestId}-prev`}
           onClick={() => scrollByDir(-1)}
         >
@@ -171,7 +179,7 @@ export function AppleCardCarousel({
           size='icon'
           className='size-9 rounded-full'
           disabled={!canScrollRight}
-          aria-label='Next'
+          aria-label={nextAriaLabel}
           data-testid={`${dataTestId}-next`}
           onClick={() => scrollByDir(1)}
         >

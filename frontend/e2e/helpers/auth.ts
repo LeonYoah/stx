@@ -16,11 +16,66 @@
  */
 
 import {expect, type Page} from '@playwright/test';
+import {ONBOARDING_STORAGE_PREFIX} from '@/lib/onboarding/storage';
 
 export const e2eCredentials = {
   username: process.env.E2E_USERNAME ?? 'admin',
   password: process.env.E2E_PASSWORD ?? 'admin123',
 };
+
+/**
+ * auth.setup / dismiss 写入的「暂时跳过」载荷（displayMode=hidden，path 仍为 null）。
+ * Payload written by auth.setup / dismiss for “skip for now” (displayMode=hidden, path still null).
+ */
+const ONBOARDING_SKIPPED_STATE_JSON = JSON.stringify({
+  version: 2,
+  path: null,
+  displayMode: 'hidden',
+  targetClusterId: null,
+  finished: false,
+  completedStepIds: [],
+});
+
+/**
+ * 用例需要清空 localStorage 做隔离时：清库后保留（或回种）上手跳过状态，
+ * 避免 OnboardingPathChooser 再次挡住点击 / 把 h1 aria-hidden。
+ * When a spec clears localStorage for isolation, keep (or re-seed) the skipped
+ * onboarding state so OnboardingPathChooser does not block clicks or aria-hide h1.
+ *
+ * 仅影响 stx:onboarding:v1:*；引导专用用例不要调用。
+ * Only touches stx:onboarding:v1:*; specs that assert the guide must not use this.
+ */
+export async function addInitScriptClearLocalStorageKeepOnboardingSkipped(
+  page: Page,
+): Promise<void> {
+  await page.addInitScript(
+    ({prefix, skippedJson}) => {
+      const preserved: Record<string, string> = {};
+      for (let i = 0; i < window.localStorage.length; i += 1) {
+        const key = window.localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+          const value = window.localStorage.getItem(key);
+          if (value != null) {
+            preserved[key] = value;
+          }
+        }
+      }
+      window.localStorage.clear();
+      for (const [key, value] of Object.entries(preserved)) {
+        window.localStorage.setItem(key, value);
+      }
+      // 无既有键时回种默认管理员 id=1（E2E SQLite 种子）；仍建议配合 dismiss。
+      // If nothing was preserved, re-seed default admin id=1 (E2E SQLite seed); still pair with dismiss.
+      if (Object.keys(preserved).length === 0) {
+        window.localStorage.setItem(`${prefix}1`, skippedJson);
+      }
+    },
+    {
+      prefix: ONBOARDING_STORAGE_PREFIX,
+      skippedJson: ONBOARDING_SKIPPED_STATE_JSON,
+    },
+  );
+}
 
 export async function fillAndSubmitLoginForm(page: Page): Promise<void> {
   await page.locator('#username').fill(e2eCredentials.username);

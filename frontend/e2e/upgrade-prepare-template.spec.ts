@@ -17,15 +17,19 @@
 
 import {expect, test} from '@playwright/test';
 import {
+  addInitScriptClearLocalStorageKeepOnboardingSkipped,
+  dismissOnboardingPathChooserIfPresent,
+} from './helpers/auth';
+import {
   installUpgradePrepareTemplateRoutes,
   upgradePrepareTemplate,
 } from './helpers/upgrade-prepare-template';
 
 test.describe('upgrade prepare template', () => {
   test.beforeEach(async ({page}) => {
-    await page.addInitScript(() => {
-      window.localStorage.clear();
-    });
+    // 保留隔离清库，但勿抹掉 auth.setup 的上手跳过，否则路径选择 Dialog 会再次遮罩。
+    // Keep LS wipe for isolation, but do not erase auth.setup's onboarding skip or the path Dialog returns.
+    await addInitScriptClearLocalStorageKeepOnboardingSkipped(page);
     await installUpgradePrepareTemplateRoutes(page);
   });
 
@@ -35,6 +39,8 @@ test.describe('upgrade prepare template', () => {
     await page.goto(
       `/clusters/${upgradePrepareTemplate.clusterId}/upgrade/prepare`,
     );
+    // 双保险：清库回种异常时仍点跳过 / Belt-and-suspenders if re-seed missed the active user id.
+    await dismissOnboardingPathChooserIfPresent(page);
 
     await expect(page.getByTestId('upgrade-prepare-page')).toBeVisible();
     await expect(page.getByRole('heading', {level: 1})).toHaveText(
@@ -59,6 +65,9 @@ test.describe('upgrade prepare template', () => {
     await page.waitForURL(
       `**/clusters/${upgradePrepareTemplate.clusterId}/upgrade/config`,
     );
+    // 二次导航会再跑 init script；再清一次遮罩以免 h1 被 aria-hidden。
+    // Soft nav re-runs the init script; dismiss again so h1 is not aria-hidden.
+    await dismissOnboardingPathChooserIfPresent(page);
     await expect(page.getByRole('heading', {level: 1})).toHaveText(
       /配置差异处理|Config Difference Review/i,
     );

@@ -33,6 +33,7 @@ import {
 } from '@/components/inspira/ui/apple-card-carousel';
 import {MarketplaceStatusDot} from '@/components/common/marketplace';
 import {hasMarketplaceMenuActions} from '@/components/common/marketplace/MorphCatalog';
+import {PACKAGE_APPLE_CARD_SIZE_CLASS} from '@/components/common/marketplace/marketplace-card-size';
 import type {MarketplaceCatalogItem} from '@/components/common/marketplace';
 import {cn} from '@/lib/utils';
 
@@ -79,7 +80,7 @@ export function PackageCardCarousel({
         {Array.from({length: 3}).map((_, i) => (
           <Skeleton
             key={i}
-            className='h-72 w-56 shrink-0 rounded-3xl md:h-80 md:w-72'
+            className={cn('shrink-0 rounded-3xl', PACKAGE_APPLE_CARD_SIZE_CLASS)}
           />
         ))}
       </div>
@@ -108,38 +109,39 @@ export function PackageCardCarousel({
           <AppleCarouselItem key={item.id} index={index}>
             <article
               data-testid={`package-carousel-card-${item.id}`}
-              // Inspira AppleCard: rounded-3xl fixed tile; STX fills with package meta + actions.
-              // Inspira 为圆角大卡；STX 填入安装包元信息与显式操作。
+              // Inspira AppleCard 大卡比例；STX 用元信息/操作填满避免空洞。
+              // Inspira AppleCard large-card proportions; STX fills with meta/actions.
               className={cn(
-                'relative flex h-72 w-56 flex-col overflow-hidden rounded-3xl border border-border/60 bg-card shadow-xs md:h-80 md:w-72',
+                'relative flex flex-col overflow-hidden rounded-3xl border border-border/60 bg-card shadow-xs',
+                PACKAGE_APPLE_CARD_SIZE_CLASS,
               )}
             >
-              <div className='pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-gradient-to-b from-primary/25 via-transparent to-transparent' />
-              <div className='relative z-20 flex flex-1 flex-col p-5'>
-                <div className='flex items-start gap-3'>
+              <div className='pointer-events-none absolute inset-x-0 top-0 z-10 h-32 bg-gradient-to-b from-primary/30 via-primary/5 to-transparent' />
+              <div className='relative z-20 flex flex-1 flex-col p-6 md:p-7'>
+                <div className='flex items-start gap-3.5'>
                   {item.icon ? (
-                    <div className='flex size-10 shrink-0 items-center justify-center rounded-2xl bg-background/80 ring-1 ring-border/50'>
+                    <div className='flex size-12 shrink-0 items-center justify-center rounded-2xl bg-background/80 ring-1 ring-border/50 md:size-14'>
                       {item.icon}
                     </div>
                   ) : null}
-                  <div className='min-w-0'>
-                    <h3 className='truncate text-lg font-semibold tracking-tight text-foreground'>
+                  <div className='min-w-0 pt-0.5'>
+                    <h3 className='truncate text-xl font-semibold tracking-tight text-foreground md:text-2xl'>
                       {item.title}
                     </h3>
                     {item.subtitle ? (
-                      <p className='mt-0.5 truncate text-xs text-muted-foreground'>
+                      <p className='mt-1 truncate text-sm text-muted-foreground'>
                         {item.subtitle}
                       </p>
                     ) : null}
                   </div>
                 </div>
 
-                <div className='mt-4 flex flex-wrap gap-1.5'>
+                <div className='mt-5 flex flex-wrap gap-2'>
                   {(item.badges || []).map((badge) => (
                     <span
                       key={`${item.id}-${badge.label}`}
                       className={cn(
-                        'rounded-full border border-border/60 px-2 py-0.5 text-[11px]',
+                        'rounded-full border border-border/60 px-2.5 py-1 text-xs',
                         badge.highlight &&
                           'border-primary/30 bg-primary/15 text-primary',
                       )}
@@ -150,7 +152,7 @@ export function PackageCardCarousel({
                 </div>
 
                 {item.status ? (
-                  <div className='mt-3'>
+                  <div className='mt-4'>
                     <MarketplaceStatusDot
                       label={item.status.label}
                       tone={item.status.tone}
@@ -159,30 +161,41 @@ export function PackageCardCarousel({
                 ) : null}
 
                 {item.progress ? (
-                  <div className='mt-3 text-[11px] text-muted-foreground'>
+                  <div className='mt-3 text-sm text-muted-foreground'>
                     {item.progress.label}: {item.progress.display}
                   </div>
                 ) : null}
 
-                {item.fields && item.fields.length > 0 ? (
-                  <div className='mt-3 space-y-1.5 text-xs'>
-                    {item.fields.slice(0, 3).map((field) => (
-                      <div
-                        key={`${item.id}-${field.label}`}
-                        className='flex min-w-0 justify-between gap-2'
-                      >
-                        <span className='shrink-0 text-muted-foreground'>
-                          {field.label}
-                        </span>
-                        <span className='truncate font-medium text-foreground'>
-                          {field.value}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
+                <div className='mt-5 flex min-h-0 flex-1 flex-col rounded-2xl bg-muted/40 p-4'>
+                  {item.description ? (
+                    <p className='mb-3 line-clamp-3 text-sm leading-relaxed text-muted-foreground'>
+                      {item.description}
+                    </p>
+                  ) : null}
+                  {item.fields && item.fields.length > 0 ? (
+                    <div className='space-y-2.5 text-sm'>
+                      {item.fields.slice(0, 5).map((field) => (
+                        <div
+                          key={`${item.id}-${field.label}`}
+                          className='flex min-w-0 justify-between gap-3'
+                        >
+                          <span className='shrink-0 text-muted-foreground'>
+                            {field.label}
+                          </span>
+                          <span className='truncate font-medium text-foreground'>
+                            {field.value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className='text-sm text-muted-foreground'>
+                      {item.meta || item.subtitle || item.title}
+                    </p>
+                  )}
+                </div>
 
-                <div className='mt-auto flex items-center justify-end gap-1 border-t border-border/40 pt-3'>
+                <div className='mt-auto flex items-center justify-end gap-1.5 border-t border-border/40 pt-4'>
                   {item.primaryActions}
                   {showMenu ? (
                     <DropdownMenu>
@@ -191,7 +204,7 @@ export function PackageCardCarousel({
                           type='button'
                           variant='ghost'
                           size='icon'
-                          className='size-8 rounded-md'
+                          className='size-9 rounded-md'
                           aria-label={t('moreActions')}
                           data-testid={`package-carousel-more-${item.id}`}
                         >

@@ -59,6 +59,10 @@ import {
   CATALOG_TABLE_MIN_WIDTH,
   CATALOG_TABLE_MIN_WIDTH_SELECTABLE,
 } from './catalog-table-grid';
+import {
+  MARKETPLACE_PLUGIN_CARD_GRID_CLASS,
+  MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS,
+} from './marketplace-card-size';
 import {MarketplaceSelectionToolbar} from './SelectionToolbar';
 import {MarketplaceStatusDot} from './StatusDot';
 import type {MarketplaceCatalogItem, MarketplaceViewMode} from './types';
@@ -213,9 +217,9 @@ export function MarketplaceMorphCatalog({
       <div
         data-testid={`${dataTestId}-loading`}
         className={cn(
-            viewMode === 'card'
-              ? 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3'
-              : 'space-y-2 rounded-xl border border-border/60 bg-card/40 p-2',
+          viewMode === 'card'
+            ? MARKETPLACE_PLUGIN_CARD_GRID_CLASS
+            : 'space-y-2 rounded-xl border border-border/60 bg-card/40 p-2',
           className,
         )}
       >
@@ -223,7 +227,9 @@ export function MarketplaceMorphCatalog({
           <Skeleton
             key={i}
             className={
-              viewMode === 'card' ? 'h-[12.75rem] rounded-2xl' : 'h-14 rounded-md'
+              viewMode === 'card'
+                ? cn(MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS, 'rounded-2xl')
+                : 'h-14 rounded-md'
             }
           />
         ))}
@@ -270,7 +276,7 @@ export function MarketplaceMorphCatalog({
             'transition-opacity duration-200',
             loading && 'pointer-events-none opacity-60',
             viewMode === 'card'
-              ? 'grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+              ? MARKETPLACE_PLUGIN_CARD_GRID_CLASS
               : 'overflow-x-auto rounded-xl border border-border/60 bg-card/40 shadow-xs',
           )}
           variants={container}
@@ -414,14 +420,14 @@ function MorphItem({
       type='button'
       variant='link'
       data-testid={`marketplace-open-${item.id}`}
-      className='h-auto max-w-full min-w-0 justify-start p-0 text-sm font-medium text-foreground'
+      className='h-auto max-w-full min-w-0 justify-start p-0 text-base font-semibold tracking-tight text-foreground'
       onClick={() => item.onOpen?.()}
       aria-label={t('openItem', {name: item.title})}
     >
       <span className='truncate'>{item.title}</span>
     </Button>
   ) : (
-    <span className='truncate text-sm font-medium text-foreground'>
+    <span className='truncate text-base font-semibold tracking-tight text-foreground'>
       {item.title}
     </span>
   );
@@ -638,32 +644,32 @@ function MorphItem({
   const frontFace = (
     <div
       data-testid={`marketplace-card-front-${item.id}`}
-      className='relative flex h-full flex-col gap-2.5 p-3'
+      className='relative flex h-full flex-col gap-3 p-4'
     >
       {detailEye}
-      <div className={cn('flex min-w-0 items-start gap-2.5', item.onOpen && 'pr-8')}>
+      <div className={cn('flex min-w-0 items-start gap-3', item.onOpen && 'pr-9')}>
         {item.icon ? (
           <motion.div
             layoutId={iconLayoutId}
             transition={layoutTransition}
             data-testid={`marketplace-icon-${item.id}`}
-            className='flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/80 text-muted-foreground ring-1 ring-border/50'
+            className='flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/80 text-muted-foreground ring-1 ring-border/50 md:size-11'
           >
             {item.icon}
           </motion.div>
         ) : null}
-        <div className='min-w-0 flex-1'>
+        <div className='min-w-0 flex-1 space-y-0.5'>
           <motion.div
             layoutId={titleLayoutId}
             transition={layoutTransition}
-            className='min-w-0 max-w-full'
+            className='min-w-0 max-w-full text-base font-semibold tracking-tight'
           >
             {titleNode}
           </motion.div>
           {item.subtitle ? (
             <div
               data-testid={`marketplace-subtitle-${item.id}`}
-              className='truncate text-xs text-muted-foreground'
+              className='truncate text-sm text-muted-foreground'
             >
               {item.subtitle}
             </div>
@@ -676,9 +682,32 @@ function MorphItem({
         {status}
       </div>
 
-      {progressBlock ? <div>{progressBlock}</div> : null}
+      {progressBlock ? <div className='mt-0.5'>{progressBlock}</div> : null}
 
-      <div className='mt-auto flex items-center justify-end gap-1 border-t border-border/40 pt-2.5'>
+      {/* 正面次要摘要填满加高后的中段，避免空洞。
+          Front secondary blurb fills the taller mid band so the tile is not hollow. */}
+      {!progressBlock && (item.description || fields[0]) ? (
+        <div className='mt-1 min-h-0 flex-1 rounded-xl bg-muted/35 px-3 py-2.5'>
+          {item.description ? (
+            <p className='line-clamp-2 text-sm leading-relaxed text-muted-foreground'>
+              {item.description}
+            </p>
+          ) : (
+            <div className='flex min-w-0 items-baseline justify-between gap-2 text-sm'>
+              <span className='shrink-0 text-muted-foreground'>
+                {fields[0].label}
+              </span>
+              <span className='truncate font-medium text-foreground'>
+                {fields[0].value}
+              </span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className='flex-1' />
+      )}
+
+      <div className='mt-auto flex items-center justify-end gap-1.5 border-t border-border/40 pt-3'>
         {item.primaryActions}
         {moreMenu}
       </div>
@@ -690,19 +719,19 @@ function MorphItem({
   const backFace = (
     <div
       data-testid={`marketplace-card-back-${item.id}`}
-      className='flex h-full flex-col gap-2 p-3'
+      className='flex h-full flex-col gap-2.5 p-4'
     >
       <div className='min-w-0'>
-        <div className='truncate text-sm font-semibold text-foreground'>
+        <div className='truncate text-base font-semibold tracking-tight text-foreground'>
           {item.title}
         </div>
-        <div className='text-[11px] text-muted-foreground'>{t('cardBackHint')}</div>
+        <div className='text-xs text-muted-foreground'>{t('cardBackHint')}</div>
       </div>
 
       {item.description ? (
         <p
           data-testid={`marketplace-description-${item.id}`}
-          className='max-h-[3.75rem] overflow-y-auto border-t border-border/50 pt-2 text-xs leading-relaxed text-muted-foreground'
+          className='max-h-[5rem] flex-1 overflow-y-auto border-t border-border/50 pt-2.5 text-sm leading-relaxed text-muted-foreground'
         >
           {item.description}
         </p>
@@ -713,11 +742,11 @@ function MorphItem({
       {item.aside ? <div>{item.aside}</div> : null}
 
       {fields.length > 0 ? (
-        <div className='grid grid-cols-2 gap-x-3 gap-y-1.5'>
+        <div className='grid grid-cols-2 gap-x-3 gap-y-2'>
           {fields.map((field) => (
             <div key={`${item.id}-${field.label}`} className='min-w-0'>
-              <div className='text-[11px] text-muted-foreground'>{field.label}</div>
-              <div className='truncate text-xs font-medium text-foreground'>
+              <div className='text-xs text-muted-foreground'>{field.label}</div>
+              <div className='truncate text-sm font-medium text-foreground'>
                 {field.value}
               </div>
             </div>
@@ -726,7 +755,7 @@ function MorphItem({
       ) : null}
 
       {item.meta ? (
-        <div className='mt-auto text-[11px] text-muted-foreground'>{item.meta}</div>
+        <div className='mt-auto text-xs text-muted-foreground'>{item.meta}</div>
       ) : (
         <div className='mt-auto' />
       )}
@@ -744,6 +773,7 @@ function MorphItem({
       flipLabel={flipped ? t('flipCardFront') : t('flipCard')}
       shouldIgnoreActivate={shouldSkipMarketplaceShellOpen}
       data-testid={`marketplace-flip-${item.id}`}
+      className={MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS}
       front={frontFace}
       back={backFace}
     />
@@ -751,7 +781,10 @@ function MorphItem({
     <div
       data-testid={`marketplace-flip-${item.id}`}
       data-flipped='false'
-      className='h-[12.75rem] overflow-hidden rounded-2xl border border-border/70 bg-card'
+      className={cn(
+        MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS,
+        'overflow-hidden rounded-2xl border border-border/70 bg-card',
+      )}
     >
       {frontFace}
     </div>

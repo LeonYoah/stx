@@ -102,7 +102,14 @@ export function AppleCardCarousel({
     if (!el) {
       return;
     }
-    const delta = Math.min(360, Math.max(220, el.clientWidth * 0.7)) * dir;
+    // 按首卡实际宽度步进，窄屏≈整屏一张，宽屏跟大卡对齐。
+    // Step by the first card's width so narrow ≈ one card/page and desktop matches large tiles.
+    const firstItem = el.querySelector<HTMLElement>(
+      '[data-testid^="apple-carousel-item-"]',
+    );
+    const gap = 16;
+    const cardWidth = firstItem?.offsetWidth || Math.min(448, el.clientWidth * 0.85);
+    const delta = (cardWidth + gap) * dir;
     el.scrollBy({
       left: delta,
       behavior: reduceMotion ? 'auto' : 'smooth',
@@ -138,7 +145,9 @@ export function AppleCardCarousel({
         )}
         data-testid={`${dataTestId}-scroller`}
       >
-        <div className='mx-auto flex max-w-7xl flex-row justify-start gap-3 pl-1 pr-8 md:gap-4 md:pr-[20%]'>
+        {/* 吃满内容区宽度；右侧留窥视距，窄屏下一张只露边。
+            Fill the content width; right peek margin so the next card barely shows on narrow. */}
+        <div className='flex w-full flex-row justify-start gap-4 pl-1 pr-6 md:gap-5 md:pr-10 lg:pr-14'>
           {children}
         </div>
       </div>

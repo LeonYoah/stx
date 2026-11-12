@@ -28,7 +28,7 @@
 
 /** Plugin FlipCard / skeleton height band. / 插件翻转卡与骨架高度带。 */
 export const MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS =
-  'h-[15.5rem] min-[480px]:h-[16rem] md:h-[16.75rem] xl:h-[17.5rem]';
+  'h-[15.25rem] min-[480px]:h-[15.75rem] md:h-[16.25rem] xl:h-[16.75rem]';
 
 /**
  * Plugin card grid: auto-fill with larger min tracks so wide screens grow
@@ -36,23 +36,34 @@ export const MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS =
  * 插件卡网格：更大最小轨宽的 auto-fill，宽屏变成更少但更宽的卡。
  */
 export const MARKETPLACE_PLUGIN_CARD_GRID_CLASS =
-  'grid gap-4 grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-[repeat(auto-fill,minmax(19rem,1fr))] xl:grid-cols-[repeat(auto-fill,minmax(21rem,1fr))] 2xl:grid-cols-[repeat(auto-fill,minmax(23rem,1fr))]';
+  'grid gap-4 grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-[repeat(auto-fill,minmax(18.5rem,1fr))] xl:grid-cols-[repeat(auto-fill,minmax(20rem,1fr))] 2xl:grid-cols-[repeat(auto-fill,minmax(21.5rem,1fr))]';
 
 /**
- * Package Apple carousel card — Inspira uses ~w-56/h-80 → md:w-96/h-[40rem].
- * Prefer a wider ladder than a hollow 40rem hero: STX cards are text/meta heavy.
- * 安装包 Apple 轮播卡：对齐 Inspira 大卡思路但偏宽；避免无图 40rem 空洞。
+ * Package Apple carousel widths — 1440 约一屏 3 张；390 近一屏一张。
+ * Package Apple carousel widths — ~3 cards at 1440; nearly one at 390.
  */
+export const PACKAGE_APPLE_CARD_WIDTH_CLASS = [
+  // 390：视口定宽（勿用 %，shrink-0 父级会导致 100% 塌缩）。
+  // ~390: viewport width (% collapses under shrink-0 parents).
+  'w-[calc(100vw-2.75rem)] max-w-[24rem]',
+  'sm:w-[22rem] sm:max-w-none',
+  'md:w-96',
+  'lg:w-[25rem]',
+  // 1440：稍收窄，约 3 张可见（416px×3 + gap ≈ 内容区）。
+  // 1440: slightly narrower so ~3 cards fit (416px×3 + gaps ≈ pane).
+  'xl:w-[26rem]',
+].join(' ');
+
+/** Rich meta (downloaded / many fields). / 已下载或字段较多时的高度。 */
+export const PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS =
+  'h-[22rem] sm:h-[23rem] md:h-[24rem] xl:h-[24.5rem]';
+
+/** Compact meta (online-only / few fields). / 仅在线或字段少时压缩高度。 */
+export const PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS =
+  'h-[19.5rem] sm:h-[20rem] md:h-[21rem] xl:h-[21.5rem]';
+
+/** @deprecated Prefer width + rich/compact height. / 兼容旧引用：宽 + 丰富高度。 */
 export const PACKAGE_APPLE_CARD_SIZE_CLASS = [
-  // 390：用视口宽度显式定宽（勿用 %，shrink-0 父级会导致 100% 塌缩）。
-  // ~390: explicit viewport width (% collapses under shrink-0 parents).
-  'h-[23rem] w-[calc(100vw-2.75rem)] max-w-[24rem]',
-  'sm:h-[24rem] sm:w-[24rem] sm:max-w-none',
-  // 768+：宽于 Inspira md:w-96，高度适中由内容区填满。
-  // 768+: wider than Inspira md:w-96; moderate height filled by content.
-  'md:h-[26rem] md:w-[28rem]',
-  'lg:h-[27rem] lg:w-[30rem]',
-  // 1440：大卡吃满横向，约 2～3 张可见。
-  // 1440: large cards fill horizontally (~2–3 visible).
-  'xl:h-[28rem] xl:w-[32rem]',
+  PACKAGE_APPLE_CARD_WIDTH_CLASS,
+  PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS,
 ].join(' ');

@@ -209,6 +209,73 @@ export function PackageTable({
           </Button>
         ) : undefined;
 
+        // 仅用接口真实字段填卡；无数据不编造，字段少时由轮播用紧凑高度。
+        // Only real API fields; never invent values — few fields → compact carousel height.
+        const fields: NonNullable<MarketplaceCatalogItem['fields']> = [
+          {
+            label: t('marketplaceUi.fieldRecommended'),
+            value: isRecommended
+              ? t('marketplaceUi.fieldRecommendedYes')
+              : t('marketplaceUi.fieldRecommendedNo'),
+          },
+          {
+            label: t('marketplaceUi.fieldSource'),
+            value: sourceLabel,
+          },
+          {
+            label: t('installer.status'),
+            value: status.label,
+          },
+        ];
+        if (localPackage?.file_size) {
+          fields.push({
+            label: t('marketplaceUi.fieldSize'),
+            value: formatFileSize(localPackage.file_size),
+          });
+        } else if (task?.total_bytes) {
+          fields.push({
+            label: t('marketplaceUi.fieldSize'),
+            value: formatFileSize(task.total_bytes),
+          });
+        }
+        if (localPackage?.file_name) {
+          fields.push({
+            label: t('marketplaceUi.fieldFileName'),
+            value: localPackage.file_name,
+          });
+        }
+        if (localPackage?.uploaded_at) {
+          fields.push({
+            label: t('installer.uploadedAt'),
+            value: formatDate(localPackage.uploaded_at),
+          });
+        } else if (task?.end_time) {
+          fields.push({
+            label: t('installer.uploadedAt'),
+            value: formatDate(task.end_time),
+          });
+        }
+        if (localPackage?.local_path) {
+          fields.push({
+            label: t('marketplaceUi.fieldLocalPath'),
+            value: localPackage.local_path,
+          });
+        }
+        const mirrorKeys = Object.keys(localPackage?.download_urls || {}).filter(
+          Boolean,
+        );
+        if (task?.mirror) {
+          fields.push({
+            label: t('marketplaceUi.fieldMirror'),
+            value: task.mirror,
+          });
+        } else if (mirrorKeys.length > 0) {
+          fields.push({
+            label: t('marketplaceUi.fieldMirror'),
+            value: mirrorKeys.join(', '),
+          });
+        }
+
         return {
           id: `online-${version}`,
           title: `v${version}`,
@@ -226,16 +293,7 @@ export function PackageTable({
           ),
           badges,
           status,
-          fields: [
-            {
-              label: t('marketplaceUi.fieldSource'),
-              value: sourceLabel,
-            },
-            {
-              label: t('installer.status'),
-              value: status.label,
-            },
-          ],
+          fields,
           progress,
           meta: isDownloaded ? t('installer.downloaded') : undefined,
           primaryActions,
@@ -346,6 +404,10 @@ export function PackageTable({
             value: formatFileSize(pkg.file_size),
           },
           {
+            label: t('marketplaceUi.fieldFileName'),
+            value: pkg.file_name,
+          },
+          {
             label: t('marketplaceUi.fieldSource'),
             value: sourceLabel,
           },
@@ -353,6 +415,22 @@ export function PackageTable({
             label: t('marketplaceUi.fieldUpdated'),
             value: formatDate(pkg.uploaded_at),
           },
+          ...(pkg.local_path
+            ? [
+                {
+                  label: t('marketplaceUi.fieldLocalPath'),
+                  value: pkg.local_path,
+                },
+              ]
+            : []),
+          ...(Object.keys(pkg.download_urls || {}).length > 0
+            ? [
+                {
+                  label: t('marketplaceUi.fieldMirror'),
+                  value: Object.keys(pkg.download_urls).join(', '),
+                },
+              ]
+            : []),
         ],
         meta: formatDate(pkg.uploaded_at),
         menuActions,

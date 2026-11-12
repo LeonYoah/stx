@@ -19,27 +19,29 @@ import {describe, expect, it} from 'vitest';
 import {
   MARKETPLACE_PLUGIN_CARD_GRID_CLASS,
   MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS,
-  PACKAGE_APPLE_CARD_SIZE_CLASS,
+  PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS,
+  PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS,
+  PACKAGE_APPLE_CARD_WIDTH_CLASS,
 } from '../marketplace-card-size';
 
 describe('marketplace-card-size', () => {
   it('uses auto-fill min tracks so wide screens grow larger plugin cards', () => {
     expect(MARKETPLACE_PLUGIN_CARD_GRID_CLASS).toContain('auto-fill');
-    expect(MARKETPLACE_PLUGIN_CARD_GRID_CLASS).toContain('minmax(19rem');
-    expect(MARKETPLACE_PLUGIN_CARD_GRID_CLASS).toContain('minmax(23rem');
+    expect(MARKETPLACE_PLUGIN_CARD_GRID_CLASS).toContain('minmax(18.5rem');
+    expect(MARKETPLACE_PLUGIN_CARD_GRID_CLASS).toContain('minmax(21.5rem');
   });
 
   it('raises plugin flip height above the legacy 12.75rem band', () => {
-    expect(MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS).toContain('15.5rem');
+    expect(MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS).toContain('15.25rem');
     expect(MARKETPLACE_PLUGIN_CARD_HEIGHT_CLASS).not.toContain('12.75rem');
   });
 
-  it('uses a wide Inspira-style ladder without a hollow 40rem hero', () => {
-    expect(PACKAGE_APPLE_CARD_SIZE_CLASS).toContain('md:w-[28rem]');
-    expect(PACKAGE_APPLE_CARD_SIZE_CLASS).toContain('xl:w-[32rem]');
-    expect(PACKAGE_APPLE_CARD_SIZE_CLASS).toContain('h-[23rem]');
-    expect(PACKAGE_APPLE_CARD_SIZE_CLASS).toContain('xl:h-[28rem]');
-    expect(PACKAGE_APPLE_CARD_SIZE_CLASS).toContain('calc(100vw-2.75rem)');
-    expect(PACKAGE_APPLE_CARD_SIZE_CLASS).not.toContain('40rem');
+  it('narrows 1440 package cards toward ~3 per screen without a 40rem hero', () => {
+    expect(PACKAGE_APPLE_CARD_WIDTH_CLASS).toContain('md:w-96');
+    expect(PACKAGE_APPLE_CARD_WIDTH_CLASS).toContain('xl:w-[26rem]');
+    expect(PACKAGE_APPLE_CARD_WIDTH_CLASS).toContain('calc(100vw-2.75rem)');
+    expect(PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS).toContain('xl:h-[24.5rem]');
+    expect(PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS).toContain('xl:h-[21.5rem]');
+    expect(PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS).not.toContain('40rem');
   });
 });

@@ -150,7 +150,7 @@ export function FlipCard({
         className={cn(
           // 默认高度；市场侧通过 className 覆写到更大响应式带（tailwind-merge）。
           // Default height; marketplace overrides via className into a taller responsive band.
-          'relative h-[15.5rem] w-full cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+          'relative h-[15.25rem] w-full cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
           className,
         )}
         onClick={activate}
@@ -201,7 +201,7 @@ export function FlipCard({
       // Inspira demo 固定 h-72 w-56；市场卡满宽，高度由 className 响应式放大。
       // Inspira demo pins h-72 w-56; marketplace is full-width with responsive height via className.
       className={cn(
-        'relative h-[15.5rem] w-full cursor-pointer perspective-[1000px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+        'relative h-[15.25rem] w-full cursor-pointer perspective-[1000px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
         className,
       )}
       onClick={activate}

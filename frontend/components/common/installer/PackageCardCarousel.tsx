@@ -33,9 +33,21 @@ import {
 } from '@/components/inspira/ui/apple-card-carousel';
 import {MarketplaceStatusDot} from '@/components/common/marketplace';
 import {hasMarketplaceMenuActions} from '@/components/common/marketplace/MorphCatalog';
-import {PACKAGE_APPLE_CARD_SIZE_CLASS} from '@/components/common/marketplace/marketplace-card-size';
+import {
+  PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS,
+  PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS,
+  PACKAGE_APPLE_CARD_WIDTH_CLASS,
+} from '@/components/common/marketplace/marketplace-card-size';
 import type {MarketplaceCatalogItem} from '@/components/common/marketplace';
 import {cn} from '@/lib/utils';
+
+/** ≥4 real fields → rich height; fewer → compact (no hollow band). / ≥4 真实字段用丰富高度，否则压缩。 */
+function packageCardHeightClass(item: MarketplaceCatalogItem): string {
+  const fieldCount = item.fields?.length ?? 0;
+  return fieldCount >= 4
+    ? PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS
+    : PACKAGE_APPLE_CARD_HEIGHT_COMPACT_CLASS;
+}
 
 /**
  * Apple-style package carousel for card view (Inspira layout, STX package data).
@@ -80,7 +92,11 @@ export function PackageCardCarousel({
         {Array.from({length: 3}).map((_, i) => (
           <Skeleton
             key={i}
-            className={cn('shrink-0 rounded-3xl', PACKAGE_APPLE_CARD_SIZE_CLASS)}
+            className={cn(
+              'shrink-0 rounded-3xl',
+              PACKAGE_APPLE_CARD_WIDTH_CLASS,
+              PACKAGE_APPLE_CARD_HEIGHT_RICH_CLASS,
+            )}
           />
         ))}
       </div>
@@ -113,8 +129,12 @@ export function PackageCardCarousel({
               // Inspira AppleCard large-card proportions; STX fills with meta/actions.
               className={cn(
                 'relative flex flex-col overflow-hidden rounded-3xl border border-border/60 bg-card shadow-xs',
-                PACKAGE_APPLE_CARD_SIZE_CLASS,
+                PACKAGE_APPLE_CARD_WIDTH_CLASS,
+                packageCardHeightClass(item),
               )}
+              data-density={
+                (item.fields?.length ?? 0) >= 4 ? 'rich' : 'compact'
+              }
             >
               <div className='pointer-events-none absolute inset-x-0 top-0 z-10 h-32 bg-gradient-to-b from-primary/30 via-primary/5 to-transparent' />
               <div className='relative z-20 flex flex-1 flex-col p-6 md:p-7'>
@@ -166,15 +186,15 @@ export function PackageCardCarousel({
                   </div>
                 ) : null}
 
-                <div className='mt-5 flex min-h-0 flex-1 flex-col rounded-2xl bg-muted/40 p-4'>
+                <div className='mt-4 flex min-h-0 flex-1 flex-col rounded-2xl bg-muted/40 p-3.5 md:p-4'>
                   {item.description ? (
-                    <p className='mb-3 line-clamp-3 text-sm leading-relaxed text-muted-foreground'>
+                    <p className='mb-2.5 line-clamp-2 text-sm leading-relaxed text-muted-foreground'>
                       {item.description}
                     </p>
                   ) : null}
                   {item.fields && item.fields.length > 0 ? (
-                    <div className='space-y-2.5 text-sm'>
-                      {item.fields.slice(0, 5).map((field) => (
+                    <div className='space-y-2 text-sm'>
+                      {item.fields.slice(0, 6).map((field) => (
                         <div
                           key={`${item.id}-${field.label}`}
                           className='flex min-w-0 justify-between gap-3'
@@ -182,7 +202,10 @@ export function PackageCardCarousel({
                           <span className='shrink-0 text-muted-foreground'>
                             {field.label}
                           </span>
-                          <span className='truncate font-medium text-foreground'>
+                          <span
+                            className='truncate font-medium text-foreground'
+                            title={field.value}
+                          >
                             {field.value}
                           </span>
                         </div>

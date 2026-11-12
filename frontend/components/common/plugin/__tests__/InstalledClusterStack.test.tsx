@@ -100,9 +100,22 @@ vi.mock('motion/react', async () => {
   };
 });
 
+vi.mock('@/components/common/HelpHint', () => ({
+  HELP_HINT_DELAY_MS: 300,
+}));
+
 vi.mock('@/components/ui/tooltip', () => ({
-  TooltipProvider: ({children}: {children: React.ReactNode}) => <>{children}</>,
-  Tooltip: ({children}: {children: React.ReactNode}) => <>{children}</>,
+  Tooltip: ({
+    children,
+    delayDuration,
+  }: {
+    children: React.ReactNode;
+    delayDuration?: number;
+  }) => (
+    <div data-testid='tooltip-root' data-delay={String(delayDuration ?? '')}>
+      {children}
+    </div>
+  ),
   TooltipTrigger: ({children}: {children: React.ReactNode}) => <>{children}</>,
   TooltipContent: ({children}: {children: React.ReactNode}) => (
     <div data-testid='tooltip-content'>{children}</div>
@@ -151,8 +164,12 @@ describe('InstalledClusterStack', () => {
 
     expect(screen.getByTestId('plugin-cluster-stack')).toBeInTheDocument();
     expect(screen.getByTestId('plugin-cluster-stack-item-1')).toBeInTheDocument();
-    expect(screen.getByTestId('plugin-cluster-stack-overflow')).toHaveTextContent(
-      '+2',
+    const overflow = screen.getByTestId('plugin-cluster-stack-overflow');
+    expect(overflow).toHaveTextContent('+2');
+    expect(overflow.tagName).toBe('BUTTON');
+    expect(overflow).toHaveAttribute(
+      'aria-label',
+      'plugin.installedClusters: epsilon, zeta',
     );
     expect(screen.getByTestId('plugin-cluster-stack-count')).toHaveTextContent(
       '6',
@@ -163,6 +180,13 @@ describe('InstalledClusterStack', () => {
       'alpha',
     );
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    // Tooltip 使用 HelpHint 延迟，而不是外层 Provider 的 120ms。
+    // Tooltips use the HelpHint delay, not an outer Provider at 120ms.
+    const delays = screen
+      .getAllByTestId('tooltip-root')
+      .map((node) => node.getAttribute('data-delay'));
+    expect(delays.length).toBeGreaterThan(0);
+    expect(delays.every((value) => value === '300')).toBe(true);
   });
 
   it('enlarges the hovered item and pushes neighbors when motion is allowed', () => {

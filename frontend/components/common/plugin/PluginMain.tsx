@@ -93,6 +93,7 @@ import {PluginDetailDialog} from './PluginDetailDialog';
 import {InstallPluginDialog} from './InstallPluginDialog';
 import {BatchInstallDialog} from './BatchInstallDialog';
 import {InstalledClusterStack} from './InstalledClusterStack';
+import {resolvePluginDownloadFailureMessage} from './plugin-download-status';
 import {buildPluginPageVariants} from './plugin-motion';
 import {Pagination} from '@/components/ui/pagination';
 import {
@@ -1354,8 +1355,8 @@ export function PluginMain() {
   // Count plugins by category is no longer needed since all are connectors
   // 不再需要按分类统计，因为所有插件都是连接器
 
-  // 失败下载映射：在线卡片与本地表共享同一套失败语义。
-  // Failed-download map: available cards and local table share the same failure meaning.
+  // 失败下载映射：在线卡片与本地表共享同一套失败语义；无 error/message 时写入兜底文案，避免 Boolean('') 误判为未失败。
+  // Failed-download map shared by cards and the local table; store a fallback when error/message are empty so Boolean('') cannot hide failure.
   const failedDownloadMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of activeDownloads) {
@@ -1364,11 +1365,15 @@ export function PluginMain() {
       }
       map.set(
         pluginDownloadKey(item.plugin_name, item.version),
-        item.error || item.message || '',
+        resolvePluginDownloadFailureMessage(
+          item.error,
+          item.message,
+          t('plugin.downloadFailedHint'),
+        ),
       );
     }
     return map;
-  }, [activeDownloads]);
+  }, [activeDownloads, t]);
 
   // 已安装集群数量：供在线卡片展示安装量，语义与本地表一致。
   // Installed cluster counts for available cards; same meaning as the local table.

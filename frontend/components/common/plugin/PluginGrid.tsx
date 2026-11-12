@@ -152,10 +152,15 @@ export function PluginGrid({
           // 已下载状态优先判定；已就绪的插件不可再标记为下载中。
           // Check downloaded state first; downloaded plugins must never remain marked as downloading.
           const isDownloaded = downloadedPlugins.has(downloadKey);
-          const failedMessage = failedDownloadMap.get(downloadKey) ?? null;
+          // 用 has() 判定失败态，避免空字符串被当成「未失败」。
+          // Use has() for failure so an empty string cannot be treated as “not failed”.
+          const isDownloadFailed = failedDownloadMap.has(downloadKey);
+          const failedMessage = isDownloadFailed
+            ? (failedDownloadMap.get(downloadKey) ?? null)
+            : null;
           const isDownloading =
             !isDownloaded &&
-            !failedMessage &&
+            !isDownloadFailed &&
             downloadingPlugins.has(downloadKey);
           // 若已下载进度为 100%，否则从进度映射中读取实时百分比。
           // Progress is 100% when downloaded; otherwise retrieve real-time percentage from progress map.

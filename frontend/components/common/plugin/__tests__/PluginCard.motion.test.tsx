@@ -152,6 +152,20 @@ describe('PluginCard motion and states', () => {
     expect(screen.getByText('plugin.download')).toBeInTheDocument();
   });
 
+  it('treats the fallback failed hint as a visible failure state', () => {
+    render(
+      <PluginCard
+        plugin={plugin}
+        onClick={() => undefined}
+        showInstallButton
+        downloadFailedMessage='plugin.downloadFailedHint'
+      />,
+    );
+
+    expect(screen.getByText('plugin.downloadFailed')).toBeInTheDocument();
+    expect(screen.getByText('plugin.downloadFailedHint')).toBeInTheDocument();
+  });
+
   it('shows a readable install-count badge without locking download actions', () => {
     render(
       <PluginCard

@@ -34,3 +34,4 @@ export {
   getClusterStackInitials,
   resolveClusterStackOffset,
 } from './plugin-motion';
+export {resolvePluginDownloadFailureMessage} from './plugin-download-status';

@@ -85,14 +85,16 @@ vi.mock('motion/react', async () => {
       variants?: unknown;
       initial?: unknown;
       animate?: unknown;
+      'data-testid'?: string;
     },
     ref: React.Ref<HTMLTableSectionElement>,
   ) {
-    const {children, className, ...rest} = props;
+    const {children, className, 'data-testid': dataTestId, ...rest} = props;
     return (
       <tbody
         ref={ref}
         className={className}
+        data-testid={dataTestId}
         {...stripMotionProps(rest as Record<string, unknown>)}
       >
         {children}
@@ -123,6 +125,23 @@ beforeEach(async () => {
   (
     motionMock as unknown as {__setReducedMotionForTest: (v: boolean) => void}
   ).__setReducedMotionForTest(false);
+
+  // TableLoadingBar / gsap 在 loading=true 时会读 matchMedia。
+  // TableLoadingBar / gsap read matchMedia when loading is true.
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 });
 
 const localPackages: PackageInfo[] = [
@@ -253,5 +272,37 @@ describe('PackageTable motion and status (table-only)', () => {
       'true',
     );
     expect(screen.getByRole('table')).toBeInTheDocument();
+  });
+
+  it('dims the tbody on refresh instead of leaving opacity on each row', () => {
+    const {rerender} = render(
+      <PackageTable
+        type='online'
+        versions={['2.3.12']}
+        recommendedVersion='2.3.12'
+        loading={false}
+      />,
+    );
+
+    const tbody = screen.getByTestId('package-online-tbody');
+    const row = screen.getByTestId('package-online-row-2.3.12');
+    expect(tbody.className).not.toMatch(/opacity-60/);
+    expect(row.className).not.toMatch(/opacity-60/);
+
+    rerender(
+      <PackageTable
+        type='online'
+        versions={['2.3.12']}
+        recommendedVersion='2.3.12'
+        loading
+      />,
+    );
+
+    expect(screen.getByTestId('package-online-tbody').className).toMatch(
+      /opacity-60/,
+    );
+    expect(screen.getByTestId('package-online-row-2.3.12').className).not.toMatch(
+      /opacity-60/,
+    );
   });
 });

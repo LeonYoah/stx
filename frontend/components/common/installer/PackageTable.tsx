@@ -202,7 +202,13 @@ export function PackageTable({
             initial='hidden'
             animate='visible'
             data-slot='table-body'
-            className='[&_tr:last-child]:border-0'
+            data-testid='package-online-tbody'
+            // 刷新变淡挂在 tbody：行入场结束后的 inline opacity:1 不会盖掉这里的 class。
+            // Dim the tbody on refresh so finished row entrance opacity:1 cannot override it.
+            className={cn(
+              '[&_tr:last-child]:border-0 transition-opacity duration-200',
+              loading && 'opacity-60 pointer-events-none',
+            )}
           >
             {loading && versions.length === 0 ? (
               <TableSkeletonRows columns={4} rows={5} />
@@ -223,10 +229,9 @@ export function PackageTable({
                   itemVariants={item}
                   hover={rowHover}
                   data-testid={`package-online-row-${version}`}
-                  className={cn(
-                    loading ? 'opacity-60 pointer-events-none' : '',
-                    version === recommendedVersion && 'bg-primary/[0.03]',
-                  )}
+                  className={
+                    version === recommendedVersion ? 'bg-primary/[0.03]' : undefined
+                  }
                 >
                   <TableCell className='font-medium'>
                     <div className='flex items-center gap-2 flex-wrap'>
@@ -458,7 +463,13 @@ export function PackageTable({
           initial='hidden'
           animate='visible'
           data-slot='table-body'
-          className='[&_tr:last-child]:border-0'
+          data-testid='package-local-tbody'
+          // 同上：变淡挂在 tbody，避免行内 opacity 覆盖刷新态。
+          // Same as online: dim on tbody so per-row opacity cannot mask refresh state.
+          className={cn(
+            '[&_tr:last-child]:border-0 transition-opacity duration-200',
+            loading && 'opacity-60 pointer-events-none',
+          )}
         >
           {loading && localPackages.length === 0 ? (
             <TableSkeletonRows columns={6} rows={5} />
@@ -479,7 +490,6 @@ export function PackageTable({
                 itemVariants={item}
                 hover={rowHover}
                 data-testid={`package-local-row-${pkg.version}`}
-                className={loading ? 'opacity-60 pointer-events-none' : ''}
               >
                 <TableCell className='font-medium'>{pkg.version}</TableCell>
                 <TableCell className='font-mono text-sm'>

@@ -29,9 +29,9 @@ import {Avatar, AvatarFallback} from '@/components/ui/avatar';
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {HELP_HINT_DELAY_MS} from '@/components/common/HelpHint';
 import {cn} from '@/lib/utils';
 import {
   CLUSTER_STACK_COLLAPSED_OVERLAP,
@@ -76,6 +76,12 @@ export function InstalledClusterStack({
     () => clusters.slice(visible.length).map((item) => item.name),
     [clusters, visible.length],
   );
+  const overflowAriaLabel = useMemo(() => {
+    const names = overflowNames.join(', ');
+    return names
+      ? `${t('plugin.installedClusters')}: ${names}`
+      : t('plugin.installedClusters');
+  }, [overflowNames, t]);
 
   if (clusters.length === 0) {
     return (
@@ -98,99 +104,98 @@ export function InstalledClusterStack({
       : CLUSTER_STACK_COLLAPSED_OVERLAP;
 
   return (
-    <TooltipProvider delayDuration={120}>
-      <div
-        data-testid='plugin-cluster-stack'
-        data-reduce-motion={reduceMotion ? 'true' : 'false'}
-        className={cn(
-          // 固定高度，放大只走 transform，不把表格行撑开。
-          // Fixed height; enlargement uses transform only so table rows stay stable.
-          'relative inline-flex h-8 max-w-[220px] items-center overflow-visible',
-          className,
-        )}
-        onMouseLeave={() => setHoveredIndex(null)}
-        role='group'
-        aria-label={t('plugin.installedClusters')}
-      >
-        {visible.map((cluster, index) => {
-          const offset = resolveClusterStackOffset(
-            index,
-            hoveredIndex,
-            reduceMotion,
-          );
-          const initials = getClusterStackInitials(cluster.name);
+    <div
+      data-testid='plugin-cluster-stack'
+      data-reduce-motion={reduceMotion ? 'true' : 'false'}
+      className={cn(
+        // 固定高度，放大只走 transform，不把表格行撑开。
+        // Fixed height; enlargement uses transform only so table rows stay stable.
+        'relative inline-flex h-8 max-w-[220px] items-center overflow-visible',
+        className,
+      )}
+      onMouseLeave={() => setHoveredIndex(null)}
+      role='group'
+      aria-label={t('plugin.installedClusters')}
+    >
+      {visible.map((cluster, index) => {
+        const offset = resolveClusterStackOffset(
+          index,
+          hoveredIndex,
+          reduceMotion,
+        );
+        const initials = getClusterStackInitials(cluster.name);
 
-          return (
-            <Tooltip key={cluster.id}>
-              <TooltipTrigger asChild>
-                <motion.button
-                  type='button'
-                  data-testid={`plugin-cluster-stack-item-${cluster.id}`}
-                  className='relative inline-flex shrink-0 rounded-full border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-                  style={{zIndex: offset.zIndex}}
-                  initial={false}
-                  animate={{
-                    marginLeft: offset.marginLeft,
-                    scale: offset.scale,
-                  }}
-                  transition={transition}
-                  onMouseEnter={() => setHoveredIndex(index)}
-                  onFocus={() => setHoveredIndex(index)}
-                  onBlur={() => setHoveredIndex(null)}
-                  aria-label={cluster.name}
-                >
-                  {/* 全名放入 sr-only，保证行内文本/无障碍名可读，缩写仅作视觉芯片。
-                      Keep the full name in sr-only so row text/a11y stay readable; initials are visual only. */}
-                  <span className='sr-only'>{cluster.name}</span>
-                  <Avatar
-                    className='size-7 border-2 border-background shadow-sm ring-1 ring-border'
-                    aria-hidden='true'
-                  >
-                    {/* 仅用集群名缩写，不使用用户头像资源。
-                        Cluster-name initials only — never invent user photos. */}
-                    <AvatarFallback className='bg-primary/10 text-[10px] font-semibold text-primary'>
-                      {initials}
-                    </AvatarFallback>
-                  </Avatar>
-                </motion.button>
-              </TooltipTrigger>
-              <TooltipContent side='top' className='text-xs'>
-                {cluster.name}
-              </TooltipContent>
-            </Tooltip>
-          );
-        })}
-
-        {overflow > 0 && (
-          <Tooltip>
+        return (
+          <Tooltip key={cluster.id} delayDuration={HELP_HINT_DELAY_MS}>
             <TooltipTrigger asChild>
-              <motion.span
-                data-testid='plugin-cluster-stack-overflow'
-                className='relative inline-flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-background bg-muted text-[10px] font-semibold text-muted-foreground shadow-sm ring-1 ring-border'
-                style={{zIndex: visible.length + 1}}
+              <motion.button
+                type='button'
+                data-testid={`plugin-cluster-stack-item-${cluster.id}`}
+                className='relative inline-flex shrink-0 rounded-full border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                style={{zIndex: offset.zIndex}}
                 initial={false}
-                animate={{marginLeft: overflowMargin}}
+                animate={{
+                  marginLeft: offset.marginLeft,
+                  scale: offset.scale,
+                }}
                 transition={transition}
-                aria-label={t('plugin.installedClusters')}
+                onMouseEnter={() => setHoveredIndex(index)}
+                onFocus={() => setHoveredIndex(index)}
+                onBlur={() => setHoveredIndex(null)}
+                aria-label={cluster.name}
               >
-                +{overflow}
-              </motion.span>
+                {/* 全名放入 sr-only，保证行内文本/无障碍名可读，缩写仅作视觉芯片。
+                    Keep the full name in sr-only so row text/a11y stay readable; initials are visual only. */}
+                <span className='sr-only'>{cluster.name}</span>
+                <Avatar
+                  className='size-7 border-2 border-background shadow-sm ring-1 ring-border'
+                  aria-hidden='true'
+                >
+                  {/* 仅用集群名缩写，不使用用户头像资源。
+                      Cluster-name initials only — never invent user photos. */}
+                  <AvatarFallback className='bg-primary/10 text-[10px] font-semibold text-primary'>
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+              </motion.button>
             </TooltipTrigger>
-            <TooltipContent side='top' className='max-w-xs text-xs'>
-              {overflowNames.join(', ')}
+            <TooltipContent side='top' className='text-xs'>
+              {cluster.name}
             </TooltipContent>
           </Tooltip>
-        )}
+        );
+      })}
 
-        {/* 安装量可读：总数胶囊，避免仅靠堆叠猜测数量。
-            Readable install count pill so quantity is not guessed from the stack alone. */}
-        <span
-          data-testid='plugin-cluster-stack-count'
-          className='ml-2 shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground'
-        >
-          {clusters.length}
-        </span>
-      </div>
-    </TooltipProvider>
+      {overflow > 0 && (
+        <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+          <TooltipTrigger asChild>
+            <motion.button
+              type='button'
+              data-testid='plugin-cluster-stack-overflow'
+              className='relative inline-flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-background bg-muted text-[10px] font-semibold text-muted-foreground shadow-sm ring-1 ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+              style={{zIndex: visible.length + 1}}
+              initial={false}
+              animate={{marginLeft: overflowMargin}}
+              transition={transition}
+              aria-label={overflowAriaLabel}
+            >
+              +{overflow}
+            </motion.button>
+          </TooltipTrigger>
+          <TooltipContent side='top' className='max-w-xs text-xs'>
+            {overflowNames.join(', ')}
+          </TooltipContent>
+        </Tooltip>
+      )}
+
+      {/* 安装量可读：总数胶囊，避免仅靠堆叠猜测数量。
+          Readable install count pill so quantity is not guessed from the stack alone. */}
+      <span
+        data-testid='plugin-cluster-stack-count'
+        className='ml-2 shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground'
+      >
+        {clusters.length}
+      </span>
+    </div>
   );
 }

@@ -1,22 +1,36 @@
 /*
- * Arc UI Onboarding Checklist (adapted for STX)
- * Original source: https://uiarc.dev/components/onboarding-checklist
- * Copyright (c) 2026 Elia Kuratli — MIT License (see NOTICE below).
+ * MIT License
  *
- * STX adaptations (Apache-2.0 for modifications):
+ * Copyright (c) 2026 Elia Kuratli
+ *
+ * This file is from Arc UI (https://uiarc.dev), installed via the public
+ * @uiarc shadcn registry (https://uiarc.dev/r/onboarding-checklist.json). Upstream license:
+ * https://uiarc.dev/license
+ *
+ * Local STX adaptations remain under the same MIT terms and do not relicense
+ * the upstream Arc source as Apache-2.0:
  * - External completion only (no manual check / onAction auto-complete for business steps)
  * - Hide maps to collapse request; fully-hidden owned by STX shell
  * - i18n-friendly count / hide labels via props
+ * See NOTICE.md beside this file and the repo NOTICE / licenses/third_party_mit_files.txt.
  *
- * MIT License permission notice retained for the Arc original work:
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
 
 /* eslint-disable curly, one-var -- Arc upstream style retained for MIT attribution fidelity */

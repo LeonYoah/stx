@@ -117,23 +117,25 @@ export function buildMarketplacePageVariants(reduceMotion: boolean): {
     };
   }
 
+  // Keep page shell motion in the 150–250ms band (was 0.45s).
+  // 页面外壳动效落在 150～250ms（原 0.45s）。
   return {
     container: {
       hidden: {opacity: 0},
       visible: {
         opacity: 1,
         transition: {
-          duration: 0.45,
-          staggerChildren: 0.08,
+          duration: 0.2,
+          staggerChildren: 0.05,
         },
       },
     },
     item: {
-      hidden: {opacity: 0, y: 16},
+      hidden: {opacity: 0, y: 10},
       visible: {
         opacity: 1,
         y: 0,
-        transition: {duration: 0.45},
+        transition: {duration: 0.2},
       },
     },
   };

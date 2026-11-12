@@ -87,5 +87,19 @@ describe('marketplace-motion', () => {
       expect(hidden).toEqual({opacity: 0});
       expect(hidden.y).toBeUndefined();
     });
+
+    it('keeps page shell motion within 150–250ms when motion is allowed', () => {
+      const {item, container} = buildMarketplacePageVariants(false);
+      const visibleItem = item.visible as {
+        transition?: {duration?: number};
+      };
+      const visibleContainer = container.visible as {
+        transition?: {duration?: number};
+      };
+      expect(visibleItem.transition?.duration).toBeGreaterThanOrEqual(0.15);
+      expect(visibleItem.transition?.duration).toBeLessThanOrEqual(0.25);
+      expect(visibleContainer.transition?.duration).toBeGreaterThanOrEqual(0.15);
+      expect(visibleContainer.transition?.duration).toBeLessThanOrEqual(0.25);
+    });
   });
 });

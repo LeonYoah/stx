@@ -18,7 +18,10 @@
 export {MarketplaceBubbleStack} from './BubbleStack';
 export {MarketplaceDistributionBubbles} from './DistributionBubbles';
 export {MarketplaceListToolbar} from './ListToolbar';
-export {MarketplaceMorphCatalog} from './MorphCatalog';
+export {
+  MarketplaceMorphCatalog,
+  hasMarketplaceMenuActions,
+} from './MorphCatalog';
 export {MarketplaceOverviewBento} from './OverviewBento';
 export {MarketplaceStatusDot} from './StatusDot';
 export {useMarketplaceViewMode} from './use-view-mode';

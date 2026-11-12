@@ -17,7 +17,14 @@
 
 'use client';
 
-import type {ReactNode} from 'react';
+import {
+  Children,
+  Fragment,
+  isValidElement,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import {LayoutGroup, motion, useReducedMotion} from 'motion/react';
 import {MoreHorizontal} from 'lucide-react';
 import {useTranslations} from 'next-intl';
@@ -47,10 +54,35 @@ const MORPH_TRANSITION = {
 };
 
 /**
+ * True when menuActions has at least one renderable child (empty fragments → false).
+ * 有可渲染菜单项时为 true；空 Fragment 视为无菜单。
+ */
+export function hasMarketplaceMenuActions(node: ReactNode): boolean {
+  if (node == null || typeof node === 'boolean') {
+    return false;
+  }
+  // Children.toArray already drops booleans / null; recurse into Fragments.
+  // Children.toArray 已去掉 boolean/null；遇到 Fragment 再递归。
+  return Children.toArray(node).some((child) => {
+    if (isValidElement(child)) {
+      if (child.type === Fragment) {
+        return hasMarketplaceMenuActions(
+          (child.props as {children?: ReactNode}).children,
+        );
+      }
+      return true;
+    }
+    if (typeof child === 'string') {
+      return child.trim().length > 0;
+    }
+    return child != null;
+  });
+}
+
+/**
  * Shared table ↔ card catalog with layoutId morph per item id.
- * Loading dim lives on the list container (not rows/cards) so entrance opacity cannot override it.
- * Reduced motion: instant switch, no morph.
- * 表/卡共用目录：按条目 id 做 layoutId 形变；加载变淡挂在列表容器；减少动效时直接切换。
+ * Row/card shells are NOT role=button; open is a title control. Nested clicks/keys ignored.
+ * 表/卡共用目录：整行不做 role=button；打开走标题控件；内部交互不冒泡触发 onOpen。
  */
 export function MarketplaceMorphCatalog({
   items,
@@ -64,7 +96,6 @@ export function MarketplaceMorphCatalog({
   items: MarketplaceCatalogItem[];
   viewMode: MarketplaceViewMode;
   loading?: boolean;
-  /** Error banner for both table and card views. / 表/卡共用的错误态。 */
   error?: ReactNode | null;
   empty?: ReactNode;
   className?: string;
@@ -129,8 +160,6 @@ export function MarketplaceMorphCatalog({
 
   return (
     <LayoutGroup id={dataTestId}>
-      {/* Dim the list container on refresh so finished row/card entrance opacity:1 cannot override it.
-          刷新变淡挂在列表容器：行/卡入场结束后的 inline opacity:1 不会盖掉这里的 class。 */}
       <motion.div
         data-testid={dataTestId}
         data-view-mode={viewMode}
@@ -147,6 +176,18 @@ export function MarketplaceMorphCatalog({
         initial='hidden'
         animate='visible'
       >
+        {viewMode === 'table' ? (
+          <div
+            data-testid={`${dataTestId}-header`}
+            className='hidden grid-cols-[minmax(0,2fr)_minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_auto] items-center gap-3 border-b border-border/60 bg-muted/30 px-3.5 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid'
+          >
+            <span>{t('colName')}</span>
+            <span>{t('colBadges')}</span>
+            <span>{t('colStatus')}</span>
+            <span className='text-right'>{t('colMeta')}</span>
+            <span className='text-right'>{t('colActions')}</span>
+          </div>
+        ) : null}
         {items.map((entry) => (
           <MorphItem
             key={entry.id}
@@ -189,6 +230,48 @@ function MorphItem({
     ? MARKETPLACE_MOTION_INSTANT
     : MORPH_TRANSITION;
 
+  /**
+   * Ignore bubbled events from nested controls (… menu, download, checkbox).
+   * 忽略来自内部控件（… 菜单、下载、复选框）的冒泡事件。
+   */
+  const handleShellActivate = (
+    e: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>,
+  ) => {
+    if (e.target !== e.currentTarget) {
+      return;
+    }
+    if (!item.onOpen) {
+      return;
+    }
+    if ('key' in e) {
+      if (e.key !== 'Enter' && e.key !== ' ') {
+        return;
+      }
+      e.preventDefault();
+    }
+    item.onOpen();
+  };
+
+  const titleNode = item.onOpen ? (
+    <Button
+      type='button'
+      variant='link'
+      data-testid={`marketplace-open-${item.id}`}
+      className='h-auto truncate p-0 text-sm font-medium text-foreground'
+      onClick={(e) => {
+        e.stopPropagation();
+        item.onOpen?.();
+      }}
+      aria-label={t('openItem', {name: item.title})}
+    >
+      {item.title}
+    </Button>
+  ) : (
+    <span className='truncate text-sm font-medium text-foreground'>
+      {item.title}
+    </span>
+  );
+
   const identity = (
     <div className='flex min-w-0 items-center gap-3'>
       {item.leading}
@@ -205,9 +288,9 @@ function MorphItem({
         <motion.div
           layoutId={titleLayoutId}
           transition={layoutTransition}
-          className='truncate text-sm font-medium text-foreground'
+          className='min-w-0'
         >
-          {item.title}
+          {titleNode}
         </motion.div>
         {item.subtitle ? (
           <div className='truncate text-xs text-muted-foreground'>
@@ -238,27 +321,57 @@ function MorphItem({
 
   const fields = (item.fields || []).slice(0, 4);
   const progress = item.progress;
+  const showMenu = hasMarketplaceMenuActions(item.menuActions);
 
-  const moreMenu =
-    item.menuActions != null ? (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type='button'
-            variant='ghost'
-            size='icon'
-            className='size-8 shrink-0 rounded-md'
-            aria-label={t('moreActions')}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreHorizontal className='size-4' />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align='end' className='min-w-[10rem]'>
-          {item.menuActions}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ) : null;
+  const progressBlock = progress ? (
+    <div className='space-y-1'>
+      <div className='flex items-center justify-between gap-2 text-[11px] text-muted-foreground'>
+        <span className='truncate'>{progress.label}</span>
+        <span className='tabular-nums'>{progress.display}</span>
+      </div>
+      <Progress
+        value={progress.value}
+        className='h-1.5'
+        aria-label={t('progressAria', {
+          label: progress.label,
+          display: progress.display,
+        })}
+      />
+    </div>
+  ) : null;
+
+  const moreMenu = showMenu ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type='button'
+          variant='ghost'
+          size='icon'
+          className='size-8 shrink-0 rounded-md'
+          aria-label={t('moreActions')}
+          data-testid={`marketplace-more-${item.id}`}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          <MoreHorizontal className='size-4' />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align='end' className='min-w-[10rem]'>
+        {item.menuActions}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
+
+  const actions = (
+    <div
+      className='flex items-center justify-end gap-1'
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      {item.primaryActions}
+      {moreMenu}
+    </div>
+  );
 
   if (mode === 'table') {
     return (
@@ -267,23 +380,12 @@ function MorphItem({
         layoutId={shellLayoutId}
         transition={layoutTransition}
         variants={itemVariants}
-        role={item.onOpen ? 'button' : undefined}
-        tabIndex={item.onOpen ? 0 : undefined}
-        onClick={item.onOpen}
-        onKeyDown={(e) => {
-          if (!item.onOpen) {
-            return;
-          }
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            item.onOpen();
-          }
-        }}
+        onClick={handleShellActivate}
+        onKeyDown={handleShellActivate}
         data-testid={`marketplace-row-${item.id}`}
         className={cn(
           'group grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 px-3.5 py-3 last:border-b-0 sm:grid-cols-[minmax(0,2fr)_minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_auto]',
-          'hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          item.onOpen && 'cursor-pointer',
+          'hover:bg-muted/40',
         )}
       >
         {identity}
@@ -293,25 +395,12 @@ function MorphItem({
         <div className='min-w-0 space-y-1.5'>
           {status}
           {item.aside}
-          {progress ? (
-            <div className='space-y-1'>
-              <div className='flex items-center justify-between gap-2 text-[11px] text-muted-foreground'>
-                <span className='truncate'>{progress.label}</span>
-                <span className='tabular-nums'>{progress.display}</span>
-              </div>
-              <Progress value={progress.value} className='h-1.5' />
-            </div>
-          ) : null}
+          {progressBlock}
         </div>
         <div className='hidden text-right text-xs text-muted-foreground sm:block'>
           {item.meta || ''}
         </div>
-        <div
-          className='flex items-center justify-end gap-1'
-          onClick={(e) => e.stopPropagation()}
-        >
-          {moreMenu}
-        </div>
+        {actions}
       </motion.div>
     );
   }
@@ -323,28 +412,14 @@ function MorphItem({
       transition={layoutTransition}
       variants={itemVariants}
       whileHover={cardHover}
-      role={item.onOpen ? 'button' : undefined}
-      tabIndex={item.onOpen ? 0 : undefined}
-      onClick={item.onOpen}
-      onKeyDown={(e) => {
-        if (!item.onOpen) {
-          return;
-        }
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          item.onOpen();
-        }
-      }}
+      onClick={handleShellActivate}
+      onKeyDown={handleShellActivate}
       data-testid={`marketplace-card-${item.id}`}
-      className={cn(
-        'group flex flex-col rounded-xl border border-border/60 bg-card/70 p-4 shadow-xs',
-        'hover:border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        item.onOpen && 'cursor-pointer',
-      )}
+      className='group flex flex-col rounded-xl border border-border/60 bg-card/70 p-4 shadow-xs hover:border-border'
     >
       <div className='flex items-start justify-between gap-2'>
         {identity}
-        <div onClick={(e) => e.stopPropagation()}>{moreMenu}</div>
+        {actions}
       </div>
 
       <div className='mt-3 flex flex-wrap items-center gap-1.5'>
@@ -364,14 +439,8 @@ function MorphItem({
         </div>
       ) : null}
 
-      {progress ? (
-        <div className='mt-auto space-y-1.5 pt-3'>
-          <div className='flex items-center justify-between gap-2 text-[11px] text-muted-foreground'>
-            <span className='truncate'>{progress.label}</span>
-            <span className='tabular-nums'>{progress.display}</span>
-          </div>
-          <Progress value={progress.value} className='h-1.5' />
-        </div>
+      {progressBlock ? (
+        <div className='mt-auto pt-3'>{progressBlock}</div>
       ) : item.meta ? (
         <div className='mt-auto pt-3 text-xs text-muted-foreground'>{item.meta}</div>
       ) : null}

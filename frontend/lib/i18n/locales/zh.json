@@ -5461,6 +5461,13 @@
     "fieldUpdated": "更新时间",
     "progressDownload": "下载进度",
     "customComingSoon": "自定义插件上传即将推出",
-    "viewDocs": "查看文档"
+    "viewDocs": "查看文档",
+    "colName": "名称",
+    "colBadges": "标签",
+    "colStatus": "状态",
+    "colMeta": "信息",
+    "colActions": "操作",
+    "openItem": "打开 {name}",
+    "progressAria": "{label}：{display}"
   }
 }

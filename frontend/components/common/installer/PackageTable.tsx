@@ -17,7 +17,9 @@
 
 /**
  * Package catalog (online / local) with table ↔ card morph.
+ * Online rows never download via whole-row click — only explicit buttons.
  * 安装包目录（在线 / 本地），支持表卡形变。
+ * 在线版本整行不触发下载，只通过显式按钮发起。
  */
 
 'use client';
@@ -32,6 +34,7 @@ import {
   Upload,
 } from 'lucide-react';
 import {useTranslations} from 'next-intl';
+import {Button} from '@/components/ui/button';
 import {DropdownMenuItem} from '@/components/ui/dropdown-menu';
 import {FileUpload} from '@/components/ui/file-upload';
 import {
@@ -113,6 +116,10 @@ export function PackageTable({
         const task = downloads.find((d) => d.version === version);
         const isDownloaded = Boolean(localPackage);
         const isRecommended = version === recommendedVersion;
+        const isBusy =
+          Boolean(task) &&
+          (task?.status === 'downloading' || task?.status === 'pending');
+        const isFailed = task?.status === 'failed';
 
         let status: MarketplaceCatalogItem['status'] = {
           label: t('marketplaceUi.statusAvailable'),
@@ -122,10 +129,7 @@ export function PackageTable({
 
         if (isDownloaded) {
           status = {label: t('marketplaceUi.statusDownloaded'), tone: 'ok'};
-        } else if (
-          task &&
-          (task.status === 'downloading' || task.status === 'pending')
-        ) {
+        } else if (isBusy && task) {
           status = {
             label: t('marketplaceUi.statusDownloading'),
             tone: 'info',
@@ -135,7 +139,7 @@ export function PackageTable({
             value: task.progress || 0,
             display: `${task.progress || 0}% · ${formatSpeed(task.speed || 0)}`,
           };
-        } else if (task?.status === 'failed') {
+        } else if (isFailed) {
           status = {label: t('marketplaceUi.statusFailed'), tone: 'error'};
         } else if (task?.status === 'completed') {
           status = {label: t('marketplaceUi.statusDownloaded'), tone: 'ok'};
@@ -169,23 +173,33 @@ export function PackageTable({
           });
         }
 
-        const menuActions = (
-          <>
-            {!isDownloaded || task?.status === 'failed' ? (
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDownloadRequest?.(version);
-                }}
-              >
-                <Download className='mr-2 size-4' />
-                {task?.status === 'failed'
-                  ? t('installer.retry')
-                  : t('installer.downloadToServer')}
-              </DropdownMenuItem>
-            ) : null}
-          </>
-        );
+        // Visible download / retry only — whole row must not trigger download.
+        // 仅可见下载/重试按钮；整行不得触发下载。
+        const showDownloadButton = !isDownloaded || isFailed;
+        const primaryActions = showDownloadButton ? (
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='h-8 rounded-md text-xs'
+            data-testid={`package-download-btn-${version}`}
+            disabled={isBusy}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isBusy) {
+                return;
+              }
+              onDownloadRequest?.(version);
+            }}
+          >
+            <Download className='mr-1.5 size-3.5' />
+            {isFailed
+              ? t('installer.retry')
+              : isBusy
+                ? t('marketplaceUi.statusDownloading')
+                : t('installer.downloadToServer')}
+          </Button>
+        ) : undefined;
 
         return {
           id: `online-${version}`,
@@ -216,10 +230,12 @@ export function PackageTable({
           ],
           progress,
           meta: isDownloaded ? t('installer.downloaded') : undefined,
-          menuActions,
-          onOpen: isDownloaded
-            ? undefined
-            : () => onDownloadRequest?.(version),
+          primaryActions,
+          // No empty «…» menu for downloaded rows. / 已下载行不传空菜单。
+          menuActions: undefined,
+          // Whole row must not start downloads or other side effects.
+          // 整行不得发起下载或其他副作用。
+          onOpen: undefined,
         };
       });
     }

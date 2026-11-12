@@ -5461,6 +5461,13 @@
     "fieldUpdated": "Updated",
     "progressDownload": "Download",
     "customComingSoon": "Custom plugin upload is coming soon",
-    "viewDocs": "View docs"
+    "viewDocs": "View docs",
+    "colName": "Name",
+    "colBadges": "Tags",
+    "colStatus": "Status",
+    "colMeta": "Info",
+    "colActions": "Actions",
+    "openItem": "Open {name}",
+    "progressAria": "{label}: {display}"
   }
 }

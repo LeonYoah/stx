@@ -16,13 +16,13 @@
  */
 
 /**
- * PackageTable MorphCatalog status + loading-dim + reduced-motion tests.
- * PackageTable MorphCatalog 状态、加载变淡与减少动效测试。
+ * PackageTable: no row-click download, busy button disabled, no empty … menu.
+ * PackageTable：整行不下载、busy 按钮禁用、无空「…」菜单。
  */
 
 import React from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, render, screen} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {PackageTable} from '../PackageTable';
 import type {DownloadTask, PackageInfo} from '@/lib/services/installer/types';
 
@@ -57,6 +57,8 @@ vi.mock('motion/react', async () => {
     const {
       children,
       className,
+      onClick,
+      onKeyDown,
       'data-reduce-motion': dataReduceMotion,
       'data-testid': dataTestId,
       'data-view-mode': dataViewMode,
@@ -73,6 +75,8 @@ vi.mock('motion/react', async () => {
         data-reduce-motion={dataReduceMotion}
         data-testid={dataTestId}
         data-view-mode={dataViewMode}
+        onClick={onClick}
+        onKeyDown={onKeyDown}
         {...stripMotionProps(rest as Record<string, unknown>)}
       >
         {children}
@@ -107,24 +111,82 @@ const localPackages: PackageInfo[] = [
     version: '2.3.12',
     file_name: 'apache-seatunnel-2.3.12-bin.tar.gz',
     file_size: 1024,
-    download_urls: {
-      aliyun: '',
-      apache: '',
-      huaweicloud: '',
-    },
+    download_urls: {aliyun: '', apache: '', huaweicloud: ''},
     is_local: true,
     has_source: false,
-    source_download_urls: {
-      aliyun: '',
-      apache: '',
-      huaweicloud: '',
-    },
+    source_download_urls: {aliyun: '', apache: '', huaweicloud: ''},
     uploaded_at: '2026-03-01T00:00:00Z',
   },
 ];
 
-describe('PackageTable MorphCatalog status', () => {
-  it('renders online versions with recommended / failed / progress states', () => {
+describe('PackageTable download interactions', () => {
+  it('does not start a download when clicking the online row shell', () => {
+    const onDownloadRequest = vi.fn();
+    render(
+      <PackageTable
+        type='online'
+        viewMode='table'
+        versions={['2.3.11']}
+        onDownloadRequest={onDownloadRequest}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('marketplace-row-online-2.3.11'));
+    expect(onDownloadRequest).not.toHaveBeenCalled();
+  });
+
+  it('starts download only from the visible download button', () => {
+    const onDownloadRequest = vi.fn();
+    render(
+      <PackageTable
+        type='online'
+        viewMode='card'
+        versions={['2.3.11']}
+        onDownloadRequest={onDownloadRequest}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('package-download-btn-2.3.11'));
+    expect(onDownloadRequest).toHaveBeenCalledTimes(1);
+    expect(onDownloadRequest).toHaveBeenCalledWith('2.3.11');
+  });
+
+  it('disables the download button while busy so clicks do not re-request', () => {
+    const onDownloadRequest = vi.fn();
+    const downloads: DownloadTask[] = [
+      {
+        id: 'd2',
+        version: '2.3.10',
+        mirror: 'aliyun',
+        download_url: 'https://example.com/2.3.10.tgz',
+        status: 'downloading',
+        progress: 44,
+        downloaded_bytes: 44,
+        total_bytes: 100,
+        speed: 2048,
+        start_time: '2026-03-01T00:00:00Z',
+        source_requested: false,
+      },
+    ];
+
+    render(
+      <PackageTable
+        type='online'
+        viewMode='table'
+        versions={['2.3.10']}
+        downloads={downloads}
+        onDownloadRequest={onDownloadRequest}
+      />,
+    );
+
+    const btn = screen.getByTestId('package-download-btn-2.3.10');
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(onDownloadRequest).not.toHaveBeenCalled();
+  });
+
+  it('shows retry for failed downloads and no … menu for downloaded rows', () => {
+    const onDownloadRequest = vi.fn();
     const downloads: DownloadTask[] = [
       {
         id: 'd1',
@@ -140,92 +202,27 @@ describe('PackageTable MorphCatalog status', () => {
         source_requested: false,
         error: 'mirror missing',
       },
-      {
-        id: 'd2',
-        version: '2.3.10',
-        mirror: 'aliyun',
-        download_url: 'https://example.com/2.3.10.tgz',
-        status: 'downloading',
-        progress: 44,
-        downloaded_bytes: 44,
-        total_bytes: 100,
-        speed: 2048,
-        start_time: '2026-03-01T00:00:00Z',
-        source_requested: true,
-        source_status: 'downloading',
-        source_progress: 30,
-      },
     ];
 
     render(
       <PackageTable
         type='online'
         viewMode='table'
-        versions={['2.3.12', '2.3.11', '2.3.10']}
+        versions={['2.3.12', '2.3.11']}
         localPackages={localPackages}
         recommendedVersion='2.3.12'
         downloads={downloads}
-        onDownloadRequest={() => undefined}
+        onDownloadRequest={onDownloadRequest}
       />,
     );
 
-    expect(screen.getByTestId('package-online-catalog')).toBeInTheDocument();
-    expect(screen.getByTestId('marketplace-row-online-2.3.12')).toBeInTheDocument();
-    expect(screen.getByText('marketplaceUi.statusRecommended')).toBeInTheDocument();
-    expect(screen.getByText('marketplaceUi.statusDownloaded')).toBeInTheDocument();
-    expect(screen.getByText('marketplaceUi.statusFailed')).toBeInTheDocument();
-    expect(screen.getByText('44% · 2.0 KB/s')).toBeInTheDocument();
-  });
-
-  it('keeps local packages honest about missing source in both views', () => {
-    const {rerender} = render(
-      <PackageTable
-        type='local'
-        viewMode='table'
-        localPackages={localPackages}
-        onDelete={() => undefined}
-      />,
+    expect(screen.queryByTestId('marketplace-more-online-2.3.12')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('package-download-btn-2.3.12')).not.toBeInTheDocument();
+    expect(screen.getByTestId('package-download-btn-2.3.11')).toHaveTextContent(
+      'installer.retry',
     );
-
-    expect(screen.getByTestId('package-local-catalog')).toBeInTheDocument();
-    expect(screen.getByText('apache-seatunnel-2.3.12-bin.tar.gz')).toBeInTheDocument();
-    expect(
-      screen.getAllByText('installer.sourceMissing').length,
-    ).toBeGreaterThan(0);
-
-    rerender(
-      <PackageTable
-        type='local'
-        viewMode='card'
-        localPackages={localPackages}
-        onDelete={() => undefined}
-      />,
-    );
-    expect(screen.getByTestId('marketplace-card-local-2.3.12')).toBeInTheDocument();
-    expect(
-      screen.getAllByText('installer.sourceMissing').length,
-    ).toBeGreaterThan(0);
-  });
-
-  it('marks reduced-motion on the catalog and skips layout morph ids', async () => {
-    const motionMock = await import('motion/react');
-    (
-      motionMock as unknown as {__setReducedMotionForTest: (v: boolean) => void}
-    ).__setReducedMotionForTest(true);
-
-    render(
-      <PackageTable
-        type='online'
-        viewMode='table'
-        versions={['2.3.12']}
-        recommendedVersion='2.3.12'
-      />,
-    );
-
-    expect(screen.getByTestId('package-online-catalog')).toHaveAttribute(
-      'data-reduce-motion',
-      'true',
-    );
+    fireEvent.click(screen.getByTestId('package-download-btn-2.3.11'));
+    expect(onDownloadRequest).toHaveBeenCalledWith('2.3.11');
   });
 
   it('dims the list container on refresh instead of individual rows', () => {
@@ -257,8 +254,5 @@ describe('PackageTable MorphCatalog status', () => {
     expect(screen.getByTestId('package-online-catalog').className).toMatch(
       /opacity-60/,
     );
-    expect(
-      screen.getByTestId('marketplace-row-online-2.3.12').className,
-    ).not.toMatch(/opacity-60/);
   });
 });

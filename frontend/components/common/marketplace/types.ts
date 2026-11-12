@@ -68,8 +68,11 @@ export interface MarketplaceCatalogItem {
   meta?: string;
   /** More-menu actions (DropdownMenuItem nodes). / 「…」菜单内的操作项。 */
   menuActions?: ReactNode;
+  /** Visible primary actions (download / retry buttons). / 可见主操作（下载 / 重试按钮）。 */
+  primaryActions?: ReactNode;
   /** Extra status-area node (e.g. cluster stack). / 状态区额外节点（如集群堆叠）。 */
   aside?: ReactNode;
+  /** Open detail — rendered as a title button, not a whole-row role=button. / 打开详情：做成标题按钮，整行不做 role=button。 */
   onOpen?: () => void;
 }
 

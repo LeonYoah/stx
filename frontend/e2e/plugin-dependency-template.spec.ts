@@ -47,7 +47,13 @@ test.describe('plugin dependency template', () => {
   }) => {
     await openJdbcTemplateDialog(page, 'dependencies');
 
-    await page.getByTestId('plugin-profile-mysql').click();
+    // 本地夹具已带 selected_profile_keys=['mysql']，再点 label 会取消勾选。
+    // Local fixture already seeds mysql; another label click would uncheck it.
+    const mysqlProfile = page.getByTestId('plugin-profile-mysql');
+    const mysqlCheckbox = mysqlProfile.getByRole('checkbox');
+    await mysqlCheckbox.check();
+    await expect(mysqlCheckbox).toBeChecked();
+
     const officialDependencies = page.getByTestId(
       'plugin-official-dependencies',
     );

@@ -22,7 +22,7 @@
 
 'use client';
 
-import {useMemo, useState} from 'react';
+import {useCallback, useMemo, useState} from 'react';
 import {motion, useReducedMotion} from 'motion/react';
 import {toast} from 'sonner';
 import {usePackages} from '@/hooks/use-installer';
@@ -43,7 +43,16 @@ import {
 } from '@/components/ui/alert-dialog';
 import {Card} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
-import {RefreshCw, Package, Puzzle, Cloud, HardDrive, PackageOpen} from 'lucide-react';
+import {
+  RefreshCw,
+  Package,
+  Puzzle,
+  Cloud,
+  HardDrive,
+  PackageOpen,
+  Download,
+  Trash2,
+} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {
   WorkspaceHeader,
@@ -53,9 +62,9 @@ import {
 } from '@/components/common/layout';
 import {
   MarketplaceListToolbar,
-  MarketplaceOverviewBento,
+  runWithConcurrency,
   useMarketplaceViewMode,
-  type MarketplaceOverviewModel,
+  type MarketplaceSelectionState,
 } from '@/components/common/marketplace';
 import {buildMarketplacePageVariants} from '@/lib/animations/marketplace-motion';
 import type {MirrorSource} from '@/lib/services/installer/types';
@@ -99,6 +108,16 @@ export function PackageMain() {
   const [deleting, setDeleting] = useState(false);
   const [activeTab, setActiveTab] = useState<'online' | 'local'>('online');
   const [offlineBundleOpen, setOfflineBundleOpen] = useState(false);
+  const [selectedOnlineIds, setSelectedOnlineIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectedLocalIds, setSelectedLocalIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [batchFailedIds, setBatchFailedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
 
   const handleUpload = async (
     file: File,
@@ -149,10 +168,169 @@ export function PackageMain() {
 
   const onlineCount = packages?.versions.length || 0;
   const localCount = packages?.local_packages.length || 0;
-  const withSourceCount = (packages?.local_packages || []).filter(
-    (pkg) => pkg.has_source,
-  ).length;
-  const withoutSourceCount = Math.max(0, localCount - withSourceCount);
+  const onlineIds = useMemo(
+    () => (packages?.versions || []).map((v) => `online-${v}`),
+    [packages?.versions],
+  );
+  const localIds = useMemo(
+    () =>
+      (packages?.local_packages || []).map((pkg) => `local-${pkg.version}`),
+    [packages?.local_packages],
+  );
+  const localVersionSet = useMemo(
+    () => new Set((packages?.local_packages || []).map((pkg) => pkg.version)),
+    [packages?.local_packages],
+  );
+
+  const onlineSelection: MarketplaceSelectionState = useMemo(
+    () => ({
+      selectedIds: selectedOnlineIds,
+      onToggle: (id, selected) => {
+        setSelectedOnlineIds((prev) => {
+          const next = new Set(prev);
+          if (selected) {
+            next.add(id);
+          } else {
+            next.delete(id);
+          }
+          return next;
+        });
+      },
+      onToggleAll: (selected) => {
+        setSelectedOnlineIds((prev) => {
+          if (!selected) {
+            const next = new Set(prev);
+            for (const id of onlineIds) {
+              next.delete(id);
+            }
+            return next;
+          }
+          return new Set([...prev, ...onlineIds]);
+        });
+      },
+      onClear: () => {
+        setSelectedOnlineIds(new Set());
+        setBatchFailedIds(new Set());
+      },
+    }),
+    [onlineIds, selectedOnlineIds],
+  );
+
+  const localSelection: MarketplaceSelectionState = useMemo(
+    () => ({
+      selectedIds: selectedLocalIds,
+      onToggle: (id, selected) => {
+        setSelectedLocalIds((prev) => {
+          const next = new Set(prev);
+          if (selected) {
+            next.add(id);
+          } else {
+            next.delete(id);
+          }
+          return next;
+        });
+      },
+      onToggleAll: (selected) => {
+        setSelectedLocalIds(selected ? new Set(localIds) : new Set());
+      },
+      onClear: () => {
+        setSelectedLocalIds(new Set());
+        setBatchFailedIds(new Set());
+      },
+    }),
+    [localIds, selectedLocalIds],
+  );
+
+  const handleBatchDownloadOnline = useCallback(async () => {
+    const versions = Array.from(selectedOnlineIds)
+      .map((id) => id.replace(/^online-/, ''))
+      .filter((version) => !localVersionSet.has(version));
+    const skipped = selectedOnlineIds.size - versions.length;
+    if (versions.length === 0) {
+      toast.info(t('marketplaceUi.batchAllSkipped'));
+      return;
+    }
+    if (skipped > 0) {
+      toast.info(
+        t('marketplaceUi.batchSkipHint', {
+          process: versions.length,
+          skip: skipped,
+        }),
+      );
+    }
+    const failed: string[] = [];
+    const succeeded: string[] = [];
+    // 多项时用默认镜像并发入队，避免反复弹下载对话框。
+    // Queue selected versions with the default mirror; skip the per-item download dialog.
+    await runWithConcurrency(versions, async (version) => {
+      const id = `online-${version}`;
+      try {
+        await startDownload(
+          version,
+          'aliyun',
+          false,
+          `batch-${version}-${Date.now()}`,
+        );
+        succeeded.push(id);
+      } catch {
+        failed.push(id);
+      }
+    });
+    setBatchFailedIds(new Set(failed));
+    if (failed.length === 0) {
+      setSelectedOnlineIds(new Set());
+      toast.success(
+        t('marketplaceUi.batchSummary', {
+          success: succeeded.length,
+          failed: 0,
+        }),
+      );
+    } else {
+      setSelectedOnlineIds(new Set(failed));
+      toast.error(
+        t('marketplaceUi.batchSummary', {
+          success: succeeded.length,
+          failed: failed.length,
+        }),
+      );
+    }
+  }, [localVersionSet, selectedOnlineIds, startDownload, t]);
+
+  const handleBatchDeleteLocal = useCallback(async () => {
+    const versions = Array.from(selectedLocalIds).map((id) =>
+      id.replace(/^local-/, ''),
+    );
+    const failed: string[] = [];
+    const succeeded: string[] = [];
+    await runWithConcurrency(versions, async (version) => {
+      const id = `local-${version}`;
+      try {
+        await deletePackage(version);
+        succeeded.push(id);
+      } catch {
+        failed.push(id);
+      }
+    });
+    setBatchDeleteOpen(false);
+    setBatchFailedIds(new Set(failed));
+    if (failed.length === 0) {
+      setSelectedLocalIds(new Set());
+      toast.success(
+        t('marketplaceUi.batchSummary', {
+          success: succeeded.length,
+          failed: 0,
+        }),
+      );
+    } else {
+      setSelectedLocalIds(new Set(failed));
+      toast.error(
+        t('marketplaceUi.batchSummary', {
+          success: succeeded.length,
+          failed: failed.length,
+        }),
+      );
+    }
+  }, [deletePackage, selectedLocalIds, t]);
 
   // 状态胶囊配置 / Status pills configuration
   const pillItems: StatPillItem[] = useMemo(
@@ -173,83 +351,6 @@ export function PackageMain() {
     ],
     [localCount, onlineCount, t],
   );
-
-  /**
-   * Overview from real package data only — hide zeros / missing recommended.
-   * 总览只用真实安装包数据；0 / 无推荐版本则隐藏。
-   */
-  const overviewModel: MarketplaceOverviewModel = useMemo(() => {
-    const slices = [
-      {
-        id: 'with-source',
-        label: t('marketplaceUi.packageDistWithSource'),
-        count: withSourceCount,
-        toneClass: 'bg-emerald-500/15',
-      },
-      {
-        id: 'no-source',
-        label: t('marketplaceUi.packageDistNoSource'),
-        count: withoutSourceCount,
-        toneClass: 'bg-muted',
-      },
-    ].filter((s) => s.count > 0);
-
-    const stats = [
-      ...(localCount > 0
-        ? [
-            {
-              id: 'local',
-              label: t('marketplaceUi.packageOverviewLocal'),
-              value: localCount,
-            },
-          ]
-        : []),
-      ...(packages?.recommended_version
-        ? [
-            {
-              id: 'recommended',
-              label: t('marketplaceUi.packageOverviewRecommended'),
-              value: `v${packages.recommended_version}`,
-            },
-          ]
-        : []),
-      ...(withSourceCount > 0
-        ? [
-            {
-              id: 'with-source',
-              label: t('marketplaceUi.packageOverviewWithSource'),
-              value: withSourceCount,
-            },
-          ]
-        : []),
-    ];
-
-    return {
-      hero: {
-        label: t('marketplaceUi.packageOverviewVersions'),
-        value: onlineCount > 0 ? onlineCount : '',
-        caption:
-          onlineCount > 0
-            ? t('marketplaceUi.packageOverviewVersionsCaption')
-            : undefined,
-      },
-      distribution:
-        slices.length > 0
-          ? {
-              title: t('marketplaceUi.packageDistTitle'),
-              slices,
-            }
-          : undefined,
-      stats,
-    };
-  }, [
-    localCount,
-    onlineCount,
-    packages?.recommended_version,
-    t,
-    withSourceCount,
-    withoutSourceCount,
-  ]);
 
   return (
     <motion.div
@@ -331,8 +432,6 @@ export function PackageMain() {
         </div>
       )}
 
-      <MarketplaceOverviewBento model={overviewModel} />
-
       <motion.div variants={itemVariants} className='flex flex-1 flex-col'>
         <Card className='flex min-h-[480px] flex-col overflow-hidden rounded-xl border-border/60 shadow-xs sm:min-h-[calc(100vh-270px)]'>
           <div className='flex flex-wrap items-center justify-between gap-2.5 border-b bg-muted/20 p-3 sm:p-3.5'>
@@ -377,6 +476,35 @@ export function PackageMain() {
                   viewMode={onlineViewMode}
                   onDownloadRequest={setDownloadVersion}
                   downloads={downloads}
+                  selection={onlineSelection}
+                  bulkActions={
+                    <>
+                      <Button
+                        type='button'
+                        size='sm'
+                        className='h-8 rounded-md text-xs'
+                        data-testid='package-batch-download'
+                        onClick={() => void handleBatchDownloadOnline()}
+                      >
+                        <Download className='mr-1.5 size-3.5' />
+                        {t('marketplaceUi.batchDownload')}
+                      </Button>
+                      {batchFailedIds.size > 0 ? (
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='secondary'
+                          className='h-8 rounded-md text-xs'
+                          onClick={() => {
+                            setSelectedOnlineIds(new Set(batchFailedIds));
+                            void handleBatchDownloadOnline();
+                          }}
+                        >
+                          {t('marketplaceUi.batchRetryFailed')}
+                        </Button>
+                      ) : null}
+                    </>
+                  }
                 />
               </>
             ) : (
@@ -397,6 +525,35 @@ export function PackageMain() {
                   onSourceUpload={handleSourceUpload}
                   onSourceFetch={(version) => fetchSource(version, 'apache')}
                   onSourceDownload={downloadSource}
+                  selection={localSelection}
+                  bulkActions={
+                    <>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='destructive'
+                        className='h-8 rounded-md text-xs'
+                        data-testid='package-batch-delete'
+                        onClick={() => setBatchDeleteOpen(true)}
+                      >
+                        <Trash2 className='mr-1.5 size-3.5' />
+                        {t('marketplaceUi.batchDelete')}
+                      </Button>
+                      {batchFailedIds.size > 0 ? (
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='secondary'
+                          className='h-8 rounded-md text-xs'
+                          onClick={() =>
+                            setSelectedLocalIds(new Set(batchFailedIds))
+                          }
+                        >
+                          {t('marketplaceUi.batchRetryFailed')}
+                        </Button>
+                      ) : null}
+                    </>
+                  }
                 />
               </>
             )}
@@ -432,6 +589,30 @@ export function PackageMain() {
         onOpenChange={(open) => !open && setDownloadVersion(null)}
         onDownload={handleDownload}
       />
+
+      <AlertDialog open={batchDeleteOpen} onOpenChange={setBatchDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('marketplaceUi.batchConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('marketplaceUi.batchConfirmDelete', {
+                count: selectedLocalIds.size,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={() => void handleBatchDeleteLocal()}
+            >
+              {t('common.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={deleteConfirmOpen}

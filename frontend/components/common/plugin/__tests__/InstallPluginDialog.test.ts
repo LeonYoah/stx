@@ -19,6 +19,7 @@ import {describe, expect, it} from 'vitest';
 import {
   getClusterDisplayState,
   isClusterRuntimeAvailable,
+  shouldNotifyParentDownloadComplete,
 } from '../InstallPluginDialog';
 import {
   ClusterStatus,
@@ -44,6 +45,13 @@ function createCluster(overrides: Partial<ClusterInfo>): ClusterInfo {
     ...overrides,
   };
 }
+
+describe('shouldNotifyParentDownloadComplete', () => {
+  it('gates parent notify on in-session downloading observation', () => {
+    expect(shouldNotifyParentDownloadComplete(false)).toBe(false);
+    expect(shouldNotifyParentDownloadComplete(true)).toBe(true);
+  });
+});
 
 describe('InstallPluginDialog cluster runtime state', () => {
   it('marks running but unhealthy clusters as unavailable', () => {

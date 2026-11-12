@@ -66,49 +66,17 @@ export interface MarketplaceCatalogItem {
   progress?: MarketplaceProgress | null;
   /** Trailing meta (relative time / size). / 末列元信息（相对时间 / 大小）。 */
   meta?: string;
+  /** Full blurb shown on card back only. / 仅卡片背面展示的完整简介。 */
+  description?: string;
   /** More-menu actions (DropdownMenuItem nodes). / 「…」菜单内的操作项。 */
   menuActions?: ReactNode;
   /** Visible primary actions (download / retry buttons). / 可见主操作（下载 / 重试按钮）。 */
   primaryActions?: ReactNode;
-  /** Extra status-area node (e.g. cluster stack). / 状态区额外节点（如集群堆叠）。 */
+  /** Extra status-area node (e.g. cluster stack); card back in card view. / 状态区额外节点（如集群堆叠）；卡片视图放背面。 */
   aside?: ReactNode;
-  /** Open detail — rendered as a title button, not a whole-row role=button. / 打开详情：做成标题按钮，整行不做 role=button。 */
+  /**
+   * Open detail — title control + explicit「查看详情」; never whole-shell click.
+   * 打开详情：标题控件 + 显式「查看详情」；绝不靠外壳空白点击。
+   */
   onOpen?: () => void;
-}
-
-export interface MarketplaceBubbleMember {
-  id: string;
-  label: string;
-  /** Initials or short mark. / 缩写或短标识。 */
-  mark: string;
-  toneClass?: string;
-}
-
-export interface MarketplaceDistributionSlice {
-  id: string;
-  label: string;
-  count: number;
-  toneClass: string;
-}
-
-export interface MarketplaceStatCard {
-  id: string;
-  label: string;
-  value: string | number;
-  hint?: string;
-}
-
-export interface MarketplaceOverviewModel {
-  hero: {
-    label: string;
-    value: string | number;
-    caption?: string;
-    bubbles?: MarketplaceBubbleMember[];
-  };
-  distribution?: {
-    title: string;
-    slices: MarketplaceDistributionSlice[];
-    footer?: string;
-  };
-  stats: MarketplaceStatCard[];
 }

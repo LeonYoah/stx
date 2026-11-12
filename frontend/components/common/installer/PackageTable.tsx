@@ -24,7 +24,7 @@
 
 'use client';
 
-import {useMemo} from 'react';
+import {useMemo, type ReactNode} from 'react';
 import {
   Download,
   FileCode2,
@@ -40,6 +40,7 @@ import {FileUpload} from '@/components/ui/file-upload';
 import {
   MarketplaceMorphCatalog,
   type MarketplaceCatalogItem,
+  type MarketplaceSelectionState,
   type MarketplaceViewMode,
 } from '@/components/common/marketplace';
 import {formatDateTimeTz} from '@/lib/timezone';
@@ -59,6 +60,9 @@ interface PackageTableProps {
   onSourceUpload?: (version: string, file: File) => void;
   onSourceFetch?: (version: string) => void;
   onSourceDownload?: (version: string) => void;
+  selection?: MarketplaceSelectionState;
+  bulkActions?: ReactNode;
+  bulkHint?: ReactNode;
 }
 
 function formatFileSize(bytes: number): string {
@@ -106,6 +110,9 @@ export function PackageTable({
   onSourceUpload,
   onSourceFetch,
   onSourceDownload,
+  selection,
+  bulkActions,
+  bulkHint,
 }: PackageTableProps) {
   const t = useTranslations();
 
@@ -376,6 +383,9 @@ export function PackageTable({
       loading={Boolean(loading)}
       error={error}
       empty={empty}
+      selection={selection}
+      bulkActions={bulkActions}
+      bulkHint={bulkHint}
       data-testid={
         type === 'online' ? 'package-online-catalog' : 'package-local-catalog'
       }

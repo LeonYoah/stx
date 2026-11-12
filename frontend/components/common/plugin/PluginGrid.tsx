@@ -25,13 +25,16 @@
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Download, ExternalLink} from 'lucide-react';
+import {Button} from '@/components/ui/button';
 import {DropdownMenuItem} from '@/components/ui/dropdown-menu';
 import {Pagination} from '@/components/ui/pagination';
 import {
   MarketplaceMorphCatalog,
   type MarketplaceCatalogItem,
+  type MarketplaceSelectionState,
   type MarketplaceViewMode,
 } from '@/components/common/marketplace';
+import type {ReactNode} from 'react';
 import {useLocale} from '@/lib/i18n';
 import {buildSeatunnelConnectorDocsUrl} from '@/lib/seatunnel-version';
 import type {Plugin} from '@/lib/services/plugin';
@@ -55,6 +58,10 @@ interface PluginGridProps {
   downloadProgressMap?: Map<string, number>;
   failedDownloadMap?: Map<string, string>;
   installedClusterCountMap?: Map<string, number>;
+  /** Table multi-select (hidden action bar in card view). / 表格多选（卡片视图保留选中但不显示操作条）。 */
+  selection?: MarketplaceSelectionState;
+  bulkActions?: ReactNode;
+  bulkHint?: ReactNode;
 }
 
 const DEFAULT_PAGE_SIZE = 12;
@@ -77,6 +84,9 @@ export function PluginGrid({
   downloadProgressMap = new Map(),
   failedDownloadMap = new Map(),
   installedClusterCountMap = new Map(),
+  selection,
+  bulkActions,
+  bulkHint,
 }: PluginGridProps) {
   const t = useTranslations();
   const {locale} = useLocale();
@@ -175,49 +185,67 @@ export function PluginGrid({
         });
       }
 
+      // 文档等次要入口进「…」菜单；下载/安装作为正面主操作，无需翻面。
+      // Docs stay in the «…» menu; download/install are front primary actions (no flip required).
       const menuActions = (
-        <>
-          <DropdownMenuItem
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(docsUrl, '_blank', 'noopener,noreferrer');
+          }}
+        >
+          <ExternalLink className='mr-2 size-4' />
+          {t('marketplaceUi.viewDocs')}
+        </DropdownMenuItem>
+      );
+
+      let primaryActions: MarketplaceCatalogItem['primaryActions'];
+      if (showInstallButton && isDownloaded && onInstall) {
+        primaryActions = (
+          <Button
+            type='button'
+            size='sm'
+            className='h-8 rounded-md text-xs'
+            data-testid={`plugin-install-${downloadKey}`}
             onClick={(e) => {
               e.stopPropagation();
-              window.open(docsUrl, '_blank', 'noopener,noreferrer');
+              onInstall(plugin);
             }}
           >
-            <ExternalLink className='mr-2 size-4' />
-            {t('marketplaceUi.viewDocs')}
-          </DropdownMenuItem>
-          {showInstallButton && isDownloaded && onInstall ? (
-            <DropdownMenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                onInstall(plugin);
-              }}
-            >
-              <Download className='mr-2 size-4' />
-              {t('plugin.install')}
-            </DropdownMenuItem>
-          ) : null}
-          {showInstallButton &&
-          !isDownloaded &&
-          !isDownloading &&
-          onDownload ? (
-            <DropdownMenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                onDownload(plugin);
-              }}
-            >
-              <Download className='mr-2 size-4' />
-              {t('plugin.download')}
-            </DropdownMenuItem>
-          ) : null}
-        </>
-      );
+            <Download className='mr-1.5 size-3.5' />
+            {t('plugin.install')}
+          </Button>
+        );
+      } else if (
+        showInstallButton &&
+        !isDownloaded &&
+        !isDownloading &&
+        onDownload
+      ) {
+        primaryActions = (
+          <Button
+            type='button'
+            size='sm'
+            className='h-8 rounded-md text-xs'
+            data-testid={`plugin-download-${downloadKey}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDownload(plugin);
+            }}
+          >
+            <Download className='mr-1.5 size-3.5' />
+            {isDownloadFailed ? t('common.retry') : t('plugin.download')}
+          </Button>
+        );
+      }
 
       return {
         id: downloadKey,
         title: plugin.display_name || plugin.name,
-        subtitle: plugin.description || plugin.name,
+        // 正面展示版本；完整简介挪到背面。
+        // Version on the front; full blurb moves to the card back.
+        subtitle: `v${plugin.version}`,
+        description: plugin.description || undefined,
         icon: (
           <span
             className={`${semanticIcon.bgColor} ${semanticIcon.textColor} inline-flex size-9 items-center justify-center rounded-full`}
@@ -237,8 +265,9 @@ export function PluginGrid({
         ),
         badges,
         status,
+        // 背面：依赖、集群、失败详情等次要信息。
+        // Card back: deps, clusters, failure detail — secondary only.
         fields: [
-          {label: t('marketplaceUi.fieldVersion'), value: `v${plugin.version}`},
           {
             label: t('plugin.officialDependencyStatus'),
             value: dependencyMeta.label,
@@ -262,6 +291,7 @@ export function PluginGrid({
         ],
         progress: progressBlock,
         meta: `v${plugin.version}`,
+        primaryActions,
         menuActions,
         onOpen: () => onViewDetail(plugin),
       };
@@ -289,6 +319,9 @@ export function PluginGrid({
         loading={loading}
         error={error}
         empty={t('plugin.noPluginsFound')}
+        selection={selection}
+        bulkActions={bulkActions}
+        bulkHint={bulkHint}
         data-testid='plugin-available-catalog'
       />
       {totalItems > 0 && (

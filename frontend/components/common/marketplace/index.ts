@@ -15,27 +15,37 @@
  * limitations under the License.
  */
 
-export {MarketplaceBubbleStack} from './BubbleStack';
-export {MarketplaceDistributionBubbles} from './DistributionBubbles';
+export {
+  CATALOG_ACTION_COL,
+  CATALOG_SELECT_COL,
+  CATALOG_TABLE_COLUMNS,
+  CATALOG_TABLE_COLUMNS_SELECTABLE,
+  CATALOG_TABLE_GRID,
+  CATALOG_TABLE_GRID_SELECTABLE,
+  CATALOG_TABLE_MIN_WIDTH,
+  CATALOG_TABLE_MIN_WIDTH_SELECTABLE,
+} from './catalog-table-grid';
 export {MarketplaceListToolbar} from './ListToolbar';
 export {
   MarketplaceMorphCatalog,
   hasMarketplaceMenuActions,
   shouldSkipMarketplaceShellOpen,
   MARKETPLACE_INTERACTIVE_SELECTOR,
+  type MarketplaceSelectionState,
 } from './MorphCatalog';
-export {MarketplaceOverviewBento} from './OverviewBento';
+export {MarketplaceSelectionToolbar} from './SelectionToolbar';
 export {MarketplaceStatusDot} from './StatusDot';
 export {useMarketplaceViewMode} from './use-view-mode';
+export {
+  useMarketplaceSelection,
+  filterSelectedItems,
+} from './use-selection';
+export {runWithConcurrency} from './batch-concurrency';
 export type {
   MarketplaceBadge,
-  MarketplaceBubbleMember,
   MarketplaceCatalogItem,
-  MarketplaceDistributionSlice,
   MarketplaceField,
-  MarketplaceOverviewModel,
   MarketplaceProgress,
-  MarketplaceStatCard,
   MarketplaceStatus,
   MarketplaceStatusTone,
   MarketplaceViewMode,

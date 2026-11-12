@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useState, useEffect, useCallback, useMemo} from 'react';
+import {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   Dialog,
@@ -69,6 +69,16 @@ import {PluginService, formatPluginNodeStatuses} from '@/lib/services/plugin';
 import {ClusterService} from '@/lib/services/cluster';
 import {ClusterStatus} from '@/lib/services/cluster';
 import type {ClusterInfo} from '@/lib/services/cluster';
+
+/**
+ * 仅当本会话曾处于下载中时才通知父级完成，避免「已落盘打开管理」反复触发父级刷新自激循环。
+ * Notify parent only if this dialog session saw an in-flight download; skip reopen-of-ready loops.
+ */
+export function shouldNotifyParentDownloadComplete(
+  observedDownloadingInSession: boolean,
+): boolean {
+  return observedDownloadingInSession;
+}
 
 interface InstallPluginDialogProps {
   open: boolean;
@@ -162,6 +172,26 @@ export function InstallPluginDialog({
     null,
   );
 
+  // 用 ref 承接易变回调/标志，避免 checkDownloadStatus 身份抖动触发 effect 自激。
+  // Keep volatile callback/flags in refs so checkDownloadStatus identity stays stable.
+  const onDownloadCompleteRef = useRef(onDownloadComplete);
+  onDownloadCompleteRef.current = onDownloadComplete;
+  const downloadingRef = useRef(downloading);
+  downloadingRef.current = downloading;
+  const selectedProfileKeysRef = useRef(selectedProfileKeys);
+  selectedProfileKeysRef.current = selectedProfileKeys;
+  // 画像键内容签名：避免父级每次渲染传入新 [] 引用导致回调重建。
+  // Profile-key content signature: avoid parent passing a fresh [] each render rebuilding the callback.
+  const selectedProfileKeysKey = selectedProfileKeys.join('\u0001');
+  // 本会话是否曾观察到下载中；仅此时才向父级派发完成回调。
+  // Whether this dialog session observed an in-flight download; gate parent notify.
+  const observedDownloadingInSessionRef = useRef(false);
+  // 会话代数：关闭或重开时递增，丢弃过期异步结果，避免关窗后继续 setState/连锁请求。
+  // Session generation: bump on close/reopen so stale async work cannot chain more requests.
+  const openSessionRef = useRef(0);
+  const openRef = useRef(open);
+  openRef.current = open;
+
   const combinedAttachedConnectors = useMemo(
     () =>
       dedupeStrings([
@@ -202,27 +232,55 @@ export function InstallPluginDialog({
     return t('plugin.downloading');
   }, [downloadProgress?.current_artifact_kind, t]);
 
+  const notifyParentDownloadCompleteIfNeeded = useCallback(() => {
+    if (
+      !shouldNotifyParentDownloadComplete(
+        observedDownloadingInSessionRef.current,
+      )
+    ) {
+      return;
+    }
+    observedDownloadingInSessionRef.current = false;
+    onDownloadCompleteRef.current?.();
+  }, []);
+
   const checkDownloadStatus = useCallback(async () => {
+    if (!openRef.current) {
+      return;
+    }
+    const session = openSessionRef.current;
     try {
       const status = await PluginService.getDownloadStatus(
         plugin.name,
         version,
-        selectedProfileKeys,
+        selectedProfileKeysRef.current,
       );
+      if (!openRef.current || session !== openSessionRef.current) {
+        return;
+      }
       setDownloadProgress(status);
       if (status.status === 'completed') {
         setIsDownloaded(true);
         setDownloading(false);
-        onDownloadComplete?.();
+        // 仅会话内经历过下载时通知父级，避免已就绪打开管理时反复 loadLocalPlugins。
+        // Notify parent only after an in-session download; skip ready-on-open refresh loops.
+        notifyParentDownloadCompleteIfNeeded();
       } else if (status.status === 'downloading') {
+        observedDownloadingInSessionRef.current = true;
         setDownloading(true);
       } else if (status.status === 'failed') {
+        observedDownloadingInSessionRef.current = false;
         setDownloading(false);
         setError(status.error || t('plugin.downloadFailed'));
       } else {
         // 兜底校验本地插件：若下载完成并落盘，后端可能已清理活跃下载并返回 not_started。
         // Fallback check local plugins: when download completes, active task is removed and status may show not_started.
-        const localPlugins = await PluginService.listLocalPlugins().catch(() => []);
+        const localPlugins = await PluginService.listLocalPlugins().catch(
+          () => [],
+        );
+        if (!openRef.current || session !== openSessionRef.current) {
+          return;
+        }
         const isLocal = (localPlugins || []).some(
           (p) => p.name === plugin.name && p.version === version,
         );
@@ -234,24 +292,44 @@ export function InstallPluginDialog({
             status: 'completed',
             progress: 100,
           });
-          onDownloadComplete?.();
-        } else if (downloading) {
+          notifyParentDownloadCompleteIfNeeded();
+        } else if (downloadingRef.current) {
           // 若既非 downloading 也非 completed 且本地尚未存在，退出下载中标记避免停留在 0%。
           // If neither downloading nor completed and not local, clear downloading flag to avoid sticking at 0%.
+          observedDownloadingInSessionRef.current = false;
           setDownloading(false);
         }
       }
     } catch {
+      if (!openRef.current || session !== openSessionRef.current) {
+        return;
+      }
       setIsDownloaded(false);
     }
-  }, [downloading, onDownloadComplete, plugin.name, selectedProfileKeys, t, version]);
+    // selectedProfileKeysKey：以内容签名稳定依赖，避免父级每次传入新 [] 引用重建回调。
+    // selectedProfileKeysKey stabilizes deps when parents pass a fresh [] reference each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional content-signature dependency
+  }, [
+    notifyParentDownloadCompleteIfNeeded,
+    plugin.name,
+    selectedProfileKeysKey,
+    t,
+    version,
+  ]);
 
   const loadClusters = useCallback(async () => {
+    if (!openRef.current) {
+      return;
+    }
+    const session = openSessionRef.current;
     setLoadingClusters(true);
     setError(null);
     try {
       const result = await ClusterService.getClusters({current: 1, size: 100});
-      const availableClusters = result.clusters.filter(
+      if (!openRef.current || session !== openSessionRef.current) {
+        return;
+      }
+      const availableClusters = (result.clusters ?? []).filter(
         (c: ClusterInfo) =>
           c.status === ClusterStatus.RUNNING ||
           c.status === ClusterStatus.STOPPED,
@@ -298,35 +376,60 @@ export function InstallPluginDialog({
           }
         }),
       );
+      if (!openRef.current || session !== openSessionRef.current) {
+        return;
+      }
       setClusterStatuses(updatedStatuses);
     } catch (loadError) {
+      if (!openRef.current || session !== openSessionRef.current) {
+        return;
+      }
       const errorMsg =
         loadError instanceof Error ? loadError.message : t('cluster.loadError');
       setError(errorMsg);
       setClusterStatuses([]);
     } finally {
-      setLoadingClusters(false);
+      if (openRef.current && session === openSessionRef.current) {
+        setLoadingClusters(false);
+      }
     }
   }, [plugin.name, t, version]);
 
+  // 打开时加载集群一次；关闭时抬升会话代数并停下载轮询。
+  // Load clusters once on open; bump session on close and stop download polling.
   useEffect(() => {
-    if (open) {
-      void loadClusters();
-      void checkDownloadStatus();
+    if (!open) {
+      observedDownloadingInSessionRef.current = false;
+      openSessionRef.current += 1;
+      setDownloading(false);
+      return;
     }
-  }, [checkDownloadStatus, loadClusters, open]);
+    openSessionRef.current += 1;
+    void loadClusters();
+  }, [loadClusters, open]);
 
   useEffect(() => {
-    if (!downloading) {
+    if (!open) {
+      return;
+    }
+    void checkDownloadStatus();
+  }, [checkDownloadStatus, open]);
+
+  useEffect(() => {
+    if (!open || !downloading) {
       return undefined;
     }
     const interval = setInterval(() => {
+      if (!openRef.current) {
+        return;
+      }
       void checkDownloadStatus();
     }, 1000);
     return () => clearInterval(interval);
-  }, [checkDownloadStatus, downloading]);
+  }, [checkDownloadStatus, downloading, open]);
 
   const handleDownload = async () => {
+    observedDownloadingInSessionRef.current = true;
     setDownloading(true);
     setError(null);
     try {
@@ -346,6 +449,7 @@ export function InstallPluginDialog({
           : t('plugin.downloadFailed');
       setError(errorMsg);
       toast.error(errorMsg);
+      observedDownloadingInSessionRef.current = false;
       setDownloading(false);
     }
   };

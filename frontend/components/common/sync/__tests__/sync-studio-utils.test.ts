@@ -515,6 +515,159 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
       const childNames = result[0].children?.map((c) => c.name);
       expect(childNames).toEqual(['my_private_task.conf']);
     });
+
+    // 回归 #108：空目录在非 all 作用域必须走 is_owner / 作用域契约，不能一律隐藏。
+    // Regression #108: empty folders under non-all scopes must honor ownership/scope, not always hide.
+    describe('empty folder visibility by ownership and scope (#108)', () => {
+      const baseFolder = {
+        description: '',
+        cluster_id: 1,
+        engine_version: '2.3.13',
+        mode: 'streaming' as const,
+        status: 'draft' as const,
+        content_format: 'hocon' as const,
+        content: '',
+        job_name: '',
+        definition: {},
+        sort_order: 1,
+        current_version: 1,
+      };
+
+      const ownedEmptyFolder = {
+        ...baseFolder,
+        id: 1,
+        node_type: 'folder' as const,
+        name: 'test108-owned-empty',
+        created_by: 4,
+        is_owner: true,
+        is_public: false,
+        is_collaborator: false,
+        children: [],
+      };
+
+      const otherPrivateEmptyFolder = {
+        ...baseFolder,
+        id: 2,
+        node_type: 'folder' as const,
+        name: 'other-private-empty',
+        created_by: 2,
+        is_owner: false,
+        is_public: false,
+        is_collaborator: false,
+        children: [],
+      };
+
+      const otherPublicEmptyFolder = {
+        ...baseFolder,
+        id: 3,
+        node_type: 'folder' as const,
+        name: 'other-public-empty',
+        created_by: 2,
+        is_owner: false,
+        is_public: true,
+        is_collaborator: false,
+        children: [],
+      };
+
+      const nestedOwnedEmptyUnderForeignShell = [
+        {
+          ...baseFolder,
+          id: 10,
+          node_type: 'folder' as const,
+          name: 'foreign-parent',
+          created_by: 2,
+          is_owner: false,
+          is_public: false,
+          is_collaborator: false,
+          children: [
+            {
+              ...baseFolder,
+              id: 11,
+              parent_id: 10,
+              node_type: 'folder' as const,
+              name: 'my-nested-empty',
+              created_by: 4,
+              is_owner: true,
+              is_public: false,
+              is_collaborator: false,
+              children: [],
+            },
+            {
+              ...baseFolder,
+              id: 12,
+              parent_id: 10,
+              node_type: 'folder' as const,
+              name: 'other-nested-empty',
+              created_by: 2,
+              is_owner: false,
+              is_public: false,
+              is_collaborator: false,
+              children: [],
+            },
+          ],
+        },
+      ];
+
+      it('shows owned empty folder in all / mine_and_public / only_mine', () => {
+        const tree = [ownedEmptyFolder];
+        for (const scope of ['all', 'mine_and_public', 'only_mine'] as const) {
+          const result = filterTree(tree, '', scope, 4);
+          expect(result.map((n) => n.name)).toEqual(['test108-owned-empty']);
+        }
+      });
+
+      it('hides other users private empty folder outside all scope', () => {
+        const tree = [otherPrivateEmptyFolder];
+        expect(filterTree(tree, '', 'all', 4).map((n) => n.name)).toEqual([
+          'other-private-empty',
+        ]);
+        expect(filterTree(tree, '', 'mine_and_public', 4)).toHaveLength(0);
+        expect(filterTree(tree, '', 'only_mine', 4)).toHaveLength(0);
+      });
+
+      it('keeps other users public empty folder in mine_and_public but not only_mine', () => {
+        const tree = [otherPublicEmptyFolder];
+        expect(
+          filterTree(tree, '', 'mine_and_public', 4).map((n) => n.name),
+        ).toEqual(['other-public-empty']);
+        expect(filterTree(tree, '', 'only_mine', 4)).toHaveLength(0);
+        expect(filterTree(tree, '', 'all', 4).map((n) => n.name)).toEqual([
+          'other-public-empty',
+        ]);
+      });
+
+      it('preserves nested owned empty folder path while hiding unauthorized siblings', () => {
+        const mine = filterTree(nestedOwnedEmptyUnderForeignShell, '', 'only_mine', 4);
+        expect(mine).toHaveLength(1);
+        expect(mine[0].name).toBe('foreign-parent');
+        expect(mine[0].children?.map((c) => c.name)).toEqual(['my-nested-empty']);
+
+        const mineAndPublic = filterTree(
+          nestedOwnedEmptyUnderForeignShell,
+          '',
+          'mine_and_public',
+          4,
+        );
+        expect(mineAndPublic).toHaveLength(1);
+        expect(mineAndPublic[0].children?.map((c) => c.name)).toEqual([
+          'my-nested-empty',
+        ]);
+
+        const all = filterTree(nestedOwnedEmptyUnderForeignShell, '', 'all', 4);
+        expect(all[0].children?.map((c) => c.name)).toEqual([
+          'my-nested-empty',
+          'other-nested-empty',
+        ]);
+      });
+
+      it('keeps owned empty folder when keyword matches folder name under only_mine', () => {
+        const result = filterTree([ownedEmptyFolder], 'test108', 'only_mine', 4);
+        expect(result.map((n) => n.name)).toEqual(['test108-owned-empty']);
+        expect(filterTree([ownedEmptyFolder], 'nomatch', 'only_mine', 4)).toHaveLength(
+          0,
+        );
+      });
+    });
   });
 
   // 测试作业指标摘要提取与 SeaTunnel 3.0 多表聚合逻辑

@@ -178,7 +178,7 @@ describe('MarketplaceMorphCatalog', () => {
     );
   });
 
-  it('opens detail only from title; blank card flips and never opens detail', () => {
+  it('opens detail from title or top-right eye; blank card flips and never opens detail', () => {
     const onOpen = vi.fn();
     const items: MarketplaceCatalogItem[] = [
       {
@@ -193,9 +193,9 @@ describe('MarketplaceMorphCatalog', () => {
     ];
     render(<MarketplaceMorphCatalog items={items} viewMode='card' />);
 
-    expect(
-      screen.queryByTestId('marketplace-detail-plugin'),
-    ).not.toBeInTheDocument();
+    // 右上角眼睛入口可发现详情；不再用翻转气泡。
+    // Top-right eye is the discoverable detail control; no flip bubble.
+    expect(screen.getByTestId('marketplace-detail-plugin')).toBeInTheDocument();
     expect(
       screen.queryByTestId('marketplace-flip-plugin-front'),
     ).not.toBeInTheDocument();
@@ -214,9 +214,12 @@ describe('MarketplaceMorphCatalog', () => {
 
     fireEvent.click(screen.getByTestId('marketplace-open-plugin'));
     expect(onOpen).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('marketplace-detail-plugin'));
+    expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
-  it('flips via blank click, keeps primary on front, and has no flip/detail buttons', () => {
+  it('flips via blank click, keeps primary on front, and omits eye when onOpen is absent', () => {
     const onPrimary = vi.fn();
     const items: MarketplaceCatalogItem[] = [
       {

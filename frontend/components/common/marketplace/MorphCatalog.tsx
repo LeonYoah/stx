@@ -27,7 +27,7 @@ import {
   type ReactNode,
 } from 'react';
 import {LayoutGroup, motion, useReducedMotion} from 'motion/react';
-import {MoreHorizontal} from 'lucide-react';
+import {Eye, MoreHorizontal} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -39,6 +39,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Progress} from '@/components/ui/progress';
 import {Skeleton} from '@/components/ui/skeleton';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {HELP_HINT_DELAY_MS} from '@/components/common/HelpHint';
 import {FlipCard} from '@/components/inspira/ui/flip-card';
 import {
   buildMarketplaceCardHover,
@@ -592,7 +598,9 @@ function MorphItem({
         </div>
         <div data-col='status' className='min-w-0 w-full space-y-1.5'>
           {status}
-          {item.aside}
+          {/* aside 另起一块，避免与状态文案在同一文本节点里粘连重复朗读。
+              Keep aside in its own block so it never concatenates with the status label. */}
+          {item.aside ? <div className='min-w-0'>{item.aside}</div> : null}
         </div>
         {metaCell}
         {tableActions}
@@ -600,14 +608,40 @@ function MorphItem({
     );
   }
 
-  // 正面：紧凑身份区 + 徽章/状态 + 至多一个主操作与「…」；无「查看详情」「翻转」按钮。
-  // Front: compact identity + badges/status + at most one primary + «…»; no detail/flip buttons.
+  const detailEye =
+    item.onOpen ? (
+      <Tooltip delayDuration={HELP_HINT_DELAY_MS}>
+        <TooltipTrigger asChild>
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon'
+            className='absolute right-1.5 top-1.5 size-7 rounded-md text-muted-foreground hover:text-foreground'
+            data-testid={`marketplace-detail-${item.id}`}
+            aria-label={t('viewDetailNamed', {name: item.title})}
+            onClick={(event) => {
+              event.stopPropagation();
+              item.onOpen?.();
+            }}
+          >
+            <Eye className='size-3.5' aria-hidden='true' />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side='top'>
+          {t('viewDetailNamed', {name: item.title})}
+        </TooltipContent>
+      </Tooltip>
+    ) : null;
+
+  // 正面：紧凑身份区 + 右上角眼睛详情 + 主操作/「…」；空白点击翻面。
+  // Front: compact identity + top-right eye detail + primary/«…»; blank click flips.
   const frontFace = (
     <div
       data-testid={`marketplace-card-front-${item.id}`}
-      className='flex h-full flex-col gap-2.5 p-3'
+      className='relative flex h-full flex-col gap-2.5 p-3'
     >
-      <div className='flex min-w-0 items-start gap-2.5'>
+      {detailEye}
+      <div className={cn('flex min-w-0 items-start gap-2.5', item.onOpen && 'pr-8')}>
         {item.icon ? (
           <motion.div
             layoutId={iconLayoutId}

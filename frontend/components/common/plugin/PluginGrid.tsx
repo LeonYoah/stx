@@ -136,10 +136,18 @@ export function PluginGrid({
         locale,
         plugin.category,
       );
+      // Prefer a real connector page; only fall back to the connectors index when none exist.
+      // 优先真实连接器文档页；两边都不存在时才回退到连接器索引。
       const docsUrl =
         docUrls.sourceDocUrl ||
         docUrls.sinkDocUrl ||
-        buildSeatunnelConnectorDocsUrl(plugin.version, locale);
+        undefined;
+      const docsFallbackUrl = buildSeatunnelConnectorDocsUrl(
+        plugin.version,
+        locale,
+      );
+      const docsHref = docsUrl ?? docsFallbackUrl;
+      const hasExactDocs = Boolean(docsUrl);
 
       let status: MarketplaceCatalogItem['status'];
       let progressBlock: MarketplaceCatalogItem['progress'] = null;
@@ -185,17 +193,19 @@ export function PluginGrid({
         });
       }
 
-      // 文档等次要入口进「…」菜单；下载/安装作为正面主操作，无需翻面。
-      // Docs stay in the «…» menu; download/install are front primary actions (no flip required).
+      // 文档等次要入口进「…」菜单；无精确文档时标明指向索引页。
+      // Docs stay in the «…» menu; label index fallback when no exact page exists.
       const menuActions = (
         <DropdownMenuItem
           onClick={(e) => {
             e.stopPropagation();
-            window.open(docsUrl, '_blank', 'noopener,noreferrer');
+            window.open(docsHref, '_blank', 'noopener,noreferrer');
           }}
         >
           <ExternalLink className='mr-2 size-4' />
-          {t('marketplaceUi.viewDocs')}
+          {hasExactDocs
+            ? t('marketplaceUi.viewDocs')
+            : t('marketplaceUi.viewDocsIndex')}
         </DropdownMenuItem>
       );
 

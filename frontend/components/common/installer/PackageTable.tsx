@@ -43,6 +43,7 @@ import {
   type MarketplaceSelectionState,
   type MarketplaceViewMode,
 } from '@/components/common/marketplace';
+import {PackageCardCarousel} from './PackageCardCarousel';
 import {formatDateTimeTz} from '@/lib/timezone';
 import type {DownloadTask, PackageInfo} from '@/lib/services/installer/types';
 
@@ -376,19 +377,34 @@ export function PackageTable({
       ? t('installer.noVersionsAvailable')
       : t('installer.noLocalPackages');
 
+  const catalogTestId =
+    type === 'online' ? 'package-online-catalog' : 'package-local-catalog';
+
+  // 卡片视图改用 Apple 轮播，避免平铺网格；默认仍是表格。
+  // Card view uses the Apple carousel instead of a flat grid; table remains the default.
+  if (viewMode === 'card') {
+    return (
+      <PackageCardCarousel
+        items={items}
+        loading={Boolean(loading)}
+        error={error}
+        empty={empty}
+        data-testid={catalogTestId}
+      />
+    );
+  }
+
   return (
     <MarketplaceMorphCatalog
       items={items}
-      viewMode={viewMode}
+      viewMode='table'
       loading={Boolean(loading)}
       error={error}
       empty={empty}
       selection={selection}
       bulkActions={bulkActions}
       bulkHint={bulkHint}
-      data-testid={
-        type === 'online' ? 'package-online-catalog' : 'package-local-catalog'
-      }
+      data-testid={catalogTestId}
     />
   );
 }

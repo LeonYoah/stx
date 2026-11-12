@@ -34,7 +34,11 @@ import {
   Shuffle,
   type LucideIcon,
 } from 'lucide-react';
-import {DEFAULT_SEATUNNEL_DOC_VERSION} from '@/lib/seatunnel-version';
+import {
+  DOC_SINK_SLUGS,
+  DOC_SLUG_OVERRIDES,
+  DOC_SOURCE_SLUGS,
+} from './connector-doc-slugs';
 
 /**
  * Known CDC plugin mappings
@@ -151,6 +155,18 @@ export function getConnectorCapability(
     return {supportsSource: false, supportsSink: false, isTransform: true};
   }
 
+  // Prefer official docs inventory: only claim Source/Sink when a real page exists.
+  // 以官方文档目录为准：仅当存在真实文档页时才声明 Source/Sink 能力。
+  const sourceSlug = resolveConnectorDocSlug(pluginName, 'source');
+  const sinkSlug = resolveConnectorDocSlug(pluginName, 'sink');
+  if (sourceSlug || sinkSlug) {
+    return {
+      supportsSource: Boolean(sourceSlug),
+      supportsSink: Boolean(sinkSlug),
+      isTransform: false,
+    };
+  }
+
   // CDC connectors are source only / CDC 连接器纯作为输入源
   if (normalized.startsWith('cdc-')) {
     return {supportsSource: true, supportsSink: false, isTransform: false};
@@ -171,7 +187,7 @@ export function getConnectorCapability(
     return {supportsSource: true, supportsSink: false, isTransform: false};
   }
 
-// Default: most SeaTunnel connectors support both Source and Sink
+  // Default: most SeaTunnel connectors support both Source and Sink
   // 默认：绝大多数 SeaTunnel 连接器均兼具输入与输出能力
   return {supportsSource: true, supportsSink: true, isTransform: false};
 }
@@ -389,8 +405,31 @@ export function getConnectorOfficialIconUrl(pluginName: string): string | null {
 }
 
 /**
- * Exact SeaTunnel documentation slug mapping (verified against seatunnel/docs)
- * SeaTunnel 官方文档路径映射（已与 seatunnel 源码目录核对验证）
+ * Match a candidate slug against an exact docs inventory (case-insensitive fallback).
+ * 在精确文档清单中匹配候选 slug（大小写不敏感回退）。
+ */
+function matchDocSlug(
+  candidate: string | undefined,
+  inventory: Set<string>,
+): string | undefined {
+  if (!candidate) {
+    return undefined;
+  }
+  if (inventory.has(candidate)) {
+    return candidate;
+  }
+  const lower = candidate.toLowerCase();
+  for (const slug of inventory) {
+    if (slug.toLowerCase() === lower) {
+      return slug;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Guess a docs slug (may be wrong casing). Prefer resolveConnectorDocSlug for links.
+ * 猜测文档 slug（大小写可能不准）。生成链接请用 resolveConnectorDocSlug。
  *
  * @param pluginName - Plugin name / 插件名称
  * @param mode - Connector direction / 连接器方向
@@ -406,20 +445,43 @@ export function getConnectorDocSlug(
     return 'sql';
   }
 
-  // 2. CDC connectors / CDC 插件 (主要作为 source，动态规则推导与特例保护)
+  // 2. Docs overrides first — HOCON SPECIAL_IDENTIFIERS casing often differs (ActiveMQ vs Activemq).
+  // 文档覆盖优先：HOCON 标识大小写常与文档目录不一致（ActiveMQ vs Activemq）。
+  if (DOC_SLUG_OVERRIDES[clean]) {
+    return DOC_SLUG_OVERRIDES[clean];
+  }
+
+  // 3. CDC connectors / CDC 插件
   if (clean.startsWith('cdc-')) {
     const suffix = clean.slice(4);
-    if (suffix === 'mysql') return 'MySQL-CDC';
-    if (suffix === 'postgres' || suffix === 'postgresql') return 'PostgreSQL-CDC';
-    if (suffix === 'sqlserver') return 'SqlServer-CDC';
-    if (suffix === 'opengauss') return 'Opengauss-CDC';
-    if (suffix === 'mongodb') return 'MongoDB-CDC';
-    if (suffix === 'tidb') return 'TiDB-CDC';
-    if (suffix === 'oceanbase') return 'OceanBase';
+    if (suffix === 'mysql') {
+      return 'MySQL-CDC';
+    }
+    if (suffix === 'postgres' || suffix === 'postgresql') {
+      return 'PostgreSQL-CDC';
+    }
+    if (suffix === 'sqlserver') {
+      return 'SqlServer-CDC';
+    }
+    if (suffix === 'opengauss') {
+      return 'Opengauss-CDC';
+    }
+    if (suffix === 'mongodb') {
+      return 'MongoDB-CDC';
+    }
+    if (suffix === 'tidb') {
+      return 'TiDB-CDC';
+    }
+    if (suffix === 'oceanbase') {
+      return 'OceanBase-CDC';
+    }
+    if (suffix === 'oracle') {
+      return 'Oracle-CDC';
+    }
     return `${toPascalCase(suffix)}-CDC`;
   }
 
-  // 3. Test & Virtual connectors / 模拟与测试连接器
+  // 4. Test & Virtual connectors / 模拟与测试连接器
   if (clean === 'fake') {
     return mode === 'source' ? 'FakeSource' : 'Fake';
   }
@@ -430,7 +492,7 @@ export function getConnectorDocSlug(
     return 'Console';
   }
 
-  // 4. File-based connectors / 文件类连接器 (规则推导：file-xxx 或 xxxfile -> XxxFile)
+  // 5. File-based connectors / 文件类连接器
   if (clean.startsWith('file-')) {
     return `${toPascalCase(clean.slice(5))}File`;
   }
@@ -438,7 +500,8 @@ export function getConnectorDocSlug(
     return toPascalCase(clean);
   }
 
-  // 5. Special database casing in SeaTunnel docs / SeaTunnel 官方文档特定大小写
+  // 6. Postgres source/sink filenames differ (PostgreSQL vs PostgreSql).
+  // Postgres 文档源/宿文件名不一致。
   if (clean === 'postgres' || clean === 'postgresql') {
     return mode === 'sink' ? 'PostgreSql' : 'PostgreSQL';
   }
@@ -448,20 +511,25 @@ export function getConnectorDocSlug(
   if (clean === 'sqlserver') {
     return 'SqlServer';
   }
-  if (clean === 'amazondynamodb') {
-    return 'AmazonDynamoDB';
-  }
-  if (clean === 'amazonsqs') {
-    return 'AmazonSqs';
-  }
-
-  // 6. Direct mapping from SPECIAL_IDENTIFIERS / 特殊标识映射
-  if (SPECIAL_IDENTIFIERS[clean]) {
-    return SPECIAL_IDENTIFIERS[clean];
-  }
 
   // 7. Dynamic PascalCase fallback / 规则推导首字母大写兜底
   return toPascalCase(clean);
+}
+
+/**
+ * Resolve an exact existing docs slug, or undefined when the page is absent.
+ * 解析真实存在的文档 slug；无对应页面时返回 undefined。
+ */
+export function resolveConnectorDocSlug(
+  pluginName: string,
+  mode: 'source' | 'sink' | 'transform' = 'source',
+): string | undefined {
+  const candidate = getConnectorDocSlug(pluginName, mode);
+  if (mode === 'transform') {
+    return candidate || undefined;
+  }
+  const inventory = mode === 'sink' ? DOC_SINK_SLUGS : DOC_SOURCE_SLUGS;
+  return matchDocSlug(candidate, inventory);
 }
 
 /**
@@ -486,11 +554,19 @@ export function generateConnectorDocUrls(
   // Official SeaTunnel website uses /zh-CN/docs for Chinese, /docs for English (default locale)
   // 官方 SeaTunnel 网站中文使用 /zh-CN/docs 前缀，英文默认语言使用 /docs 前缀
   const localePrefix = isZh ? '/zh-CN' : '';
-  const capability = getConnectorCapability(pluginName, category);
+  // Prefer unversioned "current" docs: many versioned paths 404 (e.g. 2.3.12) while
+  // inventory-matched unversioned slugs stay stable. `version` kept for API compatibility.
+  // 优先无无版本「当前」文档：多数带版本路径会 404（如 2.3.12），清单匹配的无版本 slug 更稳。
+  void version;
 
   // Check if transform / 检查是否为转换插件
   if (category === 'transform' || pluginName.toLowerCase().includes('transform')) {
-    const transformSlug = getConnectorDocSlug(pluginName, 'transform');
+    const transformSlug = resolveConnectorDocSlug(pluginName, 'transform');
+    if (!transformSlug) {
+      return {};
+    }
+    // Live site uses /docs/transforms/… (singular /transform/ 404s without version).
+    // 线上为 /docs/transforms/…（无版本时单数 /transform/ 会 404）。
     const transformUrl = `https://seatunnel.apache.org${localePrefix}/docs/transforms/${transformSlug}/`;
     return {
       sourceDocUrl: transformUrl,
@@ -498,16 +574,16 @@ export function generateConnectorDocUrls(
     };
   }
 
-  const sourceSlug = getConnectorDocSlug(pluginName, 'source');
-  const sinkSlug = getConnectorDocSlug(pluginName, 'sink');
+  const sourceSlug = resolveConnectorDocSlug(pluginName, 'source');
+  const sinkSlug = resolveConnectorDocSlug(pluginName, 'sink');
 
-  // Authoritative canonical URLs on seatunnel.apache.org
-  // 官方权威文档直达路径
-  const sourceDocUrl = capability.supportsSource
+  // Only emit URLs that resolve to an inventoried docs page (prevents 404).
+  // 仅输出文档清单中存在的链接，避免 404。
+  const sourceDocUrl = sourceSlug
     ? `https://seatunnel.apache.org${localePrefix}/docs/connectors/source/${sourceSlug}/`
     : undefined;
 
-  const sinkDocUrl = capability.supportsSink
+  const sinkDocUrl = sinkSlug
     ? `https://seatunnel.apache.org${localePrefix}/docs/connectors/sink/${sinkSlug}/`
     : undefined;
 

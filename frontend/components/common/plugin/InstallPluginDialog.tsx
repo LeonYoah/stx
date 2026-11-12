@@ -28,6 +28,7 @@ import {
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {Card, CardContent} from '@/components/ui/card';
+import {Checkbox} from '@/components/ui/checkbox';
 import {Progress} from '@/components/ui/progress';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {
@@ -61,6 +62,7 @@ import {
 import {toast} from 'sonner';
 import type {
   InstalledPlugin,
+  OfficialDependenciesResponse,
   Plugin,
   PluginDependency,
   PluginDownloadProgress,
@@ -69,6 +71,10 @@ import {PluginService, formatPluginNodeStatuses} from '@/lib/services/plugin';
 import {ClusterService} from '@/lib/services/cluster';
 import {ClusterStatus} from '@/lib/services/cluster';
 import type {ClusterInfo} from '@/lib/services/cluster';
+import {
+  normalizeProfileKeys,
+  pluginRequiresProfileSelection,
+} from './plugin-profile-selection';
 
 /**
  * 仅当本会话曾处于下载中时才通知父级完成，避免「已落盘打开管理」反复触发父级刷新自激循环。
@@ -171,6 +177,14 @@ export function InstallPluginDialog({
   const [restartingClusterId, setRestartingClusterId] = useState<number | null>(
     null,
   );
+  // 安装前可再次确认/修改的画像；打开弹窗时用下载时选择预填。
+  // Profiles the user reconfirms/edits before install; prefilled from download-time selection on open.
+  const [confirmedProfileKeys, setConfirmedProfileKeys] = useState<string[]>(
+    () => normalizeProfileKeys(selectedProfileKeys),
+  );
+  const [officialDeps, setOfficialDeps] =
+    useState<OfficialDependenciesResponse | null>(null);
+  const [officialDepsLoading, setOfficialDepsLoading] = useState(false);
 
   // 用 ref 承接易变回调/标志，避免 checkDownloadStatus 身份抖动触发 effect 自激。
   // Keep volatile callback/flags in refs so checkDownloadStatus identity stays stable.
@@ -178,11 +192,11 @@ export function InstallPluginDialog({
   onDownloadCompleteRef.current = onDownloadComplete;
   const downloadingRef = useRef(downloading);
   downloadingRef.current = downloading;
-  const selectedProfileKeysRef = useRef(selectedProfileKeys);
-  selectedProfileKeysRef.current = selectedProfileKeys;
-  // 画像键内容签名：避免父级每次渲染传入新 [] 引用导致回调重建。
-  // Profile-key content signature: avoid parent passing a fresh [] each render rebuilding the callback.
-  const selectedProfileKeysKey = selectedProfileKeys.join('\u0001');
+  const selectedProfileKeysRef = useRef(confirmedProfileKeys);
+  selectedProfileKeysRef.current = confirmedProfileKeys;
+  // 画像键内容签名：用弹窗内确认态，避免父级每次传入新 [] 引用导致回调重建（AC11）。
+  // Profile-key content signature from in-dialog confirmation state; avoids parent [] identity churn (AC11).
+  const selectedProfileKeysKey = confirmedProfileKeys.join('\u0001');
   // 本会话是否曾观察到下载中；仅此时才向父级派发完成回调。
   // Whether this dialog session observed an in-flight download; gate parent notify.
   const observedDownloadingInSessionRef = useRef(false);
@@ -191,6 +205,12 @@ export function InstallPluginDialog({
   const openSessionRef = useRef(0);
   const openRef = useRef(open);
   openRef.current = open;
+
+  const requiresProfiles = pluginRequiresProfileSelection(plugin);
+  const availableProfiles = officialDeps?.profiles || [];
+  const hasMultiProfiles = availableProfiles.length > 1;
+  const profilesMissingForInstall =
+    requiresProfiles && hasMultiProfiles && confirmedProfileKeys.length === 0;
 
   const combinedAttachedConnectors = useMemo(
     () =>
@@ -402,11 +422,50 @@ export function InstallPluginDialog({
       observedDownloadingInSessionRef.current = false;
       openSessionRef.current += 1;
       setDownloading(false);
+      setOfficialDeps(null);
+      setOfficialDepsLoading(false);
       return;
     }
     openSessionRef.current += 1;
+    // 仅在打开瞬间用父级传入的下载时选择预填，之后由弹窗内确认态驱动（可修改）。
+    // Prefill only on open from parent download-time selection; in-dialog state is editable after that.
+    setConfirmedProfileKeys(normalizeProfileKeys(selectedProfileKeys));
     void loadClusters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: prefill only when dialog opens
   }, [loadClusters, open]);
+
+  // 需要场景画像的插件：打开时拉取官方依赖，供安装前再次确认勾选。
+  // For profile-required plugins, load official deps on open so install can reconfirm selection.
+  useEffect(() => {
+    if (!open || !requiresProfiles) {
+      return;
+    }
+    const session = openSessionRef.current;
+    let cancelled = false;
+    setOfficialDepsLoading(true);
+    void PluginService.getOfficialDependencies(plugin.name, version)
+      .then((data) => {
+        if (cancelled || !openRef.current || session !== openSessionRef.current) {
+          return;
+        }
+        setOfficialDeps(data);
+      })
+      .catch(() => {
+        if (cancelled || !openRef.current || session !== openSessionRef.current) {
+          return;
+        }
+        setOfficialDeps(null);
+      })
+      .finally(() => {
+        if (cancelled || !openRef.current || session !== openSessionRef.current) {
+          return;
+        }
+        setOfficialDepsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, plugin.name, requiresProfiles, version]);
 
   useEffect(() => {
     if (!open) {
@@ -428,7 +487,23 @@ export function InstallPluginDialog({
     return () => clearInterval(interval);
   }, [checkDownloadStatus, downloading, open]);
 
+  const handleToggleConfirmedProfile = (profileKey: string, checked: boolean) => {
+    setConfirmedProfileKeys((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(profileKey);
+      } else {
+        next.delete(profileKey);
+      }
+      return normalizeProfileKeys(Array.from(next));
+    });
+  };
+
   const handleDownload = async () => {
+    if (profilesMissingForInstall) {
+      toast.info(t('plugin.selectScenarioFirst'));
+      return;
+    }
     observedDownloadingInSessionRef.current = true;
     setDownloading(true);
     setError(null);
@@ -437,7 +512,7 @@ export function InstallPluginDialog({
         plugin.name,
         version,
         undefined,
-        selectedProfileKeys,
+        confirmedProfileKeys,
       );
       toast.info(
         t('plugin.downloadStarted', {name: plugin.display_name || plugin.name}),
@@ -459,6 +534,10 @@ export function InstallPluginDialog({
       toast.error(t('plugin.downloadFirst'));
       return;
     }
+    if (profilesMissingForInstall) {
+      toast.info(t('plugin.confirmProfilesBeforeInstall'));
+      return;
+    }
 
     setOperatingClusterId(clusterId);
     try {
@@ -467,7 +546,7 @@ export function InstallPluginDialog({
         plugin.name,
         version,
         undefined,
-        selectedProfileKeys,
+        confirmedProfileKeys,
       );
       toast.success(
         t('plugin.installSuccess', {name: plugin.display_name || plugin.name}),
@@ -650,16 +729,120 @@ export function InstallPluginDialog({
                     </div>
                     <Badge variant='secondary'>v{version}</Badge>
                   </div>
-                  {selectedProfileKeys.length > 0 && (
-                    <div className='flex flex-wrap gap-2'>
-                      <span className='text-xs text-muted-foreground'>
-                        {t('plugin.selectedProfiles')}
-                      </span>
-                      {selectedProfileKeys.map((key) => (
-                        <Badge key={key} variant='outline'>
-                          {key}
-                        </Badge>
-                      ))}
+                  {requiresProfiles && (
+                    <div
+                      className='space-y-2.5 rounded-lg border bg-background/60 p-3'
+                      data-testid='install-profile-confirm'
+                    >
+                      <div className='flex items-start justify-between gap-2 flex-wrap'>
+                        <div className='min-w-0 space-y-0.5'>
+                          <div className='text-sm font-medium'>
+                            {t('plugin.confirmProfilesTitle')}
+                          </div>
+                          <p className='text-xs text-muted-foreground'>
+                            {t('plugin.confirmProfilesDesc')}
+                          </p>
+                        </div>
+                        {hasMultiProfiles && (
+                          <div className='flex items-center gap-1.5'>
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='sm'
+                              className='h-6 text-xs px-2'
+                              onClick={() =>
+                                setConfirmedProfileKeys(
+                                  normalizeProfileKeys(
+                                    availableProfiles.map((p) => p.profile_key),
+                                  ),
+                                )
+                              }
+                            >
+                              {t('plugin.selectAllProfiles')}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='sm'
+                              className='h-6 text-xs px-2 text-muted-foreground'
+                              onClick={() => setConfirmedProfileKeys([])}
+                            >
+                              {t('plugin.clearAllProfiles')}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      {officialDepsLoading ? (
+                        <div className='flex items-center gap-2 text-xs text-muted-foreground'>
+                          <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                          {t('plugin.downloadAllProfileLoading')}
+                        </div>
+                      ) : availableProfiles.length === 0 ? (
+                        <p className='text-xs text-muted-foreground'>
+                          {confirmedProfileKeys.length > 0
+                            ? t('plugin.selectedProfilesFromDownload')
+                            : t('plugin.noSelectedProfiles')}
+                          {confirmedProfileKeys.length > 0 && (
+                            <span className='mt-1.5 flex flex-wrap gap-1.5'>
+                              {confirmedProfileKeys.map((key) => (
+                                <Badge key={key} variant='outline'>
+                                  {key}
+                                </Badge>
+                              ))}
+                            </span>
+                          )}
+                        </p>
+                      ) : (
+                        <div className='grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[180px] overflow-y-auto pr-1'>
+                          {availableProfiles.map((profile) => {
+                            const isChecked = confirmedProfileKeys.includes(
+                              profile.profile_key,
+                            );
+                            return (
+                              <label
+                                key={profile.profile_key}
+                                data-testid={`install-profile-${profile.profile_key}`}
+                                className={`flex items-start gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors ${
+                                  isChecked
+                                    ? 'border-primary/40 bg-primary/5'
+                                    : 'border-border/70 bg-muted/20'
+                                }`}
+                              >
+                                <Checkbox
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) =>
+                                    handleToggleConfirmedProfile(
+                                      profile.profile_key,
+                                      checked === true,
+                                    )
+                                  }
+                                  className='mt-0.5'
+                                />
+                                <span className='min-w-0 space-y-0.5'>
+                                  <span className='block text-sm font-medium leading-tight'>
+                                    {profile.profile_name || profile.profile_key}
+                                  </span>
+                                  <span className='block text-[11px] text-muted-foreground'>
+                                    {profile.profile_key}
+                                    {(profile.items || []).length > 0
+                                      ? ` · ${t('plugin.profileDependencyCount', {
+                                          count: (profile.items || []).length,
+                                        })}`
+                                      : ''}
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {profilesMissingForInstall && (
+                        <p className='text-xs text-amber-700 dark:text-amber-300'>
+                          {t('plugin.confirmProfilesBeforeInstall')}
+                        </p>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -678,7 +861,7 @@ export function InstallPluginDialog({
                       <Button
                         size='sm'
                         onClick={handleDownload}
-                        disabled={downloading}
+                        disabled={downloading || profilesMissingForInstall}
                       >
                         {downloading ? (
                           <Loader2 className='h-4 w-4 mr-2 animate-spin' />
@@ -972,7 +1155,8 @@ export function InstallPluginDialog({
                                       disabled={
                                         !isDownloaded ||
                                         isOperating ||
-                                        !clusterRuntimeAvailable
+                                        !clusterRuntimeAvailable ||
+                                        profilesMissingForInstall
                                       }
                                     >
                                       {isOperating ? (

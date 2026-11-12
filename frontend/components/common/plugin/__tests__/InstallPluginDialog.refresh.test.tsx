@@ -26,6 +26,7 @@ const getDownloadStatus = vi.fn();
 const listLocalPlugins = vi.fn();
 const getClusters = vi.fn();
 const listInstalledPlugins = vi.fn();
+const getOfficialDependencies = vi.fn();
 
 globalThis.ResizeObserver ??= class {
   observe() {}
@@ -45,6 +46,8 @@ vi.mock('@/lib/services/plugin', async () => {
       listLocalPlugins: (...args: unknown[]) => listLocalPlugins(...args),
       listInstalledPlugins: (...args: unknown[]) =>
         listInstalledPlugins(...args),
+      getOfficialDependencies: (...args: unknown[]) =>
+        getOfficialDependencies(...args),
       downloadPlugin: vi.fn(),
       installPluginAndWait: vi.fn(),
       uninstallPlugin: vi.fn(),
@@ -108,6 +111,15 @@ describe('InstallPluginDialog ready-on-open stability', () => {
     vi.clearAllMocks();
     getClusters.mockResolvedValue({clusters: []});
     listInstalledPlugins.mockResolvedValue([]);
+    getOfficialDependencies.mockResolvedValue({
+      profiles: [
+        {id: 1, profile_key: 'mysql', profile_name: 'MySQL', items: []},
+        {id: 2, profile_key: 'postgresql', profile_name: 'PostgreSQL', items: []},
+      ],
+      effective_dependencies: [],
+      disabled_dependencies: [],
+      dependency_status: 'profile_required',
+    });
     getDownloadStatus.mockResolvedValue({
       plugin_name: 'jdbc',
       version: '2.3.12',
@@ -142,6 +154,40 @@ describe('InstallPluginDialog ready-on-open stability', () => {
     expect(onDownloadComplete).not.toHaveBeenCalled();
     expect(getDownloadStatus.mock.calls.length).toBe(statusCallsAfterSettle);
     expect(getDownloadStatus.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(getClusters).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefills install profile confirm from download-time selection and keeps AC11 idle', async () => {
+    const onDownloadComplete = vi.fn();
+    render(
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <InstallPluginDialog
+          open
+          onOpenChange={vi.fn()}
+          plugin={samplePlugin}
+          version='2.3.12'
+          selectedProfileKeys={['mysql']}
+          onDownloadComplete={onDownloadComplete}
+        />
+      </NextIntlClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(getOfficialDependencies).toHaveBeenCalled();
+      expect(
+        document.querySelector('[data-testid="install-profile-confirm"]'),
+      ).toBeTruthy();
+      expect(
+        document.querySelector('[data-testid="install-profile-mysql"]'),
+      ).toBeTruthy();
+    });
+
+    const statusCallsAfterSettle = getDownloadStatus.mock.calls.length;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(onDownloadComplete).not.toHaveBeenCalled();
+    expect(getDownloadStatus.mock.calls.length).toBe(statusCallsAfterSettle);
     expect(getClusters).toHaveBeenCalledTimes(1);
   });
 

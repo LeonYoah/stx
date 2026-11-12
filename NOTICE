@@ -116,4 +116,17 @@ Full MIT text copy: licenses/inspira/LICENSE-MIT.txt
 Local adaptations (React + Motion, click-controlled flip, reduced-motion
 crossfade, marketplace a11y) remain MIT and are not relicensed as Apache-2.0.
 
+This product also vendors an adaptation of Inspira UI Apple Card Carousel under
+the same MIT License (Copyright (c) 2024-2026 rahulv.dev):
+
+Upstream component:
+https://github.com/unovue/inspira-ui/tree/main/app/components/inspira/ui/apple-card-carousel
+Docs: https://inspira-ui.com/docs/cn/components/cards/apple-card-carousel
+Vendored tree: frontend/components/inspira/ui/apple-card-carousel/
+Allowlist: licenses/third_party_mit_files.txt
+
+Local adaptations (React + Motion carousel for package cards, no blank-click
+fullscreen detail, reduced-motion) remain MIT and are not relicensed as
+Apache-2.0.
+
 ================================================================================

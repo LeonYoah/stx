@@ -97,6 +97,12 @@ import {BatchInstallDialog} from './BatchInstallDialog';
 import {InstalledClusterStack} from './InstalledClusterStack';
 import {resolvePluginDownloadFailureMessage} from './plugin-download-status';
 import {buildPluginPageVariants} from './plugin-motion';
+import {
+  mergeArtifactProfilesIntoMemory,
+  normalizeProfileKeys,
+  pluginRequiresProfileSelection,
+  resolveInstallProfileKeys,
+} from './plugin-profile-selection';
 import {Pagination} from '@/components/ui/pagination';
 import {
   AlertDialog,
@@ -126,10 +132,6 @@ interface InstallDialogContext {
   selectedProfileKeys: string[];
   attachedConnectors: string[];
   dependencies: PluginDependency[];
-}
-
-function normalizeProfileKeys(keys?: string[]): string[] {
-  return Array.from(new Set((keys || []).map((item) => item.trim()).filter(Boolean))).sort();
 }
 
 function splitAutomaticAttachments(dependencies?: PluginDependency[]) {
@@ -572,6 +574,11 @@ export function PluginMain() {
       ]);
 
       setLocalPlugins(localResult || []);
+      // 用已下载产物上的画像覆盖会话映射，保证安装预填与下载时选择一致。
+      // Overlay in-memory profiles with artifact metadata so install prefills match download-time picks.
+      setSelectedProfileKeysByPlugin((prev) =>
+        mergeArtifactProfilesIntoMemory(prev, localResult || []),
+      );
       const downloadedKeys = new Set(
         (localResult || []).map((item) => pluginDownloadKey(item.name, item.version)),
       );
@@ -663,9 +670,10 @@ export function PluginMain() {
     [],
   );
 
-  const requiresProfileSelection = useCallback((plugin: Plugin) => {
-    return plugin.artifact_id === 'connector-jdbc' || plugin.name === 'jdbc';
-  }, []);
+  const requiresProfileSelection = useCallback(
+    (plugin: Plugin) => pluginRequiresProfileSelection(plugin),
+    [],
+  );
 
   const applyDefaultBatchProfiles = useCallback(
     (requiredPlugins: Plugin[], officialDepsMap: Record<string, OfficialDependenciesResponse | null>) => {
@@ -1552,23 +1560,37 @@ export function PluginMain() {
    * 处理安装插件
    */
   const handleInstallPlugin = (plugin: Plugin) => {
-    const selectedProfileKeys = getSelectedProfileKeysForPlugin(plugin.name);
+    const pluginVersion = selectedVersion || plugin.version;
+    const localArtifact = localPlugins.find(
+      (item) => item.name === plugin.name && item.version === pluginVersion,
+    );
+    // 优先用下载产物上记录的画像，否则用会话勾选；都没有则引导先在下载时选。
+    // Prefer artifact-recorded profiles, else session picks; if neither, guide download-time selection.
+    const selectedProfileKeys = resolveInstallProfileKeys({
+      artifactKeys: localArtifact?.selected_profile_keys,
+      memoryKeys: getSelectedProfileKeysForPlugin(plugin.name),
+    });
     if (requiresProfileSelection(plugin) && selectedProfileKeys.length === 0) {
-      setSelectedPlugin(plugin);
-      setIsDetailOpen(true);
-      toast.info(t('plugin.selectScenarioFirst'));
-      return;
+      if (!localArtifact) {
+        setSelectedPlugin(plugin);
+        setIsDetailOpen(true);
+        toast.info(t('plugin.selectScenarioFirst'));
+        return;
+      }
+      // 产物在但缺画像：仍打开安装弹窗，让用户在确认步骤补选。
+      // Artifact exists without profiles: still open install so the user can fill the confirm step.
+      toast.info(t('plugin.confirmProfilesBeforeInstall'));
     }
 
     const {attachedConnectors, dependencies} = splitAutomaticAttachments(
-      plugin.dependencies || [],
+      localArtifact?.dependencies || plugin.dependencies || [],
     );
     openInstallDialog(
       plugin,
-      selectedVersion || plugin.version,
+      pluginVersion,
       selectedProfileKeys,
       dependencies,
-      attachedConnectors,
+      localArtifact?.attached_connectors || attachedConnectors,
     );
   };
 
@@ -1833,16 +1855,17 @@ export function PluginMain() {
                 : t('plugin.notInstalled'),
             tone: installedClusters.length > 0 ? 'ok' : 'muted',
           },
-          // 集群堆叠与体积等次要信息放卡片背面；正面保留状态与主操作。
-          // Cluster stack and size stay on the card back; front keeps status + primary action.
-          aside: (
-            <InstalledClusterStack
-              clusters={installedClusters.map((cluster) => ({
-                id: cluster.id,
-                name: cluster.name,
-              }))}
-            />
-          ),
+          // 仅有已装集群时才渲染堆叠；空堆叠也会输出「未安装」，会与 status 列重复。
+          // Only render the stack when clusters exist — empty stack also prints「未安装」and duplicates status.
+          aside:
+            installedClusters.length > 0 ? (
+              <InstalledClusterStack
+                clusters={installedClusters.map((cluster) => ({
+                  id: cluster.id,
+                  name: cluster.name,
+                }))}
+              />
+            ) : undefined,
           fields: [
             {
               label: t('marketplaceUi.fieldSize'),
@@ -1855,6 +1878,16 @@ export function PluginMain() {
                   ? String(installedClusters.length)
                   : t('plugin.notInstalled'),
             },
+            // 展示下载时绑定的场景，便于安装前核对产物画像。
+            // Show download-time profiles bound to the artifact for pre-install review.
+            ...((plugin.selected_profile_keys || []).length > 0
+              ? [
+                  {
+                    label: t('plugin.selectedProfiles'),
+                    value: (plugin.selected_profile_keys || []).join(', '),
+                  },
+                ]
+              : []),
           ],
           meta: formatFileSize(plugin.size),
           primaryActions: (
@@ -1875,10 +1908,12 @@ export function PluginMain() {
                     plugin.artifact_id || `connector-${plugin.name}`,
                   dependencies: plugin.dependencies || [],
                 };
+                // 本地安装入口始终带上产物画像，供弹窗预填后再确认。
+                // Local manage entry always passes artifact profiles for dialog prefill + confirm.
                 openInstallDialog(
                   pluginForInstall,
                   plugin.version,
-                  plugin.selected_profile_keys || [],
+                  normalizeProfileKeys(plugin.selected_profile_keys),
                   plugin.dependencies || [],
                   plugin.attached_connectors || [],
                 );

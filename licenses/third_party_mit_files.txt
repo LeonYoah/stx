@@ -43,3 +43,12 @@ frontend/components/arc/tabs/tabs.tsx
 
 frontend/components/inspira/ui/flip-card/flip-card.tsx
 frontend/components/inspira/ui/flip-card/index.ts
+
+# Inspira UI Apple Card Carousel (MIT, Copyright (c) 2024-2026 rahulv.dev):
+# Upstream: https://github.com/unovue/inspira-ui
+# Component: https://github.com/unovue/inspira-ui/tree/main/app/components/inspira/ui/apple-card-carousel
+# Docs: https://inspira-ui.com/docs/cn/components/cards/apple-card-carousel
+# Full MIT text copy: licenses/inspira/LICENSE-MIT.txt
+
+frontend/components/inspira/ui/apple-card-carousel/apple-card-carousel.tsx
+frontend/components/inspira/ui/apple-card-carousel/index.ts

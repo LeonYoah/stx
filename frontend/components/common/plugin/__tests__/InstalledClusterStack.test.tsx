@@ -157,7 +157,11 @@ describe('InstalledClusterStack', () => {
     expect(screen.getByTestId('plugin-cluster-stack-count')).toHaveTextContent(
       '6',
     );
-    // 不引入用户头像 img。 / Do not invent user avatar images.
+    // 全名在 sr-only 中可读；视觉仍是缩写芯片，不引入用户头像。
+    // Full names stay readable via sr-only; visuals stay as initials chips, no user photos.
+    expect(screen.getByTestId('plugin-cluster-stack-item-1')).toHaveTextContent(
+      'alpha',
+    );
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 

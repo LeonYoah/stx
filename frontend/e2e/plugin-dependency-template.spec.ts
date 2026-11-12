@@ -139,11 +139,13 @@ test.describe('plugin dependency template', () => {
     await expect(page.getByTestId('plugin-tab-local')).toBeVisible();
 
     await page.getByTestId('plugin-tab-local').click();
-    await expect(
-      page.getByTestId(
-        `plugin-local-row-${pluginDependencyTemplate.pluginName}-${pluginDependencyTemplate.seatunnelVersion}`,
-      ),
-    ).toContainText('template-cluster');
+    const localRow = page.getByTestId(
+      `plugin-local-row-${pluginDependencyTemplate.pluginName}-${pluginDependencyTemplate.seatunnelVersion}`,
+    );
+    // 已安装集群改为堆叠芯片：用可访问名/sr-only 全名断言，而不是依赖可见 Badge 文案。
+    // Installed clusters are a compact stack — assert via accessible/sr-only full name, not a Badge label.
+    await expect(localRow.getByLabel('template-cluster')).toBeVisible();
+    await expect(localRow).toContainText('template-cluster');
 
     await page
       .getByTestId(

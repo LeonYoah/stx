@@ -139,7 +139,13 @@ export function InstalledClusterStack({
                   onBlur={() => setHoveredIndex(null)}
                   aria-label={cluster.name}
                 >
-                  <Avatar className='size-7 border-2 border-background shadow-sm ring-1 ring-border'>
+                  {/* 全名放入 sr-only，保证行内文本/无障碍名可读，缩写仅作视觉芯片。
+                      Keep the full name in sr-only so row text/a11y stay readable; initials are visual only. */}
+                  <span className='sr-only'>{cluster.name}</span>
+                  <Avatar
+                    className='size-7 border-2 border-background shadow-sm ring-1 ring-border'
+                    aria-hidden='true'
+                  >
                     {/* 仅用集群名缩写，不使用用户头像资源。
                         Cluster-name initials only — never invent user photos. */}
                     <AvatarFallback className='bg-primary/10 text-[10px] font-semibold text-primary'>

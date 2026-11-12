@@ -26,7 +26,15 @@ import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {InstalledClusterStack} from '../InstalledClusterStack';
 
 vi.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, values?: Record<string, unknown>) => {
+    if (key === 'marketplaceUi.listSeparator') {
+      return ', ';
+    }
+    if (key === 'marketplaceUi.overflowAria') {
+      return `marketplaceUi.overflowAria:${String(values?.names ?? '')}`;
+    }
+    return key;
+  },
 }));
 
 vi.mock('motion/react', async () => {
@@ -169,7 +177,7 @@ describe('InstalledClusterStack', () => {
     expect(overflow.tagName).toBe('BUTTON');
     expect(overflow).toHaveAttribute(
       'aria-label',
-      'plugin.installedClusters: epsilon, zeta',
+      'marketplaceUi.overflowAria:epsilon, zeta',
     );
     expect(screen.getByTestId('plugin-cluster-stack-count')).toHaveTextContent(
       '6',

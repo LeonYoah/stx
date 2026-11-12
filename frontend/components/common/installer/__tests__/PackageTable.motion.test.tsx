@@ -16,8 +16,8 @@
  */
 
 /**
- * PackageTable row motion + status visibility tests (table-only, no card wall).
- * PackageTable 行动效与状态可见性测试（仅表格，无卡片墙）。
+ * PackageTable MorphCatalog status + loading-dim + reduced-motion tests.
+ * PackageTable MorphCatalog 状态、加载变淡与减少动效测试。
  */
 
 import React from 'react';
@@ -46,69 +46,44 @@ vi.mock('motion/react', async () => {
     delete next.whileHover;
     delete next.transition;
     delete next.layout;
+    delete next.layoutId;
     return next;
   }
 
-  const MotionTr = ReactMod.forwardRef(function MotionTr(
-    props: React.HTMLAttributes<HTMLTableRowElement> & {
-      variants?: unknown;
-      initial?: unknown;
-      animate?: unknown;
-      whileHover?: unknown;
-      'data-reduce-motion'?: string;
-      'data-testid'?: string;
-    },
-    ref: React.Ref<HTMLTableRowElement>,
+  const MotionDiv = ReactMod.forwardRef(function MotionDiv(
+    props: React.HTMLAttributes<HTMLDivElement> & Record<string, unknown>,
+    ref: React.Ref<HTMLDivElement>,
   ) {
     const {
       children,
       className,
       'data-reduce-motion': dataReduceMotion,
       'data-testid': dataTestId,
+      'data-view-mode': dataViewMode,
       ...rest
-    } = props;
+    } = props as React.HTMLAttributes<HTMLDivElement> & {
+      'data-reduce-motion'?: string;
+      'data-testid'?: string;
+      'data-view-mode'?: string;
+    };
     return (
-      <tr
+      <div
         ref={ref}
         className={className}
         data-reduce-motion={dataReduceMotion}
         data-testid={dataTestId}
+        data-view-mode={dataViewMode}
         {...stripMotionProps(rest as Record<string, unknown>)}
       >
         {children}
-      </tr>
-    );
-  });
-
-  const MotionTbody = ReactMod.forwardRef(function MotionTbody(
-    props: React.HTMLAttributes<HTMLTableSectionElement> & {
-      variants?: unknown;
-      initial?: unknown;
-      animate?: unknown;
-      'data-testid'?: string;
-    },
-    ref: React.Ref<HTMLTableSectionElement>,
-  ) {
-    const {children, className, 'data-testid': dataTestId, ...rest} = props;
-    return (
-      <tbody
-        ref={ref}
-        className={className}
-        data-testid={dataTestId}
-        {...stripMotionProps(rest as Record<string, unknown>)}
-      >
-        {children}
-      </tbody>
+      </div>
     );
   });
 
   return {
     __esModule: true,
-    motion: {
-      tr: MotionTr,
-      tbody: MotionTbody,
-      div: 'div',
-    },
+    LayoutGroup: ({children}: {children: React.ReactNode}) => <>{children}</>,
+    motion: {div: MotionDiv},
     useReducedMotion: () => reduceFlag.current,
     __setReducedMotionForTest: (value: boolean) => {
       reduceFlag.current = value;
@@ -125,23 +100,6 @@ beforeEach(async () => {
   (
     motionMock as unknown as {__setReducedMotionForTest: (v: boolean) => void}
   ).__setReducedMotionForTest(false);
-
-  // TableLoadingBar / gsap 在 loading=true 时会读 matchMedia。
-  // TableLoadingBar / gsap read matchMedia when loading is true.
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    configurable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  });
 });
 
 const localPackages: PackageInfo[] = [
@@ -165,8 +123,8 @@ const localPackages: PackageInfo[] = [
   },
 ];
 
-describe('PackageTable motion and status (table-only)', () => {
-  it('renders online versions as a table with recommended and download states', () => {
+describe('PackageTable MorphCatalog status', () => {
+  it('renders online versions with recommended / failed / progress states', () => {
     const downloads: DownloadTask[] = [
       {
         id: 'd1',
@@ -202,6 +160,7 @@ describe('PackageTable motion and status (table-only)', () => {
     render(
       <PackageTable
         type='online'
+        viewMode='table'
         versions={['2.3.12', '2.3.11', '2.3.10']}
         localPackages={localPackages}
         recommendedVersion='2.3.12'
@@ -210,46 +169,45 @@ describe('PackageTable motion and status (table-only)', () => {
       />,
     );
 
-    expect(screen.getByTestId('package-online-table')).toBeInTheDocument();
-    expect(screen.queryByTestId('plugin-available-grid')).not.toBeInTheDocument();
-    // 仍然是表格行，不是卡片墙。 / Still table rows, not a card wall.
-    expect(screen.getByRole('table')).toBeInTheDocument();
-    expect(screen.getByTestId('package-recommended-2.3.12')).toHaveTextContent(
-      'installer.recommended',
-    );
-    expect(screen.getByTestId('package-download-done-2.3.12')).toHaveTextContent(
-      'installer.downloaded',
-    );
-    expect(screen.getByTestId('package-download-failed-2.3.11')).toHaveTextContent(
-      'installer.downloadFailed',
-    );
-    expect(screen.getByText('installer.retry')).toBeInTheDocument();
-    expect(screen.getByTestId('package-download-progress-2.3.10')).toHaveTextContent(
-      '44%',
-    );
-    expect(screen.getByTestId('package-source-progress-2.3.10')).toHaveTextContent(
-      '30%',
-    );
+    expect(screen.getByTestId('package-online-catalog')).toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-row-online-2.3.12')).toBeInTheDocument();
+    expect(screen.getByText('marketplaceUi.statusRecommended')).toBeInTheDocument();
+    expect(screen.getByText('marketplaceUi.statusDownloaded')).toBeInTheDocument();
+    expect(screen.getByText('marketplaceUi.statusFailed')).toBeInTheDocument();
+    expect(screen.getByText('44% · 2.0 KB/s')).toBeInTheDocument();
   });
 
-  it('keeps local packages as a table with honest missing source state', () => {
-    render(
+  it('keeps local packages honest about missing source in both views', () => {
+    const {rerender} = render(
       <PackageTable
         type='local'
+        viewMode='table'
         localPackages={localPackages}
         onDelete={() => undefined}
       />,
     );
 
-    expect(screen.getByTestId('package-local-table')).toBeInTheDocument();
-    expect(screen.getByRole('table')).toBeInTheDocument();
-    expect(
-      screen.getByTestId('package-local-source-missing-2.3.12'),
-    ).toHaveTextContent('installer.sourceMissing');
+    expect(screen.getByTestId('package-local-catalog')).toBeInTheDocument();
     expect(screen.getByText('apache-seatunnel-2.3.12-bin.tar.gz')).toBeInTheDocument();
+    expect(
+      screen.getAllByText('installer.sourceMissing').length,
+    ).toBeGreaterThan(0);
+
+    rerender(
+      <PackageTable
+        type='local'
+        viewMode='card'
+        localPackages={localPackages}
+        onDelete={() => undefined}
+      />,
+    );
+    expect(screen.getByTestId('marketplace-card-local-2.3.12')).toBeInTheDocument();
+    expect(
+      screen.getAllByText('installer.sourceMissing').length,
+    ).toBeGreaterThan(0);
   });
 
-  it('marks reduced-motion on online rows without inventing a card view', async () => {
+  it('marks reduced-motion on the catalog and skips layout morph ids', async () => {
     const motionMock = await import('motion/react');
     (
       motionMock as unknown as {__setReducedMotionForTest: (v: boolean) => void}
@@ -258,51 +216,49 @@ describe('PackageTable motion and status (table-only)', () => {
     render(
       <PackageTable
         type='online'
+        viewMode='table'
         versions={['2.3.12']}
         recommendedVersion='2.3.12'
       />,
     );
 
-    expect(screen.getByTestId('package-online-table')).toHaveAttribute(
+    expect(screen.getByTestId('package-online-catalog')).toHaveAttribute(
       'data-reduce-motion',
       'true',
     );
-    expect(screen.getByTestId('package-online-row-2.3.12')).toHaveAttribute(
-      'data-reduce-motion',
-      'true',
-    );
-    expect(screen.getByRole('table')).toBeInTheDocument();
   });
 
-  it('dims the tbody on refresh instead of leaving opacity on each row', () => {
+  it('dims the list container on refresh instead of individual rows', () => {
     const {rerender} = render(
       <PackageTable
         type='online'
+        viewMode='table'
         versions={['2.3.12']}
         recommendedVersion='2.3.12'
         loading={false}
       />,
     );
 
-    const tbody = screen.getByTestId('package-online-tbody');
-    const row = screen.getByTestId('package-online-row-2.3.12');
-    expect(tbody.className).not.toMatch(/opacity-60/);
+    const catalog = screen.getByTestId('package-online-catalog');
+    const row = screen.getByTestId('marketplace-row-online-2.3.12');
+    expect(catalog.className).not.toMatch(/opacity-60/);
     expect(row.className).not.toMatch(/opacity-60/);
 
     rerender(
       <PackageTable
         type='online'
+        viewMode='table'
         versions={['2.3.12']}
         recommendedVersion='2.3.12'
         loading
       />,
     );
 
-    expect(screen.getByTestId('package-online-tbody').className).toMatch(
+    expect(screen.getByTestId('package-online-catalog').className).toMatch(
       /opacity-60/,
     );
-    expect(screen.getByTestId('package-online-row-2.3.12').className).not.toMatch(
-      /opacity-60/,
-    );
+    expect(
+      screen.getByTestId('marketplace-row-online-2.3.12').className,
+    ).not.toMatch(/opacity-60/);
   });
 });

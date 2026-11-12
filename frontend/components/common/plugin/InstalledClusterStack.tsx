@@ -76,12 +76,15 @@ export function InstalledClusterStack({
     () => clusters.slice(visible.length).map((item) => item.name),
     [clusters, visible.length],
   );
+  const listSeparator = t('marketplaceUi.listSeparator');
   const overflowAriaLabel = useMemo(() => {
-    const names = overflowNames.join(', ');
-    return names
-      ? `${t('plugin.installedClusters')}: ${names}`
-      : t('plugin.installedClusters');
-  }, [overflowNames, t]);
+    if (overflowNames.length === 0) {
+      return t('plugin.installedClusters');
+    }
+    return t('marketplaceUi.overflowAria', {
+      names: overflowNames.join(listSeparator),
+    });
+  }, [listSeparator, overflowNames, t]);
 
   if (clusters.length === 0) {
     return (
@@ -183,7 +186,7 @@ export function InstalledClusterStack({
             </motion.button>
           </TooltipTrigger>
           <TooltipContent side='top' className='max-w-xs text-xs'>
-            {overflowNames.join(', ')}
+            {overflowNames.join(listSeparator)}
           </TooltipContent>
         </Tooltip>
       )}

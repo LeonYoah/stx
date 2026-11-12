@@ -17,12 +17,12 @@
 
 /**
  * Package Management Main Component
- * 安装包管理主组件
+ * 安装包管理主组件 — Users 页 UI 语言：bento + 表/卡形变
  */
 
 'use client';
 
-import {useState, useMemo} from 'react';
+import {useMemo, useState} from 'react';
 import {motion, useReducedMotion} from 'motion/react';
 import {toast} from 'sonner';
 import {usePackages} from '@/hooks/use-installer';
@@ -51,6 +51,12 @@ import {
   ModuleNavTabs,
   type StatPillItem,
 } from '@/components/common/layout';
+import {
+  MarketplaceListToolbar,
+  MarketplaceOverviewBento,
+  useMarketplaceViewMode,
+  type MarketplaceOverviewModel,
+} from '@/components/common/marketplace';
 import {buildMarketplacePageVariants} from '@/lib/animations/marketplace-motion';
 import type {MirrorSource} from '@/lib/services/installer/types';
 
@@ -60,6 +66,14 @@ export function PackageMain() {
   const {container: containerVariants, item: itemVariants} = useMemo(
     () => buildMarketplacePageVariants(reduceMotion),
     [reduceMotion],
+  );
+  const [onlineViewMode, setOnlineViewMode] = useMarketplaceViewMode(
+    'stx.marketplace.packages.online.view',
+    'table',
+  );
+  const [localViewMode, setLocalViewMode] = useMarketplaceViewMode(
+    'stx.marketplace.packages.local.view',
+    'table',
   );
   const {
     packages,
@@ -133,27 +147,109 @@ export function PackageMain() {
     await startDownload(version, mirror, withSource, idempotencyKey);
   };
 
-  // 状态胶囊配置：消除冗余说明卡片，垂直空间利用率最大化
-  // Status pills configuration: eliminate redundant description cards to maximize vertical space
+  const onlineCount = packages?.versions.length || 0;
+  const localCount = packages?.local_packages.length || 0;
+  const withSourceCount = (packages?.local_packages || []).filter(
+    (pkg) => pkg.has_source,
+  ).length;
+  const withoutSourceCount = Math.max(0, localCount - withSourceCount);
+
+  // 状态胶囊配置 / Status pills configuration
   const pillItems: StatPillItem[] = useMemo(
     () => [
       {
         key: 'online',
         label: t('installer.onlineVersions'),
-        count: packages?.versions.length || 0,
+        count: onlineCount,
         icon: <Cloud className='h-3.5 w-3.5' />,
       },
       {
         key: 'local',
         label: t('installer.localPackages'),
-        count: packages?.local_packages.length || 0,
+        count: localCount,
         icon: <HardDrive className='h-3.5 w-3.5' />,
-        variant:
-          (packages?.local_packages.length || 0) > 0 ? 'success' : 'default',
+        variant: localCount > 0 ? 'success' : 'default',
       },
     ],
-    [packages?.versions.length, packages?.local_packages.length, t],
+    [localCount, onlineCount, t],
   );
+
+  /**
+   * Overview from real package data only — hide zeros / missing recommended.
+   * 总览只用真实安装包数据；0 / 无推荐版本则隐藏。
+   */
+  const overviewModel: MarketplaceOverviewModel = useMemo(() => {
+    const slices = [
+      {
+        id: 'with-source',
+        label: t('marketplaceUi.packageDistWithSource'),
+        count: withSourceCount,
+        toneClass: 'bg-emerald-500/15',
+      },
+      {
+        id: 'no-source',
+        label: t('marketplaceUi.packageDistNoSource'),
+        count: withoutSourceCount,
+        toneClass: 'bg-muted',
+      },
+    ].filter((s) => s.count > 0);
+
+    const stats = [
+      ...(localCount > 0
+        ? [
+            {
+              id: 'local',
+              label: t('marketplaceUi.packageOverviewLocal'),
+              value: localCount,
+            },
+          ]
+        : []),
+      ...(packages?.recommended_version
+        ? [
+            {
+              id: 'recommended',
+              label: t('marketplaceUi.packageOverviewRecommended'),
+              value: `v${packages.recommended_version}`,
+            },
+          ]
+        : []),
+      ...(withSourceCount > 0
+        ? [
+            {
+              id: 'with-source',
+              label: t('marketplaceUi.packageOverviewWithSource'),
+              value: withSourceCount,
+            },
+          ]
+        : []),
+    ];
+
+    return {
+      hero: {
+        label: t('marketplaceUi.packageOverviewVersions'),
+        value: onlineCount > 0 ? onlineCount : '',
+        caption:
+          onlineCount > 0
+            ? t('marketplaceUi.packageOverviewVersionsCaption')
+            : undefined,
+      },
+      distribution:
+        slices.length > 0
+          ? {
+              title: t('marketplaceUi.packageDistTitle'),
+              slices,
+            }
+          : undefined,
+      stats,
+    };
+  }, [
+    localCount,
+    onlineCount,
+    packages?.recommended_version,
+    t,
+    withSourceCount,
+    withoutSourceCount,
+  ]);
 
   return (
     <motion.div
@@ -164,7 +260,6 @@ export function PackageMain() {
       animate='visible'
       variants={containerVariants}
     >
-      {/* 头部标题区域（全局紧凑型规范） / Unified Compact Workspace Header */}
       <motion.div variants={itemVariants}>
         <WorkspaceHeader
           icon={<Package />}
@@ -196,7 +291,7 @@ export function PackageMain() {
                 <Badge
                   variant='outline'
                   data-testid='package-recommended-version-pill'
-                  className='h-7.5 px-2 text-xs bg-primary/10 text-primary border-primary/30 font-medium'
+                  className='h-7.5 rounded-full border-primary/30 bg-primary/10 px-2 text-xs font-medium text-primary'
                 >
                   {t('installer.recommendedVersion')}: v
                   {packages.recommended_version}
@@ -207,19 +302,19 @@ export function PackageMain() {
                 size='sm'
                 onClick={refresh}
                 disabled={loading}
-                className='h-8 text-xs'
+                className='h-8 rounded-md border-border/60 text-xs'
               >
                 <RefreshCw
-                  className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`}
+                  className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`}
                 />
                 {t('common.refresh')}
               </Button>
               <Button
                 size='sm'
                 onClick={() => setOfflineBundleOpen(true)}
-                className='h-8 text-xs'
+                className='h-8 rounded-md text-xs'
               >
-                <PackageOpen className='h-3.5 w-3.5 mr-1.5' />
+                <PackageOpen className='mr-1.5 h-3.5 w-3.5' />
                 {t('installer.offlineAssetsTitle')}
               </Button>
             </div>
@@ -227,70 +322,88 @@ export function PackageMain() {
         />
       </motion.div>
 
-      {/* 错误显示 / Error banner */}
       {error && (
-        <div className='rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive'>
+        <div
+          role='alert'
+          className='rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive'
+        >
           {error}
         </div>
       )}
 
-      {/* 一体化紧凑卡片容器：两个 Tab 仍各自只有表格视图，不做表/卡切换。
-          Unified table card: both tabs remain table-only — no table/card toggle. */}
+      <MarketplaceOverviewBento model={overviewModel} />
+
       <motion.div variants={itemVariants} className='flex flex-1 flex-col'>
-      <Card className='border-border/70 shadow-xs overflow-hidden flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
-        {/* 工具栏：状态胶囊切换器 + 快速操作 / Toolbar: Segmented pills + Quick actions */}
-        <div className='p-3 sm:p-3.5 border-b bg-muted/20 flex flex-wrap items-center justify-between gap-2.5'>
-          <StatPillsBar
-            items={pillItems}
-            activeKey={activeTab}
-            onChange={(key) => setActiveTab(key as 'online' | 'local')}
-          />
-
-          {activeTab === 'online' && (
-            <Button
-              variant='ghost'
-              size='sm'
-              onClick={refreshVersions}
-              disabled={refreshingVersions}
-              className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground'
-            >
-              <RefreshCw
-                className={`h-3 w-3 mr-1 ${refreshingVersions ? 'animate-spin' : ''}`}
-              />
-              {t('installer.refreshVersions')}
-            </Button>
-          )}
-        </div>
-
-        {/* 表格主体内容：直达数据行，杜绝层层嵌套 / Table Body: Direct access to data rows */}
-        <div className='p-3 sm:p-4 flex-1 flex flex-col'>
-          {activeTab === 'online' ? (
-            <PackageTable
-              type='online'
-              versions={packages?.versions || []}
-              localPackages={packages?.local_packages || []}
-              recommendedVersion={packages?.recommended_version}
-              loading={loading}
-              onDownloadRequest={setDownloadVersion}
-              downloads={downloads}
+        <Card className='flex min-h-[480px] flex-col overflow-hidden rounded-xl border-border/60 shadow-xs sm:min-h-[calc(100vh-270px)]'>
+          <div className='flex flex-wrap items-center justify-between gap-2.5 border-b bg-muted/20 p-3 sm:p-3.5'>
+            <StatPillsBar
+              items={pillItems}
+              activeKey={activeTab}
+              onChange={(key) => setActiveTab(key as 'online' | 'local')}
             />
-          ) : (
-            <PackageTable
-              type='local'
-              localPackages={packages?.local_packages || []}
-              loading={loading}
-              onDelete={handleDelete}
-              onSourceUpload={handleSourceUpload}
-              onSourceFetch={(version) => fetchSource(version, 'apache')}
-              onSourceDownload={downloadSource}
-            />
-          )}
-        </div>
-      </Card>
+
+            {activeTab === 'online' && (
+              <Button
+                variant='ghost'
+                size='sm'
+                onClick={refreshVersions}
+                disabled={refreshingVersions}
+                className='h-7 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground'
+              >
+                <RefreshCw
+                  className={`mr-1 h-3 w-3 ${refreshingVersions ? 'animate-spin' : ''}`}
+                />
+                {t('installer.refreshVersions')}
+              </Button>
+            )}
+          </div>
+
+          <div className='flex flex-1 flex-col gap-4 p-3 sm:p-4'>
+            {activeTab === 'online' ? (
+              <>
+                <MarketplaceListToolbar
+                  title={t('marketplaceUi.packageListOnline')}
+                  count={onlineCount}
+                  viewMode={onlineViewMode}
+                  onViewModeChange={setOnlineViewMode}
+                />
+                <PackageTable
+                  type='online'
+                  versions={packages?.versions || []}
+                  localPackages={packages?.local_packages || []}
+                  recommendedVersion={packages?.recommended_version}
+                  loading={loading}
+                  error={error}
+                  viewMode={onlineViewMode}
+                  onDownloadRequest={setDownloadVersion}
+                  downloads={downloads}
+                />
+              </>
+            ) : (
+              <>
+                <MarketplaceListToolbar
+                  title={t('marketplaceUi.packageListLocal')}
+                  count={localCount}
+                  viewMode={localViewMode}
+                  onViewModeChange={setLocalViewMode}
+                />
+                <PackageTable
+                  type='local'
+                  localPackages={packages?.local_packages || []}
+                  loading={loading}
+                  error={error}
+                  viewMode={localViewMode}
+                  onDelete={handleDelete}
+                  onSourceUpload={handleSourceUpload}
+                  onSourceFetch={(version) => fetchSource(version, 'apache')}
+                  onSourceDownload={downloadSource}
+                />
+              </>
+            )}
+          </div>
+        </Card>
       </motion.div>
 
-      {/* 离线导入 / 导出（资产包 + 单包上传收敛入口）
-          Offline import / export (asset bundle + single-package upload) */}
       <OfflineBundleDialog
         open={offlineBundleOpen}
         onOpenChange={setOfflineBundleOpen}
@@ -304,8 +417,6 @@ export function PackageMain() {
         }}
       />
 
-      {/* 完整单包上传（含源码）：由离线对话框「高级」入口打开
-          Full single-package upload (incl. source): opened from offline dialog advanced link */}
       <UploadPackageDialog
         open={uploadDialogOpen}
         onOpenChange={setUploadDialogOpen}
@@ -315,7 +426,6 @@ export function PackageMain() {
         )}
       />
 
-      {/* 在线下载对话框 / Online download dialog */}
       <DownloadPackageDialog
         open={downloadVersion !== null}
         version={downloadVersion}
@@ -323,8 +433,6 @@ export function PackageMain() {
         onDownload={handleDownload}
       />
 
-      {/* 删除本地安装包确认：沿用 AlertDialog，不走浏览器 confirm */}
-      {/* Confirm local package deletion with AlertDialog, not the browser confirm */}
       <AlertDialog
         open={deleteConfirmOpen}
         onOpenChange={(open) => {

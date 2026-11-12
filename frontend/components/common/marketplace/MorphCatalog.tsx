@@ -53,6 +53,10 @@ const MORPH_TRANSITION = {
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
+/** Interactive selectors that must not trigger shell onOpen. / 不应触发外壳 onOpen 的交互选择器。 */
+export const MARKETPLACE_INTERACTIVE_SELECTOR =
+  'button,a,input,select,textarea,label,[role=menuitem],[role=checkbox],[role=menu]';
+
 /**
  * True when menuActions has at least one renderable child (empty fragments → false).
  * 有可渲染菜单项时为 true；空 Fragment 视为无菜单。
@@ -77,6 +81,34 @@ export function hasMarketplaceMenuActions(node: ReactNode): boolean {
     }
     return child != null;
   });
+}
+
+/**
+ * Skip shell open when the event lands on / bubbles from nested interactive controls,
+ * or when the target is outside the shell (e.g. Radix portal menu).
+ * 点在嵌套交互控件上，或目标不在外壳 DOM 内（如 Portal 菜单）时跳过打开。
+ */
+export function shouldSkipMarketplaceShellOpen(
+  target: EventTarget | null,
+  currentTarget: EventTarget | null,
+): boolean {
+  if (!(target instanceof Element) || !(currentTarget instanceof Element)) {
+    return true;
+  }
+  // Portal / detached: menu content is not under the row/card DOM.
+  // Portal / 已卸下：菜单内容不在行/卡 DOM 内。
+  if (!currentTarget.contains(target)) {
+    return true;
+  }
+  const interactive = target.closest(MARKETPLACE_INTERACTIVE_SELECTOR);
+  if (
+    interactive &&
+    interactive !== currentTarget &&
+    currentTarget.contains(interactive)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -231,24 +263,33 @@ function MorphItem({
     : MORPH_TRANSITION;
 
   /**
-   * Ignore bubbled events from nested controls (… menu, download, checkbox).
-   * 忽略来自内部控件（… 菜单、下载、复选框）的冒泡事件。
+   * Mouse: open unless the click is on a nested interactive control / portal menu.
+   * Keyboard open stays on the title button; shell keydown still ignores nested controls.
+   * 鼠标：非嵌套交互 / 非 Portal 时打开。键盘打开仍走标题按钮；外壳 keydown 仍忽略内部控件。
    */
-  const handleShellActivate = (
-    e: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>,
-  ) => {
-    if (e.target !== e.currentTarget) {
+  const handleShellClick = (e: MouseEvent<HTMLElement>) => {
+    if (!item.onOpen) {
+      return;
+    }
+    if (shouldSkipMarketplaceShellOpen(e.target, e.currentTarget)) {
+      return;
+    }
+    item.onOpen();
+  };
+
+  const handleShellKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    // Keyboard activation is owned by the title button; ignore nested Enter/Space.
+    // 键盘打开由标题按钮负责；忽略内部控件冒泡的 Enter/Space。
+    if (shouldSkipMarketplaceShellOpen(e.target, e.currentTarget)) {
       return;
     }
     if (!item.onOpen) {
       return;
     }
-    if ('key' in e) {
-      if (e.key !== 'Enter' && e.key !== ' ') {
-        return;
-      }
-      e.preventDefault();
+    if (e.key !== 'Enter' && e.key !== ' ') {
+      return;
     }
+    e.preventDefault();
     item.onOpen();
   };
 
@@ -257,14 +298,15 @@ function MorphItem({
       type='button'
       variant='link'
       data-testid={`marketplace-open-${item.id}`}
-      className='h-auto truncate p-0 text-sm font-medium text-foreground'
+      className='h-auto max-w-full min-w-0 justify-start p-0 text-sm font-medium text-foreground'
       onClick={(e) => {
         e.stopPropagation();
         item.onOpen?.();
       }}
+      onKeyDown={(e) => e.stopPropagation()}
       aria-label={t('openItem', {name: item.title})}
     >
-      {item.title}
+      <span className='truncate'>{item.title}</span>
     </Button>
   ) : (
     <span className='truncate text-sm font-medium text-foreground'>
@@ -279,6 +321,7 @@ function MorphItem({
         <motion.div
           layoutId={iconLayoutId}
           transition={layoutTransition}
+          data-testid={`marketplace-icon-${item.id}`}
           className='flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground ring-1 ring-border/60'
         >
           {item.icon}
@@ -288,12 +331,15 @@ function MorphItem({
         <motion.div
           layoutId={titleLayoutId}
           transition={layoutTransition}
-          className='min-w-0'
+          className='min-w-0 max-w-full'
         >
           {titleNode}
         </motion.div>
         {item.subtitle ? (
-          <div className='truncate text-xs text-muted-foreground'>
+          <div
+            data-testid={`marketplace-subtitle-${item.id}`}
+            className='truncate text-xs text-muted-foreground'
+          >
             {item.subtitle}
           </div>
         ) : null}
@@ -305,6 +351,7 @@ function MorphItem({
     <Badge
       key={`${item.id}-${badge.label}`}
       variant={badge.highlight ? 'default' : 'outline'}
+      data-testid={`marketplace-badge-${item.id}`}
       className={cn(
         'max-w-[10rem] truncate rounded-full text-[11px]',
         badge.highlight &&
@@ -380,12 +427,13 @@ function MorphItem({
         layoutId={shellLayoutId}
         transition={layoutTransition}
         variants={itemVariants}
-        onClick={handleShellActivate}
-        onKeyDown={handleShellActivate}
+        onClick={handleShellClick}
+        onKeyDown={handleShellKeyDown}
         data-testid={`marketplace-row-${item.id}`}
         className={cn(
           'group grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 px-3.5 py-3 last:border-b-0 sm:grid-cols-[minmax(0,2fr)_minmax(0,1.1fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_auto]',
           'hover:bg-muted/40',
+          item.onOpen && 'cursor-pointer',
         )}
       >
         {identity}
@@ -412,10 +460,13 @@ function MorphItem({
       transition={layoutTransition}
       variants={itemVariants}
       whileHover={cardHover}
-      onClick={handleShellActivate}
-      onKeyDown={handleShellActivate}
+      onClick={handleShellClick}
+      onKeyDown={handleShellKeyDown}
       data-testid={`marketplace-card-${item.id}`}
-      className='group flex flex-col rounded-xl border border-border/60 bg-card/70 p-4 shadow-xs hover:border-border'
+      className={cn(
+        'group flex flex-col rounded-xl border border-border/60 bg-card/70 p-4 shadow-xs hover:border-border',
+        item.onOpen && 'cursor-pointer',
+      )}
     >
       <div className='flex items-start justify-between gap-2'>
         {identity}

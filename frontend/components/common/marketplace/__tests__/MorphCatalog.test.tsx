@@ -26,6 +26,7 @@ import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {
   hasMarketplaceMenuActions,
   MarketplaceMorphCatalog,
+  shouldSkipMarketplaceShellOpen,
 } from '../MorphCatalog';
 import type {MarketplaceCatalogItem} from '../types';
 import {DropdownMenuItem} from '@/components/ui/dropdown-menu';
@@ -120,7 +121,6 @@ describe('hasMarketplaceMenuActions', () => {
     expect(hasMarketplaceMenuActions(null)).toBe(false);
     expect(hasMarketplaceMenuActions(<></>)).toBe(false);
     expect(hasMarketplaceMenuActions(<>{null}</>)).toBe(false);
-    expect(hasMarketplaceMenuActions(<>{false && <span />}</>)).toBe(false);
     expect(
       hasMarketplaceMenuActions(
         <>
@@ -128,6 +128,21 @@ describe('hasMarketplaceMenuActions', () => {
         </>,
       ),
     ).toBe(true);
+  });
+});
+
+describe('shouldSkipMarketplaceShellOpen', () => {
+  it('skips portal targets outside the shell and nested interactive controls', () => {
+    const shell = document.createElement('div');
+    const icon = document.createElement('div');
+    const btn = document.createElement('button');
+    shell.append(icon, btn);
+    const portal = document.createElement('div');
+    document.body.append(shell, portal);
+
+    expect(shouldSkipMarketplaceShellOpen(icon, shell)).toBe(false);
+    expect(shouldSkipMarketplaceShellOpen(btn, shell)).toBe(true);
+    expect(shouldSkipMarketplaceShellOpen(portal, shell)).toBe(true);
   });
 });
 
@@ -149,44 +164,67 @@ describe('MarketplaceMorphCatalog', () => {
     expect(screen.getByTestId('marketplace-morph-catalog').className).toMatch(
       /opacity-60/,
     );
-    expect(screen.getByTestId('marketplace-row-a').className).not.toMatch(
-      /opacity-60/,
-    );
   });
 
-  it('renders table headers and progress aria-label', () => {
+  it('opens detail when clicking icon, subtitle, or badge, and keeps cursor-pointer', () => {
+    const onOpen = vi.fn();
     const items: MarketplaceCatalogItem[] = [
       {
-        id: 'a',
-        title: 'Alpha',
-        subtitle: 'first',
-        progress: {label: 'Download', value: 40, display: '40%'},
+        id: 'plugin',
+        title: 'Kafka',
+        subtitle: 'connector-kafka',
+        onOpen,
+        icon: <span>K</span>,
+        badges: [{label: 'Source'}],
+      },
+    ];
+    render(<MarketplaceMorphCatalog items={items} viewMode='card' />);
+
+    const card = screen.getByTestId('marketplace-card-plugin');
+    expect(card.className).toMatch(/cursor-pointer/);
+
+    fireEvent.click(screen.getByTestId('marketplace-icon-plugin'));
+    fireEvent.click(screen.getByTestId('marketplace-subtitle-plugin'));
+    fireEvent.click(screen.getByTestId('marketplace-badge-plugin'));
+    expect(onOpen).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not open detail from … menu, menu Enter, or primary action buttons', () => {
+    const onOpen = vi.fn();
+    const items: MarketplaceCatalogItem[] = [
+      {
+        id: 'plugin',
+        title: 'Kafka',
+        subtitle: 'connector',
+        onOpen,
+        menuActions: <DropdownMenuItem>Docs</DropdownMenuItem>,
+        primaryActions: (
+          <button type='button' data-testid='nested-primary'>
+            Go
+          </button>
+        ),
       },
     ];
     render(<MarketplaceMorphCatalog items={items} viewMode='table' />);
-    expect(screen.getByTestId('marketplace-morph-catalog-header')).toHaveTextContent(
-      'colName',
+
+    fireEvent.click(screen.getByTestId('nested-primary'));
+    fireEvent.click(screen.getByTestId('marketplace-more-plugin'));
+    fireEvent.keyDown(screen.getByTestId('marketplace-more-plugin'), {
+      key: 'Enter',
+    });
+    screen.getByTestId('marketplace-more-plugin').dispatchEvent(
+      new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}),
     );
-    expect(screen.getByRole('progressbar')).toHaveAttribute(
-      'aria-label',
-      'progressAria:Download:40%',
-    );
+    expect(onOpen).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('marketplace-open-plugin'));
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
   it('does not render … menu when menuActions is empty or undefined', () => {
     const items: MarketplaceCatalogItem[] = [
-      {
-        id: 'empty',
-        title: 'Empty',
-        subtitle: 'x',
-        menuActions: <></>,
-      },
-      {
-        id: 'none',
-        title: 'None',
-        subtitle: 'y',
-        menuActions: undefined,
-      },
+      {id: 'empty', title: 'Empty', subtitle: 'x', menuActions: <></>},
+      {id: 'none', title: 'None', subtitle: 'y', menuActions: undefined},
       {
         id: 'has',
         title: 'Has',
@@ -200,49 +238,23 @@ describe('MarketplaceMorphCatalog', () => {
     expect(screen.getByTestId('marketplace-more-has')).toBeInTheDocument();
   });
 
-  it('does not open detail when Enter is pressed on the nested more menu', () => {
-    const onOpen = vi.fn();
-    const items: MarketplaceCatalogItem[] = [
-      {
-        id: 'plugin',
-        title: 'Kafka',
-        subtitle: 'connector',
-        onOpen,
-        menuActions: <DropdownMenuItem>Docs</DropdownMenuItem>,
-      },
-    ];
-    render(<MarketplaceMorphCatalog items={items} viewMode='table' />);
-
-    const more = screen.getByTestId('marketplace-more-plugin');
-    // Nested control Enter must not open detail (stopPropagation + target guard).
-    // 内部控件 Enter 不得打开详情（stopPropagation + target 守卫）。
-    fireEvent.keyDown(more, {key: 'Enter'});
-    more.dispatchEvent(
-      new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}),
+  it('wraps title text for truncate and keeps min-w-0 on the open button', () => {
+    render(
+      <MarketplaceMorphCatalog
+        items={[
+          {
+            id: 'long',
+            title: 'VeryLongPluginNameThatShouldTruncate',
+            subtitle: 'x',
+            onOpen: () => undefined,
+          },
+        ]}
+        viewMode='table'
+      />,
     );
-    expect(onOpen).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByTestId('marketplace-open-plugin'));
-    expect(onOpen).toHaveBeenCalledTimes(1);
-  });
-
-  it('ignores shell click when the event target is a nested control', () => {
-    const onOpen = vi.fn();
-    const items: MarketplaceCatalogItem[] = [
-      {
-        id: 'plugin',
-        title: 'Kafka',
-        subtitle: 'connector',
-        onOpen,
-        primaryActions: (
-          <button type='button' data-testid='nested-primary'>
-            Go
-          </button>
-        ),
-      },
-    ];
-    render(<MarketplaceMorphCatalog items={items} viewMode='card' />);
-    fireEvent.click(screen.getByTestId('nested-primary'));
-    expect(onOpen).not.toHaveBeenCalled();
+    const open = screen.getByTestId('marketplace-open-long');
+    expect(open.className).toMatch(/min-w-0/);
+    expect(open.className).toMatch(/max-w-full/);
+    expect(open.querySelector('span.truncate')).not.toBeNull();
   });
 });

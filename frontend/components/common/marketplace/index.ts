@@ -21,6 +21,8 @@ export {MarketplaceListToolbar} from './ListToolbar';
 export {
   MarketplaceMorphCatalog,
   hasMarketplaceMenuActions,
+  shouldSkipMarketplaceShellOpen,
+  MARKETPLACE_INTERACTIVE_SELECTOR,
 } from './MorphCatalog';
 export {MarketplaceOverviewBento} from './OverviewBento';
 export {MarketplaceStatusDot} from './StatusDot';

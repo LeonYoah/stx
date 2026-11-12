@@ -120,7 +120,7 @@ const localPackages: PackageInfo[] = [
 ];
 
 describe('PackageTable download interactions', () => {
-  it('does not start a download when clicking the online row shell', () => {
+  it('does not start a download when clicking the online row shell or decorative areas', () => {
     const onDownloadRequest = vi.fn();
     render(
       <PackageTable
@@ -132,7 +132,14 @@ describe('PackageTable download interactions', () => {
     );
 
     fireEvent.click(screen.getByTestId('marketplace-row-online-2.3.11'));
+    fireEvent.click(screen.getByTestId('marketplace-icon-online-2.3.11'));
+    fireEvent.click(screen.getByTestId('marketplace-subtitle-online-2.3.11'));
     expect(onDownloadRequest).not.toHaveBeenCalled();
+    // Online package rows stay non-pointer for open (no onOpen); download is explicit only.
+    // 在线包行无 onOpen，不恢复打开手势；下载只走显式按钮。
+    expect(screen.getByTestId('marketplace-row-online-2.3.11').className).not.toMatch(
+      /cursor-pointer/,
+    );
   });
 
   it('starts download only from the visible download button', () => {

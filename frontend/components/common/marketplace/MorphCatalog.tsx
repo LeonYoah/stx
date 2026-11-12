@@ -258,7 +258,10 @@ export function MarketplaceMorphCatalog({
       ) : null}
 
       <LayoutGroup id={dataTestId}>
+        {/* key=viewMode：表↔卡切换时整树重挂，避免卡片停在 variants hidden（opacity:0）。
+            Remount on viewMode so cards cannot stick in the hidden entrance state. */}
         <motion.div
+          key={`${dataTestId}-${viewMode}`}
           data-testid={dataTestId}
           data-view-mode={viewMode}
           data-reduce-motion={reduceMotion ? 'true' : 'false'}
@@ -336,7 +339,7 @@ export function MarketplaceMorphCatalog({
               </div>
               {items.map((entry) => (
                 <MorphItem
-                  key={entry.id}
+                  key={`${entry.id}-table`}
                   item={entry}
                   mode={viewMode}
                   reduceMotion={reduceMotion}
@@ -350,7 +353,7 @@ export function MarketplaceMorphCatalog({
           ) : (
             items.map((entry) => (
               <MorphItem
-                key={entry.id}
+                key={`${entry.id}-card`}
                 item={entry}
                 mode={viewMode}
                 reduceMotion={reduceMotion}
@@ -725,6 +728,10 @@ function MorphItem({
       layoutId={shellLayoutId}
       transition={layoutTransition}
       variants={itemVariants}
+      // 显式 initial/animate，避免父级已 visible 时子项卡在 hidden。
+      // Explicit initial/animate so children cannot stick hidden when the parent is already visible.
+      initial='hidden'
+      animate='visible'
       whileHover={cardHover}
       data-testid={`marketplace-card-${item.id}`}
       data-flipped={flipped && flipEnabled ? 'true' : 'false'}
@@ -741,14 +748,22 @@ function MorphItem({
             data-testid={`marketplace-flip-layer-${item.id}`}
           >
             <div
-              className='h-full [backface-visibility:hidden]'
-              style={{transform: 'rotateY(0deg)'}}
+              className='h-full'
+              style={{
+                transform: 'rotateY(0deg)',
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden',
+              }}
             >
               {frontFace}
             </div>
             <div
-              className='absolute inset-0 h-full [backface-visibility:hidden]'
-              style={{transform: 'rotateY(180deg)'}}
+              className='absolute inset-0 h-full'
+              style={{
+                transform: 'rotateY(180deg)',
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden',
+              }}
             >
               {backFace}
             </div>

@@ -5466,6 +5466,8 @@
     "batchDownload": "Download selected",
     "batchInstall": "Install selected",
     "batchUninstall": "Uninstall selected",
-    "batchDelete": "Delete selected"
+    "batchDelete": "Delete selected",
+    "listSeparator": ", ",
+    "overflowAria": "Additional clusters: {names}"
   }
 }

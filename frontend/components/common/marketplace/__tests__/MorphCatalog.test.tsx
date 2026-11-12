@@ -375,4 +375,21 @@ describe('MarketplaceMorphCatalog', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByTestId('marketplace-card-front-plugin')).toBeInTheDocument();
   });
+
+  it('keeps cards visible after switching table → card', () => {
+    const items: MarketplaceCatalogItem[] = [
+      {id: 'a', title: 'Alpha', subtitle: 'v1', description: 'd', fields: [{label: 'x', value: 'y'}]},
+    ];
+    const {rerender} = render(
+      <MarketplaceMorphCatalog items={items} viewMode='table' />,
+    );
+    expect(screen.getByTestId('marketplace-row-a')).toBeInTheDocument();
+    rerender(<MarketplaceMorphCatalog items={items} viewMode='card' />);
+    const card = screen.getByTestId('marketplace-card-a');
+    expect(card).toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-card-front-a')).toBeInTheDocument();
+    // Motion mock strips animate; ensure the card shell is in the document after remount.
+    // Motion mock 会剥掉 animate；这里确认重挂后卡片外壳仍在。
+    expect(card.getAttribute('data-flipped')).toBe('false');
+  });
 });

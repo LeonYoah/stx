@@ -64,6 +64,24 @@ export function shouldEvaluateOnboardingProgress(
   return !!state.path && !state.finished;
 }
 
+/**
+ * AC1: whether opening a cluster should persist a new targetClusterId.
+ * Same id must be a no-op — otherwise ClusterDetail's effect + context value
+ * recreate an infinite setState loop (Maximum update depth exceeded).
+ * AC1：打开集群是否应写入新的 targetClusterId。
+ * 相同 id 必须空操作，否则 ClusterDetail 的 effect 与 context 值会形成
+ * setState 死循环（Maximum update depth exceeded）。
+ */
+export function shouldBindOnboardingTargetCluster(
+  currentTargetClusterId: number | null | undefined,
+  clusterId: number,
+): boolean {
+  if (!Number.isFinite(clusterId) || clusterId <= 0) {
+    return false;
+  }
+  return currentTargetClusterId !== clusterId;
+}
+
 /** Cluster node snapshot / 集群节点快照 */
 export type ClusterNodeSnapshot = {
   hostId: number;

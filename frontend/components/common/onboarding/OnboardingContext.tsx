@@ -38,6 +38,7 @@ import {
   isHostAgentReady,
   isPathFullyComplete,
   resolveOnboardingTargetCluster,
+  shouldBindOnboardingTargetCluster,
   shouldEvaluateOnboardingProgress,
   stepsForPath,
   type JobSnapshot,
@@ -140,6 +141,27 @@ export function OnboardingProvider({children}: {children: ReactNode}) {
       persist({...current, ...partial, version: 2});
     },
     [persist],
+  );
+
+  /**
+   * Stable binder: skip no-op writes so ClusterDetail effect cannot loop.
+   * 稳定绑定函数：跳过无变更写入，避免 ClusterDetail effect 死循环。
+   */
+  const bindTargetCluster = useCallback(
+    (clusterId: number) => {
+      if (
+        !shouldBindOnboardingTargetCluster(
+          stateRef.current.targetClusterId,
+          clusterId,
+        )
+      ) {
+        return;
+      }
+      // Only record clusters the user actually opened/created.
+      // 仅记录用户实际打开或创建的集群。
+      patch({targetClusterId: clusterId});
+    },
+    [patch],
   );
 
   const refresh = useCallback(async () => {
@@ -454,18 +476,20 @@ export function OnboardingProvider({children}: {children: ReactNode}) {
       resumeGuide: () => {
         patch({displayMode: 'expanded'});
       },
-      bindTargetCluster: (clusterId) => {
-        if (!Number.isFinite(clusterId) || clusterId <= 0) {
-          return;
-        }
-        // Only record clusters the user actually opened/created.
-        // 仅记录用户实际打开或创建的集群。
-        patch({targetClusterId: clusterId});
-      },
+      bindTargetCluster,
       clearTargetCluster: () => patch({targetClusterId: null}),
       refresh,
     }),
-    [ready, state, stepResults, checking, lastError, patch, refresh],
+    [
+      ready,
+      state,
+      stepResults,
+      checking,
+      lastError,
+      patch,
+      bindTargetCluster,
+      refresh,
+    ],
   );
 
   return (

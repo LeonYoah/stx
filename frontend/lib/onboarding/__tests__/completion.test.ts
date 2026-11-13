@@ -26,6 +26,7 @@ import {
   isHostAgentReady,
   normalizeInventoryVersion,
   resolveOnboardingTargetCluster,
+  shouldBindOnboardingTargetCluster,
   shouldEvaluateOnboardingProgress,
   stepsForPath,
 } from '../completion';
@@ -252,6 +253,16 @@ describe('evaluateHostsAgents AC7', () => {
     );
     expect(result.status).toBe('incomplete');
     expect(result.missing).toContain('b');
+  });
+});
+
+describe('shouldBindOnboardingTargetCluster AC1 loop guard', () => {
+  it('binds a new positive id once and no-ops when already bound', () => {
+    expect(shouldBindOnboardingTargetCluster(null, 7)).toBe(true);
+    expect(shouldBindOnboardingTargetCluster(7, 7)).toBe(false);
+    expect(shouldBindOnboardingTargetCluster(7, 9)).toBe(true);
+    expect(shouldBindOnboardingTargetCluster(null, 0)).toBe(false);
+    expect(shouldBindOnboardingTargetCluster(null, Number.NaN)).toBe(false);
   });
 });
 

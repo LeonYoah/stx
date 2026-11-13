@@ -17,12 +17,13 @@
 
 /**
  * Package Management Main Component
- * 安装包管理主组件
+ * 安装包管理主组件 — Users 页 UI 语言：bento + 表/卡形变
  */
 
 'use client';
 
-import {useState, useMemo} from 'react';
+import {useCallback, useMemo, useState} from 'react';
+import {motion, useReducedMotion} from 'motion/react';
 import {toast} from 'sonner';
 import {usePackages} from '@/hooks/use-installer';
 import {notifyOnboardingResourcesChanged} from '@/lib/onboarding/events';
@@ -43,7 +44,16 @@ import {
 } from '@/components/ui/alert-dialog';
 import {Card} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
-import {RefreshCw, Package, Puzzle, Cloud, HardDrive, PackageOpen} from 'lucide-react';
+import {
+  RefreshCw,
+  Package,
+  Puzzle,
+  Cloud,
+  HardDrive,
+  PackageOpen,
+  Download,
+  Trash2,
+} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {
   WorkspaceHeader,
@@ -51,10 +61,30 @@ import {
   ModuleNavTabs,
   type StatPillItem,
 } from '@/components/common/layout';
+import {
+  MarketplaceListToolbar,
+  runWithConcurrency,
+  useMarketplaceViewMode,
+  type MarketplaceSelectionState,
+} from '@/components/common/marketplace';
+import {buildMarketplacePageVariants} from '@/lib/animations/marketplace-motion';
 import type {MirrorSource} from '@/lib/services/installer/types';
 
 export function PackageMain() {
   const t = useTranslations();
+  const reduceMotion = useReducedMotion() ?? false;
+  const {container: containerVariants, item: itemVariants} = useMemo(
+    () => buildMarketplacePageVariants(reduceMotion),
+    [reduceMotion],
+  );
+  const [onlineViewMode, setOnlineViewMode] = useMarketplaceViewMode(
+    'stx.marketplace.packages.online.view',
+    'table',
+  );
+  const [localViewMode, setLocalViewMode] = useMarketplaceViewMode(
+    'stx.marketplace.packages.local.view',
+    'table',
+  );
   const {
     packages,
     loading,
@@ -79,6 +109,16 @@ export function PackageMain() {
   const [deleting, setDeleting] = useState(false);
   const [activeTab, setActiveTab] = useState<'online' | 'local'>('online');
   const [offlineBundleOpen, setOfflineBundleOpen] = useState(false);
+  const [selectedOnlineIds, setSelectedOnlineIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectedLocalIds, setSelectedLocalIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [batchFailedIds, setBatchFailedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
 
   const handleUpload = async (
     file: File,
@@ -130,151 +170,415 @@ export function PackageMain() {
     await startDownload(version, mirror, withSource, idempotencyKey);
   };
 
-  // 状态胶囊配置：消除冗余说明卡片，垂直空间利用率最大化
-  // Status pills configuration: eliminate redundant description cards to maximize vertical space
+  const onlineCount = packages?.versions.length || 0;
+  const localCount = packages?.local_packages.length || 0;
+  const onlineIds = useMemo(
+    () => (packages?.versions || []).map((v) => `online-${v}`),
+    [packages?.versions],
+  );
+  const localIds = useMemo(
+    () =>
+      (packages?.local_packages || []).map((pkg) => `local-${pkg.version}`),
+    [packages?.local_packages],
+  );
+  const localVersionSet = useMemo(
+    () => new Set((packages?.local_packages || []).map((pkg) => pkg.version)),
+    [packages?.local_packages],
+  );
+
+  const onlineSelection: MarketplaceSelectionState = useMemo(
+    () => ({
+      selectedIds: selectedOnlineIds,
+      onToggle: (id, selected) => {
+        setSelectedOnlineIds((prev) => {
+          const next = new Set(prev);
+          if (selected) {
+            next.add(id);
+          } else {
+            next.delete(id);
+          }
+          return next;
+        });
+      },
+      onToggleAll: (selected) => {
+        setSelectedOnlineIds((prev) => {
+          if (!selected) {
+            const next = new Set(prev);
+            for (const id of onlineIds) {
+              next.delete(id);
+            }
+            return next;
+          }
+          return new Set([...prev, ...onlineIds]);
+        });
+      },
+      onClear: () => {
+        setSelectedOnlineIds(new Set());
+        setBatchFailedIds(new Set());
+      },
+    }),
+    [onlineIds, selectedOnlineIds],
+  );
+
+  const localSelection: MarketplaceSelectionState = useMemo(
+    () => ({
+      selectedIds: selectedLocalIds,
+      onToggle: (id, selected) => {
+        setSelectedLocalIds((prev) => {
+          const next = new Set(prev);
+          if (selected) {
+            next.add(id);
+          } else {
+            next.delete(id);
+          }
+          return next;
+        });
+      },
+      onToggleAll: (selected) => {
+        setSelectedLocalIds(selected ? new Set(localIds) : new Set());
+      },
+      onClear: () => {
+        setSelectedLocalIds(new Set());
+        setBatchFailedIds(new Set());
+      },
+    }),
+    [localIds, selectedLocalIds],
+  );
+
+  /** Batch download online packages; idsOverride re-runs only failed ids (AC10). */
+  const handleBatchDownloadOnline = useCallback(
+    async (idsOverride?: ReadonlySet<string>) => {
+      const selectedIds = idsOverride ?? selectedOnlineIds;
+      const versions = Array.from(selectedIds)
+        .map((id) => id.replace(/^online-/, ''))
+        .filter((version) => !localVersionSet.has(version));
+      const skipped = selectedIds.size - versions.length;
+      if (versions.length === 0) {
+        toast.info(t('marketplaceUi.batchAllSkipped'));
+        return;
+      }
+      if (skipped > 0) {
+        toast.info(
+          t('marketplaceUi.batchSkipHint', {
+            process: versions.length,
+            skip: skipped,
+          }),
+        );
+      }
+      const failed: string[] = [];
+      const succeeded: string[] = [];
+      // 多项时用默认镜像并发入队，避免反复弹下载对话框。
+      // Queue selected versions with the default mirror; skip the per-item download dialog.
+      await runWithConcurrency(versions, async (version) => {
+        const id = `online-${version}`;
+        try {
+          await startDownload(
+            version,
+            'aliyun',
+            false,
+            `batch-${version}-${Date.now()}`,
+          );
+          succeeded.push(id);
+        } catch {
+          failed.push(id);
+        }
+      });
+      setBatchFailedIds(new Set(failed));
+      if (failed.length === 0) {
+        setSelectedOnlineIds(new Set());
+        toast.success(
+          t('marketplaceUi.batchSummary', {
+            success: succeeded.length,
+            failed: 0,
+          }),
+        );
+      } else {
+        setSelectedOnlineIds(new Set(failed));
+        toast.error(
+          t('marketplaceUi.batchSummary', {
+            success: succeeded.length,
+            failed: failed.length,
+          }),
+        );
+      }
+    },
+    [localVersionSet, selectedOnlineIds, startDownload, t],
+  );
+
+  /** AC10: re-execute only previously failed online downloads. */
+  const handleRetryFailedOnlineDownloads = useCallback(async () => {
+    if (batchFailedIds.size === 0) {
+      return;
+    }
+    const failedIds = new Set(batchFailedIds);
+    setSelectedOnlineIds(failedIds);
+    await handleBatchDownloadOnline(failedIds);
+  }, [batchFailedIds, handleBatchDownloadOnline]);
+
+  const handleBatchDeleteLocal = useCallback(async () => {
+    const versions = Array.from(selectedLocalIds).map((id) =>
+      id.replace(/^local-/, ''),
+    );
+    const failed: string[] = [];
+    const succeeded: string[] = [];
+    await runWithConcurrency(versions, async (version) => {
+      const id = `local-${version}`;
+      try {
+        await deletePackage(version);
+        succeeded.push(id);
+      } catch {
+        failed.push(id);
+      }
+    });
+    setBatchDeleteOpen(false);
+    setBatchFailedIds(new Set(failed));
+    if (failed.length === 0) {
+      setSelectedLocalIds(new Set());
+      toast.success(
+        t('marketplaceUi.batchSummary', {
+          success: succeeded.length,
+          failed: 0,
+        }),
+      );
+    } else {
+      setSelectedLocalIds(new Set(failed));
+      toast.error(
+        t('marketplaceUi.batchSummary', {
+          success: succeeded.length,
+          failed: failed.length,
+        }),
+      );
+    }
+  }, [deletePackage, selectedLocalIds, t]);
+
+  // 状态胶囊配置 / Status pills configuration
   const pillItems: StatPillItem[] = useMemo(
     () => [
       {
         key: 'online',
         label: t('installer.onlineVersions'),
-        count: packages?.versions.length || 0,
+        count: onlineCount,
         icon: <Cloud className='h-3.5 w-3.5' />,
       },
       {
         key: 'local',
         label: t('installer.localPackages'),
-        count: packages?.local_packages.length || 0,
+        count: localCount,
         icon: <HardDrive className='h-3.5 w-3.5' />,
-        variant:
-          (packages?.local_packages.length || 0) > 0 ? 'success' : 'default',
+        variant: localCount > 0 ? 'success' : 'default',
       },
     ],
-    [packages?.versions.length, packages?.local_packages.length, t],
+    [localCount, onlineCount, t],
   );
 
   return (
-    <div className='w-full space-y-3.5'>
-      {/* 头部标题区域（全局紧凑型规范） / Unified Compact Workspace Header */}
-      <WorkspaceHeader
-        icon={<Package />}
-        title={t('installer.packageManagement')}
-        subtitle={t('installer.packageManagementDesc')}
-        tabs={
-          <ModuleNavTabs
+    <motion.div
+      data-testid='package-management-root'
+      data-reduce-motion={reduceMotion ? 'true' : 'false'}
+      className='w-full space-y-3.5'
+      initial='hidden'
+      animate='visible'
+      variants={containerVariants}
+    >
+      <motion.div variants={itemVariants}>
+        <WorkspaceHeader
+          icon={<Package />}
+          title={t('installer.packageManagement')}
+          subtitle={t('installer.packageManagementDesc')}
+          tabs={
+            <ModuleNavTabs
               reorderGroupId='packages-plugins'
               items={[
-              {
-                key: 'packages',
-                label: t('installer.packageManagement'),
-                href: '/packages',
-                icon: <Package className='size-3.5' />,
-              },
-              {
-                key: 'plugins',
-                label: t('dock.pluginMarketplace'),
-                href: '/plugins',
-                icon: <Puzzle className='size-3.5' />,
-              },
-            ]}
-            activeKey='packages'
-          />
-        }
-        actions={
-          <div className='flex items-center gap-2'>
-            {packages?.recommended_version && (
-              <Badge
+                {
+                  key: 'packages',
+                  label: t('installer.packageManagement'),
+                  href: '/packages',
+                  icon: <Package className='size-3.5' />,
+                },
+                {
+                  key: 'plugins',
+                  label: t('dock.pluginMarketplace'),
+                  href: '/plugins',
+                  icon: <Puzzle className='size-3.5' />,
+                },
+              ]}
+              activeKey='packages'
+            />
+          }
+          actions={
+            <div className='flex items-center gap-2'>
+              {packages?.recommended_version && (
+                <Badge
+                  variant='outline'
+                  data-testid='package-recommended-version-pill'
+                  className='h-7.5 rounded-full border-primary/30 bg-primary/10 px-2 text-xs font-medium text-primary'
+                >
+                  {t('installer.recommendedVersion')}: v
+                  {packages.recommended_version}
+                </Badge>
+              )}
+              <Button
                 variant='outline'
-                className='h-7.5 px-2 text-xs bg-primary/10 text-primary border-primary/30 font-medium'
+                size='sm'
+                onClick={refresh}
+                disabled={loading}
+                className='h-8 rounded-md border-border/60 text-xs'
               >
-                {t('installer.recommendedVersion')}: v
-                {packages.recommended_version}
-              </Badge>
-            )}
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={refresh}
-              disabled={loading}
-              className='h-8 text-xs'
-            >
-              <RefreshCw
-                className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`}
-              />
-              {t('common.refresh')}
-            </Button>
-            <Button
-              size='sm'
-              onClick={() => setOfflineBundleOpen(true)}
-              className='h-8 text-xs'
-            >
-              <PackageOpen className='h-3.5 w-3.5 mr-1.5' />
-              {t('installer.offlineAssetsTitle')}
-            </Button>
-          </div>
-        }
-      />
+                <RefreshCw
+                  className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`}
+                />
+                {t('common.refresh')}
+              </Button>
+              <Button
+                size='sm'
+                onClick={() => setOfflineBundleOpen(true)}
+                className='h-8 rounded-md text-xs'
+              >
+                <PackageOpen className='mr-1.5 h-3.5 w-3.5' />
+                {t('installer.offlineAssetsTitle')}
+              </Button>
+            </div>
+          }
+        />
+      </motion.div>
 
-      {/* 错误显示 / Error banner */}
       {error && (
-        <div className='rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive'>
+        <div
+          role='alert'
+          className='rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive'
+        >
           {error}
         </div>
       )}
 
-      {/* 一体化紧凑卡片容器 / Unified Compact Table Container */}
-      <Card className='border-border/70 shadow-xs overflow-hidden flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
-        {/* 工具栏：状态胶囊切换器 + 快速操作 / Toolbar: Segmented pills + Quick actions */}
-        <div className='p-3 sm:p-3.5 border-b bg-muted/20 flex flex-wrap items-center justify-between gap-2.5'>
-          <StatPillsBar
-            items={pillItems}
-            activeKey={activeTab}
-            onChange={(key) => setActiveTab(key as 'online' | 'local')}
-          />
-
-          {activeTab === 'online' && (
-            <Button
-              variant='ghost'
-              size='sm'
-              onClick={refreshVersions}
-              disabled={refreshingVersions}
-              className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground'
-            >
-              <RefreshCw
-                className={`h-3 w-3 mr-1 ${refreshingVersions ? 'animate-spin' : ''}`}
-              />
-              {t('installer.refreshVersions')}
-            </Button>
-          )}
-        </div>
-
-        {/* 表格主体内容：直达数据行，杜绝层层嵌套 / Table Body: Direct access to data rows */}
-        <div className='p-3 sm:p-4 flex-1 flex flex-col'>
-          {activeTab === 'online' ? (
-            <PackageTable
-              type='online'
-              versions={packages?.versions || []}
-              localPackages={packages?.local_packages || []}
-              recommendedVersion={packages?.recommended_version}
-              loading={loading}
-              onDownloadRequest={setDownloadVersion}
-              downloads={downloads}
+      <motion.div variants={itemVariants} className='flex flex-1 flex-col'>
+        <Card className='flex min-h-[480px] flex-col overflow-hidden rounded-xl border-border/60 shadow-xs sm:min-h-[calc(100vh-270px)]'>
+          <div className='flex flex-wrap items-center justify-between gap-2.5 border-b bg-muted/20 p-3 sm:p-3.5'>
+            <StatPillsBar
+              items={pillItems}
+              activeKey={activeTab}
+              onChange={(key) => setActiveTab(key as 'online' | 'local')}
             />
-          ) : (
-            <PackageTable
-              type='local'
-              localPackages={packages?.local_packages || []}
-              loading={loading}
-              onDelete={handleDelete}
-              onSourceUpload={handleSourceUpload}
-              onSourceFetch={(version) => fetchSource(version, 'apache')}
-              onSourceDownload={downloadSource}
-            />
-          )}
-        </div>
-      </Card>
 
-      {/* 离线导入 / 导出（资产包 + 单包上传收敛入口）
-          Offline import / export (asset bundle + single-package upload) */}
+            {activeTab === 'online' && (
+              <Button
+                variant='ghost'
+                size='sm'
+                onClick={refreshVersions}
+                disabled={refreshingVersions}
+                className='h-7 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground'
+              >
+                <RefreshCw
+                  className={`mr-1 h-3 w-3 ${refreshingVersions ? 'animate-spin' : ''}`}
+                />
+                {t('installer.refreshVersions')}
+              </Button>
+            )}
+          </div>
+
+          <div className='flex flex-1 flex-col gap-4 p-3 sm:p-4'>
+            {activeTab === 'online' ? (
+              <>
+                <MarketplaceListToolbar
+                  title={t('marketplaceUi.packageListOnline')}
+                  count={onlineCount}
+                  viewMode={onlineViewMode}
+                  onViewModeChange={setOnlineViewMode}
+                />
+                <PackageTable
+                  type='online'
+                  versions={packages?.versions || []}
+                  localPackages={packages?.local_packages || []}
+                  recommendedVersion={packages?.recommended_version}
+                  loading={loading}
+                  error={error}
+                  viewMode={onlineViewMode}
+                  onDownloadRequest={setDownloadVersion}
+                  downloads={downloads}
+                  selection={onlineSelection}
+                  bulkActions={
+                    <>
+                      <Button
+                        type='button'
+                        size='sm'
+                        className='h-8 rounded-md text-xs'
+                        data-testid='package-batch-download'
+                        onClick={() => void handleBatchDownloadOnline()}
+                      >
+                        <Download className='mr-1.5 size-3.5' />
+                        {t('marketplaceUi.batchDownload')}
+                      </Button>
+                      {batchFailedIds.size > 0 ? (
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='secondary'
+                          className='h-8 rounded-md text-xs'
+                          onClick={() => {
+                            void handleRetryFailedOnlineDownloads();
+                          }}
+                        >
+                          {t('marketplaceUi.batchRetryFailed')}
+                        </Button>
+                      ) : null}
+                    </>
+                  }
+                />
+              </>
+            ) : (
+              <>
+                <MarketplaceListToolbar
+                  title={t('marketplaceUi.packageListLocal')}
+                  count={localCount}
+                  viewMode={localViewMode}
+                  onViewModeChange={setLocalViewMode}
+                />
+                <PackageTable
+                  type='local'
+                  localPackages={packages?.local_packages || []}
+                  loading={loading}
+                  error={error}
+                  viewMode={localViewMode}
+                  onDelete={handleDelete}
+                  onSourceUpload={handleSourceUpload}
+                  onSourceFetch={(version) => fetchSource(version, 'apache')}
+                  onSourceDownload={downloadSource}
+                  selection={localSelection}
+                  bulkActions={
+                    <>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='destructive'
+                        className='h-8 rounded-md text-xs'
+                        data-testid='package-batch-delete'
+                        onClick={() => setBatchDeleteOpen(true)}
+                      >
+                        <Trash2 className='mr-1.5 size-3.5' />
+                        {t('marketplaceUi.batchDelete')}
+                      </Button>
+                      {batchFailedIds.size > 0 ? (
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant='secondary'
+                          className='h-8 rounded-md text-xs'
+                          onClick={() =>
+                            setSelectedLocalIds(new Set(batchFailedIds))
+                          }
+                        >
+                          {t('marketplaceUi.batchRetryFailed')}
+                        </Button>
+                      ) : null}
+                    </>
+                  }
+                />
+              </>
+            )}
+          </div>
+        </Card>
+      </motion.div>
+
       <OfflineBundleDialog
         open={offlineBundleOpen}
         onOpenChange={setOfflineBundleOpen}
@@ -288,8 +592,6 @@ export function PackageMain() {
         }}
       />
 
-      {/* 完整单包上传（含源码）：由离线对话框「高级」入口打开
-          Full single-package upload (incl. source): opened from offline dialog advanced link */}
       <UploadPackageDialog
         open={uploadDialogOpen}
         onOpenChange={setUploadDialogOpen}
@@ -299,7 +601,6 @@ export function PackageMain() {
         )}
       />
 
-      {/* 在线下载对话框 / Online download dialog */}
       <DownloadPackageDialog
         open={downloadVersion !== null}
         version={downloadVersion}
@@ -307,8 +608,30 @@ export function PackageMain() {
         onDownload={handleDownload}
       />
 
-      {/* 删除本地安装包确认：沿用 AlertDialog，不走浏览器 confirm */}
-      {/* Confirm local package deletion with AlertDialog, not the browser confirm */}
+      <AlertDialog open={batchDeleteOpen} onOpenChange={setBatchDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('marketplaceUi.batchConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('marketplaceUi.batchConfirmDelete', {
+                count: selectedLocalIds.size,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={() => void handleBatchDeleteLocal()}
+            >
+              {t('common.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog
         open={deleteConfirmOpen}
         onOpenChange={(open) => {
@@ -337,6 +660,6 @@ export function PackageMain() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </motion.div>
   );
 }

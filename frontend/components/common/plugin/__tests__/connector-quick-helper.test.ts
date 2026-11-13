@@ -109,6 +109,24 @@ describe('connector-quick-helper', () => {
       );
     });
 
+    it('uses inventory casing (Activemq) and sink-only Aerospike', () => {
+      const amq = generateConnectorDocUrls('activemq', '2.3.12', 'en');
+      expect(amq.sourceDocUrl).toBe(
+        'https://seatunnel.apache.org/docs/connectors/source/Activemq/',
+      );
+      const aero = generateConnectorDocUrls('aerospike', '2.3.12', 'en');
+      expect(aero.sourceDocUrl).toBeUndefined();
+      expect(aero.sinkDocUrl).toBe(
+        'https://seatunnel.apache.org/docs/connectors/sink/Aerospike/',
+      );
+    });
+
+    it('omits docs when slug is not in the official inventory', () => {
+      const urls = generateConnectorDocUrls('not-a-real-connector', '2.3.13', 'en');
+      expect(urls.sourceDocUrl).toBeUndefined();
+      expect(urls.sinkDocUrl).toBeUndefined();
+    });
+
     it('builds transform doc url correctly with locale synchronization', () => {
       const zhUrls = generateConnectorDocUrls('seatunnel-transforms-v2', '2.3.13', 'zh', 'transform');
       expect(zhUrls.sourceDocUrl).toBe(

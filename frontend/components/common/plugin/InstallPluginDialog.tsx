@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useState, useEffect, useCallback, useMemo} from 'react';
+import {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   Dialog,
@@ -28,6 +28,7 @@ import {
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {Card, CardContent} from '@/components/ui/card';
+import {Checkbox} from '@/components/ui/checkbox';
 import {Progress} from '@/components/ui/progress';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {
@@ -61,6 +62,7 @@ import {
 import {toast} from 'sonner';
 import type {
   InstalledPlugin,
+  OfficialDependenciesResponse,
   Plugin,
   PluginDependency,
   PluginDownloadProgress,
@@ -69,6 +71,20 @@ import {PluginService, formatPluginNodeStatuses} from '@/lib/services/plugin';
 import {ClusterService} from '@/lib/services/cluster';
 import {ClusterStatus} from '@/lib/services/cluster';
 import type {ClusterInfo} from '@/lib/services/cluster';
+import {
+  normalizeProfileKeys,
+  pluginRequiresProfileSelection,
+} from './plugin-profile-selection';
+
+/**
+ * 仅当本会话曾处于下载中时才通知父级完成，避免「已落盘打开管理」反复触发父级刷新自激循环。
+ * Notify parent only if this dialog session saw an in-flight download; skip reopen-of-ready loops.
+ */
+export function shouldNotifyParentDownloadComplete(
+  observedDownloadingInSession: boolean,
+): boolean {
+  return observedDownloadingInSession;
+}
 
 interface InstallPluginDialogProps {
   open: boolean;
@@ -80,6 +96,11 @@ interface InstallPluginDialogProps {
   dependencies?: PluginDependency[];
   /** 下载完成回调 / Callback invoked when plugin download is completed */
   onDownloadComplete?: () => void;
+  /**
+   * 本会话发生安装/卸载/下载等变更时通知父级（供 AC11 关闭时按需同步）。
+   * Notify parent when this session mutates (install/uninstall/download) for AC11 close sync.
+   */
+  onSessionMutated?: () => void;
 }
 
 interface ClusterPluginStatus {
@@ -142,6 +163,7 @@ export function InstallPluginDialog({
   attachedConnectors = [],
   dependencies = [],
   onDownloadComplete,
+  onSessionMutated,
 }: InstallPluginDialogProps) {
   const t = useTranslations();
   const [clusterStatuses, setClusterStatuses] = useState<ClusterPluginStatus[]>(
@@ -161,6 +183,42 @@ export function InstallPluginDialog({
   const [restartingClusterId, setRestartingClusterId] = useState<number | null>(
     null,
   );
+  // 安装前可再次确认/修改的画像；打开弹窗时用下载时选择预填。
+  // Profiles the user reconfirms/edits before install; prefilled from download-time selection on open.
+  const [confirmedProfileKeys, setConfirmedProfileKeys] = useState<string[]>(
+    () => normalizeProfileKeys(selectedProfileKeys),
+  );
+  const [officialDeps, setOfficialDeps] =
+    useState<OfficialDependenciesResponse | null>(null);
+  const [officialDepsLoading, setOfficialDepsLoading] = useState(false);
+
+  // 用 ref 承接易变回调/标志，避免 checkDownloadStatus 身份抖动触发 effect 自激。
+  // Keep volatile callback/flags in refs so checkDownloadStatus identity stays stable.
+  const onDownloadCompleteRef = useRef(onDownloadComplete);
+  onDownloadCompleteRef.current = onDownloadComplete;
+  const onSessionMutatedRef = useRef(onSessionMutated);
+  onSessionMutatedRef.current = onSessionMutated;
+  const downloadingRef = useRef(downloading);
+  downloadingRef.current = downloading;
+  const selectedProfileKeysRef = useRef(confirmedProfileKeys);
+  selectedProfileKeysRef.current = confirmedProfileKeys;
+  // 画像键内容签名：用弹窗内确认态，避免父级每次传入新 [] 引用导致回调重建（AC11）。
+  // Profile-key content signature from in-dialog confirmation state; avoids parent [] identity churn (AC11).
+  const selectedProfileKeysKey = confirmedProfileKeys.join('\u0001');
+  // 本会话是否曾观察到下载中；仅此时才向父级派发完成回调。
+  // Whether this dialog session observed an in-flight download; gate parent notify.
+  const observedDownloadingInSessionRef = useRef(false);
+  // 会话代数：关闭或重开时递增，丢弃过期异步结果，避免关窗后继续 setState/连锁请求。
+  // Session generation: bump on close/reopen so stale async work cannot chain more requests.
+  const openSessionRef = useRef(0);
+  const openRef = useRef(open);
+  openRef.current = open;
+
+  const requiresProfiles = pluginRequiresProfileSelection(plugin);
+  const availableProfiles = officialDeps?.profiles || [];
+  const hasMultiProfiles = availableProfiles.length > 1;
+  const profilesMissingForInstall =
+    requiresProfiles && hasMultiProfiles && confirmedProfileKeys.length === 0;
 
   const combinedAttachedConnectors = useMemo(
     () =>
@@ -202,27 +260,58 @@ export function InstallPluginDialog({
     return t('plugin.downloading');
   }, [downloadProgress?.current_artifact_kind, t]);
 
+  const notifyParentDownloadCompleteIfNeeded = useCallback(() => {
+    if (
+      !shouldNotifyParentDownloadComplete(
+        observedDownloadingInSessionRef.current,
+      )
+    ) {
+      return;
+    }
+    observedDownloadingInSessionRef.current = false;
+    // 下载完成即记为会话变更，供关闭时按需同步（AC11）。
+    // Mark session mutated on download complete for optional close sync (AC11).
+    onSessionMutatedRef.current?.();
+    onDownloadCompleteRef.current?.();
+  }, []);
+
   const checkDownloadStatus = useCallback(async () => {
+    if (!openRef.current) {
+      return;
+    }
+    const session = openSessionRef.current;
     try {
       const status = await PluginService.getDownloadStatus(
         plugin.name,
         version,
-        selectedProfileKeys,
+        selectedProfileKeysRef.current,
       );
+      if (!openRef.current || session !== openSessionRef.current) {
+        return;
+      }
       setDownloadProgress(status);
       if (status.status === 'completed') {
         setIsDownloaded(true);
         setDownloading(false);
-        onDownloadComplete?.();
+        // 仅会话内经历过下载时通知父级，避免已就绪打开管理时反复 loadLocalPlugins。
+        // Notify parent only after an in-session download; skip ready-on-open refresh loops.
+        notifyParentDownloadCompleteIfNeeded();
       } else if (status.status === 'downloading') {
+        observedDownloadingInSessionRef.current = true;
         setDownloading(true);
       } else if (status.status === 'failed') {
+        observedDownloadingInSessionRef.current = false;
         setDownloading(false);
         setError(status.error || t('plugin.downloadFailed'));
       } else {
         // 兜底校验本地插件：若下载完成并落盘，后端可能已清理活跃下载并返回 not_started。
         // Fallback check local plugins: when download completes, active task is removed and status may show not_started.
-        const localPlugins = await PluginService.listLocalPlugins().catch(() => []);
+        const localPlugins = await PluginService.listLocalPlugins().catch(
+          () => [],
+        );
+        if (!openRef.current || session !== openSessionRef.current) {
+          return;
+        }
         const isLocal = (localPlugins || []).some(
           (p) => p.name === plugin.name && p.version === version,
         );
@@ -234,24 +323,44 @@ export function InstallPluginDialog({
             status: 'completed',
             progress: 100,
           });
-          onDownloadComplete?.();
-        } else if (downloading) {
+          notifyParentDownloadCompleteIfNeeded();
+        } else if (downloadingRef.current) {
           // 若既非 downloading 也非 completed 且本地尚未存在，退出下载中标记避免停留在 0%。
           // If neither downloading nor completed and not local, clear downloading flag to avoid sticking at 0%.
+          observedDownloadingInSessionRef.current = false;
           setDownloading(false);
         }
       }
     } catch {
+      if (!openRef.current || session !== openSessionRef.current) {
+        return;
+      }
       setIsDownloaded(false);
     }
-  }, [downloading, onDownloadComplete, plugin.name, selectedProfileKeys, t, version]);
+    // selectedProfileKeysKey：以内容签名稳定依赖，避免父级每次传入新 [] 引用重建回调。
+    // selectedProfileKeysKey stabilizes deps when parents pass a fresh [] reference each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional content-signature dependency
+  }, [
+    notifyParentDownloadCompleteIfNeeded,
+    plugin.name,
+    selectedProfileKeysKey,
+    t,
+    version,
+  ]);
 
   const loadClusters = useCallback(async () => {
+    if (!openRef.current) {
+      return;
+    }
+    const session = openSessionRef.current;
     setLoadingClusters(true);
     setError(null);
     try {
       const result = await ClusterService.getClusters({current: 1, size: 100});
-      const availableClusters = result.clusters.filter(
+      if (!openRef.current || session !== openSessionRef.current) {
+        return;
+      }
+      const availableClusters = (result.clusters ?? []).filter(
         (c: ClusterInfo) =>
           c.status === ClusterStatus.RUNNING ||
           c.status === ClusterStatus.STOPPED,
@@ -298,35 +407,115 @@ export function InstallPluginDialog({
           }
         }),
       );
+      if (!openRef.current || session !== openSessionRef.current) {
+        return;
+      }
       setClusterStatuses(updatedStatuses);
     } catch (loadError) {
+      if (!openRef.current || session !== openSessionRef.current) {
+        return;
+      }
       const errorMsg =
         loadError instanceof Error ? loadError.message : t('cluster.loadError');
       setError(errorMsg);
       setClusterStatuses([]);
     } finally {
-      setLoadingClusters(false);
+      if (openRef.current && session === openSessionRef.current) {
+        setLoadingClusters(false);
+      }
     }
   }, [plugin.name, t, version]);
 
+  // 打开时加载集群一次；关闭时抬升会话代数并停下载轮询。
+  // Load clusters once on open; bump session on close and stop download polling.
   useEffect(() => {
-    if (open) {
-      void loadClusters();
-      void checkDownloadStatus();
+    if (!open) {
+      observedDownloadingInSessionRef.current = false;
+      openSessionRef.current += 1;
+      setDownloading(false);
+      setOfficialDeps(null);
+      setOfficialDepsLoading(false);
+      return;
     }
-  }, [checkDownloadStatus, loadClusters, open]);
+    openSessionRef.current += 1;
+    // 仅在打开瞬间用父级传入的下载时选择预填，之后由弹窗内确认态驱动（可修改）。
+    // Prefill only on open from parent download-time selection; in-dialog state is editable after that.
+    setConfirmedProfileKeys(normalizeProfileKeys(selectedProfileKeys));
+    void loadClusters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: prefill only when dialog opens
+  }, [loadClusters, open]);
+
+  // 需要场景画像的插件：打开时拉取官方依赖，供安装前再次确认勾选。
+  // For profile-required plugins, load official deps on open so install can reconfirm selection.
+  useEffect(() => {
+    if (!open || !requiresProfiles) {
+      return;
+    }
+    const session = openSessionRef.current;
+    let cancelled = false;
+    setOfficialDepsLoading(true);
+    void PluginService.getOfficialDependencies(plugin.name, version)
+      .then((data) => {
+        if (cancelled || !openRef.current || session !== openSessionRef.current) {
+          return;
+        }
+        setOfficialDeps(data);
+      })
+      .catch(() => {
+        if (cancelled || !openRef.current || session !== openSessionRef.current) {
+          return;
+        }
+        setOfficialDeps(null);
+      })
+      .finally(() => {
+        if (cancelled || !openRef.current || session !== openSessionRef.current) {
+          return;
+        }
+        setOfficialDepsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, plugin.name, requiresProfiles, version]);
 
   useEffect(() => {
-    if (!downloading) {
+    if (!open) {
+      return;
+    }
+    void checkDownloadStatus();
+  }, [checkDownloadStatus, open]);
+
+  useEffect(() => {
+    if (!open || !downloading) {
       return undefined;
     }
     const interval = setInterval(() => {
+      if (!openRef.current) {
+        return;
+      }
       void checkDownloadStatus();
     }, 1000);
     return () => clearInterval(interval);
-  }, [checkDownloadStatus, downloading]);
+  }, [checkDownloadStatus, downloading, open]);
+
+  const handleToggleConfirmedProfile = (profileKey: string, checked: boolean) => {
+    setConfirmedProfileKeys((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(profileKey);
+      } else {
+        next.delete(profileKey);
+      }
+      return normalizeProfileKeys(Array.from(next));
+    });
+  };
 
   const handleDownload = async () => {
+    if (profilesMissingForInstall) {
+      toast.info(t('plugin.selectScenarioFirst'));
+      return;
+    }
+    observedDownloadingInSessionRef.current = true;
     setDownloading(true);
     setError(null);
     try {
@@ -334,7 +523,7 @@ export function InstallPluginDialog({
         plugin.name,
         version,
         undefined,
-        selectedProfileKeys,
+        confirmedProfileKeys,
       );
       toast.info(
         t('plugin.downloadStarted', {name: plugin.display_name || plugin.name}),
@@ -346,6 +535,7 @@ export function InstallPluginDialog({
           : t('plugin.downloadFailed');
       setError(errorMsg);
       toast.error(errorMsg);
+      observedDownloadingInSessionRef.current = false;
       setDownloading(false);
     }
   };
@@ -353,6 +543,10 @@ export function InstallPluginDialog({
   const handleInstall = async (clusterId: number) => {
     if (!isDownloaded) {
       toast.error(t('plugin.downloadFirst'));
+      return;
+    }
+    if (profilesMissingForInstall) {
+      toast.info(t('plugin.confirmProfilesBeforeInstall'));
       return;
     }
 
@@ -363,11 +557,12 @@ export function InstallPluginDialog({
         plugin.name,
         version,
         undefined,
-        selectedProfileKeys,
+        confirmedProfileKeys,
       );
       toast.success(
         t('plugin.installSuccess', {name: plugin.display_name || plugin.name}),
       );
+      onSessionMutatedRef.current?.();
       await refreshClusterStatus(clusterId);
 
       const targetCluster = clusterStatuses.find(
@@ -440,6 +635,7 @@ export function InstallPluginDialog({
     try {
       await PluginService.uninstallPlugin(clusterId, plugin.name);
       toast.success(t('plugin.uninstallSuccess'));
+      onSessionMutatedRef.current?.();
       await refreshClusterStatus(clusterId);
     } catch (uninstallError) {
       const errorMsg =
@@ -546,16 +742,120 @@ export function InstallPluginDialog({
                     </div>
                     <Badge variant='secondary'>v{version}</Badge>
                   </div>
-                  {selectedProfileKeys.length > 0 && (
-                    <div className='flex flex-wrap gap-2'>
-                      <span className='text-xs text-muted-foreground'>
-                        {t('plugin.selectedProfiles')}
-                      </span>
-                      {selectedProfileKeys.map((key) => (
-                        <Badge key={key} variant='outline'>
-                          {key}
-                        </Badge>
-                      ))}
+                  {requiresProfiles && (
+                    <div
+                      className='space-y-2.5 rounded-lg border bg-background/60 p-3'
+                      data-testid='install-profile-confirm'
+                    >
+                      <div className='flex items-start justify-between gap-2 flex-wrap'>
+                        <div className='min-w-0 space-y-0.5'>
+                          <div className='text-sm font-medium'>
+                            {t('plugin.confirmProfilesTitle')}
+                          </div>
+                          <p className='text-xs text-muted-foreground'>
+                            {t('plugin.confirmProfilesDesc')}
+                          </p>
+                        </div>
+                        {hasMultiProfiles && (
+                          <div className='flex items-center gap-1.5'>
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='sm'
+                              className='h-6 text-xs px-2'
+                              onClick={() =>
+                                setConfirmedProfileKeys(
+                                  normalizeProfileKeys(
+                                    availableProfiles.map((p) => p.profile_key),
+                                  ),
+                                )
+                              }
+                            >
+                              {t('plugin.selectAllProfiles')}
+                            </Button>
+                            <Button
+                              type='button'
+                              variant='ghost'
+                              size='sm'
+                              className='h-6 text-xs px-2 text-muted-foreground'
+                              onClick={() => setConfirmedProfileKeys([])}
+                            >
+                              {t('plugin.clearAllProfiles')}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      {officialDepsLoading ? (
+                        <div className='flex items-center gap-2 text-xs text-muted-foreground'>
+                          <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                          {t('plugin.downloadAllProfileLoading')}
+                        </div>
+                      ) : availableProfiles.length === 0 ? (
+                        <p className='text-xs text-muted-foreground'>
+                          {confirmedProfileKeys.length > 0
+                            ? t('plugin.selectedProfilesFromDownload')
+                            : t('plugin.noSelectedProfiles')}
+                          {confirmedProfileKeys.length > 0 && (
+                            <span className='mt-1.5 flex flex-wrap gap-1.5'>
+                              {confirmedProfileKeys.map((key) => (
+                                <Badge key={key} variant='outline'>
+                                  {key}
+                                </Badge>
+                              ))}
+                            </span>
+                          )}
+                        </p>
+                      ) : (
+                        <div className='grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[180px] overflow-y-auto pr-1'>
+                          {availableProfiles.map((profile) => {
+                            const isChecked = confirmedProfileKeys.includes(
+                              profile.profile_key,
+                            );
+                            return (
+                              <label
+                                key={profile.profile_key}
+                                data-testid={`install-profile-${profile.profile_key}`}
+                                className={`flex items-start gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors ${
+                                  isChecked
+                                    ? 'border-primary/40 bg-primary/5'
+                                    : 'border-border/70 bg-muted/20'
+                                }`}
+                              >
+                                <Checkbox
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) =>
+                                    handleToggleConfirmedProfile(
+                                      profile.profile_key,
+                                      checked === true,
+                                    )
+                                  }
+                                  className='mt-0.5'
+                                />
+                                <span className='min-w-0 space-y-0.5'>
+                                  <span className='block text-sm font-medium leading-tight'>
+                                    {profile.profile_name || profile.profile_key}
+                                  </span>
+                                  <span className='block text-[11px] text-muted-foreground'>
+                                    {profile.profile_key}
+                                    {(profile.items || []).length > 0
+                                      ? ` · ${t('plugin.profileDependencyCount', {
+                                          count: (profile.items || []).length,
+                                        })}`
+                                      : ''}
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {profilesMissingForInstall && (
+                        <p className='text-xs text-amber-700 dark:text-amber-300'>
+                          {t('plugin.confirmProfilesBeforeInstall')}
+                        </p>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -574,7 +874,7 @@ export function InstallPluginDialog({
                       <Button
                         size='sm'
                         onClick={handleDownload}
-                        disabled={downloading}
+                        disabled={downloading || profilesMissingForInstall}
                       >
                         {downloading ? (
                           <Loader2 className='h-4 w-4 mr-2 animate-spin' />
@@ -868,7 +1168,8 @@ export function InstallPluginDialog({
                                       disabled={
                                         !isDownloaded ||
                                         isOperating ||
-                                        !clusterRuntimeAvailable
+                                        !clusterRuntimeAvailable ||
+                                        profilesMissingForInstall
                                       }
                                     >
                                       {isOperating ? (

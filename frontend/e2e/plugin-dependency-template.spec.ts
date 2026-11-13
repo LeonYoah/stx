@@ -47,7 +47,13 @@ test.describe('plugin dependency template', () => {
   }) => {
     await openJdbcTemplateDialog(page, 'dependencies');
 
-    await page.getByTestId('plugin-profile-mysql').click();
+    // 本地夹具已带 selected_profile_keys=['mysql']，再点 label 会取消勾选。
+    // Local fixture already seeds mysql; another label click would uncheck it.
+    const mysqlProfile = page.getByTestId('plugin-profile-mysql');
+    const mysqlCheckbox = mysqlProfile.getByRole('checkbox');
+    await mysqlCheckbox.check();
+    await expect(mysqlCheckbox).toBeChecked();
+
     const officialDependencies = page.getByTestId(
       'plugin-official-dependencies',
     );
@@ -139,12 +145,18 @@ test.describe('plugin dependency template', () => {
     await expect(page.getByTestId('plugin-tab-local')).toBeVisible();
 
     await page.getByTestId('plugin-tab-local').click();
-    await expect(
-      page.getByTestId(
-        `plugin-local-row-${pluginDependencyTemplate.pluginName}-${pluginDependencyTemplate.seatunnelVersion}`,
-      ),
-    ).toContainText('template-cluster');
+    const localRow = page.getByTestId(
+      `plugin-local-row-${pluginDependencyTemplate.pluginName}-${pluginDependencyTemplate.seatunnelVersion}`,
+    );
+    // 已安装集群改为堆叠芯片：用可访问名/sr-only 全名断言，而不是依赖可见 Badge 文案。
+    // Installed clusters are a compact stack — assert via accessible/sr-only full name, not a Badge label.
+    await expect(localRow.getByLabel('template-cluster')).toBeVisible();
+    await expect(localRow).toContainText('template-cluster');
 
+    // 删除入口在「…」菜单内；先打开菜单再点删除。
+    // Delete lives in the «…» menu — open it before clicking delete.
+    const localItemId = `${pluginDependencyTemplate.pluginName}:${pluginDependencyTemplate.seatunnelVersion}`;
+    await page.getByTestId(`marketplace-more-${localItemId}`).click();
     await page
       .getByTestId(
         `plugin-local-delete-${pluginDependencyTemplate.pluginName}-${pluginDependencyTemplate.seatunnelVersion}`,

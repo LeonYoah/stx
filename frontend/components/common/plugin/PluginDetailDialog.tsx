@@ -78,7 +78,6 @@ import {
 import {getPluginDependencyStatusMeta} from './dependency-status';
 import {
   generateConnectorDocUrls,
-  getConnectorCapability,
   getConnectorSemanticIcon,
 } from './connector-quick-helper';
 
@@ -161,6 +160,9 @@ export function PluginDetailDialog({
   const [profileFilter, setProfileFilter] = useState('');
   const [copiedCoord, setCopiedCoord] = useState(false);
   const [copiedXml, setCopiedXml] = useState(false);
+  // Tab 内容区滚动容器：切 Tab 时复位到顶部，避免继承上一 Tab 的 scrollTop。
+  // Body scroll container: reset to top on tab change so prior scroll does not carry over.
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
   // 记录已成功加载的插件+版本，重复打开同键时静默刷新不闪 spinner。
   // Track last successful plugin+version load so reopen/silent refresh skips spinner flash.
   const loadedOfficialDepsKeyRef = useRef<string | null>(null);
@@ -169,7 +171,6 @@ export function PluginDetailDialog({
   const effectiveVersion = seatunnelVersion || plugin.version;
   const semanticIcon = getConnectorSemanticIcon(plugin.name, plugin.category);
   const IconComponent = semanticIcon.icon;
-  const capability = getConnectorCapability(plugin.name, plugin.category);
   const dependencyStatusMeta = getPluginDependencyStatusMeta(plugin, t);
   const useIsolatedDeps = supportsIsolatedDependency(effectiveVersion);
   const officialDepsKey = `${plugin?.name || ''}@${effectiveVersion || ''}`;
@@ -406,13 +407,30 @@ export function PluginDetailDialog({
   const shouldRenderDependencies = activeTab === 'dependencies';
   const shouldRenderCustom = activeTab === 'custom';
 
+  /**
+   * Switch tab; scroll reset is handled in the activeTab effect below.
+   * 切换 Tab；滚动复位由下方 activeTab effect 统一处理。
+   */
+  const handleTabChange = useCallback((val: string) => {
+    setActiveTab(val as 'overview' | 'dependencies' | 'custom');
+  }, []);
+
+  // 切 Tab 后把内容区滚回顶部，避免继承上一 Tab 的 scrollTop。
+  // After a tab change, reset body scroll so the prior tab's scrollTop does not carry over.
+  useEffect(() => {
+    const node = bodyScrollRef.current;
+    if (node) {
+      node.scrollTop = 0;
+    }
+  }, [activeTab]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid={`plugin-detail-dialog-${plugin.name}`}
-        // 高度随内容收缩，上限 85vh；去掉写死 h-[..] 避免概览 tab 大块留白（DEF-101-1）
-        // Hug content with max-h 85vh; drop fixed h-[..] so overview tab has no empty gap (DEF-101-1)
-        className='w-[94vw] max-w-[94vw] sm:max-w-[760px] lg:max-w-[820px] min-h-[240px] max-h-[85vh] overflow-hidden p-0 gap-0 flex flex-col'
+        // #129 AC8：固定高度，切 Tab 尺寸不变；头/Tab/底栏固定，仅内容区滚动。
+        // #129 AC8: fixed height so tab switches do not resize; header/tabs/footer stick, body scrolls.
+        className='flex h-[min(85vh,720px)] max-h-[min(85vh,720px)] w-[94vw] max-w-[94vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px] lg:max-w-[820px]'
       >
         {/* Header with high-density visual hierarchy / 高辨识度强化头部 */}
         <DialogHeader className='px-6 pt-5 pb-4 border-b shrink-0 bg-muted/10'>
@@ -428,8 +446,11 @@ export function PluginDetailDialog({
                     className='h-6 w-6 object-contain'
                     onError={(e) => {
                       (e.target as HTMLElement).style.display = 'none';
-                      const fallback = (e.target as HTMLElement).nextElementSibling;
-                      if (fallback) (fallback as HTMLElement).style.display = 'block';
+                      const fallback = (e.target as HTMLElement)
+                        .nextElementSibling;
+                      if (fallback) {
+                        (fallback as HTMLElement).style.display = 'block';
+                      }
                     }}
                   />
                 ) : null}
@@ -495,13 +516,8 @@ export function PluginDetailDialog({
         </DialogHeader>
 
         {/* Tab switcher bar / 顶层 Tab 分组控制栏 */}
-        <div className='px-6 py-2.5 border-b bg-muted/20 shrink-0 flex items-center justify-between gap-2'>
-          <Tabs
-            value={activeTab}
-            onValueChange={(val) =>
-              setActiveTab(val as 'overview' | 'dependencies' | 'custom')
-            }
-          >
+        <div className='flex shrink-0 items-center justify-between gap-2 border-b bg-muted/20 px-6 py-2.5'>
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
             <TabsList className='h-8'>
               <TabsTrigger
                 value='overview'
@@ -533,13 +549,21 @@ export function PluginDetailDialog({
           </Tabs>
         </div>
 
-        {/* 中间内容区独立滚动：父级达 max-h 后 flex-1 + min-h-0 才能裁切
-            Body scrolls alone; flex-1 + min-h-0 clips once the dialog hits max-h */}
-        <div className='flex-1 min-h-0 overflow-y-auto'>
-            <div className='p-6 space-y-6'>
-            {/* Section 1: Overview & Official Documentation Guide / 第一部分：概览与官方文档直达 */}
+        {/* 中间内容区独立滚动：固定弹窗高度下 flex-1 + min-h-0 才能裁切
+            Body scrolls alone; flex-1 + min-h-0 clips under the fixed dialog height */}
+        <div
+          ref={bodyScrollRef}
+          data-testid='plugin-detail-body-scroll'
+          className='min-h-0 flex-1 overflow-y-auto'
+        >
+            <div className='space-y-6 p-6'>
+            {/* Section 1: Overview — top-aligned; sparse content fills with install / dependency summary, no centered void.
+                概览顶部对齐；内容少时用安装说明/依赖摘要填位，不居中留白。 */}
             {shouldRenderOverview && (
-              <div className='space-y-5 rounded-lg border bg-card p-5 shadow-xs'>
+              <div
+                data-testid='plugin-detail-overview-panel'
+                className='flex min-h-full flex-col justify-start space-y-5 rounded-lg border bg-card p-5 shadow-xs'
+              >
                 {/* Plugin description / 插件描述 */}
                 <div className='space-y-1.5'>
                   <h4 className='text-sm font-semibold flex items-center gap-2'>
@@ -681,7 +705,7 @@ export function PluginDetailDialog({
                       variant='ghost'
                       size='sm'
                       className='h-7 text-xs font-medium text-primary hover:text-primary hover:bg-primary/10 shrink-0 gap-1 px-2'
-                      onClick={() => setActiveTab('dependencies')}
+                      onClick={() => handleTabChange('dependencies')}
                     >
                       {t('plugin.viewDependencyDetails')}
                       <ArrowRight className='h-3.5 w-3.5' />
@@ -689,8 +713,9 @@ export function PluginDetailDialog({
                   </div>
                 )}
 
-                {/* Installation paths explanation / 安装路径与依赖隔离说明 */}
-                <div className='pt-2 border-t space-y-2'>
+                {/* Installation paths explanation — anchors the overview bottom when content is short.
+                    安装路径说明：概览内容少时顶对齐后自然占住下方，避免空洞留白。 */}
+                <div className='mt-auto space-y-2 border-t pt-4'>
                   <div className='flex items-center gap-2'>
                     <h5 className='text-xs font-medium text-muted-foreground flex items-center gap-1.5'>
                       <FolderOpen className='h-3.5 w-3.5' />

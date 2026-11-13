@@ -41,7 +41,7 @@
   transform-origin: 50% 46%;
 }
 
-/* 碎裂后露出的中性深空底色（带暗角）/ Neutral deep-space backdrop with vignette, revealed after the shatter. */
+/* 坍缩后露出的中性深空底色（带暗角）/ Neutral deep-space backdrop with vignette, revealed after the collapse. */
 .stx-splash__backdrop {
   position: absolute;
   inset: 0;
@@ -68,7 +68,7 @@
   display: block;
 }
 
-.stx-splash[data-shattered='on'] .stx-splash__gl {
+.stx-splash[data-collapsed='on'] .stx-splash__gl {
   visibility: hidden;
 }
 
@@ -124,13 +124,14 @@
   animation: stx-splash-spin 3.2s linear infinite;
 }
 
-.stx-splash[data-shattered='on'] .stx-splash__vortex-fallback::before {
-  animation-duration: 0.9s;
-  transform: scale(1.7);
+/* 降级漩涡的坍缩：加速旋转并缩进奇点 / CSS vortex collapse: spins up and shrinks into the point. */
+.stx-splash[data-collapsed='on'] .stx-splash__vortex-fallback::before {
+  animation-duration: 0.55s;
+  transform: scale(0.12);
   opacity: 0;
   transition:
-    transform 900ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 700ms ease-out;
+    transform 430ms cubic-bezier(0.5, 0, 0.9, 0.4),
+    opacity 380ms ease-in;
 }
 
 @keyframes stx-splash-spin {

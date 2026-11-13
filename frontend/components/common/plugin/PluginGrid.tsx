@@ -16,44 +16,65 @@
  */
 
 /**
- * Plugin Grid Component
- * 插件网格组件
+ * Plugin Grid / Catalog — table ↔ card via shared MorphCatalog.
+ * 插件目录：通过共享 MorphCatalog 在表格与卡片间切换。
  */
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Pagination } from '@/components/ui/pagination';
-import type { Plugin } from '@/lib/services/plugin';
-import { PluginCard } from './PluginCard';
+import {useEffect, useMemo, useState} from 'react';
+import {useTranslations} from 'next-intl';
+import {Download, ExternalLink} from 'lucide-react';
+import {Button} from '@/components/ui/button';
+import {DropdownMenuItem} from '@/components/ui/dropdown-menu';
+import {Pagination} from '@/components/ui/pagination';
+import {
+  MarketplaceMorphCatalog,
+  type MarketplaceCatalogItem,
+  type MarketplaceSelectionState,
+  type MarketplaceViewMode,
+} from '@/components/common/marketplace';
+import type {ReactNode} from 'react';
+import {useLocale} from '@/lib/i18n';
+import {buildSeatunnelConnectorDocsUrl} from '@/lib/seatunnel-version';
+import type {Plugin} from '@/lib/services/plugin';
+import {getPluginDependencyStatusMeta} from './dependency-status';
+import {
+  generateConnectorDocUrls,
+  getConnectorSemanticIcon,
+} from './connector-quick-helper';
 
 interface PluginGridProps {
   plugins: Plugin[];
   loading: boolean;
+  error?: string | null;
+  viewMode: MarketplaceViewMode;
   onViewDetail: (plugin: Plugin) => void;
   showInstallButton?: boolean;
   onInstall?: (plugin: Plugin) => void;
   onDownload?: (plugin: Plugin) => void;
-  /** Map of plugin name + version to download status / 插件名称+版本到下载状态的映射 */
   downloadingPlugins?: Set<string>;
-  /** Map of plugin name + version to downloaded status / 插件名称+版本到已下载状态的映射 */
   downloadedPlugins?: Set<string>;
-  /** Map of plugin name + version to download progress percentage / 插件名称+版本到下载进度数值(0-100)的映射 */
   downloadProgressMap?: Map<string, number>;
+  failedDownloadMap?: Map<string, string>;
+  installedClusterCountMap?: Map<string, number>;
+  /** Table multi-select (hidden action bar in card view). / 表格多选（卡片视图保留选中但不显示操作条）。 */
+  selection?: MarketplaceSelectionState;
+  bulkActions?: ReactNode;
+  bulkHint?: ReactNode;
 }
 
-// Default page size / 默认每页数量
 const DEFAULT_PAGE_SIZE = 12;
 
 /**
- * Plugin Grid Component
- * 插件网格组件 - 以卡片网格形式展示插件列表，支持分页
+ * Available-plugins catalog with pagination and table/card morph.
+ * 「在线可用」目录：分页 + 表/卡形变。
  */
-export function PluginGrid({ 
-  plugins, 
-  loading, 
+export function PluginGrid({
+  plugins,
+  loading,
+  error = null,
+  viewMode,
   onViewDetail,
   showInstallButton = false,
   onInstall,
@@ -61,108 +82,276 @@ export function PluginGrid({
   downloadingPlugins = new Set(),
   downloadedPlugins = new Set(),
   downloadProgressMap = new Map(),
+  failedDownloadMap = new Map(),
+  installedClusterCountMap = new Map(),
+  selection,
+  bulkActions,
+  bulkHint,
 }: PluginGridProps) {
   const t = useTranslations();
-
-  // Pagination state / 分页状态
+  const {locale} = useLocale();
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
-  // Calculate pagination / 计算分页
   const totalItems = plugins.length;
-  const totalPages = Math.ceil(totalItems / pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize) || 1);
 
-  // Get current page plugins / 获取当前页插件
   const currentPlugins = useMemo(() => {
     const startIndex = (currentPage - 1) * pageSize;
-    const endIndex = startIndex + pageSize;
-    return plugins.slice(startIndex, endIndex);
+    return plugins.slice(startIndex, startIndex + pageSize);
   }, [plugins, currentPage, pageSize]);
 
-  // Reset to page 1 when plugins change / 当插件列表变化时重置到第一页
   useEffect(() => {
     if (currentPage > 1 && currentPage > totalPages) {
       setCurrentPage(1);
     }
   }, [plugins, totalPages, currentPage]);
 
-  // Handle page change / 处理页码变化
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
-  };
+  const items: MarketplaceCatalogItem[] = useMemo(() => {
+    return currentPlugins.map((plugin) => {
+      const downloadKey = `${plugin.name}:${plugin.version}`;
+      const isDownloaded = downloadedPlugins.has(downloadKey);
+      const isDownloadFailed = failedDownloadMap.has(downloadKey);
+      const failedMessage = isDownloadFailed
+        ? (failedDownloadMap.get(downloadKey) ?? null)
+        : null;
+      const isDownloading =
+        !isDownloaded &&
+        !isDownloadFailed &&
+        downloadingPlugins.has(downloadKey);
+      const progress = isDownloaded
+        ? 100
+        : (downloadProgressMap.get(downloadKey) ?? 0);
+      const installedClusterCount =
+        installedClusterCountMap.get(downloadKey) ?? 0;
+      const semanticIcon = getConnectorSemanticIcon(
+        plugin.name,
+        plugin.category,
+      );
+      const IconComponent = semanticIcon.icon;
+      const dependencyMeta = getPluginDependencyStatusMeta(plugin, t);
+      const docUrls = generateConnectorDocUrls(
+        plugin.name,
+        plugin.version,
+        locale,
+        plugin.category,
+      );
+      // Prefer a real connector page; only fall back to the connectors index when none exist.
+      // 优先真实连接器文档页；两边都不存在时才回退到连接器索引。
+      const docsUrl =
+        docUrls.sourceDocUrl ||
+        docUrls.sinkDocUrl ||
+        undefined;
+      const docsFallbackUrl = buildSeatunnelConnectorDocsUrl(
+        plugin.version,
+        locale,
+      );
+      const docsHref = docsUrl ?? docsFallbackUrl;
+      const hasExactDocs = Boolean(docsUrl);
 
-  // Handle page size change / 处理每页数量变化
-  const handlePageSizeChange = (newPageSize: number) => {
-    setPageSize(newPageSize);
-    setCurrentPage(1); // Reset to first page / 重置到第一页
-  };
+      let status: MarketplaceCatalogItem['status'];
+      let progressBlock: MarketplaceCatalogItem['progress'] = null;
+      if (isDownloadFailed) {
+        status = {
+          label: t('marketplaceUi.statusFailed'),
+          tone: 'error',
+        };
+      } else if (isDownloading) {
+        status = {
+          label: t('marketplaceUi.statusDownloading'),
+          tone: 'info',
+        };
+        progressBlock = {
+          label: t('marketplaceUi.progressDownload'),
+          value: Math.max(0, Math.min(100, progress)),
+          display: `${Math.max(0, Math.min(100, progress))}%`,
+        };
+      } else if (isDownloaded) {
+        status = {
+          label: t('marketplaceUi.statusReady'),
+          tone: 'ok',
+        };
+      } else {
+        status = {
+          label: t('marketplaceUi.statusAvailable'),
+          tone: 'muted',
+        };
+      }
 
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {Array.from({ length: pageSize }).map((_, i) => (
-          <div key={i} className="p-4 border rounded-lg space-y-3">
-            <Skeleton className="h-10 w-10 rounded" />
-            <Skeleton className="h-5 w-3/4" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-2/3" />
-            <div className="flex gap-2">
-              <Skeleton className="h-6 w-16" />
-              <Skeleton className="h-6 w-16" />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
+      const badges: MarketplaceCatalogItem['badges'] = [
+        {
+          label: t(`plugin.category.${plugin.category}`),
+        },
+      ];
+      if (semanticIcon.tagLabel) {
+        badges.push({label: semanticIcon.tagLabel});
+      }
+      if (installedClusterCount > 0) {
+        badges.push({
+          label: `${t('plugin.installed')} · ${installedClusterCount}`,
+          highlight: true,
+        });
+      }
 
-  if (plugins.length === 0) {
-    return (
-      <div className="text-center py-12 text-muted-foreground">
-        {t('plugin.noPluginsFound')}
-      </div>
-    );
-  }
+      // 文档等次要入口进「…」菜单；无精确文档时标明指向索引页。
+      // Docs stay in the «…» menu; label index fallback when no exact page exists.
+      const menuActions = (
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(docsHref, '_blank', 'noopener,noreferrer');
+          }}
+        >
+          <ExternalLink className='mr-2 size-4' />
+          {hasExactDocs
+            ? t('marketplaceUi.viewDocs')
+            : t('marketplaceUi.viewDocsIndex')}
+        </DropdownMenuItem>
+      );
+
+      let primaryActions: MarketplaceCatalogItem['primaryActions'];
+      if (showInstallButton && isDownloaded && onInstall) {
+        primaryActions = (
+          <Button
+            type='button'
+            size='sm'
+            className='h-8 rounded-md text-xs'
+            data-testid={`plugin-install-${downloadKey}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onInstall(plugin);
+            }}
+          >
+            <Download className='mr-1.5 size-3.5' />
+            {t('plugin.install')}
+          </Button>
+        );
+      } else if (
+        showInstallButton &&
+        !isDownloaded &&
+        !isDownloading &&
+        onDownload
+      ) {
+        primaryActions = (
+          <Button
+            type='button'
+            size='sm'
+            className='h-8 rounded-md text-xs'
+            data-testid={`plugin-download-${downloadKey}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDownload(plugin);
+            }}
+          >
+            <Download className='mr-1.5 size-3.5' />
+            {isDownloadFailed ? t('common.retry') : t('plugin.download')}
+          </Button>
+        );
+      }
+
+      return {
+        id: downloadKey,
+        title: plugin.display_name || plugin.name,
+        // 正面展示版本；完整简介挪到背面。
+        // Version on the front; full blurb moves to the card back.
+        subtitle: `v${plugin.version}`,
+        description: plugin.description || undefined,
+        icon: (
+          <span
+            className={`${semanticIcon.bgColor} ${semanticIcon.textColor} inline-flex size-9 items-center justify-center rounded-full`}
+          >
+            {semanticIcon.iconUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={semanticIcon.iconUrl}
+                alt=''
+                className='size-5 object-contain'
+                loading='lazy'
+              />
+            ) : (
+              <IconComponent className='size-4' />
+            )}
+          </span>
+        ),
+        badges,
+        status,
+        // 背面：依赖、集群、失败详情等次要信息。
+        // Card back: deps, clusters, failure detail — secondary only.
+        fields: [
+          {
+            label: t('plugin.officialDependencyStatus'),
+            value: dependencyMeta.label,
+          },
+          ...(installedClusterCount > 0
+            ? [
+                {
+                  label: t('marketplaceUi.fieldClusters'),
+                  value: String(installedClusterCount),
+                },
+              ]
+            : []),
+          ...(failedMessage
+            ? [
+                {
+                  label: t('marketplaceUi.statusFailed'),
+                  value: failedMessage,
+                },
+              ]
+            : []),
+        ],
+        progress: progressBlock,
+        meta: `v${plugin.version}`,
+        primaryActions,
+        menuActions,
+        onOpen: () => onViewDetail(plugin),
+        // e2e 兼容：点击标题即打开详情（plugin-card-*）。
+        // e2e compat: title click opens detail (plugin-card-*).
+        testIds: {
+          open: `plugin-card-${plugin.name}`,
+          card: `plugin-card-shell-${plugin.name}`,
+          row: `plugin-card-row-${plugin.name}`,
+        },
+      };
+    });
+  }, [
+    currentPlugins,
+    downloadProgressMap,
+    downloadedPlugins,
+    downloadingPlugins,
+    failedDownloadMap,
+    installedClusterCountMap,
+    locale,
+    onDownload,
+    onInstall,
+    onViewDetail,
+    showInstallButton,
+    t,
+  ]);
 
   return (
-    <div className="space-y-6">
-      {/* Plugin grid / 插件网格 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {currentPlugins.map((plugin) => {
-          const downloadKey = `${plugin.name}:${plugin.version}`;
-          // 已下载状态优先判定；已就绪的插件不可再标记为下载中。
-          // Check downloaded state first; downloaded plugins must never remain marked as downloading.
-          const isDownloaded = downloadedPlugins.has(downloadKey);
-          const isDownloading = !isDownloaded && downloadingPlugins.has(downloadKey);
-          // 若已下载进度为 100%，否则从进度映射中读取实时百分比。
-          // Progress is 100% when downloaded; otherwise retrieve real-time percentage from progress map.
-          const progress = isDownloaded ? 100 : (downloadProgressMap.get(downloadKey) ?? 0);
-
-          return (
-            <PluginCard
-              key={plugin.name}
-              plugin={plugin}
-              onClick={() => onViewDetail(plugin)}
-              showInstallButton={showInstallButton}
-              isDownloading={isDownloading}
-              isDownloaded={isDownloaded}
-              downloadProgress={progress}
-              onInstall={onInstall ? () => onInstall(plugin) : undefined}
-              onDownload={onDownload ? () => onDownload(plugin) : undefined}
-            />
-          );
-        })}
-      </div>
-
-      {/* Pagination / 分页 */}
-      {totalPages > 1 && (
+    <div className='space-y-4' data-testid='plugin-available-grid'>
+      <MarketplaceMorphCatalog
+        items={items}
+        viewMode={viewMode}
+        loading={loading}
+        error={error}
+        empty={t('plugin.noPluginsFound')}
+        selection={selection}
+        bulkActions={bulkActions}
+        bulkHint={bulkHint}
+        data-testid='plugin-available-catalog'
+      />
+      {totalItems > 0 && (
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}
           pageSize={pageSize}
           totalItems={totalItems}
-          onPageChange={handlePageChange}
-          onPageSizeChange={handlePageSizeChange}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setCurrentPage(1);
+          }}
           pageSizeOptions={[12, 24, 48, 96]}
           showPageSizeSelector={true}
           showTotalItems={true}

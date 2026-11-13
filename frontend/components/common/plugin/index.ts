@@ -26,3 +26,12 @@ export { PluginCard } from './PluginCard';
 export { PluginDetailDialog } from './PluginDetailDialog';
 export { InstallPluginDialog } from './InstallPluginDialog';
 export { BatchInstallDialog } from './BatchInstallDialog';
+export { InstalledClusterStack } from './InstalledClusterStack';
+export {
+  buildPluginCardHover,
+  buildPluginGridVariants,
+  buildPluginPageVariants,
+  getClusterStackInitials,
+  resolveClusterStackOffset,
+} from './plugin-motion';
+export {resolvePluginDownloadFailureMessage} from './plugin-download-status';

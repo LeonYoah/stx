@@ -16,38 +16,36 @@
  */
 
 /**
- * Package Table Component
- * 安装包表格组件
+ * Package catalog (online / local) with table ↔ card morph.
+ * Online rows never download via whole-row click — only explicit buttons.
+ * 安装包目录（在线 / 本地），支持表卡形变。
+ * 在线版本整行不触发下载，只通过显式按钮发起。
  */
 
 'use client';
 
-import { useRef } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import {useMemo, type ReactNode} from 'react';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+  Download,
+  FileCode2,
+  Package,
+  Star,
+  Trash2,
+  Upload,
+} from 'lucide-react';
+import {useTranslations} from 'next-intl';
+import {Button} from '@/components/ui/button';
+import {DropdownMenuItem} from '@/components/ui/dropdown-menu';
+import {FileUpload} from '@/components/ui/file-upload';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Progress } from '@/components/ui/progress';
-import { FileUpload } from '@/components/ui/file-upload';
-import { Download, Trash2, MoreHorizontal, Star, Loader2, CheckCircle, XCircle, FileCode2, Upload } from 'lucide-react';
-import { useTranslations } from 'next-intl';
-import { useGSAP } from '@gsap/react';
-import { TableLoadingBar, TableSkeletonRows } from '@/components/common/layout';
-import { animateTableRows } from '@/lib/animations/gsap-motion';
-import type { PackageInfo, DownloadTask } from '@/lib/services/installer/types';
+  MarketplaceMorphCatalog,
+  type MarketplaceCatalogItem,
+  type MarketplaceSelectionState,
+  type MarketplaceViewMode,
+} from '@/components/common/marketplace';
+import {PackageCardCarousel} from './PackageCardCarousel';
 import {formatDateTimeTz} from '@/lib/timezone';
+import type {DownloadTask, PackageInfo} from '@/lib/services/installer/types';
 
 interface PackageTableProps {
   type: 'online' | 'local';
@@ -55,15 +53,19 @@ interface PackageTableProps {
   localPackages?: PackageInfo[];
   recommendedVersion?: string;
   loading?: boolean;
+  error?: string | null;
+  viewMode: MarketplaceViewMode;
   onDelete?: (version: string) => void;
   onDownloadRequest?: (version: string) => void;
   downloads?: DownloadTask[];
   onSourceUpload?: (version: string, file: File) => void;
   onSourceFetch?: (version: string) => void;
   onSourceDownload?: (version: string) => void;
+  selection?: MarketplaceSelectionState;
+  bulkActions?: ReactNode;
+  bulkHint?: ReactNode;
 }
 
-// Format file size / 格式化文件大小
 function formatFileSize(bytes: number): string {
   if (bytes === 0) {
     return '0 B';
@@ -71,10 +73,9 @@ function formatFileSize(bytes: number): string {
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
-// Format date / 格式化日期
 function formatDate(dateStr?: string): string {
   if (!dateStr) {
     return '-';
@@ -82,345 +83,408 @@ function formatDate(dateStr?: string): string {
   return formatDateTimeTz(dateStr);
 }
 
+function formatSpeed(bytesPerSecond: number): string {
+  if (bytesPerSecond < 1024) {
+    return `${bytesPerSecond} B/s`;
+  }
+  if (bytesPerSecond < 1024 * 1024) {
+    return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
+  }
+  return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s`;
+}
+
+/**
+ * Online / local package list rendered through MorphCatalog.
+ * 在线 / 本地安装包列表，经 MorphCatalog 渲染。
+ */
 export function PackageTable({
   type,
   versions = [],
   localPackages = [],
   recommendedVersion,
   loading,
+  error = null,
+  viewMode,
   onDelete,
   onDownloadRequest,
   downloads = [],
   onSourceUpload,
   onSourceFetch,
   onSourceDownload,
+  selection,
+  bulkActions,
+  bulkHint,
 }: PackageTableProps) {
   const t = useTranslations();
 
-  // Get download task for a version / 获取某版本的下载任务
-  const getDownloadTask = (version: string): DownloadTask | undefined => {
-    return downloads.find((d) => d.version === version);
-  };
+  const items: MarketplaceCatalogItem[] = useMemo(() => {
+    if (type === 'online') {
+      return versions.map((version) => {
+        const localPackage = localPackages.find((pkg) => pkg.version === version);
+        const task = downloads.find((d) => d.version === version);
+        const isDownloaded = Boolean(localPackage);
+        const isRecommended = version === recommendedVersion;
+        const isBusy =
+          Boolean(task) &&
+          (task?.status === 'downloading' || task?.status === 'pending');
+        const isFailed = task?.status === 'failed';
 
-  // Check if version is already downloaded (exists in local packages)
-  // 检查版本是否已下载（存在于本地安装包中）
-  const isVersionDownloaded = (version: string): boolean => {
-    return localPackages.some((pkg) => pkg.version === version);
-  };
+        let status: MarketplaceCatalogItem['status'] = {
+          label: t('marketplaceUi.statusAvailable'),
+          tone: 'muted',
+        };
+        let progress: MarketplaceCatalogItem['progress'] = null;
 
-  // Format speed / 格式化速度
-  const formatSpeed = (bytesPerSecond: number): string => {
-    if (bytesPerSecond < 1024) {
-      return `${bytesPerSecond} B/s`;
+        if (isDownloaded) {
+          status = {label: t('marketplaceUi.statusDownloaded'), tone: 'ok'};
+        } else if (isBusy && task) {
+          status = {
+            label: t('marketplaceUi.statusDownloading'),
+            tone: 'info',
+          };
+          progress = {
+            label: t('marketplaceUi.progressDownload'),
+            value: task.progress || 0,
+            display: `${task.progress || 0}% · ${formatSpeed(task.speed || 0)}`,
+          };
+        } else if (isFailed) {
+          status = {label: t('marketplaceUi.statusFailed'), tone: 'error'};
+        } else if (task?.status === 'completed') {
+          status = {label: t('marketplaceUi.statusDownloaded'), tone: 'ok'};
+        }
+
+        let sourceLabel = t('installer.sourceAvailable');
+        if (
+          localPackage?.has_source ||
+          task?.source_status === 'completed'
+        ) {
+          sourceLabel = t('installer.sourceDownloaded');
+        } else if (
+          task?.source_requested &&
+          (task.source_status === 'pending' ||
+            task.source_status === 'downloading')
+        ) {
+          sourceLabel = `${t('installer.sourceDownloading')} ${task.source_progress || 0}%`;
+        } else if (task?.source_status === 'failed') {
+          sourceLabel = t('installer.sourceFailed');
+        } else if (localPackage) {
+          sourceLabel = t('installer.sourceMissing');
+        }
+
+        const badges: MarketplaceCatalogItem['badges'] = [
+          {label: `v${version}`, highlight: isRecommended},
+        ];
+        if (isRecommended) {
+          badges.push({
+            label: t('marketplaceUi.statusRecommended'),
+            highlight: true,
+          });
+        }
+
+        // Visible download / retry only — whole row must not trigger download.
+        // 仅可见下载/重试按钮；整行不得触发下载。
+        // 已下载行不渲染按钮；操作列靠 MorphCatalog min-h-9 占位稳住行高。
+        // Downloaded rows omit the button; MorphCatalog min-h-9 keeps action-column height stable.
+        const showDownloadButton = !isDownloaded || isFailed;
+        const primaryActions = showDownloadButton ? (
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='h-9 rounded-md text-xs'
+            data-testid={`package-download-btn-${version}`}
+            disabled={isBusy}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isBusy) {
+                return;
+              }
+              onDownloadRequest?.(version);
+            }}
+          >
+            <Download className='mr-1.5 size-3.5' />
+            {isFailed
+              ? t('installer.retry')
+              : isBusy
+                ? t('marketplaceUi.statusDownloading')
+                : t('installer.downloadToServer')}
+          </Button>
+        ) : undefined;
+
+        // 仅用接口真实字段填卡；无数据不编造（高度已统一，不再按字段数压缩）。
+        // Only real API fields; never invent values (height is unified — no field-count compacting).
+        const fields: NonNullable<MarketplaceCatalogItem['fields']> = [
+          {
+            label: t('marketplaceUi.fieldRecommended'),
+            value: isRecommended
+              ? t('marketplaceUi.fieldRecommendedYes')
+              : t('marketplaceUi.fieldRecommendedNo'),
+          },
+          {
+            label: t('marketplaceUi.fieldSource'),
+            value: sourceLabel,
+          },
+          {
+            label: t('installer.status'),
+            value: status.label,
+          },
+        ];
+        if (localPackage?.file_size) {
+          fields.push({
+            label: t('marketplaceUi.fieldSize'),
+            value: formatFileSize(localPackage.file_size),
+          });
+        } else if (task?.total_bytes) {
+          fields.push({
+            label: t('marketplaceUi.fieldSize'),
+            value: formatFileSize(task.total_bytes),
+          });
+        }
+        if (localPackage?.file_name) {
+          fields.push({
+            label: t('marketplaceUi.fieldFileName'),
+            value: localPackage.file_name,
+          });
+        }
+        if (localPackage?.uploaded_at) {
+          fields.push({
+            label: t('installer.uploadedAt'),
+            value: formatDate(localPackage.uploaded_at),
+          });
+        } else if (task?.end_time) {
+          fields.push({
+            label: t('installer.uploadedAt'),
+            value: formatDate(task.end_time),
+          });
+        }
+        if (localPackage?.local_path) {
+          fields.push({
+            label: t('marketplaceUi.fieldLocalPath'),
+            value: localPackage.local_path,
+          });
+        }
+        const mirrorKeys = Object.keys(localPackage?.download_urls || {}).filter(
+          Boolean,
+        );
+        if (task?.mirror) {
+          fields.push({
+            label: t('marketplaceUi.fieldMirror'),
+            value: task.mirror,
+          });
+        } else if (mirrorKeys.length > 0) {
+          fields.push({
+            label: t('marketplaceUi.fieldMirror'),
+            value: mirrorKeys.join(', '),
+          });
+        }
+
+        return {
+          id: `online-${version}`,
+          title: `v${version}`,
+          subtitle: isRecommended
+            ? t('installer.recommendedVersion')
+            : t('installer.available'),
+          icon: (
+            <span className='inline-flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary'>
+              {isRecommended ? (
+                <Star className='size-4' />
+              ) : (
+                <Package className='size-4' />
+              )}
+            </span>
+          ),
+          badges,
+          status,
+          fields,
+          progress,
+          meta: isDownloaded ? t('installer.downloaded') : undefined,
+          primaryActions,
+          // No empty «…» menu for downloaded rows. / 已下载行不传空菜单。
+          menuActions: undefined,
+          // Whole row must not start downloads or other side effects.
+          // 整行不得发起下载或其他副作用。
+          onOpen: undefined,
+        };
+      });
     }
-    if (bytesPerSecond < 1024 * 1024) {
-      return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
-    }
-    return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s`;
-  };
 
-  const tableContainerRef = useRef<HTMLDivElement>(null);
-
-  // 安装包列表数据更新后执行平滑交错入场动效
-  // Trigger staggered entrance animation when package data updates
-  useGSAP(
-    () => {
-      const hasData = type === 'online' ? versions.length > 0 : localPackages.length > 0;
-      if (hasData && !loading) {
-        animateTableRows('.package-data-row');
+    return localPackages.map((pkg) => {
+      let sourceLabel = t('installer.sourceMissing');
+      let sourceToneOk = false;
+      if (pkg.has_source) {
+        sourceLabel = `${t('installer.sourceImported')} · ${formatFileSize(pkg.source_file_size || 0)}`;
+        sourceToneOk = true;
+      } else if (pkg.source_status === 'failed') {
+        sourceLabel = t('installer.sourceFailed');
       }
-    },
-    {dependencies: [type, versions, localPackages, loading], scope: tableContainerRef},
-  );
 
-  // Online versions table / 在线版本表格
-  if (type === 'online') {
+      const menuActions = (
+        <>
+          {pkg.has_source ? (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onSourceDownload?.(pkg.version);
+              }}
+            >
+              <Download className='mr-2 size-4' />
+              {t('installer.downloadSource')}
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                onSourceFetch?.(pkg.version);
+              }}
+            >
+              <FileCode2 className='mr-2 size-4' />
+              {t('installer.fetchSource')}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem asChild>
+            <FileUpload
+              variant='menu-item'
+              accept='.tar.gz'
+              resetOnSelect
+              data-testid={`package-source-upload-${pkg.version}`}
+              onFileChange={(selected) => {
+                if (selected) {
+                  onSourceUpload?.(pkg.version, selected);
+                }
+              }}
+            >
+              <Upload className='size-4' />
+              {pkg.has_source
+                ? t('installer.replaceSource')
+                : t('installer.uploadSource')}
+            </FileUpload>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className='text-destructive'
+            onSelect={() => {
+              window.setTimeout(() => onDelete?.(pkg.version), 0);
+            }}
+          >
+            <Trash2 className='mr-2 size-4' />
+            {t('common.delete')}
+          </DropdownMenuItem>
+        </>
+      );
+
+      return {
+        id: `local-${pkg.version}`,
+        title: `v${pkg.version}`,
+        subtitle: pkg.file_name,
+        icon: (
+          <span className='inline-flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground'>
+            <Package className='size-4' />
+          </span>
+        ),
+        badges: [
+          {
+            label: sourceToneOk
+              ? t('installer.sourceImported')
+              : sourceLabel,
+            highlight: sourceToneOk,
+          },
+        ],
+        status: {
+          label: sourceToneOk
+            ? t('installer.sourceImported')
+            : pkg.source_status === 'failed'
+              ? t('installer.sourceFailed')
+              : t('installer.sourceMissing'),
+          tone: sourceToneOk
+            ? 'ok'
+            : pkg.source_status === 'failed'
+              ? 'error'
+              : 'muted',
+        },
+        fields: [
+          {
+            label: t('marketplaceUi.fieldSize'),
+            value: formatFileSize(pkg.file_size),
+          },
+          {
+            label: t('marketplaceUi.fieldFileName'),
+            value: pkg.file_name,
+          },
+          {
+            label: t('marketplaceUi.fieldSource'),
+            value: sourceLabel,
+          },
+          {
+            label: t('marketplaceUi.fieldUpdated'),
+            value: formatDate(pkg.uploaded_at),
+          },
+          ...(pkg.local_path
+            ? [
+                {
+                  label: t('marketplaceUi.fieldLocalPath'),
+                  value: pkg.local_path,
+                },
+              ]
+            : []),
+          ...(Object.keys(pkg.download_urls || {}).length > 0
+            ? [
+                {
+                  label: t('marketplaceUi.fieldMirror'),
+                  value: Object.keys(pkg.download_urls).join(', '),
+                },
+              ]
+            : []),
+        ],
+        meta: formatDate(pkg.uploaded_at),
+        menuActions,
+      };
+    });
+  }, [
+    downloads,
+    localPackages,
+    onDelete,
+    onDownloadRequest,
+    onSourceDownload,
+    onSourceFetch,
+    onSourceUpload,
+    recommendedVersion,
+    t,
+    type,
+    versions,
+  ]);
+
+  const empty =
+    type === 'online'
+      ? t('installer.noVersionsAvailable')
+      : t('installer.noLocalPackages');
+
+  const catalogTestId =
+    type === 'online' ? 'package-online-catalog' : 'package-local-catalog';
+
+  // 卡片视图改用 Apple 轮播，避免平铺网格；默认仍是表格。
+  // Card view uses the Apple carousel instead of a flat grid; table remains the default.
+  if (viewMode === 'card') {
     return (
-      <div ref={tableContainerRef} className="border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex-1 flex flex-col">
-        <TableLoadingBar loading={Boolean(loading)} />
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('installer.version')}</TableHead>
-              <TableHead>{t('installer.status')}</TableHead>
-              <TableHead>{t('installer.sourcePackage')}</TableHead>
-              <TableHead>{t('installer.downloadLinks')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading && versions.length === 0 ? (
-              <TableSkeletonRows columns={4} rows={5} />
-            ) : versions.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center py-12 text-muted-foreground">
-                  {t('installer.noVersionsAvailable')}
-                </TableCell>
-              </TableRow>
-            ) : (
-              versions.map((version) => (
-                <TableRow
-                  key={version}
-                  className={`package-data-row transition-opacity duration-200 ${
-                    loading ? 'opacity-60 pointer-events-none' : ''
-                  }`}
-                >
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      {version}
-                      {version === recommendedVersion && (
-                        <Badge variant="default" className="flex items-center gap-1">
-                          <Star className="h-3 w-3" />
-                          {t('installer.recommended')}
-                        </Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{t('installer.available')}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    {(() => {
-                      const localPackage = localPackages.find((pkg) => pkg.version === version);
-                      const task = getDownloadTask(version);
-
-                      // 优先展示本地文件状态，其次展示当前下载任务的源码状态。
-                      // Prefer local file state, then show source state from the active download task.
-                      if (localPackage?.has_source || task?.source_status === 'completed') {
-                        return (
-                          <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            {t('installer.sourceDownloaded')}
-                          </Badge>
-                        );
-                      }
-
-                      if (
-                        task?.source_requested
-                        && (task.source_status === 'pending' || task.source_status === 'downloading')
-                      ) {
-                        return (
-                          <div className="flex items-center gap-2 min-w-[150px]">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            <div className="flex-1">
-                              <Progress value={task.source_progress || 0} className="h-1.5" />
-                              <span className="mt-1 block text-xs text-muted-foreground">
-                                {t('installer.sourceDownloading')} {task.source_progress || 0}%
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      if (localPackage || task?.source_status === 'failed') {
-                        return (
-                          <Badge variant="secondary" title={task?.source_error}>
-                            {task?.source_status === 'failed'
-                              ? t('installer.sourceFailed')
-                              : t('installer.sourceMissing')}
-                          </Badge>
-                        );
-                      }
-
-                      return (
-                        <Badge variant="outline" className="text-muted-foreground">
-                          <FileCode2 className="h-3 w-3 mr-1" />
-                          {t('installer.sourceAvailable')}
-                        </Badge>
-                      );
-                    })()}
-                  </TableCell>
-                  <TableCell>
-                    {(() => {
-                      const task = getDownloadTask(version);
-                      const isDownloaded = isVersionDownloaded(version);
-
-                      // Show downloaded status (check local files first)
-                      // 显示已下载状态（优先检查本地文件）
-                      if (isDownloaded) {
-                        return (
-                          <div className="flex items-center gap-2 text-green-600">
-                            <CheckCircle className="h-4 w-4" />
-                            <span className="text-sm">{t('installer.downloaded')}</span>
-                          </div>
-                        );
-                      }
-
-                      // Show download progress / 显示下载进度
-                      if (task && (task.status === 'downloading' || task.status === 'pending')) {
-                        return (
-                          <div className="flex items-center gap-2 min-w-[200px]">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <div className="flex-1">
-                              <Progress value={task.progress} className="h-2" />
-                              <div className="text-xs text-muted-foreground mt-1">
-                                {task.progress}% - {formatSpeed(task.speed)}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      // Show completed status (just finished downloading)
-                      // 显示完成状态（刚刚下载完成）
-                      if (task?.status === 'completed') {
-                        return (
-                          <div className="flex items-center gap-2 text-green-600">
-                            <CheckCircle className="h-4 w-4" />
-                            <span className="text-sm">{t('installer.downloadSuccess')}</span>
-                          </div>
-                        );
-                      }
-
-                      // Show failed status / 显示失败状态
-                      if (task?.status === 'failed') {
-                        return (
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1 text-destructive">
-                              <XCircle className="h-4 w-4" />
-                              <span className="text-sm">{t('installer.downloadFailed')}</span>
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => onDownloadRequest?.(version)}
-                            >
-                              <Download className="h-4 w-4 mr-2" />
-                              {t('installer.retry')}
-                            </Button>
-                          </div>
-                        );
-                      }
-
-                      // Show download button / 显示下载按钮
-                      return (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onDownloadRequest?.(version)}
-                        >
-                          <Download className="h-4 w-4 mr-2" />
-                          {t('installer.downloadToServer')}
-                        </Button>
-                      );
-                    })()}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <PackageCardCarousel
+        items={items}
+        loading={Boolean(loading)}
+        error={error}
+        empty={empty}
+        data-testid={catalogTestId}
+      />
     );
   }
 
-  // Local packages table / 本地安装包表格
   return (
-    <div ref={tableContainerRef} className="border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex-1 flex flex-col">
-      <TableLoadingBar loading={Boolean(loading)} />
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t('installer.version')}</TableHead>
-            <TableHead>{t('installer.fileName')}</TableHead>
-            <TableHead>{t('installer.fileSize')}</TableHead>
-            <TableHead>{t('installer.sourcePackage')}</TableHead>
-            <TableHead>{t('installer.uploadedAt')}</TableHead>
-            <TableHead className="w-[100px]">{t('common.actions')}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {loading && localPackages.length === 0 ? (
-            <TableSkeletonRows columns={6} rows={5} />
-          ) : localPackages.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
-                {t('installer.noLocalPackages')}
-              </TableCell>
-            </TableRow>
-          ) : (
-            localPackages.map((pkg) => (
-              <TableRow
-                key={pkg.version}
-                className={`package-data-row transition-opacity duration-200 ${
-                  loading ? 'opacity-60 pointer-events-none' : ''
-                }`}
-              >
-                <TableCell className="font-medium">{pkg.version}</TableCell>
-                <TableCell className="font-mono text-sm">{pkg.file_name}</TableCell>
-                <TableCell>{formatFileSize(pkg.file_size)}</TableCell>
-                <TableCell>
-                  {pkg.has_source ? (
-                    <div className="flex items-center gap-2 min-w-max">
-                      <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        {t('installer.sourceImported')}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">{formatFileSize(pkg.source_file_size || 0)}</span>
-                    </div>
-                  ) : pkg.source_status === 'failed' ? (
-                    <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive" title={pkg.source_error}>
-                      <XCircle className="h-3 w-3 mr-1" />
-                      {t('installer.sourceFailed')}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary">{t('installer.sourceMissing')}</Badge>
-                  )}
-                </TableCell>
-                <TableCell>{formatDate(pkg.uploaded_at)}</TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {pkg.has_source ? (
-                        <DropdownMenuItem onClick={() => onSourceDownload?.(pkg.version)}>
-                          <Download className="h-4 w-4 mr-2" />
-                          {t('installer.downloadSource')}
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem onClick={() => onSourceFetch?.(pkg.version)}>
-                          <FileCode2 className="h-4 w-4 mr-2" />
-                          {t('installer.fetchSource')}
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem asChild>
-                        <FileUpload
-                          variant="menu-item"
-                          accept=".tar.gz"
-                          resetOnSelect
-                          data-testid={`package-source-upload-${pkg.version}`}
-                          onFileChange={(selected) => {
-                            if (selected) {
-                              onSourceUpload?.(pkg.version, selected);
-                            }
-                          }}
-                        >
-                          <Upload className="h-4 w-4" />
-                          {pkg.has_source ? t('installer.replaceSource') : t('installer.uploadSource')}
-                        </FileUpload>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onSelect={() => {
-                          // 等下拉菜单关闭后再弹出确认框，避免与 AlertDialog 双重焦点陷阱
-                          // Close the dropdown first, then open the confirm dialog to avoid nested focus traps
-                          window.setTimeout(() => onDelete?.(pkg.version), 0);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        {t('common.delete')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-    </div>
+    <MarketplaceMorphCatalog
+      items={items}
+      viewMode='table'
+      loading={Boolean(loading)}
+      error={error}
+      empty={empty}
+      selection={selection}
+      bulkActions={bulkActions}
+      bulkHint={bulkHint}
+      data-testid={catalogTestId}
+    />
   );
 }

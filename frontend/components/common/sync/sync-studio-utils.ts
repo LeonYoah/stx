@@ -1795,13 +1795,13 @@ export function filterTree(
 
       if (node.node_type === 'folder') {
         const matchesKeyword = !trimmed || node.name.toLowerCase().includes(trimmed);
+        // 有可见子节点时保留路径外壳；空目录按关键字与作用域判定，避免「我的/我的与公开」误藏自己的空文件夹。
+        // Keep path shells when children remain visible; empty folders must still pass keyword + scope so owned empties stay in mine views.
         if (children.length > 0) {
           return {...node, children};
         }
-        if (trimmed || filterScope !== 'all') {
-          return null;
-        }
-        if (matchesKeyword) {
+        const matchesScope = isNodeMatchingScope(node, filterScope, currentUserId);
+        if (matchesKeyword && matchesScope) {
           return {...node, children};
         }
         return null;

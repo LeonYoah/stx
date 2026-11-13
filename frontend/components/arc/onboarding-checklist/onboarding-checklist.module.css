@@ -1,0 +1,77 @@
+/* The card holds no padding of its own: the header pads itself, so hiding the body leaves an evenly padded bar. */
+.card { container-type: inline-size; width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--surface); color: var(--foreground); }
+/* Sticky header keeps collapse / fully-hide reachable while the float shell scrolls.
+   粘性头部：浮层外壳滚动时收起/完全隐藏仍可达。 */
+.header { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-3); padding: var(--space-5); background: var(--surface); }
+.heading { display: grid; min-width: 0; gap: 1px; }
+.title { margin: 0; color: var(--foreground); font-family: var(--font-body); font-size: var(--text-base); font-weight: 500; letter-spacing: var(--tracking-body); line-height: var(--leading-body); }
+.count { margin: 0; color: var(--text-muted); font-size: var(--text-sm); line-height: var(--leading-body); }
+.countVisual, .groupLabel { display: inline-flex; align-items: baseline; }
+.ring { position: relative; display: grid; width: 40px; height: 40px; color: var(--accent); }
+.ringArc, .ringTick { grid-area: 1 / 1; width: 40px; height: 40px; }
+.ringTrack { stroke: var(--border); }
+.ringFill { stroke: var(--accent); }
+/* Action cluster for collapse + fully-hide — must not reuse .hide width clamp.
+   收起+完全隐藏操作簇：禁止复用 .hide 的窄宽钳制。 */
+.headerActions { display: inline-flex; align-items: center; gap: var(--space-1); flex-shrink: 0; min-width: 0; }
+/* Hide is a quiet text button; it anchors nothing, so a press only changes its color. */
+.hide { display: inline-flex; min-width: var(--control-height-sm); min-height: var(--control-height-sm); align-items: center; justify-content: center; gap: var(--space-1); padding: 0 var(--space-2) 0 var(--space-3); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); font-weight: 500; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+@media (hover: hover) and (pointer: fine) { .hide:hover { background: var(--surface-muted); color: var(--foreground); } }
+.hide:active { background: var(--surface-muted); color: var(--foreground); }
+.chevron { display: grid; place-items: center; flex-shrink: 0; }
+/* Narrow cards: hide text labels but keep each control's icon hit target (≥ control height).
+   窄卡片：隐藏文案但保留每个控件的图标点击热区。 */
+@container (max-width: 380px) { .hide { width: var(--control-height-sm); min-width: var(--control-height-sm); padding: 0; } .hideLabel { display: none; } }
+.body { overflow: hidden; }
+.bodyInner { padding: var(--space-2); border-top: 1px solid var(--border); }
+.list { margin: 0; padding: 0; list-style: none; }
+/* Rows fold from their measured height and clip while they do. */
+.step { overflow: hidden; }
+.stepInner { display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: var(--space-3); padding: var(--space-1) var(--space-3); border-radius: var(--radius-panel); transition: background-color var(--duration-standard) var(--ease-standard); }
+.step[data-current] .stepInner { background: var(--surface-muted); }
+@media (hover: hover) and (pointer: fine) { .step:not([data-current]) .stepInner:hover { background: color-mix(in oklab, var(--surface-muted) 60%, transparent); } }
+.check { display: grid; width: 40px; height: 40px; place-items: center; padding: 0; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--accent-foreground); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+/* Only the circle answers a press, so the row and its label never move. */
+.checkVisual { position: relative; display: block; width: 22px; height: 22px; border: 1.5px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--surface); transition: border-color var(--duration-fast) var(--ease-standard), transform var(--duration-spring) var(--ease-spring); }
+@media (hover: hover) and (pointer: fine) { .check[aria-checked="false"]:hover .checkVisual { border-color: var(--text-muted); } }
+.check:active .checkVisual { transform: scale(.92); transition: border-color var(--duration-fast) var(--ease-standard), transform 110ms var(--ease-standard); }
+.check[aria-checked="true"] .checkVisual { border-color: var(--accent); }
+.checkFill { position: absolute; inset: -1.5px; border-radius: inherit; background: var(--accent); }
+.checkMark { position: absolute; inset: -1.5px; width: 22px; height: 22px; }
+.stepMain { display: grid; min-width: 0; }
+.stepTitle { display: flex; width: 100%; min-height: 40px; align-items: center; padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--foreground); font: inherit; font-size: var(--text-sm); font-weight: 500; line-height: var(--leading-body); text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.completedTitle { display: flex; min-height: 40px; min-width: 0; align-items: center; font-size: var(--text-sm); font-weight: 500; line-height: var(--leading-body); }
+/* The strike is a one pixel line of the text color that draws across, line by line when a title wraps; unchecking wipes it back quickly. */
+.titleText { background-image: linear-gradient(currentColor, currentColor); background-position: 0 60%; background-repeat: no-repeat; background-size: 0% 1px; transition: background-size var(--duration-fast) var(--ease-standard), color var(--duration-standard) var(--ease-standard); }
+[data-done] .titleText { background-size: 100% 1px; color: var(--text-muted); transition: background-size var(--duration-considered) var(--ease-enter) 80ms, color var(--duration-standard) var(--ease-standard); }
+.panel { overflow: hidden; }
+.panelInner { padding: 0 0 var(--space-3); }
+.description { max-width: 46ch; margin: calc(var(--space-1) * -1) 0 0; color: var(--text-secondary); font-size: var(--text-sm); line-height: var(--leading-body); }
+.errorSlot { overflow: hidden; }
+.error { margin: 0; padding-top: var(--space-2); color: var(--danger); font-size: var(--text-sm); line-height: var(--leading-body); }
+.action { display: inline-flex; min-height: var(--control-height-sm); align-items: center; gap: var(--space-2); margin-top: var(--space-3); padding: 0 var(--space-3) 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--foreground); color: var(--background); font: inherit; font-size: var(--text-sm); font-weight: 500; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: box-shadow var(--duration-fast) var(--ease-standard), transform var(--duration-spring) var(--ease-spring); }
+@media (hover: hover) and (pointer: fine) { .action[data-state="idle"]:hover { box-shadow: var(--shadow-resting); } }
+.action[data-state="idle"]:active { transform: scale(.97); transition: box-shadow var(--duration-fast) var(--ease-standard), transform 100ms var(--ease-standard); }
+.action[data-state="pending"] { cursor: progress; }
+.action[data-state="done"] { cursor: default; }
+.actionIcon { display: grid; width: 16px; height: 16px; place-items: center; }
+.actionGlyph { grid-area: 1 / 1; display: grid; width: 16px; height: 16px; place-items: center; }
+.spinner { width: 14px; height: 14px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: var(--radius-pill); animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.group { overflow: hidden; }
+.groupToggle { display: grid; width: 100%; min-height: 44px; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-3); margin-top: 2px; padding: 0 var(--space-3) 0 64px; border: 0; border-radius: var(--radius-panel); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); font-weight: 500; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+@media (hover: hover) and (pointer: fine) { .groupToggle:hover { background: color-mix(in oklab, var(--surface-muted) 60%, transparent); color: var(--foreground); } }
+.groupPanel { overflow: hidden; }
+.swap { position: relative; display: inline-grid; max-width: 100%; vertical-align: top; }
+.swapSizer { grid-area: 1 / 1; visibility: hidden; }
+.swapText { grid-area: 1 / 1; }
+.number { display: inline-flex; font-variant-numeric: tabular-nums; }
+/* Places clip sideways only, so a narrowing column never shows half a digit and a turning digit is never cut. */
+.place { position: relative; display: inline-block; overflow-x: clip; }
+.digit { display: inline-block; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+  .hide, .stepInner, .checkVisual, .titleText, [data-done] .titleText, .action, .groupToggle { transition: none; }
+  .check:active .checkVisual, .action[data-state="idle"]:active { transform: none; }
+  .spinner { animation: none; }
+}

@@ -28,6 +28,7 @@ frontend/components/arc/input/input.tsx
 frontend/components/arc/lib/motion-tokens.ts
 frontend/components/arc/lib/use-copy-feedback.ts
 frontend/components/arc/motion-tokens.ts
+frontend/components/arc/onboarding-checklist/onboarding-checklist.tsx
 frontend/components/arc/resizable-panels/resizable-panels.tsx
 frontend/components/arc/search-field/search-field.tsx
 frontend/components/arc/segmented-control/segmented-control.tsx

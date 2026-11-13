@@ -295,7 +295,19 @@ export function InstallPluginDialog({
         setDownloading(false);
         // 仅会话内经历过下载时通知父级，避免已就绪打开管理时反复 loadLocalPlugins。
         // Notify parent only after an in-session download; skip ready-on-open refresh loops.
+        const shouldNotify =
+          shouldNotifyParentDownloadComplete(
+            observedDownloadingInSessionRef.current,
+          );
         notifyParentDownloadCompleteIfNeeded();
+        if (shouldNotify) {
+          // Inventory is ready only after download completes — refresh onboarding (AC5/AC6).
+          // 仅下载完成后库存才就绪——刷新上手清单（AC5/AC6）。
+          const {notifyOnboardingResourcesChanged} = await import(
+            '@/lib/onboarding/events'
+          );
+          notifyOnboardingResourcesChanged();
+        }
       } else if (status.status === 'downloading') {
         observedDownloadingInSessionRef.current = true;
         setDownloading(true);
@@ -323,7 +335,19 @@ export function InstallPluginDialog({
             status: 'completed',
             progress: 100,
           });
+          const shouldNotify =
+            shouldNotifyParentDownloadComplete(
+              observedDownloadingInSessionRef.current,
+            );
           notifyParentDownloadCompleteIfNeeded();
+          if (shouldNotify) {
+            // Inventory is ready only after download completes — refresh onboarding (AC5/AC6).
+            // 仅下载完成后库存才就绪——刷新上手清单（AC5/AC6）。
+            const {notifyOnboardingResourcesChanged} = await import(
+              '@/lib/onboarding/events'
+            );
+            notifyOnboardingResourcesChanged();
+          }
         } else if (downloadingRef.current) {
           // 若既非 downloading 也非 completed 且本地尚未存在，退出下载中标记避免停留在 0%。
           // If neither downloading nor completed and not local, clear downloading flag to avoid sticking at 0%.

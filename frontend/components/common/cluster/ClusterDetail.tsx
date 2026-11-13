@@ -26,7 +26,7 @@
  */
 
 import {useState, useEffect, useCallback, useRef} from 'react';
-import {useRouter} from 'next/navigation';
+import {useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
@@ -173,6 +173,7 @@ import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
 import {formatDateTimeTz} from '@/lib/timezone';
+import {useOnboardingOptional} from '@/components/common/onboarding/OnboardingContext';
 
 interface ClusterDetailProps {
   clusterId: number;
@@ -344,6 +345,24 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // 复用工作台 Checkpoint 详情弹窗文案 / Reuse workbench Checkpoint dialog copy
   const tCheckpoint = useTranslations('workbenchStudio');
   const router = useRouter();
+  const onboarding = useOnboardingOptional();
+  const bindTargetCluster = onboarding?.bindTargetCluster;
+  const onboardingReady = onboarding?.ready;
+  const onboardingFinished = onboarding?.state.finished;
+
+  // Record the cluster the user actually opened (AC1 — no arbitrary first pick).
+  // 记录用户实际打开的集群（AC1——禁止随意挑第一个凑进度）。
+  useEffect(() => {
+    if (!onboardingReady || onboardingFinished || !(clusterId > 0)) {
+      return;
+    }
+    bindTargetCluster?.(clusterId);
+  }, [
+    clusterId,
+    onboardingReady,
+    onboardingFinished,
+    bindTargetCluster,
+  ]);
 
   // Data state / 数据状态
   const [cluster, setCluster] = useState<ClusterInfo | null>(null);
@@ -442,6 +461,26 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [forceDelete, setForceDelete] = useState(false);
   const [nodeToRemove, setNodeToRemove] = useState<NodeInfo | null>(null);
   const [activeTab, setActiveTab] = useState<ClusterDetailTab>('overview');
+  const searchParams = useSearchParams();
+
+  // Deep-link ?tab=proxy (onboarding AC8) / 支持 ?tab=proxy 深链（上手 AC8）
+  useEffect(() => {
+    const tab = searchParams?.get('tab');
+    if (
+      tab === 'proxy' ||
+      tab === 'overview' ||
+      tab === 'nodes' ||
+      tab === 'storage' ||
+      tab === 'monitoring' ||
+      tab === 'plugins' ||
+      tab === 'configs' ||
+      tab === 'diagnostics' ||
+      tab === 'upgrades' ||
+      tab === 'webui'
+    ) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   // Node selection state / 节点选择状态
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<number>>(

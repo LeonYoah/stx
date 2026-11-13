@@ -58,6 +58,8 @@ vi.mock('next-intl', () => ({
       gitCommit: '提交',
       checkUpdate: '检查更新',
       adminOnlyTooltip: '仅管理员可升级',
+      onboardingHelp: '上手指南',
+      resumeOnboarding: '继续上手指南',
       notLoggedIn: '未登录',
       unknown: '未知',
       'trustLevel.member': '成员',
@@ -88,6 +90,15 @@ vi.mock('@/hooks/use-auth', () => ({
     isLoading: false,
     logout: vi.fn(),
     checkAuthStatus: vi.fn(),
+  }),
+}));
+
+const resumeGuide = vi.fn();
+
+vi.mock('@/components/common/onboarding/OnboardingContext', () => ({
+  useOnboardingOptional: () => ({
+    ready: true,
+    resumeGuide,
   }),
 }));
 
@@ -132,6 +143,7 @@ vi.mock('@/lib/timezone', () => ({
 describe('ProfileButton', () => {
   beforeEach(() => {
     push.mockReset();
+    resumeGuide.mockReset();
     vi.useFakeTimers({shouldAdvanceTime: true});
   });
 
@@ -167,5 +179,15 @@ describe('ProfileButton', () => {
     await waitFor(() => {
       expect(push).toHaveBeenCalledWith('/system-upgrade');
     });
+  });
+
+  it('resumes onboarding guide from profile without navigating away', async () => {
+    render(<ProfileButton />);
+    fireEvent.click(screen.getByTestId('profile-dock-trigger'));
+    expect(await screen.findByTestId('profile-dialog')).toBeTruthy();
+    const resume = await screen.findByText('继续上手指南');
+    fireEvent.click(resume);
+    expect(resumeGuide).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
   });
 });

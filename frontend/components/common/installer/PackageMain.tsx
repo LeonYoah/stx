@@ -26,6 +26,7 @@ import {useCallback, useMemo, useState} from 'react';
 import {motion, useReducedMotion} from 'motion/react';
 import {toast} from 'sonner';
 import {usePackages} from '@/hooks/use-installer';
+import {notifyOnboardingResourcesChanged} from '@/lib/onboarding/events';
 import {PackageTable} from './PackageTable';
 import {UploadPackageDialog} from './UploadPackageDialog';
 import {DownloadPackageDialog} from './DownloadPackageDialog';
@@ -127,6 +128,9 @@ export function PackageMain() {
   ) => {
     await uploadPackage(file, version, sourceFile, onProgress);
     setUploadDialogOpen(false);
+    // Refresh onboarding inventory after a real upload lands (AC5).
+    // 上传真正落盘后刷新上手清单库存（AC5）。
+    notifyOnboardingResourcesChanged();
   };
 
   const handleSourceUpload = async (version: string, sourceFile: File) => {

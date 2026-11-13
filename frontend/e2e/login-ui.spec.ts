@@ -16,7 +16,11 @@
  */
 
 import {expect, test} from '@playwright/test';
-import {expectLoginForm, fillAndSubmitLoginForm} from './helpers/auth';
+import {
+  dismissOnboardingPathChooserIfPresent,
+  expectLoginForm,
+  fillAndSubmitLoginForm,
+} from './helpers/auth';
 
 test('renders the credential login form', async ({page}) => {
   await page.goto('/login');
@@ -38,6 +42,9 @@ test('authenticates with the default admin account', async ({page}) => {
   await fillAndSubmitLoginForm(page);
 
   await page.waitForURL('**/dashboard');
+  // 新会话会弹路径选择；公共登录断言前先跳过，避免 Dialog 遮罩/aria-hidden。
+  // New sessions open the path chooser; skip before shared assertions so the Dialog overlay/aria-hidden does not block.
+  await dismissOnboardingPathChooserIfPresent(page);
   await expect(page.getByRole('heading', {level: 1})).toHaveText(
     /控制台|Dashboard/i,
   );
@@ -59,6 +66,9 @@ test('plays the welcome splash after login and can be skipped', async ({
   await fillAndSubmitLoginForm(page);
 
   await page.waitForURL('**/dashboard');
+  // 开屏与路径选择可能同时出现；先清路径选择再断言开屏与首页标题。
+  // Splash and path chooser may both appear; clear the chooser before splash/dashboard asserts.
+  await dismissOnboardingPathChooserIfPresent(page);
   const splash = page.getByTestId('welcome-splash');
   await expect(splash).toBeVisible();
   // 首页已在遮罩下渲染完毕，跳过即可直接露出 / The dashboard renders beneath and is revealed on skip.
@@ -69,5 +79,25 @@ test('plays the welcome splash after login and can be skipped', async ({
   await page.getByRole('button', {name: /跳过|Skip/i}).click();
   await expect(splash).toHaveCount(0);
   await expect(page.locator('html')).not.toHaveAttribute('data-stx-splash');
+  await expect(page.getByRole('button', {name: /刷新|Refresh/i})).toBeVisible();
+});
+
+test('shows the onboarding path chooser after a fresh login and skip reveals the dashboard', async ({
+  page,
+}) => {
+  // login-ui 项目使用空 storageState，保证新会话会弹出路径选择。
+  // login-ui uses empty storageState so a fresh session opens the path chooser.
+  await page.goto('/login');
+  await fillAndSubmitLoginForm(page);
+  await page.waitForURL('**/dashboard');
+
+  const chooser = page.getByTestId('stx-onboarding-path-chooser');
+  await expect(chooser).toBeVisible({timeout: 10_000});
+  await page.getByTestId('stx-onboarding-path-skip').click();
+  await expect(chooser).toHaveCount(0);
+
+  await expect(page.getByRole('heading', {level: 1})).toHaveText(
+    /控制台|Dashboard/i,
+  );
   await expect(page.getByRole('button', {name: /刷新|Refresh/i})).toBeVisible();
 });

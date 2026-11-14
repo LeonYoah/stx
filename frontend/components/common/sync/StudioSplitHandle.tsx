@@ -18,6 +18,7 @@
  */
 
 import {
+  useEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -50,6 +51,18 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+const RESIZING_ATTR = 'data-studio-resizing';
+
+/** 把拖动轴写到 html，用 CSS 锁住整页光标。 / Stamp the drag axis on html so CSS can lock the page cursor. */
+function lockResizeCursor(axis: 'x' | 'y') {
+  document.documentElement.setAttribute(RESIZING_ATTR, axis);
+}
+
+/** 拖动结束或卸载时清掉光标锁。 / Drop the cursor lock when the drag ends or the handle unmounts. */
+function unlockResizeCursor() {
+  document.documentElement.removeAttribute(RESIZING_ATTR);
+}
+
 /**
  * 贴在卡片接缝上的 Arc 风格分隔条：平时是一条线，悬停才出握把。
  * Arc-style divider on the card seam: a hairline at rest, grip only on hover.
@@ -75,6 +88,14 @@ export function StudioSplitHandle({
   const [active, setActive] = useState(false);
   const isVertical = orientation === 'vertical';
 
+  useEffect(() => {
+    return () => {
+      if (dragRef.current) {
+        unlockResizeCursor();
+      }
+    };
+  }, []);
+
   const applyDelta = (delta: number) => {
     const signed = invert ? -delta : delta;
     onChange(clamp(Math.round(value + signed), min, max));
@@ -84,13 +105,16 @@ export function StudioSplitHandle({
     if (event.pointerType === 'mouse' && event.button !== 0) {
       return;
     }
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // jsdom 没有 Pointer Capture；浏览器里用来拖过编辑器时仍收到事件。
+    // jsdom has no Pointer Capture; in the browser this keeps events while crossing the editor.
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,
       start: isVertical ? event.clientX : event.clientY,
       origin: value,
     };
     setActive(true);
+    lockResizeCursor(isVertical ? 'x' : 'y');
     onDragStart?.();
   };
 
@@ -113,6 +137,7 @@ export function StudioSplitHandle({
     }
     dragRef.current = null;
     setActive(false);
+    unlockResizeCursor();
     onDragEnd?.();
   };
 

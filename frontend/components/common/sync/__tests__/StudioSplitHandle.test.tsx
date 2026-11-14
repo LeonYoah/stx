@@ -62,4 +62,75 @@ describe('StudioSplitHandle', () => {
     });
     expect(onChange).toHaveBeenCalledWith(344);
   });
+
+  it('locks a compact custom cursor on html while dragging, then clears it', () => {
+    render(
+      <StudioSplitHandle
+        orientation='vertical'
+        label='Resize explorer'
+        value={240}
+        min={180}
+        max={420}
+        onChange={vi.fn()}
+      />,
+    );
+
+    const handle = screen.getByRole('separator', {name: 'Resize explorer'});
+    fireEvent.pointerDown(handle, {pointerId: 1, button: 0, clientX: 200});
+    expect(document.documentElement.getAttribute('data-studio-resizing')).toBe(
+      'x',
+    );
+    fireEvent.pointerUp(handle, {pointerId: 1});
+    expect(
+      document.documentElement.getAttribute('data-studio-resizing'),
+    ).toBeNull();
+  });
+
+  it('locks the vertical-axis cursor for the console handle', () => {
+    render(
+      <StudioSplitHandle
+        orientation='horizontal'
+        label='Resize console'
+        value={260}
+        min={140}
+        max={560}
+        onChange={vi.fn()}
+      />,
+    );
+
+    const handle = screen.getByRole('separator', {name: 'Resize console'});
+    fireEvent.pointerDown(handle, {pointerId: 2, button: 0, clientY: 400});
+    expect(document.documentElement.getAttribute('data-studio-resizing')).toBe(
+      'y',
+    );
+    fireEvent.pointerUp(handle, {pointerId: 2});
+    expect(
+      document.documentElement.getAttribute('data-studio-resizing'),
+    ).toBeNull();
+  });
+
+  it('clears the cursor lock if the handle unmounts mid-drag', () => {
+    const {unmount} = render(
+      <StudioSplitHandle
+        orientation='vertical'
+        label='Resize explorer'
+        value={240}
+        min={180}
+        max={420}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.pointerDown(
+      screen.getByRole('separator', {name: 'Resize explorer'}),
+      {pointerId: 3, button: 0, clientX: 200},
+    );
+    expect(document.documentElement.getAttribute('data-studio-resizing')).toBe(
+      'x',
+    );
+    unmount();
+    expect(
+      document.documentElement.getAttribute('data-studio-resizing'),
+    ).toBeNull();
+  });
 });

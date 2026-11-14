@@ -19,12 +19,20 @@
   top: 0;
   bottom: 0;
   width: 1px;
-  cursor: col-resize;
+  /* Cursor/macOS 那种小实心双向箭头；PNG 优先，Chrome/Linux 经常忽略 SVG 光标。
+     Compact filled arrows like Cursor/macOS; PNG first because Chrome on Linux often ignores SVG cursors. */
+  cursor:
+    url('/cursors/ew-resize.png') 16 16,
+    url('/cursors/ew-resize.svg') 16 16,
+    ew-resize;
 }
 
 .handle[data-orientation='horizontal'] {
   height: 1px;
-  cursor: row-resize;
+  cursor:
+    url('/cursors/ns-resize.png') 16 16,
+    url('/cursors/ns-resize.svg') 16 16,
+    ns-resize;
 }
 
 .handle::before {
@@ -96,4 +104,23 @@
   .grip {
     transition: none;
   }
+}
+
+/* 拖动时锁住整页光标，避免滑过 Monaco 变成输入光标。 / Keep the resize cursor while dragging over Monaco. */
+:global(html[data-studio-resizing='x']),
+:global(html[data-studio-resizing='x'] *) {
+  cursor:
+    url('/cursors/ew-resize.png') 16 16,
+    url('/cursors/ew-resize.svg') 16 16,
+    ew-resize !important;
+  user-select: none !important;
+}
+
+:global(html[data-studio-resizing='y']),
+:global(html[data-studio-resizing='y'] *) {
+  cursor:
+    url('/cursors/ns-resize.png') 16 16,
+    url('/cursors/ns-resize.svg') 16 16,
+    ns-resize !important;
+  user-select: none !important;
 }

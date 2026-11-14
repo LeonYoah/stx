@@ -89,7 +89,7 @@ frontend/
 
 - **页面**：`app/(main)/...` 下每条路由通常有一个 `page.tsx`，渲染**页面级组件**（组合统一的 `WorkspaceHeader` 与对应领域的主组件如 `ClusterMain`、`HostMain`、`PackageMain`）。全局布局由 `(main)/layout.tsx` 提供常驻 Dock 栏；单页严禁额外增加冲突的外层 `container` 或重复的大 padding。
 - **功能组件**：在 `components/common/<domain>/` 下（如 `cluster/`、`diagnostics/`、`installer/`、`sync/`）。每个目录可有主列表或详情组件、卡片、弹窗和表格。优先组合 `components/ui/` 中的小组件。
-- **Arc 控件**：免费注册表组件放在 `components/arc/`，只在工作台按需替换。不要把它写回 `components/ui/`。约定见 [UI 约定](./ui-conventions.md) 第 14 节。
+- **Arc 控件**：免费注册表组件放在 `components/arc/`。工作台、作业详情趋势图、告警/审计的日期范围选择器都按需使用；不要把它写回 `components/ui/`。约定见 [UI 约定](./ui-conventions.md) 第 14 节。
 - **Services**：按后端领域在 `lib/services/` 下分目录（如 `cluster/`、`host/`）。每个目录有继承 `BaseService` 的 `*.service.ts`、可选的 `types.ts` 以及统一导出的 `index.ts`。后端基础路径为 `/api/v1`；services 使用相对路径（如 `/hosts`、`/clusters/:id/nodes`）。
 - **Hooks**：数据拉取或领域相关 hooks（如 `use-host.ts`、`use-audit.ts`），调用 services 并暴露 loading/error 状态，供页面或 common 组件使用。
 

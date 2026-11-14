@@ -58,6 +58,20 @@
       "selectedFile": "Selected file",
       "clearFile": "Clear selected file",
       "uploading": "Uploading…"
+    },
+    "dateRange": {
+      "label": "Date range",
+      "placeholder": "Select dates",
+      "presets": {
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "last7d": "Last 7 days",
+        "last30d": "Last 30 days",
+        "thisMonth": "This month",
+        "lastMonth": "Last month",
+        "thisQuarter": "This quarter",
+        "yearToDate": "Year to date"
+      }
     }
   },
   "dashboard": {
@@ -5169,6 +5183,25 @@
         "unit": {
           "rows": "rows",
           "seconds": "seconds"
+        },
+        "emptyChart": "No data for this range",
+        "categoryTime": "Time",
+        "averageLabel": "Average",
+        "valueLabel": "Current",
+        "totalLabel": "Total",
+        "otherLabel": "Other",
+        "periodCurrent": "Current range",
+        "periodSpan": "{from} to {to}",
+        "pipeline": {
+          "label": "Cumulative row mix",
+          "committed": "Committed",
+          "written": "Written, not committed",
+          "backlog": "Read, not written"
+        },
+        "annotations": {
+          "schema_change": "DDL",
+          "restart": "Restart",
+          "status": "Status"
         },
         "perTablePhase3": "Per-table trends (phase 3)"
       }

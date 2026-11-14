@@ -58,6 +58,20 @@
       "selectedFile": "已选文件",
       "clearFile": "清除已选文件",
       "uploading": "上传中…"
+    },
+    "dateRange": {
+      "label": "日期范围",
+      "placeholder": "选择日期",
+      "presets": {
+        "today": "今天",
+        "yesterday": "昨天",
+        "last7d": "近 7 天",
+        "last30d": "近 30 天",
+        "thisMonth": "本月",
+        "lastMonth": "上月",
+        "thisQuarter": "本季度",
+        "yearToDate": "今年至今"
+      }
     }
   },
   "dashboard": {
@@ -5169,6 +5183,25 @@
         "unit": {
           "rows": "条",
           "seconds": "秒"
+        },
+        "emptyChart": "这段时间没有数据",
+        "categoryTime": "时间",
+        "averageLabel": "平均",
+        "valueLabel": "当前",
+        "totalLabel": "合计",
+        "otherLabel": "其他",
+        "periodCurrent": "当前范围",
+        "periodSpan": "{from} 至 {to}",
+        "pipeline": {
+          "label": "累计条数构成",
+          "committed": "已提交",
+          "written": "已写未提交",
+          "backlog": "已读未写"
+        },
+        "annotations": {
+          "schema_change": "DDL",
+          "restart": "重启",
+          "status": "状态"
         },
         "perTablePhase3": "按表趋势（第三期）"
       }

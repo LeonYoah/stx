@@ -17,12 +17,16 @@
 
 'use client';
 
-import React from 'react';
+import {useMemo} from 'react';
 import {useTranslations} from 'next-intl';
-import {Calendar, X} from 'lucide-react';
-import {Button} from '@/components/ui/button';
+import {X} from 'lucide-react';
+import type {DateRange} from '@/components/arc/date-range-picker/date-range-picker';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {Button} from '@/components/arc/button/button';
 import {cn} from '@/lib/utils';
 import {formatDateTimeLocalInput} from '@/lib/timezone';
+import {dateRangeToWallTimes, wallTimesToDateRange} from '@/lib/date-range';
+import {ArcDateRangePicker} from './ArcDateRangePicker';
 
 export interface TimePresetOption {
   label: string;
@@ -65,8 +69,10 @@ export function formatToDateTimeLocal(date: Date): string {
   return formatDateTimeLocalInput(date);
 }
 
-// 统一的紧凑时间范围筛选组件（带快捷预设、明确起止胶囊、防数字截断、暗色模式适配）
-// Unified compact time range filter component with quick presets, clear labels, no truncation, and dark mode support
+/**
+ * 紧凑时间范围筛选：相对时段用分段控件，自定义日历用 Arc DateRangePicker。
+ * Compact time filter: relative windows on a segmented control, custom days on Arc DateRangePicker.
+ */
 export function CompactTimeFilter({
   startTime,
   endTime,
@@ -79,6 +85,7 @@ export function CompactTimeFilter({
   className,
 }: CompactTimeFilterProps) {
   const t = useTranslations('monitoringCenter');
+  const tRange = useTranslations('common.dateRange');
 
   const defaultPresets: TimePresetOption[] = presets || [
     {label: t('alerts.timePresets.last1h'), minutes: 60},
@@ -88,80 +95,51 @@ export function CompactTimeFilter({
   ];
 
   const hasActiveTime = Boolean(startTime || endTime);
+  const rangeValue = useMemo(
+    () => wallTimesToDateRange(startTime, endTime),
+    [startTime, endTime],
+  );
+
+  const handleRangeChange = (range: DateRange) => {
+    const next = dateRangeToWallTimes(range);
+    onStartTimeChange(next.startTime);
+    onEndTimeChange(next.endTime);
+  };
 
   return (
     <div
       className={cn(
-        'flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-dashed border-border/50 text-xs',
+        'flex flex-wrap items-center gap-2 pt-1 border-t border-dashed border-border/50',
         className,
       )}
     >
-      {/* 快捷时间预设胶囊组 */}
-      {/* Quick time preset buttons group */}
-      <div className='flex items-center gap-1.5 flex-wrap'>
-        <span className='inline-flex items-center gap-1 text-muted-foreground font-medium text-[11px] mr-0.5 select-none'>
-          <Calendar className='h-3.5 w-3.5 text-primary/80' />
-          {t('alerts.timeRange')}:
-        </span>
-        {defaultPresets.map((preset) => (
-          <button
-            key={preset.minutes}
-            type='button'
-            onClick={() => onApplyPreset?.(preset.minutes)}
-            className={cn(
-              'px-2 py-0.5 rounded text-[11px] transition-all duration-150 active:scale-[0.97] border select-none cursor-pointer',
-              activePreset === preset.minutes
-                ? 'bg-primary/10 text-primary border-primary/30 font-medium'
-                : 'bg-background text-muted-foreground border-border/70 hover:bg-muted/60 hover:text-foreground',
-            )}
-          >
-            {preset.label}
-          </button>
-        ))}
-      </div>
-
-      {/* 精确起止时间输入胶囊 */}
-      {/* Precise Datetime Range Input Capsules */}
-      <div className='flex items-center gap-1.5 flex-wrap'>
-        <div className='inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-input bg-background shadow-2xs'>
-          <span className='text-[11px] text-muted-foreground font-medium select-none'>
-            {t('alerts.startTime')}:
-          </span>
-          <input
-            type='datetime-local'
-            value={startTime}
-            onChange={(e) => onStartTimeChange(e.target.value)}
-            className='h-6 w-[170px] bg-transparent text-xs font-mono text-foreground focus:outline-hidden dark:[color-scheme:dark]'
-          />
-        </div>
-
-        <span className='text-muted-foreground text-xs select-none'>~</span>
-
-        <div className='inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-input bg-background shadow-2xs'>
-          <span className='text-[11px] text-muted-foreground font-medium select-none'>
-            {t('alerts.endTime')}:
-          </span>
-          <input
-            type='datetime-local'
-            value={endTime}
-            onChange={(e) => onEndTimeChange(e.target.value)}
-            className='h-6 w-[170px] bg-transparent text-xs font-mono text-foreground focus:outline-hidden dark:[color-scheme:dark]'
-          />
-        </div>
-
-        {hasActiveTime && (
-          <Button
-            variant='ghost'
-            size='sm'
-            onClick={onClear}
-            className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer'
-            title={t('alerts.clearTimeFilter')}
-          >
-            <X className='mr-1 h-3 w-3' />
-            {t('alerts.clearTimeFilter')}
-          </Button>
-        )}
-      </div>
+      <SegmentedControl
+        label={t('alerts.timeRange')}
+        value={activePreset != null ? String(activePreset) : ''}
+        onValueChange={(value) => onApplyPreset?.(Number(value))}
+        options={defaultPresets.map((preset) => ({
+          value: String(preset.minutes),
+          label: preset.label,
+        }))}
+      />
+      <ArcDateRangePicker
+        value={rangeValue}
+        onChange={handleRangeChange}
+        label={tRange('label')}
+        placeholder={tRange('placeholder')}
+      />
+      {hasActiveTime ? (
+        <Button
+          type='button'
+          variant='ghost'
+          size='sm'
+          onClick={onClear}
+          aria-label={t('alerts.clearTimeFilter')}
+        >
+          <X size={14} strokeWidth={1.75} aria-hidden='true' />
+          {t('alerts.clearTimeFilter')}
+        </Button>
+      ) : null}
     </div>
   );
 }

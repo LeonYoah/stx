@@ -115,6 +115,10 @@ export function ArcDateRangePicker({
       presetsLabel={t('presetsAria')}
       previousMonthLabel={t('previousMonth')}
       nextMonthLabel={t('nextMonth')}
+      previousYearLabel={t('previousYear')}
+      nextYearLabel={t('nextYear')}
+      chooseMonthLabel={t('chooseMonth')}
+      backToCalendarLabel={t('backToCalendar')}
       // `{date}` 留给选择器填入格式化开始日。 / `{date}` is filled in by the picker with the formatted start day.
       startChooseEndLabel={t('startChooseEnd', {date: '{date}'})}
     />

@@ -116,7 +116,52 @@
 .viewport > * { grid-area: 1 / 1; }
 .months { display: flex; gap: 24px; }
 .month { width: calc(var(--cell) * 7); }
-.monthTitle { height: 32px; margin: 0; color: var(--foreground); font-weight: 500; line-height: 32px; text-align: center; white-space: nowrap; }
+.monthTitle { display: flex; height: 32px; align-items: center; justify-content: center; margin: 0; color: var(--foreground); font-weight: 500; line-height: 32px; text-align: center; white-space: nowrap; }
+/* STX：标题是按钮，点开按年选月。 / STX: the caption is a button that opens the year grid. */
+.titleButton {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+.titleButton:focus-visible { background: color-mix(in oklab, var(--foreground) 5%, transparent); outline: none; }
+
+/* STX：按年选月网格，与日视图同宽、填满六周视口高度。 / STX: pick-a-month grid, same width and six-week height as the day view. */
+.yearView { flex: none; }
+.yearGrid { display: grid; height: calc(var(--cell) * 6); grid-template-rows: repeat(3, 1fr); }
+.yearRow { display: grid; grid-template-columns: repeat(4, 1fr); }
+.yearRow .cell { display: grid; }
+.yearMonth {
+  position: relative;
+  display: grid;
+  margin: 4px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.yearMonth:focus-visible { background: color-mix(in oklab, var(--foreground) 5%, transparent); outline: none; }
+.yearMonth[data-today]::after { content: ""; position: absolute; bottom: calc(50% - .95em); left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); }
+.yearMonth[data-range] { background: var(--accent-subtle); }
+.yearMonth[data-view] { color: var(--accent); font-weight: 600; }
+.yearMonth:disabled { color: var(--text-muted); cursor: default; opacity: .5; }
 .grid { display: grid; }
 .weekdays { display: grid; height: 28px; align-items: center; color: var(--text-muted); font-size: var(--text-xs); grid-template-columns: repeat(7, var(--cell)); text-align: center; }
 .weeks { position: relative; }
@@ -213,7 +258,10 @@
   .preset:hover { color: var(--foreground); }
   .preset:not([aria-pressed="true"]):hover { background: color-mix(in oklab, var(--foreground) 4%, transparent); }
   .navButton:hover:not(:disabled) { background: color-mix(in oklab, var(--foreground) 6.5%, transparent); color: var(--foreground); }
+  .titleButton:hover { background: color-mix(in oklab, var(--foreground) 6.5%, transparent); }
   .day:hover:not(:disabled):not([data-edge]) > span { background: color-mix(in oklab, var(--foreground) 7%, transparent); }
+  .yearMonth:hover:not(:disabled) { background: color-mix(in oklab, var(--foreground) 7%, transparent); }
+  .yearMonth[data-range]:hover:not(:disabled) { background: color-mix(in oklab, var(--accent) 20%, transparent); }
   .ghost:hover { background: var(--surface-muted); color: var(--foreground); }
   .primary:hover:not(:disabled) { background: var(--accent-strong); }
 }

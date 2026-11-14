@@ -79,13 +79,16 @@ export function wallTimesToDateRange(startTime: string, endTime: string): DateRa
 }
 
 /**
- * DateRange 转 datetime-local 墙上时间：开始日 00:00，结束日 23:59。
- * Convert a DateRange to datetime-local wall times: start day 00:00, end day 23:59.
+ * DateRange 转墙上时间：开始日 00:00，结束日 23:59:59.999（含当天最后一毫秒）。
+ * Convert a DateRange to wall times: start day 00:00, end day 23:59:59.999 (last millisecond of that day).
+ *
+ * 只用 `T23:59` 会变成 23:59:00.000，`created_at <= end_time` 会丢掉 23:59:01–23:59:59。
+ * `T23:59` becomes 23:59:00.000, so `created_at <= end_time` drops 23:59:01–23:59:59.
  */
 export function dateRangeToWallTimes(range: DateRange): {startTime: string; endTime: string} {
   return {
     startTime: `${localDateToYmd(range.start)}T00:00`,
-    endTime: `${localDateToYmd(range.end)}T23:59`,
+    endTime: `${localDateToYmd(range.end)}T23:59:59.999`,
   };
 }
 

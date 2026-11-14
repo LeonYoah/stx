@@ -194,8 +194,8 @@ export function AuditLogMain() {
   };
 
   /**
-   * 应用 Arc 日期范围：开始日 00:00，结束日 23:59。
-   * Apply an Arc date range: start day 00:00, end day 23:59.
+   * 应用 Arc 日期范围：日历日闭区间，查询时结束日含 23:59:59.999。
+   * Apply an Arc date range: inclusive calendar days; the query end includes 23:59:59.999.
    */
   const handleDateRangeChange = (range: DateRange) => {
     const next = dateRangeToYmdPair(range);

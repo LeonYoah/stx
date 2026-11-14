@@ -62,6 +62,16 @@
     "dateRange": {
       "label": "日期范围",
       "placeholder": "选择日期",
+      "cancel": "取消",
+      "apply": "应用",
+      "day": "天",
+      "days": "天",
+      "noDates": "未选择日期",
+      "pickEndDate": "选择结束日期",
+      "presetsAria": "快捷范围",
+      "previousMonth": "上个月",
+      "nextMonth": "下个月",
+      "startChooseEnd": "开始 {date}。请选择结束日期。",
       "presets": {
         "today": "今天",
         "yesterday": "昨天",

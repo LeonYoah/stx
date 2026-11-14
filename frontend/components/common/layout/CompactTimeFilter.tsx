@@ -34,11 +34,11 @@ export interface TimePresetOption {
 }
 
 export interface CompactTimeFilterProps {
-  // 开始时间过滤字符串（YYYY-MM-DDTHH:mm）
-  // Start time filter value in YYYY-MM-DDTHH:mm format
+  // 开始时间（墙上时间：小时预设为 YYYY-MM-DDTHH:mm，日历 Apply 为当日 00:00）
+  // Start wall time: hour presets are YYYY-MM-DDTHH:mm; calendar Apply is start-of-day
   startTime: string;
-  // 结束时间过滤字符串（YYYY-MM-DDTHH:mm）
-  // End time filter value in YYYY-MM-DDTHH:mm format
+  // 结束时间（墙上时间：小时预设为 YYYY-MM-DDTHH:mm，日历 Apply 为当日 23:59:59.999）
+  // End wall time: hour presets are YYYY-MM-DDTHH:mm; calendar Apply is end-of-day inclusive
   endTime: string;
   // 开始时间变更回调
   // Callback when start time is updated

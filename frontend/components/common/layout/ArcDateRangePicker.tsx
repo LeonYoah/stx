@@ -88,6 +88,17 @@ export function ArcDateRangePicker({
       presets={presets}
       maxDate={clampToToday ? today : undefined}
       className={className}
+      cancelLabel={t('cancel')}
+      applyLabel={t('apply')}
+      dayLabel={t('day')}
+      daysLabel={t('days')}
+      noDatesLabel={t('noDates')}
+      pickEndDateLabel={t('pickEndDate')}
+      presetsLabel={t('presetsAria')}
+      previousMonthLabel={t('previousMonth')}
+      nextMonthLabel={t('nextMonth')}
+      // `{date}` 留给选择器填入格式化开始日。 / `{date}` is filled in by the picker with the formatted start day.
+      startChooseEndLabel={t('startChooseEnd', {date: '{date}'})}
     />
   );
 }

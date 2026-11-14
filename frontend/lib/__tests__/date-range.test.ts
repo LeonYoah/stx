@@ -25,6 +25,7 @@ import {
   ymdPairToDateRange,
   ymdToLocalDate,
 } from '../date-range';
+import {wallTimeToRFC3339} from '../timezone';
 
 describe('date-range helpers', () => {
   it('parses a wall-time string down to the calendar day', () => {
@@ -44,8 +45,16 @@ describe('date-range helpers', () => {
     expect(range).not.toBeNull();
     expect(dateRangeToWallTimes(range!)).toEqual({
       startTime: '2026-11-01T00:00',
-      endTime: '2026-11-03T23:59',
+      endTime: '2026-11-03T23:59:59.999',
     });
+    // T23:59 会落在 23:59:00.000，含不上当天最后一分钟。
+    // T23:59 becomes 23:59:00.000 and misses the last minute of the day.
+    expect(wallTimeToRFC3339('2026-11-03T23:59', 'Asia/Shanghai')).toBe(
+      '2026-11-03T15:59:00.000Z',
+    );
+    expect(wallTimeToRFC3339(dateRangeToWallTimes(range!).endTime, 'Asia/Shanghai')).toBe(
+      '2026-11-03T15:59:59.999Z',
+    );
   });
 
   it('swaps inverted ranges and fills a missing side', () => {

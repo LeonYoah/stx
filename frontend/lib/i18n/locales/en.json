@@ -62,6 +62,16 @@
     "dateRange": {
       "label": "Date range",
       "placeholder": "Select dates",
+      "cancel": "Cancel",
+      "apply": "Apply",
+      "day": "day",
+      "days": "days",
+      "noDates": "No dates",
+      "pickEndDate": "Pick an end date",
+      "presetsAria": "Presets",
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month",
+      "startChooseEnd": "Start {date}. Choose an end date.",
       "presets": {
         "today": "Today",
         "yesterday": "Yesterday",

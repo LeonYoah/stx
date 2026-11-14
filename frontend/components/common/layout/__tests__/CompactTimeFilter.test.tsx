@@ -79,7 +79,7 @@ describe('CompactTimeFilter', () => {
     const props = renderFilter();
     fireEvent.click(screen.getByRole('button', {name: zh.common.dateRange.label}));
     expect(props.onStartTimeChange).toHaveBeenCalledWith('2026-11-01T00:00');
-    expect(props.onEndTimeChange).toHaveBeenCalledWith('2026-11-03T23:59');
+    expect(props.onEndTimeChange).toHaveBeenCalledWith('2026-11-03T23:59:59.999');
   });
 
   it('keeps relative hour presets on the segmented control', () => {

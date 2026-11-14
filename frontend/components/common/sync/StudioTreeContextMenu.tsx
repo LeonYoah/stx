@@ -18,6 +18,7 @@
 import React, { useEffect, useRef, useLayoutEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
+  ChevronsUpDown,
   FilePlus2,
   FolderPlus,
   Pencil,
@@ -42,6 +43,8 @@ export interface StudioTreeContextMenuProps {
   onCopyFile: (node: SyncTaskTreeNode) => void;
   onDelete: (node: SyncTaskTreeNode) => void;
   onRefresh: () => void;
+  onToggleCollapseAll?: () => void;
+  foldersExpanded?: boolean;
 }
 
 // ============================================================================
@@ -59,6 +62,8 @@ export function StudioTreeContextMenu({
   onCopyFile,
   onDelete,
   onRefresh,
+  onToggleCollapseAll,
+  foldersExpanded = false,
 }: StudioTreeContextMenuProps) {
   const t = useTranslations('workbenchStudio');
   const menuRef = useRef<HTMLDivElement>(null);
@@ -234,9 +239,22 @@ export function StudioTreeContextMenu({
         </>
       ) : null}
 
-      {/* 辅助组：刷新 */}
-      {/* Utility group: refresh */}
+      {/* 辅助组：空白处可展开/折叠全部，刷新始终可用。 */}
+      {/* Utility group: blank-area expand/collapse, refresh always available. */}
       <div className='my-1 h-px bg-border/40' />
+      {isRoot && onToggleCollapseAll ? (
+        <button
+          type='button'
+          className='group flex w-full items-center rounded-sm px-2.5 py-1.5 text-xs text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
+          onClick={() => {
+            onClose();
+            onToggleCollapseAll();
+          }}
+        >
+          <ChevronsUpDown className='mr-2 size-3.5 text-muted-foreground transition-colors group-hover:text-foreground' />
+          <span>{foldersExpanded ? t('collapseAll') : t('expandAll')}</span>
+        </button>
+      ) : null}
       <button
         type='button'
         className='group flex w-full items-center rounded-sm px-2.5 py-1.5 text-xs text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground'

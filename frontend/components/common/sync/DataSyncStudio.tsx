@@ -161,6 +161,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {Input} from '@/components/ui/input';
@@ -251,6 +252,7 @@ import {
 import {
   TreeView,
 } from './TreeView';
+import {StudioSplitHandle} from './StudioSplitHandle';
 import { StudioTreeContextMenu } from './StudioTreeContextMenu';
 import { StudioSharePopover } from './StudioSharePopover';
 import { StudioQuickOpenDialog } from './StudioQuickOpenDialog';
@@ -287,9 +289,20 @@ import {
   WORKSPACE_NAME_PATTERN,
   WORKSPACE_TABS_STORAGE_KEY,
   DEFAULT_STUDIO_LAYOUT_PREFS,
+  STUDIO_CONSOLE_HEIGHT_COMPACT,
+  STUDIO_CONSOLE_HEIGHT_EXPANDED,
+  STUDIO_CONSOLE_HEIGHT_MAX,
+  STUDIO_CONSOLE_HEIGHT_MIN,
+  STUDIO_LEFT_WIDTH_MAX,
+  STUDIO_LEFT_WIDTH_MIN,
+  STUDIO_RIGHT_WIDTH_MAX,
+  STUDIO_RIGHT_WIDTH_MIN,
   buildStudioGridTemplateColumns,
+  buildStudioGridTemplateRows,
+  clampStudioConsoleHeight,
+  clampStudioLeftWidth,
+  clampStudioRightWidth,
   readStudioLayoutPrefs,
-  studioSidebarOpenSpacingClass,
   writeStudioLayoutPrefs,
   buildCheckpointActionViewModels,
   buildCheckpointInspectJobConfig,
@@ -301,7 +314,6 @@ import {
   buildInsertedCuratedContent,
   buildTaskPayloadFromEditor,
   buildMetricGroups,
-  WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS,
   hasWorkbenchUnsavedRisk,
   type DraftSaveStatus,
   buildMetricHighlights,
@@ -614,16 +626,10 @@ export function DataSyncStudio() {
   // 保存中单独占一段；成功后的「已保存」由草稿是否变脏决定，不再用定时器收回。
   // Pending is its own segment. Saved after success follows draft dirtiness and is not cleared by a timer.
   const [saveAck, setSaveAck] = useState<'idle' | 'pending'>('idle');
-  // 手动保存与自动保存共用的顶栏状态 / Shared top-bar status for manual + autosave
+  // 顶栏草稿保存状态：只跟手动保存 / 离开前落盘走。
+  // Top-bar draft save status follows manual save and leave flush only.
   const [draftSaveStatus, setDraftSaveStatus] =
     useState<DraftSaveStatus>('idle');
-  const persistCurrentFileRef = useRef<
-    | ((
-        publishAfterSave?: boolean,
-        options?: {reason?: 'manual' | 'autosave' | 'leave'},
-      ) => Promise<SyncTask | null>)
-    | null
-  >(null);
   const [leaveActionBusy, setLeaveActionBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState<PendingActionKind | null>(
@@ -682,10 +688,6 @@ export function DataSyncStudio() {
   // Full-screen and restore state for the bottom console
   const [isConsoleMaximized, setIsConsoleMaximized] = useState(false);
 
-  // 底部控制台高度档位：默认 260px，展开 390px
-  // Bottom console height mode: default 260px, expanded 390px
-  const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
-
   // 左右侧栏独立开合：无记录时左展开、右收起；之后记住上次（#110；无专注模式）。
   // 首帧固定用默认值。useState 里读 localStorage 会让「客户端已记住右侧展开」和
   // 服务端默认「右侧收起」对不上，水合改掉开关的 aria-label 和图标，Next 弹出红色报错层，按钮也点不了。
@@ -699,23 +701,51 @@ export function DataSyncStudio() {
   const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(
     DEFAULT_STUDIO_LAYOUT_PREFS.rightCollapsed,
   );
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
+    DEFAULT_STUDIO_LAYOUT_PREFS.leftWidth,
+  );
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(
+    DEFAULT_STUDIO_LAYOUT_PREFS.rightWidth,
+  );
+  const [consoleHeight, setConsoleHeight] = useState(
+    DEFAULT_STUDIO_LAYOUT_PREFS.consoleHeight,
+  );
+  const [isStudioLayoutResizing, setIsStudioLayoutResizing] = useState(false);
   const studioLayoutHydratedRef = useRef(false);
+  const isConsoleExpanded =
+    consoleHeight >= STUDIO_CONSOLE_HEIGHT_EXPANDED;
 
   useEffect(() => {
-    // 挂载后再套用上次开合，并跳过这次写入，避免把默认值盖掉已记住的偏好。
+    // 挂载后再套用上次开合与尺寸，并跳过这次写入，避免把默认值盖掉已记住的偏好。
     // Apply the remembered layout after mount, and skip that write so defaults do not clobber it.
     if (!studioLayoutHydratedRef.current) {
       studioLayoutHydratedRef.current = true;
       const prefs = readStudioLayoutPrefs();
       setIsLeftSidebarCollapsed(prefs.leftCollapsed);
       setIsRightSidebarCollapsed(prefs.rightCollapsed);
+      setLeftSidebarWidth(prefs.leftWidth);
+      setRightSidebarWidth(prefs.rightWidth);
+      setConsoleHeight(prefs.consoleHeight);
+      return;
+    }
+    if (isStudioLayoutResizing) {
       return;
     }
     writeStudioLayoutPrefs({
       leftCollapsed: isLeftSidebarCollapsed,
       rightCollapsed: isRightSidebarCollapsed,
+      leftWidth: leftSidebarWidth,
+      rightWidth: rightSidebarWidth,
+      consoleHeight,
     });
-  }, [isLeftSidebarCollapsed, isRightSidebarCollapsed]);
+  }, [
+    consoleHeight,
+    isLeftSidebarCollapsed,
+    isRightSidebarCollapsed,
+    isStudioLayoutResizing,
+    leftSidebarWidth,
+    rightSidebarWidth,
+  ]);
 
   // 顶栏两端开关始终挂载：点击收起后焦点自然留在该按钮上（#110 AC11 / Codex P2）
   // Topbar-end toggles stay mounted so focus remains on the control after collapse (#110 AC11 / Codex P2)
@@ -725,6 +755,22 @@ export function DataSyncStudio() {
 
   const handleToggleRightSidebar = useCallback(() => {
     setIsRightSidebarCollapsed((prev) => !prev);
+  }, []);
+
+  const handleToggleConsoleHeight = useCallback(() => {
+    setConsoleHeight((prev) =>
+      prev >= STUDIO_CONSOLE_HEIGHT_EXPANDED
+        ? STUDIO_CONSOLE_HEIGHT_COMPACT
+        : STUDIO_CONSOLE_HEIGHT_EXPANDED,
+    );
+  }, []);
+
+  const handleStudioLayoutDragStart = useCallback(() => {
+    setIsStudioLayoutResizing(true);
+  }, []);
+
+  const handleStudioLayoutDragEnd = useCallback(() => {
+    setIsStudioLayoutResizing(false);
   }, []);
 
   // 当前激活任务的面包屑路径列表
@@ -2922,17 +2968,9 @@ export function DataSyncStudio() {
   );
 
   const persistCurrentFile = useCallback(
-    async (
-      publishAfterSave = false,
-      options?: {reason?: 'manual' | 'autosave' | 'leave'},
-    ) => {
-      const reason = options?.reason || 'manual';
+    async (publishAfterSave = false) => {
       if (!editor.name.trim()) {
-        // 自动保存遇到无名文件时静默跳过，避免打扰；手动/离开仍提示。
-        // Skip nameless autosave quietly; still toast for manual/leave.
-        if (reason !== 'autosave') {
-          toast.error(t('fileNameRequired'));
-        }
+        toast.error(t('fileNameRequired'));
         return null;
       }
       // 仅发布时强制要求正文；草稿允许空内容保存。
@@ -2941,22 +2979,12 @@ export function DataSyncStudio() {
         toast.error(t('fileContentRequired'));
         return null;
       }
-      // 自动保存路径严禁发布，双保险避免误传 publishAfterSave=true。
-      // Autosave must never publish — belt-and-suspenders against a true flag.
-      if (reason === 'autosave' && publishAfterSave) {
-        publishAfterSave = false;
-      }
       const customVariableError = validateCustomVariableRows(
         customVariableRowsRef.current,
         t,
       );
       if (customVariableError) {
-        if (reason !== 'autosave') {
-          toast.error(customVariableError);
-        } else {
-          setDraftSaveStatus('error');
-          toast.error(customVariableError);
-        }
+        toast.error(customVariableError);
         return null;
       }
       setSaving(true);
@@ -3005,54 +3033,6 @@ export function DataSyncStudio() {
     [buildTaskPayload, editor, loadWorkspace, markEditorDraft, syncOpenTabs, t],
   );
 
-  useEffect(() => {
-    persistCurrentFileRef.current = persistCurrentFile;
-  }, [persistCurrentFile]);
-
-  // 当前可编辑草稿内容指纹：变更后触发防抖自动保存。
-  // Fingerprint of the active editable draft — changes schedule debounced autosave.
-  const currentDraftFingerprint = useMemo(() => {
-    if (!editor.id || editor.canEdit === false) {
-      return '';
-    }
-    return JSON.stringify({
-      id: editor.id,
-      name: editor.name,
-      description: editor.description,
-      clusterId: editor.clusterId,
-      content: editor.content,
-      definition: editor.definition,
-      rows: customVariableRows,
-    });
-  }, [
-    customVariableRows,
-    editor.canEdit,
-    editor.clusterId,
-    editor.content,
-    editor.definition,
-    editor.description,
-    editor.id,
-    editor.name,
-  ]);
-
-  useEffect(() => {
-    if (!editor.id || editor.canEdit === false || !isCurrentDirty) {
-      return;
-    }
-    if (!currentDraftFingerprint) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void persistCurrentFileRef.current?.(false, {reason: 'autosave'});
-    }, WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [
-    currentDraftFingerprint,
-    editor.canEdit,
-    editor.id,
-    isCurrentDirty,
-  ]);
-
   /**
    * 将内存中所有可编辑 dirty 草稿落盘（离开前「保存并离开」）。
    * Persist every editable dirty in-memory draft (Save & Leave).
@@ -3066,7 +3046,7 @@ export function DataSyncStudio() {
     // 先保存当前编辑器（含未写入 drafts 竞态时的最新内容）。
     // Persist the active editor first (latest content, including races not yet in drafts).
     if (editor.id && editor.canEdit !== false && isCurrentDirty) {
-      const current = await persistCurrentFile(false, {reason: 'leave'});
+      const current = await persistCurrentFile(false);
       if (!current) {
         return false;
       }
@@ -3606,12 +3586,9 @@ export function DataSyncStudio() {
 
   const handleSelectNode = async (node: SyncTaskTreeNode) => {
     if (node.node_type === 'folder') {
+      // 文件夹只记录选中；展开/折叠交给 beUI FileTree 的 expandedIds。
+      // Folders only record selection; expand/collapse is owned by beUI FileTree.
       setSelectedFolderId(node.id);
-      setExpandedFolderIds((current) =>
-        current.includes(node.id)
-          ? current.filter((id) => id !== node.id)
-          : [...current, node.id],
-      );
       return;
     }
     setSelectedNodeId(node.id);
@@ -3628,7 +3605,9 @@ export function DataSyncStudio() {
     setJobLogs(null);
     setExpandedJobLogs(null);
     setCheckpointSnapshot(null);
-    setBottomConsoleTab('logs');
+    // 打开文件后底部控制台默认停在任务列表，而不是日志。
+    // Opening a file keeps the bottom console on the jobs list, not logs.
+    setBottomConsoleTab('jobs');
     try {
       const task = await services.sync.getTask(node.id);
       const loadedEditor = extractEditorState(task);
@@ -3738,9 +3717,9 @@ export function DataSyncStudio() {
       // Reject so the save segment returns to idle instead of showing saved.
       throw new Error(t('readOnlySaveTooltip'));
     }
-    // 与自动保存共用顶栏状态，成功不再额外 toast，避免双重打扰。
-    // Share top-bar status with autosave; skip success toast to avoid double noise.
-    await persistCurrentFile(false, {reason: 'manual'});
+    // 成功靠顶栏「已保存」，不再额外 toast。
+    // Success is the top-bar Saved state; do not add a second toast.
+    await persistCurrentFile(false);
   };
 
   // Button Group 不会自己画 pending。保存中走 pending；结束后文案跟草稿脏状态走。
@@ -4886,7 +4865,7 @@ export function DataSyncStudio() {
                   if (editor.id && !editor.canEdit) {
                     return;
                   }
-                  void persistCurrentFile(false, {reason: 'manual'});
+                  void persistCurrentFile(false);
                 }}
               />
             ) : null}
@@ -5038,42 +5017,44 @@ export function DataSyncStudio() {
 
       <div
         className={cn(
-          // 横向不用 gap：0px 收起列旁的 column-gap 会留细缝；展开侧用侧栏自身 mr/ml-2 补间距
-          // No horizontal gap: column-gap beside 0px tracks leaves a seam; open sides use mr/ml-2 on the panel
-          'grid min-h-0 min-w-0 flex-1 gap-y-2 transition-all duration-200',
-          isConsoleMaximized
-            ? 'grid-rows-[0px_minmax(0,1fr)]'
-            : isConsoleExpanded
-              ? 'grid-rows-[minmax(0,1fr)_390px]'
-              : 'grid-rows-[minmax(0,1fr)_260px]',
+          // 三列两行；分隔条叠在卡片接缝上，不另占 6px 轨道。
+          // Three columns, two rows; dividers overlay card seams instead of a 6px track.
+          'relative grid min-h-0 min-w-0 flex-1',
+          !isStudioLayoutResizing &&
+            'transition-[grid-template-columns,grid-template-rows] duration-200',
         )}
         style={{
-          // 收起列 0px 释放宽度；开关在顶栏两端（#110 AC11）；编辑列始终 minmax(0,1fr)。
-          // Collapsed tracks use 0px; toggles live on topbar ends (#110 AC11); editor stays minmax(0,1fr).
           gridTemplateColumns: buildStudioGridTemplateColumns(
             isLeftSidebarCollapsed,
             isRightSidebarCollapsed,
+            leftSidebarWidth,
+            rightSidebarWidth,
+          ),
+          gridTemplateRows: buildStudioGridTemplateRows(
+            isConsoleMaximized,
+            consoleHeight,
           ),
           columnGap: 0,
+          rowGap: 0,
         }}
       >
         <Card
           data-studio-left-sidebar=''
           className={cn(
-            'col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            'col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
             isLeftSidebarCollapsed
               ? 'pointer-events-none border-transparent opacity-0'
-              : studioSidebarOpenSpacingClass(false, 'left'),
+              : null,
           )}
           aria-hidden={isLeftSidebarCollapsed || undefined}
           // inert：收起后移出 Tab 序（入口在顶栏，#110 AC11 / Codex P2）
           // inert: drop collapsed subtree from tab order (toggle stays on topbar, #110 AC11 / Codex P2)
           inert={isLeftSidebarCollapsed ? true : undefined}
         >
-          <CardContent className='flex h-full min-h-0 flex-col p-0'>
-            {/* 资源管理器标题与工具栏 (VSCode 风格) */}
-            {/* Explorer title and action toolbar (VSCode style) */}
-            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
+          <CardContent className='flex h-full min-h-0 min-w-0 flex-col p-0'>
+            {/* 目录栏只放标题；新建/展开/刷新进菜单，避免四枚图标挤掉「资源」。 */}
+            {/* Keep the explorer title row uncrowded; create/expand/refresh live in one menu. */}
+            <div className='flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-muted/15 px-2.5'>
               <div className='flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground/80'>
                 <FolderTree className='size-3.5 shrink-0 text-primary/80' />
                 <span className='truncate'>{t('resources')}</span>
@@ -5081,80 +5062,62 @@ export function DataSyncStudio() {
                   {fileCount}
                 </span>
               </div>
-              <div className='flex shrink-0 items-center gap-0.5'>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      aria-label={t('newFolder')}
-                      onClick={() => {
-                        const folderNode = selectedFolderId
-                          ? findTreeNode(tree, selectedFolderId)
-                          : null;
-                        handleInlineCreateFolder(folderNode);
-                      }}
-                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
-                    >
-                      <FolderPlus className='size-3.5' />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='text-xs'>{t('newFolder')}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      aria-label={t('newFile')}
-                      onClick={() => {
-                        const folderNode = selectedFolderId
-                          ? findTreeNode(tree, selectedFolderId)
-                          : null;
-                        if (!folderNode) {
-                          toast.error(t('selectFolderBeforeCreateFile'));
-                          return;
-                        }
-                        handleInlineCreateFile(folderNode);
-                      }}
-                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
-                    >
-                      <FilePlus2 className='size-3.5' />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='text-xs'>{t('newFile')}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      aria-label={expandedFolderIds.length > 0 ? t('collapseAll') : t('expandAll')}
-                      onClick={handleToggleCollapseAll}
-                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
-                    >
-                      <ChevronsUpDown className='size-3.5' />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='text-xs'>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type='button'
+                    aria-label={t('explorerActions')}
+                    className='flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
+                  >
+                    <MoreHorizontal className='size-3.5' />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='start' side='bottom' className='min-w-48'>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const folderNode = selectedFolderId
+                        ? findTreeNode(tree, selectedFolderId)
+                        : null;
+                      handleInlineCreateFolder(folderNode);
+                    }}
+                  >
+                    <FolderPlus className='size-3.5' />
+                    {t('newFolder')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const folderNode = selectedFolderId
+                        ? findTreeNode(tree, selectedFolderId)
+                        : null;
+                      if (!folderNode) {
+                        toast.error(t('selectFolderBeforeCreateFile'));
+                        return;
+                      }
+                      handleInlineCreateFile(folderNode);
+                    }}
+                  >
+                    <FilePlus2 className='size-3.5' />
+                    {t('newFile')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={handleToggleCollapseAll}>
+                    <ChevronsUpDown className='size-3.5' />
                     {expandedFolderIds.length > 0
                       ? t('collapseAll')
                       : t('expandAll')}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      aria-label={t('refresh')}
-                      onClick={() => void loadWorkspace(selectedNodeId)}
-                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
-                    >
-                      <RefreshCw
-                        className={cn('size-3.5', loading && 'animate-spin')}
-                      />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='text-xs'>{t('refresh')}</TooltipContent>
-                </Tooltip>
-              </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void loadWorkspace(selectedNodeId);
+                    }}
+                  >
+                    <RefreshCw
+                      className={cn('size-3.5', loading && 'animate-spin')}
+                    />
+                    {t('refresh')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             {/* 快捷过滤输入框与范围筛选 */}
             {/* Quick search/filter input and scope selector */}
@@ -5189,20 +5152,30 @@ export function DataSyncStudio() {
             {/* 文件树滚动区域 */}
             {/* File tree scrollable viewport */}
             <ScrollArea
-              className='min-h-0 flex-1'
+              className='min-h-0 min-w-0 flex-1 overflow-x-hidden'
               onContextMenu={(event) =>
                 openTreeContextMenu(event, 'root', null)
               }
             >
-              <div className='px-1 py-1.5'>
+              <div className='min-w-0 px-1 py-1.5'>
                 {loading ? (
                   <div className='flex items-center gap-2 p-3 text-xs text-muted-foreground'>
                     <Loader2 className='size-3.5 animate-spin' />
                     <span>{t('loading')}</span>
                   </div>
                 ) : filteredTree.length === 0 ? (
-                  <div className='p-3 text-xs text-muted-foreground'>
-                    {t('emptyWorkspace')}
+                  <div className='flex flex-col items-start gap-2 p-3'>
+                    <p className='text-xs text-muted-foreground'>
+                      {t('emptyWorkspace')}
+                    </p>
+                    <button
+                      type='button'
+                      aria-label={t('newFolder')}
+                      onClick={() => handleInlineCreateFolder(null)}
+                      className='text-xs font-medium text-foreground/80 underline-offset-4 hover:underline'
+                    >
+                      {t('newFolder')}
+                    </button>
                   </div>
                 ) : (
                   <TreeView
@@ -5210,6 +5183,7 @@ export function DataSyncStudio() {
                     selectedNodeId={selectedNodeId}
                     selectedFolderId={selectedFolderId}
                     expandedFolderIds={expandedFolderIds}
+                    onExpandedChange={setExpandedFolderIds}
                     onSelect={handleSelectNode}
                     onContextMenu={openTreeContextMenu}
                     dirtyNodeIds={dirtyNodeIds}
@@ -5217,9 +5191,6 @@ export function DataSyncStudio() {
                     onRenameStart={handleRenameStart}
                     onRenameCommit={handleRenameCommit}
                     onRenameCancel={handleRenameCancel}
-                    onCreateFile={handleInlineCreateFile}
-                    onCreateFolder={handleInlineCreateFolder}
-                    onDelete={handleInlineDelete}
                     creatingNode={creatingNode}
                     onCreateCommit={handleInlineCreateCommit}
                     onCreateCancel={handleInlineCreateCancel}
@@ -5237,13 +5208,27 @@ export function DataSyncStudio() {
           </CardContent>
         </Card>
 
+        {!isLeftSidebarCollapsed ? (
+          <StudioSplitHandle
+            orientation='vertical'
+            label={t('resizeExplorer')}
+            value={leftSidebarWidth}
+            min={STUDIO_LEFT_WIDTH_MIN}
+            max={STUDIO_LEFT_WIDTH_MAX}
+            onChange={(next) => setLeftSidebarWidth(clampStudioLeftWidth(next))}
+            onDragStart={handleStudioLayoutDragStart}
+            onDragEnd={handleStudioLayoutDragEnd}
+            style={{left: leftSidebarWidth}}
+          />
+        ) : null}
+
         <Card
           className={cn(
-            'col-start-2 row-start-1 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            'col-start-2 row-start-1 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
             isConsoleMaximized && 'hidden',
           )}
         >
-          <CardContent className='flex h-full min-h-0 flex-col p-0'>
+          <CardContent className='flex h-full min-h-0 min-w-0 flex-col p-0'>
             {/* VS Code 风格平铺直角标签页栏 */}
             {/* VS Code style flat rectangular tab bar */}
             <div className='flex h-9 shrink-0 items-stretch justify-between border-b border-border/40 bg-muted/25 px-0 select-none overflow-hidden'>
@@ -5492,13 +5477,30 @@ export function DataSyncStudio() {
           </CardContent>
         </Card>
 
+        {!isRightSidebarCollapsed ? (
+          <StudioSplitHandle
+            orientation='vertical'
+            invert
+            label={t('resizeAdvanced')}
+            value={rightSidebarWidth}
+            min={STUDIO_RIGHT_WIDTH_MIN}
+            max={STUDIO_RIGHT_WIDTH_MAX}
+            onChange={(next) =>
+              setRightSidebarWidth(clampStudioRightWidth(next))
+            }
+            onDragStart={handleStudioLayoutDragStart}
+            onDragEnd={handleStudioLayoutDragEnd}
+            style={{right: rightSidebarWidth}}
+          />
+        ) : null}
+
         <StudioSidebarShell
           data-studio-right-sidebar=''
           className={cn(
-            'col-start-3 row-start-1 row-span-2 min-w-0 transition-all duration-200',
+            'col-start-3 row-start-1 row-span-2 min-w-0',
             isRightSidebarCollapsed
               ? 'pointer-events-none border-transparent opacity-0'
-              : studioSidebarOpenSpacingClass(false, 'right'),
+              : null,
           )}
           ariaHidden={isRightSidebarCollapsed}
           inert={isRightSidebarCollapsed}
@@ -5664,13 +5666,34 @@ export function DataSyncStudio() {
           )}
         </StudioSidebarShell>
 
+        {!isConsoleMaximized ? (
+          <StudioSplitHandle
+            orientation='horizontal'
+            invert
+            label={t('resizeConsole')}
+            value={consoleHeight}
+            min={STUDIO_CONSOLE_HEIGHT_MIN}
+            max={STUDIO_CONSOLE_HEIGHT_MAX}
+            onChange={(next) =>
+              setConsoleHeight(clampStudioConsoleHeight(next))
+            }
+            onDragStart={handleStudioLayoutDragStart}
+            onDragEnd={handleStudioLayoutDragEnd}
+            style={{
+              left: isLeftSidebarCollapsed ? 0 : leftSidebarWidth,
+              right: isRightSidebarCollapsed ? 0 : rightSidebarWidth,
+              bottom: consoleHeight,
+            }}
+          />
+        ) : null}
+
         <Card
           className={cn(
-            'col-start-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            'col-start-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
             isConsoleMaximized ? 'row-start-1 row-span-2' : 'row-start-2',
           )}
         >
-          <CardContent className='flex h-full min-h-0 flex-col p-0'>
+          <CardContent className='flex h-full min-h-0 min-w-0 flex-col p-0'>
             {/* 控制台顶部横向选项卡与操作区 */}
             {/* Console top horizontal tab switcher and action area */}
             <div className='studio-sidebar-chrome flex min-h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-2 py-1'>
@@ -5711,13 +5734,15 @@ export function DataSyncStudio() {
                           'size-7 rounded-[var(--radius-control)] text-muted-foreground hover:text-foreground',
                           isConsoleExpanded && 'text-primary bg-primary/10',
                         )}
-                        onClick={() => setIsConsoleExpanded((prev) => !prev)}
+                        onClick={handleToggleConsoleHeight}
                       >
                         <ChevronsUpDown className='size-3.5' />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent side='left'>
-                      {isConsoleExpanded ? '收缩控制台高度 (260px)' : '扩展控制台高度 (390px)'}
+                      {isConsoleExpanded
+                        ? t('collapseConsoleHeight')
+                        : t('expandConsoleHeight')}
                     </TooltipContent>
                   </Tooltip>
                 ) : null}
@@ -6639,6 +6664,8 @@ export function DataSyncStudio() {
         onRefresh={() => {
           void loadWorkspace(selectedNodeId);
         }}
+        onToggleCollapseAll={handleToggleCollapseAll}
+        foldersExpanded={expandedFolderIds.length > 0}
       />
 
       {/* VSCode 风格 Quick Open 多结果浮层 (Cmd+P) */}

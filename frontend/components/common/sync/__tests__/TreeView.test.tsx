@@ -29,6 +29,42 @@ vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }));
 
+vi.mock('motion/react', async () => {
+  const ReactMod = await import('react');
+
+  function passthrough(tag: keyof HTMLElementTagNameMap) {
+    return ReactMod.forwardRef(function MotionEl(
+      props: Record<string, unknown> & {children?: React.ReactNode},
+      ref: React.Ref<HTMLElement>,
+    ) {
+      const {
+        children,
+        layout: _layout,
+        initial: _initial,
+        animate: _animate,
+        exit: _exit,
+        transition: _transition,
+        variants: _variants,
+        custom: _custom,
+        layoutId: _layoutId,
+        layoutRoot: _layoutRoot,
+        ...rest
+      } = props;
+      return ReactMod.createElement(tag, {ref, ...rest}, children);
+    });
+  }
+
+  return {
+    AnimatePresence: ({children}: {children: React.ReactNode}) => children,
+    motion: {
+      div: passthrough('div'),
+      span: passthrough('span'),
+      ul: passthrough('ul'),
+    },
+    useReducedMotion: () => true,
+  };
+});
+
 const mockNodes: SyncTaskTreeNode[] = ([
   {
     id: 1,
@@ -90,11 +126,32 @@ describe('TreeView', () => {
       />,
     );
 
+    expect(screen.getByRole('tree', {name: 'resources'})).toBeInTheDocument();
     expect(screen.getByText('batch_jobs')).toBeInTheDocument();
     expect(screen.getByText('empty_folder')).toBeInTheDocument();
     expect(screen.getByText('mysql_to_hive.conf')).toBeInTheDocument();
     expect(screen.getByText('query.sql')).toBeInTheDocument();
     expect(screen.getByText('config.json')).toBeInTheDocument();
+  });
+
+  it('reports expanded folder ids when a folder row is toggled', () => {
+    const onSelect = vi.fn();
+    const onExpandedChange = vi.fn();
+    render(
+      <TreeView
+        nodes={mockNodes}
+        selectedNodeId={null}
+        selectedFolderId={null}
+        expandedFolderIds={[]}
+        onSelect={onSelect}
+        onExpandedChange={onExpandedChange}
+        onContextMenu={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('empty_folder'));
+    expect(onSelect).toHaveBeenCalledWith(mockNodes[1]);
+    expect(onExpandedChange).toHaveBeenCalledWith([5]);
   });
 
   it('handles node selection on click', () => {
@@ -180,6 +237,31 @@ describe('TreeView', () => {
     );
   });
 
+  it('does not treat rename input keys as tree navigation', () => {
+    const onSelect = vi.fn();
+    const onExpandedChange = vi.fn();
+
+    render(
+      <TreeView
+        nodes={mockNodes}
+        selectedNodeId={null}
+        selectedFolderId={null}
+        expandedFolderIds={[1]}
+        onSelect={onSelect}
+        onExpandedChange={onExpandedChange}
+        onContextMenu={vi.fn()}
+        renamingNodeId={1}
+      />,
+    );
+
+    const input = screen.getByDisplayValue('batch_jobs');
+    fireEvent.keyDown(input, {key: 'ArrowDown'});
+    fireEvent.keyDown(input, {key: 'Enter'});
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onExpandedChange).not.toHaveBeenCalled();
+  });
+
   it('cancels inline rename on Escape key', () => {
     const onRenameCancel = vi.fn();
     render(
@@ -227,11 +309,34 @@ describe('TreeView', () => {
     expect(onCreateCommit).toHaveBeenCalledWith('new_job.conf');
   });
 
-  it('handles hover actions for new file, new folder, and delete', () => {
-    const onCreateFile = vi.fn();
-    const onCreateFolder = vi.fn();
-    const onDelete = vi.fn();
+  it('truncates file names and keeps version and draft badges on the row', () => {
+    render(
+      <TreeView
+        nodes={mockNodes}
+        selectedNodeId={null}
+        selectedFolderId={null}
+        expandedFolderIds={[1]}
+        onSelect={vi.fn()}
+        onContextMenu={vi.fn()}
+      />,
+    );
 
+    const name = screen.getByText('mysql_to_hive.conf');
+    expect(name).toHaveAttribute('data-slot', 'tree-node-name');
+    expect(name.className).toMatch(/truncate/);
+    expect(name.className).toMatch(/min-w-0/);
+    expect(name.closest('[role="treeitem"]')?.className).toMatch(/min-w-0/);
+
+    const published = screen.getByText('v1');
+    const draft = screen.getByText('draft');
+    expect(published).toHaveAttribute('data-slot', 'tree-node-badge');
+    expect(draft).toHaveAttribute('data-slot', 'tree-node-badge');
+    expect(published.className).toMatch(/shrink-0/);
+    expect(draft.className).toMatch(/whitespace-nowrap/);
+    expect(screen.getByText('v2')).toBeInTheDocument();
+  });
+
+  it('does not pin create or delete icons onto tree rows', () => {
     render(
       <TreeView
         nodes={mockNodes}
@@ -240,24 +345,15 @@ describe('TreeView', () => {
         expandedFolderIds={[]}
         onSelect={vi.fn()}
         onContextMenu={vi.fn()}
-        onCreateFile={onCreateFile}
-        onCreateFolder={onCreateFolder}
-        onDelete={onDelete}
       />,
     );
 
-    const newFileBtn = screen.getAllByRole('button', {name: 'newFile'})[0];
-    const newFolderBtn = screen.getAllByRole('button', {name: 'newFolder'})[0];
-    const deleteBtn = screen.getAllByRole('button', {name: 'delete'})[0];
-
-    fireEvent.click(newFileBtn);
-    expect(onCreateFile).toHaveBeenCalledWith(mockNodes[0]);
-
-    fireEvent.click(newFolderBtn);
-    expect(onCreateFolder).toHaveBeenCalledWith(mockNodes[0]);
-
-    fireEvent.click(deleteBtn);
-    expect(onDelete).toHaveBeenCalledWith(mockNodes[0]);
+    expect(screen.queryByRole('button', {name: 'newFile'})).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {name: 'newFolder'}),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'delete'})).not.toBeInTheDocument();
+    expect(screen.getByText('batch_jobs')).toBeInTheDocument();
   });
 
   it('supports drag and drop events', () => {

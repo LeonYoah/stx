@@ -62,6 +62,8 @@ export interface BrushChartProps {
   formatTick?: (value: number) => string;
   /** Formats a date in the tooltip and announcements. */
   formatDate?: (date: Date) => string;
+  /** 日内跨度的横轴刻度格式，默认 UTC HH:mm；需要本地时区时传入。Axis tick format for sub-day spans, UTC HH:mm by default; pass a local-zone formatter when the rest of the UI uses local time. */
+  formatTime?: (date: Date) => string;
   /** Events drawn as markers on both charts. */
   annotations?: BrushChartAnnotation[];
   /** Controlled window as [start, end] epoch milliseconds. A new value glides the window there. */
@@ -85,6 +87,8 @@ type Point = { t: number; value: number };
 type Drag = { mode: "start" | "end" | "pan" | "new"; pointerX: number; from: [number, number]; anchor: number; moved: boolean };
 
 const DAY = 86_400_000;
+const MINUTE = 60_000;
+const HOUR = 3_600_000;
 const { spring } = motionTokens;
 const physical = ({ visualDuration, bounce }: { visualDuration: number; bounce: number }, restDelta = .001) => { const root = (2 * Math.PI) / (visualDuration * 1.2); return { type: "spring" as const, stiffness: root * root, damping: 2 * (1 - bounce) * root, restDelta, restSpeed: restDelta * 2 }; };
 const settle = physical(spring.smooth);
@@ -101,6 +105,7 @@ const dayTick = utc({ month: "short", day: "numeric" });
 const monthTick = utc({ month: "short" });
 const yearTick = utc({ year: "numeric" });
 const shortDate = utc({ month: "short", day: "numeric", year: "numeric" });
+const hourMinute = utc({ hour: "2-digit", minute: "2-digit", hour12: false });
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 const time = (date: Date | number) => typeof date === "number" ? date : date.getTime();
 const clean = (value: number) => Number(value.toPrecision(12));
@@ -113,8 +118,19 @@ function niceTop(high: number) {
 }
 
 /** Calendar ticks that fit the width: days, weeks, then months, quarters, and years, each landing on a real boundary. */
-function timeTicks(start: number, end: number, width: number) {
+function timeTicks(start: number, end: number, width: number, formatTime: (date: Date) => string) {
   const room = Math.max(2, Math.floor(width / 76)), span = end - start;
+  /* STX：日内窗口按 1m/5m/15m/30m/1h…12h 出刻度，UTC 对齐的步长都整除小时，
+     任何时区（含 +5:45 这类 15 分钟偏移）下渲染出来仍是整分整点。
+     STX: sub-day windows take 1m/5m/15m/30m/1h…12h ticks; UTC-aligned steps all
+     divide the hour, so they still render on round local times in any zone. */
+  if (span < DAY) {
+    const steps = [MINUTE, 5 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR];
+    const step = steps.find(size => span / size <= room) ?? steps[steps.length - 1]!;
+    const ticks: { t: number; label: string }[] = [];
+    for (let t = Math.ceil(start / step) * step; t <= end; t += step) ticks.push({ t, label: formatTime(new Date(t)) });
+    if (ticks.length) return ticks;
+  }
   for (const days of [1, 2, 7, 14]) {
     if (span / (days * DAY) > room) continue;
     const ticks: { t: number; label: string }[] = [];
@@ -190,7 +206,7 @@ function useWidth<T extends HTMLElement>() {
   return [node, width] as const;
 }
 
-export function BrushChart({ data, label, unit = "", formatValue = value => grouped.format(value), formatTick = value => compact.format(value), formatDate = date => fullDate.format(date), annotations = [], range, defaultRange, onRangeChange, minSpan = 7 * DAY, height = 240, overviewHeight = 52, emptyLabel = "No data yet", ref, className }: BrushChartProps) {
+export function BrushChart({ data, label, unit = "", formatValue = value => grouped.format(value), formatTick = value => compact.format(value), formatDate = date => fullDate.format(date), formatTime = date => hourMinute.format(date), annotations = [], range, defaultRange, onRangeChange, minSpan = 7 * DAY, height = 240, overviewHeight = 52, emptyLabel = "No data yet", ref, className }: BrushChartProps) {
   const reduced = useReducedMotionSafe();
   const uid = `brush${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const figure = useRef<HTMLElement>(null);
@@ -275,7 +291,7 @@ export function BrushChart({ data, label, unit = "", formatValue = value => grou
   const pxPerPoint = empty ? width : (width * (lastT - first)) / (points.length - 1) / span;
   const detail = clamp((pxPerPoint - 2.75) / 1.5, 0, 1);
   const ticks = scale.top > 0 ? Array.from({ length: Math.round(scale.top / scale.step) + 1 }, (_, index) => clean(index * scale.step)) : [];
-  const xTicks = width && !empty ? timeTicks(start, end, width) : [];
+  const xTicks = width && !empty ? timeTicks(start, end, width, formatTime) : [];
 
   // Overview: the whole series, drawn once per width.
   const ox = (t: number) => ((t - first) / (lastT - first || 1)) * stripWidth;

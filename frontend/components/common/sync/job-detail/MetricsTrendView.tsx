@@ -485,6 +485,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
             minSpan={charts.cdcMinSpan}
             annotations={charts.annotations}
             formatDate={(date) => formatDateTime(date.getTime())}
+            formatTime={(date) => formatTime(date.getTime())}
             formatValue={formatSeconds}
             emptyLabel={t('emptyChart')}
           />

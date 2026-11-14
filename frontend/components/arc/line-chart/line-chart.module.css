@@ -11,7 +11,10 @@
 .swatch::before { position: absolute; top: 50%; left: 0; width: 100%; height: 2.5px; border-radius: 2px; background: var(--series); content: ""; transform: translateY(-50%) scaleX(1); transform-origin: left; transition: transform var(--duration-standard) var(--ease-spring), opacity var(--duration-fast) var(--ease-standard); }
 .swatch[data-dashed]::before { background: repeating-linear-gradient(to right, var(--series) 0 4px, transparent 4px 7px); }
 .toggle[aria-pressed="false"] .swatch::before { opacity: .45; transform: translateY(-50%) scaleX(.35); }
-@media (hover: hover) and (pointer: fine) { .toggle:hover { background: color-mix(in oklab, var(--foreground) 5%, transparent); color: var(--foreground); } }
+/* STX：清空选中的还原按钮，虚线胶囊区别于序列开关。 / STX: the clear-selection restore button, a dashed pill so it does not read as a series. */
+.reset { display: inline-flex; min-height: 32px; align-items: center; padding: 0 10px; border: 1px dashed var(--border-strong); border-radius: var(--radius-pill); background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: var(--text-sm); -webkit-tap-highlight-color: transparent; transition: color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard); }
+.reset:active { transform: scale(.97); }
+@media (hover: hover) and (pointer: fine) { .toggle:hover { background: color-mix(in oklab, var(--foreground) 5%, transparent); color: var(--foreground); } .reset:hover { border-color: var(--foreground); color: var(--foreground); } }
 
 /* Plot, right-hand value axis, and the date axis beneath. */
 .chart { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 48px; grid-template-rows: auto 26px; min-width: 0; }

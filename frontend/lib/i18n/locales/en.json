@@ -4989,47 +4989,6 @@
     "stopOverdueTooltip": "A stop was requested, but the job has not stopped after {minutes} minutes. STX keeps checking; inspect the engine if needed.",
     "submitOutcomePendingTitle": "Previous submit is still being confirmed",
     "submitOutcomePendingDescription": "The submit of job #{jobId} is still being confirmed until {deadline}. Try again afterwards.",
-    "realtimeInsight": {
-      "title": "Realtime insight",
-      "live": "Live",
-      "updatedAt": "Updated {time}",
-      "noBottleneck": "No clear bottleneck in the last 3 collection buckets.",
-      "busy": "busy {value}",
-      "backpressure": "bp {value}",
-      "queueFill": "queue {value}",
-      "severity": {
-        "critical": "Critical",
-        "warning": "Warning",
-        "info": "Info"
-      },
-      "hint": {
-        "sink_slow": "{target} cannot keep up writing: busy {value} with a persistently full input queue. Check target write performance, batching and parallelism.",
-        "transform_busy": "{target} cannot keep up processing: busy {value} with a persistently full input queue. Split the transform chain or raise parallelism.",
-        "downstream_backpressure": "The queue into {target} is backpressured at {value} while the target is not busy; it may be waiting on an external system, GC or commits.",
-        "source_idle": "{target} is mostly waiting for data (idle {value}) and downstream queues are empty; upstream may have no new data.",
-        "source_busy": "{target} spends {value} reading with no downstream backpressure; reading or deserialization may be slow."
-      },
-      "reason": {
-        "version_unsupported": "Needs 3.x",
-        "not_cluster_mode": "Local run",
-        "not_running": "Not running",
-        "not_enabled": "Disabled",
-        "master_unreachable": "Engine unreachable",
-        "no_engine_job": "No engine job",
-        "collecting": "Collecting",
-        "client_unsupported": "Unsupported"
-      },
-      "reasonDetail": {
-        "version_unsupported": "Realtime observability requires a SeaTunnel 3.0.0+ cluster.",
-        "not_cluster_mode": "Locally executed jobs have no engine realtime metrics.",
-        "not_running": "The job is no longer running; realtime data is only kept while it runs.",
-        "not_enabled": "Realtime observability is not enabled for this job. Set \"Realtime observability\" to Auto or On in task settings and resubmit.",
-        "master_unreachable": "The cluster's active master is unreachable right now; it will be retried automatically.",
-        "no_engine_job": "The job has no engine job ID yet.",
-        "collecting": "The engine is collecting the first bucket (about 5 seconds). Please wait.",
-        "client_unsupported": "This server does not support the realtime metrics proxy."
-      }
-    },
     "jobEvents": {
       "open": "Event timeline",
       "title": "Job #{id} event timeline",
@@ -5222,7 +5181,8 @@
           "schema_change": "DDL",
           "restart": "Restart",
           "status": "Status"
-        }
+        },
+        "legendClear": "Clear selection"
       }
     },
     "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)"

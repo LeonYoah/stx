@@ -420,6 +420,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
             height={200}
             loading={loading}
             emptyLabel={t('emptyChart')}
+            resetLabel={t('legendClear')}
             categoryLabel={t('categoryTime')}
             formatValue={formatRate}
           />
@@ -433,6 +434,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
             height={200}
             loading={loading}
             emptyLabel={t('emptyChart')}
+            resetLabel={t('legendClear')}
             categoryLabel={t('categoryTime')}
             formatValue={formatCount}
           />
@@ -449,6 +451,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
               height={200}
               loading={loading}
               emptyLabel={t('emptyChart')}
+              resetLabel={t('legendClear')}
               categoryLabel={t('categoryTime')}
               formatValue={formatRate}
             />
@@ -464,6 +467,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
               height={200}
               loading={loading}
               emptyLabel={t('emptyChart')}
+              resetLabel={t('legendClear')}
               categoryLabel={t('categoryTime')}
               formatValue={formatCount}
             />
@@ -525,6 +529,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
               height={200}
               loading={loading}
               emptyLabel={t('emptyChart')}
+              resetLabel={t('legendClear')}
               categoryLabel={t('categoryTime')}
               formatValue={(value) => `${value.toFixed(1)}%`}
             />
@@ -542,6 +547,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
               height={200}
               loading={loading}
               emptyLabel={t('emptyChart')}
+              resetLabel={t('legendClear')}
               categoryLabel={t('categoryTime')}
               formatValue={(value) => `${value.toFixed(1)}%`}
             />

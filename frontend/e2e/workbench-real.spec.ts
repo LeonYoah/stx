@@ -87,7 +87,9 @@ test.describe.serial('workbench real flows', () => {
     const request = page.context().request;
 
     await page.goto('/workbench');
-    await expect(page.getByLabel(/新建目录|New folder/i)).toBeVisible({timeout: 120000});
+    await expect(
+      page.getByRole('button', {name: /资源操作|Resource actions/i}),
+    ).toBeVisible({timeout: 120000});
     await expect(page.getByRole('button', {name: /^(任务|Jobs)$/i})).toBeVisible();
 
     usersTask = await createSyncTask(request, {

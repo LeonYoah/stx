@@ -167,4 +167,32 @@ describe('StudioTreeContextMenu', () => {
     fireEvent.click(screen.getByText('newFolder'));
     expect(onCreateFolder).toHaveBeenCalledWith(folderNode);
   });
+
+  it('offers collapse all on the root menu when folders are expanded', () => {
+    const onToggleCollapseAll = vi.fn();
+    render(
+      <StudioTreeContextMenu
+        menuState={{
+          open: true,
+          x: 100,
+          y: 100,
+          kind: 'root',
+          node: null,
+        }}
+        onClose={vi.fn()}
+        onCreateFile={vi.fn()}
+        onCreateFolder={vi.fn()}
+        onRename={vi.fn()}
+        onMove={vi.fn()}
+        onCopyFile={vi.fn()}
+        onDelete={vi.fn()}
+        onRefresh={vi.fn()}
+        onToggleCollapseAll={onToggleCollapseAll}
+        foldersExpanded
+      />,
+    );
+
+    fireEvent.click(screen.getByText('collapseAll'));
+    expect(onToggleCollapseAll).toHaveBeenCalled();
+  });
 });

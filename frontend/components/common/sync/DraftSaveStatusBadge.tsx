@@ -25,8 +25,8 @@ import {cn} from '@/lib/utils';
 import type {DraftSaveStatus} from './sync-studio-utils';
 
 /**
- * 顶栏草稿保存状态指示（手动保存与自动保存共用）。
- * Top-bar draft save status (shared by manual save and autosave).
+ * 顶栏草稿保存状态指示（手动保存与离开前落盘共用）。
+ * Top-bar draft save status (shared by manual save and leave flush).
  */
 export function DraftSaveStatusBadge({
   status,

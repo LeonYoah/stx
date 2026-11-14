@@ -240,3 +240,21 @@
   background: color-mix(in oklab, var(--muted) 70%, transparent);
   color: var(--foreground);
 }
+
+/*
+ * Radix ScrollArea 内部包一层 display:table / min-width:100%，
+ * 树行会按最长文件名撑开，版本/草稿徽章被左侧栏 overflow:hidden 裁掉。
+ * 改成块级并 min-width:0，文件名才能随资源栏宽度截断，徽章留在行内。
+ * Radix ScrollArea wraps content in display:table with min-width:100%,
+ * so tree rows grow to the longest name and the card clips version/draft
+ * badges. Block + min-width:0 lets the filename shrink with the explorer.
+ */
+[data-studio-left-sidebar] [data-slot='scroll-area-viewport'] {
+  overflow-x: hidden;
+}
+
+[data-studio-left-sidebar] [data-slot='scroll-area-viewport'] > div {
+  display: block !important;
+  min-width: 0 !important;
+  width: 100%;
+}

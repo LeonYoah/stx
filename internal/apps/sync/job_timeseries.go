@@ -36,19 +36,21 @@ import (
 // JobTimeseriesResult is the payload of GET /sync/jobs/:id/timeseries; there is no local fallback, so source is only
 // "prometheus" or "none".
 type JobTimeseriesResult struct {
-	Source                      string                    `json:"source"`
-	Reason                      string                    `json:"reason,omitempty"`
-	Range                       string                    `json:"range"`
-	StepSeconds                 int                       `json:"step_seconds"`
-	EngineObservabilityEnabled  bool                      `json:"engine_observability_enabled"`
-	Series                      []JobTimeseriesSeries     `json:"series"`
-	Annotations                 []JobTimeseriesAnnotation `json:"annotations"`
+	Source                     string                    `json:"source"`
+	Reason                     string                    `json:"reason,omitempty"`
+	Range                      string                    `json:"range"`
+	StartMs                    int64                     `json:"start_ms"`
+	EndMs                      int64                     `json:"end_ms"`
+	StepSeconds                int                       `json:"step_seconds"`
+	EngineObservabilityEnabled bool                      `json:"engine_observability_enabled"`
+	Series                     []JobTimeseriesSeries     `json:"series"`
+	Annotations                []JobTimeseriesAnnotation `json:"annotations"`
 }
 
 // JobTimeseriesSeries 是一条命名时序。
 // JobTimeseriesSeries is one named time series.
 type JobTimeseriesSeries struct {
-	Key    string      `json:"key"`
+	Key    string       `json:"key"`
 	Label  string       `json:"label"`
 	Unit   string       `json:"unit"`
 	Points [][2]float64 `json:"points"` // [ts_ms, value]
@@ -91,31 +93,129 @@ var timeseriesRangeDurations = map[string]time.Duration{
 	"7d":  7 * 24 * time.Hour,
 }
 
-// GetJobTimeseriesForActor 在权限检查后返回作业时序（仅 Prometheus）。
-// GetJobTimeseriesForActor returns job timeseries after enforcing permission (Prometheus only).
-func (s *Service) GetJobTimeseriesForActor(ctx context.Context, actor executionapp.Actor, id uint, rangeKey, metricsCSV string, step int) (*JobTimeseriesResult, error) {
+const (
+	// timeseriesCustomRange 是自定义起止时间窗在响应里的 range 值。
+	// timeseriesCustomRange is the response range value for a custom start/end window.
+	timeseriesCustomRange = "custom"
+	// timeseriesMaxCustomSpan 限制自定义时间窗跨度，避免一次拉过长的历史。
+	// timeseriesMaxCustomSpan caps a custom window so one request cannot pull an unbounded history.
+	timeseriesMaxCustomSpan = 31 * 24 * time.Hour
+	// timeseriesTargetPoints 是自定义时间窗自动选 step 时每条序列的目标点数。
+	// timeseriesTargetPoints is the per-series point budget used to pick a step for custom windows.
+	timeseriesTargetPoints = 240
+)
+
+// timeseriesStepCandidates 是自定义时间窗可选的 step（秒），从细到粗。
+// timeseriesStepCandidates are the steps (seconds) a custom window may use, finest first.
+var timeseriesStepCandidates = []int{10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400}
+
+// JobTimeseriesWindow 是自定义的起止时间窗（UTC）。
+// JobTimeseriesWindow is a custom start/end window (UTC).
+type JobTimeseriesWindow struct {
+	Start time.Time
+	End   time.Time
+}
+
+// ParseJobTimeseriesWindow 解析 start/end 查询参数：支持 RFC3339 与 Unix 时间戳（10 位及以下按秒，否则按毫秒）。
+// 两者都为空返回 nil；只给 end 报错；只给 start 时 end 取 now。end 必须晚于 start，跨度不超过 31 天。
+// ParseJobTimeseriesWindow parses the start/end query params: RFC3339 or Unix timestamps (10 digits or fewer are
+// seconds, longer ones milliseconds). Both empty returns nil; end alone is an error; start alone ends at now. end must be
+// after start and the span may not exceed 31 days.
+func ParseJobTimeseriesWindow(startRaw, endRaw string, now time.Time) (*JobTimeseriesWindow, error) {
+	startRaw, endRaw = strings.TrimSpace(startRaw), strings.TrimSpace(endRaw)
+	if startRaw == "" && endRaw == "" {
+		return nil, nil
+	}
+	if startRaw == "" {
+		return nil, fmt.Errorf("start is required when end is set")
+	}
+	start, err := parseTimeseriesInstant(startRaw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid start: %w", err)
+	}
+	end := now.UTC()
+	if endRaw != "" {
+		if end, err = parseTimeseriesInstant(endRaw); err != nil {
+			return nil, fmt.Errorf("invalid end: %w", err)
+		}
+	}
+	if !end.After(start) {
+		return nil, fmt.Errorf("end must be after start")
+	}
+	if end.Sub(start) > timeseriesMaxCustomSpan {
+		return nil, fmt.Errorf("window too long: at most %s", timeseriesMaxCustomSpan)
+	}
+	return &JobTimeseriesWindow{Start: start, End: end}, nil
+}
+
+// parseTimeseriesInstant 把单个时间参数解析成 UTC 时刻。
+// parseTimeseriesInstant parses one time param into a UTC instant.
+func parseTimeseriesInstant(raw string) (time.Time, error) {
+	if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		if len(strings.TrimPrefix(raw, "-")) <= 10 {
+			return time.Unix(n, 0).UTC(), nil
+		}
+		return time.UnixMilli(n).UTC(), nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("want RFC3339 or unix timestamp, got %q", raw)
+	}
+	return t.UTC(), nil
+}
+
+// autoTimeseriesStep 为自定义时间窗挑一个 step，使每条序列不超过目标点数。
+// autoTimeseriesStep picks a step for a custom window so each series stays within the point budget.
+func autoTimeseriesStep(span time.Duration) int {
+	for _, step := range timeseriesStepCandidates {
+		if int(span/(time.Duration(step)*time.Second)) <= timeseriesTargetPoints {
+			return step
+		}
+	}
+	return timeseriesStepCandidates[len(timeseriesStepCandidates)-1]
+}
+
+// GetJobTimeseriesForActor 在权限检查后返回作业时序（仅 Prometheus）。window 非空时优先于 rangeKey。
+// GetJobTimeseriesForActor returns job timeseries after enforcing permission (Prometheus only). A non-nil window wins
+// over rangeKey.
+func (s *Service) GetJobTimeseriesForActor(ctx context.Context, actor executionapp.Actor, id uint, rangeKey string, window *JobTimeseriesWindow, metricsCSV string, step int) (*JobTimeseriesResult, error) {
 	instance, err := s.getJobInstanceForActor(ctx, actor, id)
 	if err != nil {
 		return nil, err
 	}
-	return s.getJobTimeseries(ctx, instance, rangeKey, metricsCSV, step)
+	return s.getJobTimeseries(ctx, instance, rangeKey, window, metricsCSV, step)
 }
 
-func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, rangeKey, metricsCSV string, step int) (*JobTimeseriesResult, error) {
-	rangeKey = strings.ToLower(strings.TrimSpace(rangeKey))
-	if rangeKey == "" {
-		rangeKey = "1h"
-	}
-	dur, ok := timeseriesRangeDurations[rangeKey]
-	if !ok {
-		return nil, fmt.Errorf("unsupported range %q (want 15m|1h|6h|24h|7d)", rangeKey)
-	}
-	if step <= 0 {
-		step = timeseriesRangeSteps[rangeKey]
+func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, rangeKey string, window *JobTimeseriesWindow, metricsCSV string, step int) (*JobTimeseriesResult, error) {
+	var start, end time.Time
+	if window != nil {
+		// 自定义时间窗：作业全程或日历选择的起止时刻。
+		// Custom window: the job's lifetime or a range picked on the calendar.
+		rangeKey = timeseriesCustomRange
+		start, end = window.Start.UTC(), window.End.UTC()
+		if step <= 0 {
+			step = autoTimeseriesStep(end.Sub(start))
+		}
+	} else {
+		rangeKey = strings.ToLower(strings.TrimSpace(rangeKey))
+		if rangeKey == "" {
+			rangeKey = "1h"
+		}
+		dur, ok := timeseriesRangeDurations[rangeKey]
+		if !ok {
+			return nil, fmt.Errorf("unsupported range %q (want 15m|1h|6h|24h|7d, or start/end)", rangeKey)
+		}
+		if step <= 0 {
+			step = timeseriesRangeSteps[rangeKey]
+		}
+		end = time.Now().UTC()
+		start = end.Add(-dur)
 	}
 	engineObs := jobHasEngineObservability(instance)
 	out := &JobTimeseriesResult{
 		Range:                      rangeKey,
+		StartMs:                    start.UnixMilli(),
+		EndMs:                      end.UnixMilli(),
 		StepSeconds:                step,
 		EngineObservabilityEnabled: engineObs,
 		Series:                     []JobTimeseriesSeries{},
@@ -134,8 +234,6 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 		return out, nil
 	}
 
-	end := time.Now().UTC()
-	start := end.Add(-dur)
 	jobID := strconv.FormatUint(uint64(instance.ID), 10)
 	metricKeys := parseTimeseriesMetrics(metricsCSV)
 

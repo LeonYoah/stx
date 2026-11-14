@@ -5167,6 +5167,8 @@
         "engineObsEmptyTitle": "该作业未开启引擎可观测性",
         "engineObsEmptyBody": "忙碌度与背压需要作业开启 engine.observability",
         "range": "时间范围",
+        "rangeLifetime": "作业全程",
+        "customRange": "自定义时间段",
         "autoRefresh": "自动刷新",
         "lastRefresh": "上次刷新 {time}",
         "loading": "加载中",

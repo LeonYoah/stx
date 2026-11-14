@@ -27,6 +27,8 @@ import {DonutChart} from '@/components/arc/donut-chart/donut-chart';
 import {LineChart} from '@/components/arc/line-chart/line-chart';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Switch} from '@/components/arc/switch/switch';
+import type {DateRange} from '@/components/arc/date-range-picker/date-range-picker';
+import {ArcDateRangePicker} from '@/components/common/layout/ArcDateRangePicker';
 import {Button} from '@/components/ui/button';
 import {useLocale} from '@/lib/i18n';
 import {cn} from '@/lib/utils';
@@ -34,7 +36,9 @@ import {SyncService, type SyncJobInstance, type SyncJobTimeseries} from '@/lib/s
 import {
   TREND_COLORS,
   brushMinSpan,
+  MAX_TREND_WINDOW_MS,
   colorByName,
+  jobLifetimeWindow,
   latestValue,
   scalePoints,
   toBarChartData,
@@ -43,11 +47,37 @@ import {
   toLineChartData,
   toPipelineShare,
   type NamedSeries,
+  type TrendWindow,
 } from './metrics-trend-data';
 
 const RANGES = ['15m', '1h', '6h', '24h', '7d'] as const;
+const LIFETIME = 'lifetime';
 
 type RangeKey = (typeof RANGES)[number];
+
+/**
+ * 趋势时间窗：相对当前的预设、作业全程，或日历选出的自定义起止（毫秒）。
+ * Trend window: a preset relative to now, the job's lifetime, or a custom start/end (ms) picked on the calendar.
+ */
+type TrendSelection =
+  | {kind: 'preset'; range: RangeKey}
+  | {kind: 'lifetime'}
+  | {kind: 'custom'; window: TrendWindow};
+
+const isRunningStatus = (status?: string) => {
+  const value = String(status || '').toLowerCase();
+  return value === 'running' || value === 'pending' || value.includes('cancel') || value.includes('savepoint');
+};
+
+/**
+ * 默认时间窗：已结束的作业看全程（相对当前的预设一过就看不到它了），运行中的看最近 1 小时。
+ * Default window: finished jobs show their lifetime (a now-relative preset soon scrolls past them); running jobs show the
+ * last hour.
+ */
+const defaultSelection = (job: SyncJobInstance | null): TrendSelection =>
+  job && !isRunningStatus(job.status) && jobLifetimeWindow(job, false, Date.now())
+    ? {kind: 'lifetime'}
+    : {kind: 'preset', range: '1h'};
 
 /**
  * 指标趋势视图：Arc 折线 / 刷选 / 柱状 / 环形图 + Prometheus 时序。
@@ -57,7 +87,14 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   const t = useTranslations('workbenchStudio.jobDetail.metricsView');
   const {locale} = useLocale();
   const intlLocale = locale === 'zh' ? 'zh-CN' : 'en-US';
-  const [range, setRange] = useState<RangeKey>('1h');
+  const [selection, setSelection] = useState<TrendSelection>(() => defaultSelection(job));
+  const [selectionJobId, setSelectionJobId] = useState(job?.id);
+  // 换作业时回到该作业的默认时间窗（渲染期重置，避免先用旧窗口发一次请求）。
+  // Switching jobs resets to that job's default window (reset during render so the old window is never queried).
+  if (selectionJobId !== job?.id) {
+    setSelectionJobId(job?.id);
+    setSelection(defaultSelection(job));
+  }
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [data, setData] = useState<SyncJobTimeseries | null>(null);
   const [loading, setLoading] = useState(false);
@@ -83,17 +120,27 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
     [dateTimeFormat],
   );
 
-  const running = useMemo(() => {
-    const status = String(job?.status || '').toLowerCase();
-    return status === 'running' || status === 'pending' || status.includes('cancel') || status.includes('savepoint');
-  }, [job?.status]);
+  const running = useMemo(() => isRunningStatus(job?.status), [job?.status]);
+  const canLifetime = useMemo(() => jobLifetimeWindow(job, running, Date.now()) != null, [job, running]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!job?.id) return;
+    let query: {range?: string; start?: number; end?: number};
+    if (selection.kind === 'preset') {
+      query = {range: selection.range};
+    } else if (selection.kind === 'custom') {
+      query = {start: selection.window.start, end: selection.window.end};
+    } else {
+      const lifetime = jobLifetimeWindow(job, running, Date.now());
+      if (!lifetime) return;
+      // 运行中不传 end，让后端取当前时间，自动刷新时窗口跟着往后长。
+      // While running, omit end so the backend uses now and the window grows with each auto refresh.
+      query = running ? {start: lifetime.start} : lifetime;
+    }
     setLoading(true);
     setError(null);
     try {
-      const result = await SyncService.getJobTimeseries(job.id, {range, signal});
+      const result = await SyncService.getJobTimeseries(job.id, {...query, signal});
       setData(result);
       setFetchedAt(Date.now());
     } catch (err) {
@@ -108,7 +155,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
         setLoading(false);
       }
     }
-  }, [job?.id, range]);
+  }, [job, running, selection]);
 
   useEffect(() => {
     if (!active || !job?.id) return;
@@ -118,12 +165,35 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   }, [active, job?.id, load]);
 
   useEffect(() => {
-    if (!active || !autoRefresh || !running || !job?.id) return;
+    // 自定义起止是固定窗口，刷新也不会有新数据。 / A custom window is fixed, so refreshing would add nothing.
+    if (!active || !autoRefresh || !running || !job?.id || selection.kind === 'custom') return;
     const timer = window.setInterval(() => {
       void load();
     }, 30_000);
     return () => window.clearInterval(timer);
-  }, [active, autoRefresh, running, job?.id, load]);
+  }, [active, autoRefresh, running, job?.id, load, selection.kind]);
+
+  // 选择器回显：自定义显示所选起止，作业全程显示后端实际查询的窗口，预设显示占位文案。
+  // Picker echo: custom shows the chosen bounds, lifetime the window the backend actually queried, presets a placeholder.
+  const pickerValue = useMemo<DateRange | null>(() => {
+    if (selection.kind === 'custom') {
+      return {start: new Date(selection.window.start), end: new Date(selection.window.end)};
+    }
+    if (selection.kind === 'lifetime' && data?.range === 'custom' && data.start_ms > 0 && data.end_ms > data.start_ms) {
+      return {start: new Date(data.start_ms), end: new Date(data.end_ms)};
+    }
+    return null;
+  }, [data?.end_ms, data?.range, data?.start_ms, selection]);
+  const pickerMinDate = useMemo(() => {
+    const lifetime = jobLifetimeWindow(job, running, Date.now());
+    return lifetime ? new Date(lifetime.start) : undefined;
+  }, [job, running]);
+  const handlePickRange = useCallback((picked: DateRange) => {
+    const end = picked.end.getTime();
+    // 与后端同样限制 31 天，超出时保留靠近结束的一段。 / Cap at 31 days like the backend, keeping the part nearest the end.
+    setSelection({kind: 'custom', window: {start: Math.max(picked.start.getTime(), end - MAX_TREND_WINDOW_MS), end}});
+  }, []);
+  const segmentValue = selection.kind === 'preset' ? selection.range : selection.kind === 'lifetime' ? LIFETIME : '';
 
   const seriesByKey = useCallback(
     (key: string) => (data?.series ?? []).filter((item) => item.key === key || item.key.startsWith(key)),
@@ -262,9 +332,21 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
       <div className='flex flex-wrap items-center gap-3'>
         <SegmentedControl
           label={t('range')}
-          value={range}
-          onValueChange={(value) => setRange(value as RangeKey)}
-          options={RANGES.map((item) => ({value: item, label: item}))}
+          value={segmentValue}
+          onValueChange={(value) =>
+            setSelection(value === LIFETIME ? {kind: 'lifetime'} : {kind: 'preset', range: value as RangeKey})}
+          options={[
+            ...RANGES.map((item) => ({value: item, label: item})),
+            ...(canLifetime ? [{value: LIFETIME, label: t('rangeLifetime')}] : []),
+          ]}
+        />
+        <ArcDateRangePicker
+          value={pickerValue}
+          onChange={handlePickRange}
+          label={t('customRange')}
+          placeholder={t('customRange')}
+          minDate={pickerMinDate}
+          withTime
         />
         <Switch
           checked={autoRefresh}

@@ -267,3 +267,36 @@ export function toPipelineShare(
 export function scalePoints(points: TrendPoint[], factor: number): TrendPoint[] {
   return points.map(([ts, value]) => [ts, value * factor]);
 }
+
+/** 与后端一致的自定义时间窗上限（31 天）。 / Custom window cap matching the backend (31 days). */
+export const MAX_TREND_WINDOW_MS = 31 * 24 * 60 * 60 * 1000;
+
+export type TrendWindow = {start: number; end: number};
+
+const parseInstant = (value?: string | null): number | null => {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+};
+
+/**
+ * 作业全程时间窗：开始取 started_at（缺省 created_at），结束取 finished_at；运行中或结束时间不可信（早于开始，
+ * 如引擎时区错位）时依次退到 updated_at、当前时间。跨度超过 31 天时只保留最后 31 天。
+ * Job lifetime window: start at started_at (else created_at) and end at finished_at; while running, or when the finish
+ * time is not trustworthy (before the start, e.g. an engine timezone skew), fall back to updated_at and then now. Spans
+ * longer than 31 days keep only the last 31 days.
+ */
+export function jobLifetimeWindow(
+  job: {started_at?: string; finished_at?: string; created_at?: string; updated_at?: string} | null,
+  running: boolean,
+  now: number,
+): TrendWindow | null {
+  if (!job) return null;
+  const start = parseInstant(job.started_at) ?? parseInstant(job.created_at);
+  if (start == null || start >= now) return null;
+  const after = (ms: number | null) => (ms != null && ms > start ? ms : null);
+  const end = running
+    ? now
+    : after(parseInstant(job.finished_at)) ?? after(parseInstant(job.updated_at)) ?? now;
+  return {start: Math.max(start, end - MAX_TREND_WINDOW_MS), end};
+}

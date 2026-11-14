@@ -5167,6 +5167,8 @@
         "engineObsEmptyTitle": "Engine observability is off for this job",
         "engineObsEmptyBody": "Busyness and backpressure need engine.observability enabled on the job",
         "range": "Range",
+        "rangeLifetime": "Job lifetime",
+        "customRange": "Custom range",
         "autoRefresh": "Auto refresh",
         "lastRefresh": "Last refresh {time}",
         "loading": "Loading",

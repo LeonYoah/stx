@@ -22,6 +22,8 @@ import {
   latestValue,
   TREND_COLORS,
   colorByName,
+  jobLifetimeWindow,
+  MAX_TREND_WINDOW_MS,
   pickAxisLabel,
   scalePoints,
   toBarChartData,
@@ -128,5 +130,23 @@ describe('metrics-trend-data', () => {
     // 同一批名字不论顺序都得到同样的颜色。 / The same set of names yields the same colors regardless of order.
     const reordered = colorByName(['queue--5→2', 'pipeline-1 [Transform[0]-Sql]', source, sink]);
     expect(reordered.get('queue--5→2')).toBe(colors.get('queue--5→2'));
+  });
+
+  it('derives the job lifetime window with fallbacks and the 31-day cap', () => {
+    const now = Date.parse('2026-11-14T13:00:00Z');
+    const start = Date.parse('2026-11-14T12:13:03Z');
+    expect(jobLifetimeWindow({started_at: '2026-11-14T12:13:03Z', finished_at: '2026-11-14T12:38:28Z'}, false, now))
+      .toEqual({start, end: Date.parse('2026-11-14T12:38:28Z')});
+    // 结束早于开始（引擎时区错位）：退到 updated_at。 / Finish before start (engine tz skew): fall back to updated_at.
+    expect(jobLifetimeWindow({
+      started_at: '2026-11-14T12:13:03Z',
+      finished_at: '2026-11-14T04:38:28Z',
+      updated_at: '2026-11-14T12:39:44Z',
+    }, false, now)).toEqual({start, end: Date.parse('2026-11-14T12:39:44Z')});
+    expect(jobLifetimeWindow({started_at: '2026-11-14T12:13:03Z'}, true, now)).toEqual({start, end: now});
+    const long = jobLifetimeWindow({started_at: '2026-08-01T00:00:00Z'}, true, now)!;
+    expect(long.end - long.start).toBe(MAX_TREND_WINDOW_MS);
+    expect(jobLifetimeWindow({}, false, now)).toBeNull();
+    expect(jobLifetimeWindow(null, false, now)).toBeNull();
   });
 });

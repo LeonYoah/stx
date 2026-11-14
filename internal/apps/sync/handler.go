@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -683,9 +684,16 @@ func (h *Handler) GetJobTimeseries(c *gin.Context) {
 		return
 	}
 	rangeKey := strings.TrimSpace(c.Query("range"))
+	// start/end 给出时按自定义时间窗查询（作业全程、日历选择），优先于 range。
+	// When start/end are given, query that custom window (job lifetime, calendar pick); it wins over range.
+	window, err := ParseJobTimeseriesWindow(c.Query("start"), c.Query("end"), time.Now())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, JobTimeseriesResponse{ErrorMsg: err.Error()})
+		return
+	}
 	step := parseNonNegativeInt(c.Query("step"), 0)
 	metrics := strings.TrimSpace(c.Query("metrics"))
-	result, err := h.service.GetJobTimeseriesForActor(c.Request.Context(), currentExecutionActor(c), id, rangeKey, metrics, step)
+	result, err := h.service.GetJobTimeseriesForActor(c.Request.Context(), currentExecutionActor(c), id, rangeKey, window, metrics, step)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobTimeseriesResponse{ErrorMsg: err.Error()})
 		return

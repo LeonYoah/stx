@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import {render, screen, waitFor} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
@@ -55,6 +55,38 @@ vi.mock('@/components/arc/line-chart/line-chart', () => ({
 
 vi.mock('@/components/arc/bar-chart/bar-chart', () => ({
   BarChart: ({label}: {label: string}) => <div data-testid='arc-bar-chart'>{label}</div>,
+}));
+
+vi.mock('@/components/arc/lib/use-today', () => ({
+  useToday: () => new Date(2026, 10, 14),
+}));
+
+// 模拟选择器：暴露 withTime / 当前值，点击时交回一段精确到分钟的区间。
+// Mock picker: exposes withTime and the current value, and hands back a minute-precise range on click.
+const PICKED = {start: new Date(Date.UTC(2026, 10, 14, 4, 15)), end: new Date(Date.UTC(2026, 10, 14, 4, 30, 59, 999))};
+vi.mock('@/components/arc/date-range-picker/date-range-picker', () => ({
+  DateRangePicker: ({
+    label,
+    value,
+    withTime,
+    onChange,
+  }: {
+    label: string;
+    value: {start: Date; end: Date} | null;
+    withTime?: boolean;
+    onChange?: (range: {start: Date; end: Date}) => void;
+  }) => (
+    <button
+      type='button'
+      aria-label={label}
+      data-with-time={withTime ? 'true' : 'false'}
+      data-value={value ? `${value.start.getTime()}-${value.end.getTime()}` : ''}
+      onClick={() => onChange?.(PICKED)}
+    >
+      picker
+    </button>
+  ),
+  defaultDateRangePresets: [],
 }));
 
 vi.mock('@/components/arc/donut-chart/donut-chart', () => ({
@@ -99,6 +131,8 @@ describe('MetricsTrendView', () => {
       source: 'none',
       reason: 'observability_disabled',
       range: '1h',
+      start_ms: 0,
+      end_ms: 0,
       step_seconds: 0,
       engine_observability_enabled: false,
       series: [],
@@ -115,6 +149,8 @@ describe('MetricsTrendView', () => {
     vi.mocked(SyncService.getJobTimeseries).mockResolvedValue({
       source: 'prometheus',
       range: '1h',
+      start_ms: 0,
+      end_ms: 0,
       step_seconds: 15,
       engine_observability_enabled: false,
       series: [
@@ -149,5 +185,71 @@ describe('MetricsTrendView', () => {
     expect(screen.getByTestId('arc-bar-chart')).toHaveTextContent(copy.charts.checkpoint);
     expect(screen.getByTestId('arc-donut-chart')).toHaveTextContent(copy.pipeline.label);
     expect(screen.getAllByText(copy.engineObsEmptyTitle)).toHaveLength(2);
+  });
+
+  const START = '2026-11-14T04:13:03Z';
+  const FINISH = '2026-11-14T04:38:28Z';
+  const emptyPrometheus = (range = 'custom', start = 0, end = 0) => ({
+    source: 'prometheus',
+    range,
+    start_ms: start,
+    end_ms: end,
+    step_seconds: 10,
+    engine_observability_enabled: false,
+    series: [],
+    annotations: [],
+  }) as SyncJobTimeseries;
+
+  it('defaults a finished job to its lifetime and echoes the queried window in the picker', async () => {
+    const start = Date.parse(START);
+    const end = Date.parse(FINISH);
+    vi.mocked(SyncService.getJobTimeseries).mockResolvedValue(emptyPrometheus('custom', start, end));
+    renderTrend(job({status: 'failed', started_at: START, finished_at: FINISH}));
+    await waitFor(() => expect(SyncService.getJobTimeseries).toHaveBeenCalled());
+    expect(vi.mocked(SyncService.getJobTimeseries).mock.calls[0][1]).toMatchObject({start, end});
+    expect(screen.getByRole('button', {name: copy.rangeLifetime})).toHaveAttribute('aria-pressed', 'true');
+    const picker = screen.getByRole('button', {name: copy.customRange});
+    expect(picker).toHaveAttribute('data-with-time', 'true');
+    await waitFor(() => expect(picker).toHaveAttribute('data-value', `${start}-${end}`));
+  });
+
+  it('keeps the last hour for a running job and omits end for its lifetime', async () => {
+    vi.mocked(SyncService.getJobTimeseries).mockResolvedValue(emptyPrometheus('1h'));
+    renderTrend(job({status: 'running', started_at: START}));
+    await waitFor(() => expect(SyncService.getJobTimeseries).toHaveBeenCalled());
+    expect(vi.mocked(SyncService.getJobTimeseries).mock.calls[0][1]).toMatchObject({range: '1h'});
+    fireEvent.click(screen.getByRole('button', {name: copy.rangeLifetime}));
+    await waitFor(() => expect(SyncService.getJobTimeseries).toHaveBeenCalledTimes(2));
+    const lifetimeQuery = vi.mocked(SyncService.getJobTimeseries).mock.calls[1][1];
+    expect(lifetimeQuery).toMatchObject({start: Date.parse(START)});
+    expect(lifetimeQuery).not.toHaveProperty('end');
+  });
+
+  it('falls back to updated_at when finished_at is before the start', async () => {
+    vi.mocked(SyncService.getJobTimeseries).mockResolvedValue(emptyPrometheus());
+    renderTrend(job({
+      status: 'failed',
+      started_at: '2026-11-14T12:13:03Z',
+      finished_at: '2026-11-14T04:38:28Z',
+      updated_at: '2026-11-14T12:39:44Z',
+    } as Partial<SyncJobInstance>));
+    await waitFor(() => expect(SyncService.getJobTimeseries).toHaveBeenCalled());
+    expect(vi.mocked(SyncService.getJobTimeseries).mock.calls[0][1]).toMatchObject({
+      start: Date.parse('2026-11-14T12:13:03Z'),
+      end: Date.parse('2026-11-14T12:39:44Z'),
+    });
+  });
+
+  it('queries a custom window picked on the calendar', async () => {
+    vi.mocked(SyncService.getJobTimeseries).mockResolvedValue(emptyPrometheus());
+    renderTrend(job({status: 'failed', started_at: START, finished_at: FINISH}));
+    await waitFor(() => expect(SyncService.getJobTimeseries).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', {name: copy.customRange}));
+    await waitFor(() => expect(SyncService.getJobTimeseries).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(SyncService.getJobTimeseries).mock.calls[1][1]).toMatchObject({
+      start: PICKED.start.getTime(),
+      end: PICKED.end.getTime(),
+    });
+    expect(screen.getByRole('button', {name: copy.rangeLifetime})).toHaveAttribute('aria-pressed', 'false');
   });
 });

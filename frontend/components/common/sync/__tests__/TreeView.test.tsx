@@ -284,11 +284,7 @@ describe('TreeView', () => {
     expect(onCreateCommit).toHaveBeenCalledWith('new_job.conf');
   });
 
-  it('handles hover actions for new file, new folder, and delete', () => {
-    const onCreateFile = vi.fn();
-    const onCreateFolder = vi.fn();
-    const onDelete = vi.fn();
-
+  it('does not pin create or delete icons onto tree rows', () => {
     render(
       <TreeView
         nodes={mockNodes}
@@ -297,24 +293,15 @@ describe('TreeView', () => {
         expandedFolderIds={[]}
         onSelect={vi.fn()}
         onContextMenu={vi.fn()}
-        onCreateFile={onCreateFile}
-        onCreateFolder={onCreateFolder}
-        onDelete={onDelete}
       />,
     );
 
-    const newFileBtn = screen.getAllByRole('button', {name: 'newFile'})[0];
-    const newFolderBtn = screen.getAllByRole('button', {name: 'newFolder'})[0];
-    const deleteBtn = screen.getAllByRole('button', {name: 'delete'})[0];
-
-    fireEvent.click(newFileBtn);
-    expect(onCreateFile).toHaveBeenCalledWith(mockNodes[0]);
-
-    fireEvent.click(newFolderBtn);
-    expect(onCreateFolder).toHaveBeenCalledWith(mockNodes[0]);
-
-    fireEvent.click(deleteBtn);
-    expect(onDelete).toHaveBeenCalledWith(mockNodes[0]);
+    expect(screen.queryByRole('button', {name: 'newFile'})).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {name: 'newFolder'}),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'delete'})).not.toBeInTheDocument();
+    expect(screen.getByText('batch_jobs')).toBeInTheDocument();
   });
 
   it('supports drag and drop events', () => {

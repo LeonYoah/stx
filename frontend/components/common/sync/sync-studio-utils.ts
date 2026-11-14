@@ -185,16 +185,59 @@ export const STUDIO_LAYOUT_STORAGE_KEY = 'stx_studio_layout_prefs';
 export type StudioLayoutPrefs = {
   leftCollapsed: boolean;
   rightCollapsed: boolean;
+  leftWidth: number;
+  rightWidth: number;
+  consoleHeight: number;
 };
 
+/** 资源栏宽度下限/上限（px）。 / Explorer width bounds in px. */
+export const STUDIO_LEFT_WIDTH_MIN = 180;
+export const STUDIO_LEFT_WIDTH_MAX = 420;
+/** 右侧栏宽度下限/上限（px）。 / Right sidebar width bounds in px. */
+export const STUDIO_RIGHT_WIDTH_MIN = 280;
+export const STUDIO_RIGHT_WIDTH_MAX = 560;
+/** 控制台高度下限/上限与两档预设（px）。 / Console height bounds and snap presets in px. */
+export const STUDIO_CONSOLE_HEIGHT_MIN = 140;
+export const STUDIO_CONSOLE_HEIGHT_MAX = 560;
+export const STUDIO_CONSOLE_HEIGHT_COMPACT = 260;
+export const STUDIO_CONSOLE_HEIGHT_EXPANDED = 390;
+/** 网格拖动手柄占位。 / Grid track reserved for a split handle. */
+export const STUDIO_SPLIT_HANDLE_PX = 6;
+
 /**
- * 无 localStorage 记录时：左目录展开、右高级配置收起；之后记住上次开合。
- * With no stored record: left explorer open, right advanced sidebar collapsed; then remember last state.
+ * 无 localStorage 记录时：左目录展开、右高级配置收起；之后记住上次开合与尺寸。
+ * With no stored record: left explorer open, right advanced sidebar collapsed; then remember last state and sizes.
  */
 export const DEFAULT_STUDIO_LAYOUT_PREFS: StudioLayoutPrefs = {
   leftCollapsed: false,
   rightCollapsed: true,
+  leftWidth: 240,
+  rightWidth: 360,
+  consoleHeight: STUDIO_CONSOLE_HEIGHT_COMPACT,
 };
+
+export function clampStudioLeftWidth(value: number): number {
+  return Math.min(STUDIO_LEFT_WIDTH_MAX, Math.max(STUDIO_LEFT_WIDTH_MIN, Math.round(value)));
+}
+
+export function clampStudioRightWidth(value: number): number {
+  return Math.min(STUDIO_RIGHT_WIDTH_MAX, Math.max(STUDIO_RIGHT_WIDTH_MIN, Math.round(value)));
+}
+
+export function clampStudioConsoleHeight(value: number): number {
+  return Math.min(
+    STUDIO_CONSOLE_HEIGHT_MAX,
+    Math.max(STUDIO_CONSOLE_HEIGHT_MIN, Math.round(value)),
+  );
+}
+
+function readStoredSize(
+  value: unknown,
+  fallback: number,
+  clamp: (next: number) => number,
+): number {
+  return typeof value === 'number' && Number.isFinite(value) ? clamp(value) : fallback;
+}
 
 /**
  * 从 localStorage 读取工作台侧栏开合偏好；非法或缺失时回落默认值。
@@ -224,6 +267,21 @@ export function readStudioLayoutPrefs(
         typeof parsed.rightCollapsed === 'boolean'
           ? parsed.rightCollapsed
           : DEFAULT_STUDIO_LAYOUT_PREFS.rightCollapsed,
+      leftWidth: readStoredSize(
+        parsed.leftWidth,
+        DEFAULT_STUDIO_LAYOUT_PREFS.leftWidth,
+        clampStudioLeftWidth,
+      ),
+      rightWidth: readStoredSize(
+        parsed.rightWidth,
+        DEFAULT_STUDIO_LAYOUT_PREFS.rightWidth,
+        clampStudioRightWidth,
+      ),
+      consoleHeight: readStoredSize(
+        parsed.consoleHeight,
+        DEFAULT_STUDIO_LAYOUT_PREFS.consoleHeight,
+        clampStudioConsoleHeight,
+      ),
     };
   } catch {
     return {...DEFAULT_STUDIO_LAYOUT_PREFS};
@@ -250,6 +308,9 @@ export function writeStudioLayoutPrefs(
       JSON.stringify({
         leftCollapsed: Boolean(prefs.leftCollapsed),
         rightCollapsed: Boolean(prefs.rightCollapsed),
+        leftWidth: clampStudioLeftWidth(prefs.leftWidth),
+        rightWidth: clampStudioRightWidth(prefs.rightWidth),
+        consoleHeight: clampStudioConsoleHeight(prefs.consoleHeight),
       } satisfies StudioLayoutPrefs),
     );
   } catch {
@@ -270,24 +331,30 @@ export function writeStudioLayoutPrefs(
 export function buildStudioGridTemplateColumns(
   leftCollapsed: boolean,
   rightCollapsed: boolean,
+  leftWidth: number = DEFAULT_STUDIO_LAYOUT_PREFS.leftWidth,
+  rightWidth: number = DEFAULT_STUDIO_LAYOUT_PREFS.rightWidth,
 ): string {
-  const left = leftCollapsed ? '0px' : '240px';
-  const right = rightCollapsed ? '0px' : '360px';
+  const left = leftCollapsed
+    ? '0px 0px'
+    : `${clampStudioLeftWidth(leftWidth)}px ${STUDIO_SPLIT_HANDLE_PX}px`;
+  const right = rightCollapsed
+    ? '0px 0px'
+    : `${STUDIO_SPLIT_HANDLE_PX}px ${clampStudioRightWidth(rightWidth)}px`;
   return `${left} minmax(0,1fr) ${right}`;
 }
 
 /**
- * 展开侧栏相对编辑区的外边距 class（收起时不加，避免 0px 列外再占缝）。
- * Margin class between an open sidebar and the editor (omit when collapsed so 0px tracks stay seamless).
+ * 编辑区与控制台的行高：最大化时控制台占满，否则拖动手柄夹在中间。
+ * Editor/console row heights: console fills the grid when maximized, otherwise a handle sits between them.
  */
-export function studioSidebarOpenSpacingClass(
-  collapsed: boolean,
-  side: 'left' | 'right',
+export function buildStudioGridTemplateRows(
+  consoleMaximized: boolean,
+  consoleHeight: number = DEFAULT_STUDIO_LAYOUT_PREFS.consoleHeight,
 ): string {
-  if (collapsed) {
-    return '';
+  if (consoleMaximized) {
+    return '0px 0px minmax(0,1fr)';
   }
-  return side === 'left' ? 'mr-2' : 'ml-2';
+  return `minmax(0,1fr) ${STUDIO_SPLIT_HANDLE_PX}px ${clampStudioConsoleHeight(consoleHeight)}px`;
 }
 
 export const EMPTY_EDITOR: EditorState = {

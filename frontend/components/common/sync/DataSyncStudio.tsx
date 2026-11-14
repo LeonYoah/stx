@@ -252,6 +252,7 @@ import {
 import {
   TreeView,
 } from './TreeView';
+import {StudioSplitHandle} from './StudioSplitHandle';
 import { StudioTreeContextMenu } from './StudioTreeContextMenu';
 import { StudioSharePopover } from './StudioSharePopover';
 import { StudioQuickOpenDialog } from './StudioQuickOpenDialog';
@@ -288,9 +289,20 @@ import {
   WORKSPACE_NAME_PATTERN,
   WORKSPACE_TABS_STORAGE_KEY,
   DEFAULT_STUDIO_LAYOUT_PREFS,
+  STUDIO_CONSOLE_HEIGHT_COMPACT,
+  STUDIO_CONSOLE_HEIGHT_EXPANDED,
+  STUDIO_CONSOLE_HEIGHT_MAX,
+  STUDIO_CONSOLE_HEIGHT_MIN,
+  STUDIO_LEFT_WIDTH_MAX,
+  STUDIO_LEFT_WIDTH_MIN,
+  STUDIO_RIGHT_WIDTH_MAX,
+  STUDIO_RIGHT_WIDTH_MIN,
   buildStudioGridTemplateColumns,
+  buildStudioGridTemplateRows,
+  clampStudioConsoleHeight,
+  clampStudioLeftWidth,
+  clampStudioRightWidth,
   readStudioLayoutPrefs,
-  studioSidebarOpenSpacingClass,
   writeStudioLayoutPrefs,
   buildCheckpointActionViewModels,
   buildCheckpointInspectJobConfig,
@@ -683,10 +695,6 @@ export function DataSyncStudio() {
   // Full-screen and restore state for the bottom console
   const [isConsoleMaximized, setIsConsoleMaximized] = useState(false);
 
-  // 底部控制台高度档位：默认 260px，展开 390px
-  // Bottom console height mode: default 260px, expanded 390px
-  const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
-
   // 左右侧栏独立开合：无记录时左展开、右收起；之后记住上次（#110；无专注模式）。
   // 首帧固定用默认值。useState 里读 localStorage 会让「客户端已记住右侧展开」和
   // 服务端默认「右侧收起」对不上，水合改掉开关的 aria-label 和图标，Next 弹出红色报错层，按钮也点不了。
@@ -700,23 +708,51 @@ export function DataSyncStudio() {
   const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(
     DEFAULT_STUDIO_LAYOUT_PREFS.rightCollapsed,
   );
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
+    DEFAULT_STUDIO_LAYOUT_PREFS.leftWidth,
+  );
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(
+    DEFAULT_STUDIO_LAYOUT_PREFS.rightWidth,
+  );
+  const [consoleHeight, setConsoleHeight] = useState(
+    DEFAULT_STUDIO_LAYOUT_PREFS.consoleHeight,
+  );
+  const [isStudioLayoutResizing, setIsStudioLayoutResizing] = useState(false);
   const studioLayoutHydratedRef = useRef(false);
+  const isConsoleExpanded =
+    consoleHeight >= STUDIO_CONSOLE_HEIGHT_EXPANDED;
 
   useEffect(() => {
-    // 挂载后再套用上次开合，并跳过这次写入，避免把默认值盖掉已记住的偏好。
+    // 挂载后再套用上次开合与尺寸，并跳过这次写入，避免把默认值盖掉已记住的偏好。
     // Apply the remembered layout after mount, and skip that write so defaults do not clobber it.
     if (!studioLayoutHydratedRef.current) {
       studioLayoutHydratedRef.current = true;
       const prefs = readStudioLayoutPrefs();
       setIsLeftSidebarCollapsed(prefs.leftCollapsed);
       setIsRightSidebarCollapsed(prefs.rightCollapsed);
+      setLeftSidebarWidth(prefs.leftWidth);
+      setRightSidebarWidth(prefs.rightWidth);
+      setConsoleHeight(prefs.consoleHeight);
+      return;
+    }
+    if (isStudioLayoutResizing) {
       return;
     }
     writeStudioLayoutPrefs({
       leftCollapsed: isLeftSidebarCollapsed,
       rightCollapsed: isRightSidebarCollapsed,
+      leftWidth: leftSidebarWidth,
+      rightWidth: rightSidebarWidth,
+      consoleHeight,
     });
-  }, [isLeftSidebarCollapsed, isRightSidebarCollapsed]);
+  }, [
+    consoleHeight,
+    isLeftSidebarCollapsed,
+    isRightSidebarCollapsed,
+    isStudioLayoutResizing,
+    leftSidebarWidth,
+    rightSidebarWidth,
+  ]);
 
   // 顶栏两端开关始终挂载：点击收起后焦点自然留在该按钮上（#110 AC11 / Codex P2）
   // Topbar-end toggles stay mounted so focus remains on the control after collapse (#110 AC11 / Codex P2)
@@ -726,6 +762,22 @@ export function DataSyncStudio() {
 
   const handleToggleRightSidebar = useCallback(() => {
     setIsRightSidebarCollapsed((prev) => !prev);
+  }, []);
+
+  const handleToggleConsoleHeight = useCallback(() => {
+    setConsoleHeight((prev) =>
+      prev >= STUDIO_CONSOLE_HEIGHT_EXPANDED
+        ? STUDIO_CONSOLE_HEIGHT_COMPACT
+        : STUDIO_CONSOLE_HEIGHT_EXPANDED,
+    );
+  }, []);
+
+  const handleStudioLayoutDragStart = useCallback(() => {
+    setIsStudioLayoutResizing(true);
+  }, []);
+
+  const handleStudioLayoutDragEnd = useCallback(() => {
+    setIsStudioLayoutResizing(false);
   }, []);
 
   // 当前激活任务的面包屑路径列表
@@ -5036,32 +5088,34 @@ export function DataSyncStudio() {
 
       <div
         className={cn(
-          // 横向不用 gap：0px 收起列旁的 column-gap 会留细缝；展开侧用侧栏自身 mr/ml-2 补间距
-          // No horizontal gap: column-gap beside 0px tracks leaves a seam; open sides use mr/ml-2 on the panel
-          'grid min-h-0 min-w-0 flex-1 gap-y-2 transition-all duration-200',
-          isConsoleMaximized
-            ? 'grid-rows-[0px_minmax(0,1fr)]'
-            : isConsoleExpanded
-              ? 'grid-rows-[minmax(0,1fr)_390px]'
-              : 'grid-rows-[minmax(0,1fr)_260px]',
+          // 五列：资源栏 | 手柄 | 编辑区 | 手柄 | 右侧栏。收起列 0px，不用 column-gap。
+          // Five columns: explorer | handle | editor | handle | sidebar. Collapsed tracks are 0px, no column-gap.
+          'grid min-h-0 min-w-0 flex-1',
+          !isStudioLayoutResizing &&
+            'transition-[grid-template-columns,grid-template-rows] duration-200',
         )}
         style={{
-          // 收起列 0px 释放宽度；开关在顶栏两端（#110 AC11）；编辑列始终 minmax(0,1fr)。
-          // Collapsed tracks use 0px; toggles live on topbar ends (#110 AC11); editor stays minmax(0,1fr).
           gridTemplateColumns: buildStudioGridTemplateColumns(
             isLeftSidebarCollapsed,
             isRightSidebarCollapsed,
+            leftSidebarWidth,
+            rightSidebarWidth,
+          ),
+          gridTemplateRows: buildStudioGridTemplateRows(
+            isConsoleMaximized,
+            consoleHeight,
           ),
           columnGap: 0,
+          rowGap: 0,
         }}
       >
         <Card
           data-studio-left-sidebar=''
           className={cn(
-            'col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            'col-start-1 row-start-1 row-span-3 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
             isLeftSidebarCollapsed
               ? 'pointer-events-none border-transparent opacity-0'
-              : studioSidebarOpenSpacingClass(false, 'left'),
+              : null,
           )}
           aria-hidden={isLeftSidebarCollapsed || undefined}
           // inert：收起后移出 Tab 序（入口在顶栏，#110 AC11 / Codex P2）
@@ -5069,8 +5123,8 @@ export function DataSyncStudio() {
           inert={isLeftSidebarCollapsed ? true : undefined}
         >
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
-            {/* 240px 目录栏只放标题；新建/展开/刷新进菜单，避免四枚图标挤掉「资源」。 */}
-            {/* Keep the 240px explorer title row uncrowded; create/expand/refresh live in one menu. */}
+            {/* 目录栏只放标题；新建/展开/刷新进菜单，避免四枚图标挤掉「资源」。 */}
+            {/* Keep the explorer title row uncrowded; create/expand/refresh live in one menu. */}
             <div className='flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-muted/15 px-2.5'>
               <div className='flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground/80'>
                 <FolderTree className='size-3.5 shrink-0 text-primary/80' />
@@ -5208,9 +5262,6 @@ export function DataSyncStudio() {
                     onRenameStart={handleRenameStart}
                     onRenameCommit={handleRenameCommit}
                     onRenameCancel={handleRenameCancel}
-                    onCreateFile={handleInlineCreateFile}
-                    onCreateFolder={handleInlineCreateFolder}
-                    onDelete={handleInlineDelete}
                     creatingNode={creatingNode}
                     onCreateCommit={handleInlineCreateCommit}
                     onCreateCancel={handleInlineCreateCancel}
@@ -5228,9 +5279,23 @@ export function DataSyncStudio() {
           </CardContent>
         </Card>
 
+        {!isLeftSidebarCollapsed ? (
+          <StudioSplitHandle
+            className='col-start-2 row-start-1 row-span-3'
+            orientation='vertical'
+            label={t('resizeExplorer')}
+            value={leftSidebarWidth}
+            min={STUDIO_LEFT_WIDTH_MIN}
+            max={STUDIO_LEFT_WIDTH_MAX}
+            onChange={(next) => setLeftSidebarWidth(clampStudioLeftWidth(next))}
+            onDragStart={handleStudioLayoutDragStart}
+            onDragEnd={handleStudioLayoutDragEnd}
+          />
+        ) : null}
+
         <Card
           className={cn(
-            'col-start-2 row-start-1 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            'col-start-3 row-start-1 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
             isConsoleMaximized && 'hidden',
           )}
         >
@@ -5483,13 +5548,30 @@ export function DataSyncStudio() {
           </CardContent>
         </Card>
 
+        {!isRightSidebarCollapsed ? (
+          <StudioSplitHandle
+            className='col-start-4 row-start-1 row-span-3'
+            orientation='vertical'
+            invert
+            label={t('resizeAdvanced')}
+            value={rightSidebarWidth}
+            min={STUDIO_RIGHT_WIDTH_MIN}
+            max={STUDIO_RIGHT_WIDTH_MAX}
+            onChange={(next) =>
+              setRightSidebarWidth(clampStudioRightWidth(next))
+            }
+            onDragStart={handleStudioLayoutDragStart}
+            onDragEnd={handleStudioLayoutDragEnd}
+          />
+        ) : null}
+
         <StudioSidebarShell
           data-studio-right-sidebar=''
           className={cn(
-            'col-start-3 row-start-1 row-span-2 min-w-0 transition-all duration-200',
+            'col-start-5 row-start-1 row-span-3 min-w-0',
             isRightSidebarCollapsed
               ? 'pointer-events-none border-transparent opacity-0'
-              : studioSidebarOpenSpacingClass(false, 'right'),
+              : null,
           )}
           ariaHidden={isRightSidebarCollapsed}
           inert={isRightSidebarCollapsed}
@@ -5655,10 +5737,27 @@ export function DataSyncStudio() {
           )}
         </StudioSidebarShell>
 
+        {!isConsoleMaximized ? (
+          <StudioSplitHandle
+            className='col-start-3 row-start-2'
+            orientation='horizontal'
+            invert
+            label={t('resizeConsole')}
+            value={consoleHeight}
+            min={STUDIO_CONSOLE_HEIGHT_MIN}
+            max={STUDIO_CONSOLE_HEIGHT_MAX}
+            onChange={(next) =>
+              setConsoleHeight(clampStudioConsoleHeight(next))
+            }
+            onDragStart={handleStudioLayoutDragStart}
+            onDragEnd={handleStudioLayoutDragEnd}
+          />
+        ) : null}
+
         <Card
           className={cn(
-            'col-start-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
-            isConsoleMaximized ? 'row-start-1 row-span-2' : 'row-start-2',
+            'col-start-3 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
+            isConsoleMaximized ? 'row-start-1 row-span-3' : 'row-start-3',
           )}
         >
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
@@ -5702,13 +5801,15 @@ export function DataSyncStudio() {
                           'size-7 rounded-[var(--radius-control)] text-muted-foreground hover:text-foreground',
                           isConsoleExpanded && 'text-primary bg-primary/10',
                         )}
-                        onClick={() => setIsConsoleExpanded((prev) => !prev)}
+                        onClick={handleToggleConsoleHeight}
                       >
                         <ChevronsUpDown className='size-3.5' />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent side='left'>
-                      {isConsoleExpanded ? '收缩控制台高度 (260px)' : '扩展控制台高度 (390px)'}
+                      {isConsoleExpanded
+                        ? t('collapseConsoleHeight')
+                        : t('expandConsoleHeight')}
                     </TooltipContent>
                   </Tooltip>
                 ) : null}

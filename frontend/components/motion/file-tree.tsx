@@ -479,7 +479,7 @@ export function FileTree({
 
               <span
                 className={cn(
-                  'relative z-10 min-w-0 flex-1',
+                  'relative z-10 min-w-0 flex-1 overflow-hidden',
                   !row.item.label && 'truncate',
                   classNames?.label,
                 )}

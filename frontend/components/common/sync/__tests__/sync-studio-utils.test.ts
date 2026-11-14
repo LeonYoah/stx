@@ -19,8 +19,11 @@ import {describe, expect, it} from 'vitest';
 import {
   buildInsertedCuratedContent,
   buildStudioGridTemplateColumns,
+  buildStudioGridTemplateRows,
+  clampStudioConsoleHeight,
+  clampStudioLeftWidth,
   DEFAULT_STUDIO_LAYOUT_PREFS,
-  studioSidebarOpenSpacingClass,
+  STUDIO_SPLIT_HANDLE_PX,
   formatRateDisplay,
   isZeroMetricValue,
   detectVariables,
@@ -77,6 +80,9 @@ describe('studio layout prefs (#110)', () => {
     expect(DEFAULT_STUDIO_LAYOUT_PREFS).toEqual({
       leftCollapsed: false,
       rightCollapsed: true,
+      leftWidth: 240,
+      rightWidth: 360,
+      consoleHeight: 260,
     });
     expect(readStudioLayoutPrefs({getItem: () => null})).toEqual(
       DEFAULT_STUDIO_LAYOUT_PREFS,
@@ -93,33 +99,65 @@ describe('studio layout prefs (#110)', () => {
     };
 
     writeStudioLayoutPrefs(
-      {leftCollapsed: true, rightCollapsed: false},
+      {
+        leftCollapsed: true,
+        rightCollapsed: false,
+        leftWidth: 280,
+        rightWidth: 400,
+        consoleHeight: 320,
+      },
       storage,
     );
     expect(memory.get(STUDIO_LAYOUT_STORAGE_KEY)).toContain('"leftCollapsed":true');
     expect(readStudioLayoutPrefs(storage)).toEqual({
       leftCollapsed: true,
       rightCollapsed: false,
+      leftWidth: 280,
+      rightWidth: 400,
+      consoleHeight: 320,
+    });
+  });
+
+  it('keeps default widths when an older collapse-only record is stored', () => {
+    expect(
+      readStudioLayoutPrefs({
+        getItem: () => '{"leftCollapsed":true,"rightCollapsed":false}',
+      }),
+    ).toEqual({
+      leftCollapsed: true,
+      rightCollapsed: false,
+      leftWidth: 240,
+      rightWidth: 360,
+      consoleHeight: 260,
     });
   });
 
   it('builds grid columns that free collapsed tracks with 0px (#110 AC11 topbar toggles)', () => {
     expect(buildStudioGridTemplateColumns(false, true)).toBe(
-      '240px minmax(0,1fr) 0px',
+      `240px ${STUDIO_SPLIT_HANDLE_PX}px minmax(0,1fr) 0px 0px`,
     );
     expect(buildStudioGridTemplateColumns(true, true)).toBe(
-      '0px minmax(0,1fr) 0px',
+      '0px 0px minmax(0,1fr) 0px 0px',
     );
-    expect(buildStudioGridTemplateColumns(false, false)).toBe(
-      '240px minmax(0,1fr) 360px',
+    expect(buildStudioGridTemplateColumns(false, false, 300, 400)).toBe(
+      `300px ${STUDIO_SPLIT_HANDLE_PX}px minmax(0,1fr) ${STUDIO_SPLIT_HANDLE_PX}px 400px`,
     );
   });
 
-  it('only adds open-side spacing class when the sidebar is expanded', () => {
-    expect(studioSidebarOpenSpacingClass(false, 'left')).toBe('mr-2');
-    expect(studioSidebarOpenSpacingClass(true, 'left')).toBe('');
-    expect(studioSidebarOpenSpacingClass(false, 'right')).toBe('ml-2');
-    expect(studioSidebarOpenSpacingClass(true, 'right')).toBe('');
+  it('builds grid rows with a console handle unless maximized', () => {
+    expect(buildStudioGridTemplateRows(false, 280)).toBe(
+      `minmax(0,1fr) ${STUDIO_SPLIT_HANDLE_PX}px 280px`,
+    );
+    expect(buildStudioGridTemplateRows(true, 280)).toBe(
+      '0px 0px minmax(0,1fr)',
+    );
+  });
+
+  it('clamps explorer and console sizes to the allowed range', () => {
+    expect(clampStudioLeftWidth(80)).toBe(180);
+    expect(clampStudioLeftWidth(900)).toBe(420);
+    expect(clampStudioConsoleHeight(40)).toBe(140);
+    expect(clampStudioConsoleHeight(900)).toBe(560);
   });
 });
 

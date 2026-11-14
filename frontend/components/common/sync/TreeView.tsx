@@ -36,9 +36,7 @@ import {
   FileText,
   FolderPlus,
   Lock,
-  Pencil,
   SquareTerminal,
-  Trash2,
 } from 'lucide-react';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {
@@ -52,6 +50,47 @@ import {findTreeNode} from './sync-studio-utils';
 
 /** 行内新建占位节点 id，避免与真实任务 id 冲突。 / Synthetic id for the inline-create row. */
 const CREATE_ROW_VALUE = '__creating__';
+
+/**
+ * 窄目录栏里文件名截断时，悬停展示全称。
+ * Show the full truncated explorer name on hover.
+ */
+function TreeNodeName({name}: {name: string}) {
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const [truncated, setTruncated] = useState(false);
+
+  useEffect(() => {
+    const node = labelRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const update = () => {
+      setTruncated(node.scrollWidth > node.clientWidth + 1);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [name]);
+
+  return (
+    <Tooltip delayDuration={400}>
+      <TooltipTrigger asChild>
+        <span
+          ref={labelRef}
+          className='block w-full min-w-0 truncate font-mono text-xs'
+        >
+          {name}
+        </span>
+      </TooltipTrigger>
+      {truncated ? (
+        <TooltipContent side='right' className='max-w-xs break-all font-mono text-xs'>
+          {name}
+        </TooltipContent>
+      ) : null}
+    </Tooltip>
+  );
+}
 
 /**
  * 根据文件名扩展名返回对应的 VSCode 风格图标
@@ -110,12 +149,6 @@ export interface TreeViewProps {
   onRenameCommit?: (node: SyncTaskTreeNode, newName: string) => void | Promise<void>;
   onRenameCancel?: () => void;
 
-  // 悬停快捷操作回调
-  // Hover quick action callbacks
-  onCreateFile?: (parentNode: SyncTaskTreeNode) => void;
-  onCreateFolder?: (parentNode: SyncTaskTreeNode) => void;
-  onDelete?: (node: SyncTaskTreeNode) => void;
-
   // 行内新建输入状态与回调
   // Inline creation state and callbacks
   creatingNode?: {parentId: number | null; nodeType: 'file' | 'folder'} | null;
@@ -152,9 +185,6 @@ export function TreeView({
   onRenameStart,
   onRenameCommit,
   onRenameCancel,
-  onCreateFile,
-  onCreateFolder,
-  onDelete,
   creatingNode = null,
   onCreateCommit,
   onCreateCancel,
@@ -295,69 +325,9 @@ export function TreeView({
 
   const renderTrailing = (node: SyncTaskTreeNode): ReactNode => {
     const isDirty = dirtyNodeIds.includes(node.id);
-    const isRenaming = renamingNodeId === node.id;
 
     return (
       <>
-        {!isRenaming ? (
-          <span className='hidden items-center gap-0.5 pr-0.5 group-hover:flex group-focus-within:flex'>
-            {node.node_type === 'folder' ? (
-              <>
-                <button
-                  type='button'
-                  title={t('newFile')}
-                  aria-label={t('newFile')}
-                  className='rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCreateFile?.(node);
-                  }}
-                >
-                  <FilePlus2 className='size-3.5' />
-                </button>
-                <button
-                  type='button'
-                  title={t('newFolder')}
-                  aria-label={t('newFolder')}
-                  className='rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCreateFolder?.(node);
-                  }}
-                >
-                  <FolderPlus className='size-3.5' />
-                </button>
-              </>
-            ) : null}
-            {node.can_edit !== false ? (
-              <button
-                type='button'
-                title={t('rename')}
-                aria-label={t('rename')}
-                className='rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRenameStart?.(node);
-                }}
-              >
-                <Pencil className='size-3.5' />
-              </button>
-            ) : null}
-            <button
-              type='button'
-              title={t('delete')}
-              aria-label={t('delete')}
-              className='rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete?.(node);
-              }}
-            >
-              <Trash2 className='size-3.5' />
-            </button>
-          </span>
-        ) : null}
-
         {node.node_type === 'file' && isDirty ? (
           <span
             className='size-1.5 shrink-0 rounded-full bg-amber-500'
@@ -459,7 +429,11 @@ export function TreeView({
         name: node.name,
         className: nodeRowClassName(node),
         trailing: renderTrailing(node),
-        label: isRenaming ? renderRenameLabel(node) : undefined,
+        label: isRenaming ? (
+          renderRenameLabel(node)
+        ) : (
+          <TreeNodeName name={node.name} />
+        ),
         onContextMenu: (event: MouseEvent<HTMLElement>) =>
           onContextMenu(event, node.node_type, node),
         onDoubleClick: (event: MouseEvent<HTMLElement>) => {

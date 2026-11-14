@@ -5182,7 +5182,8 @@
           "restart": "Restart",
           "status": "Status"
         },
-        "legendClear": "Clear selection"
+        "legendClear": "Clear",
+        "legendAll": "Show all"
       }
     },
     "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)"

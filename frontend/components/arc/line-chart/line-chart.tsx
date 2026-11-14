@@ -86,7 +86,10 @@ export interface LineChartProps {
   emptyLabel?: string;
   /** Series toggles above the plot. Shown by default when there is more than one series. */
   legend?: boolean;
-  /** 有隐藏序列时图例末尾的「清空选中」按钮文案。Label of the legend reset button, shown while any series is hidden. */
+  /** 序列全显示时图例末尾「清空」按钮的文案，点一下隐藏全部序列再逐个挑。
+      Label of the legend clear button shown while every series is visible; hides all so the user can cherry-pick. */
+  clearLabel?: string;
+  /** 有隐藏序列时图例末尾「全选」按钮的文案。Label of the legend restore button, shown while any series is hidden. */
   resetLabel?: string;
   /** Header of the first column in the data table read by screen readers. */
   categoryLabel?: string;
@@ -206,7 +209,7 @@ function axisPicks(data: LineChartDatum[], width: number) {
   return labeled.reverse().filter((_, rank) => rank % stride === 0).reverse();
 }
 
-export function LineChart({ data, series, label, unit = "", height = 220, formatValue, formatTick = value => compact.format(value), hiddenSeries, defaultHiddenSeries, onHiddenSeriesChange, onActiveChange, loading = false, emptyLabel = "No data for this range", legend, resetLabel = "Show all", categoryLabel = "Date", curve = "smooth", ref, className }: LineChartProps) {
+export function LineChart({ data, series, label, unit = "", height = 220, formatValue, formatTick = value => compact.format(value), hiddenSeries, defaultHiddenSeries, onHiddenSeriesChange, onActiveChange, loading = false, emptyLabel = "No data for this range", legend, clearLabel = "Clear", resetLabel = "Show all", categoryLabel = "Date", curve = "smooth", ref, className }: LineChartProps) {
   const reduced = useReducedMotionSafe();
   const figure = useRef<HTMLElement>(null);
   const plot = useRef<HTMLDivElement>(null);
@@ -226,11 +229,11 @@ export function LineChart({ data, series, label, unit = "", height = 220, format
   // Hidden series, controlled or not.
   const [ownHidden, setOwnHidden] = useState<string[]>(defaultHiddenSeries ?? []);
   const hidden = hiddenSeries ?? ownHidden;
-  const toggle = (key: string) => {
-    const next = hidden.includes(key) ? hidden.filter(item => item !== key) : [...hidden, key];
+  const applyHidden = (next: string[]) => {
     if (hiddenSeries === undefined) setOwnHidden(next);
     onHiddenSeriesChange?.(next);
   };
+  const toggle = (key: string) => applyHidden(hidden.includes(key) ? hidden.filter(item => item !== key) : [...hidden, key]);
   const visible = series.filter(item => !hidden.includes(item.key));
   const showLegend = legend ?? series.length > 1;
 
@@ -414,9 +417,12 @@ export function LineChart({ data, series, label, unit = "", height = 220, format
         <span className={styles.swatch} data-dashed={line.dashed || undefined} aria-hidden="true" />
         <span className={styles.toggleLabel}>{line.label}</span>
       </button>)}
-      {/* STX：有隐藏序列时给一个一键还原入口，多序列（按表、按算子）时逐个点回去太麻烦。
-          STX: one-tap restore while any series is hidden — clicking each of many series back on is tedious. */}
-      {hidden.length > 0 && <button type="button" className={styles.reset} onClick={() => { if (hiddenSeries === undefined) setOwnHidden([]); onHiddenSeriesChange?.([]); }}>{resetLabel}</button>}
+      {/* STX：批量开关——默认全显示时一键清空方便逐个挑；有隐藏时变为全选还原。
+          STX: bulk switch — clear all while everything shows so the user can cherry-pick;
+          becomes a restore-all once anything is hidden. */}
+      {hidden.length === 0
+        ? <button type="button" className={styles.reset} onClick={() => applyHidden(series.map(line => line.key))}>{clearLabel}</button>
+        : <button type="button" className={styles.reset} onClick={() => applyHidden([])}>{resetLabel}</button>}
     </div>}
     <div className={styles.chart} data-scrubbing={scrubbing || undefined} data-loading={loading || undefined}>
       <div ref={plot} className={styles.plot} style={{ height }} role="slider" tabIndex={empty ? -1 : 0} aria-label={`${label}, explore by ${categoryLabel.toLowerCase()}`} aria-orientation="horizontal" aria-valuemin={1} aria-valuemax={Math.max(1, data.length)} aria-valuenow={(index ?? last) + 1} aria-valuetext={valueText}

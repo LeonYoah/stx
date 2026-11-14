@@ -72,6 +72,8 @@
       "previousMonth": "Previous month",
       "nextMonth": "Next month",
       "startChooseEnd": "Start {date}. Choose an end date.",
+      "startTime": "Start time",
+      "endTime": "End time",
       "presets": {
         "today": "Today",
         "yesterday": "Yesterday",

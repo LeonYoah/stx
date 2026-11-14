@@ -19,9 +19,11 @@ import {describe, expect, it} from 'vitest';
 import {
   dateRangeToWallTimes,
   dateRangeToYmdPair,
+  dateTimeRangeToWallTimes,
   localDateToYmd,
   wallTimeToYmd,
   wallTimesToDateRange,
+  wallTimesToDateTimeRange,
   ymdPairToDateRange,
   ymdToLocalDate,
 } from '../date-range';
@@ -77,5 +79,27 @@ describe('date-range helpers', () => {
       endDate: '2026-03-08',
     });
     expect(ymdPairToDateRange('', '')).toBeNull();
+  });
+
+  it('keeps the clock for minute-precise ranges and round-trips them', () => {
+    const range = wallTimesToDateTimeRange('2026-11-14T12:13', '2026-11-14T12:38:59.999');
+    expect(range!.start.getHours()).toBe(12);
+    expect(range!.start.getMinutes()).toBe(13);
+    expect(range!.end.getMilliseconds()).toBe(999);
+    expect(dateTimeRangeToWallTimes(range!)).toEqual({
+      startTime: '2026-11-14T12:13',
+      endTime: '2026-11-14T12:38:59.999',
+    });
+  });
+
+  it('expands bare dates to whole days and orders inverted timed ranges', () => {
+    const days = wallTimesToDateTimeRange('2026-11-01', '2026-11-03');
+    expect(dateTimeRangeToWallTimes(days!)).toEqual({
+      startTime: '2026-11-01T00:00',
+      endTime: '2026-11-03T23:59:59.999',
+    });
+    const inverted = wallTimesToDateTimeRange('2026-11-10T09:00', '2026-11-01T08:00');
+    expect(inverted!.start.getDate()).toBe(1);
+    expect(wallTimesToDateTimeRange('', '')).toBeNull();
   });
 });

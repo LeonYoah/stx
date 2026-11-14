@@ -41,14 +41,19 @@ vi.mock('@/components/arc/date-range-picker/date-range-picker', () => ({
   DateRangePicker: ({
     label,
     onChange,
+    withTime,
   }: {
     label: string;
     onChange?: (range: {start: Date; end: Date}) => void;
+    withTime?: boolean;
   }) => (
     <button
       type='button'
       aria-label={label}
-      onClick={() => onChange?.({start: new Date(2026, 10, 1), end: new Date(2026, 10, 3)})}
+      data-with-time={withTime ? 'true' : 'false'}
+      // 开了 withTime 的选择器交回精确到分钟的区间（结束为该分钟 :59.999）。
+      // A withTime picker hands back a minute-precise range (end at that minute's :59.999).
+      onClick={() => onChange?.({start: new Date(2026, 10, 1, 8, 30), end: new Date(2026, 10, 3, 18, 45, 59, 999)})}
     >
       mock-range
     </button>
@@ -75,11 +80,13 @@ function renderFilter(overrides: Partial<Parameters<typeof CompactTimeFilter>[0]
 }
 
 describe('CompactTimeFilter', () => {
-  it('applies a calendar range as start-of-day and end-of-day wall times', () => {
+  it('applies a minute-precise range as wall times without losing the last minute', () => {
     const props = renderFilter();
-    fireEvent.click(screen.getByRole('button', {name: zh.common.dateRange.label}));
-    expect(props.onStartTimeChange).toHaveBeenCalledWith('2026-11-01T00:00');
-    expect(props.onEndTimeChange).toHaveBeenCalledWith('2026-11-03T23:59:59.999');
+    const trigger = screen.getByRole('button', {name: zh.common.dateRange.label});
+    expect(trigger.getAttribute('data-with-time')).toBe('true');
+    fireEvent.click(trigger);
+    expect(props.onStartTimeChange).toHaveBeenCalledWith('2026-11-01T08:30');
+    expect(props.onEndTimeChange).toHaveBeenCalledWith('2026-11-03T18:45:59.999');
   });
 
   it('keeps relative hour presets on the segmented control', () => {

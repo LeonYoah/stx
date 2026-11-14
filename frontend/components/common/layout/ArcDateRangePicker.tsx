@@ -48,6 +48,16 @@ export interface ArcDateRangePickerProps {
   className?: string;
   /** 为 false 时不限制最晚可选日。 / When false, the latest selectable day is not clamped. */
   clampToToday?: boolean;
+  /**
+   * 月份数，默认单月。Arc 的 `auto` 按视口宽度判断，桌面上总会摊成双月 + 竖排预设，面板过宽。
+   * Number of months, single by default. Arc's `auto` measures the viewport, so desktops always got two months plus a
+   * vertical preset rail and an overly wide panel.
+   */
+  months?: 'auto' | 1 | 2;
+  /** 为 true 时可选到分钟（Arc 选择器的 STX 扩展）。 / When true, pick down to the minute (STX extension of the Arc picker). */
+  withTime?: boolean;
+  /** 最早可选日。 / Earliest selectable day. */
+  minDate?: Date;
 }
 
 /**
@@ -61,6 +71,9 @@ export function ArcDateRangePicker({
   placeholder,
   className,
   clampToToday = true,
+  months = 1,
+  withTime = false,
+  minDate,
 }: ArcDateRangePickerProps) {
   const {locale} = useLocale();
   const t = useTranslations('common.dateRange');
@@ -87,6 +100,11 @@ export function ArcDateRangePicker({
       weekStartsOn={locale === 'zh' ? 1 : 0}
       presets={presets}
       maxDate={clampToToday ? today : undefined}
+      months={months}
+      minDate={minDate}
+      withTime={withTime}
+      startTimeLabel={t('startTime')}
+      endTimeLabel={t('endTime')}
       className={className}
       cancelLabel={t('cancel')}
       applyLabel={t('apply')}

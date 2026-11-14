@@ -100,6 +100,17 @@ export interface DateRangePickerProps {
   nextMonthLabel?: string;
   /** 仅选开始日的 live region，`{date}` 替换为格式化日期。Live region after picking start; `{date}` is replaced. */
   startChooseEndLabel?: string;
+  /**
+   * STX 扩展：在日历下方加「开始时间 / 结束时间」（HH:mm）。开启后 `start` 精确到分钟的 :00.000，`end` 为该分钟的 :59.999，
+   * 标签带时间；关闭时行为与上游一致（整天闭区间）。
+   * STX extension: adds start / end time (HH:mm) under the calendar. When on, `start` lands on the minute (:00.000) and
+   * `end` on that minute's last millisecond (:59.999), and labels show the time; off keeps upstream whole-day behavior.
+   */
+  withTime?: boolean;
+  /** 开始时间输入框的标签。Label of the start time input. */
+  startTimeLabel?: string;
+  /** 结束时间输入框的标签。Label of the end time input. */
+  endTimeLabel?: string;
 }
 
 type Size = { w: number; h: number };
@@ -119,6 +130,14 @@ const keyOf = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 
 const fromKey = (key: string) => { const [year, month, day] = key.split("-").map(Number); return new Date(year!, month! - 1, day!); };
 const ordered = (a: Date, b: Date): DateRange => dayDiff(a, b) <= 0 ? { start: a, end: b } : { start: b, end: a };
 const sameRange = (a?: DateRange | null, b?: DateRange | null) => Boolean(a && b && sameDay(a.start, b.start) && sameDay(a.end, b.end));
+/** STX：Date 的本地 HH:mm。 / STX: local HH:mm of a Date. */
+const clockOf = (date: Date) => `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+/** STX：把 HH:mm 套到某天；`inclusive` 时落在该分钟最后一毫秒。 / STX: put HH:mm on a day; `inclusive` lands on that minute's last ms. */
+const atClock = (day: Date, clock: string, inclusive: boolean) => {
+  const [h = 0, m = 0] = clock.split(":").map(Number);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, inclusive ? 59 : 0, inclusive ? 999 : 0);
+};
+const DAY_START = "00:00", DAY_END = "23:59";
 const clampDate = (date: Date, min?: Date, max?: Date) => min && dayDiff(date, min) < 0 ? startOfDay(min) : max && dayDiff(date, max) > 0 ? startOfDay(max) : date;
 
 export const defaultDateRangePresets: DateRangePreset[] = [
@@ -341,6 +360,9 @@ export function DateRangePicker({
   previousMonthLabel = "Previous month",
   nextMonthLabel = "Next month",
   startChooseEndLabel = "Start {date}. Choose an end date.",
+  withTime = false,
+  startTimeLabel = "Start time",
+  endTimeLabel = "End time",
 }: DateRangePickerProps) {
   const reduced = useReducedFlag();
   const today = useToday();
@@ -358,15 +380,25 @@ export function DateRangePicker({
   const [hover, setHover] = useState<Date | null>(null);
   const [keyed, setKeyed] = useState(false);
   const [focusKey, setFocusKey] = useState("");
+  // STX：草稿里的起止时刻（HH:mm），只在 withTime 时使用。 / STX: draft start/end clock (HH:mm), used only with withTime.
+  const [clock, setClock] = useState({ start: DAY_START, end: DAY_END });
 
   const formatters = useMemo(() => ({
     label: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", year: "numeric" }),
+    // STX：带时间的标签省掉年份，避免触发器过长。 / STX: timed labels drop the year so the trigger stays short.
+    timed: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
     title: new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" }),
     day: new Intl.DateTimeFormat(locale, { weekday: "long", month: "long", day: "numeric", year: "numeric" }),
     weekday: new Intl.DateTimeFormat(locale, { weekday: "short" }),
     weekdayLong: new Intl.DateTimeFormat(locale, { weekday: "long" }),
   }), [locale]);
-  const format = useCallback((range: DateRange | null) => !range ? placeholder : sameDay(range.start, range.end) ? formatters.label.format(range.start) : formatters.label.formatRange(range.start, range.end), [formatters, placeholder]);
+  const format = useCallback((range: DateRange | null) => {
+    if (!range) return placeholder;
+    // STX：带时间时同一天也要显示起止时刻，formatRange 会把相同的日期部分合并。
+    // STX: with time, a same-day range still shows both clocks; formatRange merges the shared date part.
+    if (withTime) return range.start.getTime() === range.end.getTime() ? formatters.timed.format(range.start) : formatters.timed.formatRange(range.start, range.end);
+    return sameDay(range.start, range.end) ? formatters.label.format(range.start) : formatters.label.formatRange(range.start, range.end);
+  }, [formatters, placeholder, withTime]);
 
   const count = compact ? 1 : 2;
   const visible = useMemo(() => Array.from({ length: count }, (_, index) => addMonths(view, index)), [count, view]);
@@ -501,6 +533,7 @@ export function DateRangePicker({
     setCompact(layout.single);
     setPanelWidth(layout.width);
     setDraft(committed);
+    setClock(withTime && committed ? { start: clockOf(committed.start), end: clockOf(committed.end) } : { start: DAY_START, end: DAY_END });
     setAnchor(null);
     setHover(null);
     setView(viewFor(committed, layout.single, today));
@@ -518,9 +551,12 @@ export function DateRangePicker({
     setHover(null);
   }, []);
 
+  // STX：把草稿日期与时刻合成最终区间；同一天结束早于开始时视为无效。
+  // STX: combine draft days with the clock; a same-day end before the start is invalid.
+  const timed = (range: DateRange | null): DateRange | null => !range || !withTime ? range : { start: atClock(range.start, clock.start, false), end: atClock(range.end, clock.end, true) };
   const apply = () => {
-    const next = anchor ? { start: anchor, end: anchor } : draft;
-    if (!next) return;
+    const next = timed(anchor ? { start: anchor, end: anchor } : draft);
+    if (!next || next.end.getTime() < next.start.getTime()) return;
     if (value === undefined) setInner(next);
     onChange?.(next);
     close(true);
@@ -579,6 +615,8 @@ export function DateRangePicker({
     if (!today) return;
     const range = preset.range(today);
     setDraft(range);
+    // STX：预设表示整天，时刻回到 00:00–23:59。 / STX: presets mean whole days, so the clock resets to 00:00–23:59.
+    if (withTime) setClock({ start: DAY_START, end: DAY_END });
     setAnchor(null);
     setHover(null);
     setFocusKey(keyOf(range.start));
@@ -640,7 +678,9 @@ export function DateRangePicker({
 
   /* ---------- Copy ---------- */
   const committedText = format(committed);
-  const shownText = shown ? format(shown) : noDatesLabel;
+  const shownTimed = timed(shown);
+  const shownText = shownTimed ? format(shownTimed) : noDatesLabel;
+  const clockInvalid = Boolean(shownTimed && shownTimed.end.getTime() < shownTimed.start.getTime());
   const countText = shown ? `${days} ${days === 1 ? dayLabel : daysLabel}` : "";
   const status = !open
     ? ""
@@ -700,7 +740,22 @@ export function DateRangePicker({
             </div>
           </motion.div>
 
-          <div className={styles.footer}>
+          {withTime && <motion.div className={styles.times} variants={reduced ? faceFade : faceIn} initial="hidden" animate="shown" exit="gone">
+            {/* STX：原生 time 输入的弹层由浏览器绘制，不会被面板的 overflow: clip 裁掉。
+                STX: the native time input's popup is drawn by the browser, so the panel's overflow: clip cannot cut it off. */}
+            <label className={styles.timeField}>
+              <span className={styles.timeLabel}>{startTimeLabel}</span>
+              <input type="time" step={60} className={styles.timeInput} value={clock.start} required
+                onChange={event => setClock(current => ({ ...current, start: event.target.value || DAY_START }))} />
+            </label>
+            <span className={styles.timeDash} aria-hidden="true">–</span>
+            <label className={styles.timeField}>
+              <span className={styles.timeLabel}>{endTimeLabel}</span>
+              <input type="time" step={60} className={styles.timeInput} value={clock.end} required aria-invalid={clockInvalid || undefined}
+                onChange={event => setClock(current => ({ ...current, end: event.target.value || DAY_END }))} />
+            </label>
+          </motion.div>}
+          <div className={styles.footer} data-timed={withTime || undefined}>
             <div className={styles.summary}>
               <motion.span layoutId={layoutId} layout={layoutId ? "position" : undefined} className={styles.summaryValue} transition={GROW}
                 variants={layoutId ? undefined : faceFade} initial={layoutId ? undefined : "hidden"} animate={layoutId ? undefined : "shown"} exit={layoutId ? undefined : "gone"}>
@@ -712,7 +767,7 @@ export function DateRangePicker({
             </div>
             <motion.div className={styles.actions} variants={reduced ? faceFade : faceIn} initial="hidden" animate="shown" exit="gone">
               <button type="button" className={styles.ghost} onClick={() => close(true)}>{cancelLabel}</button>
-              <button type="button" className={styles.primary} onClick={apply} disabled={!shown}>{applyLabel}</button>
+              <button type="button" className={styles.primary} onClick={apply} disabled={!shown || clockInvalid}>{applyLabel}</button>
             </motion.div>
           </div>
           <p className={styles.srOnly} aria-live="polite">{status}</p>

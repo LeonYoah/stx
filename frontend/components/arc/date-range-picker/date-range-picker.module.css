@@ -183,6 +183,17 @@
 .ghost:focus-visible { background: var(--surface-muted); color: var(--foreground); }
 .preset:focus-visible, .navButton:focus-visible { background: color-mix(in oklab, var(--foreground) 5%, transparent); color: var(--foreground); }
 
+/* STX 扩展：日历下方的起止时间行；与底部共用一条分隔线。 / STX extension: the start/end time row under the calendar, sharing the footer's divider. */
+.times { display: flex; width: 0; min-width: 100%; align-items: flex-end; gap: 8px; margin-top: 10px; padding: 10px 2px 0 12px; border-top: 1px solid var(--border-subtle); }
+.footer[data-timed] { margin-top: 8px; padding-top: 0; border-top: 0; }
+.timeField { display: grid; min-width: 0; flex: 1 1 0; gap: 4px; }
+.timeLabel { color: var(--text-muted); font-size: var(--text-xs); line-height: 1.2; }
+.timeDash { flex: none; padding-bottom: 7px; color: var(--text-muted); }
+.timeInput { width: 100%; height: var(--control-height-sm); padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); color: var(--foreground); font: inherit; font-size: var(--text-sm); font-variant-numeric: tabular-nums; color-scheme: light; outline: none; transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+:global([data-theme="dark"]) .timeInput { color-scheme: dark; }
+.timeInput:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 22%, transparent); }
+.timeInput[aria-invalid] { border-color: var(--danger); }
+
 .srOnly { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 /* Compact: one month under a scrolling row of presets. */

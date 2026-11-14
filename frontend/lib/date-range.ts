@@ -110,3 +110,60 @@ export function dateRangeToYmdPair(range: DateRange): {startDate: string; endDat
 export function ymdPairToDateRange(startDate: string, endDate: string): DateRange | null {
   return wallTimesToDateRange(startDate, endDate);
 }
+
+const WALL_CLOCK = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?/;
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+/**
+ * 解析墙上时间为本地 Date；只有日期时，开始取 00:00、结束取 23:59:59.999。
+ * Parse a wall time into a local Date; a bare date maps to 00:00 for the start and 23:59:59.999 for the end.
+ */
+function wallTimeToLocalDateTime(value: string, side: 'start' | 'end'): Date | null {
+  const match = WALL_CLOCK.exec((value || '').trim());
+  if (!match) {
+    return null;
+  }
+  const [, y, mo, d, h, mi, sec, ms] = match;
+  if (h === undefined) {
+    return side === 'start'
+      ? new Date(Number(y), Number(mo) - 1, Number(d))
+      : new Date(Number(y), Number(mo) - 1, Number(d), 23, 59, 59, 999);
+  }
+  return new Date(
+    Number(y),
+    Number(mo) - 1,
+    Number(d),
+    Number(h),
+    Number(mi),
+    Number(sec ?? 0),
+    Number((ms ?? '0').padEnd(3, '0')),
+  );
+}
+
+/**
+ * 起止墙上时间收成带时刻的 DateRange（给开了 withTime 的选择器回显）。缺一端时用另一端补齐。
+ * Fold start/end wall times into a DateRange that keeps the clock (for pickers with withTime). A missing side copies
+ * the other.
+ */
+export function wallTimesToDateTimeRange(startTime: string, endTime: string): DateRange | null {
+  const start = wallTimeToLocalDateTime(startTime || endTime, 'start');
+  const end = wallTimeToLocalDateTime(endTime || startTime, 'end');
+  if (!start || !end) {
+    return null;
+  }
+  return start.getTime() <= end.getTime() ? {start, end} : {start: end, end: start};
+}
+
+/**
+ * 带时刻的 DateRange 转墙上时间：开始 `YYYY-MM-DDTHH:mm`，结束带秒和毫秒（选择器给的是该分钟的 :59.999），
+ * 这样 `created_at <= end_time` 不会丢掉最后一分钟。
+ * Convert a timed DateRange to wall times: start is `YYYY-MM-DDTHH:mm`, end keeps seconds and milliseconds (the picker
+ * hands over :59.999 of that minute) so `created_at <= end_time` keeps the last minute.
+ */
+export function dateTimeRangeToWallTimes(range: DateRange): {startTime: string; endTime: string} {
+  const {start, end} = range;
+  return {
+    startTime: `${localDateToYmd(start)}T${pad2(start.getHours())}:${pad2(start.getMinutes())}`,
+    endTime: `${localDateToYmd(end)}T${pad2(end.getHours())}:${pad2(end.getMinutes())}:${pad2(end.getSeconds())}.${String(end.getMilliseconds()).padStart(3, '0')}`,
+  };
+}

@@ -25,7 +25,7 @@ import SegmentedControl from '@/components/arc/segmented-control/segmented-contr
 import {Button} from '@/components/arc/button/button';
 import {cn} from '@/lib/utils';
 import {formatDateTimeLocalInput} from '@/lib/timezone';
-import {dateRangeToWallTimes, wallTimesToDateRange} from '@/lib/date-range';
+import {dateTimeRangeToWallTimes, wallTimesToDateTimeRange} from '@/lib/date-range';
 import {ArcDateRangePicker} from './ArcDateRangePicker';
 
 export interface TimePresetOption {
@@ -34,11 +34,11 @@ export interface TimePresetOption {
 }
 
 export interface CompactTimeFilterProps {
-  // 开始时间（墙上时间：小时预设为 YYYY-MM-DDTHH:mm，日历 Apply 为当日 00:00）
-  // Start wall time: hour presets are YYYY-MM-DDTHH:mm; calendar Apply is start-of-day
+  // 开始时间（墙上时间 YYYY-MM-DDTHH:mm：小时预设与日历 Apply 都精确到分钟）
+  // Start wall time YYYY-MM-DDTHH:mm: hour presets and calendar Apply are both minute-precise
   startTime: string;
-  // 结束时间（墙上时间：小时预设为 YYYY-MM-DDTHH:mm，日历 Apply 为当日 23:59:59.999）
-  // End wall time: hour presets are YYYY-MM-DDTHH:mm; calendar Apply is end-of-day inclusive
+  // 结束时间（墙上时间：小时预设为 YYYY-MM-DDTHH:mm，日历 Apply 为所选分钟的 :59.999）
+  // End wall time: hour presets are YYYY-MM-DDTHH:mm; calendar Apply is the chosen minute's :59.999
   endTime: string;
   // 开始时间变更回调
   // Callback when start time is updated
@@ -70,8 +70,8 @@ export function formatToDateTimeLocal(date: Date): string {
 }
 
 /**
- * 紧凑时间范围筛选：相对时段用分段控件，自定义日历用 Arc DateRangePicker。
- * Compact time filter: relative windows on a segmented control, custom days on Arc DateRangePicker.
+ * 紧凑时间范围筛选：相对时段用分段控件，自定义区间（精确到分钟）用 Arc DateRangePicker。
+ * Compact time filter: relative windows on a segmented control, custom ranges (down to the minute) on Arc DateRangePicker.
  */
 export function CompactTimeFilter({
   startTime,
@@ -95,13 +95,16 @@ export function CompactTimeFilter({
   ];
 
   const hasActiveTime = Boolean(startTime || endTime);
+  // 自定义区间精确到分钟：恢复替换 datetime-local 前的筛选精度，小时预设写入的时刻也能原样回显。
+  // Custom ranges go down to the minute: restores the precision the old datetime-local inputs had, and hour presets
+  // echo back with their exact clock.
   const rangeValue = useMemo(
-    () => wallTimesToDateRange(startTime, endTime),
+    () => wallTimesToDateTimeRange(startTime, endTime),
     [startTime, endTime],
   );
 
   const handleRangeChange = (range: DateRange) => {
-    const next = dateRangeToWallTimes(range);
+    const next = dateTimeRangeToWallTimes(range);
     onStartTimeChange(next.startTime);
     onEndTimeChange(next.endTime);
   };
@@ -127,6 +130,7 @@ export function CompactTimeFilter({
         onChange={handleRangeChange}
         label={tRange('label')}
         placeholder={tRange('placeholder')}
+        withTime
       />
       {hasActiveTime ? (
         <Button

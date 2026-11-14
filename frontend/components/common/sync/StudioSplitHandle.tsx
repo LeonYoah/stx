@@ -26,6 +26,7 @@ import {
   type PointerEvent,
 } from 'react';
 import {cn} from '@/lib/utils';
+import './studio-split-handle.css';
 import styles from './studio-split-handle.module.css';
 
 const KEY_STEP = 16;

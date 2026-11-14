@@ -113,30 +113,3 @@
     transition: none;
   }
 }
-
-/* 拖动时锁住整页光标，避免滑过 Monaco 变成输入光标。 / Keep the resize cursor while dragging over Monaco. */
-:global(html[data-studio-resizing='x']),
-:global(html[data-studio-resizing='x'] *) {
-  cursor: url('/cursors/ew-resize.png') 16 16, col-resize !important;
-  cursor:
-    image-set(
-      url('/cursors/ew-resize.png') 1x,
-      url('/cursors/ew-resize-2x.png') 2x
-    )
-    16 16,
-    col-resize !important;
-  user-select: none !important;
-}
-
-:global(html[data-studio-resizing='y']),
-:global(html[data-studio-resizing='y'] *) {
-  cursor: url('/cursors/ns-resize.png') 16 16, row-resize !important;
-  cursor:
-    image-set(
-      url('/cursors/ns-resize.png') 1x,
-      url('/cursors/ns-resize-2x.png') 2x
-    )
-    16 16,
-    row-resize !important;
-  user-select: none !important;
-}

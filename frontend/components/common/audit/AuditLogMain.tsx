@@ -26,7 +26,7 @@
  * 本组件提供审计日志管理的主界面，包括列表、搜索和过滤操作。
  */
 
-import {useState, useEffect, useCallback, type KeyboardEvent} from 'react';
+import {useState, useEffect, useCallback, useMemo, type KeyboardEvent} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -42,12 +42,14 @@ import {toast} from 'sonner';
 import {Search, ScrollText, RefreshCw} from 'lucide-react';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
-import {WorkspaceHeader} from '@/components/common/layout';
+import {ArcDateRangePicker, WorkspaceHeader} from '@/components/common/layout';
 import services from '@/lib/services';
 import {AuditLogInfo, ListAuditLogsRequest} from '@/lib/services/audit/types';
 import {AuditLogTable} from './AuditLogTable';
 import {AuditTraceSheet} from './AuditTraceSheet';
+import {dateRangeToYmdPair, ymdPairToDateRange} from '@/lib/date-range';
 import {wallTimeToRFC3339} from '@/lib/timezone';
+import type {DateRange} from '@/components/arc/date-range-picker/date-range-picker';
 
 /** 审计筛选只暴露用户能理解的操作类别，不把每一种内部 action 铺进下拉框。
  * Audit filters expose user-facing action categories, not every internal action.
@@ -85,6 +87,10 @@ export function AuditLogMain() {
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
   const [traceLog, setTraceLog] = useState<AuditLogInfo | null>(null);
+  const dateRange = useMemo(
+    () => ymdPairToDateRange(filterStartDate, filterEndDate),
+    [filterStartDate, filterEndDate],
+  );
 
 
   /**
@@ -185,6 +191,17 @@ export function AuditLogMain() {
    */
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
+  };
+
+  /**
+   * 应用 Arc 日期范围：日历日闭区间，查询时结束日含 23:59:59.999。
+   * Apply an Arc date range: inclusive calendar days; the query end includes 23:59:59.999.
+   */
+  const handleDateRangeChange = (range: DateRange) => {
+    const next = dateRangeToYmdPair(range);
+    setFilterStartDate(next.startDate);
+    setFilterEndDate(next.endDate);
+    setCurrentPage(1);
   };
 
   /**
@@ -305,23 +322,12 @@ export function AuditLogMain() {
           </SelectContent>
         </Select>
 
-        <div className='flex items-center gap-1.5 text-xs text-muted-foreground'>
-          <Input
-            type='date'
-            value={filterStartDate}
-            onChange={(e) => setFilterStartDate(e.target.value)}
-            onKeyDown={handleFilterInputKeyDown}
-            className='w-[135px] h-9 text-xs'
-          />
-          <span>-</span>
-          <Input
-            type='date'
-            value={filterEndDate}
-            onChange={(e) => setFilterEndDate(e.target.value)}
-            onKeyDown={handleFilterInputKeyDown}
-            className='w-[135px] h-9 text-xs'
-          />
-        </div>
+        <ArcDateRangePicker
+          value={dateRange}
+          onChange={handleDateRangeChange}
+          label={t('common.dateRange.label')}
+          placeholder={t('common.dateRange.placeholder')}
+        />
 
         <Button onClick={handleSearch} size='sm' className='h-9 active:scale-[0.98]'>
           <Search className='h-3.5 w-3.5 mr-1.5' />

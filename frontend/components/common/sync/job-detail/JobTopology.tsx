@@ -18,93 +18,26 @@
 'use client';
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Activity, GripHorizontal} from 'lucide-react';
+import {GripHorizontal} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {Badge} from '@/components/ui/badge';
-import {Skeleton} from '@/components/ui/skeleton';
-import {TableLoadingBar} from '@/components/common/layout';
 import {cn} from '@/lib/utils';
-import type {SyncRealtimeHint} from '@/lib/services/sync';
 import {
   buildMetricIndex,
   buildRealtimeOverlay,
-  formatPercent,
   mergeRuntimeWithPlan,
   normalizeJobDag,
-  type DagVertex,
 } from './dag-model';
 import JobDagCanvas, {type DagMode} from './JobDagCanvas';
 import {DagNodeDrawer} from './DagNodeDrawer';
 import {OperatorList} from './OperatorList';
-import {useJobPlanDag, useJobRealtime, type JobRealtimeState} from './use-job-realtime';
+import {useJobPlanDag, useJobRealtime} from './use-job-realtime';
 
 // 图区高度占比与上下限，参考 Flink overview 的 max(280, min(高度*0.4, 500))，这里图更重要所以占比更大。
 // Graph area ratio and bounds, after Flink overview's max(280, min(height*0.4, 500)); the graph matters more here.
 const GRAPH_RATIO = 0.62;
 const GRAPH_MIN = 200;
 const LIST_MIN = 120;
-
-function severityClass(severity: SyncRealtimeHint['severity']): string {
-  switch (severity) {
-    case 'critical':
-      return 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300';
-    case 'warning':
-      return 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300';
-    default:
-      return 'border-border/60 bg-muted/40 text-muted-foreground';
-  }
-}
-
-/**
- * 拓扑上方的一行瓶颈提示：状态、更新时间与瓶颈提示；数据不可用时只显示原因（节点上的数据显示 N/A）。
- * One-line bottleneck strip above the topology: status, update time and hints; when data is unavailable only the
- * reason is shown (nodes show N/A).
- */
-function RealtimeHintsBar({state, vertices}: {state: JobRealtimeState; vertices: DagVertex[]}) {
-  const tRealtime = useTranslations('workbenchStudio.realtimeInsight');
-  const {data, loading, refreshing, error} = state;
-  const names = useMemo(() => new Map(vertices.map((vertex) => [vertex.vertexId, vertex.displayName])), [vertices]);
-  const nameOf = (vertexId?: number) => (typeof vertexId === 'number' ? names.get(vertexId) || `#${vertexId}` : '-');
-  const fetchedAt = data?.fetched_at_ms ? new Date(data.fetched_at_ms).toLocaleTimeString() : '';
-  // 原因码与提示码来自后端，未知值显示原码，避免缺键报错。
-  // Reason and hint codes come from the backend; unknown values show the raw code instead of a missing-key error.
-  const translate = (key: string, fallback: string, values?: Record<string, string>) =>
-    tRealtime.has(key) ? tRealtime(key, values) : fallback;
-  const reason = data?.reason || 'collecting';
-
-  return (
-    <div className='relative flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-md border border-border/60 bg-muted/10 px-3 py-1.5 text-xs' data-testid='sync-realtime-insight'>
-      <TableLoadingBar loading={refreshing} />
-      <Activity className='size-3.5 text-primary' />
-      <span className='font-medium'>{tRealtime('title')}</span>
-      {data ? (
-        <Badge variant='outline' className='whitespace-nowrap text-[10px]'>
-          {data.available ? tRealtime('live') : translate(`reason.${reason}`, reason)}
-        </Badge>
-      ) : null}
-      {fetchedAt ? <span className='whitespace-nowrap font-mono text-[11px] text-muted-foreground'>{tRealtime('updatedAt', {time: fetchedAt})}</span> : null}
-      <span className='text-muted-foreground/40'>|</span>
-      {loading ? (
-        <Skeleton className='h-3.5 w-48' />
-      ) : error ? (
-        <span className='text-destructive'>{error}</span>
-      ) : !data?.available ? (
-        <span className='text-muted-foreground'>{translate(`reasonDetail.${reason}`, reason)}</span>
-      ) : data.hints.length === 0 ? (
-        <span className='text-muted-foreground'>{tRealtime('noBottleneck')}</span>
-      ) : (
-        data.hints.map((hint, index) => (
-          <span key={`${hint.code}-${hint.vertex_id ?? ''}-${hint.queue_id ?? ''}-${index}`} className='inline-flex items-center gap-1'>
-            <Badge variant='outline' className={cn('whitespace-nowrap px-1 py-0 text-[10px]', severityClass(hint.severity))}>
-              {tRealtime(`severity.${hint.severity}`)}
-            </Badge>
-            <span>{translate(`hint.${hint.code}`, hint.code, {target: nameOf(hint.vertex_id), value: formatPercent(hint.value)})}</span>
-          </span>
-        ))
-      )}
-    </div>
-  );
-}
 
 export interface JobTopologyProps {
   mode: DagMode;
@@ -207,7 +140,6 @@ export default function JobTopology({mode, jobDag, metrics, jobId, realtimeEnabl
 
   return (
     <div className={cn('flex h-full min-h-0 flex-col gap-2', className)}>
-      {runtime && realtimeEnabled ? <RealtimeHintsBar state={realtime} vertices={graph.vertices} /> : null}
       {warnings && warnings.length > 0 ? (
         <div className='flex flex-wrap gap-1.5'>
           {warnings.map((warning, index) => (

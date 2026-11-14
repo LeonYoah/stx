@@ -781,8 +781,8 @@ export function MonitoringAlertsCenter() {
 
           </div>
 
-          {/* 第三行：时间范围快速预设与自定义起止时间 */}
-          {/* Row 3: Quick time presets and labeled datetime-local inputs */}
+          {/* 第三行：相对时段分段控件 + Arc 日期范围选择器 */}
+          {/* Row 3: relative-range segmented control plus Arc date range picker */}
           <CompactTimeFilter
             startTime={startTimeFilter}
             endTime={endTimeFilter}

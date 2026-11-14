@@ -58,6 +58,36 @@
       "selectedFile": "Selected file",
       "clearFile": "Clear selected file",
       "uploading": "Uploading…"
+    },
+    "dateRange": {
+      "label": "Date range",
+      "placeholder": "Select dates",
+      "cancel": "Cancel",
+      "apply": "Apply",
+      "day": "day",
+      "days": "days",
+      "noDates": "No dates",
+      "pickEndDate": "Pick an end date",
+      "presetsAria": "Presets",
+      "previousMonth": "Previous month",
+      "nextMonth": "Next month",
+      "previousYear": "Previous year",
+      "nextYear": "Next year",
+      "chooseMonth": "Choose a month",
+      "backToCalendar": "Back to calendar",
+      "startChooseEnd": "Start {date}. Choose an end date.",
+      "startTime": "Start time",
+      "endTime": "End time",
+      "presets": {
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "last7d": "Last 7 days",
+        "last30d": "Last 30 days",
+        "thisMonth": "This month",
+        "lastMonth": "Last month",
+        "thisQuarter": "This quarter",
+        "yearToDate": "Year to date"
+      }
     }
   },
   "dashboard": {
@@ -4965,47 +4995,6 @@
     "stopOverdueTooltip": "A stop was requested, but the job has not stopped after {minutes} minutes. STX keeps checking; inspect the engine if needed.",
     "submitOutcomePendingTitle": "Previous submit is still being confirmed",
     "submitOutcomePendingDescription": "The submit of job #{jobId} is still being confirmed until {deadline}. Try again afterwards.",
-    "realtimeInsight": {
-      "title": "Realtime insight",
-      "live": "Live",
-      "updatedAt": "Updated {time}",
-      "noBottleneck": "No clear bottleneck in the last 3 collection buckets.",
-      "busy": "busy {value}",
-      "backpressure": "bp {value}",
-      "queueFill": "queue {value}",
-      "severity": {
-        "critical": "Critical",
-        "warning": "Warning",
-        "info": "Info"
-      },
-      "hint": {
-        "sink_slow": "{target} cannot keep up writing: busy {value} with a persistently full input queue. Check target write performance, batching and parallelism.",
-        "transform_busy": "{target} cannot keep up processing: busy {value} with a persistently full input queue. Split the transform chain or raise parallelism.",
-        "downstream_backpressure": "The queue into {target} is backpressured at {value} while the target is not busy; it may be waiting on an external system, GC or commits.",
-        "source_idle": "{target} is mostly waiting for data (idle {value}) and downstream queues are empty; upstream may have no new data.",
-        "source_busy": "{target} spends {value} reading with no downstream backpressure; reading or deserialization may be slow."
-      },
-      "reason": {
-        "version_unsupported": "Needs 3.x",
-        "not_cluster_mode": "Local run",
-        "not_running": "Not running",
-        "not_enabled": "Disabled",
-        "master_unreachable": "Engine unreachable",
-        "no_engine_job": "No engine job",
-        "collecting": "Collecting",
-        "client_unsupported": "Unsupported"
-      },
-      "reasonDetail": {
-        "version_unsupported": "Realtime observability requires a SeaTunnel 3.0.0+ cluster.",
-        "not_cluster_mode": "Locally executed jobs have no engine realtime metrics.",
-        "not_running": "The job is no longer running; realtime data is only kept while it runs.",
-        "not_enabled": "Realtime observability is not enabled for this job. Set \"Realtime observability\" to Auto or On in task settings and resubmit.",
-        "master_unreachable": "The cluster's active master is unreachable right now; it will be retried automatically.",
-        "no_engine_job": "The job has no engine job ID yet.",
-        "collecting": "The engine is collecting the first bucket (about 5 seconds). Please wait.",
-        "client_unsupported": "This server does not support the realtime metrics proxy."
-      }
-    },
     "jobEvents": {
       "open": "Event timeline",
       "title": "Job #{id} event timeline",
@@ -5147,6 +5136,8 @@
         "engineObsEmptyTitle": "Engine observability is off for this job",
         "engineObsEmptyBody": "Busyness and backpressure need engine.observability enabled on the job",
         "range": "Range",
+        "rangeLifetime": "Job lifetime",
+        "customRange": "Custom range",
         "autoRefresh": "Auto refresh",
         "lastRefresh": "Last refresh {time}",
         "loading": "Loading",
@@ -5165,7 +5156,9 @@
           "cdc": "CDC delay",
           "checkpoint": "Checkpoint duration",
           "busy": "Vertex busy",
-          "backpressure": "Backpressure"
+          "backpressure": "Backpressure",
+          "tableThroughput": "Throughput by table",
+          "tableRows": "Rows by table"
         },
         "series": {
           "read": "Read",
@@ -5176,7 +5169,27 @@
           "rows": "rows",
           "seconds": "seconds"
         },
-        "perTablePhase3": "Per-table trends (phase 3)"
+        "emptyChart": "No data for this range",
+        "categoryTime": "Time",
+        "averageLabel": "Average",
+        "valueLabel": "Current",
+        "totalLabel": "Total",
+        "otherLabel": "Other",
+        "periodCurrent": "Current range",
+        "periodSpan": "{from} to {to}",
+        "pipeline": {
+          "label": "Cumulative row mix",
+          "committed": "Committed",
+          "written": "Written, not committed",
+          "backlog": "Read, not written"
+        },
+        "annotations": {
+          "schema_change": "DDL",
+          "restart": "Restart",
+          "status": "Status"
+        },
+        "legendClear": "Clear",
+        "legendAll": "Show all"
       }
     },
     "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)"

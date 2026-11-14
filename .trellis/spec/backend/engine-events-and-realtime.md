@@ -165,6 +165,35 @@ instance.Status = normalizeJobStatus(event.JobStatus)
 s.enqueueEventRefresh(job.ID) // → RefreshJobByID → applyEngineJobInfoUpdate
 ```
 
+## 场景四：历史趋势 `GET /api/v1/sync/jobs/:id/timeseries`
+
+### 1. 范围 / 触发条件
+- 作业详情「趋势」按 PromQL 模板查 Prometheus（`stx_job_*`），没有本地兜底；`source` 只会是 `prometheus` 或 `none`。
+
+### 2. 签名
+```go
+func ParseJobTimeseriesWindow(startRaw, endRaw string, now time.Time) (*JobTimeseriesWindow, error)
+func (s *Service) GetJobTimeseriesForActor(ctx, actor, id uint, rangeKey string, window *JobTimeseriesWindow, metricsCSV string, step int) (*JobTimeseriesResult, error)
+```
+CLI：`stx sync job timeseries <id> [--range 1h] [--start <RFC3339|unix>] [--end <RFC3339|unix>] [--step N] [--metrics ...]`
+
+### 3. 契约
+- `range` 取 `15m|1h|6h|24h|7d`，窗口相对当前时间，step 用固定表（10s…1800s）。
+- 给出 `start` 时按自定义窗口查询，优先于 `range`：`start` / `end` 收 RFC3339，或 Unix 时间戳（10 位及以下按秒，更长按毫秒）。只给 `end` 报错；`end` 缺省为 now；`end` 必须晚于 `start`；跨度 ≤ 31 天。参数错误在 handler 返回 **400**，不进服务层。
+- 自定义窗口的 step 在 `timeseriesStepCandidates` 里挑第一个能让每条序列 ≤ 240 点的（最细 10s）。显式 `step` 仍然生效。
+- 响应总带 `start_ms` / `end_ms`（实际查询的窗口），自定义窗口 `range` 为 `"custom"`；前端「作业全程」用它回显选择器。
+- `metrics` 默认含 `table`：`stx_job_table_rows_total{direction,table}` 按 `sum by (table)` 出 4 组序列（`table_throughput_read|write`、`table_rows_read|write`），序列 label 即表名，超上限的聚合桶 `other` 由前端本地化；表级指标来自作业指标采集而非引擎观测注入，不受 `engine_observability_enabled` 约束。
+- 事件标注（`annotations`）按同一个窗口取。
+
+### 4. 必须有的测试
+- `ParseJobTimeseriesWindow`：RFC3339 带时区、毫秒、秒、缺省 end、只给 end、非法字符串、`end <= start`、超过 31 天。
+- `autoTimeseriesStep`：25 分钟 → 10s，2 小时 → 30s，24 小时 → 600s，31 天 → 14400s。
+- 传入窗口时 `range=custom`、`start_ms` / `end_ms` 与 step 正确（observability 关闭也要带上）。
+
+### 5. 错误与正确示例
+- 错误：已结束的作业只能用相对当前的 `1h` 看，一小时后图就空了。
+- 正确：前端「作业全程」传 `start=started_at&end=finished_at`；运行中只传 `start`，让后端取 now。
+
 ## 已知限制
 - token 明文会出现在 seatunnel.yaml 里，而 config 接口返回配置正文时不做脱敏（这是已有行为，checkpoint 密钥也一样）。影响有限：这个 token 只能往该集群的接收接口发事件，伪造的状态事件只会触发一次从引擎拉真实状态。
 - `STAIN_TRACE` 和 `JOB_STATUS` 共用一个容量 2000 的 ringbuffer。打开 stain trace 前要压低采样率，否则状态事件会被挤掉。

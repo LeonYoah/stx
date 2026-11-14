@@ -892,7 +892,11 @@ export interface SyncCuratedComboParseResult {
 export interface SyncJobTimeseries {
   source: 'prometheus' | 'none' | string;
   reason?: string;
+  /** 预设窗口（15m…7d）或自定义时间窗时为 `custom`。 / Preset window (15m…7d), or `custom` for a start/end window. */
   range: string;
+  /** 实际查询的起止毫秒，旧后端缺省为 0。 / Queried window bounds in ms; 0 from older backends. */
+  start_ms: number;
+  end_ms: number;
   step_seconds: number;
   engine_observability_enabled: boolean;
   series: SyncJobTimeseriesSeries[];

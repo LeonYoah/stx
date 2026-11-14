@@ -189,8 +189,8 @@
 .timeField { display: grid; min-width: 0; flex: 1 1 0; gap: 4px; }
 .timeLabel { color: var(--text-muted); font-size: var(--text-xs); line-height: 1.2; }
 .timeDash { flex: none; padding-bottom: 7px; color: var(--text-muted); }
-.timeInput { width: 100%; height: var(--control-height-sm); padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); color: var(--foreground); font: inherit; font-size: var(--text-sm); font-variant-numeric: tabular-nums; color-scheme: light; outline: none; transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
-:global([data-theme="dark"]) .timeInput { color-scheme: dark; }
+.timeInput { width: 100%; height: var(--control-height-sm); padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); color: var(--foreground); font: inherit; font-size: var(--text-sm); font-variant-numeric: tabular-nums; letter-spacing: .02em; outline: none; transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+.timeInput::placeholder { color: var(--text-muted); }
 .timeInput:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 22%, transparent); }
 .timeInput[aria-invalid] { border-color: var(--danger); }
 

@@ -84,7 +84,9 @@ describe('DateRangePicker withTime (STX extension)', () => {
     expect(start.value).toBe('12:13');
     expect(end.value).toBe('12:38');
 
-    fireEvent.change(end, {target: {value: '12:45'}});
+    fireEvent.change(end, {target: {value: '1245'}});
+    fireEvent.blur(end);
+    expect(end.value).toBe('12:45');
     fireEvent.click(screen.getByRole('button', {name: '应用'}));
     const range = onChange.mock.calls[0][0] as {start: Date; end: Date};
     expect([range.start.getHours(), range.start.getMinutes(), range.start.getSeconds()]).toEqual([12, 13, 0]);
@@ -106,7 +108,10 @@ describe('DateRangePicker withTime (STX extension)', () => {
     );
 
     fireEvent.click(screen.getByRole('button', {name: /Date range/}));
-    fireEvent.change(screen.getByLabelText('结束时间'), {target: {value: '09:00'}});
+    const end = screen.getByLabelText('结束时间') as HTMLInputElement;
+    fireEvent.change(end, {target: {value: '9'}});
+    fireEvent.keyDown(end, {key: 'Enter'});
+    expect(end.value).toBe('09:00');
     expect(screen.getByRole('button', {name: '应用'})).toBeDisabled();
     expect(screen.getByLabelText('结束时间')).toHaveAttribute('aria-invalid', 'true');
   });
@@ -117,6 +122,28 @@ describe('DateRangePicker withTime (STX extension)', () => {
     );
     fireEvent.click(screen.getByRole('button', {name: /Date range/}));
     expect(screen.queryByLabelText('Start time')).not.toBeInTheDocument();
+  });
+
+  it('reverts invalid clock text and nudges with the arrow keys', () => {
+    render(
+      <DateRangePicker
+        value={{start: new Date(2026, 10, 14, 23, 59), end: new Date(2026, 10, 15, 0, 0, 59, 999)}}
+        onChange={() => {}}
+        withTime
+        startTimeLabel='开始时间'
+        endTimeLabel='结束时间'
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', {name: /Date range/}));
+    const start = screen.getByLabelText('开始时间') as HTMLInputElement;
+    fireEvent.change(start, {target: {value: '25:61'}});
+    fireEvent.blur(start);
+    expect(start.value).toBe('23:59');
+    // 跨过午夜回到 00:00；Shift 一次一小时。 / Wraps past midnight; Shift moves an hour.
+    fireEvent.keyDown(start, {key: 'ArrowUp'});
+    expect(start.value).toBe('00:00');
+    fireEvent.keyDown(start, {key: 'ArrowDown', shiftKey: true});
+    expect(start.value).toBe('23:00');
   });
 });
 

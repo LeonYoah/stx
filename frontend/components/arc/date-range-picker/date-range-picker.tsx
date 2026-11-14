@@ -138,6 +138,47 @@ const atClock = (day: Date, clock: string, inclusive: boolean) => {
   return new Date(day.getFullYear(), day.getMonth(), day.getDate(), Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, inclusive ? 59 : 0, inclusive ? 999 : 0);
 };
 const DAY_START = "00:00", DAY_END = "23:59";
+/** STX：把手输的时刻规范成 HH:mm（接受 1213、12:13、9），不合法返回 null。 / STX: normalize typed clock text to HH:mm (accepts 1213, 12:13, 9); null when invalid. */
+const normalizeClock = (raw: string): string | null => {
+  const match = /^(\d{1,2})(?::?(\d{2}))?$/.exec(raw.trim());
+  if (!match) return null;
+  const h = Number(match[1]), m = Number(match[2] ?? 0);
+  return h < 24 && m < 60 ? `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}` : null;
+};
+
+/**
+ * STX：24 小时制 HH:mm 输入。原生 time 输入按浏览器语言显示（英文浏览器会变成 12:13 PM），与界面语言不一致；
+ * 失焦或回车时规范化，非法输入回到原值，↑/↓ 调分钟、Shift+↑/↓ 调小时。
+ * STX: 24-hour HH:mm field. A native time input follows the browser locale (an English browser shows 12:13 PM), which
+ * can disagree with the UI language; text is normalized on blur or Enter, invalid input reverts, ↑/↓ nudge minutes and
+ * Shift+↑/↓ hours.
+ */
+function ClockField({ label, value, invalid, onCommit }: { label: string; value: string; invalid?: boolean; onCommit: (next: string) => void }) {
+  const [text, setText] = useState(value);
+  const [previous, setPrevious] = useState(value);
+  if (previous !== value) { setPrevious(value); setText(value); }
+  const commit = () => {
+    const next = normalizeClock(text);
+    setText(next ?? value);
+    if (next && next !== value) onCommit(next);
+  };
+  const nudge = (delta: number) => {
+    const [h = 0, m = 0] = (normalizeClock(text) ?? value).split(":").map(Number);
+    const total = (((h * 60 + m + delta) % 1440) + 1440) % 1440;
+    const next = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+    setText(next);
+    onCommit(next);
+  };
+  return <label className={styles.timeField}>
+    <span className={styles.timeLabel}>{label}</span>
+    <input type="text" inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={5} placeholder="HH:mm" className={styles.timeInput}
+      value={text} aria-invalid={invalid || undefined} onChange={event => setText(event.target.value)} onBlur={commit}
+      onKeyDown={event => {
+        if (event.key === "Enter") { event.preventDefault(); commit(); }
+        else if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); nudge((event.key === "ArrowUp" ? 1 : -1) * (event.shiftKey ? 60 : 1)); }
+      }} />
+  </label>;
+}
 const clampDate = (date: Date, min?: Date, max?: Date) => min && dayDiff(date, min) < 0 ? startOfDay(min) : max && dayDiff(date, max) > 0 ? startOfDay(max) : date;
 
 export const defaultDateRangePresets: DateRangePreset[] = [
@@ -741,19 +782,9 @@ export function DateRangePicker({
           </motion.div>
 
           {withTime && <motion.div className={styles.times} variants={reduced ? faceFade : faceIn} initial="hidden" animate="shown" exit="gone">
-            {/* STX：原生 time 输入的弹层由浏览器绘制，不会被面板的 overflow: clip 裁掉。
-                STX: the native time input's popup is drawn by the browser, so the panel's overflow: clip cannot cut it off. */}
-            <label className={styles.timeField}>
-              <span className={styles.timeLabel}>{startTimeLabel}</span>
-              <input type="time" step={60} className={styles.timeInput} value={clock.start} required
-                onChange={event => setClock(current => ({ ...current, start: event.target.value || DAY_START }))} />
-            </label>
+            <ClockField label={startTimeLabel} value={clock.start} onCommit={next => setClock(current => ({ ...current, start: next }))} />
             <span className={styles.timeDash} aria-hidden="true">–</span>
-            <label className={styles.timeField}>
-              <span className={styles.timeLabel}>{endTimeLabel}</span>
-              <input type="time" step={60} className={styles.timeInput} value={clock.end} required aria-invalid={clockInvalid || undefined}
-                onChange={event => setClock(current => ({ ...current, end: event.target.value || DAY_END }))} />
-            </label>
+            <ClockField label={endTimeLabel} value={clock.end} invalid={clockInvalid} onCommit={next => setClock(current => ({ ...current, end: next }))} />
           </motion.div>}
           <div className={styles.footer} data-timed={withTime || undefined}>
             <div className={styles.summary}>

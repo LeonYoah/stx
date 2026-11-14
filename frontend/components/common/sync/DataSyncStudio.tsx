@@ -161,6 +161,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {Input} from '@/components/ui/input';
@@ -3606,12 +3607,9 @@ export function DataSyncStudio() {
 
   const handleSelectNode = async (node: SyncTaskTreeNode) => {
     if (node.node_type === 'folder') {
+      // 文件夹只记录选中；展开/折叠交给 beUI FileTree 的 expandedIds。
+      // Folders only record selection; expand/collapse is owned by beUI FileTree.
       setSelectedFolderId(node.id);
-      setExpandedFolderIds((current) =>
-        current.includes(node.id)
-          ? current.filter((id) => id !== node.id)
-          : [...current, node.id],
-      );
       return;
     }
     setSelectedNodeId(node.id);
@@ -5071,9 +5069,9 @@ export function DataSyncStudio() {
           inert={isLeftSidebarCollapsed ? true : undefined}
         >
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
-            {/* 资源管理器标题与工具栏 (VSCode 风格) */}
-            {/* Explorer title and action toolbar (VSCode style) */}
-            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/60 bg-muted/15 px-2.5'>
+            {/* 240px 目录栏只放标题；新建/展开/刷新进菜单，避免四枚图标挤掉「资源」。 */}
+            {/* Keep the 240px explorer title row uncrowded; create/expand/refresh live in one menu. */}
+            <div className='flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-muted/15 px-2.5'>
               <div className='flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground/80'>
                 <FolderTree className='size-3.5 shrink-0 text-primary/80' />
                 <span className='truncate'>{t('resources')}</span>
@@ -5081,80 +5079,62 @@ export function DataSyncStudio() {
                   {fileCount}
                 </span>
               </div>
-              <div className='flex shrink-0 items-center gap-0.5'>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      aria-label={t('newFolder')}
-                      onClick={() => {
-                        const folderNode = selectedFolderId
-                          ? findTreeNode(tree, selectedFolderId)
-                          : null;
-                        handleInlineCreateFolder(folderNode);
-                      }}
-                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
-                    >
-                      <FolderPlus className='size-3.5' />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='text-xs'>{t('newFolder')}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      aria-label={t('newFile')}
-                      onClick={() => {
-                        const folderNode = selectedFolderId
-                          ? findTreeNode(tree, selectedFolderId)
-                          : null;
-                        if (!folderNode) {
-                          toast.error(t('selectFolderBeforeCreateFile'));
-                          return;
-                        }
-                        handleInlineCreateFile(folderNode);
-                      }}
-                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
-                    >
-                      <FilePlus2 className='size-3.5' />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='text-xs'>{t('newFile')}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      aria-label={expandedFolderIds.length > 0 ? t('collapseAll') : t('expandAll')}
-                      onClick={handleToggleCollapseAll}
-                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
-                    >
-                      <ChevronsUpDown className='size-3.5' />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='text-xs'>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type='button'
+                    aria-label={t('explorerActions')}
+                    className='flex size-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
+                  >
+                    <MoreHorizontal className='size-3.5' />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='start' side='bottom' className='min-w-48'>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const folderNode = selectedFolderId
+                        ? findTreeNode(tree, selectedFolderId)
+                        : null;
+                      handleInlineCreateFolder(folderNode);
+                    }}
+                  >
+                    <FolderPlus className='size-3.5' />
+                    {t('newFolder')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const folderNode = selectedFolderId
+                        ? findTreeNode(tree, selectedFolderId)
+                        : null;
+                      if (!folderNode) {
+                        toast.error(t('selectFolderBeforeCreateFile'));
+                        return;
+                      }
+                      handleInlineCreateFile(folderNode);
+                    }}
+                  >
+                    <FilePlus2 className='size-3.5' />
+                    {t('newFile')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={handleToggleCollapseAll}>
+                    <ChevronsUpDown className='size-3.5' />
                     {expandedFolderIds.length > 0
                       ? t('collapseAll')
                       : t('expandAll')}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      aria-label={t('refresh')}
-                      onClick={() => void loadWorkspace(selectedNodeId)}
-                      className='flex size-7 items-center justify-center rounded-[var(--radius-control)] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground'
-                    >
-                      <RefreshCw
-                        className={cn('size-3.5', loading && 'animate-spin')}
-                      />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side='bottom' className='text-xs'>{t('refresh')}</TooltipContent>
-                </Tooltip>
-              </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      void loadWorkspace(selectedNodeId);
+                    }}
+                  >
+                    <RefreshCw
+                      className={cn('size-3.5', loading && 'animate-spin')}
+                    />
+                    {t('refresh')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             {/* 快捷过滤输入框与范围筛选 */}
             {/* Quick search/filter input and scope selector */}
@@ -5201,8 +5181,18 @@ export function DataSyncStudio() {
                     <span>{t('loading')}</span>
                   </div>
                 ) : filteredTree.length === 0 ? (
-                  <div className='p-3 text-xs text-muted-foreground'>
-                    {t('emptyWorkspace')}
+                  <div className='flex flex-col items-start gap-2 p-3'>
+                    <p className='text-xs text-muted-foreground'>
+                      {t('emptyWorkspace')}
+                    </p>
+                    <button
+                      type='button'
+                      aria-label={t('newFolder')}
+                      onClick={() => handleInlineCreateFolder(null)}
+                      className='text-xs font-medium text-foreground/80 underline-offset-4 hover:underline'
+                    >
+                      {t('newFolder')}
+                    </button>
                   </div>
                 ) : (
                   <TreeView
@@ -5210,6 +5200,7 @@ export function DataSyncStudio() {
                     selectedNodeId={selectedNodeId}
                     selectedFolderId={selectedFolderId}
                     expandedFolderIds={expandedFolderIds}
+                    onExpandedChange={setExpandedFolderIds}
                     onSelect={handleSelectNode}
                     onContextMenu={openTreeContextMenu}
                     dirtyNodeIds={dirtyNodeIds}
@@ -6639,6 +6630,8 @@ export function DataSyncStudio() {
         onRefresh={() => {
           void loadWorkspace(selectedNodeId);
         }}
+        onToggleCollapseAll={handleToggleCollapseAll}
+        foldersExpanded={expandedFolderIds.length > 0}
       />
 
       {/* VSCode 风格 Quick Open 多结果浮层 (Cmd+P) */}

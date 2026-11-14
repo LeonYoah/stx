@@ -4173,6 +4173,7 @@
     "invalidCronExpression": "Cron 表达式无效",
     "newFolder": "新建目录",
     "newFile": "新建文件",
+    "explorerActions": "资源操作",
     "selectFolderBeforeCreateFile": "请先选中一个目录后再创建文件",
     "emptyWorkspace": "暂无工作区内容。",
     "noOpenFiles": "暂无打开文件",

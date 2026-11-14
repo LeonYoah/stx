@@ -4173,6 +4173,7 @@
     "invalidCronExpression": "Invalid cron expression",
     "newFolder": "New Folder",
     "newFile": "New File",
+    "explorerActions": "Resource actions",
     "selectFolderBeforeCreateFile": "Select a folder before creating a file",
     "emptyWorkspace": "No workbench content yet.",
     "noOpenFiles": "No open files",

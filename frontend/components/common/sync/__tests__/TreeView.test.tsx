@@ -29,6 +29,42 @@ vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }));
 
+vi.mock('motion/react', async () => {
+  const ReactMod = await import('react');
+
+  function passthrough(tag: keyof HTMLElementTagNameMap) {
+    return ReactMod.forwardRef(function MotionEl(
+      props: Record<string, unknown> & {children?: React.ReactNode},
+      ref: React.Ref<HTMLElement>,
+    ) {
+      const {
+        children,
+        layout: _layout,
+        initial: _initial,
+        animate: _animate,
+        exit: _exit,
+        transition: _transition,
+        variants: _variants,
+        custom: _custom,
+        layoutId: _layoutId,
+        layoutRoot: _layoutRoot,
+        ...rest
+      } = props;
+      return ReactMod.createElement(tag, {ref, ...rest}, children);
+    });
+  }
+
+  return {
+    AnimatePresence: ({children}: {children: React.ReactNode}) => children,
+    motion: {
+      div: passthrough('div'),
+      span: passthrough('span'),
+      ul: passthrough('ul'),
+    },
+    useReducedMotion: () => true,
+  };
+});
+
 const mockNodes: SyncTaskTreeNode[] = ([
   {
     id: 1,
@@ -90,11 +126,32 @@ describe('TreeView', () => {
       />,
     );
 
+    expect(screen.getByRole('tree', {name: 'resources'})).toBeInTheDocument();
     expect(screen.getByText('batch_jobs')).toBeInTheDocument();
     expect(screen.getByText('empty_folder')).toBeInTheDocument();
     expect(screen.getByText('mysql_to_hive.conf')).toBeInTheDocument();
     expect(screen.getByText('query.sql')).toBeInTheDocument();
     expect(screen.getByText('config.json')).toBeInTheDocument();
+  });
+
+  it('reports expanded folder ids when a folder row is toggled', () => {
+    const onSelect = vi.fn();
+    const onExpandedChange = vi.fn();
+    render(
+      <TreeView
+        nodes={mockNodes}
+        selectedNodeId={null}
+        selectedFolderId={null}
+        expandedFolderIds={[]}
+        onSelect={onSelect}
+        onExpandedChange={onExpandedChange}
+        onContextMenu={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('empty_folder'));
+    expect(onSelect).toHaveBeenCalledWith(mockNodes[1]);
+    expect(onExpandedChange).toHaveBeenCalledWith([5]);
   });
 
   it('handles node selection on click', () => {

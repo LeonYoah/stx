@@ -19,20 +19,13 @@
   top: 0;
   bottom: 0;
   width: 1px;
-  /* 空心折线；PNG 用不透明像素，避免半透明抗锯齿被系统画成花边。
-     Hollow chevrons; opaque PNG pixels so OS cursor compositing does not fringe. */
-  cursor:
-    url('/cursors/ew-resize.png') 16 16,
-    url('/cursors/ew-resize.svg') 16 16,
-    ew-resize;
+  /* 只要一枚 SVG 折线，不要白边/PNG 光晕。 / One SVG chevron, no white halo or PNG. */
+  cursor: url('/cursors/ew-resize.svg') 16 16, ew-resize;
 }
 
 .handle[data-orientation='horizontal'] {
   height: 1px;
-  cursor:
-    url('/cursors/ns-resize.png') 16 16,
-    url('/cursors/ns-resize.svg') 16 16,
-    ns-resize;
+  cursor: url('/cursors/ns-resize.svg') 16 16, ns-resize;
 }
 
 .handle::before {
@@ -109,18 +102,12 @@
 /* 拖动时锁住整页光标，避免滑过 Monaco 变成输入光标。 / Keep the resize cursor while dragging over Monaco. */
 :global(html[data-studio-resizing='x']),
 :global(html[data-studio-resizing='x'] *) {
-  cursor:
-    url('/cursors/ew-resize.png') 16 16,
-    url('/cursors/ew-resize.svg') 16 16,
-    ew-resize !important;
+  cursor: url('/cursors/ew-resize.svg') 16 16, ew-resize !important;
   user-select: none !important;
 }
 
 :global(html[data-studio-resizing='y']),
 :global(html[data-studio-resizing='y'] *) {
-  cursor:
-    url('/cursors/ns-resize.png') 16 16,
-    url('/cursors/ns-resize.svg') 16 16,
-    ns-resize !important;
+  cursor: url('/cursors/ns-resize.svg') 16 16, ns-resize !important;
   user-select: none !important;
 }

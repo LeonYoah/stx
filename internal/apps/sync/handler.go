@@ -671,7 +671,7 @@ func (h *Handler) GetJobRealtime(c *gin.Context) {
 // @Param id path int true "作业 ID"
 // @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
 // @Param step query int false "步长（秒），0 表示按范围自动"
-// @Param metrics query string false "逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure"
+// @Param metrics query string false "逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure,table"
 // @Success 200 {object} JobTimeseriesResponse
 // @Failure 400 {object} JobTimeseriesResponse
 // @Failure 403 {object} JobTimeseriesResponse

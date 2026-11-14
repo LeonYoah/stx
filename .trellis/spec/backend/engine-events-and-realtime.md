@@ -182,6 +182,7 @@ CLI：`stx sync job timeseries <id> [--range 1h] [--start <RFC3339|unix>] [--end
 - 给出 `start` 时按自定义窗口查询，优先于 `range`：`start` / `end` 收 RFC3339，或 Unix 时间戳（10 位及以下按秒，更长按毫秒）。只给 `end` 报错；`end` 缺省为 now；`end` 必须晚于 `start`；跨度 ≤ 31 天。参数错误在 handler 返回 **400**，不进服务层。
 - 自定义窗口的 step 在 `timeseriesStepCandidates` 里挑第一个能让每条序列 ≤ 240 点的（最细 10s）。显式 `step` 仍然生效。
 - 响应总带 `start_ms` / `end_ms`（实际查询的窗口），自定义窗口 `range` 为 `"custom"`；前端「作业全程」用它回显选择器。
+- `metrics` 默认含 `table`：`stx_job_table_rows_total{direction,table}` 按 `sum by (table)` 出 4 组序列（`table_throughput_read|write`、`table_rows_read|write`），序列 label 即表名，超上限的聚合桶 `other` 由前端本地化；表级指标来自作业指标采集而非引擎观测注入，不受 `engine_observability_enabled` 约束。
 - 事件标注（`annotations`）按同一个窗口取。
 
 ### 4. 必须有的测试

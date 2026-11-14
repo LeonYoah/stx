@@ -49,6 +49,28 @@ export const TREND_COLORS = {
 /** 非 Source / Sink 的序列（Transform、背压队列）轮流用剩下两种分类色。 / Non source/sink series (transforms, queues) alternate the two remaining colors. */
 const OTHER_CYCLE = [TREND_COLORS.checkpoint, TREND_COLORS.committed] as const;
 
+/** 表级序列调色板：四个分类色 + 两个混合色，表多的场景里颜色按序循环。 / Per-table palette: four categorical colors plus two mixes, cycled for many tables. */
+const TABLE_PALETTE = [
+  TREND_COLORS.read,
+  TREND_COLORS.write,
+  TREND_COLORS.checkpoint,
+  TREND_COLORS.committed,
+  'color-mix(in oklab, var(--series-1) 55%, var(--series-3))',
+  'color-mix(in oklab, var(--series-2) 55%, var(--series-4))',
+] as const;
+
+/**
+ * 按表名排序轮流配色，让同一张表在「按表吞吐」「按表条数」两张图里始终同色。
+ * Cycle the palette by sorted table name so the same table keeps one color across the per-table charts.
+ */
+export function colorByTable(names: string[]): Map<string, string> {
+  const colors = new Map<string, string>();
+  Array.from(new Set(names)).sort().forEach((name, index) => {
+    colors.set(name, TABLE_PALETTE[index % TABLE_PALETTE.length]);
+  });
+  return colors;
+}
+
 /**
  * 按算子角色给多条同类序列（各算子忙碌度、各队列背压）配色：Source 用读色、Sink 用写色，与吞吐图一致；
  * 其余按名字排序轮流取色，同名在不同图里拿到同一颜色。

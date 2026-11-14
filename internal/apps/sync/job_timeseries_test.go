@@ -19,6 +19,7 @@ package sync
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,6 +82,23 @@ func TestTimeseriesPromQL_checkpointIgnoresEngineObs(t *testing.T) {
 	}
 	if got := timeseriesPromQL("backpressure", "1", true); len(got) == 0 {
 		t.Fatalf("expected backpressure templates when engine obs on")
+	}
+}
+
+func TestTimeseriesPromQL_tableIgnoresEngineObs(t *testing.T) {
+	t.Parallel()
+	// 表级指标来自作业指标采集而非引擎可观测性注入，engineObs 关闭也要返回模板。
+	// Per-table metrics come from job metrics collection, not engine observability, so templates exist either way.
+	for _, engineObs := range []bool{false, true} {
+		got := timeseriesPromQL("table", "7", engineObs)
+		if len(got) != 4 {
+			t.Fatalf("expected 4 table templates (engineObs=%v), got %#v", engineObs, got)
+		}
+		for _, tpl := range got {
+			if tpl.query == "" || !strings.Contains(tpl.query, "stx_job_table_rows_total") || !strings.Contains(tpl.query, "sum by (table)") {
+				t.Fatalf("unexpected table query: %#v", tpl)
+			}
+		}
 	}
 }
 

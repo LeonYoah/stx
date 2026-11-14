@@ -5191,7 +5191,9 @@
           "cdc": "CDC 延迟",
           "checkpoint": "Checkpoint 耗时",
           "busy": "算子忙碌度",
-          "backpressure": "背压"
+          "backpressure": "背压",
+          "tableThroughput": "按表吞吐",
+          "tableRows": "按表条数"
         },
         "series": {
           "read": "读",
@@ -5220,8 +5222,7 @@
           "schema_change": "DDL",
           "restart": "重启",
           "status": "状态"
-        },
-        "perTablePhase3": "按表趋势（第三期）"
+        }
       }
     },
     "zeroMetricsCollapsed": "{count} 项指标当前全为 0，已折叠（相关能力未触发或没有积压）"

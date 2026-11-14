@@ -38,6 +38,7 @@ import {
   brushMinSpan,
   MAX_TREND_WINDOW_MS,
   colorByName,
+  colorByTable,
   jobLifetimeWindow,
   latestValue,
   scalePoints,
@@ -248,6 +249,39 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
     );
     const cdcPoints = seriesByKey('cdc_delay')[0]?.points ?? [];
     const checkpointPoints = seriesByKey('checkpoint_duration')[0]?.points ?? [];
+    // 表级序列：表名在两图间固定同色，读/写用名字后缀区分；后端聚合桶 `other` 显示为「其他」。
+    // Per-table series: a table keeps one color in both charts, direction shows as a name suffix;
+    // the backend overflow bucket `other` renders as the localized label.
+    const tableNames = ['table_throughput_read', 'table_throughput_write', 'table_rows_read', 'table_rows_write']
+      .flatMap((key) => seriesByKey(key).map((item) => item.label || item.key));
+    const tableColors = colorByTable(tableNames);
+    const tableNamed = (key: string, directionLabel: string): NamedSeries[] =>
+      seriesByKey(key).map((item) => {
+        const raw = item.label || item.key;
+        const table = raw === 'other' ? t('otherLabel') : raw;
+        return {
+          key: `${key}|${raw}`,
+          name: `${table}·${directionLabel}`,
+          points: item.points,
+          color: tableColors.get(raw),
+        };
+      });
+    const tableThroughput = toLineChartData(
+      [
+        ...tableNamed('table_throughput_read', t('series.read')),
+        ...tableNamed('table_throughput_write', t('series.write')),
+      ],
+      formatDateTime,
+      formatTime,
+    );
+    const tableRows = toLineChartData(
+      [
+        ...tableNamed('table_rows_read', t('series.read')),
+        ...tableNamed('table_rows_write', t('series.write')),
+      ],
+      formatDateTime,
+      formatTime,
+    );
     const busySeries = named('busy', t('charts.busy'), 100);
     const backpressureSeries = named('backpressure', t('charts.backpressure'), 100);
     const busy = toLineChartData(
@@ -280,6 +314,9 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
     return {
       throughput,
       rows,
+      tableThroughput,
+      tableRows,
+      hasTableSeries: tableNames.length > 0,
       cdc: toBrushChartData(cdcPoints),
       cdcMinSpan: brushMinSpan(cdcPoints, data?.step_seconds ?? 0),
       checkpoint: toBarChartData(checkpointPoints, formatDateTime, formatTime),
@@ -400,6 +437,38 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
             formatValue={formatCount}
           />
         </TrendSection>
+        {/* 表级分解紧跟总览两张图；作业没有表级指标时整块不渲染（如 FakeSource 单流）。 / The per-table
+            breakdown follows the totals; it stays hidden for jobs without per-table metrics (e.g. a single FakeSource stream). */}
+        {charts.hasTableSeries ? (
+          <TrendSection title={t('charts.tableThroughput')} unit='records/s'>
+            <LineChart
+              label={t('charts.tableThroughput')}
+              unit='records/s'
+              data={charts.tableThroughput.data}
+              series={charts.tableThroughput.series}
+              height={200}
+              loading={loading}
+              emptyLabel={t('emptyChart')}
+              categoryLabel={t('categoryTime')}
+              formatValue={formatRate}
+            />
+          </TrendSection>
+        ) : null}
+        {charts.hasTableSeries ? (
+          <TrendSection title={t('charts.tableRows')} unit={t('unit.rows')}>
+            <LineChart
+              label={t('charts.tableRows')}
+              unit={t('unit.rows')}
+              data={charts.tableRows.data}
+              series={charts.tableRows.series}
+              height={200}
+              loading={loading}
+              emptyLabel={t('emptyChart')}
+              categoryLabel={t('categoryTime')}
+              formatValue={formatCount}
+            />
+          </TrendSection>
+        ) : null}
         {/* 吞吐 / 条数对批任务也成立；CDC 放第三，避免离线作业一上来先看到 CDC。
             Throughput and row counts apply to batch jobs too; CDC is third so offline jobs do not lead with it. */}
         <TrendSection title={t('charts.cdc')} unit={t('unit.seconds')} className='md:col-span-2'>
@@ -480,10 +549,6 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
             <EngineObsEmpty t={t} />
           )}
         </TrendSection>
-      </div>
-
-      <div className='rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground'>
-        {t('perTablePhase3')}
       </div>
     </div>
   );

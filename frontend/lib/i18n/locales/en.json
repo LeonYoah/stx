@@ -5191,7 +5191,9 @@
           "cdc": "CDC delay",
           "checkpoint": "Checkpoint duration",
           "busy": "Vertex busy",
-          "backpressure": "Backpressure"
+          "backpressure": "Backpressure",
+          "tableThroughput": "Throughput by table",
+          "tableRows": "Rows by table"
         },
         "series": {
           "read": "Read",
@@ -5220,8 +5222,7 @@
           "schema_change": "DDL",
           "restart": "Restart",
           "status": "Status"
-        },
-        "perTablePhase3": "Per-table trends (phase 3)"
+        }
       }
     },
     "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)"

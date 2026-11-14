@@ -322,6 +322,26 @@ func timeseriesPromQL(metricKey, jobID string, engineObs bool) []promQLTemplate 
 			{key: "checkpoint_failed", label: "failed", unit: "count",
 				query: fmt.Sprintf(`sum(stx_job_checkpoint_failed_total{job_id=%s})`, id)},
 		}
+	case "table":
+		// 表级指标来自作业指标采集（TableSourceReceivedCount/TableSinkWriteCount），与引擎可观测性无关，
+		// 不受 engineObs 约束；表名在 table 标签上，直接作为 series label 返回。导出端对缺失方向补 0，
+		// 会产生 Source[N]·写 / Sink[N]·读这类恒零镜像序列——按"该方向累计 > 0"过滤掉；吞吐序列用 and
+		// 挂同一过滤，这样空闲的真实表仍显示为 0 而不消失。
+		// Per-table metrics come from job metrics collection (TableSourceReceivedCount/TableSinkWriteCount),
+		// independent of engine observability; the table label becomes the series label. The exporter fills
+		// the missing direction with 0, which produces always-zero mirror series (Source[N]·write /
+		// Sink[N]·read) — filtered by "cumulative > 0 on that direction"; throughput carries the same filter
+		// via `and` so an idle real table still renders as 0 instead of disappearing.
+		return []promQLTemplate{
+			{key: "table_throughput_read", label: "read", unit: "records/s",
+				query: fmt.Sprintf(`sum by (table) (rate(stx_job_table_rows_total{job_id=%s,direction="read"}[1m])) and on(table) (sum by (table) (stx_job_table_rows_total{job_id=%s,direction="read"}) > 0)`, id, id)},
+			{key: "table_throughput_write", label: "write", unit: "records/s",
+				query: fmt.Sprintf(`sum by (table) (rate(stx_job_table_rows_total{job_id=%s,direction="write"}[1m])) and on(table) (sum by (table) (stx_job_table_rows_total{job_id=%s,direction="write"}) > 0)`, id, id)},
+			{key: "table_rows_read", label: "read", unit: "rows",
+				query: fmt.Sprintf(`sum by (table) (stx_job_table_rows_total{job_id=%s,direction="read"}) > 0`, id)},
+			{key: "table_rows_write", label: "write", unit: "rows",
+				query: fmt.Sprintf(`sum by (table) (stx_job_table_rows_total{job_id=%s,direction="write"}) > 0`, id)},
+		}
 	case "busy":
 		if !engineObs {
 			return nil
@@ -346,7 +366,7 @@ func timeseriesPromQL(metricKey, jobID string, engineObs bool) []promQLTemplate 
 func parseTimeseriesMetrics(csv string) []string {
 	csv = strings.TrimSpace(csv)
 	if csv == "" {
-		return []string{"throughput", "rows", "cdc_delay", "checkpoint", "busy", "backpressure"}
+		return []string{"throughput", "rows", "cdc_delay", "checkpoint", "busy", "backpressure", "table"}
 	}
 	parts := strings.Split(csv, ",")
 	out := make([]string, 0, len(parts))

@@ -225,6 +225,25 @@ describe('MetricsTrendView', () => {
     expect(lifetimeQuery).not.toHaveProperty('end');
   });
 
+  it('renders per-table chart sections only when table series exist', async () => {
+    const t0 = Date.UTC(2026, 10, 14, 2, 0);
+    const t1 = Date.UTC(2026, 10, 14, 2, 1);
+    vi.mocked(SyncService.getJobTimeseries).mockResolvedValue({
+      ...emptyPrometheus(),
+      series: [
+        {key: 'table_throughput_read', label: 'orders', points: [[t0, 10], [t1, 12]]},
+        {key: 'table_throughput_read', label: 'users', points: [[t0, 5], [t1, 6]]},
+        {key: 'table_rows_write', label: 'orders', points: [[t0, 100], [t1, 220]]},
+      ],
+    } as SyncJobTimeseries);
+    renderTrend(job());
+    await waitFor(() => {
+      const labels = screen.getAllByRole('region').map((node) => node.getAttribute('aria-label'));
+      expect(labels).toContain(copy.charts.tableThroughput);
+      expect(labels).toContain(copy.charts.tableRows);
+    });
+  });
+
   it('falls back to updated_at when finished_at is before the start', async () => {
     vi.mocked(SyncService.getJobTimeseries).mockResolvedValue(emptyPrometheus());
     renderTrend(job({

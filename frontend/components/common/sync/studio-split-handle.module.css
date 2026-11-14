@@ -19,13 +19,14 @@
   top: 0;
   bottom: 0;
   width: 1px;
-  /* 只要一枚 SVG 折线，不要白边/PNG 光晕。 / One SVG chevron, no white halo or PNG. */
-  cursor: url('/cursors/ew-resize.svg') 16 16, ew-resize;
+  /* Chromium 不绘制 SVG 光标（会变成空白指针）；用无抗锯齿 PNG，深色主题亮线、浅色主题暗线，不要白描边。
+     Chromium skips SVG cursors (blank pointer); use binary-alpha PNG, light stroke on dark / dark stroke on light, no halo. */
+  cursor: url('/cursors/ew-resize-on-dark.png') 16 16, ew-resize;
 }
 
 .handle[data-orientation='horizontal'] {
   height: 1px;
-  cursor: url('/cursors/ns-resize.svg') 16 16, ns-resize;
+  cursor: url('/cursors/ns-resize-on-dark.png') 16 16, ns-resize;
 }
 
 .handle::before {
@@ -99,15 +100,33 @@
   }
 }
 
+:global(html[data-theme='light']) .handle[data-orientation='vertical'] {
+  cursor: url('/cursors/ew-resize-on-light.png') 16 16, ew-resize;
+}
+
+:global(html[data-theme='light']) .handle[data-orientation='horizontal'] {
+  cursor: url('/cursors/ns-resize-on-light.png') 16 16, ns-resize;
+}
+
 /* 拖动时锁住整页光标，避免滑过 Monaco 变成输入光标。 / Keep the resize cursor while dragging over Monaco. */
 :global(html[data-studio-resizing='x']),
 :global(html[data-studio-resizing='x'] *) {
-  cursor: url('/cursors/ew-resize.svg') 16 16, ew-resize !important;
+  cursor: url('/cursors/ew-resize-on-dark.png') 16 16, ew-resize !important;
   user-select: none !important;
+}
+
+:global(html[data-studio-resizing='x'][data-theme='light']),
+:global(html[data-studio-resizing='x'][data-theme='light'] *) {
+  cursor: url('/cursors/ew-resize-on-light.png') 16 16, ew-resize !important;
 }
 
 :global(html[data-studio-resizing='y']),
 :global(html[data-studio-resizing='y'] *) {
-  cursor: url('/cursors/ns-resize.svg') 16 16, ns-resize !important;
+  cursor: url('/cursors/ns-resize-on-dark.png') 16 16, ns-resize !important;
   user-select: none !important;
+}
+
+:global(html[data-studio-resizing='y'][data-theme='light']),
+:global(html[data-studio-resizing='y'][data-theme='light'] *) {
+  cursor: url('/cursors/ns-resize-on-light.png') 16 16, ns-resize !important;
 }

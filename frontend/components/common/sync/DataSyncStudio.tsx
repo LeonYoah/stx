@@ -314,7 +314,6 @@ import {
   buildInsertedCuratedContent,
   buildTaskPayloadFromEditor,
   buildMetricGroups,
-  WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS,
   hasWorkbenchUnsavedRisk,
   type DraftSaveStatus,
   buildMetricHighlights,
@@ -627,16 +626,10 @@ export function DataSyncStudio() {
   // 保存中单独占一段；成功后的「已保存」由草稿是否变脏决定，不再用定时器收回。
   // Pending is its own segment. Saved after success follows draft dirtiness and is not cleared by a timer.
   const [saveAck, setSaveAck] = useState<'idle' | 'pending'>('idle');
-  // 手动保存与自动保存共用的顶栏状态 / Shared top-bar status for manual + autosave
+  // 顶栏草稿保存状态：只跟手动保存 / 离开前落盘走。
+  // Top-bar draft save status follows manual save and leave flush only.
   const [draftSaveStatus, setDraftSaveStatus] =
     useState<DraftSaveStatus>('idle');
-  const persistCurrentFileRef = useRef<
-    | ((
-        publishAfterSave?: boolean,
-        options?: {reason?: 'manual' | 'autosave' | 'leave'},
-      ) => Promise<SyncTask | null>)
-    | null
-  >(null);
   const [leaveActionBusy, setLeaveActionBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState<PendingActionKind | null>(
@@ -2975,17 +2968,9 @@ export function DataSyncStudio() {
   );
 
   const persistCurrentFile = useCallback(
-    async (
-      publishAfterSave = false,
-      options?: {reason?: 'manual' | 'autosave' | 'leave'},
-    ) => {
-      const reason = options?.reason || 'manual';
+    async (publishAfterSave = false) => {
       if (!editor.name.trim()) {
-        // 自动保存遇到无名文件时静默跳过，避免打扰；手动/离开仍提示。
-        // Skip nameless autosave quietly; still toast for manual/leave.
-        if (reason !== 'autosave') {
-          toast.error(t('fileNameRequired'));
-        }
+        toast.error(t('fileNameRequired'));
         return null;
       }
       // 仅发布时强制要求正文；草稿允许空内容保存。
@@ -2994,22 +2979,12 @@ export function DataSyncStudio() {
         toast.error(t('fileContentRequired'));
         return null;
       }
-      // 自动保存路径严禁发布，双保险避免误传 publishAfterSave=true。
-      // Autosave must never publish — belt-and-suspenders against a true flag.
-      if (reason === 'autosave' && publishAfterSave) {
-        publishAfterSave = false;
-      }
       const customVariableError = validateCustomVariableRows(
         customVariableRowsRef.current,
         t,
       );
       if (customVariableError) {
-        if (reason !== 'autosave') {
-          toast.error(customVariableError);
-        } else {
-          setDraftSaveStatus('error');
-          toast.error(customVariableError);
-        }
+        toast.error(customVariableError);
         return null;
       }
       setSaving(true);
@@ -3058,54 +3033,6 @@ export function DataSyncStudio() {
     [buildTaskPayload, editor, loadWorkspace, markEditorDraft, syncOpenTabs, t],
   );
 
-  useEffect(() => {
-    persistCurrentFileRef.current = persistCurrentFile;
-  }, [persistCurrentFile]);
-
-  // 当前可编辑草稿内容指纹：变更后触发防抖自动保存。
-  // Fingerprint of the active editable draft — changes schedule debounced autosave.
-  const currentDraftFingerprint = useMemo(() => {
-    if (!editor.id || editor.canEdit === false) {
-      return '';
-    }
-    return JSON.stringify({
-      id: editor.id,
-      name: editor.name,
-      description: editor.description,
-      clusterId: editor.clusterId,
-      content: editor.content,
-      definition: editor.definition,
-      rows: customVariableRows,
-    });
-  }, [
-    customVariableRows,
-    editor.canEdit,
-    editor.clusterId,
-    editor.content,
-    editor.definition,
-    editor.description,
-    editor.id,
-    editor.name,
-  ]);
-
-  useEffect(() => {
-    if (!editor.id || editor.canEdit === false || !isCurrentDirty) {
-      return;
-    }
-    if (!currentDraftFingerprint) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void persistCurrentFileRef.current?.(false, {reason: 'autosave'});
-    }, WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [
-    currentDraftFingerprint,
-    editor.canEdit,
-    editor.id,
-    isCurrentDirty,
-  ]);
-
   /**
    * 将内存中所有可编辑 dirty 草稿落盘（离开前「保存并离开」）。
    * Persist every editable dirty in-memory draft (Save & Leave).
@@ -3119,7 +3046,7 @@ export function DataSyncStudio() {
     // 先保存当前编辑器（含未写入 drafts 竞态时的最新内容）。
     // Persist the active editor first (latest content, including races not yet in drafts).
     if (editor.id && editor.canEdit !== false && isCurrentDirty) {
-      const current = await persistCurrentFile(false, {reason: 'leave'});
+      const current = await persistCurrentFile(false);
       if (!current) {
         return false;
       }
@@ -3790,9 +3717,9 @@ export function DataSyncStudio() {
       // Reject so the save segment returns to idle instead of showing saved.
       throw new Error(t('readOnlySaveTooltip'));
     }
-    // 与自动保存共用顶栏状态，成功不再额外 toast，避免双重打扰。
-    // Share top-bar status with autosave; skip success toast to avoid double noise.
-    await persistCurrentFile(false, {reason: 'manual'});
+    // 成功靠顶栏「已保存」，不再额外 toast。
+    // Success is the top-bar Saved state; do not add a second toast.
+    await persistCurrentFile(false);
   };
 
   // Button Group 不会自己画 pending。保存中走 pending；结束后文案跟草稿脏状态走。
@@ -4938,7 +4865,7 @@ export function DataSyncStudio() {
                   if (editor.id && !editor.canEdit) {
                     return;
                   }
-                  void persistCurrentFile(false, {reason: 'manual'});
+                  void persistCurrentFile(false);
                 }}
               />
             ) : null}

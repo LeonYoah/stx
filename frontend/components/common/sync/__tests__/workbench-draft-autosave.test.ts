@@ -21,7 +21,6 @@ import {
   EMPTY_EDITOR,
   hasWorkbenchUnsavedRisk,
   isLeavingWorkbenchPath,
-  WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS,
   type EditorDraftState,
   type EditorState,
 } from '../sync-studio-utils';
@@ -51,12 +50,7 @@ function makeDraft(
   };
 }
 
-describe('workbench draft autosave helpers', () => {
-  it('uses a 1–2s debounce window', () => {
-    expect(WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS).toBeGreaterThanOrEqual(1000);
-    expect(WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS).toBeLessThanOrEqual(2000);
-  });
-
+describe('workbench draft save helpers', () => {
   it('buildTaskPayloadFromEditor maps editor fields without publishing flags', () => {
     const payload = buildTaskPayloadFromEditor(
       makeEditor({

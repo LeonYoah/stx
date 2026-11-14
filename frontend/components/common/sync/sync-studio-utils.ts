@@ -34,9 +34,6 @@ import type {
 } from '@/lib/services/sync';
 export type { SyncTaskTreeNode, SyncTask };
 
-/** 草稿自动保存防抖间隔（毫秒） / Debounce interval for draft autosave (ms) */
-export const WORKBENCH_DRAFT_AUTOSAVE_DEBOUNCE_MS = 1500;
-
 /** 顶栏草稿保存状态 / Top-bar draft save status */
 export type DraftSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 import type {CustomVariableItem} from './CustomVariableDialog';
@@ -1328,8 +1325,8 @@ export function studioSaveSegment(input: {
 }
 
 /**
- * 从编辑器状态构建保存草稿 / 更新任务的请求体（纯函数，供手动保存、自动保存与离开前批量落盘复用）。
- * Build create/update task payload from editor state (pure; reused by manual save, autosave, and leave flush).
+ * 从编辑器状态构建保存草稿 / 更新任务的请求体（纯函数，供手动保存与离开前批量落盘复用）。
+ * Build create/update task payload from editor state (pure; reused by manual save and leave flush).
  */
 export function buildTaskPayloadFromEditor(
   editor: EditorState,

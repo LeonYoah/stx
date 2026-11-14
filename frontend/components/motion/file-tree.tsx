@@ -10,8 +10,8 @@
  *
  * 不引入 beUI 的 lib/i18n.tsx，以免覆盖 STX 的 next-intl `lib/i18n/`。
  * Do not install beUI's lib/i18n.tsx; STX already owns frontend/lib/i18n/.
- * Local STX adaptations (row slots, treeitem rows) remain under the same MIT
- * terms and are not relicensed as Apache-2.0.
+ * Local STX adaptations (row slots, treeitem rows, min-w-0 overflow) remain
+ * under the same MIT terms and are not relicensed as Apache-2.0.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -421,7 +421,7 @@ export function FileTree({
       inset={0}
       pillClassName='rounded-xl bg-muted'
       pillContainerClassName='inset-y-auto top-0 h-9'
-      className={cn('min-w-0', className, classNames?.tree)}
+      className={cn('min-w-0 w-full overflow-x-hidden', className, classNames?.tree)}
     >
       {rows.map((row) => {
         const isFolder = row.item.type === 'folder';
@@ -432,6 +432,7 @@ export function FileTree({
           <motion.div
             layout={reduce ? false : 'position'}
             key={row.item.value}
+            className='min-w-0 w-full'
             initial={reduce ? false : {opacity: 0, y: -6}}
             animate={{
               opacity: row.item.disabled ? 0.42 : 1,
@@ -474,7 +475,7 @@ export function FileTree({
               onDrop={row.item.onDrop}
               onDragEnd={row.item.onDragEnd}
               className={cn(
-                'group relative flex h-9 w-full items-center gap-2 overflow-hidden rounded-lg pr-2 text-left text-sm text-muted-foreground outline-none',
+                'group relative flex h-9 w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg pr-2 text-left text-sm text-muted-foreground outline-none',
                 'cursor-pointer transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
                 isSelected && 'bg-muted font-medium text-foreground',
                 classNames?.item,
@@ -520,7 +521,7 @@ export function FileTree({
 
               <span
                 className={cn(
-                  'relative z-10 min-w-0 flex-1 overflow-hidden',
+                  'relative z-10 flex min-w-0 flex-1 items-center overflow-hidden',
                   !row.item.label && 'truncate',
                   classNames?.label,
                 )}

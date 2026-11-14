@@ -3678,7 +3678,9 @@ export function DataSyncStudio() {
     setJobLogs(null);
     setExpandedJobLogs(null);
     setCheckpointSnapshot(null);
-    setBottomConsoleTab('logs');
+    // 打开文件后底部控制台默认停在任务列表，而不是日志。
+    // Opening a file keeps the bottom console on the jobs list, not logs.
+    setBottomConsoleTab('jobs');
     try {
       const task = await services.sync.getTask(node.id);
       const loadedEditor = extractEditorState(task);
@@ -5122,7 +5124,7 @@ export function DataSyncStudio() {
           // inert: drop collapsed subtree from tab order (toggle stays on topbar, #110 AC11 / Codex P2)
           inert={isLeftSidebarCollapsed ? true : undefined}
         >
-          <CardContent className='flex h-full min-h-0 flex-col p-0'>
+          <CardContent className='flex h-full min-h-0 min-w-0 flex-col p-0'>
             {/* 目录栏只放标题；新建/展开/刷新进菜单，避免四枚图标挤掉「资源」。 */}
             {/* Keep the explorer title row uncrowded; create/expand/refresh live in one menu. */}
             <div className='flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-muted/15 px-2.5'>
@@ -5223,12 +5225,12 @@ export function DataSyncStudio() {
             {/* 文件树滚动区域 */}
             {/* File tree scrollable viewport */}
             <ScrollArea
-              className='min-h-0 flex-1'
+              className='min-h-0 min-w-0 flex-1 overflow-x-hidden'
               onContextMenu={(event) =>
                 openTreeContextMenu(event, 'root', null)
               }
             >
-              <div className='px-1 py-1.5'>
+              <div className='min-w-0 px-1 py-1.5'>
                 {loading ? (
                   <div className='flex items-center gap-2 p-3 text-xs text-muted-foreground'>
                     <Loader2 className='size-3.5 animate-spin' />
@@ -5299,7 +5301,7 @@ export function DataSyncStudio() {
             isConsoleMaximized && 'hidden',
           )}
         >
-          <CardContent className='flex h-full min-h-0 flex-col p-0'>
+          <CardContent className='flex h-full min-h-0 min-w-0 flex-col p-0'>
             {/* VS Code 风格平铺直角标签页栏 */}
             {/* VS Code style flat rectangular tab bar */}
             <div className='flex h-9 shrink-0 items-stretch justify-between border-b border-border/40 bg-muted/25 px-0 select-none overflow-hidden'>
@@ -5764,7 +5766,7 @@ export function DataSyncStudio() {
             isConsoleMaximized ? 'row-start-1 row-span-2' : 'row-start-2',
           )}
         >
-          <CardContent className='flex h-full min-h-0 flex-col p-0'>
+          <CardContent className='flex h-full min-h-0 min-w-0 flex-col p-0'>
             {/* 控制台顶部横向选项卡与操作区 */}
             {/* Console top horizontal tab switcher and action area */}
             <div className='studio-sidebar-chrome flex min-h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-muted/20 px-2 py-1'>

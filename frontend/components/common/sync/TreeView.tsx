@@ -52,8 +52,8 @@ import {findTreeNode} from './sync-studio-utils';
 const CREATE_ROW_VALUE = '__creating__';
 
 /**
- * 窄目录栏里文件名截断时，悬停展示全称。
- * Show the full truncated explorer name on hover.
+ * 文件名随资源栏宽度截断，悬停才展示全称。
+ * Filename shrinks with the explorer width; hover reveals the full name.
  */
 function TreeNodeName({name}: {name: string}) {
   const labelRef = useRef<HTMLSpanElement>(null);
@@ -78,7 +78,8 @@ function TreeNodeName({name}: {name: string}) {
       <TooltipTrigger asChild>
         <span
           ref={labelRef}
-          className='block w-full min-w-0 truncate font-mono text-xs'
+          data-slot='tree-node-name'
+          className='block min-w-0 w-full truncate font-mono text-xs'
         >
           {name}
         </span>
@@ -348,8 +349,9 @@ export function TreeView({
 
         {node.node_type === 'file' ? (
           <span
+            data-slot='tree-node-badge'
             className={cn(
-              'inline-flex items-center rounded border px-1 py-0 font-mono text-[10px] font-normal leading-4',
+              'inline-flex shrink-0 items-center whitespace-nowrap rounded border px-1 py-0 font-mono text-[10px] font-normal leading-4',
               node.current_version > 0
                 ? 'border-border/60 bg-muted/40 text-muted-foreground'
                 : 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400',
@@ -472,7 +474,7 @@ export function TreeView({
       ariaLabel={t('resources')}
       labels={{label: t('resources')}}
       indent={14}
-      className='select-none'
+      className='min-w-0 w-full select-none'
     >
       {creatingNode?.parentId === null ? renderCreateRow() : null}
       {renderNodes(nodes)}

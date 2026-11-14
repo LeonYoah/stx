@@ -119,7 +119,9 @@ export const SharedLayoutBg = forwardRef<HTMLElement, SharedLayoutBgProps>(
           el,
           {
             key: childKey,
-            className: cn('relative', el.props.className),
+            // min-w-0：树行是 flex 子项，默认 min-width:auto 会按文件名撑开。
+            // min-w-0: flex items default to min-width:auto and grow to the filename.
+            className: cn('relative min-w-0 w-full', el.props.className),
             onMouseEnter: (event: MouseEvent<HTMLElement>) => {
               el.props.onMouseEnter?.(event);
               hovering.current = true;
@@ -160,7 +162,7 @@ export const SharedLayoutBg = forwardRef<HTMLElement, SharedLayoutBgProps>(
                 </motion.div>
               ) : null}
             </AnimatePresence>
-            <div className='relative z-10'>{el.props.children}</div>
+            <div className='relative z-10 min-w-0 w-full'>{el.props.children}</div>
           </>,
         );
       });

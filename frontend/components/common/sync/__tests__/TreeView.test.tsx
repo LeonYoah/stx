@@ -309,6 +309,33 @@ describe('TreeView', () => {
     expect(onCreateCommit).toHaveBeenCalledWith('new_job.conf');
   });
 
+  it('truncates file names and keeps version and draft badges on the row', () => {
+    render(
+      <TreeView
+        nodes={mockNodes}
+        selectedNodeId={null}
+        selectedFolderId={null}
+        expandedFolderIds={[1]}
+        onSelect={vi.fn()}
+        onContextMenu={vi.fn()}
+      />,
+    );
+
+    const name = screen.getByText('mysql_to_hive.conf');
+    expect(name).toHaveAttribute('data-slot', 'tree-node-name');
+    expect(name.className).toMatch(/truncate/);
+    expect(name.className).toMatch(/min-w-0/);
+    expect(name.closest('[role="treeitem"]')?.className).toMatch(/min-w-0/);
+
+    const published = screen.getByText('v1');
+    const draft = screen.getByText('draft');
+    expect(published).toHaveAttribute('data-slot', 'tree-node-badge');
+    expect(draft).toHaveAttribute('data-slot', 'tree-node-badge');
+    expect(published.className).toMatch(/shrink-0/);
+    expect(draft.className).toMatch(/whitespace-nowrap/);
+    expect(screen.getByText('v2')).toBeInTheDocument();
+  });
+
   it('does not pin create or delete icons onto tree rows', () => {
     render(
       <TreeView

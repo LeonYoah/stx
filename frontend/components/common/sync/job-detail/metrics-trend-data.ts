@@ -30,7 +30,46 @@ export type NamedSeries = {
   key: string;
   name: string;
   points: TrendPoint[];
+  /** 线条颜色（任意 CSS 颜色）；缺省时走 Arc 默认的 accent + 灰阶。 / Line color (any CSS color); falls back to Arc's accent + neutral steps. */
+  color?: string;
 };
+
+/**
+ * 趋势图的阶段配色：同一阶段在折线、环形图里始终同色，取 Arc 的 --series-* 分类色（随主题与明暗自适应）。
+ * Stage colors for the trend charts: one stage keeps one color across line and donut charts, using Arc's
+ * --series-* categorical tokens (they adapt to theme and dark mode).
+ */
+export const TREND_COLORS = {
+  read: 'var(--series-1)',
+  write: 'var(--series-2)',
+  checkpoint: 'var(--series-3)',
+  committed: 'var(--series-4)',
+} as const;
+
+/** 非 Source / Sink 的序列（Transform、背压队列）轮流用剩下两种分类色。 / Non source/sink series (transforms, queues) alternate the two remaining colors. */
+const OTHER_CYCLE = [TREND_COLORS.checkpoint, TREND_COLORS.committed] as const;
+
+/**
+ * 按算子角色给多条同类序列（各算子忙碌度、各队列背压）配色：Source 用读色、Sink 用写色，与吞吐图一致；
+ * 其余按名字排序轮流取色，同名在不同图里拿到同一颜色。
+ * Color same-kind series (per-vertex busy, per-queue backpressure) by role: sources take the read color and sinks the
+ * write color, matching the throughput chart; the rest alternate by sorted name so a name keeps its color across charts.
+ */
+export function colorByName(names: string[]): Map<string, string> {
+  const colors = new Map<string, string>();
+  let other = 0;
+  Array.from(new Set(names)).sort().forEach((name) => {
+    if (/\bSource\[/i.test(name)) {
+      colors.set(name, TREND_COLORS.read);
+    } else if (/\bSink\[/i.test(name)) {
+      colors.set(name, TREND_COLORS.write);
+    } else {
+      colors.set(name, OTHER_CYCLE[other % OTHER_CYCLE.length]);
+      other += 1;
+    }
+  });
+  return colors;
+}
 
 /**
  * 等间隔抽稀，始终保留首尾点，避免 LineChart / BarChart 被过密点拖慢。
@@ -76,8 +115,14 @@ export function pickAxisLabel(index: number, total: number, label: string): stri
   if (total <= 6) {
     return label;
   }
-  const step = Math.max(1, Math.round((total - 1) / 5));
-  if (index === 0 || index === total - 1 || index % step === 0) {
+  const last = total - 1;
+  const step = Math.max(1, Math.round(last / 5));
+  if (index === 0 || index === last) {
+    return label;
+  }
+  // 末尾强制留标签，紧挨着它的等距刻度要让位，否则两个时间叠在一起（如 12:38 / 12:39）。
+  // The last tick is always kept, so an even-step tick too close to it yields instead of overlapping.
+  if (index % step === 0 && last - index >= step / 2) {
     return label;
   }
   return undefined;
@@ -97,6 +142,7 @@ export function toLineChartData(
     key: item.key,
     label: item.name,
     area: index === 0,
+    ...(item.color ? {color: item.color} : {}),
   }));
   const tsSet = new Set<number>();
   const lookup = series.map((item) => {
@@ -205,10 +251,12 @@ export function toPipelineShare(
   const committed = Math.max(0, Math.min(committedCount, write, read || committedCount));
   const written = Math.max(0, Math.min(write, read || write) - committed);
   const backlog = Math.max(0, read - write);
+  // 显式给每段阶段色：Arc 默认按出现顺序取色，某段为 0 被过滤后其余段会整体换色。
+  // Pin stage colors: Arc colors by order of appearance, so filtering a zero segment would shift the rest.
   return [
-    {key: 'committed', label: labels.committed, value: committed},
-    {key: 'written', label: labels.written, value: written},
-    {key: 'backlog', label: labels.backlog, value: backlog},
+    {key: 'committed', label: labels.committed, value: committed, color: TREND_COLORS.committed},
+    {key: 'written', label: labels.written, value: written, color: TREND_COLORS.write},
+    {key: 'backlog', label: labels.backlog, value: backlog, color: TREND_COLORS.read},
   ].filter((item) => item.value > 0);
 }
 

@@ -20,6 +20,8 @@ import {
   brushMinSpan,
   downsamplePoints,
   latestValue,
+  TREND_COLORS,
+  colorByName,
   pickAxisLabel,
   scalePoints,
   toBarChartData,
@@ -61,9 +63,9 @@ describe('metrics-trend-data', () => {
       written: 'Written',
       backlog: 'Backlog',
     })).toEqual([
-      {key: 'committed', label: 'Committed', value: 50},
-      {key: 'written', label: 'Written', value: 30},
-      {key: 'backlog', label: 'Backlog', value: 20},
+      {key: 'committed', label: 'Committed', value: 50, color: TREND_COLORS.committed},
+      {key: 'written', label: 'Written', value: 30, color: TREND_COLORS.write},
+      {key: 'backlog', label: 'Backlog', value: 20, color: TREND_COLORS.read},
     ]);
     expect(toPipelineShare(0, 0, 0, {
       committed: 'Committed',
@@ -92,5 +94,39 @@ describe('metrics-trend-data', () => {
     expect(scalePoints([[1, 0.25]], 100)).toEqual([[1, 25]]);
     expect(pickAxisLabel(0, 20, 'a')).toBe('a');
     expect(pickAxisLabel(1, 20, 'a')).toBeUndefined();
+  });
+
+  it('drops an even-step tick that would crowd the forced last tick', () => {
+    // 101 个点、step=20：80 号离末尾 20，保留；末尾前一档若只差 1 个点则让位。
+    // 101 points, step 20: index 80 sits 20 from the end and stays; a tick one point from the end yields.
+    expect(pickAxisLabel(80, 101, 'a')).toBe('a');
+    expect(pickAxisLabel(100, 101, 'a')).toBe('a');
+    const labeled = Array.from({length: 102}, (_, i) => pickAxisLabel(i, 102, String(i))).filter(Boolean);
+    expect(labeled).toContain('101');
+    expect(labeled).not.toContain('100');
+  });
+
+  it('pins stage colors on lines and keeps vertex colors stable by name', () => {
+    const {series} = toLineChartData(
+      [
+        {key: 'read', name: 'Read', points: [[1, 1]], color: TREND_COLORS.read},
+        {key: 'write', name: 'Write', points: [[1, 1]]},
+      ],
+      label,
+      label,
+    );
+    expect(series[0].color).toBe(TREND_COLORS.read);
+    expect(series[1]).not.toHaveProperty('color');
+    const source = 'pipeline-1 [Source[0]-FakeSource]';
+    const sink = 'pipeline-1 [Sink[0]-Console-MultiTableSink]';
+    const colors = colorByName([sink, source, 'pipeline-1 [Transform[0]-Sql]', 'queue--5→2']);
+    // Source / Sink 跟随读 / 写色，字母序在前的 Sink 也不会抢走读色。
+    // Source / Sink follow read / write even though "Sink" sorts first.
+    expect(colors.get(source)).toBe(TREND_COLORS.read);
+    expect(colors.get(sink)).toBe(TREND_COLORS.write);
+    expect(colors.get('pipeline-1 [Transform[0]-Sql]')).not.toBe(colors.get('queue--5→2'));
+    // 同一批名字不论顺序都得到同样的颜色。 / The same set of names yields the same colors regardless of order.
+    const reordered = colorByName(['queue--5→2', 'pipeline-1 [Transform[0]-Sql]', source, sink]);
+    expect(reordered.get('queue--5→2')).toBe(colors.get('queue--5→2'));
   });
 });

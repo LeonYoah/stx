@@ -18,7 +18,7 @@
 'use client';
 
 import Link from 'next/link';
-import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
+import {useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {Activity} from 'lucide-react';
 import {BarChart} from '@/components/arc/bar-chart/bar-chart';
@@ -32,7 +32,9 @@ import {useLocale} from '@/lib/i18n';
 import {cn} from '@/lib/utils';
 import {SyncService, type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
 import {
+  TREND_COLORS,
   brushMinSpan,
+  colorByName,
   latestValue,
   scalePoints,
   toBarChartData,
@@ -139,26 +141,37 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   );
 
   const charts = useMemo(() => {
+    // 忙碌度与背压按算子名共用一套颜色，同一算子在两张图里同色。
+    // Busy and backpressure share one name-to-color map so a vertex keeps its color in both charts.
+    const vertexColors = colorByName(
+      [...seriesByKey('busy'), ...seriesByKey('backpressure')].map((item) => item.label || item.key),
+    );
     const named = (key: string, name: string, scale = 1): NamedSeries[] =>
       seriesByKey(key).map((item, index) => ({
         key: `${item.key}-${index}`,
         name: item.label || name,
         points: scale === 1 ? item.points : scalePoints(item.points, scale),
+        color: vertexColors.get(item.label || item.key),
       }));
 
     const throughput = toLineChartData(
       [
-        {key: 'read', name: t('series.read'), points: seriesByKey('throughput_read')[0]?.points ?? []},
-        {key: 'write', name: t('series.write'), points: seriesByKey('throughput_write')[0]?.points ?? []},
+        {key: 'read', name: t('series.read'), points: seriesByKey('throughput_read')[0]?.points ?? [], color: TREND_COLORS.read},
+        {key: 'write', name: t('series.write'), points: seriesByKey('throughput_write')[0]?.points ?? [], color: TREND_COLORS.write},
       ],
       formatDateTime,
       formatTime,
     );
     const rows = toLineChartData(
       [
-        {key: 'read', name: t('series.read'), points: seriesByKey('rows_read')[0]?.points ?? []},
-        {key: 'write', name: t('series.write'), points: seriesByKey('rows_write')[0]?.points ?? []},
-        {key: 'committed', name: t('series.committed'), points: seriesByKey('rows_committed')[0]?.points ?? []},
+        {key: 'read', name: t('series.read'), points: seriesByKey('rows_read')[0]?.points ?? [], color: TREND_COLORS.read},
+        {key: 'write', name: t('series.write'), points: seriesByKey('rows_write')[0]?.points ?? [], color: TREND_COLORS.write},
+        {
+          key: 'committed',
+          name: t('series.committed'),
+          points: seriesByKey('rows_committed')[0]?.points ?? [],
+          color: TREND_COLORS.committed,
+        },
       ],
       formatDateTime,
       formatTime,
@@ -321,7 +334,13 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
             emptyLabel={t('emptyChart')}
           />
         </TrendSection>
-        <TrendSection title={t('charts.checkpoint')} unit={t('unit.seconds')}>
+        <TrendSection
+          title={t('charts.checkpoint')}
+          unit={t('unit.seconds')}
+          // Arc BarChart 只读 --accent；在本区块内把它换成 Checkpoint 阶段色，不影响别处。
+          // Arc BarChart only reads --accent; rebind it to the checkpoint color inside this section only.
+          style={{'--accent': TREND_COLORS.checkpoint} as CSSProperties}
+        >
           <BarChart
             data={charts.checkpoint}
             label={t('charts.checkpoint')}
@@ -401,15 +420,17 @@ function TrendSection({
   title,
   unit,
   className,
+  style,
   children,
 }: {
   title: string;
   unit?: string;
   className?: string;
+  style?: CSSProperties;
   children: ReactNode;
 }) {
   return (
-    <section className={cn('min-w-0 rounded-lg border border-border p-3', className)} aria-label={title}>
+    <section className={cn('min-w-0 rounded-lg border border-border p-3', className)} style={style} aria-label={title}>
       <div className='mb-2 flex h-5 items-center gap-2'>
         <h3 className='text-[13px] font-medium'>{title}</h3>
         {unit ? <span className='text-[11.5px] text-muted-foreground'>{unit}</span> : null}
@@ -433,9 +454,11 @@ function HeroStrip({
   const writeQps = Number(metrics.SinkWriteQPS ?? 0);
   const lag = Math.max(0, readQps - writeQps);
   const cdc = job.cdc_delay?.latest_ms != null ? job.cdc_delay.latest_ms / 1000 : null;
-  const items = [
-    {k: t('hero.readQps'), v: fmtNum(readQps), u: 'rec/s'},
-    {k: t('hero.writeQps'), v: fmtNum(writeQps), u: 'rec/s'},
+  // 读 / 写卡片带与折线同色的小色标，把顶部数字和下方曲线对上。
+  // Read / write cards carry a swatch in the line color, tying the numbers to the curves below.
+  const items: {k: string; v: string; u: string; color?: string}[] = [
+    {k: t('hero.readQps'), v: fmtNum(readQps), u: 'rec/s', color: TREND_COLORS.read},
+    {k: t('hero.writeQps'), v: fmtNum(writeQps), u: 'rec/s', color: TREND_COLORS.write},
     {k: t('hero.lag'), v: fmtNum(lag), u: 'rec/s'},
     {k: t('hero.cdc'), v: cdc == null ? '-' : cdc.toFixed(1), u: 's'},
     {k: t('hero.checkpoint'), v: '-', u: 's'},
@@ -444,7 +467,12 @@ function HeroStrip({
     <div className='grid grid-cols-2 gap-3 md:grid-cols-5'>
       {items.map((item) => (
         <div key={item.k} className='rounded-lg border border-border px-3.5 py-3'>
-          <div className='text-xs text-muted-foreground'>{item.k}</div>
+          <div className='flex items-center gap-1.5 text-xs text-muted-foreground'>
+            {item.color ? (
+              <span aria-hidden className='h-[2.5px] w-2.5 shrink-0 rounded-full' style={{background: item.color}} />
+            ) : null}
+            {item.k}
+          </div>
           <div className='mt-1 font-mono text-[26px] font-medium leading-none tracking-tight tabular-nums'>
             {item.v}
             <small className='ml-1 text-xs font-normal text-muted-foreground'>{item.u}</small>

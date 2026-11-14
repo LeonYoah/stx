@@ -19,14 +19,28 @@
   top: 0;
   bottom: 0;
   width: 1px;
-  /* 跟 VS Code sash 一样走系统光标。cursor:url() 过不了 OS 合成，PNG/SVG 都会发糊、带花边。
-     Same system cursor as VS Code's sash. cursor:url() skips OS compositing, so PNG/SVG look soft or fringed. */
-  cursor: col-resize;
+  /* C · Figma 小三角：两个实心三角中间留缝。Chrome 要 PNG；2x 给高分屏。
+     C · Figma triangles with a gap. Chrome needs PNG; 2x for retina. */
+  cursor: url('/cursors/ew-resize.png') 16 16, col-resize;
+  cursor:
+    image-set(
+      url('/cursors/ew-resize.png') 1x,
+      url('/cursors/ew-resize-2x.png') 2x
+    )
+    16 16,
+    col-resize;
 }
 
 .handle[data-orientation='horizontal'] {
   height: 1px;
-  cursor: row-resize;
+  cursor: url('/cursors/ns-resize.png') 16 16, row-resize;
+  cursor:
+    image-set(
+      url('/cursors/ns-resize.png') 1x,
+      url('/cursors/ns-resize-2x.png') 2x
+    )
+    16 16,
+    row-resize;
 }
 
 .handle::before {
@@ -103,12 +117,26 @@
 /* 拖动时锁住整页光标，避免滑过 Monaco 变成输入光标。 / Keep the resize cursor while dragging over Monaco. */
 :global(html[data-studio-resizing='x']),
 :global(html[data-studio-resizing='x'] *) {
-  cursor: col-resize !important;
+  cursor: url('/cursors/ew-resize.png') 16 16, col-resize !important;
+  cursor:
+    image-set(
+      url('/cursors/ew-resize.png') 1x,
+      url('/cursors/ew-resize-2x.png') 2x
+    )
+    16 16,
+    col-resize !important;
   user-select: none !important;
 }
 
 :global(html[data-studio-resizing='y']),
 :global(html[data-studio-resizing='y'] *) {
-  cursor: row-resize !important;
+  cursor: url('/cursors/ns-resize.png') 16 16, row-resize !important;
+  cursor:
+    image-set(
+      url('/cursors/ns-resize.png') 1x,
+      url('/cursors/ns-resize-2x.png') 2x
+    )
+    16 16,
+    row-resize !important;
   user-select: none !important;
 }

@@ -237,6 +237,31 @@ describe('TreeView', () => {
     );
   });
 
+  it('does not treat rename input keys as tree navigation', () => {
+    const onSelect = vi.fn();
+    const onExpandedChange = vi.fn();
+
+    render(
+      <TreeView
+        nodes={mockNodes}
+        selectedNodeId={null}
+        selectedFolderId={null}
+        expandedFolderIds={[1]}
+        onSelect={onSelect}
+        onExpandedChange={onExpandedChange}
+        onContextMenu={vi.fn()}
+        renamingNodeId={1}
+      />,
+    );
+
+    const input = screen.getByDisplayValue('batch_jobs');
+    fireEvent.keyDown(input, {key: 'ArrowDown'});
+    fireEvent.keyDown(input, {key: 'Enter'});
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onExpandedChange).not.toHaveBeenCalled();
+  });
+
   it('cancels inline rename on Escape key', () => {
     const onRenameCancel = vi.fn();
     render(

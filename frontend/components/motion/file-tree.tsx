@@ -332,6 +332,19 @@ export function FileTree({
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLElement>, row: FlatFileTreeItem) => {
+      // 行内重命名/新建输入的按键不能再走树导航，否则 Enter 会选中并折叠，方向键会把焦点挪走。
+      // Ignore keys from nested inputs/buttons so inline edit does not also select, toggle, or move focus.
+      const source = event.target;
+      if (
+        source instanceof HTMLElement &&
+        source !== event.currentTarget &&
+        source.closest(
+          'input, textarea, select, button, [contenteditable="true"]',
+        )
+      ) {
+        return;
+      }
+
       const index = rows.findIndex(({item}) => item.value === row.item.value);
       const previous = rows[index - 1];
       const next = rows[index + 1];

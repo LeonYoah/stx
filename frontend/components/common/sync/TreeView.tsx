@@ -234,6 +234,7 @@ export function TreeView({
     e: KeyboardEvent<HTMLInputElement>,
     node: SyncTaskTreeNode,
   ) => {
+    e.stopPropagation();
     if (e.key === 'Enter') {
       e.preventDefault();
       const trimmed = renameValue.trim();
@@ -249,6 +250,7 @@ export function TreeView({
   };
 
   const handleCreateKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    e.stopPropagation();
     if (e.key === 'Enter') {
       e.preventDefault();
       const value = e.currentTarget.value.trim();

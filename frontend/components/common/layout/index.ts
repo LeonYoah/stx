@@ -23,6 +23,7 @@ export * from './ThemeProvider';
 export * from './WorkspaceHeader';
 export * from './StatPillsBar';
 export * from './CompactTimeFilter';
+export * from './ArcDateRangePicker';
 export * from './TableLoadingBar';
 export * from './TableSkeletonRows';
 export * from './RouteProgressBar';

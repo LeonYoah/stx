@@ -366,7 +366,16 @@ export class SyncService extends BaseService {
    */
     static async getJobTimeseries(
     jobId: number,
-    params?: {range?: string; step?: number; metrics?: string; signal?: AbortSignal},
+    params?: {
+      range?: string;
+      /** 自定义时间窗起点（毫秒），给出时优先于 range。 / Custom window start (ms); wins over range when set. */
+      start?: number;
+      /** 自定义时间窗终点（毫秒），缺省为当前时间。 / Custom window end (ms); defaults to now. */
+      end?: number;
+      step?: number;
+      metrics?: string;
+      signal?: AbortSignal;
+    },
   ): Promise<SyncJobTimeseries> {
     const {signal, ...query} = params || {};
     const response = await apiClient.get<ApiResponse<SyncJobTimeseries>>(
@@ -378,6 +387,8 @@ export class SyncService extends BaseService {
       source: data?.source ?? 'none',
       reason: data?.reason,
       range: data?.range ?? '1h',
+      start_ms: data?.start_ms ?? 0,
+      end_ms: data?.end_ms ?? 0,
       step_seconds: data?.step_seconds ?? 0,
       engine_observability_enabled: Boolean(data?.engine_observability_enabled),
       series: data?.series ?? [],

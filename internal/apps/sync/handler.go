@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -670,7 +671,7 @@ func (h *Handler) GetJobRealtime(c *gin.Context) {
 // @Param id path int true "作业 ID"
 // @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
 // @Param step query int false "步长（秒），0 表示按范围自动"
-// @Param metrics query string false "逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure"
+// @Param metrics query string false "逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure,table"
 // @Success 200 {object} JobTimeseriesResponse
 // @Failure 400 {object} JobTimeseriesResponse
 // @Failure 403 {object} JobTimeseriesResponse
@@ -683,9 +684,16 @@ func (h *Handler) GetJobTimeseries(c *gin.Context) {
 		return
 	}
 	rangeKey := strings.TrimSpace(c.Query("range"))
+	// start/end 给出时按自定义时间窗查询（作业全程、日历选择），优先于 range。
+	// When start/end are given, query that custom window (job lifetime, calendar pick); it wins over range.
+	window, err := ParseJobTimeseriesWindow(c.Query("start"), c.Query("end"), time.Now())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, JobTimeseriesResponse{ErrorMsg: err.Error()})
+		return
+	}
 	step := parseNonNegativeInt(c.Query("step"), 0)
 	metrics := strings.TrimSpace(c.Query("metrics"))
-	result, err := h.service.GetJobTimeseriesForActor(c.Request.Context(), currentExecutionActor(c), id, rangeKey, metrics, step)
+	result, err := h.service.GetJobTimeseriesForActor(c.Request.Context(), currentExecutionActor(c), id, rangeKey, window, metrics, step)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobTimeseriesResponse{ErrorMsg: err.Error()})
 		return

@@ -1,0 +1,105 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import {describe, expect, it} from 'vitest';
+import {
+  dateRangeToWallTimes,
+  dateRangeToYmdPair,
+  dateTimeRangeToWallTimes,
+  localDateToYmd,
+  wallTimeToYmd,
+  wallTimesToDateRange,
+  wallTimesToDateTimeRange,
+  ymdPairToDateRange,
+  ymdToLocalDate,
+} from '../date-range';
+import {wallTimeToRFC3339} from '../timezone';
+
+describe('date-range helpers', () => {
+  it('parses a wall-time string down to the calendar day', () => {
+    expect(wallTimeToYmd('2026-11-01T08:15')).toBe('2026-11-01');
+    expect(wallTimeToYmd('2026-11-01')).toBe('2026-11-01');
+    expect(wallTimeToYmd('')).toBeNull();
+  });
+
+  it('round-trips YYYY-MM-DD through a local Date', () => {
+    const date = ymdToLocalDate('2026-11-14');
+    expect(date).not.toBeNull();
+    expect(localDateToYmd(date!)).toBe('2026-11-14');
+  });
+
+  it('builds a range from wall times and expands it to start-of-day / end-of-day', () => {
+    const range = wallTimesToDateRange('2026-11-01T08:00', '2026-11-03T19:30');
+    expect(range).not.toBeNull();
+    expect(dateRangeToWallTimes(range!)).toEqual({
+      startTime: '2026-11-01T00:00',
+      endTime: '2026-11-03T23:59:59.999',
+    });
+    // T23:59 会落在 23:59:00.000，含不上当天最后一分钟。
+    // T23:59 becomes 23:59:00.000 and misses the last minute of the day.
+    expect(wallTimeToRFC3339('2026-11-03T23:59', 'Asia/Shanghai')).toBe(
+      '2026-11-03T15:59:00.000Z',
+    );
+    expect(wallTimeToRFC3339(dateRangeToWallTimes(range!).endTime, 'Asia/Shanghai')).toBe(
+      '2026-11-03T15:59:59.999Z',
+    );
+  });
+
+  it('swaps inverted ranges and fills a missing side', () => {
+    const inverted = wallTimesToDateRange('2026-11-10T00:00', '2026-11-01T00:00');
+    expect(dateRangeToYmdPair(inverted!)).toEqual({
+      startDate: '2026-11-01',
+      endDate: '2026-11-10',
+    });
+    const oneSided = wallTimesToDateRange('2026-11-05T12:00', '');
+    expect(dateRangeToYmdPair(oneSided!)).toEqual({
+      startDate: '2026-11-05',
+      endDate: '2026-11-05',
+    });
+  });
+
+  it('treats YYYY-MM-DD pairs the same as wall times', () => {
+    const range = ymdPairToDateRange('2026-03-01', '2026-03-08');
+    expect(dateRangeToYmdPair(range!)).toEqual({
+      startDate: '2026-03-01',
+      endDate: '2026-03-08',
+    });
+    expect(ymdPairToDateRange('', '')).toBeNull();
+  });
+
+  it('keeps the clock for minute-precise ranges and round-trips them', () => {
+    const range = wallTimesToDateTimeRange('2026-11-14T12:13', '2026-11-14T12:38:59.999');
+    expect(range!.start.getHours()).toBe(12);
+    expect(range!.start.getMinutes()).toBe(13);
+    expect(range!.end.getMilliseconds()).toBe(999);
+    expect(dateTimeRangeToWallTimes(range!)).toEqual({
+      startTime: '2026-11-14T12:13',
+      endTime: '2026-11-14T12:38:59.999',
+    });
+  });
+
+  it('expands bare dates to whole days and orders inverted timed ranges', () => {
+    const days = wallTimesToDateTimeRange('2026-11-01', '2026-11-03');
+    expect(dateTimeRangeToWallTimes(days!)).toEqual({
+      startTime: '2026-11-01T00:00',
+      endTime: '2026-11-03T23:59:59.999',
+    });
+    const inverted = wallTimesToDateTimeRange('2026-11-10T09:00', '2026-11-01T08:00');
+    expect(inverted!.start.getDate()).toBe(1);
+    expect(wallTimesToDateTimeRange('', '')).toBeNull();
+  });
+});

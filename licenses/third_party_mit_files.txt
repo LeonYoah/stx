@@ -16,17 +16,23 @@
 
 frontend/components/arc/action-button/action-button.tsx
 frontend/components/arc/badge/badge.tsx
+frontend/components/arc/bar-chart/bar-chart.tsx
+frontend/components/arc/brush-chart/brush-chart.tsx
 frontend/components/arc/button/button.tsx
 frontend/components/arc/button-group/button-group.tsx
 frontend/components/arc/chip-group/chip-group.tsx
 frontend/components/arc/combobox/combobox.tsx
 frontend/components/arc/confirm-morph/confirm-morph.tsx
 frontend/components/arc/copy-button/copy-button.tsx
+frontend/components/arc/date-range-picker/date-range-picker.tsx
+frontend/components/arc/donut-chart/donut-chart.tsx
 frontend/components/arc/expanding-button-group/expanding-button-group.tsx
 frontend/components/arc/expanding-search/expanding-search.tsx
 frontend/components/arc/input/input.tsx
 frontend/components/arc/lib/motion-tokens.ts
 frontend/components/arc/lib/use-copy-feedback.ts
+frontend/components/arc/lib/use-today.ts
+frontend/components/arc/line-chart/line-chart.tsx
 frontend/components/arc/motion-tokens.ts
 frontend/components/arc/onboarding-checklist/onboarding-checklist.tsx
 frontend/components/arc/resizable-panels/resizable-panels.tsx

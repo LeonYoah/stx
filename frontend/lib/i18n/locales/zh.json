@@ -58,6 +58,36 @@
       "selectedFile": "已选文件",
       "clearFile": "清除已选文件",
       "uploading": "上传中…"
+    },
+    "dateRange": {
+      "label": "日期范围",
+      "placeholder": "选择日期",
+      "cancel": "取消",
+      "apply": "应用",
+      "day": "天",
+      "days": "天",
+      "noDates": "未选择日期",
+      "pickEndDate": "选择结束日期",
+      "presetsAria": "快捷范围",
+      "previousMonth": "上个月",
+      "nextMonth": "下个月",
+      "previousYear": "上一年",
+      "nextYear": "下一年",
+      "chooseMonth": "选择月份",
+      "backToCalendar": "返回日历",
+      "startChooseEnd": "开始 {date}。请选择结束日期。",
+      "startTime": "开始时间",
+      "endTime": "结束时间",
+      "presets": {
+        "today": "今天",
+        "yesterday": "昨天",
+        "last7d": "近 7 天",
+        "last30d": "近 30 天",
+        "thisMonth": "本月",
+        "lastMonth": "上月",
+        "thisQuarter": "本季度",
+        "yearToDate": "今年至今"
+      }
     }
   },
   "dashboard": {
@@ -4959,47 +4989,6 @@
     "stopOverdueTooltip": "已请求停止，但超过 {minutes} 分钟作业仍未停下。STX 会继续确认，必要时请到引擎侧检查。",
     "submitOutcomePendingTitle": "上一次提交还在确认中",
     "submitOutcomePendingDescription": "作业 #{jobId} 的提交结果还在确认中，最晚 {deadline} 出结论，请稍后再提交。",
-    "realtimeInsight": {
-      "title": "实时诊断",
-      "live": "实时",
-      "updatedAt": "更新于 {time}",
-      "noBottleneck": "最近 3 个采集周期未发现明显瓶颈。",
-      "busy": "忙碌 {value}",
-      "backpressure": "背压 {value}",
-      "queueFill": "队列 {value}",
-      "severity": {
-        "critical": "严重",
-        "warning": "注意",
-        "info": "提示"
-      },
-      "hint": {
-        "sink_slow": "{target} 写入跟不上：忙碌度 {value}，输入队列持续积压，优先排查目标库写入性能、批量与并行度。",
-        "transform_busy": "{target} 处理跟不上：忙碌度 {value}，输入队列持续积压，可拆分转换链或提高并行度。",
-        "downstream_backpressure": "流向 {target} 的队列背压 {value}，但下游并不忙，可能卡在外部系统、GC 或提交阶段。",
-        "source_idle": "{target} 大部分时间在等待数据（空闲 {value}），下游队列为空，上游可能没有新数据。",
-        "source_busy": "{target} 读取占用 {value} 且下游无背压，读取或反序列化可能偏慢。"
-      },
-      "reason": {
-        "version_unsupported": "需要 3.x",
-        "not_cluster_mode": "本地执行",
-        "not_running": "未运行",
-        "not_enabled": "未开启",
-        "master_unreachable": "引擎不可达",
-        "no_engine_job": "无引擎作业",
-        "collecting": "采集中",
-        "client_unsupported": "不支持"
-      },
-      "reasonDetail": {
-        "version_unsupported": "实时可观测性需要 SeaTunnel 3.0.0 及以上的集群。",
-        "not_cluster_mode": "本地执行的作业没有引擎实时指标。",
-        "not_running": "作业已不在运行，实时数据只在运行期间保留。",
-        "not_enabled": "该作业未开启实时可观测性。可在任务设置中将「实时可观测性」设为自动或开启，重新提交后生效。",
-        "master_unreachable": "暂时连不上集群的 active master，稍后会自动重试。",
-        "no_engine_job": "作业还没有拿到引擎作业 ID。",
-        "collecting": "引擎正在采集第一个周期的数据（约 5 秒），请稍候。",
-        "client_unsupported": "当前服务端不支持实时指标代理。"
-      }
-    },
     "jobEvents": {
       "open": "事件时间线",
       "title": "作业 #{id} 事件时间线",
@@ -5141,6 +5130,8 @@
         "engineObsEmptyTitle": "该作业未开启引擎可观测性",
         "engineObsEmptyBody": "忙碌度与背压需要作业开启 engine.observability",
         "range": "时间范围",
+        "rangeLifetime": "作业全程",
+        "customRange": "自定义时间段",
         "autoRefresh": "自动刷新",
         "lastRefresh": "上次刷新 {time}",
         "loading": "加载中",
@@ -5159,7 +5150,9 @@
           "cdc": "CDC 延迟",
           "checkpoint": "Checkpoint 耗时",
           "busy": "算子忙碌度",
-          "backpressure": "背压"
+          "backpressure": "背压",
+          "tableThroughput": "按表吞吐",
+          "tableRows": "按表条数"
         },
         "series": {
           "read": "读",
@@ -5170,7 +5163,27 @@
           "rows": "条",
           "seconds": "秒"
         },
-        "perTablePhase3": "按表趋势（第三期）"
+        "emptyChart": "这段时间没有数据",
+        "categoryTime": "时间",
+        "averageLabel": "平均",
+        "valueLabel": "当前",
+        "totalLabel": "合计",
+        "otherLabel": "其他",
+        "periodCurrent": "当前范围",
+        "periodSpan": "{from} 至 {to}",
+        "pipeline": {
+          "label": "累计条数构成",
+          "committed": "已提交",
+          "written": "已写未提交",
+          "backlog": "已读未写"
+        },
+        "annotations": {
+          "schema_change": "DDL",
+          "restart": "重启",
+          "status": "状态"
+        },
+        "legendClear": "清空",
+        "legendAll": "全选"
       }
     },
     "zeroMetricsCollapsed": "{count} 项指标当前全为 0，已折叠（相关能力未触发或没有积压）"

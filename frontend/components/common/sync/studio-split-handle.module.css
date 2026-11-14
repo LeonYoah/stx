@@ -19,8 +19,8 @@
   top: 0;
   bottom: 0;
   width: 1px;
-  /* 空心折线双向箭头（候选 D）；PNG 优先，Chrome/Linux 经常忽略 SVG 光标。
-     Hollow chevron arrows (option D); PNG first because Chrome on Linux often ignores SVG cursors. */
+  /* 空心折线；PNG 用不透明像素，避免半透明抗锯齿被系统画成花边。
+     Hollow chevrons; opaque PNG pixels so OS cursor compositing does not fringe. */
   cursor:
     url('/cursors/ew-resize.png') 16 16,
     url('/cursors/ew-resize.svg') 16 16,

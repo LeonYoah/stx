@@ -19,17 +19,13 @@ package sync
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
-	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/promquery"
 )
 
 // JobTimeseriesResult 是 GET /sync/jobs/:id/timeseries 的返回；无本地兜底，source 仅为 prometheus 或 none。
@@ -63,18 +59,6 @@ type JobTimeseriesAnnotation struct {
 	Kind    string `json:"kind"`
 	Summary string `json:"summary"`
 	EventID uint   `json:"event_id,omitempty"`
-}
-
-type promQueryRangeResponse struct {
-	Status string `json:"status"`
-	Error  string `json:"error"`
-	Data   struct {
-		ResultType string `json:"resultType"`
-		Result     []struct {
-			Metric map[string]string `json:"metric"`
-			Values [][]interface{}   `json:"values"`
-		} `json:"result"`
-	} `json:"data"`
 }
 
 var timeseriesRangeSteps = map[string]int{
@@ -222,15 +206,10 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 		Annotations:                []JobTimeseriesAnnotation{},
 	}
 
-	if config.Config == nil || !config.Config.Observability.Enabled {
-		out.Source = "none"
-		out.Reason = "observability_disabled"
-		return out, nil
-	}
-	baseURL := strings.TrimSpace(config.Config.Observability.Prometheus.URL)
+	baseURL, reason := promquery.BaseURL()
 	if baseURL == "" {
-		out.Source = "none"
-		out.Reason = "prometheus_unavailable"
+		out.Source = promquery.SourceNone
+		out.Reason = reason
 		return out, nil
 	}
 
@@ -240,7 +219,7 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 	for _, key := range metricKeys {
 		templates := timeseriesPromQL(key, jobID, engineObs)
 		for _, tpl := range templates {
-			vectors, err := queryPrometheusRange(ctx, baseURL, tpl.query, start, end, step)
+			vectors, err := promquery.Range(ctx, baseURL, tpl.query, start, end, step)
 			if err != nil {
 				// Soft-fail per series so a single template error does not empty the whole response.
 				// 单条模板失败不拖垮整份响应。
@@ -257,29 +236,17 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 				if name := strings.TrimSpace(vec.Metric["table"]); name != "" {
 					label = name
 				}
-				series := JobTimeseriesSeries{
+				out.Series = append(out.Series, JobTimeseriesSeries{
 					Key:    tpl.key,
 					Label:  label,
 					Unit:   tpl.unit,
-					Points: make([][2]float64, 0, len(vec.Values)),
-				}
-				for _, sample := range vec.Values {
-					if len(sample) < 2 {
-						continue
-					}
-					ts, tsOK := coercePromSample(sample[0])
-					val, valOK := coercePromSample(sample[1])
-					if !tsOK || !valOK {
-						continue
-					}
-					series.Points = append(series.Points, [2]float64{ts * 1000, val})
-				}
-				out.Series = append(out.Series, series)
+					Points: vec.Points,
+				})
 			}
 		}
 	}
 
-	out.Source = "prometheus"
+	out.Source = promquery.SourcePrometheus
 	out.Annotations = s.loadTimeseriesAnnotations(ctx, instance, start, end)
 	return out, nil
 }
@@ -383,69 +350,6 @@ func parseTimeseriesMetrics(csv string) []string {
 		out = append(out, p)
 	}
 	return out
-}
-
-func queryPrometheusRange(ctx context.Context, baseURL, promQL string, start, end time.Time, stepSeconds int) ([]struct {
-	Metric map[string]string
-	Values [][]interface{}
-}, error) {
-	apiURL := strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/api/v1/query_range"
-	params := url.Values{}
-	params.Set("query", promQL)
-	params.Set("start", strconv.FormatFloat(float64(start.Unix()), 'f', -1, 64))
-	params.Set("end", strconv.FormatFloat(float64(end.Unix()), 'f', -1, 64))
-	params.Set("step", strconv.Itoa(stepSeconds))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL+"?"+params.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("prometheus query_range status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
-	}
-	var payload promQueryRangeResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&payload); err != nil {
-		return nil, err
-	}
-	if !strings.EqualFold(strings.TrimSpace(payload.Status), "success") {
-		return nil, fmt.Errorf("prometheus query_range status %q: %s", payload.Status, strings.TrimSpace(payload.Error))
-	}
-	out := make([]struct {
-		Metric map[string]string
-		Values [][]interface{}
-	}, 0, len(payload.Data.Result))
-	for _, item := range payload.Data.Result {
-		out = append(out, struct {
-			Metric map[string]string
-			Values [][]interface{}
-		}{Metric: item.Metric, Values: item.Values})
-	}
-	return out, nil
-}
-
-func coercePromSample(raw interface{}) (float64, bool) {
-	switch typed := raw.(type) {
-	case float64:
-		return typed, true
-	case json.Number:
-		v, err := typed.Float64()
-		return v, err == nil
-	case string:
-		v, err := strconv.ParseFloat(typed, 64)
-		return v, err == nil
-	case int:
-		return float64(typed), true
-	case int64:
-		return float64(typed), true
-	default:
-		return 0, false
-	}
 }
 
 func (s *Service) loadTimeseriesAnnotations(ctx context.Context, instance *JobInstance, start, end time.Time) []JobTimeseriesAnnotation {

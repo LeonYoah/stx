@@ -766,6 +766,9 @@ func Serve() {
 			syncService.SetAlertReporter(syncAlertHub)
 			syncService.SetTaskAlertPolicyStore(monitoringService)
 			monitoringService.SetSyncTaskNameResolver(syncService)
+			// 一次性回填作业维度列（cluster_id / job_mode），后台执行不阻塞启动。
+			// One-off backfill of job dimension columns (cluster_id / job_mode), run in the background.
+			go syncService.BackfillJobDimensions(ctx)
 			syncService.StartPreviewRuntime(ctx)
 			syncService.StartTaskScheduleRuntime(ctx)
 			syncService.StartJobReconciler(ctx)
@@ -773,6 +776,14 @@ func Serve() {
 			syncService.StartEngineEventRuntime(ctx)
 			syncHandler := syncapp.NewHandler(syncService)
 			syncHandler.SetAuditRepository(auditRepo)
+
+			// 首页汇总：组合作业（sync）与集群 / 告警（monitoring），供控制台指标卡与「需要处理」条。
+			// Home summary: combines jobs (sync) with clusters / alerts (monitoring) for the console KPI cards and
+			// the "needs attention" strip.
+			homeHandler := dashboard.NewHomeHandler(dashboard.NewHomeService(syncService, monitoringService))
+			homeRouter := apiV1Router.Group("/dashboard/home")
+			homeRouter.Use(auth.LoginRequired())
+			homeRouter.GET("/summary", homeHandler.GetHomeSummary)
 
 			// 作业级 Prometheus 指标抓取（公开，受 observability.enabled 控制）。
 			// Job-level Prometheus metrics scrape (public, gated by observability.enabled).
@@ -866,6 +877,8 @@ func Serve() {
 				{
 					syncJobRouter.POST("/cancel-by-ref", syncHandler.CancelJobByRef)
 					syncJobRouter.GET("", syncHandler.ListJobs)
+					// 静态路径必须注册在 /:id 之前。 / Static paths must be registered before /:id.
+					syncJobRouter.GET("/sparklines", syncHandler.GetJobSparklines)
 					syncJobRouter.GET("/:id", syncHandler.GetJob)
 					syncJobRouter.GET("/:id/preview", syncHandler.GetPreviewSnapshot)
 					syncJobRouter.GET("/:id/checkpoint", syncHandler.GetJobCheckpointSnapshot)

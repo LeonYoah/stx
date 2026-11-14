@@ -20,7 +20,7 @@
   - 排序：默认「需要关注优先」（失败 > 运行中 > 等待 > 其余，同级按开始时间倒序）；速率 / 累计 / CDC 延迟 / 开始时间可点表头排序（服务端排序）。
   - 多选批量停止 / 恢复：逐个调用现有 cancel / recover，使用现有确认交互，结果逐条反馈。
   - 行预览抽屉：状态、源 → 目标、当前值、近 1 小时吞吐（复用作业趋势接口）、失败原因；「打开作业详情」跳工作台深链。
-  - 服务端分页（每页 50），列表用 beUI table。
+  - 服务端分页（每页 50），列表用现有 `StudioDataTable`。
 - 后端：`GET /sync/jobs` 扩展、`GET /sync/jobs/sparklines`、`GET /dashboard/home/summary`，各补 CLI、swagger、路由基线。
 - 权限：非管理员列表可见范围与 `getJobInstanceForActor` 一致（自己创建的 + 有权查看的任务下的）。
 

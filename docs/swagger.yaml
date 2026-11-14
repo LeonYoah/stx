@@ -574,6 +574,10 @@ definitions:
       install_dir:
         description: SeaTunnel installation directory / SeaTunnel 安装目录
         type: string
+      java_home:
+        description: JavaHome 是该节点指定的 JDK 目录，为空时自动探测。/ JavaHome is the node's JDK
+          directory; empty means auto detection.
+        type: string
       overrides:
         allOf:
         - $ref: '#/definitions/cluster.NodeOverrides'
@@ -740,6 +744,11 @@ definitions:
       install_dir:
         description: SeaTunnel installation directory / SeaTunnel 安装目录
         type: string
+      java_home:
+        description: |-
+          JavaHome 是纳管时给定的节点 JDK；空表示自动探测。优先填进程实际 JDK（AC1e / AC1f）。
+          JavaHome is the node JDK given at registration; empty means auto detection. Prefer the process's actual JDK (AC1e / AC1f).
+        type: string
       pid:
         description: Process ID / 进程 ID
         type: integer
@@ -772,6 +781,13 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/cluster.ClusterStatusInfo'
+      error_msg:
+        type: string
+    type: object
+  cluster.GetNodeJavaRuntimeResponse:
+    properties:
+      data:
+        $ref: '#/definitions/cluster.NodeJavaRuntime'
       error_msg:
         type: string
     type: object
@@ -835,6 +851,9 @@ definitions:
         description: Whether host is online; when false, status may be shown as offline
           / 主机是否在线
         type: boolean
+      java_home:
+        description: 节点指定的 JDK，为空表示自动探测 / Node JDK; empty means auto detection
+        type: string
       overrides:
         allOf:
         - $ref: '#/definitions/cluster.NodeOverrides'
@@ -863,6 +882,31 @@ definitions:
         type: integer
       worker_heap_size:
         type: integer
+    type: object
+  cluster.NodeJavaRuntime:
+    properties:
+      configured_java_home:
+        type: string
+      host_id:
+        type: integer
+      java_bin:
+        type: string
+      java_home:
+        type: string
+      message:
+        type: string
+      node_id:
+        type: integer
+      reason:
+        type: string
+      source:
+        type: string
+      status:
+        type: string
+      version:
+        type: integer
+      version_string:
+        type: string
     type: object
   cluster.NodeOperationResult:
     properties:
@@ -1216,6 +1260,12 @@ definitions:
         type: integer
       install_dir:
         type: string
+      java_home:
+        description: |-
+          JavaHome 是新节点指定的 JDK 目录；为空时自动探测，不继承已有节点的路径（AC1d）。
+          JavaHome is the new node's JDK directory; empty means auto detection and never inherits an existing node's
+          path (AC1d).
+        type: string
       mode:
         allOf:
         - $ref: '#/definitions/cluster.ScaleMode'
@@ -1238,6 +1288,12 @@ definitions:
       host_id:
         type: integer
       install_dir:
+        type: string
+      java_home:
+        description: |-
+          JavaHome 是新节点指定的 JDK 目录；为空时自动探测，不继承已有节点的路径（AC1d）。
+          JavaHome is the new node's JDK directory; empty means auto detection and never inherits an existing node's
+          path (AC1d).
         type: string
       loopback_restart_ack:
         type: boolean
@@ -1509,6 +1565,8 @@ definitions:
         type: string
       install_dir:
         type: string
+      java_home:
+        type: string
       node_id:
         type: integer
       role:
@@ -1680,6 +1738,52 @@ definitions:
       error_msg:
         type: string
     type: object
+  dashboard.HomeAlertStats:
+    properties:
+      active:
+        type: integer
+      critical:
+        type: integer
+    type: object
+  dashboard.HomeClusterStats:
+    properties:
+      degraded:
+        type: integer
+      healthy:
+        type: integer
+      nodes_online:
+        type: integer
+      nodes_total:
+        type: integer
+      total:
+        type: integer
+      unhealthy:
+        type: integer
+    type: object
+  dashboard.HomeSummary:
+    properties:
+      alerts:
+        $ref: '#/definitions/dashboard.HomeAlertStats'
+      attention:
+        items:
+          $ref: '#/definitions/sync.HomeAttentionItem'
+        type: array
+      cluster_id:
+        type: integer
+      clusters:
+        $ref: '#/definitions/dashboard.HomeClusterStats'
+      generated_at:
+        type: string
+      jobs:
+        $ref: '#/definitions/sync.HomeJobSummary'
+      partial_errors:
+        description: |-
+          PartialErrors 记录取数失败的区块（jobs / clusters / alerts），其余区块照常返回。
+          PartialErrors lists blocks that failed to load (jobs / clusters / alerts); the rest still return.
+        items:
+          type: string
+        type: array
+    type: object
   dashboard.HostSummary:
     properties:
       agent_status:
@@ -1811,6 +1915,13 @@ definitions:
         items:
           type: string
         type: array
+      java_homes:
+        additionalProperties:
+          type: string
+        description: |-
+          JavaHomes 按安装目录指定节点 JDK；空值表示自动探测（AC1e）。
+          JavaHomes maps install directories to node JDKs; empty means auto detection (AC1e).
+        type: object
     required:
     - host_id
     type: object
@@ -1889,6 +2000,11 @@ definitions:
       is_new:
         description: 是否为新发现的集群 / Whether it's a newly discovered cluster
         type: boolean
+      java_home:
+        description: |-
+          JavaHome 是纳管时用户选定的节点 JDK；空表示自动探测（AC1e）。实现 CreateClusterFromDiscovery 时应写入节点。
+          JavaHome is the node JDK chosen at import; empty means auto detection (AC1e). CreateClusterFromDiscovery should persist it.
+        type: string
       name:
         type: string
       nodes:
@@ -1904,6 +2020,9 @@ definitions:
         type: integer
       hazelcast_port:
         type: integer
+      java_home:
+        description: JavaHome 是进程实际 JDK（AC1f）/ Process actual JDK (AC1f)
+        type: string
       pid:
         type: integer
       role:
@@ -1924,6 +2043,11 @@ definitions:
         type: integer
       install_dir:
         description: SeaTunnel installation directory / SeaTunnel 安装目录
+        type: string
+      java_home:
+        description: |-
+          JavaHome 是进程实际使用的 JDK（由 Agent 从 /proc/<pid>/exe 解析）；解析不到为空（AC1f）。
+          JavaHome is the JDK the process actually uses (resolved by the Agent from /proc/<pid>/exe); empty when unresolved (AC1f).
         type: string
       pid:
         type: integer
@@ -1951,16 +2075,6 @@ definitions:
           type: string
         type: array
     type: object
-  github_com_LeonYoah_stx_internal_apps_installer.CheckStatus:
-    enum:
-    - passed
-    - failed
-    - warning
-    type: string
-    x-enum-varnames:
-    - CheckStatusPassed
-    - CheckStatusFailed
-    - CheckStatusWarning
   github_com_LeonYoah_stx_internal_apps_installer.CheckpointConfig:
     properties:
       disable_cache:
@@ -2184,7 +2298,10 @@ definitions:
       dynamic_slot:
         type: boolean
       enable_event_channel:
-        description: 是否在安装后、节点启动前写入事件通道。省略时 3.0.0 及以上默认开启，更低版本忽略。
+        description: |-
+          EnableEventChannel 是否在安装后、节点启动前写入事件通道。nil 且版本 ≥3.0.0 时默认开启；更低版本忽略。
+          EnableEventChannel writes the event channel after install and before the node starts. Nil defaults to on for
+          ≥3.0.0 and is ignored on older versions.
         type: boolean
       enable_http:
         description: 是否开启 SeaTunnel HTTP / Web UI
@@ -2202,6 +2319,9 @@ definitions:
         type: string
       install_mode:
         $ref: '#/definitions/github_com_LeonYoah_stx_internal_apps_installer.InstallMode'
+      java_home:
+        description: 节点指定的 JDK 目录，为空时自动探测 / Node JDK directory; empty means auto detection
+        type: string
       java_proxy_port:
         description: Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口
         type: integer
@@ -2345,29 +2465,6 @@ definitions:
       uploaded_at:
         type: string
       version:
-        type: string
-    type: object
-  github_com_LeonYoah_stx_internal_apps_installer.PrecheckItem:
-    properties:
-      details:
-        additionalProperties: true
-        type: object
-      message:
-        type: string
-      name:
-        type: string
-      status:
-        $ref: '#/definitions/github_com_LeonYoah_stx_internal_apps_installer.CheckStatus'
-    type: object
-  github_com_LeonYoah_stx_internal_apps_installer.PrecheckResult:
-    properties:
-      items:
-        items:
-          $ref: '#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PrecheckItem'
-        type: array
-      overall_status:
-        $ref: '#/definitions/github_com_LeonYoah_stx_internal_apps_installer.CheckStatus'
-      summary:
         type: string
     type: object
   github_com_LeonYoah_stx_internal_apps_installer.StepInfo:
@@ -2742,6 +2839,15 @@ definitions:
     x-enum-varnames:
     - JobScheduleStrategyWait
     - JobScheduleStrategyReject
+  installer.ListJavaRuntimesResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/javaruntime.Candidate'
+        type: array
+      error_msg:
+        type: string
+    type: object
   installer.ListPackagesResponse:
     properties:
       data:
@@ -2760,28 +2866,6 @@ definitions:
       total_chunks:
         type: integer
       upload_id:
-        type: string
-    type: object
-  installer.PrecheckRequest:
-    properties:
-      install_dir:
-        type: string
-      min_cpu_cores:
-        type: integer
-      min_disk_space_mb:
-        type: integer
-      min_memory_mb:
-        type: integer
-      ports:
-        items:
-          type: integer
-        type: array
-    type: object
-  installer.PrecheckResponse:
-    properties:
-      data:
-        $ref: '#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PrecheckResult'
-      error_msg:
         type: string
     type: object
   installer.RefreshVersionsResponse:
@@ -2827,6 +2911,19 @@ definitions:
       data:
         $ref: '#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PackageInfo'
       error_msg:
+        type: string
+    type: object
+  javaruntime.Candidate:
+    properties:
+      java_bin:
+        type: string
+      java_home:
+        type: string
+      source:
+        type: string
+      version:
+        type: integer
+      version_string:
         type: string
     type: object
   monitor.MonitorConfig:
@@ -3617,7 +3714,6 @@ definitions:
     - 已安装 / Installed
     - 已启用 / Enabled
     - 已禁用 / Disabled
-    - ""
     x-enum-varnames:
     - PluginStatusAvailable
     - PluginStatusInstalled
@@ -3642,7 +3738,9 @@ definitions:
       default_dynamic_slot:
         type: boolean
       default_event_channel_enabled:
-        description: 安装向导在该版本上的事件通道默认值（3.0.0 起为 true）
+        description: |-
+          DefaultEventChannelEnabled 是安装向导在该版本上的事件通道默认值。
+          DefaultEventChannelEnabled is the install wizard default for the event channel on this version.
         type: boolean
       default_history_job_expire_minutes:
         type: integer
@@ -3661,7 +3759,9 @@ definitions:
       supports_dynamic_slot:
         type: boolean
       supports_event_channel:
-        description: 一键安装可以写入事件通道（3.0.0 起）
+        description: |-
+          SupportsEventChannel 表示一键安装可以写入 event-report-http（3.0.0 起，安装向导默认勾选）。
+          SupportsEventChannel means one-click install can write event-report-http (since 3.0.0; the wizard checks it by default).
         type: boolean
       supports_history_job_expire_minutes:
         type: boolean
@@ -4060,6 +4160,80 @@ definitions:
       version:
         type: string
     type: object
+  sync.HomeAttentionItem:
+    properties:
+      alert_id:
+        type: string
+      at:
+        type: string
+      detail:
+        type: string
+      job_id:
+        type: integer
+      kind:
+        description: job_failed | cdc_delay | backpressure | alert
+        type: string
+      severity:
+        description: critical | warning
+        type: string
+      task_id:
+        type: integer
+      title:
+        type: string
+      value:
+        type: number
+      viewable:
+        type: boolean
+    type: object
+  sync.HomeJobSummary:
+    properties:
+      attention:
+        items:
+          $ref: '#/definitions/sync.HomeAttentionItem'
+        type: array
+      cdc_threshold_seconds:
+        type: integer
+      cdc_trend:
+        items:
+          items:
+            format: float64
+            type: number
+          type: array
+        type: array
+      failed_24h:
+        type: integer
+      failed_prev_24h:
+        type: integer
+      max_cdc_delay_seconds:
+        type: number
+      max_cdc_job_id:
+        type: integer
+      max_cdc_job_name:
+        type: string
+      max_cdc_task_id:
+        type: integer
+      read_qps:
+        type: number
+      running:
+        type: integer
+      running_batch:
+        type: integer
+      running_streaming:
+        type: integer
+      trend_reason:
+        type: string
+      trend_source:
+        type: string
+      write_qps:
+        type: number
+      write_trend:
+        items:
+          items:
+            format: float64
+            type: number
+          type: array
+        type: array
+    type: object
   sync.JSONMap:
     additionalProperties: true
     type: object
@@ -4108,6 +4282,12 @@ definitions:
         description: |-
           CDCDelay 是事件通道聚合的 CDC 延迟摘要（内存态，响应时补充，不落库）。
           CDCDelay is the CDC delay summary aggregated from the event channel (in memory, filled at response time).
+      cluster_id:
+        description: |-
+          ClusterID / JobMode 是从提交快照派生的维度列，创建时由 BeforeCreate 填写、启动时回填历史行，供作业列表按集群 / 模式筛选。
+          ClusterID / JobMode are dimension columns derived from the submit snapshot: BeforeCreate fills them and startup
+          backfills old rows, so the job list can filter by cluster and mode in SQL.
+        type: integer
       created_at:
         type: string
       created_by:
@@ -4132,6 +4312,8 @@ definitions:
           LastSyncedAt 记录最近一次成功向 SeaTunnel 对齐状态的时间（UTC）。
           LastSyncedAt is when STX last successfully synced runtime state from SeaTunnel (UTC).
         type: string
+      live:
+        $ref: '#/definitions/sync.JobLiveMetrics'
       mode:
         description: |-
           Mode 从提交快照回填，供 CLI --wait 区分批任务和实时任务，不落库。
@@ -4169,10 +4351,52 @@ definitions:
           SyncState indicates observation freshness: ok / degraded / stale / unknown.
       task_id:
         type: integer
+      task_name:
+        description: |-
+          TaskName / Live 只在全局作业列表（with_live=1）里补充，不落库。
+          TaskName / Live are filled only for the global job list (with_live=1) and are not persisted.
+        type: string
       task_version:
         type: integer
       updated_at:
         type: string
+    type: object
+  sync.JobListData:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/sync.JobInstance'
+        type: array
+      status_counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: |-
+          StatusCounts 只在 with_counts=1 时返回：按状态组计数，不受状态筛选影响。
+          StatusCounts is returned only with with_counts=1: counts per status group, ignoring the status filter.
+        type: object
+      total:
+        type: integer
+    type: object
+  sync.JobListResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.JobListData'
+      error_msg:
+        type: string
+    type: object
+  sync.JobLiveMetrics:
+    properties:
+      cdc_delay_seconds:
+        type: number
+      read_qps:
+        type: number
+      read_total:
+        type: number
+      write_qps:
+        type: number
+      write_total:
+        type: number
     type: object
   sync.JobPlanDAGResponse:
     properties:
@@ -4261,6 +4485,35 @@ definitions:
       error_msg:
         type: string
     type: object
+  sync.JobSparklinesResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.JobSparklinesResult'
+      error_msg:
+        type: string
+    type: object
+  sync.JobSparklinesResult:
+    properties:
+      items:
+        additionalProperties:
+          items:
+            items:
+              format: float64
+              type: number
+            type: array
+          type: array
+        type: object
+      metric:
+        type: string
+      range:
+        type: string
+      reason:
+        type: string
+      source:
+        type: string
+      step_seconds:
+        type: integer
+    type: object
   sync.JobStatus:
     enum:
     - pending
@@ -4321,6 +4574,8 @@ definitions:
         items:
           $ref: '#/definitions/sync.JobTimeseriesAnnotation'
         type: array
+      end_ms:
+        type: integer
       engine_observability_enabled:
         type: boolean
       range:
@@ -4333,6 +4588,8 @@ definitions:
         type: array
       source:
         type: string
+      start_ms:
+        type: integer
       step_seconds:
         type: integer
     type: object
@@ -5530,6 +5787,29 @@ paths:
             $ref: '#/definitions/cluster.AddNodeResponse'
       tags:
       - clusters
+  /api/v1/clusters/{id}/nodes/{nodeId}/java-runtime:
+    get:
+      parameters:
+      - description: 集群 ID / Cluster ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 节点 ID / Node ID
+        in: path
+        name: nodeId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cluster.GetNodeJavaRuntimeResponse'
+      summary: 查询节点生效的 JDK / Get the node's effective JDK
+      tags:
+      - clusters
   /api/v1/clusters/{id}/nodes/{nodeId}/scale-in:
     post:
       consumes:
@@ -6264,6 +6544,32 @@ paths:
       summary: 规范化配置内容
       tags:
       - Config
+  /api/v1/dashboard/home/summary:
+    get:
+      parameters:
+      - description: 集群 ID，空表示全部集群
+        in: query
+        name: cluster_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dashboard.DashboardDataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dashboard.HomeSummary'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dashboard.DashboardDataResponse'
+      summary: 首页汇总（作业 / 集群 / 告警 / 需要处理）
+      tags:
+      - Dashboard
   /api/v1/dashboard/overview:
     get:
       consumes:
@@ -6933,28 +7239,21 @@ paths:
             $ref: '#/definitions/installer.InstallResponse'
       tags:
       - installation
-  /api/v1/hosts/{id}/precheck:
-    post:
-      consumes:
-      - application/json
+  /api/v1/hosts/{id}/java-runtimes:
+    get:
       parameters:
       - description: 主机ID
         in: path
         name: id
         required: true
         type: integer
-      - description: 预检查参数
-        in: body
-        name: request
-        schema:
-          $ref: '#/definitions/installer.PrecheckRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/installer.PrecheckResponse'
+            $ref: '#/definitions/installer.ListJavaRuntimesResponse'
       tags:
       - installation
   /api/v1/oauth/callback:
@@ -7607,6 +7906,78 @@ paths:
       summary: 开关集群事件通道或轮换 token（改写 seatunnel.yaml，需滚动重启生效）
       tags:
       - Sync
+  /api/v1/sync/jobs:
+    get:
+      parameters:
+      - default: 1
+        description: 页码（CLI 用 page）
+        in: query
+        name: current
+        type: integer
+      - default: 50
+        description: 每页条数（CLI 用 page_size）
+        in: query
+        name: size
+        type: integer
+      - description: 任务 ID
+        in: query
+        name: task_id
+        type: integer
+      - description: 原始状态，逗号分隔
+        in: query
+        name: status
+        type: string
+      - description: 状态组，逗号分隔：running|failed|pending|stopping|canceled|finished
+        in: query
+        name: status_group
+        type: string
+      - description: streaming|batch
+        in: query
+        name: mode
+        type: string
+      - description: 集群 ID
+        in: query
+        name: cluster_id
+        type: integer
+      - description: 任务名（模糊）、引擎作业 ID 或平台作业 ID（精确）
+        in: query
+        name: keyword
+        type: string
+      - description: 排除的运行类型，逗号分隔，如 preview
+        in: query
+        name: exclude_run_type
+        type: string
+      - description: attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）
+        in: query
+        name: sort
+        type: string
+      - default: desc
+        description: asc|desc
+        in: query
+        name: order
+        type: string
+      - description: 1 = 返回各状态组计数
+        in: query
+        name: with_counts
+        type: integer
+      - description: 1 = 返回任务名与当前读写速率
+        in: query
+        name: with_live
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.JobListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.JobListResponse'
+      summary: 作业实例列表（支持全局筛选、排序与当前值）
+      tags:
+      - Sync
   /api/v1/sync/jobs/{id}/events:
     get:
       parameters:
@@ -7730,7 +8101,7 @@ paths:
         in: query
         name: step
         type: integer
-      - description: 逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure
+      - description: 逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure,table
         in: query
         name: metrics
         type: string
@@ -7783,6 +8154,38 @@ paths:
           schema:
             $ref: '#/definitions/sync.JobResponse'
       summary: 按外部调度引用停止作业
+      tags:
+      - Sync
+  /api/v1/sync/jobs/sparklines:
+    get:
+      parameters:
+      - description: 逗号分隔的作业 ID，最多 100 个；无权查看的 ID 被忽略
+        in: query
+        name: ids
+        required: true
+        type: string
+      - default: 1h
+        description: 时间范围：15m|1h|6h|24h|7d
+        in: query
+        name: range
+        type: string
+      - default: write
+        description: write|read
+        in: query
+        name: metric
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.JobSparklinesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.JobSparklinesResponse'
+      summary: 批量获取作业速率迷你曲线（Prometheus）
       tags:
       - Sync
   /api/v1/sync/scheduler-connections:

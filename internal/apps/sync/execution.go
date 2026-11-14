@@ -48,15 +48,11 @@ func (s *Service) ListJobsForActor(ctx context.Context, actor executionapp.Actor
 		clone := *filter
 		filter = &clone
 	}
-	if filter.TaskID > 0 {
-		task, err := s.repo.GetTaskByID(ctx, filter.TaskID)
-		if err == nil && task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
-			filter.IncludeAll = true
-			return s.ListJobs(ctx, filter)
-		}
+	// 可见范围与 GetJob 一致：自己创建的作业 + 可查看任务下的作业（见 scopeJobFilterForActor）。
+	// Visibility matches GetJob: own jobs plus jobs under viewable tasks (see scopeJobFilterForActor).
+	if err := s.scopeJobFilterForActor(ctx, actor, filter); err != nil {
+		return nil, 0, err
 	}
-	filter.OwnerUserID = uint(actor.UserID)
-	filter.IncludeAll = actor.IsAdmin
 	return s.ListJobs(ctx, filter)
 }
 

@@ -151,6 +151,29 @@ type JobFilter struct {
 	IncludeAll    bool
 	Page          int
 	Size          int
+	// VisibleTaskIDs 是非管理员可查看的任务；与 OwnerUserID 取并集（自己创建的作业 + 可见任务下的作业）。
+	// VisibleTaskIDs are tasks a non-admin may view; unioned with OwnerUserID (own jobs + jobs under visible tasks).
+	VisibleTaskIDs []uint
+	// Statuses / Mode / ClusterID / Keyword 是全局作业列表的筛选条件，均可为空。
+	// Statuses / Mode / ClusterID / Keyword are the global job list filters; all optional.
+	Statuses  []JobStatus
+	Mode      string
+	ClusterID uint
+	Keyword   string
+	// Sort 为空时保持 created_at DESC，兼容旧调用方；取值见 jobListSort*。
+	// Sort keeps created_at DESC when empty for old callers; see jobListSort* for values.
+	Sort  string
+	Order string
+	// ExcludeRunTypes 排除的运行类型；全局作业列表用它去掉预览运行。
+	// ExcludeRunTypes are run types to leave out; the global job list uses it to drop preview runs.
+	ExcludeRunTypes []RunType
+	// IDs 限定作业 ID（sparklines 用它和可见范围求交集）。
+	// IDs restricts job IDs (sparklines intersect them with the visibility scope).
+	IDs []uint
+	// FinishedAfter / FinishedBefore 按结束时间筛选（首页统计 24 小时失败数用）。
+	// FinishedAfter / FinishedBefore filter by finish time (used for the home page's 24h failure counts).
+	FinishedAfter  *time.Time
+	FinishedBefore *time.Time
 }
 
 // ValidateResult represents validation result payload.
@@ -264,6 +287,9 @@ type TaskVersionListData struct {
 type JobListData struct {
 	Total int64          `json:"total"`
 	Items []*JobInstance `json:"items"`
+	// StatusCounts 只在 with_counts=1 时返回：按状态组计数，不受状态筛选影响。
+	// StatusCounts is returned only with with_counts=1: counts per status group, ignoring the status filter.
+	StatusCounts map[string]int64 `json:"status_counts,omitempty"`
 }
 
 // GlobalVariableListData represents paginated global variables.

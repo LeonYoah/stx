@@ -124,7 +124,7 @@ lib/services/dashboard/home.service.ts        // 走 BaseService / apiClient
 | 数据流向 | beUI `sankey-chart` | 待安装 |
 | 运行日历 | beUI `heat-calendar` | 待安装 |
 | Checkpoint | Arc `bar-chart` | 已安装 |
-| 作业列表 | beUI `table`（虚拟滚动、排序、多选）+ beUI `sparkline` | 待安装 |
+| 作业列表 | 现有 `StudioDataTable`（`components/common/sync/StudioDataTable.tsx`：HeroUI Table 解剖 + Arc token，粘性表头、列排序、表内空态、底栏分页）+ beUI `sparkline` | 表格已有；sparkline 待安装 |
 | 空态 | Arc `empty-state` | 待安装 |
 | 状态筛选 | 现有 `StatPillsBar` | 已有 |
 

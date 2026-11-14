@@ -516,6 +516,30 @@ var registry = append([]OperationSpec{
 }`,
 	},
 	{
+		ID:           "dashboard.home.summary",
+		CommandPath:  []string{"dashboard", "home", "summary"},
+		Summary:      "Get the home page summary: job counts and rates, cluster health, alerts and items needing attention",
+		GeneratedCLI: true,
+		Method:       "GET",
+		Route:        "/api/v1/dashboard/home/summary",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		SupportsPick: true,
+		Input: []InputSpec{
+			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
+		},
+		Example: "stx dashboard home summary --cluster_id 1",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "dashboard.home.summary",
+  "request_id": "req_example",
+  "data": {"jobs":{"running":9,"running_streaming":7,"running_batch":2,"failed_24h":2,"write_qps":27200},"clusters":{"total":2,"healthy":1,"nodes_online":4,"nodes_total":4},"alerts":{"active":3,"critical":3},"attention":[]},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
 		ID:           "host.list",
 		CommandPath:  []string{"host", "list"},
 		Summary:      "List hosts",

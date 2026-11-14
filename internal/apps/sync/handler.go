@@ -117,6 +117,13 @@ type JobTimeseriesResponse struct {
 	ErrorMsg string               `json:"error_msg"`
 	Data     *JobTimeseriesResult `json:"data"`
 }
+
+// JobSparklinesResponse 是 sparklines 接口的响应外壳。
+// JobSparklinesResponse is the envelope of the sparklines endpoint.
+type JobSparklinesResponse struct {
+	ErrorMsg string               `json:"error_msg"`
+	Data     *JobSparklinesResult `json:"data"`
+}
 type JobListResponse struct {
 	ErrorMsg string       `json:"error_msg"`
 	Data     *JobListData `json:"data"`
@@ -592,10 +599,34 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 }
 
 // ListJobs handles GET /api/v1/sync/jobs.
+// ListJobs 返回作业列表；不带扩展参数时与旧接口一致，扩展参数用于首页全局作业列表。
+// ListJobs returns job instances; without the extended parameters it behaves as before, and they serve the home
+// page's global job list.
+// @Summary 作业实例列表（支持全局筛选、排序与当前值）
+// @Tags Sync
+// @Produce json
+// @Param current query int false "页码（CLI 用 page）" default(1)
+// @Param size query int false "每页条数（CLI 用 page_size）" default(50)
+// @Param task_id query int false "任务 ID"
+// @Param status query string false "原始状态，逗号分隔"
+// @Param status_group query string false "状态组，逗号分隔：running|failed|pending|stopping|canceled|finished"
+// @Param mode query string false "streaming|batch"
+// @Param cluster_id query int false "集群 ID"
+// @Param keyword query string false "任务名（模糊）、引擎作业 ID 或平台作业 ID（精确）"
+// @Param exclude_run_type query string false "排除的运行类型，逗号分隔，如 preview"
+// @Param sort query string false "attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）"
+// @Param order query string false "asc|desc" default(desc)
+// @Param with_counts query int false "1 = 返回各状态组计数"
+// @Param with_live query int false "1 = 返回任务名与当前读写速率"
+// @Success 200 {object} JobListResponse
+// @Failure 400 {object} JobListResponse
+// @Router /api/v1/sync/jobs [get]
 func (h *Handler) ListJobs(c *gin.Context) {
 	filter := &JobFilter{
-		Page:          parsePositiveInt(c.Query("current"), 1),
-		Size:          parsePositiveInt(c.Query("size"), 50),
+		// current / size 是网页端参数名，page / page_size 是 CLI 登记的参数名，两套都认。
+		// current / size are the web parameter names and page / page_size the CLI ones; both are accepted.
+		Page:          parsePositiveInt(firstQuery(c, "current", "page"), 1),
+		Size:          parsePositiveInt(firstQuery(c, "size", "page_size"), 50),
 		PlatformJobID: strings.TrimSpace(c.Query("platform_job_id")),
 		EngineJobID:   strings.TrimSpace(c.Query("engine_job_id")),
 	}
@@ -610,12 +641,71 @@ func (h *Handler) ListJobs(c *gin.Context) {
 	if runType := c.Query("run_type"); runType != "" {
 		filter.RunType = RunType(runType)
 	}
-	jobs, total, err := h.service.ListJobsForActor(c.Request.Context(), currentExecutionActor(c), filter)
+	// 全局作业列表的扩展参数；都不传时与旧接口完全一致。
+	// Extended global job list parameters; with none set the endpoint behaves exactly as before.
+	if raw := strings.TrimSpace(c.Query("status_group")); raw != "" {
+		statuses, err := ResolveJobStatusGroups(raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, JobListResponse{ErrorMsg: err.Error()})
+			return
+		}
+		filter.Statuses = append(filter.Statuses, statuses...)
+	}
+	for _, raw := range strings.Split(c.Query("status"), ",") {
+		if status := strings.TrimSpace(raw); status != "" {
+			filter.Statuses = append(filter.Statuses, JobStatus(strings.ToLower(status)))
+		}
+	}
+	for _, raw := range strings.Split(c.Query("exclude_run_type"), ",") {
+		if runType := strings.TrimSpace(raw); runType != "" {
+			filter.ExcludeRunTypes = append(filter.ExcludeRunTypes, RunType(strings.ToLower(runType)))
+		}
+	}
+	if clusterID := strings.TrimSpace(c.Query("cluster_id")); clusterID != "" {
+		parsed, err := strconv.ParseUint(clusterID, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, JobListResponse{ErrorMsg: "invalid cluster_id"})
+			return
+		}
+		filter.ClusterID = uint(parsed)
+	}
+	filter.Mode = strings.TrimSpace(c.Query("mode"))
+	filter.Keyword = strings.TrimSpace(c.Query("keyword"))
+	filter.Sort = c.Query("sort")
+	filter.Order = c.Query("order")
+	opts := JobListOptions{WithCounts: queryFlag(c, "with_counts"), WithLive: queryFlag(c, "with_live")}
+	data, err := h.service.ListJobsWithOptions(c.Request.Context(), currentExecutionActor(c), filter, opts)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobListResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, JobListResponse{Data: &JobListData{Total: total, Items: sanitizeJobsForResponse(jobs)}})
+	data.Items = sanitizeJobsForResponse(data.Items)
+	c.JSON(http.StatusOK, JobListResponse{Data: data})
+}
+
+// GetJobSparklines 批量返回作业近一段时间的读 / 写速率迷你曲线（Prometheus）。
+// GetJobSparklines returns recent read / write rate sparklines for many jobs (Prometheus).
+// @Summary 批量获取作业速率迷你曲线（Prometheus）
+// @Tags Sync
+// @Produce json
+// @Param ids query string true "逗号分隔的作业 ID，最多 100 个；无权查看的 ID 被忽略"
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param metric query string false "write|read" default(write)
+// @Success 200 {object} JobSparklinesResponse
+// @Failure 400 {object} JobSparklinesResponse
+// @Router /api/v1/sync/jobs/sparklines [get]
+func (h *Handler) GetJobSparklines(c *gin.Context) {
+	ids, err := ParseJobIDList(c.Query("ids"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, JobSparklinesResponse{ErrorMsg: err.Error()})
+		return
+	}
+	data, err := h.service.GetJobSparklinesForActor(c.Request.Context(), currentExecutionActor(c), ids, c.Query("range"), c.Query("metric"))
+	if err != nil {
+		c.JSON(h.getStatusCodeForError(err), JobSparklinesResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, JobSparklinesResponse{Data: data})
 }
 
 // GetJob handles GET /api/v1/sync/jobs/:id.
@@ -952,7 +1042,7 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		return http.StatusServiceUnavailable
 	case errors.Is(err, ErrTaskReadOnly), errors.Is(err, ErrTaskPermissionDenied), errors.Is(err, ErrEventChannelPermissionDenied), errors.Is(err, ErrGlobalVariablePermissionDenied), errors.Is(err, ErrCuratedTemplatePermissionDenied), errors.Is(err, ErrCuratedTemplateBuiltinReadonly):
 		return http.StatusForbidden
-	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored), errors.Is(err, ErrInvalidTaskCollaborator), errors.Is(err, ErrCuratedTemplateNameRequired), errors.Is(err, ErrCuratedTemplateContentRequired), errors.Is(err, ErrCuratedTemplateSectionInvalid), errors.Is(err, ErrCuratedBuiltinIDRequired), errors.Is(err, ErrUnreplacedVariable), errors.Is(err, ErrUndefinedTemplateVariable), errors.Is(err, ErrInvalidScheduleTime), errors.Is(err, ErrSchedulerConnectionInvalid), errors.Is(err, ErrDolphinPushInvalid), errors.Is(err, ErrDolphinCycle), errors.Is(err, ErrScheduleLockedByDolphin), errors.Is(err, ErrDolphinNodeMissing), errors.Is(err, ErrDolphinUnsupportedVersion), errors.Is(err, ErrEventChannelVersionUnsupported), errors.Is(err, ErrEventChannelExternalURLMissing), errors.Is(err, ErrEventChannelSecretMissing), errors.Is(err, ErrInvalidTaskTimeout):
+	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored), errors.Is(err, ErrInvalidTaskCollaborator), errors.Is(err, ErrCuratedTemplateNameRequired), errors.Is(err, ErrCuratedTemplateContentRequired), errors.Is(err, ErrCuratedTemplateSectionInvalid), errors.Is(err, ErrCuratedBuiltinIDRequired), errors.Is(err, ErrUnreplacedVariable), errors.Is(err, ErrUndefinedTemplateVariable), errors.Is(err, ErrInvalidScheduleTime), errors.Is(err, ErrSchedulerConnectionInvalid), errors.Is(err, ErrDolphinPushInvalid), errors.Is(err, ErrDolphinCycle), errors.Is(err, ErrScheduleLockedByDolphin), errors.Is(err, ErrDolphinNodeMissing), errors.Is(err, ErrDolphinUnsupportedVersion), errors.Is(err, ErrEventChannelVersionUnsupported), errors.Is(err, ErrEventChannelExternalURLMissing), errors.Is(err, ErrEventChannelSecretMissing), errors.Is(err, ErrInvalidTaskTimeout), errors.Is(err, ErrInvalidJobListQuery):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, ErrAttachGenerationMismatch), errors.Is(err, ErrJobCancellingTimeout), errors.Is(err, ErrDolphinVersionConflict), errors.Is(err, ErrSchedulerBindingExists), errors.Is(err, ErrDolphinPushNoNewVersion), errors.Is(err, ErrSubmitOutcomePending):
 		return http.StatusConflict

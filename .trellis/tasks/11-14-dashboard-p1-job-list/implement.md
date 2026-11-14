@@ -33,7 +33,7 @@
 
 ## 4. 前端：骨架（回退点 B）
 
-- [ ] 安装 `@uiarc/metric-card @uiarc/empty-state @beui/table @beui/sparkline`；MIT 头 + `licenses/third_party_mit_files.txt`。
+- [ ] 安装 `@uiarc/metric-card @uiarc/empty-state @beui/sparkline`（表格复用 `StudioDataTable`）；MIT 头 + `licenses/third_party_mit_files.txt`。
 - [ ] 图标候选列表 → 开发者确认。
 - [ ] `HomeDashboard`、`useDashboardQueryState`、`DashboardKpiRow`、`AttentionStrip`、`TrendEmptyState`；`dashboard/page.tsx` 精简，删除旧四宫格。
 - [ ] `home.service.ts`、i18n zh / en。
@@ -41,7 +41,7 @@
 ## 5. 前端：作业列表页签
 
 - [ ] `sync.service.ts`：`listJobs` 新参数 / 新字段类型、`getJobSparklines`。
-- [ ] `JobListTab`：StatPillsBar、模式 / 集群 / 关键字、beUI table、服务端分页与排序、sparkline 批量取。
+- [ ] `JobListTab`：StatPillsBar、模式 / 集群 / 关键字、`StudioDataTable`、服务端分页与排序、sparkline 批量取。
 - [ ] `JobPreviewDrawer`（Sheet + 1h 趋势 + 失败原因 + 跳工作台深链）。
 - [ ] `useJobBulkActions`（停止 / 恢复，复用确认交互，逐条结果）。
 - [ ] 单测；`pnpm test`、`pnpm exec tsc --noEmit`、改动文件 eslint。

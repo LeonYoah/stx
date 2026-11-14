@@ -344,24 +344,7 @@ func (r *Repository) GetJobInstanceByIDForOwner(ctx context.Context, id, ownerUs
 
 // ListJobInstances lists job instances with filter and pagination.
 func (r *Repository) ListJobInstances(ctx context.Context, filter *JobFilter) ([]*JobInstance, int64, error) {
-	query := r.db.WithContext(ctx).Model(&JobInstance{})
-	if filter != nil {
-		if !filter.IncludeAll {
-			query = query.Where("created_by = ?", filter.OwnerUserID)
-		}
-		if filter.TaskID > 0 {
-			query = query.Where("task_id = ?", filter.TaskID)
-		}
-		if filter.RunType != "" {
-			query = query.Where("run_type = ?", filter.RunType)
-		}
-		if strings.TrimSpace(filter.PlatformJobID) != "" {
-			query = query.Where("platform_job_id = ?", strings.TrimSpace(filter.PlatformJobID))
-		}
-		if strings.TrimSpace(filter.EngineJobID) != "" {
-			query = query.Where("engine_job_id = ?", strings.TrimSpace(filter.EngineJobID))
-		}
-	}
+	query := r.applyJobFilter(r.db.WithContext(ctx).Model(&JobInstance{}), filter, true)
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -377,10 +360,192 @@ func (r *Repository) ListJobInstances(ctx context.Context, filter *JobFilter) ([
 	}
 
 	var instances []*JobInstance
-	if err := query.Order("created_at DESC").Find(&instances).Error; err != nil {
+	if err := applyJobListOrder(query, filter).Find(&instances).Error; err != nil {
 		return nil, 0, err
 	}
 	return instances, total, nil
+}
+
+// CountJobInstancesByStatus 按状态计数，套用除状态外的全部筛选，供列表状态胶囊显示。
+// CountJobInstancesByStatus counts jobs per status with every filter except status, for the list's status pills.
+func (r *Repository) CountJobInstancesByStatus(ctx context.Context, filter *JobFilter) (map[JobStatus]int64, error) {
+	type row struct {
+		Status JobStatus
+		Total  int64
+	}
+	var rows []row
+	query := r.applyJobFilter(r.db.WithContext(ctx).Model(&JobInstance{}), filter, false)
+	if err := query.Select("status, COUNT(*) AS total").Group("status").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[JobStatus]int64, len(rows))
+	for _, item := range rows {
+		out[item.Status] = item.Total
+	}
+	return out, nil
+}
+
+// applyJobFilter 把 JobFilter 翻译成 WHERE 条件；withStatus=false 时跳过状态条件（用于状态计数）。
+// applyJobFilter turns a JobFilter into WHERE clauses; withStatus=false skips the status clause (for status counts).
+func (r *Repository) applyJobFilter(query *gorm.DB, filter *JobFilter, withStatus bool) *gorm.DB {
+	if filter == nil {
+		return query
+	}
+	if !filter.IncludeAll {
+		if len(filter.VisibleTaskIDs) > 0 {
+			query = query.Where("(created_by = ? OR task_id IN ?)", filter.OwnerUserID, filter.VisibleTaskIDs)
+		} else {
+			query = query.Where("created_by = ?", filter.OwnerUserID)
+		}
+	}
+	if filter.TaskID > 0 {
+		query = query.Where("task_id = ?", filter.TaskID)
+	}
+	if len(filter.IDs) > 0 {
+		query = query.Where("id IN ?", filter.IDs)
+	}
+	if filter.FinishedAfter != nil {
+		query = query.Where("finished_at IS NOT NULL AND finished_at >= ?", timex.Bound(*filter.FinishedAfter))
+	}
+	if filter.FinishedBefore != nil {
+		query = query.Where("finished_at IS NOT NULL AND finished_at < ?", timex.Bound(*filter.FinishedBefore))
+	}
+	if filter.RunType != "" {
+		query = query.Where("run_type = ?", filter.RunType)
+	}
+	if len(filter.ExcludeRunTypes) > 0 {
+		query = query.Where("run_type NOT IN ?", filter.ExcludeRunTypes)
+	}
+	if strings.TrimSpace(filter.PlatformJobID) != "" {
+		query = query.Where("platform_job_id = ?", strings.TrimSpace(filter.PlatformJobID))
+	}
+	if strings.TrimSpace(filter.EngineJobID) != "" {
+		query = query.Where("engine_job_id = ?", strings.TrimSpace(filter.EngineJobID))
+	}
+	if withStatus && len(filter.Statuses) > 0 {
+		query = query.Where("status IN ?", filter.Statuses)
+	}
+	if filter.Mode != "" {
+		query = query.Where("job_mode = ?", filter.Mode)
+	}
+	if filter.ClusterID > 0 {
+		query = query.Where("cluster_id = ?", filter.ClusterID)
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		// 任务名模糊匹配走子查询，作业 ID 精确匹配；按规范统一 LOWER(...) LIKE LOWER(?)，三库一致。
+		// Task names match fuzzily via a subquery and job IDs exactly; LOWER(...) LIKE LOWER(?) keeps the three
+		// databases consistent.
+		taskIDs := r.db.Model(&Task{}).Select("id").Where("LOWER(name) LIKE LOWER(?)", "%"+keyword+"%")
+		query = query.Where("(task_id IN (?) OR engine_job_id = ? OR platform_job_id = ?)", taskIDs, keyword, keyword)
+	}
+	return query
+}
+
+// applyJobListOrder 按 Sort 排序；空值保持 created_at DESC，兼容旧调用方。
+// applyJobListOrder orders by Sort; empty keeps created_at DESC for old callers.
+func applyJobListOrder(query *gorm.DB, filter *JobFilter) *gorm.DB {
+	sortKey, desc := "", true
+	if filter != nil {
+		sortKey = filter.Sort
+		desc = !strings.EqualFold(filter.Order, "asc")
+	}
+	direction := "DESC"
+	if !desc {
+		direction = "ASC"
+	}
+	// started_at 可能为空，统一用 COALESCE 回退到 created_at，避免各库 NULL 排序位置不同。
+	// started_at may be NULL; COALESCE to created_at so NULL ordering does not differ across databases.
+	startedExpr := "COALESCE(started_at, created_at)"
+	switch sortKey {
+	case jobListSortAttention:
+		return query.Order(jobAttentionOrderExpr()).Order(startedExpr + " DESC").Order("id DESC")
+	case jobListSortStartedAt:
+		return query.Order(startedExpr + " " + direction).Order("id " + direction)
+	case jobListSortCreatedAt:
+		return query.Order("created_at " + direction).Order("id " + direction)
+	default:
+		return query.Order("created_at DESC")
+	}
+}
+
+// GetTaskNamesByIDs 批量取任务名，避免作业列表逐行查询。
+// GetTaskNamesByIDs loads task names in one query so the job list avoids per-row lookups.
+func (r *Repository) GetTaskNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	out := map[uint]string{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ID   uint
+		Name string
+	}
+	if err := r.db.WithContext(ctx).Model(&Task{}).Select("id, name").Where("id IN ?", ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.ID] = row.Name
+	}
+	return out, nil
+}
+
+// BackfillJobDimensions 按 id 递增分批补齐缺失的 cluster_id / job_mode，返回更新行数。
+// 快照取不到时退回任务当前的集群与模式；仍取不到的行保持原样，下次启动再试。
+// BackfillJobDimensions fills missing cluster_id / job_mode in id-ordered batches and returns the updated row count.
+// It falls back to the task's current cluster and mode; rows still unresolved stay as-is for the next startup.
+func (r *Repository) BackfillJobDimensions(ctx context.Context, batch int) (int, error) {
+	if batch <= 0 {
+		batch = 500
+	}
+	updated := 0
+	lastID := uint(0)
+	taskCache := map[uint]*Task{}
+	for {
+		var jobs []*JobInstance
+		err := r.db.WithContext(ctx).
+			Select("id", "task_id", "cluster_id", "job_mode", "submit_spec").
+			Where("id > ?", lastID).
+			Where("(cluster_id IS NULL OR cluster_id = 0 OR job_mode IS NULL OR job_mode = '')").
+			Order("id ASC").Limit(batch).Find(&jobs).Error
+		if err != nil {
+			return updated, err
+		}
+		if len(jobs) == 0 {
+			return updated, nil
+		}
+		for _, job := range jobs {
+			lastID = job.ID
+			beforeCluster, beforeMode := job.ClusterID, job.JobMode
+			fillJobDimensions(job)
+			if (job.ClusterID == 0 || job.JobMode == "") && job.TaskID > 0 {
+				task, ok := taskCache[job.TaskID]
+				if !ok {
+					task = &Task{}
+					if err := r.db.WithContext(ctx).Select("id", "cluster_id", "mode").First(task, job.TaskID).Error; err != nil {
+						task = nil
+					}
+					taskCache[job.TaskID] = task
+				}
+				if task != nil {
+					if job.ClusterID == 0 {
+						job.ClusterID = task.ClusterID
+					}
+					if job.JobMode == "" {
+						job.JobMode = normalizeJobMode(string(task.Mode))
+					}
+				}
+			}
+			if job.ClusterID == beforeCluster && job.JobMode == beforeMode {
+				continue
+			}
+			// UpdateColumns 不触发钩子也不改 updated_at，回填不应伪造「最近更新」。
+			// UpdateColumns skips hooks and leaves updated_at alone; a backfill must not fake a recent update.
+			if err := r.db.WithContext(ctx).Model(&JobInstance{}).Where("id = ?", job.ID).
+				UpdateColumns(map[string]interface{}{"cluster_id": job.ClusterID, "job_mode": job.JobMode}).Error; err != nil {
+				return updated, err
+			}
+			updated++
+		}
+	}
 }
 
 // ListNonTerminalJobInstances 返回仍需与引擎对齐的作业实例。

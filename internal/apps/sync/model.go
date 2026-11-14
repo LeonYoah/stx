@@ -150,9 +150,9 @@ const (
 	JobStatusDoingSavepoint JobStatus = "doing_savepoint"
 	// JobStatusFailing mirrors SeaTunnel FAILING (transitioning to FAILED).
 	// JobStatusFailing 对应引擎 FAILING（正在失败、尚未 FAILED）。
-	JobStatusFailing JobStatus = "failing"
-	JobStatusSuccess JobStatus = "success"
-	JobStatusFailed  JobStatus = "failed"
+	JobStatusFailing  JobStatus = "failing"
+	JobStatusSuccess  JobStatus = "success"
+	JobStatusFailed   JobStatus = "failed"
 	JobStatusCanceled JobStatus = "canceled"
 	// JobStatusSavepointDone mirrors SeaTunnel SAVEPOINT_DONE (terminal after savepoint stop).
 	// JobStatusSavepointDone 对应引擎 SAVEPOINT_DONE（Savepoint 停止完成的终态）。
@@ -400,6 +400,11 @@ type JobInstance struct {
 	EngineJobID             string    `json:"engine_job_id" gorm:"size:255;index"`
 	RecoveredFromInstanceID *uint     `json:"recovered_from_instance_id,omitempty" gorm:"index"`
 	Status                  JobStatus `json:"status" gorm:"size:20;default:pending;index"`
+	// ClusterID / JobMode 是从提交快照派生的维度列，创建时由 BeforeCreate 填写、启动时回填历史行，供作业列表按集群 / 模式筛选。
+	// ClusterID / JobMode are dimension columns derived from the submit snapshot: BeforeCreate fills them and startup
+	// backfills old rows, so the job list can filter by cluster and mode in SQL.
+	ClusterID uint   `json:"cluster_id" gorm:"index"`
+	JobMode   string `json:"-" gorm:"size:20;index"`
 	// LastSyncedAt 记录最近一次成功向 SeaTunnel 对齐状态的时间（UTC）。
 	// LastSyncedAt is when STX last successfully synced runtime state from SeaTunnel (UTC).
 	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
@@ -435,6 +440,10 @@ type JobInstance struct {
 	// CDCDelay 是事件通道聚合的 CDC 延迟摘要（内存态，响应时补充，不落库）。
 	// CDCDelay is the CDC delay summary aggregated from the event channel (in memory, filled at response time).
 	CDCDelay *JobCDCDelay `json:"cdc_delay,omitempty" gorm:"-"`
+	// TaskName / Live 只在全局作业列表（with_live=1）里补充，不落库。
+	// TaskName / Live are filled only for the global job list (with_live=1) and are not persisted.
+	TaskName string          `json:"task_name,omitempty" gorm:"-"`
+	Live     *JobLiveMetrics `json:"live,omitempty" gorm:"-"`
 }
 
 // TableName returns the sync job instance table name.

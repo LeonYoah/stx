@@ -48,7 +48,22 @@ func syncOperationSpecs() []OperationSpec {
 		{Name: "page", Location: InputQuery, Required: false, Description: "Page number starting from 1"},
 		{Name: "page_size", Location: InputQuery, Required: false, Description: "Number of items per page"},
 		{Name: "task_id", Location: InputQuery, Required: false, Description: "Filter by sync task ID"},
-		{Name: "status", Location: InputQuery, Required: false, Description: "Filter by job status (RUNNING/FINISHED/FAILED/CANCELED)"},
+		{Name: "status", Location: InputQuery, Required: false, Description: "Filter by raw job status, comma-separated (running,failed,canceled,success,...)"},
+		{Name: "status_group", Location: InputQuery, Required: false, Description: "Filter by status group, comma-separated: running|failed|pending|stopping|canceled|finished"},
+		{Name: "mode", Location: InputQuery, Required: false, Description: "Filter by job mode: streaming|batch"},
+		{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Filter by cluster ID"},
+		{Name: "keyword", Location: InputQuery, Required: false, Description: "Task name (fuzzy), engine job ID or platform job ID (exact)"},
+		{Name: "exclude_run_type", Location: InputQuery, Required: false, Description: "Comma-separated run types to exclude, e.g. preview"},
+		{Name: "sort", Location: InputQuery, Required: false, Description: "Sort: attention|started_at|created_at; rate|cdc_delay need status_group=running (default created_at desc)"},
+		{Name: "order", Location: InputQuery, Required: false, Description: "Sort order: asc|desc (default desc)"},
+		{Name: "with_counts", Location: InputQuery, Required: false, Description: "Set to 1 to include per-status-group counts"},
+		{Name: "with_live", Location: InputQuery, Required: false, Description: "Set to 1 to include task names and live read/write rates"},
+	}
+
+	jobSparklineInputs := []InputSpec{
+		{Name: "ids", Location: InputQuery, Required: true, Description: "Comma-separated job instance IDs (max 100); IDs you cannot view are ignored"},
+		{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h)"},
+		{Name: "metric", Location: InputQuery, Required: false, Description: "write (default) or read"},
 	}
 
 	jobLogsInputs := []InputSpec{
@@ -142,7 +157,8 @@ func syncOperationSpecs() []OperationSpec {
 
 	// 4. Job Management & Checkpoint / Savepoint
 	specs = append(specs,
-		syncOp("sync.job.list", []string{"sync", "job", "list"}, "List SeaTunnel job instances", "GET", "/api/v1/sync/jobs", RiskR0, "", jobPaginationInputs, "stx sync job list --status RUNNING", true, false),
+		syncOp("sync.job.list", []string{"sync", "job", "list"}, "List SeaTunnel job instances", "GET", "/api/v1/sync/jobs", RiskR0, "", jobPaginationInputs, "stx sync job list --status_group failed --cluster_id 1 --with_live 1", true, false),
+		syncOp("sync.job.sparklines", []string{"sync", "job", "sparklines"}, "Get recent read/write rate sparklines for many SeaTunnel jobs in one Prometheus query", "GET", "/api/v1/sync/jobs/sparklines", RiskR0, "", jobSparklineInputs, "stx sync job sparklines --ids 1,2,3 --range 1h", true, false),
 		syncOp("sync.job.get", []string{"sync", "job", "get"}, "Get one SeaTunnel job instance", "GET", "/api/v1/sync/jobs/:id", RiskR0, "", jobIDInput, "stx sync job get 1", true, false),
 		syncOp("sync.job.logs", []string{"sync", "job", "logs"}, "Get SeaTunnel job execution logs", "GET", "/api/v1/sync/jobs/:id/logs", RiskR0, "", jobLogsInputs, "stx sync job logs 1 --lines 200", true, false),
 		syncOp("sync.job.events", []string{"sync", "job", "events"}, "List engine events (status, schema change, CDC delay) of a SeaTunnel job", "GET", "/api/v1/sync/jobs/:id/events", RiskR0, "", jobEventInputs, "stx sync job events 1 --types JOB_STATUS", true, false),

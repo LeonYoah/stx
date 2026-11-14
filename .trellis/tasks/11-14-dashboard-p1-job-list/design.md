@@ -75,7 +75,8 @@
 - 状态：`useDashboardQueryState()` 读写 URL（`tab`、`cluster`、`range`、列表的 `status`、`mode`、`q`、`sort`、`page`）。
 - 数据：`lib/services/dashboard/home.service.ts`（summary），`sync.service.ts` 扩展 `listJobs` 参数与 `getJobSparklines`。
   轮询 30 秒，`document.hidden` 时暂停；切页签不重复请求未显示的数据。
-- 组件安装：`@uiarc/metric-card`、`@uiarc/empty-state`、`@beui/table`、`@beui/sparkline`。安装后检查新增依赖，登记 MIT 白名单。
+- 列表表格复用 `StudioDataTable` 原语（规范要求不装 `@heroui/react`，工作台任务表 / 预览表已用它）。
+- 组件安装：`@uiarc/metric-card`、`@uiarc/empty-state`、`@beui/sparkline`。安装后检查新增依赖，登记 MIT 白名单。
 - 行预览抽屉：用现有 `Sheet`（`components/ui/sheet.tsx`），趋势复用 `getJobTimeseries(range=1h, metrics=throughput)` 与 Arc line-chart。
 - 批量停止 / 恢复：复用工作台的确认与调用逻辑（抽成 hook `useJobBulkActions`），逐条结果用表格行内状态 + 汇总提示呈现，不只靠 toast。
 - 图标按 ui-conventions「先列候选、确认后再改」：指标卡、需要处理条用到的图标在实现前列出候选给开发者确认。

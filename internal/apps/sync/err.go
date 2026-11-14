@@ -20,9 +20,12 @@ package sync
 import "errors"
 
 var (
-	ErrTaskNotFound                    = errors.New("sync: task not found")
-	ErrTaskVersionNotFound             = errors.New("sync: task version not found")
-	ErrJobInstanceNotFound             = errors.New("sync: job instance not found")
+	ErrTaskNotFound        = errors.New("sync: task not found")
+	ErrTaskVersionNotFound = errors.New("sync: task version not found")
+	ErrJobInstanceNotFound = errors.New("sync: job instance not found")
+	// ErrInvalidJobListQuery 表示作业列表的筛选或排序参数非法。
+	// ErrInvalidJobListQuery reports an invalid job list filter or sort parameter.
+	ErrInvalidJobListQuery             = errors.New("sync: invalid job list query")
 	ErrTaskNameRequired                = errors.New("sync: task name is required")
 	ErrInvalidTaskMode                 = errors.New("sync: invalid task mode")
 	ErrInvalidTaskStatus               = errors.New("sync: invalid task status")
@@ -88,13 +91,13 @@ var (
 	ErrDolphinPushNoNewVersion         = errors.New("sync: dolphin push requires a new published version")
 	ErrDolphinUnsupportedVersion       = errors.New("sync: only DolphinScheduler 3.x is supported")
 	// 事件通道错误 / Event channel errors.
-	ErrEventChannelNotFound            = errors.New("sync: engine event channel not found")
-	ErrEventChannelVersionUnsupported  = errors.New("sync: engine event reporting requires SeaTunnel 2.3.12 or later")
-	ErrEventChannelExternalURLMissing  = errors.New("sync: app.external_url must be configured so SeaTunnel can reach STX")
-	ErrEventChannelSecretMissing       = errors.New("sync: app.session_secret must be configured to sign engine event tokens")
-	ErrEventChannelApplierMissing      = errors.New("sync: seatunnel.yaml config applier is not configured")
-	ErrEventChannelUnauthorized        = errors.New("sync: invalid engine event token")
-	ErrEventChannelPermissionDenied    = errors.New("sync: only administrators can change the engine event channel")
+	ErrEventChannelNotFound           = errors.New("sync: engine event channel not found")
+	ErrEventChannelVersionUnsupported = errors.New("sync: engine event reporting requires SeaTunnel 2.3.12 or later")
+	ErrEventChannelExternalURLMissing = errors.New("sync: app.external_url must be configured so SeaTunnel can reach STX")
+	ErrEventChannelSecretMissing      = errors.New("sync: app.session_secret must be configured to sign engine event tokens")
+	ErrEventChannelApplierMissing     = errors.New("sync: seatunnel.yaml config applier is not configured")
+	ErrEventChannelUnauthorized       = errors.New("sync: invalid engine event token")
+	ErrEventChannelPermissionDenied   = errors.New("sync: only administrators can change the engine event channel")
 )
 
 // 写操作结果未知与超时配置相关错误。

@@ -19,8 +19,8 @@
   top: 0;
   bottom: 0;
   width: 1px;
-  /* Cursor/macOS 那种小实心双向箭头；PNG 优先，Chrome/Linux 经常忽略 SVG 光标。
-     Compact filled arrows like Cursor/macOS; PNG first because Chrome on Linux often ignores SVG cursors. */
+  /* 空心折线双向箭头（候选 D）；PNG 优先，Chrome/Linux 经常忽略 SVG 光标。
+     Hollow chevron arrows (option D); PNG first because Chrome on Linux often ignores SVG cursors. */
   cursor:
     url('/cursors/ew-resize.png') 16 16,
     url('/cursors/ew-resize.svg') 16 16,

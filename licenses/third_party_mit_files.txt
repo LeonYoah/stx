@@ -53,3 +53,13 @@ frontend/components/inspira/ui/flip-card/index.ts
 
 frontend/components/inspira/ui/apple-card-carousel/apple-card-carousel.tsx
 frontend/components/inspira/ui/apple-card-carousel/index.ts
+
+# beUI File Tree (MIT, Copyright (c) 2026 Saurabh Chauhan):
+# Upstream: https://github.com/starc007/ui-components
+# Component: https://beui.dev/components/motion/file-tree
+# Registry: https://beui.dev/r/file-tree.json
+# Full MIT text copy: licenses/beui/LICENSE-MIT.txt
+
+frontend/components/motion/file-tree.tsx
+frontend/components/motion/shared-layout-bg.tsx
+frontend/lib/ease.ts

@@ -1,12 +1,40 @@
-'use client';
-
 /*
- * Vendored from beUI File Tree (https://beui.dev/components/motion/file-tree)
- * Registry item: https://beui.dev/r/file-tree.json
+ * MIT License
+ *
+ * Copyright (c) 2026 Saurabh Chauhan
+ *
+ * Vendored from beUI File Tree (https://beui.dev/components/motion/file-tree).
+ * Registry: https://beui.dev/r/file-tree.json
+ * Upstream: https://github.com/starc007/ui-components
+ * License: https://github.com/starc007/ui-components/blob/main/LICENSE
  *
  * 不引入 beUI 的 lib/i18n.tsx，以免覆盖 STX 的 next-intl `lib/i18n/`。
  * Do not install beUI's lib/i18n.tsx; STX already owns frontend/lib/i18n/.
+ * Local STX adaptations (row slots, treeitem rows) remain under the same MIT
+ * terms and are not relicensed as Apache-2.0.
  *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+'use client';
+
+/*
  * STX 扩展：label / trailing / selectable / 拖拽 / 右键，行用 div[role=treeitem]
  * 以便行内嵌套快捷按钮。展开与选中仍走官方 FileTree API。
  * STX slots: label, trailing, selectable, drag, context menu. Rows are

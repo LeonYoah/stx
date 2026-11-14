@@ -17,8 +17,15 @@
  * limitations under the License.
  */
 
-import {useRef, type KeyboardEvent, type PointerEvent} from 'react';
+import {
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 import {cn} from '@/lib/utils';
+import styles from './studio-split-handle.module.css';
 
 const KEY_STEP = 16;
 const KEY_BIG_STEP = 64;
@@ -36,6 +43,7 @@ export interface StudioSplitHandleProps {
   onDragStart?: () => void;
   onDragEnd?: () => void;
   className?: string;
+  style?: CSSProperties;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -43,10 +51,8 @@ function clamp(value: number, min: number, max: number) {
 }
 
 /**
- * 工作台网格拖动手柄。Arc ResizablePanels 只有横向，且开合是内部状态，
- * 不能驱动顶栏开关，所以外壳用这根 6px 分隔条改像素尺寸。
- * Workbench grid drag handle. Arc ResizablePanels is horizontal-only and owns
- * collapse internally, so the shell uses this 6px separator for pixel sizes.
+ * 贴在卡片接缝上的 Arc 风格分隔条：平时是一条线，悬停才出握把。
+ * Arc-style divider on the card seam: a hairline at rest, grip only on hover.
  */
 export function StudioSplitHandle({
   orientation,
@@ -59,12 +65,14 @@ export function StudioSplitHandle({
   onDragStart,
   onDragEnd,
   className,
+  style,
 }: StudioSplitHandleProps) {
   const dragRef = useRef<{
     pointerId: number;
     start: number;
     origin: number;
   } | null>(null);
+  const [active, setActive] = useState(false);
   const isVertical = orientation === 'vertical';
 
   const applyDelta = (delta: number) => {
@@ -82,6 +90,7 @@ export function StudioSplitHandle({
       start: isVertical ? event.clientX : event.clientY,
       origin: value,
     };
+    setActive(true);
     onDragStart?.();
   };
 
@@ -91,7 +100,9 @@ export function StudioSplitHandle({
       return;
     }
     const current = isVertical ? event.clientX : event.clientY;
-    const signed = invert ? drag.origin - (current - drag.start) : drag.origin + (current - drag.start);
+    const signed = invert
+      ? drag.origin - (current - drag.start)
+      : drag.origin + (current - drag.start);
     onChange(clamp(Math.round(signed), min, max));
   };
 
@@ -101,6 +112,7 @@ export function StudioSplitHandle({
       return;
     }
     dragRef.current = null;
+    setActive(false);
     onDragEnd?.();
   };
 
@@ -133,26 +145,17 @@ export function StudioSplitHandle({
       aria-valuenow={value}
       aria-valuemin={min}
       aria-valuemax={max}
+      data-orientation={orientation}
+      data-active={active || undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={finish}
       onPointerCancel={finish}
       onKeyDown={onKeyDown}
-      className={cn(
-        'group relative z-20 shrink-0 touch-none outline-none',
-        isVertical ? 'h-full w-1.5 cursor-col-resize' : 'h-1.5 w-full cursor-row-resize',
-        className,
-      )}
+      className={cn(styles.handle, className)}
+      style={style}
     >
-      <span
-        aria-hidden='true'
-        className={cn(
-          'pointer-events-none absolute rounded-full bg-border transition-colors group-hover:bg-foreground/70 group-focus-visible:bg-foreground',
-          isVertical
-            ? 'top-1/2 left-1/2 h-8 w-0.5 -translate-x-1/2 -translate-y-1/2'
-            : 'top-1/2 left-1/2 h-0.5 w-8 -translate-x-1/2 -translate-y-1/2',
-        )}
-      />
+      <span className={styles.grip} aria-hidden='true' />
     </div>
   );
 }

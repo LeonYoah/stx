@@ -23,7 +23,6 @@ import {
   clampStudioConsoleHeight,
   clampStudioLeftWidth,
   DEFAULT_STUDIO_LAYOUT_PREFS,
-  STUDIO_SPLIT_HANDLE_PX,
   formatRateDisplay,
   isZeroMetricValue,
   detectVariables,
@@ -134,22 +133,20 @@ describe('studio layout prefs (#110)', () => {
 
   it('builds grid columns that free collapsed tracks with 0px (#110 AC11 topbar toggles)', () => {
     expect(buildStudioGridTemplateColumns(false, true)).toBe(
-      `240px ${STUDIO_SPLIT_HANDLE_PX}px minmax(0,1fr) 0px 0px`,
+      '240px minmax(0,1fr) 0px',
     );
     expect(buildStudioGridTemplateColumns(true, true)).toBe(
-      '0px 0px minmax(0,1fr) 0px 0px',
+      '0px minmax(0,1fr) 0px',
     );
     expect(buildStudioGridTemplateColumns(false, false, 300, 400)).toBe(
-      `300px ${STUDIO_SPLIT_HANDLE_PX}px minmax(0,1fr) ${STUDIO_SPLIT_HANDLE_PX}px 400px`,
+      '300px minmax(0,1fr) 400px',
     );
   });
 
-  it('builds grid rows with a console handle unless maximized', () => {
-    expect(buildStudioGridTemplateRows(false, 280)).toBe(
-      `minmax(0,1fr) ${STUDIO_SPLIT_HANDLE_PX}px 280px`,
-    );
+  it('builds grid rows without a reserved handle track', () => {
+    expect(buildStudioGridTemplateRows(false, 280)).toBe('minmax(0,1fr) 280px');
     expect(buildStudioGridTemplateRows(true, 280)).toBe(
-      '0px 0px minmax(0,1fr)',
+      '0px minmax(0,1fr)',
     );
   });
 

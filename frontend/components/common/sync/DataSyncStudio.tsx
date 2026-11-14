@@ -5088,9 +5088,9 @@ export function DataSyncStudio() {
 
       <div
         className={cn(
-          // 五列：资源栏 | 手柄 | 编辑区 | 手柄 | 右侧栏。收起列 0px，不用 column-gap。
-          // Five columns: explorer | handle | editor | handle | sidebar. Collapsed tracks are 0px, no column-gap.
-          'grid min-h-0 min-w-0 flex-1',
+          // 三列两行；分隔条叠在卡片接缝上，不另占 6px 轨道。
+          // Three columns, two rows; dividers overlay card seams instead of a 6px track.
+          'relative grid min-h-0 min-w-0 flex-1',
           !isStudioLayoutResizing &&
             'transition-[grid-template-columns,grid-template-rows] duration-200',
         )}
@@ -5112,7 +5112,7 @@ export function DataSyncStudio() {
         <Card
           data-studio-left-sidebar=''
           className={cn(
-            'col-start-1 row-start-1 row-span-3 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
+            'col-start-1 row-start-1 row-span-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
             isLeftSidebarCollapsed
               ? 'pointer-events-none border-transparent opacity-0'
               : null,
@@ -5281,7 +5281,6 @@ export function DataSyncStudio() {
 
         {!isLeftSidebarCollapsed ? (
           <StudioSplitHandle
-            className='col-start-2 row-start-1 row-span-3'
             orientation='vertical'
             label={t('resizeExplorer')}
             value={leftSidebarWidth}
@@ -5290,12 +5289,13 @@ export function DataSyncStudio() {
             onChange={(next) => setLeftSidebarWidth(clampStudioLeftWidth(next))}
             onDragStart={handleStudioLayoutDragStart}
             onDragEnd={handleStudioLayoutDragEnd}
+            style={{left: leftSidebarWidth}}
           />
         ) : null}
 
         <Card
           className={cn(
-            'col-start-3 row-start-1 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
+            'col-start-2 row-start-1 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
             isConsoleMaximized && 'hidden',
           )}
         >
@@ -5550,7 +5550,6 @@ export function DataSyncStudio() {
 
         {!isRightSidebarCollapsed ? (
           <StudioSplitHandle
-            className='col-start-4 row-start-1 row-span-3'
             orientation='vertical'
             invert
             label={t('resizeAdvanced')}
@@ -5562,13 +5561,14 @@ export function DataSyncStudio() {
             }
             onDragStart={handleStudioLayoutDragStart}
             onDragEnd={handleStudioLayoutDragEnd}
+            style={{right: rightSidebarWidth}}
           />
         ) : null}
 
         <StudioSidebarShell
           data-studio-right-sidebar=''
           className={cn(
-            'col-start-5 row-start-1 row-span-3 min-w-0',
+            'col-start-3 row-start-1 row-span-2 min-w-0',
             isRightSidebarCollapsed
               ? 'pointer-events-none border-transparent opacity-0'
               : null,
@@ -5739,7 +5739,6 @@ export function DataSyncStudio() {
 
         {!isConsoleMaximized ? (
           <StudioSplitHandle
-            className='col-start-3 row-start-2'
             orientation='horizontal'
             invert
             label={t('resizeConsole')}
@@ -5751,13 +5750,18 @@ export function DataSyncStudio() {
             }
             onDragStart={handleStudioLayoutDragStart}
             onDragEnd={handleStudioLayoutDragEnd}
+            style={{
+              left: isLeftSidebarCollapsed ? 0 : leftSidebarWidth,
+              right: isRightSidebarCollapsed ? 0 : rightSidebarWidth,
+              bottom: consoleHeight,
+            }}
           />
         ) : null}
 
         <Card
           className={cn(
-            'col-start-3 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
-            isConsoleMaximized ? 'row-start-1 row-span-3' : 'row-start-3',
+            'col-start-2 min-w-0 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs',
+            isConsoleMaximized ? 'row-start-1 row-span-2' : 'row-start-2',
           )}
         >
           <CardContent className='flex h-full min-h-0 flex-col p-0'>

@@ -201,9 +201,6 @@ export const STUDIO_CONSOLE_HEIGHT_MIN = 140;
 export const STUDIO_CONSOLE_HEIGHT_MAX = 560;
 export const STUDIO_CONSOLE_HEIGHT_COMPACT = 260;
 export const STUDIO_CONSOLE_HEIGHT_EXPANDED = 390;
-/** 网格拖动手柄占位。 / Grid track reserved for a split handle. */
-export const STUDIO_SPLIT_HANDLE_PX = 6;
-
 /**
  * 无 localStorage 记录时：左目录展开、右高级配置收起；之后记住上次开合与尺寸。
  * With no stored record: left explorer open, right advanced sidebar collapsed; then remember last state and sizes.
@@ -334,27 +331,25 @@ export function buildStudioGridTemplateColumns(
   leftWidth: number = DEFAULT_STUDIO_LAYOUT_PREFS.leftWidth,
   rightWidth: number = DEFAULT_STUDIO_LAYOUT_PREFS.rightWidth,
 ): string {
-  const left = leftCollapsed
-    ? '0px 0px'
-    : `${clampStudioLeftWidth(leftWidth)}px ${STUDIO_SPLIT_HANDLE_PX}px`;
+  const left = leftCollapsed ? '0px' : `${clampStudioLeftWidth(leftWidth)}px`;
   const right = rightCollapsed
-    ? '0px 0px'
-    : `${STUDIO_SPLIT_HANDLE_PX}px ${clampStudioRightWidth(rightWidth)}px`;
+    ? '0px'
+    : `${clampStudioRightWidth(rightWidth)}px`;
   return `${left} minmax(0,1fr) ${right}`;
 }
 
 /**
- * 编辑区与控制台的行高：最大化时控制台占满，否则拖动手柄夹在中间。
- * Editor/console row heights: console fills the grid when maximized, otherwise a handle sits between them.
+ * 编辑区与控制台的行高：最大化时控制台占满，分隔条叠在接缝上不占轨道。
+ * Editor/console row heights: console fills the grid when maximized; the divider overlays the seam.
  */
 export function buildStudioGridTemplateRows(
   consoleMaximized: boolean,
   consoleHeight: number = DEFAULT_STUDIO_LAYOUT_PREFS.consoleHeight,
 ): string {
   if (consoleMaximized) {
-    return '0px 0px minmax(0,1fr)';
+    return '0px minmax(0,1fr)';
   }
-  return `minmax(0,1fr) ${STUDIO_SPLIT_HANDLE_PX}px ${clampStudioConsoleHeight(consoleHeight)}px`;
+  return `minmax(0,1fr) ${clampStudioConsoleHeight(consoleHeight)}px`;
 }
 
 export const EMPTY_EDITOR: EditorState = {

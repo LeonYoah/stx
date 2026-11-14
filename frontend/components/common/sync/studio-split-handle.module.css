@@ -1,0 +1,99 @@
+/*
+ * 工作台外壳分隔条：Arc ResizablePanels 同款 1px 线，握把只在悬停/聚焦/拖动时出现。
+ * Workbench shell divider: the same 1px Arc ResizablePanels line; the grip appears on hover, focus, or drag.
+ * Arc 的分组只有横向，所以这里只复用 token 与交互，不改 Arc 源码。
+ * Arc's group is horizontal-only, so this reuses tokens and interaction without editing Arc source.
+ */
+
+.handle {
+  position: absolute;
+  z-index: 20;
+  background: transparent;
+  touch-action: none;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.handle[data-orientation='vertical'] {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  cursor: col-resize;
+}
+
+.handle[data-orientation='horizontal'] {
+  height: 1px;
+  cursor: row-resize;
+}
+
+.handle::before {
+  position: absolute;
+  content: '';
+}
+
+.handle[data-orientation='vertical']::before {
+  inset: 0 -6px;
+}
+
+.handle[data-orientation='horizontal']::before {
+  inset: -6px 0;
+}
+
+.grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.6);
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-spring) var(--ease-spring);
+}
+
+.handle[data-orientation='vertical'] .grip {
+  width: 4px;
+  height: 32px;
+}
+
+.handle[data-orientation='horizontal'] .grip {
+  width: 32px;
+  height: 4px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .handle:hover {
+    background: var(--border-strong);
+  }
+
+  .handle:hover .grip {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.handle[data-active] {
+  background: var(--border-strong);
+}
+
+.handle[data-active] .grip {
+  background: var(--foreground);
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.handle:focus-visible .grip {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .handle,
+  .grip {
+    transition: none;
+  }
+}

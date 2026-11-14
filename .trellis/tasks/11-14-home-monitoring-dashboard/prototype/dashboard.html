@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STX 控制台 · 监控大盘原型</title>
+<style>
+:root{
+  color-scheme:dark;
+  --page:#0d0d0d; --surface:#161615; --surface-2:#1d1d1c; --surface-3:#242423;
+  --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.14);
+  --ink:#f4f4f2; --ink-2:#c3c2b7; --ink-3:#898781; --grid:#2a2a28; --axis:#383835;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+  --accent:#3987e5;
+  --r:10px;
+  font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font-size:13px;line-height:1.45}
+button{font:inherit;color:inherit}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--ink-3)} .ink2{color:var(--ink-2)}
+.wrap{max-width:1440px;margin:0 auto;padding:20px 28px 60px}
+
+/* header */
+.top{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.top h1{font-size:19px;font-weight:500;margin:0;display:flex;align-items:center;gap:10px}
+.logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#3b82f6,#60a5fa);display:grid;place-items:center;font-size:12px;font-weight:600;color:#fff}
+.spacer{flex:1}
+.ctl{display:flex;align-items:center;gap:8px}
+.select{height:32px;padding:0 10px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface);display:flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap}
+.seg{display:inline-flex;padding:3px;border:1px solid var(--line-2);border-radius:9px;background:var(--surface);gap:2px}
+.seg button{border:0;background:transparent;height:24px;padding:0 10px;border-radius:6px;cursor:pointer;color:var(--ink-2);white-space:nowrap}
+.seg button.on{background:var(--surface-3);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line-2)}
+.btn{height:32px;padding:0 12px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
+.btn.sm{height:26px;padding:0 9px;font-size:12px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+.live{color:var(--ink-3);font-size:12px;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.live .dot{background:var(--good);box-shadow:0 0 0 3px rgba(12,163,12,.18)}
+
+/* proto bar */
+.proto{display:flex;gap:14px;align-items:center;padding:8px 12px;border:1px dashed rgba(57,135,229,.45);border-radius:9px;margin-bottom:16px;color:var(--ink-2);font-size:12px;flex-wrap:wrap}
+.proto b{color:var(--s1);font-weight:500}
+.tg{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+.tg i{width:28px;height:16px;border-radius:9px;background:var(--surface-3);position:relative;box-shadow:inset 0 0 0 1px var(--line-2);transition:.2s}
+.tg i:after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--ink-3);transition:.2s}
+.tg.on i{background:var(--s1)} .tg.on i:after{left:14px;background:#fff}
+
+/* KPI */
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px 10px;cursor:pointer;transition:border-color .15s;min-width:0}
+.kpi:hover{border-color:var(--line-2)}
+.kpi .l{color:var(--ink-3);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .v{font-size:24px;font-weight:500;margin:4px 0 2px;white-space:nowrap;letter-spacing:-.01em}
+.kpi .v small{font-size:13px;color:var(--ink-2);font-weight:400;margin-left:3px}
+.kpi .s{font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.kpi svg{display:block;width:100%;height:28px;margin-top:6px}
+.delta-up{color:var(--good)} .delta-bad{color:var(--serious)}
+
+/* attention strip */
+.attn{display:flex;align-items:center;gap:8px;margin-bottom:18px;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow-x:auto}
+.attn .h{color:var(--ink-3);font-size:12px;white-space:nowrap;padding:0 6px 0 2px}
+.chip{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);white-space:nowrap;cursor:pointer;font-size:12px}
+.chip:hover{border-color:var(--line-2)}
+.ico{width:14px;height:14px;flex:none}
+
+/* tabs */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;position:relative}
+.tabs button{border:0;background:transparent;padding:10px 14px;cursor:pointer;color:var(--ink-3);font-size:14px;position:relative;display:flex;gap:7px;align-items:center}
+.tabs button.on{color:var(--ink)}
+.tabs button.on:after{content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;border-radius:2px;background:var(--ink)}
+.tabs .cnt{font-size:11px;padding:1px 6px;border-radius:9px;background:var(--surface-3);color:var(--ink-2)}
+.view{display:none}.view.on{display:block}
+
+/* panels */
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g-73{grid-template-columns:minmax(0,7fr) minmax(0,3fr)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px 12px;min-width:0;position:relative}
+.panel .ph{display:flex;align-items:center;gap:10px;margin-bottom:8px;min-height:24px}
+.panel .ph h3{font-size:13px;font-weight:500;margin:0;white-space:nowrap}
+.panel .ph .sub{color:var(--ink-3);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel .ph .r{margin-left:auto;display:flex;gap:6px;align-items:center}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin:2px 0 6px}
+.legend span{display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+.legend span.off{opacity:.38}
+.legend i{width:10px;height:3px;border-radius:2px;display:inline-block}
+.chart{position:relative;width:100%}
+.chart svg{display:block;width:100%;overflow:visible}
+.note{display:none;position:absolute;top:-9px;right:12px;font-size:10.5px;padding:2px 7px;border-radius:5px;background:#10233d;color:#8fbaf0;border:1px solid rgba(57,135,229,.4);white-space:nowrap;z-index:2}
+.annot .note{display:block}
+.section-title{font-size:12px;color:var(--ink-3);margin:22px 0 10px;display:flex;align-items:center;gap:10px}
+.section-title:after{content:"";flex:1;height:1px;background:var(--line)}
+
+/* tooltip */
+.tip{position:fixed;pointer-events:none;z-index:50;background:#232322;border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;font-size:12px;min-width:150px;box-shadow:0 8px 24px rgba(0,0,0,.4);display:none}
+.tip .t{color:var(--ink-3);margin-bottom:4px}
+.tip .row{display:flex;align-items:center;gap:8px;justify-content:space-between;white-space:nowrap}
+.tip .row span:first-child{display:flex;align-items:center;gap:6px;color:var(--ink-2)}
+
+/* cluster cards */
+.ccards{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.ccard{flex:1 1 260px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;cursor:pointer;position:relative;min-width:0}
+.ccard.on{border-color:rgba(255,255,255,.35)}
+.ccard .n{font-weight:500;display:flex;align-items:center;gap:8px}
+.ccard .meta{display:grid;grid-template-columns:repeat(4,auto);gap:4px 16px;margin-top:10px;font-size:12px;justify-content:start}
+.ccard .meta div{white-space:nowrap}
+.ccard .meta b{display:block;font-weight:500;font-size:14px;color:var(--ink)}
+.badge{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:6px;font-size:11.5px;white-space:nowrap;background:var(--surface-3);color:var(--ink-2)}
+.badge.good{background:rgba(12,163,12,.14);color:#5fd35f}
+.badge.warn{background:rgba(250,178,25,.13);color:#f6c55a}
+.badge.crit{background:rgba(208,59,59,.16);color:#f08080}
+.badge.info{background:rgba(57,135,229,.15);color:#8fbaf0}
+
+/* status bar */
+.sbar{display:grid;grid-template-columns:150px minmax(0,1fr) 64px;gap:8px 12px;align-items:center}
+.sbar .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--ink-2)}
+.sbar .cells{display:flex;gap:2px;height:22px}
+.sbar .cells i{flex:1;border-radius:3px;background:var(--good);opacity:.85;cursor:default}
+.sbar .cells i:hover{opacity:1;outline:1px solid #fff}
+.sbar .pct{text-align:right;font-size:12px}
+
+/* signals */
+.signals{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.sig{border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:var(--surface-2)}
+.sig .l{font-size:12px;color:var(--ink-3);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.sig .v{font-size:17px;font-weight:500;margin-top:3px;white-space:nowrap}
+
+/* tables */
+table{width:100%;border-collapse:collapse}
+th,td{padding:9px 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{font-weight:400;color:var(--ink-3);font-size:12px;position:sticky;top:0;background:var(--surface);z-index:1;user-select:none}
+th.sort{cursor:pointer} th.sort:hover{color:var(--ink-2)}
+th .arr{opacity:.7;margin-left:3px}
+td{font-size:12.5px}
+tbody tr{cursor:pointer;transition:background .12s}
+tbody tr:hover{background:rgba(255,255,255,.03)}
+tbody tr.sel{background:rgba(57,135,229,.08)}
+.meter{display:flex;align-items:center;gap:8px}
+.meter .bar{width:64px;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+.meter .bar i{display:block;height:100%;border-radius:3px;background:var(--s1)}
+.cb{width:15px;height:15px;border-radius:4px;border:1px solid var(--line-2);display:inline-grid;place-items:center;cursor:pointer;background:var(--surface-2)}
+.cb.on{background:var(--s1);border-color:var(--s1)}
+.cb.on:after{content:"";width:7px;height:4px;border-left:1.5px solid #fff;border-bottom:1.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+.jobname{font-weight:500;color:var(--ink);max-width:240px;overflow:hidden;text-overflow:ellipsis;display:block}
+.jobsub{font-size:11px;color:var(--ink-3)}
+
+/* list toolbar */
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.search{height:32px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface);display:flex;align-items:center;gap:8px;padding:0 10px;width:260px;color:var(--ink-3)}
+.search input{background:transparent;border:0;outline:0;color:var(--ink);font:inherit;flex:1;min-width:0}
+.chips{display:inline-flex;gap:4px;padding:3px;border:1px solid var(--line-2);border-radius:9px;background:var(--surface)}
+.chips button{border:0;background:transparent;height:24px;padding:0 9px;border-radius:6px;cursor:pointer;color:var(--ink-2);display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.chips button.on{background:var(--surface-3);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line-2)}
+.chips button em{font-style:normal;font-size:11px;color:var(--ink-3)}
+.bulk{display:none;align-items:center;gap:10px;padding:7px 10px;margin-bottom:10px;border-radius:8px;background:rgba(57,135,229,.1);border:1px solid rgba(57,135,229,.35)}
+.bulk.on{display:flex}
+.listfoot{display:flex;align-items:center;justify-content:space-between;color:var(--ink-3);font-size:12px;padding:10px 4px 0}
+.tablebox{max-height:620px;overflow:auto;border-radius:8px}
+
+/* drawer */
+.drawer{position:fixed;top:0;right:0;bottom:0;width:520px;background:var(--surface);border-left:1px solid var(--line-2);transform:translateX(100%);transition:transform .28s cubic-bezier(.2,.8,.2,1);z-index:40;padding:18px 20px;overflow:auto;box-shadow:-20px 0 40px rgba(0,0,0,.4)}
+.drawer.on{transform:none}
+.drawer h2{font-size:16px;font-weight:500;margin:0 0 4px}
+.kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+.kv div{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.kv b{display:block;font-weight:500;font-size:16px;margin-top:2px;color:var(--ink)}
+
+/* empty */
+.empty{display:none;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--ink-3);text-align:center;border:1px dashed var(--line-2);border-radius:8px;font-size:12px;padding:16px}
+.empty b{color:var(--ink-2);font-weight:500;font-size:13px}
+.noprom .needprom .chart, .noprom .needprom .legend{display:none}
+.noprom .needprom .empty{display:flex}
+.noprom .spark-need{visibility:hidden}
+
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.g2,.g3,.g-73{grid-template-columns:minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap" id="root">
+
+  <div class="proto">
+    <b>原型</b><span>模拟数据，交互可点。</span>
+    <span class="tg on" id="tgAnnot"><i></i>标注组件与数据源</span>
+    <span class="tg" id="tgProm"><i></i>模拟未接入 Prometheus</span>
+  </div>
+
+  <div class="top">
+    <h1><span class="logo">S</span>控制台</h1>
+    <div class="spacer"></div>
+    <div class="ctl">
+      <div class="select" id="scopeSel"><span class="muted">范围</span><span id="scopeTxt">全部集群</span><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg></div>
+      <div class="seg" id="rangeSeg"><button>15 分钟</button><button class="on">1 小时</button><button>6 小时</button><button>24 小时</button><button>7 天</button></div>
+      <span class="live"><span class="dot"></span>每 30 秒刷新 · 16:42:10</span>
+    </div>
+  </div>
+
+  <!-- KPI 行：任何 Tab 都可见 -->
+  <div class="kpis" id="kpis"></div>
+
+  <div class="attn">
+    <span class="h">需要处理</span>
+    <span class="chip"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--crit)" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.5M8 11h.01"/></svg>作业失败 · orders-to-doris <span class="muted">12 分钟前</span></span>
+    <span class="chip"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--crit)" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.5M8 11h.01"/></svg>作业失败 · user-dim-batch <span class="muted">2 小时前</span></span>
+    <span class="chip"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--warn)" stroke-width="1.6"><path d="M8 2.5l6 11H2z"/><path d="M8 7v3M8 12h.01"/></svg>CDC 延迟 &gt; 60s · pg-cdc-ledger</span>
+    <span class="chip"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--crit)" stroke-width="1.6"><path d="M8 2.5l6 11H2z"/><path d="M8 7v3M8 12h.01"/></svg>告警 · SeaTunnelMetricsEndpointDown <span class="muted">seatunnel-3-single</span></span>
+    <span class="chip"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--warn)" stroke-width="1.6"><path d="M8 2.5l6 11H2z"/><path d="M8 7v3M8 12h.01"/></svg>背压 82% · mt-tables-demo / Sink[0]</span>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="on" data-v="cluster">集群</button>
+    <button data-v="jobs">作业</button>
+    <button data-v="list">作业列表 <span class="cnt">42</span></button>
+  </div>
+
+  <!-- ============ 集群 ============ -->
+  <section class="view on" id="v-cluster">
+    <div class="ccards" id="ccards"></div>
+
+    <div class="panel needprom" style="margin-bottom:12px">
+      <span class="note">beUI status-bar · up{job=seatunnel_engine_http} + node_state</span>
+      <div class="ph"><h3>节点可用性</h3><span class="sub">每格 = 1/48 时间窗，红色为抓取失败或节点非 ACTIVE</span></div>
+      <div class="chart"><div class="sbar" id="sbar"></div></div>
+      <div class="empty" style="height:120px"><b>接入 Prometheus 后显示历史可用性</b>当前节点状态仍来自 Agent 心跳，见上方集群卡片。<button class="btn sm" style="margin-top:6px">如何开启可观测性</button></div>
+    </div>
+
+    <div class="grid g2">
+      <div class="panel needprom"><span class="note">Arc line-chart · seatunnel:jvm_heap_usage_percent</span>
+        <div class="ph"><h3>JVM 堆内存使用率</h3><span class="sub">按节点 · %</span></div>
+        <div class="legend" data-for="heap"></div><div class="chart" id="c-heap"></div>
+        <div class="empty" style="height:200px"><b>需要 Prometheus</b>开启 STX 可观测性并接入 Prometheus 后显示趋势。</div></div>
+      <div class="panel needprom"><span class="note">Arc line-chart · rate(process_cpu_seconds_total[5m])</span>
+        <div class="ph"><h3>进程 CPU</h3><span class="sub">按节点 · 核</span></div>
+        <div class="legend" data-for="cpu"></div><div class="chart" id="c-cpu"></div>
+        <div class="empty" style="height:200px"><b>需要 Prometheus</b>开启 STX 可观测性并接入 Prometheus 后显示趋势。</div></div>
+      <div class="panel needprom"><span class="note">Arc line-chart · seatunnel:gc_time_ratio_percent5m</span>
+        <div class="ph"><h3>GC 时间占比</h3><span class="sub">5 分钟窗口 · %</span></div>
+        <div class="legend" data-for="gc"></div><div class="chart" id="c-gc"></div>
+        <div class="empty" style="height:200px"><b>需要 Prometheus</b></div></div>
+      <div class="panel needprom"><span class="note">beUI composition-chart · sum by(type)(job_count)</span>
+        <div class="ph"><h3>引擎作业状态构成</h3><span class="sub">按引擎上报的作业数</span></div>
+        <div class="legend" data-for="comp"></div><div class="chart" id="c-comp"></div>
+        <div class="empty" style="height:200px"><b>需要 Prometheus</b></div></div>
+    </div>
+
+    <div class="grid g-73" style="margin-top:12px">
+      <div class="panel"><span class="note">STX DB 节点表 + Prometheus 最新值（instant query）</span>
+        <div class="ph"><h3>节点</h3><span class="sub" id="nodeSub"></span></div>
+        <div class="tablebox" style="max-height:none"><table id="nodeTable"></table></div></div>
+      <div class="panel"><span class="note">Arc metric-card · 原 Grafana P0/P4 面板</span>
+        <div class="ph"><h3>异常信号</h3><span class="sub">全绿时折叠为一行</span></div>
+        <div class="signals" id="signals"></div></div>
+    </div>
+  </section>
+
+  <!-- ============ 作业 ============ -->
+  <section class="view" id="v-jobs">
+    <div class="panel needprom" style="margin-bottom:12px"><span class="note">Arc brush-chart · stx_job_source/sink_*_rows_total + sync_engine_events</span>
+      <div class="ph"><h3>全局吞吐</h3><span class="sub">所有运行中作业合计 · 行/秒</span>
+        <div class="r"><div class="seg" id="tpUnit"><button class="on">行/秒</button><button>字节/秒</button></div></div></div>
+      <div class="legend" data-for="tp"></div>
+      <div class="chart" id="c-tp"></div>
+      <div class="empty" style="height:240px"><b>需要 Prometheus</b>当前合计读写速率仍显示在顶部指标卡（来自 10 秒对账）。</div>
+    </div>
+
+    <div class="grid g2">
+      <div class="panel"><span class="note">beUI bar-chart (horizontal) · topk(8, sum by(job_id)(rate(...)))</span>
+        <div class="ph"><h3>写入速率 Top 8</h3><span class="sub">当前值 · 行/秒</span></div>
+        <div class="chart" id="c-top"></div></div>
+      <div class="panel"><span class="note">beUI bar-chart (horizontal) · max by(job_id)(stx_job_cdc_delay_seconds)</span>
+        <div class="ph"><h3>CDC 延迟 Top 8</h3><span class="sub">当前值 · 阈值线 60 秒（取 CDC 延迟告警配置）</span></div>
+        <div class="chart" id="c-cdc"></div></div>
+      <div class="panel needprom"><span class="note">beUI sankey-chart · increase(stx_job_sink_write_rows_total[$range]) × 连接器</span>
+        <div class="ph"><h3>数据流向</h3><span class="sub">源连接器 → 目标连接器 · 时间窗内写入行数</span></div>
+        <div class="chart" id="c-sankey"></div>
+        <div class="empty" style="height:240px"><b>需要 Prometheus</b></div></div>
+      <div class="panel"><span class="note">beUI heat-calendar · STX DB sync_job_instances（无需 Prometheus）</span>
+        <div class="ph"><h3>运行日历</h3><span class="sub">近 16 周每日作业运行次数</span><div class="r"><div class="seg" id="calSeg"><button class="on">运行</button><button>失败</button></div></div></div>
+        <div class="chart" id="c-cal"></div></div>
+      <div class="panel needprom"><span class="note">Arc bar-chart · max_over_time(stx_job_checkpoint_duration_seconds)</span>
+        <div class="ph"><h3>Checkpoint 耗时</h3><span class="sub">时间窗内最大值 · 秒 · 标出失败次数</span></div>
+        <div class="chart" id="c-ckpt"></div>
+        <div class="empty" style="height:220px"><b>需要 Prometheus</b></div></div>
+      <div class="panel"><span class="note">表格 · stx_job_vertex_busy_ratio / edge_backpressure_ratio（需引擎可观测性）</span>
+        <div class="ph"><h3>算子热点</h3><span class="sub">忙碌度或背压最高的算子</span></div>
+        <table id="hotTable"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ 作业列表 ============ -->
+  <section class="view" id="v-list">
+    <div class="toolbar">
+      <div class="search"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg><input id="q" placeholder="作业名、任务、引擎作业 ID"></div>
+      <div class="chips" id="stChips"></div>
+      <div class="chips" id="modeChips"><button class="on" data-m="">全部模式</button><button data-m="streaming">流</button><button data-m="batch">批</button></div>
+      <div class="select"><span class="muted">集群</span>全部<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6l4 4 4-4"/></svg></div>
+      <div class="spacer"></div>
+      <button class="btn ghost sm">列设置</button>
+      <button class="btn sm">导出 CSV</button>
+    </div>
+    <div class="bulk" id="bulk"><span id="bulkTxt"></span><button class="btn sm">停止</button><button class="btn sm">恢复</button><button class="btn ghost sm" id="bulkClear">取消选择</button></div>
+    <div class="panel" style="padding:4px 6px 10px"><span class="note">beUI table（虚拟滚动 / 排序 / 选择）+ beUI sparkline · GET /sync/jobs + /sync/jobs/sparklines</span>
+      <div class="tablebox"><table id="jobTable"></table></div>
+      <div class="listfoot"><span id="listCount"></span><span>点击行打开预览，「详情」进入作业详情（拓扑 / 指标 / Checkpoint / 日志）</span></div>
+    </div>
+  </section>
+</div>
+
+<aside class="drawer" id="drawer"></aside>
+<div class="tip" id="tip"></div>
+
+<script>
+/* ---------------- 模拟数据 / mock data ---------------- */
+const C = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const SER = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'].map(C);
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const N = 60; const now = Date.parse('2026-11-14T16:42:00+08:00');
+const times = Array.from({length:N}, (_,i) => now - (N-1-i)*60000);
+const walk = (base, vol, min=0, max=Infinity) => { let v=base; return times.map(()=> (v=Math.min(max,Math.max(min, v + (rnd()-.5)*vol)))); };
+const fmtK = v => v>=1e6 ? (v/1e6).toFixed(1)+'M' : v>=1e3 ? (v/1e3).toFixed(1)+'k' : (Math.round(v*10)/10).toString();
+const hhmm = t => new Date(t).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false});
+
+const clusters = [
+  {id:1,name:'prod-seatunnel',ver:'3.0.0',nodes:['10.66.0.2:5801','10.66.0.3:5801','10.66.0.4:5801'],running:7,status:'good'},
+  {id:2,name:'seatunnel-3-single',ver:'3.0.0',nodes:['10.66.0.2:5802'],running:2,status:'warn'},
+];
+const nodes = clusters.flatMap(c => c.nodes.map((a,i)=>({addr:a,cluster:c.name,role:i===0?'master':'worker'})));
+
+const statusMeta = {
+  running:{t:'运行中',cls:'info'}, failed:{t:'失败',cls:'crit'}, finished:{t:'已完成',cls:'good'},
+  canceled:{t:'已取消',cls:''}, pending:{t:'等待中',cls:'warn'}
+};
+const jobNames = ['orders-cdc-to-doris','pg-cdc-ledger','mt-tables-demo','user-dim-batch','kafka-events-to-ck','inventory-sync','mysql-to-paimon','payments-cdc','log-archive-batch','crm-contacts-sync','orders-to-doris','sku-price-batch','clickstream-to-hive','ods-full-reload'];
+const sources = ['MySQL-CDC','Postgres-CDC','Kafka','Jdbc'];
+const sinks = ['Doris','ClickHouse','Paimon','Hive','StarRocks'];
+const jobs = Array.from({length:42}, (_,i) => {
+  const st = i<9 ? 'running' : i<11 ? 'failed' : i<33 ? 'finished' : i<40 ? 'canceled' : 'pending';
+  const streaming = st==='running' ? i<7 : rnd()<.35;
+  const sN = ['orders-cdc-to-doris','pg-cdc-ledger','mt-tables-demo','kafka-events-to-ck','inventory-sync','payments-cdc','crm-contacts-sync','clickstream-to-hive'], bN = ['user-dim-batch','log-archive-batch','sku-price-batch','ods-full-reload','mysql-to-paimon','orders-to-doris'];
+  const name = streaming ? sN[i % sN.length] : bN[i % bN.length];
+  const rate = st==='running' ? Math.round(800 + rnd()*12000) : 0;
+  const src = streaming ? sources[i%2] : sources[2+(i%2)];
+  return {
+    id: 44 - i, task: 8 + (i%14), name, cluster: clusters[i%3===2?1:0].name, mode: streaming?'streaming':'batch', status: st,
+    rate, total: Math.round(1e5 + rnd()*9e7), cdc: streaming && st==='running' ? Math.round(rnd()*rnd()*90*10)/10 : null,
+    ckpt: st==='running' ? Math.round((0.3+rnd()*4)*10)/10 : null, ckptOk: rnd() > .08,
+    started: now - Math.round(rnd()*86400e3*3), dur: Math.round(600 + rnd()*86400*2),
+    engine: String(1794666612835e5 + i*997), src, sink: sinks[i%5],
+    spark: st==='running' ? walk(rate, rate*.25, 0) : null,
+  };
+});
+jobs[1].cdc = 74.2; jobs[1].name='pg-cdc-ledger'; jobs[9].name='orders-to-doris';
+
+/* ---------------- 通用：tooltip ---------------- */
+const tip = document.getElementById('tip');
+function showTip(e, title, rows){
+  tip.innerHTML = `<div class="t">${title}</div>` + rows.map(r=>`<div class="row"><span>${r.c?`<i class="dot" style="background:${r.c}"></i>`:''}${r.k}</span><span class="num">${r.v}</span></div>`).join('');
+  tip.style.display='block';
+  const x = Math.min(e.clientX+14, innerWidth - tip.offsetWidth - 8), y = Math.min(e.clientY+14, innerHeight - tip.offsetHeight - 8);
+  tip.style.left=x+'px'; tip.style.top=y+'px';
+}
+const hideTip = () => tip.style.display='none';
+const svgEl = (w,h) => `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" preserveAspectRatio="none">`;
+// 四等分刻度取整：步长取 1/1.5/2/2.5/3/4/5/7.5/10 × 10^n
+const niceMax = v => { if(v<=0) return 1; const st = v/4, p = Math.pow(10, Math.floor(Math.log10(st))); const m = [1,1.5,2,2.5,3,4,5,7.5,10].find(c=>c*p>=st-1e-9); return m*p*4; };
+
+/* ---------------- 折线图（Arc line-chart 风格）---------------- */
+const charts = {};
+function lineChart(id, cfg){
+  charts[id] = cfg; cfg.hidden = cfg.hidden || new Set();
+  const legend = document.querySelector(`.legend[data-for="${cfg.key}"]`);
+  if (legend && cfg.series.length > 1) {
+    legend.innerHTML = cfg.series.map((s,i)=>`<span data-i="${i}"><i style="background:${s.color}"></i>${s.name}</span>`).join('');
+    legend.onclick = e => { const sp = e.target.closest('span'); if(!sp) return; const i=+sp.dataset.i; cfg.hidden.has(i)?cfg.hidden.delete(i):cfg.hidden.add(i); sp.classList.toggle('off'); drawLine(id); };
+  }
+  drawLine(id);
+}
+function drawLine(id){
+  const cfg = charts[id], el = document.getElementById(id); if(!el || !el.offsetParent) return;
+  const W = el.clientWidth, H = cfg.h || 200, L = 44, R = 10, T = 8, B = 22;
+  const vis = cfg.series.filter((_,i)=>!cfg.hidden.has(i));
+  const max = cfg.max || niceMax(Math.max(1, ...vis.flatMap(s=>s.data)) * 1.1);
+  const x = i => L + i*(W-L-R)/(N-1), y = v => T + (H-T-B)*(1 - v/max);
+  let s = svgEl(W,H);
+  for (let k=0;k<=4;k++){ const v=max*k/4, yy=y(v); s += `<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="${k?C('--grid'):C('--axis')}" stroke-width="1"/><text x="${L-8}" y="${yy+4}" text-anchor="end" font-size="10.5" fill="${C('--ink-3')}" class="num">${(cfg.fmt||fmtK)(v)}</text>`; }
+  [0,15,30,45,59].forEach(i=> s += `<text x="${x(i)}" y="${H-5}" text-anchor="${i===0?'start':i===59?'end':'middle'}" font-size="10.5" fill="${C('--ink-3')}">${hhmm(times[i])}</text>`);
+  if (cfg.threshold) s += `<line x1="${L}" x2="${W-R}" y1="${y(cfg.threshold)}" y2="${y(cfg.threshold)}" stroke="${C('--warn')}" stroke-dasharray="4 4" stroke-width="1"/><text x="${W-R}" y="${y(cfg.threshold)-5}" text-anchor="end" font-size="10.5" fill="${C('--warn')}">${cfg.thresholdLabel}</text>`;
+  (cfg.events||[]).forEach(ev => { const xx = x(ev.i); s += `<line x1="${xx}" x2="${xx}" y1="${T}" y2="${H-B}" stroke="${ev.c}" stroke-width="1" stroke-dasharray="2 3" opacity=".8"/><g class="ev" data-ev="${ev.i}"><circle cx="${xx}" cy="${T+6}" r="5" fill="${ev.c}" stroke="${C('--surface')}" stroke-width="2"/><rect x="${xx-9}" y="${T-3}" width="18" height="18" fill="transparent"/></g>`; });
+  cfg.series.forEach((se,si)=>{ if(cfg.hidden.has(si)) return;
+    const d = se.data.map((v,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+    if (cfg.area) s += `<path d="${d}L${x(N-1)},${y(0)}L${x(0)},${y(0)}Z" fill="${se.color}" opacity=".10"/>`;
+    s += `<path d="${d}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  });
+  s += `<line class="xh" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="${C('--ink-3')}" stroke-width="1" opacity="0"/><g class="dots"></g><rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-B}" fill="transparent" class="hit"/></svg>`;
+  el.innerHTML = s;
+  const svg = el.querySelector('svg'), xh = svg.querySelector('.xh'), dots = svg.querySelector('.dots');
+  svg.querySelector('.hit').onmousemove = e => {
+    const r = svg.getBoundingClientRect(); const px = (e.clientX - r.left) * W / r.width;
+    const i = Math.max(0, Math.min(N-1, Math.round((px-L)/(W-L-R)*(N-1))));
+    xh.setAttribute('x1',x(i)); xh.setAttribute('x2',x(i)); xh.setAttribute('opacity',1);
+    dots.innerHTML = cfg.series.map((se,si)=>cfg.hidden.has(si)?'':`<circle cx="${x(i)}" cy="${y(se.data[i])}" r="4" fill="${se.color}" stroke="${C('--surface')}" stroke-width="2"/>`).join('');
+    const ev = (cfg.events||[]).find(v=>Math.abs(v.i-i)<=1);
+    const rows = cfg.series.map((se,si)=>cfg.hidden.has(si)?null:{c:se.color,k:se.name,v:(cfg.fmt||fmtK)(se.data[i])+(cfg.unit||'')}).filter(Boolean);
+    if (ev) rows.push({c:ev.c,k:ev.label,v:''});
+    showTip(e, hhmm(times[i]), rows);
+  };
+  svg.querySelector('.hit').onmouseleave = () => { xh.setAttribute('opacity',0); dots.innerHTML=''; hideTip(); };
+}
+
+/* ---------------- 横向条形（beUI bar-chart horizontal）---------------- */
+function hbar(id, rows, {fmt=fmtK, unit='', threshold, color=SER[0]}={}){
+  const el = document.getElementById(id); const W = el.clientWidth, rh = 26, L = 150, R = 56, H = rows.length*rh + 18;
+  const max = niceMax(Math.max(...rows.map(r=>r.v), threshold||0) * 1.05);
+  const x = v => L + (W-L-R) * v / max;
+  let s = svgEl(W,H);
+  rows.forEach((r,i)=>{ const yy = i*rh + 4; const over = threshold && r.v > threshold;
+    s += `<g class="hb" data-i="${i}"><rect x="0" y="${yy-2}" width="${W}" height="${rh}" fill="transparent"/>
+      <text x="${L-10}" y="${yy+13}" text-anchor="end" font-size="12" fill="${C('--ink-2')}">${r.k.length>18?r.k.slice(0,17)+'…':r.k}</text>
+      <rect x="${L}" y="${yy+4}" width="${Math.max(2,x(r.v)-L)}" height="12" rx="3" fill="${color}"/>
+      <text x="${x(r.v)+6}" y="${yy+14}" font-size="11.5" fill="${over?C('--warn'):C('--ink-2')}" class="num">${over?'▲ ':''}${fmt(r.v)}${unit}</text></g>`; });
+  if (threshold) s += `<line x1="${x(threshold)}" x2="${x(threshold)}" y1="0" y2="${H-14}" stroke="${C('--warn')}" stroke-dasharray="3 3"/><text x="${x(threshold)}" y="${H-2}" text-anchor="middle" font-size="10.5" fill="${C('--warn')}">${threshold}${unit}</text>`;
+  el.innerHTML = s + '</svg>';
+  el.querySelectorAll('.hb').forEach(g=>{ const r = rows[+g.dataset.i];
+    g.onmousemove = e => showTip(e, r.k, [{c:color,k:r.label||'值',v:fmt(r.v)+unit}, ...(r.extra||[])]); g.onmouseleave = hideTip; });
+}
+
+/* ---------------- 迷你折线（beUI sparkline）---------------- */
+function spark(data, w=120, h=28, color=SER[0]){
+  if(!data) return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"></svg>`;
+  const max = Math.max(...data)*1.1 || 1, min = Math.min(...data)*.9;
+  const pts = data.map((v,i)=>`${(i*w/(data.length-1)).toFixed(1)},${(h-2-(h-4)*(v-min)/(max-min||1)).toFixed(1)}`);
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" preserveAspectRatio="none"><path d="M0,${h} L${pts.join(' L')} L${w},${h}Z" fill="${color}" opacity=".12"/><polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+}
+
+/* ---------------- KPI ---------------- */
+const tpRead = walk(46000, 5000, 20000), tpWrite = tpRead.map(v=>v*0.97 + (rnd()-.5)*1500);
+const kpis = [
+  {l:'运行中作业', v:'9', s:'流 7 · 批 2', d:walk(9,1.2,6,12), go:'list', src:'DB'},
+  {l:'全局写入速率', v:fmtK(tpWrite[N-1]), u:'行/秒', s:'<span class="delta-up">↑ 6.2%</span> 较上一小时', d:tpWrite, go:'jobs', prom:1},
+  {l:'最大 CDC 延迟', v:'74.2', u:'秒', s:'pg-cdc-ledger', d:walk(40,12,5,80), go:'jobs', warn:1, prom:1},
+  {l:'失败作业（24 小时）', v:'2', s:'<span class="delta-bad">较昨日 +1</span>', d:walk(1,1,0,3), go:'list', src:'DB'},
+  {l:'集群健康', v:'1/2', s:'节点 4/4 在线 · 1 个降级', d:null, go:'cluster', src:'DB'},
+  {l:'活跃告警', v:'3', s:'严重 3', d:null, go:'monitor', src:'DB'},
+];
+document.getElementById('kpis').innerHTML = kpis.map(k=>`<div class="kpi" data-go="${k.go}"><div class="l">${k.l}</div><div class="v num">${k.v}${k.u?`<small>${k.u}</small>`:''}</div><div class="s">${k.warn?`<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--warn)" stroke-width="1.6"><path d="M8 2.5l6 11H2z"/><path d="M8 7v3M8 12h.01"/></svg>`:''}${k.s}</div><div class="${k.prom?'spark-need':''}">${k.d?spark(k.d,200,28,k.warn?C('--warn'):SER[0]):'<svg></svg>'}</div></div>`).join('');
+
+/* ---------------- 集群 ---------------- */
+document.getElementById('ccards').innerHTML = `<div class="ccard on" data-c="all"><div class="n">全部集群 <span class="badge">2</span></div><div class="meta muted"><div>节点<b>4/4</b></div><div>运行作业<b>9</b></div><div>最高堆<b>71%</b></div><div>告警<b>3</b></div></div></div>` +
+  clusters.map(c=>`<div class="ccard" data-c="${c.id}"><div class="n"><span class="dot" style="background:${c.status==='good'?C('--good'):C('--warn')}"></span>${c.name}<span class="badge">${c.ver}</span>${c.status==='good'?'<span class="badge good">健康</span>':'<span class="badge warn">指标端点不可达</span>'}</div><div class="meta muted"><div>节点<b>${c.nodes.length}/${c.nodes.length}</b></div><div>运行作业<b>${c.running}</b></div><div>最高堆<b>${c.id===1?'71%':'38%'}</b></div><div>告警<b>${c.id===1?0:3}</b></div></div></div>`).join('');
+document.getElementById('ccards').onclick = e => { const c = e.target.closest('.ccard'); if(!c) return; document.querySelectorAll('.ccard').forEach(x=>x.classList.toggle('on', x===c)); document.getElementById('scopeTxt').textContent = c.querySelector('.n').childNodes[c.dataset.c==='all'?0:1].textContent.trim(); };
+
+document.getElementById('sbar').innerHTML = nodes.map((n,ni)=>{
+  const cells = Array.from({length:48},(_,i)=> (ni===3 && (i>30&&i<36)) || (ni===1&&i===12) ? 0 : 1);
+  const pct = (cells.filter(Boolean).length/48*100).toFixed(1);
+  return `<div class="nm" title="${n.cluster}">${n.addr} <span class="muted">${n.role==='master'?'· master':''}</span></div><div class="cells">${cells.map((v,i)=>`<i data-n="${ni}" data-i="${i}" data-v="${v}" style="${v?'':'background:'+C('--crit')}"></i>`).join('')}</div><div class="pct num ${pct<100?'':'muted'}">${pct}%</div>`;
+}).join('');
+document.getElementById('sbar').onmousemove = e => { const c = e.target.closest('i'); if(!c) return hideTip(); const t = times[Math.round(+c.dataset.i/47*(N-1))]; showTip(e, `${nodes[+c.dataset.n].addr} · ${hhmm(t)}`, [{c:+c.dataset.v?C('--good'):C('--crit'),k:+c.dataset.v?'ACTIVE · 抓取正常':'抓取失败',v:''}]); };
+document.getElementById('sbar').onmouseleave = hideTip;
+
+const nodeSeries = (base, vol, min, max) => nodes.map((n,i)=>({name:n.addr, color:SER[i], data:walk(base[i], vol, min, max)}));
+const heapS = nodeSeries([62,48,55,30], 6, 10, 95), cpuS = nodeSeries([1.4,.8,1.1,.3], .3, 0, 4), gcS = nodeSeries([1.2,.6,.9,.2], .4, 0, 6);
+const comp = {running:walk(9,1,6,12).map(Math.round), finished:walk(30,2,20,40).map(Math.round), failed:walk(2,.6,0,4).map(Math.round), canceled:walk(7,1,4,10).map(Math.round)};
+
+const nodeRows = nodes.map((n,i)=>({...n, heap:heapS[i].data[N-1], cpu:cpuS[i].data[N-1], thr:[212,168,175,96][i], fd:[11,9,10,4][i], up:['6 天 4 小时','6 天 4 小时','2 天 1 小时','19 小时'][i], ok:i!==3}));
+document.getElementById('nodeSub').textContent = `${nodes.length} 个节点 · 点击行查看该节点趋势`;
+document.getElementById('nodeTable').innerHTML = `<thead><tr><th>节点</th><th>集群</th><th>角色</th><th>状态</th><th>堆内存</th><th>CPU</th><th>线程</th><th>FD</th><th>运行时长</th></tr></thead><tbody>` +
+  nodeRows.map(n=>`<tr><td class="mono">${n.addr}</td><td class="ink2">${n.cluster}</td><td class="ink2">${n.role}</td><td>${n.ok?'<span class="badge good">ACTIVE</span>':'<span class="badge warn">抓取失败</span>'}</td><td><div class="meter"><div class="bar"><i style="width:${n.heap}%;background:${n.heap>80?C('--serious'):SER[0]}"></i></div><span class="num">${n.heap.toFixed(0)}%</span></div></td><td class="num">${n.cpu.toFixed(2)} 核</td><td class="num">${n.thr}</td><td class="num">${n.fd}%</td><td class="ink2">${n.up}</td></tr>`).join('') + '</tbody>';
+
+const sigs = [
+  {l:'集群分区安全', v:'2/2 安全', ok:1}, {l:'死锁线程', v:'0', ok:1},
+  {l:'FD 使用率（最高）', v:'11%', ok:1}, {l:'线程池拒绝', v:'0 /秒', ok:1},
+  {l:'Hazelcast 队列利用率', v:'3%', ok:1}, {l:'指标端点', v:'1 个不可达', ok:0},
+];
+document.getElementById('signals').innerHTML = sigs.map(s=>`<div class="sig"><div class="l">${s.ok?`<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--good)" stroke-width="1.8"><path d="M3.5 8.5l3 3 6-7"/></svg>`:`<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--warn)" stroke-width="1.6"><path d="M8 2.5l6 11H2z"/><path d="M8 7v3M8 12h.01"/></svg>`}${s.l}</div><div class="v num">${s.v}</div></div>`).join('');
+
+/* 状态构成：堆叠柱（beUI composition-chart 风格）*/
+function compChart(){
+  const el = document.getElementById('c-comp'); if(!el.offsetParent) return;
+  const keys = [['running','运行中',SER[0]],['finished','已完成',SER[2]],['canceled','已取消',SER[6]],['failed','失败',SER[7]]];
+  document.querySelector('.legend[data-for="comp"]').innerHTML = keys.map(k=>`<span><i style="background:${k[2]}"></i>${k[1]}</span>`).join('');
+  const W = el.clientWidth, H = 200, L = 34, B = 22, T = 6, n = 30, bw = (W-L-6)/n;
+  const tot = i => keys.reduce((a,k)=>a+comp[k[0]][i*2],0); const max = niceMax(Math.max(...Array.from({length:n},(_,i)=>tot(i))));
+  let s = svgEl(W,H);
+  for(let k=0;k<=4;k++){const yy=T+(H-T-B)*(1-k/4); s+=`<line x1="${L}" x2="${W}" y1="${yy}" y2="${yy}" stroke="${k?C('--grid'):C('--axis')}"/><text x="${L-6}" y="${yy+4}" text-anchor="end" font-size="10.5" fill="${C('--ink-3')}">${max*k/4}</text>`;}
+  for(let i=0;i<n;i++){ let acc=0; const x = L + i*bw + 1;
+    s += `<g class="cb2" data-i="${i}"><rect x="${x}" y="${T}" width="${bw}" height="${H-T-B}" fill="transparent"/>`;
+    keys.forEach(k=>{ const v = comp[k[0]][i*2]; const h = (H-T-B)*v/max; const y = T+(H-T-B)*(1-(acc+v)/max); acc+=v; s += `<rect x="${x}" y="${y+1}" width="${bw-2}" height="${Math.max(0,h-2)}" rx="2" fill="${k[2]}"/>`; });
+    s += '</g>';
+    if(i%10===0) s += `<text x="${x}" y="${H-5}" font-size="10.5" fill="${C('--ink-3')}">${hhmm(times[i*2])}</text>`;
+  }
+  el.innerHTML = s+'</svg>';
+  el.querySelectorAll('.cb2').forEach(g=>{ const i=+g.dataset.i; g.onmousemove = e=>showTip(e, hhmm(times[i*2]), keys.slice().reverse().map(k=>({c:k[2],k:k[1],v:comp[k[0]][i*2]}))); g.onmouseleave=hideTip; });
+}
+
+/* ---------------- 作业 ---------------- */
+function drawJobs(){
+  lineChart('c-tp', {key:'tp', h:240, area:true, unit:' 行/秒', series:[{name:'读取',color:SER[0],data:tpRead},{name:'写入',color:SER[2],data:tpWrite}],
+    events:[{i:22,c:C('--crit'),label:'失败 · orders-to-doris'},{i:41,c:C('--ink-2'),label:'重启 · mt-tables-demo'},{i:50,c:C('--s7'),label:'表结构变更 · pg-cdc-ledger'}]});
+  const run = jobs.filter(j=>j.status==='running');
+  hbar('c-top', run.slice().sort((a,b)=>b.rate-a.rate).slice(0,8).map(j=>({k:j.name,v:j.rate,label:'写入',extra:[{k:'集群',v:j.cluster}]})), {unit:'/s'});
+  hbar('c-cdc', run.filter(j=>j.cdc!=null).sort((a,b)=>b.cdc-a.cdc).slice(0,8).map(j=>({k:j.name,v:j.cdc,label:'CDC 延迟'})), {unit:'s', threshold:60, fmt:v=>v.toFixed(1)});
+  sankey(); calendar(); ckpt();
+  const hot = [['mt-tables-demo','Sink[0] Doris',41,82],['orders-cdc-to-doris','Transform[1] Sql',88,12],['kafka-events-to-ck','Source[0] Kafka',63,34],['payments-cdc','Sink[0] StarRocks',37,28],['inventory-sync','Source[0] MySQL-CDC',22,5]];
+  document.getElementById('hotTable').innerHTML = `<thead><tr><th>作业</th><th>算子</th><th>忙碌度</th><th>背压</th></tr></thead><tbody>`+hot.map(h=>`<tr><td>${h[0]}</td><td class="ink2">${h[1]}</td><td><div class="meter"><div class="bar"><i style="width:${h[2]}%"></i></div><span class="num">${h[2]}%</span></div></td><td><div class="meter"><div class="bar"><i style="width:${h[3]}%;background:${h[3]>70?C('--serious'):SER[1]}"></i></div><span class="num">${h[3]}%</span>${h[3]>70?' <span class="badge warn">高</span>':''}</div></td></tr>`).join('')+'</tbody>';
+}
+
+function sankey(){
+  const el = document.getElementById('c-sankey'); const W = el.clientWidth, H = 240, nw = 10;
+  const flows = [['MySQL-CDC','Doris',38],['MySQL-CDC','StarRocks',14],['Postgres-CDC','Paimon',18],['Postgres-CDC','Doris',9],['Kafka','ClickHouse',27],['Kafka','Hive',8],['Jdbc','Hive',11],['Jdbc','Paimon',6]];
+  const L = [...new Set(flows.map(f=>f[0]))], R = [...new Set(flows.map(f=>f[1]))];
+  const tot = flows.reduce((a,f)=>a+f[2],0), gap = 8;
+  const scale = (H - gap*(Math.max(L.length,R.length)-1)) / tot;
+  const pos = (arr, side) => { let y=0; const m={}; arr.forEach(n=>{ const v = flows.filter(f=>f[side]===n).reduce((a,f)=>a+f[2],0); m[n]={y, h:v*scale, v, off:0}; y += v*scale + gap; }); return m; };
+  const lp = pos(L,0), rp = pos(R,1); const x0 = 110, x1 = W-110;
+  let s = svgEl(W,H);
+  flows.forEach((f,i)=>{ const a = lp[f[0]], b = rp[f[1]], h = f[2]*scale; const ya = a.y + a.off + h/2, yb = b.y + b.off + h/2; a.off+=h; b.off+=h;
+    const ci = L.indexOf(f[0]); const mx = (x0+nw+x1)/2;
+    s += `<path class="fl" data-i="${i}" d="M${x0+nw},${ya} C${mx},${ya} ${mx},${yb} ${x1},${yb}" stroke="${SER[ci]}" stroke-width="${Math.max(1,h-1.5)}" fill="none" opacity=".32"/>`; });
+  L.forEach((n,i)=>{ const p=lp[n]; s += `<rect x="${x0}" y="${p.y}" width="${nw}" height="${p.h}" rx="3" fill="${SER[i]}"/><text x="${x0-8}" y="${p.y+p.h/2+4}" text-anchor="end" font-size="12" fill="${C('--ink-2')}">${n}</text>`; });
+  R.forEach(n=>{ const p=rp[n]; s += `<rect x="${x1}" y="${p.y}" width="${nw}" height="${p.h}" rx="3" fill="${C('--ink-3')}"/><text x="${x1+nw+8}" y="${p.y+p.h/2+4}" font-size="12" fill="${C('--ink-2')}">${n} <tspan fill="${C('--ink-3')}">${p.v}M</tspan></text>`; });
+  el.innerHTML = s+'</svg>';
+  el.querySelectorAll('.fl').forEach(p=>{ const f=flows[+p.dataset.i]; p.onmousemove=e=>{p.setAttribute('opacity','.6');showTip(e,`${f[0]} → ${f[1]}`,[{k:'写入行数',v:f[2]+'M'},{k:'占比',v:(f[2]/tot*100).toFixed(1)+'%'}]);}; p.onmouseleave=()=>{p.setAttribute('opacity','.32');hideTip();}; });
+}
+
+let calMode = 0;
+const calData = Array.from({length:16*7},()=>({runs:Math.round(rnd()*rnd()*40), fail:rnd()<.12?Math.ceil(rnd()*4):0}));
+function calendar(){
+  const el = document.getElementById('c-cal'); const W = el.clientWidth; const cs = Math.min(28, Math.floor((W-40)/16)-3), g = 3, H = 7*(cs+g)+34;
+  const steps = calMode ? ['#2b2b29','#5c2a2a','#8a3434','#b63c3c','#e66767'] : ['#2b2b29','#184f95','#256abf','#3987e5','#86b6ef'];
+  const key = calMode ? 'fail' : 'runs'; const max = Math.max(...calData.map(d=>d[key]))||1;
+  const lvl = v => v===0?0:Math.min(4, 1+Math.floor(v/max*3.99));
+  let s = svgEl(W,H); const day0 = now - (16*7-1)*86400e3;
+  ['一','三','五'].forEach((d,i)=> s += `<text x="0" y="${(i*2)*(cs+g)+cs-3+16}" font-size="10.5" fill="${C('--ink-3')}">周${d}</text>`);
+  calData.forEach((d,i)=>{ const w = Math.floor(i/7), dd = i%7; s += `<rect class="cc" data-i="${i}" x="${30+w*(cs+g)}" y="${16+dd*(cs+g)}" width="${cs}" height="${cs}" rx="3" fill="${steps[lvl(d[key])]}"/>`; });
+  for(let w=0;w<16;w+=4){ const t = new Date(day0 + w*7*86400e3); s += `<text x="${30+w*(cs+g)}" y="10" font-size="10.5" fill="${C('--ink-3')}">${t.getMonth()+1}月${t.getDate()}日</text>`; }
+  const lx = 30; s += `<text x="${lx}" y="${H-4}" font-size="10.5" fill="${C('--ink-3')}">少</text>` + steps.map((c,i)=>`<rect x="${lx+16+i*14}" y="${H-13}" width="11" height="11" rx="2" fill="${c}"/>`).join('') + `<text x="${lx+16+5*14+4}" y="${H-4}" font-size="10.5" fill="${C('--ink-3')}">多</text>`;
+  el.innerHTML = s+'</svg>';
+  el.querySelectorAll('.cc').forEach(r=>{ const i=+r.dataset.i, d = calData[i]; r.onmousemove=e=>showTip(e,new Date(day0+i*86400e3).toLocaleDateString('zh-CN'),[{k:'运行',v:d.runs},{c:d.fail?C('--crit'):null,k:'失败',v:d.fail}]); r.onmouseleave=hideTip; });
+}
+
+function ckpt(){
+  const el = document.getElementById('c-ckpt'); const run = jobs.filter(j=>j.status==='running' && j.mode==='streaming');
+  const W = el.clientWidth, H = 220, L = 34, B = 40, T = 10; const max = niceMax(Math.max(...run.map(j=>j.ckpt))*1.15); const bw = (W-L)/run.length;
+  let s = svgEl(W,H);
+  for(let k=0;k<=4;k++){const yy=T+(H-T-B)*(1-k/4); s+=`<line x1="${L}" x2="${W}" y1="${yy}" y2="${yy}" stroke="${k?C('--grid'):C('--axis')}"/><text x="${L-6}" y="${yy+4}" text-anchor="end" font-size="10.5" fill="${C('--ink-3')}">${(max*k/4).toFixed(1)}</text>`;}
+  run.forEach((j,i)=>{ const h=(H-T-B)*j.ckpt/max, x=L+i*bw+bw*.25; const fails = i===2?2:0;
+    s += `<g class="ck" data-i="${i}"><rect x="${L+i*bw}" y="${T}" width="${bw}" height="${H-T-B}" fill="transparent"/><rect x="${x}" y="${H-B-h}" width="${bw*.5}" height="${h}" rx="3" fill="${SER[0]}"/>${fails?`<text x="${x+bw*.25}" y="${H-B-h-6}" text-anchor="middle" font-size="11" fill="${C('--crit')}">✕${fails}</text>`:''}<text x="${x+bw*.25}" y="${H-B+14}" text-anchor="middle" font-size="10.5" fill="${C('--ink-3')}">${j.name.slice(0,10)}</text></g>`;
+    run[i].fails = fails; });
+  el.innerHTML = s+'</svg>';
+  el.querySelectorAll('.ck').forEach(g=>{ const j = run[+g.dataset.i]; g.onmousemove=e=>showTip(e,j.name,[{c:SER[0],k:'最大耗时',v:j.ckpt+'s'},{c:j.fails?C('--crit'):null,k:'失败次数',v:j.fails}]); g.onmouseleave=hideTip; });
+}
+
+/* ---------------- 作业列表 ---------------- */
+const stOrder = [['','全部'],['running','运行中'],['failed','失败'],['finished','已完成'],['canceled','已取消'],['pending','等待中']];
+const stRank = {failed:5,running:4,pending:3,canceled:2,finished:1};
+let fSt = '', fMode = '', fQ = '', sortK = 'status', sortD = -1; const sel = new Set();
+function renderChips(){ document.getElementById('stChips').innerHTML = stOrder.map(([k,t])=>`<button data-s="${k}" class="${k===fSt?'on':''}">${k?`<i class="dot" style="background:${k==='running'?SER[0]:k==='failed'?C('--crit'):k==='finished'?C('--good'):k==='pending'?C('--warn'):C('--ink-3')}"></i>`:''}${t}<em>${k?jobs.filter(j=>j.status===k).length:jobs.length}</em></button>`).join(''); }
+const fmtDur = s => s>=86400 ? `${Math.floor(s/86400)} 天 ${Math.floor(s%86400/3600)} 小时` : s>=3600 ? `${Math.floor(s/3600)} 小时 ${Math.floor(s%3600/60)} 分` : `${Math.floor(s/60)} 分`;
+function renderList(){
+  let rows = jobs.filter(j=>(!fSt||j.status===fSt)&&(!fMode||j.mode===fMode)&&(!fQ||(j.name+j.engine+'#'+j.task).includes(fQ)));
+  rows.sort((a,b)=>{ const va = sortK==='status' ? stRank[a.status]*1e13 + a.started : a[sortK]??-1, vb = sortK==='status' ? stRank[b.status]*1e13 + b.started : b[sortK]??-1; return (va>vb?1:va<vb?-1:0)*sortD; });
+  const th = (k,t)=>`<th class="sort" data-k="${k}">${t}${sortK===k?`<span class="arr">${sortD>0?'↑':'↓'}</span>`:''}</th>`;
+  document.getElementById('jobTable').innerHTML = `<thead><tr><th style="width:28px"><span class="cb ${rows.length&&rows.every(r=>sel.has(r.id))?'on':''}" data-all="1"></span></th>${th('name','作业')}<th>集群</th><th>模式</th>${th('status','状态（失败优先）')}${th('rate','写入速率（近 1 小时）')}${th('total','累计写入')}${th('cdc','CDC 延迟')}<th>Checkpoint</th>${th('started','开始时间')}<th></th></tr></thead><tbody>` +
+    rows.map(j=>`<tr data-id="${j.id}" class="${sel.has(j.id)?'sel':''}"><td><span class="cb ${sel.has(j.id)?'on':''}" data-id="${j.id}"></span></td>
+      <td><span class="jobname">${j.name}</span><span class="jobsub mono">任务 #${j.task} · ${j.engine}</span></td>
+      <td class="ink2">${j.cluster}</td><td><span class="badge">${j.mode==='streaming'?'流':'批'}</span></td>
+      <td><span class="badge ${statusMeta[j.status].cls}">${statusMeta[j.status].t}</span></td>
+      <td><div style="display:flex;align-items:center;gap:10px"><span class="spark-need">${spark(j.spark,96,24)}</span><span class="num" style="min-width:58px">${j.rate?fmtK(j.rate)+'/s':'<span class="muted">—</span>'}</span></div></td>
+      <td class="num">${fmtK(j.total)}</td>
+      <td class="num">${j.cdc==null?'<span class="muted">—</span>':j.cdc>60?`<span style="color:var(--warn)">▲ ${j.cdc}s</span>`:j.cdc+'s'}</td>
+      <td>${j.ckpt==null?'<span class="muted">—</span>':`<span class="num">${j.ckpt}s</span> ${j.ckptOk?'<span class="muted">✓</span>':'<span style="color:var(--crit)">✕</span>'}`}</td>
+      <td class="ink2"><span class="num">${new Date(j.started).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}</span><span class="jobsub" style="display:block">${j.status==='running'?'已运行 ':'耗时 '}${fmtDur(j.dur)}</span></td>
+      <td><button class="btn ghost sm" data-detail="${j.id}">详情</button></td></tr>`).join('') + '</tbody>';
+  document.getElementById('listCount').textContent = `共 ${rows.length} 条` + (rows.length!==jobs.length?`（已筛选，全部 ${jobs.length}）`:'');
+  document.getElementById('bulk').classList.toggle('on', sel.size>0); document.getElementById('bulkTxt').textContent = `已选 ${sel.size} 个作业`;
+}
+document.getElementById('stChips').onclick = e => { const b=e.target.closest('button'); if(!b) return; fSt=b.dataset.s; renderChips(); renderList(); };
+document.getElementById('modeChips').onclick = e => { const b=e.target.closest('button'); if(!b) return; fMode=b.dataset.m; document.querySelectorAll('#modeChips button').forEach(x=>x.classList.toggle('on',x===b)); renderList(); };
+document.getElementById('q').oninput = e => { fQ = e.target.value.trim(); renderList(); };
+document.getElementById('bulkClear').onclick = () => { sel.clear(); renderList(); };
+document.getElementById('jobTable').onclick = e => {
+  const s = e.target.closest('th.sort'); if (s) { const k=s.dataset.k; sortD = sortK===k ? -sortD : -1; sortK=k; return renderList(); }
+  const cb = e.target.closest('.cb'); if (cb) { if (cb.dataset.all) { const vis=[...document.querySelectorAll('#jobTable tbody tr')].map(r=>+r.dataset.id); const all = vis.every(id=>sel.has(id)); vis.forEach(id=>all?sel.delete(id):sel.add(id)); } else { const id=+cb.dataset.id; sel.has(id)?sel.delete(id):sel.add(id); } return renderList(); }
+  const tr = e.target.closest('tbody tr'); if (tr) openDrawer(jobs.find(j=>j.id===+tr.dataset.id));
+};
+
+function openDrawer(j){
+  const d = document.getElementById('drawer');
+  d.innerHTML = `<div style="display:flex;align-items:start;gap:10px"><div style="flex:1;min-width:0"><h2>${j.name}</h2><div class="muted mono" style="font-size:11.5px">任务 #${j.task} · 实例 #${j.id} · ${j.engine}</div></div><button class="btn ghost sm" id="dClose">关闭</button></div>
+    <div style="display:flex;gap:6px;margin-top:10px"><span class="badge ${statusMeta[j.status].cls}">${statusMeta[j.status].t}</span><span class="badge">${j.mode==='streaming'?'流':'批'}</span><span class="badge">${j.cluster}</span><span class="badge">${j.src} → ${j.sink}</span></div>
+    <div class="kv"><div class="muted">写入速率<b class="num">${j.rate?fmtK(j.rate)+'/s':'—'}</b></div><div class="muted">累计写入<b class="num">${fmtK(j.total)}</b></div><div class="muted">CDC 延迟<b class="num">${j.cdc==null?'—':j.cdc+'s'}</b></div></div>
+    <div class="panel needprom" style="padding:12px"><div class="ph"><h3>近 1 小时吞吐</h3><span class="sub">与作业详情「指标 → 趋势」同源</span></div><div class="legend" data-for="dj"></div><div class="chart" id="c-dj"></div><div class="empty" style="height:160px"><b>需要 Prometheus</b></div></div>
+    ${j.status==='failed'?`<div class="panel" style="margin-top:12px;border-color:rgba(208,59,59,.4)"><div class="ph"><h3>失败原因</h3></div><div class="mono" style="font-size:11.5px;color:var(--ink-2);white-space:pre-wrap">org.apache.seatunnel.connectors.doris.exception.DorisConnectorException: stream load failed, status=Fail, message=too many filtered rows</div></div>`:''}
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn">打开作业详情</button>${j.status==='running'?'<button class="btn">停止</button>':j.status==='failed'||j.status==='canceled'?'<button class="btn">从 Checkpoint 恢复</button>':''}<button class="btn ghost">在工作台中打开任务</button></div>`;
+  d.classList.add('on');
+  document.getElementById('dClose').onclick = () => d.classList.remove('on');
+  if (j.spark) setTimeout(()=>lineChart('c-dj',{key:'dj',h:160,area:true,unit:'/s',series:[{name:'读取',color:SER[0],data:j.spark.map(v=>v*1.02)},{name:'写入',color:SER[2],data:j.spark}]}),60);
+  else document.getElementById('c-dj').innerHTML = '<div class="muted" style="padding:30px 0;text-align:center">作业未运行，展示其运行期间的曲线（作业全程窗口）。</div>';
+}
+
+/* ---------------- 视图切换 / 绘制 ---------------- */
+function drawCluster(){
+  lineChart('c-heap',{key:'heap',max:100,fmt:v=>v.toFixed(0),unit:'%',series:heapS,threshold:85,thresholdLabel:'85% 告警线'});
+  lineChart('c-cpu',{key:'cpu',fmt:v=>v.toFixed(1),unit:' 核',series:cpuS});
+  lineChart('c-gc',{key:'gc',fmt:v=>v.toFixed(1),unit:'%',series:gcS});
+  compChart();
+}
+let cur = 'cluster';
+function show(v){ cur=v; document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===v)); document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on', s.id==='v-'+v)); redraw(); }
+function redraw(){ if(cur==='cluster') drawCluster(); else if(cur==='jobs') drawJobs(); else { renderChips(); renderList(); } }
+document.getElementById('tabs').onclick = e => { const b=e.target.closest('button'); if(b) show(b.dataset.v); };
+document.getElementById('kpis').onclick = e => { const k=e.target.closest('.kpi'); if(k && k.dataset.go!=='monitor') show(k.dataset.go); };
+document.getElementById('rangeSeg').onclick = e => { const b=e.target.closest('button'); if(!b) return; document.querySelectorAll('#rangeSeg button').forEach(x=>x.classList.toggle('on',x===b)); };
+document.getElementById('calSeg').onclick = e => { const b=e.target.closest('button'); if(!b) return; document.querySelectorAll('#calSeg button').forEach(x=>x.classList.toggle('on',x===b)); calMode = b.textContent==='失败'?1:0; calendar(); };
+document.getElementById('tpUnit').onclick = e => { const b=e.target.closest('button'); if(!b) return; document.querySelectorAll('#tpUnit button').forEach(x=>x.classList.toggle('on',x===b)); };
+const root = document.getElementById('root'); root.classList.add('annot');
+document.getElementById('tgAnnot').onclick = function(){ this.classList.toggle('on'); root.classList.toggle('annot'); };
+document.getElementById('tgProm').onclick = function(){ this.classList.toggle('on'); document.body.classList.toggle('noprom'); redraw(); };
+addEventListener('resize', redraw);
+const initial = new URLSearchParams(location.search).get('tab'); show(initial || 'cluster');
+if (new URLSearchParams(location.search).get('noprom')) document.getElementById('tgProm').click();
+if (new URLSearchParams(location.search).get('drawer')) { show('list'); openDrawer(jobs[0]); }
+</script>
+</body>
+</html>

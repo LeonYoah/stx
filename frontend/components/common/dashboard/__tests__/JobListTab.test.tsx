@@ -225,6 +225,24 @@ describe('JobListTab', () => {
     ).toBeTruthy();
   });
 
+  it('hides the pager on a single page and pages server-side beyond 50 jobs', async () => {
+    renderTab();
+    await screen.findByTestId('home-job-row-1');
+    expect(screen.getByText('共 2 条')).toBeTruthy();
+    expect(screen.queryByTitle('下一页')).toBeNull();
+
+    vi.clearAllMocks();
+    sync.listJobs.mockResolvedValue({...listData, total: 120});
+    sync.getJobSparklines.mockResolvedValue({source: 'none', range: '1h', metric: 'write', step_seconds: 15, items: {}});
+    document.body.innerHTML = '';
+    const update = renderTab({page: 2});
+    await screen.findByTestId('home-job-row-1');
+    expect(sync.listJobs.mock.calls[0][0]).toMatchObject({current: 2, size: 50});
+    expect(screen.getByText('共 120 条')).toBeTruthy();
+    fireEvent.click(screen.getByTitle('下一页'));
+    expect(update).toHaveBeenCalledWith({page: 3});
+  });
+
   it('opens the preview drawer on row click', async () => {
     renderTab();
     fireEvent.click(await screen.findByTestId('home-job-row-2'));

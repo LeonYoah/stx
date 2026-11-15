@@ -48,18 +48,19 @@
 
 ## 6. 验证
 
-- [x] 本地构建前后端（t1 只在 nice 19 下单独构建，见 memory），在 `~/stx-local` 环境：
-  - 关闭 observability：首页三页签可用、sparkline 列隐藏。
-  - 开启 observability：跑一个 CDC demo 作业，核对写入速率、sparkline、CDC 延迟、需要处理条。
-  - 非管理员账号核对可见范围。
-  - 390px / 中英文截图存入任务目录。
+- [x] 本地构建前后端（t1 只在 nice 19 下单独构建，见 memory），在 `~/stx-local` 环境（observability 开启）：
+  - [x] 首页三页签、筛选 / 搜索 / 模式 / 指标卡跳转写 URL、刷新保留页签、预览抽屉作业全程趋势、服务端分页（size=20 实测 20/20/2）。
+  - [ ] 关闭 observability 的真实环境验证（目前只有单测覆盖：sparkline 隐藏、summary 返回 source=none）。
+  - [ ] 跑一个运行中的 CDC demo 作业，核对写入速率、sparkline、CDC 延迟、需要处理条（本地库当前没有运行中作业）。
+  - [ ] 非管理员账号在浏览器里核对可见范围（目前只有后端单测）。
+  - [ ] 390px / 英文界面截图。
 - [x] CLI：`stx sync job list --status_group failed`、`stx sync job sparklines --ids ...`、`stx dashboard home summary`。
 
 ## 7. 收尾
 
 - [x] trellis-check 全量自检（spec checklist）。
 - [x] spec 更新：frontend/ui-conventions（首页结构、大盘空态）、backend 新增「首页大盘接口」一节或并入 engine-events-and-realtime。
-- [ ] 中文提交，开 PR，链接到 T3 线程。
+- [x] 中文提交，开 PR #137，已链接到 T3 线程。
 
 ## 回退
 

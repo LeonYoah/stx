@@ -357,32 +357,17 @@ func (r *Repository) ListRemoteAlerts(ctx context.Context, filter *RemoteAlertFi
 	return rows, total, nil
 }
 
-// GetRemoteAlertClusterStats returns active/critical remote alert counters grouped by cluster_id.
-// GetRemoteAlertClusterStats 返回按 cluster_id 聚合的远程告警活动/严重数。
-func (r *Repository) GetRemoteAlertClusterStats(ctx context.Context, clusterIDs []string) (map[string]*RemoteAlertClusterStat, error) {
-	result := make(map[string]*RemoteAlertClusterStat)
+// ListUnresolvedRemoteAlerts 返回指定集群里未恢复的远程告警（只取统计需要的列）。
+// ListUnresolvedRemoteAlerts returns unresolved remote alerts of the given clusters (only the columns counting needs).
+func (r *Repository) ListUnresolvedRemoteAlerts(ctx context.Context, clusterIDs []string) ([]*RemoteAlertRecord, error) {
 	if len(clusterIDs) == 0 {
-		return result, nil
+		return nil, nil
 	}
-
-	query := r.db.WithContext(ctx).Table((&RemoteAlertRecord{}).TableName()).
-		Select(
-			"cluster_id, "+
-				"SUM(CASE WHEN LOWER(status) <> 'resolved' THEN 1 ELSE 0 END) AS active_count, "+
-				"SUM(CASE WHEN LOWER(status) <> 'resolved' AND LOWER(severity) = 'critical' THEN 1 ELSE 0 END) AS critical_count",
-		).
+	var rows []*RemoteAlertRecord
+	err := r.db.WithContext(ctx).Model(&RemoteAlertRecord{}).
+		Select("cluster_id", "severity", "fingerprint", "starts_at").
 		Where("cluster_id IN ?", clusterIDs).
-		Group("cluster_id")
-
-	var rows []*RemoteAlertClusterStat
-	if err := query.Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		result[row.ClusterID] = row
-	}
-	return result, nil
+		Where("LOWER(status) <> ?", "resolved").
+		Find(&rows).Error
+	return rows, err
 }

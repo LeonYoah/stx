@@ -373,7 +373,7 @@ func (s *Service) GetClustersHealth(ctx context.Context) (*ClusterHealthData, er
 
 	statsMap := make(map[string]*RemoteAlertClusterStat)
 	if s.repo != nil {
-		statsMap, err = s.repo.GetRemoteAlertClusterStats(ctx, clusterIDs)
+		statsMap, err = s.activeRemoteAlertStats(ctx, clusterIDs, timex.Now())
 		if err != nil {
 			return nil, err
 		}
@@ -470,5 +470,41 @@ func (s *Service) GetPlatformHealth(ctx context.Context) (*PlatformHealthData, e
 		result.HealthStatus = "unknown"
 	}
 
+	return result, nil
+}
+
+// activeRemoteAlertStats 按集群统计活跃远程告警：未恢复且没有被人工关闭，与告警中心「触发中」的口径一致。
+// 只看 SQL 里的 status 会把已在告警中心关闭的告警继续算作活跃，首页与集群健康就会和告警列表对不上。
+// activeRemoteAlertStats counts active remote alerts per cluster: unresolved and not closed by an operator, matching
+// the alert center's "firing" view. Counting only the SQL status would keep alerts closed in the alert center
+// "active", so the home page and cluster health would disagree with the alert list.
+func (s *Service) activeRemoteAlertStats(ctx context.Context, clusterIDs []string, now time.Time) (map[string]*RemoteAlertClusterStat, error) {
+	rows, err := s.repo.ListUnresolvedRemoteAlerts(ctx, clusterIDs)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(rows))
+	for _, row := range rows {
+		keys = append(keys, buildRemoteAlertSourceKey(row.Fingerprint, row.StartsAt))
+	}
+	states, err := s.repo.ListAlertStatesBySourceKeys(ctx, keys)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]*RemoteAlertClusterStat)
+	for _, row := range rows {
+		if resolveAlertHandlingStatus(states[buildRemoteAlertSourceKey(row.Fingerprint, row.StartsAt)], now) == AlertHandlingStatusClosed {
+			continue
+		}
+		stat := result[row.ClusterID]
+		if stat == nil {
+			stat = &RemoteAlertClusterStat{ClusterID: row.ClusterID}
+			result[row.ClusterID] = stat
+		}
+		stat.ActiveCount++
+		if strings.EqualFold(strings.TrimSpace(row.Severity), "critical") {
+			stat.CriticalCount++
+		}
+	}
 	return result, nil
 }

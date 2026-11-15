@@ -15,6 +15,7 @@
 # llms index: https://uiarc.dev/llms.txt
 
 frontend/components/arc/action-button/action-button.tsx
+frontend/components/arc/animated-counter/animated-counter.tsx
 frontend/components/arc/badge/badge.tsx
 frontend/components/arc/bar-chart/bar-chart.tsx
 frontend/components/arc/brush-chart/brush-chart.tsx
@@ -26,6 +27,7 @@ frontend/components/arc/confirm-morph/confirm-morph.tsx
 frontend/components/arc/copy-button/copy-button.tsx
 frontend/components/arc/date-range-picker/date-range-picker.tsx
 frontend/components/arc/donut-chart/donut-chart.tsx
+frontend/components/arc/empty-state/empty-state.tsx
 frontend/components/arc/expanding-button-group/expanding-button-group.tsx
 frontend/components/arc/expanding-search/expanding-search.tsx
 frontend/components/arc/input/input.tsx
@@ -33,6 +35,7 @@ frontend/components/arc/lib/motion-tokens.ts
 frontend/components/arc/lib/use-copy-feedback.ts
 frontend/components/arc/lib/use-today.ts
 frontend/components/arc/line-chart/line-chart.tsx
+frontend/components/arc/metric-card/metric-card.tsx
 frontend/components/arc/motion-tokens.ts
 frontend/components/arc/onboarding-checklist/onboarding-checklist.tsx
 frontend/components/arc/resizable-panels/resizable-panels.tsx
@@ -69,3 +72,19 @@ frontend/components/inspira/ui/apple-card-carousel/index.ts
 frontend/components/motion/file-tree.tsx
 frontend/components/motion/shared-layout-bg.tsx
 frontend/lib/ease.ts
+
+# beUI Sparkline (MIT, Copyright (c) 2026 Saurabh Chauhan):
+# Upstream: https://github.com/starc007/ui-components
+# Component: https://beui.dev/charts/sparkline
+# Registry: https://beui.dev/r/sparkline.json
+# Full MIT text copy: licenses/beui/LICENSE-MIT.txt
+
+frontend/components/charts/beui-i18n.tsx
+frontend/components/charts/sparkline.tsx
+frontend/components/charts/xy/inspector.tsx
+frontend/components/charts/xy/messages.ts
+frontend/components/charts/xy/path.ts
+frontend/components/charts/xy/use-points.ts
+frontend/components/charts/xy/use-width.ts
+frontend/components/motion/number-ticker.tsx
+frontend/lib/hooks/use-hover-capable.ts

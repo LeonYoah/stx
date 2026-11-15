@@ -177,6 +177,145 @@
       "custom": "custom",
       "preset": "preset",
       "builtin": "builtin"
+    },
+    "home": {
+      "title": "Console",
+      "subtitle": "Cluster and job overview, plus every job in one list",
+      "scope": {
+        "label": "Scope",
+        "all": "All clusters",
+        "clusterFallback": "Cluster #{id}"
+      },
+      "refresh": "Refresh",
+      "updatedAt": "Updated {time}",
+      "loadError": "Failed to load the home page",
+      "partial": "Some data failed to load: {blocks}",
+      "blocks": {
+        "jobs": "jobs",
+        "clusters": "clusters",
+        "alerts": "alerts"
+      },
+      "tabs": {
+        "cluster": "Clusters",
+        "jobs": "Jobs",
+        "list": "Job list"
+      },
+      "kpi": {
+        "running": "Running jobs",
+        "runningContext": "Streaming {streaming} · Batch {batch}",
+        "writeRate": "Write rate",
+        "writeContextTrend": "vs. 1 hour ago",
+        "writeContextNow": "Current total (10s reconcile)",
+        "cdc": "Max CDC delay",
+        "cdcNone": "No CDC delay data",
+        "cdcOver": "Over threshold",
+        "failed": "Failed jobs",
+        "failedContext": "Last 24h, incl. failing",
+        "failedYesterday": "Yesterday {count}",
+        "clusters": "Cluster health",
+        "clustersContext": "{online}/{total} nodes online",
+        "clustersDegraded": "{count} degraded",
+        "alerts": "Active alerts",
+        "alertsContext": "{count} critical"
+      },
+      "unit": {
+        "rowsPerSec": " rows/s",
+        "seconds": " s"
+      },
+      "attention": {
+        "title": "Needs attention",
+        "empty": "Nothing needs attention",
+        "kind": {
+          "job_failed": "Job failed",
+          "cdc_delay": "CDC delay",
+          "backpressure": "High backpressure",
+          "alert": "Alert"
+        },
+        "noAccess": "You cannot view this job"
+      },
+      "cluster": {
+        "legacyHint": "The cluster dashboard will replace the Grafana panel below."
+      },
+      "jobsTab": {
+        "comingTitle": "Job dashboard coming soon",
+        "comingDesc": "Total throughput, top writers, CDC delay and data flow will show here. Until then, the job list shows each job's current state.",
+        "openList": "Open job list"
+      },
+      "list": {
+        "searchPlaceholder": "Job, task or engine job ID",
+        "mode": {
+          "all": "All modes",
+          "streaming": "Streaming",
+          "batch": "Batch"
+        },
+        "groups": {
+          "all": "All",
+          "failed": "Failed",
+          "running": "Running",
+          "pending": "Pending",
+          "stopping": "Stopping",
+          "canceled": "Canceled",
+          "finished": "Finished"
+        },
+        "columns": {
+          "job": "Job",
+          "cluster": "Cluster",
+          "mode": "Mode",
+          "status": "Status",
+          "writeRate": "Write rate",
+          "total": "Rows written",
+          "cdc": "CDC delay",
+          "started": "Started",
+          "actions": "Actions"
+        },
+        "sortNeedsRunning": "Select Running to sort by rate or delay",
+        "taskRef": "Task #{id}",
+        "ranFor": "Running for {duration}",
+        "tookFor": "Took {duration}",
+        "empty": "No jobs match",
+        "emptyHint": "Change the filters, or submit a job from the workbench.",
+        "total": "{count} jobs",
+        "detail": "Details",
+        "selected": "{count} selected",
+        "stop": "Stop",
+        "recover": "Recover",
+        "clearSelection": "Clear selection",
+        "sparklineLabel": "{name} write rate, last hour",
+        "loadError": "Failed to load jobs",
+        "bulk": {
+          "stopTitle": "Stop {count} jobs?",
+          "stopDesc": "Sends a stop request to the cluster for each job, without a savepoint. Finished jobs are skipped.",
+          "recoverTitle": "Recover {count} jobs?",
+          "recoverDesc": "Recovers each job from its last checkpoint. Only failed or canceled jobs can be recovered; others are skipped.",
+          "confirm": "Confirm",
+          "cancel": "Cancel",
+          "result": "{ok} done, {failed} failed, {skipped} skipped",
+          "itemFailed": "Job #{id}: {message}"
+        },
+        "units": {
+          "d": "d",
+          "h": "h",
+          "m": "m"
+        }
+      },
+      "preview": {
+        "title": "Job preview",
+        "trend": "Throughput, last hour",
+        "read": "Read",
+        "write": "Write",
+        "noTrend": "Connect Prometheus to see trends",
+        "error": "Failure reason",
+        "openDetail": "Open job details",
+        "writeRate": "Write rate",
+        "total": "Rows written",
+        "cdc": "CDC delay",
+        "close": "Close",
+        "trendLifetime": "Throughput, job lifetime",
+        "loading": "Loading",
+        "legendClear": "Clear",
+        "legendAll": "All",
+        "categoryTime": "Time"
+      }
     }
   },
   "auth": {

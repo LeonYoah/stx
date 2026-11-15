@@ -227,3 +227,50 @@ for clusterID, items := range grouped {
 - **作业从引擎消失**：集群 API 可达，但 running/finished 列表都没有该 `engine_job_id`，且 `/job-info` 仅返回空壳 `{jobId}`（常见于集群重启或历史过期）时，对账器将作业置为 `failed`，避免永久 `running` 僵尸。手动提交、内置 schedule、Dolphin `external_ref` 只要落了 `engine_job_id` 都走同一条路径。
 - **日志换行**：Agent/REST/CLI 传输路径必须保留真实换行；`log_chunk` 同时带 `lines`，并额外发 `log_line` 便于调度器任务日志按行阅读。
 - **指标入日志流**：对账写入 `result_preview.metrics` 后，每约 30s（及终态）追加可读指标块；`GET .../logs` 返回 `metrics_log`；CLI `--wait` 同步打印。
+
+## 场景：全局作业列表与首页汇总
+
+### 1. 适用范围 / 触发条件
+
+首页「作业列表」页签、指标卡与「需要处理」条，以及 `stx sync job list` / `stx sync job sparklines` / `stx dashboard home summary`。仍然只读库，不访问 SeaTunnel。
+
+### 2. 签名
+
+- `GET /api/v1/sync/jobs`：旧参数不变；新增 `status_group`（`running|failed|pending|stopping|canceled|finished`，逗号分隔）、`status`（原始状态）、`mode`、`cluster_id`、`keyword`、`exclude_run_type`、`sort`（`attention|started_at|created_at|rate|cdc_delay`）、`order`、`with_counts=1`、`with_live=1`。页码同时认 `current/size`（网页）与 `page/page_size`（CLI）。
+- `GET /api/v1/sync/jobs/sparklines?ids=1,2&range=1h&metric=write`：`ids` ≤ 100。
+- `GET /api/v1/dashboard/home/summary?cluster_id=`。
+
+### 3. 契约
+
+- **维度列**：`sync_job_instances.cluster_id / job_mode` 由 `JobInstance.BeforeCreate` 从 `submit_spec` 派生（`job_mode` 优先看 `submitted_content` 里的 `job.mode`）；启动时后台回填历史行，快照缺失退回任务当前集群与模式，用 `UpdateColumns` 不改 `updated_at`。模式 / 集群筛选只查这两列，不在 SQL 里解析 JSON。
+- **状态组映射只在后端**（`jobStatusGroups`）。`attention` = 失败 > 运行中 > 等待 > 停止中 > 已取消 > 已完成，同组按 `COALESCE(started_at, created_at) DESC`。不传 `sort` 时保持 `created_at DESC`。
+- `rate / cdc_delay` 值不在列里，只允许在 `status_group=running` 下内存排序（上限 2000 行），否则 400。
+- `with_live=1` 只补 `task_name` 与 `live`（读写速率、累计、CDC 延迟），来源是 `result_preview.metrics` 与事件运行时；速率只在运行中出现。集群名由前端用集群列表映射，sync 不依赖 cluster 模块。
+- **可见范围**：`ListJobsForActor` / `ListJobsWithOptions` / sparklines 与 `GetJob` 一致：管理员全部；有 `task_id` 且可查看该任务则看该任务全部作业；否则 `created_by = self OR task_id IN 可查看任务`。
+- **首页汇总是全局口径**：计数、速率对所有登录用户相同；作业条目带 `viewable`，无权查看的作业前端只展示不可点开。单块（jobs / clusters / alerts）失败记 `partial_errors`，HTTP 仍 200，`attention` 永远是数组。
+- Prometheus 走 `internal/pkg/promquery`（`BaseURL` 判定可用性，`Range` / `Instant`，`QuoteLabelRegex` 只拼数字 ID）。不可用时 `source:"none"` + `reason`，接口不报错。
+
+### 4. 校验与错误对应表
+
+| 情况 | 结果 |
+| --- | --- |
+| 未知 `status_group` / `sort`、`order` 非 asc/desc、`mode` 非 streaming/batch | 400 `ErrInvalidJobListQuery` |
+| `sort=rate` 但未限定运行中组 | 400 |
+| `cluster_id` 非数字 | 400 |
+| sparklines `ids` 为空、非数字或超过 100 | 400 |
+| sparklines 含越权 / 不存在的 ID | 静默丢弃 |
+| Prometheus 未开启 / 查询失败 | `source:"none"` 或 `reason:"prometheus_error"`，200 |
+
+### 5. Good / Base / Bad
+
+- Good：首页列表 `status_group=failed&sort=attention&exclude_run_type=preview&with_counts=1&with_live=1`。
+- Base：工作台按 `task_id` 拉运行记录，不带新参数，结果与升级前一致。
+- Bad：在 SQL 里 `JSON_EXTRACT(submit_spec, '$.mode')` 过滤（三库语法不同）；或为列表逐行请求引擎 Checkpoint。
+
+### 6. 必须有的测试
+
+- 维度列派生与回填（含幂等、孤儿行保持不变）。
+- 各筛选、attention 顺序、内存排序分页、非运行组下的速率排序报错。
+- 非管理员看不到私有任务的作业，`ListJobsForActor` 与新接口范围一致。
+- sparklines 只用可见 ID 拼查询；无 Prometheus 分支。
+- 首页汇总计数为全局、私有作业条目 `viewable=false`、集群范围过滤、`partial_errors`。

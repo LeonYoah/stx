@@ -348,6 +348,16 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - **碎裂节奏**：撞击前内爆收缩（`uZoom`）→ 撞击瞬间短暂慢放（顿帧）+ 径向过曝 → 镜头震动、放射光芒、双冲击波、碎片带边缘高光，部分碎片朝镜头放大飞出 → 粒子带速度拖影炸开。
 - **实现分层**：`splash-timeline.ts` 放时间轴和纯数学，有单测；`singularity-renderer.ts` 是原生 WebGL2，不可用时降级为 CSS 漩涡；`splash-assets.ts` 负责品牌排版和粒子采样；`splash-director.ts` 用单条 rAF 时间轴驱动画面，逐帧不触发 React 渲染。
 
+## 16. 控制台首页（监控大盘 + 全局作业列表）
+
+- **结构**：`app/(main)/dashboard/page.tsx` 只装配 `HomeDashboard`（`components/common/dashboard/`）。顶部 `WorkspaceHeader`（保留 STX 标识，操作区放范围选择与刷新）→ 6 张 Arc `MetricCard` 指标卡 → 「需要处理」横条 → Arc `Tabs`（集群 / 作业 / 作业列表）。页签、范围（`cluster`）与列表筛选都写在 URL（`useDashboardQuery`），页面用 `Suspense` 包住。
+- **指标卡**：`MetricCard` 没有插槽，不改内部，迷你曲线不放进卡片；整卡用 `<Link>` 包裹跳转。`change` 以 `+ / −` 开头会被 Arc 染成涨绿跌红，只用于「越大越好」的写入速率；失败数等用不带符号的中性文字（如「昨日 1」）。首屏加载用等高骨架（158px），不塌陷。
+- **需要处理**：合并作业失败、CDC 延迟、高背压与告警，严重在前，单行横向滚动，最多 10 条。`viewable=false` 的作业只显示（Tooltip 说明无权限），不跳转。
+- **作业列表**：状态筛选用 `StatPillsBar`（计数来自 `with_counts`），模式用 Arc `SegmentedControl`，搜索框限宽并支持 Enter；表格复用 `StudioDataTable` 原语，底栏 `StudioTableFooter` + `Pagination`。速率 / CDC 延迟排序只在「运行中」胶囊下可点。迷你曲线用 beUI `Sparkline`，每次列表刷新后对本页运行中作业发**一次** `getJobSparklines`；Prometheus 不可用时整列不渲染。行点击打开 `JobPreviewDrawer`（`Sheet`），「详情」与抽屉里的「打开作业详情」走工作台深链 `/workbench?task=&job=`，首页不复刻 `JobDetailDialog`。批量停止 / 恢复串行调用现有接口，结果写在列表上方的状态条里，不只靠 toast。
+- **时间与数字**：时间一律用 `lib/timezone`（`formatDateTimeMinuteTz` / `formatTimeTz`），跟随用户设置的显示时区，不直接用 next-intl `format.dateTime`。
+- **轮询**：`usePolledResource` 30 秒一次，页面不可见暂停、回到可见立即刷新；刷新失败保留旧数据。
+- **beUI 引入**：sparkline 依赖链放在 `components/charts/`，其 `lib/i18n.tsx` 改名为 `components/charts/beui-i18n.tsx`，`lib/utils`、`lib/ease` 用仓库已有版本；Arc 组件保持上游原格式（不跑 prettier），两类文件都保留 MIT 头并登记 `licenses/third_party_mit_files.txt`。
+
 ## 一致性检查项
 
 在提交代码前，必须核对以下检查清单：
@@ -376,3 +386,4 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] 工作台草稿是否只靠手动保存（非发布、无自动保存），并在未落盘时提供离开拦截与共享保存状态？
 - [ ] 登录后的整页跳转是否先走 `beginWelcomeSplashTransition()`？新增登录入口时不要绕过开屏契约。
 - [ ] 修改开屏中文欢迎语后，是否已重跑 `build-splash-greeting-font.sh` 并提交子集字体？
+- [ ] 首页指标卡的 `change` 是否只对「越大越好」的指标带正负号？首页时间是否走 `lib/timezone`？

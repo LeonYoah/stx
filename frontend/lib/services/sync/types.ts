@@ -305,6 +305,68 @@ export interface SyncJobInstance {
   updated_at: string;
   external_ref?: string;
   attach_generation?: number;
+  /** 从提交快照派生的集群 ID（0 = 未知）/ Cluster ID derived from the submit snapshot (0 = unknown). */
+  cluster_id?: number;
+  /** 仅全局列表 with_live=1 时返回 / Only returned by the global list with with_live=1. */
+  task_name?: string;
+  live?: SyncJobLiveMetrics;
+}
+
+/**
+ * 作业列表行的当前值，来自 10 秒对账，不访问引擎；速率只在运行中出现。
+ * Live values of a job list row, from the 10s reconcile without engine calls; rates appear only while running.
+ */
+export interface SyncJobLiveMetrics {
+  read_qps?: number;
+  write_qps?: number;
+  read_total?: number;
+  write_total?: number;
+  cdc_delay_seconds?: number;
+}
+
+/** 全局作业列表的状态组 / Status groups of the global job list. */
+export type SyncJobStatusGroup =
+  | 'failed'
+  | 'running'
+  | 'pending'
+  | 'stopping'
+  | 'canceled'
+  | 'finished';
+
+/** 全局作业列表的排序键 / Sort keys of the global job list. */
+export type SyncJobListSort =
+  | 'attention'
+  | 'started_at'
+  | 'created_at'
+  | 'rate'
+  | 'cdc_delay';
+
+export type SyncJobListParams = {
+  current?: number;
+  size?: number;
+  task_id?: number;
+  run_type?: string;
+  platform_job_id?: string;
+  engine_job_id?: string;
+  status_group?: string;
+  mode?: SyncTaskMode;
+  cluster_id?: number;
+  keyword?: string;
+  exclude_run_type?: string;
+  sort?: SyncJobListSort;
+  order?: 'asc' | 'desc';
+  with_counts?: 1;
+  with_live?: 1;
+};
+
+/** sparklines 接口返回：作业 ID → [毫秒时间戳, 值] / Sparklines payload: job ID → [epoch ms, value]. */
+export interface SyncJobSparklines {
+  source: 'prometheus' | 'none';
+  reason?: string;
+  range: string;
+  metric: 'read' | 'write';
+  step_seconds: number;
+  items: Record<string, [number, number][]>;
 }
 
 export interface SyncTaskListData {
@@ -324,6 +386,8 @@ export interface SyncTaskVersionListData {
 export interface SyncJobListData {
   total: number;
   items: SyncJobInstance[];
+  /** 仅 with_counts=1 时返回 / Only returned with with_counts=1. */
+  status_counts?: Partial<Record<SyncJobStatusGroup, number>>;
 }
 
 export interface SyncGlobalVariableListData {
@@ -886,7 +950,6 @@ export interface SyncCuratedComboParseResult {
   present: SyncCuratedSection[];
   combined: string;
 }
-
 
 /** GET /sync/jobs/:id/timeseries 返回 / Response of GET /sync/jobs/:id/timeseries. */
 export interface SyncJobTimeseries {

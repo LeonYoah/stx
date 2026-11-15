@@ -24,3 +24,5 @@ export * from './types';
 
 // 服务类
 export {DashboardService, OverviewService} from './dashboard.service';
+export {HomeService} from './home.service';
+export type {HomeAttentionItem, HomeJobSummary, HomeSummary} from './home.service';

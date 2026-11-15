@@ -2881,9 +2881,22 @@ func intValue(m map[string]interface{}, keys ...string) (int, bool) {
 		if !ok {
 			continue
 		}
+		// 刚构造的快照里是 Go 原生整数（如 task.ClusterID 为 uint），从库里读出后是 float64，两种都要认。
+		// A freshly built snapshot holds native Go integers (task.ClusterID is a uint); once loaded from the
+		// database they are float64, so both must be accepted.
 		switch v := value.(type) {
 		case int:
 			return v, true
+		case int32:
+			return int(v), true
+		case int64:
+			return int(v), true
+		case uint:
+			return int(v), true
+		case uint32:
+			return int(v), true
+		case uint64:
+			return int(v), true
 		case float64:
 			return int(v), true
 		}

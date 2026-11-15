@@ -262,11 +262,12 @@
           "cluster": "集群",
           "mode": "模式",
           "status": "状态",
-          "writeRate": "写入速率",
-          "total": "累计写入",
           "cdc": "CDC 延迟",
           "started": "开始时间",
-          "actions": "操作"
+          "actions": "操作",
+          "rates": "读取 / 写入速率",
+          "totals": "读取 / 写入条数",
+          "ended": "结束时间"
         },
         "sortNeedsRunning": "选中「运行中」后可按速率或延迟排序",
         "taskRef": "任务 #{id}",
@@ -296,7 +297,9 @@
           "d": " 天",
           "h": " 小时",
           "m": " 分"
-        }
+        },
+        "avgPrefix": "均 ",
+        "avgRateHint": "作业已结束：运行期间的平均速率（累计条数 ÷ 耗时）"
       },
       "preview": {
         "title": "作业预览",

@@ -53,7 +53,7 @@ const summary: HomeSummary = {
     trend_source: 'prometheus',
     write_trend: [
       [0, 100],
-      [1, 106],
+      [3_600_000, 106],
     ],
     cdc_trend: [],
     attention: [],

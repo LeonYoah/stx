@@ -71,8 +71,10 @@ func seedJobListFixture(t *testing.T, service *Service) (publicTask, privateTask
 
 func TestJobInstanceBeforeCreateFillsDimensions(t *testing.T) {
 	service := newTestSyncService(t)
+	// cluster_id 用 uint：提交路径直接放的是 task.ClusterID（uint），不是从库里读出的 float64。
+	// cluster_id is a uint: the submit path stores task.ClusterID (uint), not a float64 read back from the database.
 	job := &JobInstance{TaskID: 1, RunType: RunTypeRun, SubmitSpec: JSONMap{
-		"cluster_id": 3, "mode": "streaming", "submitted_content": "env {\n  job.mode = \"BATCH\"\n}"}}
+		"cluster_id": uint(3), "mode": TaskModeStreaming, "submitted_content": "env {\n  job.mode = \"BATCH\"\n}"}}
 	if err := service.repo.db.Create(job).Error; err != nil {
 		t.Fatalf("create: %v", err)
 	}

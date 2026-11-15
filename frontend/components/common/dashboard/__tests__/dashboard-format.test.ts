@@ -21,7 +21,12 @@ import {
   formatDurationSeconds,
   trendChangePercent,
 } from '../dashboard-format';
-import {jobDisplayName, jobWorkbenchHref} from '../job-list-utils';
+import {
+  jobDisplayName,
+  jobListRates,
+  jobTimeBounds,
+  jobWorkbenchHref,
+} from '../job-list-utils';
 
 describe('dashboard-format', () => {
   it('formats compact numbers and placeholders', () => {
@@ -40,25 +45,33 @@ describe('dashboard-format', () => {
   });
 
   it('computes the write-rate change against the first sample', () => {
+    const hour = 60 * 60 * 1000;
     expect(
       trendChangePercent([
         [0, 100],
-        [1, 106],
+        [hour, 106],
       ]),
     ).toBe(6);
     expect(
       trendChangePercent([
         [0, 100],
-        [1, 50],
+        [hour, 50],
       ]),
     ).toBe(-50);
     expect(
       trendChangePercent([
         [0, 0],
-        [1, 50],
+        [hour, 50],
       ]),
     ).toBeNull();
     expect(trendChangePercent([[0, 10]])).toBeNull();
+    // 作业刚启动 1 分钟：不能说成「较 1 小时前」。/ A job one minute old must not read as "vs. 1 hour ago".
+    expect(
+      trendChangePercent([
+        [0, 75],
+        [60_000, 204],
+      ]),
+    ).toBeNull();
   });
 });
 
@@ -85,5 +98,35 @@ describe('job-list-utils', () => {
       '/workbench?task=7&job=9',
     );
     expect(jobWorkbenchHref({})).toBe('/workbench');
+  });
+
+  it('falls back to updated_at when the finish time precedes the start (engine timezone skew)', () => {
+    const skewed = jobTimeBounds({
+      status: 'failed',
+      started_at: '2026-11-14T12:13:03Z',
+      finished_at: '2026-11-14T04:38:28Z',
+      updated_at: '2026-11-14T12:39:44Z',
+      created_at: '2026-11-14T12:13:00Z',
+    });
+    expect(skewed.endMs).toBe(Date.parse('2026-11-14T12:39:44Z'));
+    const running = jobTimeBounds({
+      status: 'running',
+      started_at: '2026-11-14T12:00:00Z',
+      created_at: '',
+      updated_at: '',
+    });
+    expect(running.endMs).toBeNull();
+  });
+
+  it('uses live rates while running and run averages once finished', () => {
+    expect(jobListRates(true, {read_qps: 3, write_qps: 2}, 0)).toEqual({
+      read: 3,
+      write: 2,
+      average: false,
+    });
+    expect(
+      jobListRates(false, {read_total: 600, write_total: 300}, 60),
+    ).toEqual({read: 10, write: 5, average: true});
+    expect(jobListRates(false, {read_total: 600}, 0)).toEqual({average: true});
   });
 });

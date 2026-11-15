@@ -77,6 +77,8 @@ import {JobPreviewDrawer} from './JobPreviewDrawer';
 import {
   isRunningStatus,
   jobDisplayName,
+  jobListRates,
+  jobTimeBounds,
   jobWorkbenchHref,
 } from './job-list-utils';
 import {usePolledResource} from './use-polled-resource';
@@ -84,6 +86,7 @@ import {type JobBulkAction, useJobBulkActions} from './use-job-bulk-actions';
 import type {DashboardQuery} from './use-dashboard-query';
 
 const PAGE_SIZE = 50;
+const DEFAULT_SORT: SyncJobListSort = 'started_at';
 const LIST_POLL_MS = 30_000;
 const STATUS_GROUPS: SyncJobStatusGroup[] = [
   'failed',
@@ -133,12 +136,12 @@ export function JobListTab({
     ? (query.status as SyncJobStatusGroup)
     : '';
   const runningOnly = statusGroup === 'running';
-  // 速率 / 延迟排序要求只看运行中；其余情况退回「需要关注优先」。
-  // Rate / delay sorts require the running group; otherwise fall back to attention-first.
+  // 默认按开始时间倒序；速率 / 延迟排序要求只看运行中，其余情况退回默认。
+  // Default to newest start first; rate / delay sorts require the running group, otherwise fall back to the default.
   const sort: SyncJobListSort =
     (query.sort === 'rate' || query.sort === 'cdc_delay') && !runningOnly
-      ? 'attention'
-      : (query.sort as SyncJobListSort) || 'attention';
+      ? DEFAULT_SORT
+      : (query.sort as SyncJobListSort) || DEFAULT_SORT;
   const order = query.order || 'desc';
 
   const listKey = JSON.stringify([
@@ -253,7 +256,7 @@ export function JobListTab({
   );
   const allOnPageSelected =
     items.length > 0 && items.every((job) => selected.has(job.id));
-  const COLS = 10;
+  const COLS = 11;
 
   return (
     <div className='flex flex-col gap-3' data-testid='home-job-list'>
@@ -400,11 +403,11 @@ export function JobListTab({
                   style={{minWidth: 180}}
                 >
                   {runningOnly
-                    ? sortHeader('rate', t('columns.writeRate'))
-                    : t('columns.writeRate')}
+                    ? sortHeader('rate', t('columns.rates'))
+                    : t('columns.rates')}
                 </StudioTableColumn>
                 <StudioTableColumn align='end'>
-                  {t('columns.total')}
+                  {t('columns.totals')}
                 </StudioTableColumn>
                 <StudioTableColumn
                   align='end'
@@ -422,6 +425,7 @@ export function JobListTab({
                 >
                   {sortHeader('started_at', t('columns.started'))}
                 </StudioTableColumn>
+                <StudioTableColumn>{t('columns.ended')}</StudioTableColumn>
                 <StudioTableColumn align='end' style={{minWidth: 0}}>
                   {t('columns.actions')}
                 </StudioTableColumn>
@@ -452,16 +456,22 @@ export function JobListTab({
                     const name = jobDisplayName(job);
                     const live = job.live;
                     const points = sparklines?.items[String(job.id)];
-                    const startedMs = Date.parse(
-                      job.started_at || job.created_at,
-                    );
-                    const endMs = job.finished_at
-                      ? Date.parse(job.finished_at)
-                      : (list.updatedAt ?? startedMs);
+                    const running = isRunningStatus(job.status);
+                    const {startMs, endMs} = jobTimeBounds(job);
+                    const untilMs = endMs ?? (running ? list.updatedAt : null);
                     const duration =
-                      Number.isFinite(startedMs) && endMs > startedMs
-                        ? (endMs - startedMs) / 1000
+                      startMs !== null && untilMs !== null && untilMs > startMs
+                        ? (untilMs - startMs) / 1000
                         : 0;
+                    const rates = jobListRates(
+                      running,
+                      live,
+                      endMs !== null ? duration : 0,
+                    );
+                    const durationText =
+                      duration > 0
+                        ? formatDurationSeconds(duration, durationUnits)
+                        : null;
                     return (
                       <StudioTableRow
                         key={job.id}
@@ -550,43 +560,56 @@ export function JobListTab({
                                 ) : null}
                               </div>
                             ) : null}
-                            <span className='tabular-nums'>
-                              {live?.write_qps === undefined
-                                ? '-'
-                                : `${formatCompactNumber(live.write_qps)}/s`}
-                            </span>
+                            {rates.read === undefined &&
+                            rates.write === undefined ? (
+                              <span>-</span>
+                            ) : (
+                              <span
+                                className={cn(
+                                  'whitespace-nowrap tabular-nums',
+                                  rates.average && 'text-muted-foreground',
+                                )}
+                                title={
+                                  rates.average ? t('avgRateHint') : undefined
+                                }
+                              >
+                                {rates.average ? t('avgPrefix') : ''}
+                                {`${formatCompactNumber(rates.read)} / ${formatCompactNumber(rates.write)}/s`}
+                              </span>
+                            )}
                           </div>
                         </StudioTableCell>
-                        <StudioTableCell align='end' className='tabular-nums'>
-                          {formatCompactNumber(live?.write_total)}
+                        <StudioTableCell
+                          align='end'
+                          className='whitespace-nowrap tabular-nums'
+                        >
+                          {live?.read_total === undefined &&
+                          live?.write_total === undefined
+                            ? '-'
+                            : `${formatCompactNumber(live?.read_total)} / ${formatCompactNumber(live?.write_total)}`}
                         </StudioTableCell>
                         <StudioTableCell align='end' className='tabular-nums'>
                           {live?.cdc_delay_seconds === undefined
                             ? '-'
                             : `${format.number(live.cdc_delay_seconds, {maximumFractionDigits: 1})}s`}
                         </StudioTableCell>
+                        <StudioTableCell className='whitespace-nowrap tabular-nums'>
+                          {startMs !== null
+                            ? formatDateTimeMinuteTz(startMs)
+                            : '-'}
+                        </StudioTableCell>
                         <StudioTableCell>
                           <div className='flex flex-col whitespace-nowrap'>
                             <span className='tabular-nums text-foreground'>
-                              {Number.isFinite(startedMs)
-                                ? formatDateTimeMinuteTz(startedMs)
+                              {endMs !== null
+                                ? formatDateTimeMinuteTz(endMs)
                                 : '-'}
                             </span>
-                            {duration > 0 ? (
+                            {durationText ? (
                               <span className='text-[11px] text-muted-foreground'>
-                                {isRunningStatus(job.status)
-                                  ? t('ranFor', {
-                                      duration: formatDurationSeconds(
-                                        duration,
-                                        durationUnits,
-                                      ),
-                                    })
-                                  : t('tookFor', {
-                                      duration: formatDurationSeconds(
-                                        duration,
-                                        durationUnits,
-                                      ),
-                                    })}
+                                {running
+                                  ? t('ranFor', {duration: durationText})
+                                  : t('tookFor', {duration: durationText})}
                               </span>
                             ) : null}
                           </div>

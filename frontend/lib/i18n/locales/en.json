@@ -262,11 +262,12 @@
           "cluster": "Cluster",
           "mode": "Mode",
           "status": "Status",
-          "writeRate": "Write rate",
-          "total": "Rows written",
           "cdc": "CDC delay",
           "started": "Started",
-          "actions": "Actions"
+          "actions": "Actions",
+          "rates": "Read / write rate",
+          "totals": "Rows read / written",
+          "ended": "Ended"
         },
         "sortNeedsRunning": "Select Running to sort by rate or delay",
         "taskRef": "Task #{id}",
@@ -296,7 +297,9 @@
           "d": "d",
           "h": "h",
           "m": "m"
-        }
+        },
+        "avgPrefix": "avg ",
+        "avgRateHint": "Job finished: average rate over its run (rows ÷ duration)"
       },
       "preview": {
         "title": "Job preview",

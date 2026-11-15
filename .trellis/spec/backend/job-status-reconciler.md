@@ -242,6 +242,7 @@ for clusterID, items := range grouped {
 
 ### 3. 契约
 
+- **快照里的整数类型**：刚构造的 `submit_spec` 里是 Go 原生整数（`task.ClusterID` 为 `uint`），从库里读出后是 `float64`；`intValue` / `uintValue` 两种都要认，测试要用 `uint` 构造，别只用字面量 `3`（那是 `int`）。
 - **维度列**：`sync_job_instances.cluster_id / job_mode` 由 `JobInstance.BeforeCreate` 从 `submit_spec` 派生（`job_mode` 优先看 `submitted_content` 里的 `job.mode`）；启动时后台回填历史行，快照缺失退回任务当前集群与模式，用 `UpdateColumns` 不改 `updated_at`。模式 / 集群筛选只查这两列，不在 SQL 里解析 JSON。
 - **状态组映射只在后端**（`jobStatusGroups`）。`attention` = 失败 > 运行中 > 等待 > 停止中 > 已取消 > 已完成，同组按 `COALESCE(started_at, created_at) DESC`。不传 `sort` 时保持 `created_at DESC`。
 - `rate / cdc_delay` 值不在列里，只允许在 `status_group=running` 下内存排序（上限 2000 行），否则 400。

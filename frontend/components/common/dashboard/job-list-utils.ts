@@ -53,3 +53,58 @@ export function jobWorkbenchHref(job: {
 export function isRunningStatus(status: string): boolean {
   return status === 'running' || status === 'doing_savepoint';
 }
+
+/**
+ * 列表展示用的开始 / 结束时刻（毫秒）。结束时间早于开始时间（引擎时区配置错位，如节点跑 UTC 而 STX 按显示时区解析）时
+ * 退回 updated_at，与作业详情「作业全程」窗口一致；运行中没有结束时间。
+ * Start / end instants (ms) for the list. When the finish time precedes the start (an engine timezone mismatch, e.g.
+ * the node runs UTC while STX parses with the display zone) fall back to updated_at, matching the job detail lifetime
+ * window; running jobs have no end.
+ */
+export function jobTimeBounds(
+  job: Pick<
+    SyncJobInstance,
+    'started_at' | 'created_at' | 'finished_at' | 'updated_at' | 'status'
+  >,
+): {startMs: number | null; endMs: number | null} {
+  const parse = (value?: string) => {
+    const ms = value ? Date.parse(value) : Number.NaN;
+    return Number.isFinite(ms) ? ms : null;
+  };
+  const startMs = parse(job.started_at) ?? parse(job.created_at);
+  if (isRunningStatus(job.status) || !job.finished_at) {
+    return {startMs, endMs: null};
+  }
+  const finished = parse(job.finished_at);
+  const updated = parse(job.updated_at);
+  const after = (ms: number | null) =>
+    ms !== null && (startMs === null || ms >= startMs) ? ms : null;
+  return {startMs, endMs: after(finished) ?? after(updated)};
+}
+
+/**
+ * 列表的读 / 写速率：运行中用对账快照里的当前速率；已结束用运行期间的平均速率（累计条数 ÷ 耗时秒数），
+ * average=true 时界面加「均」并用浅色，避免和实时速率混淆。耗时未知时不估算。
+ * Read / write rates for the list: running jobs use the current rate from the reconcile snapshot; finished jobs use the
+ * average over their run (rows ÷ duration seconds), flagged average=true so the UI marks it and mutes it. No estimate
+ * when the duration is unknown.
+ */
+export function jobListRates(
+  running: boolean,
+  live: SyncJobInstance['live'],
+  durationSeconds: number,
+): {read?: number; write?: number; average: boolean} {
+  if (running) {
+    return {read: live?.read_qps, write: live?.write_qps, average: false};
+  }
+  if (!live || durationSeconds <= 0) {
+    return {average: true};
+  }
+  const avg = (total?: number) =>
+    total === undefined ? undefined : total / durationSeconds;
+  return {
+    read: avg(live.read_total),
+    write: avg(live.write_total),
+    average: true,
+  };
+}

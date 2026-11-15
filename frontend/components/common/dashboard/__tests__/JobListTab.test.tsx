@@ -158,17 +158,17 @@ describe('JobListTab', () => {
       cluster_id: 3,
       keyword: 'orders',
       exclude_run_type: 'preview',
-      sort: 'attention',
+      sort: 'started_at',
       order: 'desc',
       with_counts: 1,
       with_live: 1,
     });
   });
 
-  it('falls back to attention order when a rate sort is asked for outside the running group', async () => {
+  it('falls back to the start-time order when a rate sort is asked for outside the running group', async () => {
     renderTab({sort: 'rate'});
     await screen.findByTestId('home-job-row-1');
-    expect(sync.listJobs.mock.calls[0][0].sort).toBe('attention');
+    expect(sync.listJobs.mock.calls[0][0].sort).toBe('started_at');
   });
 
   it('switches status through the pills and resets the page', async () => {
@@ -195,7 +195,7 @@ describe('JobListTab', () => {
     expect(await screen.findByTestId('sparkline')).toBeTruthy();
     expect(sync.getJobSparklines).toHaveBeenCalledWith({ids: [1], range: '1h'});
     expect(
-      within(screen.getByTestId('home-job-row-1')).getByText('1.2K/s'),
+      within(screen.getByTestId('home-job-row-1')).getByText('- / 1.2K/s'),
     ).toBeTruthy();
   });
 
@@ -233,14 +233,44 @@ describe('JobListTab', () => {
 
     vi.clearAllMocks();
     sync.listJobs.mockResolvedValue({...listData, total: 120});
-    sync.getJobSparklines.mockResolvedValue({source: 'none', range: '1h', metric: 'write', step_seconds: 15, items: {}});
+    sync.getJobSparklines.mockResolvedValue({
+      source: 'none',
+      range: '1h',
+      metric: 'write',
+      step_seconds: 15,
+      items: {},
+    });
     document.body.innerHTML = '';
     const update = renderTab({page: 2});
     await screen.findByTestId('home-job-row-1');
-    expect(sync.listJobs.mock.calls[0][0]).toMatchObject({current: 2, size: 50});
+    expect(sync.listJobs.mock.calls[0][0]).toMatchObject({
+      current: 2,
+      size: 50,
+    });
     expect(screen.getByText('共 120 条')).toBeTruthy();
     fireEvent.click(screen.getByTitle('下一页'));
     expect(update).toHaveBeenCalledWith({page: 3});
+  });
+
+  it('shows the average rate for finished jobs and the end time column', async () => {
+    sync.listJobs.mockResolvedValue({
+      total: 1,
+      items: [
+        job(3, 'success', {
+          started_at: '2026-11-14T10:00:00Z',
+          finished_at: '2026-11-14T10:10:00Z',
+          updated_at: '2026-11-14T10:10:05Z',
+          live: {read_total: 6000, write_total: 3000},
+        }),
+      ],
+      status_counts: {finished: 1},
+    });
+    renderTab();
+    const row = await screen.findByTestId('home-job-row-3');
+    const rate = within(row).getByText('均 10 / 5/s');
+    expect(rate.getAttribute('title')).toContain('平均速率');
+    expect(within(row).getByText('6K / 3K')).toBeTruthy();
+    expect(within(row).getByText('耗时 10 分')).toBeTruthy();
   });
 
   it('opens the preview drawer on row click', async () => {

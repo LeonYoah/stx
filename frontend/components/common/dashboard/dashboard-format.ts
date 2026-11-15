@@ -54,17 +54,25 @@ export function formatDurationSeconds(
   return minutes > 0 ? `${minutes}${units.m}` : `<1${units.m}`;
 }
 
+/** 趋势至少覆盖这么久才算「较 1 小时前」。/ The trend must span this long to count as "vs. 1 hour ago". */
+const MIN_TREND_SPAN_MS = 50 * 60 * 1000;
+
 /**
- * 写入速率相对变化（最近点对比约 1 小时前的第一个点），样本不足或基数为 0 时返回 null。
- * Relative write-rate change (latest point vs. the first point about an hour ago); null when samples are too few or
- * the base is zero.
+ * 写入速率相对变化：最近点对比约 1 小时前的第一个点。趋势不足约 1 小时（如作业刚启动）、样本不足或基数为 0 时返回 null，
+ * 避免把「刚启动时的低值」当成 1 小时前。
+ * Relative write-rate change: the latest point vs. the first point about an hour ago. Returns null when the trend spans
+ * less than about an hour (e.g. a job just started), samples are too few or the base is zero, so a just-started low value
+ * is never passed off as "an hour ago".
  */
 export function trendChangePercent(points: [number, number][]): number | null {
   if (points.length < 2) {
     return null;
   }
-  const first = points[0][1];
-  const last = points[points.length - 1][1];
+  const [firstTs, first] = points[0];
+  const [lastTs, last] = points[points.length - 1];
+  if (lastTs - firstTs < MIN_TREND_SPAN_MS) {
+    return null;
+  }
   if (!Number.isFinite(first) || !Number.isFinite(last) || first <= 0) {
     return null;
   }

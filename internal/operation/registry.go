@@ -516,6 +516,33 @@ var registry = append([]OperationSpec{
 }`,
 	},
 	{
+		ID:           "dashboard.home.clusters",
+		CommandPath:  []string{"dashboard", "home", "clusters"},
+		Summary:      "Get the home cluster dashboard: cluster cards, node table, availability / JVM / GC trends and anomaly signals",
+		GeneratedCLI: true,
+		Method:       "GET",
+		Route:        "/api/v1/dashboard/home/clusters",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		SupportsPick: true,
+		Input: []InputSpec{
+			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+		},
+		Example: "stx dashboard home clusters --cluster_id 1 --range 1h",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "dashboard.home.clusters",
+  "request_id": "req_example",
+  "data": {"source":"prometheus","range":"1h","clusters":[{"id":1,"name":"seatunnel-3-single","health_status":"healthy","nodes_online":1,"nodes_total":1,"running_jobs":2}],"nodes":[],"series":[]},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
 		ID:           "dashboard.home.summary",
 		CommandPath:  []string{"dashboard", "home", "summary"},
 		Summary:      "Get the home page summary: job counts and rates, cluster health, alerts and items needing attention",

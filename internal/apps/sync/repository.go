@@ -1005,3 +1005,25 @@ func (r *Repository) DeleteCuratedTemplate(ctx context.Context, id uint) error {
 	}
 	return nil
 }
+
+// CountRunningJobsByCluster 按集群统计运行中组（running / doing_savepoint）的作业数，不含预览运行。
+// CountRunningJobsByCluster counts running-group jobs (running / doing_savepoint) per cluster, excluding preview runs.
+func (r *Repository) CountRunningJobsByCluster(ctx context.Context) (map[uint]int64, error) {
+	var rows []struct {
+		ClusterID uint
+		Total     int64
+	}
+	err := r.db.WithContext(ctx).Model(&JobInstance{}).
+		Select("cluster_id, COUNT(*) AS total").
+		Where("status IN ?", []JobStatus{JobStatusRunning, JobStatusDoingSavepoint}).
+		Where("run_type <> ?", RunTypePreview).
+		Group("cluster_id").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uint]int64, len(rows))
+	for _, row := range rows {
+		out[row.ClusterID] = row.Total
+	}
+	return out, nil
+}

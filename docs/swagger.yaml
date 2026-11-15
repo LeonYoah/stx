@@ -1708,6 +1708,116 @@ definitions:
     required:
     - content
     type: object
+  dashboard.ClusterCard:
+    properties:
+      active_alerts:
+        type: integer
+      critical_alerts:
+        type: integer
+      endpoints_down:
+        type: integer
+      health_status:
+        type: string
+      id:
+        type: integer
+      max_heap_percent:
+        type: number
+      name:
+        type: string
+      nodes_online:
+        type: integer
+      nodes_total:
+        type: integer
+      running_jobs:
+        type: integer
+      version:
+        type: string
+    type: object
+  dashboard.ClusterDashboard:
+    properties:
+      cell_seconds:
+        type: integer
+      clusters:
+        items:
+          $ref: '#/definitions/dashboard.ClusterCard'
+        type: array
+      end_ms:
+        type: integer
+      nodes:
+        items:
+          $ref: '#/definitions/dashboard.ClusterNodeRow'
+        type: array
+      partial_errors:
+        items:
+          type: string
+        type: array
+      range:
+        type: string
+      reason:
+        type: string
+      series:
+        items:
+          $ref: '#/definitions/dashboard.DashboardSeries'
+        type: array
+      signals:
+        $ref: '#/definitions/dashboard.ClusterSignals'
+      source:
+        type: string
+      start_ms:
+        type: integer
+      step_seconds:
+        type: integer
+    type: object
+  dashboard.ClusterNodeRow:
+    properties:
+      agent_online:
+        type: boolean
+      cluster_id:
+        type: integer
+      cluster_name:
+        type: string
+      cpu_cores:
+        type: number
+      fd_percent:
+        type: number
+      heap_percent:
+        type: number
+      instance:
+        type: string
+      master:
+        type: boolean
+      node_active:
+        type: boolean
+      node_id:
+        type: integer
+      role:
+        type: string
+      scrape_up:
+        type: boolean
+      status:
+        type: string
+      threads:
+        type: number
+      uptime_seconds:
+        type: number
+    type: object
+  dashboard.ClusterSignals:
+    properties:
+      clusters_safe:
+        type: integer
+      clusters_total:
+        type: integer
+      deadlocked_threads:
+        type: number
+      endpoints_down:
+        type: integer
+      fd_percent_max:
+        type: number
+      hz_queue_util_max:
+        type: number
+      pool_reject_rate:
+        type: number
+    type: object
   dashboard.ClusterSummary:
     properties:
       deployment_mode:
@@ -1737,6 +1847,20 @@ definitions:
       data: {}
       error_msg:
         type: string
+    type: object
+  dashboard.DashboardSeries:
+    properties:
+      key:
+        type: string
+      label:
+        type: string
+      points:
+        items:
+          items:
+            format: float64
+            type: number
+          type: array
+        type: array
     type: object
   dashboard.HomeAlertStats:
     properties:
@@ -6544,6 +6668,45 @@ paths:
       summary: 规范化配置内容
       tags:
       - Config
+  /api/v1/dashboard/home/clusters:
+    get:
+      parameters:
+      - description: 集群 ID，空表示全部集群
+        in: query
+        name: cluster_id
+        type: integer
+      - default: 1h
+        description: 时间范围：15m|1h|6h|24h|7d
+        in: query
+        name: range
+        type: string
+      - description: 自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range
+        in: query
+        name: start
+        type: string
+      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+        in: query
+        name: end
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dashboard.DashboardDataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dashboard.ClusterDashboard'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dashboard.DashboardDataResponse'
+      summary: 首页集群大盘（集群卡片 / 节点 / 趋势 / 异常信号）
+      tags:
+      - Dashboard
   /api/v1/dashboard/home/summary:
     get:
       parameters:

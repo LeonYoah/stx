@@ -339,3 +339,19 @@ func TestGetHomeJobSummaryCountsAndAttention(t *testing.T) {
 		t.Fatalf("cluster 2 summary = running %d failed %d, want 0 / 1", scoped.Running, scoped.Failed24h)
 	}
 }
+
+func TestRunningJobCountsByClusterExcludesPreviews(t *testing.T) {
+	service := newTestSyncService(t)
+	seedJobListFixture(t, service)
+	if err := service.repo.db.Create(&JobInstance{TaskID: 1, RunType: RunTypePreview, Status: JobStatusRunning,
+		SubmitSpec: JSONMap{"cluster_id": uint(1)}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	counts, err := service.RunningJobCountsByCluster(context.Background())
+	if err != nil {
+		t.Fatalf("counts: %v", err)
+	}
+	if counts[1] != 2 || counts[2] != 0 {
+		t.Fatalf("counts = %v, want cluster 1 = 2 (preview excluded), cluster 2 = 0", counts)
+	}
+}

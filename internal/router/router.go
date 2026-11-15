@@ -784,6 +784,10 @@ func Serve() {
 			homeRouter := apiV1Router.Group("/dashboard/home")
 			homeRouter.Use(auth.LoginRequired())
 			homeRouter.GET("/summary", homeHandler.GetHomeSummary)
+			// 首页集群大盘：集群卡片、节点表、趋势与异常信号（替代 Grafana iframe）。
+			// Home cluster dashboard: cluster cards, node table, trends and anomaly signals (replaces the Grafana iframe).
+			clusterDashboardHandler := dashboard.NewClusterDashboardHandler(dashboard.NewClusterDashboardService(monitoringService, clusterService, syncService))
+			homeRouter.GET("/clusters", clusterDashboardHandler.GetClusterDashboard)
 
 			// 作业级 Prometheus 指标抓取（公开，受 observability.enabled 控制）。
 			// Job-level Prometheus metrics scrape (public, gated by observability.enabled).

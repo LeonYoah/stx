@@ -2566,6 +2566,70 @@
                 }
             }
         },
+        "/api/v1/dashboard/home/clusters": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "首页集群大盘（集群卡片 / 节点 / 趋势 / 异常信号）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID，空表示全部集群",
+                        "name": "cluster_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "name": "end",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.ClusterDashboard"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/dashboard/home/summary": {
             "get": {
                 "produces": [
@@ -8307,6 +8371,173 @@
                 }
             }
         },
+        "dashboard.ClusterCard": {
+            "type": "object",
+            "properties": {
+                "active_alerts": {
+                    "type": "integer"
+                },
+                "critical_alerts": {
+                    "type": "integer"
+                },
+                "endpoints_down": {
+                    "type": "integer"
+                },
+                "health_status": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "max_heap_percent": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nodes_online": {
+                    "type": "integer"
+                },
+                "nodes_total": {
+                    "type": "integer"
+                },
+                "running_jobs": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "dashboard.ClusterDashboard": {
+            "type": "object",
+            "properties": {
+                "cell_seconds": {
+                    "type": "integer"
+                },
+                "clusters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.ClusterCard"
+                    }
+                },
+                "end_ms": {
+                    "type": "integer"
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.ClusterNodeRow"
+                    }
+                },
+                "partial_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.DashboardSeries"
+                    }
+                },
+                "signals": {
+                    "$ref": "#/definitions/dashboard.ClusterSignals"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
+                },
+                "step_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.ClusterNodeRow": {
+            "type": "object",
+            "properties": {
+                "agent_online": {
+                    "type": "boolean"
+                },
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "cluster_name": {
+                    "type": "string"
+                },
+                "cpu_cores": {
+                    "type": "number"
+                },
+                "fd_percent": {
+                    "type": "number"
+                },
+                "heap_percent": {
+                    "type": "number"
+                },
+                "instance": {
+                    "type": "string"
+                },
+                "master": {
+                    "type": "boolean"
+                },
+                "node_active": {
+                    "type": "boolean"
+                },
+                "node_id": {
+                    "type": "integer"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "scrape_up": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "threads": {
+                    "type": "number"
+                },
+                "uptime_seconds": {
+                    "type": "number"
+                }
+            }
+        },
+        "dashboard.ClusterSignals": {
+            "type": "object",
+            "properties": {
+                "clusters_safe": {
+                    "type": "integer"
+                },
+                "clusters_total": {
+                    "type": "integer"
+                },
+                "deadlocked_threads": {
+                    "type": "number"
+                },
+                "endpoints_down": {
+                    "type": "integer"
+                },
+                "fd_percent_max": {
+                    "type": "number"
+                },
+                "hz_queue_util_max": {
+                    "type": "number"
+                },
+                "pool_reject_rate": {
+                    "type": "number"
+                }
+            }
+        },
         "dashboard.ClusterSummary": {
             "type": "object",
             "properties": {
@@ -8348,6 +8579,27 @@
                 "data": {},
                 "error_msg": {
                     "type": "string"
+                }
+            }
+        },
+        "dashboard.DashboardSeries": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float64"
+                        }
+                    }
                 }
             }
         },

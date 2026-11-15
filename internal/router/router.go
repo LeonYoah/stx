@@ -788,6 +788,10 @@ func Serve() {
 			// Home cluster dashboard: cluster cards, node table, trends and anomaly signals (replaces the Grafana iframe).
 			clusterDashboardHandler := dashboard.NewClusterDashboardHandler(dashboard.NewClusterDashboardService(monitoringService, clusterService, syncService))
 			homeRouter.GET("/clusters", clusterDashboardHandler.GetClusterDashboard)
+			// 首页作业大盘：吞吐、Top N、流向、Checkpoint、热点与运行日历。
+			// Home job dashboard: throughput, top N, data flow, checkpoints, hotspots and the run calendar.
+			jobDashboardHandler := dashboard.NewJobDashboardHandler(dashboard.NewJobDashboardService(syncService))
+			homeRouter.GET("/jobs", jobDashboardHandler.GetJobDashboard)
 
 			// 作业级 Prometheus 指标抓取（公开，受 observability.enabled 控制）。
 			// Job-level Prometheus metrics scrape (public, gated by observability.enabled).

@@ -2639,6 +2639,77 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/dashboard/home/jobs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "首页作业大盘（吞吐 / Top N / 流向 / Checkpoint / 热点 / 运行日历）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID，空表示全部集群",
+                        "name": "cluster_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "name": "end",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 16,
+                        "description": "运行日历周数（1~52）",
+                        "name": "weeks",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.JobDashboard"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/dashboard/home/summary": {
             "get": {
                 "produces": [
@@ -8612,6 +8683,20 @@ const docTemplate = `{
                 }
             }
         },
+        "dashboard.FlowLink": {
+            "type": "object",
+            "properties": {
+                "sink": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            }
+        },
         "dashboard.HomeAlertStats": {
             "type": "object",
             "properties": {
@@ -8699,6 +8784,118 @@ const docTemplate = `{
                 },
                 "node_count": {
                     "type": "integer"
+                }
+            }
+        },
+        "dashboard.JobDashboard": {
+            "type": "object",
+            "properties": {
+                "annotations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.JobAnnotation"
+                    }
+                },
+                "calendar": {
+                    "$ref": "#/definitions/sync.JobCalendar"
+                },
+                "checkpoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "end_ms": {
+                    "type": "integer"
+                },
+                "flow": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.FlowLink"
+                    }
+                },
+                "hotspots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "partial_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
+                },
+                "step_seconds": {
+                    "type": "integer"
+                },
+                "throughput": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.ThroughputSeries"
+                    }
+                },
+                "top_cdc": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "top_write": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "window_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.JobRank": {
+            "type": "object",
+            "properties": {
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "failures": {
+                    "type": "number"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "max_seconds": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "integer"
+                },
+                "value": {
+                    "type": "number"
+                },
+                "vertex": {
+                    "type": "string"
+                },
+                "viewable": {
+                    "type": "boolean"
                 }
             }
         },
@@ -8798,6 +8995,24 @@ const docTemplate = `{
                 "type": {
                     "description": "success, warning, info, error",
                     "type": "string"
+                }
+            }
+        },
+        "dashboard.ThroughputSeries": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float64"
+                        }
+                    }
                 }
             }
         },
@@ -12172,6 +12387,30 @@ const docTemplate = `{
             "type": "object",
             "additionalProperties": true
         },
+        "sync.JobAnnotation": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "description": "job_failed | job_recovered | schema_change",
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "ts_ms": {
+                    "type": "integer"
+                },
+                "viewable": {
+                    "type": "boolean"
+                }
+            }
+        },
         "sync.JobCDCDelay": {
             "type": "object",
             "properties": {
@@ -12185,6 +12424,35 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "max_1m_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.JobCalendar": {
+            "type": "object",
+            "properties": {
+                "end_date": {
+                    "type": "string"
+                },
+                "failed": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "runs": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "weeks": {
                     "type": "integer"
                 }
             }

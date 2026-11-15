@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	gosync "sync"
 	"testing"
 	"time"
 
@@ -81,11 +82,21 @@ func sample(value float64, labels ...string) promquery.Sample {
 	return promquery.Sample{Metric: metric, Value: value}
 }
 
+// queryMu 保护假查询函数里的记录切片：大盘查询是并发执行的。
+// queryMu guards the recorded query slice in the fakes: dashboard queries run concurrently.
+var queryMu gosync.Mutex
+
+func recordQuery(queries *[]string, q string) {
+	queryMu.Lock()
+	defer queryMu.Unlock()
+	*queries = append(*queries, q)
+}
+
 func newTestClusterService(queries *[]string) *ClusterDashboardService {
 	svc := NewClusterDashboardService(fakeHealth{}, fakeClusterNodes{}, fakeRunning{})
 	svc.now = func() time.Time { return time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC) }
 	svc.rangeQuery = func(_ context.Context, _, q string, _, _ time.Time, _ int) ([]promquery.Series, error) {
-		*queries = append(*queries, q)
+		recordQuery(queries, q)
 		switch {
 		case strings.Contains(q, "min_over_time(up{"):
 			return []promquery.Series{
@@ -102,7 +113,7 @@ func newTestClusterService(queries *[]string) *ClusterDashboardService {
 		return []promquery.Series{series("instance", "10.0.0.1:5801", [2]float64{1000, 42})}, nil
 	}
 	svc.instantQuery = func(_ context.Context, _, q string, _ time.Time) ([]promquery.Sample, error) {
-		*queries = append(*queries, q)
+		recordQuery(queries, q)
 		switch {
 		case strings.Contains(q, "max by (cluster_id, instance) (up{"):
 			return []promquery.Sample{sample(1, "instance", "10.0.0.1:5801", "cluster_id", "1"), sample(0, "instance", "10.0.0.2:5801", "cluster_id", "1"), sample(0, "instance", "10.0.1.1:5802", "cluster_id", "2")}, nil

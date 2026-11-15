@@ -107,7 +107,9 @@ export class DashboardService extends BaseService {
    */
   private static normalizeData(rawData: RawDashboardData): DashboardResponse {
     const parseJsonField = <T>(field: unknown, defaultValue: T): T => {
-      if (!field) {return defaultValue;}
+      if (!field) {
+        return defaultValue;
+      }
       if (typeof field === 'string') {
         try {
           return JSON.parse(field) as T;
@@ -216,7 +218,6 @@ export class DashboardService extends BaseService {
   }
 }
 
-
 /**
  * Overview Service / 概览服务
  * Handles dashboard overview data for cluster/host/node management
@@ -240,7 +241,9 @@ export class OverviewService extends BaseService {
    * Get overview statistics / 获取概览统计数据
    */
   static async getOverviewStats(): Promise<OverviewStats> {
-    const response = await apiClient.get<OverviewStatsApiResponse>(`${this.basePath}/stats`);
+    const response = await apiClient.get<OverviewStatsApiResponse>(
+      `${this.basePath}/stats`,
+    );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);
     }
@@ -251,7 +254,9 @@ export class OverviewService extends BaseService {
    * Get cluster summaries / 获取集群摘要列表
    */
   static async getClusterSummaries(): Promise<ClusterSummary[]> {
-    const response = await apiClient.get<ClusterSummariesApiResponse>(`${this.basePath}/clusters`);
+    const response = await apiClient.get<ClusterSummariesApiResponse>(
+      `${this.basePath}/clusters`,
+    );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);
     }
@@ -262,7 +267,9 @@ export class OverviewService extends BaseService {
    * Get host summaries / 获取主机摘要列表
    */
   static async getHostSummaries(): Promise<HostSummary[]> {
-    const response = await apiClient.get<HostSummariesApiResponse>(`${this.basePath}/hosts`);
+    const response = await apiClient.get<HostSummariesApiResponse>(
+      `${this.basePath}/hosts`,
+    );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);
     }
@@ -273,7 +280,9 @@ export class OverviewService extends BaseService {
    * Get recent activities / 获取最近活动
    */
   static async getRecentActivities(): Promise<RecentActivity[]> {
-    const response = await apiClient.get<RecentActivitiesApiResponse>(`${this.basePath}/activities`);
+    const response = await apiClient.get<RecentActivitiesApiResponse>(
+      `${this.basePath}/activities`,
+    );
     if (response.data.error_msg) {
       throw new Error(response.data.error_msg);
     }
@@ -294,7 +303,8 @@ export class OverviewService extends BaseService {
       const data = await this.getOverviewData();
       return {success: true, data};
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '获取概览数据失败';
+      const errorMessage =
+        error instanceof Error ? error.message : '获取概览数据失败';
       return {
         success: false,
         data: this.getDefaultOverviewData(),

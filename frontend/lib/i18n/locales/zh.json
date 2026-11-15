@@ -233,9 +233,6 @@
         },
         "noAccess": "无权查看该作业"
       },
-      "cluster": {
-        "legacyHint": "集群大盘即将替换下方 Grafana 面板。"
-      },
       "jobsTab": {
         "comingTitle": "作业大盘即将提供",
         "comingDesc": "全局吞吐、写入 Top N、CDC 延迟与数据流向会出现在这里。现在可以先用「作业列表」查看每个作业的当前状态。",
@@ -318,6 +315,104 @@
         "legendClear": "清空",
         "legendAll": "全选",
         "categoryTime": "时间"
+      },
+      "clusterTab": {
+        "range": {
+          "label": "时间窗",
+          "15m": "15 分钟",
+          "1h": "1 小时",
+          "6h": "6 小时",
+          "24h": "24 小时",
+          "7d": "7 天"
+        },
+        "allClusters": "全部集群",
+        "cardsLabel": "选择集群范围",
+        "health": {
+          "healthy": "健康",
+          "degraded": "降级",
+          "unhealthy": "异常",
+          "unknown": "未知"
+        },
+        "cardDesc": "节点 {online}/{total} · 运行 {running}",
+        "cardHeap": "最高堆 {value}%",
+        "cardAlerts": "告警 {count}",
+        "availability": {
+          "title": "节点可用性",
+          "hint": "每格 {cell}，抓取失败或节点下线标红",
+          "up": "可用",
+          "down": "不可用",
+          "unknown": "无数据",
+          "empty": "暂无节点可用性数据"
+        },
+        "charts": {
+          "heap": "JVM 堆内存使用率",
+          "heapUnit": "按节点 · %",
+          "heapLine": "85% 参考线",
+          "cpu": "进程 CPU",
+          "cpuUnit": "按节点 · 核",
+          "gc": "GC 时间占比",
+          "gcUnit": "按节点 · %",
+          "jobState": "引擎作业状态构成",
+          "jobStateUnit": "引擎保留的作业数",
+          "empty": "该时间窗内没有数据",
+          "time": "时间",
+          "legendClear": "清空",
+          "legendAll": "全选"
+        },
+        "jobStates": {
+          "running": "运行中",
+          "finished": "已完成",
+          "failed": "失败",
+          "failing": "失败中",
+          "canceled": "已取消",
+          "cancelling": "取消中",
+          "created": "已创建",
+          "pending": "等待中",
+          "scheduled": "已调度"
+        },
+        "nodes": {
+          "title": "节点",
+          "count": "{count} 个节点",
+          "node": "节点",
+          "cluster": "集群",
+          "role": "角色",
+          "status": "状态",
+          "heap": "堆内存",
+          "cpu": "CPU",
+          "threads": "线程",
+          "fd": "FD",
+          "uptime": "运行时长",
+          "master": "master",
+          "scrapeDown": "抓取失败",
+          "nodeDown": "节点下线",
+          "agentOffline": "Agent 离线",
+          "empty": "暂无节点",
+          "cores": "{value} 核"
+        },
+        "signals": {
+          "title": "异常信号",
+          "allGood": "全部正常",
+          "clusterSafe": "集群分区安全",
+          "deadlocked": "死锁线程",
+          "fd": "FD 使用率（最高）",
+          "reject": "线程池拒绝",
+          "hzQueue": "Hazelcast 队列利用率",
+          "endpoints": "指标端点不可达",
+          "perSec": "{value} /秒",
+          "ok": "正常",
+          "bad": "异常"
+        },
+        "noProm": {
+          "title": "接入 Prometheus 后显示趋势",
+          "desc": "开启 STX 可观测性并接入 Prometheus 后，这里会显示节点可用性、JVM、GC 与作业状态趋势。集群卡片和节点表仍来自 Agent 心跳。",
+          "action": "查看监控配置"
+        },
+        "partial": "部分指标查询失败：{keys}",
+        "units": {
+          "d": " 天",
+          "h": " 小时",
+          "m": " 分"
+        }
       }
     }
   },

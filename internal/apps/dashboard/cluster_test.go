@@ -63,7 +63,9 @@ func (fakeRunning) RunningJobCountsByCluster(context.Context) (map[uint]int64, e
 func withPrometheus(t *testing.T, enabled bool) {
 	t.Helper()
 	oldEnabled, oldURL := config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL
-	t.Cleanup(func() { config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL = oldEnabled, oldURL })
+	t.Cleanup(func() {
+		config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL = oldEnabled, oldURL
+	})
 	config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL = enabled, "http://prom.test"
 }
 
@@ -103,13 +105,13 @@ func newTestClusterService(queries *[]string) *ClusterDashboardService {
 		*queries = append(*queries, q)
 		switch {
 		case strings.Contains(q, "max by (cluster_id, instance) (up{"):
-			return []promquery.Sample{sample(1, "instance", "10.0.0.1:5801"), sample(0, "instance", "10.0.0.2:5801")}, nil
+			return []promquery.Sample{sample(1, "instance", "10.0.0.1:5801", "cluster_id", "1"), sample(0, "instance", "10.0.0.2:5801", "cluster_id", "1"), sample(0, "instance", "10.0.1.1:5802", "cluster_id", "2")}, nil
 		case strings.Contains(q, "cluster_info"):
 			return []promquery.Sample{sample(1, "master", "10.0.0.1:5801")}, nil
 		case strings.Contains(q, "isClusterSafe"):
 			return []promquery.Sample{sample(1, "cluster_id", "1")}, nil
 		case strings.Contains(q, "jvm_memory_bytes_used"):
-			return []promquery.Sample{sample(71.5, "instance", "10.0.0.1:5801"), sample(40, "instance", "10.0.0.2:5801")}, nil
+			return []promquery.Sample{sample(71.5, "instance", "10.0.0.1:5801", "cluster_id", "1"), sample(40, "instance", "10.0.0.2:5801", "cluster_id", "1"), sample(55, "instance", "10.0.1.1:5802", "cluster_id", "2")}, nil
 		case strings.Contains(q, "jvm_threads_deadlocked"):
 			return []promquery.Sample{sample(0)}, nil
 		}
@@ -153,7 +155,7 @@ func TestClusterDashboardCombinesInventoryAndMetrics(t *testing.T) {
 	if avail["10.0.0.1:5801"][1][1] != 0 || avail["10.0.0.1:5801"][0][1] != 1 || avail["10.0.0.2:5801"][0][1] != 0 || avail["10.0.0.2:5801"][1][1] != 1 {
 		t.Fatalf("availability = %v", avail)
 	}
-	if got.Signals == nil || got.Signals.ClustersSafe != 1 || got.Signals.EndpointsDown != 1 || *got.Signals.DeadlockedThreads != 0 {
+	if got.Signals == nil || got.Signals.ClustersSafe != 1 || got.Signals.EndpointsDown != 2 || *got.Signals.DeadlockedThreads != 0 {
 		t.Fatalf("signals = %+v", got.Signals)
 	}
 	if len(got.PartialErrors) != 1 || got.PartialErrors[0] != "gc" {
@@ -173,13 +175,23 @@ func TestClusterDashboardScopesToOneCluster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dashboard: %v", err)
 	}
-	if len(got.Clusters) != 1 || got.Clusters[0].ID != 2 || len(got.Nodes) != 1 || got.Nodes[0].Instance != "10.0.1.1:5802" {
+	// 卡片仍是全部集群（可切换），节点与查询只含集群 2；卡片指标的两条即时查询不限范围。
+	// Cards still list every cluster (switchable); nodes and queries cover only cluster 2, except the two unscoped card
+	// instants.
+	if len(got.Clusters) != 2 || len(got.Nodes) != 1 || got.Nodes[0].Instance != "10.0.1.1:5802" {
 		t.Fatalf("scoped = %+v / %+v", got.Clusters, got.Nodes)
 	}
+	if got.Clusters[0].MaxHeapPercent == nil || *got.Clusters[0].MaxHeapPercent != 71.5 || *got.Clusters[1].MaxHeapPercent != 55 {
+		t.Fatalf("card heap must cover every cluster: %+v", got.Clusters)
+	}
+	unscoped := 0
 	for _, q := range queries {
 		if !strings.Contains(q, `cluster_id="2"`) {
-			t.Fatalf("query %q is not scoped to cluster 2", q)
+			unscoped++
 		}
+	}
+	if unscoped != 2 {
+		t.Fatalf("unscoped queries = %d, want 2 (up_now, heap_all)", unscoped)
 	}
 }
 

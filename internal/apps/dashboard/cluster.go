@@ -190,8 +190,9 @@ func (s *ClusterDashboardService) GetClusterDashboard(ctx context.Context, clust
 	return out, nil
 }
 
-// fillInventory 填 DB / 心跳部分：集群卡片基础字段与节点表。
-// fillInventory fills the DB / heartbeat part: base card fields and the node table.
+// fillInventory 填 DB / 心跳部分：集群卡片始终包含全部集群（便于切换范围），节点表只含范围内的集群。
+// fillInventory fills the DB / heartbeat part: cards always cover every cluster (so the scope can be switched), the
+// node table only the clusters in scope.
 func (s *ClusterDashboardService) fillInventory(ctx context.Context, out *ClusterDashboard, clusterID uint) {
 	if s.clusters == nil {
 		return
@@ -223,7 +224,7 @@ func (s *ClusterDashboardService) fillInventory(ctx context.Context, out *Cluste
 	}
 	sort.Slice(clusters, func(i, j int) bool { return clusters[i].ID < clusters[j].ID })
 	for _, c := range clusters {
-		if c == nil || (clusterID > 0 && c.ID != clusterID) {
+		if c == nil {
 			continue
 		}
 		card := ClusterCard{ID: c.ID, Name: c.Name, Version: c.Version, HealthStatus: "unknown", RunningJobs: running[c.ID]}
@@ -233,6 +234,9 @@ func (s *ClusterDashboardService) fillInventory(ctx context.Context, out *Cluste
 			card.ActiveAlerts, card.CriticalAlerts = item.ActiveAlerts, item.CriticalAlerts
 		}
 		out.Clusters = append(out.Clusters, card)
+		if clusterID > 0 && c.ID != clusterID {
+			continue
+		}
 		nodes, err := s.clusters.GetNodes(ctx, c.ID)
 		if err != nil {
 			out.PartialErrors = append(out.PartialErrors, "nodes")
@@ -269,7 +273,10 @@ type promTask struct {
 // fillMetrics 并发执行全部查询后组装趋势、节点即时值、卡片指标与异常信号。
 // fillMetrics runs every query concurrently, then assembles trends, node instants, card metrics and signals.
 func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterDashboard, baseURL string, clusterID uint, start, end time.Time, step, cell int) {
-	sel := `job="seatunnel_engine_http"`
+	// all 用于集群卡片（全部集群），sel 用于范围内的节点、趋势与信号。
+	// all feeds the cluster cards (every cluster); sel feeds the in-scope nodes, trends and signals.
+	all := `job="seatunnel_engine_http"`
+	sel := all
 	if clusterID > 0 {
 		sel += fmt.Sprintf(`,cluster_id=%s`, strconv.Quote(strconv.FormatUint(uint64(clusterID), 10)))
 	}
@@ -287,7 +294,8 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		{key: "threads_now", instant: true, query: fmt.Sprintf(`max by (cluster_id, instance) (jvm_threads_current{%s})`, sel)},
 		{key: "fd_now", instant: true, query: fmt.Sprintf(`100 * max by (cluster_id, instance) (process_open_fds{%[1]s}) / max by (cluster_id, instance) (clamp_min(process_max_fds{%[1]s}, 1))`, sel)},
 		{key: "uptime_now", instant: true, query: fmt.Sprintf(`max by (cluster_id, instance) (time() - process_start_time_seconds{%s})`, sel)},
-		{key: "up_now", instant: true, query: fmt.Sprintf(`max by (cluster_id, instance) (up{%s})`, sel)},
+		{key: "up_now", instant: true, query: fmt.Sprintf(`max by (cluster_id, instance) (up{%s})`, all)},
+		{key: "heap_all", instant: true, query: fmt.Sprintf(`100 * max by (cluster_id, instance) (jvm_memory_bytes_used{%[1]s,area="heap"}) / max by (cluster_id, instance) (clamp_min(jvm_memory_bytes_max{%[1]s,area="heap"}, 1))`, all)},
 		{key: "state_now", instant: true, query: fmt.Sprintf(`min by (cluster_id, instance) (node_state{%s})`, sel)},
 		{key: "cluster_info", instant: true, query: fmt.Sprintf(`max by (cluster_id, master) (cluster_info{%s})`, sel)},
 		{key: "cluster_safe", instant: true, query: fmt.Sprintf(`min by (cluster_id) (hazelcast_partition_isClusterSafe{%s})`, sel)},
@@ -348,8 +356,24 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		return nil
 	}
 	flag := func(v bool) *bool { return &v }
+	// 卡片指标按样本的 cluster_id 标签汇总，覆盖范围外的集群。
+	// Card metrics aggregate by the sample's cluster_id label, so clusters outside the scope are covered too.
 	maxHeap := map[uint]float64{}
 	downByCluster := map[uint]int{}
+	sampleCluster := func(sample promquery.Sample) uint {
+		id, _ := strconv.ParseUint(sample.Metric["cluster_id"], 10, 64)
+		return uint(id)
+	}
+	for _, sample := range byKey["heap_all"].samples {
+		if id := sampleCluster(sample); sample.Value > maxHeap[id] {
+			maxHeap[id] = sample.Value
+		}
+	}
+	for _, sample := range byKey["up_now"].samples {
+		if sample.Value < 1 {
+			downByCluster[sampleCluster(sample)]++
+		}
+	}
 	signals := &ClusterSignals{}
 	for i := range out.Nodes {
 		row := &out.Nodes[i]
@@ -364,15 +388,11 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		if v, ok := up[row.Instance]; ok {
 			row.ScrapeUp = flag(v >= 1)
 			if v < 1 {
-				downByCluster[row.ClusterID]++
 				signals.EndpointsDown++
 			}
 		}
 		if v, ok := state[row.Instance]; ok {
 			row.NodeActive = flag(v == 1)
-		}
-		if row.HeapPercent != nil && *row.HeapPercent > maxHeap[row.ClusterID] {
-			maxHeap[row.ClusterID] = *row.HeapPercent
 		}
 		if row.FDPercent != nil && (signals.FDPercentMax == nil || *row.FDPercent > *signals.FDPercentMax) {
 			v := *row.FDPercent
@@ -381,7 +401,7 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 	}
 	for i := range out.Clusters {
 		card := &out.Clusters[i]
-		if v, ok := maxHeap[card.ID]; ok {
+		if v, ok := maxHeap[card.ID]; ok && v > 0 {
 			card.MaxHeapPercent = &v
 		}
 		down := downByCluster[card.ID]

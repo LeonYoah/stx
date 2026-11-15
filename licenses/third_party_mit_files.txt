@@ -38,6 +38,7 @@ frontend/components/arc/line-chart/line-chart.tsx
 frontend/components/arc/metric-card/metric-card.tsx
 frontend/components/arc/motion-tokens.ts
 frontend/components/arc/onboarding-checklist/onboarding-checklist.tsx
+frontend/components/arc/radio-cards/radio-cards.tsx
 frontend/components/arc/resizable-panels/resizable-panels.tsx
 frontend/components/arc/search-field/search-field.tsx
 frontend/components/arc/segmented-control/segmented-control.tsx
@@ -88,3 +89,39 @@ frontend/components/charts/xy/use-points.ts
 frontend/components/charts/xy/use-width.ts
 frontend/components/motion/number-ticker.tsx
 frontend/lib/hooks/use-hover-capable.ts
+
+# beUI Status Bar (MIT, Copyright (c) 2026 Saurabh Chauhan), with the shared beUI tooltip:
+# Upstream: https://github.com/starc007/ui-components
+# Component: https://beui.dev/charts/status-bar
+# Registry: https://beui.dev/r/status-bar.json
+# Full MIT text copy: licenses/beui/LICENSE-MIT.txt
+
+frontend/components/charts/status-bar.tsx
+frontend/components/charts/status-bar/context.ts
+frontend/components/charts/status-bar/legend.tsx
+frontend/components/charts/status-bar/messages.ts
+frontend/components/charts/status-bar/plot.tsx
+frontend/components/charts/status-bar/tooltip.tsx
+frontend/components/motion/tooltip-surface.tsx
+frontend/components/motion/tooltip.tsx
+frontend/components/motion/tooltip/grace.ts
+frontend/components/motion/tooltip/positioner.tsx
+frontend/components/motion/tooltip/use-position.ts
+frontend/lib/hooks/use-dismiss.ts
+frontend/lib/hooks/use-hover-gesture.ts
+frontend/lib/hooks/use-tap-gesture.ts
+frontend/lib/touch.ts
+
+# beUI Composition Chart (MIT, Copyright (c) 2026 Saurabh Chauhan):
+# Upstream: https://github.com/starc007/ui-components
+# Component: https://beui.dev/charts/composition-chart
+# Registry: https://beui.dev/r/composition-chart.json
+# Full MIT text copy: licenses/beui/LICENSE-MIT.txt
+
+frontend/components/charts/composition-chart.tsx
+frontend/components/charts/composition-chart/context.tsx
+frontend/components/charts/composition-chart/legend.tsx
+frontend/components/charts/composition-chart/messages.ts
+frontend/components/charts/composition-chart/model.ts
+frontend/components/charts/composition-chart/plot.tsx
+frontend/components/charts/composition-chart/tooltip-content.tsx

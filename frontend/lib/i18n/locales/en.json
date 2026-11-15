@@ -233,9 +233,6 @@
         },
         "noAccess": "You cannot view this job"
       },
-      "cluster": {
-        "legacyHint": "The cluster dashboard will replace the Grafana panel below."
-      },
       "jobsTab": {
         "comingTitle": "Job dashboard coming soon",
         "comingDesc": "Total throughput, top writers, CDC delay and data flow will show here. Until then, the job list shows each job's current state.",
@@ -318,6 +315,104 @@
         "legendClear": "Clear",
         "legendAll": "All",
         "categoryTime": "Time"
+      },
+      "clusterTab": {
+        "range": {
+          "label": "Time range",
+          "15m": "15m",
+          "1h": "1h",
+          "6h": "6h",
+          "24h": "24h",
+          "7d": "7d"
+        },
+        "allClusters": "All clusters",
+        "cardsLabel": "Choose cluster scope",
+        "health": {
+          "healthy": "Healthy",
+          "degraded": "Degraded",
+          "unhealthy": "Unhealthy",
+          "unknown": "Unknown"
+        },
+        "cardDesc": "Nodes {online}/{total} · Running {running}",
+        "cardHeap": "Max heap {value}%",
+        "cardAlerts": "Alerts {count}",
+        "availability": {
+          "title": "Node availability",
+          "hint": "Each cell is {cell}; failed scrapes or down nodes are red",
+          "up": "Available",
+          "down": "Unavailable",
+          "unknown": "No data",
+          "empty": "No node availability data"
+        },
+        "charts": {
+          "heap": "JVM heap usage",
+          "heapUnit": "Per node · %",
+          "heapLine": "85% reference",
+          "cpu": "Process CPU",
+          "cpuUnit": "Per node · cores",
+          "gc": "GC time ratio",
+          "gcUnit": "Per node · %",
+          "jobState": "Engine job states",
+          "jobStateUnit": "Jobs retained by the engine",
+          "empty": "No data in this time range",
+          "time": "Time",
+          "legendClear": "Clear",
+          "legendAll": "All"
+        },
+        "jobStates": {
+          "running": "Running",
+          "finished": "Finished",
+          "failed": "Failed",
+          "failing": "Failing",
+          "canceled": "Canceled",
+          "cancelling": "Cancelling",
+          "created": "Created",
+          "pending": "Pending",
+          "scheduled": "Scheduled"
+        },
+        "nodes": {
+          "title": "Nodes",
+          "count": "{count} nodes",
+          "node": "Node",
+          "cluster": "Cluster",
+          "role": "Role",
+          "status": "Status",
+          "heap": "Heap",
+          "cpu": "CPU",
+          "threads": "Threads",
+          "fd": "FD",
+          "uptime": "Uptime",
+          "master": "master",
+          "scrapeDown": "Scrape failed",
+          "nodeDown": "Node down",
+          "agentOffline": "Agent offline",
+          "empty": "No nodes",
+          "cores": "{value} cores"
+        },
+        "signals": {
+          "title": "Anomaly signals",
+          "allGood": "All clear",
+          "clusterSafe": "Partition safety",
+          "deadlocked": "Deadlocked threads",
+          "fd": "FD usage (max)",
+          "reject": "Thread pool rejections",
+          "hzQueue": "Hazelcast queue usage",
+          "endpoints": "Unreachable metric endpoints",
+          "perSec": "{value}/s",
+          "ok": "OK",
+          "bad": "Issue"
+        },
+        "noProm": {
+          "title": "Connect Prometheus to see trends",
+          "desc": "With STX observability on and Prometheus connected, node availability, JVM, GC and job state trends appear here. Cluster cards and the node table still come from agent heartbeats.",
+          "action": "Open monitoring settings"
+        },
+        "partial": "Some metric queries failed: {keys}",
+        "units": {
+          "d": "d",
+          "h": "h",
+          "m": "m"
+        }
       }
     }
   },

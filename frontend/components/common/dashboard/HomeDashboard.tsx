@@ -29,7 +29,7 @@ import {
 } from '@/components/arc/tabs/tabs';
 import {STXMark} from '@/components/icons/logo';
 import {WorkspaceHeader} from '@/components/common/layout';
-import {MonitoringOverview} from '@/components/common/monitoring';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Button} from '@/components/ui/button';
 import {
   Select,
@@ -43,10 +43,15 @@ import {HomeService, type HomeAttentionItem} from '@/lib/services/dashboard';
 import {formatTimeTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {AttentionStrip} from './AttentionStrip';
+import {ClusterTab} from './ClusterTab';
 import {DashboardKpiRow} from './DashboardKpiRow';
 import {JobListTab} from './JobListTab';
 import {jobWorkbenchHref} from './job-list-utils';
-import {type HomeTab, useDashboardQuery} from './use-dashboard-query';
+import {
+  HOME_RANGES,
+  type HomeTab,
+  useDashboardQuery,
+} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
 
 const SUMMARY_POLL_MS = 30_000;
@@ -117,6 +122,20 @@ export function HomeDashboard() {
               <span className='hidden whitespace-nowrap text-xs text-muted-foreground sm:inline'>
                 {t('updatedAt', {time: formatTimeTz(summary.updatedAt)})}
               </span>
+            ) : null}
+            {/* 时间窗只影响趋势，作业列表页签不显示。/ The range only drives trends, so the job list hides it. */}
+            {query.tab !== 'list' ? (
+              <SegmentedControl
+                label={t('clusterTab.range.label')}
+                value={query.range}
+                onValueChange={(value) =>
+                  update({range: value === '1h' ? undefined : value})
+                }
+                options={HOME_RANGES.map((value) => ({
+                  value,
+                  label: t(`clusterTab.range.${value}`),
+                }))}
+              />
             ) : null}
             <Select
               value={scopeValue}
@@ -210,12 +229,7 @@ export function HomeDashboard() {
           <TabsTrigger value='list'>{t('tabs.list')}</TabsTrigger>
         </TabsList>
         <TabsContent value='cluster'>
-          <div className='flex flex-col gap-2'>
-            <p className='text-xs text-muted-foreground'>
-              {t('cluster.legacyHint')}
-            </p>
-            <MonitoringOverview compact defaultGrafanaExpanded={false} />
-          </div>
+          <ClusterTab query={query} update={update} />
         </TabsContent>
         <TabsContent value='jobs'>
           <EmptyState

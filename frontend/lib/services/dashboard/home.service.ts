@@ -72,12 +72,99 @@ export interface HomeSummary {
   partial_errors?: string[];
 }
 
+/** 集群卡片 / Cluster card. */
+export interface HomeClusterCard {
+  id: number;
+  name: string;
+  version: string;
+  health_status: 'healthy' | 'degraded' | 'unhealthy' | 'unknown' | string;
+  nodes_online: number;
+  nodes_total: number;
+  running_jobs: number;
+  active_alerts: number;
+  critical_alerts: number;
+  max_heap_percent?: number;
+  endpoints_down?: number;
+}
+
+/** 节点表一行；指标字段只在 Prometheus 可用时出现 / Node row; metric fields only with Prometheus. */
+export interface HomeClusterNode {
+  cluster_id: number;
+  cluster_name: string;
+  node_id: number;
+  instance: string;
+  role: string;
+  status: string;
+  agent_online: boolean;
+  master?: boolean;
+  scrape_up?: boolean;
+  node_active?: boolean;
+  heap_percent?: number;
+  cpu_cores?: number;
+  threads?: number;
+  fd_percent?: number;
+  uptime_seconds?: number;
+}
+
+export interface HomeClusterSignals {
+  clusters_safe: number;
+  clusters_total: number;
+  deadlocked_threads?: number;
+  fd_percent_max?: number;
+  pool_reject_rate?: number;
+  hz_queue_util_max?: number;
+  endpoints_down: number;
+}
+
+export interface HomeDashboardSeries {
+  key: 'availability' | 'heap' | 'cpu' | 'gc' | 'job_state' | string;
+  label: string;
+  points: [number, number][];
+}
+
+/** GET /dashboard/home/clusters 返回 / Response of GET /dashboard/home/clusters. */
+export interface HomeClusterDashboard {
+  source: 'prometheus' | 'none';
+  reason?: string;
+  range: string;
+  start_ms: number;
+  end_ms: number;
+  step_seconds: number;
+  cell_seconds: number;
+  clusters: HomeClusterCard[];
+  nodes: HomeClusterNode[];
+  signals: HomeClusterSignals | null;
+  series: HomeDashboardSeries[];
+  partial_errors?: string[];
+}
+
 /**
  * 首页汇总服务：指标卡与「需要处理」条共用一次请求。
  * Home summary service: the KPI cards and the "needs attention" strip share one request.
  */
 export class HomeService extends BaseService {
   protected static readonly basePath = '/dashboard/home';
+
+  /**
+   * 集群大盘：卡片、节点、趋势与异常信号；数组字段做兜底。
+   * Cluster dashboard: cards, nodes, trends and signals, with array fallbacks.
+   */
+  static async getClusters(params?: {
+    cluster_id?: number;
+    range?: string;
+  }): Promise<HomeClusterDashboard> {
+    const data = await this.get<HomeClusterDashboard>('/clusters', params);
+    return {
+      ...data,
+      clusters: data?.clusters ?? [],
+      nodes: data?.nodes ?? [],
+      series: (data?.series ?? []).map((item) => ({
+        ...item,
+        points: item.points ?? [],
+      })),
+      signals: data?.signals ?? null,
+    };
+  }
 
   static async getSummary(params?: {
     cluster_id?: number;

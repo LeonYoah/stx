@@ -22,13 +22,17 @@ import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 
 export type HomeTab = 'cluster' | 'jobs' | 'list';
 
+/** 趋势时间窗 / Trend time range. */
+export const HOME_RANGES = ['15m', '1h', '6h', '24h', '7d'] as const;
+export type HomeRange = (typeof HOME_RANGES)[number];
+
 const HOME_TABS: HomeTab[] = ['cluster', 'jobs', 'list'];
 
 /**
- * P1 默认停在作业列表：集群 / 作业大盘在 P2 / P3 交付后再改回「集群」。
- * P1 defaults to the job list; switch back to "cluster" once the P2 / P3 dashboards ship.
+ * 默认停在集群大盘（P2 起）。
+ * Defaults to the cluster dashboard (from P2 on).
  */
-export const DEFAULT_HOME_TAB: HomeTab = 'list';
+export const DEFAULT_HOME_TAB: HomeTab = 'cluster';
 
 export interface DashboardQuery {
   tab: HomeTab;
@@ -39,6 +43,7 @@ export interface DashboardQuery {
   sort: string;
   order: 'asc' | 'desc' | '';
   page: number;
+  range: HomeRange;
 }
 
 /**
@@ -64,6 +69,11 @@ export function useDashboardQuery() {
       sort: searchParams.get('sort') ?? '',
       order: order === 'asc' || order === 'desc' ? order : '',
       page: Number.isInteger(page) && page > 1 ? page : 1,
+      range: (HOME_RANGES as readonly string[]).includes(
+        searchParams.get('range') ?? '',
+      )
+        ? (searchParams.get('range') as HomeRange)
+        : '1h',
     };
   }, [searchParams]);
 
@@ -82,6 +92,7 @@ export function useDashboardQuery() {
         sort: 'sort',
         order: 'order',
         page: 'page',
+        range: 'range',
       };
       for (const [field, value] of Object.entries(patch)) {
         const name = keyMap[field as keyof DashboardQuery];

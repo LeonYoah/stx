@@ -308,8 +308,14 @@ func (s *Service) GetClustersHealth(ctx context.Context) (*ClusterHealthData, er
 
 	statsMap := make(map[string]*RemoteAlertClusterStat)
 	if s.repo != nil {
-		statsMap, err = s.activeRemoteAlertStats(ctx, clusterIDs, timex.Now())
+		now := timex.Now()
+		statsMap, err = s.activeRemoteAlertStats(ctx, clusterIDs, now)
 		if err != nil {
+			return nil, err
+		}
+		// 集群健康 / 首页 KPI 与告警中心同一口径：远程指标告警 + 同步作业告警 + 本地进程事件。
+		// Cluster health / home KPIs match the alert center: remote metric alerts + sync job alerts + local process events.
+		if err := s.mergeFiringAlertInstanceStats(ctx, statsMap, now); err != nil {
 			return nil, err
 		}
 	}
@@ -442,4 +448,46 @@ func (s *Service) activeRemoteAlertStats(ctx context.Context, clusterIDs []strin
 		}
 	}
 	return result, nil
+}
+
+// mergeFiringAlertInstanceStats 把同步作业告警和本地进程事件并入集群健康计数；远程指标告警已由 activeRemoteAlertStats 计入。
+// mergeFiringAlertInstanceStats adds sync job alerts and local process events to cluster health counts; remote metric
+// alerts are already counted by activeRemoteAlertStats.
+func (s *Service) mergeFiringAlertInstanceStats(ctx context.Context, stats map[string]*RemoteAlertClusterStat, now time.Time) error {
+	if stats == nil {
+		return nil
+	}
+	filter := &AlertInstanceFilter{Status: AlertDisplayStatusFiring}
+	syncItems, err := s.buildSyncAlertInstances(ctx, filter, now)
+	if err != nil {
+		return err
+	}
+	addFiringAlertInstanceCounts(stats, syncItems)
+	localItems, err := s.buildLocalAlertInstances(ctx, filter, now)
+	if err != nil {
+		return err
+	}
+	addFiringAlertInstanceCounts(stats, localItems)
+	return nil
+}
+
+func addFiringAlertInstanceCounts(stats map[string]*RemoteAlertClusterStat, items []*AlertInstance) {
+	for _, item := range items {
+		if item == nil || item.Status != AlertDisplayStatusFiring {
+			continue
+		}
+		clusterID := strings.TrimSpace(item.ClusterID)
+		if clusterID == "" {
+			continue
+		}
+		stat := stats[clusterID]
+		if stat == nil {
+			stat = &RemoteAlertClusterStat{ClusterID: clusterID}
+			stats[clusterID] = stat
+		}
+		stat.ActiveCount++
+		if strings.EqualFold(strings.TrimSpace(string(item.Severity)), string(AlertSeverityCritical)) {
+			stat.CriticalCount++
+		}
+	}
 }

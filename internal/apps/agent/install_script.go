@@ -1083,13 +1083,29 @@ if [ -f "\${HOME}/.bash_profile" ]; then
     source "\${HOME}/.bash_profile"
 fi
 if [ -z "\$JAVA_HOME" ]; then
-    for java_dir in /usr/lib/jvm/java-* /usr/java/* /opt/java/* /usr/local/java* /Library/Java/JavaVirtualMachines/*/Contents/Home; do
-        if [ -d "\$java_dir" ] && [ -x "\$java_dir/bin/java" ]; then
-            export JAVA_HOME="\$java_dir"
-            export PATH="\$JAVA_HOME/bin:\$PATH"
+    # 只看 JAVA_HOME 和几个固定目录；读不到的目录直接跳过，不报错。
+    # Only JAVA_HOME and a few fixed directories; unreadable dirs are skipped with no error.
+    for root in /usr/lib/jvm /usr/java /opt/java /opt/jdk /Library/Java/JavaVirtualMachines; do
+        if [ -x "\$root/bin/java" ]; then
+            export JAVA_HOME="\$root"
             break
         fi
+        [ -r "\$root" ] || continue
+        while IFS= read -r java_dir; do
+            [ -n "\$java_dir" ] || continue
+            if [ -x "\$java_dir/bin/java" ]; then
+                export JAVA_HOME="\$java_dir"
+                break 2
+            fi
+            if [ -x "\$java_dir/Contents/Home/bin/java" ]; then
+                export JAVA_HOME="\$java_dir/Contents/Home"
+                break 2
+            fi
+        done < <(find "\$root" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) 2>/dev/null)
     done
+    if [ -n "\$JAVA_HOME" ]; then
+        export PATH="\$JAVA_HOME/bin:\$PATH"
+    fi
 fi
 if [ -n "\$JAVA_HOME" ] && [ -d "\$JAVA_HOME/bin" ]; then
     export PATH="\$JAVA_HOME/bin:\$PATH"

@@ -2637,8 +2637,8 @@
       "slotAllocationRandom": "RANDOM",
       "slotAllocationSystemLoad": "SYSTEM_LOAD",
       "slotAllocationSlotRatio": "SLOT_RATIO",
-      "slotAllocationHint": "Writes slot-allocation-strategy; clearest under Static Slot.",
-      "slotAllocationUnsupported": "This version does not support slot-allocation-strategy yet.",
+      "slotAllocationHint": "Writes slot-allocate-strategy; clearest under Static Slot.",
+      "slotAllocationUnsupported": "This version does not support slot-allocate-strategy yet.",
       "slotAllocationRandomDesc": "RANDOM: distribute work randomly across available slots or workers.",
       "slotAllocationSystemLoadDesc": "SYSTEM_LOAD: prefer lower CPU/memory load nodes.",
       "slotAllocationSlotRatioDesc": "SLOT_RATIO: prefer nodes with lower slot usage ratio."

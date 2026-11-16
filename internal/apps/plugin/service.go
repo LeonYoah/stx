@@ -619,6 +619,7 @@ func (s *Service) ListInstalledPlugins(ctx context.Context, clusterID uint) ([]I
 	}
 	plugins = s.reconcileInstalledPluginVersions(ctx, clusterID, plugins)
 	plugins = s.dedupeInstalledPlugins(ctx, clusterID, plugins)
+	plugins = s.mergeBundledConnectors(ctx, clusterID, plugins)
 
 	localPlugins, err := s.downloader.ListLocalPlugins()
 	if err != nil {
@@ -717,6 +718,70 @@ func (s *Service) dedupeInstalledPlugins(ctx context.Context, clusterID uint, pl
 	}
 
 	return result
+}
+
+// mergeBundledConnectors 把节点 connectors 目录里安装包自带的连接器并入列表，避免只显示控制面额外安装的插件。
+// mergeBundledConnectors merges connectors already in the node's connectors directory so the list is not only
+// Control Plane extra installs.
+func (s *Service) mergeBundledConnectors(ctx context.Context, clusterID uint, plugins []InstalledPlugin) []InstalledPlugin {
+	if s.agentCommandSender == nil || s.clusterNodeGetter == nil || s.hostInfoGetter == nil {
+		return plugins
+	}
+	nodes, err := s.clusterNodeGetter.GetClusterNodes(ctx, clusterID)
+	if err != nil {
+		logger.WarnF(ctx, "[Plugin] 列出集群 %d 节点失败，跳过安装包自带连接器合并: %v / list cluster %d nodes failed, skip bundled connector merge: %v", clusterID, err, clusterID, err)
+		return plugins
+	}
+	seen := make(map[string]struct{}, len(plugins)*2)
+	for _, plugin := range plugins {
+		if name := strings.ToLower(strings.TrimSpace(plugin.PluginName)); name != "" {
+			seen[name] = struct{}{}
+		}
+		if artifact := strings.ToLower(strings.TrimSpace(plugin.ArtifactID)); artifact != "" {
+			seen[artifact] = struct{}{}
+		}
+	}
+	for _, node := range nodes {
+		agentID, hostErr := s.hostInfoGetter.GetHostAgentID(ctx, node.HostID)
+		if hostErr != nil || strings.TrimSpace(agentID) == "" || strings.TrimSpace(node.InstallDir) == "" {
+			continue
+		}
+		details, listErr := s.listNodeConnectorDetails(ctx, agentID, node.InstallDir)
+		if listErr != nil {
+			logger.WarnF(ctx, "[Plugin] 读取节点 %d 连接器失败: %v / list connectors on node %d failed: %v", node.NodeID, listErr, node.NodeID, listErr)
+			continue
+		}
+		now := time.Now()
+		for _, item := range details {
+			name := strings.TrimSpace(item.Name)
+			if name == "" {
+				continue
+			}
+			artifactID := getArtifactID(name)
+			if _, ok := seen[strings.ToLower(name)]; ok {
+				continue
+			}
+			if _, ok := seen[strings.ToLower(artifactID)]; ok {
+				continue
+			}
+			seen[strings.ToLower(name)] = struct{}{}
+			seen[strings.ToLower(artifactID)] = struct{}{}
+			plugins = append(plugins, InstalledPlugin{
+				ClusterID:   clusterID,
+				PluginName:  name,
+				ArtifactID:  artifactID,
+				Category:    PluginCategoryConnector,
+				Version:     strings.TrimSpace(item.Version),
+				Status:      PluginStatusInstalled,
+				InstallPath: strings.TrimSpace(item.ConnectorPath),
+				InstalledAt: now,
+			})
+		}
+		if len(details) > 0 {
+			break
+		}
+	}
+	return plugins
 }
 
 func (s *Service) reconcileInstalledPluginVersions(ctx context.Context, clusterID uint, plugins []InstalledPlugin) []InstalledPlugin {

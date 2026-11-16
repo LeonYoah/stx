@@ -2962,7 +2962,10 @@ func (m *InstallerManager) modifySeaTunnelConfig(filePath string, params *Instal
 			if strings.TrimSpace(params.SlotAllocationStrategy) != "" {
 				slotAllocationStrategy = strings.ToUpper(strings.TrimSpace(params.SlotAllocationStrategy))
 			}
-			_ = setYAMLValueCreate(&root, []string{"seatunnel", "engine", "slot-service", "slot-allocation-strategy"}, slotAllocationStrategy)
+			// SeaTunnel 配置键是 slot-allocate-strategy；旧版误写的 slot-allocation-strategy 引擎不认。
+			// SeaTunnel's config key is slot-allocate-strategy; the misspelled slot-allocation-strategy is ignored.
+			_ = deleteYAMLKey(&root, []string{"seatunnel", "engine", "slot-service", "slot-allocation-strategy"})
+			_ = setYAMLValueCreate(&root, []string{"seatunnel", "engine", "slot-service", "slot-allocate-strategy"}, slotAllocationStrategy)
 		}
 		if !dynamicSlotValue && capabilities.SupportsSlotNum {
 			slotNumValue := capabilities.DefaultStaticSlotNum
@@ -3196,6 +3199,43 @@ func setYAMLValueCreate(root *yaml.Node, path []string, value interface{}) error
 		current = valueNode
 	}
 
+	return nil
+}
+
+// deleteYAMLKey 删除路径上的键；路径不存在时忽略。
+// deleteYAMLKey removes the key at path; missing paths are ignored.
+func deleteYAMLKey(root *yaml.Node, path []string) error {
+	if root == nil || len(path) == 0 {
+		return fmt.Errorf("invalid arguments")
+	}
+	node := root
+	if node.Kind == yaml.DocumentNode {
+		if len(node.Content) == 0 {
+			return nil
+		}
+		node = node.Content[0]
+	}
+	current := node
+	for i, key := range path {
+		if current == nil || current.Kind != yaml.MappingNode {
+			return nil
+		}
+		found := -1
+		for j := 0; j < len(current.Content); j += 2 {
+			if current.Content[j].Value == key {
+				found = j
+				break
+			}
+		}
+		if found < 0 {
+			return nil
+		}
+		if i == len(path)-1 {
+			current.Content = append(current.Content[:found], current.Content[found+2:]...)
+			return nil
+		}
+		current = current.Content[found+1]
+	}
 	return nil
 }
 

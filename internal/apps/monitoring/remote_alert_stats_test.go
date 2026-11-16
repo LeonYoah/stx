@@ -59,3 +59,30 @@ func TestClustersHealthIgnoresClosedRemoteAlerts(t *testing.T) {
 		t.Fatalf("health = %+v, want active 2 (acked + warn), critical 1 (acked)", health.Clusters[0])
 	}
 }
+
+func TestClustersHealthCountsFiringSyncAlerts(t *testing.T) {
+	service, repo, cluster, ctx := setupMonitoringAlertPolicyService(t)
+	now := time.Now().UTC()
+	episode := &SyncAlertEpisode{
+		Scope:          SyncAlertEpisodeScopeTask,
+		ClusterID:      cluster.ID,
+		TaskID:         9,
+		RuleKey:        "sync_submit_failed",
+		Status:         SyncAlertEpisodeFiring,
+		Severity:       AlertSeverityCritical,
+		ClusterName:    cluster.Name,
+		TaskName:       "broken",
+		FirstFiredAt:   now,
+		LastOccurredAt: now,
+	}
+	if err := repo.db.Create(episode).Error; err != nil {
+		t.Fatalf("create sync episode: %v", err)
+	}
+	health, err := service.GetClustersHealth(ctx)
+	if err != nil {
+		t.Fatalf("clusters health: %v", err)
+	}
+	if len(health.Clusters) != 1 || health.Clusters[0].ActiveAlerts != 1 || health.Clusters[0].CriticalAlerts != 1 {
+		t.Fatalf("health = %+v, want active 1 critical 1 from sync_submit_failed", health.Clusters[0])
+	}
+}

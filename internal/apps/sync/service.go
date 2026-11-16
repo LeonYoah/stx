@@ -360,12 +360,19 @@ func (s *Service) CreateTask(ctx context.Context, req *CreateTaskRequest, create
 
 // ListTasks returns paginated workspace nodes.
 func (s *Service) ListTasks(ctx context.Context, filter *TaskFilter) ([]*Task, int64, error) {
+	return s.ListTasksForActor(ctx, executionapp.Actor{IsAdmin: true}, filter)
+}
+
+// ListTasksForActor 返回分页工作台节点，并按调用者填充权限标记。
+// ListTasksForActor returns paginated workspace nodes decorated with the caller's permission flags.
+func (s *Service) ListTasksForActor(ctx context.Context, actor executionapp.Actor, filter *TaskFilter) ([]*Task, int64, error) {
 	tasks, total, err := s.repo.ListTasks(ctx, filter)
 	if err != nil {
 		return nil, 0, err
 	}
 	for _, task := range tasks {
 		s.applyTaskDefaults(task)
+		task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	}
 	if err := s.decorateTaskScheduleMetadata(ctx, tasks); err != nil {
 		return nil, 0, err

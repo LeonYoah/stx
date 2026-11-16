@@ -2637,8 +2637,8 @@
       "slotAllocationRandom": "RANDOM（随机）",
       "slotAllocationSystemLoad": "SYSTEM_LOAD（按系统负载）",
       "slotAllocationSlotRatio": "SLOT_RATIO（按 Slot 比例）",
-      "slotAllocationHint": "写入 slot-allocation-strategy；静态 Slot 下效果更明确。",
-      "slotAllocationUnsupported": "当前版本暂不支持 slot-allocation-strategy。",
+      "slotAllocationHint": "写入 slot-allocate-strategy；静态 Slot 下效果更明确。",
+      "slotAllocationUnsupported": "当前版本暂不支持 slot-allocate-strategy。",
       "slotAllocationRandomDesc": "RANDOM：在可用 Slot/节点间随机分配，适合通用默认。",
       "slotAllocationSystemLoadDesc": "SYSTEM_LOAD：结合 CPU/内存采样优先选低负载节点。",
       "slotAllocationSlotRatioDesc": "SLOT_RATIO：按 Slot 使用率优先选占用更低的节点。"

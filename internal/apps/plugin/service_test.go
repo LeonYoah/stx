@@ -172,6 +172,41 @@ func TestListAvailablePluginsUsesDatabaseSnapshot(t *testing.T) {
 	}
 }
 
+func TestListInstalledPluginsMergesBundledConnectors(t *testing.T) {
+	service, repo := newTestPluginService(t)
+	ctx := context.Background()
+	sender := &replaySender{nodePlugins: []map[string]string{
+		{"name": "fake", "version": "2.3.13", "connector_path": "connectors/connector-fake-2.3.13.jar"},
+		{"name": "jdbc", "version": "2.3.13", "connector_path": "connectors/connector-jdbc-2.3.13.jar"},
+	}}
+	service.SetClusterNodeGetter(stubPluginNodes{nodes: []ClusterNodeInfo{{NodeID: 1, HostID: 11, InstallDir: "/opt/st"}}})
+	service.SetHostInfoGetter(stubPluginHosts{agents: map[uint]string{11: "a1"}})
+	service.SetAgentCommandSender(sender)
+	if err := repo.db.WithContext(ctx).Create(&InstalledPlugin{
+		ClusterID:   1,
+		PluginName:  "jdbc",
+		ArtifactID:  "connector-jdbc",
+		Category:    PluginCategoryConnector,
+		Version:     "2.3.13",
+		Status:      PluginStatusInstalled,
+		InstalledAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("create installed plugin: %v", err)
+	}
+
+	plugins, err := service.ListInstalledPlugins(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListInstalledPlugins: %v", err)
+	}
+	names := map[string]bool{}
+	for _, plugin := range plugins {
+		names[plugin.PluginName] = true
+	}
+	if !names["jdbc"] || !names["fake"] {
+		t.Fatalf("expected bundled fake plus stored jdbc, got %+v", plugins)
+	}
+}
+
 func TestListInstalledPluginsEnrichesLocalMetadata(t *testing.T) {
 	tempDir := t.TempDir()
 	service, repo := newTestPluginServiceWithDownloader(t, tempDir)

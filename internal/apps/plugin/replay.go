@@ -114,8 +114,9 @@ func (r *PluginReplayReport) add(result PluginReplayResult) {
 type nodePluginListResult struct {
 	Success bool `json:"success"`
 	Plugins []struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
+		Name          string `json:"name"`
+		Version       string `json:"version"`
+		ConnectorPath string `json:"connector_path"`
 	} `json:"plugins"`
 }
 
@@ -465,6 +466,22 @@ func isReplayablePluginStatus(status PluginStatus) bool {
 // listNodeConnectors 通过 LIST_PLUGINS 读取节点 connectors 目录下已有的连接器。
 // listNodeConnectors reads the connectors already in the node's connectors directory via LIST_PLUGINS.
 func (s *Service) listNodeConnectors(ctx context.Context, agentID, installDir string) (map[string]struct{}, error) {
+	details, err := s.listNodeConnectorDetails(ctx, agentID, installDir)
+	if err != nil {
+		return nil, err
+	}
+	present := make(map[string]struct{}, len(details))
+	for _, item := range details {
+		present[connectorKey("connector-"+strings.TrimSpace(item.Name), item.Version)] = struct{}{}
+	}
+	return present, nil
+}
+
+func (s *Service) listNodeConnectorDetails(ctx context.Context, agentID, installDir string) ([]struct {
+	Name          string
+	Version       string
+	ConnectorPath string
+}, error) {
 	success, output, err := s.agentCommandSender.SendCommand(ctx, agentID, "list_plugins", map[string]string{"install_path": installDir})
 	if err != nil {
 		return nil, err
@@ -479,11 +496,19 @@ func (s *Service) listNodeConnectors(ctx context.Context, agentID, installDir st
 	if !success || !parsed.Success {
 		return nil, fmt.Errorf("list plugins failed / 列出插件失败: %s", output)
 	}
-	present := make(map[string]struct{}, len(parsed.Plugins))
+	details := make([]struct {
+		Name          string
+		Version       string
+		ConnectorPath string
+	}, 0, len(parsed.Plugins))
 	for _, item := range parsed.Plugins {
-		present[connectorKey("connector-"+strings.TrimSpace(item.Name), item.Version)] = struct{}{}
+		details = append(details, struct {
+			Name          string
+			Version       string
+			ConnectorPath string
+		}{Name: item.Name, Version: item.Version, ConnectorPath: item.ConnectorPath})
 	}
-	return present, nil
+	return details, nil
 }
 
 // replayArtifactID 返回插件记录的 artifact ID，缺失时按插件名映射。

@@ -57,6 +57,17 @@ func TestDisplayTimezone(t *testing.T) {
 	}
 }
 
+func TestSeatunnelLocationPrefersEnvThenLocal(t *testing.T) {
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "UTC")
+	if got := SeatunnelLocation(); got != time.UTC {
+		t.Fatalf("explicit STX_SEATUNNEL_TIMEZONE=UTC, got %v", got)
+	}
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "Not/AZone")
+	if got := SeatunnelLocation(); got != time.Local && got != time.UTC {
+		t.Fatalf("invalid env must fall back to local/UTC, got %v", got)
+	}
+}
+
 func TestInvalidEnvDisplayTimezoneFallsBack(t *testing.T) {
 	t.Setenv("STX_DISPLAY_TIMEZONE", "Not/AZone")
 	displayMu.Lock()

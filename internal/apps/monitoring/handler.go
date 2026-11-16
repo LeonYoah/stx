@@ -74,67 +74,11 @@ func (h *Handler) GetClusterOverview(c *gin.Context) {
 	c.JSON(http.StatusOK, Response{Data: data})
 }
 
-// ListAlerts handles GET /api/v1/monitoring/alerts
-// ListAlerts 处理 GET /api/v1/monitoring/alerts
+// ListAlerts 处理 GET /api/v1/monitoring/alerts：与告警中心同一套统一告警实例（本地进程、远程指标、同步作业）。
+// ListAlerts handles GET /api/v1/monitoring/alerts: the same unified instances as the alert center
+// (local process events, remote metrics, and sync jobs).
 func (h *Handler) ListAlerts(c *gin.Context) {
-	filter := &AlertFilter{}
-
-	if clusterIDStr := c.Query("cluster_id"); clusterIDStr != "" {
-		clusterID, err := strconv.ParseUint(clusterIDStr, 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid cluster_id"})
-			return
-		}
-		filter.ClusterID = uint(clusterID)
-	}
-	if status := strings.TrimSpace(c.Query("status")); status != "" {
-		parsedStatus := AlertStatus(status)
-		if parsedStatus != AlertStatusFiring && parsedStatus != AlertStatusAcknowledged && parsedStatus != AlertStatusSilenced {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid status"})
-			return
-		}
-		filter.Status = parsedStatus
-	}
-	if startTimeStr := strings.TrimSpace(c.Query("start_time")); startTimeStr != "" {
-		startTime, err := time.Parse(time.RFC3339, startTimeStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid start_time, expected RFC3339"})
-			return
-		}
-		filter.StartTime = &startTime
-	}
-	if endTimeStr := strings.TrimSpace(c.Query("end_time")); endTimeStr != "" {
-		endTime, err := time.Parse(time.RFC3339, endTimeStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid end_time, expected RFC3339"})
-			return
-		}
-		filter.EndTime = &endTime
-	}
-	if pageStr := c.Query("page"); pageStr != "" {
-		page, err := strconv.Atoi(pageStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid page"})
-			return
-		}
-		filter.Page = page
-	}
-	if pageSizeStr := c.Query("page_size"); pageSizeStr != "" {
-		pageSize, err := strconv.Atoi(pageSizeStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid page_size"})
-			return
-		}
-		filter.PageSize = pageSize
-	}
-
-	data, err := h.service.ListAlerts(c.Request.Context(), filter)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to list alerts: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
+	h.ListAlertInstances(c)
 }
 
 // AcknowledgeAlert handles POST /api/v1/monitoring/alerts/:eventId/ack

@@ -89,10 +89,10 @@ func redactAlertMessage(message string) string {
 }
 
 // reportSubmitFailed 上报 A1：提交到引擎被明确拒绝，或者找不到可用的引擎端点。参数校验、权限、409 等不经过这里。
-// instance 可能还没落库（ID 为 0），这时信号不带作业 ID。
+// 确定失败不建作业行（见 job-status-reconciler）；提交失败出现在告警中心 / 集群健康 KPI，而不是 failed_24h。
 // reportSubmitFailed reports A1: the engine definitely rejected the submit or no engine endpoint is usable.
-// Validation, permission and 409 errors never get here. instance may not be stored yet (ID 0); then the signal has
-// no job ID.
+// Validation, permission and 409 errors never get here. Definite failures must not create a job row
+// (see job-status-reconciler); they surface in the alert center / cluster-health KPI, not failed_24h.
 func (s *Service) reportSubmitFailed(ctx context.Context, task *Task, instance *JobInstance, submitErr error) {
 	if task == nil || instance == nil || submitErr == nil {
 		return

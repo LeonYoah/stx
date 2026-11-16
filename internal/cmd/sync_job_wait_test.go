@@ -18,9 +18,12 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
+
+	clioutput "github.com/LeonYoah/stx/internal/cli/output"
 )
 
 func TestParseCLIWaitTimeout(t *testing.T) {
@@ -86,5 +89,41 @@ func TestFormatCLIJobMetricsBlock(t *testing.T) {
 	}
 	if !strings.Contains(block, "\n") {
 		t.Fatal("metrics block must include real newlines")
+	}
+}
+
+func TestMaybeEmitJobMetricsLogSkipsDuplicateBlock(t *testing.T) {
+	var buf bytes.Buffer
+	events := clioutput.NewEventWriter(&buf)
+	job := syncJobWaitResult{
+		ID:     1,
+		Status: "success",
+		ResultPreview: map[string]interface{}{
+			"metrics": map[string]interface{}{
+				"SourceReceivedCount": float64(9),
+				"SinkWriteCount":      float64(9),
+			},
+		},
+	}
+	first, block := maybeEmitJobMetricsLog(events, "op", "req", job, time.Time{}, "", true)
+	if first.IsZero() || strings.TrimSpace(block) == "" {
+		t.Fatal("expected the first metrics block to emit")
+	}
+	_, _ = maybeEmitJobMetricsLog(events, "op", "req", job, first, block, true)
+	if strings.Count(buf.String(), `"event":"job_metrics"`) != 1 {
+		t.Fatalf("duplicate metrics emitted: %s", buf.String())
+	}
+}
+
+func TestPreviewCollectURLFromCLI(t *testing.T) {
+	t.Setenv("STX_SERVER", "https://stx.example:8443/")
+	got := previewCollectURLFromCLI(nil)
+	if got != "https://stx.example:8443/api/v1/sync/preview/collect" {
+		t.Fatalf("got %q", got)
+	}
+	t.Setenv("STX_SERVER", "")
+	got = previewCollectURLFromCLI(nil)
+	if got != "http://127.0.0.1:17800/api/v1/sync/preview/collect" {
+		t.Fatalf("default got %q", got)
 	}
 }

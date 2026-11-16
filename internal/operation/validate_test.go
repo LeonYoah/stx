@@ -200,7 +200,7 @@ func TestMonitoringReadOperationsExposeSupportedFilters(t *testing.T) {
 		"monitoring.alert-policy.list":           {"policy_type", "task_id"},
 		"monitoring.alert-policy.execution.list": {"status", "event_type", "start_time", "end_time", "page", "page_size"},
 		"monitoring.alert-instance.list":         {"source_type", "cluster_id", "severity", "status", "lifecycle_status", "handling_status", "start_time", "end_time", "page", "page_size"},
-		"monitoring.alert.list":                  {"cluster_id", "status", "start_time", "end_time", "page", "page_size"},
+		"monitoring.alert.list":                  {"source_type", "cluster_id", "severity", "status", "lifecycle_status", "handling_status", "start_time", "end_time", "page", "page_size"},
 		"monitoring.remote-alert.list":           {"cluster_id", "status", "start_time", "end_time", "page", "page_size"},
 		"monitoring.notification-delivery.list":  {"policy_id", "channel_id", "status", "event_type", "cluster_id", "start_time", "end_time", "page", "page_size"},
 	}

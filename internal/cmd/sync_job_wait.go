@@ -169,6 +169,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 	logState := newJobLogFollowState()
 	var staleSince time.Time
 	var lastMetricsAt time.Time
+	var lastMetricsBlock string
 	writeGuardGeneration(cfg.Pipe, job.AttachGeneration)
 
 	for {
@@ -199,7 +200,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 		if cfg.FollowLogs {
 			_ = followJobLogsOnce(signalCtx, client, events, operationID, job.ID, logState)
 		}
-		lastMetricsAt = maybeEmitJobMetricsLog(events, operationID, requestID, job, lastMetricsAt, false)
+		lastMetricsAt, lastMetricsBlock = maybeEmitJobMetricsLog(events, operationID, requestID, job, lastMetricsAt, lastMetricsBlock, false)
 
 		status := strings.ToLower(strings.TrimSpace(job.Status))
 		if !isSyncJobTerminal(status) && staleObservationExceeded(job, cfg.ObservationTimeout, &staleSince) {
@@ -226,7 +227,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			if cfg.FollowLogs {
 				drainJobLogs(signalCtx, client, events, operationID, job.ID, logState, 2)
 			}
-			_ = maybeEmitJobMetricsLog(events, operationID, requestID, job, lastMetricsAt, false)
+			lastMetricsAt, lastMetricsBlock = maybeEmitJobMetricsLog(events, operationID, requestID, job, lastMetricsAt, lastMetricsBlock, false)
 			writeGuardDone(cfg.Pipe)
 			if err := renderWaitJobResult(command, operationID, requestID, job, cfg.EventsJSON); err != nil {
 				return err
@@ -237,7 +238,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			if cfg.FollowLogs {
 				drainJobLogs(signalCtx, client, events, operationID, job.ID, logState, 2)
 			}
-			_ = maybeEmitJobMetricsLog(events, operationID, requestID, job, time.Time{}, true)
+			_, lastMetricsBlock = maybeEmitJobMetricsLog(events, operationID, requestID, job, lastMetricsAt, lastMetricsBlock, true)
 			writeGuardDone(cfg.Pipe)
 			if err := renderWaitJobResult(command, operationID, requestID, job, cfg.EventsJSON); err != nil {
 				return err
@@ -398,17 +399,20 @@ func itoaUint(value uint) string {
 	return string(digits)
 }
 
-func maybeEmitJobMetricsLog(events *clioutput.EventWriter, operationID, requestID string, job syncJobWaitResult, lastEmit time.Time, force bool) time.Time {
+func maybeEmitJobMetricsLog(events *clioutput.EventWriter, operationID, requestID string, job syncJobWaitResult, lastEmit time.Time, lastBlock string, force bool) (time.Time, string) {
 	if events == nil || job.ID == 0 {
-		return lastEmit
+		return lastEmit, lastBlock
 	}
 	now := time.Now()
 	if !force && !lastEmit.IsZero() && now.Sub(lastEmit) < jobMetricsLogInterval {
-		return lastEmit
+		return lastEmit, lastBlock
 	}
 	block := formatCLIJobMetricsBlock(job.ResultPreview, now, force || isSyncJobTerminal(strings.ToLower(strings.TrimSpace(job.Status))))
 	if strings.TrimSpace(block) == "" {
-		return lastEmit
+		return lastEmit, lastBlock
+	}
+	if strings.TrimSpace(block) == strings.TrimSpace(lastBlock) {
+		return lastEmit, lastBlock
 	}
 	emitNormalizedLogChunk(events, operationID, requestID, job.ID, "", block)
 	_ = events.Emit(clioutput.Event{
@@ -420,7 +424,7 @@ func maybeEmitJobMetricsLog(events *clioutput.EventWriter, operationID, requestI
 		Status:      strings.TrimSpace(job.Status),
 		Message:     "metrics snapshot",
 	})
-	return now
+	return now, block
 }
 
 func formatCLIJobMetricsBlock(preview map[string]interface{}, at time.Time, final bool) string {

@@ -144,6 +144,51 @@ func newTestClusterService(queries *[]string) *ClusterDashboardService {
 	return svc
 }
 
+func TestScrapeInstanceMatchesMasterLoopback(t *testing.T) {
+	if !scrapeInstanceMatchesMaster("10.0.0.1:5801", "127.0.0.1:5801", string(cluster.NodeRoleMasterWorker), map[string]int{"5801": 1}) {
+		t.Fatal("single-node loopback master must match host IP:port")
+	}
+	if scrapeInstanceMatchesMaster("10.0.0.2:5801", "127.0.0.1:5801", string(cluster.NodeRoleWorker), map[string]int{"5801": 2}) {
+		t.Fatal("worker sharing the port must not be marked master")
+	}
+	if !scrapeInstanceMatchesMaster("10.0.0.1:5801", "127.0.0.1:5801", string(cluster.NodeRoleMaster), map[string]int{"5801": 2}) {
+		t.Fatal("inventory master sharing the port should match loopback master")
+	}
+}
+
+func TestClusterDashboardMatchesLoopbackMaster(t *testing.T) {
+	withPrometheus(t, true)
+	var queries []string
+	svc := newTestClusterService(&queries)
+	svc.instantQuery = func(_ context.Context, _, q string, _ time.Time) ([]promquery.Sample, error) {
+		recordQuery(&queries, q)
+		if strings.Contains(q, "cluster_info") {
+			return []promquery.Sample{sample(1, "master", "127.0.0.1:5801")}, nil
+		}
+		return newTestClusterService(&queries).instantQuery(context.Background(), "", q, time.Time{})
+	}
+	got, err := svc.GetClusterDashboard(context.Background(), 1, "1h", nil)
+	if err != nil {
+		t.Fatalf("dashboard: %v", err)
+	}
+	var master, worker *ClusterNodeRow
+	for i := range got.Nodes {
+		row := &got.Nodes[i]
+		if row.Instance == "10.0.0.1:5801" {
+			master = row
+		}
+		if row.Instance == "10.0.0.2:5801" {
+			worker = row
+		}
+	}
+	if master == nil || master.Master == nil || !*master.Master {
+		t.Fatalf("expected 10.0.0.1:5801 to be master, got %+v", master)
+	}
+	if worker == nil || worker.Master == nil || *worker.Master {
+		t.Fatalf("expected 10.0.0.2:5801 not to be master, got %+v", worker)
+	}
+}
+
 func TestClusterDashboardCombinesInventoryAndMetrics(t *testing.T) {
 	withPrometheus(t, true)
 	var queries []string

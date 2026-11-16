@@ -302,7 +302,7 @@ func newSyncTaskCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 			definition := map[string]any{
 				"execution_mode": "cluster",
 				"preview_http_sink": map[string]any{
-					"url":        "http://10.0.0.211:8000/api/v1/sync/preview/collect",
+					"url":        previewCollectURLFromCLI(command),
 					"array_mode": false,
 				},
 				"preview_mode":            "source",
@@ -359,6 +359,29 @@ func newSyncTaskCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 	command.Flags().StringVar(&mode, "mode", "batch", "Job execution mode: batch or streaming")
 	command.Flags().StringVar(&definitionFile, "definition-file", "", "Path to JSON file containing task definition options")
 	return command
+}
+
+// previewCollectURLFromCLI 用当前 CLI 的 --server / STX_SERVER 拼预览采集地址，避免写死内网 IP。
+// previewCollectURLFromCLI builds the preview collect URL from --server / STX_SERVER instead of a hardcoded LAN IP.
+func previewCollectURLFromCLI(command *cobra.Command) string {
+	base := ""
+	if command != nil {
+		if flag := command.Flags().Lookup("server"); flag != nil {
+			base = strings.TrimSpace(flag.Value.String())
+		}
+		if base == "" && command.Root() != nil {
+			if flag := command.Root().PersistentFlags().Lookup("server"); flag != nil {
+				base = strings.TrimSpace(flag.Value.String())
+			}
+		}
+	}
+	if base == "" {
+		base = strings.TrimSpace(os.Getenv("STX_SERVER"))
+	}
+	if base == "" {
+		base = "http://127.0.0.1:17800"
+	}
+	return strings.TrimRight(base, "/") + "/api/v1/sync/preview/collect"
 }
 
 func newSyncTaskUpdateCommand(storeProvider authStoreProvider) *cobra.Command {

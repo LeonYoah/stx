@@ -47,13 +47,13 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 		{
 			Key:     AlertPolicyCapabilityKeyPlatformHealth,
 			Title:   "Platform Health Policies",
-			Summary: "Use STX-managed runtime and cluster signals to detect health issues even without Prometheus.",
+			Summary: "Use STX-managed runtime and cluster signals to detect health issues even when built-in monitoring is off.",
 			Status:  AlertPolicyCapabilityStatusAvailable,
 		},
 		{
 			Key:       AlertPolicyCapabilityKeyMetricsTemplates,
 			Title:     "Metrics Templates",
-			Summary:   "Enable CPU, memory, FD, failed-job, and other metrics-driven alert policies through the embedded metrics engine.",
+			Summary:   "Enable CPU, memory, FD, failed-job, and other metrics-driven alert policies through built-in monitoring.",
 			Status:    metricsStatus,
 			Reason:    metricsReason,
 			DependsOn: []string{"embedded_tsdb", "seatunnel_metrics"},
@@ -61,7 +61,7 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 		{
 			Key:       AlertPolicyCapabilityKeyRemoteIngest,
 			Title:     "Remote Alert Ingest",
-			Summary:   "Ingest Alertmanager webhook alerts into the unified alert center and notification pipeline.",
+			Summary:   "Receive alerts pushed by external systems (Alertmanager webhook compatible) into the unified alert center and notification pipeline.",
 			Status:    remoteIngestStatus,
 			Reason:    remoteIngestReason,
 			DependsOn: []string{"remote_ingest"},
@@ -93,7 +93,7 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 		{
 			Key:           AlertPolicyBuilderKindMetricsTemplate,
 			Title:         "Metrics Templates",
-			Description:   "Start from curated metric templates for CPU, memory, FD, failed jobs, and other Prometheus-backed signals.",
+			Description:   "Start from curated metric templates for CPU, memory, FD, failed jobs, and other engine metric signals.",
 			Status:        metricsStatus,
 			CapabilityKey: AlertPolicyCapabilityKeyMetricsTemplates,
 			Recommended:   true,
@@ -140,14 +140,14 @@ func cloneIntegrationComponents(components []*IntegrationComponentStatus) []*Int
 
 func resolveMetricsPolicyCapability(componentMap map[string]*IntegrationComponentStatus) (AlertPolicyCapabilityStatus, string) {
 	if !config.Config.Observability.Enabled {
-		return AlertPolicyCapabilityStatusUnavailable, "Observability is disabled. Enable the embedded metrics engine to unlock metric policies. Local platform-health alerts still work."
+		return AlertPolicyCapabilityStatusUnavailable, "Observability is disabled. Turn on built-in monitoring to unlock metric policies. Local platform-health alerts still work."
 	}
 	// 指标类策略依赖内嵌 tsdb（存储+查询）与 SeaTunnel 抓取目标两组件。
 	// Metric policies depend on the embedded tsdb (storage+query) and the SeaTunnel scrape targets.
-	if reason := explainUnhealthyComponent(componentMap["embedded_tsdb"], "Embedded metrics engine"); reason != "" {
+	if reason := explainUnhealthyComponent(componentMap["embedded_tsdb"], "Built-in monitoring storage"); reason != "" {
 		return AlertPolicyCapabilityStatusUnavailable, reason
 	}
-	if reason := explainUnhealthyComponent(componentMap["seatunnel_metrics"], "SeaTunnel metrics targets"); reason != "" {
+	if reason := explainUnhealthyComponent(componentMap["seatunnel_metrics"], "Engine metric collection"); reason != "" {
 		return AlertPolicyCapabilityStatusUnavailable, reason
 	}
 	return AlertPolicyCapabilityStatusAvailable, ""
@@ -157,7 +157,7 @@ func resolveRemoteIngestCapability(componentMap map[string]*IntegrationComponent
 	if !config.Config.Observability.Enabled {
 		return AlertPolicyCapabilityStatusUnavailable, "Observability is disabled. Local platform-health alerts and direct notifications remain available."
 	}
-	if reason := explainUnhealthyComponent(componentMap["remote_ingest"], "Remote alert ingest"); reason != "" {
+	if reason := explainUnhealthyComponent(componentMap["remote_ingest"], "External alert ingest"); reason != "" {
 		return AlertPolicyCapabilityStatusUnavailable, reason + " Local platform-health alerts and direct email/webhook notifications remain available."
 	}
 	return AlertPolicyCapabilityStatusAvailable, ""

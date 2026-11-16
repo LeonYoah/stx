@@ -22,8 +22,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httputil"
-	neturl "net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -313,7 +311,7 @@ func (h *Handler) AlertmanagerWebhook(c *gin.Context) {
 
 	result, err := h.service.HandleAlertmanagerWebhook(c.Request.Context(), &payload)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to process alertmanager webhook: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to process external alert: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: result})
@@ -516,80 +514,4 @@ func (h *Handler) DeleteNotificationChannel(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: gin.H{"id": channelID}})
-}
-
-// ProxyGrafana handles reverse proxy for Grafana UI.
-// ProxyGrafana 处理 Grafana UI 反向代理。
-func (h *Handler) ProxyGrafana(c *gin.Context) {
-	if isGrafanaLiveWSRequest(c.Request.URL.Path) {
-		// 监控中心默认关闭 Grafana Live，避免 iframe 中持续 WS 重连带来的噪音和开销。
-		c.Status(http.StatusNoContent)
-		return
-	}
-
-	target, err := parseProxyTarget(config.Config.Observability.Grafana.URL)
-	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, Response{ErrorMsg: "invalid observability.grafana.url: " + err.Error()})
-		return
-	}
-
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		req.URL.Scheme = target.Scheme
-		req.URL.Host = target.Host
-		req.Host = target.Host
-		// Keep original path/query so Grafana sub-path config can work directly.
-		// 保留原始路径/查询参数，匹配 Grafana 子路径配置。
-		req.URL.Path = c.Request.URL.Path
-		req.URL.RawPath = c.Request.URL.RawPath
-		req.URL.RawQuery = c.Request.URL.RawQuery
-		req.Header.Set("X-Forwarded-Host", c.Request.Host)
-		req.Header.Set("X-Forwarded-Proto", resolveRequestScheme(c.Request))
-	}
-	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, proxyErr error) {
-		if !c.Writer.Written() {
-			c.JSON(http.StatusBadGateway, Response{ErrorMsg: "grafana proxy error: " + proxyErr.Error()})
-		}
-	}
-	proxy.ServeHTTP(c.Writer, c.Request)
-}
-
-func parseProxyTarget(raw string) (*neturl.URL, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return nil, errors.New("empty url")
-	}
-	if !strings.Contains(trimmed, "://") {
-		trimmed = "http://" + trimmed
-	}
-	u, err := neturl.Parse(trimmed)
-	if err != nil {
-		return nil, err
-	}
-	if u.Scheme == "" || u.Host == "" {
-		return nil, errors.New("missing scheme or host")
-	}
-	return u, nil
-}
-
-func resolveRequestScheme(r *http.Request) string {
-	if r == nil {
-		return "http"
-	}
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
-		}
-	}
-	if r.TLS != nil {
-		return "https"
-	}
-	return "http"
-}
-
-func isGrafanaLiveWSRequest(path string) bool {
-	return strings.Contains(path, "/api/live/ws")
 }

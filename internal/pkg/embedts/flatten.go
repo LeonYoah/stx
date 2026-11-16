@@ -226,6 +226,16 @@ func (t *SeriesTracker) Diff(current []labels.Labels) []labels.Labels {
 	return stale
 }
 
+// Seen 报告某标签集是否在上一轮写入过（用于判断序列是否首次出现）。
+// Seen reports whether a label set was written in the previous round (used to detect first appearance).
+func (t *SeriesTracker) Seen(lset labels.Labels) bool {
+	if t == nil {
+		return false
+	}
+	_, ok := t.prev[lset.Hash()]
+	return ok
+}
+
 // Reset 清空追踪器（来源整体消失时配合 stale 写入后调用）。
 // Reset clears the tracker (used after writing stales when the whole source disappeared).
 func (t *SeriesTracker) Reset() {

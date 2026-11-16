@@ -293,6 +293,11 @@ export function scalePoints(points: TrendPoint[], factor: number): TrendPoint[] 
 /** 与后端一致的自定义时间窗上限（31 天）。 / Custom window cap matching the backend (31 days). */
 export const MAX_TREND_WINDOW_MS = 31 * 24 * 60 * 60 * 1000;
 
+/** 终态样本在对账标记 + 下一轮导出（最坏约 25s）后才落盘，作业全程窗口需多留一段尾巴才能罩住终值。
+ * Terminal samples land only after the reconcile marks the job and the next export runs (up to ~25s),
+ * so the lifetime window needs this tail to include the final values. */
+export const LIFETIME_TAIL_MS = 30 * 1000;
+
 export type TrendWindow = {start: number; end: number};
 
 const parseInstant = (value?: string | null): number | null => {
@@ -317,8 +322,10 @@ export function jobLifetimeWindow(
   const start = parseInstant(job.started_at) ?? parseInstant(job.created_at);
   if (start == null || start >= now) return null;
   const after = (ms: number | null) => (ms != null && ms > start ? ms : null);
-  const end = running
-    ? now
-    : after(parseInstant(job.finished_at)) ?? after(parseInstant(job.updated_at)) ?? now;
+  const endBase =
+    after(parseInstant(job.finished_at)) ??
+    after(parseInstant(job.updated_at)) ??
+    now;
+  const end = running ? now : Math.min(endBase + LIFETIME_TAIL_MS, now);
   return {start: Math.max(start, end - MAX_TREND_WINDOW_MS), end};
 }

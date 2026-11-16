@@ -19,10 +19,12 @@ package sync
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/storage"
 
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
@@ -45,6 +47,10 @@ var jobMetricsInjectedLabels = map[string]string{"job": stxSyncJobsJobLabel}
 // was removed together with the public endpoint.
 type jobMetricsGatherExporter struct {
 	gather func() ([]*dto.MetricFamily, error)
+	// source 提供终态作业的延迟删除与新作业零值起点；为 nil 时（测试）两项都不做。
+	// source provides deferred deletion of terminal jobs and zero-start samples for new jobs;
+	// both are skipped when nil (tests).
+	source *jobPrometheusExporter
 	// tracker 记录上一轮写入的序列集合；终态作业序列被 deleteJob 摘掉后，下一轮导出补 stale marker，
 	// 防止 PromQL 查询里幽灵续存。
 	// tracker records the label sets written last round; once a terminal job's series are removed
@@ -72,8 +78,11 @@ func StartJobMetricsExporter(ctx context.Context) {
 	} else {
 		interval = opts.Interval
 	}
+	source := getJobPrometheusExporter()
+	source.enableDeferredDeletes()
 	exporter := &jobMetricsGatherExporter{
-		gather:  getJobPrometheusExporter().reg.Gather,
+		gather:  source.reg.Gather,
+		source:  source,
 		tracker: embedts.NewSeriesTracker(),
 	}
 	go exporter.run(ctx, interval)
@@ -101,7 +110,19 @@ func (e *jobMetricsGatherExporter) run(ctx context.Context, interval time.Durati
 // exportOnce performs one export round: Gather → flatten → stamp the job label → commit on a
 // single appender (including up and stale markers). Rounds where the tsdb is not ready are
 // skipped silently; export resumes once it is back.
+//
+// 终态作业：先取走待删快照，再 gather 写入，最后才删序列——快照内作业的终值至少写入一次，
+// 快照之后登记的留到下一轮。新作业的累计计数器序列首次写入前补一个零值起点样本，
+// 让只被看到一两次的短作业也能算出 rate / increase。
+// Terminal jobs: the pending-deletion snapshot is taken first, then the gather is written, and
+// only then are the series removed—so every job in the snapshot has its final values written at
+// least once, while jobs queued afterwards wait for the next round. Cumulative counter series of
+// new jobs get a zero-start sample before their first write so short jobs seen only once or
+// twice still yield rate / increase.
 func (e *jobMetricsGatherExporter) exportOnce(ctx context.Context) {
+	pending := e.source.takePendingDeletes()
+	defer e.source.applyPendingDeletes(pending)
+
 	app := embedts.Appender(ctx)
 	if app == nil {
 		return
@@ -119,6 +140,7 @@ func (e *jobMetricsGatherExporter) exportOnce(ctx context.Context) {
 	written := make([]labels.Labels, 0, len(samples)+1)
 	appendErr := false
 	for _, sample := range samples {
+		e.appendZeroStart(app, sample.Labels, tsMs)
 		if _, err := app.Append(0, sample.Labels, tsMs, sample.Value); err != nil {
 			appendErr = true
 			continue
@@ -141,4 +163,23 @@ func (e *jobMetricsGatherExporter) exportOnce(ctx context.Context) {
 	} else if appendErr {
 		logger.WarnF(ctx, "[Observability] 作业指标导出部分样本写入失败（已提交其余样本）/ job metrics export had partial append failures (remaining samples committed)")
 	}
+}
+
+// appendZeroStart 对新作业首次出现的累计计数器序列，在作业开始时刻（不晚于 tsMs-1）补一个 0 样本。
+// 失败（如超出 head 可写下界）只放弃这个 0 样本，不影响本轮其余写入。
+// appendZeroStart writes a 0 sample at the job start (no later than tsMs-1) for a new job's
+// cumulative counter series on its first appearance. A failure (e.g. below the head's
+// appendable bound) only drops that zero sample and does not affect the rest of the round.
+func (e *jobMetricsGatherExporter) appendZeroStart(app storage.Appender, lset labels.Labels, tsMs int64) {
+	if e.source == nil || !strings.HasSuffix(lset.Get(labels.MetricName), "_total") || e.tracker.Seen(lset) {
+		return
+	}
+	zeroTs, ok := e.source.zeroStartFor(lset.Get("job_id"))
+	if !ok {
+		return
+	}
+	if zeroTs >= tsMs {
+		zeroTs = tsMs - 1
+	}
+	_, _ = app.Append(0, lset, zeroTs, 0)
 }

@@ -29,13 +29,6 @@ function json(res, statusCode, payload, extraHeaders = {}) {
   res.end(JSON.stringify(payload));
 }
 
-function html(res, statusCode, body) {
-  res.writeHead(statusCode, {
-    'Content-Type': 'text/html; charset=utf-8',
-  });
-  res.end(body);
-}
-
 function parseCookies(cookieHeader = '') {
   return cookieHeader
     .split(';')
@@ -218,15 +211,6 @@ const server = http.createServer(async (req, res) => {
         clusters: [],
       },
     });
-    return;
-  }
-
-  if (pathname.startsWith('/api/v1/monitoring/proxy/grafana/')) {
-    html(
-      res,
-      200,
-      '<!doctype html><html><body><main>Mock Grafana Dashboard</main></body></html>',
-    );
     return;
   }
 

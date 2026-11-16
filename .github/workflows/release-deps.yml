@@ -15,22 +15,22 @@
 
 name: Release deps
 
-# 手动发布可复用 deps。版本 tag 不跑这个。Node / 三件套版本不变就不要重跑。
+# 手动发布可复用 deps（Node 运行时）。版本 tag 不跑这个。Node 版本不变就不要重跑。监控已内置在 stx 中，不再发布外部组件包。
 # 安全约束：绝不删除整个 deps Release / tag；只替换本次重建的资产（临时名上传后切换），MANIFEST.json 合并保留未重建条目。
-# 由 scripts/test-release-deps.sh 守护（Install Scripts Tests）。合并到 main 后再从 main 运行，例如只重打三件套：
-#   gh workflow run release-deps.yml -R LeonYoah/stx --ref main -f components=observability
-# Manual reusable-deps release. Version tags do not run this. Skip when Node / observability versions are unchanged.
+# 由 scripts/test-release-deps.sh 守护（Install Scripts Tests）。合并到 main 后再从 main 运行，例如：
+#   gh workflow run release-deps.yml -R LeonYoah/stx --ref main -f components=node
+# Manual reusable-deps (Node runtime) release. Version tags do not run this. Skip when Node versions are unchanged.
+# Monitoring is built into stx, so no external stack packages are published any more.
 # Safety: never delete the whole deps release/tag; only rebuilt assets are replaced (temp upload + swap) and
 # MANIFEST.json is merged so entries that were not rebuilt are preserved. Guarded by scripts/test-release-deps.sh.
 on:
   workflow_dispatch:
     inputs:
       components:
-        description: '重建哪些 deps / What to rebuild: all = Node + 三件套; observability = 仅 Prometheus/Alertmanager/Grafana (amd64+arm64); node = 仅 Node 包'
+        description: '重建哪些 deps / What to rebuild: all = node = 全部 Node 包 / all Node packages'
         type: choice
         options:
           - all
-          - observability
           - node
         default: all
         required: true
@@ -62,32 +62,18 @@ jobs:
           # Each package-release run overwrites dist/releases/MANIFEST.json; keep ordered fragments for the merge.
           save_part() { mv dist/releases/MANIFEST.json "dist/manifest-parts/$1.json"; }
           case "$COMPONENTS" in
-            all)
-              # Node 22 官方包覆盖 amd64/arm64，并带上三件套。
-              # Official Node 22 covers amd64/arm64 and includes the observability bundle.
-              install/package-release.sh --deps-only --arch all --node-major 22 --node-variant official
-              save_part 1-node22-official-obs
-              ;;
-            node)
-              install/package-release.sh --deps-only --no-observability --arch all --node-major 22 --node-variant official
-              save_part 1-node22-official
-              ;;
-            observability)
-              # 只重打三件套，不碰 Node 包。/ Rebuild observability only; Node packages stay untouched.
-              install/package-release.sh --deps-only --no-node --arch all
-              save_part 1-observability
-              ;;
+            all|node) ;;
             *)
               echo "unknown components: $COMPONENTS" >&2
               exit 1
               ;;
           esac
-          if [[ "$COMPONENTS" == "all" || "$COMPONENTS" == "node" ]]; then
-            # glibc217 非官方构建只有 x64，不再重打三件套。
-            # glibc217 unofficial builds are x64-only; do not rebuild observability.
-            install/package-release.sh --deps-only --no-observability --arch amd64 --node-major 18 --node-variant glibc217
-            save_part 2-node18-glibc217
-          fi
+          # Node 22 官方包覆盖 amd64/arm64；glibc217 非官方构建只有 x64。
+          # Official Node 22 covers amd64/arm64; glibc217 unofficial builds are x64-only.
+          install/package-release.sh --deps-only --arch all --node-major 22 --node-variant official
+          save_part 1-node22-official
+          install/package-release.sh --deps-only --arch amd64 --node-major 18 --node-variant glibc217
+          save_part 2-node18-glibc217
           ls -alh dist/releases dist/manifest-parts
 
       - name: Publish deps release (in place, never delete)

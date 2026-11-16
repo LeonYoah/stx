@@ -14,8 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# 离线 bundle 与本地三件套启动的无网回归测试（桩掉 Release 下载）。
-# Network-free regression tests for the offline bundle and local observability start (release downloads stubbed).
+# 离线 bundle 与安装 / 启停脚本的无网回归测试（桩掉 Release 下载）。
+# Network-free regression tests for the offline bundle and the install / start-stop scripts (release downloads stubbed).
 #   1. build-offline-bundle.sh 组装 amd64 / arm64 / centos7 三个离线包（布局、sha256、latest 别名、Node 变体）；
 #      缺 Node 包、sha256 不符、动态链接二进制时失败。
 #      build-offline-bundle.sh assembles the amd64 / arm64 / centos7 bundles (layout, sha256, latest alias, Node
@@ -24,10 +24,11 @@
 #      install-online.sh --bundle-file 与 download-bundle.sh --print-urls。
 #      install.sh prefers the bundled Node; --without-node only accepts a host Node >= 18.18; glibc < 2.28 refuses
 #      the official-Node bundle; install-online.sh --bundle-file and download-bundle.sh --print-urls.
-#   3. alertmanager 启动参数含 --cluster.listen-address=（单机关闭 gossip）。
-#      alertmanager is launched with --cluster.listen-address= (gossip disabled for single node).
-#   4. stx_obs_init_defaults 不再输出 cp 'are the same file' 告警。
-#      stx_obs_init_defaults no longer emits cp 'are the same file' warnings.
+#   3. 监控已内置：离线包不含外部监控组件；旧参数（--observability、三件套端口、--with-observability）照常接受；
+#      升级时旧监控目录保留并给出说明；stop.sh 会停掉升级前残留的旧监控进程。
+#      Monitoring is built in: bundles carry no external monitoring stack; legacy flags (--observability, stack
+#      ports, --with-observability) are still accepted; upgrades keep the legacy monitoring directory with a note;
+#      stop.sh stops leftover legacy monitoring processes.
 
 set -euo pipefail
 
@@ -105,7 +106,7 @@ for plat in linux-amd64 linux-arm64 linux-amd64-centos7; do
     && ok "bundle $plat sha256 verifies" || bad "bundle $plat sha256 does not verify"
   d="$T/out/stx-${VER}-${plat}-offline"
   for f in install.sh install-core.sh download-lib.sh config.example.yaml MANIFEST.json README-OFFLINE.md SHA256SUMS \
-    bin/start.sh bin/stop.sh bin/status.sh bin/lib/observability.sh scripts/stx-java-proxy.sh \
+    bin/start.sh bin/stop.sh bin/status.sh scripts/stx-java-proxy.sh \
     packages/stx-java-proxy-v2.jar packages/stx-java-proxy-v3.jar; do
     assert_file "bundle $plat has $f" "$d/$f"
   done
@@ -406,87 +407,57 @@ else
 fi
 assert_grep "--db-type oracle error lists the types" "sqlite|mysql|postgres" "$T/bad-db.log"
 
-# ---------- 3. alertmanager launched with --cluster.listen-address= ----------
-# 目录含空格，验证参数已正确加引号。/ Path with spaces verifies the args are quoted.
-OBS_BASE="$T/obs dir"
-mkdir -p "$OBS_BASE/observability/"{prometheus,alertmanager/data,grafana/bin,grafana/conf}
-for b in prometheus/prometheus alertmanager/alertmanager grafana/bin/grafana; do
-  printf '#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "%s.args"\nexit 0\n' "$OBS_BASE/observability/$b" \
-    >"$OBS_BASE/observability/$b"
-  chmod +x "$OBS_BASE/observability/$b"
-done
-touch "$OBS_BASE/observability/prometheus/prometheus.yml" "$OBS_BASE/observability/alertmanager/alertmanager.yml" \
-  "$OBS_BASE/observability/grafana/conf/grafana.ini"
-(
-  # shellcheck disable=SC2034  # read by sourced observability.sh
-  BASE_DIR="$OBS_BASE"
-  # shellcheck source=../install/bin/lib/observability.sh
-  source "$ROOT_DIR/install/bin/lib/observability.sh"
-  stx_obs_start_stack >/dev/null
-)
-am_args="$OBS_BASE/observability/alertmanager/alertmanager.args"
-for _ in 1 2 3 4 5; do [[ -s "$am_args" ]] && break; sleep 1; done
-if [[ -f "$am_args" ]] && grep -qx -- "--cluster.listen-address=" "$am_args"; then
-  ok "alertmanager started with --cluster.listen-address="
-else
-  bad "alertmanager args lack --cluster.listen-address="; [[ -f "$am_args" ]] && sed 's/^/    | /' "$am_args"
-fi
-if [[ -f "$am_args" ]] && grep -qx -- "--web.listen-address=:9093" "$am_args"; then
-  ok "alertmanager keeps --web.listen-address=:9093"
-else
-  bad "alertmanager lost --web.listen-address"
-fi
-if [[ -f "$am_args" ]] && grep -qxF -- "--config.file=$OBS_BASE/observability/alertmanager/alertmanager.yml" "$am_args"; then
-  ok "alertmanager --config.file survives a path with spaces"
-else
-  bad "alertmanager --config.file broken by spaces"
-fi
-for comp in prometheus/prometheus grafana/bin/grafana; do
-  for _ in 1 2 3 4 5; do [[ -s "$OBS_BASE/observability/$comp.args" ]] && break; sleep 1; done
-  if grep -qF -- "$OBS_BASE/observability/" "$OBS_BASE/observability/$comp.args" 2>/dev/null; then
-    ok "$comp started with quoted paths"
+# ---------- 3. built-in monitoring: no external stack, legacy flags accepted ----------
+for d in "$A64" "$C7"; do
+  if compgen -G "$d/packages/observability-*" >/dev/null || [[ -e "$d/bin/lib/observability.sh" ]]; then
+    bad "bundle $(basename "$d") still ships the external monitoring stack"
   else
-    bad "$comp not started with quoted paths"
+    ok "bundle $(basename "$d") ships no external monitoring stack"
+  fi
+  assert_no_grep "bundle $(basename "$d") MANIFEST has no with_observability" "with_observability" "$d/MANIFEST.json"
+done
+
+# 升级：旧监控目录保留并提示；旧的三件套端口参数与 --with-observability 被接受并忽略。
+# Upgrade: the legacy monitoring dir is kept with a note; legacy stack port flags and --with-observability are ignored.
+inst="$T/inst-upgrade"
+mkdir -p "$inst/observability/prometheus/data"
+echo keep >"$inst/observability/prometheus/data/marker"
+if PATH="$NONODE" bash "$A64/install.sh" -y --install-dir "$inst" --no-start --no-systemd \
+  --with-observability --prometheus-port 19090 --alertmanager-port 19093 --grafana-port 13000 >"$T/install-upgrade.log" 2>&1; then
+  ok "install accepts legacy monitoring flags"
+else
+  bad "install rejected legacy monitoring flags"; sed 's/^/    | /' "$T/install-upgrade.log"
+fi
+assert_grep "install notes the legacy monitoring dir" "旧版监控组件目录" "$T/install-upgrade.log"
+assert_file "legacy monitoring data is kept" "$inst/observability/prometheus/data/marker"
+assert_no_grep "stx.env drops legacy stack ports" "STX_PROMETHEUS_PORT" "$inst/stx.env"
+assert_grep "summary shows built-in monitoring" "内置监控" "$T/install-upgrade.log"
+
+# start.sh / stop.sh 接受旧的 --observability 参数（旧 systemd 单元可能还带着）。
+# start.sh / stop.sh accept the legacy --observability flag (old systemd units may still pass it).
+for script in start.sh stop.sh; do
+  if bash "$ROOT_DIR/install/bin/$script" --observability auto --help >"$T/$script.help" 2>&1; then
+    ok "$script accepts legacy --observability"
+  else
+    bad "$script rejects legacy --observability"; sed 's/^/    | /' "$T/$script.help"
   fi
 done
-if grep -qF -- "--cluster.listen-address=" "$ROOT_DIR/scripts/manage-deps-obs.sh"; then
-  ok "manage-deps-obs.sh alertmanager has --cluster.listen-address="
-else
-  bad "manage-deps-obs.sh alertmanager lacks --cluster.listen-address="
-fi
-if grep -qF -- "- --cluster.listen-address=" "$ROOT_DIR/deploy/docker/compose.base.yml"; then
-  ok "compose alertmanager has --cluster.listen-address="
-else
-  bad "compose alertmanager lacks --cluster.listen-address="
-fi
 
-# ---------- 4. init defaults: no cp 'are the same file' warnings ----------
-INIT_BASE="$T/init"
-mkdir -p "$INIT_BASE/observability/"{prometheus,alertmanager,grafana}
-cp -a "$ROOT_DIR/install/observability/." "$INIT_BASE/observability/"
-chmod +x "$INIT_BASE/observability/render.sh"
-init_rc=0
-(
-  # shellcheck source=../install/bin/lib/observability.sh
-  source "$ROOT_DIR/install/bin/lib/observability.sh"
-  stx_obs_init_defaults "$INIT_BASE/observability"
-) >"$T/init.log" 2>&1 || init_rc=$?
-if [[ "$init_rc" == 0 ]]; then ok "stx_obs_init_defaults exits 0"; else bad "stx_obs_init_defaults rc=$init_rc"; fi
-assert_no_grep "stx_obs_init_defaults has no 'same file' warnings" "are the same file" "$T/init.log"
-assert_file "grafana dashboards rendered" "$INIT_BASE/observability/grafana/provisioning/dashboards/default.yml"
-assert_file "grafana.ini rendered" "$INIT_BASE/observability/grafana/conf/grafana.ini"
-
-# stx_obs_copy_tree：不同目录仍会复制。/ stx_obs_copy_tree still copies between distinct dirs.
-mkdir -p "$T/ct/src/sub" && echo x >"$T/ct/src/sub/f"
-(
-  # shellcheck source=../install/bin/lib/observability.sh
-  source "$ROOT_DIR/install/bin/lib/observability.sh"
-  stx_obs_copy_tree "$T/ct/src" "$T/ct/dst"
-  stx_obs_copy_tree "$T/ct/src" "$T/ct/src"
-  stx_obs_copy_tree "$T/ct/missing" "$T/ct/dst2"
-) >"$T/ct.log" 2>&1 || bad "stx_obs_copy_tree failed"
-assert_file "stx_obs_copy_tree copies distinct dirs" "$T/ct/dst/sub/f"
-assert_no_grep "stx_obs_copy_tree same dir is silent" "same file" "$T/ct.log"
-assert_no_file "stx_obs_copy_tree skips missing src" "$T/ct/dst2"
+# stop.sh 停掉升级前残留的旧监控进程（有 pid 文件时），数据目录保留。
+# stop.sh stops leftover legacy monitoring processes (when pid files exist) and keeps their data.
+LEGACY="$T/legacy stop"
+mkdir -p "$LEGACY/bin" "$LEGACY/run" "$LEGACY/observability/prometheus/data"
+cp "$ROOT_DIR/install/bin/stop.sh" "$LEGACY/bin/stop.sh"
+sleep 60 &
+legacy_pid=$!
+echo "$legacy_pid" >"$LEGACY/observability/prometheus/prometheus.pid"
+bash "$LEGACY/bin/stop.sh" >"$T/legacy-stop.log" 2>&1 || true
+if kill -0 "$legacy_pid" 2>/dev/null; then
+  bad "stop.sh left the legacy monitoring process running"; kill "$legacy_pid" 2>/dev/null || true
+else
+  ok "stop.sh stops the legacy monitoring process"
+fi
+assert_no_file "stop.sh removes the legacy pid file" "$LEGACY/observability/prometheus/prometheus.pid"
+assert_file "stop.sh keeps legacy monitoring data" "$LEGACY/observability/prometheus/data"
 
 exit "$fail"

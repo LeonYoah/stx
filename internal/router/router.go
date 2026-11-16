@@ -404,9 +404,6 @@ func Serve() {
 			// Monitoring center 监控中心
 			monitoringRepo := monitoringapp.NewRepository(db.DB(context.Background()))
 			monitoringService := monitoringapp.NewService(clusterService, monitorService, monitoringRepo)
-			if err := monitoringService.SyncManagedAlertingArtifacts(ctx); err != nil {
-				log.Printf("[Monitoring] sync managed alerting artifacts failed: %v", err)
-			}
 			monitorService.SetOnEventRecorded(monitoringService.DispatchAlertPolicyEvent)
 			monitoringService.StartNodeHealthEvaluator(ctx)
 			clusterHandler.SetOnOperationExecuted(func(ctx context.Context, event *cluster.OperationEvent) error {
@@ -494,6 +491,14 @@ func Serve() {
 				}
 				if err != nil {
 					logger.ErrorF(ctx, "[Observability] 内嵌抓取循环启动失败，SeaTunnel 指标不会采集: %v / embedded scrape loop failed to start, SeaTunnel metrics will not be collected: %v", err, err)
+				}
+				// 内嵌告警评估器取代外部 Prometheus rule 文件 + Alertmanager 回路：
+				// rules.Manager 在同一进程评估内嵌默认规则与启用中的指标策略，失败仅降级告警链路。
+				// The embedded alert evaluator replaces the external Prometheus rule file +
+				// Alertmanager loop: rules.Manager evaluates builtin rules and enabled metric
+				// policies in-process; a startup failure only degrades the alert chain.
+				if err := monitoringService.StartMetricEvaluator(ctx); err != nil {
+					logger.ErrorF(ctx, "[Observability] 内嵌告警评估器启动失败，指标告警不会评估: %v / embedded alert evaluator failed to start, metric alerts will not be evaluated: %v", err, err)
 				}
 			}
 
@@ -591,14 +596,6 @@ func Serve() {
 			// Platform cluster health summary (powered by monitoring remote integration).
 			// 平台集群健康摘要（由监控远程集成能力提供）。
 			clusterRouter.GET("/health", monitoringHandler.GetClustersHealth)
-
-			// Grafana 代理是高频请求路径，使用轻量会话校验降低每请求数据库开销。
-			monitoringGrafanaProxyRouter := apiV1Router.Group("/monitoring/proxy/grafana")
-			monitoringGrafanaProxyRouter.Use(auth.LoginRequiredSessionOnly())
-			{
-				monitoringGrafanaProxyRouter.Any("", monitoringHandler.ProxyGrafana)
-				monitoringGrafanaProxyRouter.Any("/*proxyPath", monitoringHandler.ProxyGrafana)
-			}
 
 			// Discovery 集群发现
 			// Initialize discovery service and handler
@@ -1308,9 +1305,6 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	monitorService := monitor.NewService(monitorRepo)
 	monitoringRepo := monitoringapp.NewRepository(db.DB(ctx))
 	monitoringService := monitoringapp.NewService(clusterService, monitorService, monitoringRepo)
-	if err := monitoringService.SyncManagedAlertingArtifacts(ctx); err != nil {
-		log.Printf("[Monitoring] sync managed alerting artifacts failed: %v", err)
-	}
 	monitorService.SetOnEventRecorded(monitoringService.DispatchAlertPolicyEvent)
 	grpcServer.SetClusterNodeProvider(&grpcClusterNodeProviderAdapter{
 		clusterService: clusterService,

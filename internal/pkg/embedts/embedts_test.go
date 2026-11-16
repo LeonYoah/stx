@@ -19,6 +19,8 @@ package embedts
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -203,4 +205,16 @@ func TestOptionsFromObservability(t *testing.T) {
 		_, err := OptionsFromObservability(config.ObservabilityConfig{QueryTimeout: "soon"})
 		require.Error(t, err)
 	})
+}
+
+func TestStart_ConfiguresConcurrentQueryCap(t *testing.T) {
+	require.GreaterOrEqual(t, maxConcurrentQueries(), 4)
+
+	dir := t.TempDir()
+	require.NoError(t, Start(context.Background(), Options{Dir: dir}))
+	t.Cleanup(func() { _ = Close() })
+	// 并发上限由 ActiveQueryTracker 实现，跟踪文件落在 tsdb 目录。
+	// The cap is enforced by ActiveQueryTracker, whose tracking file lives in the tsdb dir.
+	_, err := os.Stat(filepath.Join(dir, "queries.active"))
+	require.NoError(t, err)
 }

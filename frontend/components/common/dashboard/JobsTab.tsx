@@ -232,13 +232,15 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                 : t('calendar.unitFailed')
             }
             labels={{
-              cell: t('calendar.cell'),
-              cellUndated: t('calendar.cellUndated'),
-              range: t('calendar.range'),
-              days: t('calendar.days'),
+              // 带 {var} 的模板必须走 t.raw 原样交给 beUI 插值，t() 会因缺参抛 FORMATTING_ERROR。
+              // Templates with {var} must go through t.raw so beUI interpolates them; t() throws FORMATTING_ERROR on missing params.
+              cell: t.raw('calendar.cell'),
+              cellUndated: t.raw('calendar.cellUndated'),
+              range: t.raw('calendar.range'),
+              days: t.raw('calendar.days'),
               less: t('calendar.less'),
               more: t('calendar.more'),
-              level: t('calendar.level'),
+              level: t.raw('calendar.level'),
             }}
           />
         </LocaleProvider>
@@ -255,7 +257,11 @@ export function JobsTab({query}: {query: DashboardQuery}) {
       ) : null}
       {!hasMetrics ? (
         <>
-          <TrendEmptyState description={t('noPromDesc')} />
+          <TrendEmptyState
+            reason={data?.reason}
+            description={t('noPromDesc')}
+            unavailableDescription={t('unavailableDesc')}
+          />
           {calendarBlock}
         </>
       ) : (

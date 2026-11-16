@@ -20,23 +20,21 @@ BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_DIR="$BASE_DIR/run"
 CONFIG_PATH="${CONFIG_PATH:-$BASE_DIR/config.yaml}"
 
-OBS_CLI=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    # 仅为兼容旧 systemd 单元而保留并忽略。/ Accepted and ignored only for old systemd units.
     --observability)
-      OBS_CLI="${2:-}"
-      shift 2
+      shift 2 || shift $#
       ;;
     --observability=*)
-      OBS_CLI="${1#*=}"
       shift
       ;;
     -h|--help)
       cat <<'USAGE'
-Usage: stop.sh [--observability auto|on|off]
+Usage: stop.sh
 
-Stops STX frontend/backend and optionally the bundled observability stack.
-Default: --observability auto (stop local stack processes if present).
+Stops STX frontend and backend. Leftover processes of the legacy external monitoring stack
+(from older releases) are stopped too when their pid files are still present.
 USAGE
       exit 0
       ;;
@@ -46,11 +44,6 @@ USAGE
       ;;
   esac
 done
-
-# shellcheck source=lib/observability.sh
-source "$BASE_DIR/bin/lib/observability.sh"
-
-OBS_MODE="$(stx_obs_resolve_mode "$OBS_CLI" "${STOP_OBSERVABILITY:-auto}")"
 
 stop_one() {
   local name="$1"
@@ -77,11 +70,11 @@ stop_one() {
 stop_one "frontend" "$RUN_DIR/frontend.pid"
 stop_one "backend" "$RUN_DIR/backend.pid"
 
-case "$OBS_MODE" in
-  off)
-    echo "observability: leave running (--observability off)"
-    ;;
-  on|auto)
-    stx_obs_stop_stack || true
-    ;;
-esac
+# 升级自旧版本时，外部监控组件可能仍在运行：有 pid 文件就停掉（数据目录保留不删）。
+# After upgrading from an older release the external monitoring processes may still run: stop
+# them when their pid files exist (data directories are kept).
+for legacy in grafana/grafana prometheus/prometheus alertmanager/alertmanager; do
+  if [[ -f "$BASE_DIR/observability/$legacy.pid" ]]; then
+    stop_one "legacy ${legacy%%/*}" "$BASE_DIR/observability/$legacy.pid"
+  fi
+done

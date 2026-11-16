@@ -523,6 +523,11 @@ type IntegrationComponentStatus struct {
 	Healthy    bool   `json:"healthy"`
 	StatusCode int    `json:"status_code"`
 	Error      string `json:"error,omitempty"`
+	// Meta 携带组件的结构化附加信息（如 tsdb 目录/保留期、抓取目标 up/down 计数、webhook 路径）；
+	// 附加字段、可选，前端忽略未知键。
+	// Meta carries structured per-component details (e.g. tsdb dir/retention, scrape target
+	// up/down counts, webhook path); additive and optional, the frontend ignores unknown keys.
+	Meta map[string]string `json:"meta,omitempty"`
 }
 
 // IntegrationStatusData represents full integration status payload.
@@ -555,9 +560,6 @@ const (
 	// AlertPolicyCapabilityKeyMetricsTemplates indicates metrics-template based policies.
 	// AlertPolicyCapabilityKeyMetricsTemplates 表示指标模板类告警策略能力。
 	AlertPolicyCapabilityKeyMetricsTemplates = "metrics_templates"
-	// AlertPolicyCapabilityKeyCustomPromQL indicates custom PromQL policy capability.
-	// AlertPolicyCapabilityKeyCustomPromQL 表示自定义 PromQL 策略能力。
-	AlertPolicyCapabilityKeyCustomPromQL = "custom_promql"
 	// AlertPolicyCapabilityKeyRemoteIngest indicates remote Alertmanager ingest capability.
 	// AlertPolicyCapabilityKeyRemoteIngest 表示远程 Alertmanager 回流能力。
 	AlertPolicyCapabilityKeyRemoteIngest = "remote_ingest"
@@ -580,9 +582,6 @@ const (
 	// AlertPolicyBuilderKindMetricsTemplate represents metrics-template policy builder.
 	// AlertPolicyBuilderKindMetricsTemplate 表示指标模板策略构建器。
 	AlertPolicyBuilderKindMetricsTemplate AlertPolicyBuilderKind = "metrics_template"
-	// AlertPolicyBuilderKindCustomPromQL represents custom PromQL policy builder.
-	// AlertPolicyBuilderKindCustomPromQL 表示自定义 PromQL 策略构建器。
-	AlertPolicyBuilderKindCustomPromQL AlertPolicyBuilderKind = "custom_promql"
 	// AlertPolicyBuilderKindSyncJob 表示以同步任务为范围的作业告警策略，在任务设置里配置。
 	// AlertPolicyBuilderKindSyncJob represents a task-scoped sync job alert policy configured in task settings.
 	AlertPolicyBuilderKindSyncJob AlertPolicyBuilderKind = "sync_job"
@@ -891,7 +890,7 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 		return fmt.Errorf("name is required")
 	}
 	switch r.PolicyType {
-	case AlertPolicyBuilderKindPlatformHealth, AlertPolicyBuilderKindMetricsTemplate, AlertPolicyBuilderKindCustomPromQL, AlertPolicyBuilderKindSyncJob:
+	case AlertPolicyBuilderKindPlatformHealth, AlertPolicyBuilderKindMetricsTemplate, AlertPolicyBuilderKindSyncJob:
 	default:
 		return fmt.Errorf("invalid policy_type")
 	}
@@ -907,10 +906,6 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 	case AlertPolicyBuilderKindPlatformHealth, AlertPolicyBuilderKindMetricsTemplate:
 		if strings.TrimSpace(r.TemplateKey) == "" {
 			return fmt.Errorf("template_key is required")
-		}
-	case AlertPolicyBuilderKindCustomPromQL:
-		if strings.TrimSpace(r.PromQL) == "" {
-			return fmt.Errorf("promql is required")
 		}
 	case AlertPolicyBuilderKindSyncJob:
 		// 作业告警策略：条件的 metric_key 就是勾选的作业级规则，至少一条，至少一个渠道。
@@ -1276,13 +1271,6 @@ func (r *UpsertNotificationChannelRequest) Validate() error {
 		return fmt.Errorf("endpoint is required")
 	}
 	return nil
-}
-
-// PrometheusSDTargetGroup is one target group in Prometheus HTTP SD response.
-// PrometheusSDTargetGroup 是 Prometheus HTTP SD 响应中的目标组。
-type PrometheusSDTargetGroup struct {
-	Targets []string          `json:"targets"`
-	Labels  map[string]string `json:"labels,omitempty"`
 }
 
 // AlertmanagerWebhookPayload represents Alertmanager webhook body.

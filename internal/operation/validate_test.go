@@ -328,10 +328,9 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 37)
+	require.Len(t, RouteExceptions(), 33)
 	require.Contains(t, exceptions, "GET /api/v1/version")
 	require.Contains(t, exceptions, "POST /api/v1/sync/engine-events/:cluster_id")
-	require.Contains(t, exceptions, "GET /api/v1/monitoring/prometheus/jobs/metrics")
 	require.Contains(t, exceptions, "POST /api/v1/auth/login")
 	require.Contains(t, exceptions, "POST /api/v1/auth/logout")
 	require.Contains(t, exceptions, "GET /api/v1/oauth/login")

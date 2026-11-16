@@ -27,7 +27,7 @@ docker compose up -d
 | SQLite | `docker compose -f docker-compose.sqlite.yml up -d` |
 | PostgreSQL | `docker compose -f docker-compose.postgres.yml up -d` |
 
-库类型由对应 compose 注入 `STX_DATABASE_*`，监控地址注入 `STX_OBSERVABILITY_*`，不必改 `config.yaml` 的 database / observability 段。
+库类型由对应 compose 注入 `STX_DATABASE_*`，不必改 `config.yaml` 的 database 段。
 
 仓库内直接 `docker compose up` 时默认挂载根目录 `config.example.yaml`；发版 tar 里是它的副本 `config.yaml`。
 
@@ -39,6 +39,6 @@ docker compose up -d
 | API | http://127.0.0.1:17800 |
 | gRPC | 17890 |
 
-监控在 Web UI 内，不单独映射 3000/9090/9093。
+监控已内置在后端容器中，数据在 `data/stx/tsdb`，无需额外容器或端口。
 
 `data/` 已 gitignore，备份拷整个 `data/` 即可。

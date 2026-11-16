@@ -14,25 +14,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Package promquery 是 STX 后端代查 Prometheus 的公共客户端：区间 / 即时查询、时间窗解析与可用性判定。
-// PromQL 模板由各业务模块持有，前端不直连 Prometheus。
-// Package promquery is the shared client STX uses to query Prometheus on the user's behalf: range / instant queries,
-// window parsing and availability checks. PromQL templates stay in each feature module; the browser never talks to
-// Prometheus directly.
+// Package promquery 是 STX 后端执行 PromQL 的公共入口：区间 / 即时查询、时间窗解析与可用性判定。
+// 内嵌化后查询走 internal/pkg/embedts 的进程内 tsdb + promql.Engine；PromQL 模板由各业务模块持有，
+// 前端不直连存储引擎。
+// Package promquery is the shared entry point STX uses to run PromQL: range / instant queries,
+// window parsing and availability checks. Since the embedding, queries run against the in-process
+// tsdb + promql.Engine managed by internal/pkg/embedts; PromQL templates stay in each feature module
+// and the browser never talks to the storage engine directly.
 package promquery
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/embedts"
+	"github.com/prometheus/prometheus/promql"
+	"github.com/prometheus/prometheus/promql/parser"
+	"github.com/prometheus/prometheus/util/annotations"
 )
 
 // 数据来源与不可用原因，和作业趋势接口的 source / reason 取值一致。
@@ -44,6 +49,16 @@ const (
 	ReasonObservabilityDisabled = "observability_disabled"
 	ReasonPrometheusUnavailable = "prometheus_unavailable"
 )
+
+// embeddedBaseURL 是 BaseURL 在内嵌就绪时返回的哨兵串：调用方只判空与透传，不再当真实地址使用。
+// embeddedBaseURL is the sentinel BaseURL returns when the embedded engine is ready: callers only
+// check for emptiness and pass it through; it is no longer a real endpoint.
+const embeddedBaseURL = "embedded"
+
+// errNotReady 是引擎未就绪时 Range/Instant 返回的错误；调用方本就按错误走降级路径。
+// errNotReady is returned by Range/Instant while the engine is not ready; callers already
+// degrade on any error.
+var errNotReady = errors.New("embedded tsdb is not ready")
 
 // Series 是一条区间查询结果；Points 为 [毫秒时间戳, 值]。
 // Series is one range query result; Points are [epoch ms, value].
@@ -60,117 +75,103 @@ type Sample struct {
 	Value  float64
 }
 
-// BaseURL 返回已配置的 Prometheus 地址；不可用时返回空串与原因（observability 关闭或未配置地址）。
-// BaseURL returns the configured Prometheus URL, or "" plus a reason when observability is off or no URL is set.
+// BaseURL 语义为可用性探测：observability 未启用返回 observability_disabled；
+// 内嵌引擎未就绪返回 prometheus_unavailable；就绪返回哨兵串 "embedded"。
+// BaseURL is an availability probe: it reports observability_disabled when the feature is off,
+// prometheus_unavailable while the embedded engine is not ready, and the sentinel "embedded" once up.
 func BaseURL() (string, string) {
 	if config.Config == nil || !config.Config.Observability.Enabled {
 		return "", ReasonObservabilityDisabled
 	}
-	base := strings.TrimSpace(config.Config.Observability.Prometheus.URL)
-	if base == "" {
+	if !embedts.Ready() {
 		return "", ReasonPrometheusUnavailable
 	}
-	return base, ""
+	return embeddedBaseURL, ""
 }
 
-type apiResponse struct {
-	Status string `json:"status"`
-	Error  string `json:"error"`
-	Data   struct {
-		ResultType string `json:"resultType"`
-		Result     []struct {
-			Metric map[string]string `json:"metric"`
-			Values [][]interface{}   `json:"values"`
-			Value  []interface{}     `json:"value"`
-		} `json:"result"`
-	} `json:"data"`
-}
-
-// httpClient 统一 8 秒超时，单个大盘面板不应拖住整页。
-// httpClient uses an 8s timeout so one slow panel cannot hold up the whole page.
-var httpClient = &http.Client{Timeout: 8 * time.Second}
-
-func call(ctx context.Context, baseURL, path string, params url.Values) (*apiResponse, error) {
-	apiURL := strings.TrimRight(strings.TrimSpace(baseURL), "/") + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL+"?"+params.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("prometheus %s status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(payload)))
-	}
-	var payload apiResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&payload); err != nil {
-		return nil, err
-	}
-	if !strings.EqualFold(strings.TrimSpace(payload.Status), "success") {
-		return nil, fmt.Errorf("prometheus %s status %q: %s", path, payload.Status, strings.TrimSpace(payload.Error))
-	}
-	return &payload, nil
-}
-
-// Range 执行 query_range，跳过无法解析的样本。
-// Range runs query_range and skips samples that cannot be parsed.
+// Range 执行区间查询（query_range 语义）；baseURL 形参仅为兼容旧签名保留，函数内忽略。
+// Range runs a range query (query_range semantics); the baseURL parameter is kept only for
+// signature compatibility and is ignored.
 func Range(ctx context.Context, baseURL, promQL string, start, end time.Time, stepSeconds int) ([]Series, error) {
-	params := url.Values{}
-	params.Set("query", promQL)
-	params.Set("start", strconv.FormatInt(start.Unix(), 10))
-	params.Set("end", strconv.FormatInt(end.Unix(), 10))
-	params.Set("step", strconv.Itoa(stepSeconds))
-	payload, err := call(ctx, baseURL, "/api/v1/query_range", params)
+	engine, queryable := embedts.QueryEngine()
+	if engine == nil || queryable == nil {
+		return nil, errNotReady
+	}
+	qry, err := engine.NewRangeQuery(ctx, queryable, nil, promQL, start.UTC(), end.UTC(), time.Duration(stepSeconds)*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Series, 0, len(payload.Data.Result))
-	for _, item := range payload.Data.Result {
-		series := Series{Metric: item.Metric, Points: make([][2]float64, 0, len(item.Values))}
-		for _, sample := range item.Values {
-			if len(sample) < 2 {
-				continue
-			}
-			ts, tsOK := CoerceSample(sample[0])
-			val, valOK := CoerceSample(sample[1])
-			if !tsOK || !valOK {
-				continue
-			}
-			series.Points = append(series.Points, [2]float64{ts * 1000, val})
+	defer qry.Close()
+	res := qry.Exec(ctx)
+	if res.Err != nil {
+		return nil, res.Err
+	}
+	logWarnings(ctx, promQL, res.Warnings)
+	matrix, ok := res.Value.(promql.Matrix)
+	if !ok {
+		return nil, fmt.Errorf("embedded range query returned %s instead of matrix", valueTypeName(res.Value))
+	}
+	out := make([]Series, 0, len(matrix))
+	for _, item := range matrix {
+		series := Series{Metric: item.Metric.Map(), Points: make([][2]float64, 0, len(item.Floats))}
+		for _, point := range item.Floats {
+			// FPoint.T 即毫秒时间戳，与旧 HTTP 解析输出形状一致。
+			// FPoint.T is already the epoch-ms timestamp, matching the old HTTP decode shape.
+			series.Points = append(series.Points, [2]float64{float64(point.T), point.F})
 		}
 		out = append(out, series)
 	}
 	return out, nil
 }
 
-// Instant 执行即时查询（time 为零值时取服务端当前时间）。
-// Instant runs an instant query (server time when at is zero).
+// Instant 执行即时查询（at 为零值时取当前时间）；baseURL 形参仅为兼容旧签名保留，函数内忽略。
+// Instant runs an instant query (now when at is zero); the baseURL parameter is kept only for
+// signature compatibility and is ignored.
 func Instant(ctx context.Context, baseURL, promQL string, at time.Time) ([]Sample, error) {
-	params := url.Values{}
-	params.Set("query", promQL)
-	if !at.IsZero() {
-		params.Set("time", strconv.FormatInt(at.Unix(), 10))
+	engine, queryable := embedts.QueryEngine()
+	if engine == nil || queryable == nil {
+		return nil, errNotReady
 	}
-	payload, err := call(ctx, baseURL, "/api/v1/query", params)
+	if at.IsZero() {
+		at = time.Now()
+	}
+	qry, err := engine.NewInstantQuery(ctx, queryable, nil, promQL, at.UTC())
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Sample, 0, len(payload.Data.Result))
-	for _, item := range payload.Data.Result {
-		if len(item.Value) < 2 {
-			continue
-		}
-		ts, tsOK := CoerceSample(item.Value[0])
-		val, valOK := CoerceSample(item.Value[1])
-		if !tsOK || !valOK {
-			continue
-		}
-		out = append(out, Sample{Metric: item.Metric, TsMs: int64(ts * 1000), Value: val})
+	defer qry.Close()
+	res := qry.Exec(ctx)
+	if res.Err != nil {
+		return nil, res.Err
+	}
+	logWarnings(ctx, promQL, res.Warnings)
+	vector, ok := res.Value.(promql.Vector)
+	if !ok {
+		return nil, fmt.Errorf("embedded instant query returned %s instead of vector", valueTypeName(res.Value))
+	}
+	out := make([]Sample, 0, len(vector))
+	for _, sample := range vector {
+		out = append(out, Sample{Metric: sample.Metric.Map(), TsMs: sample.T, Value: sample.F})
 	}
 	return out, nil
+}
+
+// logWarnings 把查询警告落到日志；警告不致命，查询结果照常返回。
+// logWarnings records query warnings; warnings are non-fatal and results are still returned.
+func logWarnings(ctx context.Context, promQL string, warnings annotations.Annotations) {
+	if len(warnings) == 0 {
+		return
+	}
+	logger.WarnF(ctx, "[promquery] 查询警告 expr=%q warnings=%v / query warnings expr=%q warnings=%v", promQL, warnings.AsErrors(), promQL, warnings.AsErrors())
+}
+
+// valueTypeName 安全地返回结果值类型名，供错误信息使用。
+// valueTypeName safely names a result value type for error messages.
+func valueTypeName(v parser.Value) string {
+	if v == nil {
+		return "none"
+	}
+	return string(v.Type())
 }
 
 // CoerceSample 把 Prometheus 返回的时间戳或值（数字或字符串）转成 float64。

@@ -1986,11 +1986,11 @@ func monitoringReadOperationSpecs() []OperationSpec {
 	policyID := []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Alert policy ID"}}
 	policyExecutionInputs := append(append([]InputSpec{}, policyID...), monitoringDeliveryFilterInputs(false)...)
 	alertPolicyListInputs := []InputSpec{
-		{Name: "policy_type", Location: InputQuery, Description: "Policy type: platform_health, metrics_template, custom_promql or sync_job"},
+		{Name: "policy_type", Location: InputQuery, Description: "Policy type: platform_health, metrics_template or sync_job"},
 		{Name: "task_id", Location: InputQuery, Description: "Sync task ID (job alert policies)"},
 	}
 	alertInstanceInputs := append([]InputSpec{
-		{Name: "source_type", Location: InputQuery, Description: "Alert source: local_process_event, remote_alertmanager or sync"},
+		{Name: "source_type", Location: InputQuery, Description: "Alert source: local_process_event, remote_alertmanager (metric alerts) or sync"},
 		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
 		{Name: "severity", Location: InputQuery, Description: "Alert severity: warning or critical"},
 		{Name: "status", Location: InputQuery, Description: "Display status: firing, resolved, or closed"},
@@ -2407,15 +2407,11 @@ var routeExceptions = []RouteException{
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/:depId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/disables/:disableId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/local", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
-	{Method: "GET", Route: "/api/v1/monitoring/prometheus/discovery", Mode: ModeServerOnly, Reason: "Prometheus HTTP service discovery endpoint"},
-	{Method: "GET", Route: "/api/v1/monitoring/prometheus/jobs/metrics", Mode: ModeServerOnly, Reason: "Prometheus scrape endpoint for STX job-level metrics"},
-	{Method: "POST", Route: "/api/v1/monitoring/alertmanager/webhook", Mode: ModeServerOnly, Reason: "Alertmanager webhook receiver"},
+	{Method: "POST", Route: "/api/v1/monitoring/alertmanager/webhook", Mode: ModeServerOnly, Reason: "External alert ingest receiver (Alertmanager webhook compatible)"},
 	{Method: "POST", Route: "/api/v1/sync/preview/collect", Mode: ModeServerOnly, Reason: "SeaTunnel preview result callback"},
 	{Method: "POST", Route: "/api/v1/sync/engine-events/:cluster_id", Mode: ModeServerOnly, Reason: "SeaTunnel event-report-http callback"},
 	{Method: "ANY", Route: "/api/v1/clusters/:id/webui", Mode: ModeProxy, Reason: "SeaTunnel WebUI reverse proxy"},
 	{Method: "ANY", Route: "/api/v1/clusters/:id/webui/*proxyPath", Mode: ModeProxy, Reason: "SeaTunnel WebUI reverse proxy"},
-	{Method: "ANY", Route: "/api/v1/monitoring/proxy/grafana", Mode: ModeProxy, Reason: "Grafana reverse proxy"},
-	{Method: "ANY", Route: "/api/v1/monitoring/proxy/grafana/*proxyPath", Mode: ModeProxy, Reason: "Grafana reverse proxy"},
 	{Method: "GET", Route: "/api/v1/diagnostics/tasks/:id/events/stream", Mode: ModeWatch, Reason: "Diagnostic task event stream"},
 	{Method: "GET", Route: "/api/v1/st-upgrade/tasks/:id/events/stream", Mode: ModeWatch, Reason: "STX upgrade task event stream"},
 	{Method: "GET", Route: "/api/v1/agent/install.sh", Mode: ModeDownload, Reason: "Agent installation script used by the host setup flow"},

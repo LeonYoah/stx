@@ -27,6 +27,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/embedts"
 	"github.com/LeonYoah/stx/internal/pkg/promquery"
 )
 
@@ -61,13 +62,25 @@ func (fakeRunning) RunningJobCountsByCluster(context.Context) (map[uint]int64, e
 	return map[uint]int64{1: 3}, nil
 }
 
+// withPrometheus 打开 observability.enabled；内嵌化后「Prometheus 可用」等价于 embedts 就绪，
+// enabled=true 时起一份空 tsdb（用例注入的 rangeQuery/instantQuery 假实现不依赖其中数据）。
+// withPrometheus flips observability.enabled; after the embedding, "Prometheus available" means
+// embedts is ready, so enabled=true starts an empty tsdb (the injected rangeQuery/instantQuery
+// fakes never touch its data anyway).
 func withPrometheus(t *testing.T, enabled bool) {
 	t.Helper()
-	oldEnabled, oldURL := config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL
+	oldEnabled := config.Config.Observability.Enabled
 	t.Cleanup(func() {
-		config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL = oldEnabled, oldURL
+		config.Config.Observability.Enabled = oldEnabled
+		_ = embedts.Close()
 	})
-	config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL = enabled, "http://prom.test"
+	config.Config.Observability.Enabled = enabled
+	_ = embedts.Close()
+	if enabled {
+		if err := embedts.Start(context.Background(), embedts.Options{Dir: t.TempDir()}); err != nil {
+			t.Fatalf("start embedded tsdb: %v", err)
+		}
+	}
 }
 
 func series(label, value string, points ...[2]float64) promquery.Series {

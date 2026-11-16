@@ -170,6 +170,17 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		}
 	}
 
+	// 内嵌可观测 P3：custom_promql 策略构建器已退役，删除存量策略行。
+	// 关联表无 DB 级外键约束：monitoring_notification_deliveries.policy_id 仅是普通索引列，
+	// monitoring_sync_alert_episodes 不含 policy_id，悬挂的 policy_id 按既有约定视为历史记录保留。
+	// Embedded observability P3: the custom_promql policy builder is retired, so delete its stored
+	// policy rows. No DB-level foreign keys reference alert policies: monitoring_notification_deliveries.policy_id
+	// is a plain indexed column and monitoring_sync_alert_episodes has no policy_id; a dangling
+	// policy_id stays as delivery history per the existing convention.
+	if err := deleteLegacyCustomPromQLAlertPolicies(database); err != nil {
+		return fmt.Errorf("delete legacy custom_promql alert policies failed: %w", err)
+	}
+
 	// 初始化默认管理员用户 / Initialize default admin user
 	if err := InitDefaultAdminUserWithDB(database); err != nil {
 		log.Printf("[Database] 初始化默认管理员用户失败: %v\n", err)
@@ -354,6 +365,16 @@ func ensureCLITokenExpiresAtNullable(database *gorm.DB) error {
 		break
 	}
 	return database.Migrator().AlterColumn(&auth.CLIToken{}, "ExpiresAt")
+}
+
+// deleteLegacyCustomPromQLAlertPolicies 删除存量 policy_type='custom_promql' 的统一告警策略行；表不存在时跳过。
+// deleteLegacyCustomPromQLAlertPolicies removes stored unified alert policies whose
+// policy_type='custom_promql'; it is a no-op when the table does not exist yet.
+func deleteLegacyCustomPromQLAlertPolicies(database *gorm.DB) error {
+	if database == nil || !database.Migrator().HasTable(&monitoringapp.AlertPolicy{}) {
+		return nil
+	}
+	return database.Where("policy_type = ?", "custom_promql").Delete(&monitoringapp.AlertPolicy{}).Error
 }
 
 // managedModels 返回所有由 AutoMigrate 管理的模型。/ managedModels returns every model managed by AutoMigrate.

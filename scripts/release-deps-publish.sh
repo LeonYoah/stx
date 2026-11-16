@@ -57,9 +57,9 @@ sha256_of() {
 
 # 1. 收集并校验本次产物。/ Collect and verify this run's artifacts.
 shopt -s nullglob
-tarballs=("$assets_dir"/node-*.tar.gz "$assets_dir"/observability-*.tar.gz)
+tarballs=("$assets_dir"/node-*.tar.gz)
 shopt -u nullglob
-[[ ${#tarballs[@]} -gt 0 ]] || { echo "[ERROR] no node-*/observability-* tarballs in $assets_dir" >&2; exit 1; }
+[[ ${#tarballs[@]} -gt 0 ]] || { echo "[ERROR] no node-* tarballs in $assets_dir" >&2; exit 1; }
 files=()
 for t in "${tarballs[@]}"; do
   [[ -f "${t}.sha256" ]] || { echo "[ERROR] missing sidecar ${t}.sha256" >&2; exit 1; }

@@ -106,13 +106,21 @@ export function ClusterTab({
   const t = useTranslations('dashboard.home.clusterTab');
   const format = useFormatter();
   const resource = usePolledResource<HomeClusterDashboard>(
-    JSON.stringify([query.clusterId ?? 'all', query.range]),
+    JSON.stringify([
+      query.clusterId ?? 'all',
+      query.range,
+      query.start,
+      query.end,
+    ]),
     () =>
       HomeService.getClusters({
         cluster_id: query.clusterId,
-        range: query.range,
+        ...(query.start && query.end
+          ? {start: query.start, end: query.end}
+          : {range: query.range}),
       }),
-    CLUSTER_POLL_MS,
+    // 自定义时间窗固定不变，不自动刷新。/ A custom window is fixed, so it does not auto-refresh.
+    query.start ? 0 : CLUSTER_POLL_MS,
   );
   const data = resource.data;
   const hasMetrics = data?.source === 'prometheus';
@@ -333,7 +341,7 @@ export function ClusterTab({
       ) : null}
 
       {data && !hasMetrics ? (
-        <TrendEmptyState />
+        <TrendEmptyState reason={data.reason} />
       ) : data ? (
         <>
           <section className={panel} data-testid='home-availability'>
@@ -359,7 +367,7 @@ export function ClusterTab({
                   return (
                     <div
                       key={item.label}
-                      className='grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)_3.5rem] items-center gap-3'
+                      className='grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)_3.5rem]'
                     >
                       <span
                         className='truncate font-mono text-xs text-muted-foreground'
@@ -368,6 +376,8 @@ export function ClusterTab({
                         {item.label}
                       </span>
                       <StatusBar
+                        // 窄屏：节点名与可用率一行，状态条独占下一行。/ Narrow: name + ratio on one row, the bar below.
+                        className='order-last col-span-2 sm:order-none sm:col-span-1'
                         label={item.label}
                         statuses={[
                           {

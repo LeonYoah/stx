@@ -168,7 +168,10 @@ s.enqueueEventRefresh(job.ID) // → RefreshJobByID → applyEngineJobInfoUpdate
 ## 场景四：历史趋势 `GET /api/v1/sync/jobs/:id/timeseries`
 
 ### 1. 范围 / 触发条件
-- 作业详情「趋势」按 PromQL 模板查 Prometheus（`stx_job_*`），没有本地兜底；`source` 只会是 `prometheus` 或 `none`。
+- 作业详情「趋势」按 PromQL 模板查内置监控（`stx_job_*`），没有本地兜底；`source` 只会是 `prometheus`（兼容值，表示有数据源）或 `none`。
+- `stx_job_*` 的写入（`job_prometheus.go` 的 Registry + `job_metrics_exporter.go` 每 `scrape_interval` 直写 tsdb）有两条必须保持的约定：
+  - **终态先写终值再删**：终态那次对账的指标先 `applyJobMetrics`，序列登记待删；导出协程每轮先取待删快照、再写入、提交后才删，下一轮补 stale marker。没有导出协程（可观测关闭 / 存储未就绪）时立即删。否则作业最后一段增量与短作业整体丢失。
+  - **新作业零值起点**：作业首次被观察且开始不足 10 分钟时，其 `_total` 序列首写前在开始时刻补 0；更早开始的（STX 重启后接手）不补，避免把重启前的累计算进当前窗口。
 
 ### 2. 签名
 ```go

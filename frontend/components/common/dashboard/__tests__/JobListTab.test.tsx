@@ -113,6 +113,8 @@ const baseQuery: DashboardQuery = {
   order: '',
   page: 1,
   range: '1h',
+  start: undefined,
+  end: undefined,
 };
 
 const renderTab = (query: Partial<DashboardQuery> = {}, update = vi.fn()) => {

@@ -1,6 +1,6 @@
 # 打包与安装契约
 
-> 适用于发布资产、在线/离线安装脚本、控制面 systemd 与可选可观测 deps。  
+> 适用于发布资产、在线/离线安装脚本、控制面 systemd 与 Node deps。监控内置在 stx 中（见 `docs/内置监控说明.md`）。  
 > 详细产品背景见任务 `.trellis/tasks/09-18-online-offline-install-packaging/`。
 
 ---
@@ -9,7 +9,7 @@
 
 在以下改动时必须遵守本文：
 
-- 修改 `install/package-release.sh`、`install/bin/*`、`install/observability/*`、`install/install*.sh`
+- 修改 `install/package-release.sh`、`install/bin/*`、`install/install*.sh`
 - 新增/修改在线安装、离线 bundle、下载测速逻辑
 - 变更 GitHub Release 资产命名或 deps 复用策略
 - 控制面 systemd 与 `stx-agent` 安装脚本对齐
@@ -37,10 +37,10 @@
 | 资产模式 | 示例 |
 |----------|------|
 | Node | `node-<major>-<official\|glibc217>-linux-<arch>.tar.gz` |
-| 三件套 | `observability-prom<ver>-am<ver>-gf<ver>-linux-<arch>.tar.gz` |
-| 清单 | `MANIFEST.json`（组件版本、最低 node、适用 glibc） |
+| 清单 | `MANIFEST.json`（Node 版本、最低 node、适用 glibc） |
 
-存放位置是 GitHub Release tag **`deps`**，不是每个 `v*`。版本工作流 `release-on-tag.yml` 不得传 `--emit-deps`。只有 Node 或三件套版本变化时，手动跑 `release-deps.yml`。该 Release 必须 `--latest=false`。
+存放位置是 GitHub Release tag **`deps`**，不是每个 `v*`。版本工作流 `release-on-tag.yml` 不得传 `--emit-deps`。只有 Node 版本变化时，手动跑 `release-deps.yml`。该 Release 必须 `--latest=false`。
+deps 上旧版本留下的 `observability-*` 资产与 MANIFEST 条目保持原样（老版本安装仍会用到），发布脚本只替换本次重建的资产，不删除它们。
 
 ### 2.3 用户入口脚本
 
@@ -49,10 +49,10 @@
 curl -fsSL <raw-or-mirrored-url>/install-online.sh | bash -s -- [options]
 
 # 离线打包（有网机）
-./download-bundle.sh --version vX.Y.Z --arch amd64 [--node-variant glibc217] [--with-observability]
+./download-bundle.sh --version vX.Y.Z --arch amd64 [--node-variant glibc217]
 
 # 安装（在线解压后或离线 bundle 内）
-./install.sh [--install-dir /opt/stx] [--offline] [--with-observability] [--no-start]
+./install.sh [--install-dir /opt/stx] [--offline] [--without-observability] [--no-start]
 ```
 
 ### 2.4 SeaTunnel 离线资产包（控制面本地仓导出）
@@ -81,13 +81,9 @@ curl -fsSL <raw-or-mirrored-url>/install-online.sh | bash -s -- [options]
 | `STX_DOWNLOAD_MIRROR_PREFIX` | 空 | 非空则直接前缀 GitHub URL，跳过公共测速 |
 | `STX_GH_PROXY_NODES` | 见下表 | 逗号分隔 |
 | `STX_INSTALL_DIR` | `/opt/stx` | 安装根目录 |
-| `START_OBSERVABILITY` | `auto` | `auto` \| `true` \| `false`（start.sh） |
 | `STX_IMAGE_REGISTRY` | `ghcr.io/leonyoah` | Docker Compose 镜像前缀；中国华为云用 `swr.cn-east-3.myhuaweicloud.com/stx` |
 | `STX_IMAGE_TAG` | `latest` | Docker Compose / 单镜像 tag |
 | `STX_CONFIG_FILE` | 仓库 `../../config.example.yaml`；发版 tar `./config.yaml` | Compose 挂载到容器的服务端配置；勿另维护 Docker schema |
-| `STX_OBSERVABILITY_PROMETHEUS_URL` | `http://prometheus:9090`（Compose） | 覆盖 yaml 里的 Prometheus 地址 |
-| `STX_OBSERVABILITY_ALERTMANAGER_URL` | `http://alertmanager:9093`（Compose） | 覆盖 yaml 里的 Alertmanager 地址 |
-| `STX_OBSERVABILITY_GRAFANA_URL` | `http://grafana:3000`（Compose） | 覆盖 yaml 里的 Grafana 地址 |
 
 ### 3.2 gh-proxy 节点（中国默认）
 
@@ -112,25 +108,26 @@ $INSTALL_DIR/stx
 $INSTALL_DIR/frontend/server.js
 $INSTALL_DIR/config.yaml
 $INSTALL_DIR/bin/{start,stop,status}.sh
-$INSTALL_DIR/bin/lib/observability.sh   # internal helper sourced by bin/*
 $INSTALL_DIR/scripts/stx-java-proxy.sh  # required; served via GET /api/v1/agent/assets/stx-java-proxy.sh
 $INSTALL_DIR/lib/stx-java-proxy-v2.jar  # required; GET .../assets/stx-java-proxy-v2.jar and ?version=v2
 $INSTALL_DIR/lib/stx-java-proxy-v3.jar  # required; GET .../assets/stx-java-proxy-v3.jar and ?version=v3
 $INSTALL_DIR/runtime/node/bin/node      # optional
-$INSTALL_DIR/observability/{prometheus,alertmanager,grafana}  # optional bundled stack
+$INSTALL_DIR/data/tsdb                  # 内置监控数据（observability.storage.dir 默认值）
+$INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚本只提示、不删除；stop.sh 停掉其中有 pid 文件的旧进程
 ```
 
 离线 `packages/` 布局必须含 `stx-java-proxy-v2.jar` / `stx-java-proxy-v3.jar`；`install.sh` 缺 jar 或脚本时必须失败，不得静默跳过（DEF-R2-1）。
 
-`bin/start.sh` / `stop.sh` 默认 `--observability auto`（CLI 优先于 `START_OBSERVABILITY` / `STOP_OBSERVABILITY`）。
+`bin/start.sh` / `stop.sh` 只启停 STX 前后端；旧的 `--observability <mode>` 参数接受并忽略（旧 systemd 单元可能还带着）。
+`install.sh` 旧的 `--with-observability`、`--prometheus-port`、`--alertmanager-port`、`--grafana-port` 同样接受并忽略。
 ### 3.4 配置键（安装器写入）
 
 - 默认端口：前端 `17880`、HTTP API `17800`、gRPC `17890`（避开常见 80/8000/9000）
 - `app.addr` / gRPC 端口：端口探测结果  
 - `app.external_url`：本机可达 URL  
-- `observability.enabled` / `observability.*.url`：bundled 或 remote  
-- **不要**在 all-in-one 镜像默认启用 bundled 三件套进程
-- Docker Compose 包：`config.yaml` 从仓库根目录 `config.example.yaml` 拷出；Compose 用 `STX_DATABASE_*` / `STX_OBSERVABILITY_*` 覆盖容器 DNS，不另维护一份 Docker schema  
+- `observability.enabled`：默认 `true`（内置监控）；`--without-observability` 写 `false`  
+- **不要**写入 `observability.prometheus` / `alertmanager` / `grafana` 段（已删除；旧文件残留会被忽略）
+- Docker Compose 包：`config.yaml` 从仓库根目录 `config.example.yaml` 拷出；Compose 用 `STX_DATABASE_*` 覆盖容器 DNS，不另维护一份 Docker schema  
 
 ### 3.5 systemd（对齐 agent）
 
@@ -154,7 +151,7 @@ $INSTALL_DIR/observability/{prometheus,alertmanager,grafana}  # optional bundled
 | 官方 Node 22 跑在 glibc 2.17 | 安装前按 glibc 选择 `glibc217` 资产；错包 fail-fast |
 | 端口连续 +20 仍占用 | 中止并提示手动指定端口 |
 | 中国测速五节点全失败 | 回退直连；再失败则中止并给出手动下载说明 |
-| all-in-one 文档 | 必须写明「不含监控三件套」 |
+| 升级时存在旧 `observability/` 目录 | 只提示一次，保留目录与数据 |
 
 ---
 
@@ -169,11 +166,11 @@ $INSTALL_DIR/observability/{prometheus,alertmanager,grafana}  # optional bundled
 ### Base
 
 - 本机已有 Node 20：跳过 node deps，仍下载 stx + frontend  
-- 不带 observability：不拉三件套，config 中 enabled=false 或保持 remote 空闲  
+- `--without-observability`：config 中 `observability.enabled: false`，其余照常  
 
 ### Bad
 
-- 把 stx 再次打成唯一巨型 tar.gz 且内嵌每次重复的 Node+三件套作为**唯一**发布形态  
+- 把 stx 再次打成唯一巨型 tar.gz 且内嵌每次重复的 Node deps 作为**唯一**发布形态  
 - CentOS 7 使用 official Node 22 且无探测  
 - 离线安装静默访问 GitHub  
 
@@ -188,7 +185,7 @@ $INSTALL_DIR/observability/{prometheus,alertmanager,grafana}  # optional bundled
 | sha256 校验 | 错码拒绝安装 |
 | 端口探测 | 占用端口被跳过，写入 config 为新端口 |
 | offline 禁网 | `http_proxy`/curl 到外网被拦截或未调用 |
-| 资产命名 | CI/package 脚本产出裸 `stx-linux-*` 而非仅旧式 with-observability tar |
+| 资产命名 | CI/package 脚本产出裸 `stx-linux-*`；离线包不含 `observability-*` 与 `bin/lib/observability.sh` |
 
 ---
 
@@ -196,11 +193,11 @@ $INSTALL_DIR/observability/{prometheus,alertmanager,grafana}  # optional bundled
 
 | Wrong | Correct |
 |-------|---------|
-| 每次发版上传完整 `…-with-observability.tar.gz` 作为唯一产物 | 发版上传裸 `stx`/`stx-agent` + frontend tarball；deps 独立复用 |
-| 每个 `v*` 重打并上传 node / 三件套 | 这两类只在 tag `deps`；版本工作流不传 `--emit-deps` |
+| 每次发版上传完整聚合 tar 作为唯一产物 | 发版上传裸 `stx`/`stx-agent` + frontend tarball；deps 独立复用 |
+| 每个 `v*` 重打并上传 node | 只在 tag `deps`；版本工作流不传 `--emit-deps` |
 | 假定纯静态 `webserver/static` | Next standalone + Node；deps/node 或系统 node |
 | 中国写死单一代理域名 | 五节点测速 + 可覆盖 `STX_DOWNLOAD_MIRROR_PREFIX` |
-| all-in-one 塞入三件套「图省事」 | all-in-one 仅管控面；全量监控用 `deploy/docker/docker-compose.yml` |
+| 为了「更全的监控」重新打包外部监控组件 | 监控内置在 stx；需要的指标在内置采集里补 |
 | Compose 写死仅 GHCR、中国无法拉 | `STX_IMAGE_REGISTRY` 可切到 `swr.cn-east-3.myhuaweicloud.com/stx` |
 | 假定用户必须跑脚本才能装 | README 提供手动下载资产表 + `packages/` + `install.sh --offline` |
 
@@ -213,4 +210,4 @@ $INSTALL_DIR/observability/{prometheus,alertmanager,grafana}  # optional bundled
 - [ ] 在线/离线是否共用 install-core
 - [ ] 中国下载是否走可测速/可覆盖镜像
 - [ ] systemd 路径是否与 agent 一致
-- [ ] 文档是否声明 all-in-one 无监控
+- [ ] 没有重新引入外部监控组件的下载 / 启停 / 端口

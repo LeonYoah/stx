@@ -32,6 +32,8 @@ export type {
   HomeClusterNode,
   HomeClusterSignals,
   HomeDashboardSeries,
+  HomeJobDashboard,
+  HomeJobRank,
   HomeJobSummary,
   HomeSummary,
 } from './home.service';

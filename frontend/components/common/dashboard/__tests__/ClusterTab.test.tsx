@@ -203,6 +203,8 @@ const query: DashboardQuery = {
   order: '',
   page: 1,
   range: '1h',
+  start: undefined,
+  end: undefined,
 };
 
 const renderTab = (update = vi.fn()) => {

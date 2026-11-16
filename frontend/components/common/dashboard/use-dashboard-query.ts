@@ -44,6 +44,9 @@ export interface DashboardQuery {
   order: 'asc' | 'desc' | '';
   page: number;
   range: HomeRange;
+  /** 自定义时间窗（毫秒）；有值时优先于 range。/ Custom window (ms); wins over range when set. */
+  start: number | undefined;
+  end: number | undefined;
 }
 
 /**
@@ -74,6 +77,7 @@ export function useDashboardQuery() {
       )
         ? (searchParams.get('range') as HomeRange)
         : '1h',
+      ...customWindow(searchParams.get('start'), searchParams.get('end')),
     };
   }, [searchParams]);
 
@@ -93,6 +97,8 @@ export function useDashboardQuery() {
         order: 'order',
         page: 'page',
         range: 'range',
+        start: 'start',
+        end: 'end',
       };
       for (const [field, value] of Object.entries(patch)) {
         const name = keyMap[field as keyof DashboardQuery];
@@ -115,4 +121,28 @@ export function useDashboardQuery() {
   );
 
   return {query, update};
+}
+
+/** 自定义时间窗最长 31 天，与后端一致。/ Custom windows are capped at 31 days, like the backend. */
+export const MAX_CUSTOM_WINDOW_MS = 31 * 24 * 60 * 60 * 1000;
+
+/**
+ * 解析 URL 里的自定义时间窗：两端都是正整数且结束晚于开始才算有效，否则视为未设置。
+ * Parse the custom window in the URL: valid only when both ends are positive integers and end is after start.
+ */
+function customWindow(
+  startRaw: string | null,
+  endRaw: string | null,
+): {start: number | undefined; end: number | undefined} {
+  const start = Number(startRaw);
+  const end = Number(endRaw);
+  if (
+    Number.isInteger(start) &&
+    Number.isInteger(end) &&
+    start > 0 &&
+    end > start
+  ) {
+    return {start, end};
+  }
+  return {start: undefined, end: undefined};
 }

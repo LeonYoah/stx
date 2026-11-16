@@ -25,14 +25,12 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +44,7 @@ import (
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/promquery"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -2413,22 +2412,11 @@ type diagnosticPrometheusSignalSpec struct {
 	PromQL         string
 }
 
-type diagnosticPrometheusQueryRangeResponse struct {
-	Status string `json:"status"`
-	Data   struct {
-		ResultType string                                 `json:"resultType"`
-		Result     []diagnosticPrometheusQueryRangeVector `json:"result"`
-	} `json:"data"`
-	Error string `json:"error,omitempty"`
-}
-
-type diagnosticPrometheusQueryRangeVector struct {
-	Metric map[string]string `json:"metric"`
-	Values [][]interface{}   `json:"values"`
-}
-
 func (s *Service) collectDiagnosticPrometheusSnapshot(ctx context.Context, task *DiagnosticTask, window diagnosticCollectionWindow) (*diagnosticPrometheusSnapshot, error) {
-	baseURL := strings.TrimSpace(config.Config.Observability.Prometheus.URL)
+	// 内嵌化后 baseURL 只是就绪哨兵；不可用时跳过快照即可，诊断流程继续走其余采集。
+	// After the embedding, baseURL is only a readiness sentinel; skip the snapshot when it is
+	// empty and let the diagnostics flow continue with the remaining collectors.
+	baseURL, _ := promquery.BaseURL()
 	if baseURL == "" || task == nil || task.ClusterID == 0 {
 		return nil, nil
 	}
@@ -2564,7 +2552,7 @@ func buildDiagnosticPrometheusSignalSpecs(clusterID uint) []diagnosticPrometheus
 }
 
 func queryDiagnosticPrometheusSignal(ctx context.Context, baseURL string, window diagnosticCollectionWindow, stepSeconds int, spec diagnosticPrometheusSignalSpec) (*diagnosticPrometheusSignal, error) {
-	series, err := queryDiagnosticPrometheusRange(ctx, baseURL, spec.PromQL, window.Start, window.End, stepSeconds)
+	series, err := promquery.Range(ctx, baseURL, spec.PromQL, window.Start, window.End, stepSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -2613,94 +2601,46 @@ func queryDiagnosticPrometheusSignal(ctx context.Context, baseURL string, window
 	}, nil
 }
 
-func queryDiagnosticPrometheusRange(ctx context.Context, baseURL, promQL string, start, end time.Time, stepSeconds int) ([]diagnosticPrometheusQueryRangeVector, error) {
-	apiURL := joinDiagnosticPrometheusURL(baseURL, "/api/v1/query_range")
-	if apiURL == "" {
-		return nil, fmt.Errorf("prometheus url is empty")
-	}
-	params := url.Values{}
-	params.Set("query", promQL)
-	params.Set("start", strconv.FormatFloat(float64(start.UTC().Unix()), 'f', -1, 64))
-	params.Set("end", strconv.FormatFloat(float64(end.UTC().Unix()), 'f', -1, 64))
-	params.Set("step", strconv.Itoa(stepSeconds))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL+"?"+params.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	client := &http.Client{Timeout: 6 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("prometheus query_range status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
-	}
-	var payload diagnosticPrometheusQueryRangeResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&payload); err != nil {
-		return nil, err
-	}
-	if !strings.EqualFold(strings.TrimSpace(payload.Status), "success") {
-		return nil, fmt.Errorf("prometheus query_range returned status %q: %s", payload.Status, strings.TrimSpace(payload.Error))
-	}
-	return payload.Data.Result, nil
-}
-
-func summarizeDiagnosticPrometheusSeries(item diagnosticPrometheusQueryRangeVector, comparator string, threshold float64) (diagnosticPrometheusSeriesSummary, bool) {
+// summarizeDiagnosticPrometheusSeries 汇总单条区间序列的 min/max/last 与阈值触达情况；
+// promquery.Series.Points 的形状是 [毫秒时间戳, 值]。
+// summarizeDiagnosticPrometheusSeries summarizes one range series' min/max/last plus the
+// threshold-breach flag; promquery.Series.Points are [epoch ms, value] pairs.
+func summarizeDiagnosticPrometheusSeries(item promquery.Series, comparator string, threshold float64) (diagnosticPrometheusSeriesSummary, bool) {
 	summary := diagnosticPrometheusSeriesSummary{
 		Instance: firstNonEmptyString(strings.TrimSpace(item.Metric["instance"]), strings.TrimSpace(item.Metric["cluster"]), "-"),
 		MinValue: 0,
 		MaxValue: 0,
-		Points:   make([]diagnosticPrometheusPoint, 0, len(item.Values)),
+		Points:   make([]diagnosticPrometheusPoint, 0, len(item.Points)),
 	}
-	if len(item.Values) == 0 {
+	if len(item.Points) == 0 {
 		return summary, false
 	}
 	first := true
 	breached := false
-	for _, sample := range item.Values {
-		if len(sample) < 2 {
-			continue
-		}
-		value, ok := parseDiagnosticPrometheusSampleValue(sample[1])
-		if !ok {
-			continue
-		}
-		ts, tsOK := parseDiagnosticPrometheusSampleValue(sample[0])
+	for _, sample := range item.Points {
+		value := sample[1]
+		sampledAt := time.UnixMilli(int64(sample[0])).UTC()
 		if first {
 			summary.MinValue = value
 			summary.MaxValue = value
-			if tsOK {
-				sampledAt := time.Unix(int64(ts), 0).UTC()
-				summary.MinAt = &sampledAt
-				summary.MaxAt = &sampledAt
-			}
+			summary.MinAt = &sampledAt
+			summary.MaxAt = &sampledAt
 			first = false
 		}
 		if value < summary.MinValue {
 			summary.MinValue = value
-			if tsOK {
-				sampledAt := time.Unix(int64(ts), 0).UTC()
-				summary.MinAt = &sampledAt
-			}
+			summary.MinAt = &sampledAt
 		}
 		if value > summary.MaxValue {
 			summary.MaxValue = value
-			if tsOK {
-				sampledAt := time.Unix(int64(ts), 0).UTC()
-				summary.MaxAt = &sampledAt
-			}
+			summary.MaxAt = &sampledAt
 		}
 		summary.LastValue = value
-		if tsOK {
-			sampledAt := time.Unix(int64(ts), 0).UTC()
-			summary.LastAt = &sampledAt
-			summary.Points = append(summary.Points, diagnosticPrometheusPoint{
-				Timestamp: sampledAt,
-				Value:     value,
-			})
-		}
+		summary.LastAt = &sampledAt
+		summary.Points = append(summary.Points, diagnosticPrometheusPoint{
+			Timestamp: sampledAt,
+			Value:     value,
+		})
 		summary.Samples++
 		switch comparator {
 		case "lt":
@@ -2728,18 +2668,6 @@ func compareDiagnosticPrometheusSeries(left, right diagnosticPrometheusSeriesSum
 		}
 	}
 	return left.Instance < right.Instance
-}
-
-func parseDiagnosticPrometheusSampleValue(value interface{}) (float64, bool) {
-	switch typed := value.(type) {
-	case string:
-		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
-		return parsed, err == nil
-	case float64:
-		return typed, true
-	default:
-		return 0, false
-	}
 }
 
 func computeDiagnosticPrometheusStepSeconds(window diagnosticCollectionWindow) int {
@@ -2770,20 +2698,6 @@ func buildDiagnosticPrometheusSelector(metric string, matchers ...string) string
 		return strings.TrimSpace(metric)
 	}
 	return fmt.Sprintf("%s{%s}", strings.TrimSpace(metric), strings.Join(items, ","))
-}
-
-func joinDiagnosticPrometheusURL(baseURL, suffix string) string {
-	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if base == "" {
-		return ""
-	}
-	if suffix == "" {
-		return base
-	}
-	if !strings.HasPrefix(suffix, "/") {
-		suffix = "/" + suffix
-	}
-	return base + suffix
 }
 
 func (s *Service) beginDiagnosticTaskStep(ctx context.Context, task *DiagnosticTask, step *DiagnosticTaskStep) error {
@@ -3985,7 +3899,7 @@ func buildDiagnosticBundleHTMLTimeline(task *DiagnosticTask, state *diagnosticBu
 							break
 						}
 					}
-					appendItem(*at, signal.Status, bilingualText("指标首次越阈采样", "First Breaching Sample"), fmt.Sprintf("%s · %s · %s", signal.Title, series.Instance, formatDiagnosticMetricValue(signal.Unit, value)), "Prometheus · "+signal.Key)
+					appendItem(*at, signal.Status, bilingualText("指标首次越阈采样", "First Breaching Sample"), fmt.Sprintf("%s · %s · %s", signal.Title, series.Instance, formatDiagnosticMetricValue(signal.Unit, value)), "metrics · "+signal.Key)
 				}
 			}
 		}
@@ -7175,7 +7089,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             {{end}}
             <div class="finding-trend-footer">
               <span>{{pair "采集范围" "Collected"}} · {{formatTime $finding.Metric.WindowStart}} → {{formatTime $finding.Metric.WindowEnd}}</span>
-              <span>{{pair "阈值" "Threshold"}} · {{$finding.Metric.ThresholdText}} · Prometheus</span>
+              <span>{{pair "阈值" "Threshold"}} · {{$finding.Metric.ThresholdText}} · {{pair "监控指标" "Metrics"}}</span>
             </div>
             {{if $finding.Metric.HasGaps}}<div class="finding-trend-event">{{pair "采样存在缺口，曲线已断开。" "Sampling gaps are shown as breaks in the line."}}</div>{{end}}
             {{if $finding.Metric.FirstBreach}}<div class="finding-trend-event">{{pair "首次越阈采样" "First Breaching Sample"}} · {{formatTime $finding.Metric.FirstBreach}}</div>{{end}}
@@ -7233,7 +7147,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       <div class="report-signal-list">
         {{range .KeySignals}}
         <article class="report-signal-row">
-          <div class="finding-trend-head"><div><strong>{{loc .Title}}</strong><div class="muted small">{{.Instance}} · {{.Key}} · Prometheus</div></div>
+          <div class="finding-trend-head"><div><strong>{{loc .Title}}</strong><div class="muted small">{{.Instance}} · {{.Key}} · {{pair "监控指标" "Metrics"}}</div></div>
             <span class="badge {{statusClass .Status}}">{{loc .Status}}</span></div>
           {{if .Metric}}
           <div class="finding-trend-value">{{.LastValue}}<small>{{pair "最近采样" "Last sample"}} · {{.Metric.LastAt}}</small></div>
@@ -7751,7 +7665,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           </div>
           {{end}}
           {{else}}
-          <div class="empty">{{pair "未采集到 Prometheus 指标快照。" "No Prometheus metrics snapshot was collected."}}</div>
+          <div class="empty">{{pair "未采集到监控指标快照。" "No metrics snapshot was collected."}}</div>
           {{end}}
         </div>
       </div>

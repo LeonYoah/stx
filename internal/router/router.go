@@ -58,7 +58,9 @@ import (
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/db"
 	grpcServer "github.com/LeonYoah/stx/internal/grpc"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/otel_trace"
+	"github.com/LeonYoah/stx/internal/pkg/embedts"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"github.com/LeonYoah/stx/internal/session"
 	"github.com/LeonYoah/stx/internal/tlsbootstrap"
@@ -90,6 +92,31 @@ func Serve() {
 	// Initialize database (auto-select SQLite, MySQL or PostgreSQL based on config)
 	if err := db.InitDatabase(); err != nil {
 		log.Fatalf("[API] 初始化数据库失败: %v\n", err)
+	}
+
+	// 内嵌可观测存储：observability.enabled 时打开进程内 tsdb + PromQL 引擎；
+	// 打开失败只记日志并保持未就绪（embedts.Ready()=false），大盘/趋势/诊断类查询走既有空态降级，不阻断启动。
+	// Embedded observability storage: open the in-process tsdb + PromQL engine when observability
+	// is enabled; failures only log and leave embedts.Ready()=false so dashboard/trend/diagnostic
+	// queries degrade to their existing empty states instead of blocking startup.
+	if config.Config.Observability.Enabled {
+		embedOpts, err := embedts.OptionsFromObservability(config.Config.Observability)
+		if err == nil {
+			err = embedts.Start(ctx, embedOpts)
+		}
+		if err != nil {
+			logger.ErrorF(ctx, "[Observability] 内嵌 tsdb 启动失败，可观测查询将降级为空态: %v / embedded tsdb failed to start, observability queries will degrade: %v", err, err)
+		}
+		// Serve() 目前没有优雅停机钩子（ctx 为 Background）：若未来换成可取消上下文，Done 时先关 tsdb；
+		// defer 兜底进程退出路径上的清理。Close 幂等，两个钩子同时触发也安全。
+		// Serve() has no graceful shutdown hook today (ctx is a Background): if it ever becomes
+		// cancellable, Done closes the tsdb first; the defer covers the process-exit path. Close is
+		// idempotent, so both hooks firing is safe.
+		go func() {
+			<-ctx.Done()
+			_ = embedts.Close()
+		}()
+		defer func() { _ = embedts.Close() }()
 	}
 
 	// 初始化 gRPC 服务器（如果启用）
@@ -377,9 +404,6 @@ func Serve() {
 			// Monitoring center 监控中心
 			monitoringRepo := monitoringapp.NewRepository(db.DB(context.Background()))
 			monitoringService := monitoringapp.NewService(clusterService, monitorService, monitoringRepo)
-			if err := monitoringService.SyncManagedAlertingArtifacts(ctx); err != nil {
-				log.Printf("[Monitoring] sync managed alerting artifacts failed: %v", err)
-			}
 			monitorService.SetOnEventRecorded(monitoringService.DispatchAlertPolicyEvent)
 			monitoringService.StartNodeHealthEvaluator(ctx)
 			clusterHandler.SetOnOperationExecuted(func(ctx context.Context, event *cluster.OperationEvent) error {
@@ -455,12 +479,41 @@ func Serve() {
 			diagnosticsHandler := diagnostics.NewHandler(diagnosticsService)
 			diagnosticsHandler.SetAuditRepository(auditRepo)
 
+			// 内嵌可观测抓取循环：自研抓取器取代外部 Prometheus 抓 SeaTunnel metrics；
+			// tsdb 未就绪（打开失败降级）时跳过启动，仅记日志。
+			// Embedded observability scrape loop: the in-process scraper replaces external
+			// Prometheus for SeaTunnel metrics; skipped with only a log line when the tsdb
+			// failed to open (degraded).
+			if config.Config.Observability.Enabled && embedts.Ready() {
+				scrapeOpts, err := embedts.ScrapeOptionsFromObservability(config.Config.Observability)
+				if err == nil {
+					err = embedts.StartScraper(ctx, embedts.MetricsTargetProviderFunc(monitoringService.ScrapeTargets), scrapeOpts)
+				}
+				if err != nil {
+					logger.ErrorF(ctx, "[Observability] 内嵌抓取循环启动失败，SeaTunnel 指标不会采集: %v / embedded scrape loop failed to start, SeaTunnel metrics will not be collected: %v", err, err)
+				}
+				// 内嵌告警评估器取代外部 Prometheus rule 文件 + Alertmanager 回路：
+				// rules.Manager 在同一进程评估内嵌默认规则与启用中的指标策略，失败仅降级告警链路。
+				// The embedded alert evaluator replaces the external Prometheus rule file +
+				// Alertmanager loop: rules.Manager evaluates builtin rules and enabled metric
+				// policies in-process; a startup failure only degrades the alert chain.
+				if err := monitoringService.StartMetricEvaluator(ctx); err != nil {
+					logger.ErrorF(ctx, "[Observability] 内嵌告警评估器启动失败，指标告警不会评估: %v / embedded alert evaluator failed to start, metric alerts will not be evaluated: %v", err, err)
+				}
+			}
+
 			// Public remote-observability integration endpoints (no login required).
 			// 远程可观测集成公开接口（无需登录）。
 			if config.Config.Observability.Enabled {
-				promDiscoveryPath := normalizeAPIV1RoutePath(config.Config.Observability.Prometheus.HTTPSDPath, "/monitoring/prometheus/discovery")
-				alertWebhookPath := normalizeAPIV1RoutePath(config.Config.Observability.Alertmanager.WebhookPath, "/monitoring/alertmanager/webhook")
-				apiV1Router.GET(promDiscoveryPath, monitoringHandler.GetPrometheusDiscovery)
+				// token 为空时端点无鉴权暴露：兼容已接入的外部 AM，但启动时记一条 WARN 提醒配置
+				// remote_ingest.token；warn 只在此处记一次。token 值不落日志。
+				// An empty token leaves the endpoint unauthenticated: kept for compatibility with
+				// already-integrated external Alertmanagers, but one WARN at startup reminds the
+				// operator to configure remote_ingest.token. The token value is never logged.
+				if strings.TrimSpace(config.Config.Observability.RemoteIngest.Token) == "" {
+					logger.WarnF(ctx, "[Observability] remote ingest webhook 未配置鉴权（observability.remote_ingest.token 为空），%s 为公开端点；建议配置 token 启用 Bearer 校验 / remote ingest webhook has no auth (observability.remote_ingest.token is empty); %s is a public endpoint, configure a token to enable Bearer verification", config.Config.Observability.RemoteIngest.Path, config.Config.Observability.RemoteIngest.Path)
+				}
+				alertWebhookPath := normalizeAPIV1RoutePath(config.Config.Observability.RemoteIngest.Path, "/monitoring/alertmanager/webhook")
 				apiV1Router.POST(alertWebhookPath, monitoringHandler.AlertmanagerWebhook)
 			}
 
@@ -543,14 +596,6 @@ func Serve() {
 			// Platform cluster health summary (powered by monitoring remote integration).
 			// 平台集群健康摘要（由监控远程集成能力提供）。
 			clusterRouter.GET("/health", monitoringHandler.GetClustersHealth)
-
-			// Grafana 代理是高频请求路径，使用轻量会话校验降低每请求数据库开销。
-			monitoringGrafanaProxyRouter := apiV1Router.Group("/monitoring/proxy/grafana")
-			monitoringGrafanaProxyRouter.Use(auth.LoginRequiredSessionOnly())
-			{
-				monitoringGrafanaProxyRouter.Any("", monitoringHandler.ProxyGrafana)
-				monitoringGrafanaProxyRouter.Any("/*proxyPath", monitoringHandler.ProxyGrafana)
-			}
 
 			// Discovery 集群发现
 			// Initialize discovery service and handler
@@ -774,6 +819,12 @@ func Serve() {
 			syncService.StartJobReconciler(ctx)
 			syncService.StartJobObservabilityCollector(ctx)
 			syncService.StartEngineEventRuntime(ctx)
+			// stx_job_* 进程内 gather→tsdb 直写协程（替代已删除的 jobs/metrics 公开抓取端点；
+			// observability.enabled=false 或 tsdb 未就绪时函数内部直接返回）。
+			// In-process stx_job_* gather→tsdb direct-write loop (replaces the removed public
+			// jobs/metrics scrape endpoint; the function returns early when observability is
+			// off or the embedded tsdb is not ready).
+			syncapp.StartJobMetricsExporter(ctx)
 			syncHandler := syncapp.NewHandler(syncService)
 			syncHandler.SetAuditRepository(auditRepo)
 
@@ -788,12 +839,10 @@ func Serve() {
 			// Home cluster dashboard: cluster cards, node table, trends and anomaly signals (replaces the Grafana iframe).
 			clusterDashboardHandler := dashboard.NewClusterDashboardHandler(dashboard.NewClusterDashboardService(monitoringService, clusterService, syncService))
 			homeRouter.GET("/clusters", clusterDashboardHandler.GetClusterDashboard)
-
-			// 作业级 Prometheus 指标抓取（公开，受 observability.enabled 控制）。
-			// Job-level Prometheus metrics scrape (public, gated by observability.enabled).
-			if config.Config.Observability.Enabled {
-				apiV1Router.GET("/monitoring/prometheus/jobs/metrics", syncHandler.GetJobPrometheusMetrics)
-			}
+			// 首页作业大盘：吞吐、Top N、流向、Checkpoint、热点与运行日历。
+			// Home job dashboard: throughput, top N, data flow, checkpoints, hotspots and the run calendar.
+			jobDashboardHandler := dashboard.NewJobDashboardHandler(dashboard.NewJobDashboardService(syncService))
+			homeRouter.GET("/jobs", jobDashboardHandler.GetJobDashboard)
 
 			apiV1Router.POST("/sync/preview/collect", syncHandler.CollectPreview)
 			// SeaTunnel event-report-http 回调：不走登录，靠集群 token 鉴权。
@@ -1256,9 +1305,6 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	monitorService := monitor.NewService(monitorRepo)
 	monitoringRepo := monitoringapp.NewRepository(db.DB(ctx))
 	monitoringService := monitoringapp.NewService(clusterService, monitorService, monitoringRepo)
-	if err := monitoringService.SyncManagedAlertingArtifacts(ctx); err != nil {
-		log.Printf("[Monitoring] sync managed alerting artifacts failed: %v", err)
-	}
 	monitorService.SetOnEventRecorded(monitoringService.DispatchAlertPolicyEvent)
 	grpcServer.SetClusterNodeProvider(&grpcClusterNodeProviderAdapter{
 		clusterService: clusterService,

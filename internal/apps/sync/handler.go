@@ -685,7 +685,7 @@ func (h *Handler) ListJobs(c *gin.Context) {
 
 // GetJobSparklines 批量返回作业近一段时间的读 / 写速率迷你曲线（Prometheus）。
 // GetJobSparklines returns recent read / write rate sparklines for many jobs (Prometheus).
-// @Summary 批量获取作业速率迷你曲线（Prometheus）
+// @Summary 批量获取作业速率迷你曲线
 // @Tags Sync
 // @Produce json
 // @Param ids query string true "逗号分隔的作业 ID，最多 100 个；无权查看的 ID 被忽略"
@@ -755,7 +755,7 @@ func (h *Handler) GetJobRealtime(c *gin.Context) {
 
 // GetJobTimeseries 处理 GET /api/v1/sync/jobs/:id/timeseries：按 PromQL 模板查 Prometheus，无本地兜底。
 // GetJobTimeseries handles GET /api/v1/sync/jobs/:id/timeseries: queries Prometheus via PromQL templates with no local fallback.
-// @Summary 获取作业指标时序（Prometheus）
+// @Summary 获取作业指标时序
 // @Tags Sync
 // @Produce json
 // @Param id path int true "作业 ID"
@@ -789,12 +789,6 @@ func (h *Handler) GetJobTimeseries(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, JobTimeseriesResponse{Data: result})
-}
-
-// GetJobPrometheusMetrics 处理 GET /api/v1/monitoring/prometheus/jobs/metrics（公开抓取，受 observability.enabled 控制）。
-// GetJobPrometheusMetrics handles GET /api/v1/monitoring/prometheus/jobs/metrics (public scrape, gated by observability.enabled).
-func (h *Handler) GetJobPrometheusMetrics(c *gin.Context) {
-	ServeJobPrometheusMetrics(c.Writer, c.Request)
 }
 
 // GetJobPlanDAG 处理 GET /api/v1/sync/jobs/:id/plan-dag：用提交时的配置推导表结构与建表计划，拿不到时以 available=false 表达。

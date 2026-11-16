@@ -249,9 +249,11 @@ for clusterID, items := range grouped {
 - `with_live=1` 只补 `task_name` 与 `live`（读写速率、累计、CDC 延迟），来源是 `result_preview.metrics` 与事件运行时；速率只在运行中出现。集群名由前端用集群列表映射，sync 不依赖 cluster 模块。
 - **可见范围**：`ListJobsForActor` / `ListJobsWithOptions` / sparklines 与 `GetJob` 一致：管理员全部；有 `task_id` 且可查看该任务则看该任务全部作业；否则 `created_by = self OR task_id IN 可查看任务`。
 - **首页汇总是全局口径**：计数、速率对所有登录用户相同；作业条目带 `viewable`，无权查看的作业前端只展示不可点开。单块（jobs / clusters / alerts）失败记 `partial_errors`，HTTP 仍 200，`attention` 永远是数组。
-- Prometheus 走 `internal/pkg/promquery`（`BaseURL` 判定可用性，`Range` / `Instant`，`QuoteLabelRegex` 只拼数字 ID）。不可用时 `source:"none"` + `reason`，接口不报错。
+- 时序查询走 `internal/pkg/promquery`（内置监控的进程内引擎；`BaseURL` 判定可用性，`Range` / `Instant`，`QuoteLabelRegex` 只拼数字 ID）。不可用时 `source:"none"` + `reason`（`observability_disabled` 或 `prometheus_unavailable`），接口不报错。`source` / `reason` 的取值是兼容性契约，不随实现改名，前端按值映射文案。
 
-- **首页集群大盘**（`GET /dashboard/home/clusters`，`internal/apps/dashboard/cluster.go`）：卡片始终含全部集群（便于切换范围），节点 / 趋势 / 信号按 `cluster_id` 过滤；卡片的最高堆与不可达端点用两条不限范围的即时查询按样本 `cluster_id` 汇总。节点与 Prometheus 对应靠 `instance = HostIP:HazelcastPort`（与 HTTP SD 一致），`master` 取 `cluster_info{master}`。PromQL 一律写原始表达式，不依赖 `seatunnel:*` 录制规则（外部 Prometheus 可能没加载）。可用性 = `min_over_time(up)` 与 `min_over_time(node_state)` 合成，step = 窗口 / 48，一点一格。查询并发执行，单条失败记 `partial_errors`。
+- **首页集群大盘**（`GET /dashboard/home/clusters`，`internal/apps/dashboard/cluster.go`）：卡片始终含全部集群（便于切换范围），节点 / 趋势 / 信号按 `cluster_id` 过滤；卡片的最高堆与不可达端点用两条不限范围的即时查询按样本 `cluster_id` 汇总。节点与指标序列对应靠 `instance = HostIP:HazelcastPort`（与内置抓取目标的标签一致：`job` / `instance` / `cluster` / `cluster_name` / `cluster_id` / `env`），`master` 取 `cluster_info{master}`。大盘一律写原始表达式，不依赖告警评估器物化的 `seatunnel:*` 录制序列。可用性 = `min_over_time(up)` 与 `min_over_time(node_state)` 合成，step = 窗口 / 48，一点一格。查询并发执行，单条失败记 `partial_errors`。
+- **首页作业大盘**（`GET /dashboard/home/jobs`，`internal/apps/dashboard/jobs.go`）：Top N / Checkpoint / 热点按整个窗口聚合（`increase(...[span])/span`、`max_over_time`），不用终点瞬时值，历史窗口与已结束作业也能出数；数据流向按 `job_dag.vertexInfoMap` 顶点名（`[Source[0]-MySQL-CDC]`）解析插件，多目标平均分摊；运行日历从 DB 按显示时区分天（列为周一到周日，最后一列含 `end_date`），监控不可用时也返回；标注取窗口内失败（按 `finished_at`）、恢复运行、`SCHEMA_CHANGE*` 事件。注意：引擎时区配置错位时 `finished_at` 偏移，失败标注会落到窗口外。
+- **大盘查询缓存**（`internal/apps/dashboard/prom_cache.go`）：集群 / 作业大盘的 `promquery` 调用经 `dashboardPromCache` 包装，键 `kind|expr|start|end|step`，成功缓存 15 秒、错误 5 秒（调用方取消不缓存），singleflight 合并同键并发，最多 256 键。预设窗口的终点先按 15 秒向下取整（`alignPresetNow`）再解析窗口。只缓存时序结果，返回切片顶层是副本（调用方会就地排序）；作业名、`viewable`、卡片、日历等逐请求计算。新增大盘查询必须经由服务上的 `rangeQuery` / `instantQuery` 字段，不要直接调 `promquery`。
 - **活跃告警口径**：集群健康的 `active_alerts / critical_alerts` 只算「未恢复且未在告警中心关闭」的远程告警（`activeRemoteAlertStats`），与告警中心「触发中」一致；只看 `monitoring_remote_alerts.status` 会把已关闭的告警继续算作活跃。
 
 ### 4. 校验与错误对应表
@@ -263,7 +265,7 @@ for clusterID, items := range grouped {
 | `cluster_id` 非数字 | 400 |
 | sparklines `ids` 为空、非数字或超过 100 | 400 |
 | sparklines 含越权 / 不存在的 ID | 静默丢弃 |
-| Prometheus 未开启 / 查询失败 | `source:"none"` 或 `reason:"prometheus_error"`，200 |
+| 可观测性关闭 / 监控存储不可用 / 查询失败 | `source:"none"` + `reason`（`observability_disabled` / `prometheus_unavailable`）或 `reason:"prometheus_error"`，200 |
 
 ### 5. Good / Base / Bad
 
@@ -276,5 +278,6 @@ for clusterID, items := range grouped {
 - 维度列派生与回填（含幂等、孤儿行保持不变）。
 - 各筛选、attention 顺序、内存排序分页、非运行组下的速率排序报错。
 - 非管理员看不到私有任务的作业，`ListJobsForActor` 与新接口范围一致。
-- sparklines 只用可见 ID 拼查询；无 Prometheus 分支。
+- sparklines 只用可见 ID 拼查询；监控不可用分支。
+- 大盘缓存：同键并发只查一次、TTL / 错误 TTL、取消不缓存、调用方排序不影响共享结果（`-race`）。
 - 首页汇总计数为全局、私有作业条目 `viewable=false`、集群范围过滤、`partial_errors`。

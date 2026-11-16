@@ -165,15 +165,6 @@ stx_json_tag_name() {
     | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/'
 }
 
-# 从 deps MANIFEST.json（stdin）读取 observability.<arch> 资产名，仅用 tr/grep/sed。
-# Read observability.<arch> asset name from deps MANIFEST.json on stdin using tr/grep/sed only.
-stx_manifest_obs_asset() {
-  local arch="$1"
-  tr -d '\r\n' | grep -o '"observability"[[:space:]]*:[[:space:]]*{[^}]*}' | head -n1 \
-    | grep -o "\"${arch}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n1 \
-    | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/'
-}
-
 # 版本号 >= 18.18（node -v 形如 v20.11.1）。/ True when a node version string is >= 18.18.
 stx_node_version_ok() {
   local v="${1#v}" major minor

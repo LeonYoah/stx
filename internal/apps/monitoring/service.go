@@ -22,15 +22,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"net/http"
-	neturl "net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gorm.io/gorm"
@@ -38,6 +36,8 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/embedts"
 	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
@@ -73,6 +73,15 @@ type Service struct {
 	// checked again right before a reminder is delivered, so no stale reminder goes out once a policy is disabled.
 	syncAlertEpisodeMu     sync.Mutex
 	syncAlertPolicyVersion uint64
+
+	// metricEvaluator 是内嵌告警评估器（rules.Manager 包装），由 router 组装区在
+	// observability.enabled && embedts.Ready() 时经 StartMetricEvaluator 注入；策略 CRUD 读它
+	// 触发规则组重建，用 atomic.Pointer 保证读路径无锁。
+	// metricEvaluator is the embedded alert evaluator (a rules.Manager wrapper), injected by the
+	// router assembly via StartMetricEvaluator when observability.enabled && embedts.Ready();
+	// policy CRUD reads it to trigger rule-group rebuilds, and atomic.Pointer keeps that read
+	// path lock-free.
+	metricEvaluator atomic.Pointer[MetricEvaluator]
 }
 
 // NewService creates a monitoring service.
@@ -574,92 +583,156 @@ func (s *Service) UpdateClusterRule(ctx context.Context, clusterID, ruleID uint,
 
 // GetIntegrationStatus returns integration health status of monitoring stack.
 // GetIntegrationStatus 返回监控栈集成状态。
+//
+// 组件集（内嵌可观测终态）：embedded_tsdb（内嵌 tsdb 就绪探测）+ seatunnel_metrics（自研抓取循环
+// 目标状态）+ remote_ingest（AM webhook 回流端点）；原 prometheus/alertmanager/grafana 外部健康
+// 检查已随 HTTP SD 一并退役。
+// Component set (embedded observability final state): embedded_tsdb (embedded tsdb readiness) +
+// seatunnel_metrics (in-process scraper target states) + remote_ingest (AM webhook endpoint); the
+// old prometheus/alertmanager/grafana external health checks were retired with HTTP SD.
 func (s *Service) GetIntegrationStatus(ctx context.Context) (*IntegrationStatusData, error) {
 	obsCfg := config.Config.Observability
 
-	components := []*IntegrationComponentStatus{
-		{Name: "prometheus", URL: joinURL(obsCfg.Prometheus.URL, "/-/healthy")},
-		{Name: "alertmanager", URL: joinURL(obsCfg.Alertmanager.URL, "/-/healthy")},
-		{Name: "grafana", URL: joinURL(obsCfg.Grafana.URL, "/api/health")},
-	}
-
 	if !obsCfg.Enabled {
-		for _, component := range components {
-			component.Healthy = false
-			component.Error = "disabled by config: observability.enabled=false"
-		}
-
-		metricsURL := obsCfg.SeatunnelMetric.Path
-		if !strings.HasPrefix(metricsURL, "/") {
-			metricsURL = "/" + metricsURL
-		}
-		components = append(components, &IntegrationComponentStatus{
-			Name:    "seatunnel_metrics",
-			URL:     metricsURL,
-			Healthy: false,
-			Error:   "disabled by config: observability.enabled=false",
-		})
-
 		return &IntegrationStatusData{
 			GeneratedAt: timex.Now(),
-			Components:  components,
+			Components: []*IntegrationComponentStatus{
+				disabledIntegrationComponent("embedded_tsdb"),
+				disabledIntegrationComponent("seatunnel_metrics"),
+				disabledIntegrationComponent("remote_ingest"),
+			},
 		}, nil
 	}
 
-	for _, component := range components {
-		component.Healthy, component.StatusCode, component.Error = checkHTTPComponent(ctx, component.URL, 3*time.Second)
-	}
-
-	targets, err := s.collectManagedMetricsTargets(ctx, true)
-	metricsComponent := &IntegrationComponentStatus{
-		Name: "seatunnel_metrics",
-		URL:  joinURL(obsCfg.Prometheus.URL, "/targets"),
-	}
-	if err != nil {
-		metricsComponent.Healthy = false
-		metricsComponent.Error = err.Error()
-	} else {
-		total := len(targets)
-		healthy := 0
-		for _, target := range targets {
-			if metricsComponent.URL == "" {
-				metricsComponent.URL = target.ProbeURL
-				metricsComponent.StatusCode = target.StatusCode
-			}
-			if target.Healthy {
-				healthy++
-				if metricsComponent.StatusCode == 0 {
-					metricsComponent.StatusCode = target.StatusCode
-				}
-				if metricsComponent.URL == "" {
-					metricsComponent.URL = target.ProbeURL
-				}
-			}
-		}
-
-		switch {
-		case total == 0:
-			metricsComponent.Healthy = false
-			metricsComponent.Error = "no managed cluster node exposes api_port for metrics probing"
-			if metricsComponent.URL == "" {
-				metricsComponent.URL = obsCfg.SeatunnelMetric.Path
-			}
-		case healthy == 0:
-			metricsComponent.Healthy = false
-			metricsComponent.Error = fmt.Sprintf("metrics endpoint unreachable or metrics disabled on %d/%d targets", total, total)
-		case healthy < total:
-			metricsComponent.Healthy = true
-			metricsComponent.Error = fmt.Sprintf("partial healthy: %d/%d targets expose metrics", healthy, total)
-		default:
-			metricsComponent.Healthy = true
-		}
-	}
-	components = append(components, metricsComponent)
-
 	return &IntegrationStatusData{
 		GeneratedAt: timex.Now(),
-		Components:  components,
+		Components: []*IntegrationComponentStatus{
+			s.embeddedTSDBComponent(obsCfg),
+			s.seatunnelMetricsComponent(ctx, obsCfg),
+			remoteIngestComponent(obsCfg),
+		},
 	}, nil
+}
+
+// disabledIntegrationComponent 构造「observability.enabled=false」态的组件状态。
+// disabledIntegrationComponent builds the component state for observability.enabled=false.
+func disabledIntegrationComponent(name string) *IntegrationComponentStatus {
+	return &IntegrationComponentStatus{
+		Name:    name,
+		Healthy: false,
+		Error:   "disabled by config: observability.enabled=false",
+	}
+}
+
+// embeddedTSDBComponent 返回内嵌 tsdb 组件状态：就绪探测 + 目录/保留期元信息。
+// embeddedTSDBComponent returns the embedded tsdb component: readiness plus dir/retention meta.
+func (s *Service) embeddedTSDBComponent(obsCfg config.ObservabilityConfig) *IntegrationComponentStatus {
+	component := &IntegrationComponentStatus{
+		Name:    "embedded_tsdb",
+		URL:     strings.TrimSpace(obsCfg.Storage.Dir),
+		Healthy: embedts.Ready(),
+		Meta: map[string]string{
+			"dir":       strings.TrimSpace(obsCfg.Storage.Dir),
+			"retention": strings.TrimSpace(obsCfg.Storage.Retention),
+			"max_size":  strconv.FormatInt(obsCfg.Storage.MaxSize, 10),
+		},
+	}
+	if !component.Healthy {
+		component.Error = "monitoring storage is not running (open failed or not started yet)"
+	}
+	return component
+}
+
+// seatunnelMetricsComponent 返回 SeaTunnel 抓取目标组件状态：期望目标集与抓取循环内存状态合并，
+// 保留原「目标不可达 / 部分健康」语义。
+// seatunnelMetricsComponent returns the SeaTunnel scrape-target component: the expected target set
+// merged with the scrape loop's in-memory states, preserving the old unreachable / partially
+// healthy semantics.
+func (s *Service) seatunnelMetricsComponent(ctx context.Context, obsCfg config.ObservabilityConfig) *IntegrationComponentStatus {
+	component := &IntegrationComponentStatus{
+		Name: "seatunnel_metrics",
+		URL:  ensureLeadingSlash(obsCfg.SeatunnelMetric.Path),
+	}
+
+	statesByURL := make(map[string]embedts.TargetState)
+	for _, state := range embedts.TargetStates() {
+		statesByURL[state.URL] = state
+	}
+
+	targets, err := s.collectManagedMetricsTargets(ctx)
+	if err != nil {
+		component.Error = err.Error()
+		return component
+	}
+
+	total := len(targets)
+	up, down, pending := 0, 0, 0
+	firstErr := ""
+	for _, target := range targets {
+		if target == nil {
+			continue
+		}
+		state, seen := statesByURL[target.ProbeURL]
+		switch {
+		case seen && state.Healthy:
+			up++
+			if component.URL == "" || component.StatusCode == 0 {
+				component.URL = target.ProbeURL
+				component.StatusCode = state.StatusCode
+			}
+		case seen:
+			down++
+			if firstErr == "" {
+				firstErr = strings.TrimSpace(state.LastError)
+			}
+		default:
+			// 目标已在期望集合但抓取循环尚未覆盖到（首轮未跑/刷新未生效）。
+			// Expected but not yet covered by the scrape loop (first round pending / refresh lag).
+			pending++
+		}
+	}
+	component.Meta = map[string]string{
+		"total":   strconv.Itoa(total),
+		"up":      strconv.Itoa(up),
+		"down":    strconv.Itoa(down),
+		"pending": strconv.Itoa(pending),
+	}
+	if firstErr != "" {
+		component.Meta["last_error"] = firstErr
+	}
+
+	switch {
+	case total == 0:
+		component.Error = "no managed cluster node exposes api_port for metrics probing"
+	case up == 0 && pending > 0:
+		component.Error = fmt.Sprintf("waiting for first scrape round on %d/%d targets", pending, total)
+	case up == 0:
+		component.Error = fmt.Sprintf("metrics endpoint unreachable or metrics disabled on %d/%d targets", total, total)
+		if firstErr != "" {
+			component.Error += ": " + firstErr
+		}
+	case up < total:
+		component.Healthy = true
+		component.Error = fmt.Sprintf("partial healthy: %d/%d targets expose metrics", up, total)
+	default:
+		component.Healthy = true
+	}
+	return component
+}
+
+// remoteIngestComponent 返回 remote ingest（AM webhook 回流）组件状态：端点由本进程提供，API 在线即健康。
+// remoteIngestComponent returns the remote ingest (AM webhook) component: the endpoint is served
+// by this very API process, so a reachable API means healthy.
+func remoteIngestComponent(obsCfg config.ObservabilityConfig) *IntegrationComponentStatus {
+	webhookPath := ensureLeadingSlash(obsCfg.RemoteIngest.Path)
+	return &IntegrationComponentStatus{
+		Name:    "remote_ingest",
+		URL:     webhookPath,
+		Healthy: true,
+		Meta: map[string]string{
+			"path": webhookPath,
+		},
+	}
 }
 
 type managedMetricsTarget struct {
@@ -668,27 +741,14 @@ type managedMetricsTarget struct {
 	Env         string
 	Target      string
 	ProbeURL    string
-	StatusCode  int
-	Healthy     bool
-	ProbeError  string
 }
 
-type prometheusActiveTargetsResponse struct {
-	Status string `json:"status"`
-	Data   struct {
-		ActiveTargets []*prometheusActiveTarget `json:"activeTargets"`
-	} `json:"data"`
-}
-
-type prometheusActiveTarget struct {
-	ScrapeURL        string            `json:"scrapeUrl"`
-	Health           string            `json:"health"`
-	LastError        string            `json:"lastError"`
-	Labels           map[string]string `json:"labels"`
-	DiscoveredLabels map[string]string `json:"discoveredLabels"`
-}
-
-func (s *Service) collectManagedMetricsTargets(ctx context.Context, doProbe bool) ([]*managedMetricsTarget, error) {
+// collectManagedMetricsTargets 计算受管 SeaTunnel 抓取目标集（cluster → 在线节点 → host:hazelcastPort + metrics path），
+// 供抓取循环 Provider 与 integration status 共用；目标健康由抓取循环状态判定。
+// collectManagedMetricsTargets computes the managed SeaTunnel scrape target set (cluster → online
+// nodes → host:hazelcastPort + metrics path), shared by the scraper provider and integration
+// status; target health is decided by the scrape loop state.
+func (s *Service) collectManagedMetricsTargets(ctx context.Context) ([]*managedMetricsTarget, error) {
 	clusters, _, err := s.clusterService.List(ctx, &cluster.ClusterFilter{Page: 1, PageSize: 1000})
 	if err != nil {
 		return nil, err
@@ -704,7 +764,8 @@ func (s *Service) collectManagedMetricsTargets(ctx context.Context, doProbe bool
 			continue
 		}
 		for _, node := range nodes {
-			// 仅对在线节点进行探测，且必须配置 Hazelcast 端口（用于暴露 /hazelcast/rest/instance/metrics）
+			// 仅对在线节点生成抓取目标，且必须配置 Hazelcast 端口（用于暴露 /hazelcast/rest/instance/metrics）。
+			// Only online nodes with a Hazelcast port (exposing /hazelcast/rest/instance/metrics) become targets.
 			if node == nil || node.HazelcastPort <= 0 {
 				continue
 			}
@@ -716,24 +777,21 @@ func (s *Service) collectManagedMetricsTargets(ctx context.Context, doProbe bool
 				continue
 			}
 
-			// 使用 Hazelcast 端口作为 Prometheus 抓取目标端口（支持 master / worker 多节点）
+			// 使用 Hazelcast 端口作为抓取目标端口（支持 master / worker 多节点）。
+			// The Hazelcast port is the scrape target port (supports multi-node master / worker layouts).
 			target := net.JoinHostPort(host, strconv.Itoa(node.HazelcastPort))
 			if _, ok := seen[target]; ok {
 				continue
 			}
 			seen[target] = struct{}{}
 
-			item := &managedMetricsTarget{
+			results = append(results, &managedMetricsTarget{
 				ClusterID:   c.ID,
 				ClusterName: strings.TrimSpace(c.Name),
 				Env:         resolveClusterEnvLabel(c),
 				Target:      target,
 				ProbeURL:    "http://" + target + metricsPath,
-			}
-			// 目标健康探测由 Prometheus 负责；控制面仅读取 Prometheus 视角的抓取结果。
-			// Prometheus is the source of truth for target health; the control plane
-			// only reads Prometheus scrape status here.
-			results = append(results, item)
+			})
 		}
 	}
 
@@ -743,249 +801,61 @@ func (s *Service) collectManagedMetricsTargets(ctx context.Context, doProbe bool
 		}
 		return results[i].Target < results[j].Target
 	})
-	if doProbe && len(results) > 0 {
-		if err := s.decorateManagedMetricsTargetsFromPrometheus(ctx, results); err != nil {
-			return nil, err
-		}
-	}
 	return results, nil
 }
 
-func (s *Service) decorateManagedMetricsTargetsFromPrometheus(ctx context.Context, targets []*managedMetricsTarget) error {
-	if len(targets) == 0 {
+// StartMetricEvaluator 装配并启动内嵌告警评估器：仅在 observability.enabled && embedts.Ready()
+// 时生效（router 组装区在启动抓取循环的同分支调用）；重复调用为空操作。
+// StartMetricEvaluator assembles and starts the embedded alert evaluator: it only takes effect
+// when observability.enabled && embedts.Ready() (the router assembly calls it in the same branch
+// that starts the scrape loop); repeated calls are no-ops.
+func (s *Service) StartMetricEvaluator(ctx context.Context) error {
+	if s == nil || s.repo == nil {
 		return nil
 	}
-
-	activeTargets, err := s.listPrometheusActiveTargets(ctx)
+	if s.metricEvaluator.Load() != nil {
+		return nil
+	}
+	if !config.Config.Observability.Enabled || !embedts.Ready() {
+		return nil
+	}
+	evaluator, err := NewMetricEvaluator(s, MetricEvaluatorOptions{Interval: metricEvalIntervalFromConfig()})
 	if err != nil {
 		return err
 	}
-
-	metricsPath := ensureLeadingSlash(config.Config.Observability.SeatunnelMetric.Path)
-	activeByAddress := make(map[string]*prometheusActiveTarget, len(activeTargets))
-	for _, target := range activeTargets {
-		if target == nil {
-			continue
-		}
-
-		jobName := strings.TrimSpace(firstNonEmpty(
-			target.Labels["job"],
-			target.DiscoveredLabels["job"],
-		))
-		discoveredPath := ensureLeadingSlash(firstNonEmpty(
-			target.DiscoveredLabels["__metrics_path__"],
-			target.Labels["__metrics_path__"],
-		))
-		clusterIDLabel := strings.TrimSpace(firstNonEmpty(
-			target.Labels["cluster_id"],
-			target.DiscoveredLabels["cluster_id"],
-		))
-		if jobName != "seatunnel_engine_http" &&
-			(clusterIDLabel == "" || discoveredPath != metricsPath) {
-			continue
-		}
-
-		for _, address := range candidatePrometheusTargetAddresses(target) {
-			if current, exists := activeByAddress[address]; exists && strings.EqualFold(current.Health, "up") {
-				continue
-			}
-			activeByAddress[address] = target
-		}
+	if err := evaluator.Start(ctx); err != nil {
+		return err
 	}
-
-	if len(activeByAddress) == 0 {
-		return fmt.Errorf("Prometheus has not discovered any managed SeaTunnel metrics targets yet")
+	if !s.metricEvaluator.CompareAndSwap(nil, evaluator) {
+		evaluator.Stop()
+		return nil
 	}
-
-	for _, target := range targets {
-		if target == nil {
-			continue
-		}
-
-		activeTarget, exists := activeByAddress[target.Target]
-		if !exists {
-			target.Healthy = false
-			target.StatusCode = 0
-			target.ProbeError = "Prometheus has not discovered this managed target yet"
-			continue
-		}
-
-		if strings.TrimSpace(activeTarget.ScrapeURL) != "" {
-			target.ProbeURL = strings.TrimSpace(activeTarget.ScrapeURL)
-		}
-		target.Healthy = strings.EqualFold(strings.TrimSpace(activeTarget.Health), "up")
-		if target.Healthy {
-			target.StatusCode = http.StatusOK
-			target.ProbeError = ""
-			continue
-		}
-		target.StatusCode = http.StatusServiceUnavailable
-		target.ProbeError = strings.TrimSpace(firstNonEmpty(
-			activeTarget.LastError,
-			"Prometheus reports the target as down",
-		))
-	}
+	logger.InfoF(ctx, "[Observability] 内嵌告警评估器已启动: eval_interval=%s / embedded alert evaluator started: eval_interval=%s", evaluator.opts.Interval, evaluator.opts.Interval)
 	return nil
 }
 
-func (s *Service) listPrometheusActiveTargets(ctx context.Context) ([]*prometheusActiveTarget, error) {
-	apiURL := joinURL(config.Config.Observability.Prometheus.URL, "/api/v1/targets?state=active")
-	if apiURL == "" {
-		return nil, fmt.Errorf("prometheus url is empty")
+// StopMetricEvaluator 停止内嵌告警评估器并清空引用；未装配时为空操作。
+// StopMetricEvaluator halts the embedded alert evaluator and clears the reference; a no-op when
+// none is assembled.
+func (s *Service) StopMetricEvaluator() {
+	if s == nil {
+		return
 	}
-
-	client := &http.Client{Timeout: 3 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
-	if err != nil {
-		return nil, err
+	if evaluator := s.metricEvaluator.Swap(nil); evaluator != nil {
+		evaluator.Stop()
 	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		message := strings.TrimSpace(string(payload))
-		if message == "" {
-			message = fmt.Sprintf("http status %d", resp.StatusCode)
-		}
-		return nil, fmt.Errorf("prometheus targets api is not ready: %s", message)
-	}
-
-	var payload prometheusActiveTargetsResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&payload); err != nil {
-		return nil, err
-	}
-	if !strings.EqualFold(strings.TrimSpace(payload.Status), "success") {
-		return nil, fmt.Errorf("prometheus targets api returned status %q", strings.TrimSpace(payload.Status))
-	}
-	return payload.Data.ActiveTargets, nil
 }
 
-func candidatePrometheusTargetAddresses(target *prometheusActiveTarget) []string {
-	if target == nil {
-		return nil
+// requestMetricEvalReload 请求评估器即时重建规则组（策略 CRUD 提交后调用）；未装配评估器时为空操作。
+// requestMetricEvalReload asks the evaluator for an immediate rule-group rebuild (called after
+// policy CRUD commits); a no-op when no evaluator is assembled.
+func (s *Service) requestMetricEvalReload() {
+	if s == nil {
+		return
 	}
-
-	candidates := []string{
-		strings.TrimSpace(target.Labels["instance"]),
-		strings.TrimSpace(target.DiscoveredLabels["__address__"]),
-		extractAddressFromScrapeURL(target.ScrapeURL),
+	if evaluator := s.metricEvaluator.Load(); evaluator != nil {
+		evaluator.RequestReload()
 	}
-	result := make([]string, 0, len(candidates))
-	seen := make(map[string]struct{}, len(candidates))
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		if _, exists := seen[candidate]; exists {
-			continue
-		}
-		seen[candidate] = struct{}{}
-		result = append(result, candidate)
-	}
-	return result
-}
-
-func extractAddressFromScrapeURL(raw string) string {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return ""
-	}
-	parsed, err := neturl.Parse(trimmed)
-	if err != nil || parsed == nil {
-		return ""
-	}
-	return strings.TrimSpace(parsed.Host)
-}
-
-func (s *Service) probeMetricsEndpoint(ctx context.Context, target string) (probeURL string, statusCode int, healthy bool, probeErr string) {
-	obsCfg := config.Config.Observability
-	path := ensureLeadingSlash(obsCfg.SeatunnelMetric.Path)
-	probeURL = "http://" + target + path
-
-	timeout := time.Duration(obsCfg.SeatunnelMetric.ProbeTimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = 2 * time.Second
-	}
-	client := &http.Client{Timeout: timeout}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
-	if err != nil {
-		return probeURL, 0, false, err.Error()
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return probeURL, 0, false, err.Error()
-	}
-	defer resp.Body.Close()
-
-	statusCode = resp.StatusCode
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return probeURL, statusCode, false, fmt.Sprintf("http status %d", resp.StatusCode)
-	}
-
-	payload, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	body := string(payload)
-	if strings.Contains(body, "# HELP") ||
-		strings.Contains(body, "# TYPE") ||
-		strings.Contains(body, "node_state") ||
-		strings.Contains(body, "jvm_") {
-		return probeURL, statusCode, true, ""
-	}
-	return probeURL, statusCode, false, "metrics payload signature not detected"
-}
-
-func checkHTTPComponent(ctx context.Context, targetURL string, timeout time.Duration) (bool, int, string) {
-	targetURL = normalizeBaseURL(targetURL)
-	if targetURL == "" {
-		return false, 0, "url is empty"
-	}
-
-	client := &http.Client{Timeout: timeout}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
-	if err != nil {
-		return false, 0, err.Error()
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, 0, err.Error()
-	}
-	defer resp.Body.Close()
-
-	code := resp.StatusCode
-	if code >= 200 && code < 400 {
-		return true, code, ""
-	}
-	return false, code, fmt.Sprintf("http status %d", code)
-}
-
-func joinURL(baseURL, suffix string) string {
-	base := normalizeBaseURL(baseURL)
-	if base == "" {
-		return ""
-	}
-	if suffix == "" {
-		return base
-	}
-	if !strings.HasPrefix(suffix, "/") {
-		suffix = "/" + suffix
-	}
-	return base + suffix
-}
-
-func normalizeBaseURL(raw string) string {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return ""
-	}
-	if !strings.Contains(value, "://") {
-		value = "http://" + value
-	}
-	return strings.TrimRight(value, "/")
 }
 
 func ensureLeadingSlash(path string) string {

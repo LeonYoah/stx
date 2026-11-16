@@ -138,6 +138,55 @@ export interface HomeClusterDashboard {
   partial_errors?: string[];
 }
 
+/** 作业大盘里的一项 / One job dashboard entry. */
+export interface HomeJobRank {
+  job_id: number;
+  task_id?: number;
+  cluster_id?: number;
+  name: string;
+  value: number;
+  viewable: boolean;
+  max_seconds?: number;
+  failures?: number;
+  kind?: 'busy' | 'backpressure';
+  vertex?: string;
+}
+
+/** GET /dashboard/home/jobs 返回 / Response of GET /dashboard/home/jobs. */
+export interface HomeJobDashboard {
+  source: 'prometheus' | 'none';
+  reason?: string;
+  range: string;
+  start_ms: number;
+  end_ms: number;
+  step_seconds: number;
+  window_seconds: number;
+  throughput: {
+    key: 'read' | 'write' | 'read_bytes' | 'write_bytes';
+    points: [number, number][];
+  }[];
+  annotations: {
+    ts_ms: number;
+    kind: 'job_failed' | 'job_recovered' | 'schema_change';
+    title: string;
+    job_id?: number;
+    task_id?: number;
+    viewable: boolean;
+  }[];
+  top_write: HomeJobRank[];
+  top_cdc: HomeJobRank[];
+  flow: {source: string; sink: string; value: number}[];
+  checkpoints: HomeJobRank[];
+  hotspots: HomeJobRank[];
+  calendar: {
+    weeks: number;
+    end_date: string;
+    runs: number[][];
+    failed: number[][];
+  } | null;
+  partial_errors?: string[];
+}
+
 /**
  * 首页汇总服务：指标卡与「需要处理」条共用一次请求。
  * Home summary service: the KPI cards and the "needs attention" strip share one request.
@@ -152,6 +201,8 @@ export class HomeService extends BaseService {
   static async getClusters(params?: {
     cluster_id?: number;
     range?: string;
+    start?: number;
+    end?: number;
   }): Promise<HomeClusterDashboard> {
     const data = await this.get<HomeClusterDashboard>('/clusters', params);
     return {
@@ -163,6 +214,33 @@ export class HomeService extends BaseService {
         points: item.points ?? [],
       })),
       signals: data?.signals ?? null,
+    };
+  }
+
+  /**
+   * 作业大盘；数组字段做兜底。
+   * Job dashboard, with array fallbacks.
+   */
+  static async getJobs(params?: {
+    cluster_id?: number;
+    range?: string;
+    start?: number;
+    end?: number;
+  }): Promise<HomeJobDashboard> {
+    const data = await this.get<HomeJobDashboard>('/jobs', params);
+    return {
+      ...data,
+      throughput: (data?.throughput ?? []).map((item) => ({
+        ...item,
+        points: item.points ?? [],
+      })),
+      annotations: data?.annotations ?? [],
+      top_write: data?.top_write ?? [],
+      top_cdc: data?.top_cdc ?? [],
+      flow: data?.flow ?? [],
+      checkpoints: data?.checkpoints ?? [],
+      hotspots: data?.hotspots ?? [],
+      calendar: data?.calendar ?? null,
     };
   }
 

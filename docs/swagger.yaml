@@ -1862,6 +1862,15 @@ definitions:
           type: array
         type: array
     type: object
+  dashboard.FlowLink:
+    properties:
+      sink:
+        type: string
+      source:
+        type: string
+      value:
+        type: number
+    type: object
   dashboard.HomeAlertStats:
     properties:
       active:
@@ -1922,6 +1931,80 @@ definitions:
         type: string
       node_count:
         type: integer
+    type: object
+  dashboard.JobDashboard:
+    properties:
+      annotations:
+        items:
+          $ref: '#/definitions/sync.JobAnnotation'
+        type: array
+      calendar:
+        $ref: '#/definitions/sync.JobCalendar'
+      checkpoints:
+        items:
+          $ref: '#/definitions/dashboard.JobRank'
+        type: array
+      end_ms:
+        type: integer
+      flow:
+        items:
+          $ref: '#/definitions/dashboard.FlowLink'
+        type: array
+      hotspots:
+        items:
+          $ref: '#/definitions/dashboard.JobRank'
+        type: array
+      partial_errors:
+        items:
+          type: string
+        type: array
+      range:
+        type: string
+      reason:
+        type: string
+      source:
+        type: string
+      start_ms:
+        type: integer
+      step_seconds:
+        type: integer
+      throughput:
+        items:
+          $ref: '#/definitions/dashboard.ThroughputSeries'
+        type: array
+      top_cdc:
+        items:
+          $ref: '#/definitions/dashboard.JobRank'
+        type: array
+      top_write:
+        items:
+          $ref: '#/definitions/dashboard.JobRank'
+        type: array
+      window_seconds:
+        type: integer
+    type: object
+  dashboard.JobRank:
+    properties:
+      cluster_id:
+        type: integer
+      failures:
+        type: number
+      job_id:
+        type: integer
+      kind:
+        type: string
+      max_seconds:
+        type: number
+      name:
+        type: string
+      task_id:
+        type: integer
+      value:
+        type: number
+      vertex:
+        type: string
+      viewable:
+        type: boolean
     type: object
   dashboard.OverviewData:
     properties:
@@ -1991,6 +2074,18 @@ definitions:
       type:
         description: success, warning, info, error
         type: string
+    type: object
+  dashboard.ThroughputSeries:
+    properties:
+      key:
+        type: string
+      points:
+        items:
+          items:
+            format: float64
+            type: number
+          type: array
+        type: array
     type: object
   diagnostics.DiagnosticTaskNodeScope:
     enum:
@@ -4361,6 +4456,22 @@ definitions:
   sync.JSONMap:
     additionalProperties: true
     type: object
+  sync.JobAnnotation:
+    properties:
+      job_id:
+        type: integer
+      kind:
+        description: job_failed | job_recovered | schema_change
+        type: string
+      task_id:
+        type: integer
+      title:
+        type: string
+      ts_ms:
+        type: integer
+      viewable:
+        type: boolean
+    type: object
   sync.JobCDCDelay:
     properties:
       at:
@@ -4370,6 +4481,25 @@ definitions:
       latest_ms:
         type: integer
       max_1m_ms:
+        type: integer
+    type: object
+  sync.JobCalendar:
+    properties:
+      end_date:
+        type: string
+      failed:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+      runs:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+      weeks:
         type: integer
     type: object
   sync.JobEventListResponse:
@@ -6707,6 +6837,50 @@ paths:
       summary: 首页集群大盘（集群卡片 / 节点 / 趋势 / 异常信号）
       tags:
       - Dashboard
+  /api/v1/dashboard/home/jobs:
+    get:
+      parameters:
+      - description: 集群 ID，空表示全部集群
+        in: query
+        name: cluster_id
+        type: integer
+      - default: 1h
+        description: 时间范围：15m|1h|6h|24h|7d
+        in: query
+        name: range
+        type: string
+      - description: 自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range
+        in: query
+        name: start
+        type: string
+      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+        in: query
+        name: end
+        type: string
+      - default: 16
+        description: 运行日历周数（1~52）
+        in: query
+        name: weeks
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dashboard.DashboardDataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dashboard.JobDashboard'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dashboard.DashboardDataResponse'
+      summary: 首页作业大盘（吞吐 / Top N / 流向 / Checkpoint / 热点 / 运行日历）
+      tags:
+      - Dashboard
   /api/v1/dashboard/home/summary:
     get:
       parameters:
@@ -8287,7 +8461,7 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/sync.JobTimeseriesResponse'
-      summary: 获取作业指标时序（Prometheus）
+      summary: 获取作业指标时序
       tags:
       - Sync
   /api/v1/sync/jobs/cancel-by-ref:
@@ -8348,7 +8522,7 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/sync.JobSparklinesResponse'
-      summary: 批量获取作业速率迷你曲线（Prometheus）
+      summary: 批量获取作业速率迷你曲线
       tags:
       - Sync
   /api/v1/sync/scheduler-connections:

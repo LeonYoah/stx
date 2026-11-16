@@ -20,12 +20,14 @@ import (
 	"context"
 	"errors"
 	"strings"
+	gosync "sync"
 	"testing"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/embedts"
 	"github.com/LeonYoah/stx/internal/pkg/promquery"
 )
 
@@ -60,13 +62,25 @@ func (fakeRunning) RunningJobCountsByCluster(context.Context) (map[uint]int64, e
 	return map[uint]int64{1: 3}, nil
 }
 
+// withPrometheus 打开 observability.enabled；内嵌化后「Prometheus 可用」等价于 embedts 就绪，
+// enabled=true 时起一份空 tsdb（用例注入的 rangeQuery/instantQuery 假实现不依赖其中数据）。
+// withPrometheus flips observability.enabled; after the embedding, "Prometheus available" means
+// embedts is ready, so enabled=true starts an empty tsdb (the injected rangeQuery/instantQuery
+// fakes never touch its data anyway).
 func withPrometheus(t *testing.T, enabled bool) {
 	t.Helper()
-	oldEnabled, oldURL := config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL
+	oldEnabled := config.Config.Observability.Enabled
 	t.Cleanup(func() {
-		config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL = oldEnabled, oldURL
+		config.Config.Observability.Enabled = oldEnabled
+		_ = embedts.Close()
 	})
-	config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL = enabled, "http://prom.test"
+	config.Config.Observability.Enabled = enabled
+	_ = embedts.Close()
+	if enabled {
+		if err := embedts.Start(context.Background(), embedts.Options{Dir: t.TempDir()}); err != nil {
+			t.Fatalf("start embedded tsdb: %v", err)
+		}
+	}
 }
 
 func series(label, value string, points ...[2]float64) promquery.Series {
@@ -81,11 +95,21 @@ func sample(value float64, labels ...string) promquery.Sample {
 	return promquery.Sample{Metric: metric, Value: value}
 }
 
+// queryMu 保护假查询函数里的记录切片：大盘查询是并发执行的。
+// queryMu guards the recorded query slice in the fakes: dashboard queries run concurrently.
+var queryMu gosync.Mutex
+
+func recordQuery(queries *[]string, q string) {
+	queryMu.Lock()
+	defer queryMu.Unlock()
+	*queries = append(*queries, q)
+}
+
 func newTestClusterService(queries *[]string) *ClusterDashboardService {
 	svc := NewClusterDashboardService(fakeHealth{}, fakeClusterNodes{}, fakeRunning{})
 	svc.now = func() time.Time { return time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC) }
 	svc.rangeQuery = func(_ context.Context, _, q string, _, _ time.Time, _ int) ([]promquery.Series, error) {
-		*queries = append(*queries, q)
+		recordQuery(queries, q)
 		switch {
 		case strings.Contains(q, "min_over_time(up{"):
 			return []promquery.Series{
@@ -102,7 +126,7 @@ func newTestClusterService(queries *[]string) *ClusterDashboardService {
 		return []promquery.Series{series("instance", "10.0.0.1:5801", [2]float64{1000, 42})}, nil
 	}
 	svc.instantQuery = func(_ context.Context, _, q string, _ time.Time) ([]promquery.Sample, error) {
-		*queries = append(*queries, q)
+		recordQuery(queries, q)
 		switch {
 		case strings.Contains(q, "max by (cluster_id, instance) (up{"):
 			return []promquery.Sample{sample(1, "instance", "10.0.0.1:5801", "cluster_id", "1"), sample(0, "instance", "10.0.0.2:5801", "cluster_id", "1"), sample(0, "instance", "10.0.1.1:5802", "cluster_id", "2")}, nil

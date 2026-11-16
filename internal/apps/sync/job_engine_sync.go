@@ -170,7 +170,13 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 	// 顺带更新 / 清理作业 Prometheus 导出（受 observability.enabled 控制）。
 	// Opportunistically refresh or clear the job Prometheus export (gated by observability.enabled).
 	if isFinalNormalizedJobStatus(instance.Status) {
-		getJobPrometheusExporter().deleteJob(instance)
+		// 终态：先写入这次对账的终值再删序列，避免最终累计量丢失。
+		// Terminal: record this reconcile's final values before removing the series so the final cumulatives are not lost.
+		var finalMetrics map[string]interface{}
+		if info != nil {
+			finalMetrics = info.Metrics
+		}
+		getJobPrometheusExporter().observeJobMetrics(instance, finalMetrics)
 	} else {
 		if info != nil && info.Metrics != nil {
 			getJobPrometheusExporter().observeJobMetrics(instance, info.Metrics)

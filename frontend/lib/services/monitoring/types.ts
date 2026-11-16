@@ -398,7 +398,6 @@ export type AlertPolicyCapabilityStatus =
 export type AlertPolicyBuilderKind =
   | 'platform_health'
   | 'metrics_template'
-  | 'custom_promql'
   | 'sync_job';
 
 export type AlertPolicyExecutionStatus =

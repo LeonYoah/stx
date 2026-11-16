@@ -20,7 +20,6 @@
  * 监控中心组件导出
  */
 
-export {MonitoringOverview} from './MonitoringOverview';
 export {MonitoringAlertsCenter} from './MonitoringAlertsCenter';
 export {MonitoringPolicyCenter} from './MonitoringPolicyCenter';
 export {MonitoringCenterWorkspace} from './MonitoringCenterWorkspace';

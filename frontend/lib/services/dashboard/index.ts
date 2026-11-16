@@ -36,6 +36,8 @@ export type {
   HomeDetailEvent,
   HomeDetailPanel,
   HomeDetailSeries,
+  HomeHostDashboard,
+  HomeHostEntry,
   HomeJobDashboard,
   HomeJobRank,
   HomeJobSummary,

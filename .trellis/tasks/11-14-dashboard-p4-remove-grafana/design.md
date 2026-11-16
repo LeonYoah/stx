@@ -1,79 +1,146 @@
-# P4 设计：Grafana 应用层摘除 + 内嵌口径对齐
+# P4 设计：内嵌可观测补完 + 三件套退役 + 首页大盘对齐
 
-需求见 `prd.md`；内嵌架构见 `11-16-embedded-observability/design.md`。本文只写大盘任务这边的落地方式。
+需求见 `prd.md`；内嵌架构见 `11-16-embedded-observability/design.md`。
 
-## 1. Grafana 应用层摘除
+## 1. 作业终态数据（A1 / A2）
 
-后端（全部是死路径，删除即可，无替代实现）：
+### 1.1 现状
+
+```
+reconcile ──► observeJobMetrics(instance, metrics)
+                 ├─ 非终态：setCounterAbs / gauge 更新 Registry
+                 └─ 终态：deleteJob → DeletePartialMatch（终态这次的 metrics 被丢弃）
+exporter（每 scrape_interval）──► Registry.Gather → 写 tsdb → tracker.Diff → 消失序列写 stale
+```
+
+终态对账带来的最终累计值没写进 Registry；上一轮导出之后的增量也随序列删除丢失。
+
+### 1.2 改法（`internal/apps/sync/job_prometheus.go`、`job_metrics_exporter.go`）
+
+- `observeJobMetrics` 拆成 `applyJobMetrics`（写计数器 / gauge）+ 终态分支：终态时先 `applyJobMetrics`，`stx_job_up` 写当前终态，再 `scheduleDelete`。
+- `jobPrometheusExporter` 新增：
+  - `deferDeletes bool`：导出协程启动时置 true（`StartJobMetricsExporter`）。
+  - `pendingDeletes map[jobKey]prometheus.Labels`。
+  - `deleteJob`：`deferDeletes` 为 false 时维持立即删除；为 true 时只登记。
+  - `takePendingDeletes()`：取走并清空当前登记。
+- 导出协程 `exportOnce`：**先** `takePendingDeletes()` 取快照，**再** `Gather` 写入，提交后对快照执行真正的 `DeletePartialMatch`。
+  快照之后才登记的作业留到下一轮，保证每个终态作业的最终值至少被写入一次；下一轮 `tracker.Diff` 给它们写 stale marker。
+- `job_engine_sync.go:173` 的直接 `deleteJob` 调用走同一延迟逻辑（不改调用方）。
+
+### 1.3 新作业零值起点（A2）
+
+问题：短作业只被看到一两次，序列第一个样本就是最终累计值 N，`rate` / `increase` 需要两个样本之间的差值，结果为空。
+
+- `jobPrometheusExporter` 记录 `zeroAt map[job_id]int64`：作业第一次被观察时，若 `StartedAt` 非空且距今 ≤ 10 分钟，记 `zeroAt = StartedAt(ms)`。
+  `deleteJob` 真正执行时清掉。
+- 导出时，对**本来源首次出现**（`SeriesTracker` 新增 `Seen(lset)`）且名称以 `_total` 结尾、`job_id` 在 `zeroAt` 中的序列，
+  先在 `min(zeroAt, tsMs-1)` 追加一个 0 样本。追加失败（例如超出 head 可写下界）只忽略该 0 样本，不影响本轮。
+- 不满足 10 分钟条件（STX 重启后接手的长作业）不补：否则重启前的全部累计量会被算进重启后的第一个窗口。
+- 10 分钟远小于 head 的可写下界（约 1 小时），0 样本不会被 tsdb 判为越界。
+
+## 2. 查询并发上限（A3，`internal/pkg/embedts/embedts.go`）
+
+- `promql.EngineOpts.ActiveQueryTracker = promql.NewActiveQueryTracker(opts.Dir, maxConcurrent, logger)`，
+  `maxConcurrent = max(4, runtime.GOMAXPROCS(0))`。跟踪文件 `queries.active` 放在 tsdb 目录（与 Prometheus 同做法），关闭时随 `Close` 释放。
+- 覆盖 `promquery`（大盘 / 趋势 / 诊断）与 `rules.Manager`（告警评估）全部查询；超过上限的查询在引擎内排队，受 `query_timeout` 约束。
+- 不新增配置项（规模小，常量够用；需要时再开放）。
+
+## 3. 首页大盘缓存（C3，`internal/apps/dashboard/prom_cache.go`）
+
+- 包住集群 / 作业两个服务对 `promquery.Range/Instant` 的调用。
+- 键：`kind | expr | start | end | step`。预设窗口的 `end` 先按 15 秒向下取整再算 `start`；自定义窗口本来就固定。
+- 值：结果与错误；成功 TTL 15 秒，错误 5 秒。`golang.org/x/sync/singleflight` 合并同键并发。最多 256 键，超限整体清空。
+- 只缓存 PromQL 结果；DB 部分（卡片、节点表、作业名、`viewable`、日历、标注）每次照常计算，逐用户字段不串号。
+- 与 §2 的并发上限配合：缓存去掉重复计算，上限兜住不同参数的并发。
+
+## 4. 三件套退役（B1–B5）
+
+### 4.1 Go / 配置
 
 | 位置 | 处理 |
 |---|---|
-| `internal/apps/monitoring/handler.go` `ProxyGrafana` / `isGrafanaLiveWSRequest` / 只为它服务的 `parseProxyTarget` 分支 | 删除（`parseProxyTarget` 若还有别的调用方则保留） |
-| `internal/router/router.go` `/monitoring/proxy/grafana` 路由组 | 删除 |
-| `internal/router/middlewares.go` `isGrafana*Path` 日志降噪分支 | 删除 |
-| `internal/config/model.go` `ObservabilityGrafanaConfig` 与 `Grafana` 字段 | 删除 |
-| `internal/config/config.go` `STX_OBSERVABILITY_GRAFANA_URL` 覆盖、默认值、`validateOptionalHTTPURL("observability.grafana.url")` | 删除；对应测试同步 |
-| `config.example.yaml`、`config.e2e*.yaml` 的 `grafana:` 段 | 删除 |
-| `internal/operation/testdata/route_baseline.json`、`docs/` swagger | 重新生成 |
+| `monitoring/handler.go` `ProxyGrafana`、`isGrafanaLiveWSRequest`、只为它服务的 `parseProxyTarget` | 删除 |
+| `router/router.go` `/monitoring/proxy/grafana` 路由组；`router/middlewares.go` `isGrafana*Path` | 删除 |
+| `config/model.go` `ObservabilityGrafanaConfig`；`config.go` 环境变量覆盖、默认值、校验 | 删除；测试同步 |
+| `config.example.yaml`、`config.e2e*.yaml`、`deploy/docker/compose.base.yml` 与 `.env*` 中的 grafana / prometheus / alertmanager 项 | 删除 |
+| 路由基线、swagger | 重新生成 |
 
-兼容性：配置加载为 `viper.Unmarshal`（非 Exact），旧文件残留 `observability.grafana` 被忽略。按内嵌任务 Locked Decision 7（破坏性升级）
-不打废弃 warn，release note 记一条即可。补一个配置加载测试：含 `grafana:` 段的 yaml 能正常加载。
+兼容：配置加载 `viper.Unmarshal`（非 Exact），旧段被忽略；加载测试覆盖含三段旧配置的 yaml。
 
-前端：`components/common/monitoring/MonitoringOverview.tsx` 在 P2 之后已无引用（`ClusterDetail` 只引用同名类型
-`ClusterMonitoringOverviewData`，不受影响），整文件删除；逐个检查它用到的 i18n 键，只被它用的键从 zh / en 删除；
-`HomeDashboard.tsx` 顶部注释去掉「P1 集群页签暂放 Grafana 折叠面板」过渡说明。
+### 4.2 安装 / 打包 / docker / CI / 脚本
 
-不在本任务处理：integration status 组件（内嵌 P2 / P3）、`install/observability/grafana_config/`、
-`deploy/docker/observability/grafana/`、安装 / 打包脚本、三件套文档（内嵌 P4）。
+原则：**删除下载、渲染、启停、端口与清单；不删用户磁盘上的旧目录**。
 
-## 2. 文案与空态
+- `install/observability/`（`render.sh`、三个 `*_config/`）整目录删除；`install/bin/lib/observability.sh` 删除，`start.sh` / `stop.sh` / `status.sh` 去掉对它的 source 与三件套启停。
+- `install/install-core.sh` / `install.sh` / `install-online.sh` / `build-offline-bundle.sh` / `package-release.sh`：
+  - 去掉三件套二进制下载 / 校验 / 解包、`STX_PROMETHEUS_PORT` 等端口变量、`--without-observability` 中与三件套相关的分支
+    （开关保留语义改为只写 `observability.enabled=false`）。
+  - 安装完成摘要的「可观测性」一行改为内嵌说明：数据目录 `data/tsdb`、保留 31 天、上限 30GiB。
+  - 升级检测到旧 `observability/` 或 `deps/prometheus-*` 时输出一行：「内嵌可观测已替代外部 Prometheus / Alertmanager / Grafana，旧目录保留在 …，确认不需要后可手动删除」。
+    旧 systemd / 进程：升级脚本若曾为它们注册服务，停止并禁用（不删数据）。
+- `deploy/docker/observability/` 整目录删除；compose 去掉 prometheus / alertmanager / grafana 服务、卷、依赖与 `STX_OBSERVABILITY_*_URL` 环境变量；tsdb 数据随 STX 数据卷持久化。
+- `.github/workflows/release-deps.yml`、`ci-main.yml`：去掉三件套依赖产物的构建 / 下载 / 测试步骤。
+- `scripts/`：`manage-deps-obs.sh`、`observability-remote-smoke.sh` 删除；`merge-deps-manifest.py`、`test-release-deps.sh`、
+  `test-release-download-lib.sh`、`test-offline-bundle.sh`、`smoke-offline-bundle.sh`、`observability-enabled-switch-regression.sh` 去掉三件套断言，
+  必要时改为断言「产物中不含三件套」。
+- 逐文件改之前先读清楚依赖关系（`deps` 清单格式、下载库函数被谁调用），每改一组跑对应自测脚本。
 
-现状（zh）：`clusterTab.noProm.{title,desc}`、`jobsTab.noPromDesc`、`preview.noTrend` 四处写「接入 Prometheus」；
-`TrendEmptyState` 不区分 reason。
+### 4.3 文档与 CLI
 
-改为按 `reason` 分两套文案（键名保留 `noProm*` 不改，避免无意义的大面积重命名）：
+- `docs/observability-remote-design.md`、`observability-remote-integration-guide.md`、`observability-remote-mvp-plan.md`、`可观测性三件套一键接入说明.md`：
+  合并改写为一篇 `docs/内嵌可观测说明.md`（架构、配置项、保留期 / 上限、抓取 / 评估、remote ingest 鉴权、升级说明），旧四篇删除，引用处改链接。
+- `一键安装与部署设计.md`、`打包发布说明.md`、`告警中心触发-恢复-处理-通知设计说明.md`：删去三件套段落，改为内嵌描述。
+- AGENTS.md / README：端口与三件套描述同步。
+- CLI 由 operation 注册表生成：路由删除后重新跑 contract-report；检查 `stx monitoring integration status` 输出组件名。
 
-| reason | 标题 | 描述要点 |
+## 5. 前端（C1 / C2）
+
+- 删除 `components/common/monitoring/MonitoringOverview.tsx`（无引用；`ClusterDetail` 只用同名类型）及只被它用的 i18n 键。
+- `TrendEmptyState` 增加 `reason`：`observability_disabled` →「可观测性未开启」（提示开启 `observability.enabled`）；
+  其余 →「监控数据暂不可用」（内嵌存储未就绪或查询失败，稍后自动重试）。集群 / 作业页签、预览抽屉透传接口 `reason`。
+  i18n 键名 `noProm*` 保留，只改文案并新增 `unavailable*`。
+- 作业详情 `MetricsTrendView`、`AutoPolicyConfigPanel` 等处若有「Prometheus」用户可见文案，一并改为内嵌口径。
+
+### 5.1 用户可见文案去实现名（C5）
+
+盘点（2026-11-16）：
+
+| 位置 | 现状 | 改为 |
 |---|---|---|
-| `observability_disabled` | 可观测性未开启 | 在配置中开启 `observability.enabled` 后显示趋势；卡片 / 节点表 / 运行日历照常 |
-| `prometheus_unavailable` / `prometheus_error` | 监控数据暂不可用 | 内嵌监控存储未就绪或查询失败，稍后自动重试 |
+| 前端 i18n（zh / en 各约 21 条） | 「接入 Prometheus」「远程 Alertmanager」「Prometheus 指标」「PromQL 预览」「来自 Prometheus」、Grafana 文案 | 「开启可观测性」「外部告警」「监控指标」、删 PromQL 预览、删 Grafana 键 |
+| `policy_center_service.go` 能力卡 / 构建器说明 | 「even without Prometheus」「Ingest Alertmanager webhook」「Prometheus-backed signals」 | 「内置监控指标」「接入外部告警（兼容 Alertmanager Webhook 格式）」 |
+| 能力卡 `reason` / `depends_on` 展示 | 组件名 `embedded_tsdb` 等直接显示 | 前端映射为「内置监控存储」「引擎指标抓取」「外部告警接入」 |
+| `monitoring/handler.go` `error_msg` | 「Failed to process alertmanager webhook」 | 「处理外部告警回调失败」（中英） |
+| `operation/registry*.go` 命令描述 | 「in one Prometheus query」「Query Prometheus timeseries」「Alertmanager webhook receiver」 | 「监控指标」措辞 |
+| 诊断报告（`task_execute.go` 模板与条目） | 「· Prometheus」「未采集到 Prometheus 指标快照」 | 「· 监控指标」「未采集到监控指标快照」 |
+| 安装 / 升级输出 | 三件套端口与数据目录说明 | 内嵌监控一行说明（见 §4.2） |
 
-`TrendEmptyState` 增加 `reason` 入参选择文案；集群 / 作业页签与预览抽屉把接口返回的 `reason` 透传。en 同步。
+规则：
+- 兼容性枚举值保持不变，前端按值映射显示文案（如 `remote_alertmanager` →「外部告警」）。
+- 策略中心「PromQL 预览」字段与相关 i18n 删除；后端若仍返回该字段，前端不再渲染（接口字段保留，CLI 可见）。
+- 外部告警接入的对接说明（文档、能力卡详情）保留「兼容 Alertmanager Webhook 格式」。
+- SeaTunnel 引擎配置键 `metrics.prometheus.enabled` 原样显示。
+- 不改代码标识符、注释、服务端日志。
 
-## 3. 查询负载保护：大盘响应缓存
+## 6. spec
 
-问题：内嵌后 PromQL 在 STX 进程内执行。集群大盘一次约 19 条并发查询、作业大盘约 15 条，每个打开的首页 30 秒轮询一次，
-N 个人同时开首页就是 N 倍 CPU。
+- `frontend/ui-conventions.md` §16：空态按 `reason` 分文案。
+- `backend/job-status-reconciler.md` 首页大盘一节：「与 HTTP SD 一致」→「与内嵌抓取目标标签一致」；「外部 Prometheus 可能没加载录制规则」→
+  「大盘一律写原始表达式，不依赖告警评估器物化的 `seatunnel:*` 录制序列」；补大盘缓存、终态数据与零值起点约定。
+- 其他 backend spec 中描述外部 Prometheus / HTTP SD / Alertmanager 的段落同步。
 
-方案：在 `internal/apps/dashboard` 加一个包内的查询缓存 `promCache`，包住集群 / 作业两个服务里对 `promquery.Range/Instant` 的调用：
+## 7. 验证
 
-- 键：`kind | expr | start | end | step`。预设窗口（`range=1h` 等）的 `end` 先按 15 秒向下取整再算 `start`，
-  这样 15 秒内的同参数请求键相同；自定义窗口本来就固定。
-- 值：查询结果（`[]Series` / `[]Sample`）与错误；TTL 15 秒；错误只缓存 5 秒，避免抖动放大。
-- 并发合并：`golang.org/x/sync/singleflight`（仓库已有则复用），同键同时到达只算一次。
-- 上限：最多 256 个键，过期懒删除 + 超限时整体清空（键空间小，不值得上 LRU）。
-- 只缓存 Prometheus 结果；DB 部分（集群卡片、节点表、作业名、`viewable`、运行日历、标注）每次请求照常计算，
-  所以逐用户字段不会串号。
-- `home summary` 与 `sparklines` 查询量小，本期不接缓存。
+- 单测：延迟删除（终态值被导出一次后才删、未启动导出协程时立即删）、零值起点（10 分钟内补 / 超出不补 / 只补计数器）、
+  并发上限（超限查询排队）、大盘缓存（singleflight、TTL、错误缓存、`-race`）、配置旧段兼容。
+- 本地：`~/stx-local` 用本分支二进制起服务（内嵌，observability 开启），跑 5 秒 FakeSource 批作业核对 A1/A2；
+  与 t1 共享环境的外部 Prometheus（9090）抽样对比吞吐 / 堆 / Top 8。
+- 打包：`scripts/test-offline-bundle.sh`、`test-release-deps.sh` 等在新产物上通过。
 
-内嵌引擎层的并发上限（`promql.ActiveQueryTracker` 或 `promquery` 内信号量）属于内嵌任务，已在评审意见中提给内嵌 P2。
+## 8. 提交与回退
 
-## 4. spec 更新
+单 PR（`feat/embedded-observability-p4`，base `feat/embedded-observability-p3b`），按块分提交，便于单独 revert：
 
-- `frontend/ui-conventions.md` §16：「未接入 Prometheus」改为「可观测性关闭 / 监控数据不可用」，并写明空态按 `reason` 分文案。
-- `backend/job-status-reconciler.md` 首页大盘一节：
-  - 「节点与 Prometheus 对应靠 `instance = HostIP:HazelcastPort`（与 HTTP SD 一致）」改为「与内嵌抓取目标一致」。
-  - 「不依赖 `seatunnel:*` 录制规则（外部 Prometheus 可能没加载）」改为「内嵌方案不实现录制规则，一律写原始表达式」。
-  - 新增大盘响应缓存的约定（键、TTL、只缓存时序结果）。
+1. A1–A3 内嵌不足修复；2. 大盘缓存 + 空态文案；3. Grafana 应用层 + 配置；4. 用户可见文案去实现名；5. 安装 / docker / CI / 脚本；6. 文档与 spec。
 
-## 5. 复验与抽样核对
-
-- 复验：父 PRD 的跨子任务验收逐条在内嵌环境重跑（本地 `~/stx-local`，observability 开启、无外部 Prometheus 进程查询）。
-- 抽样核对（内嵌 P2 合并后、P3 合并前，外部 Prometheus 仍在抓）：同一自定义窗口分别用内嵌 `promquery` 与外部 `curl :9090/api/v1/query_range`
-  跑全局写入吞吐、某节点堆使用率、写入 Top 8，记录差异。预期差异来自两边抓取时刻不同（≤ 一个抓取周期的错位），
-  超出则回报内嵌任务排查（标签缺失、staleness 处理）。
-
-## 6. 回退
-
-- 代理与配置删除是纯删除，回退 = revert 本 PR。
-- 缓存可单独回退：`promCache` 只是包装层，去掉后服务直接调 `promquery`。
+合并顺序：#137 → … → #143 → 本 PR。内嵌 P1 起查询切到 tsdb，栈内各层需连续合并、中间不发版。

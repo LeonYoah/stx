@@ -249,9 +249,6 @@ observability:
     # Prometheus Web/Query 地址（用于健康检查与控制台跳转）
     # Prometheus Web/Query URL (for health checks and console links)
     url: "http://127.0.0.1:9090"
-    # STX 对外暴露的 HTTP SD 路径
-    # HTTP SD path exposed by STX
-    http_sd_path: "/api/v1/monitoring/prometheus/discovery"
 
   alertmanager:
     url: "http://127.0.0.1:9093"

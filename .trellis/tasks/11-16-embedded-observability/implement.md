@@ -23,19 +23,19 @@
       注意：`internal/apps/installer` 有预存在的跨设备 rename 环境性失败，与本改动无关（干净 HEAD 可复现）。
 - 风险文件：`promquery.go`（所有大盘查询都过它）；`main.go` 停机顺序（先停 API 再 `db.Close()`）。
 
-## P2 抓取 + 生产者（开始有数据）
+## P2 抓取 + 生产者（开始有数据）✅ 已完成（feat/embedded-observability-p2）
 
-- [ ] `embedts/scraper.go`：目标提供者复用 `collectManagedMetricsTargets`（抽 `MetricsTargetProvider` 接口），
-      15s 循环 HTTP GET + `expfmt` 解析 → appender；Summary/Histogram 展平；样本时间戳=抓取时刻；
-      `job`/`instance` 冲突标签按 honor_labels=false 改名 `exported_*`。
-- [ ] `up{job,instance,cluster,...}` 合成 + 目标消失写 stale marker + 单目标 last_error 状态记录。
-- [ ] `job_prometheus.go`：`ServeJobPrometheusMetrics` / `jobPrometheusMetricsPath` / 路由 / handler /
-      operation registry 条目**删除**；Registry 保留；新 gather→appender 协程 + 消失序列 stale marker。
-- [ ] `remote_integration.go`：`BuildPrometheusSDTargets` / `buildSTXSyncJobsSDTarget` 删；
-      `prometheus/discovery` 路由与 handler 删。
-- [ ] `service.go`：`listPrometheusActiveTargets` / `decorateManagedMetricsTargetsFromPrometheus` 删；
-      `GetIntegrationStatus` 组件改为 `embedded_tsdb` + `seatunnel_metrics`（读 scraper 状态）+
-      `remote_ingest`；`seatunnel_metrics` 依赖此读值仍能给「目标不可达」语义。
+- [x] `embedts/scraper.go` + `flatten.go`：`MetricsTargetProvider` 接口注入（monitoring 适配
+      `collectManagedMetricsTargets`，embedts 不反向依赖 apps）；15s errgroup 并发 GET + expfmt 解析 +
+      Summary/Histogram 展平 + `exported_*` 改名 + `WriteTsWatermark` 防同毫秒 duplicate sample。
+- [x] `up{job,instance,cluster,...}` 合成 + 目标/序列双级 stale marker + `TargetStates()` 内存状态。
+- [x] `job_prometheus.go`：公开端点/handler/路由/promhttp/operation 条目全删；Registry 保留；
+      `job_metrics_exporter.go` gather→tsdb 直写 + stale + `up{job="stx_sync_jobs"}=1`。
+- [x] `remote_integration.go`：SD 目标构建/handler/路由删；`prometheus.http_sd_path` 配置键删除
+      （model/default/validate/example/e2e 全清）。
+- [x] `service.go`：`listPrometheusActiveTargets`/decorate 删；集成状态组件 =
+      `embedded_tsdb` + `seatunnel_metrics`（含 total/up/down/last_error meta）+ `remote_ingest`；
+      capability depends_on 同步改名；前端泛型消费 `components[]` 零改动。
 - 验证：起一个真实 SeaTunnel 集群（或 mock exposition server）→ `promquery` 能查到 `up`、
       `jvm_memory_bytes_used` 等序列；断掉节点 → 下个周期 `up=0`；大盘集群页签出图。
 - 风险文件：`service.go`（integration status 被策略中心能力卡消费，`resolveMetricsPolicyCapability` 的

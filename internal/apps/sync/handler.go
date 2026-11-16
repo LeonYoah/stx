@@ -791,12 +791,6 @@ func (h *Handler) GetJobTimeseries(c *gin.Context) {
 	c.JSON(http.StatusOK, JobTimeseriesResponse{Data: result})
 }
 
-// GetJobPrometheusMetrics 处理 GET /api/v1/monitoring/prometheus/jobs/metrics（公开抓取，受 observability.enabled 控制）。
-// GetJobPrometheusMetrics handles GET /api/v1/monitoring/prometheus/jobs/metrics (public scrape, gated by observability.enabled).
-func (h *Handler) GetJobPrometheusMetrics(c *gin.Context) {
-	ServeJobPrometheusMetrics(c.Writer, c.Request)
-}
-
 // GetJobPlanDAG 处理 GET /api/v1/sync/jobs/:id/plan-dag：用提交时的配置推导表结构与建表计划，拿不到时以 available=false 表达。
 // GetJobPlanDAG handles GET /api/v1/sync/jobs/:id/plan-dag: it derives table schemas and save-mode plans from the
 // submitted config, expressing unavailability as available=false.

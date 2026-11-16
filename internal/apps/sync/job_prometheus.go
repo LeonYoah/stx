@@ -18,7 +18,6 @@
 package sync
 
 import (
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,16 +25,12 @@ import (
 
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
 	// jobMetricsTableCap 是每个作业导出的表级序列上限，超出并入 other。
 	// jobMetricsTableCap caps per-job table-level series; overflow rolls into "other".
 	jobMetricsTableCap = 50
-	// jobPrometheusMetricsPath 是 STX 作业指标的 Prometheus 抓取路径。
-	// jobPrometheusMetricsPath is the Prometheus scrape path for STX job metrics.
-	jobPrometheusMetricsPath = "/api/v1/monitoring/prometheus/jobs/metrics"
 )
 
 // jobPrometheusExporter 持有作业级 Prometheus 指标注册表与上次计数，便于用 Counter 导出引擎累计值。
@@ -136,20 +131,6 @@ func newJobPrometheusExporter() *jobPrometheusExporter {
 		e.vertexBusy, e.edgeBackpressure, e.jobUp,
 	)
 	return e
-}
-
-// JobPrometheusMetricsPath 返回作业指标抓取路径。
-// JobPrometheusMetricsPath returns the scrape path for job metrics.
-func JobPrometheusMetricsPath() string { return jobPrometheusMetricsPath }
-
-// ServeJobPrometheusMetrics 写出 Prometheus exposition；STX observability 关闭时返回 503。
-// ServeJobPrometheusMetrics writes the Prometheus exposition; returns 503 when STX observability is off.
-func ServeJobPrometheusMetrics(w http.ResponseWriter, r *http.Request) {
-	if config.Config == nil || !config.Config.Observability.Enabled {
-		http.Error(w, "observability is disabled", http.StatusServiceUnavailable)
-		return
-	}
-	promhttp.HandlerFor(getJobPrometheusExporter().reg, promhttp.HandlerOpts{}).ServeHTTP(w, r)
 }
 
 func jobPromLabels(instance *JobInstance) (clusterID, taskID, jobID string) {

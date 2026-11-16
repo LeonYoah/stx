@@ -19,9 +19,6 @@ package sync
 
 import (
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -112,23 +109,6 @@ func TestJobPrometheusExporter_observeAndDelete(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-func TestServeJobPrometheusMetrics_disabled(t *testing.T) {
-	originalEnabled := config.Config.Observability.Enabled
-	t.Cleanup(func() { config.Config.Observability.Enabled = originalEnabled })
-	config.Config.Observability.Enabled = false
-
-	req := httptest.NewRequest(http.MethodGet, jobPrometheusMetricsPath, nil)
-	rr := httptest.NewRecorder()
-	ServeJobPrometheusMetrics(rr, req)
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Fatalf("got status %d", rr.Code)
-	}
-	body, _ := io.ReadAll(rr.Body)
-	if !strings.Contains(string(body), "observability is disabled") {
-		t.Fatalf("unexpected body %q", body)
 	}
 }
 

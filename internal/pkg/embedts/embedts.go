@@ -150,6 +150,9 @@ type instance struct {
 	engine    *promql.Engine
 	queryable storage.Queryable
 	registry  *prometheus.Registry
+	// scraper 是挂在实例上的抓取循环；Close 时先停它再关 db。
+	// scraper is the scrape loop attached to the instance; Close stops it before closing the db.
+	scraper *scraper
 }
 
 // 进程级单例：见包注释。读路径走 RLock，启停走 Lock。
@@ -220,6 +223,9 @@ func Close() error {
 	if inst == nil {
 		return nil
 	}
+	// 先停抓取循环再关 db，避免关闭瞬间仍有写入线程在 appender 上。
+	// Stop the scrape loop before closing the db so no writer still sits on an appender.
+	inst.stopScraper()
 	return inst.db.Close()
 }
 

@@ -23,108 +23,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
-	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
-
-// BuildPrometheusSDTargets builds Prometheus HTTP SD target groups from managed clusters.
-// BuildPrometheusSDTargets 从受管集群构建 Prometheus HTTP SD 目标组。
-func (s *Service) BuildPrometheusSDTargets(ctx context.Context) ([]*PrometheusSDTargetGroup, error) {
-	// now not do metrics probe in HTTP SD stage, directly build targets based on cluster/node metadata,
-	// let Prometheus itself handle the fetch and health check.
-	// 不再在 HTTP SD 阶段做指标探活，直接基于集群/节点元数据构造 targets，
-	// 由 Prometheus 自己负责抓取与健康判定。
-	targets, err := s.collectManagedMetricsTargets(ctx, false)
-	if err != nil {
-		return nil, err
-	}
-
-	groupMap := make(map[string]*PrometheusSDTargetGroup)
-	seen := make(map[string]map[string]struct{})
-	groupKeys := make([]string, 0, 8)
-
-	for _, item := range targets {
-		if item == nil {
-			continue
-		}
-
-		clusterID := strconv.FormatUint(uint64(item.ClusterID), 10)
-		if item.ClusterID == 0 {
-			clusterID = "static"
-		}
-		clusterName := strings.TrimSpace(item.ClusterName)
-		if clusterName == "" {
-			clusterName = "unknown"
-		}
-		env := strings.TrimSpace(item.Env)
-		if env == "" {
-			env = "unknown"
-		}
-
-		key := clusterID + "|" + clusterName + "|" + env
-		group, ok := groupMap[key]
-		if !ok {
-			group = &PrometheusSDTargetGroup{
-				Targets: make([]string, 0, 2),
-				Labels: map[string]string{
-					"job":          "seatunnel_engine_http",
-					"cluster_id":   clusterID,
-					"cluster_name": clusterName,
-					"cluster":      clusterName, // Grafana 大盘变量 $cluster 使用此 label
-					"env":          env,
-				},
-			}
-			groupMap[key] = group
-			groupKeys = append(groupKeys, key)
-			seen[key] = make(map[string]struct{})
-		}
-		if _, ok := seen[key][item.Target]; ok {
-			continue
-		}
-		seen[key][item.Target] = struct{}{}
-		group.Targets = append(group.Targets, item.Target)
-	}
-
-	sort.Strings(groupKeys)
-	result := make([]*PrometheusSDTargetGroup, 0, len(groupKeys)+1)
-	for _, key := range groupKeys {
-		group := groupMap[key]
-		sort.Strings(group.Targets)
-		result = append(result, group)
-	}
-	if stxGroup := buildSTXSyncJobsSDTarget(); stxGroup != nil {
-		result = append(result, stxGroup)
-	}
-	return result, nil
-}
-
-// buildSTXSyncJobsSDTarget 构造 STX 自身作业指标抓取目标（job=stx_sync_jobs）。
-// buildSTXSyncJobsSDTarget builds the STX self scrape target for job metrics (job=stx_sync_jobs).
-func buildSTXSyncJobsSDTarget() *PrometheusSDTargetGroup {
-	external := strings.TrimSpace(config.GetExternalURL())
-	if external == "" {
-		return nil
-	}
-	u, err := url.Parse(external)
-	if err != nil || u.Host == "" {
-		return nil
-	}
-	return &PrometheusSDTargetGroup{
-		Targets: []string{u.Host},
-		Labels: map[string]string{
-			"job":             "stx_sync_jobs",
-			"__metrics_path__": "/api/v1/monitoring/prometheus/jobs/metrics",
-			"__scheme__":       firstNonEmpty(u.Scheme, "http"),
-		},
-	}
-}
 
 // HandleAlertmanagerWebhook ingests one Alertmanager webhook payload into persistent records.
 // HandleAlertmanagerWebhook 将 Alertmanager webhook 请求写入持久化告警记录。

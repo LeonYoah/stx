@@ -255,9 +255,6 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 	if c.Observability.Prometheus.URL == "" {
 		c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
 	}
-	if c.Observability.Prometheus.HTTPSDPath == "" {
-		c.Observability.Prometheus.HTTPSDPath = "/api/v1/monitoring/prometheus/discovery"
-	}
 	if c.Observability.Alertmanager.URL == "" {
 		c.Observability.Alertmanager.URL = "http://127.0.0.1:9093"
 	}
@@ -333,9 +330,6 @@ func validateConfig(c *configModel) error {
 		return err
 	}
 	if err := validateOptionalHTTPURL("observability.grafana.url", c.Observability.Grafana.URL); err != nil {
-		return err
-	}
-	if err := validateRequiredPath("observability.prometheus.http_sd_path", c.Observability.Prometheus.HTTPSDPath); err != nil {
 		return err
 	}
 	if err := validateRequiredPath("observability.alertmanager.webhook_path", c.Observability.Alertmanager.WebhookPath); err != nil {

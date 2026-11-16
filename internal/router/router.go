@@ -482,12 +482,25 @@ func Serve() {
 			diagnosticsHandler := diagnostics.NewHandler(diagnosticsService)
 			diagnosticsHandler.SetAuditRepository(auditRepo)
 
+			// 内嵌可观测抓取循环：自研抓取器取代外部 Prometheus 抓 SeaTunnel metrics；
+			// tsdb 未就绪（打开失败降级）时跳过启动，仅记日志。
+			// Embedded observability scrape loop: the in-process scraper replaces external
+			// Prometheus for SeaTunnel metrics; skipped with only a log line when the tsdb
+			// failed to open (degraded).
+			if config.Config.Observability.Enabled && embedts.Ready() {
+				scrapeOpts, err := embedts.ScrapeOptionsFromObservability(config.Config.Observability)
+				if err == nil {
+					err = embedts.StartScraper(ctx, embedts.MetricsTargetProviderFunc(monitoringService.ScrapeTargets), scrapeOpts)
+				}
+				if err != nil {
+					logger.ErrorF(ctx, "[Observability] 内嵌抓取循环启动失败，SeaTunnel 指标不会采集: %v / embedded scrape loop failed to start, SeaTunnel metrics will not be collected: %v", err, err)
+				}
+			}
+
 			// Public remote-observability integration endpoints (no login required).
 			// 远程可观测集成公开接口（无需登录）。
 			if config.Config.Observability.Enabled {
-				promDiscoveryPath := normalizeAPIV1RoutePath(config.Config.Observability.Prometheus.HTTPSDPath, "/monitoring/prometheus/discovery")
 				alertWebhookPath := normalizeAPIV1RoutePath(config.Config.Observability.Alertmanager.WebhookPath, "/monitoring/alertmanager/webhook")
-				apiV1Router.GET(promDiscoveryPath, monitoringHandler.GetPrometheusDiscovery)
 				apiV1Router.POST(alertWebhookPath, monitoringHandler.AlertmanagerWebhook)
 			}
 
@@ -801,6 +814,12 @@ func Serve() {
 			syncService.StartJobReconciler(ctx)
 			syncService.StartJobObservabilityCollector(ctx)
 			syncService.StartEngineEventRuntime(ctx)
+			// stx_job_* 进程内 gather→tsdb 直写协程（替代已删除的 jobs/metrics 公开抓取端点；
+			// observability.enabled=false 或 tsdb 未就绪时函数内部直接返回）。
+			// In-process stx_job_* gather→tsdb direct-write loop (replaces the removed public
+			// jobs/metrics scrape endpoint; the function returns early when observability is
+			// off or the embedded tsdb is not ready).
+			syncapp.StartJobMetricsExporter(ctx)
 			syncHandler := syncapp.NewHandler(syncService)
 			syncHandler.SetAuditRepository(auditRepo)
 
@@ -819,12 +838,6 @@ func Serve() {
 			// Home job dashboard: throughput, top N, data flow, checkpoints, hotspots and the run calendar.
 			jobDashboardHandler := dashboard.NewJobDashboardHandler(dashboard.NewJobDashboardService(syncService))
 			homeRouter.GET("/jobs", jobDashboardHandler.GetJobDashboard)
-
-			// 作业级 Prometheus 指标抓取（公开，受 observability.enabled 控制）。
-			// Job-level Prometheus metrics scrape (public, gated by observability.enabled).
-			if config.Config.Observability.Enabled {
-				apiV1Router.GET("/monitoring/prometheus/jobs/metrics", syncHandler.GetJobPrometheusMetrics)
-			}
 
 			apiV1Router.POST("/sync/preview/collect", syncHandler.CollectPreview)
 			// SeaTunnel event-report-http 回调：不走登录，靠集群 token 鉴权。

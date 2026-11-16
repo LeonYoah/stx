@@ -297,12 +297,11 @@ type ObservabilityStorageConfig struct {
 }
 
 // ObservabilityPrometheusConfig Prometheus 集成配置
+// （P2 已删 http_sd_path：HTTP SD 端点随内嵌化退役；url 供 P3 告警链路清理前继续使用）
+// (P2 removed http_sd_path: the HTTP SD endpoint retired with the embedding; url stays
+// until the P3 alert-chain cleanup consumes its remaining references.)
 type ObservabilityPrometheusConfig struct {
 	URL string `mapstructure:"url"`
-
-	// HTTPSDPath is the fixed HTTP SD endpoint path exposed by STX.
-	// HTTPSDPath 是 STX 暴露的 Prometheus HTTP SD 路径。
-	HTTPSDPath string `mapstructure:"http_sd_path"`
 }
 
 // ObservabilityAlertmanagerConfig Alertmanager 集成配置

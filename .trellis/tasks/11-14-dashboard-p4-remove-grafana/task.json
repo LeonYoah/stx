@@ -1,7 +1,7 @@
 {
   "id": "dashboard-p4-remove-grafana",
   "name": "dashboard-p4-remove-grafana",
-  "title": "P4 移除 Grafana 安装与代理",
+  "title": "P4 首页大盘收尾：Grafana 应用层摘除 + 内嵌口径对齐",
   "description": "",
   "status": "planning",
   "dev_type": null,
@@ -13,7 +13,7 @@
   "createdAt": "2026-11-14",
   "completedAt": null,
   "branch": null,
-  "base_branch": "local/pr-134-135",
+  "base_branch": "feat/embedded-observability-p2",
   "worktree_path": null,
   "commit": null,
   "pr_url": null,
@@ -21,6 +21,6 @@
   "children": [],
   "parent": "11-14-home-monitoring-dashboard",
   "relatedFiles": [],
-  "notes": "",
+  "notes": "2026-11-16 因内嵌可观测任务重定义；依赖内嵌 P2 合并。安装器/docker/文档中的 Grafana 归内嵌 P4。",
   "meta": {}
 }

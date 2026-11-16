@@ -285,25 +285,6 @@ func (h *Handler) ListNotifiableUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, Response{Data: data})
 }
 
-// GetPrometheusDiscovery handles GET /api/v1/monitoring/prometheus/discovery.
-// GetPrometheusDiscovery 处理 Prometheus HTTP SD 接口。
-func (h *Handler) GetPrometheusDiscovery(c *gin.Context) {
-	if !config.Config.Observability.Enabled {
-		c.JSON(http.StatusServiceUnavailable, Response{ErrorMsg: "observability is disabled"})
-		return
-	}
-
-	data, err := h.service.BuildPrometheusSDTargets(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to build prometheus discovery targets: " + err.Error()})
-		return
-	}
-
-	// Prometheus HTTP SD requires plain JSON target-group array as response body.
-	// Prometheus HTTP SD 要求响应体是纯目标组数组，不能包裹统一 Response 结构。
-	c.JSON(http.StatusOK, data)
-}
-
 // AlertmanagerWebhook handles POST /api/v1/monitoring/alertmanager/webhook.
 // AlertmanagerWebhook 处理 Alertmanager webhook 告警推送。
 func (h *Handler) AlertmanagerWebhook(c *gin.Context) {

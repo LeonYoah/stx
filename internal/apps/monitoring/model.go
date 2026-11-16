@@ -523,6 +523,11 @@ type IntegrationComponentStatus struct {
 	Healthy    bool   `json:"healthy"`
 	StatusCode int    `json:"status_code"`
 	Error      string `json:"error,omitempty"`
+	// Meta 携带组件的结构化附加信息（如 tsdb 目录/保留期、抓取目标 up/down 计数、webhook 路径）；
+	// 附加字段、可选，前端忽略未知键。
+	// Meta carries structured per-component details (e.g. tsdb dir/retention, scrape target
+	// up/down counts, webhook path); additive and optional, the frontend ignores unknown keys.
+	Meta map[string]string `json:"meta,omitempty"`
 }
 
 // IntegrationStatusData represents full integration status payload.
@@ -1276,13 +1281,6 @@ func (r *UpsertNotificationChannelRequest) Validate() error {
 		return fmt.Errorf("endpoint is required")
 	}
 	return nil
-}
-
-// PrometheusSDTargetGroup is one target group in Prometheus HTTP SD response.
-// PrometheusSDTargetGroup 是 Prometheus HTTP SD 响应中的目标组。
-type PrometheusSDTargetGroup struct {
-	Targets []string          `json:"targets"`
-	Labels  map[string]string `json:"labels,omitempty"`
 }
 
 // AlertmanagerWebhookPayload represents Alertmanager webhook body.

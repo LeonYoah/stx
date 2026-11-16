@@ -2,12 +2,12 @@
   "version": 1,
   "baseline_date": "2026-11-15",
   "summary": {
-    "route_count": 315,
+    "route_count": 313,
     "swagger_path_count": 130,
     "swagger_operation_count": 152,
     "swagger_documented_routes": 152,
     "registered_operations": 278,
-    "route_exceptions": 37,
+    "route_exceptions": 35,
     "historical_gaps": 0
   },
   "routes": [
@@ -1678,22 +1678,6 @@
       "status": "operation",
       "operation_id": "monitoring.platform-health.get",
       "mode": "normal",
-      "swagger": false
-    },
-    {
-      "method": "GET",
-      "path": "/api/v1/monitoring/prometheus/discovery",
-      "source": "internal/router/router.go:463",
-      "status": "exception",
-      "mode": "server_only",
-      "swagger": false
-    },
-    {
-      "method": "GET",
-      "path": "/api/v1/monitoring/prometheus/jobs/metrics",
-      "source": "internal/router/router.go:799",
-      "status": "exception",
-      "mode": "server_only",
       "swagger": false
     },
     {

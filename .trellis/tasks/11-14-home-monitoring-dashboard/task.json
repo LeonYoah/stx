@@ -22,7 +22,10 @@
     "11-14-dashboard-p1-job-list",
     "11-14-dashboard-p2-cluster",
     "11-14-dashboard-p3-jobs",
-    "11-14-dashboard-p4-remove-grafana"
+    "11-14-dashboard-p4-remove-grafana",
+    "11-16-dashboard-e1-cluster-metrics",
+    "11-16-dashboard-e2-data-volume",
+    "11-16-dashboard-e3-host-metrics"
   ],
   "parent": null,
   "relatedFiles": [],

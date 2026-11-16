@@ -59,6 +59,14 @@
 
 顺序：P1 → P2 → P3 → P4。P4 必须在 P2 上线后进行（届时首页已不依赖 Grafana）。
 
+## Enhancements（P1–P4 验收完成后再做，2026-11-16 用户确认）
+
+| 子任务 | 内容 | 已定决策 |
+|---|---|---|
+| `11-16-dashboard-e1-cluster-metrics` | 集群指标细化：JVM 内存池 / 直接内存、GC 分回收器、线程状态、调度与 slot 延迟、Hazelcast、状态存储、进程网络；重启 / 成员变化标注 | 数据已在 Prometheus，不新增采集 |
+| `11-16-dashboard-e2-data-volume` | 每日 / 每月 / 指定区间读写量：指标卡 + 日 / 月柱状图 | 只用 Prometheus，受保留期限制（当前默认 15 天） |
+| `11-16-dashboard-e3-host-metrics` | 服务器 CPU / 内存 / 磁盘 / IO / 网络 / 负载 | Agent 内置导出器（gopsutil + client_golang，`/metrics` + HTTP SD） |
+
 ## Cross-child Acceptance Criteria
 
 - [ ] `observability.enabled=false`：首页三个页签都能打开，不报错；当前值正常，趋势面板显示统一空态与开启指引。

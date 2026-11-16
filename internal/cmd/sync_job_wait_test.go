@@ -115,15 +115,40 @@ func TestMaybeEmitJobMetricsLogSkipsDuplicateBlock(t *testing.T) {
 	}
 }
 
-func TestPreviewCollectURLFromCLI(t *testing.T) {
-	t.Setenv("STX_SERVER", "https://stx.example:8443/")
-	got := previewCollectURLFromCLI(nil)
+func TestPreviewCollectURL(t *testing.T) {
+	t.Setenv("STX_SERVER", "")
+	got := previewCollectURL("https://stx.example:8443/")
 	if got != "https://stx.example:8443/api/v1/sync/preview/collect" {
 		t.Fatalf("got %q", got)
 	}
-	t.Setenv("STX_SERVER", "")
-	got = previewCollectURLFromCLI(nil)
+	got = previewCollectURL("")
 	if got != "http://127.0.0.1:17800/api/v1/sync/preview/collect" {
 		t.Fatalf("default got %q", got)
+	}
+	t.Setenv("STX_SERVER", "https://from-env.example/")
+	got = previewCollectURL("")
+	if got != "https://from-env.example/api/v1/sync/preview/collect" {
+		t.Fatalf("env got %q", got)
+	}
+}
+
+func TestApplyPreviewCollectURLUsesClientServerAndKeepsCustom(t *testing.T) {
+	t.Setenv("STX_SERVER", "https://should-not-win.example")
+	definition := map[string]any{
+		"preview_http_sink": map[string]any{"array_mode": false},
+	}
+	applyPreviewCollectURL(definition, "https://saved-ns.example:8443")
+	sink := definition["preview_http_sink"].(map[string]any)
+	if sink["url"] != "https://saved-ns.example:8443/api/v1/sync/preview/collect" {
+		t.Fatalf("namespace server got %v", sink["url"])
+	}
+
+	custom := map[string]any{
+		"preview_http_sink": map[string]any{"url": "https://custom.example/collect", "array_mode": true},
+	}
+	applyPreviewCollectURL(custom, "https://saved-ns.example:8443")
+	customSink := custom["preview_http_sink"].(map[string]any)
+	if customSink["url"] != "https://custom.example/collect" {
+		t.Fatalf("custom url overwritten: %v", customSink["url"])
 	}
 }

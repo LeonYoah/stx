@@ -302,7 +302,6 @@ func newSyncTaskCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 			definition := map[string]any{
 				"execution_mode": "cluster",
 				"preview_http_sink": map[string]any{
-					"url":        previewCollectURLFromCLI(command),
 					"array_mode": false,
 				},
 				"preview_mode":            "source",
@@ -339,6 +338,7 @@ func newSyncTaskCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			applyPreviewCollectURL(definition, client.Server())
 
 			var data any
 			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, "/api/v1/sync/tasks", body, headers, &data)
@@ -361,20 +361,29 @@ func newSyncTaskCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 	return command
 }
 
-// previewCollectURLFromCLI 用当前 CLI 的 --server / STX_SERVER 拼预览采集地址，避免写死内网 IP。
-// previewCollectURLFromCLI builds the preview collect URL from --server / STX_SERVER instead of a hardcoded LAN IP.
-func previewCollectURLFromCLI(command *cobra.Command) string {
-	base := ""
-	if command != nil {
-		if flag := command.Flags().Lookup("server"); flag != nil {
-			base = strings.TrimSpace(flag.Value.String())
-		}
-		if base == "" && command.Root() != nil {
-			if flag := command.Root().PersistentFlags().Lookup("server"); flag != nil {
-				base = strings.TrimSpace(flag.Value.String())
-			}
-		}
+// applyPreviewCollectURL 在 definition 没写采集地址时，用当前 CLI 客户端的 server 补上。
+// 与 create 请求走同一套 namespace / STX_SERVER 解析，避免远端引擎把预览打到 127.0.0.1。
+// applyPreviewCollectURL fills the preview collector URL from the active CLI client server when definition omitted it.
+// It uses the same namespace / STX_SERVER resolution as the create request so a remote engine does not post to 127.0.0.1.
+func applyPreviewCollectURL(definition map[string]any, server string) {
+	if definition == nil {
+		return
 	}
+	sink, _ := definition["preview_http_sink"].(map[string]any)
+	if sink == nil {
+		sink = map[string]any{"array_mode": false}
+		definition["preview_http_sink"] = sink
+	}
+	if url, _ := sink["url"].(string); strings.TrimSpace(url) != "" {
+		return
+	}
+	sink["url"] = previewCollectURL(server)
+}
+
+// previewCollectURL 把 STX 服务地址拼成预览采集 URL。
+// previewCollectURL builds the preview collect URL from an STX server address.
+func previewCollectURL(server string) string {
+	base := strings.TrimSpace(server)
 	if base == "" {
 		base = strings.TrimSpace(os.Getenv("STX_SERVER"))
 	}

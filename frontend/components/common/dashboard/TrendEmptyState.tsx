@@ -22,21 +22,40 @@ import {useTranslations} from 'next-intl';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {Button} from '@/components/ui/button';
 
+/** 可观测性被配置关闭时接口返回的 reason。/ The reason returned when observability is switched off in config. */
+const REASON_DISABLED = 'observability_disabled';
+
 /**
- * 未接入 Prometheus 时趋势区的统一空态（Arc EmptyState），附监控配置入口；说明文案按页签传入。
- * The shared trend empty state without Prometheus (Arc EmptyState), with a link to monitoring settings; each tab
- * passes its own description.
+ * 趋势区的统一空态（Arc EmptyState），附监控配置入口。按接口 reason 区分两种情况：
+ * 可观测性未开启（提示开启），或监控数据暂不可用（存储未就绪 / 查询失败，稍后自动重试）。说明文案可按页签传入。
+ * The shared trend empty state (Arc EmptyState) with a link to monitoring settings. It tells apart two cases by the API
+ * reason: observability is off (prompt to enable it) or monitoring data is temporarily unavailable (storage not ready /
+ * query failed, retried automatically). Each tab may pass its own descriptions.
  */
-export function TrendEmptyState({description}: {description?: string}) {
+export function TrendEmptyState({
+  reason,
+  description,
+  unavailableDescription,
+}: {
+  reason?: string;
+  description?: string;
+  unavailableDescription?: string;
+}) {
   const t = useTranslations('dashboard.home.clusterTab.noProm');
+  const disabled = reason === REASON_DISABLED;
   return (
     <div
       className='rounded-xl border border-dashed border-border/70'
       data-testid='home-trend-empty'
+      data-reason={disabled ? 'disabled' : 'unavailable'}
     >
       <EmptyState
-        title={t('title')}
-        description={description ?? t('desc')}
+        title={disabled ? t('title') : t('unavailableTitle')}
+        description={
+          disabled
+            ? (description ?? t('desc'))
+            : (unavailableDescription ?? t('unavailableDesc'))
+        }
         action={
           <Button asChild size='sm' variant='outline'>
             <Link href='/monitoring'>{t('action')}</Link>

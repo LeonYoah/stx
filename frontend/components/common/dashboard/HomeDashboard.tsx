@@ -60,10 +60,8 @@ const SUMMARY_POLL_MS = 30_000;
 
 /**
  * 控制台首页：范围选择 + 指标卡 + 「需要处理」条（三个页签共用），页签为集群 / 作业 / 作业列表。
- * P1 中集群页签暂放 Grafana 折叠面板，作业页签为占位，P2 / P3 替换。
  * The console home: scope picker, KPI cards and the "needs attention" strip shared by all tabs; tabs are clusters /
- * jobs / job list. In P1 the cluster tab still hosts the collapsed Grafana panel and the jobs tab is a placeholder;
- * P2 / P3 replace them.
+ * jobs / job list.
  */
 export function HomeDashboard() {
   const t = useTranslations('dashboard.home');

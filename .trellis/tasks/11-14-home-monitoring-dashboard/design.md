@@ -5,6 +5,10 @@
 
 ## 1. 边界与数据流
 
+> 2026-11-16 更新：可观测改为内嵌单模式（`11-16-embedded-observability`）。下图中的「Prometheus」现为 STX 进程内的
+> `tsdb` + `promql` 引擎，抓取由 STX 自研循环完成（`job="seatunnel_engine_http"` 标签不变），`stx_job_*` 直写 tsdb（`job="stx_sync_jobs"`）。
+> 大盘代码只依赖 `promquery`，签名不变。下文出现的「Prometheus」均按此理解。
+
 ```
 浏览器 ──► STX API ──┬─► DB（sync_job_instances / sync_tasks / clusters / hosts / alerts）   当前值、列表、日历
                     └─► Prometheus /api/v1/query(_range)                               趋势、Top N、节点指标
@@ -14,7 +18,8 @@
 - 前端只调用 STX API；PromQL 模板全部在后端（与 `job_timeseries.go` 一致），前端传指标键、范围、集群，不传 PromQL。
 - 公共 Prometheus 访问抽到一个小包（建议 `internal/pkg/promquery`）：`QueryRange`、`QueryInstant`、样本解析、`source/reason` 判定。
   `job_timeseries.go` 现有的 `queryPrometheusRange` / `coercePromSample` 迁过去复用，行为不变。
-- 不新增表；不在进程内缓存时序。大盘接口可做 ≤15 秒的进程内响应缓存（按 actor 可见范围 + 参数为键），避免多人同时打开首页时放大 Prometheus 查询。
+- 不新增表；时序只在内嵌 tsdb 中。大盘接口做 ≤15 秒的进程内查询缓存（只缓存 PromQL 结果，逐用户字段在缓存外装饰；P4 落地），
+  内嵌后查询消耗的是 STX 自身 CPU，避免多人同时打开首页时放大计算。
 
 ## 2. 统一的响应外壳（大盘类接口）
 
@@ -73,8 +78,7 @@
 | job_state | `sum by(type)(job_count{job="seatunnel_engine_http",{cluster}})` | P2 |
 | signals（instant） | `hazelcast_partition_isClusterSafe`、`jvm_threads_deadlocked`、`seatunnel:fd_usage_percent`、`seatunnel:job_thread_pool_reject_rate5m`、`seatunnel:hazelcast_executor_queue_util_percent` | P0 / P3 / P4 |
 
-`seatunnel:*` 录制规则随 STX 的 Prometheus 规则文件下发。外部 Prometheus 若没有加载规则，
-后端按需回退为原始表达式（模板里同时保存录制名与原始表达式，首次查询为空时用原始表达式重试并记住结果）。
+实现上一律写原始表达式，不依赖 `seatunnel:*` 录制规则（内嵌方案不实现录制规则；表中录制名只表示语义来源）。
 
 作业（`{scope}` = `cluster_id` 与可见 `job_id` 过滤）：
 
@@ -141,5 +145,5 @@ beUI 组件依赖 `motion`（已在依赖中）。安装后先确认是否引入
 
 - `GET /sync/jobs` 只加可选参数与字段，旧调用方（工作台、CLI、引导）不受影响；默认排序仍是 `created_at DESC`。
 - P1 上线后首页新骨架与旧四宫格并存一个版本：旧内容仍在「集群」页签位置之前展示（P2 再替换），回退只需还原 `dashboard/page.tsx`。
-- P2 移除首页 Grafana iframe，但不删代理与安装组件；P4 才删除。P4 回退 = 还原该 PR。
-- 配置项 `observability.grafana.*` 在 P4 中标记废弃并忽略（读取时打一条 warn 日志），不让旧配置文件启动失败。
+- P2 移除首页 Grafana iframe；P4 删除代理、`observability.grafana` 配置与前端残留，安装器 / docker 中的 Grafana 随三件套由内嵌任务删除。
+- 按内嵌任务的破坏性升级决定，`observability.grafana` 直接删除、不打废弃 warn；配置加载非 Exact，旧文件残留该段不影响启动。

@@ -144,8 +144,8 @@ type ClusterDashboardService struct {
 	jobs     RunningJobCounter
 	now      func() time.Time
 	// query 可在测试中替换；默认走 promquery。/ query is swappable in tests; promquery by default.
-	rangeQuery   func(ctx context.Context, base, q string, start, end time.Time, step int) ([]promquery.Series, error)
-	instantQuery func(ctx context.Context, base, q string, at time.Time) ([]promquery.Sample, error)
+	rangeQuery   rangeQueryFunc
+	instantQuery instantQueryFunc
 }
 
 // NewClusterDashboardService 创建集群大盘服务。
@@ -153,7 +153,7 @@ type ClusterDashboardService struct {
 func NewClusterDashboardService(health ClusterHealthSource, clusters ClusterNodeSource, jobs RunningJobCounter) *ClusterDashboardService {
 	return &ClusterDashboardService{
 		health: health, clusters: clusters, jobs: jobs, now: time.Now,
-		rangeQuery: promquery.Range, instantQuery: promquery.Instant,
+		rangeQuery: dashboardPromCache.wrapRange(promquery.Range), instantQuery: dashboardPromCache.wrapInstant(promquery.Instant),
 	}
 }
 
@@ -162,7 +162,8 @@ func NewClusterDashboardService(health ClusterHealthSource, clusters ClusterNode
 // PartialErrors.
 func (s *ClusterDashboardService) GetClusterDashboard(ctx context.Context, clusterID uint, rangeKey string, custom *promquery.Window) (*ClusterDashboard, error) {
 	now := s.now().UTC()
-	rangeName, start, end, err := promquery.ResolveWindow(rangeKey, custom, now)
+	// 预设窗口的终点按缓存粒度取整，见 alignPresetNow。/ Preset window ends are aligned to the cache granularity; see alignPresetNow.
+	rangeName, start, end, err := promquery.ResolveWindow(rangeKey, custom, alignPresetNow(now, custom))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidClusterDashboardQuery, err)
 	}

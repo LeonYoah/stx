@@ -8461,7 +8461,7 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/sync.JobTimeseriesResponse'
-      summary: 获取作业指标时序（Prometheus）
+      summary: 获取作业指标时序
       tags:
       - Sync
   /api/v1/sync/jobs/cancel-by-ref:
@@ -8522,7 +8522,7 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/sync.JobSparklinesResponse'
-      summary: 批量获取作业速率迷你曲线（Prometheus）
+      summary: 批量获取作业速率迷你曲线
       tags:
       - Sync
   /api/v1/sync/scheduler-connections:

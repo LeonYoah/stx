@@ -21,6 +21,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
 import {SyncService, type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
 import {MetricsTrendView} from '../MetricsTrendView';
+import {LIFETIME_TAIL_MS} from '../metrics-trend-data';
 
 if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = class {
@@ -202,7 +203,7 @@ describe('MetricsTrendView', () => {
 
   it('defaults a finished job to its lifetime and echoes the queried window in the picker', async () => {
     const start = Date.parse(START);
-    const end = Date.parse(FINISH);
+    const end = Date.parse(FINISH) + LIFETIME_TAIL_MS;
     vi.mocked(SyncService.getJobTimeseries).mockResolvedValue(emptyPrometheus('custom', start, end));
     renderTrend(job({status: 'failed', started_at: START, finished_at: FINISH}));
     await waitFor(() => expect(SyncService.getJobTimeseries).toHaveBeenCalled());
@@ -255,7 +256,7 @@ describe('MetricsTrendView', () => {
     await waitFor(() => expect(SyncService.getJobTimeseries).toHaveBeenCalled());
     expect(vi.mocked(SyncService.getJobTimeseries).mock.calls[0][1]).toMatchObject({
       start: Date.parse('2026-11-14T12:13:03Z'),
-      end: Date.parse('2026-11-14T12:39:44Z'),
+      end: Date.parse('2026-11-14T12:39:44Z') + LIFETIME_TAIL_MS,
     });
   });
 

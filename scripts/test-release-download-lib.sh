@@ -72,20 +72,6 @@ api_json='{
 check_eq "json tag_name" "$(printf '%s' "$api_json" | stx_json_tag_name)" "v1.2.0"
 check_eq "json tag_name compact" "$(printf '{"id":1,"tag_name":"v9.9.9-rc.1","x":2}' | stx_json_tag_name)" "v9.9.9-rc.1"
 check_eq "json tag_name missing" "$(printf '{"message":"Not Found"}' | stx_json_tag_name || true)" ""
-manifest='{
-  "node_major": "18",
-  "observability": {
-    "amd64": "observability-prom3.9.1-am0.31.1-gf12.3.3-linux-amd64.tar.gz",
-    "arm64": "observability-prom3.9.1-am0.31.1-gf12.3.3-linux-arm64.tar.gz"
-  },
-  "build_time": "2026-09-19T05:04:30Z"
-}'
-check_eq "manifest obs amd64" "$(printf '%s' "$manifest" | stx_manifest_obs_asset amd64)" \
-  "observability-prom3.9.1-am0.31.1-gf12.3.3-linux-amd64.tar.gz"
-check_eq "manifest obs arm64" "$(printf '%s' "$manifest" | stx_manifest_obs_asset arm64)" \
-  "observability-prom3.9.1-am0.31.1-gf12.3.3-linux-arm64.tar.gz"
-check_eq "manifest obs missing arch" "$(printf '%s' "$manifest" | stx_manifest_obs_asset riscv64 || true)" ""
-
 for v in v18.18.0 v18.20.8 v20.0.0 v22.11.0 v100.1.1; do
   if stx_node_version_ok "$v"; then echo "OK node ok $v"; else echo "FAIL node should be ok: $v"; fail=1; fi
 done
@@ -138,9 +124,9 @@ stx_yaml_set "$ycfg" "app.addr" ":18000"
 stx_yaml_set "$ycfg" "app.external_url" "http://10.0.0.5:18000"
 stx_yaml_set "$ycfg" "grpc.port" "18890"
 stx_yaml_set "$ycfg" "observability.enabled" "true"
-stx_yaml_set "$ycfg" "observability.prometheus.url" "http://127.0.0.1:9090"
-stx_yaml_set "$ycfg" "observability.alertmanager.url" "http://127.0.0.1:9093"
-stx_yaml_set "$ycfg" "observability.grafana.url" "http://127.0.0.1:3000"
+stx_yaml_set "$ycfg" "observability.storage.retention" "31d"
+stx_yaml_set "$ycfg" "observability.scrape_interval" "15s"
+stx_yaml_set "$ycfg" "observability.seatunnel_metrics.path" "/hazelcast/rest/instance/metrics"
 stx_yaml_set "$ycfg" "auth.default_admin_password" 'p@ss w/ord&\1'
 stx_yaml_set "$ycfg" "oauth_providers.github.enabled" "false"
 stx_yaml_set "$ycfg" "app.app_name" "'single'"
@@ -148,9 +134,9 @@ check_eq "yaml app.addr" "$(yaml_get "$ycfg" app.addr)" "addr: :18000"
 check_eq "yaml app.external_url" "$(yaml_get "$ycfg" app.external_url)" 'external_url: "http://10.0.0.5:18000"'
 check_eq "yaml grpc.port" "$(yaml_get "$ycfg" grpc.port)" "port: 18890"
 check_eq "yaml observability.enabled" "$(yaml_get "$ycfg" observability.enabled)" "enabled: true"
-check_eq "yaml observability.prometheus.url" "$(yaml_get "$ycfg" observability.prometheus.url)" 'url: "http://127.0.0.1:9090"'
-check_eq "yaml observability.alertmanager.url" "$(yaml_get "$ycfg" observability.alertmanager.url)" 'url: "http://127.0.0.1:9093"'
-check_eq "yaml observability.grafana.url" "$(yaml_get "$ycfg" observability.grafana.url)" 'url: "http://127.0.0.1:3000"'
+check_eq "yaml observability.storage.retention" "$(yaml_get "$ycfg" observability.storage.retention)" 'retention: "31d"'
+check_eq "yaml observability.scrape_interval" "$(yaml_get "$ycfg" observability.scrape_interval)" 'scrape_interval: "15s"'
+check_eq "yaml observability.seatunnel_metrics.path" "$(yaml_get "$ycfg" observability.seatunnel_metrics.path)" 'path: "/hazelcast/rest/instance/metrics"'
 check_eq "yaml auth.default_admin_password" "$(yaml_get "$ycfg" auth.default_admin_password)" 'default_admin_password: "p@ss w/ord&\1"'
 check_eq "yaml nested 3-level" "$(yaml_get "$ycfg" oauth_providers.github.enabled)" "enabled: false"
 check_eq "yaml pre-quoted value" "$(yaml_get "$ycfg" app.app_name)" "app_name: 'single'"
@@ -163,7 +149,7 @@ changed="$(awk 'NR == FNR { a[FNR] = $0; next } a[FNR] != $0 { n++ } END { print
 # 4 of the 10 writes equal the existing values (observability.* defaults), so exactly 6 lines change.
 check_eq "yaml only targeted lines changed" "$changed" "6"
 cp "$ycfg" "$ycfg.bak"
-if stx_yaml_set "$ycfg" "observability.prometheus.nope" "x" 2>/dev/null; then
+if stx_yaml_set "$ycfg" "observability.storage.nope" "x" 2>/dev/null; then
   echo "FAIL yaml missing key should fail"; fail=1
 else
   echo "OK yaml missing key fails"

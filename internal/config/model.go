@@ -248,9 +248,11 @@ type TelemetryConfig struct {
 	Endpoint string `mapstructure:"endpoint"`
 }
 
-// ObservabilityConfig 可观测性配置（内嵌 tsdb + PromQL 引擎；Prometheus/Grafana/Alertmanager 远程集成字段将逐步退役）
-// ObservabilityConfig holds observability settings (embedded tsdb + PromQL engine; the remote
-// Prometheus/Grafana/Alertmanager integration fields are being retired across phases).
+// ObservabilityConfig 可观测性配置（内嵌 tsdb + PromQL 引擎 + 进程内告警评估）。旧版的
+// prometheus / alertmanager / grafana 段已删除；旧配置文件残留这些段时被忽略，不影响启动。
+// ObservabilityConfig holds observability settings (embedded tsdb + PromQL engine + in-process
+// alert evaluation). The legacy prometheus / alertmanager / grafana sections are gone; leftovers in
+// old config files are ignored and do not block startup.
 type ObservabilityConfig struct {
 	// Enabled indicates whether observability integration is enabled.
 	// Enabled 表示是否启用可观测性集成。
@@ -274,10 +276,13 @@ type ObservabilityConfig struct {
 	// MaxSamples is the maximum number of samples a single query may load.
 	MaxSamples int64 `mapstructure:"max_samples"`
 
-	Prometheus      ObservabilityPrometheusConfig      `mapstructure:"prometheus"`
-	Alertmanager    ObservabilityAlertmanagerConfig    `mapstructure:"alertmanager"`
-	Grafana         ObservabilityGrafanaConfig         `mapstructure:"grafana"`
 	SeatunnelMetric ObservabilitySeatunnelMetricConfig `mapstructure:"seatunnel_metrics"`
+
+	// RemoteIngest 是远程告警回流（AM webhook）端点配置：path 自 alertmanager.webhook_path 迁入，
+	// token 非空时 webhook 校验 Authorization: Bearer。
+	// RemoteIngest holds the remote alert ingest (AM webhook) endpoint settings: path was migrated
+	// from alertmanager.webhook_path; a non-empty token makes the webhook verify Authorization: Bearer.
+	RemoteIngest ObservabilityRemoteIngestConfig `mapstructure:"remote_ingest"`
 }
 
 // ObservabilityStorageConfig 内嵌 tsdb 存储配置
@@ -296,27 +301,21 @@ type ObservabilityStorageConfig struct {
 	MaxSize int64 `mapstructure:"max_size"`
 }
 
-// ObservabilityPrometheusConfig Prometheus 集成配置
-type ObservabilityPrometheusConfig struct {
-	URL string `mapstructure:"url"`
+// ObservabilityRemoteIngestConfig 远程告警回流（AM webhook）端点配置。
+// ObservabilityRemoteIngestConfig holds the remote alert ingest (AM webhook) endpoint settings.
+type ObservabilityRemoteIngestConfig struct {
+	// Path 是 STX 对外暴露的 Alertmanager Webhook 路径（随内嵌可观测由
+	// alertmanager.webhook_path 迁入，破坏性变更不做双读）。
+	// Path is the Alertmanager webhook path exposed by STX (migrated from
+	// alertmanager.webhook_path as a breaking change with no dual-read).
+	Path string `mapstructure:"path"`
 
-	// HTTPSDPath is the fixed HTTP SD endpoint path exposed by STX.
-	// HTTPSDPath 是 STX 暴露的 Prometheus HTTP SD 路径。
-	HTTPSDPath string `mapstructure:"http_sd_path"`
-}
-
-// ObservabilityAlertmanagerConfig Alertmanager 集成配置
-type ObservabilityAlertmanagerConfig struct {
-	URL string `mapstructure:"url"`
-
-	// WebhookPath is the fixed Alertmanager webhook path exposed by STX.
-	// WebhookPath 是 STX 暴露的 Alertmanager Webhook 路径。
-	WebhookPath string `mapstructure:"webhook_path"`
-}
-
-// ObservabilityGrafanaConfig Grafana 集成配置
-type ObservabilityGrafanaConfig struct {
-	URL string `mapstructure:"url"`
+	// Token 非空时 webhook 请求必须携带 Authorization: Bearer <token>（常量时间比较）；
+	// 为空维持放行兼容已接入的外部 AM，启动时记一条 WARN。
+	// When Token is non-empty the webhook requires Authorization: Bearer <token> (constant-time
+	// compare); empty keeps the legacy open behaviour for already-integrated external Alertmanagers
+	// and logs one WARN at startup.
+	Token string `mapstructure:"token"`
 }
 
 // ObservabilitySeatunnelMetricConfig SeaTunnel metrics 探测配置

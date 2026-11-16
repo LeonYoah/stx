@@ -42,11 +42,11 @@ func TestResolveMetricsPolicyCapability(t *testing.T) {
 		}
 	})
 
-	t.Run("available when prometheus and metrics are healthy", func(t *testing.T) {
+	t.Run("available when embedded tsdb and metrics are healthy", func(t *testing.T) {
 		config.Config.Observability.Enabled = true
 
 		status, reason := resolveMetricsPolicyCapability(map[string]*IntegrationComponentStatus{
-			"prometheus":        {Name: "prometheus", Healthy: true},
+			"embedded_tsdb":     {Name: "embedded_tsdb", Healthy: true},
 			"seatunnel_metrics": {Name: "seatunnel_metrics", Healthy: true},
 		})
 		if status != AlertPolicyCapabilityStatusAvailable {
@@ -57,17 +57,32 @@ func TestResolveMetricsPolicyCapability(t *testing.T) {
 		}
 	})
 
+	t.Run("unavailable when embedded tsdb is unhealthy", func(t *testing.T) {
+		config.Config.Observability.Enabled = true
+
+		status, reason := resolveMetricsPolicyCapability(map[string]*IntegrationComponentStatus{
+			"embedded_tsdb":     {Name: "embedded_tsdb", Healthy: false, Error: "embedded tsdb is not running"},
+			"seatunnel_metrics": {Name: "seatunnel_metrics", Healthy: true},
+		})
+		if status != AlertPolicyCapabilityStatusUnavailable {
+			t.Fatalf("expected unavailable, got %s", status)
+		}
+		if !strings.Contains(reason, "Built-in monitoring storage is not ready") {
+			t.Fatalf("unexpected reason: %s", reason)
+		}
+	})
+
 	t.Run("unavailable when metrics target is unhealthy", func(t *testing.T) {
 		config.Config.Observability.Enabled = true
 
 		status, reason := resolveMetricsPolicyCapability(map[string]*IntegrationComponentStatus{
-			"prometheus":        {Name: "prometheus", Healthy: true},
+			"embedded_tsdb":     {Name: "embedded_tsdb", Healthy: true},
 			"seatunnel_metrics": {Name: "seatunnel_metrics", Healthy: false, Error: "partial healthy: 1/3 targets expose metrics"},
 		})
 		if status != AlertPolicyCapabilityStatusUnavailable {
 			t.Fatalf("expected unavailable, got %s", status)
 		}
-		if !strings.Contains(reason, "SeaTunnel metrics targets is not ready") {
+		if !strings.Contains(reason, "Engine metric collection is not ready") {
 			t.Fatalf("unexpected reason: %s", reason)
 		}
 	})
@@ -81,12 +96,12 @@ func TestResolveRemoteIngestCapability(t *testing.T) {
 
 	config.Config.Observability.Enabled = true
 	status, reason := resolveRemoteIngestCapability(map[string]*IntegrationComponentStatus{
-		"alertmanager": {Name: "alertmanager", Healthy: false, StatusCode: 503},
+		"remote_ingest": {Name: "remote_ingest", Healthy: false, StatusCode: 503},
 	})
 	if status != AlertPolicyCapabilityStatusUnavailable {
 		t.Fatalf("expected unavailable, got %s", status)
 	}
-	if !strings.Contains(reason, "Alertmanager is not ready") {
+	if !strings.Contains(reason, "External alert ingest is not ready") {
 		t.Fatalf("unexpected reason: %s", reason)
 	}
 }

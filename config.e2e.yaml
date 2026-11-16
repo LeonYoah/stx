@@ -80,14 +80,9 @@ observability:
   eval_interval: "15s"
   query_timeout: "8s"
   max_samples: 50000000
-  prometheus:
-    url: ""
-    http_sd_path: "/api/v1/monitoring/prometheus/discovery"
-  alertmanager:
-    url: ""
-    webhook_path: "/api/v1/monitoring/alertmanager/webhook"
-  grafana:
-    url: ""
+  remote_ingest:
+    path: "/api/v1/monitoring/alertmanager/webhook"
+    token: ""
   seatunnel_metrics:
     path: "/hazelcast/rest/instance/metrics"
     probe_timeout_seconds: 2

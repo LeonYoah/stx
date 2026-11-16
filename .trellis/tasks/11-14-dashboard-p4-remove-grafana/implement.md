@@ -9,49 +9,49 @@
 
 ## 1. 内嵌不足修复（A1–A3）
 
-- [ ] `job_prometheus.go`：`applyJobMetrics` 抽出；终态先写指标再 `scheduleDelete`；`deferDeletes` / `pendingDeletes` / `takePendingDeletes`；`zeroAt` 记录。
-- [ ] `job_metrics_exporter.go`：先取待删快照 → gather 写入（新计数器序列补 0 样本）→ 提交后执行删除；启动时开启延迟删除。
-- [ ] `embedts/flatten.go`：`SeriesTracker.Seen`。
-- [ ] `embedts/embedts.go`：`ActiveQueryTracker`（`max(4, GOMAXPROCS)`）。
-- [ ] 单测：延迟删除两种模式、零值起点三种情形、并发上限排队。`go test ./internal/apps/sync/... ./internal/pkg/embedts/...`。
-- [ ] 提交：`fix(observability): 作业终态终值写入、新作业零值起点与引擎查询并发上限`
+- [x] `job_prometheus.go`：`applyJobMetrics` 抽出；终态先写指标再 `scheduleDelete`；`deferDeletes` / `pendingDeletes` / `takePendingDeletes`；`zeroAt` 记录。
+- [x] `job_metrics_exporter.go`：先取待删快照 → gather 写入（新计数器序列补 0 样本）→ 提交后执行删除；启动时开启延迟删除。
+- [x] `embedts/flatten.go`：`SeriesTracker.Seen`。
+- [x] `embedts/embedts.go`：`ActiveQueryTracker`（`max(4, GOMAXPROCS)`）。
+- [x] 单测：延迟删除两种模式、零值起点三种情形、并发上限排队。`go test ./internal/apps/sync/... ./internal/pkg/embedts/...`。
+- [x] 提交：`fix(observability): 作业终态终值写入、新作业零值起点与引擎查询并发上限`
 
 ## 2. 大盘缓存 + 空态文案（C2 / C3）
 
-- [ ] `dashboard/prom_cache.go` + 集群 / 作业服务接入；单测（singleflight、TTL、错误 5 秒、`-race`）。
-- [ ] `TrendEmptyState` 按 `reason`；集群 / 作业页签、预览抽屉、作业详情趋势透传；zh / en。
-- [ ] 前端单测；提交：`feat(dashboard): 大盘查询短时缓存与按原因区分的空态`
+- [x] `dashboard/prom_cache.go` + 集群 / 作业服务接入；单测（singleflight、TTL、错误 5 秒、`-race`）。
+- [x] `TrendEmptyState` 按 `reason`；集群 / 作业页签、预览抽屉、作业详情趋势透传；zh / en。
+- [x] 前端单测；提交：`feat(dashboard): 大盘查询短时缓存与按原因区分的空态`
 
 ## 3. Grafana 应用层 + 配置（B3 / C1）
 
-- [ ] 代理 handler / 路由 / 中间件；`observability.grafana` 配置全链路；example / e2e / compose / `.env*`。
-- [ ] 配置加载测试：含 `grafana` / `prometheus` / `alertmanager` 旧段的 yaml 正常加载。
-- [ ] 删除 `MonitoringOverview.tsx` 与专用 i18n；`HomeDashboard` 注释。
-- [ ] contract-report 基线、swagger 重新生成。
-- [ ] 提交：`refactor(observability): 移除 Grafana 代理、配置与前端残留`
+- [x] 代理 handler / 路由 / 中间件；`observability.grafana` 配置全链路；example / e2e / compose / `.env*`。
+- [x] 配置加载测试：含 `grafana` / `prometheus` / `alertmanager` 旧段的 yaml 正常加载。
+- [x] 删除 `MonitoringOverview.tsx` 与专用 i18n；`HomeDashboard` 注释。
+- [x] contract-report 基线、swagger 重新生成。
+- [x] 提交：`refactor(observability): 移除 Grafana 代理、配置与前端残留`
 
 ## 4. 用户可见文案去实现名（C5）
 
-- [ ] 前端 i18n 逐条改（见 design §5.1）；删除策略中心 PromQL 预览渲染；`remote_alertmanager` 等枚举显示映射。
-- [ ] 后端：能力卡 / 构建器说明、handler `error_msg`、operation 命令描述、诊断报告模板与条目。
-- [ ] `grep -rniE "prometheus|alertmanager|grafana|promql"` 核对 i18n、`error_msg`、operation 描述、诊断模板，只剩例外项。
-- [ ] 前后端测试；提交：`refactor(ui): 用户可见文案不再暴露监控底层实现名`
+- [x] 前端 i18n 逐条改（见 design §5.1）；删除策略中心 PromQL 预览渲染；`remote_alertmanager` 等枚举显示映射。
+- [x] 后端：能力卡 / 构建器说明、handler `error_msg`、operation 命令描述、诊断报告模板与条目。
+- [x] `grep -rniE "prometheus|alertmanager|grafana|promql"` 核对 i18n、`error_msg`、operation 描述、诊断模板，只剩例外项。
+- [x] 前后端测试；提交：`refactor(ui): 用户可见文案不再暴露监控底层实现名`
 
 ## 5. 安装 / docker / CI / 脚本（B1 / B2）
 
-- [ ] 读清楚依赖：`install/bin/lib/observability.sh` 的调用方、deps 清单格式、`test-release-download-lib.sh` 被谁 source。
-- [ ] 删除 `install/observability/`、`install/bin/lib/observability.sh`、`deploy/docker/observability/`、`scripts/manage-deps-obs.sh`、`scripts/observability-remote-smoke.sh`。
-- [ ] 改 `install-core.sh` / `install.sh` / `install-online.sh` / `build-offline-bundle.sh` / `package-release.sh` / `bin/{start,stop,status}.sh`；升级提示旧目录保留。
-- [ ] 改 compose、`.env*`、workflows、其余 scripts 的断言。
-- [ ] `bash -n` 全部改动脚本；`shellcheck`（如可用）；跑 `scripts/test-offline-bundle.sh`、`test-release-deps.sh`、`test-release-download-lib.sh`、`observability-enabled-switch-regression.sh`（能本地跑的）。
-- [ ] 提交：`refactor(install): 安装包、离线包与 docker 部署移除外部监控三件套`
+- [x] 读清楚依赖：`install/bin/lib/observability.sh` 的调用方、deps 清单格式、`test-release-download-lib.sh` 被谁 source。
+- [x] 删除 `install/observability/`、`install/bin/lib/observability.sh`、`deploy/docker/observability/`、`scripts/manage-deps-obs.sh`、`scripts/observability-remote-smoke.sh`。
+- [x] 改 `install-core.sh` / `install.sh` / `install-online.sh` / `build-offline-bundle.sh` / `package-release.sh` / `bin/{start,stop,status}.sh`；升级提示旧目录保留。
+- [x] 改 compose、`.env*`、workflows、其余 scripts 的断言。
+- [x] `bash -n` 全部改动脚本；`shellcheck`（如可用）；跑 `scripts/test-offline-bundle.sh`、`test-release-deps.sh`、`test-release-download-lib.sh`、`observability-enabled-switch-regression.sh`（能本地跑的）。
+- [x] 提交：`refactor(install): 安装包、离线包与 docker 部署移除外部监控三件套`
 
 ## 6. 文档与 spec（B4 / C4）
 
-- [ ] 新 `docs/内嵌可观测说明.md`；删旧四篇，修引用；安装部署 / 打包发布 / 告警中心说明改写；AGENTS.md / README。
-- [ ] spec：ui-conventions §16、job-status-reconciler 首页大盘一节、其他观测相关 spec。
-- [ ] 内嵌任务 implement.md P4 段标注「并入 dashboard P4」。
-- [ ] 提交：`docs: 内嵌可观测说明与规范同步`
+- [x] 新 `docs/内置监控说明.md`；删旧四篇，修引用；安装部署 / 打包发布 / 告警中心说明改写；AGENTS.md / README。
+- [x] spec：ui-conventions §16、job-status-reconciler 首页大盘一节、其他观测相关 spec。
+- [x] 内嵌任务 implement.md P4 段标注「并入 dashboard P4」。
+- [x] 提交：`docs: 内嵌可观测说明与规范同步`
 
 ## 7. 验证（D1–D3）
 

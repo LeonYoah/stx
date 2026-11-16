@@ -6,13 +6,13 @@
 
 ## 概述
 
-**主后端**（根模块 `internal/`）通过 **otelzap**（`internal/logger`）使用 **Zap**，使日志可与 **OpenTelemetry** 的 trace/span ID 关联。**Agent**（`agent/` 下独立模块）使用另一套 logger，见下文 [Agent 日志](#agent-日志)。对外 API 为一组接收 `context.Context` 和格式字符串的函数：`DebugF`、`InfoF`、`WarnF`、`ErrorF`。**context 通过入参传递**：新写的方法、主类入口若会打日志或调下层，首参应为 `ctx context.Context`，从 handler/gRPC 一路向下传，打日志时统一用该 `ctx`。Logger 在启动时初始化一次；日志级别与输出（标准输出、文件或两者）在 `config.Config.Log` 中配置。高频或噪音较大的 HTTP 路径（如 Grafana 代理的 Prometheus 查询、Live WebSocket）在路由中间件中排除请求日志，以控制日志量。
+**主后端**（根模块 `internal/`）通过 **otelzap**（`internal/logger`）使用 **Zap**，使日志可与 **OpenTelemetry** 的 trace/span ID 关联。**Agent**（`agent/` 下独立模块）使用另一套 logger，见下文 [Agent 日志](#agent-日志)。对外 API 为一组接收 `context.Context` 和格式字符串的函数：`DebugF`、`InfoF`、`WarnF`、`ErrorF`。**context 通过入参传递**：新写的方法、主类入口若会打日志或调下层，首参应为 `ctx context.Context`，从 handler/gRPC 一路向下传，打日志时统一用该 `ctx`。Logger 在启动时初始化一次；日志级别与输出（标准输出、文件或两者）在 `config.Config.Log` 中配置。
 
 ---
 
 ## 日志级别
 
-- **Debug**：详细诊断（如 `LoggerMiddleware` 中 Grafana 静态资源请求）。生产环境尽量少用，保持可读性。
+- **Debug**：详细诊断。生产环境尽量少用，保持可读性。
 - **Info**：正常操作（如 `LoggerMiddleware` 中的 HTTP 请求/响应、「集群已创建」、「Agent 已连接」）。请求日志默认级别。
 - **Warn**：可恢复或意外但已处理的情况（如配置回退、重试）。
 - **Error**：需要关注的失败（如命令执行失败、关键路径 DB 错误）。用于后台任务入口或关键路径。
@@ -25,7 +25,7 @@
 
 - **格式**：通过 `config.Config.Log.Format` 配置：`json` 或 console。JSON 包含 `time`、`level`、`msg`、`caller`，以及 context 中的 `traceID`/`spanID`（若有）。
 - **调用方**：Zap 配置了 `AddCaller()` 和 `AddCallerSkip(1)`，记录的是调用 `InfoF` 等的调用方，而非 logger 自身。
-- **请求日志**：路由的 `loggerMiddleware()` 记录方法、路径、查询、开始/结束时间、耗时、客户端 IP、响应状态与大小。普通请求用 `logger.InfoF`，部分代理静态路径用 `logger.DebugF`；Grafana Live WS 与 Grafana Prometheus 数据源查询路径完全不记录。
+- **请求日志**：路由的 `loggerMiddleware()` 记录方法、路径、查询、开始/结束时间、耗时、客户端 IP、响应状态与大小。统一用 `logger.InfoF`。
 
 ---
 
@@ -42,7 +42,6 @@
 
 - **敏感信息**：密码、令牌、API 密钥或任何用于认证的配置。不得记录可能包含凭据的请求/响应体。
 - **生产环境 Info 中的 PII**：如非运维必需，避免在 Info 级别记录完整用户标识或 IP；遵循项目隐私策略。
-- **高频代理流量**：Grafana Prometheus 数据源查询与 Grafana Live WebSocket 不在 HTTP 中间件中记录，以减少噪音（见 `router/middlewares.go`：`isGrafanaPrometheusQueryPath`、`isGrafanaLiveWSPath`）。
 - **生产环境过多 Debug**：Debug 用于开发与排障；生产默认日志级别应为 Info 或 Warn。
 
 ---

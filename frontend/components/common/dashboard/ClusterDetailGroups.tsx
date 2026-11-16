@@ -215,8 +215,10 @@ export function ClusterDetailGroups({
                   clearLabel={t('legendClear')}
                   resetLabel={t('legendAll')}
                   categoryLabel={t('time')}
-                  formatValue={
-                    item.unit === 'bytes' ? formatBytes : formatCompactNumber
+                  formatValue={(value) =>
+                    item.unit === 'bytes'
+                      ? formatBytes(value)
+                      : formatCompactNumber(value)
                   }
                 />
               </div>

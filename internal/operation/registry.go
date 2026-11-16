@@ -1990,7 +1990,7 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		{Name: "task_id", Location: InputQuery, Description: "Sync task ID (job alert policies)"},
 	}
 	alertInstanceInputs := append([]InputSpec{
-		{Name: "source_type", Location: InputQuery, Description: "Alert source: local_process_event, remote_alertmanager or sync"},
+		{Name: "source_type", Location: InputQuery, Description: "Alert source: local_process_event, remote_alertmanager (metric alerts) or sync"},
 		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
 		{Name: "severity", Location: InputQuery, Description: "Alert severity: warning or critical"},
 		{Name: "status", Location: InputQuery, Description: "Display status: firing, resolved, or closed"},

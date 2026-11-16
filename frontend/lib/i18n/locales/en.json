@@ -2871,7 +2871,7 @@
     "alerts": {
       "entry": "Alert Events",
       "title": "Alert Events",
-      "subtitle": "Unified view of local process alerts and remote Alertmanager alerts",
+      "subtitle": "One view of platform event alerts, metric alerts and job alerts",
       "listTitle": "Alert List",
       "clusterFilter": "Filter by cluster",
       "statusFilter": "Filter by status",
@@ -2931,7 +2931,7 @@
       "pageInfo": "Page {current} / {total}",
       "sourceTypes": {
         "local_process_event": "Local Process Event",
-        "remote_alertmanager": "Remote Alertmanager",
+        "remote_alertmanager": "Metric alerts",
         "sync": "Job alerts"
       },
       "lifecycleStatuses": {
@@ -3013,7 +3013,7 @@
       "title": "Rules & Notifications",
       "subtitle": "Manage alert rules and notification channels with capability-aware controls.",
       "generatedAt": "Generated at: {value}",
-      "unifiedExperienceHint": "One surface for alert rules and notifications; platform-health and Prometheus signals stay distinct internally.",
+      "unifiedExperienceHint": "One surface for alert rules and notifications; platform-health and metric signals stay distinct internally.",
       "loadError": "Failed to load rules & notifications bootstrap data",
       "policyListLoadError": "Failed to load alert rules",
       "channelListLoadError": "Failed to load notification channels for rule binding",
@@ -3025,7 +3025,7 @@
       "capabilitySectionTitle": "Capability Status",
       "integrationSectionTitle": "Integration Dependency Status",
       "templatesSectionTitle": "Recommended Policy Templates",
-      "templatesSectionSubtitle": "These templates define the product skeleton of the rules & notifications: platform-health templates always remain evolvable, while metrics templates unlock when Prometheus capabilities are available.",
+      "templatesSectionSubtitle": "These templates define the product skeleton of the rules & notifications: platform-health templates are always available, while metrics templates unlock when built-in monitoring is available.",
       "listTitle": "Current Policies",
       "listSubtitle": "Currently managing {count} unified alert policies.",
       "listGeneratedAt": "Policy list generated at: {value}",
@@ -3128,11 +3128,11 @@
         },
         "metrics_templates": {
           "title": "Metrics Templates",
-          "summary": "When Prometheus is ready, unlock curated templates for CPU, memory, FD, failed jobs, and other metrics-based policies."
+          "summary": "When built-in monitoring is available, unlock curated templates for CPU, memory, FD, failed jobs, and other metrics-based policies."
         },
         "remote_ingest": {
           "title": "Remote Alert Ingest",
-          "summary": "Bring Alertmanager webhook alerts into the same alert center and delivery pipeline."
+          "summary": "Receive alerts pushed by external systems (Alertmanager webhook compatible) into the same alert center and delivery pipeline."
         },
         "webhook_notification": {
           "title": "Webhook / IM Notifications",
@@ -3150,7 +3150,7 @@
         },
         "metrics_template": {
           "title": "Metrics Template Policies",
-          "description": "Once Prometheus and metrics targets are ready, start with curated templates for CPU, memory, FD, failed jobs, and more."
+          "description": "Once built-in monitoring collects engine metrics, start with curated templates for CPU, memory, FD, failed jobs, and more."
         }
       },
       "templates": {
@@ -3200,11 +3200,11 @@
         },
         "cpu_usage_high": {
           "name": "CPU usage high",
-          "description": "Use Prometheus metrics to detect sustained CPU saturation."
+          "description": "Use engine metrics to detect sustained CPU saturation."
         },
         "memory_usage_high": {
           "name": "Memory usage high",
-          "description": "Use Prometheus metrics to catch memory pressure before node instability escalates."
+          "description": "Use engine metrics to catch memory pressure before node instability escalates."
         },
         "fd_usage_high": {
           "name": "FD usage high",
@@ -3212,7 +3212,7 @@
         },
         "failed_jobs_high": {
           "name": "Failed jobs high",
-          "description": "Use Prometheus metrics to detect abnormal failed-job or retry volumes."
+          "description": "Use engine metrics to detect abnormal failed-job or retry volumes."
         },
         "split_brain_risk": {
           "name": "Split-brain risk",
@@ -3529,8 +3529,7 @@
         "triggerCondition": "Trigger Condition",
         "operator": "Operator",
         "threshold": "Threshold",
-        "window": "Window",
-        "promqlPreview": "PromQL Preview"
+        "window": "Window"
       },
       "placeholders": {
         "name": "For example: Cluster restart notification",
@@ -3541,7 +3540,7 @@
       "staticConfigDesc": "Pick a platform-health or metrics template to create a rule quickly.",
       "groups": {
         "platformHealth": "Platform Health",
-        "prometheusMetrics": "Prometheus Metrics"
+        "prometheusMetrics": "Monitoring metrics"
       },
       "receiverHint": "Recipients come from active users with valid emails. Current signed-in user is selected by default when available; otherwise fall back to admins.",
       "receiverEmpty": "No notifiable users yet. Add a valid email in your profile (or User Management) first.",
@@ -3739,7 +3738,7 @@
       },
       "conditionThresholdRequired": "Please enter a trigger threshold",
       "conditionWindowInvalid": "Window must be between 0 and 10080 minutes",
-      "metricsUnavailableHint": "Prometheus metric templates are currently unavailable: {reason}",
+      "metricsUnavailableHint": "Metric templates are currently unavailable: {reason}",
       "sections": {
         "rules": "Alert Rules",
         "channels": "Notification Channels",
@@ -5390,12 +5389,14 @@
         "snapshot": "Snapshot",
         "trend": "Trend",
         "snapshotHint": "Latest engine metrics",
-        "trendHint": "Historical trends from Prometheus",
+        "trendHint": "Historical trends",
         "noJob": "No job data",
-        "emptyTitle": "Trends require observability and Prometheus",
+        "emptyTitle": "Turn on observability to see trends",
         "emptyBody": "Once enabled you can chart throughput, CDC delay, checkpoints, busyness and backpressure. STX does not collect or store any time series while it is off.",
+        "unavailableTitle": "Monitoring data is unavailable",
+        "unavailableBody": "Monitoring storage is not ready yet or a query failed; it retries automatically.",
         "emptyEnable": "Enable",
-        "emptyHow": "How to connect",
+        "emptyHow": "How to enable",
         "emptySnapshotHint": "Current values are still available in Snapshot",
         "engineObsEmptyTitle": "Engine observability is off for this job",
         "engineObsEmptyBody": "Busyness and backpressure need engine.observability enabled on the job",
@@ -5406,6 +5407,7 @@
         "lastRefresh": "Last refresh {time}",
         "loading": "Loading",
         "source": "Source",
+        "sourceBuiltin": "Built-in monitoring",
         "hero": {
           "readQps": "Read QPS",
           "writeQps": "Write QPS",

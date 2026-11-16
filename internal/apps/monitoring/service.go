@@ -632,15 +632,13 @@ func (s *Service) embeddedTSDBComponent(obsCfg config.ObservabilityConfig) *Inte
 		URL:     strings.TrimSpace(obsCfg.Storage.Dir),
 		Healthy: embedts.Ready(),
 		Meta: map[string]string{
-			"dir":         strings.TrimSpace(obsCfg.Storage.Dir),
-			"retention":   strings.TrimSpace(obsCfg.Storage.Retention),
-			"max_size":    strconv.FormatInt(obsCfg.Storage.MaxSize, 10),
-			"engine":      "embedded_prometheus_tsdb",
-			"query_layer": "embedded_promql",
+			"dir":       strings.TrimSpace(obsCfg.Storage.Dir),
+			"retention": strings.TrimSpace(obsCfg.Storage.Retention),
+			"max_size":  strconv.FormatInt(obsCfg.Storage.MaxSize, 10),
 		},
 	}
 	if !component.Healthy {
-		component.Error = "embedded tsdb is not running (open failed or not started yet)"
+		component.Error = "monitoring storage is not running (open failed or not started yet)"
 	}
 	return component
 }

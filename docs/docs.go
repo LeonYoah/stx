@@ -5005,7 +5005,7 @@ const docTemplate = `{
                 "tags": [
                     "Sync"
                 ],
-                "summary": "批量获取作业速率迷你曲线（Prometheus）",
+                "summary": "批量获取作业速率迷你曲线",
                 "parameters": [
                     {
                         "type": "string",
@@ -5215,7 +5215,7 @@ const docTemplate = `{
                 "tags": [
                     "Sync"
                 ],
-                "summary": "获取作业指标时序（Prometheus）",
+                "summary": "获取作业指标时序",
                 "parameters": [
                     {
                         "type": "integer",

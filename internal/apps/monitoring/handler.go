@@ -311,7 +311,7 @@ func (h *Handler) AlertmanagerWebhook(c *gin.Context) {
 
 	result, err := h.service.HandleAlertmanagerWebhook(c.Request.Context(), &payload)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to process alertmanager webhook: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to process external alert: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: result})

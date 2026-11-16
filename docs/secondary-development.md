@@ -114,4 +114,4 @@ A missing artifact fails the build and lists every missing file. See [Packaging 
 
 - [Quick start (users, CN)](./00-快速开始.md)
 - [Packaging & release (CN)](./打包发布说明.md)
-- [Observability one-click integration (CN)](./可观测性三件套一键接入说明.md)
+- [Built-in monitoring (CN)](./内置监控说明.md)

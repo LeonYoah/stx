@@ -16,11 +16,11 @@
 """合并 deps Release 的 MANIFEST.json（仅 CI 使用）。
 
 把本次 package-release.sh --deps-only 产出的若干 MANIFEST 片段合并进 deps 上已有的 MANIFEST.json：
-只更新本次真正产出了文件（在 assets 目录中存在）的条目，其余条目（例如只重打三件套时的 Node 条目）原样保留。
+只更新本次真正产出了文件（在 assets 目录中存在）的条目，其余条目（例如没重打的 Node 变体、旧版本留下的字段）原样保留。
 
 Merge the MANIFEST fragments produced by this run's package-release.sh --deps-only invocations into the
 MANIFEST.json already on the deps release. Only entries whose files were actually produced (present in the
-assets dir) are updated; everything else (e.g. Node entries when only observability is rebuilt) is preserved.
+assets dir) are updated; everything else (e.g. Node variants not rebuilt now, keys left by older releases) is preserved.
 
 Usage:
   merge-deps-manifest.py --assets-dir dist/releases --out dist/releases/MANIFEST.json \
@@ -67,22 +67,6 @@ def merge(existing, fragments, assets_dir, now):
                 merged["node_major"] = major
                 merged["node_variant"] = variant
                 merged["node_version"] = version
-
-        # 三件套：按架构，只登记本次产出的 tarball。/ Observability: per arch, only tarballs built now.
-        obs = frag.get("observability") or {}
-        built_obs = {
-            arch: name
-            for arch, name in obs.items()
-            if isinstance(name, str) and name and os.path.isfile(os.path.join(assets_dir, name))
-        }
-        if built_obs:
-            obs_map = dict(merged.get("observability") or {})
-            obs_map.update(built_obs)
-            merged["observability"] = obs_map
-            for key in ("prometheus", "alertmanager", "grafana"):
-                if frag.get(key):
-                    merged[key] = frag[key]
-            updated.extend(built_obs.values())
 
     if not updated:
         raise SystemExit("no deps assets from the fragments were found in the assets dir; nothing to merge")

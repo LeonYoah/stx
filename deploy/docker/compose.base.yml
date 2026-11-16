@@ -14,11 +14,8 @@
 # limitations under the License.
 
 # 公共服务：控制面 + 监控（不含数据库）
-# Shared: control plane + monitoring (no database)
-#
-# Observability YAML is generated from install/observability templates:
-#   ./install/observability/render.sh docker deploy/docker/observability
-# 监控配置由 install/observability 模板生成，勿手改 observability/ 下文件。
+# Shared: control plane (no database). Monitoring is built into stx-backend; nothing else to run.
+# 共享部分：控制面（不含数据库）。监控已内置在 stx-backend 中，无需额外容器。
 #
 # Persistent data uses relative bind mounts under ./data/ (not named volumes).
 # 持久化数据使用 ./data/ 相对路径绑定，不用 named volume。
@@ -38,12 +35,6 @@ services:
       - ${STX_CONFIG_FILE:-../../config.example.yaml}:/opt/stx/config.yaml:ro
       - ./data/stx:/opt/stx/data
       - ./data/stx-lib:/opt/stx/lib
-    environment:
-      # 监控走 compose DNS；yaml 保持根目录 example 的 127.0.0.1。
-      # Observability uses compose DNS; yaml keeps the root example localhost URLs.
-      STX_OBSERVABILITY_PROMETHEUS_URL: ${STX_OBSERVABILITY_PROMETHEUS_URL:-http://prometheus:9090}
-      STX_OBSERVABILITY_ALERTMANAGER_URL: ${STX_OBSERVABILITY_ALERTMANAGER_URL:-http://alertmanager:9093}
-      STX_OBSERVABILITY_GRAFANA_URL: ${STX_OBSERVABILITY_GRAFANA_URL:-http://grafana:3000}
     ports:
       - "17800:17800"
       - "17890:17890"
@@ -82,65 +73,6 @@ services:
     depends_on:
       stx-backend:
         condition: service_healthy
-    networks: [stx]
-
-  prometheus:
-    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.9.1}
-    container_name: stx-prometheus
-    restart: unless-stopped
-    user: "${PROMETHEUS_USER:-0:0}"
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.size=30GB
-      - --web.enable-lifecycle
-    volumes:
-      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
-      - ./data/prometheus:/prometheus
-    depends_on:
-      - stx-backend
-    networks: [stx]
-
-  alertmanager:
-    image: ${ALERTMANAGER_IMAGE:-prom/alertmanager:v0.31.1}
-    container_name: stx-alertmanager
-    restart: unless-stopped
-    user: "${ALERTMANAGER_USER:-0:0}"
-    command:
-      - --config.file=/etc/alertmanager/alertmanager.yml
-      - --storage.path=/alertmanager
-      # 单机部署：置空关闭 gossip 集群。/ Single-node: empty value disables HA clustering.
-      - --cluster.listen-address=
-    volumes:
-      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - ./data/alertmanager:/alertmanager
-    depends_on:
-      - stx-backend
-    networks: [stx]
-
-  grafana:
-    image: ${GRAFANA_IMAGE:-grafana/grafana:12.3.3}
-    container_name: stx-grafana
-    restart: unless-stopped
-    user: "${GRAFANA_USER:-0:0}"
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_SERVER_HTTP_PORT: "3000"
-      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/api/v1/monitoring/proxy/grafana/"
-      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-      GF_SECURITY_ALLOW_EMBEDDING: "true"
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
-      GF_LIVE_MAX_CONNECTIONS: "0"
-    volumes:
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - ./data/grafana:/var/lib/grafana
-    depends_on:
-      - prometheus
     networks: [stx]
 
 networks:

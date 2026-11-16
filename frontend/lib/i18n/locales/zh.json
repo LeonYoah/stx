@@ -177,6 +177,315 @@
       "custom": "自定义",
       "preset": "预置",
       "builtin": "内置"
+    },
+    "home": {
+      "title": "控制台",
+      "subtitle": "集群、作业运行概览与全局作业列表",
+      "scope": {
+        "label": "范围",
+        "all": "全部集群",
+        "clusterFallback": "集群 #{id}"
+      },
+      "refresh": "刷新",
+      "updatedAt": "更新于 {time}",
+      "loadError": "加载首页数据失败",
+      "partial": "部分数据加载失败：{blocks}",
+      "blocks": {
+        "jobs": "作业",
+        "clusters": "集群",
+        "alerts": "告警"
+      },
+      "tabs": {
+        "cluster": "集群",
+        "jobs": "作业",
+        "list": "作业列表"
+      },
+      "kpi": {
+        "running": "运行中作业",
+        "runningContext": "流 {streaming} · 批 {batch}",
+        "writeRate": "全局写入速率",
+        "writeContextTrend": "较 1 小时前",
+        "writeContextNow": "当前合计（10 秒对账）",
+        "cdc": "最大 CDC 延迟",
+        "cdcNone": "暂无 CDC 延迟数据",
+        "cdcOver": "超阈值",
+        "failed": "失败作业",
+        "failedContext": "近 24 小时（含失败中）",
+        "failedYesterday": "昨日 {count}",
+        "clusters": "集群健康",
+        "clustersContext": "节点 {online}/{total} 在线",
+        "clustersDegraded": "{count} 个降级",
+        "alerts": "活跃告警",
+        "alertsContext": "严重 {count}"
+      },
+      "unit": {
+        "rowsPerSec": " 行/秒",
+        "seconds": " 秒"
+      },
+      "attention": {
+        "title": "需要处理",
+        "empty": "暂无需要处理的事项",
+        "kind": {
+          "job_failed": "作业失败",
+          "cdc_delay": "CDC 延迟",
+          "backpressure": "高背压",
+          "alert": "告警"
+        },
+        "noAccess": "无权查看该作业"
+      },
+      "jobsTab": {
+        "throughput": {
+          "title": "全局吞吐",
+          "hint": "所有作业合计",
+          "write": "写入 行/秒",
+          "read": "读取 行/秒",
+          "write_bytes": "写入 字节/秒",
+          "read_bytes": "读取 字节/秒",
+          "metricLabel": "吞吐指标"
+        },
+        "annotation": {
+          "job_failed": "作业失败",
+          "job_recovered": "作业恢复",
+          "schema_change": "表结构变更"
+        },
+        "topWrite": {
+          "title": "写入速率 Top 8",
+          "hint": "时间窗内平均 · 行/秒",
+          "series": "平均写入速率"
+        },
+        "topCdc": {
+          "title": "CDC 延迟 Top 8",
+          "hint": "时间窗内最大 · 秒 · 告警阈值 60 秒",
+          "series": "最大 CDC 延迟"
+        },
+        "flow": {
+          "title": "数据流向",
+          "hint": "源连接器 → 目标连接器 · 时间窗内写入行数",
+          "unknown": "未识别"
+        },
+        "calendar": {
+          "title": "运行日历",
+          "hint": "近 {weeks} 周每日运行次数",
+          "runs": "运行",
+          "failed": "失败",
+          "unitRuns": "次运行",
+          "unitFailed": "次失败",
+          "modeLabel": "日历指标",
+          "cell": "{date} {count} {unit}",
+          "cellUndated": "{count} {unit}",
+          "range": "{start} 至 {end}",
+          "days": "{days} 天",
+          "less": "少",
+          "more": "多",
+          "level": "显示第 {level} 档"
+        },
+        "checkpoint": {
+          "title": "Checkpoint 耗时",
+          "hint": "时间窗内最大耗时 · 秒",
+          "period": "时间窗",
+          "failures": "{name}（失败 {count}）",
+          "unit": "秒",
+          "average": "平均",
+          "value": "最大耗时",
+          "category": "作业"
+        },
+        "hotspots": {
+          "title": "算子热点",
+          "hint": "时间窗内忙碌度或背压最高的算子（需引擎可观测性）",
+          "job": "作业",
+          "vertex": "算子",
+          "kind": "类型",
+          "value": "峰值",
+          "busy": "忙碌度",
+          "backpressure": "背压"
+        },
+        "empty": "该时间窗内没有数据",
+        "noAccess": "无权查看该作业",
+        "partial": "部分指标查询失败：{keys}",
+        "noPromDesc": "开启可观测性后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。下方运行日历来自 STX 数据库，不受影响。",
+        "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。下方运行日历来自 STX 数据库，不受影响。"
+      },
+      "list": {
+        "searchPlaceholder": "作业名、任务名、引擎作业 ID",
+        "mode": {
+          "all": "全部模式",
+          "streaming": "流",
+          "batch": "批"
+        },
+        "groups": {
+          "all": "全部",
+          "failed": "失败",
+          "running": "运行中",
+          "pending": "等待中",
+          "stopping": "停止中",
+          "canceled": "已取消",
+          "finished": "已完成"
+        },
+        "columns": {
+          "job": "作业",
+          "cluster": "集群",
+          "mode": "模式",
+          "status": "状态",
+          "cdc": "CDC 延迟",
+          "started": "开始时间",
+          "actions": "操作",
+          "rates": "读取 / 写入速率",
+          "totals": "读取 / 写入条数",
+          "ended": "结束时间"
+        },
+        "sortNeedsRunning": "选中「运行中」后可按速率或延迟排序",
+        "taskRef": "任务 #{id}",
+        "ranFor": "已运行 {duration}",
+        "tookFor": "耗时 {duration}",
+        "empty": "没有符合条件的作业",
+        "emptyHint": "调整筛选条件，或到工作台提交作业。",
+        "total": "共 {count} 条",
+        "detail": "详情",
+        "selected": "已选 {count} 个作业",
+        "stop": "停止",
+        "recover": "恢复",
+        "clearSelection": "取消选择",
+        "sparklineLabel": "{name} 近 1 小时写入速率",
+        "loadError": "加载作业列表失败",
+        "bulk": {
+          "stopTitle": "停止 {count} 个作业？",
+          "stopDesc": "将逐个向集群发送停止请求（不做 Savepoint）。已结束的作业会被跳过。",
+          "recoverTitle": "恢复 {count} 个作业？",
+          "recoverDesc": "将逐个从最后一次 Checkpoint 恢复。只有已失败或已取消的作业可以恢复，其余会被跳过。",
+          "confirm": "确认",
+          "cancel": "取消",
+          "result": "完成 {ok} 个，失败 {failed} 个，跳过 {skipped} 个",
+          "itemFailed": "作业 #{id}：{message}"
+        },
+        "units": {
+          "d": " 天",
+          "h": " 小时",
+          "m": " 分"
+        },
+        "avgPrefix": "均 ",
+        "avgRateHint": "作业已结束：运行期间的平均速率（累计条数 ÷ 耗时）"
+      },
+      "preview": {
+        "title": "作业预览",
+        "trend": "近 1 小时吞吐",
+        "read": "读取",
+        "write": "写入",
+        "noTrend": "开启可观测性后显示趋势",
+        "trendUnavailable": "监控数据暂不可用，稍后自动重试",
+        "error": "失败原因",
+        "openDetail": "打开作业详情",
+        "writeRate": "写入速率",
+        "total": "累计写入",
+        "cdc": "CDC 延迟",
+        "close": "关闭",
+        "trendLifetime": "作业全程吞吐",
+        "loading": "加载中",
+        "legendClear": "清空",
+        "legendAll": "全选",
+        "categoryTime": "时间",
+        "empty": "该时间窗内没有数据"
+      },
+      "clusterTab": {
+        "range": {
+          "label": "时间窗",
+          "15m": "15 分钟",
+          "1h": "1 小时",
+          "6h": "6 小时",
+          "24h": "24 小时",
+          "7d": "7 天",
+          "custom": "自定义时间段"
+        },
+        "allClusters": "全部集群",
+        "cardsLabel": "选择集群范围",
+        "health": {
+          "healthy": "健康",
+          "degraded": "降级",
+          "unhealthy": "异常",
+          "unknown": "未知"
+        },
+        "cardDesc": "节点 {online}/{total} · 运行 {running}",
+        "cardHeap": "最高堆 {value}%",
+        "cardAlerts": "告警 {count}",
+        "availability": {
+          "title": "节点可用性",
+          "hint": "每格 {cell}，抓取失败或节点下线标红",
+          "up": "可用",
+          "down": "不可用",
+          "unknown": "无数据",
+          "empty": "暂无节点可用性数据"
+        },
+        "charts": {
+          "heap": "JVM 堆内存使用率",
+          "heapUnit": "按节点 · %",
+          "heapLine": "85% 参考线",
+          "cpu": "进程 CPU",
+          "cpuUnit": "按节点 · 核",
+          "gc": "GC 时间占比",
+          "gcUnit": "按节点 · %",
+          "jobState": "引擎作业状态构成",
+          "jobStateUnit": "引擎保留的作业数",
+          "empty": "该时间窗内没有数据",
+          "time": "时间",
+          "legendClear": "清空",
+          "legendAll": "全选"
+        },
+        "jobStates": {
+          "running": "运行中",
+          "finished": "已完成",
+          "failed": "失败",
+          "failing": "失败中",
+          "canceled": "已取消",
+          "cancelling": "取消中",
+          "created": "已创建",
+          "pending": "等待中",
+          "scheduled": "已调度"
+        },
+        "nodes": {
+          "title": "节点",
+          "count": "{count} 个节点",
+          "node": "节点",
+          "cluster": "集群",
+          "role": "角色",
+          "status": "状态",
+          "heap": "堆内存",
+          "cpu": "CPU",
+          "threads": "线程",
+          "fd": "FD",
+          "uptime": "运行时长",
+          "master": "master",
+          "scrapeDown": "抓取失败",
+          "nodeDown": "节点下线",
+          "agentOffline": "Agent 离线",
+          "empty": "暂无节点",
+          "cores": "{value} 核"
+        },
+        "signals": {
+          "title": "异常信号",
+          "allGood": "全部正常",
+          "clusterSafe": "集群分区安全",
+          "deadlocked": "死锁线程",
+          "fd": "FD 使用率（最高）",
+          "reject": "线程池拒绝",
+          "hzQueue": "Hazelcast 队列利用率",
+          "endpoints": "指标端点不可达",
+          "perSec": "{value} /秒",
+          "ok": "正常",
+          "bad": "异常"
+        },
+        "noProm": {
+          "title": "可观测性未开启",
+          "desc": "开启可观测性后，这里会显示节点可用性、JVM、GC 与作业状态趋势。集群卡片和节点表来自 Agent 心跳，不受影响。",
+          "unavailableTitle": "监控数据暂不可用",
+          "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。集群卡片和节点表来自 Agent 心跳，不受影响。",
+          "action": "查看监控配置"
+        },
+        "partial": "部分指标查询失败：{keys}",
+        "units": {
+          "d": " 天",
+          "h": " 小时",
+          "m": " 分"
+        }
+      }
     }
   },
   "auth": {
@@ -2563,7 +2872,7 @@
     "alerts": {
       "entry": "告警事件",
       "title": "告警事件",
-      "subtitle": "统一查看本地进程事件告警与远程 Alertmanager 告警",
+      "subtitle": "统一查看平台事件告警、指标告警与作业告警",
       "listTitle": "告警列表",
       "clusterFilter": "按集群筛选",
       "statusFilter": "按状态筛选",
@@ -2623,7 +2932,7 @@
       "pageInfo": "第 {current} / {total} 页",
       "sourceTypes": {
         "local_process_event": "本地进程事件",
-        "remote_alertmanager": "远程 Alertmanager",
+        "remote_alertmanager": "指标告警",
         "sync": "作业告警"
       },
       "lifecycleStatuses": {
@@ -2705,7 +3014,7 @@
       "title": "规则与通知",
       "subtitle": "管理告警规则与通知通道，并按能力自动裁剪功能入口。",
       "generatedAt": "生成时间：{value}",
-      "unifiedExperienceHint": "面向用户只保留规则与通知一个工作面；面向系统内部继续区分平台健康与 Prometheus 指标信号。",
+      "unifiedExperienceHint": "面向用户只保留规则与通知一个工作面；系统内部继续区分平台健康与指标信号。",
       "loadError": "加载规则与通知初始化数据失败",
       "policyListLoadError": "加载告警规则列表失败",
       "channelListLoadError": "加载可绑定通知通道失败",
@@ -2717,7 +3026,7 @@
       "capabilitySectionTitle": "能力状态",
       "integrationSectionTitle": "集成依赖状态",
       "templatesSectionTitle": "推荐策略模板",
-      "templatesSectionSubtitle": "这些模板是规则与通知的产品骨架：平台健康模板始终可演进，指标模板则在 Prometheus 能力可用时解锁。",
+      "templatesSectionSubtitle": "这些模板是规则与通知的产品骨架：平台健康模板始终可用，指标模板在内置监控可用时解锁。",
       "listTitle": "现有策略",
       "listSubtitle": "当前共管理 {count} 条统一告警策略。",
       "listGeneratedAt": "策略列表生成时间：{value}",
@@ -2725,7 +3034,6 @@
       "builderSubtitle": "将来源模板、作用范围、严重级别、冷却时间与通知渠道沉淀为统一告警策略资源。",
       "empty": "还没有任何统一告警策略，请先在右侧创建第一条策略。",
       "descriptionEmpty": "暂无描述",
-      "customPromqlSummary": "自定义 PromQL 策略",
       "allClusters": "全部集群",
       "noChannelsSelected": "未绑定通知渠道",
       "policyCount": "{count} 条策略",
@@ -2747,7 +3055,7 @@
       "yes": "是",
       "no": "否",
       "disabled": "已禁用",
-      "formInvalid": "请填写策略名称，并提供有效的模板或 PromQL 表达式。",
+      "formInvalid": "请填写策略名称，并提供有效的模板。",
       "cooldownInvalid": "冷却时间必须是合法的非负整数。",
       "create": "创建策略",
       "createSuccess": "告警策略创建成功",
@@ -2782,8 +3090,7 @@
         "cooldownMinutes": "冷却时间（分钟）",
         "enabled": "启用",
         "sendRecovery": "发送恢复通知",
-        "channels": "通知渠道",
-        "promql": "PromQL 表达式"
+        "channels": "通知渠道"
       },
       "placeholders": {
         "name": "例如：生产集群 Master 不可用",
@@ -2792,8 +3099,7 @@
         "template": "选择模板",
         "cluster": "选择作用范围",
         "severity": "选择严重级别",
-        "cooldownMinutes": "0",
-        "promql": "sum(rate(seatunnel_job_failed_total[5m])) > 0"
+        "cooldownMinutes": "0"
       },
       "columns": {
         "policy": "策略",
@@ -2823,15 +3129,11 @@
         },
         "metrics_templates": {
           "title": "指标模板",
-          "summary": "在 Prometheus 可用时，提供 CPU、内存、FD、失败作业数等指标驱动的策略模板。"
-        },
-        "custom_promql": {
-          "title": "自定义 PromQL",
-          "summary": "为高级用户提供自定义 PromQL 策略能力，但仍保持统一的策略与通知体验。"
+          "summary": "内置监控可用时，提供 CPU、内存、FD、失败作业数等指标驱动的策略模板。"
         },
         "remote_ingest": {
           "title": "远程告警回流",
-          "summary": "将 Alertmanager Webhook 回流纳入统一告警中心和统一通知链路。"
+          "summary": "接收外部系统推送的告警（兼容 Alertmanager Webhook 格式），纳入统一告警中心和通知链路。"
         },
         "webhook_notification": {
           "title": "Webhook / IM 通知",
@@ -2849,11 +3151,7 @@
         },
         "metrics_template": {
           "title": "指标模板策略",
-          "description": "在 Prometheus 与 metrics target 就绪后，直接从模板生成 CPU、内存、FD、失败作业等指标策略。"
-        },
-        "custom_promql": {
-          "title": "自定义 PromQL",
-          "description": "在标准模板之外，为高阶场景开放自定义 PromQL 构建能力。"
+          "description": "内置监控采集到引擎指标后，直接从模板生成 CPU、内存、FD、失败作业等指标策略。"
         }
       },
       "templates": {
@@ -2903,11 +3201,11 @@
         },
         "cpu_usage_high": {
           "name": "CPU 使用率高",
-          "description": "通过 Prometheus 指标检测持续 CPU 饱和。"
+          "description": "通过引擎指标检测持续 CPU 饱和。"
         },
         "memory_usage_high": {
           "name": "内存使用率高",
-          "description": "通过 Prometheus 指标在节点失稳前发现内存压力。"
+          "description": "通过引擎指标在节点失稳前发现内存压力。"
         },
         "fd_usage_high": {
           "name": "FD 使用率高",
@@ -2915,7 +3213,7 @@
         },
         "failed_jobs_high": {
           "name": "失败作业数升高",
-          "description": "通过 Prometheus 指标发现失败作业或重试量异常。"
+          "description": "通过引擎指标发现失败作业或重试量异常。"
         },
         "split_brain_risk": {
           "name": "脑裂风险",
@@ -3092,31 +3390,6 @@
       "nodeOffline": "节点离线",
       "nodeRecovered": "节点已恢复"
     },
-    "grafana": {
-      "title": "SeaTunnel 监控看板",
-      "subtitle": "SeaTunnel 指标监控看板。",
-      "open": "新窗口打开",
-      "notConfigured": "未检测到可用 Grafana 地址，请在 config.yaml 配置 observability.grafana.url。",
-      "proxyBadge": "代理模式",
-      "reload": "重新加载",
-      "securityNotice": "",
-      "loading": "正在加载 Grafana 监控看板…",
-      "loadFailed": "看板加载超时或失败，请重试。",
-      "retry": "重试",
-      "timeRange": {
-        "label": "时间范围",
-        "last1h": "最近 1 小时",
-        "last6h": "最近 6 小时",
-        "last24h": "最近 24 小时",
-        "last7d": "最近 7 天"
-      },
-      "refreshInterval": {
-        "label": "自动刷新",
-        "off": "关闭"
-      },
-      "expand": "展开监控看板",
-      "collapse": "收起看板"
-    },
     "tabs": {
       "dashboard": "监控看板",
       "alerts": "告警事件",
@@ -3226,7 +3499,6 @@
       "nameRequired": "请输入告警名称",
       "clusterRequired": "请选择集群",
       "templateRequired": "请选择规则模板",
-      "promqlRequired": "请输入 PromQL",
       "receiverRequired": "请选择至少一个通知接收人，或为当前邮件通道保留收件人配置",
       "concreteClusterRequired": "当前模板必须绑定具体集群",
       "concreteClusterHint": "运行时事件类规则需要绑定具体集群，不能选择全部集群。",
@@ -3247,7 +3519,6 @@
         "strategyType": "规则类型",
         "template": "规则模板",
         "cluster": "作用集群",
-        "promql": "PromQL",
         "severity": "告警等级",
         "cooldown": "最小告警间隔",
         "enabled": "启用状态",
@@ -3259,23 +3530,18 @@
         "triggerCondition": "触发条件",
         "operator": "比较符",
         "threshold": "阈值",
-        "window": "持续时间",
-        "promqlPreview": "PromQL 预览"
+        "window": "持续时间"
       },
       "placeholders": {
         "name": "例如：集群重启通知",
         "description": "补充规则说明，方便运维团队识别告警含义。",
-        "promql": "例如：sum(rate(seatunnel_job_failed_total[5m])) > 0",
         "threshold": "例如：0.8（表示 80%）"
       },
       "staticConfig": "静态配置",
       "staticConfigDesc": "选择平台健康或指标模板，快速生成规则。",
-      "customPromql": "自定义 PromQL",
-      "customPromqlDesc": "Prometheus 可用时，允许输入自定义查询语句。",
-      "customPromqlUnavailable": "Prometheus 未就绪，暂不可用。",
       "groups": {
         "platformHealth": "平台健康",
-        "prometheusMetrics": "Prometheus 指标"
+        "prometheusMetrics": "监控指标"
       },
       "receiverHint": "通知对象来自已启用且配置了有效邮箱的用户。优先默认当前登录用户；若当前用户不可通知，则回退到管理员。",
       "receiverEmpty": "暂无可选通知对象。请先在个人中心（或用户管理）配置有效邮箱。",
@@ -3473,9 +3739,7 @@
       },
       "conditionThresholdRequired": "请输入触发阈值",
       "conditionWindowInvalid": "持续时间必须在 0 到 10080 分钟之间",
-      "customPromqlLegacy": "历史自定义 PromQL",
-      "customPromqlLegacyDesc": "新规则不再提供自定义 PromQL，仅兼容查看和编辑已有历史规则。",
-      "metricsUnavailableHint": "Prometheus 指标模板当前不可用：{reason}",
+      "metricsUnavailableHint": "指标模板当前不可用：{reason}",
       "sections": {
         "rules": "告警规则",
         "channels": "通知通道",
@@ -5126,12 +5390,14 @@
         "snapshot": "快照",
         "trend": "趋势",
         "snapshotHint": "引擎最新指标",
-        "trendHint": "历史趋势 · 来自 Prometheus",
+        "trendHint": "历史趋势",
         "noJob": "没有作业数据",
-        "emptyTitle": "趋势需要开启可观测性并接入 Prometheus",
+        "emptyTitle": "开启可观测性后显示趋势",
         "emptyBody": "开启后可查看吞吐、CDC 延迟、Checkpoint、算子忙碌度与背压的历史曲线。未开启时 STX 不采集、不保存任何时序数据。",
+        "unavailableTitle": "监控数据暂不可用",
+        "unavailableBody": "监控存储尚未就绪或查询失败，稍后会自动重试。",
         "emptyEnable": "去开启",
-        "emptyHow": "如何接入",
+        "emptyHow": "如何开启",
         "emptySnapshotHint": "当前数值仍可在「快照」中查看",
         "engineObsEmptyTitle": "该作业未开启引擎可观测性",
         "engineObsEmptyBody": "忙碌度与背压需要作业开启 engine.observability",
@@ -5142,6 +5408,7 @@
         "lastRefresh": "上次刷新 {time}",
         "loading": "加载中",
         "source": "数据来源",
+        "sourceBuiltin": "内置监控",
         "hero": {
           "readQps": "读 QPS",
           "writeQps": "写 QPS",

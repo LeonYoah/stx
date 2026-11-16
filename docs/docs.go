@@ -1449,6 +1449,41 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/clusters/{id}/nodes/{nodeId}/java-runtime": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "查询节点生效的 JDK / Get the node's effective JDK",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID / Cluster ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "节点 ID / Node ID",
+                        "name": "nodeId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.GetNodeJavaRuntimeResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/clusters/{id}/nodes/{nodeId}/scale-in": {
             "post": {
                 "consumes": [
@@ -2540,6 +2575,186 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/dashboard/home/clusters": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "首页集群大盘（集群卡片 / 节点 / 趋势 / 异常信号）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID，空表示全部集群",
+                        "name": "cluster_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "name": "end",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.ClusterDashboard"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/dashboard/home/jobs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "首页作业大盘（吞吐 / Top N / 流向 / Checkpoint / 热点 / 运行日历）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID，空表示全部集群",
+                        "name": "cluster_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "name": "end",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 16,
+                        "description": "运行日历周数（1~52）",
+                        "name": "weeks",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.JobDashboard"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/dashboard/home/summary": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "首页汇总（作业 / 集群 / 告警 / 需要处理）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID，空表示全部集群",
+                        "name": "cluster_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.HomeSummary"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/dashboard/overview": {
             "get": {
                 "description": "Get complete dashboard overview data including stats, clusters, hosts, and activities",
@@ -3586,11 +3801,8 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/hosts/{id}/precheck": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
+        "/api/v1/hosts/{id}/java-runtimes": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -3604,21 +3816,13 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "description": "预检查参数",
-                        "name": "request",
-                        "in": "body",
-                        "schema": {
-                            "$ref": "#/definitions/installer.PrecheckRequest"
-                        }
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/installer.PrecheckResponse"
+                            "$ref": "#/definitions/installer.ListJavaRuntimesResponse"
                         }
                     }
                 }
@@ -4640,6 +4844,114 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sync/jobs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "作业实例列表（支持全局筛选、排序与当前值）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码（CLI 用 page）",
+                        "name": "current",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 50,
+                        "description": "每页条数（CLI 用 page_size）",
+                        "name": "size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "task_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "原始状态，逗号分隔",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态组，逗号分隔：running|failed|pending|stopping|canceled|finished",
+                        "name": "status_group",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "streaming|batch",
+                        "name": "mode",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "集群 ID",
+                        "name": "cluster_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "任务名（模糊）、引擎作业 ID 或平台作业 ID（精确）",
+                        "name": "keyword",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "排除的运行类型，逗号分隔，如 preview",
+                        "name": "exclude_run_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "desc",
+                        "description": "asc|desc",
+                        "name": "order",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1 = 返回各状态组计数",
+                        "name": "with_counts",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1 = 返回任务名与当前读写速率",
+                        "name": "with_live",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobListResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sync/jobs/cancel-by-ref": {
             "post": {
                 "consumes": [
@@ -4680,6 +4992,54 @@ const docTemplate = `{
                         "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/sync.JobResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/jobs/sparklines": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "批量获取作业速率迷你曲线",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "逗号分隔的作业 ID，最多 100 个；无权查看的 ID 被忽略",
+                        "name": "ids",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "write",
+                        "description": "write|read",
+                        "name": "metric",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobSparklinesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobSparklinesResponse"
                         }
                     }
                 }
@@ -4855,7 +5215,7 @@ const docTemplate = `{
                 "tags": [
                     "Sync"
                 ],
-                "summary": "获取作业指标时序（Prometheus）",
+                "summary": "获取作业指标时序",
                 "parameters": [
                     {
                         "type": "integer",
@@ -4879,7 +5239,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure",
+                        "description": "逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure,table",
                         "name": "metrics",
                         "in": "query"
                     }
@@ -6472,6 +6832,10 @@ const docTemplate = `{
                     "description": "SeaTunnel installation directory / SeaTunnel 安装目录",
                     "type": "string"
                 },
+                "java_home": {
+                    "description": "JavaHome 是该节点指定的 JDK 目录，为空时自动探测。/ JavaHome is the node's JDK directory; empty means auto detection.",
+                    "type": "string"
+                },
                 "overrides": {
                     "description": "Node-level JSON overrides / 节点级 JSON 覆盖配置",
                     "allOf": [
@@ -6701,6 +7065,10 @@ const docTemplate = `{
                     "description": "SeaTunnel installation directory / SeaTunnel 安装目录",
                     "type": "string"
                 },
+                "java_home": {
+                    "description": "JavaHome 是纳管时给定的节点 JDK；空表示自动探测。优先填进程实际 JDK（AC1e / AC1f）。\nJavaHome is the node JDK given at registration; empty means auto detection. Prefer the process's actual JDK (AC1e / AC1f).",
+                    "type": "string"
+                },
                 "pid": {
                     "description": "Process ID / 进程 ID",
                     "type": "integer"
@@ -6747,6 +7115,17 @@ const docTemplate = `{
             "properties": {
                 "data": {
                     "$ref": "#/definitions/cluster.ClusterStatusInfo"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.GetNodeJavaRuntimeResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/cluster.NodeJavaRuntime"
                 },
                 "error_msg": {
                     "type": "string"
@@ -6839,6 +7218,10 @@ const docTemplate = `{
                     "description": "Whether host is online; when false, status may be shown as offline / 主机是否在线",
                     "type": "boolean"
                 },
+                "java_home": {
+                    "description": "节点指定的 JDK，为空表示自动探测 / Node JDK; empty means auto detection",
+                    "type": "string"
+                },
                 "overrides": {
                     "description": "Node-level JSON overrides / 节点级 JSON 覆盖配置",
                     "allOf": [
@@ -6882,6 +7265,44 @@ const docTemplate = `{
                 },
                 "worker_heap_size": {
                     "type": "integer"
+                }
+            }
+        },
+        "cluster.NodeJavaRuntime": {
+            "type": "object",
+            "properties": {
+                "configured_java_home": {
+                    "type": "string"
+                },
+                "host_id": {
+                    "type": "integer"
+                },
+                "java_bin": {
+                    "type": "string"
+                },
+                "java_home": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                },
+                "version_string": {
+                    "type": "string"
                 }
             }
         },
@@ -7395,6 +7816,10 @@ const docTemplate = `{
                 "install_dir": {
                     "type": "string"
                 },
+                "java_home": {
+                    "description": "JavaHome 是新节点指定的 JDK 目录；为空时自动探测，不继承已有节点的路径（AC1d）。\nJavaHome is the new node's JDK directory; empty means auto detection and never inherits an existing node's\npath (AC1d).",
+                    "type": "string"
+                },
                 "mode": {
                     "description": "Mode 为 install / register；为空时使用自动识别结果。\nMode is install / register; empty uses the detected mode.",
                     "allOf": [
@@ -7427,6 +7852,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "install_dir": {
+                    "type": "string"
+                },
+                "java_home": {
+                    "description": "JavaHome 是新节点指定的 JDK 目录；为空时自动探测，不继承已有节点的路径（AC1d）。\nJavaHome is the new node's JDK directory; empty means auto detection and never inherits an existing node's\npath (AC1d).",
                     "type": "string"
                 },
                 "loopback_restart_ack": {
@@ -7805,6 +8234,9 @@ const docTemplate = `{
                 "install_dir": {
                     "type": "string"
                 },
+                "java_home": {
+                    "type": "string"
+                },
                 "node_id": {
                     "type": "integer"
                 },
@@ -8019,6 +8451,173 @@ const docTemplate = `{
                 }
             }
         },
+        "dashboard.ClusterCard": {
+            "type": "object",
+            "properties": {
+                "active_alerts": {
+                    "type": "integer"
+                },
+                "critical_alerts": {
+                    "type": "integer"
+                },
+                "endpoints_down": {
+                    "type": "integer"
+                },
+                "health_status": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "max_heap_percent": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nodes_online": {
+                    "type": "integer"
+                },
+                "nodes_total": {
+                    "type": "integer"
+                },
+                "running_jobs": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "dashboard.ClusterDashboard": {
+            "type": "object",
+            "properties": {
+                "cell_seconds": {
+                    "type": "integer"
+                },
+                "clusters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.ClusterCard"
+                    }
+                },
+                "end_ms": {
+                    "type": "integer"
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.ClusterNodeRow"
+                    }
+                },
+                "partial_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.DashboardSeries"
+                    }
+                },
+                "signals": {
+                    "$ref": "#/definitions/dashboard.ClusterSignals"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
+                },
+                "step_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.ClusterNodeRow": {
+            "type": "object",
+            "properties": {
+                "agent_online": {
+                    "type": "boolean"
+                },
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "cluster_name": {
+                    "type": "string"
+                },
+                "cpu_cores": {
+                    "type": "number"
+                },
+                "fd_percent": {
+                    "type": "number"
+                },
+                "heap_percent": {
+                    "type": "number"
+                },
+                "instance": {
+                    "type": "string"
+                },
+                "master": {
+                    "type": "boolean"
+                },
+                "node_active": {
+                    "type": "boolean"
+                },
+                "node_id": {
+                    "type": "integer"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "scrape_up": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "threads": {
+                    "type": "number"
+                },
+                "uptime_seconds": {
+                    "type": "number"
+                }
+            }
+        },
+        "dashboard.ClusterSignals": {
+            "type": "object",
+            "properties": {
+                "clusters_safe": {
+                    "type": "integer"
+                },
+                "clusters_total": {
+                    "type": "integer"
+                },
+                "deadlocked_threads": {
+                    "type": "number"
+                },
+                "endpoints_down": {
+                    "type": "integer"
+                },
+                "fd_percent_max": {
+                    "type": "number"
+                },
+                "hz_queue_util_max": {
+                    "type": "number"
+                },
+                "pool_reject_rate": {
+                    "type": "number"
+                }
+            }
+        },
         "dashboard.ClusterSummary": {
             "type": "object",
             "properties": {
@@ -8063,6 +8662,108 @@ const docTemplate = `{
                 }
             }
         },
+        "dashboard.DashboardSeries": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float64"
+                        }
+                    }
+                }
+            }
+        },
+        "dashboard.FlowLink": {
+            "type": "object",
+            "properties": {
+                "sink": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            }
+        },
+        "dashboard.HomeAlertStats": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "integer"
+                },
+                "critical": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.HomeClusterStats": {
+            "type": "object",
+            "properties": {
+                "degraded": {
+                    "type": "integer"
+                },
+                "healthy": {
+                    "type": "integer"
+                },
+                "nodes_online": {
+                    "type": "integer"
+                },
+                "nodes_total": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "unhealthy": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.HomeSummary": {
+            "type": "object",
+            "properties": {
+                "alerts": {
+                    "$ref": "#/definitions/dashboard.HomeAlertStats"
+                },
+                "attention": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.HomeAttentionItem"
+                    }
+                },
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "clusters": {
+                    "$ref": "#/definitions/dashboard.HomeClusterStats"
+                },
+                "generated_at": {
+                    "type": "string"
+                },
+                "jobs": {
+                    "$ref": "#/definitions/sync.HomeJobSummary"
+                },
+                "partial_errors": {
+                    "description": "PartialErrors 记录取数失败的区块（jobs / clusters / alerts），其余区块照常返回。\nPartialErrors lists blocks that failed to load (jobs / clusters / alerts); the rest still return.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "dashboard.HostSummary": {
             "type": "object",
             "properties": {
@@ -8083,6 +8784,118 @@ const docTemplate = `{
                 },
                 "node_count": {
                     "type": "integer"
+                }
+            }
+        },
+        "dashboard.JobDashboard": {
+            "type": "object",
+            "properties": {
+                "annotations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.JobAnnotation"
+                    }
+                },
+                "calendar": {
+                    "$ref": "#/definitions/sync.JobCalendar"
+                },
+                "checkpoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "end_ms": {
+                    "type": "integer"
+                },
+                "flow": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.FlowLink"
+                    }
+                },
+                "hotspots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "partial_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
+                },
+                "step_seconds": {
+                    "type": "integer"
+                },
+                "throughput": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.ThroughputSeries"
+                    }
+                },
+                "top_cdc": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "top_write": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "window_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.JobRank": {
+            "type": "object",
+            "properties": {
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "failures": {
+                    "type": "number"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "max_seconds": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "integer"
+                },
+                "value": {
+                    "type": "number"
+                },
+                "vertex": {
+                    "type": "string"
+                },
+                "viewable": {
+                    "type": "boolean"
                 }
             }
         },
@@ -8185,6 +8998,24 @@ const docTemplate = `{
                 }
             }
         },
+        "dashboard.ThroughputSeries": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float64"
+                        }
+                    }
+                }
+            }
+        },
         "diagnostics.DiagnosticTaskNodeScope": {
             "type": "string",
             "enum": [
@@ -8253,6 +9084,13 @@ const docTemplate = `{
                     "description": "要纳管的安装目录 / Install directories to manage",
                     "type": "array",
                     "items": {
+                        "type": "string"
+                    }
+                },
+                "java_homes": {
+                    "description": "JavaHomes 按安装目录指定节点 JDK；空值表示自动探测（AC1e）。\nJavaHomes maps install directories to node JDKs; empty means auto detection (AC1e).",
+                    "type": "object",
+                    "additionalProperties": {
                         "type": "string"
                     }
                 }
@@ -8361,6 +9199,10 @@ const docTemplate = `{
                     "description": "是否为新发现的集群 / Whether it's a newly discovered cluster",
                     "type": "boolean"
                 },
+                "java_home": {
+                    "description": "JavaHome 是纳管时用户选定的节点 JDK；空表示自动探测（AC1e）。实现 CreateClusterFromDiscovery 时应写入节点。\nJavaHome is the node JDK chosen at import; empty means auto detection (AC1e). CreateClusterFromDiscovery should persist it.",
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -8383,6 +9225,10 @@ const docTemplate = `{
                 },
                 "hazelcast_port": {
                     "type": "integer"
+                },
+                "java_home": {
+                    "description": "JavaHome 是进程实际 JDK（AC1f）/ Process actual JDK (AC1f)",
+                    "type": "string"
                 },
                 "pid": {
                     "type": "integer"
@@ -8412,6 +9258,10 @@ const docTemplate = `{
                 },
                 "install_dir": {
                     "description": "SeaTunnel installation directory / SeaTunnel 安装目录",
+                    "type": "string"
+                },
+                "java_home": {
+                    "description": "JavaHome 是进程实际使用的 JDK（由 Agent 从 /proc/\u003cpid\u003e/exe 解析）；解析不到为空（AC1f）。\nJavaHome is the JDK the process actually uses (resolved by the Agent from /proc/\u003cpid\u003e/exe); empty when unresolved (AC1f).",
                     "type": "string"
                 },
                 "pid": {
@@ -8452,19 +9302,6 @@ const docTemplate = `{
                     }
                 }
             }
-        },
-        "github_com_LeonYoah_stx_internal_apps_installer.CheckStatus": {
-            "type": "string",
-            "enum": [
-                "passed",
-                "failed",
-                "warning"
-            ],
-            "x-enum-varnames": [
-                "CheckStatusPassed",
-                "CheckStatusFailed",
-                "CheckStatusWarning"
-            ]
         },
         "github_com_LeonYoah_stx_internal_apps_installer.CheckpointConfig": {
             "type": "object",
@@ -8752,7 +9589,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "enable_event_channel": {
-                    "description": "是否在安装后、节点启动前写入事件通道。省略时 3.0.0 及以上默认开启，更低版本忽略。",
+                    "description": "EnableEventChannel 是否在安装后、节点启动前写入事件通道。nil 且版本 ≥3.0.0 时默认开启；更低版本忽略。\nEnableEventChannel writes the event channel after install and before the node starts. Nil defaults to on for\n≥3.0.0 and is ignored on older versions.",
                     "type": "boolean"
                 },
                 "enable_http": {
@@ -8777,6 +9614,10 @@ const docTemplate = `{
                 },
                 "install_mode": {
                     "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.InstallMode"
+                },
+                "java_home": {
+                    "description": "节点指定的 JDK 目录，为空时自动探测 / Node JDK directory; empty means auto detection",
+                    "type": "string"
                 },
                 "java_proxy_port": {
                     "description": "Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口",
@@ -8984,41 +9825,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "version": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_LeonYoah_stx_internal_apps_installer.PrecheckItem": {
-            "type": "object",
-            "properties": {
-                "details": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "message": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "status": {
-                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.CheckStatus"
-                }
-            }
-        },
-        "github_com_LeonYoah_stx_internal_apps_installer.PrecheckResult": {
-            "type": "object",
-            "properties": {
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PrecheckItem"
-                    }
-                },
-                "overall_status": {
-                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.CheckStatus"
-                },
-                "summary": {
                     "type": "string"
                 }
             }
@@ -9566,6 +10372,20 @@ const docTemplate = `{
                 "JobScheduleStrategyReject"
             ]
         },
+        "installer.ListJavaRuntimesResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/javaruntime.Candidate"
+                    }
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
         "installer.ListPackagesResponse": {
             "type": "object",
             "properties": {
@@ -9593,40 +10413,6 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "upload_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "installer.PrecheckRequest": {
-            "type": "object",
-            "properties": {
-                "install_dir": {
-                    "type": "string"
-                },
-                "min_cpu_cores": {
-                    "type": "integer"
-                },
-                "min_disk_space_mb": {
-                    "type": "integer"
-                },
-                "min_memory_mb": {
-                    "type": "integer"
-                },
-                "ports": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                }
-            }
-        },
-        "installer.PrecheckResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PrecheckResult"
-                },
-                "error_msg": {
                     "type": "string"
                 }
             }
@@ -9695,6 +10481,26 @@ const docTemplate = `{
                     "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PackageInfo"
                 },
                 "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "javaruntime.Candidate": {
+            "type": "object",
+            "properties": {
+                "java_bin": {
+                    "type": "string"
+                },
+                "java_home": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                },
+                "version_string": {
                     "type": "string"
                 }
             }
@@ -10814,8 +11620,7 @@ const docTemplate = `{
                 "可用 / Available",
                 "已安装 / Installed",
                 "已启用 / Enabled",
-                "已禁用 / Disabled",
-                ""
+                "已禁用 / Disabled"
             ],
             "x-enum-varnames": [
                 "PluginStatusAvailable",
@@ -10852,7 +11657,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "default_event_channel_enabled": {
-                    "description": "安装向导在该版本上的事件通道默认值（3.0.0 起为 true）",
+                    "description": "DefaultEventChannelEnabled 是安装向导在该版本上的事件通道默认值。\nDefaultEventChannelEnabled is the install wizard default for the event channel on this version.",
                     "type": "boolean"
                 },
                 "default_history_job_expire_minutes": {
@@ -10880,7 +11685,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "supports_event_channel": {
-                    "description": "一键安装可以写入事件通道（3.0.0 起）",
+                    "description": "SupportsEventChannel 表示一键安装可以写入 event-report-http（3.0.0 起，安装向导默认勾选）。\nSupportsEventChannel means one-click install can write event-report-http (since 3.0.0; the wizard checks it by default).",
                     "type": "boolean"
                 },
                 "supports_history_job_expire_minutes": {
@@ -11468,9 +12273,143 @@ const docTemplate = `{
                 }
             }
         },
+        "sync.HomeAttentionItem": {
+            "type": "object",
+            "properties": {
+                "alert_id": {
+                    "type": "string"
+                },
+                "at": {
+                    "type": "string"
+                },
+                "detail": {
+                    "type": "string"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "description": "job_failed | cdc_delay | backpressure | alert",
+                    "type": "string"
+                },
+                "severity": {
+                    "description": "critical | warning",
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                },
+                "viewable": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sync.HomeJobSummary": {
+            "type": "object",
+            "properties": {
+                "attention": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.HomeAttentionItem"
+                    }
+                },
+                "cdc_threshold_seconds": {
+                    "type": "integer"
+                },
+                "cdc_trend": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float64"
+                        }
+                    }
+                },
+                "failed_24h": {
+                    "type": "integer"
+                },
+                "failed_prev_24h": {
+                    "type": "integer"
+                },
+                "max_cdc_delay_seconds": {
+                    "type": "number"
+                },
+                "max_cdc_job_id": {
+                    "type": "integer"
+                },
+                "max_cdc_job_name": {
+                    "type": "string"
+                },
+                "max_cdc_task_id": {
+                    "type": "integer"
+                },
+                "read_qps": {
+                    "type": "number"
+                },
+                "running": {
+                    "type": "integer"
+                },
+                "running_batch": {
+                    "type": "integer"
+                },
+                "running_streaming": {
+                    "type": "integer"
+                },
+                "trend_reason": {
+                    "type": "string"
+                },
+                "trend_source": {
+                    "type": "string"
+                },
+                "write_qps": {
+                    "type": "number"
+                },
+                "write_trend": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float64"
+                        }
+                    }
+                }
+            }
+        },
         "sync.JSONMap": {
             "type": "object",
             "additionalProperties": true
+        },
+        "sync.JobAnnotation": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "description": "job_failed | job_recovered | schema_change",
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "ts_ms": {
+                    "type": "integer"
+                },
+                "viewable": {
+                    "type": "boolean"
+                }
+            }
         },
         "sync.JobCDCDelay": {
             "type": "object",
@@ -11485,6 +12424,35 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "max_1m_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.JobCalendar": {
+            "type": "object",
+            "properties": {
+                "end_date": {
+                    "type": "string"
+                },
+                "failed": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "runs": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "weeks": {
                     "type": "integer"
                 }
             }
@@ -11533,6 +12501,10 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "cluster_id": {
+                    "description": "ClusterID / JobMode 是从提交快照派生的维度列，创建时由 BeforeCreate 填写、启动时回填历史行，供作业列表按集群 / 模式筛选。\nClusterID / JobMode are dimension columns derived from the submit snapshot: BeforeCreate fills them and startup\nbackfills old rows, so the job list can filter by cluster and mode in SQL.",
+                    "type": "integer"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -11561,6 +12533,9 @@ const docTemplate = `{
                 "last_synced_at": {
                     "description": "LastSyncedAt 记录最近一次成功向 SeaTunnel 对齐状态的时间（UTC）。\nLastSyncedAt is when STX last successfully synced runtime state from SeaTunnel (UTC).",
                     "type": "string"
+                },
+                "live": {
+                    "$ref": "#/definitions/sync.JobLiveMetrics"
                 },
                 "mode": {
                     "description": "Mode 从提交快照回填，供 CLI --wait 区分批任务和实时任务，不落库。\nMode is copied from the submit snapshot so CLI --wait can tell batch from streaming; it is not persisted.",
@@ -11606,11 +12581,68 @@ const docTemplate = `{
                 "task_id": {
                     "type": "integer"
                 },
+                "task_name": {
+                    "description": "TaskName / Live 只在全局作业列表（with_live=1）里补充，不落库。\nTaskName / Live are filled only for the global job list (with_live=1) and are not persisted.",
+                    "type": "string"
+                },
                 "task_version": {
                     "type": "integer"
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "sync.JobListData": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.JobInstance"
+                    }
+                },
+                "status_counts": {
+                    "description": "StatusCounts 只在 with_counts=1 时返回：按状态组计数，不受状态筛选影响。\nStatusCounts is returned only with with_counts=1: counts per status group, ignoring the status filter.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.JobListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.JobListData"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.JobLiveMetrics": {
+            "type": "object",
+            "properties": {
+                "cdc_delay_seconds": {
+                    "type": "number"
+                },
+                "read_qps": {
+                    "type": "number"
+                },
+                "read_total": {
+                    "type": "number"
+                },
+                "write_qps": {
+                    "type": "number"
+                },
+                "write_total": {
+                    "type": "number"
                 }
             }
         },
@@ -11739,6 +12771,50 @@ const docTemplate = `{
                 }
             }
         },
+        "sync.JobSparklinesResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.JobSparklinesResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.JobSparklinesResult": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "number",
+                                "format": "float64"
+                            }
+                        }
+                    }
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "step_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
         "sync.JobStatus": {
             "type": "string",
             "enum": [
@@ -11818,6 +12894,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/sync.JobTimeseriesAnnotation"
                     }
                 },
+                "end_ms": {
+                    "type": "integer"
+                },
                 "engine_observability_enabled": {
                     "type": "boolean"
                 },
@@ -11835,6 +12914,9 @@ const docTemplate = `{
                 },
                 "source": {
                     "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
                 },
                 "step_seconds": {
                     "type": "integer"

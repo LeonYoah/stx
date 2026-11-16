@@ -23,6 +23,7 @@ import {
   TREND_COLORS,
   colorByName,
   jobLifetimeWindow,
+  LIFETIME_TAIL_MS,
   MAX_TREND_WINDOW_MS,
   pickAxisLabel,
   scalePoints,
@@ -135,14 +136,16 @@ describe('metrics-trend-data', () => {
   it('derives the job lifetime window with fallbacks and the 31-day cap', () => {
     const now = Date.parse('2026-11-14T13:00:00Z');
     const start = Date.parse('2026-11-14T12:13:03Z');
+    // 终态窗口补 LIFETIME_TAIL_MS 尾巴罩住延迟落盘的终值样本，且不越过 now。
+    // Finished windows gain LIFETIME_TAIL_MS to cover the delayed terminal samples, capped at now.
     expect(jobLifetimeWindow({started_at: '2026-11-14T12:13:03Z', finished_at: '2026-11-14T12:38:28Z'}, false, now))
-      .toEqual({start, end: Date.parse('2026-11-14T12:38:28Z')});
+      .toEqual({start, end: Date.parse('2026-11-14T12:38:28Z') + LIFETIME_TAIL_MS});
     // 结束早于开始（引擎时区错位）：退到 updated_at。 / Finish before start (engine tz skew): fall back to updated_at.
     expect(jobLifetimeWindow({
       started_at: '2026-11-14T12:13:03Z',
       finished_at: '2026-11-14T04:38:28Z',
       updated_at: '2026-11-14T12:39:44Z',
-    }, false, now)).toEqual({start, end: Date.parse('2026-11-14T12:39:44Z')});
+    }, false, now)).toEqual({start, end: Date.parse('2026-11-14T12:39:44Z') + LIFETIME_TAIL_MS});
     expect(jobLifetimeWindow({started_at: '2026-11-14T12:13:03Z'}, true, now)).toEqual({start, end: now});
     const long = jobLifetimeWindow({started_at: '2026-08-01T00:00:00Z'}, true, now)!;
     expect(long.end - long.start).toBe(MAX_TREND_WINDOW_MS);

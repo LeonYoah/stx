@@ -22,8 +22,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,12 +29,14 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/prometheus/prometheus/model/labels"
 	"gorm.io/gorm"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
+	"github.com/LeonYoah/stx/internal/pkg/embedts"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -579,17 +579,36 @@ func TestExecuteCollectProcessEventsStep_fallsBackWhenFilteredQueryReturnsEmpty(
 }
 
 func TestQueryDiagnosticPrometheusSignal_marksWarningWhenThresholdBreached(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"instance":"node-1"},"values":[[1,"0.91"],[2,"0.95"],[3,"0.93"]]}]}}`))
-	}))
-	defer server.Close()
+	// 内嵌化后诊断查询走进程内 tsdb：先起库再写入 test_cpu_metric 的越阈样本。
+	// After the embedding, diagnostics queries hit the in-process tsdb: start it and seed
+	// test_cpu_metric samples that breach the threshold.
+	ctx := t.Context()
+	if err := embedts.Start(ctx, embedts.Options{Dir: t.TempDir()}); err != nil {
+		t.Fatalf("start embedded tsdb: %v", err)
+	}
+	t.Cleanup(func() { _ = embedts.Close() })
+
+	now := time.Now().UTC().Truncate(time.Second)
+	app := embedts.Appender(ctx)
+	if app == nil {
+		t.Fatal("embedded tsdb appender is nil")
+	}
+	for i, v := range []float64{0.91, 0.95, 0.93} {
+		tsMs := now.Add(time.Duration(i-2) * time.Minute).UnixMilli()
+		if _, err := app.Append(0, labels.FromStrings(labels.MetricName, "test_cpu_metric", "instance", "node-1"), tsMs, v); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	if err := app.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
 
 	signal, err := queryDiagnosticPrometheusSignal(
-		t.Context(),
-		server.URL,
+		ctx,
+		"embedded",
 		diagnosticCollectionWindow{
-			Start: time.Unix(0, 0).UTC(),
-			End:   time.Unix(180, 0).UTC(),
+			Start: now.Add(-2 * time.Minute),
+			End:   now,
 		},
 		60,
 		diagnosticPrometheusSignalSpec{

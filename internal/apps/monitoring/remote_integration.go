@@ -23,108 +23,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
-	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
-
-// BuildPrometheusSDTargets builds Prometheus HTTP SD target groups from managed clusters.
-// BuildPrometheusSDTargets 从受管集群构建 Prometheus HTTP SD 目标组。
-func (s *Service) BuildPrometheusSDTargets(ctx context.Context) ([]*PrometheusSDTargetGroup, error) {
-	// now not do metrics probe in HTTP SD stage, directly build targets based on cluster/node metadata,
-	// let Prometheus itself handle the fetch and health check.
-	// 不再在 HTTP SD 阶段做指标探活，直接基于集群/节点元数据构造 targets，
-	// 由 Prometheus 自己负责抓取与健康判定。
-	targets, err := s.collectManagedMetricsTargets(ctx, false)
-	if err != nil {
-		return nil, err
-	}
-
-	groupMap := make(map[string]*PrometheusSDTargetGroup)
-	seen := make(map[string]map[string]struct{})
-	groupKeys := make([]string, 0, 8)
-
-	for _, item := range targets {
-		if item == nil {
-			continue
-		}
-
-		clusterID := strconv.FormatUint(uint64(item.ClusterID), 10)
-		if item.ClusterID == 0 {
-			clusterID = "static"
-		}
-		clusterName := strings.TrimSpace(item.ClusterName)
-		if clusterName == "" {
-			clusterName = "unknown"
-		}
-		env := strings.TrimSpace(item.Env)
-		if env == "" {
-			env = "unknown"
-		}
-
-		key := clusterID + "|" + clusterName + "|" + env
-		group, ok := groupMap[key]
-		if !ok {
-			group = &PrometheusSDTargetGroup{
-				Targets: make([]string, 0, 2),
-				Labels: map[string]string{
-					"job":          "seatunnel_engine_http",
-					"cluster_id":   clusterID,
-					"cluster_name": clusterName,
-					"cluster":      clusterName, // Grafana 大盘变量 $cluster 使用此 label
-					"env":          env,
-				},
-			}
-			groupMap[key] = group
-			groupKeys = append(groupKeys, key)
-			seen[key] = make(map[string]struct{})
-		}
-		if _, ok := seen[key][item.Target]; ok {
-			continue
-		}
-		seen[key][item.Target] = struct{}{}
-		group.Targets = append(group.Targets, item.Target)
-	}
-
-	sort.Strings(groupKeys)
-	result := make([]*PrometheusSDTargetGroup, 0, len(groupKeys)+1)
-	for _, key := range groupKeys {
-		group := groupMap[key]
-		sort.Strings(group.Targets)
-		result = append(result, group)
-	}
-	if stxGroup := buildSTXSyncJobsSDTarget(); stxGroup != nil {
-		result = append(result, stxGroup)
-	}
-	return result, nil
-}
-
-// buildSTXSyncJobsSDTarget 构造 STX 自身作业指标抓取目标（job=stx_sync_jobs）。
-// buildSTXSyncJobsSDTarget builds the STX self scrape target for job metrics (job=stx_sync_jobs).
-func buildSTXSyncJobsSDTarget() *PrometheusSDTargetGroup {
-	external := strings.TrimSpace(config.GetExternalURL())
-	if external == "" {
-		return nil
-	}
-	u, err := url.Parse(external)
-	if err != nil || u.Host == "" {
-		return nil
-	}
-	return &PrometheusSDTargetGroup{
-		Targets: []string{u.Host},
-		Labels: map[string]string{
-			"job":             "stx_sync_jobs",
-			"__metrics_path__": "/api/v1/monitoring/prometheus/jobs/metrics",
-			"__scheme__":       firstNonEmpty(u.Scheme, "http"),
-		},
-	}
-}
 
 // HandleAlertmanagerWebhook ingests one Alertmanager webhook payload into persistent records.
 // HandleAlertmanagerWebhook 将 Alertmanager webhook 请求写入持久化告警记录。
@@ -157,13 +63,8 @@ func (s *Service) HandleAlertmanagerWebhook(ctx context.Context, payload *Alertm
 			result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] upsert failed: %v", idx, err))
 			continue
 		}
-		handled, err := s.deliverManagedRemoteAlertPolicyNotifications(ctx, record, previousRecord)
-		if err != nil {
+		if err := s.deliverRemoteAlertRecord(ctx, record, previousRecord); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] delivery failed: %v", idx, err))
-		} else if !handled {
-			if err := s.deliverRemoteAlertNotifications(ctx, record); err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] delivery failed: %v", idx, err))
-			}
 		}
 		result.Stored++
 	}
@@ -171,6 +72,40 @@ func (s *Service) HandleAlertmanagerWebhook(ctx context.Context, payload *Alertm
 		result.Errors = nil
 	}
 	return result, nil
+}
+
+// ingestRemoteAlertRecord 是「标准化告警记录 → 持久化 → 投递」的统一入口，内嵌评估器与
+// AM webhook 共用：lookup previous → upsert → managed 策略投递或路由匹配投递。
+// ingestRemoteAlertRecord is the shared "normalized record → persist → deliver" entry used by
+// both the embedded evaluator and the AM webhook: lookup previous → upsert → managed policy
+// delivery or route-match delivery.
+func (s *Service) ingestRemoteAlertRecord(ctx context.Context, record *RemoteAlertRecord) error {
+	previousRecord, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, record.Fingerprint, record.StartsAt)
+	if err != nil {
+		return fmt.Errorf("lookup failed: %w", err)
+	}
+	if err := s.repo.UpsertRemoteAlert(ctx, record); err != nil {
+		return fmt.Errorf("upsert failed: %w", err)
+	}
+	return s.deliverRemoteAlertRecord(ctx, record, previousRecord)
+}
+
+// deliverRemoteAlertRecord 按记录归属选择投递路径：managed_by=stx 的策略告警走
+// deliverManagedRemoteAlertPolicyNotifications（去重/冷却/静默/恢复语义所在地），
+// 其余告警回落到 deliverRemoteAlertNotifications 的路由匹配投递。
+// deliverRemoteAlertRecord picks the delivery path by record ownership: managed_by=stx policy
+// alerts go through deliverManagedRemoteAlertPolicyNotifications (home of
+// dedupe/cooldown/silence/recovery semantics), everything else falls back to route-match
+// delivery in deliverRemoteAlertNotifications.
+func (s *Service) deliverRemoteAlertRecord(ctx context.Context, record *RemoteAlertRecord, previousRecord *RemoteAlertRecord) error {
+	handled, err := s.deliverManagedRemoteAlertPolicyNotifications(ctx, record, previousRecord)
+	if err != nil {
+		return err
+	}
+	if !handled {
+		return s.deliverRemoteAlertNotifications(ctx, record)
+	}
+	return nil
 }
 
 func normalizeWebhookAlert(payload *AlertmanagerWebhookPayload, alert *WebhookAlert, now time.Time) *RemoteAlertRecord {
@@ -373,7 +308,7 @@ func (s *Service) GetClustersHealth(ctx context.Context) (*ClusterHealthData, er
 
 	statsMap := make(map[string]*RemoteAlertClusterStat)
 	if s.repo != nil {
-		statsMap, err = s.repo.GetRemoteAlertClusterStats(ctx, clusterIDs)
+		statsMap, err = s.activeRemoteAlertStats(ctx, clusterIDs, timex.Now())
 		if err != nil {
 			return nil, err
 		}
@@ -470,5 +405,41 @@ func (s *Service) GetPlatformHealth(ctx context.Context) (*PlatformHealthData, e
 		result.HealthStatus = "unknown"
 	}
 
+	return result, nil
+}
+
+// activeRemoteAlertStats 按集群统计活跃远程告警：未恢复且没有被人工关闭，与告警中心「触发中」的口径一致。
+// 只看 SQL 里的 status 会把已在告警中心关闭的告警继续算作活跃，首页与集群健康就会和告警列表对不上。
+// activeRemoteAlertStats counts active remote alerts per cluster: unresolved and not closed by an operator, matching
+// the alert center's "firing" view. Counting only the SQL status would keep alerts closed in the alert center
+// "active", so the home page and cluster health would disagree with the alert list.
+func (s *Service) activeRemoteAlertStats(ctx context.Context, clusterIDs []string, now time.Time) (map[string]*RemoteAlertClusterStat, error) {
+	rows, err := s.repo.ListUnresolvedRemoteAlerts(ctx, clusterIDs)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(rows))
+	for _, row := range rows {
+		keys = append(keys, buildRemoteAlertSourceKey(row.Fingerprint, row.StartsAt))
+	}
+	states, err := s.repo.ListAlertStatesBySourceKeys(ctx, keys)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]*RemoteAlertClusterStat)
+	for _, row := range rows {
+		if resolveAlertHandlingStatus(states[buildRemoteAlertSourceKey(row.Fingerprint, row.StartsAt)], now) == AlertHandlingStatusClosed {
+			continue
+		}
+		stat := result[row.ClusterID]
+		if stat == nil {
+			stat = &RemoteAlertClusterStat{ClusterID: row.ClusterID}
+			result[row.ClusterID] = stat
+		}
+		stat.ActiveCount++
+		if strings.EqualFold(strings.TrimSpace(row.Severity), "critical") {
+			stat.CriticalCount++
+		}
+	}
 	return result, nil
 }

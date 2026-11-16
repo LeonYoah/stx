@@ -25,11 +25,12 @@ test('opens dashboard with a reused authenticated session', async ({page}) => {
     /控制台|Console|Dashboard/i,
   );
   await expect(page.getByRole('button', {name: /刷新|Refresh/i})).toBeVisible();
-  // 资源统计胶囊：主机 / 集群（不再使用 KPI「主机总数」大卡）
-  // Resource pills: hosts / clusters (old KPI total cards removed)
-  await expect(page.getByText(/^主机$|^Hosts$/i).first()).toBeVisible();
-  await expect(page.getByText(/^集群$|^Clusters$/i).first()).toBeVisible();
-  await expect(
-    page.getByText(/告警事件列表|Alert Events/i).first(),
-  ).toBeVisible();
+  // 首页监控大盘：指标卡、需要处理条与三个页签（默认停在集群大盘）
+  // Home dashboard: KPI cards, the needs-attention strip and three tabs (opens on the cluster dashboard)
+  await expect(page.getByTestId('home-kpi-row')).toBeVisible();
+  await expect(page.getByTestId('home-attention')).toBeVisible();
+  for (const name of [/^集群$|^Clusters$/i, /^作业$|^Jobs$/i, /^作业列表$|^Job list$/i]) {
+    await expect(page.getByRole('tab', {name})).toBeVisible();
+  }
+  await expect(page.getByTestId('home-cluster-tab')).toBeVisible();
 });

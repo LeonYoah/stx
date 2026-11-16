@@ -38,15 +38,11 @@ Options:
   --db-host / --db-port / --db-user / --db-password / --db-name   外部数据库连接参数（env STX_DB_*）
 
 以下只能用参数指定（不提问）/ flags only (never prompted):
-  --prometheus-port <p>    Prometheus 端口（默认 9090）
-  --alertmanager-port <p>  Alertmanager 端口（默认 9093）
-  --grafana-port <p>       Grafana 端口（默认 3000）
   --without-node           不用包内 Node，改用本机 Node ≥ 18.18
   --service-user <user>    systemd 服务运行用户（默认 root；会 chown 安装目录）
   --no-autostart           注册 systemd 服务但不设置开机自启
   --offline                只用 ./packages，禁止联网（离线包默认即如此）/ packages only, no network
-  --with-observability     启用内置 Prometheus/Alertmanager/Grafana（包内有时默认启用）
-  --without-observability  不启用内置三件套 / disable the bundled observability stack
+  --without-observability  关闭内置监控（指标采集、趋势图与指标告警）/ turn off built-in monitoring
   --force                  先备份已有安装目录再重装 / back up the existing install dir first
   --no-preserve-config     不保留已有 config.yaml / do not keep the existing config.yaml
   --no-start               只安装不启动 / install only
@@ -78,9 +74,6 @@ ADMIN_PASSWORD="${STX_ADMIN_PASSWORD:-}"
 ARG_HTTP_PORT="${STX_HTTP_PORT:-}"
 ARG_FRONTEND_PORT="${STX_FRONTEND_PORT:-}"
 ARG_GRPC_PORT="${STX_GRPC_PORT:-}"
-ARG_PROM_PORT="${STX_PROMETHEUS_PORT:-}"
-ARG_AM_PORT="${STX_ALERTMANAGER_PORT:-}"
-ARG_GF_PORT="${STX_GRAFANA_PORT:-}"
 ARG_EXTERNAL_IP="${STX_EXTERNAL_IP:-}"
 ARG_DB_TYPE="${STX_DB_TYPE:-}"
 ARG_DB_HOST="${STX_DB_HOST:-}"
@@ -103,9 +96,11 @@ while [[ $# -gt 0 ]]; do
     --frontend-port) ARG_FRONTEND_PORT="${2:-}"; shift 2 ;;
     --http-port|--api-port) ARG_HTTP_PORT="${2:-}"; shift 2 ;;
     --grpc-port) ARG_GRPC_PORT="${2:-}"; shift 2 ;;
-    --prometheus-port) ARG_PROM_PORT="${2:-}"; shift 2 ;;
-    --alertmanager-port) ARG_AM_PORT="${2:-}"; shift 2 ;;
-    --grafana-port) ARG_GF_PORT="${2:-}"; shift 2 ;;
+    # 旧版外部监控组件的端口参数：监控已内置，参数保留并忽略，旧脚本照常可用。
+    # Port flags of the legacy external monitoring stack: monitoring is built in now, so they are
+    # accepted and ignored to keep old scripts working.
+    --prometheus-port|--alertmanager-port|--grafana-port)
+      stx_warn "$1 已不再需要（监控已内置），忽略 / no longer needed (monitoring is built in), ignored"; shift 2 ;;
     --external-ip|--external-host) ARG_EXTERNAL_IP="${2:-}"; shift 2 ;;
     --db-type) ARG_DB_TYPE="${2:-}"; shift 2 ;;
     --db-host) ARG_DB_HOST="${2:-}"; shift 2 ;;
@@ -120,7 +115,7 @@ while [[ $# -gt 0 ]]; do
     --no-preserve-config) PRESERVE_CONFIG=false; shift ;;
     --no-start) AUTO_START=false; shift ;;
     --offline) OFFLINE=true; STX_OFFLINE=true; shift ;;
-    --with-observability) WITH_OBS=true; shift ;;
+    --with-observability) shift ;; # 内置监控默认开启，保留以兼容旧命令 / built-in monitoring is on by default; kept for old commands
     --without-observability) WITH_OBS=false; shift ;;
     --no-systemd) SKIP_SYSTEMD=true; STX_SKIP_SYSTEMD=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -278,30 +273,18 @@ if stx_install_running "$INSTALL_DIR"; then
   stx_info "检测到 $INSTALL_DIR 中的 STX 正在运行，安装时会先停止它 / the running install will be stopped first"
 fi
 
-WITH_OBS_EFFECTIVE=false
-if [[ "$WITH_OBS" == "true" ]] || { [[ "$WITH_OBS" == "auto" ]] && compgen -G "$SOURCE_DIR/packages/observability-*-linux-${arch}.tar.gz" >/dev/null; }; then
-  WITH_OBS_EFFECTIVE=true
-fi
-[[ "$WITH_OBS" == "auto" && -z "$PACKAGES_DIR" && -x "$SOURCE_DIR/observability/prometheus/prometheus" ]] && WITH_OBS_EFFECTIVE=true
-
 # 端口：参数 > 已有安装 > 默认。/ Ports: flag > existing install > default.
 PORT_KEYS=(frontend http grpc)
-[[ "$WITH_OBS_EFFECTIVE" == "true" ]] && PORT_KEYS+=(prometheus alertmanager grafana)
 declare -A PORT_LABEL=(
   [frontend]="Web 控制台端口 / web console port"
   [http]="后端 API 端口 / backend API port"
   [grpc]="Agent gRPC 端口（Agent 回连）/ agent gRPC port"
-  [prometheus]="Prometheus 端口"
-  [alertmanager]="Alertmanager 端口"
-  [grafana]="Grafana 端口"
 )
 declare -A PORT_FLAG=(
   [frontend]="$ARG_FRONTEND_PORT" [http]="$ARG_HTTP_PORT" [grpc]="$ARG_GRPC_PORT"
-  [prometheus]="$ARG_PROM_PORT" [alertmanager]="$ARG_AM_PORT" [grafana]="$ARG_GF_PORT"
 )
 declare -A PORT_VAL=(
   [frontend]="$STX_PREV_FRONTEND_PORT" [http]="$STX_PREV_HTTP_PORT" [grpc]="$STX_PREV_GRPC_PORT"
-  [prometheus]="$STX_PREV_PROM_PORT" [alertmanager]="$STX_PREV_AM_PORT" [grafana]="$STX_PREV_GF_PORT"
 )
 declare -A PORT_CONFLICT=()
 for k in "${PORT_KEYS[@]}"; do
@@ -326,7 +309,6 @@ for k in "${PORT_KEYS[@]}"; do
 done
 
 need_mb=700
-[[ "$WITH_OBS_EFFECTIVE" == "true" ]] && need_mb=2200
 free_install="$(stx_free_mb "$INSTALL_DIR")"
 free_tmp="$(stx_free_mb "${TMPDIR:-/tmp}")"
 if [[ -n "$free_install" && "$free_install" -lt "$need_mb" && "${STX_SKIP_DISK_CHECK:-false}" != "true" ]]; then
@@ -358,7 +340,7 @@ if [[ "$preflight_fail" -ne 0 ]]; then
   exit 1
 fi
 if [[ ${#PORT_CONFLICT[@]} -gt 0 ]] && ! stx_is_interactive; then
-  stx_err "端口冲突：${!PORT_CONFLICT[*]}。非交互模式下请用参数指定其他端口，例如 --frontend-port / --http-port / --grpc-port / --prometheus-port / --alertmanager-port / --grafana-port"
+  stx_err "端口冲突：${!PORT_CONFLICT[*]}。非交互模式下请用参数指定其他端口，例如 --frontend-port / --http-port / --grpc-port"
   exit 1
 fi
 stx_step_ok "$([[ ${#PORT_CONFLICT[@]} -gt 0 ]] && echo "有 ${#PORT_CONFLICT[@]} 个端口冲突，下一步需要重新指定" || echo "全部通过 / all passed")"
@@ -376,8 +358,8 @@ elif [[ ! -w "$INSTALL_DIR" ]]; then
 fi
 stx_is_interactive && stx_info "直接回车 = 使用 [ ] 中的默认值 / press Enter to accept the default in [ ]"
 
-# 1) 端口：Web / API / gRPC 每个都可回车确认；三件套端口只在冲突时提问。
-#    Ports: web / API / gRPC can each be confirmed with Enter; observability ports are asked only on conflict.
+# 1) 端口：Web / API / gRPC 每个都可回车确认，冲突时必须重新指定。
+#    Ports: web / API / gRPC can each be confirmed with Enter and must be re-entered on conflict.
 for k in "${PORT_KEYS[@]}"; do
   taken=""
   for o in "${PORT_KEYS[@]}"; do [[ "$o" != "$k" ]] && taken="$taken ${PORT_VAL[$o]}"; done
@@ -386,17 +368,14 @@ for k in "${PORT_KEYS[@]}"; do
   if [[ -n "${PORT_CONFLICT[$k]:-}" ]]; then
     PORT_VAL[$k]="$(stx_ask_port_forced "${PORT_LABEL[$k]}" "${PORT_VAL[$k]}" "$taken")" \
       || { stx_err "端口冲突：请用 ${PORT_FLAG[$k]} 指定其它端口 / use ${PORT_FLAG[$k]} to pick another port"; exit 1; }
-  elif [[ -z "${PORT_FLAG[$k]}" ]] && [[ "$k" == frontend || "$k" == http || "$k" == grpc ]] && stx_is_interactive; then
+  elif [[ -z "${PORT_FLAG[$k]}" ]] && stx_is_interactive; then
     PORT_VAL[$k]="$(stx_ask_port_confirm "${PORT_LABEL[$k]}" "${PORT_VAL[$k]}" "$taken" "$own" "$OWN_PORTS")"
   fi
 done
 STX_FRONTEND_PORT="${PORT_VAL[frontend]}"
 STX_HTTP_PORT="${PORT_VAL[http]}"
 STX_GRPC_PORT="${PORT_VAL[grpc]}"
-STX_PROMETHEUS_PORT="${PORT_VAL[prometheus]:-$STX_PREV_PROM_PORT}"
-STX_ALERTMANAGER_PORT="${PORT_VAL[alertmanager]:-$STX_PREV_AM_PORT}"
-STX_GRAFANA_PORT="${PORT_VAL[grafana]:-$STX_PREV_GF_PORT}"
-export STX_HTTP_PORT STX_FRONTEND_PORT STX_GRPC_PORT STX_PROMETHEUS_PORT STX_ALERTMANAGER_PORT STX_GRAFANA_PORT
+export STX_HTTP_PORT STX_FRONTEND_PORT STX_GRPC_PORT
 
 # 2) 对外访问 IP：写入 app.external_url（Agent 回连控制面）与 app.console_url（告警链接），也用于最后的访问地址。
 #    Advertised IP: app.external_url (Agent callback) and app.console_url (alert links), also the final access URL.
@@ -562,7 +541,7 @@ if [[ -n "$PACKAGES_DIR" ]]; then
   stx_normalize_standalone_symlinks "$STAGE_DIR/frontend"
   stx_info "✔ 前端 / frontend ($(basename "$frontend_tar"))"
 
-  mkdir -p "$STAGE_DIR/bin/lib" "$STAGE_DIR/lib" "$STAGE_DIR/scripts" "$STAGE_DIR/lib/agent"
+  mkdir -p "$STAGE_DIR/bin" "$STAGE_DIR/lib" "$STAGE_DIR/scripts" "$STAGE_DIR/lib/agent"
   for f in start.sh stop.sh status.sh; do
     if [[ -f "$SOURCE_DIR/bin/$f" ]]; then
       cp "$SOURCE_DIR/bin/$f" "$STAGE_DIR/bin/$f"
@@ -570,11 +549,6 @@ if [[ -n "$PACKAGES_DIR" ]]; then
       cp "$SCRIPT_DIR/bin/$f" "$STAGE_DIR/bin/$f"
     fi
   done
-  if [[ -f "$SCRIPT_DIR/bin/lib/observability.sh" ]]; then
-    cp "$SCRIPT_DIR/bin/lib/observability.sh" "$STAGE_DIR/bin/lib/observability.sh"
-  elif [[ -f "$SOURCE_DIR/bin/lib/observability.sh" ]]; then
-    cp "$SOURCE_DIR/bin/lib/observability.sh" "$STAGE_DIR/bin/lib/observability.sh"
-  fi
 
   cp "$SCRIPT_DIR/install.sh" "$STAGE_DIR/install.sh"
   for f in download-lib.sh install-core.sh MANIFEST.json; do
@@ -590,7 +564,7 @@ if [[ -n "$PACKAGES_DIR" ]]; then
     cp "$SCRIPT_DIR/../config.example.yaml" "$STAGE_DIR/config.example.yaml"
   fi
 
-  # Optional node / observability / agent / java-proxy from packages.
+  # Optional node / agent / java-proxy from packages.
   node_tar="$(ls "$PACKAGES_DIR"/node-*-linux-"${arch}".tar.gz 2>/dev/null | head -n1 || true)"
   if [[ "$WITHOUT_NODE" == "true" ]]; then
     node_tar=""
@@ -628,16 +602,6 @@ if [[ -n "$PACKAGES_DIR" ]]; then
     stx_info "no bundled node package; using system node $STX_SYSTEM_NODE ($STX_SYSTEM_NODE_VER)"
     mkdir -p "$STAGE_DIR/runtime/node/bin"
     ln -sf "$STX_SYSTEM_NODE" "$STAGE_DIR/runtime/node/bin/node"
-  fi
-
-  obs_tar="$(ls "$PACKAGES_DIR"/observability-*-linux-"${arch}".tar.gz 2>/dev/null | head -n1 || true)"
-  if [[ -n "$obs_tar" && "$WITH_OBS" != "false" ]]; then
-    stx_info "… 解压 Prometheus/Alertmanager/Grafana（约 $(( $(wc -c <"$obs_tar") / 1024 / 1024 )) MB，需要十几秒）"
-    mkdir -p "$STAGE_DIR/observability"
-    tar -xzf "$obs_tar" -C "$STAGE_DIR/observability"
-    stx_info "✔ 可观测性三件套 / observability stack"
-  elif [[ -n "$obs_tar" ]]; then
-    stx_info "- 跳过可观测性三件套（--without-observability）"
   fi
 
   agent_bin="$PACKAGES_DIR/stx-agent-linux-${arch}"
@@ -747,18 +711,19 @@ stx_step_ok "$(du -sh "$INSTALL_DIR" 2>/dev/null | awk '{print $1}')"
 
 # ---------------------------------------------------------------------------
 stx_step "写入配置 / writing config.yaml"
-obs_flag=false
-if [[ "$WITH_OBS" == "true" ]]; then
-  obs_flag=true
-elif [[ "$WITH_OBS" == "auto" && -x "$INSTALL_DIR/observability/prometheus/prometheus" ]]; then
-  obs_flag=true
-fi
+# 内置监控默认开启；--without-observability 才写入关闭。
+# Built-in monitoring is on by default; only --without-observability writes it off.
 if [[ "$WITH_OBS" == "false" ]]; then
-  obs_flag=false
   stx_yaml_set "$INSTALL_DIR/config.yaml" "observability.enabled" "false" || true
 fi
+# 升级自旧版本：旧的外部监控组件目录保留不删，只提示一次。
+# Upgrading from an older release: the legacy external monitoring directory is kept and only noted.
+if [[ -d "$INSTALL_DIR/observability" ]]; then
+  stx_info "监控已内置到 STX，旧版监控组件目录 $INSTALL_DIR/observability 不再使用（数据保留），确认不需要后可手动删除"
+  stx_info "monitoring is built into STX now; the legacy directory $INSTALL_DIR/observability is no longer used (kept as is) and can be removed manually"
+fi
 
-stx_configure_defaults "$INSTALL_DIR" "$STX_HTTP_PORT" "$STX_GRPC_PORT" "$STX_FRONTEND_PORT" "$obs_flag"
+stx_configure_defaults "$INSTALL_DIR" "$STX_HTTP_PORT" "$STX_GRPC_PORT" "$STX_FRONTEND_PORT"
 ADMIN_PW_RAW_BEFORE=""
 if [[ -n "$ADMIN_PASSWORD" ]]; then
   # 记下原值（原样），新密码未生效时恢复。/ Remember the verbatim old value to restore if the new one is unapplied.
@@ -858,4 +823,4 @@ fi
 STX_SUMMARY_DB="$DB_TYPE${DB_HOST:+ (${DB_HOST}:${DB_PORT}/${DB_NAME})}"
 [[ "$DB_TYPE" == sqlite ]] && STX_SUMMARY_DB="SQLite（$INSTALL_DIR/data/stx.db）"
 export STX_SUMMARY_DB
-stx_print_summary "$INSTALL_DIR" "$ADMIN_USER" "$ADMIN_STATE" "$SUMMARY_DEFAULT_PASSWORD" "$STARTED" "$obs_flag"
+stx_print_summary "$INSTALL_DIR" "$ADMIN_USER" "$ADMIN_STATE" "$SUMMARY_DEFAULT_PASSWORD" "$STARTED"

@@ -29,6 +29,8 @@ import type {
   SyncGlobalVariableListData,
   SyncJobInstance,
   SyncJobListData,
+  SyncJobListParams,
+  SyncJobSparklines,
   SyncJobLogsResult,
   SyncJobPlanDag,
   SyncJobRealtime,
@@ -286,15 +288,27 @@ export class SyncService extends BaseService {
     return this.post<SyncJobInstance>(`/tasks/${taskId}/submit`, request || {});
   }
 
-  static async listJobs(params?: {
-    current?: number;
-    size?: number;
-    task_id?: number;
-    run_type?: string;
-    platform_job_id?: string;
-    engine_job_id?: string;
-  }): Promise<SyncJobListData> {
-    return this.get<SyncJobListData>('/jobs', params);
+  static async listJobs(params?: SyncJobListParams): Promise<SyncJobListData> {
+    const data = await this.get<SyncJobListData>('/jobs', params);
+    // 数组兜底：后端空结果可能是 null / Array fallback: an empty backend result may be null.
+    return {...data, items: data?.items ?? []};
+  }
+
+  /**
+   * 一次请求取多个作业的速率迷你曲线（Prometheus）；越权 ID 由后端丢弃。
+   * Fetch rate sparklines for many jobs in one request (Prometheus); the backend drops IDs the caller cannot view.
+   */
+  static async getJobSparklines(params: {
+    ids: number[];
+    range?: string;
+    metric?: 'read' | 'write';
+  }): Promise<SyncJobSparklines> {
+    const data = await this.get<SyncJobSparklines>('/jobs/sparklines', {
+      ids: params.ids.join(','),
+      range: params.range,
+      metric: params.metric,
+    });
+    return {...data, items: data?.items ?? {}};
   }
 
   static async getJob(jobId: number): Promise<SyncJobInstance> {

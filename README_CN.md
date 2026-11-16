@@ -121,7 +121,7 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-onli
 
 ### 离线安装（下载整包）
 
-每个 Release 附带三个完整离线包（含后端、Agent、前端、Node 运行时、监控三件套、Java 代理），各带 `.sha256`：
+每个 Release 附带三个完整离线包（含后端、Agent、前端、Node 运行时、Java 代理；监控已内置），各带 `.sha256`：
 
 | 离线包 | 适用系统 | Node |
 | --- | --- | --- |
@@ -178,7 +178,6 @@ sudo ./install.sh --install-dir /data/stx --frontend-port 18880 --http-port 1880
 | stx | [下载](https://github.com/LeonYoah/stx/releases/latest/download/stx-linux-amd64) | [下载](https://github.com/LeonYoah/stx/releases/latest/download/stx-linux-arm64) |
 | frontend | [下载](https://github.com/LeonYoah/stx/releases/latest/download/frontend-standalone-linux-amd64.tar.gz) | [下载](https://github.com/LeonYoah/stx/releases/latest/download/frontend-standalone-linux-arm64.tar.gz) |
 | stx-agent | [下载](https://github.com/LeonYoah/stx/releases/latest/download/stx-agent-linux-amd64) | [下载](https://github.com/LeonYoah/stx/releases/latest/download/stx-agent-linux-arm64) |
-| 监控三件套 | [下载](https://github.com/LeonYoah/stx/releases/download/deps/observability-prom3.9.1-am0.31.1-gf12.3.3-linux-amd64.tar.gz) | [下载](https://github.com/LeonYoah/stx/releases/download/deps/observability-prom3.9.1-am0.31.1-gf12.3.3-linux-arm64.tar.gz) |
 
 ```bash
 ldd --version | head -1
@@ -232,9 +231,9 @@ docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 swr.cn-east-3.myhuawe
 # 或 systemctl restart stx
 ```
 
-`start.sh` / `stop.sh` 默认 `--observability auto`。需要时：`--observability off` 或 `on`。
+监控已内置，无需单独启停；如需关闭，在 `config.yaml` 中设置 `observability.enabled: false` 后重启。
 
-更多见 [docs/00-快速开始.md](./docs/00-快速开始.md)、[docs/打包发布说明.md](./docs/打包发布说明.md)、[docs/可观测性三件套一键接入说明.md](./docs/可观测性三件套一键接入说明.md)。
+更多见 [docs/00-快速开始.md](./docs/00-快速开始.md)、[docs/打包发布说明.md](./docs/打包发布说明.md)、[docs/内置监控说明.md](./docs/内置监控说明.md)。
 
 ## 关键配置
 
@@ -255,7 +254,7 @@ docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 swr.cn-east-3.myhuawe
 - [用户快速开始](./docs/00-快速开始.md)
 - [二次开发](./docs/二次开发.md)
 - [打包发布](./docs/打包发布说明.md)
-- [可观测性接入](./docs/可观测性三件套一键接入说明.md)
+- [内置监控](./docs/内置监控说明.md)
 
 
 

@@ -211,29 +211,49 @@ telemetry:
   # OTLP collector endpoint (default: localhost:4317)
   endpoint: "localhost:4317"
 
-# 可观测配置（三件套集成）
-# Observability configuration (Prometheus/Grafana/Alertmanager integration)
+# 内置监控配置：指标采集、存储、查询与告警评估都在 STX 进程内完成，无需另装组件
+# Built-in monitoring: metric collection, storage, querying and alert evaluation all run inside STX; nothing else to install
 observability:
-  # 总开关：关闭后不暴露远程集成接口（HTTP SD / Webhook）
-  # Master switch: when false, remote integration endpoints are disabled
+  # 总开关：关闭后停用内置监控（指标采集、趋势图、指标告警）与外部告警接入端点
+  # Master switch: when false, built-in monitoring (collection, trends, metric alerts) and the external alert ingest endpoint are off
   enabled: true
 
-  prometheus:
-    # Prometheus Web/Query 地址（用于健康检查与控制台跳转）
-    # Prometheus Web/Query URL (for health checks and console links)
-    url: "http://127.0.0.1:9090"
-    # STX 对外暴露的 HTTP SD 路径
-    # HTTP SD path exposed by STX
-    http_sd_path: "/api/v1/monitoring/prometheus/discovery"
+  # 内嵌 tsdb 存储配置（blocks + WAL + head）
+  # Embedded tsdb storage settings (blocks + WAL + head)
+  storage:
+    # tsdb 数据目录
+    # tsdb data directory
+    dir: "data/tsdb"
+    # 时间保留期（支持 s/m/h/d/w/y 单位，如 31d）
+    # Time-based retention (units s/m/h/d/w/y, e.g. 31d)
+    retention: "31d"
+    # 块存储字节数上限：缺省 30GiB（32212254720），显式写 0 表示不限
+    # Max retained block bytes: defaults to 30GiB (32212254720) when unset; an explicit 0 means unlimited
+    max_size: 32212254720
 
-  alertmanager:
-    url: "http://127.0.0.1:9093"
-    # STX 对外暴露的 Alertmanager Webhook 路径
-    # Alertmanager webhook path exposed by STX
-    webhook_path: "/api/v1/monitoring/alertmanager/webhook"
+  # 抓取循环间隔（进程内自研抓取器使用）
+  # Scrape loop interval (used by the in-process scraper)
+  scrape_interval: "15s"
+  # 告警评估间隔（进程内告警评估器使用）
+  # Alert evaluation interval (used by the in-process alert evaluator)
+  eval_interval: "15s"
+  # 单次 PromQL 查询超时
+  # Per-PromQL-query timeout
+  query_timeout: "8s"
+  # 单次查询允许加载的最大样本数
+  # Max samples a single query may load
+  max_samples: 50000000
 
-  grafana:
-    url: "http://127.0.0.1:3000"
+  # 外部告警接入：接收外部系统推送的告警（兼容 Alertmanager Webhook 格式）
+  # External alert ingest: receives alerts pushed by external systems (Alertmanager webhook compatible)
+  remote_ingest:
+    # STX 对外暴露的 Webhook 路径（自 observability.alertmanager.webhook_path 迁入，破坏性变更不双读）
+    # Webhook path exposed by STX (migrated from observability.alertmanager.webhook_path; breaking change, no dual-read)
+    path: "/api/v1/monitoring/alertmanager/webhook"
+    # Bearer 鉴权 token：为空保持兼容不鉴权（启动 WARN），非空要求 "Authorization: Bearer <token>"
+    # Bearer auth token: empty keeps legacy open behaviour (startup WARN); non-empty requires "Authorization: Bearer <token>"
+    token: ""
+
 
   seatunnel_metrics:
     # SeaTunnel metrics path，用于探测是否开启指标推送

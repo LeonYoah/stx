@@ -19,17 +19,13 @@ package sync
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
-	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/promquery"
 )
 
 // JobTimeseriesResult 是 GET /sync/jobs/:id/timeseries 的返回；无本地兜底，source 仅为 prometheus 或 none。
@@ -65,114 +61,30 @@ type JobTimeseriesAnnotation struct {
 	EventID uint   `json:"event_id,omitempty"`
 }
 
-type promQueryRangeResponse struct {
-	Status string `json:"status"`
-	Error  string `json:"error"`
-	Data   struct {
-		ResultType string `json:"resultType"`
-		Result     []struct {
-			Metric map[string]string `json:"metric"`
-			Values [][]interface{}   `json:"values"`
-		} `json:"result"`
-	} `json:"data"`
-}
-
-var timeseriesRangeSteps = map[string]int{
-	"15m": 10,
-	"1h":  15,
-	"6h":  60,
-	"24h": 300,
-	"7d":  1800,
-}
-
-var timeseriesRangeDurations = map[string]time.Duration{
-	"15m": 15 * time.Minute,
-	"1h":  time.Hour,
-	"6h":  6 * time.Hour,
-	"24h": 24 * time.Hour,
-	"7d":  7 * 24 * time.Hour,
-}
-
-const (
-	// timeseriesCustomRange 是自定义起止时间窗在响应里的 range 值。
-	// timeseriesCustomRange is the response range value for a custom start/end window.
-	timeseriesCustomRange = "custom"
-	// timeseriesMaxCustomSpan 限制自定义时间窗跨度，避免一次拉过长的历史。
-	// timeseriesMaxCustomSpan caps a custom window so one request cannot pull an unbounded history.
-	timeseriesMaxCustomSpan = 31 * 24 * time.Hour
-	// timeseriesTargetPoints 是自定义时间窗自动选 step 时每条序列的目标点数。
-	// timeseriesTargetPoints is the per-series point budget used to pick a step for custom windows.
-	timeseriesTargetPoints = 240
+// 时间窗工具已迁到 promquery，作业趋势与首页集群大盘共用；这里保留旧名供本包与测试使用。
+// The window helpers moved to promquery so job trends and the home cluster dashboard share them; the old names stay
+// for this package and its tests.
+var (
+	timeseriesRangeSteps     = promquery.RangeSteps
+	timeseriesRangeDurations = promquery.RangeDurations
 )
 
-// timeseriesStepCandidates 是自定义时间窗可选的 step（秒），从细到粗。
-// timeseriesStepCandidates are the steps (seconds) a custom window may use, finest first.
-var timeseriesStepCandidates = []int{10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400}
+const timeseriesCustomRange = promquery.RangeCustom
 
 // JobTimeseriesWindow 是自定义的起止时间窗（UTC）。
 // JobTimeseriesWindow is a custom start/end window (UTC).
-type JobTimeseriesWindow struct {
-	Start time.Time
-	End   time.Time
-}
+type JobTimeseriesWindow = promquery.Window
 
-// ParseJobTimeseriesWindow 解析 start/end 查询参数：支持 RFC3339 与 Unix 时间戳（10 位及以下按秒，否则按毫秒）。
-// 两者都为空返回 nil；只给 end 报错；只给 start 时 end 取 now。end 必须晚于 start，跨度不超过 31 天。
-// ParseJobTimeseriesWindow parses the start/end query params: RFC3339 or Unix timestamps (10 digits or fewer are
-// seconds, longer ones milliseconds). Both empty returns nil; end alone is an error; start alone ends at now. end must be
-// after start and the span may not exceed 31 days.
+// ParseJobTimeseriesWindow 见 promquery.ParseWindow。
+// ParseJobTimeseriesWindow: see promquery.ParseWindow.
 func ParseJobTimeseriesWindow(startRaw, endRaw string, now time.Time) (*JobTimeseriesWindow, error) {
-	startRaw, endRaw = strings.TrimSpace(startRaw), strings.TrimSpace(endRaw)
-	if startRaw == "" && endRaw == "" {
-		return nil, nil
-	}
-	if startRaw == "" {
-		return nil, fmt.Errorf("start is required when end is set")
-	}
-	start, err := parseTimeseriesInstant(startRaw)
-	if err != nil {
-		return nil, fmt.Errorf("invalid start: %w", err)
-	}
-	end := now.UTC()
-	if endRaw != "" {
-		if end, err = parseTimeseriesInstant(endRaw); err != nil {
-			return nil, fmt.Errorf("invalid end: %w", err)
-		}
-	}
-	if !end.After(start) {
-		return nil, fmt.Errorf("end must be after start")
-	}
-	if end.Sub(start) > timeseriesMaxCustomSpan {
-		return nil, fmt.Errorf("window too long: at most %s", timeseriesMaxCustomSpan)
-	}
-	return &JobTimeseriesWindow{Start: start, End: end}, nil
+	return promquery.ParseWindow(startRaw, endRaw, now)
 }
 
-// parseTimeseriesInstant 把单个时间参数解析成 UTC 时刻。
-// parseTimeseriesInstant parses one time param into a UTC instant.
-func parseTimeseriesInstant(raw string) (time.Time, error) {
-	if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
-		if len(strings.TrimPrefix(raw, "-")) <= 10 {
-			return time.Unix(n, 0).UTC(), nil
-		}
-		return time.UnixMilli(n).UTC(), nil
-	}
-	t, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("want RFC3339 or unix timestamp, got %q", raw)
-	}
-	return t.UTC(), nil
-}
-
-// autoTimeseriesStep 为自定义时间窗挑一个 step，使每条序列不超过目标点数。
-// autoTimeseriesStep picks a step for a custom window so each series stays within the point budget.
+// autoTimeseriesStep 见 promquery.AutoStep。
+// autoTimeseriesStep: see promquery.AutoStep.
 func autoTimeseriesStep(span time.Duration) int {
-	for _, step := range timeseriesStepCandidates {
-		if int(span/(time.Duration(step)*time.Second)) <= timeseriesTargetPoints {
-			return step
-		}
-	}
-	return timeseriesStepCandidates[len(timeseriesStepCandidates)-1]
+	return promquery.AutoStep(span)
 }
 
 // GetJobTimeseriesForActor 在权限检查后返回作业时序（仅 Prometheus）。window 非空时优先于 rangeKey。
@@ -222,15 +134,10 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 		Annotations:                []JobTimeseriesAnnotation{},
 	}
 
-	if config.Config == nil || !config.Config.Observability.Enabled {
-		out.Source = "none"
-		out.Reason = "observability_disabled"
-		return out, nil
-	}
-	baseURL := strings.TrimSpace(config.Config.Observability.Prometheus.URL)
+	baseURL, reason := promquery.BaseURL()
 	if baseURL == "" {
-		out.Source = "none"
-		out.Reason = "prometheus_unavailable"
+		out.Source = promquery.SourceNone
+		out.Reason = reason
 		return out, nil
 	}
 
@@ -240,7 +147,7 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 	for _, key := range metricKeys {
 		templates := timeseriesPromQL(key, jobID, engineObs)
 		for _, tpl := range templates {
-			vectors, err := queryPrometheusRange(ctx, baseURL, tpl.query, start, end, step)
+			vectors, err := promquery.Range(ctx, baseURL, tpl.query, start, end, step)
 			if err != nil {
 				// Soft-fail per series so a single template error does not empty the whole response.
 				// 单条模板失败不拖垮整份响应。
@@ -257,29 +164,17 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 				if name := strings.TrimSpace(vec.Metric["table"]); name != "" {
 					label = name
 				}
-				series := JobTimeseriesSeries{
+				out.Series = append(out.Series, JobTimeseriesSeries{
 					Key:    tpl.key,
 					Label:  label,
 					Unit:   tpl.unit,
-					Points: make([][2]float64, 0, len(vec.Values)),
-				}
-				for _, sample := range vec.Values {
-					if len(sample) < 2 {
-						continue
-					}
-					ts, tsOK := coercePromSample(sample[0])
-					val, valOK := coercePromSample(sample[1])
-					if !tsOK || !valOK {
-						continue
-					}
-					series.Points = append(series.Points, [2]float64{ts * 1000, val})
-				}
-				out.Series = append(out.Series, series)
+					Points: vec.Points,
+				})
 			}
 		}
 	}
 
-	out.Source = "prometheus"
+	out.Source = promquery.SourcePrometheus
 	out.Annotations = s.loadTimeseriesAnnotations(ctx, instance, start, end)
 	return out, nil
 }
@@ -383,69 +278,6 @@ func parseTimeseriesMetrics(csv string) []string {
 		out = append(out, p)
 	}
 	return out
-}
-
-func queryPrometheusRange(ctx context.Context, baseURL, promQL string, start, end time.Time, stepSeconds int) ([]struct {
-	Metric map[string]string
-	Values [][]interface{}
-}, error) {
-	apiURL := strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/api/v1/query_range"
-	params := url.Values{}
-	params.Set("query", promQL)
-	params.Set("start", strconv.FormatFloat(float64(start.Unix()), 'f', -1, 64))
-	params.Set("end", strconv.FormatFloat(float64(end.Unix()), 'f', -1, 64))
-	params.Set("step", strconv.Itoa(stepSeconds))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL+"?"+params.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("prometheus query_range status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))
-	}
-	var payload promQueryRangeResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&payload); err != nil {
-		return nil, err
-	}
-	if !strings.EqualFold(strings.TrimSpace(payload.Status), "success") {
-		return nil, fmt.Errorf("prometheus query_range status %q: %s", payload.Status, strings.TrimSpace(payload.Error))
-	}
-	out := make([]struct {
-		Metric map[string]string
-		Values [][]interface{}
-	}, 0, len(payload.Data.Result))
-	for _, item := range payload.Data.Result {
-		out = append(out, struct {
-			Metric map[string]string
-			Values [][]interface{}
-		}{Metric: item.Metric, Values: item.Values})
-	}
-	return out, nil
-}
-
-func coercePromSample(raw interface{}) (float64, bool) {
-	switch typed := raw.(type) {
-	case float64:
-		return typed, true
-	case json.Number:
-		v, err := typed.Float64()
-		return v, err == nil
-	case string:
-		v, err := strconv.ParseFloat(typed, 64)
-		return v, err == nil
-	case int:
-		return float64(typed), true
-	case int64:
-		return float64(typed), true
-	default:
-		return 0, false
-	}
 }
 
 func (s *Service) loadTimeseriesAnnotations(ctx context.Context, instance *JobInstance, start, end time.Time) []JobTimeseriesAnnotation {

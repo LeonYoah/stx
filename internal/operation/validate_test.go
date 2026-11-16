@@ -98,12 +98,12 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 274)
+	require.Len(t, Registry(), 278)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
 		"dashboard.overview.get": {}, "dashboard.stats.get": {},
-		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {},
+		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {}, "dashboard.home.summary": {}, "dashboard.home.clusters": {}, "dashboard.home.jobs": {},
 		"host.list": {}, "host.get": {}, "host.agent.install-command.get": {}, "cluster.list": {}, "cluster.get": {},
 		"host.discovery.process.list": {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
@@ -143,7 +143,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"sync.tree": {}, "sync.task.list": {}, "sync.task.get": {},
 		"sync.task.version.list":   {},
 		"sync.task.dolphin.status": {}, "sync.task.dolphin.script": {},
-		"sync.job.list": {}, "sync.job.get": {}, "sync.job.logs": {},
+		"sync.job.list": {}, "sync.job.sparklines": {}, "sync.job.get": {}, "sync.job.logs": {},
 		"sync.job.checkpoint": {}, "sync.job.preview": {}, "sync.job.realtime": {}, "sync.job.plan-dag": {}, "sync.job.timeseries": {}, "sync.job.events": {},
 		"sync.event-channel.get": {}, "sync.task.alert.get": {},
 		"sync.variable.list":             {},
@@ -328,10 +328,9 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 37)
+	require.Len(t, RouteExceptions(), 33)
 	require.Contains(t, exceptions, "GET /api/v1/version")
 	require.Contains(t, exceptions, "POST /api/v1/sync/engine-events/:cluster_id")
-	require.Contains(t, exceptions, "GET /api/v1/monitoring/prometheus/jobs/metrics")
 	require.Contains(t, exceptions, "POST /api/v1/auth/login")
 	require.Contains(t, exceptions, "POST /api/v1/auth/logout")
 	require.Contains(t, exceptions, "GET /api/v1/oauth/login")

@@ -131,18 +131,6 @@ func applyEnvironmentOverrides(c *configModel) {
 	if sqlitePath := os.Getenv("STX_DATABASE_SQLITE_PATH"); sqlitePath != "" {
 		c.Database.SQLitePath = sqlitePath
 	}
-
-	// 可观测地址环境变量覆盖（Compose 内用服务名，yaml 保持根目录 example 的 localhost）。
-	// Observability URL env overrides (compose DNS in Docker; yaml keeps the root example localhost).
-	if u := os.Getenv("STX_OBSERVABILITY_PROMETHEUS_URL"); u != "" {
-		c.Observability.Prometheus.URL = u
-	}
-	if u := os.Getenv("STX_OBSERVABILITY_ALERTMANAGER_URL"); u != "" {
-		c.Observability.Alertmanager.URL = u
-	}
-	if u := os.Getenv("STX_OBSERVABILITY_GRAFANA_URL"); u != "" {
-		c.Observability.Grafana.URL = u
-	}
 }
 
 // isTestEnvironment 检测是否在测试环境中运行
@@ -251,18 +239,13 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 		c.Storage.CleanupIntervalHours = 24
 	}
 
-	// 可观测性默认配置
-	if c.Observability.Prometheus.URL == "" {
-		c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
-	}
-	if c.Observability.Alertmanager.URL == "" {
-		c.Observability.Alertmanager.URL = "http://127.0.0.1:9093"
-	}
-	if c.Observability.Alertmanager.WebhookPath == "" {
-		c.Observability.Alertmanager.WebhookPath = "/api/v1/monitoring/alertmanager/webhook"
-	}
-	if c.Observability.Grafana.URL == "" {
-		c.Observability.Grafana.URL = "http://127.0.0.1:3000"
+	// 可观测性默认配置（prometheus.url / alertmanager.url 已随进程内告警评估退役，不再有默认值）。
+	// Observability defaults (prometheus.url / alertmanager.url retired with in-process alert
+	// evaluation and no longer carry defaults).
+	// 路径值与原 alertmanager.webhook_path 默认保持一致，保证已接入的外部 AM 端点不漂移。
+	// The path keeps the legacy alertmanager.webhook_path default so the exposed endpoint does not drift.
+	if c.Observability.RemoteIngest.Path == "" {
+		c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 	}
 
 	// 默认启用可观测中心（仅在用户未显式配置时）
@@ -323,18 +306,12 @@ func validateConfig(c *configModel) error {
 	if err := validateRequiredHTTPURL("app.external_url", c.App.ExternalURL); err != nil {
 		return err
 	}
-	if err := validateOptionalHTTPURL("observability.prometheus.url", c.Observability.Prometheus.URL); err != nil {
+	if err := validateRequiredPath("observability.remote_ingest.path", c.Observability.RemoteIngest.Path); err != nil {
 		return err
 	}
-	if err := validateOptionalHTTPURL("observability.alertmanager.url", c.Observability.Alertmanager.URL); err != nil {
-		return err
-	}
-	if err := validateOptionalHTTPURL("observability.grafana.url", c.Observability.Grafana.URL); err != nil {
-		return err
-	}
-	if err := validateRequiredPath("observability.alertmanager.webhook_path", c.Observability.Alertmanager.WebhookPath); err != nil {
-		return err
-	}
+	// remote_ingest.token 无格式要求：任意非空串即启用 Bearer 校验；为空时启动 WARN 在 Serve 处记一次。
+	// remote_ingest.token has no format constraints: any non-empty value enables Bearer verification;
+	// when empty the startup WARN is logged once from Serve.
 
 	// 内嵌 tsdb 存储与查询参数校验
 	// Embedded tsdb storage and query parameter validation
@@ -380,14 +357,6 @@ func validateRequiredHTTPURL(name, raw string) error {
 	return nil
 }
 
-func validateOptionalHTTPURL(name, raw string) error {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return nil
-	}
-	return validateRequiredHTTPURL(name, trimmed)
-}
-
 func validateRequiredPath(name, raw string) error {
 	path := strings.TrimSpace(raw)
 	if path == "" {
@@ -400,7 +369,7 @@ func validateRequiredPath(name, raw string) error {
 }
 
 // validateObservabilityDuration 校验可观测时长配置：非空、可被 Prometheus duration 语法解析
-//（支持 s/m/h/d/w/y，如 15s、31d）、且大于 0。
+// （支持 s/m/h/d/w/y，如 15s、31d）、且大于 0。
 // validateObservabilityDuration validates an observability duration setting: non-empty, parseable
 // by the Prometheus duration syntax (s/m/h/d/w/y, e.g. 15s or 31d), and greater than zero.
 func validateObservabilityDuration(name, raw string) error {

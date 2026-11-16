@@ -59,8 +59,8 @@ jobs:
           APP_VERSION: ${{ github.ref_name }}
         run: |
           chmod +x install/package-release.sh install/install-online.sh install/download-bundle.sh install/build-offline-bundle.sh
-          # 版本发版只打 stx / agent / frontend。Node 与三件套走 release-deps.yml 的 deps tag。
-          # Version tags ship stx / agent / frontend only. Node and observability live on the deps tag.
+          # 版本发版只打 stx / agent / frontend。Node 走 release-deps.yml 的 deps tag，监控已内置在 stx 中。
+          # Version tags ship stx / agent / frontend only. Node lives on the deps tag; monitoring is built into stx.
           install/package-release.sh \
             --arch all \
             --layout split \
@@ -77,10 +77,10 @@ jobs:
 
   # 三个完整离线包：Linux x86_64、Linux arm64、CentOS 7 x86_64（Node 18 glibc217）。
   # 只做组装（stx / agent 已是 CGO_ENABLED=0 静态二进制，前端已按架构裁剪 sharp），在原生 runner 上运行，
-  # Node / 三件套来自 Release tag `deps` 并校验 sha256。每个包 < 2 GiB（GitHub 单资产上限）。
+  # Node 来自 Release tag `deps` 并校验 sha256。每个包 < 2 GiB（GitHub 单资产上限）。
   # Three complete offline bundles: Linux x86_64, Linux arm64, CentOS 7 x86_64 (Node 18 glibc217).
   # Assembly only (stx / agent are CGO_ENABLED=0 static binaries, the frontend is already trimmed per arch);
-  # runs on a native runner; Node / observability come from the `deps` tag with sha256 checks. Each < 2 GiB.
+  # runs on a native runner; Node comes from the `deps` tag with sha256 checks. Each < 2 GiB.
   # 只读：组装与冒烟不需要写权限；上传在 publish-offline-bundles 中按变体单独进行。
   # Read-only: building and smoke-testing need no write access; uploads happen per variant in publish-offline-bundles.
   offline-bundles:

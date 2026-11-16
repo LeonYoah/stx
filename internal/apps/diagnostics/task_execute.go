@@ -3899,7 +3899,7 @@ func buildDiagnosticBundleHTMLTimeline(task *DiagnosticTask, state *diagnosticBu
 							break
 						}
 					}
-					appendItem(*at, signal.Status, bilingualText("指标首次越阈采样", "First Breaching Sample"), fmt.Sprintf("%s · %s · %s", signal.Title, series.Instance, formatDiagnosticMetricValue(signal.Unit, value)), "Prometheus · "+signal.Key)
+					appendItem(*at, signal.Status, bilingualText("指标首次越阈采样", "First Breaching Sample"), fmt.Sprintf("%s · %s · %s", signal.Title, series.Instance, formatDiagnosticMetricValue(signal.Unit, value)), "metrics · "+signal.Key)
 				}
 			}
 		}
@@ -7089,7 +7089,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             {{end}}
             <div class="finding-trend-footer">
               <span>{{pair "采集范围" "Collected"}} · {{formatTime $finding.Metric.WindowStart}} → {{formatTime $finding.Metric.WindowEnd}}</span>
-              <span>{{pair "阈值" "Threshold"}} · {{$finding.Metric.ThresholdText}} · Prometheus</span>
+              <span>{{pair "阈值" "Threshold"}} · {{$finding.Metric.ThresholdText}} · {{pair "监控指标" "Metrics"}}</span>
             </div>
             {{if $finding.Metric.HasGaps}}<div class="finding-trend-event">{{pair "采样存在缺口，曲线已断开。" "Sampling gaps are shown as breaks in the line."}}</div>{{end}}
             {{if $finding.Metric.FirstBreach}}<div class="finding-trend-event">{{pair "首次越阈采样" "First Breaching Sample"}} · {{formatTime $finding.Metric.FirstBreach}}</div>{{end}}
@@ -7147,7 +7147,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       <div class="report-signal-list">
         {{range .KeySignals}}
         <article class="report-signal-row">
-          <div class="finding-trend-head"><div><strong>{{loc .Title}}</strong><div class="muted small">{{.Instance}} · {{.Key}} · Prometheus</div></div>
+          <div class="finding-trend-head"><div><strong>{{loc .Title}}</strong><div class="muted small">{{.Instance}} · {{.Key}} · {{pair "监控指标" "Metrics"}}</div></div>
             <span class="badge {{statusClass .Status}}">{{loc .Status}}</span></div>
           {{if .Metric}}
           <div class="finding-trend-value">{{.LastValue}}<small>{{pair "最近采样" "Last sample"}} · {{.Metric.LastAt}}</small></div>
@@ -7665,7 +7665,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           </div>
           {{end}}
           {{else}}
-          <div class="empty">{{pair "未采集到 Prometheus 指标快照。" "No Prometheus metrics snapshot was collected."}}</div>
+          <div class="empty">{{pair "未采集到监控指标快照。" "No metrics snapshot was collected."}}</div>
           {{end}}
         </div>
       </div>

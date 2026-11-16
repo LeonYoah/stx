@@ -18,11 +18,10 @@
 package monitoring
 
 import (
+	"crypto/subtle"
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httputil"
-	neturl "net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -293,6 +292,17 @@ func (h *Handler) AlertmanagerWebhook(c *gin.Context) {
 		return
 	}
 
+	// 配置了 remote_ingest.token 时强制 Bearer 校验（常量时间比较，防时序侧信道）；
+	// 缺失或错误一律 401，响应不区分缺失/不匹配。token 与 Authorization 头值不落日志。
+	// When remote_ingest.token is configured, Bearer auth is enforced (constant-time compare to
+	// avoid timing side channels); a missing or wrong token yields the same 401. The token and the
+	// Authorization header value are never logged.
+	expectedToken := strings.TrimSpace(config.Config.Observability.RemoteIngest.Token)
+	if expectedToken != "" && !remoteIngestBearerAuthorized(c.GetHeader("Authorization"), expectedToken) {
+		c.JSON(http.StatusUnauthorized, Response{ErrorMsg: "unauthorized"})
+		return
+	}
+
 	var payload AlertmanagerWebhookPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid webhook payload: " + err.Error()})
@@ -301,10 +311,28 @@ func (h *Handler) AlertmanagerWebhook(c *gin.Context) {
 
 	result, err := h.service.HandleAlertmanagerWebhook(c.Request.Context(), &payload)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to process alertmanager webhook: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to process external alert: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: result})
+}
+
+// remoteIngestBearerAuthorized 校验 Authorization 头是否为 "Bearer <token>"（scheme 大小写不敏感，
+// token 本体区分大小写）；expectedToken 调用方保证非空。
+// remoteIngestBearerAuthorized reports whether the Authorization header carries
+// "Bearer <token>" (scheme case-insensitive, token itself case-sensitive); expectedToken is
+// guaranteed non-empty by the caller.
+func remoteIngestBearerAuthorized(authorizationHeader, expectedToken string) bool {
+	const bearerPrefix = "bearer "
+	header := strings.TrimSpace(authorizationHeader)
+	if len(header) <= len(bearerPrefix) || !strings.EqualFold(header[:len(bearerPrefix)], bearerPrefix) {
+		return false
+	}
+	token := strings.TrimSpace(header[len(bearerPrefix):])
+	if token == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) == 1
 }
 
 // ListRemoteAlerts handles GET /api/v1/monitoring/remote-alerts.
@@ -486,80 +514,4 @@ func (h *Handler) DeleteNotificationChannel(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: gin.H{"id": channelID}})
-}
-
-// ProxyGrafana handles reverse proxy for Grafana UI.
-// ProxyGrafana 处理 Grafana UI 反向代理。
-func (h *Handler) ProxyGrafana(c *gin.Context) {
-	if isGrafanaLiveWSRequest(c.Request.URL.Path) {
-		// 监控中心默认关闭 Grafana Live，避免 iframe 中持续 WS 重连带来的噪音和开销。
-		c.Status(http.StatusNoContent)
-		return
-	}
-
-	target, err := parseProxyTarget(config.Config.Observability.Grafana.URL)
-	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, Response{ErrorMsg: "invalid observability.grafana.url: " + err.Error()})
-		return
-	}
-
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		req.URL.Scheme = target.Scheme
-		req.URL.Host = target.Host
-		req.Host = target.Host
-		// Keep original path/query so Grafana sub-path config can work directly.
-		// 保留原始路径/查询参数，匹配 Grafana 子路径配置。
-		req.URL.Path = c.Request.URL.Path
-		req.URL.RawPath = c.Request.URL.RawPath
-		req.URL.RawQuery = c.Request.URL.RawQuery
-		req.Header.Set("X-Forwarded-Host", c.Request.Host)
-		req.Header.Set("X-Forwarded-Proto", resolveRequestScheme(c.Request))
-	}
-	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, proxyErr error) {
-		if !c.Writer.Written() {
-			c.JSON(http.StatusBadGateway, Response{ErrorMsg: "grafana proxy error: " + proxyErr.Error()})
-		}
-	}
-	proxy.ServeHTTP(c.Writer, c.Request)
-}
-
-func parseProxyTarget(raw string) (*neturl.URL, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return nil, errors.New("empty url")
-	}
-	if !strings.Contains(trimmed, "://") {
-		trimmed = "http://" + trimmed
-	}
-	u, err := neturl.Parse(trimmed)
-	if err != nil {
-		return nil, err
-	}
-	if u.Scheme == "" || u.Host == "" {
-		return nil, errors.New("missing scheme or host")
-	}
-	return u, nil
-}
-
-func resolveRequestScheme(r *http.Request) string {
-	if r == nil {
-		return "http"
-	}
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
-		}
-	}
-	if r.TLS != nil {
-		return "https"
-	}
-	return "http"
-}
-
-func isGrafanaLiveWSRequest(path string) bool {
-	return strings.Contains(path, "/api/live/ws")
 }

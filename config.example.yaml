@@ -211,12 +211,11 @@ telemetry:
   # OTLP collector endpoint (default: localhost:4317)
   endpoint: "localhost:4317"
 
-# 可观测配置（内嵌 tsdb + PromQL 引擎；下方 prometheus/alertmanager/grafana 段为远程集成残留，将逐步退役）
-# Observability configuration (embedded tsdb + PromQL engine; the prometheus/alertmanager/grafana
-# sections below are the legacy remote integration and are being retired)
+# 内置监控配置：指标采集、存储、查询与告警评估都在 STX 进程内完成，无需另装组件
+# Built-in monitoring: metric collection, storage, querying and alert evaluation all run inside STX; nothing else to install
 observability:
-  # 总开关：关闭后不暴露远程集成接口（HTTP SD / Webhook），同时停用内嵌 tsdb 与查询
-  # Master switch: when false, remote integration endpoints and the embedded tsdb/query engine are disabled
+  # 总开关：关闭后停用内置监控（指标采集、趋势图、指标告警）与外部告警接入端点
+  # Master switch: when false, built-in monitoring (collection, trends, metric alerts) and the external alert ingest endpoint are off
   enabled: true
 
   # 内嵌 tsdb 存储配置（blocks + WAL + head）
@@ -245,19 +244,16 @@ observability:
   # Max samples a single query may load
   max_samples: 50000000
 
-  prometheus:
-    # Prometheus Web/Query 地址（用于健康检查与控制台跳转）
-    # Prometheus Web/Query URL (for health checks and console links)
-    url: "http://127.0.0.1:9090"
+  # 外部告警接入：接收外部系统推送的告警（兼容 Alertmanager Webhook 格式）
+  # External alert ingest: receives alerts pushed by external systems (Alertmanager webhook compatible)
+  remote_ingest:
+    # STX 对外暴露的 Webhook 路径（自 observability.alertmanager.webhook_path 迁入，破坏性变更不双读）
+    # Webhook path exposed by STX (migrated from observability.alertmanager.webhook_path; breaking change, no dual-read)
+    path: "/api/v1/monitoring/alertmanager/webhook"
+    # Bearer 鉴权 token：为空保持兼容不鉴权（启动 WARN），非空要求 "Authorization: Bearer <token>"
+    # Bearer auth token: empty keeps legacy open behaviour (startup WARN); non-empty requires "Authorization: Bearer <token>"
+    token: ""
 
-  alertmanager:
-    url: "http://127.0.0.1:9093"
-    # STX 对外暴露的 Alertmanager Webhook 路径
-    # Alertmanager webhook path exposed by STX
-    webhook_path: "/api/v1/monitoring/alertmanager/webhook"
-
-  grafana:
-    url: "http://127.0.0.1:3000"
 
   seatunnel_metrics:
     # SeaTunnel metrics path，用于探测是否开启指标推送

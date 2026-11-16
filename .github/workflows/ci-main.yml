@@ -77,7 +77,7 @@ jobs:
 
       - name: Syntax and shellcheck
         run: |
-          scripts=(install/*.sh install/bin/*.sh install/bin/lib/*.sh scripts/check-release-asset-globs.sh
+          scripts=(install/*.sh install/bin/*.sh scripts/check-release-asset-globs.sh
             scripts/test-release-download-lib.sh scripts/test-yaml-set-differential.sh scripts/release-deps-publish.sh
             scripts/test-release-deps.sh scripts/ci-install-smoke.sh scripts/test-offline-bundle.sh
             scripts/smoke-offline-bundle.sh)
@@ -106,10 +106,10 @@ jobs:
         run: bash scripts/test-release-download-lib.sh
 
       # build-offline-bundle.sh 三个变体的布局 / sha256 / 别名、install.sh 的 Node 选择与 glibc 报错、
-      # install-online --bundle-file、alertmanager 单机参数（本地伪产物，无需外网）。
+      # install-online --bundle-file、内置监控下的旧参数兼容与升级保留（本地伪产物，无需外网）。
       # build-offline-bundle.sh layout / sha256 / aliases for all variants, install.sh Node selection and glibc
-      # errors, install-online --bundle-file, alertmanager single-node args (local fake artifacts, no network).
-      - name: offline bundle / observability tests
+      # errors, install-online --bundle-file, legacy flags and upgrades under built-in monitoring (no network).
+      - name: offline bundle / install script tests
         run: bash scripts/test-offline-bundle.sh
 
       # 纯 awk 的 stx_yaml_set 与 v1.2.0 python3 参考实现逐字节差分（~1400 组）。

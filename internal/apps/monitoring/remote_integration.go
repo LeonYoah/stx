@@ -63,13 +63,8 @@ func (s *Service) HandleAlertmanagerWebhook(ctx context.Context, payload *Alertm
 			result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] upsert failed: %v", idx, err))
 			continue
 		}
-		handled, err := s.deliverManagedRemoteAlertPolicyNotifications(ctx, record, previousRecord)
-		if err != nil {
+		if err := s.deliverRemoteAlertRecord(ctx, record, previousRecord); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] delivery failed: %v", idx, err))
-		} else if !handled {
-			if err := s.deliverRemoteAlertNotifications(ctx, record); err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] delivery failed: %v", idx, err))
-			}
 		}
 		result.Stored++
 	}
@@ -77,6 +72,40 @@ func (s *Service) HandleAlertmanagerWebhook(ctx context.Context, payload *Alertm
 		result.Errors = nil
 	}
 	return result, nil
+}
+
+// ingestRemoteAlertRecord 是「标准化告警记录 → 持久化 → 投递」的统一入口，内嵌评估器与
+// AM webhook 共用：lookup previous → upsert → managed 策略投递或路由匹配投递。
+// ingestRemoteAlertRecord is the shared "normalized record → persist → deliver" entry used by
+// both the embedded evaluator and the AM webhook: lookup previous → upsert → managed policy
+// delivery or route-match delivery.
+func (s *Service) ingestRemoteAlertRecord(ctx context.Context, record *RemoteAlertRecord) error {
+	previousRecord, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, record.Fingerprint, record.StartsAt)
+	if err != nil {
+		return fmt.Errorf("lookup failed: %w", err)
+	}
+	if err := s.repo.UpsertRemoteAlert(ctx, record); err != nil {
+		return fmt.Errorf("upsert failed: %w", err)
+	}
+	return s.deliverRemoteAlertRecord(ctx, record, previousRecord)
+}
+
+// deliverRemoteAlertRecord 按记录归属选择投递路径：managed_by=stx 的策略告警走
+// deliverManagedRemoteAlertPolicyNotifications（去重/冷却/静默/恢复语义所在地），
+// 其余告警回落到 deliverRemoteAlertNotifications 的路由匹配投递。
+// deliverRemoteAlertRecord picks the delivery path by record ownership: managed_by=stx policy
+// alerts go through deliverManagedRemoteAlertPolicyNotifications (home of
+// dedupe/cooldown/silence/recovery semantics), everything else falls back to route-match
+// delivery in deliverRemoteAlertNotifications.
+func (s *Service) deliverRemoteAlertRecord(ctx context.Context, record *RemoteAlertRecord, previousRecord *RemoteAlertRecord) error {
+	handled, err := s.deliverManagedRemoteAlertPolicyNotifications(ctx, record, previousRecord)
+	if err != nil {
+		return err
+	}
+	if !handled {
+		return s.deliverRemoteAlertNotifications(ctx, record)
+	}
+	return nil
 }
 
 func normalizeWebhookAlert(payload *AlertmanagerWebhookPayload, alert *WebhookAlert, now time.Time) *RemoteAlertRecord {

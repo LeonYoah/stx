@@ -155,11 +155,10 @@ Usage:
   --grpc-port <port>       Agent gRPC 端口（默认 17890，Agent 回连）
   --external-ip <ip>       对外访问 IP/域名（默认自动探测）
   --db-type <sqlite|mysql|postgres> 及 --db-host/--db-port/--db-user/--db-password/--db-name
-  --prometheus-port / --alertmanager-port / --grafana-port   三件套端口（只能用参数）
   --without-node           不用包内 Node（本机需 Node ≥ 18.18）
   --service-user <user>    systemd 服务运行用户（默认 root）
   --no-autostart           不设置开机自启
-  --without-observability  不启用内置 Prometheus/Alertmanager/Grafana
+  --without-observability  关闭内置监控（指标采集、趋势图与指标告警）
   --force | --no-preserve-config | --no-start | --no-systemd
   -h, --help
 USAGE

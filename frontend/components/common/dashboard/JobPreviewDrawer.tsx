@@ -207,7 +207,9 @@ export function JobPreviewDrawer({
                 </h3>
                 {trend && trend.source !== 'prometheus' ? (
                   <p className='rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-xs text-muted-foreground'>
-                    {t('noTrend')}
+                    {trend.reason === 'observability_disabled'
+                      ? t('noTrend')
+                      : t('trendUnavailable')}
                   </p>
                 ) : (
                   <LineChart
@@ -217,7 +219,7 @@ export function JobPreviewDrawer({
                     series={chart.series}
                     height={180}
                     loading={trendLoading}
-                    emptyLabel={t('noTrend')}
+                    emptyLabel={t('empty')}
                     clearLabel={t('legendClear')}
                     resetLabel={t('legendAll')}
                     categoryLabel={t('categoryTime')}

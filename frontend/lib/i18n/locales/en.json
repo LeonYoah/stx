@@ -302,7 +302,8 @@
         "empty": "No data in this time range",
         "noAccess": "You cannot view this job",
         "partial": "Some metric queries failed: {keys}",
-        "noPromDesc": "With STX observability on and Prometheus connected, total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots appear here. The run calendar below comes from the STX database and is unaffected."
+        "noPromDesc": "Turn on observability to see total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots here. The run calendar below comes from the STX database and is unaffected.",
+        "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. The run calendar below comes from the STX database and is unaffected."
       },
       "list": {
         "searchPlaceholder": "Job, task or engine job ID",
@@ -369,7 +370,8 @@
         "trend": "Throughput, last hour",
         "read": "Read",
         "write": "Write",
-        "noTrend": "Connect Prometheus to see trends",
+        "noTrend": "Turn on observability to see trends",
+        "trendUnavailable": "Monitoring data is unavailable; retrying automatically",
         "error": "Failure reason",
         "openDetail": "Open job details",
         "writeRate": "Write rate",
@@ -380,7 +382,8 @@
         "loading": "Loading",
         "legendClear": "Clear",
         "legendAll": "All",
-        "categoryTime": "Time"
+        "categoryTime": "Time",
+        "empty": "No data in this time window"
       },
       "clusterTab": {
         "range": {
@@ -470,8 +473,10 @@
           "bad": "Issue"
         },
         "noProm": {
-          "title": "Connect Prometheus to see trends",
-          "desc": "With STX observability on and Prometheus connected, node availability, JVM, GC and job state trends appear here. Cluster cards and the node table still come from agent heartbeats.",
+          "title": "Observability is off",
+          "desc": "Turn on observability to see node availability, JVM, GC and job state trends here. Cluster cards and the node table come from agent heartbeats and are unaffected.",
+          "unavailableTitle": "Monitoring data is unavailable",
+          "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. Cluster cards and the node table come from agent heartbeats and are unaffected.",
           "action": "Open monitoring settings"
         },
         "partial": "Some metric queries failed: {keys}",
@@ -2867,7 +2872,7 @@
     "alerts": {
       "entry": "Alert Events",
       "title": "Alert Events",
-      "subtitle": "Unified view of local process alerts and remote Alertmanager alerts",
+      "subtitle": "One view of platform event alerts, metric alerts and job alerts",
       "listTitle": "Alert List",
       "clusterFilter": "Filter by cluster",
       "statusFilter": "Filter by status",
@@ -2927,7 +2932,7 @@
       "pageInfo": "Page {current} / {total}",
       "sourceTypes": {
         "local_process_event": "Local Process Event",
-        "remote_alertmanager": "Remote Alertmanager",
+        "remote_alertmanager": "Metric alerts",
         "sync": "Job alerts"
       },
       "lifecycleStatuses": {
@@ -3009,7 +3014,7 @@
       "title": "Rules & Notifications",
       "subtitle": "Manage alert rules and notification channels with capability-aware controls.",
       "generatedAt": "Generated at: {value}",
-      "unifiedExperienceHint": "One surface for alert rules and notifications; platform-health and Prometheus signals stay distinct internally.",
+      "unifiedExperienceHint": "One surface for alert rules and notifications; platform-health and metric signals stay distinct internally.",
       "loadError": "Failed to load rules & notifications bootstrap data",
       "policyListLoadError": "Failed to load alert rules",
       "channelListLoadError": "Failed to load notification channels for rule binding",
@@ -3021,7 +3026,7 @@
       "capabilitySectionTitle": "Capability Status",
       "integrationSectionTitle": "Integration Dependency Status",
       "templatesSectionTitle": "Recommended Policy Templates",
-      "templatesSectionSubtitle": "These templates define the product skeleton of the rules & notifications: platform-health templates always remain evolvable, while metrics templates unlock when Prometheus capabilities are available.",
+      "templatesSectionSubtitle": "These templates define the product skeleton of the rules & notifications: platform-health templates are always available, while metrics templates unlock when built-in monitoring is available.",
       "listTitle": "Current Policies",
       "listSubtitle": "Currently managing {count} unified alert policies.",
       "listGeneratedAt": "Policy list generated at: {value}",
@@ -3029,7 +3034,6 @@
       "builderSubtitle": "Persist unified alert policies that bind source templates, scope, severity, cooldown, and notification channels into one resource.",
       "empty": "No alert policies yet. Create the first unified policy from the builder on the right.",
       "descriptionEmpty": "No description",
-      "customPromqlSummary": "Custom PromQL policy",
       "allClusters": "All clusters",
       "noChannelsSelected": "No notification channels bound",
       "policyCount": "{count} policies",
@@ -3051,7 +3055,7 @@
       "yes": "Yes",
       "no": "No",
       "disabled": "Disabled",
-      "formInvalid": "Please provide a policy name and a valid template or PromQL expression.",
+      "formInvalid": "Please provide a policy name and a valid template.",
       "cooldownInvalid": "Cooldown must be a valid non-negative integer.",
       "create": "Create Policy",
       "createSuccess": "Alert policy created",
@@ -3086,8 +3090,7 @@
         "cooldownMinutes": "Cooldown (minutes)",
         "enabled": "Enabled",
         "sendRecovery": "Send Recovery",
-        "channels": "Notification Channels",
-        "promql": "PromQL Expression"
+        "channels": "Notification Channels"
       },
       "placeholders": {
         "name": "For example: Production masters unavailable",
@@ -3096,8 +3099,7 @@
         "template": "Select a template",
         "cluster": "Select scope",
         "severity": "Select severity",
-        "cooldownMinutes": "0",
-        "promql": "sum(rate(seatunnel_job_failed_total[5m])) > 0"
+        "cooldownMinutes": "0"
       },
       "columns": {
         "policy": "Policy",
@@ -3127,15 +3129,11 @@
         },
         "metrics_templates": {
           "title": "Metrics Templates",
-          "summary": "When Prometheus is ready, unlock curated templates for CPU, memory, FD, failed jobs, and other metrics-based policies."
-        },
-        "custom_promql": {
-          "title": "Custom PromQL",
-          "summary": "Give advanced users a custom PromQL entry point while preserving a unified policy and notification experience."
+          "summary": "When built-in monitoring is available, unlock curated templates for CPU, memory, FD, failed jobs, and other metrics-based policies."
         },
         "remote_ingest": {
           "title": "Remote Alert Ingest",
-          "summary": "Bring Alertmanager webhook alerts into the same alert center and delivery pipeline."
+          "summary": "Receive alerts pushed by external systems (Alertmanager webhook compatible) into the same alert center and delivery pipeline."
         },
         "webhook_notification": {
           "title": "Webhook / IM Notifications",
@@ -3153,11 +3151,7 @@
         },
         "metrics_template": {
           "title": "Metrics Template Policies",
-          "description": "Once Prometheus and metrics targets are ready, start with curated templates for CPU, memory, FD, failed jobs, and more."
-        },
-        "custom_promql": {
-          "title": "Custom PromQL",
-          "description": "Open a custom PromQL builder for advanced cases beyond the curated templates."
+          "description": "Once built-in monitoring collects engine metrics, start with curated templates for CPU, memory, FD, failed jobs, and more."
         }
       },
       "templates": {
@@ -3207,11 +3201,11 @@
         },
         "cpu_usage_high": {
           "name": "CPU usage high",
-          "description": "Use Prometheus metrics to detect sustained CPU saturation."
+          "description": "Use engine metrics to detect sustained CPU saturation."
         },
         "memory_usage_high": {
           "name": "Memory usage high",
-          "description": "Use Prometheus metrics to catch memory pressure before node instability escalates."
+          "description": "Use engine metrics to catch memory pressure before node instability escalates."
         },
         "fd_usage_high": {
           "name": "FD usage high",
@@ -3219,7 +3213,7 @@
         },
         "failed_jobs_high": {
           "name": "Failed jobs high",
-          "description": "Use Prometheus metrics to detect abnormal failed-job or retry volumes."
+          "description": "Use engine metrics to detect abnormal failed-job or retry volumes."
         },
         "split_brain_risk": {
           "name": "Split-brain risk",
@@ -3396,31 +3390,6 @@
       "nodeOffline": "Node Offline",
       "nodeRecovered": "Node Recovered"
     },
-    "grafana": {
-      "title": "SeaTunnel Monitoring Dashboard",
-      "subtitle": "SeaTunnel metrics dashboard.",
-      "open": "Open in new window",
-      "notConfigured": "Grafana URL is not configured. Please set observability.grafana.url in config.yaml.",
-      "proxyBadge": "Proxy mode",
-      "reload": "Reload",
-      "securityNotice": "",
-      "loading": "Loading Grafana dashboard…",
-      "loadFailed": "Dashboard loading timed out or failed. Please retry.",
-      "retry": "Retry",
-      "timeRange": {
-        "label": "Time Range",
-        "last1h": "Last 1 hour",
-        "last6h": "Last 6 hours",
-        "last24h": "Last 24 hours",
-        "last7d": "Last 7 days"
-      },
-      "refreshInterval": {
-        "label": "Auto Refresh",
-        "off": "Off"
-      },
-      "expand": "Expand metrics dashboard",
-      "collapse": "Collapse dashboard"
-    },
     "tabs": {
       "dashboard": "Dashboard",
       "alerts": "Alert Events",
@@ -3530,7 +3499,6 @@
       "nameRequired": "Please enter an alert name",
       "clusterRequired": "Please select a cluster",
       "templateRequired": "Please select a rule template",
-      "promqlRequired": "Please enter a PromQL expression",
       "receiverRequired": "Select at least one notification recipient, or keep recipients configured on the current email channel",
       "concreteClusterRequired": "This template must be bound to a specific cluster",
       "concreteClusterHint": "Runtime event rules must bind to a concrete cluster, not all clusters.",
@@ -3551,7 +3519,6 @@
         "strategyType": "Rule Type",
         "template": "Rule Template",
         "cluster": "Cluster",
-        "promql": "PromQL",
         "severity": "Severity",
         "cooldown": "Minimum Alert Interval",
         "enabled": "Enabled",
@@ -3563,23 +3530,18 @@
         "triggerCondition": "Trigger Condition",
         "operator": "Operator",
         "threshold": "Threshold",
-        "window": "Window",
-        "promqlPreview": "PromQL Preview"
+        "window": "Window"
       },
       "placeholders": {
         "name": "For example: Cluster restart notification",
         "description": "Add notes so the team understands this alert rule.",
-        "promql": "For example: sum(rate(seatunnel_job_failed_total[5m])) > 0",
         "threshold": "For example: 0.8 (means 80%)"
       },
       "staticConfig": "Static Config",
       "staticConfigDesc": "Pick a platform-health or metrics template to create a rule quickly.",
-      "customPromql": "Custom PromQL",
-      "customPromqlDesc": "Write your own PromQL when Prometheus is available.",
-      "customPromqlUnavailable": "Prometheus is not ready yet.",
       "groups": {
         "platformHealth": "Platform Health",
-        "prometheusMetrics": "Prometheus Metrics"
+        "prometheusMetrics": "Monitoring metrics"
       },
       "receiverHint": "Recipients come from active users with valid emails. Current signed-in user is selected by default when available; otherwise fall back to admins.",
       "receiverEmpty": "No notifiable users yet. Add a valid email in your profile (or User Management) first.",
@@ -3777,9 +3739,7 @@
       },
       "conditionThresholdRequired": "Please enter a trigger threshold",
       "conditionWindowInvalid": "Window must be between 0 and 10080 minutes",
-      "customPromqlLegacy": "Legacy Custom PromQL",
-      "customPromqlLegacyDesc": "Custom PromQL is no longer offered for new rules; existing legacy rules remain editable.",
-      "metricsUnavailableHint": "Prometheus metric templates are currently unavailable: {reason}",
+      "metricsUnavailableHint": "Metric templates are currently unavailable: {reason}",
       "sections": {
         "rules": "Alert Rules",
         "channels": "Notification Channels",
@@ -5430,12 +5390,14 @@
         "snapshot": "Snapshot",
         "trend": "Trend",
         "snapshotHint": "Latest engine metrics",
-        "trendHint": "Historical trends from Prometheus",
+        "trendHint": "Historical trends",
         "noJob": "No job data",
-        "emptyTitle": "Trends require observability and Prometheus",
+        "emptyTitle": "Turn on observability to see trends",
         "emptyBody": "Once enabled you can chart throughput, CDC delay, checkpoints, busyness and backpressure. STX does not collect or store any time series while it is off.",
+        "unavailableTitle": "Monitoring data is unavailable",
+        "unavailableBody": "Monitoring storage is not ready yet or a query failed; it retries automatically.",
         "emptyEnable": "Enable",
-        "emptyHow": "How to connect",
+        "emptyHow": "How to enable",
         "emptySnapshotHint": "Current values are still available in Snapshot",
         "engineObsEmptyTitle": "Engine observability is off for this job",
         "engineObsEmptyBody": "Busyness and backpressure need engine.observability enabled on the job",
@@ -5446,6 +5408,7 @@
         "lastRefresh": "Last refresh {time}",
         "loading": "Loading",
         "source": "Source",
+        "sourceBuiltin": "Built-in monitoring",
         "hero": {
           "readQps": "Read QPS",
           "writeQps": "Write QPS",

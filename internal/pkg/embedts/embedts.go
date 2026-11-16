@@ -32,6 +32,7 @@ package embedts
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -157,6 +158,18 @@ type instance struct {
 
 // 进程级单例：见包注释。读路径走 RLock，启停走 Lock。
 // Process-level singleton: see package doc. Read paths take RLock, start/stop take Lock.
+// maxConcurrentQueries 返回引擎同时执行的查询上限：max(4, GOMAXPROCS)。大盘、作业趋势、诊断与告警评估
+// 共用同一引擎，超出上限的查询在引擎内排队（仍受 query_timeout 约束），避免多人打开首页时把 CPU 打满。
+// maxConcurrentQueries returns the engine's concurrent query cap: max(4, GOMAXPROCS). Dashboards, job
+// trends, diagnostics and alert evaluation share one engine; queries beyond the cap queue inside the
+// engine (still bounded by query_timeout) so many open home pages cannot saturate the CPU.
+func maxConcurrentQueries() int {
+	if n := runtime.GOMAXPROCS(0); n > 4 {
+		return n
+	}
+	return 4
+}
+
 var (
 	instanceMu sync.RWMutex
 	current    *instance
@@ -181,11 +194,20 @@ func Start(ctx context.Context, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("open embedded tsdb at %q: %w", opts.Dir, err)
 	}
+	// 查询并发上限：跟踪文件 queries.active 放在 tsdb 目录（与 Prometheus 同做法），随 engine.Close 释放。
+	// Concurrent query cap: the queries.active tracking file lives in the tsdb dir (as Prometheus
+	// does) and is released by engine.Close.
+	tracker, err := promql.NewActiveQueryTracker(opts.Dir, maxConcurrentQueries(), promslog.NewNopLogger())
+	if err != nil {
+		_ = db.Close()
+		return fmt.Errorf("create embedded query tracker at %q: %w", opts.Dir, err)
+	}
 	engine := promql.NewEngine(promql.EngineOpts{
 		Logger:               promslog.NewNopLogger(),
 		Reg:                  reg,
 		MaxSamples:           opts.MaxSamples,
 		Timeout:              opts.QueryTimeout,
+		ActiveQueryTracker:   tracker,
 		LookbackDelta:        DefaultLookbackDelta,
 		EnableAtModifier:     true,
 		EnableNegativeOffset: true,
@@ -203,6 +225,7 @@ func Start(ctx context.Context, opts Options) error {
 	if current != nil {
 		// 已存在实例时拒绝覆盖并回收刚打开的目录锁，避免泄漏。
 		// Refuse to override a live instance and release the just-acquired directory lock.
+		_ = engine.Close()
 		_ = db.Close()
 		return fmt.Errorf("embedded tsdb already started at %q", current.opts.Dir)
 	}
@@ -226,6 +249,7 @@ func Close() error {
 	// 先停抓取循环再关 db，避免关闭瞬间仍有写入线程在 appender 上。
 	// Stop the scrape loop before closing the db so no writer still sits on an appender.
 	inst.stopScraper()
+	_ = inst.engine.Close()
 	return inst.db.Close()
 }
 
@@ -257,6 +281,19 @@ func Appender(ctx context.Context) storage.Appender {
 		return nil
 	}
 	return inst.db.Appender(ctx)
+}
+
+// AppendableV2 暴露 tsdb 的 V2 追加入口，供 rules.Manager 回写录制序列与 ALERTS/ALERTS_FOR_STATE
+// 状态序列（后者是重启后恢复告警 for 计时态的数据源）；未就绪时返回 nil。
+// AppendableV2 exposes the tsdb V2 append path so rules.Manager can write back recording
+// series and the ALERTS/ALERTS_FOR_STATE state series (the latter is the data source for
+// restoring alert 'for' state after a restart); nil when not ready.
+func AppendableV2() storage.AppendableV2 {
+	inst := snapshot()
+	if inst == nil {
+		return nil
+	}
+	return inst.db
 }
 
 // QueryEngine 原子地返回查询引擎与数据源，供 promquery 构造区间/即时查询；未就绪时返回 (nil, nil)。

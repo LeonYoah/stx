@@ -19,6 +19,7 @@ package monitoring
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -29,6 +30,48 @@ import (
 
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
+
+// parseManagedRemotePolicyID 从记录 labels 里识别 managed 策略告警：managed_by=stx 时按
+// policy_id 返回策略 ID；标签缺失 policy_id 时返回 (0, true) 表示「是 managed 记录但策略不可解析」。
+// parseManagedRemotePolicyID recognises managed policy alerts from record labels: with
+// managed_by=stx it returns the policy id from policy_id; a missing policy_id yields
+// (0, true), i.e. "a managed record whose policy cannot be resolved".
+func parseManagedRemotePolicyID(record *RemoteAlertRecord) (uint, bool) {
+	if record == nil {
+		return 0, false
+	}
+	labels := parseRemoteAlertLabels(record)
+	if !strings.EqualFold(strings.TrimSpace(labels["managed_by"]), "stx") {
+		return 0, false
+	}
+	parsedID, err := strconv.ParseUint(strings.TrimSpace(labels["policy_id"]), 10, 32)
+	if err != nil || parsedID == 0 {
+		return 0, true
+	}
+	return uint(parsedID), true
+}
+
+func parseRemoteAlertLabels(record *RemoteAlertRecord) map[string]string {
+	if record == nil {
+		return map[string]string{}
+	}
+	result := map[string]string{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(record.LabelsJSON)), &result); err == nil && len(result) > 0 {
+		return result
+	}
+	return map[string]string{}
+}
+
+func parseRemoteAlertAnnotations(record *RemoteAlertRecord) map[string]string {
+	if record == nil {
+		return map[string]string{}
+	}
+	result := map[string]string{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(record.AnnotationsJSON)), &result); err == nil && len(result) > 0 {
+		return result
+	}
+	return map[string]string{}
+}
 
 func (s *Service) deliverManagedRemoteAlertPolicyNotifications(
 	ctx context.Context,

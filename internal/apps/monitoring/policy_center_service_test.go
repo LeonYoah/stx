@@ -67,7 +67,7 @@ func TestResolveMetricsPolicyCapability(t *testing.T) {
 		if status != AlertPolicyCapabilityStatusUnavailable {
 			t.Fatalf("expected unavailable, got %s", status)
 		}
-		if !strings.Contains(reason, "Embedded metrics engine is not ready") {
+		if !strings.Contains(reason, "Built-in monitoring storage is not ready") {
 			t.Fatalf("unexpected reason: %s", reason)
 		}
 	})
@@ -82,7 +82,7 @@ func TestResolveMetricsPolicyCapability(t *testing.T) {
 		if status != AlertPolicyCapabilityStatusUnavailable {
 			t.Fatalf("expected unavailable, got %s", status)
 		}
-		if !strings.Contains(reason, "SeaTunnel metrics targets is not ready") {
+		if !strings.Contains(reason, "Engine metric collection is not ready") {
 			t.Fatalf("unexpected reason: %s", reason)
 		}
 	})
@@ -101,7 +101,7 @@ func TestResolveRemoteIngestCapability(t *testing.T) {
 	if status != AlertPolicyCapabilityStatusUnavailable {
 		t.Fatalf("expected unavailable, got %s", status)
 	}
-	if !strings.Contains(reason, "Remote alert ingest is not ready") {
+	if !strings.Contains(reason, "External alert ingest is not ready") {
 		t.Fatalf("unexpected reason: %s", reason)
 	}
 }

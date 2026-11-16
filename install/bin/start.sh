@@ -53,26 +53,24 @@ FRONTEND_PORT="${FRONTEND_PORT:-17880}"
 FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 BACKEND_BASE_URL="${BACKEND_BASE_URL:-${NEXT_PUBLIC_BACKEND_BASE_URL:-http://127.0.0.1:17800}}"
 
-OBS_CLI=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    # 旧版用于启停外部监控组件；监控已内置在后端进程，参数仅为兼容旧 systemd 单元而保留并忽略。
+    # Formerly toggled the external monitoring stack; monitoring now runs inside the backend, so the
+    # flag is accepted and ignored only for old systemd units.
     --observability)
-      OBS_CLI="${2:-}"
-      shift 2
+      shift 2 || shift $#
       ;;
     --observability=*)
-      OBS_CLI="${1#*=}"
       shift
       ;;
     -h|--help)
       cat <<'USAGE'
-Usage: start.sh [--observability auto|on|off]
+Usage: start.sh
 
-Starts STX backend, frontend, and optionally the bundled observability stack.
-Default: --observability auto (start local stack only if present and enabled in config).
+Starts STX backend and frontend. Monitoring is built into the backend; nothing else to start.
 
 Environment:
-  START_OBSERVABILITY   Same as --observability (CLI wins)
   FRONTEND_PORT / FRONTEND_HOST / FRONTEND_ENABLE
   BACKEND_BASE_URL  (NEXT_PUBLIC_BACKEND_BASE_URL still accepted)
   CONFIG_PATH
@@ -85,11 +83,6 @@ USAGE
       ;;
   esac
 done
-
-# shellcheck source=lib/observability.sh
-source "$BASE_DIR/bin/lib/observability.sh"
-
-OBS_MODE="$(stx_obs_resolve_mode "$OBS_CLI" "${START_OBSERVABILITY:-}")"
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
@@ -160,23 +153,8 @@ start_frontend() {
   fi
 }
 
-start_observability() {
-  set +e
-  local reason
-  reason="$(stx_obs_should_start "$OBS_MODE" "$CONFIG_PATH")"
-  local rc=$?
-  set -e
-  echo "$reason"
-  case "$rc" in
-    0) stx_obs_start_stack || echo "[WARN] observability failed to start; backend and frontend remain available" >&2 ;;
-    1) return 0 ;;
-    2) exit 1 ;;
-  esac
-}
-
 start_backend
 start_frontend
-start_observability
 
 echo
 echo "done."
@@ -185,5 +163,3 @@ echo "  backend : follow app.addr in config.yaml"
 if [[ "$FRONTEND_ENABLE" == "true" || "$FRONTEND_ENABLE" == "1" ]]; then
   echo "  frontend: http://$FRONTEND_HOST:$FRONTEND_PORT"
 fi
-echo "  observability mode: $OBS_MODE"
-echo "  tips    : start.sh --observability off|on|auto"

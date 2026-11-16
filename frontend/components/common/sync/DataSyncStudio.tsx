@@ -512,25 +512,26 @@ export function DataSyncStudio() {
   const [taskTimeoutDefaults, setTaskTimeoutDefaults] = useState<SyncTaskTimeoutDefaults | null>(null);
   const [tree, setTree] = useState<SyncTaskTreeNode[]>([]);
   const [keyword, setKeyword] = useState('');
-  const [treeFilterScope, setTreeFilterScope] = useState<TreeFilterScope>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('stx_studio_tree_filter_scope');
-      // 「可见」三档里的 only_mine 已从界面拿掉；旧值并入「我的」（自己的 + 公开的）。
-      // The old three-way "Visible" filter is gone; only_mine migrates into Mine (own + public).
-      if (saved === 'all') {
-        return 'all';
-      }
-      if (saved === 'only_mine') {
-        try {
-          localStorage.setItem(
-            'stx_studio_tree_filter_scope',
-            'mine_and_public',
-          );
-        } catch {}
-      }
+  // localStorage 只能在挂载后读：初始化器里读会让客户端首渲染与 SSR 不一致，触发 hydration mismatch。
+  // Read localStorage only after mount: reading it in the initializer makes the first client render
+  // diverge from SSR HTML and triggers a hydration mismatch.
+  const [treeFilterScope, setTreeFilterScope] =
+    useState<TreeFilterScope>('mine_and_public');
+  useEffect(() => {
+    const saved = localStorage.getItem('stx_studio_tree_filter_scope');
+    // 「可见」三档里的 only_mine 已从界面拿掉；旧值并入「我的」（自己的 + 公开的）。
+    // The old three-way "Visible" filter is gone; only_mine migrates into Mine (own + public).
+    if (saved === 'all') {
+      setTreeFilterScope('all');
+    } else if (saved === 'only_mine') {
+      try {
+        localStorage.setItem(
+          'stx_studio_tree_filter_scope',
+          'mine_and_public',
+        );
+      } catch {}
     }
-    return 'mine_and_public';
-  });
+  }, []);
   const handleFilterScopeChange = useCallback((scope: TreeFilterScope) => {
     setTreeFilterScope(scope);
     try {

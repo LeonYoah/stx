@@ -301,7 +301,8 @@
         },
         "empty": "该时间窗内没有数据",
         "noAccess": "无权查看该作业",
-        "partial": "部分指标查询失败：{keys}"
+        "partial": "部分指标查询失败：{keys}",
+        "noPromDesc": "开启 STX 可观测性并接入 Prometheus 后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。下方运行日历来自 STX 数据库，不受影响。"
       },
       "list": {
         "searchPlaceholder": "作业名、任务名、引擎作业 ID",

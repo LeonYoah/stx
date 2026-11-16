@@ -367,7 +367,7 @@ export function ClusterTab({
                   return (
                     <div
                       key={item.label}
-                      className='grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)_3.5rem] items-center gap-3'
+                      className='grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)_3.5rem]'
                     >
                       <span
                         className='truncate font-mono text-xs text-muted-foreground'
@@ -376,6 +376,8 @@ export function ClusterTab({
                         {item.label}
                       </span>
                       <StatusBar
+                        // 窄屏：节点名与可用率一行，状态条独占下一行。/ Narrow: name + ratio on one row, the bar below.
+                        className='order-last col-span-2 sm:order-none sm:col-span-1'
                         label={item.label}
                         statuses={[
                           {

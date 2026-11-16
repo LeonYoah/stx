@@ -23,10 +23,11 @@ import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {Button} from '@/components/ui/button';
 
 /**
- * 未接入 Prometheus 时趋势区的统一空态（Arc EmptyState），附监控配置入口。
- * The shared trend empty state without Prometheus (Arc EmptyState), with a link to monitoring settings.
+ * 未接入 Prometheus 时趋势区的统一空态（Arc EmptyState），附监控配置入口；说明文案按页签传入。
+ * The shared trend empty state without Prometheus (Arc EmptyState), with a link to monitoring settings; each tab
+ * passes its own description.
  */
-export function TrendEmptyState() {
+export function TrendEmptyState({description}: {description?: string}) {
   const t = useTranslations('dashboard.home.clusterTab.noProm');
   return (
     <div
@@ -35,7 +36,7 @@ export function TrendEmptyState() {
     >
       <EmptyState
         title={t('title')}
-        description={t('desc')}
+        description={description ?? t('desc')}
         action={
           <Button asChild size='sm' variant='outline'>
             <Link href='/monitoring'>{t('action')}</Link>

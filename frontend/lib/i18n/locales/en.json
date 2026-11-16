@@ -209,7 +209,7 @@
         "cdc": "Max CDC delay",
         "cdcNone": "No CDC delay data",
         "cdcOver": "Over threshold",
-        "failed": "Failed jobs",
+        "failed": "Failures",
         "failedContext": "Last 24h, incl. failing",
         "failedYesterday": "Yesterday {count}",
         "clusters": "Cluster health",
@@ -219,8 +219,8 @@
         "alertsContext": "{count} critical"
       },
       "unit": {
-        "rowsPerSec": " rows/s",
-        "seconds": " s"
+        "rowsPerSec": " rows/s",
+        "seconds": " s"
       },
       "attention": {
         "title": "Needs attention",
@@ -301,7 +301,8 @@
         },
         "empty": "No data in this time range",
         "noAccess": "You cannot view this job",
-        "partial": "Some metric queries failed: {keys}"
+        "partial": "Some metric queries failed: {keys}",
+        "noPromDesc": "With STX observability on and Prometheus connected, total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots appear here. The run calendar below comes from the STX database and is unaffected."
       },
       "list": {
         "searchPlaceholder": "Job, task or engine job ID",
@@ -337,7 +338,7 @@
         "tookFor": "Took {duration}",
         "empty": "No jobs match",
         "emptyHint": "Change the filters, or submit a job from the workbench.",
-        "total": "{count} jobs",
+        "total": "{count, plural, one {# job} other {# jobs}}",
         "detail": "Details",
         "selected": "{count} selected",
         "stop": "Stop",
@@ -438,7 +439,7 @@
         },
         "nodes": {
           "title": "Nodes",
-          "count": "{count} nodes",
+          "count": "{count, plural, one {# node} other {# nodes}}",
           "node": "Node",
           "cluster": "Cluster",
           "role": "Role",

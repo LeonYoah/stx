@@ -179,7 +179,12 @@ export function JobsTab({query}: {query: DashboardQuery}) {
     <div className='mb-2 flex flex-wrap items-center gap-2'>
       <h3 className='text-sm font-medium'>{title}</h3>
       <span className='text-xs text-muted-foreground'>{hint}</span>
-      {extra ? <div className='ml-auto'>{extra}</div> : null}
+      {/* 窄屏时控件换到下一行，并在容器内横向滚动，不撑破页面。/ On narrow screens controls wrap and scroll inside. */}
+      {extra ? (
+        <div className='w-full max-w-full overflow-x-auto sm:ml-auto sm:w-auto'>
+          {extra}
+        </div>
+      ) : null}
     </div>
   );
 
@@ -250,7 +255,7 @@ export function JobsTab({query}: {query: DashboardQuery}) {
       ) : null}
       {!hasMetrics ? (
         <>
-          <TrendEmptyState />
+          <TrendEmptyState description={t('noPromDesc')} />
           {calendarBlock}
         </>
       ) : (

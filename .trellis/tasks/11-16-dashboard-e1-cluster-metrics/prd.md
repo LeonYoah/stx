@@ -3,7 +3,7 @@
 父任务：`11-14-home-monitoring-dashboard`。排期：P1–P4 验收完成之后（2026-11-16 用户确认：这些是增强）。
 
 **依赖**：内嵌可观测 P2 已合并（`11-16-embedded-observability`）。数据来自内嵌抓取器写入 tsdb 的 SeaTunnel 全量 exposition；
-Summary / Histogram 已展平为 `_bucket` / `_sum` / `_count`，抓取间隔默认 15 秒。P4 的 Grafana 面板覆盖核对表若发现缺口，会追加到本 PRD。
+Summary / Histogram 已展平为 `_bucket` / `_sum` / `_count`，抓取间隔默认 15 秒。
 
 ## 背景
 

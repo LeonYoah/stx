@@ -500,7 +500,15 @@ func Serve() {
 			// Public remote-observability integration endpoints (no login required).
 			// 远程可观测集成公开接口（无需登录）。
 			if config.Config.Observability.Enabled {
-				alertWebhookPath := normalizeAPIV1RoutePath(config.Config.Observability.Alertmanager.WebhookPath, "/monitoring/alertmanager/webhook")
+				// token 为空时端点无鉴权暴露：兼容已接入的外部 AM，但启动时记一条 WARN 提醒配置
+				// remote_ingest.token；warn 只在此处记一次。token 值不落日志。
+				// An empty token leaves the endpoint unauthenticated: kept for compatibility with
+				// already-integrated external Alertmanagers, but one WARN at startup reminds the
+				// operator to configure remote_ingest.token. The token value is never logged.
+				if strings.TrimSpace(config.Config.Observability.RemoteIngest.Token) == "" {
+					logger.WarnF(ctx, "[Observability] remote ingest webhook 未配置鉴权（observability.remote_ingest.token 为空），%s 为公开端点；建议配置 token 启用 Bearer 校验 / remote ingest webhook has no auth (observability.remote_ingest.token is empty); %s is a public endpoint, configure a token to enable Bearer verification", config.Config.Observability.RemoteIngest.Path, config.Config.Observability.RemoteIngest.Path)
+				}
+				alertWebhookPath := normalizeAPIV1RoutePath(config.Config.Observability.RemoteIngest.Path, "/monitoring/alertmanager/webhook")
 				apiV1Router.POST(alertWebhookPath, monitoringHandler.AlertmanagerWebhook)
 			}
 

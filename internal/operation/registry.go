@@ -1986,7 +1986,7 @@ func monitoringReadOperationSpecs() []OperationSpec {
 	policyID := []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Alert policy ID"}}
 	policyExecutionInputs := append(append([]InputSpec{}, policyID...), monitoringDeliveryFilterInputs(false)...)
 	alertPolicyListInputs := []InputSpec{
-		{Name: "policy_type", Location: InputQuery, Description: "Policy type: platform_health, metrics_template, custom_promql or sync_job"},
+		{Name: "policy_type", Location: InputQuery, Description: "Policy type: platform_health, metrics_template or sync_job"},
 		{Name: "task_id", Location: InputQuery, Description: "Sync task ID (job alert policies)"},
 	}
 	alertInstanceInputs := append([]InputSpec{

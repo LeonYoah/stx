@@ -278,6 +278,12 @@ type ObservabilityConfig struct {
 	Alertmanager    ObservabilityAlertmanagerConfig    `mapstructure:"alertmanager"`
 	Grafana         ObservabilityGrafanaConfig         `mapstructure:"grafana"`
 	SeatunnelMetric ObservabilitySeatunnelMetricConfig `mapstructure:"seatunnel_metrics"`
+
+	// RemoteIngest 是远程告警回流（AM webhook）端点配置：path 自 alertmanager.webhook_path 迁入，
+	// token 非空时 webhook 校验 Authorization: Bearer。
+	// RemoteIngest holds the remote alert ingest (AM webhook) endpoint settings: path was migrated
+	// from alertmanager.webhook_path; a non-empty token makes the webhook verify Authorization: Bearer.
+	RemoteIngest ObservabilityRemoteIngestConfig `mapstructure:"remote_ingest"`
 }
 
 // ObservabilityStorageConfig 内嵌 tsdb 存储配置
@@ -307,10 +313,23 @@ type ObservabilityPrometheusConfig struct {
 // ObservabilityAlertmanagerConfig Alertmanager 集成配置
 type ObservabilityAlertmanagerConfig struct {
 	URL string `mapstructure:"url"`
+}
 
-	// WebhookPath is the fixed Alertmanager webhook path exposed by STX.
-	// WebhookPath 是 STX 暴露的 Alertmanager Webhook 路径。
-	WebhookPath string `mapstructure:"webhook_path"`
+// ObservabilityRemoteIngestConfig 远程告警回流（AM webhook）端点配置。
+// ObservabilityRemoteIngestConfig holds the remote alert ingest (AM webhook) endpoint settings.
+type ObservabilityRemoteIngestConfig struct {
+	// Path 是 STX 对外暴露的 Alertmanager Webhook 路径（随内嵌可观测由
+	// alertmanager.webhook_path 迁入，破坏性变更不做双读）。
+	// Path is the Alertmanager webhook path exposed by STX (migrated from
+	// alertmanager.webhook_path as a breaking change with no dual-read).
+	Path string `mapstructure:"path"`
+
+	// Token 非空时 webhook 请求必须携带 Authorization: Bearer <token>（常量时间比较）；
+	// 为空维持放行兼容已接入的外部 AM，启动时记一条 WARN。
+	// When Token is non-empty the webhook requires Authorization: Bearer <token> (constant-time
+	// compare); empty keeps the legacy open behaviour for already-integrated external Alertmanagers
+	// and logs one WARN at startup.
+	Token string `mapstructure:"token"`
 }
 
 // ObservabilityGrafanaConfig Grafana 集成配置

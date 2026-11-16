@@ -89,7 +89,9 @@ observability:
     http_sd_path: "/api/v1/monitoring/prometheus/discovery"
   alertmanager:
     url: "http://127.0.0.1:9093"
-    webhook_path: "/api/v1/monitoring/alertmanager/webhook"
+  remote_ingest:
+    path: "/api/v1/monitoring/alertmanager/webhook"
+    token: ""
   grafana:
     url: "http://127.0.0.1:3000"
   seatunnel_metrics:

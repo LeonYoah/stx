@@ -636,7 +636,7 @@ func timeNowUTC() time.Time {
 }
 
 func resolveAlertPolicyTemplate(policyType AlertPolicyBuilderKind, templateKey string) (*AlertPolicyTemplateSummaryDTO, error) {
-	if policyType == AlertPolicyBuilderKindCustomPromQL || policyType == AlertPolicyBuilderKindSyncJob {
+	if policyType == AlertPolicyBuilderKindSyncJob {
 		return nil, nil
 	}
 
@@ -654,7 +654,7 @@ func resolveAlertPolicyTemplate(policyType AlertPolicyBuilderKind, templateKey s
 }
 
 func resolveAlertPolicyLegacyRuleKey(policyType AlertPolicyBuilderKind, template *AlertPolicyTemplateSummaryDTO, fallbackLegacyRuleKey string) string {
-	if policyType == AlertPolicyBuilderKindCustomPromQL || policyType == AlertPolicyBuilderKindSyncJob {
+	if policyType == AlertPolicyBuilderKindSyncJob {
 		return ""
 	}
 	if template != nil {

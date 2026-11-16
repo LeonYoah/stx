@@ -161,12 +161,9 @@ function resolvePolicySection(value: string | null): PolicySection {
   return 'rules';
 }
 
-type StrategyEditorMode = 'static' | 'custom_promql';
-
 type PolicyFormState = {
   name: string;
   description: string;
-  strategyMode: StrategyEditorMode;
   templateKey: string;
   conditionOperator: string;
   conditionThreshold: string;
@@ -176,7 +173,6 @@ type PolicyFormState = {
   cooldownMinutes: string;
   sendRecovery: boolean;
   enabled: boolean;
-  promql: string;
   emailChannelId: string;
   webhookChannelId: string;
   receiverUserIds: string[];
@@ -225,7 +221,6 @@ function createDefaultPolicyForm(): PolicyFormState {
   return {
     name: '',
     description: '',
-    strategyMode: 'static',
     templateKey: '',
     conditionOperator: '',
     conditionThreshold: '',
@@ -235,7 +230,6 @@ function createDefaultPolicyForm(): PolicyFormState {
     cooldownMinutes: '10',
     sendRecovery: true,
     enabled: true,
-    promql: '',
     emailChannelId: 'none',
     webhookChannelId: 'none',
     receiverUserIds: [],
@@ -531,8 +525,6 @@ function createPolicyFormFromPolicy(
     ...form,
     name: policy.name || '',
     description: policy.description || '',
-    strategyMode:
-      policy.policy_type === 'custom_promql' ? 'custom_promql' : 'static',
     templateKey: policy.template_key || '',
     ...buildConditionStateFromPolicy(policy, matchedTemplate),
     clusterId: policy.cluster_id || '',
@@ -540,7 +532,6 @@ function createPolicyFormFromPolicy(
     cooldownMinutes: String(policy.cooldown_minutes ?? 0),
     sendRecovery: policy.send_recovery,
     enabled: policy.enabled,
-    promql: policy.promql || '',
     emailChannelId: selectedEmailChannel
       ? String(selectedEmailChannel.id)
       : 'none',
@@ -566,54 +557,46 @@ function buildPolicyPayload(
     .filter((value) => Number.isFinite(value) && value > 0);
 
   const policyType: AlertPolicyBuilderKind =
-    form.strategyMode === 'custom_promql'
-      ? 'custom_promql'
-      : (selectedTemplate?.source_kind as AlertPolicyBuilderKind) ||
-        'platform_health';
+    (selectedTemplate?.source_kind as AlertPolicyBuilderKind) ||
+    'platform_health';
   const parsedConditionWindowMinutes = Number.parseInt(
     form.conditionWindowMinutes,
     10,
   );
-  const conditions: AlertPolicyCondition[] =
-    form.strategyMode === 'static' &&
-    supportsTemplateCondition(selectedTemplate)
-      ? [
-          {
-            metric_key: selectedTemplate?.key || '',
-            operator:
-              form.conditionOperator.trim() ||
-              selectedTemplate?.default_operator ||
-              '>',
-            threshold:
-              form.conditionThreshold.trim() ||
-              selectedTemplate?.default_threshold ||
-              '',
-            window_minutes:
-              Number.isFinite(parsedConditionWindowMinutes) &&
-              parsedConditionWindowMinutes >= 0
-                ? parsedConditionWindowMinutes
-                : selectedTemplate?.default_window_minutes || 0,
-          },
-        ]
-      : [];
+  const conditions: AlertPolicyCondition[] = supportsTemplateCondition(
+    selectedTemplate,
+  )
+    ? [
+        {
+          metric_key: selectedTemplate?.key || '',
+          operator:
+            form.conditionOperator.trim() ||
+            selectedTemplate?.default_operator ||
+            '>',
+          threshold:
+            form.conditionThreshold.trim() ||
+            selectedTemplate?.default_threshold ||
+            '',
+          window_minutes:
+            Number.isFinite(parsedConditionWindowMinutes) &&
+            parsedConditionWindowMinutes >= 0
+              ? parsedConditionWindowMinutes
+              : selectedTemplate?.default_window_minutes || 0,
+        },
+      ]
+    : [];
 
   return {
     name: form.name.trim(),
     description: form.description.trim(),
     policy_type: policyType,
-    template_key:
-      form.strategyMode === 'custom_promql' ? undefined : form.templateKey,
-    legacy_rule_key:
-      form.strategyMode === 'custom_promql'
-        ? undefined
-        : selectedTemplate?.legacy_rule_key || undefined,
+    template_key: form.templateKey,
+    legacy_rule_key: selectedTemplate?.legacy_rule_key || undefined,
     cluster_id: form.clusterId,
     severity: form.severity,
     enabled: form.enabled,
     cooldown_minutes: Number.parseInt(form.cooldownMinutes, 10) || 0,
     send_recovery: form.sendRecovery,
-    promql:
-      form.strategyMode === 'custom_promql' ? form.promql.trim() : undefined,
     conditions,
     notification_channel_ids: notificationChannelIds,
     receiver_user_ids: receiverUserIds,
@@ -733,12 +716,13 @@ export function MonitoringPolicyCenter() {
   const [editingPolicyId, setEditingPolicyId] = useState<number | null>(null);
   const [policyDialogOpen, setPolicyDialogOpen] = useState<boolean>(false);
   const [policySearchKeyword, setPolicySearchKeyword] = useState<string>('');
-  const [policyClusterFilter, setPolicyClusterFilter] =
-    useState<string>('all');
+  const [policyClusterFilter, setPolicyClusterFilter] = useState<string>('all');
   const [policyStatusFilter, setPolicyStatusFilter] = useState<string>('all');
   // 策略类型筛选：全部 / 作业告警（在任务设置里配置的任务级策略）
   // Policy type filter: all / job alerts (task-scoped policies configured in task settings)
-  const [policyTypeFilter, setPolicyTypeFilter] = useState<'all' | 'sync_job'>('all');
+  const [policyTypeFilter, setPolicyTypeFilter] = useState<'all' | 'sync_job'>(
+    'all',
+  );
   const [taskAlertEditing, setTaskAlertEditing] = useState<{
     taskId: number;
     taskName?: string;
@@ -1276,7 +1260,7 @@ export function MonitoringPolicyCenter() {
       return;
     }
     setForm((prev) => {
-      if (prev.strategyMode !== 'static' || prev.templateKey) {
+      if (prev.templateKey) {
         return prev;
       }
       const defaultTemplate = availableStaticTemplates[0];
@@ -1357,10 +1341,19 @@ export function MonitoringPolicyCenter() {
       // Job alert policies are edited with the same form as task settings and saved through the task alert API.
       if (policy.policy_type === 'sync_job' && policy.task_id) {
         const taskId = policy.task_id;
-        setTaskAlertEditing({taskId, taskName: policy.task_name, clusterId: Number(policy.cluster_id) || null, config: null});
+        setTaskAlertEditing({
+          taskId,
+          taskName: policy.task_name,
+          clusterId: Number(policy.cluster_id) || null,
+          config: null,
+        });
         void services.sync
           .getTaskAlert(taskId)
-          .then((config) => setTaskAlertEditing((current) => (current?.taskId === taskId ? {...current, config} : current)))
+          .then((config) =>
+            setTaskAlertEditing((current) =>
+              current?.taskId === taskId ? {...current, config} : current,
+            ),
+          )
           .catch((error) => {
             toast.error(error instanceof Error ? error.message : String(error));
             setTaskAlertEditing(null);
@@ -1383,7 +1376,8 @@ export function MonitoringPolicyCenter() {
           name: policy.name,
           description: policy.description,
           cluster_id: policy.cluster_id,
-          policy_type: (policy.policy_type as AlertPolicyBuilderKind) || 'platform_health',
+          policy_type:
+            (policy.policy_type as AlertPolicyBuilderKind) || 'platform_health',
           template_key: policy.template_key || undefined,
           legacy_rule_key: policy.legacy_rule_key || undefined,
           promql: policy.promql || undefined,
@@ -1395,7 +1389,10 @@ export function MonitoringPolicyCenter() {
           receiver_user_ids: policy.receiver_user_ids,
           notification_channel_ids: policy.notification_channel_ids,
           ...(policy.policy_type === 'sync_job'
-            ? {task_id: policy.task_id, notify_task_owner: policy.notify_task_owner}
+            ? {
+                task_id: policy.task_id,
+                notify_task_owner: policy.notify_task_owner,
+              }
             : {}),
         };
         const result = await services.monitoring.updateAlertPolicySafe(
@@ -1485,12 +1482,8 @@ export function MonitoringPolicyCenter() {
       toast.error(t('clusterRequired'));
       return;
     }
-    if (form.strategyMode === 'static' && !selectedTemplate) {
+    if (!selectedTemplate) {
       toast.error(t('templateRequired'));
-      return;
-    }
-    if (form.strategyMode === 'custom_promql' && !form.promql.trim()) {
-      toast.error(t('promqlRequired'));
       return;
     }
     if (selectedTemplateSupportsCondition) {
@@ -1521,11 +1514,7 @@ export function MonitoringPolicyCenter() {
     }
 
     const payload = buildPolicyPayload(form, selectedTemplate);
-    if (
-      form.strategyMode === 'static' &&
-      selectedTemplate?.legacy_rule_key &&
-      payload.cluster_id === 'all'
-    ) {
+    if (selectedTemplate?.legacy_rule_key && payload.cluster_id === 'all') {
       toast.error(t('concreteClusterRequired'));
       return;
     }
@@ -1922,7 +1911,10 @@ export function MonitoringPolicyCenter() {
   // Filtered rule rows based on keyword, cluster, and status
   const policyRows = useMemo(() => {
     return policies.filter((policy) => {
-      if (policyTypeFilter === 'sync_job' && policy.policy_type !== 'sync_job') {
+      if (
+        policyTypeFilter === 'sync_job' &&
+        policy.policy_type !== 'sync_job'
+      ) {
         return false;
       }
       if (
@@ -1943,11 +1935,22 @@ export function MonitoringPolicyCenter() {
         const desc = (policy.description || '').toLowerCase();
         const tmpl = (policy.template_key || '').toLowerCase();
         const task = (policy.task_name || '').toLowerCase();
-        return name.includes(kw) || desc.includes(kw) || tmpl.includes(kw) || task.includes(kw);
+        return (
+          name.includes(kw) ||
+          desc.includes(kw) ||
+          tmpl.includes(kw) ||
+          task.includes(kw)
+        );
       }
       return true;
     });
-  }, [policies, policyClusterFilter, policySearchKeyword, policyStatusFilter, policyTypeFilter]);
+  }, [
+    policies,
+    policyClusterFilter,
+    policySearchKeyword,
+    policyStatusFilter,
+    policyTypeFilter,
+  ]);
 
   // 规则段 StatPills：全部 / 已启用 / 已停用（客户端聚合）
   // Rules-section StatPills: all / enabled / disabled (client aggregated)
@@ -1986,8 +1989,7 @@ export function MonitoringPolicyCenter() {
       return rows;
     }
     return rows.filter((channel) => {
-      const config =
-        channel.type === 'email' ? getEmailConfig(channel) : null;
+      const config = channel.type === 'email' ? getEmailConfig(channel) : null;
       return [
         channel.name,
         channel.description,
@@ -2006,8 +2008,18 @@ export function MonitoringPolicyCenter() {
     const enabledCount = channels.filter((c) => c.enabled).length;
     return [
       {key: 'all', label: t('statPills.all'), count: channels.length},
-      {key: 'email', label: t('statPills.email'), count: emailCount, icon: <Mail className='h-3 w-3' />},
-      {key: 'webhook', label: t('statPills.webhook'), count: webhookCount, icon: <Webhook className='h-3 w-3' />},
+      {
+        key: 'email',
+        label: t('statPills.email'),
+        count: emailCount,
+        icon: <Mail className='h-3 w-3' />,
+      },
+      {
+        key: 'webhook',
+        label: t('statPills.webhook'),
+        count: webhookCount,
+        icon: <Webhook className='h-3 w-3' />,
+      },
       {
         key: 'enabled',
         label: t('statPills.enabled'),
@@ -2147,7 +2159,10 @@ export function MonitoringPolicyCenter() {
                     className='h-7 px-2.5 text-xs cursor-pointer'
                   >
                     <RefreshCw
-                      className={cn('mr-1.5 h-3 w-3', loading && 'animate-spin')}
+                      className={cn(
+                        'mr-1.5 h-3 w-3',
+                        loading && 'animate-spin',
+                      )}
                     />
                     {rootT('refresh')}
                   </Button>
@@ -2189,14 +2204,23 @@ export function MonitoringPolicyCenter() {
 
               <Select
                 value={policyTypeFilter}
-                onValueChange={(value) => setPolicyTypeFilter(value === 'sync_job' ? 'sync_job' : 'all')}
+                onValueChange={(value) =>
+                  setPolicyTypeFilter(value === 'sync_job' ? 'sync_job' : 'all')
+                }
               >
-                <SelectTrigger className='h-8 w-[130px] text-xs bg-background' data-testid='policy-type-filter'>
+                <SelectTrigger
+                  className='h-8 w-[130px] text-xs bg-background'
+                  data-testid='policy-type-filter'
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='all'>{tAlert('policyFilterAll')}</SelectItem>
-                  <SelectItem value='sync_job'>{tAlert('policyFilterSyncJob')}</SelectItem>
+                  <SelectItem value='all'>
+                    {tAlert('policyFilterAll')}
+                  </SelectItem>
+                  <SelectItem value='sync_job'>
+                    {tAlert('policyFilterSyncJob')}
+                  </SelectItem>
                 </SelectContent>
               </Select>
 
@@ -2224,15 +2248,33 @@ export function MonitoringPolicyCenter() {
             <Table>
               <TableHeader>
                 <TableRow className='bg-muted/30 hover:bg-muted/30 h-8'>
-                  <TableHead className='min-w-[180px] py-1.5 px-3 text-xs'>{t('columns.name')}</TableHead>
-                  <TableHead className='min-w-[170px] py-1.5 px-3 text-xs'>{t('columns.template')}</TableHead>
-                  <TableHead className='w-[130px] py-1.5 px-3 text-xs'>{t('columns.cluster')}</TableHead>
-                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>{t('columns.severity')}</TableHead>
-                  <TableHead className='min-w-[160px] py-1.5 px-3 text-xs'>{t('columns.methods')}</TableHead>
-                  <TableHead className='w-[110px] py-1.5 px-3 text-xs'>{t('columns.status')}</TableHead>
-                  <TableHead className='w-[90px] text-center py-1.5 px-3 text-xs'>{t('columns.enabled')}</TableHead>
-                  <TableHead className='w-[150px] whitespace-nowrap py-1.5 px-3 text-xs'>{t('columns.updatedAt')}</TableHead>
-                  <TableHead className='w-[120px] text-right py-1.5 px-3 text-xs'>{rootT('actions')}</TableHead>
+                  <TableHead className='min-w-[180px] py-1.5 px-3 text-xs'>
+                    {t('columns.name')}
+                  </TableHead>
+                  <TableHead className='min-w-[170px] py-1.5 px-3 text-xs'>
+                    {t('columns.template')}
+                  </TableHead>
+                  <TableHead className='w-[130px] py-1.5 px-3 text-xs'>
+                    {t('columns.cluster')}
+                  </TableHead>
+                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>
+                    {t('columns.severity')}
+                  </TableHead>
+                  <TableHead className='min-w-[160px] py-1.5 px-3 text-xs'>
+                    {t('columns.methods')}
+                  </TableHead>
+                  <TableHead className='w-[110px] py-1.5 px-3 text-xs'>
+                    {t('columns.status')}
+                  </TableHead>
+                  <TableHead className='w-[90px] text-center py-1.5 px-3 text-xs'>
+                    {t('columns.enabled')}
+                  </TableHead>
+                  <TableHead className='w-[150px] whitespace-nowrap py-1.5 px-3 text-xs'>
+                    {t('columns.updatedAt')}
+                  </TableHead>
+                  <TableHead className='w-[120px] text-right py-1.5 px-3 text-xs'>
+                    {rootT('actions')}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2246,7 +2288,9 @@ export function MonitoringPolicyCenter() {
                     >
                       <div className='flex flex-col items-center justify-center gap-2'>
                         <BellRing className='h-7 w-7 text-muted-foreground/40' />
-                        <span className='font-medium'>{t('emptyPolicies')}</span>
+                        <span className='font-medium'>
+                          {t('emptyPolicies')}
+                        </span>
                         <Button
                           variant='outline'
                           size='sm'
@@ -2301,17 +2345,17 @@ export function MonitoringPolicyCenter() {
                                   type='button'
                                   className='truncate text-xs text-primary hover:underline'
                                   title={tAlert('openTask')}
-                                  onClick={() => router.push(`/sync?task=${policy.task_id}`)}
+                                  onClick={() =>
+                                    router.push(`/sync?task=${policy.task_id}`)
+                                  }
                                 >
                                   {policy.task_name || `#${policy.task_id}`}
                                 </button>
                               ) : null}
                             </div>
                           ) : (
-                          <span className='inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium'>
-                            {policy.policy_type === 'custom_promql'
-                              ? t('customPromql')
-                              : template
+                            <span className='inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium'>
+                              {template
                                 ? getTemplateDisplayName(template, legacyT)
                                 : getTemplateTranslation(
                                     legacyT,
@@ -2320,7 +2364,7 @@ export function MonitoringPolicyCenter() {
                                   ) ||
                                   policy.template_key ||
                                   '-'}
-                          </span>
+                            </span>
                           )}
                         </TableCell>
                         <TableCell className='py-2 px-3'>
@@ -2427,7 +2471,10 @@ export function MonitoringPolicyCenter() {
                     className='h-7 px-2.5 text-xs cursor-pointer'
                   >
                     <RefreshCw
-                      className={cn('mr-1.5 h-3 w-3', loading && 'animate-spin')}
+                      className={cn(
+                        'mr-1.5 h-3 w-3',
+                        loading && 'animate-spin',
+                      )}
                     />
                     {rootT('refresh')}
                   </Button>
@@ -2478,12 +2525,24 @@ export function MonitoringPolicyCenter() {
             <Table>
               <TableHeader>
                 <TableRow className='bg-muted/30 hover:bg-muted/30 h-8'>
-                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>{t('channelList.columns.type')}</TableHead>
-                  <TableHead className='min-w-[160px] py-1.5 px-3 text-xs'>{t('channelList.columns.name')}</TableHead>
-                  <TableHead className='min-w-[220px] py-1.5 px-3 text-xs'>{t('channelList.columns.target')}</TableHead>
-                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>{t('channelList.columns.status')}</TableHead>
-                  <TableHead className='w-[150px] whitespace-nowrap py-1.5 px-3 text-xs'>{t('channelList.columns.updatedAt')}</TableHead>
-                  <TableHead className='w-[100px] text-right py-1.5 px-3 text-xs'>{rootT('actions')}</TableHead>
+                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>
+                    {t('channelList.columns.type')}
+                  </TableHead>
+                  <TableHead className='min-w-[160px] py-1.5 px-3 text-xs'>
+                    {t('channelList.columns.name')}
+                  </TableHead>
+                  <TableHead className='min-w-[220px] py-1.5 px-3 text-xs'>
+                    {t('channelList.columns.target')}
+                  </TableHead>
+                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>
+                    {t('channelList.columns.status')}
+                  </TableHead>
+                  <TableHead className='w-[150px] whitespace-nowrap py-1.5 px-3 text-xs'>
+                    {t('channelList.columns.updatedAt')}
+                  </TableHead>
+                  <TableHead className='w-[100px] text-right py-1.5 px-3 text-xs'>
+                    {rootT('actions')}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2491,10 +2550,15 @@ export function MonitoringPolicyCenter() {
                   <TableSkeletonRows columns={6} rows={6} />
                 ) : channelRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className='h-40 text-center text-muted-foreground'>
+                    <TableCell
+                      colSpan={6}
+                      className='h-40 text-center text-muted-foreground'
+                    >
                       <div className='flex flex-col items-center justify-center gap-2'>
                         <Mail className='h-7 w-7 text-muted-foreground/40' />
-                        <span className='font-medium'>{t('channelList.empty')}</span>
+                        <span className='font-medium'>
+                          {t('channelList.empty')}
+                        </span>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -2516,7 +2580,10 @@ export function MonitoringPolicyCenter() {
                         )}
                       >
                         <TableCell className='py-2 px-3'>
-                          <Badge variant='outline' className='text-[10px] py-0 px-1.5 font-normal gap-1'>
+                          <Badge
+                            variant='outline'
+                            className='text-[10px] py-0 px-1.5 font-normal gap-1'
+                          >
                             {channel.type === 'email' ? (
                               <>
                                 <Mail className='h-3 w-3' />
@@ -2534,7 +2601,9 @@ export function MonitoringPolicyCenter() {
                         </TableCell>
                         <TableCell className='py-2 px-3'>
                           <div className='space-y-0.5'>
-                            <div className='text-sm font-medium'>{channel.name}</div>
+                            <div className='text-sm font-medium'>
+                              {channel.name}
+                            </div>
                             {channel.description ? (
                               <div className='text-xs text-muted-foreground line-clamp-1 max-w-[240px]'>
                                 {channel.description}
@@ -2542,11 +2611,17 @@ export function MonitoringPolicyCenter() {
                             ) : null}
                           </div>
                         </TableCell>
-                        <TableCell className='py-2 px-3 text-xs text-muted-foreground font-mono truncate max-w-[280px]' title={target}>
+                        <TableCell
+                          className='py-2 px-3 text-xs text-muted-foreground font-mono truncate max-w-[280px]'
+                          title={target}
+                        >
                           {target}
                         </TableCell>
                         <TableCell className='py-2 px-3'>
-                          <Badge variant={channel.enabled ? 'default' : 'secondary'} className='text-[11px]'>
+                          <Badge
+                            variant={channel.enabled ? 'default' : 'secondary'}
+                            className='text-[11px]'
+                          >
                             {channel.enabled
                               ? t('channel.statusEnabled')
                               : t('channel.statusDraft')}
@@ -2589,7 +2664,9 @@ export function MonitoringPolicyCenter() {
             <StatPillsBar
               items={historyPillItems}
               activeKey={historyStatusFilter}
-              onChange={(key) => setHistoryStatusFilter(key as HistoryPillFilter)}
+              onChange={(key) =>
+                setHistoryStatusFilter(key as HistoryPillFilter)
+              }
               actions={
                 <div className='flex items-center gap-1.5'>
                   <Button
@@ -2653,7 +2730,9 @@ export function MonitoringPolicyCenter() {
                 }}
               >
                 <SelectTrigger className='h-8 w-[180px] text-xs bg-background'>
-                  <SelectValue placeholder={t('deliveryHistory.policyFilter')} />
+                  <SelectValue
+                    placeholder={t('deliveryHistory.policyFilter')}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value='all'>
@@ -2674,13 +2753,27 @@ export function MonitoringPolicyCenter() {
             <Table>
               <TableHeader>
                 <TableRow className='bg-muted/30 hover:bg-muted/30 h-8'>
-                  <TableHead className='min-w-[140px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.policy')}</TableHead>
-                  <TableHead className='min-w-[130px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.channel')}</TableHead>
-                  <TableHead className='w-[90px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.event')}</TableHead>
-                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.status')}</TableHead>
-                  <TableHead className='w-[90px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.responseCode')}</TableHead>
-                  <TableHead className='w-[150px] whitespace-nowrap py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.sentAt')}</TableHead>
-                  <TableHead className='min-w-[180px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.error')}</TableHead>
+                  <TableHead className='min-w-[140px] py-1.5 px-3 text-xs'>
+                    {t('deliveryHistory.columns.policy')}
+                  </TableHead>
+                  <TableHead className='min-w-[130px] py-1.5 px-3 text-xs'>
+                    {t('deliveryHistory.columns.channel')}
+                  </TableHead>
+                  <TableHead className='w-[90px] py-1.5 px-3 text-xs'>
+                    {t('deliveryHistory.columns.event')}
+                  </TableHead>
+                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>
+                    {t('deliveryHistory.columns.status')}
+                  </TableHead>
+                  <TableHead className='w-[90px] py-1.5 px-3 text-xs'>
+                    {t('deliveryHistory.columns.responseCode')}
+                  </TableHead>
+                  <TableHead className='w-[150px] whitespace-nowrap py-1.5 px-3 text-xs'>
+                    {t('deliveryHistory.columns.sentAt')}
+                  </TableHead>
+                  <TableHead className='min-w-[180px] py-1.5 px-3 text-xs'>
+                    {t('deliveryHistory.columns.error')}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -2688,10 +2781,15 @@ export function MonitoringPolicyCenter() {
                   <TableSkeletonRows columns={7} rows={6} />
                 ) : historyRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className='h-40 text-center text-muted-foreground'>
+                    <TableCell
+                      colSpan={7}
+                      className='h-40 text-center text-muted-foreground'
+                    >
                       <div className='flex flex-col items-center justify-center gap-2'>
                         <History className='h-7 w-7 text-muted-foreground/40' />
-                        <span className='font-medium'>{t('deliveryHistory.empty')}</span>
+                        <span className='font-medium'>
+                          {t('deliveryHistory.empty')}
+                        </span>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -2715,9 +2813,12 @@ export function MonitoringPolicyCenter() {
                       <TableCell className='py-2 px-3 text-xs'>
                         {!delivery.event_type
                           ? t('deliveryHistory.events.firing')
-                          : t.has(`deliveryHistory.events.${delivery.event_type}`)
+                          : t.has(
+                                `deliveryHistory.events.${delivery.event_type}`,
+                              )
                             ? t(`deliveryHistory.events.${delivery.event_type}`)
-                            : delivery.event_type}                      </TableCell>
+                            : delivery.event_type}{' '}
+                      </TableCell>
                       <TableCell className='py-2 px-3'>
                         {(() => {
                           // 没有翻译的状态显示原值，不再落到"待发送"；空状态才算待发送。
@@ -2725,7 +2826,9 @@ export function MonitoringPolicyCenter() {
                           // only an empty status means pending.
                           const statusLabel = !delivery.status
                             ? t('deliveryHistory.statuses.pending')
-                            : t.has(`deliveryHistory.statuses.${delivery.status}`)
+                            : t.has(
+                                  `deliveryHistory.statuses.${delivery.status}`,
+                                )
                               ? t(`deliveryHistory.statuses.${delivery.status}`)
                               : delivery.status;
                           const badge = (
@@ -2764,7 +2867,10 @@ export function MonitoringPolicyCenter() {
                       <TableCell className='py-2 px-3 text-xs font-mono text-muted-foreground whitespace-nowrap'>
                         {formatDateTime(delivery.sent_at)}
                       </TableCell>
-                      <TableCell className='py-2 px-3 text-xs text-muted-foreground max-w-[260px] truncate' title={delivery.last_error || ''}>
+                      <TableCell
+                        className='py-2 px-3 text-xs text-muted-foreground max-w-[260px] truncate'
+                        title={delivery.last_error || ''}
+                      >
                         {delivery.last_error || '-'}
                       </TableCell>
                     </TableRow>
@@ -2870,10 +2976,7 @@ export function MonitoringPolicyCenter() {
                     <SelectContent>
                       <SelectItem value='all'>{t('allClusters')}</SelectItem>
                       {clusters.map((cluster) => (
-                        <SelectItem
-                          key={cluster.id}
-                          value={String(cluster.id)}
-                        >
+                        <SelectItem key={cluster.id} value={String(cluster.id)}>
                           {cluster.name}
                           {isSoleDefaultCluster(clusters, cluster.id)
                             ? ` · ${rootT('defaultClusterBadge')}`
@@ -2922,194 +3025,173 @@ export function MonitoringPolicyCenter() {
               <div className='space-y-2'>
                 <Label>{t('fields.strategyType')}</Label>
                 <div className='rounded-lg border px-4 py-3 text-sm bg-muted/20'>
-                  <div className='font-medium'>
-                    {form.strategyMode === 'custom_promql'
-                      ? t('customPromqlLegacy')
-                      : t('staticConfig')}
-                  </div>
+                  <div className='font-medium'>{t('staticConfig')}</div>
                   <div className='mt-1 text-xs text-muted-foreground'>
-                    {form.strategyMode === 'custom_promql'
-                      ? t('customPromqlLegacyDesc')
-                      : t('staticConfigDesc')}
+                    {t('staticConfigDesc')}
                   </div>
                 </div>
               </div>
 
-              {form.strategyMode === 'static' ? (
-                <div className='space-y-4'>
-                  <div className='space-y-2'>
-                    <Label>{t('fields.template')}</Label>
-                    <Select
-                      value={form.templateKey}
-                      onValueChange={(value) =>
-                        setForm((prev) => {
-                          const nextTemplate =
-                            availableStaticTemplates.find(
-                              (template) => template.key === value,
-                            ) || null;
-                          return {
-                            ...prev,
-                            templateKey: value,
-                            ...buildConditionDefaults(nextTemplate),
-                          };
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('templateRequired')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {templateGroups.platformTemplates.length > 0 ? (
-                          <>
-                            <div className='px-2 py-1 text-xs font-medium text-muted-foreground'>
-                              {t('groups.platformHealth')}
-                            </div>
-                            {templateGroups.platformTemplates.map(
-                              (template) => (
-                                <SelectItem
-                                  key={template.key}
-                                  value={template.key}
-                                >
-                                  {getTemplateDisplayName(template, legacyT)}
-                                </SelectItem>
-                              ),
-                            )}
-                          </>
-                        ) : null}
-                        {templateGroups.metricsTemplates.length > 0 ? (
-                          <>
-                            <div className='px-2 py-1 text-xs font-medium text-muted-foreground'>
-                              {t('groups.prometheusMetrics')}
-                            </div>
-                            {templateGroups.metricsTemplates.map((template) => (
-                              <SelectItem
-                                key={template.key}
-                                value={template.key}
-                                disabled={!metricsTemplatesAvailable}
-                              >
-                                {getTemplateDisplayName(template, legacyT)}
-                              </SelectItem>
-                            ))}
-                          </>
-                        ) : null}
-                      </SelectContent>
-                    </Select>
-                    {selectedTemplate ? (
-                      <div className='space-y-1.5 pt-1'>
-                        <p className='text-xs text-muted-foreground'>
-                          {getTemplateDescription(selectedTemplate, legacyT)}
-                        </p>
-                        {selectedTemplate.required_signals &&
-                        selectedTemplate.required_signals.length > 0 ? (
-                          <div className='flex flex-wrap gap-1.5'>
-                            {selectedTemplate.required_signals.map((signal) => (
-                              <Badge
-                                key={signal}
-                                variant='outline'
-                                className='font-mono text-[11px]'
-                              >
-                                {signal}
-                              </Badge>
-                            ))}
+              <div className='space-y-4'>
+                <div className='space-y-2'>
+                  <Label>{t('fields.template')}</Label>
+                  <Select
+                    value={form.templateKey}
+                    onValueChange={(value) =>
+                      setForm((prev) => {
+                        const nextTemplate =
+                          availableStaticTemplates.find(
+                            (template) => template.key === value,
+                          ) || null;
+                        return {
+                          ...prev,
+                          templateKey: value,
+                          ...buildConditionDefaults(nextTemplate),
+                        };
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('templateRequired')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templateGroups.platformTemplates.length > 0 ? (
+                        <>
+                          <div className='px-2 py-1 text-xs font-medium text-muted-foreground'>
+                            {t('groups.platformHealth')}
                           </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  {selectedTemplateSupportsCondition ? (
-                    <div className='space-y-3 rounded-lg border bg-muted/20 p-4'>
-                      <Label>{t('fields.triggerCondition')}</Label>
-                      <div className='grid gap-3 sm:grid-cols-3'>
-                        <div className='space-y-1.5'>
-                          <Label className='text-xs'>{t('fields.operator')}</Label>
-                          <Select
-                            value={form.conditionOperator}
-                            onValueChange={(value) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                conditionOperator: value,
-                              }))
-                            }
-                          >
-                            <SelectTrigger className='h-9'>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {CONDITION_OPERATORS.map((operator) => (
-                                <SelectItem key={operator} value={operator}>
-                                  {operator}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className='space-y-1.5'>
-                          <Label className='text-xs'>{t('fields.threshold')}</Label>
-                          <Input
-                            value={form.conditionThreshold}
-                            onChange={(event) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                conditionThreshold: event.target.value,
-                              }))
-                            }
-                            placeholder={t('placeholders.threshold')}
-                            className='h-9'
-                          />
-                        </div>
-                        <div className='space-y-1.5'>
-                          <Label className='text-xs'>{t('fields.window')}</Label>
-                          <div className='flex items-center gap-1.5'>
-                            <Input
-                              type='number'
-                              min={0}
-                              max={10080}
-                              value={form.conditionWindowMinutes}
-                              onChange={(event) =>
-                                setForm((prev) => ({
-                                  ...prev,
-                                  conditionWindowMinutes: event.target.value,
-                                }))
-                              }
-                              className='h-9'
-                            />
-                            <span className='text-xs text-muted-foreground whitespace-nowrap'>
-                              {t('minutes')}
-                            </span>
+                          {templateGroups.platformTemplates.map((template) => (
+                            <SelectItem key={template.key} value={template.key}>
+                              {getTemplateDisplayName(template, legacyT)}
+                            </SelectItem>
+                          ))}
+                        </>
+                      ) : null}
+                      {templateGroups.metricsTemplates.length > 0 ? (
+                        <>
+                          <div className='px-2 py-1 text-xs font-medium text-muted-foreground'>
+                            {t('groups.prometheusMetrics')}
                           </div>
-                        </div>
-                      </div>
-
-                      {selectedTemplatePromQLPreview ? (
-                        <div className='space-y-1.5 pt-2'>
-                          <Label className='text-xs text-muted-foreground'>
-                            {t('fields.promqlPreview')}
-                          </Label>
-                          <Textarea
-                            value={selectedTemplatePromQLPreview}
-                            readOnly
-                            rows={3}
-                            className='font-mono text-xs bg-muted/40'
-                          />
+                          {templateGroups.metricsTemplates.map((template) => (
+                            <SelectItem
+                              key={template.key}
+                              value={template.key}
+                              disabled={!metricsTemplatesAvailable}
+                            >
+                              {getTemplateDisplayName(template, legacyT)}
+                            </SelectItem>
+                          ))}
+                        </>
+                      ) : null}
+                    </SelectContent>
+                  </Select>
+                  {selectedTemplate ? (
+                    <div className='space-y-1.5 pt-1'>
+                      <p className='text-xs text-muted-foreground'>
+                        {getTemplateDescription(selectedTemplate, legacyT)}
+                      </p>
+                      {selectedTemplate.required_signals &&
+                      selectedTemplate.required_signals.length > 0 ? (
+                        <div className='flex flex-wrap gap-1.5'>
+                          {selectedTemplate.required_signals.map((signal) => (
+                            <Badge
+                              key={signal}
+                              variant='outline'
+                              className='font-mono text-[11px]'
+                            >
+                              {signal}
+                            </Badge>
+                          ))}
                         </div>
                       ) : null}
                     </div>
                   ) : null}
                 </div>
-              ) : (
-                <div className='space-y-2'>
-                  <Label>{t('fields.promql')}</Label>
-                  <Textarea
-                    value={form.promql}
-                    onChange={(event) =>
-                      setForm((prev) => ({...prev, promql: event.target.value}))
-                    }
-                    placeholder={t('placeholders.promql')}
-                    rows={4}
-                  />
-                </div>
-              )}
+
+                {selectedTemplateSupportsCondition ? (
+                  <div className='space-y-3 rounded-lg border bg-muted/20 p-4'>
+                    <Label>{t('fields.triggerCondition')}</Label>
+                    <div className='grid gap-3 sm:grid-cols-3'>
+                      <div className='space-y-1.5'>
+                        <Label className='text-xs'>
+                          {t('fields.operator')}
+                        </Label>
+                        <Select
+                          value={form.conditionOperator}
+                          onValueChange={(value) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              conditionOperator: value,
+                            }))
+                          }
+                        >
+                          <SelectTrigger className='h-9'>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CONDITION_OPERATORS.map((operator) => (
+                              <SelectItem key={operator} value={operator}>
+                                {operator}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className='space-y-1.5'>
+                        <Label className='text-xs'>
+                          {t('fields.threshold')}
+                        </Label>
+                        <Input
+                          value={form.conditionThreshold}
+                          onChange={(event) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              conditionThreshold: event.target.value,
+                            }))
+                          }
+                          placeholder={t('placeholders.threshold')}
+                          className='h-9'
+                        />
+                      </div>
+                      <div className='space-y-1.5'>
+                        <Label className='text-xs'>{t('fields.window')}</Label>
+                        <div className='flex items-center gap-1.5'>
+                          <Input
+                            type='number'
+                            min={0}
+                            max={10080}
+                            value={form.conditionWindowMinutes}
+                            onChange={(event) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                conditionWindowMinutes: event.target.value,
+                              }))
+                            }
+                            className='h-9'
+                          />
+                          <span className='text-xs text-muted-foreground whitespace-nowrap'>
+                            {t('minutes')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {selectedTemplatePromQLPreview ? (
+                      <div className='space-y-1.5 pt-2'>
+                        <Label className='text-xs text-muted-foreground'>
+                          {t('fields.promqlPreview')}
+                        </Label>
+                        <Textarea
+                          value={selectedTemplatePromQLPreview}
+                          readOnly
+                          rows={3}
+                          className='font-mono text-xs bg-muted/40'
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             <Separator />
@@ -3446,7 +3528,6 @@ export function MonitoringPolicyCenter() {
                 />
               </div>
             </div>
-
           </div>
 
           {/* 底部操作按钮栏 / Dialog Action Footer */}
@@ -3487,467 +3568,468 @@ export function MonitoringPolicyCenter() {
           requestEmailChannelDiscard(() => closeEmailChannelDialog(true));
         }}
       >
-        <DialogContent className='flex h-[85vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl' aria-describedby={undefined}>
+        <DialogContent
+          className='flex h-[85vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl'
+          aria-describedby={undefined}
+        >
           <DialogHeader className='px-6 py-4 border-b bg-muted/15 shrink-0'>
-            <DialogTitle className='text-lg font-semibold'>{t('channel.dialogTitle')}</DialogTitle>
+            <DialogTitle className='text-lg font-semibold'>
+              {t('channel.dialogTitle')}
+            </DialogTitle>
           </DialogHeader>
 
           <div className='min-h-0 flex-1 overflow-y-auto px-6 py-4'>
-
-              <div className='space-y-4'>
-                <Card>
-                  <CardHeader className='space-y-3'>
-                    <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
-                      <div className='space-y-2'>
-                        <CardTitle>
-                          {emailChannelForm.id === null
-                            ? t('channel.createTitle')
-                            : t('channel.editTitle')}
-                        </CardTitle>
-                        <div className='flex flex-wrap items-center gap-2'>
-                          <Badge
-                            variant={
-                              emailChannelForm.enabled ? 'default' : 'secondary'
-                            }
-                          >
-                            {emailChannelForm.enabled
-                              ? t('channel.statusEnabled')
-                              : t('channel.statusDraft')}
-                          </Badge>
-                          {editingEmailChannel ? (
-                            <span className='text-xs text-muted-foreground'>
-                              {t('channel.updatedAt', {
-                                value: formatDateTime(
-                                  editingEmailChannel.updated_at,
-                                ),
-                              })}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-
+            <div className='space-y-4'>
+              <Card>
+                <CardHeader className='space-y-3'>
+                  <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
+                    <div className='space-y-2'>
+                      <CardTitle>
+                        {emailChannelForm.id === null
+                          ? t('channel.createTitle')
+                          : t('channel.editTitle')}
+                      </CardTitle>
                       <div className='flex flex-wrap items-center gap-2'>
-                        <Button
-                          variant='outline'
-                          onClick={() => void handleTestEmailConnection()}
-                          disabled={testingEmailConnection}
-                        >
-                          <RefreshCw className='mr-2 h-4 w-4' />
-                          {t('channel.connectionTest')}
-                        </Button>
-                        <Button
-                          variant='outline'
-                          onClick={() => void handleTestEmailChannel()}
-                          disabled={isTestingCurrentEmailChannel}
-                        >
-                          <Send className='mr-2 h-4 w-4' />
-                          {t('channel.test')}
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className='grid gap-3 lg:grid-cols-2'>
-                      <div className='rounded-lg border bg-muted/30 px-4 py-3'>
-                        <div className='flex items-center gap-2 text-sm font-medium'>
-                          {lastEmailChannelConnectionResult?.status ===
-                          'sent' ? (
-                            <CircleCheck className='h-4 w-4 text-emerald-600' />
-                          ) : lastEmailChannelConnectionResult?.status ===
-                            'failed' ? (
-                            <CircleX className='h-4 w-4 text-destructive' />
-                          ) : (
-                            <RefreshCw className='h-4 w-4 text-muted-foreground' />
-                          )}
-                          {lastEmailChannelConnectionResult
-                            ? lastEmailChannelConnectionResult.status === 'sent'
-                              ? t('channel.connectionLastTest.success')
-                              : t('channel.connectionLastTest.failed')
-                            : t('channel.connectionLastTest.idle')}
-                        </div>
-                        <div className='mt-1 text-xs text-muted-foreground'>
-                          {t('channel.connectionLastTest.checkedAt', {
-                            value: formatDateTime(
-                              lastEmailChannelConnectionResult?.checked_at,
-                            ),
-                          })}
-                        </div>
-                        {emailConnectionStatusOutdated ? (
-                          <div className='mt-2 text-xs text-amber-600'>
-                            {t('channel.statusOutdated')}
-                          </div>
-                        ) : null}
-                        {lastEmailChannelConnectionResult?.last_error ? (
-                          <div className='mt-2 text-xs text-destructive'>
-                            {lastEmailChannelConnectionResult.last_error}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className='rounded-lg border bg-muted/30 px-4 py-3'>
-                        <div className='flex items-center gap-2 text-sm font-medium'>
-                          {lastEmailChannelTestResult?.status === 'sent' ? (
-                            <CircleCheck className='h-4 w-4 text-emerald-600' />
-                          ) : lastEmailChannelTestResult?.status ===
-                            'failed' ? (
-                            <CircleX className='h-4 w-4 text-destructive' />
-                          ) : (
-                            <Send className='h-4 w-4 text-muted-foreground' />
-                          )}
-                          {lastEmailChannelTestResult
-                            ? lastEmailChannelTestResult.status === 'sent'
-                              ? t('channel.lastTest.success')
-                              : t('channel.lastTest.failed')
-                            : t('channel.lastTest.idle')}
-                        </div>
-                        <div className='mt-1 text-xs text-muted-foreground'>
-                          {t('channel.lastTest.sentAt', {
-                            value: formatDateTime(
-                              lastEmailChannelTestResult?.sent_at,
-                            ),
-                          })}
-                        </div>
-                        {lastEmailChannelTestResult ? (
-                          <div className='mt-1 text-xs text-muted-foreground'>
-                            {t('channel.lastTest.receiver', {
-                              value:
-                                lastEmailChannelTestResult.receiver ||
-                                t('channel.testRecipientLegacyFallback'),
-                            })}
-                          </div>
-                        ) : null}
-                        {emailTestStatusOutdated ? (
-                          <div className='mt-2 text-xs text-amber-600'>
-                            {t('channel.statusOutdated')}
-                          </div>
-                        ) : null}
-                        {lastEmailChannelTestResult?.last_error ? (
-                          <div className='mt-2 text-xs text-destructive'>
-                            {lastEmailChannelTestResult.last_error}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </CardHeader>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('channel.sections.basic')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
-                    <div className='space-y-2'>
-                      <Label>{t('channel.fields.name')}</Label>
-                      <Input
-                        value={emailChannelForm.name}
-                        onChange={(event) =>
-                          updateEmailChannelForm((prev) => ({
-                            ...prev,
-                            name: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className='space-y-2'>
-                      <Label>{t('channel.fields.description')}</Label>
-                      <Textarea
-                        value={emailChannelForm.description}
-                        onChange={(event) =>
-                          updateEmailChannelForm((prev) => ({
-                            ...prev,
-                            description: event.target.value,
-                          }))
-                        }
-                        rows={3}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('channel.sections.connection')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
-                    <div className='grid gap-4 md:grid-cols-3'>
-                      <div className='space-y-2'>
-                        <Label>{t('channel.fields.protocol')}</Label>
-                        <Select
-                          value={emailChannelForm.protocol}
-                          onValueChange={(value) =>
-                            updateEmailChannelForm((prev) => ({
-                              ...prev,
-                              protocol: value,
-                            }))
+                        <Badge
+                          variant={
+                            emailChannelForm.enabled ? 'default' : 'secondary'
                           }
                         >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value='smtp'>SMTP</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className='space-y-2'>
-                        <Label>{t('channel.fields.security')}</Label>
-                        <Select
-                          value={emailChannelForm.security}
-                          onValueChange={(value) =>
-                            updateEmailChannelForm((prev) => ({
-                              ...prev,
-                              security:
-                                value as EmailChannelFormState['security'],
-                              port: defaultPortForSecurity(
-                                value as EmailChannelFormState['security'],
+                          {emailChannelForm.enabled
+                            ? t('channel.statusEnabled')
+                            : t('channel.statusDraft')}
+                        </Badge>
+                        {editingEmailChannel ? (
+                          <span className='text-xs text-muted-foreground'>
+                            {t('channel.updatedAt', {
+                              value: formatDateTime(
+                                editingEmailChannel.updated_at,
                               ),
-                            }))
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value='ssl'>SSL/TLS</SelectItem>
-                            <SelectItem value='starttls'>STARTTLS</SelectItem>
-                            <SelectItem value='none'>None</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className='space-y-2'>
-                        <Label>{t('channel.fields.port')}</Label>
-                        <Input
-                          type='number'
-                          value={emailChannelForm.port}
-                          onChange={(event) =>
-                            updateEmailChannelForm((prev) => ({
-                              ...prev,
-                              port: event.target.value,
-                            }))
-                          }
-                        />
+                            })}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
 
-                    <div className='grid gap-4 md:grid-cols-2'>
-                      <div className='space-y-2'>
-                        <Label>{t('channel.fields.host')}</Label>
-                        <Input
-                          value={emailChannelForm.host}
-                          onChange={(event) =>
-                            updateEmailChannelForm((prev) => ({
-                              ...prev,
-                              host: event.target.value,
-                            }))
-                          }
-                          placeholder='smtp.example.com'
-                        />
-                      </div>
-                      <div className='space-y-2'>
-                        <Label>{t('channel.fields.username')}</Label>
-                        <Input
-                          value={emailChannelForm.username}
-                          name='stx-smtp-username'
-                          autoComplete='off'
-                          autoCorrect='off'
-                          autoCapitalize='none'
-                          spellCheck={false}
-                          onChange={(event) =>
-                            updateEmailChannelForm((prev) => ({
-                              ...prev,
-                              username: event.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div className='space-y-2'>
-                      <Label>{t('channel.fields.password')}</Label>
-                      <div className='relative'>
-                        <Input
-                          type={showEmailPassword ? 'text' : 'password'}
-                          value={emailChannelForm.password}
-                          name='stx-smtp-password'
-                          autoComplete='new-password'
-                          onChange={(event) =>
-                            updateEmailChannelForm((prev) => ({
-                              ...prev,
-                              password: event.target.value,
-                            }))
-                          }
-                          className='pr-20'
-                        />
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='sm'
-                          className='absolute right-1 top-1/2 h-8 -translate-y-1/2 px-2'
-                          onClick={() => setShowEmailPassword((prev) => !prev)}
-                        >
-                          {showEmailPassword ? (
-                            <EyeOff className='h-4 w-4' />
-                          ) : (
-                            <Eye className='h-4 w-4' />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('channel.sections.sender')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
-                    <div className='grid gap-4 md:grid-cols-2'>
-                      <div className='space-y-2'>
-                        <Label>{t('channel.fields.from')}</Label>
-                        <Input
-                          value={emailChannelForm.from}
-                          onChange={(event) =>
-                            updateEmailChannelForm((prev) => ({
-                              ...prev,
-                              from: event.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className='space-y-2'>
-                        <Label>{t('channel.fields.fromName')}</Label>
-                        <Input
-                          value={emailChannelForm.fromName}
-                          onChange={(event) =>
-                            updateEmailChannelForm((prev) => ({
-                              ...prev,
-                              fromName: event.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('channel.sections.delivery')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
-                    <div className='space-y-2'>
-                      <div className='flex items-center gap-2'>
-                        <Label>{t('channel.fields.testRecipient')}</Label>
-                        <HelpHint
-                          label={t('channel.fields.testRecipient')}
-                          content={t('channel.testRecipientHint')}
-                          data-testid='email-test-recipient-hint'
-                        />
-                      </div>
-                      <Select
-                        value={emailTestReceiver}
-                        onValueChange={(value) => setEmailTestReceiver(value)}
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <Button
+                        variant='outline'
+                        onClick={() => void handleTestEmailConnection()}
+                        disabled={testingEmailConnection}
                       >
-                        <SelectTrigger>
-                          <SelectValue
-                            placeholder={t('channel.testRecipientPlaceholder')}
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value='none'>
-                            {t('channel.testRecipientNone')}
-                          </SelectItem>
-                          {notifiableUsers.map((user) => (
-                            <SelectItem key={user.id} value={String(user.id)}>
-                              {`${user.nickname || user.username}${
-                                currentUser?.id === user.id
-                                  ? ` · ${t('channel.currentUser')}`
-                                  : ''
-                              } (${user.email})`}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {emailTestRecipientHint ? (
-                        <p className='text-xs text-muted-foreground'>
-                          {emailTestRecipientHint}
-                        </p>
+                        <RefreshCw className='mr-2 h-4 w-4' />
+                        {t('channel.connectionTest')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        onClick={() => void handleTestEmailChannel()}
+                        disabled={isTestingCurrentEmailChannel}
+                      >
+                        <Send className='mr-2 h-4 w-4' />
+                        {t('channel.test')}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className='grid gap-3 lg:grid-cols-2'>
+                    <div className='rounded-lg border bg-muted/30 px-4 py-3'>
+                      <div className='flex items-center gap-2 text-sm font-medium'>
+                        {lastEmailChannelConnectionResult?.status === 'sent' ? (
+                          <CircleCheck className='h-4 w-4 text-emerald-600' />
+                        ) : lastEmailChannelConnectionResult?.status ===
+                          'failed' ? (
+                          <CircleX className='h-4 w-4 text-destructive' />
+                        ) : (
+                          <RefreshCw className='h-4 w-4 text-muted-foreground' />
+                        )}
+                        {lastEmailChannelConnectionResult
+                          ? lastEmailChannelConnectionResult.status === 'sent'
+                            ? t('channel.connectionLastTest.success')
+                            : t('channel.connectionLastTest.failed')
+                          : t('channel.connectionLastTest.idle')}
+                      </div>
+                      <div className='mt-1 text-xs text-muted-foreground'>
+                        {t('channel.connectionLastTest.checkedAt', {
+                          value: formatDateTime(
+                            lastEmailChannelConnectionResult?.checked_at,
+                          ),
+                        })}
+                      </div>
+                      {emailConnectionStatusOutdated ? (
+                        <div className='mt-2 text-xs text-amber-600'>
+                          {t('channel.statusOutdated')}
+                        </div>
+                      ) : null}
+                      {lastEmailChannelConnectionResult?.last_error ? (
+                        <div className='mt-2 text-xs text-destructive'>
+                          {lastEmailChannelConnectionResult.last_error}
+                        </div>
                       ) : null}
                     </div>
 
-                    {emailFallbackRecipients.length > 0 ? (
-                      <div className='rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground'>
-                        <div className='space-y-2'>
-                          <p>
-                            {t('channel.legacyRecipientsConfigured', {
-                              count: emailFallbackRecipients.length,
-                            })}
-                          </p>
-                          <div className='break-all text-xs'>
-                            {emailFallbackRecipients.join(', ')}
-                          </div>
-                          <Button
-                            variant='ghost'
-                            size='sm'
-                            className='px-0'
-                            onClick={() =>
-                              updateEmailChannelForm((prev) => ({
-                                ...prev,
-                                recipients: '',
-                              }))
-                            }
-                          >
-                            {t('channel.clearLegacyRecipients')}
-                          </Button>
-                        </div>
+                    <div className='rounded-lg border bg-muted/30 px-4 py-3'>
+                      <div className='flex items-center gap-2 text-sm font-medium'>
+                        {lastEmailChannelTestResult?.status === 'sent' ? (
+                          <CircleCheck className='h-4 w-4 text-emerald-600' />
+                        ) : lastEmailChannelTestResult?.status === 'failed' ? (
+                          <CircleX className='h-4 w-4 text-destructive' />
+                        ) : (
+                          <Send className='h-4 w-4 text-muted-foreground' />
+                        )}
+                        {lastEmailChannelTestResult
+                          ? lastEmailChannelTestResult.status === 'sent'
+                            ? t('channel.lastTest.success')
+                            : t('channel.lastTest.failed')
+                          : t('channel.lastTest.idle')}
                       </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
-
-                <div className='flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between'>
-                  <div>
-                    {emailChannelForm.id !== null ? (
-                      <Button
-                        variant='destructive'
-                        onClick={() => void handleDeleteEmailChannel()}
-                      >
-                        <Trash2 className='mr-2 h-4 w-4' />
-                        {t('channel.delete')}
-                      </Button>
-                    ) : null}
+                      <div className='mt-1 text-xs text-muted-foreground'>
+                        {t('channel.lastTest.sentAt', {
+                          value: formatDateTime(
+                            lastEmailChannelTestResult?.sent_at,
+                          ),
+                        })}
+                      </div>
+                      {lastEmailChannelTestResult ? (
+                        <div className='mt-1 text-xs text-muted-foreground'>
+                          {t('channel.lastTest.receiver', {
+                            value:
+                              lastEmailChannelTestResult.receiver ||
+                              t('channel.testRecipientLegacyFallback'),
+                          })}
+                        </div>
+                      ) : null}
+                      {emailTestStatusOutdated ? (
+                        <div className='mt-2 text-xs text-amber-600'>
+                          {t('channel.statusOutdated')}
+                        </div>
+                      ) : null}
+                      {lastEmailChannelTestResult?.last_error ? (
+                        <div className='mt-2 text-xs text-destructive'>
+                          {lastEmailChannelTestResult.last_error}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
+                </CardHeader>
+              </Card>
 
-                  <div className='flex flex-wrap items-center justify-end gap-2'>
-                    <Button
-                      variant='outline'
-                      onClick={() =>
-                        requestEmailChannelDiscard(() =>
-                          closeEmailChannelDialog(true),
-                        )
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t('channel.sections.basic')}</CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <div className='space-y-2'>
+                    <Label>{t('channel.fields.name')}</Label>
+                    <Input
+                      value={emailChannelForm.name}
+                      onChange={(event) =>
+                        updateEmailChannelForm((prev) => ({
+                          ...prev,
+                          name: event.target.value,
+                        }))
                       }
-                    >
-                      {t('channel.cancel')}
-                    </Button>
-                    <Button
-                      variant='outline'
-                      onClick={() => void handleSaveEmailChannel(false)}
-                      disabled={savingEmailChannel}
-                    >
-                      <Save className='mr-2 h-4 w-4' />
-                      {t('channel.saveDraft')}
-                    </Button>
-                    <Button
-                      onClick={() => void handleSaveEmailChannel(true)}
-                      disabled={savingEmailChannel}
-                    >
-                      <Save className='mr-2 h-4 w-4' />
-                      {t('channel.saveAndEnable')}
-                    </Button>
+                    />
                   </div>
+
+                  <div className='space-y-2'>
+                    <Label>{t('channel.fields.description')}</Label>
+                    <Textarea
+                      value={emailChannelForm.description}
+                      onChange={(event) =>
+                        updateEmailChannelForm((prev) => ({
+                          ...prev,
+                          description: event.target.value,
+                        }))
+                      }
+                      rows={3}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t('channel.sections.connection')}</CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <div className='grid gap-4 md:grid-cols-3'>
+                    <div className='space-y-2'>
+                      <Label>{t('channel.fields.protocol')}</Label>
+                      <Select
+                        value={emailChannelForm.protocol}
+                        onValueChange={(value) =>
+                          updateEmailChannelForm((prev) => ({
+                            ...prev,
+                            protocol: value,
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='smtp'>SMTP</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className='space-y-2'>
+                      <Label>{t('channel.fields.security')}</Label>
+                      <Select
+                        value={emailChannelForm.security}
+                        onValueChange={(value) =>
+                          updateEmailChannelForm((prev) => ({
+                            ...prev,
+                            security:
+                              value as EmailChannelFormState['security'],
+                            port: defaultPortForSecurity(
+                              value as EmailChannelFormState['security'],
+                            ),
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='ssl'>SSL/TLS</SelectItem>
+                          <SelectItem value='starttls'>STARTTLS</SelectItem>
+                          <SelectItem value='none'>None</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className='space-y-2'>
+                      <Label>{t('channel.fields.port')}</Label>
+                      <Input
+                        type='number'
+                        value={emailChannelForm.port}
+                        onChange={(event) =>
+                          updateEmailChannelForm((prev) => ({
+                            ...prev,
+                            port: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className='grid gap-4 md:grid-cols-2'>
+                    <div className='space-y-2'>
+                      <Label>{t('channel.fields.host')}</Label>
+                      <Input
+                        value={emailChannelForm.host}
+                        onChange={(event) =>
+                          updateEmailChannelForm((prev) => ({
+                            ...prev,
+                            host: event.target.value,
+                          }))
+                        }
+                        placeholder='smtp.example.com'
+                      />
+                    </div>
+                    <div className='space-y-2'>
+                      <Label>{t('channel.fields.username')}</Label>
+                      <Input
+                        value={emailChannelForm.username}
+                        name='stx-smtp-username'
+                        autoComplete='off'
+                        autoCorrect='off'
+                        autoCapitalize='none'
+                        spellCheck={false}
+                        onChange={(event) =>
+                          updateEmailChannelForm((prev) => ({
+                            ...prev,
+                            username: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className='space-y-2'>
+                    <Label>{t('channel.fields.password')}</Label>
+                    <div className='relative'>
+                      <Input
+                        type={showEmailPassword ? 'text' : 'password'}
+                        value={emailChannelForm.password}
+                        name='stx-smtp-password'
+                        autoComplete='new-password'
+                        onChange={(event) =>
+                          updateEmailChannelForm((prev) => ({
+                            ...prev,
+                            password: event.target.value,
+                          }))
+                        }
+                        className='pr-20'
+                      />
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        className='absolute right-1 top-1/2 h-8 -translate-y-1/2 px-2'
+                        onClick={() => setShowEmailPassword((prev) => !prev)}
+                      >
+                        {showEmailPassword ? (
+                          <EyeOff className='h-4 w-4' />
+                        ) : (
+                          <Eye className='h-4 w-4' />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t('channel.sections.sender')}</CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <div className='grid gap-4 md:grid-cols-2'>
+                    <div className='space-y-2'>
+                      <Label>{t('channel.fields.from')}</Label>
+                      <Input
+                        value={emailChannelForm.from}
+                        onChange={(event) =>
+                          updateEmailChannelForm((prev) => ({
+                            ...prev,
+                            from: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className='space-y-2'>
+                      <Label>{t('channel.fields.fromName')}</Label>
+                      <Input
+                        value={emailChannelForm.fromName}
+                        onChange={(event) =>
+                          updateEmailChannelForm((prev) => ({
+                            ...prev,
+                            fromName: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t('channel.sections.delivery')}</CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <div className='space-y-2'>
+                    <div className='flex items-center gap-2'>
+                      <Label>{t('channel.fields.testRecipient')}</Label>
+                      <HelpHint
+                        label={t('channel.fields.testRecipient')}
+                        content={t('channel.testRecipientHint')}
+                        data-testid='email-test-recipient-hint'
+                      />
+                    </div>
+                    <Select
+                      value={emailTestReceiver}
+                      onValueChange={(value) => setEmailTestReceiver(value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={t('channel.testRecipientPlaceholder')}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='none'>
+                          {t('channel.testRecipientNone')}
+                        </SelectItem>
+                        {notifiableUsers.map((user) => (
+                          <SelectItem key={user.id} value={String(user.id)}>
+                            {`${user.nickname || user.username}${
+                              currentUser?.id === user.id
+                                ? ` · ${t('channel.currentUser')}`
+                                : ''
+                            } (${user.email})`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {emailTestRecipientHint ? (
+                      <p className='text-xs text-muted-foreground'>
+                        {emailTestRecipientHint}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {emailFallbackRecipients.length > 0 ? (
+                    <div className='rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground'>
+                      <div className='space-y-2'>
+                        <p>
+                          {t('channel.legacyRecipientsConfigured', {
+                            count: emailFallbackRecipients.length,
+                          })}
+                        </p>
+                        <div className='break-all text-xs'>
+                          {emailFallbackRecipients.join(', ')}
+                        </div>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className='px-0'
+                          onClick={() =>
+                            updateEmailChannelForm((prev) => ({
+                              ...prev,
+                              recipients: '',
+                            }))
+                          }
+                        >
+                          {t('channel.clearLegacyRecipients')}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+
+              <div className='flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between'>
+                <div>
+                  {emailChannelForm.id !== null ? (
+                    <Button
+                      variant='destructive'
+                      onClick={() => void handleDeleteEmailChannel()}
+                    >
+                      <Trash2 className='mr-2 h-4 w-4' />
+                      {t('channel.delete')}
+                    </Button>
+                  ) : null}
+                </div>
+
+                <div className='flex flex-wrap items-center justify-end gap-2'>
+                  <Button
+                    variant='outline'
+                    onClick={() =>
+                      requestEmailChannelDiscard(() =>
+                        closeEmailChannelDialog(true),
+                      )
+                    }
+                  >
+                    {t('channel.cancel')}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    onClick={() => void handleSaveEmailChannel(false)}
+                    disabled={savingEmailChannel}
+                  >
+                    <Save className='mr-2 h-4 w-4' />
+                    {t('channel.saveDraft')}
+                  </Button>
+                  <Button
+                    onClick={() => void handleSaveEmailChannel(true)}
+                    disabled={savingEmailChannel}
+                  >
+                    <Save className='mr-2 h-4 w-4' />
+                    {t('channel.saveAndEnable')}
+                  </Button>
                 </div>
               </div>
-            
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -3962,215 +4044,216 @@ export function MonitoringPolicyCenter() {
           requestWebhookChannelDiscard(() => closeWebhookChannelDialog(true));
         }}
       >
-        <DialogContent className='flex h-[85vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl' aria-describedby={undefined}>
+        <DialogContent
+          className='flex h-[85vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl'
+          aria-describedby={undefined}
+        >
           <DialogHeader className='px-6 py-4 border-b bg-muted/15 shrink-0'>
-            <DialogTitle className='text-lg font-semibold'>{t('webhook.dialogTitle')}</DialogTitle>
+            <DialogTitle className='text-lg font-semibold'>
+              {t('webhook.dialogTitle')}
+            </DialogTitle>
           </DialogHeader>
 
           <div className='min-h-0 flex-1 overflow-y-auto px-6 py-4'>
-
-              <div className='space-y-4'>
-                <Card>
-                  <CardHeader className='space-y-3'>
-                    <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
-                      <div className='space-y-2'>
-                        <CardTitle>
-                          {webhookChannelForm.id === null
-                            ? t('webhook.createTitle')
-                            : t('webhook.editTitle')}
-                        </CardTitle>
-                        <div className='flex flex-wrap items-center gap-2'>
-                          <Badge
-                            variant={
-                              webhookChannelForm.enabled
-                                ? 'default'
-                                : 'secondary'
-                            }
-                          >
-                            {webhookChannelForm.enabled
-                              ? t('webhook.statusEnabled')
-                              : t('webhook.statusDraft')}
-                          </Badge>
-                          {editingWebhookChannel ? (
-                            <span className='text-xs text-muted-foreground'>
-                              {t('webhook.updatedAt', {
-                                value: formatDateTime(
-                                  editingWebhookChannel.updated_at,
-                                ),
-                              })}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-
+            <div className='space-y-4'>
+              <Card>
+                <CardHeader className='space-y-3'>
+                  <div className='flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between'>
+                    <div className='space-y-2'>
+                      <CardTitle>
+                        {webhookChannelForm.id === null
+                          ? t('webhook.createTitle')
+                          : t('webhook.editTitle')}
+                      </CardTitle>
                       <div className='flex flex-wrap items-center gap-2'>
-                        <Button
-                          variant='outline'
-                          onClick={() => void handleTestWebhookChannel()}
-                          disabled={isTestingCurrentWebhookChannel}
+                        <Badge
+                          variant={
+                            webhookChannelForm.enabled ? 'default' : 'secondary'
+                          }
                         >
-                          <Send className='mr-2 h-4 w-4' />
-                          {t('webhook.test')}
-                        </Button>
+                          {webhookChannelForm.enabled
+                            ? t('webhook.statusEnabled')
+                            : t('webhook.statusDraft')}
+                        </Badge>
+                        {editingWebhookChannel ? (
+                          <span className='text-xs text-muted-foreground'>
+                            {t('webhook.updatedAt', {
+                              value: formatDateTime(
+                                editingWebhookChannel.updated_at,
+                              ),
+                            })}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
 
-                    <div className='rounded-lg border bg-muted/30 px-4 py-3'>
-                      <div className='flex items-center gap-2 text-sm font-medium'>
-                        {lastWebhookChannelTestResult?.status === 'sent' ? (
-                          <CircleCheck className='h-4 w-4 text-emerald-600' />
-                        ) : lastWebhookChannelTestResult?.status ===
-                          'failed' ? (
-                          <CircleX className='h-4 w-4 text-destructive' />
-                        ) : (
-                          <Send className='h-4 w-4 text-muted-foreground' />
-                        )}
-                        {lastWebhookChannelTestResult
-                          ? lastWebhookChannelTestResult.status === 'sent'
-                            ? t('webhook.lastTest.success')
-                            : t('webhook.lastTest.failed')
-                          : t('webhook.lastTest.idle')}
-                      </div>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <Button
+                        variant='outline'
+                        onClick={() => void handleTestWebhookChannel()}
+                        disabled={isTestingCurrentWebhookChannel}
+                      >
+                        <Send className='mr-2 h-4 w-4' />
+                        {t('webhook.test')}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className='rounded-lg border bg-muted/30 px-4 py-3'>
+                    <div className='flex items-center gap-2 text-sm font-medium'>
+                      {lastWebhookChannelTestResult?.status === 'sent' ? (
+                        <CircleCheck className='h-4 w-4 text-emerald-600' />
+                      ) : lastWebhookChannelTestResult?.status === 'failed' ? (
+                        <CircleX className='h-4 w-4 text-destructive' />
+                      ) : (
+                        <Send className='h-4 w-4 text-muted-foreground' />
+                      )}
+                      {lastWebhookChannelTestResult
+                        ? lastWebhookChannelTestResult.status === 'sent'
+                          ? t('webhook.lastTest.success')
+                          : t('webhook.lastTest.failed')
+                        : t('webhook.lastTest.idle')}
+                    </div>
+                    <div className='mt-1 text-xs text-muted-foreground'>
+                      {t('webhook.lastTest.sentAt', {
+                        value: formatDateTime(
+                          lastWebhookChannelTestResult?.sent_at,
+                        ),
+                      })}
+                    </div>
+                    {lastWebhookChannelTestResult?.status_code ? (
                       <div className='mt-1 text-xs text-muted-foreground'>
-                        {t('webhook.lastTest.sentAt', {
-                          value: formatDateTime(
-                            lastWebhookChannelTestResult?.sent_at,
-                          ),
+                        {t('webhook.lastTest.statusCode', {
+                          value: lastWebhookChannelTestResult.status_code,
                         })}
                       </div>
-                      {lastWebhookChannelTestResult?.status_code ? (
-                        <div className='mt-1 text-xs text-muted-foreground'>
-                          {t('webhook.lastTest.statusCode', {
-                            value: lastWebhookChannelTestResult.status_code,
-                          })}
-                        </div>
-                      ) : null}
-                      {webhookTestStatusOutdated ? (
-                        <div className='mt-2 text-xs text-amber-600'>
-                          {t('webhook.statusOutdated')}
-                        </div>
-                      ) : null}
-                      {lastWebhookChannelTestResult?.last_error ? (
-                        <div className='mt-2 text-xs text-destructive break-all'>
-                          {lastWebhookChannelTestResult.last_error}
-                        </div>
-                      ) : null}
-                      {lastWebhookChannelTestResult?.response_body ? (
-                        <div className='mt-2 space-y-1'>
-                          <div className='text-xs text-muted-foreground'>
-                            {t('webhook.lastTest.responseBody')}
-                          </div>
-                          <pre
-                            data-testid='webhook-test-response-body'
-                            className='max-h-40 overflow-auto whitespace-pre-wrap break-all rounded border bg-background px-2 py-1 font-mono text-[11px]'
-                          >
-                            {formatChannelTestResponseBody(
-                              lastWebhookChannelTestResult.response_body,
-                            )}
-                          </pre>
-                        </div>
-                      ) : null}
-                    </div>
-                  </CardHeader>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('webhook.sections.basic')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
-                    <div className='space-y-2'>
-                      <Label>{t('webhook.fields.name')}</Label>
-                      <Input
-                        value={webhookChannelForm.name}
-                        onChange={(event) =>
-                          updateWebhookChannelForm((prev) => ({
-                            ...prev,
-                            name: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div className='space-y-2'>
-                      <Label>{t('webhook.fields.description')}</Label>
-                      <Textarea
-                        rows={3}
-                        value={webhookChannelForm.description}
-                        onChange={(event) =>
-                          updateWebhookChannelForm((prev) => ({
-                            ...prev,
-                            description: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{t('webhook.sections.connection')}</CardTitle>
-                  </CardHeader>
-                  <CardContent className='space-y-4'>
-                    <div className='space-y-2'>
-                      <Label>{t('webhook.fields.type')}</Label>
-                      <Select
-                        value={webhookChannelForm.type}
-                        onValueChange={(value) =>
-                          updateWebhookChannelForm((prev) =>
-                            changeWebhookChannelType(
-                              prev,
-                              value as WebhookLikeChannelType,
-                              savedWebhookChannelSecret(editingWebhookChannel),
-                            ),
-                          )
-                        }
-                      >
-                        <SelectTrigger data-testid='webhook-channel-type'>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {WEBHOOK_LIKE_CHANNEL_TYPES.map((type) => (
-                            <SelectItem key={type} value={type}>
-                              {t(`webhook.types.${type}`)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className='text-xs text-muted-foreground'>
-                        {t(`webhook.typeHints.${webhookChannelForm.type}`)}
-                      </p>
-                    </div>
-
-                    <div className='space-y-2'>
-                      <div className='flex items-center gap-2'>
-                        <Label>{t('webhook.fields.endpoint')}</Label>
-                        <HelpHint
-                          label={t('webhook.fields.endpoint')}
-                          content={t('webhook.endpointRecipientTip')}
-                          data-testid='webhook-endpoint-hint'
-                        />
+                    ) : null}
+                    {webhookTestStatusOutdated ? (
+                      <div className='mt-2 text-xs text-amber-600'>
+                        {t('webhook.statusOutdated')}
                       </div>
-                      <Input
-                        value={webhookChannelForm.endpoint}
-                        onChange={(event) =>
-                          updateWebhookChannelForm((prev) => ({
-                            ...prev,
-                            endpoint: event.target.value,
-                          }))
-                        }
-                        placeholder={endpointPlaceholderForType(
-                          webhookChannelForm.type,
-                        )}
-                      />
-                      {webhookChannelForm.id !== null ? (
-                        <p className='text-xs text-muted-foreground'>
-                          {t('webhook.maskedKeepHint')}
-                        </p>
-                      ) : null}
-                    </div>
+                    ) : null}
+                    {lastWebhookChannelTestResult?.last_error ? (
+                      <div className='mt-2 text-xs text-destructive break-all'>
+                        {lastWebhookChannelTestResult.last_error}
+                      </div>
+                    ) : null}
+                    {lastWebhookChannelTestResult?.response_body ? (
+                      <div className='mt-2 space-y-1'>
+                        <div className='text-xs text-muted-foreground'>
+                          {t('webhook.lastTest.responseBody')}
+                        </div>
+                        <pre
+                          data-testid='webhook-test-response-body'
+                          className='max-h-40 overflow-auto whitespace-pre-wrap break-all rounded border bg-background px-2 py-1 font-mono text-[11px]'
+                        >
+                          {formatChannelTestResponseBody(
+                            lastWebhookChannelTestResult.response_body,
+                          )}
+                        </pre>
+                      </div>
+                    ) : null}
+                  </div>
+                </CardHeader>
+              </Card>
 
-                    {channelTypeSupportsSecret(webhookChannelForm.type) ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t('webhook.sections.basic')}</CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <div className='space-y-2'>
+                    <Label>{t('webhook.fields.name')}</Label>
+                    <Input
+                      value={webhookChannelForm.name}
+                      onChange={(event) =>
+                        updateWebhookChannelForm((prev) => ({
+                          ...prev,
+                          name: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label>{t('webhook.fields.description')}</Label>
+                    <Textarea
+                      rows={3}
+                      value={webhookChannelForm.description}
+                      onChange={(event) =>
+                        updateWebhookChannelForm((prev) => ({
+                          ...prev,
+                          description: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t('webhook.sections.connection')}</CardTitle>
+                </CardHeader>
+                <CardContent className='space-y-4'>
+                  <div className='space-y-2'>
+                    <Label>{t('webhook.fields.type')}</Label>
+                    <Select
+                      value={webhookChannelForm.type}
+                      onValueChange={(value) =>
+                        updateWebhookChannelForm((prev) =>
+                          changeWebhookChannelType(
+                            prev,
+                            value as WebhookLikeChannelType,
+                            savedWebhookChannelSecret(editingWebhookChannel),
+                          ),
+                        )
+                      }
+                    >
+                      <SelectTrigger data-testid='webhook-channel-type'>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {WEBHOOK_LIKE_CHANNEL_TYPES.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {t(`webhook.types.${type}`)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className='text-xs text-muted-foreground'>
+                      {t(`webhook.typeHints.${webhookChannelForm.type}`)}
+                    </p>
+                  </div>
+
+                  <div className='space-y-2'>
+                    <div className='flex items-center gap-2'>
+                      <Label>{t('webhook.fields.endpoint')}</Label>
+                      <HelpHint
+                        label={t('webhook.fields.endpoint')}
+                        content={t('webhook.endpointRecipientTip')}
+                        data-testid='webhook-endpoint-hint'
+                      />
+                    </div>
+                    <Input
+                      value={webhookChannelForm.endpoint}
+                      onChange={(event) =>
+                        updateWebhookChannelForm((prev) => ({
+                          ...prev,
+                          endpoint: event.target.value,
+                        }))
+                      }
+                      placeholder={endpointPlaceholderForType(
+                        webhookChannelForm.type,
+                      )}
+                    />
+                    {webhookChannelForm.id !== null ? (
+                      <p className='text-xs text-muted-foreground'>
+                        {t('webhook.maskedKeepHint')}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {channelTypeSupportsSecret(webhookChannelForm.type) ? (
                     <div className='space-y-2'>
                       <div className='flex items-center gap-2'>
                         <Label>
@@ -4195,10 +4278,7 @@ export function MonitoringPolicyCenter() {
                           autoComplete='new-password'
                           onChange={(event) =>
                             updateWebhookChannelForm((prev) =>
-                              setWebhookChannelSecret(
-                                prev,
-                                event.target.value,
-                              ),
+                              setWebhookChannelSecret(prev, event.target.value),
                             )
                           }
                           className='pr-20'
@@ -4279,53 +4359,52 @@ export function MonitoringPolicyCenter() {
                         ) : null
                       ) : null}
                     </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
+                  ) : null}
+                </CardContent>
+              </Card>
 
-                <div className='flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between'>
-                  <div>
-                    {webhookChannelForm.id !== null ? (
-                      <Button
-                        variant='destructive'
-                        onClick={() => void handleDeleteWebhookChannel()}
-                      >
-                        <Trash2 className='mr-2 h-4 w-4' />
-                        {t('webhook.delete')}
-                      </Button>
-                    ) : null}
-                  </div>
+              <div className='flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between'>
+                <div>
+                  {webhookChannelForm.id !== null ? (
+                    <Button
+                      variant='destructive'
+                      onClick={() => void handleDeleteWebhookChannel()}
+                    >
+                      <Trash2 className='mr-2 h-4 w-4' />
+                      {t('webhook.delete')}
+                    </Button>
+                  ) : null}
+                </div>
 
-                  <div className='flex flex-wrap items-center justify-end gap-2'>
-                    <Button
-                      variant='outline'
-                      onClick={() =>
-                        requestWebhookChannelDiscard(() =>
-                          closeWebhookChannelDialog(true),
-                        )
-                      }
-                    >
-                      {t('webhook.cancel')}
-                    </Button>
-                    <Button
-                      variant='outline'
-                      onClick={() => void handleSaveWebhookChannel(false)}
-                      disabled={savingWebhookChannel}
-                    >
-                      <Save className='mr-2 h-4 w-4' />
-                      {t('webhook.saveDraft')}
-                    </Button>
-                    <Button
-                      onClick={() => void handleSaveWebhookChannel(true)}
-                      disabled={savingWebhookChannel}
-                    >
-                      <Save className='mr-2 h-4 w-4' />
-                      {t('webhook.saveAndEnable')}
-                    </Button>
-                  </div>
+                <div className='flex flex-wrap items-center justify-end gap-2'>
+                  <Button
+                    variant='outline'
+                    onClick={() =>
+                      requestWebhookChannelDiscard(() =>
+                        closeWebhookChannelDialog(true),
+                      )
+                    }
+                  >
+                    {t('webhook.cancel')}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    onClick={() => void handleSaveWebhookChannel(false)}
+                    disabled={savingWebhookChannel}
+                  >
+                    <Save className='mr-2 h-4 w-4' />
+                    {t('webhook.saveDraft')}
+                  </Button>
+                  <Button
+                    onClick={() => void handleSaveWebhookChannel(true)}
+                    disabled={savingWebhookChannel}
+                  >
+                    <Save className='mr-2 h-4 w-4' />
+                    {t('webhook.saveAndEnable')}
+                  </Button>
                 </div>
               </div>
-            
+            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -252,9 +252,16 @@ observability:
 
   alertmanager:
     url: "http://127.0.0.1:9093"
-    # STX 对外暴露的 Alertmanager Webhook 路径
-    # Alertmanager webhook path exposed by STX
-    webhook_path: "/api/v1/monitoring/alertmanager/webhook"
+
+  # 远程告警回流（Alertmanager webhook 接收端点）
+  # Remote alert ingest (Alertmanager webhook receiver)
+  remote_ingest:
+    # STX 对外暴露的 Webhook 路径（自 observability.alertmanager.webhook_path 迁入，破坏性变更不双读）
+    # Webhook path exposed by STX (migrated from observability.alertmanager.webhook_path; breaking change, no dual-read)
+    path: "/api/v1/monitoring/alertmanager/webhook"
+    # Bearer 鉴权 token：为空保持兼容不鉴权（启动 WARN），非空要求 "Authorization: Bearer <token>"
+    # Bearer auth token: empty keeps legacy open behaviour (startup WARN); non-empty requires "Authorization: Bearer <token>"
+    token: ""
 
   grafana:
     url: "http://127.0.0.1:3000"

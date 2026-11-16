@@ -91,7 +91,9 @@ observability:
     url: ""
   alertmanager:
     url: ""
-    webhook_path: "/api/v1/monitoring/alertmanager/webhook"
+  remote_ingest:
+    path: "/api/v1/monitoring/alertmanager/webhook"
+    token: ""
   grafana:
     url: ""
   seatunnel_metrics:

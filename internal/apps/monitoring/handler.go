@@ -18,6 +18,7 @@
 package monitoring
 
 import (
+	"crypto/subtle"
 	"errors"
 	"io"
 	"net/http"
@@ -293,6 +294,17 @@ func (h *Handler) AlertmanagerWebhook(c *gin.Context) {
 		return
 	}
 
+	// 配置了 remote_ingest.token 时强制 Bearer 校验（常量时间比较，防时序侧信道）；
+	// 缺失或错误一律 401，响应不区分缺失/不匹配。token 与 Authorization 头值不落日志。
+	// When remote_ingest.token is configured, Bearer auth is enforced (constant-time compare to
+	// avoid timing side channels); a missing or wrong token yields the same 401. The token and the
+	// Authorization header value are never logged.
+	expectedToken := strings.TrimSpace(config.Config.Observability.RemoteIngest.Token)
+	if expectedToken != "" && !remoteIngestBearerAuthorized(c.GetHeader("Authorization"), expectedToken) {
+		c.JSON(http.StatusUnauthorized, Response{ErrorMsg: "unauthorized"})
+		return
+	}
+
 	var payload AlertmanagerWebhookPayload
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid webhook payload: " + err.Error()})
@@ -305,6 +317,24 @@ func (h *Handler) AlertmanagerWebhook(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: result})
+}
+
+// remoteIngestBearerAuthorized 校验 Authorization 头是否为 "Bearer <token>"（scheme 大小写不敏感，
+// token 本体区分大小写）；expectedToken 调用方保证非空。
+// remoteIngestBearerAuthorized reports whether the Authorization header carries
+// "Bearer <token>" (scheme case-insensitive, token itself case-sensitive); expectedToken is
+// guaranteed non-empty by the caller.
+func remoteIngestBearerAuthorized(authorizationHeader, expectedToken string) bool {
+	const bearerPrefix = "bearer "
+	header := strings.TrimSpace(authorizationHeader)
+	if len(header) <= len(bearerPrefix) || !strings.EqualFold(header[:len(bearerPrefix)], bearerPrefix) {
+		return false
+	}
+	token := strings.TrimSpace(header[len(bearerPrefix):])
+	if token == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) == 1
 }
 
 // ListRemoteAlerts handles GET /api/v1/monitoring/remote-alerts.

@@ -715,7 +715,7 @@ func (s *Service) seatunnelMetricsComponent(ctx context.Context, obsCfg config.O
 // remoteIngestComponent returns the remote ingest (AM webhook) component: the endpoint is served
 // by this very API process, so a reachable API means healthy.
 func remoteIngestComponent(obsCfg config.ObservabilityConfig) *IntegrationComponentStatus {
-	webhookPath := ensureLeadingSlash(obsCfg.Alertmanager.WebhookPath)
+	webhookPath := ensureLeadingSlash(obsCfg.RemoteIngest.Path)
 	return &IntegrationComponentStatus{
 		Name:    "remote_ingest",
 		URL:     webhookPath,

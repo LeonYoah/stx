@@ -258,8 +258,10 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 	if c.Observability.Alertmanager.URL == "" {
 		c.Observability.Alertmanager.URL = "http://127.0.0.1:9093"
 	}
-	if c.Observability.Alertmanager.WebhookPath == "" {
-		c.Observability.Alertmanager.WebhookPath = "/api/v1/monitoring/alertmanager/webhook"
+	// 路径值与原 alertmanager.webhook_path 默认保持一致，保证已接入的外部 AM 端点不漂移。
+	// The path keeps the legacy alertmanager.webhook_path default so the exposed endpoint does not drift.
+	if c.Observability.RemoteIngest.Path == "" {
+		c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 	}
 	if c.Observability.Grafana.URL == "" {
 		c.Observability.Grafana.URL = "http://127.0.0.1:3000"
@@ -332,9 +334,12 @@ func validateConfig(c *configModel) error {
 	if err := validateOptionalHTTPURL("observability.grafana.url", c.Observability.Grafana.URL); err != nil {
 		return err
 	}
-	if err := validateRequiredPath("observability.alertmanager.webhook_path", c.Observability.Alertmanager.WebhookPath); err != nil {
+	if err := validateRequiredPath("observability.remote_ingest.path", c.Observability.RemoteIngest.Path); err != nil {
 		return err
 	}
+	// remote_ingest.token 无格式要求：任意非空串即启用 Bearer 校验；为空时启动 WARN 在 Serve 处记一次。
+	// remote_ingest.token has no format constraints: any non-empty value enables Bearer verification;
+	// when empty the startup WARN is logged once from Serve.
 
 	// 内嵌 tsdb 存储与查询参数校验
 	// Embedded tsdb storage and query parameter validation

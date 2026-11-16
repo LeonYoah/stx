@@ -252,7 +252,7 @@ func reloadManagedAlertmanager(pidFile string) error {
 }
 
 func writeManagedAlertmanagerConfig(path string) error {
-	webhookURL := joinURL(config.GetExternalURL(), config.Config.Observability.Alertmanager.WebhookPath)
+	webhookURL := joinURL(config.GetExternalURL(), config.Config.Observability.RemoteIngest.Path)
 	if strings.TrimSpace(webhookURL) == "" {
 		return fmt.Errorf("app.external_url is empty, cannot build alertmanager webhook url")
 	}
@@ -280,7 +280,7 @@ receivers:
 func (r *Repository) ListEnabledManagedMetricAlertPolicies(ctx context.Context) ([]*AlertPolicy, error) {
 	var policies []*AlertPolicy
 	if err := r.db.WithContext(ctx).
-		Where("enabled = ? AND policy_type IN ?", true, []AlertPolicyBuilderKind{AlertPolicyBuilderKindMetricsTemplate, AlertPolicyBuilderKindCustomPromQL}).
+		Where("enabled = ? AND policy_type IN ?", true, []AlertPolicyBuilderKind{AlertPolicyBuilderKindMetricsTemplate}).
 		Order("id ASC").
 		Find(&policies).Error; err != nil {
 		return nil, err
@@ -382,15 +382,6 @@ func (s *Service) buildManagedPrometheusAlertRule(policy *AlertPolicy, clusterNa
 			return nil, false, err
 		}
 		expr = builtExpr
-	case AlertPolicyBuilderKindCustomPromQL:
-		expr = strings.TrimSpace(policy.PromQL)
-		if expr == "" {
-			return nil, false, nil
-		}
-		condition := resolveCustomPromQLWindow(policy)
-		forDuration = formatPrometheusAlertForDuration(condition.WindowMinutes)
-		annotations["summary"] = fmt.Sprintf(`{{ $labels.cluster_name }} / {{ $labels.instance }} 指标策略“%s”已触发`, escapePrometheusTemplateText(strings.TrimSpace(firstNonEmpty(policy.Name, "未命名策略"))))
-		annotations["description"] = fmt.Sprintf("自定义 PromQL 条件命中，当前值：{{ printf \"%%.6f\" $value }}。")
 	default:
 		return nil, false, nil
 	}
@@ -447,15 +438,6 @@ func resolveMetricPolicyCondition(policy *AlertPolicy, template *AlertPolicyTemp
 	}
 	if condition.Threshold == "" {
 		condition.Threshold = "0"
-	}
-	return condition
-}
-
-func resolveCustomPromQLWindow(policy *AlertPolicy) resolvedMetricPolicyCondition {
-	condition := resolvedMetricPolicyCondition{WindowMinutes: 1}
-	conditions := unmarshalAlertPolicyConditions(policy.ConditionsJSON)
-	if len(conditions) > 0 && conditions[0] != nil && conditions[0].WindowMinutes > 0 {
-		condition.WindowMinutes = conditions[0].WindowMinutes
 	}
 	return condition
 }

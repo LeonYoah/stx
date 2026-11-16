@@ -3029,7 +3029,6 @@
       "builderSubtitle": "Persist unified alert policies that bind source templates, scope, severity, cooldown, and notification channels into one resource.",
       "empty": "No alert policies yet. Create the first unified policy from the builder on the right.",
       "descriptionEmpty": "No description",
-      "customPromqlSummary": "Custom PromQL policy",
       "allClusters": "All clusters",
       "noChannelsSelected": "No notification channels bound",
       "policyCount": "{count} policies",
@@ -3051,7 +3050,7 @@
       "yes": "Yes",
       "no": "No",
       "disabled": "Disabled",
-      "formInvalid": "Please provide a policy name and a valid template or PromQL expression.",
+      "formInvalid": "Please provide a policy name and a valid template.",
       "cooldownInvalid": "Cooldown must be a valid non-negative integer.",
       "create": "Create Policy",
       "createSuccess": "Alert policy created",
@@ -3086,8 +3085,7 @@
         "cooldownMinutes": "Cooldown (minutes)",
         "enabled": "Enabled",
         "sendRecovery": "Send Recovery",
-        "channels": "Notification Channels",
-        "promql": "PromQL Expression"
+        "channels": "Notification Channels"
       },
       "placeholders": {
         "name": "For example: Production masters unavailable",
@@ -3096,8 +3094,7 @@
         "template": "Select a template",
         "cluster": "Select scope",
         "severity": "Select severity",
-        "cooldownMinutes": "0",
-        "promql": "sum(rate(seatunnel_job_failed_total[5m])) > 0"
+        "cooldownMinutes": "0"
       },
       "columns": {
         "policy": "Policy",
@@ -3129,10 +3126,6 @@
           "title": "Metrics Templates",
           "summary": "When Prometheus is ready, unlock curated templates for CPU, memory, FD, failed jobs, and other metrics-based policies."
         },
-        "custom_promql": {
-          "title": "Custom PromQL",
-          "summary": "Give advanced users a custom PromQL entry point while preserving a unified policy and notification experience."
-        },
         "remote_ingest": {
           "title": "Remote Alert Ingest",
           "summary": "Bring Alertmanager webhook alerts into the same alert center and delivery pipeline."
@@ -3154,10 +3147,6 @@
         "metrics_template": {
           "title": "Metrics Template Policies",
           "description": "Once Prometheus and metrics targets are ready, start with curated templates for CPU, memory, FD, failed jobs, and more."
-        },
-        "custom_promql": {
-          "title": "Custom PromQL",
-          "description": "Open a custom PromQL builder for advanced cases beyond the curated templates."
         }
       },
       "templates": {
@@ -3530,7 +3519,6 @@
       "nameRequired": "Please enter an alert name",
       "clusterRequired": "Please select a cluster",
       "templateRequired": "Please select a rule template",
-      "promqlRequired": "Please enter a PromQL expression",
       "receiverRequired": "Select at least one notification recipient, or keep recipients configured on the current email channel",
       "concreteClusterRequired": "This template must be bound to a specific cluster",
       "concreteClusterHint": "Runtime event rules must bind to a concrete cluster, not all clusters.",
@@ -3551,7 +3539,6 @@
         "strategyType": "Rule Type",
         "template": "Rule Template",
         "cluster": "Cluster",
-        "promql": "PromQL",
         "severity": "Severity",
         "cooldown": "Minimum Alert Interval",
         "enabled": "Enabled",
@@ -3569,14 +3556,10 @@
       "placeholders": {
         "name": "For example: Cluster restart notification",
         "description": "Add notes so the team understands this alert rule.",
-        "promql": "For example: sum(rate(seatunnel_job_failed_total[5m])) > 0",
         "threshold": "For example: 0.8 (means 80%)"
       },
       "staticConfig": "Static Config",
       "staticConfigDesc": "Pick a platform-health or metrics template to create a rule quickly.",
-      "customPromql": "Custom PromQL",
-      "customPromqlDesc": "Write your own PromQL when Prometheus is available.",
-      "customPromqlUnavailable": "Prometheus is not ready yet.",
       "groups": {
         "platformHealth": "Platform Health",
         "prometheusMetrics": "Prometheus Metrics"
@@ -3777,8 +3760,6 @@
       },
       "conditionThresholdRequired": "Please enter a trigger threshold",
       "conditionWindowInvalid": "Window must be between 0 and 10080 minutes",
-      "customPromqlLegacy": "Legacy Custom PromQL",
-      "customPromqlLegacyDesc": "Custom PromQL is no longer offered for new rules; existing legacy rules remain editable.",
       "metricsUnavailableHint": "Prometheus metric templates are currently unavailable: {reason}",
       "sections": {
         "rules": "Alert Rules",

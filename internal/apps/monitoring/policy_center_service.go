@@ -41,7 +41,6 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 
 	componentMap := indexIntegrationComponents(integrationStatus.Components)
 	metricsStatus, metricsReason := resolveMetricsPolicyCapability(componentMap)
-	customPromQLStatus, customPromQLReason := resolveCustomPromQLCapability(componentMap)
 	remoteIngestStatus, remoteIngestReason := resolveRemoteIngestCapability(componentMap)
 
 	capabilities := []*AlertPolicyCapabilityDTO{
@@ -57,14 +56,6 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 			Summary:   "Enable CPU, memory, FD, failed-job, and other metrics-driven alert policies through the embedded metrics engine.",
 			Status:    metricsStatus,
 			Reason:    metricsReason,
-			DependsOn: []string{"embedded_tsdb", "seatunnel_metrics"},
-		},
-		{
-			Key:       AlertPolicyCapabilityKeyCustomPromQL,
-			Title:     "Custom PromQL",
-			Summary:   "Create productized metric policies while still allowing advanced teams to write custom PromQL rules.",
-			Status:    customPromQLStatus,
-			Reason:    customPromQLReason,
 			DependsOn: []string{"embedded_tsdb", "seatunnel_metrics"},
 		},
 		{
@@ -106,14 +97,6 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 			Status:        metricsStatus,
 			CapabilityKey: AlertPolicyCapabilityKeyMetricsTemplates,
 			Recommended:   true,
-		},
-		{
-			Key:           AlertPolicyBuilderKindCustomPromQL,
-			Title:         "Custom PromQL",
-			Description:   "Unlock advanced policies when Prometheus is healthy and metrics targets are reachable.",
-			Status:        customPromQLStatus,
-			CapabilityKey: AlertPolicyCapabilityKeyCustomPromQL,
-			Recommended:   false,
 		},
 	}
 
@@ -166,14 +149,6 @@ func resolveMetricsPolicyCapability(componentMap map[string]*IntegrationComponen
 	}
 	if reason := explainUnhealthyComponent(componentMap["seatunnel_metrics"], "SeaTunnel metrics targets"); reason != "" {
 		return AlertPolicyCapabilityStatusUnavailable, reason
-	}
-	return AlertPolicyCapabilityStatusAvailable, ""
-}
-
-func resolveCustomPromQLCapability(componentMap map[string]*IntegrationComponentStatus) (AlertPolicyCapabilityStatus, string) {
-	status, reason := resolveMetricsPolicyCapability(componentMap)
-	if status != AlertPolicyCapabilityStatusAvailable {
-		return status, reason
 	}
 	return AlertPolicyCapabilityStatusAvailable, ""
 }

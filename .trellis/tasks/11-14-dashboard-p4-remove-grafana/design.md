@@ -26,20 +26,7 @@
 不在本任务处理：integration status 组件（内嵌 P2 / P3）、`install/observability/grafana_config/`、
 `deploy/docker/observability/grafana/`、安装 / 打包脚本、三件套文档（内嵌 P4）。
 
-## 2. Grafana 面板覆盖核对（`research/grafana-parity.md`）
-
-来源：`deploy/docker/observability/grafana/dashboards/seatunnel-overview-{zh,en}.json`（zh / en 结构相同，以 zh 为准，en 只核对面板数一致）。
-用脚本列出所有面板的 `title` + `targets[].expr`，逐条填表：
-
-| 面板（分组 / 标题） | 表达式 | 去向 | 说明 |
-|---|---|---|---|
-| P0 / Up | `up{job="seatunnel_engine_http"}` | 集群页签：可用性状态条 | — |
-| … | … | 集群页签 / E1 / 告警 / 不需要 | 不需要时写理由 |
-
-去向判定：集群页签现有展示 → 「已覆盖」；E1 分组列表里有 → 「E1」；只作告警阈值意义（默认 11 条告警已覆盖）→ 「告警」；
-其余写明为何不需要。有关键缺口则追加到 E1 PRD 的 Requirements。表格完成后在内嵌任务 implement.md 的 P4 项旁注明「依据此表删除」。
-
-## 3. 文案与空态
+## 2. 文案与空态
 
 现状（zh）：`clusterTab.noProm.{title,desc}`、`jobsTab.noPromDesc`、`preview.noTrend` 四处写「接入 Prometheus」；
 `TrendEmptyState` 不区分 reason。
@@ -53,7 +40,7 @@
 
 `TrendEmptyState` 增加 `reason` 入参选择文案；集群 / 作业页签与预览抽屉把接口返回的 `reason` 透传。en 同步。
 
-## 4. 查询负载保护：大盘响应缓存
+## 3. 查询负载保护：大盘响应缓存
 
 问题：内嵌后 PromQL 在 STX 进程内执行。集群大盘一次约 19 条并发查询、作业大盘约 15 条，每个打开的首页 30 秒轮询一次，
 N 个人同时开首页就是 N 倍 CPU。
@@ -71,7 +58,7 @@ N 个人同时开首页就是 N 倍 CPU。
 
 内嵌引擎层的并发上限（`promql.ActiveQueryTracker` 或 `promquery` 内信号量）属于内嵌任务，已在评审意见中提给内嵌 P2。
 
-## 5. spec 更新
+## 4. spec 更新
 
 - `frontend/ui-conventions.md` §16：「未接入 Prometheus」改为「可观测性关闭 / 监控数据不可用」，并写明空态按 `reason` 分文案。
 - `backend/job-status-reconciler.md` 首页大盘一节：
@@ -79,14 +66,14 @@ N 个人同时开首页就是 N 倍 CPU。
   - 「不依赖 `seatunnel:*` 录制规则（外部 Prometheus 可能没加载）」改为「内嵌方案不实现录制规则，一律写原始表达式」。
   - 新增大盘响应缓存的约定（键、TTL、只缓存时序结果）。
 
-## 6. 复验与抽样核对
+## 5. 复验与抽样核对
 
 - 复验：父 PRD 的跨子任务验收逐条在内嵌环境重跑（本地 `~/stx-local`，observability 开启、无外部 Prometheus 进程查询）。
 - 抽样核对（内嵌 P2 合并后、P3 合并前，外部 Prometheus 仍在抓）：同一自定义窗口分别用内嵌 `promquery` 与外部 `curl :9090/api/v1/query_range`
   跑全局写入吞吐、某节点堆使用率、写入 Top 8，记录差异。预期差异来自两边抓取时刻不同（≤ 一个抓取周期的错位），
   超出则回报内嵌任务排查（标签缺失、staleness 处理）。
 
-## 7. 回退
+## 6. 回退
 
 - 代理与配置删除是纯删除，回退 = revert 本 PR。
 - 缓存可单独回退：`promCache` 只是包装层，去掉后服务直接调 `promquery`。

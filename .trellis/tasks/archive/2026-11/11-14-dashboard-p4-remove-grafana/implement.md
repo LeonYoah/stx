@@ -59,7 +59,8 @@
 - [x] 本地 `~/stx-local`：本分支二进制（nice 19 构建）起服务；首页三页签出图；5 秒 FakeSource 批作业核对吞吐 / Top N / `increase`；
       作业终态后 stale；关闭可观测性与存储不可用两种空态；zh / en。
 - [x] 抽样一致性：同窗口内嵌 vs t1 外部 9090（吞吐 / 节点堆 / Top 8），数值记入下方实施记录。
-- [ ] 推送、开 PR（base `feat/embedded-observability-p3b`）、链接 T3 线程；父任务跨子任务验收勾选。
+- [x] 推送、开 PR（base `feat/embedded-observability-p3b`）、链接 T3 线程；父任务跨子任务验收勾选。
+      PR #144：https://github.com/LeonYoah/stx/pull/144（栈 #137–#144 全部链接至 T3 线程）。
 
 ## 实施记录
 

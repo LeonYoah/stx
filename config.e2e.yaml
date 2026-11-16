@@ -83,8 +83,6 @@ observability:
   remote_ingest:
     path: "/api/v1/monitoring/alertmanager/webhook"
     token: ""
-  grafana:
-    url: ""
   seatunnel_metrics:
     path: "/hazelcast/rest/instance/metrics"
     probe_timeout_seconds: 2

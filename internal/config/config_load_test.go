@@ -60,29 +60,37 @@ func TestLoadConfigPreservesExplicitObservabilityDisabled(t *testing.T) {
 	}
 }
 
-// TestApplyEnvironmentOverridesObservabilityURLs 覆盖剩下的 grafana.url 环境覆盖；
-// prometheus/alertmanager 的 URL 与 env 已随进程内告警评估退役。
-// TestApplyEnvironmentOverridesObservabilityURLs covers the remaining grafana.url env override;
-// the prometheus/alertmanager URL env vars retired with in-process alert evaluation.
-func TestApplyEnvironmentOverridesObservabilityURLs(t *testing.T) {
-	t.Setenv("STX_OBSERVABILITY_GRAFANA_URL", "http://grafana:3000")
-
-	c := &configModel{}
-	c.Observability.Grafana.URL = "http://127.0.0.1:3000"
-	applyEnvironmentOverrides(c)
-
-	if c.Observability.Grafana.URL != "http://grafana:3000" {
-		t.Fatalf("grafana url: got %q", c.Observability.Grafana.URL)
+// TestLoadConfig_IgnoresLegacyObservabilitySections 锁住破坏性升级的兼容面：旧配置文件残留
+// prometheus / alertmanager / grafana 段时仍能加载，且不影响内置监控配置。
+// TestLoadConfig_IgnoresLegacyObservabilitySections pins the breaking-upgrade compatibility: old
+// config files that still carry prometheus / alertmanager / grafana sections keep loading and do
+// not disturb the built-in monitoring settings.
+func TestLoadConfig_IgnoresLegacyObservabilitySections(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `app:
+  external_url: "http://127.0.0.1:17800"
+observability:
+  enabled: true
+  prometheus:
+    url: "http://127.0.0.1:9090"
+    http_sd_path: "/api/v1/monitoring/prometheus/discovery"
+  alertmanager:
+    url: "http://127.0.0.1:9093"
+    webhook_path: "/api/v1/monitoring/alertmanager/webhook"
+  grafana:
+    url: "http://127.0.0.1:3000"
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
 	}
-}
+	t.Setenv("CONFIG_PATH", path)
 
-func TestApplyEnvironmentOverridesObservabilityURLsKeepYAMLWhenUnset(t *testing.T) {
-	t.Setenv("STX_OBSERVABILITY_GRAFANA_URL", "")
-
-	c := &configModel{}
-	c.Observability.Grafana.URL = "http://127.0.0.1:3000"
-	applyEnvironmentOverrides(c)
-	if c.Observability.Grafana.URL != "http://127.0.0.1:3000" {
-		t.Fatalf("unset env must not override yaml: got %q", c.Observability.Grafana.URL)
+	loaded, err := loadConfig()
+	if err != nil {
+		t.Fatalf("旧配置段不应阻止加载 / legacy sections must not block loading: %v", err)
+	}
+	if !loaded.Observability.Enabled || loaded.Observability.Storage.Retention == "" {
+		t.Fatalf("内置监控配置应取默认值 / built-in monitoring should take defaults: %+v", loaded.Observability)
 	}
 }

@@ -597,14 +597,6 @@ func Serve() {
 			// 平台集群健康摘要（由监控远程集成能力提供）。
 			clusterRouter.GET("/health", monitoringHandler.GetClustersHealth)
 
-			// Grafana 代理是高频请求路径，使用轻量会话校验降低每请求数据库开销。
-			monitoringGrafanaProxyRouter := apiV1Router.Group("/monitoring/proxy/grafana")
-			monitoringGrafanaProxyRouter.Use(auth.LoginRequiredSessionOnly())
-			{
-				monitoringGrafanaProxyRouter.Any("", monitoringHandler.ProxyGrafana)
-				monitoringGrafanaProxyRouter.Any("/*proxyPath", monitoringHandler.ProxyGrafana)
-			}
-
 			// Discovery 集群发现
 			// Initialize discovery service and handler
 			// 初始化发现服务和处理器

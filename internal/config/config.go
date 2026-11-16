@@ -131,15 +131,6 @@ func applyEnvironmentOverrides(c *configModel) {
 	if sqlitePath := os.Getenv("STX_DATABASE_SQLITE_PATH"); sqlitePath != "" {
 		c.Database.SQLitePath = sqlitePath
 	}
-
-	// 可观测地址环境变量覆盖（Compose 内用服务名，yaml 保持根目录 example 的 localhost）。
-	// Observability URL env overrides (compose DNS in Docker; yaml keeps the root example localhost).
-	// prometheus/alertmanager 的 URL 与 env 已随进程内告警评估退役，不再保留覆盖入口。
-	// The prometheus/alertmanager URL env vars retired with in-process alert evaluation and no
-	// longer have override entries.
-	if u := os.Getenv("STX_OBSERVABILITY_GRAFANA_URL"); u != "" {
-		c.Observability.Grafana.URL = u
-	}
 }
 
 // isTestEnvironment 检测是否在测试环境中运行
@@ -256,9 +247,6 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 	if c.Observability.RemoteIngest.Path == "" {
 		c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 	}
-	if c.Observability.Grafana.URL == "" {
-		c.Observability.Grafana.URL = "http://127.0.0.1:3000"
-	}
 
 	// 默认启用可观测中心（仅在用户未显式配置时）
 	if !observabilityEnabledSet {
@@ -318,9 +306,6 @@ func validateConfig(c *configModel) error {
 	if err := validateRequiredHTTPURL("app.external_url", c.App.ExternalURL); err != nil {
 		return err
 	}
-	if err := validateOptionalHTTPURL("observability.grafana.url", c.Observability.Grafana.URL); err != nil {
-		return err
-	}
 	if err := validateRequiredPath("observability.remote_ingest.path", c.Observability.RemoteIngest.Path); err != nil {
 		return err
 	}
@@ -370,14 +355,6 @@ func validateRequiredHTTPURL(name, raw string) error {
 		return fmt.Errorf("%s must include host", name)
 	}
 	return nil
-}
-
-func validateOptionalHTTPURL(name, raw string) error {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return nil
-	}
-	return validateRequiredHTTPURL(name, trimmed)
 }
 
 func validateRequiredPath(name, raw string) error {

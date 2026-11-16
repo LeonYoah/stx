@@ -3389,31 +3389,6 @@
       "nodeOffline": "节点离线",
       "nodeRecovered": "节点已恢复"
     },
-    "grafana": {
-      "title": "SeaTunnel 监控看板",
-      "subtitle": "SeaTunnel 指标监控看板。",
-      "open": "新窗口打开",
-      "notConfigured": "未检测到可用 Grafana 地址，请在 config.yaml 配置 observability.grafana.url。",
-      "proxyBadge": "代理模式",
-      "reload": "重新加载",
-      "securityNotice": "",
-      "loading": "正在加载 Grafana 监控看板…",
-      "loadFailed": "看板加载超时或失败，请重试。",
-      "retry": "重试",
-      "timeRange": {
-        "label": "时间范围",
-        "last1h": "最近 1 小时",
-        "last6h": "最近 6 小时",
-        "last24h": "最近 24 小时",
-        "last7d": "最近 7 天"
-      },
-      "refreshInterval": {
-        "label": "自动刷新",
-        "off": "关闭"
-      },
-      "expand": "展开监控看板",
-      "collapse": "收起看板"
-    },
     "tabs": {
       "dashboard": "监控看板",
       "alerts": "告警事件",

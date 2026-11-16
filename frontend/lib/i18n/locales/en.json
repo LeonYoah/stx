@@ -3389,31 +3389,6 @@
       "nodeOffline": "Node Offline",
       "nodeRecovered": "Node Recovered"
     },
-    "grafana": {
-      "title": "SeaTunnel Monitoring Dashboard",
-      "subtitle": "SeaTunnel metrics dashboard.",
-      "open": "Open in new window",
-      "notConfigured": "Grafana URL is not configured. Please set observability.grafana.url in config.yaml.",
-      "proxyBadge": "Proxy mode",
-      "reload": "Reload",
-      "securityNotice": "",
-      "loading": "Loading Grafana dashboard…",
-      "loadFailed": "Dashboard loading timed out or failed. Please retry.",
-      "retry": "Retry",
-      "timeRange": {
-        "label": "Time Range",
-        "last1h": "Last 1 hour",
-        "last6h": "Last 6 hours",
-        "last24h": "Last 24 hours",
-        "last7d": "Last 7 days"
-      },
-      "refreshInterval": {
-        "label": "Auto Refresh",
-        "off": "Off"
-      },
-      "expand": "Expand metrics dashboard",
-      "collapse": "Collapse dashboard"
-    },
     "tabs": {
       "dashboard": "Dashboard",
       "alerts": "Alert Events",

@@ -84,16 +84,11 @@ log:
 
 observability:
   enabled: $enabled
-  prometheus:
-    url: "http://127.0.0.1:9090"
-    http_sd_path: "/api/v1/monitoring/prometheus/discovery"
-  alertmanager:
-    url: "http://127.0.0.1:9093"
+  storage:
+    dir: "$(dirname "$db_path")/tsdb"
   remote_ingest:
     path: "/api/v1/monitoring/alertmanager/webhook"
     token: ""
-  grafana:
-    url: "http://127.0.0.1:3000"
   seatunnel_metrics:
     path: "/metrics"
     probe_timeout_seconds: 1
@@ -137,9 +132,12 @@ run_case() {
   status_health=$(curl -sS -o "$case_dir/health.json" -w '%{http_code}' "$base_url/api/v1/health")
   echo "health => HTTP $status_health"
 
+  # 旧的抓取目标发现端点已随内置监控退役，开关两种状态下都不存在。
+  # The legacy scrape-target discovery endpoint retired with built-in monitoring; it is gone in both modes.
   local status_sd
   status_sd=$(curl -sS -o "$case_dir/discovery.json" -w '%{http_code}' "$base_url/api/v1/monitoring/prometheus/discovery")
-  echo "prometheus/discovery => HTTP $status_sd"
+  echo "legacy discovery => HTTP $status_sd"
+  [[ "$status_sd" == "404" ]] || { echo "[FAIL] legacy discovery endpoint should be gone"; exit 1; }
 
   local webhook_payload
   webhook_payload='{"receiver":"stx","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"SmokeAlert","severity":"warning","cluster_id":"1","cluster_name":"demo","env":"test"},"annotations":{"summary":"regression"},"startsAt":"2026-02-27T00:00:00Z","endsAt":"2026-02-27T00:05:00Z","generatorURL":"http://example.com"}]}'
@@ -147,13 +145,11 @@ run_case() {
   status_webhook=$(curl -sS -o "$case_dir/webhook.json" -w '%{http_code}' -X POST "$base_url/api/v1/monitoring/alertmanager/webhook" \
     -H 'Content-Type: application/json' \
     --data "$webhook_payload")
-  echo "alertmanager/webhook => HTTP $status_webhook"
+  echo "external alert webhook => HTTP $status_webhook"
 
   if [[ "$enabled" == "true" ]]; then
-    [[ "$status_sd" == "200" ]] || { echo "[FAIL] enabled=true but discovery is not 200"; exit 1; }
     [[ "$status_webhook" == "200" ]] || { echo "[FAIL] enabled=true but webhook is not 200"; exit 1; }
   else
-    [[ "$status_sd" == "404" ]] || { echo "[FAIL] enabled=false but discovery is not 404"; exit 1; }
     [[ "$status_webhook" == "404" ]] || { echo "[FAIL] enabled=false but webhook is not 404"; exit 1; }
   fi
 

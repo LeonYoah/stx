@@ -29,9 +29,6 @@ if [[ -f "$BASE_DIR/stx.env" ]]; then
 fi
 FRONTEND_PORT="${FRONTEND_PORT:-17880}"
 
-# shellcheck source=lib/observability.sh
-source "$BASE_DIR/bin/lib/observability.sh"
-
 status_one() {
   local name="$1"
   local pidfile="$2"
@@ -53,9 +50,8 @@ status_one "backend" "$RUN_DIR/backend.pid"
 status_one "frontend" "$RUN_DIR/frontend.pid"
 
 echo
-echo "observability:"
-stx_obs_status_stack
+echo "monitoring: built into backend (data under storage dir in config.yaml, default data/tsdb)"
 
 echo
 echo "ports:"
-ss -lntp 2>/dev/null | grep -E ":(${STX_HTTP_PORT:-17800}|${STX_GRPC_PORT:-17890}|${FRONTEND_PORT}|${STX_PROMETHEUS_PORT:-9090}|${STX_ALERTMANAGER_PORT:-9093}|${STX_GRAFANA_PORT:-3000})\\b" || true
+ss -lntp 2>/dev/null | grep -E ":(${STX_HTTP_PORT:-17800}|${STX_GRPC_PORT:-17890}|${FRONTEND_PORT})\\b" || true

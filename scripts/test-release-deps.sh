@@ -39,13 +39,17 @@ if grep -nE 'gh[[:space:]]+release[[:space:]]+delete|--cleanup-tag' "$WF" "$ROOT
 else
   ok "no gh release delete / --cleanup-tag"
 fi
-grep -q 'components:' "$WF" && grep -q -- '- observability' "$WF" && ok "components input with observability option" \
+grep -q 'components:' "$WF" && grep -q -- '- node' "$WF" && ok "components input with node option" \
   || bad "components input missing"
+grep -qi 'observability' "$WF" && bad "workflow still builds the retired monitoring stack" || ok "workflow builds Node deps only"
 grep -q 'release-deps-publish.sh' "$WF" && ok "workflow publishes via release-deps-publish.sh" || bad "publisher not used"
 
 # ---- manifest merge ----
-OBS_A="observability-prom3.9.1-am0.31.1-gf12.3.3-linux-amd64.tar.gz"
-OBS_R="observability-prom3.9.1-am0.31.1-gf12.3.3-linux-arm64.tar.gz"
+# 本次重建的 Node 22 官方包；旧 MANIFEST 里还留着旧版外部监控组件条目，必须原样保留。
+# The Node 22 official packages rebuilt now; the old MANIFEST still carries entries of the retired
+# external monitoring stack, which must be preserved untouched.
+N22_A="node-22-official-linux-amd64.tar.gz"
+N22_R="node-22-official-linux-arm64.tar.gz"
 old_manifest() {
   cat <<JSON
 {
@@ -68,8 +72,6 @@ frag() { # $1 node_major $2 variant $3 version
   cat <<JSON
 {
   "node_major": "$1", "node_variant": "$2", "node_version": "$3",
-  "prometheus": "3.9.1", "alertmanager": "0.31.1", "grafana": "12.3.3",
-  "observability": {"amd64": "$OBS_A", "arm64": "$OBS_R"},
   "build_time": "x"
 }
 JSON
@@ -79,21 +81,18 @@ for k in sys.argv[2].split("."):
     d = d.get(k) if isinstance(d, dict) else None
 print("" if d is None else (json.dumps(d) if isinstance(d,(dict,list)) else d))' "$1" "$2"; }
 
-# 只重打三件套：Node 旧字段原样保留。/ observability only: legacy node keys untouched.
+# 只重打 Node 22：旧字段跟随本次构建，未知键与旧监控组件条目保留。/ Node 22 only: legacy keys follow, unknown keys kept.
 m="$tmp/m1"; mkdir -p "$m/assets"
-old_manifest >"$m/old.json"; frag 18 official "" >"$m/f1.json"
-touch "$m/assets/$OBS_A" "$m/assets/$OBS_R"
+old_manifest >"$m/old.json"; frag 22 official 22.23.4 >"$m/f1.json"
+touch "$m/assets/$N22_A" "$m/assets/$N22_R"
 python3 "$ROOT_DIR/scripts/merge-deps-manifest.py" --assets-dir "$m/assets" --out "$m/out.json" \
   --existing "$m/old.json" --now 2026-10-23T00:00:00Z "$m/f1.json" 2>/dev/null
-[[ "$(jget "$m/out.json" node_version)" == "18.20.8" && "$(jget "$m/out.json" node_variant)" == "glibc217" ]] \
-  && ok "obs-only keeps node fields" || bad "obs-only changed node fields"
-[[ "$(jget "$m/out.json" observability.arm64)" == "$OBS_R" && "$(jget "$m/out.json" prometheus)" == "3.9.1" ]] \
-  && ok "obs-only updates observability" || bad "obs-only did not update observability"
+[[ "$(jget "$m/out.json" node_version)" == "22.23.4" && "$(jget "$m/out.json" node_variant)" == "official" ]] \
+  && ok "node rebuild updates legacy node fields" || bad "node rebuild did not update legacy node fields"
 [[ "$(jget "$m/out.json" custom)" == "kept" && "$(jget "$m/out.json" build_time)" == "2026-10-23T00:00:00Z" ]] \
   && ok "unknown keys kept, build_time refreshed" || bad "unknown keys / build_time"
-[[ -z "$(jget "$m/out.json" node)" ]] && ok "obs-only adds no node map" || bad "obs-only touched node map"
 
-# 只重打 Node：三件套条目保留；最后一次 Node 构建生效于旧字段。/ node only: observability kept; last node wins.
+# 两个 Node 变体：旧监控组件条目保留；最后一次 Node 构建生效于旧字段。/ two Node variants: legacy entries kept; last node wins.
 m="$tmp/m2"; mkdir -p "$m/assets"
 old_manifest >"$m/old.json"; frag 22 official 22.23.4 >"$m/f1.json"; frag 18 glibc217 18.20.9 >"$m/f2.json"
 touch "$m/assets/node-22-official-linux-amd64.tar.gz" "$m/assets/node-22-official-linux-arm64.tar.gz" \
@@ -101,7 +100,7 @@ touch "$m/assets/node-22-official-linux-amd64.tar.gz" "$m/assets/node-22-officia
 python3 "$ROOT_DIR/scripts/merge-deps-manifest.py" --assets-dir "$m/assets" --out "$m/out.json" \
   --existing "$m/old.json" "$m/f1.json" "$m/f2.json" 2>/dev/null
 [[ "$(jget "$m/out.json" observability.amd64)" == "observability-old-linux-amd64.tar.gz" && "$(jget "$m/out.json" grafana)" == "12.3.2" ]] \
-  && ok "node-only keeps observability" || bad "node-only changed observability"
+  && ok "node rebuild keeps legacy monitoring entries" || bad "node rebuild changed legacy monitoring entries"
 [[ "$(jget "$m/out.json" node_version)" == "18.20.9" ]] && ok "legacy node keys follow last build" || bad "legacy node keys"
 python3 - "$m/out.json" <<'PY' && ok "node map records each built package" || bad "node map"
 import json, sys
@@ -153,19 +152,20 @@ esac
 STUB
 chmod +x "$stub"
 
-mk_assets() { # $1 dir: rebuilt observability tarballs + sidecars + fragment
+mk_assets() { # $1 dir: rebuilt Node 22 tarballs + sidecars + fragment
   mkdir -p "$1/assets"
-  for n in "$OBS_A" "$OBS_R"; do
+  for n in "$N22_A" "$N22_R"; do
     head -c 2048 /dev/urandom >"$1/assets/$n"
     sha256sum "$1/assets/$n" | awk '{print $1}' >"$1/assets/$n.sha256"
   done
-  frag 18 official "" >"$1/frag.json"
+  frag 22 official 22.23.4 >"$1/frag.json"
 }
 
-# 场景 A：deps 已存在（含 Node 包与旧三件套），只重打三件套。/ Scenario A: existing release, obs-only rebuild.
+# 场景 A：deps 已存在（含 Node 包与旧监控组件包），只重打 Node 22。/ Scenario A: existing release, Node 22 rebuild.
+LEGACY_OBS="observability-old-linux-amd64.tar.gz"
 d="$tmp/pa"; mkdir -p "$d"; mk_assets "$d"
 old_manifest >"$d/MANIFEST.json"
-printf '1\tnode-22-official-linux-amd64.tar.gz\t111\n2\tnode-22-official-linux-amd64.tar.gz.sha256\t65\n3\tnode-18-glibc217-linux-amd64.tar.gz\t333\n4\t%s\t9\n5\t%s.sha256\t65\n6\tMANIFEST.json\t10\n' "$OBS_A" "$OBS_A" >"$d/state"
+printf '1\t%s\t111\n2\t%s.sha256\t65\n3\tnode-18-glibc217-linux-amd64.tar.gz\t333\n4\t%s\t9\n6\tMANIFEST.json\t10\n' "$N22_A" "$N22_A" "$LEGACY_OBS" >"$d/state"
 if STUB_DIR="$d" GH="$stub" GITHUB_REPOSITORY=o/r bash "$ROOT_DIR/scripts/release-deps-publish.sh" deps "$d/assets" "$d/frag.json" >"$d/out" 2>&1; then
   ok "publish (existing release) succeeded"
 else
@@ -180,20 +180,21 @@ first_delete="$(grep -n 'api -X DELETE' "$d/log" | head -1 | cut -d: -f1)"
 grep '^release upload' "$d/log" | grep -q -- '--clobber' && ok "temp upload uses --clobber" || bad "upload without --clobber"
 last_patch="$(grep 'api -X PATCH' "$d/log" | tail -1)"
 [[ "$last_patch" == *"name=MANIFEST.json" ]] && ok "MANIFEST.json switched last" || bad "MANIFEST not last: $last_patch"
-for keep in "1	node-22-official-linux-amd64.tar.gz	111" "3	node-18-glibc217-linux-amd64.tar.gz	333"; do
-  grep -qxF "$keep" "$d/state" && ok "untouched asset kept: ${keep#*	}" || bad "node asset changed: $keep"
+for keep in "3	node-18-glibc217-linux-amd64.tar.gz	333" "4	$LEGACY_OBS	9"; do
+  grep -qxF "$keep" "$d/state" && ok "untouched asset kept: ${keep#*	}" || bad "untouched asset changed: $keep"
 done
-for n in "$OBS_A" "$OBS_R" "$OBS_A.sha256" "$OBS_R.sha256" MANIFEST.json; do
+for n in "$N22_A" "$N22_R" "$N22_A.sha256" "$N22_R.sha256" MANIFEST.json; do
   [[ "$(awk -F'\t' -v n="$n" '$2 == n' "$d/state" | wc -l)" -eq 1 ]] && ok "exactly one $n" || bad "asset count for $n"
 done
-[[ "$(awk -F'\t' -v n="$OBS_A" '$2 == n {print $3}' "$d/state")" == "2048" ]] && ok "obs amd64 replaced with new file" || bad "obs amd64 not replaced"
+[[ "$(awk -F'\t' -v n="$N22_A" '$2 == n {print $3}' "$d/state")" == "2048" ]] && ok "node22 amd64 replaced with new file" || bad "node22 amd64 not replaced"
 grep -q 'uploading' "$d/state" && bad "temp names left" || ok "no temp names left"
-grep -q '"node_version": "18.20.8"' "$d/assets/MANIFEST.json" && grep -q "\"arm64\": \"$OBS_R\"" "$d/assets/MANIFEST.json" \
-  && ok "published MANIFEST merged (node kept, obs updated)" || bad "published MANIFEST not merged"
+grep -q '"node_version": "22.23.4"' "$d/assets/MANIFEST.json" && grep -q "\"$N22_R\"" "$d/assets/MANIFEST.json" \
+  && grep -q '"observability-old-linux-arm64.tar.gz"' "$d/assets/MANIFEST.json" \
+  && ok "published MANIFEST merged (node updated, legacy entries kept)" || bad "published MANIFEST not merged"
 
 # 场景 B：上传失败——旧资产一个不少。/ Scenario B: upload fails, old assets intact.
 d="$tmp/pb"; mkdir -p "$d"; mk_assets "$d"; old_manifest >"$d/MANIFEST.json"
-printf '1\tnode-22-official-linux-amd64.tar.gz\t111\n4\t%s\t9\n6\tMANIFEST.json\t10\n' "$OBS_A" >"$d/state"
+printf '1\t%s\t111\n4\t%s\t9\n6\tMANIFEST.json\t10\n' "$N22_A" "$LEGACY_OBS" >"$d/state"
 cp "$d/state" "$d/state.before"
 if STUB_FAIL_UPLOAD=1 STUB_DIR="$d" GH="$stub" GITHUB_REPOSITORY=o/r bash "$ROOT_DIR/scripts/release-deps-publish.sh" deps "$d/assets" "$d/frag.json" >"$d/out" 2>&1; then
   bad "publish should fail when upload fails"
@@ -202,7 +203,7 @@ else
 fi
 
 # 场景 C：sidecar 不匹配——拒绝发布。/ Scenario C: sidecar mismatch is rejected before any call that mutates.
-d="$tmp/pc"; mkdir -p "$d"; mk_assets "$d"; echo deadbeef >"$d/assets/$OBS_A.sha256"
+d="$tmp/pc"; mkdir -p "$d"; mk_assets "$d"; echo deadbeef >"$d/assets/$N22_A.sha256"
 if STUB_DIR="$d" GH="$stub" GITHUB_REPOSITORY=o/r bash "$ROOT_DIR/scripts/release-deps-publish.sh" deps "$d/assets" "$d/frag.json" >"$d/out" 2>&1; then
   bad "sha256 mismatch should be rejected"
 else

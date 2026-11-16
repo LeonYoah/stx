@@ -31,5 +31,4 @@
 !install/bin/start.sh
 !install/bin/stop.sh
 !install/bin/status.sh
-!install/bin/lib/observability.sh
 !.github/docker/all-in-one-entrypoint.sh

@@ -401,34 +401,6 @@ function buildConditionStateFromPolicy(
   };
 }
 
-function buildPromQLPreview(
-  template: AlertPolicyTemplateSummary | null,
-  form: Pick<
-    PolicyFormState,
-    'conditionOperator' | 'conditionThreshold' | 'conditionWindowMinutes'
-  >,
-): string {
-  if (!template?.suggested_promql) {
-    return '';
-  }
-
-  let preview = template.suggested_promql;
-  const windowMinutes = Number.parseInt(form.conditionWindowMinutes, 10);
-  if (Number.isFinite(windowMinutes) && windowMinutes > 0) {
-    preview = preview.replace(/\[(\d+)m\]/g, `[${windowMinutes}m]`);
-  }
-
-  const operator = form.conditionOperator.trim();
-  const threshold = form.conditionThreshold.trim();
-  if (operator && threshold) {
-    preview = preview.replace(
-      /\s*(>=|<=|==|!=|>|<)\s*([^\s)]+)\s*$/,
-      ` ${operator} ${threshold}`,
-    );
-  }
-  return preview;
-}
-
 function getEmailConfig(
   channel?: NotificationChannel | null,
 ): NotificationChannelEmailConfig | null {
@@ -975,10 +947,6 @@ export function MonitoringPolicyCenter() {
   const selectedTemplateSupportsCondition = useMemo(
     () => supportsTemplateCondition(selectedTemplate),
     [selectedTemplate],
-  );
-  const selectedTemplatePromQLPreview = useMemo(
-    () => buildPromQLPreview(selectedTemplate, form),
-    [form, selectedTemplate],
   );
 
   const currentEmailChannel = useMemo(
@@ -3175,20 +3143,6 @@ export function MonitoringPolicyCenter() {
                         </div>
                       </div>
                     </div>
-
-                    {selectedTemplatePromQLPreview ? (
-                      <div className='space-y-1.5 pt-2'>
-                        <Label className='text-xs text-muted-foreground'>
-                          {t('fields.promqlPreview')}
-                        </Label>
-                        <Textarea
-                          value={selectedTemplatePromQLPreview}
-                          readOnly
-                          rows={3}
-                          className='font-mono text-xs bg-muted/40'
-                        />
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
               </div>

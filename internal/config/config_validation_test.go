@@ -30,7 +30,6 @@ func TestValidateConfig_ObservabilityDisabled(t *testing.T) {
 func TestValidateConfig_MissingExternalURL(t *testing.T) {
 	c := &configModel{}
 	c.Observability.Enabled = true
-	c.Observability.Grafana.URL = "http://127.0.0.1:3000"
 	c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 
 	if err := validateConfig(c); err == nil {
@@ -55,7 +54,6 @@ func TestValidateConfig_RemoteObservabilityHappyPath(t *testing.T) {
 	c := &configModel{}
 	c.App.ExternalURL = "https://stx.example.com"
 	c.Observability.Enabled = true
-	c.Observability.Grafana.URL = "http://127.0.0.1:3000"
 	c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 	fillEmbeddedObservabilityDefaults(c)
 
@@ -76,7 +74,7 @@ func TestValidateConfig_EmbeddedObservabilityInvalid(t *testing.T) {
 	}
 
 	cases := []struct {
-		name  string
+		name   string
 		mutate func(c *configModel)
 	}{
 		{"empty storage dir", func(c *configModel) { c.Observability.Storage.Dir = " " }},

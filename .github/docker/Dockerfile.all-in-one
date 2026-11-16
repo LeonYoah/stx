@@ -46,7 +46,6 @@ COPY config.example.yaml /opt/stx/config.yaml
 COPY install/bin/start.sh /opt/stx/bin/start.sh
 COPY install/bin/stop.sh /opt/stx/bin/stop.sh
 COPY install/bin/status.sh /opt/stx/bin/status.sh
-COPY install/bin/lib/observability.sh /opt/stx/bin/lib/observability.sh
 COPY .github/docker/all-in-one-entrypoint.sh /opt/stx/bin/all-in-one-entrypoint.sh
 
 # 拷贝启动脚本与分发资产（lib 与 default-lib 种子目录）
@@ -55,7 +54,7 @@ COPY scripts/stx-java-proxy.sh /opt/stx/scripts/stx-java-proxy.sh
 COPY --from=artifacts /out/lib /opt/stx/lib
 COPY --from=artifacts /out/lib /opt/stx/default-lib
 
-RUN mkdir -p /opt/stx/runtime/node/bin /opt/stx/bin/lib /opt/stx/logs /opt/stx/run /opt/stx/scripts && \
+RUN mkdir -p /opt/stx/runtime/node/bin /opt/stx/logs /opt/stx/run /opt/stx/scripts && \
     ln -sf /usr/local/bin/node /opt/stx/runtime/node/bin/node && \
     chmod +x /opt/stx/stx /opt/stx/bin/*.sh /opt/stx/scripts/*.sh /opt/stx/lib/agent/* /opt/stx/default-lib/agent/*
 

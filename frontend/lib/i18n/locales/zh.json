@@ -302,7 +302,8 @@
         "empty": "该时间窗内没有数据",
         "noAccess": "无权查看该作业",
         "partial": "部分指标查询失败：{keys}",
-        "noPromDesc": "开启 STX 可观测性并接入 Prometheus 后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。下方运行日历来自 STX 数据库，不受影响。"
+        "noPromDesc": "开启可观测性后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。下方运行日历来自 STX 数据库，不受影响。",
+        "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。下方运行日历来自 STX 数据库，不受影响。"
       },
       "list": {
         "searchPlaceholder": "作业名、任务名、引擎作业 ID",
@@ -369,7 +370,8 @@
         "trend": "近 1 小时吞吐",
         "read": "读取",
         "write": "写入",
-        "noTrend": "接入 Prometheus 后显示趋势",
+        "noTrend": "开启可观测性后显示趋势",
+        "trendUnavailable": "监控数据暂不可用，稍后自动重试",
         "error": "失败原因",
         "openDetail": "打开作业详情",
         "writeRate": "写入速率",
@@ -380,7 +382,8 @@
         "loading": "加载中",
         "legendClear": "清空",
         "legendAll": "全选",
-        "categoryTime": "时间"
+        "categoryTime": "时间",
+        "empty": "该时间窗内没有数据"
       },
       "clusterTab": {
         "range": {
@@ -470,8 +473,10 @@
           "bad": "异常"
         },
         "noProm": {
-          "title": "接入 Prometheus 后显示趋势",
-          "desc": "开启 STX 可观测性并接入 Prometheus 后，这里会显示节点可用性、JVM、GC 与作业状态趋势。集群卡片和节点表仍来自 Agent 心跳。",
+          "title": "可观测性未开启",
+          "desc": "开启可观测性后，这里会显示节点可用性、JVM、GC 与作业状态趋势。集群卡片和节点表来自 Agent 心跳，不受影响。",
+          "unavailableTitle": "监控数据暂不可用",
+          "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。集群卡片和节点表来自 Agent 心跳，不受影响。",
           "action": "查看监控配置"
         },
         "partial": "部分指标查询失败：{keys}",
@@ -2867,7 +2872,7 @@
     "alerts": {
       "entry": "告警事件",
       "title": "告警事件",
-      "subtitle": "统一查看本地进程事件告警与远程 Alertmanager 告警",
+      "subtitle": "统一查看平台事件告警、指标告警与作业告警",
       "listTitle": "告警列表",
       "clusterFilter": "按集群筛选",
       "statusFilter": "按状态筛选",
@@ -2927,7 +2932,7 @@
       "pageInfo": "第 {current} / {total} 页",
       "sourceTypes": {
         "local_process_event": "本地进程事件",
-        "remote_alertmanager": "远程 Alertmanager",
+        "remote_alertmanager": "指标告警",
         "sync": "作业告警"
       },
       "lifecycleStatuses": {
@@ -3009,7 +3014,7 @@
       "title": "规则与通知",
       "subtitle": "管理告警规则与通知通道，并按能力自动裁剪功能入口。",
       "generatedAt": "生成时间：{value}",
-      "unifiedExperienceHint": "面向用户只保留规则与通知一个工作面；面向系统内部继续区分平台健康与 Prometheus 指标信号。",
+      "unifiedExperienceHint": "面向用户只保留规则与通知一个工作面；系统内部继续区分平台健康与指标信号。",
       "loadError": "加载规则与通知初始化数据失败",
       "policyListLoadError": "加载告警规则列表失败",
       "channelListLoadError": "加载可绑定通知通道失败",
@@ -3021,7 +3026,7 @@
       "capabilitySectionTitle": "能力状态",
       "integrationSectionTitle": "集成依赖状态",
       "templatesSectionTitle": "推荐策略模板",
-      "templatesSectionSubtitle": "这些模板是规则与通知的产品骨架：平台健康模板始终可演进，指标模板则在 Prometheus 能力可用时解锁。",
+      "templatesSectionSubtitle": "这些模板是规则与通知的产品骨架：平台健康模板始终可用，指标模板在内置监控可用时解锁。",
       "listTitle": "现有策略",
       "listSubtitle": "当前共管理 {count} 条统一告警策略。",
       "listGeneratedAt": "策略列表生成时间：{value}",
@@ -3124,11 +3129,11 @@
         },
         "metrics_templates": {
           "title": "指标模板",
-          "summary": "在 Prometheus 可用时，提供 CPU、内存、FD、失败作业数等指标驱动的策略模板。"
+          "summary": "内置监控可用时，提供 CPU、内存、FD、失败作业数等指标驱动的策略模板。"
         },
         "remote_ingest": {
           "title": "远程告警回流",
-          "summary": "将 Alertmanager Webhook 回流纳入统一告警中心和统一通知链路。"
+          "summary": "接收外部系统推送的告警（兼容 Alertmanager Webhook 格式），纳入统一告警中心和通知链路。"
         },
         "webhook_notification": {
           "title": "Webhook / IM 通知",
@@ -3146,7 +3151,7 @@
         },
         "metrics_template": {
           "title": "指标模板策略",
-          "description": "在 Prometheus 与 metrics target 就绪后，直接从模板生成 CPU、内存、FD、失败作业等指标策略。"
+          "description": "内置监控采集到引擎指标后，直接从模板生成 CPU、内存、FD、失败作业等指标策略。"
         }
       },
       "templates": {
@@ -3196,11 +3201,11 @@
         },
         "cpu_usage_high": {
           "name": "CPU 使用率高",
-          "description": "通过 Prometheus 指标检测持续 CPU 饱和。"
+          "description": "通过引擎指标检测持续 CPU 饱和。"
         },
         "memory_usage_high": {
           "name": "内存使用率高",
-          "description": "通过 Prometheus 指标在节点失稳前发现内存压力。"
+          "description": "通过引擎指标在节点失稳前发现内存压力。"
         },
         "fd_usage_high": {
           "name": "FD 使用率高",
@@ -3208,7 +3213,7 @@
         },
         "failed_jobs_high": {
           "name": "失败作业数升高",
-          "description": "通过 Prometheus 指标发现失败作业或重试量异常。"
+          "description": "通过引擎指标发现失败作业或重试量异常。"
         },
         "split_brain_risk": {
           "name": "脑裂风险",
@@ -3385,31 +3390,6 @@
       "nodeOffline": "节点离线",
       "nodeRecovered": "节点已恢复"
     },
-    "grafana": {
-      "title": "SeaTunnel 监控看板",
-      "subtitle": "SeaTunnel 指标监控看板。",
-      "open": "新窗口打开",
-      "notConfigured": "未检测到可用 Grafana 地址，请在 config.yaml 配置 observability.grafana.url。",
-      "proxyBadge": "代理模式",
-      "reload": "重新加载",
-      "securityNotice": "",
-      "loading": "正在加载 Grafana 监控看板…",
-      "loadFailed": "看板加载超时或失败，请重试。",
-      "retry": "重试",
-      "timeRange": {
-        "label": "时间范围",
-        "last1h": "最近 1 小时",
-        "last6h": "最近 6 小时",
-        "last24h": "最近 24 小时",
-        "last7d": "最近 7 天"
-      },
-      "refreshInterval": {
-        "label": "自动刷新",
-        "off": "关闭"
-      },
-      "expand": "展开监控看板",
-      "collapse": "收起看板"
-    },
     "tabs": {
       "dashboard": "监控看板",
       "alerts": "告警事件",
@@ -3550,8 +3530,7 @@
         "triggerCondition": "触发条件",
         "operator": "比较符",
         "threshold": "阈值",
-        "window": "持续时间",
-        "promqlPreview": "PromQL 预览"
+        "window": "持续时间"
       },
       "placeholders": {
         "name": "例如：集群重启通知",
@@ -3562,7 +3541,7 @@
       "staticConfigDesc": "选择平台健康或指标模板，快速生成规则。",
       "groups": {
         "platformHealth": "平台健康",
-        "prometheusMetrics": "Prometheus 指标"
+        "prometheusMetrics": "监控指标"
       },
       "receiverHint": "通知对象来自已启用且配置了有效邮箱的用户。优先默认当前登录用户；若当前用户不可通知，则回退到管理员。",
       "receiverEmpty": "暂无可选通知对象。请先在个人中心（或用户管理）配置有效邮箱。",
@@ -3760,7 +3739,7 @@
       },
       "conditionThresholdRequired": "请输入触发阈值",
       "conditionWindowInvalid": "持续时间必须在 0 到 10080 分钟之间",
-      "metricsUnavailableHint": "Prometheus 指标模板当前不可用：{reason}",
+      "metricsUnavailableHint": "指标模板当前不可用：{reason}",
       "sections": {
         "rules": "告警规则",
         "channels": "通知通道",
@@ -5411,12 +5390,14 @@
         "snapshot": "快照",
         "trend": "趋势",
         "snapshotHint": "引擎最新指标",
-        "trendHint": "历史趋势 · 来自 Prometheus",
+        "trendHint": "历史趋势",
         "noJob": "没有作业数据",
-        "emptyTitle": "趋势需要开启可观测性并接入 Prometheus",
+        "emptyTitle": "开启可观测性后显示趋势",
         "emptyBody": "开启后可查看吞吐、CDC 延迟、Checkpoint、算子忙碌度与背压的历史曲线。未开启时 STX 不采集、不保存任何时序数据。",
+        "unavailableTitle": "监控数据暂不可用",
+        "unavailableBody": "监控存储尚未就绪或查询失败，稍后会自动重试。",
         "emptyEnable": "去开启",
-        "emptyHow": "如何接入",
+        "emptyHow": "如何开启",
         "emptySnapshotHint": "当前数值仍可在「快照」中查看",
         "engineObsEmptyTitle": "该作业未开启引擎可观测性",
         "engineObsEmptyBody": "忙碌度与背压需要作业开启 engine.observability",
@@ -5427,6 +5408,7 @@
         "lastRefresh": "上次刷新 {time}",
         "loading": "加载中",
         "source": "数据来源",
+        "sourceBuiltin": "内置监控",
         "hero": {
           "readQps": "读 QPS",
           "writeQps": "写 QPS",

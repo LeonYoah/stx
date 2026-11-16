@@ -28,7 +28,7 @@ internal/
 │   ├── host/                # 主机 CRUD、安装命令
 │   ├── installer/           # 包管理、安装向导
 │   ├── monitor/             # 监控配置、进程事件
-│   ├── monitoring/          # 监控中心（告警、Grafana 代理等）
+│   ├── monitoring/          # 监控中心（告警、策略、内置告警评估、外部告警接入等）
 │   ├── oauth/               # OAuth 提供商（GitHub、Google）
 │   ├── plugin/              # 插件市场、安装到集群
 │   ├── stupgrade/           # STX 自身升级

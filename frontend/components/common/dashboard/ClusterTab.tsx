@@ -341,7 +341,7 @@ export function ClusterTab({
       ) : null}
 
       {data && !hasMetrics ? (
-        <TrendEmptyState />
+        <TrendEmptyState reason={data.reason} />
       ) : data ? (
         <>
           <section className={panel} data-testid='home-availability'>

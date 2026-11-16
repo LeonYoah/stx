@@ -248,11 +248,11 @@ type TelemetryConfig struct {
 	Endpoint string `mapstructure:"endpoint"`
 }
 
-// ObservabilityConfig 可观测性配置（内嵌 tsdb + PromQL 引擎 + 进程内告警评估；P3 已删除
-// prometheus.url / alertmanager.url，grafana.url 留待 P4 处理）
+// ObservabilityConfig 可观测性配置（内嵌 tsdb + PromQL 引擎 + 进程内告警评估）。旧版的
+// prometheus / alertmanager / grafana 段已删除；旧配置文件残留这些段时被忽略，不影响启动。
 // ObservabilityConfig holds observability settings (embedded tsdb + PromQL engine + in-process
-// alert evaluation; P3 removed prometheus.url / alertmanager.url while grafana.url is left for
-// P4).
+// alert evaluation). The legacy prometheus / alertmanager / grafana sections are gone; leftovers in
+// old config files are ignored and do not block startup.
 type ObservabilityConfig struct {
 	// Enabled indicates whether observability integration is enabled.
 	// Enabled 表示是否启用可观测性集成。
@@ -276,7 +276,6 @@ type ObservabilityConfig struct {
 	// MaxSamples is the maximum number of samples a single query may load.
 	MaxSamples int64 `mapstructure:"max_samples"`
 
-	Grafana         ObservabilityGrafanaConfig         `mapstructure:"grafana"`
 	SeatunnelMetric ObservabilitySeatunnelMetricConfig `mapstructure:"seatunnel_metrics"`
 
 	// RemoteIngest 是远程告警回流（AM webhook）端点配置：path 自 alertmanager.webhook_path 迁入，
@@ -317,11 +316,6 @@ type ObservabilityRemoteIngestConfig struct {
 	// compare); empty keeps the legacy open behaviour for already-integrated external Alertmanagers
 	// and logs one WARN at startup.
 	Token string `mapstructure:"token"`
-}
-
-// ObservabilityGrafanaConfig Grafana 集成配置
-type ObservabilityGrafanaConfig struct {
-	URL string `mapstructure:"url"`
 }
 
 // ObservabilitySeatunnelMetricConfig SeaTunnel metrics 探测配置

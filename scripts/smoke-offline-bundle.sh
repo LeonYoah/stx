@@ -64,7 +64,7 @@ tar -xzf /bundle/b.tar.gz
 cd stx-*-offline
 echo "[smoke] glibc: $(ldd --version 2>&1 | head -n1)"
 ./install.sh -y --no-systemd --admin-password "S3cret-pw!" --frontend-port 18080 --http-port 18000 --grpc-port 18090 \
-  --external-ip 10.1.2.3 --prometheus-port 19090 --alertmanager-port 19093 --grafana-port 13000 \
+  --external-ip 10.1.2.3 \
   >/tmp/install1.log 2>&1; rc=$?
 cat /tmp/install1.log
 check "install.sh exit 0 (rc=$rc)" "[[ $rc -eq 0 ]]"
@@ -84,9 +84,8 @@ check "pre-flight result list printed" "grep -q \"安装前检查\" /tmp/install
 check "external_url uses --external-ip" "grep -q \"external_url: \\\"http://10.1.2.3:18000\\\"\" /opt/stx/config.yaml"
 check "console_url set" "grep -q \"console_url: \\\"http://10.1.2.3:18080\\\"\" /opt/stx/config.yaml"
 check "summary URL uses external ip" "grep -q \"http://10.1.2.3:18080\" /tmp/install1.log"
-check "stx.env has observability ports" "grep -q STX_GRAFANA_PORT=13000 /opt/stx/stx.env && grep -q STX_PROMETHEUS_PORT=19090 /opt/stx/stx.env"
-check "prometheus.yml targets alertmanager :19093 and stx :18000" "grep -q 127.0.0.1:19093 /opt/stx/observability/prometheus/prometheus.yml && grep -q 127.0.0.1:18000 /opt/stx/observability/prometheus/prometheus.yml"
-check "summary mentions observability disk usage" "grep -q \"占用磁盘\" /tmp/install1.log"
+check "stx.env has no legacy monitoring ports" "! grep -q STX_PROMETHEUS_PORT /opt/stx/stx.env"
+check "summary shows built-in monitoring" "grep -q \"内置监控\" /tmp/install1.log"
 check "GET /api/v1/health -> 200" "[[ \$(code http://127.0.0.1:18000/api/v1/health) == 200 ]]"
 c="$(code http://127.0.0.1:18080/)"
 check "GET web / -> $c" "[[ $c =~ ^[23] ]]"
@@ -96,9 +95,7 @@ check "login with the new password succeeds" "grep -q \"\\\"username\\\":\\\"adm
 bad="$(curl -s -m 10 -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"admin123\"}" http://127.0.0.1:18000/api/v1/auth/login || true)"
 check "login with admin123 is rejected" "! grep -q \"\\\"username\\\":\\\"admin\\\"\" <<<\"\$bad\""
 sleep 5
-check "prometheus ready on :19090" "[[ \$(code http://127.0.0.1:19090/-/ready) == 200 ]]"
-check "grafana on :13000" "[[ \$(code http://127.0.0.1:13000/api/health) == 200 ]]"
-check "alertmanager on :19093" "[[ \$(code http://127.0.0.1:19093/-/ready) == 200 ]]"
+check "built-in monitoring storage created" "[[ -d /opt/stx/data/tsdb ]]"
 # 端口冲突（非交互）必须明确失败。/ Port conflict in non-interactive mode must fail clearly.
 ./install.sh -y --no-systemd --install-dir /opt/stx-conflict --http-port 18000 --without-observability >/tmp/conflict.log 2>&1; rc=$?
 check "non-interactive port conflict fails (rc=$rc)" "[[ $rc -ne 0 ]]"

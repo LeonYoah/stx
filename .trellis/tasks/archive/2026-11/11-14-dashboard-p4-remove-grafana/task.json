@@ -1,9 +1,9 @@
 {
   "id": "dashboard-p4-remove-grafana",
   "name": "dashboard-p4-remove-grafana",
-  "title": "P4 首页大盘收尾：Grafana 应用层摘除 + 内嵌口径对齐",
+  "title": "P4 收尾：内嵌可观测补完 + 三件套退役 + 首页大盘对齐",
   "description": "",
-  "status": "planning",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,9 +11,9 @@
   "creator": "claude",
   "assignee": "claude",
   "createdAt": "2026-11-14",
-  "completedAt": null,
-  "branch": null,
-  "base_branch": "feat/embedded-observability-p2",
+  "completedAt": "2026-11-16",
+  "branch": "feat/embedded-observability-p4",
+  "base_branch": "feat/embedded-observability-p3b",
   "worktree_path": null,
   "commit": null,
   "pr_url": null,
@@ -21,6 +21,6 @@
   "children": [],
   "parent": "11-14-home-monitoring-dashboard",
   "relatedFiles": [],
-  "notes": "2026-11-16 因内嵌可观测任务重定义；依赖内嵌 P2 合并。安装器/docker/文档中的 Grafana 归内嵌 P4。",
+  "notes": "2026-11-16 用户决定由 P4 给全部叠加 PR 收尾（含内嵌 P4 未完成部分与内嵌不足），并清理用户可见文案中的实现名。",
   "meta": {}
 }

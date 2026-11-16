@@ -70,13 +70,16 @@
 
 ## P4 安装 / 文档 / 收尾
 
-- [ ] `deploy/docker/observability/` 删 prometheus + alertmanager 服务与卷；compose 文件更新。
-- [ ] `docs/observability-remote-*` 三篇更新为内嵌架构；`docs/全量功能文档与目录规划.md` 相关段同步。
-- [ ] AGENTS.md / README 提及 observability 的地方更新（端口 9090/9093 消失）。
-- [ ] CLI：`stx` 命令中 integration status / monitoring 相关输出对齐新组件集。
-- [ ] E2E：`config.e2e*.yaml` 更新 + `scripts/observability-enabled-switch-regression.sh` 适配（它引用 http_sd）。
+**已全部并入 `11-14-dashboard-p4-remove-grafana` 执行**（2026-11-16 用户决定由 dashboard P4 给所有叠加 PR 收尾，
+范围含本节全部项 + 内嵌 P1–P3 不足修复 + Grafana 摘除 + 大盘对齐 + 文案去实现名）。以下仅留原始备忘：
+
+- [x] `deploy/docker/observability/` 删 prometheus + alertmanager 服务与卷；compose 文件更新。
+- [x] `docs/observability-remote-*` 三篇更新为内嵌架构（合并为 `docs/内置监控说明.md`）；`docs/全量功能文档与目录规划.md` 相关段同步。
+- [x] AGENTS.md / README 提及 observability 的地方更新（端口 9090/9093 消失）。
+- [x] CLI：`stx` 命令中 integration status / monitoring 相关输出对齐新组件集。
+- [x] E2E：`config.e2e*.yaml` 更新 + `scripts/observability-enabled-switch-regression.sh` 适配（它引用 http_sd）。
 - 验证：`go test ./...`、`cd agent && go test ./...`、`cd frontend && pnpm test && pnpm exec tsc --noEmit`；
-      全新裸装一次（无 prom/AM 二进制）→ 大盘 + 一条模板告警端到端。
+      全新裸装一次（无 prom/AM 二进制）→ 大盘 + 一条模板告警端到端。（验证在 dashboard P4 第 7 步统一执行）
 
 ## 全局验证命令
 

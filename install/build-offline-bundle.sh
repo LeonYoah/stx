@@ -22,8 +22,8 @@
 #                         Local build outputs (dist/releases from package-release.sh --layout split)
 #   --from-release <tag>  或从已发布 Release 下载 stx / agent / frontend / java-proxy
 #                         Or download stx / agent / frontend / java-proxy from a published release
-#   Node 与三件套来自 --deps-dir 或 Release tag `deps`（自动下载并校验 sha256）。
-#   Node and the observability stack come from --deps-dir or the `deps` release tag (sha256 verified).
+#   Node 来自 --deps-dir 或 Release tag `deps`（自动下载并校验 sha256）。监控已内置在 stx 二进制中。
+#   Node comes from --deps-dir or the `deps` release tag (sha256 verified). Monitoring is built into the stx binary.
 #
 # 输出 / Output (per variant):
 #   <output>/stx-<ver>-linux-amd64-offline.tar.gz          + .sha256
@@ -51,11 +51,10 @@ Options:
   --version <ver>          Version label in file names (default: git describe --tags --always)
   --from-dir <dir>         Local build outputs (default: dist/releases)
   --from-release <tag>     Download stx/agent/frontend/java-proxy from this release instead of --from-dir
-  --deps-dir <dir>         Local dir with node-*.tar.gz / observability-*.tar.gz (default: download from deps tag)
+  --deps-dir <dir>         Local dir with node-*.tar.gz (default: download from deps tag)
   --deps-tag <tag>         Deps release tag (default: deps)
   --cache-dir <dir>        Download cache (default: .cache/offline-bundle)
   --output-dir <dir>       Output dir (default: dist/offline)
-  --without-observability  Do not bundle Prometheus/Alertmanager/Grafana
   --alias                  Also write stable alias files for releases/latest/download links
   --keep-dir               Keep the unpacked bundle directory next to the tarball
   -h, --help
@@ -75,7 +74,6 @@ DEPS_DIR=""
 DEPS_TAG="${STX_DEPS_TAG:-deps}"
 CACHE_DIR="$ROOT_DIR/.cache/offline-bundle"
 OUTPUT_DIR="$ROOT_DIR/dist/offline"
-WITH_OBS=true
 WITH_ALIAS=false
 KEEP_DIR=false
 MAX_ASSET_BYTES=$((2 * 1024 * 1024 * 1024 - 1))
@@ -90,7 +88,7 @@ while [[ $# -gt 0 ]]; do
     --deps-tag) DEPS_TAG="${2:-}"; shift 2 ;;
     --cache-dir) CACHE_DIR="${2:-}"; shift 2 ;;
     --output-dir) OUTPUT_DIR="${2:-}"; shift 2 ;;
-    --without-observability) WITH_OBS=false; shift ;;
+    --without-observability) shift ;; # 已无外部监控组件可打包，保留以兼容旧命令 / nothing to bundle any more; kept for old commands
     --alias) WITH_ALIAS=true; shift ;;
     --keep-dir) KEEP_DIR=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -177,28 +175,13 @@ find_frontend() {
   return 1
 }
 
-# 依赖：Node 与三件套。/ Dependencies: Node runtime and observability stack.
+# 依赖：Node 运行时。/ Dependency: Node runtime.
 node_asset_for() {
   case "$1" in
     amd64) echo "node-22-official-linux-amd64.tar.gz" ;;
     arm64) echo "node-22-official-linux-arm64.tar.gz" ;;
     centos7) echo "node-18-glibc217-linux-amd64.tar.gz" ;;
   esac
-}
-
-DEPS_MANIFEST=""
-obs_asset_for() {
-  local a="$1" name=""
-  if [[ -n "$DEPS_DIR" ]]; then
-    name="$(find "$DEPS_DIR" -maxdepth 1 -name "observability-*-linux-$a.tar.gz" -print 2>/dev/null | sort | tail -n1)"
-    [[ -n "$name" ]] && { basename "$name"; return 0; }
-  fi
-  if [[ -z "$DEPS_MANIFEST" ]]; then
-    DEPS_MANIFEST="$CACHE_DIR/deps-MANIFEST.json"
-    stx_download_release_asset "$DEPS_TAG" "MANIFEST.json" "$DEPS_MANIFEST" 2>/dev/null || : >"$DEPS_MANIFEST"
-  fi
-  name="$(stx_manifest_obs_asset "$a" <"$DEPS_MANIFEST" || true)"
-  echo "${name:-observability-prom3.9.1-am0.31.1-gf12.3.3-linux-$a.tar.gz}"
 }
 
 dep_file() {
@@ -236,7 +219,7 @@ assert_static() {
 copy_or_link() { ln "$1" "$2" 2>/dev/null || cp "$1" "$2"; }
 
 build_variant() {
-  local variant="$1" arch plat name dir stx_bin agent_bin fe node_tar obs_tar node_asset obs_asset node_ver tarball size
+  local variant="$1" arch plat name dir stx_bin agent_bin fe node_tar node_asset node_ver tarball size
   arch="$(stx_bundle_variant_arch "$variant")"
   plat="$(stx_bundle_platform "$variant")"
   name="stx-${VERSION}-${plat}-offline"
@@ -258,23 +241,17 @@ build_variant() {
 
   node_asset="$(node_asset_for "$variant")"
   node_tar="$(dep_file "$node_asset")" || { echo "[ERROR] node runtime $node_asset unavailable" >&2; return 1; }
-  obs_tar=""
-  if [[ "$WITH_OBS" == "true" ]]; then
-    obs_asset="$(obs_asset_for "$arch")"
-    obs_tar="$(dep_file "$obs_asset")" || { echo "[ERROR] observability package $obs_asset unavailable" >&2; return 1; }
-  fi
   node_ver="$( (tar -tzf "$node_tar" 2>/dev/null || true) | awk -F/ 'NR==1 {print $1; exit}')"
   node_ver="$(echo "$node_ver" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
 
   rm -rf "$dir"
-  mkdir -p "$dir/packages" "$dir/bin/lib" "$dir/scripts"
+  mkdir -p "$dir/packages" "$dir/bin" "$dir/scripts"
   copy_or_link "$stx_bin" "$dir/packages/stx-linux-$arch"
   copy_or_link "$agent_bin" "$dir/packages/stx-agent-linux-$arch"
   copy_or_link "$fe" "$dir/packages/frontend-standalone-${VERSION}-linux-$arch.tar.gz"
   copy_or_link "$SRC_DIR/stx-java-proxy-v2.jar" "$dir/packages/stx-java-proxy-v2.jar"
   copy_or_link "$SRC_DIR/stx-java-proxy-v3.jar" "$dir/packages/stx-java-proxy-v3.jar"
   copy_or_link "$node_tar" "$dir/packages/$node_asset"
-  [[ -n "$obs_tar" ]] && copy_or_link "$obs_tar" "$dir/packages/$(basename "$obs_tar")"
   chmod +x "$dir/packages/stx-linux-$arch" "$dir/packages/stx-agent-linux-$arch" 2>/dev/null || true
 
   if [[ -f "$SRC_DIR/stx-java-proxy.sh" ]]; then
@@ -284,7 +261,6 @@ build_variant() {
   fi
   cp "$ROOT_DIR/install/install.sh" "$ROOT_DIR/install/install-core.sh" "$ROOT_DIR/install/download-lib.sh" "$dir/"
   cp "$ROOT_DIR/install/bin/start.sh" "$ROOT_DIR/install/bin/stop.sh" "$ROOT_DIR/install/bin/status.sh" "$dir/bin/"
-  cp "$ROOT_DIR/install/bin/lib/observability.sh" "$dir/bin/lib/"
   cp "$ROOT_DIR/config.example.yaml" "$dir/config.example.yaml"
   chmod +x "$dir/install.sh" "$dir/bin/"*.sh "$dir/scripts/"*.sh
 
@@ -302,7 +278,6 @@ build_variant() {
   "node_version": "${node_ver:-unknown}",
   "node_package": "$node_asset",
   "with_node": true,
-  "with_observability": $WITH_OBS,
   "with_agent": true,
   "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -316,7 +291,7 @@ JSON
 - 版本 / version: \`$VERSION\` (commit \`$GIT_COMMIT\`)
 - 平台 / platform: \`$plat\`（glibc ≥ $min_glibc）
 - Node: \`${node_ver:-unknown}\` ($node_variant)，已内置 / bundled
-- 三件套 / observability: $WITH_OBS
+- 监控 / monitoring: 内置在 STX 中，无需额外组件 / built into STX, nothing else to install
 
 ## 安装 / Install
 

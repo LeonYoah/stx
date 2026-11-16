@@ -171,7 +171,7 @@ func (h *Handler) ListInstalledPlugins(c *gin.Context) {
 		return
 	}
 
-	plugins, err := h.service.ListInstalledPlugins(c.Request.Context(), uint(clusterID))
+	plugins, err := h.service.ListVisibleInstalledPlugins(c.Request.Context(), uint(clusterID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ListInstalledPluginsResponse{ErrorMsg: err.Error()})
 		return

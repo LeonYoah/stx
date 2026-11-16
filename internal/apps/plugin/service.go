@@ -619,7 +619,6 @@ func (s *Service) ListInstalledPlugins(ctx context.Context, clusterID uint) ([]I
 	}
 	plugins = s.reconcileInstalledPluginVersions(ctx, clusterID, plugins)
 	plugins = s.dedupeInstalledPlugins(ctx, clusterID, plugins)
-	plugins = s.mergeBundledConnectors(ctx, clusterID, plugins)
 
 	localPlugins, err := s.downloader.ListLocalPlugins()
 	if err != nil {
@@ -667,6 +666,19 @@ func (s *Service) ListInstalledPlugins(ctx context.Context, clusterID uint) ([]I
 	}
 
 	return plugins, nil
+}
+
+// ListVisibleInstalledPlugins 给页面/CLI 列表用：控制面已安装记录，加上节点安装包自带的连接器。
+// 升级预检和节点补齐仍走 ListInstalledPlugins，避免把 fake/console 等自带 jar 当成必须同步的额外插件。
+// ListVisibleInstalledPlugins is for the page/CLI list: Control Plane installs plus connectors bundled in the package.
+// Upgrade precheck and node replay keep using ListInstalledPlugins so bundled jars such as fake/console are not
+// treated as extra plugins that must be synced.
+func (s *Service) ListVisibleInstalledPlugins(ctx context.Context, clusterID uint) ([]InstalledPlugin, error) {
+	plugins, err := s.ListInstalledPlugins(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	return s.mergeBundledConnectors(ctx, clusterID, plugins), nil
 }
 
 func (s *Service) dedupeInstalledPlugins(ctx context.Context, clusterID uint, plugins []InstalledPlugin) []InstalledPlugin {

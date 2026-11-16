@@ -194,16 +194,26 @@ func TestListInstalledPluginsMergesBundledConnectors(t *testing.T) {
 		t.Fatalf("create installed plugin: %v", err)
 	}
 
-	plugins, err := service.ListInstalledPlugins(ctx, 1)
+	visible, err := service.ListVisibleInstalledPlugins(ctx, 1)
 	if err != nil {
-		t.Fatalf("ListInstalledPlugins: %v", err)
+		t.Fatalf("ListVisibleInstalledPlugins: %v", err)
 	}
 	names := map[string]bool{}
-	for _, plugin := range plugins {
+	for _, plugin := range visible {
 		names[plugin.PluginName] = true
 	}
 	if !names["jdbc"] || !names["fake"] {
-		t.Fatalf("expected bundled fake plus stored jdbc, got %+v", plugins)
+		t.Fatalf("expected bundled fake plus stored jdbc, got %+v", visible)
+	}
+
+	stored, err := service.ListInstalledPlugins(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListInstalledPlugins: %v", err)
+	}
+	for _, plugin := range stored {
+		if plugin.PluginName == "fake" {
+			t.Fatalf("upgrade/replay list must not include bundled connectors, got %+v", stored)
+		}
 	}
 }
 

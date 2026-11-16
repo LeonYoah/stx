@@ -3,7 +3,7 @@
   "name": "dashboard-e1-cluster-metrics",
   "title": "增强：集群指标细化（JVM / GC / 线程 / 调度 / Hazelcast / 状态存储 / 进程网络）",
   "description": "",
-  "status": "planning",
+  "status": "implementing",
   "dev_type": null,
   "scope": null,
   "package": null,

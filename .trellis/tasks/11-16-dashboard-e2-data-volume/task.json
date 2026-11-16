@@ -3,7 +3,7 @@
   "name": "dashboard-e2-data-volume",
   "title": "增强：每日 / 每月 / 指定时间读写量",
   "description": "",
-  "status": "in_progress",
+  "status": "implementing",
   "dev_type": null,
   "scope": null,
   "package": null,

@@ -89,3 +89,10 @@ E2 跨层实现完成：内嵌 tsdb 最早样本探测、日 / 月桶 increase �
 
 - 推分支开 PR（栈在 main 上）
 - E1 集群指标细化 / E3 主机指标为后续增强
+
+## 2026-11-16 大盘 E1+E3（feat/dashboard-e2-volume）
+
+- E2 修正：读写量粒度改自动推导（≤6h→15m、≤3d→1h、≤62d→1d、>62d→1M），前端去开关传 auto — `633792e6`
+- E1 集群指标细化：`/dashboard/home/clusters/detail` 按 jvm/gc/sched/store/proc 懒加载 + 前端细节区 + 事件标注；实测五组全有真实数据 — `36a12c9d`
+- E3 主机指标：agent gopsutil v4 → `ReportHostMetrics` gRPC → 控制面写内嵌 tsdb（身份标签防注入 + SeriesTracker stale）；`/dashboard/home/hosts` + 「主机」页签；真实 agent 全链路验证通过（10 面板真数据）— 同 `36a12c9d`
+- 教训：显示格式上 LineChart 会自拼 unit，formatValue 不要重复加后缀；字节量纲须用 IEC formatBytes 而非 formatCompactNumber（B=Billion≠Byte）。

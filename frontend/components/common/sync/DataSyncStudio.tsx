@@ -552,6 +552,11 @@ export function DataSyncStudio() {
     parentId: number | null;
     nodeType: 'file' | 'folder';
   } | null>(null);
+  // 资源操作菜单里点了「新建」时为 true：菜单关闭后不把焦点还给触发按钮，
+  // 否则行内输入框刚聚焦就被抢走焦点，空值 blur 会直接取消新建。
+  // True when "new folder/file" was picked from the explorer menu: skip the menu's
+  // focus restore on close, or the inline input loses focus and its empty blur cancels creation.
+  const skipExplorerMenuFocusRestoreRef = useRef(false);
   const [draggingNodeId, setDraggingNodeId] = useState<number | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<number | null>(null);
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR);
@@ -5073,12 +5078,25 @@ export function DataSyncStudio() {
                     <MoreHorizontal className='size-3.5' />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align='start' side='bottom' className='min-w-48'>
+                <DropdownMenuContent
+                  align='start'
+                  side='bottom'
+                  className='min-w-48'
+                  onCloseAutoFocus={(event) => {
+                    // 新建时焦点留给行内输入框；其余菜单项照常把焦点还给触发按钮。
+                    // Leave focus on the inline create input; other items restore focus to the trigger as usual.
+                    if (skipExplorerMenuFocusRestoreRef.current) {
+                      skipExplorerMenuFocusRestoreRef.current = false;
+                      event.preventDefault();
+                    }
+                  }}
+                >
                   <DropdownMenuItem
                     onSelect={() => {
                       const folderNode = selectedFolderId
                         ? findTreeNode(tree, selectedFolderId)
                         : null;
+                      skipExplorerMenuFocusRestoreRef.current = true;
                       handleInlineCreateFolder(folderNode);
                     }}
                   >
@@ -5094,6 +5112,7 @@ export function DataSyncStudio() {
                         toast.error(t('selectFolderBeforeCreateFile'));
                         return;
                       }
+                      skipExplorerMenuFocusRestoreRef.current = true;
                       handleInlineCreateFile(folderNode);
                     }}
                   >

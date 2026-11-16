@@ -219,7 +219,7 @@ export function JobPreviewDrawer({
                     series={chart.series}
                     height={180}
                     loading={trendLoading}
-                    emptyLabel={t('noTrend')}
+                    emptyLabel={t('empty')}
                     clearLabel={t('legendClear')}
                     resetLabel={t('legendAll')}
                     categoryLabel={t('categoryTime')}

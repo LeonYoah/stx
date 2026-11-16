@@ -382,7 +382,8 @@
         "loading": "Loading",
         "legendClear": "Clear",
         "legendAll": "All",
-        "categoryTime": "Time"
+        "categoryTime": "Time",
+        "empty": "No data in this time window"
       },
       "clusterTab": {
         "range": {

@@ -382,7 +382,8 @@
         "loading": "加载中",
         "legendClear": "清空",
         "legendAll": "全选",
-        "categoryTime": "时间"
+        "categoryTime": "时间",
+        "empty": "该时间窗内没有数据"
       },
       "clusterTab": {
         "range": {

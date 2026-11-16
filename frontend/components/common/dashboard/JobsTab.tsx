@@ -64,7 +64,6 @@ const VOLUME_METRICS = [
   'read_bytes',
 ] as const;
 type VolumeMetricKey = (typeof VOLUME_METRICS)[number];
-const VOLUME_GRANULARITIES = ['day', 'month'] as const;
 const VOLUME_SPLITS = ['none', 'cluster', 'task'] as const;
 type VolumeSplit = (typeof VOLUME_SPLITS)[number];
 
@@ -101,8 +100,6 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   const [metric, setMetric] = useState<ThroughputKey>('write');
   const [calendarMode, setCalendarMode] = useState<'runs' | 'failed'>('runs');
   const [volumeMetric, setVolumeMetric] = useState<VolumeMetricKey>('write_rows');
-  const [volumeGranularity, setVolumeGranularity] =
-    useState<(typeof VOLUME_GRANULARITIES)[number]>('day');
   const [volumeSplit, setVolumeSplit] = useState<VolumeSplit>('none');
   const resource = usePolledResource<HomeJobDashboard>(
     JSON.stringify([
@@ -128,9 +125,11 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   const isBytes = metric.endsWith('bytes');
   const formatRate = (value: number) => `${formatCompactNumber(value)}/s`;
 
-  // 数据量面板独立拉取：粒度与拆分会重写桶形状，全部指标一次取回再本地切换。
-  // The volume panel fetches on its own: granularity/split change the bucket shape, while all
-  // four metrics arrive together so the metric toggle stays local.
+  // 数据量面板独立拉取：桶粒度由后端按窗口跨度自动选（auto），只有拆分会重写序列形状，
+  // 全部指标一次取回再本地切换。
+  // The volume panel fetches on its own: the backend auto-picks the bucket granularity from the
+  // window span, only the split changes the series shape, and all four metrics arrive together
+  // so the metric toggle stays local.
   const volume = usePolledResource<HomeVolume>(
     JSON.stringify([
       'volume',
@@ -138,13 +137,12 @@ export function JobsTab({query}: {query: DashboardQuery}) {
       query.range,
       query.start,
       query.end,
-      volumeGranularity,
       volumeSplit,
     ]),
     () =>
       HomeService.getVolume({
         cluster_id: query.clusterId,
-        granularity: volumeGranularity,
+        granularity: 'auto',
         split: volumeSplit,
         ...(query.start && query.end
           ? {start: query.start, end: query.end}
@@ -161,12 +159,18 @@ export function JobsTab({query}: {query: DashboardQuery}) {
     const rows = (volumeData?.series ?? []).filter(
       (item) => item.metric === volumeMetric,
     );
+    const granularity = volumeData?.granularity;
     return {
       categories: buckets.map((bucket) => {
+        // 亚日粒度标签带时刻（"YYYY-MM-DD HH:mm" → "HH:mm"），日取 "MM/DD"，月原样。
+        // Sub-day labels carry the clock ("YYYY-MM-DD HH:mm" → "HH:mm"); days show "MM/DD";
+        // months stay as they are.
         const label =
-          volumeGranularity === 'month'
+          granularity === 'month'
             ? bucket.label
-            : bucket.label.slice(5).replace('-', '/');
+            : granularity === 'day'
+              ? bucket.label.slice(5).replace('-', '/')
+              : bucket.label.slice(11);
         return bucket.partial ? `${label}*` : label;
       }),
       series: rows.map((row, index) => ({
@@ -180,7 +184,7 @@ export function JobsTab({query}: {query: DashboardQuery}) {
       })),
       hasPartial: buckets.some((bucket) => bucket.partial),
     };
-  }, [volumeData, volumeMetric, volumeGranularity, volumeSplit, t]);
+  }, [volumeData, volumeMetric, volumeSplit, t]);
 
   const throughput = useMemo(() => {
     const points =
@@ -400,19 +404,6 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                   options={VOLUME_METRICS.map((key) => ({
                     value: key,
                     label: t(`volume.metrics.${key}`),
-                  }))}
-                />
-                <SegmentedControl
-                  label={t('volume.granularityLabel')}
-                  value={volumeGranularity}
-                  onValueChange={(value) =>
-                    setVolumeGranularity(
-                      value as (typeof VOLUME_GRANULARITIES)[number],
-                    )
-                  }
-                  options={VOLUME_GRANULARITIES.map((key) => ({
-                    value: key,
-                    label: t(`volume.granularity.${key}`),
                   }))}
                 />
                 <SegmentedControl

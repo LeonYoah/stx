@@ -94,7 +94,7 @@ func TestVolumeBuckets_DaySplitShanghai(t *testing.T) {
 	// Window 11-15 12:00 → 11-16 18:00 local: two days, both edges clipped.
 	start := time.Date(2026, 11, 15, 12, 0, 0, 0, loc)
 	end := time.Date(2026, 11, 16, 18, 0, 0, 0, loc)
-	buckets := volumeBuckets(start, end, loc, false)
+	buckets := volumeBuckets(start, end, loc, "day")
 	if len(buckets) != 2 {
 		t.Fatalf("want 2 day buckets, got %d", len(buckets))
 	}
@@ -106,7 +106,7 @@ func TestVolumeBuckets_DaySplitShanghai(t *testing.T) {
 	}
 	// 完整窗口验证：再往后一天零点结束。/ Full-window check: extend end to the next midnight.
 	end = time.Date(2026, 11, 17, 0, 0, 0, 0, loc)
-	buckets = volumeBuckets(start, end, loc, false)
+	buckets = volumeBuckets(start, end, loc, "day")
 	if len(buckets) != 2 || buckets[1].Partial {
 		t.Fatalf("last bucket should be complete: %+v", buckets)
 	}
@@ -120,7 +120,7 @@ func TestVolumeBuckets_MonthSplit(t *testing.T) {
 	// 跨 10/11 月边界的窗口：两个月桶，均被裁。/ Window over the Oct/Nov edge: two clipped month buckets.
 	start := time.Date(2026, 10, 20, 0, 0, 0, 0, loc)
 	end := time.Date(2026, 11, 10, 0, 0, 0, 0, loc)
-	buckets := volumeBuckets(start, end, loc, true)
+	buckets := volumeBuckets(start, end, loc, "month")
 	if len(buckets) != 2 {
 		t.Fatalf("want 2 month buckets, got %d", len(buckets))
 	}
@@ -146,7 +146,7 @@ func TestVolumeBuckets_DSTAligned(t *testing.T) {
 	}
 	start := time.Date(2026, 3, 7, 12, 0, 0, 0, loc)
 	end := time.Date(2026, 3, 9, 12, 0, 0, 0, loc)
-	buckets := volumeBuckets(start, end, loc, false)
+	buckets := volumeBuckets(start, end, loc, "day")
 	if len(buckets) != 3 {
 		t.Fatalf("want 3 buckets, got %d", len(buckets))
 	}
@@ -163,6 +163,73 @@ func TestVolumeBuckets_DSTAligned(t *testing.T) {
 	// 相邻两个零点差 23 小时（DST），而不是固定 24 小时。/ Adjacent midnights are 23h apart (DST).
 	if diff := buckets[2].StartMs - buckets[1].StartMs; diff != 23*3600*1000 {
 		t.Fatalf("DST day length should be 23h, got %dms", diff)
+	}
+}
+
+func TestVolumeBuckets_SubDayAligned(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	// 10:07 → 12:40：刻钟桶 11 个，首 10:00 与末 12:30 均被裁。
+	// 10:07 → 12:40: eleven quarter-hour buckets, the 10:00 and 12:30 edges clipped.
+	start := time.Date(2026, 11, 16, 10, 7, 0, 0, loc)
+	end := time.Date(2026, 11, 16, 12, 40, 0, 0, loc)
+	buckets := volumeBuckets(start, end, loc, "quarter_hour")
+	if len(buckets) != 11 {
+		t.Fatalf("want 11 quarter-hour buckets, got %d: %+v", len(buckets), buckets)
+	}
+	if buckets[0].Label != "2026-11-16 10:00" || !buckets[0].Partial {
+		t.Fatalf("bad first bucket: %+v", buckets[0])
+	}
+	if got := time.UnixMilli(buckets[1].StartMs).In(loc); got.Minute() != 15 {
+		t.Fatalf("bucket not quarter-aligned: %v", got)
+	}
+	// 整点桶：10:07 → 12:40 给 10/11/12 三个点。
+	// Hour buckets: 10:07 → 12:40 yields the 10, 11 and 12 o'clock buckets.
+	hours := volumeBuckets(start, end, loc, "hour")
+	if len(hours) != 3 || hours[0].Label != "2026-11-16 10:00" || hours[2].Label != "2026-11-16 12:00" {
+		t.Fatalf("bad hour buckets: %+v", hours)
+	}
+}
+
+func TestVolumeGranularityFor(t *testing.T) {
+	cases := []struct {
+		span time.Duration
+		want string
+	}{
+		{15 * time.Minute, "quarter_hour"},
+		{6 * time.Hour, "quarter_hour"},
+		{24 * time.Hour, "hour"},
+		{72 * time.Hour, "hour"},
+		{7 * 24 * time.Hour, "day"},
+		{62 * 24 * time.Hour, "day"},
+		{90 * 24 * time.Hour, "month"},
+	}
+	for _, c := range cases {
+		if got := volumeGranularityFor(c.span); got != c.want {
+			t.Fatalf("span %s: got %q want %q", c.span, got, c.want)
+		}
+	}
+}
+
+func TestGetVolume_AutoGranularity(t *testing.T) {
+	withPrometheus(t, true)
+	var queries []string
+	svc := newTestVolumeService(&queries, nil, volumeSamplesFor(1.0))
+	// 1h 窗口 + auto：应落 quarter_hour（now=10:00 UTC = 上海 18:00，窗口 17:00–18:00）。
+	// 1h window + auto resolves to quarter_hour (now=10:00 UTC = 18:00 Shanghai, window 17:00–18:00).
+	data, err := svc.GetVolume(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, 0, "1h", nil, "auto", "none")
+	if err != nil {
+		t.Fatalf("GetVolume: %v", err)
+	}
+	if data.Granularity != "quarter_hour" {
+		t.Fatalf("granularity = %q", data.Granularity)
+	}
+	if len(data.Buckets) != 4 {
+		t.Fatalf("want 4 quarter-hour buckets, got %+v", data.Buckets)
+	}
+	// 窗口正好对齐 17:00 与 18:00 两个边界：首末桶完整不标 partial。
+	// The window lands exactly on the 17:00 and 18:00 boundaries: edge buckets stay complete.
+	if data.Buckets[0].Partial || data.Buckets[3].Partial {
+		t.Fatalf("aligned window must not mark partial: %+v", data.Buckets)
 	}
 }
 

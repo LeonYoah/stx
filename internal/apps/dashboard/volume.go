@@ -62,6 +62,34 @@ var volumeSplits = map[string]string{
 	"task":    "task_id",
 }
 
+// volumeGranularities 是允许的桶粒度；空串 / auto 表示按窗口跨度自动选择。
+// volumeGranularities lists the allowed bucket granularities; empty/auto derives one from the span.
+var volumeGranularities = map[string]bool{
+	"auto":         true,
+	"quarter_hour": true,
+	"hour":         true,
+	"day":          true,
+	"month":        true,
+}
+
+// volumeGranularityFor 按窗口跨度自动挑桶粒度：跨度越短桶越细，与其他面板按窗口选 step 同理；
+// 短窗用刻钟保证还有几根柱子可看，长窗回到自然日 / 月。
+// volumeGranularityFor picks the bucket granularity from the window span — shorter spans get finer
+// buckets, the same way the other panels pick their step. Short windows use quarter-hours so the
+// chart still has a few bars; long windows fall back to calendar days / months.
+func volumeGranularityFor(span time.Duration) string {
+	switch {
+	case span <= 6*time.Hour:
+		return "quarter_hour"
+	case span <= 72*time.Hour:
+		return "hour"
+	case span <= 62*24*time.Hour:
+		return "day"
+	default:
+		return "month"
+	}
+}
+
 // VolumeTaskNames 按当前用户可见范围解析任务名（sync 服务实现），用于 split=task 的图例；
 // 无权限的任务不出名，前端回退为「#id」。
 // VolumeTaskNames resolves task names scoped to the actor's visibility (implemented by the sync
@@ -202,7 +230,11 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 		{key: "month", bucket: -1, start: floorLocal(end, loc, true), end: end},
 	}
 	if granularity != "" {
-		for i, b := range volumeBuckets(start, end, loc, granularity == "month") {
+		if granularity == "auto" {
+			granularity = volumeGranularityFor(end.Sub(start))
+		}
+		out.Granularity = granularity
+		for i, b := range volumeBuckets(start, end, loc, granularity) {
 			out.Buckets = append(out.Buckets, b)
 			spans = append(spans, volumeSpan{key: strconv.Itoa(i), bucket: i, start: time.UnixMilli(b.StartMs), end: time.UnixMilli(b.EndMs)})
 		}
@@ -397,21 +429,64 @@ func floorLocal(t time.Time, loc *time.Location, monthly bool) time.Time {
 	return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, loc)
 }
 
-// volumeBuckets 把 [start,end) 按显示时区的日界 / 月界切桶；被窗口裁掉一头的桶记 partial，
-// label 取桶所在自然日（YYYY-MM-DD）或自然月（YYYY-MM）。
-// volumeBuckets splits [start,end) on display-timezone day/month boundaries; buckets clipped by
-// the window are marked partial and labelled by their calendar day (YYYY-MM-DD) or month (YYYY-MM).
-func volumeBuckets(start, end time.Time, loc *time.Location, monthly bool) []VolumeBucket {
+// volumeFloor 返回 t 所在桶的起点，按显示时区的自然界对齐（刻钟 / 整点 / 日 / 月）。
+// volumeFloor returns the start of the bucket containing t, aligned to the display timezone's
+// natural boundary (quarter-hour / hour / day / month).
+func volumeFloor(t time.Time, loc *time.Location, granularity string) time.Time {
+	l := t.In(loc)
+	switch granularity {
+	case "month":
+		return time.Date(l.Year(), l.Month(), 1, 0, 0, 0, 0, loc)
+	case "day":
+		return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, loc)
+	case "hour":
+		return time.Date(l.Year(), l.Month(), l.Day(), l.Hour(), 0, 0, 0, loc)
+	default: // quarter_hour
+		return time.Date(l.Year(), l.Month(), l.Day(), l.Hour(), l.Minute()/15*15, 0, 0, loc)
+	}
+}
+
+// volumeNext 返回桶的下一个起点：日 / 月走日历加法（跨 DST 仍对），刻钟 / 小时走固定步长
+// （DST 中不存在的本地时刻被跳过，相邻桶自然衔接）。
+// volumeNext advances a bucket start: days/months use calendar arithmetic (correct across DST);
+// quarter-hours/hours use fixed steps (nonexistent local times under DST are skipped and
+// neighbouring buckets join up naturally).
+func volumeNext(t time.Time, granularity string) time.Time {
+	switch granularity {
+	case "month":
+		return t.AddDate(0, 1, 0)
+	case "day":
+		return t.AddDate(0, 0, 1)
+	case "hour":
+		return t.Add(time.Hour)
+	default:
+		return t.Add(15 * time.Minute)
+	}
+}
+
+// volumeLabel 是桶的展示标签：亚日粒度带时刻，日取 YYYY-MM-DD，月取 YYYY-MM。
+// volumeLabel renders a bucket label: sub-day granularities carry the time, days are YYYY-MM-DD,
+// months YYYY-MM.
+func volumeLabel(t time.Time, granularity string) string {
+	switch granularity {
+	case "month":
+		return t.Format("2006-01")
+	case "day":
+		return t.Format("2006-01-02")
+	default:
+		return t.Format("2006-01-02 15:04")
+	}
+}
+
+// volumeBuckets 把 [start,end) 按显示时区的自然界切桶；被窗口裁掉一头的桶记 partial。
+// volumeBuckets splits [start,end) on display-timezone natural boundaries; buckets clipped by
+// the window are marked partial.
+func volumeBuckets(start, end time.Time, loc *time.Location, granularity string) []VolumeBucket {
 	buckets := []VolumeBucket{}
-	cursor := floorLocal(start, loc, monthly)
+	cursor := volumeFloor(start, loc, granularity)
 	for cursor.Before(end) {
-		next := cursor.AddDate(0, 0, 1)
-		format := "2006-01-02"
-		if monthly {
-			next = cursor.AddDate(0, 1, 0)
-			format = "2006-01"
-		}
-		b := VolumeBucket{Label: cursor.Format(format)}
+		next := volumeNext(cursor, granularity)
+		b := VolumeBucket{Label: volumeLabel(cursor, granularity)}
 		// 端点恰好落在界上算完整桶，只有被窗口裁短才记 partial。
 		// An endpoint landing exactly on a boundary still makes a complete bucket; only a
 		// window-clipped side is partial.
@@ -469,7 +544,7 @@ func NewVolumeHandler(service *VolumeService) *VolumeHandler {
 // @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
 // @Param start query string false "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range"
 // @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 31 天"
-// @Param granularity query string false "桶粒度：day|month；缺省只回 totals 不出 buckets"
+// @Param granularity query string false "桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets"
 // @Param split query string false "拆分维度：none|cluster|task" default(none)
 // @Success 200 {object} DashboardDataResponse{data=HomeVolume}
 // @Failure 400 {object} DashboardDataResponse
@@ -485,8 +560,8 @@ func (h *VolumeHandler) GetVolume(c *gin.Context) {
 		clusterID = uint(parsed)
 	}
 	granularity := strings.ToLower(strings.TrimSpace(c.Query("granularity")))
-	if granularity != "" && granularity != "day" && granularity != "month" {
-		c.JSON(http.StatusBadRequest, DashboardDataResponse{ErrorMsg: "granularity must be day or month"})
+	if granularity != "" && !volumeGranularities[granularity] {
+		c.JSON(http.StatusBadRequest, DashboardDataResponse{ErrorMsg: "granularity must be auto|quarter_hour|hour|day|month"})
 		return
 	}
 	split := strings.ToLower(strings.TrimSpace(c.DefaultQuery("split", "none")))

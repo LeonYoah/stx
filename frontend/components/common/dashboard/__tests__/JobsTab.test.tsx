@@ -272,26 +272,24 @@ describe('JobsTab', () => {
     });
   });
 
-  it('renders the volume chart and refetches on granularity/split changes', async () => {
+  it('renders the volume chart and refetches on split changes', async () => {
     home.getJobs.mockResolvedValue(payload('prometheus'));
     renderTab();
     const panel = await screen.findByTestId('home-volume');
     expect(within(panel).getByTestId('beui-bar').textContent).toBe(
       '数据量:11/15*,11/16*|全部',
     );
+    // 粒度由后端按窗口自动选：前端固定请求 auto。/ Granularity follows the window: the
+    // frontend always asks for auto.
     expect(home.getVolume).toHaveBeenCalledWith({
       cluster_id: undefined,
-      granularity: 'day',
+      granularity: 'auto',
       split: 'none',
       range: '1h',
     });
     // 部分桶标注脚注。/ Partial buckets get a footnote.
     expect(within(panel).getByText(/首末桶被时间窗裁掉/)).toBeTruthy();
 
-    fireEvent.click(within(panel).getByText('按月'));
-    expect(home.getVolume).toHaveBeenLastCalledWith(
-      expect.objectContaining({granularity: 'month'}),
-    );
     fireEvent.click(within(panel).getByText('按集群'));
     expect(home.getVolume).toHaveBeenLastCalledWith(
       expect.objectContaining({split: 'cluster'}),

@@ -68,7 +68,7 @@ func loadConfig() (*configModel, error) {
 	// Local CLI commands must work without a server config file, so preserve the error and return defaults.
 	if err := loader.ReadInConfig(); err != nil {
 		fallback := &configModel{}
-		setDefaults(fallback, false)
+		setDefaults(fallback, false, false)
 		applyEnvironmentOverrides(fallback)
 		return fallback, fmt.Errorf("read server config %q: %w", configPath, err)
 	}
@@ -77,13 +77,13 @@ func loadConfig() (*configModel, error) {
 	var c configModel
 	if err := loader.Unmarshal(&c); err != nil {
 		fallback := &configModel{}
-		setDefaults(fallback, false)
+		setDefaults(fallback, false, false)
 		applyEnvironmentOverrides(fallback)
 		return fallback, fmt.Errorf("parse server config %q: %w", configPath, err)
 	}
 
 	// 设置默认值并应用环境变量。/ Apply defaults and environment overrides.
-	setDefaults(&c, loader.IsSet("observability.enabled"))
+	setDefaults(&c, loader.IsSet("observability.enabled"), loader.IsSet("observability.storage.max_size"))
 	applyEnvironmentOverrides(&c)
 
 	if os.Getenv("GO_TEST") != "1" && !isTestEnvironment() {
@@ -158,7 +158,7 @@ func isTestEnvironment() bool {
 
 // setDefaults 设置配置默认值，并保留用户显式设置的可观测性开关。
 // setDefaults applies defaults while preserving an explicitly configured observability switch.
-func setDefaults(c *configModel, observabilityEnabledSet bool) {
+func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet bool) {
 	if strings.TrimSpace(c.App.DisplayTimezone) == "" {
 		c.App.DisplayTimezone = timex.DefaultDisplayTimezone
 	}
@@ -289,6 +289,12 @@ func setDefaults(c *configModel, observabilityEnabledSet bool) {
 	}
 	if strings.TrimSpace(c.Observability.Storage.Retention) == "" {
 		c.Observability.Storage.Retention = "31d"
+	}
+	// 存储上限默认 30GiB；显式写 0 才表示不限，与 enabled 的 IsSet 默认值语义一致。
+	// Storage cap defaults to 30GiB; an explicit 0 means unlimited, mirroring the IsSet-based
+	// default semantics used by observability.enabled.
+	if !storageMaxSizeSet {
+		c.Observability.Storage.MaxSize = 30 << 30
 	}
 	if strings.TrimSpace(c.Observability.ScrapeInterval) == "" {
 		c.Observability.ScrapeInterval = "15s"

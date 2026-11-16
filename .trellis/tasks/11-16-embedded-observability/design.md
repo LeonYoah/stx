@@ -35,14 +35,16 @@ AM 配置生成 + SIGHUP、Grafana 代理、安装侧两个二进制与镜像。
 
 - `tsdb.Open(dir, logger, reg, opts)`：`dir = <data>/tsdb`（`observability.storage.dir` 可配，默认 `data/tsdb`）。
 - `Options.RetentionDuration` ← `observability.storage.retention`（默认 `31d`）。
-- `Options.MaxBytes` ← `observability.storage.max_size`（如 `10GB`，0=不限）。tsdb 原生支持两种保留策略，直接映射。
+- `Options.MaxBytes` ← `observability.storage.max_size`（**缺省 30GiB**，显式 0=不限，走 IsSet 判定同
+  `observability.enabled`）。tsdb 原生支持两种保留策略，直接映射。
 - `Options.NoLockedfile = true` 视平台（Windows 兼容留口）。
 - Head 内存：STX 规模（几十节点 × ~90 引擎指标 + 作业/主机指标 ≈ 万级活跃序列）对应 head 几十 MB，
   不需要 `HeadChunksWriteBufferSize` 等调优参数先暴露，留 config 扩展位。
 - 生命周期：`observability.enabled=false` 或 STX 优雅停机时 `db.Close()`（`Close` 会 head compact + wal flush，
   注意 main.go 停机序列里放在 api server 停止**之前**，避免停机时还在写入）。
-- **升级迁移**：`storage.dir` 指到旧 prometheus 数据目录（`deps/prometheus-*/data`）可直接读既有块（同为 tsdb 格式）；
-  默认新目录，docs 里给「想保留历史」的手动指引——不做自动搬移。
+- **升级 = 破坏性变更（用户确认不兼容）**：不迁移时序历史，重采集即可；旧 prometheus/AM 数据目录保留
+  在磁盘不删、只是不再拉起。可选逃生口：`storage.dir` 指到旧 prometheus 数据目录可直读既有块（同为
+  tsdb 格式），docs 留手动指引，不做自动搬移。
 
 ## 3. 查询层（改 `internal/pkg/promquery`）
 
@@ -127,7 +129,7 @@ observability:
   storage:
     dir: "data/tsdb"          # 新增
     retention: "31d"          # 新增（原 prom 15d 默认）
-    max_size: "0"             # 新增，0=不限
+    max_size: 32212254720     # 新增，缺省 30GiB；显式 0=不限
   scrape_interval: "15s"      # 新增
   eval_interval: "15s"        # 新增
   query_timeout: "8s"         # 新增
@@ -136,9 +138,10 @@ observability:
     path: "/hazelcast/rest/instance/metrics"
     probe_timeout_seconds: 2
   remote_ingest:
+    path: "/api/v1/monitoring/alertmanager/webhook"  # P3 由 alertmanager.webhook_path 迁入（破坏性变更，无需双读）
     token: ""                 # 新增：非空则 webhook 校验 Authorization: Bearer（常量时间比较）
-  # 移除：prometheus.url / prometheus.http_sd_path / alertmanager.url / grafana.url
-  # 保留：alertmanager.webhook_path（remote ingest 端点路径仍用这个名字，注释说明）
+  # 移除：prometheus.url / prometheus.http_sd_path / alertmanager.{url,webhook_path} / grafana.url
+  # enabled 维持现状默认 true（内置功能默认开），开关保留为资源受限逃生口
 ```
 
 remote ingest 鉴权语义：token 非空 → `AlertmanagerWebhook` 先校验 `Authorization: Bearer <token>`（`crypto/subtle`

@@ -17,6 +17,16 @@
 5. **`alertmanager/webhook`（remote ingest）保留 + 加鉴权**：新增 `observability.remote_ingest.token`，
    配置后校验 `Authorization: Bearer <token>`（常量时间比较）；未配置维持现状但启动时记一条 WARN
    （兼容已接入的外部 AM）。
+6. **内置默认开（2026-11-16 用户确认）**：`observability.enabled` 维持现状默认 true（未配置即开），
+   开关保留为资源受限场景的逃生口——空态降级链路已建成，保留零成本。三件套（prometheus/alertmanager/grafana）
+   的进程、端口、安装、文档随本任务全量移除。
+7. **升级 = 破坏性变更（2026-11-16 用户确认）**：不做兼容迁移——时序历史重新采集即可；
+   旧 prometheus/alertmanager 数据目录**保留在磁盘上不删**（只是不再拉起进程）；
+   DB 侧唯一迁移是删除 `policy_type='custom_promql'` 行；release note 记「监控历史不保留」。
+8. **`prometheus:` / `alertmanager:` / `grafana:` 配置段终态全删（2026-11-16 用户确认）**：终态配置只剩
+   `enabled` / `storage` / `scrape_interval` / `eval_interval` / `query_timeout` / `max_samples` /
+   `seatunnel_metrics` / `remote_ingest{path,token}`（P3 时 `alertmanager.webhook_path` 迁入
+   `remote_ingest.path`）。`storage.max_size` 缺省 **30GiB**，显式写 0 表示不限。
 
 ## 已确认事实（代码复核）
 

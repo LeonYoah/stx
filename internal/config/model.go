@@ -291,8 +291,8 @@ type ObservabilityStorageConfig struct {
 	// Retention is the time-based retention (e.g. 31d; units s/m/h/d/w/y are supported).
 	Retention string `mapstructure:"retention"`
 
-	// MaxSize 是块存储的字节数上限，0 表示不限。
-	// MaxSize caps retained block bytes; 0 means unlimited.
+	// MaxSize 是块存储的字节数上限：未配置时默认 30GiB，显式写 0 才表示不限。
+	// MaxSize caps retained block bytes: defaults to 30GiB when unset; an explicit 0 means unlimited.
 	MaxSize int64 `mapstructure:"max_size"`
 }
 

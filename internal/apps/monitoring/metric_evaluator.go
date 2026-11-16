@@ -204,18 +204,18 @@ func (e *MetricEvaluator) Start(ctx context.Context) error {
 	e.dispatchCh = make(chan *RemoteAlertRecord, e.opts.DispatchCapacity)
 
 	e.manager = rules.NewManager(&rules.ManagerOptions{
-		Context:        e.ctx,
-		QueryFunc:      rules.EngineQueryFunc(engine, queryable),
-		Queryable:      queryable,
-		AppendableV2:   appendable,
-		NotifyFunc:     e.onRuleAlerts,
-		Logger:         slog.New(&metricEvaluatorSlogHandler{ctx: e.ctx}),
-		Registerer:     prometheus.NewRegistry(),
-		ExternalURL:    &url.URL{},
-		ResendDelay:    e.opts.ResendDelay,
-		ForGracePeriod: metricEvaluatorForGracePeriod,
+		Context:         e.ctx,
+		QueryFunc:       rules.EngineQueryFunc(engine, queryable),
+		Queryable:       queryable,
+		AppendableV2:    appendable,
+		NotifyFunc:      e.onRuleAlerts,
+		Logger:          slog.New(&metricEvaluatorSlogHandler{ctx: e.ctx}),
+		Registerer:      prometheus.NewRegistry(),
+		ExternalURL:     &url.URL{},
+		ResendDelay:     e.opts.ResendDelay,
+		ForGracePeriod:  metricEvaluatorForGracePeriod,
 		OutageTolerance: metricEvaluatorOutageTolerance,
-		GroupLoader:    e.loader,
+		GroupLoader:     e.loader,
 	})
 
 	e.wg.Add(4)

@@ -262,7 +262,7 @@ func TestRemoteAlertRecordFromRuleAlert(t *testing.T) {
 
 	mkAlert := func(state rules.AlertState, resolvedAt time.Time) *rules.Alert {
 		return &rules.Alert{
-			State:  state,
+			State: state,
 			Labels: labels.FromMap(map[string]string{
 				"alertname":    "STXManagedPolicy_7",
 				"managed_by":   "stx",

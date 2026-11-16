@@ -502,21 +502,6 @@ func Serve() {
 				}
 			}
 
-			// Public remote-observability integration endpoints (no login required).
-			// 远程可观测集成公开接口（无需登录）。
-			if config.Config.Observability.Enabled {
-				// token 为空时端点无鉴权暴露：兼容已接入的外部 AM，但启动时记一条 WARN 提醒配置
-				// remote_ingest.token；warn 只在此处记一次。token 值不落日志。
-				// An empty token leaves the endpoint unauthenticated: kept for compatibility with
-				// already-integrated external Alertmanagers, but one WARN at startup reminds the
-				// operator to configure remote_ingest.token. The token value is never logged.
-				if strings.TrimSpace(config.Config.Observability.RemoteIngest.Token) == "" {
-					logger.WarnF(ctx, "[Observability] remote ingest webhook 未配置鉴权（observability.remote_ingest.token 为空），%s 为公开端点；建议配置 token 启用 Bearer 校验 / remote ingest webhook has no auth (observability.remote_ingest.token is empty); %s is a public endpoint, configure a token to enable Bearer verification", config.Config.Observability.RemoteIngest.Path, config.Config.Observability.RemoteIngest.Path)
-				}
-				alertWebhookPath := normalizeAPIV1RoutePath(config.Config.Observability.RemoteIngest.Path, "/monitoring/alertmanager/webhook")
-				apiV1Router.POST(alertWebhookPath, monitoringHandler.AlertmanagerWebhook)
-			}
-
 			monitoringRouter := apiV1Router.Group("/monitoring")
 			monitoringRouter.Use(auth.LoginRequired())
 			monitoringRouter.Use(monitoringAuditMiddleware(auditRepo))
@@ -2486,26 +2471,6 @@ func (a *grpcClusterNodeProviderAdapter) RefreshClusterStatusFromNodes(ctx conte
 // GetClusterNodeDisplayInfo 返回集群名及节点展示，用于审计资源名称。
 func (a *grpcClusterNodeProviderAdapter) GetClusterNodeDisplayInfo(ctx context.Context, clusterID, nodeID uint) (clusterName, nodeDisplay string) {
 	return a.clusterService.GetClusterNodeDisplayInfo(ctx, clusterID, nodeID)
-}
-
-func normalizeAPIV1RoutePath(rawPath, fallback string) string {
-	path := strings.TrimSpace(rawPath)
-	if path == "" {
-		path = fallback
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-
-	// Support both full path (/api/v1/...) and api-v1-relative path (/monitoring/...).
-	// 同时支持完整路径（/api/v1/...）和 v1 相对路径（/monitoring/...）。
-	if strings.HasPrefix(path, "/api/v1/") {
-		path = strings.TrimPrefix(path, "/api/v1")
-		if path == "" {
-			path = "/"
-		}
-	}
-	return path
 }
 
 // clusterRunningJobsAdapter 把 sync 服务的运行中作业查询适配给集群扩缩容护栏，避免 cluster 包依赖 sync。

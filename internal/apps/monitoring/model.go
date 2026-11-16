@@ -181,8 +181,11 @@ const (
 	// AlertSourceTypeLocalProcessEvent indicates a locally detected process event.
 	// AlertSourceTypeLocalProcessEvent 表示本地进程事件告警。
 	AlertSourceTypeLocalProcessEvent AlertSourceType = "local_process_event"
-	// AlertSourceTypeRemoteAlertmanager indicates a remote alert ingested from Alertmanager.
-	// AlertSourceTypeRemoteAlertmanager 表示从 Alertmanager 回流的远程告警。
+	// AlertSourceTypeRemoteAlertmanager 表示经统一告警记录链路落库的告警，现由内嵌指标评估器产生；
+	// 枚举值沿用旧 Alertmanager 回流时代的串值以保持历史数据与前端筛选兼容。
+	// AlertSourceTypeRemoteAlertmanager marks alerts persisted through the unified alert-record
+	// pipeline, now produced by the embedded metric evaluator; the enum keeps its legacy
+	// Alertmanager-era value for history data and frontend filtering compatibility.
 	AlertSourceTypeRemoteAlertmanager AlertSourceType = "remote_alertmanager"
 	// AlertSourceTypeSync 表示数据同步作业告警阶段（monitoring_sync_alert_episodes）。
 	// AlertSourceTypeSync indicates a sync job alert episode (monitoring_sync_alert_episodes).
@@ -560,9 +563,6 @@ const (
 	// AlertPolicyCapabilityKeyMetricsTemplates indicates metrics-template based policies.
 	// AlertPolicyCapabilityKeyMetricsTemplates 表示指标模板类告警策略能力。
 	AlertPolicyCapabilityKeyMetricsTemplates = "metrics_templates"
-	// AlertPolicyCapabilityKeyRemoteIngest indicates remote Alertmanager ingest capability.
-	// AlertPolicyCapabilityKeyRemoteIngest 表示远程 Alertmanager 回流能力。
-	AlertPolicyCapabilityKeyRemoteIngest = "remote_ingest"
 	// AlertPolicyCapabilityKeyWebhookNotification indicates webhook/IM notification delivery capability.
 	// AlertPolicyCapabilityKeyWebhookNotification 表示 Webhook/IM 通知投递能力。
 	AlertPolicyCapabilityKeyWebhookNotification = "webhook_notification"
@@ -1271,40 +1271,6 @@ func (r *UpsertNotificationChannelRequest) Validate() error {
 		return fmt.Errorf("endpoint is required")
 	}
 	return nil
-}
-
-// AlertmanagerWebhookPayload represents Alertmanager webhook body.
-// AlertmanagerWebhookPayload 表示 Alertmanager webhook 请求体。
-type AlertmanagerWebhookPayload struct {
-	Version           string            `json:"version"`
-	GroupKey          string            `json:"groupKey"`
-	Status            string            `json:"status"`
-	Receiver          string            `json:"receiver"`
-	GroupLabels       map[string]string `json:"groupLabels"`
-	CommonLabels      map[string]string `json:"commonLabels"`
-	CommonAnnotations map[string]string `json:"commonAnnotations"`
-	ExternalURL       string            `json:"externalURL"`
-	Alerts            []*WebhookAlert   `json:"alerts"`
-}
-
-// WebhookAlert represents one alert item in webhook payload.
-// WebhookAlert 表示 webhook 中的单条告警。
-type WebhookAlert struct {
-	Status       string            `json:"status"`
-	Labels       map[string]string `json:"labels"`
-	Annotations  map[string]string `json:"annotations"`
-	StartsAt     time.Time         `json:"startsAt"`
-	EndsAt       time.Time         `json:"endsAt"`
-	GeneratorURL string            `json:"generatorURL"`
-	Fingerprint  string            `json:"fingerprint"`
-}
-
-// AlertmanagerWebhookResult represents processing result for one webhook request.
-// AlertmanagerWebhookResult 表示单次 webhook 处理结果。
-type AlertmanagerWebhookResult struct {
-	Received int      `json:"received"`
-	Stored   int      `json:"stored"`
-	Errors   []string `json:"errors,omitempty"`
 }
 
 // RemoteAlertFilter represents query filters for remote alert records.

@@ -73,6 +73,8 @@ func loadConfig() (*configModel, error) {
 		return fallback, fmt.Errorf("read server config %q: %w", configPath, err)
 	}
 
+	warnLegacyObservabilitySections(loader)
+
 	// 解析配置到结构体。/ Decode the configuration into the model.
 	var c configModel
 	if err := loader.Unmarshal(&c); err != nil {
@@ -93,6 +95,38 @@ func loadConfig() (*configModel, error) {
 	}
 
 	return &c, nil
+}
+
+// legacyObservabilitySections 是内嵌可观测落地后退役的旧外部监控栈配置段；配置文件里残留这些段
+// 时忽略不阻塞，但启动记一条 WARN 提示清理。
+// legacyObservabilitySections lists the external monitoring stack sections retired by the embedded
+// stack; leftover sections are ignored but trigger one startup WARN to prompt cleanup.
+var legacyObservabilitySections = []string{
+	"observability.prometheus",
+	"observability.alertmanager",
+	"observability.grafana",
+	"observability.remote_ingest",
+}
+
+// warnLegacyObservabilitySections 检测配置文件中残留的旧监控配置段并向 stderr 记一条 WARN；
+// 只打印段名，不输出任何配置值（token 等敏感信息不落日志）。
+// warnLegacyObservabilitySections warns once on stderr about leftover legacy monitoring sections;
+// only section names are printed, never values (tokens and other secrets stay out of logs).
+func warnLegacyObservabilitySections(loader *viper.Viper) {
+	if loader == nil {
+		return
+	}
+	leftovers := make([]string, 0, len(legacyObservabilitySections))
+	for _, key := range legacyObservabilitySections {
+		if loader.IsSet(key) {
+			leftovers = append(leftovers, key)
+		}
+	}
+	if len(leftovers) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "[Config] WARN: 检测到已废弃的旧外部监控配置段 [%s]，这些段不再生效，请从配置文件中移除 / deprecated external monitoring sections [%s] detected; they no longer take effect, please remove them from the config file\n",
+		strings.Join(leftovers, ", "), strings.Join(leftovers, ", "))
 }
 
 // applyEnvironmentOverrides 从环境变量覆盖关键配置（便于容器化与 E2E 测试环境动态切换）
@@ -239,14 +273,10 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 		c.Storage.CleanupIntervalHours = 24
 	}
 
-	// 可观测性默认配置（prometheus.url / alertmanager.url 已随进程内告警评估退役，不再有默认值）。
-	// Observability defaults (prometheus.url / alertmanager.url retired with in-process alert
-	// evaluation and no longer carry defaults).
-	// 路径值与原 alertmanager.webhook_path 默认保持一致，保证已接入的外部 AM 端点不漂移。
-	// The path keeps the legacy alertmanager.webhook_path default so the exposed endpoint does not drift.
-	if c.Observability.RemoteIngest.Path == "" {
-		c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
-	}
+	// 可观测性默认配置（prometheus.url / alertmanager.url 与 remote_ingest 已随进程内告警评估
+	// 退役，不再有默认值）。
+	// Observability defaults (prometheus.url / alertmanager.url and remote_ingest retired with
+	// in-process alert evaluation and no longer carry defaults).
 
 	// 默认启用可观测中心（仅在用户未显式配置时）
 	if !observabilityEnabledSet {
@@ -306,13 +336,6 @@ func validateConfig(c *configModel) error {
 	if err := validateRequiredHTTPURL("app.external_url", c.App.ExternalURL); err != nil {
 		return err
 	}
-	if err := validateRequiredPath("observability.remote_ingest.path", c.Observability.RemoteIngest.Path); err != nil {
-		return err
-	}
-	// remote_ingest.token 无格式要求：任意非空串即启用 Bearer 校验；为空时启动 WARN 在 Serve 处记一次。
-	// remote_ingest.token has no format constraints: any non-empty value enables Bearer verification;
-	// when empty the startup WARN is logged once from Serve.
-
 	// 内嵌 tsdb 存储与查询参数校验
 	// Embedded tsdb storage and query parameter validation
 	if strings.TrimSpace(c.Observability.Storage.Dir) == "" {

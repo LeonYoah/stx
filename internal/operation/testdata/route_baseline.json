@@ -1477,14 +1477,6 @@
       "swagger": false
     },
     {
-      "method": "POST",
-      "path": "/api/v1/monitoring/alertmanager/webhook",
-      "source": "internal/router/router.go:517",
-      "status": "exception",
-      "mode": "server_only",
-      "swagger": false
-    },
-    {
       "method": "GET",
       "path": "/api/v1/monitoring/alerts",
       "source": "internal/router/router.go:532",

@@ -2407,7 +2407,6 @@ var routeExceptions = []RouteException{
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/:depId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/disables/:disableId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/local", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
-	{Method: "POST", Route: "/api/v1/monitoring/alertmanager/webhook", Mode: ModeServerOnly, Reason: "External alert ingest receiver (Alertmanager webhook compatible)"},
 	{Method: "POST", Route: "/api/v1/sync/preview/collect", Mode: ModeServerOnly, Reason: "SeaTunnel preview result callback"},
 	{Method: "POST", Route: "/api/v1/sync/engine-events/:cluster_id", Mode: ModeServerOnly, Reason: "SeaTunnel event-report-http callback"},
 	{Method: "ANY", Route: "/api/v1/clusters/:id/webui", Mode: ModeProxy, Reason: "SeaTunnel WebUI reverse proxy"},

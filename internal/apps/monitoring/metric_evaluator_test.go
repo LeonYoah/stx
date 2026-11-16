@@ -203,8 +203,8 @@ func TestMetricEvaluatorFiringThenResolved(t *testing.T) {
 	// for=120ms gate: the firing record cannot appear earlier than ~100ms (CI margin included).
 	require.GreaterOrEqual(t, time.Since(startedAt), 80*time.Millisecond, "alert fired before the for gate elapsed")
 
-	// AlertName 与 normalizeWebhookAlert 同序取 policy_name → alertname。
-	// AlertName resolves policy_name → alertname in the same order as normalizeWebhookAlert.
+	// AlertName 按统一告警记录语义取 policy_name → alertname。
+	// AlertName resolves policy_name → alertname per the unified alert-record semantics.
 	require.Equal(t, "CPU 高负载", firing.AlertName)
 	require.Equal(t, "warning", firing.Severity)
 	require.Equal(t, "1", firing.ClusterID)
@@ -252,9 +252,9 @@ func TestMetricEvaluatorFiringThenResolved(t *testing.T) {
 }
 
 // TestRemoteAlertRecordFromRuleAlert 覆盖 rules.Alert → RemoteAlertRecord 的字段映射：
-// firing/resolved/pending 三种状态与 normalizeWebhookAlert 的字段语义对齐。
+// firing/resolved/pending 三种状态与统一告警记录的字段语义对齐。
 // TestRemoteAlertRecordFromRuleAlert covers the rules.Alert → RemoteAlertRecord field mapping:
-// firing/resolved/pending states matching normalizeWebhookAlert field semantics.
+// firing/resolved/pending states matching the unified alert-record field semantics.
 func TestRemoteAlertRecordFromRuleAlert(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	firedAt := now.Add(-time.Minute)

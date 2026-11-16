@@ -17,7 +17,6 @@
 
 'use client';
 
-import Link from 'next/link';
 import {useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {Activity} from 'lucide-react';
@@ -29,7 +28,6 @@ import SegmentedControl from '@/components/arc/segmented-control/segmented-contr
 import {Switch} from '@/components/arc/switch/switch';
 import type {DateRange} from '@/components/arc/date-range-picker/date-range-picker';
 import {ArcDateRangePicker} from '@/components/common/layout/ArcDateRangePicker';
-import {Button} from '@/components/ui/button';
 import {useLocale} from '@/lib/i18n';
 import {cn} from '@/lib/utils';
 import {SyncService, type SyncJobInstance, type SyncJobTimeseries} from '@/lib/services/sync';
@@ -344,19 +342,11 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
           <div className='mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-muted text-muted-foreground'>
             <Activity className='h-5 w-5' />
           </div>
-          {/* 可观测性未开启时引导开启；存储未就绪 / 查询失败时只说明稍后重试。/ Prompt to enable when observability is off; otherwise just say it retries. */}
+          {/* 未开启 / 暂不可用都只留说明：前端没有开启入口，不放假 CTA；文案负责把“怎么开”说清楚。
+              Only explanatory copy for both states: there is no in-app switch to link to, so the
+              description itself explains how to enable monitoring instead of a fake CTA. */}
           <div className='text-[15px] font-medium'>{disabled ? t('emptyTitle') : t('unavailableTitle')}</div>
           <p className='mt-2 text-[12.5px] leading-relaxed text-muted-foreground'>{disabled ? t('emptyBody') : t('unavailableBody')}</p>
-          {disabled ? (
-            <div className='mt-4 flex items-center justify-center gap-3'>
-              <Button asChild size='sm'>
-                <Link href='/monitoring/integrations'>{t('emptyEnable')}</Link>
-              </Button>
-              <Link href='/monitoring/integrations' className='text-[12.5px] underline underline-offset-4'>
-                {t('emptyHow')}
-              </Link>
-            </div>
-          ) : null}
           <p className='mt-5 border-t border-border pt-3 text-xs text-muted-foreground'>{t('emptySnapshotHint')}</p>
         </div>
       </div>

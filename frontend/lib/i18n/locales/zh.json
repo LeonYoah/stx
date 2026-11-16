@@ -302,7 +302,7 @@
         "empty": "该时间窗内没有数据",
         "noAccess": "无权查看该作业",
         "partial": "部分指标查询失败：{keys}",
-        "noPromDesc": "开启可观测性后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。下方运行日历来自 STX 数据库，不受影响。",
+        "noPromDesc": "开启可观测性后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。内置监控由服务端配置文件控制（observability.enabled），请联系管理员开启。下方运行日历来自 STX 数据库，不受影响。",
         "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。下方运行日历来自 STX 数据库，不受影响。"
       },
       "list": {
@@ -474,10 +474,9 @@
         },
         "noProm": {
           "title": "可观测性未开启",
-          "desc": "开启可观测性后，这里会显示节点可用性、JVM、GC 与作业状态趋势。集群卡片和节点表来自 Agent 心跳，不受影响。",
+          "desc": "开启可观测性后，这里会显示节点可用性、JVM、GC 与作业状态趋势。内置监控由服务端配置文件控制（observability.enabled），请联系管理员开启。集群卡片和节点表来自 Agent 心跳，不受影响。",
           "unavailableTitle": "监控数据暂不可用",
-          "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。集群卡片和节点表来自 Agent 心跳，不受影响。",
-          "action": "查看监控配置"
+          "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。集群卡片和节点表来自 Agent 心跳，不受影响。"
         },
         "partial": "部分指标查询失败：{keys}",
         "units": {
@@ -3131,10 +3130,6 @@
           "title": "指标模板",
           "summary": "内置监控可用时，提供 CPU、内存、FD、失败作业数等指标驱动的策略模板。"
         },
-        "remote_ingest": {
-          "title": "远程告警回流",
-          "summary": "接收外部系统推送的告警（兼容 Alertmanager Webhook 格式），纳入统一告警中心和通知链路。"
-        },
         "webhook_notification": {
           "title": "Webhook / IM 通知",
           "summary": "通过 Webhook、企微、钉钉、飞书等渠道统一发送告警通知。"
@@ -5393,11 +5388,9 @@
         "trendHint": "历史趋势",
         "noJob": "没有作业数据",
         "emptyTitle": "开启可观测性后显示趋势",
-        "emptyBody": "开启后可查看吞吐、CDC 延迟、Checkpoint、算子忙碌度与背压的历史曲线。未开启时 STX 不采集、不保存任何时序数据。",
+        "emptyBody": "开启后可查看吞吐、CDC 延迟、Checkpoint、算子忙碌度与背压的历史曲线。内置监控由服务端配置文件控制（observability.enabled），请联系管理员开启。未开启时 STX 不采集、不保存任何时序数据。",
         "unavailableTitle": "监控数据暂不可用",
         "unavailableBody": "监控存储尚未就绪或查询失败，稍后会自动重试。",
-        "emptyEnable": "去开启",
-        "emptyHow": "如何开启",
         "emptySnapshotHint": "当前数值仍可在「快照」中查看",
         "engineObsEmptyTitle": "该作业未开启引擎可观测性",
         "engineObsEmptyBody": "忙碌度与背压需要作业开启 engine.observability",

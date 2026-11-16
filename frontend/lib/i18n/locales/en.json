@@ -302,7 +302,7 @@
         "empty": "No data in this time range",
         "noAccess": "You cannot view this job",
         "partial": "Some metric queries failed: {keys}",
-        "noPromDesc": "Turn on observability to see total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots here. The run calendar below comes from the STX database and is unaffected.",
+        "noPromDesc": "Turn on observability to see total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots here. Built-in monitoring is controlled by the server config (observability.enabled); ask an administrator to enable it. The run calendar below comes from the STX database and is unaffected.",
         "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. The run calendar below comes from the STX database and is unaffected."
       },
       "list": {
@@ -474,10 +474,9 @@
         },
         "noProm": {
           "title": "Observability is off",
-          "desc": "Turn on observability to see node availability, JVM, GC and job state trends here. Cluster cards and the node table come from agent heartbeats and are unaffected.",
+          "desc": "Turn on observability to see node availability, JVM, GC and job state trends here. Built-in monitoring is controlled by the server config (observability.enabled); ask an administrator to enable it. Cluster cards and the node table come from agent heartbeats and are unaffected.",
           "unavailableTitle": "Monitoring data is unavailable",
-          "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. Cluster cards and the node table come from agent heartbeats and are unaffected.",
-          "action": "Open monitoring settings"
+          "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. Cluster cards and the node table come from agent heartbeats and are unaffected."
         },
         "partial": "Some metric queries failed: {keys}",
         "units": {
@@ -3131,10 +3130,6 @@
           "title": "Metrics Templates",
           "summary": "When built-in monitoring is available, unlock curated templates for CPU, memory, FD, failed jobs, and other metrics-based policies."
         },
-        "remote_ingest": {
-          "title": "Remote Alert Ingest",
-          "summary": "Receive alerts pushed by external systems (Alertmanager webhook compatible) into the same alert center and delivery pipeline."
-        },
         "webhook_notification": {
           "title": "Webhook / IM Notifications",
           "summary": "Deliver alert notifications through Webhook, WeCom, DingTalk, Feishu, and similar webhook-compatible channels."
@@ -5393,11 +5388,9 @@
         "trendHint": "Historical trends",
         "noJob": "No job data",
         "emptyTitle": "Turn on observability to see trends",
-        "emptyBody": "Once enabled you can chart throughput, CDC delay, checkpoints, busyness and backpressure. STX does not collect or store any time series while it is off.",
+        "emptyBody": "Once enabled you can chart throughput, CDC delay, checkpoints, busyness and backpressure. Built-in monitoring is controlled by the server config (observability.enabled); ask an administrator to enable it. STX does not collect or store any time series while it is off.",
         "unavailableTitle": "Monitoring data is unavailable",
         "unavailableBody": "Monitoring storage is not ready yet or a query failed; it retries automatically.",
-        "emptyEnable": "Enable",
-        "emptyHow": "How to enable",
         "emptySnapshotHint": "Current values are still available in Snapshot",
         "engineObsEmptyTitle": "Engine observability is off for this job",
         "engineObsEmptyBody": "Busyness and backpressure need engine.observability enabled on the job",

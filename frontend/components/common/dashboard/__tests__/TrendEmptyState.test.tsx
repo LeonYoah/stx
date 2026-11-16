@@ -32,22 +32,29 @@ function renderState(reason?: string) {
 }
 
 describe('TrendEmptyState', () => {
-  it('prompts to turn observability on when it is disabled', () => {
+  it('explains how to enable monitoring without a fake settings CTA', () => {
     renderState('observability_disabled');
     expect(screen.getByText(copy.title)).toBeTruthy();
     expect(screen.getByTestId('home-trend-empty').dataset.reason).toBe(
       'disabled',
     );
+    // 前端没有开启入口：禁用态只给说明，不放假跳转按钮。
+    // No in-app switch exists: the disabled state only explains, no fake link/button.
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('reports unavailable data for storage or query failures', () => {
+  it('reports unavailable data for storage or query failures without an action', () => {
     renderState('prometheus_unavailable');
     expect(screen.getByText(copy.unavailableTitle)).toBeTruthy();
     expect(screen.queryByText(copy.title)).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
   });
 
   it('never names the underlying monitoring stack', () => {
     const {container} = renderState('observability_disabled');
-    expect(container.textContent ?? '').not.toMatch(/prometheus/i);
+    expect(container.textContent ?? '').not.toMatch(
+      /prometheus|alertmanager|grafana|promql/i,
+    );
   });
 });

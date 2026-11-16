@@ -197,9 +197,9 @@ while [[ $# -gt 0 ]]; do
     --service-user) OPT_SERVICE_USER="${2:-}"; INSTALL_ARGS+=("$1" "${2:-}"); shift 2 ;;
     --no-systemd) OPT_NO_SYSTEMD=true; INSTALL_ARGS+=("$1"); shift ;;
     --frontend-port|--http-port|--api-port|--grpc-port|--external-ip|--external-host|\
-    --db-type|--db-host|--db-port|--db-user|--db-name|--prometheus-port|--alertmanager-port|--grafana-port)
+    --db-type|--db-host|--db-port|--db-user|--db-name)
       INSTALL_ARGS+=("$1" "${2:-}"); shift 2 ;;
-    --without-observability|--with-observability|--force|--no-preserve-config|--no-start|--without-node|--no-autostart)
+    --without-observability|--force|--no-preserve-config|--no-start|--without-node|--no-autostart)
       INSTALL_ARGS+=("$1"); shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "[ERROR] unknown option: $1" >&2; usage; exit 1 ;;

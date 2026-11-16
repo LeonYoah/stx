@@ -17,9 +17,13 @@
 package config
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/spf13/viper"
 )
 
 func TestLoadConfigMissingFileReturnsDefaultsAndError(t *testing.T) {
@@ -61,10 +65,10 @@ func TestLoadConfigPreservesExplicitObservabilityDisabled(t *testing.T) {
 }
 
 // TestLoadConfig_IgnoresLegacyObservabilitySections 锁住破坏性升级的兼容面：旧配置文件残留
-// prometheus / alertmanager / grafana 段时仍能加载，且不影响内置监控配置。
+// prometheus / alertmanager / grafana / remote_ingest 段时仍能加载，且不影响内置监控配置。
 // TestLoadConfig_IgnoresLegacyObservabilitySections pins the breaking-upgrade compatibility: old
-// config files that still carry prometheus / alertmanager / grafana sections keep loading and do
-// not disturb the built-in monitoring settings.
+// config files that still carry prometheus / alertmanager / grafana / remote_ingest sections keep
+// loading and do not disturb the built-in monitoring settings.
 func TestLoadConfig_IgnoresLegacyObservabilitySections(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -80,17 +84,73 @@ observability:
     webhook_path: "/api/v1/monitoring/alertmanager/webhook"
   grafana:
     url: "http://127.0.0.1:3000"
+  remote_ingest:
+    path: "/api/v1/monitoring/alertmanager/webhook"
+    token: "secret-token-value"
 `
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	t.Setenv("CONFIG_PATH", path)
 
-	loaded, err := loadConfig()
+	// 捕获 stderr：残留段只应产出一条列出段名的 WARN，token 等配置值不落日志。
+	// Capture stderr: leftovers should yield one WARN naming the sections only; values like the
+	// token must stay out of logs.
+	stderr := captureStderr(t, func() {
+		loaded, err := loadConfig()
+		if err != nil {
+			t.Fatalf("旧配置段不应阻止加载 / legacy sections must not block loading: %v", err)
+		}
+		if !loaded.Observability.Enabled || loaded.Observability.Storage.Retention == "" {
+			t.Fatalf("内置监控配置应取默认值 / built-in monitoring should take defaults: %+v", loaded.Observability)
+		}
+	})
+	for _, section := range []string{"observability.prometheus", "observability.alertmanager", "observability.grafana", "observability.remote_ingest"} {
+		if !strings.Contains(stderr, section) {
+			t.Fatalf("WARN 应列出残留段 %s / WARN should list leftover section %s: %q", section, section, stderr)
+		}
+	}
+	if strings.Contains(stderr, "secret-token-value") {
+		t.Fatalf("WARN 不应泄露配置值 / WARN must not leak config values: %q", stderr)
+	}
+}
+
+// TestWarnLegacyObservabilitySections_None 验证没有残留段时不产生 WARN 噪音。
+// TestWarnLegacyObservabilitySections_None verifies no WARN noise when no legacy section remains.
+func TestWarnLegacyObservabilitySections_None(t *testing.T) {
+	loader := viper.New()
+	loader.SetConfigType("yaml")
+	if err := loader.ReadConfig(strings.NewReader("observability:\n  enabled: true\n")); err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	stderr := captureStderr(t, func() {
+		warnLegacyObservabilitySections(loader)
+	})
+	if strings.Contains(stderr, "WARN") {
+		t.Fatalf("无残留段不应输出 WARN / no WARN expected without leftover sections: %q", stderr)
+	}
+}
+
+// captureStderr 执行 fn 并返回其向 stderr 写入的内容。
+// captureStderr runs fn and returns everything it wrote to stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("旧配置段不应阻止加载 / legacy sections must not block loading: %v", err)
+		t.Fatalf("os.Pipe: %v", err)
 	}
-	if !loaded.Observability.Enabled || loaded.Observability.Storage.Retention == "" {
-		t.Fatalf("内置监控配置应取默认值 / built-in monitoring should take defaults: %+v", loaded.Observability)
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("close pipe writer: %v", err)
 	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read captured stderr: %v", err)
+	}
+	return string(out)
 }

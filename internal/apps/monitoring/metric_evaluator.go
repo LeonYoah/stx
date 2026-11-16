@@ -380,13 +380,12 @@ func (e *MetricEvaluator) dispatchLoop() {
 	}
 }
 
-// remoteAlertRecordFromRuleAlert 把 rules.Alert 映射为 RemoteAlertRecord，字段语义与
-// normalizeWebhookAlert 对齐：fingerprint 用标签集 hash（与 AM 同源算法），starts_at 用 FiredAt，
-// resolved 事件的 ends_at/resolved_at 取 ResolvedAt，firing 事件的 ends_at 取 ValidUntil。
-// remoteAlertRecordFromRuleAlert maps a rules.Alert onto a RemoteAlertRecord with the same
-// field semantics as normalizeWebhookAlert: fingerprint is the label-set hash (the algorithm
-// Alertmanager uses), starts_at is FiredAt, ends_at/resolved_at for resolved events come from
-// ResolvedAt, and ends_at for firing events is ValidUntil.
+// remoteAlertRecordFromRuleAlert 把 rules.Alert 映射为 RemoteAlertRecord：fingerprint 用标签集
+// hash（与 AM 同源算法），starts_at 用 FiredAt，resolved 事件的 ends_at/resolved_at 取
+// ResolvedAt，firing 事件的 ends_at 取 ValidUntil。
+// remoteAlertRecordFromRuleAlert maps a rules.Alert onto a RemoteAlertRecord: fingerprint is the
+// label-set hash (the algorithm Alertmanager uses), starts_at is FiredAt, ends_at/resolved_at for
+// resolved events come from ResolvedAt, and ends_at for firing events is ValidUntil.
 func remoteAlertRecordFromRuleAlert(alert *rules.Alert, now time.Time) *RemoteAlertRecord {
 	if alert == nil {
 		return nil

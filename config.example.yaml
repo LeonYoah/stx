@@ -211,12 +211,39 @@ telemetry:
   # OTLP collector endpoint (default: localhost:4317)
   endpoint: "localhost:4317"
 
-# 可观测配置（三件套集成）
-# Observability configuration (Prometheus/Grafana/Alertmanager integration)
+# 可观测配置（内嵌 tsdb + PromQL 引擎；下方 prometheus/alertmanager/grafana 段为远程集成残留，将逐步退役）
+# Observability configuration (embedded tsdb + PromQL engine; the prometheus/alertmanager/grafana
+# sections below are the legacy remote integration and are being retired)
 observability:
-  # 总开关：关闭后不暴露远程集成接口（HTTP SD / Webhook）
-  # Master switch: when false, remote integration endpoints are disabled
+  # 总开关：关闭后不暴露远程集成接口（HTTP SD / Webhook），同时停用内嵌 tsdb 与查询
+  # Master switch: when false, remote integration endpoints and the embedded tsdb/query engine are disabled
   enabled: true
+
+  # 内嵌 tsdb 存储配置（blocks + WAL + head）
+  # Embedded tsdb storage settings (blocks + WAL + head)
+  storage:
+    # tsdb 数据目录
+    # tsdb data directory
+    dir: "data/tsdb"
+    # 时间保留期（支持 s/m/h/d/w/y 单位，如 31d）
+    # Time-based retention (units s/m/h/d/w/y, e.g. 31d)
+    retention: "31d"
+    # 块存储字节数上限，0 表示不限
+    # Max retained block bytes; 0 means unlimited
+    max_size: 0
+
+  # 抓取循环间隔（进程内自研抓取器使用）
+  # Scrape loop interval (used by the in-process scraper)
+  scrape_interval: "15s"
+  # 告警评估间隔（进程内告警评估器使用）
+  # Alert evaluation interval (used by the in-process alert evaluator)
+  eval_interval: "15s"
+  # 单次 PromQL 查询超时
+  # Per-PromQL-query timeout
+  query_timeout: "8s"
+  # 单次查询允许加载的最大样本数
+  # Max samples a single query may load
+  max_samples: 50000000
 
   prometheus:
     # Prometheus Web/Query 地址（用于健康检查与控制台跳转）

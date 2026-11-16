@@ -248,16 +248,52 @@ type TelemetryConfig struct {
 	Endpoint string `mapstructure:"endpoint"`
 }
 
-// ObservabilityConfig 可观测性配置（Prometheus/Grafana/Alertmanager 集成）
+// ObservabilityConfig 可观测性配置（内嵌 tsdb + PromQL 引擎；Prometheus/Grafana/Alertmanager 远程集成字段将逐步退役）
+// ObservabilityConfig holds observability settings (embedded tsdb + PromQL engine; the remote
+// Prometheus/Grafana/Alertmanager integration fields are being retired across phases).
 type ObservabilityConfig struct {
 	// Enabled indicates whether observability integration is enabled.
 	// Enabled 表示是否启用可观测性集成。
 	Enabled bool `mapstructure:"enabled"`
 
+	Storage ObservabilityStorageConfig `mapstructure:"storage"`
+
+	// ScrapeInterval 是自研抓取循环的抓取间隔（如 15s）；P2 抓取器消费。
+	// ScrapeInterval is the scrape loop interval (e.g. 15s), consumed by the P2 scraper.
+	ScrapeInterval string `mapstructure:"scrape_interval"`
+
+	// EvalInterval 是告警评估器的评估间隔（如 15s）；P3 评估器消费。
+	// EvalInterval is the alert evaluation loop interval (e.g. 15s), consumed by the P3 evaluator.
+	EvalInterval string `mapstructure:"eval_interval"`
+
+	// QueryTimeout 是单次 PromQL 查询的超时（如 8s）。
+	// QueryTimeout is the per-PromQL-query timeout (e.g. 8s).
+	QueryTimeout string `mapstructure:"query_timeout"`
+
+	// MaxSamples 是单次查询允许加载的最大样本数。
+	// MaxSamples is the maximum number of samples a single query may load.
+	MaxSamples int64 `mapstructure:"max_samples"`
+
 	Prometheus      ObservabilityPrometheusConfig      `mapstructure:"prometheus"`
 	Alertmanager    ObservabilityAlertmanagerConfig    `mapstructure:"alertmanager"`
 	Grafana         ObservabilityGrafanaConfig         `mapstructure:"grafana"`
 	SeatunnelMetric ObservabilitySeatunnelMetricConfig `mapstructure:"seatunnel_metrics"`
+}
+
+// ObservabilityStorageConfig 内嵌 tsdb 存储配置
+// ObservabilityStorageConfig holds the embedded tsdb storage settings.
+type ObservabilityStorageConfig struct {
+	// Dir is the tsdb data directory (blocks + WAL + head).
+	// Dir 是 tsdb 数据目录（blocks + WAL + head）。
+	Dir string `mapstructure:"dir"`
+
+	// Retention 是时间保留期（如 31d，支持 s/m/h/d/w/y 单位）。
+	// Retention is the time-based retention (e.g. 31d; units s/m/h/d/w/y are supported).
+	Retention string `mapstructure:"retention"`
+
+	// MaxSize 是块存储的字节数上限，0 表示不限。
+	// MaxSize caps retained block bytes; 0 means unlimited.
+	MaxSize int64 `mapstructure:"max_size"`
 }
 
 // ObservabilityPrometheusConfig Prometheus 集成配置

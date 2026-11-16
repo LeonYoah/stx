@@ -58,7 +58,9 @@ import (
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/db"
 	grpcServer "github.com/LeonYoah/stx/internal/grpc"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/otel_trace"
+	"github.com/LeonYoah/stx/internal/pkg/embedts"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"github.com/LeonYoah/stx/internal/session"
 	"github.com/LeonYoah/stx/internal/tlsbootstrap"
@@ -90,6 +92,31 @@ func Serve() {
 	// Initialize database (auto-select SQLite, MySQL or PostgreSQL based on config)
 	if err := db.InitDatabase(); err != nil {
 		log.Fatalf("[API] 初始化数据库失败: %v\n", err)
+	}
+
+	// 内嵌可观测存储：observability.enabled 时打开进程内 tsdb + PromQL 引擎；
+	// 打开失败只记日志并保持未就绪（embedts.Ready()=false），大盘/趋势/诊断类查询走既有空态降级，不阻断启动。
+	// Embedded observability storage: open the in-process tsdb + PromQL engine when observability
+	// is enabled; failures only log and leave embedts.Ready()=false so dashboard/trend/diagnostic
+	// queries degrade to their existing empty states instead of blocking startup.
+	if config.Config.Observability.Enabled {
+		embedOpts, err := embedts.OptionsFromObservability(config.Config.Observability)
+		if err == nil {
+			err = embedts.Start(ctx, embedOpts)
+		}
+		if err != nil {
+			logger.ErrorF(ctx, "[Observability] 内嵌 tsdb 启动失败，可观测查询将降级为空态: %v / embedded tsdb failed to start, observability queries will degrade: %v", err, err)
+		}
+		// Serve() 目前没有优雅停机钩子（ctx 为 Background）：若未来换成可取消上下文，Done 时先关 tsdb；
+		// defer 兜底进程退出路径上的清理。Close 幂等，两个钩子同时触发也安全。
+		// Serve() has no graceful shutdown hook today (ctx is a Background): if it ever becomes
+		// cancellable, Done closes the tsdb first; the defer covers the process-exit path. Close is
+		// idempotent, so both hooks firing is safe.
+		go func() {
+			<-ctx.Done()
+			_ = embedts.Close()
+		}()
+		defer func() { _ = embedts.Close() }()
 	}
 
 	// 初始化 gRPC 服务器（如果启用）

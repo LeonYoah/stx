@@ -173,8 +173,9 @@ remote ingest 鉴权语义：token 非空 → `AlertmanagerWebhook` 先校验 `A
 
 ## 10. 风险与权衡（记录在案）
 
-1. **go.mod +~294 模块**（实测 v0.316.0）：`tsdb`→`config`→全量 discovery providers，client-go/aws/azure
-   死代码进二进制（探针 24.7MB 总量）。应对：锁版本 + 升级清单（重新跑依赖 diff）+ licenses 合规清单同步。
+1. **go.mod 依赖膨胀**（scratch 探针 +294 模块；P1 落地实测 810→953，**+143**）：`tsdb`→`config`→discovery
+   providers 的 client-go/aws/azure 死代码。应对：锁版本 + 升级清单（重新跑依赖 diff）+ licenses 合规清单同步。
+   P1 实测二进制 75.07MB→83.96MB（**+8.9MB**，低于探针估算的 ~+25MB）。
    上游 `remove_all_sd` 落地后可再减。
 2. **Go API 无稳定承诺**（上游官方声明）：tsdb/promql 是生态最被依赖的包（Mimir/Thanos/Alloy），破坏性变更频率
    低于措辞暗示；应对：升级 prometheus 依赖时跑「probe 清单」：tsdb.Open 签名、EngineOpts、Matrix/Vector 结构。

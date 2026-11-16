@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/pkg/timex"
+	"github.com/prometheus/common/model"
 	"github.com/spf13/viper"
 )
 
@@ -280,6 +281,32 @@ func setDefaults(c *configModel, observabilityEnabledSet bool) {
 	if c.Observability.SeatunnelMetric.ProbeTimeoutSeconds <= 0 {
 		c.Observability.SeatunnelMetric.ProbeTimeoutSeconds = 2
 	}
+
+	// 内嵌 tsdb 存储与查询默认配置
+	// Embedded tsdb storage and query defaults
+	if strings.TrimSpace(c.Observability.Storage.Dir) == "" {
+		c.Observability.Storage.Dir = "./data/tsdb"
+	}
+	if strings.TrimSpace(c.Observability.Storage.Retention) == "" {
+		c.Observability.Storage.Retention = "31d"
+	}
+	if strings.TrimSpace(c.Observability.ScrapeInterval) == "" {
+		c.Observability.ScrapeInterval = "15s"
+	}
+	if strings.TrimSpace(c.Observability.EvalInterval) == "" {
+		c.Observability.EvalInterval = "15s"
+	}
+	// 8s 与原远程查询 HTTP 客户端超时时长一致，保持降级语义不变。
+	// 8s matches the legacy remote-query HTTP client timeout, preserving degradation behavior.
+	if strings.TrimSpace(c.Observability.QueryTimeout) == "" {
+		c.Observability.QueryTimeout = "8s"
+	}
+	// 与 Prometheus 默认 query.max-samples 一致；0 视为未配置，负值交给校验拒绝。
+	// Same as the Prometheus default query.max-samples; 0 is treated as unset while
+	// explicit negatives are rejected by validation.
+	if c.Observability.MaxSamples == 0 {
+		c.Observability.MaxSamples = 50000000
+	}
 }
 
 func validateConfig(c *configModel) error {
@@ -307,6 +334,30 @@ func validateConfig(c *configModel) error {
 	}
 	if err := validateRequiredPath("observability.alertmanager.webhook_path", c.Observability.Alertmanager.WebhookPath); err != nil {
 		return err
+	}
+
+	// 内嵌 tsdb 存储与查询参数校验
+	// Embedded tsdb storage and query parameter validation
+	if strings.TrimSpace(c.Observability.Storage.Dir) == "" {
+		return fmt.Errorf("observability.storage.dir is required when observability.enabled=true")
+	}
+	if err := validateObservabilityDuration("observability.storage.retention", c.Observability.Storage.Retention); err != nil {
+		return err
+	}
+	if c.Observability.Storage.MaxSize < 0 {
+		return fmt.Errorf("observability.storage.max_size must be >= 0 (0 means unlimited)")
+	}
+	if err := validateObservabilityDuration("observability.scrape_interval", c.Observability.ScrapeInterval); err != nil {
+		return err
+	}
+	if err := validateObservabilityDuration("observability.eval_interval", c.Observability.EvalInterval); err != nil {
+		return err
+	}
+	if err := validateObservabilityDuration("observability.query_timeout", c.Observability.QueryTimeout); err != nil {
+		return err
+	}
+	if c.Observability.MaxSamples <= 0 {
+		return fmt.Errorf("observability.max_samples must be > 0")
 	}
 	return nil
 }
@@ -344,6 +395,25 @@ func validateRequiredPath(name, raw string) error {
 	}
 	if !strings.HasPrefix(path, "/") {
 		return fmt.Errorf("%s must start with '/'", name)
+	}
+	return nil
+}
+
+// validateObservabilityDuration 校验可观测时长配置：非空、可被 Prometheus duration 语法解析
+//（支持 s/m/h/d/w/y，如 15s、31d）、且大于 0。
+// validateObservabilityDuration validates an observability duration setting: non-empty, parseable
+// by the Prometheus duration syntax (s/m/h/d/w/y, e.g. 15s or 31d), and greater than zero.
+func validateObservabilityDuration(name, raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fmt.Errorf("%s is required when observability.enabled=true", name)
+	}
+	d, err := model.ParseDuration(trimmed)
+	if err != nil {
+		return fmt.Errorf("%s must be a valid duration such as 15s or 31d: %w", name, err)
+	}
+	if d <= 0 {
+		return fmt.Errorf("%s must be greater than 0", name)
 	}
 	return nil
 }

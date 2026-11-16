@@ -2,19 +2,25 @@
 
 依赖：`design.md` §1–§11。四阶段顺序执行，每阶段一个 PR、独立可验收；后一阶段依赖前一阶段已合并。
 
-## P1 存储 + 查询（地基，可空转验收）
+## P1 存储 + 查询（地基，可空转验收）✅ 已完成（feat/embedded-observability）
 
-- [ ] 新包 `internal/pkg/embedts`：`tsdb.Open(data/tsdb)` + `promql.Engine` 生命周期管理（启停挂在 main.go 的
-      `observability.enabled` 分支上）。
-- [ ] 配置：`observability.storage.{dir,retention(默认31d),max_size}` + `scrape_interval`/`eval_interval`/
-      `query_timeout`/`max_samples` 新增；`prometheus.url`、`alertmanager.url`、`grafana.url`、
-      `prometheus.http_sd_path` 移除（config/model.go、config.go 校验、config.example.yaml、4 个 e2e yaml）。
-- [ ] `promquery.Range/Instant` 改走 `promql.Engine`；`BaseURL()` 改为 tsdb 可用性探测（reason 枚举不变）。
-- [ ] `diagnostics/task_execute.go` 自有 HTTP 查询改调 `promquery`，删掉它自己的 response 结构体。
-- [ ] `go.mod` + prometheus/prometheus v0.316.0；`licenses/` 清单同步新增传递依赖。
-- 验证：`go test ./internal/pkg/embedts ./internal/pkg/promquery ./internal/apps/diagnostics`；
-      `observability.enabled=true` 起服务，空 tsdb 时大盘页签给空态不报错；
-      `go build` 后二进制对比记录净增 MB 数。
+- [x] 新包 `internal/pkg/embedts`：`tsdb.Open(data/tsdb)` + `promql.Engine` 生命周期管理（挂在
+      `router.Serve` 的 `observability.enabled` 分支上，打开失败降级 Ready()=false 不 panic）。
+- [x] 配置（本阶段**只增不删**）：`observability.storage.{dir,retention(默认31d),max_size}` +
+      `scrape_interval`/`eval_interval`/`query_timeout`/`max_samples` 新增（config/model.go、
+      config.go 校验、config.example.yaml、4 个 e2e yaml）。
+      注意：`prometheus.url`/`alertmanager.url`/`grafana.url`/`http_sd_path` 仍有活消费者
+      （service.go 集成状态、managed_alert_policy_sync、grafana 代理、P4 才摘 Grafana），
+      它们的删除分别排在 P2（http_sd_path）/ P3（prometheus.url、alertmanager.url）/ P4（grafana.url）。
+- [x] `promquery.Range/Instant` 改走 `promql.Engine`；`BaseURL()` 改为 embedts 可用性探测
+      （reason 枚举不变，就绪时返回哨兵串 `"embedded"`）。
+- [x] `diagnostics/task_execute.go` 自有 HTTP 查询改调 `promquery.Range`，私有 response 结构体已删。
+- [x] `go.mod` + prometheus/prometheus v0.316.0（模块 810→953，+143；二进制 +8.9MB）；
+      `licenses/` 无 Go 依赖清单可同步（仅前端 MIT 文件）。
+- 验证已过：`go build ./...`；`go test ./internal/pkg/embedts ./internal/pkg/promquery
+      ./internal/apps/diagnostics ./internal/config ./internal/apps/sync ./internal/apps/dashboard` 全绿；
+      `go vet` 干净。起服务后空 tsdb 大盘走降级空态（BaseURL→prometheus_unavailable）。
+      注意：`internal/apps/installer` 有预存在的跨设备 rename 环境性失败，与本改动无关（干净 HEAD 可复现）。
 - 风险文件：`promquery.go`（所有大盘查询都过它）；`main.go` 停机顺序（先停 API 再 `db.Close()`）。
 
 ## P2 抓取 + 生产者（开始有数据）

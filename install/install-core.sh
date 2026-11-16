@@ -153,7 +153,6 @@ stx_configure_defaults() {
   local http_port="$2"
   local grpc_port="$3"
   local frontend_port="$4"
-  local with_obs="${5:-false}"
   local config="$install_dir/config.yaml"
   local example="$install_dir/config.example.yaml"
 
@@ -174,24 +173,6 @@ stx_configure_defaults() {
   stx_yaml_set "$config" "app.external_url" "http://${host_ip}:${http_port}"
   stx_yaml_set "$config" "grpc.port" "${grpc_port}"
   stx_set_console_url "$config" "http://${host_ip}:${frontend_port}"
-
-  if [[ "$with_obs" == "true" || "$with_obs" == "1" ]]; then
-    # Init bundled stack configs (logic lives in bin/lib/observability.sh).
-    # 初始化本地三件套配置（逻辑在 bin/lib/observability.sh）。
-    if [[ -f "$install_dir/bin/lib/observability.sh" && -d "$install_dir/observability/prometheus" ]]; then
-      BASE_DIR="$install_dir"
-      # shellcheck source=bin/lib/observability.sh
-      source "$install_dir/bin/lib/observability.sh"
-      stx_obs_init_defaults "$install_dir/observability" || true
-    fi
-    stx_yaml_set "$config" "observability.enabled" "true"
-    # Best-effort local stack URLs. / 尽力写入本地三件套 URL。
-    if grep -q 'prometheus:' "$config"; then
-      stx_yaml_set "$config" "observability.prometheus.url" "http://127.0.0.1:${STX_PROMETHEUS_PORT:-9090}" || true
-      stx_yaml_set "$config" "observability.alertmanager.url" "http://127.0.0.1:${STX_ALERTMANAGER_PORT:-9093}" || true
-      stx_yaml_set "$config" "observability.grafana.url" "http://127.0.0.1:${STX_GRAFANA_PORT:-3000}" || true
-    fi
-  fi
 
   # Export for callers / start.sh. / 导出供调用方与 start.sh 使用。
   export FRONTEND_PORT="$frontend_port"
@@ -411,7 +392,7 @@ stx_load_install_defaults() {
   local dir="$1" cfg="${2:-}" v
   STX_PREV_HTTP_PORT="$STX_DEFAULT_HTTP_PORT"; STX_PREV_GRPC_PORT="$STX_DEFAULT_GRPC_PORT"
   STX_PREV_FRONTEND_PORT="$STX_DEFAULT_FRONTEND_PORT"
-  STX_PREV_PROM_PORT=9090; STX_PREV_AM_PORT=9093; STX_PREV_GF_PORT=3000; STX_PREV_EXTERNAL_IP=""
+  STX_PREV_EXTERNAL_IP=""
   if [[ -n "$cfg" && -f "$cfg" ]]; then
     v="$(stx_yaml_get "$cfg" app.addr)"; v="${v##*:}"; [[ "$v" =~ ^[0-9]+$ ]] && STX_PREV_HTTP_PORT="$v"
     v="$(stx_yaml_get "$cfg" grpc.port)"; [[ "$v" =~ ^[0-9]+$ ]] && STX_PREV_GRPC_PORT="$v"
@@ -420,11 +401,8 @@ stx_load_install_defaults() {
   fi
   if [[ -f "$dir/stx.env" ]]; then
     v="$(sed -n 's/^FRONTEND_PORT=//p' "$dir/stx.env" | head -n1)"; [[ "$v" =~ ^[0-9]+$ ]] && STX_PREV_FRONTEND_PORT="$v"
-    v="$(sed -n 's/^STX_PROMETHEUS_PORT=//p' "$dir/stx.env" | head -n1)"; [[ "$v" =~ ^[0-9]+$ ]] && STX_PREV_PROM_PORT="$v"
-    v="$(sed -n 's/^STX_ALERTMANAGER_PORT=//p' "$dir/stx.env" | head -n1)"; [[ "$v" =~ ^[0-9]+$ ]] && STX_PREV_AM_PORT="$v"
-    v="$(sed -n 's/^STX_GRAFANA_PORT=//p' "$dir/stx.env" | head -n1)"; [[ "$v" =~ ^[0-9]+$ ]] && STX_PREV_GF_PORT="$v"
   fi
-  STX_PREV_PORTS="$STX_PREV_HTTP_PORT $STX_PREV_GRPC_PORT $STX_PREV_FRONTEND_PORT $STX_PREV_PROM_PORT $STX_PREV_AM_PORT $STX_PREV_GF_PORT"
+  STX_PREV_PORTS="$STX_PREV_HTTP_PORT $STX_PREV_GRPC_PORT $STX_PREV_FRONTEND_PORT"
 }
 
 # 安装目录中的 STX 是否在运行。/ Is the STX in this install dir running?
@@ -611,9 +589,6 @@ BACKEND_BASE_URL=http://127.0.0.1:${STX_HTTP_PORT:-17800}
 NEXT_PUBLIC_BACKEND_BASE_URL=http://127.0.0.1:${STX_HTTP_PORT:-17800}
 STX_HTTP_PORT=${STX_HTTP_PORT:-17800}
 STX_GRPC_PORT=${STX_GRPC_PORT:-17890}
-STX_PROMETHEUS_PORT=${STX_PROMETHEUS_PORT:-9090}
-STX_ALERTMANAGER_PORT=${STX_ALERTMANAGER_PORT:-9093}
-STX_GRAFANA_PORT=${STX_GRAFANA_PORT:-3000}
 EOF
 }
 
@@ -657,16 +632,17 @@ stx_wait_ready() {
 
 # 安装完成摘要与后续步骤。/ Final summary and next steps.
 # 用法 / Usage: stx_print_summary <install_dir> <admin_user> <default|changed|existing|pending|unknown|kept>
-#                <factory_default_password_or_empty> <started:true|false> <with_obs>
+#                <factory_default_password_or_empty> <started:true|false>
 # 第 4 个参数只能传出厂默认密码（config.example.yaml），非出厂值传空串，摘要永不显示用户自己的密码。
 # Argument 4 may only be the factory default (config.example.yaml); pass "" otherwise so user passwords never show.
 stx_print_summary() {
-  local dir="$1" user="$2" state="$3" defpw="$4" started="${5:-true}" with_obs="${6:-false}" ip pw_line svc_start svc_stop svc_restart svc_status obs_line=""
+  local dir="$1" user="$2" state="$3" defpw="$4" started="${5:-true}" ip pw_line svc_start svc_stop svc_restart svc_status obs_line=""
   ip="${STX_EXTERNAL_HOST:-$(stx_guess_host_ip)}"
   [[ -z "$ip" ]] && ip="127.0.0.1"
-  if [[ "$with_obs" == "true" && -d "$dir/observability" ]]; then
-    obs_line="  可观测性       : Prometheus :${STX_PROMETHEUS_PORT:-9090} / Alertmanager :${STX_ALERTMANAGER_PORT:-9093} / Grafana :${STX_GRAFANA_PORT:-3000}（仅本机监听，经控制台访问）
-                   占用磁盘 $(du -sh "$dir/observability" 2>/dev/null | awk '{print $1}')，Prometheus 数据在 $dir/observability/prometheus/data 会随时间增长（默认保留 15 天）；不需要可重装时加 --without-observability"
+  if [[ "$(stx_yaml_get "$dir/config.yaml" observability.enabled 2>/dev/null)" != "false" ]]; then
+    obs_line="  内置监控       : 已开启，数据在 $dir/data/tsdb（默认保留 31 天、最多 30GiB，可在 config.yaml 的 observability.storage 调整）"
+  else
+    obs_line="  内置监控       : 未开启（config.yaml 中 observability.enabled: true 后重启即可开启）"
   fi
   case "$state" in
     changed) pw_line="（安装时已修改为你设置的密码，出于安全不在此显示）" ;;

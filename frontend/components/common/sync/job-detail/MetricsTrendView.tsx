@@ -81,8 +81,8 @@ const defaultSelection = (job: SyncJobInstance | null): TrendSelection =>
     : {kind: 'preset', range: '1h'};
 
 /**
- * 指标趋势视图：Arc 折线 / 刷选 / 柱状 / 环形图 + Prometheus 时序。
- * Metrics trend view: Arc line / brush / bar / donut charts over Prometheus series.
+ * 指标趋势视图：Arc 折线 / 刷选 / 柱状 / 环形图 + 内置监控时序。
+ * Metrics trend view: Arc line / brush / bar / donut charts over built-in monitoring series.
  */
 export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; active: boolean}) {
   const t = useTranslations('workbenchStudio.jobDetail.metricsView');
@@ -337,22 +337,26 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   }
 
   if (!loading && data && (data.source === 'none' || data.reason === 'observability_disabled' || data.reason === 'prometheus_unavailable')) {
+    const disabled = data.reason === 'observability_disabled';
     return (
       <div className='flex min-h-[420px] items-center justify-center rounded-lg border border-border'>
         <div className='max-w-md px-6 text-center'>
           <div className='mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-muted text-muted-foreground'>
             <Activity className='h-5 w-5' />
           </div>
-          <div className='text-[15px] font-medium'>{t('emptyTitle')}</div>
-          <p className='mt-2 text-[12.5px] leading-relaxed text-muted-foreground'>{t('emptyBody')}</p>
-          <div className='mt-4 flex items-center justify-center gap-3'>
-            <Button asChild size='sm'>
-              <Link href='/monitoring/integrations'>{t('emptyEnable')}</Link>
-            </Button>
-            <Link href='/monitoring/integrations' className='text-[12.5px] underline underline-offset-4'>
-              {t('emptyHow')}
-            </Link>
-          </div>
+          {/* 可观测性未开启时引导开启；存储未就绪 / 查询失败时只说明稍后重试。/ Prompt to enable when observability is off; otherwise just say it retries. */}
+          <div className='text-[15px] font-medium'>{disabled ? t('emptyTitle') : t('unavailableTitle')}</div>
+          <p className='mt-2 text-[12.5px] leading-relaxed text-muted-foreground'>{disabled ? t('emptyBody') : t('unavailableBody')}</p>
+          {disabled ? (
+            <div className='mt-4 flex items-center justify-center gap-3'>
+              <Button asChild size='sm'>
+                <Link href='/monitoring/integrations'>{t('emptyEnable')}</Link>
+              </Button>
+              <Link href='/monitoring/integrations' className='text-[12.5px] underline underline-offset-4'>
+                {t('emptyHow')}
+              </Link>
+            </div>
+          ) : null}
           <p className='mt-5 border-t border-border pt-3 text-xs text-muted-foreground'>{t('emptySnapshotHint')}</p>
         </div>
       </div>
@@ -398,7 +402,7 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
           <span className='text-muted-foreground'>{t('source')}</span>
           <span className='inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5'>
             <span className='h-1.5 w-1.5 rounded-full bg-emerald-500' />
-            Prometheus
+            {t('sourceBuiltin')}
           </span>
           {data?.step_seconds ? (
             <span className='font-mono text-[11px] text-muted-foreground'>step {data.step_seconds}s</span>

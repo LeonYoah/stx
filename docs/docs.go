@@ -2575,6 +2575,141 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/dashboard/home/clusters": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "首页集群大盘（集群卡片 / 节点 / 趋势 / 异常信号）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID，空表示全部集群",
+                        "name": "cluster_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "name": "end",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.ClusterDashboard"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/dashboard/home/jobs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "首页作业大盘（吞吐 / Top N / 流向 / Checkpoint / 热点 / 运行日历）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID，空表示全部集群",
+                        "name": "cluster_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "name": "end",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 16,
+                        "description": "运行日历周数（1~52）",
+                        "name": "weeks",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.JobDashboard"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/dashboard/home/summary": {
             "get": {
                 "produces": [
@@ -4870,7 +5005,7 @@ const docTemplate = `{
                 "tags": [
                     "Sync"
                 ],
-                "summary": "批量获取作业速率迷你曲线（Prometheus）",
+                "summary": "批量获取作业速率迷你曲线",
                 "parameters": [
                     {
                         "type": "string",
@@ -5080,7 +5215,7 @@ const docTemplate = `{
                 "tags": [
                     "Sync"
                 ],
-                "summary": "获取作业指标时序（Prometheus）",
+                "summary": "获取作业指标时序",
                 "parameters": [
                     {
                         "type": "integer",
@@ -8316,6 +8451,173 @@ const docTemplate = `{
                 }
             }
         },
+        "dashboard.ClusterCard": {
+            "type": "object",
+            "properties": {
+                "active_alerts": {
+                    "type": "integer"
+                },
+                "critical_alerts": {
+                    "type": "integer"
+                },
+                "endpoints_down": {
+                    "type": "integer"
+                },
+                "health_status": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "max_heap_percent": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nodes_online": {
+                    "type": "integer"
+                },
+                "nodes_total": {
+                    "type": "integer"
+                },
+                "running_jobs": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "dashboard.ClusterDashboard": {
+            "type": "object",
+            "properties": {
+                "cell_seconds": {
+                    "type": "integer"
+                },
+                "clusters": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.ClusterCard"
+                    }
+                },
+                "end_ms": {
+                    "type": "integer"
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.ClusterNodeRow"
+                    }
+                },
+                "partial_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.DashboardSeries"
+                    }
+                },
+                "signals": {
+                    "$ref": "#/definitions/dashboard.ClusterSignals"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
+                },
+                "step_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.ClusterNodeRow": {
+            "type": "object",
+            "properties": {
+                "agent_online": {
+                    "type": "boolean"
+                },
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "cluster_name": {
+                    "type": "string"
+                },
+                "cpu_cores": {
+                    "type": "number"
+                },
+                "fd_percent": {
+                    "type": "number"
+                },
+                "heap_percent": {
+                    "type": "number"
+                },
+                "instance": {
+                    "type": "string"
+                },
+                "master": {
+                    "type": "boolean"
+                },
+                "node_active": {
+                    "type": "boolean"
+                },
+                "node_id": {
+                    "type": "integer"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "scrape_up": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "threads": {
+                    "type": "number"
+                },
+                "uptime_seconds": {
+                    "type": "number"
+                }
+            }
+        },
+        "dashboard.ClusterSignals": {
+            "type": "object",
+            "properties": {
+                "clusters_safe": {
+                    "type": "integer"
+                },
+                "clusters_total": {
+                    "type": "integer"
+                },
+                "deadlocked_threads": {
+                    "type": "number"
+                },
+                "endpoints_down": {
+                    "type": "integer"
+                },
+                "fd_percent_max": {
+                    "type": "number"
+                },
+                "hz_queue_util_max": {
+                    "type": "number"
+                },
+                "pool_reject_rate": {
+                    "type": "number"
+                }
+            }
+        },
         "dashboard.ClusterSummary": {
             "type": "object",
             "properties": {
@@ -8357,6 +8659,41 @@ const docTemplate = `{
                 "data": {},
                 "error_msg": {
                     "type": "string"
+                }
+            }
+        },
+        "dashboard.DashboardSeries": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float64"
+                        }
+                    }
+                }
+            }
+        },
+        "dashboard.FlowLink": {
+            "type": "object",
+            "properties": {
+                "sink": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
                 }
             }
         },
@@ -8447,6 +8784,118 @@ const docTemplate = `{
                 },
                 "node_count": {
                     "type": "integer"
+                }
+            }
+        },
+        "dashboard.JobDashboard": {
+            "type": "object",
+            "properties": {
+                "annotations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.JobAnnotation"
+                    }
+                },
+                "calendar": {
+                    "$ref": "#/definitions/sync.JobCalendar"
+                },
+                "checkpoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "end_ms": {
+                    "type": "integer"
+                },
+                "flow": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.FlowLink"
+                    }
+                },
+                "hotspots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "partial_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
+                },
+                "step_seconds": {
+                    "type": "integer"
+                },
+                "throughput": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.ThroughputSeries"
+                    }
+                },
+                "top_cdc": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "top_write": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.JobRank"
+                    }
+                },
+                "window_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.JobRank": {
+            "type": "object",
+            "properties": {
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "failures": {
+                    "type": "number"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "max_seconds": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "integer"
+                },
+                "value": {
+                    "type": "number"
+                },
+                "vertex": {
+                    "type": "string"
+                },
+                "viewable": {
+                    "type": "boolean"
                 }
             }
         },
@@ -8546,6 +8995,24 @@ const docTemplate = `{
                 "type": {
                     "description": "success, warning, info, error",
                     "type": "string"
+                }
+            }
+        },
+        "dashboard.ThroughputSeries": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float64"
+                        }
+                    }
                 }
             }
         },
@@ -11920,6 +12387,30 @@ const docTemplate = `{
             "type": "object",
             "additionalProperties": true
         },
+        "sync.JobAnnotation": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "description": "job_failed | job_recovered | schema_change",
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "ts_ms": {
+                    "type": "integer"
+                },
+                "viewable": {
+                    "type": "boolean"
+                }
+            }
+        },
         "sync.JobCDCDelay": {
             "type": "object",
             "properties": {
@@ -11933,6 +12424,35 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "max_1m_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.JobCalendar": {
+            "type": "object",
+            "properties": {
+                "end_date": {
+                    "type": "string"
+                },
+                "failed": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "runs": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "weeks": {
                     "type": "integer"
                 }
             }

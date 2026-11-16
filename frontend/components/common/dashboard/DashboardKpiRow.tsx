@@ -54,7 +54,7 @@ export function DashboardKpiRow({
   if (loading && !summary) {
     return (
       <div
-        className='grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6'
+        className='grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'
         data-testid='home-kpi-loading'
       >
         {Array.from({length: 6}).map((_, index) => (
@@ -142,7 +142,7 @@ export function DashboardKpiRow({
 
   return (
     <div
-      className='grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6'
+      className='grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'
       data-testid='home-kpi-row'
     >
       {items.map((item) => (

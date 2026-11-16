@@ -1005,3 +1005,63 @@ func (r *Repository) DeleteCuratedTemplate(ctx context.Context, id uint) error {
 	}
 	return nil
 }
+
+// CountRunningJobsByCluster 按集群统计运行中组（running / doing_savepoint）的作业数，不含预览运行。
+// CountRunningJobsByCluster counts running-group jobs (running / doing_savepoint) per cluster, excluding preview runs.
+func (r *Repository) CountRunningJobsByCluster(ctx context.Context) (map[uint]int64, error) {
+	var rows []struct {
+		ClusterID uint
+		Total     int64
+	}
+	err := r.db.WithContext(ctx).Model(&JobInstance{}).
+		Select("cluster_id, COUNT(*) AS total").
+		Where("status IN ?", []JobStatus{JobStatusRunning, JobStatusDoingSavepoint}).
+		Where("run_type <> ?", RunTypePreview).
+		Group("cluster_id").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uint]int64, len(rows))
+	for _, row := range rows {
+		out[row.ClusterID] = row.Total
+	}
+	return out, nil
+}
+
+// JobTimeRow 是运行日历统计用的精简行。
+// JobTimeRow is the slim row used for the run calendar.
+type JobTimeRow struct {
+	Status    JobStatus
+	StartedAt *time.Time
+	CreatedAt time.Time
+}
+
+// ListJobTimesSince 返回 since 之后开始（无开始时间按创建时间）的非预览作业的状态与时间，可按集群过滤。
+// ListJobTimesSince returns status and times of non-preview jobs started (or created) after since, optionally per
+// cluster.
+func (r *Repository) ListJobTimesSince(ctx context.Context, since time.Time, clusterID uint) ([]JobTimeRow, error) {
+	query := r.db.WithContext(ctx).Model(&JobInstance{}).
+		Select("status", "started_at", "created_at").
+		Where("run_type <> ?", RunTypePreview).
+		Where("COALESCE(started_at, created_at) >= ?", timex.Bound(since))
+	if clusterID > 0 {
+		query = query.Where("cluster_id = ?", clusterID)
+	}
+	var rows []JobTimeRow
+	err := query.Scan(&rows).Error
+	return rows, err
+}
+
+// ListRecoverJobsStartedBetween 返回时间窗内开始的恢复运行（作业大盘标注用），可按集群过滤。
+// ListRecoverJobsStartedBetween returns recover runs started in the window (job dashboard annotations).
+func (r *Repository) ListRecoverJobsStartedBetween(ctx context.Context, start, end time.Time, clusterID uint, limit int) ([]*JobInstance, error) {
+	query := r.db.WithContext(ctx).
+		Where("run_type = ?", RunTypeRecover).
+		Where("started_at IS NOT NULL AND started_at >= ? AND started_at < ?", timex.Bound(start), timex.Bound(end))
+	if clusterID > 0 {
+		query = query.Where("cluster_id = ?", clusterID)
+	}
+	var jobs []*JobInstance
+	err := query.Order("started_at DESC").Limit(limit).Find(&jobs).Error
+	return jobs, err
+}

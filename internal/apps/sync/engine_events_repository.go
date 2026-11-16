@@ -192,3 +192,17 @@ func (r *Repository) FindLatestJobInstanceByEngineJobID(ctx context.Context, eng
 	}
 	return &instance, nil
 }
+
+// ListSchemaChangeEventsBetween 返回时间窗内的表结构变更事件（作业大盘标注用），可按集群过滤。
+// ListSchemaChangeEventsBetween returns schema change events in the window (job dashboard annotations).
+func (r *Repository) ListSchemaChangeEventsBetween(ctx context.Context, start, end time.Time, clusterID uint, limit int) ([]*EngineEvent, error) {
+	query := r.db.WithContext(ctx).
+		Where("event_type LIKE ?", "SCHEMA_CHANGE%").
+		Where("event_time_ms >= ? AND event_time_ms < ?", start.UnixMilli(), end.UnixMilli())
+	if clusterID > 0 {
+		query = query.Where("cluster_id = ?", clusterID)
+	}
+	var events []*EngineEvent
+	err := query.Order("event_time_ms DESC").Limit(limit).Find(&events).Error
+	return events, err
+}

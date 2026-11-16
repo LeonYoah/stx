@@ -20,7 +20,6 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {RefreshCw} from 'lucide-react';
-import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {
   Tabs,
   TabsContent,
@@ -29,7 +28,8 @@ import {
 } from '@/components/arc/tabs/tabs';
 import {STXMark} from '@/components/icons/logo';
 import {WorkspaceHeader} from '@/components/common/layout';
-import {MonitoringOverview} from '@/components/common/monitoring';
+import {ArcDateRangePicker} from '@/components/common/layout/ArcDateRangePicker';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Button} from '@/components/ui/button';
 import {
   Select,
@@ -43,20 +43,25 @@ import {HomeService, type HomeAttentionItem} from '@/lib/services/dashboard';
 import {formatTimeTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {AttentionStrip} from './AttentionStrip';
+import {ClusterTab} from './ClusterTab';
 import {DashboardKpiRow} from './DashboardKpiRow';
 import {JobListTab} from './JobListTab';
+import {JobsTab} from './JobsTab';
 import {jobWorkbenchHref} from './job-list-utils';
-import {type HomeTab, useDashboardQuery} from './use-dashboard-query';
+import {
+  HOME_RANGES,
+  MAX_CUSTOM_WINDOW_MS,
+  type HomeTab,
+  useDashboardQuery,
+} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
 
 const SUMMARY_POLL_MS = 30_000;
 
 /**
  * 控制台首页：范围选择 + 指标卡 + 「需要处理」条（三个页签共用），页签为集群 / 作业 / 作业列表。
- * P1 中集群页签暂放 Grafana 折叠面板，作业页签为占位，P2 / P3 替换。
  * The console home: scope picker, KPI cards and the "needs attention" strip shared by all tabs; tabs are clusters /
- * jobs / job list. In P1 the cluster tab still hosts the collapsed Grafana panel and the jobs tab is a placeholder;
- * P2 / P3 replace them.
+ * jobs / job list.
  */
 export function HomeDashboard() {
   const t = useTranslations('dashboard.home');
@@ -117,6 +122,49 @@ export function HomeDashboard() {
               <span className='hidden whitespace-nowrap text-xs text-muted-foreground sm:inline'>
                 {t('updatedAt', {time: formatTimeTz(summary.updatedAt)})}
               </span>
+            ) : null}
+            {/* 时间窗只影响趋势，作业列表页签不显示。/ The range only drives trends, so the job list hides it. */}
+            {query.tab !== 'list' ? (
+              <>
+                {/* 选了自定义时间窗时分段控件无选中项；点预设清掉自定义窗口。
+                    With a custom window no preset is selected; picking a preset clears the custom window. */}
+                <SegmentedControl
+                  label={t('clusterTab.range.label')}
+                  value={query.start ? '' : query.range}
+                  onValueChange={(value) =>
+                    update({
+                      range: value === '1h' ? undefined : value,
+                      start: undefined,
+                      end: undefined,
+                    })
+                  }
+                  options={HOME_RANGES.map((value) => ({
+                    value,
+                    label: t(`clusterTab.range.${value}`),
+                  }))}
+                />
+                <ArcDateRangePicker
+                  value={
+                    query.start && query.end
+                      ? {start: new Date(query.start), end: new Date(query.end)}
+                      : null
+                  }
+                  onChange={(picked) => {
+                    const end = picked.end.getTime();
+                    // 与后端一样最多 31 天，超出时保留靠近结束的一段。/ Cap at 31 days like the backend, keeping the end.
+                    update({
+                      start: Math.max(
+                        picked.start.getTime(),
+                        end - MAX_CUSTOM_WINDOW_MS,
+                      ),
+                      end,
+                    });
+                  }}
+                  label={t('clusterTab.range.custom')}
+                  placeholder={t('clusterTab.range.custom')}
+                  withTime
+                />
+              </>
             ) : null}
             <Select
               value={scopeValue}
@@ -210,27 +258,10 @@ export function HomeDashboard() {
           <TabsTrigger value='list'>{t('tabs.list')}</TabsTrigger>
         </TabsList>
         <TabsContent value='cluster'>
-          <div className='flex flex-col gap-2'>
-            <p className='text-xs text-muted-foreground'>
-              {t('cluster.legacyHint')}
-            </p>
-            <MonitoringOverview compact defaultGrafanaExpanded={false} />
-          </div>
+          <ClusterTab query={query} update={update} />
         </TabsContent>
         <TabsContent value='jobs'>
-          <EmptyState
-            title={t('jobsTab.comingTitle')}
-            description={t('jobsTab.comingDesc')}
-            action={
-              <Button
-                size='sm'
-                variant='outline'
-                onClick={() => update({tab: 'list'})}
-              >
-                {t('jobsTab.openList')}
-              </Button>
-            }
-          />
+          <JobsTab query={query} />
         </TabsContent>
         <TabsContent value='list'>
           <JobListTab

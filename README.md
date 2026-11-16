@@ -113,7 +113,7 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-onli
 
 ### Offline install (whole bundle)
 
-Every Release ships three complete offline bundles (backend, Agent, frontend, Node runtime, observability stack, Java proxy), each with a `.sha256`:
+Every Release ships three complete offline bundles (backend, Agent, frontend, Node runtime, Java proxy; monitoring is built in), each with a `.sha256`:
 
 | Bundle | Target OS | Node |
 | --- | --- | --- |
@@ -170,7 +170,6 @@ China: paste links into [https://gh-proxy.com/](https://gh-proxy.com/).
 | stx | [download](https://github.com/LeonYoah/stx/releases/latest/download/stx-linux-amd64) | [download](https://github.com/LeonYoah/stx/releases/latest/download/stx-linux-arm64) |
 | frontend | [download](https://github.com/LeonYoah/stx/releases/latest/download/frontend-standalone-linux-amd64.tar.gz) | [download](https://github.com/LeonYoah/stx/releases/latest/download/frontend-standalone-linux-arm64.tar.gz) |
 | stx-agent | [download](https://github.com/LeonYoah/stx/releases/latest/download/stx-agent-linux-amd64) | [download](https://github.com/LeonYoah/stx/releases/latest/download/stx-agent-linux-arm64) |
-| observability | [download](https://github.com/LeonYoah/stx/releases/download/deps/observability-prom3.9.1-am0.31.1-gf12.3.3-linux-amd64.tar.gz) | [download](https://github.com/LeonYoah/stx/releases/download/deps/observability-prom3.9.1-am0.31.1-gf12.3.3-linux-arm64.tar.gz) |
 
 ```bash
 ldd --version | head -1
@@ -215,10 +214,9 @@ docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 ghcr.io/leonyoah/stx-
 docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 swr.cn-east-3.myhuaweicloud.com/stx/stx-all-in-one:latest
 ```
 
-After binary install: `/opt/stx/bin/start.sh` (default `--observability auto`) or `systemctl restart stx`.  
-Optional: `/opt/stx/bin/start.sh --observability off`.
+After binary install: `/opt/stx/bin/start.sh` or `systemctl restart stx`. Monitoring is built in; turn it off with `observability.enabled: false` in `config.yaml`.
 
-More: [docs/00-快速开始.md](./docs/00-快速开始.md), [docs/打包发布说明.md](./docs/打包发布说明.md), [docs/可观测性三件套一键接入说明.md](./docs/可观测性三件套一键接入说明.md).
+More: [docs/00-快速开始.md](./docs/00-快速开始.md), [docs/打包发布说明.md](./docs/打包发布说明.md), [docs/内置监控说明.md](./docs/内置监控说明.md).
 
 ## Configuration essentials
 
@@ -237,7 +235,7 @@ Optional OAuth providers (`github` / `google`) can be enabled under `oauth_provi
 - [Quick start (users)](./docs/00-快速开始.md)
 - [Secondary development](./docs/secondary-development.md)
 - [Packaging & release](./docs/打包发布说明.md)
-- [Observability integration](./docs/可观测性三件套一键接入说明.md)
+- [Built-in monitoring](./docs/内置监控说明.md)
 
 ## License
 

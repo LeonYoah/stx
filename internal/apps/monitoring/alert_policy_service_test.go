@@ -117,10 +117,13 @@ func TestUpsertAlertPolicyRequestValidate(t *testing.T) {
 		}
 	})
 
-	t.Run("custom promql requires promql", func(t *testing.T) {
+	// custom_promql 构建器已随内嵌可观测移除，存量请求一律按非法 policy_type 拒绝。
+	// The custom_promql builder was removed with embedded observability; such requests are
+	// rejected as an invalid policy_type.
+	t.Run("custom promql policy type rejected", func(t *testing.T) {
 		req := &UpsertAlertPolicyRequest{
 			Name:       "failed jobs",
-			PolicyType: AlertPolicyBuilderKindCustomPromQL,
+			PolicyType: AlertPolicyBuilderKind("custom_promql"),
 			Severity:   AlertSeverityWarning,
 		}
 		if err := req.Validate(); err == nil {

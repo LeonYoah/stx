@@ -90,7 +90,7 @@ mapfile -t keys < <(awk '
     if (line !~ /^[A-Za-z0-9_]+[ \t]*:/) next
     k = line; sub(/[ \t]*:.*/, "", k); lvl = ind / 2; path[lvl] = k
     p = path[0]; for (i = 1; i <= lvl; i++) p = p "." path[i]; print p }' "$cfg" | sort -u)
-keys+=(nope.x app.nope observability.prometheus.nope auth "app..addr")
+keys+=(nope.x app.nope observability.storage.nope auth "app..addr")
 vals=(':18000' '8080' 'true' 'false' 'http://1.2.3.4:17800' '"quoted"' "'sq'" 'a b c' 'a\b\\n&x/y|z' '' '0' '-1' 'x"y' '$HOME')
 
 # 额外的边界文件：末行无换行、tab 缩进、空文件。/ Extra edge files: no trailing newline, tab indent, empty.

@@ -279,3 +279,9 @@ func firstLine(text string) string {
 	}
 	return audit.RedactText(text)
 }
+
+// RunningJobCountsByCluster 供首页集群卡片显示每个集群的运行中作业数（全局口径）。
+// RunningJobCountsByCluster feeds the per-cluster running job count on the home cluster cards (global scope).
+func (s *Service) RunningJobCountsByCluster(ctx context.Context) (map[uint]int64, error) {
+	return s.repo.CountRunningJobsByCluster(ctx)
+}

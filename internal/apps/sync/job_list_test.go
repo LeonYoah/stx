@@ -19,14 +19,14 @@ package sync
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/prometheus/prometheus/model/labels"
+
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/embedts"
 )
 
 // seedJobListFixture 建两个任务（一个私有）和一组不同状态 / 模式 / 集群的作业。
@@ -238,42 +238,66 @@ func TestListJobsVisibilityMatchesGetJob(t *testing.T) {
 	}
 }
 
-// withFakePrometheus 打开 observability 并把 Prometheus 指向假服务；handler 收到查询语句与路径。
-// withFakePrometheus turns observability on and points Prometheus at a fake server; handler sees the path and query.
-func withFakePrometheus(t *testing.T, handler func(path, query string) string) {
+// withEmbeddedObservability 打开 observability.enabled 并起一份指向 t.TempDir() 的内嵌 tsdb。
+// withEmbeddedObservability flips observability.enabled on and starts an embedded tsdb rooted at t.TempDir().
+func withEmbeddedObservability(t *testing.T) {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(handler(r.URL.Path, r.URL.Query().Get("query"))))
-	}))
-	t.Cleanup(server.Close)
-	enabled, url := config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL
+	enabled := config.Config.Observability.Enabled
 	t.Cleanup(func() {
-		config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL = enabled, url
+		config.Config.Observability.Enabled = enabled
+		_ = embedts.Close()
 	})
-	config.Config.Observability.Enabled, config.Config.Observability.Prometheus.URL = true, server.URL
+	config.Config.Observability.Enabled = true
+	_ = embedts.Close()
+	if err := embedts.Start(context.Background(), embedts.Options{Dir: t.TempDir()}); err != nil {
+		t.Fatalf("start embedded tsdb: %v", err)
+	}
 }
 
 func TestGetJobSparklinesDropsInvisibleIDs(t *testing.T) {
 	service := newTestSyncService(t)
 	seedJobListFixture(t, service)
 	ctx := context.Background()
-	var seenQuery string
-	withFakePrometheus(t, func(path, query string) string {
-		seenQuery = query
-		return `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"job_id":"2"},"values":[[1700000000,"12.5"],[1700000060,"13"]]}]}}`
-	})
+	withEmbeddedObservability(t)
+
+	// 内嵌 tsdb 里同时写入可见作业 2 与不可见作业 5 的计数器；查询表达式只圈可见 ID，
+	// job 5 的序列留在库里也不会混进结果。
+	// Seed counters for both the visible job 2 and the invisible job 5; the query expression
+	// only matches visible IDs, so job 5's series must never leak into the result.
+	app := embedts.Appender(ctx)
+	if app == nil {
+		t.Fatal("embedded tsdb appender is nil")
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	for i := 0; i < 6; i++ {
+		tsMs := now.Add(time.Duration(i-5) * 15 * time.Second).UnixMilli()
+		for jobID, v := range map[string]float64{"2": float64(i) * 10, "5": float64(i) * 100} {
+			if _, err := app.Append(0, labels.FromStrings(labels.MetricName, "stx_job_sink_write_rows_total", "job_id", jobID), tsMs, v); err != nil {
+				t.Fatalf("append: %v", err)
+			}
+		}
+	}
+	if err := app.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
 
 	// 用户 2 看不到私有任务下的作业 5，也看不到不存在的 999。/ User 2 cannot view job 5 (private task) nor job 999.
 	data, err := service.GetJobSparklinesForActor(ctx, executionapp.Actor{UserID: 2}, []uint{2, 5, 999}, "1h", "")
 	if err != nil {
 		t.Fatalf("sparklines: %v", err)
 	}
-	if !strings.Contains(seenQuery, `job_id=~"2"`) || !strings.Contains(seenQuery, "stx_job_sink_write_rows_total") {
-		t.Fatalf("query = %s, want only visible id 2 and the write counter", seenQuery)
+	if data.Source != "prometheus" {
+		t.Fatalf("source = %s, want prometheus", data.Source)
 	}
 	points := data.Items["2"]
-	if data.Source != "prometheus" || len(points) != 2 || points[0][0] != 1700000000000 || points[1][1] != 13 {
-		t.Fatalf("items = %+v", data.Items)
+	if len(points) == 0 || points[0][0] < 1e12 {
+		t.Fatalf("items = %+v, want job 2 series with ms timestamps", data.Items)
+	}
+	if _, ok := data.Items["5"]; ok {
+		t.Fatalf("items leaked invisible job 5: %+v", data.Items)
+	}
+	if _, ok := data.Items["999"]; ok {
+		t.Fatalf("items leaked missing job 999: %+v", data.Items)
 	}
 	if _, err := ParseJobIDList("1,abc"); !errors.Is(err, ErrInvalidJobListQuery) {
 		t.Fatalf("bad id err = %v", err)
@@ -337,5 +361,21 @@ func TestGetHomeJobSummaryCountsAndAttention(t *testing.T) {
 	}
 	if scoped.Running != 0 || scoped.Failed24h != 1 {
 		t.Fatalf("cluster 2 summary = running %d failed %d, want 0 / 1", scoped.Running, scoped.Failed24h)
+	}
+}
+
+func TestRunningJobCountsByClusterExcludesPreviews(t *testing.T) {
+	service := newTestSyncService(t)
+	seedJobListFixture(t, service)
+	if err := service.repo.db.Create(&JobInstance{TaskID: 1, RunType: RunTypePreview, Status: JobStatusRunning,
+		SubmitSpec: JSONMap{"cluster_id": uint(1)}}).Error; err != nil {
+		t.Fatal(err)
+	}
+	counts, err := service.RunningJobCountsByCluster(context.Background())
+	if err != nil {
+		t.Fatalf("counts: %v", err)
+	}
+	if counts[1] != 2 || counts[2] != 0 {
+		t.Fatalf("counts = %v, want cluster 1 = 2 (preview excluded), cluster 2 = 0", counts)
 	}
 }

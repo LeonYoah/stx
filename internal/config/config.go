@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/pkg/timex"
+	"github.com/prometheus/common/model"
 	"github.com/spf13/viper"
 )
 
@@ -67,7 +68,7 @@ func loadConfig() (*configModel, error) {
 	// Local CLI commands must work without a server config file, so preserve the error and return defaults.
 	if err := loader.ReadInConfig(); err != nil {
 		fallback := &configModel{}
-		setDefaults(fallback, false)
+		setDefaults(fallback, false, false)
 		applyEnvironmentOverrides(fallback)
 		return fallback, fmt.Errorf("read server config %q: %w", configPath, err)
 	}
@@ -76,13 +77,13 @@ func loadConfig() (*configModel, error) {
 	var c configModel
 	if err := loader.Unmarshal(&c); err != nil {
 		fallback := &configModel{}
-		setDefaults(fallback, false)
+		setDefaults(fallback, false, false)
 		applyEnvironmentOverrides(fallback)
 		return fallback, fmt.Errorf("parse server config %q: %w", configPath, err)
 	}
 
 	// 设置默认值并应用环境变量。/ Apply defaults and environment overrides.
-	setDefaults(&c, loader.IsSet("observability.enabled"))
+	setDefaults(&c, loader.IsSet("observability.enabled"), loader.IsSet("observability.storage.max_size"))
 	applyEnvironmentOverrides(&c)
 
 	if os.Getenv("GO_TEST") != "1" && !isTestEnvironment() {
@@ -130,18 +131,6 @@ func applyEnvironmentOverrides(c *configModel) {
 	if sqlitePath := os.Getenv("STX_DATABASE_SQLITE_PATH"); sqlitePath != "" {
 		c.Database.SQLitePath = sqlitePath
 	}
-
-	// 可观测地址环境变量覆盖（Compose 内用服务名，yaml 保持根目录 example 的 localhost）。
-	// Observability URL env overrides (compose DNS in Docker; yaml keeps the root example localhost).
-	if u := os.Getenv("STX_OBSERVABILITY_PROMETHEUS_URL"); u != "" {
-		c.Observability.Prometheus.URL = u
-	}
-	if u := os.Getenv("STX_OBSERVABILITY_ALERTMANAGER_URL"); u != "" {
-		c.Observability.Alertmanager.URL = u
-	}
-	if u := os.Getenv("STX_OBSERVABILITY_GRAFANA_URL"); u != "" {
-		c.Observability.Grafana.URL = u
-	}
 }
 
 // isTestEnvironment 检测是否在测试环境中运行
@@ -157,7 +146,7 @@ func isTestEnvironment() bool {
 
 // setDefaults 设置配置默认值，并保留用户显式设置的可观测性开关。
 // setDefaults applies defaults while preserving an explicitly configured observability switch.
-func setDefaults(c *configModel, observabilityEnabledSet bool) {
+func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet bool) {
 	if strings.TrimSpace(c.App.DisplayTimezone) == "" {
 		c.App.DisplayTimezone = timex.DefaultDisplayTimezone
 	}
@@ -250,21 +239,13 @@ func setDefaults(c *configModel, observabilityEnabledSet bool) {
 		c.Storage.CleanupIntervalHours = 24
 	}
 
-	// 可观测性默认配置
-	if c.Observability.Prometheus.URL == "" {
-		c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
-	}
-	if c.Observability.Prometheus.HTTPSDPath == "" {
-		c.Observability.Prometheus.HTTPSDPath = "/api/v1/monitoring/prometheus/discovery"
-	}
-	if c.Observability.Alertmanager.URL == "" {
-		c.Observability.Alertmanager.URL = "http://127.0.0.1:9093"
-	}
-	if c.Observability.Alertmanager.WebhookPath == "" {
-		c.Observability.Alertmanager.WebhookPath = "/api/v1/monitoring/alertmanager/webhook"
-	}
-	if c.Observability.Grafana.URL == "" {
-		c.Observability.Grafana.URL = "http://127.0.0.1:3000"
+	// 可观测性默认配置（prometheus.url / alertmanager.url 已随进程内告警评估退役，不再有默认值）。
+	// Observability defaults (prometheus.url / alertmanager.url retired with in-process alert
+	// evaluation and no longer carry defaults).
+	// 路径值与原 alertmanager.webhook_path 默认保持一致，保证已接入的外部 AM 端点不漂移。
+	// The path keeps the legacy alertmanager.webhook_path default so the exposed endpoint does not drift.
+	if c.Observability.RemoteIngest.Path == "" {
+		c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 	}
 
 	// 默认启用可观测中心（仅在用户未显式配置时）
@@ -280,6 +261,38 @@ func setDefaults(c *configModel, observabilityEnabledSet bool) {
 	if c.Observability.SeatunnelMetric.ProbeTimeoutSeconds <= 0 {
 		c.Observability.SeatunnelMetric.ProbeTimeoutSeconds = 2
 	}
+
+	// 内嵌 tsdb 存储与查询默认配置
+	// Embedded tsdb storage and query defaults
+	if strings.TrimSpace(c.Observability.Storage.Dir) == "" {
+		c.Observability.Storage.Dir = "./data/tsdb"
+	}
+	if strings.TrimSpace(c.Observability.Storage.Retention) == "" {
+		c.Observability.Storage.Retention = "31d"
+	}
+	// 存储上限默认 30GiB；显式写 0 才表示不限，与 enabled 的 IsSet 默认值语义一致。
+	// Storage cap defaults to 30GiB; an explicit 0 means unlimited, mirroring the IsSet-based
+	// default semantics used by observability.enabled.
+	if !storageMaxSizeSet {
+		c.Observability.Storage.MaxSize = 30 << 30
+	}
+	if strings.TrimSpace(c.Observability.ScrapeInterval) == "" {
+		c.Observability.ScrapeInterval = "15s"
+	}
+	if strings.TrimSpace(c.Observability.EvalInterval) == "" {
+		c.Observability.EvalInterval = "15s"
+	}
+	// 8s 与原远程查询 HTTP 客户端超时时长一致，保持降级语义不变。
+	// 8s matches the legacy remote-query HTTP client timeout, preserving degradation behavior.
+	if strings.TrimSpace(c.Observability.QueryTimeout) == "" {
+		c.Observability.QueryTimeout = "8s"
+	}
+	// 与 Prometheus 默认 query.max-samples 一致；0 视为未配置，负值交给校验拒绝。
+	// Same as the Prometheus default query.max-samples; 0 is treated as unset while
+	// explicit negatives are rejected by validation.
+	if c.Observability.MaxSamples == 0 {
+		c.Observability.MaxSamples = 50000000
+	}
 }
 
 func validateConfig(c *configModel) error {
@@ -293,20 +306,35 @@ func validateConfig(c *configModel) error {
 	if err := validateRequiredHTTPURL("app.external_url", c.App.ExternalURL); err != nil {
 		return err
 	}
-	if err := validateOptionalHTTPURL("observability.prometheus.url", c.Observability.Prometheus.URL); err != nil {
+	if err := validateRequiredPath("observability.remote_ingest.path", c.Observability.RemoteIngest.Path); err != nil {
 		return err
 	}
-	if err := validateOptionalHTTPURL("observability.alertmanager.url", c.Observability.Alertmanager.URL); err != nil {
+	// remote_ingest.token 无格式要求：任意非空串即启用 Bearer 校验；为空时启动 WARN 在 Serve 处记一次。
+	// remote_ingest.token has no format constraints: any non-empty value enables Bearer verification;
+	// when empty the startup WARN is logged once from Serve.
+
+	// 内嵌 tsdb 存储与查询参数校验
+	// Embedded tsdb storage and query parameter validation
+	if strings.TrimSpace(c.Observability.Storage.Dir) == "" {
+		return fmt.Errorf("observability.storage.dir is required when observability.enabled=true")
+	}
+	if err := validateObservabilityDuration("observability.storage.retention", c.Observability.Storage.Retention); err != nil {
 		return err
 	}
-	if err := validateOptionalHTTPURL("observability.grafana.url", c.Observability.Grafana.URL); err != nil {
+	if c.Observability.Storage.MaxSize < 0 {
+		return fmt.Errorf("observability.storage.max_size must be >= 0 (0 means unlimited)")
+	}
+	if err := validateObservabilityDuration("observability.scrape_interval", c.Observability.ScrapeInterval); err != nil {
 		return err
 	}
-	if err := validateRequiredPath("observability.prometheus.http_sd_path", c.Observability.Prometheus.HTTPSDPath); err != nil {
+	if err := validateObservabilityDuration("observability.eval_interval", c.Observability.EvalInterval); err != nil {
 		return err
 	}
-	if err := validateRequiredPath("observability.alertmanager.webhook_path", c.Observability.Alertmanager.WebhookPath); err != nil {
+	if err := validateObservabilityDuration("observability.query_timeout", c.Observability.QueryTimeout); err != nil {
 		return err
+	}
+	if c.Observability.MaxSamples <= 0 {
+		return fmt.Errorf("observability.max_samples must be > 0")
 	}
 	return nil
 }
@@ -329,14 +357,6 @@ func validateRequiredHTTPURL(name, raw string) error {
 	return nil
 }
 
-func validateOptionalHTTPURL(name, raw string) error {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return nil
-	}
-	return validateRequiredHTTPURL(name, trimmed)
-}
-
 func validateRequiredPath(name, raw string) error {
 	path := strings.TrimSpace(raw)
 	if path == "" {
@@ -344,6 +364,25 @@ func validateRequiredPath(name, raw string) error {
 	}
 	if !strings.HasPrefix(path, "/") {
 		return fmt.Errorf("%s must start with '/'", name)
+	}
+	return nil
+}
+
+// validateObservabilityDuration 校验可观测时长配置：非空、可被 Prometheus duration 语法解析
+// （支持 s/m/h/d/w/y，如 15s、31d）、且大于 0。
+// validateObservabilityDuration validates an observability duration setting: non-empty, parseable
+// by the Prometheus duration syntax (s/m/h/d/w/y, e.g. 15s or 31d), and greater than zero.
+func validateObservabilityDuration(name, raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fmt.Errorf("%s is required when observability.enabled=true", name)
+	}
+	d, err := model.ParseDuration(trimmed)
+	if err != nil {
+		return fmt.Errorf("%s must be a valid duration such as 15s or 31d: %w", name, err)
+	}
+	if d <= 0 {
+		return fmt.Errorf("%s must be greater than 0", name)
 	}
 	return nil
 }

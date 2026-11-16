@@ -18,24 +18,27 @@
 package sync
 
 import (
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
 	// jobMetricsTableCap 是每个作业导出的表级序列上限，超出并入 other。
 	// jobMetricsTableCap caps per-job table-level series; overflow rolls into "other".
 	jobMetricsTableCap = 50
-	// jobPrometheusMetricsPath 是 STX 作业指标的 Prometheus 抓取路径。
-	// jobPrometheusMetricsPath is the Prometheus scrape path for STX job metrics.
-	jobPrometheusMetricsPath = "/api/v1/monitoring/prometheus/jobs/metrics"
+
+	// jobMetricsZeroStartWindow 是新作业补零值起点的时间窗：作业开始后这么久内首次被看到才补，
+	// 更早开始的作业（STX 重启后接手）不补，避免把重启前的累计量算进当前窗口。
+	// jobMetricsZeroStartWindow bounds zero-start injection: only jobs first seen within this
+	// long after they started get a zero sample; older jobs (taken over after an STX restart)
+	// do not, so pre-restart cumulatives are not counted into the current window.
+	jobMetricsZeroStartWindow = 10 * time.Minute
 )
 
 // jobPrometheusExporter 持有作业级 Prometheus 指标注册表与上次计数，便于用 Counter 导出引擎累计值。
@@ -44,22 +47,33 @@ const (
 type jobPrometheusExporter struct {
 	reg *prometheus.Registry
 
-	sourceRows      *prometheus.CounterVec
-	sourceBytes     *prometheus.CounterVec
-	sinkRows        *prometheus.CounterVec
-	sinkBytes       *prometheus.CounterVec
-	sinkCommitted   *prometheus.CounterVec
-	tableRows       *prometheus.CounterVec
-	cdcDelay        *prometheus.GaugeVec
-	checkpointDur   *prometheus.GaugeVec
-	checkpointFail  *prometheus.CounterVec
-	vertexBusy      *prometheus.GaugeVec
+	sourceRows       *prometheus.CounterVec
+	sourceBytes      *prometheus.CounterVec
+	sinkRows         *prometheus.CounterVec
+	sinkBytes        *prometheus.CounterVec
+	sinkCommitted    *prometheus.CounterVec
+	tableRows        *prometheus.CounterVec
+	cdcDelay         *prometheus.GaugeVec
+	checkpointDur    *prometheus.GaugeVec
+	checkpointFail   *prometheus.CounterVec
+	vertexBusy       *prometheus.GaugeVec
 	edgeBackpressure *prometheus.GaugeVec
-	jobUp           *prometheus.GaugeVec
+	jobUp            *prometheus.GaugeVec
 
 	mu       sync.Mutex
-	lastVals map[string]float64 // key → last absolute counter value
+	lastVals map[string]float64  // key → last absolute counter value
 	active   map[string]struct{} // job label key currently exported
+
+	// deferDeletes 为 true 时（tsdb 直写协程在跑），终态作业的序列登记到 pendingDeletes，
+	// 等下一轮导出把终值写入 tsdb 后再删；为 false 时立即删除。
+	// When deferDeletes is true (the tsdb direct-write loop is running), terminal jobs are
+	// queued in pendingDeletes and removed only after the next export has written their final
+	// values; when false they are removed immediately.
+	deferDeletes   bool
+	pendingDeletes map[string]prometheus.Labels // job label key → labels
+	// zeroAt 记录需要补零值起点的作业（job_id → 开始时间毫秒），见 jobMetricsZeroStartWindow。
+	// zeroAt holds jobs that need a zero-start sample (job_id → start time in ms); see jobMetricsZeroStartWindow.
+	zeroAt map[string]int64
 }
 
 var (
@@ -76,9 +90,11 @@ func getJobPrometheusExporter() *jobPrometheusExporter {
 
 func newJobPrometheusExporter() *jobPrometheusExporter {
 	e := &jobPrometheusExporter{
-		reg:      prometheus.NewRegistry(),
-		lastVals: make(map[string]float64),
-		active:   make(map[string]struct{}),
+		reg:            prometheus.NewRegistry(),
+		lastVals:       make(map[string]float64),
+		active:         make(map[string]struct{}),
+		pendingDeletes: make(map[string]prometheus.Labels),
+		zeroAt:         make(map[string]int64),
 	}
 	jobLabels := []string{"cluster_id", "task_id", "job_id"}
 	e.sourceRows = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -138,20 +154,6 @@ func newJobPrometheusExporter() *jobPrometheusExporter {
 	return e
 }
 
-// JobPrometheusMetricsPath 返回作业指标抓取路径。
-// JobPrometheusMetricsPath returns the scrape path for job metrics.
-func JobPrometheusMetricsPath() string { return jobPrometheusMetricsPath }
-
-// ServeJobPrometheusMetrics 写出 Prometheus exposition；STX observability 关闭时返回 503。
-// ServeJobPrometheusMetrics writes the Prometheus exposition; returns 503 when STX observability is off.
-func ServeJobPrometheusMetrics(w http.ResponseWriter, r *http.Request) {
-	if config.Config == nil || !config.Config.Observability.Enabled {
-		http.Error(w, "observability is disabled", http.StatusServiceUnavailable)
-		return
-	}
-	promhttp.HandlerFor(getJobPrometheusExporter().reg, promhttp.HandlerOpts{}).ServeHTTP(w, r)
-}
-
 func jobPromLabels(instance *JobInstance) (clusterID, taskID, jobID string) {
 	if instance == nil {
 		return "0", "0", "0"
@@ -193,22 +195,40 @@ func (e *jobPrometheusExporter) setCounterAbs(vec *prometheus.CounterVec, labelV
 	}
 }
 
-// observeJobMetrics 用对账得到的 metrics 更新导出；仅在 STX observability 开启且作业非终态时写入。
-// observeJobMetrics updates export series from reconciler metrics; writes only when STX observability is on and the
-// job is non-terminal.
+// observeJobMetrics 用对账得到的 metrics 更新导出；仅在 STX observability 开启时写入。
+// 终态作业先写入这次对账带来的终值，再删除序列（直写协程在跑时延迟到下一轮导出之后），
+// 保证最终累计量进入 tsdb。
+// observeJobMetrics updates export series from reconciler metrics; it writes only when STX
+// observability is on. For terminal jobs it first records the final values carried by this
+// reconcile, then removes the series (deferred past the next export while the direct-write
+// loop runs) so the final cumulatives reach the tsdb.
 func (e *jobPrometheusExporter) observeJobMetrics(instance *JobInstance, metrics map[string]interface{}) {
 	if e == nil || instance == nil || config.Config == nil || !config.Config.Observability.Enabled {
 		return
 	}
 	if isFinalNormalizedJobStatus(instance.Status) {
+		if metrics != nil {
+			e.applyJobMetrics(instance, metrics, false)
+		}
 		e.deleteJob(instance)
 		return
 	}
+	e.applyJobMetrics(instance, metrics, true)
+}
+
+// applyJobMetrics 把对账 metrics 写进 Registry；updateUp 控制是否刷新 stx_job_up 的状态标签
+// （终态时不改，序列随后整体删除）。
+// applyJobMetrics writes reconcile metrics into the Registry; updateUp controls whether the
+// stx_job_up status label is refreshed (left alone for terminal jobs, whose series are removed next).
+func (e *jobPrometheusExporter) applyJobMetrics(instance *JobInstance, metrics map[string]interface{}, updateUp bool) {
 	clusterID, taskID, jobID := jobPromLabels(instance)
 	base := []string{clusterID, taskID, jobID}
 	jobKey := clusterID + "|" + taskID + "|" + jobID
 
 	e.mu.Lock()
+	if _, seen := e.active[jobKey]; !seen {
+		e.markZeroStartLocked(jobID, instance.StartedAt)
+	}
 	e.active[jobKey] = struct{}{}
 	e.mu.Unlock()
 
@@ -230,6 +250,9 @@ func (e *jobPrometheusExporter) observeJobMetrics(instance *JobInstance, metrics
 
 	e.observeTableRows(base, jobKey, metrics)
 
+	if !updateUp {
+		return
+	}
 	status := strings.ToLower(string(instance.Status))
 	if status == "" {
 		status = "unknown"
@@ -238,6 +261,67 @@ func (e *jobPrometheusExporter) observeJobMetrics(instance *JobInstance, metrics
 		"cluster_id": clusterID, "task_id": taskID, "job_id": jobID,
 	})
 	e.jobUp.WithLabelValues(clusterID, taskID, jobID, status).Set(1)
+}
+
+// markZeroStartLocked 在作业首次被观察时判断是否需要补零值起点；调用方持有 e.mu。
+// markZeroStartLocked decides on first observation whether a job needs a zero-start sample; the caller holds e.mu.
+func (e *jobPrometheusExporter) markZeroStartLocked(jobID string, startedAt *time.Time) {
+	if startedAt == nil || startedAt.IsZero() {
+		return
+	}
+	age := time.Since(*startedAt)
+	if age < 0 || age > jobMetricsZeroStartWindow {
+		return
+	}
+	e.zeroAt[jobID] = startedAt.UnixMilli()
+}
+
+// zeroStartFor 返回作业的零值起点（毫秒）；没有登记时 ok=false。
+// zeroStartFor returns a job's zero-start time in ms; ok is false when none is recorded.
+func (e *jobPrometheusExporter) zeroStartFor(jobID string) (int64, bool) {
+	if e == nil || jobID == "" {
+		return 0, false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	ts, ok := e.zeroAt[jobID]
+	return ts, ok
+}
+
+// enableDeferredDeletes 由 tsdb 直写协程启动时调用：此后终态作业延迟到下一轮导出之后再删。
+// enableDeferredDeletes is called when the tsdb direct-write loop starts: from then on terminal
+// jobs are removed only after the next export.
+func (e *jobPrometheusExporter) enableDeferredDeletes() {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	e.deferDeletes = true
+	e.mu.Unlock()
+}
+
+// takePendingDeletes 取走并清空当前登记的待删作业。
+// takePendingDeletes takes and clears the currently queued job deletions.
+func (e *jobPrometheusExporter) takePendingDeletes() map[string]prometheus.Labels {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.pendingDeletes) == 0 {
+		return nil
+	}
+	batch := e.pendingDeletes
+	e.pendingDeletes = make(map[string]prometheus.Labels)
+	return batch
+}
+
+// applyPendingDeletes 真正删除一批待删作业的序列。
+// applyPendingDeletes actually removes the series of a batch of queued jobs.
+func (e *jobPrometheusExporter) applyPendingDeletes(batch map[string]prometheus.Labels) {
+	for prefix, labels := range batch {
+		e.removeJobSeries(prefix, labels)
+	}
 }
 
 func (e *jobPrometheusExporter) observeTableRows(base []string, jobKey string, metrics map[string]interface{}) {
@@ -343,14 +427,29 @@ func (e *jobPrometheusExporter) observeRealtime(instance *JobInstance, vertices 
 	}
 }
 
-// deleteJob 移除某作业的全部导出序列（终态时调用）。
-// deleteJob removes every exported series for one job (called on terminal status).
+// deleteJob 移除某作业的全部导出序列（终态时调用）；直写协程在跑时只登记，下一轮导出后再删。
+// deleteJob removes every exported series for one job (called on terminal status); while the
+// direct-write loop runs it only queues the job and the removal happens after the next export.
 func (e *jobPrometheusExporter) deleteJob(instance *JobInstance) {
 	if e == nil || instance == nil {
 		return
 	}
 	clusterID, taskID, jobID := jobPromLabels(instance)
 	labels := prometheus.Labels{"cluster_id": clusterID, "task_id": taskID, "job_id": jobID}
+	prefix := clusterID + "|" + taskID + "|" + jobID
+	e.mu.Lock()
+	if e.deferDeletes {
+		e.pendingDeletes[prefix] = labels
+		e.mu.Unlock()
+		return
+	}
+	e.mu.Unlock()
+	e.removeJobSeries(prefix, labels)
+}
+
+// removeJobSeries 删除某作业在 Registry 中的全部序列与内部状态。
+// removeJobSeries drops every Registry series and internal state of one job.
+func (e *jobPrometheusExporter) removeJobSeries(prefix string, labels prometheus.Labels) {
 	e.sourceRows.DeletePartialMatch(labels)
 	e.sourceBytes.DeletePartialMatch(labels)
 	e.sinkRows.DeletePartialMatch(labels)
@@ -364,9 +463,9 @@ func (e *jobPrometheusExporter) deleteJob(instance *JobInstance) {
 	e.edgeBackpressure.DeletePartialMatch(labels)
 	e.jobUp.DeletePartialMatch(labels)
 
-	prefix := clusterID + "|" + taskID + "|" + jobID
 	e.mu.Lock()
 	delete(e.active, prefix)
+	delete(e.zeroAt, labels["job_id"])
 	for key := range e.lastVals {
 		if strings.HasPrefix(key, prefix) {
 			delete(e.lastVals, key)

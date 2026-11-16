@@ -369,7 +369,7 @@ func validateRequiredPath(name, raw string) error {
 }
 
 // validateObservabilityDuration 校验可观测时长配置：非空、可被 Prometheus duration 语法解析
-//（支持 s/m/h/d/w/y，如 15s、31d）、且大于 0。
+// （支持 s/m/h/d/w/y，如 15s、31d）、且大于 0。
 // validateObservabilityDuration validates an observability duration setting: non-empty, parseable
 // by the Prometheus duration syntax (s/m/h/d/w/y, e.g. 15s or 31d), and greater than zero.
 func validateObservabilityDuration(name, raw string) error {

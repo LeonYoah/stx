@@ -74,7 +74,7 @@ func TestValidateConfig_EmbeddedObservabilityInvalid(t *testing.T) {
 	}
 
 	cases := []struct {
-		name  string
+		name   string
 		mutate func(c *configModel)
 	}{
 		{"empty storage dir", func(c *configModel) { c.Observability.Storage.Dir = " " }},

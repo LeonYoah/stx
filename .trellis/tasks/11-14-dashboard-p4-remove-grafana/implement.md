@@ -55,15 +55,32 @@
 
 ## 7. 验证（D1–D3）
 
-- [ ] `go test ./...`、`cd agent && go test ./...`、`cd frontend && pnpm test && pnpm exec tsc --noEmit`、改动文件 eslint、`gofmt -l`、`go vet ./...`。
-- [ ] 本地 `~/stx-local`：本分支二进制（nice 19 构建）起服务；首页三页签出图；5 秒 FakeSource 批作业核对吞吐 / Top N / `increase`；
+- [x] `go test ./...`、`cd agent && go test ./...`、`cd frontend && pnpm test && pnpm exec tsc --noEmit`、改动文件 eslint、`gofmt -l`、`go vet ./...`。
+- [x] 本地 `~/stx-local`：本分支二进制（nice 19 构建）起服务；首页三页签出图；5 秒 FakeSource 批作业核对吞吐 / Top N / `increase`；
       作业终态后 stale；关闭可观测性与存储不可用两种空态；zh / en。
-- [ ] 抽样一致性：同窗口内嵌 vs t1 外部 9090（吞吐 / 节点堆 / Top 8），数值记入下方实施记录。
+- [x] 抽样一致性：同窗口内嵌 vs t1 外部 9090（吞吐 / 节点堆 / Top 8），数值记入下方实施记录。
 - [ ] 推送、开 PR（base `feat/embedded-observability-p3b`）、链接 T3 线程；父任务跨子任务验收勾选。
 
 ## 实施记录
 
-（实施中补充）
+**2026-11-16 验证结果**（dev 实例 `:27800`，t1 共享环境同一台 SeaTunnel 引擎 `10.66.0.2:5801`）：
+
+- 套件：`go vet` 干净；`gofmt` 补了本分支引入的两处；`go test ./...` 仅 `internal/apps/installer` 两个预存在环境性失败
+  （跨设备 rename、`/tmp` root 属主目录，包未被本分支触碰）；`cd agent && go mod tidy` 修复根模块 P1–P3b 升版本造成的
+  go.mod 失同步（本层顺手修），agent 测试仅 `TestEnsureSTXJavaProxySupportAssetsDownloadsFromAssetBase` 环境性失败
+  （本机 `/opt/stx` 存在，测试隔离缺陷，预存在）；前端 tsc + 618 测试全过，改动文件 eslint 只有 MetricsTrendView 5 个
+  预存在 curly 报错（base 上相同行）。
+- B3 兼容：dev `config.yaml` 仍带旧 `prometheus` / `alertmanager` / `grafana` 段与 `http_sd_path`，新二进制正常启动。
+- 内嵌启动：tsdb（`./data/tsdb` 31d / 30GiB）、抓取循环 15s/30s、告警评估 15s、`stx_job_*` 直写协程、`queries.active`
+  并发上限文件全部就位；`remote_ingest.token` 空时启动 WARN 提示公开端点。
+- A1/A2 实跑：经 dev stx 提交 `alert-smoke-batch`（FakeSource→Console，row.num=20，运行约 3 秒）→ 终态 `success`；
+  `timeseries` 返回零值起点样本 + 终值 20 行，`rate` 算出 ~0.5/s，作业进入大盘写入 Top N 与数据流向；
+  终态后序列在下一轮导出后不再延续（最后点 11:42:07 后无新样本）。
+- 空态：`enabled=false` 重启后集群 / 作业大盘都返回 `source:"none" reason:"observability_disabled"`；恢复后正常。
+- 抽样一致性（同 15s 窗口错位内）：外部 Prom `jvm_memory_bytes_used{heap}` ≈ 143.2MB（13.3% of 1GiB max），
+  内嵌大盘同节点 heap ≈ 12.9%；`availability=1`、CPU ≈ 0.3%、FD 0.93%、`clusters_safe 1/1` 两侧一致。
+- 备注：`prometheus_unavailable` 空态未实跑（需 tsdb 故障），由 C2 前端单测与接口 reason 契约覆盖；
+  作业级一致性不可比（外部 Prom 抓的是旧 stx 自己的 jobs/metrics，两个实例作业集不同）。
 
 ## 回退
 

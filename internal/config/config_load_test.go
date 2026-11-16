@@ -60,37 +60,29 @@ func TestLoadConfigPreservesExplicitObservabilityDisabled(t *testing.T) {
 	}
 }
 
+// TestApplyEnvironmentOverridesObservabilityURLs 覆盖剩下的 grafana.url 环境覆盖；
+// prometheus/alertmanager 的 URL 与 env 已随进程内告警评估退役。
+// TestApplyEnvironmentOverridesObservabilityURLs covers the remaining grafana.url env override;
+// the prometheus/alertmanager URL env vars retired with in-process alert evaluation.
 func TestApplyEnvironmentOverridesObservabilityURLs(t *testing.T) {
-	t.Setenv("STX_OBSERVABILITY_PROMETHEUS_URL", "http://prometheus:9090")
-	t.Setenv("STX_OBSERVABILITY_ALERTMANAGER_URL", "http://alertmanager:9093")
 	t.Setenv("STX_OBSERVABILITY_GRAFANA_URL", "http://grafana:3000")
 
 	c := &configModel{}
-	c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
-	c.Observability.Alertmanager.URL = "http://127.0.0.1:9093"
 	c.Observability.Grafana.URL = "http://127.0.0.1:3000"
 	applyEnvironmentOverrides(c)
 
-	if c.Observability.Prometheus.URL != "http://prometheus:9090" {
-		t.Fatalf("prometheus url: got %q", c.Observability.Prometheus.URL)
-	}
-	if c.Observability.Alertmanager.URL != "http://alertmanager:9093" {
-		t.Fatalf("alertmanager url: got %q", c.Observability.Alertmanager.URL)
-	}
 	if c.Observability.Grafana.URL != "http://grafana:3000" {
 		t.Fatalf("grafana url: got %q", c.Observability.Grafana.URL)
 	}
 }
 
 func TestApplyEnvironmentOverridesObservabilityURLsKeepYAMLWhenUnset(t *testing.T) {
-	t.Setenv("STX_OBSERVABILITY_PROMETHEUS_URL", "")
-	t.Setenv("STX_OBSERVABILITY_ALERTMANAGER_URL", "")
 	t.Setenv("STX_OBSERVABILITY_GRAFANA_URL", "")
 
 	c := &configModel{}
-	c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
+	c.Observability.Grafana.URL = "http://127.0.0.1:3000"
 	applyEnvironmentOverrides(c)
-	if c.Observability.Prometheus.URL != "http://127.0.0.1:9090" {
-		t.Fatalf("unset env must not override yaml: got %q", c.Observability.Prometheus.URL)
+	if c.Observability.Grafana.URL != "http://127.0.0.1:3000" {
+		t.Fatalf("unset env must not override yaml: got %q", c.Observability.Grafana.URL)
 	}
 }

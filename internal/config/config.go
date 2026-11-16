@@ -134,12 +134,9 @@ func applyEnvironmentOverrides(c *configModel) {
 
 	// 可观测地址环境变量覆盖（Compose 内用服务名，yaml 保持根目录 example 的 localhost）。
 	// Observability URL env overrides (compose DNS in Docker; yaml keeps the root example localhost).
-	if u := os.Getenv("STX_OBSERVABILITY_PROMETHEUS_URL"); u != "" {
-		c.Observability.Prometheus.URL = u
-	}
-	if u := os.Getenv("STX_OBSERVABILITY_ALERTMANAGER_URL"); u != "" {
-		c.Observability.Alertmanager.URL = u
-	}
+	// prometheus/alertmanager 的 URL 与 env 已随进程内告警评估退役，不再保留覆盖入口。
+	// The prometheus/alertmanager URL env vars retired with in-process alert evaluation and no
+	// longer have override entries.
 	if u := os.Getenv("STX_OBSERVABILITY_GRAFANA_URL"); u != "" {
 		c.Observability.Grafana.URL = u
 	}
@@ -251,13 +248,9 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 		c.Storage.CleanupIntervalHours = 24
 	}
 
-	// 可观测性默认配置
-	if c.Observability.Prometheus.URL == "" {
-		c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
-	}
-	if c.Observability.Alertmanager.URL == "" {
-		c.Observability.Alertmanager.URL = "http://127.0.0.1:9093"
-	}
+	// 可观测性默认配置（prometheus.url / alertmanager.url 已随进程内告警评估退役，不再有默认值）。
+	// Observability defaults (prometheus.url / alertmanager.url retired with in-process alert
+	// evaluation and no longer carry defaults).
 	// 路径值与原 alertmanager.webhook_path 默认保持一致，保证已接入的外部 AM 端点不漂移。
 	// The path keeps the legacy alertmanager.webhook_path default so the exposed endpoint does not drift.
 	if c.Observability.RemoteIngest.Path == "" {
@@ -323,12 +316,6 @@ func validateConfig(c *configModel) error {
 	}
 
 	if err := validateRequiredHTTPURL("app.external_url", c.App.ExternalURL); err != nil {
-		return err
-	}
-	if err := validateOptionalHTTPURL("observability.prometheus.url", c.Observability.Prometheus.URL); err != nil {
-		return err
-	}
-	if err := validateOptionalHTTPURL("observability.alertmanager.url", c.Observability.Alertmanager.URL); err != nil {
 		return err
 	}
 	if err := validateOptionalHTTPURL("observability.grafana.url", c.Observability.Grafana.URL); err != nil {

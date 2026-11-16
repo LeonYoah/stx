@@ -248,9 +248,11 @@ type TelemetryConfig struct {
 	Endpoint string `mapstructure:"endpoint"`
 }
 
-// ObservabilityConfig 可观测性配置（内嵌 tsdb + PromQL 引擎；Prometheus/Grafana/Alertmanager 远程集成字段将逐步退役）
-// ObservabilityConfig holds observability settings (embedded tsdb + PromQL engine; the remote
-// Prometheus/Grafana/Alertmanager integration fields are being retired across phases).
+// ObservabilityConfig 可观测性配置（内嵌 tsdb + PromQL 引擎 + 进程内告警评估；P3 已删除
+// prometheus.url / alertmanager.url，grafana.url 留待 P4 处理）
+// ObservabilityConfig holds observability settings (embedded tsdb + PromQL engine + in-process
+// alert evaluation; P3 removed prometheus.url / alertmanager.url while grafana.url is left for
+// P4).
 type ObservabilityConfig struct {
 	// Enabled indicates whether observability integration is enabled.
 	// Enabled 表示是否启用可观测性集成。
@@ -274,8 +276,6 @@ type ObservabilityConfig struct {
 	// MaxSamples is the maximum number of samples a single query may load.
 	MaxSamples int64 `mapstructure:"max_samples"`
 
-	Prometheus      ObservabilityPrometheusConfig      `mapstructure:"prometheus"`
-	Alertmanager    ObservabilityAlertmanagerConfig    `mapstructure:"alertmanager"`
 	Grafana         ObservabilityGrafanaConfig         `mapstructure:"grafana"`
 	SeatunnelMetric ObservabilitySeatunnelMetricConfig `mapstructure:"seatunnel_metrics"`
 
@@ -300,19 +300,6 @@ type ObservabilityStorageConfig struct {
 	// MaxSize 是块存储的字节数上限：未配置时默认 30GiB，显式写 0 才表示不限。
 	// MaxSize caps retained block bytes: defaults to 30GiB when unset; an explicit 0 means unlimited.
 	MaxSize int64 `mapstructure:"max_size"`
-}
-
-// ObservabilityPrometheusConfig Prometheus 集成配置
-// （P2 已删 http_sd_path：HTTP SD 端点随内嵌化退役；url 供 P3 告警链路清理前继续使用）
-// (P2 removed http_sd_path: the HTTP SD endpoint retired with the embedding; url stays
-// until the P3 alert-chain cleanup consumes its remaining references.)
-type ObservabilityPrometheusConfig struct {
-	URL string `mapstructure:"url"`
-}
-
-// ObservabilityAlertmanagerConfig Alertmanager 集成配置
-type ObservabilityAlertmanagerConfig struct {
-	URL string `mapstructure:"url"`
 }
 
 // ObservabilityRemoteIngestConfig 远程告警回流（AM webhook）端点配置。

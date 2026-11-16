@@ -259,6 +259,19 @@ func Appender(ctx context.Context) storage.Appender {
 	return inst.db.Appender(ctx)
 }
 
+// AppendableV2 暴露 tsdb 的 V2 追加入口，供 rules.Manager 回写录制序列与 ALERTS/ALERTS_FOR_STATE
+// 状态序列（后者是重启后恢复告警 for 计时态的数据源）；未就绪时返回 nil。
+// AppendableV2 exposes the tsdb V2 append path so rules.Manager can write back recording
+// series and the ALERTS/ALERTS_FOR_STATE state series (the latter is the data source for
+// restoring alert 'for' state after a restart); nil when not ready.
+func AppendableV2() storage.AppendableV2 {
+	inst := snapshot()
+	if inst == nil {
+		return nil
+	}
+	return inst.db
+}
+
 // QueryEngine 原子地返回查询引擎与数据源，供 promquery 构造区间/即时查询；未就绪时返回 (nil, nil)。
 // QueryEngine atomically returns the query engine and queryable for promquery to build
 // range/instant queries; (nil, nil) when not ready.

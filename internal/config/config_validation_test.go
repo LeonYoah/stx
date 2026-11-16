@@ -30,8 +30,6 @@ func TestValidateConfig_ObservabilityDisabled(t *testing.T) {
 func TestValidateConfig_MissingExternalURL(t *testing.T) {
 	c := &configModel{}
 	c.Observability.Enabled = true
-	c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
-	c.Observability.Alertmanager.URL = "http://127.0.0.1:9093"
 	c.Observability.Grafana.URL = "http://127.0.0.1:3000"
 	c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 
@@ -57,8 +55,6 @@ func TestValidateConfig_RemoteObservabilityHappyPath(t *testing.T) {
 	c := &configModel{}
 	c.App.ExternalURL = "https://stx.example.com"
 	c.Observability.Enabled = true
-	c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
-	c.Observability.Alertmanager.URL = "http://127.0.0.1:9093"
 	c.Observability.Grafana.URL = "http://127.0.0.1:3000"
 	c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 	fillEmbeddedObservabilityDefaults(c)

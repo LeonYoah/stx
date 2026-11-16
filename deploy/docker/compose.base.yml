@@ -40,9 +40,9 @@ services:
       - ./data/stx-lib:/opt/stx/lib
     environment:
       # 监控走 compose DNS；yaml 保持根目录 example 的 127.0.0.1。
+      # prometheus/alertmanager 的 URL env 已随进程内告警评估退役。
       # Observability uses compose DNS; yaml keeps the root example localhost URLs.
-      STX_OBSERVABILITY_PROMETHEUS_URL: ${STX_OBSERVABILITY_PROMETHEUS_URL:-http://prometheus:9090}
-      STX_OBSERVABILITY_ALERTMANAGER_URL: ${STX_OBSERVABILITY_ALERTMANAGER_URL:-http://alertmanager:9093}
+      # The prometheus/alertmanager URL env vars retired with in-process alert evaluation.
       STX_OBSERVABILITY_GRAFANA_URL: ${STX_OBSERVABILITY_GRAFANA_URL:-http://grafana:3000}
     ports:
       - "17800:17800"

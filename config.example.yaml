@@ -245,14 +245,6 @@ observability:
   # Max samples a single query may load
   max_samples: 50000000
 
-  prometheus:
-    # Prometheus Web/Query 地址（用于健康检查与控制台跳转）
-    # Prometheus Web/Query URL (for health checks and console links)
-    url: "http://127.0.0.1:9090"
-
-  alertmanager:
-    url: "http://127.0.0.1:9093"
-
   # 远程告警回流（Alertmanager webhook 接收端点）
   # Remote alert ingest (Alertmanager webhook receiver)
   remote_ingest:

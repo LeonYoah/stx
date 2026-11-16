@@ -184,10 +184,14 @@ func (s *Service) CreateAlertPolicy(ctx context.Context, req *UpsertAlertPolicyR
 		if err := s.syncAlertPolicyLegacyBridge(ctx, txRepo, policy); err != nil {
 			return err
 		}
-		return s.syncManagedAlertingArtifactsWithRepo(ctx, txRepo)
+		return nil
 	}); err != nil {
 		return nil, err
 	}
+	// 策略提交后触发评估器即时重建规则组；评估器未装配（observability 关闭或 tsdb 未就绪）时为空操作。
+	// After the policy commits, ask the evaluator to rebuild its rule groups immediately; a no-op
+	// when the evaluator is not assembled (observability off or tsdb not ready).
+	s.requestMetricEvalReload()
 	return toAlertPolicyDTO(policy), nil
 }
 
@@ -309,15 +313,16 @@ func (s *Service) UpdateAlertPolicy(ctx context.Context, id uint, req *UpsertAle
 		if err := s.syncAlertPolicyLegacyBridge(ctx, txRepo, policy); err != nil {
 			return err
 		}
-		if err := s.syncManagedAlertingArtifactsWithRepo(ctx, txRepo); err != nil {
-			return err
-		}
 
 		updated = policy
 		return nil
 	}); err != nil {
 		return nil, err
 	}
+	// 策略提交后触发评估器即时重建规则组（启停、阈值、窗口等改动即时生效）。
+	// After the policy commits, ask the evaluator to rebuild its rule groups immediately
+	// (enable/threshold/window changes take effect at once).
+	s.requestMetricEvalReload()
 	return toAlertPolicyDTO(updated), nil
 }
 
@@ -335,7 +340,7 @@ func (s *Service) DeleteAlertPolicy(ctx context.Context, id uint) error {
 	s.syncAlertEpisodeMu.Lock()
 	defer s.syncAlertEpisodeMu.Unlock()
 	s.syncAlertPolicyVersion++
-	return s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txRepo := &Repository{db: tx}
 		policy, err := txRepo.GetAlertPolicyByID(ctx, id)
 		if err != nil {
@@ -365,8 +370,14 @@ func (s *Service) DeleteAlertPolicy(ctx context.Context, id uint) error {
 				return err
 			}
 		}
-		return s.syncManagedAlertingArtifactsWithRepo(ctx, txRepo)
-	})
+		return nil
+	}); err != nil {
+		return err
+	}
+	// 策略删除后即时重建规则组，让被删策略的规则立刻退出评估。
+	// After the policy is deleted, rebuild rule groups at once so its rule leaves evaluation.
+	s.requestMetricEvalReload()
+	return nil
 }
 
 func (s *Service) validateAlertPolicyScopes(ctx context.Context, clusterID string, channelIDs []uint, receiverUserIDs []uint64) error {
@@ -481,6 +492,11 @@ func normalizeAlertPolicySeverity(severity AlertSeverity) AlertSeverity {
 		return AlertSeverityWarning
 	}
 }
+
+// defaultAlertReminderIntervalMinutes 是策略冷却期的默认分钟数（沿用原 AM repeat_interval 的取值）。
+// defaultAlertReminderIntervalMinutes is the default policy cooldown in minutes (kept from the
+// old AM repeat_interval value).
+const defaultAlertReminderIntervalMinutes = 10
 
 func resolveAlertPolicyCooldownMinutes(value *int) int {
 	if value == nil {

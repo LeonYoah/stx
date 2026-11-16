@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gorm.io/gorm"
@@ -35,6 +36,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
 	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
@@ -71,6 +73,15 @@ type Service struct {
 	// checked again right before a reminder is delivered, so no stale reminder goes out once a policy is disabled.
 	syncAlertEpisodeMu     sync.Mutex
 	syncAlertPolicyVersion uint64
+
+	// metricEvaluator 是内嵌告警评估器（rules.Manager 包装），由 router 组装区在
+	// observability.enabled && embedts.Ready() 时经 StartMetricEvaluator 注入；策略 CRUD 读它
+	// 触发规则组重建，用 atomic.Pointer 保证读路径无锁。
+	// metricEvaluator is the embedded alert evaluator (a rules.Manager wrapper), injected by the
+	// router assembly via StartMetricEvaluator when observability.enabled && embedts.Ready();
+	// policy CRUD reads it to trigger rule-group rebuilds, and atomic.Pointer keeps that read
+	// path lock-free.
+	metricEvaluator atomic.Pointer[MetricEvaluator]
 }
 
 // NewService creates a monitoring service.
@@ -795,29 +806,58 @@ func (s *Service) collectManagedMetricsTargets(ctx context.Context) ([]*managedM
 	return results, nil
 }
 
-func joinURL(baseURL, suffix string) string {
-	base := normalizeBaseURL(baseURL)
-	if base == "" {
-		return ""
+// StartMetricEvaluator 装配并启动内嵌告警评估器：仅在 observability.enabled && embedts.Ready()
+// 时生效（router 组装区在启动抓取循环的同分支调用）；重复调用为空操作。
+// StartMetricEvaluator assembles and starts the embedded alert evaluator: it only takes effect
+// when observability.enabled && embedts.Ready() (the router assembly calls it in the same branch
+// that starts the scrape loop); repeated calls are no-ops.
+func (s *Service) StartMetricEvaluator(ctx context.Context) error {
+	if s == nil || s.repo == nil {
+		return nil
 	}
-	if suffix == "" {
-		return base
+	if s.metricEvaluator.Load() != nil {
+		return nil
 	}
-	if !strings.HasPrefix(suffix, "/") {
-		suffix = "/" + suffix
+	if !config.Config.Observability.Enabled || !embedts.Ready() {
+		return nil
 	}
-	return base + suffix
+	evaluator, err := NewMetricEvaluator(s, MetricEvaluatorOptions{Interval: metricEvalIntervalFromConfig()})
+	if err != nil {
+		return err
+	}
+	if err := evaluator.Start(ctx); err != nil {
+		return err
+	}
+	if !s.metricEvaluator.CompareAndSwap(nil, evaluator) {
+		evaluator.Stop()
+		return nil
+	}
+	logger.InfoF(ctx, "[Observability] 内嵌告警评估器已启动: eval_interval=%s / embedded alert evaluator started: eval_interval=%s", evaluator.opts.Interval, evaluator.opts.Interval)
+	return nil
 }
 
-func normalizeBaseURL(raw string) string {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return ""
+// StopMetricEvaluator 停止内嵌告警评估器并清空引用；未装配时为空操作。
+// StopMetricEvaluator halts the embedded alert evaluator and clears the reference; a no-op when
+// none is assembled.
+func (s *Service) StopMetricEvaluator() {
+	if s == nil {
+		return
 	}
-	if !strings.Contains(value, "://") {
-		value = "http://" + value
+	if evaluator := s.metricEvaluator.Swap(nil); evaluator != nil {
+		evaluator.Stop()
 	}
-	return strings.TrimRight(value, "/")
+}
+
+// requestMetricEvalReload 请求评估器即时重建规则组（策略 CRUD 提交后调用）；未装配评估器时为空操作。
+// requestMetricEvalReload asks the evaluator for an immediate rule-group rebuild (called after
+// policy CRUD commits); a no-op when no evaluator is assembled.
+func (s *Service) requestMetricEvalReload() {
+	if s == nil {
+		return
+	}
+	if evaluator := s.metricEvaluator.Load(); evaluator != nil {
+		evaluator.RequestReload()
+	}
 }
 
 func ensureLeadingSlash(path string) string {

@@ -2639,6 +2639,142 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/dashboard/home/clusters/detail": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "首页集群细节分组（JVM / GC 线程 / 调度 Hazelcast / 状态存储 / 进程网络）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID",
+                        "name": "cluster_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "细节分组：jvm|gc|sched|store|proc",
+                        "name": "group",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "name": "end",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.ClusterDetail"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/dashboard/home/hosts": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "首页主机视图（CPU / 内存 / 负载 / 网络 / 磁盘 / 文件系统，按主机分组）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "只看跑该集群节点的主机",
+                        "name": "cluster_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "name": "end",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.HostDashboard"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/dashboard/home/jobs": {
             "get": {
                 "produces": [
@@ -2792,7 +2928,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "桶粒度：day|month；缺省只回 totals 不出 buckets",
+                        "description": "桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets",
                         "name": "granularity",
                         "in": "query"
                     },
@@ -8619,6 +8755,50 @@ const docTemplate = `{
                 }
             }
         },
+        "dashboard.ClusterDetail": {
+            "type": "object",
+            "properties": {
+                "end_ms": {
+                    "type": "integer"
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.DetailEvent"
+                    }
+                },
+                "group": {
+                    "type": "string"
+                },
+                "panels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.DetailPanel"
+                    }
+                },
+                "partial_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
+                },
+                "step_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
         "dashboard.ClusterNodeRow": {
             "type": "object",
             "properties": {
@@ -8760,6 +8940,62 @@ const docTemplate = `{
                 }
             }
         },
+        "dashboard.DetailEvent": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "description": "node_restart|members_change",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "ts_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.DetailPanel": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "reference": {
+                    "type": "number"
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.DetailSeries"
+                    }
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "dashboard.DetailSeries": {
+            "type": "object",
+            "properties": {
+                "instance": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float64"
+                        }
+                    }
+                }
+            }
+        },
         "dashboard.FlowLink": {
             "type": "object",
             "properties": {
@@ -8804,6 +9040,44 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "unhealthy": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.HomeHostEntry": {
+            "type": "object",
+            "properties": {
+                "agent_status": {
+                    "type": "string"
+                },
+                "cpu_cores": {
+                    "type": "integer"
+                },
+                "host_type": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "ip": {
+                    "type": "string"
+                },
+                "last_heartbeat_ms": {
+                    "type": "integer"
+                },
+                "metrics_supported": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "panels": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.DetailPanel"
+                    }
+                },
+                "total_memory_bytes": {
                     "type": "integer"
                 }
             }
@@ -8894,6 +9168,41 @@ const docTemplate = `{
                 },
                 "totals": {
                     "$ref": "#/definitions/dashboard.VolumeTotals"
+                }
+            }
+        },
+        "dashboard.HostDashboard": {
+            "type": "object",
+            "properties": {
+                "end_ms": {
+                    "type": "integer"
+                },
+                "hosts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.HomeHostEntry"
+                    }
+                },
+                "partial_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
+                },
+                "step_seconds": {
+                    "type": "integer"
                 }
             }
         },

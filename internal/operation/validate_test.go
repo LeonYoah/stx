@@ -98,12 +98,12 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 279)
+	require.Len(t, Registry(), 281)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
 		"dashboard.overview.get": {}, "dashboard.stats.get": {},
-		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {}, "dashboard.home.summary": {}, "dashboard.home.clusters": {}, "dashboard.home.jobs": {}, "dashboard.home.volume": {},
+		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {}, "dashboard.home.summary": {}, "dashboard.home.clusters": {}, "dashboard.home.jobs": {}, "dashboard.home.volume": {}, "dashboard.home.cluster-detail": {}, "dashboard.home.hosts": {},
 		"host.list": {}, "host.get": {}, "host.agent.install-command.get": {}, "cluster.list": {}, "cluster.get": {},
 		"host.discovery.process.list": {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},

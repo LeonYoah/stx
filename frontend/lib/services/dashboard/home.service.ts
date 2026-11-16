@@ -226,13 +226,76 @@ export interface HomeVolume {
   range: string;
   start_ms: number;
   end_ms: number;
-  granularity?: 'day' | 'month';
+  granularity?: 'quarter_hour' | 'hour' | 'day' | 'month';
   split: 'none' | 'cluster' | 'task';
   oldest_sample_ms: number;
   totals: HomeVolumeTotals | null;
   buckets: HomeVolumeBucket[];
   series: HomeVolumeSeries[];
   groups?: Record<string, string>;
+  partial_errors?: string[];
+}
+
+/** 集群细节面板内一条序列：instance 定色，label 是维度名。/ One series in a detail panel: instance picks the color, label is the dimension name. */
+export interface HomeDetailSeries {
+  instance: string;
+  label: string;
+  points: [number, number][];
+}
+
+/** 集群细节面板：单位 + 按节点（可带维度）的序列 + 可选参考线。/ Detail panel: unit + per-node series + optional reference line. */
+export interface HomeDetailPanel {
+  key: string;
+  unit: 'bytes' | 'percent' | 'count' | 'per_second' | 'ms' | string;
+  reference?: number;
+  series: HomeDetailSeries[];
+}
+
+/** 趋势上的事件标注。/ Event marker on the trends. */
+export interface HomeDetailEvent {
+  ts_ms: number;
+  kind: 'node_restart' | 'members_change' | string;
+  label: string;
+}
+
+/** GET /dashboard/home/clusters/detail 返回 / Response of GET /dashboard/home/clusters/detail. */
+export interface HomeClusterDetail {
+  source: 'prometheus' | 'none';
+  reason?: string;
+  range: string;
+  start_ms: number;
+  end_ms: number;
+  step_seconds: number;
+  group: 'jvm' | 'gc' | 'sched' | 'store' | 'proc' | string;
+  panels: HomeDetailPanel[];
+  events: HomeDetailEvent[];
+  partial_errors?: string[];
+}
+
+/** 单台主机条目与面板组（E3）。/ One host entry plus its panel set (E3). */
+export interface HomeHostEntry {
+  id: number;
+  name: string;
+  ip: string;
+  host_type: string;
+  agent_status: string;
+  cpu_cores: number;
+  total_memory_bytes: number;
+  last_heartbeat_ms?: number;
+  metrics_supported: boolean;
+  panels: HomeDetailPanel[];
+}
+
+/** 主机视图负载。/ Host view payload. */
+export interface HomeHostDashboard {
+  source: string;
+  reason?: string;
+  range: string;
+  step_seconds: number;
+  start_ms: number;
+  end_ms: number;
+  cluster_id?: number;
+  hosts: HomeHostEntry[];
   partial_errors?: string[];
 }
 
@@ -294,15 +357,17 @@ export class HomeService extends BaseService {
   }
 
   /**
-   * 读写量：不传 granularity 时只回 totals（指标卡），传了再带日 / 月桶序列；数组字段做兜底。
-   * Data volume: totals only without granularity, day/month buckets when set, with array fallbacks.
+   * 读写量：不传 granularity 时只回 totals（指标卡）；granularity=auto 时由后端按窗口
+   * 跨度自动选桶粒度，数组字段做兜底。
+   * Data volume: totals only without granularity; granularity=auto lets the backend pick the
+   * bucket size from the window span, with array fallbacks.
    */
   static async getVolume(params?: {
     cluster_id?: number;
     range?: string;
     start?: number;
     end?: number;
-    granularity?: 'day' | 'month';
+    granularity?: 'auto' | 'quarter_hour' | 'hour' | 'day' | 'month';
     split?: 'none' | 'cluster' | 'task';
   }): Promise<HomeVolume> {
     const data = await this.get<HomeVolume>('/volume', params);
@@ -315,6 +380,59 @@ export class HomeService extends BaseService {
       })),
       groups: data?.groups ?? {},
       totals: data?.totals ?? null,
+      partial_errors: data?.partial_errors ?? [],
+    };
+  }
+
+  /**
+   * 集群细节分组：group 必传，只回该组面板；数组字段做兜底。
+   * Cluster detail groups: group is required and only that group's panels return, with array fallbacks.
+   */
+  static async getClustersDetail(params: {
+    cluster_id?: number;
+    range?: string;
+    start?: number;
+    end?: number;
+    group: 'jvm' | 'gc' | 'sched' | 'store' | 'proc';
+  }): Promise<HomeClusterDetail> {
+    const data = await this.get<HomeClusterDetail>('/clusters/detail', params);
+    return {
+      ...data,
+      panels: (data?.panels ?? []).map((item) => ({
+        ...item,
+        series: (item.series ?? []).map((entry) => ({
+          ...entry,
+          points: entry.points ?? [],
+        })),
+      })),
+      events: data?.events ?? [],
+      partial_errors: data?.partial_errors ?? [],
+    };
+  }
+
+  /**
+   * 主机视图：清单 + 每台主机一组 stx_host_* 面板；数组字段做兜底。
+   * Host view: inventory plus one stx_host_* panel set per host, with array fallbacks.
+   */
+  static async getHosts(params?: {
+    cluster_id?: number;
+    range?: string;
+    start?: number;
+    end?: number;
+  }): Promise<HomeHostDashboard> {
+    const data = await this.get<HomeHostDashboard>('/hosts', params);
+    return {
+      ...data,
+      hosts: (data?.hosts ?? []).map((item) => ({
+        ...item,
+        panels: (item.panels ?? []).map((panel) => ({
+          ...panel,
+          series: (panel.series ?? []).map((entry) => ({
+            ...entry,
+            points: entry.points ?? [],
+          })),
+        })),
+      })),
       partial_errors: data?.partial_errors ?? [],
     };
   }

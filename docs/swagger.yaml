@@ -1768,6 +1768,35 @@ definitions:
       step_seconds:
         type: integer
     type: object
+  dashboard.ClusterDetail:
+    properties:
+      end_ms:
+        type: integer
+      events:
+        items:
+          $ref: '#/definitions/dashboard.DetailEvent'
+        type: array
+      group:
+        type: string
+      panels:
+        items:
+          $ref: '#/definitions/dashboard.DetailPanel'
+        type: array
+      partial_errors:
+        items:
+          type: string
+        type: array
+      range:
+        type: string
+      reason:
+        type: string
+      source:
+        type: string
+      start_ms:
+        type: integer
+      step_seconds:
+        type: integer
+    type: object
   dashboard.ClusterNodeRow:
     properties:
       agent_online:
@@ -1862,6 +1891,43 @@ definitions:
           type: array
         type: array
     type: object
+  dashboard.DetailEvent:
+    properties:
+      kind:
+        description: node_restart|members_change
+        type: string
+      label:
+        type: string
+      ts_ms:
+        type: integer
+    type: object
+  dashboard.DetailPanel:
+    properties:
+      key:
+        type: string
+      reference:
+        type: number
+      series:
+        items:
+          $ref: '#/definitions/dashboard.DetailSeries'
+        type: array
+      unit:
+        type: string
+    type: object
+  dashboard.DetailSeries:
+    properties:
+      instance:
+        type: string
+      label:
+        type: string
+      points:
+        items:
+          items:
+            format: float64
+            type: number
+          type: array
+        type: array
+    type: object
   dashboard.FlowLink:
     properties:
       sink:
@@ -1891,6 +1957,31 @@ definitions:
       total:
         type: integer
       unhealthy:
+        type: integer
+    type: object
+  dashboard.HomeHostEntry:
+    properties:
+      agent_status:
+        type: string
+      cpu_cores:
+        type: integer
+      host_type:
+        type: string
+      id:
+        type: integer
+      ip:
+        type: string
+      last_heartbeat_ms:
+        type: integer
+      metrics_supported:
+        type: boolean
+      name:
+        type: string
+      panels:
+        items:
+          $ref: '#/definitions/dashboard.DetailPanel'
+        type: array
+      total_memory_bytes:
         type: integer
     type: object
   dashboard.HomeSummary:
@@ -1953,6 +2044,29 @@ definitions:
         type: integer
       totals:
         $ref: '#/definitions/dashboard.VolumeTotals'
+    type: object
+  dashboard.HostDashboard:
+    properties:
+      end_ms:
+        type: integer
+      hosts:
+        items:
+          $ref: '#/definitions/dashboard.HomeHostEntry'
+        type: array
+      partial_errors:
+        items:
+          type: string
+        type: array
+      range:
+        type: string
+      reason:
+        type: string
+      source:
+        type: string
+      start_ms:
+        type: integer
+      step_seconds:
+        type: integer
     type: object
   dashboard.HostSummary:
     properties:
@@ -6920,6 +7034,90 @@ paths:
       summary: 首页集群大盘（集群卡片 / 节点 / 趋势 / 异常信号）
       tags:
       - Dashboard
+  /api/v1/dashboard/home/clusters/detail:
+    get:
+      parameters:
+      - description: 集群 ID
+        in: query
+        name: cluster_id
+        required: true
+        type: integer
+      - description: 细节分组：jvm|gc|sched|store|proc
+        in: query
+        name: group
+        required: true
+        type: string
+      - default: 1h
+        description: 时间范围：15m|1h|6h|24h|7d
+        in: query
+        name: range
+        type: string
+      - description: 自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range
+        in: query
+        name: start
+        type: string
+      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+        in: query
+        name: end
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dashboard.DashboardDataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dashboard.ClusterDetail'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dashboard.DashboardDataResponse'
+      summary: 首页集群细节分组（JVM / GC 线程 / 调度 Hazelcast / 状态存储 / 进程网络）
+      tags:
+      - Dashboard
+  /api/v1/dashboard/home/hosts:
+    get:
+      parameters:
+      - description: 只看跑该集群节点的主机
+        in: query
+        name: cluster_id
+        type: integer
+      - default: 1h
+        description: 时间范围：15m|1h|6h|24h|7d
+        in: query
+        name: range
+        type: string
+      - description: 自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range
+        in: query
+        name: start
+        type: string
+      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+        in: query
+        name: end
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dashboard.DashboardDataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dashboard.HostDashboard'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dashboard.DashboardDataResponse'
+      summary: 首页主机视图（CPU / 内存 / 负载 / 网络 / 磁盘 / 文件系统，按主机分组）
+      tags:
+      - Dashboard
   /api/v1/dashboard/home/jobs:
     get:
       parameters:
@@ -7010,7 +7208,8 @@ paths:
         in: query
         name: end
         type: string
-      - description: 桶粒度：day|month；缺省只回 totals 不出 buckets
+      - description: 桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals
+          不出 buckets
         in: query
         name: granularity
         type: string

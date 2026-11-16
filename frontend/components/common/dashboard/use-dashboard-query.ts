@@ -20,13 +20,13 @@
 import {useCallback, useMemo} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 
-export type HomeTab = 'cluster' | 'jobs' | 'list';
+export type HomeTab = 'cluster' | 'jobs' | 'hosts' | 'list';
 
 /** 趋势时间窗 / Trend time range. */
 export const HOME_RANGES = ['15m', '1h', '6h', '24h', '7d'] as const;
 export type HomeRange = (typeof HOME_RANGES)[number];
 
-const HOME_TABS: HomeTab[] = ['cluster', 'jobs', 'list'];
+const HOME_TABS: HomeTab[] = ['cluster', 'jobs', 'hosts', 'list'];
 
 /**
  * 默认停在集群大盘（P2 起）。

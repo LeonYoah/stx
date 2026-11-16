@@ -45,6 +45,7 @@ import {cn} from '@/lib/utils';
 import {AttentionStrip} from './AttentionStrip';
 import {ClusterTab} from './ClusterTab';
 import {DashboardKpiRow} from './DashboardKpiRow';
+import {HostsTab} from './HostsTab';
 import {JobListTab} from './JobListTab';
 import {JobsTab} from './JobsTab';
 import {jobWorkbenchHref} from './job-list-utils';
@@ -277,6 +278,7 @@ export function HomeDashboard() {
         <TabsList aria-label={t('title')}>
           <TabsTrigger value='cluster'>{t('tabs.cluster')}</TabsTrigger>
           <TabsTrigger value='jobs'>{t('tabs.jobs')}</TabsTrigger>
+          <TabsTrigger value='hosts'>{t('tabs.hosts')}</TabsTrigger>
           <TabsTrigger value='list'>{t('tabs.list')}</TabsTrigger>
         </TabsList>
         <TabsContent value='cluster'>
@@ -284,6 +286,9 @@ export function HomeDashboard() {
         </TabsContent>
         <TabsContent value='jobs'>
           <JobsTab query={query} />
+        </TabsContent>
+        <TabsContent value='hosts'>
+          <HostsTab query={query} />
         </TabsContent>
         <TabsContent value='list'>
           <JobListTab

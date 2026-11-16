@@ -302,7 +302,8 @@
         "empty": "No data in this time range",
         "noAccess": "You cannot view this job",
         "partial": "Some metric queries failed: {keys}",
-        "noPromDesc": "With STX observability on and Prometheus connected, total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots appear here. The run calendar below comes from the STX database and is unaffected."
+        "noPromDesc": "Turn on observability to see total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots here. The run calendar below comes from the STX database and is unaffected.",
+        "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. The run calendar below comes from the STX database and is unaffected."
       },
       "list": {
         "searchPlaceholder": "Job, task or engine job ID",
@@ -369,7 +370,8 @@
         "trend": "Throughput, last hour",
         "read": "Read",
         "write": "Write",
-        "noTrend": "Connect Prometheus to see trends",
+        "noTrend": "Turn on observability to see trends",
+        "trendUnavailable": "Monitoring data is unavailable; retrying automatically",
         "error": "Failure reason",
         "openDetail": "Open job details",
         "writeRate": "Write rate",
@@ -470,8 +472,10 @@
           "bad": "Issue"
         },
         "noProm": {
-          "title": "Connect Prometheus to see trends",
-          "desc": "With STX observability on and Prometheus connected, node availability, JVM, GC and job state trends appear here. Cluster cards and the node table still come from agent heartbeats.",
+          "title": "Observability is off",
+          "desc": "Turn on observability to see node availability, JVM, GC and job state trends here. Cluster cards and the node table come from agent heartbeats and are unaffected.",
+          "unavailableTitle": "Monitoring data is unavailable",
+          "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. Cluster cards and the node table come from agent heartbeats and are unaffected.",
           "action": "Open monitoring settings"
         },
         "partial": "Some metric queries failed: {keys}",

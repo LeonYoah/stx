@@ -302,7 +302,8 @@
         "empty": "该时间窗内没有数据",
         "noAccess": "无权查看该作业",
         "partial": "部分指标查询失败：{keys}",
-        "noPromDesc": "开启 STX 可观测性并接入 Prometheus 后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。下方运行日历来自 STX 数据库，不受影响。"
+        "noPromDesc": "开启可观测性后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。下方运行日历来自 STX 数据库，不受影响。",
+        "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。下方运行日历来自 STX 数据库，不受影响。"
       },
       "list": {
         "searchPlaceholder": "作业名、任务名、引擎作业 ID",
@@ -369,7 +370,8 @@
         "trend": "近 1 小时吞吐",
         "read": "读取",
         "write": "写入",
-        "noTrend": "接入 Prometheus 后显示趋势",
+        "noTrend": "开启可观测性后显示趋势",
+        "trendUnavailable": "监控数据暂不可用，稍后自动重试",
         "error": "失败原因",
         "openDetail": "打开作业详情",
         "writeRate": "写入速率",
@@ -470,8 +472,10 @@
           "bad": "异常"
         },
         "noProm": {
-          "title": "接入 Prometheus 后显示趋势",
-          "desc": "开启 STX 可观测性并接入 Prometheus 后，这里会显示节点可用性、JVM、GC 与作业状态趋势。集群卡片和节点表仍来自 Agent 心跳。",
+          "title": "可观测性未开启",
+          "desc": "开启可观测性后，这里会显示节点可用性、JVM、GC 与作业状态趋势。集群卡片和节点表来自 Agent 心跳，不受影响。",
+          "unavailableTitle": "监控数据暂不可用",
+          "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。集群卡片和节点表来自 Agent 心跳，不受影响。",
           "action": "查看监控配置"
         },
         "partial": "部分指标查询失败：{keys}",

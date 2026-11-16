@@ -255,7 +255,11 @@ export function JobsTab({query}: {query: DashboardQuery}) {
       ) : null}
       {!hasMetrics ? (
         <>
-          <TrendEmptyState description={t('noPromDesc')} />
+          <TrendEmptyState
+            reason={data?.reason}
+            description={t('noPromDesc')}
+            unavailableDescription={t('unavailableDesc')}
+          />
           {calendarBlock}
         </>
       ) : (

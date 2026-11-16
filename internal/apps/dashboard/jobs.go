@@ -113,14 +113,14 @@ type JobDashboard struct {
 type JobDashboardService struct {
 	jobs         JobDashboardSource
 	now          func() time.Time
-	rangeQuery   func(ctx context.Context, base, q string, start, end time.Time, step int) ([]promquery.Series, error)
-	instantQuery func(ctx context.Context, base, q string, at time.Time) ([]promquery.Sample, error)
+	rangeQuery   rangeQueryFunc
+	instantQuery instantQueryFunc
 }
 
 // NewJobDashboardService 创建作业大盘服务。
 // NewJobDashboardService creates the job dashboard service.
 func NewJobDashboardService(jobs JobDashboardSource) *JobDashboardService {
-	return &JobDashboardService{jobs: jobs, now: time.Now, rangeQuery: promquery.Range, instantQuery: promquery.Instant}
+	return &JobDashboardService{jobs: jobs, now: time.Now, rangeQuery: dashboardPromCache.wrapRange(promquery.Range), instantQuery: dashboardPromCache.wrapInstant(promquery.Instant)}
 }
 
 // GetJobDashboard 生成作业大盘。只有时间窗非法时返回错误；其余失败记入 PartialErrors。
@@ -130,7 +130,8 @@ func NewJobDashboardService(jobs JobDashboardSource) *JobDashboardService {
 // windows and finished jobs still show up.
 func (s *JobDashboardService) GetJobDashboard(ctx context.Context, actor executionapp.Actor, clusterID uint, rangeKey string, custom *promquery.Window, weeks int) (*JobDashboard, error) {
 	now := s.now().UTC()
-	rangeName, start, end, err := promquery.ResolveWindow(rangeKey, custom, now)
+	// 预设窗口的终点按缓存粒度取整，见 alignPresetNow。/ Preset window ends are aligned to the cache granularity; see alignPresetNow.
+	rangeName, start, end, err := promquery.ResolveWindow(rangeKey, custom, alignPresetNow(now, custom))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidJobDashboardQuery, err)
 	}

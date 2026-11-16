@@ -225,3 +225,26 @@ func (s *Service) JobAnnotationsBetween(ctx context.Context, actor executionapp.
 	}
 	return out, nil
 }
+
+// ResolveTaskNamesForActor 批量解析任务名，受当前用户可见范围约束：不可见或不存在的任务不进结果，
+// 调用方回退为「#id」占位，避免经大盘拆分序列泄露任务名。
+// ResolveTaskNamesForActor resolves task names in bulk scoped to the actor's visibility: tasks the actor
+// cannot view (or that do not exist) are absent, so callers fall back to the "#id" placeholder instead of
+// leaking task names through dashboard split series.
+func (s *Service) ResolveTaskNamesForActor(ctx context.Context, actor executionapp.Actor, taskIDs []uint) map[uint]string {
+	names := map[uint]string{}
+	if s == nil || s.repo == nil {
+		return names
+	}
+	for _, id := range taskIDs {
+		if _, done := names[id]; done || id == 0 {
+			continue
+		}
+		task, err := s.repo.GetTaskByID(ctx, id)
+		if err != nil || task == nil || !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+			continue
+		}
+		names[id] = strings.TrimSpace(task.Name)
+	}
+	return names
+}

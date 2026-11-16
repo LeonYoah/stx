@@ -1917,6 +1917,43 @@ definitions:
           type: string
         type: array
     type: object
+  dashboard.HomeVolume:
+    properties:
+      buckets:
+        items:
+          $ref: '#/definitions/dashboard.VolumeBucket'
+        type: array
+      end_ms:
+        type: integer
+      granularity:
+        type: string
+      groups:
+        additionalProperties:
+          type: string
+        type: object
+      oldest_sample_ms:
+        type: integer
+      partial_errors:
+        items:
+          type: string
+        type: array
+      range:
+        type: string
+      reason:
+        type: string
+      series:
+        items:
+          $ref: '#/definitions/dashboard.VolumeSeries'
+        type: array
+      source:
+        type: string
+      split:
+        type: string
+      start_ms:
+        type: integer
+      totals:
+        $ref: '#/definitions/dashboard.VolumeTotals'
+    type: object
   dashboard.HostSummary:
     properties:
       agent_status:
@@ -2086,6 +2123,52 @@ definitions:
             type: number
           type: array
         type: array
+    type: object
+  dashboard.VolumeBucket:
+    properties:
+      end_ms:
+        type: integer
+      label:
+        type: string
+      partial:
+        type: boolean
+      start_ms:
+        type: integer
+    type: object
+  dashboard.VolumeCounts:
+    properties:
+      read_bytes:
+        type: number
+      read_rows:
+        type: number
+      write_bytes:
+        type: number
+      write_rows:
+        type: number
+    type: object
+  dashboard.VolumeSeries:
+    properties:
+      group_id:
+        type: string
+      metric:
+        type: string
+      totals:
+        items:
+          type: number
+        type: array
+    type: object
+  dashboard.VolumeTotals:
+    properties:
+      month:
+        $ref: '#/definitions/dashboard.VolumeCounts'
+      month_start_ms:
+        type: integer
+      today:
+        $ref: '#/definitions/dashboard.VolumeCounts'
+      today_start_ms:
+        type: integer
+      window:
+        $ref: '#/definitions/dashboard.VolumeCounts'
     type: object
   diagnostics.DiagnosticTaskNodeScope:
     enum:
@@ -6905,6 +6988,54 @@ paths:
           schema:
             $ref: '#/definitions/dashboard.DashboardDataResponse'
       summary: 首页汇总（作业 / 集群 / 告警 / 需要处理）
+      tags:
+      - Dashboard
+  /api/v1/dashboard/home/volume:
+    get:
+      parameters:
+      - description: 集群 ID，空表示全部集群
+        in: query
+        name: cluster_id
+        type: integer
+      - default: 1h
+        description: 时间范围：15m|1h|6h|24h|7d
+        in: query
+        name: range
+        type: string
+      - description: 自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range
+        in: query
+        name: start
+        type: string
+      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+        in: query
+        name: end
+        type: string
+      - description: 桶粒度：day|month；缺省只回 totals 不出 buckets
+        in: query
+        name: granularity
+        type: string
+      - default: none
+        description: 拆分维度：none|cluster|task
+        in: query
+        name: split
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dashboard.DashboardDataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/dashboard.HomeVolume'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dashboard.DashboardDataResponse'
+      summary: 首页读写量（窗口 / 今日 / 本月总量 + 日 / 月柱状图序列）
       tags:
       - Dashboard
   /api/v1/dashboard/overview:

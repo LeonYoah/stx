@@ -45,8 +45,9 @@ import {
   HomeService,
   type HomeJobDashboard,
   type HomeJobRank,
+  type HomeVolume,
 } from '@/lib/services/dashboard';
-import {formatDateTimeMinuteTz} from '@/lib/timezone';
+import {formatDateTimeMinuteTz, formatDateTz} from '@/lib/timezone';
 import {formatCompactNumber} from './dashboard-format';
 import {TrendEmptyState} from './TrendEmptyState';
 import type {DashboardQuery} from './use-dashboard-query';
@@ -55,6 +56,29 @@ import {usePolledResource} from './use-polled-resource';
 const JOBS_POLL_MS = 30_000;
 const THROUGHPUT_KEYS = ['write', 'read', 'write_bytes', 'read_bytes'] as const;
 type ThroughputKey = (typeof THROUGHPUT_KEYS)[number];
+
+const VOLUME_METRICS = [
+  'write_rows',
+  'read_rows',
+  'write_bytes',
+  'read_bytes',
+] as const;
+type VolumeMetricKey = (typeof VOLUME_METRICS)[number];
+const VOLUME_GRANULARITIES = ['day', 'month'] as const;
+const VOLUME_SPLITS = ['none', 'cluster', 'task'] as const;
+type VolumeSplit = (typeof VOLUME_SPLITS)[number];
+
+/** 拆分序列的循环色板：四色 series 变量 + 它们的中间色，超 8 组后循环复用。/ Split-series palette: the four series vars plus blends, reused beyond eight groups. */
+const VOLUME_COLORS = [
+  'var(--series-2)',
+  'var(--series-1)',
+  'var(--series-3)',
+  'var(--series-4)',
+  'color-mix(in oklab, var(--series-2) 55%, var(--series-4))',
+  'color-mix(in oklab, var(--series-1) 55%, var(--series-3))',
+  'color-mix(in oklab, var(--series-4) 55%, var(--series-2))',
+  'color-mix(in oklab, var(--series-3) 55%, var(--series-1))',
+];
 
 /** 读用 --series-1、写用 --series-2，与作业详情趋势图同色。/ Read --series-1, write --series-2, matching job trends. */
 const THROUGHPUT_COLOR: Record<ThroughputKey, string> = {
@@ -76,6 +100,10 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   const locale = useLocale();
   const [metric, setMetric] = useState<ThroughputKey>('write');
   const [calendarMode, setCalendarMode] = useState<'runs' | 'failed'>('runs');
+  const [volumeMetric, setVolumeMetric] = useState<VolumeMetricKey>('write_rows');
+  const [volumeGranularity, setVolumeGranularity] =
+    useState<(typeof VOLUME_GRANULARITIES)[number]>('day');
+  const [volumeSplit, setVolumeSplit] = useState<VolumeSplit>('none');
   const resource = usePolledResource<HomeJobDashboard>(
     JSON.stringify([
       'jobs',
@@ -99,6 +127,60 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   const panel = 'rounded-xl border border-border/70 bg-card/40 p-4';
   const isBytes = metric.endsWith('bytes');
   const formatRate = (value: number) => `${formatCompactNumber(value)}/s`;
+
+  // 数据量面板独立拉取：粒度与拆分会重写桶形状，全部指标一次取回再本地切换。
+  // The volume panel fetches on its own: granularity/split change the bucket shape, while all
+  // four metrics arrive together so the metric toggle stays local.
+  const volume = usePolledResource<HomeVolume>(
+    JSON.stringify([
+      'volume',
+      query.clusterId ?? 'all',
+      query.range,
+      query.start,
+      query.end,
+      volumeGranularity,
+      volumeSplit,
+    ]),
+    () =>
+      HomeService.getVolume({
+        cluster_id: query.clusterId,
+        granularity: volumeGranularity,
+        split: volumeSplit,
+        ...(query.start && query.end
+          ? {start: query.start, end: query.end}
+          : {range: query.range}),
+      }),
+    query.start ? 0 : JOBS_POLL_MS,
+  );
+  const volumeData = volume.data;
+  const volumeIsBytes = volumeMetric.endsWith('bytes');
+  const formatVolume = (value: number) =>
+    volumeIsBytes ? `${formatCompactNumber(value)}B` : formatCompactNumber(value);
+  const volumeChart = useMemo(() => {
+    const buckets = volumeData?.buckets ?? [];
+    const rows = (volumeData?.series ?? []).filter(
+      (item) => item.metric === volumeMetric,
+    );
+    return {
+      categories: buckets.map((bucket) => {
+        const label =
+          volumeGranularity === 'month'
+            ? bucket.label
+            : bucket.label.slice(5).replace('-', '/');
+        return bucket.partial ? `${label}*` : label;
+      }),
+      series: rows.map((row, index) => ({
+        id: row.group_id,
+        name:
+          volumeSplit === 'none'
+            ? t('volume.all')
+            : (volumeData?.groups?.[row.group_id] ?? `#${row.group_id}`),
+        color: VOLUME_COLORS[index % VOLUME_COLORS.length],
+        values: row.totals,
+      })),
+      hasPartial: buckets.some((bucket) => bucket.partial),
+    };
+  }, [volumeData, volumeMetric, volumeGranularity, volumeSplit, t]);
 
   const throughput = useMemo(() => {
     const points =
@@ -297,6 +379,73 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                 emptyLabel={t('empty')}
               />
             </div>
+          </section>
+
+          <section className={panel} data-testid='home-volume'>
+            {header(
+              t('volume.title'),
+              volumeData?.oldest_sample_ms &&
+                volumeData.oldest_sample_ms > volumeData.start_ms
+                ? t('volume.since', {
+                    date: formatDateTz(volumeData.oldest_sample_ms),
+                  })
+                : t('volume.hint'),
+              <div className='flex flex-wrap items-center gap-2'>
+                <SegmentedControl
+                  label={t('volume.metricLabel')}
+                  value={volumeMetric}
+                  onValueChange={(value) =>
+                    setVolumeMetric(value as VolumeMetricKey)
+                  }
+                  options={VOLUME_METRICS.map((key) => ({
+                    value: key,
+                    label: t(`volume.metrics.${key}`),
+                  }))}
+                />
+                <SegmentedControl
+                  label={t('volume.granularityLabel')}
+                  value={volumeGranularity}
+                  onValueChange={(value) =>
+                    setVolumeGranularity(
+                      value as (typeof VOLUME_GRANULARITIES)[number],
+                    )
+                  }
+                  options={VOLUME_GRANULARITIES.map((key) => ({
+                    value: key,
+                    label: t(`volume.granularity.${key}`),
+                  }))}
+                />
+                <SegmentedControl
+                  label={t('volume.splitLabel')}
+                  value={volumeSplit}
+                  onValueChange={(value) => setVolumeSplit(value as VolumeSplit)}
+                  options={VOLUME_SPLITS.map((key) => ({
+                    value: key,
+                    label: t(`volume.splits.${key}`),
+                  }))}
+                />
+              </div>,
+            )}
+            {volume.loading && !volumeData ? (
+              <div className='h-[240px] animate-pulse rounded-lg bg-muted/40' />
+            ) : volumeChart.series.length === 0 ? (
+              empty('h-[240px]')
+            ) : (
+              <>
+                <BarChart
+                  categories={volumeChart.categories}
+                  series={volumeChart.series}
+                  layout={volumeSplit === 'none' ? 'grouped' : 'stacked'}
+                  label={t('volume.title')}
+                  formatValue={formatVolume}
+                />
+                {volumeChart.hasPartial ? (
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    {t('volume.partialHint')}
+                  </p>
+                ) : null}
+              </>
+            )}
           </section>
 
           <div className='grid gap-3 lg:grid-cols-2'>

@@ -92,6 +92,27 @@ export function HomeDashboard() {
     SUMMARY_POLL_MS,
   );
 
+  // 数据量指标卡只要 totals（不传 granularity）；与页签共用同一时间窗。自定义窗口固定不轮询。
+  // The volume KPI card only needs totals (no granularity); it shares the tabs' time window and does
+  // not poll on a custom window.
+  const volume = usePolledResource(
+    JSON.stringify([
+      'volume',
+      query.clusterId ?? 'all',
+      query.range,
+      query.start,
+      query.end,
+    ]),
+    () =>
+      HomeService.getVolume({
+        cluster_id: query.clusterId,
+        ...(query.start && query.end
+          ? {start: query.start, end: query.end}
+          : {range: query.range}),
+      }),
+    query.start ? 0 : SUMMARY_POLL_MS,
+  );
+
   /** 指标卡跳转只换页签与筛选，保留当前范围。/ KPI links switch tab and filters while keeping the scope. */
   const buildHref = useCallback(
     (patch: Record<string, string>) => {
@@ -237,6 +258,7 @@ export function HomeDashboard() {
 
       <DashboardKpiRow
         summary={summary.data}
+        volume={volume.data}
         loading={summary.loading}
         buildHref={buildHref}
       />

@@ -36,4 +36,9 @@ export type {
   HomeJobRank,
   HomeJobSummary,
   HomeSummary,
+  HomeVolume,
+  HomeVolumeBucket,
+  HomeVolumeCounts,
+  HomeVolumeSeries,
+  HomeVolumeTotals,
 } from './home.service';

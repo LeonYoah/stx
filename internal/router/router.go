@@ -843,6 +843,10 @@ func Serve() {
 			// Home job dashboard: throughput, top N, data flow, checkpoints, hotspots and the run calendar.
 			jobDashboardHandler := dashboard.NewJobDashboardHandler(dashboard.NewJobDashboardService(syncService))
 			homeRouter.GET("/jobs", jobDashboardHandler.GetJobDashboard)
+			// 首页读写量：指标卡总量（窗口 / 今日 / 本月）与日 / 月拆分柱状图。
+			// Home data volume: KPI totals (window / today / month) and day/month split bar series.
+			volumeHandler := dashboard.NewVolumeHandler(dashboard.NewVolumeService(syncService, clusterService))
+			homeRouter.GET("/volume", volumeHandler.GetVolume)
 
 			apiV1Router.POST("/sync/preview/collect", syncHandler.CollectPreview)
 			// SeaTunnel event-report-http 回调：不走登录，靠集群 token 鉴权。

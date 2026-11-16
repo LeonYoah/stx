@@ -216,11 +216,16 @@
         "clustersContext": "节点 {online}/{total} 在线",
         "clustersDegraded": "{count} 个降级",
         "alerts": "活跃告警",
-        "alertsContext": "严重 {count}"
+        "alertsContext": "严重 {count}",
+        "volume": "数据量",
+        "volumeContext": "今日 {today} · 本月 {month}",
+        "volumeContextSince": "今日 {today} · 自 {date} 起 {month}",
+        "volumeEmpty": "可观测未开启"
       },
       "unit": {
         "rowsPerSec": " 行/秒",
-        "seconds": " 秒"
+        "seconds": " 秒",
+        "rows": " 行"
       },
       "attention": {
         "title": "需要处理",
@@ -303,7 +308,32 @@
         "noAccess": "无权查看该作业",
         "partial": "部分指标查询失败：{keys}",
         "noPromDesc": "开启可观测性后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。下方运行日历来自 STX 数据库，不受影响。",
-        "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。下方运行日历来自 STX 数据库，不受影响。"
+        "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。下方运行日历来自 STX 数据库，不受影响。",
+        "volume": {
+          "title": "数据量",
+          "hint": "窗口内按日 / 月汇总的读写量",
+          "since": "数据自 {date} 起",
+          "metricLabel": "数据量指标",
+          "metrics": {
+            "write_rows": "写入 行",
+            "read_rows": "读取 行",
+            "write_bytes": "写入 字节",
+            "read_bytes": "读取 字节"
+          },
+          "granularityLabel": "粒度",
+          "granularity": {
+            "day": "按日",
+            "month": "按月"
+          },
+          "splitLabel": "拆分",
+          "splits": {
+            "none": "全部",
+            "cluster": "按集群",
+            "task": "按任务"
+          },
+          "all": "全部",
+          "partialHint": "* 首末桶被时间窗裁掉，只统计窗口内部分"
+        }
       },
       "list": {
         "searchPlaceholder": "作业名、任务名、引擎作业 ID",

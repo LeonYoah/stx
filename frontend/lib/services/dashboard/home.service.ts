@@ -187,6 +187,55 @@ export interface HomeJobDashboard {
   partial_errors?: string[];
 }
 
+/** 一个时间窗内四个方向的读写量 / Totals for the four directions within one window. */
+export interface HomeVolumeCounts {
+  read_rows: number;
+  write_rows: number;
+  read_bytes: number;
+  write_bytes: number;
+}
+
+/** 指标卡用总量：当前窗口 / 今日 / 本月；起止毫秒按显示时区。/ KPI totals: window / today / month. */
+export interface HomeVolumeTotals {
+  window: HomeVolumeCounts;
+  today: HomeVolumeCounts;
+  month: HomeVolumeCounts;
+  today_start_ms: number;
+  month_start_ms: number;
+}
+
+/** 日 / 月桶；partial=true 表示被时间窗裁掉一头。/ Day/month bucket; partial means window-clipped. */
+export interface HomeVolumeBucket {
+  start_ms: number;
+  end_ms: number;
+  label: string;
+  partial: boolean;
+}
+
+/** 「指标 × 分组」的桶值序列，totals 与 buckets 下标对齐。/ Metric × group series aligned to buckets. */
+export interface HomeVolumeSeries {
+  metric: 'read_rows' | 'write_rows' | 'read_bytes' | 'write_bytes' | string;
+  group_id: string;
+  totals: number[];
+}
+
+/** GET /dashboard/home/volume 返回 / Response of GET /dashboard/home/volume. */
+export interface HomeVolume {
+  source: 'prometheus' | 'none';
+  reason?: string;
+  range: string;
+  start_ms: number;
+  end_ms: number;
+  granularity?: 'day' | 'month';
+  split: 'none' | 'cluster' | 'task';
+  oldest_sample_ms: number;
+  totals: HomeVolumeTotals | null;
+  buckets: HomeVolumeBucket[];
+  series: HomeVolumeSeries[];
+  groups?: Record<string, string>;
+  partial_errors?: string[];
+}
+
 /**
  * 首页汇总服务：指标卡与「需要处理」条共用一次请求。
  * Home summary service: the KPI cards and the "needs attention" strip share one request.
@@ -241,6 +290,32 @@ export class HomeService extends BaseService {
       checkpoints: data?.checkpoints ?? [],
       hotspots: data?.hotspots ?? [],
       calendar: data?.calendar ?? null,
+    };
+  }
+
+  /**
+   * 读写量：不传 granularity 时只回 totals（指标卡），传了再带日 / 月桶序列；数组字段做兜底。
+   * Data volume: totals only without granularity, day/month buckets when set, with array fallbacks.
+   */
+  static async getVolume(params?: {
+    cluster_id?: number;
+    range?: string;
+    start?: number;
+    end?: number;
+    granularity?: 'day' | 'month';
+    split?: 'none' | 'cluster' | 'task';
+  }): Promise<HomeVolume> {
+    const data = await this.get<HomeVolume>('/volume', params);
+    return {
+      ...data,
+      buckets: data?.buckets ?? [],
+      series: (data?.series ?? []).map((item) => ({
+        ...item,
+        totals: item.totals ?? [],
+      })),
+      groups: data?.groups ?? {},
+      totals: data?.totals ?? null,
+      partial_errors: data?.partial_errors ?? [],
     };
   }
 

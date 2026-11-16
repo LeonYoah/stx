@@ -19,7 +19,7 @@ import {fireEvent, render, screen, within} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
-import type {HomeJobDashboard} from '@/lib/services/dashboard';
+import type {HomeJobDashboard, HomeVolume} from '@/lib/services/dashboard';
 import {JobsTab} from '../JobsTab';
 import type {DashboardQuery} from '../use-dashboard-query';
 
@@ -36,14 +36,18 @@ if (typeof window.matchMedia !== 'function') {
   })) as unknown as typeof window.matchMedia;
 }
 
-const home = vi.hoisted(() => ({getJobs: vi.fn()}));
+const home = vi.hoisted(() => ({getJobs: vi.fn(), getVolume: vi.fn()}));
 vi.mock('@/lib/services/dashboard', async () => {
   const actual = await vi.importActual<
     typeof import('@/lib/services/dashboard')
   >('@/lib/services/dashboard');
   return {
     ...actual,
-    HomeService: {...actual.HomeService, getJobs: home.getJobs},
+    HomeService: {
+      ...actual.HomeService,
+      getJobs: home.getJobs,
+      getVolume: home.getVolume,
+    },
   };
 });
 vi.mock('@/components/arc/brush-chart/brush-chart', () => ({
@@ -67,9 +71,17 @@ vi.mock('@/components/arc/bar-chart/bar-chart', () => ({
   ),
 }));
 vi.mock('@/components/charts/bar-chart', () => ({
-  BarChart: ({categories, label}: {categories: string[]; label: string}) => (
+  BarChart: ({
+    categories,
+    series,
+    label,
+  }: {
+    categories: string[];
+    series?: {name: string}[];
+    label: string;
+  }) => (
     <div data-testid='beui-bar'>
-      {label}:{categories.join(',')}
+      {label}:{categories.join(',')}|{(series ?? []).map((s) => s.name).join(',')}
     </div>
   ),
 }));
@@ -162,6 +174,31 @@ const payload = (source: 'prometheus' | 'none'): HomeJobDashboard => ({
   },
 });
 
+const volumePayload = (): HomeVolume => ({
+  source: 'prometheus',
+  range: '24h',
+  start_ms: 1_000,
+  end_ms: 90_000_000,
+  granularity: 'day',
+  split: 'none',
+  oldest_sample_ms: 0,
+  totals: null,
+  buckets: [
+    {start_ms: 1_000, end_ms: 86_400_000, label: '2026-11-15', partial: true},
+    {
+      start_ms: 86_400_000,
+      end_ms: 90_000_000,
+      label: '2026-11-16',
+      partial: true,
+    },
+  ],
+  series: [
+    {metric: 'write_rows', group_id: '0', totals: [100, 50]},
+    {metric: 'read_rows', group_id: '0', totals: [80, 40]},
+  ],
+  groups: {},
+});
+
 const base: DashboardQuery = {
   tab: 'jobs',
   clusterId: undefined,
@@ -183,7 +220,10 @@ const renderTab = (query: Partial<DashboardQuery> = {}) =>
   );
 
 describe('JobsTab', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    home.getVolume.mockResolvedValue(volumePayload());
+  });
 
   it('renders every block with Prometheus and switches throughput metrics', async () => {
     home.getJobs.mockResolvedValue(payload('prometheus'));
@@ -196,9 +236,10 @@ describe('JobsTab', () => {
     expect(screen.getByTestId('brush').textContent).toBe(
       '读取 行/秒|1|作业失败',
     );
-    expect(screen.getByTestId('beui-bar').textContent).toBe(
-      '写入速率 Top 8:orders',
-    );
+    expect(
+      within(screen.getByTestId('home-top-write')).getByTestId('beui-bar')
+        .textContent,
+    ).toBe('写入速率 Top 8:orders|平均写入速率');
     expect(
       within(screen.getByTestId('home-top-cdc')).getByText(
         '该时间窗内没有数据',
@@ -229,5 +270,56 @@ describe('JobsTab', () => {
       start: 1_000,
       end: 2_000,
     });
+  });
+
+  it('renders the volume chart and refetches on granularity/split changes', async () => {
+    home.getJobs.mockResolvedValue(payload('prometheus'));
+    renderTab();
+    const panel = await screen.findByTestId('home-volume');
+    expect(within(panel).getByTestId('beui-bar').textContent).toBe(
+      '数据量:11/15*,11/16*|全部',
+    );
+    expect(home.getVolume).toHaveBeenCalledWith({
+      cluster_id: undefined,
+      granularity: 'day',
+      split: 'none',
+      range: '1h',
+    });
+    // 部分桶标注脚注。/ Partial buckets get a footnote.
+    expect(within(panel).getByText(/首末桶被时间窗裁掉/)).toBeTruthy();
+
+    fireEvent.click(within(panel).getByText('按月'));
+    expect(home.getVolume).toHaveBeenLastCalledWith(
+      expect.objectContaining({granularity: 'month'}),
+    );
+    fireEvent.click(within(panel).getByText('按集群'));
+    expect(home.getVolume).toHaveBeenLastCalledWith(
+      expect.objectContaining({split: 'cluster'}),
+    );
+    // 指标切换不重新拉取：四个方向一次取回。/ The metric toggle does not refetch.
+    const calls = home.getVolume.mock.calls.length;
+    fireEvent.click(within(panel).getByText('读取 行'));
+    expect(home.getVolume.mock.calls.length).toBe(calls);
+  });
+
+  it('names split groups from the groups map', async () => {
+    home.getJobs.mockResolvedValue(payload('prometheus'));
+    home.getVolume.mockResolvedValue({
+      ...volumePayload(),
+      split: 'cluster',
+      series: [
+        {metric: 'write_rows', group_id: '3', totals: [10, 5]},
+        {metric: 'write_rows', group_id: '9', totals: [2, 1]},
+      ],
+      groups: {'3': 'prod'},
+    });
+    renderTab();
+    const panel = await screen.findByTestId('home-volume');
+    fireEvent.click(within(panel).getByText('按集群'));
+    await within(panel).findByText('按集群');
+    // 分组名来自 groups 映射，未知名回退 #id。/ Group names come from the groups map, unknown ids fall back to #id.
+    expect(
+      within(panel).getByTestId('beui-bar').textContent,
+    ).toContain('prod,#9');
   });
 });

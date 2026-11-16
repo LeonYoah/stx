@@ -216,11 +216,16 @@
         "clustersContext": "{online}/{total} nodes online",
         "clustersDegraded": "{count} degraded",
         "alerts": "Active alerts",
-        "alertsContext": "{count} critical"
+        "alertsContext": "{count} critical",
+        "volume": "Data volume",
+        "volumeContext": "Today {today} · This month {month}",
+        "volumeContextSince": "Today {today} · Since {date} {month}",
+        "volumeEmpty": "Observability off"
       },
       "unit": {
         "rowsPerSec": " rows/s",
-        "seconds": " s"
+        "seconds": " s",
+        "rows": " rows"
       },
       "attention": {
         "title": "Needs attention",
@@ -303,7 +308,32 @@
         "noAccess": "You cannot view this job",
         "partial": "Some metric queries failed: {keys}",
         "noPromDesc": "Turn on observability to see total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots here. The run calendar below comes from the STX database and is unaffected.",
-        "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. The run calendar below comes from the STX database and is unaffected."
+        "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. The run calendar below comes from the STX database and is unaffected.",
+        "volume": {
+          "title": "Data volume",
+          "hint": "Read/write totals bucketed by day or month",
+          "since": "Data since {date}",
+          "metricLabel": "Volume metric",
+          "metrics": {
+            "write_rows": "Write rows",
+            "read_rows": "Read rows",
+            "write_bytes": "Write bytes",
+            "read_bytes": "Read bytes"
+          },
+          "granularityLabel": "Granularity",
+          "granularity": {
+            "day": "Daily",
+            "month": "Monthly"
+          },
+          "splitLabel": "Split",
+          "splits": {
+            "none": "All",
+            "cluster": "By cluster",
+            "task": "By task"
+          },
+          "all": "All",
+          "partialHint": "* Edge buckets are clipped by the time window"
+        }
       },
       "list": {
         "searchPlaceholder": "Job, task or engine job ID",

@@ -2746,6 +2746,83 @@
                 }
             }
         },
+        "/api/v1/dashboard/home/volume": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Dashboard"
+                ],
+                "summary": "首页读写量（窗口 / 今日 / 本月总量 + 日 / 月柱状图序列）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID，空表示全部集群",
+                        "name": "cluster_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "name": "end",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "桶粒度：day|month；缺省只回 totals 不出 buckets",
+                        "name": "granularity",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "default": "none",
+                        "description": "拆分维度：none|cluster|task",
+                        "name": "split",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dashboard.HomeVolume"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.DashboardDataResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/dashboard/overview": {
             "get": {
                 "description": "Get complete dashboard overview data including stats, clusters, hosts, and activities",
@@ -8755,6 +8832,62 @@
                 }
             }
         },
+        "dashboard.HomeVolume": {
+            "type": "object",
+            "properties": {
+                "buckets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.VolumeBucket"
+                    }
+                },
+                "end_ms": {
+                    "type": "integer"
+                },
+                "granularity": {
+                    "type": "string"
+                },
+                "groups": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "oldest_sample_ms": {
+                    "type": "integer"
+                },
+                "partial_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.VolumeSeries"
+                    }
+                },
+                "source": {
+                    "type": "string"
+                },
+                "split": {
+                    "type": "string"
+                },
+                "start_ms": {
+                    "type": "integer"
+                },
+                "totals": {
+                    "$ref": "#/definitions/dashboard.VolumeTotals"
+                }
+            }
+        },
         "dashboard.HostSummary": {
             "type": "object",
             "properties": {
@@ -9004,6 +9137,77 @@
                             "format": "float64"
                         }
                     }
+                }
+            }
+        },
+        "dashboard.VolumeBucket": {
+            "type": "object",
+            "properties": {
+                "end_ms": {
+                    "type": "integer"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "partial": {
+                    "type": "boolean"
+                },
+                "start_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dashboard.VolumeCounts": {
+            "type": "object",
+            "properties": {
+                "read_bytes": {
+                    "type": "number"
+                },
+                "read_rows": {
+                    "type": "number"
+                },
+                "write_bytes": {
+                    "type": "number"
+                },
+                "write_rows": {
+                    "type": "number"
+                }
+            }
+        },
+        "dashboard.VolumeSeries": {
+            "type": "object",
+            "properties": {
+                "group_id": {
+                    "type": "string"
+                },
+                "metric": {
+                    "type": "string"
+                },
+                "totals": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                }
+            }
+        },
+        "dashboard.VolumeTotals": {
+            "type": "object",
+            "properties": {
+                "month": {
+                    "$ref": "#/definitions/dashboard.VolumeCounts"
+                },
+                "month_start_ms": {
+                    "type": "integer"
+                },
+                "today": {
+                    "$ref": "#/definitions/dashboard.VolumeCounts"
+                },
+                "today_start_ms": {
+                    "type": "integer"
+                },
+                "window": {
+                    "$ref": "#/definitions/dashboard.VolumeCounts"
                 }
             }
         },

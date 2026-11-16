@@ -106,13 +106,21 @@ export function ClusterTab({
   const t = useTranslations('dashboard.home.clusterTab');
   const format = useFormatter();
   const resource = usePolledResource<HomeClusterDashboard>(
-    JSON.stringify([query.clusterId ?? 'all', query.range]),
+    JSON.stringify([
+      query.clusterId ?? 'all',
+      query.range,
+      query.start,
+      query.end,
+    ]),
     () =>
       HomeService.getClusters({
         cluster_id: query.clusterId,
-        range: query.range,
+        ...(query.start && query.end
+          ? {start: query.start, end: query.end}
+          : {range: query.range}),
       }),
-    CLUSTER_POLL_MS,
+    // 自定义时间窗固定不变，不自动刷新。/ A custom window is fixed, so it does not auto-refresh.
+    query.start ? 0 : CLUSTER_POLL_MS,
   );
   const data = resource.data;
   const hasMetrics = data?.source === 'prometheus';

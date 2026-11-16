@@ -234,9 +234,74 @@
         "noAccess": "You cannot view this job"
       },
       "jobsTab": {
-        "comingTitle": "Job dashboard coming soon",
-        "comingDesc": "Total throughput, top writers, CDC delay and data flow will show here. Until then, the job list shows each job's current state.",
-        "openList": "Open job list"
+        "throughput": {
+          "title": "Total throughput",
+          "hint": "All jobs combined",
+          "write": "Write rows/s",
+          "read": "Read rows/s",
+          "write_bytes": "Write bytes/s",
+          "read_bytes": "Read bytes/s",
+          "metricLabel": "Throughput metric"
+        },
+        "annotation": {
+          "job_failed": "Job failed",
+          "job_recovered": "Job recovered",
+          "schema_change": "Schema change"
+        },
+        "topWrite": {
+          "title": "Top 8 writers",
+          "hint": "Average in range · rows/s",
+          "series": "Average write rate"
+        },
+        "topCdc": {
+          "title": "Top 8 CDC delay",
+          "hint": "Max in range · seconds · alert threshold 60s",
+          "series": "Max CDC delay"
+        },
+        "flow": {
+          "title": "Data flow",
+          "hint": "Source → sink connector · rows written in range",
+          "unknown": "Unknown"
+        },
+        "calendar": {
+          "title": "Run calendar",
+          "hint": "Daily runs over the last {weeks} weeks",
+          "runs": "Runs",
+          "failed": "Failures",
+          "unitRuns": "runs",
+          "unitFailed": "failures",
+          "modeLabel": "Calendar metric",
+          "cell": "{count} {unit} on {date}",
+          "cellUndated": "{count} {unit}",
+          "range": "{start} to {end}",
+          "days": "{days} days",
+          "less": "less",
+          "more": "more",
+          "level": "Show level {level}"
+        },
+        "checkpoint": {
+          "title": "Checkpoint duration",
+          "hint": "Max in range · seconds",
+          "period": "Range",
+          "failures": "{name} ({count} failed)",
+          "unit": "s",
+          "average": "Average",
+          "value": "Max duration",
+          "category": "Job"
+        },
+        "hotspots": {
+          "title": "Operator hotspots",
+          "hint": "Busiest or most backpressured operators in range (needs engine observability)",
+          "job": "Job",
+          "vertex": "Operator",
+          "kind": "Type",
+          "value": "Peak",
+          "busy": "Busy",
+          "backpressure": "Backpressure"
+        },
+        "empty": "No data in this time range",
+        "noAccess": "You cannot view this job",
+        "partial": "Some metric queries failed: {keys}"
       },
       "list": {
         "searchPlaceholder": "Job, task or engine job ID",
@@ -323,7 +388,8 @@
           "1h": "1h",
           "6h": "6h",
           "24h": "24h",
-          "7d": "7d"
+          "7d": "7d",
+          "custom": "Custom range"
         },
         "allClusters": "All clusters",
         "cardsLabel": "Choose cluster scope",

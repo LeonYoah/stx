@@ -252,6 +252,7 @@ for clusterID, items := range grouped {
 - Prometheus 走 `internal/pkg/promquery`（`BaseURL` 判定可用性，`Range` / `Instant`，`QuoteLabelRegex` 只拼数字 ID）。不可用时 `source:"none"` + `reason`，接口不报错。
 
 - **首页集群大盘**（`GET /dashboard/home/clusters`，`internal/apps/dashboard/cluster.go`）：卡片始终含全部集群（便于切换范围），节点 / 趋势 / 信号按 `cluster_id` 过滤；卡片的最高堆与不可达端点用两条不限范围的即时查询按样本 `cluster_id` 汇总。节点与 Prometheus 对应靠 `instance = HostIP:HazelcastPort`（与 HTTP SD 一致），`master` 取 `cluster_info{master}`。PromQL 一律写原始表达式，不依赖 `seatunnel:*` 录制规则（外部 Prometheus 可能没加载）。可用性 = `min_over_time(up)` 与 `min_over_time(node_state)` 合成，step = 窗口 / 48，一点一格。查询并发执行，单条失败记 `partial_errors`。
+- **首页作业大盘**（`GET /dashboard/home/jobs`，`internal/apps/dashboard/jobs.go`）：Top N / Checkpoint / 热点按整个窗口聚合（`increase(...[span])/span`、`max_over_time`），不用终点瞬时值，历史窗口与已结束作业也能出数；数据流向按 `job_dag.vertexInfoMap` 顶点名（`[Source[0]-MySQL-CDC]`）解析插件，多目标平均分摊；运行日历从 DB 按显示时区分天（列为周一到周日，最后一列含 `end_date`），无 Prometheus 时也返回；标注取窗口内失败（按 `finished_at`）、恢复运行、`SCHEMA_CHANGE*` 事件。注意：引擎时区配置错位时 `finished_at` 偏移，失败标注会落到窗口外。
 - **活跃告警口径**：集群健康的 `active_alerts / critical_alerts` 只算「未恢复且未在告警中心关闭」的远程告警（`activeRemoteAlertStats`），与告警中心「触发中」一致；只看 `monitoring_remote_alerts.status` 会把已关闭的告警继续算作活跃。
 
 ### 4. 校验与错误对应表

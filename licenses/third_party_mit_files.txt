@@ -125,3 +125,51 @@ frontend/components/charts/composition-chart/messages.ts
 frontend/components/charts/composition-chart/model.ts
 frontend/components/charts/composition-chart/plot.tsx
 frontend/components/charts/composition-chart/tooltip-content.tsx
+
+# beUI Bar Chart (MIT, Copyright (c) 2026 Saurabh Chauhan):
+# Upstream: https://github.com/starc007/ui-components
+# Component: https://beui.dev/charts/bar-chart
+# Registry: https://beui.dev/r/bar-chart.json
+# Full MIT text copy: licenses/beui/LICENSE-MIT.txt
+
+frontend/components/charts/bar-chart.tsx
+frontend/components/charts/bar-chart/context.tsx
+frontend/components/charts/bar-chart/legend.tsx
+frontend/components/charts/bar-chart/plot.tsx
+frontend/components/charts/bar-chart/tooltip.tsx
+frontend/components/charts/xy/axis.tsx
+frontend/components/charts/xy/data-table.tsx
+frontend/components/charts/xy/legend.tsx
+frontend/components/charts/xy/model.ts
+frontend/components/charts/xy/scale.ts
+frontend/components/charts/xy/tooltip-content.tsx
+frontend/components/charts/xy/use-inspection.ts
+
+# beUI Sankey Chart (MIT, Copyright (c) 2026 Saurabh Chauhan):
+# Upstream: https://github.com/starc007/ui-components
+# Component: https://beui.dev/charts/sankey-chart
+# Registry: https://beui.dev/r/sankey-chart.json
+# Full MIT text copy: licenses/beui/LICENSE-MIT.txt
+
+frontend/components/charts/sankey-chart.tsx
+frontend/components/charts/sankey-chart/context.tsx
+frontend/components/charts/sankey-chart/messages.ts
+frontend/components/charts/sankey-chart/model.ts
+frontend/components/charts/sankey-chart/plot.tsx
+frontend/components/charts/sankey-chart/tooltip.tsx
+frontend/lib/hooks/use-row-cursor.ts
+
+# beUI Heat Calendar (MIT, Copyright (c) 2026 Saurabh Chauhan):
+# Upstream: https://github.com/starc007/ui-components
+# Component: https://beui.dev/charts/heat-calendar
+# Registry: https://beui.dev/r/heat-calendar.json
+# Full MIT text copy: licenses/beui/LICENSE-MIT.txt
+
+frontend/components/charts/heat-calendar.tsx
+frontend/components/charts/heat-calendar/context.ts
+frontend/components/charts/heat-calendar/grid.tsx
+frontend/components/charts/heat-calendar/legend.tsx
+frontend/components/charts/heat-calendar/messages.ts
+frontend/components/charts/heat-calendar/tooltip.tsx
+frontend/components/charts/heat-calendar/types.ts
+frontend/components/charts/heat-calendar/utils.ts

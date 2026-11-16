@@ -234,9 +234,74 @@
         "noAccess": "无权查看该作业"
       },
       "jobsTab": {
-        "comingTitle": "作业大盘即将提供",
-        "comingDesc": "全局吞吐、写入 Top N、CDC 延迟与数据流向会出现在这里。现在可以先用「作业列表」查看每个作业的当前状态。",
-        "openList": "打开作业列表"
+        "throughput": {
+          "title": "全局吞吐",
+          "hint": "所有作业合计",
+          "write": "写入 行/秒",
+          "read": "读取 行/秒",
+          "write_bytes": "写入 字节/秒",
+          "read_bytes": "读取 字节/秒",
+          "metricLabel": "吞吐指标"
+        },
+        "annotation": {
+          "job_failed": "作业失败",
+          "job_recovered": "作业恢复",
+          "schema_change": "表结构变更"
+        },
+        "topWrite": {
+          "title": "写入速率 Top 8",
+          "hint": "时间窗内平均 · 行/秒",
+          "series": "平均写入速率"
+        },
+        "topCdc": {
+          "title": "CDC 延迟 Top 8",
+          "hint": "时间窗内最大 · 秒 · 告警阈值 60 秒",
+          "series": "最大 CDC 延迟"
+        },
+        "flow": {
+          "title": "数据流向",
+          "hint": "源连接器 → 目标连接器 · 时间窗内写入行数",
+          "unknown": "未识别"
+        },
+        "calendar": {
+          "title": "运行日历",
+          "hint": "近 {weeks} 周每日运行次数",
+          "runs": "运行",
+          "failed": "失败",
+          "unitRuns": "次运行",
+          "unitFailed": "次失败",
+          "modeLabel": "日历指标",
+          "cell": "{date} {count} {unit}",
+          "cellUndated": "{count} {unit}",
+          "range": "{start} 至 {end}",
+          "days": "{days} 天",
+          "less": "少",
+          "more": "多",
+          "level": "显示第 {level} 档"
+        },
+        "checkpoint": {
+          "title": "Checkpoint 耗时",
+          "hint": "时间窗内最大耗时 · 秒",
+          "period": "时间窗",
+          "failures": "{name}（失败 {count}）",
+          "unit": "秒",
+          "average": "平均",
+          "value": "最大耗时",
+          "category": "作业"
+        },
+        "hotspots": {
+          "title": "算子热点",
+          "hint": "时间窗内忙碌度或背压最高的算子（需引擎可观测性）",
+          "job": "作业",
+          "vertex": "算子",
+          "kind": "类型",
+          "value": "峰值",
+          "busy": "忙碌度",
+          "backpressure": "背压"
+        },
+        "empty": "该时间窗内没有数据",
+        "noAccess": "无权查看该作业",
+        "partial": "部分指标查询失败：{keys}"
       },
       "list": {
         "searchPlaceholder": "作业名、任务名、引擎作业 ID",
@@ -323,7 +388,8 @@
           "1h": "1 小时",
           "6h": "6 小时",
           "24h": "24 小时",
-          "7d": "7 天"
+          "7d": "7 天",
+          "custom": "自定义时间段"
         },
         "allClusters": "全部集群",
         "cardsLabel": "选择集群范围",

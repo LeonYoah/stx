@@ -106,7 +106,9 @@ export function usePolledResource<T>(
       }
     };
     void load();
-    const timer = window.setInterval(() => void load(), intervalMs);
+    // 间隔为 0 时只拉一次（如固定的自定义时间窗）。/ An interval of 0 loads once (e.g. a fixed custom window).
+    const timer =
+      intervalMs > 0 ? window.setInterval(() => void load(), intervalMs) : null;
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
         void load();
@@ -116,7 +118,9 @@ export function usePolledResource<T>(
     return () => {
       disposed = true;
       controller?.abort();
-      window.clearInterval(timer);
+      if (timer !== null) {
+        window.clearInterval(timer);
+      }
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [key, intervalMs, enabled, tick]);

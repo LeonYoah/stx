@@ -49,11 +49,25 @@ func (fakeClusterNodes) GetNodes(_ context.Context, clusterID uint) ([]*cluster.
 
 type fakeHealth struct{}
 
-func (fakeHealth) GetClustersHealthFor(context.Context, uint) (*monitoring.ClusterHealthData, error) {
-	return &monitoring.ClusterHealthData{Clusters: []*monitoring.ClusterHealthItem{
+func fakeHealthItems() []*monitoring.ClusterHealthItem {
+	return []*monitoring.ClusterHealthItem{
 		{ClusterID: 1, HealthStatus: "healthy", TotalNodes: 2, OnlineNodes: 2},
 		{ClusterID: 2, HealthStatus: "unhealthy", TotalNodes: 1, ActiveAlerts: 2, CriticalAlerts: 1},
-	}}, nil
+	}
+}
+
+func (fakeHealth) GetClustersHealthFor(_ context.Context, clusterID uint) (*monitoring.ClusterHealthData, error) {
+	items := fakeHealthItems()
+	if clusterID == 0 {
+		return &monitoring.ClusterHealthData{Clusters: items}, nil
+	}
+	filtered := make([]*monitoring.ClusterHealthItem, 0, 1)
+	for _, item := range items {
+		if item != nil && item.ClusterID == clusterID {
+			filtered = append(filtered, item)
+		}
+	}
+	return &monitoring.ClusterHealthData{Clusters: filtered}, nil
 }
 
 type fakeRunning struct{}
@@ -368,6 +382,24 @@ func TestClusterDashboardCombinesInventoryAndMetrics(t *testing.T) {
 	}
 }
 
+func TestClusterDashboardCardsKeepOtherClusterHealth(t *testing.T) {
+	withPrometheus(t, true)
+	var queries []string
+	got, err := newTestClusterService(&queries).GetClusterDashboard(context.Background(), 1, "1h", nil)
+	if err != nil {
+		t.Fatalf("dashboard: %v", err)
+	}
+	if len(got.Clusters) != 2 {
+		t.Fatalf("cards = %+v", got.Clusters)
+	}
+	if got.Clusters[0].ID != 1 || got.Clusters[0].HealthStatus != "healthy" || got.Clusters[0].NodesOnline != 2 || got.Clusters[0].NodesTotal != 2 {
+		t.Fatalf("selected cluster card = %+v", got.Clusters[0])
+	}
+	if got.Clusters[1].ID != 2 || got.Clusters[1].HealthStatus != "unhealthy" || got.Clusters[1].ActiveAlerts != 2 || got.Clusters[1].CriticalAlerts != 1 {
+		t.Fatalf("other cluster card must keep health while cluster 1 is selected, got %+v", got.Clusters[1])
+	}
+}
+
 func TestClusterDashboardScopesToOneCluster(t *testing.T) {
 	withPrometheus(t, true)
 	var queries []string
@@ -380,6 +412,9 @@ func TestClusterDashboardScopesToOneCluster(t *testing.T) {
 	// instants.
 	if len(got.Clusters) != 2 || len(got.Nodes) != 1 || got.Nodes[0].Instance != "10.0.1.1:5802" {
 		t.Fatalf("scoped = %+v / %+v", got.Clusters, got.Nodes)
+	}
+	if got.Clusters[0].HealthStatus != "healthy" || got.Clusters[0].NodesOnline != 2 {
+		t.Fatalf("cluster 1 card must keep health while viewing cluster 2: %+v", got.Clusters[0])
 	}
 	if got.Clusters[0].MaxHeapPercent == nil || *got.Clusters[0].MaxHeapPercent != 71.5 || *got.Clusters[1].MaxHeapPercent != 55 {
 		t.Fatalf("card heap must cover every cluster: %+v", got.Clusters)

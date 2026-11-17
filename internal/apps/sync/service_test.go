@@ -2023,7 +2023,7 @@ func TestParseEngineJobTimeUsesClusterHeartbeatTimezone(t *testing.T) {
 		t.Fatalf("load Asia/Shanghai: %v", err)
 	}
 	t.Setenv("STX_SEATUNNEL_TIMEZONE", "")
-	timex.SetEngineLocationLookup(func(clusterID uint) *time.Location {
+	timex.SetEngineLocationLookup(func(_ context.Context, clusterID uint) *time.Location {
 		if clusterID == 9 {
 			return shanghai
 		}
@@ -2031,7 +2031,7 @@ func TestParseEngineJobTimeUsesClusterHeartbeatTimezone(t *testing.T) {
 	})
 	t.Cleanup(func() { timex.SetEngineLocationLookup(nil) })
 
-	got := parseEngineJobTime("2026-03-29 15:50:44", 9)
+	got := parseEngineJobTime(context.Background(), "2026-03-29 15:50:44", 9)
 	if got == nil {
 		t.Fatal("expected parsed engine time")
 	}

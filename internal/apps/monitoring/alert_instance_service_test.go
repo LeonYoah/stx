@@ -145,20 +145,16 @@ func TestService_CloseAlertInstance_allowsFiringAlert(t *testing.T) {
 	}
 }
 
-func TestParseAlertSourceKeyAcceptsNumericEventID(t *testing.T) {
-	parsed, err := parseAlertSourceKey("9")
-	if err != nil {
-		t.Fatalf("parse numeric alert id: %v", err)
-	}
-	if parsed.Kind != alertStoreLocalEvent || parsed.EventID != 9 || parsed.SourceKey != "local:event:9" {
-		t.Fatalf("parsed = %+v, want local:event:9", parsed)
+func TestParseAlertSourceKeyRejectsNumericEventID(t *testing.T) {
+	if _, err := parseAlertSourceKey("9"); err == nil {
+		t.Fatal("plain numeric event id must be rejected")
 	}
 
 	canonical, err := parseAlertSourceKey("local:event:9")
 	if err != nil {
 		t.Fatalf("parse canonical alert id: %v", err)
 	}
-	if canonical.SourceKey != "local:event:9" || canonical.EventID != 9 {
+	if canonical.Kind != alertStoreLocalEvent || canonical.SourceKey != "local:event:9" || canonical.EventID != 9 {
 		t.Fatalf("canonical = %+v", canonical)
 	}
 }

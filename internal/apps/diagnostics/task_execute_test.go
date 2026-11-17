@@ -473,6 +473,31 @@ func TestBuildDiagnosticBundleHTMLCategoryCards_countsPrimarySignals(t *testing.
 	}
 }
 
+func TestDiagnosticLogLocationPrefersHostTimezone(t *testing.T) {
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "")
+	timex.SetEngineLocationLookup(func(_ context.Context, clusterID uint) *time.Location {
+		if clusterID == 3 {
+			return time.UTC
+		}
+		return nil
+	})
+	t.Cleanup(func() { timex.SetEngineLocationLookup(nil) })
+
+	svc := &Service{hostService: &fakeDiagnosticsHostReader{hosts: map[uint]*cluster.HostInfo{
+		11: {ID: 11, Timezone: "Asia/Shanghai"},
+	}}}
+	got := svc.diagnosticLogLocation(context.Background(), DiagnosticTaskNodeTarget{HostID: 11}, 3)
+	if got == nil || got.String() != "Asia/Shanghai" {
+		t.Fatalf("host timezone, got %v want Asia/Shanghai", got)
+	}
+
+	svc.hostService = &fakeDiagnosticsHostReader{hosts: map[uint]*cluster.HostInfo{11: {ID: 11}}}
+	got = svc.diagnosticLogLocation(context.Background(), DiagnosticTaskNodeTarget{HostID: 11}, 3)
+	if got != time.UTC {
+		t.Fatalf("empty host timezone should fall back to cluster master, got %v", got)
+	}
+}
+
 func TestExtractDiagnosticLogWindowContent_filtersByTimeWindow(t *testing.T) {
 	start := time.Date(2026, 3, 15, 10, 0, 0, 0, timex.SeatunnelLocation())
 	end := start.Add(5 * time.Minute)

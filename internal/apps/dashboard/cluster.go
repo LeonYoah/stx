@@ -191,10 +191,12 @@ func (s *ClusterDashboardService) GetClusterDashboard(ctx context.Context, clust
 }
 
 // fillInventory 填 DB / 心跳部分：集群卡片始终包含全部集群（便于切换范围），节点表只含范围内的集群。
-// 告警计数按当前 clusterID 查询，避免单集群大盘把所有集群的事件再扫一遍。
+// 健康 / 告警计数一律查全量（clusterID=0）：单集群大盘的切换下拉框也要展示其他集群的节点数和告警数。
+// 全量结果有 15 秒缓存，这里不会多扫一遍。首页 KPI 仍按当前集群统计，见 home.go。
 // fillInventory fills the DB / heartbeat part: cards always cover every cluster (so the scope can be switched), the
-// node table only the clusters in scope. Alert counts are loaded for the current clusterID so a single-cluster
-// dashboard does not rescan every cluster's events.
+// node table only the clusters in scope. Health / alert counts always load every cluster (clusterID=0): the
+// single-cluster dashboard's switcher still shows other clusters' node and alert numbers. The full result is cached
+// for 15s, so this does not rescan. Home KPIs still count only the current cluster; see home.go.
 func (s *ClusterDashboardService) fillInventory(ctx context.Context, out *ClusterDashboard, clusterID uint) {
 	if s.clusters == nil {
 		return
@@ -206,7 +208,7 @@ func (s *ClusterDashboardService) fillInventory(ctx context.Context, out *Cluste
 	}
 	health := map[uint]*monitoring.ClusterHealthItem{}
 	if s.health != nil {
-		if data, err := s.health.GetClustersHealthFor(ctx, clusterID); err != nil {
+		if data, err := s.health.GetClustersHealthFor(ctx, 0); err != nil {
 			out.PartialErrors = append(out.PartialErrors, "health")
 		} else {
 			for _, item := range data.Clusters {

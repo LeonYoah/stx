@@ -532,14 +532,10 @@ func Serve() {
 				monitoringRouter.PUT("/alert-policies/:id", monitoringHandler.UpdateAlertPolicy)
 				monitoringRouter.DELETE("/alert-policies/:id", monitoringHandler.DeleteAlertPolicy)
 				monitoringRouter.GET("/alert-instances", monitoringHandler.ListAlertInstances)
-				monitoringRouter.GET("/alerts", monitoringHandler.ListAlerts)
 				monitoringRouter.GET("/remote-alerts", monitoringHandler.ListRemoteAlerts)
 				monitoringRouter.POST("/alert-instances/:id/ack", monitoringHandler.AcknowledgeAlertInstance)
 				monitoringRouter.POST("/alert-instances/:id/silence", monitoringHandler.SilenceAlertInstance)
 				monitoringRouter.POST("/alert-instances/:id/close", monitoringHandler.CloseAlertInstance)
-				monitoringRouter.POST("/alerts/:eventId/ack", monitoringHandler.AcknowledgeAlert)
-				monitoringRouter.POST("/alerts/:eventId/silence", monitoringHandler.SilenceAlert)
-				monitoringRouter.POST("/alerts/:eventId/close", monitoringHandler.CloseAlert)
 				monitoringRouter.GET("/clusters/:id/rules", monitoringHandler.ListClusterRules)
 				monitoringRouter.PUT("/clusters/:id/rules/:ruleId", monitoringHandler.UpdateClusterRule)
 				monitoringRouter.GET("/integration/status", monitoringHandler.GetIntegrationStatus)
@@ -1392,8 +1388,8 @@ func bindEngineLocationLookup(clusterService *cluster.Service) {
 	if clusterService == nil {
 		return
 	}
-	timex.SetEngineLocationLookup(func(clusterID uint) *time.Location {
-		return clusterService.EngineLocation(context.Background(), clusterID)
+	timex.SetEngineLocationLookup(func(ctx context.Context, clusterID uint) *time.Location {
+		return clusterService.EngineLocation(ctx, clusterID)
 	})
 }
 
@@ -1849,6 +1845,8 @@ func (a *clusterNodeGetterAdapter) GetClusterNodes(ctx context.Context, clusterI
 			NodeID:     node.ID,
 			HostID:     node.HostID,
 			InstallDir: node.InstallDir,
+			Role:       string(node.Role),
+			IsOnline:   node.IsOnline,
 		}
 	}
 	return result, nil

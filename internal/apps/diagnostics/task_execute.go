@@ -4885,7 +4885,7 @@ func (s *Service) collectDiagnosticWindowedLogSnippet(ctx context.Context, targe
 		return "", "agent sender is unavailable", fmt.Errorf("agent sender is unavailable")
 	}
 	contents := make([]string, 0, 4)
-	loc := timex.SeatunnelLocationForCluster(clusterID)
+	loc := s.diagnosticLogLocation(ctx, target, clusterID)
 	days := diagnosticWindowDays(window.Start, window.End, loc)
 	for _, day := range days {
 		params := map[string]string{
@@ -4919,6 +4919,17 @@ func (s *Service) collectDiagnosticWindowedLogSnippet(ctx context.Context, targe
 		snippet = strings.TrimSpace(strings.Join(contents, "\n"))
 	}
 	return snippet, "", nil
+}
+
+// diagnosticLogLocation 解析该节点日志里的无偏移时间：优先该主机心跳时区，没有时再回退集群 Master。
+// diagnosticLogLocation parses naive times in that node's logs: the host heartbeat zone first, then the cluster master.
+func (s *Service) diagnosticLogLocation(ctx context.Context, target DiagnosticTaskNodeTarget, clusterID uint) *time.Location {
+	if s != nil && s.hostService != nil && target.HostID > 0 {
+		if host, err := s.hostService.GetHostByID(ctx, target.HostID); err == nil && host != nil && strings.TrimSpace(host.Timezone) != "" {
+			return timex.SeatunnelLocationForHost(host.Timezone)
+		}
+	}
+	return timex.SeatunnelLocationForCluster(ctx, clusterID)
 }
 
 func buildDiagnosticLogPreview(content string, maxLines int) (string, bool, int) {

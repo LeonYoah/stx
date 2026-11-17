@@ -477,11 +477,7 @@ func (s *Service) listNodeConnectors(ctx context.Context, agentID, installDir st
 	return present, nil
 }
 
-func (s *Service) listNodeConnectorDetails(ctx context.Context, agentID, installDir string) ([]struct {
-	Name          string
-	Version       string
-	ConnectorPath string
-}, error) {
+func (s *Service) listNodeConnectorDetails(ctx context.Context, agentID, installDir string) ([]nodeConnectorDetail, error) {
 	success, output, err := s.agentCommandSender.SendCommand(ctx, agentID, "list_plugins", map[string]string{"install_path": installDir})
 	if err != nil {
 		return nil, err
@@ -496,17 +492,9 @@ func (s *Service) listNodeConnectorDetails(ctx context.Context, agentID, install
 	if !success || !parsed.Success {
 		return nil, fmt.Errorf("list plugins failed / 列出插件失败: %s", output)
 	}
-	details := make([]struct {
-		Name          string
-		Version       string
-		ConnectorPath string
-	}, 0, len(parsed.Plugins))
+	details := make([]nodeConnectorDetail, 0, len(parsed.Plugins))
 	for _, item := range parsed.Plugins {
-		details = append(details, struct {
-			Name          string
-			Version       string
-			ConnectorPath string
-		}{Name: item.Name, Version: item.Version, ConnectorPath: item.ConnectorPath})
+		details = append(details, nodeConnectorDetail{Name: item.Name, Version: item.Version, ConnectorPath: item.ConnectorPath})
 	}
 	return details, nil
 }

@@ -18,6 +18,7 @@
 package timex
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -73,7 +74,7 @@ func TestSeatunnelLocationForClusterUsesHeartbeatThenEnvWins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load Asia/Shanghai: %v", err)
 	}
-	SetEngineLocationLookup(func(clusterID uint) *time.Location {
+	SetEngineLocationLookup(func(_ context.Context, clusterID uint) *time.Location {
 		if clusterID == 7 {
 			return shanghai
 		}
@@ -82,11 +83,11 @@ func TestSeatunnelLocationForClusterUsesHeartbeatThenEnvWins(t *testing.T) {
 	t.Cleanup(func() { SetEngineLocationLookup(nil) })
 
 	t.Setenv("STX_SEATUNNEL_TIMEZONE", "")
-	if got := SeatunnelLocationForCluster(7); got != shanghai {
+	if got := SeatunnelLocationForCluster(context.Background(), 7); got != shanghai {
 		t.Fatalf("cluster heartbeat zone, got %v", got)
 	}
 	t.Setenv("STX_SEATUNNEL_TIMEZONE", "UTC")
-	if got := SeatunnelLocationForCluster(7); got != time.UTC {
+	if got := SeatunnelLocationForCluster(context.Background(), 7); got != time.UTC {
 		t.Fatalf("env must win over heartbeat zone, got %v", got)
 	}
 	if got := SeatunnelLocationForHost("Asia/Shanghai"); got != time.UTC {

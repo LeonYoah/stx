@@ -2116,9 +2116,6 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		monitoringReadOperation("monitoring.alert-policy.list", []string{"monitoring", "alert-policy", "list"}, "List alert policies", "/api/v1/monitoring/alert-policies", alertPolicyListInputs),
 		monitoringReadOperation("monitoring.alert-policy.execution.list", []string{"monitoring", "alert-policy", "execution", "list"}, "List alert policy executions", "/api/v1/monitoring/alert-policies/:id/executions", policyExecutionInputs),
 		monitoringReadOperation("monitoring.alert-instance.list", []string{"monitoring", "alert-instance", "list"}, "List alert instances", "/api/v1/monitoring/alert-instances", alertInstanceInputs),
-		// stx monitoring alert list 走同一套统一告警实例，路由仍用 /alerts，避免与 alert-instance.list 共用一条登记路由。
-		// stx monitoring alert list uses the unified alert instances; it keeps /alerts so the registry route stays unique.
-		monitoringReadOperation("monitoring.alert.list", []string{"monitoring", "alert", "list"}, "List unified alert instances", "/api/v1/monitoring/alerts", alertInstanceInputs),
 		monitoringReadOperation("monitoring.remote-alert.list", []string{"monitoring", "remote-alert", "list"}, "List remote alerts", "/api/v1/monitoring/remote-alerts", remoteAlertInputs),
 		monitoringReadOperation("monitoring.cluster.rule.list", []string{"monitoring", "cluster", "rule", "list"}, "List cluster alert rules", "/api/v1/monitoring/clusters/:id/rules", clusterID),
 		monitoringReadOperation("monitoring.integration.status", []string{"monitoring", "integration", "status"}, "Get monitoring integration status", "/api/v1/monitoring/integration/status", nil),

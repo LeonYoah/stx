@@ -20,6 +20,7 @@
 package timex
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -42,7 +43,7 @@ var (
 	// engineLocationLookup 由控制面注入：按集群取 Master 节点 Agent 上报的 IANA 时区。
 	// engineLocationLookup is injected by the control plane: the IANA zone the cluster master Agent reported.
 	engineLocationMu     sync.RWMutex
-	engineLocationLookup func(clusterID uint) *time.Location
+	engineLocationLookup func(ctx context.Context, clusterID uint) *time.Location
 )
 
 // Now 返回当前 UTC 时间，作为 GORM NowFunc 与所有持久化写入的时间源。
@@ -169,8 +170,11 @@ func BoundAny(v interface{}) interface{} {
 }
 
 // SetEngineLocationLookup 注入按集群解析引擎时区的回调（通常读 Master 节点心跳上报的 timezone）。
+// 回调应使用调用方 ctx；GetNodes 会查库，EngineLocation 会给没有截止时间的 ctx 加上超时。
 // SetEngineLocationLookup injects the per-cluster engine-zone lookup (usually the master node's heartbeat timezone).
-func SetEngineLocationLookup(fn func(clusterID uint) *time.Location) {
+// The callback should use the caller's ctx; GetNodes hits the DB, and EngineLocation adds a timeout when the ctx has
+// no deadline.
+func SetEngineLocationLookup(fn func(ctx context.Context, clusterID uint) *time.Location) {
 	engineLocationMu.Lock()
 	engineLocationLookup = fn
 	engineLocationMu.Unlock()
@@ -201,7 +205,7 @@ func localOrUTC() *time.Location {
 	return time.UTC
 }
 
-func lookupEngineLocation(clusterID uint) *time.Location {
+func lookupEngineLocation(ctx context.Context, clusterID uint) *time.Location {
 	if clusterID == 0 {
 		return nil
 	}
@@ -211,7 +215,10 @@ func lookupEngineLocation(clusterID uint) *time.Location {
 	if fn == nil {
 		return nil
 	}
-	return fn(clusterID)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return fn(ctx, clusterID)
 }
 
 // SeatunnelLocation 返回解析 SeaTunnel 引擎/日志中无偏移时间时使用的时区：
@@ -221,17 +228,17 @@ func lookupEngineLocation(clusterID uint) *time.Location {
 // control-plane process local zone (time.Local). Prefer SeatunnelLocationForCluster when a cluster id is known so the
 // Agent-reported node zone is used.
 func SeatunnelLocation() *time.Location {
-	return SeatunnelLocationForCluster(0)
+	return SeatunnelLocationForCluster(context.Background(), 0)
 }
 
 // SeatunnelLocationForCluster 解析指定集群的引擎无偏移时间：STX_SEATUNNEL_TIMEZONE > Master 心跳时区 > time.Local。
 // SeatunnelLocationForCluster parses naive engine times for a cluster: STX_SEATUNNEL_TIMEZONE, then the master
 // heartbeat zone, then time.Local.
-func SeatunnelLocationForCluster(clusterID uint) *time.Location {
+func SeatunnelLocationForCluster(ctx context.Context, clusterID uint) *time.Location {
 	if loc := envSeatunnelLocation(); loc != nil {
 		return loc
 	}
-	if loc := lookupEngineLocation(clusterID); loc != nil {
+	if loc := lookupEngineLocation(ctx, clusterID); loc != nil {
 		return loc
 	}
 	return localOrUTC()

@@ -190,6 +190,19 @@ func (s *Service) GetClustersHealthFor(ctx context.Context, clusterID uint) (*Cl
 	return data, nil
 }
 
+// invalidateClustersHealthCache 丢掉全部范围的集群健康缓存，使首页 / 大盘告警数在确认或关闭后立刻对齐。
+// invalidateClustersHealthCache drops every clusters-health cache entry so home / dashboard alert counts
+// match immediately after an ack or close.
+func (s *Service) invalidateClustersHealthCache() {
+	if s == nil {
+		return
+	}
+	s.clustersHealthMu.Lock()
+	s.clustersHealthCache = make(map[uint]*ClusterHealthData)
+	s.clustersHealthUntil = make(map[uint]time.Time)
+	s.clustersHealthMu.Unlock()
+}
+
 // loadClustersHealth 计算集群健康摘要（不读缓存）。clusterID=0 表示全部集群。
 // loadClustersHealth computes the cluster health summary (no cache). clusterID 0 means every cluster.
 func (s *Service) loadClustersHealth(ctx context.Context, clusterID uint) (*ClusterHealthData, error) {

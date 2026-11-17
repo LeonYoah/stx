@@ -259,6 +259,63 @@ func TestListVisibleInstalledPluginsMapsCdcMysql(t *testing.T) {
 	}
 }
 
+func TestFirstNodeConnectorDetailsQueriesOnlineMasterOnly(t *testing.T) {
+	service, _ := newTestPluginService(t)
+	oldTTL := bundledConnectorCacheTTL
+	bundledConnectorCacheTTL = 0
+	t.Cleanup(func() { bundledConnectorCacheTTL = oldTTL })
+	sender := &replaySender{nodePlugins: []map[string]string{
+		{"name": "fake", "version": "2.3.13", "connector_path": "connectors/connector-fake-2.3.13.jar"},
+	}}
+	service.SetClusterNodeGetter(stubPluginNodes{nodes: []ClusterNodeInfo{
+		{NodeID: 2, HostID: 12, InstallDir: "/opt/st", Role: "worker", IsOnline: true},
+		{NodeID: 1, HostID: 11, InstallDir: "/opt/st", Role: "master", IsOnline: true},
+		{NodeID: 3, HostID: 13, InstallDir: "/opt/st", Role: "worker", IsOnline: true},
+	}})
+	service.SetHostInfoGetter(stubPluginHosts{agents: map[uint]string{11: "a-master", 12: "a-worker", 13: "a-worker-2"}})
+	service.SetAgentCommandSender(sender)
+
+	if _, err := service.ListVisibleInstalledPlugins(context.Background(), 1); err != nil {
+		t.Fatalf("ListVisibleInstalledPlugins: %v", err)
+	}
+	if got := sender.listPluginCalls(); got != 1 {
+		t.Fatalf("list_plugins calls = %d, want 1", got)
+	}
+	if sender.sent[0].agentID != "a-master" {
+		t.Fatalf("first list_plugins agent = %s, want a-master", sender.sent[0].agentID)
+	}
+}
+
+func TestFirstNodeConnectorDetailsFallsBackWhenMasterFails(t *testing.T) {
+	service, _ := newTestPluginService(t)
+	oldTTL := bundledConnectorCacheTTL
+	bundledConnectorCacheTTL = 0
+	t.Cleanup(func() { bundledConnectorCacheTTL = oldTTL })
+	sender := &replaySender{
+		nodePlugins: []map[string]string{
+			{"name": "fake", "version": "2.3.13", "connector_path": "connectors/connector-fake-2.3.13.jar"},
+		},
+		listErrByAgent: map[string]error{"a-master": errors.New("master down")},
+	}
+	service.SetClusterNodeGetter(stubPluginNodes{nodes: []ClusterNodeInfo{
+		{NodeID: 1, HostID: 11, InstallDir: "/opt/st", Role: "master", IsOnline: true},
+		{NodeID: 2, HostID: 12, InstallDir: "/opt/st", Role: "worker", IsOnline: true},
+	}})
+	service.SetHostInfoGetter(stubPluginHosts{agents: map[uint]string{11: "a-master", 12: "a-worker"}})
+	service.SetAgentCommandSender(sender)
+
+	visible, err := service.ListVisibleInstalledPlugins(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ListVisibleInstalledPlugins: %v", err)
+	}
+	if len(visible) != 1 || visible[0].PluginName != "fake" {
+		t.Fatalf("visible = %+v, want bundled fake from worker", visible)
+	}
+	if got := sender.listPluginCalls(); got != 2 {
+		t.Fatalf("list_plugins calls = %d, want 2 (master fail then worker)", got)
+	}
+}
+
 func TestListVisibleInstalledPluginsCachesBundledConnectors(t *testing.T) {
 	service, _ := newTestPluginService(t)
 	oldTTL := bundledConnectorCacheTTL

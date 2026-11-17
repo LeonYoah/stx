@@ -164,6 +164,48 @@ func TestClustersHealthUsesShortCache(t *testing.T) {
 	}
 }
 
+func TestClustersHealthCacheClearedAfterClose(t *testing.T) {
+	service, repo, cluster, ctx := setupMonitoringAlertPolicyService(t)
+	oldTTL := clustersHealthCacheTTL
+	clustersHealthCacheTTL = time.Hour
+	t.Cleanup(func() { clustersHealthCacheTTL = oldTTL })
+
+	now := time.Now().UTC()
+	episode := &SyncAlertEpisode{
+		Scope:          SyncAlertEpisodeScopeTask,
+		ClusterID:      cluster.ID,
+		TaskID:         9,
+		RuleKey:        "sync_submit_failed",
+		Status:         SyncAlertEpisodeFiring,
+		Severity:       AlertSeverityCritical,
+		ClusterName:    cluster.Name,
+		TaskName:       "close-cache",
+		FirstFiredAt:   now,
+		LastOccurredAt: now,
+	}
+	if err := repo.db.Create(episode).Error; err != nil {
+		t.Fatalf("create sync episode: %v", err)
+	}
+	first, err := service.GetClustersHealth(ctx)
+	if err != nil {
+		t.Fatalf("first health: %v", err)
+	}
+	if first.Clusters[0].ActiveAlerts != 1 {
+		t.Fatalf("want 1 firing alert cached, got %+v", first.Clusters[0])
+	}
+
+	if _, err := service.CloseAlertInstance(ctx, buildSyncAlertSourceKey(episode.ID), "ops", "handled"); err != nil {
+		t.Fatalf("close instance: %v", err)
+	}
+	fresh, err := service.GetClustersHealth(ctx)
+	if err != nil {
+		t.Fatalf("health after close: %v", err)
+	}
+	if fresh.Clusters[0].ActiveAlerts != 0 {
+		t.Fatalf("health after close must drop the closed alert immediately, got %+v", fresh.Clusters[0])
+	}
+}
+
 func TestClustersHealthForOnlyCountsRequestedCluster(t *testing.T) {
 	service, repo, cluster, ctx := setupMonitoringAlertPolicyService(t)
 	other := &clusterapp.Cluster{

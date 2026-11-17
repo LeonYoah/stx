@@ -131,7 +131,6 @@ func TestRootCommandRegistersMonitoringReadCommands(t *testing.T) {
 		{"monitoring", "cluster", "overview", "get"},
 		{"monitoring", "alert-policy", "list"},
 		{"monitoring", "alert-instance", "list"},
-		{"monitoring", "alert", "list"},
 		{"monitoring", "integration", "status"},
 		{"monitoring", "platform-health", "get"},
 		{"monitoring", "notification-channel", "list"},

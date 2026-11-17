@@ -225,7 +225,7 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	case alertStoreMetricRecord:
 		record, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, parsed.Fingerprint, parsed.StartsAt)
 		if err != nil {
@@ -248,7 +248,7 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	case alertStoreSyncEpisode:
 		clusterID, ruleKey, err := s.syncAlertEpisodeClusterRule(ctx, parsed.EpisodeID)
 		if err != nil {
@@ -266,7 +266,7 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	default:
 		return nil, ErrAlertInstanceInvalidID
 	}
@@ -324,7 +324,7 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	case alertStoreMetricRecord:
 		record, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, parsed.Fingerprint, parsed.StartsAt)
 		if err != nil {
@@ -345,7 +345,7 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	case alertStoreSyncEpisode:
 		clusterID, ruleKey, err := s.syncAlertEpisodeClusterRule(ctx, parsed.EpisodeID)
 		if err != nil {
@@ -363,7 +363,7 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	default:
 		return nil, ErrAlertInstanceInvalidID
 	}
@@ -424,7 +424,7 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	case alertStoreMetricRecord:
 		record, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, parsed.Fingerprint, parsed.StartsAt)
 		if err != nil {
@@ -446,7 +446,7 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	case alertStoreSyncEpisode:
 		// 关闭作用于整个阶段：之后不再提醒；同一个键再出问题时开新阶段。
 		// Closing applies to the whole episode: no more reminders, and the next problem on the key opens a new one.
@@ -466,7 +466,7 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	default:
 		return nil, ErrAlertInstanceInvalidID
 	}
@@ -916,11 +916,6 @@ func remoteRecordRuleKey(record *RemoteAlertRecord) string {
 
 func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {
 	sourceKey = strings.TrimSpace(sourceKey)
-	// 兼容列表 ID 为 local:event:N，而旧 ack/silence 路径只传数字事件 ID。
-	// Accept list IDs of local:event:N and the older ack/silence path that only sent a numeric event ID.
-	if eventID, err := strconv.ParseUint(sourceKey, 10, 32); err == nil && eventID > 0 {
-		sourceKey = buildLocalAlertSourceKey(uint(eventID))
-	}
 	parts := strings.Split(sourceKey, ":")
 	if len(parts) < 3 {
 		return nil, fmt.Errorf("invalid alert id")
@@ -1059,6 +1054,14 @@ func applyAlertStateToInstance(item *AlertInstance, state *AlertState) {
 	item.ClosedBy = state.ClosedBy
 	item.ClosedAt = toUTCTimePointer(state.ClosedAt)
 	item.LatestNote = state.Note
+}
+
+// alertInstanceActionOK 在确认 / 静默 / 关闭成功后丢掉集群健康缓存，让首页和大盘告警数立刻对齐。
+// alertInstanceActionOK drops the clusters-health cache after a successful ack / silence / close so home and
+// dashboard alert counts update immediately.
+func (s *Service) alertInstanceActionOK(state *AlertState) *AlertInstanceActionResult {
+	s.invalidateClustersHealthCache()
+	return toAlertInstanceActionResult(state)
 }
 
 func toAlertInstanceActionResult(state *AlertState) *AlertInstanceActionResult {

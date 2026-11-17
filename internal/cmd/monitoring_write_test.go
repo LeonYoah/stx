@@ -47,9 +47,6 @@ func TestMonitoringWriteCommandsSendExpectedRequests(t *testing.T) {
 		{name: "instance ack", operationID: "monitoring.alert-instance.ack", method: http.MethodPost, path: "/api/v1/monitoring/alert-instances/alert-1/ack", args: []string{"monitoring", "alert-instance", "ack", "alert-1", "--note", "checked"}, assertBody: assertMonitoringNote("checked")},
 		{name: "instance silence", operationID: "monitoring.alert-instance.silence", method: http.MethodPost, path: "/api/v1/monitoring/alert-instances/alert-1/silence", args: []string{"monitoring", "alert-instance", "silence", "alert-1", "--duration-minutes", "30"}, assertBody: assertMonitoringDuration(30)},
 		{name: "instance close", operationID: "monitoring.alert-instance.close", method: http.MethodPost, path: "/api/v1/monitoring/alert-instances/alert-1/close", args: []string{"monitoring", "alert-instance", "close", "alert-1", "--note", "resolved"}, assertBody: assertMonitoringNote("resolved")},
-		{name: "alert ack", operationID: "monitoring.alert.ack", method: http.MethodPost, path: "/api/v1/monitoring/alerts/9/ack", args: []string{"monitoring", "alert", "ack", "9", "--note", "checked"}, assertBody: assertMonitoringNote("checked")},
-		{name: "alert silence", operationID: "monitoring.alert.silence", method: http.MethodPost, path: "/api/v1/monitoring/alerts/9/silence", args: []string{"monitoring", "alert", "silence", "9", "--duration-minutes", "45"}, assertBody: assertMonitoringDuration(45)},
-		{name: "alert close", operationID: "monitoring.alert.close", method: http.MethodPost, path: "/api/v1/monitoring/alerts/9/close", args: []string{"monitoring", "alert", "close", "9", "--note", "resolved"}, assertBody: assertMonitoringNote("resolved")},
 		{name: "rule update", operationID: "monitoring.cluster.rule.update", method: http.MethodPut, path: "/api/v1/monitoring/clusters/6/rules/3", args: []string{"monitoring", "cluster", "rule", "update", "6", "3", "--request-file", requestFile}},
 		{name: "channel create", operationID: "monitoring.notification-channel.create", method: http.MethodPost, path: "/api/v1/monitoring/notification-channels", args: []string{"monitoring", "notification-channel", "create", "--request-file", requestFile}},
 		{name: "channel update", operationID: "monitoring.notification-channel.update", method: http.MethodPut, path: "/api/v1/monitoring/notification-channels/4", args: []string{"monitoring", "notification-channel", "update", "4", "--request-file", requestFile}},
@@ -116,7 +113,7 @@ func TestMonitoringSilenceValidatesDurationBeforeNetwork(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
 	defer server.Close()
 	store := newExecutionTestStore(t, server.URL, "test-token")
-	_, stderr, exitCode := runMonitoringWriteCommand(t, store, "monitoring", "alert", "silence", "1", "--duration-minutes", "0", "--confirm")
+	_, stderr, exitCode := runMonitoringWriteCommand(t, store, "monitoring", "alert-instance", "silence", "1", "--duration-minutes", "0", "--confirm")
 	if exitCode != int(clioutput.ExitUsage) || calls != 0 {
 		t.Fatalf("非法静默时长仍发起请求: code=%d calls=%d stderr=%s", exitCode, calls, stderr)
 	}
@@ -127,7 +124,7 @@ func TestRootCommandRegistersMonitoringWriteCommands(t *testing.T) {
 	paths := [][]string{
 		{"monitoring", "alert-policy", "create"}, {"monitoring", "alert-policy", "update"},
 		{"monitoring", "alert-instance", "ack"}, {"monitoring", "alert-instance", "silence"}, {"monitoring", "alert-instance", "close"},
-		{"monitoring", "alert", "ack"}, {"monitoring", "alert", "silence"}, {"monitoring", "cluster", "rule", "update"},
+		{"monitoring", "cluster", "rule", "update"},
 		{"monitoring", "notification-channel", "create"}, {"monitoring", "notification-channel", "update"}, {"monitoring", "notification-channel", "test"},
 		{"monitoring", "notification-channel", "test-draft"}, {"monitoring", "notification-channel", "test-connection"},
 		{"monitoring", "notification-route", "create"}, {"monitoring", "notification-route", "update"},

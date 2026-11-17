@@ -308,81 +308,6 @@ func (s *Service) countFiringAlertsForCluster(ctx context.Context, clusterID uin
 	return alerts.Stats.Firing, nil
 }
 
-// AcknowledgeAlert marks one alert event as acknowledged.
-// AcknowledgeAlert 将单条告警标记为已确认。
-func (s *Service) AcknowledgeAlert(ctx context.Context, eventID uint, operator, note string) (*AlertActionResult, error) {
-	if s.repo == nil {
-		return nil, fmt.Errorf("monitoring repository is not configured")
-	}
-	if eventID == 0 {
-		return nil, fmt.Errorf("invalid event id")
-	}
-	if strings.TrimSpace(operator) == "" {
-		operator = "unknown"
-	}
-
-	event, err := s.monitorService.GetEvent(ctx, eventID)
-	if err != nil {
-		return nil, err
-	}
-	if !isAlertableEventType(event.EventType) {
-		return nil, fmt.Errorf("event is not alertable")
-	}
-
-	_, state, err := s.persistLocalAlertHandlingState(
-		ctx,
-		event,
-		AlertHandlingStatusAcknowledged,
-		operator,
-		nil,
-		note,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return toAlertActionResult(state), nil
-}
-
-// SilenceAlert silences one alert event for a duration in minutes.
-// SilenceAlert 将单条告警静默一段分钟数。
-func (s *Service) SilenceAlert(ctx context.Context, eventID uint, operator string, durationMinutes int, note string) (*AlertActionResult, error) {
-	if s.repo == nil {
-		return nil, fmt.Errorf("monitoring repository is not configured")
-	}
-	if eventID == 0 {
-		return nil, fmt.Errorf("invalid event id")
-	}
-	if durationMinutes < 1 || durationMinutes > 7*24*60 {
-		return nil, fmt.Errorf("duration_minutes must be between 1 and 10080")
-	}
-	if strings.TrimSpace(operator) == "" {
-		operator = "unknown"
-	}
-
-	event, err := s.monitorService.GetEvent(ctx, eventID)
-	if err != nil {
-		return nil, err
-	}
-	if !isAlertableEventType(event.EventType) {
-		return nil, fmt.Errorf("event is not alertable")
-	}
-
-	now := timex.Now()
-	silencedUntil := now.Add(time.Duration(durationMinutes) * time.Minute)
-	_, state, err := s.persistLocalAlertHandlingState(
-		ctx,
-		event,
-		AlertHandlingStatusSilenced,
-		operator,
-		&silencedUntil,
-		note,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return toAlertActionResult(state), nil
-}
-
 // ListClusterRules returns rules for one cluster.
 // ListClusterRules 返回单集群告警规则列表。
 func (s *Service) ListClusterRules(ctx context.Context, clusterID uint) (*AlertRuleListData, error) {
@@ -1277,39 +1202,6 @@ func eventTypeToRuleKey(eventType monitor.ProcessEventType) string {
 		return AlertRuleKeyNodeOffline
 	default:
 		return ""
-	}
-}
-
-func resolveAlertStatus(state *AlertEventState, now time.Time) AlertStatus {
-	if state == nil {
-		return AlertStatusFiring
-	}
-
-	switch state.Status {
-	case AlertStatusSilenced:
-		if state.SilencedUntil != nil && state.SilencedUntil.After(now) {
-			return AlertStatusSilenced
-		}
-		return AlertStatusFiring
-	case AlertStatusAcknowledged:
-		return AlertStatusAcknowledged
-	default:
-		return AlertStatusFiring
-	}
-}
-
-func toAlertActionResult(state *AlertEventState) *AlertActionResult {
-	if state == nil {
-		return nil
-	}
-	return &AlertActionResult{
-		EventID:          state.EventID,
-		Status:           state.Status,
-		AcknowledgedBy:   state.AcknowledgedBy,
-		AcknowledgedAt:   state.AcknowledgedAt,
-		SilencedBy:       state.SilencedBy,
-		SilencedUntil:    state.SilencedUntil,
-		LatestActionNote: state.Note,
 	}
 }
 

@@ -71,41 +71,6 @@ func (h *Handler) GetClusterOverview(c *gin.Context) {
 	c.JSON(http.StatusOK, Response{Data: data})
 }
 
-// ListAlerts 处理 GET /api/v1/monitoring/alerts：与告警中心同一套统一告警实例（本地进程、远程指标、同步作业）。
-// ListAlerts handles GET /api/v1/monitoring/alerts: the same unified instances as the alert center
-// (local process events, remote metrics, and sync jobs).
-func (h *Handler) ListAlerts(c *gin.Context) {
-	h.ListAlertInstances(c)
-}
-
-// AcknowledgeAlert 处理 POST /api/v1/monitoring/alerts/:eventId/ack：与告警中心同一套实例 ID（含 local:event:N 与纯数字事件 ID）。
-// AcknowledgeAlert handles POST /api/v1/monitoring/alerts/:eventId/ack using the same instance IDs as the alert center
-// (local:event:N or a numeric event ID).
-func (h *Handler) AcknowledgeAlert(c *gin.Context) {
-	h.withAlertInstanceID(c, c.Param("eventId"), h.AcknowledgeAlertInstance)
-}
-
-// SilenceAlert 处理 POST /api/v1/monitoring/alerts/:eventId/silence：ID 语义与 AcknowledgeAlert 相同。
-// SilenceAlert handles POST /api/v1/monitoring/alerts/:eventId/silence with the same ID rules as AcknowledgeAlert.
-func (h *Handler) SilenceAlert(c *gin.Context) {
-	h.withAlertInstanceID(c, c.Param("eventId"), h.SilenceAlertInstance)
-}
-
-// CloseAlert 处理 POST /api/v1/monitoring/alerts/:eventId/close：关闭与告警中心同一条实例。
-// CloseAlert handles POST /api/v1/monitoring/alerts/:eventId/close for the same instance as the alert center.
-func (h *Handler) CloseAlert(c *gin.Context) {
-	h.withAlertInstanceID(c, c.Param("eventId"), h.CloseAlertInstance)
-}
-
-// withAlertInstanceID 把 /alerts/:eventId 上的 ID 填进实例接口使用的 :id 参数。
-// withAlertInstanceID copies the /alerts/:eventId value into the :id param used by instance handlers.
-func (h *Handler) withAlertInstanceID(c *gin.Context, alertID string, next gin.HandlerFunc) {
-	if strings.TrimSpace(c.Param("id")) == "" {
-		c.Params = append(c.Params, gin.Param{Key: "id", Value: strings.TrimSpace(alertID)})
-	}
-	next(c)
-}
-
 // ListClusterRules handles GET /api/v1/monitoring/clusters/:id/rules
 // ListClusterRules 处理 GET /api/v1/monitoring/clusters/:id/rules
 func (h *Handler) ListClusterRules(c *gin.Context) {

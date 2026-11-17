@@ -27,9 +27,22 @@ import (
 // EngineLocation 返回该集群解析 SeaTunnel 无偏移时间应使用的时区：优先在线 Master（或 master_worker）心跳上报的 IANA 时区，否则任一 Master 已上报的时区。
 // EngineLocation is the zone for naive SeaTunnel times in this cluster: the online master (or master_worker) heartbeat
 // IANA zone first, otherwise any master's last reported zone.
+// engineLocationQueryTimeout 是 GetNodes 查库的上限：调用方 ctx 没有截止时间时才套上，避免 Background 卡住作业对账。
+// engineLocationQueryTimeout caps the GetNodes DB lookup; it is applied only when the caller ctx has no deadline so
+// a Background ctx cannot stall job reconcile.
+const engineLocationQueryTimeout = 2 * time.Second
+
 func (s *Service) EngineLocation(ctx context.Context, clusterID uint) *time.Location {
 	if s == nil || s.hostProvider == nil || clusterID == 0 {
 		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, engineLocationQueryTimeout)
+		defer cancel()
 	}
 	if _, hostInfo, err := s.pickSTXJavaProxyNode(ctx, clusterID); err == nil && hostInfo != nil {
 		if loc := timex.LoadIANA(hostInfo.Timezone); loc != nil {

@@ -105,6 +105,16 @@ type ClusterNodeInfo struct {
 	NodeID     uint   // Node ID / 节点 ID
 	HostID     uint   // Host ID / 主机 ID
 	InstallDir string // SeaTunnel installation directory / SeaTunnel 安装目录
+	Role       string // Node role (master / worker / master/worker) / 节点角色
+	IsOnline   bool   // Whether the host is currently online / 主机当前是否在线
+}
+
+// nodeConnectorDetail 是节点 list_plugins 返回的一条连接器记录。
+// nodeConnectorDetail is one connector row from a node's list_plugins result.
+type nodeConnectorDetail struct {
+	Name          string
+	Version       string
+	ConnectorPath string
 }
 
 // ClusterNodeGetter is an interface for getting cluster nodes.
@@ -830,6 +840,8 @@ func (s *Service) fetchBundledConnectors(ctx context.Context, clusterID uint) []
 		logger.WarnF(ctx, "[Plugin] 列出集群 %d 节点失败，跳过安装包自带连接器合并: %v / list cluster %d nodes failed, skip bundled connector merge: %v", clusterID, err, clusterID, err)
 		return nil
 	}
+	// 「自带」= 节点 connectors 目录里有、控制面没有安装记录（手工拷进去的 jar 也会被算成自带）。
+	// "Bundled" means the jar is on the node and the control plane has no install record (manually copied jars count too).
 	details := s.firstNodeConnectorDetails(ctx, nodes)
 	if len(details) == 0 {
 		return nil
@@ -865,52 +877,54 @@ func (s *Service) fetchBundledConnectors(ctx context.Context, clusterID uint) []
 	return extras
 }
 
-func (s *Service) firstNodeConnectorDetails(ctx context.Context, nodes []ClusterNodeInfo) []struct {
-	Name          string
-	Version       string
-	ConnectorPath string
-} {
-	type outcome struct {
-		details []struct {
-			Name          string
-			Version       string
-			ConnectorPath string
-		}
-		err error
+// connectorProbeRank 决定 list_plugins 探测顺序：在线 Master 最先，再其他在线节点，再离线 Master，最后其余。
+// connectorProbeRank ranks list_plugins probes: online master first, then other online nodes, then offline masters, then the rest.
+func connectorProbeRank(node ClusterNodeInfo) int {
+	role := strings.ToLower(strings.TrimSpace(node.Role))
+	master := role == "master" || role == "master/worker"
+	switch {
+	case node.IsOnline && master:
+		return 0
+	case node.IsOnline:
+		return 1
+	case master:
+		return 2
+	default:
+		return 3
 	}
+}
+
+func connectorProbeOrder(nodes []ClusterNodeInfo) []ClusterNodeInfo {
+	ordered := append([]ClusterNodeInfo(nil), nodes...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return connectorProbeRank(ordered[i]) < connectorProbeRank(ordered[j])
+	})
+	return ordered
+}
+
+// firstNodeConnectorDetails 按探测顺序逐个节点发 list_plugins，拿到第一份成功结果即停，避免每个节点都打一遍。
+// firstNodeConnectorDetails sends list_plugins to nodes in probe order and stops at the first success so every node is not queried.
+func (s *Service) firstNodeConnectorDetails(ctx context.Context, nodes []ClusterNodeInfo) []nodeConnectorDetail {
 	listCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	started := 0
-	ch := make(chan outcome, len(nodes))
-	for _, node := range nodes {
+	for _, node := range connectorProbeOrder(nodes) {
+		if listCtx.Err() != nil {
+			break
+		}
 		agentID, hostErr := s.hostInfoGetter.GetHostAgentID(listCtx, node.HostID)
 		if hostErr != nil || strings.TrimSpace(agentID) == "" || strings.TrimSpace(node.InstallDir) == "" {
 			continue
 		}
-		started++
-		go func(agentID, installDir string, nodeID uint) {
-			details, listErr := s.listNodeConnectorDetails(listCtx, agentID, installDir)
-			if listErr != nil {
-				logger.WarnF(ctx, "[Plugin] 读取节点 %d 连接器失败: %v / list connectors on node %d failed: %v", nodeID, listErr, nodeID, listErr)
-			}
-			ch <- outcome{details: details, err: listErr}
-		}(agentID, node.InstallDir, node.NodeID)
-	}
-	var first []struct {
-		Name          string
-		Version       string
-		ConnectorPath string
-	}
-	for i := 0; i < started; i++ {
-		item := <-ch
-		if item.err != nil || len(item.details) == 0 {
+		details, listErr := s.listNodeConnectorDetails(listCtx, agentID, node.InstallDir)
+		if listErr != nil {
+			logger.WarnF(ctx, "[Plugin] 读取节点 %d 连接器失败: %v / list connectors on node %d failed: %v", node.NodeID, listErr, node.NodeID, listErr)
 			continue
 		}
-		if first == nil {
-			first = item.details
+		if len(details) > 0 {
+			return details
 		}
 	}
-	return first
+	return nil
 }
 
 func (s *Service) reconcileInstalledPluginVersions(ctx context.Context, clusterID uint, plugins []InstalledPlugin) []InstalledPlugin {

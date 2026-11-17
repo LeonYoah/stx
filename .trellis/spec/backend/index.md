@@ -28,6 +28,7 @@
 | [作业计划 DAG](./job-plan-dag.md) | 运行作业用提交内容经 config tool 推导表结构与建表计划（`/jobs/:id/plan-dag`），原因码代替报错、不缓存不回写 | 已填写 |
 | [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md) | 提交等待、守护进程、登录令牌、推送绑定与 CLI 退出码 | 已填写 |
 | [SeaTunnel 无偏移时间解析](./engine-timezone.md) | 引擎/日志无偏移时间：`STX_SEATUNNEL_TIMEZONE` > Master 心跳时区 > `time.Local` | 已填写 |
+| [进程剖析 pprof](./pprof.md) | 本机 loopback 监听、管理员 API/CLI、内嵌 tsdb 接口怎么测 | 已填写 |
 
 ---
 
@@ -43,6 +44,7 @@
 - 涉及作业告警（提交失败、提交超时、作业失败、停止超时、作业状态获取失败、事件通道降级）、`monitoring_sync_alert_episodes`、任务告警配置或修改会发出告警信号的状态写入时，阅读[同步作业告警](./sync-alerts.md)。
 - 涉及 DolphinScheduler SHELL 节点、`--wait`/`--close-job`、登录令牌或工作流推送时，阅读[DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)。
 - 涉及引擎 REST / 作业 `finishTime`、诊断日志时间窗或 Agent 心跳时区时，阅读[SeaTunnel 无偏移时间解析](./engine-timezone.md)。
+- 涉及进程剖析、pprof 监听或测量内嵌 tsdb 接口耗时时，阅读[进程剖析 pprof](./pprof.md)。
 - 新增源文件、方法或用户可见文案时，按[质量规范](./quality-guidelines.md)检查注释、License 头和语言输出。
 
 ## 质量检查

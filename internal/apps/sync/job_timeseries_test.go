@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/embedts"
+	"github.com/prometheus/prometheus/model/labels"
 )
 
 func TestGetJobTimeseries_observabilityDisabled(t *testing.T) {
@@ -152,6 +154,62 @@ func TestAutoTimeseriesStep(t *testing.T) {
 		if got := autoTimeseriesStep(span); got != want {
 			t.Fatalf("span %s: step %d, want %d", span, got, want)
 		}
+	}
+}
+
+// TestGetJobTimeseries_readsEmbeddedTsdb 向内嵌 tsdb 写入吞吐计数后走真实 PromQL，确认趋势接口能读到序列。
+// TestGetJobTimeseries_readsEmbeddedTsdb writes throughput counters into the embedded tsdb and checks the
+// timeseries API returns series via real PromQL.
+func TestGetJobTimeseries_readsEmbeddedTsdb(t *testing.T) {
+	originalEnabled := config.Config.Observability.Enabled
+	t.Cleanup(func() {
+		config.Config.Observability.Enabled = originalEnabled
+		_ = embedts.Close()
+	})
+	config.Config.Observability.Enabled = true
+	_ = embedts.Close()
+	ctx := context.Background()
+	if err := embedts.Start(ctx, embedts.Options{Dir: t.TempDir(), QueryTimeout: 5 * time.Second, MaxSamples: 100000}); err != nil {
+		t.Fatalf("start tsdb: %v", err)
+	}
+	now := time.Now().UTC()
+	app := embedts.Appender(ctx)
+	if app == nil {
+		t.Fatal("appender is nil")
+	}
+	read := labels.FromStrings(labels.MetricName, "stx_job_source_received_rows_total", "job_id", "9")
+	write := labels.FromStrings(labels.MetricName, "stx_job_sink_write_rows_total", "job_id", "9")
+	for i := 0; i < 20; i++ {
+		ts := now.Add(-time.Duration(20-i) * 15 * time.Second).UnixMilli()
+		if _, err := app.Append(0, read, ts, float64((i+1)*100)); err != nil {
+			t.Fatalf("append read: %v", err)
+		}
+		if _, err := app.Append(0, write, ts, float64((i+1)*80)); err != nil {
+			t.Fatalf("append write: %v", err)
+		}
+	}
+	if err := app.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	svc := &Service{}
+	job := &JobInstance{ID: 9, TaskID: 1, Status: JobStatusRunning}
+	out, err := svc.getJobTimeseries(ctx, job, "15m", nil, "throughput", 15)
+	if err != nil {
+		t.Fatalf("timeseries: %v", err)
+	}
+	if out.Source != "prometheus" {
+		t.Fatalf("source=%s reason=%s", out.Source, out.Reason)
+	}
+	keys := map[string]bool{}
+	for _, series := range out.Series {
+		keys[series.Key] = true
+		if len(series.Points) == 0 {
+			t.Fatalf("empty points for %s", series.Key)
+		}
+	}
+	if !keys["throughput_read"] || !keys["throughput_write"] {
+		t.Fatalf("missing throughput series: %+v", out.Series)
 	}
 }
 

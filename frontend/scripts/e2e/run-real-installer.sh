@@ -239,10 +239,27 @@ docker rm -f "${MINIO_NAME}" >/dev/null 2>&1 || true
 JAVA_PROXY_SCRIPT_PATH="${ROOT_DIR}/scripts/stx-java-proxy.sh"
 JAVA_PROXY_LIB_PATH="${ROOT_DIR}/lib/stx-java-proxy-${JAVA_PROXY_EPOCH}.jar"
 if [[ ! -f "${JAVA_PROXY_LIB_PATH}" ]]; then
-  if [[ "${JAVA_PROXY_EPOCH}" == "v3" ]]; then
-    mvn -q -DskipTests -P'epoch-v3,!epoch-v2' package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml"
-  else
-    mvn -q -DskipTests -Pepoch-v2 package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml"
+  # Maven Central 偶发 429：多试几次，避免 E2E 整场被 parent POM 下载卡住。
+  # Maven Central occasionally returns 429; retry so E2E is not killed by a parent POM fetch.
+  mvn_ok=false
+  for attempt in 1 2 3 4 5; do
+    if [[ "${JAVA_PROXY_EPOCH}" == "v3" ]]; then
+      mvn_cmd=(mvn -q -DskipTests -P'epoch-v3,!epoch-v2' package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+    else
+      mvn_cmd=(mvn -q -DskipTests -Pepoch-v2 package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+    fi
+    if "${mvn_cmd[@]}"; then
+      mvn_ok=true
+      break
+    fi
+    if [[ "${attempt}" -lt 5 ]]; then
+      echo "[e2e-real] mvn package failed (attempt ${attempt}/5), retrying in $((attempt * 4))s..."
+      sleep $((attempt * 4))
+    fi
+  done
+  if [[ "${mvn_ok}" != "true" ]]; then
+    echo "[e2e-real] mvn package failed after 5 attempts" >&2
+    exit 1
   fi
   BUILT_JAVA_PROXY_JAR="$(find "${ROOT_DIR}/tools/stx-java-proxy/target" -maxdepth 1 -type f -name "stx-java-proxy-${JAVA_PROXY_EPOCH}.jar" | sort | head -n 1 || true)"
   if [[ -z "${BUILT_JAVA_PROXY_JAR}" ]]; then

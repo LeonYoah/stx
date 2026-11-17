@@ -19,6 +19,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -195,6 +196,9 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 	if strings.TrimSpace(c.App.DisplayTimezone) == "" {
 		c.App.DisplayTimezone = timex.DefaultDisplayTimezone
 	}
+	if strings.TrimSpace(c.App.Pprof.Addr) == "" {
+		c.App.Pprof.Addr = "127.0.0.1:6060"
+	}
 	// 数据库默认配置
 	if c.Database.Type == "" {
 		c.Database.Type = "sqlite"
@@ -340,6 +344,9 @@ func validateConfig(c *configModel) error {
 	if c == nil {
 		return nil
 	}
+	if err := validatePprofConfig(c.App.Pprof); err != nil {
+		return err
+	}
 	if !c.Observability.Enabled {
 		return nil
 	}
@@ -369,6 +376,24 @@ func validateConfig(c *configModel) error {
 	}
 	if c.Observability.MaxSamples <= 0 {
 		return fmt.Errorf("observability.max_samples must be > 0")
+	}
+	return nil
+}
+
+// validatePprofConfig 仅在开启时校验 host:port；关闭时允许任意占位地址。
+// validatePprofConfig checks host:port only when pprof is on; disabled configs may keep a placeholder addr.
+func validatePprofConfig(p PprofConfig) error {
+	if !p.Enabled {
+		return nil
+	}
+	addr := strings.TrimSpace(p.Addr)
+	if addr == "" {
+		return fmt.Errorf("app.pprof.addr is required when app.pprof.enabled=true")
+	}
+	if _, port, err := net.SplitHostPort(addr); err != nil {
+		return fmt.Errorf("app.pprof.addr must be host:port: %w", err)
+	} else if strings.TrimSpace(port) == "" {
+		return fmt.Errorf("app.pprof.addr must include a port")
 	}
 	return nil
 }

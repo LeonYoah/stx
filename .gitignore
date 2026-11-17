@@ -46,6 +46,8 @@ lib/
 /bin/
 /dist/
 *.exe
+# go test -c / -cpuprofile 会在仓库根留下 *.test
+/*.test
 
 # go workspace
 go.work

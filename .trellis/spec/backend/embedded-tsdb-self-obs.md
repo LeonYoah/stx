@@ -23,6 +23,7 @@ CLI：已有 `stx monitoring integration status`（`monitoring.integration.statu
 ### 3. 契约
 
 - 注入标签：`job="stx_embedded"`、`instance="stx"`。exposition 自带 `job`/`instance` 仍按 `honor_labels=false` 改名为 `exported_*`。
+- `up{job="stx_embedded"}` 只表示控制面自抓取在线。集群大盘的 `up` 查询都带 `cluster_id`，内置规则只看 `job="seatunnel_engine_http"`，因此不会把这条序列算进节点在线数。以后若加「全局目标在线数」一类查询，必须排除 `job="stx_embedded"`（以及 `stx_sync_jobs` 等非引擎 job）。
 - 空目标集不能跳过自抓取：`scrapeRound` 在 `len(targets)==0` 时仍要 `SelfScrapeOnce`。
 - `GetStorageStatus` 未就绪返回 `ok=false`；就绪时提供 head 序列数、stale 序列数、head/blocks 字节、最早样本、`compactions_failed`、`size_retentions`。
 - 集成状态 `embedded_tsdb.meta` 在健康时增加：

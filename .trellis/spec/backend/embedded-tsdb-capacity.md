@@ -32,6 +32,7 @@ observability:
 - 单目标单轮展平后样本数超过 `sample_limit`：丢弃该目标本轮样本，`up=0`，`TargetState.LastError` 以 `sample limit exceeded` 开头；其他目标照常提交。
 - 超限判定在构建 `FlatSample` / 标签集之前按展平后样本数计数，数到 `limit+1` 即停；不得先把整份 exposition 物化再丢弃。响应体仍受 `maxExpositionBytes`（64MiB）限制。
 - 推荐活跃序列上限 **2 万**（7d 面板约 670 万样本，低于 1000 万查询上限）。超过后优先截断 `table` 标签或拆作业，而不是再把 `max_samples` 调回 5000 万。
+- **长窗口 `increase` 必须分桶**：`max_samples` 按「一次查询同时加载的原始样本数」计。15s 抓取、持续 31 天的作业每条序列约 17.9 万点；1000 万 ÷ 17.9 万 ≈ **56** 条长跑作业就会让 `increase(...[31d])` 报 `query processing would load too many samples`。首页「本月」总量和按月柱必须改成按显示时区日桶 `increase(...[1d])` 再求和（完整日桶求值时刻对齐当地零点，可命中 15s PromQL 缓存）。面板取点（7d × 1800s step）和长窗口 `increase` 是两类负载，不能只用前者推算容量。
 
 ### 4. 基准怎么跑
 
@@ -102,8 +103,8 @@ STX_TSDB_SOAK=3m STX_TSDB_SOAK_SERIES=10000 STX_TSDB_SOAK_INTERVAL=15s \
 ### 6. Good / Base / Bad
 
 - Good：一个目标 exposition 过大时只该目标 `last_error=sample limit exceeded`，邻居目标 `up=1`。48h soak 的 JSONL 里 `compaction_window=true` 的样本上首页 1h p99 仍低于 `query_timeout`。
-- Base：8G 机器默认 `max_samples=10000000`，7d 首页聚合查询在 2 万序列内不 `ErrTooManySamples`。
-- Bad：把独立 Prometheus 的 5000 万原样搬进 API 进程；或超限时连累整轮 appender；或用 8 点突发档外推 48h RSS。
+- Base：8G 机器默认 `max_samples=10000000`，7d 首页聚合查询在 2 万序列内不 `ErrTooManySamples`。本月读写量走日桶 `increase[1d]`，56+ 条 CDC 作业也不会因单条 `[31d]` 触顶。
+- Bad：把独立 Prometheus 的 5000 万原样搬进 API 进程；或超限时连累整轮 appender；或用 8 点突发档外推 48h RSS；或对本月总量发一条 `increase(...[31d])`。
 
 ### 7. 必须有的测试
 
@@ -113,3 +114,4 @@ STX_TSDB_SOAK=3m STX_TSDB_SOAK_SERIES=10000 STX_TSDB_SOAK_INTERVAL=15s \
 - `TestCapacity_SoakSmoke`（默认跑，秒级真实抓取循环）
 - `TestCapacity_Soak`（`STX_TSDB_SOAK=48h`，文档要求至少跑 2 天）
 - `TestValidateConfig_EmbeddedObservabilityInvalid` 覆盖负 `sample_limit`
+- `TestVolumeIncreaseChunks_LongSpanSplitsDays` / `TestGetVolume_NoGranularityOnlyTotals` / `TestGetVolume_MonthBucketsUseDayIncreases`：长窗口 `increase` 按日分桶，单条查询不超过约 1 天

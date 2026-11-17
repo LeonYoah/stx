@@ -248,10 +248,10 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 	// 每个 span × 每个指标一条 increase 即时查询；totals 恒为全局聚合（不拆分）。
 	// One increase instant query per span × metric; totals always aggregate globally (no split).
 	type taskRef struct {
-		span   volumeSpan
-		metric int
-		query  string
-		split  string
+		span    volumeSpan
+		metric  int
+		counter string
+		split   string
 	}
 	tasks := make([]*taskRef, 0, len(spans)*len(volumeMetrics))
 	for _, span := range spans {
@@ -260,8 +260,7 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 			if span.bucket < 0 {
 				by = ""
 			}
-			tasks = append(tasks, &taskRef{span: span, metric: m, split: by,
-				query: volumeQuery(metric.counter, sel, by, span.end.Sub(span.start))})
+			tasks = append(tasks, &taskRef{span: span, metric: m, counter: metric.counter, split: by})
 		}
 	}
 	type taskResult struct {
@@ -274,7 +273,7 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 		wg.Add(1)
 		go func(i int, task *taskRef) {
 			defer wg.Done()
-			results[i].samples, results[i].err = s.instantQuery(ctx, baseURL, task.query, task.span.end)
+			results[i].samples, results[i].err = s.queryVolumeIncrease(ctx, baseURL, task.counter, sel, task.split, task.span.start, task.span.end, loc)
 		}(i, task)
 	}
 	wg.Wait()
@@ -403,6 +402,111 @@ func (s *VolumeService) resolveGroupNames(ctx context.Context, actor executionap
 		}
 	}
 	return names
+}
+
+// volumeIncreaseMaxSpan 是单次 increase 允许的最长窗口。超过则按显示时区切成日桶再求和，
+// 避免本月 / 按月柱对每条序列一次加载 ~18 万点，在 max_samples=1000 万时大约 56 个长跑作业就触顶。
+// volumeIncreaseMaxSpan is the longest window one increase may load. Longer spans are split into
+// display-timezone day buckets and summed, so a month / monthly bar does not load ~180k points per
+// series and trip max_samples=10M at about 56 long-running jobs.
+const volumeIncreaseMaxSpan = 24 * time.Hour
+
+// queryVolumeIncrease 对跨度 ≤1 天的区间发一条 increase；更长的区间按日桶拆开再把样本加总。
+// 完整日桶的求值时刻落在当地零点，能命中 alignPresetNow 对齐后的 15s PromQL 缓存。
+// queryVolumeIncrease issues one increase when the span is ≤1 day; longer spans are split into day
+// buckets and the samples are summed. Full-day buckets evaluate at local midnight so they can hit
+// the 15s PromQL cache after alignPresetNow.
+func (s *VolumeService) queryVolumeIncrease(ctx context.Context, baseURL, counter, sel, splitBy string, start, end time.Time, loc *time.Location) ([]promquery.Sample, error) {
+	var merged []promquery.Sample
+	for _, chunk := range volumeIncreaseChunks(start, end, loc) {
+		samples, err := s.instantQuery(ctx, baseURL, volumeQuery(counter, sel, splitBy, chunk.end.Sub(chunk.start)), chunk.end)
+		if err != nil {
+			return nil, err
+		}
+		merged = mergeVolumeSamples(merged, samples, splitBy)
+	}
+	return merged, nil
+}
+
+// volumeIncreaseChunks 把长窗口切成显示时区的自然日；DST 下单日超过 24h 时仍只发一条（约 25h，远低于上限）。
+// volumeIncreaseChunks splits a long window onto display-timezone calendar days; a DST day longer
+// than 24h stays one query (~25h, well under the sample cap).
+func volumeIncreaseChunks(start, end time.Time, loc *time.Location) []volumeSpan {
+	if !end.After(start) || end.Sub(start) <= volumeIncreaseMaxSpan {
+		return []volumeSpan{{start: start, end: end}}
+	}
+	buckets := volumeBuckets(start, end, loc, "day")
+	if len(buckets) <= 1 {
+		return []volumeSpan{{start: start, end: end}}
+	}
+	chunks := make([]volumeSpan, 0, len(buckets))
+	for _, bucket := range buckets {
+		chunks = append(chunks, volumeSpan{
+			start: time.UnixMilli(bucket.StartMs),
+			end:   time.UnixMilli(bucket.EndMs),
+		})
+	}
+	return chunks
+}
+
+// mergeVolumeSamples 把多段日桶的即时样本按分组加总；无拆分时合成一条。
+// mergeVolumeSamples sums instant samples from day chunks by group; with no split it collapses to one sample.
+func mergeVolumeSamples(dst, add []promquery.Sample, splitBy string) []promquery.Sample {
+	if len(add) == 0 {
+		return dst
+	}
+	if splitBy == "" {
+		sum := 0.0
+		ts := int64(0)
+		for _, sample := range dst {
+			sum += sample.Value
+			if sample.TsMs > ts {
+				ts = sample.TsMs
+			}
+		}
+		for _, sample := range add {
+			sum += sample.Value
+			if sample.TsMs > ts {
+				ts = sample.TsMs
+			}
+		}
+		return []promquery.Sample{{Value: sum, TsMs: ts}}
+	}
+	type acc struct {
+		metric map[string]string
+		value  float64
+		ts     int64
+	}
+	byID := map[string]*acc{}
+	order := make([]string, 0, len(dst)+len(add))
+	addOne := func(sample promquery.Sample) {
+		id := strings.TrimSpace(sample.Metric[splitBy])
+		if id == "" {
+			id = "0"
+		}
+		item, ok := byID[id]
+		if !ok {
+			item = &acc{metric: sample.Metric}
+			byID[id] = item
+			order = append(order, id)
+		}
+		item.value += sample.Value
+		if sample.TsMs > item.ts {
+			item.ts = sample.TsMs
+		}
+	}
+	for _, sample := range dst {
+		addOne(sample)
+	}
+	for _, sample := range add {
+		addOne(sample)
+	}
+	out := make([]promquery.Sample, 0, len(order))
+	for _, id := range order {
+		item := byID[id]
+		out = append(out, promquery.Sample{Metric: item.metric, Value: item.value, TsMs: item.ts})
+	}
+	return out
 }
 
 // volumeQuery 拼一条 increase 即时查询；splitBy 为空时全局聚合。

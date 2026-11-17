@@ -9050,6 +9050,9 @@ const docTemplate = `{
                 "agent_status": {
                     "type": "string"
                 },
+                "boot_time_ms": {
+                    "type": "integer"
+                },
                 "cpu_cores": {
                     "type": "integer"
                 },

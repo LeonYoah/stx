@@ -76,6 +76,13 @@ func newHostDashboardService(queries *[]string) *HostDashboardService {
 		}
 		return []promquery.Series{{Metric: map[string]string{"host_id": "1"}, Points: [][2]float64{{1000, 1}}}}, nil
 	}
+	svc.instantQuery = func(_ context.Context, _, _ string, _ time.Time) ([]promquery.Sample, error) {
+		// 开机时间即时查询：host 1 返回 2026-11-01，host 2 无序列。
+		// Boot-time instant query: host 1 reports 2026-11-01, host 2 has no series.
+		return []promquery.Sample{
+			{Metric: map[string]string{"host_id": "1"}, Value: float64(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).Unix())},
+		}, nil
+	}
 	return svc
 }
 
@@ -136,6 +143,10 @@ func TestHostDashboardPanelsAndSupport(t *testing.T) {
 	}
 	if len(queries) != wantTasks {
 		t.Fatalf("queries = %d want %d", len(queries), wantTasks)
+	}
+	// 开机时间进卡片头字段。/ Boot time lands on the entry for the header uptime line.
+	if supported.BootTimeMs == nil || *supported.BootTimeMs != time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).UnixMilli() {
+		t.Fatalf("boot_time_ms = %v", supported.BootTimeMs)
 	}
 	// fds 查询失败 → partial_errors 记一次。
 	// The fds query failure lands once in partial_errors.

@@ -86,12 +86,17 @@ var pseudoFilesystems = map[string]bool{
 }
 
 // pseudoInterface 是虚拟网卡前缀：它们不反映物理网络流量。WireGuard（wg*）刻意保留 —
-// 用 WireGuard 组网的部署主要流量就走它。
+// 用 WireGuard 组网的部署主要流量就走它。Cilium/VXLAN/TAP/TUN 等容器与隧道网卡必须
+// 在列：按名字序取前 hostMetricCap 时它们排在 eth0 之前，会把真实网卡挤出集合。
 // pseudoInterface are virtual interface prefixes that do not reflect physical traffic.
 // WireGuard (wg*) is deliberately kept — on WireGuard-joined deployments it carries the
-// real traffic.
+// real traffic. Cilium/VXLAN/TAP/TUN and friends must stay filtered: they sort before
+// eth0 lexically and would push the real NICs out of the stable top-N set.
 var pseudoInterface = []string{
-	"lo", "veth", "docker", "br-", "virbr", "kube-", "cni", "flannel", "cali", "tunl", "utun", "gif", "stf", "awdl", "llw",
+	"lo", "veth", "docker", "br-", "virbr", "kube-", "cni", "flannel", "cali", "utun", "gif", "stf", "awdl", "llw",
+	// 容器网络与隧道：Cilium 的 host/net/vxlan、各 CNI 的 tap/tun、IP 隧道。
+	// Container networking and tunnels: cilium_* (host/net/vxlan), CNI tap/tun, IP tunnels.
+	"cilium", "vxlan", "tap", "tun", "tunl", "ip6tnl", "sit", "gre", "gretap", "erspan", "ipip", "nodelocaldns", "dummy",
 }
 
 // blockedFstype 精确匹配 + fuse.*/nfs.* 前缀式排除。
@@ -128,11 +133,15 @@ func (c *MetricsCollector) CollectHostMetrics(ctx context.Context) []*pb.HostMet
 	c.collectCPUTimes(ctx, put)
 	c.collectLoadAvg(ctx, put)
 	c.collectMemory(ctx, put)
-	c.collectFilesystems(ctx, put)
 	c.collectDiskIO(ctx, put)
 	c.collectNetIO(ctx, put)
 	c.collectTCPEstablished(ctx, put)
 	c.collectBootAndFDs(ctx, put)
+	// 文件系统采集放最后：挂载点是串行 statfs（每个至多 statfsTimeout），遇到坏盘/
+	// 卡死设备时耗掉的预算不挤占前面的采集项。
+	// Filesystem collection runs last: mounts are stafs'd serially (each bounded by
+	// statfsTimeout), so a bad disk cannot starve the collectors above of ctx budget.
+	c.collectFilesystems(ctx, put)
 	return out
 }
 
@@ -199,13 +208,18 @@ type fsStat struct {
 }
 
 // usageWithTimeout 把单个挂载点的 statfs 放进带超时的 goroutine：
-// 挂死的网络盘 statfs 走内核 D 状态，context 中断不了，唯一可行的做法是到点就丢。
-// 超时的 goroutine 会泄漏到内核解除阻塞为止，规模受挂载点数量限制。
+// 挂死的 statfs 走内核 D 状态，context 中断不了，唯一可行的做法是到点就丢。
+// 超时后记入 fsStuck：该 goroutine 仍占着一个 OS 线程在内核里等，解除前不再对
+// 这个挂载点发起新 statfs，防止每轮各泄一个撞上 Go 的线程上限；goroutine 一旦
+// 返回（盘恢复或内核报错）自清标记，下一轮正常重试。
 // usageWithTimeout runs one mount's statfs inside a timeout-guarded goroutine: a hung
-// network mount blocks in uninterruptible kernel sleep which no context can cancel, so the
-// only workable strategy is to abandon the call. The abandoned goroutine leaks until the
-// kernel call returns, bounded by the mount count.
-func usageWithTimeout(mountpoint string) (*disk.UsageStat, bool) {
+// statfs blocks in uninterruptible kernel sleep which no context can cancel, so the only
+// workable strategy is to abandon the call. On timeout the mount is recorded in fsStuck —
+// its goroutine still owns an OS thread inside the kernel, and issuing further statfs for
+// the same mount would leak one goroutine+thread per cycle until Go's thread limit kills
+// the process. The mark clears itself once the goroutine returns (disk recovered or the
+// kernel errored out) and the next round retries normally.
+func (c *MetricsCollector) usageWithTimeout(mountpoint string) (*disk.UsageStat, bool) {
 	type result struct {
 		usage *disk.UsageStat
 		err   error
@@ -214,11 +228,26 @@ func usageWithTimeout(mountpoint string) (*disk.UsageStat, bool) {
 	go func() {
 		usage, err := disk.Usage(mountpoint)
 		ch <- result{usage: usage, err: err}
+		// 清标记必须是 goroutine 的最后一个动作：保证「标记还在」⇔「statfs 还没返回」，
+		// 不会出现 goroutine 已结束却留下永不重试的假 stuck。
+		// Clearing the mark is the goroutine's last act, so "still marked" reliably means
+		// "statfs hasn't returned" — a finished goroutine can never leave a stale mark.
+		c.fsStuck.Delete(mountpoint)
 	}()
 	select {
 	case res := <-ch:
 		return res.usage, res.err == nil
 	case <-time.After(statfsTimeout):
+		c.fsStuck.Store(mountpoint, struct{}{})
+		// 超时边界上 goroutine 可能刚把结果写进缓冲通道：非阻塞再看一眼，采到就用。
+		// At the timeout boundary the goroutine may have just delivered into the
+		// buffered channel — peek once more and use a result that did arrive.
+		select {
+		case res := <-ch:
+			c.fsStuck.Delete(mountpoint)
+			return res.usage, res.err == nil
+		default:
+		}
 		return nil, false
 	}
 }
@@ -235,12 +264,21 @@ func (c *MetricsCollector) collectFilesystems(ctx context.Context, put hostPut) 
 	var stats []fsStat
 	for _, part := range parts {
 		if ctx.Err() != nil {
-			return
+			// 超预算就停，但已经采到的挂载点照常输出（fs 采集排在最后，
+			// 半截结果也有价值）。/ Out of budget — stop enumerating but keep the
+			// mounts already collected (fs runs last; a partial result still counts).
+			break
 		}
 		if blockedFstype(part.Fstype) {
 			continue
 		}
-		usage, ok := usageWithTimeout(part.Mountpoint)
+		if _, stuck := c.fsStuck.Load(part.Mountpoint); stuck {
+			// 上一个 statfs 还卡在内核里，跳过不再泄 goroutine。
+			// The previous statfs is still stuck in the kernel — skip it instead of
+			// leaking another goroutine.
+			continue
+		}
+		usage, ok := c.usageWithTimeout(part.Mountpoint)
 		if !ok {
 			continue
 		}
@@ -327,10 +365,13 @@ func wholeDisk(name string) bool {
 // stableTopN 按名字排序取前 hostMetricCap 个，构成稳定的成员集合：
 // 计数器类指标（rate 消费）若按吞吐排名+other 合并，设备进出集合会让 other 突增/回落
 // 产生假尖峰；固定取名字序前 N 后成员只在硬件变更时变化，由控制面 stale marker 兜底。
+// 注意：设备数超过上限时排在后面的会被静默丢弃（虚拟设备尽量在过滤阶段就排掉）。
 // stableTopN keeps the first hostMetricCap names sorted lexically — a stable membership:
 // counter metrics (consumed via rate) would fabricate spikes when devices oscillate
 // between dedicated series and an "other" aggregate; with name order the set only changes
 // when hardware does, covered by control-plane stale markers.
+// Caveat: devices sorting beyond the cap are silently dropped — virtual devices should
+// be filtered out before this point wherever possible.
 func stableTopN(names []string) []string {
 	sort.Strings(names)
 	if len(names) > hostMetricCap {

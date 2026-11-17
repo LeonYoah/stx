@@ -32,6 +32,8 @@ export type NamedSeries = {
   points: TrendPoint[];
   /** 线条颜色（任意 CSS 颜色）；缺省时走 Arc 默认的 accent + 灰阶。 / Line color (any CSS color); falls back to Arc's accent + neutral steps. */
   color?: string;
+  /** 参考量用虚线（如已提交堆、峰值线程）。 / Dashed rendering for bound/reference dims (committed heap, peak threads). */
+  dashed?: boolean;
 };
 
 /**
@@ -165,6 +167,7 @@ export function toLineChartData(
     label: item.name,
     area: index === 0,
     ...(item.color ? {color: item.color} : {}),
+    ...(item.dashed ? {dashed: true} : {}),
   }));
   const tsSet = new Set<number>();
   const lookup = series.map((item) => {

@@ -37,3 +37,30 @@
   `/dashboard/home/hosts` 回 cpu=percent 7 系列（无 idle）、net/disk_io=bytes_per_second、
   `rx/tx wg0` 出现、无 other；`/volume?granularity=auto` 1h 窗 5 桶（2 残缺+3 满）正常，
   today_start 为显示时区当日零点。
+
+## 2025-11-17 第二轮：#152 追加评审（代码 8 条 + 图表重做）
+
+### 代码修复（LeonYoah + Codex 评审）
+
+- `volume.go` today/month 求值时刻改 `alignPresetNow(now, nil)`，恢复 15s 缓存命中（原来毫秒级 now 永远 miss，31 天全量扫描是最重查询）
+- `host_metrics.go` statfs 卡死治理：`fsStuck` sync.Map 记账，卡死的挂载点后续周期直接跳过不再开新 goroutine；goroutine 返回即清标记；fs 采集挪到最后避免串行 statfs 吃光 8s 预算；ctx 过期 `break` 保留已采样本
+- `cluster_detail.go` offheap 改 `nonheap_used + buffer_pool_used`（原 `RSS−committed` 大 -Xms 未 PreTouch 时可为负）；store_heap 改按节点汇总
+- CLI `--end` 说明改 400 天；虚拟网卡前缀补 cilium/vxlan/tap/tun/sit/gre/erspan/nodelocaldns/dummy 等（wg 放行）
+- 心跳/主机指标两条循环的间隔改 `heartbeatIntervalNs atomic.Int64` 中转：applyRemoteConfig 原子写、循环每 tick 重读并 `ticker.Reset`，同时消掉原字段直读的数据竞争
+- 主机卡 `metricsOff` 文案移除（顶部横幅已说明原因）；集群名回退 `#<id>`；桶标签分隔符统一 `MM-DD`
+- `HomeHostEntry.BootTimeMs` + `stx_host_boot_time_seconds` instant 查询 → 卡头「已运行 N 天」；内存面板改 used(total−available)/cached/available
+
+### 图表重做（一个指标一种图 + 语义色表）
+
+- `dashboard-format.ts`：共享 `SERIES_PALETTE` + `DIMENSION_COLORS` 语义表 + `DIMENSION_RULES`（JVM 池/类空间正则）+ `dimensionColor` + `colorForLabels`（语义命中调色、同语义多实例 65%/45%/30% 渐淡、未知名按名字序稳定取色）；JobsTab `VOLUME_COLORS` 并入
+- `metrics-trend-data.ts`：`NamedSeries.dashed` 透传
+- HostsTab 10→8 格：fs_used+fs_inodes 合成按容量排序的 `Progress` 列表（容量/inode 两条，≥85% warning、≥95% danger，占两列）；tcp+fds 合成一格 `MetricCard`+`Sparkline`；负载加核数虚线、磁盘使用率加 100% 虚线
+- ClusterDetailGroups：deadlocked/reject → 每节点 MetricCard（>0 经包层 `--foreground: var(--danger)` 染红，reject 带 Sparkline）；partitions → Donut（各节点 active 分布）；store_owned+backup → 横向分组 BarChart；fds → Progress（open/max ≥80% warning）；classes 只画 loaded（速率同线斜率）；hz_queue 全 0 类型不画；heap committed / threads peak / gc_pause 10% 虚线；proc 组改名「进程与类加载」
+- `vitest.setup.ts` 补 IntersectionObserver/ResizeObserver 桩；`Progress` 加 `indicatorClassName`
+- `ui-conventions.md` §16 加主机页签/集群细节/图表选型原则 + 3 条自检项
+- 合并槽位防护：伙伴面板缺失时 fs_inodes/store_backup/class_load_rate/fds 各自照常渲染
+
+### 验证
+- `go test ./internal/apps/dashboard ./internal/grpc ./internal/pkg/promquery ./internal/operation` 全过；agent `go test ./...` 全过
+- `pnpm test` 630 全过；`tsc --noEmit` 干净；swagger 已重生成（boot_time_ms）
+- 注：`internal/apps/installer` 两个用例本地环境失败（chunks 计数断言），与本 diff 无关，CI 绿

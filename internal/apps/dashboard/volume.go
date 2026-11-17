@@ -247,13 +247,19 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 
 	loc := timex.DisplayLocation()
 	// 「今日 / 本月」按真实当前时间计算，不跟随自定义时间窗的 end：
-	// 否则查历史窗口时指标卡会谎报成那天 / 那月的量。
+	// 否则查历史窗口时指标卡会谎报成那天 / 那月的量。求值时刻再按缓存粒度取整
+	// （15s）——毫秒级 now 让每个请求的缓存键都不同，「本月」这种扫 31 天的
+	// 重查询会永远 miss。
 	// "today"/"month" are computed off real now rather than the custom window's end —
-	// otherwise a historical window would misreport them as that day/month.
+	// otherwise a historical window would misreport them as that day/month. The
+	// evaluation instant is then truncated to the cache granularity (15s): a
+	// millisecond-precision now gives every request a distinct key and the
+	// month-long scan would never hit the cache.
+	alignedNow := alignPresetNow(now, nil)
 	totalsSpans := []volumeSpan{
 		{key: "window", bucket: -1, start: start, end: end},
-		{key: "today", bucket: -1, start: floorLocal(now, loc, false), end: now},
-		{key: "month", bucket: -1, start: floorLocal(now, loc, true), end: now},
+		{key: "today", bucket: -1, start: floorLocal(now, loc, false), end: alignedNow},
+		{key: "month", bucket: -1, start: floorLocal(now, loc, true), end: alignedNow},
 	}
 	out.Totals = &VolumeTotals{
 		TodayStartMs: totalsSpans[1].start.UnixMilli(),

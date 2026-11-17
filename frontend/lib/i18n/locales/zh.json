@@ -526,7 +526,7 @@
             "gc": "GC 与线程",
             "sched": "调度与集群",
             "store": "状态存储",
-            "proc": "进程与网络"
+            "proc": "进程与类加载"
           },
           "units": {
             "bytes": "字节",
@@ -555,14 +555,15 @@
             "hz_queue": "Hazelcast 队列",
             "partitions": "Hazelcast 分区",
             "members": "集群成员数",
-            "store_owned": "本地持有条目",
             "store_heap": "状态占用堆内存",
             "offheap": "进程内存（RSS / 堆外）",
             "fds": "文件描述符",
             "classes": "已加载类",
-            "class_load_rate": "类加载速率",
-            "store_backup": "本地备份条目"
-          }
+            "store_entries": "本地持有 / 备份条目"
+          },
+          "legendOwned": "持有",
+          "legendBackup": "备份",
+          "other": "其他"
         }
       },
       "hostsTab": {
@@ -573,7 +574,6 @@
         "time": "时间",
         "unsupported": "该主机未绑定 Agent，无主机指标",
         "noSamples": "等待 Agent 上报主机指标…",
-        "metricsOff": "监控未接入，暂无指标图表",
         "emptyDescription": "当前范围没有主机",
         "spec": "{cores} 核 · 内存 {memory}",
         "heartbeat": "心跳 {at}",
@@ -591,8 +591,8 @@
           "net": "网络吞吐",
           "disk_io": "磁盘吞吐",
           "disk_util": "磁盘使用率",
-          "fs_used": "文件系统使用率",
-          "fs_inodes": "inode 使用率",
+          "fs": "文件系统",
+          "conn": "连接与 fd",
           "tcp": "TCP 连接",
           "fds": "文件描述符"
         },
@@ -602,8 +602,16 @@
           "per_second": "每秒",
           "seconds": "秒",
           "count": "个",
-          "bytes_per_second": "字节/秒"
-        }
+          "bytes_per_second": "字节/秒",
+          "d": "天",
+          "h": "小时",
+          "m": "分"
+        },
+        "fsHint": "容量 · inode",
+        "fsCapacity": "容量",
+        "fsInodes": "inode",
+        "refCores": "核数",
+        "uptime": "已运行 {d}"
       }
     }
   },

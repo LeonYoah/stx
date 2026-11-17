@@ -277,7 +277,7 @@ describe('JobsTab', () => {
     renderTab();
     const panel = await screen.findByTestId('home-volume');
     expect(within(panel).getByTestId('beui-bar').textContent).toBe(
-      '数据量:11/15*,11/16*|全部',
+      '数据量:11-15*,11-16*|全部',
     );
     // 粒度由后端按窗口自动选：前端固定请求 auto。/ Granularity follows the window: the
     // frontend always asks for auto.

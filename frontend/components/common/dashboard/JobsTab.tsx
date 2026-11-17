@@ -48,7 +48,11 @@ import {
   type HomeVolume,
 } from '@/lib/services/dashboard';
 import {formatDateTimeMinuteTz, formatDateTz} from '@/lib/timezone';
-import {formatBytes, formatCompactNumber} from './dashboard-format';
+import {
+  formatBytes,
+  formatCompactNumber,
+  SERIES_PALETTE,
+} from './dashboard-format';
 import {TrendEmptyState} from './TrendEmptyState';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
@@ -67,17 +71,8 @@ type VolumeMetricKey = (typeof VOLUME_METRICS)[number];
 const VOLUME_SPLITS = ['none', 'cluster', 'task'] as const;
 type VolumeSplit = (typeof VOLUME_SPLITS)[number];
 
-/** 拆分序列的循环色板：四色 series 变量 + 它们的中间色，超 8 组后循环复用。/ Split-series palette: the four series vars plus blends, reused beyond eight groups. */
-const VOLUME_COLORS = [
-  'var(--series-2)',
-  'var(--series-1)',
-  'var(--series-3)',
-  'var(--series-4)',
-  'color-mix(in oklab, var(--series-2) 55%, var(--series-4))',
-  'color-mix(in oklab, var(--series-1) 55%, var(--series-3))',
-  'color-mix(in oklab, var(--series-4) 55%, var(--series-2))',
-  'color-mix(in oklab, var(--series-3) 55%, var(--series-1))',
-];
+/** 拆分序列色板：直接用共享 SERIES_PALETTE，同组在各图里同色。/ Split-series colors: reuse the shared SERIES_PALETTE so a group keeps one color across charts. */
+const VOLUME_COLORS = SERIES_PALETTE;
 
 /** 读用 --series-1、写用 --series-2，与作业详情趋势图同色。/ Read --series-1, write --series-2, matching job trends. */
 const THROUGHPUT_COLOR: Record<ThroughputKey, string> = {
@@ -182,7 +177,7 @@ export function JobsTab({query}: {query: DashboardQuery}) {
           granularity === 'month'
             ? bucket.label
             : granularity === 'day'
-              ? bucket.label.slice(5).replace('-', '/')
+              ? bucket.label.slice(5)
               : sameDay
                 ? bucket.label.slice(11)
                 : bucket.label.slice(5);

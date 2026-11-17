@@ -129,17 +129,23 @@ var clusterDetailGroups = map[string][]detailPanel{
 			{dimLabel: "store", expr: `sum by (instance, store) (engine_state_store_local_backup_entries{%[1]s})`},
 		}},
 		{key: "store_heap", unit: "bytes", queries: []detailQuery{
-			{dimLabel: "store", expr: `sum by (instance, store) (engine_state_store_local_heap_cost_bytes{%[1]s})`},
+			// 只画按节点汇总的总量：13 个 store × 节点数的明细噪音太大，关注的是
+			// 状态堆占用是否持续增长。/ Only the per-node total is charted: 13 stores ×
+			// nodes of detail is noise — what matters is whether the state heap keeps growing.
+			{dim: "total", expr: `sum by (instance) (engine_state_store_local_heap_cost_bytes{%[1]s})`},
 		}},
 	},
 	"proc": {
 		{key: "offheap", unit: "bytes", queries: []detailQuery{
 			{dim: "rss", expr: `max by (instance) (process_resident_memory_bytes{%[1]s})`},
-			// 堆外 ≈ RSS − 已提交堆（committed 才是 JVM 真正占走的内存；减 used 会把
-			// 未提交的保留空间误记成堆外）。/ Off-heap ≈ RSS − committed heap (committed is
-			// what the JVM actually reserved; subtracting used would count uncommitted
-			// reservation as off-heap).
-			{dim: "offheap", expr: `max by (instance) (process_resident_memory_bytes{%[1]s}) - on (instance) max by (instance) (jvm_memory_bytes_committed{%[1]s, area="heap"})`},
+			// 堆外 = 非堆已用 + direct/mapped buffer（JVM 口径的堆外总量，天然非负）。
+			// 不取 RSS − 已提交堆：-Xms 大且未开 AlwaysPreTouch 时，已提交的堆页
+			// 未必真正驻留，RSS 会小于 committed 而算出负数。
+			// Off-heap = non-heap used + direct/mapped buffers (the JVM-defined
+			// off-heap total, inherently non-negative). RSS − committed heap is not
+			// used: with a large -Xms and no AlwaysPreTouch, committed heap pages are
+			// not yet resident and RSS < committed yields a negative series.
+			{dim: "offheap", expr: `sum by (instance) (jvm_memory_bytes_used{%[1]s, area="nonheap"}) + on (instance) sum by (instance) (jvm_buffer_pool_used_bytes{%[1]s})`},
 		}},
 		{key: "fds", unit: "count", queries: []detailQuery{
 			{dim: "open", expr: `max by (instance) (process_open_fds{%[1]s})`},
@@ -278,7 +284,10 @@ func (s *ClusterDashboardService) GetClusterDetail(ctx context.Context, clusterI
 		if name := strings.TrimSpace(clusterNames[cid]); name != "" {
 			return name
 		}
-		return "cluster " + cid
+		// 找不到名字时回退 #<id>，与读写量图例的 `#3` 风格一致，避免中文界面混入英文。
+		// Fall back to #<id> when the name is unknown — same style as the volume legend
+		// (`#3`) so a Chinese UI doesn't leak an English "cluster" prefix.
+		return "#" + cid
 	}
 
 	for i, panel := range panels {

@@ -641,7 +641,7 @@ var registry = append([]OperationSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
 			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 400 days"},
 			{Name: "granularity", Location: InputQuery, Required: false, Description: "Bucket granularity: auto|quarter_hour|hour|day|month; auto picks by window span, omit for totals only"},
 			{Name: "split", Location: InputQuery, Required: false, Description: "Split series by: none|cluster|task (default none)"},
 		},

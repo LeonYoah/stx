@@ -50,8 +50,11 @@ var hostPanels = []detailPanel{
 		{dimLabel: "mode", expr: `100 * sum by (host_id, mode) (rate(stx_host_cpu_seconds_total{%[1]s, mode!="idle"}[5m])) / on(host_id) group_left() max by (host_id) (stx_host_cpu_cores{%[1]s})`},
 	}},
 	{key: "memory", unit: "bytes", queries: []detailQuery{
-		{dimLabel: "kind", expr: `max by (host_id, kind) (stx_host_memory_bytes{%[1]s, kind=~"available|cached|buffers|free"})`},
-		{dim: "total", expr: `max by (host_id) (stx_host_memory_bytes{%[1]s, kind="total"})`},
+		// 三件套：已用 = total − available，缓存与可用直接读。/ The memory triad:
+		// used = total − available; cached and available read straight through.
+		{dim: "used", expr: `max by (host_id) (stx_host_memory_bytes{%[1]s, kind="total"}) - on(host_id) max by (host_id) (stx_host_memory_bytes{%[1]s, kind="available"})`},
+		{dim: "cached", expr: `max by (host_id) (stx_host_memory_bytes{%[1]s, kind="cached"})`},
+		{dim: "available", expr: `max by (host_id) (stx_host_memory_bytes{%[1]s, kind="available"})`},
 	}},
 	{key: "load", unit: "count", queries: []detailQuery{
 		{dimLabel: "kind", expr: `max by (host_id, kind) (stx_host_load{%[1]s})`},
@@ -93,6 +96,7 @@ type HomeHostEntry struct {
 	CPUCores         int           `json:"cpu_cores,omitempty"`
 	TotalMemoryBytes int64         `json:"total_memory_bytes,omitempty"`
 	LastHeartbeatMs  *int64        `json:"last_heartbeat_ms,omitempty"`
+	BootTimeMs       *int64        `json:"boot_time_ms,omitempty"`
 	Panels           []DetailPanel `json:"panels"`
 }
 
@@ -124,20 +128,22 @@ type HostClusterNodes interface {
 // HostDashboardService 组装主机视图：清单 + 每台主机的指标面板。
 // HostDashboardService assembles the hosts view: inventory plus per-host metric panels.
 type HostDashboardService struct {
-	rangeQuery func(ctx context.Context, baseURL, query string, start, end time.Time, step int) ([]promquery.Series, error)
-	hosts      HostInventory
-	clusters   HostClusterNodes
-	now        func() time.Time
+	rangeQuery   func(ctx context.Context, baseURL, query string, start, end time.Time, step int) ([]promquery.Series, error)
+	instantQuery func(ctx context.Context, baseURL, query string, at time.Time) ([]promquery.Sample, error)
+	hosts        HostInventory
+	clusters     HostClusterNodes
+	now          func() time.Time
 }
 
 // NewHostDashboardService 创建主机视图服务。
 // NewHostDashboardService creates the hosts dashboard service.
 func NewHostDashboardService(hosts HostInventory, clusters HostClusterNodes) *HostDashboardService {
 	return &HostDashboardService{
-		rangeQuery: dashboardPromCache.wrapRange(promquery.Range),
-		hosts:      hosts,
-		clusters:   clusters,
-		now:        time.Now,
+		rangeQuery:   dashboardPromCache.wrapRange(promquery.Range),
+		instantQuery: dashboardPromCache.wrapInstant(promquery.Instant),
+		hosts:        hosts,
+		clusters:     clusters,
+		now:          time.Now,
 	}
 }
 
@@ -270,6 +276,24 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 			task.out, task.err = s.rangeQuery(ctx, baseURL, task.query, start, end, step)
 		}(task)
 	}
+	// 开机时间是即时查询，与面板扇出并发；只用于卡片头的「已运行 N 天」，失败静默。
+	// Boot time is one instant query fanned out with the panels; it only feeds the
+	// card header's "up N days" line, so a failure is silent.
+	bootByHost := map[uint]float64{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		samples, err := s.instantQuery(ctx, baseURL,
+			fmt.Sprintf(`max by (host_id) (stx_host_boot_time_seconds{%s})`, sel), end)
+		if err != nil {
+			return
+		}
+		for _, sm := range samples {
+			if id, perr := strconv.ParseUint(sm.Metric["host_id"], 10, 64); perr == nil {
+				bootByHost[uint(id)] = sm.Value
+			}
+		}
+	}()
 	wg.Wait()
 
 	// 拆回各台主机：host_id 标签定位 entry，维度标签出图例。
@@ -321,6 +345,12 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 			}
 			sort.Slice(item.Series, func(a, b int) bool { return item.Series[a].Label < item.Series[b].Label })
 			entry.Panels = append(entry.Panels, item)
+		}
+		// 卡片头的「已运行 N 天」由 stx_host_boot_time_seconds 提供。
+		// The header's "up N days" comes from stx_host_boot_time_seconds.
+		if bt := bootByHost[entry.ID]; bt > 0 {
+			ms := int64(bt * 1000)
+			entry.BootTimeMs = &ms
 		}
 	}
 	return out, nil

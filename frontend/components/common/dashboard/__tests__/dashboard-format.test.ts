@@ -17,6 +17,8 @@
 
 import {describe, expect, it} from 'vitest';
 import {
+  colorForLabels,
+  dimensionColor,
   formatCompactNumber,
   formatDurationSeconds,
   trendChangePercent,
@@ -128,5 +130,42 @@ describe('job-list-utils', () => {
       jobListRates(false, {read_total: 600, write_total: 300}, 60),
     ).toEqual({read: 10, write: 5, average: true});
     expect(jobListRates(false, {read_total: 600}, 0)).toEqual({average: true});
+  });
+});
+
+describe('dimension colors', () => {
+  it('maps semantic dimensions to their token colors', () => {
+    // 读写 / 收发与 CPU 模式是大盘全局语义色。/ Read-write / rx-tx and CPU modes are
+    // dashboard-wide semantics.
+    expect(dimensionColor('rx eth0')).toBe('var(--series-1)');
+    expect(dimensionColor('write')).toBe('var(--series-2)');
+    expect(dimensionColor('iowait')).toBe('var(--warning)');
+    expect(dimensionColor('steal')).toBe('var(--danger)');
+    expect(dimensionColor('BLOCKED')).toBe('var(--danger)');
+    // JVM 池名走规则匹配。/ JVM pool names resolve through rules.
+    expect(dimensionColor('G1 Eden Space')).toBe(dimensionColor('PS Eden Space'));
+    // 未知维度返回 undefined，交给色板兜底。/ Unknown dims defer to the palette.
+    expect(dimensionColor('hz:executor:whatever')).toBeUndefined();
+  });
+
+  it('keeps one color per dimension and fades same-semantic siblings', () => {
+    const colors = colorForLabels([
+      'rx eth0',
+      'rx eth1',
+      'tx eth0',
+      'weird-device',
+    ]);
+    // 同语义多实例：首个满色，后续调淡但同一方向。/ Same-semantic siblings: first full
+    // color, rest faded on the same hue.
+    expect(colors.get('rx eth0')).toBe('var(--series-1)');
+    expect(colors.get('rx eth1')).toContain('var(--series-1)');
+    expect(colors.get('rx eth1')).not.toBe('var(--series-1)');
+    expect(colors.get('tx eth0')).toBe('var(--series-2)');
+    // 未知名走稳定色板：同名同色、与语义色不同。/ Unknowns take the stable palette:
+    // same name same color, distinct from semantic hues.
+    expect(colors.get('weird-device')).toBeDefined();
+    expect(colors.get('weird-device')).toBe(
+      colorForLabels(['weird-device']).get('weird-device'),
+    );
   });
 });

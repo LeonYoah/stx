@@ -526,7 +526,7 @@
             "gc": "GC & threads",
             "sched": "Scheduling & cluster",
             "store": "State store",
-            "proc": "Process & network"
+            "proc": "Process & classes"
           },
           "units": {
             "bytes": "bytes",
@@ -555,14 +555,15 @@
             "hz_queue": "Hazelcast queues",
             "partitions": "Hazelcast partitions",
             "members": "Cluster members",
-            "store_owned": "Locally owned entries",
             "store_heap": "State heap cost",
             "offheap": "Process memory (RSS / off-heap)",
             "fds": "File descriptors",
             "classes": "Loaded classes",
-            "class_load_rate": "Class load rate",
-            "store_backup": "Local backup entries"
-          }
+            "store_entries": "Local owned / backup entries"
+          },
+          "legendOwned": "owned",
+          "legendBackup": "backup",
+          "other": "Other"
         }
       },
       "hostsTab": {
@@ -573,7 +574,6 @@
         "time": "Time",
         "unsupported": "No agent bound to this host — host metrics unavailable",
         "noSamples": "Waiting for the agent to report host metrics…",
-        "metricsOff": "Monitoring unavailable — no metric charts",
         "emptyDescription": "No hosts in this scope",
         "spec": "{cores} cores · {memory} memory",
         "heartbeat": "Heartbeat {at}",
@@ -591,8 +591,8 @@
           "net": "Network throughput",
           "disk_io": "Disk throughput",
           "disk_util": "Disk utilization",
-          "fs_used": "Filesystem usage",
-          "fs_inodes": "inode usage",
+          "fs": "Filesystem",
+          "conn": "Connections & FDs",
           "tcp": "TCP connections",
           "fds": "File descriptors"
         },
@@ -602,8 +602,16 @@
           "per_second": "per second",
           "seconds": "seconds",
           "count": "count",
-          "bytes_per_second": "B/s"
-        }
+          "bytes_per_second": "B/s",
+          "d": "d",
+          "h": "h",
+          "m": "m"
+        },
+        "fsHint": "capacity · inodes",
+        "fsCapacity": "capacity",
+        "fsInodes": "inodes",
+        "refCores": "cores",
+        "uptime": "up {d}"
       }
     }
   },

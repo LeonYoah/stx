@@ -18,6 +18,7 @@ package embedts
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -52,6 +53,9 @@ type BackfillConfig struct {
 	Lookback    time.Duration
 	Workers     int
 	Logger      *slog.Logger
+	// Now 固定回灌对齐时刻；零值则用当前 UTC。测试与断点续跑都靠它保持窗口稳定。
+	// Now pins the alignment instant; zero means current UTC. Tests and resume keep windows stable with it.
+	Now time.Time
 }
 
 // BackfillResult 是一次回灌的规模与落盘结果。
@@ -79,7 +83,7 @@ func WriteLoadtestBlocks(cfg BackfillConfig) (BackfillResult, error) {
 	if err := os.MkdirAll(cfg.Dir, 0o755); err != nil {
 		return BackfillResult{}, err
 	}
-	endMs := alignBlock(time.Now().UTC().UnixMilli(), cfg.Block.Milliseconds())
+	endMs := alignBlock(cfg.nowMs(), cfg.Block.Milliseconds())
 	startMs := endMs - cfg.Lookback.Milliseconds()
 	if startMs >= endMs {
 		return BackfillResult{}, fmt.Errorf("lookback %s is shorter than one block", cfg.Lookback)
@@ -121,6 +125,9 @@ func WriteLoadtestBlocks(cfg BackfillConfig) (BackfillResult, error) {
 	logf := cfg.Logger
 	logf.Info("loadtest backfill start", "dir", cfg.Dir, "target_bytes", cfg.TargetBytes, "series", series, "blocks", blocks, "probe_bytes", probeBytes)
 
+	// 已有块按 minTime 占住窗口；中断重跑从缺口继续，避免把最老窗口再写一遍就提前凑满 TargetBytes。
+	// Existing blocks occupy windows by minTime; a retry fills gaps instead of rewriting the oldest range and hitting TargetBytes early.
+	covered := loadCoveredWindows(cfg.Dir)
 	jobs := make(chan [2]int64)
 	var (
 		mu      sync.Mutex
@@ -156,10 +163,14 @@ func WriteLoadtestBlocks(cfg BackfillConfig) (BackfillResult, error) {
 		}(); firstErr != nil {
 			break
 		}
+		maxt := mint + cfg.Block.Milliseconds()
+		if windowCovered(covered, mint, maxt) {
+			continue
+		}
 		if dirSize(cfg.Dir) >= cfg.TargetBytes {
 			break
 		}
-		jobs <- [2]int64{mint, mint + cfg.Block.Milliseconds()}
+		jobs <- [2]int64{mint, maxt}
 	}
 	close(jobs)
 	wg.Wait()
@@ -181,6 +192,14 @@ func WriteLoadtestBlocks(cfg BackfillConfig) (BackfillResult, error) {
 		ProbeBytes:  probeBytes,
 		TargetBytes: cfg.TargetBytes,
 	}, nil
+}
+
+func (cfg BackfillConfig) nowMs() int64 {
+	now := cfg.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return now.UTC().UnixMilli()
 }
 
 func (cfg BackfillConfig) withDefaults() BackfillConfig {
@@ -261,6 +280,44 @@ func writeLoadtestBlock(cfg BackfillConfig, series int, mint, maxt int64) (int64
 		return 0, err
 	}
 	return dirSize(cfg.Dir) - before, nil
+}
+
+func loadCoveredWindows(dir string) [][2]int64 {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out [][2]int64
+	for _, e := range entries {
+		if !e.IsDir() || len(e.Name()) != 26 {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name(), "meta.json"))
+		if err != nil {
+			continue
+		}
+		var meta struct {
+			MinTime int64 `json:"minTime"`
+			MaxTime int64 `json:"maxTime"`
+		}
+		if json.Unmarshal(raw, &meta) != nil || meta.MaxTime <= meta.MinTime {
+			continue
+		}
+		out = append(out, [2]int64{meta.MinTime, meta.MaxTime})
+	}
+	return out
+}
+
+func windowCovered(windows [][2]int64, mint, maxt int64) bool {
+	for _, w := range windows {
+		if mint >= w[0] && mint < w[1] {
+			return true
+		}
+		if w[0] >= mint && w[0] < maxt {
+			return true
+		}
+	}
+	return false
 }
 
 func alignBlock(ms, blockMs int64) int64 {

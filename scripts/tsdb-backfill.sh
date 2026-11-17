@@ -15,8 +15,10 @@
 
 # 把约 25GiB 的 stx_loadtest_gauge 历史块写到 staging，再导入 data/tsdb。
 # 导入会短暂停 API；SeaTunnel CDC 作业在引擎侧，不会跟着停。
+# 中断后可重跑 write：已有 ULID 块按窗口跳过，从缺口续写。
 # Write ~25GiB of stx_loadtest_gauge history into staging, then import into data/tsdb.
 # Import bounces the API briefly; the SeaTunnel CDC job stays on the engine.
+# A retry of write skips existing ULID windows and continues from the gaps.
 
 set -euo pipefail
 

@@ -70,6 +70,7 @@ CDC soak 的真实抓取只有几百序列，首页接口会一直是几毫秒�
 STX_TSDB_BACKFILL=25g ./scripts/tsdb-backfill.sh write
 # 写入 data/tsdb-staging；导入前短暂停 API（SeaTunnel 作业不停）
 ./scripts/tsdb-backfill.sh import
+# 中断后可直接再跑 write：已有块窗口会跳过，从缺口续写，不会把最老窗口再写一遍就提前达到 TargetBytes。
 ```
 
 回灌指标是 `stx_loadtest_gauge{job="loadtest",series="N"}`，不混进作业读写量。点查 / 区间查询走 `GET /api/v1/monitoring/query` 与 `/query_range`（CLI：`stx monitoring query` / `stx monitoring query-range`）。

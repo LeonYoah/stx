@@ -89,3 +89,23 @@ func TestService_QueryRange_emptyExpr(t *testing.T) {
 		t.Fatal("empty query should fail")
 	}
 }
+
+func TestQueryHTTPStatus_invalidPromQLIs400(t *testing.T) {
+	originalEnabled := config.Config.Observability.Enabled
+	t.Cleanup(func() {
+		config.Config.Observability.Enabled = originalEnabled
+		_ = embedts.Close()
+	})
+	config.Config.Observability.Enabled = true
+	_ = embedts.Close()
+	if err := embedts.Start(context.Background(), embedts.Options{Dir: t.TempDir(), MaxSamples: 1000, QueryTimeout: 5 * time.Second}); err != nil {
+		t.Fatalf("Start embedts: %v", err)
+	}
+	_, err := (&Service{}).QueryInstant(context.Background(), "up{", time.Now().UTC())
+	if err == nil {
+		t.Fatal("invalid PromQL should fail")
+	}
+	if got := queryHTTPStatus(err); got != 400 {
+		t.Fatalf("status=%d want 400 err=%v", got, err)
+	}
+}

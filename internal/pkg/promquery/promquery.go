@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -68,6 +69,79 @@ type Sample struct {
 	Metric map[string]string `json:"metric"`
 	TsMs   int64             `json:"ts_ms"`
 	Value  float64           `json:"value"`
+}
+
+// jsonFloat 把 NaN / ±Inf 编成 Prometheus 风格字符串，避免 encoding/json 拒绝非有限 float64。
+// jsonFloat encodes NaN / ±Inf as Prometheus-style strings so encoding/json does not reject them.
+type jsonFloat float64
+
+func (f jsonFloat) MarshalJSON() ([]byte, error) {
+	v := float64(f)
+	switch {
+	case math.IsNaN(v):
+		return []byte(`"NaN"`), nil
+	case math.IsInf(v, 1):
+		return []byte(`"+Inf"`), nil
+	case math.IsInf(v, -1):
+		return []byte(`"-Inf"`), nil
+	default:
+		return json.Marshal(v)
+	}
+}
+
+// MarshalJSON 输出 metric / points；点值走 jsonFloat。
+// MarshalJSON writes metric / points; point values use jsonFloat.
+func (s Series) MarshalJSON() ([]byte, error) {
+	points := make([][2]jsonFloat, len(s.Points))
+	for i, p := range s.Points {
+		points[i] = [2]jsonFloat{jsonFloat(p[0]), jsonFloat(p[1])}
+	}
+	type wire struct {
+		Metric map[string]string `json:"metric"`
+		Points [][2]jsonFloat    `json:"points"`
+	}
+	return json.Marshal(wire{Metric: s.Metric, Points: points})
+}
+
+// MarshalJSON 输出 metric / ts_ms / value；非有限值走 jsonFloat。
+// MarshalJSON writes metric / ts_ms / value; non-finite values use jsonFloat.
+func (s Sample) MarshalJSON() ([]byte, error) {
+	type wire struct {
+		Metric map[string]string `json:"metric"`
+		TsMs   int64             `json:"ts_ms"`
+		Value  jsonFloat         `json:"value"`
+	}
+	return json.Marshal(wire{Metric: s.Metric, TsMs: s.TsMs, Value: jsonFloat(s.Value)})
+}
+
+// IsValidationError 表示客户端 PromQL 或时间窗不合法，HTTP 应返回 400。
+// IsValidationError reports a client PromQL / window error that should map to HTTP 400.
+func IsValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var parseErrors parser.ParseErrors
+	if errors.As(err, &parseErrors) {
+		return true
+	}
+	var parseErr *parser.ParseErr
+	if errors.As(err, &parseErr) {
+		return true
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "parse error"),
+		strings.Contains(msg, "query is required"),
+		strings.Contains(msg, "invalid start"),
+		strings.Contains(msg, "invalid end"),
+		strings.Contains(msg, "start is required"),
+		strings.Contains(msg, "end must be after"),
+		strings.Contains(msg, "window too long"),
+		strings.Contains(msg, "unsupported range"):
+		return true
+	default:
+		return false
+	}
 }
 
 // UnavailableReason 返回查询不可用原因：observability 未启用返回 observability_disabled；

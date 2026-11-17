@@ -127,16 +127,11 @@ func queryHTTPStatus(err error) int {
 	if err == nil {
 		return http.StatusOK
 	}
+	if promquery.IsValidationError(err) {
+		return http.StatusBadRequest
+	}
 	msg := err.Error()
 	switch {
-	case strings.Contains(msg, "query is required"),
-		strings.Contains(msg, "invalid start"),
-		strings.Contains(msg, "invalid end"),
-		strings.Contains(msg, "start is required"),
-		strings.Contains(msg, "end must be after"),
-		strings.Contains(msg, "window too long"),
-		strings.Contains(msg, "unsupported range"):
-		return http.StatusBadRequest
 	case strings.Contains(msg, promquery.ReasonObservabilityDisabled),
 		strings.Contains(msg, promquery.ReasonPrometheusUnavailable):
 		return http.StatusServiceUnavailable

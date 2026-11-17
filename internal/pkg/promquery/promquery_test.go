@@ -19,6 +19,9 @@ package promquery
 
 import (
 	"context"
+	"encoding/json"
+	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +52,36 @@ func startEmbeddedForTest(t *testing.T, ctx context.Context) {
 		MaxSamples:        1000,
 	}))
 	t.Cleanup(func() { _ = embedts.Close() })
+}
+
+func TestSampleSeriesMarshalJSON_NonFinite(t *testing.T) {
+	sampleRaw, err := json.Marshal(Sample{Value: math.NaN(), TsMs: 1, Metric: map[string]string{"a": "b"}})
+	require.NoError(t, err)
+	require.Contains(t, string(sampleRaw), `"NaN"`)
+	require.Contains(t, string(sampleRaw), `"ts_ms":1`)
+
+	infRaw, err := json.Marshal(Sample{Value: math.Inf(1)})
+	require.NoError(t, err)
+	require.Contains(t, string(infRaw), `"+Inf"`)
+
+	negRaw, err := json.Marshal(Sample{Value: math.Inf(-1)})
+	require.NoError(t, err)
+	require.Contains(t, string(negRaw), `"-Inf"`)
+
+	seriesRaw, err := json.Marshal(Series{Points: [][2]float64{{1000, math.NaN()}, {2000, math.Inf(1)}}})
+	require.NoError(t, err)
+	require.Contains(t, string(seriesRaw), `"NaN"`)
+	require.Contains(t, string(seriesRaw), `"+Inf"`)
+}
+
+func TestIsValidationError_ParseError(t *testing.T) {
+	setObservabilityEnabled(t, true)
+	ctx := context.Background()
+	startEmbeddedForTest(t, ctx)
+	_, err := Instant(ctx, "up{", time.Now())
+	require.Error(t, err)
+	require.True(t, IsValidationError(err), err.Error())
+	require.True(t, strings.Contains(err.Error(), "parse error"), err.Error())
 }
 
 func TestUnavailableReason_ObservabilityDisabled(t *testing.T) {

@@ -27,6 +27,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestWriteLoadtestBlocks_ResumesMissingWindows(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	cfg := BackfillConfig{
+		Dir:         dir,
+		TargetBytes: 1 << 30,
+		Series:      4,
+		Step:        15 * time.Second,
+		Block:       2 * time.Hour,
+		Lookback:    2 * time.Hour,
+		Workers:     1,
+		Now:         now,
+	}
+	first, err := WriteLoadtestBlocks(cfg)
+	require.NoError(t, err)
+	require.Equal(t, 1, first.BlockCount)
+	n1 := countULIDDirs(t, dir)
+	require.Equal(t, 1, n1)
+
+	cfg.Lookback = 4 * time.Hour
+	second, err := WriteLoadtestBlocks(cfg)
+	require.NoError(t, err)
+	require.Equal(t, 1, second.BlockCount)
+	require.Equal(t, 2, countULIDDirs(t, dir))
+
+	third, err := WriteLoadtestBlocks(cfg)
+	require.NoError(t, err)
+	require.Equal(t, 0, third.BlockCount)
+	require.Equal(t, 2, countULIDDirs(t, dir))
+}
+
 func TestWriteLoadtestBlocks_Smoke(t *testing.T) {
 	dir := t.TempDir()
 	result, err := WriteLoadtestBlocks(BackfillConfig{

@@ -25,10 +25,13 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"log"
 
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/db/migrator"
+	"github.com/LeonYoah/stx/internal/pkg/layoutheal"
 	"github.com/LeonYoah/stx/internal/router"
 	"github.com/spf13/cobra"
 )
@@ -64,6 +67,25 @@ func runServer() error {
 		return fmt.Errorf("load server configuration: %w", err)
 	}
 	migrator.Migrate()
+
+	// 一键升级由旧版本升级器执行，它不替换 bin/：旧 start.sh 每次重启都会拉起外部监控三件套。
+	// 所以新二进制启动时在检测到安装目录布局时先用内嵌脚本自修复 bin/，再在后台窗口内按
+	// pid 文件停掉旧三件套（只停进程，不删 observability/ 数据）。非安装布局（开发机、Docker）
+	// 会跳过全部动作。
+	// The in-app upgrade is executed by the OLD upgrader, which never replaces bin/: the legacy
+	// start.sh keeps launching the external monitoring trio on every restart. So on startup the
+	// new binary self-heals bin/ from the embedded scripts when an install layout is detected,
+	// then stops the trio by pid file in a background window (processes only, observability/
+	// data is kept). Non-install layouts (dev machines, Docker) skip everything.
+	healResult, healErr := layoutheal.Heal(context.Background(), layoutheal.Options{})
+	if healErr != nil {
+		log.Printf("[LayoutHeal] WARN 安装布局自修复失败 / install layout heal failed: %v\n", healErr)
+	}
+	if healResult.InstallDir != "" {
+		go layoutheal.ReapLegacyObservability(context.Background(), healResult.InstallDir,
+			layoutheal.DefaultReapWindow, layoutheal.DefaultReapInterval)
+	}
+
 	router.Serve()
 	return nil
 }

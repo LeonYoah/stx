@@ -35,6 +35,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LeonYoah/stx/install"
 	"github.com/LeonYoah/stx/internal/config"
 	stxversion "github.com/LeonYoah/stx/internal/version"
 	"github.com/google/uuid"
@@ -1557,6 +1558,16 @@ func (s *Service) applyStep(target, code string, apply bool) error {
 				return fmt.Errorf("%w: failed to replace binary: %v", ErrStepFailControlPlane, err)
 			}
 			_ = os.Chmod(execPath, 0o755)
+			// 旧版本升级器从不替换 bin/；新升级器补上这一步：包内带 bin/ 时按
+			// 「备份 → 临时文件 → rename」逐个刷新安装目录控制脚本，与启动自修复共用同一逻辑。
+			// 包里没有 bin/（旧包或自定义包）跳过；失败要暴露成步骤错误，与 lib/agent 一致。
+			// The OLD upgrader never replaced bin/; the new one closes that gap: when the bundle
+			// ships bin/, refresh the install scripts one by one via "backup -> temp -> rename",
+			// sharing the startup layout heal's logic. Bundles without bin/ (older or custom
+			// packages) are skipped; failures surface as a step error, same as lib/agent.
+			if err := applyStagedBinScripts(dir, filepath.Dir(execPath)); err != nil {
+				return fmt.Errorf("%w: failed to refresh bin scripts: %v", ErrStepFailControlPlane, err)
+			}
 		}
 	case StepAgent:
 		agentSrcDir := filepath.Join(dir, "lib", "agent")
@@ -1617,6 +1628,40 @@ func (s *Service) applyStep(target, code string, apply bool) error {
 		info := stxversion.Current()
 		if info.Version == "" {
 			return ErrVerifyFail
+		}
+	}
+	return nil
+}
+
+// applyStagedBinScripts 把升级包 bin/ 下的脚本落到安装目录：逐文件按
+// 「内容相同跳过 → 旧文件备份成 .bak-<时间戳> → 写临时文件 → chmod 0755 → 原子 rename」处理。
+// staging 没有 bin/ 时返回 nil（兼容旧包）。
+// applyStagedBinScripts applies the bundle's bin/ scripts into the install dir: identical
+// content is skipped, otherwise "backup old file as .bak-<ts> -> write temp -> chmod 0755 ->
+// atomic rename" per file. Missing staging bin/ returns nil (backward compatible with old bundles).
+func applyStagedBinScripts(stagingDir, installDir string) error {
+	staged := filepath.Join(stagingDir, "bin")
+	entries, err := os.ReadDir(staged)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	binDir := filepath.Join(installDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(staged, entry.Name()))
+		if err != nil {
+			return err
+		}
+		if _, _, err := install.InstallScriptIfChanged(binDir, entry.Name(), content, time.Now()); err != nil {
+			return err
 		}
 	}
 	return nil

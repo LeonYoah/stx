@@ -64,3 +64,10 @@
 - `go test ./internal/apps/dashboard ./internal/grpc ./internal/pkg/promquery ./internal/operation` 全过；agent `go test ./...` 全过
 - `pnpm test` 630 全过；`tsc --noEmit` 干净；swagger 已重生成（boot_time_ms）
 - 注：`internal/apps/installer` 两个用例本地环境失败（chunks 计数断言），与本 diff 无关，CI 绿
+
+## 2025-11-17 第三轮：embedts 测试 flake 根因修复
+
+- CI 失败 `TestGetJobSparklinesDropsInvisibleIDs` panic：`chunks_head: no such file`
+- 根因：`t.Cleanup` 后进先出——helper 先注册 `embedts.Close()`、后在 `Start(Dir: t.TempDir())` 里触发 TempDir 的删除清理；测试结束时**先删目录再关库**，`Head.Close()` 的 `mmapHeadChunks` 往已删 `chunks_head` 写盘 panic
+- 触发条件：序列有 ≥2 head chunk 才走 `WriteChunk`——样本 `now-75s..now` 恰跨 2h chunk 边界（偶数整点）时必现，约 1%/run 的 flake
+- 修复：`withEmbeddedObservability`（sync/job_list_test）与 `withPrometheus`（dashboard/cluster_test）把 `dir := t.TempDir()` 提到 `t.Cleanup` 注册之前；审查其余 4 个 embedts 测试点顺序本就正确

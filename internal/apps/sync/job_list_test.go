@@ -243,13 +243,21 @@ func TestListJobsVisibilityMatchesGetJob(t *testing.T) {
 func withEmbeddedObservability(t *testing.T) {
 	t.Helper()
 	enabled := config.Config.Observability.Enabled
+	// t.TempDir 必须先建：它的删除清理在调用时就注册，而 t.Cleanup 是后进先出——
+	// 若 Close 的清理先注册，结束时会先删 chunks_head 再关库，Head.Close 的
+	// mmapHeadChunks 就会写进已删目录直接 panic（样本恰好跨 2h chunk 边界时必现）。
+	// t.TempDir must come first: its removal cleanup registers at call time and
+	// cleanups run LIFO — registering Close first would delete chunks_head before
+	// the db closes, and Head.Close's mmapHeadChunks then writes into a missing dir
+	// (deterministic panic whenever samples straddle a 2h chunk boundary).
+	dir := t.TempDir()
 	t.Cleanup(func() {
 		config.Config.Observability.Enabled = enabled
 		_ = embedts.Close()
 	})
 	config.Config.Observability.Enabled = true
 	_ = embedts.Close()
-	if err := embedts.Start(context.Background(), embedts.Options{Dir: t.TempDir()}); err != nil {
+	if err := embedts.Start(context.Background(), embedts.Options{Dir: dir}); err != nil {
 		t.Fatalf("start embedded tsdb: %v", err)
 	}
 }

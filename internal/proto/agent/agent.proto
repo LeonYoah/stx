@@ -28,6 +28,13 @@ service AgentService {
   // 安装包下载流 - Agent 按 transfer_id 从 Control Plane 拉取安装包（原生字节流，支持断点续传）
   // Package download stream - Agent pulls a package by transfer_id (raw bytes, resumable via offset)
   rpc DownloadPackage(DownloadPackageRequest) returns (stream PackageChunk);
+
+  // 主机指标上报 - Agent 随心跳循环把主机指标样本推给 Control Plane（独立 RPC：
+  // 老 Agent 不调用即不上报；新 Agent 调旧控制面返回 Unimplemented 可忽略，双向兼容）
+  // Host metrics report - Agent pushes host metric samples on the heartbeat cadence via a
+  // dedicated RPC (old agents simply never call it; new agents against an old control plane
+  // get Unimplemented and skip it — compatible both ways).
+  rpc ReportHostMetrics(ReportHostMetricsRequest) returns (ReportHostMetricsResponse);
 }
 
 // DownloadPackageRequest - 安装包下载请求
@@ -474,4 +481,31 @@ message MonitorConfigUpdate {
   int32 max_restarts = 6;         // 最大重启次数 / Max restart count
   int32 time_window = 7;          // 时间窗口 (秒) / Time window (seconds)
   int32 cooldown_period = 8;      // 冷却时间 (秒) / Cooldown period (seconds)
+}
+
+// ============================================================================
+// 主机指标上报消息 (E3)
+// Host Metrics Report Messages
+// ============================================================================
+
+// HostMetricSample - 单条主机指标样本：name + labels + value，控制面原样直写内嵌 tsdb
+// HostMetricSample - a single host metric sample: name + labels + value, written verbatim
+// into the embedded tsdb by the control plane.
+message HostMetricSample {
+  string name = 1;                // 指标名 / Metric name, e.g. stx_host_cpu_seconds_total
+  map<string, string> labels = 2; // 维度标签 / Dimension labels (mode / mountpoint / device / iface…)
+  double value = 3;               // 样本值 / Sample value
+}
+
+// ReportHostMetricsRequest - 主机指标上报请求
+// ReportHostMetricsRequest - host metrics report request
+message ReportHostMetricsRequest {
+  string agent_id = 1;                   // Agent 唯一标识 / Agent unique identifier
+  repeated HostMetricSample samples = 2; // 本轮采集的样本 / Samples collected this round
+}
+
+// ReportHostMetricsResponse - 主机指标上报响应
+// ReportHostMetricsResponse - host metrics report response
+message ReportHostMetricsResponse {
+  bool success = 1; // 是否成功 / Success flag
 }

@@ -19,7 +19,7 @@ import {render, screen} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
-import type {HomeSummary} from '@/lib/services/dashboard';
+import type {HomeSummary, HomeVolume} from '@/lib/services/dashboard';
 import {DashboardKpiRow} from '../DashboardKpiRow';
 
 vi.mock('@/components/arc/metric-card/metric-card', () => ({
@@ -70,11 +70,34 @@ const summary: HomeSummary = {
   attention: [],
 };
 
-const renderRow = (data: HomeSummary | null, loading = false) =>
+const volume: HomeVolume = {
+  source: 'prometheus',
+  range: '1h',
+  start_ms: 0,
+  end_ms: 3_600_000,
+  split: 'none',
+  oldest_sample_ms: 0,
+  totals: {
+    window: {read_rows: 0, write_rows: 1_523_000, read_bytes: 0, write_bytes: 0},
+    today: {read_rows: 0, write_rows: 5_000_000, read_bytes: 0, write_bytes: 0},
+    month: {read_rows: 0, write_rows: 60_000_000, read_bytes: 0, write_bytes: 0},
+    today_start_ms: 0,
+    month_start_ms: 0,
+  },
+  buckets: [],
+  series: [],
+};
+
+const renderRow = (
+  data: HomeSummary | null,
+  loading = false,
+  vol: HomeVolume | null | undefined = undefined,
+) =>
   render(
     <NextIntlClientProvider locale='zh' messages={zh}>
       <DashboardKpiRow
         summary={data}
+        volume={vol}
         loading={loading}
         buildHref={(patch) => `/dashboard?${new URLSearchParams(patch)}`}
       />
@@ -82,28 +105,59 @@ const renderRow = (data: HomeSummary | null, loading = false) =>
   );
 
 describe('DashboardKpiRow', () => {
-  it('renders the six KPIs with neutral failure wording and a signed write-rate change', () => {
-    renderRow(summary);
+  it('renders the seven KPIs with neutral failure wording and a signed write-rate change', () => {
+    renderRow(summary, false, volume);
     const cards = screen
       .getAllByTestId('metric-card')
       .map((node) => node.textContent);
-    expect(cards).toHaveLength(6);
+    expect(cards).toHaveLength(7);
     expect(cards[0]).toBe('运行中作业|9|流 7 · 批 2|');
     expect(cards[1]).toBe('全局写入速率|27200 行/秒|较 1 小时前|+6%');
     expect(cards[2]).toBe('最大 CDC 延迟|74 秒|pg-cdc-ledger|超阈值');
     // 失败数用中性文字，不带正负号，避免 Arc 染成绿色。/ Neutral failure wording, no sign, so Arc never paints it green.
     expect(cards[3]).toBe('失败作业|2|近 24 小时（含失败中）|昨日 1');
-    expect(cards[4]).toBe('集群健康|1/2|节点 4/4 在线|1 个降级');
+    expect(cards[4]).toBe('数据量|1523000 行|今日 5M · 本月 60M|');
+    expect(cards[5]).toBe('集群健康|1/2|节点 4/4 在线|1 个降级');
     expect(screen.getByTestId('home-kpi-failed').getAttribute('href')).toBe(
       '/dashboard?tab=list&status=failed',
+    );
+    expect(screen.getByTestId('home-kpi-volume').getAttribute('href')).toBe(
+      '/dashboard?tab=jobs',
     );
     expect(screen.getByTestId('home-kpi-alerts').getAttribute('href')).toBe(
       '/monitoring',
     );
   });
 
+  it('marks the month caption when the oldest sample starts after month start', () => {
+    const clipped: HomeVolume = {
+      ...volume,
+      oldest_sample_ms: Date.UTC(2026, 10, 10),
+      totals: {
+        ...volume.totals!,
+        month_start_ms: Date.UTC(2026, 10, 1),
+      },
+    };
+    renderRow(summary, false, clipped);
+    expect(screen.getByTestId('home-kpi-volume').textContent).toContain(
+      '自 2026/11/10 起',
+    );
+  });
+
+  it('falls back to an off caption without volume totals', () => {
+    renderRow(summary, false, {
+      ...volume,
+      source: 'none',
+      reason: 'observability_disabled',
+      totals: null,
+    });
+    expect(screen.getByTestId('home-kpi-volume').textContent).toContain(
+      '可观测未开启',
+    );
+  });
+
   it('keeps a fixed-height skeleton while the first load is pending', () => {
     renderRow(null, true);
-    expect(screen.getByTestId('home-kpi-loading').children).toHaveLength(6);
+    expect(screen.getByTestId('home-kpi-loading').children).toHaveLength(7);
   });
 });

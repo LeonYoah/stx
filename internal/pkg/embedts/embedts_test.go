@@ -207,6 +207,32 @@ func TestOptionsFromObservability(t *testing.T) {
 	})
 }
 
+func TestOldestSampleTime(t *testing.T) {
+	// 未就绪返回 false。/ Not ready reports false.
+	_ = Close()
+	if _, ok := OldestSampleTime(); ok {
+		t.Fatal("OldestSampleTime should be false before Start")
+	}
+
+	ctx := context.Background()
+	require.NoError(t, Start(ctx, testOptions(t)))
+	t.Cleanup(func() { _ = Close() })
+
+	// 空库同样返回 false。/ An empty store also reports false.
+	if _, ok := OldestSampleTime(); ok {
+		t.Fatal("OldestSampleTime should be false with no samples")
+	}
+
+	// 写入两段样本后应取到最早时间戳。/ After appending, the earliest timestamp wins.
+	oldMs := time.Now().Add(-time.Hour).UnixMilli()
+	newMs := time.Now().Add(-time.Minute).UnixMilli()
+	appendSamples(t, ctx, "stx_embedts_metric", nil, newMs, 1000, []float64{1})
+	appendSamples(t, ctx, "stx_embedts_metric_old", nil, oldMs, 1000, []float64{1})
+	got, ok := OldestSampleTime()
+	require.True(t, ok)
+	require.Equal(t, oldMs, got.UnixMilli())
+}
+
 func TestStart_ConfiguresConcurrentQueryCap(t *testing.T) {
 	require.GreaterOrEqual(t, maxConcurrentQueries(), 4)
 

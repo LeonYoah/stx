@@ -3,7 +3,7 @@
   "name": "dashboard-e3-host-metrics",
   "title": "增强：服务器主机指标采集（Agent 内置导出器）",
   "description": "",
-  "status": "planning",
+  "status": "implementing",
   "dev_type": null,
   "scope": null,
   "package": null,

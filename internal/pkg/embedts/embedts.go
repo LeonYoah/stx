@@ -60,9 +60,16 @@ const (
 	// DefaultQueryTimeout 是默认单次查询超时，与原远程 HTTP 客户端 8s 一致。
 	// DefaultQueryTimeout is the default per-query timeout, matching the legacy 8s HTTP client timeout.
 	DefaultQueryTimeout = 8 * time.Second
-	// DefaultMaxSamples 是默认单次查询样本上限，与 Prometheus 默认一致。
-	// DefaultMaxSamples is the default per-query sample limit, same as upstream Prometheus.
-	DefaultMaxSamples = 50000000
+	// DefaultMaxSamples 是默认单次查询样本上限：约 160MB（按 16B/样本），覆盖约 2 万活跃序列 × 7d 面板点数。
+	// 独立 Prometheus 默认 5000 万在 8G 部署机上一次查询就能打满 API 进程堆，见 embedded-tsdb-capacity.md。
+	// DefaultMaxSamples is the per-query sample cap: ~160MB at 16B/sample, covering ~20k active
+	// series × 7d dashboard points. Upstream Prometheus' 50M default can fill an 8G API heap on
+	// one query; see embedded-tsdb-capacity.md.
+	DefaultMaxSamples = 10000000
+	// DefaultSampleLimit 是每个抓取目标单轮样本上限，超限丢弃本轮并记 last_error（Prometheus sample_limit 语义）。
+	// DefaultSampleLimit is the per-target per-round sample cap; over-limit scrapes are dropped
+	// and recorded in last_error (Prometheus sample_limit semantics).
+	DefaultSampleLimit = 50000
 	// DefaultLookbackDelta 是 PromQL 瞬时查询回看窗口，与 Prometheus 默认 5m 一致。
 	// DefaultLookbackDelta is the PromQL instant-query lookback window, same as the Prometheus 5m default.
 	DefaultLookbackDelta = 5 * time.Minute
@@ -95,6 +102,11 @@ type Options struct {
 	// NoLockfile passes through to tsdb.Options.NoLockfile as an escape hatch for platforms
 	// without lockfile support (e.g. Windows).
 	NoLockfile bool
+
+	// MinBlockDuration 覆盖 tsdb 默认 2h 块时长；仅基准测试用来在短窗口内触发 compaction，生产保持 0。
+	// MinBlockDuration overrides the default 2h tsdb block range; capacity benches use a short
+	// window so compaction can fire, production leaves it 0.
+	MinBlockDuration time.Duration
 }
 
 // withDefaults 填充零值字段，保证绕过 config 直接构造 Options 的调用方也能工作。
@@ -184,10 +196,18 @@ var (
 func Start(ctx context.Context, opts Options) error {
 	opts = opts.withDefaults()
 	reg := prometheus.NewRegistry()
+	// Go runtime / 进程采集器与 tsdb/engine 指标共用同一 registry，由自抓取写回 tsdb。
+	// Go runtime / process collectors share this registry with tsdb/engine metrics; self-scrape writes them back.
+	registerRuntimeCollectors(reg)
 	tsdbOpts := tsdb.DefaultOptions()
 	tsdbOpts.RetentionDuration = opts.RetentionDuration.Milliseconds()
 	tsdbOpts.MaxBytes = opts.MaxBytes
 	tsdbOpts.NoLockfile = opts.NoLockfile
+	if opts.MinBlockDuration > 0 {
+		ms := opts.MinBlockDuration.Milliseconds()
+		tsdbOpts.MinBlockDuration = ms
+		tsdbOpts.MaxBlockDuration = ms
+	}
 	// 内部日志走 NopLogger：错误经返回值与 our logger.*F 上报，避免 zap/slog 双日志体系打架。
 	// Internal logs go to a NopLogger: failures surface via return values and our logger.*F,
 	// avoiding a second slog pipeline next to zap.
@@ -250,6 +270,7 @@ func Close() error {
 	// 先停抓取循环再关 db，避免关闭瞬间仍有写入线程在 appender 上。
 	// Stop the scrape loop before closing the db so no writer still sits on an appender.
 	inst.stopScraper()
+	resetSelfMetricsTracker()
 	_ = inst.engine.Close()
 	return inst.db.Close()
 }

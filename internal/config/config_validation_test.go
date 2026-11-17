@@ -47,7 +47,8 @@ func fillEmbeddedObservabilityDefaults(c *configModel) {
 	c.Observability.ScrapeInterval = "15s"
 	c.Observability.EvalInterval = "15s"
 	c.Observability.QueryTimeout = "8s"
-	c.Observability.MaxSamples = 50000000
+	c.Observability.MaxSamples = 10000000
+	c.Observability.SampleLimit = 50000
 }
 
 func TestValidateConfig_RemoteObservabilityHappyPath(t *testing.T) {
@@ -85,6 +86,7 @@ func TestValidateConfig_EmbeddedObservabilityInvalid(t *testing.T) {
 		{"zero eval interval", func(c *configModel) { c.Observability.EvalInterval = "0s" }},
 		{"bad query timeout", func(c *configModel) { c.Observability.QueryTimeout = "soon" }},
 		{"negative max_samples", func(c *configModel) { c.Observability.MaxSamples = -1 }},
+		{"negative sample_limit", func(c *configModel) { c.Observability.SampleLimit = -1 }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -276,6 +276,13 @@ type ObservabilityConfig struct {
 	// MaxSamples is the maximum number of samples a single query may load.
 	MaxSamples int64 `mapstructure:"max_samples"`
 
+	// SampleLimit 是每个抓取目标单轮允许写入的最大样本数（Prometheus sample_limit 语义）。
+	// 0 视为未配置，启动时填 DefaultSampleLimit；超限丢弃该目标本轮样本并记 last_error。
+	// SampleLimit is the per-target per-round sample cap (Prometheus sample_limit semantics).
+	// 0 means unset and is filled with DefaultSampleLimit at startup; over-limit scrapes
+	// drop that target's round and record last_error.
+	SampleLimit int64 `mapstructure:"sample_limit"`
+
 	SeatunnelMetric ObservabilitySeatunnelMetricConfig `mapstructure:"seatunnel_metrics"`
 
 	// RemoteIngest 是远程告警回流（AM webhook）端点配置：path 自 alertmanager.webhook_path 迁入，

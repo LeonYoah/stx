@@ -38,6 +38,7 @@
     - `frontend/e2e/plugin-real.spec.ts`
     - `frontend/e2e/workbench-real.spec.ts`
     - `frontend/e2e/stx-cli-installer-real.spec.ts`
+    - `frontend/e2e/observability-real.spec.ts`（`E2E_OBSERVABILITY_REAL=1` 才跑，不进 smoke）
 
 ### 3. Contracts
 
@@ -169,7 +170,9 @@
     - 安装向导（正向 + 失败态）
     - 升级准备（正向 + 阻断态）
     - 登录 / Dashboard
-- 真实环境 E2E（例如 installer-real / config-real / upgrade-real / plugin-real）不进入 smoke 选择器，改由统一 `E2E` workflow 的 suite 级 path filter 决定是否运行
+- 真实环境 E2E（例如 installer-real / config-real / upgrade-real / plugin-real / observability-real）不进入 smoke 选择器，改由统一 `E2E` workflow 的 suite 级 path filter 决定是否运行
+- Dashboard smoke 覆盖 7 张指标卡（含数据量）和四个页签（集群 / 作业 / 主机 / 作业列表）；集群趋势在可观测关闭时断言 `home-trend-empty`，开启时断言 `home-availability`
+- CLI / UI installer-real 在安装 `success` 之后还要等到 `cluster.status=running` 且 master `process_pid>0`
 - 工作台真实套件使用 `frontend/e2e/workbench-real.spec.ts` 与 `frontend/e2e/helpers/workbench-real.ts`，通过 `pnpm run test:e2e:workbench-real` 启动。
 - 下列共享变更会退化为全量 E2E smoke：
     - `frontend/playwright.config.ts`

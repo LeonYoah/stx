@@ -240,9 +240,12 @@ observability:
   # 单次 PromQL 查询超时
   # Per-PromQL-query timeout
   query_timeout: "8s"
-  # 单次查询允许加载的最大样本数
-  # Max samples a single query may load
-  max_samples: 50000000
+  # 单次查询允许加载的最大样本数（8G 部署机收紧后的默认；约 160MB）
+  # Max samples a single query may load (tightened for 8G hosts; ~160MB)
+  max_samples: 10000000
+  # 每个抓取目标单轮样本上限；超限丢弃该目标本轮并记 last_error
+  # Per-target per-round sample cap; over-limit scrapes are dropped and recorded in last_error
+  sample_limit: 50000
 
   # 外部告警接入：接收外部系统推送的告警（兼容 Alertmanager Webhook 格式）
   # External alert ingest: receives alerts pushed by external systems (Alertmanager webhook compatible)

@@ -79,7 +79,8 @@ observability:
   scrape_interval: "15s"
   eval_interval: "15s"
   query_timeout: "8s"
-  max_samples: 50000000
+  max_samples: 10000000
+  sample_limit: 50000
   remote_ingest:
     path: "/api/v1/monitoring/alertmanager/webhook"
     token: ""

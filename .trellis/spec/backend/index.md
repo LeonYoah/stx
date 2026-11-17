@@ -27,6 +27,8 @@
 | [实时可观测性与事件上报](./engine-events-and-realtime.md) | 提交时注入 observability、`/metrics/realtime` 代理（只找 active master）、`event-report-http` 事件通道（接收端只对 token 错误返回非 2xx） | 已填写 |
 | [作业计划 DAG](./job-plan-dag.md) | 运行作业用提交内容经 config tool 推导表结构与建表计划（`/jobs/:id/plan-dag`），原因码代替报错、不缓存不回写 | 已填写 |
 | [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md) | 提交等待、守护进程、登录令牌、推送绑定与 CLI 退出码 | 已填写 |
+| [内嵌 tsdb 自观测](./embedded-tsdb-self-obs.md) | 自抓取 `job=stx_embedded`、Go/进程采集器、integration status 存储 meta | 已填写 |
+| [内嵌 tsdb 容量与默认值](./embedded-tsdb-capacity.md) | `max_samples` / `sample_limit` 收紧、序列规模基准 | 已填写 |
 
 ---
 
@@ -41,6 +43,8 @@
 - 涉及作业详情的表结构 / 建表计划、`submit_spec.submitted_content` 的保存或 config tool WebUI DAG 时，阅读[作业计划 DAG](./job-plan-dag.md)。
 - 涉及作业告警（提交失败、提交超时、作业失败、停止超时、作业状态获取失败、事件通道降级）、`monitoring_sync_alert_episodes`、任务告警配置或修改会发出告警信号的状态写入时，阅读[同步作业告警](./sync-alerts.md)。
 - 涉及 DolphinScheduler SHELL 节点、`--wait`/`--close-job`、登录令牌或工作流推送时，阅读[DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)。
+- 涉及内嵌 tsdb 自抓取、`prometheus_tsdb_*` / `go_*` 查询或 integration status 存储 meta 时，阅读[内嵌 tsdb 自观测](./embedded-tsdb-self-obs.md)。
+- 涉及 `max_samples`、抓取 `sample_limit` 或序列规模基准时，阅读[内嵌 tsdb 容量与默认值](./embedded-tsdb-capacity.md)。
 - 新增源文件、方法或用户可见文案时，按[质量规范](./quality-guidelines.md)检查注释、License 头和语言输出。
 
 ## 质量检查

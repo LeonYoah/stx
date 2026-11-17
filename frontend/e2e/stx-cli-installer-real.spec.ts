@@ -291,8 +291,63 @@ test.describe.serial('STX CLI real installer', () => {
     expect(finalStatus?.data.status).toBe('success');
     expect(finalStatus?.data.current_step).toBe('complete');
 
+    // 安装 success 还不够：等到集群 running 且 master 有 process_pid，避免只装完文件、进程没起来。
+    // Install success is not enough: wait until the cluster is running and the master has a
+    // process_pid so we do not pass on files-only installs whose process never started.
+    const clusterDeadline = Date.now() + 180000;
+    let clusterStatus = '';
+    let processPid = 0;
+    let masterRole = '';
+    while (Date.now() < clusterDeadline) {
+      const got = await runSTX<{status?: string}>([
+        'cluster',
+        'get',
+        clusterId,
+      ]);
+      clusterStatus = String(got.result.data.status || '');
+      if (
+        clusterStatus === 'installed' ||
+        clusterStatus === 'stopped' ||
+        clusterStatus === 'created'
+      ) {
+        await runSTX(['cluster', 'start', clusterId, '--confirm']).catch(
+          () => undefined,
+        );
+      }
+      const listed = await runSTX<
+        Array<{
+          role?: string;
+          install_dir?: string;
+          cluster_id?: number | string;
+          process_pid?: number;
+        }>
+      >(['cluster', 'node', 'list', clusterId]);
+      const master = (listed.result.data ?? []).find((node) => {
+        const role = String(node?.role || '').toLowerCase();
+        return (
+          role === 'master' ||
+          role === 'master/worker' ||
+          role === 'master_worker'
+        );
+      });
+      masterRole = String(master?.role || '');
+      processPid = Number(master?.process_pid || 0);
+      if (clusterStatus === 'running' && processPid > 0) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    expect(clusterStatus).toBe('running');
+    expect(processPid).toBeGreaterThan(0);
+    expect(masterRole).toBe('master/worker');
+
     const nodes = await runSTX<
-      Array<{role?: string; install_dir?: string; cluster_id?: number | string}>
+      Array<{
+        role?: string;
+        install_dir?: string;
+        cluster_id?: number | string;
+        process_pid?: number;
+      }>
     >(['cluster', 'node', 'list', clusterId]);
     expect(nodes.result.data).toEqual(
       expect.arrayContaining([

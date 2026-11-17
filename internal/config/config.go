@@ -177,6 +177,11 @@ func applyEnvironmentOverrides(c *configModel) {
 	if sqlitePath := os.Getenv("STX_DATABASE_SQLITE_PATH"); sqlitePath != "" {
 		c.Database.SQLitePath = sqlitePath
 	}
+	// 仅用于 MySQL DATETIME → UTC 一次性迁移；与运行时 TZ / time.Local 解耦。
+	// Only for the one-shot MySQL DATETIME→UTC migration; independent of runtime TZ / time.Local.
+	if legacyTZ := strings.TrimSpace(os.Getenv("STX_DATABASE_LEGACY_TIMEZONE")); legacyTZ != "" {
+		c.Database.LegacyTimezone = legacyTZ
+	}
 }
 
 // isTestEnvironment 检测是否在测试环境中运行

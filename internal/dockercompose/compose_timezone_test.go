@@ -47,7 +47,11 @@ func TestComposeServicesInjectTimezone(t *testing.T) {
 		t.Fatal("compose.base.yml has no services")
 	}
 	for name := range base.Services {
-		assertServiceTZ(t, "compose.base.yml", name, envOf(t, "compose.base.yml", name, base.Services[name]))
+		env := envOf(t, "compose.base.yml", name, base.Services[name])
+		assertServiceTZ(t, "compose.base.yml", name, env)
+		if name == "stx-backend" {
+			assertBackendLegacyTZ(t, "compose.base.yml", env)
+		}
 	}
 
 	overlays, err := filepath.Glob(filepath.Join(dockerDir, "docker-compose*.yml"))
@@ -64,7 +68,11 @@ func TestComposeServicesInjectTimezone(t *testing.T) {
 			t.Errorf("%s: merged to zero services", filepath.Base(overlayPath))
 		}
 		for name, svc := range merged {
-			assertServiceTZ(t, filepath.Base(overlayPath), name, envOf(t, filepath.Base(overlayPath), name, svc))
+			env := envOf(t, filepath.Base(overlayPath), name, svc)
+			assertServiceTZ(t, filepath.Base(overlayPath), name, env)
+			if name == "stx-backend" {
+				assertBackendLegacyTZ(t, filepath.Base(overlayPath), env)
+			}
 		}
 	}
 }
@@ -81,6 +89,9 @@ func TestComposeTimezoneDefaults(t *testing.T) {
 		if !activeEnvLine(body, "TZ=Asia/Shanghai") {
 			t.Errorf("%s: missing active TZ=Asia/Shanghai", rel)
 		}
+		if !activeEnvLine(body, "STX_DATABASE_LEGACY_TIMEZONE=UTC") {
+			t.Errorf("%s: missing active STX_DATABASE_LEGACY_TIMEZONE=UTC", rel)
+		}
 	}
 	for _, rel := range []string{
 		".github/docker/Dockerfile.backend",
@@ -94,11 +105,23 @@ func TestComposeTimezoneDefaults(t *testing.T) {
 	}
 }
 
+const wantLegacyTZ = "${STX_DATABASE_LEGACY_TIMEZONE:-UTC}"
+
 func assertServiceTZ(t *testing.T, file, service string, env map[string]string) {
 	t.Helper()
 	got := env["TZ"]
 	if got != wantTZ {
 		t.Errorf("%s service %s: TZ=%q, want %q", file, service, got, wantTZ)
+	}
+}
+
+// assertBackendLegacyTZ 断言控制面把 MySQL UTC 迁移源时区钉在 UTC，不跟随运行时 TZ。
+// assertBackendLegacyTZ asserts the control plane pins the MySQL UTC migration source zone to UTC, not runtime TZ.
+func assertBackendLegacyTZ(t *testing.T, file string, env map[string]string) {
+	t.Helper()
+	got := env["STX_DATABASE_LEGACY_TIMEZONE"]
+	if got != wantLegacyTZ {
+		t.Errorf("%s service stx-backend: STX_DATABASE_LEGACY_TIMEZONE=%q, want %q", file, got, wantLegacyTZ)
 	}
 }
 

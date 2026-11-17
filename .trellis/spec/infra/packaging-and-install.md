@@ -86,6 +86,7 @@ curl -fsSL <raw-or-mirrored-url>/install-online.sh | bash -s -- [options]
 | `STX_IMAGE_TAG` | `latest` | Docker Compose / 单镜像 tag |
 | `STX_CONFIG_FILE` | 仓库 `../../config.example.yaml`；发版 tar `./config.yaml` | Compose 挂载到容器的服务端配置；勿另维护 Docker schema |
 | `TZ` | `Asia/Shanghai` | Compose 注入**每个**服务的进程时区；镜像 `ENV TZ` 为裸 `docker run` 兜底。不改变 UTC 存储、应用 DSN 时区与 `app.display_timezone`。不要用它代替 `STX_SEATUNNEL_TIMEZONE` |
+| `STX_DATABASE_LEGACY_TIMEZONE` | Compose `UTC` | 仅覆盖 `database.legacy_timezone`，给 MySQL DATETIME→UTC 一次性迁移用。旧 Compose 容器 `time.Local` 为 UTC，必须与运行时 `TZ` 解耦，否则未打 `time_columns_utc_v1` 的库会把已是 UTC 的列再减 8 小时 |
 
 ### 3.2 gh-proxy 节点（中国默认）
 
@@ -131,6 +132,7 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 - **不要**写入 `observability.prometheus` / `alertmanager` / `grafana` 段（已删除；旧文件残留会被忽略）
 - Docker Compose 包：`config.yaml` 从仓库根目录 `config.example.yaml` 拷出；Compose 用 `STX_DATABASE_*` 覆盖容器 DNS，不另维护一份 Docker schema
 - Docker Compose：**每个**服务（`stx-backend` / `stx-frontend` / `mysql` / `postgres`）必须注入 `TZ: ${TZ:-Asia/Shanghai}`；overlay 用 mapping 合并 `environment`，不得改成 list 以免覆盖掉 base 的 `TZ`。镜像 `ENV TZ=Asia/Shanghai` 覆盖裸 `docker run`。`TZ` 不改变 DSN `time_zone='+00:00'` / `TimeZone=UTC` 与 UTC 存储
+- Docker Compose：`stx-backend` 必须同时注入 `STX_DATABASE_LEGACY_TIMEZONE: ${STX_DATABASE_LEGACY_TIMEZONE:-UTC}`。运行时 `TZ` 不得充当 MySQL `MigrateTimeColumnsToUTC` 的源时区；旧 Compose 控制面 `time.Local` 为 UTC，未打 `time_columns_utc_v1` 的升级若跟 `TZ=Asia/Shanghai` 走会把已是 UTC 的 DATETIME 减 8 小时
 
 ### 3.5 systemd（对齐 agent）
 
@@ -156,6 +158,7 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 | 中国测速五节点全失败 | 回退直连；再失败则中止并给出手动下载说明 |
 | 升级时存在旧 `observability/` 目录 | 只提示一次，保留目录与数据 |
 | Compose 某服务未注入 `TZ` | 拒绝合入；每个服务必须有 `TZ: ${TZ:-Asia/Shanghai}` |
+| Compose 给控制面改 `TZ` 却不钉死 MySQL 迁移源时区 | 拒绝合入；`stx-backend` 必须有 `STX_DATABASE_LEGACY_TIMEZONE`（默认 `UTC`），与运行时 `TZ` 分开 |
 | systemd 容器刚起来就一键安装 | 等 `systemd-tmpfiles-setup` 结束；解压目录用 `/var/tmp`，不得被开机清空 `/tmp` 删掉 |
 
 ---
@@ -191,7 +194,7 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 | 端口探测 | 占用端口被跳过，写入 config 为新端口 |
 | offline 禁网 | `http_proxy`/curl 到外网被拦截或未调用 |
 | 资产命名 | CI/package 脚本产出裸 `stx-linux-*`；离线包不含 `observability-*` 与 `bin/lib/observability.sh` |
-| Compose 时区 | `internal/dockercompose` 断言 MySQL / SQLite / PostgreSQL 三套合并后每个服务 `TZ=${TZ:-Asia/Shanghai}`；`.env*` 与三份 Dockerfile 含同一默认值 |
+| Compose 时区 | `internal/dockercompose` 断言 MySQL / SQLite / PostgreSQL 三套合并后每个服务 `TZ=${TZ:-Asia/Shanghai}`，且 `stx-backend` 带 `STX_DATABASE_LEGACY_TIMEZONE=${STX_DATABASE_LEGACY_TIMEZONE:-UTC}`；`.env*` 与三份 Dockerfile 含同一默认 `TZ` |
 
 ---
 
@@ -206,6 +209,7 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 | 为了「更全的监控」重新打包外部监控组件 | 监控内置在 stx；需要的指标在内置采集里补 |
 | Compose 写死仅 GHCR、中国无法拉 | `STX_IMAGE_REGISTRY` 可切到 `swr.cn-east-3.myhuaweicloud.com/stx` |
 | Compose 服务漏写 `TZ`，容器 `time.Local` 默认为 UTC | 每个服务 `environment` 都有 `TZ: ${TZ:-Asia/Shanghai}`；新增服务必须带上 |
+| 只改 Compose `TZ`、MySQL UTC 迁移仍回退 `time.Local` | `stx-backend` 注入 `STX_DATABASE_LEGACY_TIMEZONE=UTC`（可覆盖），与运行时 `TZ` 解耦 |
 | 假定用户必须跑脚本才能装 | README 提供手动下载资产表 + `packages/` + `install.sh --offline` |
 
 ---

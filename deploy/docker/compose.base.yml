@@ -33,6 +33,9 @@ services:
       # 容器进程本地时区（日志 / Go time.Local）。存储仍为 UTC；可用 .env 的 TZ 覆盖。
       # Container process timezone (logs / Go time.Local). Storage stays UTC; override with TZ in .env.
       TZ: ${TZ:-Asia/Shanghai}
+      # 旧 Compose 控制面 time.Local 为 UTC。钉死 MySQL DATETIME 一次性迁移的源时区，避免 TZ 变成上海后把已是 UTC 的列再减 8 小时。
+      # Previous Compose control plane time.Local was UTC. Pin the MySQL DATETIME one-shot migration source zone so switching TZ to Shanghai does not shift already-UTC columns by -8h.
+      STX_DATABASE_LEGACY_TIMEZONE: ${STX_DATABASE_LEGACY_TIMEZONE:-UTC}
     volumes:
       # 仓库内默认挂根目录 example。发版 tar 会把默认改成 ./config.yaml（包内已从 example 拷出）。
       # In-repo default is the root example. The release tarball rewrites this to ./config.yaml.

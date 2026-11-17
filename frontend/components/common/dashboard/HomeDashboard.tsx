@@ -48,7 +48,7 @@ import {DashboardKpiRow} from './DashboardKpiRow';
 import {HostsTab} from './HostsTab';
 import {JobListTab} from './JobListTab';
 import {JobsTab} from './JobsTab';
-import {jobWorkbenchHref} from './job-list-utils';
+import {jobWorkbenchHref} from '@/components/common/sync/job-table';
 import {
   HOME_RANGES,
   MAX_CUSTOM_WINDOW_MS,

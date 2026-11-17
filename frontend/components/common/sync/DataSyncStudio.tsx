@@ -107,18 +107,15 @@ import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {
   RuntimeStorageCheckpointInspectJobConfig,
   RuntimeStorageCheckpointInspectResult,
-  RuntimeStorageListItem,
 } from '@/lib/services/cluster/types';
 import type {
   CreateSyncTaskRequest,
-  SyncCheckpointSnapshot,
   SyncCuratedSection,
   SyncCuratedTemplateView,
   SyncDagResult,
   SyncFormat,
   SyncGlobalVariable,
   SyncJobInstance,
-  SyncJobLogsResult,
   SyncPluginFactoryInfo,
   SyncPluginType,
   SyncPreviewDataset,
@@ -187,6 +184,7 @@ import {
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {JobDetailDialog} from '@/components/common/sync/job-detail/JobDetailDialog';
 import type {JobDetailTab} from '@/components/common/sync/job-detail/types';
+import {useJobCheckpoint, useJobLogs} from './job-table';
 import {
   TaskScheduleSidebarPanel,
   type TaskScheduleValue,
@@ -282,10 +280,6 @@ import {
   type VariableRow,
   EMPTY_EDITOR,
   ENV_OPTION_METADATA,
-  EXPANDED_LOG_CHUNK_BASE_BYTES,
-  EXPANDED_LOG_CHUNK_MAX_BYTES,
-  LOG_CHUNK_BASE_BYTES,
-  LOG_CHUNK_MAX_BYTES,
   WORKSPACE_NAME_PATTERN,
   WORKSPACE_TABS_STORAGE_KEY,
   DEFAULT_STUDIO_LAYOUT_PREFS,
@@ -384,7 +378,6 @@ import {
   isTreeDescendant,
   listMoveTargets,
   listSiblingNames,
-  nextLogChunkSize,
   normalizeCheckpointActionIdentity,
   normalizeEditorForCompare,
   normalizeJobLifecycleStatus,
@@ -406,7 +399,6 @@ import {
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
   splitLogLines,
-  submitSpecExecutionMode,
   summarizeCheckpointSourceState,
   summarizeCheckpointSubtaskMetrics,
   toCheckpointNumber,
@@ -613,21 +605,7 @@ export function DataSyncStudio() {
   );
   const [jobs, setJobs] = useState<SyncJobInstance[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
-  const [jobLogs, setJobLogs] = useState<SyncJobLogsResult | null>(null);
-  const [expandedJobLogs, setExpandedJobLogs] =
-    useState<SyncJobLogsResult | null>(null);
-  const [jobLogsOffset, setJobLogsOffset] = useState('');
-  const [expandedJobLogsOffset, setExpandedJobLogsOffset] = useState('');
-  const jobLogsOffsetRef = useRef('');
-  const expandedJobLogsOffsetRef = useRef('');
-  const jobLogChunkSizeRef = useRef(LOG_CHUNK_BASE_BYTES);
-  const expandedJobLogChunkSizeRef = useRef(EXPANDED_LOG_CHUNK_BASE_BYTES);
-  const jobLogsAbortRef = useRef<AbortController | null>(null);
-  const expandedJobLogsAbortRef = useRef<AbortController | null>(null);
-  const jobLogsRequestVersionRef = useRef(0);
   const activeJobsPollInFlightRef = useRef(false);
-  const [logsLoading, setLogsLoading] = useState(false);
-  const [expandedLogsLoading, setExpandedLogsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   // 保存中单独占一段；成功后的「已保存」由草稿是否变脏决定，不再用定时器收回。
   // Pending is its own segment. Saved after success follows draft dirtiness and is not cleared by a timer.
@@ -667,13 +645,6 @@ export function DataSyncStudio() {
   const [previewSnapshot, setPreviewSnapshot] =
     useState<SyncPreviewSnapshot | null>(null);
   const [previewSnapshotLoading, setPreviewSnapshotLoading] = useState(false);
-  const [checkpointSnapshot, setCheckpointSnapshot] =
-    useState<SyncCheckpointSnapshot | null>(null);
-  const [checkpointLoading, setCheckpointLoading] = useState(false);
-  const [checkpointFiles, setCheckpointFiles] = useState<
-    RuntimeStorageListItem[]
-  >([]);
-  const [checkpointFilesLoading, setCheckpointFilesLoading] = useState(false);
   const [checkpointInspectDialogOpen, setCheckpointInspectDialogOpen] =
     useState(false);
   const [checkpointInspectDialogLoading, setCheckpointInspectDialogLoading] =
@@ -1007,6 +978,32 @@ export function DataSyncStudio() {
   const checkpointVisible =
     bottomConsoleTab === 'checkpoint' || (detailJob !== null && detailTab === 'checkpoint');
 
+  // 日志 / Checkpoint 数据由共享 hook 提供（抽自原内联实现，大盘 JobDetailHost 复用同一套）：
+  // 普通视图与展开弹窗各持一个 useJobLogs 实例，仍共用 selectedJobId 这一份作业指针。
+  // Log / checkpoint data comes from the shared hooks (extracted from the former inline implementation,
+  // reused by the dashboard JobDetailHost): the normal view and the expanded dialog each hold their own
+  // useJobLogs instance, still sharing the same selectedJobId pointer.
+  const {result: jobLogs, loading: logsLoading} = useJobLogs({
+    jobId: selectedJobId,
+    enabled: logsVisible,
+    keyword: logSearchTerm,
+    level: logFilterMode,
+  });
+  const {result: expandedJobLogs, loading: expandedLogsLoading} = useJobLogs({
+    jobId: selectedJobId,
+    enabled: logsDialogOpen,
+    keyword: logSearchTerm,
+    level: logFilterMode,
+    expanded: true,
+  });
+  const {
+    snapshot: checkpointSnapshot,
+    loading: checkpointLoading,
+    files: checkpointFiles,
+    filesLoading: checkpointFilesLoading,
+    reload: reloadCheckpoint,
+  } = useJobCheckpoint({job: selectedJob, enabled: checkpointVisible});
+
   /**
    * 打开作业详情：同时选中该作业，让日志 / Checkpoint 跟随它。
    * Open the job detail and select the job so logs / checkpoint follow it.
@@ -1241,9 +1238,6 @@ export function DataSyncStudio() {
           );
           setJobs([]);
           setSelectedJobId(null);
-          setJobLogs(null);
-          setExpandedJobLogs(null);
-          setCheckpointSnapshot(null);
           if (treeTask) {
             syncOpenTabs(treeTask);
           }
@@ -1445,9 +1439,9 @@ export function DataSyncStudio() {
   const loadJobs = useCallback(async (taskId: number | null) => {
     if (!taskId) {
       setJobs([]);
+      // 日志 / Checkpoint 随 selectedJobId 置空由 hook 内部复位，无需手动清空。
+      // Logs / checkpoint reset inside the hooks as selectedJobId goes null; no manual clearing needed.
       setSelectedJobId(null);
-      setJobLogs(null);
-      setExpandedJobLogs(null);
       return;
     }
     try {
@@ -1527,97 +1521,6 @@ export function DataSyncStudio() {
       }
     },
     [t],
-  );
-
-  const loadCheckpointSnapshot = useCallback(
-    async (jobId: number | null, silent = false) => {
-      if (!jobId) {
-        setCheckpointSnapshot(null);
-        return;
-      }
-      if (!silent) {
-        setCheckpointLoading(true);
-      }
-      try {
-        const snapshot = await services.sync.getJobCheckpoint(jobId, {
-          limit: 20,
-        });
-        setCheckpointSnapshot(snapshot);
-      } catch (error) {
-        if (!silent) {
-          toast.error(
-            error instanceof Error ? error.message : t('loadCheckpointFailed'),
-          );
-        }
-        setCheckpointSnapshot(null);
-      } finally {
-        if (!silent) {
-          setCheckpointLoading(false);
-        }
-      }
-    },
-    [t],
-  );
-
-  const loadCheckpointFiles = useCallback(
-    async (job: SyncJobInstance | null, silent = false) => {
-      const clusterId = getSyncJobClusterId(job);
-      const engineJobId = (
-        job?.engine_job_id ||
-        job?.platform_job_id ||
-        ''
-      ).trim();
-      if (
-        !job ||
-        submitSpecExecutionMode(job.submit_spec) === 'local' ||
-        !clusterId ||
-        !engineJobId
-      ) {
-        setCheckpointFiles([]);
-        return;
-      }
-      if (!silent) {
-        setCheckpointFilesLoading(true);
-      }
-      try {
-        const runtimeStorageResult =
-          await services.cluster.getRuntimeStorageSafe(clusterId);
-        const namespace = runtimeStorageResult.success
-          ? runtimeStorageResult.data?.checkpoint?.namespace?.trim() || ''
-          : '';
-        if (!namespace) {
-          setCheckpointFiles([]);
-          return;
-        }
-        const browsePath = `${namespace.replace(/\/+$/, '')}/${engineJobId}`;
-        const listResult = await services.cluster.listRuntimeStorageSafe(
-          clusterId,
-          'checkpoint',
-          {
-            path: browsePath,
-            recursive: true,
-            limit: 200,
-          },
-        );
-        if (!listResult.success || !listResult.data) {
-          setCheckpointFiles([]);
-          return;
-        }
-        const items = Array.isArray(listResult.data.items)
-          ? listResult.data.items
-              .filter((item) => !item.directory && !!item.path)
-              .sort((left, right) =>
-                (right.modified_at || '').localeCompare(left.modified_at || ''),
-              )
-          : [];
-        setCheckpointFiles(items);
-      } finally {
-        if (!silent) {
-          setCheckpointFilesLoading(false);
-        }
-      }
-    },
-    [],
   );
 
   const handleInspectCheckpointFile = useCallback(
@@ -1802,20 +1705,6 @@ export function DataSyncStudio() {
     void loadPreviewSnapshot(previewJob.id, previewDatasetName || undefined);
   }, [previewJob?.id, previewDatasetName, loadPreviewSnapshot]);
 
-  useEffect(() => {
-    if (!checkpointVisible) {
-      return;
-    }
-    void loadCheckpointSnapshot(selectedJobId);
-  }, [checkpointVisible, selectedJobId, loadCheckpointSnapshot]);
-
-  useEffect(() => {
-    if (!checkpointVisible) {
-      return;
-    }
-    void loadCheckpointFiles(selectedJob);
-  }, [checkpointVisible, loadCheckpointFiles, selectedJob]);
-
   // 同步编辑器定义中的自定义变量与类型到状态
   // Sync custom variables and types from editor definition into state
   useEffect(() => {
@@ -1826,156 +1715,13 @@ export function DataSyncStudio() {
     setCustomVariableRows(rows);
   }, [selectedNodeId, editor.currentVersion]);
 
+  // 日志与 Checkpoint 的清空已收敛进 useJobLogs / useJobCheckpoint（jobId、关键字、级别变化时各自复位），
+  // 这里只保留预览快照的复位。
+  // Log / checkpoint resets now live inside useJobLogs / useJobCheckpoint (each resets when jobId, keyword
+  // or level changes); only the preview snapshot reset remains here.
   useEffect(() => {
-    jobLogsAbortRef.current?.abort();
-    expandedJobLogsAbortRef.current?.abort();
-    jobLogsRequestVersionRef.current += 1;
-    setJobLogs(null);
-    setExpandedJobLogs(null);
     setPreviewSnapshot(null);
-    setCheckpointSnapshot(null);
-    setJobLogsOffset('');
-    setExpandedJobLogsOffset('');
-    jobLogsOffsetRef.current = '';
-    expandedJobLogsOffsetRef.current = '';
-    jobLogChunkSizeRef.current = LOG_CHUNK_BASE_BYTES;
-    expandedJobLogChunkSizeRef.current = EXPANDED_LOG_CHUNK_BASE_BYTES;
   }, [selectedJobId, logFilterMode, logSearchTerm]);
-
-  const loadSelectedJobLogs = useCallback(
-    async (all = false) => {
-      if (!selectedJobId || (!logsVisible && !all)) {
-        return;
-      }
-      const requestVersion = jobLogsRequestVersionRef.current;
-      const abortRef = all ? expandedJobLogsAbortRef : jobLogsAbortRef;
-      const currentOffsetRef = all
-        ? expandedJobLogsOffsetRef
-        : jobLogsOffsetRef;
-      const chunkSizeRef = all
-        ? expandedJobLogChunkSizeRef
-        : jobLogChunkSizeRef;
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      if (all) {
-        setExpandedLogsLoading(true);
-      } else {
-        setLogsLoading(true);
-      }
-      try {
-        const currentOffset = currentOffsetRef.current;
-        const result = await services.sync.getJobLogs(selectedJobId, {
-          offset: currentOffset || undefined,
-          limit_bytes: chunkSizeRef.current,
-          keyword: logSearchTerm.trim() || undefined,
-          level: logFilterMode === 'all' ? undefined : logFilterMode,
-          signal: controller.signal,
-        });
-        if (
-          controller.signal.aborted ||
-          jobLogsRequestVersionRef.current !== requestVersion
-        ) {
-          return;
-        }
-        const mergedLogs = (previousLogs?: string) =>
-          currentOffset
-            ? {
-                ...result,
-                logs: result.logs
-                  ? [previousLogs || '', result.logs].filter(Boolean).join('\n')
-                  : previousLogs || '',
-              }
-            : result;
-        const nextOffset = result.next_offset || currentOffset;
-        currentOffsetRef.current = nextOffset;
-        chunkSizeRef.current = nextLogChunkSize(
-          chunkSizeRef.current,
-          result.logs,
-          all ? EXPANDED_LOG_CHUNK_BASE_BYTES : LOG_CHUNK_BASE_BYTES,
-          all ? EXPANDED_LOG_CHUNK_MAX_BYTES : LOG_CHUNK_MAX_BYTES,
-        );
-        if (all) {
-          setExpandedJobLogs((previous) => mergedLogs(previous?.logs));
-          setExpandedJobLogsOffset(nextOffset);
-        } else {
-          setJobLogs((previous) => mergedLogs(previous?.logs));
-          setJobLogsOffset(nextOffset);
-        }
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          (error.name === 'CanceledError' || error.name === 'AbortError')
-        ) {
-          return;
-        }
-        // 自动刷新偶发失败时保留已显示的日志（只在下次从头拉），避免页面闪空；从没拿到过结果时给一个空结果，结束骨架态。
-        // A failed auto-refresh keeps the logs on screen (the next poll restarts from the beginning) to avoid flashing
-        // empty; if nothing was ever loaded, store an empty result so the skeleton ends.
-        const emptyResult = (previous: SyncJobLogsResult | null): SyncJobLogsResult =>
-          previous ?? {mode: '', source: '', logs: '', updated_at: ''};
-        if (all) {
-          setExpandedJobLogs(emptyResult);
-          setExpandedJobLogsOffset('');
-          expandedJobLogsOffsetRef.current = '';
-          expandedJobLogChunkSizeRef.current = EXPANDED_LOG_CHUNK_BASE_BYTES;
-        } else {
-          setJobLogs(emptyResult);
-          setJobLogsOffset('');
-          jobLogsOffsetRef.current = '';
-          jobLogChunkSizeRef.current = LOG_CHUNK_BASE_BYTES;
-        }
-        console.warn(
-          error instanceof Error ? error.message : t('loadJobLogsFailed'),
-        );
-      } finally {
-        if (abortRef.current === controller) {
-          abortRef.current = null;
-        }
-        if (all) {
-          setExpandedLogsLoading(false);
-        } else {
-          setLogsLoading(false);
-        }
-      }
-    },
-    [logsVisible, logFilterMode, logSearchTerm, selectedJobId],
-  );
-
-  useEffect(() => {
-    if (!selectedJobId || !logsVisible) {
-      return;
-    }
-    void loadSelectedJobLogs();
-  }, [
-    logsVisible,
-    loadSelectedJobLogs,
-    selectedJobId,
-    logFilterMode,
-    logSearchTerm,
-  ]);
-
-  useEffect(() => {
-    if (!logsDialogOpen || !selectedJobId) {
-      expandedJobLogsAbortRef.current?.abort();
-      return;
-    }
-    void loadSelectedJobLogs(true);
-  }, [logsDialogOpen, selectedJobId, loadSelectedJobLogs]);
-
-  useEffect(() => {
-    if (logsVisible) {
-      return;
-    }
-    jobLogsAbortRef.current?.abort();
-  }, [logsVisible]);
-
-  useEffect(() => {
-    return () => {
-      jobLogsAbortRef.current?.abort();
-      expandedJobLogsAbortRef.current?.abort();
-    };
-  }, []);
 
   useEffect(() => {
     if (activeJobs.length === 0) {
@@ -2027,48 +1773,6 @@ export function DataSyncStudio() {
     previewJob?.id,
     previewJob?.status,
     loadPreviewSnapshot,
-  ]);
-
-  useEffect(() => {
-    if (!selectedJobId || !logsVisible) {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      void loadSelectedJobLogs();
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [logsVisible, loadSelectedJobLogs, selectedJobId]);
-
-  useEffect(() => {
-    if (!logsDialogOpen || !selectedJobId) {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      void loadSelectedJobLogs(true);
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [logsDialogOpen, loadSelectedJobLogs, selectedJobId]);
-
-  useEffect(() => {
-    if (
-      !checkpointVisible ||
-      !selectedJobId ||
-      !selectedJob ||
-      (selectedJob.status !== 'pending' && selectedJob.status !== 'running')
-    ) {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      void loadCheckpointSnapshot(selectedJobId, true);
-      void loadCheckpointFiles(selectedJob, true);
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [
-    checkpointVisible,
-    loadCheckpointFiles,
-    loadCheckpointSnapshot,
-    selectedJob,
-    selectedJobId,
   ]);
 
   useEffect(() => {
@@ -3608,9 +3312,6 @@ export function DataSyncStudio() {
     setDagResult(null);
     setJobs([]);
     setSelectedJobId(null);
-    setJobLogs(null);
-    setExpandedJobLogs(null);
-    setCheckpointSnapshot(null);
     // 打开文件后底部控制台默认停在任务列表，而不是日志。
     // Opening a file keeps the bottom console on the jobs list, not logs.
     setBottomConsoleTab('jobs');
@@ -3647,9 +3348,6 @@ export function DataSyncStudio() {
       setSelectedFolderId(treeTask.parent_id || null);
       setJobs([]);
       setSelectedJobId(null);
-      setJobLogs(null);
-      setExpandedJobLogs(null);
-      setCheckpointSnapshot(null);
     }
     try {
       const task = await services.sync.getTask(taskId);
@@ -3687,9 +3385,6 @@ export function DataSyncStudio() {
       setCustomVariableRows(extractVariableRowsFromDefinition({}));
       setJobs([]);
       setSelectedJobId(null);
-      setJobLogs(null);
-      setExpandedJobLogs(null);
-      setCheckpointSnapshot(null);
     }
   };
 
@@ -3711,9 +3406,6 @@ export function DataSyncStudio() {
     setCustomVariableRows(extractVariableRowsFromDefinition({}));
     setJobs([]);
     setSelectedJobId(null);
-    setJobLogs(null);
-    setExpandedJobLogs(null);
-    setCheckpointSnapshot(null);
   };
 
   const handleSave = async () => {
@@ -5854,10 +5546,7 @@ export function DataSyncStudio() {
                   checkpointFilesLoading={checkpointFilesLoading}
                   onInspectCheckpointFile={handleInspectCheckpointFile}
                   inspectLoadingPath={checkpointInspectDialogLoading}
-                  onRefresh={() => {
-                    void loadCheckpointSnapshot(selectedJobId);
-                    void loadCheckpointFiles(selectedJob);
-                  }}
+                  onRefresh={reloadCheckpoint}
                 />
               )}
             </div>
@@ -6347,10 +6036,7 @@ export function DataSyncStudio() {
             checkpointFilesLoading={checkpointFilesLoading}
             onInspectCheckpointFile={handleInspectCheckpointFile}
             inspectLoadingPath={checkpointInspectDialogLoading}
-            onRefresh={() => {
-              void loadCheckpointSnapshot(selectedJobId);
-              void loadCheckpointFiles(selectedJob);
-            }}
+            onRefresh={reloadCheckpoint}
           />
         }
       />

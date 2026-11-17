@@ -58,8 +58,15 @@ const sync = vi.hoisted(() => ({
   recoverJob: vi.fn(),
   getJobTimeseries: vi.fn(),
 }));
+const auth = vi.hoisted(() => ({getUserInfo: vi.fn()}));
+const monitoring = vi.hoisted(() => ({listNotifiableUsers: vi.fn()}));
 
-vi.mock('@/lib/services', () => ({default: {sync}}));
+vi.mock('@/lib/services', () => ({default: {sync, auth, monitoring}}));
+// App Router 上下文在 jsdom 里不存在；「完整详情」的 router.push 用桩代替。
+// No App Router context under jsdom; stub the push used by the "full details" entry.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({push: vi.fn(), replace: vi.fn(), prefetch: vi.fn()}),
+}));
 vi.mock('@/components/charts/sparkline', () => ({
   Sparkline: ({label}: {label: string}) => (
     <span data-testid='sparkline'>{label}</span>
@@ -133,6 +140,9 @@ const renderTab = (query: Partial<DashboardQuery> = {}, update = vi.fn()) => {
 describe('JobListTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 未登录态：行内操作退化为禁用态，不影响列表行为。/ Signed-out state: row actions degrade to disabled.
+    auth.getUserInfo.mockRejectedValue(new Error('unauthorized'));
+    monitoring.listNotifiableUsers.mockResolvedValue({users: []});
     sync.listJobs.mockResolvedValue(listData);
     sync.getJobSparklines.mockResolvedValue({
       source: 'none',
@@ -217,7 +227,13 @@ describe('JobListTab', () => {
         within(screen.getByTestId(`home-job-row-${id}`)).getByRole('checkbox'),
       );
     }
-    fireEvent.click(screen.getByRole('button', {name: '停止'}));
+    // 行内也有「停止」（未登录禁用态），批量按钮限定在批量条内。
+    // Rows also render a (disabled) Stop button; scope the bulk one inside the bulk bar.
+    fireEvent.click(
+      within(screen.getByTestId('home-job-bulk')).getByRole('button', {
+        name: '停止',
+      }),
+    );
     fireEvent.click(await screen.findByRole('button', {name: '确认'}));
     await waitFor(() => expect(sync.cancelJob).toHaveBeenCalledTimes(1));
     expect(sync.cancelJob).toHaveBeenCalledWith(1, {

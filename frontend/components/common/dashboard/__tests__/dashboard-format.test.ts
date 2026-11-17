@@ -23,12 +23,6 @@ import {
   formatDurationSeconds,
   trendChangePercent,
 } from '../dashboard-format';
-import {
-  jobDisplayName,
-  jobListRates,
-  jobTimeBounds,
-  jobWorkbenchHref,
-} from '../job-list-utils';
 
 describe('dashboard-format', () => {
   it('formats compact numbers and placeholders', () => {
@@ -74,62 +68,6 @@ describe('dashboard-format', () => {
         [60_000, 204],
       ]),
     ).toBeNull();
-  });
-});
-
-describe('job-list-utils', () => {
-  it('prefers the submitted job name, then the task name', () => {
-    expect(
-      jobDisplayName({
-        id: 3,
-        submit_spec: {job_name: ' orders '},
-        task_name: 't',
-      }),
-    ).toBe('orders');
-    expect(jobDisplayName({id: 3, submit_spec: {}, task_name: 'task-a'})).toBe(
-      'task-a',
-    );
-    expect(jobDisplayName({id: 3, submit_spec: {}})).toBe('#3');
-  });
-
-  it('builds the workbench deep link', () => {
-    expect(jobWorkbenchHref({task_id: 7, id: 42})).toBe(
-      '/workbench?task=7&job=42',
-    );
-    expect(jobWorkbenchHref({task_id: 7, job_id: 9})).toBe(
-      '/workbench?task=7&job=9',
-    );
-    expect(jobWorkbenchHref({})).toBe('/workbench');
-  });
-
-  it('falls back to updated_at when the finish time precedes the start (engine timezone skew)', () => {
-    const skewed = jobTimeBounds({
-      status: 'failed',
-      started_at: '2026-11-14T12:13:03Z',
-      finished_at: '2026-11-14T04:38:28Z',
-      updated_at: '2026-11-14T12:39:44Z',
-      created_at: '2026-11-14T12:13:00Z',
-    });
-    expect(skewed.endMs).toBe(Date.parse('2026-11-14T12:39:44Z'));
-    const running = jobTimeBounds({
-      status: 'running',
-      started_at: '2026-11-14T12:00:00Z',
-      created_at: '',
-      updated_at: '',
-    });
-    expect(running.endMs).toBeNull();
-  });
-
-  it('uses live rates while running and run averages once finished', () => {
-    expect(jobListRates(true, {read_qps: 3, write_qps: 2}, 0)).toEqual({
-      read: 3,
-      write: 2,
-      average: false,
-    });
-    expect(
-      jobListRates(false, {read_total: 600, write_total: 300}, 60),
-    ).toEqual({read: 10, write: 5, average: true});
-    expect(jobListRates(false, {read_total: 600}, 0)).toEqual({average: true});
   });
 });
 

@@ -4589,6 +4589,103 @@
     "upgradeSmokeCheckTitle": "Post-upgrade smoke check",
     "upgradeSmokeCheckDescription": "After the cluster restarts and becomes healthy, the system runs a template seatunnel.sh job once. If it fails, the result is recorded as a warning only and does not block a successful upgrade."
   },
+  "jobTable": {
+    "searchPlaceholder": "Job, task or engine job ID",
+    "mode": {
+      "all": "All modes",
+      "streaming": "Streaming",
+      "batch": "Batch"
+    },
+    "runTypeFilter": {
+      "label": "Run type",
+      "all": "All",
+      "formal": "Formal",
+      "preview": "Preview"
+    },
+    "groups": {
+      "all": "All",
+      "failed": "Failed",
+      "running": "Running",
+      "pending": "Pending",
+      "stopping": "Stopping",
+      "canceled": "Canceled",
+      "finished": "Finished"
+    },
+    "columns": {
+      "job": "Job",
+      "cluster": "Cluster",
+      "mode": "Mode",
+      "run": "Run mode",
+      "status": "Status",
+      "initiator": "Initiator",
+      "rates": "Read / write rate",
+      "totals": "Rows read / written",
+      "cdc": "CDC delay",
+      "timeline": "Time",
+      "actions": "Actions"
+    },
+    "sortColumn": "Sort by {column}",
+    "sortNeedsRunning": "Select Running to sort by rate or delay",
+    "taskRef": "Task #{id}",
+    "ranFor": "Running for {duration}",
+    "tookFor": "Took {duration}",
+    "startedAt": "Started",
+    "finishedAt": "Finished",
+    "duration": "Duration",
+    "empty": "No jobs match",
+    "emptyHint": "Change the filters, or submit a job from the workbench.",
+    "total": "{count, plural, one {# job} other {# jobs}}",
+    "detail": "Details",
+    "stop": "Stop",
+    "recover": "Recover",
+    "savepointStop": "Savepoint Stop",
+    "openInWorkbench": "Open in workbench",
+    "copyJobId": "Copy job ID",
+    "copiedJobId": "Job ID copied",
+    "moreActions": "More actions",
+    "selected": "{count} selected",
+    "clearSelection": "Clear selection",
+    "sparklineLabel": "{name} write rate, last hour",
+    "loadError": "Failed to load jobs",
+    "you": "You",
+    "multiTableBadge": "Multi-Table ({count})",
+    "viewMultiTableMetricsHint": "Click to view per-table metrics breakdown",
+    "cdcDelayTooltip": "Max {max} in the last minute, updated {time} (the engine only reports delays ≥ 1s)",
+    "runModePreview": "Preview",
+    "runModeDolphin": "Dolphin schedule",
+    "runModeSchedule": "Schedule",
+    "runModeManual": "Manual",
+    "readOnlyCancelTooltip": "Only the job submitter or admin can stop this job",
+    "readOnlyRecoverTooltip": "Cannot recover jobs in read-only mode",
+    "historyRecoverTooltip": "Recover based on the submitted script and Savepoint of this historical instance",
+    "bulk": {
+      "result": "{ok} done, {failed} failed, {skipped} skipped",
+      "itemFailed": "Job #{id}: {message}"
+    },
+    "confirm": {
+      "stopTitle": "Stop {count} jobs?",
+      "stopDesc": "Sends a stop request to the cluster for each job, without a savepoint. Finished jobs are skipped.",
+      "savepointStopTitle": "Stop {count} jobs with a savepoint?",
+      "savepointStopDesc": "Sends a savepoint stop request to the cluster for each job.",
+      "recoverTitle": "Recover {count} jobs?",
+      "recoverDesc": "Recovers each job from its last checkpoint. Only failed or canceled jobs can be recovered; others are skipped.",
+      "confirm": "Confirm",
+      "cancel": "Cancel"
+    },
+    "action": {
+      "stopOk": "Stop requested for job #{id}",
+      "savepointOk": "Savepoint stop requested for job #{id}",
+      "recoverOk": "Recovery submitted for job #{id}",
+      "failed": "Action failed"
+    },
+    "units": {
+      "d": "d",
+      "h": "h",
+      "m": "m"
+    },
+    "avgPrefix": "avg ",
+    "avgRateHint": "Job finished: average rate over its run (rows ÷ duration)"
+  },
   "workbenchStudio": {
     "loading": "Loading...",
     "saving": "Saving...",

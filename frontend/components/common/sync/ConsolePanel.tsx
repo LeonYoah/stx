@@ -35,6 +35,7 @@ import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {SyncJobInstance, SyncJobLogsResult} from '@/lib/services/sync';
 import {cn} from '@/lib/utils';
 import {TableLoadingBar} from '@/components/common/layout';
+import {resolveJobInitiatorName} from './job-table/job-table-format';
 import {JobOutcomeHints} from './JobOutcomeHints';
 import {
   StudioSortableColumnHeader,
@@ -182,7 +183,8 @@ export function ConsolePanel({
   loading: boolean;
   filterMode: LogFilterMode;
   onFilterChange: (mode: LogFilterMode) => void;
-  onExpand: () => void;
+  /** 大日志弹窗入口；不传时隐藏「展开」按钮（如大盘 JobDetailHost，见该文件头说明）。/ Full log viewer entry; the expand button is hidden when omitted (e.g. the dashboard JobDetailHost, see that file's header note). */
+  onExpand?: () => void;
 }) {
   const t = useTranslations('workbenchStudio');
   if (!job) {
@@ -266,15 +268,17 @@ export function ConsolePanel({
                   {value: 'error', label: 'ERROR'},
                 ]}
               />
-              <Button
-                size='sm'
-                variant='ghost'
-                className='h-9 rounded-[var(--radius-control)] px-2 text-xs'
-                onClick={onExpand}
-              >
-                <Maximize2 className='mr-1 size-3.5' />
-                {t('expand')}
-              </Button>
+              {onExpand ? (
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  className='h-9 rounded-[var(--radius-control)] px-2 text-xs'
+                  onClick={onExpand}
+                >
+                  <Maximize2 className='mr-1 size-3.5' />
+                  {t('expand')}
+                </Button>
+              ) : null}
             </div>
           </div>
           <div className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground'>
@@ -328,31 +332,6 @@ export function ConsolePanel({
 }
 
 type JobSortKey = 'id' | 'status' | 'started' | 'metrics';
-
-function resolveJobInitiatorName(
-  job: SyncJobInstance,
-  currentUserId?: number,
-  currentUsername?: string,
-  workspaceUsers: NotificationRecipientUser[] = [],
-): string {
-  if (!job.created_by) {
-    return '-';
-  }
-  if (currentUserId && job.created_by === currentUserId) {
-    return currentUsername || 'admin';
-  }
-  const matched = workspaceUsers.find((user) => user.id === job.created_by);
-  if (matched?.username) {
-    return matched.username;
-  }
-  if (matched?.nickname) {
-    return matched.nickname;
-  }
-  if (job.created_by === 1) {
-    return 'admin';
-  }
-  return `User #${job.created_by}`;
-}
 
 export function JobRunsPanel({
   jobs,

@@ -45,7 +45,10 @@ import type {SyncJobInstance, SyncJobTimeseries} from '@/lib/services/sync';
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {formatCompactNumber} from './dashboard-format';
-import {jobDisplayName, jobWorkbenchHref} from './job-list-utils';
+import {
+  jobDisplayName,
+  jobWorkbenchHref,
+} from '@/components/common/sync/job-table/job-table-format';
 
 /**
  * 作业行预览抽屉：当前值、吞吐趋势（运行中近 1 小时，已结束取作业全程）与失败原因；「打开作业详情」进入工作台深链。
@@ -56,10 +59,13 @@ export function JobPreviewDrawer({
   job,
   clusterName,
   onOpenChange,
+  onOpenFull,
 }: {
   job: SyncJobInstance | null;
   clusterName?: string;
   onOpenChange: (open: boolean) => void;
+  /** 「完整详情」入口（本期跳工作台深链，之后接 JobDetailHost）/ "Full details" entry (deep link today, JobDetailHost later). */
+  onOpenFull?: (job: SyncJobInstance) => void;
 }) {
   const t = useTranslations('dashboard.home.preview');
   const tList = useTranslations('dashboard.home.list');
@@ -238,9 +244,18 @@ export function JobPreviewDrawer({
               ) : null}
 
               <div className='flex flex-wrap gap-2'>
-                <Button asChild size='sm'>
-                  <Link href={jobWorkbenchHref(job)}>{t('openDetail')}</Link>
-                </Button>
+                {/* 「完整详情」由宿主回调决定去向（当前跳工作台深链，之后接 JobDetailHost）；无回调时退化为原深链。 */}
+                {/* "Full details" defers to the host callback (workbench deep link today, JobDetailHost later);
+                    without a callback it falls back to the original link. */}
+                {onOpenFull ? (
+                  <Button size='sm' onClick={() => onOpenFull(job)}>
+                    {t('openDetail')}
+                  </Button>
+                ) : (
+                  <Button asChild size='sm'>
+                    <Link href={jobWorkbenchHref(job)}>{t('openDetail')}</Link>
+                  </Button>
+                )}
                 <Button
                   variant='ghost'
                   size='sm'

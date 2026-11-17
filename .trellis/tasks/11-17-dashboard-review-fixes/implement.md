@@ -71,3 +71,10 @@
 - 根因：`t.Cleanup` 后进先出——helper 先注册 `embedts.Close()`、后在 `Start(Dir: t.TempDir())` 里触发 TempDir 的删除清理；测试结束时**先删目录再关库**，`Head.Close()` 的 `mmapHeadChunks` 往已删 `chunks_head` 写盘 panic
 - 触发条件：序列有 ≥2 head chunk 才走 `WriteChunk`——样本 `now-75s..now` 恰跨 2h chunk 边界（偶数整点）时必现，约 1%/run 的 flake
 - 修复：`withEmbeddedObservability`（sync/job_list_test）与 `withPrometheus`（dashboard/cluster_test）把 `dir := t.TempDir()` 提到 `t.Cleanup` 注册之前；审查其余 4 个 embedts 测试点顺序本就正确
+
+## 2025-11-17 第四轮：selfupgrade TempDir flake 修复
+
+- CI 失败 `TestApplyRollbackKeepsBinaryRestoredByWatchdog`：`TempDir RemoveAll cleanup: unlinkat .../self-upgrade: directory not empty`
+- 根因：`finishRestart` 失败分支在任务翻终态后 `go func()` 跑 `rollbackUpgradedAgents` + `saveHistoryLocked` 等尾部写盘，无人 join；`waitTaskDone` 一见终态就返回 → 测试结束 TempDir 删目录撞上尾部写盘。同类写源还有 `runExecute`/`runDownload` 主循环尾写、`HandleAgentReady` 的 catch-up goroutine
+- 修复：`Service.taskWg sync.WaitGroup` 统一跟踪：finishRestart 的 `Add(1)` 放在 `s.mu.Unlock()` 前的临界区内（保证「终态可见 ⇒ 计数已 +1」，Wait 不会漏）；`runExecute`/`runDownload`/catchUp 各 `Add`+`defer Done`；`waitTaskDone` 见终态后 `s.taskWg.Wait()`；三个双服务测试再补 `h.s.taskWg.Wait()`
+- `-count=2 -race` 通过

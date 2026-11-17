@@ -181,6 +181,15 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		return fmt.Errorf("delete legacy custom_promql alert policies failed: %w", err)
 	}
 
+	// 一次性收尾 Alertmanager 时代遗留的未恢复远程告警（generator_url 非空、状态未恢复）。
+	// 外部告警没有恢复事件通道，不收尾会以活跃告警形态永久残留；不产生通知投递。
+	// One-time cleanup of unresolved remote alerts from the Alertmanager era (non-empty
+	// generator_url, not yet resolved). External alerts have no recovery channel, so without
+	// this they would stay active forever; no notifications are generated.
+	if err := MigrateLegacyRemoteAlerts(database); err != nil {
+		return fmt.Errorf("migrate legacy remote alerts failed: %w", err)
+	}
+
 	// 初始化默认管理员用户 / Initialize default admin user
 	if err := InitDefaultAdminUserWithDB(database); err != nil {
 		log.Printf("[Database] 初始化默认管理员用户失败: %v\n", err)

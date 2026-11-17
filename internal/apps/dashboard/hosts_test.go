@@ -66,15 +66,15 @@ func newHostDashboardService(queries *[]string) *HostDashboardService {
 			return nil, errors.New("fds query boom")
 		case strings.Contains(q, "stx_host_cpu_seconds_total"):
 			return []promquery.Series{
-				{Metric: map[string]string{"mode": "user"}, Points: [][2]float64{{1000, 0.2}}},
-				{Metric: map[string]string{"mode": "idle"}, Points: [][2]float64{{1000, 3.6}}},
+				{Metric: map[string]string{"host_id": "1", "mode": "user"}, Points: [][2]float64{{1000, 20}}},
+				{Metric: map[string]string{"host_id": "1", "mode": "system"}, Points: [][2]float64{{1000, 10}}},
 			}, nil
 		case strings.Contains(q, "stx_host_net_"):
 			return []promquery.Series{
-				{Metric: map[string]string{"iface": "eth0"}, Points: [][2]float64{{1000, 1024}}},
+				{Metric: map[string]string{"host_id": "1", "iface": "eth0"}, Points: [][2]float64{{1000, 1024}}},
 			}, nil
 		}
-		return []promquery.Series{{Metric: map[string]string{}, Points: [][2]float64{{1000, 1}}}}, nil
+		return []promquery.Series{{Metric: map[string]string{"host_id": "1"}, Points: [][2]float64{{1000, 1}}}}, nil
 	}
 	return svc
 }
@@ -111,7 +111,9 @@ func TestHostDashboardPanelsAndSupport(t *testing.T) {
 			net = &supported.Panels[i]
 		}
 	}
-	if cpu == nil || len(cpu.Series) != 2 || cpu.Series[0].Label != "idle" && cpu.Series[0].Label != "user" {
+	// CPU 面板已归一成百分比（非 idle 模式）。/ The cpu panel is normalized to percent
+	// (non-idle modes only).
+	if cpu == nil || cpu.Unit != "percent" || len(cpu.Series) != 2 || cpu.Series[0].Label != "system" && cpu.Series[0].Label != "user" {
 		t.Fatalf("cpu panel = %+v", cpu)
 	}
 	// rx/tx 双查询共用 iface 维度 → 图例须带方向词防撞名。
@@ -119,11 +121,21 @@ func TestHostDashboardPanelsAndSupport(t *testing.T) {
 	if net == nil || len(net.Series) != 2 || net.Series[0].Label != "rx eth0" || net.Series[1].Label != "tx eth0" {
 		t.Fatalf("net panel = %+v", net)
 	}
-	// selector 只带 host_id=1（docker 主机不发查询）。
-	// The selector only carries host_id=1 (the docker host issues no queries).
+	// selector 用 host_id=~"…" 一次圈住可测主机（docker 主机不进选择器）。
+	// The selector uses host_id=~"…" covering supported hosts only (the docker host is
+	// never in it).
 	joined := strings.Join(queries, "\n")
-	if !strings.Contains(joined, `host_id="1"`) || strings.Contains(joined, `host_id="2"`) {
+	if !strings.Contains(joined, `host_id=~"1"`) || strings.Contains(joined, `|"2"`) || strings.Contains(joined, `2|"`) || strings.Contains(joined, `~"2"`) {
 		t.Fatalf("bad selectors:\n%s", joined)
+	}
+	// 扇出收敛：每台主机不再各发 13 条，全部主机共用 13 条查询。
+	// Fan-out collapsed: the fixed ~13 queries are shared by all hosts instead of 13 each.
+	wantTasks := 0
+	for _, p := range hostPanels {
+		wantTasks += len(p.queries)
+	}
+	if len(queries) != wantTasks {
+		t.Fatalf("queries = %d want %d", len(queries), wantTasks)
 	}
 	// fds 查询失败 → partial_errors 记一次。
 	// The fds query failure lands once in partial_errors.

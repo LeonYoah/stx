@@ -769,6 +769,17 @@ func (a *Agent) startBackgroundServices() {
 		a.runHeartbeatLoop()
 	}()
 
+	// Start host metrics loop (E3) — 独立 goroutine，绝不能挂在心跳里：
+	// 采集里的 statfs/分区枚举可能慢，心跳一被拖慢，控制面就误判离线。
+	// Start the host metrics loop (E3) in its own goroutine — it must never ride the
+	// heartbeat: collection statfs/partition calls can be slow, and a delayed heartbeat
+	// reads as an offline agent on the control plane.
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		a.runHostMetricsLoop()
+	}()
+
 	// Start command stream listener / 启动命令流监听器
 	a.wg.Add(1)
 	go func() {
@@ -886,16 +897,58 @@ func (a *Agent) sendHeartbeat() {
 		}
 		return
 	}
+}
 
-	// E3：心跳成功后随同一周期上报主机指标。Unimplemented（旧控制面）属预期，静默；
-	// 其余错误只记 warn，不重试、不影响下一轮心跳。
-	// E3: after a successful heartbeat, report host metrics on the same cadence.
-	// Unimplemented (old control plane) is expected and silenced; other errors only log a
-	// warning — no retry, next heartbeat unaffected.
-	samples := a.metricsCollector.CollectHostMetrics()
-	if len(samples) > 0 {
-		if _, err := a.grpcClient.ReportHostMetrics(ctx, samples); err != nil && !isUnimplementedError(err) {
-			logger.WarnF(ctx, "Host metrics report failed: %v / 主机指标上报失败：%v", err, err)
+// hostMetricsCollectTimeout 限定一轮采集的耗时上限；hostMetricsReportTimeout 限定上报
+// RPC 的耗时上限 —— 两者都必须远小于心跳间隔，防止指标链路反向拖慢在线判定。
+// hostMetricsCollectTimeout caps one collection round; hostMetricsReportTimeout caps the
+// report RPC — both stay well under the heartbeat interval so the metrics path can never
+// drag down liveness detection.
+const (
+	hostMetricsCollectTimeout = 8 * time.Second
+	hostMetricsReportTimeout  = 5 * time.Second
+)
+
+// runHostMetricsLoop runs the dedicated host-metrics collect+report loop (E3).
+// runHostMetricsLoop 运行独立的主机指标采集+上报循环（E3）：
+// 与心跳同周期但互不阻塞；采集/上报各自带超时；控制面回 Unimplemented（旧版本）或
+// NotFound（agent 未绑定主机，控制面收到但丢弃）都属预期，静默不刷屏。
+// Runs on the same cadence as the heartbeat but never blocks it; collection and the report
+// RPC each carry their own timeout; a control-plane Unimplemented (old version) or
+// NotFound (agent unbound — server accepts and drops) is expected and silenced.
+func (a *Agent) runHostMetricsLoop() {
+	ctx := a.ctx
+	interval := a.config.Heartbeat.Interval
+	if interval == 0 {
+		interval = 10 * time.Second
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	logger.InfoF(ctx, "Host metrics loop started with interval: %v / 主机指标循环已启动，间隔：%v", interval, interval)
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			logger.InfoF(ctx, "Host metrics loop stopped / 主机指标循环已停止")
+			return
+		case <-ticker.C:
+			if !a.grpcClient.IsConnected() {
+				continue
+			}
+			collectCtx, collectCancel := context.WithTimeout(ctx, hostMetricsCollectTimeout)
+			samples := a.metricsCollector.CollectHostMetrics(collectCtx)
+			collectCancel()
+			if len(samples) == 0 {
+				continue
+			}
+			reportCtx, reportCancel := context.WithTimeout(ctx, hostMetricsReportTimeout)
+			_, err := a.grpcClient.ReportHostMetrics(reportCtx, samples)
+			reportCancel()
+			if err != nil && !isUnimplementedError(err) && !isNotFoundError(err) {
+				logger.WarnF(ctx, "Host metrics report failed: %v / 主机指标上报失败：%v", err, err)
+			}
 		}
 	}
 }

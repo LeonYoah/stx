@@ -34,31 +34,38 @@ import (
 	"github.com/LeonYoah/stx/internal/pkg/promquery"
 )
 
-// hostPanels 是每台主机渲染的面板：CPU 按 mode 拆分、内存按 kind、负载 / 网络 / 磁盘 IO /
-// 文件系统使用率 / TCP / fd。selector 里 %[1]s 固定注入 job="stx_host" + host_id。
-// hostPanels are the charts rendered per host: CPU by mode, memory by kind, load / network /
-// disk IO / filesystem usage / TCP / fds. %[1]s injects job="stx_host" plus the host_id selector.
+// hostPanels 是每台主机渲染的面板：CPU 利用率按 mode 拆分（已按核数归一成百分比）、
+// 内存按 kind、负载 / 网络 / 磁盘 IO / 文件系统使用率 / TCP / fd。selector 里 %[1]s 固定注入
+// job="stx_host" + host_id=~"…"（一次圈住全部目标主机）；by 子句带 host_id 以便把结果
+// 拆回各台主机。
+// hostPanels are the charts rendered per host: CPU utilization by mode (normalized to
+// percent by core count), memory by kind, load / network / disk IO / filesystem usage /
+// TCP / fds. %[1]s injects job="stx_host" plus a host_id=~"…" selector covering every
+// target host at once; the by clause carries host_id so results can be split back per host.
 var hostPanels = []detailPanel{
-	{key: "cpu", unit: "per_second", queries: []detailQuery{
-		{dimLabel: "mode", expr: `sum by (mode) (rate(stx_host_cpu_seconds_total{%[1]s}[5m]))`},
+	{key: "cpu", unit: "percent", queries: []detailQuery{
+		// 非 idle 时间占比 × 100 ÷ 核数 = 使用率%；缺 cores 序列时整面板空（agent 版本过旧）。
+		// Non-idle share × 100 ÷ cores = utilization %; a missing cores series empties the
+		// whole panel (agent too old).
+		{dimLabel: "mode", expr: `100 * sum by (host_id, mode) (rate(stx_host_cpu_seconds_total{%[1]s, mode!="idle"}[5m])) / on(host_id) group_left() max by (host_id) (stx_host_cpu_cores{%[1]s})`},
 	}},
 	{key: "memory", unit: "bytes", queries: []detailQuery{
-		{dimLabel: "kind", expr: `max by (kind) (stx_host_memory_bytes{%[1]s, kind=~"available|cached|buffers|free"})`},
-		{dim: "total", expr: `max(stx_host_memory_bytes{%[1]s, kind="total"})`},
+		{dimLabel: "kind", expr: `max by (host_id, kind) (stx_host_memory_bytes{%[1]s, kind=~"available|cached|buffers|free"})`},
+		{dim: "total", expr: `max by (host_id) (stx_host_memory_bytes{%[1]s, kind="total"})`},
 	}},
 	{key: "load", unit: "count", queries: []detailQuery{
-		{dimLabel: "kind", expr: `max by (kind) (stx_host_load{%[1]s})`},
+		{dimLabel: "kind", expr: `max by (host_id, kind) (stx_host_load{%[1]s})`},
 	}},
-	{key: "net", unit: "per_second", queries: []detailQuery{
-		{dim: "rx", dimLabel: "iface", expr: `sum by (iface) (rate(stx_host_net_receive_bytes_total{%[1]s}[5m]))`},
-		{dim: "tx", dimLabel: "iface", expr: `sum by (iface) (rate(stx_host_net_transmit_bytes_total{%[1]s}[5m]))`},
+	{key: "net", unit: "bytes_per_second", queries: []detailQuery{
+		{dim: "rx", dimLabel: "iface", expr: `sum by (host_id, iface) (rate(stx_host_net_receive_bytes_total{%[1]s}[5m]))`},
+		{dim: "tx", dimLabel: "iface", expr: `sum by (host_id, iface) (rate(stx_host_net_transmit_bytes_total{%[1]s}[5m]))`},
 	}},
-	{key: "disk_io", unit: "per_second", queries: []detailQuery{
-		{dim: "read", dimLabel: "device", expr: `sum by (device) (rate(stx_host_disk_read_bytes_total{%[1]s}[5m]))`},
-		{dim: "write", dimLabel: "device", expr: `sum by (device) (rate(stx_host_disk_write_bytes_total{%[1]s}[5m]))`},
+	{key: "disk_io", unit: "bytes_per_second", queries: []detailQuery{
+		{dim: "read", dimLabel: "device", expr: `sum by (host_id, device) (rate(stx_host_disk_read_bytes_total{%[1]s}[5m]))`},
+		{dim: "write", dimLabel: "device", expr: `sum by (host_id, device) (rate(stx_host_disk_write_bytes_total{%[1]s}[5m]))`},
 	}},
 	{key: "disk_util", unit: "percent", queries: []detailQuery{
-		{dimLabel: "device", expr: `100 * sum by (device) (rate(stx_host_disk_io_time_seconds_total{%[1]s}[5m]))`},
+		{dimLabel: "device", expr: `100 * sum by (host_id, device) (rate(stx_host_disk_io_time_seconds_total{%[1]s}[5m]))`},
 	}},
 	{key: "fs_used", unit: "percent", queries: []detailQuery{
 		{dimLabel: "mountpoint", expr: `100 * (1 - stx_host_fs_avail_bytes{%[1]s} / clamp_min(stx_host_fs_size_bytes{%[1]s}, 1))`},
@@ -67,10 +74,10 @@ var hostPanels = []detailPanel{
 		{dimLabel: "mountpoint", expr: `100 * (1 - stx_host_fs_files_free{%[1]s} / clamp_min(stx_host_fs_files{%[1]s}, 1))`},
 	}},
 	{key: "tcp", unit: "count", queries: []detailQuery{
-		{dim: "established", expr: `max(stx_host_tcp_established{%[1]s})`},
+		{dim: "established", expr: `max by (host_id) (stx_host_tcp_established{%[1]s})`},
 	}},
 	{key: "fds", unit: "count", queries: []detailQuery{
-		{dim: "allocated", expr: `max(stx_host_fds_allocated{%[1]s})`},
+		{dim: "allocated", expr: `max by (host_id) (stx_host_fds_allocated{%[1]s})`},
 	}},
 }
 
@@ -127,19 +134,21 @@ type HostDashboardService struct {
 // NewHostDashboardService creates the hosts dashboard service.
 func NewHostDashboardService(hosts HostInventory, clusters HostClusterNodes) *HostDashboardService {
 	return &HostDashboardService{
-		rangeQuery: func(ctx context.Context, baseURL, query string, start, end time.Time, step int) ([]promquery.Series, error) {
-			return promquery.Range(ctx, baseURL, query, start, end, step)
-		},
-		hosts:    hosts,
-		clusters: clusters,
-		now:      time.Now,
+		rangeQuery: dashboardPromCache.wrapRange(promquery.Range),
+		hosts:      hosts,
+		clusters:   clusters,
+		now:        time.Now,
 	}
 }
 
-// hostTask 是一台主机的一条面板查询（并发单元）。
-// hostTask is one panel query of one host (the concurrency unit).
+// hostTask 是一条面板查询（并发单元）：一条查询经 host_id=~"…" 覆盖全部目标主机，
+// 结果按 host_id 标签拆回各台主机 —— 查询数从 主机数×13 收敛到固定 13 条，
+// 避免主机一多就把内嵌 PromQL 拖垮。
+// hostTask is one panel query (the concurrency unit): each query covers every target host
+// via host_id=~"…" and results are split back per host by the host_id label — the query
+// count collapses from hosts×13 to a fixed 13, so a large fleet cannot swamp the embedded
+// PromQL engine.
 type hostTask struct {
-	host  int
 	panel int
 	dim   string
 	dimL  string
@@ -229,17 +238,28 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 		return out, nil
 	}
 
-	// 并发跑每台主机的每条面板查询。/ Fan out every panel query of every host concurrently.
-	tasks := []*hostTask{}
+	// 目标主机集合 → 单条 host_id=~"…" 选择器；没有可测主机时直接返回（面板全空）。
+	// The supported-host set becomes a single host_id=~"…" selector; when nothing is
+	// measurable, return early with empty panels.
+	hostIndex := map[uint]int{}
+	ids := make([]string, 0, len(entries))
 	for h, item := range entries {
-		if !out.Hosts[h].MetricsSupported {
-			continue
+		if out.Hosts[h].MetricsSupported {
+			hostIndex[item.ID] = h
+			ids = append(ids, strconv.FormatUint(uint64(item.ID), 10))
 		}
-		sel := fmt.Sprintf(`job="stx_host",host_id=%s`, strconv.Quote(strconv.FormatUint(uint64(item.ID), 10)))
-		for p, panel := range hostPanels {
-			for _, q := range panel.queries {
-				tasks = append(tasks, &hostTask{host: h, panel: p, dim: q.dim, dimL: q.dimLabel, query: fmt.Sprintf(q.expr, sel)})
-			}
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	sel := fmt.Sprintf(`job="stx_host",host_id=~"%s"`, strings.Join(ids, "|"))
+
+	// 每条面板查询并发一次（固定 ~13 条，全部走 wrapRange 缓存）。
+	// Fan out each panel query once (a fixed ~13 queries, all through the wrapRange cache).
+	tasks := []*hostTask{}
+	for p, panel := range hostPanels {
+		for _, q := range panel.queries {
+			tasks = append(tasks, &hostTask{panel: p, dim: q.dim, dimL: q.dimLabel, query: fmt.Sprintf(q.expr, sel)})
 		}
 	}
 	var wg gosync.WaitGroup
@@ -252,7 +272,41 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 	}
 	wg.Wait()
 
+	// 拆回各台主机：host_id 标签定位 entry，维度标签出图例。
+	// Split back per host: the host_id label locates the entry, the dimension label names
+	// the legend.
+	seriesByHostPanel := map[int]map[int][]DetailSeries{}
 	partialSeen := map[string]bool{}
+	for _, task := range tasks {
+		if task.err != nil {
+			key := hostPanels[task.panel].key
+			if !partialSeen[key] {
+				out.PartialErrors = append(out.PartialErrors, key)
+				partialSeen[key] = true
+			}
+			continue
+		}
+		for _, serie := range task.out {
+			hostID, err := strconv.ParseUint(serie.Metric["host_id"], 10, 64)
+			if err != nil {
+				continue
+			}
+			h, ok := hostIndex[uint(hostID)]
+			if !ok {
+				continue
+			}
+			byPanel := seriesByHostPanel[h]
+			if byPanel == nil {
+				byPanel = map[int][]DetailSeries{}
+				seriesByHostPanel[h] = byPanel
+			}
+			byPanel[task.panel] = append(byPanel[task.panel], DetailSeries{
+				Instance: out.Hosts[h].Name,
+				Label:    detailSeriesLabel(task, serie),
+				Points:   serie.Points,
+			})
+		}
+	}
 	for h := range entries {
 		entry := &out.Hosts[h]
 		// 不支持的主机不出面板（而不是一排空图）。/ Unsupported hosts get no panels at all
@@ -261,27 +315,9 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 			continue
 		}
 		for p, panel := range hostPanels {
-			item := DetailPanel{Key: panel.key, Unit: panel.unit, Series: []DetailSeries{}}
-			failed := false
-			for _, task := range tasks {
-				if task.host != h || task.panel != p {
-					continue
-				}
-				if task.err != nil {
-					failed = true
-					break
-				}
-				for _, serie := range task.out {
-					item.Series = append(item.Series, DetailSeries{
-						Instance: out.Hosts[h].Name,
-						Label:    detailSeriesLabel(task, serie),
-						Points:   serie.Points,
-					})
-				}
-			}
-			if failed && !partialSeen[panel.key] {
-				out.PartialErrors = append(out.PartialErrors, panel.key)
-				partialSeen[panel.key] = true
+			item := DetailPanel{Key: panel.key, Unit: panel.unit, Series: seriesByHostPanel[h][p]}
+			if item.Series == nil {
+				item.Series = []DetailSeries{}
 			}
 			sort.Slice(item.Series, func(a, b int) bool { return item.Series[a].Label < item.Series[b].Label })
 			entry.Panels = append(entry.Panels, item)

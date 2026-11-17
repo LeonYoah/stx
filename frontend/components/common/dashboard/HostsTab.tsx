@@ -39,22 +39,32 @@ const HOSTS_POLL_MS = 30_000;
 const formatLabel = (ts: number) => formatDateTimeMinuteTz(ts);
 const formatAxis = (ts: number) => formatDateTimeMinuteTz(ts).slice(-5);
 
-/** 面板单位的数值后缀。/ Value suffix per panel unit. */
+/** 面板单位的数值后缀；字节类（含速率）走 formatBytes 自带量纲，不再拼后缀。
+ * Value suffix per panel unit; byte-flavored units (incl. rates) format through
+ * formatBytes, which carries the suffix itself. */
 const unitSuffix = (unit: string) =>
-  unit === 'bytes'
-    ? 'B'
-    : unit === 'percent'
-      ? '%'
-      : unit === 'per_second'
-        ? '/s'
-        : unit === 'seconds'
-          ? 's'
-          : '';
+  unit === 'percent'
+    ? '%'
+    : unit === 'per_second'
+      ? '/s'
+      : unit === 'seconds'
+        ? 's'
+        : '';
 
-/** 字节面板用 IEC 量纲、其余用紧凑数（unit 由 LineChart 自拼）。/ Byte panels take IEC units;
- * the rest use compact numbers (LineChart appends the unit itself). */
+/** 是否走 formatBytes 的字节类单位（bytes 与 bytes_per_second 都是 IEC 量纲）。
+ * Whether the unit formats through formatBytes (bytes and bytes_per_second are IEC). */
+const isByteUnit = (unit: string) =>
+  unit === 'bytes' || unit === 'bytes_per_second';
+
+/** 字节面板用 IEC 量纲（速率面板追加 /s）、其余用紧凑数（unit 由 LineChart 自拼）。
+ * Byte panels take IEC units (rate panels append /s); the rest use compact numbers
+ * (LineChart appends the unit itself). */
 const formatPanelValue = (unit: string) => (value: number) =>
-  unit === 'bytes' ? formatBytes(value) : formatCompactNumber(value);
+  unit === 'bytes'
+    ? formatBytes(value)
+    : unit === 'bytes_per_second'
+      ? `${formatBytes(value)}/s`
+      : formatCompactNumber(value);
 
 /**
  * 主机页签：每台 agent 主机一张卡，卡里是该主机的 stx_host_* 面板组；
@@ -88,16 +98,18 @@ export function HostsTab({query}: {query: DashboardQuery}) {
   const panelTitle = (item: HomeDetailPanel) =>
     t.has(`panels.${item.key}`) ? t(`panels.${item.key}`) : item.key;
 
-  if (!resource.loading && data && data.source === 'none') {
-    return (
-      <section className={panel} data-testid='home-hosts'>
-        <TrendEmptyState reason={data.reason} />
-      </section>
-    );
-  }
+  // 可观测未接入：清单照列（主机名 / IP / 规格 / 心跳仍在），上面叠一条原因横幅，
+  // 卡片内不画图。/ Observability off: the inventory still renders (name/IP/spec/heartbeat
+  // survive) under a reason banner; cards simply draw no charts.
+  const metricsOff = data?.source === 'none';
 
   return (
     <section className='flex flex-col gap-3' data-testid='home-hosts'>
+      {metricsOff ? (
+        <div className={panel}>
+          <TrendEmptyState reason={data.reason} />
+        </div>
+      ) : null}
       {data?.partial_errors?.length ? (
         <p className='text-xs text-amber-600 dark:text-amber-400' role='status'>
           {t('partial', {keys: data.partial_errors.join(', ')})}
@@ -128,6 +140,7 @@ export function HostsTab({query}: {query: DashboardQuery}) {
             key={item.id}
             host={item}
             panelTitle={panelTitle}
+            metricsOff={metricsOff}
           />
         ))
       )}
@@ -142,9 +155,11 @@ export function HostsTab({query}: {query: DashboardQuery}) {
 function HostCard({
   host,
   panelTitle,
+  metricsOff,
 }: {
   host: HomeHostEntry;
   panelTitle: (item: HomeDetailPanel) => string;
+  metricsOff?: boolean;
 }) {
   const t = useTranslations('dashboard.home.hostsTab');
 
@@ -196,6 +211,15 @@ function HostCard({
         >
           {t('unsupported')}
         </p>
+      ) : metricsOff ? (
+        // 可观测关闭：保留身份行，指标位一句说明。/ Observability off: keep the identity
+        // row, one line where the metrics would be.
+        <p
+          className='py-6 text-center text-xs text-muted-foreground'
+          data-testid={`host-metrics-off-${host.id}`}
+        >
+          {t('metricsOff')}
+        </p>
       ) : host.panels.every((item) => item.series.length === 0) ? (
         // 支持指标但尚无样本：agent 刚装上 / 上报断了。/ Supported but no samples yet: fresh
         // agent or a broken report path.
@@ -221,9 +245,10 @@ function HostCard({
                 </div>
                 <LineChart
                   label={panelTitle(item)}
-                  // 字节面板的单位走 formatBytes（IEC），不再让 unit 追加裸 "B"。
-                  // Byte panels carry their unit in formatBytes (IEC) — no bare "B" suffix.
-                  unit={item.unit === 'bytes' ? '' : suffix}
+                  // 字节类面板的单位走 formatBytes（IEC），不再让 unit 追加裸 "B"。
+                  // Byte-flavored panels carry their unit in formatBytes (IEC) — no bare
+                  // "B" suffix.
+                  unit={isByteUnit(item.unit) ? '' : suffix}
                   data={chart?.data ?? []}
                   series={chart?.series ?? []}
                   height={150}

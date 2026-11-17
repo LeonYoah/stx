@@ -19,17 +19,26 @@
 // 全部样本带 stx_host_ 前缀，控制面经 gRPC 收齐后原样直写内嵌 tsdb（job="stx_host"）。
 // 采集走 gopsutil（跨 linux/darwin/windows）；唯二兜底：/proc/sys/fs/file-nr 只在 Linux 存在，
 // 读不到就静默跳过。
+// 防心跳阻塞三件套：所有 gopsutil 调用走 *WithContext；statfs（disk.Usage）对每个挂载点
+// 单独放进带超时的 goroutine（挂死的网络盘在内核态阻塞，ctx 中断不了，只能跳过）；
+// 网络盘 / 用户态 fs 类型直接不进枚举。
 // Host fine-grained metric collection (E3). Every sample carries the stx_host_ prefix;
 // the control plane writes them verbatim into the embedded tsdb (job="stx_host").
 // Collection goes through gopsutil (cross linux/darwin/windows); the only fallback is
 // /proc/sys/fs/file-nr, which exists on Linux only and is skipped silently elsewhere.
+// Heartbeat-safety measures: every gopsutil call goes through its *WithContext variant;
+// each statfs (disk.Usage) runs in its own timeout-guarded goroutine (a hung network mount
+// blocks in kernel space where ctx cannot reach, so the call is abandoned instead);
+// network and userspace fstypes are excluded from enumeration entirely.
 package collector
 
 import (
+	"context"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	pb "github.com/LeonYoah/stx/agent"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -40,14 +49,28 @@ import (
 	"github.com/shirou/gopsutil/v4/net"
 )
 
-// hostMetricCap 限定单类对象（挂载点 / 磁盘 / 网卡）上报的条数，超出的合并为 "other"，控制 tsdb 基数。
-// hostMetricCap bounds how many objects (mounts / disks / interfaces) are reported per class;
-// the rest are merged into "other" to cap tsdb cardinality.
+// hostMetricCap 限定单类对象（挂载点 / 磁盘 / 网卡）上报的条数上限，控制 tsdb 基数。
+// 计数器类（盘 IO / 网卡 IO）按设备名排序取前 N —— 成员集合稳定，避免设备进出集合时
+// 独立序列与聚合序列互换产生 rate() 假尖峰；瞬时值类（fs 容量）按使用率取前 N 其余合并 other。
+// hostMetricCap bounds how many objects (mounts / disks / interfaces) are reported per class.
+// Counter classes (disk IO / NIC IO) take the first N sorted by device name — a stable
+// membership so devices cannot oscillate between a dedicated series and an aggregate one,
+// which would fabricate rate() spikes; instantaneous fs capacity keeps top-N-by-usage plus
+// an "other" rollup.
 const hostMetricCap = 8
 
-// pseudoFilesystems 是不需要容量视角的文件系统类型（gopsutil all=false 已滤一遍，这里兜底）。
-// pseudoFilesystems are fstypes carrying no capacity signal (gopsutil's all=false filters most;
-// this is a safety net).
+// statfsTimeout 是单个挂载点 statfs 的放行时限；超时直接跳过该挂载点。
+// statfsTimeout is how long a single mount's statfs may take before it is skipped.
+const statfsTimeout = 2 * time.Second
+
+// pseudoFilesystems 是不需要容量视角或可能挂死采集的文件系统类型（gopsutil all=false 已滤一遍，
+// 这里兜底）；nfs/cifs/ceph 等网络盘与 fuse/sshfs 用户态文件系统直接排除 —— statfs 阻塞属于
+// 内核态 D 状态，超时都救不回来，从源头不进枚举。
+// pseudoFilesystems are fstypes carrying no capacity signal or capable of hanging collection
+// (gopsutil's all=false filters most; this is the safety net). Network filesystems
+// (nfs/cifs/ceph/…) and userspace filesystems (fuse/sshfs/…) are excluded outright — a statfs
+// hang lives in uninterruptible kernel sleep that no timeout can abort, so these mounts never
+// enter enumeration.
 var pseudoFilesystems = map[string]bool{
 	"proc": true, "sysfs": true, "devpts": true, "devtmpfs": true,
 	"cgroup": true, "cgroup2": true, "tmpfs": true, "overlay": true,
@@ -55,20 +78,44 @@ var pseudoFilesystems = map[string]bool{
 	"securityfs": true, "pstore": true, "bpf": true, "configfs": true,
 	"fusectl": true, "hugetlbfs": true, "mqueue": true, "ramfs": true,
 	"nsfs": true, "efivarfs": true, "binfmt_misc": true, "sunrpc": true,
+	// 网络盘：挂死时 statfs 在内核态不可中断。/ Network filesystems hang statfs in the kernel.
+	"nfs": true, "nfs4": true, "cifs": true, "smbfs": true, "smb3": true,
+	"ceph": true, "glusterfs": true, "davfs": true, "lustre": true,
+	// 用户态文件系统同理。/ Userspace filesystems hang the same way.
+	"fuse": true, "sshfs": true, "fuseblk": true, "gvfs": true,
 }
 
-// pseudoInterface 是虚拟网卡前缀：它们不反映物理网络流量。
+// pseudoInterface 是虚拟网卡前缀：它们不反映物理网络流量。WireGuard（wg*）刻意保留 —
+// 用 WireGuard 组网的部署主要流量就走它。
 // pseudoInterface are virtual interface prefixes that do not reflect physical traffic.
+// WireGuard (wg*) is deliberately kept — on WireGuard-joined deployments it carries the
+// real traffic.
 var pseudoInterface = []string{
-	"lo", "veth", "docker", "br-", "virbr", "kube-", "cni", "flannel", "cali", "tunl", "wg", "utun", "gif", "stf", "awdl", "llw",
+	"lo", "veth", "docker", "br-", "virbr", "kube-", "cni", "flannel", "cali", "tunl", "utun", "gif", "stf", "awdl", "llw",
+}
+
+// blockedFstype 精确匹配 + fuse.*/nfs.* 前缀式排除。
+// blockedFstype matches the map plus fuse.*/nfs.* style prefixes.
+func blockedFstype(fstype string) bool {
+	if pseudoFilesystems[fstype] {
+		return true
+	}
+	for _, prefix := range []string{"fuse.", "nfs", "smbfs"} {
+		if strings.HasPrefix(fstype, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // CollectHostMetrics 采集一轮 stx_host_* 指标样本。
-// 单个采集源失败不阻断其余指标（每步独立容错），返回 nil 表示整轮不可用。
+// 单个采集源失败不阻断其余指标（每步独立容错），返回 nil 表示整轮不可用；
+// ctx 取消提前终止整轮，调用方须带超时。
 // CollectHostMetrics gathers one round of stx_host_* samples.
 // A single failing source does not abort the others (each step tolerates independently);
-// nil means the whole round failed.
-func (c *MetricsCollector) CollectHostMetrics() []*pb.HostMetricSample {
+// nil means the whole round failed. A cancelled ctx aborts the round early — callers are
+// expected to pass a deadline.
+func (c *MetricsCollector) CollectHostMetrics(ctx context.Context) []*pb.HostMetricSample {
 	var out []*pb.HostMetricSample
 	put := func(name string, value float64, dims ...string) {
 		labels := map[string]string{}
@@ -78,14 +125,14 @@ func (c *MetricsCollector) CollectHostMetrics() []*pb.HostMetricSample {
 		out = append(out, &pb.HostMetricSample{Name: name, Labels: labels, Value: value})
 	}
 
-	c.collectCPUTimes(put)
-	c.collectLoadAvg(put)
-	c.collectMemory(put)
-	c.collectFilesystems(put)
-	c.collectDiskIO(put)
-	c.collectNetIO(put)
-	c.collectTCPEstablished(put)
-	c.collectBootAndFDs(put)
+	c.collectCPUTimes(ctx, put)
+	c.collectLoadAvg(ctx, put)
+	c.collectMemory(ctx, put)
+	c.collectFilesystems(ctx, put)
+	c.collectDiskIO(ctx, put)
+	c.collectNetIO(ctx, put)
+	c.collectTCPEstablished(ctx, put)
+	c.collectBootAndFDs(ctx, put)
 	return out
 }
 
@@ -96,8 +143,8 @@ type hostPut func(name string, value float64, dims ...string)
 // collectCPUTimes 输出按 mode 拆分的累计 CPU 秒数（rate 交给 PromQL）与核数。
 // collectCPUTimes emits cumulative CPU seconds per mode (rates are left to PromQL) plus
 // the core count.
-func (c *MetricsCollector) collectCPUTimes(put hostPut) {
-	times, err := cpu.Times(false)
+func (c *MetricsCollector) collectCPUTimes(ctx context.Context, put hostPut) {
+	times, err := cpu.TimesWithContext(ctx, false)
 	if err == nil && len(times) > 0 {
 		t := times[0]
 		modes := map[string]float64{
@@ -108,15 +155,15 @@ func (c *MetricsCollector) collectCPUTimes(put hostPut) {
 			put("stx_host_cpu_seconds_total", v, "mode", mode)
 		}
 	}
-	if cores, err := cpu.Counts(true); err == nil && cores > 0 {
+	if cores, err := cpu.CountsWithContext(ctx, true); err == nil && cores > 0 {
 		put("stx_host_cpu_cores", float64(cores))
 	}
 }
 
 // collectLoadAvg 输出 1m/5m/15m 负载。
 // collectLoadAvg emits the 1m/5m/15m load averages.
-func (c *MetricsCollector) collectLoadAvg(put hostPut) {
-	avg, err := load.Avg()
+func (c *MetricsCollector) collectLoadAvg(ctx context.Context, put hostPut) {
+	avg, err := load.AvgWithContext(ctx)
 	if err != nil {
 		return
 	}
@@ -127,15 +174,15 @@ func (c *MetricsCollector) collectLoadAvg(put hostPut) {
 
 // collectMemory 输出内存与交换区（gopsutil 已统一为 bytes）。
 // collectMemory emits memory and swap figures (gopsutil already normalizes to bytes).
-func (c *MetricsCollector) collectMemory(put hostPut) {
-	if vm, err := mem.VirtualMemory(); err == nil {
+func (c *MetricsCollector) collectMemory(ctx context.Context, put hostPut) {
+	if vm, err := mem.VirtualMemoryWithContext(ctx); err == nil {
 		put("stx_host_memory_bytes", float64(vm.Total), "kind", "total")
 		put("stx_host_memory_bytes", float64(vm.Free), "kind", "free")
 		put("stx_host_memory_bytes", float64(vm.Available), "kind", "available")
 		put("stx_host_memory_bytes", float64(vm.Buffers), "kind", "buffers")
 		put("stx_host_memory_bytes", float64(vm.Cached), "kind", "cached")
 	}
-	if sw, err := mem.SwapMemory(); err == nil {
+	if sw, err := mem.SwapMemoryWithContext(ctx); err == nil {
 		put("stx_host_swap_bytes", float64(sw.Total), "kind", "total")
 		put("stx_host_swap_bytes", float64(sw.Free), "kind", "free")
 	}
@@ -151,22 +198,50 @@ type fsStat struct {
 	filesFree  float64
 }
 
-// collectFilesystems 枚举真实分区（伪 fs 双重过滤），按使用率取前 hostMetricCap，
+// usageWithTimeout 把单个挂载点的 statfs 放进带超时的 goroutine：
+// 挂死的网络盘 statfs 走内核 D 状态，context 中断不了，唯一可行的做法是到点就丢。
+// 超时的 goroutine 会泄漏到内核解除阻塞为止，规模受挂载点数量限制。
+// usageWithTimeout runs one mount's statfs inside a timeout-guarded goroutine: a hung
+// network mount blocks in uninterruptible kernel sleep which no context can cancel, so the
+// only workable strategy is to abandon the call. The abandoned goroutine leaks until the
+// kernel call returns, bounded by the mount count.
+func usageWithTimeout(mountpoint string) (*disk.UsageStat, bool) {
+	type result struct {
+		usage *disk.UsageStat
+		err   error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		usage, err := disk.Usage(mountpoint)
+		ch <- result{usage: usage, err: err}
+	}()
+	select {
+	case res := <-ch:
+		return res.usage, res.err == nil
+	case <-time.After(statfsTimeout):
+		return nil, false
+	}
+}
+
+// collectFilesystems 枚举真实分区（伪 fs 与网络/用户态 fs 双重过滤），按使用率取前 hostMetricCap，
 // 其余合并为 "other"。
-// collectFilesystems enumerates real partitions (pseudo fstypes double-filtered), keeps the
-// top hostMetricCap by usage and merges the rest into "other".
-func (c *MetricsCollector) collectFilesystems(put hostPut) {
-	parts, err := disk.Partitions(false)
+// collectFilesystems enumerates real partitions (pseudo and network/userspace fstypes
+// double-filtered), keeps the top hostMetricCap by usage and merges the rest into "other".
+func (c *MetricsCollector) collectFilesystems(ctx context.Context, put hostPut) {
+	parts, err := disk.PartitionsWithContext(ctx, false)
 	if err != nil {
 		return
 	}
 	var stats []fsStat
 	for _, part := range parts {
-		if pseudoFilesystems[part.Fstype] {
+		if ctx.Err() != nil {
+			return
+		}
+		if blockedFstype(part.Fstype) {
 			continue
 		}
-		usage, err := disk.Usage(part.Mountpoint)
-		if err != nil {
+		usage, ok := usageWithTimeout(part.Mountpoint)
+		if !ok {
 			continue
 		}
 		stats = append(stats, fsStat{
@@ -249,76 +324,54 @@ func wholeDisk(name string) bool {
 	return false
 }
 
-// collectDiskIO 输出整盘设备的读写次数 / 字节 / IO 耗时；超出 hostMetricCap 的按吞吐合并 "other"。
-// collectDiskIO emits whole-disk read/write counts, bytes and time-in-io; devices beyond
-// hostMetricCap merge into "other" by throughput.
-func (c *MetricsCollector) collectDiskIO(put hostPut) {
-	counters, err := disk.IOCounters()
+// stableTopN 按名字排序取前 hostMetricCap 个，构成稳定的成员集合：
+// 计数器类指标（rate 消费）若按吞吐排名+other 合并，设备进出集合会让 other 突增/回落
+// 产生假尖峰；固定取名字序前 N 后成员只在硬件变更时变化，由控制面 stale marker 兜底。
+// stableTopN keeps the first hostMetricCap names sorted lexically — a stable membership:
+// counter metrics (consumed via rate) would fabricate spikes when devices oscillate
+// between dedicated series and an "other" aggregate; with name order the set only changes
+// when hardware does, covered by control-plane stale markers.
+func stableTopN(names []string) []string {
+	sort.Strings(names)
+	if len(names) > hostMetricCap {
+		names = names[:hostMetricCap]
+	}
+	return names
+}
+
+// collectDiskIO 输出整盘设备的读写次数 / 字节 / IO 耗时；设备集合按名字序固定前 N。
+// collectDiskIO emits whole-disk read/write counts, bytes and time-in-io; the device set is
+// the name-ordered stable top N.
+func (c *MetricsCollector) collectDiskIO(ctx context.Context, put hostPut) {
+	counters, err := disk.IOCountersWithContext(ctx)
 	if err != nil {
 		return
 	}
-	var disks []diskStat
-	for name, io := range counters {
-		if !wholeDisk(name) {
-			continue
+	var names []string
+	for name := range counters {
+		if wholeDisk(name) {
+			names = append(names, name)
 		}
-		disks = append(disks, diskStat{
-			name: name, reads: float64(io.ReadCount), readBytes: float64(io.ReadBytes),
-			writes: float64(io.WriteCount), writeBytes: float64(io.WriteBytes),
-			ioTimeMillis: float64(io.IoTime),
-		})
 	}
-	sort.Slice(disks, func(i, j int) bool {
-		return disks[i].readBytes+disks[i].writeBytes > disks[j].readBytes+disks[j].writeBytes
-	})
-	emit := func(d diskStat) {
-		put("stx_host_disk_reads_total", d.reads, "device", d.name)
-		put("stx_host_disk_read_bytes_total", d.readBytes, "device", d.name)
-		put("stx_host_disk_writes_total", d.writes, "device", d.name)
-		put("stx_host_disk_write_bytes_total", d.writeBytes, "device", d.name)
-		put("stx_host_disk_io_time_seconds_total", d.ioTimeMillis/1000, "device", d.name)
-	}
-	var other diskStat
-	other.name = "other"
-	for i, d := range disks {
-		if i >= hostMetricCap {
-			other.reads += d.reads
-			other.readBytes += d.readBytes
-			other.writes += d.writes
-			other.writeBytes += d.writeBytes
-			other.ioTimeMillis += d.ioTimeMillis
-			continue
-		}
-		emit(d)
-	}
-	if len(disks) > hostMetricCap {
-		emit(other)
+	for _, name := range stableTopN(names) {
+		io := counters[name]
+		put("stx_host_disk_reads_total", float64(io.ReadCount), "device", name)
+		put("stx_host_disk_read_bytes_total", float64(io.ReadBytes), "device", name)
+		put("stx_host_disk_writes_total", float64(io.WriteCount), "device", name)
+		put("stx_host_disk_write_bytes_total", float64(io.WriteBytes), "device", name)
+		put("stx_host_disk_io_time_seconds_total", float64(io.IoTime)/1000, "device", name)
 	}
 }
 
-// netStat 是一块网卡的收发计数。
-// netStat is the rx/tx counters of one interface.
-type netStat struct {
-	name      string
-	rxBytes   float64
-	rxPackets float64
-	rxErrors  float64
-	rxDropped float64
-	txBytes   float64
-	txPackets float64
-	txErrors  float64
-	txDropped float64
-}
-
-// collectNetIO 输出真实网卡的收发计数；虚拟网卡跳过，超出 hostMetricCap 的合并 "other"。
+// collectNetIO 输出真实网卡的收发计数；虚拟网卡跳过，接口集合按名字序固定前 N。
 // collectNetIO emits per-interface counters for real NICs; virtual interfaces are skipped
-// and interfaces beyond hostMetricCap merge into "other".
-func (c *MetricsCollector) collectNetIO(put hostPut) {
-	counters, err := net.IOCounters(true)
+// and the interface set is the name-ordered stable top N.
+func (c *MetricsCollector) collectNetIO(ctx context.Context, put hostPut) {
+	counters, err := net.IOCountersWithContext(ctx, true)
 	if err != nil {
 		return
 	}
-	var nets []netStat
+	var names []string
 	for _, io := range counters {
 		skip := false
 		for _, prefix := range pseudoInterface {
@@ -327,71 +380,49 @@ func (c *MetricsCollector) collectNetIO(put hostPut) {
 				break
 			}
 		}
-		if skip {
-			continue
+		if !skip {
+			names = append(names, io.Name)
 		}
-		nets = append(nets, netStat{
-			name: io.Name, rxBytes: float64(io.BytesRecv), rxPackets: float64(io.PacketsRecv),
-			rxErrors: float64(io.Errin), rxDropped: float64(io.Dropin),
-			txBytes: float64(io.BytesSent), txPackets: float64(io.PacketsSent),
-			txErrors: float64(io.Errout), txDropped: float64(io.Dropout),
-		})
 	}
-	sort.Slice(nets, func(i, j int) bool {
-		return nets[i].rxBytes+nets[i].txBytes > nets[j].rxBytes+nets[j].txBytes
-	})
-	emit := func(n netStat) {
-		put("stx_host_net_receive_bytes_total", n.rxBytes, "iface", n.name)
-		put("stx_host_net_receive_packets_total", n.rxPackets, "iface", n.name)
-		put("stx_host_net_receive_errors_total", n.rxErrors, "iface", n.name)
-		put("stx_host_net_receive_dropped_total", n.rxDropped, "iface", n.name)
-		put("stx_host_net_transmit_bytes_total", n.txBytes, "iface", n.name)
-		put("stx_host_net_transmit_packets_total", n.txPackets, "iface", n.name)
-		put("stx_host_net_transmit_errors_total", n.txErrors, "iface", n.name)
-		put("stx_host_net_transmit_dropped_total", n.txDropped, "iface", n.name)
+	byName := map[string]net.IOCountersStat{}
+	for _, io := range counters {
+		byName[io.Name] = io
 	}
-	var other netStat
-	other.name = "other"
-	for i, n := range nets {
-		if i >= hostMetricCap {
-			other.rxBytes += n.rxBytes
-			other.rxPackets += n.rxPackets
-			other.rxErrors += n.rxErrors
-			other.rxDropped += n.rxDropped
-			other.txBytes += n.txBytes
-			other.txPackets += n.txPackets
-			other.txErrors += n.txErrors
-			other.txDropped += n.txDropped
-			continue
-		}
-		emit(n)
-	}
-	if len(nets) > hostMetricCap {
-		emit(other)
+	for _, name := range stableTopN(names) {
+		io := byName[name]
+		put("stx_host_net_receive_bytes_total", float64(io.BytesRecv), "iface", name)
+		put("stx_host_net_receive_packets_total", float64(io.PacketsRecv), "iface", name)
+		put("stx_host_net_receive_errors_total", float64(io.Errin), "iface", name)
+		put("stx_host_net_receive_dropped_total", float64(io.Dropin), "iface", name)
+		put("stx_host_net_transmit_bytes_total", float64(io.BytesSent), "iface", name)
+		put("stx_host_net_transmit_packets_total", float64(io.PacketsSent), "iface", name)
+		put("stx_host_net_transmit_errors_total", float64(io.Errout), "iface", name)
+		put("stx_host_net_transmit_dropped_total", float64(io.Dropout), "iface", name)
 	}
 }
 
-// collectTCPEstablished 统计 ESTABLISHED 状态的 TCP 连接数。
-// collectTCPEstablished counts TCP connections in ESTABLISHED state.
-func (c *MetricsCollector) collectTCPEstablished(put hostPut) {
-	conns, err := net.Connections("tcp")
+// collectTCPEstablished 输出 ESTABLISHED 状态的 TCP 连接数：读 /proc/net/snmp
+// （ProtoCounters 的 CurrEstab，与 node_exporter 口径一致），不扫全进程 fd。
+// collectTCPEstablished emits the ESTABLISHED TCP connection count from /proc/net/snmp
+// (ProtoCounters' CurrEstab, same source as node_exporter) — no per-process fd sweep.
+func (c *MetricsCollector) collectTCPEstablished(ctx context.Context, put hostPut) {
+	counters, err := net.ProtoCountersWithContext(ctx, []string{"tcp"})
 	if err != nil {
 		return
 	}
-	total := 0
-	for _, conn := range conns {
-		if conn.Status == "ESTABLISHED" {
-			total++
+	for _, counter := range counters {
+		if counter.Protocol == "tcp" {
+			put("stx_host_tcp_established", float64(counter.Stats["CurrEstab"]))
+			return
 		}
 	}
-	put("stx_host_tcp_established", float64(total))
 }
 
 // collectBootAndFDs 输出开机时间与全系统已分配 fd（file-nr 仅 Linux 有，读不到跳过）。
 // collectBootAndFDs emits boot time and system-wide allocated fds (file-nr exists on
 // Linux only and is skipped elsewhere).
-func (c *MetricsCollector) collectBootAndFDs(put hostPut) {
-	if boot, err := host.BootTime(); err == nil && boot > 0 {
+func (c *MetricsCollector) collectBootAndFDs(ctx context.Context, put hostPut) {
+	if boot, err := host.BootTimeWithContext(ctx); err == nil && boot > 0 {
 		put("stx_host_boot_time_seconds", float64(boot))
 	}
 	if data, err := os.ReadFile("/proc/sys/fs/file-nr"); err == nil {

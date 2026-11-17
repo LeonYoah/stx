@@ -573,6 +573,7 @@
         "time": "时间",
         "unsupported": "该主机未绑定 Agent，无主机指标",
         "noSamples": "等待 Agent 上报主机指标…",
+        "metricsOff": "监控未接入，暂无指标图表",
         "emptyDescription": "当前范围没有主机",
         "spec": "{cores} 核 · 内存 {memory}",
         "heartbeat": "心跳 {at}",
@@ -600,7 +601,8 @@
           "percent": "百分比",
           "per_second": "每秒",
           "seconds": "秒",
-          "count": "个"
+          "count": "个",
+          "bytes_per_second": "字节/秒"
         }
       }
     }

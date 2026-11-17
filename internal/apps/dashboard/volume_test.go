@@ -49,10 +49,13 @@ func (fakeVolumeClusters) List(context.Context, *clusterapp.ClusterFilter) ([]*c
 	return []*clusterapp.Cluster{{ID: 3, Name: "prod-cluster"}, {ID: 4, Name: "staging"}}, 2, nil
 }
 
-// newTestVolumeService 返回注入了假即时查询与固定时间的 VolumeService；
-// samples 回调按查询语句决定返回值。
-// newTestVolumeService returns a VolumeService with a fake instant query and fixed clock;
-// the samples callback picks results per query.
+// newTestVolumeService 返回注入了假即时/区间查询与固定时间的 VolumeService；
+// samples 回调按查询语句决定即时查询的返回值；range 查询每个 step 点回一个
+// 值=[Ns] 秒数的点（与 volumeSamplesFor(1) 同口径）。
+// newTestVolumeService returns a VolumeService with fake instant/range queries and a fixed
+// clock; the samples callback picks instant results per query, and the range fake returns
+// one point per step valued at the query's [Ns] seconds (same convention as
+// volumeSamplesFor(1)).
 func newTestVolumeService(queries *[]string, ats *[]int64, samples func(q string, at time.Time) ([]promquery.Sample, error)) *VolumeService {
 	svc := NewVolumeService(&fakeVolumeTasks{}, fakeVolumeClusters{})
 	// 固定 now=2026-11-16 10:00 UTC（显示时区默认 Asia/Shanghai = 当天 18:00）。
@@ -68,20 +71,38 @@ func newTestVolumeService(queries *[]string, ats *[]int64, samples func(q string
 		}
 		return samples(q, at)
 	}
+	svc.rangeQuery = func(_ context.Context, _, q string, start, end time.Time, step int) ([]promquery.Series, error) {
+		recordQuery(queries, q)
+		var points [][2]float64
+		for t := start; !t.After(end); t = t.Add(time.Duration(step) * time.Second) {
+			points = append(points, [2]float64{float64(t.UnixMilli()), float64(volumeSpanSeconds(q))})
+		}
+		return []promquery.Series{{Metric: map[string]string{}, Points: points}}, nil
+	}
 	return svc
+}
+
+// volumeSpanSeconds 解析查询里的 [Ns] 区间秒数。
+// volumeSpanSeconds parses the [Ns] range length out of a query.
+func volumeSpanSeconds(q string) int64 {
+	start := strings.Index(q, "[")
+	end := strings.Index(q, "s])")
+	if start < 0 || end < 0 {
+		return 0
+	}
+	secs, err := strconv.ParseInt(q[start+1:end], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return secs
 }
 
 // volumeSamplesFor 返回一个按 [span 秒数] 给值的假样本回调：span 解析自查询里的 [Ns]。
 // volumeSamplesFor returns a fake callback that yields a value derived from the [Ns] span.
 func volumeSamplesFor(perSecond float64) func(string, time.Time) ([]promquery.Sample, error) {
 	return func(q string, _ time.Time) ([]promquery.Sample, error) {
-		start := strings.Index(q, "[")
-		end := strings.Index(q, "s])")
-		if start < 0 || end < 0 {
-			return nil, nil
-		}
-		secs, err := strconv.ParseInt(q[start+1:end], 10, 64)
-		if err != nil {
+		secs := volumeSpanSeconds(q)
+		if secs == 0 {
 			return nil, nil
 		}
 		return []promquery.Sample{{Metric: map[string]string{}, Value: float64(secs) * perSecond}}, nil
@@ -230,6 +251,19 @@ func TestGetVolume_AutoGranularity(t *testing.T) {
 	// The window lands exactly on the 17:00 and 18:00 boundaries: edge buckets stay complete.
 	if data.Buckets[0].Partial || data.Buckets[3].Partial {
 		t.Fatalf("aligned window must not mark partial: %+v", data.Buckets)
+	}
+	// 扇出收敛：4 个满刻钟桶合并成每指标一条 range 查询；即时查询只剩 3 个 totals。
+	// Fan-out collapsed: 4 full quarter-hour buckets merge into one range query per metric;
+	// instant queries are only the 3 totals spans.
+	if len(queries) != 3*len(volumeMetrics)+len(volumeMetrics) {
+		t.Fatalf("queries = %d want %d", len(queries), 4*len(volumeMetrics))
+	}
+	// 桶值来自 range 查询点：[900s] → 每桶 900。/ Bucket values come from range points:
+	// [900s] → 900 per bucket.
+	for _, s := range data.Series {
+		if len(s.Totals) != 4 || s.Totals[1] != 900 {
+			t.Fatalf("bad bucket totals: %+v", s)
+		}
 	}
 }
 

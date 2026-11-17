@@ -96,7 +96,9 @@ func TestClusterDetailJvmPanelsAndEvents(t *testing.T) {
 	if got.Events[0].Kind != "node_restart" || got.Events[0].Label != "10.0.0.1:5801" {
 		t.Fatalf("event[0] = %+v", got.Events[0])
 	}
-	if got.Events[1].Kind != "members_change" || got.Events[1].Label != "2 → 3" {
+	// 成员事件带集群名前缀（fake 集群 1 = "a"）。/ Member events carry the cluster name
+	// prefix (fake cluster 1 is "a").
+	if got.Events[1].Kind != "members_change" || got.Events[1].Label != "a: 2 → 3" {
 		t.Fatalf("event[1] = %+v", got.Events[1])
 	}
 	// selector 必须带 cluster_id 过滤；面板查询应并发发起。
@@ -172,11 +174,12 @@ func TestDetailEventsDiffing(t *testing.T) {
 	events := detailEvents(
 		[]promquery.Series{series("instance", "a:1", [2]float64{1, 5}, [2]float64{2, 5}, [2]float64{3, 9})},
 		[]promquery.Series{series("cluster_id", "1", [2]float64{1, 3}, [2]float64{2, 3}, [2]float64{3, 3})},
+		nil,
 	)
 	if len(events) != 1 || events[0].Kind != "node_restart" || events[0].TsMs != 3 {
 		t.Fatalf("events = %+v", events)
 	}
-	if got := detailEvents(nil, nil); len(got) != 0 {
+	if got := detailEvents(nil, nil, nil); len(got) != 0 {
 		t.Fatalf("empty events = %+v", got)
 	}
 }

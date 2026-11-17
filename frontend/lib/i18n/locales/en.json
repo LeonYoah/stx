@@ -573,6 +573,7 @@
         "time": "Time",
         "unsupported": "No agent bound to this host — host metrics unavailable",
         "noSamples": "Waiting for the agent to report host metrics…",
+        "metricsOff": "Monitoring unavailable — no metric charts",
         "emptyDescription": "No hosts in this scope",
         "spec": "{cores} cores · {memory} memory",
         "heartbeat": "Heartbeat {at}",
@@ -600,7 +601,8 @@
           "percent": "percent",
           "per_second": "per second",
           "seconds": "seconds",
-          "count": "count"
+          "count": "count",
+          "bytes_per_second": "B/s"
         }
       }
     }

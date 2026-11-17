@@ -70,15 +70,15 @@ const payload = (source: 'prometheus' | 'none'): HomeHostDashboard => ({
       panels: [
         {
           key: 'cpu',
-          unit: 'per_second',
+          unit: 'percent',
           series: [
-            {instance: 't1', label: 'user', points: [[0, 0.2]]},
-            {instance: 't1', label: 'idle', points: [[0, 3.6]]},
+            {instance: 't1', label: 'user', points: [[0, 20]]},
+            {instance: 't1', label: 'system', points: [[0, 10]]},
           ],
         },
         {
           key: 'net',
-          unit: 'per_second',
+          unit: 'bytes_per_second',
           series: [
             {instance: 't1', label: 'rx eth0', points: [[0, 1024]]},
             {instance: 't1', label: 'tx eth0', points: [[0, 512]]},
@@ -145,11 +145,18 @@ describe('HostsTab', () => {
     );
   });
 
-  it('shows the shared unavailable state when observability is off', async () => {
+  it('keeps the inventory under a banner when observability is off', async () => {
     home.getHosts.mockResolvedValue(payload('none'));
     renderTab();
     expect(await screen.findByTestId('home-trend-empty')).toBeTruthy();
-    expect(screen.queryByText('t1')).toBeNull();
+    // 清单不因可观测关闭而消失：主机名照出，指标位出说明，不画图。
+    // The inventory survives an observability-off state: host names still render, a note
+    // replaces the charts.
+    expect(await screen.findByText('t1')).toBeTruthy();
+    expect(screen.getByTestId('host-metrics-off-1').textContent).toContain(
+      '暂无指标',
+    );
+    expect(screen.queryByTestId('host-panel-1-cpu')).toBeNull();
   });
 
   it('shows a plain empty note when no hosts are in scope', async () => {

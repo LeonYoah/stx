@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 281)
+	require.Len(t, Registry(), 282)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -158,6 +158,20 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		}
 	}
 	require.Equal(t, expected, actual)
+}
+
+func TestRegistryContainsDebugPprofDownload(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+	spec, exists := byID["debug.pprof.get"]
+	require.True(t, exists)
+	require.False(t, spec.GeneratedCLI)
+	require.Equal(t, "GET", spec.Method)
+	require.Equal(t, "/api/v1/debug/pprof/:name", spec.Route)
+	require.Equal(t, ModeDownload, spec.Mode)
+	require.Equal(t, []string{"debug", "pprof"}, spec.CommandPath)
 }
 
 func TestRegistryContainsConfigWriteOperations(t *testing.T) {

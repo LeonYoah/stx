@@ -39,7 +39,7 @@ internal/
 ├── grpc/                    # gRPC 服务端与 handler（与 Agent 通信）
 ├── logger/                  # 基于 Zap 的日志（otelzap、trace ID）
 ├── otel_trace/              # OpenTelemetry 追踪
-├── pkg/schedulex/           # 共享调度实现
+├── pkg/                     # 共享包：schedulex、embedts、promquery、debugpprof
 ├── proto/                   # Protobuf 定义与生成代码（Agent）
 ├── router/                  # Gin 路由、中间件（日志、会话）
 ├── seatunnel/               # Apache SeaTunnel 版本与能力判断

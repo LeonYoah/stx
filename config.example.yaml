@@ -46,6 +46,13 @@ app:
   session_secure: false
   session_http_only: true
   api_prefix: "/api"
+  # 进程剖析默认关闭。开启后：本机 127.0.0.1:6060/debug/pprof 可供 go tool pprof；
+  # 管理员也可 GET /api/v1/debug/pprof/:name 或 stx debug pprof 拉取 heap/CPU/goroutine。
+  # Process profiling is off by default. When on: loopback 127.0.0.1:6060/debug/pprof is for go tool pprof;
+  # admins can also GET /api/v1/debug/pprof/:name or run stx debug pprof for heap/CPU/goroutine.
+  pprof:
+    enabled: false
+    addr: "127.0.0.1:6060"
 
 
 # 认证配置

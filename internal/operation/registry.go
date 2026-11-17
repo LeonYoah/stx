@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 26
+const RegistryRevision = 27
 
 var registry = append([]OperationSpec{
 	{
@@ -675,6 +675,30 @@ var registry = append([]OperationSpec{
   "operation_id": "dashboard.home.summary",
   "request_id": "req_example",
   "data": {"jobs":{"running":9,"running_streaming":7,"running_batch":2,"failed_24h":2,"write_qps":27200},"clusters":{"total":2,"healthy":1,"nodes_online":4,"nodes_total":4},"alerts":{"active":3,"critical":3},"attention":[]},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "debug.pprof.get",
+		CommandPath:  []string{"debug", "pprof"},
+		Summary:      "Download a Go pprof profile from the STX process (admin, app.pprof.enabled)",
+		GeneratedCLI: false,
+		Method:       "GET",
+		Route:        "/api/v1/debug/pprof/:name",
+		Mode:         ModeDownload,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		Input: []InputSpec{
+			{Name: "name", Location: InputPath, Required: true, Description: "Profile name: heap, goroutine, allocs, threadcreate, block, mutex, profile, trace, cmdline, symbol"},
+			{Name: "seconds", Location: InputQuery, Required: false, Description: "Duration in seconds for profile (CPU) and trace; default 30"},
+		},
+		Example: "stx debug pprof heap --file heap.pprof",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "debug.pprof.get",
+  "request_id": "req_example",
+  "data": {"profile":"heap","file":"/tmp/heap.pprof","size":12,"sha256":"..."},
   "result_meta": {"complete": true}
 }`,
 	},

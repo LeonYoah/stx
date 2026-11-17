@@ -71,6 +71,7 @@ func newRootCommand(serverRunner func() error) *cobra.Command {
 		newCapabilityCommand(),
 		newHealthCommand(),
 		newExecutionCommand(),
+		newDebugCommand(cliConfig.NewDefaultStore),
 	)
 	rootCmd.AddCommand(newAuthCommands()...)
 	rootCmd.AddCommand(defaultGeneratedCommands()...)

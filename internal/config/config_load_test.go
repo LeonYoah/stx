@@ -162,10 +162,8 @@ func captureStderr(t *testing.T, fn func()) string {
 	return string(out)
 }
 
-// TestApplyEnvironmentOverrides_LegacyTimezone 锁住 Compose 升级路径：STX_DATABASE_LEGACY_TIMEZONE
-// 覆盖 database.legacy_timezone，且不因空值擦掉配置文件里的显式值。
-// TestApplyEnvironmentOverrides_LegacyTimezone pins the Compose upgrade path: STX_DATABASE_LEGACY_TIMEZONE
-// overrides database.legacy_timezone and an empty env must not wipe an explicit config value.
+// TestApplyEnvironmentOverrides_LegacyTimezone 环境变量覆盖 legacy_timezone；空值不擦配置。
+// TestApplyEnvironmentOverrides_LegacyTimezone: env overrides legacy_timezone; empty env keeps config.
 func TestApplyEnvironmentOverrides_LegacyTimezone(t *testing.T) {
 	t.Setenv("STX_DATABASE_LEGACY_TIMEZONE", "UTC")
 	c := &configModel{Database: DatabaseConfig{LegacyTimezone: "Asia/Shanghai"}}

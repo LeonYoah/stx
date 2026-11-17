@@ -31,8 +31,6 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      # 不进 .env。旧 Compose 控制面是 UTC，MySQL 一次性迁移源时区写死，避免跟 TZ 走。
-      # Internal only. Old Compose control plane was UTC; pin MySQL one-shot migration source, do not follow TZ.
       STX_DATABASE_LEGACY_TIMEZONE: UTC
     volumes:
       # 仓库内默认挂根目录 example。发版 tar 会把默认改成 ./config.yaml（包内已从 example 拷出）。

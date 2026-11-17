@@ -112,8 +112,6 @@ func assertServiceTZ(t *testing.T, file, service string, env map[string]string) 
 	}
 }
 
-// assertBackendLegacyTZ 断言控制面把 MySQL UTC 迁移源时区钉在 UTC，不跟随运行时 TZ。
-// assertBackendLegacyTZ asserts the control plane pins the MySQL UTC migration source zone to UTC, not runtime TZ.
 func assertBackendLegacyTZ(t *testing.T, file string, env map[string]string) {
 	t.Helper()
 	got := env["STX_DATABASE_LEGACY_TIMEZONE"]

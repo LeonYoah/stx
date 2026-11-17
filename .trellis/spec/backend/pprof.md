@@ -9,6 +9,7 @@
 - 默认关闭。配置 `app.pprof.enabled: true` 后才提供剖析。
 - 本机监听默认 `127.0.0.1:6060`，路径为标准 `/debug/pprof/`，供 `go tool pprof` 使用。
 - 管理员 API：`GET /api/v1/debug/pprof/:name`（需登录且管理员）。未开启时返回 404。
+- 操作登记 `debug.pprof.get` 必须 `AdminOnly: true`，让 `/capabilities` 对非管理员返回 `admin_required`，CLI 在下载前就拒绝。
 - CLI：`stx debug pprof <name> --file <path>`。`cpu` 映射到 `profile`。CPU / trace 用 `--seconds`（默认 30）。
 
 ## 契约

@@ -168,6 +168,7 @@ func TestRegistryContainsDebugPprofDownload(t *testing.T) {
 	spec, exists := byID["debug.pprof.get"]
 	require.True(t, exists)
 	require.False(t, spec.GeneratedCLI)
+	require.True(t, spec.AdminOnly)
 	require.Equal(t, "GET", spec.Method)
 	require.Equal(t, "/api/v1/debug/pprof/:name", spec.Route)
 	require.Equal(t, ModeDownload, spec.Mode)

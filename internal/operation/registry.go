@@ -687,6 +687,7 @@ var registry = append([]OperationSpec{
 		Route:        "/api/v1/debug/pprof/:name",
 		Mode:         ModeDownload,
 		AuthRequired: true,
+		AdminOnly:    true,
 		Risk:         RiskR0,
 		Revision:     1,
 		Input: []InputSpec{

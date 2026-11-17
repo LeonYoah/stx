@@ -36,7 +36,7 @@ func TestDebugPprofHeapDownload(t *testing.T) {
 	const payload = "heap-profile-bytes"
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/capabilities" {
-			writeDebugPprofCapability(t, writer)
+			writeDebugPprofCapability(t, writer, true)
 			return
 		}
 		if request.Method != http.MethodGet || request.URL.Path != "/api/v1/debug/pprof/heap" {
@@ -72,7 +72,7 @@ func TestDebugPprofHeapDownload(t *testing.T) {
 func TestDebugPprofCPUMapsToProfile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/capabilities" {
-			writeDebugPprofCapability(t, writer)
+			writeDebugPprofCapability(t, writer, true)
 			return
 		}
 		if request.URL.Path != "/api/v1/debug/pprof/profile" || request.URL.Query().Get("seconds") != "5" {
@@ -87,6 +87,26 @@ func TestDebugPprofCPUMapsToProfile(t *testing.T) {
 	_, stderr, exitCode := runDebugPprofCommand(t, store, "debug", "pprof", "cpu", "--seconds", "5", "--file", outputFile)
 	if exitCode != int(clioutput.ExitSuccess) {
 		t.Fatalf("cpu pprof failed: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
+// TestDebugPprofRejectsNonAdminCapability 确认 capabilities 拒绝非管理员时 CLI 不发起下载。
+// TestDebugPprofRejectsNonAdminCapability checks the CLI does not download when capabilities deny a non-admin.
+func TestDebugPprofRejectsNonAdminCapability(t *testing.T) {
+	var downloads int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDebugPprofCapability(t, writer, false)
+			return
+		}
+		downloads++
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runDebugPprofCommand(t, store, "debug", "pprof", "heap", "--file", filepath.Join(t.TempDir(), "heap.pprof"))
+	if exitCode != int(clioutput.ExitPermission) || downloads != 0 {
+		t.Fatalf("non-admin must not download pprof: code=%d downloads=%d stderr=%s", exitCode, downloads, stderr)
 	}
 }
 
@@ -105,7 +125,7 @@ func TestDebugPprofRejectsExistingFile(t *testing.T) {
 	var downloads int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/capabilities" {
-			writeDebugPprofCapability(t, writer)
+			writeDebugPprofCapability(t, writer, true)
 			return
 		}
 		downloads++
@@ -133,11 +153,18 @@ func runDebugPprofCommand(t *testing.T, store *cliConfig.Store, args ...string) 
 	return stdout.String(), stderr.String(), exitCode
 }
 
-func writeDebugPprofCapability(t *testing.T, writer http.ResponseWriter) {
+func writeDebugPprofCapability(t *testing.T, writer http.ResponseWriter, allowed bool) {
 	t.Helper()
+	denialCode := ""
+	if !allowed {
+		denialCode = "admin_required"
+	}
 	writer.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
-		"operations": []map[string]any{{"operation_id": "debug.pprof.get", "revision": 1, "allowed": true, "mode": "download", "risk": "R0"}},
+		"operations": []map[string]any{{
+			"operation_id": "debug.pprof.get", "revision": 1, "allowed": allowed,
+			"denial_code": denialCode, "mode": "download", "risk": "R0",
+		}},
 	}}); err != nil {
 		t.Fatalf("write pprof capability: %v", err)
 	}

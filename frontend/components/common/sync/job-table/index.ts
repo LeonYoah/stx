@@ -45,6 +45,7 @@ export {
 export type {JobBulkAction, JobBulkResult} from './use-job-bulk-actions';
 export {useJobList, buildJobListParams, resolveJobListSort} from './use-job-list';
 export type {UseJobListOptions, UseJobListResult} from './use-job-list';
+export {mergeKnownJobs, retainedActiveJobIds} from './known-jobs';
 export {useJobSparklines} from './use-job-sparklines';
 export {useJobTableQuery} from './use-job-table-query';
 export {useNotifiableUsers} from './use-notifiable-users';

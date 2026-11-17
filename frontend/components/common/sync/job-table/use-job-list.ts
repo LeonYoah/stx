@@ -101,6 +101,12 @@ export interface UseJobListOptions {
   pinnedJobId?: number;
   /** 宿主手里更新的作业副本，按 id 覆盖，updated_at 新者胜出 / Fresher copies from the host, merged by id. */
   overlay?: SyncJobInstance[];
+  /**
+   * 范围无效时置 false（如工作台未打开任务）：不发请求、items 为空；缺省 true。
+   * Set false while the scope is invalid (e.g. no task open in the workbench): no request fires and items
+   * stays empty. Defaults to true.
+   */
+  enabled?: boolean;
 }
 
 export interface UseJobListResult {
@@ -128,6 +134,7 @@ export function useJobList({
   refreshKey,
   pinnedJobId,
   overlay,
+  enabled = true,
 }: UseJobListOptions): UseJobListResult {
   const params = buildJobListParams(scope, query, pageSize);
   // listKey 变化时 usePolledResource 清空旧数据重新加载（与原实现一致）。
@@ -150,19 +157,21 @@ export function useJobList({
     listKey,
     () => services.sync.listJobs(paramsRef.current),
     intervalMs,
+    enabled,
   );
   const items = useMemo(() => list.data?.items ?? [], [list.data]);
   itemsRef.current = items;
 
   // refreshKey 变化时立即重拉（保留旧数据，不走骨架）。/ A refreshKey bump reloads in place (keeps old rows).
+  const {reload: reloadList} = list;
   const refreshKeyRef = useRef(refreshKey);
   useEffect(() => {
     if (refreshKeyRef.current === refreshKey) {
       return;
     }
     refreshKeyRef.current = refreshKey;
-    list.reload();
-  }, [refreshKey, list.reload]);
+    reloadList();
+  }, [refreshKey, reloadList]);
 
   // pinned 深链作业：仅在第一页且无任何筛选时，若本页没有该作业则单独取回并置顶。
   // Pinned deep-linked job: only on page 1 with no filters; fetched separately when the page does not contain it.
@@ -229,14 +238,17 @@ export function useJobList({
     });
   }, [items, pinned, overlay]);
 
+  // enabled=false 时对外呈现为空表：不发请求，也不让「加载中」骨架卡住（key 复位会把 loading 留在 true）。
+  // While disabled the hook presents an empty, non-loading table: nothing is fetched and the key-reset
+  // `loading: true` must not trap the table in skeleton rows.
   return {
-    items: merged,
-    total: list.data?.total ?? 0,
-    statusCounts: list.data?.status_counts ?? {},
-    loading: list.loading,
-    refreshing: list.refreshing,
-    error: list.error,
-    updatedAt: list.updatedAt,
-    reload: list.reload,
+    items: enabled ? merged : [],
+    total: enabled ? (list.data?.total ?? 0) : 0,
+    statusCounts: enabled ? (list.data?.status_counts ?? {}) : {},
+    loading: enabled ? list.loading : false,
+    refreshing: enabled ? list.refreshing : false,
+    error: enabled ? list.error : null,
+    updatedAt: enabled ? list.updatedAt : null,
+    reload: reloadList,
   };
 }

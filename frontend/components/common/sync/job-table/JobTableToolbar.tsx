@@ -62,10 +62,14 @@ export interface JobTableToolbarProps {
 
 /**
  * 作业表工具栏：状态胶囊 + 关键字 + 模式（global）/ 运行类型（task）筛选 + 批量操作条。
- * 所有筛选变化都附带 page: 1（不依赖宿主）。task 预设的关键字默认收进图标按钮，点击展开。
+ * 所有筛选变化都附带 page: 1（不依赖宿主）。
+ * global 预设是两行布局（胶囊一行、筛选一行）；task 预设压缩为单行 ≤36px——
+ * 运行类型与可展开搜索收进胶囊栏右侧的 actions 槽，溢出横向滚动而不是换行。
  * Job table toolbar: status pills, keyword, mode (global) / run type (task) filters and the bulk action bar.
- * Every filter change carries page: 1 (not left to the host). The task preset collapses keyword search behind
- * an icon button that expands on click.
+ * Every filter change carries page: 1 (not left to the host).
+ * The global preset uses two rows (pills, then filters); the task preset compresses everything into a single
+ * ≤36px row — run type and the expandable search sit in the pills bar's actions slot, overflowing into
+ * horizontal scroll instead of wrapping.
  */
 export function JobTableToolbar({
   preset,
@@ -109,9 +113,15 @@ export function JobTableToolbar({
     })),
   ];
 
+  const handleStatusGroup = (key: string) =>
+    onQueryChange({
+      statusGroup: key === 'all' ? '' : (key as SyncJobStatusGroup),
+      page: 1,
+    });
+
   const searchForm = (
     <form
-      className='relative min-w-[200px] max-w-sm flex-1'
+      className='relative min-w-[160px] max-w-sm flex-1'
       onSubmit={(event) => {
         event.preventDefault();
         onQueryChange({keyword: keyword.trim(), page: 1});
@@ -130,127 +140,154 @@ export function JobTableToolbar({
     </form>
   );
 
+  // task 预设默认只放一个搜索图标，点击展开为输入框；global 预设常驻输入框。
+  // The task preset shows only a search icon until clicked; the global preset keeps the input always visible.
+  const searchControl =
+    preset === 'task' && !searchOpen ? (
+      <Button
+        type='button'
+        variant='outline'
+        size='sm'
+        className='h-8 w-8 px-0'
+        aria-label={t('searchPlaceholder')}
+        data-testid={`${testIdPrefix}-search-toggle`}
+        onClick={() => setSearchOpen(true)}
+      >
+        <Search className='size-3.5' />
+      </Button>
+    ) : (
+      searchForm
+    );
+
+  const typeControl =
+    preset === 'global' ? (
+      <SegmentedControl
+        label={t('columns.mode')}
+        value={query.mode || 'all'}
+        onValueChange={(value) =>
+          onQueryChange({
+            mode: value === 'streaming' || value === 'batch' ? value : '',
+            page: 1,
+          })
+        }
+        options={[
+          {value: 'all', label: t('mode.all')},
+          {value: 'streaming', label: t('mode.streaming')},
+          {value: 'batch', label: t('mode.batch')},
+        ]}
+      />
+    ) : (
+      <SegmentedControl
+        label={t('runTypeFilter.label')}
+        value={query.runType}
+        onValueChange={(value) =>
+          onQueryChange({
+            runType: value as JobListQuery['runType'],
+            page: 1,
+          })
+        }
+        options={[
+          {value: 'all', label: t('runTypeFilter.all')},
+          {value: 'formal', label: t('runTypeFilter.formal')},
+          {value: 'preview', label: t('runTypeFilter.preview')},
+        ]}
+      />
+    );
+
+  const bulkBar =
+    bulk && (bulk.selectedCount > 0 || bulk.result) ? (
+      <div
+        className='flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs'
+        data-testid={`${testIdPrefix}-bulk`}
+        role='status'
+      >
+        {bulk.selectedCount > 0 ? (
+          <>
+            <span className='font-medium'>
+              {t('selected', {count: bulk.selectedCount})}
+            </span>
+            <Button
+              size='sm'
+              variant='outline'
+              className='h-7'
+              disabled={Boolean(bulk.running)}
+              onClick={bulk.onStop}
+            >
+              {t('stop')}
+            </Button>
+            <Button
+              size='sm'
+              variant='outline'
+              className='h-7'
+              disabled={Boolean(bulk.running)}
+              onClick={bulk.onRecover}
+            >
+              {t('recover')}
+            </Button>
+            <Button
+              size='sm'
+              variant='ghost'
+              className='h-7'
+              onClick={bulk.onClear}
+            >
+              {t('clearSelection')}
+            </Button>
+          </>
+        ) : null}
+        {bulk.result ? (
+          <span className='text-muted-foreground'>
+            {t('bulk.result', {
+              ok: bulk.result.ok,
+              failed: bulk.result.failures.length,
+              skipped: bulk.result.skipped,
+            })}
+            {bulk.result.failures.slice(0, 3).map((item) => (
+              <span key={item.id} className='ml-2 text-destructive'>
+                {t('bulk.itemFailed', {id: item.id, message: item.message})}
+              </span>
+            ))}
+          </span>
+        ) : null}
+      </div>
+    ) : null;
+
+  // task 预设：单行 ≤36px——状态胶囊（带计数）+ 运行类型 + 可展开搜索；溢出横向滚动，不换行。
+  // Task preset: a single ≤36px row — status pills (with counts) + run type + expandable search; overflow
+  // scrolls horizontally instead of wrapping.
+  if (preset === 'task') {
+    return (
+      <>
+        <StatPillsBar
+          items={pills}
+          activeKey={query.statusGroup || 'all'}
+          onChange={handleStatusGroup}
+          className='h-9 flex-nowrap gap-2 overflow-x-auto overflow-y-hidden border-b border-border/60 px-2 [&>div]:shrink-0 [&>div]:flex-nowrap'
+          actions={
+            <>
+              {typeControl}
+              {searchControl}
+            </>
+          }
+        />
+        {bulkBar}
+      </>
+    );
+  }
+
   return (
     <>
       <StatPillsBar
         items={pills}
         activeKey={query.statusGroup || 'all'}
-        onChange={(key) =>
-          onQueryChange({
-            statusGroup:
-              key === 'all' ? '' : (key as SyncJobStatusGroup),
-            page: 1,
-          })
-        }
+        onChange={handleStatusGroup}
       />
 
       <div className='flex flex-wrap items-center gap-2'>
-        {preset === 'task' && !searchOpen ? (
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            className='h-8 w-8 px-0'
-            aria-label={t('searchPlaceholder')}
-            data-testid={`${testIdPrefix}-search-toggle`}
-            onClick={() => setSearchOpen(true)}
-          >
-            <Search className='size-3.5' />
-          </Button>
-        ) : (
-          searchForm
-        )}
-        {preset === 'global' ? (
-          <SegmentedControl
-            label={t('columns.mode')}
-            value={query.mode || 'all'}
-            onValueChange={(value) =>
-              onQueryChange({
-                mode:
-                  value === 'streaming' || value === 'batch' ? value : '',
-                page: 1,
-              })
-            }
-            options={[
-              {value: 'all', label: t('mode.all')},
-              {value: 'streaming', label: t('mode.streaming')},
-              {value: 'batch', label: t('mode.batch')},
-            ]}
-          />
-        ) : (
-          <SegmentedControl
-            label={t('runTypeFilter.label')}
-            value={query.runType}
-            onValueChange={(value) =>
-              onQueryChange({
-                runType: value as JobListQuery['runType'],
-                page: 1,
-              })
-            }
-            options={[
-              {value: 'all', label: t('runTypeFilter.all')},
-              {value: 'formal', label: t('runTypeFilter.formal')},
-              {value: 'preview', label: t('runTypeFilter.preview')},
-            ]}
-          />
-        )}
+        {searchControl}
+        {typeControl}
       </div>
 
-      {bulk && (bulk.selectedCount > 0 || bulk.result) ? (
-        <div
-          className='flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs'
-          data-testid={`${testIdPrefix}-bulk`}
-          role='status'
-        >
-          {bulk.selectedCount > 0 ? (
-            <>
-              <span className='font-medium'>
-                {t('selected', {count: bulk.selectedCount})}
-              </span>
-              <Button
-                size='sm'
-                variant='outline'
-                className='h-7'
-                disabled={Boolean(bulk.running)}
-                onClick={bulk.onStop}
-              >
-                {t('stop')}
-              </Button>
-              <Button
-                size='sm'
-                variant='outline'
-                className='h-7'
-                disabled={Boolean(bulk.running)}
-                onClick={bulk.onRecover}
-              >
-                {t('recover')}
-              </Button>
-              <Button
-                size='sm'
-                variant='ghost'
-                className='h-7'
-                onClick={bulk.onClear}
-              >
-                {t('clearSelection')}
-              </Button>
-            </>
-          ) : null}
-          {bulk.result ? (
-            <span className='text-muted-foreground'>
-              {t('bulk.result', {
-                ok: bulk.result.ok,
-                failed: bulk.result.failures.length,
-                skipped: bulk.result.skipped,
-              })}
-              {bulk.result.failures.slice(0, 3).map((item) => (
-                <span key={item.id} className='ml-2 text-destructive'>
-                  {t('bulk.itemFailed', {id: item.id, message: item.message})}
-                </span>
-              ))}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+      {bulkBar}
     </>
   );
 }

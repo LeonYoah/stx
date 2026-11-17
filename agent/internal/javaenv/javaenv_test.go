@@ -49,6 +49,20 @@ func writeFakeJDK(t *testing.T, root, version string, tools ...string) string {
 	return root
 }
 
+// resolvedTempDir 返回解析过符号链接的临时目录：macOS 上 /var→/private/var，被测代码内部
+// 做 filepath.EvalSymlinks，拿未解析的 t.TempDir() 去比较路径会差一层。
+// resolvedTempDir returns the symlink-resolved temp dir: on macOS /var→/private/var, and the
+// code under test resolves paths via filepath.EvalSymlinks, so comparing against an unresolved
+// t.TempDir() path mismatches by one level.
+func resolvedTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks(tempdir): %v", err)
+	}
+	return dir
+}
+
 func TestValidateHome(t *testing.T) {
 	dir := t.TempDir()
 	good := writeFakeJDK(t, filepath.Join(dir, "jdk8"), "1.8.0_392")
@@ -107,7 +121,7 @@ func TestValidateHome(t *testing.T) {
 }
 
 func TestResolveEmptyUsesDetection(t *testing.T) {
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	jdk := writeFakeJDK(t, filepath.Join(dir, "jdk17"), "17.0.9")
 	t.Setenv("PATH", filepath.Join(jdk, "bin"))
 	t.Setenv("JAVA_HOME", "")
@@ -127,7 +141,7 @@ func TestResolveEmptyUsesDetection(t *testing.T) {
 }
 
 func TestDetectStripsJRE(t *testing.T) {
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	jdk := writeFakeJDK(t, filepath.Join(dir, "jdk8"), "1.8.0_392", "jstack")
 	writeFakeJDK(t, filepath.Join(jdk, "jre"), "1.8.0_392")
 	t.Setenv("PATH", filepath.Join(jdk, "jre", "bin"))
@@ -162,7 +176,7 @@ func TestApplyEnv(t *testing.T) {
 }
 
 func TestLookupTool(t *testing.T) {
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	jdk8 := writeFakeJDK(t, filepath.Join(dir, "jdk8"), "1.8.0_392", "jstack", "jcmd")
 	jdk17 := writeFakeJDK(t, filepath.Join(dir, "jdk17"), "17.0.9", "jstack", "jcmd", "jmap")
 	t.Setenv("PATH", filepath.Join(jdk17, "bin"))

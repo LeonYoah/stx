@@ -35,6 +35,13 @@ observability:
 
 ### 4. 基准怎么跑
 
+#150 第 2 步要两档，不能互相代替：
+
+1. **突发写入**：三档序列一次性灌进 head，用来比较规模和收紧默认值。
+2. **实时长时间运行**：N 个 HTTP 目标按墙钟 `15s` 持续抓取，至少跑 **48h**，跨过真实 2h head compaction，记 RSS / heap / GC / 单轮抓取耗时 / compaction 期间查询 p99。
+
+#### 4.1 突发写入（三档规模，秒级）
+
 ```bash
 go test ./internal/pkg/embedts -count=1 -timeout 15m -run 'TestCapacity_TenThousandSeries'
 STX_TSDB_BENCH=1 go test ./internal/pkg/embedts -count=1 -timeout 30m -run 'TestCapacity_LargerProfiles'
@@ -43,7 +50,31 @@ STX_TSDB_BENCH=full go test ./internal/pkg/embedts -count=1 -timeout 60m -run 'T
 
 10k 档默认进 `go test`；50k / 20 万由环境变量打开，避免 CI 内存打满。
 
-### 5. 本机测量（2026-11-17，Linux cloud agent）
+#### 4.2 实时长时间运行（至少 48h）
+
+```bash
+./scripts/tsdb-soak.sh
+# 等价于：
+# STX_TSDB_SOAK=48h STX_TSDB_SOAK_SERIES=20000 STX_TSDB_SOAK_TARGETS=4 \
+# STX_TSDB_SOAK_INTERVAL=15s STX_TSDB_SOAK_SAMPLE=1m \
+# STX_TSDB_SOAK_OUT=tmp/tsdb-soak-48h.jsonl \
+# go test ./internal/pkg/embedts -count=1 -timeout 50h -run '^TestCapacity_Soak$'
+```
+
+短跑（证明 harness，不是 48h 结论）：
+
+```bash
+STX_TSDB_SOAK=3m STX_TSDB_SOAK_SERIES=10000 STX_TSDB_SOAK_INTERVAL=15s \
+  STX_TSDB_SOAK_BLOCK=1m STX_TSDB_SOAK_OUT=tmp/tsdb-soak-3m.jsonl ./scripts/tsdb-soak.sh
+```
+
+`TestCapacity_SoakSmoke` 默认进 `go test`（约 2.5s）。48h 不要设 `STX_TSDB_SOAK_BLOCK`，沿用生产 2h 块。JSONL 每分钟一行：RSS、heap、GC pause、scrape_ms、compaction 计数、首页 `sum(stx_capacity_value)` 的 1h/7d/30d、作业趋势 `sum(rate(stx_job_source_received_rows_total[1m]))` 的 1h。跑完把 summary 贴回本节 5.2。
+
+机器要能连续开 48h；8G 部署机建议 2 万序列。磁盘粗算：2 万序列 × 48h × 15s ≈ 2.3 亿样本，压缩后大约 1–3GiB。
+
+### 5. 本机测量
+
+#### 5.1 突发写入（2026-11-17，Linux cloud agent）
 
 每条序列 8 个点、时间戳从 now 起每 15s 一个，查询表达式 `sum(stx_capacity_value{job="bench"})`。这不是 31 天 head：真实 15s 抓取的 2h head 内存会高一个数量级以上，所以推荐上限按 8G 机器留余量，而不是按 20 万档的查询延迟。
 
@@ -55,15 +86,30 @@ STX_TSDB_BENCH=full go test ./internal/pkg/embedts -count=1 -timeout 60m -run 'T
 
 20 万档在短窗口下查询仍约 1s，但 RSS 已 439MB；再乘上真实 head 密度后 8G API 进程不安全。推荐活跃序列 **2 万**，`max_samples=10000000`（约 160MB），`sample_limit=50000`。
 
+#### 5.2 实时长时间运行（至少 48h）
+
+按 15s 墙钟抓取、生产 2h 块、2 万序列。数字必须来自 `./scripts/tsdb-soak.sh` 的 summary / JSONL，不能用 5.1 的 8 点突发档外推。
+
+| 时长 | 序列 | 目标 | 块时长 | RSS 末 | Heap 末 | Head 序列 | 抓取 p99 | 首页 1h p99 | 首页 7d p99 | 首页 30d p99 | 作业趋势 1h p99 | compaction 期间 1h p99 | GC pause 累计 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 3m（短实时，1m 块） | 1 万 gauge + 1 万 counter | 4 | 1m | 111MB | 41MB | 20281 | 34ms | 91ms | 106ms | 107ms | 141ms | 91ms | 2.1ms |
+| 48h | 2 万 | 4 | 2h（生产） | （跑完填写） | （跑完填写） | （跑完填写） | （跑完填写） | （跑完填写） | （跑完填写） | （跑完填写） | （跑完填写） | （跑完填写） | （跑完填写） |
+
+3m 行是 2026-11-17 cloud agent 上 `STX_TSDB_SOAK=3m` 的真实 15s 抓取（跨过 3 次 compaction）。它证明 harness，**不能**代替 48h：head 只有几分钟密度，块也不是 2h。48h 行必须在目标机器上跑 `./scripts/tsdb-soak.sh` 后再填。
+
+短实时冒烟（`TestCapacity_SoakSmoke`，秒级，CI）只证明循环能跑，不填上表。
+
 ### 6. Good / Base / Bad
 
-- Good：一个目标 exposition 过大时只该目标 `last_error=sample limit exceeded`，邻居目标 `up=1`。
+- Good：一个目标 exposition 过大时只该目标 `last_error=sample limit exceeded`，邻居目标 `up=1`。48h soak 的 JSONL 里 `compaction_window=true` 的样本上首页 1h p99 仍低于 `query_timeout`。
 - Base：8G 机器默认 `max_samples=10000000`，7d 首页聚合查询在 2 万序列内不 `ErrTooManySamples`。
-- Bad：把独立 Prometheus 的 5000 万原样搬进 API 进程；或超限时连累整轮 appender。
+- Bad：把独立 Prometheus 的 5000 万原样搬进 API 进程；或超限时连累整轮 appender；或用 8 点突发档外推 48h RSS。
 
 ### 7. 必须有的测试
 
 - `TestScraper_SampleLimitDropsOneTargetKeepsOther`
 - `TestFlattenMetricFamiliesLimited_OverLimitSkipsMaterializing`
 - `TestCapacity_TenThousandSeries`（默认跑）
+- `TestCapacity_SoakSmoke`（默认跑，秒级真实抓取循环）
+- `TestCapacity_Soak`（`STX_TSDB_SOAK=48h`，文档要求至少跑 2 天）
 - `TestValidateConfig_EmbeddedObservabilityInvalid` 覆盖负 `sample_limit`

@@ -884,6 +884,19 @@ func (a *Agent) sendHeartbeat() {
 			a.grpcClient.MarkDisconnected()
 			a.triggerReconnectAndRegister()
 		}
+		return
+	}
+
+	// E3：心跳成功后随同一周期上报主机指标。Unimplemented（旧控制面）属预期，静默；
+	// 其余错误只记 warn，不重试、不影响下一轮心跳。
+	// E3: after a successful heartbeat, report host metrics on the same cadence.
+	// Unimplemented (old control plane) is expected and silenced; other errors only log a
+	// warning — no retry, next heartbeat unaffected.
+	samples := a.metricsCollector.CollectHostMetrics()
+	if len(samples) > 0 {
+		if _, err := a.grpcClient.ReportHostMetrics(ctx, samples); err != nil && !isUnimplementedError(err) {
+			logger.WarnF(ctx, "Host metrics report failed: %v / 主机指标上报失败：%v", err, err)
+		}
 	}
 }
 
@@ -2279,6 +2292,13 @@ func isNotFoundError(err error) bool {
 		strings.Contains(errStr, "not found") ||
 		strings.Contains(errStr, "not registered") ||
 		strings.Contains(errStr, "re-register")
+}
+
+// isUnimplementedError 检查错误是否为 RPC 未实现（旧控制面没有该方法）。
+// isUnimplementedError reports whether the error is an unimplemented RPC (the control
+// plane predates the method).
+func isUnimplementedError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Unimplemented")
 }
 
 // handleDiscoverClustersCommand handles the DISCOVER_CLUSTERS command (simplified)

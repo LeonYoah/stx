@@ -54,6 +54,7 @@ import {
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {formatDurationSeconds} from './dashboard-format';
+import {ClusterDetailGroups} from './ClusterDetailGroups';
 import {TrendEmptyState} from './TrendEmptyState';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
@@ -491,6 +492,10 @@ export function ClusterTab({
               )}
             </section>
           </div>
+
+          {/* 节点指标细节：按组懒加载，引擎未上报的组显示空态。/ Node metric details: lazily loaded
+          per group, groups the engine does not report show an empty state. */}
+          <ClusterDetailGroups query={query} nodeColors={nodeColors} />
         </>
       ) : null}
 

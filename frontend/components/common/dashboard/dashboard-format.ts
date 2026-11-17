@@ -78,3 +78,24 @@ export function trendChangePercent(points: [number, number][]): number | null {
   }
   return Math.round(((last - first) / first) * 100);
 }
+
+/**
+ * 字节量纲：IEC 1024 进制，≥100 取整、其余一位小数。
+ * Byte quantities in IEC units (1024-based): whole numbers at ≥100, one decimal below.
+ */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return '—';
+  }
+  if (bytes < 1024) {
+    return `${Math.round(bytes)} B`;
+  }
+  const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+  let value = bytes;
+  let index = -1;
+  do {
+    value /= 1024;
+    index++;
+  } while (value >= 1024 && index < units.length - 1);
+  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
+}

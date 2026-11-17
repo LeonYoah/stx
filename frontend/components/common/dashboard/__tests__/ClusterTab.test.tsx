@@ -20,18 +20,28 @@ import {fireEvent, render, screen, within} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
-import type {HomeClusterDashboard} from '@/lib/services/dashboard';
+import type {
+  HomeClusterDashboard,
+  HomeClusterDetail,
+} from '@/lib/services/dashboard';
 import {ClusterTab} from '../ClusterTab';
 import type {DashboardQuery} from '../use-dashboard-query';
 
-const home = vi.hoisted(() => ({getClusters: vi.fn()}));
+const home = vi.hoisted(() => ({
+  getClusters: vi.fn(),
+  getClustersDetail: vi.fn(),
+}));
 vi.mock('@/lib/services/dashboard', async () => {
   const actual = await vi.importActual<
     typeof import('@/lib/services/dashboard')
   >('@/lib/services/dashboard');
   return {
     ...actual,
-    HomeService: {...actual.HomeService, getClusters: home.getClusters},
+    HomeService: {
+      ...actual.HomeService,
+      getClusters: home.getClusters,
+      getClustersDetail: home.getClustersDetail,
+    },
   };
 });
 vi.mock('@/components/arc/line-chart/line-chart', () => ({
@@ -193,6 +203,39 @@ const dashboard = (source: 'prometheus' | 'none'): HomeClusterDashboard => ({
       : [],
 });
 
+const detail = (group: string): HomeClusterDetail => ({
+  source: 'prometheus',
+  range: '1h',
+  start_ms: 0,
+  end_ms: 3_600_000,
+  step_seconds: 15,
+  group,
+  panels:
+    group === 'jvm'
+      ? [
+          {
+            key: 'heap_pools',
+            unit: 'bytes',
+            series: [
+              {
+                instance: '10.0.0.1:5801',
+                label: 'G1 Old Gen',
+                points: [
+                  [0, 30],
+                  [15_000, 35],
+                ],
+              },
+            ],
+          },
+        ]
+      : [],
+  events: [
+    {ts_ms: 60_000, kind: 'node_restart', label: '10.0.0.1:5801'},
+    {ts_ms: 120_000, kind: 'members_change', label: '2 → 3'},
+  ],
+  partial_errors: [],
+});
+
 const query: DashboardQuery = {
   tab: 'cluster',
   clusterId: undefined,
@@ -263,5 +306,39 @@ describe('ClusterTab', () => {
     expect(
       within(screen.getByTestId('cards')).getAllByRole('button'),
     ).toHaveLength(3);
+  });
+
+  it('lazily loads detail groups and renders panels plus the events strip', async () => {
+    home.getClusters.mockResolvedValue(dashboard('prometheus'));
+    home.getClustersDetail.mockImplementation(({group}) =>
+      Promise.resolve(detail(group)),
+    );
+    renderTab();
+    // 默认请求 jvm 组；事件条展示重启与成员数变化。/ jvm loads by default; the events strip shows
+    // the restart and membership change.
+    const section = await screen.findByTestId('home-cluster-detail');
+    expect(home.getClustersDetail).toHaveBeenCalledWith({
+      cluster_id: undefined,
+      group: 'jvm',
+      range: '1h',
+    });
+    expect(await within(section).findByText('堆内存池')).toBeTruthy();
+    const events = within(section).getByTestId('detail-events');
+    expect(events.textContent).toContain('节点重启');
+    expect(events.textContent).toContain('成员数变化');
+    expect(events.textContent).toContain('2 → 3');
+
+    // 切换到未上报的组 → 组级空态。/ Switching to an unreported group shows the group empty state.
+    fireEvent.click(
+      within(section).getByRole('button', {name: '状态存储'}),
+    );
+    expect(
+      await within(section).findByText(
+        '该集群未上报此组指标（引擎版本或配置不支持）',
+      ),
+    ).toBeTruthy();
+    expect(home.getClustersDetail).toHaveBeenLastCalledWith(
+      expect.objectContaining({group: 'store'}),
+    );
   });
 });

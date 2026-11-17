@@ -198,7 +198,8 @@
       "tabs": {
         "cluster": "Clusters",
         "jobs": "Jobs",
-        "list": "Job list"
+        "list": "Job list",
+        "hosts": "Hosts"
       },
       "kpi": {
         "running": "Running jobs",
@@ -216,11 +217,16 @@
         "clustersContext": "{online}/{total} nodes online",
         "clustersDegraded": "{count} degraded",
         "alerts": "Active alerts",
-        "alertsContext": "{count} critical"
+        "alertsContext": "{count} critical",
+        "volume": "Data volume",
+        "volumeContext": "Today {today} · This month {month}",
+        "volumeContextSince": "Today {today} · Since {date} {month}",
+        "volumeEmpty": "Observability off"
       },
       "unit": {
         "rowsPerSec": " rows/s",
-        "seconds": " s"
+        "seconds": " s",
+        "rows": " rows"
       },
       "attention": {
         "title": "Needs attention",
@@ -303,7 +309,27 @@
         "noAccess": "You cannot view this job",
         "partial": "Some metric queries failed: {keys}",
         "noPromDesc": "Once built-in monitoring is on, total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots show here. Ask an administrator to enable it in the server config. The run calendar below comes from the STX database and is unaffected.",
-        "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. The run calendar below comes from the STX database and is unaffected."
+        "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. The run calendar below comes from the STX database and is unaffected.",
+        "volume": {
+          "title": "Data volume",
+          "hint": "Read/write volume bucketed automatically for the window",
+          "since": "Data since {date}",
+          "metricLabel": "Volume metric",
+          "metrics": {
+            "write_rows": "Write rows",
+            "read_rows": "Read rows",
+            "write_bytes": "Write bytes",
+            "read_bytes": "Read bytes"
+          },
+          "splitLabel": "Split",
+          "splits": {
+            "none": "All",
+            "cluster": "By cluster",
+            "task": "By task"
+          },
+          "all": "All",
+          "partialHint": "* Edge buckets are clipped by the time window"
+        }
       },
       "list": {
         "searchPlaceholder": "Job, task or engine job ID",
@@ -483,6 +509,97 @@
           "d": "d",
           "h": "h",
           "m": "m"
+        },
+        "detail": {
+          "title": "Node metric details",
+          "refreshing": "Refreshing…",
+          "partial": "Some metric queries failed: {keys}",
+          "referenceNodes": "Registered nodes",
+          "emptyGroup": "This cluster does not report this group (engine version or config unsupported)",
+          "emptyPanel": "No data in this window",
+          "legendClear": "Clear",
+          "legendAll": "Show all",
+          "time": "Time",
+          "groups": {
+            "jvm": "JVM memory",
+            "gc": "GC & threads",
+            "sched": "Scheduling & cluster",
+            "store": "State store",
+            "proc": "Process & network"
+          },
+          "units": {
+            "bytes": "bytes",
+            "percent": "%",
+            "count": "count",
+            "per_second": "/s",
+            "ms": "ms"
+          },
+          "events": {
+            "node_restart": "node restart",
+            "members_change": "membership change"
+          },
+          "panels": {
+            "heap_pools": "Heap pools",
+            "nonheap": "Non-heap memory",
+            "buffer": "Buffer pools",
+            "heap": "Heap used / committed",
+            "gc_rate": "GC frequency",
+            "gc_pause": "GC time share",
+            "threads": "Threads",
+            "thread_states": "Waiting / blocked threads",
+            "deadlocked": "Deadlocked threads",
+            "pool": "Job thread pool",
+            "reject": "Pool rejections",
+            "op_latency": "Operation latency",
+            "hz_queue": "Hazelcast queues",
+            "partitions": "Hazelcast partitions",
+            "members": "Cluster members",
+            "store_owned": "Locally owned entries",
+            "store_heap": "State heap cost",
+            "offheap": "Process memory (RSS / off-heap)",
+            "fds": "File descriptors",
+            "classes": "Loaded classes",
+            "class_load_rate": "Class load rate",
+            "store_backup": "Local backup entries"
+          }
+        }
+      },
+      "hostsTab": {
+        "refreshing": "Refreshing…",
+        "emptyPanel": "No data",
+        "legendClear": "Clear",
+        "legendAll": "All",
+        "time": "Time",
+        "unsupported": "No agent bound to this host — host metrics unavailable",
+        "noSamples": "Waiting for the agent to report host metrics…",
+        "emptyDescription": "No hosts in this scope",
+        "spec": "{cores} cores · {memory} memory",
+        "heartbeat": "Heartbeat {at}",
+        "partial": "Some panels failed to query: {keys}",
+        "agentStatus": {
+          "installed": "Agent online",
+          "offline": "Agent offline",
+          "not_installed": "No agent",
+          "none": "No agent"
+        },
+        "panels": {
+          "cpu": "CPU usage",
+          "memory": "Memory",
+          "load": "System load",
+          "net": "Network throughput",
+          "disk_io": "Disk throughput",
+          "disk_util": "Disk utilization",
+          "fs_used": "Filesystem usage",
+          "fs_inodes": "inode usage",
+          "tcp": "TCP connections",
+          "fds": "File descriptors"
+        },
+        "units": {
+          "bytes": "bytes",
+          "percent": "percent",
+          "per_second": "per second",
+          "seconds": "seconds",
+          "count": "count"
         }
       }
     }
@@ -1495,6 +1612,7 @@
     "activeAlertsBanner": {
       "title": "{count} active alerts detected",
       "description": "{restartFailed} restart failures were recorded in the last 24 hours. The cluster may be unable to recover because of configuration or environment issues. Check the alert center and node logs.",
+      "descriptionGeneric": "{count} alerts are currently firing. Open the alert center for details and take action.",
       "action": "Open alert center"
     },
     "scale": {

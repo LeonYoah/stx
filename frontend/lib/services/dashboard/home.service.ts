@@ -187,6 +187,118 @@ export interface HomeJobDashboard {
   partial_errors?: string[];
 }
 
+/** 一个时间窗内四个方向的读写量 / Totals for the four directions within one window. */
+export interface HomeVolumeCounts {
+  read_rows: number;
+  write_rows: number;
+  read_bytes: number;
+  write_bytes: number;
+}
+
+/** 指标卡用总量：当前窗口 / 今日 / 本月；起止毫秒按显示时区。/ KPI totals: window / today / month. */
+export interface HomeVolumeTotals {
+  window: HomeVolumeCounts;
+  today: HomeVolumeCounts;
+  month: HomeVolumeCounts;
+  today_start_ms: number;
+  month_start_ms: number;
+}
+
+/** 日 / 月桶；partial=true 表示被时间窗裁掉一头。/ Day/month bucket; partial means window-clipped. */
+export interface HomeVolumeBucket {
+  start_ms: number;
+  end_ms: number;
+  label: string;
+  partial: boolean;
+}
+
+/** 「指标 × 分组」的桶值序列，totals 与 buckets 下标对齐。/ Metric × group series aligned to buckets. */
+export interface HomeVolumeSeries {
+  metric: 'read_rows' | 'write_rows' | 'read_bytes' | 'write_bytes' | string;
+  group_id: string;
+  totals: number[];
+}
+
+/** GET /dashboard/home/volume 返回 / Response of GET /dashboard/home/volume. */
+export interface HomeVolume {
+  source: 'prometheus' | 'none';
+  reason?: string;
+  range: string;
+  start_ms: number;
+  end_ms: number;
+  granularity?: 'quarter_hour' | 'hour' | 'day' | 'month';
+  split: 'none' | 'cluster' | 'task';
+  oldest_sample_ms: number;
+  totals: HomeVolumeTotals | null;
+  buckets: HomeVolumeBucket[];
+  series: HomeVolumeSeries[];
+  groups?: Record<string, string>;
+  partial_errors?: string[];
+}
+
+/** 集群细节面板内一条序列：instance 定色，label 是维度名。/ One series in a detail panel: instance picks the color, label is the dimension name. */
+export interface HomeDetailSeries {
+  instance: string;
+  label: string;
+  points: [number, number][];
+}
+
+/** 集群细节面板：单位 + 按节点（可带维度）的序列 + 可选参考线。/ Detail panel: unit + per-node series + optional reference line. */
+export interface HomeDetailPanel {
+  key: string;
+  unit: 'bytes' | 'percent' | 'count' | 'per_second' | 'ms' | string;
+  reference?: number;
+  series: HomeDetailSeries[];
+}
+
+/** 趋势上的事件标注。/ Event marker on the trends. */
+export interface HomeDetailEvent {
+  ts_ms: number;
+  kind: 'node_restart' | 'members_change' | string;
+  label: string;
+}
+
+/** GET /dashboard/home/clusters/detail 返回 / Response of GET /dashboard/home/clusters/detail. */
+export interface HomeClusterDetail {
+  source: 'prometheus' | 'none';
+  reason?: string;
+  range: string;
+  start_ms: number;
+  end_ms: number;
+  step_seconds: number;
+  group: 'jvm' | 'gc' | 'sched' | 'store' | 'proc' | string;
+  panels: HomeDetailPanel[];
+  events: HomeDetailEvent[];
+  partial_errors?: string[];
+}
+
+/** 单台主机条目与面板组（E3）。/ One host entry plus its panel set (E3). */
+export interface HomeHostEntry {
+  id: number;
+  name: string;
+  ip: string;
+  host_type: string;
+  agent_status: string;
+  cpu_cores: number;
+  total_memory_bytes: number;
+  last_heartbeat_ms?: number;
+  metrics_supported: boolean;
+  panels: HomeDetailPanel[];
+}
+
+/** 主机视图负载。/ Host view payload. */
+export interface HomeHostDashboard {
+  source: string;
+  reason?: string;
+  range: string;
+  step_seconds: number;
+  start_ms: number;
+  end_ms: number;
+  cluster_id?: number;
+  hosts: HomeHostEntry[];
+  partial_errors?: string[];
+}
+
 /**
  * 首页汇总服务：指标卡与「需要处理」条共用一次请求。
  * Home summary service: the KPI cards and the "needs attention" strip share one request.
@@ -241,6 +353,87 @@ export class HomeService extends BaseService {
       checkpoints: data?.checkpoints ?? [],
       hotspots: data?.hotspots ?? [],
       calendar: data?.calendar ?? null,
+    };
+  }
+
+  /**
+   * 读写量：不传 granularity 时只回 totals（指标卡）；granularity=auto 时由后端按窗口
+   * 跨度自动选桶粒度，数组字段做兜底。
+   * Data volume: totals only without granularity; granularity=auto lets the backend pick the
+   * bucket size from the window span, with array fallbacks.
+   */
+  static async getVolume(params?: {
+    cluster_id?: number;
+    range?: string;
+    start?: number;
+    end?: number;
+    granularity?: 'auto' | 'quarter_hour' | 'hour' | 'day' | 'month';
+    split?: 'none' | 'cluster' | 'task';
+  }): Promise<HomeVolume> {
+    const data = await this.get<HomeVolume>('/volume', params);
+    return {
+      ...data,
+      buckets: data?.buckets ?? [],
+      series: (data?.series ?? []).map((item) => ({
+        ...item,
+        totals: item.totals ?? [],
+      })),
+      groups: data?.groups ?? {},
+      totals: data?.totals ?? null,
+      partial_errors: data?.partial_errors ?? [],
+    };
+  }
+
+  /**
+   * 集群细节分组：group 必传，只回该组面板；数组字段做兜底。
+   * Cluster detail groups: group is required and only that group's panels return, with array fallbacks.
+   */
+  static async getClustersDetail(params: {
+    cluster_id?: number;
+    range?: string;
+    start?: number;
+    end?: number;
+    group: 'jvm' | 'gc' | 'sched' | 'store' | 'proc';
+  }): Promise<HomeClusterDetail> {
+    const data = await this.get<HomeClusterDetail>('/clusters/detail', params);
+    return {
+      ...data,
+      panels: (data?.panels ?? []).map((item) => ({
+        ...item,
+        series: (item.series ?? []).map((entry) => ({
+          ...entry,
+          points: entry.points ?? [],
+        })),
+      })),
+      events: data?.events ?? [],
+      partial_errors: data?.partial_errors ?? [],
+    };
+  }
+
+  /**
+   * 主机视图：清单 + 每台主机一组 stx_host_* 面板；数组字段做兜底。
+   * Host view: inventory plus one stx_host_* panel set per host, with array fallbacks.
+   */
+  static async getHosts(params?: {
+    cluster_id?: number;
+    range?: string;
+    start?: number;
+    end?: number;
+  }): Promise<HomeHostDashboard> {
+    const data = await this.get<HomeHostDashboard>('/hosts', params);
+    return {
+      ...data,
+      hosts: (data?.hosts ?? []).map((item) => ({
+        ...item,
+        panels: (item.panels ?? []).map((panel) => ({
+          ...panel,
+          series: (panel.series ?? []).map((entry) => ({
+            ...entry,
+            points: entry.points ?? [],
+          })),
+        })),
+      })),
+      partial_errors: data?.partial_errors ?? [],
     };
   }
 

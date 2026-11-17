@@ -2119,6 +2119,16 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		monitoringReadOperation("monitoring.remote-alert.list", []string{"monitoring", "remote-alert", "list"}, "List remote alerts", "/api/v1/monitoring/remote-alerts", remoteAlertInputs),
 		monitoringReadOperation("monitoring.cluster.rule.list", []string{"monitoring", "cluster", "rule", "list"}, "List cluster alert rules", "/api/v1/monitoring/clusters/:id/rules", clusterID),
 		monitoringReadOperation("monitoring.integration.status", []string{"monitoring", "integration", "status"}, "Get monitoring integration status", "/api/v1/monitoring/integration/status", nil),
+		monitoringReadOperation("monitoring.query", []string{"monitoring", "query"}, "Run a PromQL instant query", "/api/v1/monitoring/query", []InputSpec{
+			{Name: "query", Location: InputQuery, Required: true, Description: "PromQL expression"},
+			{Name: "time", Location: InputQuery, Description: "Evaluation instant: RFC3339 or unix timestamp"},
+		}),
+		monitoringReadOperation("monitoring.query-range", []string{"monitoring", "query-range"}, "Run a PromQL range query", "/api/v1/monitoring/query_range", []InputSpec{
+			{Name: "query", Location: InputQuery, Required: true, Description: "PromQL expression"},
+			{Name: "start", Location: InputQuery, Description: "Window start: RFC3339 or unix timestamp"},
+			{Name: "end", Location: InputQuery, Description: "Window end; default now"},
+			{Name: "step", Location: InputQuery, Description: "Step in seconds; 0 means auto"},
+		}),
 		monitoringReadOperation("monitoring.alert-policy.bootstrap.get", []string{"monitoring", "alert-policy", "bootstrap", "get"}, "Get alert policy center bootstrap", "/api/v1/monitoring/alert-policies/bootstrap", nil),
 		monitoringReadOperation("monitoring.alert-rule.catalog", []string{"monitoring", "alert-rule", "catalog"}, "List alert rule catalog", "/api/v1/monitoring/alert-rules/catalog",
 			[]InputSpec{{Name: "lang", Location: InputQuery, Description: "Response language: zh or en"}}),
@@ -2199,6 +2209,8 @@ func monitoringExampleValue(name string) string {
 		return "sent"
 	case "start_time":
 		return "2026-09-20T00:00:00Z"
+	case "query":
+		return `stx_loadtest_gauge{series="0"}`
 	default:
 		return "1"
 	}

@@ -539,6 +539,8 @@ func Serve() {
 				monitoringRouter.GET("/clusters/:id/rules", monitoringHandler.ListClusterRules)
 				monitoringRouter.PUT("/clusters/:id/rules/:ruleId", monitoringHandler.UpdateClusterRule)
 				monitoringRouter.GET("/integration/status", monitoringHandler.GetIntegrationStatus)
+				monitoringRouter.GET("/query", monitoringHandler.GetQuery)
+				monitoringRouter.GET("/query_range", monitoringHandler.GetQueryRange)
 				monitoringRouter.GET("/alert-policies/bootstrap", monitoringHandler.GetAlertPolicyCenterBootstrap)
 				monitoringRouter.GET("/alert-rules/catalog", monitoringHandler.GetAlertRuleCatalog)
 				monitoringRouter.GET("/notifiable-users", monitoringHandler.ListNotifiableUsers)

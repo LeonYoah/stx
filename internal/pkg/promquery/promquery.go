@@ -58,16 +58,16 @@ var errNotReady = errors.New("embedded tsdb is not ready")
 // Series 是一条区间查询结果；Points 为 [毫秒时间戳, 值]。
 // Series is one range query result; Points are [epoch ms, value].
 type Series struct {
-	Metric map[string]string
-	Points [][2]float64
+	Metric map[string]string `json:"metric"`
+	Points [][2]float64      `json:"points"`
 }
 
 // Sample 是一条即时查询结果。
 // Sample is one instant query result.
 type Sample struct {
-	Metric map[string]string
-	TsMs   int64
-	Value  float64
+	Metric map[string]string `json:"metric"`
+	TsMs   int64             `json:"ts_ms"`
+	Value  float64           `json:"value"`
 }
 
 // UnavailableReason 返回查询不可用原因：observability 未启用返回 observability_disabled；

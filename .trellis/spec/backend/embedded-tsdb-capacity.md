@@ -62,6 +62,20 @@ STX_TSDB_BENCH=full go test ./internal/pkg/embedts -count=1 -timeout 60m -run 'T
 # go test ./internal/pkg/embedts -count=1 -timeout 50h -run '^TestCapacity_Soak$'
 ```
 
+#### 4.3 历史块回灌（约 25GiB，看查询损耗 / 点查）
+
+CDC soak 的真实抓取只有几百序列，首页接口会一直是几毫秒。要把 `data/tsdb` 做到接近生产体积再看点查和聚合差：
+
+```bash
+STX_TSDB_BACKFILL=25g ./scripts/tsdb-backfill.sh write
+# 写入 data/tsdb-staging；导入前短暂停 API（SeaTunnel 作业不停）
+./scripts/tsdb-backfill.sh import
+```
+
+回灌指标是 `stx_loadtest_gauge{job="loadtest",series="N"}`，不混进作业读写量。点查 / 区间查询走 `GET /api/v1/monitoring/query` 与 `/query_range`（CLI：`stx monitoring query` / `stx monitoring query-range`）。
+
+块按 2h 对齐，最新一块可比 `now` 早最多 2h，所以 `time=now` 的点查会空；评估时刻应落在 `newest_max_time` 内。周期观察只打点查 / 单序列 range，不要对 25GiB 数据循环发 `sum(stx_loadtest_gauge)` 的 7d/31d。
+
 短跑（证明 harness，不是 48h 结论）：
 
 ```bash
@@ -100,11 +114,25 @@ STX_TSDB_SOAK=3m STX_TSDB_SOAK_SERIES=10000 STX_TSDB_SOAK_INTERVAL=15s \
 
 短实时冒烟（`TestCapacity_SoakSmoke`，秒级，CI）只证明循环能跑，不填上表。
 
+#### 5.3 25GiB 历史块回灌（2026-11-17，Linux cloud agent）
+
+`STX_TSDB_BACKFILL=25g` 写入 staging 后 import 进 `data/tsdb`。372 个 2h 块，约 20625 条 `stx_loadtest_gauge` 序列，块字节 25.02GiB（`max_size=30GiB`）。API 冷启动 RSS ≈ 322MB（块走 mmap）。CDC soak 作业不受 import 影响。
+
+| 查询 | 窗口 | 服务端 elapsed | HTTP | 结果 |
+| --- | --- | --- | --- | --- |
+| `stx_loadtest_gauge{series="0"}` 点查 | 历史 +7d 时刻 | 2.1ms | 200 | 1 sample |
+| `sum(stx_loadtest_gauge)` 点查 | 历史 +7d 时刻 | 155ms | 200 | 1 sample |
+| `stx_loadtest_gauge{series="0"}` range | 7d / step=1800s | 8ms | 200 | 1 series |
+| `sum(stx_loadtest_gauge)` range | 7d / step=1800s | 35.1s | 200 | 1 series |
+| `sum(stx_loadtest_gauge)` range | 31d / step=1800s | 60s（本机把 `query_timeout` 临时调到 60s） | 500 `query timed out in expression evaluation` | 随后 RSS 9.4GB、VM 37GB，API 被 OOM kill |
+
+首页 / 作业趋势带紧匹配器，不扫 `stx_loadtest_gauge`，25GiB 后仍是几毫秒到几百毫秒。点查能力要看带 `series="N"` 的 instant 查询，不是看首页。默认 `query_timeout=8s` 会挡住 7d/31d 全量 `sum()`，但超时返回前仍可能把堆打高；不要在 soak 观察循环里发这类查询。
+
 ### 6. Good / Base / Bad
 
 - Good：一个目标 exposition 过大时只该目标 `last_error=sample limit exceeded`，邻居目标 `up=1`。48h soak 的 JSONL 里 `compaction_window=true` 的样本上首页 1h p99 仍低于 `query_timeout`。
 - Base：8G 机器默认 `max_samples=10000000`，7d 首页聚合查询在 2 万序列内不 `ErrTooManySamples`。本月读写量走日桶 `increase[1d]`，56+ 条 CDC 作业也不会因单条 `[31d]` 触顶。
-- Bad：把独立 Prometheus 的 5000 万原样搬进 API 进程；或超限时连累整轮 appender；或用 8 点突发档外推 48h RSS；或对本月总量发一条 `increase(...[31d])`。
+- Bad：把独立 Prometheus 的 5000 万原样搬进 API 进程；或超限时连累整轮 appender；或用 8 点突发档外推 48h RSS；或对本月总量发一条 `increase(...[31d])`；或对 25GiB `stx_loadtest_gauge` 循环发 31d `sum()`（`max_samples` / `query_timeout` 拦不住超时前的 RSS，16G 机器会被 OOM kill）。
 
 ### 7. 必须有的测试
 
@@ -113,5 +141,6 @@ STX_TSDB_SOAK=3m STX_TSDB_SOAK_SERIES=10000 STX_TSDB_SOAK_INTERVAL=15s \
 - `TestCapacity_TenThousandSeries`（默认跑）
 - `TestCapacity_SoakSmoke`（默认跑，秒级真实抓取循环）
 - `TestCapacity_Soak`（`STX_TSDB_SOAK=48h`，文档要求至少跑 2 天）
+- `TestWriteLoadtestBlocks_Smoke`（默认跑）；`TestCapacity_Backfill`（`STX_TSDB_BACKFILL=25g`）
 - `TestValidateConfig_EmbeddedObservabilityInvalid` 覆盖负 `sample_limit`
 - `TestVolumeIncreaseChunks_LongSpanSplitsDays` / `TestGetVolume_NoGranularityOnlyTotals` / `TestGetVolume_MonthBucketsUseDayIncreases`：长窗口 `increase` 按日分桶，单条查询不超过约 1 天

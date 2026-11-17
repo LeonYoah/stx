@@ -485,7 +485,14 @@ func buildRemoteAlertMessageFields(record *RemoteAlertRecord, eventType Notifica
 		fields = append(fields, localAlertMessageField{Label: label, Value: value})
 	}
 	appendField("实例", labels["instance"])
-	appendField("通知接收器", strings.TrimSpace(firstNonEmpty(record.Receiver, managedAlertmanagerDefaultReceiver)))
+	// 内嵌评估器给所有记录盖的是占位接收器名，对外展示「通知接收器: stx-webhook」没有信息量；
+	// 只有旧外部 Alertmanager 写入的真实接收器名（非空且非占位值）才显示。
+	// The embedded evaluator stamps a placeholder receiver on every record, so rendering
+	// "receiver: stx-webhook" carries no information; only a real receiver name written by the
+	// legacy external Alertmanager (non-empty and not the placeholder) is shown.
+	if receiver := strings.TrimSpace(record.Receiver); receiver != "" && receiver != managedAlertmanagerDefaultReceiver {
+		fields = append(fields, localAlertMessageField{Label: "通知接收器", Value: receiver})
+	}
 	appendField("当前值", strings.TrimSpace(firstNonEmpty(annotations["current_value"], annotations["value"])))
 	appendField("触发条件", annotations["condition"])
 	appendField("摘要", truncateAlertFieldText(firstNonEmpty(record.Summary, annotations["summary"])))

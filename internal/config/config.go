@@ -32,6 +32,12 @@ import (
 var (
 	Config          *configModel
 	serverConfigErr error
+	// detectedLegacyObservabilitySections 是最近一次 loadConfig 检测到的残留旧监控段名（只存段名，
+	// 不存值），由 router.Serve() 启动时记一次 WARN，避免每条 CLI 命令都打 stderr。
+	// detectedLegacyObservabilitySections holds legacy monitoring section names found by the last
+	// loadConfig call (names only, never values); router.Serve() logs one WARN at startup so every
+	// CLI invocation does not spam stderr.
+	detectedLegacyObservabilitySections []string
 )
 
 func init() {
@@ -73,7 +79,7 @@ func loadConfig() (*configModel, error) {
 		return fallback, fmt.Errorf("read server config %q: %w", configPath, err)
 	}
 
-	warnLegacyObservabilitySections(loader)
+	detectedLegacyObservabilitySections = detectLegacyObservabilitySections(loader)
 
 	// 解析配置到结构体。/ Decode the configuration into the model.
 	var c configModel
@@ -108,13 +114,22 @@ var legacyObservabilitySections = []string{
 	"observability.remote_ingest",
 }
 
-// warnLegacyObservabilitySections 检测配置文件中残留的旧监控配置段并向 stderr 记一条 WARN；
-// 只打印段名，不输出任何配置值（token 等敏感信息不落日志）。
-// warnLegacyObservabilitySections warns once on stderr about leftover legacy monitoring sections;
-// only section names are printed, never values (tokens and other secrets stay out of logs).
-func warnLegacyObservabilitySections(loader *viper.Viper) {
+// LegacyObservabilitySections 返回最近一次加载配置时检测到的残留旧监控段名（供服务启动时记
+// 一次 WARN；加载失败或无残留时为空）。返回副本，调用方不能改动内部状态。
+// LegacyObservabilitySections returns legacy monitoring section names detected during the last
+// config load (for one WARN at server startup; empty when the load failed or nothing remains).
+// Returns a copy so callers cannot mutate internal state.
+func LegacyObservabilitySections() []string {
+	return append([]string(nil), detectedLegacyObservabilitySections...)
+}
+
+// detectLegacyObservabilitySections 返回配置文件里残留的旧监控段名；只收集段名，不读取配置值
+// （token 等敏感信息不会出现在返回值里，也就不会落日志）。
+// detectLegacyObservabilitySections returns leftover legacy monitoring section names; it only
+// collects names and never reads values (tokens cannot appear in the result, so they stay out of logs).
+func detectLegacyObservabilitySections(loader *viper.Viper) []string {
 	if loader == nil {
-		return
+		return nil
 	}
 	leftovers := make([]string, 0, len(legacyObservabilitySections))
 	for _, key := range legacyObservabilitySections {
@@ -122,11 +137,7 @@ func warnLegacyObservabilitySections(loader *viper.Viper) {
 			leftovers = append(leftovers, key)
 		}
 	}
-	if len(leftovers) == 0 {
-		return
-	}
-	fmt.Fprintf(os.Stderr, "[Config] WARN: 检测到已废弃的旧外部监控配置段 [%s]，这些段不再生效，请从配置文件中移除 / deprecated external monitoring sections [%s] detected; they no longer take effect, please remove them from the config file\n",
-		strings.Join(leftovers, ", "), strings.Join(leftovers, ", "))
+	return leftovers
 }
 
 // applyEnvironmentOverrides 从环境变量覆盖关键配置（便于容器化与 E2E 测试环境动态切换）

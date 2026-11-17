@@ -51,10 +51,10 @@ describe('TrendEmptyState', () => {
     expect(screen.queryByRole('link')).toBeNull();
   });
 
-  it('never names the underlying monitoring stack', () => {
+  it('never names the underlying monitoring stack or config keys', () => {
     const {container} = renderState('observability_disabled');
     expect(container.textContent ?? '').not.toMatch(
-      /prometheus|alertmanager|grafana|promql/i,
+      /prometheus|alertmanager|grafana|promql|observability\.enabled/i,
     );
   });
 });

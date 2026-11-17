@@ -651,7 +651,7 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 			continue
 		}
 
-		lifecycleStatus := resolveRemoteLifecycleStatus(row.Status)
+		lifecycleStatus, inferredResolvedAt := resolveRemoteLifecycleStatus(row.Status, row.EndsAt, row.LastReceivedAt, now)
 		if filter.LifecycleStatus != "" && lifecycleStatus != filter.LifecycleStatus {
 			continue
 		}
@@ -688,7 +688,7 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 			CreatedAt:       row.CreatedAt.UTC(),
 			FiringAt:        firingAt,
 			LastSeenAt:      lastSeenAt,
-			ResolvedAt:      toUTCTimePointer(row.ResolvedAt),
+			ResolvedAt:      firstNonNilTime(toUTCTimePointer(row.ResolvedAt), inferredResolvedAt),
 			SourceRef: &AlertInstanceSourceRef{
 				Fingerprint: strings.TrimSpace(row.Fingerprint),
 				Receiver:    strings.TrimSpace(row.Receiver),
@@ -845,11 +845,45 @@ func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {
 	return nil, fmt.Errorf("invalid alert id")
 }
 
-func resolveRemoteLifecycleStatus(status string) AlertLifecycleStatus {
+// remoteAlertStaleThreshold 是没有 ends_at 的旧记录（外部 Alertmanager 时代写入、没有内嵌
+// 评估器的 ValidUntil 概念）判恢复的兜底阈值。
+// remoteAlertStaleThreshold is the fallback age after which a legacy record without ends_at
+// (written by the external Alertmanager stack, which predates the embedded evaluator's
+// ValidUntil) counts as resolved.
+const remoteAlertStaleThreshold = time.Hour
+
+// resolveRemoteLifecycleStatus 把记录状态映射成生命周期状态，第二返回值是按过期推断出的恢复
+// 时间（无则 nil）。接入端点移除后，firing 记录不再保证能等到 resolved 记录：ends_at 已过
+// 判为已恢复（内嵌评估器 firing 时持续以 ValidUntil 刷新它，过期说明重推已停止）；ends_at=0
+// 的旧记录用 last_received_at 兜底。
+// resolveRemoteLifecycleStatus maps the stored status to the lifecycle status; the second return
+// is the resolved time inferred from expiry (nil when absent). With the ingest endpoint removed,
+// a firing record is not guaranteed to meet a resolved twin: a record past ends_at counts as
+// resolved (the embedded evaluator keeps refreshing it to ValidUntil while resending, so expiry
+// means resends stopped), and legacy rows with ends_at=0 fall back to last_received_at.
+func resolveRemoteLifecycleStatus(status string, endsAt int64, lastReceivedAt time.Time, now time.Time) (AlertLifecycleStatus, *time.Time) {
 	if strings.EqualFold(strings.TrimSpace(status), string(AlertLifecycleStatusResolved)) {
-		return AlertLifecycleStatusResolved
+		return AlertLifecycleStatusResolved, nil
 	}
-	return AlertLifecycleStatusFiring
+	if endsAt > 0 && time.Unix(endsAt, 0).Before(now) {
+		t := time.Unix(endsAt, 0).UTC()
+		return AlertLifecycleStatusResolved, &t
+	}
+	if endsAt == 0 && !lastReceivedAt.IsZero() && lastReceivedAt.Add(remoteAlertStaleThreshold).Before(now) {
+		t := lastReceivedAt.Add(remoteAlertStaleThreshold).UTC()
+		return AlertLifecycleStatusResolved, &t
+	}
+	return AlertLifecycleStatusFiring, nil
+}
+
+// firstNonNilTime 返回第一个非空时间指针。/ firstNonNilTime returns the first non-nil time pointer.
+func firstNonNilTime(values ...*time.Time) *time.Time {
+	for _, v := range values {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
 }
 
 func resolveAlertHandlingStatus(state *AlertState, now time.Time) AlertHandlingStatus {

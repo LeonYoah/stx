@@ -99,6 +99,14 @@ func Serve() {
 	// Embedded observability storage: open the in-process tsdb + PromQL engine when observability
 	// is enabled; failures only log and leave embedts.Ready()=false so dashboard/trend/diagnostic
 	// queries degrade to their existing empty states instead of blocking startup.
+	// 旧外部监控栈配置段已忽略：启动时只记一条 WARN（只列段名，值不落日志），提示清理。
+	// Legacy external monitoring sections are ignored: log one WARN at startup naming the
+	// sections only (values stay out of logs), prompting cleanup.
+	if leftovers := config.LegacyObservabilitySections(); len(leftovers) > 0 {
+		logger.WarnF(ctx, "[Observability] 检测到已废弃的旧外部监控配置段 [%s]，这些段不再生效，请从配置文件中移除 / deprecated external monitoring sections [%s] detected; they no longer take effect, please remove them from the config file",
+			strings.Join(leftovers, ", "), strings.Join(leftovers, ", "))
+	}
+
 	if config.Config.Observability.Enabled {
 		embedOpts, err := embedts.OptionsFromObservability(config.Config.Observability)
 		if err == nil {

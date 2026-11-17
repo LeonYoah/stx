@@ -93,9 +93,9 @@ observability:
 	}
 	t.Setenv("CONFIG_PATH", path)
 
-	// 捕获 stderr：残留段只应产出一条列出段名的 WARN，token 等配置值不落日志。
-	// Capture stderr: leftovers should yield one WARN naming the sections only; values like the
-	// token must stay out of logs.
+	// 加载只记录检测结果、不向 stderr 打 WARN（WARN 由服务启动时统一记一次，CLI 命令不带噪音）。
+	// Loading only records the detection result without writing a WARN to stderr (the WARN is
+	// logged once at server startup, so CLI commands stay quiet).
 	stderr := captureStderr(t, func() {
 		loaded, err := loadConfig()
 		if err != nil {
@@ -105,29 +105,36 @@ observability:
 			t.Fatalf("内置监控配置应取默认值 / built-in monitoring should take defaults: %+v", loaded.Observability)
 		}
 	})
-	for _, section := range []string{"observability.prometheus", "observability.alertmanager", "observability.grafana", "observability.remote_ingest"} {
-		if !strings.Contains(stderr, section) {
-			t.Fatalf("WARN 应列出残留段 %s / WARN should list leftover section %s: %q", section, section, stderr)
-		}
+	if strings.Contains(stderr, "WARN") {
+		t.Fatalf("加载配置不应向 stderr 打 WARN / loading must not write WARN to stderr: %q", stderr)
 	}
-	if strings.Contains(stderr, "secret-token-value") {
-		t.Fatalf("WARN 不应泄露配置值 / WARN must not leak config values: %q", stderr)
+	detected := LegacyObservabilitySections()
+	for _, section := range []string{"observability.prometheus", "observability.alertmanager", "observability.grafana", "observability.remote_ingest"} {
+		found := false
+		for _, got := range detected {
+			if got == section {
+				found = true
+			}
+			if strings.Contains(got, "secret-token-value") {
+				t.Fatalf("检测结果不应泄露配置值 / detected sections must not leak config values: %v", detected)
+			}
+		}
+		if !found {
+			t.Fatalf("应检测到残留段 %s / should detect leftover section %s: %v", section, section, detected)
+		}
 	}
 }
 
-// TestWarnLegacyObservabilitySections_None 验证没有残留段时不产生 WARN 噪音。
-// TestWarnLegacyObservabilitySections_None verifies no WARN noise when no legacy section remains.
-func TestWarnLegacyObservabilitySections_None(t *testing.T) {
+// TestDetectLegacyObservabilitySections_None 验证没有残留段时检测结果为空。
+// TestDetectLegacyObservabilitySections_None verifies detection is empty when no legacy section remains.
+func TestDetectLegacyObservabilitySections_None(t *testing.T) {
 	loader := viper.New()
 	loader.SetConfigType("yaml")
 	if err := loader.ReadConfig(strings.NewReader("observability:\n  enabled: true\n")); err != nil {
 		t.Fatalf("read config: %v", err)
 	}
-	stderr := captureStderr(t, func() {
-		warnLegacyObservabilitySections(loader)
-	})
-	if strings.Contains(stderr, "WARN") {
-		t.Fatalf("无残留段不应输出 WARN / no WARN expected without leftover sections: %q", stderr)
+	if got := detectLegacyObservabilitySections(loader); len(got) != 0 {
+		t.Fatalf("无残留段不应有检测结果 / no detection expected without leftover sections: %v", got)
 	}
 }
 

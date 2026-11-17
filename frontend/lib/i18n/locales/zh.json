@@ -302,7 +302,7 @@
         "empty": "该时间窗内没有数据",
         "noAccess": "无权查看该作业",
         "partial": "部分指标查询失败：{keys}",
-        "noPromDesc": "开启可观测性后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。内置监控由服务端配置文件控制（observability.enabled），请联系管理员开启。下方运行日历来自 STX 数据库，不受影响。",
+        "noPromDesc": "开启内置监控后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。请联系管理员在服务端配置中开启。下方运行日历来自 STX 数据库，不受影响。",
         "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。下方运行日历来自 STX 数据库，不受影响。"
       },
       "list": {
@@ -473,8 +473,8 @@
           "bad": "异常"
         },
         "noProm": {
-          "title": "可观测性未开启",
-          "desc": "开启可观测性后，这里会显示节点可用性、JVM、GC 与作业状态趋势。内置监控由服务端配置文件控制（observability.enabled），请联系管理员开启。集群卡片和节点表来自 Agent 心跳，不受影响。",
+          "title": "内置监控未开启",
+          "desc": "开启内置监控后，这里会显示节点可用性、JVM、GC 与作业状态趋势。请联系管理员在服务端配置中开启。集群卡片和节点表来自 Agent 心跳，不受影响。",
           "unavailableTitle": "监控数据暂不可用",
           "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。集群卡片和节点表来自 Agent 心跳，不受影响。"
         },
@@ -5387,8 +5387,8 @@
         "snapshotHint": "引擎最新指标",
         "trendHint": "历史趋势",
         "noJob": "没有作业数据",
-        "emptyTitle": "开启可观测性后显示趋势",
-        "emptyBody": "开启后可查看吞吐、CDC 延迟、Checkpoint、算子忙碌度与背压的历史曲线。内置监控由服务端配置文件控制（observability.enabled），请联系管理员开启。未开启时 STX 不采集、不保存任何时序数据。",
+        "emptyTitle": "开启内置监控后显示趋势",
+        "emptyBody": "开启后可查看吞吐、CDC 延迟、Checkpoint、算子忙碌度与背压的历史曲线。请联系管理员在服务端配置中开启。未开启时 STX 不采集、不保存任何时序数据。",
         "unavailableTitle": "监控数据暂不可用",
         "unavailableBody": "监控存储尚未就绪或查询失败，稍后会自动重试。",
         "emptySnapshotHint": "当前数值仍可在「快照」中查看",

@@ -144,3 +144,39 @@ func TestService_CloseAlertInstance_allowsFiringAlert(t *testing.T) {
 		t.Fatalf("expected close metadata, got %+v", action)
 	}
 }
+
+// firing 记录在三种情况下按过期判为已恢复：ends_at 已过（内嵌评估器停止重推）、
+// ends_at=0 且 last_received_at 超阈值（外部 Alertmanager 时代记录）、ends_at 未过期保持 firing。
+// Firing records count as resolved on expiry in three cases: ends_at elapsed (the embedded
+// evaluator stopped resending), ends_at=0 with last_received_at past the threshold (records
+// written by the external Alertmanager era), and unexpired ends_at staying firing.
+func TestResolveRemoteLifecycleStatus_expiresFiringRecords(t *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name           string
+		status         string
+		endsAt         int64
+		lastReceivedAt time.Time
+		want           AlertLifecycleStatus
+		wantResolvedAt bool
+	}{
+		{name: "resolved status stays resolved", status: "resolved", endsAt: 0, want: AlertLifecycleStatusResolved},
+		{name: "firing past ends_at resolves", status: "firing", endsAt: now.Add(-time.Minute).Unix(), want: AlertLifecycleStatusResolved, wantResolvedAt: true},
+		{name: "firing before ends_at stays firing", status: "firing", endsAt: now.Add(time.Hour).Unix(), want: AlertLifecycleStatusFiring},
+		{name: "legacy record without ends_at expires by last_received_at", status: "firing", endsAt: 0, lastReceivedAt: now.Add(-2 * time.Hour), want: AlertLifecycleStatusResolved, wantResolvedAt: true},
+		{name: "fresh record without ends_at stays firing", status: "firing", endsAt: 0, lastReceivedAt: now.Add(-time.Minute), want: AlertLifecycleStatusFiring},
+		{name: "zero last_received_at stays firing", status: "firing", endsAt: 0, want: AlertLifecycleStatusFiring},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, resolvedAt := resolveRemoteLifecycleStatus(tc.status, tc.endsAt, tc.lastReceivedAt, now)
+			if got != tc.want {
+				t.Fatalf("status=%s ends_at=%d last=%v => %s, want %s", tc.status, tc.endsAt, tc.lastReceivedAt, got, tc.want)
+			}
+			if (resolvedAt != nil) != tc.wantResolvedAt {
+				t.Fatalf("inferred resolved_at=%v, want present=%v", resolvedAt, tc.wantResolvedAt)
+			}
+		})
+	}
+}

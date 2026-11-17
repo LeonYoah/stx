@@ -29,6 +29,9 @@ services:
     container_name: stx-mysql
     restart: unless-stopped
     environment:
+      # OS 时区；应用连接仍走 DSN time_zone='+00:00'，存储保持 UTC。
+      # OS timezone; the app connection still uses DSN time_zone='+00:00', storage stays UTC.
+      TZ: ${TZ:-Asia/Shanghai}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-stxroot}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-stx}
       MYSQL_USER: ${MYSQL_USER:-stx}
@@ -45,6 +48,8 @@ services:
 
   stx-backend:
     environment:
+      # TZ 由 compose.base.yml 注入；此处必须保持 mapping，改成 list 会整段替换并丢掉 TZ。
+      # TZ comes from compose.base.yml; keep this a mapping — a list would replace the block and drop TZ.
       STX_DATABASE_TYPE: mysql
       STX_DATABASE_HOST: mysql
       STX_DATABASE_PORT: "3306"

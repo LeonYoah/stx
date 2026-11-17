@@ -20,10 +20,11 @@
 
 ## 开发前检查
 
-- 改动 `install/package-release.sh`、`install/bin/*` 或安装相关文档前，必读 [打包与安装契约](./packaging-and-install.md)。
+- 改动 `install/package-release.sh`、`install/bin/*`、`deploy/docker/` 或安装相关文档前，必读 [打包与安装契约](./packaging-and-install.md)。
 - 区分：**版本资产**（stx / agent / frontend）与 **deps 资产**（node）。
 - stx 与 stx-agent 以**裸二进制**发布；不要只提供巨型聚合 tar.gz。
 - 不要重新引入外部监控组件（Prometheus / Alertmanager / Grafana）的下载、启停或端口；监控由 stx 进程内置提供。
+- 新增或修改 Compose 服务时，每个服务必须注入 `TZ: ${TZ:-Asia/Shanghai}`（见打包契约）。
 
 ## 质量检查
 

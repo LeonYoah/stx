@@ -38,6 +38,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates tzdata openssl && \
     rm -rf /var/lib/apt/lists/*
 
+# 镜像默认时区；docker run -e TZ=... 可覆盖。
+# Image default timezone; override with docker run -e TZ=...
+ENV TZ=Asia/Shanghai
+
 WORKDIR /opt/stx
 
 COPY --from=artifacts /out/stx /opt/stx/stx

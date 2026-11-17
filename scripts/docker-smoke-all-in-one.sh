@@ -78,6 +78,15 @@ $DOCKER run -d --name "$container" "${platform_args[@]}" \
   -p "127.0.0.1:${FRONTEND_PORT}:17880" \
   "$IMAGE" >/dev/null
 
+# 镜像必须自带默认时区；Compose 同样注入 TZ，裸 docker run 不能落到 UTC。
+# Image must ship a default timezone; Compose injects TZ too, so a bare docker run must not fall back to UTC.
+tz="$($DOCKER exec "$container" printenv TZ 2>/dev/null || true)"
+if [[ "$tz" != "Asia/Shanghai" ]]; then
+  echo "[smoke] expected TZ=Asia/Shanghai, got ${tz:-empty}" >&2
+  exit 1
+fi
+echo "[smoke] TZ=$tz"
+
 # 轮询直到返回 200 或超时。/ Poll until HTTP 200 or timeout.
 wait_for_200() {
   local name="$1" url="$2"

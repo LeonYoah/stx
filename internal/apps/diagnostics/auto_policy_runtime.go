@@ -71,8 +71,8 @@ func (s *Service) runAutoPolicyEvaluationRound(ctx context.Context, now time.Tim
 		if err := s.policyChecker.CheckScheduledPolicies(ctx, item.ID, now); err != nil {
 			log.Printf("[DiagnosticsAutoPolicy] scheduled evaluation failed: cluster_id=%d err=%v", item.ID, err)
 		}
-		if err := s.policyChecker.CheckPrometheusPolicies(ctx, item.ID, now); err != nil {
-			log.Printf("[DiagnosticsAutoPolicy] prometheus evaluation failed: cluster_id=%d err=%v", item.ID, err)
+		if err := s.policyChecker.CheckAlertFiringPolicies(ctx, item.ID, now); err != nil {
+			log.Printf("[DiagnosticsAutoPolicy] alert-firing evaluation failed: cluster_id=%d err=%v", item.ID, err)
 		}
 	}
 }

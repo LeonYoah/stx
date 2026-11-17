@@ -27,6 +27,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GetAlertRuleCatalog handles GET /api/v1/monitoring/alert-rules/catalog.
+// GetAlertRuleCatalog 处理告警规则目录查询接口，巡检条件、通知路由与 CLI 从这里取可选规则键。
+func (h *Handler) GetAlertRuleCatalog(c *gin.Context) {
+	c.JSON(http.StatusOK, Response{Data: AlertRuleCatalog(c.Query("lang"))})
+}
+
 // ListAlertPolicies handles GET /api/v1/monitoring/alert-policies.
 // ListAlertPolicies 处理统一告警策略列表接口。
 func (h *Handler) ListAlertPolicies(c *gin.Context) {

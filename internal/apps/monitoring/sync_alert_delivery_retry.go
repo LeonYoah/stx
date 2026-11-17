@@ -93,7 +93,11 @@ func syncDeliveryRetryDelay(attempt int) time.Duration {
 func (r *Repository) ListRetryableSyncAlertDeliveries(ctx context.Context, maxAttempts int, afterID uint, limit int) ([]*NotificationDelivery, error) {
 	var deliveries []*NotificationDelivery
 	err := r.db.WithContext(ctx).
-		Where("source_type = ? AND id > ?", string(AlertSourceTypeSync), afterID).
+		// 存储种类按 source_key 前缀判定：sync 阶段投递的类别可能是 platform_health 或 job，
+		// 按 source_type 匹配会把集群级阶段漏掉。
+		// Store kind follows the source_key prefix: sync episode deliveries may carry the
+		// platform_health or job category, so matching source_type would miss cluster episodes.
+		Where("source_key LIKE ? AND id > ?", "sync:episode:%", afterID).
 		Where(r.db.
 			Where("event_type = ? AND status IN ? AND attempt_count < ?", string(NotificationDeliveryEventTypeResolved),
 				[]string{string(NotificationDeliveryStatusFailed), string(NotificationDeliveryStatusRetrying)}, maxAttempts).

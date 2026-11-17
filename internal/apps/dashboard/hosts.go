@@ -117,7 +117,7 @@ type HostClusterNodes interface {
 // HostDashboardService 组装主机视图：清单 + 每台主机的指标面板。
 // HostDashboardService assembles the hosts view: inventory plus per-host metric panels.
 type HostDashboardService struct {
-	rangeQuery func(ctx context.Context, baseURL, query string, start, end time.Time, step int) ([]promquery.Series, error)
+	rangeQuery func(ctx context.Context, query string, start, end time.Time, step int) ([]promquery.Series, error)
 	hosts      HostInventory
 	clusters   HostClusterNodes
 	now        func() time.Time
@@ -127,8 +127,8 @@ type HostDashboardService struct {
 // NewHostDashboardService creates the hosts dashboard service.
 func NewHostDashboardService(hosts HostInventory, clusters HostClusterNodes) *HostDashboardService {
 	return &HostDashboardService{
-		rangeQuery: func(ctx context.Context, baseURL, query string, start, end time.Time, step int) ([]promquery.Series, error) {
-			return promquery.Range(ctx, baseURL, query, start, end, step)
+		rangeQuery: func(ctx context.Context, query string, start, end time.Time, step int) ([]promquery.Series, error) {
+			return promquery.Range(ctx, query, start, end, step)
 		},
 		hosts:    hosts,
 		clusters: clusters,
@@ -200,8 +200,7 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source, out.Reason = promquery.SourceNone, reason
 	} else {
 		out.Source = promquery.SourcePrometheus
@@ -247,7 +246,7 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 		wg.Add(1)
 		go func(task *hostTask) {
 			defer wg.Done()
-			task.out, task.err = s.rangeQuery(ctx, baseURL, task.query, start, end, step)
+			task.out, task.err = s.rangeQuery(ctx, task.query, start, end, step)
 		}(task)
 	}
 	wg.Wait()

@@ -41,7 +41,6 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 
 	componentMap := indexIntegrationComponents(integrationStatus.Components)
 	metricsStatus, metricsReason := resolveMetricsPolicyCapability(componentMap)
-	remoteIngestStatus, remoteIngestReason := resolveRemoteIngestCapability(componentMap)
 
 	capabilities := []*AlertPolicyCapabilityDTO{
 		{
@@ -57,14 +56,6 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 			Status:    metricsStatus,
 			Reason:    metricsReason,
 			DependsOn: []string{"embedded_tsdb", "seatunnel_metrics"},
-		},
-		{
-			Key:       AlertPolicyCapabilityKeyRemoteIngest,
-			Title:     "Remote Alert Ingest",
-			Summary:   "Receive alerts pushed by external systems (Alertmanager webhook compatible) into the unified alert center and notification pipeline.",
-			Status:    remoteIngestStatus,
-			Reason:    remoteIngestReason,
-			DependsOn: []string{"remote_ingest"},
 		},
 		{
 			Key:     AlertPolicyCapabilityKeyWebhookNotification,
@@ -149,16 +140,6 @@ func resolveMetricsPolicyCapability(componentMap map[string]*IntegrationComponen
 	}
 	if reason := explainUnhealthyComponent(componentMap["seatunnel_metrics"], "Engine metric collection"); reason != "" {
 		return AlertPolicyCapabilityStatusUnavailable, reason
-	}
-	return AlertPolicyCapabilityStatusAvailable, ""
-}
-
-func resolveRemoteIngestCapability(componentMap map[string]*IntegrationComponentStatus) (AlertPolicyCapabilityStatus, string) {
-	if !config.Config.Observability.Enabled {
-		return AlertPolicyCapabilityStatusUnavailable, "Observability is disabled. Local platform-health alerts and direct notifications remain available."
-	}
-	if reason := explainUnhealthyComponent(componentMap["remote_ingest"], "External alert ingest"); reason != "" {
-		return AlertPolicyCapabilityStatusUnavailable, reason + " Local platform-health alerts and direct email/webhook notifications remain available."
 	}
 	return AlertPolicyCapabilityStatusAvailable, ""
 }

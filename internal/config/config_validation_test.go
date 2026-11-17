@@ -30,7 +30,6 @@ func TestValidateConfig_ObservabilityDisabled(t *testing.T) {
 func TestValidateConfig_MissingExternalURL(t *testing.T) {
 	c := &configModel{}
 	c.Observability.Enabled = true
-	c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 
 	if err := validateConfig(c); err == nil {
 		t.Fatalf("expected validation error when app.external_url is empty")
@@ -54,7 +53,6 @@ func TestValidateConfig_RemoteObservabilityHappyPath(t *testing.T) {
 	c := &configModel{}
 	c.App.ExternalURL = "https://stx.example.com"
 	c.Observability.Enabled = true
-	c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 	fillEmbeddedObservabilityDefaults(c)
 
 	if err := validateConfig(c); err != nil {

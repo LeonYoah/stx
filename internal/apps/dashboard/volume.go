@@ -214,8 +214,7 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 	if oldest, ok := s.oldestSample(); ok {
 		out.OldestSampleMs = oldest.UnixMilli()
 	}
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source, out.Reason = promquery.SourceNone, reason
 		return out, nil
 	}
@@ -274,7 +273,7 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 		wg.Add(1)
 		go func(i int, task *taskRef) {
 			defer wg.Done()
-			results[i].samples, results[i].err = s.instantQuery(ctx, baseURL, task.query, task.span.end)
+			results[i].samples, results[i].err = s.instantQuery(ctx, task.query, task.span.end)
 		}(i, task)
 	}
 	wg.Wait()

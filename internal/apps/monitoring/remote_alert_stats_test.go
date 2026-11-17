@@ -45,7 +45,7 @@ func TestClustersHealthIgnoresClosedRemoteAlerts(t *testing.T) {
 		}
 	}
 	for key, status := range map[string]AlertHandlingStatus{"closed": AlertHandlingStatusClosed, "acked": AlertHandlingStatusAcknowledged} {
-		state := &AlertState{SourceType: AlertSourceTypeRemoteAlertmanager, SourceKey: buildRemoteAlertSourceKey(key, map[string]int64{"closed": 1, "acked": 2}[key]), ClusterID: clusterID, HandlingStatus: status}
+		state := &AlertState{SourceType: AlertSourceTypeMetric, SourceKey: buildRemoteAlertSourceKey(key, map[string]int64{"closed": 1, "acked": 2}[key]), ClusterID: clusterID, HandlingStatus: status}
 		if err := repo.db.Create(state).Error; err != nil {
 			t.Fatalf("create alert state: %v", err)
 		}

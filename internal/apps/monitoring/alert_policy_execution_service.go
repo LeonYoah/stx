@@ -360,6 +360,12 @@ func (s *Service) dispatchLocalResolvedAlertPolicy(
 // delivery path (dedupe, cooldown resend, silence, close, recovery precondition).
 type alertMessage struct {
 	SourceType  AlertSourceType
+	// Kind 是消息的存储种类，用于退避重试这类只看存储表的分支判断，不能用类别代替
+	// （集群级作业规则归 platform_health 后按类别判断会丢掉 sync 的退避重试）。
+	// Kind is the storage kind of the message, for branches that care about the backing
+	// store such as backoff retries — the category cannot stand in (cluster-level job
+	// rules count as platform_health but still need the sync retry path).
+	Kind        alertStoreKind
 	ClusterID   string
 	ClusterName string
 	AlertName   string
@@ -386,7 +392,8 @@ func localProcessEventAlertMessage(
 	deliveryEventType NotificationDeliveryEventType,
 ) *alertMessage {
 	return &alertMessage{
-		SourceType:  AlertSourceTypeLocalProcessEvent,
+		SourceType:  AlertSourceTypePlatformHealth,
+		Kind:        alertStoreLocalEvent,
 		ClusterID:   strconv.FormatUint(uint64(sourceEvent.ClusterID), 10),
 		ClusterName: strings.TrimSpace(clusterName),
 		AlertName:   strings.TrimSpace(firstNonEmpty(policy.Name, policy.TemplateKey, policy.LegacyRuleKey, "local alert policy")),
@@ -577,7 +584,7 @@ func (s *Service) dispatchAlertDeliveryWithOptions(
 			return nil, nil
 		}
 		if NotificationDeliveryStatus(strings.TrimSpace(firingDelivery.Status)) != NotificationDeliveryStatusSent {
-			if message.SourceType != AlertSourceTypeSync {
+			if message.Kind != alertStoreSyncEpisode {
 				return nil, nil
 			}
 			// 同步告警的首次告警尝试过但没送达（渠道当时不可用）就恢复了：仍然发恢复，并在正文里说明首次告警没送达，
@@ -598,7 +605,7 @@ func (s *Service) dispatchAlertDeliveryWithOptions(
 		if NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) == NotificationDeliveryStatusSent {
 			return s.dispatchAlertReminder(ctx, message, policy, channel, sourceKey, delivery)
 		}
-		if !opts.Retry && message.SourceType == AlertSourceTypeSync {
+		if !opts.Retry && message.Kind == alertStoreSyncEpisode {
 			// 同步告警的首次告警还没送达：交给退避重试（sync_alert_delivery_retry.go，只扫同步告警），这里不重发，
 			// 但按失败汇总，策略状态不显示"命中"。本地 / 远程告警没有退避重试，照旧在下一次派发时重发。
 			// A sync alert's first alert is not delivered yet: the backoff retry (sync_alert_delivery_retry.go, which
@@ -840,7 +847,7 @@ func buildLocalAlertPolicyPayload(
 	title := buildLocalAlertPolicyMessageTitle(sourceEvent, policy, deliveryEventType)
 	message := buildLocalAlertPolicyMessageText(sourceEvent, recoveryEvent, clusterName, policy, deliveryEventType)
 	alert := map[string]interface{}{
-		"source_type":     AlertSourceTypeLocalProcessEvent,
+		"source_type":     AlertSourceTypePlatformHealth,
 		"source_key":      buildLocalAlertSourceKey(sourceEvent.ID),
 		"event_type":      sourceEvent.EventType,
 		"status":          strings.ToLower(string(deliveryEventType)),

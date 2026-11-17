@@ -76,7 +76,7 @@ func setupMonitoringNotificationTestDB(t *testing.T) (*gorm.DB, func()) {
 	return database, cleanup
 }
 
-func TestService_HandleAlertmanagerWebhook_dispatchesAndDeduplicatesRemoteNotification(t *testing.T) {
+func TestService_IngestRemoteAlertRecord_dispatchesAndDeduplicatesRemoteNotification(t *testing.T) {
 	database, cleanup := setupMonitoringNotificationTestDB(t)
 	defer cleanup()
 
@@ -108,7 +108,7 @@ func TestService_HandleAlertmanagerWebhook_dispatchesAndDeduplicatesRemoteNotifi
 	route := &NotificationRoute{
 		Name:               "remote critical",
 		Enabled:            true,
-		SourceType:         string(AlertSourceTypeRemoteAlertmanager),
+		SourceType:         string(AlertSourceTypeMetric),
 		Severity:           "critical",
 		ChannelID:          channel.ID,
 		SendResolved:       false,
@@ -120,36 +120,38 @@ func TestService_HandleAlertmanagerWebhook_dispatchesAndDeduplicatesRemoteNotifi
 	}
 
 	startsAt := time.Date(2026, 3, 8, 10, 0, 0, 0, time.UTC)
-	firingPayload := &AlertmanagerWebhookPayload{
-		Receiver: "ops",
-		Status:   "firing",
-		CommonLabels: map[string]string{
-			"alertname":    "HighCpuUsage",
-			"severity":     "critical",
-			"cluster_id":   "6",
-			"cluster_name": "alpha",
-		},
-		CommonAnnotations: map[string]string{
-			"summary":     "CPU usage is high",
-			"description": "usage > 90%",
-		},
-		Alerts: []*WebhookAlert{{
-			Status:       "firing",
-			Fingerprint:  "fp-1",
-			StartsAt:     startsAt,
-			GeneratorURL: "http://prom.example/rule",
-		}},
+	labels := map[string]string{
+		"alertname":    "HighCpuUsage",
+		"severity":     "critical",
+		"cluster_id":   "6",
+		"cluster_name": "alpha",
+	}
+	annotations := map[string]string{
+		"summary":     "CPU usage is high",
+		"description": "usage > 90%",
+	}
+	firingRecord := &RemoteAlertRecord{
+		Fingerprint:     "fp-1",
+		StartsAt:        startsAt.Unix(),
+		Status:          "firing",
+		Receiver:        "ops",
+		AlertName:       "HighCpuUsage",
+		Severity:        "critical",
+		ClusterID:       "6",
+		ClusterName:     "alpha",
+		GeneratorURL:    "http://prom.example/rule",
+		Summary:         "CPU usage is high",
+		Description:     "usage > 90%",
+		LabelsJSON:      mustMarshalJSON(labels),
+		AnnotationsJSON: mustMarshalJSON(annotations),
+		LastReceivedAt:  time.Now().UTC(),
 	}
 
-	result, err := service.HandleAlertmanagerWebhook(ctx, firingPayload)
-	if err != nil {
-		t.Fatalf("HandleAlertmanagerWebhook returned error: %v", err)
-	}
-	if result.Stored != 1 {
-		t.Fatalf("expected 1 stored alert, got %d", result.Stored)
-	}
-	if len(result.Errors) != 0 {
-		t.Fatalf("expected no processing errors, got %v", result.Errors)
+	// 内嵌评估器的告警经 ingestRemoteAlertRecord 落库并投递；重复触发应按去重键不再通知。
+	// Evaluator alerts are persisted and delivered through ingestRemoteAlertRecord; a repeated
+	// firing must be deduplicated by its dedup key.
+	if err := service.ingestRemoteAlertRecord(ctx, firingRecord); err != nil {
+		t.Fatalf("ingestRemoteAlertRecord returned error: %v", err)
 	}
 	if got := hitCount.Load(); got != 1 {
 		t.Fatalf("expected webhook channel to be called once, got %d", got)
@@ -183,37 +185,35 @@ func TestService_HandleAlertmanagerWebhook_dispatchesAndDeduplicatesRemoteNotifi
 		t.Fatalf("expected alert name HighCpuUsage, got %s", delivery.AlertName)
 	}
 
-	result, err = service.HandleAlertmanagerWebhook(ctx, firingPayload)
-	if err != nil {
-		t.Fatalf("HandleAlertmanagerWebhook duplicate firing returned error: %v", err)
-	}
-	if len(result.Errors) != 0 {
-		t.Fatalf("expected no duplicate firing errors, got %v", result.Errors)
+	if err := service.ingestRemoteAlertRecord(ctx, firingRecord); err != nil {
+		t.Fatalf("ingestRemoteAlertRecord duplicate firing returned error: %v", err)
 	}
 	if got := hitCount.Load(); got != 1 {
-		t.Fatalf("expected duplicate firing webhook to be deduplicated, got hit count %d", got)
+		t.Fatalf("expected duplicate firing to be deduplicated, got hit count %d", got)
 	}
 
-	resolvedPayload := &AlertmanagerWebhookPayload{
-		Receiver:          firingPayload.Receiver,
-		Status:            "resolved",
-		CommonLabels:      firingPayload.CommonLabels,
-		CommonAnnotations: firingPayload.CommonAnnotations,
-		Alerts: []*WebhookAlert{{
-			Status:       "resolved",
-			Fingerprint:  "fp-1",
-			StartsAt:     startsAt,
-			EndsAt:       startsAt.Add(5 * time.Minute),
-			GeneratorURL: "http://prom.example/rule",
-		}},
+	resolvedAt := startsAt.Add(5 * time.Minute)
+	resolvedRecord := &RemoteAlertRecord{
+		Fingerprint:     firingRecord.Fingerprint,
+		StartsAt:        firingRecord.StartsAt,
+		Status:          "resolved",
+		Receiver:        firingRecord.Receiver,
+		AlertName:       firingRecord.AlertName,
+		Severity:        firingRecord.Severity,
+		ClusterID:       firingRecord.ClusterID,
+		ClusterName:     firingRecord.ClusterName,
+		GeneratorURL:    firingRecord.GeneratorURL,
+		Summary:         firingRecord.Summary,
+		Description:     firingRecord.Description,
+		LabelsJSON:      firingRecord.LabelsJSON,
+		AnnotationsJSON: firingRecord.AnnotationsJSON,
+		EndsAt:          resolvedAt.Unix(),
+		ResolvedAt:      &resolvedAt,
+		LastReceivedAt:  time.Now().UTC(),
 	}
 
-	result, err = service.HandleAlertmanagerWebhook(ctx, resolvedPayload)
-	if err != nil {
-		t.Fatalf("HandleAlertmanagerWebhook resolved returned error: %v", err)
-	}
-	if len(result.Errors) != 0 {
-		t.Fatalf("expected no resolved processing errors, got %v", result.Errors)
+	if err := service.ingestRemoteAlertRecord(ctx, resolvedRecord); err != nil {
+		t.Fatalf("ingestRemoteAlertRecord resolved returned error: %v", err)
 	}
 	if got := hitCount.Load(); got != 1 {
 		t.Fatalf("expected resolved delivery to be skipped when send_resolved=false, got hit count %d", got)
@@ -224,12 +224,8 @@ func TestService_HandleAlertmanagerWebhook_dispatchesAndDeduplicatesRemoteNotifi
 		t.Fatalf("failed to enable send_resolved: %v", err)
 	}
 
-	result, err = service.HandleAlertmanagerWebhook(ctx, resolvedPayload)
-	if err != nil {
-		t.Fatalf("HandleAlertmanagerWebhook resolved after enable returned error: %v", err)
-	}
-	if len(result.Errors) != 0 {
-		t.Fatalf("expected no resolved processing errors after enabling route, got %v", result.Errors)
+	if err := service.ingestRemoteAlertRecord(ctx, resolvedRecord); err != nil {
+		t.Fatalf("ingestRemoteAlertRecord resolved after enable returned error: %v", err)
 	}
 	if got := hitCount.Load(); got != 2 {
 		t.Fatalf("expected resolved notification to be sent once, got hit count %d", got)
@@ -247,7 +243,7 @@ func TestService_HandleAlertmanagerWebhook_dispatchesAndDeduplicatesRemoteNotifi
 	}
 }
 
-func TestService_HandleAlertmanagerWebhook_skipsMutedAcknowledgedRemoteAlert(t *testing.T) {
+func TestService_IngestRemoteAlertRecord_skipsMutedAcknowledgedRemoteAlert(t *testing.T) {
 	database, cleanup := setupMonitoringNotificationTestDB(t)
 	defer cleanup()
 
@@ -275,7 +271,7 @@ func TestService_HandleAlertmanagerWebhook_skipsMutedAcknowledgedRemoteAlert(t *
 	route := &NotificationRoute{
 		Name:               "remote all",
 		Enabled:            true,
-		SourceType:         string(AlertSourceTypeRemoteAlertmanager),
+		SourceType:         string(AlertSourceTypeMetric),
 		ChannelID:          channel.ID,
 		SendResolved:       true,
 		MuteIfAcknowledged: true,
@@ -288,7 +284,7 @@ func TestService_HandleAlertmanagerWebhook_skipsMutedAcknowledgedRemoteAlert(t *
 	startsAt := time.Date(2026, 3, 8, 11, 0, 0, 0, time.UTC)
 	sourceKey := buildRemoteAlertSourceKey("fp-ack", startsAt.Unix())
 	if err := repo.SaveAlertState(ctx, &AlertState{
-		SourceType:     AlertSourceTypeRemoteAlertmanager,
+		SourceType:     AlertSourceTypeMetric,
 		SourceKey:      sourceKey,
 		ClusterID:      "6",
 		HandlingStatus: AlertHandlingStatusAcknowledged,
@@ -298,31 +294,28 @@ func TestService_HandleAlertmanagerWebhook_skipsMutedAcknowledgedRemoteAlert(t *
 		t.Fatalf("failed to save acknowledged state: %v", err)
 	}
 
-	payload := &AlertmanagerWebhookPayload{
-		Receiver: "ops",
-		Status:   "firing",
-		CommonLabels: map[string]string{
+	record := &RemoteAlertRecord{
+		Fingerprint: "fp-ack",
+		StartsAt:    startsAt.Unix(),
+		Status:      "firing",
+		Receiver:    "ops",
+		AlertName:   "DiskFull",
+		Severity:    "warning",
+		ClusterID:   "6",
+		ClusterName: "alpha",
+		Summary:     "Disk usage is high",
+		LabelsJSON: mustMarshalJSON(map[string]string{
 			"alertname":    "DiskFull",
 			"severity":     "warning",
 			"cluster_id":   "6",
 			"cluster_name": "alpha",
-		},
-		CommonAnnotations: map[string]string{
-			"summary": "Disk usage is high",
-		},
-		Alerts: []*WebhookAlert{{
-			Status:      "firing",
-			Fingerprint: "fp-ack",
-			StartsAt:    startsAt,
-		}},
+		}),
+		AnnotationsJSON: mustMarshalJSON(map[string]string{"summary": "Disk usage is high"}),
+		LastReceivedAt:  time.Now().UTC(),
 	}
 
-	result, err := service.HandleAlertmanagerWebhook(ctx, payload)
-	if err != nil {
-		t.Fatalf("HandleAlertmanagerWebhook returned error: %v", err)
-	}
-	if len(result.Errors) != 0 {
-		t.Fatalf("expected no processing errors, got %v", result.Errors)
+	if err := service.ingestRemoteAlertRecord(ctx, record); err != nil {
+		t.Fatalf("ingestRemoteAlertRecord returned error: %v", err)
 	}
 	if got := hitCount.Load(); got != 0 {
 		t.Fatalf("expected acknowledged alert to be muted, got hit count %d", got)
@@ -337,7 +330,7 @@ func TestService_HandleAlertmanagerWebhook_skipsMutedAcknowledgedRemoteAlert(t *
 	}
 }
 
-func TestService_HandleAlertmanagerWebhook_dispatchesManagedMetricPolicyFiringAndResolved(t *testing.T) {
+func TestService_IngestRemoteAlertRecord_dispatchesManagedMetricPolicyFiringAndResolved(t *testing.T) {
 	database, cleanup := setupMonitoringNotificationTestDB(t)
 	defer cleanup()
 
@@ -404,39 +397,44 @@ func TestService_HandleAlertmanagerWebhook_dispatchesManagedMetricPolicyFiringAn
 	}
 
 	startsAt := time.Date(2026, 3, 10, 1, 0, 0, 0, time.UTC)
-	firingPayload := &AlertmanagerWebhookPayload{
-		Receiver: "stx-webhook",
-		Status:   "firing",
-		CommonLabels: map[string]string{
-			"alertname":    sanitizeManagedPrometheusAlertName(policy.ID),
-			"managed_by":   "stx",
-			"policy_id":    policyIDLabel(policy),
-			"policy_name":  "内存 0.5",
-			"severity":     "critical",
-			"cluster_id":   "6",
-			"cluster_name": "t3",
-			"instance":     "38.55.133.202:5801",
-		},
-		CommonAnnotations: map[string]string{
-			"summary":       "t3 / 38.55.133.202:5801 触发指标告警：内存 0.5（内存异常）",
-			"description":   "堆内存持续过高；当前值：0.732100；持续 1 分钟，条件：> 0.05。",
-			"current_value": "0.732100",
-			"condition":     "持续 1 分钟，条件：> 0.05",
-		},
-		Alerts: []*WebhookAlert{{
-			Status:       "firing",
-			Fingerprint:  "managed-fp-1",
-			StartsAt:     startsAt,
-			GeneratorURL: "http://127.0.0.1:9090/graph?g0.expr=memory",
-		}},
+	// managed_by=stx + policy_id 标签与内嵌评估器产出一致，走 managed 策略投递路径。
+	// managed_by=stx plus policy_id mirrors the evaluator's labels and selects the managed
+	// policy delivery path.
+	managedLabels := map[string]string{
+		"alertname":    sanitizeManagedPrometheusAlertName(policy.ID),
+		"managed_by":   "stx",
+		"policy_id":    policyIDLabel(policy),
+		"policy_name":  "内存 0.5",
+		"severity":     "critical",
+		"cluster_id":   "6",
+		"cluster_name": "t3",
+		"instance":     "38.55.133.202:5801",
+	}
+	managedAnnotations := map[string]string{
+		"summary":       "t3 / 38.55.133.202:5801 触发指标告警：内存 0.5（内存异常）",
+		"description":   "堆内存持续过高；当前值：0.732100；持续 1 分钟，条件：> 0.05。",
+		"current_value": "0.732100",
+		"condition":     "持续 1 分钟，条件：> 0.05",
+	}
+	firingRecord := &RemoteAlertRecord{
+		Fingerprint:     "managed-fp-1",
+		StartsAt:        startsAt.Unix(),
+		Status:          "firing",
+		Receiver:        "stx-webhook",
+		AlertName:       "内存 0.5",
+		Severity:        "critical",
+		ClusterID:       "6",
+		ClusterName:     "t3",
+		GeneratorURL:    "http://127.0.0.1:9090/graph?g0.expr=memory",
+		Summary:         managedAnnotations["summary"],
+		Description:     managedAnnotations["description"],
+		LabelsJSON:      mustMarshalJSON(managedLabels),
+		AnnotationsJSON: mustMarshalJSON(managedAnnotations),
+		LastReceivedAt:  time.Now().UTC(),
 	}
 
-	result, err := service.HandleAlertmanagerWebhook(ctx, firingPayload)
-	if err != nil {
-		t.Fatalf("HandleAlertmanagerWebhook firing returned error: %v", err)
-	}
-	if len(result.Errors) != 0 {
-		t.Fatalf("expected no firing processing errors, got %v", result.Errors)
+	if err := service.ingestRemoteAlertRecord(ctx, firingRecord); err != nil {
+		t.Fatalf("ingestRemoteAlertRecord firing returned error: %v", err)
 	}
 	if got := hitCount.Load(); got != 1 {
 		t.Fatalf("expected firing webhook to be delivered once, got %d", got)
@@ -462,26 +460,28 @@ func TestService_HandleAlertmanagerWebhook_dispatchesManagedMetricPolicyFiringAn
 		t.Fatalf("expected managed firing payload to contain chinese alert content, got %s", body)
 	}
 
-	resolvedPayload := &AlertmanagerWebhookPayload{
-		Receiver:          firingPayload.Receiver,
-		Status:            "resolved",
-		CommonLabels:      firingPayload.CommonLabels,
-		CommonAnnotations: firingPayload.CommonAnnotations,
-		Alerts: []*WebhookAlert{{
-			Status:       "resolved",
-			Fingerprint:  "managed-fp-1",
-			StartsAt:     startsAt,
-			EndsAt:       startsAt.Add(2 * time.Minute),
-			GeneratorURL: firingPayload.Alerts[0].GeneratorURL,
-		}},
+	resolvedAt := startsAt.Add(2 * time.Minute)
+	resolvedRecord := &RemoteAlertRecord{
+		Fingerprint:     firingRecord.Fingerprint,
+		StartsAt:        firingRecord.StartsAt,
+		Status:          "resolved",
+		Receiver:        firingRecord.Receiver,
+		AlertName:       firingRecord.AlertName,
+		Severity:        firingRecord.Severity,
+		ClusterID:       firingRecord.ClusterID,
+		ClusterName:     firingRecord.ClusterName,
+		GeneratorURL:    firingRecord.GeneratorURL,
+		Summary:         firingRecord.Summary,
+		Description:     firingRecord.Description,
+		LabelsJSON:      firingRecord.LabelsJSON,
+		AnnotationsJSON: firingRecord.AnnotationsJSON,
+		EndsAt:          resolvedAt.Unix(),
+		ResolvedAt:      &resolvedAt,
+		LastReceivedAt:  time.Now().UTC(),
 	}
 
-	result, err = service.HandleAlertmanagerWebhook(ctx, resolvedPayload)
-	if err != nil {
-		t.Fatalf("HandleAlertmanagerWebhook resolved returned error: %v", err)
-	}
-	if len(result.Errors) != 0 {
-		t.Fatalf("expected no resolved processing errors, got %v", result.Errors)
+	if err := service.ingestRemoteAlertRecord(ctx, resolvedRecord); err != nil {
+		t.Fatalf("ingestRemoteAlertRecord resolved returned error: %v", err)
 	}
 	if got := hitCount.Load(); got != 2 {
 		t.Fatalf("expected resolved webhook to be delivered once, got %d", got)
@@ -516,7 +516,7 @@ func TestService_ListNotificationDeliveries_returnsFilteredHistory(t *testing.T)
 	deliveries := []*NotificationDelivery{
 		{
 			AlertID:      "remote:fp-a:1",
-			SourceType:   string(AlertSourceTypeRemoteAlertmanager),
+			SourceType:   string(AlertSourceTypeMetric),
 			SourceKey:    "remote:fp-a:1",
 			ClusterID:    "6",
 			ClusterName:  "alpha",
@@ -532,7 +532,7 @@ func TestService_ListNotificationDeliveries_returnsFilteredHistory(t *testing.T)
 		},
 		{
 			AlertID:      "remote:fp-b:2",
-			SourceType:   string(AlertSourceTypeRemoteAlertmanager),
+			SourceType:   string(AlertSourceTypeMetric),
 			SourceKey:    "remote:fp-b:2",
 			ClusterID:    "7",
 			ClusterName:  "beta",

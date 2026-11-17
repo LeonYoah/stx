@@ -17,9 +17,13 @@
 package config
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/spf13/viper"
 )
 
 func TestLoadConfigMissingFileReturnsDefaultsAndError(t *testing.T) {
@@ -61,10 +65,10 @@ func TestLoadConfigPreservesExplicitObservabilityDisabled(t *testing.T) {
 }
 
 // TestLoadConfig_IgnoresLegacyObservabilitySections 锁住破坏性升级的兼容面：旧配置文件残留
-// prometheus / alertmanager / grafana 段时仍能加载，且不影响内置监控配置。
+// prometheus / alertmanager / grafana / remote_ingest 段时仍能加载，且不影响内置监控配置。
 // TestLoadConfig_IgnoresLegacyObservabilitySections pins the breaking-upgrade compatibility: old
-// config files that still carry prometheus / alertmanager / grafana sections keep loading and do
-// not disturb the built-in monitoring settings.
+// config files that still carry prometheus / alertmanager / grafana / remote_ingest sections keep
+// loading and do not disturb the built-in monitoring settings.
 func TestLoadConfig_IgnoresLegacyObservabilitySections(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -80,17 +84,80 @@ observability:
     webhook_path: "/api/v1/monitoring/alertmanager/webhook"
   grafana:
     url: "http://127.0.0.1:3000"
+  remote_ingest:
+    path: "/api/v1/monitoring/alertmanager/webhook"
+    token: "secret-token-value"
 `
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	t.Setenv("CONFIG_PATH", path)
 
-	loaded, err := loadConfig()
+	// 加载只记录检测结果、不向 stderr 打 WARN（WARN 由服务启动时统一记一次，CLI 命令不带噪音）。
+	// Loading only records the detection result without writing a WARN to stderr (the WARN is
+	// logged once at server startup, so CLI commands stay quiet).
+	stderr := captureStderr(t, func() {
+		loaded, err := loadConfig()
+		if err != nil {
+			t.Fatalf("旧配置段不应阻止加载 / legacy sections must not block loading: %v", err)
+		}
+		if !loaded.Observability.Enabled || loaded.Observability.Storage.Retention == "" {
+			t.Fatalf("内置监控配置应取默认值 / built-in monitoring should take defaults: %+v", loaded.Observability)
+		}
+	})
+	if strings.Contains(stderr, "WARN") {
+		t.Fatalf("加载配置不应向 stderr 打 WARN / loading must not write WARN to stderr: %q", stderr)
+	}
+	detected := LegacyObservabilitySections()
+	for _, section := range []string{"observability.prometheus", "observability.alertmanager", "observability.grafana", "observability.remote_ingest"} {
+		found := false
+		for _, got := range detected {
+			if got == section {
+				found = true
+			}
+			if strings.Contains(got, "secret-token-value") {
+				t.Fatalf("检测结果不应泄露配置值 / detected sections must not leak config values: %v", detected)
+			}
+		}
+		if !found {
+			t.Fatalf("应检测到残留段 %s / should detect leftover section %s: %v", section, section, detected)
+		}
+	}
+}
+
+// TestDetectLegacyObservabilitySections_None 验证没有残留段时检测结果为空。
+// TestDetectLegacyObservabilitySections_None verifies detection is empty when no legacy section remains.
+func TestDetectLegacyObservabilitySections_None(t *testing.T) {
+	loader := viper.New()
+	loader.SetConfigType("yaml")
+	if err := loader.ReadConfig(strings.NewReader("observability:\n  enabled: true\n")); err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if got := detectLegacyObservabilitySections(loader); len(got) != 0 {
+		t.Fatalf("无残留段不应有检测结果 / no detection expected without leftover sections: %v", got)
+	}
+}
+
+// captureStderr 执行 fn 并返回其向 stderr 写入的内容。
+// captureStderr runs fn and returns everything it wrote to stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("旧配置段不应阻止加载 / legacy sections must not block loading: %v", err)
+		t.Fatalf("os.Pipe: %v", err)
 	}
-	if !loaded.Observability.Enabled || loaded.Observability.Storage.Retention == "" {
-		t.Fatalf("内置监控配置应取默认值 / built-in monitoring should take defaults: %+v", loaded.Observability)
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("close pipe writer: %v", err)
 	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read captured stderr: %v", err)
+	}
+	return string(out)
 }

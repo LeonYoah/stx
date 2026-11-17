@@ -108,7 +108,7 @@ func recordQuery(queries *[]string, q string) {
 func newTestClusterService(queries *[]string) *ClusterDashboardService {
 	svc := NewClusterDashboardService(fakeHealth{}, fakeClusterNodes{}, fakeRunning{})
 	svc.now = func() time.Time { return time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC) }
-	svc.rangeQuery = func(_ context.Context, _, q string, _, _ time.Time, _ int) ([]promquery.Series, error) {
+	svc.rangeQuery = func(_ context.Context, q string, _, _ time.Time, _ int) ([]promquery.Series, error) {
 		recordQuery(queries, q)
 		switch {
 		case strings.Contains(q, "min_over_time(up{"):
@@ -125,7 +125,7 @@ func newTestClusterService(queries *[]string) *ClusterDashboardService {
 		}
 		return []promquery.Series{series("instance", "10.0.0.1:5801", [2]float64{1000, 42})}, nil
 	}
-	svc.instantQuery = func(_ context.Context, _, q string, _ time.Time) ([]promquery.Sample, error) {
+	svc.instantQuery = func(_ context.Context, q string, _ time.Time) ([]promquery.Sample, error) {
 		recordQuery(queries, q)
 		switch {
 		case strings.Contains(q, "max by (cluster_id, instance) (up{"):

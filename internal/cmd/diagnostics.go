@@ -150,7 +150,7 @@ func newDiagnosticsAutoPolicyCreateCommand(storeProvider authStoreProvider) *cob
 	var options secureWriteOptions
 	var requestFile, name string
 	var clusterID uint
-	var conditions, resources []string
+	var conditions, alertRuleKeys, resources []string
 	var cooldownMinutes, jvmDumpMinFreeMB int
 	var enabled, autoCreateTask, autoStartTask bool
 	command := &cobra.Command{
@@ -172,8 +172,15 @@ func newDiagnosticsAutoPolicyCreateCommand(storeProvider authStoreProvider) *cob
 			if command.Flags().Changed("name") {
 				body["name"] = strings.TrimSpace(name)
 			}
-			if command.Flags().Changed("condition") {
-				body["conditions"] = diagnosticsConditionBody(conditions)
+			if command.Flags().Changed("condition") || command.Flags().Changed("alert-rule-key") {
+				// ALERT_FIRING 通过 --condition 给出时必须同时提供 --alert-rule-key；
+				// 只给 --alert-rule-key 时自动补一条 ALERT_FIRING 条件。
+				// When --condition includes ALERT_FIRING, --alert-rule-key is required;
+				// passing only --alert-rule-key adds an ALERT_FIRING condition automatically.
+				if requestFile == "" && containsConditionCode(conditions, "ALERT_FIRING") && len(alertRuleKeys) == 0 {
+					return clioutput.NewError(clioutput.CodeUsage, "--alert-rule-key is required when --condition ALERT_FIRING is used", clioutput.ExitUsage, false)
+				}
+				body["conditions"] = diagnosticsConditionBody(conditions, alertRuleKeys)
 			}
 			if command.Flags().Changed("enabled") || requestFile == "" {
 				body["enabled"] = enabled
@@ -198,7 +205,8 @@ func newDiagnosticsAutoPolicyCreateCommand(storeProvider authStoreProvider) *cob
 	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
 	command.Flags().UintVar(&clusterID, "cluster-id", 0, "SeaTunnel cluster ID")
 	command.Flags().StringVar(&name, "name", "", "Policy name")
-	command.Flags().StringSliceVar(&conditions, "condition", nil, "Condition template code; may be repeated")
+	command.Flags().StringSliceVar(&conditions, "condition", nil, "Condition template code: JAVA_OOM, JAVA_STACKOVERFLOW, JAVA_METASPACE, ERROR_SPIKE, ALERT_FIRING, SCHEDULED; may be repeated")
+	command.Flags().StringSliceVar(&alertRuleKeys, "alert-rule-key", nil, "Alert rule key watched by the ALERT_FIRING condition; may be repeated")
 	command.Flags().BoolVar(&enabled, "enabled", true, "Enable the policy")
 	command.Flags().IntVar(&cooldownMinutes, "cooldown-minutes", 30, "Minimum minutes between triggers")
 	command.Flags().BoolVar(&autoCreateTask, "auto-create-task", true, "Create a diagnostic task when the policy matches")
@@ -213,7 +221,7 @@ func newDiagnosticsAutoPolicyCreateCommand(storeProvider authStoreProvider) *cob
 func newDiagnosticsAutoPolicyUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
 	var requestFile, name string
-	var conditions, resources []string
+	var conditions, alertRuleKeys, resources []string
 	var cooldownMinutes, jvmDumpMinFreeMB int
 	var enabled, autoCreateTask, autoStartTask bool
 	command := &cobra.Command{
@@ -232,8 +240,11 @@ func newDiagnosticsAutoPolicyUpdateCommand(storeProvider authStoreProvider) *cob
 			if command.Flags().Changed("name") {
 				body["name"] = strings.TrimSpace(name)
 			}
-			if command.Flags().Changed("condition") {
-				body["conditions"] = diagnosticsConditionBody(conditions)
+			if command.Flags().Changed("condition") || command.Flags().Changed("alert-rule-key") {
+				if requestFile == "" && containsConditionCode(conditions, "ALERT_FIRING") && len(alertRuleKeys) == 0 {
+					return clioutput.NewError(clioutput.CodeUsage, "--alert-rule-key is required when --condition ALERT_FIRING is used", clioutput.ExitUsage, false)
+				}
+				body["conditions"] = diagnosticsConditionBody(conditions, alertRuleKeys)
 			}
 			if command.Flags().Changed("enabled") {
 				body["enabled"] = enabled
@@ -258,7 +269,8 @@ func newDiagnosticsAutoPolicyUpdateCommand(storeProvider authStoreProvider) *cob
 	addSecureWriteFlags(command, &options)
 	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
 	command.Flags().StringVar(&name, "name", "", "Policy name")
-	command.Flags().StringSliceVar(&conditions, "condition", nil, "Condition template code; may be repeated")
+	command.Flags().StringSliceVar(&conditions, "condition", nil, "Condition template code: JAVA_OOM, JAVA_STACKOVERFLOW, JAVA_METASPACE, ERROR_SPIKE, ALERT_FIRING, SCHEDULED; may be repeated")
+	command.Flags().StringSliceVar(&alertRuleKeys, "alert-rule-key", nil, "Alert rule key watched by the ALERT_FIRING condition; may be repeated")
 	command.Flags().BoolVar(&enabled, "enabled", false, "Enable or disable the policy")
 	command.Flags().IntVar(&cooldownMinutes, "cooldown-minutes", 0, "Minimum minutes between triggers")
 	command.Flags().BoolVar(&autoCreateTask, "auto-create-task", false, "Create a diagnostic task when the policy matches")
@@ -286,11 +298,53 @@ func newDiagnosticsTaskStartCommand(storeProvider authStoreProvider) *cobra.Comm
 	return command
 }
 
-func diagnosticsConditionBody(codes []string) []map[string]any {
-	result := make([]map[string]any, 0, len(codes))
+// diagnosticsConditionBody 把 --condition / --alert-rule-key 转成条件数组请求体；
+// 规则键写进 ALERT_FIRING 项，给了规则键但没有对应条件时自动补一条。
+// diagnosticsConditionBody converts --condition / --alert-rule-key into the conditions request
+// body; rule keys land on the ALERT_FIRING item, and an ALERT_FIRING condition is appended
+// when rule keys are given without the matching condition.
+func diagnosticsConditionBody(codes []string, alertRuleKeys []string) []map[string]any {
+	result := make([]map[string]any, 0, len(codes)+1)
+	ruleKeys := normalizedCLIList(alertRuleKeys)
+	hasAlertFiring := false
 	for _, code := range codes {
-		if code = strings.TrimSpace(code); code != "" {
-			result = append(result, map[string]any{"template_code": code, "enabled": true})
+		code = strings.TrimSpace(code)
+		if code == "" {
+			continue
+		}
+		if code == "ALERT_FIRING" {
+			hasAlertFiring = true
+		}
+		item := map[string]any{"template_code": code, "enabled": true}
+		if code == "ALERT_FIRING" && len(ruleKeys) > 0 {
+			item["rule_keys"] = ruleKeys
+		}
+		result = append(result, item)
+	}
+	if len(ruleKeys) > 0 && !hasAlertFiring {
+		result = append(result, map[string]any{"template_code": "ALERT_FIRING", "enabled": true, "rule_keys": ruleKeys})
+	}
+	return result
+}
+
+// containsConditionCode 判断条件码列表里是否包含指定条件。
+// containsConditionCode reports whether the condition code list contains the given code.
+func containsConditionCode(codes []string, want string) bool {
+	for _, code := range codes {
+		if strings.EqualFold(strings.TrimSpace(code), want) {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizedCLIList 去空白并丢掉空字符串项。
+// normalizedCLIList trims entries and drops empty strings.
+func normalizedCLIList(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			result = append(result, value)
 		}
 	}
 	return result

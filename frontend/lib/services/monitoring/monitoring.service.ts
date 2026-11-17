@@ -35,6 +35,7 @@ import type {
   AlertInstanceListData,
   AlertListData,
   AlertRule,
+  AlertRuleCatalogItem,
   AlertRuleListData,
   ClusterHealthData,
   ClusterMonitoringOverviewData,
@@ -166,6 +167,19 @@ export class MonitoringService extends BaseService {
     return this.get<AlertListData>(
       '/alerts',
       params as Record<string, unknown> | undefined,
+    );
+  }
+
+  /**
+   * List the alert rule catalog (selectable rule keys for routes and inspections).
+   * 获取告警规则目录（通知路由与巡检条件的可选规则键）。
+   */
+  static async getAlertRuleCatalog(
+    lang?: string,
+  ): Promise<AlertRuleCatalogItem[]> {
+    return this.get<AlertRuleCatalogItem[]>(
+      '/alert-rules/catalog',
+      lang ? ({lang} as Record<string, unknown>) : undefined,
     );
   }
 
@@ -593,6 +607,25 @@ export class MonitoringService extends BaseService {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to get alerts',
+      };
+    }
+  }
+
+  static async getAlertRuleCatalogSafe(lang?: string): Promise<{
+    success: boolean;
+    data?: AlertRuleCatalogItem[];
+    error?: string;
+  }> {
+    try {
+      const data = await this.getAlertRuleCatalog(lang);
+      return {success: true, data};
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to get alert rule catalog',
       };
     }
   }

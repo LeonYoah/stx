@@ -308,7 +308,7 @@
         "empty": "No data in this time range",
         "noAccess": "You cannot view this job",
         "partial": "Some metric queries failed: {keys}",
-        "noPromDesc": "Turn on observability to see total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots here. The run calendar below comes from the STX database and is unaffected.",
+        "noPromDesc": "Once built-in monitoring is on, total throughput, top writers and CDC delay, data flow, checkpoints and operator hotspots show here. Ask an administrator to enable it in the server config. The run calendar below comes from the STX database and is unaffected.",
         "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. The run calendar below comes from the STX database and is unaffected.",
         "volume": {
           "title": "Data volume",
@@ -499,11 +499,10 @@
           "bad": "Issue"
         },
         "noProm": {
-          "title": "Observability is off",
-          "desc": "Turn on observability to see node availability, JVM, GC and job state trends here. Cluster cards and the node table come from agent heartbeats and are unaffected.",
+          "title": "Built-in monitoring is off",
+          "desc": "Once built-in monitoring is on, node availability, JVM, GC and job state trends show here. Ask an administrator to enable it in the server config. Cluster cards and the node table come from agent heartbeats and are unaffected.",
           "unavailableTitle": "Monitoring data is unavailable",
-          "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. Cluster cards and the node table come from agent heartbeats and are unaffected.",
-          "action": "Open monitoring settings"
+          "unavailableDesc": "Monitoring storage is not ready yet or a query failed; it retries automatically. Cluster cards and the node table come from agent heartbeats and are unaffected."
         },
         "partial": "Some metric queries failed: {keys}",
         "units": {
@@ -3049,9 +3048,9 @@
       "nextPage": "Next",
       "pageInfo": "Page {current} / {total}",
       "sourceTypes": {
-        "local_process_event": "Local Process Event",
-        "remote_alertmanager": "Metric alerts",
-        "sync": "Job alerts"
+        "platform_health": "Platform health",
+        "metric": "Metric alerts",
+        "job": "Job alerts"
       },
       "lifecycleStatuses": {
         "firing": "Firing",
@@ -3110,32 +3109,32 @@
       "navigateToDiagnostics": "Go to Diagnostics for Deep Analysis"
     },
     "rules": {
-      "entry": "Alert Rules",
-      "title": "Alert Rules",
-      "subtitle": "Configure rule switches, thresholds and windows per cluster",
+      "entry": "Detection rules",
+      "title": "Detection rules",
+      "subtitle": "Configure detection rule switches, thresholds and windows per cluster",
       "clusterSelect": "Select Cluster",
-      "selectClusterHint": "Select a cluster to view and edit rules",
-      "listTitle": "Rule List",
-      "ruleName": "Rule Name",
+      "selectClusterHint": "Select a cluster to view and edit detection rules",
+      "listTitle": "Detection Rules",
+      "ruleName": "Detection rule name",
       "description": "Description",
       "severity": "Severity",
       "enabled": "Enabled",
       "threshold": "Threshold",
       "windowSeconds": "Window(s)",
       "save": "Save",
-      "noRules": "No rules",
-      "loadError": "Failed to load alert rules",
-      "saveSuccess": "Rule updated",
-      "saveError": "Failed to update rule"
+      "noRules": "No detection rules",
+      "loadError": "Failed to load detection rules",
+      "saveSuccess": "Detection rule updated",
+      "saveError": "Failed to update detection rule"
     },
     "policyCenter": {
-      "title": "Rules & Notifications",
-      "subtitle": "Manage alert rules and notification channels with capability-aware controls.",
+      "title": "Alert policies & notifications",
+      "subtitle": "Manage alert policies and notification channels with capability-aware controls.",
       "generatedAt": "Generated at: {value}",
-      "unifiedExperienceHint": "One surface for alert rules and notifications; platform-health and metric signals stay distinct internally.",
-      "loadError": "Failed to load rules & notifications bootstrap data",
-      "policyListLoadError": "Failed to load alert rules",
-      "channelListLoadError": "Failed to load notification channels for rule binding",
+      "unifiedExperienceHint": "One surface for alert policies and notifications; platform-health and metric signals stay distinct internally.",
+      "loadError": "Failed to load alert policies & notifications bootstrap data",
+      "policyListLoadError": "Failed to load alert policies",
+      "channelListLoadError": "Failed to load notification channels for policy binding",
       "clusterListLoadError": "Failed to load clusters for policy scope selection",
       "recommended": "Recommended",
       "healthy": "Healthy",
@@ -3144,7 +3143,7 @@
       "capabilitySectionTitle": "Capability Status",
       "integrationSectionTitle": "Integration Dependency Status",
       "templatesSectionTitle": "Recommended Policy Templates",
-      "templatesSectionSubtitle": "These templates define the product skeleton of the rules & notifications: platform-health templates are always available, while metrics templates unlock when built-in monitoring is available.",
+      "templatesSectionSubtitle": "These templates define the product skeleton of the alert policies & notifications: platform-health templates are always available, while metrics templates unlock when built-in monitoring is available.",
       "listTitle": "Current Policies",
       "listSubtitle": "Currently managing {count} unified alert policies.",
       "listGeneratedAt": "Policy list generated at: {value}",
@@ -3155,7 +3154,7 @@
       "allClusters": "All clusters",
       "noChannelsSelected": "No notification channels bound",
       "policyCount": "{count} policies",
-      "policySubtitle": "Configure alert rules, thresholds, and email/webhook delivery channels",
+      "policySubtitle": "Configure alert policies, thresholds, and email/webhook delivery channels",
       "searchPlaceholder": "Search policy name, template...",
       "statusFilter": "Filter by status",
       "allStatuses": "All Status",
@@ -3163,7 +3162,7 @@
       "dialogSubtitleCreate": "Configure basic policy info, trigger metrics, and notification recipients",
       "dialogSubtitleEdit": "Modify existing alert policy parameters",
       "sectionBasic": "1. Basic Settings",
-      "sectionRules": "2. Rules & Conditions",
+      "sectionRules": "2. Policies & Conditions",
       "actions": {
         "viewHistory": "View Delivery History",
         "editPolicy": "Edit Policy",
@@ -3191,10 +3190,10 @@
       "builderReadyHint": "This builder is available and ready to create persisted alert policy resources.",
       "builderUnavailableHint": "This builder is currently unavailable because required integrations are not ready.",
       "builderStatusUnavailable": "Selected builder is unavailable",
-      "legacyRulesTitle": "Current Runtime Rule Entry",
-      "legacyRulesDescription": "The existing cluster-scoped runtime rules remain active and serve as the first compatibility layer while the unified policy resource model is being introduced.",
-      "legacyRulesCardTitle": "Current Runtime Rules",
-      "legacyRulesCardSubtitle": "Keep using the current cluster-scoped runtime rule editor as a transition surface while unified alert policies are being introduced.",
+      "legacyRulesTitle": "Runtime Detection Rules Entry",
+      "legacyRulesDescription": "The existing cluster-scoped runtime detection rules remain active and serve as the first compatibility layer while the unified policy resource model is being introduced.",
+      "legacyRulesCardTitle": "Runtime Detection Rules",
+      "legacyRulesCardSubtitle": "Keep using the current cluster-scoped runtime detection rules editor as a transition surface while unified alert policies are being introduced.",
       "templateCapability": "Capability key:",
       "severityWarning": "Warning",
       "severityCritical": "Critical",
@@ -3248,10 +3247,6 @@
         "metrics_templates": {
           "title": "Metrics Templates",
           "summary": "When built-in monitoring is available, unlock curated templates for CPU, memory, FD, failed jobs, and other metrics-based policies."
-        },
-        "remote_ingest": {
-          "title": "Remote Alert Ingest",
-          "summary": "Receive alerts pushed by external systems (Alertmanager webhook compatible) into the same alert center and delivery pipeline."
         },
         "webhook_notification": {
           "title": "Webhook / IM Notifications",
@@ -3311,7 +3306,7 @@
         },
         "sync_status_unavailable": {
           "name": "Job status unavailable",
-          "description": "Fires when job status (running list) of the cluster stays unreadable beyond the rule window; job states may be stale meanwhile."
+          "description": "Fires when job status (running list) of the cluster stays unreadable beyond the detection rule window; job states may be stale meanwhile."
         },
         "sync_event_channel_degraded": {
           "name": "Event channel degraded",
@@ -3351,7 +3346,7 @@
         }
       },
       "editTitle": "Edit Policy",
-      "editSubtitle": "Update an existing unified alert policy without leaving the rules & notifications.",
+      "editSubtitle": "Update an existing unified alert policy without leaving the alert policies & notifications.",
       "editingHint": "You are editing policy \"{name}\". Changes here will overwrite the persisted policy resource.",
       "editingBadge": "Editing",
       "editModeHint": "Edit mode keeps the existing policy resource and writes changes back in place.",
@@ -3410,10 +3405,10 @@
           "exhausted": "Retries exhausted"
         }
       },
-      "executionLegacyRuntimeRule": "Legacy runtime rule",
+      "executionLegacyRuntimeRule": "Legacy runtime detection rule",
       "executionUnifiedResourceOnly": "Unified resource only",
       "bridgeHints": {
-        "legacyRuntimeRule": "This template currently executes through the existing cluster runtime rule path, so it must target one concrete cluster during the transition period.",
+        "legacyRuntimeRule": "This template currently executes through the existing cluster runtime detection rule path, so it must target one concrete cluster during the transition period.",
         "resourceOnly": "This policy currently persists in the unified policy domain only. Its full evaluation engine will be connected in a later slice.",
         "directChannelDispatch": "Because this policy already binds notification channels, critical local process events can now trigger direct unified policy notifications.",
         "noDirectDispatch": "Bind one or more notification channels here to enable direct unified policy notification dispatch."
@@ -3511,8 +3506,8 @@
     "tabs": {
       "dashboard": "Dashboard",
       "alerts": "Alert Events",
-      "policies": "Rules & Notifications",
-      "rules": "Alert Rules",
+      "policies": "Alert policies & notifications",
+      "rules": "Detection rules",
       "integrations": "Notification Channels",
       "history": "Delivery History"
     },
@@ -3569,25 +3564,25 @@
       }
     },
     "policyCenterV2": {
-      "title": "Rules & Notifications",
-      "subtitle": "Manage alert rules, notification channels, and delivery history.",
-      "policyCount": "{count} rules",
-      "policySubtitle": "View and manage alert rules.",
-      "searchPlaceholder": "Search rule name, description, or template",
+      "title": "Alert policies & notifications",
+      "subtitle": "Manage alert policies, notification channels, and delivery history.",
+      "policyCount": "{count} policies",
+      "policySubtitle": "View and manage alert policies.",
+      "searchPlaceholder": "Search policy name, description, or template",
       "statusFilter": "Enabled Status",
       "allStatuses": "All Statuses",
-      "createNew": "New Rule",
-      "createFirst": "Create the first alert rule",
-      "policyListTitle": "Rule List",
-      "editorCreateTitle": "Create Alert Rule",
-      "editorEditTitle": "Edit Alert Rule",
+      "createNew": "New Policy",
+      "createFirst": "Create the first alert policy",
+      "policyListTitle": "Policy List",
+      "editorCreateTitle": "Create Alert Policy",
+      "editorEditTitle": "Edit Alert Policy",
       "dialogSubtitleCreate": "Configure trigger conditions and notification methods.",
       "dialogSubtitleEdit": "Update trigger conditions and notification methods.",
       "sectionBasic": "Basic Information",
-      "sectionRules": "Rule Configuration",
+      "sectionRules": "Policy Configuration",
       "columns": {
-        "name": "Rule Name",
-        "template": "Rule Template",
+        "name": "Policy Name",
+        "template": "Policy Template",
         "cluster": "Cluster",
         "severity": "Severity",
         "methods": "Methods",
@@ -3597,8 +3592,8 @@
       },
       "actions": {
         "viewHistory": "View delivery history",
-        "editPolicy": "Edit rule",
-        "deletePolicy": "Delete rule"
+        "editPolicy": "Edit policy",
+        "deletePolicy": "Delete policy"
       },
       "history": {
         "statuses": {
@@ -3613,29 +3608,29 @@
       },
       "enabled": "Enabled",
       "disabled": "Disabled",
-      "emptyPolicies": "No alert rules yet",
+      "emptyPolicies": "No alert policies yet",
       "nameRequired": "Please enter an alert name",
       "clusterRequired": "Please select a cluster",
-      "templateRequired": "Please select a rule template",
+      "templateRequired": "Please select a policy template",
       "receiverRequired": "Select at least one notification recipient, or keep recipients configured on the current email channel",
       "concreteClusterRequired": "This template must be bound to a specific cluster",
-      "concreteClusterHint": "Runtime event rules must bind to a concrete cluster, not all clusters.",
-      "createSuccess": "Alert rule created",
-      "updateSuccess": "Alert rule updated",
-      "deleteSuccess": "Alert rule deleted",
-      "toggleEnabledSuccess": "Alert rule enabled",
-      "toggleDisabledSuccess": "Alert rule disabled",
-      "createError": "Failed to create alert rule",
-      "updateError": "Failed to update alert rule",
-      "deleteError": "Failed to delete alert rule",
+      "concreteClusterHint": "Runtime event policies must bind to a concrete cluster, not all clusters.",
+      "createSuccess": "Alert policy created",
+      "updateSuccess": "Alert policy updated",
+      "deleteSuccess": "Alert policy deleted",
+      "toggleEnabledSuccess": "Alert policy enabled",
+      "toggleDisabledSuccess": "Alert policy disabled",
+      "createError": "Failed to create alert policy",
+      "updateError": "Failed to update alert policy",
+      "deleteError": "Failed to delete alert policy",
       "cancelEdit": "Cancel",
       "createSubmit": "Confirm",
       "saveSubmit": "Save",
       "fields": {
         "name": "Policy Name",
         "description": "Description",
-        "strategyType": "Rule Type",
-        "template": "Rule Template",
+        "strategyType": "Policy Type",
+        "template": "Policy Template",
         "cluster": "Cluster",
         "severity": "Severity",
         "cooldown": "Minimum Alert Interval",
@@ -3652,11 +3647,11 @@
       },
       "placeholders": {
         "name": "For example: Cluster restart notification",
-        "description": "Add notes so the team understands this alert rule.",
+        "description": "Add notes so the team understands this alert policy.",
         "threshold": "For example: 0.8 (means 80%)"
       },
       "staticConfig": "Static Config",
-      "staticConfigDesc": "Pick a platform-health or metrics template to create a rule quickly.",
+      "staticConfigDesc": "Pick a platform-health or metrics template to create a policy quickly.",
       "groups": {
         "platformHealth": "Platform Health",
         "prometheusMetrics": "Monitoring metrics"
@@ -3723,11 +3718,11 @@
         "testRecipientPlaceholder": "Choose a temporary recipient for test send",
         "testRecipientNone": "Do not pick a recipient yet",
         "testRecipientLegacyFallback": "Legacy fallback recipients",
-        "testRecipientHint": "Affects test sends only; choose real alert recipients in the rule editor.",
+        "testRecipientHint": "Affects test sends only; choose real alert recipients in the policy editor.",
         "testRecipientHintSelected": "Test send will be delivered to {value}",
         "testRecipientHintCurrentUserMissing": "The current signed-in account \"{value}\" does not have a valid email yet. Add one in your profile before sending a test email.",
         "legacyRecipientsConfigured": "This email channel still has {count} legacy fallback recipient(s) configured for compatibility.",
-        "legacyRecipientsEmpty": "No legacy fallback recipients configured. Prefer selecting receivers on the alert rule.",
+        "legacyRecipientsEmpty": "No legacy fallback recipients configured. Prefer selecting receivers on the alert policy.",
         "clearLegacyRecipients": "Clear legacy fallback recipients",
         "lastTest": {
           "idle": "No test has been sent in this session yet",
@@ -3843,8 +3838,8 @@
           "feishu": "Use the Feishu group custom bot webhook URL; fill in the secret when signature verification is enabled."
         },
         "secretHints": {
-          "dingtalk": "Required when signing is enabled; STX appends timestamp and sign to the URL per DingTalk rules.",
-          "feishu": "Required when signature verification is enabled; STX adds timestamp and sign to the body per Feishu rules."
+          "dingtalk": "Required when signing is enabled; STX appends timestamp and sign to the URL per DingTalk policies.",
+          "feishu": "Required when signature verification is enabled; STX adds timestamp and sign to the body per Feishu policies."
         },
         "maskedKeepHint": "Saved URL tokens and secrets are shown as ******; leave them unchanged to keep the stored values, or enter the full URL when changing the address.",
         "clearSecret": "Clear saved secret",
@@ -3859,7 +3854,7 @@
       "conditionWindowInvalid": "Window must be between 0 and 10080 minutes",
       "metricsUnavailableHint": "Metric templates are currently unavailable: {reason}",
       "sections": {
-        "rules": "Alert Rules",
+        "rules": "Alert Policies",
         "channels": "Notification Channels",
         "history": "Delivery History"
       },
@@ -3895,12 +3890,12 @@
         "searchPlaceholder": "Search alert name, channel, or error",
         "empty": "No delivery records yet",
         "loadError": "Failed to load delivery history",
-        "allPolicies": "All rules",
-        "policyFilter": "Filter by rule",
+        "allPolicies": "All policies",
+        "policyFilter": "Filter by policy",
         "resetFilters": "Reset filters",
         "retriedTimes": "Retried {count} times",
         "columns": {
-          "policy": "Alert Rule",
+          "policy": "Alert Policy",
           "channel": "Channel",
           "event": "Event",
           "status": "Status",
@@ -4248,15 +4243,18 @@
       "createConfirm": "Create Policy",
       "categories": {
         "javaError": "Java Errors",
-        "prometheus": "Metric Signals",
         "errorRate": "Error Rate",
-        "nodeUnhealthy": "Node Health",
-        "alertFiring": "Alert Trigger",
+        "alertFiring": "Alert firing",
         "schedule": "Scheduled Inspection"
       },
       "keywordsLabel": "Keyword Filter (Optional)",
       "keywordsPlaceholder": "Separate multiple keywords with commas",
-      "keywordsHint": "Filter by alert name, rule key, summary, description, and similar text fields; leave empty to match any alert."
+      "keywordsHint": "Filter by error title, exception class, and error text; leave empty to match anything.",
+      "ruleKeysLabel": "Alert rules",
+      "ruleKeysHint": "Matches the alert rule catalog exactly; multi-select.",
+      "ruleCatalogEmpty": "No alert rule catalog available",
+      "alertFiringThresholdLabel": "At least N objects firing together",
+      "alertFiringWindowLabel": "Firing for at least N minutes (0 = immediate)"
     },
     "tasks": {
       "title": "Diagnosis Execution",
@@ -5510,12 +5508,10 @@
         "snapshotHint": "Latest engine metrics",
         "trendHint": "Historical trends",
         "noJob": "No job data",
-        "emptyTitle": "Turn on observability to see trends",
-        "emptyBody": "Once enabled you can chart throughput, CDC delay, checkpoints, busyness and backpressure. STX does not collect or store any time series while it is off.",
+        "emptyTitle": "Enable built-in monitoring to see trends",
+        "emptyBody": "Once enabled you can chart throughput, CDC delay, checkpoints, busyness and backpressure. Ask an administrator to enable it in the server config. STX does not collect or store any time series while it is off.",
         "unavailableTitle": "Monitoring data is unavailable",
         "unavailableBody": "Monitoring storage is not ready yet or a query failed; it retries automatically.",
-        "emptyEnable": "Enable",
-        "emptyHow": "How to enable",
         "emptySnapshotHint": "Current values are still available in Snapshot",
         "engineObsEmptyTitle": "Engine observability is off for this job",
         "engineObsEmptyBody": "Busyness and backpressure need engine.observability enabled on the job",

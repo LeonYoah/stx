@@ -47,7 +47,7 @@ var ErrInvalidClusterDashboardQuery = errors.New("dashboard: invalid cluster das
 // ClusterHealthSource 提供集群健康与告警计数（monitoring 服务实现）。
 // ClusterHealthSource supplies cluster health and alert counts (implemented by the monitoring service).
 type ClusterHealthSource interface {
-	GetClustersHealth(ctx context.Context) (*monitoring.ClusterHealthData, error)
+	GetClustersHealthFor(ctx context.Context, clusterID uint) (*monitoring.ClusterHealthData, error)
 }
 
 // ClusterNodeSource 提供集群与节点（cluster 服务实现）。
@@ -192,8 +192,10 @@ func (s *ClusterDashboardService) GetClusterDashboard(ctx context.Context, clust
 }
 
 // fillInventory 填 DB / 心跳部分：集群卡片始终包含全部集群（便于切换范围），节点表只含范围内的集群。
+// 告警计数按当前 clusterID 查询，避免单集群大盘把所有集群的事件再扫一遍。
 // fillInventory fills the DB / heartbeat part: cards always cover every cluster (so the scope can be switched), the
-// node table only the clusters in scope.
+// node table only the clusters in scope. Alert counts are loaded for the current clusterID so a single-cluster
+// dashboard does not rescan every cluster's events.
 func (s *ClusterDashboardService) fillInventory(ctx context.Context, out *ClusterDashboard, clusterID uint) {
 	if s.clusters == nil {
 		return
@@ -205,7 +207,7 @@ func (s *ClusterDashboardService) fillInventory(ctx context.Context, out *Cluste
 	}
 	health := map[uint]*monitoring.ClusterHealthItem{}
 	if s.health != nil {
-		if data, err := s.health.GetClustersHealth(ctx); err != nil {
+		if data, err := s.health.GetClustersHealthFor(ctx, clusterID); err != nil {
 			out.PartialErrors = append(out.PartialErrors, "health")
 		} else {
 			for _, item := range data.Clusters {

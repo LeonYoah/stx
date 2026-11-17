@@ -2731,7 +2731,7 @@ func mergeJobRuntimeInfo(existing JSONMap, info *EngineJobInfo) JSONMap {
 	return existing
 }
 
-func parseEngineJobTime(value string) *time.Time {
+func parseEngineJobTime(value string, clusterID uint) *time.Time {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return nil
@@ -2742,9 +2742,11 @@ func parseEngineJobTime(value string) *time.Time {
 		"2006-01-02T15:04:05",
 		"2006/01/02 15:04:05",
 	}
+	loc := timex.SeatunnelLocationForCluster(clusterID)
 	for _, layout := range layouts {
-		// 引擎返回的无偏移时间按 SeaTunnel 时区解释，统一转为 UTC。/ Naive engine times use the SeaTunnel zone, stored as UTC.
-		if parsed, err := time.ParseInLocation(layout, trimmed, timex.SeatunnelLocation()); err == nil {
+		// 引擎返回的无偏移时间按该集群 SeaTunnel 节点时区解释，统一转为 UTC。
+		// Naive engine times use that cluster's SeaTunnel node zone and are stored as UTC.
+		if parsed, err := time.ParseInLocation(layout, trimmed, loc); err == nil {
 			resolved := parsed.UTC()
 			return &resolved
 		}

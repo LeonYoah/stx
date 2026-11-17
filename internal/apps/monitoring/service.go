@@ -83,11 +83,11 @@ type Service struct {
 	// path lock-free.
 	metricEvaluator atomic.Pointer[MetricEvaluator]
 
-	// clustersHealthCache 缓存 GetClustersHealth 结果，避免首页 KPI 每次全表扫告警。
-	// clustersHealthCache caches GetClustersHealth so the home KPIs do not rescan every alert on each request.
+	// clustersHealthCache 按集群范围缓存 GetClustersHealth：0 表示全部集群，其它键为单个 cluster_id。
+	// clustersHealthCache keys GetClustersHealth by scope: 0 = every cluster, otherwise one cluster_id.
 	clustersHealthMu    sync.Mutex
-	clustersHealthCache *ClusterHealthData
-	clustersHealthUntil time.Time
+	clustersHealthCache map[uint]*ClusterHealthData
+	clustersHealthUntil map[uint]time.Time
 }
 
 // NewService creates a monitoring service.
@@ -99,6 +99,8 @@ func NewService(clusterService *cluster.Service, monitorService *monitor.Service
 		repo:                         repo,
 		nodeHealthStartupSuppression: defaultNodeHealthStartupSuppressionWindow(),
 		nodeHealthOfflineObservedAt:  make(map[uint]time.Time),
+		clustersHealthCache:          make(map[uint]*ClusterHealthData),
+		clustersHealthUntil:          make(map[uint]time.Time),
 	}
 }
 

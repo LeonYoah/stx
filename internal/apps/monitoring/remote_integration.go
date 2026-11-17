@@ -298,39 +298,64 @@ func (s *Service) ListRemoteAlerts(ctx context.Context, filter *RemoteAlertFilte
 // GetClustersHealth returns cluster-level health summary for monitoring center.
 // GetClustersHealth 返回监控中心集群级健康摘要。
 func (s *Service) GetClustersHealth(ctx context.Context) (*ClusterHealthData, error) {
+	return s.GetClustersHealthFor(ctx, 0)
+}
+
+// GetClustersHealthFor 返回集群健康摘要。clusterID=0 统计全部集群；大于 0 时只查该集群的告警。
+// GetClustersHealthFor returns cluster health. clusterID 0 counts every cluster; a positive id only that cluster's alerts.
+func (s *Service) GetClustersHealthFor(ctx context.Context, clusterID uint) (*ClusterHealthData, error) {
 	if clustersHealthCacheTTL > 0 {
 		s.clustersHealthMu.Lock()
-		if s.clustersHealthCache != nil && time.Now().Before(s.clustersHealthUntil) {
-			cached := s.clustersHealthCache
+		if s.clustersHealthCache == nil {
+			s.clustersHealthCache = make(map[uint]*ClusterHealthData)
+			s.clustersHealthUntil = make(map[uint]time.Time)
+		}
+		if cached := s.clustersHealthCache[clusterID]; cached != nil && time.Now().Before(s.clustersHealthUntil[clusterID]) {
 			s.clustersHealthMu.Unlock()
 			return cached, nil
 		}
 		s.clustersHealthMu.Unlock()
 	}
 
-	data, err := s.loadClustersHealth(ctx)
+	data, err := s.loadClustersHealth(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
 	if clustersHealthCacheTTL > 0 {
 		s.clustersHealthMu.Lock()
-		s.clustersHealthCache = data
-		s.clustersHealthUntil = time.Now().Add(clustersHealthCacheTTL)
+		if s.clustersHealthCache == nil {
+			s.clustersHealthCache = make(map[uint]*ClusterHealthData)
+			s.clustersHealthUntil = make(map[uint]time.Time)
+		}
+		s.clustersHealthCache[clusterID] = data
+		s.clustersHealthUntil[clusterID] = time.Now().Add(clustersHealthCacheTTL)
 		s.clustersHealthMu.Unlock()
 	}
 	return data, nil
 }
 
-// loadClustersHealth 计算集群健康摘要（不读缓存）。
-// loadClustersHealth computes the cluster health summary (no cache).
-func (s *Service) loadClustersHealth(ctx context.Context) (*ClusterHealthData, error) {
+// loadClustersHealth 计算集群健康摘要（不读缓存）。clusterID=0 表示全部集群。
+// loadClustersHealth computes the cluster health summary (no cache). clusterID 0 means every cluster.
+func (s *Service) loadClustersHealth(ctx context.Context, clusterID uint) (*ClusterHealthData, error) {
 	if s.clusterService == nil {
 		return nil, fmt.Errorf("cluster service is not configured")
 	}
 
-	clusters, _, err := s.clusterService.List(ctx, &cluster.ClusterFilter{Page: 1, PageSize: 1000})
-	if err != nil {
-		return nil, err
+	var clusters []*cluster.Cluster
+	var err error
+	if clusterID > 0 {
+		item, getErr := s.clusterService.Get(ctx, clusterID)
+		if getErr != nil {
+			return nil, getErr
+		}
+		if item != nil {
+			clusters = []*cluster.Cluster{item}
+		}
+	} else {
+		clusters, _, err = s.clusterService.List(ctx, &cluster.ClusterFilter{Page: 1, PageSize: 1000})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	clusterIDs := make([]string, 0, len(clusters))
@@ -344,15 +369,17 @@ func (s *Service) loadClustersHealth(ctx context.Context) (*ClusterHealthData, e
 	statsMap := make(map[string]*RemoteAlertClusterStat)
 	if s.repo != nil {
 		now := timex.Now()
-		statsMap, err = s.activeRemoteAlertStats(ctx, clusterIDs, now)
-		if err != nil {
-			return nil, err
+		remoteStats, statsErr := s.activeRemoteAlertStats(ctx, clusterIDs, now)
+		if statsErr != nil {
+			logger.WarnF(ctx, "集群健康远程告警计数失败，继续合并本地/同步告警: %v / clusters health remote alert stats failed, still merging local/sync alerts: %v", statsErr, statsErr)
+		} else {
+			statsMap = remoteStats
 		}
 		// 集群健康 / 首页 KPI 与告警中心同一口径：远程指标告警 + 同步作业告警 + 本地进程事件。
 		// 本地/同步合并失败时降级为仅远程计数，避免整页 KPI 空白。
 		// Cluster health / home KPIs match the alert center: remote metric alerts + sync job alerts + local process events.
 		// If merging local/sync alerts fails, keep remote counts so the page still has KPIs.
-		if err := s.mergeFiringAlertInstanceStats(ctx, statsMap, now); err != nil {
+		if err := s.mergeFiringAlertInstanceStats(ctx, statsMap, now, clusterID); err != nil {
 			logger.WarnF(ctx, "集群健康合并本地/同步告警失败，仅保留远程告警计数: %v / clusters health merge of local/sync alerts failed, keeping remote counts: %v", err, err)
 		}
 	}
@@ -377,8 +404,8 @@ func (s *Service) loadClustersHealth(ctx context.Context) (*ClusterHealthData, e
 			item.OfflineNodes = status.OfflineNodes
 		}
 
-		clusterID := strconv.FormatUint(uint64(c.ID), 10)
-		if stat := statsMap[clusterID]; stat != nil {
+		idKey := strconv.FormatUint(uint64(c.ID), 10)
+		if stat := statsMap[idKey]; stat != nil {
 			item.ActiveAlerts = stat.ActiveCount
 			item.CriticalAlerts = stat.CriticalCount
 		}
@@ -490,23 +517,30 @@ func (s *Service) activeRemoteAlertStats(ctx context.Context, clusterIDs []strin
 // mergeFiringAlertInstanceStats 把同步作业告警和本地进程事件并入集群健康计数；远程指标告警已由 activeRemoteAlertStats 计入。
 // mergeFiringAlertInstanceStats adds sync job alerts and local process events to cluster health counts; remote metric
 // alerts are already counted by activeRemoteAlertStats.
-func (s *Service) mergeFiringAlertInstanceStats(ctx context.Context, stats map[string]*RemoteAlertClusterStat, now time.Time) error {
+func (s *Service) mergeFiringAlertInstanceStats(ctx context.Context, stats map[string]*RemoteAlertClusterStat, now time.Time, clusterID uint) error {
 	if stats == nil {
 		return nil
 	}
 	since := now.Add(-clustersHealthAlertLookback)
-	syncItems, err := s.buildSyncAlertInstances(ctx, &AlertInstanceFilter{
+	syncFilter := &AlertInstanceFilter{
 		Status:    AlertDisplayStatusFiring,
 		Unbounded: true,
-	}, now)
+	}
+	localFilter := &AlertInstanceFilter{
+		Status:    AlertDisplayStatusFiring,
+		StartTime: &since,
+	}
+	if clusterID > 0 {
+		id := strconv.FormatUint(uint64(clusterID), 10)
+		syncFilter.ClusterID = id
+		localFilter.ClusterID = id
+	}
+	syncItems, err := s.buildSyncAlertInstances(ctx, syncFilter, now)
 	if err != nil {
 		return err
 	}
 	addFiringAlertInstanceCounts(stats, syncItems)
-	localItems, err := s.buildLocalAlertInstances(ctx, &AlertInstanceFilter{
-		Status:    AlertDisplayStatusFiring,
-		StartTime: &since,
-	}, now)
+	localItems, err := s.buildLocalAlertInstances(ctx, localFilter, now)
 	if err != nil {
 		return err
 	}

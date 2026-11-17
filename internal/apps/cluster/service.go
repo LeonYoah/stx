@@ -69,6 +69,9 @@ type HostInfo struct {
 	// DiskUsage is the disk usage percentage reported by Agent heartbeats (0 means unknown); scale-out prechecks use
 	// it for the disk space warning.
 	DiskUsage float64
+	// Timezone 是 Agent 心跳上报的主机 IANA 时区，用于解析该节点 SeaTunnel 引擎/日志中的无偏移时间。
+	// Timezone is the host IANA zone from Agent heartbeats, used to parse naive SeaTunnel engine/log times on this node.
+	Timezone string
 }
 
 // IsOnline checks if the host is online based on heartbeat timeout.
@@ -184,9 +187,9 @@ type ConfigAgentClient interface {
 // Service provides business logic for cluster management operations.
 // Service 提供集群管理操作的业务逻辑。
 type Service struct {
-	repo                     *Repository
-	hostProvider             HostProvider
-	heartbeatTimeout         time.Duration
+	repo             *Repository
+	hostProvider     HostProvider
+	heartbeatTimeout time.Duration
 	// assetBaseURL is passed to Agents on java-proxy start so they can pull missing script/jar.
 	// assetBaseURL 在 java-proxy 启动时下发给 Agent，便于本地缺资产时拉取脚本/jar。
 	assetBaseURL             string
@@ -451,7 +454,7 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 				APIPort:       apiPort,
 				WorkerPort:    workerPort,
 				JavaHome:      nodeReq.JavaHome, // 纳管写入节点生效 JDK（AC1e/AC1f / AC4c）
-				SkipPrecheck:  true, // Skip precheck for discovered nodes / 跳过发现节点的预检查
+				SkipPrecheck:  true,             // Skip precheck for discovered nodes / 跳过发现节点的预检查
 			}
 
 			createdNode, err := s.AddNode(ctx, cluster.ID, addNodeReq)

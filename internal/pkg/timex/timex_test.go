@@ -68,6 +68,36 @@ func TestSeatunnelLocationPrefersEnvThenLocal(t *testing.T) {
 	}
 }
 
+func TestSeatunnelLocationForClusterUsesHeartbeatThenEnvWins(t *testing.T) {
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load Asia/Shanghai: %v", err)
+	}
+	SetEngineLocationLookup(func(clusterID uint) *time.Location {
+		if clusterID == 7 {
+			return shanghai
+		}
+		return nil
+	})
+	t.Cleanup(func() { SetEngineLocationLookup(nil) })
+
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "")
+	if got := SeatunnelLocationForCluster(7); got != shanghai {
+		t.Fatalf("cluster heartbeat zone, got %v", got)
+	}
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "UTC")
+	if got := SeatunnelLocationForCluster(7); got != time.UTC {
+		t.Fatalf("env must win over heartbeat zone, got %v", got)
+	}
+	if got := SeatunnelLocationForHost("Asia/Shanghai"); got != time.UTC {
+		t.Fatalf("env must win over host zone, got %v", got)
+	}
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "")
+	if got := SeatunnelLocationForHost("Asia/Shanghai"); got.String() != "Asia/Shanghai" {
+		t.Fatalf("host zone, got %v", got)
+	}
+}
+
 func TestInvalidEnvDisplayTimezoneFallsBack(t *testing.T) {
 	t.Setenv("STX_DISPLAY_TIMEZONE", "Not/AZone")
 	displayMu.Lock()

@@ -49,7 +49,7 @@ func (fakeClusterNodes) GetNodes(_ context.Context, clusterID uint) ([]*cluster.
 
 type fakeHealth struct{}
 
-func (fakeHealth) GetClustersHealth(context.Context) (*monitoring.ClusterHealthData, error) {
+func (fakeHealth) GetClustersHealthFor(context.Context, uint) (*monitoring.ClusterHealthData, error) {
 	return &monitoring.ClusterHealthData{Clusters: []*monitoring.ClusterHealthItem{
 		{ClusterID: 1, HealthStatus: "healthy", TotalNodes: 2, OnlineNodes: 2},
 		{ClusterID: 2, HealthStatus: "unhealthy", TotalNodes: 1, ActiveAlerts: 2, CriticalAlerts: 1},

@@ -61,6 +61,7 @@ import (
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/otel_trace"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"github.com/LeonYoah/stx/internal/session"
 	"github.com/LeonYoah/stx/internal/tlsbootstrap"
@@ -281,6 +282,7 @@ func Serve() {
 				// Agents may pull script/jar from this base when starting java-proxy (DEF-R2-1).
 				AssetBaseURL: strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 			})
+			bindEngineLocationLookup(clusterService)
 
 			// Inject agent command sender if agent manager is available
 			// 如果 Agent Manager 可用，注入 Agent 命令发送器
@@ -1302,6 +1304,7 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 		HeartbeatTimeout: time.Duration(grpcConfig.HeartbeatTimeout) * time.Second,
 		AssetBaseURL:     strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 	})
+	bindEngineLocationLookup(clusterService)
 	monitorRepo := monitor.NewRepository(db.DB(ctx))
 	monitorService := monitor.NewService(monitorRepo)
 	monitoringRepo := monitoringapp.NewRepository(db.DB(ctx))
@@ -1336,6 +1339,17 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	return srv, agentManager
 }
 
+// bindEngineLocationLookup 让解析 SeaTunnel 无偏移时间时使用集群 Master 心跳上报的时区。
+// bindEngineLocationLookup uses the cluster master's heartbeat timezone when parsing naive SeaTunnel times.
+func bindEngineLocationLookup(clusterService *cluster.Service) {
+	if clusterService == nil {
+		return
+	}
+	timex.SetEngineLocationLookup(func(clusterID uint) *time.Location {
+		return clusterService.EngineLocation(context.Background(), clusterID)
+	})
+}
+
 // hostStatusUpdaterAdapter adapts host.Service to agent.HostStatusUpdater interface.
 // hostStatusUpdaterAdapter 将 host.Service 适配到 agent.HostStatusUpdater 接口。
 type hostStatusUpdaterAdapter struct {
@@ -1365,8 +1379,8 @@ func (a *hostStatusUpdaterAdapter) UpdateAgentStatus(ctx context.Context, hostID
 
 // UpdateHeartbeat updates the heartbeat data for a host.
 // UpdateHeartbeat 更新主机的心跳数据。
-func (a *hostStatusUpdaterAdapter) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64) error {
-	return a.hostService.UpdateHeartbeat(ctx, agentID, cpuUsage, memoryUsage, diskUsage)
+func (a *hostStatusUpdaterAdapter) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64, timezone string) error {
+	return a.hostService.UpdateHeartbeatWithTimezone(ctx, agentID, cpuUsage, memoryUsage, diskUsage, timezone)
 }
 
 // MarkHostOffline marks a host as offline by agent ID.

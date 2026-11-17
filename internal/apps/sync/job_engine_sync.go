@@ -127,7 +127,7 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 		}
 	}
 	if isFinalNormalizedJobStatus(instance.Status) {
-		if parsedFinishedAt := parseEngineJobTime(info.FinishedTime); parsedFinishedAt != nil {
+		if parsedFinishedAt := parseEngineJobTime(info.FinishedTime, instance.ClusterID); parsedFinishedAt != nil {
 			instance.FinishedAt = parsedFinishedAt
 		} else if instance.FinishedAt == nil {
 			now := time.Now().UTC()

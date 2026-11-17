@@ -316,7 +316,9 @@ type HostStatusUpdater interface {
 
 	// UpdateHeartbeat updates the heartbeat data for a host.
 	// UpdateHeartbeat 更新主机的心跳数据。
-	UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64) error
+	// timezone 是 Agent 上报的主机 IANA 时区，可为空。
+	// timezone is the Agent-reported host IANA zone and may be empty.
+	UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64, timezone string) error
 
 	// MarkHostOffline marks a host as offline by agent ID.
 	// MarkHostOffline 根据 Agent ID 将主机标记为离线。
@@ -646,6 +648,7 @@ func (m *Manager) HandleHeartbeat(ctx context.Context, req *pb.HeartbeatRequest)
 			req.ResourceUsage.CpuUsage,
 			req.ResourceUsage.MemoryUsage,
 			req.ResourceUsage.DiskUsage,
+			req.GetTimezone(),
 		)
 		if err != nil {
 			// Log error but don't fail heartbeat

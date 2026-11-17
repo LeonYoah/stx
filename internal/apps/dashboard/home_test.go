@@ -45,7 +45,7 @@ type fakeHomeMonitoring struct {
 	alertErr    error
 }
 
-func (f *fakeHomeMonitoring) GetClustersHealth(context.Context) (*monitoring.ClusterHealthData, error) {
+func (f *fakeHomeMonitoring) GetClustersHealthFor(context.Context, uint) (*monitoring.ClusterHealthData, error) {
 	return f.health, nil
 }
 

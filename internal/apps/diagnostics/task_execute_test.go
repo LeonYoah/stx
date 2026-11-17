@@ -484,7 +484,7 @@ func TestExtractDiagnosticLogWindowContent_filtersByTimeWindow(t *testing.T) {
 		"[] 2026-03-15 10:07:00,000 ERROR [x] [main] - after",
 	}, "\n")
 
-	got, matchedWindow, sawTimestamp := extractDiagnosticLogWindowContent([]string{content}, start, end)
+	got, matchedWindow, sawTimestamp := extractDiagnosticLogWindowContent([]string{content}, start, end, timex.SeatunnelLocation())
 	if !matchedWindow || !sawTimestamp {
 		t.Fatalf("expected matchedWindow and sawTimestamp to be true, got matched=%v sawTimestamp=%v", matchedWindow, sawTimestamp)
 	}

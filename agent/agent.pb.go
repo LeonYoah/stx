@@ -937,6 +937,7 @@ type HeartbeatRequest struct {
 	Timestamp     int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                             // 时间戳 (Unix 毫秒)
 	ResourceUsage *ResourceUsage         `protobuf:"bytes,3,opt,name=resource_usage,json=resourceUsage,proto3" json:"resource_usage,omitempty"` // 资源使用情况
 	Processes     []*ProcessStatus       `protobuf:"bytes,4,rep,name=processes,proto3" json:"processes,omitempty"`                              // 进程状态列表
+	Timezone      string                 `protobuf:"bytes,5,opt,name=timezone,proto3" json:"timezone,omitempty"`                                // Agent 主机 IANA 时区（与 JVM 同机，供解析引擎无偏移时间）/ Agent host IANA timezone (same host as the JVM; used to parse naive engine times)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -997,6 +998,13 @@ func (x *HeartbeatRequest) GetProcesses() []*ProcessStatus {
 		return x.Processes
 	}
 	return nil
+}
+
+func (x *HeartbeatRequest) GetTimezone() string {
+	if x != nil {
+		return x.Timezone
+	}
+	return ""
 }
 
 // ResourceUsage - 资源使用情况
@@ -3109,12 +3117,13 @@ const file_agent_agent_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd6\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf2\x01\n" +
 	"\x10HeartbeatRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12H\n" +
 	"\x0eresource_usage\x18\x03 \x01(\v2!.seatunnel.agent.v1.ResourceUsageR\rresourceUsage\x12?\n" +
-	"\tprocesses\x18\x04 \x03(\v2!.seatunnel.agent.v1.ProcessStatusR\tprocesses\"\xc0\x01\n" +
+	"\tprocesses\x18\x04 \x03(\v2!.seatunnel.agent.v1.ProcessStatusR\tprocesses\x12\x1a\n" +
+	"\btimezone\x18\x05 \x01(\tR\btimezone\"\xc0\x01\n" +
 	"\rResourceUsage\x12\x1b\n" +
 	"\tcpu_usage\x18\x01 \x01(\x01R\bcpuUsage\x12!\n" +
 	"\fmemory_usage\x18\x02 \x01(\x01R\vmemoryUsage\x12\x1d\n" +

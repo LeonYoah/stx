@@ -64,11 +64,13 @@ SEEDED_CHANNEL=false
 SEEDED_FOLDER=false
 SEEDED_LEGACY_ALERT=false
 SEEDED_LEGACY_ROUTE=false
+SEEDED_CATCHALL_ROUTE=false
 SEEDED_LEGACY_POLICY=false
 ALERT_NAME="ci_legacy_alert"
 CHANNEL_NAME="ci-upgrade-channel"
 FOLDER_NAME="ci-upgrade-folder"
 ROUTE_NAME="ci-upgrade-route"
+ROUTE_ALL_NAME="ci-upgrade-route-all"
 POLICY_NAME="ci-upgrade-policy"
 
 while [[ $# -gt 0 ]]; do
@@ -114,14 +116,20 @@ http_request() {
 }
 
 # http_status <method> <path>：只取状态码（允许失败），用于能力探测。
+# 注意不能带 -f：-f 让 4xx 返回非零但 -w 仍打印真实码，|| echo 000 会再追加一段，
+# 把 404 变成 "404000"。
 # http_status <method> <path>: probe-only variant returning the HTTP status code.
+# Do NOT use -f here: it makes 4xx fail while -w still prints the real code, and a
+# trailing `|| echo 000` would append, turning 404 into "404000".
 http_status() {
   local method="$1" path="$2" payload="${3:-}"
-  local args=(-fsS -o /dev/null -w '%{http_code}' -X "$method" -b "$COOKIE_JAR" -c "$COOKIE_JAR")
+  local args=(-sS -o /dev/null -w '%{http_code}' -X "$method" -b "$COOKIE_JAR" -c "$COOKIE_JAR")
   if [[ -n "$payload" ]]; then
     args+=(-H 'Content-Type: application/json' -d "$payload")
   fi
-  curl "${args[@]}" "${API_BASE}${path}" 2>/dev/null || echo "000"
+  local code
+  code="$(curl "${args[@]}" "${API_BASE}${path}" 2>/dev/null || true)"
+  echo "${code:-000}"
 }
 
 collect() {
@@ -354,6 +362,22 @@ seed_data() {
     else
       notice "FROM rejected legacy source_type route; invalid_reason route assert skipped"
     fi
+
+    # 兜底路由：source_type 为空匹配全部告警，同样指向接收端。旧路由升级后失效，
+    # 若遗留告警迁移误发恢复通知，没有它就到不了 sink，"no resolved notification"
+    # 断言就会空转；有了它误发通知才会被真正记录。
+    # Catch-all route: an empty source_type matches every alert into the same sink. The
+    # legacy route is dead after upgrade, so without it a wrongly sent resolved
+    # notification never reaches the sink and "no resolved notification" vacuously passes.
+    if [[ -n "$channel_id" ]] && http_request POST "/monitoring/notification-routes" -d "$(jq -nc \
+        --arg name "$ROUTE_ALL_NAME" --argjson ch "$channel_id" \
+        '{name:$name,enabled:true,source_type:"",channel_id:$ch,send_resolved:true}')" \
+        | jq -e '.data.id' >/dev/null; then
+      SEEDED_CATCHALL_ROUTE=true
+      log "catch-all route seeded (id via list)"
+    else
+      notice "FROM rejected catch-all route; resolved-notification assert may be vacuous"
+    fi
   fi
 
   # 旧巡检策略：FROM 接受 PROM_CPU_HIGH 条件码时植入。
@@ -388,10 +412,11 @@ SEEDED_CHANNEL=$SEEDED_CHANNEL
 SEEDED_FOLDER=$SEEDED_FOLDER
 SEEDED_LEGACY_ALERT=$SEEDED_LEGACY_ALERT
 SEEDED_LEGACY_ROUTE=$SEEDED_LEGACY_ROUTE
+SEEDED_CATCHALL_ROUTE=$SEEDED_CATCHALL_ROUTE
 SEEDED_LEGACY_POLICY=$SEEDED_LEGACY_POLICY
 LEGACY_STACK=$LEGACY_STACK
 EOF
-  log "seed state: channel=$SEEDED_CHANNEL folder=$SEEDED_FOLDER alert=$SEEDED_LEGACY_ALERT route=$SEEDED_LEGACY_ROUTE policy=$SEEDED_LEGACY_POLICY stack=$LEGACY_STACK"
+  log "seed state: channel=$SEEDED_CHANNEL folder=$SEEDED_FOLDER alert=$SEEDED_LEGACY_ALERT route=$SEEDED_LEGACY_ROUTE catchall=$SEEDED_CATCHALL_ROUTE policy=$SEEDED_LEGACY_POLICY stack=$LEGACY_STACK"
 }
 
 # ── 5. 一键升级到 TARGET（用 FROM 自带的升级器） ─────────────────────────────
@@ -531,33 +556,51 @@ assert_legacy_alert() {
   [[ "$SEEDED_LEGACY_ALERT" == "true" ]] || { notice "legacy alert assertions skipped"; return 0; }
   log "assertions: legacy alerts"
 
-  # 植入的 firing 告警不应再出现在 firing 实例列表。
-  # The seeded firing alert must no longer show up in firing instances.
+  # 正向断言：植入的告警必须出现在 resolved 列表——只查 firing 列表没有它，若它根本没
+  # 出现在任何列表（字段名/过滤条件不对）断言同样会空转通过。
+  # Positive check first: the seeded alert must show up in the resolved list — asserting
+  # absence from firing alone vacuously passes when the alert is missing from every list
+  # (wrong field name or filter).
+  local resolved_count
+  resolved_count="$(http_request GET "/monitoring/alert-instances?status=resolved" | jq -r --arg n "$ALERT_NAME" '[.data.alerts[]? | select(.alert_name==$n and .status=="resolved")] | length' 2>/dev/null || echo -1)"
+  assert_true "legacy alert resolved" [ "$resolved_count" -ge 1 ]
+
   local count
   count="$(http_request GET "/monitoring/alert-instances?status=firing" | jq -r --arg n "$ALERT_NAME" '[.data.alerts[]? | select(.alert_name==$n)] | length' 2>/dev/null || echo -1)"
   assert_true "legacy alert not firing" [ "$count" = "0" ]
 
-  # 渠道接收端不能收到 resolved 通知（收尾不发送恢复通知）。
+  # 渠道接收端不能收到 resolved 通知（收尾不发送恢复通知）。只有兜底路由植入成功
+  # 这条断言才有意义：匹配全告警的路由若收到恢复通知一定会写进 sink。
   # The webhook sink must not have received a resolved notification (cleanup sends none).
-  assert_true "no resolved notification" bash -c "! grep -qi 'resolved' '$SINK_LOG' 2>/dev/null || ! grep -qi '$ALERT_NAME' '$SINK_LOG'"
+  # This only proves something once the catch-all route exists: an all-alert route would
+  # deliver a wrongly sent resolved event into the sink.
+  if [[ "$SEEDED_CATCHALL_ROUTE" == "true" ]]; then
+    assert_true "no resolved notification" bash -c "! grep -qi 'resolved' '$SINK_LOG' 2>/dev/null || ! grep -qi '$ALERT_NAME' '$SINK_LOG'"
+  else
+    notice "catch-all route not seeded; resolved-notification assert skipped"
+  fi
 }
 
 assert_invalid_configs() {
   log "assertions: invalid config surfacing"
 
   if [[ "$SEEDED_LEGACY_ROUTE" == "true" ]]; then
-    local reason
+    local reason detail
     reason="$(http_request GET "/monitoring/notification-routes" | jq -r --arg n "$ROUTE_NAME" '[.data.routes[]? | select(.name==$n)][0].invalid_reason // empty' 2>/dev/null || true)"
-    assert_true "route invalid_reason" [ -n "$reason" ]
+    detail="$(http_request GET "/monitoring/notification-routes" | jq -r --arg n "$ROUTE_NAME" '[.data.routes[]? | select(.name==$n)][0].invalid_detail // empty' 2>/dev/null || true)"
+    assert_true "route invalid_reason=legacy_source_type" [ "$reason" = "legacy_source_type" ]
+    assert_true "route invalid_detail=remote_alertmanager" [ "$detail" = "remote_alertmanager" ]
     assert_true "route WARN in log" bash -c "sudo -n grep -qi '通知路由.*失效\|notification route.*invalid\|invalid.*notification route' '$INSTALL_DIR/logs/backend.log' 2>/dev/null"
   else
     notice "route invalid_reason assertions skipped"
   fi
 
   if [[ "$SEEDED_LEGACY_POLICY" == "true" ]]; then
-    local reason
+    local reason detail
     reason="$(http_request GET "/diagnostics/auto-policies" | jq -r --arg n "$POLICY_NAME" '[.data.items[]? | select(.name==$n)][0].invalid_reason // empty' 2>/dev/null || true)"
-    assert_true "policy invalid_reason" [ -n "$reason" ]
+    detail="$(http_request GET "/diagnostics/auto-policies" | jq -r --arg n "$POLICY_NAME" '[.data.items[]? | select(.name==$n)][0].invalid_detail // empty' 2>/dev/null || true)"
+    assert_true "policy invalid_reason=legacy_condition_code" [ "$reason" = "legacy_condition_code" ]
+    assert_true "policy invalid_detail=PROM_CPU_HIGH" [ "$detail" = "PROM_CPU_HIGH" ]
     assert_true "policy WARN in log" bash -c "sudo -n grep -qi '巡检.*失效\|auto.*polic.*invalid\|invalid.*auto.*polic' '$INSTALL_DIR/logs/backend.log' 2>/dev/null"
   else
     notice "policy invalid_reason assertions skipped"

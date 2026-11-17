@@ -74,17 +74,22 @@ var (
 //
 // 旧升级器不替换 bin/，机器重启或旧服务 restart 后旧 start.sh 仍会把三件套拉起来；
 // 新二进制启动后先修布局，再在窗口内轮询 pid 文件逐个收尾：读 pid 后用 /proc/<pid>/exe
-// （退化到 /proc/<pid>/cmdline）核对进程名，名不符（pid 被复用）只删掉 pid 文件、绝不发信号；
-// 名符合先 SIGTERM，等待最多 termGrace 后 SIGKILL，再删 pid 文件。observability/ 数据目录保留。
+// （退化到 /proc/<pid>/cmdline）核对进程名；名不符时绝不发信号，也不删 pid 文件——
+// 旧脚本 setsid X & 在 fork 到 exec 之间 exe 会短暂是 bash/setsid，下一轮 exec 完成后
+// 名字才能对上，所以名字不符一律留到下一轮重核，直到窗口结束（pid 真被复用时最多
+// 多等一个窗口，代价是保留一个无效 pid 文件，不会误伤进程）。名符合先 SIGTERM，
+// 等待最多 termGrace 后 SIGKILL，再删 pid 文件。observability/ 数据目录保留。
 //
 // ReapLegacyObservability stops the legacy monitoring trio by pid file within a startup window.
 //
 // The old upgrader never replaces bin/, so after a reboot or an old-unit restart the legacy
 // start.sh keeps the trio running; the new binary heals the layout first, then sweeps the pid
-// files: verify the process name via /proc/<pid>/exe (falling back to /proc/<pid>/cmdline), and
-// on a name mismatch (a reused pid) only remove the pid file — never signal. On a match send
-// SIGTERM, wait up to termGrace, then SIGKILL and remove the pid file. The observability/
-// data directory is kept.
+// files: verify the process name via /proc/<pid>/exe (falling back to /proc/<pid>/cmdline) and
+// never signal on a mismatch — the legacy `setsid X &` keeps bash/setsid as exe for the brief
+// fork->exec window, so a mismatching name is retried on the next sweep until the window ends
+// (a genuinely reused pid costs one extra window and a stale pid file, never a wrong signal).
+// On a match send SIGTERM, wait up to termGrace, then SIGKILL and remove the pid file.
+// The observability/ data directory is kept.
 func ReapLegacyObservability(ctx context.Context, installDir string, window, interval time.Duration) {
 	if window <= 0 {
 		return
@@ -117,10 +122,11 @@ func ReapLegacyObservability(ctx context.Context, installDir string, window, int
 	}
 }
 
-// reapOnce 处理一个 pid 文件；返回 true 表示该项收尾结束（已杀、无进程或 pid 复用已清文件），
-// false 表示 pid 文件不存在、下一轮继续等。
-// reapOnce handles one pid file; true means this leg is finished (killed, no process, or a
-// reused pid cleared), false means the pid file is absent and the next sweep keeps waiting.
+// reapOnce 处理一个 pid 文件；返回 true 表示该项收尾结束（已杀、进程不存在或 pid 文件非法已清），
+// false 表示尚未完成、下一轮继续（pid 文件缺失、进程身份读不出或进程名暂不符）。
+// reapOnce handles one pid file; true means this leg is finished (killed, no process, or an
+// invalid pid file removed), false means keep polling (pid file absent, identity unreadable,
+// or the name does not match yet).
 func reapOnce(installDir string, proc legacyProc) bool {
 	pidPath := filepath.Join(installDir, proc.pidFile)
 	raw, err := os.ReadFile(pidPath)
@@ -145,10 +151,14 @@ func reapOnce(installDir string, proc legacyProc) bool {
 		return false
 	}
 	if !nameAllowed(name, proc.names) {
-		reapLogf("WARN", "%s 里的 pid=%d 实际是 %s，不是旧三件套进程，仅删除 pid 文件（pid 复用）/ %s holds pid=%d which is %s, not a legacy trio process; removing the pid file only (pid reuse)",
+		// 名不符不发信号、不删文件、不标记完成：可能只是 setsid fork→exec 窗口里 exe
+		// 仍是 bash，下一轮 exec 完就能对上；pid 真被复用时也只是多等一个窗口。
+		// On a name mismatch: no signal, no pid-file removal, not done — the setsid
+		// fork->exec window may still show bash as exe and the next sweep can match;
+		// a truly reused pid only costs the remaining window.
+		reapLogf("WARN", "%s 里的 pid=%d 实际是 %s（可能 pid 复用或进程尚未 exec），不发信号、下轮重核 / %s holds pid=%d which is %s (pid reuse or pre-exec); not signaling, rechecking next sweep",
 			proc.pidFile, pid, name, proc.pidFile, pid, name)
-		removePidFile(pidPath, "pid 复用")
-		return true
+		return false
 	}
 
 	if err := signalProc(pid, syscall.SIGTERM); err != nil {

@@ -32,54 +32,55 @@ func TestInspectionAutoPolicyInvalidReason(t *testing.T) {
 	cases := []struct {
 		name       string
 		conditions InspectionConditionItems
-		wantValid  bool
-		wantSubstr string
+		wantReason string
+		wantDetail string
 	}{
 		{
-			name:      "no conditions",
-			wantValid: true,
+			name: "no conditions",
 		},
 		{
 			name: "legacy PROM template",
 			conditions: InspectionConditionItems{
 				{TemplateCode: "PROM_CPU_HIGH", Enabled: true},
 			},
-			wantSubstr: "PROM_CPU_HIGH",
+			wantReason: AutoPolicyInvalidLegacyCondition,
+			wantDetail: "PROM_CPU_HIGH",
 		},
 		{
 			name: "legacy NODE_UNHEALTHY",
 			conditions: InspectionConditionItems{
 				{TemplateCode: "NODE_UNHEALTHY", Enabled: true},
 			},
-			wantSubstr: "NODE_UNHEALTHY",
+			wantReason: AutoPolicyInvalidLegacyCondition,
+			wantDetail: "NODE_UNHEALTHY",
 		},
 		{
 			name: "ALERT_FIRING without rule keys",
 			conditions: InspectionConditionItems{
 				{TemplateCode: ConditionCodeAlertFiring, Enabled: true},
 			},
-			wantSubstr: "ALERT_FIRING",
+			wantReason: AutoPolicyInvalidAlertFiringNoRules,
+			wantDetail: "ALERT_FIRING",
 		},
 		{
 			name: "ALERT_FIRING blank rule keys",
 			conditions: InspectionConditionItems{
 				{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{" ", ""}},
 			},
-			wantSubstr: "ALERT_FIRING",
+			wantReason: AutoPolicyInvalidAlertFiringNoRules,
+			wantDetail: "ALERT_FIRING",
 		},
 		{
 			name: "ALERT_FIRING with rule keys",
 			conditions: InspectionConditionItems{
 				{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline"}},
 			},
-			wantValid: true,
 		},
 		{
 			name: "scheduled only",
 			conditions: InspectionConditionItems{
 				{TemplateCode: ConditionCodeScheduled, Enabled: true},
 			},
-			wantValid: true,
 		},
 		{
 			name: "valid plus invalid mix",
@@ -87,19 +88,15 @@ func TestInspectionAutoPolicyInvalidReason(t *testing.T) {
 				{TemplateCode: ConditionCodeScheduled, Enabled: true},
 				{TemplateCode: "PROM_MEM_HIGH", Enabled: true},
 			},
-			wantSubstr: "PROM_MEM_HIGH",
+			wantReason: AutoPolicyInvalidLegacyCondition,
+			wantDetail: "PROM_MEM_HIGH",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			policy := &InspectionAutoPolicy{ID: 1, Name: "p", Conditions: tc.conditions}
-			reason := policy.InvalidReason()
-			if tc.wantValid {
-				require.Empty(t, reason)
-			} else {
-				require.NotEmpty(t, reason)
-				require.Contains(t, reason, tc.wantSubstr)
-			}
+			require.Equal(t, tc.wantReason, policy.InvalidReason())
+			require.Equal(t, tc.wantDetail, policy.InvalidDetail())
 		})
 	}
 }
@@ -114,8 +111,8 @@ func TestToInfoCarriesInvalidReason(t *testing.T) {
 	}
 	info := policy.ToInfo()
 	require.NotNil(t, info)
-	require.NotEmpty(t, info.InvalidReason)
-	require.Contains(t, info.InvalidReason, "PROM_CPU_HIGH")
+	require.Equal(t, AutoPolicyInvalidLegacyCondition, info.InvalidReason)
+	require.Equal(t, "PROM_CPU_HIGH", info.InvalidDetail)
 
 	valid := &InspectionAutoPolicy{
 		ID:         4,
@@ -125,4 +122,5 @@ func TestToInfoCarriesInvalidReason(t *testing.T) {
 	info = valid.ToInfo()
 	require.NotNil(t, info)
 	require.Empty(t, info.InvalidReason)
+	require.Empty(t, info.InvalidDetail)
 }

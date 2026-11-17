@@ -540,12 +540,14 @@ export interface InspectionAutoPolicy {
   task_options: DiagnosticsTaskOptions;
   /**
    * 非空表示策略带已失效条件（旧 PROM_* / NODE_UNHEALTHY 模板或未选规则的 ALERT_FIRING），
-   * 在内置监控下不会触发；后端中英双语原因，直接展示。
+   * 在内置监控下不会触发；取值是稳定原因码，界面按 i18n 翻译展示。
    * Non-empty when the policy carries a dead condition (retired PROM_* / NODE_UNHEALTHY
    * templates or ALERT_FIRING without rule keys) that never fires under the embedded monitor;
-   * the backend ships a bilingual reason to display verbatim.
+   * the value is a stable reason code rendered through i18n.
    */
   invalid_reason: string;
+  /** 失效的具体取值（旧条件模板码等），翻译文案插值用 / Offending value for i18n interpolation. */
+  invalid_detail?: string;
   created_at: string;
   updated_at: string;
 }

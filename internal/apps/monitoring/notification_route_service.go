@@ -383,9 +383,21 @@ func toNotificationRouteDTO(route *NotificationRoute) *NotificationRouteDTO {
 		MuteIfAcknowledged: route.MuteIfAcknowledged,
 		MuteIfSilenced:     route.MuteIfSilenced,
 		InvalidReason:      NotificationRouteInvalidReason(route.SourceType),
+		// 失效时把旧 source_type 透出给前端插值展示。
+		// Surface the legacy source_type for frontend interpolation when invalid.
+		InvalidDetail: notificationRouteInvalidDetail(route.SourceType),
 		CreatedAt:          route.CreatedAt,
 		UpdatedAt:          route.UpdatedAt,
 	}
+}
+
+// notificationRouteInvalidDetail 返回路由失效时透出的 detail（旧 source_type 原值）。
+// notificationRouteInvalidDetail returns the detail surfaced for an invalid route (the legacy source_type verbatim).
+func notificationRouteInvalidDetail(sourceType string) string {
+	if NotificationRouteInvalidReason(sourceType) == "" {
+		return ""
+	}
+	return sourceType
 }
 
 // WarnOnInvalidNotificationRoutes 启动时扫描失效通知路由：每类失效配置至少一条 WARN，

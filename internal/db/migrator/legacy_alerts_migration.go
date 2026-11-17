@@ -20,9 +20,9 @@ package migrator
 import (
 	"fmt"
 	"log"
-	"time"
 
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 	"gorm.io/gorm"
 )
 
@@ -37,7 +37,9 @@ const LegacyRemoteAlertsMigrationName = "legacy_remote_alerts_resolved_v1"
 // 计入活跃告警，所以迁移把 generator_url 非空且状态未恢复的存量记录标记为 resolved，
 // 并写入 ends_at / resolved_at 收尾时间。不发送恢复通知、不产生投递记录。
 //
-// 并发安全：先在事务里占位写 stx_schema_flags 标记，后到的实例主键冲突回滚，不会重复执行。
+// 并发安全：先在事务里占位写 stx_schema_flags 标记；真有两个实例并发启动时，后到实例
+// 会因主键冲突整体回滚并把错误抛给调用方——当前 Migrate() 对迁移错误是 log.Fatalf，
+// 即后到实例直接退出（STX 单控制面部署，不会发生；语义宁可退出也不重复执行）。
 // 幂等：标记存在即跳过；重复 UPDATE 也只影响仍为未恢复的行。
 //
 // MigrateLegacyRemoteAlerts marks leftover unresolved remote alerts from the external
@@ -50,9 +52,11 @@ const LegacyRemoteAlertsMigrationName = "legacy_remote_alerts_resolved_v1"
 // stamps ends_at / resolved_at. No recovery notifications are sent and no delivery rows are
 // created.
 //
-// Concurrency-safe: the transaction claims the stx_schema_flags flag first, so a racing
-// instance fails on the primary key and rolls back before touching data. Idempotent: an
-// existing flag short-circuits the run.
+// Concurrency-safe: the transaction claims the stx_schema_flags flag first; if two instances
+// ever raced, the later one fails on the primary key, rolls back and returns the error — the
+// caller (Migrate) treats migration errors with log.Fatalf, i.e. the losing instance exits
+// (STX is a single control plane, so this never happens in practice; exiting beats running
+// the update twice). Idempotent: an existing flag short-circuits the run.
 func MigrateLegacyRemoteAlerts(database *gorm.DB) error {
 	if database == nil {
 		return fmt.Errorf("database is nil")
@@ -78,11 +82,15 @@ func MigrateLegacyRemoteAlerts(database *gorm.DB) error {
 		if err := tx.Create(&SchemaFlag{
 			Name:      LegacyRemoteAlertsMigrationName,
 			Detail:    "resolve unresolved remote alerts with non-empty generator_url",
-			AppliedAt: time.Now(),
+			AppliedAt: timex.Now(),
 		}).Error; err != nil {
 			return err
 		}
-		now := time.Now()
+		// 时间列统一 UTC（timex.Now），否则 SQLite 会按本地偏移写 +08:00 文本，
+		// 与其他行的 Z 后缀混排导致文本排序错位。
+		// Time columns are stored in UTC (timex.Now); otherwise SQLite would write a
+		// local-offset +08:00 text that mis-sorts against the Z-suffixed rows.
+		now := timex.Now()
 		res := tx.Model(&monitoringapp.RemoteAlertRecord{}).
 			Where("generator_url <> ''").
 			Where("LOWER(status) <> ?", "resolved").

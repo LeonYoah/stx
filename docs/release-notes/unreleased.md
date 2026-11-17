@@ -54,9 +54,12 @@ limitations under the License.
   `ANY /monitoring/proxy/grafana/*proxyPath`。Removed APIs: the two Prometheus discovery
   endpoints, the Alertmanager webhook, and both Grafana proxy routes.
 - 安装脚本删除参数 `--with-observability`、`--prometheus-port`、`--alertmanager-port`、
-  `--grafana-port`（脚本仍兼容旧 systemd 单元传入但忽略）。Installer flags removed:
-  `--with-observability`, `--prometheus-port`, `--alertmanager-port`, `--grafana-port`
-  (still accepted-but-ignored for old systemd units).
+  `--grafana-port`：`install.sh` 收到会直接报 `unknown option` 退出，请从安装命令里移除；
+  仅 `bin/start.sh` / `bin/stop.sh` 还兼容忽略旧 systemd 单元传入的 `--observability`。
+  Installer flags removed: `--with-observability`, `--prometheus-port`,
+  `--alertmanager-port`, `--grafana-port` — `install.sh` exits with `unknown option` when
+  given them, so remove them from install commands; only `bin/start.sh` / `bin/stop.sh`
+  still accept-and-ignore `--observability` passed by old systemd units.
 - Webhook 通知负载中的 `source_type` 取值随告警类别变化（`platform_health` / `metric` / `job`）。
   The `source_type` value in webhook notification payloads follows the new alert categories.
 - 引擎时间回退时区改为控制面机器时区（见升级须知）。Engine time fallback now uses the

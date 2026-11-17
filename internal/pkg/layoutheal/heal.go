@@ -158,13 +158,17 @@ func DetectInstallDir(o Options) string {
 }
 
 // Heal 在安装目录布局下用内嵌脚本覆盖 bin/ 并移走旧三件套脚本；不满足条件时直接返回空 Result。
+// 只在 start.sh 仍 source lib/observability.sh（即仍是 v1.4.0 旧布局）时执行替换，避免把
+// 管理员对已是新版脚本的定制在每次重启时静默还原；跳过替换时仍返回 InstallDir 供收尾进程使用。
 // 每个脚本先对比内容，不同才「改名备份 → 写临时文件 → chmod 0755 → 原子 rename」；任何一步失败
 // 只记 WARN 继续，不阻止服务启动，也不回滚已替换的文件。没有任何变化时不打日志。
 // Heal refreshes bin/ from the embedded scripts and moves the legacy trio script away under an
-// install layout; it returns an empty Result when the gates do not hold. Each script is compared
-// first and only rewritten via "backup rename -> temp file -> chmod 0755 -> atomic rename" when it
-// differs; any step failure logs a WARN and continues without blocking startup or rolling back.
-// Nothing is logged when nothing changed.
+// install layout; it returns an empty Result when the gates do not hold. The replacement only runs
+// while start.sh still sources lib/observability.sh (the v1.4.0 legacy layout), so admin edits to
+// an already-new script are never silently reverted on restart; InstallDir is still returned for
+// the reaper. Each script is compared first and only rewritten via "backup rename -> temp file ->
+// chmod 0755 -> atomic rename" when it differs; any step failure logs a WARN and continues without
+// blocking startup or rolling back. Nothing is logged when nothing changed.
 func Heal(_ context.Context, opts Options) (Result, error) {
 	o := opts.withDefaults()
 	var res Result
@@ -174,6 +178,20 @@ func Heal(_ context.Context, opts Options) (Result, error) {
 	}
 	res.InstallDir = dir
 	binDir := filepath.Join(dir, "bin")
+
+	// 只在仍是旧布局时替换脚本：v1.4.0 的 start.sh 会 source lib/observability.sh，
+	// 新脚本不再引用它。start.sh 已无此引用说明布局已修复（或被管理员手工改过），
+	// 继续每次覆盖会把用户的定制静默还原，因此直接跳过替换，只把 InstallDir 留给
+	// 收尾进程用。
+	// Only rewrite while the layout is still legacy: v1.4.0's start.sh sources
+	// lib/observability.sh and the new scripts never reference it. A start.sh without
+	// that reference means the layout is already healed (or hand-edited by the admin);
+	// overwriting on every startup would silently revert customizations, so skip the
+	// replacement and only hand InstallDir to the reaper.
+	startRaw, err := os.ReadFile(filepath.Join(binDir, "start.sh"))
+	if err != nil || !strings.Contains(string(startRaw), observabilityScript) {
+		return res, nil
+	}
 
 	for _, name := range binScriptNames {
 		content, err := fs.ReadFile(o.ScriptsFS, "bin/"+name)

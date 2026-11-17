@@ -31,6 +31,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # 尽早失败：正式版 tag 缺人工发布说明时不等打包和升级门禁跑完就红；
+  # 同时卡住镜像推送，避免「Release 没发但 latest 镜像已经推上去」的半发布状态。
+  # Fail fast: a stable tag without hand-written notes goes red before packaging and the
+  # upgrade gate spend minutes; it also gates image pushes so we never end up with images
+  # published but no GitHub Release.
+  release-notes-gate:
+    name: Release notes gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/release-notes
+          sparse-checkout-cone-mode: false
+
+      - name: Require release notes for stable tags
+        run: |
+          tag="${{ github.ref_name }}"
+          if [[ "$tag" == *-* ]]; then
+            echo "pre-release tag $tag: release notes optional"
+          else
+            notes="docs/release-notes/${tag}.md"
+            if [[ ! -f "$notes" ]]; then
+              echo "::error::stable tag ${tag} requires ${notes} — rename docs/release-notes/unreleased.md to ${notes} and fill it in"
+              exit 1
+            fi
+          fi
+
   package-release:
     name: Package split release assets
     runs-on: ubuntu-latest
@@ -162,9 +190,11 @@ jobs:
   publish-github-release:
     name: Publish GitHub Release Assets
     runs-on: ubuntu-latest
-    # 基础资产不等离线包：任一离线包变体失败都不影响二进制 / 前端 / 脚本发布。
-    # Base assets do not wait for offline bundles, so a failed bundle variant never blocks them.
-    needs: [package-release, upgrade-gate]
+    # 基础资产不等离线包：任一离线包变体失败都不影响二进制 / 前端 / 脚本发布；
+    # release-notes-gate 已在前置独立 job 检查过，这里再校验一次只是为了产出 body_path。
+    # Base assets do not wait for offline bundles, so a failed bundle variant never blocks them;
+    # the notes gate already ran as its own job — the step below only re-checks to emit body_path.
+    needs: [package-release, upgrade-gate, release-notes-gate]
 
     steps:
       - name: Download package artifacts
@@ -284,7 +314,11 @@ jobs:
   build-container-images-native:
     name: Build ${{ matrix.image_name }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    needs: package-release
+    # 镜像推送（含 latest 标签）必须等升级门禁与发布说明门禁通过，否则门禁失败时
+    # 镜像已经推出去而 GitHub Release 没有发，形成半发布状态。
+    # Image pushes (including the latest tag) must wait for the upgrade and notes gates —
+    # otherwise a failed gate would leave images published with no GitHub Release.
+    needs: [package-release, upgrade-gate, release-notes-gate]
     strategy:
       fail-fast: false
       matrix:

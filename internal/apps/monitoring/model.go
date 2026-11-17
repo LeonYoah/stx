@@ -1062,20 +1062,37 @@ type NotificationRouteDTO struct {
 	MuteIfSilenced     bool   `json:"mute_if_silenced"`
 	// InvalidReason 非空表示该路由带的是 #146 之前的旧告警类别，在当前内置监控语义下
 	// 永远不会命中，需要编辑重新选择；存量数据不自动改写，只显式提示。
+	// 取值是稳定的原因码（见 NotificationRouteInvalidReason*），由前端按 i18n 翻译展示。
 	// InvalidReason is non-empty when the route carries a pre-#146 alert category that can
 	// never match under the embedded monitor; stored rows are not rewritten, only surfaced.
-	InvalidReason string    `json:"invalid_reason"`
+	// The value is a stable reason code (see NotificationRouteInvalidReason*) that the
+	// frontend translates through i18n.
+	InvalidReason string `json:"invalid_reason"`
+	// InvalidDetail 携带失效的具体取值（这里是旧 source_type），供界面翻译时插值展示。
+	// InvalidDetail carries the offending value (the legacy source_type here) so the UI
+	// can interpolate it into the translated message.
+	InvalidDetail string    `json:"invalid_detail,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
-// NotificationRouteInvalidReason 返回存量通知路由的失效原因（空串表示有效）。
+// NotificationRouteInvalidReasonLegacySourceType 是通知路由失效原因码：路由绑定的
+// source_type 属于旧告警类别（local_process_event / remote_alertmanager / sync 等），
+// 在 #146 之后的新类别语义下永远不会命中。
+// NotificationRouteInvalidReasonLegacySourceType is the invalid-reason code for routes
+// whose source_type is a retired alert category (local_process_event / remote_alertmanager /
+// sync etc.) that never matches under the post-#146 category semantics.
+const NotificationRouteInvalidReasonLegacySourceType = "legacy_source_type"
+
+// NotificationRouteInvalidReason 返回存量通知路由的失效原因码（空串表示有效）。
 // 判定独立于写入校验：旧版本允许 local_process_event / remote_alertmanager / sync，
-// 这些取值在 #146 的新告警类别语义下不匹配任何告警。
-// NotificationRouteInvalidReason returns the invalid reason for a stored route ("" when valid).
-// The check is deliberately separate from write validation: older versions allowed
-// local_process_event / remote_alertmanager / sync, none of which matches any alert under
-// the post-#146 category semantics.
+// 这些取值在 #146 的新告警类别语义下不匹配任何告警。返回的是稳定原因码而不是整句文案，
+// 文案由前端按 i18n 渲染（invalid_detail 携带旧 source_type 供插值）。
+// NotificationRouteInvalidReason returns the invalid-reason code for a stored route ("" when
+// valid). The check is deliberately separate from write validation: older versions allowed
+// local_process_event / remote_alertmanager / sync, none of which matches any alert under the
+// post-#146 category semantics. It returns a stable code rather than a full sentence; the UI
+// renders the message via i18n (invalid_detail carries the legacy source_type).
 func NotificationRouteInvalidReason(sourceType string) string {
 	sourceType = strings.TrimSpace(sourceType)
 	if sourceType == "" {
@@ -1085,7 +1102,7 @@ func NotificationRouteInvalidReason(sourceType string) string {
 	case AlertSourceTypePlatformHealth, AlertSourceTypeMetric, AlertSourceTypeJob:
 		return ""
 	}
-	return fmt.Sprintf("告警类别 %q 已失效：当前只接受 platform_health / metric / job，请编辑路由重新选择 / alert category %q is no longer supported: only platform_health / metric / job are accepted; edit the route and re-select", sourceType, sourceType)
+	return NotificationRouteInvalidReasonLegacySourceType
 }
 
 // NotificationRouteListData represents notification route list payload.

@@ -30,8 +30,7 @@ import (
 func TestNotificationRouteInvalidReason(t *testing.T) {
 	for _, legacy := range []string{"local_process_event", "remote_alertmanager", "sync", "custom_promql"} {
 		reason := NotificationRouteInvalidReason(legacy)
-		require.NotEmpty(t, reason, "expected %q to be invalid", legacy)
-		require.Contains(t, reason, legacy)
+		require.Equal(t, NotificationRouteInvalidReasonLegacySourceType, reason, "expected %q to be invalid", legacy)
 	}
 	for _, valid := range []string{"", "platform_health", "metric", "job"} {
 		require.Empty(t, NotificationRouteInvalidReason(valid), "expected %q to be valid", valid)
@@ -44,9 +43,11 @@ func TestToNotificationRouteDTOInvalidReason(t *testing.T) {
 	legacy := &NotificationRoute{ID: 7, Name: "legacy", Enabled: true, SourceType: "remote_alertmanager", ChannelID: 1}
 	dto := toNotificationRouteDTO(legacy)
 	require.Equal(t, "remote_alertmanager", dto.SourceType)
-	require.NotEmpty(t, dto.InvalidReason)
+	require.Equal(t, NotificationRouteInvalidReasonLegacySourceType, dto.InvalidReason)
+	require.Equal(t, "remote_alertmanager", dto.InvalidDetail)
 
 	current := &NotificationRoute{ID: 8, Name: "current", Enabled: true, SourceType: "metric", ChannelID: 1}
 	dto = toNotificationRouteDTO(current)
 	require.Empty(t, dto.InvalidReason)
+	require.Empty(t, dto.InvalidDetail)
 }

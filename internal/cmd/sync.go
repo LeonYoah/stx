@@ -362,9 +362,11 @@ func newSyncTaskCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 }
 
 // applyPreviewCollectURL 在 definition 没写采集地址时，用当前 CLI 客户端的 server 补上。
-// 与 create 请求走同一套 namespace / STX_SERVER 解析，避免远端引擎把预览打到 127.0.0.1。
+// 必须用 prepareSecureWrite 已经解析好的 client.Server()，不能再读一遍 STX_SERVER 或写死 127.0.0.1：
+// create 没有 --server，STX_SERVER 未设时地址来自 namespace；二次回落会让远端 SeaTunnel 把预览打到自己的 localhost。
 // applyPreviewCollectURL fills the preview collector URL from the active CLI client server when definition omitted it.
-// It uses the same namespace / STX_SERVER resolution as the create request so a remote engine does not post to 127.0.0.1.
+// Use the same client.Server() already resolved by prepareSecureWrite; do not re-read STX_SERVER or invent loopback.
+// create has no --server flag, so an unset STX_SERVER still uses the saved namespace; a second fallback would make a remote engine post to its own localhost.
 func applyPreviewCollectURL(definition map[string]any, server string) {
 	if definition == nil {
 		return
@@ -377,18 +379,19 @@ func applyPreviewCollectURL(definition map[string]any, server string) {
 	if url, _ := sink["url"].(string); strings.TrimSpace(url) != "" {
 		return
 	}
-	sink["url"] = previewCollectURL(server)
+	collectURL := previewCollectURL(server)
+	if collectURL == "" {
+		return
+	}
+	sink["url"] = collectURL
 }
 
-// previewCollectURL 把 STX 服务地址拼成预览采集 URL。
-// previewCollectURL builds the preview collect URL from an STX server address.
+// previewCollectURL 把已解析的 STX 服务地址拼成预览采集 URL；空地址不编造 loopback。
+// previewCollectURL builds the preview collect URL from a resolved STX server; empty input does not invent loopback.
 func previewCollectURL(server string) string {
 	base := strings.TrimSpace(server)
 	if base == "" {
-		base = strings.TrimSpace(os.Getenv("STX_SERVER"))
-	}
-	if base == "" {
-		base = "http://127.0.0.1:17800"
+		return ""
 	}
 	return strings.TrimRight(base, "/") + "/api/v1/sync/preview/collect"
 }

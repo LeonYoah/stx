@@ -2100,6 +2100,8 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		monitoringReadOperation("monitoring.cluster.rule.list", []string{"monitoring", "cluster", "rule", "list"}, "List cluster alert rules", "/api/v1/monitoring/clusters/:id/rules", clusterID),
 		monitoringReadOperation("monitoring.integration.status", []string{"monitoring", "integration", "status"}, "Get monitoring integration status", "/api/v1/monitoring/integration/status", nil),
 		monitoringReadOperation("monitoring.alert-policy.bootstrap.get", []string{"monitoring", "alert-policy", "bootstrap", "get"}, "Get alert policy center bootstrap", "/api/v1/monitoring/alert-policies/bootstrap", nil),
+		monitoringReadOperation("monitoring.alert-rule.catalog", []string{"monitoring", "alert-rule", "catalog"}, "List alert rule catalog", "/api/v1/monitoring/alert-rules/catalog",
+			[]InputSpec{{Name: "lang", Location: InputQuery, Description: "Response language: zh or en"}}),
 		monitoringReadOperation("monitoring.notifiable-user.list", []string{"monitoring", "notifiable-user", "list"}, "List notifiable users", "/api/v1/monitoring/notifiable-users", nil),
 		monitoringReadOperation("monitoring.platform-health.get", []string{"monitoring", "platform-health", "get"}, "Get platform health", "/api/v1/monitoring/platform-health", nil),
 		monitoringReadOperation("monitoring.notification-channel.list", []string{"monitoring", "notification-channel", "list"}, "List notification channels", "/api/v1/monitoring/notification-channels", nil),

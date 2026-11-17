@@ -703,6 +703,7 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 			ClusterName:     strings.TrimSpace(row.ClusterName),
 			Severity:        AlertSeverity(strings.TrimSpace(row.Severity)),
 			AlertName:       strings.TrimSpace(row.AlertName),
+			RuleKey:         remoteRecordRuleKey(row),
 			Summary:         strings.TrimSpace(row.Summary),
 			Description:     strings.TrimSpace(row.Description),
 			Status:          displayStatus,
@@ -824,6 +825,14 @@ func buildLocalAlertSourceKey(eventID uint) string {
 
 func buildRemoteAlertSourceKey(fingerprint string, startsAt int64) string {
 	return fmt.Sprintf("remote:%s:%d", strings.TrimSpace(fingerprint), startsAt)
+}
+
+// remoteRecordRuleKey 从告警记录的 labels 里取出规则键（评估器写入的 template_key），
+// 解析失败或缺失时返回空串。
+// remoteRecordRuleKey extracts the rule key (the template_key the evaluator writes into
+// rule labels) from a stored alert record, returning "" when absent or unparsable.
+func remoteRecordRuleKey(record *RemoteAlertRecord) string {
+	return strings.TrimSpace(parseRemoteAlertLabels(record)["template_key"])
 }
 
 func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {

@@ -59,17 +59,18 @@ const (
 // syncAlertRuleMeta holds a rule's name and default severity; in phase one the severity is fixed.
 type syncAlertRuleMeta struct {
 	Name     string
+	NameEN   string
 	Severity AlertSeverity
 }
 
 var syncAlertRuleCatalog = map[string]syncAlertRuleMeta{
-	syncalert.RuleSubmitFailed:         {Name: "作业提交失败", Severity: AlertSeverityCritical},
-	syncalert.RuleSubmitTimeout:        {Name: "作业提交超时", Severity: AlertSeverityCritical},
-	syncalert.RuleJobFailed:            {Name: "作业运行失败", Severity: AlertSeverityCritical},
-	syncalert.RuleStopTimeout:          {Name: "作业停止超时", Severity: AlertSeverityWarning},
-	syncalert.RuleCDCDelayHigh:         {Name: "CDC 延迟过高", Severity: AlertSeverityWarning},
-	syncalert.RuleStatusUnavailable:    {Name: "作业状态获取失败", Severity: AlertSeverityWarning},
-	syncalert.RuleEventChannelDegraded: {Name: "事件通道降级", Severity: AlertSeverityWarning},
+	syncalert.RuleSubmitFailed:         {Name: "作业提交失败", NameEN: "Job submit failed", Severity: AlertSeverityCritical},
+	syncalert.RuleSubmitTimeout:        {Name: "作业提交超时", NameEN: "Job submit timed out", Severity: AlertSeverityCritical},
+	syncalert.RuleJobFailed:            {Name: "作业运行失败", NameEN: "Job run failed", Severity: AlertSeverityCritical},
+	syncalert.RuleStopTimeout:          {Name: "作业停止超时", NameEN: "Job stop timed out", Severity: AlertSeverityWarning},
+	syncalert.RuleCDCDelayHigh:         {Name: "CDC 延迟过高", NameEN: "CDC delay high", Severity: AlertSeverityWarning},
+	syncalert.RuleStatusUnavailable:    {Name: "作业状态获取失败", NameEN: "Job status unavailable", Severity: AlertSeverityWarning},
+	syncalert.RuleEventChannelDegraded: {Name: "事件通道降级", NameEN: "Event channel degraded", Severity: AlertSeverityWarning},
 }
 
 // syncAlertRuleName 返回规则名称，未知规则原样返回键。
@@ -77,6 +78,15 @@ var syncAlertRuleCatalog = map[string]syncAlertRuleMeta{
 func syncAlertRuleName(ruleKey string) string {
 	if meta, ok := syncAlertRuleCatalog[ruleKey]; ok {
 		return meta.Name
+	}
+	return ruleKey
+}
+
+// syncAlertRuleNameEN 返回规则的英文名，未知规则原样返回键。
+// syncAlertRuleNameEN returns the English rule name, or the key itself for unknown rules.
+func syncAlertRuleNameEN(ruleKey string) string {
+	if meta, ok := syncAlertRuleCatalog[ruleKey]; ok && strings.TrimSpace(meta.NameEN) != "" {
+		return meta.NameEN
 	}
 	return ruleKey
 }

@@ -597,7 +597,19 @@ export function AutoPolicyConfigPanel({
                             <Badge variant='secondary' className='text-[11px]'>
                               {getPolicyScopeLabel(policy.cluster_id)}
                             </Badge>
+                            {/* 失效徽标：旧条件（PROM_* / NODE_UNHEALTHY / 未选规则的 ALERT_FIRING）永不触发，升级后需要显式引导编辑 / Invalid badge: legacy conditions (PROM_* / NODE_UNHEALTHY / ALERT_FIRING without rule keys) never fire; guide the user to edit after upgrade */}
+                            {policy.invalid_reason && (
+                              <Badge variant='destructive' className='text-[11px]'>
+                                {t('invalidBadge')}
+                              </Badge>
+                            )}
                           </div>
+                          {/* 失效原因行：后端返回中英双语原因，原样展示，附带编辑引导 / Invalid reason line: the backend ships a bilingual reason shown verbatim, with an edit hint */}
+                          {policy.invalid_reason && (
+                            <p className='mt-1.5 text-[11px] leading-relaxed text-destructive'>
+                              {policy.invalid_reason}
+                            </p>
+                          )}
                         </div>
                         <Switch
                           checked={policy.enabled}

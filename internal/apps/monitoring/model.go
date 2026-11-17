@@ -1049,19 +1049,43 @@ const (
 // NotificationRouteDTO is frontend DTO for notification routes.
 // NotificationRouteDTO 是前端使用的通知路由 DTO。
 type NotificationRouteDTO struct {
-	ID                 uint      `json:"id"`
-	Name               string    `json:"name"`
-	Enabled            bool      `json:"enabled"`
-	SourceType         string    `json:"source_type,omitempty"`
-	ClusterID          string    `json:"cluster_id,omitempty"`
-	Severity           string    `json:"severity,omitempty"`
-	RuleKey            string    `json:"rule_key,omitempty"`
-	ChannelID          uint      `json:"channel_id"`
-	SendResolved       bool      `json:"send_resolved"`
-	MuteIfAcknowledged bool      `json:"mute_if_acknowledged"`
-	MuteIfSilenced     bool      `json:"mute_if_silenced"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	ID                 uint   `json:"id"`
+	Name               string `json:"name"`
+	Enabled            bool   `json:"enabled"`
+	SourceType         string `json:"source_type,omitempty"`
+	ClusterID          string `json:"cluster_id,omitempty"`
+	Severity           string `json:"severity,omitempty"`
+	RuleKey            string `json:"rule_key,omitempty"`
+	ChannelID          uint   `json:"channel_id"`
+	SendResolved       bool   `json:"send_resolved"`
+	MuteIfAcknowledged bool   `json:"mute_if_acknowledged"`
+	MuteIfSilenced     bool   `json:"mute_if_silenced"`
+	// InvalidReason 非空表示该路由带的是 #146 之前的旧告警类别，在当前内置监控语义下
+	// 永远不会命中，需要编辑重新选择；存量数据不自动改写，只显式提示。
+	// InvalidReason is non-empty when the route carries a pre-#146 alert category that can
+	// never match under the embedded monitor; stored rows are not rewritten, only surfaced.
+	InvalidReason string    `json:"invalid_reason"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// NotificationRouteInvalidReason 返回存量通知路由的失效原因（空串表示有效）。
+// 判定独立于写入校验：旧版本允许 local_process_event / remote_alertmanager / sync，
+// 这些取值在 #146 的新告警类别语义下不匹配任何告警。
+// NotificationRouteInvalidReason returns the invalid reason for a stored route ("" when valid).
+// The check is deliberately separate from write validation: older versions allowed
+// local_process_event / remote_alertmanager / sync, none of which matches any alert under
+// the post-#146 category semantics.
+func NotificationRouteInvalidReason(sourceType string) string {
+	sourceType = strings.TrimSpace(sourceType)
+	if sourceType == "" {
+		return ""
+	}
+	switch AlertSourceType(sourceType) {
+	case AlertSourceTypePlatformHealth, AlertSourceTypeMetric, AlertSourceTypeJob:
+		return ""
+	}
+	return fmt.Sprintf("告警类别 %q 已失效：当前只接受 platform_health / metric / job，请编辑路由重新选择 / alert category %q is no longer supported: only platform_health / metric / job are accepted; edit the route and re-select", sourceType, sourceType)
 }
 
 // NotificationRouteListData represents notification route list payload.

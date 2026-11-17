@@ -538,6 +538,14 @@ export interface InspectionAutoPolicy {
   auto_create_task: boolean;
   auto_start_task: boolean;
   task_options: DiagnosticsTaskOptions;
+  /**
+   * 非空表示策略带已失效条件（旧 PROM_* / NODE_UNHEALTHY 模板或未选规则的 ALERT_FIRING），
+   * 在内置监控下不会触发；后端中英双语原因，直接展示。
+   * Non-empty when the policy carries a dead condition (retired PROM_* / NODE_UNHEALTHY
+   * templates or ALERT_FIRING without rule keys) that never fires under the embedded monitor;
+   * the backend ships a bilingual reason to display verbatim.
+   */
+  invalid_reason: string;
   created_at: string;
   updated_at: string;
 }

@@ -424,6 +424,10 @@ func Serve() {
 			monitoringService := monitoringapp.NewService(clusterService, monitorService, monitoringRepo)
 			monitorService.SetOnEventRecorded(monitoringService.DispatchAlertPolicyEvent)
 			monitoringService.StartNodeHealthEvaluator(ctx)
+			// 升级兼容：旧告警类别的通知路由在新语义下永不命中，启动时扫出并 WARN。
+			// Upgrade compatibility: routes with legacy alert categories can never match under
+			// the new semantics; surface them with one WARN at startup.
+			monitoringService.WarnOnInvalidNotificationRoutes(ctx)
 			clusterHandler.SetOnOperationExecuted(func(ctx context.Context, event *cluster.OperationEvent) error {
 				if event == nil {
 					return nil
@@ -494,6 +498,10 @@ func Serve() {
 			diagnosticsService.SetExecutionService(executionService)
 			executionProviders.Register("diagnostics", diagnosticsService)
 			diagnosticsService.StartAutoPolicyRuntime(ctx)
+			// 升级兼容：旧 PROM_*/NODE_UNHEALTHY 条件的巡检策略不会触发，启动时扫出并 WARN。
+			// Upgrade compatibility: policies with legacy PROM_*/NODE_UNHEALTHY conditions never
+			// fire under the embedded monitor; surface them with one WARN at startup.
+			diagnosticsService.WarnOnInvalidAutoPolicies(ctx)
 			diagnosticsHandler := diagnostics.NewHandler(diagnosticsService)
 			diagnosticsHandler.SetAuditRepository(auditRepo)
 

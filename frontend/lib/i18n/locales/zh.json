@@ -4203,6 +4203,7 @@
       "scopeGlobal": "全局",
       "scopeCluster": "集群 #{id}",
       "conditionsSummary": "条件数：{count} | 冷却：{minutes} 分钟",
+      "invalidBadge": "已失效",
       "autoBundleSummary": "自动诊断包：{mode}",
       "autoBundleModeCreateAndStart": "自动创建并执行",
       "autoBundleModeCreateOnly": "自动创建，手动执行",

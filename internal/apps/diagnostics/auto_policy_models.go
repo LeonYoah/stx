@@ -20,6 +20,7 @@ package diagnostics
 import (
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -233,8 +234,42 @@ type InspectionAutoPolicyInfo struct {
 	AutoCreateTask  bool                     `json:"auto_create_task"`
 	AutoStartTask   bool                     `json:"auto_start_task"`
 	TaskOptions     DiagnosticTaskOptions    `json:"task_options"`
-	CreatedAt       time.Time                `json:"created_at"`
-	UpdatedAt       time.Time                `json:"updated_at"`
+	// InvalidReason 非空表示策略带了已失效的条件（旧 PROM_* / NODE_UNHEALTHY 模板或
+	// 未选规则的 ALERT_FIRING），在当前内置监控语义下不会触发；存量数据不自动改写，
+	// 只显式提示，引导编辑重选。
+	// InvalidReason is non-empty when the policy carries a dead condition (a retired PROM_* /
+	// NODE_UNHEALTHY template or an ALERT_FIRING condition without rule keys) that never fires
+	// under the embedded monitor; stored rows are not rewritten, only surfaced for editing.
+	InvalidReason string    `json:"invalid_reason"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// InvalidReason 返回策略失效原因（空串表示有效），与读取视图共用：
+//   - 条件模板已不在内置目录（外部 Prometheus 时代的 PROM_* / NODE_UNHEALTHY）；
+//   - ALERT_FIRING 条件没有选任何告警规则键。
+//
+// 注意判定独立于写入校验：历史数据不经过 validateAutoPolicyConditions，必须单独判读。
+// InvalidReason returns the policy's invalid reason ("" when valid), shared by read views:
+//   - a condition template missing from the builtin catalog (the PROM_* / NODE_UNHEALTHY
+//     codes from the external-Prometheus era);
+//   - an ALERT_FIRING condition with no alert rule keys selected.
+//
+// The check is deliberately separate from write validation: stored rows never pass through
+// validateAutoPolicyConditions and must be judged on their own.
+func (p *InspectionAutoPolicy) InvalidReason() string {
+	if p == nil {
+		return ""
+	}
+	for _, condition := range p.Conditions {
+		if !isConditionTemplateSupported(condition.TemplateCode) {
+			return fmt.Sprintf("条件模板 %q 已失效：内置监控不再提供该巡检条件，请编辑策略重新选择 / condition template %q is no longer supported: the embedded monitor retired it; edit the policy and re-select", condition.TemplateCode, condition.TemplateCode)
+		}
+		if condition.TemplateCode == ConditionCodeAlertFiring && len(normalizeAlertRuleKeys(condition.RuleKeys)) == 0 {
+			return "条件 \"ALERT_FIRING\" 未选择告警规则，策略不会触发，请编辑补齐 / the \"ALERT_FIRING\" condition has no alert rules selected, so the policy never fires; edit to fix"
+		}
+	}
+	return ""
 }
 
 // ToInfo converts a persisted auto-policy into API view model.
@@ -257,6 +292,7 @@ func (p *InspectionAutoPolicy) ToInfo() *InspectionAutoPolicyInfo {
 		AutoCreateTask:  p.AutoCreateTask,
 		AutoStartTask:   p.AutoStartTask,
 		TaskOptions:     p.TaskOptions,
+		InvalidReason:   p.InvalidReason(),
 		CreatedAt:       p.CreatedAt,
 		UpdatedAt:       p.UpdatedAt,
 	}

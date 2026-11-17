@@ -4203,6 +4203,7 @@
       "scopeGlobal": "Global",
       "scopeCluster": "Cluster #{id}",
       "conditionsSummary": "Conditions: {count} | Cooldown: {minutes} min",
+      "invalidBadge": "Invalid",
       "autoBundleSummary": "Auto bundle: {mode}",
       "autoBundleModeCreateAndStart": "Auto create and run",
       "autoBundleModeCreateOnly": "Auto create, run manually",

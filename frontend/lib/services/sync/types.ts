@@ -322,6 +322,9 @@ export interface SyncJobLiveMetrics {
   read_total?: number;
   write_total?: number;
   cdc_delay_seconds?: number;
+  /** 按逻辑表去重后的表数量（Source/Sink 两端同表只算一张）；>1 时展示多表徽章。
+   *  Deduplicated logical table count (same table on source/sink counts once); >1 shows the multi-table badge. */
+  table_count?: number;
 }
 
 /** 全局作业列表的状态组 / Status groups of the global job list. */

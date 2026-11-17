@@ -57,7 +57,7 @@ func syncOperationSpecs() []OperationSpec {
 		{Name: "sort", Location: InputQuery, Required: false, Description: "Sort: attention|started_at|created_at; rate|cdc_delay need status_group=running (default created_at desc)"},
 		{Name: "order", Location: InputQuery, Required: false, Description: "Sort order: asc|desc (default desc)"},
 		{Name: "with_counts", Location: InputQuery, Required: false, Description: "Set to 1 to include per-status-group counts"},
-		{Name: "with_live", Location: InputQuery, Required: false, Description: "Set to 1 to include task names and live read/write rates"},
+		{Name: "with_live", Location: InputQuery, Required: false, Description: "Set to 1 to include task names and live read/write rates, totals, and logical table count"},
 	}
 
 	jobSparklineInputs := []InputSpec{

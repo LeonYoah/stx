@@ -387,3 +387,164 @@ func TestRunningJobCountsByClusterExcludesPreviews(t *testing.T) {
 		t.Fatalf("counts = %v, want cluster 1 = 2 (preview excluded), cluster 2 = 0", counts)
 	}
 }
+
+func intPtr(v int) *int { return &v }
+
+// TestBuildJobLiveMetricsParity 覆盖与前端 extractJobMetricSummary 对齐的回退口径。
+// 每组 fixture 的 metrics 结构与 SeaTunnel 引擎 REST 快照一致（含 3.0 表级 Table* 映射），
+// 前端对同一份输入的解析结果应与本测试期望一致。
+// TestBuildJobLiveMetricsParity covers the fallback semantics aligned with the frontend
+// extractJobMetricSummary. Each fixture mirrors a SeaTunnel engine REST metrics snapshot
+// (including 3.0 table-level Table* maps); the frontend must derive identical values.
+func TestBuildJobLiveMetricsParity(t *testing.T) {
+	f64 := func(v float64) *float64 { return &v }
+	cases := []struct {
+		name    string
+		status  JobStatus
+		metrics map[string]interface{}
+		want    *JobLiveMetrics
+	}{
+		{
+			name:   "仅全局指标 running",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"SourceReceivedCount": float64(100),
+				"SinkWriteCount":      float64(90),
+				"SourceReceivedQPS":   float64(10),
+				"SinkWriteQPS":        float64(9),
+			},
+			want: &JobLiveMetrics{ReadTotal: f64(100), WriteTotal: f64(90), ReadQPS: f64(10), WriteQPS: f64(9)},
+		},
+		{
+			name:   "仅 SinkCommitted 写侧回退",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"SourceReceivedCount": float64(50),
+				"SinkCommittedCount":  float64(40),
+				"SourceReceivedQPS":   float64(5),
+				"SinkCommittedQPS":    float64(4),
+			},
+			want: &JobLiveMetrics{ReadTotal: f64(50), WriteTotal: f64(40), ReadQPS: f64(5), WriteQPS: f64(4)},
+		},
+		{
+			name:   "SinkWrite 优先于 SinkCommitted",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"SinkWriteCount":     float64(10),
+				"SinkCommittedCount": float64(99),
+				"SinkWriteQPS":       float64(1),
+				"SinkCommittedQPS":   float64(9),
+			},
+			want: &JobLiveMetrics{WriteTotal: f64(10), WriteQPS: f64(1)},
+		},
+		{
+			name:   "仅表级指标求和且逻辑表去重",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"TableSourceReceivedCount": map[string]interface{}{
+					"Source[0].db.orders":    float64(300),
+					"Source[0].db.customers": float64(200),
+				},
+				"TableSinkWriteCount": map[string]interface{}{
+					"Sink[0].db.orders":    float64(280),
+					"Sink[0].db.customers": float64(190),
+				},
+				"TableSourceReceivedQPS": map[string]interface{}{
+					"Source[0].db.orders":    float64(30),
+					"Source[0].db.customers": float64(20),
+				},
+				"TableSinkWriteQPS": map[string]interface{}{
+					"Sink[0].db.orders":    float64(28),
+					"Sink[0].db.customers": float64(19),
+				},
+			},
+			want: &JobLiveMetrics{ReadTotal: f64(500), WriteTotal: f64(470), ReadQPS: f64(50), WriteQPS: f64(47), TableCount: intPtr(2)},
+		},
+		{
+			name:   "表级写侧先 TableSinkWriteCount 再 TableSinkCommittedCount",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"TableSinkWriteCount": map[string]interface{}{
+					"Sink[0].db.t": float64(7),
+				},
+				"TableSinkCommittedCount": map[string]interface{}{
+					"Sink[0].db.t": float64(77),
+				},
+			},
+			want: &JobLiveMetrics{WriteTotal: f64(7), TableCount: intPtr(1)},
+		},
+		{
+			name:   "Source 与 Sink 同表去重 archive_ 前缀忽略",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"TableSourceReceivedCount": map[string]interface{}{
+					"Source[0].db.archive_orders": float64(1),
+				},
+				"TableSinkCommittedCount": map[string]interface{}{
+					"Sink[0].db.Orders": float64(1),
+				},
+			},
+			want: &JobLiveMetrics{ReadTotal: f64(1), WriteTotal: f64(1), TableCount: intPtr(1)},
+		},
+		{
+			name:   "非运行中不返回 qps 但保留累计",
+			status: JobStatusSuccess,
+			metrics: map[string]interface{}{
+				"SourceReceivedCount": float64(10),
+				"SinkWriteCount":      float64(8),
+				"SourceReceivedQPS":   float64(3),
+				"SinkWriteQPS":        float64(2),
+			},
+			want: &JobLiveMetrics{ReadTotal: f64(10), WriteTotal: f64(8)},
+		},
+		{
+			name:    "空指标返回 nil",
+			status:  JobStatusRunning,
+			metrics: map[string]interface{}{},
+			want:    nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			job := &JobInstance{
+				Status: tc.status,
+				ResultPreview: map[string]interface{}{
+					"metrics": tc.metrics,
+				},
+			}
+			got := buildJobLiveMetrics(job)
+			if tc.want == nil {
+				if got != nil {
+					t.Fatalf("live = %+v, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("live = nil, want non-nil")
+			}
+			check := func(name string, got, want *float64) {
+				t.Helper()
+				if want == nil {
+					if got != nil {
+						t.Fatalf("%s = %v, want nil", name, *got)
+					}
+					return
+				}
+				if got == nil || *got != *want {
+					t.Fatalf("%s = %v, want %v", name, got, *want)
+				}
+			}
+			check("read_total", got.ReadTotal, tc.want.ReadTotal)
+			check("write_total", got.WriteTotal, tc.want.WriteTotal)
+			check("read_qps", got.ReadQPS, tc.want.ReadQPS)
+			check("write_qps", got.WriteQPS, tc.want.WriteQPS)
+			if tc.want.TableCount == nil {
+				if got.TableCount != nil {
+					t.Fatalf("table_count = %d, want nil", *got.TableCount)
+				}
+			} else if got.TableCount == nil || *got.TableCount != *tc.want.TableCount {
+				t.Fatalf("table_count = %v, want %d", got.TableCount, *tc.want.TableCount)
+			}
+		})
+	}
+}

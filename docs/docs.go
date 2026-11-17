@@ -5144,7 +5144,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "1 = 返回任务名与当前读写速率",
+                        "description": "1 = 返回任务名与当前读写速率、条数与逻辑表数",
                         "name": "with_live",
                         "in": "query"
                     }
@@ -13153,6 +13153,10 @@ const docTemplate = `{
                 },
                 "read_total": {
                     "type": "number"
+                },
+                "table_count": {
+                    "description": "TableCount 是按逻辑表去重后的表数量（Source[0].t 与 Sink[0].t 算同一张），\u003e1 时前端显示多表徽章。\nTableCount is the deduplicated logical table count (Source[0].t and Sink[0].t count as one); the frontend\nshows the multi-table badge when it is greater than one.",
+                    "type": "integer"
                 },
                 "write_qps": {
                     "type": "number"

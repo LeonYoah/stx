@@ -4846,6 +4846,12 @@ definitions:
         type: number
       read_total:
         type: number
+      table_count:
+        description: |-
+          TableCount 是按逻辑表去重后的表数量（Source[0].t 与 Sink[0].t 算同一张），>1 时前端显示多表徽章。
+          TableCount is the deduplicated logical table count (Source[0].t and Sink[0].t count as one); the frontend
+          shows the multi-table badge when it is greater than one.
+        type: integer
       write_qps:
         type: number
       write_total:
@@ -8629,7 +8635,7 @@ paths:
         in: query
         name: with_counts
         type: integer
-      - description: 1 = 返回任务名与当前读写速率
+      - description: 1 = 返回任务名与当前读写速率、条数与逻辑表数
         in: query
         name: with_live
         type: integer

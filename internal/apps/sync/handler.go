@@ -617,7 +617,7 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 // @Param sort query string false "attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）"
 // @Param order query string false "asc|desc" default(desc)
 // @Param with_counts query int false "1 = 返回各状态组计数"
-// @Param with_live query int false "1 = 返回任务名与当前读写速率"
+// @Param with_live query int false "1 = 返回任务名与当前读写速率、条数与逻辑表数"
 // @Success 200 {object} JobListResponse
 // @Failure 400 {object} JobListResponse
 // @Router /api/v1/sync/jobs [get]

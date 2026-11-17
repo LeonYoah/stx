@@ -19,6 +19,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -73,6 +74,10 @@ type JobLiveMetrics struct {
 	ReadTotal       *float64 `json:"read_total,omitempty"`
 	WriteTotal      *float64 `json:"write_total,omitempty"`
 	CDCDelaySeconds *float64 `json:"cdc_delay_seconds,omitempty"`
+	// TableCount 是按逻辑表去重后的表数量（Source[0].t 与 Sink[0].t 算同一张），>1 时前端显示多表徽章。
+	// TableCount is the deduplicated logical table count (Source[0].t and Sink[0].t count as one); the frontend
+	// shows the multi-table badge when it is greater than one.
+	TableCount *int `json:"table_count,omitempty"`
 }
 
 // JobListOptions 是 ListJobsForActor 之外的列表装饰开关。
@@ -338,16 +343,35 @@ func jobMetrics(job *JobInstance) map[string]interface{} {
 }
 
 // buildJobLiveMetrics 组装列表行当前值；速率只对运行中作业有意义，其余状态只给累计值。
+// 回退顺序与前端 extractJobMetricSummary（sync-studio-utils.ts）逐项一致：
+// 写侧先 SinkWrite* 再 SinkCommitted*，全局值缺失时汇总表级 Table* 映射。
 // buildJobLiveMetrics assembles a row's live values; rates only make sense while running, other states get totals.
+// The fallback order mirrors the frontend extractJobMetricSummary (sync-studio-utils.ts) one to one:
+// SinkWrite* before SinkCommitted* on the write side, and Table* maps are summed when the global value is absent.
 func buildJobLiveMetrics(job *JobInstance) *JobLiveMetrics {
 	metrics := jobMetrics(job)
 	live := &JobLiveMetrics{
-		ReadTotal:  metricNumber(metrics, "SourceReceivedCount"),
-		WriteTotal: metricNumber(metrics, "SinkWriteCount"),
+		ReadTotal:  firstMetricNumber(metrics, "SourceReceivedCount"),
+		WriteTotal: firstMetricNumber(metrics, "SinkWriteCount", "SinkCommittedCount"),
+	}
+	if live.ReadTotal == nil {
+		live.ReadTotal = tableMetricSum(metrics, "TableSourceReceivedCount")
+	}
+	if live.WriteTotal == nil {
+		live.WriteTotal = tableMetricSum(metrics, "TableSinkWriteCount", "TableSinkCommittedCount")
+	}
+	if n := logicalTableCount(metrics); n > 0 {
+		live.TableCount = &n
 	}
 	if jobStatusGroupOf(job.Status) == JobStatusGroupRunning {
-		live.ReadQPS = metricNumber(metrics, "SourceReceivedQPS")
-		live.WriteQPS = metricNumber(metrics, "SinkWriteQPS")
+		live.ReadQPS = firstMetricNumber(metrics, "SourceReceivedQPS")
+		if live.ReadQPS == nil {
+			live.ReadQPS = tableMetricSum(metrics, "TableSourceReceivedQPS")
+		}
+		live.WriteQPS = firstMetricNumber(metrics, "SinkWriteQPS", "SinkCommittedQPS")
+		if live.WriteQPS == nil {
+			live.WriteQPS = tableMetricSum(metrics, "TableSinkWriteQPS")
+		}
 		if job.CDCDelay != nil && job.CDCDelay.Fresh {
 			seconds := float64(job.CDCDelay.LatestMs) / 1000
 			live.CDCDelaySeconds = &seconds
@@ -357,6 +381,81 @@ func buildJobLiveMetrics(job *JobInstance) *JobLiveMetrics {
 		return nil
 	}
 	return live
+}
+
+// firstMetricNumber 按顺序取第一个存在的全局指标值。
+// firstMetricNumber returns the first present global metric value in order.
+func firstMetricNumber(metrics map[string]interface{}, keys ...string) *float64 {
+	for _, key := range keys {
+		if v := metricNumber(metrics, key); v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+// tableMetricSum 按顺序取第一个非空表级映射并对其值求和；映射为空或不存在时返回 nil。
+// tableMetricSum picks the first non-empty table-level map in order and sums its values; nil when none exist.
+func tableMetricSum(metrics map[string]interface{}, mapKeys ...string) *float64 {
+	for _, mapKey := range mapKeys {
+		raw, ok := metrics[mapKey]
+		if !ok || raw == nil {
+			continue
+		}
+		var sum float64
+		var count int
+		switch typed := raw.(type) {
+		case map[string]interface{}:
+			for _, v := range typed {
+				if n := coerceMetricNumber(v); n != nil {
+					sum += *n
+					count++
+				}
+			}
+		case map[string]float64:
+			for _, v := range typed {
+				sum += v
+				count++
+			}
+		}
+		if count > 0 {
+			return &sum
+		}
+	}
+	return nil
+}
+
+// logicalTableCount 复刻前端 countLogicalTables：收集表级指标键，剥掉 Source[N]. / Sink[N]. 前缀取末段表名，
+// 转小写并去掉 archive_ 前缀后去重。
+// logicalTableCount mirrors the frontend countLogicalTables: it collects table-level metric keys, strips the
+// Source[N]. / Sink[N]. endpoint prefix, keeps the leaf table name lowercased without an archive_ prefix, and dedups.
+func logicalTableCount(metrics map[string]interface{}) int {
+	if metrics == nil {
+		return 0
+	}
+	keys := map[string]struct{}{}
+	for _, raw := range collectTableMetricKeys(metrics) {
+		if logical := normalizeLogicalTableKey(raw); logical != "" {
+			keys[logical] = struct{}{}
+		}
+	}
+	return len(keys)
+}
+
+// metricTablePathRe 匹配表级指标键的端点前缀（Source[0].db.t → db.t）。
+// metricTablePathRe matches the endpoint prefix of a table-level metric key (Source[0].db.t → db.t).
+var metricTablePathRe = regexp.MustCompile(`(?i)^(Source|Sink)\[\d+\]\.`)
+
+// normalizeLogicalTableKey 等价于前端 normalizePairingTableKey + extractMetricTablePath。
+// normalizeLogicalTableKey is the Go equivalent of the frontend normalizePairingTableKey + extractMetricTablePath.
+func normalizeLogicalTableKey(metricKey string) string {
+	path := metricTablePathRe.ReplaceAllString(strings.TrimSpace(metricKey), "")
+	leaf := path
+	if idx := strings.LastIndex(path, "."); idx >= 0 {
+		leaf = path[idx+1:]
+	}
+	leaf = strings.ToLower(strings.TrimSpace(leaf))
+	return strings.TrimPrefix(leaf, "archive_")
 }
 
 // queryFlag 读取布尔查询参数：1 / true / yes 为真。

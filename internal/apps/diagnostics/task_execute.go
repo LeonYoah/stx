@@ -2413,11 +2413,10 @@ type diagnosticPrometheusSignalSpec struct {
 }
 
 func (s *Service) collectDiagnosticPrometheusSnapshot(ctx context.Context, task *DiagnosticTask, window diagnosticCollectionWindow) (*diagnosticPrometheusSnapshot, error) {
-	// 内嵌化后 baseURL 只是就绪哨兵；不可用时跳过快照即可，诊断流程继续走其余采集。
-	// After the embedding, baseURL is only a readiness sentinel; skip the snapshot when it is
-	// empty and let the diagnostics flow continue with the remaining collectors.
-	baseURL, _ := promquery.BaseURL()
-	if baseURL == "" || task == nil || task.ClusterID == 0 {
+	// 监控不可用时跳过快照即可，诊断流程继续走其余采集。
+	// Skip the snapshot when monitoring is unavailable; the diagnostics flow continues with the
+	// remaining collectors.
+	if promquery.UnavailableReason() != "" || task == nil || task.ClusterID == 0 {
 		return nil, nil
 	}
 	specs := buildDiagnosticPrometheusSignalSpecs(task.ClusterID)
@@ -2433,7 +2432,7 @@ func (s *Service) collectDiagnosticPrometheusSnapshot(ctx context.Context, task 
 		Signals:     make([]diagnosticPrometheusSignal, 0, len(specs)),
 	}
 	for _, spec := range specs {
-		signal, err := queryDiagnosticPrometheusSignal(ctx, baseURL, window, stepSeconds, spec)
+		signal, err := queryDiagnosticPrometheusSignal(ctx, window, stepSeconds, spec)
 		if err != nil {
 			snapshot.CollectionNotes = append(snapshot.CollectionNotes, fmt.Sprintf("%s: %v", spec.Key, err))
 			continue
@@ -2551,8 +2550,8 @@ func buildDiagnosticPrometheusSignalSpecs(clusterID uint) []diagnosticPrometheus
 	}
 }
 
-func queryDiagnosticPrometheusSignal(ctx context.Context, baseURL string, window diagnosticCollectionWindow, stepSeconds int, spec diagnosticPrometheusSignalSpec) (*diagnosticPrometheusSignal, error) {
-	series, err := promquery.Range(ctx, baseURL, spec.PromQL, window.Start, window.End, stepSeconds)
+func queryDiagnosticPrometheusSignal(ctx context.Context, window diagnosticCollectionWindow, stepSeconds int, spec diagnosticPrometheusSignalSpec) (*diagnosticPrometheusSignal, error) {
+	series, err := promquery.Range(ctx, spec.PromQL, window.Start, window.End, stepSeconds)
 	if err != nil {
 		return nil, err
 	}

@@ -212,7 +212,7 @@ func TestSyncAlertHub_firesOnceCountsAndResolves(t *testing.T) {
 
 	// 告警中心能看到这一条，带任务、作业和次数。
 	// The alert center shows it with task, job and count.
-	list, err := f.service.ListAlertInstances(f.ctx, &AlertInstanceFilter{SourceType: AlertSourceTypeSync})
+	list, err := f.service.ListAlertInstances(f.ctx, &AlertInstanceFilter{SourceType: AlertSourceTypeJob})
 	if err != nil || len(list.Alerts) != 1 {
 		t.Fatalf("alert center: %+v err=%v", list, err)
 	}

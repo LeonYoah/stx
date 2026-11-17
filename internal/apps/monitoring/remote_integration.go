@@ -19,8 +19,6 @@ package monitoring
 
 import (
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -41,53 +39,10 @@ var clustersHealthCacheTTL = 15 * time.Second
 // clustersHealthAlertLookback caps how far back local process alerts count toward KPIs, avoiding a full history scan.
 const clustersHealthAlertLookback = 31 * 24 * time.Hour
 
-// HandleAlertmanagerWebhook ingests one Alertmanager webhook payload into persistent records.
-// HandleAlertmanagerWebhook 将 Alertmanager webhook 请求写入持久化告警记录。
-func (s *Service) HandleAlertmanagerWebhook(ctx context.Context, payload *AlertmanagerWebhookPayload) (*AlertmanagerWebhookResult, error) {
-	if s.repo == nil {
-		return nil, fmt.Errorf("monitoring repository is not configured")
-	}
-	if payload == nil {
-		return nil, fmt.Errorf("empty webhook payload")
-	}
-
-	result := &AlertmanagerWebhookResult{
-		Received: len(payload.Alerts),
-		Stored:   0,
-		Errors:   make([]string, 0, 2),
-	}
-	now := timex.Now()
-	for idx, alert := range payload.Alerts {
-		if alert == nil {
-			continue
-		}
-
-		record := normalizeWebhookAlert(payload, alert, now)
-		previousRecord, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, record.Fingerprint, record.StartsAt)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] lookup failed: %v", idx, err))
-			continue
-		}
-		if err := s.repo.UpsertRemoteAlert(ctx, record); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] upsert failed: %v", idx, err))
-			continue
-		}
-		if err := s.deliverRemoteAlertRecord(ctx, record, previousRecord); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] delivery failed: %v", idx, err))
-		}
-		result.Stored++
-	}
-	if len(result.Errors) == 0 {
-		result.Errors = nil
-	}
-	return result, nil
-}
-
-// ingestRemoteAlertRecord 是「标准化告警记录 → 持久化 → 投递」的统一入口，内嵌评估器与
-// AM webhook 共用：lookup previous → upsert → managed 策略投递或路由匹配投递。
-// ingestRemoteAlertRecord is the shared "normalized record → persist → deliver" entry used by
-// both the embedded evaluator and the AM webhook: lookup previous → upsert → managed policy
-// delivery or route-match delivery.
+// ingestRemoteAlertRecord 是「标准化告警记录 → 持久化 → 投递」的统一入口，供内嵌告警评估器使用：
+// lookup previous → upsert → managed 策略投递或路由匹配投递。
+// ingestRemoteAlertRecord is the "normalized record → persist → deliver" entry used by the embedded
+// alert evaluator: lookup previous → upsert → managed policy delivery or route-match delivery.
 func (s *Service) ingestRemoteAlertRecord(ctx context.Context, record *RemoteAlertRecord) error {
 	previousRecord, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, record.Fingerprint, record.StartsAt)
 	if err != nil {
@@ -117,99 +72,6 @@ func (s *Service) deliverRemoteAlertRecord(ctx context.Context, record *RemoteAl
 	return nil
 }
 
-func normalizeWebhookAlert(payload *AlertmanagerWebhookPayload, alert *WebhookAlert, now time.Time) *RemoteAlertRecord {
-	labels := mergeStringMap(payload.CommonLabels, alert.Labels)
-	annotations := mergeStringMap(payload.CommonAnnotations, alert.Annotations)
-
-	startsAt := alert.StartsAt.UTC()
-	if startsAt.IsZero() {
-		startsAt = now
-	}
-
-	status := strings.TrimSpace(alert.Status)
-	if status == "" {
-		status = strings.TrimSpace(payload.Status)
-	}
-	if status == "" {
-		status = "firing"
-	}
-
-	clusterID := strings.TrimSpace(labels["cluster_id"])
-	if clusterID == "" {
-		clusterID = "unknown"
-	}
-	clusterName := strings.TrimSpace(labels["cluster_name"])
-	if clusterName == "" {
-		clusterName = "unknown"
-	}
-	env := strings.TrimSpace(labels["env"])
-	if env == "" {
-		env = "unknown"
-	}
-
-	fingerprint := strings.TrimSpace(alert.Fingerprint)
-	if fingerprint == "" {
-		fingerprint = buildFallbackFingerprint(labels, startsAt, alert.GeneratorURL)
-	}
-
-	alertName := strings.TrimSpace(firstNonEmpty(
-		labels["policy_name"],
-		annotations["policy_name"],
-		labels["alertname"],
-	))
-	if alertName == "" {
-		alertName = "unknown_alert"
-	}
-
-	labelsJSON := mustMarshalJSON(labels)
-	annotationsJSON := mustMarshalJSON(annotations)
-
-	var endsAtUnix int64
-	var resolvedAt *time.Time
-	if !alert.EndsAt.IsZero() {
-		endsAt := alert.EndsAt.UTC()
-		endsAtUnix = endsAt.Unix()
-		if strings.EqualFold(status, "resolved") {
-			resolvedAt = &endsAt
-		}
-	}
-	if strings.EqualFold(status, "resolved") && resolvedAt == nil {
-		t := now
-		resolvedAt = &t
-	}
-
-	return &RemoteAlertRecord{
-		Fingerprint:     fingerprint,
-		StartsAt:        startsAt.Unix(),
-		Status:          status,
-		Receiver:        strings.TrimSpace(payload.Receiver),
-		AlertName:       alertName,
-		Severity:        strings.TrimSpace(labels["severity"]),
-		ClusterID:       clusterID,
-		ClusterName:     clusterName,
-		Env:             env,
-		GeneratorURL:    strings.TrimSpace(alert.GeneratorURL),
-		Summary:         strings.TrimSpace(firstNonEmpty(annotations["summary"], annotations["message"])),
-		Description:     strings.TrimSpace(firstNonEmpty(annotations["description"], annotations["details"])),
-		LabelsJSON:      labelsJSON,
-		AnnotationsJSON: annotationsJSON,
-		EndsAt:          endsAtUnix,
-		ResolvedAt:      resolvedAt,
-		LastReceivedAt:  now,
-	}
-}
-
-func mergeStringMap(base, override map[string]string) map[string]string {
-	merged := make(map[string]string, len(base)+len(override))
-	for k, v := range base {
-		merged[k] = v
-	}
-	for k, v := range override {
-		merged[k] = v
-	}
-	return merged
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		v = strings.TrimSpace(v)
@@ -226,12 +88,6 @@ func mustMarshalJSON(v interface{}) string {
 		return "{}"
 	}
 	return string(raw)
-}
-
-func buildFallbackFingerprint(labels map[string]string, startsAt time.Time, generatorURL string) string {
-	raw := mustMarshalJSON(labels) + "|" + startsAt.UTC().Format(time.RFC3339Nano) + "|" + strings.TrimSpace(generatorURL)
-	sum := sha1.Sum([]byte(raw))
-	return hex.EncodeToString(sum[:])
 }
 
 // ListRemoteAlerts returns remote alert records with paging filters.

@@ -471,11 +471,11 @@ func (s *Service) UpdateClusterRule(ctx context.Context, clusterID, ruleID uint,
 // GetIntegrationStatus 返回监控栈集成状态。
 //
 // 组件集（内嵌可观测终态）：embedded_tsdb（内嵌 tsdb 就绪探测）+ seatunnel_metrics（自研抓取循环
-// 目标状态）+ remote_ingest（AM webhook 回流端点）；原 prometheus/alertmanager/grafana 外部健康
-// 检查已随 HTTP SD 一并退役。
+// 目标状态）；原 prometheus/alertmanager/grafana 外部健康检查与 remote_ingest 外部告警接入
+// 端点均已退役。
 // Component set (embedded observability final state): embedded_tsdb (embedded tsdb readiness) +
-// seatunnel_metrics (in-process scraper target states) + remote_ingest (AM webhook endpoint); the
-// old prometheus/alertmanager/grafana external health checks were retired with HTTP SD.
+// seatunnel_metrics (in-process scraper target states); the old prometheus/alertmanager/grafana
+// external health checks and the remote_ingest external alert endpoint were retired.
 func (s *Service) GetIntegrationStatus(ctx context.Context) (*IntegrationStatusData, error) {
 	obsCfg := config.Config.Observability
 
@@ -485,7 +485,6 @@ func (s *Service) GetIntegrationStatus(ctx context.Context) (*IntegrationStatusD
 			Components: []*IntegrationComponentStatus{
 				disabledIntegrationComponent("embedded_tsdb"),
 				disabledIntegrationComponent("seatunnel_metrics"),
-				disabledIntegrationComponent("remote_ingest"),
 			},
 		}, nil
 	}
@@ -495,7 +494,6 @@ func (s *Service) GetIntegrationStatus(ctx context.Context) (*IntegrationStatusD
 		Components: []*IntegrationComponentStatus{
 			s.embeddedTSDBComponent(obsCfg),
 			s.seatunnelMetricsComponent(ctx, obsCfg),
-			remoteIngestComponent(obsCfg),
 		},
 	}, nil
 }
@@ -604,21 +602,6 @@ func (s *Service) seatunnelMetricsComponent(ctx context.Context, obsCfg config.O
 		component.Healthy = true
 	}
 	return component
-}
-
-// remoteIngestComponent 返回 remote ingest（AM webhook 回流）组件状态：端点由本进程提供，API 在线即健康。
-// remoteIngestComponent returns the remote ingest (AM webhook) component: the endpoint is served
-// by this very API process, so a reachable API means healthy.
-func remoteIngestComponent(obsCfg config.ObservabilityConfig) *IntegrationComponentStatus {
-	webhookPath := ensureLeadingSlash(obsCfg.RemoteIngest.Path)
-	return &IntegrationComponentStatus{
-		Name:    "remote_ingest",
-		URL:     webhookPath,
-		Healthy: true,
-		Meta: map[string]string{
-			"path": webhookPath,
-		},
-	}
 }
 
 type managedMetricsTarget struct {

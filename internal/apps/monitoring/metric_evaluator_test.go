@@ -28,6 +28,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/prometheus/common/model"
+	"github.com/prometheus/common/promslog"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/rulefmt"
 	"github.com/prometheus/prometheus/rules"
@@ -36,6 +37,7 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
+	"github.com/LeonYoah/stx/internal/pkg/promquery"
 )
 
 // setupMetricEvaluatorTestDB 建立覆盖远程告警/策略/投递全链表的 sqlite 测试库。
@@ -203,8 +205,8 @@ func TestMetricEvaluatorFiringThenResolved(t *testing.T) {
 	// for=120ms gate: the firing record cannot appear earlier than ~100ms (CI margin included).
 	require.GreaterOrEqual(t, time.Since(startedAt), 80*time.Millisecond, "alert fired before the for gate elapsed")
 
-	// AlertName 与 normalizeWebhookAlert 同序取 policy_name → alertname。
-	// AlertName resolves policy_name → alertname in the same order as normalizeWebhookAlert.
+	// AlertName 按统一告警记录语义取 policy_name → alertname。
+	// AlertName resolves policy_name → alertname per the unified alert-record semantics.
 	require.Equal(t, "CPU 高负载", firing.AlertName)
 	require.Equal(t, "warning", firing.Severity)
 	require.Equal(t, "1", firing.ClusterID)
@@ -252,9 +254,9 @@ func TestMetricEvaluatorFiringThenResolved(t *testing.T) {
 }
 
 // TestRemoteAlertRecordFromRuleAlert 覆盖 rules.Alert → RemoteAlertRecord 的字段映射：
-// firing/resolved/pending 三种状态与 normalizeWebhookAlert 的字段语义对齐。
+// firing/resolved/pending 三种状态与统一告警记录的字段语义对齐。
 // TestRemoteAlertRecordFromRuleAlert covers the rules.Alert → RemoteAlertRecord field mapping:
-// firing/resolved/pending states matching normalizeWebhookAlert field semantics.
+// firing/resolved/pending states matching the unified alert-record field semantics.
 func TestRemoteAlertRecordFromRuleAlert(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	firedAt := now.Add(-time.Minute)
@@ -419,4 +421,289 @@ func TestBuiltinMetricRuleGroups(t *testing.T) {
 	}
 	require.Equal(t, 10, recording)
 	require.Equal(t, 11, alerting)
+}
+
+// TestMetricEvaluator_RestoresForStateAcrossRestart 验证 firing 告警跨重启的 for 状态恢复：
+// e1 里 for=800ms 的告警触发 firing 后停机（ALERTS_FOR_STATE 随每次评估落盘、停止时不会被
+// 写 stale），e2 同目录重启后 RestoreForState 应找回原 ActiveAt，告警在远小于一个完整 for
+// 的时间内重新 firing——未恢复时最早也要等满一个 for 周期，时序上可判别。
+// TestMetricEvaluator_RestoresForStateAcrossRestart verifies 'for' state restoration across a
+// restart: after the for=800ms alert fires in boot e1 and the process stops (ALERTS_FOR_STATE
+// is persisted on every eval and never stale-marked on stop), boot e2 on the same dir should
+// recover the original ActiveAt via RestoreForState and re-fire well under one 'for' period—
+// without restore the earliest possible firing is a full 'for' after restart, which is
+// distinguishable on timing alone.
+func TestMetricEvaluator_RestoresForStateAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	database, cleanup := setupMetricEvaluatorTestDB(t)
+	t.Cleanup(cleanup)
+
+	dir := t.TempDir()
+	embedOpts := embedts.Options{
+		Dir:               dir,
+		RetentionDuration: 24 * time.Hour,
+		QueryTimeout:      5 * time.Second,
+		MaxSamples:        1000,
+	}
+	require.NoError(t, embedts.Start(ctx, embedOpts))
+	t.Cleanup(func() { _ = embedts.Close() })
+
+	repo := NewRepository(database)
+	service := NewService(nil, nil, repo)
+	policy := &AlertPolicy{
+		Name:                       "重启恢复测试",
+		PolicyType:                 AlertPolicyBuilderKindMetricsTemplate,
+		TemplateKey:                "cpu_usage_high",
+		ClusterID:                  "all",
+		Severity:                   AlertSeverityWarning,
+		Enabled:                    true,
+		ConditionsJSON:             "[]",
+		NotificationChannelIDsJSON: "[]",
+		ReceiverUserIDsJSON:        "[]",
+	}
+	require.NoError(t, repo.db.WithContext(ctx).Create(policy).Error)
+
+	const testSource = "stx-test-restart"
+	newGroups := func() *rulefmt.RuleGroups {
+		return &rulefmt.RuleGroups{Groups: []rulefmt.RuleGroup{{
+			Name: "evaluator-restart-test",
+			Rules: []rulefmt.Rule{{
+				Alert: "STXEvalRestartAlert",
+				Expr:  `stx_eval_restart_metric > 5`,
+				For:   model.Duration(800 * time.Millisecond),
+				Labels: map[string]string{
+					"managed_by":  "stx",
+					"policy_id":   fmt.Sprintf("%d", policy.ID),
+					"policy_name": policy.Name,
+					"severity":    "warning",
+				},
+				Annotations: map[string]string{"summary": "restart restore test"},
+			}},
+		}}}
+	}
+	startEvaluator := func() *MetricEvaluator {
+		e, err := NewMetricEvaluator(service, MetricEvaluatorOptions{
+			Interval:    20 * time.Millisecond,
+			ResendDelay: time.Hour,
+		})
+		require.NoError(t, err)
+		e.sources = []string{testSource}
+		e.loader.setGroups(testSource, newGroups())
+		require.NoError(t, e.Start(ctx))
+		return e
+	}
+
+	appendEvalSample(t, ctx, "stx_eval_restart_metric", map[string]string{
+		"cluster_id": "1", "cluster_name": "prod", "env": "prod", "instance": "i1",
+	}, time.Now(), 10)
+
+	// 第一轮：告警等满 for 触发 firing，ALERTS_FOR_STATE 样本随之落盘。
+	// First boot: the alert fires after the 'for' gate and ALERTS_FOR_STATE lands on disk.
+	e1 := startEvaluator()
+	first := waitForRemoteAlertRecord(t, ctx, repo, func(r *RemoteAlertRecord) bool {
+		return r.Status == "firing"
+	})
+	require.NotNil(t, first, "alert should fire within the first boot")
+	// 多等一段再停机：上游恢复只对「for-state 样本里累计 pending 时长 ≥ for」的告警走
+	// firing-retain 分支；刚触发就停会让累计值贴着 for 边界，落到 pending 重计分支。
+	// Wait a bit before stopping: upstream restores into the firing-retain branch only when
+	// the accrued pending time in the for-state sample already exceeds 'for'; stopping right
+	// at the firing edge lands on the pending-restart branch instead.
+	time.Sleep(300 * time.Millisecond)
+	e1.Stop()
+	require.NoError(t, embedts.Close())
+
+	// 第二轮同目录重启：恢复后的告警应立刻重新 firing，而不是重新累计 for。
+	// Second boot on the same dir: the restored alert must re-fire at once instead of
+	// re-accruing the 'for' duration.
+	require.NoError(t, embedts.Start(ctx, embedOpts))
+	restartAt := time.Now()
+	e2 := startEvaluator()
+	t.Cleanup(e2.Stop)
+
+	// 第二次 firing 的 FiredAt 与第一次只差零点几秒：starts_at 是秒精度，落在同一 unix 秒
+	// 时会被 fingerprint+starts_at 唯一键 upsert 合并成同一条记录，此时 LastReceivedAt 仍会
+	// 刷新——两种落库形态都算「重启后重新 firing」的证据。
+	// The second firing's FiredAt is only fractions of a second after the first: starts_at has
+	// second granularity, so the record can be upsert-merged by the fingerprint+starts_at unique
+	// key—in that case LastReceivedAt still refreshes. Either persistence shape counts as proof
+	// the alert re-fired after restart.
+	second := waitForRemoteAlertRecord(t, ctx, repo, func(r *RemoteAlertRecord) bool {
+		if r.Status != "firing" || r.Fingerprint != first.Fingerprint {
+			return false
+		}
+		return r.StartsAt != first.StartsAt || r.LastReceivedAt.After(restartAt)
+	})
+	require.NotNil(t, second, "firing alert should re-emit quickly after restart via ALERTS_FOR_STATE restore")
+	require.Less(t, time.Since(restartAt), 600*time.Millisecond, "restored alert must not wait a full for period")
+}
+
+// TestMetricEvaluator_BuiltinRulesEvaluateEndToEnd 用真实 rules.Manager 端到端跑内嵌规则组：
+// 喂入覆盖全部录制规则输入面的原始指标，断言 10 条 seatunnel: 录制序列的计算结果，并让
+// 11 条内置告警全部进入 pending——表达式语义、聚合标签与录制写回（AppendableV2）一并钉住。
+// 内置规则文件自带 group interval（30s/15s）不适合单测，改用 interval 清零的同构副本提速。
+// TestMetricEvaluator_BuiltinRulesEvaluateEndToEnd drives the embedded rule groups through the
+// real rules.Manager end to end: raw inputs covering every recording rule are fed in, all 10
+// seatunnel:* recording series are asserted, and all 11 builtin alerts reach pending—pinning
+// expression semantics, aggregation labels and the AppendableV2 write-back at once. The rule
+// file's own group intervals (30s/15s) are too slow for a unit test, so an identical copy
+// with cleared intervals is used instead.
+func TestMetricEvaluator_BuiltinRulesEvaluateEndToEnd(t *testing.T) {
+	ctx := context.Background()
+	database, cleanup := setupMetricEvaluatorTestDB(t)
+	t.Cleanup(cleanup)
+	startMetricEvaluatorTestEmbedTS(t, ctx)
+
+	repo := NewRepository(database)
+	evaluator, err := NewMetricEvaluator(NewService(nil, nil, repo), MetricEvaluatorOptions{
+		Interval:    20 * time.Millisecond,
+		ResendDelay: time.Hour,
+	})
+	require.NoError(t, err)
+
+	// 重新解析一份内置规则组并把 group interval 清零，使其按测试的 20ms 评估间隔运行；
+	// 只替换本实例 loader 里的 builtin 组，不改全局 once 缓存的共享对象。
+	// Re-parse the builtin groups and clear the group intervals so they run on the test's
+	// 20ms eval interval; replace only this instance's builtin groups in the loader without
+	// mutating the shared once-cached object.
+	groups, parseErrs := rulefmt.Parse(builtinSeaTunnelRulesYAML, false, model.UTF8Validation, metricRuleExprParser, promslog.NewNopLogger())
+	require.Empty(t, parseErrs)
+	for i := range groups.Groups {
+		groups.Groups[i].Interval = 0
+	}
+	evaluator.sources = []string{builtinMetricRulesSource}
+	evaluator.loader.setGroups(builtinMetricRulesSource, groups)
+
+	baseLabels := map[string]string{
+		"job":          "seatunnel_engine_http",
+		"instance":     "10.0.0.9:5801",
+		"cluster":      "c9",
+		"cluster_id":   "9",
+		"cluster_name": "c9",
+		"env":          "prod",
+	}
+	merged := func(extra map[string]string) map[string]string {
+		out := make(map[string]string, len(baseLabels)+len(extra))
+		for k, v := range baseLabels {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+	// 计数器按固定斜率铺满最近 6 分钟（30s 一个点）：5m 速率窗口两端都有采样，
+	// rate() 外推余量小，斜率本身即可被断言。
+	// Counters ramp at a fixed slope across the last 6 minutes (one point per 30s): the 5m
+	// rate window is sampled at both edges so rate() extrapolation stays marginal and the
+	// slope itself can be asserted.
+	appendCounterRamp := func(metric string, slopePerSec float64) {
+		for i := 12; i >= 0; i-- {
+			ts := time.Now().Add(-time.Duration(i) * 30 * time.Second)
+			appendEvalSample(t, ctx, metric, baseLabels, ts, slopePerSec*float64((12-i)*30))
+		}
+	}
+	appendCounterRamp("job_thread_pool_task_total", 1.0)
+	appendCounterRamp("job_thread_pool_completedTask_total", 0.2)
+	appendCounterRamp("job_thread_pool_rejection_total", 0.1)
+	appendCounterRamp("jvm_gc_collection_seconds_sum", 0.3)
+	appendCounterRamp("process_cpu_seconds_total", 1.0)
+
+	// 其余输入按即时值写入；组合刻意让全部 11 条内置告警都进入 pending。
+	// Remaining inputs are written as instant values; the combination is chosen so all 11
+	// builtin alerts end up pending.
+	instantSamples := []struct {
+		metric string
+		extra  map[string]string
+		value  float64
+	}{
+		{"job_thread_pool_queueTaskCount", map[string]string{"pool": "a"}, 150},
+		{"job_thread_pool_queueTaskCount", map[string]string{"pool": "b"}, 40},
+		{"jvm_memory_bytes_used", map[string]string{"area": "heap"}, 900},
+		{"jvm_memory_bytes_max", map[string]string{"area": "heap"}, 1000},
+		{"jvm_memory_bytes_used", map[string]string{"area": "nonheap"}, 100},
+		{"jvm_memory_bytes_max", map[string]string{"area": "nonheap"}, 400},
+		{"process_open_fds", nil, 900},
+		{"process_max_fds", nil, 1000},
+		{"hazelcast_executor_queueSize", nil, 30},
+		{"hazelcast_executor_queueRemainingCapacity", nil, 70},
+		{"up", nil, 0},
+		{"node_state", nil, 0},
+		{"hazelcast_partition_isClusterSafe", nil, 1},
+		{"hazelcast_partition_isLocalMemberSafe", nil, 0},
+		{"jvm_threads_deadlocked", nil, 2},
+	}
+	for _, sample := range instantSamples {
+		appendEvalSample(t, ctx, sample.metric, merged(sample.extra), time.Now(), sample.value)
+	}
+
+	require.NoError(t, evaluator.Start(ctx))
+	t.Cleanup(evaluator.Stop)
+
+	// 录制规则先产出 seatunnel: 序列，依赖它们的告警要再过一个评估周期才转 pending——
+	// 轮询直到 11 条告警名凑齐。
+	// Recording rules must emit the seatunnel:* series before dependent alerts turn pending,
+	// which takes a couple of eval cycles—poll until all 11 alert names show up.
+	expectedAlertnames := map[string]struct{}{
+		"SeaTunnelMetricsEndpointDown":       {},
+		"SeaTunnelNodeStateDown":             {},
+		"SeaTunnelPartitionUnsafe":           {},
+		"SeaTunnelJobThreadPoolQueueHigh":    {},
+		"SeaTunnelCoordinatorBacklogGrowing": {},
+		"SeaTunnelCoordinatorRejectingTasks": {},
+		"SeaTunnelJVMHeapUsageHigh":          {},
+		"SeaTunnelProcessCpuHigh":            {},
+		"SeaTunnelGCTimeHigh":                {},
+		"SeaTunnelFDUsageHigh":               {},
+		"SeaTunnelThreadDeadlock":            {},
+	}
+	seen := map[string]struct{}{}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		samples, err := promquery.Instant(ctx, `ALERTS{alertstate="pending"}`, time.Now())
+		require.NoError(t, err)
+		for _, s := range samples {
+			seen[s.Metric["alertname"]] = struct{}{}
+		}
+		if len(seen) == len(expectedAlertnames) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	for name := range expectedAlertnames {
+		require.Contains(t, seen, name, "alert %s never went pending", name)
+	}
+	require.Len(t, seen, len(expectedAlertnames))
+
+	// pending 不该触达投递缝（没有 firing/resolved 事件就没有告警记录）。
+	// Pending alerts must not reach the delivery seam (no firing/resolved events, no records).
+	var records []RemoteAlertRecord
+	require.NoError(t, repo.db.WithContext(ctx).Find(&records).Error)
+	require.Empty(t, records)
+
+	assertSeriesValue := func(expr string, want, delta float64) []promquery.Sample {
+		samples, err := promquery.Instant(ctx, expr, time.Now())
+		require.NoError(t, err)
+		require.Len(t, samples, 1, "expected exactly one series for %q, got %d", expr, len(samples))
+		require.InDelta(t, want, samples[0].Value, delta, "unexpected value for %q", expr)
+		return samples
+	}
+
+	// 队列深度聚合：max by (cluster, instance) 输出只保留分组标签（含 __name__ 共 3 个）。
+	// Queue depth aggregation: max by (cluster, instance) keeps only the grouping labels
+	// (3 including __name__).
+	depth := assertSeriesValue(`seatunnel:job_thread_pool_queue_depth:max`, 150, 0.001)
+	require.Equal(t, "c9", depth[0].Metric["cluster"])
+	require.Equal(t, "10.0.0.9:5801", depth[0].Metric["instance"])
+	require.Len(t, depth[0].Metric, 3)
+
+	assertSeriesValue(`seatunnel:job_thread_pool_submit_rate5m`, 1.0, 0.2)
+	assertSeriesValue(`seatunnel:job_thread_pool_complete_rate5m`, 0.2, 0.15)
+	assertSeriesValue(`seatunnel:job_thread_pool_reject_rate5m`, 0.1, 0.1)
+	assertSeriesValue(`seatunnel:job_thread_pool_backlog_gap_rate5m`, 0.8, 0.3)
+	assertSeriesValue(`seatunnel:jvm_heap_usage_percent`, 90, 0.5)
+	assertSeriesValue(`seatunnel:jvm_nonheap_usage_percent`, 25, 0.5)
+	assertSeriesValue(`seatunnel:gc_time_ratio_percent5m`, 30, 4)
+	assertSeriesValue(`seatunnel:fd_usage_percent`, 90, 0.5)
+	assertSeriesValue(`seatunnel:hazelcast_executor_queue_util_percent`, 30, 0.5)
 }

@@ -149,7 +149,7 @@ export interface AlertListData {
   alerts: AlertEvent[];
 }
 
-export type AlertSourceType = 'local_process_event' | 'remote_alertmanager' | 'sync';
+export type AlertSourceType = 'platform_health' | 'metric' | 'job';
 export type AlertLifecycleStatus = 'firing' | 'resolved';
 export type AlertDisplayStatus = 'firing' | 'resolved' | 'closed';
 export type AlertHandlingStatus =
@@ -164,6 +164,16 @@ export interface AlertInstanceStats {
   closed: number;
 }
 
+/**
+ * Alert rule catalog entry: rule key, display name and category.
+ * 告警规则目录项：规则键、显示名与告警类别。
+ */
+export interface AlertRuleCatalogItem {
+  rule_key: string;
+  name: string;
+  category: AlertSourceType;
+}
+
 export interface AlertInstanceSourceRef {
   event_id?: number;
   fingerprint?: string;
@@ -172,7 +182,7 @@ export interface AlertInstanceSourceRef {
   hostname?: string;
   receiver?: string;
   env?: string;
-  /** 以下字段只用于作业告警（source_type=sync）。 / The fields below are only set for job alerts (source_type=sync). */
+  /** 以下字段只用于 sync 阶段（alert_id 以 sync: 前缀标识，类别按规则归属）。 / The fields below are only set for sync episodes (alert_id carries the sync: prefix; category follows the rule). */
   task_id?: number;
   task_name?: string;
   job_id?: number;

@@ -44,8 +44,8 @@ const (
 	promCacheMaxEntries = 256
 )
 
-type rangeQueryFunc func(ctx context.Context, base, q string, start, end time.Time, step int) ([]promquery.Series, error)
-type instantQueryFunc func(ctx context.Context, base, q string, at time.Time) ([]promquery.Sample, error)
+type rangeQueryFunc func(ctx context.Context, q string, start, end time.Time, step int) ([]promquery.Series, error)
+type instantQueryFunc func(ctx context.Context, q string, at time.Time) ([]promquery.Sample, error)
 
 // promCache 缓存首页大盘的 PromQL 结果并合并同键并发：内嵌后查询消耗 STX 自身 CPU，
 // 多人同时打开首页时同参数的查询只算一次。只缓存时序结果；作业名、viewable 等逐用户字段在缓存外装饰。
@@ -127,9 +127,9 @@ func (c *promCache) do(key string, fn func() (any, error)) (any, error) {
 // wrapRange adds caching to range queries. The returned top-level slice is a copy because callers
 // sort in place and must not reorder the shared result.
 func (c *promCache) wrapRange(next rangeQueryFunc) rangeQueryFunc {
-	return func(ctx context.Context, base, q string, start, end time.Time, step int) ([]promquery.Series, error) {
+	return func(ctx context.Context, q string, start, end time.Time, step int) ([]promquery.Series, error) {
 		key := fmt.Sprintf("range|%s|%d|%d|%d", q, start.UnixMilli(), end.UnixMilli(), step)
-		value, err := c.do(key, func() (any, error) { return next(ctx, base, q, start, end, step) })
+		value, err := c.do(key, func() (any, error) { return next(ctx, q, start, end, step) })
 		series, _ := value.([]promquery.Series)
 		return append([]promquery.Series(nil), series...), err
 	}
@@ -138,9 +138,9 @@ func (c *promCache) wrapRange(next rangeQueryFunc) rangeQueryFunc {
 // wrapInstant 给即时查询加缓存，同样返回顶层副本。
 // wrapInstant adds caching to instant queries and likewise returns a top-level copy.
 func (c *promCache) wrapInstant(next instantQueryFunc) instantQueryFunc {
-	return func(ctx context.Context, base, q string, at time.Time) ([]promquery.Sample, error) {
+	return func(ctx context.Context, q string, at time.Time) ([]promquery.Sample, error) {
 		key := fmt.Sprintf("instant|%s|%d", q, at.UnixMilli())
-		value, err := c.do(key, func() (any, error) { return next(ctx, base, q, at) })
+		value, err := c.do(key, func() (any, error) { return next(ctx, q, at) })
 		samples, _ := value.([]promquery.Sample)
 		return append([]promquery.Sample(nil), samples...), err
 	}

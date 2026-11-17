@@ -86,9 +86,6 @@ observability:
   enabled: $enabled
   storage:
     dir: "$(dirname "$db_path")/tsdb"
-  remote_ingest:
-    path: "/api/v1/monitoring/alertmanager/webhook"
-    token: ""
   seatunnel_metrics:
     path: "/metrics"
     probe_timeout_seconds: 1
@@ -139,18 +136,25 @@ run_case() {
   echo "legacy discovery => HTTP $status_sd"
   [[ "$status_sd" == "404" ]] || { echo "[FAIL] legacy discovery endpoint should be gone"; exit 1; }
 
-  local webhook_payload
-  webhook_payload='{"receiver":"stx","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"SmokeAlert","severity":"warning","cluster_id":"1","cluster_name":"demo","env":"test"},"annotations":{"summary":"regression"},"startsAt":"2026-02-27T00:00:00Z","endsAt":"2026-02-27T00:05:00Z","generatorURL":"http://example.com"}]}'
+  # 外部告警接入端点已随内嵌化移除：开关两种状态都应 404，锁住“不再提供公开写入入口”的回归面。
+  # The external alert ingest endpoint was removed with the embedded stack; both modes must 404,
+  # pinning the "no public write endpoint" regression surface.
   local status_webhook
   status_webhook=$(curl -sS -o "$case_dir/webhook.json" -w '%{http_code}' -X POST "$base_url/api/v1/monitoring/alertmanager/webhook" \
     -H 'Content-Type: application/json' \
-    --data "$webhook_payload")
-  echo "external alert webhook => HTTP $status_webhook"
+    --data '{"status":"firing","alerts":[]}')
+  echo "removed alert ingest endpoint => HTTP $status_webhook"
+  [[ "$status_webhook" == "404" ]] || { echo "[FAIL] removed alert ingest endpoint should be 404 in $mode mode"; exit 1; }
 
+  # 内嵌 tsdb 只在 enabled=true 时打开存储目录；用目录存在性区分开关是否真正生效。
+  # The embedded tsdb only opens its storage dir when enabled=true; the dir's presence tells
+  # whether the switch really took effect.
+  local tsdb_dir="$case_dir/tsdb"
   if [[ "$enabled" == "true" ]]; then
-    [[ "$status_webhook" == "200" ]] || { echo "[FAIL] enabled=true but webhook is not 200"; exit 1; }
+    for _ in $(seq 1 20); do [[ -d "$tsdb_dir" ]] && break; sleep 0.5; done
+    [[ -d "$tsdb_dir" ]] || { echo "[FAIL] enabled=true but tsdb dir was not created"; tail -n 40 "$log_file"; exit 1; }
   else
-    [[ "$status_webhook" == "404" ]] || { echo "[FAIL] enabled=false but webhook is not 404"; exit 1; }
+    [[ ! -d "$tsdb_dir" ]] || { echo "[FAIL] enabled=false but tsdb dir exists"; exit 1; }
   fi
 
   kill "$pid" >/dev/null 2>&1 || true

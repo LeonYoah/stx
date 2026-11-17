@@ -238,7 +238,7 @@ func (s *Service) dispatchManagedRemoteAlertPolicyDelivery(
 	if delivery == nil {
 		delivery = &NotificationDelivery{
 			AlertID:      sourceKey,
-			SourceType:   string(AlertSourceTypeRemoteAlertmanager),
+			SourceType:   string(AlertSourceTypeMetric),
 			SourceKey:    sourceKey,
 			PolicyID:     policy.ID,
 			ClusterID:    strings.TrimSpace(record.ClusterID),
@@ -363,7 +363,7 @@ func buildManagedRemoteAlertPolicyPayload(
 	labels := parseRemoteAlertLabels(record)
 	annotations := parseRemoteAlertAnnotations(record)
 	alert := map[string]interface{}{
-		"source_type":  AlertSourceTypeRemoteAlertmanager,
+		"source_type":  AlertSourceTypeMetric,
 		"source_key":   buildRemoteAlertSourceKey(record.Fingerprint, record.StartsAt),
 		"event_type":   eventType,
 		"status":       strings.ToLower(string(eventType)),

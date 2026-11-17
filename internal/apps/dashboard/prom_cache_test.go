@@ -54,7 +54,7 @@ func TestPromCache_CoalescesConcurrentIdenticalQueries(t *testing.T) {
 	cache := newPromCache(clock.Now)
 	var calls atomic.Int32
 	release := make(chan struct{})
-	query := cache.wrapInstant(func(ctx context.Context, base, q string, at time.Time) ([]promquery.Sample, error) {
+	query := cache.wrapInstant(func(ctx context.Context, q string, at time.Time) ([]promquery.Sample, error) {
 		calls.Add(1)
 		<-release
 		return []promquery.Sample{{Value: 1}, {Value: 3}, {Value: 2}}, nil
@@ -67,7 +67,7 @@ func TestPromCache_CoalescesConcurrentIdenticalQueries(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			out, err := query(context.Background(), "embedded", "up", at)
+			out, err := query(context.Background(), "up", at)
 			require.NoError(t, err)
 			// 调用方就地排序不能影响其他人拿到的结果。
 			// In-place sorting by one caller must not affect what others receive.
@@ -85,10 +85,10 @@ func TestPromCache_CoalescesConcurrentIdenticalQueries(t *testing.T) {
 
 	// TTL 内再次请求走缓存；过期后重新查询。
 	// Within the TTL the cache answers; after expiry the query runs again.
-	_, _ = query(context.Background(), "embedded", "up", at)
+	_, _ = query(context.Background(), "up", at)
 	require.Equal(t, int32(1), calls.Load())
 	clock.Advance(promCacheTTL)
-	_, _ = query(context.Background(), "embedded", "up", at)
+	_, _ = query(context.Background(), "up", at)
 	require.Equal(t, int32(2), calls.Load())
 }
 
@@ -98,7 +98,7 @@ func TestPromCache_ErrorsUseShorterTTLAndCancellationIsNotCached(t *testing.T) {
 	var calls atomic.Int32
 	// 查询按顺序调用，用普通变量控制返回的错误。/ Queries run sequentially, so a plain variable drives the error.
 	fail := errors.New("boom")
-	query := cache.wrapRange(func(ctx context.Context, base, q string, start, end time.Time, step int) ([]promquery.Series, error) {
+	query := cache.wrapRange(func(ctx context.Context, q string, start, end time.Time, step int) ([]promquery.Series, error) {
 		calls.Add(1)
 		if fail != nil {
 			return nil, fail
@@ -107,23 +107,23 @@ func TestPromCache_ErrorsUseShorterTTLAndCancellationIsNotCached(t *testing.T) {
 	})
 	start, end := clock.Now().Add(-time.Hour), clock.Now()
 
-	_, err := query(context.Background(), "embedded", "q", start, end, 60)
+	_, err := query(context.Background(), "q", start, end, 60)
 	require.Error(t, err)
-	_, err = query(context.Background(), "embedded", "q", start, end, 60)
+	_, err = query(context.Background(), "q", start, end, 60)
 	require.Error(t, err)
 	require.Equal(t, int32(1), calls.Load())
 
 	clock.Advance(promCacheErrTTL)
-	_, err = query(context.Background(), "embedded", "q", start, end, 60)
+	_, err = query(context.Background(), "q", start, end, 60)
 	require.Error(t, err)
 	require.Equal(t, int32(2), calls.Load())
 
 	// 调用方取消导致的错误不进缓存。
 	// Errors caused by caller cancellation are not cached.
 	fail = context.Canceled
-	_, _ = query(context.Background(), "embedded", "q2", start, end, 60)
+	_, _ = query(context.Background(), "q2", start, end, 60)
 	fail = nil
-	out, err := query(context.Background(), "embedded", "q2", start, end, 60)
+	out, err := query(context.Background(), "q2", start, end, 60)
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 }

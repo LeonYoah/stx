@@ -59,7 +59,7 @@ func newTestVolumeService(queries *[]string, ats *[]int64, samples func(q string
 	// Fixed now = 2026-11-16 10:00 UTC (default display tz Asia/Shanghai = 18:00 same day).
 	svc.now = func() time.Time { return time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC) }
 	svc.oldestSample = func() (time.Time, bool) { return time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC), true }
-	svc.instantQuery = func(_ context.Context, _, q string, at time.Time) ([]promquery.Sample, error) {
+	svc.instantQuery = func(_ context.Context, q string, at time.Time) ([]promquery.Sample, error) {
 		recordQuery(queries, q)
 		if ats != nil {
 			queryMu.Lock()

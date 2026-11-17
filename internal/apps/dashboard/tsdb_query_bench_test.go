@@ -222,7 +222,7 @@ func BenchmarkTSDBRangeHeapExpr(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		series, err := promquery.Range(ctx, "embedded", expr, start, end, 15)
+		series, err := promquery.Range(ctx, expr, start, end, 15)
 		if err != nil {
 			b.Fatal(err)
 		}

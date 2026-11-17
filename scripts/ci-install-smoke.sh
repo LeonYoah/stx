@@ -121,13 +121,23 @@ case "$mode" in
       exit \$fail"
     ;;
   systemd)
+    # 解压目录放到 /var/tmp，避开 systemd-tmpfiles-setup 开机清空 /tmp。
+    # Extract under /var/tmp so systemd-tmpfiles-setup cannot wipe the work dir at boot.
+    install_cmd="$install_cmd --work-dir /var/tmp"
     $DOCKER run -d --name "$name" --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
       -e TAG="$tag" -e WANT_SHA="$want_sha" -v "$ROOT_DIR:/src:ro" -v "$work/out:/bundle:ro" "$image" \
       bash -c "$prep; touch /tmp/prep-done; exec /sbin/init" >/dev/null
     for _ in $(seq 1 100); do
       $DOCKER exec "$name" test -d /run/systemd/system 2>/dev/null && break; sleep 3
     done
-    $DOCKER exec -e TAG="$tag" -e WANT_SHA="$want_sha" "$name" bash -c "
+    # /run/systemd/system 出现时 tmpfiles-setup 可能还没跑完；等它结束再装。
+    # /run/systemd/system can exist before tmpfiles-setup finishes; wait before installing.
+    for _ in $(seq 1 50); do
+      st="$($DOCKER exec "$name" systemctl is-active systemd-tmpfiles-setup 2>/dev/null || true)"
+      [[ "$st" == active || "$st" == failed ]] && break
+      sleep 1
+    done
+    $DOCKER exec -e TAG="$tag" -e WANT_SHA="$want_sha" -e TMPDIR=/var/tmp "$name" bash -c "
       $inner
       check 'python3 is NOT installed' '! command -v python3 >/dev/null'
       check 'systemd is PID1' '[[ -d /run/systemd/system ]]'

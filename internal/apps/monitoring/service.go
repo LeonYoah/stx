@@ -523,7 +523,24 @@ func (s *Service) embeddedTSDBComponent(obsCfg config.ObservabilityConfig) *Inte
 	}
 	if !component.Healthy {
 		component.Error = "monitoring storage is not running (open failed or not started yet)"
+		return component
 	}
+	// 就绪时附带存储快照：head 序列、块字节、最早样本、compaction 失败次数（AC2）。
+	// When ready, attach the storage snapshot: head series, block bytes, oldest sample,
+	// compaction failures (AC2). CLI `stx monitoring integration status` already dumps Meta.
+	if status, ok := embedts.GetStorageStatus(); ok {
+		component.Meta["head_series"] = strconv.FormatUint(status.HeadSeries, 10)
+		component.Meta["head_stale_series"] = strconv.FormatUint(status.HeadStaleSeries, 10)
+		component.Meta["head_bytes"] = strconv.FormatInt(status.HeadBytes, 10)
+		component.Meta["blocks_bytes"] = strconv.FormatInt(status.BlocksBytes, 10)
+		component.Meta["compactions_failed"] = strconv.FormatFloat(status.CompactionsFailed, 'f', -1, 64)
+		component.Meta["size_retentions"] = strconv.FormatFloat(status.SizeRetentions, 'f', -1, 64)
+		if status.HasOldest {
+			component.Meta["oldest_sample_ms"] = strconv.FormatInt(status.OldestSampleMs, 10)
+		}
+	}
+	component.Meta["max_samples"] = strconv.FormatInt(obsCfg.MaxSamples, 10)
+	component.Meta["sample_limit"] = strconv.FormatInt(obsCfg.SampleLimit, 10)
 	return component
 }
 

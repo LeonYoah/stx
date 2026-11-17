@@ -338,6 +338,80 @@ func TestStartScraper_NotReady(t *testing.T) {
 	require.ErrorIs(t, err, errScraperNotReady)
 }
 
+func TestScraper_EmptyTargetsStillSelfScrapes(t *testing.T) {
+	ctx := context.Background()
+	require.NoError(t, Start(ctx, testOptions(t)))
+	t.Cleanup(func() { _ = Close() })
+
+	s := newTestScraper(staticProvider(nil))
+	s.refreshTargets(ctx)
+	s.scrapeRound(ctx)
+	s.scrapeRound(ctx)
+
+	vec := instantVector(t, ctx, `prometheus_tsdb_head_series{job="stx_embedded"}`, time.Now().Add(5*time.Millisecond))
+	require.NotEmpty(t, vec)
+	require.Greater(t, vec[0].F, 0.0)
+}
+
+func TestScraper_SampleLimitDropsOneTargetKeepsOther(t *testing.T) {
+	ctx := context.Background()
+	require.NoError(t, Start(ctx, testOptions(t)))
+	t.Cleanup(func() { _ = Close() })
+
+	okBody := `# TYPE node_state gauge
+node_state 1
+`
+	fatBody := `# TYPE a gauge
+a 1
+# TYPE b gauge
+b 2
+# TYPE c gauge
+c 3
+`
+	okStatus, fatStatus := 200, 200
+	okServer := expositionServer(t, &okBody, &okStatus)
+	defer okServer.Close()
+	fatServer := expositionServer(t, &fatBody, &fatStatus)
+	defer fatServer.Close()
+
+	okTarget := ScrapeTarget{
+		URL:    okServer.URL + "/metrics",
+		Labels: map[string]string{"job": "seatunnel_engine_http", "instance": "10.0.0.8:5801"},
+	}
+	fatTarget := ScrapeTarget{
+		URL:    fatServer.URL + "/metrics",
+		Labels: map[string]string{"job": "seatunnel_engine_http", "instance": "10.0.0.9:5801"},
+	}
+	s := newTestScraper(staticProvider([]ScrapeTarget{okTarget, fatTarget}))
+	s.opts.SampleLimit = 2
+	s.refreshTargets(ctx)
+	s.scrapeRound(ctx)
+
+	now := time.Now().Add(5 * time.Millisecond)
+	okUp := instantVector(t, ctx, `up{instance="10.0.0.8:5801"}`, now)
+	require.Len(t, okUp, 1)
+	require.Equal(t, 1.0, okUp[0].F)
+	okMetric := instantVector(t, ctx, `node_state{instance="10.0.0.8:5801"}`, now)
+	require.Len(t, okMetric, 1)
+
+	fatUp := instantVector(t, ctx, `up{instance="10.0.0.9:5801"}`, now)
+	require.Len(t, fatUp, 1)
+	require.Equal(t, 0.0, fatUp[0].F)
+	fatMetric := instantVector(t, ctx, `a{instance="10.0.0.9:5801"}`, now)
+	require.Empty(t, fatMetric)
+
+	states := s.targetStates()
+	require.Len(t, states, 2)
+	var fatState TargetState
+	for _, state := range states {
+		if state.URL == fatTarget.URL {
+			fatState = state
+		}
+	}
+	require.False(t, fatState.Healthy)
+	require.Contains(t, fatState.LastError, errSampleLimitMsg)
+}
+
 func TestScrapeOptionsFromObservability(t *testing.T) {
 	// 空配置走默认 15s/30s。
 	// Empty config falls back to 15s/30s.
@@ -345,6 +419,7 @@ func TestScrapeOptionsFromObservability(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, DefaultScrapeInterval, opts.Interval)
 	require.Equal(t, DefaultTargetRefreshInterval, opts.RefreshInterval)
+	require.Equal(t, DefaultSampleLimit, opts.SampleLimit)
 	require.Equal(t, 10*time.Second, opts.scrapeTimeout())
 
 	opts, err = ScrapeOptionsFromObservability(configObservability("5s"))

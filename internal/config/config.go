@@ -332,11 +332,15 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 	if strings.TrimSpace(c.Observability.QueryTimeout) == "" {
 		c.Observability.QueryTimeout = "8s"
 	}
-	// 与 Prometheus 默认 query.max-samples 一致；0 视为未配置，负值交给校验拒绝。
-	// Same as the Prometheus default query.max-samples; 0 is treated as unset while
+	// 8G 部署机上收紧后的单次查询上限（约 160MB）；0 视为未配置，负值交给校验拒绝。
+	// Tightened per-query cap for 8G hosts (~160MB); 0 is treated as unset while
 	// explicit negatives are rejected by validation.
 	if c.Observability.MaxSamples == 0 {
-		c.Observability.MaxSamples = 50000000
+		c.Observability.MaxSamples = 10000000
+	}
+	// 每目标抓取样本上限；0 视为未配置。 / Per-target scrape sample cap; 0 means unset.
+	if c.Observability.SampleLimit == 0 {
+		c.Observability.SampleLimit = 50000
 	}
 }
 
@@ -376,6 +380,9 @@ func validateConfig(c *configModel) error {
 	}
 	if c.Observability.MaxSamples <= 0 {
 		return fmt.Errorf("observability.max_samples must be > 0")
+	}
+	if c.Observability.SampleLimit < 0 {
+		return fmt.Errorf("observability.sample_limit must be >= 0")
 	}
 	return nil
 }

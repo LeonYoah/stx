@@ -172,7 +172,7 @@ func (s *Service) dispatchRemoteAlertDelivery(ctx context.Context, record *Remot
 	if delivery == nil {
 		delivery = &NotificationDelivery{
 			AlertID:      sourceKey,
-			SourceType:   string(AlertSourceTypeRemoteAlertmanager),
+			SourceType:   string(AlertSourceTypeMetric),
 			SourceKey:    sourceKey,
 			ClusterID:    strings.TrimSpace(record.ClusterID),
 			ClusterName:  strings.TrimSpace(record.ClusterName),
@@ -190,7 +190,7 @@ func (s *Service) dispatchRemoteAlertDelivery(ctx context.Context, record *Remot
 		if NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) == NotificationDeliveryStatusSent {
 			return nil
 		}
-		delivery.SourceType = string(AlertSourceTypeRemoteAlertmanager)
+		delivery.SourceType = string(AlertSourceTypeMetric)
 		delivery.ClusterID = strings.TrimSpace(record.ClusterID)
 		delivery.ClusterName = strings.TrimSpace(record.ClusterName)
 		delivery.AlertName = strings.TrimSpace(record.AlertName)
@@ -339,7 +339,7 @@ func buildRemoteAlertPayload(channel *NotificationChannel, record *RemoteAlertRe
 			"title":   title,
 			"message": message,
 			"alert": map[string]interface{}{
-				"source_type":  AlertSourceTypeRemoteAlertmanager,
+				"source_type":  AlertSourceTypeMetric,
 				"source_key":   buildRemoteAlertSourceKey(record.Fingerprint, record.StartsAt),
 				"event_type":   eventType,
 				"status":       strings.ToLower(status),
@@ -531,7 +531,7 @@ func matchRemoteAlertRoute(route *NotificationRoute, record *RemoteAlertRecord) 
 	if route == nil || record == nil || !route.Enabled {
 		return false
 	}
-	if sourceType := strings.TrimSpace(route.SourceType); sourceType != "" && !strings.EqualFold(sourceType, string(AlertSourceTypeRemoteAlertmanager)) {
+	if sourceType := strings.TrimSpace(route.SourceType); sourceType != "" && !strings.EqualFold(sourceType, string(AlertSourceTypeMetric)) {
 		return false
 	}
 	if clusterID := strings.TrimSpace(route.ClusterID); clusterID != "" && !strings.EqualFold(clusterID, strings.TrimSpace(record.ClusterID)) {

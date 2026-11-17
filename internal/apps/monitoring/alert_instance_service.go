@@ -30,8 +30,26 @@ import (
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
+// alertStoreKind 是告警的存储种类，只由告警 ID 前缀决定，仅用于内部分发
+// （确认 / 静默 / 关闭 / 退避重试查表），不对外暴露。
+// alertStoreKind is where an alert is stored, derived from the alert ID prefix;
+// used only for internal dispatch (ack / silence / close / retry lookups) and never exposed.
+type alertStoreKind string
+
+const (
+	// alertStoreLocalEvent 对应 local:event:<id>。
+	// alertStoreLocalEvent matches local:event:<id>.
+	alertStoreLocalEvent alertStoreKind = "local_event"
+	// alertStoreMetricRecord 对应 remote:<fingerprint>:<startsAt>。
+	// alertStoreMetricRecord matches remote:<fingerprint>:<startsAt>.
+	alertStoreMetricRecord alertStoreKind = "metric_record"
+	// alertStoreSyncEpisode 对应 sync:episode:<id>。
+	// alertStoreSyncEpisode matches sync:episode:<id>.
+	alertStoreSyncEpisode alertStoreKind = "sync_episode"
+)
+
 type parsedAlertSourceKey struct {
-	SourceType  AlertSourceType
+	Kind        alertStoreKind
 	SourceKey   string
 	EventID     uint
 	Fingerprint string
@@ -61,9 +79,14 @@ func (s *Service) ListAlertInstances(ctx context.Context, filter *AlertInstanceF
 	now := timex.Now()
 	items := make([]*AlertInstance, 0, 32)
 
-	includeLocal := filter.SourceType == "" || filter.SourceType == AlertSourceTypeLocalProcessEvent
-	includeRemote := filter.SourceType == "" || filter.SourceType == AlertSourceTypeRemoteAlertmanager
-	includeSync := filter.SourceType == "" || filter.SourceType == AlertSourceTypeSync
+	// 类别按规则归属判定：platform_health 同时包含本地事件与集群级作业阶段，
+	// job 只含任务级作业阶段；sync 阶段在 buildSyncAlertInstances 内再按类别过滤。
+	// Category follows rule ownership: platform_health covers both local events and
+	// cluster-level sync episodes, job covers task-level episodes only; sync episodes
+	// are filtered again by category inside buildSyncAlertInstances.
+	includeLocal := filter.SourceType == "" || filter.SourceType == AlertSourceTypePlatformHealth
+	includeRemote := filter.SourceType == "" || filter.SourceType == AlertSourceTypeMetric
+	includeSync := filter.SourceType == "" || filter.SourceType == AlertSourceTypePlatformHealth || filter.SourceType == AlertSourceTypeJob
 
 	if includeLocal {
 		localItems, err := s.buildLocalAlertInstances(ctx, filter, now)
@@ -179,8 +202,8 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 	}
 
 	now := timex.Now()
-	switch parsed.SourceType {
-	case AlertSourceTypeLocalProcessEvent:
+	switch parsed.Kind {
+	case alertStoreLocalEvent:
 		event, err := s.monitorService.GetEvent(ctx, parsed.EventID)
 		if err != nil {
 			if errors.Is(err, monitor.ErrEventNotFound) {
@@ -203,7 +226,7 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 			return nil, err
 		}
 		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeRemoteAlertmanager:
+	case alertStoreMetricRecord:
 		record, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, parsed.Fingerprint, parsed.StartsAt)
 		if err != nil {
 			return nil, err
@@ -212,7 +235,7 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 			return nil, ErrAlertInstanceNotFound
 		}
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeRemoteAlertmanager,
+			SourceType:     AlertSourceTypeMetric,
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      strings.TrimSpace(record.ClusterID),
 			HandlingStatus: AlertHandlingStatusAcknowledged,
@@ -226,13 +249,13 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 			return nil, err
 		}
 		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeSync:
-		clusterID, err := s.syncAlertEpisodeClusterID(ctx, parsed.EpisodeID)
+	case alertStoreSyncEpisode:
+		clusterID, ruleKey, err := s.syncAlertEpisodeClusterRule(ctx, parsed.EpisodeID)
 		if err != nil {
 			return nil, err
 		}
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeSync,
+			SourceType:     syncEpisodeCategory(ruleKey),
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      clusterID,
 			HandlingStatus: AlertHandlingStatusAcknowledged,
@@ -278,8 +301,8 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 	}
 
 	silencedUntil := timex.Now().Add(time.Duration(durationMinutes) * time.Minute)
-	switch parsed.SourceType {
-	case AlertSourceTypeLocalProcessEvent:
+	switch parsed.Kind {
+	case alertStoreLocalEvent:
 		event, err := s.monitorService.GetEvent(ctx, parsed.EventID)
 		if err != nil {
 			if errors.Is(err, monitor.ErrEventNotFound) {
@@ -302,7 +325,7 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 			return nil, err
 		}
 		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeRemoteAlertmanager:
+	case alertStoreMetricRecord:
 		record, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, parsed.Fingerprint, parsed.StartsAt)
 		if err != nil {
 			return nil, err
@@ -311,7 +334,7 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 			return nil, ErrAlertInstanceNotFound
 		}
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeRemoteAlertmanager,
+			SourceType:     AlertSourceTypeMetric,
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      strings.TrimSpace(record.ClusterID),
 			HandlingStatus: AlertHandlingStatusSilenced,
@@ -323,13 +346,13 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 			return nil, err
 		}
 		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeSync:
-		clusterID, err := s.syncAlertEpisodeClusterID(ctx, parsed.EpisodeID)
+	case alertStoreSyncEpisode:
+		clusterID, ruleKey, err := s.syncAlertEpisodeClusterRule(ctx, parsed.EpisodeID)
 		if err != nil {
 			return nil, err
 		}
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeSync,
+			SourceType:     syncEpisodeCategory(ruleKey),
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      clusterID,
 			HandlingStatus: AlertHandlingStatusSilenced,
@@ -373,8 +396,8 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 	}
 
 	now := timex.Now()
-	switch parsed.SourceType {
-	case AlertSourceTypeLocalProcessEvent:
+	switch parsed.Kind {
+	case alertStoreLocalEvent:
 		if s.monitorService == nil {
 			return nil, ErrAlertInstanceNotFound
 		}
@@ -390,7 +413,7 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 		}
 
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeLocalProcessEvent,
+			SourceType:     AlertSourceTypePlatformHealth,
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      strconv.FormatUint(uint64(event.ClusterID), 10),
 			HandlingStatus: AlertHandlingStatusClosed,
@@ -402,7 +425,7 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 			return nil, err
 		}
 		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeRemoteAlertmanager:
+	case alertStoreMetricRecord:
 		record, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, parsed.Fingerprint, parsed.StartsAt)
 		if err != nil {
 			return nil, err
@@ -412,7 +435,7 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 		}
 
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeRemoteAlertmanager,
+			SourceType:     AlertSourceTypeMetric,
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      strings.TrimSpace(record.ClusterID),
 			HandlingStatus: AlertHandlingStatusClosed,
@@ -424,15 +447,15 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 			return nil, err
 		}
 		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeSync:
+	case alertStoreSyncEpisode:
 		// 关闭作用于整个阶段：之后不再提醒；同一个键再出问题时开新阶段。
 		// Closing applies to the whole episode: no more reminders, and the next problem on the key opens a new one.
-		clusterID, err := s.syncAlertEpisodeClusterID(ctx, parsed.EpisodeID)
+		clusterID, ruleKey, err := s.syncAlertEpisodeClusterRule(ctx, parsed.EpisodeID)
 		if err != nil {
 			return nil, err
 		}
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeSync,
+			SourceType:     syncEpisodeCategory(ruleKey),
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      clusterID,
 			HandlingStatus: AlertHandlingStatusClosed,
@@ -540,7 +563,7 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 
 		item := &AlertInstance{
 			AlertID:         sourceKey,
-			SourceType:      AlertSourceTypeLocalProcessEvent,
+			SourceType:      AlertSourceTypePlatformHealth,
 			ClusterID:       strconv.FormatUint(uint64(row.ClusterID), 10),
 			ClusterName:     strings.TrimSpace(row.ClusterName),
 			Severity:        rule.Severity,
@@ -675,7 +698,7 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 
 		item := &AlertInstance{
 			AlertID:         sourceKey,
-			SourceType:      AlertSourceTypeRemoteAlertmanager,
+			SourceType:      AlertSourceTypeMetric,
 			ClusterID:       strings.TrimSpace(row.ClusterID),
 			ClusterName:     strings.TrimSpace(row.ClusterName),
 			Severity:        AlertSeverity(strings.TrimSpace(row.Severity)),
@@ -760,7 +783,7 @@ func (s *Service) persistLocalAlertHandlingState(
 	}
 
 	state := &AlertState{
-		SourceType:     AlertSourceTypeLocalProcessEvent,
+		SourceType:     AlertSourceTypePlatformHealth,
 		SourceKey:      buildLocalAlertSourceKey(event.ID),
 		ClusterID:      strconv.FormatUint(uint64(event.ClusterID), 10),
 		HandlingStatus: handlingStatus,
@@ -815,17 +838,17 @@ func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {
 			return nil, fmt.Errorf("invalid alert id")
 		}
 		return &parsedAlertSourceKey{
-			SourceType: AlertSourceTypeLocalProcessEvent,
-			SourceKey:  sourceKey,
-			EventID:    uint(eventID),
+			Kind:      alertStoreLocalEvent,
+			SourceKey: sourceKey,
+			EventID:   uint(eventID),
 		}, nil
 	}
 
 	if episodeID, ok := parseSyncAlertSourceKey(parts); ok {
 		return &parsedAlertSourceKey{
-			SourceType: AlertSourceTypeSync,
-			SourceKey:  sourceKey,
-			EpisodeID:  episodeID,
+			Kind:      alertStoreSyncEpisode,
+			SourceKey: sourceKey,
+			EpisodeID: episodeID,
 		}, nil
 	}
 
@@ -835,7 +858,7 @@ func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {
 			return nil, fmt.Errorf("invalid alert id")
 		}
 		return &parsedAlertSourceKey{
-			SourceType:  AlertSourceTypeRemoteAlertmanager,
+			Kind:        alertStoreMetricRecord,
 			SourceKey:   sourceKey,
 			Fingerprint: parts[1],
 			StartsAt:    startsAt,
@@ -917,7 +940,7 @@ func alertStateFromLegacyState(sourceKey string, legacy *AlertEventState) *Alert
 		handlingStatus = AlertHandlingStatusSilenced
 	}
 	return &AlertState{
-		SourceType:     AlertSourceTypeLocalProcessEvent,
+		SourceType:     AlertSourceTypePlatformHealth,
 		SourceKey:      sourceKey,
 		ClusterID:      strconv.FormatUint(uint64(legacy.ClusterID), 10),
 		HandlingStatus: handlingStatus,

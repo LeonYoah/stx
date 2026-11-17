@@ -51,7 +51,7 @@ func TestService_ListAlertInstances_usesDisplayStatusAndCloseFlow(t *testing.T) 
 	}
 
 	alerts, err := service.ListAlertInstances(ctx, &AlertInstanceFilter{
-		SourceType: AlertSourceTypeRemoteAlertmanager,
+		SourceType: AlertSourceTypeMetric,
 	})
 	if err != nil {
 		t.Fatalf("ListAlertInstances returned error: %v", err)
@@ -78,7 +78,7 @@ func TestService_ListAlertInstances_usesDisplayStatusAndCloseFlow(t *testing.T) 
 	}
 
 	alerts, err = service.ListAlertInstances(ctx, &AlertInstanceFilter{
-		SourceType: AlertSourceTypeRemoteAlertmanager,
+		SourceType: AlertSourceTypeMetric,
 	})
 	if err != nil {
 		t.Fatalf("ListAlertInstances after close returned error: %v", err)
@@ -97,7 +97,7 @@ func TestService_ListAlertInstances_usesDisplayStatusAndCloseFlow(t *testing.T) 
 	}
 
 	filtered, err := service.ListAlertInstances(ctx, &AlertInstanceFilter{
-		SourceType: AlertSourceTypeRemoteAlertmanager,
+		SourceType: AlertSourceTypeMetric,
 		Status:     AlertDisplayStatusClosed,
 	})
 	if err != nil {

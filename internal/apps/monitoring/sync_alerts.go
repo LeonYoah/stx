@@ -808,7 +808,8 @@ func buildSyncAlertMessage(episode *SyncAlertEpisode, policy *AlertPolicy, event
 		return renderAlertMessageHTML(title, severity, resolveLocalAlertMessageVisual(eventType), fields, note)
 	}
 	return &alertMessage{
-		SourceType:      AlertSourceTypeSync,
+		SourceType:      syncEpisodeCategory(snapshot.RuleKey),
+		Kind:            alertStoreSyncEpisode,
 		ClusterID:       strconv.FormatUint(uint64(snapshot.ClusterID), 10),
 		ClusterName:     snapshot.ClusterName,
 		AlertName:       strings.TrimSpace(firstNonEmpty(policy.Name, syncAlertRuleName(snapshot.RuleKey))),
@@ -862,7 +863,7 @@ func renderAlertMessageText(title string, fields []localAlertMessageField) strin
 // buildSyncAlertWebhookPayload returns the structured alert object sent to webhooks.
 func buildSyncAlertWebhookPayload(episode *SyncAlertEpisode, policy *AlertPolicy, eventType NotificationDeliveryEventType, link string, reminder bool) map[string]interface{} {
 	alert := map[string]interface{}{
-		"source_type":      AlertSourceTypeSync,
+		"source_type":      syncEpisodeCategory(episode.RuleKey),
 		"source_key":       buildSyncAlertSourceKey(episode.ID),
 		"status":           strings.ToLower(string(eventType)),
 		"scope":            episode.Scope,

@@ -173,23 +173,25 @@ const (
 	AlertStatusSilenced AlertStatus = "silenced"
 )
 
-// AlertSourceType represents where one unified alert comes from.
-// AlertSourceType 表示统一告警的来源类型。
+// AlertSourceType is the public alert category, decided by which rule fired rather than
+// which table stores the alert. The internal storage kind (alert ID prefix local: / remote:
+// / sync:) is a separate concern used only for dispatching ack/silence/close and retries.
+// AlertSourceType 是告警类别（对外语义），按规则归属判定，与存储表无关；内部的存储种类
+// （告警 ID 前缀 local: / remote: / sync:）只用于确认 / 静默 / 关闭与重试的分发。
 type AlertSourceType string
 
 const (
-	// AlertSourceTypeLocalProcessEvent indicates a locally detected process event.
-	// AlertSourceTypeLocalProcessEvent 表示本地进程事件告警。
-	AlertSourceTypeLocalProcessEvent AlertSourceType = "local_process_event"
-	// AlertSourceTypeRemoteAlertmanager 表示经统一告警记录链路落库的告警，现由内嵌指标评估器产生；
-	// 枚举值沿用旧 Alertmanager 回流时代的串值以保持历史数据与前端筛选兼容。
-	// AlertSourceTypeRemoteAlertmanager marks alerts persisted through the unified alert-record
-	// pipeline, now produced by the embedded metric evaluator; the enum keeps its legacy
-	// Alertmanager-era value for history data and frontend filtering compatibility.
-	AlertSourceTypeRemoteAlertmanager AlertSourceType = "remote_alertmanager"
-	// AlertSourceTypeSync 表示数据同步作业告警阶段（monitoring_sync_alert_episodes）。
-	// AlertSourceTypeSync indicates a sync job alert episode (monitoring_sync_alert_episodes).
-	AlertSourceTypeSync AlertSourceType = "sync"
+	// AlertSourceTypePlatformHealth 表示平台健康告警：节点 / 进程 / 集群事件，以及集群级作业规则
+	// （如作业状态获取失败、事件通道降级）。
+	// AlertSourceTypePlatformHealth marks platform health alerts: node / process / cluster events
+	// plus cluster-level job rules (e.g. job status unavailable, event channel degraded).
+	AlertSourceTypePlatformHealth AlertSourceType = "platform_health"
+	// AlertSourceTypeMetric 表示指标告警：内嵌指标评估器按指标模板产生。
+	// AlertSourceTypeMetric marks metric alerts produced by the embedded metric evaluator.
+	AlertSourceTypeMetric AlertSourceType = "metric"
+	// AlertSourceTypeJob 表示作业告警：同步任务级规则，在任务设置里配置。
+	// AlertSourceTypeJob marks job alerts from task-level sync rules configured per task.
+	AlertSourceTypeJob AlertSourceType = "job"
 )
 
 // AlertLifecycleStatus represents the source alert lifecycle.
@@ -1213,7 +1215,7 @@ func (r *UpsertNotificationRouteRequest) Validate() error {
 	}
 	if r.SourceType != "" {
 		switch AlertSourceType(strings.TrimSpace(r.SourceType)) {
-		case AlertSourceTypeLocalProcessEvent, AlertSourceTypeRemoteAlertmanager:
+		case AlertSourceTypePlatformHealth, AlertSourceTypeMetric, AlertSourceTypeJob:
 		default:
 			return fmt.Errorf("invalid source_type")
 		}

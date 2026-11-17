@@ -108,7 +108,7 @@ func TestService_IngestRemoteAlertRecord_dispatchesAndDeduplicatesRemoteNotifica
 	route := &NotificationRoute{
 		Name:               "remote critical",
 		Enabled:            true,
-		SourceType:         string(AlertSourceTypeRemoteAlertmanager),
+		SourceType:         string(AlertSourceTypeMetric),
 		Severity:           "critical",
 		ChannelID:          channel.ID,
 		SendResolved:       false,
@@ -271,7 +271,7 @@ func TestService_IngestRemoteAlertRecord_skipsMutedAcknowledgedRemoteAlert(t *te
 	route := &NotificationRoute{
 		Name:               "remote all",
 		Enabled:            true,
-		SourceType:         string(AlertSourceTypeRemoteAlertmanager),
+		SourceType:         string(AlertSourceTypeMetric),
 		ChannelID:          channel.ID,
 		SendResolved:       true,
 		MuteIfAcknowledged: true,
@@ -284,7 +284,7 @@ func TestService_IngestRemoteAlertRecord_skipsMutedAcknowledgedRemoteAlert(t *te
 	startsAt := time.Date(2026, 3, 8, 11, 0, 0, 0, time.UTC)
 	sourceKey := buildRemoteAlertSourceKey("fp-ack", startsAt.Unix())
 	if err := repo.SaveAlertState(ctx, &AlertState{
-		SourceType:     AlertSourceTypeRemoteAlertmanager,
+		SourceType:     AlertSourceTypeMetric,
 		SourceKey:      sourceKey,
 		ClusterID:      "6",
 		HandlingStatus: AlertHandlingStatusAcknowledged,
@@ -516,7 +516,7 @@ func TestService_ListNotificationDeliveries_returnsFilteredHistory(t *testing.T)
 	deliveries := []*NotificationDelivery{
 		{
 			AlertID:      "remote:fp-a:1",
-			SourceType:   string(AlertSourceTypeRemoteAlertmanager),
+			SourceType:   string(AlertSourceTypeMetric),
 			SourceKey:    "remote:fp-a:1",
 			ClusterID:    "6",
 			ClusterName:  "alpha",
@@ -532,7 +532,7 @@ func TestService_ListNotificationDeliveries_returnsFilteredHistory(t *testing.T)
 		},
 		{
 			AlertID:      "remote:fp-b:2",
-			SourceType:   string(AlertSourceTypeRemoteAlertmanager),
+			SourceType:   string(AlertSourceTypeMetric),
 			SourceKey:    "remote:fp-b:2",
 			ClusterID:    "7",
 			ClusterName:  "beta",

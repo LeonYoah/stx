@@ -25,7 +25,14 @@ import (
 )
 
 func TestJobGuardProcAttrCanStart(t *testing.T) {
-	command := exec.Command("/bin/true")
+	// 不写死 /bin/true：新版 macOS 的 /bin 已不带该二进制，路径因平台而异。
+	// Do not hardcode /bin/true: recent macOS releases no longer ship it in /bin,
+	// and the location differs across platforms.
+	truePath, err := exec.LookPath("true")
+	if err != nil {
+		t.Skipf("true command not found on PATH: %v", err)
+	}
+	command := exec.Command(truePath)
 	command.SysProcAttr = jobGuardSysProcAttr()
 	if err := command.Run(); err != nil {
 		t.Fatalf("setsid guard process should start: %v", err)

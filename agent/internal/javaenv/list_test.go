@@ -75,7 +75,7 @@ func TestFromProcessUsesExecutableHome(t *testing.T) {
 // TestHomeFromBinStripsJRE 覆盖 jre 子目录回退到上级 JDK。
 // TestHomeFromBinStripsJRE covers falling back from a jre subdirectory to the parent JDK.
 func TestHomeFromBinStripsJRE(t *testing.T) {
-	root := t.TempDir()
+	root := resolvedTempDir(t)
 	jdk := filepath.Join(root, "jdk8")
 	mustFakeJDK(t, jdk)
 	jreBin := filepath.Join(jdk, "jre", "bin")

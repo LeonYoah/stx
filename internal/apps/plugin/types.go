@@ -204,6 +204,9 @@ type InstalledPlugin struct {
 	// NodeStatuses holds per-node states for partial installs (persisted as JSON).
 	NodeStatuses     []PluginNodeInstallResult `gorm:"-" json:"node_statuses,omitempty"`
 	NodeStatusesJSON string                    `gorm:"column:node_statuses;type:text" json:"-"`
+	// Bundled 表示该连接器来自安装包自带，不是控制面额外安装，列表展示但不提供卸载。
+	// Bundled means the connector ships with the package, not a Control Plane extra install; listed but not uninstallable.
+	Bundled bool `gorm:"-" json:"bundled"`
 }
 
 // BeforeSave 序列化节点状态与选中画像。

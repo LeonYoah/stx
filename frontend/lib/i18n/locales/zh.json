@@ -2114,6 +2114,7 @@
     "enableError": "启用插件失败",
     "disableError": "禁用插件失败",
     "uninstallPlugin": "卸载插件",
+    "bundled": "安装包自带",
     "uninstallConfirm": "确定要卸载插件 {name} 吗？此操作将从集群的所有节点上移除此插件。",
     "uninstallError": "卸载插件失败",
     "installPlugin": "安装插件",

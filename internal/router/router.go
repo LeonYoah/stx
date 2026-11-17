@@ -536,6 +536,7 @@ func Serve() {
 				monitoringRouter.POST("/alert-instances/:id/close", monitoringHandler.CloseAlertInstance)
 				monitoringRouter.POST("/alerts/:eventId/ack", monitoringHandler.AcknowledgeAlert)
 				monitoringRouter.POST("/alerts/:eventId/silence", monitoringHandler.SilenceAlert)
+				monitoringRouter.POST("/alerts/:eventId/close", monitoringHandler.CloseAlert)
 				monitoringRouter.GET("/clusters/:id/rules", monitoringHandler.ListClusterRules)
 				monitoringRouter.PUT("/clusters/:id/rules/:ruleId", monitoringHandler.UpdateClusterRule)
 				monitoringRouter.GET("/integration/status", monitoringHandler.GetIntegrationStatus)
@@ -1696,22 +1697,38 @@ func (a *pluginAgentCommandSenderAdapter) SendCommand(ctx context.Context, agent
 	// Use longer timeout for plugin transfer (5 minutes)
 	// 插件传输使用更长的超时时间（5 分钟）
 	timeout := 5 * time.Minute
-	if commandType == "install_plugin" {
+	skipAudit := false
+	switch commandType {
+	case "install_plugin":
 		timeout = 2 * time.Minute
+	case "list_plugins":
+		// 读 connectors 目录是高频只读操作，8s 超时且不写审计，避免打开插件页拖垮审计表。
+		// Listing connectors is a frequent read; 8s timeout and no audit so opening the plugin page does not flood audit rows.
+		timeout = 8 * time.Second
+		skipAudit = true
 	}
 
-	// 插件命令复用公共 Agent 命令审计，发送失败也会保留一条失败记录。
-	// Plugin commands reuse common Agent command auditing so dispatch failures remain visible.
-	auditSender := &agentCommandSenderAdapter{manager: a.manager, auditRepo: a.auditRepo}
 	startedAt := time.Now()
 	commandID := uuid.NewString()
-	auditSender.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
-	resp, err := a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
+	var resp *pb.CommandResponse
+	var err error
+	if skipAudit {
+		resp, err = a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
+	} else {
+		// 插件命令复用公共 Agent 命令审计，发送失败也会保留一条失败记录。
+		// Plugin commands reuse common Agent command auditing so dispatch failures remain visible.
+		auditSender := &agentCommandSenderAdapter{manager: a.manager, auditRepo: a.auditRepo}
+		auditSender.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
+		resp, err = a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
+		if err != nil {
+			auditSender.recordFailedCommandLog(ctx, commandID, err)
+			return false, "", err
+		}
+		auditSender.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
+	}
 	if err != nil {
-		auditSender.recordFailedCommandLog(ctx, commandID, err)
 		return false, "", err
 	}
-	auditSender.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
 
 	// For transfer_plugin command, RUNNING status means chunk received successfully
 	// 对于 transfer_plugin 命令，RUNNING 状态表示块接收成功

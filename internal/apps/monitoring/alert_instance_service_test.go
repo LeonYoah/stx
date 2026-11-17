@@ -144,3 +144,21 @@ func TestService_CloseAlertInstance_allowsFiringAlert(t *testing.T) {
 		t.Fatalf("expected close metadata, got %+v", action)
 	}
 }
+
+func TestParseAlertSourceKeyAcceptsNumericEventID(t *testing.T) {
+	parsed, err := parseAlertSourceKey("9")
+	if err != nil {
+		t.Fatalf("parse numeric alert id: %v", err)
+	}
+	if parsed.SourceType != AlertSourceTypeLocalProcessEvent || parsed.EventID != 9 || parsed.SourceKey != "local:event:9" {
+		t.Fatalf("parsed = %+v, want local:event:9", parsed)
+	}
+
+	canonical, err := parseAlertSourceKey("local:event:9")
+	if err != nil {
+		t.Fatalf("parse canonical alert id: %v", err)
+	}
+	if canonical.SourceKey != "local:event:9" || canonical.EventID != 9 {
+		t.Fatalf("canonical = %+v", canonical)
+	}
+}

@@ -411,7 +411,7 @@ func maybeEmitJobMetricsLog(events *clioutput.EventWriter, operationID, requestI
 	if strings.TrimSpace(block) == "" {
 		return lastEmit, lastBlock
 	}
-	if strings.TrimSpace(block) == strings.TrimSpace(lastBlock) {
+	if jobMetricsFingerprint(block) == jobMetricsFingerprint(lastBlock) {
 		return lastEmit, lastBlock
 	}
 	emitNormalizedLogChunk(events, operationID, requestID, job.ID, "", block)
@@ -425,6 +425,19 @@ func maybeEmitJobMetricsLog(events *clioutput.EventWriter, operationID, requestI
 		Message:     "metrics snapshot",
 	})
 	return now, block
+}
+
+func jobMetricsFingerprint(block string) string {
+	var builder strings.Builder
+	for _, line := range strings.Split(block, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "time:") {
+			continue
+		}
+		builder.WriteString(trimmed)
+		builder.WriteByte('\n')
+	}
+	return builder.String()
 }
 
 func formatCLIJobMetricsBlock(preview map[string]interface{}, at time.Time, final bool) string {

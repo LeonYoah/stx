@@ -290,6 +290,9 @@ type AlertInstanceFilter struct {
 	EndTime         *time.Time           `json:"end_time"`
 	Page            int                  `json:"page"`
 	PageSize        int                  `json:"page_size"`
+	// Unbounded 为 true 时列出全部匹配记录（集群健康 KPI），不受告警中心默认 500 条上限限制。
+	// Unbounded lists every match (cluster-health KPIs) and ignores the alert-center default 500-row cap.
+	Unbounded bool `json:"-"`
 }
 
 // AlertInstanceStats summarizes unified alert counts.

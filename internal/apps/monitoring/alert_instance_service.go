@@ -486,6 +486,11 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 		return nil, err
 	}
 
+	recoveryIndex, err := s.loadLocalRecoveryIndex(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+
 	ruleCache := make(map[uint]map[string]*AlertRule)
 	items := make([]*AlertInstance, 0, len(rows))
 	for _, row := range rows {
@@ -516,7 +521,7 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 			state = alertStateFromLegacyState(sourceKey, legacyStateMap[row.ID])
 		}
 
-		lifecycleStatus, resolvedAt, err := s.resolveLocalAlertLifecycle(ctx, row)
+		lifecycleStatus, resolvedAt, err := s.resolveLocalAlertLifecycle(ctx, row, recoveryIndex)
 		if err != nil {
 			return nil, err
 		}
@@ -569,7 +574,7 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 	return items, nil
 }
 
-func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEventSource) (AlertLifecycleStatus, *time.Time, error) {
+func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEventSource, recoveryIndex *localRecoveryIndex) (AlertLifecycleStatus, *time.Time, error) {
 	if row == nil {
 		return AlertLifecycleStatusFiring, nil, nil
 	}
@@ -577,13 +582,24 @@ func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEven
 		resolvedAt := row.CreatedAt.UTC()
 		return AlertLifecycleStatusResolved, &resolvedAt, nil
 	}
-	if s.monitorService == nil {
+	if s.monitorService == nil && recoveryIndex == nil {
 		return AlertLifecycleStatusFiring, nil, nil
+	}
+
+	lookup := func(types []monitor.ProcessEventType) (bool, *monitor.ProcessEvent, error) {
+		if recoveryIndex != nil {
+			event := recoveryIndex.firstAfter(row.NodeID, row.CreatedAt, types)
+			if event == nil {
+				return false, nil, nil
+			}
+			return true, event, nil
+		}
+		return s.monitorService.HasNodeEventAfter(ctx, row.NodeID, row.CreatedAt, types)
 	}
 
 	switch row.EventType {
 	case monitor.EventTypeNodeOffline:
-		recovered, recoveryEvent, err := s.monitorService.HasNodeEventAfter(ctx, row.NodeID, row.CreatedAt, []monitor.ProcessEventType{
+		recovered, recoveryEvent, err := lookup([]monitor.ProcessEventType{
 			monitor.EventTypeNodeRecovered,
 		})
 		if err != nil {
@@ -598,7 +614,7 @@ func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEven
 	case monitor.EventTypeCrashed,
 		monitor.EventTypeRestartFailed,
 		monitor.EventTypeRestartLimitReached:
-		recovered, recoveryEvent, err := s.monitorService.HasNodeEventAfter(ctx, row.NodeID, row.CreatedAt, []monitor.ProcessEventType{
+		recovered, recoveryEvent, err := lookup([]monitor.ProcessEventType{
 			monitor.EventTypeStarted,
 			monitor.EventTypeRestarted,
 			monitor.EventTypeNodeRecovered,
@@ -615,6 +631,69 @@ func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEven
 	default:
 		return AlertLifecycleStatusFiring, nil, nil
 	}
+}
+
+// localRecoveryIndex 按节点缓存恢复类事件，供一次列表内判定生命周期，避免逐条查库。
+// localRecoveryIndex caches recovery events per node so one list can resolve lifecycles without per-row queries.
+type localRecoveryIndex struct {
+	byNode map[uint][]monitor.ProcessEvent
+}
+
+func (idx *localRecoveryIndex) firstAfter(nodeID uint, after time.Time, types []monitor.ProcessEventType) *monitor.ProcessEvent {
+	if idx == nil {
+		return nil
+	}
+	allowed := make(map[monitor.ProcessEventType]struct{}, len(types))
+	for _, eventType := range types {
+		allowed[eventType] = struct{}{}
+	}
+	for i := range idx.byNode[nodeID] {
+		event := &idx.byNode[nodeID][i]
+		if !event.CreatedAt.UTC().After(timex.Bound(after)) {
+			continue
+		}
+		if _, ok := allowed[event.EventType]; ok {
+			return event
+		}
+	}
+	return nil
+}
+
+func (s *Service) loadLocalRecoveryIndex(ctx context.Context, rows []*AlertEventSource) (*localRecoveryIndex, error) {
+	if s.monitorService == nil || len(rows) == 0 {
+		return &localRecoveryIndex{byNode: map[uint][]monitor.ProcessEvent{}}, nil
+	}
+	nodeIDs := make([]uint, 0, len(rows))
+	seen := make(map[uint]struct{}, len(rows))
+	var minCreated time.Time
+	for _, row := range rows {
+		if row == nil || row.NodeID == 0 {
+			continue
+		}
+		if _, ok := seen[row.NodeID]; !ok {
+			seen[row.NodeID] = struct{}{}
+			nodeIDs = append(nodeIDs, row.NodeID)
+		}
+		if minCreated.IsZero() || row.CreatedAt.Before(minCreated) {
+			minCreated = row.CreatedAt
+		}
+	}
+	if len(nodeIDs) == 0 {
+		return &localRecoveryIndex{byNode: map[uint][]monitor.ProcessEvent{}}, nil
+	}
+	events, err := s.monitorService.ListNodeEventsAfter(ctx, nodeIDs, minCreated, []monitor.ProcessEventType{
+		monitor.EventTypeStarted,
+		monitor.EventTypeRestarted,
+		monitor.EventTypeNodeRecovered,
+	})
+	if err != nil {
+		return nil, err
+	}
+	index := &localRecoveryIndex{byNode: make(map[uint][]monitor.ProcessEvent, len(nodeIDs))}
+	for _, event := range events {
+		index.byNode[event.NodeID] = append(index.byNode[event.NodeID], event)
+	}
+	return index, nil
 }
 
 func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertInstanceFilter, now time.Time) ([]*AlertInstance, error) {
@@ -804,7 +883,13 @@ func buildRemoteAlertSourceKey(fingerprint string, startsAt int64) string {
 }
 
 func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {
-	parts := strings.Split(strings.TrimSpace(sourceKey), ":")
+	sourceKey = strings.TrimSpace(sourceKey)
+	// 兼容列表 ID 为 local:event:N，而旧 ack/silence 路径只传数字事件 ID。
+	// Accept list IDs of local:event:N and the older ack/silence path that only sent a numeric event ID.
+	if eventID, err := strconv.ParseUint(sourceKey, 10, 32); err == nil && eventID > 0 {
+		sourceKey = buildLocalAlertSourceKey(uint(eventID))
+	}
+	parts := strings.Split(sourceKey, ":")
 	if len(parts) < 3 {
 		return nil, fmt.Errorf("invalid alert id")
 	}

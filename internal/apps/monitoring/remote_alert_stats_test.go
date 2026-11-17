@@ -20,6 +20,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/apps/monitor"
 )
 
 // TestClustersHealthIgnoresClosedRemoteAlerts 覆盖：告警中心已关闭的远程告警不再计入集群健康的活跃告警，
@@ -84,5 +86,76 @@ func TestClustersHealthCountsFiringSyncAlerts(t *testing.T) {
 	}
 	if len(health.Clusters) != 1 || health.Clusters[0].ActiveAlerts != 1 || health.Clusters[0].CriticalAlerts != 1 {
 		t.Fatalf("health = %+v, want active 1 critical 1 from sync_submit_failed", health.Clusters[0])
+	}
+}
+
+func TestClustersHealthCountsUnrecoveredLocalAlerts(t *testing.T) {
+	service, repo, cluster, ctx := setupMonitoringAlertPolicyService(t)
+	event := &monitor.ProcessEvent{
+		ClusterID: cluster.ID,
+		NodeID:    11,
+		EventType: monitor.EventTypeNodeOffline,
+		CreatedAt: time.Now().UTC().Add(-time.Hour),
+	}
+	if err := repo.db.Create(event).Error; err != nil {
+		t.Fatalf("create process event: %v", err)
+	}
+
+	health, err := service.GetClustersHealth(ctx)
+	if err != nil {
+		t.Fatalf("clusters health: %v", err)
+	}
+	if len(health.Clusters) != 1 || health.Clusters[0].ActiveAlerts != 1 || health.Clusters[0].CriticalAlerts != 1 {
+		t.Fatalf("health = %+v, want active 1 critical 1 for unrecovered node_offline", health.Clusters[0])
+	}
+}
+
+func TestClustersHealthUsesShortCache(t *testing.T) {
+	service, repo, cluster, ctx := setupMonitoringAlertPolicyService(t)
+	oldTTL := clustersHealthCacheTTL
+	clustersHealthCacheTTL = time.Hour
+	t.Cleanup(func() { clustersHealthCacheTTL = oldTTL })
+
+	first, err := service.GetClustersHealth(ctx)
+	if err != nil {
+		t.Fatalf("first health: %v", err)
+	}
+	if first.Clusters[0].ActiveAlerts != 0 {
+		t.Fatalf("want 0 alerts before insert, got %+v", first.Clusters[0])
+	}
+
+	episode := &SyncAlertEpisode{
+		Scope:          SyncAlertEpisodeScopeTask,
+		ClusterID:      cluster.ID,
+		TaskID:         3,
+		RuleKey:        "sync_submit_failed",
+		Status:         SyncAlertEpisodeFiring,
+		Severity:       AlertSeverityCritical,
+		ClusterName:    cluster.Name,
+		TaskName:       "cached",
+		FirstFiredAt:   time.Now().UTC(),
+		LastOccurredAt: time.Now().UTC(),
+	}
+	if err := repo.db.Create(episode).Error; err != nil {
+		t.Fatalf("create sync episode: %v", err)
+	}
+
+	cached, err := service.GetClustersHealth(ctx)
+	if err != nil {
+		t.Fatalf("cached health: %v", err)
+	}
+	if cached.Clusters[0].ActiveAlerts != 0 {
+		t.Fatalf("cached health should keep first snapshot, got %+v", cached.Clusters[0])
+	}
+
+	service.clustersHealthMu.Lock()
+	service.clustersHealthUntil = time.Now().Add(-time.Second)
+	service.clustersHealthMu.Unlock()
+	fresh, err := service.GetClustersHealth(ctx)
+	if err != nil {
+		t.Fatalf("fresh health: %v", err)
+	}
+	if fresh.Clusters[0].ActiveAlerts != 1 || fresh.Clusters[0].CriticalAlerts != 1 {
+		t.Fatalf("health after cache expiry = %+v, want active 1 critical 1", fresh.Clusters[0])
 	}
 }

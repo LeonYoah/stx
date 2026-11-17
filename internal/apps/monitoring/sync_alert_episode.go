@@ -128,6 +128,7 @@ type SyncAlertEpisodeFilter struct {
 	Since     *time.Time
 	Until     *time.Time
 	Limit     int
+	Status    SyncAlertEpisodeStatus
 }
 
 // CreateSyncAlertEpisode 新建告警阶段。
@@ -211,10 +212,6 @@ func (r *Repository) ListSyncAlertEpisodes(ctx context.Context, filter *SyncAler
 	if filter == nil {
 		filter = &SyncAlertEpisodeFilter{}
 	}
-	limit := filter.Limit
-	if limit <= 0 || limit > 1000 {
-		limit = 500
-	}
 	query := r.db.WithContext(ctx).Model(&SyncAlertEpisode{})
 	if filter.ClusterID > 0 {
 		query = query.Where("cluster_id = ?", filter.ClusterID)
@@ -222,14 +219,27 @@ func (r *Repository) ListSyncAlertEpisodes(ctx context.Context, filter *SyncAler
 	if filter.TaskID > 0 {
 		query = query.Where("task_id = ?", filter.TaskID)
 	}
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
 	if filter.Since != nil {
 		query = query.Where("last_occurred_at >= ?", filter.Since.UTC())
 	}
 	if filter.Until != nil {
 		query = query.Where("first_fired_at <= ?", filter.Until.UTC())
 	}
+	query = query.Order("id DESC")
+	// Limit < 0 表示不截断（集群健康 KPI 要数完全部 firing 阶段）。
+	// Limit < 0 means no cap (cluster-health KPIs must count every firing episode).
+	if filter.Limit >= 0 {
+		limit := filter.Limit
+		if limit == 0 || limit > 1000 {
+			limit = 500
+		}
+		query = query.Limit(limit)
+	}
 	var episodes []*SyncAlertEpisode
-	if err := query.Order("id DESC").Limit(limit).Find(&episodes).Error; err != nil {
+	if err := query.Find(&episodes).Error; err != nil {
 		return nil, err
 	}
 	return episodes, nil
@@ -281,6 +291,12 @@ func (s *Service) syncAlertEpisodeClusterID(ctx context.Context, episodeID uint)
 // as local events.
 func (s *Service) buildSyncAlertInstances(ctx context.Context, filter *AlertInstanceFilter, now time.Time) ([]*AlertInstance, error) {
 	episodeFilter := &SyncAlertEpisodeFilter{Since: filter.StartTime, Until: filter.EndTime, Limit: 500}
+	if filter.Unbounded {
+		episodeFilter.Limit = -1
+	}
+	if filter.Status == AlertDisplayStatusFiring {
+		episodeFilter.Status = SyncAlertEpisodeFiring
+	}
 	if filter.ClusterID != "" {
 		clusterID, err := strconv.ParseUint(strings.TrimSpace(filter.ClusterID), 10, 32)
 		if err != nil {

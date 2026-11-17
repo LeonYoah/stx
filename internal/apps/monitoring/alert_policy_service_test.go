@@ -59,6 +59,7 @@ func setupMonitoringAlertPolicyTestDB(t *testing.T) (*gorm.DB, func()) {
 		&AlertRule{},
 		&AlertPolicy{},
 		&AlertState{},
+		&AlertEventState{},
 		&NotificationChannel{},
 		&NotificationDelivery{},
 		&SyncAlertEpisode{},
@@ -90,6 +91,9 @@ func setupMonitoringAlertPolicyService(t *testing.T) (*Service, *Repository, *cl
 	monitorRepo := monitor.NewRepository(database)
 	monitorService := monitor.NewService(monitorRepo)
 	service := NewService(clusterService, monitorService, repo)
+	oldTTL := clustersHealthCacheTTL
+	clustersHealthCacheTTL = 0
+	t.Cleanup(func() { clustersHealthCacheTTL = oldTTL })
 	ctx := context.Background()
 
 	testCluster := &clusterapp.Cluster{

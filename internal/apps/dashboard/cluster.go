@@ -298,7 +298,7 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		{key: "up_now", instant: true, query: fmt.Sprintf(`max by (cluster_id, instance) (up{%s})`, all)},
 		{key: "heap_all", instant: true, query: fmt.Sprintf(`100 * max by (cluster_id, instance) (jvm_memory_bytes_used{%[1]s,area="heap"}) / max by (cluster_id, instance) (clamp_min(jvm_memory_bytes_max{%[1]s,area="heap"}, 1))`, all)},
 		{key: "state_now", instant: true, query: fmt.Sprintf(`min by (cluster_id, instance) (node_state{%s})`, sel)},
-		{key: "cluster_info", instant: true, query: fmt.Sprintf(`max by (cluster_id, master) (cluster_info{%s})`, sel)},
+		{key: "cluster_info", instant: true, query: fmt.Sprintf(`max by (cluster_id, instance, master) (cluster_info{%s})`, sel)},
 		{key: "cluster_safe", instant: true, query: fmt.Sprintf(`min by (cluster_id) (hazelcast_partition_isClusterSafe{%s})`, sel)},
 		{key: "deadlocked", instant: true, query: fmt.Sprintf(`max(jvm_threads_deadlocked{%s})`, sel)},
 		{key: "reject", instant: true, query: fmt.Sprintf(`sum(rate(job_thread_pool_rejection_total{%s}[5m]))`, sel)},
@@ -345,9 +345,15 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 	heap, cpu, threads, fd, uptime := instant("heap_now"), instant("cpu_now"), instant("threads_now"), instant("fd_now"), instant("uptime_now")
 	up, state := instant("up_now"), instant("state_now")
 	masters := map[string]bool{}
+	reporters := map[string]string{}
 	for _, sample := range byKey["cluster_info"].samples {
-		if master := strings.TrimSpace(sample.Metric["master"]); master != "" {
+		master := strings.TrimSpace(sample.Metric["master"])
+		instance := strings.TrimSpace(sample.Metric["instance"])
+		if master != "" {
 			masters[master] = true
+		}
+		if instance != "" {
+			reporters[instance] = master
 		}
 	}
 	ptr := func(values map[string]float64, key string) *float64 {
@@ -391,7 +397,7 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		row.HeapPercent, row.CPUCores = ptr(heap, row.Instance), ptr(cpu, row.Instance)
 		row.Threads, row.FDPercent, row.UptimeSeconds = ptr(threads, row.Instance), ptr(fd, row.Instance), ptr(uptime, row.Instance)
 		if len(masters) > 0 {
-			row.Master = flag(instanceMatchesMaster(row.Instance, row.Role, masters, portCount))
+			row.Master = flag(instanceMatchesMaster(row.Instance, masters, reporters, portCount))
 		}
 		if v, ok := up[row.Instance]; ok {
 			row.ScrapeUp = flag(v >= 1)
@@ -434,22 +440,30 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 
 // instanceMatchesMaster 判断抓取 instance 是否对应 cluster_info 的 master 标签。
 // Hazelcast 常把 master 标成 127.0.0.1:port，而 HTTP SD / Prometheus instance 是主机 IP:port。
+// 共享端口时只把上报 cluster_info 的 instance 标成 master，不再用 inventory 角色兜底。
 // instanceMatchesMaster reports whether a scrape instance is the cluster_info master label.
 // Hazelcast often labels master as 127.0.0.1:port while the HTTP SD / Prometheus instance is hostIP:port.
-func instanceMatchesMaster(instance, role string, masters map[string]bool, portCount map[string]int) bool {
+// When ports are shared, only the instance that reported cluster_info is master; inventory role is not a fallback.
+func instanceMatchesMaster(instance string, masters map[string]bool, reporters map[string]string, portCount map[string]int) bool {
 	if masters[instance] {
 		return true
 	}
+	if _, ok := reporters[instance]; ok {
+		return true
+	}
 	for master := range masters {
-		if scrapeInstanceMatchesMaster(instance, master, role, portCount) {
+		if scrapeInstanceMatchesMaster(instance, master, reporters[instance], portCount) {
 			return true
 		}
 	}
 	return false
 }
 
-func scrapeInstanceMatchesMaster(instance, master, role string, portCount map[string]int) bool {
+func scrapeInstanceMatchesMaster(instance, master, reporter string, portCount map[string]int) bool {
 	if instance == master {
+		return true
+	}
+	if reporter != "" && instance == reporter {
 		return true
 	}
 	instanceHost, instancePort, err := net.SplitHostPort(instance)
@@ -469,10 +483,7 @@ func scrapeInstanceMatchesMaster(instance, master, role string, portCount map[st
 	if !isLoopbackHost(masterHost) && !isLoopbackHost(instanceHost) {
 		return false
 	}
-	if portCount[instancePort] <= 1 {
-		return true
-	}
-	return isDashboardMasterRole(role)
+	return portCount[instancePort] <= 1
 }
 
 func sameDashboardHost(left, right string) bool {
@@ -491,11 +502,6 @@ func isLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-func isDashboardMasterRole(role string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(role))
-	return normalized == string(cluster.NodeRoleMaster) || normalized == string(cluster.NodeRoleMasterWorker) || strings.Contains(normalized, "master")
 }
 
 // mergeAvailability 合成节点可用性：抓取正常（up≥1）且节点非下线（node_state 缺失或为 1）记 1，否则 0。

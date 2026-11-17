@@ -1085,7 +1085,7 @@ fi
 if [ -z "\$JAVA_HOME" ]; then
     # 只看 JAVA_HOME 和几个固定目录；读不到的目录直接跳过，不报错。
     # Only JAVA_HOME and a few fixed directories; unreadable dirs are skipped with no error.
-    for root in /usr/lib/jvm /usr/java /opt/java /opt/jdk /Library/Java/JavaVirtualMachines; do
+    for root in /usr/lib/jvm /usr/java /opt/java /opt/jdk /usr/local/java /usr/local/jdk /Library/Java/JavaVirtualMachines; do
         if [ -x "\$root/bin/java" ]; then
             export JAVA_HOME="\$root"
             break
@@ -1101,7 +1101,7 @@ if [ -z "\$JAVA_HOME" ]; then
                 export JAVA_HOME="\$java_dir/Contents/Home"
                 break 2
             fi
-        done < <(find "\$root" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) 2>/dev/null)
+        done < <(find "\$root" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) 2>/dev/null | sort)
     done
     if [ -n "\$JAVA_HOME" ]; then
         export PATH="\$JAVA_HOME/bin:\$PATH"

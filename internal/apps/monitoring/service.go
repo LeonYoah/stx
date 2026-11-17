@@ -82,6 +82,12 @@ type Service struct {
 	// policy CRUD reads it to trigger rule-group rebuilds, and atomic.Pointer keeps that read
 	// path lock-free.
 	metricEvaluator atomic.Pointer[MetricEvaluator]
+
+	// clustersHealthCache 缓存 GetClustersHealth 结果，避免首页 KPI 每次全表扫告警。
+	// clustersHealthCache caches GetClustersHealth so the home KPIs do not rescan every alert on each request.
+	clustersHealthMu    sync.Mutex
+	clustersHealthCache *ClusterHealthData
+	clustersHealthUntil time.Time
 }
 
 // NewService creates a monitoring service.
@@ -298,128 +304,6 @@ func (s *Service) countFiringAlertsForCluster(ctx context.Context, clusterID uin
 		return 0, nil
 	}
 	return alerts.Stats.Firing, nil
-}
-
-// ListAlerts returns alert center data.
-// ListAlerts 返回告警中心数据。
-func (s *Service) ListAlerts(ctx context.Context, filter *AlertFilter) (*AlertListData, error) {
-	if s.repo == nil {
-		return nil, fmt.Errorf("monitoring repository is not configured")
-	}
-	if filter == nil {
-		filter = &AlertFilter{}
-	}
-	if filter.Status != "" && filter.Status != AlertStatusFiring && filter.Status != AlertStatusAcknowledged && filter.Status != AlertStatusSilenced {
-		return nil, fmt.Errorf("invalid alert status")
-	}
-	if filter.Page <= 0 {
-		filter.Page = 1
-	}
-	if filter.PageSize <= 0 {
-		filter.PageSize = 20
-	}
-	if filter.PageSize > 100 {
-		filter.PageSize = 100
-	}
-
-	rows, total, err := s.repo.ListCriticalEvents(ctx, &AlertEventQueryFilter{
-		ClusterID: filter.ClusterID,
-		StartTime: filter.StartTime,
-		EndTime:   filter.EndTime,
-		Page:      filter.Page,
-		PageSize:  filter.PageSize,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	eventIDs := make([]uint, 0, len(rows))
-	for _, row := range rows {
-		eventIDs = append(eventIDs, row.ID)
-	}
-	stateMap, err := s.repo.ListEventStatesByEventIDs(ctx, eventIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	result := &AlertListData{
-		GeneratedAt: timex.Now(),
-		Page:        filter.Page,
-		PageSize:    filter.PageSize,
-		Total:       total,
-		Stats:       &AlertStats{},
-		Alerts:      make([]*AlertEvent, 0, len(rows)),
-	}
-
-	ruleCache := make(map[uint]map[string]*AlertRule)
-	for _, row := range rows {
-		rules, err := s.getClusterRuleMap(ctx, row.ClusterID, ruleCache)
-		if err != nil {
-			return nil, err
-		}
-
-		ruleKey := eventTypeToRuleKey(row.EventType)
-		rule := rules[ruleKey]
-		if rule == nil {
-			rule = defaultRuleByKey(row.ClusterID, ruleKey)
-		}
-		if rule == nil || !rule.Enabled {
-			continue
-		}
-
-		state := stateMap[row.ID]
-		status := resolveAlertStatus(state, result.GeneratedAt)
-		if filter.Status != "" && status != filter.Status {
-			continue
-		}
-
-		alert := &AlertEvent{
-			AlertID:          fmt.Sprintf("event-%d", row.ID),
-			EventID:          row.ID,
-			ClusterID:        row.ClusterID,
-			ClusterName:      row.ClusterName,
-			NodeID:           row.NodeID,
-			HostID:           row.HostID,
-			Hostname:         row.Hostname,
-			IP:               row.IP,
-			EventType:        row.EventType,
-			Severity:         rule.Severity,
-			Status:           status,
-			RuleKey:          rule.RuleKey,
-			RuleName:         rule.RuleName,
-			ProcessName:      row.ProcessName,
-			PID:              row.PID,
-			Role:             row.Role,
-			Details:          row.Details,
-			CreatedAt:        row.CreatedAt,
-			LatestActionNote: "",
-		}
-		if state != nil {
-			alert.AcknowledgedBy = state.AcknowledgedBy
-			alert.AcknowledgedAt = state.AcknowledgedAt
-			alert.SilencedBy = state.SilencedBy
-			alert.SilencedUntil = state.SilencedUntil
-			alert.LatestActionNote = state.Note
-		}
-
-		result.Alerts = append(result.Alerts, alert)
-		switch status {
-		case AlertStatusAcknowledged:
-			result.Stats.Acknowledged++
-		case AlertStatusSilenced:
-			result.Stats.Silenced++
-		default:
-			result.Stats.Firing++
-		}
-	}
-
-	// 当前实现中，状态过滤在服务层执行，因此 total 以返回结果为准。
-	// Status filtering is applied in service layer, so total follows returned rows.
-	if filter.Status != "" {
-		result.Total = int64(len(result.Alerts))
-	}
-
-	return result, nil
 }
 
 // AcknowledgeAlert marks one alert event as acknowledged.

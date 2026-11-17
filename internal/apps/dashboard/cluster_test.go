@@ -131,7 +131,7 @@ func newTestClusterService(queries *[]string) *ClusterDashboardService {
 		case strings.Contains(q, "max by (cluster_id, instance) (up{"):
 			return []promquery.Sample{sample(1, "instance", "10.0.0.1:5801", "cluster_id", "1"), sample(0, "instance", "10.0.0.2:5801", "cluster_id", "1"), sample(0, "instance", "10.0.1.1:5802", "cluster_id", "2")}, nil
 		case strings.Contains(q, "cluster_info"):
-			return []promquery.Sample{sample(1, "master", "10.0.0.1:5801")}, nil
+			return []promquery.Sample{sample(1, "master", "10.0.0.1:5801", "instance", "10.0.0.1:5801")}, nil
 		case strings.Contains(q, "isClusterSafe"):
 			return []promquery.Sample{sample(1, "cluster_id", "1")}, nil
 		case strings.Contains(q, "jvm_memory_bytes_used"):
@@ -145,14 +145,17 @@ func newTestClusterService(queries *[]string) *ClusterDashboardService {
 }
 
 func TestScrapeInstanceMatchesMasterLoopback(t *testing.T) {
-	if !scrapeInstanceMatchesMaster("10.0.0.1:5801", "127.0.0.1:5801", string(cluster.NodeRoleMasterWorker), map[string]int{"5801": 1}) {
+	if !scrapeInstanceMatchesMaster("10.0.0.1:5801", "127.0.0.1:5801", "", map[string]int{"5801": 1}) {
 		t.Fatal("single-node loopback master must match host IP:port")
 	}
-	if scrapeInstanceMatchesMaster("10.0.0.2:5801", "127.0.0.1:5801", string(cluster.NodeRoleWorker), map[string]int{"5801": 2}) {
+	if scrapeInstanceMatchesMaster("10.0.0.2:5801", "127.0.0.1:5801", "", map[string]int{"5801": 2}) {
 		t.Fatal("worker sharing the port must not be marked master")
 	}
-	if !scrapeInstanceMatchesMaster("10.0.0.1:5801", "127.0.0.1:5801", string(cluster.NodeRoleMaster), map[string]int{"5801": 2}) {
-		t.Fatal("inventory master sharing the port should match loopback master")
+	if !scrapeInstanceMatchesMaster("10.0.0.1:5801", "127.0.0.1:5801", "10.0.0.1:5801", map[string]int{"5801": 2}) {
+		t.Fatal("the instance that reported cluster_info should match loopback master")
+	}
+	if scrapeInstanceMatchesMaster("10.0.0.2:5801", "127.0.0.1:5801", "10.0.0.1:5801", map[string]int{"5801": 2}) {
+		t.Fatal("master_worker inventory must not mark a worker as master")
 	}
 }
 
@@ -163,7 +166,7 @@ func TestClusterDashboardMatchesLoopbackMaster(t *testing.T) {
 	svc.instantQuery = func(_ context.Context, _, q string, _ time.Time) ([]promquery.Sample, error) {
 		recordQuery(&queries, q)
 		if strings.Contains(q, "cluster_info") {
-			return []promquery.Sample{sample(1, "master", "127.0.0.1:5801")}, nil
+			return []promquery.Sample{sample(1, "master", "127.0.0.1:5801", "instance", "10.0.0.1:5801")}, nil
 		}
 		return newTestClusterService(&queries).instantQuery(context.Background(), "", q, time.Time{})
 	}
@@ -230,10 +233,20 @@ func TestClusterDashboardCombinesInventoryAndMetrics(t *testing.T) {
 	if len(got.PartialErrors) != 1 || got.PartialErrors[0] != "gc" {
 		t.Fatalf("partial errors = %v, want only gc", got.PartialErrors)
 	}
+	sawClusterInfo := false
 	for _, q := range queries {
 		if strings.Contains(q, "seatunnel:") {
 			t.Fatalf("query %q depends on a recording rule", q)
 		}
+		if strings.Contains(q, "cluster_info") {
+			sawClusterInfo = true
+			if !strings.Contains(q, "max by (cluster_id, instance, master)") {
+				t.Fatalf("cluster_info query must keep instance: %s", q)
+			}
+		}
+	}
+	if !sawClusterInfo {
+		t.Fatal("expected a cluster_info query")
 	}
 }
 

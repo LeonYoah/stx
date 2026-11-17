@@ -115,6 +115,30 @@ func TestMaybeEmitJobMetricsLogSkipsDuplicateBlock(t *testing.T) {
 	}
 }
 
+func TestMaybeEmitJobMetricsLogIgnoresChangingTimeLine(t *testing.T) {
+	var buf bytes.Buffer
+	events := clioutput.NewEventWriter(&buf)
+	job := syncJobWaitResult{
+		ID:     1,
+		Status: "running",
+		ResultPreview: map[string]interface{}{
+			"metrics": map[string]interface{}{
+				"SourceReceivedCount": float64(9),
+				"SinkWriteCount":      float64(9),
+			},
+		},
+	}
+	first, block := maybeEmitJobMetricsLog(events, "op", "req", job, time.Time{}, "", true)
+	laterBlock := formatCLIJobMetricsBlock(job.ResultPreview, first.Add(time.Minute), true)
+	if jobMetricsFingerprint(block) != jobMetricsFingerprint(laterBlock) {
+		t.Fatalf("fingerprints should ignore time: %q vs %q", block, laterBlock)
+	}
+	_, _ = maybeEmitJobMetricsLog(events, "op", "req", job, first, block, true)
+	if strings.Count(buf.String(), `"event":"job_metrics"`) != 1 {
+		t.Fatalf("time-only change should not re-emit metrics: %s", buf.String())
+	}
+}
+
 func TestPreviewCollectURL(t *testing.T) {
 	t.Setenv("STX_SERVER", "")
 	got := previewCollectURL("https://stx.example:8443/")

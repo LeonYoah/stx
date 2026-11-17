@@ -20,13 +20,11 @@ package monitoring
 import (
 	"crypto/subtle"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -81,66 +79,32 @@ func (h *Handler) ListAlerts(c *gin.Context) {
 	h.ListAlertInstances(c)
 }
 
-// AcknowledgeAlert handles POST /api/v1/monitoring/alerts/:eventId/ack
-// AcknowledgeAlert 处理 POST /api/v1/monitoring/alerts/:eventId/ack
+// AcknowledgeAlert 处理 POST /api/v1/monitoring/alerts/:eventId/ack：与告警中心同一套实例 ID（含 local:event:N 与纯数字事件 ID）。
+// AcknowledgeAlert handles POST /api/v1/monitoring/alerts/:eventId/ack using the same instance IDs as the alert center
+// (local:event:N or a numeric event ID).
 func (h *Handler) AcknowledgeAlert(c *gin.Context) {
-	eventID, err := strconv.ParseUint(c.Param("eventId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid event id"})
-		return
-	}
-
-	req := &AcknowledgeAlertRequest{}
-	if err := c.ShouldBindJSON(req); err != nil && !errors.Is(err, io.EOF) {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
-		return
-	}
-
-	operator := "unknown"
-	if user := auth.GetUserFromContext(c); user != nil && user.Username != "" {
-		operator = user.Username
-	}
-
-	data, err := h.service.AcknowledgeAlert(c.Request.Context(), uint(eventID), operator, req.Note)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to acknowledge alert: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
+	h.withAlertInstanceID(c, c.Param("eventId"), h.AcknowledgeAlertInstance)
 }
 
-// SilenceAlert handles POST /api/v1/monitoring/alerts/:eventId/silence
-// SilenceAlert 处理 POST /api/v1/monitoring/alerts/:eventId/silence
+// SilenceAlert 处理 POST /api/v1/monitoring/alerts/:eventId/silence：ID 语义与 AcknowledgeAlert 相同。
+// SilenceAlert handles POST /api/v1/monitoring/alerts/:eventId/silence with the same ID rules as AcknowledgeAlert.
 func (h *Handler) SilenceAlert(c *gin.Context) {
-	eventID, err := strconv.ParseUint(c.Param("eventId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid event id"})
-		return
-	}
+	h.withAlertInstanceID(c, c.Param("eventId"), h.SilenceAlertInstance)
+}
 
-	req := &SilenceAlertRequest{}
-	if err := c.ShouldBindJSON(req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
-		return
-	}
-	if err := req.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
-		return
-	}
+// CloseAlert 处理 POST /api/v1/monitoring/alerts/:eventId/close：关闭与告警中心同一条实例。
+// CloseAlert handles POST /api/v1/monitoring/alerts/:eventId/close for the same instance as the alert center.
+func (h *Handler) CloseAlert(c *gin.Context) {
+	h.withAlertInstanceID(c, c.Param("eventId"), h.CloseAlertInstance)
+}
 
-	operator := "unknown"
-	if user := auth.GetUserFromContext(c); user != nil && user.Username != "" {
-		operator = user.Username
+// withAlertInstanceID 把 /alerts/:eventId 上的 ID 填进实例接口使用的 :id 参数。
+// withAlertInstanceID copies the /alerts/:eventId value into the :id param used by instance handlers.
+func (h *Handler) withAlertInstanceID(c *gin.Context, alertID string, next gin.HandlerFunc) {
+	if strings.TrimSpace(c.Param("id")) == "" {
+		c.Params = append(c.Params, gin.Param{Key: "id", Value: strings.TrimSpace(alertID)})
 	}
-
-	data, err := h.service.SilenceAlert(c.Request.Context(), uint(eventID), operator, req.DurationMinutes, req.Note)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to silence alert: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
+	next(c)
 }
 
 // ListClusterRules handles GET /api/v1/monitoring/clusters/:id/rules

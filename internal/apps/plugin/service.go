@@ -154,6 +154,20 @@ type Service struct {
 	// bundled seed load markers / 内置基线加载标记
 	seedLoadedVersions map[string]bool
 	seedLoadedMu       sync.RWMutex
+
+	// bundledConnectors 缓存各集群从节点读到的安装包自带连接器，避免每次打开插件页都打 list_plugins。
+	// bundledConnectors caches per-cluster connectors bundled in the install package so opening the plugin page does not list_plugins every time.
+	bundledConnectorsMu sync.RWMutex
+	bundledConnectors   map[uint]bundledConnectorCacheEntry
+}
+
+// bundledConnectorCacheTTL 是安装包自带连接器列表缓存时长；测试可设为 0 以关闭缓存。
+// bundledConnectorCacheTTL is the bundled-connector list cache TTL; tests may set it to 0 to disable caching.
+var bundledConnectorCacheTTL = 30 * time.Second
+
+type bundledConnectorCacheEntry struct {
+	extras []InstalledPlugin
+	until  time.Time
 }
 
 // NewService creates a new Service instance.
@@ -167,6 +181,7 @@ func NewService(repo *Repository) *Service {
 		catalogFetchFailureUntil: make(map[string]time.Time),
 		installProgress:          make(map[string]*PluginInstallStatus),
 		seedLoadedVersions:       make(map[string]bool),
+		bundledConnectors:        make(map[uint]bundledConnectorCacheEntry),
 	}
 	service.pluginFetcher = service.fetchPluginsFromDocs
 	service.officialDocFetcher = service.fetchOfficialDocMarkdown
@@ -185,6 +200,7 @@ func NewServiceWithDownloader(repo *Repository, pluginsDir string) *Service {
 		catalogFetchFailureUntil: make(map[string]time.Time),
 		installProgress:          make(map[string]*PluginInstallStatus),
 		seedLoadedVersions:       make(map[string]bool),
+		bundledConnectors:        make(map[uint]bundledConnectorCacheEntry),
 	}
 	service.pluginFetcher = service.fetchPluginsFromDocs
 	service.officialDocFetcher = service.fetchOfficialDocMarkdown
@@ -736,12 +752,8 @@ func (s *Service) dedupeInstalledPlugins(ctx context.Context, clusterID uint, pl
 // mergeBundledConnectors merges connectors already in the node's connectors directory so the list is not only
 // Control Plane extra installs.
 func (s *Service) mergeBundledConnectors(ctx context.Context, clusterID uint, plugins []InstalledPlugin) []InstalledPlugin {
-	if s.agentCommandSender == nil || s.clusterNodeGetter == nil || s.hostInfoGetter == nil {
-		return plugins
-	}
-	nodes, err := s.clusterNodeGetter.GetClusterNodes(ctx, clusterID)
-	if err != nil {
-		logger.WarnF(ctx, "[Plugin] 列出集群 %d 节点失败，跳过安装包自带连接器合并: %v / list cluster %d nodes failed, skip bundled connector merge: %v", clusterID, err, clusterID, err)
+	extras := s.cachedBundledConnectors(ctx, clusterID)
+	if len(extras) == 0 {
 		return plugins
 	}
 	seen := make(map[string]struct{}, len(plugins)*2)
@@ -753,47 +765,152 @@ func (s *Service) mergeBundledConnectors(ctx context.Context, clusterID uint, pl
 			seen[artifact] = struct{}{}
 		}
 	}
+	now := time.Now()
+	for _, extra := range extras {
+		name := strings.ToLower(strings.TrimSpace(extra.PluginName))
+		artifact := strings.ToLower(strings.TrimSpace(extra.ArtifactID))
+		if name != "" {
+			if _, ok := seen[name]; ok {
+				continue
+			}
+		}
+		if artifact != "" {
+			if _, ok := seen[artifact]; ok {
+				continue
+			}
+		}
+		if name != "" {
+			seen[name] = struct{}{}
+		}
+		if artifact != "" {
+			seen[artifact] = struct{}{}
+		}
+		item := extra
+		item.ClusterID = clusterID
+		item.Bundled = true
+		if item.InstalledAt.IsZero() {
+			item.InstalledAt = now
+		}
+		plugins = append(plugins, item)
+	}
+	return plugins
+}
+
+func (s *Service) cachedBundledConnectors(ctx context.Context, clusterID uint) []InstalledPlugin {
+	if bundledConnectorCacheTTL > 0 {
+		s.bundledConnectorsMu.RLock()
+		if entry, ok := s.bundledConnectors[clusterID]; ok && time.Now().Before(entry.until) {
+			extras := append([]InstalledPlugin(nil), entry.extras...)
+			s.bundledConnectorsMu.RUnlock()
+			return extras
+		}
+		s.bundledConnectorsMu.RUnlock()
+	}
+	extras := s.fetchBundledConnectors(ctx, clusterID)
+	if bundledConnectorCacheTTL > 0 {
+		s.bundledConnectorsMu.Lock()
+		if s.bundledConnectors == nil {
+			s.bundledConnectors = make(map[uint]bundledConnectorCacheEntry)
+		}
+		s.bundledConnectors[clusterID] = bundledConnectorCacheEntry{
+			extras: append([]InstalledPlugin(nil), extras...),
+			until:  time.Now().Add(bundledConnectorCacheTTL),
+		}
+		s.bundledConnectorsMu.Unlock()
+	}
+	return extras
+}
+
+func (s *Service) fetchBundledConnectors(ctx context.Context, clusterID uint) []InstalledPlugin {
+	if s.agentCommandSender == nil || s.clusterNodeGetter == nil || s.hostInfoGetter == nil {
+		return nil
+	}
+	nodes, err := s.clusterNodeGetter.GetClusterNodes(ctx, clusterID)
+	if err != nil {
+		logger.WarnF(ctx, "[Plugin] 列出集群 %d 节点失败，跳过安装包自带连接器合并: %v / list cluster %d nodes failed, skip bundled connector merge: %v", clusterID, err, clusterID, err)
+		return nil
+	}
+	details := s.firstNodeConnectorDetails(ctx, nodes)
+	if len(details) == 0 {
+		return nil
+	}
+	now := time.Now()
+	extras := make([]InstalledPlugin, 0, len(details))
+	seen := make(map[string]struct{}, len(details)*2)
+	for _, item := range details {
+		pluginName := pluginNameFromConnectorList(item.Name)
+		if pluginName == "" {
+			continue
+		}
+		artifactID := getArtifactIDForPath(pluginName)
+		if _, ok := seen[strings.ToLower(pluginName)]; ok {
+			continue
+		}
+		if _, ok := seen[strings.ToLower(artifactID)]; ok {
+			continue
+		}
+		seen[strings.ToLower(pluginName)] = struct{}{}
+		seen[strings.ToLower(artifactID)] = struct{}{}
+		extras = append(extras, InstalledPlugin{
+			PluginName:  pluginName,
+			ArtifactID:  artifactID,
+			Category:    PluginCategoryConnector,
+			Version:     strings.TrimSpace(item.Version),
+			Status:      PluginStatusInstalled,
+			InstallPath: strings.TrimSpace(item.ConnectorPath),
+			InstalledAt: now,
+			Bundled:     true,
+		})
+	}
+	return extras
+}
+
+func (s *Service) firstNodeConnectorDetails(ctx context.Context, nodes []ClusterNodeInfo) []struct {
+	Name          string
+	Version       string
+	ConnectorPath string
+} {
+	type outcome struct {
+		details []struct {
+			Name          string
+			Version       string
+			ConnectorPath string
+		}
+		err error
+	}
+	listCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	started := 0
+	ch := make(chan outcome, len(nodes))
 	for _, node := range nodes {
-		agentID, hostErr := s.hostInfoGetter.GetHostAgentID(ctx, node.HostID)
+		agentID, hostErr := s.hostInfoGetter.GetHostAgentID(listCtx, node.HostID)
 		if hostErr != nil || strings.TrimSpace(agentID) == "" || strings.TrimSpace(node.InstallDir) == "" {
 			continue
 		}
-		details, listErr := s.listNodeConnectorDetails(ctx, agentID, node.InstallDir)
-		if listErr != nil {
-			logger.WarnF(ctx, "[Plugin] 读取节点 %d 连接器失败: %v / list connectors on node %d failed: %v", node.NodeID, listErr, node.NodeID, listErr)
+		started++
+		go func(agentID, installDir string, nodeID uint) {
+			details, listErr := s.listNodeConnectorDetails(listCtx, agentID, installDir)
+			if listErr != nil {
+				logger.WarnF(ctx, "[Plugin] 读取节点 %d 连接器失败: %v / list connectors on node %d failed: %v", nodeID, listErr, nodeID, listErr)
+			}
+			ch <- outcome{details: details, err: listErr}
+		}(agentID, node.InstallDir, node.NodeID)
+	}
+	var first []struct {
+		Name          string
+		Version       string
+		ConnectorPath string
+	}
+	for i := 0; i < started; i++ {
+		item := <-ch
+		if item.err != nil || len(item.details) == 0 {
 			continue
 		}
-		now := time.Now()
-		for _, item := range details {
-			name := strings.TrimSpace(item.Name)
-			if name == "" {
-				continue
-			}
-			artifactID := getArtifactID(name)
-			if _, ok := seen[strings.ToLower(name)]; ok {
-				continue
-			}
-			if _, ok := seen[strings.ToLower(artifactID)]; ok {
-				continue
-			}
-			seen[strings.ToLower(name)] = struct{}{}
-			seen[strings.ToLower(artifactID)] = struct{}{}
-			plugins = append(plugins, InstalledPlugin{
-				ClusterID:   clusterID,
-				PluginName:  name,
-				ArtifactID:  artifactID,
-				Category:    PluginCategoryConnector,
-				Version:     strings.TrimSpace(item.Version),
-				Status:      PluginStatusInstalled,
-				InstallPath: strings.TrimSpace(item.ConnectorPath),
-				InstalledAt: now,
-			})
-		}
-		if len(details) > 0 {
-			break
+		if first == nil {
+			first = item.details
 		}
 	}
-	return plugins
+	return first
 }
 
 func (s *Service) reconcileInstalledPluginVersions(ctx context.Context, clusterID uint, plugins []InstalledPlugin) []InstalledPlugin {

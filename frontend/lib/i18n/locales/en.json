@@ -2114,6 +2114,7 @@
     "enableError": "Failed to enable plugin",
     "disableError": "Failed to disable plugin",
     "uninstallPlugin": "Uninstall Plugin",
+    "bundled": "Bundled",
     "uninstallConfirm": "Are you sure you want to uninstall plugin {name}? This will remove the plugin from all nodes in the cluster.",
     "uninstallError": "Failed to uninstall plugin",
     "installPlugin": "Install Plugin",

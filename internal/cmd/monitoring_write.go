@@ -64,6 +64,7 @@ func addMonitoringWriteCommands(root *cobra.Command, storeProvider authStoreProv
 	alertCommand.AddCommand(
 		newMonitoringAlertActionCommand(storeProvider, "alert", "ack"),
 		newMonitoringAlertActionCommand(storeProvider, "alert", "silence"),
+		newMonitoringAlertActionCommand(storeProvider, "alert", "close"),
 	)
 	clusterRuleCommand.AddCommand(newMonitoringRequestFileCommand(storeProvider, monitoringRequestFileCommand{
 		Use: "update <cluster-id> <rule-id>", Short: "Update a cluster alert rule", Example: "stx monitoring cluster rule update 6 1 --request-file ./rule.json --confirm",
@@ -149,7 +150,7 @@ func newMonitoringAlertActionCommand(storeProvider authStoreProvider, resource, 
 	operationID := "monitoring." + resource + "." + action
 	argument := "<id>"
 	if resource == "alert" {
-		argument = "<event-id>"
+		argument = "<alert-id>"
 	}
 	command := &cobra.Command{
 		Use: action + " " + argument, Short: strings.ToUpper(action[:1]) + action[1:] + " a monitoring " + resource,

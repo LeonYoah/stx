@@ -156,6 +156,8 @@ export interface InstalledPlugin {
   dependencies?: PluginDependency[];
   /** Per-node states for partial installs / 部分安装时的逐节点状态 */
   node_statuses?: PluginNodeInstallResult[];
+  /** Bundled with the install package; listed but not uninstallable / 安装包自带，列表展示但不可卸载 */
+  bundled?: boolean;
 }
 
 // ==================== Request Types 请求类型 ====================

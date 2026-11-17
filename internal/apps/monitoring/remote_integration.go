@@ -29,8 +29,17 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
+
+// clustersHealthCacheTTL 是集群健康 / 首页 KPI 的缓存时长；测试可设为 0 以关闭缓存。
+// clustersHealthCacheTTL is the cluster-health / home KPI cache TTL; tests may set it to 0 to disable caching.
+var clustersHealthCacheTTL = 15 * time.Second
+
+// clustersHealthAlertLookback 限制本地进程告警计入 KPI 的时间窗，避免扫全部历史事件。
+// clustersHealthAlertLookback caps how far back local process alerts count toward KPIs, avoiding a full history scan.
+const clustersHealthAlertLookback = 31 * 24 * time.Hour
 
 // HandleAlertmanagerWebhook ingests one Alertmanager webhook payload into persistent records.
 // HandleAlertmanagerWebhook 将 Alertmanager webhook 请求写入持久化告警记录。
@@ -289,6 +298,32 @@ func (s *Service) ListRemoteAlerts(ctx context.Context, filter *RemoteAlertFilte
 // GetClustersHealth returns cluster-level health summary for monitoring center.
 // GetClustersHealth 返回监控中心集群级健康摘要。
 func (s *Service) GetClustersHealth(ctx context.Context) (*ClusterHealthData, error) {
+	if clustersHealthCacheTTL > 0 {
+		s.clustersHealthMu.Lock()
+		if s.clustersHealthCache != nil && time.Now().Before(s.clustersHealthUntil) {
+			cached := s.clustersHealthCache
+			s.clustersHealthMu.Unlock()
+			return cached, nil
+		}
+		s.clustersHealthMu.Unlock()
+	}
+
+	data, err := s.loadClustersHealth(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if clustersHealthCacheTTL > 0 {
+		s.clustersHealthMu.Lock()
+		s.clustersHealthCache = data
+		s.clustersHealthUntil = time.Now().Add(clustersHealthCacheTTL)
+		s.clustersHealthMu.Unlock()
+	}
+	return data, nil
+}
+
+// loadClustersHealth 计算集群健康摘要（不读缓存）。
+// loadClustersHealth computes the cluster health summary (no cache).
+func (s *Service) loadClustersHealth(ctx context.Context) (*ClusterHealthData, error) {
 	if s.clusterService == nil {
 		return nil, fmt.Errorf("cluster service is not configured")
 	}
@@ -314,9 +349,11 @@ func (s *Service) GetClustersHealth(ctx context.Context) (*ClusterHealthData, er
 			return nil, err
 		}
 		// 集群健康 / 首页 KPI 与告警中心同一口径：远程指标告警 + 同步作业告警 + 本地进程事件。
+		// 本地/同步合并失败时降级为仅远程计数，避免整页 KPI 空白。
 		// Cluster health / home KPIs match the alert center: remote metric alerts + sync job alerts + local process events.
+		// If merging local/sync alerts fails, keep remote counts so the page still has KPIs.
 		if err := s.mergeFiringAlertInstanceStats(ctx, statsMap, now); err != nil {
-			return nil, err
+			logger.WarnF(ctx, "集群健康合并本地/同步告警失败，仅保留远程告警计数: %v / clusters health merge of local/sync alerts failed, keeping remote counts: %v", err, err)
 		}
 	}
 
@@ -457,13 +494,19 @@ func (s *Service) mergeFiringAlertInstanceStats(ctx context.Context, stats map[s
 	if stats == nil {
 		return nil
 	}
-	filter := &AlertInstanceFilter{Status: AlertDisplayStatusFiring}
-	syncItems, err := s.buildSyncAlertInstances(ctx, filter, now)
+	since := now.Add(-clustersHealthAlertLookback)
+	syncItems, err := s.buildSyncAlertInstances(ctx, &AlertInstanceFilter{
+		Status:    AlertDisplayStatusFiring,
+		Unbounded: true,
+	}, now)
 	if err != nil {
 		return err
 	}
 	addFiringAlertInstanceCounts(stats, syncItems)
-	localItems, err := s.buildLocalAlertInstances(ctx, filter, now)
+	localItems, err := s.buildLocalAlertInstances(ctx, &AlertInstanceFilter{
+		Status:    AlertDisplayStatusFiring,
+		StartTime: &since,
+	}, now)
 	if err != nil {
 		return err
 	}

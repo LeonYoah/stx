@@ -66,6 +66,18 @@ func (s *replaySender) SendCommand(_ context.Context, agentID, command string, p
 	return true, "ok", nil
 }
 
+func (s *replaySender) listPluginCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, command := range s.sent {
+		if command.command == "list_plugins" {
+			count++
+		}
+	}
+	return count
+}
+
 func (s *replaySender) transferredFiles() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -65,9 +65,9 @@ func defaultScanRoots() []string {
 	case "windows":
 		return []string{`C:\Program Files\Java`, `C:\Program Files\Eclipse Adoptium`}
 	case "darwin":
-		return []string{"/Library/Java/JavaVirtualMachines", "/opt/java", "/opt/jdk"}
+		return []string{"/Library/Java/JavaVirtualMachines", "/opt/java", "/opt/jdk", "/usr/local/java", "/usr/local/jdk"}
 	default:
-		return []string{"/usr/lib/jvm", "/usr/java", "/opt/java", "/opt/jdk"}
+		return []string{"/usr/lib/jvm", "/usr/java", "/opt/java", "/opt/jdk", "/usr/local/java", "/usr/local/jdk"}
 	}
 }
 
@@ -146,7 +146,8 @@ func List(ctx context.Context) []Candidate {
 		if home == "" {
 			return
 		}
-		if _, ok := seen[home]; ok {
+		key := canonicalJavaHome(home)
+		if _, ok := seen[key]; ok {
 			return
 		}
 		rt, err := ValidateHome(home)
@@ -154,7 +155,7 @@ func List(ctx context.Context) []Candidate {
 			return
 		}
 		version, versionStr := probeVersion(ctx, rt.JavaHome, rt.JavaBin)
-		seen[home] = struct{}{}
+		seen[key] = struct{}{}
 		out = append(out, Candidate{
 			JavaHome:      rt.JavaHome,
 			JavaBin:       rt.JavaBin,
@@ -182,6 +183,20 @@ func List(ctx context.Context) []Candidate {
 		return out[i].JavaHome < out[j].JavaHome
 	})
 	return out
+}
+
+// canonicalJavaHome 用 EvalSymlinks 去重同一 JDK 的多个路径（/usr/java/default → 真实 home）。
+// canonicalJavaHome uses EvalSymlinks to dedupe multiple paths of the same JDK (/usr/java/default → the real home).
+func canonicalJavaHome(home string) string {
+	home = strings.TrimSpace(home)
+	if home == "" {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(home)
+	if err != nil || strings.TrimSpace(resolved) == "" {
+		return home
+	}
+	return resolved
 }
 
 // FromProcess 由运行中 JVM 的可执行文件推导 JDK（读 /proc/<pid>/exe）；解析不到返回 (nil, false)（AC1f）。

@@ -63,6 +63,9 @@ func newTestPluginService(t *testing.T) (*Service, *Repository) {
 	}
 	repo := NewRepository(database)
 	service := NewService(repo)
+	oldTTL := bundledConnectorCacheTTL
+	bundledConnectorCacheTTL = 0
+	t.Cleanup(func() { bundledConnectorCacheTTL = oldTTL })
 	return service, repo
 }
 
@@ -205,6 +208,14 @@ func TestListInstalledPluginsMergesBundledConnectors(t *testing.T) {
 	if !names["jdbc"] || !names["fake"] {
 		t.Fatalf("expected bundled fake plus stored jdbc, got %+v", visible)
 	}
+	for _, plugin := range visible {
+		if plugin.PluginName == "fake" && !plugin.Bundled {
+			t.Fatalf("bundled fake must set Bundled, got %+v", plugin)
+		}
+		if plugin.PluginName == "jdbc" && plugin.Bundled {
+			t.Fatalf("stored jdbc must not be marked bundled, got %+v", plugin)
+		}
+	}
 
 	stored, err := service.ListInstalledPlugins(ctx, 1)
 	if err != nil {
@@ -214,6 +225,61 @@ func TestListInstalledPluginsMergesBundledConnectors(t *testing.T) {
 		if plugin.PluginName == "fake" {
 			t.Fatalf("upgrade/replay list must not include bundled connectors, got %+v", stored)
 		}
+	}
+}
+
+func TestPluginNameFromConnectorListMapsCdcArtifact(t *testing.T) {
+	if got := pluginNameFromConnectorList("cdc-mysql"); got != "mysql-cdc" {
+		t.Fatalf("cdc-mysql -> %q, want mysql-cdc", got)
+	}
+	if got := pluginNameFromConnectorList("mysql-cdc"); got != "mysql-cdc" {
+		t.Fatalf("mysql-cdc -> %q, want mysql-cdc", got)
+	}
+	if got := pluginNameForArtifact("connector-jdbc"); got != "jdbc" {
+		t.Fatalf("connector-jdbc -> %q, want jdbc", got)
+	}
+}
+
+func TestListVisibleInstalledPluginsMapsCdcMysql(t *testing.T) {
+	service, _ := newTestPluginService(t)
+	ctx := context.Background()
+	sender := &replaySender{nodePlugins: []map[string]string{
+		{"name": "cdc-mysql", "version": "2.3.13", "connector_path": "connectors/connector-cdc-mysql-2.3.13.jar"},
+	}}
+	service.SetClusterNodeGetter(stubPluginNodes{nodes: []ClusterNodeInfo{{NodeID: 1, HostID: 11, InstallDir: "/opt/st"}}})
+	service.SetHostInfoGetter(stubPluginHosts{agents: map[uint]string{11: "a1"}})
+	service.SetAgentCommandSender(sender)
+
+	visible, err := service.ListVisibleInstalledPlugins(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListVisibleInstalledPlugins: %v", err)
+	}
+	if len(visible) != 1 || visible[0].PluginName != "mysql-cdc" || visible[0].ArtifactID != "connector-cdc-mysql" || !visible[0].Bundled {
+		t.Fatalf("visible = %+v, want mysql-cdc bundled connector-cdc-mysql", visible)
+	}
+}
+
+func TestListVisibleInstalledPluginsCachesBundledConnectors(t *testing.T) {
+	service, _ := newTestPluginService(t)
+	oldTTL := bundledConnectorCacheTTL
+	bundledConnectorCacheTTL = time.Hour
+	t.Cleanup(func() { bundledConnectorCacheTTL = oldTTL })
+	ctx := context.Background()
+	sender := &replaySender{nodePlugins: []map[string]string{
+		{"name": "fake", "version": "2.3.13", "connector_path": "connectors/connector-fake-2.3.13.jar"},
+	}}
+	service.SetClusterNodeGetter(stubPluginNodes{nodes: []ClusterNodeInfo{{NodeID: 1, HostID: 11, InstallDir: "/opt/st"}}})
+	service.SetHostInfoGetter(stubPluginHosts{agents: map[uint]string{11: "a1"}})
+	service.SetAgentCommandSender(sender)
+
+	if _, err := service.ListVisibleInstalledPlugins(ctx, 1); err != nil {
+		t.Fatalf("first list: %v", err)
+	}
+	if _, err := service.ListVisibleInstalledPlugins(ctx, 1); err != nil {
+		t.Fatalf("second list: %v", err)
+	}
+	if got := sender.listPluginCalls(); got != 1 {
+		t.Fatalf("list_plugins calls = %d, want 1 with cache", got)
 	}
 }
 

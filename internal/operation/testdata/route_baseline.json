@@ -2,11 +2,11 @@
   "version": 1,
   "baseline_date": "2026-11-16",
   "summary": {
-    "route_count": 311,
+    "route_count": 312,
     "swagger_path_count": 130,
     "swagger_operation_count": 152,
     "swagger_documented_routes": 152,
-    "registered_operations": 278,
+    "registered_operations": 279,
     "route_exceptions": 33,
     "historical_gaps": 0
   },
@@ -1508,6 +1508,15 @@
       "source": "internal/router/router.go:538",
       "status": "operation",
       "operation_id": "monitoring.alert.silence",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/alerts/:eventId/close",
+      "source": "internal/router/router.go:539",
+      "status": "operation",
+      "operation_id": "monitoring.alert.close",
       "mode": "normal",
       "swagger": false
     },

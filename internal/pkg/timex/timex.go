@@ -164,9 +164,11 @@ func BoundAny(v interface{}) interface{} {
 }
 
 // SeatunnelLocation 返回解析 SeaTunnel 引擎/日志中无偏移时间时使用的时区：
-// 环境变量 STX_SEATUNNEL_TIMEZONE；未设置时使用进程本地时区（JVM 默认时区），而不是控制台展示时区。
+// 环境变量 STX_SEATUNNEL_TIMEZONE；未设置时使用控制面进程本地时区（time.Local）。
+// 这不是 JVM 默认时区，也不是控制台展示时区；心跳目前不上报引擎时区，要对齐需后续在心跳里带 timezone。
 // SeatunnelLocation returns the zone for naive SeaTunnel engine/log timestamps: STX_SEATUNNEL_TIMEZONE, otherwise the
-// process local zone (the JVM default), not the console display zone.
+// control-plane process local zone (time.Local). That is not the JVM default zone and not the console display zone.
+// Heartbeats do not currently report the engine timezone; aligning them needs a later heartbeat field.
 func SeatunnelLocation() *time.Location {
 	if name := strings.TrimSpace(os.Getenv("STX_SEATUNNEL_TIMEZONE")); name != "" {
 		if loc, err := time.LoadLocation(name); err == nil {

@@ -442,6 +442,12 @@ func (s *Service) HasNodeEventAfter(ctx context.Context, nodeID uint, after time
 	return s.repo.HasNodeEventAfter(ctx, nodeID, after, eventTypes)
 }
 
+// ListNodeEventsAfter 批量读取若干节点在指定时间之后的匹配事件，供告警生命周期一次判定，避免逐条 HasNodeEventAfter。
+// ListNodeEventsAfter batch-loads matching events after a time so alert lifecycle can be resolved without N+1 HasNodeEventAfter calls.
+func (s *Service) ListNodeEventsAfter(ctx context.Context, nodeIDs []uint, after time.Time, eventTypes []ProcessEventType) ([]ProcessEvent, error) {
+	return s.repo.ListNodeEventsAfter(ctx, nodeIDs, after, eventTypes)
+}
+
 // GetEventStats retrieves event statistics for a cluster.
 // GetEventStats 获取集群的事件统计。
 func (s *Service) GetEventStats(ctx context.Context, clusterID uint, since *time.Time) (map[ProcessEventType]int64, error) {

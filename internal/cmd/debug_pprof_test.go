@@ -69,6 +69,48 @@ func TestDebugPprofHeapDownload(t *testing.T) {
 	}
 }
 
+func TestDebugPprofTraceDefaultsToFiveSeconds(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDebugPprofCapability(t, writer, true)
+			return
+		}
+		if request.URL.Path != "/api/v1/debug/pprof/trace" || request.URL.Query().Get("seconds") != "5" {
+			t.Fatalf("trace default seconds incorrect: %s?%s", request.URL.Path, request.URL.RawQuery)
+		}
+		_, _ = writer.Write([]byte("trace"))
+	}))
+	defer server.Close()
+
+	outputFile := filepath.Join(t.TempDir(), "trace.out")
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runDebugPprofCommand(t, store, "debug", "pprof", "trace", "--file", outputFile)
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("trace pprof failed: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
+func TestDebugPprofCPUDefaultsToThirtySeconds(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDebugPprofCapability(t, writer, true)
+			return
+		}
+		if request.URL.Path != "/api/v1/debug/pprof/profile" || request.URL.Query().Get("seconds") != "30" {
+			t.Fatalf("cpu default seconds incorrect: %s?%s", request.URL.Path, request.URL.RawQuery)
+		}
+		_, _ = writer.Write([]byte("cpu"))
+	}))
+	defer server.Close()
+
+	outputFile := filepath.Join(t.TempDir(), "cpu.pprof")
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runDebugPprofCommand(t, store, "debug", "pprof", "cpu", "--file", outputFile)
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("cpu default pprof failed: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
 func TestDebugPprofCPUMapsToProfile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/capabilities" {

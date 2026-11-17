@@ -19,9 +19,12 @@ package debugpprof
 
 import (
 	"context"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -96,5 +99,28 @@ func TestStartLoopbackHeap(t *testing.T) {
 func TestStartDisabledIsNoop(t *testing.T) {
 	if err := Start(context.Background(), Options{Enabled: false, Addr: "127.0.0.1:1"}); err != nil {
 		t.Fatalf("disabled start: %v", err)
+	}
+}
+
+func TestStartBusyPortRecordsListenError(t *testing.T) {
+	t.Cleanup(Stop)
+	holder, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("hold port: %v", err)
+	}
+	t.Cleanup(func() { _ = holder.Close() })
+
+	startErr := Start(context.Background(), Options{Enabled: true, Addr: holder.Addr().String()})
+	if startErr == nil {
+		t.Fatal("expected listen error when port is busy")
+	}
+	if ListenAddr() != "" {
+		t.Fatalf("listen addr should stay empty after bind failure, got %q", ListenAddr())
+	}
+	if !errors.Is(startErr, ListenError()) {
+		t.Fatalf("ListenError=%v startErr=%v", ListenError(), startErr)
+	}
+	if !strings.Contains(startErr.Error(), "listen pprof") {
+		t.Fatalf("error should name the pprof listen: %v", startErr)
 	}
 }

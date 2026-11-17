@@ -68,7 +68,8 @@ func newDebugPprofCommand(storeProvider authStoreProvider) *cobra.Command {
 		Short: "Download a Go pprof profile from a remote STX server",
 		Long:  "Fetch heap, goroutine, allocs, block, mutex, cpu (profile) or trace from GET /api/v1/debug/pprof/:name. Requires admin and app.pprof.enabled. Binary goes to --file; stdout stays JSON.",
 		Example: "stx debug pprof heap --file heap.pprof\n" +
-			"stx debug pprof cpu --seconds 30 --file cpu.pprof",
+			"stx debug pprof cpu --seconds 30 --file cpu.pprof\n" +
+			"stx debug pprof trace --file trace.out",
 		Args: usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			requested := strings.ToLower(strings.TrimSpace(args[0]))
@@ -77,7 +78,7 @@ func newDebugPprofCommand(storeProvider authStoreProvider) *cobra.Command {
 				return clioutput.NewError(clioutput.CodeUsage, "unknown pprof profile "+requested, clioutput.ExitUsage, false)
 			}
 			if seconds <= 0 {
-				seconds = 30
+				seconds = defaultPprofSeconds(name)
 			}
 			client, err := clientForNamespace(storeProvider, namespace)
 			if err != nil {
@@ -134,6 +135,20 @@ func newDebugPprofCommand(storeProvider authStoreProvider) *cobra.Command {
 	}
 	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
 	command.Flags().StringVar(&outputPath, "file", "", "Destination file path")
-	command.Flags().IntVar(&seconds, "seconds", 30, "CPU profile / trace duration in seconds")
+	command.Flags().IntVar(&seconds, "seconds", 0, "CPU profile duration (default 30s) or execution-trace duration (default 5s)")
 	return command
+}
+
+const (
+	defaultCPUProfileSeconds = 30
+	defaultTraceSeconds      = 5
+)
+
+// defaultPprofSeconds 给 CPU profile 默认 30 秒，给 trace 默认 5 秒（30 秒的 trace 又大又扰进程）。
+// defaultPprofSeconds uses 30s for CPU profiles and 5s for traces (a 30s trace is large and disruptive).
+func defaultPprofSeconds(name string) int {
+	if name == "trace" {
+		return defaultTraceSeconds
+	}
+	return defaultCPUProfileSeconds
 }

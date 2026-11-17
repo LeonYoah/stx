@@ -38,8 +38,10 @@ const (
 	// DefaultAddr 是默认本机剖析地址，只绑 loopback。
 	// DefaultAddr is the default local profile address, loopback only.
 	DefaultAddr = "127.0.0.1:6060"
-	// blockProfileRate 每 1000 次阻塞事件记一次，避免默认 1 把调度打满。
-	// blockProfileRate records one of every 1000 block events so rate=1 does not saturate the scheduler.
+	// blockProfileRate 传给 runtime.SetBlockProfileRate，单位是纳秒：平均每阻塞 1µs 采样一次。
+	// 配置开启后一直生效，不是“每 1000 次事件记一次”，开销不是零。
+	// blockProfileRate is passed to runtime.SetBlockProfileRate in nanoseconds: sample once per 1µs of blocking on average.
+	// It stays on while pprof is enabled; it is not “1 in 1000 events”, and the cost is not zero.
 	blockProfileRate = 1000
 	// mutexProfileFraction 每 5 次 mutex 争用记一次。
 	// mutexProfileFraction records one of every 5 mutex contentions.
@@ -66,14 +68,23 @@ var (
 	serverMu   sync.Mutex
 	server     *http.Server
 	listenAddr string
+	listenErr  error
 )
 
-// ListenAddr 返回本机 pprof 实际监听地址；未启动时为空。
-// ListenAddr returns the local pprof bind address, or empty when it is not running.
+// ListenAddr 返回本机 pprof 实际监听地址；未启动或绑失败时为空。
+// ListenAddr returns the local pprof bind address, or empty when it is not running or bind failed.
 func ListenAddr() string {
 	serverMu.Lock()
 	defer serverMu.Unlock()
 	return listenAddr
+}
+
+// ListenError 返回最近一次本机监听失败原因；未尝试或已成功时为 nil。
+// ListenError returns the last local listen failure; nil when it was not attempted or succeeded.
+func ListenError() error {
+	serverMu.Lock()
+	defer serverMu.Unlock()
+	return listenErr
 }
 
 // NewMux 注册标准 /debug/pprof 路由，不污染 DefaultServeMux。
@@ -119,7 +130,12 @@ func Start(ctx context.Context, opts Options) error {
 	}
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
-		return fmt.Errorf("listen pprof on %s: %w", opts.Addr, err)
+		listenFail := fmt.Errorf("listen pprof on %s: %w", opts.Addr, err)
+		serverMu.Lock()
+		listenAddr = ""
+		listenErr = listenFail
+		serverMu.Unlock()
+		return listenFail
 	}
 	if host, _, splitErr := net.SplitHostPort(ln.Addr().String()); splitErr == nil && !isLoopbackHost(host) {
 		logger.WarnF(ctx, "[pprof] 监听 %s 不是 loopback，剖析端点会暴露给网卡可达的客户端 / listening on %s is not loopback; the profile endpoint is reachable beyond this host", ln.Addr().String(), ln.Addr().String())
@@ -130,6 +146,7 @@ func Start(ctx context.Context, opts Options) error {
 	previous := server
 	server = srv
 	listenAddr = actual
+	listenErr = nil
 	serverMu.Unlock()
 	if previous != nil {
 		_ = shutdownServer(previous)
@@ -152,6 +169,7 @@ func Stop() {
 	current := server
 	server = nil
 	listenAddr = ""
+	listenErr = nil
 	serverMu.Unlock()
 	if current != nil {
 		_ = shutdownServer(current)

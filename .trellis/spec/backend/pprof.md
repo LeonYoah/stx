@@ -10,13 +10,13 @@
 - 本机监听默认 `127.0.0.1:6060`，路径为标准 `/debug/pprof/`，供 `go tool pprof` 使用。
 - 管理员 API：`GET /api/v1/debug/pprof/:name`（需登录且管理员）。未开启时返回 404。
 - 操作登记 `debug.pprof.get` 必须 `AdminOnly: true`，让 `/capabilities` 对非管理员返回 `admin_required`，CLI 在下载前就拒绝。
-- CLI：`stx debug pprof <name> --file <path>`。`cpu` 映射到 `profile`。CPU / trace 用 `--seconds`（默认 30）。
+- CLI：`stx debug pprof <name> --file <path>`。`cpu` 映射到 `profile`。`--seconds`：CPU 默认 30，trace 默认 5。
 
 ## 契约
 
 - 剖析文件可能含堆上的密钥与业务数据，只给管理员，且默认不监听非 loopback。
 - CLI 成功时 stdout 仍是单个 JSON（含 `file` / `size` / `sha256`），二进制只写 `--file`。
-- 本机监听失败应阻止进程启动（显式开启却绑不上端口）。
+- 本机监听失败不得阻止进程启动：打 WARN，HTTP API 继续。管理员再拉 `/api/v1/debug/pprof/:name` 时，若 `ListenAddr()` 为空且有监听错误，返回 503 和失败原因（常见是端口被占）。`SetBlockProfileRate` 参数单位是纳秒（默认 1000 = 平均每阻塞 1µs 采样一次），配置开启后一直生效。
 - 作业趋势 `/sync/jobs/:id/timeseries` 的多条 PromQL 必须并发执行；引擎内部仍受 `maxConcurrentQueries` 排队。
 
 ## 测接口性能

@@ -692,7 +692,7 @@ var registry = append([]OperationSpec{
 		Revision:     1,
 		Input: []InputSpec{
 			{Name: "name", Location: InputPath, Required: true, Description: "Profile name: heap, goroutine, allocs, threadcreate, block, mutex, profile, trace, cmdline, symbol"},
-			{Name: "seconds", Location: InputQuery, Required: false, Description: "Duration in seconds for profile (CPU) and trace; default 30"},
+			{Name: "seconds", Location: InputQuery, Required: false, Description: "Duration in seconds for CPU profile (default 30) and trace (default 5)"},
 		},
 		Example: "stx debug pprof heap --file heap.pprof",
 		OutputExample: `{

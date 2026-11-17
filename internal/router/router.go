@@ -1251,7 +1251,9 @@ func Serve() {
 		Enabled: config.Config.App.Pprof.Enabled,
 		Addr:    config.Config.App.Pprof.Addr,
 	}); err != nil {
-		log.Fatalf("[API] 启动 pprof 失败: %v / failed to start pprof: %v\n", err, err)
+		// pprof 只是排查工具：端口被占不能拖垮主 API。管理员走 HTTP 时会看到同样的失败原因。
+		// pprof is a debug tool: a busy port must not take down the main API. The admin HTTP path reports the same reason.
+		logger.WarnF(ctx, "[API] 本机 pprof 监听失败，HTTP API 继续启动: %v / local pprof listen failed, HTTP API continues: %v", err, err)
 	}
 	defer debugpprof.Stop()
 
@@ -1269,6 +1271,12 @@ func debugPprofHandler(c *gin.Context) {
 	if config.Config == nil || !config.Config.App.Pprof.Enabled {
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error_msg": "pprof is disabled"})
 		return
+	}
+	if debugpprof.ListenAddr() == "" {
+		if err := debugpprof.ListenError(); err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error_msg": err.Error()})
+			return
+		}
 	}
 	name := strings.TrimSpace(c.Param("name"))
 	if name == "" {

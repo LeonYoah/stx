@@ -205,7 +205,7 @@ docker compose up -d
 
 中国拉镜像（华为云 SWR）：`cp .env.cn.example .env` 后 `docker compose up -d`。
 
-每个容器默认时区 `Asia/Shanghai`（`.env` 的 `TZ` 可改）；库内存储仍是 UTC。
+每个容器默认时区 `Asia/Shanghai`（`.env` 的 `TZ` 可改）。
 
 | 数据库 | 启动 |
 | --- | --- |

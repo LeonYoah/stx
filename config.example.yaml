@@ -132,8 +132,6 @@ database:
   sqlite_path: "./data/stx.db"  # SQLite 文件路径
   # 仅 MySQL：升级前 DATETIME 写入所用时区（旧版 DSN 为 loc=Local），用于一次性迁移到 UTC；留空=进程本地时区。
   # MySQL only: zone legacy DATETIME values were written in (old DSN loc=Local); used once for the UTC migration.
-  # Docker Compose 通过 STX_DATABASE_LEGACY_TIMEZONE（默认 UTC）覆盖此项，避免容器 TZ 从 UTC 改为上海后把已是 UTC 的列再减 8 小时。
-  # Compose overrides this with STX_DATABASE_LEGACY_TIMEZONE (default UTC) so changing container TZ from UTC to Shanghai does not shift already-UTC columns by -8h.
   # legacy_timezone: "Asia/Shanghai"
   # MySQL/PostgreSQL 配置（使用 sqlite 时可忽略）
   host: "127.0.0.1"

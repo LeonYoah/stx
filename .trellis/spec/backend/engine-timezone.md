@@ -18,7 +18,7 @@ SeaTunnel 引擎 REST 与日志里的时间大多**没有时区偏移**。这些
 4. 解析某个**具体节点**的诊断日志时，用该节点主机的 `hosts.timezone`（`timex.SeatunnelLocationForHost`）；主机时区为空再回退第 3 条。
 5. 仍未知时用控制面 `time.Local`。不要在升级时把缺省值悄悄改成展示时区或上海时区。
 
-旧 Agent 心跳不带 `timezone` 时字段为空。未注入 `TZ` 的容器控制面 `time.Local` 常为 UTC，相对节点 `Asia/Shanghai` 会把 `finishTime` 偏 8 小时，直到 Agent 升级上报时区，或显式设置 `STX_SEATUNNEL_TIMEZONE`。Docker Compose 每个服务默认注入 `TZ=Asia/Shanghai`（`.env` 可覆盖），因此 compose 部署下 `time.Local` 跟随 `TZ`；这仍只是第 5 条回退，不能代替心跳时区或 `STX_SEATUNNEL_TIMEZONE`。
+旧 Agent 心跳不带 `timezone` 时字段为空。未注入 `TZ` 的容器 `time.Local` 常为 UTC。Compose 默认注入 `TZ=Asia/Shanghai`，但仍只是第 5 条回退。
 
 ---
 

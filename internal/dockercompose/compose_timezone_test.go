@@ -89,9 +89,6 @@ func TestComposeTimezoneDefaults(t *testing.T) {
 		if !activeEnvLine(body, "TZ=Asia/Shanghai") {
 			t.Errorf("%s: missing active TZ=Asia/Shanghai", rel)
 		}
-		if !activeEnvLine(body, "STX_DATABASE_LEGACY_TIMEZONE=UTC") {
-			t.Errorf("%s: missing active STX_DATABASE_LEGACY_TIMEZONE=UTC", rel)
-		}
 	}
 	for _, rel := range []string{
 		".github/docker/Dockerfile.backend",
@@ -105,7 +102,7 @@ func TestComposeTimezoneDefaults(t *testing.T) {
 	}
 }
 
-const wantLegacyTZ = "${STX_DATABASE_LEGACY_TIMEZONE:-UTC}"
+const wantLegacyTZ = "UTC"
 
 func assertServiceTZ(t *testing.T, file, service string, env map[string]string) {
 	t.Helper()

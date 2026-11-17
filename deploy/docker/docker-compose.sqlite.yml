@@ -25,7 +25,5 @@ include:
 services:
   stx-backend:
     environment:
-      # TZ 由 compose.base.yml 注入；此处必须保持 mapping，改成 list 会整段替换并丢掉 TZ。
-      # TZ comes from compose.base.yml; keep this a mapping — a list would replace the block and drop TZ.
       STX_DATABASE_TYPE: sqlite
       STX_DATABASE_SQLITE_PATH: ./data/stx.db

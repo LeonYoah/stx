@@ -36,8 +36,6 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates tzdata && \
     rm -rf /var/lib/apt/lists/*
 
-# 镜像默认时区；Compose 仍会注入 TZ（可用 .env 覆盖）。
-# Image default timezone; Compose still injects TZ (overridable via .env).
 ENV TZ=Asia/Shanghai
 
 WORKDIR /opt/stx/frontend

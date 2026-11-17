@@ -78,8 +78,7 @@ $DOCKER run -d --name "$container" "${platform_args[@]}" \
   -p "127.0.0.1:${FRONTEND_PORT}:17880" \
   "$IMAGE" >/dev/null
 
-# 镜像必须自带默认时区；Compose 同样注入 TZ，裸 docker run 不能落到 UTC。
-# Image must ship a default timezone; Compose injects TZ too, so a bare docker run must not fall back to UTC.
+# 镜像默认 TZ=Asia/Shanghai。/ Image default TZ=Asia/Shanghai.
 tz="$($DOCKER exec "$container" printenv TZ 2>/dev/null || true)"
 if [[ "$tz" != "Asia/Shanghai" ]]; then
   echo "[smoke] expected TZ=Asia/Shanghai, got ${tz:-empty}" >&2

@@ -29,7 +29,7 @@ docker compose up -d
 
 库类型由对应 compose 注入 `STX_DATABASE_*`，不必改 `config.yaml` 的 database 段。
 
-每个容器都注入 `TZ`（默认 `Asia/Shanghai`，在 `.env` 修改）。这只影响容器进程本地时区（日志 / `time.Local`），**不改变**库内 UTC 存储和 `app.display_timezone`。MySQL 一次性 UTC 迁移的源时区由 `STX_DATABASE_LEGACY_TIMEZONE`（默认 `UTC`，即旧 Compose 容器的 `time.Local`）单独指定，不跟随 `TZ`。
+每个容器默认时区 `Asia/Shanghai`（`.env` 的 `TZ` 可改）。
 
 仓库内直接 `docker compose up` 时默认挂载根目录 `config.example.yaml`；发版 tar 里是它的副本 `config.yaml`。
 

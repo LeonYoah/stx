@@ -72,9 +72,12 @@ vi.mock('@/components/charts/sparkline', () => ({
     <span data-testid='sparkline'>{label}</span>
   ),
 }));
-vi.mock('../JobPreviewDrawer', () => ({
-  JobPreviewDrawer: ({job}: {job: SyncJobInstance | null}) =>
-    job ? <div data-testid='preview'>{job.id}</div> : null,
+// 完整详情弹窗由 JobDetailHost 承载；测试只关心宿主把它打开，内部页签逻辑有独立测试。
+// The full detail dialog is hosted by JobDetailHost; this suite only asserts the host opens it —
+// the dialog's own tabs are covered elsewhere.
+vi.mock('@/components/common/sync/job-table/JobDetailHost', () => ({
+  JobDetailHost: ({job, open}: {job: SyncJobInstance | null; open: boolean}) =>
+    open && job ? <div data-testid='detail-host'>{job.id}</div> : null,
 }));
 
 const job = (
@@ -292,9 +295,9 @@ describe('JobListTab', () => {
     expect(within(row).getByText('耗时 10 分')).toBeTruthy();
   });
 
-  it('opens the preview drawer on row click', async () => {
+  it('opens the full detail dialog on row click', async () => {
     renderTab();
     fireEvent.click(await screen.findByTestId('home-job-row-2'));
-    expect(screen.getByTestId('preview').textContent).toBe('2');
+    expect(screen.getByTestId('detail-host').textContent).toBe('2');
   });
 });

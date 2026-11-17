@@ -53,7 +53,6 @@ import {
   type JobRowAction,
 } from '@/components/common/sync/job-table';
 import type {JobDetailTab} from '@/components/common/sync/job-detail/types';
-import {JobPreviewDrawer} from './JobPreviewDrawer';
 import type {DashboardQuery} from './use-dashboard-query';
 
 const PAGE_SIZE = 50;
@@ -75,10 +74,11 @@ interface PendingJobConfirm {
 }
 
 /**
- * 大盘「作业」页签宿主层：URL 查询状态 ↔ JobListQuery 映射、批量确认、预览抽屉、
- * 集群名映射与行操作回调；表格与工具栏全部由 sync/job-table 呈现。
- * Dashboard jobs tab host: maps the URL query state to JobListQuery, owns the bulk / row confirm dialog, the
- * preview drawer, cluster name mapping and row action callbacks; the table and toolbar live in sync/job-table.
+ * 大盘「作业」页签宿主层：URL 查询状态 ↔ JobListQuery 映射、批量确认、
+ * 集群名映射与行操作回调；表格与工具栏全部由 sync/job-table 呈现，详情由 JobDetailHost 就地打开。
+ * Dashboard jobs tab host: maps the URL query state to JobListQuery, owns the bulk / row confirm dialog,
+ * cluster name mapping and row action callbacks; the table and toolbar live in sync/job-table and the
+ * in-place detail is hosted by JobDetailHost.
  */
 export function JobListTab({
   query,
@@ -97,10 +97,9 @@ export function JobListTab({
   const {user: currentUser} = useAuth();
   const initiatorUsers = useNotifiableUsers();
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [preview, setPreview] = useState<SyncJobInstance | null>(null);
-  // 完整详情弹窗：行操作 / 抽屉「完整详情」/ 多表徽章共用同一入口与工作台同款 JobDetailDialog。
-  // Full detail dialog: row actions, the drawer's "full details", and the multi-table badge all open the
-  // same workbench JobDetailDialog.
+  // 完整详情弹窗：点击行 / 行操作「详情」/ 多表徽章都就地打开工作台同款 JobDetailDialog（不再有轻量预览抽屉）。
+  // Full detail dialog: row click, the row "details" action, and the multi-table badge all open the same
+  // workbench JobDetailDialog in place (no lightweight preview drawer).
   const [detail, setDetail] = useState<{
     job: SyncJobInstance;
     tab: JobDetailTab;
@@ -282,7 +281,7 @@ export function JobListTab({
         currentUserId={currentUser?.id}
         currentUsername={currentUser?.username || currentUser?.nickname}
         selection={{ids: selected, onChange: setSelected}}
-        onRowActivate={setPreview}
+        onRowActivate={(job) => setDetail({job, tab: 'topology'})}
         onOpenDetail={(job, tab) => setDetail({job, tab: tab ?? 'topology'})}
         onAction={(action, job) =>
           setConfirm({action, jobs: [job], bulk: false})
@@ -315,18 +314,6 @@ export function JobListTab({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <JobPreviewDrawer
-        job={preview}
-        clusterName={
-          preview?.cluster_id ? clusterNames.get(preview.cluster_id) : undefined
-        }
-        onOpenChange={(open) => !open && setPreview(null)}
-        onOpenFull={(job) => {
-          setPreview(null);
-          setDetail({job, tab: 'topology'});
-        }}
-      />
 
       <JobDetailHost
         job={detail?.job ?? null}

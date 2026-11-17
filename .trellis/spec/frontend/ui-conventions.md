@@ -359,7 +359,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - **时间选择器**：头部「分段控件 + `ArcDateRangePicker withTime`」，与作业详情趋势一致；自定义窗口写 URL `start` / `end`（毫秒），此时分段控件无选中，点预设清掉；前端截取 31 天；自定义窗口固定，`usePolledResource` 间隔传 0 不轮询。
 - **beUI 进入视口才播放生长动画**：整页截图时未滚到的图表是空的，验证前先滚一遍页面。vendored `sankey-chart/plot.tsx` 的几何（连线 d / opacity、节点 y / height、标签 y）同时作为静态属性传入，因为 motion 没写入时整图会空白或标签错位（STX 本地适配，文件头已注明）。
 - **趋势空态按原因区分**：`TrendEmptyState` 接收接口的 `reason`：`observability_disabled` 显示「内置监控未开启」，说明需管理员在服务端配置中开启（前端没有开关页，不放跳转入口）；其余（`prometheus_unavailable` / `prometheus_error`）显示「监控数据暂不可用，稍后自动重试」。作业详情趋势与预览抽屉同样区分。
-- **用户可见文案不出现底层实现名**：监控是产品内置能力，界面、提示、错误信息不写 Prometheus / Alertmanager / Grafana / PromQL，用「内置监控」「监控指标」「指标告警」等产品语言；接口里的兼容性枚举值（`source:"prometheus"`、`reason:"prometheus_unavailable"`、`source_type:"remote_alertmanager"`）只在代码里判断，显示时映射为文案。唯一例外：SeaTunnel 自己的配置键（如 `metrics.prometheus.enabled`）原样显示。
+- **用户可见文案不出现底层实现名**：监控是产品内置能力，界面、提示、错误信息不写 Prometheus / Alertmanager / Grafana / PromQL，用「内置监控」「监控指标」「指标告警」等产品语言；接口里的实现细节枚举值（`source:"prometheus"`、`reason:"prometheus_unavailable"`）只在代码里判断，显示时映射为文案。告警类别 `source_type` 只有 `platform_health` / `metric` / `job` 三个产品值，直接按「平台健康 / 指标告警 / 作业告警」翻译；判断 sync 阶段一律走 `alert_id` 的 `sync:` 前缀（`isSyncEpisode`），不要按类别猜。唯一例外：SeaTunnel 自己的配置键（如 `metrics.prometheus.enabled`）原样显示。
 - **时间与数字**：时间一律用 `lib/timezone`（`formatDateTimeMinuteTz` / `formatTimeTz`），跟随用户设置的显示时区，不直接用 next-intl `format.dateTime`。
 - **轮询**：`usePolledResource` 30 秒一次，页面不可见暂停、回到可见立即刷新；刷新失败保留旧数据。
 - **beUI 引入**：sparkline 依赖链放在 `components/charts/`，其 `lib/i18n.tsx` 改名为 `components/charts/beui-i18n.tsx`，`lib/utils`、`lib/ease` 用仓库已有版本；Arc 组件保持上游原格式（不跑 prettier），两类文件都保留 MIT 头并登记 `licenses/third_party_mit_files.txt`。

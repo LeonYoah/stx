@@ -197,6 +197,8 @@ docker compose up -d
 
 China images (Huawei SWR): `cp .env.cn.example .env` then `docker compose up -d`.
 
+Every container defaults to `TZ=Asia/Shanghai` (override in `.env`).
+
 | DB | Start |
 | --- | --- |
 | MySQL (default) | `docker compose up -d` |

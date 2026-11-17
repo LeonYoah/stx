@@ -33,6 +33,28 @@ type legacyTimeRow struct {
 	CreatedAt  time.Time
 }
 
+// TestMySQLUTCPlan_UTCIsNoop 锁住 Compose 钉死 UTC 源时区时的行为：偏移 +00:00，迁移应为空操作。
+// TestMySQLUTCPlan_UTCIsNoop pins Compose's UTC source zone: +00:00 offset means the migration is a no-op.
+func TestMySQLUTCPlan_UTCIsNoop(t *testing.T) {
+	plan := planMySQLUTC(nil, time.UTC)
+	if plan.mode != mysqlUTCModeFixed || plan.offset != "+00:00" {
+		t.Fatalf("UTC plan = %+v, want fixed +00:00", plan)
+	}
+}
+
+// TestMySQLUTCPlan_ShanghaiShiftsEightHours 说明若迁移误跟 Asia/Shanghai，会按 +08:00 换算，把已是 UTC 的 DATETIME 减 8 小时。
+// TestMySQLUTCPlan_ShanghaiShiftsEightHours shows a Shanghai source zone uses +08:00 and would shift already-UTC DATETIME by -8h.
+func TestMySQLUTCPlan_ShanghaiShiftsEightHours(t *testing.T) {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planMySQLUTC(nil, loc)
+	if plan.mode != mysqlUTCModeFixed || plan.offset != "+08:00" {
+		t.Fatalf("Asia/Shanghai plan = %+v, want fixed +08:00", plan)
+	}
+}
+
 func TestMigrateTimeColumnsToUTC_SQLite(t *testing.T) {
 	database, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	if err != nil {

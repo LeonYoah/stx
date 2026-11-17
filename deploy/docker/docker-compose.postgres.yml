@@ -28,6 +28,7 @@ services:
     container_name: stx-postgres
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       POSTGRES_DB: ${POSTGRES_DB:-stx}
       POSTGRES_USER: ${POSTGRES_USER:-stx}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stx}

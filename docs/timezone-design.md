@@ -14,7 +14,8 @@
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `app.display_timezone` / `STX_DISPLAY_TIMEZONE` | `Asia/Shanghai` | 系统默认展示时区；`STX_REPORT_TIMEZONE` 为兼容别名 |
-| `database.legacy_timezone` | 进程本地时区 | 仅 MySQL 历史数据迁移使用 |
+| `TZ`（Docker Compose / 镜像 `ENV`） | `Asia/Shanghai` | 容器进程本地时区；`.env` 可覆盖 |
+| `database.legacy_timezone` | `UTC`（不建议改） | 仅 MySQL 一次性历史迁移；已迁移过的库不读它 |
 | `STX_SEATUNNEL_TIMEZONE` | 未设置 | 解析 SeaTunnel 无偏移时间的最高优先级；未设置时用节点心跳时区 |
 | Agent 心跳 `timezone` / `hosts.timezone` | 空（旧 Agent） | 节点主机 IANA 时区，供控制面解析该集群引擎/日志时间 |
 | 用户 `timezone`（PUT /api/v1/auth/profile） | 空 | 空=跟随浏览器 |

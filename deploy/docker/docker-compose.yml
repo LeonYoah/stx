@@ -29,6 +29,7 @@ services:
     container_name: stx-mysql
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-stxroot}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-stx}
       MYSQL_USER: ${MYSQL_USER:-stx}

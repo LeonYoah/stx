@@ -29,6 +29,8 @@ docker compose up -d
 
 库类型由对应 compose 注入 `STX_DATABASE_*`，不必改 `config.yaml` 的 database 段。
 
+每个容器默认时区 `Asia/Shanghai`（`.env` 的 `TZ` 可改）。
+
 仓库内直接 `docker compose up` 时默认挂载根目录 `config.example.yaml`；发版 tar 里是它的副本 `config.yaml`。
 
 宿主机只暴露：

@@ -161,3 +161,35 @@ func captureStderr(t *testing.T, fn func()) string {
 	}
 	return string(out)
 }
+
+// TestExampleConfigLegacyTimezoneUTC 示例配置写出 legacy_timezone=UTC，不通过环境变量注入。
+// TestExampleConfigLegacyTimezoneUTC asserts the example config sets legacy_timezone=UTC rather than an env overlay.
+func TestExampleConfigLegacyTimezoneUTC(t *testing.T) {
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var path string
+	for {
+		candidate := filepath.Join(dir, "config.example.yaml")
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			path = candidate
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("config.example.yaml not found")
+		}
+		dir = parent
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `legacy_timezone: "UTC"`) {
+		t.Fatal("config.example.yaml must set database.legacy_timezone: UTC")
+	}
+	if strings.Contains(string(body), "STX_DATABASE_LEGACY_TIMEZONE") {
+		t.Fatal("config.example.yaml must not mention STX_DATABASE_LEGACY_TIMEZONE")
+	}
+}

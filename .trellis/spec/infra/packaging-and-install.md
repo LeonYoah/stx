@@ -85,6 +85,7 @@ curl -fsSL <raw-or-mirrored-url>/install-online.sh | bash -s -- [options]
 | `STX_IMAGE_REGISTRY` | `ghcr.io/leonyoah` | Docker Compose 镜像前缀；中国华为云用 `swr.cn-east-3.myhuaweicloud.com/stx` |
 | `STX_IMAGE_TAG` | `latest` | Docker Compose / 单镜像 tag |
 | `STX_CONFIG_FILE` | 仓库 `../../config.example.yaml`；发版 tar `./config.yaml` | Compose 挂载到容器的服务端配置；勿另维护 Docker schema |
+| `TZ` | `Asia/Shanghai` | Compose 每个服务的进程时区；`.env` 可改。镜像 `ENV TZ` 给裸 `docker run` |
 
 ### 3.2 gh-proxy 节点（中国默认）
 
@@ -128,7 +129,8 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 - `app.external_url`：本机可达 URL  
 - `observability.enabled`：默认 `true`（内置监控）；`--without-observability` 写 `false`  
 - **不要**写入 `observability.prometheus` / `alertmanager` / `grafana` 段（已删除；旧文件残留会被忽略）
-- Docker Compose 包：`config.yaml` 从仓库根目录 `config.example.yaml` 拷出；Compose 用 `STX_DATABASE_*` 覆盖容器 DNS，不另维护一份 Docker schema  
+- Docker Compose 包：`config.yaml` 从仓库根目录 `config.example.yaml` 拷出；Compose 用 `STX_DATABASE_*` 覆盖容器 DNS，不另维护一份 Docker schema
+- Docker Compose：每个服务注入 `TZ: ${TZ:-Asia/Shanghai}`；overlay `environment` 必须是 mapping
 
 ### 3.5 systemd（对齐 agent）
 
@@ -153,6 +155,7 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 | 端口连续 +20 仍占用 | 中止并提示手动指定端口 |
 | 中国测速五节点全失败 | 回退直连；再失败则中止并给出手动下载说明 |
 | 升级时存在旧 `observability/` 目录 | 只提示一次，保留目录与数据 |
+| Compose 某服务未注入 `TZ` | 拒绝合入；每个服务必须有 `TZ: ${TZ:-Asia/Shanghai}` |
 | systemd 容器刚起来就一键安装 | 等 `systemd-tmpfiles-setup` 结束；解压目录用 `/var/tmp`，不得被开机清空 `/tmp` 删掉 |
 
 ---
@@ -188,6 +191,7 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 | 端口探测 | 占用端口被跳过，写入 config 为新端口 |
 | offline 禁网 | `http_proxy`/curl 到外网被拦截或未调用 |
 | 资产命名 | CI/package 脚本产出裸 `stx-linux-*`；离线包不含 `observability-*` 与 `bin/lib/observability.sh` |
+| Compose 时区 | `internal/dockercompose` 断言三套合并后每个服务 `TZ=${TZ:-Asia/Shanghai}`；`.env*` 与 Dockerfile 含默认 `TZ` |
 
 ---
 
@@ -201,6 +205,7 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 | 中国写死单一代理域名 | 五节点测速 + 可覆盖 `STX_DOWNLOAD_MIRROR_PREFIX` |
 | 为了「更全的监控」重新打包外部监控组件 | 监控内置在 stx；需要的指标在内置采集里补 |
 | Compose 写死仅 GHCR、中国无法拉 | `STX_IMAGE_REGISTRY` 可切到 `swr.cn-east-3.myhuaweicloud.com/stx` |
+| Compose 服务漏写 `TZ` | 每个服务都有 `TZ: ${TZ:-Asia/Shanghai}` |
 | 假定用户必须跑脚本才能装 | README 提供手动下载资产表 + `packages/` + `install.sh --offline` |
 
 ---

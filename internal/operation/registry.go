@@ -827,7 +827,7 @@ var registry = append([]OperationSpec{
 		Input: []InputSpec{
 			{Name: "id", Location: InputPath, Required: true, Description: "Host ID"},
 		},
-		Impact:  &ImpactSpec{Level: RiskR0, Message: "Reads detectable JDK paths and versions on the target host.", Performance: "Asks the Agent to scan local JDK directories and run java -version."},
+		Impact:  &ImpactSpec{Level: RiskR0, Message: "Reads JAVA_HOME and a few well-known JDK directories on the target host.", Performance: "Asks the Agent to read JAVA_HOME and list /usr/lib/jvm, /usr/java, /opt/java and /opt/jdk. Unreadable directories are skipped."},
 		Example: "stx host java-runtimes 10",
 		OutputExample: `{
   "api_version": "v1",
@@ -2106,10 +2106,6 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		{Name: "lifecycle_status", Location: InputQuery, Description: "Lifecycle status: firing or resolved"},
 		{Name: "handling_status", Location: InputQuery, Description: "Handling status: pending, acknowledged, silenced, or closed"},
 	}, monitoringTimeAndPaginationInputs()...)
-	alertInputs := append([]InputSpec{
-		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"},
-		{Name: "status", Location: InputQuery, Description: "Alert status: firing, acknowledged, or silenced"},
-	}, monitoringTimeAndPaginationInputs()...)
 	remoteAlertInputs := append([]InputSpec{
 		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
 		{Name: "status", Location: InputQuery, Description: "Remote alert status filter"},
@@ -2120,7 +2116,6 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		monitoringReadOperation("monitoring.alert-policy.list", []string{"monitoring", "alert-policy", "list"}, "List alert policies", "/api/v1/monitoring/alert-policies", alertPolicyListInputs),
 		monitoringReadOperation("monitoring.alert-policy.execution.list", []string{"monitoring", "alert-policy", "execution", "list"}, "List alert policy executions", "/api/v1/monitoring/alert-policies/:id/executions", policyExecutionInputs),
 		monitoringReadOperation("monitoring.alert-instance.list", []string{"monitoring", "alert-instance", "list"}, "List alert instances", "/api/v1/monitoring/alert-instances", alertInstanceInputs),
-		monitoringReadOperation("monitoring.alert.list", []string{"monitoring", "alert", "list"}, "List local alerts", "/api/v1/monitoring/alerts", alertInputs),
 		monitoringReadOperation("monitoring.remote-alert.list", []string{"monitoring", "remote-alert", "list"}, "List remote alerts", "/api/v1/monitoring/remote-alerts", remoteAlertInputs),
 		monitoringReadOperation("monitoring.cluster.rule.list", []string{"monitoring", "cluster", "rule", "list"}, "List cluster alert rules", "/api/v1/monitoring/clusters/:id/rules", clusterID),
 		monitoringReadOperation("monitoring.integration.status", []string{"monitoring", "integration", "status"}, "Get monitoring integration status", "/api/v1/monitoring/integration/status", nil),

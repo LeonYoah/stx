@@ -1087,3 +1087,35 @@ func TestDeleteRunsOnHostDeletedHook(t *testing.T) {
 		t.Fatalf("hook must run once with the deleted host id, got %v", deletedHosts)
 	}
 }
+
+func TestUpdateHeartbeatPersistsTimezone(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	svc := NewService(NewRepository(db), cluster.NewRepository(db), nil)
+	ctx := context.Background()
+	host, err := svc.Create(ctx, &CreateHostRequest{Name: "tz-host", IPAddress: "10.0.0.9"})
+	if err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+	if _, err := svc.UpdateAgentStatus(ctx, host.ID, "10.0.0.9", "agent-tz", "1.0.0", nil, "", nil); err != nil {
+		t.Fatalf("register agent: %v", err)
+	}
+	if err := svc.UpdateHeartbeatWithTimezone(ctx, "agent-tz", 1, 2, 3, "Asia/Shanghai"); err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+	got, err := svc.Get(ctx, host.ID)
+	if err != nil {
+		t.Fatalf("get host: %v", err)
+	}
+	if got.Timezone != "Asia/Shanghai" {
+		t.Fatalf("timezone = %q, want Asia/Shanghai", got.Timezone)
+	}
+	info, err := svc.GetHostByID(ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHostByID: %v", err)
+	}
+	if info.Timezone != "Asia/Shanghai" {
+		t.Fatalf("HostInfo.Timezone = %q", info.Timezone)
+	}
+}

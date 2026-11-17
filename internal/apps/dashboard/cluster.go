@@ -47,7 +47,7 @@ var ErrInvalidClusterDashboardQuery = errors.New("dashboard: invalid cluster das
 // ClusterHealthSource 提供集群健康与告警计数（monitoring 服务实现）。
 // ClusterHealthSource supplies cluster health and alert counts (implemented by the monitoring service).
 type ClusterHealthSource interface {
-	GetClustersHealth(ctx context.Context) (*monitoring.ClusterHealthData, error)
+	GetClustersHealthFor(ctx context.Context, clusterID uint) (*monitoring.ClusterHealthData, error)
 }
 
 // ClusterNodeSource 提供集群与节点（cluster 服务实现）。
@@ -191,8 +191,12 @@ func (s *ClusterDashboardService) GetClusterDashboard(ctx context.Context, clust
 }
 
 // fillInventory 填 DB / 心跳部分：集群卡片始终包含全部集群（便于切换范围），节点表只含范围内的集群。
+// 健康 / 告警计数一律查全量（clusterID=0）：单集群大盘的切换下拉框也要展示其他集群的节点数和告警数。
+// 全量结果有 15 秒缓存，这里不会多扫一遍。首页 KPI 仍按当前集群统计，见 home.go。
 // fillInventory fills the DB / heartbeat part: cards always cover every cluster (so the scope can be switched), the
-// node table only the clusters in scope.
+// node table only the clusters in scope. Health / alert counts always load every cluster (clusterID=0): the
+// single-cluster dashboard's switcher still shows other clusters' node and alert numbers. The full result is cached
+// for 15s, so this does not rescan. Home KPIs still count only the current cluster; see home.go.
 func (s *ClusterDashboardService) fillInventory(ctx context.Context, out *ClusterDashboard, clusterID uint) {
 	if s.clusters == nil {
 		return
@@ -204,7 +208,7 @@ func (s *ClusterDashboardService) fillInventory(ctx context.Context, out *Cluste
 	}
 	health := map[uint]*monitoring.ClusterHealthItem{}
 	if s.health != nil {
-		if data, err := s.health.GetClustersHealth(ctx); err != nil {
+		if data, err := s.health.GetClustersHealthFor(ctx, 0); err != nil {
 			out.PartialErrors = append(out.PartialErrors, "health")
 		} else {
 			for _, item := range data.Clusters {
@@ -343,12 +347,6 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 	}
 	heap, cpu, threads, fd, uptime := instant("heap_now"), instant("cpu_now"), instant("threads_now"), instant("fd_now"), instant("uptime_now")
 	up, state := instant("up_now"), instant("state_now")
-	masters := map[string]bool{}
-	for _, sample := range byKey["cluster_info"].samples {
-		if master := strings.TrimSpace(sample.Metric["master"]); master != "" {
-			masters[master] = true
-		}
-	}
 	ptr := func(values map[string]float64, key string) *float64 {
 		if v, ok := values[key]; ok {
 			return &v
@@ -364,6 +362,22 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		id, _ := strconv.ParseUint(sample.Metric["cluster_id"], 10, 64)
 		return uint(id)
 	}
+	// SeaTunnel 每个节点都上报 cluster_info，master 标签值相同（当前 master 的 IP:port）。
+	// 只按该标签匹配，不能把「上报过 cluster_info 的 instance」当成 master。
+	// Every SeaTunnel node reports cluster_info with the same master label (current master IP:port).
+	// Match that label; do not treat every reporting instance as master.
+	mastersByCluster := map[uint]map[string]bool{}
+	for _, sample := range byKey["cluster_info"].samples {
+		master := strings.TrimSpace(sample.Metric["master"])
+		if master == "" {
+			continue
+		}
+		id := sampleCluster(sample)
+		if mastersByCluster[id] == nil {
+			mastersByCluster[id] = map[string]bool{}
+		}
+		mastersByCluster[id][master] = true
+	}
 	for _, sample := range byKey["heap_all"].samples {
 		if id := sampleCluster(sample); sample.Value > maxHeap[id] {
 			maxHeap[id] = sample.Value
@@ -375,6 +389,17 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		}
 	}
 	signals := &ClusterSignals{}
+	portCountByCluster := map[uint]map[string]int{}
+	for i := range out.Nodes {
+		_, port, err := net.SplitHostPort(out.Nodes[i].Instance)
+		if err == nil {
+			id := out.Nodes[i].ClusterID
+			if portCountByCluster[id] == nil {
+				portCountByCluster[id] = map[string]int{}
+			}
+			portCountByCluster[id][port]++
+		}
+	}
 	for i := range out.Nodes {
 		row := &out.Nodes[i]
 		if row.Instance == "" {
@@ -382,8 +407,8 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		}
 		row.HeapPercent, row.CPUCores = ptr(heap, row.Instance), ptr(cpu, row.Instance)
 		row.Threads, row.FDPercent, row.UptimeSeconds = ptr(threads, row.Instance), ptr(fd, row.Instance), ptr(uptime, row.Instance)
-		if len(masters) > 0 {
-			row.Master = flag(masters[row.Instance])
+		if masters := mastersByCluster[row.ClusterID]; len(masters) > 0 {
+			row.Master = flag(instanceMatchesMaster(row.Instance, masters, portCountByCluster[row.ClusterID]))
 		}
 		if v, ok := up[row.Instance]; ok {
 			row.ScrapeUp = flag(v >= 1)
@@ -422,6 +447,66 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 	}
 	signals.DeadlockedThreads, signals.PoolRejectRate, signals.HZQueueUtilMax = first("deadlocked"), first("reject"), first("hz_util")
 	out.Signals = signals
+}
+
+// instanceMatchesMaster 判断抓取 instance 是否对应 cluster_info 的 master 标签。
+// 匹配顺序：精确 IP:port → 同主机 IP 等价 → 回环 master 且该集群该端口只有一个节点。
+// instanceMatchesMaster reports whether a scrape instance is the cluster_info master label.
+// Match order: exact IP:port, same-host IP equality, then loopback master with a unique port in this cluster.
+func instanceMatchesMaster(instance string, masters map[string]bool, portCount map[string]int) bool {
+	if masters[instance] {
+		return true
+	}
+	for master := range masters {
+		if scrapeInstanceMatchesMaster(instance, master, portCount) {
+			return true
+		}
+	}
+	return false
+}
+
+func scrapeInstanceMatchesMaster(instance, master string, portCount map[string]int) bool {
+	if instance == master {
+		return true
+	}
+	instanceHost, instancePort, err := net.SplitHostPort(instance)
+	if err != nil {
+		return false
+	}
+	masterHost, masterPort, err := net.SplitHostPort(master)
+	if err != nil {
+		return false
+	}
+	if instancePort != masterPort {
+		return false
+	}
+	if sameDashboardHost(instanceHost, masterHost) {
+		return true
+	}
+	// 回环 master 且该集群该端口唯一：覆盖 hazelcast 成员列表缺地址时回退到 127.0.0.1:<port> 的单节点安装。
+	// Loopback master with a unique port covers single-node installs that fall back to 127.0.0.1:<port>.
+	if isLoopbackHost(masterHost) {
+		return portCount[instancePort] <= 1
+	}
+	return false
+}
+
+func sameDashboardHost(left, right string) bool {
+	left, right = strings.TrimSpace(left), strings.TrimSpace(right)
+	if strings.EqualFold(left, right) {
+		return true
+	}
+	leftIP, rightIP := net.ParseIP(left), net.ParseIP(right)
+	return leftIP != nil && rightIP != nil && leftIP.Equal(rightIP)
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // mergeAvailability 合成节点可用性：抓取正常（up≥1）且节点非下线（node_state 缺失或为 1）记 1，否则 0。

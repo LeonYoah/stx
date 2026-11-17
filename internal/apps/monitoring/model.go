@@ -263,25 +263,6 @@ const (
 	AlertRuleKeyNodeOffline = "node_offline"
 )
 
-// AlertFilter represents query filters for alert list.
-// AlertFilter 表示告警列表查询过滤条件。
-type AlertFilter struct {
-	ClusterID uint        `json:"cluster_id"`
-	Status    AlertStatus `json:"status"`
-	StartTime *time.Time  `json:"start_time"`
-	EndTime   *time.Time  `json:"end_time"`
-	Page      int         `json:"page"`
-	PageSize  int         `json:"page_size"`
-}
-
-// AlertStats summarizes alert status counts in current query result.
-// AlertStats 汇总当前查询结果的告警状态数量。
-type AlertStats struct {
-	Firing       int64 `json:"firing"`
-	Acknowledged int64 `json:"acknowledged"`
-	Silenced     int64 `json:"silenced"`
-}
-
 // AlertInstanceFilter represents filters for unified alert instances.
 // AlertInstanceFilter 表示统一告警实例查询过滤条件。
 type AlertInstanceFilter struct {
@@ -295,6 +276,9 @@ type AlertInstanceFilter struct {
 	EndTime         *time.Time           `json:"end_time"`
 	Page            int                  `json:"page"`
 	PageSize        int                  `json:"page_size"`
+	// Unbounded 为 true 时列出全部匹配记录（集群健康 KPI），不受告警中心默认 500 条上限限制。
+	// Unbounded lists every match (cluster-health KPIs) and ignores the alert-center default 500-row cap.
+	Unbounded bool `json:"-"`
 }
 
 // AlertInstanceStats summarizes unified alert counts.
@@ -372,45 +356,6 @@ type AlertInstanceListData struct {
 	Total       int64               `json:"total"`
 	Stats       *AlertInstanceStats `json:"stats"`
 	Alerts      []*AlertInstance    `json:"alerts"`
-}
-
-// AlertEvent represents one alert item in alert center.
-// AlertEvent 表示告警中心中的单条告警记录。
-type AlertEvent struct {
-	AlertID          string                   `json:"alert_id"`
-	EventID          uint                     `json:"event_id"`
-	ClusterID        uint                     `json:"cluster_id"`
-	ClusterName      string                   `json:"cluster_name"`
-	NodeID           uint                     `json:"node_id"`
-	HostID           uint                     `json:"host_id"`
-	Hostname         string                   `json:"hostname"`
-	IP               string                   `json:"ip"`
-	EventType        monitor.ProcessEventType `json:"event_type"`
-	Severity         AlertSeverity            `json:"severity"`
-	Status           AlertStatus              `json:"status"`
-	RuleKey          string                   `json:"rule_key"`
-	RuleName         string                   `json:"rule_name"`
-	ProcessName      string                   `json:"process_name"`
-	PID              int                      `json:"pid"`
-	Role             string                   `json:"role"`
-	Details          string                   `json:"details"`
-	CreatedAt        time.Time                `json:"created_at"`
-	AcknowledgedBy   string                   `json:"acknowledged_by,omitempty"`
-	AcknowledgedAt   *time.Time               `json:"acknowledged_at,omitempty"`
-	SilencedBy       string                   `json:"silenced_by,omitempty"`
-	SilencedUntil    *time.Time               `json:"silenced_until,omitempty"`
-	LatestActionNote string                   `json:"latest_action_note,omitempty"`
-}
-
-// AlertListData represents alert center list payload.
-// AlertListData 表示告警中心列表响应数据。
-type AlertListData struct {
-	GeneratedAt time.Time     `json:"generated_at"`
-	Page        int           `json:"page"`
-	PageSize    int           `json:"page_size"`
-	Total       int64         `json:"total"`
-	Stats       *AlertStats   `json:"stats"`
-	Alerts      []*AlertEvent `json:"alerts"`
 }
 
 // AlertRuleDTO represents a monitoring alert rule for frontend.
@@ -491,18 +436,6 @@ func (r *SilenceAlertRequest) Validate() error {
 		return fmt.Errorf("duration_minutes must be between 1 and 10080")
 	}
 	return nil
-}
-
-// AlertActionResult represents action result on one alert.
-// AlertActionResult 表示单条告警动作执行结果。
-type AlertActionResult struct {
-	EventID          uint        `json:"event_id"`
-	Status           AlertStatus `json:"status"`
-	AcknowledgedBy   string      `json:"acknowledged_by,omitempty"`
-	AcknowledgedAt   *time.Time  `json:"acknowledged_at,omitempty"`
-	SilencedBy       string      `json:"silenced_by,omitempty"`
-	SilencedUntil    *time.Time  `json:"silenced_until,omitempty"`
-	LatestActionNote string      `json:"latest_action_note,omitempty"`
 }
 
 // AlertInstanceActionResult represents action result on one unified alert instance.

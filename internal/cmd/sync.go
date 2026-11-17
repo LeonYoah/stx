@@ -302,7 +302,6 @@ func newSyncTaskCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 			definition := map[string]any{
 				"execution_mode": "cluster",
 				"preview_http_sink": map[string]any{
-					"url":        "http://10.0.0.211:8000/api/v1/sync/preview/collect",
 					"array_mode": false,
 				},
 				"preview_mode":            "source",
@@ -339,6 +338,7 @@ func newSyncTaskCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			applyPreviewCollectURL(definition, client.Server())
 
 			var data any
 			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, "/api/v1/sync/tasks", body, headers, &data)
@@ -359,6 +359,41 @@ func newSyncTaskCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 	command.Flags().StringVar(&mode, "mode", "batch", "Job execution mode: batch or streaming")
 	command.Flags().StringVar(&definitionFile, "definition-file", "", "Path to JSON file containing task definition options")
 	return command
+}
+
+// applyPreviewCollectURL 在 definition 没写采集地址时，用当前 CLI 客户端的 server 补上。
+// 必须用 prepareSecureWrite 已经解析好的 client.Server()，不能再读一遍 STX_SERVER 或写死 127.0.0.1：
+// create 没有 --server，STX_SERVER 未设时地址来自 namespace；二次回落会让远端 SeaTunnel 把预览打到自己的 localhost。
+// applyPreviewCollectURL fills the preview collector URL from the active CLI client server when definition omitted it.
+// Use the same client.Server() already resolved by prepareSecureWrite; do not re-read STX_SERVER or invent loopback.
+// create has no --server flag, so an unset STX_SERVER still uses the saved namespace; a second fallback would make a remote engine post to its own localhost.
+func applyPreviewCollectURL(definition map[string]any, server string) {
+	if definition == nil {
+		return
+	}
+	sink, _ := definition["preview_http_sink"].(map[string]any)
+	if sink == nil {
+		sink = map[string]any{"array_mode": false}
+		definition["preview_http_sink"] = sink
+	}
+	if url, _ := sink["url"].(string); strings.TrimSpace(url) != "" {
+		return
+	}
+	collectURL := previewCollectURL(server)
+	if collectURL == "" {
+		return
+	}
+	sink["url"] = collectURL
+}
+
+// previewCollectURL 把已解析的 STX 服务地址拼成预览采集 URL；空地址不编造 loopback。
+// previewCollectURL builds the preview collect URL from a resolved STX server; empty input does not invent loopback.
+func previewCollectURL(server string) string {
+	base := strings.TrimSpace(server)
+	if base == "" {
+		return ""
+	}
+	return strings.TrimRight(base, "/") + "/api/v1/sync/preview/collect"
 }
 
 func newSyncTaskUpdateCommand(storeProvider authStoreProvider) *cobra.Command {

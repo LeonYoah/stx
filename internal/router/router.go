@@ -63,6 +63,7 @@ import (
 	"github.com/LeonYoah/stx/internal/otel_trace"
 	"github.com/LeonYoah/stx/internal/pkg/debugpprof"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"github.com/LeonYoah/stx/internal/session"
 	"github.com/LeonYoah/stx/internal/tlsbootstrap"
@@ -297,6 +298,7 @@ func Serve() {
 				// Agents may pull script/jar from this base when starting java-proxy (DEF-R2-1).
 				AssetBaseURL: strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 			})
+			bindEngineLocationLookup(clusterService)
 
 			// Inject agent command sender if agent manager is available
 			// 如果 Agent Manager 可用，注入 Agent 命令发送器
@@ -530,13 +532,10 @@ func Serve() {
 				monitoringRouter.PUT("/alert-policies/:id", monitoringHandler.UpdateAlertPolicy)
 				monitoringRouter.DELETE("/alert-policies/:id", monitoringHandler.DeleteAlertPolicy)
 				monitoringRouter.GET("/alert-instances", monitoringHandler.ListAlertInstances)
-				monitoringRouter.GET("/alerts", monitoringHandler.ListAlerts)
 				monitoringRouter.GET("/remote-alerts", monitoringHandler.ListRemoteAlerts)
 				monitoringRouter.POST("/alert-instances/:id/ack", monitoringHandler.AcknowledgeAlertInstance)
 				monitoringRouter.POST("/alert-instances/:id/silence", monitoringHandler.SilenceAlertInstance)
 				monitoringRouter.POST("/alert-instances/:id/close", monitoringHandler.CloseAlertInstance)
-				monitoringRouter.POST("/alerts/:eventId/ack", monitoringHandler.AcknowledgeAlert)
-				monitoringRouter.POST("/alerts/:eventId/silence", monitoringHandler.SilenceAlert)
 				monitoringRouter.GET("/clusters/:id/rules", monitoringHandler.ListClusterRules)
 				monitoringRouter.PUT("/clusters/:id/rules/:ruleId", monitoringHandler.UpdateClusterRule)
 				monitoringRouter.GET("/integration/status", monitoringHandler.GetIntegrationStatus)
@@ -1348,6 +1347,7 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 		HeartbeatTimeout: time.Duration(grpcConfig.HeartbeatTimeout) * time.Second,
 		AssetBaseURL:     strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 	})
+	bindEngineLocationLookup(clusterService)
 	monitorRepo := monitor.NewRepository(db.DB(ctx))
 	monitorService := monitor.NewService(monitorRepo)
 	monitoringRepo := monitoringapp.NewRepository(db.DB(ctx))
@@ -1382,6 +1382,17 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	return srv, agentManager
 }
 
+// bindEngineLocationLookup 让解析 SeaTunnel 无偏移时间时使用集群 Master 心跳上报的时区。
+// bindEngineLocationLookup uses the cluster master's heartbeat timezone when parsing naive SeaTunnel times.
+func bindEngineLocationLookup(clusterService *cluster.Service) {
+	if clusterService == nil {
+		return
+	}
+	timex.SetEngineLocationLookup(func(ctx context.Context, clusterID uint) *time.Location {
+		return clusterService.EngineLocation(ctx, clusterID)
+	})
+}
+
 // hostStatusUpdaterAdapter adapts host.Service to agent.HostStatusUpdater interface.
 // hostStatusUpdaterAdapter 将 host.Service 适配到 agent.HostStatusUpdater 接口。
 type hostStatusUpdaterAdapter struct {
@@ -1411,8 +1422,8 @@ func (a *hostStatusUpdaterAdapter) UpdateAgentStatus(ctx context.Context, hostID
 
 // UpdateHeartbeat updates the heartbeat data for a host.
 // UpdateHeartbeat 更新主机的心跳数据。
-func (a *hostStatusUpdaterAdapter) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64) error {
-	return a.hostService.UpdateHeartbeat(ctx, agentID, cpuUsage, memoryUsage, diskUsage)
+func (a *hostStatusUpdaterAdapter) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64, timezone string) error {
+	return a.hostService.UpdateHeartbeatWithTimezone(ctx, agentID, cpuUsage, memoryUsage, diskUsage, timezone)
 }
 
 // MarkHostOffline marks a host as offline by agent ID.
@@ -1747,22 +1758,38 @@ func (a *pluginAgentCommandSenderAdapter) SendCommand(ctx context.Context, agent
 	// Use longer timeout for plugin transfer (5 minutes)
 	// 插件传输使用更长的超时时间（5 分钟）
 	timeout := 5 * time.Minute
-	if commandType == "install_plugin" {
+	skipAudit := false
+	switch commandType {
+	case "install_plugin":
 		timeout = 2 * time.Minute
+	case "list_plugins":
+		// 读 connectors 目录是高频只读操作，8s 超时且不写审计，避免打开插件页拖垮审计表。
+		// Listing connectors is a frequent read; 8s timeout and no audit so opening the plugin page does not flood audit rows.
+		timeout = 8 * time.Second
+		skipAudit = true
 	}
 
-	// 插件命令复用公共 Agent 命令审计，发送失败也会保留一条失败记录。
-	// Plugin commands reuse common Agent command auditing so dispatch failures remain visible.
-	auditSender := &agentCommandSenderAdapter{manager: a.manager, auditRepo: a.auditRepo}
 	startedAt := time.Now()
 	commandID := uuid.NewString()
-	auditSender.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
-	resp, err := a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
+	var resp *pb.CommandResponse
+	var err error
+	if skipAudit {
+		resp, err = a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
+	} else {
+		// 插件命令复用公共 Agent 命令审计，发送失败也会保留一条失败记录。
+		// Plugin commands reuse common Agent command auditing so dispatch failures remain visible.
+		auditSender := &agentCommandSenderAdapter{manager: a.manager, auditRepo: a.auditRepo}
+		auditSender.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
+		resp, err = a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
+		if err != nil {
+			auditSender.recordFailedCommandLog(ctx, commandID, err)
+			return false, "", err
+		}
+		auditSender.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
+	}
 	if err != nil {
-		auditSender.recordFailedCommandLog(ctx, commandID, err)
 		return false, "", err
 	}
-	auditSender.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
 
 	// For transfer_plugin command, RUNNING status means chunk received successfully
 	// 对于 transfer_plugin 命令，RUNNING 状态表示块接收成功
@@ -1818,6 +1845,8 @@ func (a *clusterNodeGetterAdapter) GetClusterNodes(ctx context.Context, clusterI
 			NodeID:     node.ID,
 			HostID:     node.HostID,
 			InstallDir: node.InstallDir,
+			Role:       string(node.Role),
+			IsOnline:   node.IsOnline,
 		}
 	}
 	return result, nil

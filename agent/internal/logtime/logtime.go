@@ -66,3 +66,52 @@ func SetLocation(l *time.Location) {
 		loc = l
 	}
 }
+
+// HostIANA 返回本机应上报给控制面的 IANA 时区：STX_SEATUNNEL_TIMEZONE > TZ > /etc/localtime 软链接 > /etc/timezone。
+// HostIANA is the IANA zone the Agent should report: STX_SEATUNNEL_TIMEZONE, then TZ, then /etc/localtime, then /etc/timezone.
+func HostIANA() string {
+	if name := validIANA(os.Getenv(EnvSeatunnelTimezone)); name != "" {
+		return name
+	}
+	if name := validIANA(os.Getenv("TZ")); name != "" {
+		return name
+	}
+	if name := zoneinfoFromLocaltime("/etc/localtime"); name != "" {
+		return name
+	}
+	if data, err := os.ReadFile("/etc/timezone"); err == nil {
+		if name := validIANA(string(data)); name != "" {
+			return name
+		}
+	}
+	if loc := time.Local; loc != nil {
+		if name := validIANA(loc.String()); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func validIANA(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.EqualFold(name, "Local") {
+		return ""
+	}
+	if _, err := time.LoadLocation(name); err != nil {
+		return ""
+	}
+	return name
+}
+
+func zoneinfoFromLocaltime(path string) string {
+	target, err := os.Readlink(path)
+	if err != nil {
+		return ""
+	}
+	const marker = "zoneinfo/"
+	index := strings.Index(target, marker)
+	if index < 0 {
+		return ""
+	}
+	return validIANA(strings.Trim(target[index+len(marker):], "/"))
+}

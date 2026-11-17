@@ -26,6 +26,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	hostapp "github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -53,13 +54,16 @@ func setupMonitoringAlertPolicyTestDB(t *testing.T) (*gorm.DB, func()) {
 		&auth.User{},
 		&clusterapp.Cluster{},
 		&clusterapp.ClusterNode{},
+		&hostapp.Host{},
 		&monitor.ProcessEvent{},
 		&AlertRule{},
 		&AlertPolicy{},
 		&AlertState{},
+		&AlertEventState{},
 		&NotificationChannel{},
 		&NotificationDelivery{},
 		&SyncAlertEpisode{},
+		&RemoteAlertRecord{},
 	); err != nil {
 		_ = os.RemoveAll(tempDir)
 		t.Fatalf("failed to migrate alert policy test tables: %v", err)
@@ -87,6 +91,9 @@ func setupMonitoringAlertPolicyService(t *testing.T) (*Service, *Repository, *cl
 	monitorRepo := monitor.NewRepository(database)
 	monitorService := monitor.NewService(monitorRepo)
 	service := NewService(clusterService, monitorService, repo)
+	oldTTL := clustersHealthCacheTTL
+	clustersHealthCacheTTL = 0
+	t.Cleanup(func() { clustersHealthCacheTTL = oldTTL })
 	ctx := context.Background()
 
 	testCluster := &clusterapp.Cluster{

@@ -213,3 +213,48 @@ func TestContextAndShellPrefix(t *testing.T) {
 		t.Fatalf("ShellExportPrefix = %q", got)
 	}
 }
+
+func TestDefaultScanRootsIncludesUsrLocal(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("usr/local JDK roots are Unix paths")
+	}
+	roots := defaultScanRoots()
+	foundJava, foundJdk := false, false
+	for _, root := range roots {
+		if root == "/usr/local/java" {
+			foundJava = true
+		}
+		if root == "/usr/local/jdk" {
+			foundJdk = true
+		}
+	}
+	if !foundJava || !foundJdk {
+		t.Fatalf("defaultScanRoots = %v, want /usr/local/java and /usr/local/jdk", roots)
+	}
+}
+
+func TestListDedupesSymlinkHomes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink JDK fixture needs POSIX")
+	}
+	dir := t.TempDir()
+	realHome := writeFakeJDK(t, filepath.Join(dir, "jdk17"), "17.0.2")
+	link := filepath.Join(dir, "default")
+	if err := os.Symlink(realHome, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	old := scanRoots
+	scanRoots = func() []string { return []string{dir} }
+	t.Cleanup(func() { scanRoots = old })
+
+	list := List(context.Background())
+	scanCount := 0
+	for _, item := range list {
+		if item.Source == CandidateSourceScan {
+			scanCount++
+		}
+	}
+	if scanCount != 1 {
+		t.Fatalf("want 1 scan candidate after symlink dedupe, got %+v", list)
+	}
+}

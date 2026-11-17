@@ -20,6 +20,7 @@
 package timex
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -38,6 +39,11 @@ var (
 	displayMu   sync.RWMutex
 	displayName string
 	displayLoc  *time.Location
+
+	// engineLocationLookup 由控制面注入：按集群取 Master 节点 Agent 上报的 IANA 时区。
+	// engineLocationLookup is injected by the control plane: the IANA zone the cluster master Agent reported.
+	engineLocationMu     sync.RWMutex
+	engineLocationLookup func(ctx context.Context, clusterID uint) *time.Location
 )
 
 // Now 返回当前 UTC 时间，作为 GORM NowFunc 与所有持久化写入的时间源。
@@ -163,14 +169,90 @@ func BoundAny(v interface{}) interface{} {
 	return v
 }
 
-// SeatunnelLocation 返回解析 SeaTunnel 引擎/日志中无偏移时间时使用的时区：
-// 环境变量 STX_SEATUNNEL_TIMEZONE，未设置时使用系统展示时区。
-// SeatunnelLocation returns the zone for naive SeaTunnel engine/log timestamps: STX_SEATUNNEL_TIMEZONE or the display zone.
-func SeatunnelLocation() *time.Location {
-	if name := strings.TrimSpace(os.Getenv("STX_SEATUNNEL_TIMEZONE")); name != "" {
-		if loc, err := time.LoadLocation(name); err == nil {
-			return loc
-		}
+// SetEngineLocationLookup 注入按集群解析引擎时区的回调（通常读 Master 节点心跳上报的 timezone）。
+// 回调应使用调用方 ctx；GetNodes 会查库，EngineLocation 会给没有截止时间的 ctx 加上超时。
+// SetEngineLocationLookup injects the per-cluster engine-zone lookup (usually the master node's heartbeat timezone).
+// The callback should use the caller's ctx; GetNodes hits the DB, and EngineLocation adds a timeout when the ctx has
+// no deadline.
+func SetEngineLocationLookup(fn func(ctx context.Context, clusterID uint) *time.Location) {
+	engineLocationMu.Lock()
+	engineLocationLookup = fn
+	engineLocationMu.Unlock()
+}
+
+// LoadIANA 解析 IANA 时区名；空串、"Local" 或非法名称返回 nil。
+// LoadIANA parses an IANA zone name; empty, "Local", or invalid names return nil.
+func LoadIANA(name string) *time.Location {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.EqualFold(name, "Local") {
+		return nil
 	}
-	return DisplayLocation()
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil
+	}
+	return loc
+}
+
+func envSeatunnelLocation() *time.Location {
+	return LoadIANA(os.Getenv("STX_SEATUNNEL_TIMEZONE"))
+}
+
+func localOrUTC() *time.Location {
+	if loc := time.Local; loc != nil {
+		return loc
+	}
+	return time.UTC
+}
+
+func lookupEngineLocation(ctx context.Context, clusterID uint) *time.Location {
+	if clusterID == 0 {
+		return nil
+	}
+	engineLocationMu.RLock()
+	fn := engineLocationLookup
+	engineLocationMu.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return fn(ctx, clusterID)
+}
+
+// SeatunnelLocation 返回解析 SeaTunnel 引擎/日志中无偏移时间时使用的时区：
+// 1) 环境变量 STX_SEATUNNEL_TIMEZONE（最高优先级）；2) 控制面进程本地时区（time.Local）。
+// 有集群上下文时请用 SeatunnelLocationForCluster，以便采用 Agent 心跳上报的节点时区。
+// SeatunnelLocation returns the zone for naive SeaTunnel engine/log timestamps: STX_SEATUNNEL_TIMEZONE first, then the
+// control-plane process local zone (time.Local). Prefer SeatunnelLocationForCluster when a cluster id is known so the
+// Agent-reported node zone is used.
+func SeatunnelLocation() *time.Location {
+	return SeatunnelLocationForCluster(context.Background(), 0)
+}
+
+// SeatunnelLocationForCluster 解析指定集群的引擎无偏移时间：STX_SEATUNNEL_TIMEZONE > Master 心跳时区 > time.Local。
+// SeatunnelLocationForCluster parses naive engine times for a cluster: STX_SEATUNNEL_TIMEZONE, then the master
+// heartbeat zone, then time.Local.
+func SeatunnelLocationForCluster(ctx context.Context, clusterID uint) *time.Location {
+	if loc := envSeatunnelLocation(); loc != nil {
+		return loc
+	}
+	if loc := lookupEngineLocation(ctx, clusterID); loc != nil {
+		return loc
+	}
+	return localOrUTC()
+}
+
+// SeatunnelLocationForHost 在已知节点 IANA 时区时解析无偏移时间：STX_SEATUNNEL_TIMEZONE > 节点时区 > time.Local。
+// SeatunnelLocationForHost parses naive times when a node IANA zone is known: STX_SEATUNNEL_TIMEZONE, then that zone,
+// then time.Local.
+func SeatunnelLocationForHost(iana string) *time.Location {
+	if loc := envSeatunnelLocation(); loc != nil {
+		return loc
+	}
+	if loc := LoadIANA(iana); loc != nil {
+		return loc
+	}
+	return localOrUTC()
 }

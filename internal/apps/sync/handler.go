@@ -152,11 +152,13 @@ func (h *Handler) CreateTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, TaskResponse{ErrorMsg: err.Error()})
 		return
 	}
+	actor := currentExecutionActor(c)
 	task, err := h.service.CreateTask(c.Request.Context(), &req, getCurrentUserID(c))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), TaskResponse{ErrorMsg: err.Error()})
 		return
 	}
+	task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	c.JSON(http.StatusOK, TaskResponse{Data: sanitizeTaskForResponse(task)})
 }
 
@@ -166,7 +168,7 @@ func (h *Handler) ListTasks(c *gin.Context) {
 	if status := c.Query("status"); status != "" {
 		filter.Status = TaskStatus(status)
 	}
-	tasks, total, err := h.service.ListTasks(c.Request.Context(), filter)
+	tasks, total, err := h.service.ListTasksForActor(c.Request.Context(), currentExecutionActor(c), filter)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), TaskListResponse{ErrorMsg: err.Error()})
 		return

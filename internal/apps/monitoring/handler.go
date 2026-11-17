@@ -19,13 +19,11 @@ package monitoring
 
 import (
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -67,131 +65,6 @@ func (h *Handler) GetClusterOverview(c *gin.Context) {
 	data, err := h.service.GetClusterOverview(c.Request.Context(), uint(clusterID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to get cluster monitoring overview: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// ListAlerts handles GET /api/v1/monitoring/alerts
-// ListAlerts 处理 GET /api/v1/monitoring/alerts
-func (h *Handler) ListAlerts(c *gin.Context) {
-	filter := &AlertFilter{}
-
-	if clusterIDStr := c.Query("cluster_id"); clusterIDStr != "" {
-		clusterID, err := strconv.ParseUint(clusterIDStr, 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid cluster_id"})
-			return
-		}
-		filter.ClusterID = uint(clusterID)
-	}
-	if status := strings.TrimSpace(c.Query("status")); status != "" {
-		parsedStatus := AlertStatus(status)
-		if parsedStatus != AlertStatusFiring && parsedStatus != AlertStatusAcknowledged && parsedStatus != AlertStatusSilenced {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid status"})
-			return
-		}
-		filter.Status = parsedStatus
-	}
-	if startTimeStr := strings.TrimSpace(c.Query("start_time")); startTimeStr != "" {
-		startTime, err := time.Parse(time.RFC3339, startTimeStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid start_time, expected RFC3339"})
-			return
-		}
-		filter.StartTime = &startTime
-	}
-	if endTimeStr := strings.TrimSpace(c.Query("end_time")); endTimeStr != "" {
-		endTime, err := time.Parse(time.RFC3339, endTimeStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid end_time, expected RFC3339"})
-			return
-		}
-		filter.EndTime = &endTime
-	}
-	if pageStr := c.Query("page"); pageStr != "" {
-		page, err := strconv.Atoi(pageStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid page"})
-			return
-		}
-		filter.Page = page
-	}
-	if pageSizeStr := c.Query("page_size"); pageSizeStr != "" {
-		pageSize, err := strconv.Atoi(pageSizeStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid page_size"})
-			return
-		}
-		filter.PageSize = pageSize
-	}
-
-	data, err := h.service.ListAlerts(c.Request.Context(), filter)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to list alerts: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// AcknowledgeAlert handles POST /api/v1/monitoring/alerts/:eventId/ack
-// AcknowledgeAlert 处理 POST /api/v1/monitoring/alerts/:eventId/ack
-func (h *Handler) AcknowledgeAlert(c *gin.Context) {
-	eventID, err := strconv.ParseUint(c.Param("eventId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid event id"})
-		return
-	}
-
-	req := &AcknowledgeAlertRequest{}
-	if err := c.ShouldBindJSON(req); err != nil && !errors.Is(err, io.EOF) {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
-		return
-	}
-
-	operator := "unknown"
-	if user := auth.GetUserFromContext(c); user != nil && user.Username != "" {
-		operator = user.Username
-	}
-
-	data, err := h.service.AcknowledgeAlert(c.Request.Context(), uint(eventID), operator, req.Note)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to acknowledge alert: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// SilenceAlert handles POST /api/v1/monitoring/alerts/:eventId/silence
-// SilenceAlert 处理 POST /api/v1/monitoring/alerts/:eventId/silence
-func (h *Handler) SilenceAlert(c *gin.Context) {
-	eventID, err := strconv.ParseUint(c.Param("eventId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid event id"})
-		return
-	}
-
-	req := &SilenceAlertRequest{}
-	if err := c.ShouldBindJSON(req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
-		return
-	}
-	if err := req.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
-		return
-	}
-
-	operator := "unknown"
-	if user := auth.GetUserFromContext(c); user != nil && user.Username != "" {
-		operator = user.Username
-	}
-
-	data, err := h.service.SilenceAlert(c.Request.Context(), uint(eventID), operator, req.DurationMinutes, req.Note)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to silence alert: " + err.Error()})
 		return
 	}
 

@@ -157,7 +157,7 @@ func TestResolveLocalAlertLifecycle_marksManualOperationEventsResolved(t *testin
 		status, resolvedAt, err := service.resolveLocalAlertLifecycle(context.Background(), &AlertEventSource{
 			EventType: eventType,
 			CreatedAt: createdAt,
-		})
+		}, nil)
 		if err != nil {
 			t.Fatalf("expected no error for %s, got %v", eventType, err)
 		}

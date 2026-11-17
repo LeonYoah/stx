@@ -124,6 +124,7 @@ message HeartbeatRequest {
   int64 timestamp = 2;                    // 时间戳 (Unix 毫秒)
   ResourceUsage resource_usage = 3;       // 资源使用情况
   repeated ProcessStatus processes = 4;   // 进程状态列表
+  string timezone = 5;                    // Agent 主机 IANA 时区（与 JVM 同机，供解析引擎无偏移时间）/ Agent host IANA timezone (same host as the JVM; used to parse naive engine times)
 }
 
 // ResourceUsage - 资源使用情况

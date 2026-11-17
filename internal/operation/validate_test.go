@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 283)
+	require.Len(t, Registry(), 280)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -127,11 +127,11 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"stupgrade.task.steps": {}, "stupgrade.task.logs": {},
 		"monitoring.overview.get": {}, "monitoring.cluster.overview.get": {},
 		"monitoring.alert-policy.list": {}, "monitoring.alert-policy.execution.list": {},
-		"monitoring.alert-instance.list": {}, "monitoring.alert.list": {}, "monitoring.remote-alert.list": {},
+		"monitoring.alert-instance.list": {}, "monitoring.remote-alert.list": {},
 		"monitoring.cluster.rule.list": {}, "monitoring.integration.status": {},
 		"monitoring.alert-policy.bootstrap.get": {}, "monitoring.alert-rule.catalog": {},
 		"monitoring.notifiable-user.list": {},
-		"monitoring.platform-health.get": {}, "monitoring.notification-channel.list": {},
+		"monitoring.platform-health.get":  {}, "monitoring.notification-channel.list": {},
 		"monitoring.notification-delivery.list": {}, "monitoring.notification-route.list": {},
 		"monitor.config.get": {}, "monitor.event.list": {}, "monitor.event.stats": {},
 		"diagnostics.bootstrap.get": {}, "diagnostics.inspection.list": {}, "diagnostics.inspection.get": {},
@@ -216,7 +216,6 @@ func TestMonitoringReadOperationsExposeSupportedFilters(t *testing.T) {
 		"monitoring.alert-policy.list":           {"policy_type", "task_id"},
 		"monitoring.alert-policy.execution.list": {"status", "event_type", "start_time", "end_time", "page", "page_size"},
 		"monitoring.alert-instance.list":         {"source_type", "cluster_id", "severity", "status", "lifecycle_status", "handling_status", "start_time", "end_time", "page", "page_size"},
-		"monitoring.alert.list":                  {"cluster_id", "status", "start_time", "end_time", "page", "page_size"},
 		"monitoring.remote-alert.list":           {"cluster_id", "status", "start_time", "end_time", "page", "page_size"},
 		"monitoring.notification-delivery.list":  {"policy_id", "channel_id", "status", "event_type", "cluster_id", "start_time", "end_time", "page", "page_size"},
 	}

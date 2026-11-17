@@ -145,6 +145,20 @@ func TestService_CloseAlertInstance_allowsFiringAlert(t *testing.T) {
 	}
 }
 
+func TestParseAlertSourceKeyRejectsNumericEventID(t *testing.T) {
+	if _, err := parseAlertSourceKey("9"); err == nil {
+		t.Fatal("plain numeric event id must be rejected")
+	}
+
+	canonical, err := parseAlertSourceKey("local:event:9")
+	if err != nil {
+		t.Fatalf("parse canonical alert id: %v", err)
+	}
+	if canonical.Kind != alertStoreLocalEvent || canonical.SourceKey != "local:event:9" || canonical.EventID != 9 {
+		t.Fatalf("canonical = %+v", canonical)
+	}
+}
+
 // firing 记录在三种情况下按过期判为已恢复：ends_at 已过（内嵌评估器停止重推）、
 // ends_at=0 且 last_received_at 超阈值（外部 Alertmanager 时代记录）、ends_at 未过期保持 firing。
 // Firing records count as resolved on expiry in three cases: ends_at elapsed (the embedded

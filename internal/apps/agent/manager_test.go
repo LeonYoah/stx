@@ -61,7 +61,7 @@ func (m *mockHostUpdater) UpdateAgentStatus(ctx context.Context, hostID uint, ip
 	return 1, nil
 }
 
-func (m *mockHostUpdater) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64) error {
+func (m *mockHostUpdater) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64, timezone string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.heartbeatErr != nil {

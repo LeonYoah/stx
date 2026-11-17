@@ -2231,6 +2231,7 @@
     "enableError": "Failed to enable plugin",
     "disableError": "Failed to disable plugin",
     "uninstallPlugin": "Uninstall Plugin",
+    "bundled": "Bundled",
     "uninstallConfirm": "Are you sure you want to uninstall plugin {name}? This will remove the plugin from all nodes in the cluster.",
     "uninstallError": "Failed to uninstall plugin",
     "installPlugin": "Install Plugin",
@@ -2754,8 +2755,8 @@
       "slotAllocationRandom": "RANDOM",
       "slotAllocationSystemLoad": "SYSTEM_LOAD",
       "slotAllocationSlotRatio": "SLOT_RATIO",
-      "slotAllocationHint": "Writes slot-allocation-strategy; clearest under Static Slot.",
-      "slotAllocationUnsupported": "This version does not support slot-allocation-strategy yet.",
+      "slotAllocationHint": "Writes slot-allocate-strategy; clearest under Static Slot.",
+      "slotAllocationUnsupported": "This version does not support slot-allocate-strategy yet.",
       "slotAllocationRandomDesc": "RANDOM: distribute work randomly across available slots or workers.",
       "slotAllocationSystemLoadDesc": "SYSTEM_LOAD: prefer lower CPU/memory load nodes.",
       "slotAllocationSlotRatioDesc": "SLOT_RATIO: prefer nodes with lower slot usage ratio."

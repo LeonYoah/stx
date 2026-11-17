@@ -18,6 +18,7 @@
 package timex
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -54,6 +55,47 @@ func TestDisplayTimezone(t *testing.T) {
 	}
 	if FormatAPI(time.Time{}) != "" || FormatAPI(time.Date(2026, 1, 1, 8, 0, 0, 0, DisplayLocation())) != "2026-01-01T00:00:00Z" {
 		t.Fatal("FormatAPI")
+	}
+}
+
+func TestSeatunnelLocationPrefersEnvThenLocal(t *testing.T) {
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "UTC")
+	if got := SeatunnelLocation(); got != time.UTC {
+		t.Fatalf("explicit STX_SEATUNNEL_TIMEZONE=UTC, got %v", got)
+	}
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "Not/AZone")
+	if got := SeatunnelLocation(); got != time.Local && got != time.UTC {
+		t.Fatalf("invalid env must fall back to local/UTC, got %v", got)
+	}
+}
+
+func TestSeatunnelLocationForClusterUsesHeartbeatThenEnvWins(t *testing.T) {
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load Asia/Shanghai: %v", err)
+	}
+	SetEngineLocationLookup(func(_ context.Context, clusterID uint) *time.Location {
+		if clusterID == 7 {
+			return shanghai
+		}
+		return nil
+	})
+	t.Cleanup(func() { SetEngineLocationLookup(nil) })
+
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "")
+	if got := SeatunnelLocationForCluster(context.Background(), 7); got != shanghai {
+		t.Fatalf("cluster heartbeat zone, got %v", got)
+	}
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "UTC")
+	if got := SeatunnelLocationForCluster(context.Background(), 7); got != time.UTC {
+		t.Fatalf("env must win over heartbeat zone, got %v", got)
+	}
+	if got := SeatunnelLocationForHost("Asia/Shanghai"); got != time.UTC {
+		t.Fatalf("env must win over host zone, got %v", got)
+	}
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "")
+	if got := SeatunnelLocationForHost("Asia/Shanghai"); got.String() != "Asia/Shanghai" {
+		t.Fatalf("host zone, got %v", got)
 	}
 }
 

@@ -18,9 +18,12 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
+
+	clioutput "github.com/LeonYoah/stx/internal/cli/output"
 )
 
 func TestParseCLIWaitTimeout(t *testing.T) {
@@ -86,5 +89,87 @@ func TestFormatCLIJobMetricsBlock(t *testing.T) {
 	}
 	if !strings.Contains(block, "\n") {
 		t.Fatal("metrics block must include real newlines")
+	}
+}
+
+func TestMaybeEmitJobMetricsLogSkipsDuplicateBlock(t *testing.T) {
+	var buf bytes.Buffer
+	events := clioutput.NewEventWriter(&buf)
+	job := syncJobWaitResult{
+		ID:     1,
+		Status: "success",
+		ResultPreview: map[string]interface{}{
+			"metrics": map[string]interface{}{
+				"SourceReceivedCount": float64(9),
+				"SinkWriteCount":      float64(9),
+			},
+		},
+	}
+	first, block := maybeEmitJobMetricsLog(events, "op", "req", job, time.Time{}, "", true)
+	if first.IsZero() || strings.TrimSpace(block) == "" {
+		t.Fatal("expected the first metrics block to emit")
+	}
+	_, _ = maybeEmitJobMetricsLog(events, "op", "req", job, first, block, true)
+	if strings.Count(buf.String(), `"event":"job_metrics"`) != 1 {
+		t.Fatalf("duplicate metrics emitted: %s", buf.String())
+	}
+}
+
+func TestMaybeEmitJobMetricsLogIgnoresChangingTimeLine(t *testing.T) {
+	var buf bytes.Buffer
+	events := clioutput.NewEventWriter(&buf)
+	job := syncJobWaitResult{
+		ID:     1,
+		Status: "running",
+		ResultPreview: map[string]interface{}{
+			"metrics": map[string]interface{}{
+				"SourceReceivedCount": float64(9),
+				"SinkWriteCount":      float64(9),
+			},
+		},
+	}
+	first, block := maybeEmitJobMetricsLog(events, "op", "req", job, time.Time{}, "", true)
+	laterBlock := formatCLIJobMetricsBlock(job.ResultPreview, first.Add(time.Minute), true)
+	if jobMetricsFingerprint(block) != jobMetricsFingerprint(laterBlock) {
+		t.Fatalf("fingerprints should ignore time: %q vs %q", block, laterBlock)
+	}
+	_, _ = maybeEmitJobMetricsLog(events, "op", "req", job, first, block, true)
+	if strings.Count(buf.String(), `"event":"job_metrics"`) != 1 {
+		t.Fatalf("time-only change should not re-emit metrics: %s", buf.String())
+	}
+}
+
+func TestPreviewCollectURL(t *testing.T) {
+	// 采集地址只吃调用方传入的已解析 server，不再读 STX_SERVER，也不编造 loopback。
+	// The collector URL uses only the resolved server argument; it does not re-read STX_SERVER or invent loopback.
+	t.Setenv("STX_SERVER", "https://from-env.example/")
+	got := previewCollectURL("https://stx.example:8443/")
+	if got != "https://stx.example:8443/api/v1/sync/preview/collect" {
+		t.Fatalf("got %q", got)
+	}
+	got = previewCollectURL("")
+	if got != "" {
+		t.Fatalf("empty server must not fall back to STX_SERVER or loopback, got %q", got)
+	}
+}
+
+func TestApplyPreviewCollectURLUsesClientServerAndKeepsCustom(t *testing.T) {
+	t.Setenv("STX_SERVER", "https://should-not-win.example")
+	definition := map[string]any{
+		"preview_http_sink": map[string]any{"array_mode": false},
+	}
+	applyPreviewCollectURL(definition, "https://saved-ns.example:8443")
+	sink := definition["preview_http_sink"].(map[string]any)
+	if sink["url"] != "https://saved-ns.example:8443/api/v1/sync/preview/collect" {
+		t.Fatalf("namespace server got %v", sink["url"])
+	}
+
+	custom := map[string]any{
+		"preview_http_sink": map[string]any{"url": "https://custom.example/collect", "array_mode": true},
+	}
+	applyPreviewCollectURL(custom, "https://saved-ns.example:8443")
+	customSink := custom["preview_http_sink"].(map[string]any)
+	if customSink["url"] != "https://custom.example/collect" {
+		t.Fatalf("custom url overwritten: %v", customSink["url"])
 	}
 }

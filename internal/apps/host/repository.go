@@ -20,6 +20,7 @@ package host
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -293,14 +294,18 @@ func (r *Repository) UpdateAgentStatus(ctx context.Context, id uint, status Agen
 }
 
 // UpdateHeartbeat updates the heartbeat timestamp and resource usage for a host.
-func (r *Repository) UpdateHeartbeat(ctx context.Context, id uint, cpuUsage, memoryUsage, diskUsage float64) error {
+func (r *Repository) UpdateHeartbeat(ctx context.Context, id uint, cpuUsage, memoryUsage, diskUsage float64, timezone string) error {
 	now := time.Now()
-	result := r.db.WithContext(ctx).Model(&Host{}).Where("id = ?", id).Updates(map[string]interface{}{
+	updates := map[string]interface{}{
 		"last_heartbeat": now,
 		"cpu_usage":      cpuUsage,
 		"memory_usage":   memoryUsage,
 		"disk_usage":     diskUsage,
-	})
+	}
+	if tz := strings.TrimSpace(timezone); tz != "" {
+		updates["timezone"] = tz
+	}
+	result := r.db.WithContext(ctx).Model(&Host{}).Where("id = ?", id).Updates(updates)
 	if result.Error != nil {
 		return result.Error
 	}

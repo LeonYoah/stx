@@ -20,6 +20,7 @@ package installer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -56,6 +57,9 @@ func TestModifySeaTunnelConfigSkipsUnsupportedRuntimeKeys(t *testing.T) {
 	}
 	if got := slotService["slot-num"]; got != 4 {
 		t.Fatalf("expected slot-num=4, got %#v", got)
+	}
+	if _, ok := slotService["slot-allocate-strategy"]; ok {
+		t.Fatalf("expected old version to skip slot-allocate-strategy, got %#v", slotService["slot-allocate-strategy"])
 	}
 	if _, ok := slotService["slot-allocation-strategy"]; ok {
 		t.Fatalf("expected old version to skip slot-allocation-strategy, got %#v", slotService["slot-allocation-strategy"])
@@ -111,8 +115,11 @@ func TestModifySeaTunnelConfigWritesSupportedRuntimeKeys(t *testing.T) {
 	if got := slotService["slot-num"]; got != 8 {
 		t.Fatalf("expected slot-num=8, got %#v", got)
 	}
-	if got := slotService["slot-allocation-strategy"]; got != "SYSTEM_LOAD" {
-		t.Fatalf("expected slot-allocation-strategy=SYSTEM_LOAD, got %#v", got)
+	if got := slotService["slot-allocate-strategy"]; got != "SYSTEM_LOAD" {
+		t.Fatalf("expected slot-allocate-strategy=SYSTEM_LOAD, got %#v", got)
+	}
+	if _, ok := slotService["slot-allocation-strategy"]; ok {
+		t.Fatalf("did not expect misspelled slot-allocation-strategy, got %#v", slotService["slot-allocation-strategy"])
 	}
 	if got := engine["job-schedule-strategy"]; got != "WAIT" {
 		t.Fatalf("expected job-schedule-strategy=WAIT, got %#v", got)
@@ -124,6 +131,31 @@ func TestModifySeaTunnelConfigWritesSupportedRuntimeKeys(t *testing.T) {
 	logs := mustNestedMap(t, engine, "telemetry", "logs")
 	if got := logs["scheduled-deletion-enable"]; got != false {
 		t.Fatalf("expected scheduled-deletion-enable=false, got %#v", got)
+	}
+}
+
+func TestModifySeaTunnelConfigRewritesMisspelledSlotAllocationKey(t *testing.T) {
+	configPath := writeRuntimeConfigFixture(t)
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	updated := strings.Replace(string(raw), "      slot-num: 2\n", "      slot-num: 2\n      slot-allocation-strategy: RANDOM\n", 1)
+	if err := os.WriteFile(configPath, []byte(updated), 0o644); err != nil {
+		t.Fatalf("write misspelled key: %v", err)
+	}
+
+	manager := NewInstallerManager()
+	if err := manager.modifySeaTunnelConfig(configPath, &InstallParams{Version: "2.3.10"}); err != nil {
+		t.Fatalf("modifySeaTunnelConfig: %v", err)
+	}
+	root := readRuntimeConfigMap(t, configPath)
+	slotService := mustNestedMap(t, root, "seatunnel", "engine", "slot-service")
+	if got := slotService["slot-allocate-strategy"]; got != "RANDOM" {
+		t.Fatalf("expected rewritten slot-allocate-strategy, got %#v", slotService)
+	}
+	if _, ok := slotService["slot-allocation-strategy"]; ok {
+		t.Fatalf("expected misspelled key to be removed, got %#v", slotService["slot-allocation-strategy"])
 	}
 }
 

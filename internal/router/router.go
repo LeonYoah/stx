@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,6 +61,7 @@ import (
 	grpcServer "github.com/LeonYoah/stx/internal/grpc"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/otel_trace"
+	"github.com/LeonYoah/stx/internal/pkg/debugpprof"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"github.com/LeonYoah/stx/internal/session"
@@ -203,6 +205,12 @@ func Serve() {
 			apiV1Router.POST("/auth/cli/logout", auth.CLIAuthRequired(), auth.CLILogout)
 			apiV1Router.GET("/auth/cli/whoami", auth.CLIAuthRequired(), auth.CLIWhoAmI)
 			apiV1Router.GET("/capabilities", auth.CLIAuthRequired(), capability.List)
+
+			// 进程剖析：配置关闭时仍登记路由，管理员拿到 404；开启后写出 Go pprof 二进制。
+			// Process profiling: the route stays registered while disabled (admins get 404); when on it writes Go pprof bytes.
+			debugPprofRouter := apiV1Router.Group("/debug/pprof")
+			debugPprofRouter.Use(auth.LoginRequired(), admin.LoginAdminRequired())
+			debugPprofRouter.GET("/:name", debugPprofHandler)
 
 			// OAuth（备选登录方式：GitHub、Google）
 			apiV1Router.GET("/oauth/providers", oauth.GetEnabledProvidersHandler)
@@ -1233,12 +1241,43 @@ func Serve() {
 		}
 	}
 
+	if err := debugpprof.Start(ctx, debugpprof.Options{
+		Enabled: config.Config.App.Pprof.Enabled,
+		Addr:    config.Config.App.Pprof.Addr,
+	}); err != nil {
+		// pprof 只是排查工具：端口被占不能拖垮主 API。管理员走 HTTP 时会看到同样的失败原因。
+		// pprof is a debug tool: a busy port must not take down the main API. The admin HTTP path reports the same reason.
+		logger.WarnF(ctx, "[API] 本机 pprof 监听失败，HTTP API 继续启动: %v / local pprof listen failed, HTTP API continues: %v", err, err)
+	}
+	defer debugpprof.Stop()
+
 	// Serve HTTP API
 	// 启动 HTTP API 服务
 	log.Printf("[API] HTTP 服务器启动于 %s / HTTP server starting on %s\n", config.Config.App.Addr, config.Config.App.Addr)
 	if err := r.Run(config.Config.App.Addr); err != nil {
 		log.Fatalf("[API] serve api failed: %v\n", err)
 	}
+}
+
+// debugPprofHandler 把管理员请求转给 Go pprof；未开启时返回 404，避免未授权探测。
+// debugPprofHandler hands admin requests to Go pprof; 404 while disabled so the endpoint is not advertised.
+func debugPprofHandler(c *gin.Context) {
+	if config.Config == nil || !config.Config.App.Pprof.Enabled {
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error_msg": "pprof is disabled"})
+		return
+	}
+	if debugpprof.ListenAddr() == "" {
+		if err := debugpprof.ListenError(); err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error_msg": err.Error()})
+			return
+		}
+	}
+	name := strings.TrimSpace(c.Param("name"))
+	if name == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error_msg": "profile name is required"})
+		return
+	}
+	debugpprof.ServeNamed(c.Writer, c.Request, name)
 }
 
 // initGRPCServer initializes and starts the gRPC server for Agent communication.

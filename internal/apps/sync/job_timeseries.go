@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	gosync "sync"
 	"time"
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
@@ -142,34 +143,52 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 
 	jobID := strconv.FormatUint(uint64(instance.ID), 10)
 	metricKeys := parseTimeseriesMetrics(metricsCSV)
-
+	type tsQuery struct {
+		tpl     promQLTemplate
+		vectors []promquery.Series
+	}
+	var queries []tsQuery
 	for _, key := range metricKeys {
-		templates := timeseriesPromQL(key, jobID, engineObs)
-		for _, tpl := range templates {
-			vectors, err := promquery.Range(ctx, tpl.query, start, end, step)
+		for _, tpl := range timeseriesPromQL(key, jobID, engineObs) {
+			queries = append(queries, tsQuery{tpl: tpl})
+		}
+	}
+	// 默认一次趋势请求会打十几条 PromQL；并发跑，引擎内部仍受 maxConcurrentQueries 排队。
+	// A default timeseries request fires a dozen PromQL queries; run them concurrently, the engine
+	// still queues behind maxConcurrentQueries.
+	var wg gosync.WaitGroup
+	for i := range queries {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			vectors, err := promquery.Range(ctx, queries[i].tpl.query, start, end, step)
 			if err != nil {
-				// Soft-fail per series so a single template error does not empty the whole response.
 				// 单条模板失败不拖垮整份响应。
-				continue
+				// Soft-fail per series so a single template error does not empty the whole response.
+				return
 			}
-			for _, vec := range vectors {
-				label := tpl.label
-				if name := strings.TrimSpace(vec.Metric["vertex"]); name != "" {
-					label = name
-				}
-				if name := strings.TrimSpace(vec.Metric["edge"]); name != "" {
-					label = name
-				}
-				if name := strings.TrimSpace(vec.Metric["table"]); name != "" {
-					label = name
-				}
-				out.Series = append(out.Series, JobTimeseriesSeries{
-					Key:    tpl.key,
-					Label:  label,
-					Unit:   tpl.unit,
-					Points: vec.Points,
-				})
+			queries[i].vectors = vectors
+		}(i)
+	}
+	wg.Wait()
+	for _, item := range queries {
+		for _, vec := range item.vectors {
+			label := item.tpl.label
+			if name := strings.TrimSpace(vec.Metric["vertex"]); name != "" {
+				label = name
 			}
+			if name := strings.TrimSpace(vec.Metric["edge"]); name != "" {
+				label = name
+			}
+			if name := strings.TrimSpace(vec.Metric["table"]); name != "" {
+				label = name
+			}
+			out.Series = append(out.Series, JobTimeseriesSeries{
+				Key:    item.tpl.key,
+				Label:  label,
+				Unit:   item.tpl.unit,
+				Points: vec.Points,
+			})
 		}
 	}
 

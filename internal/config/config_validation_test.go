@@ -96,3 +96,25 @@ func TestValidateConfig_EmbeddedObservabilityInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateConfig_PprofDisabledIgnoresAddr(t *testing.T) {
+	c := &configModel{}
+	c.App.Pprof.Enabled = false
+	c.App.Pprof.Addr = "not-a-bind-address"
+	if err := validateConfig(c); err != nil {
+		t.Fatalf("disabled pprof should skip addr checks: %v", err)
+	}
+}
+
+func TestValidateConfig_PprofEnabledRequiresHostPort(t *testing.T) {
+	c := &configModel{}
+	c.App.Pprof.Enabled = true
+	c.App.Pprof.Addr = "6060"
+	if err := validateConfig(c); err == nil {
+		t.Fatal("expected error for pprof addr without host:port")
+	}
+	c.App.Pprof.Addr = "127.0.0.1:6060"
+	if err := validateConfig(c); err != nil {
+		t.Fatalf("valid pprof addr: %v", err)
+	}
+}

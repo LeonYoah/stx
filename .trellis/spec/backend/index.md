@@ -29,6 +29,7 @@
 | [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md) | 提交等待、守护进程、登录令牌、推送绑定与 CLI 退出码 | 已填写 |
 | [内嵌 tsdb 自观测](./embedded-tsdb-self-obs.md) | 自抓取 `job=stx_embedded`、Go/进程采集器、integration status 存储 meta | 已填写 |
 | [内嵌 tsdb 容量与默认值](./embedded-tsdb-capacity.md) | `max_samples` / `sample_limit` 收紧、序列规模基准 | 已填写 |
+| [进程剖析 pprof](./pprof.md) | 本机 loopback 监听、管理员 API/CLI、内嵌 tsdb 接口怎么测 | 已填写 |
 
 ---
 
@@ -45,6 +46,7 @@
 - 涉及 DolphinScheduler SHELL 节点、`--wait`/`--close-job`、登录令牌或工作流推送时，阅读[DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)。
 - 涉及内嵌 tsdb 自抓取、`prometheus_tsdb_*` / `go_*` 查询或 integration status 存储 meta 时，阅读[内嵌 tsdb 自观测](./embedded-tsdb-self-obs.md)。
 - 涉及 `max_samples`、抓取 `sample_limit` 或序列规模基准时，阅读[内嵌 tsdb 容量与默认值](./embedded-tsdb-capacity.md)。
+- 涉及进程剖析、pprof 监听或测量内嵌 tsdb 接口耗时时，阅读[进程剖析 pprof](./pprof.md)。
 - 新增源文件、方法或用户可见文案时，按[质量规范](./quality-guidelines.md)检查注释、License 头和语言输出。
 
 ## 质量检查

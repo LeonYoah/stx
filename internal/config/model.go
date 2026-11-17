@@ -86,6 +86,21 @@ type AppConfig struct {
 	// DisplayTimezone is the system default display timezone (IANA, default Asia/Shanghai) used for reports,
 	// default cron timezone and frontend default display. Storage is always UTC regardless of this setting.
 	DisplayTimezone string `mapstructure:"display_timezone"`
+
+	// Pprof 控制进程剖析：默认关闭；开启后本机 loopback 提供 /debug/pprof，管理员也可经 API/CLI 拉取。
+	// Pprof controls process profiling: off by default; when on, loopback serves /debug/pprof and admins can fetch via API/CLI.
+	Pprof PprofConfig `mapstructure:"pprof"`
+}
+
+// PprofConfig 是进程剖析开关与本机监听地址。
+// PprofConfig is the process-profiling switch and local listen address.
+type PprofConfig struct {
+	// Enabled 为 true 时启动本机 pprof 并把管理员 API 打开。
+	// Enabled starts the local pprof listener and opens the admin API.
+	Enabled bool `mapstructure:"enabled"`
+	// Addr 是本机 pprof 监听地址，默认 127.0.0.1:6060。
+	// Addr is the local pprof listen address, default 127.0.0.1:6060.
+	Addr string `mapstructure:"addr"`
 }
 
 // SyncConfig 同步工作台相关配置。

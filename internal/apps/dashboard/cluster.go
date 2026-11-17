@@ -299,7 +299,7 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		{key: "up_now", instant: true, query: fmt.Sprintf(`max by (cluster_id, instance) (up{%s})`, all)},
 		{key: "heap_all", instant: true, query: fmt.Sprintf(`100 * max by (cluster_id, instance) (jvm_memory_bytes_used{%[1]s,area="heap"}) / max by (cluster_id, instance) (clamp_min(jvm_memory_bytes_max{%[1]s,area="heap"}, 1))`, all)},
 		{key: "state_now", instant: true, query: fmt.Sprintf(`min by (cluster_id, instance) (node_state{%s})`, sel)},
-		{key: "cluster_info", instant: true, query: fmt.Sprintf(`max by (cluster_id, instance, master) (cluster_info{%s})`, sel)},
+		{key: "cluster_info", instant: true, query: fmt.Sprintf(`max by (cluster_id, master) (cluster_info{%s})`, sel)},
 		{key: "cluster_safe", instant: true, query: fmt.Sprintf(`min by (cluster_id) (hazelcast_partition_isClusterSafe{%s})`, sel)},
 		{key: "deadlocked", instant: true, query: fmt.Sprintf(`max(jvm_threads_deadlocked{%s})`, sel)},
 		{key: "reject", instant: true, query: fmt.Sprintf(`sum(rate(job_thread_pool_rejection_total{%s}[5m]))`, sel)},
@@ -345,18 +345,6 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 	}
 	heap, cpu, threads, fd, uptime := instant("heap_now"), instant("cpu_now"), instant("threads_now"), instant("fd_now"), instant("uptime_now")
 	up, state := instant("up_now"), instant("state_now")
-	masters := map[string]bool{}
-	reporters := map[string]string{}
-	for _, sample := range byKey["cluster_info"].samples {
-		master := strings.TrimSpace(sample.Metric["master"])
-		instance := strings.TrimSpace(sample.Metric["instance"])
-		if master != "" {
-			masters[master] = true
-		}
-		if instance != "" {
-			reporters[instance] = master
-		}
-	}
 	ptr := func(values map[string]float64, key string) *float64 {
 		if v, ok := values[key]; ok {
 			return &v
@@ -372,6 +360,22 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		id, _ := strconv.ParseUint(sample.Metric["cluster_id"], 10, 64)
 		return uint(id)
 	}
+	// SeaTunnel 每个节点都上报 cluster_info，master 标签值相同（当前 master 的 IP:port）。
+	// 只按该标签匹配，不能把「上报过 cluster_info 的 instance」当成 master。
+	// Every SeaTunnel node reports cluster_info with the same master label (current master IP:port).
+	// Match that label; do not treat every reporting instance as master.
+	mastersByCluster := map[uint]map[string]bool{}
+	for _, sample := range byKey["cluster_info"].samples {
+		master := strings.TrimSpace(sample.Metric["master"])
+		if master == "" {
+			continue
+		}
+		id := sampleCluster(sample)
+		if mastersByCluster[id] == nil {
+			mastersByCluster[id] = map[string]bool{}
+		}
+		mastersByCluster[id][master] = true
+	}
 	for _, sample := range byKey["heap_all"].samples {
 		if id := sampleCluster(sample); sample.Value > maxHeap[id] {
 			maxHeap[id] = sample.Value
@@ -383,11 +387,15 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		}
 	}
 	signals := &ClusterSignals{}
-	portCount := map[string]int{}
+	portCountByCluster := map[uint]map[string]int{}
 	for i := range out.Nodes {
 		_, port, err := net.SplitHostPort(out.Nodes[i].Instance)
 		if err == nil {
-			portCount[port]++
+			id := out.Nodes[i].ClusterID
+			if portCountByCluster[id] == nil {
+				portCountByCluster[id] = map[string]int{}
+			}
+			portCountByCluster[id][port]++
 		}
 	}
 	for i := range out.Nodes {
@@ -397,8 +405,8 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		}
 		row.HeapPercent, row.CPUCores = ptr(heap, row.Instance), ptr(cpu, row.Instance)
 		row.Threads, row.FDPercent, row.UptimeSeconds = ptr(threads, row.Instance), ptr(fd, row.Instance), ptr(uptime, row.Instance)
-		if len(masters) > 0 {
-			row.Master = flag(instanceMatchesMaster(row.Instance, masters, reporters, portCount))
+		if masters := mastersByCluster[row.ClusterID]; len(masters) > 0 {
+			row.Master = flag(instanceMatchesMaster(row.Instance, masters, portCountByCluster[row.ClusterID]))
 		}
 		if v, ok := up[row.Instance]; ok {
 			row.ScrapeUp = flag(v >= 1)
@@ -440,31 +448,23 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 }
 
 // instanceMatchesMaster 判断抓取 instance 是否对应 cluster_info 的 master 标签。
-// Hazelcast 常把 master 标成 127.0.0.1:port，而 HTTP SD / Prometheus instance 是主机 IP:port。
-// 共享端口时只把上报 cluster_info 的 instance 标成 master，不再用 inventory 角色兜底。
+// 匹配顺序：精确 IP:port → 同主机 IP 等价 → 回环 master 且该集群该端口只有一个节点。
 // instanceMatchesMaster reports whether a scrape instance is the cluster_info master label.
-// Hazelcast often labels master as 127.0.0.1:port while the HTTP SD / Prometheus instance is hostIP:port.
-// When ports are shared, only the instance that reported cluster_info is master; inventory role is not a fallback.
-func instanceMatchesMaster(instance string, masters map[string]bool, reporters map[string]string, portCount map[string]int) bool {
+// Match order: exact IP:port, same-host IP equality, then loopback master with a unique port in this cluster.
+func instanceMatchesMaster(instance string, masters map[string]bool, portCount map[string]int) bool {
 	if masters[instance] {
 		return true
 	}
-	if _, ok := reporters[instance]; ok {
-		return true
-	}
 	for master := range masters {
-		if scrapeInstanceMatchesMaster(instance, master, reporters[instance], portCount) {
+		if scrapeInstanceMatchesMaster(instance, master, portCount) {
 			return true
 		}
 	}
 	return false
 }
 
-func scrapeInstanceMatchesMaster(instance, master, reporter string, portCount map[string]int) bool {
+func scrapeInstanceMatchesMaster(instance, master string, portCount map[string]int) bool {
 	if instance == master {
-		return true
-	}
-	if reporter != "" && instance == reporter {
 		return true
 	}
 	instanceHost, instancePort, err := net.SplitHostPort(instance)
@@ -481,10 +481,12 @@ func scrapeInstanceMatchesMaster(instance, master, reporter string, portCount ma
 	if sameDashboardHost(instanceHost, masterHost) {
 		return true
 	}
-	if !isLoopbackHost(masterHost) && !isLoopbackHost(instanceHost) {
-		return false
+	// 回环 master 且该集群该端口唯一：覆盖 hazelcast 成员列表缺地址时回退到 127.0.0.1:<port> 的单节点安装。
+	// Loopback master with a unique port covers single-node installs that fall back to 127.0.0.1:<port>.
+	if isLoopbackHost(masterHost) {
+		return portCount[instancePort] <= 1
 	}
-	return portCount[instancePort] <= 1
+	return false
 }
 
 func sameDashboardHost(left, right string) bool {

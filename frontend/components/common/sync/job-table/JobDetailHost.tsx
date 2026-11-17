@@ -99,7 +99,7 @@ function useJob(
     : false;
 
   useEffect(() => {
-    if (!enabled || !jobId || !active) {
+    if (!enabled || !jobId) {
       return;
     }
     let disposed = false;
@@ -113,7 +113,17 @@ function useJob(
         // 瞬时轮询失败保留上一份数据。/ Transient poll failures keep the previous copy.
       }
     };
+    // 打开即取一次全量：列表行的 result_preview 已被后端瘦身（只留展示键），拓扑 / 指标 / 日志页签
+    // 需要完整字段；终态作业不再轮询，活动作业继续 5s 刷新。
+    // Fetch once on open: the list row's result_preview is pruned by the backend (display keys only)
+    // while the topology / metrics / logs tabs need the full record. Terminal jobs stop here;
+    // active jobs keep polling every 5s.
     void load();
+    if (!active) {
+      return () => {
+        disposed = true;
+      };
+    }
     const timer = window.setInterval(() => {
       void load();
     }, JOB_DETAIL_POLL_MS);

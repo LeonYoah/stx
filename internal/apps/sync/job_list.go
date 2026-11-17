@@ -328,8 +328,35 @@ func (s *Service) decorateJobsForList(ctx context.Context, jobs []*JobInstance) 
 	for _, job := range jobs {
 		job.TaskName = names[job.TaskID]
 		job.Live = buildJobLiveMetrics(job)
+		// live 已把列表需要的指标压平，result_preview 的大块内容（metrics 全量、预览数据等）在列表里没人读，
+		// 只保留行展示仍消费的三个键（job_status 显示态、cancel_outcome/cancel_timeout_seconds 结果提示），
+		// 把 50 行一页的响应从数百 KB 降到十分之一量级。详情由前端单独 getJob 取全量。
+		// `live` already flattens every metric the list needs, and nobody reads the heavy parts of
+		// result_preview (full metrics, preview payloads) in list rows. Keep only the three keys the row
+		// still consumes (job_status display state, cancel_outcome/cancel_timeout_seconds outcome hints),
+		// shrinking a 50-row page from hundreds of KB to a tenth of that. The detail view fetches the full
+		// job via getJob on demand.
+		if job.ResultPreview != nil {
+			job.ResultPreview = pruneResultPreviewForList(job.ResultPreview)
+		}
 	}
 	return nil
+}
+
+// jobListPreviewKeepKeys 是列表行还消费的 result_preview 键（前端 JobOutcomeHints / 显示状态判定）。
+// jobListPreviewKeepKeys are the result_preview keys list rows still consume (JobOutcomeHints / display status).
+var jobListPreviewKeepKeys = []string{"job_status", "cancel_outcome", "cancel_timeout_seconds"}
+
+// pruneResultPreviewForList 返回只含白名单键的精简 result_preview。
+// pruneResultPreviewForList returns a reduced result_preview holding only allow-listed keys.
+func pruneResultPreviewForList(preview JSONMap) JSONMap {
+	keep := JSONMap{}
+	for _, key := range jobListPreviewKeepKeys {
+		if v, ok := preview[key]; ok {
+			keep[key] = v
+		}
+	}
+	return keep
 }
 
 // jobMetrics 取 result_preview.metrics（对账写入的引擎指标快照）。

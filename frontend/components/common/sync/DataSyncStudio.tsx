@@ -1097,6 +1097,16 @@ export function DataSyncStudio() {
     setSelectedJobId(job.id);
     setDetailJobId(job.id);
     setDetailTab(tab);
+    // 列表行 result_preview 已被后端瘦身（仅留展示键）；缺 metrics 时单独取全量补进 retainedJobs，
+    // 否则详情弹窗的拓扑 / 指标 / 脚本页签拿不到字段。
+    // List rows carry a pruned result_preview (display keys only); when metrics is missing, fetch the
+    // full record into retainedJobs so the detail dialog's topology / metrics / script tabs render.
+    if (!job.result_preview?.metrics) {
+      void services.sync
+        .getJob(job.id)
+        .then(retainJob)
+        .catch(() => {});
+    }
   }, [retainJob]);
   const previewDatasets = useMemo(
     () =>

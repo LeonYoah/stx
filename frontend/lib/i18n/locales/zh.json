@@ -391,26 +391,6 @@
         "avgPrefix": "均 ",
         "avgRateHint": "作业已结束：运行期间的平均速率（累计条数 ÷ 耗时）"
       },
-      "preview": {
-        "title": "作业预览",
-        "trend": "近 1 小时吞吐",
-        "read": "读取",
-        "write": "写入",
-        "noTrend": "开启可观测性后显示趋势",
-        "trendUnavailable": "监控数据暂不可用，稍后自动重试",
-        "error": "失败原因",
-        "openDetail": "打开作业详情",
-        "writeRate": "写入速率",
-        "total": "累计写入",
-        "cdc": "CDC 延迟",
-        "close": "关闭",
-        "trendLifetime": "作业全程吞吐",
-        "loading": "加载中",
-        "legendClear": "清空",
-        "legendAll": "全选",
-        "categoryTime": "时间",
-        "empty": "该时间窗内没有数据"
-      },
       "clusterTab": {
         "range": {
           "label": "时间窗",

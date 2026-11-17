@@ -391,26 +391,6 @@
         "avgPrefix": "avg ",
         "avgRateHint": "Job finished: average rate over its run (rows ÷ duration)"
       },
-      "preview": {
-        "title": "Job preview",
-        "trend": "Throughput, last hour",
-        "read": "Read",
-        "write": "Write",
-        "noTrend": "Turn on observability to see trends",
-        "trendUnavailable": "Monitoring data is unavailable; retrying automatically",
-        "error": "Failure reason",
-        "openDetail": "Open job details",
-        "writeRate": "Write rate",
-        "total": "Rows written",
-        "cdc": "CDC delay",
-        "close": "Close",
-        "trendLifetime": "Throughput, job lifetime",
-        "loading": "Loading",
-        "legendClear": "Clear",
-        "legendAll": "All",
-        "categoryTime": "Time",
-        "empty": "No data in this time window"
-      },
       "clusterTab": {
         "range": {
           "label": "Time range",

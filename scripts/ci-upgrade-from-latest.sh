@@ -449,28 +449,39 @@ assert_true() {
   fi
 }
 
+# 升级重启后 systemd 状态可能短暂处于 activating：轮询最多 ~10s 再判失败。
+# systemd may briefly report activating right after the upgrade restart: poll up to ~10s before failing.
+systemd_active() {
+  local i
+  for i in 1 2 3 4 5; do
+    sudo -n systemctl is-active --quiet stx && return 0
+    sleep 2
+  done
+  return 1
+}
+
 assert_generic() {
   log "assertions: generic"
 
   local version
   version="$(curl -fsS "${API_BASE}/version" | jq -r '.data.version // empty')"
-  assert_true "version==$TARGET" [[ "$version" == "$TARGET" ]]
+  assert_true "version==$TARGET" [ "$version" = "$TARGET" ]
 
-  assert_true "systemd active" sudo -n systemctl is-active --quiet stx
+  assert_true "systemd active" systemd_active
 
   local code
   code="$(curl -fsS -o /dev/null -w '%{http_code}' -L "http://127.0.0.1:17880/" 2>/dev/null || echo 000)"
-  assert_true "frontend 200" [[ "$code" == "200" ]]
+  assert_true "frontend 200" [ "$code" = "200" ]
 
   if [[ "$SEEDED_CHANNEL" == "true" ]]; then
     local found
     found="$(http_request GET "/monitoring/notification-channels" | jq -r --arg n "$CHANNEL_NAME" '[.data.channels[]? // .data.items[]? | select(.name==$n)] | length')"
-    assert_true "channel preserved" [[ "$found" -ge 1 ]]
+    assert_true "channel preserved" [ "$found" -ge 1 ]
   fi
   if [[ "$SEEDED_FOLDER" == "true" ]]; then
     local found
     found="$(http_request GET "/sync/tree" | jq -r --arg n "$FOLDER_NAME" '[.. | objects | select(.name? == $n)] | length')"
-    assert_true "workbench folder preserved" [[ "$found" -ge 1 ]]
+    assert_true "workbench folder preserved" [ "$found" -ge 1 ]
   fi
 
   # 安装布局：bin/start.sh 与仓库一致；observability.sh 已移走；旧文件有备份。
@@ -524,7 +535,7 @@ assert_legacy_alert() {
   # The seeded firing alert must no longer show up in firing instances.
   local count
   count="$(http_request GET "/monitoring/alert-instances?status=firing" | jq -r --arg n "$ALERT_NAME" '[.data.alerts[]? | select(.alert_name==$n)] | length' 2>/dev/null || echo -1)"
-  assert_true "legacy alert not firing" [[ "$count" == "0" ]]
+  assert_true "legacy alert not firing" [ "$count" = "0" ]
 
   # 渠道接收端不能收到 resolved 通知（收尾不发送恢复通知）。
   # The webhook sink must not have received a resolved notification (cleanup sends none).
@@ -537,7 +548,7 @@ assert_invalid_configs() {
   if [[ "$SEEDED_LEGACY_ROUTE" == "true" ]]; then
     local reason
     reason="$(http_request GET "/monitoring/notification-routes" | jq -r --arg n "$ROUTE_NAME" '[.data.routes[]? | select(.name==$n)][0].invalid_reason // empty' 2>/dev/null || true)"
-    assert_true "route invalid_reason" [[ -n "$reason" ]]
+    assert_true "route invalid_reason" [ -n "$reason" ]
     assert_true "route WARN in log" bash -c "sudo -n grep -qi '通知路由.*失效\|notification route.*invalid\|invalid.*notification route' '$INSTALL_DIR/logs/backend.log' 2>/dev/null"
   else
     notice "route invalid_reason assertions skipped"
@@ -546,7 +557,7 @@ assert_invalid_configs() {
   if [[ "$SEEDED_LEGACY_POLICY" == "true" ]]; then
     local reason
     reason="$(http_request GET "/diagnostics/auto-policies" | jq -r --arg n "$POLICY_NAME" '[.data.items[]? | select(.name==$n)][0].invalid_reason // empty' 2>/dev/null || true)"
-    assert_true "policy invalid_reason" [[ -n "$reason" ]]
+    assert_true "policy invalid_reason" [ -n "$reason" ]
     assert_true "policy WARN in log" bash -c "sudo -n grep -qi '巡检.*失效\|auto.*polic.*invalid\|invalid.*auto.*polic' '$INSTALL_DIR/logs/backend.log' 2>/dev/null"
   else
     notice "policy invalid_reason assertions skipped"

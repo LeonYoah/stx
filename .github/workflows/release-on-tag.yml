@@ -150,12 +150,21 @@ jobs:
           retention-days: 7
           compression-level: 0
 
+  # 发布门禁：先用最新正式版跑到本 tag 的应用内升级，失败则不发正式 Release。
+  # Release gate: run the in-app upgrade from the latest stable release to this tag first;
+  # the GitHub Release is not published when the upgrade leg fails.
+  upgrade-gate:
+    name: Upgrade gate (latest stable -> tag)
+    uses: ./.github/workflows/upgrade-from-latest.yml
+    with:
+      target_version: ${{ github.ref_name }}
+
   publish-github-release:
     name: Publish GitHub Release Assets
     runs-on: ubuntu-latest
     # 基础资产不等离线包：任一离线包变体失败都不影响二进制 / 前端 / 脚本发布。
     # Base assets do not wait for offline bundles, so a failed bundle variant never blocks them.
-    needs: package-release
+    needs: [package-release, upgrade-gate]
 
     steps:
       - name: Download package artifacts
@@ -167,14 +176,34 @@ jobs:
       - name: Show release assets
         run: ls -alh release-assets
 
-      - name: Checkout (asset glob guard)
+      - name: Checkout (asset glob guard + release notes)
         uses: actions/checkout@v4
         with:
           path: src
           sparse-checkout: |
             scripts/check-release-asset-globs.sh
             .github/workflows/release-on-tag.yml
+            docs/release-notes
           sparse-checkout-cone-mode: false
+
+      # 正式版 tag（tag 不含 '-'）必须有人工撰写的发布说明；预发布版允许缺失，正文用自动生成列表。
+      # Stable tags (no '-' in the tag) require hand-written release notes; pre-releases may
+      # miss them and fall back to generated notes only.
+      - name: Require release notes for stable tags
+        id: notes
+        run: |
+          tag="${{ github.ref_name }}"
+          if [[ "$tag" == *-* ]]; then
+            echo "pre-release tag $tag: release notes optional"
+            echo "path=" >> "$GITHUB_OUTPUT"
+          else
+            notes="src/docs/release-notes/${tag}.md"
+            if [[ ! -f "$notes" ]]; then
+              echo "::error::stable tag ${tag} requires ${notes#src/} — rename docs/release-notes/unreleased.md to docs/release-notes/${tag}.md and fill it in"
+              exit 1
+            fi
+            echo "path=$notes" >> "$GITHUB_OUTPUT"
+          fi
 
       # 每个打包产物都必须恰好被一个上传通配命中（防止再次漏传 stx-java-proxy.sh 这类资产）。
       # Every packaged file must be matched by exactly one upload glob (prevents silently dropping assets).
@@ -204,6 +233,10 @@ jobs:
             release-assets/stx-docker-compose.tar.gz
             release-assets/stx-install-helpers.tar.gz.sha256
             release-assets/stx-docker-compose.tar.gz.sha256
+          # 人工发布说明在前，自动生成的 PR 列表附在其后；预发布无 body_path 时走纯自动生成。
+          # Hand-written notes come first and generated PR lists are appended; pre-releases
+          # without body_path fall back to generated notes only.
+          body_path: ${{ steps.notes.outputs.path }}
           generate_release_notes: true
           fail_on_unmatched_files: false
           # 带 '-' 的 tag（如 v1.2.0-beta.1）是预发：标记为 pre-release，且不抢 Latest。

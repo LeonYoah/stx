@@ -139,6 +139,24 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 
 `ExecStart` 推荐指向 `$INSTALL_DIR/bin/start.sh`（或等价 wrapper）。改配置后：`systemctl restart stx`（user 则 `systemctl --user restart stx`）。
 
+### 3.6 应用内一键升级契约
+
+- **执行者是旧版本升级器**：一键升级总是由「当前已安装版本」的升级器执行，它只能替换
+  `stx` 二进制、`lib/`、`scripts/`、`frontend/`，**历史升级器不会替换 `bin/`**。
+- 因此**安装布局修复必须放在新二进制启动流程**（`internal/pkg/layoutheal`，在
+  `runServer()` 迁移后、`router.Serve()` 前执行）：检测到安装目录布局（Linux、非容器、
+  `bin/start.sh` 含 STX 标识且存在 `config.yaml` 或 `stx.env`，`STX_LAYOUT_HEAL` 不为 `off`）
+  时用内嵌脚本（`install.BinScripts`）刷新 `bin/`、移走 `bin/lib/observability.sh`；
+  替换按「备份 `.bak-<UTC 时间戳>` → 写 `.<名>.tmp` → chmod 0755 → 原子 rename」逐文件进行，
+  单步失败只 WARN 不阻塞启动。
+- 新升级器（`applyStep` 控制面步骤）同步把升级包 `bin/` 落到安装目录，与布局自修复共用
+  `install.InstallScriptIfChanged`；包里没有 `bin/` 时跳过（兼容旧包），替换失败必须暴露为步骤错误。
+- **升级包必须带 `bin/`**：`package-release.sh` 自升级整合包 staging 含
+  `bin/{start,stop,status}.sh`。
+- **旧三件套收尾**也在新二进制里：`ReapLegacyObservability` 在启动后 3 分钟窗口内按
+  `observability/*/*.pid` 停旧进程，发信号前用 `/proc/<pid>/exe` 核对进程名（pid 复用只删
+  pid 文件）；只停进程，`observability/` 数据目录保留不删。
+
 ---
 
 ## 4. Validation & Error Matrix

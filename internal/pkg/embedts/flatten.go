@@ -19,6 +19,7 @@ package embedts
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strconv"
 	"sync/atomic"
@@ -135,6 +136,100 @@ func FlattenMetricFamilies(mfs []*dto.MetricFamily, injected map[string]string) 
 		}
 	}
 	return out
+}
+
+// FlattenMetricFamiliesLimited 先按展平后样本数计数，超限立即返回错误且不物化任何 FlatSample。
+// limit<=0 表示不限制。计数在 limit+1 处截断，避免高基数 exposition 再走一遍完整标签构建。
+// FlattenMetricFamiliesLimited counts flattened samples first and returns an error without
+// materializing any FlatSample when the limit is exceeded. limit<=0 means unlimited. The
+// count stops at limit+1 so a high-cardinality exposition never builds the full label set.
+func FlattenMetricFamiliesLimited(mfs []*dto.MetricFamily, injected map[string]string, limit int) ([]FlatSample, error) {
+	if limit > 0 {
+		if n := countFlattenedSamples(mfs, limit+1); n > limit {
+			return nil, fmt.Errorf("%s: got at least %d samples, limit %d", errSampleLimitMsg, n, limit)
+		}
+	}
+	return FlattenMetricFamilies(mfs, injected), nil
+}
+
+// countFlattenedSamples 统计 FlattenMetricFamilies 会产出的样本数；stopAt>0 时数到 stopAt 即停。
+// countFlattenedSamples counts samples FlattenMetricFamilies would emit; stopAt>0 stops at stopAt.
+func countFlattenedSamples(mfs []*dto.MetricFamily, stopAt int) int {
+	n := 0
+	bump := func(k int) bool {
+		if k <= 0 {
+			return false
+		}
+		n += k
+		return stopAt > 0 && n >= stopAt
+	}
+	for _, mf := range mfs {
+		if mf == nil || mf.GetName() == "" {
+			continue
+		}
+		switch mf.GetType() {
+		case dto.MetricType_GAUGE:
+			for _, m := range mf.GetMetric() {
+				if m == nil || m.GetGauge() == nil {
+					continue
+				}
+				if bump(1) {
+					return n
+				}
+			}
+		case dto.MetricType_COUNTER:
+			for _, m := range mf.GetMetric() {
+				if m == nil || m.GetCounter() == nil {
+					continue
+				}
+				if bump(1) {
+					return n
+				}
+			}
+		case dto.MetricType_UNTYPED:
+			for _, m := range mf.GetMetric() {
+				if m == nil || m.GetUntyped() == nil {
+					continue
+				}
+				if bump(1) {
+					return n
+				}
+			}
+		case dto.MetricType_SUMMARY:
+			for _, m := range mf.GetMetric() {
+				if m == nil || m.GetSummary() == nil {
+					continue
+				}
+				q := 0
+				for _, item := range m.GetSummary().GetQuantile() {
+					if item != nil {
+						q++
+					}
+				}
+				if bump(q + 2) {
+					return n
+				}
+			}
+		case dto.MetricType_HISTOGRAM:
+			for _, m := range mf.GetMetric() {
+				if m == nil || m.GetHistogram() == nil {
+					continue
+				}
+				b := 0
+				for _, item := range m.GetHistogram().GetBucket() {
+					if item != nil {
+						b++
+					}
+				}
+				if bump(b + 2) {
+					return n
+				}
+			}
+		default:
+			continue
+		}
+	}
+	return n
 }
 
 // buildSeriesLabels 合成最终标签集：__name__ + 原始标签（剔除 job/instance → exported_*）+ 扩展标签 + 注入标签。

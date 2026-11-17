@@ -458,13 +458,11 @@ func (s *scraper) scrapeTarget(ctx context.Context, target ScrapeTarget) scrapeR
 	if err != nil {
 		return scrapeResult{statusCode: resp.StatusCode, err: fmt.Errorf("parse exposition: %w", err)}
 	}
-	result.samples = FlattenMetricFamilies(metricFamiliesToSlice(mfs), target.Labels)
-	if limit := s.opts.SampleLimit; limit > 0 && len(result.samples) > limit {
-		return scrapeResult{
-			statusCode: resp.StatusCode,
-			err:        fmt.Errorf("%s: got %d samples, limit %d", errSampleLimitMsg, len(result.samples), limit),
-		}
+	samples, err := FlattenMetricFamiliesLimited(metricFamiliesToSlice(mfs), target.Labels, s.opts.SampleLimit)
+	if err != nil {
+		return scrapeResult{statusCode: resp.StatusCode, err: err}
 	}
+	result.samples = samples
 	return result
 }
 

@@ -30,6 +30,7 @@ observability:
 - `max_samples=0` 视为未配置，启动时填 `DefaultMaxSamples`；负值校验失败。
 - `sample_limit=0` 视为未配置，启动时填 `DefaultSampleLimit`；负值校验失败。需要更大上限时显式写更大的数。
 - 单目标单轮展平后样本数超过 `sample_limit`：丢弃该目标本轮样本，`up=0`，`TargetState.LastError` 以 `sample limit exceeded` 开头；其他目标照常提交。
+- 超限判定在构建 `FlatSample` / 标签集之前按展平后样本数计数，数到 `limit+1` 即停；不得先把整份 exposition 物化再丢弃。响应体仍受 `maxExpositionBytes`（64MiB）限制。
 - 推荐活跃序列上限 **2 万**（7d 面板约 670 万样本，低于 1000 万查询上限）。超过后优先截断 `table` 标签或拆作业，而不是再把 `max_samples` 调回 5000 万。
 
 ### 4. 基准怎么跑
@@ -63,5 +64,6 @@ STX_TSDB_BENCH=full go test ./internal/pkg/embedts -count=1 -timeout 60m -run 'T
 ### 7. 必须有的测试
 
 - `TestScraper_SampleLimitDropsOneTargetKeepsOther`
+- `TestFlattenMetricFamiliesLimited_OverLimitSkipsMaterializing`
 - `TestCapacity_TenThousandSeries`（默认跑）
 - `TestValidateConfig_EmbeddedObservabilityInvalid` 覆盖负 `sample_limit`

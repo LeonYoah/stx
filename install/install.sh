@@ -96,11 +96,6 @@ while [[ $# -gt 0 ]]; do
     --frontend-port) ARG_FRONTEND_PORT="${2:-}"; shift 2 ;;
     --http-port|--api-port) ARG_HTTP_PORT="${2:-}"; shift 2 ;;
     --grpc-port) ARG_GRPC_PORT="${2:-}"; shift 2 ;;
-    # 旧版外部监控组件的端口参数：监控已内置，参数保留并忽略，旧脚本照常可用。
-    # Port flags of the legacy external monitoring stack: monitoring is built in now, so they are
-    # accepted and ignored to keep old scripts working.
-    --prometheus-port|--alertmanager-port|--grafana-port)
-      stx_warn "$1 已不再需要（监控已内置），忽略 / no longer needed (monitoring is built in), ignored"; shift 2 ;;
     --external-ip|--external-host) ARG_EXTERNAL_IP="${2:-}"; shift 2 ;;
     --db-type) ARG_DB_TYPE="${2:-}"; shift 2 ;;
     --db-host) ARG_DB_HOST="${2:-}"; shift 2 ;;
@@ -115,7 +110,6 @@ while [[ $# -gt 0 ]]; do
     --no-preserve-config) PRESERVE_CONFIG=false; shift ;;
     --no-start) AUTO_START=false; shift ;;
     --offline) OFFLINE=true; STX_OFFLINE=true; shift ;;
-    --with-observability) shift ;; # 内置监控默认开启，保留以兼容旧命令 / built-in monitoring is on by default; kept for old commands
     --without-observability) WITH_OBS=false; shift ;;
     --no-systemd) SKIP_SYSTEMD=true; STX_SKIP_SYSTEMD=true; shift ;;
     -h|--help) usage; exit 0 ;;

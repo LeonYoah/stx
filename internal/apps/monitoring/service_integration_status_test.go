@@ -72,7 +72,7 @@ func TestService_GetIntegrationStatus_disabled(t *testing.T) {
 	}
 
 	components := componentsByName(data.Components)
-	for _, name := range []string{"embedded_tsdb", "seatunnel_metrics", "remote_ingest"} {
+	for _, name := range []string{"embedded_tsdb", "seatunnel_metrics"} {
 		component, ok := components[name]
 		if !ok {
 			t.Fatalf("expected component %s in status payload", name)
@@ -84,8 +84,8 @@ func TestService_GetIntegrationStatus_disabled(t *testing.T) {
 			t.Fatalf("component %s unexpected error: %q", name, component.Error)
 		}
 	}
-	if len(data.Components) != 3 {
-		t.Fatalf("expected exactly 3 components, got %d", len(data.Components))
+	if len(data.Components) != 2 {
+		t.Fatalf("expected exactly 2 components, got %d", len(data.Components))
 	}
 }
 
@@ -133,15 +133,11 @@ func TestService_GetIntegrationStatus_enabledEmbeddedComponents(t *testing.T) {
 		t.Fatalf("expected total=0 meta, got %+v", metricsComponent.Meta)
 	}
 
-	ingestComponent := components["remote_ingest"]
-	if ingestComponent == nil {
-		t.Fatal("missing remote_ingest component")
+	if _, ok := components["remote_ingest"]; ok {
+		t.Fatal("remote_ingest component should no longer be reported")
 	}
-	if !ingestComponent.Healthy {
-		t.Fatalf("expected remote_ingest healthy, got error %q", ingestComponent.Error)
-	}
-	if ingestComponent.Meta["path"] == "" {
-		t.Fatalf("expected path meta on remote_ingest, got %+v", ingestComponent.Meta)
+	if len(data.Components) != 2 {
+		t.Fatalf("expected exactly 2 components, got %d", len(data.Components))
 	}
 }
 

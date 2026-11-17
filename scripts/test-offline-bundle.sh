@@ -24,10 +24,12 @@
 #      install-online.sh --bundle-file 与 download-bundle.sh --print-urls。
 #      install.sh prefers the bundled Node; --without-node only accepts a host Node >= 18.18; glibc < 2.28 refuses
 #      the official-Node bundle; install-online.sh --bundle-file and download-bundle.sh --print-urls.
-#   3. 监控已内置：离线包不含外部监控组件；旧参数（--observability、三件套端口、--with-observability）照常接受；
+#   3. 监控已内置：离线包不含外部监控组件；安装脚本不再接受旧监控参数（三件套端口、--with-observability）；
+#      bin/start.sh、bin/stop.sh 为兼容旧 systemd 单元仍接受 --observability；
 #      升级时旧监控目录保留并给出说明；stop.sh 会停掉升级前残留的旧监控进程。
-#      Monitoring is built in: bundles carry no external monitoring stack; legacy flags (--observability, stack
-#      ports, --with-observability) are still accepted; upgrades keep the legacy monitoring directory with a note;
+#      Monitoring is built in: bundles carry no external monitoring stack; the installers reject legacy
+#      monitoring flags (stack ports, --with-observability); bin/start.sh and bin/stop.sh still accept
+#      --observability for old systemd units; upgrades keep the legacy monitoring directory with a note;
 #      stop.sh stops leftover legacy monitoring processes.
 
 set -euo pipefail
@@ -417,16 +419,22 @@ for d in "$A64" "$C7"; do
   assert_no_grep "bundle $(basename "$d") MANIFEST has no with_observability" "with_observability" "$d/MANIFEST.json"
 done
 
-# 升级：旧监控目录保留并提示；旧的三件套端口参数与 --with-observability 被接受并忽略。
-# Upgrade: the legacy monitoring dir is kept with a note; legacy stack port flags and --with-observability are ignored.
+# 升级：旧监控目录保留并提示；旧的三件套端口参数与 --with-observability 现在被明确拒绝。
+# Upgrade: the legacy monitoring dir is kept with a note; legacy stack port flags and
+# --with-observability are now rejected with a clear error.
 inst="$T/inst-upgrade"
 mkdir -p "$inst/observability/prometheus/data"
 echo keep >"$inst/observability/prometheus/data/marker"
 if PATH="$NONODE" bash "$A64/install.sh" -y --install-dir "$inst" --no-start --no-systemd \
-  --with-observability --prometheus-port 19090 --alertmanager-port 19093 --grafana-port 13000 >"$T/install-upgrade.log" 2>&1; then
-  ok "install accepts legacy monitoring flags"
+  --with-observability --prometheus-port 19090 --alertmanager-port 19093 --grafana-port 13000 >"$T/install-legacy-flags.log" 2>&1; then
+  bad "install accepted legacy monitoring flags"
 else
-  bad "install rejected legacy monitoring flags"; sed 's/^/    | /' "$T/install-upgrade.log"
+  ok "install rejects legacy monitoring flags"
+fi
+if PATH="$NONODE" bash "$A64/install.sh" -y --install-dir "$inst" --no-start --no-systemd >"$T/install-upgrade.log" 2>&1; then
+  ok "upgrade install succeeds without legacy flags"
+else
+  bad "upgrade install failed"; sed 's/^/    | /' "$T/install-upgrade.log"
 fi
 assert_grep "install notes the legacy monitoring dir" "旧版监控组件目录" "$T/install-upgrade.log"
 assert_file "legacy monitoring data is kept" "$inst/observability/prometheus/data/marker"

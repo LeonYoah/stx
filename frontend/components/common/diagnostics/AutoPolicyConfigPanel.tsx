@@ -22,6 +22,7 @@ import {Loader2, Plus, Trash2, ShieldAlert} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
 import services from '@/lib/services';
+import {useLocale} from '@/lib/i18n';
 import {cn} from '@/lib/utils';
 import {
   resolvePreferredClusterId,
@@ -36,6 +37,10 @@ import type {
   DiagnosticsResourceCode,
   DiagnosticsTaskOptions,
 } from '@/lib/services/diagnostics';
+import type {
+  AlertRuleCatalogItem,
+  AlertSourceType,
+} from '@/lib/services/monitoring/types';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
@@ -93,7 +98,7 @@ export function normalizeConditionItemsForSave(
 ): InspectionConditionItem[] {
   return conditions.map((condition) => {
     const cronExprOverride = condition.cron_expr_override?.trim();
-    const extraKeywords = (condition.extra_keywords || [])
+    const ruleKeys = (condition.rule_keys || [])
       .map((item) => item.trim())
       .filter(Boolean);
 
@@ -111,8 +116,17 @@ export function normalizeConditionItemsForSave(
     if (cronExprOverride) {
       result.cron_expr_override = cronExprOverride;
     }
-    if (extraKeywords.length > 0) {
-      result.extra_keywords = extraKeywords;
+    // ALERT_FIRING 输出 rule_keys，error_rate 继续输出 extra_keywords，两者不混用。
+    // ALERT_FIRING serializes rule_keys while error_rate keeps extra_keywords; never mix them.
+    if (condition.template_code === 'ALERT_FIRING') {
+      result.rule_keys = ruleKeys;
+    } else {
+      const extraKeywords = (condition.extra_keywords || [])
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (extraKeywords.length > 0) {
+        result.extra_keywords = extraKeywords;
+      }
     }
 
     return result;
@@ -159,11 +173,14 @@ export function AutoPolicyConfigPanel({
   clusterOptions,
 }: AutoPolicyConfigPanelProps) {
   const t = useTranslations('diagnosticsCenter.autoPolicies');
+  const tAlerts = useTranslations('monitoringCenter.alerts');
   const tCluster = useTranslations('cluster');
   const commonT = useTranslations('common');
   const scheduleT = useTranslations('workbenchStudio');
   const [policies, setPolicies] = useState<InspectionAutoPolicy[]>([]);
   const [templates, setTemplates] = useState<InspectionConditionTemplate[]>([]);
+  const [ruleCatalog, setRuleCatalog] = useState<AlertRuleCatalogItem[]>([]);
+  const {locale} = useLocale();
   const [loading, setLoading] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingPolicy, setEditingPolicy] =
@@ -202,12 +219,8 @@ export function AutoPolicyConfigPanel({
       switch (category) {
         case 'java_error':
           return t('categories.javaError');
-        case 'prometheus':
-          return t('categories.prometheus');
         case 'error_rate':
           return t('categories.errorRate');
-        case 'node_unhealthy':
-          return t('categories.nodeUnhealthy');
         case 'alert_firing':
           return t('categories.alertFiring');
         case 'schedule':
@@ -236,10 +249,12 @@ export function AutoPolicyConfigPanel({
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [policiesResult, templatesResult] = await Promise.all([
-        services.diagnostics.listAutoPoliciesSafe({page_size: 100}),
-        services.diagnostics.listBuiltinConditionTemplatesSafe(),
-      ]);
+      const [policiesResult, templatesResult, catalogResult] =
+        await Promise.all([
+          services.diagnostics.listAutoPoliciesSafe({page_size: 100}),
+          services.diagnostics.listBuiltinConditionTemplatesSafe(),
+          services.monitoring.getAlertRuleCatalogSafe(locale),
+        ]);
       if (policiesResult.success && policiesResult.data) {
         setPolicies(policiesResult.data.items || []);
       } else {
@@ -248,10 +263,13 @@ export function AutoPolicyConfigPanel({
       if (templatesResult.success && templatesResult.data) {
         setTemplates(templatesResult.data);
       }
+      if (catalogResult.success && catalogResult.data) {
+        setRuleCatalog(catalogResult.data);
+      }
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, locale]);
 
   useEffect(() => {
     if (open) {
@@ -286,12 +304,21 @@ export function AutoPolicyConfigPanel({
     setFormClusterId(policy.cluster_id);
     setFormEnabled(policy.enabled);
     setFormCooldown(policy.cooldown_minutes);
-    setFormConditions(policy.conditions || []);
+    // 加载时丢掉模板列表里不存在的旧条件码（如已删除的 PROM_* / NODE_UNHEALTHY），
+    // 下次保存即为干净数据。
+    // Drop condition codes no longer in the template list (e.g. deleted PROM_* /
+    // NODE_UNHEALTHY) when loading; the next save persists clean data.
+    const supported = new Set(templates.map((tpl) => tpl.code));
+    setFormConditions(
+      (policy.conditions || []).filter((condition) =>
+        supported.has(condition.template_code),
+      ),
+    );
     setFormAutoCreateTask(policy.auto_create_task);
     setFormAutoStartTask(policy.auto_start_task);
     setFormTaskOptions(normalizeAutoPolicyTaskOptions(policy.task_options));
     setFormOpen(true);
-  }, []);
+  }, [templates]);
 
   const handleToggleCondition = useCallback(
     (templateCode: string, checked: boolean) => {
@@ -352,6 +379,50 @@ export function AutoPolicyConfigPanel({
       );
     },
     [],
+  );
+
+  /**
+   * 切换 ALERT_FIRING 条件的某个规则键选中态。
+   * Toggle one rule key on an ALERT_FIRING condition.
+   */
+  const handleConditionRuleKeyToggle = useCallback(
+    (templateCode: string, ruleKey: string, checked: boolean) => {
+      setFormConditions((prev) =>
+        prev.map((condition) => {
+          if (condition.template_code !== templateCode) {
+            return condition;
+          }
+          const current = new Set(condition.rule_keys || []);
+          if (checked) {
+            current.add(ruleKey);
+          } else {
+            current.delete(ruleKey);
+          }
+          return {...condition, rule_keys: [...current]};
+        }),
+      );
+    },
+    [],
+  );
+
+  /**
+   * 规则目录按告警类别分组的标签。
+   * Category group labels for the rule catalog.
+   */
+  const getRuleCategoryLabel = useCallback(
+    (category: AlertSourceType) => {
+      switch (category) {
+        case 'platform_health':
+          return tAlerts('sourceTypes.platform_health');
+        case 'metric':
+          return tAlerts('sourceTypes.metric');
+        case 'job':
+          return tAlerts('sourceTypes.job');
+        default:
+          return category;
+      }
+    },
+    [tAlerts],
   );
 
   const handleSave = useCallback(async () => {
@@ -931,9 +1002,11 @@ export function AutoPolicyConfigPanel({
                                     {tpl.default_threshold > 0 ? (
                                       <div className='space-y-1'>
                                         <Label className='text-[11px]'>
-                                          {t('thresholdLabel', {
-                                            value: tpl.default_threshold,
-                                          })}
+                                          {tpl.code === 'ALERT_FIRING'
+                                            ? t('alertFiringThresholdLabel')
+                                            : t('thresholdLabel', {
+                                                value: tpl.default_threshold,
+                                              })}
                                         </Label>
                                         <Input
                                           type='number'
@@ -957,12 +1030,16 @@ export function AutoPolicyConfigPanel({
                                       </div>
                                     ) : null}
 
-                                    {tpl.default_window_minutes > 0 ? (
+                                    {tpl.default_window_minutes > 0 ||
+                                    tpl.code === 'ALERT_FIRING' ? (
                                       <div className='space-y-1'>
                                         <Label className='text-[11px]'>
-                                          {t('windowLabel', {
-                                            minutes: tpl.default_window_minutes,
-                                          })}
+                                          {tpl.code === 'ALERT_FIRING'
+                                            ? t('alertFiringWindowLabel')
+                                            : t('windowLabel', {
+                                                minutes:
+                                                  tpl.default_window_minutes,
+                                              })}
                                         </Label>
                                         <Input
                                           type='number'
@@ -988,11 +1065,7 @@ export function AutoPolicyConfigPanel({
                                     ) : null}
                                   </div>
 
-                                  {[
-                                    'error_rate',
-                                    'node_unhealthy',
-                                    'alert_firing',
-                                  ].includes(tpl.category) ? (
+                                  {tpl.category === 'error_rate' ? (
                                     <div className='space-y-1'>
                                       <Label className='text-[11px]'>
                                         {t('keywordsLabel')}
@@ -1012,6 +1085,92 @@ export function AutoPolicyConfigPanel({
                                       />
                                       <div className='text-[10px] text-muted-foreground'>
                                         {t('keywordsHint')}
+                                      </div>
+                                    </div>
+                                  ) : null}
+
+                                  {tpl.category === 'alert_firing' ? (
+                                    <div className='space-y-1.5'>
+                                      <Label className='text-[11px]'>
+                                        {t('ruleKeysLabel')}
+                                      </Label>
+                                      {(condition?.rule_keys || []).length >
+                                      0 ? (
+                                        <div className='flex flex-wrap gap-1'>
+                                          {(condition?.rule_keys || []).map(
+                                            (ruleKey) => (
+                                              <Badge
+                                                key={ruleKey}
+                                                variant='secondary'
+                                                className='text-[10px] font-mono px-1.5 py-0'
+                                              >
+                                                {ruleKey}
+                                              </Badge>
+                                            ),
+                                          )}
+                                        </div>
+                                      ) : null}
+                                      <div className='max-h-40 overflow-y-auto rounded-md border border-border/60 divide-y divide-border/40'>
+                                        {ruleCatalog.length === 0 ? (
+                                          <div className='px-2.5 py-2 text-[11px] text-muted-foreground'>
+                                            {t('ruleCatalogEmpty')}
+                                          </div>
+                                        ) : (
+                                          (
+                                            [
+                                              'platform_health',
+                                              'metric',
+                                              'job',
+                                            ] as AlertSourceType[]
+                                          ).map((category) => {
+                                            const items = ruleCatalog.filter(
+                                              (item) =>
+                                                item.category === category,
+                                            );
+                                            if (items.length === 0) {
+                                              return null;
+                                            }
+                                            return (
+                                              <div key={category}>
+                                                <div className='px-2.5 py-1 text-[10px] font-medium text-muted-foreground bg-muted/40'>
+                                                  {getRuleCategoryLabel(
+                                                    category,
+                                                  )}
+                                                </div>
+                                                {items.map((item) => {
+                                                  const checked = (
+                                                    condition?.rule_keys || []
+                                                  ).includes(item.rule_key);
+                                                  return (
+                                                    <label
+                                                      key={item.rule_key}
+                                                      className='flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-muted/30'
+                                                    >
+                                                      <Checkbox
+                                                        checked={checked}
+                                                        onCheckedChange={(
+                                                          value,
+                                                        ) =>
+                                                          handleConditionRuleKeyToggle(
+                                                            tpl.code,
+                                                            item.rule_key,
+                                                            value === true,
+                                                          )
+                                                        }
+                                                      />
+                                                      <span className='truncate'>
+                                                        {item.name}
+                                                      </span>
+                                                      <span className='ml-auto shrink-0 text-[10px] text-muted-foreground font-mono'>
+                                                        {item.rule_key}
+                                                      </span>
+                                                    </label>
+                                                  );
+                                                })}
+                                              </div>
+                                            );
+                                          })
+                                        )}
                                       </div>
                                     </div>
                                   ) : null}

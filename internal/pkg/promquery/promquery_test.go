@@ -51,36 +51,30 @@ func startEmbeddedForTest(t *testing.T, ctx context.Context) {
 	t.Cleanup(func() { _ = embedts.Close() })
 }
 
-func TestBaseURL_ObservabilityDisabled(t *testing.T) {
+func TestUnavailableReason_ObservabilityDisabled(t *testing.T) {
 	setObservabilityEnabled(t, false)
-	base, reason := BaseURL()
-	require.Empty(t, base)
-	require.Equal(t, ReasonObservabilityDisabled, reason)
+	require.Equal(t, ReasonObservabilityDisabled, UnavailableReason())
 }
 
-func TestBaseURL_NotReady(t *testing.T) {
+func TestUnavailableReason_NotReady(t *testing.T) {
 	setObservabilityEnabled(t, true)
 	_ = embedts.Close()
-	base, reason := BaseURL()
-	require.Empty(t, base)
-	require.Equal(t, ReasonPrometheusUnavailable, reason)
+	require.Equal(t, ReasonPrometheusUnavailable, UnavailableReason())
 }
 
-func TestBaseURL_Ready(t *testing.T) {
+func TestUnavailableReason_Ready(t *testing.T) {
 	setObservabilityEnabled(t, true)
 	ctx := context.Background()
 	startEmbeddedForTest(t, ctx)
-	base, reason := BaseURL()
-	require.Equal(t, embeddedBaseURL, base)
-	require.Empty(t, reason)
+	require.Empty(t, UnavailableReason())
 }
 
 func TestRangeInstant_NotReady(t *testing.T) {
 	_ = embedts.Close()
 	ctx := context.Background()
-	_, err := Range(ctx, embeddedBaseURL, "up", time.Now().Add(-time.Hour), time.Now(), 60)
+	_, err := Range(ctx, "up", time.Now().Add(-time.Hour), time.Now(), 60)
 	require.Error(t, err)
-	_, err = Instant(ctx, embeddedBaseURL, "up", time.Now())
+	_, err = Instant(ctx, "up", time.Now())
 	require.Error(t, err)
 }
 
@@ -106,12 +100,10 @@ func TestRange_MatrixExpansion(t *testing.T) {
 	}
 	require.NoError(t, app.Commit())
 
-	// baseURL 形参已被忽略，传无意义串验证兼容占位语义。
 	// 窗口收紧到已写入的样本区间：PromQL 每步按 lookback 取最后样本，超出样本时段会继续延续末值。
-	// The baseURL arg is ignored; pass a meaningless string to prove the placeholder semantics.
 	// The window is bounded to the appended span: PromQL evaluates every step with lookback, so
 	// beyond the samples' lifetime the last value would keep carrying forward.
-	series, err := Range(ctx, "https://ignored.invalid", `sum by (instance) (stx_promquery_metric)`,
+	series, err := Range(ctx, `sum by (instance) (stx_promquery_metric)`,
 		time.UnixMilli(baseMs), time.UnixMilli(baseMs+45*1000), 15)
 	require.NoError(t, err)
 	require.Len(t, series, 2)
@@ -136,7 +128,7 @@ func TestInstant_VectorExpansion(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
 
-	samples, err := Instant(ctx, "ignored-base-url", "stx_promquery_instant", now)
+	samples, err := Instant(ctx, "stx_promquery_instant", now)
 	require.NoError(t, err)
 	require.Len(t, samples, 1)
 	require.Equal(t, "a", samples[0].Metric["instance"])
@@ -151,6 +143,6 @@ func TestInstant_ScalarResultErrors(t *testing.T) {
 	setObservabilityEnabled(t, true)
 	ctx := context.Background()
 	startEmbeddedForTest(t, ctx)
-	_, err := Instant(ctx, "ignored", "42", time.Now())
+	_, err := Instant(ctx, "42", time.Now())
 	require.Error(t, err)
 }

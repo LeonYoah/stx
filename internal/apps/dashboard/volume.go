@@ -214,8 +214,7 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 	if oldest, ok := s.oldestSample(); ok {
 		out.OldestSampleMs = oldest.UnixMilli()
 	}
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source, out.Reason = promquery.SourceNone, reason
 		return out, nil
 	}
@@ -273,7 +272,7 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 		wg.Add(1)
 		go func(i int, task *taskRef) {
 			defer wg.Done()
-			results[i].samples, results[i].err = s.queryVolumeIncrease(ctx, baseURL, task.counter, sel, task.split, task.span.start, task.span.end, loc)
+			results[i].samples, results[i].err = s.queryVolumeIncrease(ctx, task.counter, sel, task.split, task.span.start, task.span.end, loc)
 		}(i, task)
 	}
 	wg.Wait()
@@ -416,10 +415,10 @@ const volumeIncreaseMaxSpan = 24 * time.Hour
 // queryVolumeIncrease issues one increase when the span is ≤1 day; longer spans are split into day
 // buckets and the samples are summed. Full-day buckets evaluate at local midnight so they can hit
 // the 15s PromQL cache after alignPresetNow.
-func (s *VolumeService) queryVolumeIncrease(ctx context.Context, baseURL, counter, sel, splitBy string, start, end time.Time, loc *time.Location) ([]promquery.Sample, error) {
+func (s *VolumeService) queryVolumeIncrease(ctx context.Context, counter, sel, splitBy string, start, end time.Time, loc *time.Location) ([]promquery.Sample, error) {
 	var merged []promquery.Sample
 	for _, chunk := range volumeIncreaseChunks(start, end, loc) {
-		samples, err := s.instantQuery(ctx, baseURL, volumeQuery(counter, sel, splitBy, chunk.end.Sub(chunk.start)), chunk.end)
+		samples, err := s.instantQuery(ctx, volumeQuery(counter, sel, splitBy, chunk.end.Sub(chunk.start)), chunk.end)
 		if err != nil {
 			return nil, err
 		}

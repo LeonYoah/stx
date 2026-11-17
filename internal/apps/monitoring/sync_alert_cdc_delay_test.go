@@ -181,7 +181,7 @@ func TestSyncAlertCDCDelay_pausedRemindersAndReadCountRecovery(t *testing.T) {
 	if f.webhook.count() != 1 {
 		t.Fatalf("paused reminders must not be sent, got %d", f.webhook.count())
 	}
-	list, err := f.service.ListAlertInstances(f.ctx, &AlertInstanceFilter{SourceType: AlertSourceTypeSync})
+	list, err := f.service.ListAlertInstances(f.ctx, &AlertInstanceFilter{SourceType: AlertSourceTypeJob})
 	if err != nil || len(list.Alerts) != 1 || !strings.Contains(list.Alerts[0].Summary, "已停止提醒") || !list.Alerts[0].SourceRef.RemindersPaused || list.Alerts[0].LifecycleStatus != AlertLifecycleStatusFiring {
 		t.Fatalf("alert center should keep the episode and note the pause: %+v err=%v", list, err)
 	}
@@ -233,7 +233,7 @@ func TestSyncAlertCDCDelay_silentClosesShowReason(t *testing.T) {
 		if f.webhook.count() != sent {
 			t.Fatalf("%s must not notify", tc.reason)
 		}
-		list, err := f.service.ListAlertInstances(f.ctx, &AlertInstanceFilter{SourceType: AlertSourceTypeSync})
+		list, err := f.service.ListAlertInstances(f.ctx, &AlertInstanceFilter{SourceType: AlertSourceTypeJob})
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}

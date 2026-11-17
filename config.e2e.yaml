@@ -81,9 +81,6 @@ observability:
   query_timeout: "8s"
   max_samples: 10000000
   sample_limit: 50000
-  remote_ingest:
-    path: "/api/v1/monitoring/alertmanager/webhook"
-    token: ""
   seatunnel_metrics:
     path: "/hazelcast/rest/instance/metrics"
     probe_timeout_seconds: 2

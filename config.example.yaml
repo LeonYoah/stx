@@ -247,17 +247,6 @@ observability:
   # Per-target per-round sample cap; over-limit scrapes are dropped and recorded in last_error
   sample_limit: 50000
 
-  # 外部告警接入：接收外部系统推送的告警（兼容 Alertmanager Webhook 格式）
-  # External alert ingest: receives alerts pushed by external systems (Alertmanager webhook compatible)
-  remote_ingest:
-    # STX 对外暴露的 Webhook 路径（自 observability.alertmanager.webhook_path 迁入，破坏性变更不双读）
-    # Webhook path exposed by STX (migrated from observability.alertmanager.webhook_path; breaking change, no dual-read)
-    path: "/api/v1/monitoring/alertmanager/webhook"
-    # Bearer 鉴权 token：为空保持兼容不鉴权（启动 WARN），非空要求 "Authorization: Bearer <token>"
-    # Bearer auth token: empty keeps legacy open behaviour (startup WARN); non-empty requires "Authorization: Bearer <token>"
-    token: ""
-
-
   seatunnel_metrics:
     # SeaTunnel metrics path，用于探测是否开启指标推送
     # SeaTunnel metrics path, used to verify metrics is really enabled

@@ -521,6 +521,11 @@ export interface InspectionConditionItem {
   window_minutes_override?: number | null;
   cron_expr_override?: string;
   extra_keywords?: string[];
+  /**
+   * ALERT_FIRING 条件监听的规则键，取自告警规则目录，精确匹配。
+   * Rule keys watched by an ALERT_FIRING condition, taken from the alert rule catalog; exact match.
+   */
+  rule_keys?: string[];
 }
 
 export interface InspectionAutoPolicy {

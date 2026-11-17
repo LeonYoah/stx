@@ -181,13 +181,12 @@ func (s *ClusterDashboardService) GetClusterDashboard(ctx context.Context, clust
 	}
 	s.fillInventory(ctx, out, clusterID)
 
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source, out.Reason = promquery.SourceNone, reason
 		return out, nil
 	}
 	out.Source = promquery.SourcePrometheus
-	s.fillMetrics(ctx, out, baseURL, clusterID, start, end, step, cell)
+	s.fillMetrics(ctx, out, clusterID, start, end, step, cell)
 	return out, nil
 }
 
@@ -273,7 +272,7 @@ type promTask struct {
 
 // fillMetrics 并发执行全部查询后组装趋势、节点即时值、卡片指标与异常信号。
 // fillMetrics runs every query concurrently, then assembles trends, node instants, card metrics and signals.
-func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterDashboard, baseURL string, clusterID uint, start, end time.Time, step, cell int) {
+func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterDashboard, clusterID uint, start, end time.Time, step, cell int) {
 	// all 用于集群卡片（全部集群），sel 用于范围内的节点、趋势与信号。
 	// all feeds the cluster cards (every cluster); sel feeds the in-scope nodes, trends and signals.
 	all := `job="seatunnel_engine_http"`
@@ -310,9 +309,9 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 		go func(task *promTask) {
 			defer wg.Done()
 			if task.instant {
-				task.samples, task.err = s.instantQuery(ctx, baseURL, task.query, end)
+				task.samples, task.err = s.instantQuery(ctx, task.query, end)
 			} else {
-				task.series, task.err = s.rangeQuery(ctx, baseURL, task.query, start, end, task.step)
+				task.series, task.err = s.rangeQuery(ctx, task.query, start, end, task.step)
 			}
 		}(task)
 	}

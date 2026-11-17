@@ -134,8 +134,7 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 		Annotations:                []JobTimeseriesAnnotation{},
 	}
 
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source = promquery.SourceNone
 		out.Reason = reason
 		return out, nil
@@ -147,7 +146,7 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 	for _, key := range metricKeys {
 		templates := timeseriesPromQL(key, jobID, engineObs)
 		for _, tpl := range templates {
-			vectors, err := promquery.Range(ctx, baseURL, tpl.query, start, end, step)
+			vectors, err := promquery.Range(ctx, tpl.query, start, end, step)
 			if err != nil {
 				// Soft-fail per series so a single template error does not empty the whole response.
 				// 单条模板失败不拖垮整份响应。

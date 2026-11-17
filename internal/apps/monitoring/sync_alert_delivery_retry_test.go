@@ -196,7 +196,7 @@ func TestSyncAlertHub_RecoveryRetrySkippableRowsDoNotStarveDueRecovery(t *testin
 	skippedIDs := make([]uint, 0, skippable)
 	for i := 0; i < skippable+inBackoff; i++ {
 		row := &NotificationDelivery{
-			SourceType:   string(AlertSourceTypeSync),
+			SourceType:   string(AlertSourceTypeJob),
 			SourceKey:    buildSyncAlertSourceKey(uint(900000 + i)),
 			ChannelID:    f.channel.ID,
 			ChannelName:  f.channel.Name,

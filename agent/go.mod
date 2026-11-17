@@ -5,6 +5,7 @@ module github.com/LeonYoah/stx/agent
 go 1.26.10
 
 require (
+	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.12.1
@@ -16,7 +17,16 @@ require (
 	pgregory.net/rapid v1.2.0
 )
 
-require go.yaml.in/yaml/v3 v3.0.5 // indirect
+require (
+	github.com/ebitengine/purego v0.11.2 // indirect
+	github.com/go-ole/go-ole v1.2.6 // indirect
+	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
+	github.com/power-devops/perfstat v0.0.0-20260805114148-88456608a4f6 // indirect
+	github.com/tklauser/go-sysconf v0.4.0 // indirect
+	github.com/tklauser/numcpus v0.12.0 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
+)
 
 require (
 	github.com/LeonYoah/stx v0.0.0

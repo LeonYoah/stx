@@ -551,6 +551,25 @@ func (c *Client) SendHeartbeat(ctx context.Context, usage *pb.ResourceUsage, pro
 	return resp, nil
 }
 
+// ReportHostMetrics 把一轮 stx_host_* 样本推给 Control Plane（E3）。
+// 独立的尽力而为通道：旧控制面返回 Unimplemented，调用方记录后直接跳过，不影响心跳。
+// ReportHostMetrics pushes one round of stx_host_* samples to the Control Plane (E3).
+// Best-effort channel of its own: an old control plane answers Unimplemented, which the
+// caller logs and skips — heartbeats are unaffected.
+func (c *Client) ReportHostMetrics(ctx context.Context, samples []*pb.HostMetricSample) (*pb.ReportHostMetricsResponse, error) {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil, errors.New("client not connected")
+	}
+	return client.ReportHostMetrics(ctx, &pb.ReportHostMetricsRequest{
+		AgentId: c.agentID,
+		Samples: samples,
+	})
+}
+
 // StartHeartbeat starts the heartbeat timer
 // StartHeartbeat 启动心跳定时器
 func (c *Client) StartHeartbeat(ctx context.Context, interval time.Duration, getUsage func() (*pb.ResourceUsage, []*pb.ProcessStatus)) {

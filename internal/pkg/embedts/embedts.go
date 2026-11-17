@@ -32,6 +32,7 @@ package embedts
 import (
 	"context"
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"sync"
@@ -313,4 +314,34 @@ func snapshot() *instance {
 	instanceMu.RLock()
 	defer instanceMu.RUnlock()
 	return current
+}
+
+// OldestSampleTime 返回 tsdb 中最早样本的时间：持久化 blocks 的 Meta().MinTime 与 head 的
+// MinTime 取最小（两者单位都是毫秒）。保留期被时间或容量截断后该值会随之变新，因此调用方
+// 应把它当作「数据实际能回看到哪里」的事实来源，而不是按配置推算。未就绪或没有任何样本时返回 false。
+// OldestSampleTime returns the timestamp of the oldest sample in the tsdb: the minimum of every
+// persisted block's Meta().MinTime and the head's MinTime (all in milliseconds). When retention
+// truncates data by time or size this moves forward, so callers should treat it as the factual
+// "how far back does data actually go" rather than deriving it from config. It returns false when
+// the store is not ready or holds no samples at all.
+func OldestSampleTime() (time.Time, bool) {
+	inst := snapshot()
+	if inst == nil {
+		return time.Time{}, false
+	}
+	oldest := int64(math.MaxInt64)
+	for _, block := range inst.db.Blocks() {
+		if meta := block.Meta(); meta.MinTime < oldest {
+			oldest = meta.MinTime
+		}
+	}
+	if head := inst.db.Head(); head != nil {
+		if minTime := head.MinTime(); minTime < oldest {
+			oldest = minTime
+		}
+	}
+	if oldest == math.MaxInt64 {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(oldest).UTC(), true
 }

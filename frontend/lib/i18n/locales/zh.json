@@ -198,7 +198,8 @@
       "tabs": {
         "cluster": "集群",
         "jobs": "作业",
-        "list": "作业列表"
+        "list": "作业列表",
+        "hosts": "主机"
       },
       "kpi": {
         "running": "运行中作业",
@@ -216,11 +217,16 @@
         "clustersContext": "节点 {online}/{total} 在线",
         "clustersDegraded": "{count} 个降级",
         "alerts": "活跃告警",
-        "alertsContext": "严重 {count}"
+        "alertsContext": "严重 {count}",
+        "volume": "数据量",
+        "volumeContext": "今日 {today} · 本月 {month}",
+        "volumeContextSince": "今日 {today} · 自 {date} 起 {month}",
+        "volumeEmpty": "可观测未开启"
       },
       "unit": {
         "rowsPerSec": " 行/秒",
-        "seconds": " 秒"
+        "seconds": " 秒",
+        "rows": " 行"
       },
       "attention": {
         "title": "需要处理",
@@ -303,7 +309,27 @@
         "noAccess": "无权查看该作业",
         "partial": "部分指标查询失败：{keys}",
         "noPromDesc": "开启可观测性后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。下方运行日历来自 STX 数据库，不受影响。",
-        "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。下方运行日历来自 STX 数据库，不受影响。"
+        "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。下方运行日历来自 STX 数据库，不受影响。",
+        "volume": {
+          "title": "数据量",
+          "hint": "窗口内按时间自动分桶的读写量",
+          "since": "数据自 {date} 起",
+          "metricLabel": "数据量指标",
+          "metrics": {
+            "write_rows": "写入 行",
+            "read_rows": "读取 行",
+            "write_bytes": "写入 字节",
+            "read_bytes": "读取 字节"
+          },
+          "splitLabel": "拆分",
+          "splits": {
+            "none": "全部",
+            "cluster": "按集群",
+            "task": "按任务"
+          },
+          "all": "全部",
+          "partialHint": "* 首末桶被时间窗裁掉，只统计窗口内部分"
+        }
       },
       "list": {
         "searchPlaceholder": "作业名、任务名、引擎作业 ID",
@@ -484,6 +510,97 @@
           "d": " 天",
           "h": " 小时",
           "m": " 分"
+        },
+        "detail": {
+          "title": "节点指标细节",
+          "refreshing": "刷新中…",
+          "partial": "部分指标查询失败：{keys}",
+          "referenceNodes": "登记节点数",
+          "emptyGroup": "该集群未上报此组指标（引擎版本或配置不支持）",
+          "emptyPanel": "该时间窗内没有数据",
+          "legendClear": "清空",
+          "legendAll": "全选",
+          "time": "时间",
+          "groups": {
+            "jvm": "JVM 内存",
+            "gc": "GC 与线程",
+            "sched": "调度与集群",
+            "store": "状态存储",
+            "proc": "进程与网络"
+          },
+          "units": {
+            "bytes": "字节",
+            "percent": "%",
+            "count": "个",
+            "per_second": "/秒",
+            "ms": "毫秒"
+          },
+          "events": {
+            "node_restart": "节点重启",
+            "members_change": "成员数变化"
+          },
+          "panels": {
+            "heap_pools": "堆内存池",
+            "nonheap": "非堆内存",
+            "buffer": "Buffer Pool",
+            "heap": "堆使用 / 已提交",
+            "gc_rate": "GC 频率",
+            "gc_pause": "GC 时间占比",
+            "threads": "线程数",
+            "thread_states": "等待 / 阻塞线程",
+            "deadlocked": "死锁线程",
+            "pool": "作业线程池",
+            "reject": "线程池拒绝",
+            "op_latency": "操作延迟",
+            "hz_queue": "Hazelcast 队列",
+            "partitions": "Hazelcast 分区",
+            "members": "集群成员数",
+            "store_owned": "本地持有条目",
+            "store_heap": "状态占用堆内存",
+            "offheap": "进程内存（RSS / 堆外）",
+            "fds": "文件描述符",
+            "classes": "已加载类",
+            "class_load_rate": "类加载速率",
+            "store_backup": "本地备份条目"
+          }
+        }
+      },
+      "hostsTab": {
+        "refreshing": "刷新中…",
+        "emptyPanel": "暂无数据",
+        "legendClear": "清空",
+        "legendAll": "全部",
+        "time": "时间",
+        "unsupported": "该主机未绑定 Agent，无主机指标",
+        "noSamples": "等待 Agent 上报主机指标…",
+        "emptyDescription": "当前范围没有主机",
+        "spec": "{cores} 核 · 内存 {memory}",
+        "heartbeat": "心跳 {at}",
+        "partial": "部分面板查询失败：{keys}",
+        "agentStatus": {
+          "installed": "Agent 在线",
+          "offline": "Agent 离线",
+          "not_installed": "未安装 Agent",
+          "none": "无 Agent"
+        },
+        "panels": {
+          "cpu": "CPU 使用率",
+          "memory": "内存",
+          "load": "系统负载",
+          "net": "网络吞吐",
+          "disk_io": "磁盘吞吐",
+          "disk_util": "磁盘使用率",
+          "fs_used": "文件系统使用率",
+          "fs_inodes": "inode 使用率",
+          "tcp": "TCP 连接",
+          "fds": "文件描述符"
+        },
+        "units": {
+          "bytes": "字节",
+          "percent": "百分比",
+          "per_second": "每秒",
+          "seconds": "秒",
+          "count": "个"
         }
       }
     }
@@ -1496,6 +1613,7 @@
     "activeAlertsBanner": {
       "title": "发现 {count} 个活跃告警",
       "description": "最近 24 小时出现 {restartFailed} 次重启失败。集群可能因配置或环境问题无法恢复，请尽快检查告警中心和节点日志。",
+      "descriptionGeneric": "当前有 {count} 条告警正在触发，请前往告警中心查看详情并处理。",
       "action": "查看告警中心"
     },
     "scale": {

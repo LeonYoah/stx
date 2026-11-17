@@ -837,12 +837,26 @@ func Serve() {
 			homeRouter.GET("/summary", homeHandler.GetHomeSummary)
 			// 首页集群大盘：集群卡片、节点表、趋势与异常信号（替代 Grafana iframe）。
 			// Home cluster dashboard: cluster cards, node table, trends and anomaly signals (replaces the Grafana iframe).
-			clusterDashboardHandler := dashboard.NewClusterDashboardHandler(dashboard.NewClusterDashboardService(monitoringService, clusterService, syncService))
+			clusterDashboardService := dashboard.NewClusterDashboardService(monitoringService, clusterService, syncService)
+			clusterDashboardHandler := dashboard.NewClusterDashboardHandler(clusterDashboardService)
 			homeRouter.GET("/clusters", clusterDashboardHandler.GetClusterDashboard)
+			// 集群细节分组：JVM / GC 线程 / 调度 Hazelcast / 状态存储 / 进程网络，按 group 懒加载。
+			// Cluster detail groups: JVM / GC+threads / scheduling+Hazelcast / state store / process+network, loaded lazily per group.
+			clusterDetailHandler := dashboard.NewClusterDetailHandler(clusterDashboardService)
+			homeRouter.GET("/clusters/detail", clusterDetailHandler.GetClusterDetail)
 			// 首页作业大盘：吞吐、Top N、流向、Checkpoint、热点与运行日历。
 			// Home job dashboard: throughput, top N, data flow, checkpoints, hotspots and the run calendar.
 			jobDashboardHandler := dashboard.NewJobDashboardHandler(dashboard.NewJobDashboardService(syncService))
 			homeRouter.GET("/jobs", jobDashboardHandler.GetJobDashboard)
+			// 首页读写量：指标卡总量（窗口 / 今日 / 本月）与日 / 月拆分柱状图。
+			// Home data volume: KPI totals (window / today / month) and day/month split bar series.
+			volumeHandler := dashboard.NewVolumeHandler(dashboard.NewVolumeService(syncService, clusterService))
+			homeRouter.GET("/volume", volumeHandler.GetVolume)
+			// 首页主机视图：清单 + 每台主机的 CPU / 内存 / 负载 / 网络 / 磁盘 / 文件系统面板（E3）。
+			// Home hosts view: inventory plus per-host CPU / memory / load / network / disk /
+			// filesystem panels (E3).
+			hostsHandler := dashboard.NewHostDashboardHandler(dashboard.NewHostDashboardService(hostService, clusterService))
+			homeRouter.GET("/hosts", hostsHandler.GetHostDashboard)
 
 			apiV1Router.POST("/sync/preview/collect", syncHandler.CollectPreview)
 			// SeaTunnel event-report-http 回调：不走登录，靠集群 token 鉴权。
@@ -1375,6 +1389,10 @@ func (a *hostStatusUpdaterAdapter) MarkHostOffline(ctx context.Context, agentID 
 	if err != nil {
 		return err
 	}
+	// E3：主机离线时给它上报过的全部 stx_host_* 序列补 stale marker，防指标幽灵续存。
+	// E3: mark every stx_host_* series this host reported as stale when it goes offline,
+	// preventing ghost persistence.
+	host.MarkHostMetricsStale(ctx, h.ID)
 	return a.hostService.UpdateAgentStatusByID(ctx, h.ID, host.AgentStatusOffline, agentID, h.AgentVersion)
 }
 

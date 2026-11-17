@@ -339,6 +339,13 @@ func (s *Service) decorateJobsForList(ctx context.Context, jobs []*JobInstance) 
 		if job.ResultPreview != nil {
 			job.ResultPreview = pruneResultPreviewForList(job.ResultPreview)
 		}
+		// submit_spec.submitted_content 是整段提交脚本（含脱敏密码），行展示只用 job_name / 通道 / 提交方式等
+		// 元数据键，脚本文本留给详情 getJob 返回。
+		// submit_spec.submitted_content is the whole submitted script (with masked secrets); the row only
+		// shows metadata keys (job_name / channel / trigger), and the detail getJob returns the script.
+		if job.SubmitSpec != nil {
+			delete(job.SubmitSpec, "submitted_content")
+		}
 	}
 	return nil
 }

@@ -25,12 +25,50 @@ test('opens dashboard with a reused authenticated session', async ({page}) => {
     /控制台|Console|Dashboard/i,
   );
   await expect(page.getByRole('button', {name: /刷新|Refresh/i})).toBeVisible();
-  // 首页监控大盘：指标卡、需要处理条与三个页签（默认停在集群大盘）
-  // Home dashboard: KPI cards, the needs-attention strip and three tabs (opens on the cluster dashboard)
+  // 首页监控大盘：7 张指标卡（含数据量）、需要处理条与四个页签（默认停在集群大盘）。
+  // Home dashboard: seven KPI cards (including volume), the needs-attention strip and four tabs
+  // (opens on the cluster dashboard).
   await expect(page.getByTestId('home-kpi-row')).toBeVisible();
+  for (const key of [
+    'running',
+    'write',
+    'cdc',
+    'failed',
+    'volume',
+    'clusters',
+    'alerts',
+  ]) {
+    await expect(page.getByTestId(`home-kpi-${key}`)).toBeVisible();
+  }
   await expect(page.getByTestId('home-attention')).toBeVisible();
-  for (const name of [/^集群$|^Clusters$/i, /^作业$|^Jobs$/i, /^作业列表$|^Job list$/i]) {
+  for (const name of [
+    /^集群$|^Clusters$/i,
+    /^作业$|^Jobs$/i,
+    /^主机$|^Hosts$/i,
+    /^作业列表$|^Job list$/i,
+  ]) {
     await expect(page.getByRole('tab', {name})).toBeVisible();
   }
   await expect(page.getByTestId('home-cluster-tab')).toBeVisible();
+  // 可观测关闭时走空态，开启时出现可用性条；两种环境都不能塌成空白。
+  // Observability-off shows the empty state; observability-on shows the availability bar.
+  // Neither environment may collapse into a blank panel.
+  await expect(
+    page
+      .getByTestId('home-trend-empty')
+      .or(page.getByTestId('home-availability')),
+  ).toBeVisible();
+
+  await page.getByRole('tab', {name: /^作业$|^Jobs$/i}).click();
+  await expect(page.getByTestId('home-jobs-tab')).toBeVisible();
+  await expect(
+    page.getByTestId('home-trend-empty').or(page.getByTestId('home-volume')),
+  ).toBeVisible();
+  await expect(page.getByTestId('home-calendar')).toBeVisible();
+
+  await page.getByRole('tab', {name: /^主机$|^Hosts$/i}).click();
+  await expect(page.getByTestId('home-hosts')).toBeVisible();
+
+  await page.getByRole('tab', {name: /^作业列表$|^Job list$/i}).click();
+  await expect(page.getByTestId('home-job-list')).toBeVisible();
 });

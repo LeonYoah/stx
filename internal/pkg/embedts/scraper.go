@@ -58,6 +58,10 @@ const (
 // errScraperNotReady is the sentinel error StartScraper returns while the embedded tsdb is not ready.
 var errScraperNotReady = errors.New("embedded tsdb is not ready")
 
+// errSampleLimitMsg 是超限目标 last_error 的稳定前缀，便于状态接口识别。
+// errSampleLimitMsg is the stable last_error prefix for over-limit targets so status can match it.
+const errSampleLimitMsg = "sample limit exceeded"
+
 // ScrapeTarget 是一个抓取目标：完整 URL + 需要注入每条序列的标签集（job/instance/cluster 等）。
 // ScrapeTarget is one scrape target: a full URL plus the label set injected into every
 // scraped series (job/instance/cluster etc.).
@@ -100,6 +104,12 @@ type ScrapeOptions struct {
 	// HTTPClient lets tests inject a custom http.Client; nil falls back to an internal default
 	// built around the per-target timeout.
 	HTTPClient *http.Client
+	// SampleLimit 是单目标单轮允许写入的最大样本数；0 表示使用 DefaultSampleLimit。
+	// 超限时丢弃本轮样本、up=0，并在 TargetState.LastError 记录，不影响其他目标。
+	// SampleLimit is the per-target per-round sample cap; 0 means DefaultSampleLimit.
+	// Over-limit scrapes drop the round, set up=0 and record TargetState.LastError without
+	// affecting other targets.
+	SampleLimit int
 }
 
 // scrapeTimeout 返回单目标抓取超时 min(10s, interval)。
@@ -126,6 +136,9 @@ func (o ScrapeOptions) withDefaults() ScrapeOptions {
 		// avoiding two overlapping timeout semantics.
 		o.HTTPClient = &http.Client{}
 	}
+	if o.SampleLimit <= 0 {
+		o.SampleLimit = DefaultSampleLimit
+	}
 	return o
 }
 
@@ -140,6 +153,7 @@ func ScrapeOptionsFromObservability(obs config.ObservabilityConfig) (ScrapeOptio
 		}
 		opts.Interval = time.Duration(d)
 	}
+	opts.SampleLimit = int(obs.SampleLimit)
 	return opts.withDefaults(), nil
 }
 
@@ -342,9 +356,20 @@ func (s *scraper) refreshTargets(ctx context.Context) {
 // everything on a single appender (samples grouped per target) and synthesises up=1/0 per target.
 func (s *scraper) scrapeRound(ctx context.Context) {
 	targets := s.currentTargets()
-	if len(targets) == 0 {
-		return
+	if len(targets) > 0 {
+		s.scrapeTargets(ctx, targets)
 	}
+	// 即使没有 SeaTunnel 目标也要自抓取：否则空集群时 prometheus_tsdb_* / go_* 永远写不进 tsdb。
+	// Self-scrape even with zero SeaTunnel targets, otherwise prometheus_tsdb_* / go_* never
+	// land in the tsdb on an empty cluster.
+	if err := SelfScrapeOnce(ctx); err != nil {
+		logSelfScrapeError(ctx, err)
+	}
+}
+
+// scrapeTargets 抓取并提交一轮 SeaTunnel 目标样本（不含自抓取）。
+// scrapeTargets scrapes and commits one round of SeaTunnel target samples (self-scrape excluded).
+func (s *scraper) scrapeTargets(ctx context.Context, targets []ScrapeTarget) {
 	tsMs := s.ts.NextNow()
 
 	results := make([]scrapeResult, len(targets))
@@ -433,7 +458,11 @@ func (s *scraper) scrapeTarget(ctx context.Context, target ScrapeTarget) scrapeR
 	if err != nil {
 		return scrapeResult{statusCode: resp.StatusCode, err: fmt.Errorf("parse exposition: %w", err)}
 	}
-	result.samples = FlattenMetricFamilies(metricFamiliesToSlice(mfs), target.Labels)
+	samples, err := FlattenMetricFamiliesLimited(metricFamiliesToSlice(mfs), target.Labels, s.opts.SampleLimit)
+	if err != nil {
+		return scrapeResult{statusCode: resp.StatusCode, err: err}
+	}
+	result.samples = samples
 	return result
 }
 

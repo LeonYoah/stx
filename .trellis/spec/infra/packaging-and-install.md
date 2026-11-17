@@ -81,6 +81,7 @@ curl -fsSL <raw-or-mirrored-url>/install-online.sh | bash -s -- [options]
 | `STX_DOWNLOAD_MIRROR_PREFIX` | 空 | 非空则直接前缀 GitHub URL，跳过公共测速 |
 | `STX_GH_PROXY_NODES` | 见下表 | 逗号分隔 |
 | `STX_INSTALL_DIR` | `/opt/stx` | 安装根目录 |
+| `STX_WORK_DIR` | `/var/tmp`（不可写则 `/tmp`） | 在线安装下载与解压目录。`systemd-tmpfiles-setup` 开机清空 `/tmp`，默认不得用 `/tmp`，否则 `tar -C` 会 `Cannot mkdir` |
 | `STX_IMAGE_REGISTRY` | `ghcr.io/leonyoah` | Docker Compose 镜像前缀；中国华为云用 `swr.cn-east-3.myhuaweicloud.com/stx` |
 | `STX_IMAGE_TAG` | `latest` | Docker Compose / 单镜像 tag |
 | `STX_CONFIG_FILE` | 仓库 `../../config.example.yaml`；发版 tar `./config.yaml` | Compose 挂载到容器的服务端配置；勿另维护 Docker schema |
@@ -152,6 +153,7 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 | 端口连续 +20 仍占用 | 中止并提示手动指定端口 |
 | 中国测速五节点全失败 | 回退直连；再失败则中止并给出手动下载说明 |
 | 升级时存在旧 `observability/` 目录 | 只提示一次，保留目录与数据 |
+| systemd 容器刚起来就一键安装 | 等 `systemd-tmpfiles-setup` 结束；解压目录用 `/var/tmp`，不得被开机清空 `/tmp` 删掉 |
 
 ---
 

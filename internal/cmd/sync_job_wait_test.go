@@ -140,19 +140,16 @@ func TestMaybeEmitJobMetricsLogIgnoresChangingTimeLine(t *testing.T) {
 }
 
 func TestPreviewCollectURL(t *testing.T) {
-	t.Setenv("STX_SERVER", "")
+	// 采集地址只吃调用方传入的已解析 server，不再读 STX_SERVER，也不编造 loopback。
+	// The collector URL uses only the resolved server argument; it does not re-read STX_SERVER or invent loopback.
+	t.Setenv("STX_SERVER", "https://from-env.example/")
 	got := previewCollectURL("https://stx.example:8443/")
 	if got != "https://stx.example:8443/api/v1/sync/preview/collect" {
 		t.Fatalf("got %q", got)
 	}
 	got = previewCollectURL("")
-	if got != "http://127.0.0.1:17800/api/v1/sync/preview/collect" {
-		t.Fatalf("default got %q", got)
-	}
-	t.Setenv("STX_SERVER", "https://from-env.example/")
-	got = previewCollectURL("")
-	if got != "https://from-env.example/api/v1/sync/preview/collect" {
-		t.Fatalf("env got %q", got)
+	if got != "" {
+		t.Fatalf("empty server must not fall back to STX_SERVER or loopback, got %q", got)
 	}
 }
 

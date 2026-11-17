@@ -51,14 +51,14 @@ func (f *fakeJobSource) JobAnnotationsBetween(context.Context, executionapp.Acto
 func newTestJobService(source *fakeJobSource, queries *[]string) *JobDashboardService {
 	svc := NewJobDashboardService(source)
 	svc.now = func() time.Time { return time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC) }
-	svc.rangeQuery = func(_ context.Context, _, q string, _, _ time.Time, _ int) ([]promquery.Series, error) {
+	svc.rangeQuery = func(_ context.Context, q string, _, _ time.Time, _ int) ([]promquery.Series, error) {
 		recordQuery(queries, q)
 		if strings.Contains(q, "bytes") {
 			return nil, errors.New("boom")
 		}
 		return []promquery.Series{{Metric: map[string]string{}, Points: [][2]float64{{1000, 5}}}}, nil
 	}
-	svc.instantQuery = func(_ context.Context, _, q string, _ time.Time) ([]promquery.Sample, error) {
+	svc.instantQuery = func(_ context.Context, q string, _ time.Time) ([]promquery.Sample, error) {
 		recordQuery(queries, q)
 		job := func(id string, v float64, extra ...string) promquery.Sample {
 			m := map[string]string{"job_id": id}

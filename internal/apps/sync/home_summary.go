@@ -192,8 +192,7 @@ func (s *Service) GetHomeJobSummary(ctx context.Context, actor executionapp.Acto
 // fillHomeTrends loads the last hour of write rate and max CDC delay from Prometheus and adds high-backpressure items;
 // when Prometheus is unavailable it only records why.
 func (s *Service) fillHomeTrends(ctx context.Context, out *HomeJobSummary, clusterID uint, now time.Time, running []*JobInstance, viewable func(*JobInstance) bool) {
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.TrendSource, out.TrendReason = promquery.SourceNone, reason
 		return
 	}
@@ -203,15 +202,15 @@ func (s *Service) fillHomeTrends(ctx context.Context, out *HomeJobSummary, clust
 		selector = fmt.Sprintf(`cluster_id=%s`, strconv.Quote(strconv.FormatUint(uint64(clusterID), 10)))
 	}
 	start := now.Add(-time.Hour)
-	if series, err := promquery.Range(ctx, baseURL, fmt.Sprintf(`sum(rate(stx_job_sink_write_rows_total{%s}[1m]))`, selector), start, now, homeTrendStepSeconds); err == nil && len(series) > 0 {
+	if series, err := promquery.Range(ctx, fmt.Sprintf(`sum(rate(stx_job_sink_write_rows_total{%s}[1m]))`, selector), start, now, homeTrendStepSeconds); err == nil && len(series) > 0 {
 		out.WriteTrend = series[0].Points
 	} else if err != nil {
 		out.TrendReason = "prometheus_error"
 	}
-	if series, err := promquery.Range(ctx, baseURL, fmt.Sprintf(`max(stx_job_cdc_delay_seconds{%s})`, selector), start, now, homeTrendStepSeconds); err == nil && len(series) > 0 {
+	if series, err := promquery.Range(ctx, fmt.Sprintf(`max(stx_job_cdc_delay_seconds{%s})`, selector), start, now, homeTrendStepSeconds); err == nil && len(series) > 0 {
 		out.CDCTrend = series[0].Points
 	}
-	samples, err := promquery.Instant(ctx, baseURL, fmt.Sprintf(`topk(3, max by (job_id, edge) (stx_job_edge_backpressure_ratio{%s}) > %g)`, selector, homeBackpressureThreshold), now)
+	samples, err := promquery.Instant(ctx, fmt.Sprintf(`topk(3, max by (job_id, edge) (stx_job_edge_backpressure_ratio{%s}) > %g)`, selector, homeBackpressureThreshold), now)
 	if err != nil || len(samples) == 0 {
 		return
 	}

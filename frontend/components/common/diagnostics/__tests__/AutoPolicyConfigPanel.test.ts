@@ -93,6 +93,40 @@ describe('AutoPolicyConfigPanel helpers', () => {
     ]);
   });
 
+  it('serializes ALERT_FIRING rule_keys and keeps extra_keywords only for error_rate', () => {
+    expect(
+      normalizeConditionItemsForSave([
+        {
+          template_code: 'ALERT_FIRING',
+          enabled: true,
+          rule_keys: [' node_offline ', 'cpu_usage_high', ''],
+          extra_keywords: ['should_not_leak'],
+          threshold_override: 2,
+          window_minutes_override: 0,
+        },
+        {
+          template_code: 'ERROR_SPIKE',
+          enabled: true,
+          extra_keywords: ['oom', ' '],
+          rule_keys: ['should_not_leak'],
+        },
+      ]),
+    ).toEqual([
+      {
+        template_code: 'ALERT_FIRING',
+        enabled: true,
+        rule_keys: ['node_offline', 'cpu_usage_high'],
+        threshold_override: 2,
+        window_minutes_override: 0,
+      },
+      {
+        template_code: 'ERROR_SPIKE',
+        enabled: true,
+        extra_keywords: ['oom'],
+      },
+    ]);
+  });
+
   it('preserves legacy dump switches when deriving selected resources', () => {
     expect(
       normalizeAutoPolicyTaskOptions({

@@ -135,8 +135,7 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 		Annotations:                []JobTimeseriesAnnotation{},
 	}
 
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source = promquery.SourceNone
 		out.Reason = reason
 		return out, nil
@@ -162,7 +161,7 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			vectors, err := promquery.Range(ctx, baseURL, queries[i].tpl.query, start, end, step)
+			vectors, err := promquery.Range(ctx, queries[i].tpl.query, start, end, step)
 			if err != nil {
 				// 单条模板失败不拖垮整份响应。
 				// Soft-fail per series so a single template error does not empty the whole response.

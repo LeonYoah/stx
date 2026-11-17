@@ -264,10 +264,11 @@ type TelemetryConfig struct {
 }
 
 // ObservabilityConfig 可观测性配置（内嵌 tsdb + PromQL 引擎 + 进程内告警评估）。旧版的
-// prometheus / alertmanager / grafana 段已删除；旧配置文件残留这些段时被忽略，不影响启动。
+// prometheus / alertmanager / grafana / remote_ingest 段已删除；旧配置文件残留这些段时被忽略，
+// 不影响启动（加载时记一条 WARN）。
 // ObservabilityConfig holds observability settings (embedded tsdb + PromQL engine + in-process
-// alert evaluation). The legacy prometheus / alertmanager / grafana sections are gone; leftovers in
-// old config files are ignored and do not block startup.
+// alert evaluation). The legacy prometheus / alertmanager / grafana / remote_ingest sections are
+// gone; leftovers in old config files are ignored and do not block startup (one WARN is logged).
 type ObservabilityConfig struct {
 	// Enabled indicates whether observability integration is enabled.
 	// Enabled 表示是否启用可观测性集成。
@@ -292,12 +293,6 @@ type ObservabilityConfig struct {
 	MaxSamples int64 `mapstructure:"max_samples"`
 
 	SeatunnelMetric ObservabilitySeatunnelMetricConfig `mapstructure:"seatunnel_metrics"`
-
-	// RemoteIngest 是远程告警回流（AM webhook）端点配置：path 自 alertmanager.webhook_path 迁入，
-	// token 非空时 webhook 校验 Authorization: Bearer。
-	// RemoteIngest holds the remote alert ingest (AM webhook) endpoint settings: path was migrated
-	// from alertmanager.webhook_path; a non-empty token makes the webhook verify Authorization: Bearer.
-	RemoteIngest ObservabilityRemoteIngestConfig `mapstructure:"remote_ingest"`
 }
 
 // ObservabilityStorageConfig 内嵌 tsdb 存储配置
@@ -314,23 +309,6 @@ type ObservabilityStorageConfig struct {
 	// MaxSize 是块存储的字节数上限：未配置时默认 30GiB，显式写 0 才表示不限。
 	// MaxSize caps retained block bytes: defaults to 30GiB when unset; an explicit 0 means unlimited.
 	MaxSize int64 `mapstructure:"max_size"`
-}
-
-// ObservabilityRemoteIngestConfig 远程告警回流（AM webhook）端点配置。
-// ObservabilityRemoteIngestConfig holds the remote alert ingest (AM webhook) endpoint settings.
-type ObservabilityRemoteIngestConfig struct {
-	// Path 是 STX 对外暴露的 Alertmanager Webhook 路径（随内嵌可观测由
-	// alertmanager.webhook_path 迁入，破坏性变更不做双读）。
-	// Path is the Alertmanager webhook path exposed by STX (migrated from
-	// alertmanager.webhook_path as a breaking change with no dual-read).
-	Path string `mapstructure:"path"`
-
-	// Token 非空时 webhook 请求必须携带 Authorization: Bearer <token>（常量时间比较）；
-	// 为空维持放行兼容已接入的外部 AM，启动时记一条 WARN。
-	// When Token is non-empty the webhook requires Authorization: Bearer <token> (constant-time
-	// compare); empty keeps the legacy open behaviour for already-integrated external Alertmanagers
-	// and logs one WARN at startup.
-	Token string `mapstructure:"token"`
 }
 
 // ObservabilitySeatunnelMetricConfig SeaTunnel metrics 探测配置

@@ -214,8 +214,7 @@ func (s *ClusterDashboardService) GetClusterDetail(ctx context.Context, clusterI
 		Range: rangeName, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(),
 		StepSeconds: step, Group: group, Panels: []DetailPanel{}, Events: []DetailEvent{},
 	}
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source, out.Reason = promquery.SourceNone, reason
 		return out, nil
 	}
@@ -244,7 +243,7 @@ func (s *ClusterDashboardService) GetClusterDetail(ctx context.Context, clusterI
 		wg.Add(1)
 		go func(task *detailTask) {
 			defer wg.Done()
-			task.out, task.err = s.rangeQuery(ctx, baseURL, task.query, start, end, step)
+			task.out, task.err = s.rangeQuery(ctx, task.query, start, end, step)
 		}(task)
 	}
 	wg.Wait()

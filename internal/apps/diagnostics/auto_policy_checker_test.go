@@ -124,6 +124,72 @@ func TestServiceCreateAutoPolicy_rejectsUnsupportedConditionTemplate(t *testing.
 	}
 }
 
+// TestServiceCreateAutoPolicy_validatesAlertFiringCondition 覆盖 ALERT_FIRING 的全部 400 分支：
+// 缺规则键、非法规则键、非法阈值 / 窗口，以及正常创建路径。
+// TestServiceCreateAutoPolicy_validatesAlertFiringCondition covers every 400 branch of
+// ALERT_FIRING: missing rule keys, unknown rule keys, invalid threshold/window and the happy path.
+func TestServiceCreateAutoPolicy_validatesAlertFiringCondition(t *testing.T) {
+	service, _ := newAutoPolicyTestService(t, nil)
+	base := &CreateInspectionAutoPolicyRequest{
+		Name:      "alert-firing",
+		ClusterID: 7,
+		Conditions: InspectionConditionItems{
+			{TemplateCode: ConditionCodeAlertFiring, Enabled: true},
+		},
+	}
+	cases := []struct {
+		name      string
+		condition InspectionConditionItem
+		wantErr   string
+	}{
+		{name: "missing rule keys", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true}, wantErr: "at least one rule key"},
+		{name: "blank rule keys", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{" ", ""}}, wantErr: "at least one rule key"},
+		{name: "unknown rule key", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"not_a_rule"}}, wantErr: "unknown alert rule key"},
+		{name: "zero threshold", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline"}, ThresholdOverride: intPtr(0)}, wantErr: "threshold"},
+		{name: "negative window", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline"}, WindowMinutesOverride: intPtr(-1)}, wantErr: "window"},
+		{name: "window too large", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline"}, WindowMinutesOverride: intPtr(1441)}, wantErr: "window"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := *base
+			req.Conditions = InspectionConditionItems{tc.condition}
+			_, err := service.CreateAutoPolicy(context.Background(), 1, &req)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+
+	// 合法规则键去重后应创建成功。
+	// Valid rule keys (with duplicates) must create successfully.
+	policy, err := service.CreateAutoPolicy(context.Background(), 1, &CreateInspectionAutoPolicyRequest{
+		Name:      "alert-firing-ok",
+		ClusterID: 7,
+		Conditions: InspectionConditionItems{
+			{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline", " node_offline ", "cpu_usage_high"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateAutoPolicy returned error: %v", err)
+	}
+	if got := policy.Conditions[0].RuleKeys; len(got) != 2 || got[0] != "node_offline" || got[1] != "cpu_usage_high" {
+		t.Fatalf("expected deduped rule keys [node_offline cpu_usage_high], got %v", got)
+	}
+
+	// 已删除的旧条件码按未知模板 400。
+	// Deleted legacy condition codes are rejected as unknown templates.
+	_, err = service.CreateAutoPolicy(context.Background(), 1, &CreateInspectionAutoPolicyRequest{
+		Name:      "legacy-code",
+		ClusterID: 7,
+		Conditions: InspectionConditionItems{
+			{TemplateCode: InspectionConditionTemplateCode("PROM_CPU_HIGH"), Enabled: true},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected deleted legacy code to be rejected")
+	}
+}
+
 func TestServiceCreateAutoPolicyUsesDefaultDiagnosticResourcesWithoutStarting(t *testing.T) {
 	service, repo := newAutoPolicyTestService(t, nil)
 
@@ -286,140 +352,52 @@ func TestAutoPolicyCheckerCheckScheduledPolicies_triggersInspectionOncePerCooldo
 	}
 }
 
-func TestAutoPolicyCheckerCheckPrometheusPolicies_triggersInspectionWhenThresholdBreached(t *testing.T) {
-	service, repo := newAutoPolicyTestService(t, &fakeInspectionAlertReader{
-		data: &monitoringapp.AlertInstanceListData{
-			Alerts: []*monitoringapp.AlertInstance{
-				{
-					AlertID:     "a-1",
-					ClusterID:   "7",
-					RuleKey:     "memory_usage_high",
-					AlertName:   "Heap memory usage high",
-					Status:      monitoringapp.AlertDisplayStatusFiring,
-					LastSeenAt:  time.Now().UTC(),
-					CreatedAt:   time.Now().UTC(),
-					FiringAt:    time.Now().UTC(),
-					ClusterName: "demo-cluster",
-				},
-			},
-		},
-	})
-	policy := &InspectionAutoPolicy{
-		ClusterID:       7,
-		Name:            "heap-high",
-		Enabled:         true,
-		CooldownMinutes: 5,
-		Conditions: InspectionConditionItems{
-			{
-				TemplateCode: ConditionCodePromHeapHigh,
-				Enabled:      true,
-			},
-		},
-	}
-	if err := repo.CreateAutoPolicy(context.Background(), policy); err != nil {
-		t.Fatalf("CreateAutoPolicy returned error: %v", err)
-	}
-
-	checker := NewAutoPolicyChecker(repo, service)
-	if err := checker.CheckPrometheusPolicies(context.Background(), 7, time.Date(2026, 3, 26, 2, 20, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("CheckPrometheusPolicies returned error: %v", err)
-	}
-
-	reports, total, err := repo.ListInspectionReports(context.Background(), &ClusterInspectionReportFilter{
-		ClusterID: 7,
+// alertFiringReportTotal 返回巡检报告总数；测试用它判断告警触发条件是否命中。
+// alertFiringReportTotal returns the inspection report total; tests use it to check whether
+// an alert-firing condition matched.
+func alertFiringReportTotal(t *testing.T, repo *Repository, clusterID uint) int64 {
+	t.Helper()
+	_, total, err := repo.ListInspectionReports(context.Background(), &ClusterInspectionReportFilter{
+		ClusterID: clusterID,
 		Page:      1,
 		PageSize:  10,
 	})
 	if err != nil {
 		t.Fatalf("ListInspectionReports returned error: %v", err)
 	}
-	if total != 1 || len(reports) != 1 {
-		t.Fatalf("expected one prometheus-triggered inspection report, total=%d len=%d", total, len(reports))
-	}
-	if reports[0].AutoTriggerReason == "" || !strings.Contains(reports[0].AutoTriggerReason, "PROM_HEAP_HIGH") {
-		t.Fatalf("expected PROM_HEAP_HIGH trigger reason, got %q", reports[0].AutoTriggerReason)
-	}
+	return total
 }
 
-func TestAutoPolicyCheckerCheckPrometheusPolicies_triggersInspectionForNodeUnhealthy(t *testing.T) {
+func TestAutoPolicyCheckerCheckAlertFiringPolicies_triggersWhenTargetThresholdMet(t *testing.T) {
+	now := time.Date(2026, 3, 26, 2, 20, 0, 0, time.UTC)
 	service, repo := newAutoPolicyTestService(t, &fakeInspectionAlertReader{
 		data: &monitoringapp.AlertInstanceListData{
 			Alerts: []*monitoringapp.AlertInstance{
 				{
-					AlertID:     "node-a",
-					ClusterID:   "7",
-					RuleKey:     "node_offline",
-					AlertName:   "Node offline",
-					Status:      monitoringapp.AlertDisplayStatusFiring,
-					FiringAt:    time.Date(2026, 3, 26, 2, 0, 0, 0, time.UTC),
-					SourceRef:   &monitoringapp.AlertInstanceSourceRef{Hostname: "host-a"},
-					ClusterName: "demo-cluster",
+					AlertID:   "node-a",
+					ClusterID: "7",
+					RuleKey:   "node_offline",
+					Status:    monitoringapp.AlertDisplayStatusFiring,
+					FiringAt:  now.Add(-20 * time.Minute),
+					SourceRef: &monitoringapp.AlertInstanceSourceRef{Hostname: "host-a"},
 				},
 				{
-					AlertID:     "node-b",
-					ClusterID:   "7",
-					RuleKey:     "node_offline",
-					AlertName:   "Node offline",
-					Status:      monitoringapp.AlertDisplayStatusFiring,
-					FiringAt:    time.Date(2026, 3, 26, 2, 1, 0, 0, time.UTC),
-					SourceRef:   &monitoringapp.AlertInstanceSourceRef{Hostname: "host-b"},
-					ClusterName: "demo-cluster",
+					AlertID:   "node-b",
+					ClusterID: "7",
+					RuleKey:   "node_offline",
+					Status:    monitoringapp.AlertDisplayStatusFiring,
+					FiringAt:  now.Add(-19 * time.Minute),
+					SourceRef: &monitoringapp.AlertInstanceSourceRef{Hostname: "host-b"},
 				},
-			},
-		},
-	})
-	policy := &InspectionAutoPolicy{
-		ClusterID:       7,
-		Name:            "node-unhealthy",
-		Enabled:         true,
-		CooldownMinutes: 5,
-		Conditions: InspectionConditionItems{
-			{
-				TemplateCode:          ConditionCodeNodeUnhealthy,
-				Enabled:               true,
-				ThresholdOverride:     intPtr(2),
-				WindowMinutesOverride: intPtr(10),
-			},
-		},
-	}
-	if err := repo.CreateAutoPolicy(context.Background(), policy); err != nil {
-		t.Fatalf("CreateAutoPolicy returned error: %v", err)
-	}
-
-	checker := NewAutoPolicyChecker(repo, service)
-	if err := checker.CheckPrometheusPolicies(context.Background(), 7, time.Date(2026, 3, 26, 2, 20, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("CheckPrometheusPolicies returned error: %v", err)
-	}
-
-	reports, total, err := repo.ListInspectionReports(context.Background(), &ClusterInspectionReportFilter{
-		ClusterID: 7,
-		Page:      1,
-		PageSize:  10,
-	})
-	if err != nil {
-		t.Fatalf("ListInspectionReports returned error: %v", err)
-	}
-	if total != 1 || len(reports) != 1 {
-		t.Fatalf("expected one node-unhealthy inspection report, total=%d len=%d", total, len(reports))
-	}
-	if !strings.Contains(reports[0].AutoTriggerReason, string(ConditionCodeNodeUnhealthy)) {
-		t.Fatalf("expected trigger reason to mention %s, got %q", ConditionCodeNodeUnhealthy, reports[0].AutoTriggerReason)
-	}
-}
-
-func TestAutoPolicyCheckerCheckPrometheusPolicies_triggersInspectionForAlertFiring(t *testing.T) {
-	service, repo := newAutoPolicyTestService(t, &fakeInspectionAlertReader{
-		data: &monitoringapp.AlertInstanceListData{
-			Alerts: []*monitoringapp.AlertInstance{
+				// 规则键不在条件列表里的 firing 告警不参与对象计数。
+				// A firing alert whose rule key is not selected must not count.
 				{
-					AlertID:     "alert-1",
-					ClusterID:   "7",
-					RuleKey:     "custom_rule_users_delay",
-					AlertName:   "Users delay high",
-					Summary:     "Users delay high",
-					Status:      monitoringapp.AlertDisplayStatusFiring,
-					FiringAt:    time.Date(2026, 3, 26, 2, 19, 0, 0, time.UTC),
-					ClusterName: "demo-cluster",
+					AlertID:   "node-c",
+					ClusterID: "7",
+					RuleKey:   "cpu_usage_high",
+					Status:    monitoringapp.AlertDisplayStatusFiring,
+					FiringAt:  now.Add(-19 * time.Minute),
+					SourceRef: &monitoringapp.AlertInstanceSourceRef{Hostname: "host-c"},
 				},
 			},
 		},
@@ -431,9 +409,11 @@ func TestAutoPolicyCheckerCheckPrometheusPolicies_triggersInspectionForAlertFiri
 		CooldownMinutes: 5,
 		Conditions: InspectionConditionItems{
 			{
-				TemplateCode:  ConditionCodeAlertFiring,
-				Enabled:       true,
-				ExtraKeywords: []string{"users_delay"},
+				TemplateCode:          ConditionCodeAlertFiring,
+				Enabled:               true,
+				RuleKeys:              []string{"node_offline"},
+				ThresholdOverride:     intPtr(2),
+				WindowMinutesOverride: intPtr(10),
 			},
 		},
 	}
@@ -442,8 +422,8 @@ func TestAutoPolicyCheckerCheckPrometheusPolicies_triggersInspectionForAlertFiri
 	}
 
 	checker := NewAutoPolicyChecker(repo, service)
-	if err := checker.CheckPrometheusPolicies(context.Background(), 7, time.Date(2026, 3, 26, 2, 20, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("CheckPrometheusPolicies returned error: %v", err)
+	if err := checker.CheckAlertFiringPolicies(context.Background(), 7, now); err != nil {
+		t.Fatalf("CheckAlertFiringPolicies returned error: %v", err)
 	}
 
 	reports, total, err := repo.ListInspectionReports(context.Background(), &ClusterInspectionReportFilter{
@@ -457,7 +437,66 @@ func TestAutoPolicyCheckerCheckPrometheusPolicies_triggersInspectionForAlertFiri
 	if total != 1 || len(reports) != 1 {
 		t.Fatalf("expected one alert-firing inspection report, total=%d len=%d", total, len(reports))
 	}
-	if !strings.Contains(reports[0].AutoTriggerReason, string(ConditionCodeAlertFiring)) {
-		t.Fatalf("expected trigger reason to mention %s, got %q", ConditionCodeAlertFiring, reports[0].AutoTriggerReason)
+	if !strings.Contains(reports[0].AutoTriggerReason, "ALERT_FIRING") || !strings.Contains(reports[0].AutoTriggerReason, "targets=2") {
+		t.Fatalf("expected ALERT_FIRING targets=2 trigger reason, got %q", reports[0].AutoTriggerReason)
+	}
+}
+
+func TestAutoPolicyCheckerCheckAlertFiringPolicies_skipsAlertInsideWindowAndLegacyCodes(t *testing.T) {
+	now := time.Date(2026, 3, 26, 2, 20, 0, 0, time.UTC)
+	service, repo := newAutoPolicyTestService(t, &fakeInspectionAlertReader{
+		data: &monitoringapp.AlertInstanceListData{
+			Alerts: []*monitoringapp.AlertInstance{
+				{
+					AlertID:   "alert-1",
+					ClusterID: "7",
+					RuleKey:   "node_offline",
+					Status:    monitoringapp.AlertDisplayStatusFiring,
+					// 距窗口要求还差 1 秒，不满足持续时长。
+					// One second short of the required window, so it must not trigger.
+					FiringAt: now.Add(-10*time.Minute + time.Second),
+				},
+			},
+		},
+	})
+	policy := &InspectionAutoPolicy{
+		ClusterID:       7,
+		Name:            "alert-firing",
+		Enabled:         true,
+		CooldownMinutes: 5,
+		Conditions: InspectionConditionItems{
+			{
+				TemplateCode:          ConditionCodeAlertFiring,
+				Enabled:               true,
+				RuleKeys:              []string{"node_offline"},
+				WindowMinutesOverride: intPtr(10),
+			},
+			// 已删除的旧条件码：检查器直接跳过，不报错也不触发。
+			// A deleted legacy condition code: the checker skips it silently.
+			{
+				TemplateCode: InspectionConditionTemplateCode("PROM_CPU_HIGH"),
+				Enabled:      true,
+			},
+		},
+	}
+	if err := repo.CreateAutoPolicy(context.Background(), policy); err != nil {
+		t.Fatalf("CreateAutoPolicy returned error: %v", err)
+	}
+
+	checker := NewAutoPolicyChecker(repo, service)
+	if err := checker.CheckAlertFiringPolicies(context.Background(), 7, now); err != nil {
+		t.Fatalf("CheckAlertFiringPolicies returned error: %v", err)
+	}
+	if total := alertFiringReportTotal(t, repo, 7); total != 0 {
+		t.Fatalf("expected no inspection report before the window elapses, total=%d", total)
+	}
+
+	// 快进 2 秒后持续时长满足，同一告警应触发巡检。
+	// Two seconds later the window elapses and the same alert must trigger.
+	if err := checker.CheckAlertFiringPolicies(context.Background(), 7, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("CheckAlertFiringPolicies returned error: %v", err)
+	}
+	if total := alertFiringReportTotal(t, repo, 7); total != 1 {
+		t.Fatalf("expected one inspection report once the window elapses, total=%d", total)
 	}
 }

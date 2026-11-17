@@ -131,9 +131,9 @@ func (c *AutoPolicyChecker) CheckScheduledPolicies(ctx context.Context, clusterI
 	return nil
 }
 
-// CheckPrometheusPolicies evaluates metric-signal policies through unified alert instances.
-// CheckPrometheusPolicies 通过统一告警实例评估指标信号类策略。
-func (c *AutoPolicyChecker) CheckPrometheusPolicies(ctx context.Context, clusterID uint, now time.Time) error {
+// CheckAlertFiringPolicies evaluates alert-firing policies through unified alert instances.
+// CheckAlertFiringPolicies 通过统一告警实例评估告警触发类策略。
+func (c *AutoPolicyChecker) CheckAlertFiringPolicies(ctx context.Context, clusterID uint, now time.Time) error {
 	if c == nil || c.repo == nil || c.service == nil || clusterID == 0 {
 		return nil
 	}
@@ -143,7 +143,7 @@ func (c *AutoPolicyChecker) CheckPrometheusPolicies(ctx context.Context, cluster
 
 	policies, err := c.repo.ListEnabledPoliciesForCluster(ctx, clusterID)
 	if err != nil {
-		return fmt.Errorf("auto-policy: failed to list metric-signal policies for cluster %d: %w", clusterID, err)
+		return fmt.Errorf("auto-policy: failed to list alert-firing policies for cluster %d: %w", clusterID, err)
 	}
 	alerts, err := c.service.monitoringService.ListAlertInstances(ctx, &monitoringapp.AlertInstanceFilter{
 		ClusterID: fmt.Sprintf("%d", clusterID),
@@ -167,43 +167,21 @@ func (c *AutoPolicyChecker) CheckPrometheusPolicies(ctx context.Context, cluster
 			if !condition.Enabled {
 				continue
 			}
-			var reason string
-			switch condition.TemplateCode {
-			case ConditionCodeNodeUnhealthy:
-				distinctNodes, ok := matchNodeUnhealthyCondition(condition, alerts.Alerts, now)
-				if !ok {
-					continue
-				}
-				reason = fmt.Sprintf(
-					"%s|%s nodes=%d window=%dm",
-					c.policyReasonPrefix(policy.ID),
-					condition.TemplateCode,
-					distinctNodes,
-					resolveConditionWindowMinutes(condition),
-				)
-			case ConditionCodeAlertFiring:
-				matchedAlert, ok := matchAlertFiringCondition(condition, alerts.Alerts)
-				if !ok {
-					continue
-				}
-				reason = fmt.Sprintf(
-					"%s|%s alert=%s",
-					c.policyReasonPrefix(policy.ID),
-					condition.TemplateCode,
-					normalizeMetricAlertReasonKey(matchedAlert),
-				)
-			default:
-				matchedAlert, ok := matchMetricAlertCondition(condition, alerts.Alerts)
-				if !ok {
-					continue
-				}
-				reason = fmt.Sprintf(
-					"%s|%s alert=%s",
-					c.policyReasonPrefix(policy.ID),
-					condition.TemplateCode,
-					normalizeMetricAlertReasonKey(matchedAlert),
-				)
+			if condition.TemplateCode != ConditionCodeAlertFiring {
+				continue
 			}
+			_, targetCount, ok := matchAlertFiringCondition(condition, alerts.Alerts, now)
+			if !ok {
+				continue
+			}
+			reason := fmt.Sprintf(
+				"%s|%s rules=%s targets=%d window=%dm",
+				c.policyReasonPrefix(policy.ID),
+				condition.TemplateCode,
+				strings.Join(condition.RuleKeys, ","),
+				targetCount,
+				resolveConditionWindowMinutes(condition),
+			)
 			if _, err := c.triggerAutoPolicyInspection(ctx, clusterID, policy, reason); err != nil {
 				return err
 			}
@@ -463,62 +441,66 @@ func resolveScheduledCronExpression(condition InspectionConditionItem) (string, 
 	return expr, nil
 }
 
-func matchMetricAlertCondition(condition InspectionConditionItem, alerts []*monitoringapp.AlertInstance) (*monitoringapp.AlertInstance, bool) {
-	for _, alert := range alerts {
-		if alert == nil || alert.Status != monitoringapp.AlertDisplayStatusFiring {
-			continue
-		}
-		if metricAlertMatchesCondition(condition, alert) {
-			return alert, true
+// matchAlertFiringCondition 只认规则键精确相等；持续时长按 FiringAt 计算，对象数按 alertTargetKey 去重，
+// 返回首个命中的告警、去重后的对象数以及是否达到阈值。
+// matchAlertFiringCondition matches rule keys exactly; duration is measured from FiringAt and targets
+// are deduped by alertTargetKey. It returns the first matching alert, the deduped target count and
+// whether the threshold was reached.
+func matchAlertFiringCondition(condition InspectionConditionItem, alerts []*monitoringapp.AlertInstance, now time.Time) (*monitoringapp.AlertInstance, int, bool) {
+	wanted := make(map[string]struct{}, len(condition.RuleKeys))
+	for _, key := range condition.RuleKeys {
+		if key = strings.TrimSpace(key); key != "" {
+			wanted[key] = struct{}{}
 		}
 	}
-	return nil, false
-}
-
-func matchAlertFiringCondition(condition InspectionConditionItem, alerts []*monitoringapp.AlertInstance) (*monitoringapp.AlertInstance, bool) {
-	for _, alert := range alerts {
-		if alert == nil || alert.Status != monitoringapp.AlertDisplayStatusFiring {
-			continue
-		}
-		if !alertMatchesKeywords(condition, alert) {
-			continue
-		}
-		return alert, true
+	if len(wanted) == 0 {
+		return nil, 0, false
 	}
-	return nil, false
-}
-
-func matchNodeUnhealthyCondition(condition InspectionConditionItem, alerts []*monitoringapp.AlertInstance, now time.Time) (int, bool) {
 	windowMinutes := resolveConditionWindowMinutes(condition)
 	threshold := resolveConditionThreshold(condition, 1)
-	if threshold <= 0 {
-		threshold = 1
-	}
-	distinctNodes := map[string]struct{}{}
+	var matched *monitoringapp.AlertInstance
+	targets := map[string]struct{}{}
 	for _, alert := range alerts {
 		if alert == nil || alert.Status != monitoringapp.AlertDisplayStatusFiring {
 			continue
 		}
-		if !isNodeUnhealthyAlert(alert) {
+		if _, ok := wanted[strings.TrimSpace(alert.RuleKey)]; !ok {
 			continue
 		}
-		if !alertMatchesKeywords(condition, alert) {
+		if firingAt := alert.FiringAt.UTC(); !firingAt.IsZero() && now.UTC().Sub(firingAt) < time.Duration(windowMinutes)*time.Minute {
 			continue
 		}
-		firingAt := alert.FiringAt.UTC()
-		if !firingAt.IsZero() && now.UTC().Sub(firingAt) < time.Duration(windowMinutes)*time.Minute {
-			continue
+		if key := alertTargetKey(alert); key != "" {
+			targets[key] = struct{}{}
 		}
-		key := normalizeAlertNodeKey(alert)
-		if key == "" {
-			key = strings.TrimSpace(alert.AlertID)
+		if matched == nil {
+			matched = alert
 		}
-		if key == "" {
-			continue
-		}
-		distinctNodes[key] = struct{}{}
 	}
-	return len(distinctNodes), len(distinctNodes) >= threshold
+	return matched, len(targets), len(targets) >= threshold
+}
+
+// alertTargetKey 返回告警对象的去重键：主机名 → 任务 ID → 指纹 → 告警实例 ID，取第一个非空值；
+// 指标告警每个对象一条序列，指纹已按对象区分。
+// alertTargetKey returns the dedupe key of the alerting object: hostname, task ID, fingerprint,
+// then the alert instance ID — the first non-empty wins. Metric alerts produce one series per
+// object, so the fingerprint already distinguishes objects.
+func alertTargetKey(alert *monitoringapp.AlertInstance) string {
+	if alert == nil {
+		return ""
+	}
+	if ref := alert.SourceRef; ref != nil {
+		if value := strings.TrimSpace(ref.Hostname); value != "" {
+			return "host:" + value
+		}
+		if ref.TaskID > 0 {
+			return fmt.Sprintf("task:%d", ref.TaskID)
+		}
+		if value := strings.TrimSpace(ref.Fingerprint); value != "" {
+			return "fp:" + value
+		}
+	}
+	return strings.TrimSpace(alert.AlertID)
 }
 
 func errorSpikeBurstMatchesKeywords(condition InspectionConditionItem, burst *recentErrorGroupBurst) bool {
@@ -549,77 +531,11 @@ func errorSpikeBurstMatchesKeywords(condition InspectionConditionItem, burst *re
 	return false
 }
 
-func isNodeUnhealthyAlert(alert *monitoringapp.AlertInstance) bool {
-	if alert == nil {
-		return false
-	}
-	ruleKey := strings.ToLower(strings.TrimSpace(alert.RuleKey))
-	alertName := strings.ToLower(strings.TrimSpace(alert.AlertName))
-	summary := strings.ToLower(strings.TrimSpace(alert.Summary))
-	description := strings.ToLower(strings.TrimSpace(alert.Description))
-	return containsAnyMetricAlertAlias(
-		[]string{ruleKey, alertName, summary, description},
-		"node_offline",
-		"node offline",
-		"node unavailable",
-		"node unhealthy",
-	)
-}
-
-func normalizeAlertNodeKey(alert *monitoringapp.AlertInstance) string {
-	if alert == nil || alert.SourceRef == nil {
-		return ""
-	}
-	for _, candidate := range []string{
-		strings.TrimSpace(alert.SourceRef.Hostname),
-		strings.TrimSpace(alert.SourceRef.ProcessName),
-		strings.TrimSpace(alert.SourceRef.EventType),
-		strings.TrimSpace(alert.SourceRef.Fingerprint),
-	} {
-		if candidate != "" {
-			return candidate
-		}
-	}
-	return ""
-}
-
-func alertMatchesKeywords(condition InspectionConditionItem, alert *monitoringapp.AlertInstance) bool {
-	if alert == nil || len(condition.ExtraKeywords) == 0 {
-		return true
-	}
-	haystacks := []string{
-		strings.ToLower(strings.TrimSpace(alert.RuleKey)),
-		strings.ToLower(strings.TrimSpace(alert.AlertName)),
-		strings.ToLower(strings.TrimSpace(alert.Summary)),
-		strings.ToLower(strings.TrimSpace(alert.Description)),
-	}
-	if alert.SourceRef != nil {
-		haystacks = append(
-			haystacks,
-			strings.ToLower(strings.TrimSpace(alert.SourceRef.EventType)),
-			strings.ToLower(strings.TrimSpace(alert.SourceRef.ProcessName)),
-			strings.ToLower(strings.TrimSpace(alert.SourceRef.Hostname)),
-			strings.ToLower(strings.TrimSpace(alert.SourceRef.Fingerprint)),
-		)
-	}
-	for _, keyword := range condition.ExtraKeywords {
-		needle := strings.ToLower(strings.TrimSpace(keyword))
-		if needle == "" {
-			continue
-		}
-		for _, haystack := range haystacks {
-			if haystack != "" && strings.Contains(haystack, needle) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func resolveConditionWindowMinutes(condition InspectionConditionItem) int {
-	template, ok := findBuiltinConditionTemplate(condition.TemplateCode)
+	// 模板默认窗口优先：ALERT_FIRING 默认 0 表示立即触发，ERROR_SPIKE 默认 5 分钟。
+	// The template default wins: ALERT_FIRING defaults to 0 (immediate), ERROR_SPIKE to 5 minutes.
 	defaultMinutes := 5
-	if ok && template.DefaultWindowMinutes > 0 {
+	if template, ok := findBuiltinConditionTemplate(condition.TemplateCode); ok {
 		defaultMinutes = template.DefaultWindowMinutes
 	}
 	if condition.WindowMinutesOverride != nil && *condition.WindowMinutesOverride > 0 {
@@ -636,56 +552,4 @@ func resolveConditionThreshold(condition InspectionConditionItem, fallback int) 
 		return fallback
 	}
 	return 1
-}
-
-func metricAlertMatchesCondition(condition InspectionConditionItem, alert *monitoringapp.AlertInstance) bool {
-	if alert == nil {
-		return false
-	}
-	haystacks := []string{
-		strings.ToLower(strings.TrimSpace(alert.RuleKey)),
-		strings.ToLower(strings.TrimSpace(alert.AlertName)),
-		strings.ToLower(strings.TrimSpace(alert.Summary)),
-		strings.ToLower(strings.TrimSpace(alert.Description)),
-	}
-
-	switch condition.TemplateCode {
-	case ConditionCodePromCPUHigh:
-		return containsAnyMetricAlertAlias(haystacks, "cpu_usage_high", "cpu load high", "cpu high")
-	case ConditionCodePromHeapHigh:
-		return containsAnyMetricAlertAlias(haystacks, "memory_usage_high", "heap memory usage high", "heap usage high", "memory high")
-	case ConditionCodePromGCFrequent:
-		return containsAnyMetricAlertAlias(haystacks, "gc_frequent", "gc frequent", "gc time ratio high", "gc high")
-	case ConditionCodePromHeapRising:
-		return containsAnyMetricAlertAlias(haystacks, "heap_rising", "heap rising", "heap keeps rising", "memory rising")
-	default:
-		return false
-	}
-}
-
-func containsAnyMetricAlertAlias(haystacks []string, aliases ...string) bool {
-	for _, haystack := range haystacks {
-		if haystack == "" {
-			continue
-		}
-		for _, alias := range aliases {
-			if alias != "" && strings.Contains(haystack, alias) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func normalizeMetricAlertReasonKey(alert *monitoringapp.AlertInstance) string {
-	if alert == nil {
-		return ""
-	}
-	if value := strings.TrimSpace(alert.RuleKey); value != "" {
-		return value
-	}
-	if value := strings.TrimSpace(alert.AlertName); value != "" {
-		return value
-	}
-	return strings.TrimSpace(alert.Summary)
 }

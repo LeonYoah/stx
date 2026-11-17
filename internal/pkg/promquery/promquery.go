@@ -50,11 +50,6 @@ const (
 	ReasonPrometheusUnavailable = "prometheus_unavailable"
 )
 
-// embeddedBaseURL 是 BaseURL 在内嵌就绪时返回的哨兵串：调用方只判空与透传，不再当真实地址使用。
-// embeddedBaseURL is the sentinel BaseURL returns when the embedded engine is ready: callers only
-// check for emptiness and pass it through; it is no longer a real endpoint.
-const embeddedBaseURL = "embedded"
-
 // errNotReady 是引擎未就绪时 Range/Instant 返回的错误；调用方本就按错误走降级路径。
 // errNotReady is returned by Range/Instant while the engine is not ready; callers already
 // degrade on any error.
@@ -75,24 +70,23 @@ type Sample struct {
 	Value  float64
 }
 
-// BaseURL 语义为可用性探测：observability 未启用返回 observability_disabled；
-// 内嵌引擎未就绪返回 prometheus_unavailable；就绪返回哨兵串 "embedded"。
-// BaseURL is an availability probe: it reports observability_disabled when the feature is off,
-// prometheus_unavailable while the embedded engine is not ready, and the sentinel "embedded" once up.
-func BaseURL() (string, string) {
+// UnavailableReason 返回查询不可用原因：observability 未启用返回 observability_disabled；
+// 内嵌引擎未就绪返回 prometheus_unavailable；可用时返回空串。
+// UnavailableReason reports why observability queries cannot run: observability_disabled when the
+// feature is off, prometheus_unavailable while the embedded engine is not ready, and "" once up.
+func UnavailableReason() string {
 	if config.Config == nil || !config.Config.Observability.Enabled {
-		return "", ReasonObservabilityDisabled
+		return ReasonObservabilityDisabled
 	}
 	if !embedts.Ready() {
-		return "", ReasonPrometheusUnavailable
+		return ReasonPrometheusUnavailable
 	}
-	return embeddedBaseURL, ""
+	return ""
 }
 
-// Range 执行区间查询（query_range 语义）；baseURL 形参仅为兼容旧签名保留，函数内忽略。
-// Range runs a range query (query_range semantics); the baseURL parameter is kept only for
-// signature compatibility and is ignored.
-func Range(ctx context.Context, baseURL, promQL string, start, end time.Time, stepSeconds int) ([]Series, error) {
+// Range 执行区间查询（query_range 语义）。
+// Range runs a range query (query_range semantics).
+func Range(ctx context.Context, promQL string, start, end time.Time, stepSeconds int) ([]Series, error) {
 	engine, queryable := embedts.QueryEngine()
 	if engine == nil || queryable == nil {
 		return nil, errNotReady
@@ -124,10 +118,9 @@ func Range(ctx context.Context, baseURL, promQL string, start, end time.Time, st
 	return out, nil
 }
 
-// Instant 执行即时查询（at 为零值时取当前时间）；baseURL 形参仅为兼容旧签名保留，函数内忽略。
-// Instant runs an instant query (now when at is zero); the baseURL parameter is kept only for
-// signature compatibility and is ignored.
-func Instant(ctx context.Context, baseURL, promQL string, at time.Time) ([]Sample, error) {
+// Instant 执行即时查询（at 为零值时取当前时间）。
+// Instant runs an instant query (now when at is zero).
+func Instant(ctx context.Context, promQL string, at time.Time) ([]Sample, error) {
 	engine, queryable := embedts.QueryEngine()
 	if engine == nil || queryable == nil {
 		return nil, errNotReady

@@ -229,8 +229,8 @@ func (NotificationDelivery) TableName() string {
 	return "monitoring_notification_deliveries"
 }
 
-// RemoteAlertRecord stores one Alertmanager webhook alert after normalization.
-// RemoteAlertRecord 保存标准化后的 Alertmanager webhook 告警记录。
+// RemoteAlertRecord stores one normalized alert record produced by the embedded metric evaluator.
+// RemoteAlertRecord 保存内嵌指标评估器产出的标准化告警记录。
 type RemoteAlertRecord struct {
 	ID uint `json:"id" gorm:"primaryKey;autoIncrement"`
 

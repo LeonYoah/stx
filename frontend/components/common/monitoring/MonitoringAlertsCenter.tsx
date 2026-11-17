@@ -109,6 +109,16 @@ type ClusterOption = {
   name: string;
 };
 
+/**
+ * isSyncEpisode 按存储种类判断是否 sync 阶段（alert_id 以 sync: 前缀标识），
+ * 与告警类别无关——集群级 sync 规则归属 platform_health，任务级归属 job。
+ * isSyncEpisode detects a sync episode by storage kind (alert_id carries the sync:
+ * prefix), independent of alert category — cluster-level sync rules are
+ * categorized platform_health, task-level rules job.
+ */
+const isSyncEpisode = (alert?: Pick<AlertInstance, 'alert_id'> | null): boolean =>
+  typeof alert?.alert_id === 'string' && alert.alert_id.startsWith('sync:');
+
 const EMPTY_STATS: AlertInstanceStats = {
   firing: 0,
   resolved: 0,
@@ -366,14 +376,14 @@ export function MonitoringAlertsCenter() {
 
   const resolveSourceLabel = useCallback(
     (sourceType: AlertSourceType) => {
-      if (sourceType === 'local_process_event') {
-        return t('alerts.sourceTypes.local_process_event');
+      if (sourceType === 'platform_health') {
+        return t('alerts.sourceTypes.platform_health');
       }
-      if (sourceType === 'remote_alertmanager') {
-        return t('alerts.sourceTypes.remote_alertmanager');
+      if (sourceType === 'metric') {
+        return t('alerts.sourceTypes.metric');
       }
-      if (sourceType === 'sync') {
-        return t('alerts.sourceTypes.sync');
+      if (sourceType === 'job') {
+        return t('alerts.sourceTypes.job');
       }
       return sourceType;
     },
@@ -767,14 +777,14 @@ export function MonitoringAlertsCenter() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value='all'>{t('alerts.allSources')}</SelectItem>
-                <SelectItem value='local_process_event'>
-                  {t('alerts.sourceTypes.local_process_event')}
+                <SelectItem value='platform_health'>
+                  {t('alerts.sourceTypes.platform_health')}
                 </SelectItem>
-                <SelectItem value='remote_alertmanager'>
-                  {t('alerts.sourceTypes.remote_alertmanager')}
+                <SelectItem value='metric'>
+                  {t('alerts.sourceTypes.metric')}
                 </SelectItem>
-                <SelectItem value='sync'>
-                  {t('alerts.sourceTypes.sync')}
+                <SelectItem value='job'>
+                  {t('alerts.sourceTypes.job')}
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -890,7 +900,7 @@ export function MonitoringAlertsCenter() {
                                 {alert.alert_name || '-'}
                               </span>
                               {/* 作业告警：累计次数 / Job alerts: occurrence count */}
-                              {alert.source_type === 'sync' && (alert.source_ref?.occurrence_count ?? 0) > 1 ? (
+                              {isSyncEpisode(alert) && (alert.source_ref?.occurrence_count ?? 0) > 1 ? (
                                 <Badge variant='outline' className='shrink-0 whitespace-nowrap px-1 py-0 text-[10px] font-normal'>
                                   {tAlert('occurrences', {count: alert.source_ref?.occurrence_count ?? 0})}
                                 </Badge>
@@ -898,7 +908,7 @@ export function MonitoringAlertsCenter() {
                               {/* 作业告警：自动关闭原因、停止提醒 / Job alerts: auto-close reason, reminders paused */}
                               {/* 徽标只显示"自动关闭"，完整原因放在 Tooltip，不挤压告警名称。/ The badge only says
                                   "auto-closed"; the full reason is in a Tooltip so the alert name is not squeezed. */}
-                              {alert.source_type === 'sync' && syncAutoCloseReason(alert.source_ref?.resolve_reason) ? (
+                              {isSyncEpisode(alert) && syncAutoCloseReason(alert.source_ref?.resolve_reason) ? (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Badge
@@ -915,7 +925,7 @@ export function MonitoringAlertsCenter() {
                                   </TooltipContent>
                                 </Tooltip>
                               ) : null}
-                              {alert.source_type === 'sync' && alert.source_ref?.reminders_paused ? (
+                              {isSyncEpisode(alert) && alert.source_ref?.reminders_paused ? (
                                 <Badge
                                   variant='outline'
                                   className='shrink-0 whitespace-nowrap border-amber-500/30 px-1 py-0 text-[10px] font-normal text-amber-600 dark:text-amber-400'
@@ -1208,7 +1218,7 @@ export function MonitoringAlertsCenter() {
                             </span>
                           </div>
                         ) : null}
-                        {selectedAlert.source_type === 'sync' && syncAutoCloseReason(selectedAlert.source_ref.resolve_reason) ? (
+                        {isSyncEpisode(selectedAlert) && syncAutoCloseReason(selectedAlert.source_ref.resolve_reason) ? (
                           <div className='flex items-center justify-between gap-3 p-3'>
                             <span className='whitespace-nowrap text-muted-foreground'>{tAlert('closeReasonLabel')}</span>
                             <span className='min-w-0 text-right'>
@@ -1216,10 +1226,10 @@ export function MonitoringAlertsCenter() {
                             </span>
                           </div>
                         ) : null}
-                        {selectedAlert.source_type === 'sync' && selectedAlert.source_ref.reminders_paused ? (
+                        {isSyncEpisode(selectedAlert) && selectedAlert.source_ref.reminders_paused ? (
                           <div className='p-3 text-amber-600 dark:text-amber-400'>{tAlert('remindersPausedHint')}</div>
                         ) : null}
-                        {selectedAlert.source_type === 'sync' && selectedAlert.source_ref.occurrence_count ? (
+                        {isSyncEpisode(selectedAlert) && selectedAlert.source_ref.occurrence_count ? (
                           <div className='flex items-center justify-between p-3'>
                             <span className='text-muted-foreground'>{tAlert('occurrenceLabel')}</span>
                             <span className='whitespace-nowrap'>

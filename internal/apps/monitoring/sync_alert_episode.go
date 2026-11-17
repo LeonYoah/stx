@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 )
 
 // SyncAlertEpisodeScope 区分作业级（按任务）与集群级的告警阶段。
@@ -263,17 +265,28 @@ func normalizeSyncAlertText(value string, limit int) string {
 	return string(runes[:limit])
 }
 
-// syncAlertEpisodeClusterID 返回阶段所在集群（字符串），阶段不存在时返回 ErrAlertInstanceNotFound。
-// syncAlertEpisodeClusterID returns the episode's cluster as a string, or ErrAlertInstanceNotFound when missing.
-func (s *Service) syncAlertEpisodeClusterID(ctx context.Context, episodeID uint) (string, error) {
+// syncAlertEpisodeClusterRule 返回阶段所在集群（字符串）与规则键，阶段不存在时返回 ErrAlertInstanceNotFound。
+// syncAlertEpisodeClusterRule returns the episode's cluster as a string and its rule key,
+// or ErrAlertInstanceNotFound when missing.
+func (s *Service) syncAlertEpisodeClusterRule(ctx context.Context, episodeID uint) (string, string, error) {
 	episode, err := s.repo.GetSyncAlertEpisodeByID(ctx, episodeID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if episode == nil {
-		return "", ErrAlertInstanceNotFound
+		return "", "", ErrAlertInstanceNotFound
 	}
-	return strconv.FormatUint(uint64(episode.ClusterID), 10), nil
+	return strconv.FormatUint(uint64(episode.ClusterID), 10), episode.RuleKey, nil
+}
+
+// syncEpisodeCategory 返回同步告警阶段的类别：集群级规则归平台健康，任务级归作业告警。
+// syncEpisodeCategory maps a sync episode to its alert category: cluster-level rules are
+// platform health, task-level rules are job alerts.
+func syncEpisodeCategory(ruleKey string) AlertSourceType {
+	if syncalert.IsClusterRule(ruleKey) {
+		return AlertSourceTypePlatformHealth
+	}
+	return AlertSourceTypeJob
 }
 
 // buildSyncAlertInstances 把同步作业告警阶段转成告警中心条目，筛选语义与本地事件一致。
@@ -303,6 +316,12 @@ func (s *Service) buildSyncAlertInstances(ctx context.Context, filter *AlertInst
 
 	items := make([]*AlertInstance, 0, len(episodes))
 	for _, episode := range episodes {
+		// 类别过滤：集群级规则归平台健康、任务级归作业告警，按 source_type 过滤时只留对应类别。
+		// Category filter: cluster rules count as platform health and task rules as job alerts —
+		// a source_type filter keeps only the matching category.
+		if filter.SourceType != "" && syncEpisodeCategory(episode.RuleKey) != filter.SourceType {
+			continue
+		}
 		severity := normalizeAlertPolicySeverity(episode.Severity)
 		if filter.Severity != "" && !strings.EqualFold(string(severity), string(filter.Severity)) {
 			continue
@@ -330,7 +349,7 @@ func (s *Service) buildSyncAlertInstances(ctx context.Context, filter *AlertInst
 		}
 		item := &AlertInstance{
 			AlertID:         sourceKey,
-			SourceType:      AlertSourceTypeSync,
+			SourceType:      syncEpisodeCategory(episode.RuleKey),
 			ClusterID:       strconv.FormatUint(uint64(episode.ClusterID), 10),
 			ClusterName:     episode.ClusterName,
 			Severity:        severity,

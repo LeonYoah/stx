@@ -605,7 +605,6 @@ func TestQueryDiagnosticPrometheusSignal_marksWarningWhenThresholdBreached(t *te
 
 	signal, err := queryDiagnosticPrometheusSignal(
 		ctx,
-		"embedded",
 		diagnosticCollectionWindow{
 			Start: now.Add(-2 * time.Minute),
 			End:   now,

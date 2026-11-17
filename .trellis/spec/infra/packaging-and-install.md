@@ -119,7 +119,7 @@ $INSTALL_DIR/observability/             # 仅旧版本升级残留：安装脚�
 离线 `packages/` 布局必须含 `stx-java-proxy-v2.jar` / `stx-java-proxy-v3.jar`；`install.sh` 缺 jar 或脚本时必须失败，不得静默跳过（DEF-R2-1）。
 
 `bin/start.sh` / `stop.sh` 只启停 STX 前后端；旧的 `--observability <mode>` 参数接受并忽略（旧 systemd 单元可能还带着）。
-`install.sh` 旧的 `--with-observability`、`--prometheus-port`、`--alertmanager-port`、`--grafana-port` 同样接受并忽略。
+`install.sh` / `install-online.sh` 不再接受旧的 `--with-observability`、`--prometheus-port`、`--alertmanager-port`、`--grafana-port`（按 unknown option 报错退出；属破坏性升级，旧命令需删参）。
 ### 3.4 配置键（安装器写入）
 
 - 默认端口：前端 `17880`、HTTP API `17800`、gRPC `17890`（避开常见 80/8000/9000）

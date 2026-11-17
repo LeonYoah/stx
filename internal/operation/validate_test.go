@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 282)
+	require.Len(t, Registry(), 283)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -129,7 +129,8 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"monitoring.alert-policy.list": {}, "monitoring.alert-policy.execution.list": {},
 		"monitoring.alert-instance.list": {}, "monitoring.alert.list": {}, "monitoring.remote-alert.list": {},
 		"monitoring.cluster.rule.list": {}, "monitoring.integration.status": {},
-		"monitoring.alert-policy.bootstrap.get": {}, "monitoring.notifiable-user.list": {},
+		"monitoring.alert-policy.bootstrap.get": {}, "monitoring.alert-rule.catalog": {},
+		"monitoring.notifiable-user.list": {},
 		"monitoring.platform-health.get": {}, "monitoring.notification-channel.list": {},
 		"monitoring.notification-delivery.list": {}, "monitoring.notification-route.list": {},
 		"monitor.config.get": {}, "monitor.event.list": {}, "monitor.event.stats": {},
@@ -343,7 +344,7 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 33)
+	require.Len(t, RouteExceptions(), 32)
 	require.Contains(t, exceptions, "GET /api/v1/version")
 	require.Contains(t, exceptions, "POST /api/v1/sync/engine-events/:cluster_id")
 	require.Contains(t, exceptions, "POST /api/v1/auth/login")

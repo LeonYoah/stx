@@ -162,20 +162,34 @@ func captureStderr(t *testing.T, fn func()) string {
 	return string(out)
 }
 
-// TestApplyEnvironmentOverrides_LegacyTimezone 环境变量覆盖 legacy_timezone；空值不擦配置。
-// TestApplyEnvironmentOverrides_LegacyTimezone: env overrides legacy_timezone; empty env keeps config.
-func TestApplyEnvironmentOverrides_LegacyTimezone(t *testing.T) {
-	t.Setenv("STX_DATABASE_LEGACY_TIMEZONE", "UTC")
-	c := &configModel{Database: DatabaseConfig{LegacyTimezone: "Asia/Shanghai"}}
-	applyEnvironmentOverrides(c)
-	if c.Database.LegacyTimezone != "UTC" {
-		t.Fatalf("STX_DATABASE_LEGACY_TIMEZONE 应覆盖配置 / env should override config: %q", c.Database.LegacyTimezone)
+// TestExampleConfigLegacyTimezoneUTC 示例配置写出 legacy_timezone=UTC，不通过环境变量注入。
+// TestExampleConfigLegacyTimezoneUTC asserts the example config sets legacy_timezone=UTC rather than an env overlay.
+func TestExampleConfigLegacyTimezoneUTC(t *testing.T) {
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	t.Setenv("STX_DATABASE_LEGACY_TIMEZONE", "")
-	c = &configModel{Database: DatabaseConfig{LegacyTimezone: "Asia/Shanghai"}}
-	applyEnvironmentOverrides(c)
-	if c.Database.LegacyTimezone != "Asia/Shanghai" {
-		t.Fatalf("空环境变量不应擦掉配置 / empty env must not wipe config: %q", c.Database.LegacyTimezone)
+	var path string
+	for {
+		candidate := filepath.Join(dir, "config.example.yaml")
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			path = candidate
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("config.example.yaml not found")
+		}
+		dir = parent
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `legacy_timezone: "UTC"`) {
+		t.Fatal("config.example.yaml must set database.legacy_timezone: UTC")
+	}
+	if strings.Contains(string(body), "STX_DATABASE_LEGACY_TIMEZONE") {
+		t.Fatal("config.example.yaml must not mention STX_DATABASE_LEGACY_TIMEZONE")
 	}
 }

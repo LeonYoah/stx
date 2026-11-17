@@ -49,8 +49,8 @@ func TestComposeServicesInjectTimezone(t *testing.T) {
 	for name := range base.Services {
 		env := envOf(t, "compose.base.yml", name, base.Services[name])
 		assertServiceTZ(t, "compose.base.yml", name, env)
-		if name == "stx-backend" {
-			assertBackendLegacyTZ(t, "compose.base.yml", env)
+		if _, ok := env["STX_DATABASE_LEGACY_TIMEZONE"]; ok {
+			t.Errorf("compose.base.yml service %s: do not inject STX_DATABASE_LEGACY_TIMEZONE", name)
 		}
 	}
 
@@ -70,8 +70,8 @@ func TestComposeServicesInjectTimezone(t *testing.T) {
 		for name, svc := range merged {
 			env := envOf(t, filepath.Base(overlayPath), name, svc)
 			assertServiceTZ(t, filepath.Base(overlayPath), name, env)
-			if name == "stx-backend" {
-				assertBackendLegacyTZ(t, filepath.Base(overlayPath), env)
+			if _, ok := env["STX_DATABASE_LEGACY_TIMEZONE"]; ok {
+				t.Errorf("%s service %s: do not inject STX_DATABASE_LEGACY_TIMEZONE", filepath.Base(overlayPath), name)
 			}
 		}
 	}
@@ -102,21 +102,11 @@ func TestComposeTimezoneDefaults(t *testing.T) {
 	}
 }
 
-const wantLegacyTZ = "UTC"
-
 func assertServiceTZ(t *testing.T, file, service string, env map[string]string) {
 	t.Helper()
 	got := env["TZ"]
 	if got != wantTZ {
 		t.Errorf("%s service %s: TZ=%q, want %q", file, service, got, wantTZ)
-	}
-}
-
-func assertBackendLegacyTZ(t *testing.T, file string, env map[string]string) {
-	t.Helper()
-	got := env["STX_DATABASE_LEGACY_TIMEZONE"]
-	if got != wantLegacyTZ {
-		t.Errorf("%s service stx-backend: STX_DATABASE_LEGACY_TIMEZONE=%q, want %q", file, got, wantLegacyTZ)
 	}
 }
 

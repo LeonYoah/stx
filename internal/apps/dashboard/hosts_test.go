@@ -55,7 +55,7 @@ func (fakeHostNodes) GetNodes(_ context.Context, clusterID uint) ([]*cluster.Nod
 func newHostDashboardService(queries *[]string) *HostDashboardService {
 	svc := NewHostDashboardService(fakeHostInventory{}, fakeHostNodes{})
 	svc.now = func() time.Time { return time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC) }
-	svc.rangeQuery = func(_ context.Context, _, q string, _, _ time.Time, _ int) ([]promquery.Series, error) {
+	svc.rangeQuery = func(_ context.Context, q string, _, _ time.Time, _ int) ([]promquery.Series, error) {
 		if queries != nil {
 			queryMu.Lock()
 			*queries = append(*queries, q)

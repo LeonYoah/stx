@@ -143,7 +143,7 @@ Usage:
                            默认测速后自动选最快，交互时可按编号改选，失败自动换下一条
   --bundle-file <path>     使用本地已下载的离线包，不再下载
   --bundle-name <name>     覆盖 Release 中的离线包文件名（特殊预发包）
-  --work-dir <dir>         下载与解压目录（默认 /tmp；env STX_WORK_DIR）
+  --work-dir <dir>         下载与解压目录（默认 /var/tmp，无则 /tmp；env STX_WORK_DIR）
   --keep-bundle            安装后保留下载的离线包
 
 安装（透传给 install.sh）/ install (passed to install.sh):
@@ -169,7 +169,20 @@ VARIANT="${STX_BUNDLE_VARIANT:-}"
 ARCH=""
 BUNDLE_FILE=""
 BUNDLE_NAME=""
-WORK_PARENT="${STX_WORK_DIR:-${TMPDIR:-/tmp}}"
+# systemd-tmpfiles-setup 开机清空 /tmp，mktemp 目录可能在 tar -C 之前被删掉（Cannot mkdir）。
+# 未设置或 TMPDIR=/tmp 时改用 /var/tmp（开机不清空，也更适合 100MB+ 离线包）。
+# systemd-tmpfiles-setup empties /tmp at boot, so a mktemp dir can vanish before tar -C
+# (Cannot mkdir). Unset TMPDIR or TMPDIR=/tmp → /var/tmp (not wiped at boot).
+if [[ -n "${STX_WORK_DIR:-}" ]]; then
+  WORK_PARENT="$STX_WORK_DIR"
+else
+  case "${TMPDIR:-}" in
+    ""|/tmp|/tmp/)
+      if [[ -d /var/tmp && -w /var/tmp ]]; then WORK_PARENT=/var/tmp; else WORK_PARENT=/tmp; fi
+      ;;
+    *) WORK_PARENT="$TMPDIR" ;;
+  esac
+fi
 KEEP_BUNDLE=false
 INSTALL_ARGS=()
 ORIG_ARGS=("$@")
@@ -218,6 +231,14 @@ if declare -F stx_require_root >/dev/null; then
     ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
   unset _stx_rerun
 fi
+
+# 子进程 install.sh 的 mktemp 与安装日志也走 TMPDIR；未设置或指向 /tmp 时改到 /var/tmp。
+# Child install.sh mktemp and the install log use TMPDIR; unset or /tmp → /var/tmp.
+case "${TMPDIR:-}" in
+  ""|/tmp|/tmp/)
+    if [[ -d /var/tmp && -w /var/tmp ]]; then export TMPDIR=/var/tmp; fi
+    ;;
+esac
 
 stx_setup_log "${TMPDIR:-/tmp}/stx-install-$(date +%Y%m%d-%H%M%S).log"
 WORK_DIR=""

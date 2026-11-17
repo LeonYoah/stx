@@ -19,6 +19,7 @@ package sync
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -544,6 +545,96 @@ func TestBuildJobLiveMetricsParity(t *testing.T) {
 				}
 			} else if got.TableCount == nil || *got.TableCount != *tc.want.TableCount {
 				t.Fatalf("table_count = %v, want %d", got.TableCount, *tc.want.TableCount)
+			}
+		})
+	}
+}
+
+// TestListJobsActiveWindowFilter 覆盖「窗口内活跃」重叠语义：窗口内运行过的作业命中，
+// 运行中（finished_at 为空）与排队（started_at 为空）作业在任何窗口都算活跃。
+// TestListJobsActiveWindowFilter covers the active-in-window overlap: jobs that ran during the window match,
+// while running (finished_at NULL) and pending (started_at NULL) jobs count as active in every window.
+func TestListJobsActiveWindowFilter(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	db := service.repo.db
+	task := &Task{NodeType: TaskNodeTypeFile, Name: "windowed", ClusterID: 1, Mode: TaskModeStreaming, CreatedBy: 1}
+	if err := db.Create(task).Error; err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
+	at := func(h int) *time.Time { v := base.Add(time.Duration(h) * time.Hour); return &v }
+	jobs := map[string]*JobInstance{
+		// 窗口内运行结束：09:00–11:00，与 [10:00,14:00] 重叠 → 命中。/ Ended inside the overlap → in.
+		"span": {TaskID: task.ID, RunType: RunTypeRun, Status: JobStatusSuccess, CreatedBy: 1,
+			StartedAt: at(-1), FinishedAt: at(1)},
+		// 窗口开始前就结束：05:00–06:00 → 不命中。/ Finished before the window → out.
+		"early": {TaskID: task.ID, RunType: RunTypeRun, Status: JobStatusSuccess, CreatedBy: 1,
+			StartedAt: at(-5), FinishedAt: at(-4)},
+		// 窗口结束后才启动：15:00 → 不命中。/ Starts after the window → out.
+		"late": {TaskID: task.ID, RunType: RunTypeRun, Status: JobStatusPending, CreatedBy: 1,
+			StartedAt: at(5)},
+		// 一直运行：started 很久以前、未结束 → 任何窗口命中。/ Long-running: started long ago, still running → in.
+		"running": {TaskID: task.ID, RunType: RunTypeRun, Status: JobStatusRunning, CreatedBy: 1,
+			StartedAt: at(-48)},
+		// 排队中：尚未启动 → 视为活跃。/ Pending: not started yet → counts as active.
+		"pending": {TaskID: task.ID, RunType: RunTypeRun, Status: JobStatusPending, CreatedBy: 1},
+	}
+	for name, job := range jobs {
+		if err := db.Create(job).Error; err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	idsOf := func(items []*JobInstance) map[uint]bool {
+		out := make(map[uint]bool, len(items))
+		for _, item := range items {
+			out[item.ID] = true
+		}
+		return out
+	}
+	window := func(hFrom, hTo int) (*time.Time, *time.Time) {
+		var from, to *time.Time
+		if hFrom != math.MinInt {
+			from = at(hFrom)
+		}
+		if hTo != math.MinInt {
+			to = at(hTo)
+		}
+		return from, to
+	}
+	cases := []struct {
+		name       string
+		hFrom, hTo int
+		want       []string
+	}{
+		{"window 10:00-14:00", 0, 4, []string{"span", "running", "pending"}},
+		// 远过去窗口：连 running 都还没启动，只有排队作业算活跃。/ Far-past window: only pending is active.
+		{"window before all runs", -100, -60, []string{"pending"}},
+		// 覆盖 running 启动瞬间的窗口。/ Window covering the moment running started.
+		{"window around running start", -49, -47, []string{"running", "pending"}},
+		// 远未来窗口：未结束的作业（late 排队未结束、running、pending）都命中。
+		// Far-future window: unfinished jobs (late/running/pending have no finished_at) all match.
+		{"window after all runs", 50, 60, []string{"late", "running", "pending"}},
+		{"only from bound", 0, math.MinInt, []string{"span", "late", "running", "pending"}},
+		{"only to bound", math.MinInt, 0, []string{"span", "early", "running", "pending"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			from, to := window(tc.hFrom, tc.hTo)
+			items, total, err := service.repo.ListJobInstances(ctx, &JobFilter{
+				IncludeAll: true, TaskID: task.ID, ActiveFrom: from, ActiveTo: to, Size: 50,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if int(total) != len(tc.want) {
+				t.Fatalf("total = %d, want %d (%v)", total, len(tc.want), idsOf(items))
+			}
+			got := idsOf(items)
+			for _, name := range tc.want {
+				if !got[jobs[name].ID] {
+					t.Fatalf("missing %s in %v", name, got)
+				}
 			}
 		})
 	}

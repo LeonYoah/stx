@@ -5147,6 +5147,24 @@ const docTemplate = `{
                         "description": "1 = 返回任务名与当前读写速率、条数与逻辑表数",
                         "name": "with_live",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "活跃窗口预设：15m|1h|6h|24h|7d（窗口内运行过的作业，运行中恒命中）",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义活跃窗口起点（unix 秒/毫秒或 RFC3339），与 end 一起用时优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义活跃窗口终点（unix 秒/毫秒或 RFC3339）",
+                        "name": "end",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -13070,6 +13088,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/sync.RunType"
                 },
                 "started_at": {
+                    "description": "StartedAt / FinishedAt / CreatedBy / CreatedAt 是列表默认排序、24 小时窗口与非管理员可见性筛选的\n高频条件列，建索引避免全表扫描与 filesort。\nStartedAt / FinishedAt / CreatedBy / CreatedAt back the list's default ordering, 24h windows and the\nnon-admin visibility filter; index them to avoid full scans and filesorts.",
                     "type": "string"
                 },
                 "status": {

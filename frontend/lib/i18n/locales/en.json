@@ -399,6 +399,7 @@
           "6h": "6h",
           "24h": "24h",
           "7d": "7d",
+          "all": "All",
           "custom": "Custom range"
         },
         "allClusters": "All clusters",

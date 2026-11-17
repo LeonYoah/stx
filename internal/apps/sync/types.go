@@ -174,6 +174,15 @@ type JobFilter struct {
 	// FinishedAfter / FinishedBefore filter by finish time (used for the home page's 24h failure counts).
 	FinishedAfter  *time.Time
 	FinishedBefore *time.Time
+	// ActiveFrom / ActiveTo 是「窗口内活跃」重叠筛选：作业在 [ActiveFrom, ActiveTo] 内运行过才命中——
+	// 条件为 started_at <= ActiveTo（含未启动的排队作业）且 finished_at >= ActiveFrom（含仍在运行的作业）。
+	// 大盘作业页签的时间窗（15m/1h/…/自定义）翻译成它，运行中的作业在任何窗口都会出现。
+	// ActiveFrom / ActiveTo is the "active within window" overlap filter: a job matches when it ran during
+	// [ActiveFrom, ActiveTo] — started_at <= ActiveTo (pending jobs count) and finished_at >= ActiveFrom
+	// (running jobs count). The dashboard jobs tab maps its range picker to it, so a running job shows in
+	// every window.
+	ActiveFrom *time.Time
+	ActiveTo   *time.Time
 }
 
 // ValidateResult represents validation result payload.

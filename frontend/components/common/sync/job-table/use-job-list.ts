@@ -72,6 +72,15 @@ export function buildJobListParams(
     with_counts: 1,
     with_live: 1,
   };
+  // 活跃窗口：自定义起止毫秒优先，其次滚动预设；两参数与大盘其他端点同名（range/start/end）。
+  // Active window: explicit start/end ms wins, then a rolling preset; the params share the names the other
+  // dashboard endpoints use (range/start/end).
+  if (query.activeFrom && query.activeTo) {
+    params.start = query.activeFrom;
+    params.end = query.activeTo;
+  } else if (query.activeRange) {
+    params.range = query.activeRange;
+  }
   if (scope.kind === 'all') {
     params.exclude_run_type = 'preview';
     params.mode = query.mode || undefined;

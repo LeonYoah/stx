@@ -67,6 +67,15 @@ export interface JobListQuery {
   clusterId?: number;
   sort: SyncJobListSort;
   order: 'asc' | 'desc';
+  /**
+   * 活跃窗口预设（'' = 不筛；'15m'|'1h'|'6h'|'24h'|'7d' = 窗口内运行过的作业，服务端按请求时刻滚动求窗）。
+   * Active window preset ('' = unfiltered; presets match jobs that ran during the window, resolved server-side
+   * per request so polling sees a rolling window).
+   */
+  activeRange?: string;
+  /** 自定义活跃窗口（毫秒），两端齐备时优先于 activeRange。/ Custom active window (ms); wins over activeRange. */
+  activeFrom?: number;
+  activeTo?: number;
   /** 从 1 开始 / 1-based page. */
   page: number;
 }

@@ -360,6 +360,11 @@ export type SyncJobListParams = {
   order?: 'asc' | 'desc';
   with_counts?: 1;
   with_live?: 1;
+  /** 活跃窗口预设：15m|1h|6h|24h|7d（窗口内运行过的作业）/ Active-in window preset for jobs that ran during it. */
+  range?: string;
+  /** 自定义活跃窗口毫秒端点，成对使用并优先于 range / Custom active window ms ends, paired and wins over range. */
+  start?: number;
+  end?: number;
 };
 
 /** sparklines 接口返回：作业 ID → [毫秒时间戳, 值] / Sparklines payload: job ID → [epoch ms, value]. */

@@ -209,6 +209,7 @@ const base: DashboardQuery = {
   order: '',
   page: 1,
   range: '1h',
+  listRange: 'all',
   start: undefined,
   end: undefined,
 };

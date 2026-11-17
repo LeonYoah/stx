@@ -123,6 +123,7 @@ const baseQuery: DashboardQuery = {
   order: '',
   page: 1,
   range: '1h',
+  listRange: 'all',
   start: undefined,
   end: undefined,
 };
@@ -179,6 +180,24 @@ describe('JobListTab', () => {
       with_counts: 1,
       with_live: 1,
     });
+  });
+
+  // 顶栏时间窗 → 活跃窗口参数：预设传 range，自定义传 start/end，'all' 不带窗口参数。
+  // The header range maps to active-window params: presets send range, custom sends start/end, 'all' sends none.
+  it('maps the header range onto the active-window list params', async () => {
+    renderTab({listRange: '6h'});
+    await screen.findByTestId('home-job-row-1');
+    expect(sync.listJobs.mock.calls[0][0]).toMatchObject({range: '6h'});
+
+    vi.clearAllMocks();
+    sync.listJobs.mockResolvedValue(listData);
+    renderTab({start: 1700000000000, end: 1700003600000});
+    await screen.findByTestId('home-job-row-1');
+    expect(sync.listJobs.mock.calls[0][0]).toMatchObject({
+      start: 1700000000000,
+      end: 1700003600000,
+    });
+    expect(sync.listJobs.mock.calls[0][0].range).toBeUndefined();
   });
 
   it('falls back to the start-time order when a rate sort is asked for outside the running group', async () => {

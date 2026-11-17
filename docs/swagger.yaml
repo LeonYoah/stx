@@ -4781,6 +4781,11 @@ definitions:
       run_type:
         $ref: '#/definitions/sync.RunType'
       started_at:
+        description: |-
+          StartedAt / FinishedAt / CreatedBy / CreatedAt 是列表默认排序、24 小时窗口与非管理员可见性筛选的
+          高频条件列，建索引避免全表扫描与 filesort。
+          StartedAt / FinishedAt / CreatedBy / CreatedAt back the list's default ordering, 24h windows and the
+          non-admin visibility filter; index them to avoid full scans and filesorts.
         type: string
       status:
         $ref: '#/definitions/sync.JobStatus'
@@ -8639,6 +8644,18 @@ paths:
         in: query
         name: with_live
         type: integer
+      - description: 活跃窗口预设：15m|1h|6h|24h|7d（窗口内运行过的作业，运行中恒命中）
+        in: query
+        name: range
+        type: string
+      - description: 自定义活跃窗口起点（unix 秒/毫秒或 RFC3339），与 end 一起用时优先于 range
+        in: query
+        name: start
+        type: string
+      - description: 自定义活跃窗口终点（unix 秒/毫秒或 RFC3339）
+        in: query
+        name: end
+        type: string
       produces:
       - application/json
       responses:

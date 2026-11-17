@@ -128,6 +128,13 @@ export function JobListTab({
         ? (query.sort as SyncJobListSort)
         : DEFAULT_SORT,
       order: query.order === 'asc' || query.order === 'desc' ? query.order : 'desc',
+      // 顶栏时间窗 → 「窗口内活跃」筛选：自定义窗口传毫秒端点，预设传 range（'all' 不筛）。
+      // The header range becomes the "active in window" filter: a custom window sends ms ends, a preset
+      // sends range ('all' stays unfiltered).
+      activeRange:
+        query.start || query.listRange === 'all' ? '' : query.listRange,
+      activeFrom: query.start,
+      activeTo: query.end,
       page: query.page,
     }),
     [query],

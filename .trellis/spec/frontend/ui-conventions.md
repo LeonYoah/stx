@@ -9,7 +9,7 @@
 STX 控制台采用现代化控制台体验架构：
 - **主框架布局**：底部常驻 macOS 风格悬浮 Dock 导航栏（`ManagementBar`）+ 顶部轻量路由进度条（`RouteProgressBar`）+ 统一页面级自适应容器（`@container/main`）。
 - **统一页面头部**：全站主页面标准化采用 **`WorkspaceHeader`**（面包屑导航、大标题、副标题描述、与 Dock 严格对齐的语义图标、右侧操作区）。
-- **数据量化与状态筛选**：列表及概览页统一使用 **`StatPillsBar`**（状态胶囊汇总栏 + 快捷点击联动筛选）。
+- **数据量化与状态筛选**：状态筛选用 Arc `SegmentedControl`（单选）或 Arc `chip-group`（多选），都带计数；`StatPillsBar` 已弃用（见 §3）。
 - **信息密度哲学**：坚决杜绝在列表与卡片顶部堆砌冗长的“无效说明文案”，首屏垂直空间 100% 让渡给真实业务数据。
 - **非阻塞平滑加载**：淘汰会导致容器高度塌陷闪烁的大 Spinner，统一采用初次骨架屏（`TableSkeletonRows`）与刷新非阻塞进度条（`TableLoadingBar`）。
 - **表格卡片收口**：表格与底部分页栏封装于统一卡片内，两极对齐，使用规范页码与箭头，杜绝“上一步/下一步”。
@@ -63,17 +63,25 @@ STX 控制台采用现代化控制台体验架构：
 
 ---
 
-## 3. 状态统计与胶囊筛选（`StatPillsBar`）
+## 3. 状态统计与筛选
 
-适用于集群、主机、告警、诊断、审计等**具备状态分布的数据驱动型列表页**。
+适用于集群、主机、告警、诊断、作业等**有状态分布的列表页**。
 
-- **组件标准**：优先使用 `components/common/layout/StatPillsBar` 呈现核心量化数据（如总数、在线/离线、成功/失败/运行中、关键告警数等）。
-- **交互联动**：
-  - 状态胶囊不仅是数据呈现，更应当作为**一键快速筛选器**；
-  - 点击对应状态胶囊时，联动触发筛选状态切换并重置分页为第 1 页，让“查看概览”与“检索数据”无缝衔接。
-- **防膨胀原则**：
-  - 坚决避免为展示几个状态数字而铺设多张占满大半屏的巨型卡片；
-  - 状态胶囊横向排列于头部下方，高度紧凑收敛，为下方数据列表腾出最大化的视口空间。
+- **`StatPillsBar` 已弃用**：新代码不得使用。现有调用处按任务 `11-18-unified-admin-console-lists` 分期迁移，最后一处迁走后删除组件。
+- **选型**：
+
+  | 场景 | 组件 |
+  |---|---|
+  | 互斥的状态筛选或视图切换（2–5 项），以及后端只接受单个值的筛选 | Arc `SegmentedControl`，计数放在 `accessory` 插槽 |
+  | 项数多、需要多选的状态筛选（如作业的 7 个状态组） | Arc `chip-group`，用本地补充的 `count` 显示计数 |
+  | 立即生效的单个开关条件（如"只看已启用"） | Arc `Switch` |
+  | 详情页的汇总数字 | 放到详情页签上（Arc `Tabs` 的 trigger），不要单独铺一排汇总栏 |
+
+- **一排控件只表示一个维度**：类型和启用状态、来源和类型这类不同维度要拆成两个控件，不能挤在同一排。
+- **计数**：用 Arc `Badge size='sm'`（不要用 `ui/badge`，见 §18），等宽数字并固定最小宽度，轮询时相邻选项不跳动。
+  失败、触发中这类需要注意的选项，计数大于 0 时用 `tone='danger'`，其他用 `neutral`；选中样式本身不带颜色。
+- **交互联动**：切换筛选后页码回到第 1 页；多选时不选任何一项等于"全部"，"全部"的含义由调用方处理。
+- **防膨胀**：不要为了展示几个状态数字铺几张大卡片；筛选控件紧凑地放在头部下方。
 
 ---
 
@@ -355,7 +363,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - **结构**：`app/(main)/dashboard/page.tsx` 只装配 `HomeDashboard`（`components/common/dashboard/`）。顶部 `WorkspaceHeader`（保留 STX 标识，操作区放范围选择与刷新）→ 6 张 Arc `MetricCard` 指标卡 → 「需要处理」横条 → Arc `Tabs`（集群 / 作业 / 作业列表）。页签、范围（`cluster`）与列表筛选都写在 URL（`useDashboardQuery`），页面用 `Suspense` 包住。
 - **指标卡**：`MetricCard` 没有插槽，不改内部，迷你曲线不放进卡片；整卡用 `<Link>` 包裹跳转。`change` 以 `+ / −` 开头会被 Arc 染成涨绿跌红，只用于「越大越好」的写入速率；失败数等用不带符号的中性文字（如「昨日 1」）。首屏加载用等高骨架（158px），不塌陷。
 - **需要处理**：合并作业失败、CDC 延迟、高背压与告警，严重在前，单行横向滚动，最多 10 条。`viewable=false` 的作业只显示（Tooltip 说明无权限），不跳转。
-- **作业列表**：状态筛选用 `StatPillsBar`（计数来自 `with_counts`），模式用 Arc `SegmentedControl`，搜索框限宽并支持 Enter；表格复用 `StudioDataTable` 原语，底栏 `StudioTableFooter` + `Pagination`（只有一页时只显示总数）。列为：作业、集群、模式、状态、读取 / 写入速率、读取 / 写入条数、CDC 延迟、开始时间、结束时间（下方注耗时）、操作。默认 `sort=started_at&order=desc`；状态列表头可切到「失败优先」（attention）；速率 / CDC 延迟排序只在「运行中」胶囊下可点。速率列：运行中显示对账快照的当前速率；已结束显示运行期间平均速率（累计条数 ÷ 耗时），加「均」前缀、浅色并用 title 说明，不为它查时序。结束时间早于开始时间（引擎时区配置错位）时用 `jobTimeBounds()` 退回 `updated_at`，与详情「作业全程」一致。迷你曲线用 beUI `Sparkline`，每次列表刷新后对本页运行中作业发**一次** `getJobSparklines`；监控不可用时整列不渲染。行点击打开 `JobPreviewDrawer`（`Sheet`），「详情」与抽屉里的「打开作业详情」走工作台深链 `/workbench?task=&job=`，首页不复刻 `JobDetailDialog`。批量停止 / 恢复串行调用现有接口，结果写在列表上方的状态条里，不只靠 toast。
+- **作业列表**：状态筛选用 Arc `chip-group` 多选（计数来自 `with_counts`；URL 里的状态用逗号分隔多个值，并兼容旧的单值链接；迁移前现状为 `StatPillsBar`），模式用 Arc `SegmentedControl`，搜索框限宽并支持 Enter；表格复用 `StudioDataTable` 原语，底栏 `StudioTableFooter` + `Pagination`（只有一页时只显示总数）。列为：作业、集群、模式、状态、读取 / 写入速率、读取 / 写入条数、CDC 延迟、开始时间、结束时间（下方注耗时）、操作。默认 `sort=started_at&order=desc`；状态列表头可切到「失败优先」（attention）；速率 / CDC 延迟排序只在只选了「运行中」时可点。速率列：运行中显示对账快照的当前速率；已结束显示运行期间平均速率（累计条数 ÷ 耗时），加「均」前缀、浅色并用 title 说明，不为它查时序。结束时间早于开始时间（引擎时区配置错位）时用 `jobTimeBounds()` 退回 `updated_at`，与详情「作业全程」一致。迷你曲线用 beUI `Sparkline`，每次列表刷新后对本页运行中作业发**一次** `getJobSparklines`；监控不可用时整列不渲染。行点击打开 `JobPreviewDrawer`（`Sheet`），「详情」与抽屉里的「打开作业详情」走工作台深链 `/workbench?task=&job=`，首页不复刻 `JobDetailDialog`。批量停止 / 恢复串行调用现有接口，结果写在列表上方的状态条里，不只靠 toast。
 - **集群页签（默认页签）**：Arc `RadioCards` 做集群卡片（全部 + 每个集群，选中即切换范围，与头部范围同步）→ beUI `StatusBar`（每节点一行，可用 / 不可用用 `--success` / `--danger`）→ 2×2：Arc `LineChart`（堆带 85% 虚线参考序列、CPU、GC，节点颜色用 `colorByName` 跟实例名）与 beUI `CompositionChart`（引擎作业状态，状态语义色，全 0 的状态不画）→ 节点表（`StudioDataTable`，数值列 `minWidth: 0` 防止被 7rem 默认宽度挤出）+ 异常信号（单列清单：标签 / 数值 / 正常 · 异常徽标，不要两列小卡片，否则标签被截断）。头部时间窗分段控件只在非作业列表页签显示，写 URL `range`。监控不可用时卡片与节点表照常，趋势区换成 `TrendEmptyState`。
 - **作业页签**：Arc `BrushChart` 全局吞吐（读 / 写 × 行 / 字节分段切换，事件标注），beUI `BarChart` horizontal 写入 / CDC 延迟 Top 8，beUI `SankeyChart` 数据流向，beUI `HeatCalendar` 运行日历（运行 / 失败切换，外面包 `LocaleProvider` 让月份与图例走当前语言，`labels` 传 next-intl 文案；`endDate` 用 `Date.UTC` 构造后端给的 `end_date`），Arc `BarChart` Checkpoint（区块内覆盖 `--accent`，传 `averageLabel` / `valueLabel` / `categoryLabel`，`formatValue` 不要再带单位以免与 `unit` 重复），算子热点小表。监控不可用时只有运行日历出图。
 - **主机页签**：每台 agent 主机一张卡（头部：主机名 / IP / 状态徽标 / 规格 / 「已运行 N 天」/ 心跳），身体 8 格：CPU / 内存 / 负载（核数虚线参考）/ 网络 / 磁盘读写 / 磁盘使用率（100% 虚线）6 张折线 + 文件系统容量 · inode 合并的 `Progress` 列表（按容量降序，≥85% warning、≥95% danger，一格占两列）+ TCP 连接与 fd 两张 `MetricCard`+`Sparkline` 小卡合并一格。`stx_host_boot_time_seconds` 经 `boot_time_ms` 换算 uptime。`source=none` 时清单照常、卡片不画图也不重复原因文案（顶部 `TrendEmptyState` 横幅已说明）。
@@ -408,11 +416,12 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
   | 行内"更多" | Arc `Button` ghost + `iconOnly` 做触发器，Arc `DropdownMenu` 做菜单；单行动作 ≤2 个时直接摆按钮 |
   | 菜单里的危险项 | `destructive`，点了再走 `AlertDialog`，不直接执行 |
   | 命令面板（快速打开） | `ui/command`，不要拿它拼可搜索下拉 |
+  | 状态筛选 | 见 §3：`SegmentedControl`（单选）/ `chip-group`（多选），计数用 Arc `Badge` |
 
 - **弹出位置用组件默认值**（Arc 菜单 `sideOffset=6`、`align="end"`），不要另外加偏移把菜单推离触发器。
 - **不显示标签的 `Select` / `Combobox` / 纯图标按钮必须传 `aria-label`**，文案走 next-intl。
-- **Arc 源码的本地改动**（`Select`、`Combobox` 可选标签，`DropdownMenu` 自定义触发器，`Button` 的 `iconOnly`）要在文件头注明，
-  升级 Arc 时用 diff 合并，不要直接用注册表覆盖。
+- **Arc 源码的本地改动**（`Select`、`Combobox` 可选标签，`DropdownMenu` 自定义触发器，`Button` 的 `iconOnly`，`chip-group` 的 `count`）要在文件头注明，
+  升级 Arc 时用 diff 合并，不要直接用注册表覆盖。也不要为了加功能把 Arc 组件复制成另一个组件。
 - **对话框外框暂时仍用 `ui/dialog`**，框内控件按本节换成 Arc；外框是否换成 Arc `Dialog` 另行决定。
 - **迁移进度**：管理列表（审计、用户、错误中心、巡检、告警）、工作台、作业控制台、首页大盘先完成；其他页面的表单与对话框分期迁移。
   迁移期间页面与页面之间可以暂时不同，但每个页面内部必须统一。
@@ -425,7 +434,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] 页面头部是否使用了统一的 `WorkspaceHeader`？语义图标是否与 Dock 栏对齐？
 - [ ] 新增或替换图标前，是否查过 Lucide、Tabler、Arc、HeroUI（Gravity UI），并列了至少 3 个候选给开发者确认？没确认就不要改。
 - [ ] 页面是否没有再手写冲突的外层 `container` 或冗余的大 Padding？
-- [ ] 顶部是否有状态量化？是否优先使用了 `StatPillsBar` 并支持快捷筛选？
+- [ ] 状态筛选是否用 Arc `SegmentedControl`（单选）或 `chip-group`（多选）并带计数，而不是已弃用的 `StatPillsBar`？每一排是否只表示一个维度？危险类计数大于 0 时是否为 `danger`？
 - [ ] 是否消除了卡片顶部的“大篇幅无效说明文字”，保证高密度垂直视口？
 - [ ] **[降噪与防堆砌]** 页面与弹窗是否遵循渐进式披露（Progressive Disclosure），严禁在首屏将概览、重型表格与复杂表单全量无脑平铺？
 - [ ] **[下钻与速览]** 次级重型内容是否通过 Tab / 抽屉 / 折叠面板进行物理分流？主视图是否仅保留轻量速览与穿透动作？

@@ -21,7 +21,7 @@
 ## Phase 1 · 公共件与 Arc 改造
 
 - [ ] 安装 Arc `select`、`dropdown-menu`（`pnpm dlx shadcn@latest add @uiarc/<name> --yes`），同步 `licenses/third_party_mit_files.txt`。
-- [ ] 按 design §3.2 补改 `Select`、`Combobox`、`DropdownMenu`、`Button`，在文件头注明本地改动；为每项新增能力补单测
+- [ ] 按 design §3.2 补改 `Select`、`Combobox`、`DropdownMenu`、`Button`、`chip-group`（`count`），在文件头注明本地改动；为每项新增能力补单测
       （无标签时有 `aria-label`、自定义触发器能打开菜单、`iconOnly` 为正方形）。
 - [ ] 在控制台外层容器上覆盖 Arc 高度变量（36px / 行内 32px），不改圆角。
 
@@ -44,15 +44,21 @@
 
 ## Phase 3 · 用户中心
 
+- [ ] 令牌管理的 `StatPillsBar` 换成 `SegmentedControl` + 计数（design §3.3）。
+
 - [ ] 接入两个公共件，确认与表单弹窗按选型表处理。
 - [ ] Egolite：用户用例，"不能操作自己"必须覆盖。
 
 ## Phase 4 · 错误中心 + 巡检
 
+- [ ] 两页的 `StatPillsBar` 换成 `SegmentedControl` + 计数（design §3.3）。
+
 - [ ] 两页接入公共件；巡检的启动对话框保留 `Dialog`。
 - [ ] Egolite：两页用例，以及跳转链路。
 
 ## Phase 5 · 告警中心
+
+- [ ] 告警状态的 `StatPillsBar` 换成 `SegmentedControl` + 计数（design §3.3）。
 
 - [ ] 先换卡片与查询状态，再处理行操作与详情面板（可拆成两个 PR）。
 - [ ] Egolite：告警用例，含深链参数。
@@ -60,6 +66,7 @@
 ## Phase 6 · 交互组件对齐层（单独 PR，Phase 0 之后可与 Phase 1–5 并行）
 
 - [ ] 3 处 `window.confirm` 换成 `AlertDialog`（文案沿用现有 i18n key）。
+- [ ] 作业列表工具栏的 `StatPillsBar` 换成 `chip-group` 多选 + 计数；URL 支持多值并兼容旧单值链接；只选"运行中"时才能按速率 / CDC 延迟排序。
 - [ ] 下拉、可搜索下拉、行内"更多"换成 Arc；同一块区域里相邻的 shadcn 控件一起换，做到不混用。
 - [ ] 用普通 `Dialog` 承载的纯确认，改成 `AlertDialog`。
 - [ ] 手写颜色 class 的 `Badge` 换成 Arc `badge` 的 `tone`，每个域只用一个映射函数。完成后用 `grep` 确认没有遗漏。

@@ -52,7 +52,7 @@ frontend/
 │   │   ├── config/             # 配置相关 UI
 │   │   ├── schedule/           # 调度配置
 │   │   ├── sync/               # 数据同步工作台组件
-│   │   ├── layout/             # ManagementBar(常驻Dock)、RouteProgressBar、WorkspaceHeader、StatPillsBar、TableLoadingBar、TableSkeletonRows、EmptyState、ThemeProvider
+│   │   ├── layout/             # ManagementBar(常驻Dock)、RouteProgressBar、WorkspaceHeader、StatPillsBar（已弃用）、TableLoadingBar、TableSkeletonRows、EmptyState、ThemeProvider
 │   │   └── ...
 │   ├── animate-ui/             # 动效、radix 变体
 │   ├── motion/                 # beUI motion 控件（File Tree、SharedLayoutBg）

@@ -2,7 +2,7 @@
   "id": "unified-admin-console-lists",
   "name": "unified-admin-console-lists",
   "title": "全局 UI 统一：管理列表迁移 + 全站交互组件对齐",
-  "description": "5 个管理列表（审计、用户、错误中心、巡检、告警）抽出公共表格卡片与查询状态并完成迁移；工作台、作业控制台、首页大盘等页面只对齐确认弹窗、下拉框、更多菜单、状态标签，不动布局。每阶段附 Egolite 回归记录。",
+  "description": "5 个管理列表（审计、用户、错误中心、巡检、告警）抽出公共表格卡片与查询状态并完成迁移；工作台（含底部控制台）、首页大盘（含作业列表）等页面只对齐确认弹窗、下拉框、更多菜单、状态标签，不动布局。每阶段附 Egolite 回归记录。",
   "status": "planning",
   "dev_type": "frontend",
   "scope": "frontend",

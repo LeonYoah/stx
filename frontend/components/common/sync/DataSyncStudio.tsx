@@ -683,7 +683,6 @@ export function DataSyncStudio() {
     useState<RuntimeStorageCheckpointInspectResult | null>(null);
   const [recoverSourceId, setRecoverSourceId] = useState<string>('');
   const [previewDatasetName, setPreviewDatasetName] = useState('');
-  const [previewPage, setPreviewPage] = useState(1);
   const [openTabs, setOpenTabs] = useState<OpenFileTab[]>([]);
   const [editorDrafts, setEditorDrafts] = useState<
     Record<number, EditorDraftState>
@@ -1843,14 +1842,12 @@ export function DataSyncStudio() {
   useEffect(() => {
     if (previewDatasets.length === 0) {
       setPreviewDatasetName('');
-      setPreviewPage(1);
       return;
     }
     if (
       !previewDatasets.some((dataset) => dataset.name === previewDatasetName)
     ) {
       setPreviewDatasetName(previewDatasets[0]?.name || '');
-      setPreviewPage(1);
     }
   }, [previewDatasetName, previewDatasets]);
 
@@ -3881,7 +3878,9 @@ export function DataSyncStudio() {
     } catch (error) {
       // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
       // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
-      setActionError(formatSyncUserFacingError(error, t('previewFailed'), t));
+      setActionError(
+        formatSyncUserFacingError(error, t('previewFailed'), t, {preview: true}),
+      );
     } finally {
       setActionPending((current) => (current === 'preview' ? null : current));
     }
@@ -5727,16 +5726,11 @@ export function DataSyncStudio() {
                   previewSnapshot={previewSnapshot}
                   datasets={previewDatasets}
                   selectedDatasetName={selectedPreviewDataset?.name || ''}
-                  previewPage={previewPage}
                   loading={
                     actionPending === 'preview' || previewSnapshotLoading
                   }
                   monacoTheme={monacoTheme}
-                  onSelectDataset={(name) => {
-                    setPreviewDatasetName(name);
-                    setPreviewPage(1);
-                  }}
-                  onChangePage={setPreviewPage}
+                  onSelectDataset={setPreviewDatasetName}
                 />
               ) : (
                 <CheckpointWorkspacePanel

@@ -24,6 +24,7 @@
 
 import {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
+import {useSearchParams} from 'next/navigation';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {
@@ -191,7 +192,12 @@ export function PluginMain() {
   const [error, setError] = useState<string | null>(null);
 
   // Filter state / 过滤状态
-  const [searchKeyword, setSearchKeyword] = useState('');
+  // ?q= 预填搜索词：工作台「集群缺少连接器」弹窗跳过来时直接定位到对应插件。
+  // ?q= pre-fills the search so the workbench "connector missing" dialog lands on the matching plugin.
+  const searchParams = useSearchParams();
+  const [searchKeyword, setSearchKeyword] = useState(
+    () => searchParams?.get('q')?.trim() ?? '',
+  );
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [selectedMirror, setSelectedMirror] = useState<MirrorSource>('aliyun');
   const [selectedVersion, setSelectedVersion] = useState<string>('');

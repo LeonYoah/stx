@@ -5649,7 +5649,24 @@
         "legendAll": "Show all"
       }
     },
-    "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)"
+    "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)",
+    "connectorMissingTitle": "Connector missing on cluster",
+    "connectorMissingBadge": "Missing connector",
+    "connectorMissingDescription": "The cluster does not have the {type} connector \"{identifier}\" this job needs, so the engine cannot create the plugin.",
+    "connectorMissingPreviewDescription": "Preview needs the HTTP connector on the cluster. Preview temporarily swaps the job's sink for an HTTP sink that sends sample rows back to STX, and this cluster does not have it installed yet.",
+    "connectorMissingSuggestion": "Install the connector for \"{identifier}\" on this cluster from the plugin market, then run again.",
+    "connectorMissingAction": "Install from plugin market",
+    "connectorType": {
+      "source": "source",
+      "sink": "sink",
+      "transform": "transform"
+    },
+    "previewRowCount": "{count, plural, one {# row} other {# rows}}",
+    "previewRowLimitReached": "Preview limit of {limit} rows reached; later rows were not collected",
+    "previewEmptyString": "(empty)",
+    "copyCellValue": "Copy {column} value",
+    "previewResizeColumn": "Resize {column} column",
+    "previewReorderColumn": "Drag to reorder {column} column"
   },
   "troubleshooting": {
     "title": "Playbooks",

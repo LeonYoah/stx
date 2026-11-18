@@ -94,8 +94,11 @@ type DAGResponse struct {
 	Data     *DAGResult `json:"data"`
 }
 type JobResponse struct {
-	ErrorMsg string       `json:"error_msg"`
-	Data     *JobInstance `json:"data"`
+	// ErrorCode 只在有专门处理的失败上下发（如 connector_missing），CLI 与前端据此给出指引。
+	// ErrorCode is only set for failures with dedicated handling (e.g. connector_missing) so CLI and UI can guide the user.
+	ErrorCode string       `json:"error_code,omitempty"`
+	ErrorMsg  string       `json:"error_msg"`
+	Data      *JobInstance `json:"data"`
 }
 
 // JobRealtimeResponse 包装作业实时指标结果。
@@ -534,7 +537,7 @@ func (h *Handler) PreviewTask(c *gin.Context) {
 	}
 	job, err := h.service.PreviewTaskForActor(c.Request.Context(), currentExecutionActor(c), id, &req, syncExecutionRequest(c, map[string]any{"task_id": id, "request": req}))
 	if err != nil {
-		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
+		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorCode: syncErrorCode(err), ErrorMsg: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
@@ -579,7 +582,7 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 		details["error"] = err.Error()
 		_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
 			"submit", "sync_task", strconv.FormatUint(uint64(id), 10), "", details)
-		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
+		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorCode: syncErrorCode(err), ErrorMsg: err.Error()})
 		return
 	}
 	details["result_status"] = "success"
@@ -993,7 +996,7 @@ func (h *Handler) RecoverJob(c *gin.Context) {
 	}
 	job, err := h.service.RecoverJobWithExecution(c.Request.Context(), id, getCurrentUserID(c), req.Draft, syncExecutionRequest(c, map[string]any{"source_job_id": id, "draft": req.Draft}))
 	if err != nil {
-		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
+		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorCode: syncErrorCode(err), ErrorMsg: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
@@ -1061,6 +1064,10 @@ func (h *Handler) getStatusCodeForError(err error) int {
 	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored), errors.Is(err, ErrInvalidTaskCollaborator), errors.Is(err, ErrCuratedTemplateNameRequired), errors.Is(err, ErrCuratedTemplateContentRequired), errors.Is(err, ErrCuratedTemplateSectionInvalid), errors.Is(err, ErrCuratedBuiltinIDRequired), errors.Is(err, ErrUnreplacedVariable), errors.Is(err, ErrUndefinedTemplateVariable), errors.Is(err, ErrInvalidScheduleTime), errors.Is(err, ErrSchedulerConnectionInvalid), errors.Is(err, ErrDolphinPushInvalid), errors.Is(err, ErrDolphinCycle), errors.Is(err, ErrScheduleLockedByDolphin), errors.Is(err, ErrDolphinNodeMissing), errors.Is(err, ErrDolphinUnsupportedVersion), errors.Is(err, ErrEventChannelVersionUnsupported), errors.Is(err, ErrEventChannelExternalURLMissing), errors.Is(err, ErrEventChannelSecretMissing), errors.Is(err, ErrInvalidTaskTimeout), errors.Is(err, ErrInvalidJobListQuery):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, ErrAttachGenerationMismatch), errors.Is(err, ErrJobCancellingTimeout), errors.Is(err, ErrDolphinVersionConflict), errors.Is(err, ErrSchedulerBindingExists), errors.Is(err, ErrDolphinPushNoNewVersion), errors.Is(err, ErrSubmitOutcomePending):
+		return http.StatusConflict
+	case errors.Is(err, ErrConnectorMissing):
+		// 集群状态不满足任务前提，重试不会成功；409 让 CLI 归为冲突而不是可重试的服务端错误。
+		// The cluster does not meet the job's precondition and retrying will not help; 409 keeps the CLI from treating it as a retryable server error.
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError

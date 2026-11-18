@@ -19,11 +19,38 @@ import {fireEvent, render, screen, within} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {beforeAll, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
-import type {SyncJobInstance, SyncPreviewDataset} from '@/lib/services/sync';
+import type {
+  SyncJobInstance,
+  SyncPreviewDataset,
+  SyncPreviewSnapshot,
+} from '@/lib/services/sync';
 import {PreviewWorkspacePanel} from '../CheckpointPanels';
 
 vi.mock('@monaco-editor/react', () => ({
   default: () => null,
+}));
+
+// jsdom 没有布局，beUI Table 的虚拟列表量不出任何可见行；测试里把虚拟项展开成全部行。
+// jsdom has no layout, so the beUI table virtualizer measures zero visible rows;
+// expand every row in tests.
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: ({
+    count,
+    estimateSize,
+  }: {
+    count: number;
+    estimateSize: () => number;
+  }) => ({
+    getVirtualItems: () =>
+      Array.from({length: count}, (_, index) => ({
+        index,
+        key: index,
+        start: index * estimateSize(),
+        end: (index + 1) * estimateSize(),
+        size: estimateSize(),
+      })),
+    getTotalSize: () => count * estimateSize(),
+  }),
 }));
 
 beforeAll(() => {
@@ -51,6 +78,22 @@ function previewJob(): SyncJobInstance {
   } as unknown as SyncJobInstance;
 }
 
+function previewSnapshot(overrides: Partial<SyncPreviewSnapshot> = {}) {
+  return {
+    session_id: 1,
+    job_instance_id: 41,
+    platform_job_id: 'p-41',
+    engine_job_id: 'p-41',
+    status: 'finished',
+    row_limit: 10000,
+    total_rows: 2,
+    table_count: 1,
+    truncated: false,
+    tables: [],
+    ...overrides,
+  } as SyncPreviewSnapshot;
+}
+
 function renderPreview(
   overrides: Partial<Parameters<typeof PreviewWorkspacePanel>[0]> = {},
 ) {
@@ -71,11 +114,9 @@ function renderPreview(
     previewSnapshot: null,
     datasets,
     selectedDatasetName: 'db.t1',
-    previewPage: 1,
     loading: false,
     monacoTheme: 'vs-dark',
     onSelectDataset: vi.fn(),
-    onChangePage: vi.fn(),
     ...overrides,
   };
   render(
@@ -86,45 +127,76 @@ function renderPreview(
   return props;
 }
 
+function firstCellTexts() {
+  return within(screen.getByRole('table'))
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) => within(row).getAllByRole('cell')[0]?.textContent);
+}
+
 describe('PreviewWorkspacePanel', () => {
   it('keeps table chrome when there is no preview job', () => {
     renderPreview({job: null, datasets: []});
     expect(screen.getByText(zh.workbenchStudio.noPreviewJobs)).toBeTruthy();
   });
 
-  it('puts pagination in the table footer and sorts preview columns', () => {
+  it('shows the row count in the footer and sorts preview columns', () => {
     renderPreview();
-    const table = screen.getByRole('table');
-    expect(screen.getByRole('navigation').closest('.studio-data-table__footer')).toBeTruthy();
+    expect(firstCellTexts()).toEqual(['2', '1']);
 
-    const before = within(table)
-      .getAllByRole('row')
-      .slice(1)
-      .map((row) => within(row).getAllByRole('cell')[0]?.textContent);
-    expect(before).toEqual(['2', '1']);
-
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: zh.workbenchStudio.sortColumn.replace('{column}', 'id'),
-      }),
+    const rowCount = screen.getByText(
+      zh.workbenchStudio.previewRowCount.replace('{count}', '2'),
     );
-    const after = within(screen.getByRole('table'))
-      .getAllByRole('row')
-      .slice(1)
-      .map((row) => within(row).getAllByRole('cell')[0]?.textContent);
-    expect(after).toEqual(['1', '2']);
+    expect(rowCount.closest('.studio-data-table__footer')).toBeTruthy();
+
+    // beUI 排序按钮的可访问名就是列名。 / The beUI sort button's accessible name is the column name.
+    fireEvent.click(screen.getByRole('button', {name: 'id'}));
+    expect(firstCellTexts()).toEqual(['1', '2']);
   });
 
   it('keeps the table header while preview data is loading', () => {
     renderPreview({
       loading: true,
-      datasets: [{name: 'db.t1', columns: [], rows: [], page_size: 20, total: 0}],
-      selectedDatasetName: 'db.t1',
+      datasets: [
+        {name: 'db.t1', columns: ['id', 'name'], rows: [], page_size: 20, total: 0},
+      ],
     });
     expect(
       screen.getByLabelText(zh.workbenchStudio.dataTable).getAttribute('aria-busy'),
     ).toBe('true');
-    expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+    // beUI 骨架行是 animate-pulse 占位条，不是 data-slot="skeleton"。
+    // beUI skeleton rows are animate-pulse bars, not data-slot="skeleton".
+    expect(document.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', {name: 'id'})).toBeTruthy();
     expect(screen.queryByText(zh.workbenchStudio.preparingPreview)).toBeNull();
+  });
+
+  it('distinguishes NULL from empty strings', () => {
+    renderPreview({
+      datasets: [
+        {
+          name: 'db.t1',
+          columns: ['id', 'name'],
+          rows: [{id: null, name: ''}],
+          page_size: 20,
+          total: 1,
+        },
+      ],
+    });
+    expect(screen.getByText('NULL')).toBeTruthy();
+    expect(
+      screen.getByText(zh.workbenchStudio.previewEmptyString),
+    ).toBeTruthy();
+  });
+
+  it('shows the row-limit hint when the preview snapshot is truncated', () => {
+    renderPreview({
+      previewSnapshot: previewSnapshot({truncated: true, row_limit: 20}),
+    });
+    expect(
+      screen.getByText(
+        zh.workbenchStudio.previewRowLimitReached.replace('{limit}', '20'),
+      ),
+    ).toBeTruthy();
   });
 });

@@ -16,6 +16,7 @@ STX 控制台采用现代化控制台体验架构：
 - **弹窗美学与分级**：消除无边框感，重内容弹窗（详情、巡检、配置、DAG）显式放宽并采用内部滚动。
 - **向导式闭环引导**：新增关键异步/物理资源后，必须提供带有操作命令与实时心跳侦听的引导向导。
 - **保密凭据安全**：敏感密码/Token 字段不回显、保存后脱敏，编辑时支持“保持原密码”与“重写覆盖”。
+- **控制台控件统一**：以工作台的 Arc 外观为准，同一块区域不混用 Arc 与 shadcn（见 §18）。
 - **状态标签分工**：状态用 Arc `Badge` 的 `tone`，中性标签用 `ui/badge` 的 `outline` / `secondary`，不手写颜色 class（见 §17）。
 - **微动效赋能**：借助 GSAP 微动效库为表格行与卡片网格赋予克制丝滑的入场动效。
 
@@ -392,6 +393,32 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 
 ---
 
+## 18. 控制台控件统一（Arc）
+
+- **视觉以工作台的 Arc 外观为准**：控件 36px（`--control-height-md: 2.25rem`），表格行内控件 32px（`--control-height-sm: 2rem`），
+  **不改 Arc 圆角**（控件 18px，弹层 20–26px）。高度只在控制台外层容器上覆盖一次，不要逐个组件写 `h-*`。
+- **同一块区域只用一套组件**：同一行筛选栏、同一个对话框、同一张表里，控件要么全是 Arc，要么全是 shadcn。
+  把某个控件换成 Arc 时，同一区域里相邻的搜索框（`SearchField`）、按钮（`Button`）、输入框（`Input`）、日期（`ArcDateRangePicker`）一起换。
+- **选型**：
+
+  | 场景 | 组件 |
+  |---|---|
+  | 少量选项的下拉 | Arc `Select`；选项 ≤4 个且互斥的筛选用 `SegmentedControl` |
+  | 可搜索下拉（选项 >10 个，或来自数量不固定的数据，如主机、用户、插件） | Arc `Combobox` |
+  | 行内"更多" | Arc `Button` ghost + `iconOnly` 做触发器，Arc `DropdownMenu` 做菜单；单行动作 ≤2 个时直接摆按钮 |
+  | 菜单里的危险项 | `destructive`，点了再走 `AlertDialog`，不直接执行 |
+  | 命令面板（快速打开） | `ui/command`，不要拿它拼可搜索下拉 |
+
+- **弹出位置用组件默认值**（Arc 菜单 `sideOffset=6`、`align="end"`），不要另外加偏移把菜单推离触发器。
+- **不显示标签的 `Select` / `Combobox` / 纯图标按钮必须传 `aria-label`**，文案走 next-intl。
+- **Arc 源码的本地改动**（`Select`、`Combobox` 可选标签，`DropdownMenu` 自定义触发器，`Button` 的 `iconOnly`）要在文件头注明，
+  升级 Arc 时用 diff 合并，不要直接用注册表覆盖。
+- **对话框外框暂时仍用 `ui/dialog`**，框内控件按本节换成 Arc；外框是否换成 Arc `Dialog` 另行决定。
+- **迁移进度**：管理列表（审计、用户、错误中心、巡检、告警）、工作台、作业控制台、首页大盘先完成；其他页面的表单与对话框分期迁移。
+  迁移期间页面与页面之间可以暂时不同，但每个页面内部必须统一。
+
+---
+
 ## 一致性检查项
 
 在提交代码前，必须核对以下检查清单：
@@ -403,6 +430,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] **[降噪与防堆砌]** 页面与弹窗是否遵循渐进式披露（Progressive Disclosure），严禁在首屏将概览、重型表格与复杂表单全量无脑平铺？
 - [ ] **[下钻与速览]** 次级重型内容是否通过 Tab / 抽屉 / 折叠面板进行物理分流？主视图是否仅保留轻量速览与穿透动作？
 - [ ] **[排版防碎裂]** 关键标识、键值单元、代码、状态组是否声明了防被迫换行保护（`whitespace-nowrap` / `truncate` / `overflow-x-auto`），杜绝机械等宽 Grid 导致的字符内部被迫断行？
+- [ ] 同一行筛选栏、同一个对话框、同一张表里是否只用一套控件（Arc 或 shadcn），没有 Arc 胶囊控件和 8px 圆角的 shadcn 控件挨在一起？下拉、可搜索下拉、行内"更多"是否按 §18 选型？是否没有逐个组件手写 `h-*` 改 Arc 高度？
 - [ ] 状态标签是否用 Arc `Badge` 的 `tone`（经域内唯一的映射函数）？中性标签是否用 `ui/badge` 的 `outline` / `secondary`？是否没有给 `Badge` 手写颜色 class？
 - [ ] 加载状态是否采用 `TableSkeletonRows` + `TableLoadingBar` 的零塌陷架构，而非大 Spinner？
 - [ ] 筛选栏是否统一左对齐？搜索框等输入项是否已支持 **Enter** 快捷提交？

@@ -12,16 +12,18 @@
 - [ ] 按 design §6.1 产出两层页面的差异清单，放在本任务目录的 `inventory.md`。
 - [ ] 核对审计、用户在筛选变化时是否漏了"回到第 1 页"。
 - [ ] 核对 `ui/popover` 的 3 处用法是否被当作菜单使用。
-- [ ] 拍板 design §3 中的"待定"项：
-  - 下拉选择；
-  - 可搜索下拉；
-  - 更多菜单。
-  （状态标签已定：Arc `badge` 的 `tone`，规范 §17。）
+- 选型已全部拍板（design §3、§3.1、规范 §17、§18），Phase 0 不再有待定项。
+- [ ] 差异清单逐区域列出要一起换成 Arc 的控件（搜索框、按钮、输入框、日期），确认是否需要安装 `textarea`、`checkbox`。
 - [ ] 差异清单列出 91 处手写颜色 class 的 `Badge`，以及每处对应的 tone。
 - [ ] 把选型表写回 `ui-conventions.md`。
 - 评审门槛：用户确认差异清单和选型表之后，才进入 Phase 1。
 
-## Phase 1 · 公共件
+## Phase 1 · 公共件与 Arc 改造
+
+- [ ] 安装 Arc `select`、`dropdown-menu`（`pnpm dlx shadcn@latest add @uiarc/<name> --yes`），同步 `licenses/third_party_mit_files.txt`。
+- [ ] 按 design §3.2 补改 `Select`、`Combobox`、`DropdownMenu`、`Button`，在文件头注明本地改动；为每项新增能力补单测
+      （无标签时有 `aria-label`、自定义触发器能打开菜单、`iconOnly` 为正方形）。
+- [ ] 在控制台外层容器上覆盖 Arc 高度变量（36px / 行内 32px），不改圆角。
 
 - [ ] `TableCard`：容器、保底高度、加载条、首屏骨架 / 空状态 / 错误状态插槽、分页底栏。视觉与 §10 一致。
 - [ ] `useServerListQuery`：page / pageSize / filters；`patch` 时回到第 1 页；可选同步到 URL。
@@ -58,6 +60,7 @@
 ## Phase 6 · 交互组件对齐层（单独 PR，Phase 0 之后可与 Phase 1–5 并行）
 
 - [ ] 3 处 `window.confirm` 换成 `AlertDialog`（文案沿用现有 i18n key）。
+- [ ] 下拉、可搜索下拉、行内"更多"换成 Arc；同一块区域里相邻的 shadcn 控件一起换，做到不混用。
 - [ ] 用普通 `Dialog` 承载的纯确认，改成 `AlertDialog`。
 - [ ] 手写颜色 class 的 `Badge` 换成 Arc `badge` 的 `tone`，每个域只用一个映射函数。完成后用 `grep` 确认没有遗漏。
 - [ ] 下拉框、更多菜单按 `inventory.md` 的清单逐处替换。

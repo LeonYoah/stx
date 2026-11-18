@@ -53,7 +53,7 @@ const payload = (source: 'prometheus' | 'none'): HomeHostDashboard => ({
   source,
   reason: source === 'none' ? 'observability_disabled' : undefined,
   range: '1h',
-  step_seconds: 15, oldest_sample_ms: 0,
+  step_seconds: 15,
   start_ms: 0,
   end_ms: 3_600_000,
   hosts: [

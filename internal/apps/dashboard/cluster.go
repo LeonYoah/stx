@@ -129,8 +129,6 @@ type ClusterDashboard struct {
 	EndMs       int64  `json:"end_ms"`
 	StepSeconds int    `json:"step_seconds"`
 	CellSeconds int    `json:"cell_seconds"`
-	// OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.
-	OldestSampleMs int64             `json:"oldest_sample_ms"`
 	Clusters       []ClusterCard     `json:"clusters"`
 	Nodes          []ClusterNodeRow  `json:"nodes"`
 	Signals        *ClusterSignals   `json:"signals"`
@@ -179,7 +177,6 @@ func (s *ClusterDashboardService) GetClusterDashboard(ctx context.Context, clust
 	}
 	out := &ClusterDashboard{
 		Range: rangeName, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), StepSeconds: step, CellSeconds: cell,
-		OldestSampleMs: promquery.OldestSampleMs(),
 		Clusters:       []ClusterCard{}, Nodes: []ClusterNodeRow{}, Series: []DashboardSeries{},
 	}
 	s.fillInventory(ctx, out, clusterID)

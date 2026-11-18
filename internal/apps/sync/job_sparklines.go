@@ -116,7 +116,10 @@ func (s *Service) GetJobSparklinesForActor(ctx context.Context, actor executiona
 	for _, job := range visible {
 		visibleIDs = append(visibleIDs, job.ID)
 	}
-	query := fmt.Sprintf(`sum by (job_id) (rate(%s{job_id=~%s}[1m]))`, counter, promquery.QuoteLabelRegex(visibleIDs))
+	// 速率回看窗口取 max(1m, step)：长步长（如 30d/90d/1y 预设）下覆盖整个取样间隔，
+	// 不再回到稀疏取样漏峰值的问题。/ Rate lookback is max(1m, step): coarse steps from the
+	// 30d/90d/1y presets cover the whole sampling interval instead of missing peaks.
+	query := fmt.Sprintf(`sum by (job_id) (rate(%s{job_id=~%s}[%s]))`, counter, promquery.QuoteLabelRegex(visibleIDs), promquery.RangeWindow(step, time.Minute))
 	end := time.Now().UTC()
 	series, err := promquery.Range(ctx, query, end.Add(-dur), end, step)
 	if err != nil {

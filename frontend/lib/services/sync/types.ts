@@ -961,8 +961,6 @@ export interface SyncJobTimeseries {
   start_ms: number;
   end_ms: number;
   step_seconds: number;
-  /** tsdb 最早样本毫秒；0 表示未知 / Oldest tsdb sample in ms; 0 when unknown. */
-  oldest_sample_ms: number;
   engine_observability_enabled: boolean;
   series: SyncJobTimeseriesSeries[];
   annotations: SyncJobTimeseriesAnnotation[];

@@ -98,8 +98,6 @@ type HostDashboard struct {
 	StartMs     int64  `json:"start_ms"`
 	EndMs       int64  `json:"end_ms"`
 	StepSeconds int    `json:"step_seconds"`
-	// OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.
-	OldestSampleMs int64           `json:"oldest_sample_ms"`
 	Hosts          []HomeHostEntry `json:"hosts"`
 	PartialErrors  []string        `json:"partial_errors,omitempty"`
 }
@@ -168,7 +166,6 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 	out := &HostDashboard{
 		Range: rangeName, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(),
 		StepSeconds: step, Hosts: []HomeHostEntry{},
-		OldestSampleMs: promquery.OldestSampleMs(),
 	}
 
 	// 主机清单：全部主机，绑定 agent 的 bare_metal 才有指标；cluster_id 限定到有节点的子集。

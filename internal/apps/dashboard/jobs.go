@@ -97,8 +97,6 @@ type JobDashboard struct {
 	EndMs         int64  `json:"end_ms"`
 	StepSeconds   int    `json:"step_seconds"`
 	WindowSeconds int    `json:"window_seconds"`
-	// OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.
-	OldestSampleMs int64                   `json:"oldest_sample_ms"`
 	Throughput     []ThroughputSeries      `json:"throughput"`
 	Annotations    []syncapp.JobAnnotation `json:"annotations"`
 	TopWrite       []JobRank               `json:"top_write"`
@@ -117,12 +115,16 @@ type JobDashboardService struct {
 	now          func() time.Time
 	rangeQuery   rangeQueryFunc
 	instantQuery instantQueryFunc
+	// instantLongQuery 走放宽超时引擎，供 increase(x[window]) 这类扫满窗口的即时查询。
+	// instantLongQuery runs on the relaxed-timeout engine for instant queries whose range
+	// selector spans the whole window (e.g. increase(x[1y])).
+	instantLongQuery instantQueryFunc
 }
 
 // NewJobDashboardService 创建作业大盘服务。
 // NewJobDashboardService creates the job dashboard service.
 func NewJobDashboardService(jobs JobDashboardSource) *JobDashboardService {
-	return &JobDashboardService{jobs: jobs, now: time.Now, rangeQuery: dashboardPromCache.wrapRange(promquery.Range), instantQuery: dashboardPromCache.wrapInstant(promquery.Instant)}
+	return &JobDashboardService{jobs: jobs, now: time.Now, rangeQuery: dashboardPromCache.wrapRange(promquery.Range), instantQuery: dashboardPromCache.wrapInstant(promquery.Instant), instantLongQuery: dashboardPromCache.wrapInstant(promquery.InstantLong)}
 }
 
 // GetJobDashboard 生成作业大盘。只有时间窗非法时返回错误；其余失败记入 PartialErrors。
@@ -144,7 +146,6 @@ func (s *JobDashboardService) GetJobDashboard(ctx context.Context, actor executi
 	span := int(end.Sub(start).Seconds())
 	out := &JobDashboard{
 		Range: rangeName, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), StepSeconds: step, WindowSeconds: span,
-		OldestSampleMs: promquery.OldestSampleMs(),
 		Throughput:     []ThroughputSeries{}, Annotations: []syncapp.JobAnnotation{}, TopWrite: []JobRank{}, TopCDC: []JobRank{},
 		Flow: []FlowLink{}, Checkpoints: []JobRank{}, Hotspots: []JobRank{},
 	}
@@ -194,13 +195,22 @@ func (s *JobDashboardService) fillMetrics(ctx context.Context, out *JobDashboard
 		{key: "busy", instant: true, query: fmt.Sprintf(`topk(%d, max by (job_id, vertex) (max_over_time(stx_job_vertex_busy_ratio{%s}[%s])))`, hotspotLimit, sel, window)},
 		{key: "backpressure", instant: true, query: fmt.Sprintf(`topk(%d, max by (job_id, edge) (max_over_time(stx_job_edge_backpressure_ratio{%s}[%s])))`, hotspotLimit, sel, window)},
 	}
+	// 6 条窗口级即时查询（increase/max_over_time [window]）在超过 31 天的窗口下要扫满全部
+	// 历史数据，必须走放宽超时的长引擎，否则生产密度下会超时进 partial_errors。
+	// The six window-spanning instant queries (increase/max_over_time [window]) scan the full
+	// history beyond the 31-day threshold, so they must run on the relaxed-timeout engine or
+	// they time out into partial_errors under production density.
+	instantFn := s.instantQuery
+	if end.Sub(start) > promquery.LongWindowSpan {
+		instantFn = s.instantLongQuery
+	}
 	var wg gosync.WaitGroup
 	for _, task := range tasks {
 		wg.Add(1)
 		go func(task *promTask) {
 			defer wg.Done()
 			if task.instant {
-				task.samples, task.err = s.instantQuery(ctx, task.query, end)
+				task.samples, task.err = instantFn(ctx, task.query, end)
 			} else {
 				task.series, task.err = s.rangeQuery(ctx, task.query, start, end, task.step)
 			}

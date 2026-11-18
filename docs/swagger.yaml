@@ -1747,10 +1747,6 @@ definitions:
         items:
           $ref: '#/definitions/dashboard.ClusterNodeRow'
         type: array
-      oldest_sample_ms:
-        description: OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample
-          in ms; 0 when unknown.
-        type: integer
       partial_errors:
         items:
           type: string
@@ -1782,10 +1778,6 @@ definitions:
         type: array
       group:
         type: string
-      oldest_sample_ms:
-        description: OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample
-          in ms; 0 when unknown.
-        type: integer
       panels:
         items:
           $ref: '#/definitions/dashboard.DetailPanel'
@@ -2061,10 +2053,6 @@ definitions:
         items:
           $ref: '#/definitions/dashboard.HomeHostEntry'
         type: array
-      oldest_sample_ms:
-        description: OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample
-          in ms; 0 when unknown.
-        type: integer
       partial_errors:
         items:
           type: string
@@ -2117,10 +2105,6 @@ definitions:
         items:
           $ref: '#/definitions/dashboard.JobRank'
         type: array
-      oldest_sample_ms:
-        description: OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample
-          in ms; 0 when unknown.
-        type: integer
       partial_errors:
         items:
           type: string
@@ -5055,10 +5039,6 @@ definitions:
         type: integer
       engine_observability_enabled:
         type: boolean
-      oldest_sample_ms:
-        description: OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample
-          in ms; 0 when unknown.
-        type: integer
       range:
         type: string
       reason:

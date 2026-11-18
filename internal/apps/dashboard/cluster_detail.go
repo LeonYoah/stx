@@ -222,8 +222,6 @@ type ClusterDetail struct {
 	StartMs     int64  `json:"start_ms"`
 	EndMs       int64  `json:"end_ms"`
 	StepSeconds int    `json:"step_seconds"`
-	// OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.
-	OldestSampleMs int64         `json:"oldest_sample_ms"`
 	Group          string        `json:"group"`
 	Panels         []DetailPanel `json:"panels"`
 	Events         []DetailEvent `json:"events"`
@@ -256,7 +254,6 @@ func (s *ClusterDashboardService) GetClusterDetail(ctx context.Context, clusterI
 	out := &ClusterDetail{
 		Range: rangeName, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(),
 		StepSeconds: step, Group: group, Panels: []DetailPanel{}, Events: []DetailEvent{},
-		OldestSampleMs: promquery.OldestSampleMs(),
 	}
 	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source, out.Reason = promquery.SourceNone, reason

@@ -57,11 +57,20 @@ STX_TSDB_BENCH=full go test ./internal/pkg/embedts -count=1 -timeout 60m -run 'T
 STX_TSDB_YEAR_BENCH=1 go test ./internal/pkg/embedts -count=1 -timeout 30m -run TestCapacity_YearWindow -v
 ```
 
-合成 200 / 1000 条作业计数器序列（15s × 一年，`retention` 不限、查询前先压实落盘），
-测 `sum(rate(stx_job_sink_write_rows_total[2d]))`、一年窗口、2d step 的代表性查询。
-门槛：200 条序列必须在 32s（`query_timeout` ×4，长窗口引擎）内返回；不达标先不放开一年窗口，
-降采样 / 预聚合单独立项。一年窗口的逐日 `increase[1d]` 已由读写量接口的范围查询承载，
-不走单条 `[1y]`。
+合成 200 / 1000 条作业计数器序列（15s × 一年，`retention` 不限）。数据经
+`tsdb.BlockWriter` 直接写成 7 天块再开库，模拟生产「历史早已压实」的状态；
+边写边查会把压实竞争算进查询耗时，不算数。测三条扫满一年的代表查询：
+
+- `sum(rate(stx_job_sink_write_rows_total[2d]))`，2d step 范围查询（作业面板趋势）；
+- `sum by (job_id) (increase(stx_job_sink_write_rows_total[1y]))` 即时查询（TopWrite 等
+  窗口级聚合，走 `promquery.InstantLong`）；
+- `increase(stx_job_sink_write_rows_total[1d])`，1d step 范围查询（读写量逐日增量）。
+
+门槛：200 条序列下每条查询必须在 32s（`query_timeout` ×4，长窗口引擎）内返回；不达标
+先不放开一年窗口，降采样 / 预聚合单独立项。窗口级即时查询（`increase(x[window])` 等）
+由调用方按 `promquery.LongWindowSpan` 判断走长引擎；长跨度查询另受
+`promquery` 层信号量限制（并发 ≤2），避免一次一年窗口的首页占满
+ActiveQueryTracker 槽位饿死告警评估和短窗口查询。
 
 #### 4.3 实时长时间运行（至少 48h）
 

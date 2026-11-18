@@ -120,7 +120,7 @@ const payload = (source: 'prometheus' | 'none'): HomeJobDashboard => ({
   range: '1h',
   start_ms: 0,
   end_ms: 3_600_000,
-  step_seconds: 15, oldest_sample_ms: 0,
+  step_seconds: 15,
   window_seconds: 3600,
   throughput: [
     {

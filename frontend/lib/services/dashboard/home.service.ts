@@ -131,8 +131,6 @@ export interface HomeClusterDashboard {
   end_ms: number;
   step_seconds: number;
   cell_seconds: number;
-  /** tsdb 最早样本毫秒；0 表示未知 / Oldest tsdb sample in ms; 0 when unknown. */
-  oldest_sample_ms: number;
   clusters: HomeClusterCard[];
   nodes: HomeClusterNode[];
   signals: HomeClusterSignals | null;
@@ -163,8 +161,6 @@ export interface HomeJobDashboard {
   end_ms: number;
   step_seconds: number;
   window_seconds: number;
-  /** tsdb 最早样本毫秒；0 表示未知 / Oldest tsdb sample in ms; 0 when unknown. */
-  oldest_sample_ms: number;
   throughput: {
     key: 'read' | 'write' | 'read_bytes' | 'write_bytes';
     points: [number, number][];
@@ -228,6 +224,8 @@ export interface HomeVolumeSeries {
 
 /** GET /dashboard/home/volume 返回 / Response of GET /dashboard/home/volume. */
 export interface HomeVolume {
+  /** tsdb 最早样本毫秒；0 表示未知 / Oldest tsdb sample in ms; 0 when unknown. */
+  oldest_sample_ms: number;
   source: 'prometheus' | 'none';
   reason?: string;
   range: string;
@@ -235,7 +233,6 @@ export interface HomeVolume {
   end_ms: number;
   granularity?: 'quarter_hour' | 'hour' | 'day' | 'week' | 'month';
   split: 'none' | 'cluster' | 'task';
-  oldest_sample_ms: number;
   totals: HomeVolumeTotals | null;
   buckets: HomeVolumeBucket[];
   series: HomeVolumeSeries[];
@@ -273,8 +270,6 @@ export interface HomeClusterDetail {
   start_ms: number;
   end_ms: number;
   step_seconds: number;
-  /** tsdb 最早样本毫秒；0 表示未知 / Oldest tsdb sample in ms; 0 when unknown. */
-  oldest_sample_ms: number;
   group: 'jvm' | 'gc' | 'sched' | 'store' | 'proc' | string;
   panels: HomeDetailPanel[];
   events: HomeDetailEvent[];
@@ -303,8 +298,6 @@ export interface HomeHostDashboard {
   step_seconds: number;
   start_ms: number;
   end_ms: number;
-  /** tsdb 最早样本毫秒；0 表示未知 / Oldest tsdb sample in ms; 0 when unknown. */
-  oldest_sample_ms: number;
   cluster_id?: number;
   hosts: HomeHostEntry[];
   partial_errors?: string[];

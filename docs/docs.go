@@ -8723,10 +8723,6 @@ const docTemplate = `{
                         "$ref": "#/definitions/dashboard.ClusterNodeRow"
                     }
                 },
-                "oldest_sample_ms": {
-                    "description": "OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.",
-                    "type": "integer"
-                },
                 "partial_errors": {
                     "type": "array",
                     "items": {
@@ -8773,10 +8769,6 @@ const docTemplate = `{
                 },
                 "group": {
                     "type": "string"
-                },
-                "oldest_sample_ms": {
-                    "description": "OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.",
-                    "type": "integer"
                 },
                 "panels": {
                     "type": "array",
@@ -9191,10 +9183,6 @@ const docTemplate = `{
                         "$ref": "#/definitions/dashboard.HomeHostEntry"
                     }
                 },
-                "oldest_sample_ms": {
-                    "description": "OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.",
-                    "type": "integer"
-                },
                 "partial_errors": {
                     "type": "array",
                     "items": {
@@ -9273,10 +9261,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/dashboard.JobRank"
                     }
-                },
-                "oldest_sample_ms": {
-                    "description": "OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.",
-                    "type": "integer"
                 },
                 "partial_errors": {
                     "type": "array",
@@ -13439,10 +13423,6 @@ const docTemplate = `{
                 },
                 "engine_observability_enabled": {
                     "type": "boolean"
-                },
-                "oldest_sample_ms": {
-                    "description": "OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.",
-                    "type": "integer"
                 },
                 "range": {
                     "type": "string"

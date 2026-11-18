@@ -39,8 +39,6 @@ type JobTimeseriesResult struct {
 	StartMs     int64  `json:"start_ms"`
 	EndMs       int64  `json:"end_ms"`
 	StepSeconds int    `json:"step_seconds"`
-	// OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.
-	OldestSampleMs             int64                     `json:"oldest_sample_ms"`
 	EngineObservabilityEnabled bool                      `json:"engine_observability_enabled"`
 	Series                     []JobTimeseriesSeries     `json:"series"`
 	Annotations                []JobTimeseriesAnnotation `json:"annotations"`
@@ -132,7 +130,6 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 		StartMs:                    start.UnixMilli(),
 		EndMs:                      end.UnixMilli(),
 		StepSeconds:                step,
-		OldestSampleMs:             promquery.OldestSampleMs(),
 		EngineObservabilityEnabled: engineObs,
 		Series:                     []JobTimeseriesSeries{},
 		Annotations:                []JobTimeseriesAnnotation{},

@@ -237,9 +237,10 @@ observability:
     # Time-based retention: optional upper bound, unlimited by default (capacity cleanup via
     # max_size still applies); units s/m/h/d/w/y, e.g. 366d
     retention: ""
-    # 块存储字节数上限：缺省 30GiB（32212254720），显式写 0 表示不限
-    # Max retained block bytes: defaults to 30GiB (32212254720) when unset; an explicit 0 means unlimited
-    max_size: 32212254720
+    # 块存储字节数上限：缺省自适应 min(30GiB, 磁盘 20%)；显式写字节数覆盖，写 0 表示不限
+    # Max retained block bytes: defaults to adaptive min(30GiB, 20% of disk) when unset;
+    # an explicit byte count overrides it and 0 means unlimited
+    # max_size: 32212254720
 
   # 抓取循环间隔（进程内自研抓取器使用）
   # Scrape loop interval (used by the in-process scraper)

@@ -233,9 +233,10 @@ observability:
     # tsdb 数据目录
     # tsdb data directory
     dir: "data/tsdb"
-    # 时间保留期（支持 s/m/h/d/w/y 单位，如 31d）
-    # Time-based retention (units s/m/h/d/w/y, e.g. 31d)
-    retention: "31d"
+    # 时间保留期：可选上限，默认不限（只按 max_size 容量清理）；支持 s/m/h/d/w/y，如 366d
+    # Time-based retention: optional upper bound, unlimited by default (capacity cleanup via
+    # max_size still applies); units s/m/h/d/w/y, e.g. 366d
+    retention: ""
     # 块存储字节数上限：缺省 30GiB（32212254720），显式写 0 表示不限
     # Max retained block bytes: defaults to 30GiB (32212254720) when unset; an explicit 0 means unlimited
     max_size: 32212254720

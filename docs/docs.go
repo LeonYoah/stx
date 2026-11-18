@@ -2594,7 +2594,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -2606,7 +2606,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 366 天",
                         "name": "end",
                         "in": "query"
                     }
@@ -2666,7 +2666,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -2678,7 +2678,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 366 天",
                         "name": "end",
                         "in": "query"
                     }
@@ -2730,7 +2730,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -2742,7 +2742,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 366 天",
                         "name": "end",
                         "in": "query"
                     }
@@ -2794,7 +2794,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -2806,7 +2806,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 366 天",
                         "name": "end",
                         "in": "query"
                     },
@@ -2910,7 +2910,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -2922,13 +2922,13 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 366 天",
                         "name": "end",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets",
+                        "description": "桶粒度：auto|quarter_hour|hour|day|week|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets",
                         "name": "granularity",
                         "in": "query"
                     },
@@ -5230,7 +5230,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -5440,7 +5440,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -8723,6 +8723,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/dashboard.ClusterNodeRow"
                     }
                 },
+                "oldest_sample_ms": {
+                    "description": "OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.",
+                    "type": "integer"
+                },
                 "partial_errors": {
                     "type": "array",
                     "items": {
@@ -8769,6 +8773,10 @@ const docTemplate = `{
                 },
                 "group": {
                     "type": "string"
+                },
+                "oldest_sample_ms": {
+                    "description": "OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.",
+                    "type": "integer"
                 },
                 "panels": {
                     "type": "array",
@@ -9183,6 +9191,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/dashboard.HomeHostEntry"
                     }
                 },
+                "oldest_sample_ms": {
+                    "description": "OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.",
+                    "type": "integer"
+                },
                 "partial_errors": {
                     "type": "array",
                     "items": {
@@ -9261,6 +9273,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/dashboard.JobRank"
                     }
+                },
+                "oldest_sample_ms": {
+                    "description": "OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.",
+                    "type": "integer"
                 },
                 "partial_errors": {
                     "type": "array",
@@ -9466,6 +9482,9 @@ const docTemplate = `{
                 },
                 "label": {
                     "type": "string"
+                },
+                "no_data": {
+                    "type": "boolean"
                 },
                 "partial": {
                     "type": "boolean"
@@ -10596,6 +10615,9 @@ const docTemplate = `{
                 "status": {
                     "$ref": "#/definitions/host.HostStatus"
                 },
+                "timezone": {
+                    "type": "string"
+                },
                 "total_disk": {
                     "type": "integer"
                 },
@@ -11590,6 +11612,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "bundled": {
+                    "description": "Bundled 表示该连接器来自安装包自带，不是控制面额外安装，列表展示但不提供卸载。\nBundled means the connector ships with the package, not a Control Plane extra install; listed but not uninstallable.",
+                    "type": "boolean"
+                },
                 "category": {
                     "description": "分类 / Category",
                     "allOf": [
@@ -12133,7 +12159,8 @@ const docTemplate = `{
                 "可用 / Available",
                 "已安装 / Installed",
                 "已启用 / Enabled",
-                "已禁用 / Disabled"
+                "已禁用 / Disabled",
+                ""
             ],
             "x-enum-varnames": [
                 "PluginStatusAvailable",
@@ -13412,6 +13439,10 @@ const docTemplate = `{
                 },
                 "engine_observability_enabled": {
                     "type": "boolean"
+                },
+                "oldest_sample_ms": {
+                    "description": "OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.",
+                    "type": "integer"
                 },
                 "range": {
                     "type": "string"

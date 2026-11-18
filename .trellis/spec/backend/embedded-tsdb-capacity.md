@@ -51,7 +51,19 @@ STX_TSDB_BENCH=full go test ./internal/pkg/embedts -count=1 -timeout 60m -run 'T
 
 10k 档默认进 `go test`；50k / 20 万由环境变量打开，避免 CI 内存打满。
 
-#### 4.2 实时长时间运行（至少 48h）
+#### 4.2 一年窗口基准
+
+```bash
+STX_TSDB_YEAR_BENCH=1 go test ./internal/pkg/embedts -count=1 -timeout 30m -run TestCapacity_YearWindow -v
+```
+
+合成 200 / 1000 条作业计数器序列（15s × 一年，`retention` 不限、查询前先压实落盘），
+测 `sum(rate(stx_job_sink_write_rows_total[2d]))`、一年窗口、2d step 的代表性查询。
+门槛：200 条序列必须在 32s（`query_timeout` ×4，长窗口引擎）内返回；不达标先不放开一年窗口，
+降采样 / 预聚合单独立项。一年窗口的逐日 `increase[1d]` 已由读写量接口的范围查询承载，
+不走单条 `[1y]`。
+
+#### 4.3 实时长时间运行（至少 48h）
 
 ```bash
 ./scripts/tsdb-soak.sh
@@ -112,6 +124,7 @@ STX_TSDB_SOAK=3m STX_TSDB_SOAK_SERIES=10000 STX_TSDB_SOAK_INTERVAL=15s \
 - `TestFlattenMetricFamiliesLimited_OverLimitSkipsMaterializing`
 - `TestCapacity_TenThousandSeries`（默认跑）
 - `TestCapacity_SoakSmoke`（默认跑，秒级真实抓取循环）
+- `TestCapacity_YearWindow`（`STX_TSDB_YEAR_BENCH=1` 才跑，约分钟级）
 - `TestCapacity_Soak`（`STX_TSDB_SOAK=48h`，文档要求至少跑 2 天）
 - `TestValidateConfig_EmbeddedObservabilityInvalid` 覆盖负 `sample_limit`
 - `TestVolumeIncreaseChunks_LongSpanSplitsDays` / `TestGetVolume_NoGranularityOnlyTotals` / `TestGetVolume_MonthBucketsUseDayIncreases`：长窗口 `increase` 按日分桶，单条查询不超过约 1 天

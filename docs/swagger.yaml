@@ -1747,6 +1747,10 @@ definitions:
         items:
           $ref: '#/definitions/dashboard.ClusterNodeRow'
         type: array
+      oldest_sample_ms:
+        description: OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample
+          in ms; 0 when unknown.
+        type: integer
       partial_errors:
         items:
           type: string
@@ -1778,6 +1782,10 @@ definitions:
         type: array
       group:
         type: string
+      oldest_sample_ms:
+        description: OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample
+          in ms; 0 when unknown.
+        type: integer
       panels:
         items:
           $ref: '#/definitions/dashboard.DetailPanel'
@@ -2053,6 +2061,10 @@ definitions:
         items:
           $ref: '#/definitions/dashboard.HomeHostEntry'
         type: array
+      oldest_sample_ms:
+        description: OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample
+          in ms; 0 when unknown.
+        type: integer
       partial_errors:
         items:
           type: string
@@ -2105,6 +2117,10 @@ definitions:
         items:
           $ref: '#/definitions/dashboard.JobRank'
         type: array
+      oldest_sample_ms:
+        description: OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample
+          in ms; 0 when unknown.
+        type: integer
       partial_errors:
         items:
           type: string
@@ -2244,6 +2260,8 @@ definitions:
         type: integer
       label:
         type: string
+      no_data:
+        type: boolean
       partial:
         type: boolean
       start_ms:
@@ -3057,6 +3075,8 @@ definitions:
         type: integer
       status:
         $ref: '#/definitions/host.HostStatus'
+      timezone:
+        type: string
       total_disk:
         type: integer
       total_memory:
@@ -3738,6 +3758,11 @@ definitions:
         items:
           type: string
         type: array
+      bundled:
+        description: |-
+          Bundled 表示该连接器来自安装包自带，不是控制面额外安装，列表展示但不提供卸载。
+          Bundled means the connector ships with the package, not a Control Plane extra install; listed but not uninstallable.
+        type: boolean
       category:
         allOf:
         - $ref: '#/definitions/plugin.PluginCategory'
@@ -4130,6 +4155,7 @@ definitions:
     - 已安装 / Installed
     - 已启用 / Enabled
     - 已禁用 / Disabled
+    - ""
     x-enum-varnames:
     - PluginStatusAvailable
     - PluginStatusInstalled
@@ -5029,6 +5055,10 @@ definitions:
         type: integer
       engine_observability_enabled:
         type: boolean
+      oldest_sample_ms:
+        description: OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample
+          in ms; 0 when unknown.
+        type: integer
       range:
         type: string
       reason:
@@ -7003,7 +7033,7 @@ paths:
         name: cluster_id
         type: integer
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -7011,7 +7041,7 @@ paths:
         in: query
         name: start
         type: string
-      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+      - description: 自定义终点，缺省为当前时间；跨度不超过 366 天
         in: query
         name: end
         type: string
@@ -7048,7 +7078,7 @@ paths:
         required: true
         type: string
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -7056,7 +7086,7 @@ paths:
         in: query
         name: start
         type: string
-      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+      - description: 自定义终点，缺省为当前时间；跨度不超过 366 天
         in: query
         name: end
         type: string
@@ -7087,7 +7117,7 @@ paths:
         name: cluster_id
         type: integer
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -7095,7 +7125,7 @@ paths:
         in: query
         name: start
         type: string
-      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+      - description: 自定义终点，缺省为当前时间；跨度不超过 366 天
         in: query
         name: end
         type: string
@@ -7126,7 +7156,7 @@ paths:
         name: cluster_id
         type: integer
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -7134,7 +7164,7 @@ paths:
         in: query
         name: start
         type: string
-      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+      - description: 自定义终点，缺省为当前时间；跨度不超过 366 天
         in: query
         name: end
         type: string
@@ -7196,7 +7226,7 @@ paths:
         name: cluster_id
         type: integer
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -7204,11 +7234,11 @@ paths:
         in: query
         name: start
         type: string
-      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+      - description: 自定义终点，缺省为当前时间；跨度不超过 366 天
         in: query
         name: end
         type: string
-      - description: 桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals
+      - description: 桶粒度：auto|quarter_hour|hour|day|week|month；auto 按窗口跨度选桶，缺省只回 totals
           不出 buckets
         in: query
         name: granularity
@@ -8760,7 +8790,7 @@ paths:
         required: true
         type: integer
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -8832,7 +8862,7 @@ paths:
         required: true
         type: string
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string

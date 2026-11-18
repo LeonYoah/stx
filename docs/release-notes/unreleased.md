@@ -72,6 +72,9 @@ limitations under the License.
   Embedded tsdb self-observability and capacity guardrails.
 - 管理员可用的进程 pprof 剖析，默认关闭。Admin-only process pprof profiling, off by default.
 - 告警规则目录：内置规则可视化查阅。Alert rule catalog for browsing builtin rules.
+- CLI 支持导入本地升级包并跟踪自升级任务：`stx self-upgrade import <file> --confirm`（流式上传）、
+  `stx self-upgrade task get <id> --wait`、`stx self-upgrade task cancel <id> --confirm`。
+  The CLI can now import local upgrade packages and track self-upgrade tasks.
 
 ## 修复 / Fixes
 

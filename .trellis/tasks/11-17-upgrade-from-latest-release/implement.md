@@ -64,25 +64,37 @@
 
 ## Step 6 · CLI 补齐与 CI 改为 CLI 优先（design §4.3 §4.6 §8，PR 审查后追加）
 
-- [ ] 新增 `stx self-upgrade import <file> --confirm`：
-  - 参照 `internal/cmd/plugin.go`，用 `RequestMultipart` 流式上传；
-  - 给 `self_upgrade.stage.import` 补命令路径、`Example`、`OutputExample`。
-- [ ] 新增 `stx self-upgrade task get <id> [--wait] [--timeout]` 和 `task cancel <id> --confirm`：
-  - `--wait` 期间控制面重启导致的连接失败要重试；
-  - 终态失败或超时返回非零退出码。
-- [ ] 单测：
-  - multipart 字段名与流式上传；
-  - `--wait` 的三种终态、重启期间连接失败后恢复、超时。
-- [ ] 同步更新 operation 契约测试 / `route_baseline.json`、CLI 文档与 `SKILL.md`，以及 `unreleased.md` 的「新功能」。
-- [ ] `scripts/ci-upgrade-from-latest.sh` 改为 CLI 优先：
-  - `$STX` = 安装目录里的 `stx`，只用 `auth login --password-stdin --namespace ci` 登录一次；
-  - 植入：渠道、路由、巡检策略、目录走 FROM 的 CLI，遗留告警仍用 curl 调 webhook；
-  - 升级：`check` / `execute` 走 CLI；`import` / `task get` 先用 `--help` 探测，缺命令时退回接口并打 `::notice::`；
-  - 处理 `execute` 返回 `confirmation_required` 时带 `--confirmation-id` 重试；
-  - 断言：接口类断言全部改用 TARGET 的 CLI；新增"升级后不重新登录也能调用 CLI"，二次重启后再检查一次；
-  - 删除 cookie 会话相关代码；退回 curl 时使用 CLI 登录得到的 token。
+- [x] 新增 `stx self-upgrade import <file> --confirm`（`internal/cmd/self_upgrade.go`）：
+  - 复用 `RequestMultipart` 的 `io.Pipe` 流式上传，`file` 字段名，不把包读进内存；
+  - 走 `prepareSelfUpgradeWrite`（在 `prepareSecureWrite` 流程上保留自升级树的 `--server/--namespace`），
+    `--confirm` 必填、`X-STX-Confirm`/`Idempotency-Key`/`X-STX-Confirmation-ID` 头齐全，
+    `confirmation_required` 由 `handleSecureWriteError` 透传；
+  - `self_upgrade.stage.import` 已补 `CommandPath=["self-upgrade","import"]` 与 `Example`。
+- [x] 新增 `stx self-upgrade task get <id> [--wait] [--timeout 6m]` 和 `task cancel <id> --confirm`：
+  - `task` 子命令组挂在 `self-upgrade` 下；`--wait` 轮询到 `succeeded/failed/cancelled`，
+    非 succeeded 终态与超时都返回非零（超时附最后观察状态）；
+  - 未拿到 HTTP 响应的传输层错误（控制面重启瞬断）自动重试，API 级错误直接返回；
+  - `self_upgrade.task.get` / `self_upgrade.task.cancel` 已补 `CommandPath` 与 `Example`。
+- [x] 单测（`internal/cmd/self_upgrade_test.go`）：
+  - multipart `file` 字段名 + chunked 流式（无 Content-Length）+ 确认头；
+  - `--confirm` 门禁、`confirmation_required` → `--confirmation-id` 重试；
+  - `--wait` 三种终态退出码、连接断开后重试恢复、超时附 last status。
+- [x] operation 契约 / 文档：`route_baseline.json` 只登记路由（三条路由早已在基线内，无需变更）；
+  `SKILL.md` 按设计不维护命令清单（以 `--help`/`capability list` 为准），未改；
+  `docs/内置监控说明.md` 补「CLI 一键升级」小节；`unreleased.md` 新功能加 CLI 导入本地升级包。
+- [x] `scripts/ci-upgrade-from-latest.sh` 改为 CLI 优先：
+  - `$STX` = `$INSTALL_DIR/stx`（服务端与 CLI 同一二进制，升级后原位替换为新版本）；
+  - 实际登录命令是 `stx login --password-stdin --namespace ci`（顶层命令，design 中的 `auth login` 表述已按真实命令面修正），只登录一次；
+  - 植入：渠道/路由/巡检策略/工作台目录优先走 FROM 的 CLI（`--request-file` 或参数），
+    逐命令 `--help` 探测，缺失或失败都回退 `api_call`（Bearer token + `X-STX-Client: cli`）并打 `::notice::`；
+    遗留告警 webhook 无 CLI 操作，始终走 API；
+  - 升级：`check --force-latest` / `execute` 走 CLI；`import` / `task get` 探测后缺失回退（v1.4.0 预期回退）；
+  - `cli_call` 统一处理 `confirmation_required`：读 stderr 事件里的 `confirmation_id` 带 `--confirmation-id` 重试一次；
+  - 断言全部改用 TARGET CLI 读命令；`whoami` + `self-upgrade status` 验证升级后不重新登录仍可用，二次重启后再验一次；
+  - cookie 会话代码全部删除；curl 回退从 `~/.config/stx/config.yaml` 的 ci namespace 读 token。
 - 验证：
   - `go test ./internal/cmd/... ./internal/cli/... ./internal/operation/...`；
+  - `bash -n scripts/ci-upgrade-from-latest.sh`；
   - PR 上的 upgrade 工作流为绿，日志里能看到 CLI 调用，以及 v1.4.0 下导入和任务查询两处的退回提示。
 
 ## 收尾

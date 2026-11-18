@@ -229,7 +229,7 @@ on:
 - 安装方式为 systemd（默认）。轮询 `GET /api/v1/version`，直到返回 FROM。
 
 **4. 在 FROM 上植入数据**
-- 先用 FROM 的 CLI 登录（见 §4.6）：`printf '%s' "$PW" | $STX auth login --server http://127.0.0.1:17800 --username admin --password-stdin --namespace ci`。
+- 先用 FROM 的 CLI 登录（见 §4.6）：`printf '%s' "$PW" | $STX login --server http://127.0.0.1:17800 --username admin --password-stdin --namespace ci`。
   **只登录这一次**，升级后不重新登录，用来验证 CLI 凭据跨升级仍然有效。
 - 每项植入前先探测能力，不支持就打 `::notice::` 后跳过，并记录到 `seeded_*` 变量。
 - 植入优先走 FROM 的 CLI（`--request-file` 传请求体，写操作加 `--confirm`）。FROM 的 CLI 没有对应命令时（例如

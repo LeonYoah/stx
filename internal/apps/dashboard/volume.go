@@ -17,6 +17,7 @@
 package dashboard
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -69,22 +70,25 @@ var volumeGranularities = map[string]bool{
 	"quarter_hour": true,
 	"hour":         true,
 	"day":          true,
+	"week":         true,
 	"month":        true,
 }
 
 // volumeGranularityFor 按窗口跨度自动挑桶粒度：跨度越短桶越细，与其他面板按窗口选 step 同理；
-// 短窗用刻钟保证还有几根柱子可看，长窗回到自然日 / 月。
+// 短窗用刻钟保证还有几根柱子可看，长窗逐级退到自然日 / 周 / 月。
 // volumeGranularityFor picks the bucket granularity from the window span — shorter spans get finer
 // buckets, the same way the other panels pick their step. Short windows use quarter-hours so the
-// chart still has a few bars; long windows fall back to calendar days / months.
+// chart still has a few bars; long windows fall back stepwise to calendar days / weeks / months.
 func volumeGranularityFor(span time.Duration) string {
 	switch {
 	case span <= 6*time.Hour:
 		return "quarter_hour"
 	case span <= 72*time.Hour:
 		return "hour"
-	case span <= 62*24*time.Hour:
+	case span <= 31*24*time.Hour:
 		return "day"
+	case span <= 182*24*time.Hour:
+		return "week"
 	default:
 		return "month"
 	}
@@ -125,13 +129,17 @@ type VolumeTotals struct {
 	MonthStartMs int64        `json:"month_start_ms"`
 }
 
-// VolumeBucket 是一个日 / 月桶；partial=true 表示桶被时间窗裁掉了一头。
-// VolumeBucket is one day/month bucket; partial=true means the window clipped one side of it.
+// VolumeBucket 是一个日 / 周 / 月桶；partial=true 表示桶被时间窗或最早样本裁掉了一头，
+// no_data=true 表示整桶早于最早样本（数值恒为 0）。
+// VolumeBucket is one day/week/month bucket; partial=true means the window or the oldest sample
+// clipped one side of it, and no_data=true means the whole bucket predates the oldest sample
+// (its values are always 0).
 type VolumeBucket struct {
 	StartMs int64  `json:"start_ms"`
 	EndMs   int64  `json:"end_ms"`
 	Label   string `json:"label"`
 	Partial bool   `json:"partial"`
+	NoData  bool   `json:"no_data,omitempty"`
 }
 
 // VolumeSeries 是「指标 × 分组」的一条桶值序列，Totals 与 Buckets 按下标对齐；
@@ -180,7 +188,9 @@ type VolumeService struct {
 	clusters     VolumeClusterSource
 	now          func() time.Time
 	instantQuery instantQueryFunc
+	rangeQuery   rangeQueryFunc
 	oldestSample func() (time.Time, bool)
+	dayCache     *volumeDayCache
 }
 
 // NewVolumeService 创建读写量服务。
@@ -191,7 +201,9 @@ func NewVolumeService(tasks VolumeTaskNames, clusters VolumeClusterSource) *Volu
 		clusters:     clusters,
 		now:          time.Now,
 		instantQuery: dashboardPromCache.wrapInstant(promquery.Instant),
+		rangeQuery:   dashboardPromCache.wrapRange(promquery.Range),
 		oldestSample: embedts.OldestSampleTime,
+		dayCache:     newVolumeDayCache(volumeDayCacheCap),
 	}
 }
 
@@ -221,28 +233,57 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 	out.Source = promquery.SourcePrometheus
 
 	loc := timex.DisplayLocation()
-	// 桶切分 + totals 三个临时桶合并成统一的 span 列表，一次性并发查询。
-	// Buckets plus the three ad-hoc totals spans collapse into one span list queried concurrently.
-	spans := []volumeSpan{
-		{key: "window", bucket: -1, start: start, end: end},
-		{key: "today", bucket: -1, start: floorLocal(end, loc, false), end: end},
-		{key: "month", bucket: -1, start: floorLocal(end, loc, true), end: end},
+	if granularity == "auto" {
+		granularity = volumeGranularityFor(end.Sub(start))
 	}
+	out.Granularity = granularity
 	if granularity != "" {
-		if granularity == "auto" {
-			granularity = volumeGranularityFor(end.Sub(start))
-		}
-		out.Granularity = granularity
-		for i, b := range volumeBuckets(start, end, loc, granularity) {
-			out.Buckets = append(out.Buckets, b)
-			spans = append(spans, volumeSpan{key: strconv.Itoa(i), bucket: i, start: time.UnixMilli(b.StartMs), end: time.UnixMilli(b.EndMs)})
-		}
+		out.Buckets = volumeBuckets(start, end, loc, granularity)
+		markVolumeNoData(out.Buckets, out.OldestSampleMs)
 	}
 	sel := ""
 	if clusterID > 0 {
 		sel = fmt.Sprintf(`cluster_id=%s`, strconv.Quote(strconv.FormatUint(uint64(clusterID), 10)))
 	}
 	splitBy := volumeSplits[split]
+
+	out.Totals = &VolumeTotals{
+		TodayStartMs: floorLocal(end, loc, false).UnixMilli(),
+		MonthStartMs: floorLocal(end, loc, true).UnixMilli(),
+	}
+	bucketValues := map[int]map[string]map[string]float64{}
+	groupSet := map[string]bool{}
+
+	// 亚日粒度窗口最多 72h，保持逐桶即时查询；日 / 周 / 月以及仅看总量时走逐日增量 + 范围查询。
+	// Sub-day granularity windows are at most 72h and keep per-bucket instant queries; day/week/month
+	// granularity (and totals-only calls) go through daily increments plus range queries.
+	if granularity == "quarter_hour" || granularity == "hour" {
+		s.fillSubDayVolume(ctx, out, start, end, loc, sel, splitBy, bucketValues, groupSet)
+	} else {
+		s.fillDailyVolume(ctx, out, start, end, loc, sel, splitBy, bucketValues, groupSet)
+	}
+	if len(out.Buckets) > 0 {
+		out.Series, out.Groups = s.buildSeries(ctx, actor, out.Buckets, bucketValues, groupSet, split)
+	}
+	return out, nil
+}
+
+// fillSubDayVolume 亚日粒度的旧路径：每个桶一条 increase 即时查询，窗口 / 今日 / 本月三组总量
+// 单独发（超过一天的区间按日拆开，避免单条 increase 加载过多样本）。
+// fillSubDayVolume is the legacy path for sub-day granularities: one increase instant query per
+// bucket, plus separate window/today/month totals spans (any span longer than a day is split into
+// day chunks so a single increase never loads too many samples).
+func (s *VolumeService) fillSubDayVolume(ctx context.Context, out *HomeVolume, start, end time.Time, loc *time.Location, sel, splitBy string, bucketValues map[int]map[string]map[string]float64, groupSet map[string]bool) {
+	// 桶切分 + totals 三个临时桶合并成统一的 span 列表，一次性并发查询。
+	// Buckets plus the three ad-hoc totals spans collapse into one span list queried concurrently.
+	spans := []volumeSpan{
+		{key: "window", bucket: -1, start: start, end: end},
+		{key: "today", bucket: -1, start: time.UnixMilli(out.Totals.TodayStartMs), end: end},
+		{key: "month", bucket: -1, start: time.UnixMilli(out.Totals.MonthStartMs), end: end},
+	}
+	for i, b := range out.Buckets {
+		spans = append(spans, volumeSpan{key: strconv.Itoa(i), bucket: i, start: time.UnixMilli(b.StartMs), end: time.UnixMilli(b.EndMs)})
+	}
 
 	// 每个 span × 每个指标一条 increase 即时查询；totals 恒为全局聚合（不拆分）。
 	// One increase instant query per span × metric; totals always aggregate globally (no split).
@@ -279,15 +320,8 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 
 	// 汇总 totals：sum 无分组 ⇒ 单样本，容错地把全部样本相加。
 	// Assemble totals: sum without grouping yields one sample; sum all samples defensively.
-	out.Totals = &VolumeTotals{
-		TodayStartMs: spans[1].start.UnixMilli(),
-		MonthStartMs: spans[2].start.UnixMilli(),
-	}
 	totalsPtr := map[string]*VolumeCounts{"window": &out.Totals.Window, "today": &out.Totals.Today, "month": &out.Totals.Month}
 	failedTotals := map[string]bool{}
-	// 桶值：bucketIdx → metric → groupID → value。/ Bucket values: bucketIdx → metric → groupID → value.
-	bucketValues := map[int]map[string]map[string]float64{}
-	groupSet := map[string]bool{}
 	for i, task := range tasks {
 		res := results[i]
 		metric := volumeMetrics[task.metric].key
@@ -305,33 +339,334 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 			}
 			continue
 		}
-		values := bucketValues[task.span.bucket]
-		if values == nil {
-			values = map[string]map[string]float64{}
-			bucketValues[task.span.bucket] = values
-		}
-		if values[metric] == nil {
-			values[metric] = map[string]float64{}
-		}
-		for _, sample := range res.samples {
-			gid := "0"
-			if task.split != "" {
-				gid = strings.TrimSpace(sample.Metric[task.split])
-				if gid == "" {
-					gid = "0"
-				}
-			}
-			groupSet[gid] = true
-			values[metric][gid] += sample.Value
-		}
+		addVolumeSamples(bucketValues, groupSet, task.span.bucket, metric, task.split, res.samples)
 	}
 	if len(failedTotals) > 0 {
 		out.PartialErrors = append(out.PartialErrors, "totals")
 	}
-	if len(out.Buckets) > 0 {
-		out.Series, out.Groups = s.buildSeries(ctx, actor, out.Buckets, bucketValues, groupSet, split)
+}
+
+// addVolumeSamples 把一条桶查询的样本按分组累加进 bucketValues。
+// addVolumeSamples accumulates one bucket query's samples into bucketValues by group.
+func addVolumeSamples(bucketValues map[int]map[string]map[string]float64, groupSet map[string]bool, bucket int, metric, splitBy string, samples []promquery.Sample) {
+	values := bucketValues[bucket]
+	if values == nil {
+		values = map[string]map[string]float64{}
+		bucketValues[bucket] = values
 	}
-	return out, nil
+	if values[metric] == nil {
+		values[metric] = map[string]float64{}
+	}
+	for _, sample := range samples {
+		gid := "0"
+		if splitBy != "" {
+			gid = strings.TrimSpace(sample.Metric[splitBy])
+			if gid == "" {
+				gid = "0"
+			}
+		}
+		groupSet[gid] = true
+		values[metric][gid] += sample.Value
+	}
+}
+
+// volumeDayMs 是一天的毫秒数；恰好等于这个值的完整日才能走定步长范围查询（DST 日不是 24h）。
+// volumeDayMs is one day in milliseconds; only complete days of exactly this length may use the
+// fixed-step range query (DST days are not 24h).
+const volumeDayMs = int64(24 * 60 * 60 * 1000)
+
+// volumeDayCacheCap 是逐日增量 LRU 的上限；键为 counter+selector+split+日零点。
+// volumeDayCacheCap caps the daily-increment LRU; keys are counter+selector+split+day-midnight.
+const volumeDayCacheCap = 4096
+
+// volumeDayCache 是逐日增量结果的进程内 LRU：过去的完整日不再变化，长期缓存，重复打开首页
+// 或换粒度时不用重查。今天的日段永不写入。
+// volumeDayCache is an in-process LRU of per-day increment results: past complete days never
+// change, so they are cached long-term and re-opening the home page or switching granularity
+// does not re-query them. Segments covering today are never written.
+type volumeDayCache struct {
+	mu    gosync.Mutex
+	cap   int
+	ll    *list.List
+	items map[string]*list.Element
+}
+
+// volumeDayCacheEntry 是缓存里一天（或一天内一个分组）的聚合样本。
+// volumeDayCacheEntry is one cached day's aggregated samples (per split group).
+type volumeDayCacheEntry struct {
+	key     string
+	samples []promquery.Sample
+}
+
+func newVolumeDayCache(capacity int) *volumeDayCache {
+	return &volumeDayCache{cap: capacity, ll: list.New(), items: map[string]*list.Element{}}
+}
+
+// get 返回缓存的日增量；命中时把条目移到队首。
+// get returns a cached day increment; hits move the entry to the front.
+func (c *volumeDayCache) get(key string) ([]promquery.Sample, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	el, ok := c.items[key]
+	if !ok {
+		return nil, false
+	}
+	c.ll.MoveToFront(el)
+	return el.Value.(volumeDayCacheEntry).samples, true
+}
+
+// put 写入日增量；超上限时淘汰最久未用的条目。
+// put stores a day increment; the least recently used entry is evicted past the cap.
+func (c *volumeDayCache) put(key string, samples []promquery.Sample) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.items[key]; ok {
+		el.Value = volumeDayCacheEntry{key: key, samples: samples}
+		c.ll.MoveToFront(el)
+		return
+	}
+	c.items[key] = c.ll.PushFront(volumeDayCacheEntry{key: key, samples: samples})
+	for len(c.items) > c.cap {
+		back := c.ll.Back()
+		if back == nil {
+			break
+		}
+		delete(c.items, back.Value.(volumeDayCacheEntry).key)
+		c.ll.Remove(back)
+	}
+}
+
+// volumeDaySeg 是一段日粒度增量：窗口内的每个自然日（首末可能被裁剪成不足一天）对应一段，
+// samples 为按拆分维度聚合后的值。
+// volumeDaySeg is one day-granularity increment: each calendar day inside the window (the two
+// edges may be clipped to less than a day) maps to one segment whose samples are aggregated per
+// split group.
+type volumeDaySeg struct {
+	startMs    int64
+	endMs      int64
+	dayStartMs int64 // 所属自然日的零点 / local midnight of the owning day
+	cacheKey   string
+	instant    bool
+	ranged     bool
+	samples    []promquery.Sample
+	err        error
+}
+
+// volumeDayCacheKey 组装日增量缓存键。
+// volumeDayCacheKey builds the daily-increment cache key.
+func volumeDayCacheKey(counter, sel, splitBy string, dayStartMs int64) string {
+	return strings.Join([]string{counter, sel, splitBy, strconv.FormatInt(dayStartMs, 10)}, "|")
+}
+
+// queryDailySegments 把 [start,end) 切成逐日段并查询增量：
+//   - 完整且恰为 86400s 的日段：先查 LRU，缺失的连续区间合并成一条
+//     `sum by (<split>) (increase(<counter>[1d]))` 范围查询（step=86400，逐点即逐日）；
+//   - 被窗口裁剪的首尾段、以及 DST 下不足 / 超过 24h 的完整日：各发一条即时查询；
+//   - 已结束于「今天」之前的完整日写入缓存，今天永不缓存。
+//
+// queryDailySegments splits [start,end) into per-day segments and queries their increments:
+//   - complete days of exactly 86400s hit the LRU first; missing contiguous runs collapse into
+//     one `sum by (<split>) (increase(<counter>[1d]))` range query (step=86400, one point per day);
+//   - window-clipped edge segments and complete days that are not 24h under DST each get one
+//     instant query;
+//   - complete days ending before today are written to the cache; today is never cached.
+func (s *VolumeService) queryDailySegments(ctx context.Context, counter, sel, splitBy string, start, end time.Time, loc *time.Location, todayStartMs int64) []volumeDaySeg {
+	days := volumeBuckets(start, end, loc, "day")
+	segs := make([]volumeDaySeg, len(days))
+	for i, b := range days {
+		seg := &segs[i]
+		seg.startMs, seg.endMs = b.StartMs, b.EndMs
+		seg.dayStartMs = volumeFloor(time.UnixMilli(b.StartMs), loc, "day").UnixMilli()
+		complete := !b.Partial
+		cacheable := complete && b.EndMs <= todayStartMs
+		if cacheable {
+			seg.cacheKey = volumeDayCacheKey(counter, sel, splitBy, seg.dayStartMs)
+			if hit, ok := s.dayCache.get(seg.cacheKey); ok {
+				seg.samples = hit
+				continue
+			}
+		}
+		if complete && b.EndMs-b.StartMs == volumeDayMs {
+			seg.ranged = true
+		} else {
+			seg.instant = true
+		}
+	}
+
+	type segTask struct {
+		i, j    int // 范围任务覆盖 segs[i..j]（含）；即时任务只用 i。/ Range tasks cover segs[i..j] inclusive; instant tasks use only i.
+		instant bool
+	}
+	tasks := []segTask{}
+	for i := 0; i < len(segs); i++ {
+		switch {
+		case segs[i].instant:
+			tasks = append(tasks, segTask{i: i, instant: true})
+		case segs[i].ranged:
+			j := i
+			for j+1 < len(segs) && segs[j+1].ranged {
+				j++
+			}
+			tasks = append(tasks, segTask{i: i, j: j})
+			i = j
+		}
+	}
+	byEnd := make(map[int64]int, len(segs))
+	for i := range segs {
+		byEnd[segs[i].endMs] = i
+	}
+	var wg gosync.WaitGroup
+	for _, task := range tasks {
+		wg.Add(1)
+		go func(task segTask) {
+			defer wg.Done()
+			if task.instant {
+				seg := &segs[task.i]
+				span := time.Duration(seg.endMs-seg.startMs) * time.Millisecond
+				seg.samples, seg.err = s.instantQuery(ctx, volumeQuery(counter, sel, splitBy, span), time.UnixMilli(seg.endMs))
+				if seg.err == nil && seg.cacheKey != "" {
+					s.dayCache.put(seg.cacheKey, seg.samples)
+				}
+				return
+			}
+			// 连续完整日一段范围查询：求值点落在每个零点，点 t 即 (t-1d, t] 的日增量。
+			// One range query per contiguous run of complete days: evaluation lands on each
+			// midnight and point t is the increment of (t-1d, t].
+			q := volumeQuery(counter, sel, splitBy, 24*time.Hour)
+			series, err := s.rangeQuery(ctx, q, time.UnixMilli(segs[task.i].endMs), time.UnixMilli(segs[task.j].endMs), int(24*time.Hour/time.Second))
+			if err != nil {
+				for k := task.i; k <= task.j; k++ {
+					segs[k].err = err
+				}
+				return
+			}
+			for _, sr := range series {
+				for _, pt := range sr.Points {
+					idx, ok := byEnd[int64(pt[0])]
+					if !ok {
+						continue
+					}
+					segs[idx].samples = append(segs[idx].samples, promquery.Sample{Metric: sr.Metric, TsMs: int64(pt[0]), Value: pt[1]})
+				}
+			}
+			for k := task.i; k <= task.j; k++ {
+				if segs[k].cacheKey != "" {
+					s.dayCache.put(segs[k].cacheKey, segs[k].samples)
+				}
+			}
+		}(task)
+	}
+	wg.Wait()
+	return segs
+}
+
+// fillDailyVolume 逐日增量路径：窗口 / 今日 / 本月总量与所有桶全部由逐日段累加而来，
+// 长窗口下每指标最多 3 条查询（首段即时 + 连续完整日一条范围 + 尾段即时）。
+// fillDailyVolume is the daily-increment path: window/today/month totals and every bucket are all
+// accumulated from per-day segments, costing at most 3 queries per metric on long windows
+// (head instant + one range query over contiguous complete days + tail instant).
+func (s *VolumeService) fillDailyVolume(ctx context.Context, out *HomeVolume, start, end time.Time, loc *time.Location, sel, splitBy string, bucketValues map[int]map[string]map[string]float64, groupSet map[string]bool) {
+	todayStartMs := out.Totals.TodayStartMs
+	monthStartMs := out.Totals.MonthStartMs
+	// 今日 / 本月总量可能落在窗口之外（自定义窗口在过去时）：把查询下界扩到最早的界，
+	// 窗口外的日段只按全局口径（不拆分）查询并只用于 totals。
+	// Today/month totals may fall outside the window (custom windows in the past): widen the query
+	// lower bound to the earliest boundary; out-of-window segments are queried unsplit and feed
+	// totals only.
+	unionStart := start
+	if ms := time.UnixMilli(monthStartMs); ms.Before(unionStart) {
+		unionStart = ms
+	}
+
+	type metricDays struct {
+		pre, win []volumeDaySeg
+	}
+	perMetric := make([]metricDays, len(volumeMetrics))
+	var wg gosync.WaitGroup
+	for m, metric := range volumeMetrics {
+		wg.Add(1)
+		go func(m int, counter string) {
+			defer wg.Done()
+			if unionStart.Before(start) {
+				perMetric[m].pre = s.queryDailySegments(ctx, counter, sel, "", unionStart, start, loc, todayStartMs)
+			}
+			perMetric[m].win = s.queryDailySegments(ctx, counter, sel, splitBy, start, end, loc, todayStartMs)
+		}(m, metric.counter)
+	}
+	wg.Wait()
+
+	startMs := start.UnixMilli()
+	failedTotals := false
+	failedBuckets := map[int]bool{}
+	bucketEnds := make([]int64, len(out.Buckets))
+	for i, b := range out.Buckets {
+		bucketEnds[i] = b.EndMs
+	}
+	for m, metric := range volumeMetrics {
+		key := metric.key
+		for _, segs := range [][]volumeDaySeg{perMetric[m].pre, perMetric[m].win} {
+			for _, seg := range segs {
+				if seg.err != nil {
+					failedTotals = true
+					if seg.startMs >= startMs && len(bucketEnds) > 0 {
+						if idx := sort.Search(len(bucketEnds), func(i int) bool { return bucketEnds[i] > seg.startMs }); idx < len(bucketEnds) {
+							failedBuckets[idx] = true
+						}
+					}
+					continue
+				}
+				// 逐日段按所属自然日判定归属：段起日零点 ≥ 今日 / 本月界即计入对应总量。
+				// Segments belong by their owning calendar day: a day starting at or after the
+				// today/month boundary counts toward that total.
+				if seg.dayStartMs >= monthStartMs {
+					for _, sample := range seg.samples {
+						addVolumeCount(&out.Totals.Month, key, sample.Value)
+					}
+				}
+				if seg.dayStartMs >= todayStartMs {
+					for _, sample := range seg.samples {
+						addVolumeCount(&out.Totals.Today, key, sample.Value)
+					}
+				}
+				if seg.startMs < startMs {
+					continue
+				}
+				for _, sample := range seg.samples {
+					addVolumeCount(&out.Totals.Window, key, sample.Value)
+				}
+				if len(out.Buckets) == 0 {
+					continue
+				}
+				idx := sort.Search(len(bucketEnds), func(i int) bool { return bucketEnds[i] > seg.startMs })
+				if idx < len(bucketEnds) {
+					addVolumeSamples(bucketValues, groupSet, idx, key, splitBy, seg.samples)
+				}
+			}
+		}
+	}
+	if failedTotals {
+		out.PartialErrors = append(out.PartialErrors, "totals")
+	}
+	for idx := range failedBuckets {
+		out.PartialErrors = append(out.PartialErrors, "bucket_"+strconv.Itoa(idx))
+	}
+}
+
+// markVolumeNoData 按最早样本标记桶：整桶早于最早样本记 no_data（值恒为 0），
+// 跨过最早样本的桶照常计算但记 partial。
+// markVolumeNoData flags buckets against the oldest sample: buckets entirely before it get
+// no_data (values stay 0); the bucket straddling it is computed normally but marked partial.
+func markVolumeNoData(buckets []VolumeBucket, oldestMs int64) {
+	if oldestMs <= 0 {
+		return
+	}
+	for i := range buckets {
+		if buckets[i].EndMs <= oldestMs {
+			buckets[i].NoData = true
+		} else if buckets[i].StartMs < oldestMs {
+			buckets[i].Partial = true
+		}
+	}
 }
 
 // buildSeries 把桶值组装成「指标 × 分组」序列并解析分组名称；没有样本的分组不补零序列（图上就是空）。
@@ -532,14 +867,19 @@ func floorLocal(t time.Time, loc *time.Location, monthly bool) time.Time {
 	return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, loc)
 }
 
-// volumeFloor 返回 t 所在桶的起点，按显示时区的自然界对齐（刻钟 / 整点 / 日 / 月）。
+// volumeFloor 返回 t 所在桶的起点，按显示时区的自然界对齐（刻钟 / 整点 / 日 / 周 / 月）；
+// 周取当周周一零点。
 // volumeFloor returns the start of the bucket containing t, aligned to the display timezone's
-// natural boundary (quarter-hour / hour / day / month).
+// natural boundary (quarter-hour / hour / day / week / month); weeks start on Monday 00:00.
 func volumeFloor(t time.Time, loc *time.Location, granularity string) time.Time {
 	l := t.In(loc)
 	switch granularity {
 	case "month":
 		return time.Date(l.Year(), l.Month(), 1, 0, 0, 0, 0, loc)
+	case "week":
+		// Go 的 Weekday 周日为 0；换算成「距周一的天数」再回退到周一。
+		// Go's Weekday starts at Sunday; convert to days-since-Monday then step back.
+		return time.Date(l.Year(), l.Month(), l.Day()-(int(l.Weekday())+6)%7, 0, 0, 0, 0, loc)
 	case "day":
 		return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, loc)
 	case "hour":
@@ -558,6 +898,11 @@ func volumeNext(t time.Time, granularity string) time.Time {
 	switch granularity {
 	case "month":
 		return t.AddDate(0, 1, 0)
+	case "week":
+		// 日历加法跨 DST 仍对；下一周起点仍是当地周一零点。
+		// Calendar arithmetic stays correct across DST; the next week still starts at local
+		// Monday midnight.
+		return t.AddDate(0, 0, 7)
 	case "day":
 		return t.AddDate(0, 0, 1)
 	case "hour":
@@ -567,14 +912,14 @@ func volumeNext(t time.Time, granularity string) time.Time {
 	}
 }
 
-// volumeLabel 是桶的展示标签：亚日粒度带时刻，日取 YYYY-MM-DD，月取 YYYY-MM。
-// volumeLabel renders a bucket label: sub-day granularities carry the time, days are YYYY-MM-DD,
-// months YYYY-MM.
+// volumeLabel 是桶的展示标签：亚日粒度带时刻，日 / 周取起点日期 YYYY-MM-DD（周为周一），月取 YYYY-MM。
+// volumeLabel renders a bucket label: sub-day granularities carry the time, days/weeks use the
+// start date YYYY-MM-DD (the Monday for weeks), months YYYY-MM.
 func volumeLabel(t time.Time, granularity string) string {
 	switch granularity {
 	case "month":
 		return t.Format("2006-01")
-	case "day":
+	case "day", "week":
 		return t.Format("2006-01-02")
 	default:
 		return t.Format("2006-01-02 15:04")
@@ -647,7 +992,7 @@ func NewVolumeHandler(service *VolumeService) *VolumeHandler {
 // @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param start query string false "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range"
 // @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 366 天"
-// @Param granularity query string false "桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets"
+// @Param granularity query string false "桶粒度：auto|quarter_hour|hour|day|week|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets"
 // @Param split query string false "拆分维度：none|cluster|task" default(none)
 // @Success 200 {object} DashboardDataResponse{data=HomeVolume}
 // @Failure 400 {object} DashboardDataResponse
@@ -664,7 +1009,7 @@ func (h *VolumeHandler) GetVolume(c *gin.Context) {
 	}
 	granularity := strings.ToLower(strings.TrimSpace(c.Query("granularity")))
 	if granularity != "" && !volumeGranularities[granularity] {
-		c.JSON(http.StatusBadRequest, DashboardDataResponse{ErrorMsg: "granularity must be auto|quarter_hour|hour|day|month"})
+		c.JSON(http.StatusBadRequest, DashboardDataResponse{ErrorMsg: "granularity must be auto|quarter_hour|hour|day|week|month"})
 		return
 	}
 	split := strings.ToLower(strings.TrimSpace(c.DefaultQuery("split", "none")))

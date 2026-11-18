@@ -786,6 +786,12 @@ assert_legacy_stack() {
     assert_true "port $port closed" bash -c "! sudo -n ss -ltn 2>/dev/null | grep -q ':$port '"
   done
   assert_true "observability dir kept" sudo -n test -d "$INSTALL_DIR/observability"
+
+  # --with-observability 安装的 v1.4.0 配置里必有 observability.prometheus 等旧段，
+  # 新版启动应记一条「已废弃的旧外部监控配置段」WARN。
+  # A v1.4.0 install with --with-observability always writes observability.prometheus
+  # style legacy sections; the new binary must WARN about them at startup.
+  assert_true "legacy config sections WARN in log" bash -c "sudo -n grep -q '已废弃的旧外部监控配置段\|deprecated external monitoring sections' '$INSTALL_DIR/logs/backend.log' 2>/dev/null"
 }
 
 assert_legacy_alert() {

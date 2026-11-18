@@ -154,7 +154,7 @@ sudo ./install.sh --install-dir /data/stx --frontend-port 18880 --http-port 1880
 
 - Database: `sqlite` (default) / `mysql` / `postgres` (`pg`); the database password is prompted, or pass `--db-password` / `STX_DB_PASSWORD` (`sudo STX_DB_PASSWORD='xxx' ./install.sh ...`).
 - Run with sudo. Non-root works only with a writable `--install-dir` plus `--no-systemd`.
-- Other flags: `--external-ip`, `--without-observability`, `--service-user`, `--no-systemd`, `--no-start`, `--force`; full list: `./install.sh --help`.
+- Other flags: `--external-ip`, `--service-user`, `--no-systemd`, `--no-start`, `--force`; full list: `./install.sh --help`.
 - `--mirror`, `--variant`, `--version`, `--bundle-file` belong to `install-online.sh` / `download-bundle.sh` only, not to the offline `install.sh`; `install-online.sh` passes all other flags through (`curl ... | sudo bash -s -- --db-type postgres ...`).
 
 ### Manual download (cannot run scripts, assemble by hand)
@@ -214,7 +214,7 @@ docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 ghcr.io/leonyoah/stx-
 docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 swr.cn-east-3.myhuaweicloud.com/stx/stx-all-in-one:latest
 ```
 
-After binary install: `/opt/stx/bin/start.sh` or `systemctl restart stx`. Monitoring is built in; turn it off with `observability.enabled: false` in `config.yaml`.
+After binary install: `/opt/stx/bin/start.sh` or `systemctl restart stx`. Monitoring is built in; no separate start/stop is needed.
 
 More: [docs/00-快速开始.md](./docs/00-快速开始.md), [docs/打包发布说明.md](./docs/打包发布说明.md), [docs/内置监控说明.md](./docs/内置监控说明.md).
 

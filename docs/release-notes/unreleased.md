@@ -40,6 +40,12 @@ limitations under the License.
   timezones before upgrading; for containers set `TZ` or `STX_SEATUNNEL_TIMEZONE` explicitly.
 - 老版本 Agent 继续兼容，但主机指标与节点时区采集需要升级 Agent 才能完整工作。
   Older agents keep working, but host metrics and node-timezone collection need the new agent.
+- `observability.enabled` 配置项名字未变、含义已变：升级前它表示对接外部三件套，现在表示开启内置监控。
+  v1.4.0 配置模板默认 `true`，因此升级后内置监控会自动开始采集，指标写入 `data/tsdb`，内存与磁盘占用
+  会相应上涨；容量与采集上限的调优方法见《内置监控说明》。The `observability.enabled` key kept its name
+  but changed meaning: it used to wire the external trio and now enables embedded monitoring. Since the v1.4.0
+  config template defaults it to `true`, embedded monitoring starts collecting automatically after upgrade,
+  writing metrics to `data/tsdb` and raising memory/disk usage; see the embedded monitoring doc for tuning.
 
 ## 破坏性变更 / Breaking Changes
 

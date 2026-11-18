@@ -80,7 +80,13 @@ export function WorkspaceHeader({
       if (shouldReduceMotion()) {
         return;
       }
-      gsap.from('.workspace-header-content', {
+      // 直接对 ref 元素补间，避免类选择器在 scope 未就绪时触发 "target not found"。
+      // Tween the ref element directly so the class selector can't miss before scope is ready.
+      const el = containerRef.current;
+      if (!el) {
+        return;
+      }
+      gsap.from(el, {
         opacity: 0,
         y: -6,
         duration: 0.28,

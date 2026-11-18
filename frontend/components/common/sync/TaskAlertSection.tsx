@@ -87,9 +87,6 @@ export function TaskAlertDialog({
   };
 
   const remove = async () => {
-    if (!window.confirm(t('deleteConfirm'))) {
-      return;
-    }
     setSaving(true);
     try {
       const cleared = await services.sync.deleteTaskAlert(taskId);
@@ -97,7 +94,9 @@ export function TaskAlertDialog({
       onSaved(cleared);
       onOpenChange(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(message);
+      throw error instanceof Error ? error : new Error(message);
     } finally {
       setSaving(false);
     }

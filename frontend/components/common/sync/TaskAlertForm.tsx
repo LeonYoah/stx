@@ -25,6 +25,7 @@ import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Switch} from '@/components/ui/switch';
+import ConfirmMorph from '@/components/arc/confirm-morph/confirm-morph';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {
   NotificationChannel,
@@ -74,7 +75,7 @@ export function TaskAlertForm({
   readOnly?: boolean;
   onSubmit: (request: SyncTaskAlertRequest) => void;
   onCancel: () => void;
-  onDelete?: () => void;
+  onDelete?: () => void | Promise<void>;
 }) {
   const t = useTranslations('syncAlert');
   const [form, setForm] = useState<TaskAlertFormState>(() => initialTaskAlertForm(initial));
@@ -322,9 +323,14 @@ export function TaskAlertForm({
       <div className='flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3'>
         <div>
           {onDelete && initial?.configured && !readOnly ? (
-            <Button type='button' variant='ghost' size='sm' className='text-destructive' disabled={saving} onClick={onDelete}>
-              {t('delete')}
-            </Button>
+            <ConfirmMorph
+              label={t('delete')}
+              prompt={t('deleteConfirm')}
+              confirmLabel={t('delete')}
+              cancelLabel={t('cancel')}
+              pendingLabel={t('saving')}
+              onConfirm={onDelete}
+            />
           ) : null}
         </div>
         <div className='flex items-center gap-2'>

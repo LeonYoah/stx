@@ -112,11 +112,14 @@ describe('DashboardKpiRow', () => {
       .map((node) => node.textContent);
     expect(cards).toHaveLength(7);
     expect(cards[0]).toBe('运行中作业|9|流 7 · 批 2|');
-    expect(cards[1]).toBe('全局写入速率|27200 行/秒|较 1 小时前|+6%');
+    // 大数字经 scaledCompact 缩放：27,200 → 27.2K；1,523,000 → 1.5M，避免溢出相邻卡片。
+    // Large numbers go through scaledCompact: 27,200 → 27.2K, 1,523,000 → 1.5M, so long digits
+    // never overflow into the neighboring card.
+    expect(cards[1]).toBe('全局写入速率|27.2K 行/秒|较 1 小时前|+6%');
     expect(cards[2]).toBe('最大 CDC 延迟|74 秒|pg-cdc-ledger|超阈值');
     // 失败数用中性文字，不带正负号，避免 Arc 染成绿色。/ Neutral failure wording, no sign, so Arc never paints it green.
     expect(cards[3]).toBe('失败作业|2|近 24 小时（含失败中）|昨日 1');
-    expect(cards[4]).toBe('数据量|1523000 行|今日 5M · 本月 60M|');
+    expect(cards[4]).toBe('数据量|1.5M 行|今日 5M · 本月 60M|');
     expect(cards[5]).toBe('集群健康|1/2|节点 4/4 在线|1 个降级');
     expect(screen.getByTestId('home-kpi-failed').getAttribute('href')).toBe(
       '/dashboard?tab=list&status=failed',

@@ -229,7 +229,17 @@ on:
 - 安装方式为 systemd（默认）。轮询 `GET /api/v1/version`，直到返回 FROM。
 
 **4. 在 FROM 上植入数据**
-- 先登录 admin 拿到 token。每项植入前先探测能力，不支持就打 `::notice::` 后跳过，并记录到 `seeded_*` 变量。
+- 先用 FROM 的 CLI 登录（见 §4.6）：`printf '%s' "$PW" | $STX auth login --server http://127.0.0.1:17800 --username admin --password-stdin --namespace ci`。
+  **只登录这一次**，升级后不重新登录，用来验证 CLI 凭据跨升级仍然有效。
+- 每项植入前先探测能力，不支持就打 `::notice::` 后跳过，并记录到 `seeded_*` 变量。
+- 植入优先走 FROM 的 CLI（`--request-file` 传请求体，写操作加 `--confirm`）。FROM 的 CLI 没有对应命令时（例如
+  Alertmanager webhook 本来就不是 CLI 操作），才退回 curl。
+- 已核对 v1.4.0 的 CLI 命令：
+  - 通知渠道：`monitoring notification-channel create`；
+  - 通知路由：`monitoring notification-route create`；
+  - 巡检策略：`diagnostics auto-policy create`；
+  - 工作台目录：`sync task create`（`node_type=folder`）；
+  - 遗留告警只能 curl webhook。
 
   | 植入项 | 方式 | 断言用途 |
   |---|---|---|
@@ -239,16 +249,34 @@ on:
   | 旧巡检策略 | FROM 接受时，创建含 `PROM_CPU_HIGH` 条件的自动策略 | §3 |
   | 三件套 | 记录 `observability/*/*.pid` 是否存在、对应进程是否在跑 → `legacy_stack=true/false` | §1.4 |
 
-**5. 一键升级到 TARGET（用的是 FROM 自带的升级器）**
-1. `POST /api/v1/self-upgrade/check`，`{"force_latest":"$TARGET"}`；
-2. `POST /api/v1/self-upgrade/stage/import`，`-F file=@dist/stx-upgrade-...tar.gz`；
-3. `POST /api/v1/self-upgrade/execute`，取返回的任务 ID；
-4. 轮询 `GET /api/v1/self-upgrade/tasks/:id`，直到成功或失败；
-5. 轮询 `GET /api/v1/version`，直到返回 TARGET，整体超时 6 分钟。
+**5. 一键升级到 TARGET（用的是 FROM 自带的升级器和 CLI）**
 
-以上路径来自 v1.4.0 的 `router.go:1121-1133`。脚本里先对 FROM 做存在性检查，路径不存在时直接失败并给出清晰的报错。
+`$STX` 指安装目录里的 `stx` 二进制。升级前它是 FROM 的 CLI；升级后同一路径被替换成 TARGET，正好用来做断言。
+
+| 步骤 | 首选（FROM 的 CLI） | 退回（FROM 的 CLI 没有该命令时） |
+|---|---|---|
+| 1. 指定目标版本 | `$STX self-upgrade check --request-file check.json`（`{"force_latest":"$TARGET"}`） | — |
+| 2. 导入本地包 | `$STX self-upgrade import <tar.gz> --confirm`（§8 新增） | `POST /self-upgrade/stage/import`，带 CLI 的 token |
+| 3. 执行 | `$STX self-upgrade execute --request-file exec.json --confirm`（`{"mode":"apply"}`） | — |
+| 4. 等待完成 | `$STX self-upgrade task get <id> --wait`（§8 新增） | 轮询 `$STX self-upgrade history` 或 `GET /self-upgrade/tasks/:id` |
+| 5. 等新版本就绪 | `$STX self-upgrade status` 返回 TARGET，整体超时 6 分钟 | `GET /api/v1/version` |
+
+- 用 `$STX self-upgrade --help` 判断 FROM 有没有 `import` 和 `task get`，**按命令逐个探测**，不要按版本号判断。
+- v1.4.0 两个命令都没有，所以第 2 步和第 4 步会走退回路径。等本版本发布成为 latest 后，整条链路自然变成纯 CLI，
+  不需要回头改脚本。
+- `execute` 是 R3 操作。服务端如果返回 `confirmation_required`，要读出 `confirmation_id`，再带
+  `--confirmation-id` 重试一次。脚本里要处理这个分支，不能直接判失败。
+- 退回 curl 时也用 CLI 登录得到的 token（`Authorization: Bearer`，加 `X-STX-Client: cli`），不再单独维护 cookie 会话。
 
 **6. 断言**
+
+- 升级后的接口类断言**全部用 TARGET 的 CLI**（同一个 `$STX`，沿用升级前的登录配置），例如：
+  - `$STX monitoring notification-route list`、`$STX diagnostics auto-policy list`：取 `invalid_reason`；
+  - `$STX monitoring notification-channel list`：检查数据保留；
+  - 告警实例列表命令：遗留告警的断言。
+- 这样同时覆盖了 R3 里"CLI 输出带出失效原因"这一条验收。
+- 只有进程、端口、文件这类系统层断言才用 shell。
+- 新增断言：升级后第一次调用 CLI **不重新登录**也能成功（CLI 凭据跨升级有效）。二次重启之后同样检查一次。
 
 | 类别 | 断言 | 条件 |
 |---|---|---|
@@ -275,6 +303,14 @@ on:
 - `runs-on: ubuntu-latest`（自带 systemd，可以 sudo）。不需要 SeaTunnel 集群。
 - 预计耗时：构建约 8 分钟，安装、升级、断言约 6 分钟。
 - 构建产物不缓存，保证测的就是当前代码。
+
+### 4.6 为什么 CLI 优先
+
+- CLI 是用户真实使用的升级入口之一。直接调接口绕开了 CLI 的请求体、`--confirm`、R3 二次确认和 token 存储，
+  这些环节坏了，CI 也发现不了。
+- 升级前后用的是同一路径下的 `stx`：前半段测"旧 CLI 驱动旧升级器"，后半段测"新 CLI 读新服务端"，
+  中间还验证了 CLI 凭据跨升级有效。
+- 能力探测按命令逐个进行。缺命令时只在那一步退回 curl，并打 `::notice::` 写明原因，方便以后删除退回分支。
 
 ---
 
@@ -330,6 +366,36 @@ on:
 - 告警规则目录。
 
 ---
+
+## §8 CLI 补齐：自升级导入本地包与任务查询（R7）
+
+现状：`self_upgrade.stage.import` 和 `self_upgrade.task.get` 在 `internal/operation/self_upgrade.go` 里的
+命令路径是 `nil`，CLI 没有对应命令（v1.4.0 和当前 main 都一样）。内网、离线用户无法用 CLI 完成一键升级，
+这也违反了 AGENTS.md「新增接口要补 CLI 能力」的约定。
+
+### 8.1 `stx self-upgrade import <file> --confirm`
+
+- 手写命令，参照 `internal/cmd/plugin.go` / `internal/cmd/package.go`，用 `client.RequestMultipart` 流式上传，
+  字段名 `file`。上传的文件不要整个读进内存，升级包最大 500MB。
+- 在 `self_upgrade.go` 里给 `self_upgrade.stage.import` 补上命令路径 `[]string{"self-upgrade", "import"}`、
+  `Example`、`OutputExample`。operation 契约测试与 `route_baseline.json` 同步更新。
+- 风险等级沿用 R1，要求 `--confirm`。
+- 输出：导入后的暂存快照，包括目标版本和资产列表，与接口返回一致。
+
+### 8.2 `stx self-upgrade task get <id> [--wait] [--timeout 6m]`
+
+- `self_upgrade.task.get` 补命令路径 `[]string{"self-upgrade", "task", "get"}`。
+- `--wait`：轮询直到任务进入终态（succeeded / failed / cancelled），终态非 succeeded 时返回非零退出码。
+  - 控制面重启期间连接失败属于预期，要重试，不能当作失败；
+  - 超时也返回非零退出码，并在输出里带上最后一次看到的状态。
+- 不加 `--wait` 时行为与普通读命令一致。
+- 顺带给 `self_upgrade.task.cancel` 补上 `self-upgrade task cancel <id> --confirm`。
+
+### 8.3 文档
+
+- CLI 文档（`docs/` 下 CLI 相关章节，以及 `internal/cli/skill/assets/*/SKILL.md` 中如有自升级说明）补充离线升级流程：
+  `check` → `import` → `execute` → `task get --wait`。
+- 写进发布说明的「新功能」：CLI 支持导入本地升级包。
 
 ## 已知风险
 

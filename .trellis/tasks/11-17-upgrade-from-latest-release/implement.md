@@ -62,6 +62,29 @@
   布局修复必须放在新二进制里"这条约束。
 - 验证：工作流 YAML 用 `actionlint` 检查（如可用）；`scripts/check-release-asset-globs.sh` 仍然通过。
 
+## Step 6 · CLI 补齐与 CI 改为 CLI 优先（design §4.3 §4.6 §8，PR 审查后追加）
+
+- [ ] 新增 `stx self-upgrade import <file> --confirm`：
+  - 参照 `internal/cmd/plugin.go`，用 `RequestMultipart` 流式上传；
+  - 给 `self_upgrade.stage.import` 补命令路径、`Example`、`OutputExample`。
+- [ ] 新增 `stx self-upgrade task get <id> [--wait] [--timeout]` 和 `task cancel <id> --confirm`：
+  - `--wait` 期间控制面重启导致的连接失败要重试；
+  - 终态失败或超时返回非零退出码。
+- [ ] 单测：
+  - multipart 字段名与流式上传；
+  - `--wait` 的三种终态、重启期间连接失败后恢复、超时。
+- [ ] 同步更新 operation 契约测试 / `route_baseline.json`、CLI 文档与 `SKILL.md`，以及 `unreleased.md` 的「新功能」。
+- [ ] `scripts/ci-upgrade-from-latest.sh` 改为 CLI 优先：
+  - `$STX` = 安装目录里的 `stx`，只用 `auth login --password-stdin --namespace ci` 登录一次；
+  - 植入：渠道、路由、巡检策略、目录走 FROM 的 CLI，遗留告警仍用 curl 调 webhook；
+  - 升级：`check` / `execute` 走 CLI；`import` / `task get` 先用 `--help` 探测，缺命令时退回接口并打 `::notice::`；
+  - 处理 `execute` 返回 `confirmation_required` 时带 `--confirmation-id` 重试；
+  - 断言：接口类断言全部改用 TARGET 的 CLI；新增"升级后不重新登录也能调用 CLI"，二次重启后再检查一次；
+  - 删除 cookie 会话相关代码；退回 curl 时使用 CLI 登录得到的 token。
+- 验证：
+  - `go test ./internal/cmd/... ./internal/cli/... ./internal/operation/...`；
+  - PR 上的 upgrade 工作流为绿，日志里能看到 CLI 调用，以及 v1.4.0 下导入和任务查询两处的退回提示。
+
 ## 收尾
 
 - [ ] 在 PR 上重新跑 Step 1 的工作流，要求全绿；在 PR 描述里贴出前后两次运行的链接。

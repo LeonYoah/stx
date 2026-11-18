@@ -796,9 +796,16 @@ func (s *Service) HandleAgentReady(ctx context.Context, hostID uint) {
 		s.catchingUp = map[uint]bool{}
 	}
 	s.catchingUp[hostID] = true
+	// 该 goroutine 会 updateAgentNode 写任务/历史文件；纳入 taskWg，避免
+	// waitTaskDone 返回后它还在写、撞上 t.TempDir 删目录。
+	// This goroutine writes task/history files via updateAgentNode; track it in
+	// taskWg so waitTaskDone cannot return while it still writes (which would
+	// race t.TempDir's RemoveAll).
+	s.taskWg.Add(1)
 	s.mu.Unlock()
 
 	go func() {
+		defer s.taskWg.Done()
 		defer func() {
 			s.mu.Lock()
 			delete(s.catchingUp, hostID)

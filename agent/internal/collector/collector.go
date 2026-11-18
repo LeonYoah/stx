@@ -57,6 +57,18 @@ type MetricsCollector struct {
 	// mu protects lastCPUStats
 	// mu 保护 lastCPUStats
 	mu sync.Mutex
+
+	// fsStuck 记录 statfs 超时且 goroutine 尚未返回的挂载点：
+	// 挂死的 statfs 是内核态 D 阻塞，放弃调用后 goroutine 仍占住一个 OS 线程直到
+	// 内核放行；挂住期间不再对同一挂载点发起新 statfs（否则每周期各泄一个
+	// goroutine+线程，迟早撞上 Go 万线程上限）。goroutine 返回时自清。
+	// fsStuck marks mountpoints whose statfs timed out and whose goroutine has not
+	// returned: a hung statfs blocks in uninterruptible kernel sleep, so the abandoned
+	// goroutine keeps its OS thread until the kernel releases it. While a mount is
+	// marked we never issue another statfs for it — otherwise every cycle leaks one
+	// more goroutine+thread and eventually hits Go's 10k thread limit. The mark
+	// clears itself when the goroutine finally returns.
+	fsStuck sync.Map
 }
 
 // cpuStats stores CPU statistics for usage calculation

@@ -410,6 +410,15 @@ func (r *Repository) applyJobFilter(query *gorm.DB, filter *JobFilter, withStatu
 	if filter.FinishedBefore != nil {
 		query = query.Where("finished_at IS NOT NULL AND finished_at < ?", timex.Bound(*filter.FinishedBefore))
 	}
+	// 「窗口内活跃」重叠条件：未在窗口开始前结束 且 不晚于窗口结束才开始；NULL 端（排队 / 运行中）视为活跃。
+	// Active-in-window overlap: not finished before the window start and not started after the window end;
+	// a NULL end (pending / running) counts as active.
+	if filter.ActiveFrom != nil {
+		query = query.Where("(finished_at IS NULL OR finished_at >= ?)", timex.Bound(*filter.ActiveFrom))
+	}
+	if filter.ActiveTo != nil {
+		query = query.Where("(started_at IS NULL OR started_at <= ?)", timex.Bound(*filter.ActiveTo))
+	}
 	if filter.RunType != "" {
 		query = query.Where("run_type = ?", filter.RunType)
 	}

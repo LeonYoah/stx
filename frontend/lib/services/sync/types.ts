@@ -322,6 +322,9 @@ export interface SyncJobLiveMetrics {
   read_total?: number;
   write_total?: number;
   cdc_delay_seconds?: number;
+  /** 按逻辑表去重后的表数量（Source/Sink 两端同表只算一张）；>1 时展示多表徽章。
+   *  Deduplicated logical table count (same table on source/sink counts once); >1 shows the multi-table badge. */
+  table_count?: number;
 }
 
 /** 全局作业列表的状态组 / Status groups of the global job list. */
@@ -357,6 +360,11 @@ export type SyncJobListParams = {
   order?: 'asc' | 'desc';
   with_counts?: 1;
   with_live?: 1;
+  /** 活跃窗口预设：15m|1h|6h|24h|7d（窗口内运行过的作业）/ Active-in window preset for jobs that ran during it. */
+  range?: string;
+  /** 自定义活跃窗口毫秒端点，成对使用并优先于 range / Custom active window ms ends, paired and wins over range. */
+  start?: number;
+  end?: number;
 };
 
 /** sparklines 接口返回：作业 ID → [毫秒时间戳, 值] / Sparklines payload: job ID → [epoch ms, value]. */

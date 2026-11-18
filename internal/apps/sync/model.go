@@ -422,15 +422,19 @@ type JobInstance struct {
 	CancelOverdue bool `json:"cancel_overdue,omitempty" gorm:"-"`
 	// Mode 从提交快照回填，供 CLI --wait 区分批任务和实时任务，不落库。
 	// Mode is copied from the submit snapshot so CLI --wait can tell batch from streaming; it is not persisted.
-	Mode          string     `json:"mode,omitempty" gorm:"-"`
-	SubmitSpec    JSONMap    `json:"submit_spec" gorm:"type:json"`
-	ResultPreview JSONMap    `json:"result_preview" gorm:"type:json"`
-	ErrorMessage  string     `json:"error_message" gorm:"type:text"`
-	StartedAt     *time.Time `json:"started_at"`
-	FinishedAt    *time.Time `json:"finished_at"`
-	CreatedBy     uint       `json:"created_by"`
-	CreatedAt     time.Time  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt     time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+	Mode          string  `json:"mode,omitempty" gorm:"-"`
+	SubmitSpec    JSONMap `json:"submit_spec" gorm:"type:json"`
+	ResultPreview JSONMap `json:"result_preview" gorm:"type:json"`
+	ErrorMessage  string  `json:"error_message" gorm:"type:text"`
+	// StartedAt / FinishedAt / CreatedBy / CreatedAt 是列表默认排序、24 小时窗口与非管理员可见性筛选的
+	// 高频条件列，建索引避免全表扫描与 filesort。
+	// StartedAt / FinishedAt / CreatedBy / CreatedAt back the list's default ordering, 24h windows and the
+	// non-admin visibility filter; index them to avoid full scans and filesorts.
+	StartedAt  *time.Time `json:"started_at" gorm:"index"`
+	FinishedAt *time.Time `json:"finished_at" gorm:"index"`
+	CreatedBy  uint       `json:"created_by" gorm:"index"`
+	CreatedAt  time.Time  `json:"created_at" gorm:"autoCreateTime;index"`
+	UpdatedAt  time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 	// ExternalRef 记录外部调度器这次运行的引用，例如 ds:{工作流实例}:{节点 code}。
 	// ExternalRef stores the external scheduler run identity such as ds:{workflowInstance}:{taskCode}.
 	ExternalRef string `json:"external_ref,omitempty" gorm:"size:255;index"`

@@ -162,15 +162,37 @@ type HomeVolume struct {
 	PartialErrors  []string          `json:"partial_errors,omitempty"`
 }
 
-// volumeSpan 是一次待执行的 increase 查询：key 标识归属（window/today/month 或桶序号），
-// span 为区间秒数，at 为求值时刻。
-// volumeSpan is one increase query to run: key identifies its owner (window/today/month or a
-// bucket index), span is the range length in seconds, at the evaluation time.
+// volumeSpan 是一次待执行的 increase 即时查询：key 标识归属（window/today/month 或桶序号），
+// start/end 为求值区间。
+// volumeSpan is one instant increase query to run: key identifies its owner
+// (window/today/month or a bucket index), start/end the evaluated range.
 type volumeSpan struct {
 	key    string
 	bucket int // -1 表示属于 totals / -1 means it belongs to totals
 	start  time.Time
 	end    time.Time
+}
+
+// volumeQueryConcurrency 限制打到内嵌 PromQL 的并发查询数：日 / 月桶多时不加限制的话
+// 一次请求就是上百条并发即时查询，足以拖垮引擎。
+// volumeQueryConcurrency bounds concurrent queries against the embedded PromQL: with many
+// day/month buckets an unbounded request fires hundreds of instant queries, enough to stall
+// the engine.
+const volumeQueryConcurrency = 4
+
+// volumeMaxCustomSpan 放开读写量接口的自定义窗口上限：月桶只在 >62 天的窗口生效，
+// 默认 31 天上限让 month 粒度永远不可达；400 天覆盖一整年加季度对比。
+// volumeMaxCustomSpan loosens the custom-window cap for the volume endpoint: monthly
+// buckets only engage beyond 62 days, so the default 31-day cap made month unreachable;
+// 400 days covers a full year plus quarter comparisons.
+const volumeMaxCustomSpan = 400 * 24 * time.Hour
+
+// volumeEqualWidths 是等宽桶粒度 → 固定桶宽；这些粒度的满桶可合并成一条 range 查询。
+// volumeEqualWidths maps equal-width bucket granularities to their fixed width — full
+// buckets of these merge into a single range query per metric.
+var volumeEqualWidths = map[string]time.Duration{
+	"quarter_hour": 15 * time.Minute,
+	"hour":         time.Hour,
 }
 
 // VolumeService 生成首页读写量数据（指标卡总量 + 日 / 月柱状图）。
@@ -180,6 +202,7 @@ type VolumeService struct {
 	clusters     VolumeClusterSource
 	now          func() time.Time
 	instantQuery instantQueryFunc
+	rangeQuery   rangeQueryFunc
 	oldestSample func() (time.Time, bool)
 }
 
@@ -191,6 +214,7 @@ func NewVolumeService(tasks VolumeTaskNames, clusters VolumeClusterSource) *Volu
 		clusters:     clusters,
 		now:          time.Now,
 		instantQuery: dashboardPromCache.wrapInstant(promquery.Instant),
+		rangeQuery:   dashboardPromCache.wrapRange(promquery.Range),
 		oldestSample: embedts.OldestSampleTime,
 	}
 }
@@ -221,75 +245,175 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 	out.Source = promquery.SourcePrometheus
 
 	loc := timex.DisplayLocation()
-	// 桶切分 + totals 三个临时桶合并成统一的 span 列表，一次性并发查询。
-	// Buckets plus the three ad-hoc totals spans collapse into one span list queried concurrently.
-	spans := []volumeSpan{
+	// 「今日 / 本月」按真实当前时间计算，不跟随自定义时间窗的 end：
+	// 否则查历史窗口时指标卡会谎报成那天 / 那月的量。求值时刻再按缓存粒度取整
+	// （15s）——毫秒级 now 让每个请求的缓存键都不同，「本月」这种扫 31 天的
+	// 重查询会永远 miss。
+	// "today"/"month" are computed off real now rather than the custom window's end —
+	// otherwise a historical window would misreport them as that day/month. The
+	// evaluation instant is then truncated to the cache granularity (15s): a
+	// millisecond-precision now gives every request a distinct key and the
+	// month-long scan would never hit the cache.
+	alignedNow := alignPresetNow(now, nil)
+	totalsSpans := []volumeSpan{
 		{key: "window", bucket: -1, start: start, end: end},
-		{key: "today", bucket: -1, start: floorLocal(end, loc, false), end: end},
-		{key: "month", bucket: -1, start: floorLocal(end, loc, true), end: end},
+		{key: "today", bucket: -1, start: floorLocal(now, loc, false), end: alignedNow},
+		{key: "month", bucket: -1, start: floorLocal(now, loc, true), end: alignedNow},
 	}
-	if granularity != "" {
-		if granularity == "auto" {
-			granularity = volumeGranularityFor(end.Sub(start))
-		}
-		out.Granularity = granularity
-		for i, b := range volumeBuckets(start, end, loc, granularity) {
-			out.Buckets = append(out.Buckets, b)
-			spans = append(spans, volumeSpan{key: strconv.Itoa(i), bucket: i, start: time.UnixMilli(b.StartMs), end: time.UnixMilli(b.EndMs)})
-		}
+	out.Totals = &VolumeTotals{
+		TodayStartMs: totalsSpans[1].start.UnixMilli(),
+		MonthStartMs: totalsSpans[2].start.UnixMilli(),
 	}
+
 	sel := ""
 	if clusterID > 0 {
 		sel = fmt.Sprintf(`cluster_id=%s`, strconv.Quote(strconv.FormatUint(uint64(clusterID), 10)))
 	}
 	splitBy := volumeSplits[split]
 
-	// 每个 span × 每个指标一条 increase 即时查询；totals 恒为全局聚合（不拆分）。
-	// One increase instant query per span × metric; totals always aggregate globally (no split).
-	type taskRef struct {
-		span    volumeSpan
-		metric  int
-		counter string
-		split   string
+	// rangeTask 是等宽满桶合并后的一条 range 查询：每个求值点落在一个满桶的 EndMs 上，
+	// increase[桶宽] 恰好覆盖该桶；endToBucket 把求值点映射回桶号。
+	// A rangeTask is one merged range query for equal-width full buckets: each evaluation
+	// lands on a full bucket's EndMs so increase[width] covers exactly that bucket;
+	// endToBucket maps evaluation points back to bucket indices.
+	type rangeTask struct {
+		metric      int
+		split       string
+		query       string
+		start, end  time.Time
+		step        int
+		endToBucket map[int64]int
 	}
-	tasks := make([]*taskRef, 0, len(spans)*len(volumeMetrics))
-	for _, span := range spans {
-		for m, metric := range volumeMetrics {
+
+	instantSpans := append([]volumeSpan{}, totalsSpans...)
+	rangeTasks := []*rangeTask{}
+	if granularity != "" {
+		if granularity == "auto" {
+			granularity = volumeGranularityFor(end.Sub(start))
+		}
+		out.Granularity = granularity
+		buckets := volumeBuckets(start, end, loc, granularity)
+		out.Buckets = buckets
+		fullWidth := volumeEqualWidths[granularity]
+		fullIdx := []int{}
+		for i, b := range buckets {
+			span := volumeSpan{key: strconv.Itoa(i), bucket: i, start: time.UnixMilli(b.StartMs), end: time.UnixMilli(b.EndMs)}
+			if fullWidth > 0 && b.EndMs-b.StartMs == fullWidth.Milliseconds() {
+				fullIdx = append(fullIdx, i)
+			} else {
+				instantSpans = append(instantSpans, span)
+			}
+		}
+		// 只有一个满桶时 range 查询没意义，退回即时查询。/ A lone full bucket gains
+		// nothing from a range query — fall back to an instant one.
+		if len(fullIdx) > 1 {
+			endToBucket := map[int64]int{}
+			for _, i := range fullIdx {
+				endToBucket[buckets[i].EndMs] = i
+			}
+			rStart := time.UnixMilli(buckets[fullIdx[0]].EndMs)
+			rEnd := time.UnixMilli(buckets[fullIdx[len(fullIdx)-1]].EndMs)
+			for m, metric := range volumeMetrics {
+				rangeTasks = append(rangeTasks, &rangeTask{
+					metric: m, split: splitBy,
+					query: volumeQuery(metric.counter, sel, splitBy, fullWidth),
+					start: rStart, end: rEnd,
+					step:        int(fullWidth.Seconds()),
+					endToBucket: endToBucket,
+				})
+			}
+		} else {
+			for _, i := range fullIdx {
+				b := buckets[i]
+				instantSpans = append(instantSpans, volumeSpan{key: strconv.Itoa(i), bucket: i, start: time.UnixMilli(b.StartMs), end: time.UnixMilli(b.EndMs)})
+			}
+		}
+	}
+
+	// 即时任务：totals（不拆分）+ 残缺 / 变宽桶；与 range 任务共用 4 路并发额度。
+	// Instant tasks: totals (unsplit) + clipped/variable-width buckets; shares the
+	// 4-way concurrency budget with the range tasks.
+	type instantTask struct {
+		span   volumeSpan
+		metric int
+		split  string
+	}
+	instantTasks := make([]*instantTask, 0, len(instantSpans)*len(volumeMetrics))
+	for _, span := range instantSpans {
+		for m := range volumeMetrics {
 			by := splitBy
 			if span.bucket < 0 {
 				by = ""
 			}
-			tasks = append(tasks, &taskRef{span: span, metric: m, counter: metric.counter, split: by})
+			instantTasks = append(instantTasks, &instantTask{span: span, metric: m, split: by})
 		}
 	}
-	type taskResult struct {
+	type instantResult struct {
 		samples []promquery.Sample
 		err     error
 	}
-	results := make([]taskResult, len(tasks))
+	type rangeResult struct {
+		series []promquery.Series
+		err    error
+	}
+	iResults := make([]instantResult, len(instantTasks))
+	rResults := make([]rangeResult, len(rangeTasks))
 	var wg gosync.WaitGroup
-	for i, task := range tasks {
+	sem := make(chan struct{}, volumeQueryConcurrency)
+	for i, task := range instantTasks {
 		wg.Add(1)
-		go func(i int, task *taskRef) {
+		go func(i int, task *instantTask) {
 			defer wg.Done()
-			results[i].samples, results[i].err = s.queryVolumeIncrease(ctx, task.counter, sel, task.split, task.span.start, task.span.end, loc)
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			// 经 queryVolumeIncrease 走日桶切块：>24h 的 increase 在内嵌 tsdb 上按自然日拆分求和
+			// （400 天的 window 总量也在此覆盖）。
+			// Routed through queryVolumeIncrease's day chunking: >24h increases split into calendar
+			// days on the embedded tsdb (the 400-day window totals included).
+			iResults[i].samples, iResults[i].err = s.queryVolumeIncrease(ctx, volumeMetrics[task.metric].counter, sel, task.split, task.span.start, task.span.end, loc)
+		}(i, task)
+	}
+	for i, task := range rangeTasks {
+		wg.Add(1)
+		go func(i int, task *rangeTask) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			rResults[i].series, rResults[i].err = s.rangeQuery(ctx, task.query, task.start, task.end, task.step)
 		}(i, task)
 	}
 	wg.Wait()
 
 	// 汇总 totals：sum 无分组 ⇒ 单样本，容错地把全部样本相加。
 	// Assemble totals: sum without grouping yields one sample; sum all samples defensively.
-	out.Totals = &VolumeTotals{
-		TodayStartMs: spans[1].start.UnixMilli(),
-		MonthStartMs: spans[2].start.UnixMilli(),
-	}
 	totalsPtr := map[string]*VolumeCounts{"window": &out.Totals.Window, "today": &out.Totals.Today, "month": &out.Totals.Month}
 	failedTotals := map[string]bool{}
 	// 桶值：bucketIdx → metric → groupID → value。/ Bucket values: bucketIdx → metric → groupID → value.
 	bucketValues := map[int]map[string]map[string]float64{}
 	groupSet := map[string]bool{}
-	for i, task := range tasks {
-		res := results[i]
+	bucketValue := func(bi int, metric string) map[string]float64 {
+		values := bucketValues[bi]
+		if values == nil {
+			values = map[string]map[string]float64{}
+			bucketValues[bi] = values
+		}
+		if values[metric] == nil {
+			values[metric] = map[string]float64{}
+		}
+		return values[metric]
+	}
+	groupID := func(metric map[string]string, split string) string {
+		gid := "0"
+		if split != "" {
+			if g := strings.TrimSpace(metric[split]); g != "" {
+				gid = g
+			}
+		}
+		groupSet[gid] = true
+		return gid
+	}
+	for i, task := range instantTasks {
+		res := iResults[i]
 		metric := volumeMetrics[task.metric].key
 		if res.err != nil {
 			if task.span.bucket < 0 {
@@ -305,24 +429,26 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 			}
 			continue
 		}
-		values := bucketValues[task.span.bucket]
-		if values == nil {
-			values = map[string]map[string]float64{}
-			bucketValues[task.span.bucket] = values
-		}
-		if values[metric] == nil {
-			values[metric] = map[string]float64{}
-		}
 		for _, sample := range res.samples {
-			gid := "0"
-			if task.split != "" {
-				gid = strings.TrimSpace(sample.Metric[task.split])
-				if gid == "" {
-					gid = "0"
+			bucketValue(task.span.bucket, metric)[groupID(sample.Metric, task.split)] += sample.Value
+		}
+	}
+	// range 任务结果：series 上的拆分标签定 group，point[0] 的 EndMs 定桶号。
+	// Range results: the series' split label picks the group, a point's EndMs picks the bucket.
+	for i, task := range rangeTasks {
+		res := rResults[i]
+		metric := volumeMetrics[task.metric].key
+		if res.err != nil {
+			out.PartialErrors = append(out.PartialErrors, "buckets_"+metric)
+			continue
+		}
+		for _, serie := range res.series {
+			gid := groupID(serie.Metric, task.split)
+			for _, pt := range serie.Points {
+				if bi, ok := task.endToBucket[int64(pt[0])]; ok {
+					bucketValue(bi, metric)[gid] += pt[1]
 				}
 			}
-			groupSet[gid] = true
-			values[metric][gid] += sample.Value
 		}
 	}
 	if len(failedTotals) > 0 {
@@ -646,7 +772,7 @@ func NewVolumeHandler(service *VolumeService) *VolumeHandler {
 // @Param cluster_id query int false "集群 ID，空表示全部集群"
 // @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
 // @Param start query string false "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range"
-// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 31 天"
+// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 400 天（>62 天进入月桶）"
 // @Param granularity query string false "桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets"
 // @Param split query string false "拆分维度：none|cluster|task" default(none)
 // @Success 200 {object} DashboardDataResponse{data=HomeVolume}
@@ -672,7 +798,7 @@ func (h *VolumeHandler) GetVolume(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, DashboardDataResponse{ErrorMsg: "split must be none|cluster|task"})
 		return
 	}
-	window, err := promquery.ParseWindow(c.Query("start"), c.Query("end"), time.Now())
+	window, err := promquery.ParseWindowWithSpan(c.Query("start"), c.Query("end"), time.Now(), volumeMaxCustomSpan)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, DashboardDataResponse{ErrorMsg: err.Error()})
 		return

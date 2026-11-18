@@ -44,7 +44,13 @@ func (s *Server) ReportHostMetrics(ctx context.Context, req *pb.ReportHostMetric
 	}
 	conn, ok := s.agentManager.GetAgent(req.AgentId)
 	if !ok || conn.HostID == 0 {
-		return nil, status.Error(codes.NotFound, "agent not bound to a host")
+		// 未绑定主机的 Agent 仍然回成功并丢弃样本：未绑定是合法部署形态（装完还没
+		// 分配主机），回 NotFound 只会让 Agent 每轮上报刷 warn，且改变不了结果。
+		// An unbound agent still gets success with samples dropped: unbound is a
+		// legitimate deployment state (installed but not yet assigned), and returning
+		// NotFound would only spam the agent's warn log every round without changing
+		// the outcome.
+		return &pb.ReportHostMetricsResponse{Success: true}, nil
 	}
 	// 主机名 / IP 用于 tsdb 身份标签；查询失败降级为空串，不阻断写入。
 	// Host name / IP feed the tsdb identity labels; a lookup failure degrades to empty

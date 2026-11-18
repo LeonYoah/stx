@@ -91,6 +91,14 @@ func waitTaskDone(t *testing.T, s *Service, id string) *TaskState {
 	for {
 		got, err := s.GetTask(id)
 		if err == nil && got.Status != StatusUpgrading {
+			// 终态可读后还有收尾 goroutine 在写任务/历史文件（回滚代理、catch-up、
+			// 任务主循环尾写）；等它们停了再返回，否则写盘会撞上测试结束的
+			// t.TempDir RemoveAll，造成 directory not empty 的偶发失败。
+			// After the terminal state is readable, tail writers may still touch
+			// task/history files (rollback agents, catch-up, task-loop tail writes);
+			// wait for them or their writes race the test's final t.TempDir RemoveAll
+			// into intermittent "directory not empty" failures.
+			s.taskWg.Wait()
 			return got
 		}
 		if time.Now().After(deadline) {
@@ -641,6 +649,10 @@ func TestApplyReplacesBinaryRestartsProxiesAndHandsOverRestart(t *testing.T) {
 	_ = writeJSONFile(h.plan.ResultPath, restartResult{Status: restartOutcomeSucceeded,
 		ControlPlane: ProcessRestart{Component: "control_plane", Strategy: RestartStrategyStandalone, Status: RestartSucceeded, OldPID: h.plan.OldPID, NewPID: 4242}})
 	done := waitTaskDone(t, s2, task.ID)
+	// h.s 也可能在任务文件被删前抢到收尾并起回滚写盘 goroutine，一并等掉。
+	// h.s can also win the finish race and spawn rollback writers before the task
+	// file is removed — drain them too.
+	h.s.taskWg.Wait()
 	if done.Status != StatusSucceeded || stepByCode(done.Steps, StepVerify).Status != StepSucceeded || stepByCode(done.Steps, StepRestart).Status != StepSucceeded {
 		t.Fatalf("finished task = %+v", done)
 	}
@@ -674,6 +686,10 @@ func TestApplyRollbackAfterFailedRestartRestoresAgentsAndProxies(t *testing.T) {
 	_ = writeJSONFile(h.plan.ResultPath, restartResult{Status: restartOutcomeRolledBack, Reason: "new control plane exited",
 		ControlPlane: ProcessRestart{Component: "control_plane", Status: RestartRolledBack}})
 	done := waitTaskDone(t, s2, task.ID)
+	// h.s 也可能在任务文件被删前抢到收尾并起回滚写盘 goroutine，一并等掉。
+	// h.s can also win the finish race and spawn rollback writers before the task
+	// file is removed — drain them too.
+	h.s.taskWg.Wait()
 	if done.Status != StatusFailed || done.FailureStep != StepRestart || !strings.Contains(done.FailureReason, "exited") {
 		t.Fatalf("task = %+v", done)
 	}
@@ -736,6 +752,7 @@ func TestApplyRollbackKeepsBinaryRestoredByWatchdog(t *testing.T) {
 	_ = writeJSONFile(h.plan.ResultPath, restartResult{Status: restartOutcomeRolledBack, Reason: "new control plane exited",
 		ControlPlane: ProcessRestart{Component: "control_plane", Status: RestartRolledBack}})
 	_ = waitTaskDone(t, s2, task.ID)
+	h.s.taskWg.Wait()
 	after, err := os.Stat(h.exe)
 	if err != nil || !os.SameFile(before, after) {
 		t.Fatal("the running (restored) binary must not be replaced again")

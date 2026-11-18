@@ -17,8 +17,10 @@
 package collector
 
 import (
+	"context"
 	"math"
 	"testing"
+	"time"
 )
 
 // collectOnce 真采一轮（本机环境），返回 name → samples 索引。
@@ -26,7 +28,9 @@ import (
 func collectOnce(t *testing.T) map[string][]string {
 	t.Helper()
 	c := NewMetricsCollector(nil)
-	samples := c.CollectHostMetrics()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	samples := c.CollectHostMetrics(ctx)
 	if len(samples) == 0 {
 		t.Fatal("no host samples collected")
 	}

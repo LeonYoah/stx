@@ -2913,7 +2913,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 400 天（\u003e62 天进入月桶）",
                         "name": "end",
                         "in": "query"
                     },
@@ -5135,8 +5135,26 @@
                     },
                     {
                         "type": "integer",
-                        "description": "1 = 返回任务名与当前读写速率",
+                        "description": "1 = 返回任务名与当前读写速率、条数与逻辑表数",
                         "name": "with_live",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "活跃窗口预设：15m|1h|6h|24h|7d（窗口内运行过的作业，运行中恒命中）",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义活跃窗口起点（unix 秒/毫秒或 RFC3339），与 end 一起用时优先于 range",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "自定义活跃窗口终点（unix 秒/毫秒或 RFC3339）",
+                        "name": "end",
                         "in": "query"
                     }
                 ],
@@ -9040,6 +9058,9 @@
             "properties": {
                 "agent_status": {
                     "type": "string"
+                },
+                "boot_time_ms": {
+                    "type": "integer"
                 },
                 "cpu_cores": {
                     "type": "integer"
@@ -13058,6 +13079,7 @@
                     "$ref": "#/definitions/sync.RunType"
                 },
                 "started_at": {
+                    "description": "StartedAt / FinishedAt / CreatedBy / CreatedAt 是列表默认排序、24 小时窗口与非管理员可见性筛选的\n高频条件列，建索引避免全表扫描与 filesort。\nStartedAt / FinishedAt / CreatedBy / CreatedAt back the list's default ordering, 24h windows and the\nnon-admin visibility filter; index them to avoid full scans and filesorts.",
                     "type": "string"
                 },
                 "status": {
@@ -13141,6 +13163,10 @@
                 },
                 "read_total": {
                     "type": "number"
+                },
+                "table_count": {
+                    "description": "TableCount 是按逻辑表去重后的表数量（Source[0].t 与 Sink[0].t 算同一张），\u003e1 时前端显示多表徽章。\nTableCount is the deduplicated logical table count (Source[0].t and Sink[0].t count as one); the frontend\nshows the multi-table badge when it is greater than one.",
+                    "type": "integer"
                 },
                 "write_qps": {
                     "type": "number"

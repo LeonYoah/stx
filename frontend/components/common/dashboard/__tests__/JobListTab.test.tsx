@@ -58,16 +58,26 @@ const sync = vi.hoisted(() => ({
   recoverJob: vi.fn(),
   getJobTimeseries: vi.fn(),
 }));
+const auth = vi.hoisted(() => ({getUserInfo: vi.fn()}));
+const monitoring = vi.hoisted(() => ({listNotifiableUsers: vi.fn()}));
 
-vi.mock('@/lib/services', () => ({default: {sync}}));
+vi.mock('@/lib/services', () => ({default: {sync, auth, monitoring}}));
+// App Router 上下文在 jsdom 里不存在；「完整详情」的 router.push 用桩代替。
+// No App Router context under jsdom; stub the push used by the "full details" entry.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({push: vi.fn(), replace: vi.fn(), prefetch: vi.fn()}),
+}));
 vi.mock('@/components/charts/sparkline', () => ({
   Sparkline: ({label}: {label: string}) => (
     <span data-testid='sparkline'>{label}</span>
   ),
 }));
-vi.mock('../JobPreviewDrawer', () => ({
-  JobPreviewDrawer: ({job}: {job: SyncJobInstance | null}) =>
-    job ? <div data-testid='preview'>{job.id}</div> : null,
+// 完整详情弹窗由 JobDetailHost 承载；测试只关心宿主把它打开，内部页签逻辑有独立测试。
+// The full detail dialog is hosted by JobDetailHost; this suite only asserts the host opens it —
+// the dialog's own tabs are covered elsewhere.
+vi.mock('@/components/common/sync/job-table/JobDetailHost', () => ({
+  JobDetailHost: ({job, open}: {job: SyncJobInstance | null; open: boolean}) =>
+    open && job ? <div data-testid='detail-host'>{job.id}</div> : null,
 }));
 
 const job = (
@@ -113,6 +123,7 @@ const baseQuery: DashboardQuery = {
   order: '',
   page: 1,
   range: '1h',
+  listRange: 'all',
   start: undefined,
   end: undefined,
 };
@@ -133,6 +144,9 @@ const renderTab = (query: Partial<DashboardQuery> = {}, update = vi.fn()) => {
 describe('JobListTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 未登录态：行内操作退化为禁用态，不影响列表行为。/ Signed-out state: row actions degrade to disabled.
+    auth.getUserInfo.mockRejectedValue(new Error('unauthorized'));
+    monitoring.listNotifiableUsers.mockResolvedValue({users: []});
     sync.listJobs.mockResolvedValue(listData);
     sync.getJobSparklines.mockResolvedValue({
       source: 'none',
@@ -166,6 +180,24 @@ describe('JobListTab', () => {
       with_counts: 1,
       with_live: 1,
     });
+  });
+
+  // 顶栏时间窗 → 活跃窗口参数：预设传 range，自定义传 start/end，'all' 不带窗口参数。
+  // The header range maps to active-window params: presets send range, custom sends start/end, 'all' sends none.
+  it('maps the header range onto the active-window list params', async () => {
+    renderTab({listRange: '6h'});
+    await screen.findByTestId('home-job-row-1');
+    expect(sync.listJobs.mock.calls[0][0]).toMatchObject({range: '6h'});
+
+    vi.clearAllMocks();
+    sync.listJobs.mockResolvedValue(listData);
+    renderTab({start: 1700000000000, end: 1700003600000});
+    await screen.findByTestId('home-job-row-1');
+    expect(sync.listJobs.mock.calls[0][0]).toMatchObject({
+      start: 1700000000000,
+      end: 1700003600000,
+    });
+    expect(sync.listJobs.mock.calls[0][0].range).toBeUndefined();
   });
 
   it('falls back to the start-time order when a rate sort is asked for outside the running group', async () => {
@@ -217,7 +249,13 @@ describe('JobListTab', () => {
         within(screen.getByTestId(`home-job-row-${id}`)).getByRole('checkbox'),
       );
     }
-    fireEvent.click(screen.getByRole('button', {name: '停止'}));
+    // 行内也有「停止」（未登录禁用态），批量按钮限定在批量条内。
+    // Rows also render a (disabled) Stop button; scope the bulk one inside the bulk bar.
+    fireEvent.click(
+      within(screen.getByTestId('home-job-bulk')).getByRole('button', {
+        name: '停止',
+      }),
+    );
     fireEvent.click(await screen.findByRole('button', {name: '确认'}));
     await waitFor(() => expect(sync.cancelJob).toHaveBeenCalledTimes(1));
     expect(sync.cancelJob).toHaveBeenCalledWith(1, {
@@ -276,9 +314,9 @@ describe('JobListTab', () => {
     expect(within(row).getByText('耗时 10 分')).toBeTruthy();
   });
 
-  it('opens the preview drawer on row click', async () => {
+  it('opens the full detail dialog on row click', async () => {
     renderTab();
     fireEvent.click(await screen.findByTestId('home-job-row-2'));
-    expect(screen.getByTestId('preview').textContent).toBe('2');
+    expect(screen.getByTestId('detail-host').textContent).toBe('2');
   });
 });

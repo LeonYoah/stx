@@ -15,8 +15,9 @@
 - [ ] 拍板 design §3 中的"待定"项：
   - 下拉选择；
   - 可搜索下拉；
-  - 更多菜单；
-  - 状态标签用 `ui/badge` 还是 Arc `badge`。
+  - 更多菜单。
+  （状态标签已定：Arc `badge` 的 `tone`，规范 §17。）
+- [ ] 差异清单列出 91 处手写颜色 class 的 `Badge`，以及每处对应的 tone。
 - [ ] 把选型表写回 `ui-conventions.md`。
 - 评审门槛：用户确认差异清单和选型表之后，才进入 Phase 1。
 
@@ -35,6 +36,7 @@
 
 - [ ] 接入 `TableCard` 与 `useServerListQuery`。
 - [ ] `AuditLogMain` 持有查询状态，`AuditLogTable` 只负责渲染。
+- [ ] 状态列换成 Arc `badge`（`size='sm'` 加 `dot`）。用每页 100 行加自动刷新验证动画不卡顿，并把结论写进 PR。
 - [ ] 迁移前后截图对比；Egolite 跑审计用例。
 - 评审门槛：试点通过后，再批量迁移其余页面。
 
@@ -57,7 +59,8 @@
 
 - [ ] 3 处 `window.confirm` 换成 `AlertDialog`（文案沿用现有 i18n key）。
 - [ ] 用普通 `Dialog` 承载的纯确认，改成 `AlertDialog`。
-- [ ] 下拉框、更多菜单、状态标签按 `inventory.md` 的清单逐处替换。
+- [ ] 手写颜色 class 的 `Badge` 换成 Arc `badge` 的 `tone`，每个域只用一个映射函数。完成后用 `grep` 确认没有遗漏。
+- [ ] 下拉框、更多菜单按 `inventory.md` 的清单逐处替换。
 - [ ] diff 只能是组件替换，不能有布局、数据流或轮询的改动。
 - [ ] Egolite：每一处替换各一条用例。
 

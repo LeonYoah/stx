@@ -16,6 +16,7 @@ STX 控制台采用现代化控制台体验架构：
 - **弹窗美学与分级**：消除无边框感，重内容弹窗（详情、巡检、配置、DAG）显式放宽并采用内部滚动。
 - **向导式闭环引导**：新增关键异步/物理资源后，必须提供带有操作命令与实时心跳侦听的引导向导。
 - **保密凭据安全**：敏感密码/Token 字段不回显、保存后脱敏，编辑时支持“保持原密码”与“重写覆盖”。
+- **状态标签分工**：状态用 Arc `Badge` 的 `tone`，中性标签用 `ui/badge` 的 `outline` / `secondary`，不手写颜色 class（见 §17）。
 - **微动效赋能**：借助 GSAP 微动效库为表格行与卡片网格赋予克制丝滑的入场动效。
 
 新增或重构前端 UI 时必须严格遵循本约定。
@@ -367,6 +368,30 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - **轮询**：`usePolledResource` 30 秒一次，页面不可见暂停、回到可见立即刷新；刷新失败保留旧数据。
 - **beUI 引入**：sparkline 依赖链放在 `components/charts/`，其 `lib/i18n.tsx` 改名为 `components/charts/beui-i18n.tsx`，`lib/utils`、`lib/ease` 用仓库已有版本；Arc 组件保持上游原格式（不跑 prettier），两类文件都保留 MIT 头并登记 `licenses/third_party_mit_files.txt`。
 
+## 17. 状态标签（Badge）
+
+- **按用途分两种**：
+  - **状态**用 Arc `Badge`（`@/components/arc/badge/badge`）的 `tone`：成功、失败、警告、进行中、已停用这类有好坏或进度含义的标签。
+  - **非状态的中性标签**用 `ui/badge` 的 `outline` 或 `secondary`：版本号、数量、分类、类型、引擎名。
+- **不要手写颜色 class**：不给 `Badge` 写 `text-green-600`、`bg-amber-500/10`、`border-rose-500/30` 这类颜色。
+  `ui/badge` 没有语义色，手写会导致同一状态各页配色、字号、底色都不一样，深色主题下还容易缺少适配。
+  需要颜色就用 Arc `tone`，颜色来自主题 token，深色和浅色都已调好。
+- **状态 → tone 对照**（沿用 `JobDetailDialog.jobStatusTone`）：
+
+  | tone | 含义 | 例子 |
+  |---|---|---|
+  | `success` | 成功、已完成、健康、已启用 | SUCCESS、FINISHED、SAVEPOINT_DONE、在线 |
+  | `info` | 进行中、运行中、已调度 | RUNNING、执行中、巡检中 |
+  | `warning` | 等待、即将超限、需要注意、未知中间态 | PENDING、排队、告警级别 warning |
+  | `danger` | 失败、错误、离线、严重 | FAILED、离线、告警级别 critical |
+  | `neutral` | 已取消、已停止、已禁用 | CANCELED、已停用 |
+
+- **每个域只有一个映射函数**（如 `jobStatusTone`、`alertSeverityTone`），放在该域的 `*-format.ts` 里。不要在 JSX 里逐处写 `switch`。
+- **列表的状态列**统一用 `size='sm'` 加 `dot`；详情页标题旁的状态可以用 `outline`。同一张表里不要混用尺寸。
+- **文案走 next-intl**；未知的后端状态值用 `t.has()` 兜底，tone 落到 `warning`。
+
+---
+
 ## 一致性检查项
 
 在提交代码前，必须核对以下检查清单：
@@ -378,6 +403,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] **[降噪与防堆砌]** 页面与弹窗是否遵循渐进式披露（Progressive Disclosure），严禁在首屏将概览、重型表格与复杂表单全量无脑平铺？
 - [ ] **[下钻与速览]** 次级重型内容是否通过 Tab / 抽屉 / 折叠面板进行物理分流？主视图是否仅保留轻量速览与穿透动作？
 - [ ] **[排版防碎裂]** 关键标识、键值单元、代码、状态组是否声明了防被迫换行保护（`whitespace-nowrap` / `truncate` / `overflow-x-auto`），杜绝机械等宽 Grid 导致的字符内部被迫断行？
+- [ ] 状态标签是否用 Arc `Badge` 的 `tone`（经域内唯一的映射函数）？中性标签是否用 `ui/badge` 的 `outline` / `secondary`？是否没有给 `Badge` 手写颜色 class？
 - [ ] 加载状态是否采用 `TableSkeletonRows` + `TableLoadingBar` 的零塌陷架构，而非大 Spinner？
 - [ ] 筛选栏是否统一左对齐？搜索框等输入项是否已支持 **Enter** 快捷提交？
 - [ ] 表格底部分页是否通过 `border-t bg-muted/10` 封装在 Table Card 内？

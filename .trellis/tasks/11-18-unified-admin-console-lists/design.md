@@ -37,7 +37,8 @@
 | 少量选项的下拉选择 | `ui/select` | **待定** | 现状以它为主 |
 | 可搜索 / 长列表选择 | Arc `combobox` | §14 已在模板插件列表使用；全局**待定** | 替代 `ui/command` 自拼的可搜索下拉 |
 | 行内"更多"菜单 | `ui/dropdown-menu` | **待定** | `ui/popover` 不当菜单用；单行动作 ≤2 个时直接摆按钮 |
-| 状态 / 级别标签 | 见下方建议 | **待定** | 现状 `ui/badge` 78 个文件、Arc `badge` 5 个文件 |
+| 状态 / 级别标签 | Arc `badge`（`tone`） | **已定**（2026-11-18 用户确认），写入规范 §17 | 成功、失败、警告、进行中这类状态都用它 |
+| 非状态的中性标签（版本、数量、分类、类型） | `ui/badge` 的 `outline` / `secondary` | **已定**，写入规范 §17 | 不带语义色，不手写颜色 class |
 | 页面级页签 | `ModuleNavTabs` | **已定** | 监控中心、诊断中心、账号子导航 |
 | 详情内页签 | Arc `Tabs` | §14，**已定** | |
 | 工具栏互斥筛选 / 视图切换 | Arc `SegmentedControl` | §14，**已定** | |
@@ -45,10 +46,27 @@
 | 分页 | `ui/pagination` | §10，**已定** | |
 | 日期范围 | `ArcDateRangePicker` | §14，**已定** | |
 
-**状态标签的建议**：列表和表格里的状态用 `ui/badge`，并统一语义 variant 映射（success / warning / danger / info / neutral），
-颜色走主题 token；Arc `badge` 保留在规范 §14 指定的位置（工作台侧栏、作业详情、升级向导）。理由是
-`ui/badge` 已覆盖 78 个文件，整体换成 Arc 的改动面过大，收益只是视觉统一。如果评审认为必须全站统一成 Arc，
-就单独立项，不放进本任务。
+**状态标签的决定（已定）**：
+
+- **按用途分工**：表示状态的标签用 Arc `badge` 的 `tone`；非状态的中性标签继续用 `ui/badge` 的 `outline` / `secondary`。
+- **理由**：
+  - 全站 172 处 Badge 用法中，有 91 处给 `ui/badge` 手写了颜色 class（`text-green-600`、`bg-amber-500/10` 等）。
+    `ui/badge` 只有 default / secondary / destructive / outline 四种，没有语义色。
+  - 手写的结果是：同一状态的配色、字号、有无底色都不一致；部分写法没有 `dark:` 变体，深色主题下对比度不足。
+  - 这 91 处无论选哪个方案都要改。Arc `badge` 自带 `neutral/success/info/warning/danger` 五种 tone，深浅色都调过，
+    还有 `dot`、`outline`、`size`；规范 §14 也已在作业详情、工作台、升级向导中用它表示状态。
+  - 备选方案"给 `ui/badge` 补语义 variant"颜色效果接近，但要改 shadcn 源码，也没有 dot / size 变体，因此不采用。
+- **状态 → tone 对照**，沿用 `JobDetailDialog.jobStatusTone` 的既有约定，各域在 `*-format.ts` 里各提供一个映射函数：
+
+| tone | 含义 | 例子 |
+|---|---|---|
+| `success` | 成功、已完成、健康、已启用 | SUCCESS、FINISHED、SAVEPOINT_DONE、在线 |
+| `info` | 进行中、运行中、已调度 | RUNNING、执行中、巡检中 |
+| `warning` | 等待、即将超限、需要注意、未知中间态 | PENDING、排队、告警级别 warning |
+| `danger` | 失败、错误、离线、严重 | FAILED、离线、告警级别 critical |
+| `neutral` | 已取消、已停止、已禁用 | CANCELED、已停用 |
+
+- **列表里的状态列**统一用 `size='sm'` 加 `dot`，各页之间不再混用不同尺寸。
 
 ## 4. 管理列表骨架
 
@@ -90,7 +108,8 @@
 - 必改：3 处 `window.confirm` → `AlertDialog`：`TaskAlertSection.tsx:90`、`MonitoringPolicyCenter.tsx:1680`、`:1846`。
 - 逐个判断：sync 下 5 个用普通 `Dialog` 承载确认的文件（`TaskAlertSection`、`CuratedTemplatesManagePanel`、`DataSyncStudio`、
   `DolphinPushDialog`、`StudioDialogs`）。纯确认改成 `AlertDialog`，带表单的保留。
-- 下拉框、更多菜单、状态标签按 §3 选型替换；具体替换清单来自 Phase 0 的差异清单。
+- 状态标签：把手写颜色 class 的 `ui/badge`（全站 91 处）换成 Arc `badge` 的 `tone`；非状态的 `outline` / `secondary` 标签不动。
+- 下拉框、更多菜单按 §3 选型替换；具体替换清单来自 Phase 0 的差异清单。
 
 ## 6. Phase 0 差异清单与回归矩阵
 
@@ -120,6 +139,7 @@
 |---|---|
 | 公共件抽象过度，难以适配告警等复杂页面 | 只抽 §4.1 两个件，用插槽注入，告警最后迁移 |
 | 交互组件对齐层误改了布局或数据流 | 单独 PR；回归矩阵覆盖每一处替换；评审时检查 diff 只涉及组件替换 |
-| 状态标签迁移改动面过大 | 按 §3 的建议只统一 variant 映射，不全站迁移 |
+| 状态标签迁移 91 处，可能漏改或映射不一致 | 各域只提供一个 `xxxStatusTone` 映射函数；完成后 grep 确认没有手写颜色 class 的 `Badge` |
+| Arc `badge` 文字变化时有动画，大列表频繁刷新时可能卡顿 | 审计试点时用最大页（100 行）加自动刷新验证；有问题再评估在列表里关闭动画 |
 | 服务端列表误用客户端排序语义（`StudioDataTable` / beUI Table） | 在规范和评审清单中写明边界 |
 | vendored 的 Arc / beUI 组件升级 | 项目适配集中在封装层；改动在文件头注明；同步 `licenses/third_party_mit_files.txt` |

@@ -30,7 +30,8 @@
   - sync 下有 5 个文件用普通 `ui/dialog` 承载确认，需要逐个判断是否属于纯确认。
 - **下拉选择**：工作台、作业控制台、大盘里，`ui/select` 7 处、Arc `combobox` 2 处、`ui/command` 3 处；没有原生 `<select>`。
 - **更多菜单**：`ui/dropdown-menu` 4 处，`ui/popover` 3 处（需核对是否被当菜单用）。
-- **状态标签**：全站 `ui/badge` 78 个文件，Arc `badge` 5 个文件。后者是规范 §14 指定的位置：工作台侧栏、作业详情、升级向导。
+- **状态标签**：全站 `ui/badge` 78 个文件、172 处用法，其中 91 处手写了颜色 class，同一状态的配色、字号、有无底色都不一致，
+  部分写法缺少深色适配。Arc `badge` 有 5 个文件，是规范 §14 指定的位置：工作台侧栏、作业详情、升级向导。
 - **页签**：
   - 页面级导航用 `ModuleNavTabs`；
   - 详情页签按规范用 Arc `Tabs`；
@@ -46,13 +47,15 @@
    每个阶段的 PR 附 Egolite 回归记录；现有 CI（vitest、`tsc`、已有 Playwright E2E）保持通过。不要求为本任务补 Playwright 用例。
 3. **以 `ui-conventions.md` 已有的选型为起点**。规范没定的部分在 Phase 0 拍板后写回规范；要推翻规范已有的决定，必须写明理由并同步修改规范。
 4. **不做**：移动端 Drawer 方案、审计批量操作、给 `confirm-morph` 开新用途、"万能表格"。
+5. **状态标签用 Arc `badge` 的 `tone`**；非状态的中性标签用 `ui/badge` 的 `outline` / `secondary`；全站不再手写颜色 class。
 
 ## Requirements
 
 ### R1 交互组件统一选型（全局）
 - 产出一张"场景 → 组件"的选型表：破坏性确认、表单弹窗、行内轻确认、下拉选择（少量 / 可搜索）、行内更多菜单、状态标签、
   页签（页面级 / 详情 / 工具栏筛选）、详情面板、分页、日期范围。每一项写明组件路径和规范出处。
-- 状态标签是 `ui/badge` 还是 Arc `badge` 在 Phase 0 拍板（见 design §3 的建议）。
+- 状态标签已定（2026-11-18 用户确认）：表示状态的用 Arc `badge` 的 `tone`，非状态的中性标签用 `ui/badge` 的 `outline` / `secondary`，
+  不再手写颜色 class。对照表见 design §3，规范见 `ui-conventions.md` §17。
 - 选型结论写回 `ui-conventions.md`。
 
 ### R2 管理列表骨架统一（5 个页面）
@@ -76,6 +79,7 @@
 - [ ] Phase 0 差异清单与选型表完成，开放问题全部拍板，选型已写回 `ui-conventions.md`。
 - [ ] 5 个管理列表使用同一个表格卡片和查询状态 hook，不再有各自拷贝的卡片与分页底栏；筛选变化都回到第 1 页。
 - [ ] 全站不再有 `window.confirm`；纯确认都用 `AlertDialog`。
+- [ ] 全站没有手写颜色 class 的 `Badge`；状态都用 Arc `badge` 的 `tone`，映射符合 design §3 的对照表。
 - [ ] 工作台、作业控制台、大盘的确认弹窗、下拉框、更多菜单、状态标签符合选型表；布局与数据流没有变化。
 - [ ] 每个阶段的 PR 都附有 Egolite 回归记录且全部通过，现有 CI 通过。
 - [ ] 新增和修改的文案都走 next-intl（中英文），可点击元素都有可读的 `aria-label`。

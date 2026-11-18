@@ -20,6 +20,7 @@ package diagnostics
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
@@ -201,6 +202,31 @@ func (s *Service) ListAutoPolicies(ctx context.Context, clusterID *uint, page, p
 		Page:     page,
 		PageSize: pageSize,
 	}, nil
+}
+
+// WarnOnInvalidAutoPolicies 启动时扫描失效自动巡检策略（旧 PROM_* / NODE_UNHEALTHY 模板
+// 或未选规则的 ALERT_FIRING），记一条 WARN 并列出受影响策略 ID。
+// WarnOnInvalidAutoPolicies scans invalid auto policies at startup (retired PROM_* /
+// NODE_UNHEALTHY templates or ALERT_FIRING without rule keys) and logs one WARN with the IDs.
+func (s *Service) WarnOnInvalidAutoPolicies(ctx context.Context) {
+	if s == nil || s.repo == nil {
+		return
+	}
+	policies, _, err := s.repo.ListAutoPolicies(ctx, nil, 1, 1000)
+	if err != nil {
+		log.Printf("[DiagnosticsAutoPolicy] WARN 扫描失效自动巡检策略失败 / failed to scan invalid auto policies: %v\n", err)
+		return
+	}
+	invalid := make([]uint, 0)
+	for _, policy := range policies {
+		if policy != nil && policy.InvalidReason() != "" {
+			invalid = append(invalid, policy.ID)
+		}
+	}
+	if len(invalid) > 0 {
+		log.Printf("[DiagnosticsAutoPolicy] WARN 发现 %d 条失效自动巡检策略（旧巡检条件，永远不会触发），受影响 ID: %v / found %d invalid auto policies (legacy conditions that never fire), affected IDs: %v\n",
+			len(invalid), invalid, len(invalid), invalid)
+	}
 }
 
 func validateAutoPolicyConditionsForUpdate(conditions InspectionConditionItems) error {

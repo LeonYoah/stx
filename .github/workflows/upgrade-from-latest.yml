@@ -1,0 +1,99 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 跨版本升级 CI：先装最新正式版（releases/latest），再用当前代码构建一键升级包，
+# 走应用内自升级后断言。也作为 release-on-tag 发布门禁（workflow_call）。
+# Cross-version upgrade CI: install the latest stable release (releases/latest), build an
+# in-app upgrade bundle from the current tree, upgrade via the self-upgrade API and assert.
+# Also invoked as the release-on-tag publish gate (workflow_call).
+
+name: Upgrade from Latest Release
+
+on:
+  pull_request:
+    paths:
+      - 'internal/apps/selfupgrade/**'
+      - 'install/**'
+      - 'internal/db/**'
+      - 'internal/config/**'
+      - 'internal/pkg/layoutheal/**'
+      - 'internal/apps/monitoring/**'
+      - 'internal/apps/diagnostics/auto_policy*'
+      - 'scripts/ci-upgrade-from-latest.sh'
+      - '.github/workflows/upgrade-from-latest.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      from_version:
+        description: '起始版本 tag（留空 = releases/latest）/ From tag (blank = releases/latest)'
+        required: false
+        type: string
+      target_version:
+        description: '目标版本（留空 = FROM 的 patch+1-ci.<run>）/ Target version (blank = derived)'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      target_version:
+        description: '目标版本 / Target version'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upgrade-from-latest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upgrade-from-latest:
+    name: Upgrade ${{ inputs.from_version || 'latest' }} -> current
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+          cache: maven
+
+      - name: Run cross-version upgrade test
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FROM_VERSION: ${{ inputs.from_version }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+        run: bash scripts/ci-upgrade-from-latest.sh
+
+      - name: Upload collected artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-from-latest-${{ github.run_number }}
+          path: dist/upgrade-ci-artifacts/**
+          if-no-files-found: ignore
+          retention-days: 14

@@ -233,8 +233,77 @@ type InspectionAutoPolicyInfo struct {
 	AutoCreateTask  bool                     `json:"auto_create_task"`
 	AutoStartTask   bool                     `json:"auto_start_task"`
 	TaskOptions     DiagnosticTaskOptions    `json:"task_options"`
-	CreatedAt       time.Time                `json:"created_at"`
-	UpdatedAt       time.Time                `json:"updated_at"`
+	// InvalidReason 非空表示策略带了已失效的条件（旧 PROM_* / NODE_UNHEALTHY 模板或
+	// 未选规则的 ALERT_FIRING），在当前内置监控语义下不会触发；存量数据不自动改写，
+	// 只显式提示，引导编辑重选。取值是稳定的原因码（见 AutoPolicyInvalid*），
+	// 由前端按 i18n 翻译展示。
+	// InvalidReason is non-empty when the policy carries a dead condition (a retired PROM_* /
+	// NODE_UNHEALTHY template or an ALERT_FIRING condition without rule keys) that never fires
+	// under the embedded monitor; stored rows are not rewritten, only surfaced for editing.
+	// The value is a stable reason code (see AutoPolicyInvalid*) translated via i18n.
+	InvalidReason string `json:"invalid_reason"`
+	// InvalidDetail 携带失效的具体取值（旧条件模板码等），供界面翻译时插值展示。
+	// InvalidDetail carries the offending value (e.g. the retired condition template code)
+	// so the UI can interpolate it into the translated message.
+	InvalidDetail string    `json:"invalid_detail,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// 自动巡检策略失效原因码。/ Invalid-reason codes for auto policies.
+const (
+	// AutoPolicyInvalidLegacyCondition 表示条件模板已不在内置目录（外部 Prometheus
+	// 时代的 PROM_* / NODE_UNHEALTHY），内置监控下永不触发。
+	// AutoPolicyInvalidLegacyCondition marks a condition template missing from the builtin
+	// catalog (the external-Prometheus era PROM_* / NODE_UNHEALTHY codes).
+	AutoPolicyInvalidLegacyCondition = "legacy_condition_code"
+	// AutoPolicyInvalidAlertFiringNoRules 表示 ALERT_FIRING 条件没有选任何告警规则键。
+	// AutoPolicyInvalidAlertFiringNoRules marks an ALERT_FIRING condition with no rule keys.
+	AutoPolicyInvalidAlertFiringNoRules = "alert_firing_without_rule_keys"
+)
+
+// InvalidReason 返回策略失效原因码（空串表示有效），与读取视图共用：
+//   - 条件模板已不在内置目录（外部 Prometheus 时代的 PROM_* / NODE_UNHEALTHY）→ legacy_condition_code；
+//   - ALERT_FIRING 条件没有选任何告警规则键 → alert_firing_without_rule_keys。
+//
+// 返回的是稳定原因码而不是整句文案，文案由前端按 i18n 渲染；注意判定独立于写入校验：
+// 历史数据不经过 validateAutoPolicyConditions，必须单独判读。
+// InvalidReason returns the policy's invalid-reason code ("" when valid), shared by read views:
+//   - a condition template missing from the builtin catalog (the PROM_* / NODE_UNHEALTHY
+//     codes from the external-Prometheus era) -> legacy_condition_code;
+//   - an ALERT_FIRING condition with no alert rule keys selected -> alert_firing_without_rule_keys.
+//
+// It returns a stable code rather than a full sentence; the UI renders the message via i18n.
+// The check is deliberately separate from write validation: stored rows never pass through
+// validateAutoPolicyConditions and must be judged on their own.
+func (p *InspectionAutoPolicy) InvalidReason() string {
+	reason, _ := p.invalidInfo()
+	return reason
+}
+
+// InvalidDetail 返回失效原因对应的具体取值（旧条件模板码 / ALERT_FIRING），供前端插值。
+// InvalidDetail returns the offending value for the invalid reason (the retired template
+// code / ALERT_FIRING) for frontend interpolation.
+func (p *InspectionAutoPolicy) InvalidDetail() string {
+	_, detail := p.invalidInfo()
+	return detail
+}
+
+// invalidInfo 返回 (原因码, 失效取值)；空串表示策略有效。
+// invalidInfo returns (reason code, offending value); empty strings mean the policy is valid.
+func (p *InspectionAutoPolicy) invalidInfo() (reason, detail string) {
+	if p == nil {
+		return "", ""
+	}
+	for _, condition := range p.Conditions {
+		if !isConditionTemplateSupported(condition.TemplateCode) {
+			return AutoPolicyInvalidLegacyCondition, string(condition.TemplateCode)
+		}
+		if condition.TemplateCode == ConditionCodeAlertFiring && len(normalizeAlertRuleKeys(condition.RuleKeys)) == 0 {
+			return AutoPolicyInvalidAlertFiringNoRules, string(ConditionCodeAlertFiring)
+		}
+	}
+	return "", ""
 }
 
 // ToInfo converts a persisted auto-policy into API view model.
@@ -257,6 +326,8 @@ func (p *InspectionAutoPolicy) ToInfo() *InspectionAutoPolicyInfo {
 		AutoCreateTask:  p.AutoCreateTask,
 		AutoStartTask:   p.AutoStartTask,
 		TaskOptions:     p.TaskOptions,
+		InvalidReason:   p.InvalidReason(),
+		InvalidDetail:   p.InvalidDetail(),
 		CreatedAt:       p.CreatedAt,
 		UpdatedAt:       p.UpdatedAt,
 	}

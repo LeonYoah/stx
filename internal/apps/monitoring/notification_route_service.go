@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -381,8 +382,47 @@ func toNotificationRouteDTO(route *NotificationRoute) *NotificationRouteDTO {
 		SendResolved:       route.SendResolved,
 		MuteIfAcknowledged: route.MuteIfAcknowledged,
 		MuteIfSilenced:     route.MuteIfSilenced,
+		InvalidReason:      NotificationRouteInvalidReason(route.SourceType),
+		// 失效时把旧 source_type 透出给前端插值展示。
+		// Surface the legacy source_type for frontend interpolation when invalid.
+		InvalidDetail: notificationRouteInvalidDetail(route.SourceType),
 		CreatedAt:          route.CreatedAt,
 		UpdatedAt:          route.UpdatedAt,
+	}
+}
+
+// notificationRouteInvalidDetail 返回路由失效时透出的 detail（旧 source_type 原值）。
+// notificationRouteInvalidDetail returns the detail surfaced for an invalid route (the legacy source_type verbatim).
+func notificationRouteInvalidDetail(sourceType string) string {
+	if NotificationRouteInvalidReason(sourceType) == "" {
+		return ""
+	}
+	return sourceType
+}
+
+// WarnOnInvalidNotificationRoutes 启动时扫描失效通知路由：每类失效配置至少一条 WARN，
+// 并列出受影响路由 ID，帮助管理员在升级后定位需要重选告警类别的路由。
+// WarnOnInvalidNotificationRoutes scans invalid routes at startup: one WARN per config type
+// listing the affected route IDs, so admins can locate routes needing a new alert category
+// after upgrade.
+func (s *Service) WarnOnInvalidNotificationRoutes(ctx context.Context) {
+	if s == nil || s.repo == nil {
+		return
+	}
+	routes, err := s.repo.ListNotificationRoutes(ctx)
+	if err != nil {
+		log.Printf("[Monitoring] WARN 扫描失效通知路由失败 / failed to scan invalid notification routes: %v\n", err)
+		return
+	}
+	invalid := make([]uint, 0)
+	for _, route := range routes {
+		if route != nil && NotificationRouteInvalidReason(route.SourceType) != "" {
+			invalid = append(invalid, route.ID)
+		}
+	}
+	if len(invalid) > 0 {
+		log.Printf("[Monitoring] WARN 发现 %d 条失效通知路由（旧告警类别，永远不会命中），受影响 ID: %v / found %d invalid notification routes (legacy alert categories that never match), affected IDs: %v\n",
+			len(invalid), invalid, len(invalid), invalid)
 	}
 }
 

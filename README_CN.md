@@ -162,7 +162,7 @@ sudo ./install.sh --install-dir /data/stx --frontend-port 18880 --http-port 1880
 
 - 数据库：`sqlite`（默认）/ `mysql` / `postgres`（`pg`）；数据库密码会提示输入，也可用 `--db-password` 或 `STX_DB_PASSWORD`（`sudo STX_DB_PASSWORD='xxx' ./install.sh ...`）。
 - 需用 sudo 执行；不用 root 时须同时指定可写的 `--install-dir` 与 `--no-systemd`。
-- 其它参数：`--external-ip`、`--without-observability`、`--service-user`、`--no-systemd`、`--no-start`、`--force`；完整列表：`./install.sh --help`。
+- 其它参数：`--external-ip`、`--service-user`、`--no-systemd`、`--no-start`、`--force`；完整列表：`./install.sh --help`。
 - `--mirror`、`--variant`、`--version`、`--bundle-file` 只用于 `install-online.sh` / `download-bundle.sh`，离线 `install.sh` 不接受；`install-online.sh` 会把其余参数原样传给 `install.sh`（`curl ... | sudo bash -s -- --db-type postgres ...`）。
 
 ### 手动点链接下载（不能跑脚本，按需组装）
@@ -233,7 +233,7 @@ docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 swr.cn-east-3.myhuawe
 # 或 systemctl restart stx
 ```
 
-监控已内置，无需单独启停；如需关闭，在 `config.yaml` 中设置 `observability.enabled: false` 后重启。
+监控已内置，无需单独启停。
 
 更多见 [docs/00-快速开始.md](./docs/00-快速开始.md)、[docs/打包发布说明.md](./docs/打包发布说明.md)、[docs/内置监控说明.md](./docs/内置监控说明.md)。
 

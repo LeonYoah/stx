@@ -4203,6 +4203,13 @@
       "scopeGlobal": "全局",
       "scopeCluster": "集群 #{id}",
       "conditionsSummary": "条件数：{count} | 冷却：{minutes} 分钟",
+      "invalidBadge": "已失效",
+      "invalidReasons": {
+        "legacy_condition_code": "条件模板 \"{detail}\" 已失效：内置监控不再提供该巡检条件，请编辑策略重新选择。",
+        "alert_firing_without_rule_keys": "\"ALERT_FIRING\" 条件未选择告警规则，策略不会触发，请编辑补齐。",
+        "legacy_source_type": "告警类别 \"{detail}\" 已失效，请编辑并重新选择。",
+        "unknown": "策略包含已失效的条件，请编辑并重新选择。"
+      },
       "autoBundleSummary": "自动诊断包：{mode}",
       "autoBundleModeCreateAndStart": "自动创建并执行",
       "autoBundleModeCreateOnly": "自动创建，手动执行",

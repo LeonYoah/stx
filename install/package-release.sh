@@ -690,9 +690,17 @@ if [[ "$LAYOUT" == "split" ]]; then
   for arch in "${ARCHES[@]}"; do
     upgrade_stage="$STAGE_DIR/upgrade-${arch}"
     rm -rf "$upgrade_stage"
-    mkdir -p "$upgrade_stage/lib/agent" "$upgrade_stage/scripts" "$upgrade_stage/frontend"
+    mkdir -p "$upgrade_stage/lib/agent" "$upgrade_stage/scripts" "$upgrade_stage/frontend" "$upgrade_stage/bin"
     cp "$BUILD_DIR/stx-linux-${arch}" "$upgrade_stage/stx"
     chmod +x "$upgrade_stage/stx"
+    # 自升级包必须带 bin/：旧版本升级器不替换 bin/，需要包内携带新脚本，
+    # 让新升级器（和启动自修复）有能力刷新安装目录的控制脚本。
+    # The upgrade bundle must carry bin/: the old upgrader never replaced bin/, so the bundle
+    # ships the new scripts for the new upgrader (and the startup layout heal) to apply.
+    for script in start.sh stop.sh status.sh; do
+      cp "$ROOT_DIR/install/bin/$script" "$upgrade_stage/bin/$script"
+      chmod +x "$upgrade_stage/bin/$script"
+    done
     cp "$BUILD_DIR/stx-agent-linux-${arch}" "$upgrade_stage/lib/agent/stx-agent-linux-${arch}"
     chmod +x "$upgrade_stage/lib/agent/stx-agent-linux-${arch}"
     stage_stx_java_proxy_jars "$upgrade_stage/lib"

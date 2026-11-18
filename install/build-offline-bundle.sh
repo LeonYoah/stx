@@ -303,7 +303,7 @@ sudo ./install.sh -y              # 非交互，全部默认
 \`\`\`
 
 常用参数 / options: \`--install-dir /opt/stx\` \`--admin-password <pwd>\` \`--frontend-port 17880\`
-\`--http-port 17800\` \`--grpc-port 17890\` \`--without-observability\` \`--no-start\` \`--no-systemd\`
+\`--http-port 17800\` \`--grpc-port 17890\` \`--no-start\` \`--no-systemd\`
 
 安装过程不访问外网。SeaTunnel 节点需要自行安装 JDK。
 Installation never touches the network. SeaTunnel nodes need a JDK installed separately.

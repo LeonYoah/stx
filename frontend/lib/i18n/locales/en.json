@@ -4203,6 +4203,13 @@
       "scopeGlobal": "Global",
       "scopeCluster": "Cluster #{id}",
       "conditionsSummary": "Conditions: {count} | Cooldown: {minutes} min",
+      "invalidBadge": "Invalid",
+      "invalidReasons": {
+        "legacy_condition_code": "Condition template \"{detail}\" is no longer supported by the embedded monitor. Edit the policy and re-select.",
+        "alert_firing_without_rule_keys": "The \"ALERT_FIRING\" condition has no alert rules selected, so the policy never fires. Edit to fix.",
+        "legacy_source_type": "Alert category \"{detail}\" is no longer supported. Edit and re-select.",
+        "unknown": "This policy contains a condition that no longer fires. Edit and re-select."
+      },
       "autoBundleSummary": "Auto bundle: {mode}",
       "autoBundleModeCreateAndStart": "Auto create and run",
       "autoBundleModeCreateOnly": "Auto create, run manually",

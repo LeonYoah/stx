@@ -3501,7 +3501,8 @@
       "policies": "告警策略与通知",
       "rules": "检测规则",
       "integrations": "通知通道",
-      "history": "投递记录"
+      "history": "投递记录",
+      "platform": "平台"
     },
     "loading": "加载中...",
     "degradedClusters": "降级集群",
@@ -3911,6 +3912,58 @@
           "exhausted": "重试已用完"
         }
       }
+    },
+    "platform": {
+      "loadError": "加载平台监控数据失败",
+      "serverTitle": "STX Server",
+      "uptime": "运行时长",
+      "rss": "内存 RSS",
+      "heap": "堆内存",
+      "goroutines": "Goroutines",
+      "agentsConnected": "在线 Agent",
+      "dbPool": "DB 连接池",
+      "dbPoolHint": "使用中 / 空闲 / 上限",
+      "httpRequests": "HTTP 请求",
+      "http5xx": "HTTP 5xx",
+      "httpP95": "HTTP P95",
+      "grpcRequests": "gRPC 请求",
+      "grpcErrors": "gRPC 错误",
+      "grpcP95": "gRPC P95",
+      "tsdbHeadSeries": "Head 序列",
+      "tsdbStaleSeries": "过期序列",
+      "tsdbHeadBytes": "Head 占用",
+      "tsdbBlockBytes": "Block 占用",
+      "tsdbCompactionFailures": "压缩失败",
+      "tsdbRetentionDeletes": "容量清理",
+      "trendRss": "RSS 趋势",
+      "trendHeap": "堆内存趋势",
+      "trendHttpRps": "HTTP QPS",
+      "trendHttp5xx": "HTTP 5xx 比例",
+      "trendEmpty": "暂无趋势数据",
+      "agentsTitle": "Agent 进程",
+      "agentHostname": "主机",
+      "agentStatus": "状态",
+      "agentVersion": "版本",
+      "agentUptime": "运行时长",
+      "agentRss": "RSS",
+      "agentCpu": "CPU 累计",
+      "agentGoroutines": "Goroutines",
+      "agentCommands": "指令数",
+      "agentHeartbeatFailures": "心跳失败",
+      "agentLastReport": "最近上报",
+      "noAgents": "暂无已注册 Agent",
+      "online": "在线",
+      "offline": "离线",
+      "versionMismatch": "版本不一致",
+      "unavailableDisabled": "可观测性未启用，平台自监控不可用",
+      "unavailableNotReady": "内嵌 TSDB 未就绪，平台自监控暂不可用",
+      "externalProbeNote": "进程内自监控无法发现 STX Server 自身宕机，请在外部周期性探测 /api/v1/health。",
+      "units": {
+        "d": "天",
+        "h": "小时",
+        "m": "分"
+      },
+      "trendTime": "时间"
     }
   },
   "discovery": {

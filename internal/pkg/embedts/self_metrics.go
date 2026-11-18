@@ -87,6 +87,33 @@ func registerRuntimeCollectors(reg *prometheus.Registry) {
 	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 }
 
+// RegisterSelfCollectors 把平台自监控采集器（selfmetrics / DBStats 等）注册进内嵌
+// registry，供自抓取写回 tsdb。必须在 Start 成功之后调用；重复注册同名采集器静默
+// 跳过，未就绪返回 errSelfNotReady。
+// RegisterSelfCollectors registers platform self-monitoring collectors (selfmetrics /
+// DBStats etc.) into the embedded registry so self-scrapes write them back. Call it
+// only after Start succeeded; duplicate registrations are skipped silently, and a
+// not-ready store returns errSelfNotReady.
+func RegisterSelfCollectors(cs ...prometheus.Collector) error {
+	inst := snapshot()
+	if inst == nil || inst.registry == nil {
+		return errSelfNotReady
+	}
+	for _, c := range cs {
+		if c == nil {
+			continue
+		}
+		if err := inst.registry.Register(c); err != nil {
+			var already prometheus.AlreadyRegisteredError
+			if errors.As(err, &already) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
 // SelfScrapeOnce 对内嵌 registry 执行一次 Gather → Flatten → 写入 tsdb（job=stx_embedded）。
 // 抓取循环每轮都会调用；测试也可单独调用。未就绪返回 errSelfNotReady。
 // SelfScrapeOnce gathers the embedded registry, flattens it and writes into the tsdb with

@@ -26,6 +26,7 @@ import {useGSAP} from '@gsap/react';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {WorkspaceHeader, ModuleNavTabs} from '@/components/common/layout';
 import {MonitoringAlertsCenter} from './MonitoringAlertsCenter';
+import {MonitoringPlatformPanel} from './MonitoringPlatformPanel';
 import {MonitoringPolicyCenter} from './MonitoringPolicyCenter';
 
 // 注册 GSAP 核心与 React 扩展插件
@@ -36,11 +37,14 @@ if (typeof window !== 'undefined') {
 
 // 告警工作台支持的标签页类型
 // Supported tab keys for the monitoring & alerting center workspace
-type MonitoringTab = 'alerts' | 'policies';
+type MonitoringTab = 'alerts' | 'platform' | 'policies';
 
 function resolveTab(tab: string | null): MonitoringTab {
   if (tab === 'alerts') {
     return 'alerts';
+  }
+  if (tab === 'platform') {
+    return 'platform';
   }
   if (
     tab === 'policies' ||
@@ -185,12 +189,18 @@ export function MonitoringCenterWorkspace() {
             onValueChange={handleTabChange}
             className='w-full sm:w-auto'
           >
-            <TabsList className='grid w-full grid-cols-2 sm:w-[320px] bg-muted/60 p-1 h-8.5'>
+            <TabsList className='grid w-full grid-cols-3 sm:w-[420px] bg-muted/60 p-1 h-8.5'>
               <TabsTrigger
                 value='alerts'
                 className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
               >
                 {t('tabs.alerts')}
+              </TabsTrigger>
+              <TabsTrigger
+                value='platform'
+                className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+              >
+                {t('tabs.platform')}
               </TabsTrigger>
               <TabsTrigger
                 value='policies'
@@ -207,6 +217,8 @@ export function MonitoringCenterWorkspace() {
       <div className='flex-1 flex flex-col'>
         {activeTab === 'alerts' ? (
           <MonitoringAlertsCenter />
+        ) : activeTab === 'platform' ? (
+          <MonitoringPlatformPanel />
         ) : (
           <MonitoringPolicyCenter />
         )}

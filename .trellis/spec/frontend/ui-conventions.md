@@ -367,6 +367,16 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - **轮询**：`usePolledResource` 30 秒一次，页面不可见暂停、回到可见立即刷新；刷新失败保留旧数据。
 - **beUI 引入**：sparkline 依赖链放在 `components/charts/`，其 `lib/i18n.tsx` 改名为 `components/charts/beui-i18n.tsx`，`lib/utils`、`lib/ease` 用仓库已有版本；Arc 组件保持上游原格式（不跑 prettier），两类文件都保留 MIT 头并登记 `licenses/third_party_mit_files.txt`。
 
+## 17. 监控中心「平台」页签（Platform Self-Monitoring）
+
+- **结构**：`MonitoringCenterWorkspace` 三段 Tab（告警事件 / 平台 / 告警策略与通知），`tab=platform` 深链生效，旧别名（`rules` / `integrations` / `notifications` / `history`）仍映射到 policies；主体为 `MonitoringPlatformPanel`（`components/common/monitoring/`）。
+- **数据**：快照走 `services.monitoring.getPlatformSnapshotSafe()`（`GET /api/v1/monitoring/platform`），normalizer 兜底 `agents=[]`；30 秒静默轮询，首次加载用等高骨架，刷新用 `TableLoadingBar`，不塌陷。
+- **降级**：`available=false` 时整页换成单张降级卡，按 `reason` 区分「可观测性未启用 / 内嵌 TSDB 未就绪」，并固定提示进程内自监控无法发现 server 宕机、需外部探测 `/api/v1/health`；用户可见文案不出现 Prometheus / TSDB 以外的实现名。
+- **指标卡**：原子键值单元（`whitespace-nowrap` + `tabular-nums`），undefined 一律 `—`；5xx / gRPC 错误 / 压缩失败非零才染 `text-destructive`。
+- **趋势**：四张轻量趋势卡（RSS / 堆内存 / HTTP QPS / 5xx 比例）用 Arc `LineChart`（`legend=false`、高度约 96），空序列显示占位文案而非塌陷，不手写 recharts。
+- **Agent 表**：主机名 + 地址双行、在线/离线徽标、版本不一致红点徽标由后端 `version_mismatch` 字段驱动（前端不重复比对）；表格横向滚动保护原子列。
+- **动效**：入场用 `gsap.context(panelRef)` + `animateSheetSections` / `animateTableRows`；scope 的 ref 必须挂在所有分支（骨架 / 降级 / 内容）都存在的根容器上，否则 useGSAP 在 loading 分支抛 Invalid scope。
+
 ## 一致性检查项
 
 在提交代码前，必须核对以下检查清单：
@@ -399,3 +409,4 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] 大盘新指标是否遵循「一个指标一种图」：趋势折线 / 占比 Donut / 快满 Progress / 横向分组柱 / 恒零异常 MetricCard？同一指标没有重复出两种图？
 - [ ] 大盘折线是否走 `colorForLabels` 语义色表（rx/读 `--series-1`、tx/写 `--series-2`、iowait `--warning`、steal / BLOCKED `--danger`），未知名走 `SERIES_PALETTE` 稳定兜底，没有再用 Arc 默认灰阶或私有调色板？
 - [ ] 恒零「有没有」指标（死锁、线程池拒绝）是否用指标卡而不是平线折线？全 0 的维度序列是否不画？虚线是否只给参考量（committed / peak / 阈值）？
+- [ ] 平台页签是否走 `getPlatformSnapshotSafe` 与 `agents=[]` 兜底，降级卡按 `reason` 区分并提示外部探测 `/api/v1/health`，趋势用 Arc `LineChart` 而非手写 recharts？

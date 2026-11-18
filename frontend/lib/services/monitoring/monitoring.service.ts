@@ -54,6 +54,7 @@ import type {
   NotificationRoute,
   NotificationRouteListData,
   PlatformHealthData,
+  PlatformSnapshotData,
   RemoteAlertFilterParams,
   RemoteAlertListData,
   SilenceAlertRequest,
@@ -90,6 +91,19 @@ function normalizeAlertPolicyListData(
     policies: Array.isArray(data.policies)
       ? data.policies.map(normalizeAlertPolicy)
       : [],
+  };
+}
+
+// 平台快照兜底：agents 兜底为数组、布尔字段按 undefined 归零，缺失趋势保持 undefined。
+// Platform snapshot fallback: agents defaults to an array, booleans coerce through
+// Boolean(), and a missing trends block stays undefined.
+function normalizePlatformSnapshotData(
+  data: PlatformSnapshotData,
+): PlatformSnapshotData {
+  return {
+    ...data,
+    available: Boolean(data?.available),
+    agents: Array.isArray(data?.agents) ? data.agents : [],
   };
 }
 
@@ -397,6 +411,15 @@ export class MonitoringService extends BaseService {
       '/remote-alerts',
       params as Record<string, unknown> | undefined,
     );
+  }
+
+  /**
+   * Get platform self-monitoring snapshot (server + agents + trends).
+   * 获取平台自监控快照（server 指标 + Agent 列表 + 趋势）。
+   */
+  static async getPlatformSnapshot(): Promise<PlatformSnapshotData> {
+    const data = await this.get<PlatformSnapshotData>('/platform');
+    return normalizePlatformSnapshotData(data);
   }
 
   /**
@@ -957,6 +980,25 @@ export class MonitoringService extends BaseService {
           error instanceof Error
             ? error.message
             : 'Failed to get remote alerts',
+      };
+    }
+  }
+
+  static async getPlatformSnapshotSafe(): Promise<{
+    success: boolean;
+    data?: PlatformSnapshotData;
+    error?: string;
+  }> {
+    try {
+      const data = await this.getPlatformSnapshot();
+      return {success: true, data};
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to get platform snapshot',
       };
     }
   }

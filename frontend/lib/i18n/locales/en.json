@@ -3501,7 +3501,8 @@
       "policies": "Alert policies & notifications",
       "rules": "Detection rules",
       "integrations": "Notification Channels",
-      "history": "Delivery History"
+      "history": "Delivery History",
+      "platform": "Platform"
     },
     "loading": "Loading...",
     "degradedClusters": "Degraded Clusters",
@@ -3911,6 +3912,58 @@
           "exhausted": "Retries exhausted"
         }
       }
+    },
+    "platform": {
+      "loadError": "Failed to load platform monitoring data",
+      "serverTitle": "STX Server",
+      "uptime": "Uptime",
+      "rss": "RSS",
+      "heap": "Heap",
+      "goroutines": "Goroutines",
+      "agentsConnected": "Connected Agents",
+      "dbPool": "DB pool",
+      "dbPoolHint": "in use / idle / max",
+      "httpRequests": "HTTP requests",
+      "http5xx": "HTTP 5xx",
+      "httpP95": "HTTP P95",
+      "grpcRequests": "gRPC requests",
+      "grpcErrors": "gRPC errors",
+      "grpcP95": "gRPC P95",
+      "tsdbHeadSeries": "Head series",
+      "tsdbStaleSeries": "Stale series",
+      "tsdbHeadBytes": "Head size",
+      "tsdbBlockBytes": "Block size",
+      "tsdbCompactionFailures": "Compaction failures",
+      "tsdbRetentionDeletes": "Retention deletes",
+      "trendRss": "RSS trend",
+      "trendHeap": "Heap trend",
+      "trendHttpRps": "HTTP QPS",
+      "trendHttp5xx": "HTTP 5xx ratio",
+      "trendEmpty": "No trend data yet",
+      "agentsTitle": "Agent processes",
+      "agentHostname": "Host",
+      "agentStatus": "Status",
+      "agentVersion": "Version",
+      "agentUptime": "Uptime",
+      "agentRss": "RSS",
+      "agentCpu": "CPU total",
+      "agentGoroutines": "Goroutines",
+      "agentCommands": "Commands",
+      "agentHeartbeatFailures": "Heartbeat failures",
+      "agentLastReport": "Last report",
+      "noAgents": "No registered agents",
+      "online": "Online",
+      "offline": "Offline",
+      "versionMismatch": "Version mismatch",
+      "unavailableDisabled": "Observability is disabled; platform self-monitoring is unavailable",
+      "unavailableNotReady": "Embedded TSDB is not ready; platform self-monitoring is temporarily unavailable",
+      "externalProbeNote": "In-process self-monitoring cannot detect an STX Server crash itself; probe /api/v1/health externally on a schedule.",
+      "units": {
+        "d": "d",
+        "h": "h",
+        "m": "m"
+      },
+      "trendTime": "Time"
     }
   },
   "discovery": {

@@ -19,6 +19,7 @@ package embedts
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -167,12 +168,14 @@ func TestNotReadyEntryPoints(t *testing.T) {
 }
 
 func TestOptionsFromObservability(t *testing.T) {
+	ctx := context.Background()
 	t.Run("happy path", func(t *testing.T) {
-		opts, err := OptionsFromObservability(config.ObservabilityConfig{
+		opts, err := OptionsFromObservability(ctx, config.ObservabilityConfig{
 			Storage: config.ObservabilityStorageConfig{
-				Dir:       "data/tsdb-x",
-				Retention: "7d",
-				MaxSize:   1024,
+				Dir:        "data/tsdb-x",
+				Retention:  "7d",
+				MaxSize:    1024,
+				MaxSizeSet: true,
 			},
 			QueryTimeout: "3s",
 			MaxSamples:   12345,
@@ -181,30 +184,138 @@ func TestOptionsFromObservability(t *testing.T) {
 		require.Equal(t, "data/tsdb-x", opts.Dir)
 		require.Equal(t, 7*24*time.Hour, opts.RetentionDuration)
 		require.Equal(t, int64(1024), opts.MaxBytes)
+		require.Equal(t, MaxBytesSourceConfig, opts.MaxBytesSource)
 		require.Equal(t, 3*time.Second, opts.QueryTimeout)
 		require.Equal(t, 12345, opts.MaxSamples)
 	})
 
-	t.Run("empty fields fall back to defaults", func(t *testing.T) {
-		opts, err := OptionsFromObservability(config.ObservabilityConfig{})
+	t.Run("explicit zero retention and zero max_size mean unlimited", func(t *testing.T) {
+		opts, err := OptionsFromObservability(ctx, config.ObservabilityConfig{
+			Storage: config.ObservabilityStorageConfig{
+				Dir:        "data/tsdb-x",
+				Retention:  "0",
+				MaxSize:    0,
+				MaxSizeSet: true,
+			},
+		})
 		require.NoError(t, err)
-		require.Equal(t, DefaultDir, opts.Dir)
-		require.Equal(t, DefaultRetention, opts.RetentionDuration)
+		require.Zero(t, opts.RetentionDuration)
+		require.Zero(t, opts.MaxBytes)
+		require.Equal(t, MaxBytesSourceConfig, opts.MaxBytesSource)
+	})
+
+	t.Run("empty fields fall back to defaults", func(t *testing.T) {
+		opts, err := OptionsFromObservability(ctx, config.ObservabilityConfig{
+			Storage: config.ObservabilityStorageConfig{Dir: t.TempDir()},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, opts.Dir)
+		// 空 retention 不再回填 31 天：0 表示不按时间删除。
+		// An empty retention is no longer backfilled with 31d: 0 disables time-based deletion.
+		require.Zero(t, opts.RetentionDuration)
 		require.Equal(t, DefaultQueryTimeout, opts.QueryTimeout)
 		require.Equal(t, DefaultMaxSamples, opts.MaxSamples)
+		// 未配置 max_size：自动容量在上限与下限之间，来源为 auto/fallback 之一。
+		// Unset max_size: the auto cap stays within its bounds, sourced from auto/fallback.
+		require.GreaterOrEqual(t, opts.MaxBytes, minAutoMaxBytes)
+		require.LessOrEqual(t, opts.MaxBytes, DefaultMaxBytesCap)
+		require.Contains(t, []string{MaxBytesSourceAuto20, MaxBytesSourceAutoCap, MaxBytesSourceFallback}, opts.MaxBytesSource)
 	})
 
 	t.Run("bad retention rejected", func(t *testing.T) {
-		_, err := OptionsFromObservability(config.ObservabilityConfig{
+		_, err := OptionsFromObservability(ctx, config.ObservabilityConfig{
 			Storage: config.ObservabilityStorageConfig{Retention: "abc"},
 		})
 		require.Error(t, err)
 	})
 
 	t.Run("bad query timeout rejected", func(t *testing.T) {
-		_, err := OptionsFromObservability(config.ObservabilityConfig{QueryTimeout: "soon"})
+		_, err := OptionsFromObservability(ctx, config.ObservabilityConfig{QueryTimeout: "soon"})
 		require.Error(t, err)
 	})
+}
+
+func TestAutoMaxBytes(t *testing.T) {
+	ctx := context.Background()
+	stub := func(total int64) func(string) (int64, error) {
+		return func(string) (int64, error) { return total, nil }
+	}
+	gib := int64(1) << 30
+	cases := []struct {
+		name       string
+		total      int64
+		wantBytes  int64
+		wantSource string
+	}{
+		// 40GB 磁盘：20% = 8GiB。/ 40GB disk: 20% is 8GiB.
+		{"40GB disk", 40 * gib, 8 * gib, MaxBytesSourceAuto20},
+		// 1TB 磁盘：20% 超过 30GiB，取天花板。/ 1TB disk: 20% exceeds 30GiB, the cap wins.
+		{"1TB disk", 1024 * gib, DefaultMaxBytesCap, MaxBytesSourceAutoCap},
+		// 2GB 磁盘：20% 不足 1GiB，取下限。/ 2GB disk: 20% below 1GiB, the floor wins.
+		{"2GB disk", 2 * gib, minAutoMaxBytes, MaxBytesSourceAuto20},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, source := autoMaxBytes(ctx, t.TempDir(), stub(c.total))
+			require.Equal(t, c.wantBytes, got)
+			require.Equal(t, c.wantSource, source)
+		})
+	}
+	t.Run("statfs failure falls back to 30GiB", func(t *testing.T) {
+		got, source := autoMaxBytes(ctx, t.TempDir(), func(string) (int64, error) {
+			return 0, errors.New("no statfs")
+		})
+		require.Equal(t, DefaultMaxBytesCap, got)
+		require.Equal(t, MaxBytesSourceFallback, source)
+	})
+}
+
+func TestResolveMaxBlockDuration(t *testing.T) {
+	cases := []struct {
+		name      string
+		retention time.Duration
+		override  time.Duration
+		want      time.Duration
+	}{
+		// 无时间保留期：默认 7 天。/ No time retention: the 7d default.
+		{"no retention", 0, 0, DefaultMaxBlockDuration},
+		// retention=30d：收紧到 3d。/ retention=30d: tightened to 3d.
+		{"30d retention", 30 * 24 * time.Hour, 0, 3 * 24 * time.Hour},
+		// retention=1h：retention/10=6m 低于下限，取 2h。/ retention=1h: 6m below floor, clamped to 2h.
+		{"1h retention", time.Hour, 0, minMaxBlockDuration},
+		// 显式覆盖优先。/ An explicit override wins.
+		{"override", 0, time.Hour, time.Hour},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := resolveMaxBlockDuration(Options{RetentionDuration: c.retention, MaxBlockDuration: c.override})
+			require.Equal(t, c.want, got)
+		})
+	}
+}
+
+func TestStart_ShortBlocksCompactWithinMax(t *testing.T) {
+	// 短块合并：MinBlock=1m、MaxBlock=1h 时压实出的块都不超过 1h。
+	// Short-block compaction: with MinBlock=1m and MaxBlock=1h no produced block exceeds 1h.
+	ctx := context.Background()
+	opts := testOptions(t)
+	opts.MinBlockDuration = time.Minute
+	opts.MaxBlockDuration = time.Hour
+	require.NoError(t, Start(ctx, opts))
+	t.Cleanup(func() { _ = Close() })
+
+	now := time.Now().UTC()
+	baseMs := now.Add(-10 * time.Minute).UnixMilli()
+	appendSamples(t, ctx, "stx_embedts_compact", nil, baseMs, 15*1000, []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
+
+	// Compact() 同步完成 head 截断与 level compaction。/ Compact() synchronously runs head
+	// truncation and level compactions.
+	require.NoError(t, current.db.Compact(ctx))
+	blocks := current.db.Blocks()
+	require.NotEmpty(t, blocks)
+	for _, b := range blocks {
+		require.LessOrEqual(t, b.Meta().MaxTime-b.Meta().MinTime, time.Hour.Milliseconds())
+	}
 }
 
 func TestOldestSampleTime(t *testing.T) {

@@ -111,7 +111,7 @@ func Serve() {
 	}
 
 	if config.Config.Observability.Enabled {
-		embedOpts, err := embedts.OptionsFromObservability(config.Config.Observability)
+		embedOpts, err := embedts.OptionsFromObservability(ctx, config.Config.Observability)
 		if err == nil {
 			err = embedts.Start(ctx, embedOpts)
 		}

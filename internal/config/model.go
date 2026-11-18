@@ -309,13 +309,20 @@ type ObservabilityStorageConfig struct {
 	// Dir 是 tsdb 数据目录（blocks + WAL + head）。
 	Dir string `mapstructure:"dir"`
 
-	// Retention 是时间保留期（如 31d，支持 s/m/h/d/w/y 单位）。
-	// Retention is the time-based retention (e.g. 31d; units s/m/h/d/w/y are supported).
+	// Retention 是可选的时间保留期（如 90d，支持 s/m/h/d/w/y 单位）；留空或写 "0" 表示不按时间删除。
+	// Retention is the optional time-based retention (e.g. 90d; units s/m/h/d/w/y are supported);
+	// empty or "0" disables time-based deletion.
 	Retention string `mapstructure:"retention"`
 
-	// MaxSize 是块存储的字节数上限：未配置时默认 30GiB，显式写 0 才表示不限。
-	// MaxSize caps retained block bytes: defaults to 30GiB when unset; an explicit 0 means unlimited.
+	// MaxSize 是块存储的字节数上限：未配置时运行时按 min(30GiB, 数据目录所在磁盘 20%) 自适应
+	// （下限 1GiB），显式写 0 表示不限。
+	// MaxSize caps retained block bytes: when unset the runtime derives min(30GiB, 20% of the
+	// data-dir disk) floored at 1GiB; an explicit 0 means unlimited.
 	MaxSize int64 `mapstructure:"max_size"`
+
+	// MaxSizeSet 标记用户是否在配置文件里显式写了 max_size；由加载流程记录，不参与解码。
+	// MaxSizeSet records whether max_size was explicitly configured; set by the loader, not decoded.
+	MaxSizeSet bool `mapstructure:"-"`
 }
 
 // ObservabilitySeatunnelMetricConfig SeaTunnel metrics 探测配置

@@ -42,7 +42,7 @@ func TestValidateConfig_MissingExternalURL(t *testing.T) {
 // setDefaults produces) so validation tests that build configModel directly need not repeat them.
 func fillEmbeddedObservabilityDefaults(c *configModel) {
 	c.Observability.Storage.Dir = "data/tsdb"
-	c.Observability.Storage.Retention = "31d"
+	// retention 缺省留空即合法（不按时间删除）。/ An empty retention is valid by default (no time-based deletion).
 	c.Observability.ScrapeInterval = "15s"
 	c.Observability.EvalInterval = "15s"
 	c.Observability.QueryTimeout = "8s"
@@ -78,7 +78,7 @@ func TestValidateConfig_EmbeddedObservabilityInvalid(t *testing.T) {
 	}{
 		{"empty storage dir", func(c *configModel) { c.Observability.Storage.Dir = " " }},
 		{"bad retention", func(c *configModel) { c.Observability.Storage.Retention = "abc" }},
-		{"zero retention", func(c *configModel) { c.Observability.Storage.Retention = "0" }},
+		{"negative retention", func(c *configModel) { c.Observability.Storage.Retention = "-1d" }},
 		{"negative max_size", func(c *configModel) { c.Observability.Storage.MaxSize = -1 }},
 		{"bad scrape interval", func(c *configModel) { c.Observability.ScrapeInterval = "x" }},
 		{"zero eval interval", func(c *configModel) { c.Observability.EvalInterval = "0s" }},

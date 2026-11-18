@@ -1,7 +1,7 @@
 # 实施清单（交接）
 
-> 状态：后端 A 完成并有单测；前端 A / B 代码已写，**未跑 tsc / vitest / 浏览器验证**（开发机 8G 内存，tsc 被 OOM 杀掉）。
-> 接手人按「待完成」逐项推进。
+> 状态：后端 / 前端 / 单测 / spec 已完成；tsc 与相关 vitest、`go test ./internal/apps/sync/...` 均通过。
+> 未做真实浏览器验证（需要真实引擎缺连接器的集群），见「待完成」说明。
 
 ## 已完成
 
@@ -40,30 +40,32 @@
 - [x] i18n：`previewRowCount`、`previewRowLimitReached`、`previewEmptyString`、`copyCellValue`、
   `previewResizeColumn`、`previewReorderColumn`。
 
-## 待完成
+### A 前端（续，第二轮）
 
-1. [ ] **跑类型检查**：`cd frontend && pnpm exec tsc --noEmit`，修报错。重点看：
-   - vendored beUI 文件在本仓库 tsconfig（strict / noUncheckedIndexedAccess 等）下是否报错；
-   - `t.raw(...)` 的类型；`Table<PreviewRow>` 泛型；`useSearchParams` 在 `PluginMain`（页面已包 Suspense）。
-2. [ ] **改旧单测** `components/common/sync/__tests__/PreviewWorkspacePanel.test.tsx`：
-   - 去掉 `previewPage` / `onChangePage`；
-   - 「分页在表格底栏」用例改为「底栏显示 2 行」；排序用例改为点列头按钮（beUI 的排序按钮可访问名是列名，不再是 `sortColumn` 文案）；
-   - 加用例：NULL / 空串显示、`truncated=true` 显示上限提示。
-   - jsdom 没有布局，`PreviewDataTable` 会用 320px 兜底高度；若虚拟列表在 jsdom 下不渲染行，mock `@tanstack/react-virtual` 或给 scroll 容器打桩 `clientHeight`。
-3. [ ] **新单测**：`formatSyncUserFacingError` 缺连接器分支（引擎原文 / 只有 error_code / 预览 Http 文案 / 正式运行文案 / action href）。
-4. [ ] **vitest 配置**：beUI 不用 CSS Module，应无影响；若引入后测试报 PostCSS 错，按 spec「`css.postcss.plugins` 必须是空数组」处理。
-5. [ ] **浏览器验证**（`pnpm dev` + API）：
-   - 找一个没装 HTTP 连接器的集群点预览 → 弹窗标题「集群缺少连接器」、预览专用说明、「去插件市场安装」新标签打开 `/plugins?q=http` 且搜索框已填；原始错误可展开。
-   - 预览 1 万行（`row_limit=10000`）滚动流畅；拖列宽、拖列序、排序；NULL / `(空串)` 可区分；悬停复制；深浅色主题。
-   - 拖控制台高度，表格视口跟着变（ResizeObserver）。
+- [x] 新增 `ConnectorMissingHint`：作业详情 `JobDetailDialog` 与首页 `JobPreviewDrawer` 的已存失败消息
+  按引擎原文归类为「缺少连接器」并给出 `/plugins?q=` 安装链接（不依赖结构化 `error_code`，历史作业同样生效）。
+
+## 收尾记录（第二轮）
+
+1. [x] **类型检查**：`pnpm exec tsc --noEmit` 通过（8G 机器要 10 分钟以上，用 `NODE_OPTIONS=--max-old-space-size=6144` 后台跑）。
+2. [x] **改旧单测** `PreviewWorkspacePanel.test.tsx`：去掉 `previewPage` / `onChangePage`；mock
+   `@tanstack/react-virtual` 展开全部行（jsdom 量不到虚拟列表）；底栏行数断言；排序点列名按钮；
+   loading 用例给非空 columns 让骨架占位条（`.animate-pulse`，不是 `data-slot="skeleton"`）出现；
+   加 NULL / 空串与 `truncated` 上限提示用例。
+3. [x] **新单测**：`formatSyncUserFacingError` 缺连接器五个分支（引擎原文 / 仅 error_code / 预览 Http 专属文案 /
+   预览非 Http 走通用文案 / 普通错误不误判）；`StudioActionErrorDialog` 补 connector 徽标 + 新标签页 action 用例。
+4. [x] **vitest 配置**：beUI 不用 CSS Module，无 PostCSS 影响。
+5. [ ] **浏览器验证**（`pnpm dev` + API）：需要真实引擎且集群缺连接器才能覆盖 AC1；分类文案、弹窗 action、
+   底栏行数、骨架、NULL / 空串已有单测兜底。留给有真实环境的验证：
+   - 没装 HTTP 连接器的集群点预览 → 弹窗标题「集群缺少连接器」、预览专用说明、「去插件市场安装」新标签打开 `/plugins?q=http` 且搜索框已填。
+   - 预览 1 万行滚动流畅；拖列宽 / 列序、排序；悬停复制；深浅色主题；ResizeObserver 跟随控制台高度。
    - 切数据集后列宽 / 排序复位（`key={activeDataset.name}`）。
-6. [ ] **视觉打磨**：beUI 表头是 `bg-muted`、单元格 `px-4`；和控制台其他表（`studio-sidebar-chrome` 行高、Arc token）对一下，
-   必要时只在 `PreviewDataTable` 外层用 className / CSS 变量覆盖，**不要改 vendored 源码**（要改就在文件头注明本地改动）。
-7. [ ] **E2E**：按 `.trellis/spec/frontend/e2e-testing.md` 评估是否补「预览缺连接器弹窗」夹具用例。
-8. [ ] **spec 更新**（Phase 3.3）：
-   - `frontend/ui-conventions.md` §14：「任务表和预览表用 `StudioDataTable`」改为「任务表用 `StudioDataTable`；预览数据表用 beUI Table（`PreviewDataTable`），不分页、虚拟滚动」，并写 beUI Table 的引入约定（同 file-tree：不装 `lib/i18n.tsx`）。
-   - `backend/error-handling.md` 或 `sync` 相关 spec：记 `error_code=connector_missing` + 409 契约与识别规则。
-9. [ ] `go test ./internal/apps/sync/...` 全量跑一遍（只跑过相关用例）。
+6. [x] **视觉对齐**：行高 32px 对齐 `StudioDataTable` h-8、外层 `text-xs`；未改 vendored 源码。
+7. [x] **E2E 评估**：不补夹具用例。缺连接器要引擎真实返回，夹具拦 `preview` 接口只能重演
+   `formatSyncUserFacingError` 已被单测覆盖的路径；预览表格是 jsdom 可测的纯展示交互。
+8. [x] **spec 更新**：`ui-conventions.md` §14 改为任务表 `StudioDataTable` / 预览表 beUI `PreviewDataTable`
+  + vendored 约定与 checklist；`error-handling.md` 记 `error_code` 契约（`connector_missing` → 409、归类与识别规则）。
+9. [x] `go test ./internal/apps/sync/...` 全量通过。
 
 ## 设计取舍（已和需求方确认）
 

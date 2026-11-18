@@ -34,6 +34,7 @@ import {ExpandableTextPanel} from '@/components/common/layout';
 import {SeaTunnelObserveMenu} from '@/components/common/cluster/SeaTunnelObserveMenu';
 import {cn} from '@/lib/utils';
 import type {SyncJobInstance} from '@/lib/services/sync';
+import {ConnectorMissingHint} from '../ConnectorMissingHint';
 import {JobEventTimelineContent} from '../JobEventTimelineDialog';
 import {JobOutcomeHints} from '../JobOutcomeHints';
 import {JobScriptDialogContent} from '../StudioDialogs';
@@ -255,6 +256,11 @@ export function JobDetailDialog({
                   {errorExpanded ? t('collapse') : t('expand')}
                 </button>
               </div>
+              <ConnectorMissingHint
+                message={errorMessage}
+                preview={job.run_type === 'preview'}
+                className='mt-1.5'
+              />
               {errorExpanded ? (
                 <ExpandableTextPanel content={errorMessage} height={180} wrap className='mt-1.5' />
               ) : null}

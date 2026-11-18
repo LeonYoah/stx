@@ -1013,5 +1013,49 @@ describe('formatSyncUserFacingError', () => {
     expect(formatted.title).not.toBe('undefinedVariableTitle');
     expect(formatted.suggestion).toContain('语法结构');
   });
+
+  it('classifies raw engine connector-missing errors with an install action', () => {
+    const raw =
+      "submit job failed: status=500 body=... Unable to create a sink for identifier 'Jdbc' ...";
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.title).toBe('connectorMissingTitle');
+    expect(formatted.category).toBe('connector');
+    expect(formatted.description).toBe('connectorMissingDescription');
+    expect(formatted.action?.href).toBe('/plugins?q=jdbc');
+    expect(formatted.raw).toBe(raw);
+  });
+
+  it('classifies backend connector_missing error_code without engine wording', () => {
+    const error = Object.assign(new Error('submit failed'), {
+      errorCode: 'connector_missing',
+    });
+    const formatted = formatSyncUserFacingError(error, 'Default Title', t);
+    expect(formatted.category).toBe('connector');
+    expect(formatted.action?.href).toBe('/plugins?q=http');
+  });
+
+  it('uses the preview-specific description for the injected Http sink', () => {
+    const raw = "Unable to create a sink for identifier 'Http'";
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t, {
+      preview: true,
+    });
+    expect(formatted.description).toBe('connectorMissingPreviewDescription');
+    expect(formatted.action?.href).toBe('/plugins?q=http');
+  });
+
+  it('keeps the generic description when a non-Http connector is missing in preview', () => {
+    const raw = "Unable to create a source for identifier 'Mysql-CDC'";
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t, {
+      preview: true,
+    });
+    expect(formatted.description).toBe('connectorMissingDescription');
+    expect(formatted.action?.href).toBe('/plugins?q=mysql-cdc');
+  });
+
+  it('does not classify ordinary submit failures as connector-missing', () => {
+    const raw = 'submit job failed: status=500 body=connection refused';
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.category).not.toBe('connector');
+  });
 });
 

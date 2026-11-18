@@ -35,6 +35,7 @@ import {
   jobLifetimeWindow,
   toLineChartData,
 } from '@/components/common/sync/job-detail/metrics-trend-data';
+import {ConnectorMissingHint} from '@/components/common/sync/ConnectorMissingHint';
 import {
   getDisplayJobLifecycleStatus,
   getJobStatusBadgeClass,
@@ -231,6 +232,10 @@ export function JobPreviewDrawer({
               {job.error_message ? (
                 <section className='flex flex-col gap-1.5'>
                   <h3 className='text-sm font-medium'>{t('error')}</h3>
+                  <ConnectorMissingHint
+                    message={job.error_message}
+                    preview={job.run_type === 'preview'}
+                  />
                   <pre className='max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-destructive/30 bg-destructive/5 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground'>
                     {job.error_message}
                   </pre>

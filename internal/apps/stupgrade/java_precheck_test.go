@@ -167,3 +167,126 @@ func TestRunPrecheckSkipsJavaCheckWhenOffline(t *testing.T) {
 		t.Fatalf("offline node must not be probed, got %+v", sender.commands)
 	}
 }
+
+func lastCheckJavaHome(sender *stubAgentCommandSender) string {
+	for i := len(sender.commands) - 1; i >= 0; i-- {
+		if sender.commands[i].commandType == "check_java" || sender.commands[i].params["sub_command"] == "check_java" {
+			return sender.commands[i].params["java_home"]
+		}
+	}
+	return ""
+}
+
+func setNodeJavaHome(t *testing.T, service *Service, javaHome string) {
+	t.Helper()
+	provider, ok := service.clusterProvider.(*stubClusterProvider)
+	if !ok || len(provider.nodes) == 0 {
+		t.Fatal("expected stub cluster provider with nodes")
+	}
+	provider.nodes[0].JavaHome = javaHome
+}
+
+// TestRunPrecheckTargetJavaHomeOverridesNode 覆盖升级页目标 JDK：当前节点仍是 8 时，请求级
+// java_home=21 应让 3.1.0 预检通过，且不改写 source_java_home。
+// TestRunPrecheckTargetJavaHomeOverridesNode covers the upgrade-page target JDK: with the node
+// still on 8, request java_home=21 must let 3.1.0 precheck pass without rewriting source_java_home.
+func TestRunPrecheckTargetJavaHomeOverridesNode(t *testing.T) {
+	sender := &stubAgentCommandSender{
+		agents:            map[uint]string{101: "agent-node-a"},
+		javaVersion:       8,
+		javaVersionByHome: map[string]int{"/opt/jdk8": 8, "/opt/jdk21": 21},
+	}
+	service := newJavaPrecheckService(t, sender, "3.1.0")
+	setNodeJavaHome(t, service, "/opt/jdk8")
+
+	blocked, err := service.RunPrecheck(context.Background(), &PrecheckRequest{ClusterID: 1, TargetVersion: "3.1.0"})
+	if err != nil {
+		t.Fatalf("RunPrecheck returned error: %v", err)
+	}
+	if hasIssueCode(blocked.Issues, "jdk_below_required") == nil {
+		t.Fatalf("expected jdk_below_required when using the node JDK 8, got %+v", blocked.Issues)
+	}
+	if lastCheckJavaHome(sender) != "/opt/jdk8" {
+		t.Fatalf("first probe should use node java_home, got %q", lastCheckJavaHome(sender))
+	}
+
+	passed, err := service.RunPrecheck(context.Background(), &PrecheckRequest{
+		ClusterID:     1,
+		TargetVersion: "3.1.0",
+		JavaHome:      "/opt/jdk21",
+	})
+	if err != nil {
+		t.Fatalf("RunPrecheck with target JDK returned error: %v", err)
+	}
+	if issue := hasIssueCode(passed.Issues, "jdk_below_required"); issue != nil {
+		t.Fatalf("target JDK 21 must pass 3.1.0 precheck, got %+v", issue)
+	}
+	if lastCheckJavaHome(sender) != "/opt/jdk21" {
+		t.Fatalf("override probe should use /opt/jdk21, got %q", lastCheckJavaHome(sender))
+	}
+	if len(passed.NodeTargets) != 1 {
+		t.Fatalf("expected 1 node target, got %d", len(passed.NodeTargets))
+	}
+	if passed.NodeTargets[0].JavaHome != "/opt/jdk21" {
+		t.Fatalf("target java_home = %q, want /opt/jdk21", passed.NodeTargets[0].JavaHome)
+	}
+	if passed.NodeTargets[0].SourceJavaHome != "/opt/jdk8" {
+		t.Fatalf("source java_home = %q, want /opt/jdk8", passed.NodeTargets[0].SourceJavaHome)
+	}
+}
+
+// TestRunPrecheckNodeJavaHomeEmptyMeansAuto 覆盖节点级空串：显式自动探测，不再回落当前节点 JDK 8。
+// TestRunPrecheckNodeJavaHomeEmptyMeansAuto covers a per-node empty string: explicit auto detection
+// that does not fall back to the current node JDK 8.
+func TestRunPrecheckNodeJavaHomeEmptyMeansAuto(t *testing.T) {
+	sender := &stubAgentCommandSender{
+		agents:      map[uint]string{101: "agent-node-a"},
+		javaVersion: 21,
+	}
+	service := newJavaPrecheckService(t, sender, "3.1.0")
+	setNodeJavaHome(t, service, "/opt/jdk8")
+
+	result, err := service.RunPrecheck(context.Background(), &PrecheckRequest{
+		ClusterID:     1,
+		TargetVersion: "3.1.0",
+		NodeJavaHomes: map[uint]string{11: ""},
+	})
+	if err != nil {
+		t.Fatalf("RunPrecheck returned error: %v", err)
+	}
+	if lastCheckJavaHome(sender) != "" {
+		t.Fatalf("auto override must probe with empty java_home, got %q", lastCheckJavaHome(sender))
+	}
+	if issue := hasIssueCode(result.Issues, "jdk_below_required"); issue != nil {
+		t.Fatalf("auto-detected JDK 21 must pass, got %+v", issue)
+	}
+	if result.NodeTargets[0].JavaHome != "" {
+		t.Fatalf("target java_home should stay empty for auto, got %q", result.NodeTargets[0].JavaHome)
+	}
+	if result.NodeTargets[0].SourceJavaHome != "/opt/jdk8" {
+		t.Fatalf("source java_home = %q, want /opt/jdk8", result.NodeTargets[0].SourceJavaHome)
+	}
+}
+
+// TestRunPrecheckInvalidTargetJavaHomeBlocks 覆盖非法目标路径：阻断且不下发 check_java。
+// TestRunPrecheckInvalidTargetJavaHomeBlocks covers an invalid target path: block and skip check_java.
+func TestRunPrecheckInvalidTargetJavaHomeBlocks(t *testing.T) {
+	sender := &stubAgentCommandSender{agents: map[uint]string{101: "agent-node-a"}, javaVersion: 21}
+	service := newJavaPrecheckService(t, sender, "3.1.0")
+
+	result, err := service.RunPrecheck(context.Background(), &PrecheckRequest{
+		ClusterID:     1,
+		TargetVersion: "3.1.0",
+		JavaHome:      "opt/jdk21",
+	})
+	if err != nil {
+		t.Fatalf("RunPrecheck returned error: %v", err)
+	}
+	issue := hasIssueCode(result.Issues, "jdk_path_invalid")
+	if issue == nil || !issue.Blocking {
+		t.Fatalf("expected blocking jdk_path_invalid, got %+v", result.Issues)
+	}
+	if countCheckJavaCalls(sender) != 0 {
+		t.Fatalf("invalid path must not be probed, got %+v", sender.commands)
+	}
+}

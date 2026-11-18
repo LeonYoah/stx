@@ -81,6 +81,24 @@ describe('JavaHomePicker', () => {
     expect(screen.queryByText('hint')).not.toBeInTheDocument();
   });
 
+  it('hides the field label when hideLabel is set', async () => {
+    const onChange = vi.fn();
+    render(
+      wrap(
+        <JavaHomePicker
+          hostId={1}
+          value=''
+          onChange={onChange}
+          hideLabel
+          id='jdk-compact'
+        />,
+      ),
+    );
+    await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalledWith(1));
+    expect(screen.queryByText('JDK path')).not.toBeInTheDocument();
+    expect(screen.getByText('Auto')).toBeInTheDocument();
+  });
+
   it('prefills process JDK as custom when not in list (AC1f)', async () => {
     const onChange = vi.fn();
     render(

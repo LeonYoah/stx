@@ -78,6 +78,7 @@ import type {
 } from '@/lib/services/st-upgrade';
 import {UpgradeSteps} from './UpgradeSteps';
 import {HelpHint} from '@/components/common/HelpHint';
+import {JavaHomePicker} from '@/components/common/java/JavaHomePicker';
 import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {getIssueCategoryLabel} from './utils';
 
@@ -106,6 +107,9 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
   const [initializingConfigs, setInitializingConfigs] = useState(false);
   // 高级选项默认折叠，渐进式披露 / Advanced options collapsed by default
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
+  const [nodeJavaHomes, setNodeJavaHomes] = useState<Record<string, string>>(
+    {},
+  );
 
   const restoreDraft = useCallback(() => {
     const draft = loadStUpgradeSession(clusterId);
@@ -131,6 +135,9 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
     if (draft.request?.target_install_dir) {
       setTargetInstallDir(draft.request.target_install_dir);
       setTargetInstallDirTouched(true);
+    }
+    if (draft.request?.node_java_homes) {
+      setNodeJavaHomes({...draft.request.node_java_homes});
     }
     if (draft.request) {
       setConfirmedRequest(draft.request);
@@ -190,8 +197,9 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
     setTargetInstallDir(suggestedTargetInstallDir);
   }, [suggestedTargetInstallDir, targetInstallDirTouched]);
 
-  const buildRequest = useCallback(
-    (): CreatePlanRequest => ({
+  const buildRequest = useCallback((): CreatePlanRequest => {
+    const nodeHomes = compactNodeJavaHomes(nodeJavaHomes);
+    return {
       cluster_id: clusterId,
       target_version: targetVersion,
       target_install_dir: targetInstallDir.trim() || undefined,
@@ -200,15 +208,16 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
         .split(',')
         .map((name) => name.trim())
         .filter(Boolean),
-    }),
-    [
-      clusterId,
-      connectorNamesText,
-      packageChecksum,
-      targetInstallDir,
-      targetVersion,
-    ],
-  );
+      node_java_homes: nodeHomes,
+    };
+  }, [
+    clusterId,
+    connectorNamesText,
+    nodeJavaHomes,
+    packageChecksum,
+    targetInstallDir,
+    targetVersion,
+  ]);
 
   const currentDraftRequest = useMemo(() => buildRequest(), [buildRequest]);
   const draftTargetInstallDirPreview = useMemo(
@@ -305,6 +314,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
       ),
     );
     setTargetInstallDirTouched(false);
+    setNodeJavaHomes({});
     setConfirmedRequest(null);
     toast.success(t('draftCleared'));
   };
@@ -323,6 +333,21 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
   const blockingIssues = useMemo(
     () => (precheck?.issues || []).filter((issue) => issue.blocking),
     [precheck],
+  );
+
+  const hasJdkNodeIssues = useMemo(
+    () =>
+      (issuesByCategory.node || []).some((issue) =>
+        JDK_NODE_ISSUE_CODES.has(issue.code),
+      ),
+    [issuesByCategory.node],
+  );
+  const hasNonJdkNodeIssues = useMemo(
+    () =>
+      (issuesByCategory.node || []).some(
+        (issue) => !JDK_NODE_ISSUE_CODES.has(issue.code),
+      ),
+    [issuesByCategory.node],
   );
 
   const hasConfigMissingIssue = useMemo(
@@ -772,6 +797,15 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                   </div>
                 )}
 
+                {hasJdkNodeIssues ? (
+                  <p
+                    className='text-sm text-muted-foreground'
+                    data-testid='upgrade-prepare-jdk-issue-hint'
+                  >
+                    {t('jdkIssueHint')}
+                  </p>
+                ) : null}
+
                 {!precheck.ready ? (
                   <div className='flex flex-wrap gap-2'>
                     {issuesByCategory.package ? (
@@ -796,7 +830,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                         {t('goPlugins')}
                       </Button>
                     ) : null}
-                    {issuesByCategory.node ? (
+                    {hasNonJdkNodeIssues ? (
                       <Button
                         variant='secondary'
                         size='sm'
@@ -845,7 +879,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                   />
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className='overflow-x-auto'>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -854,6 +888,15 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                       <TableHead>{t('sourceVersion')}</TableHead>
                       <TableHead>{t('targetVersion')}</TableHead>
                       <TableHead>{t('targetDir')}</TableHead>
+                      <TableHead>
+                        <span className='inline-flex items-center gap-1'>
+                          {t('targetJdk')}
+                          <HelpHint
+                            label={t('targetJdk')}
+                            content={t('targetJdkHint')}
+                          />
+                        </span>
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -879,6 +922,29 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                           {isPrecheckStale
                             ? draftTargetInstallDirPreview
                             : target.target_install_dir}
+                        </TableCell>
+                        <TableCell className='min-w-[18rem] align-top'>
+                          <div
+                            data-testid={`upgrade-prepare-node-jdk-${target.cluster_node_id}`}
+                          >
+                            <JavaHomePicker
+                              id={`upgrade-target-jdk-${target.cluster_node_id}`}
+                              hostId={target.host_id}
+                              hideLabel
+                              value={
+                                nodeJavaHomes[String(target.cluster_node_id)] ??
+                                target.java_home ??
+                                target.source_java_home ??
+                                ''
+                              }
+                              onChange={({javaHome}) =>
+                                setNodeJavaHomes((prev) => ({
+                                  ...prev,
+                                  [String(target.cluster_node_id)]: javaHome,
+                                }))
+                              }
+                            />
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -956,5 +1022,28 @@ function normalizeUpgradeRequest(request: CreatePlanRequest) {
       .map((name) => name.trim())
       .filter(Boolean)
       .sort(),
+    node_java_homes: compactNodeJavaHomes(request.node_java_homes || {}),
   };
+}
+
+const JDK_NODE_ISSUE_CODES = new Set([
+  'jdk_below_required',
+  'java_unusable',
+  'jdk_unusual_version',
+  'jdk_path_invalid',
+  'java_check_failed',
+]);
+
+function compactNodeJavaHomes(
+  homes: Record<string, string>,
+): Record<string, string> | undefined {
+  const keys = Object.keys(homes).sort();
+  if (keys.length === 0) {
+    return undefined;
+  }
+  const next: Record<string, string> = {};
+  for (const key of keys) {
+    next[key] = homes[key] ?? '';
+  }
+  return next;
 }

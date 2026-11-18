@@ -58,6 +58,9 @@ test.describe('upgrade prepare template', () => {
     await expect(
       page.getByTestId('upgrade-prepare-node-targets'),
     ).toContainText(upgradePrepareTemplate.targetInstallDir);
+    await expect(
+      page.getByTestId('upgrade-prepare-node-jdk-101'),
+    ).toBeVisible();
 
     await expect(page.getByTestId('upgrade-prepare-continue')).toBeEnabled();
     await page.getByTestId('upgrade-prepare-continue').click();
@@ -71,5 +74,36 @@ test.describe('upgrade prepare template', () => {
     await expect(page.getByRole('heading', {level: 1})).toHaveText(
       /配置差异处理|Config Difference Review/i,
     );
+  });
+
+  test('reruns precheck with the selected target JDK', async ({page}) => {
+    await page.goto(
+      `/clusters/${upgradePrepareTemplate.clusterId}/upgrade/prepare`,
+    );
+    await dismissOnboardingPathChooserIfPresent(page);
+
+    await page.getByTestId('upgrade-prepare-run-precheck').click();
+    await expect(
+      page.getByTestId('upgrade-prepare-node-jdk-101'),
+    ).toBeVisible();
+
+    await page
+      .getByTestId('upgrade-prepare-node-jdk-101')
+      .getByRole('combobox')
+      .click();
+    await page.getByRole('option', {name: /default-java/}).click();
+
+    const precheckRequest = page.waitForRequest(
+      (request) =>
+        request.method() === 'POST' &&
+        request.url().includes('/api/v1/st-upgrade/precheck'),
+    );
+    await page.getByTestId('upgrade-prepare-run-precheck').click();
+    const body = (await precheckRequest).postDataJSON() as {
+      node_java_homes?: Record<string, string>;
+    };
+    expect(body.node_java_homes).toEqual({
+      '101': '/usr/lib/jvm/default-java',
+    });
   });
 });

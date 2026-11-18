@@ -262,8 +262,11 @@ type NodeTarget struct {
 	TargetVersion    string `json:"target_version"`
 	SourceInstallDir string `json:"source_install_dir"`
 	TargetInstallDir string `json:"target_install_dir"`
-	// JavaHome 是节点指定的 JDK（来自 cluster_nodes.java_home），新目录尚无节点记录时随命令显式下发。
-	// JavaHome is the node JDK (from cluster_nodes.java_home), sent explicitly while the new directory has no node record yet.
+	// SourceJavaHome 是升级前节点上的 JDK，回滚时写回，不作为本次启动参数。
+	// SourceJavaHome is the node's JDK before the upgrade; it is restored on rollback and is not used to start the new version.
+	SourceJavaHome string `json:"source_java_home,omitempty"`
+	// JavaHome 是本次升级的目标 JDK（预检/启动/冒烟都用它）；未指定时回落到当前节点 java_home。
+	// JavaHome is the target JDK for this upgrade (precheck, start, smoke); falls back to the current node java_home when unset.
 	JavaHome string `json:"java_home,omitempty"`
 }
 
@@ -327,6 +330,12 @@ type PrecheckRequest struct {
 	ConnectorProfiles map[string][]string `json:"connector_profiles,omitempty"` // 指定插件的画像选择 / Selected profiles for plugins
 	NodeIDs           []uint              `json:"node_ids,omitempty"`
 	TargetInstallDir  string              `json:"target_install_dir,omitempty"`
+	// JavaHome 是集群级目标 JDK，应用到没有节点级覆盖的节点。
+	// JavaHome is the cluster-wide target JDK applied to nodes without a per-node override.
+	JavaHome string `json:"java_home,omitempty"`
+	// NodeJavaHomes 按 cluster_node_id 覆盖目标 JDK；显式空串表示自动探测，不再回落当前节点路径。
+	// NodeJavaHomes overrides the target JDK by cluster_node_id; an explicit empty string means auto detection and does not fall back to the current node path.
+	NodeJavaHomes map[uint]string `json:"node_java_homes,omitempty"`
 }
 
 // CreatePlanRequest 描述升级计划生成输入。

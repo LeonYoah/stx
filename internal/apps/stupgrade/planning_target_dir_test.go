@@ -19,6 +19,7 @@ package stupgrade
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -132,5 +133,52 @@ func TestWaitForClusterHealthy(t *testing.T) {
 	service.SetClusterOperator(&stubClusterOperator{})
 	if err := service.waitForClusterHealthy(context.Background(), 1); err != nil {
 		t.Fatalf("expected skip, got %v", err)
+	}
+}
+
+func TestPrecheckRequestNodeJavaHomesJSON(t *testing.T) {
+	t.Parallel()
+	var req PrecheckRequest
+	if err := json.Unmarshal([]byte(`{"cluster_id":1,"target_version":"3.1.0","node_java_homes":{"11":"/opt/jdk21"}}`), &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if req.NodeJavaHomes[11] != "/opt/jdk21" {
+		t.Fatalf("node_java_homes = %#v", req.NodeJavaHomes)
+	}
+}
+
+func TestResolveTargetJavaHome(t *testing.T) {
+	t.Parallel()
+	nodeID := uint(11)
+	current := "/opt/jdk8"
+	cases := []struct {
+		name string
+		req  *PrecheckRequest
+		want string
+		fail bool
+	}{
+		{name: "falls back to current node", req: nil, want: current},
+		{name: "cluster-wide override", req: &PrecheckRequest{JavaHome: "/opt/jdk21"}, want: "/opt/jdk21"},
+		{name: "per-node override wins", req: &PrecheckRequest{JavaHome: "/opt/jdk21", NodeJavaHomes: map[uint]string{nodeID: "/usr/lib/jvm/java-17"}}, want: "/usr/lib/jvm/java-17"},
+		{name: "per-node empty means auto", req: &PrecheckRequest{JavaHome: "/opt/jdk21", NodeJavaHomes: map[uint]string{nodeID: ""}}, want: ""},
+		{name: "other node keeps cluster-wide", req: &PrecheckRequest{JavaHome: "/opt/jdk21", NodeJavaHomes: map[uint]string{99: "/opt/other"}}, want: "/opt/jdk21"},
+		{name: "rejects relative path", req: &PrecheckRequest{JavaHome: "opt/jdk21"}, fail: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveTargetJavaHome(nodeID, current, tc.req)
+			if tc.fail {
+				if err == nil {
+					t.Fatal("expected invalid java_home to fail")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveTargetJavaHome returned %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

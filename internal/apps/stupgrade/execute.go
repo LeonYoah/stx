@@ -672,7 +672,10 @@ func (s *Service) executeSwitchVersionStep(ctx context.Context, task *UpgradeTas
 			return err
 		}
 		installDir := target.TargetInstallDir
-		if _, err := s.clusterOperator.UpdateNode(ctx, task.ClusterID, target.ClusterNodeID, &clusterapp.UpdateNodeRequest{InstallDir: &installDir}); err != nil {
+		if _, err := s.clusterOperator.UpdateNode(ctx, task.ClusterID, target.ClusterNodeID, &clusterapp.UpdateNodeRequest{
+			InstallDir: &installDir,
+			JavaHome:   nodeJavaHomePointer(target, false),
+		}); err != nil {
 			_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, commandSummary)
 			return err
 		}
@@ -1245,10 +1248,27 @@ func (s *Service) finalizeNodeExecutionsRollbackFailed(ctx context.Context, task
 	return nil
 }
 
+// nodeJavaHomePointer 返回切版本或回滚时要写入的 JDK。旧计划快照两个字段都空时返回 nil，避免把节点 java_home 清掉。
+// nodeJavaHomePointer returns the JDK to persist on switch or rollback. Both fields empty
+// (legacy snapshots) yields nil so the node's java_home is left untouched.
+func nodeJavaHomePointer(target NodeTarget, restore bool) *string {
+	if target.JavaHome == "" && target.SourceJavaHome == "" {
+		return nil
+	}
+	value := target.JavaHome
+	if restore {
+		value = target.SourceJavaHome
+	}
+	return &value
+}
+
 func (s *Service) restoreClusterMetadata(ctx context.Context, clusterID uint, nodeTargets []NodeTarget, sourceVersion string) error {
 	for _, target := range nodeTargets {
 		installDir := target.SourceInstallDir
-		if _, err := s.clusterOperator.UpdateNode(ctx, clusterID, target.ClusterNodeID, &clusterapp.UpdateNodeRequest{InstallDir: &installDir}); err != nil {
+		if _, err := s.clusterOperator.UpdateNode(ctx, clusterID, target.ClusterNodeID, &clusterapp.UpdateNodeRequest{
+			InstallDir: &installDir,
+			JavaHome:   nodeJavaHomePointer(target, true),
+		}); err != nil {
 			return err
 		}
 	}

@@ -3398,6 +3398,26 @@
         "deadlocked_threads_detected": {
           "name": "检测到死锁线程",
           "description": "检测 JVM 死锁问题，避免任务调度、执行与恢复流程被卡死。"
+        },
+        "stx_server_memory_high": {
+          "name": "STX Server 内存过高",
+          "description": "当 STX Server 进程内存占用持续超过阈值时触发。"
+        },
+        "stx_server_http_5xx_ratio_high": {
+          "name": "STX Server HTTP 5xx 比例过高",
+          "description": "当 STX Server 的 HTTP 5xx 错误比例持续超过阈值时触发。"
+        },
+        "stx_tsdb_compaction_failed": {
+          "name": "内嵌存储压缩失败",
+          "description": "当内置监控存储的数据压缩出现失败时触发。"
+        },
+        "stx_agent_memory_high": {
+          "name": "Agent 内存过高",
+          "description": "当主机 Agent 进程内存占用持续超过阈值时触发。"
+        },
+        "stx_agent_version_mismatch": {
+          "name": "Agent 版本不一致",
+          "description": "当主机 Agent 版本与 STX Server 版本不一致时触发。"
         }
       },
       "editTitle": "编辑策略",

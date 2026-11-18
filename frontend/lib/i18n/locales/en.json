@@ -3398,6 +3398,26 @@
         "deadlocked_threads_detected": {
           "name": "Deadlocked threads detected",
           "description": "Detect JVM deadlocks that can stall task scheduling, execution, and recovery."
+        },
+        "stx_server_memory_high": {
+          "name": "STX server memory high",
+          "description": "Fires when the STX server process memory usage stays above the threshold."
+        },
+        "stx_server_http_5xx_ratio_high": {
+          "name": "STX server HTTP 5xx ratio high",
+          "description": "Fires when the HTTP 5xx error ratio of the STX server stays above the threshold."
+        },
+        "stx_tsdb_compaction_failed": {
+          "name": "Embedded storage compaction failed",
+          "description": "Fires when compaction of the built-in metrics storage fails."
+        },
+        "stx_agent_memory_high": {
+          "name": "Agent memory high",
+          "description": "Fires when a host Agent process memory usage stays above the threshold."
+        },
+        "stx_agent_version_mismatch": {
+          "name": "Agent version mismatch",
+          "description": "Fires when a host Agent version differs from the STX server version."
         }
       },
       "editTitle": "Edit Policy",

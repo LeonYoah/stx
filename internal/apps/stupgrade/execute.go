@@ -1248,15 +1248,18 @@ func (s *Service) finalizeNodeExecutionsRollbackFailed(ctx context.Context, task
 	return nil
 }
 
-// nodeJavaHomePointer 返回切版本或回滚时要写入的 JDK。旧计划快照两个字段都空时返回 nil，避免把节点 java_home 清掉。
-// nodeJavaHomePointer returns the JDK to persist on switch or rollback. Both fields empty
-// (legacy snapshots) yields nil so the node's java_home is left untouched.
+// nodeJavaHomePointer 返回切版本或回滚时要写入的 JDK。
+// 旧计划快照没有 source_java_home，源 JDK 写在 java_home 里；回滚必须回落到该值，不能写成空串把节点清成自动探测。
+// nodeJavaHomePointer returns the JDK to persist on switch or rollback.
+// Legacy snapshots have no source_java_home and stored the source JDK in java_home;
+// rollback must fall back to that value instead of writing an empty string that
+// would clear the node to auto detection.
 func nodeJavaHomePointer(target NodeTarget, restore bool) *string {
 	if target.JavaHome == "" && target.SourceJavaHome == "" {
 		return nil
 	}
 	value := target.JavaHome
-	if restore {
+	if restore && target.SourceJavaHome != "" {
 		value = target.SourceJavaHome
 	}
 	return &value

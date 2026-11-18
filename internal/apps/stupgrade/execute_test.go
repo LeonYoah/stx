@@ -597,6 +597,13 @@ func TestNodeJavaHomePointer(t *testing.T) {
 	if got := nodeJavaHomePointer(auto, true); got == nil || *got != "/opt/jdk8" {
 		t.Fatalf("auto rollback should restore source, got %#v", got)
 	}
+	legacy := NodeTarget{JavaHome: "/opt/jdk8"}
+	if got := nodeJavaHomePointer(legacy, false); got == nil || *got != "/opt/jdk8" {
+		t.Fatalf("legacy switch should keep java_home, got %#v", got)
+	}
+	if got := nodeJavaHomePointer(legacy, true); got == nil || *got != "/opt/jdk8" {
+		t.Fatalf("legacy rollback must not clear source JDK, got %#v", got)
+	}
 }
 
 func TestService_ExecutePlan_writesTargetJavaHomeAndRestoresOnRollback(t *testing.T) {

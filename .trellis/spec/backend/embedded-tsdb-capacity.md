@@ -83,6 +83,16 @@ ActiveQueryTracker 槽位饿死告警评估和短窗口查询。
 # go test ./internal/pkg/embedts -count=1 -timeout 50h -run '^TestCapacity_Soak$'
 ```
 
+#### 4.4 周跑基准 CI
+
+`.github/workflows/bench-weekly.yml` 每周一 02:00（Asia/Shanghai）跑一轮全部门禁，
+也可 `workflow_dispatch` 手动触发（`profile=full` 时追加 20 万序列档）：
+
+- `STX_TSDB_YEAR_BENCH=1` + `STX_TSDB_BENCH=1` + `STX_TSDB_SOAK=5m`，
+  `go test ./internal/pkg/embedts -run 'TestCapacity_'`（含默认的 10k 档）；
+- `go test ./internal/apps/dashboard ./internal/apps/sync -bench=. -benchtime=3x`，
+  查询微基准只记录趋势不设门槛。
+
 短跑（证明 harness，不是 48h 结论）：
 
 ```bash

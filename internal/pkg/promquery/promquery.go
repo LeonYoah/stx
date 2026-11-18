@@ -84,6 +84,18 @@ func UnavailableReason() string {
 	return ""
 }
 
+// OldestSampleMs 返回 tsdb 最早样本的毫秒时间戳；引擎未就绪或尚无样本时返回 0，
+// 前端用它把窗口中「早于最早样本」的部分画成无数据占位。
+// OldestSampleMs returns the timestamp of the oldest tsdb sample in ms; 0 when the engine is not
+// ready or holds no samples. The frontend uses it to render the part of the window before the
+// oldest sample as a no-data placeholder.
+func OldestSampleMs() int64 {
+	if oldest, ok := embedts.OldestSampleTime(); ok {
+		return oldest.UnixMilli()
+	}
+	return 0
+}
+
 // longRangeSpan 是长窗口阈值：跨度超过它时改用放宽超时（query_timeout ×4）的引擎，
 // 一年窗口不会被默认 8s 截断；短窗口行为不变。
 // longRangeSpan is the long-window threshold: spans beyond it run on the relaxed-timeout

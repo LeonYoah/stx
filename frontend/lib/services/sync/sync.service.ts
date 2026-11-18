@@ -404,6 +404,8 @@ export class SyncService extends BaseService {
       start_ms: data?.start_ms ?? 0,
       end_ms: data?.end_ms ?? 0,
       step_seconds: data?.step_seconds ?? 0,
+      // 旧后端可能不返回最早样本时间，兜底 0 表示未知。 / Older backends may omit it; 0 means unknown.
+      oldest_sample_ms: data?.oldest_sample_ms ?? 0,
       engine_observability_enabled: Boolean(data?.engine_observability_enabled),
       series: data?.series ?? [],
       annotations: data?.annotations ?? [],

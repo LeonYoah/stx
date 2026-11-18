@@ -52,11 +52,26 @@ func TestCapacity_YearWindow(t *testing.T) {
 	for _, seriesCount := range []int{200, 1000} {
 		t.Run(fmt.Sprintf("series=%d", seriesCount), func(t *testing.T) {
 			opts := testOptions(t)
+			// 基准要用生产级配额而不是测试桩的小值：MaxSamples=1000 万、query_timeout=8s。
+			// The bench needs production-grade quotas rather than the test stub's small values:
+			// MaxSamples=10M and query_timeout=8s.
+			opts.MaxSamples = DefaultMaxSamples
+			opts.QueryTimeout = 8 * time.Second
+			// 一年数据必须留得住：不限时间保留，否则旧块边写边被删，测不出真实查询成本。
+			// The year of data must actually persist: unlimited time retention, otherwise old
+			// blocks are deleted while seeding and the query cost is not representative.
+			opts.RetentionDuration = 0
 			require.NoError(t, Start(ctx, opts))
 			t.Cleanup(func() { _ = Close() })
 
 			seedYearJobCounters(t, ctx, seriesCount, start, end)
 			t.Logf("seeded %d counter series over %s", seriesCount, end.Sub(start))
+
+			// 不做额外压实：全量压实一年数据本身要几十分钟；后台压实照常运行，
+			// 查询落在生产同样的「边压实边查询」状态。
+			// No extra flush: compacting a full year takes tens of minutes; background
+			// compaction keeps running, so the query measures the same query-while-compacting
+			// state as production.
 
 			engine, queryable := QueryEngineLong()
 			require.NotNil(t, engine)

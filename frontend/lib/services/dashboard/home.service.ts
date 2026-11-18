@@ -131,6 +131,8 @@ export interface HomeClusterDashboard {
   end_ms: number;
   step_seconds: number;
   cell_seconds: number;
+  /** tsdb 最早样本毫秒；0 表示未知 / Oldest tsdb sample in ms; 0 when unknown. */
+  oldest_sample_ms: number;
   clusters: HomeClusterCard[];
   nodes: HomeClusterNode[];
   signals: HomeClusterSignals | null;
@@ -161,6 +163,8 @@ export interface HomeJobDashboard {
   end_ms: number;
   step_seconds: number;
   window_seconds: number;
+  /** tsdb 最早样本毫秒；0 表示未知 / Oldest tsdb sample in ms; 0 when unknown. */
+  oldest_sample_ms: number;
   throughput: {
     key: 'read' | 'write' | 'read_bytes' | 'write_bytes';
     points: [number, number][];
@@ -204,12 +208,15 @@ export interface HomeVolumeTotals {
   month_start_ms: number;
 }
 
-/** 日 / 月桶；partial=true 表示被时间窗裁掉一头。/ Day/month bucket; partial means window-clipped. */
+/** 日 / 周 / 月桶；partial 表示被时间窗或最早样本裁掉一头，no_data 表示整桶早于最早样本。
+ * Day/week/month bucket; partial means clipped by the window or the oldest sample, no_data means
+ * the whole bucket predates the oldest sample. */
 export interface HomeVolumeBucket {
   start_ms: number;
   end_ms: number;
   label: string;
   partial: boolean;
+  no_data?: boolean;
 }
 
 /** 「指标 × 分组」的桶值序列，totals 与 buckets 下标对齐。/ Metric × group series aligned to buckets. */
@@ -226,7 +233,7 @@ export interface HomeVolume {
   range: string;
   start_ms: number;
   end_ms: number;
-  granularity?: 'quarter_hour' | 'hour' | 'day' | 'month';
+  granularity?: 'quarter_hour' | 'hour' | 'day' | 'week' | 'month';
   split: 'none' | 'cluster' | 'task';
   oldest_sample_ms: number;
   totals: HomeVolumeTotals | null;
@@ -266,6 +273,8 @@ export interface HomeClusterDetail {
   start_ms: number;
   end_ms: number;
   step_seconds: number;
+  /** tsdb 最早样本毫秒；0 表示未知 / Oldest tsdb sample in ms; 0 when unknown. */
+  oldest_sample_ms: number;
   group: 'jvm' | 'gc' | 'sched' | 'store' | 'proc' | string;
   panels: HomeDetailPanel[];
   events: HomeDetailEvent[];
@@ -294,6 +303,8 @@ export interface HomeHostDashboard {
   step_seconds: number;
   start_ms: number;
   end_ms: number;
+  /** tsdb 最早样本毫秒；0 表示未知 / Oldest tsdb sample in ms; 0 when unknown. */
+  oldest_sample_ms: number;
   cluster_id?: number;
   hosts: HomeHostEntry[];
   partial_errors?: string[];
@@ -367,7 +378,7 @@ export class HomeService extends BaseService {
     range?: string;
     start?: number;
     end?: number;
-    granularity?: 'auto' | 'quarter_hour' | 'hour' | 'day' | 'month';
+    granularity?: 'auto' | 'quarter_hour' | 'hour' | 'day' | 'week' | 'month';
     split?: 'none' | 'cluster' | 'task';
   }): Promise<HomeVolume> {
     const data = await this.get<HomeVolume>('/volume', params);

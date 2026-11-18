@@ -159,7 +159,7 @@ func ResolveWindow(rangeKey string, custom *Window, now time.Time) (string, time
 	}
 	dur, ok := RangeDurations[rangeKey]
 	if !ok {
-		return "", time.Time{}, time.Time{}, fmt.Errorf("unsupported range %q (want 15m|1h|6h|24h|7d|30d|90d|1y|30d|90d|1y, or start/end)", rangeKey)
+		return "", time.Time{}, time.Time{}, fmt.Errorf("unsupported range %q (want 15m|1h|6h|24h|7d|30d|90d|1y, or start/end)", rangeKey)
 	}
 	end := now.UTC()
 	return rangeKey, end.Add(-dur), end, nil

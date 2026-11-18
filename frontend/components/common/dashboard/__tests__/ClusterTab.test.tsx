@@ -97,7 +97,7 @@ const dashboard = (source: 'prometheus' | 'none'): HomeClusterDashboard => ({
   range: '1h',
   start_ms: 0,
   end_ms: 3_600_000,
-  step_seconds: 15,
+  step_seconds: 15, oldest_sample_ms: 0,
   cell_seconds: 75,
   clusters: [
     {
@@ -208,7 +208,7 @@ const detail = (group: string): HomeClusterDetail => ({
   range: '1h',
   start_ms: 0,
   end_ms: 3_600_000,
-  step_seconds: 15,
+  step_seconds: 15, oldest_sample_ms: 0,
   group,
   panels:
     group === 'jvm'

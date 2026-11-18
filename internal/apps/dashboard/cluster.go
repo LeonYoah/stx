@@ -122,18 +122,20 @@ type DashboardSeries struct {
 // ClusterDashboard 是 GET /api/v1/dashboard/home/clusters 的返回。
 // ClusterDashboard is the payload of GET /api/v1/dashboard/home/clusters.
 type ClusterDashboard struct {
-	Source        string            `json:"source"`
-	Reason        string            `json:"reason,omitempty"`
-	Range         string            `json:"range"`
-	StartMs       int64             `json:"start_ms"`
-	EndMs         int64             `json:"end_ms"`
-	StepSeconds   int               `json:"step_seconds"`
-	CellSeconds   int               `json:"cell_seconds"`
-	Clusters      []ClusterCard     `json:"clusters"`
-	Nodes         []ClusterNodeRow  `json:"nodes"`
-	Signals       *ClusterSignals   `json:"signals"`
-	Series        []DashboardSeries `json:"series"`
-	PartialErrors []string          `json:"partial_errors,omitempty"`
+	Source      string `json:"source"`
+	Reason      string `json:"reason,omitempty"`
+	Range       string `json:"range"`
+	StartMs     int64  `json:"start_ms"`
+	EndMs       int64  `json:"end_ms"`
+	StepSeconds int    `json:"step_seconds"`
+	CellSeconds int    `json:"cell_seconds"`
+	// OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.
+	OldestSampleMs int64             `json:"oldest_sample_ms"`
+	Clusters       []ClusterCard     `json:"clusters"`
+	Nodes          []ClusterNodeRow  `json:"nodes"`
+	Signals        *ClusterSignals   `json:"signals"`
+	Series         []DashboardSeries `json:"series"`
+	PartialErrors  []string          `json:"partial_errors,omitempty"`
 }
 
 // ClusterDashboardService 组合 DB / 心跳与 Prometheus，生成首页集群大盘。
@@ -177,7 +179,8 @@ func (s *ClusterDashboardService) GetClusterDashboard(ctx context.Context, clust
 	}
 	out := &ClusterDashboard{
 		Range: rangeName, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), StepSeconds: step, CellSeconds: cell,
-		Clusters: []ClusterCard{}, Nodes: []ClusterNodeRow{}, Series: []DashboardSeries{},
+		OldestSampleMs: promquery.OldestSampleMs(),
+		Clusters:       []ClusterCard{}, Nodes: []ClusterNodeRow{}, Series: []DashboardSeries{},
 	}
 	s.fillInventory(ctx, out, clusterID)
 

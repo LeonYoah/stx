@@ -79,6 +79,10 @@ const VOLUME_COLORS = [
   'color-mix(in oklab, var(--series-3) 55%, var(--series-1))',
 ];
 
+/** 周桶标签的「MM/DD」格式化。/ MM/DD formatter for week-bucket labels. */
+const formatDay = (date: Date) =>
+  `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
+
 /** 读用 --series-1、写用 --series-2，与作业详情趋势图同色。/ Read --series-1, write --series-2, matching job trends. */
 const THROUGHPUT_COLOR: Record<ThroughputKey, string> = {
   write: 'var(--series-2)',
@@ -162,16 +166,25 @@ export function JobsTab({query}: {query: DashboardQuery}) {
     const granularity = volumeData?.granularity;
     return {
       categories: buckets.map((bucket) => {
-        // 亚日粒度标签带时刻（"YYYY-MM-DD HH:mm" → "HH:mm"），日取 "MM/DD"，月原样。
-        // Sub-day labels carry the clock ("YYYY-MM-DD HH:mm" → "HH:mm"); days show "MM/DD";
-        // months stay as they are.
-        const label =
-          granularity === 'month'
-            ? bucket.label
-            : granularity === 'day'
-              ? bucket.label.slice(5).replace('-', '/')
-              : bucket.label.slice(11);
-        return bucket.partial ? `${label}*` : label;
+        // 亚日粒度标签带时刻（"YYYY-MM-DD HH:mm" → "HH:mm"），日取 "MM/DD"，周取「周一–周日」，
+        // 月原样。no_data 桶（整桶早于最早样本）加 · 标记，柱体留空。
+        // Sub-day labels carry the clock ("YYYY-MM-DD HH:mm" → "HH:mm"); days show "MM/DD", weeks
+        // show "Mon–Sun", months stay as they are. no_data buckets (entirely before the oldest
+        // sample) get a · marker and an empty bar.
+        let label: string;
+        if (granularity === 'month') {
+          label = bucket.label;
+        } else if (granularity === 'week') {
+          const monday = new Date(`${bucket.label}T00:00:00`);
+          const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000);
+          label = `${formatDay(monday)}–${formatDay(sunday)}`;
+        } else if (granularity === 'day') {
+          label = bucket.label.slice(5).replace('-', '/');
+        } else {
+          label = bucket.label.slice(11);
+        }
+        const marked = bucket.no_data ? `${label}·` : label;
+        return bucket.partial ? `${marked}*` : marked;
       }),
       series: rows.map((row, index) => ({
         id: row.group_id,
@@ -180,9 +193,11 @@ export function JobsTab({query}: {query: DashboardQuery}) {
             ? t('volume.all')
             : (volumeData?.groups?.[row.group_id] ?? `#${row.group_id}`),
         color: VOLUME_COLORS[index % VOLUME_COLORS.length],
-        values: row.totals,
+        // no_data 桶画成空柱（NaN 留缺口），不显示成 0。/ no_data buckets render as gaps (NaN), not zeros.
+        values: row.totals.map((value, i) => (buckets[i]?.no_data ? NaN : value)),
       })),
       hasPartial: buckets.some((bucket) => bucket.partial),
+      hasNoData: buckets.some((bucket) => bucket.no_data),
     };
   }, [volumeData, volumeMetric, volumeSplit, t]);
 
@@ -433,6 +448,11 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                 {volumeChart.hasPartial ? (
                   <p className='mt-1 text-xs text-muted-foreground'>
                     {t('volume.partialHint')}
+                  </p>
+                ) : null}
+                {volumeChart.hasNoData ? (
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    {t('volume.noDataHint')}
                   </p>
                 ) : null}
               </>

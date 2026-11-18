@@ -120,7 +120,7 @@ const payload = (source: 'prometheus' | 'none'): HomeJobDashboard => ({
   range: '1h',
   start_ms: 0,
   end_ms: 3_600_000,
-  step_seconds: 15,
+  step_seconds: 15, oldest_sample_ms: 0,
   window_seconds: 3600,
   throughput: [
     {
@@ -298,6 +298,39 @@ describe('JobsTab', () => {
     const calls = home.getVolume.mock.calls.length;
     fireEvent.click(within(panel).getByText('读取 行'));
     expect(home.getVolume.mock.calls.length).toBe(calls);
+  });
+
+  it('renders week buckets as Mon–Sun ranges and gaps no_data buckets', async () => {
+    home.getJobs.mockResolvedValue(payload('prometheus'));
+    home.getVolume.mockResolvedValue({
+      ...volumePayload(),
+      granularity: 'week',
+      buckets: [
+        {
+          start_ms: 1_000,
+          end_ms: 86_400_000,
+          label: '2026-11-09',
+          partial: false,
+          no_data: true,
+        },
+        {
+          start_ms: 86_400_000,
+          end_ms: 90_000_000,
+          label: '2026-11-16',
+          partial: true,
+        },
+      ],
+    });
+    renderTab();
+    const panel = await screen.findByTestId('home-volume');
+    // 周标签渲染成「周一–周日」，no_data 桶带 · 标记并留空柱，脚注解释两种标记。
+    // Week labels render as "Mon–Sun", no_data buckets carry a · marker and a gap bar,
+    // and footnotes explain both markers.
+    expect(within(panel).getByTestId('beui-bar').textContent).toBe(
+      '数据量:11/09–11/15·,11/16–11/22*|全部',
+    );
+    expect(within(panel).getByText(/首末桶被时间窗裁掉/)).toBeTruthy();
+    expect(within(panel).getByText(/早于最早样本的桶没有数据/)).toBeTruthy();
   });
 
   it('names split groups from the groups map', async () => {

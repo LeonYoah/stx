@@ -642,7 +642,7 @@ var registry = append([]OperationSpec{
 			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
 			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
-			{Name: "granularity", Location: InputQuery, Required: false, Description: "Bucket granularity: auto|quarter_hour|hour|day|month; auto picks by window span, omit for totals only"},
+			{Name: "granularity", Location: InputQuery, Required: false, Description: "Bucket granularity: auto|quarter_hour|hour|day|week|month; auto picks by window span, omit for totals only"},
 			{Name: "split", Location: InputQuery, Required: false, Description: "Split series by: none|cluster|task (default none)"},
 		},
 		Example: "stx dashboard home volume --granularity day --split cluster",

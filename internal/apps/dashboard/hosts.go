@@ -92,14 +92,16 @@ type HomeHostEntry struct {
 // HostDashboard 是 GET /api/v1/dashboard/home/hosts 的返回。
 // HostDashboard is the payload of GET /api/v1/dashboard/home/hosts.
 type HostDashboard struct {
-	Source        string          `json:"source"`
-	Reason        string          `json:"reason,omitempty"`
-	Range         string          `json:"range"`
-	StartMs       int64           `json:"start_ms"`
-	EndMs         int64           `json:"end_ms"`
-	StepSeconds   int             `json:"step_seconds"`
-	Hosts         []HomeHostEntry `json:"hosts"`
-	PartialErrors []string        `json:"partial_errors,omitempty"`
+	Source      string `json:"source"`
+	Reason      string `json:"reason,omitempty"`
+	Range       string `json:"range"`
+	StartMs     int64  `json:"start_ms"`
+	EndMs       int64  `json:"end_ms"`
+	StepSeconds int    `json:"step_seconds"`
+	// OldestSampleMs 是 tsdb 最早样本的毫秒时间戳；0 表示未知。/ Oldest tsdb sample in ms; 0 when unknown.
+	OldestSampleMs int64           `json:"oldest_sample_ms"`
+	Hosts          []HomeHostEntry `json:"hosts"`
+	PartialErrors  []string        `json:"partial_errors,omitempty"`
 }
 
 // HostInventory 解析主机清单（dashboard → host 服务）。
@@ -166,6 +168,7 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 	out := &HostDashboard{
 		Range: rangeName, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(),
 		StepSeconds: step, Hosts: []HomeHostEntry{},
+		OldestSampleMs: promquery.OldestSampleMs(),
 	}
 
 	// 主机清单：全部主机，绑定 agent 的 bare_metal 才有指标；cluster_id 限定到有节点的子集。

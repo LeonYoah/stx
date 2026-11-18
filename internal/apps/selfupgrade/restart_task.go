@@ -324,11 +324,18 @@ func (s *Service) finishRestart(taskID string, plan *restartPlan, res *restartRe
 	s.stage.Message = "upgrade failed and was rolled back / 升级失败已回滚"
 	s.recordHistoryLocked(s.historyRecordLocked(plan.FromVersion, status, StepRestart, reason, CodeVerifyFail))
 	target := plan.TargetVersion
+	// Add 必须在临界区内完成：外部一旦看到终态，taskWg 计数已 +1，Wait 不会漏过这个
+	// 晚起的收尾写盘 goroutine（否则其 saveHistoryLocked 会撞上 t.TempDir 删目录）。
+	// The Add must happen inside the critical section: once the terminal state is
+	// observable the taskWg count is already bumped, so Wait cannot miss this late
+	// tail writer (otherwise its saveHistoryLocked races t.TempDir's RemoveAll).
+	s.taskWg.Add(1)
 	s.mu.Unlock()
 
 	// 控制面已回到旧版本：把 Agent 与 proxy 也恢复到备份，保持一致。
 	// The control plane is back on the old version: restore Agents and proxies to their backups as well.
 	go func() {
+		defer s.taskWg.Done()
 		ctx := context.Background()
 		deadline := time.Now().Add(time.Minute)
 		for {

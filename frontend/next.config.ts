@@ -43,6 +43,11 @@ const nextConfig: NextConfig = {
     // 只在构建时跳过 ESLint，开发时照常在编辑器里提示
     ignoreDuringBuilds: true,
   },
+  // 本地开发常混用 localhost/127.0.0.1/局域网 IP 访问 dev server；
+  // 声明允许的开发源消除 cross-origin dev 资源警告（仅 dev 生效）。
+  // Dev is commonly reached via localhost/127.0.0.1/LAN IP interchangeably;
+  // declaring allowed origins silences the cross-origin dev-asset warning (dev only).
+  allowedDevOrigins: ['127.0.0.1', 'localhost'],
   // /api 转发改在 middleware 运行时解析 BACKEND_BASE_URL。
   // next.config rewrites 会在 next build 时写进镜像，Docker 里改环境变量不会生效。
   // Proxy /api in middleware at runtime. next.config rewrites are baked at build

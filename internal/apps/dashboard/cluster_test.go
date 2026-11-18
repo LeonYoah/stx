@@ -84,6 +84,13 @@ func (fakeRunning) RunningJobCountsByCluster(context.Context) (map[uint]int64, e
 func withPrometheus(t *testing.T, enabled bool) {
 	t.Helper()
 	oldEnabled := config.Config.Observability.Enabled
+	// t.TempDir 必须先建：它的删除清理在调用时就注册，而 t.Cleanup 是后进先出——
+	// 若 Close 的清理先注册，结束时会先删 chunks_head 再关库，Head.Close 的
+	// mmapHeadChunks 就会写进已删目录直接 panic。
+	// t.TempDir must come first: its removal cleanup registers at call time and
+	// cleanups run LIFO — registering Close first would delete chunks_head before
+	// the db closes, and Head.Close's mmapHeadChunks then writes into a missing dir.
+	dir := t.TempDir()
 	t.Cleanup(func() {
 		config.Config.Observability.Enabled = oldEnabled
 		_ = embedts.Close()
@@ -91,7 +98,7 @@ func withPrometheus(t *testing.T, enabled bool) {
 	config.Config.Observability.Enabled = enabled
 	_ = embedts.Close()
 	if enabled {
-		if err := embedts.Start(context.Background(), embedts.Options{Dir: t.TempDir()}); err != nil {
+		if err := embedts.Start(context.Background(), embedts.Options{Dir: dir}); err != nil {
 			t.Fatalf("start embedded tsdb: %v", err)
 		}
 	}

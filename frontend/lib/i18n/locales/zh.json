@@ -392,26 +392,6 @@
         "avgPrefix": "均 ",
         "avgRateHint": "作业已结束：运行期间的平均速率（累计条数 ÷ 耗时）"
       },
-      "preview": {
-        "title": "作业预览",
-        "trend": "近 1 小时吞吐",
-        "read": "读取",
-        "write": "写入",
-        "noTrend": "开启可观测性后显示趋势",
-        "trendUnavailable": "监控数据暂不可用，稍后自动重试",
-        "error": "失败原因",
-        "openDetail": "打开作业详情",
-        "writeRate": "写入速率",
-        "total": "累计写入",
-        "cdc": "CDC 延迟",
-        "close": "关闭",
-        "trendLifetime": "作业全程吞吐",
-        "loading": "加载中",
-        "legendClear": "清空",
-        "legendAll": "全选",
-        "categoryTime": "时间",
-        "empty": "该时间窗内没有数据"
-      },
       "clusterTab": {
         "range": {
           "label": "时间窗",
@@ -423,6 +403,7 @@
           "30d": "30 天",
           "90d": "90 天",
           "1y": "1 年",
+          "all": "全部",
           "custom": "自定义时间段",
           "trimmed": "已截取为最近 1 年"
         },
@@ -530,7 +511,7 @@
             "gc": "GC 与线程",
             "sched": "调度与集群",
             "store": "状态存储",
-            "proc": "进程与网络"
+            "proc": "进程与类加载"
           },
           "units": {
             "bytes": "字节",
@@ -559,14 +540,15 @@
             "hz_queue": "Hazelcast 队列",
             "partitions": "Hazelcast 分区",
             "members": "集群成员数",
-            "store_owned": "本地持有条目",
             "store_heap": "状态占用堆内存",
             "offheap": "进程内存（RSS / 堆外）",
             "fds": "文件描述符",
             "classes": "已加载类",
-            "class_load_rate": "类加载速率",
-            "store_backup": "本地备份条目"
-          }
+            "store_entries": "本地持有 / 备份条目"
+          },
+          "legendOwned": "持有",
+          "legendBackup": "备份",
+          "other": "其他"
         }
       },
       "hostsTab": {
@@ -594,8 +576,8 @@
           "net": "网络吞吐",
           "disk_io": "磁盘吞吐",
           "disk_util": "磁盘使用率",
-          "fs_used": "文件系统使用率",
-          "fs_inodes": "inode 使用率",
+          "fs": "文件系统",
+          "conn": "连接与 fd",
           "tcp": "TCP 连接",
           "fds": "文件描述符"
         },
@@ -604,8 +586,17 @@
           "percent": "百分比",
           "per_second": "每秒",
           "seconds": "秒",
-          "count": "个"
-        }
+          "count": "个",
+          "bytes_per_second": "字节/秒",
+          "d": "天",
+          "h": "小时",
+          "m": "分"
+        },
+        "fsHint": "容量 · inode",
+        "fsCapacity": "容量",
+        "fsInodes": "inode",
+        "refCores": "核数",
+        "uptime": "已运行 {d}"
       }
     }
   },
@@ -4208,6 +4199,13 @@
       "scopeGlobal": "全局",
       "scopeCluster": "集群 #{id}",
       "conditionsSummary": "条件数：{count} | 冷却：{minutes} 分钟",
+      "invalidBadge": "已失效",
+      "invalidReasons": {
+        "legacy_condition_code": "条件模板 \"{detail}\" 已失效：内置监控不再提供该巡检条件，请编辑策略重新选择。",
+        "alert_firing_without_rule_keys": "\"ALERT_FIRING\" 条件未选择告警规则，策略不会触发，请编辑补齐。",
+        "legacy_source_type": "告警类别 \"{detail}\" 已失效，请编辑并重新选择。",
+        "unknown": "策略包含已失效的条件，请编辑并重新选择。"
+      },
       "autoBundleSummary": "自动诊断包：{mode}",
       "autoBundleModeCreateAndStart": "自动创建并执行",
       "autoBundleModeCreateOnly": "自动创建，手动执行",
@@ -4583,6 +4581,103 @@
     "upgradeSmokeCheckTitle": "升级后可用性验证",
     "upgradeSmokeCheckDescription": "集群重启并恢复健康后，系统会自动执行一次 seatunnel.sh 模板任务验证。若验证失败，只记录告警，不阻塞升级成功。"
   },
+  "jobTable": {
+    "searchPlaceholder": "作业名、任务名、引擎作业 ID",
+    "mode": {
+      "all": "全部模式",
+      "streaming": "流",
+      "batch": "批"
+    },
+    "runTypeFilter": {
+      "label": "运行类型",
+      "all": "全部",
+      "formal": "正式",
+      "preview": "预览"
+    },
+    "groups": {
+      "all": "全部",
+      "failed": "失败",
+      "running": "运行中",
+      "pending": "等待中",
+      "stopping": "停止中",
+      "canceled": "已取消",
+      "finished": "已完成"
+    },
+    "columns": {
+      "job": "作业",
+      "cluster": "集群",
+      "mode": "模式",
+      "run": "运行方式",
+      "status": "状态",
+      "initiator": "发起人",
+      "rates": "读取 / 写入速率",
+      "totals": "读取 / 写入条数",
+      "cdc": "CDC 延迟",
+      "timeline": "时间",
+      "actions": "操作"
+    },
+    "sortColumn": "按 {column} 排序",
+    "sortNeedsRunning": "选中「运行中」后可按速率或延迟排序",
+    "taskRef": "任务 #{id}",
+    "ranFor": "已运行 {duration}",
+    "tookFor": "耗时 {duration}",
+    "startedAt": "开始时间",
+    "finishedAt": "结束时间",
+    "duration": "耗时",
+    "empty": "没有符合条件的作业",
+    "emptyHint": "调整筛选条件，或到工作台提交作业。",
+    "total": "共 {count} 条",
+    "detail": "详情",
+    "stop": "停止",
+    "recover": "恢复",
+    "savepointStop": "Savepoint 停止",
+    "openInWorkbench": "在工作台打开",
+    "copyJobId": "复制作业 ID",
+    "copiedJobId": "已复制作业 ID",
+    "moreActions": "更多操作",
+    "selected": "已选 {count} 个作业",
+    "clearSelection": "取消选择",
+    "sparklineLabel": "{name} 近 1 小时写入速率",
+    "loadError": "加载作业列表失败",
+    "you": "我",
+    "multiTableBadge": "多表 ({count} 表)",
+    "viewMultiTableMetricsHint": "点击查看多表分表指标明细",
+    "cdcDelayTooltip": "近 1 分钟最大 {max}，更新于 {time}（延迟 ≥1 秒时引擎才上报）",
+    "runModePreview": "预览",
+    "runModeDolphin": "Dolphin 调度",
+    "runModeSchedule": "调度",
+    "runModeManual": "手动",
+    "readOnlyCancelTooltip": "仅发起人或管理员可停止此作业",
+    "readOnlyRecoverTooltip": "只读模式下无法进行作业恢复",
+    "historyRecoverTooltip": "基于该历史实例当时的提交脚本与 Savepoint 发起恢复",
+    "bulk": {
+      "result": "完成 {ok} 个，失败 {failed} 个，跳过 {skipped} 个",
+      "itemFailed": "作业 #{id}：{message}"
+    },
+    "confirm": {
+      "stopTitle": "停止 {count} 个作业？",
+      "stopDesc": "将逐个向集群发送停止请求（不做 Savepoint）。已结束的作业会被跳过。",
+      "savepointStopTitle": "Savepoint 停止 {count} 个作业？",
+      "savepointStopDesc": "将逐个向集群发送 Savepoint 停止请求。",
+      "recoverTitle": "恢复 {count} 个作业？",
+      "recoverDesc": "将逐个从最后一次 Checkpoint 恢复。只有已失败或已取消的作业可以恢复，其余会被跳过。",
+      "confirm": "确认",
+      "cancel": "取消"
+    },
+    "action": {
+      "stopOk": "已向作业 #{id} 发送停止请求",
+      "savepointOk": "已向作业 #{id} 发送 Savepoint 停止请求",
+      "recoverOk": "已提交作业 #{id} 的恢复请求",
+      "failed": "操作失败"
+    },
+    "units": {
+      "d": " 天",
+      "h": " 小时",
+      "m": " 分"
+    },
+    "avgPrefix": "均 ",
+    "avgRateHint": "作业已结束：运行期间的平均速率（累计条数 ÷ 耗时）"
+  },
   "workbenchStudio": {
     "loading": "加载中...",
     "saving": "保存中...",
@@ -4836,16 +4931,7 @@
     "logFocusHint": "主视图聚焦最近日志，展开后可查看完整结果",
     "noJobRuns": "暂无任务运行记录。",
     "sortColumn": "按 {column} 排序",
-    "jobModeChannel": "模式 / 通道",
-    "jobTimeline": "时序 / 耗时",
-    "task": "任务",
-    "status": "状态",
-    "channel": "通道",
-    "metrics": "指标",
     "actions": "操作",
-    "read": "读",
-    "write": "写",
-    "averageSpeed": "均速",
     "recover": "恢复",
     "noPreviewJobs": "暂无预览任务。",
     "catalog": "Catalog",
@@ -4940,9 +5026,6 @@
     "runModeManual": "手动",
     "runModeSchedule": "调度",
     "runModeDolphin": "Dolphin 调度",
-    "startedAt": "开始时间",
-    "finishedAt": "结束时间",
-    "duration": "耗时",
     "durationMillis": "耗时(ms)",
     "stateSize": "状态大小",
     "dagParseFailedTitle": "DAG 解析失败",
@@ -4968,8 +5051,6 @@
     "runSubmitted": "运行任务已提交",
     "runFailed": "运行失败",
     "actualExecutedScript": "实际执行脚本",
-    "multiTableBadge": "多表 ({count} 表)",
-    "viewMultiTableMetricsHint": "点击查看多表分表指标明细",
     "noActualExecutedScript": "当前任务实例暂无可展示的实际执行脚本。",
     "savepointStopTriggered": "任务已触发 Savepoint 停止",
     "taskStopped": "任务已停止",
@@ -5227,8 +5308,6 @@
     "records": "条快照",
     "copy": "复制",
     "locate": "定位",
-    "initiator": "发起人",
-    "you": "我",
     "adminOnlyGlobalVars": "仅系统管理员可创建和维护全局变量",
     "onlyCreatorOrAdminCanEdit": "仅创建者或管理员可编辑此变量",
     "onlyCreatorOrAdminCanDelete": "仅创建者或管理员可删除此变量",
@@ -5399,10 +5478,6 @@
       "totalBadge": "共 {total} 条",
       "retentionHint": "保留 7 天"
     },
-    "cdcDelayBadge": "CDC 延迟 {value}",
-    "cdcDelayTooltip": "近 1 分钟最大 {max}，更新于 {time}（延迟 ≥1 秒时引擎才上报）",
-    "viewJobDetail": "查看详情",
-    "jobDetailShort": "详情",
     "jobDetail": {
       "title": "作业 #{id}",
       "copy": "复制",
@@ -5580,7 +5655,24 @@
         "rangeTrimmed": "已截取为最近 1 年"
       }
     },
-    "zeroMetricsCollapsed": "{count} 项指标当前全为 0，已折叠（相关能力未触发或没有积压）"
+    "zeroMetricsCollapsed": "{count} 项指标当前全为 0，已折叠（相关能力未触发或没有积压）",
+    "connectorMissingTitle": "集群缺少连接器",
+    "connectorMissingBadge": "缺少连接器",
+    "connectorMissingDescription": "集群没有安装任务需要的 {type} 连接器「{identifier}」，引擎无法创建该插件。",
+    "connectorMissingPreviewDescription": "预览需要集群安装 HTTP 连接器。预览会把任务的 Sink 临时换成 HTTP Sink，把样本数据回传到 STX；当前集群还没有安装它。",
+    "connectorMissingSuggestion": "到插件市场为该集群安装「{identifier}」对应的连接器，安装完成后重新执行。",
+    "connectorMissingAction": "去插件市场安装",
+    "connectorType": {
+      "source": "Source",
+      "sink": "Sink",
+      "transform": "Transform"
+    },
+    "previewRowCount": "{count} 行",
+    "previewRowLimitReached": "已达预览上限 {limit} 行，后续数据未采集",
+    "previewEmptyString": "(空串)",
+    "copyCellValue": "复制 {column} 的值",
+    "previewResizeColumn": "调整 {column} 列宽",
+    "previewReorderColumn": "拖动调整 {column} 列顺序"
   },
   "troubleshooting": {
     "title": "经验库",

@@ -29,6 +29,7 @@ import (
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/monitoring"
 	syncapp "github.com/LeonYoah/stx/internal/apps/sync"
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 )
 
 // homeAlertLimit 是「需要处理」里最多带入的告警条数。
@@ -155,8 +156,68 @@ func (s *HomeService) GetHomeSummary(ctx context.Context, actor executionapp.Act
 			}
 		}
 	}
+	out.Attention = s.suppressHandledJobFailures(ctx, out.Attention, clusterID)
 	sortHomeAttention(out.Attention)
 	return out
+}
+
+// suppressHandledJobFailures 把已被人工关闭的「作业失败」告警覆盖的失败作业条目从「需要处理」里去掉。
+// 「已关闭」语义是"该任务此刻之前的失败已被人工处理"：按任务取最近一次关闭时间，条目时间早于它的不再提示；
+// 关闭后再失败会开新的告警阶段、新条目照常出现。查询失败时原样返回——宁可多显示，也不能吞掉真实失败。
+// suppressHandledJobFailures drops job_failed items already covered by a manually closed sync_job_failed
+// alert. "Closed" means "this task's failures up to now are handled", so per task the latest close time wins
+// and earlier items leave the strip; a failure after the close opens a new episode and still appears. On lookup
+// failure the items pass through — over-showing is safer than swallowing a real failure.
+func (s *HomeService) suppressHandledJobFailures(ctx context.Context, items []syncapp.HomeAttentionItem, clusterID uint) []syncapp.HomeAttentionItem {
+	if s.monitoring == nil {
+		return items
+	}
+	hasJobFailed := false
+	for i := range items {
+		if items[i].Kind == "job_failed" {
+			hasJobFailed = true
+			break
+		}
+	}
+	if !hasJobFailed {
+		return items
+	}
+	filter := &monitoring.AlertInstanceFilter{
+		SourceType: monitoring.AlertSourceTypeJob,
+		Status:     monitoring.AlertDisplayStatusClosed,
+		Unbounded:  true,
+	}
+	if clusterID > 0 {
+		filter.ClusterID = strconv.FormatUint(uint64(clusterID), 10)
+	}
+	closed, err := s.monitoring.ListAlertInstances(ctx, filter)
+	if err != nil || closed == nil {
+		return items
+	}
+	handledUntil := make(map[uint]time.Time, len(closed.Alerts))
+	for _, alert := range closed.Alerts {
+		if alert == nil || alert.ClosedAt == nil || alert.SourceRef == nil ||
+			alert.RuleKey != syncalert.RuleJobFailed || alert.SourceRef.TaskID == 0 {
+			continue
+		}
+		taskID := alert.SourceRef.TaskID
+		if until, ok := handledUntil[taskID]; !ok || alert.ClosedAt.After(until) {
+			handledUntil[taskID] = *alert.ClosedAt
+		}
+	}
+	if len(handledUntil) == 0 {
+		return items
+	}
+	kept := make([]syncapp.HomeAttentionItem, 0, len(items))
+	for _, item := range items {
+		if item.Kind == "job_failed" {
+			if until, ok := handledUntil[item.TaskID]; ok && !item.At.After(until) {
+				continue
+			}
+		}
+		kept = append(kept, item)
+	}
+	return kept
 }
 
 // sortHomeAttention 严重在前，同级按时间倒序。

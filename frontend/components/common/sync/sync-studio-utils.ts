@@ -112,6 +112,7 @@ export interface PreviewRunDialogState {
 }
 
 export type ErrorCategory =
+  | 'connector'
   | 'schema'
   | 'network'
   | 'auth'
@@ -125,6 +126,40 @@ export interface UserFacingErrorState {
   category?: ErrorCategory;
   suggestion?: string;
   raw?: string;
+  // 能直接修复的错误给出一个跳转动作（如去插件市场安装连接器）。
+  // Fixable errors carry one navigation action (e.g. install the connector from the plugin market).
+  action?: {label: string; href: string};
+}
+
+// 引擎缺连接器的原始措辞（SeaTunnel API-06）；后端已归类的消息里也保留这段原文。
+// The engine's raw "missing connector" wording (SeaTunnel API-06); backend-classified messages keep it verbatim.
+const ENGINE_CONNECTOR_MISSING_PATTERN =
+  /Unable to create a (source|sink|transform) for identifier '([^']+)'/i;
+
+export interface ConnectorMissingInfo {
+  pluginType: 'source' | 'sink' | 'transform';
+  identifier: string;
+}
+
+/**
+ * 从错误消息中识别「集群缺连接器」；后端 error_code 与消息原文任一命中即可。
+ * Detect "cluster lacks a connector" from an error; either the backend error_code or the raw message is enough.
+ */
+export function parseConnectorMissingError(
+  message: string,
+  errorCode?: string,
+): ConnectorMissingInfo | null {
+  const match = ENGINE_CONNECTOR_MISSING_PATTERN.exec(message);
+  if (match) {
+    return {
+      pluginType: match[1].toLowerCase() as ConnectorMissingInfo['pluginType'],
+      identifier: match[2],
+    };
+  }
+  if (errorCode === 'connector_missing') {
+    return {pluginType: 'sink', identifier: ''};
+  }
+  return null;
 }
 
 // 右侧属性边栏选项卡类型：设置 / 定时调度 / 版本历史 / 全局变量
@@ -2025,8 +2060,41 @@ export function formatSyncUserFacingError(
   error: unknown,
   fallbackTitle: string,
   t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
+  options?: {preview?: boolean},
 ): UserFacingErrorState {
   const rawMessage = error instanceof Error ? error.message : String(error || t('unknownError'));
+  const errorCode =
+    error && typeof error === 'object' && 'errorCode' in error
+      ? String((error as {errorCode?: unknown}).errorCode ?? '')
+      : '';
+
+  // 0. 集群缺连接器：预览会注入 Http sink，用户没写过它，需要单独说明是预览本身依赖 HTTP 连接器。
+  // 0. Cluster lacks a connector: preview injects an Http sink the user never wrote, so say preview itself needs it.
+  const missingConnector = parseConnectorMissingError(rawMessage, errorCode);
+  if (missingConnector) {
+    const previewSink =
+      Boolean(options?.preview) &&
+      missingConnector.pluginType === 'sink' &&
+      missingConnector.identifier.toLowerCase() === 'http';
+    const identifier = missingConnector.identifier || '-';
+    const searchKeyword = (missingConnector.identifier || 'http').toLowerCase();
+    return {
+      title: t('connectorMissingTitle'),
+      description: previewSink
+        ? t('connectorMissingPreviewDescription')
+        : t('connectorMissingDescription', {
+            type: t(`connectorType.${missingConnector.pluginType}`),
+            identifier,
+          }),
+      category: 'connector',
+      suggestion: t('connectorMissingSuggestion', {identifier}),
+      raw: rawMessage,
+      action: {
+        label: t('connectorMissingAction'),
+        href: `/plugins?q=${encodeURIComponent(searchKeyword)}`,
+      },
+    };
+  }
   // 清洗引擎或包装层的套娃前缀
   // Clean nested wrapper prefixes from engine or RPC layers
   const cleanMessage = rawMessage

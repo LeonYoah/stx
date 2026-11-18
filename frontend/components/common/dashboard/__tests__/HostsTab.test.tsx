@@ -55,7 +55,7 @@ const payload = (source: 'prometheus' | 'none'): HomeHostDashboard => ({
   range: '1h',
   step_seconds: 15,
   start_ms: 0,
-  end_ms: 3_600_000,
+  end_ms: 1_700_000_000_000,
   hosts: [
     {
       id: 1,
@@ -67,22 +67,43 @@ const payload = (source: 'prometheus' | 'none'): HomeHostDashboard => ({
       total_memory_bytes: 8 * 1024 ** 3,
       last_heartbeat_ms: 1_700_000_000_000,
       metrics_supported: true,
+      boot_time_ms: 1_700_000_000_000 - 3 * 86_400_000,
       panels: [
         {
           key: 'cpu',
-          unit: 'per_second',
+          unit: 'percent',
           series: [
-            {instance: 't1', label: 'user', points: [[0, 0.2]]},
-            {instance: 't1', label: 'idle', points: [[0, 3.6]]},
+            {instance: 't1', label: 'user', points: [[0, 20]]},
+            {instance: 't1', label: 'system', points: [[0, 10]]},
           ],
         },
         {
           key: 'net',
-          unit: 'per_second',
+          unit: 'bytes_per_second',
           series: [
             {instance: 't1', label: 'rx eth0', points: [[0, 1024]]},
             {instance: 't1', label: 'tx eth0', points: [[0, 512]]},
           ],
+        },
+        {
+          key: 'fs_used',
+          unit: 'percent',
+          series: [{instance: 't1', label: '/', points: [[0, 92]]}],
+        },
+        {
+          key: 'fs_inodes',
+          unit: 'percent',
+          series: [{instance: 't1', label: '/', points: [[0, 45]]}],
+        },
+        {
+          key: 'tcp',
+          unit: 'count',
+          series: [{instance: 't1', label: 'established', points: [[0, 12]]}],
+        },
+        {
+          key: 'fds',
+          unit: 'count',
+          series: [{instance: 't1', label: 'allocated', points: [[0, 640]]}],
         },
       ],
     },
@@ -111,6 +132,7 @@ const query: DashboardQuery = {
   order: '',
   page: 1,
   range: '1h',
+  listRange: 'all',
   start: undefined,
   end: undefined,
 };
@@ -143,13 +165,29 @@ describe('HostsTab', () => {
     expect(within(net).getByTestId('line-chart').textContent).toBe(
       '网络吞吐:rx eth0,tx eth0',
     );
+    // fs_used/fs_inodes 合成一格 Progress 列表；tcp/fds 合成一格指标卡。/ fs_used +
+    // fs_inodes fold into one progress cell; tcp + fds into one metric-card cell.
+    const fs = screen.getByTestId('host-panel-1-fs');
+    expect(fs.textContent).toContain('92%');
+    expect(fs.textContent).toContain('45%');
+    expect(screen.queryByTestId('host-panel-1-fs_inodes')).toBeNull();
+    const conn = screen.getByTestId('host-panel-1-conn');
+    expect(conn.textContent).toContain('12');
+    expect(screen.queryByTestId('host-panel-1-fds')).toBeNull();
+    // 开机时间换算成「已运行 N 天」进卡头。/ Boot time becomes an "up N days" note in the header.
+    expect(screen.getByText(/已运行/)).toBeTruthy();
   });
 
-  it('shows the shared unavailable state when observability is off', async () => {
+  it('keeps the inventory under a banner when observability is off', async () => {
     home.getHosts.mockResolvedValue(payload('none'));
     renderTab();
     expect(await screen.findByTestId('home-trend-empty')).toBeTruthy();
-    expect(screen.queryByText('t1')).toBeNull();
+    // 清单不因可观测关闭而消失：主机名照出；卡片不再重复原因文案（顶部横幅已说明），
+    // 指标区为空、无面板。/ The inventory survives an observability-off state: host names
+    // still render; cards don't repeat the reason (the banner covers it) — no note, no panels.
+    expect(await screen.findByText('t1')).toBeTruthy();
+    expect(screen.queryByTestId('host-metrics-off-1')).toBeNull();
+    expect(screen.queryByTestId('host-panel-1-cpu')).toBeNull();
   });
 
   it('shows a plain empty note when no hosts are in scope', async () => {

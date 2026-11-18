@@ -29,6 +29,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/pkg/promquery"
 )
 
@@ -150,8 +151,13 @@ var clusterDetailGroups = map[string][]detailPanel{
 			{dim: "total", expr: `max by (instance) (hazelcast_partition_partitionCount{%[1]s})`},
 			{dim: "active", expr: `max by (instance) (hazelcast_partition_activePartition{%[1]s})`},
 		}},
-		// members 面板在 fillDetail 里补参考线：node_count 对照 DB 节点数。
-		// The members panel gets its reference line in fillDetail: node_count vs the DB node count.
+		// members 面板在 fillDetail 里补参考线：node_count 对照 DB 节点数；序列按 cluster_id
+		// 聚合（无 instance 标签），装配时把集群名填进 Instance，否则「全部集群」下全是
+		// 「 · members」无法分辨。
+		// The members panel gets its reference line in fillDetail: node_count vs the DB node
+		// count. Series aggregate by cluster_id (no instance label) — the assembly step fills
+		// Instance with the cluster name, otherwise "all clusters" renders rows of
+		// " · members" with nothing telling them apart.
 		{key: "members", unit: "count", queries: []detailQuery{
 			{dim: "members", expr: `max by (cluster_id) (node_count{%[1]s})`},
 		}},
@@ -164,13 +170,23 @@ var clusterDetailGroups = map[string][]detailPanel{
 			{dimLabel: "store", expr: `sum by (instance, store) (engine_state_store_local_backup_entries{%[1]s})`},
 		}},
 		{key: "store_heap", unit: "bytes", queries: []detailQuery{
-			{dimLabel: "store", expr: `sum by (instance, store) (engine_state_store_local_heap_cost_bytes{%[1]s})`},
+			// 只画按节点汇总的总量：13 个 store × 节点数的明细噪音太大，关注的是
+			// 状态堆占用是否持续增长。/ Only the per-node total is charted: 13 stores ×
+			// nodes of detail is noise — what matters is whether the state heap keeps growing.
+			{dim: "total", expr: `sum by (instance) (engine_state_store_local_heap_cost_bytes{%[1]s})`},
 		}},
 	},
 	"proc": {
 		{key: "offheap", unit: "bytes", queries: []detailQuery{
 			{dim: "rss", expr: `max by (instance) (process_resident_memory_bytes{%[1]s})`},
-			{dim: "offheap", expr: `max by (instance) (process_resident_memory_bytes{%[1]s}) - on (instance) max by (instance) (jvm_memory_bytes_used{%[1]s, area="heap"})`},
+			// 堆外 = 非堆已用 + direct/mapped buffer（JVM 口径的堆外总量，天然非负）。
+			// 不取 RSS − 已提交堆：-Xms 大且未开 AlwaysPreTouch 时，已提交的堆页
+			// 未必真正驻留，RSS 会小于 committed 而算出负数。
+			// Off-heap = non-heap used + direct/mapped buffers (the JVM-defined
+			// off-heap total, inherently non-negative). RSS − committed heap is not
+			// used: with a large -Xms and no AlwaysPreTouch, committed heap pages are
+			// not yet resident and RSS < committed yields a negative series.
+			{dim: "offheap", expr: `sum by (instance) (jvm_memory_bytes_used{%[1]s, area="nonheap"}) + on (instance) sum by (instance) (jvm_buffer_pool_used_bytes{%[1]s})`},
 		}},
 		{key: "fds", unit: "count", queries: []detailQuery{
 			{dim: "open", expr: `max by (instance) (process_open_fds{%[1]s})`},
@@ -289,6 +305,31 @@ func (s *ClusterDashboardService) GetClusterDetail(ctx context.Context, clusterI
 	}
 	wg.Wait()
 
+	// cluster_id → 集群名：members 面板的图例与 members_change 事件都要带上集群身份，
+	// 否则「全部集群」视图里多条 members 序列同名、事件也说不清是哪个集群。
+	// cluster_id → cluster name: both the members-panel legend and members_change events
+	// carry cluster identity — otherwise the "all clusters" view shows identically named
+	// members series and events that say nothing about which cluster changed.
+	clusterNames := map[string]string{}
+	if s.clusters != nil {
+		if items, _, err := s.clusters.List(ctx, &cluster.ClusterFilter{Page: 1, PageSize: 1000}); err == nil {
+			for _, item := range items {
+				if item != nil {
+					clusterNames[strconv.FormatUint(uint64(item.ID), 10)] = item.Name
+				}
+			}
+		}
+	}
+	clusterName := func(cid string) string {
+		if name := strings.TrimSpace(clusterNames[cid]); name != "" {
+			return name
+		}
+		// 找不到名字时回退 #<id>，与读写量图例的 `#3` 风格一致，避免中文界面混入英文。
+		// Fall back to #<id> when the name is unknown — same style as the volume legend
+		// (`#3`) so a Chinese UI doesn't leak an English "cluster" prefix.
+		return "#" + cid
+	}
+
 	for i, panel := range panels {
 		item := DetailPanel{Key: panel.key, Unit: panel.unit, Series: []DetailSeries{}}
 		for _, task := range tasks {
@@ -307,8 +348,17 @@ func (s *ClusterDashboardService) GetClusterDetail(ctx context.Context, clusterI
 						label = task.dimL
 					}
 				}
+				instance := strings.TrimSpace(serie.Metric["instance"])
+				// members 序列无 instance（按 cluster_id 聚合）→ 用集群名顶替。
+				// members series carry no instance (aggregated by cluster_id) → fill in the
+				// cluster name.
+				if instance == "" {
+					if cid := strings.TrimSpace(serie.Metric["cluster_id"]); cid != "" {
+						instance = clusterName(cid)
+					}
+				}
 				item.Series = append(item.Series, DetailSeries{
-					Instance: strings.TrimSpace(serie.Metric["instance"]),
+					Instance: instance,
 					Label:    label,
 					Points:   serie.Points,
 				})
@@ -328,7 +378,7 @@ func (s *ClusterDashboardService) GetClusterDetail(ctx context.Context, clusterI
 	if memberTask.err != nil {
 		out.PartialErrors = append(out.PartialErrors, "event_members")
 	}
-	out.Events = detailEvents(restartTask.out, memberTask.out)
+	out.Events = detailEvents(restartTask.out, memberTask.out, clusterName)
 	// members 面板的参考线 = 该集群 DB 登记的节点数，用于对照 Hazelcast 成员数。
 	// The members panel's reference line is the cluster's node count from the DB, to compare
 	// against the Hazelcast member count.
@@ -345,10 +395,15 @@ func (s *ClusterDashboardService) GetClusterDetail(ctx context.Context, clusterI
 	return out, nil
 }
 
-// detailEvents 对两条 range 序列做差分：启动时刻上升记节点重启，成员数变化记成员变更。
+// detailEvents 对两条 range 序列做差分：启动时刻上升记节点重启，成员数变化记成员变更；
+// 成员事件带上集群名前缀（clusterName 为 nil 时退回 "cluster <id>"）。
 // detailEvents diffs two range series: a rising start time marks a node restart, a member-count
-// change marks a membership change.
-func detailEvents(startSeries, memberSeries []promquery.Series) []DetailEvent {
+// change marks a membership change; member events carry the cluster name prefix (a nil
+// clusterName falls back to "cluster <id>").
+func detailEvents(startSeries, memberSeries []promquery.Series, clusterName func(string) string) []DetailEvent {
+	if clusterName == nil {
+		clusterName = func(cid string) string { return "cluster " + cid }
+	}
 	events := []DetailEvent{}
 	for _, serie := range startSeries {
 		for i := 1; i < len(serie.Points); i++ {
@@ -363,9 +418,10 @@ func detailEvents(startSeries, memberSeries []promquery.Series) []DetailEvent {
 	for _, serie := range memberSeries {
 		for i := 1; i < len(serie.Points); i++ {
 			if serie.Points[i][1] != serie.Points[i-1][1] {
+				cid := strings.TrimSpace(serie.Metric["cluster_id"])
 				events = append(events, DetailEvent{
 					TsMs: int64(serie.Points[i][0]), Kind: "members_change",
-					Label: fmt.Sprintf("%v → %v", serie.Points[i-1][1], serie.Points[i][1]),
+					Label: fmt.Sprintf("%s: %v → %v", clusterName(cid), serie.Points[i-1][1], serie.Points[i][1]),
 				})
 			}
 		}

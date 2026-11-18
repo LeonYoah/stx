@@ -48,10 +48,11 @@ import {DashboardKpiRow} from './DashboardKpiRow';
 import {HostsTab} from './HostsTab';
 import {JobListTab} from './JobListTab';
 import {JobsTab} from './JobsTab';
-import {jobWorkbenchHref} from './job-list-utils';
+import {jobWorkbenchHref} from '@/components/common/sync/job-table';
 import {
   HOME_RANGES,
   MAX_CUSTOM_WINDOW_MS,
+  type DashboardQuery,
   type HomeTab,
   useDashboardQuery,
 } from './use-dashboard-query';
@@ -149,56 +150,79 @@ export function HomeDashboard() {
                 {t('updatedAt', {time: formatTimeTz(summary.updatedAt)})}
               </span>
             ) : null}
-            {/* 时间窗只影响趋势，作业列表页签不显示。/ The range only drives trends, so the job list hides it. */}
-            {query.tab !== 'list' ? (
-              <>
-                {/* 选了自定义时间窗时分段控件无选中项；点预设清掉自定义窗口。
-                    With a custom window no preset is selected; picking a preset clears the custom window. */}
-                <SegmentedControl
-                  label={t('clusterTab.range.label')}
-                  value={query.start ? '' : query.range}
-                  onValueChange={(value) => {
-                    setRangeTrimmed(false);
-                    update({
-                      range: value === '1h' ? undefined : value,
-                      start: undefined,
-                      end: undefined,
-                    });
-                  }}
-                  options={HOME_RANGES.map((value) => ({
-                    value,
-                    label: t(`clusterTab.range.${value}`),
-                  }))}
-                />
-                <ArcDateRangePicker
-                  value={
-                    query.start && query.end
-                      ? {start: new Date(query.start), end: new Date(query.end)}
-                      : null
-                  }
-                  onChange={(picked) => {
-                    const end = picked.end.getTime();
-                    // 与后端一样最多一年，超出时保留靠近结束的一段并给出可见提示。
-                    // Cap at one year like the backend, keeping the end-adjacent part and
-                    // surfacing a visible notice.
-                    const start = picked.start.getTime();
-                    setRangeTrimmed(start < end - MAX_CUSTOM_WINDOW_MS);
-                    update({
-                      start: Math.max(start, end - MAX_CUSTOM_WINDOW_MS),
-                      end,
-                    });
-                  }}
-                  label={t('clusterTab.range.custom')}
-                  placeholder={t('clusterTab.range.custom')}
-                  withTime
-                />
-                {rangeTrimmed ? (
-                  <span className='whitespace-nowrap text-xs text-warning'>
-                    {t('clusterTab.range.trimmed')}
-                  </span>
-                ) : null}
-              </>
-            ) : null}
+            {/* 时间窗在指标页签驱动趋势，在作业列表页签做「窗口内活跃」筛选（多一个「全部」选项表示不筛）。
+                The range drives trend panels on metric tabs and the "active in window" filter on the jobs
+                tab (which adds an "all" option meaning unfiltered). */}
+            {(() => {
+              const isListTab = query.tab === 'list';
+              return (
+                <>
+                  {/* 选了自定义时间窗时分段控件无选中项；点预设清掉自定义窗口。
+                      With a custom window no preset is selected; picking a preset clears the custom window. */}
+                  <SegmentedControl
+                    label={t('clusterTab.range.label')}
+                    value={
+                      query.start ? '' : isListTab ? query.listRange : query.range
+                    }
+                    onValueChange={(value) => {
+                      setRangeTrimmed(false);
+                      if (isListTab) {
+                        // 作业页签总是写显式值（缺省 = 全部），'1h' 不能回落成缺省。
+                        // The jobs tab always writes an explicit value (absent means "all"), so '1h'
+                        // may not collapse to absent.
+                        update({
+                          listRange: value as DashboardQuery['listRange'],
+                          start: undefined,
+                          end: undefined,
+                        });
+                      } else {
+                        update({
+                          range: value === '1h' ? undefined : value,
+                          start: undefined,
+                          end: undefined,
+                        });
+                      }
+                    }}
+                    options={[
+                      ...(isListTab
+                        ? [{value: 'all', label: t('clusterTab.range.all')}]
+                        : []),
+                      ...HOME_RANGES.map((value) => ({
+                        value,
+                        label: t(`clusterTab.range.${value}`),
+                      })),
+                    ]}
+                  />
+                  <ArcDateRangePicker
+                    value={
+                      query.start && query.end
+                        ? {start: new Date(query.start), end: new Date(query.end)}
+                        : null
+                    }
+                    onChange={(picked) => {
+                      const end = picked.end.getTime();
+                      // 与后端一样最多一年，超出时保留靠近结束的一段并给出可见提示。
+                      // Cap at one year like the backend, keeping the end-adjacent part and
+                      // surfacing a visible notice.
+                      const start = picked.start.getTime();
+                      setRangeTrimmed(start < end - MAX_CUSTOM_WINDOW_MS);
+                      update({
+                        start: Math.max(start, end - MAX_CUSTOM_WINDOW_MS),
+                        end,
+                      });
+                    }}
+                    label={t('clusterTab.range.custom')}
+                    placeholder={t('clusterTab.range.custom')}
+                    withTime
+                  />
+                  {rangeTrimmed ? (
+                    <span className='whitespace-nowrap text-xs text-warning'>
+                      {t('clusterTab.range.trimmed')}
+                    </span>
+                  ) : null}
+                </>
+              );
+            })()}
             <Select
               value={scopeValue}
               onValueChange={(value) =>

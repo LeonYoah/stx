@@ -392,26 +392,6 @@
         "avgPrefix": "avg ",
         "avgRateHint": "Job finished: average rate over its run (rows ÷ duration)"
       },
-      "preview": {
-        "title": "Job preview",
-        "trend": "Throughput, last hour",
-        "read": "Read",
-        "write": "Write",
-        "noTrend": "Turn on observability to see trends",
-        "trendUnavailable": "Monitoring data is unavailable; retrying automatically",
-        "error": "Failure reason",
-        "openDetail": "Open job details",
-        "writeRate": "Write rate",
-        "total": "Rows written",
-        "cdc": "CDC delay",
-        "close": "Close",
-        "trendLifetime": "Throughput, job lifetime",
-        "loading": "Loading",
-        "legendClear": "Clear",
-        "legendAll": "All",
-        "categoryTime": "Time",
-        "empty": "No data in this time window"
-      },
       "clusterTab": {
         "range": {
           "label": "Time range",
@@ -423,6 +403,7 @@
           "30d": "30d",
           "90d": "90d",
           "1y": "1y",
+          "all": "All",
           "custom": "Custom range",
           "trimmed": "Trimmed to the last year"
         },
@@ -530,7 +511,7 @@
             "gc": "GC & threads",
             "sched": "Scheduling & cluster",
             "store": "State store",
-            "proc": "Process & network"
+            "proc": "Process & classes"
           },
           "units": {
             "bytes": "bytes",
@@ -559,14 +540,15 @@
             "hz_queue": "Hazelcast queues",
             "partitions": "Hazelcast partitions",
             "members": "Cluster members",
-            "store_owned": "Locally owned entries",
             "store_heap": "State heap cost",
             "offheap": "Process memory (RSS / off-heap)",
             "fds": "File descriptors",
             "classes": "Loaded classes",
-            "class_load_rate": "Class load rate",
-            "store_backup": "Local backup entries"
-          }
+            "store_entries": "Local owned / backup entries"
+          },
+          "legendOwned": "owned",
+          "legendBackup": "backup",
+          "other": "Other"
         }
       },
       "hostsTab": {
@@ -594,8 +576,8 @@
           "net": "Network throughput",
           "disk_io": "Disk throughput",
           "disk_util": "Disk utilization",
-          "fs_used": "Filesystem usage",
-          "fs_inodes": "inode usage",
+          "fs": "Filesystem",
+          "conn": "Connections & FDs",
           "tcp": "TCP connections",
           "fds": "File descriptors"
         },
@@ -604,8 +586,17 @@
           "percent": "percent",
           "per_second": "per second",
           "seconds": "seconds",
-          "count": "count"
-        }
+          "count": "count",
+          "bytes_per_second": "B/s",
+          "d": "d",
+          "h": "h",
+          "m": "m"
+        },
+        "fsHint": "capacity · inodes",
+        "fsCapacity": "capacity",
+        "fsInodes": "inodes",
+        "refCores": "cores",
+        "uptime": "up {d}"
       }
     }
   },
@@ -4208,6 +4199,13 @@
       "scopeGlobal": "Global",
       "scopeCluster": "Cluster #{id}",
       "conditionsSummary": "Conditions: {count} | Cooldown: {minutes} min",
+      "invalidBadge": "Invalid",
+      "invalidReasons": {
+        "legacy_condition_code": "Condition template \"{detail}\" is no longer supported by the embedded monitor. Edit the policy and re-select.",
+        "alert_firing_without_rule_keys": "The \"ALERT_FIRING\" condition has no alert rules selected, so the policy never fires. Edit to fix.",
+        "legacy_source_type": "Alert category \"{detail}\" is no longer supported. Edit and re-select.",
+        "unknown": "This policy contains a condition that no longer fires. Edit and re-select."
+      },
       "autoBundleSummary": "Auto bundle: {mode}",
       "autoBundleModeCreateAndStart": "Auto create and run",
       "autoBundleModeCreateOnly": "Auto create, run manually",
@@ -4583,6 +4581,103 @@
     "upgradeSmokeCheckTitle": "Post-upgrade smoke check",
     "upgradeSmokeCheckDescription": "After the cluster restarts and becomes healthy, the system runs a template seatunnel.sh job once. If it fails, the result is recorded as a warning only and does not block a successful upgrade."
   },
+  "jobTable": {
+    "searchPlaceholder": "Job, task or engine job ID",
+    "mode": {
+      "all": "All modes",
+      "streaming": "Streaming",
+      "batch": "Batch"
+    },
+    "runTypeFilter": {
+      "label": "Run type",
+      "all": "All",
+      "formal": "Formal",
+      "preview": "Preview"
+    },
+    "groups": {
+      "all": "All",
+      "failed": "Failed",
+      "running": "Running",
+      "pending": "Pending",
+      "stopping": "Stopping",
+      "canceled": "Canceled",
+      "finished": "Finished"
+    },
+    "columns": {
+      "job": "Job",
+      "cluster": "Cluster",
+      "mode": "Mode",
+      "run": "Run mode",
+      "status": "Status",
+      "initiator": "Initiator",
+      "rates": "Read / write rate",
+      "totals": "Rows read / written",
+      "cdc": "CDC delay",
+      "timeline": "Time",
+      "actions": "Actions"
+    },
+    "sortColumn": "Sort by {column}",
+    "sortNeedsRunning": "Select Running to sort by rate or delay",
+    "taskRef": "Task #{id}",
+    "ranFor": "Running for {duration}",
+    "tookFor": "Took {duration}",
+    "startedAt": "Started",
+    "finishedAt": "Finished",
+    "duration": "Duration",
+    "empty": "No jobs match",
+    "emptyHint": "Change the filters, or submit a job from the workbench.",
+    "total": "{count, plural, one {# job} other {# jobs}}",
+    "detail": "Details",
+    "stop": "Stop",
+    "recover": "Recover",
+    "savepointStop": "Savepoint Stop",
+    "openInWorkbench": "Open in workbench",
+    "copyJobId": "Copy job ID",
+    "copiedJobId": "Job ID copied",
+    "moreActions": "More actions",
+    "selected": "{count} selected",
+    "clearSelection": "Clear selection",
+    "sparklineLabel": "{name} write rate, last hour",
+    "loadError": "Failed to load jobs",
+    "you": "You",
+    "multiTableBadge": "Multi-Table ({count})",
+    "viewMultiTableMetricsHint": "Click to view per-table metrics breakdown",
+    "cdcDelayTooltip": "Max {max} in the last minute, updated {time} (the engine only reports delays ≥ 1s)",
+    "runModePreview": "Preview",
+    "runModeDolphin": "Dolphin schedule",
+    "runModeSchedule": "Schedule",
+    "runModeManual": "Manual",
+    "readOnlyCancelTooltip": "Only the job submitter or admin can stop this job",
+    "readOnlyRecoverTooltip": "Cannot recover jobs in read-only mode",
+    "historyRecoverTooltip": "Recover based on the submitted script and Savepoint of this historical instance",
+    "bulk": {
+      "result": "{ok} done, {failed} failed, {skipped} skipped",
+      "itemFailed": "Job #{id}: {message}"
+    },
+    "confirm": {
+      "stopTitle": "Stop {count} jobs?",
+      "stopDesc": "Sends a stop request to the cluster for each job, without a savepoint. Finished jobs are skipped.",
+      "savepointStopTitle": "Stop {count} jobs with a savepoint?",
+      "savepointStopDesc": "Sends a savepoint stop request to the cluster for each job.",
+      "recoverTitle": "Recover {count} jobs?",
+      "recoverDesc": "Recovers each job from its last checkpoint. Only failed or canceled jobs can be recovered; others are skipped.",
+      "confirm": "Confirm",
+      "cancel": "Cancel"
+    },
+    "action": {
+      "stopOk": "Stop requested for job #{id}",
+      "savepointOk": "Savepoint stop requested for job #{id}",
+      "recoverOk": "Recovery submitted for job #{id}",
+      "failed": "Action failed"
+    },
+    "units": {
+      "d": "d",
+      "h": "h",
+      "m": "m"
+    },
+    "avgPrefix": "avg ",
+    "avgRateHint": "Job finished: average rate over its run (rows ÷ duration)"
+  },
   "workbenchStudio": {
     "loading": "Loading...",
     "saving": "Saving...",
@@ -4836,16 +4931,7 @@
     "logFocusHint": "The main view focuses on recent logs; expand to inspect the full output.",
     "noJobRuns": "No job runs yet.",
     "sortColumn": "Sort by {column}",
-    "jobModeChannel": "Mode / channel",
-    "jobTimeline": "Time / duration",
-    "task": "Task",
-    "status": "Status",
-    "channel": "Channel",
-    "metrics": "Metrics",
     "actions": "Actions",
-    "read": "Read",
-    "write": "Write",
-    "averageSpeed": "Avg Speed",
     "recover": "Recover",
     "noPreviewJobs": "No preview jobs yet.",
     "catalog": "Catalog",
@@ -4940,9 +5026,6 @@
     "runModeManual": "Manual",
     "runModeSchedule": "Schedule",
     "runModeDolphin": "Dolphin schedule",
-    "startedAt": "Started At",
-    "finishedAt": "Finished At",
-    "duration": "Duration",
     "durationMillis": "Duration (ms)",
     "stateSize": "State Size",
     "dagParseFailedTitle": "DAG Parse Failed",
@@ -4968,8 +5051,6 @@
     "runSubmitted": "Run job submitted",
     "runFailed": "Run failed",
     "actualExecutedScript": "Executed Script",
-    "multiTableBadge": "Multi-Table ({count})",
-    "viewMultiTableMetricsHint": "Click to view per-table metrics breakdown",
     "noActualExecutedScript": "No executed script is available for this job instance.",
     "savepointStopTriggered": "Savepoint stop has been triggered",
     "taskStopped": "Task stopped",
@@ -5227,8 +5308,6 @@
     "records": "records",
     "copy": "Copy",
     "locate": "Locate",
-    "initiator": "Initiator",
-    "you": "You",
     "adminOnlyGlobalVars": "Only system admins can create and manage global variables",
     "onlyCreatorOrAdminCanEdit": "Only the creator or an administrator can edit this variable",
     "onlyCreatorOrAdminCanDelete": "Only the creator or an administrator can delete this variable",
@@ -5399,10 +5478,6 @@
       "totalBadge": "{total, plural, one {# event} other {# events}}",
       "retentionHint": "Kept for 7 days"
     },
-    "cdcDelayBadge": "CDC delay {value}",
-    "cdcDelayTooltip": "Max {max} in the last minute, updated {time} (the engine only reports delays ≥ 1s)",
-    "viewJobDetail": "View details",
-    "jobDetailShort": "Details",
     "jobDetail": {
       "title": "Job #{id}",
       "copy": "Copy",
@@ -5580,7 +5655,24 @@
         "rangeTrimmed": "Trimmed to the last year"
       }
     },
-    "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)"
+    "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)",
+    "connectorMissingTitle": "Connector missing on cluster",
+    "connectorMissingBadge": "Missing connector",
+    "connectorMissingDescription": "The cluster does not have the {type} connector \"{identifier}\" this job needs, so the engine cannot create the plugin.",
+    "connectorMissingPreviewDescription": "Preview needs the HTTP connector on the cluster. Preview temporarily swaps the job's sink for an HTTP sink that sends sample rows back to STX, and this cluster does not have it installed yet.",
+    "connectorMissingSuggestion": "Install the connector for \"{identifier}\" on this cluster from the plugin market, then run again.",
+    "connectorMissingAction": "Install from plugin market",
+    "connectorType": {
+      "source": "source",
+      "sink": "sink",
+      "transform": "transform"
+    },
+    "previewRowCount": "{count, plural, one {# row} other {# rows}}",
+    "previewRowLimitReached": "Preview limit of {limit} rows reached; later rows were not collected",
+    "previewEmptyString": "(empty)",
+    "copyCellValue": "Copy {column} value",
+    "previewResizeColumn": "Resize {column} column",
+    "previewReorderColumn": "Drag to reorder {column} column"
   },
   "troubleshooting": {
     "title": "Playbooks",

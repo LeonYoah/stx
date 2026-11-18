@@ -16,6 +16,8 @@
  */
 
 import {buildWorkbenchDeepLinkQuery} from '@/components/common/sync/task-alert-utils';
+import {formatCompactNumber} from '@/components/common/dashboard/dashboard-format';
+import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {SyncJobInstance} from '@/lib/services/sync';
 
 /**
@@ -83,6 +85,26 @@ export function jobTimeBounds(
 }
 
 /**
+ * 作业时长（秒）：结束时间已知时用开始→结束；运行中用开始→nowMs；耗时未知（无开始 / 无基准时刻）返回 0。
+ * Job duration in seconds: start→end when an end exists, start→nowMs while running; 0 when the duration is unknown
+ * (no start or no base instant).
+ */
+export function jobDurationSeconds(
+  job: Pick<
+    SyncJobInstance,
+    'started_at' | 'created_at' | 'finished_at' | 'updated_at' | 'status'
+  >,
+  nowMs: number | null,
+): number {
+  const {startMs, endMs} = jobTimeBounds(job);
+  const untilMs = endMs ?? (isRunningStatus(job.status) ? nowMs : null);
+  if (startMs === null || untilMs === null || untilMs <= startMs) {
+    return 0;
+  }
+  return (untilMs - startMs) / 1000;
+}
+
+/**
  * 列表的读 / 写速率：运行中用对账快照里的当前速率；已结束用运行期间的平均速率（累计条数 ÷ 耗时秒数），
  * average=true 时界面加「均」并用浅色，避免和实时速率混淆。耗时未知时不估算。
  * Read / write rates for the list: running jobs use the current rate from the reconcile snapshot; finished jobs use the
@@ -107,4 +129,62 @@ export function jobListRates(
     write: avg(live.write_total),
     average: true,
   };
+}
+
+/**
+ * 发起人显示名：本人返回当前用户名，其次查用户列表的 username / nickname，再退到 #uid。
+ * Initiator display name: the current user's name for own jobs, then the user list's username / nickname,
+ * finally "#uid".
+ */
+export function resolveJobInitiatorName(
+  job: Pick<SyncJobInstance, 'created_by'>,
+  currentUserId?: number,
+  currentUsername?: string,
+  workspaceUsers: NotificationRecipientUser[] = [],
+): string {
+  if (!job.created_by) {
+    return '-';
+  }
+  if (currentUserId && job.created_by === currentUserId) {
+    return currentUsername || 'admin';
+  }
+  const matched = workspaceUsers.find((user) => user.id === job.created_by);
+  if (matched?.username) {
+    return matched.username;
+  }
+  if (matched?.nickname) {
+    return matched.nickname;
+  }
+  if (job.created_by === 1) {
+    return 'admin';
+  }
+  return `User #${job.created_by}`;
+}
+
+/**
+ * 速率对「读 / 写」格式：compact 数字带 /s 单位；两侧都未知时返回 '-'。
+ * Read / write rate pair in compact notation with a /s suffix; '-' when both sides are unknown.
+ */
+export function formatRatePair(
+  read: number | undefined,
+  write: number | undefined,
+): string {
+  if (read === undefined && write === undefined) {
+    return '-';
+  }
+  return `${formatCompactNumber(read)} / ${formatCompactNumber(write)}/s`;
+}
+
+/**
+ * 累计条数对「读 / 写」格式：compact 数字；两侧都未知时返回 '-'。
+ * Read / write totals pair in compact notation; '-' when both sides are unknown.
+ */
+export function formatTotalPair(
+  read: number | undefined,
+  write: number | undefined,
+): string {
+  if (read === undefined && write === undefined) {
+    return '-';
+  }
+  return `${formatCompactNumber(read)} / ${formatCompactNumber(write)}`;
 }

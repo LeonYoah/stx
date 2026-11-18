@@ -173,3 +173,24 @@ frontend/components/charts/heat-calendar/messages.ts
 frontend/components/charts/heat-calendar/tooltip.tsx
 frontend/components/charts/heat-calendar/types.ts
 frontend/components/charts/heat-calendar/utils.ts
+
+# beUI Table (MIT, Copyright (c) 2026 Saurabh Chauhan):
+# Upstream: https://github.com/starc007/ui-components
+# Component: https://beui.dev/components/motion/table
+# Registry: https://beui.dev/r/table.json
+# Full MIT text copy: licenses/beui/LICENSE-MIT.txt
+
+frontend/components/motion/checkbox.tsx
+frontend/components/motion/table/editable-cell.tsx
+frontend/components/motion/table/index.tsx
+frontend/components/motion/table/messages.ts
+frontend/components/motion/table/row-handle.tsx
+frontend/components/motion/table/skeleton-rows.tsx
+frontend/components/motion/table/table-header.tsx
+frontend/components/motion/table/table-menu.tsx
+frontend/components/motion/table/types.ts
+frontend/components/motion/table/use-column-reorder.ts
+frontend/components/motion/table/use-column-resize.ts
+frontend/components/motion/table/use-column-sort.ts
+frontend/components/motion/table/use-row-selection.ts
+frontend/components/motion/table/utils.ts

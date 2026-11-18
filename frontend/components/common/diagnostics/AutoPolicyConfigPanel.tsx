@@ -74,6 +74,16 @@ interface AutoPolicyConfigPanelProps {
   clusterOptions: DiagnosticsClusterOption[];
 }
 
+// 后端返回的失效原因码白名单：命中才走对应 i18n 文案，未知码回落到 unknown，防止未来新增
+// 原因码时 t() 命中缺失的翻译键。
+// Whitelist of backend invalid-reason codes: known codes map to their i18n message while any
+// future code falls back to "unknown" instead of hitting a missing translation key.
+const INVALID_REASON_CODES = new Set([
+  'legacy_condition_code',
+  'alert_firing_without_rule_keys',
+  'legacy_source_type',
+]);
+
 export function shouldRenderCronExprInput(
   template: InspectionConditionTemplate,
 ): boolean {
@@ -597,7 +607,22 @@ export function AutoPolicyConfigPanel({
                             <Badge variant='secondary' className='text-[11px]'>
                               {getPolicyScopeLabel(policy.cluster_id)}
                             </Badge>
+                            {/* 失效徽标：旧条件（PROM_* / NODE_UNHEALTHY / 未选规则的 ALERT_FIRING）永不触发，升级后需要显式引导编辑 / Invalid badge: legacy conditions (PROM_* / NODE_UNHEALTHY / ALERT_FIRING without rule keys) never fire; guide the user to edit after upgrade */}
+                            {policy.invalid_reason && (
+                              <Badge variant='destructive' className='text-[11px]'>
+                                {t('invalidBadge')}
+                              </Badge>
+                            )}
                           </div>
+                          {/* 失效原因行：后端只回原因码 + 取值，文案由本侧按 i18n 翻译 / Invalid reason line: the backend returns a code + value; the message is rendered via i18n here */}
+                          {policy.invalid_reason && (
+                            <p className='mt-1.5 text-[11px] leading-relaxed text-destructive'>
+                              {t(
+                                `invalidReasons.${INVALID_REASON_CODES.has(policy.invalid_reason) ? policy.invalid_reason : 'unknown'}`,
+                                {detail: policy.invalid_detail ?? ''},
+                              )}
+                            </p>
+                          )}
                         </div>
                         <Switch
                           checked={policy.enabled}

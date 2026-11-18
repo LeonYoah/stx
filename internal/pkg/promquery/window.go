@@ -121,6 +121,14 @@ type Window struct {
 // ones milliseconds). Both empty returns nil; end alone is an error; start alone ends at now. end must be after start
 // and the span may not exceed 366 days.
 func ParseWindow(startRaw, endRaw string, now time.Time) (*Window, error) {
+	return ParseWindowWithSpan(startRaw, endRaw, now, MaxCustomSpan)
+}
+
+// ParseWindowWithSpan 与 ParseWindow 相同，但允许调用方自定义跨度上限（如读写量接口
+// 要支撑 >62 天的窗口让月桶生效）。
+// ParseWindowWithSpan behaves like ParseWindow but lets the caller set the span cap
+// (e.g. the volume endpoint needs >62-day windows so monthly buckets engage).
+func ParseWindowWithSpan(startRaw, endRaw string, now time.Time, maxSpan time.Duration) (*Window, error) {
 	startRaw, endRaw = strings.TrimSpace(startRaw), strings.TrimSpace(endRaw)
 	if startRaw == "" && endRaw == "" {
 		return nil, nil
@@ -141,8 +149,8 @@ func ParseWindow(startRaw, endRaw string, now time.Time) (*Window, error) {
 	if !end.After(start) {
 		return nil, fmt.Errorf("end must be after start")
 	}
-	if end.Sub(start) > MaxCustomSpan {
-		return nil, fmt.Errorf("window too long: at most %s", MaxCustomSpan)
+	if end.Sub(start) > maxSpan {
+		return nil, fmt.Errorf("window too long: at most %s", maxSpan)
 	}
 	return &Window{Start: start, End: end}, nil
 }

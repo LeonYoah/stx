@@ -18,8 +18,10 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
-import {useTranslations} from 'next-intl';
+import {useLocale, useTranslations} from 'next-intl';
+import {jobWorkbenchHref} from './job-table/job-table-format';
 import {
   Activity,
   AlertTriangle,
@@ -73,29 +75,17 @@ import {
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {HelpHint} from '@/components/common/HelpHint';
-import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {PreviewDataTable} from './PreviewDataTable';
+import {TableLoadingBar} from '@/components/common/layout';
 import {
   ResizablePanel,
   ResizablePanels,
 } from '@/components/arc/resizable-panels/resizable-panels';
-import {Pagination} from '@/components/ui/pagination';
 import {cn} from '@/lib/utils';
 import {
-  StudioSortableColumnHeader,
   StudioTable,
-  StudioTableBody,
-  StudioTableCell,
-  StudioTableColumn,
-  StudioTableContent,
   StudioTableEmpty,
-  StudioTableEmptyRow,
   StudioTableFooter,
-  StudioTableHeader,
-  StudioTableRow,
-  StudioTableScroll,
-  applyStudioSort,
-  nextStudioSort,
-  type StudioSortDescriptor,
 } from './StudioDataTable';
 import type {
   RuntimeStorageCheckpointInspectResult,
@@ -116,7 +106,6 @@ import {
   formatCheckpointFieldValue,
   formatSizeBytes,
   getCheckpointEnumBadgeClass,
-  getPreviewRowKindBadgeClass,
   summarizeCheckpointSourceState,
   summarizeCheckpointSubtaskMetrics,
 } from './sync-studio-utils';
@@ -220,32 +209,23 @@ export function PreviewWorkspacePanel({
   previewSnapshot,
   datasets,
   selectedDatasetName,
-  previewPage,
   loading,
   monacoTheme,
   onSelectDataset,
-  onChangePage,
 }: {
   job: SyncJobInstance | null;
   previewSnapshot: SyncPreviewSnapshot | null;
   datasets: SyncPreviewDataset[];
   selectedDatasetName: string;
-  previewPage: number;
   loading?: boolean;
   monacoTheme: string;
   onSelectDataset: (name: string) => void;
-  onChangePage: (page: number) => void;
 }) {
   const t = useTranslations('workbenchStudio');
   const [previewScriptOpen, setPreviewScriptOpen] = useState(false);
-  const [sort, setSort] = useState<StudioSortDescriptor | null>(null);
   // 记住数据集栏的占比，刷新预览时不要把人拖过的宽度复位。
   // Remember the dataset pane share so a preview refresh does not reset a dragged width.
   const [datasetShare] = useState(readPreviewDatasetShare);
-
-  useEffect(() => {
-    setSort(null);
-  }, [selectedDatasetName]);
 
   if (!job) {
     return (
@@ -278,20 +258,7 @@ export function PreviewWorkspacePanel({
     previewSnapshot?.empty_reason === 'preview_not_ready'
       ? t('preparingPreview')
       : t('noPreviewDataFallback');
-  const pageSize = Math.max(activeDataset?.page_size || 20, 1);
-  const sortedRows = applyStudioSort(rows, sort, (row, key) => row[key]);
-  const total = Math.max(
-    activeDataset?.total || sortedRows.length,
-    sortedRows.length,
-  );
-  const totalPages = Math.max(Math.ceil(total / pageSize), 1);
-  const currentPage = Math.min(Math.max(previewPage, 1), totalPages);
-  const pageRows = sortedRows.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
   const showSkeleton = Boolean(loading) && columns.length === 0;
-  const skeletonColumns = 5;
 
   return (
     <div className='studio-preview-split'>
@@ -374,112 +341,26 @@ export function PreviewWorkspacePanel({
           ) : null}
         </div>
         <TableLoadingBar loading={Boolean(loading)} />
-        {showSkeleton ? (
-          <StudioTableScroll>
-            <StudioTableContent>
-              <StudioTableHeader>
-                {Array.from({length: skeletonColumns}).map((_, index) => (
-                  <StudioTableColumn key={index}>
-                    <span className='sr-only'>{t('columns')}</span>
-                  </StudioTableColumn>
-                ))}
-              </StudioTableHeader>
-              <StudioTableBody>
-                <TableSkeletonRows
-                  columns={skeletonColumns}
-                  rows={6}
-                  rowHeight='h-8'
-                />
-              </StudioTableBody>
-            </StudioTableContent>
-          </StudioTableScroll>
-        ) : columns.length > 0 ? (
-          <StudioTableScroll>
-            <StudioTableContent minWidth={Math.max(columns.length * 120, 480)}>
-              <StudioTableHeader>
-                {columns.map((column) => (
-                  <StudioTableColumn
-                    key={column}
-                    allowsSorting
-                    sortDirection={
-                      sort?.key === column ? sort.direction : undefined
-                    }
-                  >
-                    <StudioSortableColumnHeader
-                      label={column}
-                      sortDirection={
-                        sort?.key === column ? sort.direction : undefined
-                      }
-                      aria-label={t('sortColumn', {column})}
-                      onSort={() =>
-                        setSort((current) => nextStudioSort(current, column))
-                      }
-                    />
-                  </StudioTableColumn>
-                ))}
-              </StudioTableHeader>
-              <StudioTableBody dimmed={Boolean(loading)}>
-                {pageRows.length > 0 ? (
-                  pageRows.map((row, index) => (
-                    <StudioTableRow key={index}>
-                      {columns.map((column) => (
-                        <StudioTableCell key={`${index}-${column}`}>
-                          {column === 'RowKind' ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant='outline'
-                                  className={cn(
-                                    'max-w-full truncate rounded-sm',
-                                    getPreviewRowKindBadgeClass(
-                                      formatCellValue(row[column]),
-                                    ),
-                                  )}
-                                >
-                                  {formatCellValue(row[column])}
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {formatCellValue(row[column])}
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className='block max-w-[22rem] truncate'>
-                                  {formatCellValue(row[column])}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent className='max-w-[480px] break-all'>
-                                {formatCellValue(row[column])}
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </StudioTableCell>
-                      ))}
-                    </StudioTableRow>
-                  ))
-                ) : (
-                  <StudioTableEmptyRow colSpan={columns.length}>
-                    {t('noPreviewDataFallback')}
-                  </StudioTableEmptyRow>
-                )}
-              </StudioTableBody>
-            </StudioTableContent>
-          </StudioTableScroll>
+        {columns.length > 0 || showSkeleton ? (
+          <PreviewDataTable
+            key={activeDataset?.name || ''}
+            columns={columns}
+            rows={rows}
+            loading={loading}
+            emptyMessage={t('noPreviewDataFallback')}
+          />
         ) : (
           <StudioTableEmpty>{previewEmptyMessage}</StudioTableEmpty>
         )}
         <StudioTableFooter>
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            pageSize={pageSize}
-            totalItems={total}
-            onPageChange={onChangePage}
-            showPageSizeSelector={false}
-            className='w-full gap-2'
-          />
+          <span className='font-mono tabular-nums'>
+            {t('previewRowCount', {count: rows.length})}
+          </span>
+          {previewSnapshot?.truncated ? (
+            <span className='text-muted-foreground'>
+              {t('previewRowLimitReached', {limit: previewSnapshot.row_limit})}
+            </span>
+          ) : null}
         </StudioTableFooter>
       </StudioTable>
       </ResizablePanel>
@@ -531,11 +412,13 @@ export function CheckpointWorkspacePanel({
   loading?: boolean;
   checkpointFiles: RuntimeStorageListItem[];
   checkpointFilesLoading?: boolean;
-  onInspectCheckpointFile: (path: string) => void;
+  /** Checkpoint 文件「检查」依赖工作台编辑器与自定义变量；不传（工作台外）时操作列回退为「在工作台中检查」链接。/ Checkpoint file inspection needs the workbench editor and custom variables; when omitted (outside the workbench) the action column falls back to an "inspect in workbench" link. */
+  onInspectCheckpointFile?: (path: string) => void;
   inspectLoadingPath?: string | null;
   onRefresh: () => void;
 }) {
   const t = useTranslations('workbenchStudio');
+  const locale = useLocale();
   const [selectedPipelineId, setSelectedPipelineId] = useState<number | null>(
     null,
   );
@@ -797,7 +680,9 @@ export function CheckpointWorkspacePanel({
                       checkpointKey !== ''
                         ? checkpointFilesByID.get(checkpointKey)
                         : undefined;
-                    const canInspect = Boolean(matchedFile?.path);
+                    const canInspect = Boolean(
+                      matchedFile?.path && onInspectCheckpointFile,
+                    );
                     return (
                       <Tooltip key={idx}>
                         <TooltipTrigger asChild>
@@ -805,7 +690,7 @@ export function CheckpointWorkspacePanel({
                             style={{height: `${height}px`}}
                             onClick={() => {
                               if (matchedFile?.path) {
-                                onInspectCheckpointFile(matchedFile.path);
+                                onInspectCheckpointFile?.(matchedFile.path);
                               }
                             }}
                             className={cn(
@@ -959,7 +844,7 @@ export function CheckpointWorkspacePanel({
                           disabled={isViewDisabled}
                           onClick={() =>
                             matchedFile?.path &&
-                            onInspectCheckpointFile(matchedFile.path)
+                            onInspectCheckpointFile?.(matchedFile.path)
                           }
                         >
                           {inspectLoadingPath === matchedFile?.path ? (
@@ -997,7 +882,25 @@ export function CheckpointWorkspacePanel({
                             {sizeStr}
                           </TableCell>
                           <TableCell className='py-1 px-2.5 text-right'>
-                            {!matchedFile?.path ? (
+                            {!onInspectCheckpointFile ? (
+                              // 无检查入口（工作台外）：改为「在工作台中检查」链接跳到工作台。
+                              // No inspect entry (outside the workbench): fall back to an
+                              // "inspect in workbench" link that jumps to the workbench.
+                              job ? (
+                                <Button
+                                  size='sm'
+                                  variant='ghost'
+                                  className='h-6 px-2 text-xs hover:bg-muted font-normal'
+                                  asChild
+                                >
+                                  <Link href={jobWorkbenchHref(job)}>
+                                    {locale === 'zh'
+                                      ? '在工作台中检查'
+                                      : 'Inspect in workbench'}
+                                  </Link>
+                                </Button>
+                              ) : null
+                            ) : !matchedFile?.path ? (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <span className='inline-block cursor-not-allowed'>

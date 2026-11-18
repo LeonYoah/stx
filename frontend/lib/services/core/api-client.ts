@@ -88,6 +88,9 @@ apiClient.interceptors.response.use(
       Object.assign(apiError, {
         status: error.response.status,
         data: error.response.data.data,
+        // 专门处理的失败（如 connector_missing）带 error_code，供页面给出对应指引。
+        // Failures with dedicated handling (e.g. connector_missing) carry error_code so pages can show matching guidance.
+        errorCode: error.response.data.error_code,
       });
       return Promise.reject(apiError);
     }

@@ -45,6 +45,8 @@ export interface ApiError {
   error_msg: string;
   /** 可选的结构化错误数据 / Optional structured error data */
   data?: unknown;
+  /** 可选的错误码，如 connector_missing / Optional error code such as connector_missing */
+  error_code?: string;
 }
 
 /**

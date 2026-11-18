@@ -5581,7 +5581,24 @@
         "legendAll": "全选"
       }
     },
-    "zeroMetricsCollapsed": "{count} 项指标当前全为 0，已折叠（相关能力未触发或没有积压）"
+    "zeroMetricsCollapsed": "{count} 项指标当前全为 0，已折叠（相关能力未触发或没有积压）",
+    "connectorMissingTitle": "集群缺少连接器",
+    "connectorMissingBadge": "缺少连接器",
+    "connectorMissingDescription": "集群没有安装任务需要的 {type} 连接器「{identifier}」，引擎无法创建该插件。",
+    "connectorMissingPreviewDescription": "预览需要集群安装 HTTP 连接器。预览会把任务的 Sink 临时换成 HTTP Sink，把样本数据回传到 STX；当前集群还没有安装它。",
+    "connectorMissingSuggestion": "到插件市场为该集群安装「{identifier}」对应的连接器，安装完成后重新执行。",
+    "connectorMissingAction": "去插件市场安装",
+    "connectorType": {
+      "source": "Source",
+      "sink": "Sink",
+      "transform": "Transform"
+    },
+    "previewRowCount": "{count} 行",
+    "previewRowLimitReached": "已达预览上限 {limit} 行，后续数据未采集",
+    "previewEmptyString": "(空串)",
+    "copyCellValue": "复制 {column} 的值",
+    "previewResizeColumn": "调整 {column} 列宽",
+    "previewReorderColumn": "拖动调整 {column} 列顺序"
   },
   "troubleshooting": {
     "title": "经验库",

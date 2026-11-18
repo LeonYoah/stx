@@ -34,6 +34,7 @@ import {
   Clock,
   Copy,
   Database,
+  ExternalLink,
   Gauge,
   Lightbulb,
   Search,
@@ -121,6 +122,8 @@ export function StudioErrorDiagnosticsView({
 
   const getCategoryBadge = () => {
     switch (error.category) {
+      case 'connector':
+        return <Badge variant='outline' className='border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'>{t('connectorMissingBadge')}</Badge>;
       case 'syntax':
         return <Badge variant='outline' className='border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'>语法解析异常</Badge>;
       case 'schema':
@@ -170,6 +173,19 @@ export function StudioErrorDiagnosticsView({
             <span className='font-medium'>排查建议：</span>
             {error.suggestion}
           </div>
+        </div>
+      ) : null}
+
+      {/* 可直接修复的错误：新标签页打开，避免离开工作台丢掉未保存的草稿。 */}
+      {/* Fixable errors open in a new tab so leaving the workbench never drops an unsaved draft. */}
+      {error.action ? (
+        <div className='flex justify-end'>
+          <Button asChild size='sm' className='h-8 gap-1.5'>
+            <a href={error.action.href} target='_blank' rel='noopener noreferrer'>
+              {error.action.label}
+              <ExternalLink className='size-3.5' />
+            </a>
+          </Button>
         </div>
       ) : null}
 

@@ -1234,7 +1234,7 @@ func (s *Service) PreviewTask(ctx context.Context, id uint, createdBy uint, opts
 			}
 			resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{Endpoint: endpoint, Format: previewFormat, JobID: instance.PlatformJobID, JobName: s.previewJobName(task), Body: previewPayload})
 			if err != nil {
-				return nil, err
+				return nil, classifyEngineSubmitError(err)
 			}
 			instance.EngineJobID = strings.TrimSpace(resp.JobID)
 			instance.SubmitSpec["engine_api_mode"] = defaultString(resp.APIMode, "v2")
@@ -1750,6 +1750,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 			}
 		}
 		resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{Endpoint: endpoint, Format: submitFormat, JobID: platformJobID, JobName: jobName, StartWithSavepoint: startWithSavepoint, Body: submitBody})
+		err = classifyEngineSubmitError(err)
 		if err != nil {
 			// 结果未知：先登记 pending 作业交给对账确认，不当作失败，也不登记事件通道预期。
 			// Unknown outcome: record a pending job for reconcile to confirm; not a failure, and no event expectation.

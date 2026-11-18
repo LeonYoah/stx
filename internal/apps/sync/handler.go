@@ -35,6 +35,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/promquery"
 	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 )
 
@@ -622,7 +623,10 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 // @Param sort query string false "attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）"
 // @Param order query string false "asc|desc" default(desc)
 // @Param with_counts query int false "1 = 返回各状态组计数"
-// @Param with_live query int false "1 = 返回任务名与当前读写速率"
+// @Param with_live query int false "1 = 返回任务名与当前读写速率、条数与逻辑表数"
+// @Param range query string false "活跃窗口预设：15m|1h|6h|24h|7d（窗口内运行过的作业，运行中恒命中）"
+// @Param start query string false "自定义活跃窗口起点（unix 秒/毫秒或 RFC3339），与 end 一起用时优先于 range"
+// @Param end query string false "自定义活跃窗口终点（unix 秒/毫秒或 RFC3339）"
 // @Success 200 {object} JobListResponse
 // @Failure 400 {object} JobListResponse
 // @Router /api/v1/sync/jobs [get]
@@ -678,6 +682,22 @@ func (h *Handler) ListJobs(c *gin.Context) {
 	filter.Keyword = strings.TrimSpace(c.Query("keyword"))
 	filter.Sort = c.Query("sort")
 	filter.Order = c.Query("order")
+	// 活跃窗口：自定义 start/end 优先，其次 range 预设（服务端按请求时刻滚动求窗，轮询时窗口随时间滑动）。
+	// Active window: custom start/end wins over a range preset (resolved server-side per request, so polls
+	// see a rolling window).
+	if window, err := promquery.ParseWindow(c.Query("start"), c.Query("end"), time.Now()); err != nil {
+		c.JSON(http.StatusBadRequest, JobListResponse{ErrorMsg: err.Error()})
+		return
+	} else if window != nil {
+		filter.ActiveFrom, filter.ActiveTo = &window.Start, &window.End
+	} else if rangeKey := strings.TrimSpace(c.Query("range")); rangeKey != "" {
+		if _, start, end, err := promquery.ResolveWindow(rangeKey, nil, time.Now()); err != nil {
+			c.JSON(http.StatusBadRequest, JobListResponse{ErrorMsg: err.Error()})
+			return
+		} else {
+			filter.ActiveFrom, filter.ActiveTo = &start, &end
+		}
+	}
 	opts := JobListOptions{WithCounts: queryFlag(c, "with_counts"), WithLive: queryFlag(c, "with_live")}
 	data, err := h.service.ListJobsWithOptions(c.Request.Context(), currentExecutionActor(c), filter, opts)
 	if err != nil {

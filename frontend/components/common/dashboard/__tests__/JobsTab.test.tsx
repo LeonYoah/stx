@@ -209,6 +209,7 @@ const base: DashboardQuery = {
   order: '',
   page: 1,
   range: '1h',
+  listRange: 'all',
   start: undefined,
   end: undefined,
 };
@@ -277,7 +278,7 @@ describe('JobsTab', () => {
     renderTab();
     const panel = await screen.findByTestId('home-volume');
     expect(within(panel).getByTestId('beui-bar').textContent).toBe(
-      '数据量:11/15*,11/16*|全部',
+      '数据量:11-15*,11-16*|全部',
     );
     // 粒度由后端按窗口自动选：前端固定请求 auto。/ Granularity follows the window: the
     // frontend always asks for auto.
@@ -319,5 +320,46 @@ describe('JobsTab', () => {
     expect(
       within(panel).getByTestId('beui-bar').textContent,
     ).toContain('prod,#9');
+  });
+
+  it('keeps the date on sub-day labels spanning days and drops it within one day', async () => {
+    home.getJobs.mockResolvedValue(payload('prometheus'));
+    // 跨天的小时桶：两个 "00:00" 若只截时刻会撞成同一类目。
+    // Hour buckets across midnight: two "00:00"s would collapse into one category if only
+    // the clock were kept.
+    home.getVolume.mockResolvedValue({
+      ...volumePayload(),
+      granularity: 'hour',
+      buckets: [
+        {start_ms: 1, end_ms: 2, label: '2026-11-15 22:00', partial: false},
+        {start_ms: 2, end_ms: 3, label: '2026-11-15 23:00', partial: false},
+        {start_ms: 3, end_ms: 4, label: '2026-11-16 00:00', partial: false},
+        {start_ms: 4, end_ms: 5, label: '2026-11-16 01:00', partial: false},
+      ],
+      series: [{metric: 'write_rows', group_id: '0', totals: [1, 2, 3, 4]}],
+    });
+    renderTab();
+    const panel = await screen.findByTestId('home-volume');
+    expect(within(panel).getByTestId('beui-bar').textContent).toBe(
+      '数据量:11-15 22:00,11-15 23:00,11-16 00:00,11-16 01:00|全部',
+    );
+  });
+
+  it('shows bare clock labels when all sub-day buckets share one day', async () => {
+    home.getJobs.mockResolvedValue(payload('prometheus'));
+    home.getVolume.mockResolvedValue({
+      ...volumePayload(),
+      granularity: 'hour',
+      buckets: [
+        {start_ms: 1, end_ms: 2, label: '2026-11-15 12:00', partial: true},
+        {start_ms: 2, end_ms: 3, label: '2026-11-15 13:00', partial: false},
+      ],
+      series: [{metric: 'write_rows', group_id: '0', totals: [7, 9]}],
+    });
+    renderTab();
+    const panel = await screen.findByTestId('home-volume');
+    expect(within(panel).getByTestId('beui-bar').textContent).toBe(
+      '数据量:12:00*,13:00|全部',
+    );
   });
 });

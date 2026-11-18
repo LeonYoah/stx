@@ -116,6 +116,14 @@ type Service struct {
 	task    *TaskState
 	cancelF context.CancelFunc
 
+	// taskWg 跟踪「任务已判终态但仍在写盘」的后台收尾 goroutine（回滚代理、catch-up、
+	// 任务主循环的尾部写），测试里 waitTaskDone 靠它确认写盘真正停了再放 t.TempDir 清目录。
+	// taskWg tracks background tail writers that keep touching the staging dir after the
+	// task reaches a terminal state (rollback agents, catch-up, task loop tail writes);
+	// tests' waitTaskDone uses it to confirm writes actually stopped before t.TempDir removes
+	// the directory.
+	taskWg sync.WaitGroup
+
 	// fleet 用于把 Agent/Proxy 下发到各节点；rollout 调整下发节奏。
 	// fleet pushes Agent/Proxy to nodes; rollout tunes the rollout.
 	fleet       AgentFleet
@@ -549,7 +557,11 @@ func (s *Service) StartDownload(ctx context.Context, req StageDownloadRequest) (
 	cp := *task
 	s.mu.Unlock()
 
-	go s.runDownload(runCtx, taskID, target, sim)
+	s.taskWg.Add(1)
+	go func() {
+		defer s.taskWg.Done()
+		s.runDownload(runCtx, taskID, target, sim)
+	}()
 	return &cp, nil
 }
 
@@ -1327,7 +1339,11 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, 
 	cp.Steps = append([]StepState(nil), task.Steps...)
 	s.mu.Unlock()
 
-	go s.runExecute(runCtx, taskID, target, sim, mode == ExecModeApply)
+	s.taskWg.Add(1)
+	go func() {
+		defer s.taskWg.Done()
+		s.runExecute(runCtx, taskID, target, sim, mode == ExecModeApply)
+	}()
 	return &cp, nil
 }
 

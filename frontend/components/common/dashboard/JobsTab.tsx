@@ -48,7 +48,11 @@ import {
   type HomeVolume,
 } from '@/lib/services/dashboard';
 import {formatDateTimeMinuteTz, formatDateTz} from '@/lib/timezone';
-import {formatCompactNumber} from './dashboard-format';
+import {
+  formatBytes,
+  formatCompactNumber,
+  SERIES_PALETTE,
+} from './dashboard-format';
 import {TrendEmptyState} from './TrendEmptyState';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
@@ -67,17 +71,8 @@ type VolumeMetricKey = (typeof VOLUME_METRICS)[number];
 const VOLUME_SPLITS = ['none', 'cluster', 'task'] as const;
 type VolumeSplit = (typeof VOLUME_SPLITS)[number];
 
-/** 拆分序列的循环色板：四色 series 变量 + 它们的中间色，超 8 组后循环复用。/ Split-series palette: the four series vars plus blends, reused beyond eight groups. */
-const VOLUME_COLORS = [
-  'var(--series-2)',
-  'var(--series-1)',
-  'var(--series-3)',
-  'var(--series-4)',
-  'color-mix(in oklab, var(--series-2) 55%, var(--series-4))',
-  'color-mix(in oklab, var(--series-1) 55%, var(--series-3))',
-  'color-mix(in oklab, var(--series-4) 55%, var(--series-2))',
-  'color-mix(in oklab, var(--series-3) 55%, var(--series-1))',
-];
+/** 拆分序列色板：直接用共享 SERIES_PALETTE，同组在各图里同色。/ Split-series colors: reuse the shared SERIES_PALETTE so a group keeps one color across charts. */
+const VOLUME_COLORS = SERIES_PALETTE;
 
 /** 读用 --series-1、写用 --series-2，与作业详情趋势图同色。/ Read --series-1, write --series-2, matching job trends. */
 const THROUGHPUT_COLOR: Record<ThroughputKey, string> = {
@@ -152,25 +147,40 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   );
   const volumeData = volume.data;
   const volumeIsBytes = volumeMetric.endsWith('bytes');
+  // 字节口径统一走 formatBytes（IEC），不再用 compact+B（compact 的 B 是 Billion 会撞名）。
+  // Byte metrics go through formatBytes (IEC) — compact+"B" collided since compact's B
+  // already means Billion.
   const formatVolume = (value: number) =>
-    volumeIsBytes ? `${formatCompactNumber(value)}B` : formatCompactNumber(value);
+    volumeIsBytes ? formatBytes(value) : formatCompactNumber(value);
   const volumeChart = useMemo(() => {
     const buckets = volumeData?.buckets ?? [];
     const rows = (volumeData?.series ?? []).filter(
       (item) => item.metric === volumeMetric,
     );
     const granularity = volumeData?.granularity;
+    // 亚日粒度的标签是 "YYYY-MM-DD HH:mm"：窗口跨天时只截 HH:mm 会出重复类目
+    // （前后两天同一时刻撞名，且 24h 窗的首尾残缺桶同名）。同日才截 HH:mm，跨天带 MM-DD。
+    // Sub-day labels look like "YYYY-MM-DD HH:mm": slicing to HH:mm duplicates categories
+    // across days (same clock time on two dates, plus the two clipped ends of a 24h
+    // window). Only same-day windows may drop the date; otherwise keep MM-DD.
+    const subDay =
+      granularity === 'quarter_hour' || granularity === 'hour';
+    const sameDay =
+      subDay &&
+      buckets.length > 0 &&
+      buckets.every(
+        (bucket) => bucket.label.slice(0, 10) === buckets[0].label.slice(0, 10),
+      );
     return {
       categories: buckets.map((bucket) => {
-        // 亚日粒度标签带时刻（"YYYY-MM-DD HH:mm" → "HH:mm"），日取 "MM/DD"，月原样。
-        // Sub-day labels carry the clock ("YYYY-MM-DD HH:mm" → "HH:mm"); days show "MM/DD";
-        // months stay as they are.
         const label =
           granularity === 'month'
             ? bucket.label
             : granularity === 'day'
-              ? bucket.label.slice(5).replace('-', '/')
-              : bucket.label.slice(11);
+              ? bucket.label.slice(5)
+              : sameDay
+                ? bucket.label.slice(11)
+                : bucket.label.slice(5);
         return bucket.partial ? `${label}*` : label;
       }),
       series: rows.map((row, index) => ({

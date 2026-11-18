@@ -19,6 +19,7 @@ package sync
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -243,13 +244,21 @@ func TestListJobsVisibilityMatchesGetJob(t *testing.T) {
 func withEmbeddedObservability(t *testing.T) {
 	t.Helper()
 	enabled := config.Config.Observability.Enabled
+	// t.TempDir 必须先建：它的删除清理在调用时就注册，而 t.Cleanup 是后进先出——
+	// 若 Close 的清理先注册，结束时会先删 chunks_head 再关库，Head.Close 的
+	// mmapHeadChunks 就会写进已删目录直接 panic（样本恰好跨 2h chunk 边界时必现）。
+	// t.TempDir must come first: its removal cleanup registers at call time and
+	// cleanups run LIFO — registering Close first would delete chunks_head before
+	// the db closes, and Head.Close's mmapHeadChunks then writes into a missing dir
+	// (deterministic panic whenever samples straddle a 2h chunk boundary).
+	dir := t.TempDir()
 	t.Cleanup(func() {
 		config.Config.Observability.Enabled = enabled
 		_ = embedts.Close()
 	})
 	config.Config.Observability.Enabled = true
 	_ = embedts.Close()
-	if err := embedts.Start(context.Background(), embedts.Options{Dir: t.TempDir()}); err != nil {
+	if err := embedts.Start(context.Background(), embedts.Options{Dir: dir}); err != nil {
 		t.Fatalf("start embedded tsdb: %v", err)
 	}
 }
@@ -377,5 +386,256 @@ func TestRunningJobCountsByClusterExcludesPreviews(t *testing.T) {
 	}
 	if counts[1] != 2 || counts[2] != 0 {
 		t.Fatalf("counts = %v, want cluster 1 = 2 (preview excluded), cluster 2 = 0", counts)
+	}
+}
+
+func intPtr(v int) *int { return &v }
+
+// TestBuildJobLiveMetricsParity 覆盖与前端 extractJobMetricSummary 对齐的回退口径。
+// 每组 fixture 的 metrics 结构与 SeaTunnel 引擎 REST 快照一致（含 3.0 表级 Table* 映射），
+// 前端对同一份输入的解析结果应与本测试期望一致。
+// TestBuildJobLiveMetricsParity covers the fallback semantics aligned with the frontend
+// extractJobMetricSummary. Each fixture mirrors a SeaTunnel engine REST metrics snapshot
+// (including 3.0 table-level Table* maps); the frontend must derive identical values.
+func TestBuildJobLiveMetricsParity(t *testing.T) {
+	f64 := func(v float64) *float64 { return &v }
+	cases := []struct {
+		name    string
+		status  JobStatus
+		metrics map[string]interface{}
+		want    *JobLiveMetrics
+	}{
+		{
+			name:   "仅全局指标 running",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"SourceReceivedCount": float64(100),
+				"SinkWriteCount":      float64(90),
+				"SourceReceivedQPS":   float64(10),
+				"SinkWriteQPS":        float64(9),
+			},
+			want: &JobLiveMetrics{ReadTotal: f64(100), WriteTotal: f64(90), ReadQPS: f64(10), WriteQPS: f64(9)},
+		},
+		{
+			name:   "仅 SinkCommitted 写侧回退",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"SourceReceivedCount": float64(50),
+				"SinkCommittedCount":  float64(40),
+				"SourceReceivedQPS":   float64(5),
+				"SinkCommittedQPS":    float64(4),
+			},
+			want: &JobLiveMetrics{ReadTotal: f64(50), WriteTotal: f64(40), ReadQPS: f64(5), WriteQPS: f64(4)},
+		},
+		{
+			name:   "SinkWrite 优先于 SinkCommitted",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"SinkWriteCount":     float64(10),
+				"SinkCommittedCount": float64(99),
+				"SinkWriteQPS":       float64(1),
+				"SinkCommittedQPS":   float64(9),
+			},
+			want: &JobLiveMetrics{WriteTotal: f64(10), WriteQPS: f64(1)},
+		},
+		{
+			name:   "仅表级指标求和且逻辑表去重",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"TableSourceReceivedCount": map[string]interface{}{
+					"Source[0].db.orders":    float64(300),
+					"Source[0].db.customers": float64(200),
+				},
+				"TableSinkWriteCount": map[string]interface{}{
+					"Sink[0].db.orders":    float64(280),
+					"Sink[0].db.customers": float64(190),
+				},
+				"TableSourceReceivedQPS": map[string]interface{}{
+					"Source[0].db.orders":    float64(30),
+					"Source[0].db.customers": float64(20),
+				},
+				"TableSinkWriteQPS": map[string]interface{}{
+					"Sink[0].db.orders":    float64(28),
+					"Sink[0].db.customers": float64(19),
+				},
+			},
+			want: &JobLiveMetrics{ReadTotal: f64(500), WriteTotal: f64(470), ReadQPS: f64(50), WriteQPS: f64(47), TableCount: intPtr(2)},
+		},
+		{
+			name:   "表级写侧先 TableSinkWriteCount 再 TableSinkCommittedCount",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"TableSinkWriteCount": map[string]interface{}{
+					"Sink[0].db.t": float64(7),
+				},
+				"TableSinkCommittedCount": map[string]interface{}{
+					"Sink[0].db.t": float64(77),
+				},
+			},
+			want: &JobLiveMetrics{WriteTotal: f64(7), TableCount: intPtr(1)},
+		},
+		{
+			name:   "Source 与 Sink 同表去重 archive_ 前缀忽略",
+			status: JobStatusRunning,
+			metrics: map[string]interface{}{
+				"TableSourceReceivedCount": map[string]interface{}{
+					"Source[0].db.archive_orders": float64(1),
+				},
+				"TableSinkCommittedCount": map[string]interface{}{
+					"Sink[0].db.Orders": float64(1),
+				},
+			},
+			want: &JobLiveMetrics{ReadTotal: f64(1), WriteTotal: f64(1), TableCount: intPtr(1)},
+		},
+		{
+			name:   "非运行中不返回 qps 但保留累计",
+			status: JobStatusSuccess,
+			metrics: map[string]interface{}{
+				"SourceReceivedCount": float64(10),
+				"SinkWriteCount":      float64(8),
+				"SourceReceivedQPS":   float64(3),
+				"SinkWriteQPS":        float64(2),
+			},
+			want: &JobLiveMetrics{ReadTotal: f64(10), WriteTotal: f64(8)},
+		},
+		{
+			name:    "空指标返回 nil",
+			status:  JobStatusRunning,
+			metrics: map[string]interface{}{},
+			want:    nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			job := &JobInstance{
+				Status: tc.status,
+				ResultPreview: map[string]interface{}{
+					"metrics": tc.metrics,
+				},
+			}
+			got := buildJobLiveMetrics(job)
+			if tc.want == nil {
+				if got != nil {
+					t.Fatalf("live = %+v, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("live = nil, want non-nil")
+			}
+			check := func(name string, got, want *float64) {
+				t.Helper()
+				if want == nil {
+					if got != nil {
+						t.Fatalf("%s = %v, want nil", name, *got)
+					}
+					return
+				}
+				if got == nil || *got != *want {
+					t.Fatalf("%s = %v, want %v", name, got, *want)
+				}
+			}
+			check("read_total", got.ReadTotal, tc.want.ReadTotal)
+			check("write_total", got.WriteTotal, tc.want.WriteTotal)
+			check("read_qps", got.ReadQPS, tc.want.ReadQPS)
+			check("write_qps", got.WriteQPS, tc.want.WriteQPS)
+			if tc.want.TableCount == nil {
+				if got.TableCount != nil {
+					t.Fatalf("table_count = %d, want nil", *got.TableCount)
+				}
+			} else if got.TableCount == nil || *got.TableCount != *tc.want.TableCount {
+				t.Fatalf("table_count = %v, want %d", got.TableCount, *tc.want.TableCount)
+			}
+		})
+	}
+}
+
+// TestListJobsActiveWindowFilter 覆盖「窗口内活跃」重叠语义：窗口内运行过的作业命中，
+// 运行中（finished_at 为空）与排队（started_at 为空）作业在任何窗口都算活跃。
+// TestListJobsActiveWindowFilter covers the active-in-window overlap: jobs that ran during the window match,
+// while running (finished_at NULL) and pending (started_at NULL) jobs count as active in every window.
+func TestListJobsActiveWindowFilter(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	db := service.repo.db
+	task := &Task{NodeType: TaskNodeTypeFile, Name: "windowed", ClusterID: 1, Mode: TaskModeStreaming, CreatedBy: 1}
+	if err := db.Create(task).Error; err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
+	at := func(h int) *time.Time { v := base.Add(time.Duration(h) * time.Hour); return &v }
+	jobs := map[string]*JobInstance{
+		// 窗口内运行结束：09:00–11:00，与 [10:00,14:00] 重叠 → 命中。/ Ended inside the overlap → in.
+		"span": {TaskID: task.ID, RunType: RunTypeRun, Status: JobStatusSuccess, CreatedBy: 1,
+			StartedAt: at(-1), FinishedAt: at(1)},
+		// 窗口开始前就结束：05:00–06:00 → 不命中。/ Finished before the window → out.
+		"early": {TaskID: task.ID, RunType: RunTypeRun, Status: JobStatusSuccess, CreatedBy: 1,
+			StartedAt: at(-5), FinishedAt: at(-4)},
+		// 窗口结束后才启动：15:00 → 不命中。/ Starts after the window → out.
+		"late": {TaskID: task.ID, RunType: RunTypeRun, Status: JobStatusPending, CreatedBy: 1,
+			StartedAt: at(5)},
+		// 一直运行：started 很久以前、未结束 → 任何窗口命中。/ Long-running: started long ago, still running → in.
+		"running": {TaskID: task.ID, RunType: RunTypeRun, Status: JobStatusRunning, CreatedBy: 1,
+			StartedAt: at(-48)},
+		// 排队中：尚未启动 → 视为活跃。/ Pending: not started yet → counts as active.
+		"pending": {TaskID: task.ID, RunType: RunTypeRun, Status: JobStatusPending, CreatedBy: 1},
+	}
+	for name, job := range jobs {
+		if err := db.Create(job).Error; err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	idsOf := func(items []*JobInstance) map[uint]bool {
+		out := make(map[uint]bool, len(items))
+		for _, item := range items {
+			out[item.ID] = true
+		}
+		return out
+	}
+	window := func(hFrom, hTo int) (*time.Time, *time.Time) {
+		var from, to *time.Time
+		if hFrom != math.MinInt {
+			from = at(hFrom)
+		}
+		if hTo != math.MinInt {
+			to = at(hTo)
+		}
+		return from, to
+	}
+	cases := []struct {
+		name       string
+		hFrom, hTo int
+		want       []string
+	}{
+		{"window 10:00-14:00", 0, 4, []string{"span", "running", "pending"}},
+		// 远过去窗口：连 running 都还没启动，只有排队作业算活跃。/ Far-past window: only pending is active.
+		{"window before all runs", -100, -60, []string{"pending"}},
+		// 覆盖 running 启动瞬间的窗口。/ Window covering the moment running started.
+		{"window around running start", -49, -47, []string{"running", "pending"}},
+		// 远未来窗口：未结束的作业（late 排队未结束、running、pending）都命中。
+		// Far-future window: unfinished jobs (late/running/pending have no finished_at) all match.
+		{"window after all runs", 50, 60, []string{"late", "running", "pending"}},
+		{"only from bound", 0, math.MinInt, []string{"span", "late", "running", "pending"}},
+		{"only to bound", math.MinInt, 0, []string{"span", "early", "running", "pending"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			from, to := window(tc.hFrom, tc.hTo)
+			items, total, err := service.repo.ListJobInstances(ctx, &JobFilter{
+				IncludeAll: true, TaskID: task.ID, ActiveFrom: from, ActiveTo: to, Size: 50,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if int(total) != len(tc.want) {
+				t.Fatalf("total = %d, want %d (%v)", total, len(tc.want), idsOf(items))
+			}
+			got := idsOf(items)
+			for _, name := range tc.want {
+				if !got[jobs[name].ID] {
+					t.Fatalf("missing %s in %v", name, got)
+				}
+			}
+		})
 	}
 }

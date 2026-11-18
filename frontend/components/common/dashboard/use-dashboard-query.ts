@@ -44,6 +44,13 @@ export interface DashboardQuery {
   order: 'asc' | 'desc' | '';
   page: number;
   range: HomeRange;
+  /**
+   * 作业列表页签的时间窗解释：'all' = 不筛；预设值 = 「窗口内活跃」筛选。
+   * 与 range 共用同一个 URL 参数：'all' 或缺省 → 'all'（保留列表旧行为），合法预设 → 该预设。
+   * The jobs tab's read of the time window: 'all' = unfiltered, a preset = the "active in window" filter.
+   * Shares the range URL param: 'all' or absent → 'all' (the list's old behavior), a valid preset → that preset.
+   */
+  listRange: 'all' | HomeRange;
   /** 自定义时间窗（毫秒）；有值时优先于 range。/ Custom window (ms); wins over range when set. */
   start: number | undefined;
   end: number | undefined;
@@ -63,6 +70,10 @@ export function useDashboardQuery() {
     const cluster = Number(searchParams.get('cluster'));
     const page = Number(searchParams.get('page'));
     const order = searchParams.get('order');
+    const rawRange = searchParams.get('range');
+    const isPreset = (HOME_RANGES as readonly string[]).includes(
+      rawRange ?? '',
+    );
     return {
       tab: tab && HOME_TABS.includes(tab) ? tab : DEFAULT_HOME_TAB,
       clusterId: Number.isInteger(cluster) && cluster > 0 ? cluster : undefined,
@@ -72,11 +83,8 @@ export function useDashboardQuery() {
       sort: searchParams.get('sort') ?? '',
       order: order === 'asc' || order === 'desc' ? order : '',
       page: Number.isInteger(page) && page > 1 ? page : 1,
-      range: (HOME_RANGES as readonly string[]).includes(
-        searchParams.get('range') ?? '',
-      )
-        ? (searchParams.get('range') as HomeRange)
-        : '1h',
+      range: isPreset ? (rawRange as HomeRange) : '1h',
+      listRange: rawRange === 'all' ? 'all' : isPreset ? (rawRange as HomeRange) : 'all',
       ...customWindow(searchParams.get('start'), searchParams.get('end')),
     };
   }, [searchParams]);
@@ -97,6 +105,10 @@ export function useDashboardQuery() {
         order: 'order',
         page: 'page',
         range: 'range',
+        // listRange 与 range 写同一个 URL 参数（'all' 只在作业页签有意义，指标页签归一回 1h）。
+        // listRange writes the same range param ('all' only means something on the jobs tab; metric tabs
+        // normalize it back to 1h).
+        listRange: 'range',
         start: 'start',
         end: 'end',
       };

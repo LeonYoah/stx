@@ -1,0 +1,31 @@
+{
+  "id": "unified-job-table",
+  "name": "unified-job-table",
+  "title": "作业列表统一：大盘与工作台共用 JobTable",
+  "description": "",
+  "status": "done",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "devin",
+  "assignee": "devin",
+  "createdAt": "2026-11-17",
+  "completedAt": "2026-11-17",
+  "branch": "fix/dashboard-review-e123",
+  "base_branch": "fix/dashboard-review-e123",
+  "worktree_path": null,
+  "commit": "a4f399d3",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "11-17-job-table-core",
+    "11-17-job-table-workbench",
+    "11-17-job-live-metrics-parity",
+    "11-17-job-detail-host"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

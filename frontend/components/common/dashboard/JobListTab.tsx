@@ -18,35 +18,9 @@
 'use client';
 
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import Link from 'next/link';
-import {useFormatter, useTranslations} from 'next-intl';
-import {Search} from 'lucide-react';
-import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
-import {EmptyState} from '@/components/arc/empty-state/empty-state';
-import {Sparkline} from '@/components/charts/sparkline';
-import {
-  StudioSortableColumnHeader,
-  StudioTable,
-  StudioTableBody,
-  StudioTableCell,
-  StudioTableColumn,
-  StudioTableContent,
-  StudioTableEmptyRow,
-  StudioTableFooter,
-  StudioTableHeader,
-  StudioTableRow,
-  StudioTableScroll,
-} from '@/components/common/sync/StudioDataTable';
-import {
-  getDisplayJobLifecycleStatus,
-  getJobStatusBadgeClass,
-  getJobStatusLabel,
-} from '@/components/common/sync/sync-studio-utils';
-import {
-  StatPillsBar,
-  TableLoadingBar,
-  type StatPillItem,
-} from '@/components/common/layout';
+import {useTheme} from 'next-themes';
+import {useTranslations} from 'next-intl';
+import {toast} from 'sonner';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,59 +31,54 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {Badge} from '@/components/ui/badge';
-import {Button} from '@/components/ui/button';
-import {Checkbox} from '@/components/ui/checkbox';
-import {Input} from '@/components/ui/input';
-import {Pagination} from '@/components/ui/pagination';
+import {useAuth} from '@/hooks/use-auth';
 import services from '@/lib/services';
 import type {
   SyncJobInstance,
-  SyncJobListData,
   SyncJobListSort,
-  SyncJobSparklines,
   SyncJobStatusGroup,
 } from '@/lib/services/sync';
-import {formatDateTimeMinuteTz} from '@/lib/timezone';
-import {cn} from '@/lib/utils';
-import {formatCompactNumber, formatDurationSeconds} from './dashboard-format';
-import {JobPreviewDrawer} from './JobPreviewDrawer';
 import {
-  isRunningStatus,
-  jobDisplayName,
-  jobListRates,
-  jobTimeBounds,
-  jobWorkbenchHref,
-} from './job-list-utils';
-import {usePolledResource} from './use-polled-resource';
-import {type JobBulkAction, useJobBulkActions} from './use-job-bulk-actions';
+  JobDetailHost,
+  JobTable,
+  JobTableToolbar,
+  useJobBulkActions,
+  useJobList,
+  useJobSparklines,
+  useNotifiableUsers,
+  JOB_STATUS_GROUPS,
+  type JobActorContext,
+  type JobBulkAction,
+  type JobListQuery,
+  type JobRowAction,
+} from '@/components/common/sync/job-table';
+import type {JobDetailTab} from '@/components/common/sync/job-detail/types';
 import type {DashboardQuery} from './use-dashboard-query';
 
 const PAGE_SIZE = 50;
-const DEFAULT_SORT: SyncJobListSort = 'started_at';
 const LIST_POLL_MS = 30_000;
-const STATUS_GROUPS: SyncJobStatusGroup[] = [
-  'failed',
-  'running',
-  'pending',
-  'stopping',
-  'canceled',
-  'finished',
+const DEFAULT_SORT: SyncJobListSort = 'started_at';
+const VALID_SORTS: readonly string[] = [
+  'attention',
+  'started_at',
+  'created_at',
+  'rate',
+  'cdc_delay',
 ];
-const PILL_VARIANT: Partial<
-  Record<SyncJobStatusGroup, StatPillItem['variant']>
-> = {
-  failed: 'danger',
-  running: 'info',
-  pending: 'warning',
-  finished: 'success',
-};
+
+/** 待确认的批量 / 单行作业操作；bulk=true 时走批量汇总，否则逐条 toast。/ Pending bulk or row job action. */
+interface PendingJobConfirm {
+  action: JobRowAction;
+  jobs: SyncJobInstance[];
+  bulk: boolean;
+}
 
 /**
- * 全局作业列表页签：状态胶囊、模式与关键字筛选、服务端排序分页、批量迷你曲线、多选停止 / 恢复与行预览。
- * 筛选条件都在 URL 上；预览运行不计入。
- * The global job list tab: status pills, mode and keyword filters, server-side sort and paging, batched sparklines,
- * multi-select stop / recover and a row preview. Filters live in the URL; preview runs are excluded.
+ * 大盘「作业」页签宿主层：URL 查询状态 ↔ JobListQuery 映射、批量确认、
+ * 集群名映射与行操作回调；表格与工具栏全部由 sync/job-table 呈现，详情由 JobDetailHost 就地打开。
+ * Dashboard jobs tab host: maps the URL query state to JobListQuery, owns the bulk / row confirm dialog,
+ * cluster name mapping and row action callbacks; the table and toolbar live in sync/job-table and the
+ * in-place detail is hosted by JobDetailHost.
  */
 export function JobListTab({
   query,
@@ -122,536 +91,210 @@ export function JobListTab({
   ) => void;
   clusterNames: Map<number, string>;
 }) {
-  const t = useTranslations('dashboard.home.list');
-  const format = useFormatter();
-  const [keyword, setKeyword] = useState(query.q);
+  const t = useTranslations('jobTable');
+  const {resolvedTheme} = useTheme();
+  const monacoTheme = resolvedTheme === 'light' ? 'vs' : 'vs-dark';
+  const {user: currentUser} = useAuth();
+  const initiatorUsers = useNotifiableUsers();
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [preview, setPreview] = useState<SyncJobInstance | null>(null);
-  const [confirm, setConfirm] = useState<JobBulkAction | null>(null);
-  const [sparklines, setSparklines] = useState<SyncJobSparklines | null>(null);
+  // 完整详情弹窗：点击行 / 行操作「详情」/ 多表徽章都就地打开工作台同款 JobDetailDialog（不再有轻量预览抽屉）。
+  // Full detail dialog: row click, the row "details" action, and the multi-table badge all open the same
+  // workbench JobDetailDialog in place (no lightweight preview drawer).
+  const [detail, setDetail] = useState<{
+    job: SyncJobInstance;
+    tab: JobDetailTab;
+  } | null>(null);
+  const [confirm, setConfirm] = useState<PendingJobConfirm | null>(null);
 
-  useEffect(() => setKeyword(query.q), [query.q]);
-
-  const statusGroup = (STATUS_GROUPS as string[]).includes(query.status)
-    ? (query.status as SyncJobStatusGroup)
-    : '';
-  const runningOnly = statusGroup === 'running';
-  // 默认按开始时间倒序；速率 / 延迟排序要求只看运行中，其余情况退回默认。
-  // Default to newest start first; rate / delay sorts require the running group, otherwise fall back to the default.
-  const sort: SyncJobListSort =
-    (query.sort === 'rate' || query.sort === 'cdc_delay') && !runningOnly
-      ? DEFAULT_SORT
-      : (query.sort as SyncJobListSort) || DEFAULT_SORT;
-  const order = query.order || 'desc';
-
-  const listKey = JSON.stringify([
-    query.clusterId,
-    statusGroup,
-    query.mode,
-    query.q,
-    sort,
-    order,
-    query.page,
-  ]);
-  const list = usePolledResource<SyncJobListData>(
-    listKey,
-    () =>
-      services.sync.listJobs({
-        current: query.page,
-        size: PAGE_SIZE,
-        status_group: statusGroup || undefined,
-        mode:
-          query.mode === 'streaming' || query.mode === 'batch'
-            ? query.mode
-            : undefined,
-        cluster_id: query.clusterId,
-        keyword: query.q || undefined,
-        exclude_run_type: 'preview',
-        sort,
-        order,
-        with_counts: 1,
-        with_live: 1,
-      }),
-    LIST_POLL_MS,
+  // URL 查询 → 受控 JobListQuery（排序 / 状态非法值在这里归一）。
+  // URL query → controlled JobListQuery (invalid sort / status values normalized here).
+  const jobQuery = useMemo<JobListQuery>(
+    () => ({
+      statusGroup: (JOB_STATUS_GROUPS as readonly string[]).includes(
+        query.status,
+      )
+        ? (query.status as SyncJobStatusGroup)
+        : '',
+      mode:
+        query.mode === 'streaming' || query.mode === 'batch'
+          ? query.mode
+          : '',
+      // global 预设固定排除预览运行，不暴露运行类型筛选。
+      // The global preset always excludes preview runs; no run-type filter.
+      runType: 'all',
+      keyword: query.q,
+      clusterId: query.clusterId,
+      sort: VALID_SORTS.includes(query.sort)
+        ? (query.sort as SyncJobListSort)
+        : DEFAULT_SORT,
+      order: query.order === 'asc' || query.order === 'desc' ? query.order : 'desc',
+      // 顶栏时间窗 → 「窗口内活跃」筛选：自定义窗口传毫秒端点，预设传 range（'all' 不筛）。
+      // The header range becomes the "active in window" filter: a custom window sends ms ends, a preset
+      // sends range ('all' stays unfiltered).
+      activeRange:
+        query.start || query.listRange === 'all' ? '' : query.listRange,
+      activeFrom: query.start,
+      activeTo: query.end,
+      page: query.page,
+    }),
+    [query],
   );
-  const items = useMemo(() => list.data?.items ?? [], [list.data]);
+
+  // patch 语义统一映射回 URL（空值删除参数）。/ Patch semantics mapped back onto the URL (empty drops the key).
+  const onQueryChange = useCallback(
+    (patch: Partial<JobListQuery>) => {
+      const urlPatch: Partial<
+        Record<keyof DashboardQuery, string | number | undefined>
+      > = {};
+      if (patch.statusGroup !== undefined) {
+        urlPatch.status = patch.statusGroup || undefined;
+      }
+      if (patch.mode !== undefined) {
+        urlPatch.mode = patch.mode || undefined;
+      }
+      if (patch.keyword !== undefined) {
+        urlPatch.q = patch.keyword || undefined;
+      }
+      if (patch.clusterId !== undefined) {
+        urlPatch.clusterId = patch.clusterId;
+      }
+      if (patch.sort !== undefined) {
+        urlPatch.sort = patch.sort;
+      }
+      if (patch.order !== undefined) {
+        urlPatch.order = patch.order;
+      }
+      if (patch.page !== undefined) {
+        urlPatch.page = patch.page;
+      }
+      update(urlPatch);
+    },
+    [update],
+  );
+
+  const list = useJobList({
+    scope: {kind: 'all'},
+    query: jobQuery,
+    pageSize: PAGE_SIZE,
+    pollMs: LIST_POLL_MS,
+  });
+  const sparklines = useJobSparklines(list.items, list.updatedAt);
+  const bulk = useJobBulkActions(list.reload);
 
   // 选择只保留当前页仍存在的行。/ Keep only selections that still exist on this page.
   useEffect(() => {
     setSelected((prev) => {
-      const ids = new Set(items.map((job) => job.id));
+      const ids = new Set(list.items.map((job) => job.id));
       const next = new Set([...prev].filter((id) => ids.has(id)));
       return next.size === prev.size ? prev : next;
     });
-  }, [items]);
+  }, [list.items]);
 
-  // 迷你曲线：每次列表刷新后，用一次请求取本页运行中作业的写入速率。
-  // Sparklines: after each list refresh, one request fetches write rates for this page's running jobs.
-  const runningIds = useMemo(
-    () =>
-      items.filter((job) => isRunningStatus(job.status)).map((job) => job.id),
-    [items],
+  // 大盘逐行构造权限上下文：isOwner = 作业发起人；后端仍是最终裁决。
+  // Per-row actor context on the dashboard: isOwner means the job initiator; the backend stays the final arbiter.
+  const actor = useCallback(
+    (job: SyncJobInstance): JobActorContext => ({
+      isAdmin: currentUser?.is_admin ?? false,
+      isOwner:
+        currentUser !== null &&
+        currentUser !== undefined &&
+        job.created_by === currentUser.id,
+      canRun: true,
+      currentUserId: currentUser?.id,
+      disableRecover: false,
+    }),
+    [currentUser],
   );
-  const sparkKey = runningIds.join(',');
-  useEffect(() => {
-    if (!sparkKey) {
-      setSparklines(null);
+
+  // 单行操作：确认后直接调接口，toast 提示结果并刷新列表。
+  // Row actions: call the endpoint after confirmation, toast the outcome and reload the list.
+  const runRowAction = useCallback(
+    async (action: JobRowAction, job: SyncJobInstance) => {
+      try {
+        if (action === 'recover') {
+          await services.sync.recoverJob(job.id);
+          toast.success(t('action.recoverOk', {id: job.id}));
+        } else {
+          await services.sync.cancelJob(job.id, {
+            stop_with_savepoint: action === 'savepointStop',
+          });
+          toast.success(
+            t(action === 'savepointStop' ? 'action.savepointOk' : 'action.stopOk', {
+              id: job.id,
+            }),
+          );
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t('action.failed'));
+      } finally {
+        list.reload();
+      }
+    },
+    [list.reload, t],
+  );
+
+  const selectedJobs = useMemo(
+    () => list.items.filter((job) => selected.has(job.id)),
+    [list.items, selected],
+  );
+
+  const handleConfirm = () => {
+    const pending = confirm;
+    setConfirm(null);
+    if (!pending || pending.jobs.length === 0) {
       return;
     }
-    let disposed = false;
-    services.sync
-      .getJobSparklines({ids: sparkKey.split(',').map(Number), range: '1h'})
-      .then((data) => !disposed && setSparklines(data))
-      .catch(() => !disposed && setSparklines(null));
-    return () => {
-      disposed = true;
-    };
-  }, [sparkKey, list.updatedAt]);
-  const showSparklines = sparklines?.source === 'prometheus';
-
-  const bulk = useJobBulkActions(list.reload);
-  const selectedJobs = items.filter((job) => selected.has(job.id));
-
-  const counts = list.data?.status_counts ?? {};
-  const totalAll = STATUS_GROUPS.reduce(
-    (sum, group) => sum + (counts[group] ?? 0),
-    0,
-  );
-  const pills: StatPillItem[] = [
-    {
-      key: 'all',
-      label: t('groups.all'),
-      count: totalAll,
-      dataTestId: 'home-job-pill-all',
-    },
-    ...STATUS_GROUPS.map((group) => ({
-      key: group,
-      label: t(`groups.${group}`),
-      count: counts[group] ?? 0,
-      variant: PILL_VARIANT[group],
-      pulse: group === 'failed' && (counts.failed ?? 0) > 0,
-      dataTestId: `home-job-pill-${group}`,
-    })),
-  ];
-
-  const toggleSort = useCallback(
-    (key: SyncJobListSort) => {
-      const nextOrder = sort === key && order === 'desc' ? 'asc' : 'desc';
-      update({sort: key, order: nextOrder, page: 1});
-    },
-    [order, sort, update],
-  );
-  const sortHeader = (key: SyncJobListSort, label: string) => (
-    <StudioSortableColumnHeader
-      label={label}
-      sortDirection={sort === key ? order : undefined}
-      onSort={() => toggleSort(key)}
-    />
-  );
-
-  const durationUnits = {d: t('units.d'), h: t('units.h'), m: t('units.m')};
-  const totalPages = Math.max(
-    1,
-    Math.ceil((list.data?.total ?? 0) / PAGE_SIZE),
-  );
-  const allOnPageSelected =
-    items.length > 0 && items.every((job) => selected.has(job.id));
-  const COLS = 11;
+    if (pending.bulk) {
+      // 批量：走 useJobBulkActions 的串行汇总，结果展示在批量条里。
+      // Bulk: run through useJobBulkActions' serial aggregation; the result shows in the bulk bar.
+      void bulk
+        .run(pending.action as JobBulkAction, pending.jobs)
+        .then(() => setSelected(new Set()));
+    } else {
+      void runRowAction(pending.action, pending.jobs[0]);
+    }
+  };
 
   return (
     <div className='flex flex-col gap-3' data-testid='home-job-list'>
-      <StatPillsBar
-        items={pills}
-        activeKey={statusGroup || 'all'}
-        onChange={(key) =>
-          update({status: key === 'all' ? undefined : key, page: 1})
-        }
+      <JobTableToolbar
+        preset='global'
+        query={jobQuery}
+        onQueryChange={onQueryChange}
+        statusCounts={list.statusCounts}
+        bulk={{
+          selectedCount: selected.size,
+          running: bulk.running,
+          result: bulk.result,
+          onStop: () =>
+            setConfirm({action: 'stop', jobs: selectedJobs, bulk: true}),
+          onRecover: () =>
+            setConfirm({action: 'recover', jobs: selectedJobs, bulk: true}),
+          onClear: () => setSelected(new Set()),
+        }}
+        testIdPrefix='home-job'
       />
 
-      <div className='flex flex-wrap items-center gap-2'>
-        <form
-          className='relative min-w-[200px] max-w-sm flex-1'
-          onSubmit={(event) => {
-            event.preventDefault();
-            update({q: keyword.trim() || undefined, page: 1});
-          }}
-        >
-          <Search className='pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-            placeholder={t('searchPlaceholder')}
-            aria-label={t('searchPlaceholder')}
-            className='h-8 pl-8 text-xs'
-            data-testid='home-job-search'
-          />
-        </form>
-        <SegmentedControl
-          label={t('columns.mode')}
-          value={
-            query.mode === 'streaming' || query.mode === 'batch'
-              ? query.mode
-              : 'all'
-          }
-          onValueChange={(value) =>
-            update({mode: value === 'all' ? undefined : value, page: 1})
-          }
-          options={[
-            {value: 'all', label: t('mode.all')},
-            {value: 'streaming', label: t('mode.streaming')},
-            {value: 'batch', label: t('mode.batch')},
-          ]}
-        />
-      </div>
-
-      {selected.size > 0 || bulk.result ? (
-        <div
-          className='flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs'
-          data-testid='home-job-bulk'
-          role='status'
-        >
-          {selected.size > 0 ? (
-            <>
-              <span className='font-medium'>
-                {t('selected', {count: selected.size})}
-              </span>
-              <Button
-                size='sm'
-                variant='outline'
-                className='h-7'
-                disabled={!!bulk.running}
-                onClick={() => setConfirm('stop')}
-              >
-                {t('stop')}
-              </Button>
-              <Button
-                size='sm'
-                variant='outline'
-                className='h-7'
-                disabled={!!bulk.running}
-                onClick={() => setConfirm('recover')}
-              >
-                {t('recover')}
-              </Button>
-              <Button
-                size='sm'
-                variant='ghost'
-                className='h-7'
-                onClick={() => setSelected(new Set())}
-              >
-                {t('clearSelection')}
-              </Button>
-            </>
-          ) : null}
-          {bulk.result ? (
-            <span className='text-muted-foreground'>
-              {t('bulk.result', {
-                ok: bulk.result.ok,
-                failed: bulk.result.failures.length,
-                skipped: bulk.result.skipped,
-              })}
-              {bulk.result.failures.slice(0, 3).map((item) => (
-                <span key={item.id} className='ml-2 text-destructive'>
-                  {t('bulk.itemFailed', {id: item.id, message: item.message})}
-                </span>
-              ))}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className='relative flex min-h-[480px] flex-col overflow-hidden rounded-lg border border-border/70 bg-card/40 sm:min-h-[calc(100vh-420px)]'>
-        <TableLoadingBar loading={list.refreshing} />
-        <StudioTable
-          label={t('columns.job')}
-          busy={list.refreshing}
-          className='flex-1'
-        >
-          <StudioTableScroll>
-            <StudioTableContent minWidth={1080}>
-              <StudioTableHeader>
-                <StudioTableColumn style={{minWidth: 0, width: 36}}>
-                  <Checkbox
-                    checked={allOnPageSelected}
-                    aria-label={t('selected', {count: items.length})}
-                    onCheckedChange={(checked) =>
-                      setSelected(
-                        checked
-                          ? new Set(items.map((job) => job.id))
-                          : new Set(),
-                      )
-                    }
-                  />
-                </StudioTableColumn>
-                <StudioTableColumn style={{minWidth: 220}}>
-                  {t('columns.job')}
-                </StudioTableColumn>
-                <StudioTableColumn>{t('columns.cluster')}</StudioTableColumn>
-                <StudioTableColumn style={{minWidth: 0}}>
-                  {t('columns.mode')}
-                </StudioTableColumn>
-                <StudioTableColumn
-                  allowsSorting
-                  sortDirection={sort === 'attention' ? 'desc' : undefined}
-                >
-                  {sortHeader('attention', t('columns.status'))}
-                </StudioTableColumn>
-                <StudioTableColumn
-                  allowsSorting={runningOnly}
-                  sortDirection={sort === 'rate' ? order : undefined}
-                  title={runningOnly ? undefined : t('sortNeedsRunning')}
-                  style={{minWidth: 180}}
-                >
-                  {runningOnly
-                    ? sortHeader('rate', t('columns.rates'))
-                    : t('columns.rates')}
-                </StudioTableColumn>
-                <StudioTableColumn align='end'>
-                  {t('columns.totals')}
-                </StudioTableColumn>
-                <StudioTableColumn
-                  align='end'
-                  allowsSorting={runningOnly}
-                  sortDirection={sort === 'cdc_delay' ? order : undefined}
-                  title={runningOnly ? undefined : t('sortNeedsRunning')}
-                >
-                  {runningOnly
-                    ? sortHeader('cdc_delay', t('columns.cdc'))
-                    : t('columns.cdc')}
-                </StudioTableColumn>
-                <StudioTableColumn
-                  allowsSorting
-                  sortDirection={sort === 'started_at' ? order : undefined}
-                >
-                  {sortHeader('started_at', t('columns.started'))}
-                </StudioTableColumn>
-                <StudioTableColumn>{t('columns.ended')}</StudioTableColumn>
-                <StudioTableColumn align='end' style={{minWidth: 0}}>
-                  {t('columns.actions')}
-                </StudioTableColumn>
-              </StudioTableHeader>
-              <StudioTableBody dimmed={list.refreshing}>
-                {list.loading && !list.data ? (
-                  Array.from({length: 8}).map((_, index) => (
-                    <StudioTableRow key={index}>
-                      <StudioTableCell colSpan={COLS}>
-                        <div className='h-8 animate-pulse rounded bg-muted/40' />
-                      </StudioTableCell>
-                    </StudioTableRow>
-                  ))
-                ) : list.error && !list.data ? (
-                  <StudioTableEmptyRow colSpan={COLS}>
-                    <span className='text-destructive'>{t('loadError')}</span>
-                  </StudioTableEmptyRow>
-                ) : items.length === 0 ? (
-                  <StudioTableEmptyRow colSpan={COLS}>
-                    <EmptyState
-                      title={t('empty')}
-                      description={t('emptyHint')}
-                    />
-                  </StudioTableEmptyRow>
-                ) : (
-                  items.map((job) => {
-                    const displayStatus = getDisplayJobLifecycleStatus(job);
-                    const name = jobDisplayName(job);
-                    const live = job.live;
-                    const points = sparklines?.items[String(job.id)];
-                    const running = isRunningStatus(job.status);
-                    const {startMs, endMs} = jobTimeBounds(job);
-                    const untilMs = endMs ?? (running ? list.updatedAt : null);
-                    const duration =
-                      startMs !== null && untilMs !== null && untilMs > startMs
-                        ? (untilMs - startMs) / 1000
-                        : 0;
-                    const rates = jobListRates(
-                      running,
-                      live,
-                      endMs !== null ? duration : 0,
-                    );
-                    const durationText =
-                      duration > 0
-                        ? formatDurationSeconds(duration, durationUnits)
-                        : null;
-                    return (
-                      <StudioTableRow
-                        key={job.id}
-                        selected={selected.has(job.id)}
-                        className='cursor-pointer'
-                        onClick={() => setPreview(job)}
-                        data-testid={`home-job-row-${job.id}`}
-                      >
-                        <StudioTableCell
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <Checkbox
-                            checked={selected.has(job.id)}
-                            aria-label={name}
-                            onCheckedChange={(checked) =>
-                              setSelected((prev) => {
-                                const next = new Set(prev);
-                                if (checked) {
-                                  next.add(job.id);
-                                } else {
-                                  next.delete(job.id);
-                                }
-                                return next;
-                              })
-                            }
-                          />
-                        </StudioTableCell>
-                        <StudioTableCell>
-                          <div className='flex min-w-0 max-w-[280px] flex-col'>
-                            <span
-                              className='truncate font-medium text-foreground'
-                              title={name}
-                            >
-                              {name}
-                            </span>
-                            <span className='truncate font-mono text-[11px] text-muted-foreground'>
-                              {t('taskRef', {id: job.task_id})}
-                              {job.engine_job_id
-                                ? ` · ${job.engine_job_id}`
-                                : ''}
-                            </span>
-                          </div>
-                        </StudioTableCell>
-                        <StudioTableCell className='text-muted-foreground'>
-                          {job.cluster_id
-                            ? (clusterNames.get(job.cluster_id) ??
-                              `#${job.cluster_id}`)
-                            : '-'}
-                        </StudioTableCell>
-                        <StudioTableCell>
-                          {job.mode ? (
-                            <Badge
-                              variant='outline'
-                              className='rounded-sm px-1.5 py-0 text-[11px]'
-                            >
-                              {t(`mode.${job.mode}`)}
-                            </Badge>
-                          ) : (
-                            '-'
-                          )}
-                        </StudioTableCell>
-                        <StudioTableCell>
-                          <Badge
-                            variant='outline'
-                            className={cn(
-                              'rounded-sm px-2 py-0 text-[11px] leading-tight',
-                              getJobStatusBadgeClass(displayStatus),
-                            )}
-                          >
-                            {getJobStatusLabel(displayStatus)}
-                          </Badge>
-                        </StudioTableCell>
-                        <StudioTableCell>
-                          <div className='flex items-center gap-2'>
-                            {showSparklines ? (
-                              <div className='w-24 shrink-0'>
-                                {points && points.length > 1 ? (
-                                  <Sparkline
-                                    data={points.map((point) => point[1])}
-                                    label={t('sparklineLabel', {name})}
-                                    height={22}
-                                    variant='area'
-                                    interactive={false}
-                                    color='var(--series-2)'
-                                  />
-                                ) : null}
-                              </div>
-                            ) : null}
-                            {rates.read === undefined &&
-                            rates.write === undefined ? (
-                              <span>-</span>
-                            ) : (
-                              <span
-                                className={cn(
-                                  'whitespace-nowrap tabular-nums',
-                                  rates.average && 'text-muted-foreground',
-                                )}
-                                title={
-                                  rates.average ? t('avgRateHint') : undefined
-                                }
-                              >
-                                {rates.average ? t('avgPrefix') : ''}
-                                {`${formatCompactNumber(rates.read)} / ${formatCompactNumber(rates.write)}/s`}
-                              </span>
-                            )}
-                          </div>
-                        </StudioTableCell>
-                        <StudioTableCell
-                          align='end'
-                          className='whitespace-nowrap tabular-nums'
-                        >
-                          {live?.read_total === undefined &&
-                          live?.write_total === undefined
-                            ? '-'
-                            : `${formatCompactNumber(live?.read_total)} / ${formatCompactNumber(live?.write_total)}`}
-                        </StudioTableCell>
-                        <StudioTableCell align='end' className='tabular-nums'>
-                          {live?.cdc_delay_seconds === undefined
-                            ? '-'
-                            : `${format.number(live.cdc_delay_seconds, {maximumFractionDigits: 1})}s`}
-                        </StudioTableCell>
-                        <StudioTableCell className='whitespace-nowrap tabular-nums'>
-                          {startMs !== null
-                            ? formatDateTimeMinuteTz(startMs)
-                            : '-'}
-                        </StudioTableCell>
-                        <StudioTableCell>
-                          <div className='flex flex-col whitespace-nowrap'>
-                            <span className='tabular-nums text-foreground'>
-                              {endMs !== null
-                                ? formatDateTimeMinuteTz(endMs)
-                                : '-'}
-                            </span>
-                            {durationText ? (
-                              <span className='text-[11px] text-muted-foreground'>
-                                {running
-                                  ? t('ranFor', {duration: durationText})
-                                  : t('tookFor', {duration: durationText})}
-                              </span>
-                            ) : null}
-                          </div>
-                        </StudioTableCell>
-                        <StudioTableCell
-                          align='end'
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <Button
-                            asChild
-                            variant='ghost'
-                            size='sm'
-                            className='h-7 px-2 text-xs'
-                          >
-                            <Link href={jobWorkbenchHref(job)}>
-                              {t('detail')}
-                            </Link>
-                          </Button>
-                        </StudioTableCell>
-                      </StudioTableRow>
-                    );
-                  })
-                )}
-              </StudioTableBody>
-            </StudioTableContent>
-          </StudioTableScroll>
-          <StudioTableFooter className='mt-auto'>
-            <span>{t('total', {count: list.data?.total ?? 0})}</span>
-            {totalPages > 1 ? (
-              <Pagination
-                currentPage={query.page}
-                totalPages={totalPages}
-                pageSize={PAGE_SIZE}
-                totalItems={list.data?.total ?? 0}
-                onPageChange={(page) => update({page})}
-                showPageSizeSelector={false}
-                showTotalItems={false}
-              />
-            ) : null}
-          </StudioTableFooter>
-        </StudioTable>
-      </div>
+      <JobTable
+        preset='global'
+        data={list}
+        query={jobQuery}
+        onQueryChange={onQueryChange}
+        pageSize={PAGE_SIZE}
+        sparklines={sparklines}
+        clusterNames={clusterNames}
+        actor={actor}
+        initiatorUsers={initiatorUsers}
+        currentUserId={currentUser?.id}
+        currentUsername={currentUser?.username || currentUser?.nickname}
+        selection={{ids: selected, onChange: setSelected}}
+        onRowActivate={(job) => setDetail({job, tab: 'topology'})}
+        onOpenDetail={(job, tab) => setDetail({job, tab: tab ?? 'topology'})}
+        onAction={(action, job) =>
+          setConfirm({action, jobs: [job], bulk: false})
+        }
+        testIdPrefix='home-job'
+      />
 
       <AlertDialog
         open={confirm !== null}
@@ -660,41 +303,42 @@ export function JobListTab({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {confirm === 'recover'
-                ? t('bulk.recoverTitle', {count: selected.size})
-                : t('bulk.stopTitle', {count: selected.size})}
+              {confirm
+                ? t(`confirm.${confirm.action}Title`, {
+                    count: confirm.jobs.length,
+                  })
+                : ''}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {confirm === 'recover'
-                ? t('bulk.recoverDesc')
-                : t('bulk.stopDesc')}
+              {confirm ? t(`confirm.${confirm.action}Desc`) : ''}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t('bulk.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const action = confirm;
-                setConfirm(null);
-                if (action) {
-                  void bulk
-                    .run(action, selectedJobs)
-                    .then(() => setSelected(new Set()));
-                }
-              }}
-            >
-              {t('bulk.confirm')}
+            <AlertDialogCancel>{t('confirm.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirm}>
+              {t('confirm.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <JobPreviewDrawer
-        job={preview}
-        clusterName={
-          preview?.cluster_id ? clusterNames.get(preview.cluster_id) : undefined
+      <JobDetailHost
+        job={detail?.job ?? null}
+        open={detail !== null}
+        onOpenChange={(open) => !open && setDetail(null)}
+        tab={detail?.tab ?? 'topology'}
+        onTabChange={(tab) =>
+          setDetail((prev) => (prev ? {...prev, tab} : prev))
         }
-        onOpenChange={(open) => !open && setPreview(null)}
+        actor={
+          detail
+            ? actor(detail.job)
+            : {isAdmin: false, isOwner: false, canRun: false, disableRecover: false}
+        }
+        onAction={(action, job) =>
+          setConfirm({action, jobs: [job], bulk: false})
+        }
+        monacoTheme={monacoTheme}
       />
     </div>
   );

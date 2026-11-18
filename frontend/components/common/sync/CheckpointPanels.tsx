@@ -18,8 +18,10 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
-import {useTranslations} from 'next-intl';
+import {useLocale, useTranslations} from 'next-intl';
+import {jobWorkbenchHref} from './job-table/job-table-format';
 import {
   Activity,
   AlertTriangle,
@@ -410,11 +412,13 @@ export function CheckpointWorkspacePanel({
   loading?: boolean;
   checkpointFiles: RuntimeStorageListItem[];
   checkpointFilesLoading?: boolean;
-  onInspectCheckpointFile: (path: string) => void;
+  /** Checkpoint 文件「检查」依赖工作台编辑器与自定义变量；不传（工作台外）时操作列回退为「在工作台中检查」链接。/ Checkpoint file inspection needs the workbench editor and custom variables; when omitted (outside the workbench) the action column falls back to an "inspect in workbench" link. */
+  onInspectCheckpointFile?: (path: string) => void;
   inspectLoadingPath?: string | null;
   onRefresh: () => void;
 }) {
   const t = useTranslations('workbenchStudio');
+  const locale = useLocale();
   const [selectedPipelineId, setSelectedPipelineId] = useState<number | null>(
     null,
   );
@@ -676,7 +680,9 @@ export function CheckpointWorkspacePanel({
                       checkpointKey !== ''
                         ? checkpointFilesByID.get(checkpointKey)
                         : undefined;
-                    const canInspect = Boolean(matchedFile?.path);
+                    const canInspect = Boolean(
+                      matchedFile?.path && onInspectCheckpointFile,
+                    );
                     return (
                       <Tooltip key={idx}>
                         <TooltipTrigger asChild>
@@ -684,7 +690,7 @@ export function CheckpointWorkspacePanel({
                             style={{height: `${height}px`}}
                             onClick={() => {
                               if (matchedFile?.path) {
-                                onInspectCheckpointFile(matchedFile.path);
+                                onInspectCheckpointFile?.(matchedFile.path);
                               }
                             }}
                             className={cn(
@@ -838,7 +844,7 @@ export function CheckpointWorkspacePanel({
                           disabled={isViewDisabled}
                           onClick={() =>
                             matchedFile?.path &&
-                            onInspectCheckpointFile(matchedFile.path)
+                            onInspectCheckpointFile?.(matchedFile.path)
                           }
                         >
                           {inspectLoadingPath === matchedFile?.path ? (
@@ -876,7 +882,25 @@ export function CheckpointWorkspacePanel({
                             {sizeStr}
                           </TableCell>
                           <TableCell className='py-1 px-2.5 text-right'>
-                            {!matchedFile?.path ? (
+                            {!onInspectCheckpointFile ? (
+                              // 无检查入口（工作台外）：改为「在工作台中检查」链接跳到工作台。
+                              // No inspect entry (outside the workbench): fall back to an
+                              // "inspect in workbench" link that jumps to the workbench.
+                              job ? (
+                                <Button
+                                  size='sm'
+                                  variant='ghost'
+                                  className='h-6 px-2 text-xs hover:bg-muted font-normal'
+                                  asChild
+                                >
+                                  <Link href={jobWorkbenchHref(job)}>
+                                    {locale === 'zh'
+                                      ? '在工作台中检查'
+                                      : 'Inspect in workbench'}
+                                  </Link>
+                                </Button>
+                              ) : null
+                            ) : !matchedFile?.path ? (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <span className='inline-block cursor-not-allowed'>

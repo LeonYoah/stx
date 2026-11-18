@@ -41,6 +41,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -145,6 +146,15 @@ type Agent struct {
 	// selfUpdateMu 防止并发自升级/回滚。/ selfUpdateMu prevents concurrent self-update or rollback.
 	selfUpdateMu sync.Mutex
 
+	// heartbeatIntervalNs 存当前生效的心跳间隔（纳秒）：applyRemoteConfig 在 gRPC
+	// 回调里改写，心跳与主机指标两条循环在各自 goroutine 里读，直接读写
+	// a.config.Heartbeat.Interval 会构成数据竞争，这里用原子量中转。
+	// heartbeatIntervalNs holds the effective heartbeat interval in nanoseconds:
+	// applyRemoteConfig writes it from a gRPC callback while the heartbeat and
+	// host-metrics loops read it from their own goroutines; touching
+	// a.config.Heartbeat.Interval directly would race, so an atomic relays it.
+	heartbeatIntervalNs atomic.Int64
+
 	// running indicates if the agent is running
 	// running 表示 Agent 是否正在运行
 	running bool
@@ -195,7 +205,7 @@ func NewAgent(cfg *config.Config) *Agent {
 	// Create diagnostics error collector / 创建诊断错误采集器
 	ec := agentdiagnostics.NewCollector(grpcClient)
 
-	return &Agent{
+	agent := &Agent{
 		config:                cfg,
 		ctx:                   ctx,
 		cancel:                cancel,
@@ -212,6 +222,11 @@ func NewAgent(cfg *config.Config) *Agent {
 		errorCollector:        ec,
 		registeredCh:          make(chan struct{}),
 	}
+	// 初始生效间隔 = 本地配置；远程下发后经 heartbeatIntervalNs 换挡。
+	// The initial effective interval is the local config; remote updates shift it
+	// through heartbeatIntervalNs.
+	agent.heartbeatIntervalNs.Store(int64(cfg.Heartbeat.Interval))
+	return agent
 }
 
 // Run starts the Agent service and all its components
@@ -697,6 +712,10 @@ func (a *Agent) applyRemoteConfig(cfg *pb.AgentConfig) {
 		newInterval := time.Duration(cfg.HeartbeatInterval) * time.Second
 		if a.config.Heartbeat.Interval != newInterval {
 			a.config.Heartbeat.Interval = newInterval
+			// 原子量先于/独立于持久化更新，两条循环下个 tick 即换挡。
+			// The atomic shifts independently of persistence so both loops pick the
+			// new interval on their next tick.
+			a.heartbeatIntervalNs.Store(int64(newInterval))
 			configChanged = true
 			logger.InfoF(ctx, "Applied heartbeat interval from Control Plane: %v / 已应用来自 Control Plane 的心跳间隔：%v", newInterval, newInterval)
 		}
@@ -769,6 +788,17 @@ func (a *Agent) startBackgroundServices() {
 		a.runHeartbeatLoop()
 	}()
 
+	// Start host metrics loop (E3) — 独立 goroutine，绝不能挂在心跳里：
+	// 采集里的 statfs/分区枚举可能慢，心跳一被拖慢，控制面就误判离线。
+	// Start the host metrics loop (E3) in its own goroutine — it must never ride the
+	// heartbeat: collection statfs/partition calls can be slow, and a delayed heartbeat
+	// reads as an offline agent on the control plane.
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		a.runHostMetricsLoop()
+	}()
+
 	// Start command stream listener / 启动命令流监听器
 	a.wg.Add(1)
 	go func() {
@@ -789,16 +819,26 @@ func (a *Agent) startBackgroundServices() {
 	}
 }
 
+// currentHeartbeatInterval 返回当前生效的心跳间隔：applyRemoteConfig 会在运行期
+// 原子更新 heartbeatIntervalNs，两条循环每次 tick 重读并 Reset，保持一致不换档脱节。
+// currentHeartbeatInterval returns the effective heartbeat interval: applyRemoteConfig
+// atomically updates heartbeatIntervalNs at runtime; both loops re-read it every tick
+// and Reset so they shift together instead of drifting apart.
+func (a *Agent) currentHeartbeatInterval() time.Duration {
+	interval := time.Duration(a.heartbeatIntervalNs.Load())
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	return interval
+}
+
 // runHeartbeatLoop runs the heartbeat sending loop
 // runHeartbeatLoop 运行心跳发送循环
 // Requirements 1.3: Send heartbeat every 10 seconds with resource usage
 // 需求 1.3：每 10 秒发送心跳，包含资源使用率
 func (a *Agent) runHeartbeatLoop() {
 	ctx := a.ctx
-	interval := a.config.Heartbeat.Interval
-	if interval == 0 {
-		interval = 10 * time.Second
-	}
+	interval := a.currentHeartbeatInterval()
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -811,6 +851,12 @@ func (a *Agent) runHeartbeatLoop() {
 			logger.InfoF(ctx, "Heartbeat loop stopped / 心跳循环已停止")
 			return
 		case <-ticker.C:
+			// 远程下发了新间隔就换挡。/ Shift when the control plane pushed a new interval.
+			if next := a.currentHeartbeatInterval(); next != interval {
+				interval = next
+				ticker.Reset(interval)
+				logger.InfoF(ctx, "Heartbeat interval updated to: %v / 心跳间隔已更新为：%v", interval, interval)
+			}
 			a.sendHeartbeat()
 		}
 	}
@@ -886,16 +932,62 @@ func (a *Agent) sendHeartbeat() {
 		}
 		return
 	}
+}
 
-	// E3：心跳成功后随同一周期上报主机指标。Unimplemented（旧控制面）属预期，静默；
-	// 其余错误只记 warn，不重试、不影响下一轮心跳。
-	// E3: after a successful heartbeat, report host metrics on the same cadence.
-	// Unimplemented (old control plane) is expected and silenced; other errors only log a
-	// warning — no retry, next heartbeat unaffected.
-	samples := a.metricsCollector.CollectHostMetrics()
-	if len(samples) > 0 {
-		if _, err := a.grpcClient.ReportHostMetrics(ctx, samples); err != nil && !isUnimplementedError(err) {
-			logger.WarnF(ctx, "Host metrics report failed: %v / 主机指标上报失败：%v", err, err)
+// hostMetricsCollectTimeout 限定一轮采集的耗时上限；hostMetricsReportTimeout 限定上报
+// RPC 的耗时上限 —— 两者都必须远小于心跳间隔，防止指标链路反向拖慢在线判定。
+// hostMetricsCollectTimeout caps one collection round; hostMetricsReportTimeout caps the
+// report RPC — both stay well under the heartbeat interval so the metrics path can never
+// drag down liveness detection.
+const (
+	hostMetricsCollectTimeout = 8 * time.Second
+	hostMetricsReportTimeout  = 5 * time.Second
+)
+
+// runHostMetricsLoop runs the dedicated host-metrics collect+report loop (E3).
+// runHostMetricsLoop 运行独立的主机指标采集+上报循环（E3）：
+// 与心跳同周期但互不阻塞；采集/上报各自带超时；控制面回 Unimplemented（旧版本）或
+// NotFound（agent 未绑定主机，控制面收到但丢弃）都属预期，静默不刷屏。
+// Runs on the same cadence as the heartbeat but never blocks it; collection and the report
+// RPC each carry their own timeout; a control-plane Unimplemented (old version) or
+// NotFound (agent unbound — server accepts and drops) is expected and silenced.
+func (a *Agent) runHostMetricsLoop() {
+	ctx := a.ctx
+	interval := a.currentHeartbeatInterval()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	logger.InfoF(ctx, "Host metrics loop started with interval: %v / 主机指标循环已启动，间隔：%v", interval, interval)
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			logger.InfoF(ctx, "Host metrics loop stopped / 主机指标循环已停止")
+			return
+		case <-ticker.C:
+			// 跟随心跳间隔的远程变更，两条循环不脱节。/ Follow remote heartbeat
+			// interval changes so the two loops never drift apart.
+			if next := a.currentHeartbeatInterval(); next != interval {
+				interval = next
+				ticker.Reset(interval)
+				logger.InfoF(ctx, "Host metrics interval updated to: %v / 主机指标间隔已更新为：%v", interval, interval)
+			}
+			if !a.grpcClient.IsConnected() {
+				continue
+			}
+			collectCtx, collectCancel := context.WithTimeout(ctx, hostMetricsCollectTimeout)
+			samples := a.metricsCollector.CollectHostMetrics(collectCtx)
+			collectCancel()
+			if len(samples) == 0 {
+				continue
+			}
+			reportCtx, reportCancel := context.WithTimeout(ctx, hostMetricsReportTimeout)
+			_, err := a.grpcClient.ReportHostMetrics(reportCtx, samples)
+			reportCancel()
+			if err != nil && !isUnimplementedError(err) && !isNotFoundError(err) {
+				logger.WarnF(ctx, "Host metrics report failed: %v / 主机指标上报失败：%v", err, err)
+			}
 		}
 	}
 }

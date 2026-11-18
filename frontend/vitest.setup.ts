@@ -16,3 +16,24 @@
  */
 
 import '@testing-library/jest-dom';
+
+// jsdom 没有 IntersectionObserver / ResizeObserver，framer-motion 的 useInView
+// （MetricCard 等）与 beUI 图表的尺寸监听需要它们；给个空桩即可。/ jsdom lacks
+// IntersectionObserver / ResizeObserver, needed by framer-motion's useInView
+// (MetricCard & friends) and beUI chart size watchers — no-op stubs suffice.
+class ObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords() {
+    return [];
+  }
+}
+if (typeof globalThis.IntersectionObserver === 'undefined') {
+  globalThis.IntersectionObserver =
+    ObserverStub as unknown as typeof IntersectionObserver;
+}
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver =
+    ObserverStub as unknown as typeof ResizeObserver;
+}

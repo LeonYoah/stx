@@ -282,6 +282,8 @@ export interface HomeHostEntry {
   cpu_cores: number;
   total_memory_bytes: number;
   last_heartbeat_ms?: number;
+  /** 开机时间（stx_host_boot_time_seconds），用于卡片头「已运行 N 天」。/ Boot time (stx_host_boot_time_seconds) feeding the header's "up N days". */
+  boot_time_ms?: number;
   metrics_supported: boolean;
   panels: HomeDetailPanel[];
 }

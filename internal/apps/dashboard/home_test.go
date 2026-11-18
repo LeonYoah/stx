@@ -25,6 +25,7 @@ import (
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/monitoring"
 	syncapp "github.com/LeonYoah/stx/internal/apps/sync"
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 )
 
 type fakeHomeJobs struct {
@@ -39,10 +40,12 @@ func (f *fakeHomeJobs) GetHomeJobSummary(_ context.Context, _ executionapp.Actor
 }
 
 type fakeHomeMonitoring struct {
-	health      *monitoring.ClusterHealthData
-	alerts      *monitoring.AlertInstanceListData
-	alertFilter *monitoring.AlertInstanceFilter
-	alertErr    error
+	health       *monitoring.ClusterHealthData
+	alerts       *monitoring.AlertInstanceListData
+	closedAlerts *monitoring.AlertInstanceListData
+	alertFilter  *monitoring.AlertInstanceFilter
+	alertErr     error
+	closedErr    error
 }
 
 func (f *fakeHomeMonitoring) GetClustersHealthFor(context.Context, uint) (*monitoring.ClusterHealthData, error) {
@@ -51,6 +54,11 @@ func (f *fakeHomeMonitoring) GetClustersHealthFor(context.Context, uint) (*monit
 
 func (f *fakeHomeMonitoring) ListAlertInstances(_ context.Context, filter *monitoring.AlertInstanceFilter) (*monitoring.AlertInstanceListData, error) {
 	f.alertFilter = filter
+	// 「需要处理」抑制逻辑单独查已关闭告警，用独立返回便于区分两种查询。
+	// The needs-attention suppression queries closed alerts separately; a dedicated fake return keeps them apart.
+	if filter.Status == monitoring.AlertDisplayStatusClosed {
+		return f.closedAlerts, f.closedErr
+	}
 	return f.alerts, f.alertErr
 }
 
@@ -90,6 +98,71 @@ func TestHomeServiceCombinesBlocksAndSortsAttention(t *testing.T) {
 	one := service.GetHomeSummary(context.Background(), executionapp.Actor{UserID: 1}, 2)
 	if one.Clusters.Total != 1 || one.Clusters.NodesTotal != 1 || jobs.cluster != 2 || mon.alertFilter.ClusterID != "2" {
 		t.Fatalf("cluster scope not applied: clusters=%+v jobs=%d alerts=%+v", one.Clusters, jobs.cluster, mon.alertFilter)
+	}
+}
+
+// 「作业失败」告警被人工关闭后，同任务关闭时间点之前的失败条目不再出现在「需要处理」；
+// 关闭后的新失败、别的任务、以及别的规则（如 CDC 延迟）关闭都不影响。
+// Once a job-failed alert is closed, that task's earlier failures leave the strip; failures after the
+// close, other tasks and other rules (like CDC delay) are unaffected.
+func TestHomeServiceSuppressesJobFailuresCoveredByClosedAlert(t *testing.T) {
+	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	closedAt := now.Add(-time.Hour)
+	jobs := &fakeHomeJobs{summary: &syncapp.HomeJobSummary{Attention: []syncapp.HomeAttentionItem{
+		{Kind: "job_failed", Severity: "critical", Title: "old-fail", TaskID: 15, JobID: 10, At: now.Add(-2 * time.Hour)},
+		{Kind: "job_failed", Severity: "critical", Title: "new-fail", TaskID: 15, JobID: 11, At: now.Add(-30 * time.Minute)},
+		{Kind: "job_failed", Severity: "critical", Title: "other-task", TaskID: 16, JobID: 20, At: now.Add(-2 * time.Hour)},
+		{Kind: "cdc_delay", Severity: "warning", Title: "cdc", TaskID: 15, At: now.Add(-2 * time.Hour)},
+	}}}
+	mon := &fakeHomeMonitoring{
+		health: &monitoring.ClusterHealthData{},
+		alerts: &monitoring.AlertInstanceListData{},
+		closedAlerts: &monitoring.AlertInstanceListData{Alerts: []*monitoring.AlertInstance{
+			{
+				AlertID: "sync:episode:1", RuleKey: syncalert.RuleJobFailed,
+				Status: monitoring.AlertDisplayStatusClosed, ClosedAt: &closedAt,
+				SourceRef: &monitoring.AlertInstanceSourceRef{TaskID: 15},
+			},
+			{
+				AlertID: "sync:episode:2", RuleKey: "sync_cdc_delay_high",
+				Status: monitoring.AlertDisplayStatusClosed, ClosedAt: &closedAt,
+				SourceRef: &monitoring.AlertInstanceSourceRef{TaskID: 16},
+			},
+		}},
+	}
+	service := NewHomeService(jobs, mon)
+	service.now = func() time.Time { return now }
+
+	got := service.GetHomeSummary(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, 0)
+	failed := map[string]bool{}
+	for _, item := range got.Attention {
+		if item.Kind == "job_failed" {
+			failed[item.Title] = true
+		}
+	}
+	if failed["old-fail"] || !failed["new-fail"] || !failed["other-task"] || len(failed) != 2 {
+		t.Fatalf("suppression wrong, remaining job_failed = %v", failed)
+	}
+}
+
+// 已关闭告警查询失败时条目原样保留，宁可多显示也不能吞掉真实失败。
+// When the closed-alert lookup fails the items pass through: over-showing beats swallowing a real failure.
+func TestHomeServiceKeepsJobFailuresWhenClosedLookupFails(t *testing.T) {
+	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	jobs := &fakeHomeJobs{summary: &syncapp.HomeJobSummary{Attention: []syncapp.HomeAttentionItem{
+		{Kind: "job_failed", Severity: "critical", Title: "old-fail", TaskID: 15, JobID: 10, At: now.Add(-2 * time.Hour)},
+	}}}
+	mon := &fakeHomeMonitoring{
+		health:    &monitoring.ClusterHealthData{},
+		alerts:    &monitoring.AlertInstanceListData{},
+		closedErr: errors.New("boom"),
+	}
+	service := NewHomeService(jobs, mon)
+	service.now = func() time.Time { return now }
+
+	got := service.GetHomeSummary(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, 0)
+	if len(got.Attention) != 1 || got.Attention[0].Kind != "job_failed" {
+		t.Fatalf("job_failed item must survive a failed closed lookup: %+v", got.Attention)
 	}
 }
 

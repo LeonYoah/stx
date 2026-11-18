@@ -865,6 +865,18 @@ EOF
   log "all assertions passed: $FROM_TAG -> $TARGET"
 }
 
+# open_install_dir_for_cli：install.sh 用 tar 管道复制源码树，顶层条目继承了打包
+# 暂存目录的 700 权限，/opt/stx 会变成 drwx------，runner 用户进不去也就跑不了其中的
+# stx CLI；放开目录与二进制的执行位（内容不变，不影响布局断言）。
+# open_install_dir_for_cli: install.sh copies the source tree through a tar pipe, so the
+# top-level entry inherits mode 700 from the packaging stage dir — /opt/stx ends up
+# drwx------ and the runner cannot traverse it to exec the installed CLI. Open the
+# execute bits on the dir and binary (contents unchanged; layout asserts unaffected).
+open_install_dir_for_cli() {
+  sudo -n chmod o+x "$INSTALL_DIR" || die "cannot open execute bit on $INSTALL_DIR"
+  sudo -n chmod a+x "$INSTALL_DIR/stx" || die "cannot chmod +x $INSTALL_DIR/stx"
+}
+
 main() {
   require_cmds curl jq python3 sudo
   mkdir -p "$COLLECT_DIR"
@@ -873,6 +885,7 @@ main() {
   build_upgrade_package
   install_from
   wait_for_version "$FROM_VER"
+  open_install_dir_for_cli
   cli_login
   seed_data
   run_self_upgrade

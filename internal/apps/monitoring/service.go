@@ -90,6 +90,12 @@ type Service struct {
 	clustersHealthMu    sync.Mutex
 	clustersHealthCache map[uint]*ClusterHealthData
 	clustersHealthUntil map[uint]time.Time
+
+	// platformHosts 是平台快照读取 hosts 表的可选依赖（platform_snapshot.go）；
+	// 未注入时快照的 Agent 列表为空。
+	// platformHosts is the optional hosts-table dependency for the platform snapshot
+	// (platform_snapshot.go); the agent list stays empty without it.
+	platformHosts platformHostLister
 }
 
 // NewService creates a monitoring service.

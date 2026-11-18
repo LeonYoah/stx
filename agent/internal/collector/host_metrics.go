@@ -35,6 +35,7 @@ package collector
 import (
 	"context"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,6 +48,7 @@ import (
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/net"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 // hostMetricCap 限定单类对象（挂载点 / 磁盘 / 网卡）上报的条数上限，控制 tsdb 基数。
@@ -113,13 +115,13 @@ func blockedFstype(fstype string) bool {
 	return false
 }
 
-// CollectHostMetrics 采集一轮 stx_host_* 指标样本。
+// CollectHostMetrics 采集一轮 stx_host_* 指标样本，顺带输出 stx_agent_* 进程自指标。
 // 单个采集源失败不阻断其余指标（每步独立容错），返回 nil 表示整轮不可用；
 // ctx 取消提前终止整轮，调用方须带超时。
-// CollectHostMetrics gathers one round of stx_host_* samples.
-// A single failing source does not abort the others (each step tolerates independently);
-// nil means the whole round failed. A cancelled ctx aborts the round early — callers are
-// expected to pass a deadline.
+// CollectHostMetrics gathers one round of stx_host_* samples plus the stx_agent_*
+// process self-metrics. A single failing source does not abort the others (each step
+// tolerates independently); nil means the whole round failed. A cancelled ctx aborts
+// the round early — callers are expected to pass a deadline.
 func (c *MetricsCollector) CollectHostMetrics(ctx context.Context) []*pb.HostMetricSample {
 	var out []*pb.HostMetricSample
 	put := func(name string, value float64, dims ...string) {
@@ -142,7 +144,45 @@ func (c *MetricsCollector) CollectHostMetrics(ctx context.Context) []*pb.HostMet
 	// Filesystem collection runs last: mounts are stafs'd serially (each bounded by
 	// statfsTimeout), so a bad disk cannot starve the collectors above of ctx budget.
 	c.collectFilesystems(ctx, put)
+	// 自指标随同一轮上报，纯 runtime 读取不占 ctx 预算，放在文件系统之后。
+	// Self-metrics ride the same round; pure runtime reads don't contend for ctx
+	// budget, so they run after the filesystem pass.
+	c.collectAgentSelf(put)
 	return out
+}
+
+// collectAgentSelf 输出 Agent 进程自身指标（stx_agent_ 前缀）：
+// RSS / CPU / goroutine / heap / uptime / build_info，以及进程内累计的命令结果与
+// 心跳失败计数。控制面收到后与主机指标走同一通道写入 tsdb，并注入 host_id。
+// collectAgentSelf emits the Agent process self-metrics (stx_agent_ prefix):
+// RSS / CPU / goroutines / heap / uptime / build_info plus the in-process command
+// outcome and heartbeat-failure counters. The control plane writes them through the
+// same channel as host metrics and stamps host_id onto each series.
+func (c *MetricsCollector) collectAgentSelf(put hostPut) {
+	if proc, err := process.NewProcess(int32(os.Getpid())); err == nil {
+		if minfo, merr := proc.MemoryInfo(); merr == nil && minfo != nil {
+			put("stx_agent_process_resident_memory_bytes", float64(minfo.RSS))
+		}
+		if times, terr := proc.Times(); terr == nil && times != nil {
+			put("stx_agent_process_cpu_seconds_total", times.User+times.System)
+		}
+	}
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	put("stx_agent_heap_inuse_bytes", float64(ms.HeapInuse))
+	put("stx_agent_goroutines", float64(runtime.NumGoroutine()))
+	put("stx_agent_uptime_seconds", time.Since(c.selfStartedAt).Seconds())
+	put("stx_agent_build_info", 1, "version", c.selfVersion)
+	put("stx_agent_heartbeat_failures_total", float64(c.heartbeatFailures.Load()))
+
+	// 命令结果计数：type × result 固定维度，避免命令 ID 等高基数信息泄漏进标签。
+	// Command outcome counters: fixed type × result dimensions — no high-cardinality
+	// data such as command IDs leaks into labels.
+	c.selfMu.Lock()
+	for key, count := range c.commandCounts {
+		put("stx_agent_commands_total", float64(*count), "type", key[0], "result", key[1])
+	}
+	c.selfMu.Unlock()
 }
 
 // hostPut 是指标落点函数签名：name + value + 偶数个维度键值。

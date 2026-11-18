@@ -56,40 +56,43 @@ function snapshot(overrides: Partial<PlatformSnapshotData> = {}): PlatformSnapsh
       goroutines: 42,
       rss_bytes: 256 * 1024 * 1024,
       heap_inuse_bytes: 96 * 1024 * 1024,
-      http_requests_total: 12000,
-      http_5xx_total: 3,
+      http_rps: 12.5,
+      http_5xx_ratio: 0.001,
       http_p95_seconds: 0.05,
-      grpc_requests_total: 900,
-      grpc_error_total: 0,
-      grpc_p95_seconds: 0.01,
+      db_open: 4,
+      db_in_use: 2,
+      db_wait_count_rate: 0.01,
       agents_connected: 1,
-      db: {open_connections: 4, max_open_connections: 20, in_use: 2, idle: 2},
       tsdb: {
         head_series: 1500,
-        stale_series: 10,
-        head_bytes: 1024 * 1024,
-        block_bytes: 2 * 1024 * 1024,
-        oldest_sample_ms: 0,
-        compaction_failures: 0,
-        size_retention_deletes: 0,
-        last_scrape_ms: 0,
+        blocks_bytes: 2 * 1024 * 1024,
+        compactions_failed: 0,
       },
     },
     agents: [
       {
         host_id: 7,
-        hostname: 'prod-01',
-        address: '10.0.0.7:17801',
+        host_name: 'prod-01',
         online: true,
         version: '1.2.3',
-        version_mismatch: false,
         uptime_seconds: 3600,
         rss_bytes: 40 * 1024 * 1024,
-        cpu_seconds_total: 120,
+        cpu_ratio: 0.12,
         goroutines: 18,
-        commands_total: 5,
-        heartbeat_failures: 0,
-        last_metrics_report_at: '2025-01-01 12:00:00',
+        command_failures_1h: 0,
+        last_report_at: '2025-01-01T12:00:00+08:00',
+      },
+      {
+        host_id: 8,
+        host_name: 'legacy-02',
+        online: false,
+        version: '1.0.0',
+        uptime_seconds: null,
+        rss_bytes: null,
+        cpu_ratio: null,
+        goroutines: null,
+        command_failures_1h: null,
+        last_report_at: null,
       },
     ],
     trends: {
@@ -130,7 +133,11 @@ describe('MonitoringPlatformPanel', () => {
     expect(screen.getByText('v1.2.3')).toBeTruthy();
     expect(screen.getByText('256 MB')).toBeTruthy();
     expect(screen.getByText('prod-01')).toBeTruthy();
-    expect(screen.getByText('10.0.0.7:17801')).toBeTruthy();
+    // 旧版 Agent：指标空值显示 —，版本不一致给出徽标。
+    // Legacy agent: null metrics render —, version mismatch shows a badge.
+    expect(screen.getByText('legacy-02')).toBeTruthy();
+    expect(screen.getByText('版本不一致')).toBeTruthy();
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
     // 两条趋势序列渲染两张图，其余两张显示空态。/ Two trend series render
     // two charts; the other two show the empty placeholder.
     expect(screen.getAllByTestId('platform-trend-chart')).toHaveLength(2);

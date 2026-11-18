@@ -32,7 +32,7 @@ embedts.RegisterSelfCollectors(reg ...prometheus.Collector) error
 - `host` 指标白名单同时接受 `stx_host_` 与 `stx_agent_` 前缀；保留样本/标签上限、有限值校验与保留标签（`job`/`instance`/`host_id`/`host_name`/`__name__`）保护。
 - 快照 `available=false` 时 `reason` 复用 `promquery.UnavailableReason()` 取值（`observability_disabled` / `prometheus_unavailable`），`server`/`trends` 省略，`agents` 恒为数组。
 - 快照 `trends` 为固定四条序列（RSS / heap / HTTP QPS / HTTP 5xx 比例），最近 1h、60s 步长，PromQL 固定不外露任意查询；单条失败只置空该序列。
-- Agent 快照 `version_mismatch` 由后端按 server 当前版本比对得出，前端不重复判断。
+- Agent 快照的指标字段（`rss_bytes` / `cpu_ratio` / `goroutines` / `uptime_seconds` / `command_failures_1h` / `last_report_at`）在旧版 Agent 未上报时为 `null`，前端渲染 `—`；`version` 优先取 hosts 表 `agent_version`，回退 `stx_agent_build_info` 标签，版本不一致徽标由前端对比 `server.version` 得出。
 
 ### 4. 平台健康告警模板
 

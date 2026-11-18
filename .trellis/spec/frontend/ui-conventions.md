@@ -372,9 +372,9 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - **结构**：`MonitoringCenterWorkspace` 三段 Tab（告警事件 / 平台 / 告警策略与通知），`tab=platform` 深链生效，旧别名（`rules` / `integrations` / `notifications` / `history`）仍映射到 policies；主体为 `MonitoringPlatformPanel`（`components/common/monitoring/`）。
 - **数据**：快照走 `services.monitoring.getPlatformSnapshotSafe()`（`GET /api/v1/monitoring/platform`），normalizer 兜底 `agents=[]`；30 秒静默轮询，首次加载用等高骨架，刷新用 `TableLoadingBar`，不塌陷。
 - **降级**：`available=false` 时整页换成单张降级卡，按 `reason` 区分「可观测性未启用 / 内嵌 TSDB 未就绪」，并固定提示进程内自监控无法发现 server 宕机、需外部探测 `/api/v1/health`；用户可见文案不出现 Prometheus / TSDB 以外的实现名。
-- **指标卡**：原子键值单元（`whitespace-nowrap` + `tabular-nums`），undefined 一律 `—`；5xx / gRPC 错误 / 压缩失败非零才染 `text-destructive`。
+- **指标卡**：原子键值单元（`whitespace-nowrap` + `tabular-nums`），undefined 一律 `—`；5xx 比例 / 压缩失败非零才染 `text-destructive`。
 - **趋势**：四张轻量趋势卡（RSS / 堆内存 / HTTP QPS / 5xx 比例）用 Arc `LineChart`（`legend=false`、高度约 96），空序列显示占位文案而非塌陷，不手写 recharts。
-- **Agent 表**：主机名 + 地址双行、在线/离线徽标、版本不一致红点徽标由后端 `version_mismatch` 字段驱动（前端不重复比对）；表格横向滚动保护原子列。
+- **Agent 表**：主机名、在线/离线徽标、版本列（`agent.version !== server.version` 时红点徽标，未上报版本不判）；`null` 指标列渲染 `—`；表格横向滚动保护原子列。
 - **动效**：入场用 `gsap.context(panelRef)` + `animateSheetSections` / `animateTableRows`；scope 的 ref 必须挂在所有分支（骨架 / 降级 / 内容）都存在的根容器上，否则 useGSAP 在 loading 分支抛 Invalid scope。
 
 ## 一致性检查项

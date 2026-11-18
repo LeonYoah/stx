@@ -265,8 +265,8 @@ export function MonitoringPlatformPanel() {
           <StatItem
             label={t('platform.dbPool')}
             value={
-              server?.db
-                ? `${server.db.in_use ?? 0}/${server.db.idle ?? 0}/${server.db.max_open_connections ?? 0}`
+              server
+                ? `${formatCompactNumber(server.db_in_use)}/${formatCompactNumber(server.db_open)}`
                 : undefined
             }
             hint={t('platform.dbPoolHint')}
@@ -275,37 +275,26 @@ export function MonitoringPlatformPanel() {
 
         {/* 控制面请求与存储统计 / Control-plane request & storage stats */}
         <div className='grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3 xl:grid-cols-6 border-t border-border/60 pt-2.5'>
-          <StatItem icon={<Cpu className='size-3' />} label={t('platform.httpRequests')} value={server?.http_requests_total} />
+          <StatItem icon={<Cpu className='size-3' />} label={t('platform.httpRps')} value={server ? `${formatCompactNumber(server.http_rps)}/s` : undefined} />
           <StatItem
-            label={t('platform.http5xx')}
-            value={server?.http_5xx_total}
-            tone={(server?.http_5xx_total ?? 0) > 0 ? 'danger' : 'normal'}
+            label={t('platform.http5xxRatio')}
+            value={server ? `${((server.http_5xx_ratio ?? 0) * 100).toFixed(2)}%` : undefined}
+            tone={(server?.http_5xx_ratio ?? 0) > 0 ? 'danger' : 'normal'}
           />
           <StatItem label={t('platform.httpP95')} value={server ? p95Ms(server.http_p95_seconds) : undefined} />
-          <StatItem label={t('platform.grpcRequests')} value={server?.grpc_requests_total} />
+          <StatItem label={t('platform.dbWaitRate')} value={server ? `${formatCompactNumber(server.db_wait_count_rate)}/s` : undefined} />
+          <StatItem icon={<Database className='size-3' />} label={t('platform.tsdbHeadSeries')} value={server?.tsdb?.head_series} />
           <StatItem
-            label={t('platform.grpcErrors')}
-            value={server?.grpc_error_total}
-            tone={(server?.grpc_error_total ?? 0) > 0 ? 'danger' : 'normal'}
+            icon={<HardDrive className='size-3' />}
+            label={t('platform.tsdbBlockBytes')}
+            value={server?.tsdb?.blocks_bytes !== undefined ? formatBytes(server.tsdb.blocks_bytes) : undefined}
           />
-          <StatItem label={t('platform.grpcP95')} value={server ? p95Ms(server.grpc_p95_seconds) : undefined} />
+          <StatItem
+            label={t('platform.tsdbCompactionFailures')}
+            value={server?.tsdb?.compactions_failed}
+            tone={(server?.tsdb?.compactions_failed ?? 0) > 0 ? 'danger' : 'normal'}
+          />
         </div>
-
-        {/* 内嵌 TSDB 状态 / Embedded TSDB status */}
-        {server?.tsdb ? (
-          <div className='grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3 xl:grid-cols-6 border-t border-border/60 pt-2.5'>
-            <StatItem icon={<Database className='size-3' />} label={t('platform.tsdbHeadSeries')} value={server.tsdb.head_series} />
-            <StatItem label={t('platform.tsdbStaleSeries')} value={server.tsdb.stale_series} />
-            <StatItem icon={<HardDrive className='size-3' />} label={t('platform.tsdbHeadBytes')} value={server.tsdb.head_bytes !== undefined ? formatBytes(server.tsdb.head_bytes) : undefined} />
-            <StatItem label={t('platform.tsdbBlockBytes')} value={server.tsdb.block_bytes !== undefined ? formatBytes(server.tsdb.block_bytes) : undefined} />
-            <StatItem
-              label={t('platform.tsdbCompactionFailures')}
-              value={server.tsdb.compaction_failures}
-              tone={server.tsdb.compaction_failures > 0 ? 'danger' : 'normal'}
-            />
-            <StatItem label={t('platform.tsdbRetentionDeletes')} value={server.tsdb.size_retention_deletes} />
-          </div>
-        ) : null}
       </Card>
 
       {/* 轻量趋势（近 1h） / Lightweight trends (last hour) */}
@@ -331,90 +320,95 @@ export function MonitoringPlatformPanel() {
                 <TableHead className='py-1.5 px-3 text-xs'>{t('platform.agentRss')}</TableHead>
                 <TableHead className='py-1.5 px-3 text-xs'>{t('platform.agentCpu')}</TableHead>
                 <TableHead className='py-1.5 px-3 text-xs'>{t('platform.agentGoroutines')}</TableHead>
-                <TableHead className='py-1.5 px-3 text-xs'>{t('platform.agentCommands')}</TableHead>
-                <TableHead className='py-1.5 px-3 text-xs'>{t('platform.agentHeartbeatFailures')}</TableHead>
+                <TableHead className='py-1.5 px-3 text-xs'>{t('platform.agentCmdFailures')}</TableHead>
                 <TableHead className='py-1.5 px-3 text-xs whitespace-nowrap'>{t('platform.agentLastReport')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {agents.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className='py-8 text-center text-xs text-muted-foreground'>
+                  <TableCell colSpan={9} className='py-8 text-center text-xs text-muted-foreground'>
                     {t('platform.noAgents')}
                   </TableCell>
                 </TableRow>
               ) : (
-                agents.map((agent) => (
-                  <TableRow
-                    key={`${agent.host_id ?? 'unknown'}-${agent.hostname ?? ''}`}
-                    className='platform-agent-row-animate h-9'
-                  >
-                    <TableCell className='py-1.5 px-3'>
-                      <div className='flex flex-col'>
-                        <span className='text-xs font-medium truncate max-w-[180px]'>
-                          {agent.hostname || `host-${agent.host_id ?? '?'}`}
+                agents.map((agent) => {
+                  // 版本不一致由前端比对快照自带 server 版本得出（Agent 未上报版本时不判）。
+                  // Version mismatch is derived by comparing the snapshot's server
+                  // version (skipped while the agent reports none).
+                  const mismatch =
+                    Boolean(agent.version) &&
+                    Boolean(server?.version) &&
+                    agent.version !== server?.version;
+                  return (
+                    <TableRow
+                      key={`${agent.host_id ?? 'unknown'}-${agent.host_name ?? ''}`}
+                      className='platform-agent-row-animate h-9'
+                    >
+                      <TableCell className='py-1.5 px-3'>
+                        <span className='text-xs font-medium truncate max-w-[220px] inline-block align-middle'>
+                          {agent.host_name || `host-${agent.host_id ?? '?'}`}
                         </span>
-                        {agent.address ? (
-                          <span className='text-[11px] text-muted-foreground font-mono truncate max-w-[180px]'>
-                            {agent.address}
+                      </TableCell>
+                      <TableCell className='py-1.5 px-3'>
+                        <Badge
+                          variant={agent.online ? 'default' : 'secondary'}
+                          className={cn(
+                            'text-[11px]',
+                            agent.online && 'bg-emerald-600/90 hover:bg-emerald-600/90 text-white dark:bg-emerald-500/80',
+                          )}
+                        >
+                          {agent.online
+                            ? t('platform.online')
+                            : t('platform.offline')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className='py-1.5 px-3 text-xs font-mono whitespace-nowrap'>
+                        <span className='inline-flex items-center gap-1.5'>
+                          {agent.version || '—'}
+                          {mismatch ? (
+                            <Badge variant='destructive' className='text-[10px] px-1 py-0'>
+                              {t('platform.versionMismatch')}
+                            </Badge>
+                          ) : null}
+                        </span>
+                      </TableCell>
+                      <TableCell className='py-1.5 px-3 text-xs whitespace-nowrap'>
+                        {agent.uptime_seconds !== undefined && agent.uptime_seconds !== null
+                          ? formatDurationSeconds(agent.uptime_seconds, durationUnits)
+                          : '—'}
+                      </TableCell>
+                      <TableCell className='py-1.5 px-3 text-xs whitespace-nowrap'>
+                        {agent.rss_bytes !== undefined && agent.rss_bytes !== null
+                          ? formatBytes(agent.rss_bytes)
+                          : '—'}
+                      </TableCell>
+                      <TableCell className='py-1.5 px-3 text-xs whitespace-nowrap'>
+                        {agent.cpu_ratio !== undefined && agent.cpu_ratio !== null
+                          ? `${(agent.cpu_ratio * 100).toFixed(1)}%`
+                          : '—'}
+                      </TableCell>
+                      <TableCell className='py-1.5 px-3 text-xs'>
+                        {agent.goroutines ?? '—'}
+                      </TableCell>
+                      <TableCell className='py-1.5 px-3 text-xs'>
+                        {agent.command_failures_1h !== undefined &&
+                        agent.command_failures_1h !== null ? (
+                          <span className={cn(agent.command_failures_1h > 0 && 'text-destructive font-medium')}>
+                            {formatCompactNumber(agent.command_failures_1h)}
                           </span>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell className='py-1.5 px-3'>
-                      <Badge
-                        variant={agent.online ? 'default' : 'secondary'}
-                        className={cn(
-                          'text-[11px]',
-                          agent.online && 'bg-emerald-600/90 hover:bg-emerald-600/90 text-white dark:bg-emerald-500/80',
+                        ) : (
+                          '—'
                         )}
-                      >
-                        {agent.online
-                          ? t('platform.online')
-                          : t('platform.offline')}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className='py-1.5 px-3 text-xs font-mono whitespace-nowrap'>
-                      <span className='inline-flex items-center gap-1.5'>
-                        {agent.version || '—'}
-                        {agent.version_mismatch ? (
-                          <Badge variant='destructive' className='text-[10px] px-1 py-0'>
-                            {t('platform.versionMismatch')}
-                          </Badge>
-                        ) : null}
-                      </span>
-                    </TableCell>
-                    <TableCell className='py-1.5 px-3 text-xs whitespace-nowrap'>
-                      {agent.uptime_seconds !== undefined
-                        ? formatDurationSeconds(agent.uptime_seconds, durationUnits)
-                        : '—'}
-                    </TableCell>
-                    <TableCell className='py-1.5 px-3 text-xs whitespace-nowrap'>
-                      {agent.rss_bytes !== undefined
-                        ? formatBytes(agent.rss_bytes)
-                        : '—'}
-                    </TableCell>
-                    <TableCell className='py-1.5 px-3 text-xs whitespace-nowrap'>
-                      {agent.cpu_seconds_total !== undefined
-                        ? `${formatCompactNumber(agent.cpu_seconds_total)}s`
-                        : '—'}
-                    </TableCell>
-                    <TableCell className='py-1.5 px-3 text-xs'>
-                      {agent.goroutines ?? '—'}
-                    </TableCell>
-                    <TableCell className='py-1.5 px-3 text-xs'>
-                      {agent.commands_total !== undefined
-                        ? formatCompactNumber(agent.commands_total)
-                        : '—'}
-                    </TableCell>
-                    <TableCell className='py-1.5 px-3 text-xs'>
-                      {agent.heartbeat_failures ?? '—'}
-                    </TableCell>
-                    <TableCell className='py-1.5 px-3 text-[11px] text-muted-foreground whitespace-nowrap'>
-                      {agent.last_metrics_report_at || '—'}
-                    </TableCell>
-                  </TableRow>
-                ))
+                      </TableCell>
+                      <TableCell className='py-1.5 px-3 text-[11px] text-muted-foreground whitespace-nowrap'>
+                        {agent.last_report_at
+                          ? formatDateTimeMinuteTz(agent.last_report_at)
+                          : '—'}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>

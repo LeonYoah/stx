@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>告警与规则 · 原型（Arc 风格）</title>
+<style>
+  :root {
+    --bg: #fafafa; --surface: #ffffff; --fg: #18181b; --fg2: #52525b; --fg3: #8a8a93;
+    --border: #e8e8ea; --border-strong: #dcdce0; --accent: #3b82f6; --accent-soft: #eff5ff;
+    --warn: #b45309; --warn-bg: #fdf6ec; --danger: #b91c1c; --danger-bg: #fdf1f1;
+    --ok: #15803d; --ok-bg: #effaf1; --radius: 10px; --radius-sm: 7px;
+    --shadow: 0 12px 40px rgba(0,0,0,.10), 0 2px 8px rgba(0,0,0,.06);
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 400 13px/1.5 -apple-system, "Inter", "PingFang SC", "Noto Sans SC", sans-serif; background: var(--bg); color: var(--fg); padding: 28px 32px 80px; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 1160px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 500; letter-spacing: -.01em; }
+  .sub { color: var(--fg3); margin-top: 4px; font-size: 13px; }
+  .proto-note { margin-top: 14px; padding: 9px 12px; background: var(--accent-soft); border: 1px solid #d5e5fb; border-radius: var(--radius-sm); color: #1d4ed8; font-size: 12.5px; }
+  .proto-note code { font-family: var(--mono); font-size: 11.5px; }
+  .tabs { display: flex; gap: 2px; margin: 22px 0 20px; border-bottom: 1px solid var(--border); }
+  .tabs button { font: inherit; color: var(--fg3); background: none; border: 0; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button.on { color: var(--fg); border-bottom-color: var(--fg); font-weight: 500; }
+  .panel { display: none; }
+  .panel.on { display: block; }
+
+  /* metric cards */
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .mc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; }
+  .mc .lab { color: var(--fg3); font-size: 12px; }
+  .mc .val { font-size: 24px; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .mc .ctx { color: var(--fg3); font-size: 11.5px; margin-top: 2px; }
+  .mc .val.bad { color: var(--danger); }
+
+  /* toolbar */
+  .toolbar { display: flex; align-items: center; gap: 10px; margin: 18px 0 12px; flex-wrap: wrap; }
+  .seg { display: inline-flex; background: #f1f1f3; border-radius: 8px; padding: 2px; }
+  .seg button { font: inherit; font-size: 12.5px; color: var(--fg2); border: 0; background: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+  .seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 3px rgba(0,0,0,.08); font-weight: 500; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg2); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px 3px 10px; }
+  .chip b { color: var(--fg); font-weight: 500; }
+  .chip .x { color: var(--fg3); cursor: pointer; font-size: 14px; line-height: 1; }
+  .ghost-btn { font: inherit; font-size: 12.5px; color: var(--fg2); background: none; border: 1px dashed var(--border-strong); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+  .search { flex: 1; min-width: 180px; display: flex; align-items: center; gap: 7px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; color: var(--fg3); font-size: 12.5px; }
+  .search input { border: 0; outline: 0; font: inherit; flex: 1; color: var(--fg); background: none; }
+
+  /* table card */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; font-weight: 500; color: var(--fg3); font-size: 11.5px; padding: 9px 14px; border-bottom: 1px solid var(--border); background: #fbfbfc; white-space: nowrap; }
+  th .sort { color: var(--fg3); font-size: 10px; margin-left: 3px; }
+  td { padding: 10px 14px; border-bottom: 1px solid #f1f1f3; vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  .name { font-weight: 500; }
+  .desc { color: var(--fg3); font-size: 11.5px; margin-top: 1px; }
+  .badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 500; padding: 1.5px 8px; border-radius: 999px; white-space: nowrap; }
+  .b-danger { color: var(--danger); background: var(--danger-bg); }
+  .b-warn { color: var(--warn); background: var(--warn-bg); }
+  .b-ok { color: var(--ok); background: var(--ok-bg); }
+  .b-muted { color: var(--fg2); background: #f1f1f3; }
+  .b-accent { color: #1d4ed8; background: var(--accent-soft); }
+  .switch { width: 30px; height: 17px; border-radius: 999px; background: #d4d4d8; position: relative; display: inline-block; vertical-align: middle; cursor: pointer; flex: none; }
+  .switch.on { background: var(--fg); }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; transition: transform .15s; }
+  .switch.on::after { transform: translateX(13px); }
+  .switch.off { background: #e4e4e7; }
+  .switch.off::after { box-shadow: inset 0 0 0 1px #d4d4d8; }
+  .dots { color: var(--fg3); cursor: pointer; font-size: 15px; padding: 0 4px; letter-spacing: 1px; }
+  .link { color: var(--fg); font-weight: 500; cursor: pointer; }
+  .muted { color: var(--fg3); }
+  .pager { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; color: var(--fg3); font-size: 12px; }
+  .pager .pages { display: flex; gap: 2px; }
+  .pager .pages span { padding: 3px 9px; border-radius: 6px; cursor: pointer; }
+  .pager .pages span.on { background: #f1f1f3; color: var(--fg); font-weight: 500; }
+
+  /* alert banner */
+  .alert-line { display: flex; align-items: center; gap: 10px; background: var(--warn-bg); border: 1px solid #f0ddba; color: var(--warn); font-size: 12.5px; border-radius: var(--radius-sm); padding: 9px 12px; margin-bottom: 14px; }
+  .alert-line .go { margin-left: auto; font: inherit; font-weight: 500; color: var(--warn); background: none; border: 1px solid #e4c48a; border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+
+  /* drawer */
+  .scrim { position: fixed; inset: 0; background: rgba(15,15,20,.32); display: none; z-index: 40; }
+  .scrim.on { display: block; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 480px; max-width: 92vw; background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow); z-index: 50; display: none; flex-direction: column; }
+  .drawer.on { display: flex; }
+  .drawer header { padding: 16px 20px 12px; border-bottom: 1px solid var(--border); }
+  .drawer header h2 { font-size: 15px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .drawer header .sub2 { color: var(--fg3); font-size: 12px; margin-top: 3px; }
+  .drawer .body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+  .drawer footer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+  .sec { margin-bottom: 22px; }
+  .sec-t { font-size: 12px; font-weight: 500; color: var(--fg3); margin-bottom: 10px; }
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .field .fl { font-size: 12.5px; }
+  .field .fh { color: var(--fg3); font-size: 11.5px; margin-top: 2px; }
+  .nbox { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .nbox button { border: 0; background: none; width: 24px; height: 26px; cursor: pointer; color: var(--fg3); font-size: 13px; }
+  .nbox span { min-width: 52px; text-align: center; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .sel { border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px; font-size: 12.5px; color: var(--fg); background: var(--surface); min-width: 120px; display: inline-flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .sel i { color: var(--fg3); font-style: normal; font-size: 10px; }
+  .rc { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 8px; cursor: pointer; display: flex; gap: 10px; }
+  .rc .ring { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid #c8c8cf; margin-top: 2px; flex: none; }
+  .rc.on { border-color: var(--fg); }
+  .rc.on .ring { border-color: var(--fg); box-shadow: inset 0 0 0 3.5px var(--surface), inset 0 0 0 9px var(--fg); }
+  .rc .rt { font-weight: 500; font-size: 12.5px; }
+  .rc .rd { color: var(--fg3); font-size: 11.5px; margin-top: 2px; }
+  .rc .extra { padding: 8px 0 2px; border-top: 1px dashed var(--border); margin-top: 8px; }
+  .ms { border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px; display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .ms .tag { font-size: 11.5px; background: #f1f1f3; border-radius: 5px; padding: 2px 7px; color: var(--fg2); }
+  .ms .add { font-size: 11.5px; color: var(--fg3); padding: 2px 4px; }
+  .acc { border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  .acc-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+  .acc-head .cnt { color: var(--fg3); font-weight: 400; }
+  .acc-body { border-top: 1px solid var(--border); padding: 10px 12px; }
+  .ovr { border: 1px solid var(--border); border-radius: 7px; padding: 10px; margin-bottom: 8px; }
+  .ovr .oh { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 500; margin-bottom: 8px; }
+  .ovr .del { color: var(--danger); cursor: pointer; font-weight: 400; }
+  .btn { font: inherit; font-size: 12.5px; font-weight: 500; border-radius: 7px; padding: 7px 14px; cursor: pointer; }
+  .btn-p { background: var(--fg); color: #fff; border: 0; }
+  .btn-s { background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong); }
+  .btn-d { background: none; border: 0; color: var(--danger); padding: 7px 10px; }
+  /* timeline */
+  .tl { position: relative; padding-left: 18px; }
+  .tl::before { content: ""; position: absolute; left: 4px; top: 6px; bottom: 4px; width: 1px; background: var(--border); }
+  .tl .it { position: relative; padding-bottom: 14px; }
+  .tl .it:last-child { padding-bottom: 0; }
+  .tl .dot { position: absolute; left: -18px; top: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); }
+  .tl .dot.d { background: var(--danger); } .tl .dot.o { background: var(--ok); } .tl .dot.w { background: var(--warn); }
+  .tl .ti { font-size: 12.5px; font-weight: 500; }
+  .tl .tm { color: var(--fg3); font-size: 11.5px; margin-top: 1px; }
+  .anno { color: #7c6a3f; font-size: 10.5px; font-family: var(--mono); background: #faf3df; padding: 0 4px; border-radius: 3px; }
+  .kv { display: flex; gap: 6px; font-size: 12px; color: var(--fg2); margin-top: 3px; }
+  .kv b { color: var(--fg); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>告警与规则</h1>
+  <p class="sub">监控集群与作业的异常，并管理告警通知。</p>
+  <p class="proto-note">原型说明：此页为布局草图。标注 <span class="anno">arc/&lt;id&gt;</span> 表示该处对应 Arc 组件 id；数据为示意。可点击顶部 Tab 与右侧各「… / 行 / 编辑」入口查看 Drawer。</p>
+
+  <nav class="tabs">
+    <button class="on" data-p="alerts">告警</button>
+    <button data-p="rules">规则</button>
+    <button data-p="notify">通知</button>
+  </nav>
+
+  <!-- ==================== 告警 ==================== -->
+  <section id="alerts" class="panel on">
+    <div class="metrics">
+      <div class="mc"><div class="lab">触发中 <span class="anno">metric-card</span></div><div class="val bad">4</div><div class="ctx">点击筛选触发中</div></div>
+      <div class="mc"><div class="lab">其中严重 <span class="anno">metric-card</span></div><div class="val bad">1</div><div class="ctx">critical</div></div>
+      <div class="mc"><div class="lab">近 24 小时新增</div><div class="val">6</div><div class="ctx">较昨日 +2</div></div>
+    </div>
+
+    <div class="toolbar">
+      <div class="seg">
+        <button class="on">全部</button><button>集群级</button><button>作业级</button>
+        <span class="anno" style="align-self:center;margin-left:6px">segmented-control</span>
+      </div>
+      <div class="chip">状态 <b>触发中</b><span class="x">×</span></div>
+      <div class="chip">级别 <b>严重</b><span class="x">×</span></div>
+      <div class="chip">集群 <b>prod-01</b><span class="x">×</span></div>
+      <button class="ghost-btn">+ 筛选 <span class="anno">filter-toolbar</span></button>
+      <div class="search">⌕<input placeholder="搜索告警…" /><span class="anno">search-field</span></div>
+    </div>
+
+    <div class="card">
+      <table>
+        <thead><tr>
+          <th>告警 <span class="sort">↕</span></th><th>级别</th><th>范围</th><th>对象</th><th>状态</th><th>触发时间 <span class="sort">↓</span></th><th></th>
+        </tr></thead>
+        <tbody>
+          <tr class="open-drawer"><td><div class="name link">节点离线</div><div class="desc">prod-01 · worker-2</div></td><td><span class="badge b-danger">严重</span></td><td><span class="badge b-muted">集群级</span></td><td class="muted">prod-01</td><td><span class="badge b-danger">触发中</span></td><td class="muted">11-18 18:02</td><td><span class="dots">···</span> <span class="anno">dropdown-menu</span></td></tr>
+          <tr><td><div class="name link">Agent 离线</div><div class="desc">prod-01 · host-2</div></td><td><span class="badge b-warn">警告</span></td><td><span class="badge b-muted">集群级</span></td><td class="muted">prod-01</td><td><span class="badge b-danger">触发中</span></td><td class="muted">11-18 18:03</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">作业长时间运行</div><div class="desc">同步任务 orders_etl</div></td><td><span class="badge b-warn">警告</span></td><td><span class="badge b-muted">作业级</span></td><td class="muted">prod-01</td><td><span class="badge b-danger">触发中</span></td><td class="muted">11-18 17:41</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">CDC 延迟过高</div><div class="desc">同步任务 cdc_orders</div></td><td><span class="badge b-warn">警告</span></td><td><span class="badge b-muted">作业级</span></td><td class="muted">prod-01</td><td><span class="badge b-muted">已确认</span></td><td class="muted">11-18 16:55</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">JVM 堆内存高</div><div class="desc">prod-02 · master-1</div></td><td><span class="badge b-warn">警告</span></td><td><span class="badge b-muted">集群级</span></td><td class="muted">prod-02</td><td><span class="badge b-ok">已恢复</span></td><td class="muted">11-18 15:20</td><td><span class="dots">···</span></td></tr>
+        </tbody>
+      </table>
+      <div class="pager"><span>共 36 条 <span class="anno">sortable-data-table + pagination</span></span><span class="pages"><span class="on">1</span><span>2</span><span>3</span><span>…</span><span>8</span></span></div>
+    </div>
+  </section>
+
+  <!-- ==================== 规则 ==================== -->
+  <section id="rules" class="panel">
+    <div class="alert-line">尚未配置默认通知。默认开启的规则触发后只会进入告警中心，不会发送通知。
+      <button class="go">去配置</button><span class="anno">alert</span>
+    </div>
+    <div class="toolbar">
+      <div class="seg"><button class="on">集群级</button><button>作业级</button><span class="anno" style="align-self:center;margin-left:6px">segmented-control</span></div>
+      <div class="seg" style="margin-left:auto"><button class="on">全部</button><button>已开启</button><button>已关闭</button><button>有例外</button><span class="anno" style="align-self:center;margin-left:6px">chip-group</span></div>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>规则</th><th>级别</th><th>启用</th><th>阈值 / 持续</th><th>通知</th><th>例外</th><th></th></tr></thead>
+        <tbody>
+          <tr class="open-rule"><td><div class="name link">节点离线</div><div class="desc">up=0 / node_state=0 / 进程停止或缺失，任一持续 2 分钟</div></td><td><span class="badge b-danger">严重</span></td><td><span class="switch on"></span> <span class="anno">switch</span></td><td class="muted">— / 2 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">1</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">Master 不可用</div><div class="desc">集群内无健康 master 持续 1 分钟</div></td><td><span class="badge b-danger">严重</span></td><td><span class="switch on"></span></td><td class="muted">— / 1 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">可用 Worker 不足</div><div class="desc">健康 worker 数低于阈值持续 2 分钟</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch on"></span></td><td class="muted">低于部署数 / 2 分钟</td><td><span class="badge b-muted">自定义</span></td><td class="muted">2</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">JVM 堆内存高</div><div class="desc">堆使用率持续超过阈值</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch on"></span></td><td class="muted">&gt; 85% / 10 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">FD 使用率高</div><div class="desc">文件描述符使用率持续超过阈值</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch on"></span></td><td class="muted">&gt; 80% / 10 分钟</td><td><span class="badge b-muted">仅告警中心</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">CPU 高</div><div class="desc">进程 CPU 使用率持续超过阈值（默认关）</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch off"></span></td><td class="muted">&gt; 80% / 10 分钟</td><td><span class="badge b-muted">—</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">分区不安全</div><div class="desc">Hazelcast 分区安全丢失持续 2 分钟</div></td><td><span class="badge b-danger">严重</span></td><td><span class="switch on"></span></td><td class="muted">— / 2 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">进程崩溃</div><div class="desc">受管进程反复崩溃</div></td><td><span class="badge b-danger">严重</span></td><td><span class="switch on"></span></td><td class="muted">— / 即时</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
+          <tr><td colspan="7" class="muted" style="text-align:center;color:#b0b0b6">… 其余 13 条（死锁、任务拒绝、状态获取失败、事件通道降级、操作通知等）</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:14px">作业级面板（切换上方 segmented-control 后）：任务列表，列 = 任务名 / 已选规则 / 通知 / 启用；行内点击打开编辑 Drawer（复用 TaskAlertForm，内部控件换 Arc）。</p>
+  </section>
+
+  <!-- ==================== 通知 ==================== -->
+  <section id="notify" class="panel">
+    <div class="sec" style="max-width:520px">
+      <div class="card" style="padding:16px">
+        <div class="name" style="margin-bottom:12px">默认通知 <span class="anno">card</span></div>
+        <div class="field"><div><div class="fl">通知渠道</div><div class="fh">默认开启且未自定义通知的规则，发往这里</div></div></div>
+        <div class="ms"><span class="tag">运维值班群（企微）</span><span class="tag">值班邮箱</span><span class="add">+ 添加</span> <span class="anno">multi-select</span></div>
+        <div class="field" style="margin-top:10px"><div><div class="fl">告警接收人</div><div class="fh">邮件渠道生效时需要</div></div></div>
+        <div class="ms"><span class="tag">张三</span><span class="tag">李四</span><span class="add">+ 添加</span></div>
+        <div class="field" style="margin-top:12px"><div><div class="fl">冷却时间</div><div class="fh">持续未恢复时按此间隔重发提醒</div></div><div class="nbox"><button>−</button><span>10 分钟</span><button>+</button></div><span class="anno">number-field</span></div>
+        <div class="field"><div><div class="fl">恢复通知</div><div class="fh">告警恢复时发送一条恢复消息</div></div><span class="switch on"></span></div>
+        <div style="margin-top:10px"><button class="btn btn-p">保存</button> <span class="anno">button（按钮内 loading → 已保存）</span></div>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sec-t" style="display:flex;justify-content:space-between;align-items:center">通知渠道<button class="btn btn-s">新建渠道 <span class="anno">drawer 表单</span></button></div>
+      <div class="card">
+        <table>
+          <thead><tr><th>名称</th><th>类型</th><th>状态</th><th>最近投递</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><div class="name link">运维值班群</div><div class="desc">wecom · webhook</div></td><td><span class="badge b-muted">企微</span></td><td><span class="badge b-ok">启用</span></td><td class="muted">今天 18:02 成功</td><td><span class="dots">···</span></td></tr>
+            <tr><td><div class="name link">值班邮箱</div><div class="desc">email · smtp</div></td><td><span class="badge b-muted">邮件</span></td><td><span class="badge b-ok">启用</span></td><td class="muted">今天 17:41 成功</td><td><span class="dots">···</span></td></tr>
+            <tr><td><div class="name link">飞书机器人</div><div class="desc">feishu · webhook</div></td><td><span class="badge b-muted">飞书</span></td><td><span class="badge b-muted">停用</span></td><td class="muted">昨天 失败（待补发）</td><td><span class="dots">···</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="sub" style="margin-top:10px">渠道详情 Drawer 底部展示该渠道最近投递记录（合并原“投递记录”列表）。</p>
+    </div>
+  </section>
+</div>
+
+<!-- ==================== Drawer：告警详情 ==================== -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer">
+  <header>
+    <h2>节点离线 <span class="badge b-danger">严重</span> <span class="badge b-danger">触发中</span></h2>
+    <div class="sub2">prod-01 · worker-2 · 11-18 18:02 触发</div>
+  </header>
+  <div class="body">
+    <div class="sec">
+      <div class="sec-t">命中规则 <span class="anno">drawer</span></div>
+      <div class="kv">规则：<b>节点离线</b>（集群例外 · prod-01）</div>
+      <div class="kv">生效阈值：<b>—</b>　持续时间：<b>2 分钟</b>　通知：<b>默认通知</b></div>
+      <div class="kv">原因：<b>node_state=0</b>，进程缺失</div>
+    </div>
+    <div class="sec">
+      <div class="sec-t">进展 <span class="anno">timeline</span></div>
+      <div class="tl">
+        <div class="it"><span class="dot d"></span><div class="ti">触发</div><div class="tm">18:02 · worker-2 节点不可见持续 2 分钟</div></div>
+        <div class="it"><span class="dot w"></span><div class="ti">已通知</div><div class="tm">18:02 · 运维值班群（企微）、值班邮箱</div></div>
+        <div class="it"><span class="dot"></span><div class="ti">已确认</div><div class="tm">18:10 · 张三 · “机器在重启”</div></div>
+        <div class="it"><span class="dot o"></span><div class="ti">已恢复</div><div class="tm">18:14 · 心跳恢复，告警自动恢复并通知</div></div>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sec-t">投递记录</div>
+      <div class="card"><table><tbody>
+        <tr><td class="muted">18:02</td><td>运维值班群</td><td><span class="badge b-ok">成功</span></td></tr>
+        <tr><td class="muted">18:02</td><td>值班邮箱</td><td><span class="badge b-danger">失败 · 已重试 2 次</span></td></tr>
+        <tr><td class="muted">18:14</td><td>运维值班群</td><td><span class="badge b-ok">成功（恢复）</span></td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="sec">
+      <div class="sec-t">排障上下文</div>
+      <p class="muted" style="font-size:12px">保留现有：相关作业、节点状态快照、相似历史告警（迁移现有组件，样式对齐）。</p>
+    </div>
+  </div>
+  <footer>
+    <button class="btn btn-s">静默 30 分钟</button>
+    <button class="btn btn-s">关闭</button>
+    <span style="flex:1"></span><button class="btn btn-p">打开集群</button>
+  </footer>
+</aside>
+
+<!-- ==================== Drawer：规则编辑 ==================== -->
+<aside class="drawer" id="rule-drawer">
+  <header>
+    <h2>可用 Worker 不足 <span class="badge b-warn">警告</span></h2>
+    <div class="sub2">集群级规则 · 健康 worker 数低于阈值持续一段时间后触发</div>
+  </header>
+  <div class="body">
+    <div class="sec">
+      <div class="field"><div><div class="fl">启用</div><div class="fh">关闭后不再判定，触发中的阶段标记为已恢复</div></div><span class="switch on"></span></div>
+      <div class="field"><div><div class="fl">阈值</div><div class="fh">留空 = 低于部署的 worker 数（当前 4）</div></div><div class="nbox"><button>−</button><span>4 台</span><button>+</button></div><span class="anno">number-field</span></div>
+      <div class="field"><div><div class="fl">持续时间</div><div class="fh">连续满足满该时长才触发</div></div><div class="sel">2 分钟 <i>▾</i></div><span class="anno">select</span></div>
+    </div>
+    <div class="sec">
+      <div class="sec-t">通知 <span class="anno">radio-cards</span></div>
+      <div class="rc"><span class="ring"></span><div><div class="rt">沿用默认通知</div><div class="rd">运维值班群（企微）、值班邮箱 · 接收人 张三、李四 · 冷却 10 分钟</div></div></div>
+      <div class="rc on"><span class="ring"></span><div style="flex:1"><div class="rt">自定义</div>
+        <div class="extra"><div class="fl" style="font-size:12px">渠道</div>
+          <div class="ms"><span class="tag">飞书机器人</span><span class="add">+ 添加</span> <span class="anno">multi-select</span></div>
+          <div class="fl" style="font-size:12px;margin-top:8px">接收人</div>
+          <div class="ms"><span class="tag">王五</span><span class="add">+ 添加</span></div>
+        </div></div></div>
+      <div class="rc"><span class="ring"></span><div><div class="rt">仅告警中心</div><div class="rd">不发送通知</div></div></div>
+    </div>
+    <div class="sec">
+      <div class="sec-t">集群例外 <span class="anno">accordion</span></div>
+      <div class="acc">
+        <div class="acc-head"><span>例外集群</span><span class="cnt">2 个 ▾</span></div>
+        <div class="acc-body">
+          <div class="ovr"><div class="oh"><span>test-02</span><span class="del">删除例外 <span class="anno">confirm-morph</span></span></div>
+            <div class="field"><div class="fl">启用</div><span class="switch off"></span></div>
+            <div class="field"><div class="fl">阈值</div><div class="muted" style="font-size:12px">继承全局</div></div>
+            <div class="field"><div class="fl">通知</div><div class="muted" style="font-size:12px">继承全局</div></div>
+          </div>
+          <div class="ovr"><div class="oh"><span>staging</span><span class="del">删除例外</span></div>
+            <div class="field"><div class="fl">启用</div><span class="switch on"></span></div>
+            <div class="field"><div class="fl">阈值</div><div class="sel" style="min-width:90px">3 台 <i>▾</i></div></div>
+            <div class="field"><div class="fl">通知</div><div class="muted" style="font-size:12px">仅告警中心</div></div>
+          </div>
+          <button class="ghost-btn">+ 添加集群例外 <span class="anno">combobox 选集群</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <footer>
+    <button class="btn btn-p">保存</button>
+    <button class="btn btn-d">恢复默认 <span class="anno">confirm-morph</span></button>
+  </footer>
+</aside>
+
+<script>
+  const tabs = document.querySelectorAll('.tabs button');
+  tabs.forEach(b => b.onclick = () => {
+    tabs.forEach(x => x.classList.toggle('on', x === b));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === b.dataset.p));
+  });
+  const scrim = document.getElementById('scrim');
+  const drawers = [document.getElementById('drawer'), document.getElementById('rule-drawer')];
+  const closeAll = () => { scrim.classList.remove('on'); drawers.forEach(d => d.classList.remove('on')); };
+  scrim.onclick = closeAll;
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
+  document.querySelectorAll('.open-drawer').forEach(el => el.onclick = () => { scrim.classList.add('on'); document.getElementById('drawer').classList.add('on'); });
+  document.querySelectorAll('.open-rule').forEach(el => el.onclick = () => { scrim.classList.add('on'); document.getElementById('rule-drawer').classList.add('on'); });
+  document.querySelectorAll('.rc').forEach(el => el.onclick = () => {
+    el.parentElement.querySelectorAll('.rc').forEach(x => x.classList.toggle('on', x === el));
+  });
+  document.querySelectorAll('.switch').forEach(el => el.onclick = e => { e.stopPropagation(); el.classList.toggle('on'); el.classList.toggle('off'); });
+  document.querySelectorAll('.acc-head').forEach(el => el.onclick = () => {
+    const b = el.nextElementSibling; b.style.display = b.style.display === 'none' ? '' : 'none';
+  });
+  document.querySelectorAll('.dots').forEach(el => el.onclick = e => e.stopPropagation());
+</script>
+</body>
+</html>

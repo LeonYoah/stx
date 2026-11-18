@@ -604,7 +604,7 @@
         "serverTitle": "STX Server",
         "uptime": "已运行 {d}",
         "agentsOnline": "{count} 个 Agent 在线",
-        "goroutines": "{count} 个 Goroutine",
+        "goroutines": "{count} 个协程",
         "seriesRss": "RSS",
         "seriesHeap": "堆内存",
         "panels": {
@@ -639,7 +639,7 @@
           "uptime": "运行时长",
           "rss": "RSS",
           "cpu": "CPU",
-          "goroutines": "Goroutines",
+          "goroutines": "协程",
           "cmdFailures": "失败指令(1h)",
           "lastReport": "最近上报",
           "empty": "暂无已注册 Agent",

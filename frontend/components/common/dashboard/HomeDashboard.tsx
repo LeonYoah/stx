@@ -48,6 +48,7 @@ import {DashboardKpiRow} from './DashboardKpiRow';
 import {HostsTab} from './HostsTab';
 import {JobListTab} from './JobListTab';
 import {JobsTab} from './JobsTab';
+import {PlatformTab} from './PlatformTab';
 import {jobWorkbenchHref} from '@/components/common/sync/job-table';
 import {
   HOME_RANGES,
@@ -301,6 +302,7 @@ export function HomeDashboard() {
           <TabsTrigger value='cluster'>{t('tabs.cluster')}</TabsTrigger>
           <TabsTrigger value='jobs'>{t('tabs.jobs')}</TabsTrigger>
           <TabsTrigger value='hosts'>{t('tabs.hosts')}</TabsTrigger>
+          <TabsTrigger value='platform'>{t('tabs.platform')}</TabsTrigger>
           <TabsTrigger value='list'>{t('tabs.list')}</TabsTrigger>
         </TabsList>
         <TabsContent value='cluster'>
@@ -311,6 +313,9 @@ export function HomeDashboard() {
         </TabsContent>
         <TabsContent value='hosts'>
           <HostsTab query={query} />
+        </TabsContent>
+        <TabsContent value='platform'>
+          <PlatformTab />
         </TabsContent>
         <TabsContent value='list'>
           <JobListTab

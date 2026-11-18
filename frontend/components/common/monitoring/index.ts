@@ -21,6 +21,5 @@
  */
 
 export {MonitoringAlertsCenter} from './MonitoringAlertsCenter';
-export {MonitoringPlatformPanel} from './MonitoringPlatformPanel';
 export {MonitoringPolicyCenter} from './MonitoringPolicyCenter';
 export {MonitoringCenterWorkspace} from './MonitoringCenterWorkspace';

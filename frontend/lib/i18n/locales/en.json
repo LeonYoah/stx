@@ -199,7 +199,8 @@
         "cluster": "Clusters",
         "jobs": "Jobs",
         "list": "Job list",
-        "hosts": "Hosts"
+        "hosts": "Hosts",
+        "platform": "Platform"
       },
       "kpi": {
         "running": "Running jobs",
@@ -592,6 +593,68 @@
         "fsInodes": "inodes",
         "refCores": "cores",
         "uptime": "up {d}"
+      },
+      "platformTab": {
+        "loadError": "Failed to load platform monitoring data",
+        "refreshing": "Refreshing…",
+        "emptyPanel": "No data",
+        "legendClear": "Clear",
+        "legendAll": "All",
+        "time": "Time",
+        "serverTitle": "STX Server",
+        "uptime": "up {d}",
+        "agentsOnline": "{count} agents online",
+        "goroutines": "{count} goroutines",
+        "seriesRss": "RSS",
+        "seriesHeap": "Heap",
+        "panels": {
+          "memory": "Memory",
+          "memoryUnit": "bytes",
+          "httpQps": "HTTP QPS",
+          "qpsUnit": "req/s",
+          "http5xx": "HTTP 5xx ratio",
+          "ratioUnit": "%",
+          "control": "Control plane",
+          "storage": "Embedded storage"
+        },
+        "rows": {
+          "httpP95": "HTTP P95",
+          "dbPool": "DB pool",
+          "dbPoolHint": "in use / open",
+          "dbWait": "Connection waits",
+          "headSeries": "Head series",
+          "blocks": "Block size",
+          "compactions": "Compactions failed"
+        },
+        "signals": {
+          "ok": "OK",
+          "bad": "Alerting"
+        },
+        "agents": {
+          "title": "Agent processes",
+          "count": "{count}",
+          "host": "Host",
+          "status": "Status",
+          "version": "Version",
+          "uptime": "Uptime",
+          "rss": "RSS",
+          "cpu": "CPU",
+          "goroutines": "Goroutines",
+          "cmdFailures": "Failed cmds (1h)",
+          "lastReport": "Last report",
+          "empty": "No registered agents",
+          "online": "Online",
+          "offline": "Offline",
+          "versionMismatch": "Version mismatch"
+        },
+        "noPromDesc": "Built-in monitoring is off, so platform self-monitoring is unavailable. It can be enabled in the server config.",
+        "noPromUnavailableDesc": "Monitoring data is temporarily unavailable (storage not ready or a query failed) and will retry automatically.",
+        "externalProbeNote": "In-process self-monitoring cannot detect an STX Server crash. Probe /api/v1/health externally on a schedule.",
+        "units": {
+          "d": "d",
+          "h": "h",
+          "m": "m"
+        }
       }
     }
   },
@@ -3501,8 +3564,7 @@
       "policies": "Alert policies & notifications",
       "rules": "Detection rules",
       "integrations": "Notification Channels",
-      "history": "Delivery History",
-      "platform": "Platform"
+      "history": "Delivery History"
     },
     "loading": "Loading...",
     "degradedClusters": "Degraded Clusters",
@@ -3912,52 +3974,6 @@
           "exhausted": "Retries exhausted"
         }
       }
-    },
-    "platform": {
-      "loadError": "Failed to load platform monitoring data",
-      "serverTitle": "STX Server",
-      "uptime": "Uptime",
-      "rss": "RSS",
-      "heap": "Heap",
-      "goroutines": "Goroutines",
-      "agentsConnected": "Connected Agents",
-      "dbPool": "DB pool",
-      "dbPoolHint": "in use / open",
-      "httpP95": "HTTP P95",
-      "tsdbHeadSeries": "Head series",
-      "tsdbBlockBytes": "Block size",
-      "tsdbCompactionFailures": "Compaction failures",
-      "trendRss": "RSS trend",
-      "trendHeap": "Heap trend",
-      "trendHttpRps": "HTTP QPS",
-      "trendHttp5xx": "HTTP 5xx ratio",
-      "trendEmpty": "No trend data yet",
-      "agentsTitle": "Agent processes",
-      "agentHostname": "Host",
-      "agentStatus": "Status",
-      "agentVersion": "Version",
-      "agentUptime": "Uptime",
-      "agentRss": "RSS",
-      "agentCpu": "CPU",
-      "agentGoroutines": "Goroutines",
-      "agentLastReport": "Last report",
-      "noAgents": "No registered agents",
-      "online": "Online",
-      "offline": "Offline",
-      "versionMismatch": "Version mismatch",
-      "unavailableDisabled": "Observability is disabled; platform self-monitoring is unavailable",
-      "unavailableNotReady": "Embedded TSDB is not ready; platform self-monitoring is temporarily unavailable",
-      "externalProbeNote": "In-process self-monitoring cannot detect an STX Server crash itself; probe /api/v1/health externally on a schedule.",
-      "units": {
-        "d": "d",
-        "h": "h",
-        "m": "m"
-      },
-      "trendTime": "Time",
-      "httpRps": "HTTP QPS",
-      "http5xxRatio": "HTTP 5xx ratio",
-      "dbWaitRate": "Pool waits",
-      "agentCmdFailures": "Failed cmds (1h)"
     }
   },
   "discovery": {

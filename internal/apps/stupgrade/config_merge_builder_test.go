@@ -165,7 +165,7 @@ func TestSupplementConfigMergeInputs_addsSeatunnelEnvWhenPackageHasIt(t *testing
 		LocalContent: "seatunnel: local",
 	}}
 	targetContents := map[string]string{
-		"config/seatunnel.yaml":  "seatunnel: target",
+		"config/seatunnel.yaml":   "seatunnel: target",
 		"config/seatunnel-env.sh": "export JAVA_OPTS=1\n",
 	}
 
@@ -195,6 +195,78 @@ func TestSupplementConfigMergeInputs_skipsMissingModeConfigs(t *testing.T) {
 	})
 	if len(got) != 1 {
 		t.Fatalf("expected no extra mode configs when package/source lack them, got %d", len(got))
+	}
+}
+
+func newMergePlanWithConflict(t *testing.T) ConfigMergePlan {
+	t.Helper()
+	file := buildConfigMergeFile(configMergeInput{
+		ConfigType:   string(appconfig.ConfigTypeSeatunnel),
+		TargetPath:   "config/seatunnel.yaml",
+		BaseContent:  "parallelism: 1\njob.mode: batch",
+		LocalContent: "parallelism: 4\njob.mode: batch",
+	}, "parallelism: 2\njob.mode: batch")
+	if file.ConflictCount != 1 {
+		t.Fatalf("fixture expected 1 conflict, got %d", file.ConflictCount)
+	}
+	return ConfigMergePlan{
+		Ready:         false,
+		HasConflicts:  true,
+		ConflictCount: file.ConflictCount,
+		Files:         []ConfigMergeFile{file},
+	}
+}
+
+func TestApplyMergeStrategy_keepLocalResolvesMarkersAndPlan(t *testing.T) {
+	plan := newMergePlanWithConflict(t)
+	if err := ApplyMergeStrategy(&plan, MergeStrategyKeepLocal); err != nil {
+		t.Fatalf("apply keep-local failed: %v", err)
+	}
+	if !plan.Ready || plan.HasConflicts || plan.ConflictCount != 0 {
+		t.Fatalf("expected ready plan after resolution, got %+v", plan)
+	}
+	file := plan.Files[0]
+	if !file.Resolved || file.ConflictCount != 0 {
+		t.Fatalf("expected resolved file, got %+v", file)
+	}
+	if file.Conflicts[0].Status != ConfigConflictResolved || file.Conflicts[0].ResolvedValue != file.Conflicts[0].LocalValue {
+		t.Fatalf("expected conflict resolved to local value, got %+v", file.Conflicts[0])
+	}
+	if !strings.Contains(file.MergedContent, "parallelism: 4") {
+		t.Fatalf("expected merged content to keep local value, got %q", file.MergedContent)
+	}
+	if strings.Contains(file.MergedContent, "<<<<<<<") || strings.Contains(file.MergedContent, ">>>>>>>") {
+		t.Fatalf("expected no marker residue, got %q", file.MergedContent)
+	}
+}
+
+func TestApplyMergeStrategy_useTargetResolvesMarkersAndPlan(t *testing.T) {
+	plan := newMergePlanWithConflict(t)
+	if err := ApplyMergeStrategy(&plan, MergeStrategyUseTarget); err != nil {
+		t.Fatalf("apply use-target failed: %v", err)
+	}
+	if !plan.Ready {
+		t.Fatalf("expected ready plan after resolution, got %+v", plan)
+	}
+	file := plan.Files[0]
+	if file.Conflicts[0].ResolvedValue != file.Conflicts[0].TargetValue {
+		t.Fatalf("expected conflict resolved to target value, got %+v", file.Conflicts[0])
+	}
+	if !strings.Contains(file.MergedContent, "parallelism: 2") {
+		t.Fatalf("expected merged content to take target value, got %q", file.MergedContent)
+	}
+}
+
+func TestApplyMergeStrategy_rejectsInvalidStrategy(t *testing.T) {
+	plan := newMergePlanWithConflict(t)
+	if err := ApplyMergeStrategy(&plan, "whatever"); err == nil {
+		t.Fatal("expected invalid strategy to fail")
+	}
+	if _, err := ParseMergeStrategy("whatever"); err == nil {
+		t.Fatal("expected ParseMergeStrategy to reject invalid value")
+	}
+	if _, err := ParseMergeStrategy("keep-local"); err != nil {
+		t.Fatalf("expected keep-local to parse, got %v", err)
 	}
 }
 

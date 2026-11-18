@@ -18,6 +18,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -29,6 +30,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
+
+// idempotencyContextKey 在命令上下文中传递本次写操作实际使用的幂等键，
+// 供确认事件构造可复用的重试提示。
+// idempotencyContextKey carries the idempotency key actually used by this write
+// through the command context so confirmation events can build a reusable retry hint.
+type idempotencyContextKey struct{}
 
 // secureWriteOptions 保存写命令共用的命名空间、确认和幂等参数。
 // secureWriteOptions stores namespace, confirmation, and idempotency options shared by write commands.
@@ -58,6 +65,7 @@ func handleSecureWriteError(command *cobra.Command, operationID string, err erro
 	if decodeErr := json.Unmarshal(apiErr.Data, &data); decodeErr != nil || strings.TrimSpace(data.ConfirmationID) == "" {
 		return err
 	}
+	idempotencyKey, _ := command.Context().Value(idempotencyContextKey{}).(string)
 	_ = stderrEventWriter(command).Emit(clioutput.Event{
 		Event:          "confirmation_required",
 		OperationID:    operationID,
@@ -65,10 +73,44 @@ func handleSecureWriteError(command *cobra.Command, operationID string, err erro
 		Level:          "warning",
 		Message:        data.Impact,
 		ConfirmationID: data.ConfirmationID,
+		IdempotencyKey: idempotencyKey,
+		NextCommand:    confirmationRetryCommand(command, idempotencyKey, data.ConfirmationID),
 		RiskLevel:      data.RiskLevel,
 		ExpiresAt:      data.ExpiresAt,
 	})
 	return err
+}
+
+// confirmationRetryCommand 生成复用同一幂等键与确认编号的重试命令提示。
+// confirmationRetryCommand builds the retry command that reuses the same
+// idempotency key and the issued confirmation ID.
+func confirmationRetryCommand(command *cobra.Command, idempotencyKey, confirmationID string) string {
+	if strings.TrimSpace(idempotencyKey) == "" || strings.TrimSpace(confirmationID) == "" {
+		return ""
+	}
+	parts := []string{command.CommandPath()}
+	if args := command.Flags().Args(); len(args) > 0 {
+		parts = append(parts, args...)
+	}
+	parts = append(parts, "--confirm", "--idempotency-key", idempotencyKey, "--confirmation-id", confirmationID)
+	return strings.Join(parts, " ")
+}
+
+// renderAPIErrorData 把错误响应中的 data 载荷按正常结果格式写到 stdout，
+// 方便脚本和人类看到服务端返回的结构化失败详情（如预检查 issues）。
+// renderAPIErrorData renders the error response's data payload to stdout in the
+// normal result envelope so structured failure details (e.g. precheck issues)
+// stay visible to scripts and humans.
+func renderAPIErrorData(command *cobra.Command, operationID string, err error) {
+	var apiErr *cliClient.APIError
+	if !errors.As(err, &apiErr) || len(apiErr.Data) == 0 || string(apiErr.Data) == "null" {
+		return
+	}
+	var data any
+	if decodeErr := json.Unmarshal(apiErr.Data, &data); decodeErr != nil {
+		return
+	}
+	_ = renderWriteResult(command, operationID, apiErr.RequestID, data, "")
 }
 
 // addSecureWriteFlags 为写命令增加统一的安全参数。
@@ -110,12 +152,21 @@ func prepareSecureWrite(command *cobra.Command, storeProvider authStoreProvider,
 	if err := checkSpecialOperation(command, client, operationID); err != nil {
 		return nil, nil, err
 	}
+	// 服务端把确认记录绑定到幂等键与请求哈希；带确认编号却不复用同一幂等键必然失败，
+	// 因此在本地提前报错，避免一次注定返回 ErrConfirmationInvalid 的请求。
+	// The server binds confirmations to the idempotency key and request hash; supplying
+	// a confirmation ID without reusing the same key always fails, so fail fast locally
+	// instead of sending a request that can only return ErrConfirmationInvalid.
+	if strings.TrimSpace(options.confirmationID) != "" && strings.TrimSpace(options.idempotencyKey) == "" {
+		return nil, nil, clioutput.NewError(clioutput.CodeUsage, "--confirmation-id requires --idempotency-key (reuse the key emitted with confirmation_required) / 使用 --confirmation-id 时必须同时复用上次的 --idempotency-key", clioutput.ExitUsage, false)
+	}
 	if strings.TrimSpace(options.idempotencyKey) == "" {
 		options.idempotencyKey = uuid.NewString()
 		_ = stderrEventWriter(command).Emit(clioutput.Event{
 			Event: "idempotency_key", OperationID: operationID, Level: "info", Message: options.idempotencyKey,
 		})
 	}
+	command.SetContext(context.WithValue(command.Context(), idempotencyContextKey{}, options.idempotencyKey))
 	_ = stderrEventWriter(command).Emit(clioutput.Event{
 		Event: "warning", OperationID: operationID, Level: "warning", Message: impact,
 	})

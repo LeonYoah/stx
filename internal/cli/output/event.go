@@ -27,19 +27,25 @@ import (
 // Event 表示写入 stderr 的单行 JSON 事件。
 // Event represents one JSON event written to stderr.
 type Event struct {
-	Event          string   `json:"event"`
-	Code           string   `json:"code,omitempty"`
-	Message        string   `json:"message,omitempty"`
-	Retryable      *bool    `json:"retryable,omitempty"`
-	RequestID      string   `json:"request_id,omitempty"`
-	OperationID    string   `json:"operation_id,omitempty"`
-	ExecutionID    string   `json:"execution_id,omitempty"`
-	ConfirmationID string   `json:"confirmation_id,omitempty"`
-	RiskLevel      string   `json:"risk_level,omitempty"`
-	ExpiresAt      string   `json:"expires_at,omitempty"`
-	Level          string   `json:"level,omitempty"`
-	Progress       *int     `json:"progress,omitempty"`
-	MissingFields  []string `json:"missing_fields,omitempty"`
+	Event          string `json:"event"`
+	Code           string `json:"code,omitempty"`
+	Message        string `json:"message,omitempty"`
+	Retryable      *bool  `json:"retryable,omitempty"`
+	RequestID      string `json:"request_id,omitempty"`
+	OperationID    string `json:"operation_id,omitempty"`
+	ExecutionID    string `json:"execution_id,omitempty"`
+	ConfirmationID string `json:"confirmation_id,omitempty"`
+	// IdempotencyKey 回带本次请求使用的幂等键，二次确认重试必须复用它。
+	// IdempotencyKey echoes the idempotency key the request used; the confirmation retry must reuse it.
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	// NextCommand 为可直接复用的下一条命令提示（如二次确认重试命令）。
+	// NextCommand is a ready-to-run follow-up command hint (e.g. the confirmation retry).
+	NextCommand   string   `json:"next_command,omitempty"`
+	RiskLevel     string   `json:"risk_level,omitempty"`
+	ExpiresAt     string   `json:"expires_at,omitempty"`
+	Level         string   `json:"level,omitempty"`
+	Progress      *int     `json:"progress,omitempty"`
+	MissingFields []string `json:"missing_fields,omitempty"`
 	// JobID 关联 sync 作业实例，供 --wait 进度/日志事件使用。
 	// JobID links a sync job instance for --wait progress/log events.
 	JobID uint `json:"job_id,omitempty"`

@@ -26,6 +26,7 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"math/rand"
 	"time"
 
 	"github.com/prometheus/prometheus/model/labels"
@@ -38,6 +39,8 @@ func main() {
 	dir := flag.String("dir", "data/tsdb", "tsdb data dir")
 	days := flag.Int("days", 200, "days of history to seed")
 	infraDays := flag.Int("infra-days", 0, "days of host/engine series to seed (0 = none)")
+	churnDays := flag.Int("churn-days", 0, "days of short-lived job churn to seed (0 = none)")
+	churnJobs := flag.Int("churn-jobs", 1000, "jobs spawned per day in churn mode")
 	seedJobs := flag.Bool("jobs", true, "seed job counters (set false when job data already exists)")
 	interval := flag.Int("interval", 120, "sample interval seconds")
 	flag.Parse()
@@ -249,6 +252,50 @@ func main() {
 		}
 	}
 
+	// churn 模式：每天起 churnJobs 个短命作业（秒级 ~ 1 小时混合寿命），
+	// 每台按存活窗口写计数器后即消失，一个月后形成十万级短序列——这是对 tsdb
+	// 块索引与高基数字段最有压力的形状。序列逐条追加（同序列内时间递增即可，
+	// 跨序列无需交错）。/ Churn mode: each day spawns churnJobs short-lived jobs
+	// (seconds-to-1h lifetimes) that emit counters only while alive; a month yields
+	// ~100k tiny series — the harshest shape for block index and label cardinality.
+	// Series append one-by-one (per-series monotonic is all the appender needs).
+	var churn []struct {
+		lset       labels.Labels
+		birth, die int64
+		mult       float64
+	}
+	if *churnDays > 0 {
+		rng := newChurnRand()
+		for d := 0; d < *churnDays; d++ {
+			dayStart := end.Add(-time.Duration(*churnDays-d) * 24 * time.Hour).UnixMilli()
+			for j := 0; j < *churnJobs; j++ {
+				// 寿命分布：40% 秒级(30s-3m)、40% 分钟级(3-30m)、20% ~1h。
+				// Lifetime mix: 40% seconds(30s-3m), 40% minutes(3-30m), 20% ~1h.
+				life := churnLifetime(rng)
+				birth := dayStart + rng.Int63n(24*time.Hour.Milliseconds()-life.Milliseconds())
+				jobID := fmt.Sprintf("c%d_%d", d, j)
+				rowsPerSec := 100 + rng.Float64()*4000
+				for _, c := range counters {
+					churn = append(churn, struct {
+						lset       labels.Labels
+						birth, die int64
+						mult       float64
+					}{
+						lset: labels.FromStrings(
+							labels.MetricName, c.name,
+							"job_id", jobID,
+							"task_id", jobID+"_t",
+							"cluster_id", "1",
+						),
+						birth: birth,
+						die:   birth + life.Milliseconds(),
+						mult:  c.mult * rowsPerSec,
+					})
+				}
+			}
+		}
+	}
+
 	app := embedts.Appender(ctx)
 	for i := 0; i < points; i++ {
 		ts := start.UnixMilli() + int64(i)*stepMs
@@ -285,10 +332,30 @@ func main() {
 			}
 		}
 	}
+	// churn 序列按各自存活窗口逐条写入。必须在主循环之后追加：appender 的可写下限由首个
+	// 样本决定（firstTs - chunkRange/2），先写主循环保证下限落在 start 之前，churn 的
+	// 随机出生时刻才不被判 out of bounds。/ Churn series write point-by-point within their
+	// own alive windows, and MUST come after the main loop: the appender floor is set by the
+	// first sample (firstTs - chunkRange/2), so seeding the main series first keeps the floor
+	// below every churn birth timestamp.
+	churnTotal := 0
+	for i, s := range churn {
+		steps := int((s.die - s.birth) / stepMs)
+		for p := 0; p <= steps; p++ {
+			ts := s.birth + int64(p)*stepMs
+			if _, err := app.Append(0, s.lset, ts, s.mult*float64(ts/stepMs)); err != nil {
+				panic(err)
+			}
+			churnTotal++
+		}
+		if i%20000 == 0 {
+			fmt.Printf("churn %d/%d series\n", i, len(churn))
+		}
+	}
 	if err := app.Commit(); err != nil {
 		panic(err)
 	}
-	total := points * (len(series) + len(gauges))
+	total := points*(len(series)+len(gauges)) + churnTotal
 
 	// 收尾把 head 压成块再放开压实，让服务启动时接近稳态。
 	// Flush the head into blocks before re-enabling compaction so the server starts near steady state.
@@ -297,4 +364,22 @@ func main() {
 	}
 	db.EnableCompactions()
 	fmt.Printf("done: %d samples over %d days in %s\n", total, *days, *dir)
+}
+
+// newChurnRand 返回固定种子的随机源，保证每次播种的 churn 形状一致可复现。
+// newChurnRand returns a fixed-seed RNG so churn shape is reproducible across runs.
+func newChurnRand() *rand.Rand { return rand.New(rand.NewSource(42)) }
+
+// churnLifetime 按 40% 秒级(30s-3m) / 40% 分钟级(3-30m) / 20% 约 1 小时(45-75m)
+// 抽作业寿命。/ churnLifetime draws a job lifetime: 40% seconds(30s-3m),
+// 40% minutes(3-30m), 20% around one hour(45-75m).
+func churnLifetime(r *rand.Rand) time.Duration {
+	switch x := r.Float64(); {
+	case x < 0.4:
+		return time.Duration(30+r.Int63n(150)) * time.Second
+	case x < 0.8:
+		return time.Duration(3+r.Int63n(27)) * time.Minute
+	default:
+		return time.Duration(45+r.Int63n(30)) * time.Minute
+	}
 }

@@ -328,7 +328,8 @@
             "task": "By task"
           },
           "all": "All",
-          "partialHint": "* Edge buckets are clipped by the time window"
+          "partialHint": "* Edge buckets are clipped by the time window",
+          "noDataHint": "· Buckets before the oldest sample have no data (not counted as 0)"
         }
       },
       "list": {
@@ -399,8 +400,12 @@
           "6h": "6h",
           "24h": "24h",
           "7d": "7d",
+          "30d": "30d",
+          "90d": "90d",
+          "1y": "1y",
           "all": "All",
-          "custom": "Custom range"
+          "custom": "Custom range",
+          "trimmed": "Trimmed to the last year"
         },
         "allClusters": "All clusters",
         "cardsLabel": "Choose cluster scope",
@@ -5646,7 +5651,8 @@
           "status": "Status"
         },
         "legendClear": "Clear",
-        "legendAll": "Show all"
+        "legendAll": "Show all",
+        "rangeTrimmed": "Trimmed to the last year"
       }
     },
     "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)",

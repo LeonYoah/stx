@@ -23,7 +23,7 @@ import {MetricCard} from '@/components/arc/metric-card/metric-card';
 import {Skeleton} from '@/components/ui/skeleton';
 import type {HomeSummary, HomeVolume} from '@/lib/services/dashboard';
 import {formatDateTz} from '@/lib/timezone';
-import {formatCompactNumber, trendChangePercent} from './dashboard-format';
+import {formatCompactNumber, scaledCompact, trendChangePercent} from './dashboard-format';
 
 interface KpiItem {
   key: string;
@@ -31,8 +31,28 @@ interface KpiItem {
   label: string;
   value: number;
   suffix?: string;
+  decimals?: number;
   context: string;
   change?: string;
+}
+
+/**
+ * 指标卡数值缩放：value 可能任意大（一年窗口的行数可达百亿级），统一经 scaledCompact 压到
+ * ≤999.9 + 单位后缀，避免长数字溢出到相邻卡片；suffix 与单位拼接成「B 行」「M 行/秒」。
+ * KPI value scaling: values can be arbitrarily large (a year of rows reaches tens of billions),
+ * so every number goes through scaledCompact to stay ≤999.9 plus a unit suffix, keeping long
+ * digits from overflowing into the neighboring card; the unit joins the suffix as "B 行"/"M 行/秒".
+ */
+function scaledKpi(value: number, suffix?: string) {
+  const scaled = scaledCompact(value);
+  const unit = scaled.unit;
+  return {
+    value: scaled.value,
+    decimals: scaled.decimals,
+    // 现有单位串（行/秒、秒、行）已自带前导空格，单位词头直接拼接即可。
+    // Existing unit strings already carry a leading space, so the scale unit just prefixes them.
+    suffix: unit ? `${unit}${suffix ?? ''}` : suffix,
+  };
 }
 
 /** 最早样本日的标注（走系统显示时区的 M/D 或本地化短日期）。/ Oldest-sample day marker in the display timezone. */
@@ -101,7 +121,7 @@ export function DashboardKpiRow({
       key: 'running',
       href: buildHref({tab: 'list', status: 'running'}),
       label: t('kpi.running'),
-      value: jobs?.running ?? 0,
+      ...scaledKpi(jobs?.running ?? 0),
       context: t('kpi.runningContext', {
         streaming: jobs?.running_streaming ?? 0,
         batch: jobs?.running_batch ?? 0,
@@ -111,8 +131,7 @@ export function DashboardKpiRow({
       key: 'write',
       href: buildHref({tab: 'list', status: 'running', sort: 'rate'}),
       label: t('kpi.writeRate'),
-      value: Math.round(jobs?.write_qps ?? 0),
-      suffix: t('unit.rowsPerSec'),
+      ...scaledKpi(Math.round(jobs?.write_qps ?? 0), t('unit.rowsPerSec')),
       context:
         writeChange === null
           ? t('kpi.writeContextNow')
@@ -126,8 +145,7 @@ export function DashboardKpiRow({
       key: 'cdc',
       href: buildHref({tab: 'list', status: 'running', sort: 'cdc_delay'}),
       label: t('kpi.cdc'),
-      value: Math.round(cdc ?? 0),
-      suffix: t('unit.seconds'),
+      ...scaledKpi(Math.round(cdc ?? 0), t('unit.seconds')),
       context: jobs?.max_cdc_job_name || t('kpi.cdcNone'),
       change:
         cdc !== undefined && jobs && cdc >= jobs.cdc_threshold_seconds
@@ -138,7 +156,7 @@ export function DashboardKpiRow({
       key: 'failed',
       href: buildHref({tab: 'list', status: 'failed'}),
       label: t('kpi.failed'),
-      value: jobs?.failed_24h ?? 0,
+      ...scaledKpi(jobs?.failed_24h ?? 0),
       context: t('kpi.failedContext'),
       change: t('kpi.failedYesterday', {count: jobs?.failed_prev_24h ?? 0}),
     },
@@ -146,8 +164,7 @@ export function DashboardKpiRow({
       key: 'volume',
       href: buildHref({tab: 'jobs'}),
       label: t('kpi.volume'),
-      value: Math.round(volumeTotals?.window.write_rows ?? 0),
-      suffix: t('unit.rows'),
+      ...scaledKpi(Math.round(volumeTotals?.window.write_rows ?? 0), t('unit.rows')),
       context: volumeContext,
     },
     {
@@ -171,7 +188,7 @@ export function DashboardKpiRow({
       key: 'alerts',
       href: '/monitoring',
       label: t('kpi.alerts'),
-      value: summary?.alerts.active ?? 0,
+      ...scaledKpi(summary?.alerts.active ?? 0),
       context: t('kpi.alertsContext', {count: summary?.alerts.critical ?? 0}),
     },
   ];
@@ -192,6 +209,7 @@ export function DashboardKpiRow({
             label={item.label}
             value={item.value}
             suffix={item.suffix}
+            decimals={item.decimals}
             context={item.context}
             change={item.change}
           />

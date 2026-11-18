@@ -69,6 +69,10 @@ export function HomeDashboard() {
   const t = useTranslations('dashboard.home');
   const {query, update} = useDashboardQuery();
   const [clusters, setClusters] = useState<{id: number; name: string}[]>([]);
+  // 日历选择被截成最近一年时置位，控件旁给出可见提示；选预设或再次选择时清除。
+  // Set when a calendar pick was trimmed to the last year so a notice shows next to the
+  // control; cleared on preset picks and the next selection.
+  const [rangeTrimmed, setRangeTrimmed] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -160,22 +164,25 @@ export function HomeDashboard() {
                     value={
                       query.start ? '' : isListTab ? query.listRange : query.range
                     }
-                    onValueChange={(value) =>
-                      isListTab
-                        ? // 作业页签总是写显式值（缺省 = 全部），'1h' 不能回落成缺省。
-                          // The jobs tab always writes an explicit value (absent means "all"), so '1h'
-                          // may not collapse to absent.
-                          update({
-                            listRange: value as DashboardQuery['listRange'],
-                            start: undefined,
-                            end: undefined,
-                          })
-                        : update({
-                            range: value === '1h' ? undefined : value,
-                            start: undefined,
-                            end: undefined,
-                          })
-                    }
+                    onValueChange={(value) => {
+                      setRangeTrimmed(false);
+                      if (isListTab) {
+                        // 作业页签总是写显式值（缺省 = 全部），'1h' 不能回落成缺省。
+                        // The jobs tab always writes an explicit value (absent means "all"), so '1h'
+                        // may not collapse to absent.
+                        update({
+                          listRange: value as DashboardQuery['listRange'],
+                          start: undefined,
+                          end: undefined,
+                        });
+                      } else {
+                        update({
+                          range: value === '1h' ? undefined : value,
+                          start: undefined,
+                          end: undefined,
+                        });
+                      }
+                    }}
                     options={[
                       ...(isListTab
                         ? [{value: 'all', label: t('clusterTab.range.all')}]
@@ -194,12 +201,13 @@ export function HomeDashboard() {
                     }
                     onChange={(picked) => {
                       const end = picked.end.getTime();
-                      // 与后端一样最多 31 天，超出时保留靠近结束的一段。/ Cap at 31 days like the backend, keeping the end.
+                      // 与后端一样最多一年，超出时保留靠近结束的一段并给出可见提示。
+                      // Cap at one year like the backend, keeping the end-adjacent part and
+                      // surfacing a visible notice.
+                      const start = picked.start.getTime();
+                      setRangeTrimmed(start < end - MAX_CUSTOM_WINDOW_MS);
                       update({
-                        start: Math.max(
-                          picked.start.getTime(),
-                          end - MAX_CUSTOM_WINDOW_MS,
-                        ),
+                        start: Math.max(start, end - MAX_CUSTOM_WINDOW_MS),
                         end,
                       });
                     }}
@@ -207,6 +215,11 @@ export function HomeDashboard() {
                     placeholder={t('clusterTab.range.custom')}
                     withTime
                   />
+                  {rangeTrimmed ? (
+                    <span className='whitespace-nowrap text-xs text-warning'>
+                      {t('clusterTab.range.trimmed')}
+                    </span>
+                  ) : null}
                 </>
               );
             })()}

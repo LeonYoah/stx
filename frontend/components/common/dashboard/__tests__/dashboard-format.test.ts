@@ -21,6 +21,7 @@ import {
   dimensionColor,
   formatCompactNumber,
   formatDurationSeconds,
+  scaledCompact,
   trendChangePercent,
 } from '../dashboard-format';
 
@@ -29,6 +30,20 @@ describe('dashboard-format', () => {
     expect(formatCompactNumber(12345)).toBe('12.3K');
     expect(formatCompactNumber(undefined)).toBe('-');
     expect(formatCompactNumber(Number.NaN)).toBe('-');
+  });
+
+  it('scales large numbers into ≤999.9 plus a unit, keeping KPI cards narrow', () => {
+    // 小于 1000 原样通过；向上按 K/M/B/T 分档，取整顶到 1000 时再进一档。
+    // Below 1000 passes through; tiers go K/M/B/T, and a rounded 1000 steps up once more.
+    expect(scaledCompact(999)).toEqual({value: 999, decimals: 0, unit: ''});
+    expect(scaledCompact(0)).toEqual({value: 0, decimals: 0, unit: ''});
+    expect(scaledCompact(27200)).toEqual({value: 27.2, decimals: 1, unit: 'K'});
+    expect(scaledCompact(1_523_000)).toEqual({value: 1.5, decimals: 1, unit: 'M'});
+    expect(scaledCompact(103_800_000_000)).toEqual({value: 103.8, decimals: 1, unit: 'B'});
+    expect(scaledCompact(999_960_000)).toEqual({value: 1, decimals: 1, unit: 'B'});
+    expect(scaledCompact(-2_500_000)).toEqual({value: -2.5, decimals: 1, unit: 'M'});
+    expect(scaledCompact(Number.NaN)).toEqual({value: 0, decimals: 0, unit: ''});
+    expect(scaledCompact(undefined)).toEqual({value: 0, decimals: 0, unit: ''});
   });
 
   it('keeps the two largest duration units', () => {

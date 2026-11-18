@@ -640,7 +640,7 @@ stx_print_summary() {
   ip="${STX_EXTERNAL_HOST:-$(stx_guess_host_ip)}"
   [[ -z "$ip" ]] && ip="127.0.0.1"
   if [[ "$(stx_yaml_get "$dir/config.yaml" observability.enabled 2>/dev/null)" != "false" ]]; then
-    obs_line="  内置监控       : 已开启，数据在 $dir/data/tsdb（默认保留 31 天、最多 30GiB，可在 config.yaml 的 observability.storage 调整）"
+    obs_line="  内置监控       : 已开启，数据在 $dir/data/tsdb（默认按容量保留：最多磁盘的 20%、不超过 30GiB，可在 config.yaml 的 observability.storage 调整）"
   else
     obs_line="  内置监控       : 未开启（config.yaml 中 observability.enabled: true 后重启即可开启）"
   fi

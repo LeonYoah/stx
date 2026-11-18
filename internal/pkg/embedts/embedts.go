@@ -33,6 +33,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -55,8 +56,29 @@ import (
 const (
 	// DefaultDir 是默认 tsdb 数据目录。 / DefaultDir is the default tsdb data directory.
 	DefaultDir = "./data/tsdb"
-	// DefaultRetention 是默认时间保留期（31 天）。 / DefaultRetention is the default time retention (31 days).
-	DefaultRetention = 31 * 24 * time.Hour
+	// DefaultRetention 是默认时间保留期：0 表示不按时间删除（默认只按容量清理）。
+	// DefaultRetention is the default time retention: 0 disables time-based deletion
+	// (capacity-only retention is the default).
+	DefaultRetention = 0
+	// DefaultMaxBytesCap 是容量上限的天花板：未配置 max_size 时实际上限取
+	// min(30GiB, 数据目录所在磁盘总容量 × 20%)，下限 minAutoMaxBytes。
+	// DefaultMaxBytesCap is the ceiling of the size cap: when max_size is unset the effective
+	// cap is min(30GiB, 20% of the data-dir disk total), floored at minAutoMaxBytes.
+	DefaultMaxBytesCap = int64(30) << 30
+	// maxSizeDiskFraction 是自动容量上限占磁盘总容量的比例（20%）。
+	// maxSizeDiskFraction is the share of the disk total used for the auto size cap (20%).
+	maxSizeDiskFraction = 0.20
+	// minAutoMaxBytes 是自动容量上限的下限（1GiB），小磁盘也至少保留这么多数据。
+	// minAutoMaxBytes floors the auto size cap at 1GiB so small disks still keep some history.
+	minAutoMaxBytes = int64(1) << 30
+	// DefaultMaxBlockDuration 是缺省的最大块时长（7 天）：更长窗口下减少块文件数量；
+	// 有显式 retention 时收紧到 retention/10，下限 minMaxBlockDuration。
+	// DefaultMaxBlockDuration is the default max block range (7 days) to keep block counts low
+	// on long windows; an explicit retention tightens it to retention/10, floored at minMaxBlockDuration.
+	DefaultMaxBlockDuration = 7 * 24 * time.Hour
+	// minMaxBlockDuration 是最大块时长的下限（2 小时，即 tsdb 默认块长）。
+	// minMaxBlockDuration floors the max block range at 2h (the tsdb default block range).
+	minMaxBlockDuration = 2 * time.Hour
 	// DefaultQueryTimeout 是默认单次查询超时，与原远程 HTTP 客户端 8s 一致。
 	// DefaultQueryTimeout is the default per-query timeout, matching the legacy 8s HTTP client timeout.
 	DefaultQueryTimeout = 8 * time.Second
@@ -90,6 +112,18 @@ type Options struct {
 	// MaxBytes caps retained block bytes (0 = unlimited); maps to tsdb.Options.MaxBytes.
 	MaxBytes int64
 
+	// MaxBytesSource 记录 MaxBytes 的取值来源（config / auto:20% / auto:cap / fallback），
+	// 写进启动日志与组件状态 meta；直接构造 Options 时可为空。
+	// MaxBytesSource records where MaxBytes came from (config / auto:20% / auto:cap / fallback)
+	// for the startup log and component meta; empty for hand-built Options.
+	MaxBytesSource string
+
+	// MaxBlockDuration 覆盖最大块时长上限；0 表示按 retention 自适应（默认 7 天、
+	// retention/10 收紧、下限 2 小时）。
+	// MaxBlockDuration overrides the max block range; 0 derives it from retention
+	// (default 7d, tightened to retention/10, floored at 2h).
+	MaxBlockDuration time.Duration
+
 	// QueryTimeout 是单次 PromQL 查询超时；映射 promql.EngineOpts.Timeout。
 	// QueryTimeout is the per-query timeout; maps to promql.EngineOpts.Timeout.
 	QueryTimeout time.Duration
@@ -115,8 +149,10 @@ func (o Options) withDefaults() Options {
 	if strings.TrimSpace(o.Dir) == "" {
 		o.Dir = DefaultDir
 	}
-	if o.RetentionDuration <= 0 {
-		o.RetentionDuration = DefaultRetention
+	// 0 表示不按时间删除（默认只按容量清理）；负值防御性归零。
+	// 0 disables time-based deletion (capacity-only retention is the default); negatives clamp to 0.
+	if o.RetentionDuration < 0 {
+		o.RetentionDuration = 0
 	}
 	if o.MaxBytes < 0 {
 		o.MaxBytes = 0
@@ -130,13 +166,78 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
+// MaxBytes 取值来源：写进启动日志与组件状态 meta。
+// MaxBytes provenance values reported in the startup log and component meta.
+const (
+	// MaxBytesSourceConfig 表示 max_size 由用户显式配置（含 0=不限）。
+	// MaxBytesSourceConfig marks an explicitly configured max_size (including 0 = unlimited).
+	MaxBytesSourceConfig = "config"
+	// MaxBytesSourceAuto20 表示按磁盘总容量 20% 自适应。
+	// MaxBytesSourceAuto20 marks a cap derived as 20% of the disk total.
+	MaxBytesSourceAuto20 = "auto:20%"
+	// MaxBytesSourceAutoCap 表示磁盘 20% 超过 30GiB，取天花板 30GiB。
+	// MaxBytesSourceAutoCap marks the 30GiB ceiling winning over the 20% derivation.
+	MaxBytesSourceAutoCap = "auto:cap"
+	// MaxBytesSourceFallback 表示 statfs 失败或平台不支持，退回 30GiB。
+	// MaxBytesSourceFallback marks the 30GiB fallback after a statfs failure or unsupported platform.
+	MaxBytesSourceFallback = "fallback"
+)
+
+// fsTotalBytes 是磁盘总容量探测入口；包级变量便于测试替换（实现按平台分文件）。
+// fsTotalBytes probes the disk total; a package var so tests can stub it (per-platform impls).
+var fsTotalBytes = defaultFsTotalBytes
+
+// autoMaxBytes 计算未配置 max_size 时的容量上限：min(DefaultMaxBytesCap, 磁盘总容量 × 20%)，
+// 下限 1GiB；目录不可建或 statfs 失败时退回 30GiB 并记 WARN。
+// autoMaxBytes derives the size cap when max_size is unset: min(DefaultMaxBytesCap, 20% of the
+// disk total) floored at 1GiB; an uncreatable dir or a statfs failure falls back to 30GiB with a WARN.
+func autoMaxBytes(ctx context.Context, dir string, statfs func(string) (int64, error)) (int64, string) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logger.WarnF(ctx, "[Observability] 无法创建 tsdb 目录 %s，容量上限退回 30GiB: %v / cannot create tsdb dir %s, size cap falls back to 30GiB: %v",
+			dir, err, dir, err)
+		return DefaultMaxBytesCap, MaxBytesSourceFallback
+	}
+	total, err := statfs(dir)
+	if err != nil || total <= 0 {
+		logger.WarnF(ctx, "[Observability] 读取 %s 磁盘容量失败或不支持，容量上限退回 30GiB: %v / statfs on %s failed or unsupported, size cap falls back to 30GiB: %v",
+			dir, err, dir, err)
+		return DefaultMaxBytesCap, MaxBytesSourceFallback
+	}
+	auto := int64(float64(total) * maxSizeDiskFraction)
+	if auto > DefaultMaxBytesCap {
+		return DefaultMaxBytesCap, MaxBytesSourceAutoCap
+	}
+	if auto < minAutoMaxBytes {
+		return minAutoMaxBytes, MaxBytesSourceAuto20
+	}
+	return auto, MaxBytesSourceAuto20
+}
+
+// resolveMaxBlockDuration 计算最大块时长：未显式指定时默认 7 天；retention>0 且 retention/10 更小时
+// 取它（Prometheus 压实器需要约 10 倍块长才能压实旧块）；下限 2 小时（tsdb 默认块长）。
+// resolveMaxBlockDuration derives the max block range: 7 days when unspecified; a smaller
+// retention/10 wins when retention > 0 (the compactor needs ~10x the block range to compact old
+// blocks); floored at 2h (the tsdb default block range).
+func resolveMaxBlockDuration(opts Options) time.Duration {
+	maxBlock := opts.MaxBlockDuration
+	if maxBlock <= 0 {
+		maxBlock = DefaultMaxBlockDuration
+		if r := opts.RetentionDuration; r > 0 && r/10 < maxBlock {
+			maxBlock = r / 10
+		}
+		if maxBlock < minMaxBlockDuration {
+			maxBlock = minMaxBlockDuration
+		}
+	}
+	return maxBlock
+}
+
 // OptionsFromObservability 把可观测配置翻译为启动参数；时长字符串按 Prometheus duration 语法解析。
 // OptionsFromObservability translates observability config into startup Options; duration strings
 // are parsed with the Prometheus duration syntax (s/m/h/d/w/y).
-func OptionsFromObservability(obs config.ObservabilityConfig) (Options, error) {
+func OptionsFromObservability(ctx context.Context, obs config.ObservabilityConfig) (Options, error) {
 	opts := Options{
 		Dir:        strings.TrimSpace(obs.Storage.Dir),
-		MaxBytes:   obs.Storage.MaxSize,
 		MaxSamples: int(obs.MaxSamples),
 	}
 	if trimmed := strings.TrimSpace(obs.Storage.Retention); trimmed != "" {
@@ -153,7 +254,17 @@ func OptionsFromObservability(obs config.ObservabilityConfig) (Options, error) {
 		}
 		opts.QueryTimeout = time.Duration(d)
 	}
-	return opts.withDefaults(), nil
+	opts = opts.withDefaults()
+	// max_size 显式配置时使用配置值（含 0=不限）；未配置时按数据目录所在磁盘自适应。
+	// Use the configured max_size when explicitly set (0 = unlimited); otherwise derive it
+	// from the data-dir disk.
+	if obs.Storage.MaxSizeSet {
+		opts.MaxBytes = obs.Storage.MaxSize
+		opts.MaxBytesSource = MaxBytesSourceConfig
+	} else {
+		opts.MaxBytes, opts.MaxBytesSource = autoMaxBytes(ctx, opts.Dir, fsTotalBytes)
+	}
+	return opts, nil
 }
 
 // instance 持有一份已打开的内嵌存储与查询引擎。
@@ -162,6 +273,10 @@ type instance struct {
 	opts      Options
 	db        *tsdb.DB
 	engine    *promql.Engine
+	// engineLong 与 engine 同一存储，但超时放宽到 query_timeout ×4，专供跨度 >31d 的长窗口查询。
+	// engineLong shares the store with engine but relaxes the timeout to query_timeout ×4,
+	// reserved for spans beyond 31d.
+	engineLong *promql.Engine
 	queryable storage.Queryable
 	registry  *prometheus.Registry
 	// scraper 是挂在实例上的抓取循环；Close 时先停它再关 db。
@@ -195,6 +310,11 @@ var (
 // and let dashboards degrade (Ready()=false).
 func Start(ctx context.Context, opts Options) error {
 	opts = opts.withDefaults()
+	// 时间与容量保留都不限时数据会一直涨到磁盘写满，启动时显式提示。
+	// Warn when both retentions are unbounded: data grows until the disk fills.
+	if opts.RetentionDuration == 0 && opts.MaxBytes == 0 {
+		logger.WarnF(ctx, "[Observability] retention 与 max_size 均未限制，tsdb 数据会一直增长直到磁盘写满 / neither retention nor max_size limits storage, tsdb data grows until the disk fills up")
+	}
 	reg := prometheus.NewRegistry()
 	// Go runtime / 进程采集器与 tsdb/engine 指标共用同一 registry，由自抓取写回 tsdb。
 	// Go runtime / process collectors share this registry with tsdb/engine metrics; self-scrape writes them back.
@@ -203,11 +323,22 @@ func Start(ctx context.Context, opts Options) error {
 	tsdbOpts.RetentionDuration = opts.RetentionDuration.Milliseconds()
 	tsdbOpts.MaxBytes = opts.MaxBytes
 	tsdbOpts.NoLockfile = opts.NoLockfile
+	// 最大块时长按 retention 自适应：长窗口下让块合并到 7 天档位，减少块文件与查询打开数。
+	// Max block range follows retention: long windows compact up to the 7-day tier, keeping block
+	// counts (and files opened per query) low.
+	maxBlock := resolveMaxBlockDuration(opts)
+	tsdbOpts.MaxBlockDuration = maxBlock.Milliseconds()
 	if opts.MinBlockDuration > 0 {
 		ms := opts.MinBlockDuration.Milliseconds()
 		tsdbOpts.MinBlockDuration = ms
-		tsdbOpts.MaxBlockDuration = ms
+		// 最短块不能超过最大块；压短窗口的基准测试里两者可能相近。
+		// Min block range cannot exceed the max; short-window benches may bring them close.
+		if ms > tsdbOpts.MaxBlockDuration {
+			tsdbOpts.MaxBlockDuration = ms
+		}
 	}
+	// 记录实际生效值，CurrentOptions 供组件状态展示。/ Store the effective value for CurrentOptions.
+	opts.MaxBlockDuration = time.Duration(tsdbOpts.MaxBlockDuration) * time.Millisecond
 	// 内部日志走 NopLogger：错误经返回值与 our logger.*F 上报，避免 zap/slog 双日志体系打架。
 	// Internal logs go to a NopLogger: failures surface via return values and our logger.*F,
 	// avoiding a second slog pipeline next to zap.
@@ -233,12 +364,26 @@ func Start(ctx context.Context, opts Options) error {
 		EnableAtModifier:     true,
 		EnableNegativeOffset: true,
 	})
+	// 长窗口引擎：同一存储与并发上限（共享 tracker），超时放宽到 query_timeout ×4，
+	// 供跨度 >31d 的查询使用；指标已在主引擎注册，这里不再重复注册。
+	// Long-window engine: same store and concurrency cap (shared tracker) with the timeout
+	// relaxed to query_timeout ×4 for spans beyond 31d; metrics stay on the primary engine.
+	engineLong := promql.NewEngine(promql.EngineOpts{
+		Logger:               promslog.NewNopLogger(),
+		MaxSamples:           opts.MaxSamples,
+		Timeout:              opts.QueryTimeout * 4,
+		ActiveQueryTracker:   tracker,
+		LookbackDelta:        DefaultLookbackDelta,
+		EnableAtModifier:     true,
+		EnableNegativeOffset: true,
+	})
 	inst := &instance{
-		opts:      opts,
-		db:        db,
-		engine:    engine,
-		queryable: storage.QueryableFunc(db.Querier),
-		registry:  reg,
+		opts:       opts,
+		db:         db,
+		engine:     engine,
+		engineLong: engineLong,
+		queryable:  storage.QueryableFunc(db.Querier),
+		registry:   reg,
 	}
 
 	instanceMu.Lock()
@@ -247,13 +392,39 @@ func Start(ctx context.Context, opts Options) error {
 		// 已存在实例时拒绝覆盖并回收刚打开的目录锁，避免泄漏。
 		// Refuse to override a live instance and release the just-acquired directory lock.
 		_ = engine.Close()
+		_ = engineLong.Close()
 		_ = db.Close()
 		return fmt.Errorf("embedded tsdb already started at %q", current.opts.Dir)
 	}
 	current = inst
-	logger.InfoF(ctx, "[Observability] 内嵌 tsdb 已启动: dir=%s retention=%s max_bytes=%d / embedded tsdb started: dir=%s retention=%s max_bytes=%d",
-		opts.Dir, opts.RetentionDuration, opts.MaxBytes, opts.Dir, opts.RetentionDuration, opts.MaxBytes)
+	// retention=0 在日志里展示为“不限 / unlimited”，与组件状态 meta 的 "unlimited" 一致。
+	// retention=0 logs as 不限 / unlimited, matching the "unlimited" component meta value.
+	retentionZh, retentionEn := "不限", "unlimited"
+	if opts.RetentionDuration > 0 {
+		retentionZh = model.Duration(opts.RetentionDuration).String()
+		retentionEn = retentionZh
+	}
+	source := opts.MaxBytesSource
+	if source == "" {
+		source = MaxBytesSourceConfig
+	}
+	maxBlockLabel := model.Duration(opts.MaxBlockDuration).String()
+	logger.InfoF(ctx, "[Observability] 内嵌 tsdb 已启动: dir=%s retention=%s max_bytes=%d(%s) max_block=%s / embedded tsdb started: dir=%s retention=%s max_bytes=%d(%s) max_block=%s",
+		opts.Dir, retentionZh, opts.MaxBytes, source, maxBlockLabel,
+		opts.Dir, retentionEn, opts.MaxBytes, source, maxBlockLabel)
 	return nil
+}
+
+// CurrentOptions 返回运行中实例实际生效的启动参数（含自适应 max_bytes / max_block）；未启动时 ok=false。
+// CurrentOptions returns the effective Options of the running instance (including derived
+// max_bytes / max_block); ok=false when not started.
+func CurrentOptions() (Options, bool) {
+	instanceMu.RLock()
+	defer instanceMu.RUnlock()
+	if current == nil {
+		return Options{}, false
+	}
+	return current.opts, true
 }
 
 // Close 关闭并摘除包级实例；幂等，未启动时为空操作。Close 会触发 head compact + WAL flush。
@@ -272,6 +443,9 @@ func Close() error {
 	inst.stopScraper()
 	resetSelfMetricsTracker()
 	_ = inst.engine.Close()
+	if inst.engineLong != nil {
+		_ = inst.engineLong.Close()
+	}
 	return inst.db.Close()
 }
 
@@ -325,6 +499,21 @@ func QueryEngine() (*promql.Engine, storage.Queryable) {
 	inst := snapshot()
 	if inst == nil {
 		return nil, nil
+	}
+	return inst.engine, inst.queryable
+}
+
+// QueryEngineLong 返回放宽超时的长窗口引擎（query_timeout ×4）与同一数据源；
+// 未就绪或实例早于该特性时退回普通引擎（仍返回非 nil，避免调用方分叉）。
+// QueryEngineLong returns the relaxed-timeout engine (query_timeout ×4) with the same
+// queryable; it falls back to the regular engine when unavailable so callers never see nil.
+func QueryEngineLong() (*promql.Engine, storage.Queryable) {
+	inst := snapshot()
+	if inst == nil {
+		return nil, nil
+	}
+	if inst.engineLong != nil {
+		return inst.engineLong, inst.queryable
 	}
 	return inst.engine, inst.queryable
 }

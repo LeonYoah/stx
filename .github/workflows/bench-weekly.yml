@@ -1,0 +1,63 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Weekly TSDB Benchmarks
+
+on:
+  schedule:
+    # 每周一 02:00 (Asia/Shanghai) = 周日 18:00 UTC，避开工作时段。
+    # Weekly at Monday 02:00 Asia/Shanghai (Sunday 18:00 UTC), off-peak.
+    - cron: '0 18 * * 0'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: '容量档位：quick=5 万序列，full=5 万+20 万序列 / capacity profile: quick=50k series, full=50k+200k'
+        required: false
+        default: 'quick'
+        type: choice
+        options:
+          - quick
+          - full
+
+jobs:
+  tsdb-capacity:
+    name: Embedded TSDB Capacity Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # 容量门槛测试：一年窗口基准（~3min）+ 大 profile（5 万序列）+ 5 分钟 soak。
+      # Capacity gates: year-window bench (~3min) + larger profiles (50k series) + 5min soak.
+      - name: Capacity gates (year window, larger profiles, soak)
+        env:
+          STX_TSDB_YEAR_BENCH: '1'
+          STX_TSDB_BENCH: ${{ inputs.profile == 'full' && 'full' || '1' }}
+          STX_TSDB_SOAK: '5m'
+        run: go test ./internal/pkg/embedts -run 'TestCapacity_' -count=1 -v -timeout 45m
+
+      # 查询微基准：dashboard/sync 的 Benchmark* 用 b.ResetTimer 隔离了播种耗时，
+      # 跑 3 次迭代拿趋势数据，只做记录不设门槛。
+      # Query micro-benchmarks: Benchmark* in dashboard/sync isolate seeding via
+      # b.ResetTimer; 3 iterations for trend data, recorded but not gated.
+      - name: Query benchmarks (dashboard, sync)
+        run: go test ./internal/apps/dashboard ./internal/apps/sync -run='^$' -bench=. -benchtime=3x -count=1 -timeout 15m

@@ -168,21 +168,35 @@ cli_call() {
 cli_token() {
   local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/stx/config.yaml"
   python3 - "$cfg" "$CLI_NS" <<'PY'
-import re, sys
+import sys
 path, ns = sys.argv[1], sys.argv[2]
-in_namespaces = in_target = False
-for line in open(path):
-    if line.startswith("namespaces:"):
-        in_namespaces = True
-        continue
-    if in_namespaces and re.match(r"^\S", line):
+# Go yaml.v3 嵌套缩进不固定（实测 4 空格），按相对缩进层级解析而不是硬编码列号。
+# Go yaml.v3 nested indentation is not fixed (4 spaces in practice), so parse by
+# relative indent levels instead of hard-coded column positions.
+lines = []
+for raw in open(path):
+    stripped = raw.strip()
+    if stripped and not stripped.startswith("#"):
+        lines.append((len(raw) - len(raw.lstrip()), stripped))
+i = next((k for k, (ind, t) in enumerate(lines) if ind == 0 and t.startswith("namespaces:")), None)
+if i is None:
+    sys.exit(0)
+base = lines[i][0]
+j = i + 1
+while j < len(lines):
+    ind, text = lines[j]
+    if ind <= base:
         break
-    if in_namespaces and re.match(r"^  \S", line):
-        in_target = line.strip().rstrip(":") == ns
-        continue
-    if in_target and line.strip().startswith("token:"):
-        print(line.split(":", 1)[1].strip().strip('"').strip("'"))
+    if text.endswith(":") and text[:-1].strip().strip('"').strip("'") == ns:
+        k = j + 1
+        while k < len(lines) and lines[k][0] > ind:
+            child = lines[k][1]
+            if child.startswith("token:"):
+                print(child.split(":", 1)[1].strip().strip('"').strip("'"))
+                sys.exit(0)
+            k += 1
         break
+    j += 1
 PY
 }
 
@@ -357,6 +371,10 @@ cli_login() {
     --password-stdin \
     --namespace "$CLI_NS" >/dev/null \
     || die "CLI login failed"
+  # 登录成功但 token 没落盘会让后续 API 回退变成静默 401，这里直接失败更直观。
+  # A successful login without a persisted token turns later API fallbacks into a
+  # silent 401, so fail fast and visibly here.
+  [[ -n "$(cli_token)" ]] || die "CLI login did not persist a token for namespace $CLI_NS"
   log "logged in as admin via CLI (namespace $CLI_NS)"
 }
 

@@ -31,6 +31,7 @@ import (
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	hostapp "github.com/LeonYoah/stx/internal/apps/host"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	pluginapp "github.com/LeonYoah/stx/internal/apps/plugin"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
@@ -338,6 +339,9 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			))
 		}
 		if issue := s.checkTargetInstallDirWritable(ctx, node, target); issue != nil {
+			issues = append(issues, *issue)
+		}
+		if issue := s.checkJavaRuntimeForTarget(ctx, node, target); issue != nil {
 			issues = append(issues, *issue)
 		}
 		if isDiskInsufficient(hostInfo, packageSize) {
@@ -897,6 +901,83 @@ func (s *Service) checkTargetInstallDirWritable(ctx context.Context, node *clust
 		},
 	)
 	return &issue
+}
+
+// checkJavaRuntimeForTarget 通过节点 Agent 校验节点 JDK 满足目标版本的最低要求。
+// Agent 不在线或未配置命令发送器时跳过（离线已由 node_offline 拦截）。
+// SeaTunnel 3.1.0 起官方硬性要求 JDK 11+（class major 55，JDK 8 启动器必然失败），
+// 必须提前阻断而非拖到引擎启动步骤；更早目标版本沿用 {8,11} 通过、其余警告的矩阵。
+// checkJavaRuntimeForTarget verifies via the node Agent that the node JDK meets the
+// target version's minimum requirement. Skipped when the Agent is offline or no command
+// sender is configured (offline nodes are already blocked by node_offline). SeaTunnel
+// 3.1.0 hard-requires JDK 11+ (class major 55, a JDK 8 launcher always fails), so block
+// early instead of dying at engine startup; earlier targets keep the {8,11} matrix.
+func (s *Service) checkJavaRuntimeForTarget(ctx context.Context, node *clusterapp.NodeInfo, target NodeTarget) *BlockingIssue {
+	if s.agentCommandSender == nil || node == nil || !node.IsOnline {
+		return nil
+	}
+	agentID, connected := s.agentCommandSender.GetAgentByHostID(target.HostID)
+	if !connected || agentID == "" {
+		return nil
+	}
+	success, output, err := s.agentCommandSender.SendCommand(ctx, agentID, "check_java", javaruntime.CheckParams(target.JavaHome))
+	if err != nil {
+		issue := blockingIssue(
+			CheckCategoryNode,
+			"java_check_failed",
+			fmt.Sprintf("cannot check Java on node %s: %v / 无法检查节点 %s 的 Java 环境：%v", target.HostName, err, target.HostName, err),
+			map[string]string{"host_id": fmt.Sprintf("%d", target.HostID)},
+		)
+		return &issue
+	}
+	rt := javaruntime.Interpret(target.JavaHome, success, output)
+	metadata := map[string]string{
+		"host_id":        fmt.Sprintf("%d", target.HostID),
+		"target_version": target.TargetVersion,
+		"required_java":  fmt.Sprintf("%d+", javaruntime.MinSupportedMajor(target.TargetVersion)),
+		"detected_java":  fmt.Sprintf("%d", rt.Version),
+		"java_home":      firstNonEmptyStr(rt.JavaHome, target.JavaHome),
+	}
+	if rt.Status == javaruntime.StatusFailed {
+		issue := blockingIssue(
+			CheckCategoryNode,
+			"java_unusable",
+			fmt.Sprintf("node %s has no usable JDK for SeaTunnel %s: %s / 节点 %s 的 JDK 不可用于 SeaTunnel %s：%s", target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName), target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName)),
+			metadata,
+		)
+		return &issue
+	}
+	switch javaruntime.StatusForTarget(rt.Version, target.TargetVersion) {
+	case javaruntime.StatusPassed:
+		return nil
+	case javaruntime.StatusFailed:
+		issue := blockingIssue(
+			CheckCategoryNode,
+			"jdk_below_required",
+			fmt.Sprintf("node %s runs Java %d but SeaTunnel %s requires Java %d+; install a newer JDK and update the node java_home (cluster node update) / 节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+；请安装新版 JDK 后更新节点 java_home（cluster node update）", target.HostName, rt.Version, target.TargetVersion, javaruntime.MinSupportedMajor(target.TargetVersion), target.HostName, rt.Version, target.TargetVersion, javaruntime.MinSupportedMajor(target.TargetVersion)),
+			metadata,
+		)
+		return &issue
+	default:
+		issue := warningIssue(
+			CheckCategoryNode,
+			"jdk_unusual_version",
+			fmt.Sprintf("node %s runs Java %d; SeaTunnel %s recommends Java 8 or 11 / 节点 %s 运行 Java %d；SeaTunnel %s 推荐 Java 8 或 11", target.HostName, rt.Version, target.TargetVersion, target.HostName, rt.Version, target.TargetVersion),
+			metadata,
+		)
+		return &issue
+	}
+}
+
+// firstNonEmptyStr 返回第一个非空字符串。
+// firstNonEmptyStr returns the first non-empty string.
+func firstNonEmptyStr(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // extractAgentResultMessage 从 Agent 预检 JSON 输出中提取 message，非 JSON 时原样返回。

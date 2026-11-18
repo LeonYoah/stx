@@ -1625,6 +1625,14 @@ func (s *Service) UpdateNode(ctx context.Context, clusterID uint, nodeID uint, r
 		node.Overrides = normalizedOverrides
 	}
 
+	if req.JavaHome != nil {
+		javaHome, err := javaruntime.Validate(*req.JavaHome)
+		if err != nil {
+			return nil, err
+		}
+		node.JavaHome = javaHome
+	}
+
 	if req.APIPort != nil && node.Role != NodeRoleWorker && node.APIPort != originalNodeAPIPort {
 		if err := s.syncNodeRuntimeAPIPort(ctx, clusterID, node, originalNodeAPIPort); err != nil {
 			return nil, err

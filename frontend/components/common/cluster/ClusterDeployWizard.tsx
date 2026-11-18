@@ -308,6 +308,7 @@ export function ClusterDeployWizard({
             install_dir: config.installDir,
             ports: portsToCheck,
             java_home: hostWithRole.javaHome || undefined,
+            target_version: config.version || undefined,
           },
         );
         return {

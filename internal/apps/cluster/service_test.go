@@ -293,6 +293,75 @@ func TestUpdateNodeSyncsSeatunnelHTTPPortAndRestartsNode(t *testing.T) {
 	}
 }
 
+// TestUpdateNodeJavaHome 覆盖节点 JDK 更新：可设置新路径、显式空串清除回自动探测、非法路径被拒绝。
+// 这是升级为需要更高 JDK 的 SeaTunnel 版本（≥3.1.0）时唯一的换 JDK 出口。
+// TestUpdateNodeJavaHome covers node JDK updates: setting a new path, clearing to auto detection
+// with an explicit empty string, and rejecting invalid paths. This is the only remediation path
+// when upgrading to a SeaTunnel version that needs a newer JDK (≥3.1.0).
+func TestUpdateNodeJavaHome(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	hostProvider := NewMockHostProvider()
+	now := time.Now()
+	hostProvider.AddHost(&HostInfo{ID: 1, Name: "host-1", IPAddress: "127.0.0.1", AgentID: "agent-1", LastHeartbeat: &now})
+	service := NewService(repo, hostProvider, &ServiceConfig{})
+
+	ctx := context.Background()
+	cluster := &Cluster{Name: "demo", DeploymentMode: DeploymentModeHybrid, InstallDir: "/opt/seatunnel", Status: ClusterStatusRunning}
+	if err := repo.Create(ctx, cluster); err != nil {
+		t.Fatalf("create cluster failed: %v", err)
+	}
+	node := &ClusterNode{
+		ClusterID:     cluster.ID,
+		HostID:        1,
+		Role:          NodeRoleMasterWorker,
+		InstallDir:    "/opt/seatunnel",
+		HazelcastPort: 5801,
+		WorkerPort:    5802,
+		JavaHome:      "/opt/jdk8",
+		Status:        NodeStatusRunning,
+	}
+	if err := repo.AddNode(ctx, node); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+
+	// 设置新 JDK 路径并归一化。/ Set a new JDK path, normalized.
+	newHome := "/opt/jdk17/"
+	updated, err := service.UpdateNode(ctx, cluster.ID, node.ID, &UpdateNodeRequest{JavaHome: &newHome})
+	if err != nil {
+		t.Fatalf("UpdateNode returned error: %v", err)
+	}
+	if updated.JavaHome != "/opt/jdk17" {
+		t.Fatalf("expected java_home /opt/jdk17, got %q", updated.JavaHome)
+	}
+	persisted, err := repo.GetNodeByID(ctx, node.ID)
+	if err != nil || persisted.JavaHome != "/opt/jdk17" {
+		t.Fatalf("persisted java_home = %q, err=%v", persisted.JavaHome, err)
+	}
+
+	// 显式空串清除自定义路径。/ An explicit empty string clears the custom path.
+	cleared := ""
+	updated, err = service.UpdateNode(ctx, cluster.ID, node.ID, &UpdateNodeRequest{JavaHome: &cleared})
+	if err != nil {
+		t.Fatalf("UpdateNode clear returned error: %v", err)
+	}
+	if updated.JavaHome != "" {
+		t.Fatalf("expected cleared java_home, got %q", updated.JavaHome)
+	}
+
+	// 非法路径被拒且不写库。/ An invalid path is rejected without persisting.
+	bad := "relative/jdk"
+	if _, err := service.UpdateNode(ctx, cluster.ID, node.ID, &UpdateNodeRequest{JavaHome: &bad}); err == nil {
+		t.Fatal("expected invalid java_home to be rejected")
+	}
+	persisted, _ = repo.GetNodeByID(ctx, node.ID)
+	if persisted.JavaHome != "" {
+		t.Fatalf("java_home should stay cleared after rejection, got %q", persisted.JavaHome)
+	}
+}
+
 // genValidHostID generates valid host IDs for tests
 // genValidHostID 为测试生成有效的主机 ID
 func genValidHostID() gopter.Gen {

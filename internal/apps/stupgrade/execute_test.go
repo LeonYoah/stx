@@ -187,6 +187,9 @@ type stubAgentCommandSender struct {
 	processDownChecks map[string]int
 	// failSubCommand 指定的子命令总是失败。failSubCommand always fails.
 	failSubCommand string
+	// javaVersion 是 check_java 上报的 JDK 主版本号；0 时按 11 应答。
+	// javaVersion is the JDK major reported by check_java; 0 answers as 11.
+	javaVersion int
 }
 
 func (s *stubAgentCommandSender) GetAgentByHostID(hostID uint) (string, bool) {
@@ -217,6 +220,18 @@ func (s *stubAgentCommandSender) SendCommand(ctx context.Context, agentID string
 			return false, `{"success":false,"message":"parent directory is not writable"}`, nil
 		}
 		return true, `{"success":true,"message":"path ready"}`, nil
+	case "check_java":
+		version := s.javaVersion
+		if version == 0 {
+			version = 11
+		}
+		source := "detected"
+		home := "/opt/java"
+		if configured := strings.TrimSpace(copied["java_home"]); configured != "" {
+			source = "custom"
+			home = configured
+		}
+		return true, fmt.Sprintf(`{"success":true,"message":"ok","details":{"installed_version":"%d","java_home":"%s","java_bin":"%s/bin/java","java_home_source":"%s","version_string":"%d.0.1"}}`, version, home, home, source, version), nil
 	case "check_process":
 		if remaining := s.processDownChecks[copied["install_dir"]]; remaining != 0 {
 			if remaining > 0 {
@@ -333,9 +348,9 @@ func TestService_ExecutePlan_success(t *testing.T) {
 			(command.params["service"] == "stx_java_proxy" || command.params["target"] == "stx_java_proxy") {
 			continue
 		}
-		if command.commandType == "check_process" || command.commandType == "check_path_ready" {
-			// 运行时进程探测与目标目录可写预检走 PRECHECK。
-			// Runtime process probes and the target-dir writability precheck use PRECHECK.
+		if command.commandType == "check_process" || command.commandType == "check_path_ready" || command.commandType == "check_java" {
+			// 运行时进程、目标目录可写与节点 JDK 预检都走 PRECHECK。
+			// Runtime process, target-dir writability and node JDK probes all use PRECHECK.
 			continue
 		}
 		if command.commandType != "upgrade" {

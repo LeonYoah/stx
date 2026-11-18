@@ -691,7 +691,7 @@ func (h *Handler) ListJobs(c *gin.Context) {
 // @Tags Sync
 // @Produce json
 // @Param ids query string true "逗号分隔的作业 ID，最多 100 个；无权查看的 ID 被忽略"
-// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param metric query string false "write|read" default(write)
 // @Success 200 {object} JobSparklinesResponse
 // @Failure 400 {object} JobSparklinesResponse
@@ -761,7 +761,7 @@ func (h *Handler) GetJobRealtime(c *gin.Context) {
 // @Tags Sync
 // @Produce json
 // @Param id path int true "作业 ID"
-// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param step query int false "步长（秒），0 表示按范围自动"
 // @Param metrics query string false "逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure,table"
 // @Success 200 {object} JobTimeseriesResponse

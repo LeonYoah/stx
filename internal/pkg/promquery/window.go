@@ -27,9 +27,9 @@ import (
 // RangeCustom is the response range value for a custom start/end window.
 const RangeCustom = "custom"
 
-// MaxCustomSpan 限制自定义时间窗跨度，避免一次拉过长的历史。
-// MaxCustomSpan caps a custom window so one request cannot pull an unbounded history.
-const MaxCustomSpan = 31 * 24 * time.Hour
+// MaxCustomSpan 限制自定义时间窗跨度（约一年），避免一次拉过长的历史。
+// MaxCustomSpan caps a custom window at about a year so one request cannot pull an unbounded history.
+const MaxCustomSpan = 366 * 24 * time.Hour
 
 // targetPoints 是自定义时间窗自动选 step 时每条序列的目标点数。
 // targetPoints is the per-series point budget used to pick a step for custom windows.
@@ -44,6 +44,9 @@ var (
 		"6h":  6 * time.Hour,
 		"24h": 24 * time.Hour,
 		"7d":  7 * 24 * time.Hour,
+		"30d": 30 * 24 * time.Hour,
+		"90d": 90 * 24 * time.Hour,
+		"1y":  365 * 24 * time.Hour,
 	}
 	RangeSteps = map[string]int{
 		"15m": 10,
@@ -51,12 +54,16 @@ var (
 		"6h":  60,
 		"24h": 300,
 		"7d":  1800,
+		"30d": 14400,
+		"90d": 43200,
+		"1y":  172800,
 	}
 )
 
-// stepCandidates 是自定义时间窗可选的 step（秒），从细到粗。
-// stepCandidates are the steps (seconds) a custom window may use, finest first.
-var stepCandidates = []int{10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400}
+// stepCandidates 是自定义时间窗可选的 step（秒），从细到粗；长窗口档位支撑约一年的查询。
+// stepCandidates are the steps (seconds) a custom window may use, finest first; the coarse tiers
+// support year-long windows.
+var stepCandidates = []int{10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400, 21600, 43200, 86400, 172800}
 
 // Window 是一个 UTC 起止时间窗。
 // Window is a UTC start/end window.
@@ -66,10 +73,10 @@ type Window struct {
 }
 
 // ParseWindow 解析 start/end 查询参数：支持 RFC3339 与 Unix 时间戳（10 位及以下按秒，否则按毫秒）。
-// 两者都为空返回 nil；只给 end 报错；只给 start 时 end 取 now。end 必须晚于 start，跨度不超过 31 天。
+// 两者都为空返回 nil；只给 end 报错；只给 start 时 end 取 now。end 必须晚于 start，跨度不超过 366 天。
 // ParseWindow parses the start/end query params: RFC3339 or Unix timestamps (10 digits or fewer are seconds, longer
 // ones milliseconds). Both empty returns nil; end alone is an error; start alone ends at now. end must be after start
-// and the span may not exceed 31 days.
+// and the span may not exceed 366 days.
 func ParseWindow(startRaw, endRaw string, now time.Time) (*Window, error) {
 	startRaw, endRaw = strings.TrimSpace(startRaw), strings.TrimSpace(endRaw)
 	if startRaw == "" && endRaw == "" {
@@ -109,7 +116,7 @@ func ResolveWindow(rangeKey string, custom *Window, now time.Time) (string, time
 	}
 	dur, ok := RangeDurations[rangeKey]
 	if !ok {
-		return "", time.Time{}, time.Time{}, fmt.Errorf("unsupported range %q (want 15m|1h|6h|24h|7d, or start/end)", rangeKey)
+		return "", time.Time{}, time.Time{}, fmt.Errorf("unsupported range %q (want 15m|1h|6h|24h|7d|30d|90d|1y|30d|90d|1y, or start/end)", rangeKey)
 	}
 	end := now.UTC()
 	return rangeKey, end.Add(-dur), end, nil

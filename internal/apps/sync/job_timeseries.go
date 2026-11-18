@@ -116,7 +116,7 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 		}
 		dur, ok := timeseriesRangeDurations[rangeKey]
 		if !ok {
-			return nil, fmt.Errorf("unsupported range %q (want 15m|1h|6h|24h|7d, or start/end)", rangeKey)
+			return nil, fmt.Errorf("unsupported range %q (want 15m|1h|6h|24h|7d|30d|90d|1y, or start/end)", rangeKey)
 		}
 		if step <= 0 {
 			step = timeseriesRangeSteps[rangeKey]

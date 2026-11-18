@@ -81,7 +81,7 @@ func (s *Service) GetJobSparklinesForActor(ctx context.Context, actor executiona
 	}
 	dur, ok := timeseriesRangeDurations[rangeKey]
 	if !ok {
-		return nil, fmt.Errorf("%w: unsupported range %q (want 15m|1h|6h|24h|7d)", ErrInvalidJobListQuery, rangeKey)
+		return nil, fmt.Errorf("%w: unsupported range %q (want 15m|1h|6h|24h|7d|30d|90d|1y)", ErrInvalidJobListQuery, rangeKey)
 	}
 	metric = strings.ToLower(strings.TrimSpace(metric))
 	counter := ""

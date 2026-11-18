@@ -644,9 +644,9 @@ func NewVolumeHandler(service *VolumeService) *VolumeHandler {
 // @Tags Dashboard
 // @Produce json
 // @Param cluster_id query int false "集群 ID，空表示全部集群"
-// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param start query string false "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range"
-// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 31 天"
+// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 366 天"
 // @Param granularity query string false "桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets"
 // @Param split query string false "拆分维度：none|cluster|task" default(none)
 // @Success 200 {object} DashboardDataResponse{data=HomeVolume}

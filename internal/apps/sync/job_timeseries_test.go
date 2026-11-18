@@ -132,11 +132,15 @@ func TestParseJobTimeseriesWindow(t *testing.T) {
 		"end only":     {"", "2026-11-14T12:00:00Z"},
 		"bad start":    {"yesterday", ""},
 		"end <= start": {"2026-11-14T12:00:00Z", "2026-11-14T12:00:00Z"},
-		"too long":     {"2026-09-01T00:00:00Z", "2026-11-14T00:00:00Z"},
+		"too long":     {"2025-09-01T00:00:00Z", "2026-11-14T00:00:00Z"},
 	} {
 		if _, err := ParseJobTimeseriesWindow(tc[0], tc[1], now); err == nil {
 			t.Fatalf("%s: want error", name)
 		}
+	}
+	// 约一年的自定义窗口现在是合法的。/ A ~year-long custom window is now allowed.
+	if _, err := ParseJobTimeseriesWindow("2025-11-20T00:00:00Z", "2026-11-14T00:00:00Z", now); err != nil {
+		t.Fatalf("366d window should pass: %v", err)
 	}
 }
 
@@ -149,6 +153,8 @@ func TestAutoTimeseriesStep(t *testing.T) {
 		2 * time.Hour:       30,
 		24 * time.Hour:      600,
 		31 * 24 * time.Hour: 14400,
+		90 * 24 * time.Hour: 43200,
+		366 * 24 * time.Hour: 172800,
 	}
 	for span, want := range cases {
 		if got := autoTimeseriesStep(span); got != want {

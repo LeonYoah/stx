@@ -327,9 +327,9 @@ func NewHostDashboardHandler(service *HostDashboardService) *HostDashboardHandle
 // @Tags Dashboard
 // @Produce json
 // @Param cluster_id query int false "只看跑该集群节点的主机"
-// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param start query string false "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range"
-// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 31 天"
+// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 366 天"
 // @Success 200 {object} DashboardDataResponse{data=HostDashboard}
 // @Failure 400 {object} DashboardDataResponse
 // @Router /api/v1/dashboard/home/hosts [get]

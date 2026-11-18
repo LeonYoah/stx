@@ -62,7 +62,7 @@ func syncOperationSpecs() []OperationSpec {
 
 	jobSparklineInputs := []InputSpec{
 		{Name: "ids", Location: InputQuery, Required: true, Description: "Comma-separated job instance IDs (max 100); IDs you cannot view are ignored"},
-		{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h)"},
+		{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h)"},
 		{Name: "metric", Location: InputQuery, Required: false, Description: "write (default) or read"},
 	}
 
@@ -82,9 +82,9 @@ func syncOperationSpecs() []OperationSpec {
 	}
 	timeseriesInputs := []InputSpec{
 		{Name: "id", Location: InputPath, Required: true, Description: "Job instance ID"},
-		{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+		{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 		{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds; overrides range"},
-		{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now): RFC3339 or unix seconds/milliseconds; span at most 31 days"},
+		{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now): RFC3339 or unix seconds/milliseconds; span at most 366 days"},
 		{Name: "step", Location: InputQuery, Required: false, Description: "Step in seconds (0 = auto from range or window)"},
 		{Name: "metrics", Location: InputQuery, Required: false, Description: "Comma-separated metric keys: throughput,rows,cdc_delay,checkpoint,busy,backpressure,table"},
 	}

@@ -371,3 +371,30 @@ func (r *Repository) ListUnresolvedRemoteAlerts(ctx context.Context, clusterIDs 
 		Find(&rows).Error
 	return rows, err
 }
+
+// ResolveStaleRemoteAlertsByFingerprint 把同指纹、starts_at 不同的未恢复记录标记为已恢复。
+// 评估器重启或规则组重载会重置内存态，相同告警会以新 starts_at 重新上报；旧行若无人收编就会
+// 一直挂着 firing，造成重复实例与计数虚高。新的（指纹, starts_at）实例出现时，旧实例一律按
+// resolvedAt 收编为 resolved，同一指纹任意时刻只保留一个未恢复实例。
+// ResolveStaleRemoteAlertsByFingerprint marks unresolved records of the same fingerprint but a
+// different starts_at as resolved. Evaluator restarts or rule-group reloads reset in-memory state,
+// so the same alert is reported again with a fresh starts_at; without superseding, the old rows
+// would stay firing forever, duplicating instances and inflating counts. When a new
+// (fingerprint, starts_at) instance arrives, every older instance is folded into resolved at
+// resolvedAt, keeping at most one unresolved instance per fingerprint at any moment.
+func (r *Repository) ResolveStaleRemoteAlertsByFingerprint(ctx context.Context, fingerprint string, keepStartsAt int64, resolvedAt time.Time) error {
+	fingerprint = strings.TrimSpace(fingerprint)
+	if fingerprint == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&RemoteAlertRecord{}).
+		Where("fingerprint = ?", fingerprint).
+		Where("starts_at <> ?", keepStartsAt).
+		Where("LOWER(status) <> ?", "resolved").
+		Updates(map[string]interface{}{
+			"status":      "resolved",
+			"resolved_at": resolvedAt.UTC(),
+			"ends_at":     resolvedAt.Unix(),
+			"updated_at":  timex.Now(),
+		}).Error
+}

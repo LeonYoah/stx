@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -42,7 +43,33 @@ func (s *Service) ingestRemoteAlertRecord(ctx context.Context, record *RemoteAle
 	if err := s.repo.UpsertRemoteAlert(ctx, record); err != nil {
 		return fmt.Errorf("upsert failed: %w", err)
 	}
+	// 同指纹只允许一个未恢复实例：评估器重启/规则重载后相同告警会以新 starts_at 重新上报，
+	// 把旧实例静默收编为 resolved（不触发恢复通知——这只是账面归并，不是真实恢复）。
+	// Only one unresolved instance per fingerprint: after evaluator restarts / rule reloads the same
+	// alert is re-reported with a new starts_at, so fold older instances into resolved silently (no
+	// recovery notification — this is bookkeeping, not a real recovery).
+	if staleErr := s.repo.ResolveStaleRemoteAlertsByFingerprint(ctx, record.Fingerprint, record.StartsAt, remoteAlertSupersedeTime(record)); staleErr != nil {
+		logger.WarnF(ctx, "远程告警收编同指纹旧实例失败，继续投递: %v / superseding stale instances of remote alert fingerprint failed, still delivering: %v", staleErr, staleErr)
+	}
 	return s.deliverRemoteAlertRecord(ctx, record, previousRecord)
+}
+
+// remoteAlertSupersedeTime 给被收编的旧实例选恢复时刻：恢复记录用自身的 ResolvedAt，
+// 触发记录用其 StartsAt（旧实例应在新实例开始前结束）；兜底 now。
+// remoteAlertSupersedeTime picks the resolve moment for superseded instances: a resolved record
+// uses its own ResolvedAt, a firing record uses its StartsAt (the old instance should end before
+// the new one begins); falls back to now.
+func remoteAlertSupersedeTime(record *RemoteAlertRecord) time.Time {
+	if record == nil {
+		return time.Now().UTC()
+	}
+	if record.ResolvedAt != nil && !record.ResolvedAt.IsZero() {
+		return record.ResolvedAt.UTC()
+	}
+	if record.StartsAt > 0 {
+		return time.Unix(record.StartsAt, 0).UTC()
+	}
+	return time.Now().UTC()
 }
 
 // deliverRemoteAlertRecord 按记录归属选择投递路径：managed_by=stx 的策略告警走

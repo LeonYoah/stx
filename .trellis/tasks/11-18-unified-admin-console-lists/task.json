@@ -1,0 +1,56 @@
+{
+  "id": "unified-admin-console-lists",
+  "name": "unified-admin-console-lists",
+  "title": "全局 UI 换新：统一管理控制台与工作台（列表/工作台/控制台/其他页面）",
+  "description": "将 UI 统一到 Arc UI / shadcn/ui / beUI 组件体系与 WorkspaceHeader + StatPillsBar + server-driven List Shell 骨架：覆盖工作台、控制台、告警、巡检、审计、用户中心及其它页面；明确组件与链接；各页面用 Egolite 点击做功能回归；扩展已有 UI 组件而非新造。",
+  "status": "planning",
+  "dev_type": "frontend",
+  "scope": "frontend",
+  "package": "frontend/components/common",
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-11-18",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": null,
+  "worktree_path": null,
+  "current_phase": 1,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "design-review-global-scope"
+    },
+    {
+      "phase": 2,
+      "action": "implement-shared-list-primitives"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/components/common/sync/job-table/JobTable.tsx",
+    "frontend/components/common/sync/job-table/JobTableToolbar.tsx",
+    "frontend/components/common/sync/StudioDataTable.tsx",
+    "frontend/components/common/layout/WorkspaceHeader.tsx",
+    "frontend/components/common/layout/StatPillsBar.tsx",
+    "frontend/components/common/layout/ModuleNavTabs.tsx",
+    "frontend/components/common/audit/AuditLogMain.tsx",
+    "frontend/components/common/monitoring/MonitoringAlertsCenter.tsx",
+    "frontend/components/common/monitoring/MonitoringCenterWorkspace.tsx",
+    "frontend/components/common/diagnostics/DiagnosticsInspectionCenter.tsx",
+    "frontend/components/common/diagnostics/DiagnosticsErrorCenter.tsx",
+    "frontend/components/common/diagnostics/DiagnosticsWorkspace.tsx",
+    "frontend/components/common/admin/UserManagement.tsx",
+    "frontend/components/workbench/*",
+    "frontend/components/arc/tabs/tabs.tsx",
+    "frontend/components/arc/badge/badge.tsx",
+    "frontend/components.json",
+    ".trellis/spec/frontend/ui-conventions.md"
+  ],
+  "notes": "全局大换新：以现有 Arc/shadcn/beUI 组件与通用壳扩展为主，不新造通用 UI；server-driven 列表保持受控查询与服务端分页；每页改造后用 Egolite 点击回归。",
+  "meta": {}
+}

@@ -19,8 +19,6 @@ package monitoring
 
 import (
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -29,56 +27,22 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
-// HandleAlertmanagerWebhook ingests one Alertmanager webhook payload into persistent records.
-// HandleAlertmanagerWebhook 将 Alertmanager webhook 请求写入持久化告警记录。
-func (s *Service) HandleAlertmanagerWebhook(ctx context.Context, payload *AlertmanagerWebhookPayload) (*AlertmanagerWebhookResult, error) {
-	if s.repo == nil {
-		return nil, fmt.Errorf("monitoring repository is not configured")
-	}
-	if payload == nil {
-		return nil, fmt.Errorf("empty webhook payload")
-	}
+// clustersHealthCacheTTL 是集群健康 / 首页 KPI 的缓存时长；测试可设为 0 以关闭缓存。
+// clustersHealthCacheTTL is the cluster-health / home KPI cache TTL; tests may set it to 0 to disable caching.
+var clustersHealthCacheTTL = 15 * time.Second
 
-	result := &AlertmanagerWebhookResult{
-		Received: len(payload.Alerts),
-		Stored:   0,
-		Errors:   make([]string, 0, 2),
-	}
-	now := timex.Now()
-	for idx, alert := range payload.Alerts {
-		if alert == nil {
-			continue
-		}
+// clustersHealthAlertLookback 限制本地进程告警计入 KPI 的时间窗，避免扫全部历史事件。
+// clustersHealthAlertLookback caps how far back local process alerts count toward KPIs, avoiding a full history scan.
+const clustersHealthAlertLookback = 31 * 24 * time.Hour
 
-		record := normalizeWebhookAlert(payload, alert, now)
-		previousRecord, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, record.Fingerprint, record.StartsAt)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] lookup failed: %v", idx, err))
-			continue
-		}
-		if err := s.repo.UpsertRemoteAlert(ctx, record); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] upsert failed: %v", idx, err))
-			continue
-		}
-		if err := s.deliverRemoteAlertRecord(ctx, record, previousRecord); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("alert[%d] delivery failed: %v", idx, err))
-		}
-		result.Stored++
-	}
-	if len(result.Errors) == 0 {
-		result.Errors = nil
-	}
-	return result, nil
-}
-
-// ingestRemoteAlertRecord 是「标准化告警记录 → 持久化 → 投递」的统一入口，内嵌评估器与
-// AM webhook 共用：lookup previous → upsert → managed 策略投递或路由匹配投递。
-// ingestRemoteAlertRecord is the shared "normalized record → persist → deliver" entry used by
-// both the embedded evaluator and the AM webhook: lookup previous → upsert → managed policy
-// delivery or route-match delivery.
+// ingestRemoteAlertRecord 是「标准化告警记录 → 持久化 → 投递」的统一入口，供内嵌告警评估器使用：
+// lookup previous → upsert → managed 策略投递或路由匹配投递。
+// ingestRemoteAlertRecord is the "normalized record → persist → deliver" entry used by the embedded
+// alert evaluator: lookup previous → upsert → managed policy delivery or route-match delivery.
 func (s *Service) ingestRemoteAlertRecord(ctx context.Context, record *RemoteAlertRecord) error {
 	previousRecord, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, record.Fingerprint, record.StartsAt)
 	if err != nil {
@@ -108,99 +72,6 @@ func (s *Service) deliverRemoteAlertRecord(ctx context.Context, record *RemoteAl
 	return nil
 }
 
-func normalizeWebhookAlert(payload *AlertmanagerWebhookPayload, alert *WebhookAlert, now time.Time) *RemoteAlertRecord {
-	labels := mergeStringMap(payload.CommonLabels, alert.Labels)
-	annotations := mergeStringMap(payload.CommonAnnotations, alert.Annotations)
-
-	startsAt := alert.StartsAt.UTC()
-	if startsAt.IsZero() {
-		startsAt = now
-	}
-
-	status := strings.TrimSpace(alert.Status)
-	if status == "" {
-		status = strings.TrimSpace(payload.Status)
-	}
-	if status == "" {
-		status = "firing"
-	}
-
-	clusterID := strings.TrimSpace(labels["cluster_id"])
-	if clusterID == "" {
-		clusterID = "unknown"
-	}
-	clusterName := strings.TrimSpace(labels["cluster_name"])
-	if clusterName == "" {
-		clusterName = "unknown"
-	}
-	env := strings.TrimSpace(labels["env"])
-	if env == "" {
-		env = "unknown"
-	}
-
-	fingerprint := strings.TrimSpace(alert.Fingerprint)
-	if fingerprint == "" {
-		fingerprint = buildFallbackFingerprint(labels, startsAt, alert.GeneratorURL)
-	}
-
-	alertName := strings.TrimSpace(firstNonEmpty(
-		labels["policy_name"],
-		annotations["policy_name"],
-		labels["alertname"],
-	))
-	if alertName == "" {
-		alertName = "unknown_alert"
-	}
-
-	labelsJSON := mustMarshalJSON(labels)
-	annotationsJSON := mustMarshalJSON(annotations)
-
-	var endsAtUnix int64
-	var resolvedAt *time.Time
-	if !alert.EndsAt.IsZero() {
-		endsAt := alert.EndsAt.UTC()
-		endsAtUnix = endsAt.Unix()
-		if strings.EqualFold(status, "resolved") {
-			resolvedAt = &endsAt
-		}
-	}
-	if strings.EqualFold(status, "resolved") && resolvedAt == nil {
-		t := now
-		resolvedAt = &t
-	}
-
-	return &RemoteAlertRecord{
-		Fingerprint:     fingerprint,
-		StartsAt:        startsAt.Unix(),
-		Status:          status,
-		Receiver:        strings.TrimSpace(payload.Receiver),
-		AlertName:       alertName,
-		Severity:        strings.TrimSpace(labels["severity"]),
-		ClusterID:       clusterID,
-		ClusterName:     clusterName,
-		Env:             env,
-		GeneratorURL:    strings.TrimSpace(alert.GeneratorURL),
-		Summary:         strings.TrimSpace(firstNonEmpty(annotations["summary"], annotations["message"])),
-		Description:     strings.TrimSpace(firstNonEmpty(annotations["description"], annotations["details"])),
-		LabelsJSON:      labelsJSON,
-		AnnotationsJSON: annotationsJSON,
-		EndsAt:          endsAtUnix,
-		ResolvedAt:      resolvedAt,
-		LastReceivedAt:  now,
-	}
-}
-
-func mergeStringMap(base, override map[string]string) map[string]string {
-	merged := make(map[string]string, len(base)+len(override))
-	for k, v := range base {
-		merged[k] = v
-	}
-	for k, v := range override {
-		merged[k] = v
-	}
-	return merged
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		v = strings.TrimSpace(v)
@@ -217,12 +88,6 @@ func mustMarshalJSON(v interface{}) string {
 		return "{}"
 	}
 	return string(raw)
-}
-
-func buildFallbackFingerprint(labels map[string]string, startsAt time.Time, generatorURL string) string {
-	raw := mustMarshalJSON(labels) + "|" + startsAt.UTC().Format(time.RFC3339Nano) + "|" + strings.TrimSpace(generatorURL)
-	sum := sha1.Sum([]byte(raw))
-	return hex.EncodeToString(sum[:])
 }
 
 // ListRemoteAlerts returns remote alert records with paging filters.
@@ -289,13 +154,77 @@ func (s *Service) ListRemoteAlerts(ctx context.Context, filter *RemoteAlertFilte
 // GetClustersHealth returns cluster-level health summary for monitoring center.
 // GetClustersHealth 返回监控中心集群级健康摘要。
 func (s *Service) GetClustersHealth(ctx context.Context) (*ClusterHealthData, error) {
+	return s.GetClustersHealthFor(ctx, 0)
+}
+
+// GetClustersHealthFor 返回集群健康摘要。clusterID=0 统计全部集群；大于 0 时只查该集群的告警。
+// GetClustersHealthFor returns cluster health. clusterID 0 counts every cluster; a positive id only that cluster's alerts.
+func (s *Service) GetClustersHealthFor(ctx context.Context, clusterID uint) (*ClusterHealthData, error) {
+	if clustersHealthCacheTTL > 0 {
+		s.clustersHealthMu.Lock()
+		if s.clustersHealthCache == nil {
+			s.clustersHealthCache = make(map[uint]*ClusterHealthData)
+			s.clustersHealthUntil = make(map[uint]time.Time)
+		}
+		if cached := s.clustersHealthCache[clusterID]; cached != nil && time.Now().Before(s.clustersHealthUntil[clusterID]) {
+			s.clustersHealthMu.Unlock()
+			return cached, nil
+		}
+		s.clustersHealthMu.Unlock()
+	}
+
+	data, err := s.loadClustersHealth(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	if clustersHealthCacheTTL > 0 {
+		s.clustersHealthMu.Lock()
+		if s.clustersHealthCache == nil {
+			s.clustersHealthCache = make(map[uint]*ClusterHealthData)
+			s.clustersHealthUntil = make(map[uint]time.Time)
+		}
+		s.clustersHealthCache[clusterID] = data
+		s.clustersHealthUntil[clusterID] = time.Now().Add(clustersHealthCacheTTL)
+		s.clustersHealthMu.Unlock()
+	}
+	return data, nil
+}
+
+// invalidateClustersHealthCache 丢掉全部范围的集群健康缓存，使首页 / 大盘告警数在确认或关闭后立刻对齐。
+// invalidateClustersHealthCache drops every clusters-health cache entry so home / dashboard alert counts
+// match immediately after an ack or close.
+func (s *Service) invalidateClustersHealthCache() {
+	if s == nil {
+		return
+	}
+	s.clustersHealthMu.Lock()
+	s.clustersHealthCache = make(map[uint]*ClusterHealthData)
+	s.clustersHealthUntil = make(map[uint]time.Time)
+	s.clustersHealthMu.Unlock()
+}
+
+// loadClustersHealth 计算集群健康摘要（不读缓存）。clusterID=0 表示全部集群。
+// loadClustersHealth computes the cluster health summary (no cache). clusterID 0 means every cluster.
+func (s *Service) loadClustersHealth(ctx context.Context, clusterID uint) (*ClusterHealthData, error) {
 	if s.clusterService == nil {
 		return nil, fmt.Errorf("cluster service is not configured")
 	}
 
-	clusters, _, err := s.clusterService.List(ctx, &cluster.ClusterFilter{Page: 1, PageSize: 1000})
-	if err != nil {
-		return nil, err
+	var clusters []*cluster.Cluster
+	var err error
+	if clusterID > 0 {
+		item, getErr := s.clusterService.Get(ctx, clusterID)
+		if getErr != nil {
+			return nil, getErr
+		}
+		if item != nil {
+			clusters = []*cluster.Cluster{item}
+		}
+	} else {
+		clusters, _, err = s.clusterService.List(ctx, &cluster.ClusterFilter{Page: 1, PageSize: 1000})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	clusterIDs := make([]string, 0, len(clusters))
@@ -308,9 +237,19 @@ func (s *Service) GetClustersHealth(ctx context.Context) (*ClusterHealthData, er
 
 	statsMap := make(map[string]*RemoteAlertClusterStat)
 	if s.repo != nil {
-		statsMap, err = s.activeRemoteAlertStats(ctx, clusterIDs, timex.Now())
-		if err != nil {
-			return nil, err
+		now := timex.Now()
+		remoteStats, statsErr := s.activeRemoteAlertStats(ctx, clusterIDs, now)
+		if statsErr != nil {
+			logger.WarnF(ctx, "集群健康远程告警计数失败，继续合并本地/同步告警: %v / clusters health remote alert stats failed, still merging local/sync alerts: %v", statsErr, statsErr)
+		} else {
+			statsMap = remoteStats
+		}
+		// 集群健康 / 首页 KPI 与告警中心同一口径：远程指标告警 + 同步作业告警 + 本地进程事件。
+		// 本地/同步合并失败时降级为仅远程计数，避免整页 KPI 空白。
+		// Cluster health / home KPIs match the alert center: remote metric alerts + sync job alerts + local process events.
+		// If merging local/sync alerts fails, keep remote counts so the page still has KPIs.
+		if err := s.mergeFiringAlertInstanceStats(ctx, statsMap, now, clusterID); err != nil {
+			logger.WarnF(ctx, "集群健康合并本地/同步告警失败，仅保留远程告警计数: %v / clusters health merge of local/sync alerts failed, keeping remote counts: %v", err, err)
 		}
 	}
 
@@ -334,8 +273,8 @@ func (s *Service) GetClustersHealth(ctx context.Context) (*ClusterHealthData, er
 			item.OfflineNodes = status.OfflineNodes
 		}
 
-		clusterID := strconv.FormatUint(uint64(c.ID), 10)
-		if stat := statsMap[clusterID]; stat != nil {
+		idKey := strconv.FormatUint(uint64(c.ID), 10)
+		if stat := statsMap[idKey]; stat != nil {
 			item.ActiveAlerts = stat.ActiveCount
 			item.CriticalAlerts = stat.CriticalCount
 		}
@@ -442,4 +381,59 @@ func (s *Service) activeRemoteAlertStats(ctx context.Context, clusterIDs []strin
 		}
 	}
 	return result, nil
+}
+
+// mergeFiringAlertInstanceStats 把同步作业告警和本地进程事件并入集群健康计数；远程指标告警已由 activeRemoteAlertStats 计入。
+// mergeFiringAlertInstanceStats adds sync job alerts and local process events to cluster health counts; remote metric
+// alerts are already counted by activeRemoteAlertStats.
+func (s *Service) mergeFiringAlertInstanceStats(ctx context.Context, stats map[string]*RemoteAlertClusterStat, now time.Time, clusterID uint) error {
+	if stats == nil {
+		return nil
+	}
+	since := now.Add(-clustersHealthAlertLookback)
+	syncFilter := &AlertInstanceFilter{
+		Status:    AlertDisplayStatusFiring,
+		Unbounded: true,
+	}
+	localFilter := &AlertInstanceFilter{
+		Status:    AlertDisplayStatusFiring,
+		StartTime: &since,
+	}
+	if clusterID > 0 {
+		id := strconv.FormatUint(uint64(clusterID), 10)
+		syncFilter.ClusterID = id
+		localFilter.ClusterID = id
+	}
+	syncItems, err := s.buildSyncAlertInstances(ctx, syncFilter, now)
+	if err != nil {
+		return err
+	}
+	addFiringAlertInstanceCounts(stats, syncItems)
+	localItems, err := s.buildLocalAlertInstances(ctx, localFilter, now)
+	if err != nil {
+		return err
+	}
+	addFiringAlertInstanceCounts(stats, localItems)
+	return nil
+}
+
+func addFiringAlertInstanceCounts(stats map[string]*RemoteAlertClusterStat, items []*AlertInstance) {
+	for _, item := range items {
+		if item == nil || item.Status != AlertDisplayStatusFiring {
+			continue
+		}
+		clusterID := strings.TrimSpace(item.ClusterID)
+		if clusterID == "" {
+			continue
+		}
+		stat := stats[clusterID]
+		if stat == nil {
+			stat = &RemoteAlertClusterStat{ClusterID: clusterID}
+			stats[clusterID] = stat
+		}
+		stat.ActiveCount++
+		if strings.EqualFold(strings.TrimSpace(string(item.Severity)), string(AlertSeverityCritical)) {
+			stat.CriticalCount++
+		}
+	}
 }

@@ -1926,7 +1926,7 @@ func (s *Service) executeCollectLogSampleStep(ctx context.Context, task *Diagnos
 		candidates := buildDiagnosticLogCandidates(selected, state.ErrorEvents)
 		var nodeSuccess bool
 		for _, candidate := range candidates {
-			snippet, detail, err := s.collectDiagnosticWindowedLogSnippet(ctx, selected, candidate, window)
+			snippet, detail, err := s.collectDiagnosticWindowedLogSnippet(ctx, selected, candidate, window, task.ClusterID)
 			if err != nil || strings.TrimSpace(snippet) == "" {
 				detail = firstNonEmptyString(detail, bilingualText("日志样本采集失败。", "Failed to collect log sample."))
 				_ = s.AppendDiagnosticStepLog(ctx, &DiagnosticStepLog{
@@ -2413,11 +2413,10 @@ type diagnosticPrometheusSignalSpec struct {
 }
 
 func (s *Service) collectDiagnosticPrometheusSnapshot(ctx context.Context, task *DiagnosticTask, window diagnosticCollectionWindow) (*diagnosticPrometheusSnapshot, error) {
-	// 内嵌化后 baseURL 只是就绪哨兵；不可用时跳过快照即可，诊断流程继续走其余采集。
-	// After the embedding, baseURL is only a readiness sentinel; skip the snapshot when it is
-	// empty and let the diagnostics flow continue with the remaining collectors.
-	baseURL, _ := promquery.BaseURL()
-	if baseURL == "" || task == nil || task.ClusterID == 0 {
+	// 监控不可用时跳过快照即可，诊断流程继续走其余采集。
+	// Skip the snapshot when monitoring is unavailable; the diagnostics flow continues with the
+	// remaining collectors.
+	if promquery.UnavailableReason() != "" || task == nil || task.ClusterID == 0 {
 		return nil, nil
 	}
 	specs := buildDiagnosticPrometheusSignalSpecs(task.ClusterID)
@@ -2433,7 +2432,7 @@ func (s *Service) collectDiagnosticPrometheusSnapshot(ctx context.Context, task 
 		Signals:     make([]diagnosticPrometheusSignal, 0, len(specs)),
 	}
 	for _, spec := range specs {
-		signal, err := queryDiagnosticPrometheusSignal(ctx, baseURL, window, stepSeconds, spec)
+		signal, err := queryDiagnosticPrometheusSignal(ctx, window, stepSeconds, spec)
 		if err != nil {
 			snapshot.CollectionNotes = append(snapshot.CollectionNotes, fmt.Sprintf("%s: %v", spec.Key, err))
 			continue
@@ -2551,8 +2550,8 @@ func buildDiagnosticPrometheusSignalSpecs(clusterID uint) []diagnosticPrometheus
 	}
 }
 
-func queryDiagnosticPrometheusSignal(ctx context.Context, baseURL string, window diagnosticCollectionWindow, stepSeconds int, spec diagnosticPrometheusSignalSpec) (*diagnosticPrometheusSignal, error) {
-	series, err := promquery.Range(ctx, baseURL, spec.PromQL, window.Start, window.End, stepSeconds)
+func queryDiagnosticPrometheusSignal(ctx context.Context, window diagnosticCollectionWindow, stepSeconds int, spec diagnosticPrometheusSignalSpec) (*diagnosticPrometheusSignal, error) {
+	series, err := promquery.Range(ctx, spec.PromQL, window.Start, window.End, stepSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -4881,12 +4880,13 @@ func buildDiagnosticLogCandidates(target DiagnosticTaskNodeTarget, errorEvents [
 
 var diagnosticLogTimestampPattern = regexp.MustCompile(`(?:\[[^\]]*\]\s+)?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d{3})?)`)
 
-func (s *Service) collectDiagnosticWindowedLogSnippet(ctx context.Context, target DiagnosticTaskNodeTarget, candidate string, window diagnosticCollectionWindow) (string, string, error) {
+func (s *Service) collectDiagnosticWindowedLogSnippet(ctx context.Context, target DiagnosticTaskNodeTarget, candidate string, window diagnosticCollectionWindow, clusterID uint) (string, string, error) {
 	if s.agentSender == nil {
 		return "", "agent sender is unavailable", fmt.Errorf("agent sender is unavailable")
 	}
 	contents := make([]string, 0, 4)
-	days := diagnosticWindowDays(window.Start, window.End)
+	loc := s.diagnosticLogLocation(ctx, target, clusterID)
+	days := diagnosticWindowDays(window.Start, window.End, loc)
 	for _, day := range days {
 		params := map[string]string{
 			"log_file":   candidate,
@@ -4894,7 +4894,7 @@ func (s *Service) collectDiagnosticWindowedLogSnippet(ctx context.Context, targe
 			"start_time": window.Start.Format(time.RFC3339),
 			"end_time":   window.End.Format(time.RFC3339),
 		}
-		if isDiagnosticCurrentLogDay(day, window.End) {
+		if isDiagnosticCurrentLogDay(day, window.End, loc) {
 			// current active file
 		} else {
 			params["date"] = day.Format("2006-01-02")
@@ -4911,7 +4911,7 @@ func (s *Service) collectDiagnosticWindowedLogSnippet(ctx context.Context, targe
 		return "", bilingualText("未读取到日志文件内容。", "No log file content was read."), fmt.Errorf("no log content")
 	}
 
-	snippet, _, sawTimestamp := extractDiagnosticLogWindowContent(contents, window.Start, window.End)
+	snippet, _, sawTimestamp := extractDiagnosticLogWindowContent(contents, window.Start, window.End, loc)
 	if strings.TrimSpace(snippet) == "" {
 		if sawTimestamp {
 			return "", bilingualText("指定时间窗内未命中日志片段。", "No log entries matched the diagnostics window."), nil
@@ -4919,6 +4919,17 @@ func (s *Service) collectDiagnosticWindowedLogSnippet(ctx context.Context, targe
 		snippet = strings.TrimSpace(strings.Join(contents, "\n"))
 	}
 	return snippet, "", nil
+}
+
+// diagnosticLogLocation 解析该节点日志里的无偏移时间：优先该主机心跳时区，没有时再回退集群 Master。
+// diagnosticLogLocation parses naive times in that node's logs: the host heartbeat zone first, then the cluster master.
+func (s *Service) diagnosticLogLocation(ctx context.Context, target DiagnosticTaskNodeTarget, clusterID uint) *time.Location {
+	if s != nil && s.hostService != nil && target.HostID > 0 {
+		if host, err := s.hostService.GetHostByID(ctx, target.HostID); err == nil && host != nil && strings.TrimSpace(host.Timezone) != "" {
+			return timex.SeatunnelLocationForHost(host.Timezone)
+		}
+	}
+	return timex.SeatunnelLocationForCluster(ctx, clusterID)
 }
 
 func buildDiagnosticLogPreview(content string, maxLines int) (string, bool, int) {
@@ -4972,14 +4983,17 @@ func buildDiagnosticTaskPreviewFileURL(taskID uint, relativePath string) string 
 	return fmt.Sprintf("/api/v1/diagnostics/tasks/%d/files/%s", taskID, strings.Join(parts, "/"))
 }
 
-func diagnosticWindowDays(start, end time.Time) []time.Time {
+func diagnosticWindowDays(start, end time.Time, loc *time.Location) []time.Time {
+	if loc == nil {
+		loc = timex.SeatunnelLocation()
+	}
 	if end.Before(start) {
 		start, end = end, start
 	}
-	start = start.Local()
-	end = end.Local()
-	startDay := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
-	endDay := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location())
+	start = start.In(loc)
+	end = end.In(loc)
+	startDay := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, loc)
+	endDay := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, loc)
 	days := make([]time.Time, 0, int(endDay.Sub(startDay)/(24*time.Hour))+1)
 	for day := startDay; !day.After(endDay); day = day.Add(24 * time.Hour) {
 		days = append(days, day)
@@ -4987,13 +5001,19 @@ func diagnosticWindowDays(start, end time.Time) []time.Time {
 	return days
 }
 
-func isDiagnosticCurrentLogDay(day, end time.Time) bool {
-	y1, m1, d1 := day.Date()
-	y2, m2, d2 := end.Local().Date()
+func isDiagnosticCurrentLogDay(day, end time.Time, loc *time.Location) bool {
+	if loc == nil {
+		loc = timex.SeatunnelLocation()
+	}
+	y1, m1, d1 := day.In(loc).Date()
+	y2, m2, d2 := end.In(loc).Date()
 	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
-func extractDiagnosticLogWindowContent(contents []string, start, end time.Time) (string, bool, bool) {
+func extractDiagnosticLogWindowContent(contents []string, start, end time.Time, loc *time.Location) (string, bool, bool) {
+	if loc == nil {
+		loc = timex.SeatunnelLocation()
+	}
 	type logEntry struct {
 		ts      time.Time
 		hasTime bool
@@ -5013,7 +5033,7 @@ func extractDiagnosticLogWindowContent(contents []string, start, end time.Time) 
 	var current *logEntry
 	for _, content := range contents {
 		for _, line := range strings.Split(content, "\n") {
-			if ts, ok := parseDiagnosticLogTimestamp(line); ok {
+			if ts, ok := parseDiagnosticLogTimestamp(line, loc); ok {
 				entry := logEntry{
 					ts:      ts,
 					hasTime: true,
@@ -5047,15 +5067,18 @@ func extractDiagnosticLogWindowContent(contents []string, start, end time.Time) 
 	return strings.TrimSpace(strings.Join(filtered, "\n")), matchedWindow, sawTimestamp
 }
 
-func parseDiagnosticLogTimestamp(line string) (time.Time, bool) {
+func parseDiagnosticLogTimestamp(line string, loc *time.Location) (time.Time, bool) {
 	matches := diagnosticLogTimestampPattern.FindStringSubmatch(line)
 	if len(matches) != 2 {
 		return time.Time{}, false
 	}
+	if loc == nil {
+		loc = timex.SeatunnelLocation()
+	}
 	value := strings.TrimSpace(matches[1])
 	layouts := []string{"2006-01-02 15:04:05,000", "2006-01-02 15:04:05"}
 	for _, layout := range layouts {
-		if parsed, err := time.ParseInLocation(layout, value, timex.SeatunnelLocation()); err == nil {
+		if parsed, err := time.ParseInLocation(layout, value, loc); err == nil {
 			return parsed.UTC(), true
 		}
 	}

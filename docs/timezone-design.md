@@ -8,14 +8,16 @@
 3. **API 输出** RFC3339（UTC，`Z`），`timex.FormatAPI`；**API 输入**必须带偏移，或同时提供 `tz`（IANA）参数（`timex.ParseAPITime`）。
 4. **展示**：前端 `lib/timezone.ts`（Intl）按用户偏好时区格式化；用户时区为空=跟随浏览器。服务端渲染（诊断报告等）使用 `app.display_timezone`。
 5. **Cron**：任务级 `timezone` 优先，缺省回退 `app.display_timezone`；自动巡检策略同样回退该值。
-6. **SeaTunnel 无偏移时间**（引擎 REST、日志）：按 `STX_SEATUNNEL_TIMEZONE` 解析（Server 默认 display_timezone，Agent 默认主机本地时区），转为 UTC。
+6. **SeaTunnel 无偏移时间**（引擎 REST、日志）：按 `STX_SEATUNNEL_TIMEZONE`（最高优先级）解析；未设置时使用该集群 Master 节点 Agent 心跳上报的 IANA 时区（`hosts.timezone`）；仍未知时用控制面 `time.Local`。解析结果转为 UTC 存储。这不是 JVM 默认时区，也不是控制台展示时区。
 
 ## 配置
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `app.display_timezone` / `STX_DISPLAY_TIMEZONE` | `Asia/Shanghai` | 系统默认展示时区；`STX_REPORT_TIMEZONE` 为兼容别名 |
-| `database.legacy_timezone` | 进程本地时区 | 仅 MySQL 历史数据迁移使用 |
-| `STX_SEATUNNEL_TIMEZONE` | Server: display tz；Agent: 主机时区 | 解析 SeaTunnel 无偏移时间 |
+| `TZ`（Docker Compose / 镜像 `ENV`） | `Asia/Shanghai` | 容器进程本地时区；`.env` 可覆盖 |
+| `database.legacy_timezone` | `UTC`（不建议改） | 仅 MySQL 一次性历史迁移；已迁移过的库不读它 |
+| `STX_SEATUNNEL_TIMEZONE` | 未设置 | 解析 SeaTunnel 无偏移时间的最高优先级；未设置时用节点心跳时区 |
+| Agent 心跳 `timezone` / `hosts.timezone` | 空（旧 Agent） | 节点主机 IANA 时区，供控制面解析该集群引擎/日志时间 |
 | 用户 `timezone`（PUT /api/v1/auth/profile） | 空 | 空=跟随浏览器 |
 
 ## 历史数据迁移

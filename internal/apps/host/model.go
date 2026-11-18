@@ -142,6 +142,9 @@ type Host struct {
 	TotalMemory   int64       `json:"total_memory"`
 	TotalDisk     int64       `json:"total_disk"`
 	LastHeartbeat *time.Time  `json:"last_heartbeat"`
+	// Timezone 是 Agent 心跳上报的主机 IANA 时区（如 Asia/Shanghai），用于解析同机 SeaTunnel 的无偏移时间。
+	// Timezone is the host IANA zone reported in Agent heartbeats (e.g. Asia/Shanghai), used to parse naive SeaTunnel times on that host.
+	Timezone string `json:"timezone" gorm:"size:64"`
 
 	// docker specific fields (Phase 2) / Docker 专用字段（第二阶段）
 	DockerAPIURL     string `json:"docker_api_url" gorm:"size:255"`
@@ -236,6 +239,7 @@ type HostInfo struct {
 	TotalMemory   int64       `json:"total_memory,omitempty"`
 	TotalDisk     int64       `json:"total_disk,omitempty"`
 	LastHeartbeat *time.Time  `json:"last_heartbeat,omitempty"`
+	Timezone      string      `json:"timezone,omitempty"`
 
 	// docker fields / Docker 字段
 	DockerAPIURL     string `json:"docker_api_url,omitempty"`
@@ -285,6 +289,7 @@ func (h *Host) ToHostInfo(heartbeatTimeout time.Duration, since time.Time) *Host
 		info.TotalMemory = h.TotalMemory
 		info.TotalDisk = h.TotalDisk
 		info.LastHeartbeat = h.LastHeartbeat
+		info.Timezone = h.Timezone
 		// Display status: offline when not online for consistency after platform restart
 		if info.IsOnline {
 			info.Status = agentStatusToHostStatus(h.AgentStatus)

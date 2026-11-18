@@ -82,6 +82,12 @@ type Service struct {
 	// policy CRUD reads it to trigger rule-group rebuilds, and atomic.Pointer keeps that read
 	// path lock-free.
 	metricEvaluator atomic.Pointer[MetricEvaluator]
+
+	// clustersHealthCache 按集群范围缓存 GetClustersHealth：0 表示全部集群，其它键为单个 cluster_id。
+	// clustersHealthCache keys GetClustersHealth by scope: 0 = every cluster, otherwise one cluster_id.
+	clustersHealthMu    sync.Mutex
+	clustersHealthCache map[uint]*ClusterHealthData
+	clustersHealthUntil map[uint]time.Time
 }
 
 // NewService creates a monitoring service.
@@ -93,6 +99,8 @@ func NewService(clusterService *cluster.Service, monitorService *monitor.Service
 		repo:                         repo,
 		nodeHealthStartupSuppression: defaultNodeHealthStartupSuppressionWindow(),
 		nodeHealthOfflineObservedAt:  make(map[uint]time.Time),
+		clustersHealthCache:          make(map[uint]*ClusterHealthData),
+		clustersHealthUntil:          make(map[uint]time.Time),
 	}
 }
 
@@ -300,203 +308,6 @@ func (s *Service) countFiringAlertsForCluster(ctx context.Context, clusterID uin
 	return alerts.Stats.Firing, nil
 }
 
-// ListAlerts returns alert center data.
-// ListAlerts 返回告警中心数据。
-func (s *Service) ListAlerts(ctx context.Context, filter *AlertFilter) (*AlertListData, error) {
-	if s.repo == nil {
-		return nil, fmt.Errorf("monitoring repository is not configured")
-	}
-	if filter == nil {
-		filter = &AlertFilter{}
-	}
-	if filter.Status != "" && filter.Status != AlertStatusFiring && filter.Status != AlertStatusAcknowledged && filter.Status != AlertStatusSilenced {
-		return nil, fmt.Errorf("invalid alert status")
-	}
-	if filter.Page <= 0 {
-		filter.Page = 1
-	}
-	if filter.PageSize <= 0 {
-		filter.PageSize = 20
-	}
-	if filter.PageSize > 100 {
-		filter.PageSize = 100
-	}
-
-	rows, total, err := s.repo.ListCriticalEvents(ctx, &AlertEventQueryFilter{
-		ClusterID: filter.ClusterID,
-		StartTime: filter.StartTime,
-		EndTime:   filter.EndTime,
-		Page:      filter.Page,
-		PageSize:  filter.PageSize,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	eventIDs := make([]uint, 0, len(rows))
-	for _, row := range rows {
-		eventIDs = append(eventIDs, row.ID)
-	}
-	stateMap, err := s.repo.ListEventStatesByEventIDs(ctx, eventIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	result := &AlertListData{
-		GeneratedAt: timex.Now(),
-		Page:        filter.Page,
-		PageSize:    filter.PageSize,
-		Total:       total,
-		Stats:       &AlertStats{},
-		Alerts:      make([]*AlertEvent, 0, len(rows)),
-	}
-
-	ruleCache := make(map[uint]map[string]*AlertRule)
-	for _, row := range rows {
-		rules, err := s.getClusterRuleMap(ctx, row.ClusterID, ruleCache)
-		if err != nil {
-			return nil, err
-		}
-
-		ruleKey := eventTypeToRuleKey(row.EventType)
-		rule := rules[ruleKey]
-		if rule == nil {
-			rule = defaultRuleByKey(row.ClusterID, ruleKey)
-		}
-		if rule == nil || !rule.Enabled {
-			continue
-		}
-
-		state := stateMap[row.ID]
-		status := resolveAlertStatus(state, result.GeneratedAt)
-		if filter.Status != "" && status != filter.Status {
-			continue
-		}
-
-		alert := &AlertEvent{
-			AlertID:          fmt.Sprintf("event-%d", row.ID),
-			EventID:          row.ID,
-			ClusterID:        row.ClusterID,
-			ClusterName:      row.ClusterName,
-			NodeID:           row.NodeID,
-			HostID:           row.HostID,
-			Hostname:         row.Hostname,
-			IP:               row.IP,
-			EventType:        row.EventType,
-			Severity:         rule.Severity,
-			Status:           status,
-			RuleKey:          rule.RuleKey,
-			RuleName:         rule.RuleName,
-			ProcessName:      row.ProcessName,
-			PID:              row.PID,
-			Role:             row.Role,
-			Details:          row.Details,
-			CreatedAt:        row.CreatedAt,
-			LatestActionNote: "",
-		}
-		if state != nil {
-			alert.AcknowledgedBy = state.AcknowledgedBy
-			alert.AcknowledgedAt = state.AcknowledgedAt
-			alert.SilencedBy = state.SilencedBy
-			alert.SilencedUntil = state.SilencedUntil
-			alert.LatestActionNote = state.Note
-		}
-
-		result.Alerts = append(result.Alerts, alert)
-		switch status {
-		case AlertStatusAcknowledged:
-			result.Stats.Acknowledged++
-		case AlertStatusSilenced:
-			result.Stats.Silenced++
-		default:
-			result.Stats.Firing++
-		}
-	}
-
-	// 当前实现中，状态过滤在服务层执行，因此 total 以返回结果为准。
-	// Status filtering is applied in service layer, so total follows returned rows.
-	if filter.Status != "" {
-		result.Total = int64(len(result.Alerts))
-	}
-
-	return result, nil
-}
-
-// AcknowledgeAlert marks one alert event as acknowledged.
-// AcknowledgeAlert 将单条告警标记为已确认。
-func (s *Service) AcknowledgeAlert(ctx context.Context, eventID uint, operator, note string) (*AlertActionResult, error) {
-	if s.repo == nil {
-		return nil, fmt.Errorf("monitoring repository is not configured")
-	}
-	if eventID == 0 {
-		return nil, fmt.Errorf("invalid event id")
-	}
-	if strings.TrimSpace(operator) == "" {
-		operator = "unknown"
-	}
-
-	event, err := s.monitorService.GetEvent(ctx, eventID)
-	if err != nil {
-		return nil, err
-	}
-	if !isAlertableEventType(event.EventType) {
-		return nil, fmt.Errorf("event is not alertable")
-	}
-
-	_, state, err := s.persistLocalAlertHandlingState(
-		ctx,
-		event,
-		AlertHandlingStatusAcknowledged,
-		operator,
-		nil,
-		note,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return toAlertActionResult(state), nil
-}
-
-// SilenceAlert silences one alert event for a duration in minutes.
-// SilenceAlert 将单条告警静默一段分钟数。
-func (s *Service) SilenceAlert(ctx context.Context, eventID uint, operator string, durationMinutes int, note string) (*AlertActionResult, error) {
-	if s.repo == nil {
-		return nil, fmt.Errorf("monitoring repository is not configured")
-	}
-	if eventID == 0 {
-		return nil, fmt.Errorf("invalid event id")
-	}
-	if durationMinutes < 1 || durationMinutes > 7*24*60 {
-		return nil, fmt.Errorf("duration_minutes must be between 1 and 10080")
-	}
-	if strings.TrimSpace(operator) == "" {
-		operator = "unknown"
-	}
-
-	event, err := s.monitorService.GetEvent(ctx, eventID)
-	if err != nil {
-		return nil, err
-	}
-	if !isAlertableEventType(event.EventType) {
-		return nil, fmt.Errorf("event is not alertable")
-	}
-
-	now := timex.Now()
-	silencedUntil := now.Add(time.Duration(durationMinutes) * time.Minute)
-	_, state, err := s.persistLocalAlertHandlingState(
-		ctx,
-		event,
-		AlertHandlingStatusSilenced,
-		operator,
-		&silencedUntil,
-		note,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return toAlertActionResult(state), nil
-}
-
 // ListClusterRules returns rules for one cluster.
 // ListClusterRules 返回单集群告警规则列表。
 func (s *Service) ListClusterRules(ctx context.Context, clusterID uint) (*AlertRuleListData, error) {
@@ -585,11 +396,11 @@ func (s *Service) UpdateClusterRule(ctx context.Context, clusterID, ruleID uint,
 // GetIntegrationStatus 返回监控栈集成状态。
 //
 // 组件集（内嵌可观测终态）：embedded_tsdb（内嵌 tsdb 就绪探测）+ seatunnel_metrics（自研抓取循环
-// 目标状态）+ remote_ingest（AM webhook 回流端点）；原 prometheus/alertmanager/grafana 外部健康
-// 检查已随 HTTP SD 一并退役。
+// 目标状态）；原 prometheus/alertmanager/grafana 外部健康检查与 remote_ingest 外部告警接入
+// 端点均已退役。
 // Component set (embedded observability final state): embedded_tsdb (embedded tsdb readiness) +
-// seatunnel_metrics (in-process scraper target states) + remote_ingest (AM webhook endpoint); the
-// old prometheus/alertmanager/grafana external health checks were retired with HTTP SD.
+// seatunnel_metrics (in-process scraper target states); the old prometheus/alertmanager/grafana
+// external health checks and the remote_ingest external alert endpoint were retired.
 func (s *Service) GetIntegrationStatus(ctx context.Context) (*IntegrationStatusData, error) {
 	obsCfg := config.Config.Observability
 
@@ -599,7 +410,6 @@ func (s *Service) GetIntegrationStatus(ctx context.Context) (*IntegrationStatusD
 			Components: []*IntegrationComponentStatus{
 				disabledIntegrationComponent("embedded_tsdb"),
 				disabledIntegrationComponent("seatunnel_metrics"),
-				disabledIntegrationComponent("remote_ingest"),
 			},
 		}, nil
 	}
@@ -609,7 +419,6 @@ func (s *Service) GetIntegrationStatus(ctx context.Context) (*IntegrationStatusD
 		Components: []*IntegrationComponentStatus{
 			s.embeddedTSDBComponent(obsCfg),
 			s.seatunnelMetricsComponent(ctx, obsCfg),
-			remoteIngestComponent(obsCfg),
 		},
 	}, nil
 }
@@ -639,7 +448,24 @@ func (s *Service) embeddedTSDBComponent(obsCfg config.ObservabilityConfig) *Inte
 	}
 	if !component.Healthy {
 		component.Error = "monitoring storage is not running (open failed or not started yet)"
+		return component
 	}
+	// 就绪时附带存储快照：head 序列、块字节、最早样本、compaction 失败次数（AC2）。
+	// When ready, attach the storage snapshot: head series, block bytes, oldest sample,
+	// compaction failures (AC2). CLI `stx monitoring integration status` already dumps Meta.
+	if status, ok := embedts.GetStorageStatus(); ok {
+		component.Meta["head_series"] = strconv.FormatUint(status.HeadSeries, 10)
+		component.Meta["head_stale_series"] = strconv.FormatUint(status.HeadStaleSeries, 10)
+		component.Meta["head_bytes"] = strconv.FormatInt(status.HeadBytes, 10)
+		component.Meta["blocks_bytes"] = strconv.FormatInt(status.BlocksBytes, 10)
+		component.Meta["compactions_failed"] = strconv.FormatFloat(status.CompactionsFailed, 'f', -1, 64)
+		component.Meta["size_retentions"] = strconv.FormatFloat(status.SizeRetentions, 'f', -1, 64)
+		if status.HasOldest {
+			component.Meta["oldest_sample_ms"] = strconv.FormatInt(status.OldestSampleMs, 10)
+		}
+	}
+	component.Meta["max_samples"] = strconv.FormatInt(obsCfg.MaxSamples, 10)
+	component.Meta["sample_limit"] = strconv.FormatInt(obsCfg.SampleLimit, 10)
 	return component
 }
 
@@ -718,21 +544,6 @@ func (s *Service) seatunnelMetricsComponent(ctx context.Context, obsCfg config.O
 		component.Healthy = true
 	}
 	return component
-}
-
-// remoteIngestComponent 返回 remote ingest（AM webhook 回流）组件状态：端点由本进程提供，API 在线即健康。
-// remoteIngestComponent returns the remote ingest (AM webhook) component: the endpoint is served
-// by this very API process, so a reachable API means healthy.
-func remoteIngestComponent(obsCfg config.ObservabilityConfig) *IntegrationComponentStatus {
-	webhookPath := ensureLeadingSlash(obsCfg.RemoteIngest.Path)
-	return &IntegrationComponentStatus{
-		Name:    "remote_ingest",
-		URL:     webhookPath,
-		Healthy: true,
-		Meta: map[string]string{
-			"path": webhookPath,
-		},
-	}
 }
 
 type managedMetricsTarget struct {
@@ -1391,39 +1202,6 @@ func eventTypeToRuleKey(eventType monitor.ProcessEventType) string {
 		return AlertRuleKeyNodeOffline
 	default:
 		return ""
-	}
-}
-
-func resolveAlertStatus(state *AlertEventState, now time.Time) AlertStatus {
-	if state == nil {
-		return AlertStatusFiring
-	}
-
-	switch state.Status {
-	case AlertStatusSilenced:
-		if state.SilencedUntil != nil && state.SilencedUntil.After(now) {
-			return AlertStatusSilenced
-		}
-		return AlertStatusFiring
-	case AlertStatusAcknowledged:
-		return AlertStatusAcknowledged
-	default:
-		return AlertStatusFiring
-	}
-}
-
-func toAlertActionResult(state *AlertEventState) *AlertActionResult {
-	if state == nil {
-		return nil
-	}
-	return &AlertActionResult{
-		EventID:          state.EventID,
-		Status:           state.Status,
-		AcknowledgedBy:   state.AcknowledgedBy,
-		AcknowledgedAt:   state.AcknowledgedAt,
-		SilencedBy:       state.SilencedBy,
-		SilencedUntil:    state.SilencedUntil,
-		LatestActionNote: state.Note,
 	}
 }
 

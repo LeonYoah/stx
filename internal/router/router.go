@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,7 +61,9 @@ import (
 	grpcServer "github.com/LeonYoah/stx/internal/grpc"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/otel_trace"
+	"github.com/LeonYoah/stx/internal/pkg/debugpprof"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"github.com/LeonYoah/stx/internal/session"
 	"github.com/LeonYoah/stx/internal/tlsbootstrap"
@@ -99,6 +102,14 @@ func Serve() {
 	// Embedded observability storage: open the in-process tsdb + PromQL engine when observability
 	// is enabled; failures only log and leave embedts.Ready()=false so dashboard/trend/diagnostic
 	// queries degrade to their existing empty states instead of blocking startup.
+	// 旧外部监控栈配置段已忽略：启动时只记一条 WARN（只列段名，值不落日志），提示清理。
+	// Legacy external monitoring sections are ignored: log one WARN at startup naming the
+	// sections only (values stay out of logs), prompting cleanup.
+	if leftovers := config.LegacyObservabilitySections(); len(leftovers) > 0 {
+		logger.WarnF(ctx, "[Observability] 检测到已废弃的旧外部监控配置段 [%s]，这些段不再生效，请从配置文件中移除 / deprecated external monitoring sections [%s] detected; they no longer take effect, please remove them from the config file",
+			strings.Join(leftovers, ", "), strings.Join(leftovers, ", "))
+	}
+
 	if config.Config.Observability.Enabled {
 		embedOpts, err := embedts.OptionsFromObservability(config.Config.Observability)
 		if err == nil {
@@ -196,6 +207,12 @@ func Serve() {
 			apiV1Router.GET("/auth/cli/whoami", auth.CLIAuthRequired(), auth.CLIWhoAmI)
 			apiV1Router.GET("/capabilities", auth.CLIAuthRequired(), capability.List)
 
+			// 进程剖析：配置关闭时仍登记路由，管理员拿到 404；开启后写出 Go pprof 二进制。
+			// Process profiling: the route stays registered while disabled (admins get 404); when on it writes Go pprof bytes.
+			debugPprofRouter := apiV1Router.Group("/debug/pprof")
+			debugPprofRouter.Use(auth.LoginRequired(), admin.LoginAdminRequired())
+			debugPprofRouter.GET("/:name", debugPprofHandler)
+
 			// OAuth（备选登录方式：GitHub、Google）
 			apiV1Router.GET("/oauth/providers", oauth.GetEnabledProvidersHandler)
 			apiV1Router.GET("/oauth/login", oauth.GetLoginURL)
@@ -281,6 +298,7 @@ func Serve() {
 				// Agents may pull script/jar from this base when starting java-proxy (DEF-R2-1).
 				AssetBaseURL: strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 			})
+			bindEngineLocationLookup(clusterService)
 
 			// Inject agent command sender if agent manager is available
 			// 如果 Agent Manager 可用，注入 Agent 命令发送器
@@ -502,21 +520,6 @@ func Serve() {
 				}
 			}
 
-			// Public remote-observability integration endpoints (no login required).
-			// 远程可观测集成公开接口（无需登录）。
-			if config.Config.Observability.Enabled {
-				// token 为空时端点无鉴权暴露：兼容已接入的外部 AM，但启动时记一条 WARN 提醒配置
-				// remote_ingest.token；warn 只在此处记一次。token 值不落日志。
-				// An empty token leaves the endpoint unauthenticated: kept for compatibility with
-				// already-integrated external Alertmanagers, but one WARN at startup reminds the
-				// operator to configure remote_ingest.token. The token value is never logged.
-				if strings.TrimSpace(config.Config.Observability.RemoteIngest.Token) == "" {
-					logger.WarnF(ctx, "[Observability] remote ingest webhook 未配置鉴权（observability.remote_ingest.token 为空），%s 为公开端点；建议配置 token 启用 Bearer 校验 / remote ingest webhook has no auth (observability.remote_ingest.token is empty); %s is a public endpoint, configure a token to enable Bearer verification", config.Config.Observability.RemoteIngest.Path, config.Config.Observability.RemoteIngest.Path)
-				}
-				alertWebhookPath := normalizeAPIV1RoutePath(config.Config.Observability.RemoteIngest.Path, "/monitoring/alertmanager/webhook")
-				apiV1Router.POST(alertWebhookPath, monitoringHandler.AlertmanagerWebhook)
-			}
-
 			monitoringRouter := apiV1Router.Group("/monitoring")
 			monitoringRouter.Use(auth.LoginRequired())
 			monitoringRouter.Use(monitoringAuditMiddleware(auditRepo))
@@ -529,17 +532,15 @@ func Serve() {
 				monitoringRouter.PUT("/alert-policies/:id", monitoringHandler.UpdateAlertPolicy)
 				monitoringRouter.DELETE("/alert-policies/:id", monitoringHandler.DeleteAlertPolicy)
 				monitoringRouter.GET("/alert-instances", monitoringHandler.ListAlertInstances)
-				monitoringRouter.GET("/alerts", monitoringHandler.ListAlerts)
 				monitoringRouter.GET("/remote-alerts", monitoringHandler.ListRemoteAlerts)
 				monitoringRouter.POST("/alert-instances/:id/ack", monitoringHandler.AcknowledgeAlertInstance)
 				monitoringRouter.POST("/alert-instances/:id/silence", monitoringHandler.SilenceAlertInstance)
 				monitoringRouter.POST("/alert-instances/:id/close", monitoringHandler.CloseAlertInstance)
-				monitoringRouter.POST("/alerts/:eventId/ack", monitoringHandler.AcknowledgeAlert)
-				monitoringRouter.POST("/alerts/:eventId/silence", monitoringHandler.SilenceAlert)
 				monitoringRouter.GET("/clusters/:id/rules", monitoringHandler.ListClusterRules)
 				monitoringRouter.PUT("/clusters/:id/rules/:ruleId", monitoringHandler.UpdateClusterRule)
 				monitoringRouter.GET("/integration/status", monitoringHandler.GetIntegrationStatus)
 				monitoringRouter.GET("/alert-policies/bootstrap", monitoringHandler.GetAlertPolicyCenterBootstrap)
+				monitoringRouter.GET("/alert-rules/catalog", monitoringHandler.GetAlertRuleCatalog)
 				monitoringRouter.GET("/notifiable-users", monitoringHandler.ListNotifiableUsers)
 				monitoringRouter.GET("/platform-health", monitoringHandler.GetPlatformHealth)
 				monitoringRouter.GET("/notification-channels", monitoringHandler.ListNotificationChannels)
@@ -1239,12 +1240,43 @@ func Serve() {
 		}
 	}
 
+	if err := debugpprof.Start(ctx, debugpprof.Options{
+		Enabled: config.Config.App.Pprof.Enabled,
+		Addr:    config.Config.App.Pprof.Addr,
+	}); err != nil {
+		// pprof 只是排查工具：端口被占不能拖垮主 API。管理员走 HTTP 时会看到同样的失败原因。
+		// pprof is a debug tool: a busy port must not take down the main API. The admin HTTP path reports the same reason.
+		logger.WarnF(ctx, "[API] 本机 pprof 监听失败，HTTP API 继续启动: %v / local pprof listen failed, HTTP API continues: %v", err, err)
+	}
+	defer debugpprof.Stop()
+
 	// Serve HTTP API
 	// 启动 HTTP API 服务
 	log.Printf("[API] HTTP 服务器启动于 %s / HTTP server starting on %s\n", config.Config.App.Addr, config.Config.App.Addr)
 	if err := r.Run(config.Config.App.Addr); err != nil {
 		log.Fatalf("[API] serve api failed: %v\n", err)
 	}
+}
+
+// debugPprofHandler 把管理员请求转给 Go pprof；未开启时返回 404，避免未授权探测。
+// debugPprofHandler hands admin requests to Go pprof; 404 while disabled so the endpoint is not advertised.
+func debugPprofHandler(c *gin.Context) {
+	if config.Config == nil || !config.Config.App.Pprof.Enabled {
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error_msg": "pprof is disabled"})
+		return
+	}
+	if debugpprof.ListenAddr() == "" {
+		if err := debugpprof.ListenError(); err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error_msg": err.Error()})
+			return
+		}
+	}
+	name := strings.TrimSpace(c.Param("name"))
+	if name == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error_msg": "profile name is required"})
+		return
+	}
+	debugpprof.ServeNamed(c.Writer, c.Request, name)
 }
 
 // initGRPCServer initializes and starts the gRPC server for Agent communication.
@@ -1315,6 +1347,7 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 		HeartbeatTimeout: time.Duration(grpcConfig.HeartbeatTimeout) * time.Second,
 		AssetBaseURL:     strings.TrimRight(config.GetExternalURL(), "/") + "/api/v1/agent/assets",
 	})
+	bindEngineLocationLookup(clusterService)
 	monitorRepo := monitor.NewRepository(db.DB(ctx))
 	monitorService := monitor.NewService(monitorRepo)
 	monitoringRepo := monitoringapp.NewRepository(db.DB(ctx))
@@ -1349,6 +1382,17 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	return srv, agentManager
 }
 
+// bindEngineLocationLookup 让解析 SeaTunnel 无偏移时间时使用集群 Master 心跳上报的时区。
+// bindEngineLocationLookup uses the cluster master's heartbeat timezone when parsing naive SeaTunnel times.
+func bindEngineLocationLookup(clusterService *cluster.Service) {
+	if clusterService == nil {
+		return
+	}
+	timex.SetEngineLocationLookup(func(ctx context.Context, clusterID uint) *time.Location {
+		return clusterService.EngineLocation(ctx, clusterID)
+	})
+}
+
 // hostStatusUpdaterAdapter adapts host.Service to agent.HostStatusUpdater interface.
 // hostStatusUpdaterAdapter 将 host.Service 适配到 agent.HostStatusUpdater 接口。
 type hostStatusUpdaterAdapter struct {
@@ -1378,8 +1422,8 @@ func (a *hostStatusUpdaterAdapter) UpdateAgentStatus(ctx context.Context, hostID
 
 // UpdateHeartbeat updates the heartbeat data for a host.
 // UpdateHeartbeat 更新主机的心跳数据。
-func (a *hostStatusUpdaterAdapter) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64) error {
-	return a.hostService.UpdateHeartbeat(ctx, agentID, cpuUsage, memoryUsage, diskUsage)
+func (a *hostStatusUpdaterAdapter) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64, timezone string) error {
+	return a.hostService.UpdateHeartbeatWithTimezone(ctx, agentID, cpuUsage, memoryUsage, diskUsage, timezone)
 }
 
 // MarkHostOffline marks a host as offline by agent ID.
@@ -1714,22 +1758,38 @@ func (a *pluginAgentCommandSenderAdapter) SendCommand(ctx context.Context, agent
 	// Use longer timeout for plugin transfer (5 minutes)
 	// 插件传输使用更长的超时时间（5 分钟）
 	timeout := 5 * time.Minute
-	if commandType == "install_plugin" {
+	skipAudit := false
+	switch commandType {
+	case "install_plugin":
 		timeout = 2 * time.Minute
+	case "list_plugins":
+		// 读 connectors 目录是高频只读操作，8s 超时且不写审计，避免打开插件页拖垮审计表。
+		// Listing connectors is a frequent read; 8s timeout and no audit so opening the plugin page does not flood audit rows.
+		timeout = 8 * time.Second
+		skipAudit = true
 	}
 
-	// 插件命令复用公共 Agent 命令审计，发送失败也会保留一条失败记录。
-	// Plugin commands reuse common Agent command auditing so dispatch failures remain visible.
-	auditSender := &agentCommandSenderAdapter{manager: a.manager, auditRepo: a.auditRepo}
 	startedAt := time.Now()
 	commandID := uuid.NewString()
-	auditSender.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
-	resp, err := a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
+	var resp *pb.CommandResponse
+	var err error
+	if skipAudit {
+		resp, err = a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
+	} else {
+		// 插件命令复用公共 Agent 命令审计，发送失败也会保留一条失败记录。
+		// Plugin commands reuse common Agent command auditing so dispatch failures remain visible.
+		auditSender := &agentCommandSenderAdapter{manager: a.manager, auditRepo: a.auditRepo}
+		auditSender.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
+		resp, err = a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
+		if err != nil {
+			auditSender.recordFailedCommandLog(ctx, commandID, err)
+			return false, "", err
+		}
+		auditSender.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
+	}
 	if err != nil {
-		auditSender.recordFailedCommandLog(ctx, commandID, err)
 		return false, "", err
 	}
-	auditSender.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
 
 	// For transfer_plugin command, RUNNING status means chunk received successfully
 	// 对于 transfer_plugin 命令，RUNNING 状态表示块接收成功
@@ -1785,6 +1845,8 @@ func (a *clusterNodeGetterAdapter) GetClusterNodes(ctx context.Context, clusterI
 			NodeID:     node.ID,
 			HostID:     node.HostID,
 			InstallDir: node.InstallDir,
+			Role:       string(node.Role),
+			IsOnline:   node.IsOnline,
 		}
 	}
 	return result, nil
@@ -2504,26 +2566,6 @@ func (a *grpcClusterNodeProviderAdapter) RefreshClusterStatusFromNodes(ctx conte
 // GetClusterNodeDisplayInfo 返回集群名及节点展示，用于审计资源名称。
 func (a *grpcClusterNodeProviderAdapter) GetClusterNodeDisplayInfo(ctx context.Context, clusterID, nodeID uint) (clusterName, nodeDisplay string) {
 	return a.clusterService.GetClusterNodeDisplayInfo(ctx, clusterID, nodeID)
-}
-
-func normalizeAPIV1RoutePath(rawPath, fallback string) string {
-	path := strings.TrimSpace(rawPath)
-	if path == "" {
-		path = fallback
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-
-	// Support both full path (/api/v1/...) and api-v1-relative path (/monitoring/...).
-	// 同时支持完整路径（/api/v1/...）和 v1 相对路径（/monitoring/...）。
-	if strings.HasPrefix(path, "/api/v1/") {
-		path = strings.TrimPrefix(path, "/api/v1")
-		if path == "" {
-			path = "/"
-		}
-	}
-	return path
 }
 
 // clusterRunningJobsAdapter 把 sync 服务的运行中作业查询适配给集群扩缩容护栏，避免 cluster 包依赖 sync。

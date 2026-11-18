@@ -574,6 +574,12 @@ func (s *Service) UpdateAgentStatusByID(ctx context.Context, hostID uint, status
 // If the host was marked offline, it is set back to installed so dashboard and host management show the same state.
 // 若主机此前被标为离线，会恢复为已安装，使首页与主机管理状态一致。
 func (s *Service) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64) error {
+	return s.UpdateHeartbeatWithTimezone(ctx, agentID, cpuUsage, memoryUsage, diskUsage, "")
+}
+
+// UpdateHeartbeatWithTimezone 在心跳指标之外一并写入 Agent 上报的主机 IANA 时区。
+// UpdateHeartbeatWithTimezone also persists the Agent-reported host IANA timezone with the heartbeat metrics.
+func (s *Service) UpdateHeartbeatWithTimezone(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64, timezone string) error {
 	// Find host by agent ID
 	// 根据 Agent ID 查找主机
 	host, err := s.repo.GetByAgentID(ctx, agentID)
@@ -583,7 +589,7 @@ func (s *Service) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage,
 
 	// Update heartbeat data
 	// 更新心跳数据
-	if err := s.repo.UpdateHeartbeat(ctx, host.ID, cpuUsage, memoryUsage, diskUsage); err != nil {
+	if err := s.repo.UpdateHeartbeat(ctx, host.ID, cpuUsage, memoryUsage, diskUsage, timezone); err != nil {
 		return err
 	}
 
@@ -597,7 +603,7 @@ func (s *Service) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage,
 // UpdateHeartbeatByID updates the heartbeat for a specific host ID.
 // UpdateHeartbeatByID 更新指定主机 ID 的心跳。
 func (s *Service) UpdateHeartbeatByID(ctx context.Context, hostID uint, cpuUsage, memoryUsage, diskUsage float64) error {
-	return s.repo.UpdateHeartbeat(ctx, hostID, cpuUsage, memoryUsage, diskUsage)
+	return s.repo.UpdateHeartbeat(ctx, hostID, cpuUsage, memoryUsage, diskUsage, "")
 }
 
 // MarkOfflineHosts marks all hosts as offline if their last heartbeat exceeds the timeout.
@@ -711,6 +717,7 @@ func (s *Service) GetHostByID(ctx context.Context, id uint) (*cluster.HostInfo, 
 		LastHeartbeat:    host.LastHeartbeat,
 		ProcessStartedAt: &startedAt,
 		DiskUsage:        host.DiskUsage,
+		Timezone:         host.Timezone,
 	}, nil
 }
 

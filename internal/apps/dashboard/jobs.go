@@ -158,19 +158,18 @@ func (s *JobDashboardService) GetJobDashboard(ctx context.Context, actor executi
 		}
 	}
 
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source, out.Reason = promquery.SourceNone, reason
 		return out, nil
 	}
 	out.Source = promquery.SourcePrometheus
-	s.fillMetrics(ctx, out, actor, baseURL, clusterID, start, end, step, span)
+	s.fillMetrics(ctx, out, actor, clusterID, start, end, step, span)
 	return out, nil
 }
 
 // fillMetrics 并发执行全部 Prometheus 查询，再用 DB 补作业名并组装各区块。
 // fillMetrics runs every Prometheus query concurrently, then fills job names from the DB and assembles the blocks.
-func (s *JobDashboardService) fillMetrics(ctx context.Context, out *JobDashboard, actor executionapp.Actor, baseURL string, clusterID uint, start, end time.Time, step, span int) {
+func (s *JobDashboardService) fillMetrics(ctx context.Context, out *JobDashboard, actor executionapp.Actor, clusterID uint, start, end time.Time, step, span int) {
 	sel := ""
 	if clusterID > 0 {
 		sel = fmt.Sprintf(`cluster_id=%s`, strconv.Quote(strconv.FormatUint(uint64(clusterID), 10)))
@@ -194,9 +193,9 @@ func (s *JobDashboardService) fillMetrics(ctx context.Context, out *JobDashboard
 		go func(task *promTask) {
 			defer wg.Done()
 			if task.instant {
-				task.samples, task.err = s.instantQuery(ctx, baseURL, task.query, end)
+				task.samples, task.err = s.instantQuery(ctx, task.query, end)
 			} else {
-				task.series, task.err = s.rangeQuery(ctx, baseURL, task.query, start, end, task.step)
+				task.series, task.err = s.rangeQuery(ctx, task.query, start, end, task.step)
 			}
 		}(task)
 	}

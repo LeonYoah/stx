@@ -67,8 +67,8 @@ func (a *HostServiceAdapter) UpdateAgentStatus(ctx context.Context, hostID uint,
 // UpdateHeartbeat updates the heartbeat data for a host.
 // UpdateHeartbeat 更新主机的心跳数据。
 // Requirements: 3.3 - Updates last heartbeat time, CPU, memory, and disk usage.
-func (a *HostServiceAdapter) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64) error {
-	return a.hostService.UpdateHeartbeat(ctx, agentID, cpuUsage, memoryUsage, diskUsage)
+func (a *HostServiceAdapter) UpdateHeartbeat(ctx context.Context, agentID string, cpuUsage, memoryUsage, diskUsage float64, timezone string) error {
+	return a.hostService.UpdateHeartbeatWithTimezone(ctx, agentID, cpuUsage, memoryUsage, diskUsage, timezone)
 }
 
 // MarkHostOffline marks a host as offline by agent ID.

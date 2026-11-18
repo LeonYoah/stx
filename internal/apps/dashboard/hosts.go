@@ -128,8 +128,8 @@ type HostClusterNodes interface {
 // HostDashboardService 组装主机视图：清单 + 每台主机的指标面板。
 // HostDashboardService assembles the hosts view: inventory plus per-host metric panels.
 type HostDashboardService struct {
-	rangeQuery   func(ctx context.Context, baseURL, query string, start, end time.Time, step int) ([]promquery.Series, error)
-	instantQuery func(ctx context.Context, baseURL, query string, at time.Time) ([]promquery.Sample, error)
+	rangeQuery   func(ctx context.Context, query string, start, end time.Time, step int) ([]promquery.Series, error)
+	instantQuery func(ctx context.Context, query string, at time.Time) ([]promquery.Sample, error)
 	hosts        HostInventory
 	clusters     HostClusterNodes
 	now          func() time.Time
@@ -215,8 +215,7 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source, out.Reason = promquery.SourceNone, reason
 	} else {
 		out.Source = promquery.SourcePrometheus
@@ -273,7 +272,7 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 		wg.Add(1)
 		go func(task *hostTask) {
 			defer wg.Done()
-			task.out, task.err = s.rangeQuery(ctx, baseURL, task.query, start, end, step)
+			task.out, task.err = s.rangeQuery(ctx, task.query, start, end, step)
 		}(task)
 	}
 	// 开机时间是即时查询，与面板扇出并发；只用于卡片头的「已运行 N 天」，失败静默。
@@ -283,7 +282,7 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		samples, err := s.instantQuery(ctx, baseURL,
+		samples, err := s.instantQuery(ctx,
 			fmt.Sprintf(`max by (host_id) (stx_host_boot_time_seconds{%s})`, sel), end)
 		if err != nil {
 			return

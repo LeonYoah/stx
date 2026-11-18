@@ -28,7 +28,7 @@ internal/
 │   ├── host/                # 主机 CRUD、安装命令
 │   ├── installer/           # 包管理、安装向导
 │   ├── monitor/             # 监控配置、进程事件
-│   ├── monitoring/          # 监控中心（告警、策略、内置告警评估、外部告警接入等）
+│   ├── monitoring/          # 监控中心（告警、策略、内置告警评估等）
 │   ├── oauth/               # OAuth 提供商（GitHub、Google）
 │   ├── plugin/              # 插件市场、安装到集群
 │   ├── stupgrade/           # STX 自身升级
@@ -39,7 +39,7 @@ internal/
 ├── grpc/                    # gRPC 服务端与 handler（与 Agent 通信）
 ├── logger/                  # 基于 Zap 的日志（otelzap、trace ID）
 ├── otel_trace/              # OpenTelemetry 追踪
-├── pkg/schedulex/           # 共享调度实现
+├── pkg/                     # 共享包：schedulex、embedts、promquery、debugpprof
 ├── proto/                   # Protobuf 定义与生成代码（Agent）
 ├── router/                  # Gin 路由、中间件（日志、会话）
 ├── seatunnel/               # Apache SeaTunnel 版本与能力判断

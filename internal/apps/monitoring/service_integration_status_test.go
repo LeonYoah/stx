@@ -72,7 +72,7 @@ func TestService_GetIntegrationStatus_disabled(t *testing.T) {
 	}
 
 	components := componentsByName(data.Components)
-	for _, name := range []string{"embedded_tsdb", "seatunnel_metrics", "remote_ingest"} {
+	for _, name := range []string{"embedded_tsdb", "seatunnel_metrics"} {
 		component, ok := components[name]
 		if !ok {
 			t.Fatalf("expected component %s in status payload", name)
@@ -84,8 +84,8 @@ func TestService_GetIntegrationStatus_disabled(t *testing.T) {
 			t.Fatalf("component %s unexpected error: %q", name, component.Error)
 		}
 	}
-	if len(data.Components) != 3 {
-		t.Fatalf("expected exactly 3 components, got %d", len(data.Components))
+	if len(data.Components) != 2 {
+		t.Fatalf("expected exactly 2 components, got %d", len(data.Components))
 	}
 }
 
@@ -133,15 +133,53 @@ func TestService_GetIntegrationStatus_enabledEmbeddedComponents(t *testing.T) {
 		t.Fatalf("expected total=0 meta, got %+v", metricsComponent.Meta)
 	}
 
-	ingestComponent := components["remote_ingest"]
-	if ingestComponent == nil {
-		t.Fatal("missing remote_ingest component")
+	if _, ok := components["remote_ingest"]; ok {
+		t.Fatal("remote_ingest component should no longer be reported")
 	}
-	if !ingestComponent.Healthy {
-		t.Fatalf("expected remote_ingest healthy, got error %q", ingestComponent.Error)
+	if len(data.Components) != 2 {
+		t.Fatalf("expected exactly 2 components, got %d", len(data.Components))
 	}
-	if ingestComponent.Meta["path"] == "" {
-		t.Fatalf("expected path meta on remote_ingest, got %+v", ingestComponent.Meta)
+}
+
+func TestService_GetIntegrationStatus_storageMetaWhenReady(t *testing.T) {
+	originalEnabled := config.Config.Observability.Enabled
+	originalDir := config.Config.Observability.Storage.Dir
+	originalRetention := config.Config.Observability.Storage.Retention
+	t.Cleanup(func() {
+		config.Config.Observability.Enabled = originalEnabled
+		config.Config.Observability.Storage.Dir = originalDir
+		config.Config.Observability.Storage.Retention = originalRetention
+		_ = embedts.Close()
+	})
+	config.Config.Observability.Enabled = true
+	_ = embedts.Close()
+
+	dir := t.TempDir()
+	config.Config.Observability.Storage.Dir = dir
+	config.Config.Observability.Storage.Retention = "31d"
+	if err := embedts.Start(context.Background(), embedts.Options{Dir: dir, MaxSamples: 10000}); err != nil {
+		t.Fatalf("Start embedts: %v", err)
+	}
+	if err := embedts.SelfScrapeOnce(context.Background()); err != nil {
+		t.Fatalf("SelfScrapeOnce: %v", err)
+	}
+
+	service, _, ctx := setupIntegrationStatusService(t, nil)
+	data, err := service.GetIntegrationStatus(ctx)
+	if err != nil {
+		t.Fatalf("GetIntegrationStatus returned error: %v", err)
+	}
+	tsdbComponent := componentsByName(data.Components)["embedded_tsdb"]
+	if tsdbComponent == nil {
+		t.Fatal("missing embedded_tsdb component")
+	}
+	if !tsdbComponent.Healthy {
+		t.Fatalf("expected embedded_tsdb healthy, got error %q", tsdbComponent.Error)
+	}
+	for _, key := range []string{"head_series", "blocks_bytes", "compactions_failed", "head_bytes", "sample_limit"} {
+		if tsdbComponent.Meta[key] == "" {
+			t.Fatalf("expected %s on embedded_tsdb meta, got %+v", key, tsdbComponent.Meta)
+		}
 	}
 }
 

@@ -55,7 +55,7 @@ func (fakeHostNodes) GetNodes(_ context.Context, clusterID uint) ([]*cluster.Nod
 func newHostDashboardService(queries *[]string) *HostDashboardService {
 	svc := NewHostDashboardService(fakeHostInventory{}, fakeHostNodes{})
 	svc.now = func() time.Time { return time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC) }
-	svc.rangeQuery = func(_ context.Context, _, q string, _, _ time.Time, _ int) ([]promquery.Series, error) {
+	svc.rangeQuery = func(_ context.Context, q string, _, _ time.Time, _ int) ([]promquery.Series, error) {
 		if queries != nil {
 			queryMu.Lock()
 			*queries = append(*queries, q)
@@ -76,7 +76,7 @@ func newHostDashboardService(queries *[]string) *HostDashboardService {
 		}
 		return []promquery.Series{{Metric: map[string]string{"host_id": "1"}, Points: [][2]float64{{1000, 1}}}}, nil
 	}
-	svc.instantQuery = func(_ context.Context, _, _ string, _ time.Time) ([]promquery.Sample, error) {
+	svc.instantQuery = func(_ context.Context, _ string, _ time.Time) ([]promquery.Sample, error) {
 		// 开机时间即时查询：host 1 返回 2026-11-01，host 2 无序列。
 		// Boot-time instant query: host 1 reports 2026-11-01, host 2 has no series.
 		return []promquery.Sample{

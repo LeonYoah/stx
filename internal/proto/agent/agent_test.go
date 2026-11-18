@@ -119,6 +119,7 @@ func genHeartbeatRequest() gopter.Gen {
 		gen.Int64Range(0, 1<<62),            // timestamp
 		genResourceUsage(),                  // resource_usage
 		gen.SliceOfN(3, genProcessStatus()), // processes (0-3 processes)
+		gen.AlphaString(),                   // timezone
 	).Map(func(vals []interface{}) *HeartbeatRequest {
 		processes := vals[3].([]*ProcessStatus)
 		return &HeartbeatRequest{
@@ -126,6 +127,7 @@ func genHeartbeatRequest() gopter.Gen {
 			Timestamp:     vals[1].(int64),
 			ResourceUsage: vals[2].(*ResourceUsage),
 			Processes:     processes,
+			Timezone:      vals[4].(string),
 		}
 	})
 }

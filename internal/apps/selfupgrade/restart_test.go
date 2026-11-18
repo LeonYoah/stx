@@ -37,6 +37,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// resolvedTempDir 返回解析过符号链接的临时目录：macOS 上 /var→/private/var，os.Chdir 后
+// os.Getwd 返回的是物理路径，拿未解析的 t.TempDir() 比较绝对路径会差一层。
+// resolvedTempDir returns the symlink-resolved temp dir: on macOS /var→/private/var, and
+// os.Getwd after os.Chdir reports the physical path, so comparing an unresolved t.TempDir()
+// against absolute paths the code under test produces mismatches by one level.
+func resolvedTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks(tempdir): %v", err)
+	}
+	return dir
+}
+
 func TestResolveMode(t *testing.T) {
 	cases := []struct {
 		req     ExecuteRequest
@@ -777,7 +791,7 @@ func TestResumeMarksTaskWithoutPlanAsInterrupted(t *testing.T) {
 // TestNewServiceAbsolutizesDataDir 验证 staging 根目录为绝对路径，避免 systemd watchdog cwd=/ 读错文件（DEF-UPG-1）。
 // TestNewServiceAbsolutizesDataDir verifies the staging root is absolute so a systemd watchdog with cwd=/ cannot miss files (DEF-UPG-1).
 func TestNewServiceAbsolutizesDataDir(t *testing.T) {
-	parent := t.TempDir()
+	parent := resolvedTempDir(t)
 	// 用相对 data 路径模拟 router 里的 NewService("./data")。
 	// Simulate NewService("./data") from the router with a relative data path.
 	cwd, err := os.Getwd()
@@ -801,7 +815,7 @@ func TestNewServiceAbsolutizesDataDir(t *testing.T) {
 // TestBuildWatchdogArgvSystemdPinsWorkingDirectoryAndAbsolutePlan 覆盖 DEF-UPG-1：systemd-run 必须带工作目录与绝对 --plan。
 // TestBuildWatchdogArgvSystemdPinsWorkingDirectoryAndAbsolutePlan covers DEF-UPG-1: systemd-run must pin cwd and absolute --plan.
 func TestBuildWatchdogArgvSystemdPinsWorkingDirectoryAndAbsolutePlan(t *testing.T) {
-	dir := t.TempDir()
+	dir := resolvedTempDir(t)
 	planPath := filepath.Join(".", filepath.Base(dir), "restart-plan.json")
 	// 相对 plan 路径 + 相对 Dir/Backup，模拟升级前未绝对化的交棒信息。
 	// Relative plan path + relative Dir/Backup simulate a pre-absolutized handover.

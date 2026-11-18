@@ -68,7 +68,7 @@ func TestRootCommandRegistersOnlyPublicServerEntry(t *testing.T) {
 	if _, ok := children["worker"]; ok {
 		t.Fatalf("worker 不应注册 / worker must not be registered")
 	}
-	for _, name := range []string{"auth", "admin", "dashboard", "host", "cluster", "config", "package", "plugin", "monitor", "monitoring", "diagnostics", "skill"} {
+	for _, name := range []string{"auth", "admin", "dashboard", "debug", "host", "cluster", "config", "package", "plugin", "monitor", "monitoring", "diagnostics", "skill"} {
 		if hidden, ok := children[name]; !ok || hidden {
 			t.Fatalf("%s API 命令组应公开 / %s API command group must be public: %#v", name, name, children)
 		}
@@ -131,7 +131,6 @@ func TestRootCommandRegistersMonitoringReadCommands(t *testing.T) {
 		{"monitoring", "cluster", "overview", "get"},
 		{"monitoring", "alert-policy", "list"},
 		{"monitoring", "alert-instance", "list"},
-		{"monitoring", "alert", "list"},
 		{"monitoring", "integration", "status"},
 		{"monitoring", "platform-health", "get"},
 		{"monitoring", "notification-channel", "list"},
@@ -198,6 +197,16 @@ func TestRootCommandRegistersAuthAdminAndDashboardReadCommands(t *testing.T) {
 		if len(remaining) != 0 || found.Name() != path[len(path)-1] {
 			t.Fatalf("命令路径未完整注册 / command path is not fully registered: path=%v found=%s remaining=%v", path, found.CommandPath(), remaining)
 		}
+	}
+}
+
+// TestRootCommandRegistersDebugPprof 确认 stx debug pprof 已挂到根命令，而不是只登记操作表。
+// TestRootCommandRegistersDebugPprof checks stx debug pprof is on the root command, not only in the operation registry.
+func TestRootCommandRegistersDebugPprof(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	found, remaining, err := command.Find([]string{"debug", "pprof"})
+	if err != nil || len(remaining) != 0 || found.Name() != "pprof" {
+		t.Fatalf("debug pprof 未注册: found=%s remaining=%v err=%v", found.CommandPath(), remaining, err)
 	}
 }
 

@@ -45,6 +45,7 @@ func TestSyncTaskCreateRequiresConfirmBeforeNetworkRequest(t *testing.T) {
 }
 
 func TestSyncTaskCreateSendsBodyAndSafetyHeaders(t *testing.T) {
+	var gotPreviewURL string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/capabilities" {
 			writeSyncCapabilities(t, writer, "sync.task.create", "R1")
@@ -63,6 +64,9 @@ func TestSyncTaskCreateSendsBodyAndSafetyHeaders(t *testing.T) {
 		if body["name"] != "cdc-task" || body["mode"] != "STREAMING" || body["cluster_id"] != float64(1) {
 			t.Fatalf("创建任务请求体错误: %#v", body)
 		}
+		definition, _ := body["definition"].(map[string]any)
+		sink, _ := definition["preview_http_sink"].(map[string]any)
+		gotPreviewURL, _ = sink["url"].(string)
 		writer.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 42, "name": "cdc-task"}})
 	}))
@@ -79,6 +83,42 @@ func TestSyncTaskCreateSendsBodyAndSafetyHeaders(t *testing.T) {
 	)
 	if exitCode != int(clioutput.ExitSuccess) {
 		t.Fatalf("创建任务命令失败: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	wantPreviewURL := strings.TrimRight(server.URL, "/") + "/api/v1/sync/preview/collect"
+	if gotPreviewURL != wantPreviewURL {
+		t.Fatalf("预览采集 URL 应来自当前 CLI namespace 的 server，而不是 STX_SERVER 或 loopback: got=%q want=%q", gotPreviewURL, wantPreviewURL)
+	}
+}
+
+func TestPreviewCollectURLUsesResolvedServerOnly(t *testing.T) {
+	t.Setenv("STX_SERVER", "http://127.0.0.1:65535")
+	if got := previewCollectURL(" https://stx.example:8443/ "); got != "https://stx.example:8443/api/v1/sync/preview/collect" {
+		t.Fatalf("应按已解析 server 拼接采集地址: %q", got)
+	}
+	if got := previewCollectURL(""); got != "" {
+		t.Fatalf("空 server 不得回落到 STX_SERVER 或 127.0.0.1: %q", got)
+	}
+}
+
+func TestApplyPreviewCollectURLKeepsCustomURLAndSkipsEmptyServer(t *testing.T) {
+	definition := map[string]any{
+		"preview_http_sink": map[string]any{
+			"url":        "https://custom.example/collect",
+			"array_mode": false,
+		},
+	}
+	applyPreviewCollectURL(definition, "https://stx.example")
+	sink := definition["preview_http_sink"].(map[string]any)
+	if sink["url"] != "https://custom.example/collect" {
+		t.Fatalf("已有自定义采集地址不应被覆盖: %#v", sink)
+	}
+
+	empty := map[string]any{"preview_http_sink": map[string]any{"array_mode": false}}
+	t.Setenv("STX_SERVER", "http://127.0.0.1:17800")
+	applyPreviewCollectURL(empty, "")
+	emptySink := empty["preview_http_sink"].(map[string]any)
+	if _, ok := emptySink["url"]; ok {
+		t.Fatalf("空 server 不得写入 loopback 采集地址: %#v", emptySink)
 	}
 }
 

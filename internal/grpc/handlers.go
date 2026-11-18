@@ -220,12 +220,13 @@ func (s *Server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 	// Update host heartbeat data if host service is available
 	// 如果主机服务可用，更新主机心跳数据
 	if s.hostService != nil && req.ResourceUsage != nil {
-		if err := s.hostService.UpdateHeartbeat(
+		if err := s.hostService.UpdateHeartbeatWithTimezone(
 			ctx,
 			req.AgentId,
 			req.ResourceUsage.CpuUsage,
 			req.ResourceUsage.MemoryUsage,
 			req.ResourceUsage.DiskUsage,
+			req.GetTimezone(),
 		); err != nil {
 			// Log warning but don't fail heartbeat
 			// 记录警告但不使心跳失败
@@ -1058,7 +1059,6 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 
 	return nil
 }
-
 
 // applyManualFollowupAttribution 把手动启停后的跟进重启归因到原命令操作人。
 // applyManualFollowupAttribution attributes a manual start/restart follow-up to the original command actor.

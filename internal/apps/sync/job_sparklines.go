@@ -96,8 +96,7 @@ func (s *Service) GetJobSparklinesForActor(ctx context.Context, actor executiona
 	step := timeseriesRangeSteps[rangeKey]
 	out := &JobSparklinesResult{Range: rangeKey, Metric: metric, StepSeconds: step, Items: map[string][][2]float64{}}
 
-	baseURL, reason := promquery.BaseURL()
-	if baseURL == "" {
+	if reason := promquery.UnavailableReason(); reason != "" {
 		out.Source, out.Reason = promquery.SourceNone, reason
 		return out, nil
 	}
@@ -119,7 +118,7 @@ func (s *Service) GetJobSparklinesForActor(ctx context.Context, actor executiona
 	}
 	query := fmt.Sprintf(`sum by (job_id) (rate(%s{job_id=~%s}[1m]))`, counter, promquery.QuoteLabelRegex(visibleIDs))
 	end := time.Now().UTC()
-	series, err := promquery.Range(ctx, baseURL, query, end.Add(-dur), end, step)
+	series, err := promquery.Range(ctx, query, end.Add(-dur), end, step)
 	if err != nil {
 		// Prometheus 查询失败不让列表报错：返回空结果并标明原因。
 		// A failed Prometheus query must not break the list: return empty items with a reason.

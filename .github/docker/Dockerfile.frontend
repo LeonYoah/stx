@@ -36,6 +36,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates tzdata && \
     rm -rf /var/lib/apt/lists/*
 
+ENV TZ=Asia/Shanghai
+
 WORKDIR /opt/stx/frontend
 
 COPY --from=artifacts /out/frontend ./

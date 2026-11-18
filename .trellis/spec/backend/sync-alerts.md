@@ -123,7 +123,8 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 - 与来源无关的 `alertMessage`（来源类型、集群、告警名、额外收件人、按渠道拼消息体），本地进程事件和作业告警共用 `dispatchAlertPolicyChannels` / `dispatchAlertDelivery`。
 - 标题：`[STX][告警|恢复][级别] 任务 <名称> · <规则名>`（集群级为"集群 <名称>"）。
 - 正文：状态、规则、集群、任务、作业 `#id`、引擎作业 ID、触发来源、累计次数、首次 / 最近发生时间、恢复时间、错误摘要（500 字符）、策略、链接。
-- webhook 带结构化 `alert`：`source_type=sync`、`source_key`、`status`、`scope`、`rule_key`、`task_id`、`job_id`、`occurrence_count`、`link` 等。
+- webhook 带结构化 `alert`：`source_type`（`platform_health` 或 `job`，按规则归属：集群级规则平台健康、任务级规则作业告警）、`source_key`、`status`、`scope`、`rule_key`、`task_id`、`job_id`、`occurrence_count`、`link` 等。
+- **类别与存储种类分离**：`source_type` 表示告警类别（`platform_health` / `metric` / `job`），sync 阶段是存储种类（`source_key` 前缀 `sync:episode:`），两者不再混用；重试等内部识别走存储种类前缀，不走类别。
 - 链接：`{app.console_url}/sync?task=<id>&job=<id>`，`console_url` 为空时不带链接；告警中心用相对链接 `/sync?task=&job=`。**不要用 `external_url`**：它是 Agent、Alertmanager 回调的后端地址（默认 17800），默认安装里前端在另一个端口（17880），拼出来的链接会 404。
 - 邮件收件人：策略接收人 + `notify_task_owner` 时的任务创建人邮箱（用户停用或没有邮箱时忽略，不让告警失败），按小写去重。
 

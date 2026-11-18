@@ -360,12 +360,19 @@ func (s *Service) CreateTask(ctx context.Context, req *CreateTaskRequest, create
 
 // ListTasks returns paginated workspace nodes.
 func (s *Service) ListTasks(ctx context.Context, filter *TaskFilter) ([]*Task, int64, error) {
+	return s.ListTasksForActor(ctx, executionapp.Actor{IsAdmin: true}, filter)
+}
+
+// ListTasksForActor 返回分页工作台节点，并按调用者填充权限标记。
+// ListTasksForActor returns paginated workspace nodes decorated with the caller's permission flags.
+func (s *Service) ListTasksForActor(ctx context.Context, actor executionapp.Actor, filter *TaskFilter) ([]*Task, int64, error) {
 	tasks, total, err := s.repo.ListTasks(ctx, filter)
 	if err != nil {
 		return nil, 0, err
 	}
 	for _, task := range tasks {
 		s.applyTaskDefaults(task)
+		task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	}
 	if err := s.decorateTaskScheduleMetadata(ctx, tasks); err != nil {
 		return nil, 0, err
@@ -2724,7 +2731,7 @@ func mergeJobRuntimeInfo(existing JSONMap, info *EngineJobInfo) JSONMap {
 	return existing
 }
 
-func parseEngineJobTime(value string) *time.Time {
+func parseEngineJobTime(ctx context.Context, value string, clusterID uint) *time.Time {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return nil
@@ -2735,9 +2742,11 @@ func parseEngineJobTime(value string) *time.Time {
 		"2006-01-02T15:04:05",
 		"2006/01/02 15:04:05",
 	}
+	loc := timex.SeatunnelLocationForCluster(ctx, clusterID)
 	for _, layout := range layouts {
-		// 引擎返回的无偏移时间按 SeaTunnel 时区解释，统一转为 UTC。/ Naive engine times use the SeaTunnel zone, stored as UTC.
-		if parsed, err := time.ParseInLocation(layout, trimmed, timex.SeatunnelLocation()); err == nil {
+		// 引擎返回的无偏移时间按该集群 SeaTunnel 节点时区解释，统一转为 UTC。
+		// Naive engine times use that cluster's SeaTunnel node zone and are stored as UTC.
+		if parsed, err := time.ParseInLocation(layout, trimmed, loc); err == nil {
 			resolved := parsed.UTC()
 			return &resolved
 		}

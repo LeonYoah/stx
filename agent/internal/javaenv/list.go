@@ -54,25 +54,86 @@ type Candidate struct {
 	Source        CandidateSource `json:"source"`
 }
 
-// scanGlobs 与 Agent 启动包装脚本中的扫描目录保持一致（AC1b2）。
-// scanGlobs matches the scan directories in the Agent startup wrapper (AC1b2).
-func scanGlobs() []string {
-	globs := []string{
-		"/usr/lib/jvm/java-*",
-		"/usr/java/*",
-		"/opt/java/*",
-		"/usr/local/java*",
+// scanRoots 返回本机要查看的固定 JDK 目录。测试可替换。
+// scanRoots returns the fixed JDK directories to inspect on this host. Tests may replace it.
+var scanRoots = defaultScanRoots
+
+// defaultScanRoots 只列发行版常见安装位置，不走 glob、不扫家目录。
+// defaultScanRoots lists the usual distro install locations only: no globs, no home-directory walk.
+func defaultScanRoots() []string {
+	switch runtime.GOOS {
+	case "windows":
+		return []string{`C:\Program Files\Java`, `C:\Program Files\Eclipse Adoptium`}
+	case "darwin":
+		return []string{"/Library/Java/JavaVirtualMachines", "/opt/java", "/opt/jdk", "/usr/local/java", "/usr/local/jdk"}
+	default:
+		return []string{"/usr/lib/jvm", "/usr/java", "/opt/java", "/opt/jdk", "/usr/local/java", "/usr/local/jdk"}
 	}
-	if runtime.GOOS == "darwin" {
-		globs = append(globs, "/Library/Java/JavaVirtualMachines/*/Contents/Home")
-	}
-	return globs
 }
 
-// List 列出本机 STX 能读到的 JDK：环境 JAVA_HOME、固定扫描目录、以及 PATH 上的 java。
-// 探测失败或某个目录无效时跳过该项，返回空列表也不报错（AC1b：不阻塞）。
-// List lists JDKs STX can read on this host: env JAVA_HOME, the fixed scan directories, and java on PATH.
-// Invalid entries are skipped; an empty list is not an error (AC1b: never blocks).
+// eachScanHome 访问固定根目录及其直接子项。目录不存在或没权限时跳过，不递归。
+// eachScanHome visits each fixed root and its immediate children. Missing or unreadable dirs are skipped; no recursion.
+func eachScanHome(fn func(home string)) {
+	if fn == nil {
+		return
+	}
+	for _, root := range scanRoots() {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		fn(root)
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			child := filepath.Join(root, entry.Name())
+			fn(child)
+			fn(filepath.Join(child, "Contents", "Home"))
+		}
+	}
+}
+
+// versionFromRelease 读 JAVA_HOME/release，避免为探测版本拉起 JVM。
+// versionFromRelease reads JAVA_HOME/release so listing does not spawn a JVM.
+func versionFromRelease(home string) (int, string, bool) {
+	raw, err := os.ReadFile(filepath.Join(home, "release"))
+	if err != nil {
+		return 0, "", false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "JAVA_VERSION=") {
+			continue
+		}
+		val := strings.Trim(strings.TrimPrefix(line, "JAVA_VERSION="), `"'`)
+		if val == "" {
+			continue
+		}
+		version, versionStr, parseErr := parseVersionOutput(`version "` + val + `"`)
+		if parseErr != nil || version <= 0 {
+			continue
+		}
+		return version, versionStr, true
+	}
+	return 0, "", false
+}
+
+// probeVersion 优先读 release；没有再执行 java -version。
+// probeVersion prefers the release file and only then runs java -version.
+func probeVersion(ctx context.Context, home, javaBin string) (int, string) {
+	if version, versionStr, ok := versionFromRelease(home); ok {
+		return version, versionStr
+	}
+	version, versionStr, _ := VersionOf(ctx, javaBin)
+	return version, versionStr
+}
+
+// List 列出本机 STX 能读到的 JDK：环境 JAVA_HOME、几个固定目录，以及 PATH 上的 java。
+// 某个目录无效或没权限时跳过该项，返回空列表也不报错（AC1b：不阻塞）。
+// List lists JDKs STX can read: env JAVA_HOME, a few fixed directories, and java on PATH.
+// Invalid or unreadable entries are skipped; an empty list is not an error (AC1b: never blocks).
 func List(ctx context.Context) []Candidate {
 	if ctx == nil {
 		ctx = context.Background()
@@ -85,15 +146,16 @@ func List(ctx context.Context) []Candidate {
 		if home == "" {
 			return
 		}
-		if _, ok := seen[home]; ok {
+		key := canonicalJavaHome(home)
+		if _, ok := seen[key]; ok {
 			return
 		}
 		rt, err := ValidateHome(home)
 		if err != nil {
 			return
 		}
-		version, versionStr, _ := VersionOf(ctx, rt.JavaBin)
-		seen[home] = struct{}{}
+		version, versionStr := probeVersion(ctx, rt.JavaHome, rt.JavaBin)
+		seen[key] = struct{}{}
 		out = append(out, Candidate{
 			JavaHome:      rt.JavaHome,
 			JavaBin:       rt.JavaBin,
@@ -107,16 +169,7 @@ func List(ctx context.Context) []Candidate {
 	add(os.Getenv("JAVA_HOME"), CandidateSourceEnv)
 
 	// 2) 固定扫描目录。/ Fixed scan directories.
-	for _, pattern := range scanGlobs() {
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			continue
-		}
-		sort.Strings(matches)
-		for _, match := range matches {
-			add(match, CandidateSourceScan)
-		}
-	}
+	eachScanHome(func(home string) { add(home, CandidateSourceScan) })
 
 	// 3) PATH 上的 java（与 Detect 一致）。/ java on PATH (same as Detect).
 	if rt, err := Detect(); err == nil {
@@ -130,6 +183,20 @@ func List(ctx context.Context) []Candidate {
 		return out[i].JavaHome < out[j].JavaHome
 	})
 	return out
+}
+
+// canonicalJavaHome 用 EvalSymlinks 去重同一 JDK 的多个路径（/usr/java/default → 真实 home）。
+// canonicalJavaHome uses EvalSymlinks to dedupe multiple paths of the same JDK (/usr/java/default → the real home).
+func canonicalJavaHome(home string) string {
+	home = strings.TrimSpace(home)
+	if home == "" {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(home)
+	if err != nil || strings.TrimSpace(resolved) == "" {
+		return home
+	}
+	return resolved
 }
 
 // FromProcess 由运行中 JVM 的可执行文件推导 JDK（读 /proc/<pid>/exe）；解析不到返回 (nil, false)（AC1f）。

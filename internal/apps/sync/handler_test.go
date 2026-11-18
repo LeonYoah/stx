@@ -66,6 +66,55 @@ func TestGetJobLogsRejectsLegacyAllQuery(t *testing.T) {
 	}
 }
 
+func TestCreateAndListTasksDecoratePermissions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	database, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite failed: %v", err)
+	}
+	if err := database.AutoMigrate(&Task{}, &TaskVersion{}, &JobInstance{}, &GlobalVariable{}, &PreviewSession{}, &PreviewTable{}, &PreviewRow{}, &SchedulerConnection{}, &TaskSchedulerBinding{}, &audit.AuditLog{}); err != nil {
+		t.Fatalf("migrate test models failed: %v", err)
+	}
+	service := NewService(NewRepository(database))
+	handler := NewHandler(service)
+	owner := &auth.User{ID: 1, Username: "owner", IsActive: true}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		auth.SetUserToContext(c, owner)
+		c.Next()
+	})
+	router.POST("/api/v1/sync/tasks", handler.CreateTask)
+	router.GET("/api/v1/sync/tasks", handler.ListTasks)
+
+	createResp := httptest.NewRecorder()
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/sync/tasks", bytes.NewBufferString(`{"name":"perm-folder","node_type":"folder","content_format":"hocon"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusOK {
+		t.Fatalf("create returned %d: %s", createResp.Code, createResp.Body.String())
+	}
+	var created TaskResponse
+	if err := json.Unmarshal(createResp.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	if created.Data == nil || !created.Data.CanEdit || !created.Data.IsOwner {
+		t.Fatalf("create must decorate owner permissions, got %+v", created.Data)
+	}
+
+	listResp := httptest.NewRecorder()
+	router.ServeHTTP(listResp, httptest.NewRequest(http.MethodGet, "/api/v1/sync/tasks", nil))
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("list returned %d: %s", listResp.Code, listResp.Body.String())
+	}
+	var listed TaskListResponse
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if listed.Data == nil || len(listed.Data.Items) == 0 || !listed.Data.Items[0].CanEdit {
+		t.Fatalf("list must decorate can_edit, got %+v", listed.Data)
+	}
+}
+
 func TestTaskPermissionHandlersKeepContentAndPermissionChangesSeparate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	database, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())), &gorm.Config{})

@@ -38,6 +38,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates tzdata openssl && \
     rm -rf /var/lib/apt/lists/*
 
+ENV TZ=Asia/Shanghai
+
 WORKDIR /opt/stx
 
 COPY --from=artifacts /out/stx /opt/stx/stx

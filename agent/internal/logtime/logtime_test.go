@@ -37,3 +37,17 @@ func TestParseReturnsUTC(t *testing.T) {
 		t.Fatal("expected failure")
 	}
 }
+
+func TestHostIANAPrefersSeatunnelEnv(t *testing.T) {
+	t.Setenv(EnvSeatunnelTimezone, "Asia/Shanghai")
+	t.Setenv("TZ", "UTC")
+	if got := HostIANA(); got != "Asia/Shanghai" {
+		t.Fatalf("HostIANA = %q, want Asia/Shanghai", got)
+	}
+}
+
+func TestZoneinfoFromLocaltime(t *testing.T) {
+	if got := zoneinfoFromLocaltime("/no/such/localtime"); got != "" {
+		t.Fatalf("missing link should be empty, got %q", got)
+	}
+}

@@ -207,6 +207,14 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           <span>{plugin.plugin_name}</span>
+                          {plugin.bundled && (
+                            <Badge
+                              variant="outline"
+                              data-testid={`cluster-plugin-bundled-${plugin.plugin_name}`}
+                            >
+                              {t('plugin.bundled')}
+                            </Badge>
+                          )}
                           {plugin.status === 'partial' && (
                             <Badge
                               variant="destructive"
@@ -242,16 +250,18 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
                             <Eye className="h-4 w-4 mr-1" />
                             {t('plugin.viewDetails')}
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setPluginToUninstall(plugin)}
-                            disabled={isOperating}
-                            title={t('plugin.uninstall')}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive mr-1" />
-                            <span className="text-destructive">{t('plugin.uninstall')}</span>
-                          </Button>
+                          {!plugin.bundled && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setPluginToUninstall(plugin)}
+                              disabled={isOperating}
+                              title={t('plugin.uninstall')}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive mr-1" />
+                              <span className="text-destructive">{t('plugin.uninstall')}</span>
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

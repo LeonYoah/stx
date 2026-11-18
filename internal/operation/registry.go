@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 26
+const RegistryRevision = 27
 
 var registry = append([]OperationSpec{
 	{
@@ -679,6 +679,31 @@ var registry = append([]OperationSpec{
 }`,
 	},
 	{
+		ID:           "debug.pprof.get",
+		CommandPath:  []string{"debug", "pprof"},
+		Summary:      "Download a Go pprof profile from the STX process (admin, app.pprof.enabled)",
+		GeneratedCLI: false,
+		Method:       "GET",
+		Route:        "/api/v1/debug/pprof/:name",
+		Mode:         ModeDownload,
+		AuthRequired: true,
+		AdminOnly:    true,
+		Risk:         RiskR0,
+		Revision:     1,
+		Input: []InputSpec{
+			{Name: "name", Location: InputPath, Required: true, Description: "Profile name: heap, goroutine, allocs, threadcreate, block, mutex, profile, trace, cmdline, symbol"},
+			{Name: "seconds", Location: InputQuery, Required: false, Description: "Duration in seconds for CPU profile (default 30) and trace (default 5)"},
+		},
+		Example: "stx debug pprof heap --file heap.pprof",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "debug.pprof.get",
+  "request_id": "req_example",
+  "data": {"profile":"heap","file":"/tmp/heap.pprof","size":12,"sha256":"..."},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
 		ID:           "host.list",
 		CommandPath:  []string{"host", "list"},
 		Summary:      "List hosts",
@@ -802,7 +827,7 @@ var registry = append([]OperationSpec{
 		Input: []InputSpec{
 			{Name: "id", Location: InputPath, Required: true, Description: "Host ID"},
 		},
-		Impact:  &ImpactSpec{Level: RiskR0, Message: "Reads detectable JDK paths and versions on the target host.", Performance: "Asks the Agent to scan local JDK directories and run java -version."},
+		Impact:  &ImpactSpec{Level: RiskR0, Message: "Reads JAVA_HOME and a few well-known JDK directories on the target host.", Performance: "Asks the Agent to read JAVA_HOME and list /usr/lib/jvm, /usr/java, /opt/java and /opt/jdk. Unreadable directories are skipped."},
 		Example: "stx host java-runtimes 10",
 		OutputExample: `{
   "api_version": "v1",
@@ -2074,16 +2099,12 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		{Name: "task_id", Location: InputQuery, Description: "Sync task ID (job alert policies)"},
 	}
 	alertInstanceInputs := append([]InputSpec{
-		{Name: "source_type", Location: InputQuery, Description: "Alert source: local_process_event, remote_alertmanager (metric alerts) or sync"},
+		{Name: "source_type", Location: InputQuery, Description: "Alert category: platform_health, metric or job"},
 		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
 		{Name: "severity", Location: InputQuery, Description: "Alert severity: warning or critical"},
 		{Name: "status", Location: InputQuery, Description: "Display status: firing, resolved, or closed"},
 		{Name: "lifecycle_status", Location: InputQuery, Description: "Lifecycle status: firing or resolved"},
 		{Name: "handling_status", Location: InputQuery, Description: "Handling status: pending, acknowledged, silenced, or closed"},
-	}, monitoringTimeAndPaginationInputs()...)
-	alertInputs := append([]InputSpec{
-		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"},
-		{Name: "status", Location: InputQuery, Description: "Alert status: firing, acknowledged, or silenced"},
 	}, monitoringTimeAndPaginationInputs()...)
 	remoteAlertInputs := append([]InputSpec{
 		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
@@ -2095,11 +2116,12 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		monitoringReadOperation("monitoring.alert-policy.list", []string{"monitoring", "alert-policy", "list"}, "List alert policies", "/api/v1/monitoring/alert-policies", alertPolicyListInputs),
 		monitoringReadOperation("monitoring.alert-policy.execution.list", []string{"monitoring", "alert-policy", "execution", "list"}, "List alert policy executions", "/api/v1/monitoring/alert-policies/:id/executions", policyExecutionInputs),
 		monitoringReadOperation("monitoring.alert-instance.list", []string{"monitoring", "alert-instance", "list"}, "List alert instances", "/api/v1/monitoring/alert-instances", alertInstanceInputs),
-		monitoringReadOperation("monitoring.alert.list", []string{"monitoring", "alert", "list"}, "List local alerts", "/api/v1/monitoring/alerts", alertInputs),
 		monitoringReadOperation("monitoring.remote-alert.list", []string{"monitoring", "remote-alert", "list"}, "List remote alerts", "/api/v1/monitoring/remote-alerts", remoteAlertInputs),
 		monitoringReadOperation("monitoring.cluster.rule.list", []string{"monitoring", "cluster", "rule", "list"}, "List cluster alert rules", "/api/v1/monitoring/clusters/:id/rules", clusterID),
 		monitoringReadOperation("monitoring.integration.status", []string{"monitoring", "integration", "status"}, "Get monitoring integration status", "/api/v1/monitoring/integration/status", nil),
 		monitoringReadOperation("monitoring.alert-policy.bootstrap.get", []string{"monitoring", "alert-policy", "bootstrap", "get"}, "Get alert policy center bootstrap", "/api/v1/monitoring/alert-policies/bootstrap", nil),
+		monitoringReadOperation("monitoring.alert-rule.catalog", []string{"monitoring", "alert-rule", "catalog"}, "List alert rule catalog", "/api/v1/monitoring/alert-rules/catalog",
+			[]InputSpec{{Name: "lang", Location: InputQuery, Description: "Response language: zh or en"}}),
 		monitoringReadOperation("monitoring.notifiable-user.list", []string{"monitoring", "notifiable-user", "list"}, "List notifiable users", "/api/v1/monitoring/notifiable-users", nil),
 		monitoringReadOperation("monitoring.platform-health.get", []string{"monitoring", "platform-health", "get"}, "Get platform health", "/api/v1/monitoring/platform-health", nil),
 		monitoringReadOperation("monitoring.notification-channel.list", []string{"monitoring", "notification-channel", "list"}, "List notification channels", "/api/v1/monitoring/notification-channels", nil),
@@ -2172,7 +2194,7 @@ func monitoringExampleArgs(inputs []InputSpec) string {
 func monitoringExampleValue(name string) string {
 	switch name {
 	case "source_type":
-		return "local_process_event"
+		return "platform_health"
 	case "status":
 		return "sent"
 	case "start_time":
@@ -2491,7 +2513,6 @@ var routeExceptions = []RouteException{
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/:depId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/disables/:disableId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/local", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
-	{Method: "POST", Route: "/api/v1/monitoring/alertmanager/webhook", Mode: ModeServerOnly, Reason: "External alert ingest receiver (Alertmanager webhook compatible)"},
 	{Method: "POST", Route: "/api/v1/sync/preview/collect", Mode: ModeServerOnly, Reason: "SeaTunnel preview result callback"},
 	{Method: "POST", Route: "/api/v1/sync/engine-events/:cluster_id", Mode: ModeServerOnly, Reason: "SeaTunnel event-report-http callback"},
 	{Method: "ANY", Route: "/api/v1/clusters/:id/webui", Mode: ModeProxy, Reason: "SeaTunnel WebUI reverse proxy"},

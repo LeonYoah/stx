@@ -1492,34 +1492,22 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		JavaHome: javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")),
 	}
 
-	// Check if auto-restart is enabled to avoid conflict
-	// 检查是否启用了自动重启以避免冲突
-	if a.autoRestarter.IsEnabled() {
-		// Auto-restart enabled: register process with PID=0, let auto-restarter handle the actual start
-		// 自动重启已启用：用 PID=0 注册进程，让自动重启器处理实际的启动
-		a.processMonitor.TrackProcessSilent(processName, 0, installDir, role, params)
-		a.processMonitor.SetProcessClusterID(processName, clusterID)
-		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
-		a.autoRestarter.ResetRestartCount(processName)
-		logger.InfoF(ctx, "[Agent] Process registered for auto-start: %s (auto-restart will handle startup) / 进程已注册等待自动启动：%s（自动重启将处理启动）",
-			processName, processName)
-		reporter.Report(100, "Process registered for auto-start / 进程已注册等待自动启动")
-		return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process registered for auto-start (role: %s) / 进程已注册等待自动启动（角色：%s）", role, role)), nil
-	}
-
-	// Auto-restart disabled: start process directly
-	// 自动重启已禁用：直接启动进程
+	// 自动重启只负责之后的崩溃拉起。START 必须立刻把进程拉起来并登记真实 PID，
+	// 不能用 PID=0 注册再等 restarter 把“崩溃”当成启动（那会空等默认重启间隔）。
+	// Auto-restart only covers later crashes. START must launch the process now and track the real PID;
+	// registering PID=0 and waiting for the restarter to treat it as a crash inserts the default restart delay.
 	err := a.processManager.StartProcess(ctx, processName, params)
 	if err != nil {
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
-	// Track the process / 跟踪进程
-	// Get the PID from process manager / 从进程管理器获取 PID
-	if info, err := a.processManager.GetStatus(ctx, processName); err == nil && info.PID > 0 {
+	if info, statusErr := a.processManager.GetStatus(ctx, processName); statusErr == nil && info.PID > 0 {
 		a.processMonitor.TrackProcess(processName, info.PID, installDir, role, params)
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
+		if a.autoRestarter.IsEnabled() {
+			a.autoRestarter.ResetRestartCount(processName)
+		}
 		logger.InfoF(ctx, "[Agent] Process started and tracked: %s (PID: %d) / 进程已启动并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}

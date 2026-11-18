@@ -30,7 +30,6 @@ func TestValidateConfig_ObservabilityDisabled(t *testing.T) {
 func TestValidateConfig_MissingExternalURL(t *testing.T) {
 	c := &configModel{}
 	c.Observability.Enabled = true
-	c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 
 	if err := validateConfig(c); err == nil {
 		t.Fatalf("expected validation error when app.external_url is empty")
@@ -47,14 +46,14 @@ func fillEmbeddedObservabilityDefaults(c *configModel) {
 	c.Observability.ScrapeInterval = "15s"
 	c.Observability.EvalInterval = "15s"
 	c.Observability.QueryTimeout = "8s"
-	c.Observability.MaxSamples = 50000000
+	c.Observability.MaxSamples = 10000000
+	c.Observability.SampleLimit = 50000
 }
 
 func TestValidateConfig_RemoteObservabilityHappyPath(t *testing.T) {
 	c := &configModel{}
 	c.App.ExternalURL = "https://stx.example.com"
 	c.Observability.Enabled = true
-	c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
 	fillEmbeddedObservabilityDefaults(c)
 
 	if err := validateConfig(c); err != nil {
@@ -85,6 +84,7 @@ func TestValidateConfig_EmbeddedObservabilityInvalid(t *testing.T) {
 		{"zero eval interval", func(c *configModel) { c.Observability.EvalInterval = "0s" }},
 		{"bad query timeout", func(c *configModel) { c.Observability.QueryTimeout = "soon" }},
 		{"negative max_samples", func(c *configModel) { c.Observability.MaxSamples = -1 }},
+		{"negative sample_limit", func(c *configModel) { c.Observability.SampleLimit = -1 }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -94,5 +94,27 @@ func TestValidateConfig_EmbeddedObservabilityInvalid(t *testing.T) {
 				t.Fatalf("expected validation error for %s", tc.name)
 			}
 		})
+	}
+}
+
+func TestValidateConfig_PprofDisabledIgnoresAddr(t *testing.T) {
+	c := &configModel{}
+	c.App.Pprof.Enabled = false
+	c.App.Pprof.Addr = "not-a-bind-address"
+	if err := validateConfig(c); err != nil {
+		t.Fatalf("disabled pprof should skip addr checks: %v", err)
+	}
+}
+
+func TestValidateConfig_PprofEnabledRequiresHostPort(t *testing.T) {
+	c := &configModel{}
+	c.App.Pprof.Enabled = true
+	c.App.Pprof.Addr = "6060"
+	if err := validateConfig(c); err == nil {
+		t.Fatal("expected error for pprof addr without host:port")
+	}
+	c.App.Pprof.Addr = "127.0.0.1:6060"
+	if err := validateConfig(c); err != nil {
+		t.Fatalf("valid pprof addr: %v", err)
 	}
 }

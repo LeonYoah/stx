@@ -46,6 +46,13 @@ app:
   session_secure: false
   session_http_only: true
   api_prefix: "/api"
+  # 进程剖析默认关闭。开启后：本机 127.0.0.1:6060/debug/pprof 可供 go tool pprof；
+  # 管理员也可 GET /api/v1/debug/pprof/:name 或 stx debug pprof 拉取 heap/CPU/goroutine。
+  # Process profiling is off by default. When on: loopback 127.0.0.1:6060/debug/pprof is for go tool pprof;
+  # admins can also GET /api/v1/debug/pprof/:name or run stx debug pprof for heap/CPU/goroutine.
+  pprof:
+    enabled: false
+    addr: "127.0.0.1:6060"
 
 
 # 认证配置
@@ -123,9 +130,11 @@ database:
   enabled: true
   type: "sqlite"  # sqlite, mysql, postgres
   sqlite_path: "./data/stx.db"  # SQLite 文件路径
-  # 仅 MySQL：升级前 DATETIME 写入所用时区（旧版 DSN 为 loc=Local），用于一次性迁移到 UTC；留空=进程本地时区。
-  # MySQL only: zone legacy DATETIME values were written in (old DSN loc=Local); used once for the UTC migration.
-  # legacy_timezone: "Asia/Shanghai"
+  # 仅 MySQL 一次性 UTC 迁移：升级前 DATETIME 的写入时区。已迁移过（含 1.4.0）不会再跑。不建议修改。
+  # 留空=进程本地时区。仅当旧数据不是 UTC 墙钟时才改，例如裸机上海时区写入则改为 Asia/Shanghai。
+  # MySQL one-shot UTC migration source zone. Already-migrated DBs (including 1.4.0) skip it. Do not change.
+  # Empty = process local zone. Change only if old DATETIME were not UTC wall clocks (e.g. Asia/Shanghai on bare metal).
+  legacy_timezone: "UTC"
   # MySQL/PostgreSQL 配置（使用 sqlite 时可忽略）
   host: "127.0.0.1"
   port: 3306
@@ -240,20 +249,12 @@ observability:
   # 单次 PromQL 查询超时
   # Per-PromQL-query timeout
   query_timeout: "8s"
-  # 单次查询允许加载的最大样本数
-  # Max samples a single query may load
-  max_samples: 50000000
-
-  # 外部告警接入：接收外部系统推送的告警（兼容 Alertmanager Webhook 格式）
-  # External alert ingest: receives alerts pushed by external systems (Alertmanager webhook compatible)
-  remote_ingest:
-    # STX 对外暴露的 Webhook 路径（自 observability.alertmanager.webhook_path 迁入，破坏性变更不双读）
-    # Webhook path exposed by STX (migrated from observability.alertmanager.webhook_path; breaking change, no dual-read)
-    path: "/api/v1/monitoring/alertmanager/webhook"
-    # Bearer 鉴权 token：为空保持兼容不鉴权（启动 WARN），非空要求 "Authorization: Bearer <token>"
-    # Bearer auth token: empty keeps legacy open behaviour (startup WARN); non-empty requires "Authorization: Bearer <token>"
-    token: ""
-
+  # 单次查询允许加载的最大样本数（8G 部署机收紧后的默认；约 160MB）
+  # Max samples a single query may load (tightened for 8G hosts; ~160MB)
+  max_samples: 10000000
+  # 每个抓取目标单轮样本上限；超限丢弃该目标本轮并记 last_error
+  # Per-target per-round sample cap; over-limit scrapes are dropped and recorded in last_error
+  sample_limit: 50000
 
   seatunnel_metrics:
     # SeaTunnel metrics path，用于探测是否开启指标推送

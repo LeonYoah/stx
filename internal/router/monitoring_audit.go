@@ -70,8 +70,6 @@ func monitoringAuditTargetFor(c *gin.Context) (monitoringAuditTarget, bool) {
 		http.MethodPost + " /api/v1/monitoring/alert-instances/:id/ack":               {operationID: "monitoring.alert-instance.ack", action: "ack", resourceType: "monitoring_alert_instance"},
 		http.MethodPost + " /api/v1/monitoring/alert-instances/:id/silence":           {operationID: "monitoring.alert-instance.silence", action: "silence", resourceType: "monitoring_alert_instance"},
 		http.MethodPost + " /api/v1/monitoring/alert-instances/:id/close":             {operationID: "monitoring.alert-instance.close", action: "close", resourceType: "monitoring_alert_instance"},
-		http.MethodPost + " /api/v1/monitoring/alerts/:eventId/ack":                   {operationID: "monitoring.alert.ack", action: "ack", resourceType: "monitoring_alert"},
-		http.MethodPost + " /api/v1/monitoring/alerts/:eventId/silence":               {operationID: "monitoring.alert.silence", action: "silence", resourceType: "monitoring_alert"},
 		http.MethodPut + " /api/v1/monitoring/clusters/:id/rules/:ruleId":             {operationID: "monitoring.cluster.rule.update", action: "update", resourceType: "monitoring_cluster_rule"},
 		http.MethodPost + " /api/v1/monitoring/notification-channels":                 {operationID: "monitoring.notification-channel.create", action: "create", resourceType: "monitoring_notification_channel"},
 		http.MethodPut + " /api/v1/monitoring/notification-channels/:id":              {operationID: "monitoring.notification-channel.update", action: "update", resourceType: "monitoring_notification_channel"},
@@ -91,8 +89,6 @@ func monitoringAuditTargetFor(c *gin.Context) (monitoringAuditTarget, bool) {
 		switch target.resourceType {
 		case "monitoring_cluster_rule":
 			target.resourceID = strings.TrimSpace(c.Param("id")) + "/" + strings.TrimSpace(c.Param("ruleId"))
-		case "monitoring_alert":
-			target.resourceID = strings.TrimSpace(c.Param("eventId"))
 		default:
 			target.resourceID = strings.TrimSpace(c.Param("id"))
 		}

@@ -31,6 +31,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -228,6 +229,48 @@ func getArtifactIDForPath(name string) string {
 
 	// Default: connector-${name} / 默认：connector-${name}
 	return fmt.Sprintf("connector-%s", name)
+}
+
+// pluginNameForArtifact 把 Maven artifact ID 反查成控制面插件名（connector-cdc-mysql → mysql-cdc）。
+// pluginNameForArtifact reverses a Maven artifact ID to the Control Plane plugin name (connector-cdc-mysql → mysql-cdc).
+func pluginNameForArtifact(artifactID string) string {
+	artifactID = strings.TrimSpace(artifactID)
+	if artifactID == "" {
+		return ""
+	}
+	matches := make([]string, 0, 1)
+	for name, mapped := range pluginArtifactMappingsForPath {
+		if mapped == artifactID {
+			matches = append(matches, name)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0]
+	}
+	canonical := strings.TrimPrefix(artifactID, "connector-")
+	for _, name := range matches {
+		if name == canonical {
+			return name
+		}
+	}
+	if len(matches) > 0 {
+		sort.Strings(matches)
+		return matches[0]
+	}
+	return canonical
+}
+
+// pluginNameFromConnectorList 把节点 list_plugins 返回的短名（文件名里 connector- 之后的一段）还原成控制面插件名。
+// pluginNameFromConnectorList turns the short name from node list_plugins (the segment after connector- in the filename) into the Control Plane plugin name.
+func pluginNameFromConnectorList(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if _, ok := pluginArtifactMappingsForPath[name]; ok {
+		return name
+	}
+	return pluginNameForArtifact("connector-" + name)
 }
 
 // GetDependencyPath returns the path for a dependency file under the requested target dir.

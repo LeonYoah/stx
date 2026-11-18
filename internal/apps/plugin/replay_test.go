@@ -36,11 +36,12 @@ const replayTestVersion = "9.9.9"
 // replaySender simulates an Agent: list_plugins returns nodePlugins, transfers of files in failTransfer
 // fail, and every command is recorded.
 type replaySender struct {
-	mu           sync.Mutex
-	nodePlugins  []map[string]string
-	listErr      error
-	failTransfer map[string]bool
-	sent         []sentPluginCommand
+	mu             sync.Mutex
+	nodePlugins    []map[string]string
+	listErr        error
+	listErrByAgent map[string]error
+	failTransfer   map[string]bool
+	sent           []sentPluginCommand
 }
 
 func (s *replaySender) SendCommand(_ context.Context, agentID, command string, params map[string]string) (bool, string, error) {
@@ -51,6 +52,9 @@ func (s *replaySender) SendCommand(_ context.Context, agentID, command string, p
 	case "list_plugins":
 		if s.listErr != nil {
 			return false, "", s.listErr
+		}
+		if err := s.listErrByAgent[agentID]; err != nil {
+			return false, "", err
 		}
 		plugins := s.nodePlugins
 		if plugins == nil {
@@ -64,6 +68,18 @@ func (s *replaySender) SendCommand(_ context.Context, agentID, command string, p
 		}
 	}
 	return true, "ok", nil
+}
+
+func (s *replaySender) listPluginCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, command := range s.sent {
+		if command.command == "list_plugins" {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *replaySender) transferredFiles() []string {

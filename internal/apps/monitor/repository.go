@@ -292,6 +292,23 @@ func (r *Repository) HasNodeEventAfter(ctx context.Context, nodeID uint, after t
 	return true, &event, nil
 }
 
+// ListNodeEventsAfter 返回若干节点在指定时间之后、匹配类型的事件（按 created_at 升序）。
+// ListNodeEventsAfter returns matching events for the given nodes after the specified time (created_at ascending).
+func (r *Repository) ListNodeEventsAfter(ctx context.Context, nodeIDs []uint, after time.Time, eventTypes []ProcessEventType) ([]ProcessEvent, error) {
+	if len(nodeIDs) == 0 || len(eventTypes) == 0 {
+		return nil, nil
+	}
+	var events []ProcessEvent
+	err := r.db.WithContext(ctx).
+		Where("node_id IN ? AND event_type IN ? AND created_at > ?", nodeIDs, eventTypes, timex.Bound(after)).
+		Order("created_at ASC").
+		Find(&events).Error
+	if err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
 // CountEventsByType counts events by type for a cluster within a time range.
 // CountEventsByType 统计集群在时间范围内按类型分组的事件数量。
 func (r *Repository) CountEventsByType(ctx context.Context, clusterID uint, eventType ProcessEventType, since *time.Time) (int64, error) {

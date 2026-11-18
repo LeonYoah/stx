@@ -1466,8 +1466,8 @@ func TestGetJobDoesNotCallEngineByDefault(t *testing.T) {
 func TestJobReconcilerUpdatesFromRunningList(t *testing.T) {
 	service := newTestSyncService(t)
 	service.engineClient = &stubEngineClient{info: &EngineJobInfo{
-		JobID:     "recon-1",
-		JobStatus: "FINISHED",
+		JobID:        "recon-1",
+		JobStatus:    "FINISHED",
 		FinishedTime: "2026-03-29 15:50:44",
 	}}
 	ctx := context.Background()
@@ -2014,6 +2014,30 @@ func TestRefreshJobInstanceUsesEngineFinishedTime(t *testing.T) {
 	}
 	if got := refreshed.FinishedAt.In(timex.SeatunnelLocation()).Format(time.DateTime); got != "2026-03-29 15:50:44" {
 		t.Fatalf("expected engine finished time, got %s", got)
+	}
+}
+
+func TestParseEngineJobTimeUsesClusterHeartbeatTimezone(t *testing.T) {
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load Asia/Shanghai: %v", err)
+	}
+	t.Setenv("STX_SEATUNNEL_TIMEZONE", "")
+	timex.SetEngineLocationLookup(func(_ context.Context, clusterID uint) *time.Location {
+		if clusterID == 9 {
+			return shanghai
+		}
+		return nil
+	})
+	t.Cleanup(func() { timex.SetEngineLocationLookup(nil) })
+
+	got := parseEngineJobTime(context.Background(), "2026-03-29 15:50:44", 9)
+	if got == nil {
+		t.Fatal("expected parsed engine time")
+	}
+	want := time.Date(2026, 3, 29, 7, 50, 44, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("naive Shanghai wall time should become %s UTC, got %s", want, got.UTC())
 	}
 }
 

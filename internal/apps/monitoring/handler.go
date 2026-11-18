@@ -18,15 +18,12 @@
 package monitoring
 
 import (
-	"crypto/subtle"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -68,131 +65,6 @@ func (h *Handler) GetClusterOverview(c *gin.Context) {
 	data, err := h.service.GetClusterOverview(c.Request.Context(), uint(clusterID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to get cluster monitoring overview: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// ListAlerts handles GET /api/v1/monitoring/alerts
-// ListAlerts 处理 GET /api/v1/monitoring/alerts
-func (h *Handler) ListAlerts(c *gin.Context) {
-	filter := &AlertFilter{}
-
-	if clusterIDStr := c.Query("cluster_id"); clusterIDStr != "" {
-		clusterID, err := strconv.ParseUint(clusterIDStr, 10, 32)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid cluster_id"})
-			return
-		}
-		filter.ClusterID = uint(clusterID)
-	}
-	if status := strings.TrimSpace(c.Query("status")); status != "" {
-		parsedStatus := AlertStatus(status)
-		if parsedStatus != AlertStatusFiring && parsedStatus != AlertStatusAcknowledged && parsedStatus != AlertStatusSilenced {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid status"})
-			return
-		}
-		filter.Status = parsedStatus
-	}
-	if startTimeStr := strings.TrimSpace(c.Query("start_time")); startTimeStr != "" {
-		startTime, err := time.Parse(time.RFC3339, startTimeStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid start_time, expected RFC3339"})
-			return
-		}
-		filter.StartTime = &startTime
-	}
-	if endTimeStr := strings.TrimSpace(c.Query("end_time")); endTimeStr != "" {
-		endTime, err := time.Parse(time.RFC3339, endTimeStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid end_time, expected RFC3339"})
-			return
-		}
-		filter.EndTime = &endTime
-	}
-	if pageStr := c.Query("page"); pageStr != "" {
-		page, err := strconv.Atoi(pageStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid page"})
-			return
-		}
-		filter.Page = page
-	}
-	if pageSizeStr := c.Query("page_size"); pageSizeStr != "" {
-		pageSize, err := strconv.Atoi(pageSizeStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid page_size"})
-			return
-		}
-		filter.PageSize = pageSize
-	}
-
-	data, err := h.service.ListAlerts(c.Request.Context(), filter)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to list alerts: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// AcknowledgeAlert handles POST /api/v1/monitoring/alerts/:eventId/ack
-// AcknowledgeAlert 处理 POST /api/v1/monitoring/alerts/:eventId/ack
-func (h *Handler) AcknowledgeAlert(c *gin.Context) {
-	eventID, err := strconv.ParseUint(c.Param("eventId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid event id"})
-		return
-	}
-
-	req := &AcknowledgeAlertRequest{}
-	if err := c.ShouldBindJSON(req); err != nil && !errors.Is(err, io.EOF) {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
-		return
-	}
-
-	operator := "unknown"
-	if user := auth.GetUserFromContext(c); user != nil && user.Username != "" {
-		operator = user.Username
-	}
-
-	data, err := h.service.AcknowledgeAlert(c.Request.Context(), uint(eventID), operator, req.Note)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to acknowledge alert: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// SilenceAlert handles POST /api/v1/monitoring/alerts/:eventId/silence
-// SilenceAlert 处理 POST /api/v1/monitoring/alerts/:eventId/silence
-func (h *Handler) SilenceAlert(c *gin.Context) {
-	eventID, err := strconv.ParseUint(c.Param("eventId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid event id"})
-		return
-	}
-
-	req := &SilenceAlertRequest{}
-	if err := c.ShouldBindJSON(req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
-		return
-	}
-	if err := req.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
-		return
-	}
-
-	operator := "unknown"
-	if user := auth.GetUserFromContext(c); user != nil && user.Username != "" {
-		operator = user.Username
-	}
-
-	data, err := h.service.SilenceAlert(c.Request.Context(), uint(eventID), operator, req.DurationMinutes, req.Note)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to silence alert: " + err.Error()})
 		return
 	}
 
@@ -282,57 +154,6 @@ func (h *Handler) ListNotifiableUsers(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// AlertmanagerWebhook handles POST /api/v1/monitoring/alertmanager/webhook.
-// AlertmanagerWebhook 处理 Alertmanager webhook 告警推送。
-func (h *Handler) AlertmanagerWebhook(c *gin.Context) {
-	if !config.Config.Observability.Enabled {
-		c.JSON(http.StatusServiceUnavailable, Response{ErrorMsg: "observability is disabled"})
-		return
-	}
-
-	// 配置了 remote_ingest.token 时强制 Bearer 校验（常量时间比较，防时序侧信道）；
-	// 缺失或错误一律 401，响应不区分缺失/不匹配。token 与 Authorization 头值不落日志。
-	// When remote_ingest.token is configured, Bearer auth is enforced (constant-time compare to
-	// avoid timing side channels); a missing or wrong token yields the same 401. The token and the
-	// Authorization header value are never logged.
-	expectedToken := strings.TrimSpace(config.Config.Observability.RemoteIngest.Token)
-	if expectedToken != "" && !remoteIngestBearerAuthorized(c.GetHeader("Authorization"), expectedToken) {
-		c.JSON(http.StatusUnauthorized, Response{ErrorMsg: "unauthorized"})
-		return
-	}
-
-	var payload AlertmanagerWebhookPayload
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid webhook payload: " + err.Error()})
-		return
-	}
-
-	result, err := h.service.HandleAlertmanagerWebhook(c.Request.Context(), &payload)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to process external alert: " + err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, Response{Data: result})
-}
-
-// remoteIngestBearerAuthorized 校验 Authorization 头是否为 "Bearer <token>"（scheme 大小写不敏感，
-// token 本体区分大小写）；expectedToken 调用方保证非空。
-// remoteIngestBearerAuthorized reports whether the Authorization header carries
-// "Bearer <token>" (scheme case-insensitive, token itself case-sensitive); expectedToken is
-// guaranteed non-empty by the caller.
-func remoteIngestBearerAuthorized(authorizationHeader, expectedToken string) bool {
-	const bearerPrefix = "bearer "
-	header := strings.TrimSpace(authorizationHeader)
-	if len(header) <= len(bearerPrefix) || !strings.EqualFold(header[:len(bearerPrefix)], bearerPrefix) {
-		return false
-	}
-	token := strings.TrimSpace(header[len(bearerPrefix):])
-	if token == "" {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) == 1
 }
 
 // ListRemoteAlerts handles GET /api/v1/monitoring/remote-alerts.

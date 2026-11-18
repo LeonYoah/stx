@@ -30,8 +30,26 @@ import (
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
+// alertStoreKind 是告警的存储种类，只由告警 ID 前缀决定，仅用于内部分发
+// （确认 / 静默 / 关闭 / 退避重试查表），不对外暴露。
+// alertStoreKind is where an alert is stored, derived from the alert ID prefix;
+// used only for internal dispatch (ack / silence / close / retry lookups) and never exposed.
+type alertStoreKind string
+
+const (
+	// alertStoreLocalEvent 对应 local:event:<id>。
+	// alertStoreLocalEvent matches local:event:<id>.
+	alertStoreLocalEvent alertStoreKind = "local_event"
+	// alertStoreMetricRecord 对应 remote:<fingerprint>:<startsAt>。
+	// alertStoreMetricRecord matches remote:<fingerprint>:<startsAt>.
+	alertStoreMetricRecord alertStoreKind = "metric_record"
+	// alertStoreSyncEpisode 对应 sync:episode:<id>。
+	// alertStoreSyncEpisode matches sync:episode:<id>.
+	alertStoreSyncEpisode alertStoreKind = "sync_episode"
+)
+
 type parsedAlertSourceKey struct {
-	SourceType  AlertSourceType
+	Kind        alertStoreKind
 	SourceKey   string
 	EventID     uint
 	Fingerprint string
@@ -61,9 +79,14 @@ func (s *Service) ListAlertInstances(ctx context.Context, filter *AlertInstanceF
 	now := timex.Now()
 	items := make([]*AlertInstance, 0, 32)
 
-	includeLocal := filter.SourceType == "" || filter.SourceType == AlertSourceTypeLocalProcessEvent
-	includeRemote := filter.SourceType == "" || filter.SourceType == AlertSourceTypeRemoteAlertmanager
-	includeSync := filter.SourceType == "" || filter.SourceType == AlertSourceTypeSync
+	// 类别按规则归属判定：platform_health 同时包含本地事件与集群级作业阶段，
+	// job 只含任务级作业阶段；sync 阶段在 buildSyncAlertInstances 内再按类别过滤。
+	// Category follows rule ownership: platform_health covers both local events and
+	// cluster-level sync episodes, job covers task-level episodes only; sync episodes
+	// are filtered again by category inside buildSyncAlertInstances.
+	includeLocal := filter.SourceType == "" || filter.SourceType == AlertSourceTypePlatformHealth
+	includeRemote := filter.SourceType == "" || filter.SourceType == AlertSourceTypeMetric
+	includeSync := filter.SourceType == "" || filter.SourceType == AlertSourceTypePlatformHealth || filter.SourceType == AlertSourceTypeJob
 
 	if includeLocal {
 		localItems, err := s.buildLocalAlertInstances(ctx, filter, now)
@@ -179,8 +202,8 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 	}
 
 	now := timex.Now()
-	switch parsed.SourceType {
-	case AlertSourceTypeLocalProcessEvent:
+	switch parsed.Kind {
+	case alertStoreLocalEvent:
 		event, err := s.monitorService.GetEvent(ctx, parsed.EventID)
 		if err != nil {
 			if errors.Is(err, monitor.ErrEventNotFound) {
@@ -202,8 +225,8 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeRemoteAlertmanager:
+		return s.alertInstanceActionOK(state), nil
+	case alertStoreMetricRecord:
 		record, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, parsed.Fingerprint, parsed.StartsAt)
 		if err != nil {
 			return nil, err
@@ -212,7 +235,7 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 			return nil, ErrAlertInstanceNotFound
 		}
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeRemoteAlertmanager,
+			SourceType:     AlertSourceTypeMetric,
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      strings.TrimSpace(record.ClusterID),
 			HandlingStatus: AlertHandlingStatusAcknowledged,
@@ -225,14 +248,14 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeSync:
-		clusterID, err := s.syncAlertEpisodeClusterID(ctx, parsed.EpisodeID)
+		return s.alertInstanceActionOK(state), nil
+	case alertStoreSyncEpisode:
+		clusterID, ruleKey, err := s.syncAlertEpisodeClusterRule(ctx, parsed.EpisodeID)
 		if err != nil {
 			return nil, err
 		}
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeSync,
+			SourceType:     syncEpisodeCategory(ruleKey),
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      clusterID,
 			HandlingStatus: AlertHandlingStatusAcknowledged,
@@ -243,7 +266,7 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	default:
 		return nil, ErrAlertInstanceInvalidID
 	}
@@ -278,8 +301,8 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 	}
 
 	silencedUntil := timex.Now().Add(time.Duration(durationMinutes) * time.Minute)
-	switch parsed.SourceType {
-	case AlertSourceTypeLocalProcessEvent:
+	switch parsed.Kind {
+	case alertStoreLocalEvent:
 		event, err := s.monitorService.GetEvent(ctx, parsed.EventID)
 		if err != nil {
 			if errors.Is(err, monitor.ErrEventNotFound) {
@@ -301,8 +324,8 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeRemoteAlertmanager:
+		return s.alertInstanceActionOK(state), nil
+	case alertStoreMetricRecord:
 		record, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, parsed.Fingerprint, parsed.StartsAt)
 		if err != nil {
 			return nil, err
@@ -311,7 +334,7 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 			return nil, ErrAlertInstanceNotFound
 		}
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeRemoteAlertmanager,
+			SourceType:     AlertSourceTypeMetric,
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      strings.TrimSpace(record.ClusterID),
 			HandlingStatus: AlertHandlingStatusSilenced,
@@ -322,14 +345,14 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeSync:
-		clusterID, err := s.syncAlertEpisodeClusterID(ctx, parsed.EpisodeID)
+		return s.alertInstanceActionOK(state), nil
+	case alertStoreSyncEpisode:
+		clusterID, ruleKey, err := s.syncAlertEpisodeClusterRule(ctx, parsed.EpisodeID)
 		if err != nil {
 			return nil, err
 		}
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeSync,
+			SourceType:     syncEpisodeCategory(ruleKey),
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      clusterID,
 			HandlingStatus: AlertHandlingStatusSilenced,
@@ -340,7 +363,7 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	default:
 		return nil, ErrAlertInstanceInvalidID
 	}
@@ -373,8 +396,8 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 	}
 
 	now := timex.Now()
-	switch parsed.SourceType {
-	case AlertSourceTypeLocalProcessEvent:
+	switch parsed.Kind {
+	case alertStoreLocalEvent:
 		if s.monitorService == nil {
 			return nil, ErrAlertInstanceNotFound
 		}
@@ -390,7 +413,7 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 		}
 
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeLocalProcessEvent,
+			SourceType:     AlertSourceTypePlatformHealth,
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      strconv.FormatUint(uint64(event.ClusterID), 10),
 			HandlingStatus: AlertHandlingStatusClosed,
@@ -401,8 +424,8 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeRemoteAlertmanager:
+		return s.alertInstanceActionOK(state), nil
+	case alertStoreMetricRecord:
 		record, err := s.repo.GetRemoteAlertByFingerprintAndStartsAt(ctx, parsed.Fingerprint, parsed.StartsAt)
 		if err != nil {
 			return nil, err
@@ -412,7 +435,7 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 		}
 
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeRemoteAlertmanager,
+			SourceType:     AlertSourceTypeMetric,
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      strings.TrimSpace(record.ClusterID),
 			HandlingStatus: AlertHandlingStatusClosed,
@@ -423,16 +446,16 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
-	case AlertSourceTypeSync:
+		return s.alertInstanceActionOK(state), nil
+	case alertStoreSyncEpisode:
 		// 关闭作用于整个阶段：之后不再提醒；同一个键再出问题时开新阶段。
 		// Closing applies to the whole episode: no more reminders, and the next problem on the key opens a new one.
-		clusterID, err := s.syncAlertEpisodeClusterID(ctx, parsed.EpisodeID)
+		clusterID, ruleKey, err := s.syncAlertEpisodeClusterRule(ctx, parsed.EpisodeID)
 		if err != nil {
 			return nil, err
 		}
 		state, err := s.upsertAlertState(ctx, &AlertState{
-			SourceType:     AlertSourceTypeSync,
+			SourceType:     syncEpisodeCategory(ruleKey),
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      clusterID,
 			HandlingStatus: AlertHandlingStatusClosed,
@@ -443,7 +466,7 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 		if err != nil {
 			return nil, err
 		}
-		return toAlertInstanceActionResult(state), nil
+		return s.alertInstanceActionOK(state), nil
 	default:
 		return nil, ErrAlertInstanceInvalidID
 	}
@@ -486,6 +509,11 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 		return nil, err
 	}
 
+	recoveryIndex, err := s.loadLocalRecoveryIndex(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+
 	ruleCache := make(map[uint]map[string]*AlertRule)
 	items := make([]*AlertInstance, 0, len(rows))
 	for _, row := range rows {
@@ -516,7 +544,7 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 			state = alertStateFromLegacyState(sourceKey, legacyStateMap[row.ID])
 		}
 
-		lifecycleStatus, resolvedAt, err := s.resolveLocalAlertLifecycle(ctx, row)
+		lifecycleStatus, resolvedAt, err := s.resolveLocalAlertLifecycle(ctx, row, recoveryIndex)
 		if err != nil {
 			return nil, err
 		}
@@ -540,7 +568,7 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 
 		item := &AlertInstance{
 			AlertID:         sourceKey,
-			SourceType:      AlertSourceTypeLocalProcessEvent,
+			SourceType:      AlertSourceTypePlatformHealth,
 			ClusterID:       strconv.FormatUint(uint64(row.ClusterID), 10),
 			ClusterName:     strings.TrimSpace(row.ClusterName),
 			Severity:        rule.Severity,
@@ -569,7 +597,7 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 	return items, nil
 }
 
-func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEventSource) (AlertLifecycleStatus, *time.Time, error) {
+func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEventSource, recoveryIndex *localRecoveryIndex) (AlertLifecycleStatus, *time.Time, error) {
 	if row == nil {
 		return AlertLifecycleStatusFiring, nil, nil
 	}
@@ -577,13 +605,24 @@ func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEven
 		resolvedAt := row.CreatedAt.UTC()
 		return AlertLifecycleStatusResolved, &resolvedAt, nil
 	}
-	if s.monitorService == nil {
+	if s.monitorService == nil && recoveryIndex == nil {
 		return AlertLifecycleStatusFiring, nil, nil
+	}
+
+	lookup := func(types []monitor.ProcessEventType) (bool, *monitor.ProcessEvent, error) {
+		if recoveryIndex != nil {
+			event := recoveryIndex.firstAfter(row.NodeID, row.CreatedAt, types)
+			if event == nil {
+				return false, nil, nil
+			}
+			return true, event, nil
+		}
+		return s.monitorService.HasNodeEventAfter(ctx, row.NodeID, row.CreatedAt, types)
 	}
 
 	switch row.EventType {
 	case monitor.EventTypeNodeOffline:
-		recovered, recoveryEvent, err := s.monitorService.HasNodeEventAfter(ctx, row.NodeID, row.CreatedAt, []monitor.ProcessEventType{
+		recovered, recoveryEvent, err := lookup([]monitor.ProcessEventType{
 			monitor.EventTypeNodeRecovered,
 		})
 		if err != nil {
@@ -598,7 +637,7 @@ func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEven
 	case monitor.EventTypeCrashed,
 		monitor.EventTypeRestartFailed,
 		monitor.EventTypeRestartLimitReached:
-		recovered, recoveryEvent, err := s.monitorService.HasNodeEventAfter(ctx, row.NodeID, row.CreatedAt, []monitor.ProcessEventType{
+		recovered, recoveryEvent, err := lookup([]monitor.ProcessEventType{
 			monitor.EventTypeStarted,
 			monitor.EventTypeRestarted,
 			monitor.EventTypeNodeRecovered,
@@ -615,6 +654,69 @@ func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEven
 	default:
 		return AlertLifecycleStatusFiring, nil, nil
 	}
+}
+
+// localRecoveryIndex 按节点缓存恢复类事件，供一次列表内判定生命周期，避免逐条查库。
+// localRecoveryIndex caches recovery events per node so one list can resolve lifecycles without per-row queries.
+type localRecoveryIndex struct {
+	byNode map[uint][]monitor.ProcessEvent
+}
+
+func (idx *localRecoveryIndex) firstAfter(nodeID uint, after time.Time, types []monitor.ProcessEventType) *monitor.ProcessEvent {
+	if idx == nil {
+		return nil
+	}
+	allowed := make(map[monitor.ProcessEventType]struct{}, len(types))
+	for _, eventType := range types {
+		allowed[eventType] = struct{}{}
+	}
+	for i := range idx.byNode[nodeID] {
+		event := &idx.byNode[nodeID][i]
+		if !event.CreatedAt.UTC().After(timex.Bound(after)) {
+			continue
+		}
+		if _, ok := allowed[event.EventType]; ok {
+			return event
+		}
+	}
+	return nil
+}
+
+func (s *Service) loadLocalRecoveryIndex(ctx context.Context, rows []*AlertEventSource) (*localRecoveryIndex, error) {
+	if s.monitorService == nil || len(rows) == 0 {
+		return &localRecoveryIndex{byNode: map[uint][]monitor.ProcessEvent{}}, nil
+	}
+	nodeIDs := make([]uint, 0, len(rows))
+	seen := make(map[uint]struct{}, len(rows))
+	var minCreated time.Time
+	for _, row := range rows {
+		if row == nil || row.NodeID == 0 {
+			continue
+		}
+		if _, ok := seen[row.NodeID]; !ok {
+			seen[row.NodeID] = struct{}{}
+			nodeIDs = append(nodeIDs, row.NodeID)
+		}
+		if minCreated.IsZero() || row.CreatedAt.Before(minCreated) {
+			minCreated = row.CreatedAt
+		}
+	}
+	if len(nodeIDs) == 0 {
+		return &localRecoveryIndex{byNode: map[uint][]monitor.ProcessEvent{}}, nil
+	}
+	events, err := s.monitorService.ListNodeEventsAfter(ctx, nodeIDs, minCreated, []monitor.ProcessEventType{
+		monitor.EventTypeStarted,
+		monitor.EventTypeRestarted,
+		monitor.EventTypeNodeRecovered,
+	})
+	if err != nil {
+		return nil, err
+	}
+	index := &localRecoveryIndex{byNode: make(map[uint][]monitor.ProcessEvent, len(nodeIDs))}
+	for _, event := range events {
+		index.byNode[event.NodeID] = append(index.byNode[event.NodeID], event)
+	}
+	return index, nil
 }
 
 func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertInstanceFilter, now time.Time) ([]*AlertInstance, error) {
@@ -651,7 +753,7 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 			continue
 		}
 
-		lifecycleStatus := resolveRemoteLifecycleStatus(row.Status)
+		lifecycleStatus, inferredResolvedAt := resolveRemoteLifecycleStatus(row.Status, row.EndsAt, row.LastReceivedAt, now)
 		if filter.LifecycleStatus != "" && lifecycleStatus != filter.LifecycleStatus {
 			continue
 		}
@@ -675,11 +777,12 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 
 		item := &AlertInstance{
 			AlertID:         sourceKey,
-			SourceType:      AlertSourceTypeRemoteAlertmanager,
+			SourceType:      AlertSourceTypeMetric,
 			ClusterID:       strings.TrimSpace(row.ClusterID),
 			ClusterName:     strings.TrimSpace(row.ClusterName),
 			Severity:        AlertSeverity(strings.TrimSpace(row.Severity)),
 			AlertName:       strings.TrimSpace(row.AlertName),
+			RuleKey:         remoteRecordRuleKey(row),
 			Summary:         strings.TrimSpace(row.Summary),
 			Description:     strings.TrimSpace(row.Description),
 			Status:          displayStatus,
@@ -688,7 +791,7 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 			CreatedAt:       row.CreatedAt.UTC(),
 			FiringAt:        firingAt,
 			LastSeenAt:      lastSeenAt,
-			ResolvedAt:      toUTCTimePointer(row.ResolvedAt),
+			ResolvedAt:      firstNonNilTime(toUTCTimePointer(row.ResolvedAt), inferredResolvedAt),
 			SourceRef: &AlertInstanceSourceRef{
 				Fingerprint: strings.TrimSpace(row.Fingerprint),
 				Receiver:    strings.TrimSpace(row.Receiver),
@@ -760,7 +863,7 @@ func (s *Service) persistLocalAlertHandlingState(
 	}
 
 	state := &AlertState{
-		SourceType:     AlertSourceTypeLocalProcessEvent,
+		SourceType:     AlertSourceTypePlatformHealth,
 		SourceKey:      buildLocalAlertSourceKey(event.ID),
 		ClusterID:      strconv.FormatUint(uint64(event.ClusterID), 10),
 		HandlingStatus: handlingStatus,
@@ -803,8 +906,17 @@ func buildRemoteAlertSourceKey(fingerprint string, startsAt int64) string {
 	return fmt.Sprintf("remote:%s:%d", strings.TrimSpace(fingerprint), startsAt)
 }
 
+// remoteRecordRuleKey 从告警记录的 labels 里取出规则键（评估器写入的 template_key），
+// 解析失败或缺失时返回空串。
+// remoteRecordRuleKey extracts the rule key (the template_key the evaluator writes into
+// rule labels) from a stored alert record, returning "" when absent or unparsable.
+func remoteRecordRuleKey(record *RemoteAlertRecord) string {
+	return strings.TrimSpace(parseRemoteAlertLabels(record)["template_key"])
+}
+
 func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {
-	parts := strings.Split(strings.TrimSpace(sourceKey), ":")
+	sourceKey = strings.TrimSpace(sourceKey)
+	parts := strings.Split(sourceKey, ":")
 	if len(parts) < 3 {
 		return nil, fmt.Errorf("invalid alert id")
 	}
@@ -815,17 +927,17 @@ func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {
 			return nil, fmt.Errorf("invalid alert id")
 		}
 		return &parsedAlertSourceKey{
-			SourceType: AlertSourceTypeLocalProcessEvent,
-			SourceKey:  sourceKey,
-			EventID:    uint(eventID),
+			Kind:      alertStoreLocalEvent,
+			SourceKey: sourceKey,
+			EventID:   uint(eventID),
 		}, nil
 	}
 
 	if episodeID, ok := parseSyncAlertSourceKey(parts); ok {
 		return &parsedAlertSourceKey{
-			SourceType: AlertSourceTypeSync,
-			SourceKey:  sourceKey,
-			EpisodeID:  episodeID,
+			Kind:      alertStoreSyncEpisode,
+			SourceKey: sourceKey,
+			EpisodeID: episodeID,
 		}, nil
 	}
 
@@ -835,7 +947,7 @@ func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {
 			return nil, fmt.Errorf("invalid alert id")
 		}
 		return &parsedAlertSourceKey{
-			SourceType:  AlertSourceTypeRemoteAlertmanager,
+			Kind:        alertStoreMetricRecord,
 			SourceKey:   sourceKey,
 			Fingerprint: parts[1],
 			StartsAt:    startsAt,
@@ -845,11 +957,45 @@ func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {
 	return nil, fmt.Errorf("invalid alert id")
 }
 
-func resolveRemoteLifecycleStatus(status string) AlertLifecycleStatus {
+// remoteAlertStaleThreshold 是没有 ends_at 的旧记录（外部 Alertmanager 时代写入、没有内嵌
+// 评估器的 ValidUntil 概念）判恢复的兜底阈值。
+// remoteAlertStaleThreshold is the fallback age after which a legacy record without ends_at
+// (written by the external Alertmanager stack, which predates the embedded evaluator's
+// ValidUntil) counts as resolved.
+const remoteAlertStaleThreshold = time.Hour
+
+// resolveRemoteLifecycleStatus 把记录状态映射成生命周期状态，第二返回值是按过期推断出的恢复
+// 时间（无则 nil）。接入端点移除后，firing 记录不再保证能等到 resolved 记录：ends_at 已过
+// 判为已恢复（内嵌评估器 firing 时持续以 ValidUntil 刷新它，过期说明重推已停止）；ends_at=0
+// 的旧记录用 last_received_at 兜底。
+// resolveRemoteLifecycleStatus maps the stored status to the lifecycle status; the second return
+// is the resolved time inferred from expiry (nil when absent). With the ingest endpoint removed,
+// a firing record is not guaranteed to meet a resolved twin: a record past ends_at counts as
+// resolved (the embedded evaluator keeps refreshing it to ValidUntil while resending, so expiry
+// means resends stopped), and legacy rows with ends_at=0 fall back to last_received_at.
+func resolveRemoteLifecycleStatus(status string, endsAt int64, lastReceivedAt time.Time, now time.Time) (AlertLifecycleStatus, *time.Time) {
 	if strings.EqualFold(strings.TrimSpace(status), string(AlertLifecycleStatusResolved)) {
-		return AlertLifecycleStatusResolved
+		return AlertLifecycleStatusResolved, nil
 	}
-	return AlertLifecycleStatusFiring
+	if endsAt > 0 && time.Unix(endsAt, 0).Before(now) {
+		t := time.Unix(endsAt, 0).UTC()
+		return AlertLifecycleStatusResolved, &t
+	}
+	if endsAt == 0 && !lastReceivedAt.IsZero() && lastReceivedAt.Add(remoteAlertStaleThreshold).Before(now) {
+		t := lastReceivedAt.Add(remoteAlertStaleThreshold).UTC()
+		return AlertLifecycleStatusResolved, &t
+	}
+	return AlertLifecycleStatusFiring, nil
+}
+
+// firstNonNilTime 返回第一个非空时间指针。/ firstNonNilTime returns the first non-nil time pointer.
+func firstNonNilTime(values ...*time.Time) *time.Time {
+	for _, v := range values {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
 }
 
 func resolveAlertHandlingStatus(state *AlertState, now time.Time) AlertHandlingStatus {
@@ -883,7 +1029,7 @@ func alertStateFromLegacyState(sourceKey string, legacy *AlertEventState) *Alert
 		handlingStatus = AlertHandlingStatusSilenced
 	}
 	return &AlertState{
-		SourceType:     AlertSourceTypeLocalProcessEvent,
+		SourceType:     AlertSourceTypePlatformHealth,
 		SourceKey:      sourceKey,
 		ClusterID:      strconv.FormatUint(uint64(legacy.ClusterID), 10),
 		HandlingStatus: handlingStatus,
@@ -908,6 +1054,14 @@ func applyAlertStateToInstance(item *AlertInstance, state *AlertState) {
 	item.ClosedBy = state.ClosedBy
 	item.ClosedAt = toUTCTimePointer(state.ClosedAt)
 	item.LatestNote = state.Note
+}
+
+// alertInstanceActionOK 在确认 / 静默 / 关闭成功后丢掉集群健康缓存，让首页和大盘告警数立刻对齐。
+// alertInstanceActionOK drops the clusters-health cache after a successful ack / silence / close so home and
+// dashboard alert counts update immediately.
+func (s *Service) alertInstanceActionOK(state *AlertState) *AlertInstanceActionResult {
+	s.invalidateClustersHealthCache()
+	return toAlertInstanceActionResult(state)
 }
 
 func toAlertInstanceActionResult(state *AlertState) *AlertInstanceActionResult {

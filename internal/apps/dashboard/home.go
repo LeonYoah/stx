@@ -44,7 +44,7 @@ type HomeJobSummaryProvider interface {
 // HomeMonitoringProvider 提供集群健康与告警（由 monitoring 服务实现）。
 // HomeMonitoringProvider supplies cluster health and alerts (implemented by the monitoring service).
 type HomeMonitoringProvider interface {
-	GetClustersHealth(ctx context.Context) (*monitoring.ClusterHealthData, error)
+	GetClustersHealthFor(ctx context.Context, clusterID uint) (*monitoring.ClusterHealthData, error)
 	ListAlertInstances(ctx context.Context, filter *monitoring.AlertInstanceFilter) (*monitoring.AlertInstanceListData, error)
 }
 
@@ -111,7 +111,7 @@ func (s *HomeService) GetHomeSummary(ctx context.Context, actor executionapp.Act
 	}
 
 	if s.monitoring != nil {
-		if health, err := s.monitoring.GetClustersHealth(ctx); err != nil {
+		if health, err := s.monitoring.GetClustersHealthFor(ctx, clusterID); err != nil {
 			out.PartialErrors = append(out.PartialErrors, "clusters")
 		} else {
 			for _, item := range health.Clusters {

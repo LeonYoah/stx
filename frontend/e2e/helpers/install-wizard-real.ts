@@ -561,7 +561,8 @@ async function waitForClusterMasterNodeReady(
           (role === 'master' ||
             role === 'master/worker' ||
             role === 'master_worker') &&
-          Boolean(node?.is_online)
+          Boolean(node?.is_online) &&
+          Number(node?.process_pid) > 0
         );
       });
       if (readyNode) {
@@ -572,7 +573,7 @@ async function waitForClusterMasterNodeReady(
   }
 
   throw new Error(
-    `Timed out waiting for cluster ${clusterId} master node to become online`,
+    `Timed out waiting for cluster ${clusterId} master node to become online with process_pid > 0`,
   );
 }
 

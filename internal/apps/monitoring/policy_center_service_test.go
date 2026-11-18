@@ -88,24 +88,6 @@ func TestResolveMetricsPolicyCapability(t *testing.T) {
 	})
 }
 
-func TestResolveRemoteIngestCapability(t *testing.T) {
-	original := config.Config.Observability.Enabled
-	t.Cleanup(func() {
-		config.Config.Observability.Enabled = original
-	})
-
-	config.Config.Observability.Enabled = true
-	status, reason := resolveRemoteIngestCapability(map[string]*IntegrationComponentStatus{
-		"remote_ingest": {Name: "remote_ingest", Healthy: false, StatusCode: 503},
-	})
-	if status != AlertPolicyCapabilityStatusUnavailable {
-		t.Fatalf("expected unavailable, got %s", status)
-	}
-	if !strings.Contains(reason, "External alert ingest is not ready") {
-		t.Fatalf("unexpected reason: %s", reason)
-	}
-}
-
 func TestBuildVisibleAlertPolicyTemplateSummaries_filtersUnavailableMetricTemplates(t *testing.T) {
 	templates := buildVisibleAlertPolicyTemplateSummaries([]*AlertPolicyCapabilityDTO{
 		{Key: AlertPolicyCapabilityKeyPlatformHealth, Status: AlertPolicyCapabilityStatusAvailable},

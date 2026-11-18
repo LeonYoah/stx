@@ -105,6 +105,16 @@ type ClusterNodeInfo struct {
 	NodeID     uint   // Node ID / 节点 ID
 	HostID     uint   // Host ID / 主机 ID
 	InstallDir string // SeaTunnel installation directory / SeaTunnel 安装目录
+	Role       string // Node role (master / worker / master/worker) / 节点角色
+	IsOnline   bool   // Whether the host is currently online / 主机当前是否在线
+}
+
+// nodeConnectorDetail 是节点 list_plugins 返回的一条连接器记录。
+// nodeConnectorDetail is one connector row from a node's list_plugins result.
+type nodeConnectorDetail struct {
+	Name          string
+	Version       string
+	ConnectorPath string
 }
 
 // ClusterNodeGetter is an interface for getting cluster nodes.
@@ -154,6 +164,20 @@ type Service struct {
 	// bundled seed load markers / 内置基线加载标记
 	seedLoadedVersions map[string]bool
 	seedLoadedMu       sync.RWMutex
+
+	// bundledConnectors 缓存各集群从节点读到的安装包自带连接器，避免每次打开插件页都打 list_plugins。
+	// bundledConnectors caches per-cluster connectors bundled in the install package so opening the plugin page does not list_plugins every time.
+	bundledConnectorsMu sync.RWMutex
+	bundledConnectors   map[uint]bundledConnectorCacheEntry
+}
+
+// bundledConnectorCacheTTL 是安装包自带连接器列表缓存时长；测试可设为 0 以关闭缓存。
+// bundledConnectorCacheTTL is the bundled-connector list cache TTL; tests may set it to 0 to disable caching.
+var bundledConnectorCacheTTL = 30 * time.Second
+
+type bundledConnectorCacheEntry struct {
+	extras []InstalledPlugin
+	until  time.Time
 }
 
 // NewService creates a new Service instance.
@@ -167,6 +191,7 @@ func NewService(repo *Repository) *Service {
 		catalogFetchFailureUntil: make(map[string]time.Time),
 		installProgress:          make(map[string]*PluginInstallStatus),
 		seedLoadedVersions:       make(map[string]bool),
+		bundledConnectors:        make(map[uint]bundledConnectorCacheEntry),
 	}
 	service.pluginFetcher = service.fetchPluginsFromDocs
 	service.officialDocFetcher = service.fetchOfficialDocMarkdown
@@ -185,6 +210,7 @@ func NewServiceWithDownloader(repo *Repository, pluginsDir string) *Service {
 		catalogFetchFailureUntil: make(map[string]time.Time),
 		installProgress:          make(map[string]*PluginInstallStatus),
 		seedLoadedVersions:       make(map[string]bool),
+		bundledConnectors:        make(map[uint]bundledConnectorCacheEntry),
 	}
 	service.pluginFetcher = service.fetchPluginsFromDocs
 	service.officialDocFetcher = service.fetchOfficialDocMarkdown
@@ -668,6 +694,19 @@ func (s *Service) ListInstalledPlugins(ctx context.Context, clusterID uint) ([]I
 	return plugins, nil
 }
 
+// ListVisibleInstalledPlugins 给页面/CLI 列表用：控制面已安装记录，加上节点安装包自带的连接器。
+// 升级预检和节点补齐仍走 ListInstalledPlugins，避免把 fake/console 等自带 jar 当成必须同步的额外插件。
+// ListVisibleInstalledPlugins is for the page/CLI list: Control Plane installs plus connectors bundled in the package.
+// Upgrade precheck and node replay keep using ListInstalledPlugins so bundled jars such as fake/console are not
+// treated as extra plugins that must be synced.
+func (s *Service) ListVisibleInstalledPlugins(ctx context.Context, clusterID uint) ([]InstalledPlugin, error) {
+	plugins, err := s.ListInstalledPlugins(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	return s.mergeBundledConnectors(ctx, clusterID, plugins), nil
+}
+
 func (s *Service) dedupeInstalledPlugins(ctx context.Context, clusterID uint, plugins []InstalledPlugin) []InstalledPlugin {
 	if len(plugins) <= 1 {
 		return plugins
@@ -717,6 +756,175 @@ func (s *Service) dedupeInstalledPlugins(ctx context.Context, clusterID uint, pl
 	}
 
 	return result
+}
+
+// mergeBundledConnectors 把节点 connectors 目录里安装包自带的连接器并入列表，避免只显示控制面额外安装的插件。
+// mergeBundledConnectors merges connectors already in the node's connectors directory so the list is not only
+// Control Plane extra installs.
+func (s *Service) mergeBundledConnectors(ctx context.Context, clusterID uint, plugins []InstalledPlugin) []InstalledPlugin {
+	extras := s.cachedBundledConnectors(ctx, clusterID)
+	if len(extras) == 0 {
+		return plugins
+	}
+	seen := make(map[string]struct{}, len(plugins)*2)
+	for _, plugin := range plugins {
+		if name := strings.ToLower(strings.TrimSpace(plugin.PluginName)); name != "" {
+			seen[name] = struct{}{}
+		}
+		if artifact := strings.ToLower(strings.TrimSpace(plugin.ArtifactID)); artifact != "" {
+			seen[artifact] = struct{}{}
+		}
+	}
+	now := time.Now()
+	for _, extra := range extras {
+		name := strings.ToLower(strings.TrimSpace(extra.PluginName))
+		artifact := strings.ToLower(strings.TrimSpace(extra.ArtifactID))
+		if name != "" {
+			if _, ok := seen[name]; ok {
+				continue
+			}
+		}
+		if artifact != "" {
+			if _, ok := seen[artifact]; ok {
+				continue
+			}
+		}
+		if name != "" {
+			seen[name] = struct{}{}
+		}
+		if artifact != "" {
+			seen[artifact] = struct{}{}
+		}
+		item := extra
+		item.ClusterID = clusterID
+		item.Bundled = true
+		if item.InstalledAt.IsZero() {
+			item.InstalledAt = now
+		}
+		plugins = append(plugins, item)
+	}
+	return plugins
+}
+
+func (s *Service) cachedBundledConnectors(ctx context.Context, clusterID uint) []InstalledPlugin {
+	if bundledConnectorCacheTTL > 0 {
+		s.bundledConnectorsMu.RLock()
+		if entry, ok := s.bundledConnectors[clusterID]; ok && time.Now().Before(entry.until) {
+			extras := append([]InstalledPlugin(nil), entry.extras...)
+			s.bundledConnectorsMu.RUnlock()
+			return extras
+		}
+		s.bundledConnectorsMu.RUnlock()
+	}
+	extras := s.fetchBundledConnectors(ctx, clusterID)
+	if bundledConnectorCacheTTL > 0 {
+		s.bundledConnectorsMu.Lock()
+		if s.bundledConnectors == nil {
+			s.bundledConnectors = make(map[uint]bundledConnectorCacheEntry)
+		}
+		s.bundledConnectors[clusterID] = bundledConnectorCacheEntry{
+			extras: append([]InstalledPlugin(nil), extras...),
+			until:  time.Now().Add(bundledConnectorCacheTTL),
+		}
+		s.bundledConnectorsMu.Unlock()
+	}
+	return extras
+}
+
+func (s *Service) fetchBundledConnectors(ctx context.Context, clusterID uint) []InstalledPlugin {
+	if s.agentCommandSender == nil || s.clusterNodeGetter == nil || s.hostInfoGetter == nil {
+		return nil
+	}
+	nodes, err := s.clusterNodeGetter.GetClusterNodes(ctx, clusterID)
+	if err != nil {
+		logger.WarnF(ctx, "[Plugin] 列出集群 %d 节点失败，跳过安装包自带连接器合并: %v / list cluster %d nodes failed, skip bundled connector merge: %v", clusterID, err, clusterID, err)
+		return nil
+	}
+	// 「自带」= 节点 connectors 目录里有、控制面没有安装记录（手工拷进去的 jar 也会被算成自带）。
+	// "Bundled" means the jar is on the node and the control plane has no install record (manually copied jars count too).
+	details := s.firstNodeConnectorDetails(ctx, nodes)
+	if len(details) == 0 {
+		return nil
+	}
+	now := time.Now()
+	extras := make([]InstalledPlugin, 0, len(details))
+	seen := make(map[string]struct{}, len(details)*2)
+	for _, item := range details {
+		pluginName := pluginNameFromConnectorList(item.Name)
+		if pluginName == "" {
+			continue
+		}
+		artifactID := getArtifactIDForPath(pluginName)
+		if _, ok := seen[strings.ToLower(pluginName)]; ok {
+			continue
+		}
+		if _, ok := seen[strings.ToLower(artifactID)]; ok {
+			continue
+		}
+		seen[strings.ToLower(pluginName)] = struct{}{}
+		seen[strings.ToLower(artifactID)] = struct{}{}
+		extras = append(extras, InstalledPlugin{
+			PluginName:  pluginName,
+			ArtifactID:  artifactID,
+			Category:    PluginCategoryConnector,
+			Version:     strings.TrimSpace(item.Version),
+			Status:      PluginStatusInstalled,
+			InstallPath: strings.TrimSpace(item.ConnectorPath),
+			InstalledAt: now,
+			Bundled:     true,
+		})
+	}
+	return extras
+}
+
+// connectorProbeRank 决定 list_plugins 探测顺序：在线 Master 最先，再其他在线节点，再离线 Master，最后其余。
+// connectorProbeRank ranks list_plugins probes: online master first, then other online nodes, then offline masters, then the rest.
+func connectorProbeRank(node ClusterNodeInfo) int {
+	role := strings.ToLower(strings.TrimSpace(node.Role))
+	master := role == "master" || role == "master/worker"
+	switch {
+	case node.IsOnline && master:
+		return 0
+	case node.IsOnline:
+		return 1
+	case master:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func connectorProbeOrder(nodes []ClusterNodeInfo) []ClusterNodeInfo {
+	ordered := append([]ClusterNodeInfo(nil), nodes...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return connectorProbeRank(ordered[i]) < connectorProbeRank(ordered[j])
+	})
+	return ordered
+}
+
+// firstNodeConnectorDetails 按探测顺序逐个节点发 list_plugins，拿到第一份成功结果即停，避免每个节点都打一遍。
+// firstNodeConnectorDetails sends list_plugins to nodes in probe order and stops at the first success so every node is not queried.
+func (s *Service) firstNodeConnectorDetails(ctx context.Context, nodes []ClusterNodeInfo) []nodeConnectorDetail {
+	listCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	for _, node := range connectorProbeOrder(nodes) {
+		if listCtx.Err() != nil {
+			break
+		}
+		agentID, hostErr := s.hostInfoGetter.GetHostAgentID(listCtx, node.HostID)
+		if hostErr != nil || strings.TrimSpace(agentID) == "" || strings.TrimSpace(node.InstallDir) == "" {
+			continue
+		}
+		details, listErr := s.listNodeConnectorDetails(listCtx, agentID, node.InstallDir)
+		if listErr != nil {
+			logger.WarnF(ctx, "[Plugin] 读取节点 %d 连接器失败: %v / list connectors on node %d failed: %v", node.NodeID, listErr, node.NodeID, listErr)
+			continue
+		}
+		if len(details) > 0 {
+			return details
+		}
+	}
+	return nil
 }
 
 func (s *Service) reconcileInstalledPluginVersions(ctx context.Context, clusterID uint, plugins []InstalledPlugin) []InstalledPlugin {

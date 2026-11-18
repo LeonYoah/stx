@@ -19,6 +19,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -32,6 +33,12 @@ import (
 var (
 	Config          *configModel
 	serverConfigErr error
+	// detectedLegacyObservabilitySections 是最近一次 loadConfig 检测到的残留旧监控段名（只存段名，
+	// 不存值），由 router.Serve() 启动时记一次 WARN，避免每条 CLI 命令都打 stderr。
+	// detectedLegacyObservabilitySections holds legacy monitoring section names found by the last
+	// loadConfig call (names only, never values); router.Serve() logs one WARN at startup so every
+	// CLI invocation does not spam stderr.
+	detectedLegacyObservabilitySections []string
 )
 
 func init() {
@@ -73,6 +80,8 @@ func loadConfig() (*configModel, error) {
 		return fallback, fmt.Errorf("read server config %q: %w", configPath, err)
 	}
 
+	detectedLegacyObservabilitySections = detectLegacyObservabilitySections(loader)
+
 	// 解析配置到结构体。/ Decode the configuration into the model.
 	var c configModel
 	if err := loader.Unmarshal(&c); err != nil {
@@ -93,6 +102,43 @@ func loadConfig() (*configModel, error) {
 	}
 
 	return &c, nil
+}
+
+// legacyObservabilitySections 是内嵌可观测落地后退役的旧外部监控栈配置段；配置文件里残留这些段
+// 时忽略不阻塞，但启动记一条 WARN 提示清理。
+// legacyObservabilitySections lists the external monitoring stack sections retired by the embedded
+// stack; leftover sections are ignored but trigger one startup WARN to prompt cleanup.
+var legacyObservabilitySections = []string{
+	"observability.prometheus",
+	"observability.alertmanager",
+	"observability.grafana",
+	"observability.remote_ingest",
+}
+
+// LegacyObservabilitySections 返回最近一次加载配置时检测到的残留旧监控段名（供服务启动时记
+// 一次 WARN；加载失败或无残留时为空）。返回副本，调用方不能改动内部状态。
+// LegacyObservabilitySections returns legacy monitoring section names detected during the last
+// config load (for one WARN at server startup; empty when the load failed or nothing remains).
+// Returns a copy so callers cannot mutate internal state.
+func LegacyObservabilitySections() []string {
+	return append([]string(nil), detectedLegacyObservabilitySections...)
+}
+
+// detectLegacyObservabilitySections 返回配置文件里残留的旧监控段名；只收集段名，不读取配置值
+// （token 等敏感信息不会出现在返回值里，也就不会落日志）。
+// detectLegacyObservabilitySections returns leftover legacy monitoring section names; it only
+// collects names and never reads values (tokens cannot appear in the result, so they stay out of logs).
+func detectLegacyObservabilitySections(loader *viper.Viper) []string {
+	if loader == nil {
+		return nil
+	}
+	leftovers := make([]string, 0, len(legacyObservabilitySections))
+	for _, key := range legacyObservabilitySections {
+		if loader.IsSet(key) {
+			leftovers = append(leftovers, key)
+		}
+	}
+	return leftovers
 }
 
 // applyEnvironmentOverrides 从环境变量覆盖关键配置（便于容器化与 E2E 测试环境动态切换）
@@ -149,6 +195,9 @@ func isTestEnvironment() bool {
 func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet bool) {
 	if strings.TrimSpace(c.App.DisplayTimezone) == "" {
 		c.App.DisplayTimezone = timex.DefaultDisplayTimezone
+	}
+	if strings.TrimSpace(c.App.Pprof.Addr) == "" {
+		c.App.Pprof.Addr = "127.0.0.1:6060"
 	}
 	// 数据库默认配置
 	if c.Database.Type == "" {
@@ -239,14 +288,10 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 		c.Storage.CleanupIntervalHours = 24
 	}
 
-	// 可观测性默认配置（prometheus.url / alertmanager.url 已随进程内告警评估退役，不再有默认值）。
-	// Observability defaults (prometheus.url / alertmanager.url retired with in-process alert
-	// evaluation and no longer carry defaults).
-	// 路径值与原 alertmanager.webhook_path 默认保持一致，保证已接入的外部 AM 端点不漂移。
-	// The path keeps the legacy alertmanager.webhook_path default so the exposed endpoint does not drift.
-	if c.Observability.RemoteIngest.Path == "" {
-		c.Observability.RemoteIngest.Path = "/api/v1/monitoring/alertmanager/webhook"
-	}
+	// 可观测性默认配置（prometheus.url / alertmanager.url 与 remote_ingest 已随进程内告警评估
+	// 退役，不再有默认值）。
+	// Observability defaults (prometheus.url / alertmanager.url and remote_ingest retired with
+	// in-process alert evaluation and no longer carry defaults).
 
 	// 默认启用可观测中心（仅在用户未显式配置时）
 	if !observabilityEnabledSet {
@@ -287,17 +332,24 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 	if strings.TrimSpace(c.Observability.QueryTimeout) == "" {
 		c.Observability.QueryTimeout = "8s"
 	}
-	// 与 Prometheus 默认 query.max-samples 一致；0 视为未配置，负值交给校验拒绝。
-	// Same as the Prometheus default query.max-samples; 0 is treated as unset while
+	// 8G 部署机上收紧后的单次查询上限（约 160MB）；0 视为未配置，负值交给校验拒绝。
+	// Tightened per-query cap for 8G hosts (~160MB); 0 is treated as unset while
 	// explicit negatives are rejected by validation.
 	if c.Observability.MaxSamples == 0 {
-		c.Observability.MaxSamples = 50000000
+		c.Observability.MaxSamples = 10000000
+	}
+	// 每目标抓取样本上限；0 视为未配置。 / Per-target scrape sample cap; 0 means unset.
+	if c.Observability.SampleLimit == 0 {
+		c.Observability.SampleLimit = 50000
 	}
 }
 
 func validateConfig(c *configModel) error {
 	if c == nil {
 		return nil
+	}
+	if err := validatePprofConfig(c.App.Pprof); err != nil {
+		return err
 	}
 	if !c.Observability.Enabled {
 		return nil
@@ -306,13 +358,6 @@ func validateConfig(c *configModel) error {
 	if err := validateRequiredHTTPURL("app.external_url", c.App.ExternalURL); err != nil {
 		return err
 	}
-	if err := validateRequiredPath("observability.remote_ingest.path", c.Observability.RemoteIngest.Path); err != nil {
-		return err
-	}
-	// remote_ingest.token 无格式要求：任意非空串即启用 Bearer 校验；为空时启动 WARN 在 Serve 处记一次。
-	// remote_ingest.token has no format constraints: any non-empty value enables Bearer verification;
-	// when empty the startup WARN is logged once from Serve.
-
 	// 内嵌 tsdb 存储与查询参数校验
 	// Embedded tsdb storage and query parameter validation
 	if strings.TrimSpace(c.Observability.Storage.Dir) == "" {
@@ -335,6 +380,27 @@ func validateConfig(c *configModel) error {
 	}
 	if c.Observability.MaxSamples <= 0 {
 		return fmt.Errorf("observability.max_samples must be > 0")
+	}
+	if c.Observability.SampleLimit < 0 {
+		return fmt.Errorf("observability.sample_limit must be >= 0")
+	}
+	return nil
+}
+
+// validatePprofConfig 仅在开启时校验 host:port；关闭时允许任意占位地址。
+// validatePprofConfig checks host:port only when pprof is on; disabled configs may keep a placeholder addr.
+func validatePprofConfig(p PprofConfig) error {
+	if !p.Enabled {
+		return nil
+	}
+	addr := strings.TrimSpace(p.Addr)
+	if addr == "" {
+		return fmt.Errorf("app.pprof.addr is required when app.pprof.enabled=true")
+	}
+	if _, port, err := net.SplitHostPort(addr); err != nil {
+		return fmt.Errorf("app.pprof.addr must be host:port: %w", err)
+	} else if strings.TrimSpace(port) == "" {
+		return fmt.Errorf("app.pprof.addr must include a port")
 	}
 	return nil
 }

@@ -62,7 +62,7 @@ func newTestVolumeService(queries *[]string, ats *[]int64, samples func(q string
 	// Fixed now = 2026-11-16 10:00 UTC (default display tz Asia/Shanghai = 18:00 same day).
 	svc.now = func() time.Time { return time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC) }
 	svc.oldestSample = func() (time.Time, bool) { return time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC), true }
-	svc.instantQuery = func(_ context.Context, _, q string, at time.Time) ([]promquery.Sample, error) {
+	svc.instantQuery = func(_ context.Context, q string, at time.Time) ([]promquery.Sample, error) {
 		recordQuery(queries, q)
 		if ats != nil {
 			queryMu.Lock()
@@ -71,7 +71,7 @@ func newTestVolumeService(queries *[]string, ats *[]int64, samples func(q string
 		}
 		return samples(q, at)
 	}
-	svc.rangeQuery = func(_ context.Context, _, q string, start, end time.Time, step int) ([]promquery.Series, error) {
+	svc.rangeQuery = func(_ context.Context, q string, start, end time.Time, step int) ([]promquery.Series, error) {
 		recordQuery(queries, q)
 		var points [][2]float64
 		for t := start; !t.After(end); t = t.Add(time.Duration(step) * time.Second) {
@@ -252,11 +252,19 @@ func TestGetVolume_AutoGranularity(t *testing.T) {
 	if data.Buckets[0].Partial || data.Buckets[3].Partial {
 		t.Fatalf("aligned window must not mark partial: %+v", data.Buckets)
 	}
-	// 扇出收敛：4 个满刻钟桶合并成每指标一条 range 查询；即时查询只剩 3 个 totals。
+	// 扇出收敛：4 个满刻钟桶合并成每指标一条 range 查询；即时查询 = 各 totals
+	// 跨度按 24h 上限切成日块后的条数（window/today 各 1 块，month 十余块）。
 	// Fan-out collapsed: 4 full quarter-hour buckets merge into one range query per metric;
-	// instant queries are only the 3 totals spans.
-	if len(queries) != 3*len(volumeMetrics)+len(volumeMetrics) {
-		t.Fatalf("queries = %d want %d", len(queries), 4*len(volumeMetrics))
+	// instant queries equal each totals span's day-chunk count under the 24h cap
+	// (window/today one chunk each, month a dozen-plus).
+	loc := timex.DisplayLocation()
+	now := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
+	alignedNow := alignPresetNow(now, nil)
+	wantInst := len(volumeIncreaseChunks(now.Add(-time.Hour), now, loc)) +
+		len(volumeIncreaseChunks(floorLocal(now, loc, false), alignedNow, loc)) +
+		len(volumeIncreaseChunks(floorLocal(now, loc, true), alignedNow, loc))
+	if len(queries) != (wantInst+1)*len(volumeMetrics) {
+		t.Fatalf("queries = %d want %d", len(queries), (wantInst+1)*len(volumeMetrics))
 	}
 	// 桶值来自 range 查询点：[900s] → 每桶 900。/ Bucket values come from range points:
 	// [900s] → 900 per bucket.
@@ -264,6 +272,26 @@ func TestGetVolume_AutoGranularity(t *testing.T) {
 		if len(s.Totals) != 4 || s.Totals[1] != 900 {
 			t.Fatalf("bad bucket totals: %+v", s)
 		}
+	}
+}
+
+func TestVolumeIncreaseChunks_LongSpanSplitsDays(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	start := time.Date(2026, 11, 1, 0, 0, 0, 0, loc)
+	end := time.Date(2026, 11, 16, 18, 0, 0, 0, loc)
+	chunks := volumeIncreaseChunks(start, end, loc)
+	if len(chunks) != 16 {
+		t.Fatalf("want 16 day chunks, got %d", len(chunks))
+	}
+	if !chunks[0].start.Equal(start) || chunks[0].end.Sub(chunks[0].start) != 24*time.Hour {
+		t.Fatalf("bad first chunk: %+v", chunks[0])
+	}
+	if !chunks[len(chunks)-1].end.Equal(end) || chunks[len(chunks)-1].end.Sub(chunks[len(chunks)-1].start) != 18*time.Hour {
+		t.Fatalf("bad last chunk: %+v", chunks[len(chunks)-1])
+	}
+	short := volumeIncreaseChunks(end.Add(-6*time.Hour), end, loc)
+	if len(short) != 1 {
+		t.Fatalf("spans ≤1d must stay one query, got %d", len(short))
 	}
 }
 
@@ -312,6 +340,7 @@ func TestGetVolume_TotalsAndDayBuckets(t *testing.T) {
 	if data.OldestSampleMs != time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC).UnixMilli() {
 		t.Fatalf("bad oldest_sample_ms: %d", data.OldestSampleMs)
 	}
+	assertIncreaseSpansWithinDay(t, queries)
 	// split=none：每指标一条 group_id="0"。/ split=none: one series per metric with group_id "0".
 	if len(data.Series) != len(volumeMetrics) {
 		t.Fatalf("want %d series, got %d", len(volumeMetrics), len(data.Series))
@@ -394,10 +423,13 @@ func TestGetVolume_NoGranularityOnlyTotals(t *testing.T) {
 	if data.Totals == nil || data.Totals.Window.WriteRows != 3600 {
 		t.Fatalf("bad totals: %+v", data.Totals)
 	}
-	// 4 指标 × 3 个 totals span = 12 条查询。/ 4 metrics × 3 totals spans = 12 queries.
-	if len(queries) != 12 {
-		t.Fatalf("want 12 totals queries, got %d", len(queries))
+	// 窗口 1h、今日 18h 仍各 4 条；本月 16 个日桶 × 4 指标。不得再发一条 increase[15d]。
+	// Window 1h and today 18h stay 4 queries each; the month is 16 day buckets × 4 metrics. A
+	// single increase[15d] is not allowed.
+	if len(queries) != 4+4+16*4 {
+		t.Fatalf("want 72 totals queries after day-splitting month, got %d", len(queries))
 	}
+	assertIncreaseSpansWithinDay(t, queries)
 }
 
 func TestGetVolume_NoPrometheus(t *testing.T) {
@@ -437,9 +469,52 @@ func TestGetVolume_PartialErrors(t *testing.T) {
 	}
 }
 
+func TestGetVolume_MonthBucketsUseDayIncreases(t *testing.T) {
+	withPrometheus(t, true)
+	var queries []string
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	svc := newTestVolumeService(&queries, nil, volumeSamplesFor(1.0))
+	custom := &promquery.Window{
+		Start: time.Date(2026, 9, 1, 0, 0, 0, 0, loc),
+		End:   time.Date(2026, 11, 16, 18, 0, 0, 0, loc),
+	}
+	data, err := svc.GetVolume(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, 0, "", custom, "month", "none")
+	if err != nil {
+		t.Fatalf("GetVolume: %v", err)
+	}
+	if len(data.Buckets) != 3 {
+		t.Fatalf("want Sep/Oct/Nov buckets, got %+v", data.Buckets)
+	}
+	assertIncreaseSpansWithinDay(t, queries)
+	if data.Series[0].Totals[0] <= 0 || data.Series[0].Totals[1] <= 0 {
+		t.Fatalf("day-chunked month bars should still sum: %+v", data.Series[0])
+	}
+}
+
 func TestGetVolume_InvalidRange(t *testing.T) {
 	svc := newTestVolumeService(nil, nil, nil)
 	if _, err := svc.GetVolume(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, 0, "3d", nil, "", "none"); !errors.Is(err, ErrInvalidVolumeQuery) {
 		t.Fatalf("want ErrInvalidVolumeQuery, got %v", err)
+	}
+}
+
+// assertIncreaseSpansWithinDay 确认没有单条 increase 超过约一天（允许 DST 25h）。
+// assertIncreaseSpansWithinDay checks no increase loads more than about a day (DST 25h allowed).
+func assertIncreaseSpansWithinDay(t *testing.T, queries []string) {
+	t.Helper()
+	const maxSeconds = 25 * 3600
+	for _, q := range queries {
+		start := strings.Index(q, "[")
+		end := strings.Index(q, "s])")
+		if start < 0 || end < 0 || end <= start {
+			continue
+		}
+		secs, err := strconv.ParseInt(q[start+1:end], 10, 64)
+		if err != nil {
+			t.Fatalf("parse increase span in %q: %v", q, err)
+		}
+		if secs > maxSeconds {
+			t.Fatalf("increase span %ds exceeds 1d cap: %s", secs, q)
+		}
 	}
 }

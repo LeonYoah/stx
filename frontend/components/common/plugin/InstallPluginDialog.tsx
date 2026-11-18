@@ -1205,7 +1205,7 @@ export function InstallPluginDialog({
                                         ? t('plugin.retryInstall')
                                         : t('plugin.install')}
                                     </Button>
-                                    {partialInstall && (
+                                    {partialInstall && !installedPlugin?.bundled && (
                                       <Button
                                         size='sm'
                                         variant='outline'
@@ -1220,6 +1220,8 @@ export function InstallPluginDialog({
                                       </Button>
                                     )}
                                   </div>
+                                ) : installedPlugin?.bundled ? (
+                                  <Badge variant='outline'>{t('plugin.bundled')}</Badge>
                                 ) : (
                                   <Button
                                     size='sm'

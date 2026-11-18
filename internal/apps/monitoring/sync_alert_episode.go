@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 )
 
 // SyncAlertEpisodeScope 区分作业级（按任务）与集群级的告警阶段。
@@ -128,6 +130,7 @@ type SyncAlertEpisodeFilter struct {
 	Since     *time.Time
 	Until     *time.Time
 	Limit     int
+	Status    SyncAlertEpisodeStatus
 }
 
 // CreateSyncAlertEpisode 新建告警阶段。
@@ -211,10 +214,6 @@ func (r *Repository) ListSyncAlertEpisodes(ctx context.Context, filter *SyncAler
 	if filter == nil {
 		filter = &SyncAlertEpisodeFilter{}
 	}
-	limit := filter.Limit
-	if limit <= 0 || limit > 1000 {
-		limit = 500
-	}
 	query := r.db.WithContext(ctx).Model(&SyncAlertEpisode{})
 	if filter.ClusterID > 0 {
 		query = query.Where("cluster_id = ?", filter.ClusterID)
@@ -222,14 +221,27 @@ func (r *Repository) ListSyncAlertEpisodes(ctx context.Context, filter *SyncAler
 	if filter.TaskID > 0 {
 		query = query.Where("task_id = ?", filter.TaskID)
 	}
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
+	}
 	if filter.Since != nil {
 		query = query.Where("last_occurred_at >= ?", filter.Since.UTC())
 	}
 	if filter.Until != nil {
 		query = query.Where("first_fired_at <= ?", filter.Until.UTC())
 	}
+	query = query.Order("id DESC")
+	// Limit < 0 表示不截断（集群健康 KPI 要数完全部 firing 阶段）。
+	// Limit < 0 means no cap (cluster-health KPIs must count every firing episode).
+	if filter.Limit >= 0 {
+		limit := filter.Limit
+		if limit == 0 || limit > 1000 {
+			limit = 500
+		}
+		query = query.Limit(limit)
+	}
 	var episodes []*SyncAlertEpisode
-	if err := query.Order("id DESC").Limit(limit).Find(&episodes).Error; err != nil {
+	if err := query.Find(&episodes).Error; err != nil {
 		return nil, err
 	}
 	return episodes, nil
@@ -263,17 +275,28 @@ func normalizeSyncAlertText(value string, limit int) string {
 	return string(runes[:limit])
 }
 
-// syncAlertEpisodeClusterID 返回阶段所在集群（字符串），阶段不存在时返回 ErrAlertInstanceNotFound。
-// syncAlertEpisodeClusterID returns the episode's cluster as a string, or ErrAlertInstanceNotFound when missing.
-func (s *Service) syncAlertEpisodeClusterID(ctx context.Context, episodeID uint) (string, error) {
+// syncAlertEpisodeClusterRule 返回阶段所在集群（字符串）与规则键，阶段不存在时返回 ErrAlertInstanceNotFound。
+// syncAlertEpisodeClusterRule returns the episode's cluster as a string and its rule key,
+// or ErrAlertInstanceNotFound when missing.
+func (s *Service) syncAlertEpisodeClusterRule(ctx context.Context, episodeID uint) (string, string, error) {
 	episode, err := s.repo.GetSyncAlertEpisodeByID(ctx, episodeID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if episode == nil {
-		return "", ErrAlertInstanceNotFound
+		return "", "", ErrAlertInstanceNotFound
 	}
-	return strconv.FormatUint(uint64(episode.ClusterID), 10), nil
+	return strconv.FormatUint(uint64(episode.ClusterID), 10), episode.RuleKey, nil
+}
+
+// syncEpisodeCategory 返回同步告警阶段的类别：集群级规则归平台健康，任务级归作业告警。
+// syncEpisodeCategory maps a sync episode to its alert category: cluster-level rules are
+// platform health, task-level rules are job alerts.
+func syncEpisodeCategory(ruleKey string) AlertSourceType {
+	if syncalert.IsClusterRule(ruleKey) {
+		return AlertSourceTypePlatformHealth
+	}
+	return AlertSourceTypeJob
 }
 
 // buildSyncAlertInstances 把同步作业告警阶段转成告警中心条目，筛选语义与本地事件一致。
@@ -281,6 +304,12 @@ func (s *Service) syncAlertEpisodeClusterID(ctx context.Context, episodeID uint)
 // as local events.
 func (s *Service) buildSyncAlertInstances(ctx context.Context, filter *AlertInstanceFilter, now time.Time) ([]*AlertInstance, error) {
 	episodeFilter := &SyncAlertEpisodeFilter{Since: filter.StartTime, Until: filter.EndTime, Limit: 500}
+	if filter.Unbounded {
+		episodeFilter.Limit = -1
+	}
+	if filter.Status == AlertDisplayStatusFiring {
+		episodeFilter.Status = SyncAlertEpisodeFiring
+	}
 	if filter.ClusterID != "" {
 		clusterID, err := strconv.ParseUint(strings.TrimSpace(filter.ClusterID), 10, 32)
 		if err != nil {
@@ -303,6 +332,12 @@ func (s *Service) buildSyncAlertInstances(ctx context.Context, filter *AlertInst
 
 	items := make([]*AlertInstance, 0, len(episodes))
 	for _, episode := range episodes {
+		// 类别过滤：集群级规则归平台健康、任务级归作业告警，按 source_type 过滤时只留对应类别。
+		// Category filter: cluster rules count as platform health and task rules as job alerts —
+		// a source_type filter keeps only the matching category.
+		if filter.SourceType != "" && syncEpisodeCategory(episode.RuleKey) != filter.SourceType {
+			continue
+		}
 		severity := normalizeAlertPolicySeverity(episode.Severity)
 		if filter.Severity != "" && !strings.EqualFold(string(severity), string(filter.Severity)) {
 			continue
@@ -330,7 +365,7 @@ func (s *Service) buildSyncAlertInstances(ctx context.Context, filter *AlertInst
 		}
 		item := &AlertInstance{
 			AlertID:         sourceKey,
-			SourceType:      AlertSourceTypeSync,
+			SourceType:      syncEpisodeCategory(episode.RuleKey),
 			ClusterID:       strconv.FormatUint(uint64(episode.ClusterID), 10),
 			ClusterName:     episode.ClusterName,
 			Severity:        severity,

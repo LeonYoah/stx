@@ -37,24 +37,9 @@ const (
 	// ConditionCodeJavaMetaspace triggers on Metaspace exhaustion.
 	// ConditionCodeJavaMetaspace 在 Metaspace 耗尽时触发。
 	ConditionCodeJavaMetaspace InspectionConditionTemplateCode = "JAVA_METASPACE"
-	// ConditionCodePromGCFrequent triggers on frequent GC pauses.
-	// ConditionCodePromGCFrequent 在 GC 频繁时触发。
-	ConditionCodePromGCFrequent InspectionConditionTemplateCode = "PROM_GC_FREQUENT"
-	// ConditionCodePromHeapRising triggers on monotonically rising heap usage.
-	// ConditionCodePromHeapRising 在堆内存持续上涨时触发。
-	ConditionCodePromHeapRising InspectionConditionTemplateCode = "PROM_HEAP_RISING"
-	// ConditionCodePromHeapHigh triggers on high heap utilization.
-	// ConditionCodePromHeapHigh 在堆内存使用率高时触发。
-	ConditionCodePromHeapHigh InspectionConditionTemplateCode = "PROM_HEAP_HIGH"
-	// ConditionCodePromCPUHigh triggers on sustained high CPU usage.
-	// ConditionCodePromCPUHigh 在 CPU 持续高负载时触发。
-	ConditionCodePromCPUHigh InspectionConditionTemplateCode = "PROM_CPU_HIGH"
 	// ConditionCodeErrorSpike triggers on error frequency spike.
 	// ConditionCodeErrorSpike 在错误频率激增时触发。
 	ConditionCodeErrorSpike InspectionConditionTemplateCode = "ERROR_SPIKE"
-	// ConditionCodeNodeUnhealthy triggers on sustained node unhealthy state.
-	// ConditionCodeNodeUnhealthy 在节点持续异常时触发。
-	ConditionCodeNodeUnhealthy InspectionConditionTemplateCode = "NODE_UNHEALTHY"
 	// ConditionCodeAlertFiring triggers on a specific alert rule firing.
 	// ConditionCodeAlertFiring 在指定告警规则触发时触发。
 	ConditionCodeAlertFiring InspectionConditionTemplateCode = "ALERT_FIRING"
@@ -71,15 +56,9 @@ const (
 	// ConditionCategoryJavaError groups Java fatal error conditions.
 	// ConditionCategoryJavaError 分组 Java 致命错误条件。
 	ConditionCategoryJavaError InspectionConditionCategory = "java_error"
-	// ConditionCategoryPrometheus groups Prometheus metric conditions.
-	// ConditionCategoryPrometheus 分组 Prometheus 指标条件。
-	ConditionCategoryPrometheus InspectionConditionCategory = "prometheus"
 	// ConditionCategoryErrorRate groups error rate conditions.
 	// ConditionCategoryErrorRate 分组错误频率条件。
 	ConditionCategoryErrorRate InspectionConditionCategory = "error_rate"
-	// ConditionCategoryNodeUnhealthy groups node health conditions.
-	// ConditionCategoryNodeUnhealthy 分组节点健康条件。
-	ConditionCategoryNodeUnhealthy InspectionConditionCategory = "node_unhealthy"
 	// ConditionCategoryAlertFiring groups alert rule conditions.
 	// ConditionCategoryAlertFiring 分组告警规则条件。
 	ConditionCategoryAlertFiring InspectionConditionCategory = "alert_firing"
@@ -126,37 +105,6 @@ var BuiltinConditionTemplates = []InspectionConditionTemplate{
 		ImmediateOnMatch: true,
 	},
 	{
-		Code:                 ConditionCodePromGCFrequent,
-		Category:             ConditionCategoryPrometheus,
-		Name:                 bilingualText("GC 频繁", "Frequent GC"),
-		Description:          bilingualText("当 GC 频繁相关指标对应的告警持续触发时，自动发起巡检。", "Trigger inspection when the alert for frequent GC keeps firing."),
-		DefaultThreshold:     10,
-		DefaultWindowMinutes: 5,
-	},
-	{
-		Code:                 ConditionCodePromHeapRising,
-		Category:             ConditionCategoryPrometheus,
-		Name:                 bilingualText("堆内存持续上涨", "Heap Keeps Rising"),
-		Description:          bilingualText("当堆内存持续上涨相关告警触发时，自动发起巡检。", "Trigger inspection when the heap-rising alert is firing."),
-		DefaultWindowMinutes: 15,
-	},
-	{
-		Code:                 ConditionCodePromHeapHigh,
-		Category:             ConditionCategoryPrometheus,
-		Name:                 bilingualText("堆内存使用率高", "High Heap Usage"),
-		Description:          bilingualText("当堆内存使用率高相关告警触发时，自动发起巡检。", "Trigger inspection when the high heap usage alert is firing."),
-		DefaultThreshold:     85,
-		DefaultWindowMinutes: 10,
-	},
-	{
-		Code:                 ConditionCodePromCPUHigh,
-		Category:             ConditionCategoryPrometheus,
-		Name:                 bilingualText("CPU 持续高负载", "Sustained High CPU"),
-		Description:          bilingualText("当 CPU 持续高负载相关告警触发时，自动发起巡检。", "Trigger inspection when the sustained high CPU alert is firing."),
-		DefaultThreshold:     90,
-		DefaultWindowMinutes: 10,
-	},
-	{
 		Code:                 ConditionCodeErrorSpike,
 		Category:             ConditionCategoryErrorRate,
 		Name:                 bilingualText("错误频率激增", "Error Spike"),
@@ -165,18 +113,12 @@ var BuiltinConditionTemplates = []InspectionConditionTemplate{
 		DefaultWindowMinutes: 5,
 	},
 	{
-		Code:                 ConditionCodeNodeUnhealthy,
-		Category:             ConditionCategoryNodeUnhealthy,
-		Name:                 bilingualText("节点持续异常", "Persistent Node Anomaly"),
-		Description:          bilingualText("N 个节点异常持续 M 分钟。", "Trigger when N nodes remain abnormal for M minutes."),
+		Code:                 ConditionCodeAlertFiring,
+		Category:             ConditionCategoryAlertFiring,
+		Name:                 bilingualText("告警触发", "Alert Firing"),
+		Description:          bilingualText("所选告警规则触发时发起巡检；可要求持续时长与同时触发的对象数。", "Trigger inspection when the selected alert rules fire; may require a minimum duration and a minimum number of firing objects."),
 		DefaultThreshold:     1,
-		DefaultWindowMinutes: 10,
-	},
-	{
-		Code:        ConditionCodeAlertFiring,
-		Category:    ConditionCategoryAlertFiring,
-		Name:        bilingualText("告警规则触发", "Alert Firing"),
-		Description: bilingualText("指定告警规则 firing 时触发巡检。", "Trigger inspection when the specified alert rule is firing."),
+		DefaultWindowMinutes: 0,
 	},
 	{
 		Code:            ConditionCodeScheduled,
@@ -191,12 +133,7 @@ var supportedConditionTemplateCodes = map[InspectionConditionTemplateCode]struct
 	ConditionCodeJavaOOM:           {},
 	ConditionCodeJavaStackOverflow: {},
 	ConditionCodeJavaMetaspace:     {},
-	ConditionCodePromGCFrequent:    {},
-	ConditionCodePromHeapRising:    {},
-	ConditionCodePromHeapHigh:      {},
-	ConditionCodePromCPUHigh:       {},
 	ConditionCodeErrorSpike:        {},
-	ConditionCodeNodeUnhealthy:     {},
 	ConditionCodeAlertFiring:       {},
 	ConditionCodeScheduled:         {},
 }
@@ -224,6 +161,9 @@ type InspectionConditionItem struct {
 	WindowMinutesOverride *int                            `json:"window_minutes_override,omitempty"`
 	CronExprOverride      string                          `json:"cron_expr_override,omitempty"`
 	ExtraKeywords         []string                        `json:"extra_keywords,omitempty"`
+	// RuleKeys 是告警触发条件要监听的规则键，取自告警规则目录，按精确相等匹配。
+	// RuleKeys lists the rule keys an alert-firing condition watches, taken from the alert rule catalog; exact match.
+	RuleKeys []string `json:"rule_keys,omitempty"`
 }
 
 // InspectionConditionItems is a slice of InspectionConditionItem for JSON column storage.

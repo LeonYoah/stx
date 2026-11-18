@@ -34,6 +34,7 @@ import (
 	pb "github.com/LeonYoah/stx/agent"
 	"github.com/LeonYoah/stx/agent/internal/config"
 	"github.com/LeonYoah/stx/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/logtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -535,6 +536,7 @@ func (c *Client) SendHeartbeat(ctx context.Context, usage *pb.ResourceUsage, pro
 		Timestamp:     time.Now().UnixMilli(),
 		ResourceUsage: usage,
 		Processes:     processes,
+		Timezone:      logtime.HostIANA(),
 	}
 
 	resp, err := client.Heartbeat(ctx, req)

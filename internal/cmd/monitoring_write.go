@@ -36,11 +36,10 @@ func addMonitoringWriteCommands(root *cobra.Command, storeProvider authStoreProv
 	}
 	alertPolicyCommand := childCommand(monitoringCommand, "alert-policy")
 	alertInstanceCommand := childCommand(monitoringCommand, "alert-instance")
-	alertCommand := childCommand(monitoringCommand, "alert")
 	clusterRuleCommand := childCommand(childCommand(monitoringCommand, "cluster"), "rule")
 	notificationChannelCommand := childCommand(monitoringCommand, "notification-channel")
 	notificationRouteCommand := childCommand(monitoringCommand, "notification-route")
-	if alertPolicyCommand == nil || alertInstanceCommand == nil || alertCommand == nil || clusterRuleCommand == nil || notificationChannelCommand == nil || notificationRouteCommand == nil {
+	if alertPolicyCommand == nil || alertInstanceCommand == nil || clusterRuleCommand == nil || notificationChannelCommand == nil || notificationRouteCommand == nil {
 		panic("generated monitoring subcommand is missing")
 	}
 
@@ -57,13 +56,9 @@ func addMonitoringWriteCommands(root *cobra.Command, storeProvider authStoreProv
 		}),
 	)
 	alertInstanceCommand.AddCommand(
-		newMonitoringAlertActionCommand(storeProvider, "alert-instance", "ack"),
-		newMonitoringAlertActionCommand(storeProvider, "alert-instance", "silence"),
-		newMonitoringAlertActionCommand(storeProvider, "alert-instance", "close"),
-	)
-	alertCommand.AddCommand(
-		newMonitoringAlertActionCommand(storeProvider, "alert", "ack"),
-		newMonitoringAlertActionCommand(storeProvider, "alert", "silence"),
+		newMonitoringAlertActionCommand(storeProvider, "ack"),
+		newMonitoringAlertActionCommand(storeProvider, "silence"),
+		newMonitoringAlertActionCommand(storeProvider, "close"),
 	)
 	clusterRuleCommand.AddCommand(newMonitoringRequestFileCommand(storeProvider, monitoringRequestFileCommand{
 		Use: "update <cluster-id> <rule-id>", Short: "Update a cluster alert rule", Example: "stx monitoring cluster rule update 6 1 --request-file ./rule.json --confirm",
@@ -142,18 +137,14 @@ func newMonitoringRequestFileCommand(storeProvider authStoreProvider, definition
 	return command
 }
 
-func newMonitoringAlertActionCommand(storeProvider authStoreProvider, resource, action string) *cobra.Command {
+func newMonitoringAlertActionCommand(storeProvider authStoreProvider, action string) *cobra.Command {
 	var options secureWriteOptions
 	var note string
 	var durationMinutes int
-	operationID := "monitoring." + resource + "." + action
-	argument := "<id>"
-	if resource == "alert" {
-		argument = "<event-id>"
-	}
+	operationID := "monitoring.alert-instance." + action
 	command := &cobra.Command{
-		Use: action + " " + argument, Short: strings.ToUpper(action[:1]) + action[1:] + " a monitoring " + resource,
-		Example: "stx monitoring " + resource + " " + action + " 1 --confirm", Args: usageArgs(cobra.ExactArgs(1)),
+		Use: action + " <id>", Short: strings.ToUpper(action[:1]) + action[1:] + " a monitoring alert instance",
+		Example: "stx monitoring alert-instance " + action + " alert-1 --confirm", Args: usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			body := map[string]any{}
 			if strings.TrimSpace(note) != "" {
@@ -165,12 +156,8 @@ func newMonitoringAlertActionCommand(storeProvider authStoreProvider, resource, 
 				}
 				body["duration_minutes"] = durationMinutes
 			}
-			pathResource := "alert-instances"
-			if resource == "alert" {
-				pathResource = "alerts"
-			}
-			path := "/api/v1/monitoring/" + pathResource + "/" + url.PathEscape(args[0]) + "/" + action
-			return executeMonitoringWrite(command, storeProvider, operationID, &options, http.MethodPost, path, body, "stx monitoring "+resource+" list")
+			path := "/api/v1/monitoring/alert-instances/" + url.PathEscape(args[0]) + "/" + action
+			return executeMonitoringWrite(command, storeProvider, operationID, &options, http.MethodPost, path, body, "stx monitoring alert-instance list")
 		},
 	}
 	addSecureWriteFlags(command, &options)

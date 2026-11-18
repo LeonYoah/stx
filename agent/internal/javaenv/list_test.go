@@ -52,6 +52,55 @@ func TestListIncludesEnvAndScanDirs(t *testing.T) {
 	}
 }
 
+// TestListScansFixedRootChildren 覆盖：固定根目录下一层的 JDK 会被列出；根目录读失败则跳过。
+// TestListScansFixedRootChildren covers listing a JDK one level under a fixed root; an unreadable root is skipped.
+func TestListScansFixedRootChildren(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "java-11-openjdk")
+	mustFakeJDK(t, home)
+	if err := os.WriteFile(filepath.Join(home, "release"), []byte("JAVA_VERSION=\"11.0.2\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev := scanRoots
+	scanRoots = func() []string { return []string{root} }
+	t.Cleanup(func() { scanRoots = prev })
+	t.Setenv("JAVA_HOME", "")
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	got := List(context.Background())
+	found := false
+	want := NormalizeHome(home)
+	for _, c := range got {
+		if c.JavaHome == want && c.Source == CandidateSourceScan && c.Version == 11 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected scanned JDK %s version 11, got %+v", want, got)
+	}
+
+	missing := filepath.Join(root, "missing-root")
+	scanRoots = func() []string { return []string{missing} }
+	_ = List(context.Background())
+}
+
+// TestVersionFromRelease 覆盖从 release 文件读主版本，不必执行 java。
+// TestVersionFromRelease covers reading the major version from the release file without running java.
+func TestVersionFromRelease(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "release"), []byte("IMPLEMENTOR=\"Temurin\"\nJAVA_VERSION=\"17.0.9\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	version, _, ok := versionFromRelease(root)
+	if !ok || version != 17 {
+		t.Fatalf("versionFromRelease = %d ok=%v, want 17", version, ok)
+	}
+	if version, _, ok := versionFromRelease(filepath.Join(root, "missing")); ok || version != 0 {
+		t.Fatalf("missing release must not parse, got %d ok=%v", version, ok)
+	}
+}
+
 // TestListSkipsInvalidHomes 覆盖 AC1b：无效目录被跳过，空列表不报错。
 // TestListSkipsInvalidHomes covers AC1b: invalid directories are skipped and an empty list is not an error.
 func TestListSkipsInvalidHomes(t *testing.T) {
@@ -75,7 +124,7 @@ func TestFromProcessUsesExecutableHome(t *testing.T) {
 // TestHomeFromBinStripsJRE 覆盖 jre 子目录回退到上级 JDK。
 // TestHomeFromBinStripsJRE covers falling back from a jre subdirectory to the parent JDK.
 func TestHomeFromBinStripsJRE(t *testing.T) {
-	root := t.TempDir()
+	root := resolvedTempDir(t)
 	jdk := filepath.Join(root, "jdk8")
 	mustFakeJDK(t, jdk)
 	jreBin := filepath.Join(jdk, "jre", "bin")

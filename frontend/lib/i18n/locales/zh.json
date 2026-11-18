@@ -308,7 +308,7 @@
         "empty": "该时间窗内没有数据",
         "noAccess": "无权查看该作业",
         "partial": "部分指标查询失败：{keys}",
-        "noPromDesc": "开启可观测性后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。下方运行日历来自 STX 数据库，不受影响。",
+        "noPromDesc": "开启内置监控后，这里会显示全局吞吐、写入 / CDC 延迟 Top 8、数据流向、Checkpoint 与算子热点。请联系管理员在服务端配置中开启。下方运行日历来自 STX 数据库，不受影响。",
         "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。下方运行日历来自 STX 数据库，不受影响。",
         "volume": {
           "title": "数据量",
@@ -480,11 +480,10 @@
           "bad": "异常"
         },
         "noProm": {
-          "title": "可观测性未开启",
-          "desc": "开启可观测性后，这里会显示节点可用性、JVM、GC 与作业状态趋势。集群卡片和节点表来自 Agent 心跳，不受影响。",
+          "title": "内置监控未开启",
+          "desc": "开启内置监控后，这里会显示节点可用性、JVM、GC 与作业状态趋势。请联系管理员在服务端配置中开启。集群卡片和节点表来自 Agent 心跳，不受影响。",
           "unavailableTitle": "监控数据暂不可用",
-          "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。集群卡片和节点表来自 Agent 心跳，不受影响。",
-          "action": "查看监控配置"
+          "unavailableDesc": "监控存储尚未就绪或查询失败，稍后会自动重试。集群卡片和节点表来自 Agent 心跳，不受影响。"
         },
         "partial": "部分指标查询失败：{keys}",
         "units": {
@@ -2223,6 +2222,7 @@
     "enableError": "启用插件失败",
     "disableError": "禁用插件失败",
     "uninstallPlugin": "卸载插件",
+    "bundled": "安装包自带",
     "uninstallConfirm": "确定要卸载插件 {name} 吗？此操作将从集群的所有节点上移除此插件。",
     "uninstallError": "卸载插件失败",
     "installPlugin": "安装插件",
@@ -2746,8 +2746,8 @@
       "slotAllocationRandom": "RANDOM（随机）",
       "slotAllocationSystemLoad": "SYSTEM_LOAD（按系统负载）",
       "slotAllocationSlotRatio": "SLOT_RATIO（按 Slot 比例）",
-      "slotAllocationHint": "写入 slot-allocation-strategy；静态 Slot 下效果更明确。",
-      "slotAllocationUnsupported": "当前版本暂不支持 slot-allocation-strategy。",
+      "slotAllocationHint": "写入 slot-allocate-strategy；静态 Slot 下效果更明确。",
+      "slotAllocationUnsupported": "当前版本暂不支持 slot-allocate-strategy。",
       "slotAllocationRandomDesc": "RANDOM：在可用 Slot/节点间随机分配，适合通用默认。",
       "slotAllocationSystemLoadDesc": "SYSTEM_LOAD：结合 CPU/内存采样优先选低负载节点。",
       "slotAllocationSlotRatioDesc": "SLOT_RATIO：按 Slot 使用率优先选占用更低的节点。"
@@ -3040,9 +3040,9 @@
       "nextPage": "下一页",
       "pageInfo": "第 {current} / {total} 页",
       "sourceTypes": {
-        "local_process_event": "本地进程事件",
-        "remote_alertmanager": "指标告警",
-        "sync": "作业告警"
+        "platform_health": "平台健康",
+        "metric": "指标告警",
+        "job": "作业告警"
       },
       "lifecycleStatuses": {
         "firing": "触发中",
@@ -3101,31 +3101,31 @@
       "navigateToDiagnostics": "前往诊断中心深度排查"
     },
     "rules": {
-      "entry": "告警规则",
-      "title": "告警规则",
-      "subtitle": "按集群配置告警规则开关、阈值和时间窗口",
+      "entry": "检测规则",
+      "title": "检测规则",
+      "subtitle": "按集群配置检测规则开关、阈值和时间窗口",
       "clusterSelect": "选择集群",
-      "selectClusterHint": "请先选择一个集群查看和编辑规则",
-      "listTitle": "规则列表",
-      "ruleName": "规则名称",
-      "description": "规则描述",
+      "selectClusterHint": "请先选择一个集群查看和编辑检测规则",
+      "listTitle": "检测规则列表",
+      "ruleName": "检测规则名称",
+      "description": "检测规则描述",
       "severity": "严重级别",
       "enabled": "启用",
       "threshold": "阈值",
       "windowSeconds": "窗口(秒)",
       "save": "保存",
-      "noRules": "暂无规则",
-      "loadError": "加载告警规则失败",
-      "saveSuccess": "规则已更新",
-      "saveError": "更新规则失败"
+      "noRules": "暂无检测规则",
+      "loadError": "加载检测规则失败",
+      "saveSuccess": "检测规则已更新",
+      "saveError": "更新检测规则失败"
     },
     "policyCenter": {
-      "title": "规则与通知",
-      "subtitle": "管理告警规则与通知通道，并按能力自动裁剪功能入口。",
+      "title": "告警策略与通知",
+      "subtitle": "管理告警策略与通知通道，并按能力自动裁剪功能入口。",
       "generatedAt": "生成时间：{value}",
-      "unifiedExperienceHint": "面向用户只保留规则与通知一个工作面；系统内部继续区分平台健康与指标信号。",
-      "loadError": "加载规则与通知初始化数据失败",
-      "policyListLoadError": "加载告警规则列表失败",
+      "unifiedExperienceHint": "面向用户只保留告警策略与通知一个工作面；系统内部继续区分平台健康与指标信号。",
+      "loadError": "加载告警策略与通知初始化数据失败",
+      "policyListLoadError": "加载告警策略列表失败",
       "channelListLoadError": "加载可绑定通知通道失败",
       "clusterListLoadError": "加载可选集群范围失败",
       "recommended": "推荐",
@@ -3135,7 +3135,7 @@
       "capabilitySectionTitle": "能力状态",
       "integrationSectionTitle": "集成依赖状态",
       "templatesSectionTitle": "推荐策略模板",
-      "templatesSectionSubtitle": "这些模板是规则与通知的产品骨架：平台健康模板始终可用，指标模板在内置监控可用时解锁。",
+      "templatesSectionSubtitle": "这些模板是告警策略与通知的产品骨架：平台健康模板始终可用，指标模板在内置监控可用时解锁。",
       "listTitle": "现有策略",
       "listSubtitle": "当前共管理 {count} 条统一告警策略。",
       "listGeneratedAt": "策略列表生成时间：{value}",
@@ -3146,7 +3146,7 @@
       "allClusters": "全部集群",
       "noChannelsSelected": "未绑定通知渠道",
       "policyCount": "{count} 条策略",
-      "policySubtitle": "配置告警触发规则、阈值条件以及邮件与 Webhook 通知接收方式",
+      "policySubtitle": "配置告警触发策略、阈值条件以及邮件与 Webhook 通知接收方式",
       "searchPlaceholder": "搜索策略名称、模板...",
       "statusFilter": "状态筛选",
       "allStatuses": "全部状态",
@@ -3154,7 +3154,7 @@
       "dialogSubtitleCreate": "配置告警策略的基本信息、触发指标与通知接收人",
       "dialogSubtitleEdit": "修改现有告警策略参数",
       "sectionBasic": "1. 基本信息 (Basic Settings)",
-      "sectionRules": "2. 规则与阈值 (Rules & Conditions)",
+      "sectionRules": "2. 策略与阈值 (Rules & Conditions)",
       "actions": {
         "viewHistory": "查看投递历史",
         "editPolicy": "编辑策略",
@@ -3182,10 +3182,10 @@
       "builderReadyHint": "当前构建器已可用，可以创建持久化的统一告警策略资源。",
       "builderUnavailableHint": "当前构建器暂不可用，因为所需集成能力尚未就绪。",
       "builderStatusUnavailable": "当前选中的构建器不可用",
-      "legacyRulesTitle": "现有运行时规则入口",
-      "legacyRulesDescription": "当前按集群配置的运行时规则仍然继续生效，用来承接平台健康策略的第一阶段演进；后续会被统一策略资源替代。",
-      "legacyRulesCardTitle": "现有运行时规则",
-      "legacyRulesCardSubtitle": "兼容当前 cluster 级运行时规则配置，作为规则与通知落地期间的过渡入口。",
+      "legacyRulesTitle": "现有运行时检测规则入口",
+      "legacyRulesDescription": "当前按集群配置的运行时检测规则仍然继续生效，用来承接平台健康策略的第一阶段演进；后续会被统一策略资源替代。",
+      "legacyRulesCardTitle": "现有运行时检测规则",
+      "legacyRulesCardSubtitle": "兼容当前 cluster 级运行时检测规则配置，作为告警策略与通知落地期间的过渡入口。",
       "templateCapability": "能力键：",
       "severityWarning": "警告",
       "severityCritical": "严重",
@@ -3239,10 +3239,6 @@
         "metrics_templates": {
           "title": "指标模板",
           "summary": "内置监控可用时，提供 CPU、内存、FD、失败作业数等指标驱动的策略模板。"
-        },
-        "remote_ingest": {
-          "title": "远程告警回流",
-          "summary": "接收外部系统推送的告警（兼容 Alertmanager Webhook 格式），纳入统一告警中心和通知链路。"
         },
         "webhook_notification": {
           "title": "Webhook / IM 通知",
@@ -3302,7 +3298,7 @@
         },
         "sync_status_unavailable": {
           "name": "作业状态获取失败",
-          "description": "集群的作业状态（running 列表）持续获取不到，超过规则窗口时触发；期间作业状态可能已经过时。"
+          "description": "集群的作业状态（running 列表）持续获取不到，超过检测规则窗口时触发；期间作业状态可能已经过时。"
         },
         "sync_event_channel_degraded": {
           "name": "事件通道降级",
@@ -3342,7 +3338,7 @@
         }
       },
       "editTitle": "编辑策略",
-      "editSubtitle": "直接在规则与通知内修改已有的统一告警策略。",
+      "editSubtitle": "直接在告警策略与通知内修改已有的统一告警策略。",
       "editingHint": "当前正在编辑策略“{name}”，这里的保存会直接覆盖已持久化的策略资源。",
       "editingBadge": "编辑中",
       "editModeHint": "编辑模式会保留当前策略资源，并将改动原位写回。",
@@ -3401,10 +3397,10 @@
           "exhausted": "重试已用完"
         }
       },
-      "executionLegacyRuntimeRule": "旧运行时规则桥接",
+      "executionLegacyRuntimeRule": "旧运行时检测规则桥接",
       "executionUnifiedResourceOnly": "仅统一策略资源",
       "bridgeHints": {
-        "legacyRuntimeRule": "这个模板当前仍通过现有 cluster 级运行时规则链路执行，因此在过渡阶段必须绑定到一个具体集群。",
+        "legacyRuntimeRule": "这个模板当前仍通过现有 cluster 级运行时检测规则链路执行，因此在过渡阶段必须绑定到一个具体集群。",
         "resourceOnly": "这类策略当前先沉淀为统一策略资源，完整评估执行链路会在后续切片接上。",
         "directChannelDispatch": "只要这条策略已经绑定通知渠道，关键本地进程事件现在就可以直接触发统一策略通知分发。",
         "noDirectDispatch": "在这里绑定一个或多个通知渠道后，即可开启统一策略的直接通知分发。"
@@ -3502,8 +3498,8 @@
     "tabs": {
       "dashboard": "监控看板",
       "alerts": "告警事件",
-      "policies": "规则与通知",
-      "rules": "告警规则",
+      "policies": "告警策略与通知",
+      "rules": "检测规则",
       "integrations": "通知通道",
       "history": "投递记录"
     },
@@ -3560,25 +3556,25 @@
       }
     },
     "policyCenterV2": {
-      "title": "规则与通知",
-      "subtitle": "管理告警规则、通知通道与投递记录。",
-      "policyCount": "{count} 条规则",
-      "policySubtitle": "查看和管理告警规则。",
-      "searchPlaceholder": "搜索规则名称、说明或模板",
+      "title": "告警策略与通知",
+      "subtitle": "管理告警策略、通知通道与投递记录。",
+      "policyCount": "{count} 条策略",
+      "policySubtitle": "查看和管理告警策略。",
+      "searchPlaceholder": "搜索策略名称、说明或模板",
       "statusFilter": "启用状态",
       "allStatuses": "全部状态",
-      "createNew": "新建规则",
-      "createFirst": "新建第一条告警规则",
-      "policyListTitle": "规则列表",
-      "editorCreateTitle": "新建告警规则",
-      "editorEditTitle": "编辑告警规则",
+      "createNew": "新建策略",
+      "createFirst": "新建第一条告警策略",
+      "policyListTitle": "策略列表",
+      "editorCreateTitle": "新建告警策略",
+      "editorEditTitle": "编辑告警策略",
       "dialogSubtitleCreate": "配置触发条件和通知方式。",
       "dialogSubtitleEdit": "修改触发条件和通知方式。",
       "sectionBasic": "基本信息",
-      "sectionRules": "规则配置",
+      "sectionRules": "策略配置",
       "columns": {
-        "name": "规则名称",
-        "template": "规则模板",
+        "name": "策略名称",
+        "template": "策略模板",
         "cluster": "作用集群",
         "severity": "告警等级",
         "methods": "通知方式",
@@ -3588,8 +3584,8 @@
       },
       "actions": {
         "viewHistory": "查看投递记录",
-        "editPolicy": "编辑规则",
-        "deletePolicy": "删除规则"
+        "editPolicy": "编辑策略",
+        "deletePolicy": "删除策略"
       },
       "history": {
         "statuses": {
@@ -3604,29 +3600,29 @@
       },
       "enabled": "已启用",
       "disabled": "已停用",
-      "emptyPolicies": "暂无告警规则",
+      "emptyPolicies": "暂无告警策略",
       "nameRequired": "请输入告警名称",
       "clusterRequired": "请选择集群",
-      "templateRequired": "请选择规则模板",
+      "templateRequired": "请选择策略模板",
       "receiverRequired": "请选择至少一个通知接收人，或为当前邮件通道保留收件人配置",
       "concreteClusterRequired": "当前模板必须绑定具体集群",
-      "concreteClusterHint": "运行时事件类规则需要绑定具体集群，不能选择全部集群。",
-      "createSuccess": "告警规则创建成功",
-      "updateSuccess": "告警规则更新成功",
-      "deleteSuccess": "告警规则删除成功",
-      "toggleEnabledSuccess": "告警规则已启用",
-      "toggleDisabledSuccess": "告警规则已停用",
-      "createError": "创建告警规则失败",
-      "updateError": "更新告警规则失败",
-      "deleteError": "删除告警规则失败",
+      "concreteClusterHint": "运行时事件类策略需要绑定具体集群，不能选择全部集群。",
+      "createSuccess": "告警策略创建成功",
+      "updateSuccess": "告警策略更新成功",
+      "deleteSuccess": "告警策略删除成功",
+      "toggleEnabledSuccess": "告警策略已启用",
+      "toggleDisabledSuccess": "告警策略已停用",
+      "createError": "创建告警策略失败",
+      "updateError": "更新告警策略失败",
+      "deleteError": "删除告警策略失败",
       "cancelEdit": "取消编辑",
       "createSubmit": "确认",
       "saveSubmit": "保存修改",
       "fields": {
         "name": "告警名称",
         "description": "描述",
-        "strategyType": "规则类型",
-        "template": "规则模板",
+        "strategyType": "策略类型",
+        "template": "策略模板",
         "cluster": "作用集群",
         "severity": "告警等级",
         "cooldown": "最小告警间隔",
@@ -3643,11 +3639,11 @@
       },
       "placeholders": {
         "name": "例如：集群重启通知",
-        "description": "补充规则说明，方便运维团队识别告警含义。",
+        "description": "补充策略说明，方便运维团队识别告警含义。",
         "threshold": "例如：0.8（表示 80%）"
       },
       "staticConfig": "静态配置",
-      "staticConfigDesc": "选择平台健康或指标模板，快速生成规则。",
+      "staticConfigDesc": "选择平台健康或指标模板，快速生成策略。",
       "groups": {
         "platformHealth": "平台健康",
         "prometheusMetrics": "监控指标"
@@ -3714,11 +3710,11 @@
         "testRecipientPlaceholder": "选择一个临时测试收件人",
         "testRecipientNone": "暂不指定测试收件人",
         "testRecipientLegacyFallback": "兼容性回退收件人",
-        "testRecipientHint": "这里只影响测试发送；真实告警收件人请在规则编辑器中选择。",
+        "testRecipientHint": "这里只影响测试发送；真实告警收件人请在策略编辑器中选择。",
         "testRecipientHintSelected": "本次测试邮件将发送到 {value}",
         "testRecipientHintCurrentUserMissing": "当前登录账号“{value}”还没有可用邮箱，测试发送前请先在个人中心补充邮箱。",
         "legacyRecipientsConfigured": "当前邮件通道仍保留 {count} 个兼容性回退收件人配置。",
-        "legacyRecipientsEmpty": "当前没有配置兼容性回退收件人，建议直接在告警规则中选择通知对象。",
+        "legacyRecipientsEmpty": "当前没有配置兼容性回退收件人，建议直接在告警策略中选择通知对象。",
         "clearLegacyRecipients": "清空兼容性回退收件人",
         "lastTest": {
           "idle": "本次会话中尚未执行测试发送",
@@ -3834,8 +3830,8 @@
           "feishu": "填写飞书群自定义机器人的 Webhook 地址；安全设置开启“签名校验”时请同时填写 Secret。"
         },
         "secretHints": {
-          "dingtalk": "开启“加签”后必填；STX 会按钉钉规则在 URL 上附加 timestamp 和 sign。",
-          "feishu": "开启“签名校验”后必填；STX 会按飞书规则在请求体里附加 timestamp 和 sign。"
+          "dingtalk": "开启“加签”后必填；STX 会按钉钉策略在 URL 上附加 timestamp 和 sign。",
+          "feishu": "开启“签名校验”后必填；STX 会按飞书策略在请求体里附加 timestamp 和 sign。"
         },
         "maskedKeepHint": "已保存的地址 token 和密钥以 ****** 显示；不修改则保持原值，修改地址时请填写完整 URL。",
         "clearSecret": "清除已保存的密钥",
@@ -3850,7 +3846,7 @@
       "conditionWindowInvalid": "持续时间必须在 0 到 10080 分钟之间",
       "metricsUnavailableHint": "指标模板当前不可用：{reason}",
       "sections": {
-        "rules": "告警规则",
+        "rules": "告警策略",
         "channels": "通知通道",
         "history": "投递记录"
       },
@@ -3886,12 +3882,12 @@
         "searchPlaceholder": "搜索告警名称、通道或错误信息",
         "empty": "暂无投递记录",
         "loadError": "加载投递记录失败",
-        "allPolicies": "全部规则",
-        "policyFilter": "按规则筛选",
+        "allPolicies": "全部策略",
+        "policyFilter": "按策略筛选",
         "resetFilters": "重置筛选",
         "retriedTimes": "已重试 {count} 次",
         "columns": {
-          "policy": "告警规则",
+          "policy": "告警策略",
           "channel": "通知通道",
           "event": "事件",
           "status": "状态",
@@ -4239,15 +4235,18 @@
       "createConfirm": "创建策略",
       "categories": {
         "javaError": "Java 错误",
-        "prometheus": "指标信号",
         "errorRate": "错误频率",
-        "nodeUnhealthy": "节点异常",
         "alertFiring": "告警触发",
         "schedule": "定时巡检"
       },
       "keywordsLabel": "关键字过滤（可选）",
       "keywordsPlaceholder": "多个关键字用逗号分隔",
-      "keywordsHint": "用于按告警名称、规则键、摘要、描述等文本做筛选；留空表示不过滤。"
+      "keywordsHint": "用于按错误标题、异常类、错误文本等做筛选；留空表示不过滤。",
+      "ruleKeysLabel": "告警规则",
+      "ruleKeysHint": "按告警规则目录精确匹配；可多选。",
+      "ruleCatalogEmpty": "暂无告警规则目录",
+      "alertFiringThresholdLabel": "至少 N 个对象同时触发",
+      "alertFiringWindowLabel": "至少持续触发 N 分钟（0 = 立即）"
     },
     "tasks": {
       "title": "诊断执行",
@@ -5578,12 +5577,10 @@
         "snapshotHint": "引擎最新指标",
         "trendHint": "历史趋势",
         "noJob": "没有作业数据",
-        "emptyTitle": "开启可观测性后显示趋势",
-        "emptyBody": "开启后可查看吞吐、CDC 延迟、Checkpoint、算子忙碌度与背压的历史曲线。未开启时 STX 不采集、不保存任何时序数据。",
+        "emptyTitle": "开启内置监控后显示趋势",
+        "emptyBody": "开启后可查看吞吐、CDC 延迟、Checkpoint、算子忙碌度与背压的历史曲线。请联系管理员在服务端配置中开启。未开启时 STX 不采集、不保存任何时序数据。",
         "unavailableTitle": "监控数据暂不可用",
         "unavailableBody": "监控存储尚未就绪或查询失败，稍后会自动重试。",
-        "emptyEnable": "去开启",
-        "emptyHow": "如何开启",
         "emptySnapshotHint": "当前数值仍可在「快照」中查看",
         "engineObsEmptyTitle": "该作业未开启引擎可观测性",
         "engineObsEmptyBody": "忙碌度与背压需要作业开启 engine.observability",

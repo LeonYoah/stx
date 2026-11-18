@@ -194,16 +194,16 @@
     </div>
     <div class="card">
       <table>
-        <thead><tr><th>规则</th><th>级别</th><th>启用</th><th>阈值 / 持续</th><th>通知</th><th>例外</th><th></th></tr></thead>
+        <thead><tr><th>规则</th><th>级别</th><th>启用</th><th>阈值 / 持续</th><th>通知（严重时）</th><th>例外</th><th></th></tr></thead>
         <tbody>
-          <tr class="open-rule"><td><div class="name link">节点离线</div><div class="desc">up=0 / node_state=0 / 进程停止或缺失，任一持续 2 分钟</div></td><td><span class="badge b-danger">严重</span></td><td><span class="switch on"></span> <span class="anno">switch</span></td><td class="muted">— / 2 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">1</td><td><span class="dots">···</span></td></tr>
-          <tr><td><div class="name link">Master 不可用</div><div class="desc">集群内无健康 master 持续 1 分钟</div></td><td><span class="badge b-danger">严重</span></td><td><span class="switch on"></span></td><td class="muted">— / 1 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
+          <tr class="open-rule"><td><div class="name link">节点离线</div><div class="desc">up=0 / node_state=0 / 进程停止或缺失，任一持续 2 分钟</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch on"></span> <span class="anno">switch</span></td><td class="muted">— / 2 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">1</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">Master 不可用</div><div class="desc">集群内无健康 master 持续 1 分钟</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch on"></span></td><td class="muted">— / 1 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
           <tr><td><div class="name link">可用 Worker 不足</div><div class="desc">健康 worker 数低于阈值持续 2 分钟</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch on"></span></td><td class="muted">低于部署数 / 2 分钟</td><td><span class="badge b-muted">自定义</span></td><td class="muted">2</td><td><span class="dots">···</span></td></tr>
           <tr><td><div class="name link">JVM 堆内存高</div><div class="desc">堆使用率持续超过阈值</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch on"></span></td><td class="muted">&gt; 85% / 10 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
           <tr><td><div class="name link">FD 使用率高</div><div class="desc">文件描述符使用率持续超过阈值</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch on"></span></td><td class="muted">&gt; 80% / 10 分钟</td><td><span class="badge b-muted">仅告警中心</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
           <tr><td><div class="name link">CPU 高</div><div class="desc">进程 CPU 使用率持续超过阈值（默认关）</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch off"></span></td><td class="muted">&gt; 80% / 10 分钟</td><td><span class="badge b-muted">—</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
-          <tr><td><div class="name link">分区不安全</div><div class="desc">Hazelcast 分区安全丢失持续 2 分钟</div></td><td><span class="badge b-danger">严重</span></td><td><span class="switch on"></span></td><td class="muted">— / 2 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
-          <tr><td><div class="name link">进程崩溃</div><div class="desc">受管进程反复崩溃</div></td><td><span class="badge b-danger">严重</span></td><td><span class="switch on"></span></td><td class="muted">— / 即时</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">分区不安全</div><div class="desc">Hazelcast 分区安全丢失持续 2 分钟</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch on"></span></td><td class="muted">— / 2 分钟</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
+          <tr><td><div class="name link">进程崩溃</div><div class="desc">受管进程反复崩溃</div></td><td><span class="badge b-warn">警告</span></td><td><span class="switch on"></span></td><td class="muted">— / 即时</td><td><span class="badge b-accent">默认通知</span></td><td class="muted">0</td><td><span class="dots">···</span></td></tr>
           <tr><td colspan="7" class="muted" style="text-align:center;color:#b0b0b6">… 其余 13 条（死锁、任务拒绝、状态获取失败、事件通道降级、操作通知等）</td></tr>
         </tbody>
       </table>
@@ -298,15 +298,19 @@
       <div class="field"><div><div class="fl">持续时间</div><div class="fh">连续满足满该时长才触发</div></div><div class="sel">2 分钟 <i>▾</i></div><span class="anno">select</span></div>
     </div>
     <div class="sec">
-      <div class="sec-t">通知 <span class="anno">radio-cards</span></div>
-      <div class="rc"><span class="ring"></span><div><div class="rt">沿用默认通知</div><div class="rd">运维值班群（企微）、值班邮箱 · 接收人 张三、李四 · 冷却 10 分钟</div></div></div>
-      <div class="rc on"><span class="ring"></span><div style="flex:1"><div class="rt">自定义</div>
-        <div class="extra"><div class="fl" style="font-size:12px">渠道</div>
-          <div class="ms"><span class="tag">飞书机器人</span><span class="add">+ 添加</span> <span class="anno">multi-select</span></div>
-          <div class="fl" style="font-size:12px;margin-top:8px">接收人</div>
-          <div class="ms"><span class="tag">王五</span><span class="add">+ 添加</span></div>
+      <div class="sec-t">级别 <span class="anno">radio-cards</span></div>
+      <div class="rc"><span class="ring"></span><div><div class="rt">警告</div><div class="rd">只进入告警中心，不发外部通知</div></div></div>
+      <div class="rc on"><span class="ring"></span><div style="flex:1"><div class="rt">严重</div><div class="rd">同时发送外部通知，需要至少一个通知渠道</div>
+        <div class="extra"><div class="fl" style="font-size:12px">通知方式</div>
+          <div class="rc" style="margin-top:6px"><span class="ring"></span><div><div class="rt">沿用默认通知</div><div class="rd">运维值班群（企微）、值班邮箱 · 接收人 张三、李四 · 冷却 10 分钟</div></div></div>
+          <div class="rc on"><span class="ring"></span><div style="flex:1"><div class="rt">自定义</div>
+            <div class="extra"><div class="fl" style="font-size:12px">渠道</div>
+              <div class="ms"><span class="tag">飞书机器人</span><span class="add">+ 添加</span> <span class="anno">multi-select</span></div>
+              <div class="fl" style="font-size:12px;margin-top:8px">接收人</div>
+              <div class="ms"><span class="tag">王五</span><span class="add">+ 添加</span></div>
+            </div></div></div>
+          <div class="rd" style="margin-top:6px">未配置任何渠道时无法保存为严重</div>
         </div></div></div>
-      <div class="rc"><span class="ring"></span><div><div class="rt">仅告警中心</div><div class="rd">不发送通知</div></div></div>
     </div>
     <div class="sec">
       <div class="sec-t">集群例外 <span class="anno">accordion</span></div>

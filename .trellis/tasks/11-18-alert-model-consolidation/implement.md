@@ -13,7 +13,7 @@
 - [ ] `cluster_rule_catalog.go`：`ClusterRuleDefinition` 与目录（design §2），单测断言默认开关 / 阈值 / 持续时间与 PRD D4、D6 一致。
 - [ ] `cluster_rule_config.go`：三张表实体 + repository；加入 `migrator.go` `managedModels()`。
 - [ ] `ResolveClusterRule` + 缓存 + 失效；单测覆盖“目录默认 → 全局 → 集群例外”逐字段继承、`nil` 重置。
-- [ ] `resolveRuleNotification`；单测覆盖 default / custom / none / 默认通知为空。
+- [ ] `resolveRuleNotification` + `resolveRuleSeverity`；单测覆盖 default / custom / none / 默认通知为空，以及 warning 不投外部、critical 校验规则（无启用渠道拒绝保存，含例外层）。
 - 验证：`go test ./internal/apps/monitoring/... ./internal/db/...`
 
 ## 阶段 2：判定接线与去重

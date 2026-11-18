@@ -23,7 +23,7 @@
 type ClusterRuleDefinition struct {
     Key            string            // 稳定键，沿用现有 rule_key / template_key，便于迁移与 CLI 兼容
     Engine         clusterRuleEngine // event | tsdb | sync | availability（内部）
-    Severity       AlertSeverity     // 固定，不开放编辑
+    Severity       AlertSeverity     // 目录默认值：全部 warning；用户可编辑（D9）
     DefaultEnabled bool
     Threshold      *ThresholdSpec    // nil 表示无阈值（如进程崩溃）
     DefaultFor     time.Duration     // 持续时间；事件类为 0
@@ -76,6 +76,7 @@ type ThresholdSpec struct {
 type ClusterRuleConfig struct {
     ID uint; RuleKey string `uniqueIndex`
     Enabled *bool; Threshold *float64; ForSeconds *int
+    Severity *string             // nil 继承；取值 warning | critical
     NotifyMode string            // ""(沿用默认) | default | custom | none
     ChannelIDsJSON, ReceiverUserIDsJSON string
     CreatedAt, UpdatedAt time.Time
@@ -85,6 +86,7 @@ type ClusterRuleConfig struct {
 type ClusterRuleOverride struct {
     ID uint; RuleKey string `uniqueIndex:ux_rule_cluster`; ClusterID uint `uniqueIndex:ux_rule_cluster`
     Enabled *bool; Threshold *float64; ForSeconds *int
+    Severity *string
     NotifyMode string; ChannelIDsJSON, ReceiverUserIDsJSON string
     CreatedAt, UpdatedAt time.Time
 }
@@ -127,16 +129,23 @@ type AlertNotificationDefaults struct {
 - `master_unavailable`：集群内 role ∈ {master, master_worker} 的健康节点数 == 0。
 - `worker_insufficient`：role ∈ {worker, master_worker}（separated 模式只计 worker）的健康节点数 < 阈值。阈值未配置时默认 = 当前部署的 worker 节点数（`Threshold=nil` 表示“等于部署数”）；用户可设固定数。部署数为 0 的集群跳过。
 
-## 6. 通知投递
+## 6. 通知投递与级别语义（D9）
 
-`resolveRuleNotification(resolved) (channels, receivers, cooldown, sendRecovery, mode)`：
+级别即"是否送到平台外"：
+
+- `warning`（默认）：告警只进平台告警中心，**不发外部通知**。
+- `critical`：告警进告警中心并发往外部渠道。保存规则时校验：该规则（或其集群例外）的生效通知中**至少有一个启用的外部渠道**（webhook / 邮件 / 企微 / 钉钉 / 飞书），否则保存返回 400，错误提示引导去配"默认通知"或规则自定义渠道；邮件渠道还要求存在可达接收人（渠道收件人或配置接收人，复用抽出的邮件校验）。
+
+通知来源解析（仅对 critical 生效）：
 - `custom` → 规则自己的渠道与接收人；
-- `""` / `default` → 默认通知；默认通知为空即等同 `none`；
-- `none` → 只进告警中心。
+- `""` / `default` → 默认通知；
+- `none` → 等价于 warning（保留字段以兼容迁移，前端不暴露）。
 
-冷却与恢复通知始终取默认通知的值。底层仍复用现有 `NotificationDelivery` 去重键、退避重试、渠道停用暂停 / 补发；`PolicyID` 字段不再写入（保留列）。
+由此产生不变式：**critical ⇔ 生效通知中必有外部渠道**。保存校验保证写入成立；渠道停用 / 删除不自动降级级别（停用是临时态，恢复后补发），但规则列表对"critical 且生效通知已无可用外部渠道"的规则显示警告标识（`alert` 提示 + 行内 badge），提醒用户补配或降级。
 
-## 7. 范围（scope）
+冷却与恢复通知取默认通知的值，仅在存在外部投递时才有意义。底层复用 `NotificationDelivery` 去重键、退避重试、渠道停用暂停 / 补发；`PolicyID` 字段不再写入（保留列）。
+
+## ## 7. 范围（scope）
 
 存储中的 `source_type` 不改。新增派生字段 `scope`：`job → job`，其余 → `cluster`。
 - `AlertInstance` DTO、`AlertRuleCatalogItem` 增加 `scope`；
@@ -195,7 +204,7 @@ type AlertNotificationDefaults struct {
 - **集群级**：`chip-group`（全部 / 已开启 / 已关闭 / 有例外）+ `sortable-data-table`（21 行，客户端排序即可）。列：规则名、级别 badge、启用 `switch`（行内即时生效，失败回滚并在行内提示）、阈值 / 持续时间、通知方式 badge、例外数。点击行打开编辑 `drawer`。
 - **规则编辑 drawer**（长表单放 drawer）：
   - 启用 `switch`；阈值 `number-field`（单位后缀、上下限）；持续时间 `select`（1 / 2 / 5 / 10 / 15 / 30 分钟）。
-  - 通知 `radio-cards` 三选一：沿用默认通知（描述显示默认通知摘要）/ 自定义（展开 `multi-select` 渠道 + `multi-select` 接收人）/ 仅告警中心。
+  - 级别 `radio-cards` 二选一（D9）：**警告**（描述：只进入告警中心）/ **严重**（描述：同时发送外部通知）。选"严重"展开通知方式 `radio-cards`：沿用默认通知（显示其摘要）/ 自定义（展开 `multi-select` 渠道 + `multi-select` 接收人）；若两者都为空则保存被禁并给出内联提示，引导先去"通知"页配置默认通知。选"警告"不显示渠道选择。
   - 集群例外 `accordion`：例外列表 + “添加集群例外”（`combobox` 选集群）；每条例外可设开关、阈值、通知，未设字段显示“继承全局”；删除例外用 `confirm-morph`。
   - 底部：主按钮“保存”（按钮内 loading → 已保存），次按钮“恢复默认”（`confirm-morph`）。
 - **作业级**：`sortable-data-table`（任务名、已选规则 badge、通知摘要、启用 `switch`），编辑打开 `drawer` 承载 `TaskAlertForm`。`TaskAlertForm` 同时用于任务设置页，本次将其内部控件换为 Arc（`switch`、`number-field`、`multi-select`、`checkbox`），保持 props 与保存接口不变，两处一起换新。
@@ -227,7 +236,8 @@ type AlertNotificationDefaults struct {
 
 | 旧数据 | 去向 |
 |---|---|
-| `metrics_template` / `platform_health` 策略，`cluster_id` 为空 / all | 对应规则的全局配置：Enabled、阈值（ratio→percent 换算）、持续时间；渠道 / 接收人非空 → `NotifyMode=custom` |
+| `metrics_template` / `platform_health` 策略，`cluster_id` 为空 / all | 对应规则的全局配置：Enabled、阈值（ratio→percent 换算）、持续时间；渠道 / 接收人非空 → `NotifyMode=custom` | 
+| 策略的 severity | 有启用渠道的策略 → critical；无渠道 → warning（满足 D9 不变式：critical ⇔ 必有外部渠道）；因无渠道被降为 warning 的记入迁移摘要 |
 | 同上，指定集群 | 对应规则的集群例外 |
 | 同一规则多条策略冲突 | 取最近更新的启用策略，其余记入迁移摘要日志 |
 | `master_unavailable` 等三条无判定模板的策略 | 同上迁移；摘要中注明“升级后开始生效” |
@@ -253,4 +263,4 @@ type AlertNotificationDefaults struct {
 - 规则目录放在代码而非数据库：规则的判定逻辑本就在代码里，放数据库只会出现“有配置无实现”（正是当前三条模板的问题）。
 - 只存偏离值：升级时调整目录默认值能自动惠及未改动的用户。
 - 冷却 / 恢复只在默认通知上配置：按规则配置冷却的需求未出现，避免编辑抽屉过重；以后需要可在 `ClusterRuleConfig` 增加可空字段，不破坏模型。
-- severity 不开放编辑：目录给出的级别即语义，减少配置面；如需调整属于目录修改。
+- 级别开放编辑但语义收敛为"是否外发"：warning = 仅告警中心，critical = 必须外发（保存校验 + 失效渠道警告标识），避免"标了严重但没人收到"的假严重。

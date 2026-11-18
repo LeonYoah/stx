@@ -125,11 +125,15 @@ require_cmds() {
 
 # ── CLI / API 调用助手 ────────────────────────────────────────────────────────
 
-# cli_has <子命令路径...>：探测安装版 CLI 是否提供该命令（--help 可解析即视为有）。
-# cli_has <subcommand path...>: probe whether the installed CLI provides the command
-# (a resolvable --help counts as available).
+# cli_has <子命令路径...>：探测安装版 CLI 是否提供该命令。cobra 对不存在的子命令
+# 会回落到父命令帮助且退出码仍为 0，不能只看退出码——必须确认 Usage 行真的指向被探测的命令路径。
+# cli_has <subcommand path...>: probe whether the installed CLI provides the command.
+# cobra falls back to the parent help with exit code 0 for an unknown subcommand, so the
+# exit code alone is not enough — the Usage line must actually name the probed path.
 cli_has() {
-  "$STX" "$@" --help >/dev/null 2>&1
+  local out
+  out="$("$STX" "$@" --help 2>/dev/null)" || return 1
+  grep -qF "stx $*" <<<"$out"
 }
 
 # cli_call <输出变量> <参数...>：带 namespace 调 CLI，stdout 是 JSON 结果信封。

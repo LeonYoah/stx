@@ -1,78 +1,80 @@
-# 实施计划（草案）：全局 UI 换新与统一管理控制台
+# 执行计划：管理列表迁移 + 全站交互组件对齐
 
-> 本文档为设计启动后的实施拆解草案；具体子任务拆分、排期与 owner 在设计评审后细化。
+每个阶段一个 PR，提交信息用中文。开工前按 AGENTS.md 读 `.trellis/spec/frontend/index.md` 和 `ui-conventions.md`。
+新增或修改的注释写中英双语，中文在前。
 
-## Phase 0：设计评审与决策冻结
+**每个 PR 的门槛**：
+- 现有 CI 通过：vitest、`pnpm exec tsc --noEmit`、已有的 Playwright E2E。lint 要区分存量问题。
+- PR 描述附 Egolite 回归记录，格式见文末。
 
-- [ ] 评审 `prd.md` / `design.md`，确认范围（P0 全局页面）与非目标
-- [ ] 拍板开放问题：
-  - [ ] 通用列表壳落点（`common/list-shell` vs `common/data-table` vs 扩展 `StudioDataTable`）
-  - [ ] 页面级 Tab 主实现（`ModuleNavTabs` / `ui/tabs` / Arc `tabs`）与收敛策略
-  - [ ] 详情容器策略（`Sheet` 为主，`Drawer` 移动端补充的边界）
-  - [ ] 批量操作首期是否纳入（多选列 + bulk bar 协议）
-  - [ ] Egolite 回归覆盖粒度与失败判定
-- [ ] 确认 Arc/beUI 组件引入清单与版本/安装方式（`pnpm dlx shadcn@latest add @uiarc/<name>` / `@beui/<name>`），核验 registry API 与本地现状差异
+## Phase 0 · 差异清单与选型拍板（只改文档）
 
-## Phase 1：通用骨架与原语（无业务语义变更优先）
+- [ ] 按 design §6.1 产出两层页面的差异清单，放在本任务目录的 `inventory.md`。
+- [ ] 核对审计、用户在筛选变化时是否漏了"回到第 1 页"。
+- [ ] 核对 `ui/popover` 的 3 处用法是否被当作菜单使用。
+- [ ] 拍板 design §3 中的"待定"项：
+  - 下拉选择；
+  - 可搜索下拉；
+  - 更多菜单；
+  - 状态标签用 `ui/badge` 还是 Arc `badge`。
+- [ ] 把选型表写回 `ui-conventions.md`。
+- 评审门槛：用户确认差异清单和选型表之后，才进入 Phase 1。
 
-- [ ] 抽取/实现服务端表格卡片壳（loading/empty/error/pagination/refreshing 插槽），对齐 `StudioDataTable` 行为
-- [ ] 抽取工具栏布局 primitives（搜索、筛选槽位、刷新、可选 bulk 条），统一筛选 patch `page=1` 规则
-- [ ] 提供/复用受控 query hook 模式（page/pageSize/filters/sort + 请求参数构建 + 状态机）
-- [ ] 统一行操作渲染协议（主操作 + DropdownMenu + 危险确认接入点）
-- [ ] 补充最小单测（query patch、分页边界、状态映射纯函数等，按实际抽取范围）
+## Phase 1 · 公共件
 
-## Phase 2：试点迁移（建议：审计 或 用户中心）
+- [ ] `TableCard`：容器、保底高度、加载条、首屏骨架 / 空状态 / 错误状态插槽、分页底栏。视觉与 §10 一致。
+- [ ] `useServerListQuery`：page / pageSize / filters；`patch` 时回到第 1 页；可选同步到 URL。
+- [ ] 单测：
+  - hook 的页码重置；
+  - 每页条数变化时回到第 1 页；
+  - URL 同步的往返；
+  - `TableCard` 在加载、空、错误、正常四种状态下的渲染。
+- 本阶段不迁移任何页面。
 
-- [ ] 选择试点模块并冻结行为基线（截图/关键用例）
-- [ ] 将试点模块接入统一壳与 toolbar/table/pagination 模式
-- [ ] 对齐 Dialog/AlertDialog/Sheet 交互与 i18n/a11y
-- [ ] 回归：筛选、分页、刷新、详情抽屉/表单提交流程
-- [ ] Egolite 点击回归（按矩阵）
+## Phase 2 · 试点：审计日志
 
-## Phase 3：诊断模块收敛（错误中心 + 巡检中心）
+- [ ] 接入 `TableCard` 与 `useServerListQuery`。
+- [ ] `AuditLogMain` 持有查询状态，`AuditLogTable` 只负责渲染。
+- [ ] 迁移前后截图对比；Egolite 跑审计用例。
+- 评审门槛：试点通过后，再批量迁移其余页面。
 
-- [ ] 统一 `DiagnosticsErrorCenter` 列表骨架与筛选/详情 Sheet 模式
-- [ ] 统一 `DiagnosticsInspectionCenter` 列表骨架，保留启动巡检 `Dialog` 并规范刷新
-- [ ] 校验与告警/任务/集群跳转联动参数不回归
-- [ ] Egolite 点击回归（按矩阵）
+## Phase 3 · 用户中心
 
-## Phase 4：告警中心迁移（复杂度最高）
+- [ ] 接入两个公共件，确认与表单弹窗按选型表处理。
+- [ ] Egolite：用户用例，"不能操作自己"必须覆盖。
 
-- [ ] 拆分迁移步骤：先壳与 toolbar，再行操作/批量（如有），最后详情与排障面板联动
-- [ ] 保持告警状态转换、确认/静音/处理等业务规则与权限校验
-- [ ] 全量回归告警筛选、深链、详情 Sheet、相关跳转
-- [ ] Egolite 点击回归（按矩阵）
+## Phase 4 · 错误中心 + 巡检
 
-## Phase 5：工作台与控制台换新
+- [ ] 两页接入公共件；巡检的启动对话框保留 `Dialog`。
+- [ ] Egolite：两页用例，以及跳转链路。
 
-- [ ] 工作台任务/作业列表与详情链路对齐 `JobTable` 模式
-- [ ] 控制台作业列表与详情链路对齐
-- [ ] 深链参数与轮询/overlay 语义不回归
-- [ ] Egolite 点击回归（按矩阵）
+## Phase 5 · 告警中心
 
-## Phase 6：P1 页面换新
+- [ ] 先换卡片与查询状态，再处理行操作与详情面板（可拆成两个 PR）。
+- [ ] Egolite：告警用例，含深链参数。
 
-- [ ] 监控其它页（rules/history/integrations）
-- [ ] 集群管理与升级向导
-- [ ] 主机管理
-- [ ] 安装包/插件
-- [ ] 命令历史
-- [ ] 系统升级
-- [ ] 仪表盘
-- [ ] Egolite 点击回归（按矩阵）
+## Phase 6 · 交互组件对齐层（单独 PR，Phase 0 之后可与 Phase 1–5 并行）
 
-## Phase 7：收尾与规范沉淀
+- [ ] 3 处 `window.confirm` 换成 `AlertDialog`（文案沿用现有 i18n key）。
+- [ ] 用普通 `Dialog` 承载的纯确认，改成 `AlertDialog`。
+- [ ] 下拉框、更多菜单、状态标签按 `inventory.md` 的清单逐处替换。
+- [ ] diff 只能是组件替换，不能有布局、数据流或轮询的改动。
+- [ ] Egolite：每一处替换各一条用例。
 
-- [ ] 清理各模块重复样板与死代码（在确认无引用后）
-- [ ] 更新前端 spec（如 `ui-conventions.md` 增补“管理列表统一壳/交互原语”约定）与必要 README/注释（仅按需）
-- [ ] 记录 vendored 组件差异与升级注意事项（Arc/beUI），同步 `licenses/third_party_mit_files.txt`（若文件集变化）
-- [ ] 质量验证：相关模块测试、`tsc --noEmit`、lint（区分存量基线）
+## Phase 7 · 收尾
 
-## 验收检查（跨阶段）
+- [ ] 删除各页面里被公共件替代的重复代码（确认没有引用后再删）。
+- [ ] `ui-conventions.md` §10 补充 `TableCard` 与 `useServerListQuery` 的用法；更新一致性检查项。
+- [ ] 如果 vendored 文件有增减，同步 `licenses/third_party_mit_files.txt`。
 
-- [ ] P0 页面骨架一致：头部/统计/工具栏/表格卡片/分页/加载与空错态
-- [ ] Tabs/标签/下拉/弹窗/抽屉选型与样式层级符合设计决策
-- [ ] server-driven 语义正确：筛选重置页码、分页与排序以后端为准、无误导性交互
-- [ ] i18n 与 a11y 覆盖新增/改动 UI；无布局塌陷与明显交互回归
-- [ ] `JobTable`（作业域）与新通用壳职责清晰，无领域逻辑反向依赖
-- [ ] Egolite 回归矩阵通过（P0 全部，P1 至少主路径）
+## Egolite 回归记录格式（附在 PR 描述里）
+
+```
+### Egolite 回归 · Phase N
+- 环境：macOS 版本 / 浏览器 / 后端版本（commit）
+- 结果：通过 x / 共 y
+
+| 页面 | 用例 | 步骤摘要 | 结果 | 截图 |
+|---|---|---|---|---|
+| /audit-logs | 筛选后页码回到 1 | 翻到第 3 页 → 改动作筛选 → 检查页码 | 通过 | … |
+```

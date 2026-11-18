@@ -1,123 +1,88 @@
-# 全局 UI 换新：统一管理控制台与工作台（列表 / 工作台 / 控制台 / 其他页面）
+# 全局 UI 统一：管理列表迁移 + 全站交互组件对齐
 
-## 背景 / Background
+## 背景
 
-当前系统已在「工作台任务列表 / 控制台作业列表」完成了作业实例列表的统一（`frontend/components/common/sync/job-table/`：`JobTable` + `JobTableToolbar` + `StatPillsBar` + 服务端分页 + 统一行操作/详情宿主），形成了较成熟的 **服务端驱动列表（server-driven list）** 骨架与交互范式。
+作业列表已经在 `11-17-unified-job-table` 和 `11-17-job-detail-host` 中统一完成：`JobTable`、`JobTableToolbar`、`StatPillsBar`、
+服务端分页，以及统一的行操作和详情宿主。其他管理列表虽然遵守了 `ui-conventions.md` §10 的表格卡片约定，
+但每个页面各写一份；确认弹窗、下拉框、状态标签这类小组件在全站也有多种实现并存，视觉和交互不一致。
 
-但除作业列表外，其他管理控制台与工作台页面仍各自实现布局、筛选、加载与覆盖层，存在重复与不一致。本轮明确扩大范围为 **全局大换新**，统一组件与交互体系，但遵守“扩展已有 UI 组件/壳，而非新造通用 UI”的最小变更原则。
+## 已确认事实（2026-11-18，基于 main `88628080`）
 
-## 范围 / Scope（全局）
+### 管理列表（5 个页面）
+| 页面 | 文件（行数） | 已用的共享件 | 交互组件 |
+|---|---|---|---|
+| 告警中心 | `MonitoringAlertsCenter.tsx`（1384） | `StatPillsBar`、`TableLoadingBar`、`TableSkeletonRows`、`ui/pagination` | `ui/badge`、`ui/select`、`ui/sheet` |
+| 错误中心 | `DiagnosticsErrorCenter.tsx`（959） | 同上 | `ui/badge`、`ui/sheet` |
+| 巡检中心 | `DiagnosticsInspectionCenter.tsx`（1496） | 同上 | `ui/badge`、`ui/select`、`ui/dialog`、`ui/sheet` |
+| 审计日志 | `AuditLogMain.tsx`（368）+ `AuditLogTable.tsx`（464）+ `AuditTraceSheet.tsx` | `TableLoadingBar`、`TableSkeletonRows`、`ui/pagination`、`ArcDateRangePicker` | `ui/badge`、`ui/select`、`ui/sheet` |
+| 用户中心 | `UserManagement.tsx`（728） | `WorkspaceHeader`、`TableLoadingBar`、`TableSkeletonRows`、`ui/pagination` | `ui/badge`、`ui/dialog`、`ui/alert-dialog` |
 
-### P0（必须换新与回归）
-- 工作台：`/workbench`（任务列表、作业列表、运行详情、节点/拓扑、告警与恢复链路）
-- 控制台作业：`/sync`（作业列表、作业详情、拓扑、恢复/保存点/停止、Dolphin 触发链路）
-- 告警中心：`/monitoring?tab=alerts`
-- 错误中心与巡检中心：`/diagnostics`（`DiagnosticsErrorCenter` / `DiagnosticsInspectionCenter`）
-- 审计日志：`/audit-logs`
-- 用户中心：`/admin/users`
+- 5 个页面**各自重复**同一套表格卡片：§10 的保底高度容器、`mt-auto border-t` 分页底栏、加载条、骨架行，共 5 份拷贝。
+- "筛选变化时回到第 1 页"也是各写各的：告警 11 处、巡检 4 处、错误中心 2 处，审计和用户 0 处（需在 Phase 0 核对是否漏了）。
+- 5 个页面的行操作都是直接摆按钮，没有使用 `DropdownMenu`。
+- `StudioDataTable` 不是带卡片、分页、加载的表格壳。它是 HeroUI 解剖结构的表格原语，外加客户端排序工具
+  （`applyStudioSort`），用于工作台任务表；仓库里没有 `ServerPagination`。
 
-### P1（按同一框架换新）
-- 监控中心其它页面：`/monitoring`、`/monitoring/rules`、`/monitoring/history`、`/monitoring/integrations`
-- 集群管理：`/clusters`、`/clusters/[id]`、升级向导页面
-- 主机管理：`/hosts`、`/hosts/[id]`
-- 安装包/插件：`/packages`、`/plugins`
-- 命令历史：`/commands`
-- 系统升级：`/system-upgrade`
-- 仪表盘：`/dashboard`
+### 全站交互组件现状
+- **确认**：
+  - 3 处仍用浏览器原生的 `window.confirm`：`TaskAlertSection.tsx:90`、`MonitoringPolicyCenter.tsx:1680`、`MonitoringPolicyCenter.tsx:1846`；
+  - 20 个文件用 `ui/alert-dialog`，1 处用 Arc `confirm-morph`（工作台定时侧栏的解除绑定，规范 §14 指定）；
+  - sync 下有 5 个文件用普通 `ui/dialog` 承载确认，需要逐个判断是否属于纯确认。
+- **下拉选择**：工作台、作业控制台、大盘里，`ui/select` 7 处、Arc `combobox` 2 处、`ui/command` 3 处；没有原生 `<select>`。
+- **更多菜单**：`ui/dropdown-menu` 4 处，`ui/popover` 3 处（需核对是否被当菜单用）。
+- **状态标签**：全站 `ui/badge` 78 个文件，Arc `badge` 5 个文件。后者是规范 §14 指定的位置：工作台侧栏、作业详情、升级向导。
+- **页签**：
+  - 页面级导航用 `ModuleNavTabs`；
+  - 详情页签按规范用 Arc `Tabs`；
+  - 工具栏里的互斥筛选按规范用 `SegmentedControl`。
 
-### P2（保留但需组件对齐）
-- E2E 实验室：`/e2e-lab/install-wizard`
-- 鉴权页面：`/(auth)/login`、`/(auth)/callback`
+## Locked Decisions（用户确认）
 
-## 组件策略 / Component Strategy
+1. **范围分两层**：
+   - 5 个管理列表做**完整迁移**：列表骨架、筛选栏、行操作、交互组件。
+   - 工作台、作业控制台、首页大盘及其他页面**只对齐交互组件**：确认弹窗、下拉框和选择器、行内更多菜单、状态标签。
+     不动布局、列表骨架、数据流、轮询和深链。
+2. **回归工具用 Egolite**（Mac 上的点击回归工具，可替代 Playwright，不局限于 CI）。
+   每个阶段的 PR 附 Egolite 回归记录；现有 CI（vitest、`tsc`、已有 Playwright E2E）保持通过。不要求为本任务补 Playwright 用例。
+3. **以 `ui-conventions.md` 已有的选型为起点**。规范没定的部分在 Phase 0 拍板后写回规范；要推翻规范已有的决定，必须写明理由并同步修改规范。
+4. **不做**：移动端 Drawer 方案、审计批量操作、给 `confirm-morph` 开新用途、"万能表格"。
 
-- **首选复用/扩展**：Arc UI（`frontend/components/arc/*`）、shadcn/ui（`frontend/components/ui/*`）、beUI Motion Table（`frontend/components/motion/table`，仅 client-side 大样本场景）。
-- **统一壳优先**：`WorkspaceHeader`、`StatPillsBar`、`StudioDataTable`、`ModuleNavTabs`、`JobTable`/`JobTableToolbar` 模式。
-- **不新造通用 UI**：新增组件仅在明确复用≥3处且无现成原语时抽象；优先扩展现有 wrapper/adapter，避免“万能超级组件”。
-- **server-driven 约束**：管理列表分页/筛选/排序以后端为准；本地表格仅用于展示优化，不作为权威事实源。
+## Requirements
 
-## 组件与链接 / Components & Links
+### R1 交互组件统一选型（全局）
+- 产出一张"场景 → 组件"的选型表：破坏性确认、表单弹窗、行内轻确认、下拉选择（少量 / 可搜索）、行内更多菜单、状态标签、
+  页签（页面级 / 详情 / 工具栏筛选）、详情面板、分页、日期范围。每一项写明组件路径和规范出处。
+- 状态标签是 `ui/badge` 还是 Arc `badge` 在 Phase 0 拍板（见 design §3 的建议）。
+- 选型结论写回 `ui-conventions.md`。
 
-### Arc UI（已安装 registry：`@uiarc` → `https://uiarc.dev/r/{name}.json`）
-- Tabs：<https://uiarc.dev/components/tabs>
-- Badge：<https://uiarc.dev/components/badge>
-- Segmented Control：<https://uiarc.dev/components/segmented-control>
-- Combobox：<https://uiarc.dev/components/combobox>
-- Date Range Picker：<https://uiarc.dev/components/date-range-picker>
-- Search Field：<https://uiarc.dev/components/search-field>
-- Button Group：<https://uiarc.dev/components/button-group>
-- Empty State：<https://uiarc.dev/components/empty-state>
-- Confirm Morph：<https://uiarc.dev/components/confirm-morph>
-- Dialog：<https://uiarc.dev/components/dialog>
-- Dropdown Menu：<https://uiarc.dev/components/dropdown-menu>
-- Drawer：<https://uiarc.dev/components/drawer>
-- Select：<https://uiarc.dev/components/select>
-- Pagination：<https://uiarc.dev/components/pagination>
-- Docs/AI：<https://uiarc.dev/docs/ai>
+### R2 管理列表骨架统一（5 个页面）
+- 抽出公共的表格卡片（容器、保底高度、加载条、骨架或空状态、分页底栏），替换 5 份拷贝，视觉与 §10 一致。
+- 抽出受控查询状态：页码、每页条数、筛选条件；筛选变化统一回到第 1 页。审计和用户如确实漏了重置，一并修复。
+- 行操作仍以按钮为主；单行动作超过 2 个时，次要动作收进 `DropdownMenu`，危险动作走 `AlertDialog`。
+- 业务逻辑、接口、权限约束（如用户中心"不能操作自己"、告警状态流转）保持不变。
 
-### shadcn/ui 基线（`frontend/components/ui/*`）
-- Table：<https://ui.shadcn.com/docs/components/table>
-- Tabs：<https://ui.shadcn.com/docs/components/tabs>
-- Badge：<https://ui.shadcn.com/docs/components/badge>
-- Dropdown Menu：<https://ui.shadcn.com/docs/components/dropdown-menu>
-- Dialog：<https://ui.shadcn.com/docs/components/dialog>
-- Alert Dialog：<https://ui.shadcn.com/docs/components/alert-dialog>
-- Sheet：<https://ui.shadcn.com/docs/components/sheet>
-- Drawer：<https://ui.shadcn.com/docs/components/drawer>
-- Pagination：<https://ui.shadcn.com/docs/components/pagination>
-- Select：<https://ui.shadcn.com/docs/components/select>
+### R3 交互组件对齐（工作台、作业控制台、首页大盘及其他页面）
+- 3 处 `window.confirm` 换成 `AlertDialog`。
+- 用普通 `Dialog` 承载的纯确认改为 `AlertDialog`。带表单的保留 `Dialog`。
+- 下拉框、更多菜单、状态标签按 R1 的选型替换。
+- 这一层作为**单独的阶段和 PR** 交付，不和 R2 混在一起。
 
-### beUI（registry：`@beui` → `https://beui.dev/r/{name}.json`）
-- Home：<https://beui.dev>
-- Motion Table：仅 client-side 大样本网格（如预览），不用于 server-driven 管理列表的本地分页/排序语义
+### R4 回归
+- 每个阶段的 PR 附 Egolite 回归记录（格式见 implement.md），用例来自 design §6 的回归矩阵。
+- 现有 CI 全部通过。
 
-## 问题 / Problem
+## Acceptance Criteria
 
-1. **骨架重复**：卡片容器、工具栏布局、状态统计胶囊、加载/空/错态、分页条、刷新语义在各模块重复搭建，细节易漂移。
-2. **交互原语不统一**：Tabs、标签/徽章、下拉菜单、弹窗、抽屉分属不同实现与样式约定，用户心智负担高。
-3. **扩展成本高**：新增筛选项、批量操作或详情抽屉时，需要在每个模块复制模式，难以全局一致演进。
-4. **回归盲区**：页面改造后缺少统一的点击回归清单，容易破坏既有交互链路。
+- [ ] Phase 0 差异清单与选型表完成，开放问题全部拍板，选型已写回 `ui-conventions.md`。
+- [ ] 5 个管理列表使用同一个表格卡片和查询状态 hook，不再有各自拷贝的卡片与分页底栏；筛选变化都回到第 1 页。
+- [ ] 全站不再有 `window.confirm`；纯确认都用 `AlertDialog`。
+- [ ] 工作台、作业控制台、大盘的确认弹窗、下拉框、更多菜单、状态标签符合选型表；布局与数据流没有变化。
+- [ ] 每个阶段的 PR 都附有 Egolite 回归记录且全部通过，现有 CI 通过。
+- [ ] 新增和修改的文案都走 next-intl（中英文），可点击元素都有可读的 `aria-label`。
 
-## 目标 / Goals
+## Out of Scope
 
-1. **统一列表骨架（List Shell）**：为告警中心、错误巡检/错误中心、审计、用户中心提供一致的 server-driven 列表结构。
-2. **统一交互原语选型与约定**：Tabs、Tag/Badge、Dropdown/Action Menu、Dialog/AlertDialog、Sheet/Drawer 的使用边界与样式层级在所有页面一致。
-3. **全局页面换新**：工作台、控制台、监控、集群、主机、包/插件、命令、系统升级、仪表盘等页面对齐同一组件体系与布局契约。
-4. **领域可插拔**：统一的是 **框架与原语**，不是强行共用一套列定义；各模块通过列配置、筛选器插件、行操作渲染器接入。
-5. **功能回归保障**：每个改造页面必须提供 Egolite 点击回归用例，覆盖关键交互链路。
-
-## 非目标 / Non-goals
-
-- 不将 `JobTable`（sync 作业领域组件）直接套用到告警/审计/用户等非作业实体；`JobTable` 继续作为作业域参考实现与作业场景唯一实现。
-- 不在本任务内重做各模块的业务逻辑、后端 API、权限模型或数据契约（除非为统一交互必须的小幅适配）。
-- 不引入客户端本地排序/分页替代现有服务端分页（遵循 server-driven 约束）。
-- 不一次性大改所有页面；采用分阶段迁移，允许并存期但需有明确收敛计划。
-
-## 范围 / Scope
-
-- **P0 覆盖（本设计主目标）**：工作台、控制台作业、告警中心、错误中心与巡检中心、审计日志、用户中心。
-- **P1 参考对齐（可选后续）**：监控策略/集成、集群、主机、包/插件、命令、系统升级、仪表盘。
-- **P2 保留对齐**：E2E 实验室、鉴权页面。
-
-## 约束 / Constraints
-
-- 遵循 `.trellis/spec/frontend/ui-conventions.md`：beUI/Arc 组件导入约束、零塌陷加载、卡片内嵌表格、表格右侧操作列吸附/实体化、分页规范、i18n（next-intl）与 a11y。
-- 服务端驱动列表：分页/排序/筛选以服务端为准；`StudioDataTable`/`JobTable` 模式优先，不在通用 server list 中依赖第三方本地表格状态作为事实源。
-- 受控 vendoring（PR #160 / 既有约定）：`frontend/components/motion/*`、`frontend/components/arc/*` 为受控依赖；升级走 re-pull/diff merge，项目适配集中在 wrapper/adapter；MIT 头与 `licenses/third_party_mit_files.txt` 合规。
-- 最小变更：先抽共性骨架与原语约定，再逐模块迁移；不为未出现的第三类场景过度抽象。
-
-## 验收标准（设计阶段）/ Acceptance (Design)
-
-- [ ] 输出统一列表架构与分层（shell / toolbar / table / row-actions / overlays），明确与 `JobTable`、`StudioDataTable` 的关系。
-- [ ] 给出 Tabs / Tag-Badge / Dropdown / Dialog / Sheet 的统一选型、适用场景与落点组件（含 Arc/beUI/shadcn 对照与链接）。
-- [ ] 给出全局页面映射表（现状 → 目标组件/改造点/风险）。
-- [ ] 给出分阶段实施计划与回归检查项（含 Egolite 点击回归、i18n、a11y、零塌陷、分页、权限操作确认）。
-
-## 开放问题（待评审拍板）/ Open Questions
-
-1. **共享组件落点**：新增 `frontend/components/common/data-table/`（通用 server-list 框架）还是扩展 `common/layout` + `common/sync` 既有模式？（建议：通用骨架进 `common/data-table` 或 `common/list-shell`，领域表格留在各域目录。）
-2. **Tab 统一粒度**：页面级主导航 Tab（如 monitoring/diagnostics workspace）统一用 `ModuleNavTabs`/Arc Tabs 哪一种为主实现？内容区内筛选 Tab 是否统一为 `SegmentedControl`/pill？
-3. **Drawer 统一**：详情/追踪统一优先 `Sheet`（右侧）还是允许 `Drawer`（底部/移动端）按场景？（需与现有 `AuditTraceSheet`、告警详情 Sheet 行为对齐。）
-4. **批量操作**：告警/审计是否需要统一批量操作条（参考 `JobTableToolbar` bulk bar）与多选列协议？首期可不启用但需预留扩展点。
-5. **beUI Table 引入边界**：除预览等本地大样本网格外，server-driven 管理列表是否继续以 `StudioDataTable`/原生 `Table` 为主，仅在明确的 client-side 场景引入 beUI Motion Table？（默认建议：保持 server-driven 列表不用 beUI Table 的本地排序/分页语义。）
-6. **Egolite 回归范围**：需要先定义 Egolite 点击脚本的覆盖粒度与失败判定（建议：P0 页面至少覆盖“列表加载、筛选、分页、详情打开、创建/编辑/删除确认、跳转链路”）。
+- 工作台、作业控制台、首页大盘的布局和列表骨架重做（刚完成统一）。
+- 业务逻辑、后端接口、权限模型的修改。
+- 移动端适配、审计批量操作。
+- 主机、命令历史、安装包等其他列表的骨架迁移。这些页面本期只对齐交互组件，骨架是否迁移在试点完成后另行评估。

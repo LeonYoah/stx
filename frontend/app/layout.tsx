@@ -86,7 +86,12 @@ export default function RootLayout({
          */}
         <script dangerouslySetInnerHTML={{__html: welcomeSplashBootScript}} />
       </head>
-      <body className='hide-scrollbar font-sans antialiased'>
+      {/* 浏览器扩展会向 body 注入属性（如 mpa-*），与 SSR 输出不符属预期噪音。
+          Browser extensions inject attributes onto body (e.g. mpa-*); diverging from SSR output is expected noise. */}
+      <body
+        className='hide-scrollbar font-sans antialiased'
+        suppressHydrationWarning
+      >
         <I18nProvider>
           <ThemeProvider
             attribute='class'

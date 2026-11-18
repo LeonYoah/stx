@@ -465,6 +465,19 @@ export function DataSyncStudio() {
   // Job deep link ?task=&job= (from alert notifications): used once on the first workspace load.
   const searchParams = useSearchParams();
   const deepLinkRef = useRef<JobDeepLink | null>(parseJobDeepLink(searchParams));
+  // 已处理过的深链按 taskId:jobId 记 key；初始值标记挂载时由 loadWorkspace 消费的那条，防止重放。
+  // Applied deep links are keyed by taskId:jobId; the initial value marks the one consumed by
+  // loadWorkspace at mount so it is not replayed.
+  const appliedDeepLinkKeyRef = useRef<string>(
+    (() => {
+      const initial = parseJobDeepLink(searchParams);
+      return initial ? `${initial.taskId}:${initial.jobId ?? 0}` : '';
+    })(),
+  );
+  // handleSelectNode 在渲染期重新赋值，保证深链重放总调用最新闭包。
+  // handleSelectNode is re-assigned into this ref every render so deep-link replay always calls
+  // the latest closure.
+  const selectNodeRef = useRef<((node: SyncTaskTreeNode) => void) | undefined>(undefined);
   const [workspaceUsers, setWorkspaceUsers] = useState<
     NotificationRecipientUser[]
   >([]);
@@ -1747,7 +1760,19 @@ export function DataSyncStudio() {
     }
   }, [globalVariablePage, t]);
 
+  // 工作区只启动加载一次：StrictMode 挂载期 effect 双调用或依赖抖动导致的第二次 loadWorkspace
+  // 会在首次选任务→loadJobs 回填后再执行 setJobs([])，而 selectedNodeId 不变不再触发重载，
+  // 运行记录被永久清空（表现为点了作业失败深链却「找不到运行记录」）。
+  // The workspace must boot only once: a second loadWorkspace (StrictMode double-effect or dep
+  // churn) runs setJobs([]) after the first run already refilled jobs via loadJobs, and with
+  // selectedNodeId unchanged no reload fires — leaving the runs list permanently empty (the
+  // "deep link opens but no run record" bug).
+  const workspaceBootedRef = useRef(false);
   useEffect(() => {
+    if (workspaceBootedRef.current) {
+      return;
+    }
+    workspaceBootedRef.current = true;
     void loadWorkspace(deepLinkRef.current?.taskId ?? null);
   }, [loadWorkspace]);
 
@@ -3543,6 +3568,43 @@ export function DataSyncStudio() {
       toast.error(error instanceof Error ? error.message : t('loadFileFailed'));
     }
   };
+
+  // 每次渲染同步最新 handleSelectNode 到 ref，供深链重放 effect 调用。
+  // Sync the latest handleSelectNode into the ref every render for the deep-link replay effect.
+  useEffect(() => {
+    selectNodeRef.current = handleSelectNode;
+  });
+
+  // 深链在已挂载的 /workbench 上再次导航也要生效：loadWorkspace 只在挂载时消费一次
+  // deepLinkRef，停留在工作台时再点 ?task&job 链接只会改 searchParams 而不会重挂载，旧链接
+  // 会被静默丢弃（表现为「点了告警却找不到运行记录」）。这里监听参数变化重放深链。
+  // Deep links must also apply on in-place navigation to an already-mounted /workbench:
+  // loadWorkspace consumes deepLinkRef only at mount, so clicking another ?task&job link while
+  // staying on the page only changes searchParams without remounting, silently dropping the link
+  // (users click an alert and never see the run record). Replay such links on params change.
+  useEffect(() => {
+    const link = parseJobDeepLink(searchParams);
+    if (!link) {
+      return;
+    }
+    const key = `${link.taskId}:${link.jobId ?? 0}`;
+    if (appliedDeepLinkKeyRef.current === key) {
+      return;
+    }
+    const node = findTreeNode(tree, link.taskId);
+    if (!node || node.node_type !== 'file') {
+      // 工作区仍在加载时不判失败：effect 依赖 tree/loading，树就绪后会重跑。
+      // Do not warn while the workspace is still loading: this effect re-runs once tree/loading settle.
+      if (!loading) {
+        appliedDeepLinkKeyRef.current = key;
+        toast.warning(tAlert('deepLinkTaskNotFound', {id: link.taskId}));
+      }
+      return;
+    }
+    appliedDeepLinkKeyRef.current = key;
+    deepLinkRef.current = link;
+    void selectNodeRef.current?.(node);
+  }, [searchParams, tree, loading, tAlert]);
 
   const handleCloseTab = async (taskId: number) => {
     setOpenTabs((current) => current.filter((tab) => tab.id !== taskId));

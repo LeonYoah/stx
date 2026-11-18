@@ -32,6 +32,44 @@ import (
 	"github.com/LeonYoah/stx/internal/pkg/promquery"
 )
 
+// detailQueryKind 标记面板表达式的取样语义，决定长步长时怎么调整窗口。
+// detailQueryKind marks a panel expression's sampling semantics, driving how the window
+// adapts to coarse steps.
+type detailQueryKind int
+
+const (
+	// detailGaugeAvg 是均值语义的仪表面板：步长超过 5m 时包 avg_over_time（默认零值）。
+	// detailGaugeAvg is a mean-semantics gauge panel: wrapped in avg_over_time once the step
+	// exceeds 5m (the zero value so most queries stay unannotated).
+	detailGaugeAvg detailQueryKind = iota
+	// detailGaugeMax 是峰值语义的仪表面板（CDC 延迟、队列积压）：步长超过 5m 时包 max_over_time。
+	// detailGaugeMax is a peak-semantics gauge panel (CDC delay, queue backlog): wrapped in
+	// max_over_time once the step exceeds 5m.
+	detailGaugeMax
+	// detailRate 是计数器速率：窗口取 max(5m, step)，长步长覆盖整个取样间隔。
+	// detailRate is a counter rate: the window becomes max(5m, step) so coarse steps cover
+	// the whole sampling interval.
+	detailRate
+	// detailRaw 原样执行，不做步长适配（如已自带窗口的表达式）。
+	// detailRaw runs verbatim with no step adaptation (e.g. expressions with their own windows).
+	detailRaw
+)
+
+// adaptDetailExpr 按取样语义把表达式适配到给定步长。
+// adaptDetailExpr adapts an expression to the given step per its sampling semantics.
+func adaptDetailExpr(kind detailQueryKind, expr string, step int) string {
+	switch kind {
+	case detailRate:
+		return strings.ReplaceAll(expr, "[5m]", "["+promquery.RangeWindow(step, 5*time.Minute)+"]")
+	case detailGaugeMax:
+		return promquery.SampleGauge(step, "max", expr)
+	case detailRaw:
+		return expr
+	default:
+		return promquery.SampleGauge(step, "avg", expr)
+	}
+}
+
 // detailQuery 是面板里的一条查询：dimLabel 非空时序列名取样本该标签（如 pool / gc / type），
 // 否则用固定维度名 dim（如 current / rx）。
 // detailQuery is one query inside a panel: when dimLabel is set the series name comes from that
@@ -39,6 +77,7 @@ import (
 type detailQuery struct {
 	dim      string
 	dimLabel string
+	kind     detailQueryKind
 	expr     string // %[1]s 为公共 selector / %[1]s is the shared selector
 }
 
@@ -71,10 +110,10 @@ var clusterDetailGroups = map[string][]detailPanel{
 	},
 	"gc": {
 		{key: "gc_rate", unit: "per_second", queries: []detailQuery{
-			{dimLabel: "gc", expr: `sum by (instance, gc) (rate(jvm_gc_collection_seconds_count{%[1]s}[5m]))`},
+			{dimLabel: "gc", kind: detailRate, expr: `sum by (instance, gc) (rate(jvm_gc_collection_seconds_count{%[1]s}[5m]))`},
 		}},
 		{key: "gc_pause", unit: "percent", queries: []detailQuery{
-			{dimLabel: "gc", expr: `100 * sum by (instance, gc) (rate(jvm_gc_collection_seconds_sum{%[1]s}[5m]))`},
+			{dimLabel: "gc", kind: detailRate, expr: `100 * sum by (instance, gc) (rate(jvm_gc_collection_seconds_sum{%[1]s}[5m]))`},
 		}},
 		{key: "threads", unit: "count", queries: []detailQuery{
 			{dim: "current", expr: `max by (instance) (jvm_threads_current{%[1]s})`},
@@ -93,17 +132,19 @@ var clusterDetailGroups = map[string][]detailPanel{
 		{key: "pool", unit: "count", queries: []detailQuery{
 			{dim: "size", expr: `max by (instance) (job_thread_pool_poolSize{%[1]s})`},
 			{dim: "active", expr: `max by (instance) (job_thread_pool_activeCount{%[1]s})`},
-			{dim: "queued", expr: `max by (instance) (job_thread_pool_queueTaskCount{%[1]s})`},
+			// 队列积压按峰值取样。/ Queued backlog samples peak semantics.
+			{dim: "queued", kind: detailGaugeMax, expr: `max by (instance) (job_thread_pool_queueTaskCount{%[1]s})`},
 		}},
 		{key: "reject", unit: "per_second", queries: []detailQuery{
-			{dim: "reject", expr: `sum by (instance) (rate(job_thread_pool_rejection_total{%[1]s}[5m]))`},
+			{dim: "reject", kind: detailRate, expr: `sum by (instance) (rate(job_thread_pool_rejection_total{%[1]s}[5m]))`},
 		}},
 		{key: "op_latency", unit: "ms", queries: []detailQuery{
-			{dim: "request_slot", expr: `max by (instance) (request_slot_operation_last_invocation_latency_ms{%[1]s})`},
-			{dim: "report_metrics", expr: `max by (instance) (report_metrics_operation_last_invocation_latency_ms{%[1]s})`},
+			// 延迟是峰值语义：长窗口保住尖刺。/ Latency is peak semantics: long windows keep spikes.
+			{dim: "request_slot", kind: detailGaugeMax, expr: `max by (instance) (request_slot_operation_last_invocation_latency_ms{%[1]s})`},
+			{dim: "report_metrics", kind: detailGaugeMax, expr: `max by (instance) (report_metrics_operation_last_invocation_latency_ms{%[1]s})`},
 		}},
 		{key: "hz_queue", unit: "count", queries: []detailQuery{
-			{dimLabel: "type", expr: `sum by (instance, type) (hazelcast_executor_queueSize{%[1]s})`},
+			{dimLabel: "type", kind: detailGaugeMax, expr: `sum by (instance, type) (hazelcast_executor_queueSize{%[1]s})`},
 		}},
 		{key: "partitions", unit: "count", queries: []detailQuery{
 			{dim: "total", expr: `max by (instance) (hazelcast_partition_partitionCount{%[1]s})`},
@@ -139,8 +180,8 @@ var clusterDetailGroups = map[string][]detailPanel{
 			{dim: "loaded", expr: `max by (instance) (jvm_classes_currently_loaded{%[1]s})`},
 		}},
 		{key: "class_load_rate", unit: "per_second", queries: []detailQuery{
-			{dim: "loaded", expr: `sum by (instance) (rate(jvm_classes_loaded_total{%[1]s}[5m]))`},
-			{dim: "unloaded", expr: `sum by (instance) (rate(jvm_classes_unloaded_total{%[1]s}[5m]))`},
+			{dim: "loaded", kind: detailRate, expr: `sum by (instance) (rate(jvm_classes_loaded_total{%[1]s}[5m]))`},
+			{dim: "unloaded", kind: detailRate, expr: `sum by (instance) (rate(jvm_classes_unloaded_total{%[1]s}[5m]))`},
 		}},
 	},
 }
@@ -228,7 +269,7 @@ func (s *ClusterDashboardService) GetClusterDetail(ctx context.Context, clusterI
 	tasks := []*detailTask{}
 	for p, panel := range panels {
 		for _, q := range panel.queries {
-			tasks = append(tasks, &detailTask{panel: p, dim: q.dim, dimL: q.dimLabel, query: fmt.Sprintf(q.expr, sel)})
+			tasks = append(tasks, &detailTask{panel: p, dim: q.dim, dimL: q.dimLabel, query: fmt.Sprintf(adaptDetailExpr(q.kind, q.expr, step), sel)})
 		}
 	}
 	// 事件检测与面板同批并发：启动时刻 / 成员数两条 range 序列，Go 侧差分。

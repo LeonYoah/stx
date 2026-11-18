@@ -40,7 +40,7 @@ import (
 // disk IO / filesystem usage / TCP / fds. %[1]s injects job="stx_host" plus the host_id selector.
 var hostPanels = []detailPanel{
 	{key: "cpu", unit: "per_second", queries: []detailQuery{
-		{dimLabel: "mode", expr: `sum by (mode) (rate(stx_host_cpu_seconds_total{%[1]s}[5m]))`},
+		{dimLabel: "mode", kind: detailRate, expr: `sum by (mode) (rate(stx_host_cpu_seconds_total{%[1]s}[5m]))`},
 	}},
 	{key: "memory", unit: "bytes", queries: []detailQuery{
 		{dimLabel: "kind", expr: `max by (kind) (stx_host_memory_bytes{%[1]s, kind=~"available|cached|buffers|free"})`},
@@ -50,15 +50,15 @@ var hostPanels = []detailPanel{
 		{dimLabel: "kind", expr: `max by (kind) (stx_host_load{%[1]s})`},
 	}},
 	{key: "net", unit: "per_second", queries: []detailQuery{
-		{dim: "rx", dimLabel: "iface", expr: `sum by (iface) (rate(stx_host_net_receive_bytes_total{%[1]s}[5m]))`},
-		{dim: "tx", dimLabel: "iface", expr: `sum by (iface) (rate(stx_host_net_transmit_bytes_total{%[1]s}[5m]))`},
+		{dim: "rx", dimLabel: "iface", kind: detailRate, expr: `sum by (iface) (rate(stx_host_net_receive_bytes_total{%[1]s}[5m]))`},
+		{dim: "tx", dimLabel: "iface", kind: detailRate, expr: `sum by (iface) (rate(stx_host_net_transmit_bytes_total{%[1]s}[5m]))`},
 	}},
 	{key: "disk_io", unit: "per_second", queries: []detailQuery{
-		{dim: "read", dimLabel: "device", expr: `sum by (device) (rate(stx_host_disk_read_bytes_total{%[1]s}[5m]))`},
-		{dim: "write", dimLabel: "device", expr: `sum by (device) (rate(stx_host_disk_write_bytes_total{%[1]s}[5m]))`},
+		{dim: "read", dimLabel: "device", kind: detailRate, expr: `sum by (device) (rate(stx_host_disk_read_bytes_total{%[1]s}[5m]))`},
+		{dim: "write", dimLabel: "device", kind: detailRate, expr: `sum by (device) (rate(stx_host_disk_write_bytes_total{%[1]s}[5m]))`},
 	}},
 	{key: "disk_util", unit: "percent", queries: []detailQuery{
-		{dimLabel: "device", expr: `100 * sum by (device) (rate(stx_host_disk_io_time_seconds_total{%[1]s}[5m]))`},
+		{dimLabel: "device", kind: detailRate, expr: `100 * sum by (device) (rate(stx_host_disk_io_time_seconds_total{%[1]s}[5m]))`},
 	}},
 	{key: "fs_used", unit: "percent", queries: []detailQuery{
 		{dimLabel: "mountpoint", expr: `100 * (1 - stx_host_fs_avail_bytes{%[1]s} / clamp_min(stx_host_fs_size_bytes{%[1]s}, 1))`},
@@ -237,7 +237,7 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 		sel := fmt.Sprintf(`job="stx_host",host_id=%s`, strconv.Quote(strconv.FormatUint(uint64(item.ID), 10)))
 		for p, panel := range hostPanels {
 			for _, q := range panel.queries {
-				tasks = append(tasks, &hostTask{host: h, panel: p, dim: q.dim, dimL: q.dimLabel, query: fmt.Sprintf(q.expr, sel)})
+				tasks = append(tasks, &hostTask{host: h, panel: p, dim: q.dim, dimL: q.dimLabel, query: fmt.Sprintf(adaptDetailExpr(q.kind, q.expr, step), sel)})
 			}
 		}
 	}

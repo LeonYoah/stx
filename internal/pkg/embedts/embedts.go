@@ -273,6 +273,10 @@ type instance struct {
 	opts      Options
 	db        *tsdb.DB
 	engine    *promql.Engine
+	// engineLong 与 engine 同一存储，但超时放宽到 query_timeout ×4，专供跨度 >31d 的长窗口查询。
+	// engineLong shares the store with engine but relaxes the timeout to query_timeout ×4,
+	// reserved for spans beyond 31d.
+	engineLong *promql.Engine
 	queryable storage.Queryable
 	registry  *prometheus.Registry
 	// scraper 是挂在实例上的抓取循环；Close 时先停它再关 db。
@@ -360,12 +364,26 @@ func Start(ctx context.Context, opts Options) error {
 		EnableAtModifier:     true,
 		EnableNegativeOffset: true,
 	})
+	// 长窗口引擎：同一存储与并发上限（共享 tracker），超时放宽到 query_timeout ×4，
+	// 供跨度 >31d 的查询使用；指标已在主引擎注册，这里不再重复注册。
+	// Long-window engine: same store and concurrency cap (shared tracker) with the timeout
+	// relaxed to query_timeout ×4 for spans beyond 31d; metrics stay on the primary engine.
+	engineLong := promql.NewEngine(promql.EngineOpts{
+		Logger:               promslog.NewNopLogger(),
+		MaxSamples:           opts.MaxSamples,
+		Timeout:              opts.QueryTimeout * 4,
+		ActiveQueryTracker:   tracker,
+		LookbackDelta:        DefaultLookbackDelta,
+		EnableAtModifier:     true,
+		EnableNegativeOffset: true,
+	})
 	inst := &instance{
-		opts:      opts,
-		db:        db,
-		engine:    engine,
-		queryable: storage.QueryableFunc(db.Querier),
-		registry:  reg,
+		opts:       opts,
+		db:         db,
+		engine:     engine,
+		engineLong: engineLong,
+		queryable:  storage.QueryableFunc(db.Querier),
+		registry:   reg,
 	}
 
 	instanceMu.Lock()
@@ -374,6 +392,7 @@ func Start(ctx context.Context, opts Options) error {
 		// 已存在实例时拒绝覆盖并回收刚打开的目录锁，避免泄漏。
 		// Refuse to override a live instance and release the just-acquired directory lock.
 		_ = engine.Close()
+		_ = engineLong.Close()
 		_ = db.Close()
 		return fmt.Errorf("embedded tsdb already started at %q", current.opts.Dir)
 	}
@@ -424,6 +443,9 @@ func Close() error {
 	inst.stopScraper()
 	resetSelfMetricsTracker()
 	_ = inst.engine.Close()
+	if inst.engineLong != nil {
+		_ = inst.engineLong.Close()
+	}
 	return inst.db.Close()
 }
 
@@ -477,6 +499,21 @@ func QueryEngine() (*promql.Engine, storage.Queryable) {
 	inst := snapshot()
 	if inst == nil {
 		return nil, nil
+	}
+	return inst.engine, inst.queryable
+}
+
+// QueryEngineLong 返回放宽超时的长窗口引擎（query_timeout ×4）与同一数据源；
+// 未就绪或实例早于该特性时退回普通引擎（仍返回非 nil，避免调用方分叉）。
+// QueryEngineLong returns the relaxed-timeout engine (query_timeout ×4) with the same
+// queryable; it falls back to the regular engine when unavailable so callers never see nil.
+func QueryEngineLong() (*promql.Engine, storage.Queryable) {
+	inst := snapshot()
+	if inst == nil {
+		return nil, nil
+	}
+	if inst.engineLong != nil {
+		return inst.engineLong, inst.queryable
 	}
 	return inst.engine, inst.queryable
 }

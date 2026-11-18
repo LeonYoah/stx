@@ -175,11 +175,15 @@ func (s *JobDashboardService) fillMetrics(ctx context.Context, out *JobDashboard
 		sel = fmt.Sprintf(`cluster_id=%s`, strconv.Quote(strconv.FormatUint(uint64(clusterID), 10)))
 	}
 	window := fmt.Sprintf("%ds", span)
+	// 吞吐速率窗口取 max(1m, step)：长步长时覆盖整个取样间隔，不会漏掉峰值。
+	// Throughput rate windows use max(1m, step): coarse steps cover the whole sampling
+	// interval instead of missing peaks.
+	rateWindow := promquery.RangeWindow(step, time.Minute)
 	tasks := []*promTask{
-		{key: "read", step: step, query: fmt.Sprintf(`sum(rate(stx_job_source_received_rows_total{%s}[1m]))`, sel)},
-		{key: "write", step: step, query: fmt.Sprintf(`sum(rate(stx_job_sink_write_rows_total{%s}[1m]))`, sel)},
-		{key: "read_bytes", step: step, query: fmt.Sprintf(`sum(rate(stx_job_source_received_bytes_total{%s}[1m]))`, sel)},
-		{key: "write_bytes", step: step, query: fmt.Sprintf(`sum(rate(stx_job_sink_write_bytes_total{%s}[1m]))`, sel)},
+		{key: "read", step: step, query: fmt.Sprintf(`sum(rate(stx_job_source_received_rows_total{%s}[%s]))`, sel, rateWindow)},
+		{key: "write", step: step, query: fmt.Sprintf(`sum(rate(stx_job_sink_write_rows_total{%s}[%s]))`, sel, rateWindow)},
+		{key: "read_bytes", step: step, query: fmt.Sprintf(`sum(rate(stx_job_source_received_bytes_total{%s}[%s]))`, sel, rateWindow)},
+		{key: "write_bytes", step: step, query: fmt.Sprintf(`sum(rate(stx_job_sink_write_bytes_total{%s}[%s]))`, sel, rateWindow)},
 		{key: "written", instant: true, query: fmt.Sprintf(`sum by (job_id) (increase(stx_job_sink_write_rows_total{%s}[%s]))`, sel, window)},
 		{key: "cdc", instant: true, query: fmt.Sprintf(`topk(%d, max by (job_id) (max_over_time(stx_job_cdc_delay_seconds{%s}[%s])))`, jobRankLimit, sel, window)},
 		{key: "ckpt_duration", instant: true, query: fmt.Sprintf(`topk(%d, max by (job_id) (max_over_time(stx_job_checkpoint_duration_seconds{%s}[%s])))`, checkpointLimit, sel, window)},

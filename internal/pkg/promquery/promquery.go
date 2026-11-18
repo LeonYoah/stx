@@ -84,10 +84,19 @@ func UnavailableReason() string {
 	return ""
 }
 
+// longRangeSpan 是长窗口阈值：跨度超过它时改用放宽超时（query_timeout ×4）的引擎，
+// 一年窗口不会被默认 8s 截断；短窗口行为不变。
+// longRangeSpan is the long-window threshold: spans beyond it run on the relaxed-timeout
+// engine (query_timeout ×4) so a year window is not cut by the default 8s; short windows unchanged.
+const longRangeSpan = 31 * 24 * time.Hour
+
 // Range 执行区间查询（query_range 语义）。
 // Range runs a range query (query_range semantics).
 func Range(ctx context.Context, promQL string, start, end time.Time, stepSeconds int) ([]Series, error) {
 	engine, queryable := embedts.QueryEngine()
+	if end.Sub(start) > longRangeSpan {
+		engine, queryable = embedts.QueryEngineLong()
+	}
 	if engine == nil || queryable == nil {
 		return nil, errNotReady
 	}

@@ -64,10 +64,10 @@ func TestParseTimeseriesMetrics(t *testing.T) {
 
 func TestTimeseriesPromQL_busyGated(t *testing.T) {
 	t.Parallel()
-	if got := timeseriesPromQL("busy", "1", false); got != nil {
+	if got := timeseriesPromQL("busy", "1", false, 60); got != nil {
 		t.Fatalf("expected nil when engine obs off, got %#v", got)
 	}
-	if got := timeseriesPromQL("busy", "1", true); len(got) == 0 {
+	if got := timeseriesPromQL("busy", "1", true, 60); len(got) == 0 {
 		t.Fatalf("expected templates when engine obs on")
 	}
 }
@@ -76,13 +76,13 @@ func TestTimeseriesPromQL_checkpointIgnoresEngineObs(t *testing.T) {
 	t.Parallel()
 	// Checkpoint PromQL must stay available even when engine observability is off.
 	// Checkpoint PromQL 在引擎可观测性关闭时仍应可用。
-	if got := timeseriesPromQL("checkpoint", "1", false); len(got) == 0 {
+	if got := timeseriesPromQL("checkpoint", "1", false, 60); len(got) == 0 {
 		t.Fatalf("expected checkpoint templates when engine obs off")
 	}
-	if got := timeseriesPromQL("backpressure", "1", false); got != nil {
+	if got := timeseriesPromQL("backpressure", "1", false, 60); got != nil {
 		t.Fatalf("expected nil backpressure when engine obs off, got %#v", got)
 	}
-	if got := timeseriesPromQL("backpressure", "1", true); len(got) == 0 {
+	if got := timeseriesPromQL("backpressure", "1", true, 60); len(got) == 0 {
 		t.Fatalf("expected backpressure templates when engine obs on")
 	}
 }
@@ -92,7 +92,7 @@ func TestTimeseriesPromQL_tableIgnoresEngineObs(t *testing.T) {
 	// 表级指标来自作业指标采集而非引擎可观测性注入，engineObs 关闭也要返回模板。
 	// Per-table metrics come from job metrics collection, not engine observability, so templates exist either way.
 	for _, engineObs := range []bool{false, true} {
-		got := timeseriesPromQL("table", "7", engineObs)
+		got := timeseriesPromQL("table", "7", engineObs, 60)
 		if len(got) != 4 {
 			t.Fatalf("expected 4 table templates (engineObs=%v), got %#v", engineObs, got)
 		}
@@ -236,5 +236,32 @@ func TestGetJobTimeseries_customWindow(t *testing.T) {
 	}
 	if out.Range != "custom" || out.StartMs != start.UnixMilli() || out.EndMs != end.UnixMilli() || out.StepSeconds != 10 {
 		t.Fatalf("got %+v", out)
+	}
+}
+
+// TestTimeseriesPromQL_LongWindowStep 验证长步长时模板窗口按 step 适配：
+// 速率 [2d]、忙碌度包 avg_over_time、CDC 延迟包 max_over_time；短步长保持 [1m]/原样。
+// TestTimeseriesPromQL_LongWindowStep verifies templates adapt to coarse steps: rates use
+// [2d], busy wraps avg_over_time, CDC delay wraps max_over_time; short steps stay [1m]/raw.
+func TestTimeseriesPromQL_LongWindowStep(t *testing.T) {
+	t.Parallel()
+	for _, tpl := range timeseriesPromQL("throughput", "9", true, 172800) {
+		if !strings.Contains(tpl.query, "[2d]") {
+			t.Fatalf("throughput rate must use [2d] at 2d step: %s", tpl.query)
+		}
+	}
+	for _, tpl := range timeseriesPromQL("throughput", "9", true, 30) {
+		if !strings.Contains(tpl.query, "[1m]") {
+			t.Fatalf("throughput rate must keep [1m] at 30s step: %s", tpl.query)
+		}
+	}
+	if got := timeseriesPromQL("busy", "9", true, 172800); !strings.Contains(got[0].query, `avg_over_time(stx_job_vertex_busy_ratio{job_id="9"}[2d])`) {
+		t.Fatalf("busy must wrap avg_over_time: %s", got[0].query)
+	}
+	if got := timeseriesPromQL("cdc_delay", "9", true, 172800); !strings.Contains(got[0].query, "max_over_time") {
+		t.Fatalf("cdc_delay must wrap max_over_time: %s", got[0].query)
+	}
+	if got := timeseriesPromQL("table", "9", true, 172800); !strings.Contains(got[0].query, `rate(stx_job_table_rows_total{job_id="9",direction="read"}[2d])`) {
+		t.Fatalf("table rate must use [2d]: %s", got[0].query)
 	}
 }

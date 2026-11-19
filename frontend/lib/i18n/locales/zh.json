@@ -6272,6 +6272,8 @@
     "notifyDefaultSummary": "默认通知 · {targets}",
     "notifyDefaultUnset": "默认通知未配置",
     "unsavedChanges": "有未保存的修改",
+    "unsavedChangesTitle": "放弃未保存的修改？",
+    "unsavedChangesDescription": "当前表单还有未保存的更改，关闭或切换后这些修改将丢失。",
     "discardChanges": "放弃修改",
     "keepEditing": "继续编辑",
     "emptyAlertsTitle": "暂无告警",

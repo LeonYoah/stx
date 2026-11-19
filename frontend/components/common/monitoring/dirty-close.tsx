@@ -18,45 +18,95 @@
 'use client';
 
 /**
- * Dirty-close guard shared by the monitoring drawers: when a close attempt is
- * intercepted, the drawer's own footer swaps to this inline confirm row
- * (有未保存的修改 / 放弃修改 / 继续编辑) instead of opening another modal.
- * 监控抽屉共用的未保存关闭守卫：拦截关闭后在抽屉 footer 原位切换成内联确认行，
- * 不再弹新组件。
+ * 监控详情共用的未保存修改确认弹窗与浏览器离开拦截：
+ * 在规则、作业规则或通知渠道编辑存在未保存修改时，拦截关闭或切行并弹出居中的
+ * AlertDialog，默认焦点落在「继续编辑」，避免误丢修改。
+ * Shared dirty-close guard for monitoring detail editors: intercepts close or
+ * row switching with a centered AlertDialog whose initial focus stays on
+ * "Keep editing" so edits are not discarded accidentally.
  */
-import {useEffect} from 'react';
+import {useEffect, useRef} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/arc/button/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {buttonVariants} from '@/components/ui/button';
+import {cn} from '@/lib/utils';
 import styles from './monitoring.module.css';
 
-export function DiscardConfirmStrip({
+export function UnsavedChangesDialog({
+  open,
   onDiscard,
   onKeepEditing,
 }: {
+  open: boolean;
   onDiscard: () => void;
   onKeepEditing: () => void;
 }) {
   const t = useTranslations('monitoring');
+  const discardingRef = useRef(false);
+
+  useEffect(() => {
+    if (open) {
+      discardingRef.current = false;
+    }
+  }, [open]);
+
   return (
-    <div className='flex w-full items-center gap-2' data-testid='discard-confirm'>
-      <span className={`min-w-0 flex-1 truncate ${styles.xsText} ${styles.dangerText}`}>
-        {t('unsavedChanges')}
-      </span>
-      {/* 放弃修改是不可逆操作的入口，用 danger 文字色但保持 ghost 形态。
-          Discard is a destructive entry, kept ghost-shaped with danger text. */}
-      <Button
-        type='button'
-        variant='ghost'
-        size='sm'
-        className={styles.dangerText}
-        onClick={onDiscard}
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !discardingRef.current) {
+          onKeepEditing();
+        }
+      }}
+    >
+      <AlertDialogContent
+        className={cn(
+          'border border-border/80 shadow-2xl dark:border-border/60 sm:max-w-md',
+          styles.scope,
+        )}
+        data-testid='discard-confirm-dialog'
+        onOpenAutoFocus={(event) => {
+          // 默认焦点留在「继续编辑」，避免回车误触发「放弃修改」。
+          // Keep initial focus on "Keep editing" so Enter never discards by accident.
+          event.preventDefault();
+          const keep = document.querySelector<HTMLElement>(
+            '[data-testid="discard-keep-editing"]',
+          );
+          keep?.focus();
+        }}
       >
-        {t('discardChanges')}
-      </Button>
-      <Button type='button' size='sm' onClick={onKeepEditing}>
-        {t('keepEditing')}
-      </Button>
-    </div>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('unsavedChangesTitle')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('unsavedChangesDescription')}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid='discard-keep-editing'>
+            {t('keepEditing')}
+          </AlertDialogCancel>
+          <AlertDialogAction
+            data-testid='discard-confirm-action'
+            className={cn(buttonVariants({variant: 'destructive'}))}
+            onClick={() => {
+              discardingRef.current = true;
+              onDiscard();
+            }}
+          >
+            {t('discardChanges')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

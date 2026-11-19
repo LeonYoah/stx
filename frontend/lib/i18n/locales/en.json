@@ -6272,6 +6272,8 @@
     "notifyDefaultSummary": "Default notification · {targets}",
     "notifyDefaultUnset": "Default notification is not configured",
     "unsavedChanges": "Unsaved changes",
+    "unsavedChangesTitle": "Discard unsaved changes?",
+    "unsavedChangesDescription": "You have unsaved changes. Closing or switching now will discard them.",
     "discardChanges": "Discard changes",
     "keepEditing": "Keep editing",
     "emptyAlertsTitle": "No alerts",

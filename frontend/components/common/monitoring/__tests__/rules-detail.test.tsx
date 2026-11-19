@@ -25,6 +25,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
 import type {ClusterRule} from '@/lib/services/monitoring';
 import {RuleDetailPanel} from '../rules/RuleDetailPanel';
+import {UnsavedChangesDialog} from '../dirty-close';
 import {layerBody} from '../rules/RulesPanel';
 
 const updateClusterRule = vi.fn();
@@ -213,27 +214,6 @@ describe('RuleDetailPanel', () => {
 });
 
 describe('dirty-close interception', () => {
-  function renderGuarded(rule: ClusterRule) {
-    const onDirtyChange = vi.fn();
-    const onDiscard = vi.fn();
-    const onKeepEditing = vi.fn();
-    const utils = render(
-      <NextIntlClientProvider locale='zh' messages={zh}>
-        <RuleDetailPanel
-          rule={rule}
-          onClose={() => undefined}
-          onSaved={() => undefined}
-          onToggleEnabled={() => undefined}
-          onDirtyChange={onDirtyChange}
-          discardArmed
-          onDiscard={onDiscard}
-          onKeepEditing={onKeepEditing}
-        />
-      </NextIntlClientProvider>,
-    );
-    return {onDirtyChange, onDiscard, onKeepEditing, ...utils};
-  }
-
   it('reports dirty when the global draft diverges from the open snapshot', async () => {
     const onDirtyChange = vi.fn();
     render(
@@ -254,14 +234,26 @@ describe('dirty-close interception', () => {
     await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
   });
 
-  it('armed state swaps the footer for the inline discard confirm', async () => {
-    const {onDiscard, onKeepEditing} = renderGuarded(baseRule);
-    expect(await screen.findByText('有未保存的修改')).toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: '恢复默认'})).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', {name: '放弃修改'}));
-    expect(onDiscard).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', {name: '继续编辑'}));
+  it('opens a centered AlertDialog with initial focus on Keep editing', async () => {
+    const onDiscard = vi.fn();
+    const onKeepEditing = vi.fn();
+    render(
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <UnsavedChangesDialog
+          open
+          onDiscard={onDiscard}
+          onKeepEditing={onKeepEditing}
+        />
+      </NextIntlClientProvider>,
+    );
+    expect(await screen.findByText('放弃未保存的修改？')).toBeInTheDocument();
+    const keepBtn = screen.getByRole('button', {name: '继续编辑'});
+    const discardBtn = screen.getByRole('button', {name: '放弃修改'});
+    await waitFor(() => expect(keepBtn).toHaveFocus());
+    fireEvent.click(keepBtn);
     expect(onKeepEditing).toHaveBeenCalledTimes(1);
+    fireEvent.click(discardBtn);
+    expect(onDiscard).toHaveBeenCalledTimes(1);
   });
 
   it('a successful save resets the snapshot so dirty clears', async () => {

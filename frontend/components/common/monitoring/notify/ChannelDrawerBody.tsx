@@ -22,7 +22,7 @@
  * (label above control) + deliveries list, actions pinned to the bottom bar
  * with the dirty-close confirm strip. Used by the persistent rail and the
  * narrow drawer alike.
- * 渠道编辑体：detailCol 三段式（滚动表单 + 底部操作栏 + 脏关闭确认条），
+ * 渠道编辑体：detailCol 两段式（滚动表单 + 底部操作栏），
  * 常驻栏与窄抽屉共用。
  */
 import {useEffect, useMemo, useState} from 'react';
@@ -40,7 +40,6 @@ import type {
   NotificationDelivery,
 } from '@/lib/services/monitoring';
 import {cn} from '@/lib/utils';
-import {DiscardConfirmStrip} from '../dirty-close';
 import {formatAgo, minutesAgo, type MonitoringTranslator} from '../monitoring-utils';
 import styles from '../monitoring.module.css';
 
@@ -52,9 +51,6 @@ export function ChannelDrawerBody({
   onCancel,
   onDelete,
   onDirtyChange,
-  discardArmed,
-  onDiscard,
-  onKeepEditing,
 }: {
   channel: NotificationChannel | null;
   onSaved: () => void;
@@ -62,9 +58,6 @@ export function ChannelDrawerBody({
   onDelete?: () => Promise<void>;
   onCancel: () => void;
   onDirtyChange?: (dirty: boolean) => void;
-  discardArmed?: boolean;
-  onDiscard?: () => void;
-  onKeepEditing?: () => void;
 }) {
   const t = useTranslations('monitoring');
   const [form, setForm] = useState({
@@ -210,38 +203,34 @@ export function ChannelDrawerBody({
         ) : null}
       </div>
 
-      {discardArmed ? (
-        <DiscardConfirmStrip onDiscard={onDiscard ?? (() => {})} onKeepEditing={onKeepEditing ?? (() => {})} />
-      ) : (
-        <div className={styles.detailFoot}>
-          <Button
-            type='button'
-            size='sm'
-            loading={saving}
-            disabled={!form.name.trim()}
-            onClick={() => void save()}
-          >
-            {t('save')}
-          </Button>
-          <Button type='button' size='sm' variant='ghost' onClick={onCancel}>
-            {t('close')}
-          </Button>
-          {channel && onDelete ? (
-            <>
-              <span className={styles.detailFootGrow} />
-              <ConfirmMorph
-                label={t('deleteChannel')}
-                icon={<Trash2 className='size-3.5' aria-hidden />}
-                prompt={t('deleteChannelPrompt')}
-                confirmLabel={t('deleteConfirm')}
-                cancelLabel={t('deleteCancel')}
-                pendingLabel={t('saving')}
-                onConfirm={onDelete}
-              />
-            </>
-          ) : null}
-        </div>
-      )}
+      <div className={styles.detailFoot}>
+        <Button
+          type='button'
+          size='sm'
+          loading={saving}
+          disabled={!form.name.trim()}
+          onClick={() => void save()}
+        >
+          {t('save')}
+        </Button>
+        <Button type='button' size='sm' variant='ghost' onClick={onCancel}>
+          {t('close')}
+        </Button>
+        {channel && onDelete ? (
+          <>
+            <span className={styles.detailFootGrow} />
+            <ConfirmMorph
+              label={t('deleteChannel')}
+              icon={<Trash2 className='size-3.5' aria-hidden />}
+              prompt={t('deleteChannelPrompt')}
+              confirmLabel={t('deleteConfirm')}
+              cancelLabel={t('deleteCancel')}
+              pendingLabel={t('saving')}
+              onConfirm={onDelete}
+            />
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

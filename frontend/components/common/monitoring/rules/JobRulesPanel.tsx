@@ -23,7 +23,7 @@
  * 作业级规则：sync_job 策略列表 + 常驻详情栏 / 抽屉，承载 TaskAlertForm，
  * 保存契约与任务设置页一致（PUT /sync/tasks/:id/alert）。
  */
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {NeutralChip, SoftChip} from '../status-chips';
 import {Button} from '@/components/arc/button/button';
@@ -44,7 +44,7 @@ import type {
 } from '@/lib/services/sync';
 import {TaskAlertForm} from '@/components/common/sync/TaskAlertForm';
 import {cn} from '@/lib/utils';
-import {DiscardConfirmStrip, useBeforeUnload} from '../dirty-close';
+import {UnsavedChangesDialog, useBeforeUnload} from '../dirty-close';
 import {DetailHost, useDetailNarrow} from '../detail-host';
 import styles from '../monitoring.module.css';
 
@@ -91,29 +91,29 @@ export function JobRulesPanel({
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
-  const [discardArmed, setDiscardArmed] = useState(false);
-  // 放弃后要跳转的目标：null = 直接关闭，否则换到另一行。
-  // Where to land after discard: null closes, a policy switches rows.
-  const pendingRef = useRef<AlertPolicy | null | 'close'>('close');
+  // 放弃后要跳转的目标：null = 无弹窗，'close' = 关闭，AlertPolicy = 切到另一行。
+  // Pending discard target: null = dialog closed, 'close' = close, AlertPolicy = switch row.
+  const [discardTarget, setDiscardTarget] = useState<
+    AlertPolicy | 'close' | null
+  >(null);
   useBeforeUnload(formDirty && editing != null);
 
   // 打开动画期间保留最后一次编辑对象，抽屉滑出时表单不先消失。
   // Keep the last editing object mounted while the drawer slides out.
   const drawerEditing = useDrawerItem(editing);
 
-  // dirty 时关闭（X / Esc / 遮罩 / 表单取消 / 切换行）先拦截，footer 出确认行；放弃才关。
-  // A dirty close is intercepted first; only discard actually closes.
+  // dirty 时关闭（X / Esc / 遮罩 / 表单取消 / 切换行）先弹出确认框；确认放弃才落地。
+  // A dirty close is intercepted with a confirm dialog; only discard actually closes.
   const requestClose = useCallback(() => {
     if (saving) {
       return;
     }
     if (formDirty) {
-      pendingRef.current = 'close';
-      setDiscardArmed(true);
+      setDiscardTarget('close');
       return;
     }
     setEditing(null);
-    setDiscardArmed(false);
+    setDiscardTarget(null);
   }, [formDirty, saving]);
 
   const openPolicy = useCallback((policy: AlertPolicy) => {
@@ -139,19 +139,18 @@ export function JobRulesPanel({
   }, []);
 
   const discardAndClose = useCallback(() => {
-    const target = pendingRef.current;
-    pendingRef.current = 'close';
+    const target = discardTarget;
+    setDiscardTarget(null);
     setFormDirty(false);
-    setDiscardArmed(false);
     setEditing(null);
     if (target && target !== 'close') {
       openPolicy(target);
     }
-  }, [openPolicy]);
+  }, [discardTarget, openPolicy]);
 
   useEffect(() => {
     if (!formDirty) {
-      setDiscardArmed(false);
+      setDiscardTarget(null);
     }
   }, [formDirty]);
 
@@ -263,18 +262,17 @@ export function JobRulesPanel({
 
   const openEditor = useCallback(
     (policy: AlertPolicy) => {
-      if (!policy.task_id) {
+      if (!policy.task_id || policy.task_id === editing?.taskId) {
         return;
       }
       if (formDirty) {
-        // 未保存草稿时切换行同样走放弃确认。Switching rows is intercepted like closing.
-        pendingRef.current = policy;
-        setDiscardArmed(true);
+        // 未保存草稿时切换行同样走放弃确认弹窗。Switching rows opens the discard dialog.
+        setDiscardTarget(policy);
         return;
       }
       openPolicy(policy);
     },
-    [formDirty, openPolicy],
+    [editing?.taskId, formDirty, openPolicy],
   );
 
   const save = useCallback(
@@ -285,6 +283,7 @@ export function JobRulesPanel({
       setSaving(true);
       try {
         await services.sync.updateTaskAlert(editing.taskId, request);
+        setFormDirty(false);
         setEditing(null);
         await load();
       } catch (err) {
@@ -303,6 +302,7 @@ export function JobRulesPanel({
     setSaving(true);
     try {
       await services.sync.deleteTaskAlert(editing.taskId);
+      setFormDirty(false);
       setEditing(null);
       await load();
     } catch (err) {
@@ -488,7 +488,7 @@ export function JobRulesPanel({
         {drawerEditing ? (
           drawerEditing.config ? (
             <div className={styles.detailCol}>
-              <div className={styles.detailFill} style={{position: 'relative'}}>
+              <div className={styles.detailFill}>
                 <TaskAlertForm
                   initial={drawerEditing.config}
                   clusterId={drawerEditing.clusterId}
@@ -501,17 +501,6 @@ export function JobRulesPanel({
                   onDelete={() => void remove()}
                   onDirtyChange={setFormDirty}
                 />
-                {discardArmed ? (
-                  <div
-                    className={styles.detailFoot}
-                    style={{position: 'absolute', left: 0, right: 0, bottom: 0}}
-                  >
-                    <DiscardConfirmStrip
-                      onDiscard={discardAndClose}
-                      onKeepEditing={() => setDiscardArmed(false)}
-                    />
-                  </div>
-                ) : null}
               </div>
             </div>
           ) : (
@@ -525,6 +514,11 @@ export function JobRulesPanel({
           )
         ) : null}
       </DetailHost>
+      <UnsavedChangesDialog
+        open={discardTarget !== null}
+        onDiscard={discardAndClose}
+        onKeepEditing={() => setDiscardTarget(null)}
+      />
     </div>
   );
 }

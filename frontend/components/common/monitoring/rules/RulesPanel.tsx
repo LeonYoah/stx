@@ -47,6 +47,7 @@ import type {
 import {cn} from '@/lib/utils';
 import {formatRuleThreshold} from '../monitoring-utils';
 import {DetailHost, useDetailNarrow} from '../detail-host';
+import {UnsavedChangesDialog} from '../dirty-close';
 import styles from '../monitoring.module.css';
 import {RuleDetailPanel} from './RuleDetailPanel';
 import {
@@ -120,13 +121,14 @@ export function RulesPanel({
   const [activeKey, setActiveKey] = useState<string | null>(
     initialActiveKey ?? null,
   );
-  // 关闭拦截三态：dirty 由详情上报；armed 时 footer 显示确认行；
-  // pendingKey 记住放弃后要跳转的目标行（null = 关闭）。
-  // Dirty-close interception: dirty is reported by the detail; armed swaps
-  // the footer for a confirm row; pendingKey remembers where to land on discard.
+  // 未保存拦截：dirty 由详情上报；discardTarget !== undefined 时弹出居中
+  // 确认弹窗，undefined = 无拦截，null = 待关闭，string = 待切换的规则 key。
+  // Dirty-close guard: dirty comes from the detail; a defined discardTarget
+  // opens the confirm dialog (null = pending close, string = pending rule key).
   const [ruleDirty, setRuleDirty] = useState(false);
-  const [discardArmed, setDiscardArmed] = useState(false);
-  const [pendingKey, setPendingKey] = useState<string | null | 'close'>(null);
+  const [discardTarget, setDiscardTarget] = useState<string | null | undefined>(
+    undefined,
+  );
   const view = searchParams.get('view') === 'grid' ? 'grid' : 'list';
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rules, setRules] = useState<ClusterRule[]>([]);
@@ -242,39 +244,33 @@ export function RulesPanel({
   // Keep the last opened rule mounted while the drawer slides out.
   const drawerRule = useDrawerItem(active);
 
-  // 有未保存草稿时先拦截：详情保持打开并在 footer 露出确认行；
-  // 放弃修改才真正落地 pendingKey（换行或关闭）。
-  // Dirty drafts intercept close/row-switch first: the detail stays open with a
-  // footer confirm row; only discard commits the pending target.
+  // 有未保存草稿时先拦截并弹出确认框；确认放弃后才落地目标行或关闭。
+  // Dirty drafts intercept close/row-switch with a dialog; only discard commits.
   const requestKey = useCallback(
     (key: string | null) => {
       if (key === activeKey) {
         return;
       }
       if (ruleDirty && activeKey != null) {
-        setPendingKey(key);
-        setDiscardArmed(true);
+        setDiscardTarget(key);
         return;
       }
       setActiveKey(key);
       setRuleDirty(false);
-      setDiscardArmed(false);
-      setPendingKey(null);
+      setDiscardTarget(undefined);
     },
     [activeKey, ruleDirty],
   );
 
   const commitPending = useCallback(() => {
-    setActiveKey(pendingKey === 'close' ? null : pendingKey);
+    setActiveKey(discardTarget ?? null);
     setRuleDirty(false);
-    setDiscardArmed(false);
-    setPendingKey(null);
-  }, [pendingKey]);
+    setDiscardTarget(undefined);
+  }, [discardTarget]);
 
   useEffect(() => {
     if (!ruleDirty) {
-      setDiscardArmed(false);
-      setPendingKey(null);
+      setDiscardTarget(undefined);
     }
   }, [ruleDirty]);
 
@@ -722,15 +718,14 @@ export function RulesPanel({
                 onToggleEnabled={toggleEnabled}
                 onConfigureNotify={onConfigureNotify}
                 onDirtyChange={setRuleDirty}
-                discardArmed={discardArmed}
-                onDiscard={commitPending}
-                onKeepEditing={() => {
-                  setDiscardArmed(false);
-                  setPendingKey(null);
-                }}
               />
             ) : null}
           </DetailHost>
+          <UnsavedChangesDialog
+            open={discardTarget !== undefined}
+            onDiscard={commitPending}
+            onKeepEditing={() => setDiscardTarget(undefined)}
+          />
         </div>
       ) : (
         <JobRulesPanel

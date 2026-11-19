@@ -50,7 +50,7 @@ import type {ClusterInfo} from '@/lib/services/cluster';
 import {cn} from '@/lib/utils';
 import {formatRuleThreshold, thresholdUnitLabel} from '../monitoring-utils';
 import styles from '../monitoring.module.css';
-import {DiscardConfirmStrip, useBeforeUnload} from '../dirty-close';
+import {useBeforeUnload} from '../dirty-close';
 import {layerBody} from './RulesPanel';
 
 const FOR_OPTIONS_SECONDS = [0, 60, 120, 300, 600, 900, 1800] as const;
@@ -63,10 +63,6 @@ interface RuleDetailPanelProps {
   onConfigureNotify?: () => void;
   /** 草稿相对打开快照是否已修改，供宿主拦截关闭。Whether drafts diverge from the open-time snapshot. */
   onDirtyChange?: (dirty: boolean) => void;
-  /** 关闭被拦截后置位，footer 切换为放弃确认行。Set when a close attempt was intercepted. */
-  discardArmed?: boolean;
-  onDiscard?: () => void;
-  onKeepEditing?: () => void;
 }
 
 /** 一个层（全局或例外）的可编辑字段；null = 继承上层。Editable layer fields; null inherits. */
@@ -86,9 +82,6 @@ export function RuleDetailPanel({
   onToggleEnabled,
   onConfigureNotify,
   onDirtyChange,
-  discardArmed,
-  onDiscard,
-  onKeepEditing,
 }: RuleDetailPanelProps) {
   const t = useTranslations('monitoring');
   const locale = useLocale();
@@ -439,48 +432,38 @@ export function RuleDetailPanel({
       </div>
 
       {/* 底栏常驻详情底部：保存只写全局层；保存中/已保存/错误内联在按钮旁；
-          恢复默认走 ConfirmMorph；关闭被拦截时原位换成放弃确认行。
+          恢复默认走 ConfirmMorph。
           Persistent bottom bar; save writes the global layer, status stays inline;
-          restore-default goes through ConfirmMorph; an intercepted close swaps
-          in the discard row. */}
+          restore-default goes through ConfirmMorph. */}
       <div className={styles.detailFoot}>
-        {discardArmed ? (
-          <DiscardConfirmStrip
-            onDiscard={() => onDiscard?.()}
-            onKeepEditing={() => onKeepEditing?.()}
-          />
-        ) : (
-          <>
-            <Button
-              type='button'
-              size='sm'
-              loading={saving}
-              disabled={saveDisabled}
-              onClick={() => void save()}
-            >
-              {t('save')}
-            </Button>
-            {saving ? <span className={cn(styles.xsText, styles.muted)}>{t('saving')}</span> : null}
-            {!saving && saved ? <span className={cn(styles.xsText, styles.muted)}>{t('saved')}</span> : null}
-            {error ? (
-              <span className={cn(styles.xsText, styles.dangerText, 'min-w-0 truncate')} title={error}>
-                {error}
-              </span>
-            ) : null}
-            <span className={styles.detailFootGrow} />
-            {/* 恢复默认 = 删除全局层配置回到目录默认，单项确认用 ConfirmMorph。
-                Restore deletes the global layer back to catalog defaults. */}
-            <ConfirmMorph
-              label={t('restoreDefault')}
-              prompt={t('restoreDefaultConfirm')}
-              confirmLabel={t('restoreDefault')}
-              cancelLabel={t('deleteCancel')}
-              pendingLabel={t('saving')}
-              tone='neutral'
-              onConfirm={restoreDefault}
-            />
-          </>
-        )}
+        <Button
+          type='button'
+          size='sm'
+          loading={saving}
+          disabled={saveDisabled}
+          onClick={() => void save()}
+        >
+          {t('save')}
+        </Button>
+        {saving ? <span className={cn(styles.xsText, styles.muted)}>{t('saving')}</span> : null}
+        {!saving && saved ? <span className={cn(styles.xsText, styles.muted)}>{t('saved')}</span> : null}
+        {error ? (
+          <span className={cn(styles.xsText, styles.dangerText, 'min-w-0 truncate')} title={error}>
+            {error}
+          </span>
+        ) : null}
+        <span className={styles.detailFootGrow} />
+        {/* 恢复默认 = 删除全局层配置回到目录默认，单项确认用 ConfirmMorph。
+            Restore deletes the global layer back to catalog defaults. */}
+        <ConfirmMorph
+          label={t('restoreDefault')}
+          prompt={t('restoreDefaultConfirm')}
+          confirmLabel={t('restoreDefault')}
+          cancelLabel={t('deleteCancel')}
+          pendingLabel={t('saving')}
+          tone='neutral'
+          onConfirm={restoreDefault}
+        />
       </div>
     </div>
   );

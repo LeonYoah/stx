@@ -46,7 +46,7 @@ import type {
 } from '@/lib/services/monitoring';
 import {cn} from '@/lib/utils';
 import {ChannelDrawerBody} from './ChannelDrawerBody';
-import {useBeforeUnload} from '../dirty-close';
+import {UnsavedChangesDialog, useBeforeUnload} from '../dirty-close';
 import {DetailHost, useDetailNarrow} from '../detail-host';
 import {
   Dialog,
@@ -92,12 +92,13 @@ export function NotifyPanel() {
   >(null);
   const [defaultsError, setDefaultsError] = useState<string | null>(null);
   const [channelDirty, setChannelDirty] = useState(false);
-  const [discardArmed, setDiscardArmed] = useState(false);
+  const [discardTarget, setDiscardTarget] = useState<
+    number | '__new__' | 'close' | null
+  >(null);
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
-  const pendingRef = useRef<number | '__new__' | 'close' | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  useBeforeUnload(channelDirty && editKey !== null);
+  useBeforeUnload(channelDirty && typeof editKey === 'number');
 
   const editingChannel = channels.find((c) => c.id === editKey) ?? null;
   const drawerOpen = editKey !== null;
@@ -105,35 +106,34 @@ export function NotifyPanel() {
     editingChannel ?? (editKey === '__new__' ? 'new' : null),
   );
 
-  // dirty 时关闭（X / Esc / 遮罩 / 取消 / 切换行）先拦截，footer 出确认行；放弃才落地。
-  // A dirty close or row switch is intercepted first; only discard lands it.
+  // 编辑已有渠道且表单有改动时，关闭或切行弹出确认弹窗；新建直接关闭。
+  // Intercept closing or switching when editing an existing dirty channel;
+  // new-channel creation closes directly without prompting.
   const requestEdit = useCallback(
     (key: number | '__new__' | null) => {
       if (key === editKey) {
         return;
       }
-      if (channelDirty && editKey !== null) {
-        pendingRef.current = key ?? 'close';
-        setDiscardArmed(true);
+      if (channelDirty && typeof editKey === 'number') {
+        setDiscardTarget(key ?? 'close');
         return;
       }
       setEditKey(key);
-      setDiscardArmed(false);
+      setDiscardTarget(null);
     },
     [channelDirty, editKey],
   );
 
   const discardAndCommit = useCallback(() => {
-    const target = pendingRef.current;
-    pendingRef.current = null;
+    const target = discardTarget;
+    setDiscardTarget(null);
     setChannelDirty(false);
-    setDiscardArmed(false);
     setEditKey(target && target !== 'close' ? target : null);
-  }, []);
+  }, [discardTarget]);
 
   useEffect(() => {
     if (!channelDirty) {
-      setDiscardArmed(false);
+      setDiscardTarget(null);
     }
   }, [channelDirty]);
 
@@ -744,16 +744,15 @@ export function NotifyPanel() {
                   }}
                   onCancel={() => requestEdit(null)}
                   onDirtyChange={setChannelDirty}
-                  discardArmed={discardArmed}
-                  onDiscard={discardAndCommit}
-                  onKeepEditing={() => {
-                    setDiscardArmed(false);
-                    pendingRef.current = null;
-                  }}
                 />
               ) : null}
             </DetailHost>
           )}
+          <UnsavedChangesDialog
+            open={discardTarget !== null}
+            onDiscard={discardAndCommit}
+            onKeepEditing={() => setDiscardTarget(null)}
+          />
         </div>
       </section>
     </div>

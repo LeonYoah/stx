@@ -73,23 +73,23 @@
 
 - **列表里的状态列**统一用 `size='sm'` 加 `dot`，各页之间不再混用不同尺寸。
 
-### 3.1 视觉方向：以工作台的 Arc 外观为准（2026-11-18 用户确认；2026-11-19 补充确认）
+### 3.1 视觉方向：8–10px 桌面后台收紧版（2026-11-19 用户拍板，对齐 Arc `product-listing` 观感）
 
-- **尺寸与圆角（保留 Arc 原版角度/几何设计）**：沿用工作台已上线的做法，只覆盖高度变量，**不改动 Arc 一套既定的圆角与几何设计**：
-  - 控件 36px（`--control-height-md: 2.25rem`）；
-  - 表格行内控件 32px（`--control-height-sm: 2rem`）；
-  - 控件、胶囊（含 `ConfirmMorph`）、卡片与面板保持 Arc 原有圆角/角度设计，不魔改源码圆角，也不在 `foundation.css` 叠 `corner-shape: superellipse` 覆盖。
-  覆盖写在控制台的外层容器上，只写一处，不逐个组件改；工作台自己的局部覆盖（`studio-chrome.css`）保持不变。
+- **容器级 Token 收紧（零改动 Arc 源码圆角）**：Arc 的 `Button`、`Input`、`SearchField`、`SegmentedControl`、`Tabs` 等免费组件全部通过 `--radius-control` / `--radius-panel` / `--control-height-*` 驱动外观。不魔改各组件源码的圆角写法，只在控制台外层容器统一覆盖 CSS 变量（工作台自己的局部覆盖 `studio-chrome.css` 保持独立不变，不在 `foundation.css` 叠 `corner-shape: superellipse` 覆盖）：
+  - 控件圆角 `--radius-control: 0.5rem`（**8px**，`SegmentedControl` / `Tabs` 内层选中块自动按 `calc(var(--radius-control) - 4px)` 保持同心圆角）；
+  - 卡片 / 面板圆角 `--radius-panel: 0.625rem`（**10px**，表格主外框 `TableCard` 同步为 10px）；
+  - 控件高度 `--control-height-md: 2rem`（**32px**）、行内控件 `--control-height-sm: 1.75rem`（**28px**）；
+  - `ConfirmMorph` 与 `Switch` 本身硬编码 `--radius-pill`，保持 Arc 原版胶囊形态不改。
 - **避免框框堆叠**：
   - 列表页只保留 `TableCard` 一层主外框；筛选栏、搜索框与状态分段控件直接放在页面画布上，不再外包一层带边框的独立卡片或工具栏框；
-  - `TableCard` 内部及详情面板遵循"先靠间距分组，其次用 1px `--border-subtle` 分隔线，仅在真正需要独立边界时才用卡片"，禁止卡片套卡片、表格内再嵌带框子容器；
+  - `TableCard` 内部及详情面板遵循"先靠间距分组，其次用 1px `--border-subtle` 分隔线，仅在真正需要独立边界时才用卡片"（相邻汇总指标优先合成单框 + 内部分割线），禁止卡片套卡片、表格内再嵌带框子容器；
   - 表格行内操作平时以无框 `ghost` 按钮或 `DropdownMenu` 为主，不把多个带边框按钮或描边胶囊并排堆叠；使用 `ConfirmMorph` 时每行最多锚定 1 个核心动作，列宽预留展开余量或让次要动作收进菜单，避免撞框。
-- **弹层收紧**（2026-11-19 用户确认，参考 affectUI 的下拉菜单，组件仍用 Arc，不引入 affectUI）：
+- **弹层收紧**（2026-11-19 随 8–10px 桌面收紧版同步定稿，组件仍用 Arc，不引入 affectUI）：
   - 适用于 `DropdownMenu`、`Select`、`Combobox` 三种弹层；
-  - 弹层圆角统一 14px，选项圆角 9px（弹层圆角减去 5px 内边距），选项行高 34px；
+  - 弹层圆角统一 **10px**（`--radius-popover: 0.625rem`），内边距 **4px**，选项圆角 **6px**（`calc(var(--radius-popover) - 4px)`），选项行高 **32px**；
   - 图标平时用 `--text-secondary`，选项高亮时变成 `--foreground`；
   - 1px 细边和投影沿用 Arc 现有的 `--border` 与 `--shadow-floating`，字号沿用 `--text-sm`。
-  Arc 原版三种弹层的圆角本身就不一致（菜单 26/20px，下拉选择 20/14px，可搜索下拉 26/21px），统一后同一页面的弹层外观一致。
+  Arc 原版三种弹层的圆角本身就不一致（菜单 26/20px，下拉选择 20/14px，可搜索下拉 26/21px），统一后同一页面的弹层外观一致，且 10px / 6px 与 8px 控件圆角和 4px 栅格对齐。
   不引入 affectUI 的原因：它是手写实现，不基于 Radix；颜色写死、主题变量自成一套；用法是传选项数组；
   只换菜单又会和 Arc 的下拉选择挨在一起，违反下面"同一块区域只用一套"。
 - **同一块区域只用一套**：同一行筛选栏、同一个对话框、同一张表里，控件要么全是 Arc，要么全是 shadcn，
@@ -118,7 +118,7 @@ Arc 组件是拷进仓库的源码。按既有约定直接修改，在文件头�
 | `Combobox`（已装） | 3 处用法都是单选、本地过滤；筛选栏里不显示标签 | 标签改为可选 |
 | `DropdownMenu`（新装） | 7 处触发器是图标按钮；1 处用了菜单内标题 | 支持传入自定义触发器（同 Radix `asChild`）；支持菜单内标题。子菜单、勾选项、快捷键现有代码都没用，不补 |
 | `Button`（已装） | 行内"更多"需要正方形纯图标按钮 | 加 `iconOnly`：宽高相等、去掉左右内边距，必须传 `aria-label` |
-| 弹层：`DropdownMenu`、`Select`、`Combobox` 的样式文件，以及 `foundation.css` | 三种弹层圆角不一致，且 20–26px 在密集列表里显得重（§3.1） | `foundation.css` 的 `:root` 新增 `--radius-popover: .875rem`（14px）。必须定义在 `:root`：菜单和下拉选择通过 Portal 渲染到 `body`，外层容器上定义的变量传不进去。三种弹层的外框圆角改用 `var(--radius-popover)`，选项与高亮块改用 `calc(var(--radius-popover) - 5px)`，`Select` 的内边距由 6px 改为 5px 与另外两种一致；选项 `min-height` 由 36px 改为 34px；`DropdownMenu` 与 `Select` 的选项高亮时，图标颜色改为 `--foreground`。快捷键、子菜单、勾选动画不补 |
+| 弹层：`DropdownMenu`、`Select`、`Combobox` 的样式文件，以及 `foundation.css` | 三种弹层圆角不一致，且 20–26px 在密集列表里显得重（§3.1） | `foundation.css` 的 `:root` 新增 `--radius-popover: .625rem`（10px）。必须定义在 `:root`：菜单和下拉选择通过 Portal 渲染到 `body`，外层容器上定义的变量传不进去。三种弹层的外框圆角改用 `var(--radius-popover)`，内边距统一为 4px，选项与高亮块改用 `calc(var(--radius-popover) - 4px)`（6px）；选项 `min-height` 由 36px 改为 32px；`DropdownMenu` 与 `Select` 的选项高亮时，图标颜色改为 `--foreground`。快捷键、子菜单、勾选动画不补 |
 | `chip-group`（已装） | 作业状态多选需要显示计数 | `ChipOption` 加可选的 `count`：显示在文字后面，等宽数字，固定最小宽度，轮询时相邻芯片不跳动。现有 3 个调用方不传，不受影响。`+N more` 的英文只在传了 `maxVisible` 时出现，作业状态不用；以后要用，再按其他 Arc 组件的做法改成通过参数传入文案。**不复制出新组件** |
 
 **新装的组件**：`select`、`dropdown-menu`。如果 5 个列表的对话框用到多行文本框或复选框，再装 `textarea`、`checkbox`，以 Phase 0 的清单为准。
@@ -185,9 +185,8 @@ Phase 0 的差异清单里，每个行内操作都要标明"能否撤回、影�
 
 ### 3.6 弹层数值与圆角曲线（已定：2026-11-19）
 
-- §3.1 的弹层数值（圆角 14px、选项圆角 9px、内边距 5px、行高 34px）满足"内圆角 = 外圆角 − 内边距"，内外同心，**本期不改**。
-  这几个数不在 4px 网格上，属于已知取舍。
-- **不启用连续圆角（`corner-shape: superellipse`）**：Arc 一套组件的圆角与几何角度已是成体系设计好的，不在 `foundation.css` 增加 `:where(*) { corner-shape: superellipse(1.25); }` 全局覆盖，保持 Arc 原设计。
+- §3.1 的弹层数值（外框圆角 **10px**、选项圆角 **6px**、内边距 **4px**、行高 **32px**）同时满足"内圆角 = 外圆角 − 内边距"同心规则与 4px 栅格，与 8px 控件圆角保持同一视觉密度。
+- **不启用连续圆角（`corner-shape: superellipse`）**：不在 `foundation.css` 增加 `:where(*) { corner-shape: superellipse(1.25); }` 全局覆盖，保持组件现有原生圆角行为。
 
 ## 4. 管理列表骨架
 
@@ -281,7 +280,7 @@ Phase 0 的差异清单里，每个行内操作都要标明"能否撤回、影�
 | 风险 | 缓解 |
 |---|---|
 | 公共件抽象过度，难以适配告警等复杂页面 | 只抽 §4.1 两个件，用插槽注入，告警最后迁移 |
-| 控制台外层统一覆盖 Arc 高度后，升级向导、作业详情等已用 Arc 的页面从 44px 变成 36px | 回归时覆盖这些页面；个别需要大尺寸的地方局部覆盖回去 |
+| 控制台外层统一收紧 Arc 高度与圆角后，升级向导、作业详情等已用 Arc 的页面从 44px/18px 变成 32px/8px | 回归时覆盖这些页面；个别需要大尺寸的地方局部覆盖回去 |
 | 去掉 `StatPillsBar` 后，失败数不再醒目 | 危险类计数大于 0 时用 `tone='danger'`（§3.3） |
 | 作业状态改成多选后，旧链接失效 | URL 解析兼容单值；回归矩阵覆盖新旧两种链接 |
 | `StatPillsBar` 迁移跨两期，期间新代码继续使用它 | 规范标为已弃用，检查项要求新代码不得使用 |

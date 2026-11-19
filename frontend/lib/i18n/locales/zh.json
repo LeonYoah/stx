@@ -184,7 +184,8 @@
       "scope": {
         "label": "范围",
         "all": "全部集群",
-        "clusterFallback": "集群 #{id}"
+        "clusterFallback": "集群 #{id}",
+        "empty": "没有匹配的集群"
       },
       "refresh": "刷新",
       "updatedAt": "更新于 {time}",

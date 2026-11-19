@@ -184,7 +184,8 @@
       "scope": {
         "label": "Scope",
         "all": "All clusters",
-        "clusterFallback": "Cluster #{id}"
+        "clusterFallback": "Cluster #{id}",
+        "empty": "No matching clusters"
       },
       "refresh": "Refresh",
       "updatedAt": "Updated {time}",

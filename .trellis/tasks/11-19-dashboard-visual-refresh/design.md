@@ -57,8 +57,8 @@ export function KpiStripSkeleton(props: {count: number}): JSX.Element;
 ```html
 <nav aria-label="核心指标" data-testid="home-kpi-row">
   <div class="overflow-hidden rounded-xl border border-border/70 bg-card">       <!-- 底板 -->
-    <ul class="-m-px grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-      <li class="shadow-[inset_1px_0_0_var(--border),inset_0_1px_0_var(--border)]" data-tone="danger?">
+    <ul class="-mr-px -mb-px grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <li class="shadow-[inset_-1px_-1px_0_var(--border)]" data-tone="danger?">
         <a href="…" data-testid="home-kpi-failed" class="block h-full px-4 py-3 hover:bg-muted/40 focus-visible:… ">
           <span class="block truncate text-xs text-muted-foreground">失败作业</span>
           <span class="mt-1.5 flex items-baseline gap-0.5" style="--text-3xl:1.5rem">
@@ -75,9 +75,12 @@ export function KpiStripSkeleton(props: {count: number}): JSX.Element;
 
 要点：
 
-- **分隔线**：每格用 inset box-shadow 画左边和上边的 1px 线；`ul` 用 `-m-px` 往外扩 1px，最外圈的线被底板的
-  `overflow-hidden` 裁掉。这样无论 7 / 4 / 2 / 1 列怎么换行，线都连续，末行空位露出的是底板颜色，不会出现色块。
-  （不用 `gap-px` + 底色的做法，那样末行空位会露出一整块边框色。）
+- **分隔线**：每格用 inset box-shadow 画右边和下边的 1px 线（`DASHBOARD_CELL_DIVIDER` =
+  `shadow-[inset_-1px_-1px_0_var(--border)]`，在 `KpiStrip.tsx` 导出，`ThroughputTabs` 的格子复用同一常量）；
+  `ul` 用 `-mr-px -mb-px` 往外扩，最右列的右线与末行的底线被底板的 `overflow-hidden` 裁掉。这样无论
+  7 / 4 / 2 / 1 列怎么换行，线都连续，末行空位露出的是底板颜色，不会出现色块。
+  （不用 `gap-px` + 底色的做法，那样末行空位会露出一整块边框色；也不用「左 + 上」线，那样末行短缺处
+  上方那格没有底线，分隔会断。）
 - **数字字号**：`AnimatedCounter` 用 `font-size: var(--text-3xl)`（30px）。在包裹层把 `--text-3xl` 局部设为 `1.5rem`，
   数字变成 24px，不改 Arc 源码。量级（K / M）作为 `AnimatedCounter` 的 `suffix` 传入，和数字同字号；计量单位单独一个
   `<span>`，`text-xs` + 次要色，基线对齐（`items-baseline`）。
@@ -151,14 +154,14 @@ export function summarizeRate(points: [number, number][]): RateSummary | null;
 - 为什么不用「当前值」：顶部指标栏的写入速率是 10 秒对账的实时合计（`write_qps`），Prometheus 序列最后一个点和它口径不同，
   两处数字对不上会让人困惑。均值跟随头部选的时间窗，与「写入速率 Top 8 · 窗口内平均」口径一致。
 - 不显示涨跌：「较上一时间窗」需要后端对比查询，见 §8 后续。
-- 格式化沿用现有：行类 `formatCompactNumber(v)` + 单位 `/s`；字节类 `formatBytes(v)` 拆出数字和单位，单位后加 `/s`
-  （如 `21.3` + `MB/s`）。`summary === null` 时数值显示「—」，说明行为空。
+- 格式化沿用现有：行类 `formatCompactNumber(v)` + 单位 `/s`；字节类 `formatBytes(v)`（返回 "21.3 MB" / "512 B" / "—"）
+  按最后一个空格拆成数字和单位，单位后加 `/s`（如 `21.3` + `MB/s`）。`summary === null` 时数值显示「—」，说明行为空。
 
 ### 4.3 结构与交互
 
 ```html
 <DashboardPanel variant="primary" flush testId="home-throughput">
-  <div role="tablist" aria-label="吞吐指标" class="grid grid-cols-2 lg:grid-cols-4 border-b border-border/60">
+  <div role="tablist" aria-label="吞吐指标" class="-mr-px grid grid-cols-2 lg:grid-cols-4">
     <button role="tab" aria-selected="true" aria-controls="{panelId}" tabindex="0"
             class="relative px-4 py-3 text-left … aria-selected:bg-muted/50">
       <span class="absolute inset-x-0 top-0 h-0.5" style="background: {color}" />   <!-- 仅选中格显示 -->
@@ -175,8 +178,9 @@ export function summarizeRate(points: [number, number][]): RateSummary | null;
 </DashboardPanel>
 ```
 
-- 格子之间用与指标栏相同的 inset 分隔线；选中格 `bg-muted/50`，顶部 2px 色条用该序列颜色（读 `--series-1`、写 `--series-2`），
-  把格子和下面曲线的颜色对应起来。
+- 格子之间用与指标栏相同的 inset 分隔线（`DASHBOARD_CELL_DIVIDER`，右 + 下）；`tablist` 只外扩右边缘 `-mr-px`
+  （末行底线保留，兼作与图表的分隔，不再另加 `border-b`）。选中格 `bg-muted/50`，顶部 2px 色条用该序列颜色
+  （读 `--series-1`、写 `--series-2`），把格子和下面曲线的颜色对应起来。
 - 键盘：roving tabindex（只有选中格 `tabIndex=0`）；←/→ 循环移动并立即选中（选择跟随焦点），Home / End 到首尾。
 - 选中状态仍存在 `JobsTab` 的 `metric` 本地 state，不写 URL（与现在一致）。
 - 原「全局吞吐」标题行与 `SegmentedControl` 删除；标题和说明作为图表上方的一行小字保留。
@@ -220,7 +224,7 @@ export function DashboardPanel(props: {
 
 | 面板 | 判空条件（沿用现有分支） |
 |---|---|
-| 数据量 `home-volume` | `volumeChart.series.length === 0` |
+| 数据量 `home-volume` | `volumeData` 已加载且 `volumeSplit === 'none'` 且 `(volumeData.series ?? []).length === 0`（四个指标都没有行） |
 | 写入速率 Top 8 `home-top-write` | `data.top_write.length === 0` |
 | CDC 延迟 Top 8 `home-top-cdc` | `data.top_cdc.length === 0` |
 | 数据流向 `home-flow` | `flow.links.length === 0` |
@@ -229,6 +233,8 @@ export function DashboardPanel(props: {
 
 - 吞吐主面板和运行日历不缩：吞吐为空时 `BrushChart` 自己显示 `emptyLabel`（主图保留高度，页面不会整体塌下去）；
   日历本来就有格子。
+- `home-volume` 带「指标 / 拆分」两个分段控件：按拆分后的序列判空会把控件一并藏掉、用户切到空指标后切不回来，
+  所以只在「不拆分且四个指标都没有行」时缩矮条；其余空态（拆分后无序列、单指标无行）保持面板内 `h-[240px]` 空文案。
 - 首次加载仍是骨架；轮询刷新时 `usePolledResource` 保留旧数据，不会在「有数据 ↔ 矮条」之间闪。
 - 两个相邻面板都为空时，各自一条矮条并排（仍在原来的两列网格里），不做跨面板合并，保持 DOM 与 testid 稳定。
 - 监控不可用（`source !== 'prometheus'`）时维持现状：`TrendEmptyState` + 运行日历。

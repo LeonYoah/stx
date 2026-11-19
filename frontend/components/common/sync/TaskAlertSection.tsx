@@ -94,9 +94,8 @@ export function TaskAlertDialog({
       onSaved(cleared);
       onOpenChange(false);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast.error(message);
-      throw error instanceof Error ? error : new Error(message);
+      // confirm-morph 已在原地展示错误态，不再弹 toast。confirm-morph already surfaces the error face; no toast needed.
+      throw error instanceof Error ? error : new Error(String(error));
     } finally {
       setSaving(false);
     }

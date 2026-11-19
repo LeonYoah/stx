@@ -19,14 +19,20 @@
 
 /**
  * Notification panel prototype: default notify card + channel table + edit drawer.
- * 通知面板原型：默认通知卡片、渠道表（测试 / 编辑 / 删除）、渠道编辑抽屉（含最近投递）。
+ * 通知面板原型：默认通知卡片、渠道表（ghost 测试按钮 + 编辑/删除收进 dropdown-menu）、
+ * Arc drawer 渠道编辑（含最近投递）。删除走行内二次确认，不用弹窗打断。
  */
 import {useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {CheckCircle2, Pencil, Plus, Send, Trash2, X, XCircle} from 'lucide-react';
+import {Check, CheckCircle2, MoreHorizontal, Pencil, Plus, Send, Trash2, X, XCircle} from 'lucide-react';
 import {ActionButton} from '@/components/arc/action-button/action-button';
 import {Badge} from '@/components/arc/badge/badge';
-import {ConfirmMorph} from '@/components/arc/confirm-morph/confirm-morph';
+import {Button as ArcButton} from '@/components/arc/button/button';
+import {Drawer, DrawerContent} from '@/components/arc/drawer/drawer';
+import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
+import {Input} from '@/components/arc/input/input';
+import {NumberField} from '@/components/arc/number-field/number-field';
+import {Select} from '@/components/arc/select/select';
 import {Switch} from '@/components/arc/switch/switch';
 import {Button} from '@/components/ui/button';
 import {PROTO_CHANNELS, type ProtoChannel} from './alerts-mock';
@@ -49,24 +55,28 @@ export function NotifyPanel() {
   const ago = useTimeAgo();
   const [channels, setChannels] = useState(PROTO_CHANNELS);
   const [editKey, setEditKey] = useState<string | null>(null);
+  const [deleteArmed, setDeleteArmed] = useState<string | null>(null);
   const [selectedChannels, setSelectedChannels] = useState<string[]>(['ops-email']);
   const [cooldown, setCooldown] = useState(30);
   const [recoveryNotify, setRecoveryNotify] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const editChannel = channels.find((c) => c.key === editKey) ?? null;
+  const drawerOpen = editKey !== null;
+
+  const saveDefaults = () => {
+    setSaving(true);
+    setTimeout(() => setSaving(false), 900);
+  };
 
   return (
     <div className='relative flex h-full flex-col gap-4 overflow-y-auto'>
       <section className='rounded-lg border border-border/70 bg-card p-4'>
         <div className='flex items-center justify-between'>
           <h3 className='text-sm font-medium'>{t('defaultNotify')}</h3>
-          <ActionButton
-            label={t('save')}
-            pendingLabel={t('saving')}
-            successLabel={t('saved')}
-            onAction={() => new Promise<void>((r) => setTimeout(r, 900))}
-            className='rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground'
-          />
+          <ArcButton variant='primary' size='sm' loading={saving} onClick={saveDefaults}>
+            {saving ? t('saving') : t('save')}
+          </ArcButton>
         </div>
         <div className='mt-3 grid gap-4 md:grid-cols-2'>
           <div className='space-y-2'>
@@ -99,18 +109,15 @@ export function NotifyPanel() {
               {t('recipientsStub')}
             </div>
           </div>
-          <div className='flex items-center gap-3'>
-            <span className='text-sm text-muted-foreground'>{t('cooldown')}</span>
-            <input
-              type='number'
+          <div className='w-44'>
+            <NumberField
+              label={t('cooldown')}
               value={cooldown}
+              onValueChange={setCooldown}
               min={0}
               max={1440}
-              onChange={(e) => setCooldown(Number(e.target.value))}
-              className='h-8 w-24 rounded-md border border-border/60 bg-background px-2 text-sm'
-              aria-label={t('cooldown')}
+              suffix={t('cooldownUnit')}
             />
-            <span className='text-xs text-muted-foreground'>{t('cooldownUnit')}</span>
           </div>
           <div className='flex items-center justify-between gap-3'>
             <span className='text-sm text-muted-foreground'>{t('recoveryNotify')}</span>
@@ -148,52 +155,87 @@ export function NotifyPanel() {
               }
               aria-label={t('fieldEnabled')}
             />
-            <div className='flex items-center gap-1'>
-              <ActionButton
-                label={t('testChannel')}
-                pendingLabel={t('testing')}
-                successLabel={t('testOk')}
-                onAction={() => new Promise<void>((r) => setTimeout(r, 700))}
-                className='h-7 rounded-md border border-border/60 px-2 text-xs'
-              />
-              <Button type='button' variant='ghost' size='icon' className='size-7' onClick={() => setEditKey(c.key)} aria-label={t('editChannel')}>
-                <Pencil className='size-3.5' aria-hidden />
-              </Button>
-              <ConfirmMorph
-                label={<Trash2 className='size-3.5' aria-hidden />}
-                prompt={t('deleteChannelPrompt', {name: c.name})}
-                confirmLabel={t('deleteConfirm')}
-                cancelLabel={t('deleteCancel')}
-                onConfirm={() =>
-                  new Promise<void>((r) => {
-                    setTimeout(() => {
-                      setChannels((prev) => prev.filter((x) => x.key !== c.key));
-                      r();
-                    }, 500);
-                  })
-                }
-              />
-            </div>
+            {deleteArmed === c.key ? (
+              <span className='flex items-center gap-1'>
+                <span className='whitespace-nowrap text-xs text-destructive'>{t('deleteConfirm')}</span>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon'
+                  className='size-7 text-destructive'
+                  aria-label={t('deleteConfirm')}
+                  onClick={() => {
+                    setChannels((prev) => prev.filter((x) => x.key !== c.key));
+                    setDeleteArmed(null);
+                  }}
+                >
+                  <Check className='size-3.5' aria-hidden />
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='icon'
+                  className='size-7'
+                  aria-label={t('deleteCancel')}
+                  onClick={() => setDeleteArmed(null)}
+                >
+                  <X className='size-3.5' aria-hidden />
+                </Button>
+              </span>
+            ) : (
+              <div className='flex items-center gap-1'>
+                <ActionButton
+                  label={t('testChannel')}
+                  pendingLabel={t('testing')}
+                  successLabel={t('testOk')}
+                  onAction={() => new Promise<void>((r) => setTimeout(r, 700))}
+                  className='h-7 rounded-md border-transparent! bg-transparent! px-2 text-xs text-muted-foreground hover:bg-muted/60! hover:text-foreground'
+                />
+                <DropdownMenu
+                  label={t('moreActions')}
+                  icon={<MoreHorizontal className='size-4' aria-hidden />}
+                  items={[
+                    {
+                      label: t('editChannel'),
+                      icon: <Pencil className='size-4' aria-hidden />,
+                      onSelect: () => setEditKey(c.key),
+                    },
+                    {
+                      label: t('deleteChannel'),
+                      icon: <Trash2 className='size-4' aria-hidden />,
+                      destructive: true,
+                      separatorBefore: true,
+                      onSelect: () => setDeleteArmed(c.key),
+                    },
+                  ]}
+                />
+              </div>
+            )}
           </div>
         ))}
       </section>
 
-      {editKey !== null ? (
-        <>
-          <button type='button' aria-label={t('closeDetail')} className='fixed inset-0 z-40 cursor-default bg-foreground/20' onClick={() => setEditKey(null)} />
-          <ChannelDrawer
-            channel={editChannel}
-            ago={ago}
-            onClose={() => setEditKey(null)}
-            onSave={(next) => {
-              setChannels((prev) =>
-                editChannel ? prev.map((c) => (c.key === editChannel.key ? next : c)) : [...prev, next],
-              );
-              setEditKey(null);
-            }}
-          />
-        </>
-      ) : null}
+      <Drawer open={drawerOpen} onOpenChange={(open) => !open && setEditKey(null)}>
+        {drawerOpen ? (
+          <DrawerContent
+            side='right'
+            title={editChannel ? editChannel.name : t('newChannel')}
+            description={editChannel ? t(`channelType.${editChannel.type}`) : undefined}
+            className='w-[min(92vw,420px)]'
+          >
+            <ChannelDrawerBody
+              channel={editChannel}
+              ago={ago}
+              onSave={(next) => {
+                setChannels((prev) =>
+                  editChannel ? prev.map((c) => (c.key === editChannel.key ? next : c)) : [...prev, next],
+                );
+                setEditKey(null);
+              }}
+            />
+          </DrawerContent>
+        ) : null}
+      </Drawer>
     </div>
   );
 }
@@ -219,71 +261,49 @@ function ChannelHealth({channel, ago}: {channel: ProtoChannel; ago: (m: number |
   );
 }
 
-function ChannelDrawer({
+function ChannelDrawerBody({
   channel,
   ago,
-  onClose,
   onSave,
 }: {
   channel: ProtoChannel | null;
   ago: (m: number | null) => string;
-  onClose: () => void;
   onSave: (c: ProtoChannel) => void;
 }) {
   const t = useTranslations('monitoringProto');
   const [type, setType] = useState<ProtoChannel['type']>(channel?.type ?? 'webhook');
-  const isNew = channel == null;
+  const [name, setName] = useState(channel?.name ?? '');
+  const [target, setTarget] = useState(channel?.target ?? '');
+  const [enabled, setEnabled] = useState(channel?.enabled ?? true);
 
   return (
-    <aside
-      data-testid='proto-channel-drawer'
-      className='fixed inset-y-4 right-4 z-50 flex w-[min(92vw,420px)] flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-xl'
-    >
-      <div className='flex items-center justify-between border-b border-border/60 px-4 py-3'>
-        <h3 className='text-base font-medium'>{isNew ? t('newChannel') : channel.name}</h3>
-        <Button type='button' variant='ghost' size='icon' className='size-7' onClick={onClose} aria-label={t('closeDetail')}>
-          <X className='size-4' aria-hidden />
-        </Button>
-      </div>
-      <div className='min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4'>
-        <div className='space-y-1.5'>
-          <span className='text-sm font-medium'>{t('channelName')}</span>
-          <input
-            defaultValue={channel?.name}
-            placeholder='oncall-bot'
-            className='h-8 w-full rounded-md border border-border/60 bg-background px-2 font-mono text-sm'
-          />
-        </div>
-        <div className='space-y-1.5'>
-          <span className='text-sm font-medium'>{t('channelTypeLabel')}</span>
-          <div className='flex gap-1.5'>
-            {(['webhook', 'email', 'bot'] as const).map((v) => (
-              <button
-                key={v}
-                type='button'
-                onClick={() => setType(v)}
-                className={cn(
-                  'rounded-md border px-3 py-1.5 text-xs',
-                  type === v ? 'border-primary/50 bg-primary/10 text-primary' : 'border-border/60 text-muted-foreground',
-                )}
-              >
-                {t(`channelType.${v}`)}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className='space-y-1.5'>
-          <span className='text-sm font-medium'>{t('channelTarget')}</span>
-          <input
-            defaultValue={channel?.target}
-            placeholder='https://…'
-            className='h-8 w-full rounded-md border border-border/60 bg-background px-2 font-mono text-xs'
-          />
-          <p className='text-xs text-muted-foreground'>{t('channelTargetHint')}</p>
-        </div>
+    <div className='flex min-h-0 flex-1 flex-col'>
+      <div className='min-h-0 flex-1 space-y-4 overflow-y-auto px-1 py-1'>
+        <Input
+          label={t('channelName')}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder='oncall-bot'
+        />
+        <Select
+          label={t('channelTypeLabel')}
+          value={type}
+          onValueChange={(v) => setType(v as ProtoChannel['type'])}
+          options={(['webhook', 'email', 'bot'] as const).map((v) => ({
+            value: v,
+            label: t(`channelType.${v}`),
+          }))}
+        />
+        <Input
+          label={t('channelTarget')}
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          placeholder='https://…'
+          description={t('channelTargetHint')}
+        />
         <div className='flex items-center justify-between rounded-lg border border-border/60 px-3 py-2.5'>
           <span className='text-sm'>{t('fieldEnabled')}</span>
-          <Switch defaultChecked={channel?.enabled ?? true} aria-label={t('fieldEnabled')} />
+          <Switch checked={enabled} onCheckedChange={setEnabled} aria-label={t('fieldEnabled')} />
         </div>
 
         {channel ? (
@@ -309,25 +329,24 @@ function ChannelDrawer({
           </div>
         ) : null}
       </div>
-      <div className='flex items-center gap-2 border-t border-border/60 px-4 py-3'>
-        <Button
-          type='button'
+      <div className='border-t border-border/60 pt-3'>
+        <ArcButton
+          variant='primary'
           size='sm'
-          className='h-8 rounded-md text-xs'
           onClick={() =>
             onSave({
               key: channel?.key ?? `new-${Date.now()}`,
-              name: channel?.name ?? 'new-channel',
+              name: name || 'new-channel',
               type,
-              target: channel?.target ?? '',
-              enabled: channel?.enabled ?? true,
+              target,
+              enabled,
               health: channel?.health ?? {lastOkMinAgo: null, lastFailMinAgo: null, pending: 0},
             })
           }
         >
           {t('save')}
-        </Button>
+        </ArcButton>
       </div>
-    </aside>
+    </div>
   );
 }

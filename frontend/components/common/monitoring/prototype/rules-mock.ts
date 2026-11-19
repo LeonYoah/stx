@@ -37,7 +37,7 @@ export interface ProtoRule {
   forMinutes: number;
   notifyMode: ProtoNotifyMode;
   exceptionCount: number;
-  /** Clusters currently firing this rule. / 当前命中该规则的集群数。 */
+  /** 当前命中该规则的集群数。Clusters currently firing this rule. */
   firingCount: number;
   exceptions?: {cluster: string; overridden: string[]}[];
   visual: {
@@ -50,7 +50,7 @@ export interface ProtoRule {
   };
 }
 
-/** Deterministic pseudo-random so the story renders identically every load. / 确定性伪随机，保证 story 每次渲染一致。 */
+/** 确定性伪随机，保证 story 每次渲染一致。Deterministic pseudo-random so the story renders identically every load. */
 function seeded(seed: string): () => number {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i += 1) {
@@ -381,7 +381,7 @@ export const PROTO_JOB_RULES = [
 
 export const PROTO_CLUSTERS = ['prod-hz-01', 'prod-sh-02', 'staging-bj-02', 'dev-local'];
 
-/** English display names keyed by rule key. / 英文规则名（按 key）。 */
+/** 英文规则名（按 key）。English display names keyed by rule key. */
 export const RULE_NAME_EN: Record<string, string> = {
   node_offline: 'Node offline',
   master_unavailable: 'Master unavailable',

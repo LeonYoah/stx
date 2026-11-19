@@ -34,10 +34,12 @@ export interface ProtoAlert {
   scope: ProtoAlertScope;
   cluster: string;
   status: ProtoAlertStatus;
-  /** Minutes since the alert started firing. / 距首次触发的分钟数。 */
+  /** 距首次触发的分钟数。Minutes since the alert started firing. */
   startedMinAgo: number;
   effectiveFrom: 'global' | 'exception';
-  thresholdText: string;
+  threshold?: string;
+  /** 持续分钟数，0 表示实时。Duration in minutes; 0 means realtime. */
+  forMinutes?: number;
   timeline: {kind: 'triggered' | 'notified' | 'acknowledged' | 'resolved'; minAgo: number; note?: string}[];
   deliveries: {channel: string; status: 'success' | 'failed' | 'pending'; minAgo: number}[];
 }
@@ -54,7 +56,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'firing',
     startedMinAgo: 12,
     effectiveFrom: 'exception',
-    thresholdText: '— · 持续 1 分钟',
+    forMinutes: 1,
     timeline: [
       {kind: 'triggered', minAgo: 12},
       {kind: 'notified', minAgo: 12},
@@ -75,7 +77,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'firing',
     startedMinAgo: 12,
     effectiveFrom: 'exception',
-    thresholdText: '— · 持续 1 分钟',
+    forMinutes: 1,
     timeline: [
       {kind: 'triggered', minAgo: 12},
       {kind: 'notified', minAgo: 12},
@@ -93,7 +95,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'firing',
     startedMinAgo: 46,
     effectiveFrom: 'global',
-    thresholdText: '— · 持续 2 分钟',
+    forMinutes: 2,
     timeline: [
       {kind: 'triggered', minAgo: 46},
       {kind: 'notified', minAgo: 46},
@@ -111,7 +113,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'acknowledged',
     startedMinAgo: 182,
     effectiveFrom: 'global',
-    thresholdText: '> 0% · 持续 5 分钟',
+    threshold: '> 0%', forMinutes: 5,
     timeline: [
       {kind: 'triggered', minAgo: 182},
       {kind: 'notified', minAgo: 182},
@@ -130,7 +132,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'firing',
     startedMinAgo: 8,
     effectiveFrom: 'global',
-    thresholdText: '任务告警 · 失败即触发',
+    forMinutes: 0,
     timeline: [
       {kind: 'triggered', minAgo: 8},
       {kind: 'notified', minAgo: 8},
@@ -148,7 +150,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'acknowledged',
     startedMinAgo: 320,
     effectiveFrom: 'global',
-    thresholdText: '> 120s · 持续 10 分钟',
+    threshold: '> 120s', forMinutes: 10,
     timeline: [
       {kind: 'triggered', minAgo: 320},
       {kind: 'notified', minAgo: 320},
@@ -167,7 +169,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'silenced',
     startedMinAgo: 640,
     effectiveFrom: 'exception',
-    thresholdText: '> 90% · 持续 10 分钟',
+    threshold: '> 90%', forMinutes: 10,
     timeline: [
       {kind: 'triggered', minAgo: 640},
       {kind: 'notified', minAgo: 640},
@@ -186,7 +188,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'resolved',
     startedMinAgo: 1320,
     effectiveFrom: 'global',
-    thresholdText: '— · 持续 5 分钟',
+    forMinutes: 5,
     timeline: [
       {kind: 'triggered', minAgo: 1320},
       {kind: 'notified', minAgo: 1320},
@@ -205,7 +207,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'resolved',
     startedMinAgo: 2100,
     effectiveFrom: 'exception',
-    thresholdText: '内置表达式 · 持续 2 分钟',
+    forMinutes: 2,
     timeline: [
       {kind: 'triggered', minAgo: 2100},
       {kind: 'notified', minAgo: 2100},
@@ -228,7 +230,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'firing',
     startedMinAgo: 75,
     effectiveFrom: 'global',
-    thresholdText: '> 80% · 持续 10 分钟',
+    threshold: '> 80%', forMinutes: 10,
     timeline: [
       {kind: 'triggered', minAgo: 75},
       {kind: 'notified', minAgo: 75},
@@ -246,7 +248,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'silenced',
     startedMinAgo: 1560,
     effectiveFrom: 'global',
-    thresholdText: '> 6h · 持续即触发',
+    threshold: '> 6h', forMinutes: 0,
     timeline: [
       {kind: 'triggered', minAgo: 1560},
       {kind: 'acknowledged', minAgo: 1500, note: 'devon · 静默 30 分钟'},
@@ -264,7 +266,7 @@ export const PROTO_ALERTS: ProtoAlert[] = [
     status: 'resolved',
     startedMinAgo: 2880,
     effectiveFrom: 'global',
-    thresholdText: '— · 持续 2 分钟',
+    forMinutes: 2,
     timeline: [
       {kind: 'triggered', minAgo: 2880},
       {kind: 'notified', minAgo: 2880},

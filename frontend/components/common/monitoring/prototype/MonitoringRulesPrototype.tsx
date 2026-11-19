@@ -26,14 +26,16 @@ import {useLocale, useTranslations} from 'next-intl';
 import {AlertTriangle, Check, ChevronRight, Undo2, X} from 'lucide-react';
 import {Badge} from '@/components/arc/badge/badge';
 import {ChipGroup} from '@/components/arc/chip-group/chip-group';
+import {NumberField} from '@/components/arc/number-field/number-field';
 import {SearchField} from '@/components/arc/search-field/search-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {Select} from '@/components/arc/select/select';
 import {Switch} from '@/components/arc/switch/switch';
 import {RadioCards} from '@/components/arc/radio-cards/radio-cards';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
 import {cn} from '@/lib/utils';
-import {RuleVisual} from './RuleVisual';
+import {RuleVisual, useRuleVisualLabels} from './RuleVisual';
 import {
   PROTO_CLUSTERS,
   PROTO_JOB_RULES,
@@ -43,10 +45,10 @@ import {
 
 interface MonitoringRulesPrototypeProps {
   rules: ProtoRule[];
-  /** Start with a selected rule to demo the detail panel. / 初始选中，用于展示详情面板。 */
+  /** 初始选中，用于展示详情面板。Start with a selected rule to demo the detail panel. */
   initialActiveKey?: string;
   initialSelectedKeys?: string[];
-  /** Pretend default notification is missing to show the banner. / 模拟默认通知未配置。 */
+  /** 模拟默认通知未配置。Pretend default notification is missing to show the banner. */
   defaultNotifyMissing?: boolean;
 }
 
@@ -60,7 +62,7 @@ export function MonitoringRulesPrototype({
   const [scope, setScope] = useState('cluster');
   const [chips, setChips] = useState<string[]>(['all']);
   const [query, setQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [activeKey, setActiveKey] = useState<string | null>(initialActiveKey ?? null);
   const [selected, setSelected] = useState<Set<string>>(new Set(initialSelectedKeys));
   const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>(() =>
@@ -146,25 +148,24 @@ export function MonitoringRulesPrototype({
                 {value: 'exceptions', label: `${t('chipExceptions')} ${filteredCount.exceptions}`},
               ]}
             />
-            <div className='ml-auto flex items-center gap-2'>
-              <div className='w-56'>
-                <SearchField
-                  label={t('searchLabel')}
-                  value={query}
-                  onValueChange={setQuery}
-                  placeholder={t('searchPlaceholder')}
-                />
-              </div>
-              <SegmentedControl
-                label={t('viewModeLabel')}
-                value={viewMode}
-                onValueChange={(v) => setViewMode(v as 'grid' | 'list')}
-                options={[
-                  {value: 'grid', label: t('viewGrid')},
-                  {value: 'list', label: t('viewList')},
-                ]}
+            <div className='w-56 min-w-[200px] max-w-sm flex-1 [&_label]:sr-only'>
+              <SearchField
+                label={t('searchLabel')}
+                value={query}
+                onValueChange={setQuery}
+                placeholder={t('searchPlaceholder')}
+                clearLabel={t('searchClear')}
               />
             </div>
+            <SegmentedControl
+              label={t('viewModeLabel')}
+              value={viewMode}
+              onValueChange={(v) => setViewMode(v as 'grid' | 'list')}
+              options={[
+                {value: 'list', label: t('viewList')},
+                {value: 'grid', label: t('viewGrid')},
+              ]}
+            />
           </>
         ) : null}
       </div>
@@ -211,10 +212,11 @@ export function MonitoringRulesPrototype({
               <button
                 type='button'
                 aria-label={t('closeDetail')}
-                className='fixed inset-0 z-40 cursor-default bg-foreground/20 lg:hidden'
+                className='fixed inset-0 z-40 cursor-default bg-black/40 lg:hidden'
                 onClick={() => setActiveKey(null)}
               />
               <RuleDetailPanel
+                key={active.key}
                 rule={active}
                 enabled={enabledMap[active.key] ?? active.enabled}
                 onClose={() => setActiveKey(null)}
@@ -291,64 +293,54 @@ function RuleCard({
 }) {
   const t = useTranslations('monitoringProto');
   const locale = useLocale();
+  const visualLabels = useRuleVisualLabels();
   const name = locale === 'en' ? (RULE_NAME_EN[rule.key] ?? rule.name) : rule.name;
 
   return (
     <div
-      role='button'
-      tabIndex={0}
       data-testid={`proto-rule-card-${rule.key}`}
       data-active={active || undefined}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
       className={cn(
-        'group relative cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-shadow',
-        'hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'group relative overflow-hidden rounded-lg border bg-card text-left transition-shadow',
+        'hover:shadow-md',
         active ? 'border-primary/60 shadow-sm ring-1 ring-primary/30' : 'border-border/70',
         selected && 'border-primary/50 bg-primary/[0.04]',
         !enabled && 'opacity-70',
       )}
     >
-      <div
-        className={cn(
-          'absolute left-2.5 top-2.5 z-10 transition-opacity',
-          selected || selectionActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-        )}
+      <button
+        type='button'
+        onClick={onOpen}
+        aria-label={name}
+        className='block h-[104px] w-full border-b border-border/50 bg-muted/20'
       >
-        <Checkbox
-          checked={selected}
-          onCheckedChange={(v) => onSelect(v === true)}
-          onClick={(e) => e.stopPropagation()}
-          aria-label={t('selectRule', {name})}
-          className='bg-card/90'
-        />
-      </div>
-      <Badge
-        tone={rule.severity === 'critical' ? 'danger' : 'warning'}
-        size='sm'
-        className='absolute right-2.5 top-2.5 z-10'
-      >
-        {rule.severity === 'critical' ? t('severityCritical') : t('severityWarning')}
-      </Badge>
-
-      <div className='h-[104px] border-b border-border/50 bg-muted/20'>
-        <RuleVisual rule={rule} />
-      </div>
+        <RuleVisual rule={rule} labels={visualLabels} />
+      </button>
 
       <div className='space-y-2 px-3.5 py-3'>
-        <div className='flex items-center justify-between gap-2'>
-          <span className='min-w-0 truncate text-sm font-medium'>{name}</span>
+        <div className='flex items-center gap-2'>
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(v) => onSelect(v === true)}
+            aria-label={t('selectRule', {name})}
+            className={cn('shrink-0 transition-opacity', selected || selectionActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100')}
+          />
+          <button
+            type='button'
+            onClick={onOpen}
+            className='min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline'
+          >
+            {name}
+          </button>
           {rule.firingCount > 0 ? (
             <span className='flex shrink-0 items-center gap-1 text-xs text-destructive'>
               <span className='size-1.5 animate-pulse rounded-full bg-destructive' aria-hidden />
               {t('firing', {count: rule.firingCount})}
             </span>
           ) : null}
+          <Badge tone={rule.severity === 'critical' ? 'danger' : 'warning'} size='sm' className='shrink-0'>
+            {rule.severity === 'critical' ? t('severityCritical') : t('severityWarning')}
+          </Badge>
         </div>
         <div className='flex items-center justify-between gap-2 text-xs text-muted-foreground'>
           <span className='min-w-0 truncate'>
@@ -389,9 +381,12 @@ function RuleDetailPanel({
 }) {
   const t = useTranslations('monitoringProto');
   const locale = useLocale();
+  const visualLabels = useRuleVisualLabels();
   const name = locale === 'en' ? (RULE_NAME_EN[rule.key] ?? rule.name) : rule.name;
   const [severity, setSeverity] = useState(rule.severity);
-  const [notify, setNotify] = useState(rule.notifyMode);
+  // 「不通知」不对用户开放；历史数据兜底为默认通知
+  // "none" is not a user-facing option; legacy data falls back to default
+  const [notify, setNotify] = useState(rule.notifyMode === 'none' ? 'default' : rule.notifyMode);
   const [saved, setSaved] = useState(false);
 
   return (
@@ -420,7 +415,7 @@ function RuleDetailPanel({
       <div className='min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4'>
         <div className='overflow-hidden rounded-lg border border-border/60'>
           <div className='h-[120px] border-b border-border/50 bg-muted/20'>
-            <RuleVisual rule={rule} />
+            <RuleVisual rule={rule} labels={visualLabels} />
           </div>
           <div className='grid grid-cols-3 divide-x divide-border/50 text-center'>
             <div className='px-2 py-2.5'>
@@ -435,7 +430,9 @@ function RuleDetailPanel({
             </div>
             <div className='px-2 py-2.5'>
               <div className='text-xs text-muted-foreground'>{t('fieldNotify')}</div>
-              <div className='mt-0.5 truncate text-sm font-medium'>{t(`notify_${rule.notifyMode}`)}</div>
+              <div className='mt-0.5 truncate text-sm font-medium'>
+                {severity === 'critical' ? t(`notify_${notify}`) : t('notify_none')}
+              </div>
             </div>
           </div>
         </div>
@@ -447,38 +444,34 @@ function RuleDetailPanel({
           <Switch checked={enabled} onCheckedChange={onToggleEnabled} aria-label={t('fieldEnabled')} />
         </div>
 
-        <div className='space-y-2'>
-          <span className='text-sm font-medium'>{t('fieldThreshold')}</span>
-          <div className='flex items-center gap-2'>
-            <span className='rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 font-mono text-sm'>
-              {rule.threshold ? `${rule.threshold.operator}` : '—'}
-            </span>
-            <input
-              type='number'
-              defaultValue={rule.threshold?.value}
-              disabled={!rule.threshold}
-              min={rule.threshold?.min}
-              max={rule.threshold?.max}
-              className='h-8 w-24 rounded-md border border-border/60 bg-background px-2 text-sm disabled:opacity-50'
-              aria-label={t('fieldThreshold')}
-            />
-            {rule.threshold ? <span className='text-sm text-muted-foreground'>{rule.threshold.unit || 'count'}</span> : null}
-            <select
-              defaultValue={rule.forMinutes}
-              disabled={rule.engine === 'event'}
-              className='ml-auto h-8 rounded-md border border-border/60 bg-background px-2 text-sm disabled:opacity-50'
-              aria-label={t('fieldFor')}
-            >
-              {[0, 1, 2, 5, 10, 15, 30].map((m) => (
-                <option key={m} value={m}>
-                  {m === 0 ? t('realtime') : t('forMinutes', {minutes: m})}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className='flex items-start gap-3'>
           {rule.threshold ? (
-            <p className='text-xs text-muted-foreground'>{t('thresholdRange', {min: rule.threshold.min, max: rule.threshold.max})}</p>
-          ) : null}
+            <div className='w-40'>
+              <NumberField
+                label={t('fieldThreshold')}
+                defaultValue={rule.threshold.value}
+                min={rule.threshold.min}
+                max={rule.threshold.max}
+                prefix={rule.threshold.operator}
+                suffix={rule.threshold.unit || undefined}
+                description={t('thresholdRange', {min: rule.threshold.min, max: rule.threshold.max})}
+              />
+            </div>
+          ) : (
+            <div className='flex-1 rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-xs text-muted-foreground'>
+              {t('instantEvent')}
+            </div>
+          )}
+          <Select
+            label={t('fieldFor')}
+            defaultValue={String(rule.forMinutes)}
+            disabled={rule.engine === 'event'}
+            className='w-36'
+            options={[0, 1, 2, 5, 10, 15, 30].map((m) => ({
+              value: String(m),
+              label: m === 0 ? t('realtime') : t('forMinutes', {minutes: m}),
+            }))}
+          />
         </div>
 
         <div className='space-y-2'>
@@ -494,24 +487,29 @@ function RuleDetailPanel({
           />
         </div>
 
-        <div className='space-y-2'>
-          <span className='text-sm font-medium'>{t('fieldNotify')}</span>
-          <RadioCards
-            layout='list'
-            value={notify}
-            onValueChange={(v) => setNotify(v as typeof notify)}
-            options={[
-              {value: 'default', label: t('notifyDefault'), description: t('notifyDefaultDesc')},
-              {value: 'custom', label: t('notifyCustom'), description: t('notifyCustomDesc')},
-              {value: 'none', label: t('notifyNone'), description: t('notifyNoneDesc')},
-            ]}
-          />
-          {notify === 'custom' ? (
-            <div className='space-y-2 rounded-lg border border-dashed border-border/60 p-3 text-sm text-muted-foreground'>
-              {t('channelsStub')}
-            </div>
-          ) : null}
-        </div>
+        {severity === 'critical' ? (
+          <div className='space-y-2'>
+            <span className='text-sm font-medium'>{t('fieldNotify')}</span>
+            <RadioCards
+              layout='list'
+              value={notify}
+              onValueChange={(v) => setNotify(v as typeof notify)}
+              options={[
+                {value: 'default', label: t('notifyDefault'), description: t('notifyDefaultDesc')},
+                {value: 'custom', label: t('notifyCustom'), description: t('notifyCustomDesc')},
+              ]}
+            />
+            {notify === 'custom' ? (
+              <div className='space-y-2 rounded-lg border border-dashed border-border/60 p-3 text-sm text-muted-foreground'>
+                {t('channelsStub')}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <p className='rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-xs text-muted-foreground'>
+            {t('severityWarningDesc')}
+          </p>
+        )}
 
         <div className='space-y-2'>
           <div className='flex items-center justify-between'>
@@ -586,6 +584,7 @@ function RuleListView({
 }) {
   const t = useTranslations('monitoringProto');
   const locale = useLocale();
+  const visualLabels = useRuleVisualLabels();
   const cols =
     'grid-cols-[auto_44px_minmax(0,1.4fr)_auto_auto_minmax(0,1fr)_auto_auto]';
   return (
@@ -612,15 +611,9 @@ function RuleListView({
         return (
           <div
             key={rule.key}
-            role='button'
-            tabIndex={0}
-            onClick={() => onOpen(rule.key)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {onOpen(rule.key);}
-            }}
             data-testid={`proto-rule-row-${rule.key}`}
             className={cn(
-              'grid cursor-pointer items-center gap-3 border-b border-border/40 px-4 py-3.5 last:border-b-0 hover:bg-muted/30',
+              'grid items-center gap-3 border-b border-border/40 px-4 py-3.5 last:border-b-0 hover:bg-muted/30',
               cols,
               activeKey === rule.key && 'bg-muted/40',
               selected.has(rule.key) && 'bg-primary/[0.04]',
@@ -630,14 +623,24 @@ function RuleListView({
             <Checkbox
               checked={selected.has(rule.key)}
               onCheckedChange={(v) => onSelect(rule.key, v === true)}
-              onClick={(e) => e.stopPropagation()}
               aria-label={t('selectRule', {name})}
             />
-            <div className='size-11 overflow-hidden rounded-lg border border-border/50 bg-muted/30'>
-              <RuleVisual rule={rule} />
-            </div>
+            <button
+              type='button'
+              onClick={() => onOpen(rule.key)}
+              aria-label={name}
+              className='size-11 overflow-hidden rounded-lg border border-border/50 bg-muted/30'
+            >
+              <RuleVisual rule={rule} labels={visualLabels} compact />
+            </button>
             <div className='min-w-0'>
-              <div className='truncate text-sm font-medium'>{name}</div>
+              <button
+                type='button'
+                onClick={() => onOpen(rule.key)}
+                className='block w-full truncate text-left text-sm font-medium hover:underline'
+              >
+                {name}
+              </button>
               <div className='truncate font-mono text-xs text-muted-foreground'>{rule.key}</div>
             </div>
             <Badge tone={rule.severity === 'critical' ? 'danger' : 'warning'} size='sm'>
@@ -662,17 +665,23 @@ function RuleListView({
                     ? t('realtime')
                     : t('forMinutes', {minutes: rule.forMinutes})}
             </span>
-            <span className='hidden w-16 truncate text-xs text-muted-foreground lg:block'>
-              {rule.exceptionCount > 0 ? t('exceptions', {count: rule.exceptionCount}) : '—'}
+            <span className='hidden w-16 truncate text-xs tabular-nums text-muted-foreground lg:block'>
+              {rule.exceptionCount > 0 ? rule.exceptionCount : '—'}
             </span>
             <div className='flex items-center gap-1.5'>
               <Switch
                 checked={enabled}
                 onCheckedChange={(on) => onToggleEnabled(rule.key, on)}
-                onClick={(e) => e.stopPropagation()}
                 aria-label={t('fieldEnabled')}
               />
-              <ChevronRight className='size-4 text-muted-foreground' aria-hidden />
+              <button
+                type='button'
+                onClick={() => onOpen(rule.key)}
+                aria-label={t('openDetail')}
+                className='rounded p-0.5 text-muted-foreground hover:text-foreground'
+              >
+                <ChevronRight className='size-4' aria-hidden />
+              </button>
             </div>
           </div>
         );

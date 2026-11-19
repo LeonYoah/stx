@@ -20,8 +20,19 @@
 /**
  * Per-engine mini visual used as the card's image hero.
  * 按引擎类型渲染的卡片「图片」区：指标=阈值 sparkline，可用性/同步=24h 健康轨道，事件=触发时间轴。
+ * 轴标签与空事件文案由 labels 传入，组件内不写死语言。Axis and empty labels come in via props for i18n.
  */
+import {useTranslations} from 'next-intl';
 import type {ProtoRule} from './rules-mock';
+
+export interface RuleVisualLabels {
+  /** 左轴标签。Left axis label, e.g. "24 小时" / "24h". */
+  hours24: string;
+  /** 右轴标签。Right axis label, e.g. "现在" / "now". */
+  now: string;
+  /** 事件规则无事件时的占位文案。Shown when an event rule has no events in range. */
+  noEvents24h: string;
+}
 
 const W = 280;
 const H = 88;
@@ -88,15 +99,16 @@ function Sparkline({rule}: {rule: ProtoRule}) {
   );
 }
 
-function UptimeTrack({rule}: {rule: ProtoRule}) {
+function UptimeTrack({rule, labels}: {rule: ProtoRule; labels: RuleVisualLabels}) {
   const segments = rule.visual.segments ?? [];
   const inner = {w: W - PAD * 2};
   const gap = 2;
   const bw = (inner.w - gap * (segments.length - 1)) / Math.max(1, segments.length);
   const barY = PAD + 16;
   const barH = H - PAD * 2 - 22;
+  // 正常段用中性灰，只有异常段上色，避免满屏绿色抢眼。Healthy segments stay neutral; only anomalies get color.
   const colors: Record<string, string> = {
-    ok: 'var(--success, #30a46c)',
+    ok: 'var(--border-strong, #c9c9d1)',
     bad: 'var(--danger, #e5484d)',
     degraded: 'var(--warning, #f5a524)',
   };
@@ -111,23 +123,38 @@ function UptimeTrack({rule}: {rule: ProtoRule}) {
           height={seg === 'ok' ? barH * 0.72 : barH}
           rx='1.5'
           fill={colors[seg]}
-          fillOpacity={seg === 'ok' ? 0.45 : 0.9}
+          fillOpacity={seg === 'ok' ? 0.5 : 0.9}
         />
       ))}
       <text x={PAD} y={H - PAD} fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
-        24h
+        {labels.hours24}
       </text>
       <text x={W - PAD} y={H - PAD} textAnchor='end' fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
-        now
+        {labels.now}
       </text>
     </svg>
   );
 }
 
-function EventTrack({rule}: {rule: ProtoRule}) {
+function EventTrack({rule, labels, compact}: {rule: ProtoRule; labels: RuleVisualLabels; compact?: boolean}) {
   const events = rule.visual.events ?? [];
   const inner = {w: W - PAD * 2};
   const axisY = PAD + (H - PAD * 2) / 2;
+  if (events.length === 0) {
+    // 小缩略图放不下说明文字，只画一条淡轴。Tiny tiles only get a faint axis, text would wrap.
+    if (compact) {
+      return (
+        <svg viewBox={`0 0 ${W} ${H}`} className='h-full w-full' role='img' aria-hidden='true'>
+          <line x1={PAD} x2={W - PAD} y1={axisY} y2={axisY} stroke='var(--border, #e5e7eb)' strokeWidth='1.5' strokeDasharray='3 4' />
+        </svg>
+      );
+    }
+    return (
+      <div className='flex h-full items-center justify-center text-xs text-muted-foreground'>
+        {labels.noEvents24h}
+      </div>
+    );
+  }
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className='h-full w-full' role='img' aria-hidden='true'>
       <line
@@ -138,43 +165,37 @@ function EventTrack({rule}: {rule: ProtoRule}) {
         stroke='var(--border, #e5e7eb)'
         strokeWidth='1.5'
       />
-      {events.length === 0 ? (
-        <text
-          x={W / 2}
-          y={axisY - 8}
-          textAnchor='middle'
-          fontSize='9'
-          fill='var(--text-secondary, #6b7280)'
-        >
-          ·
-        </text>
-      ) : (
-        events.map((hour, i) => {
-          const cx = PAD + (hour / 23) * inner.w;
-          return (
-            <g key={i}>
-              <circle cx={cx} cy={axisY} r='4.5' fill='var(--danger, #e5484d)' fillOpacity='0.9' />
-              <circle cx={cx} cy={axisY} r='8' fill='var(--danger, #e5484d)' fillOpacity='0.15' />
-            </g>
-          );
-        })
-      )}
+      {events.map((hour, i) => {
+        const cx = PAD + (hour / 23) * inner.w;
+        return (
+          <g key={i}>
+            <circle cx={cx} cy={axisY} r='4.5' fill='var(--danger, #e5484d)' fillOpacity='0.9' />
+            <circle cx={cx} cy={axisY} r='8' fill='var(--danger, #e5484d)' fillOpacity='0.15' />
+          </g>
+        );
+      })}
       <text x={PAD} y={H - PAD} fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
-        24h
+        {labels.hours24}
       </text>
       <text x={W - PAD} y={H - PAD} textAnchor='end' fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
-        now
+        {labels.now}
       </text>
     </svg>
   );
 }
 
-export function RuleVisual({rule}: {rule: ProtoRule}) {
+export function RuleVisual({rule, labels, compact}: {rule: ProtoRule; labels: RuleVisualLabels; compact?: boolean}) {
   if (rule.engine === 'tsdb') {
     return <Sparkline rule={rule} />;
   }
   if (rule.engine === 'event') {
-    return <EventTrack rule={rule} />;
+    return <EventTrack rule={rule} labels={labels} compact={compact} />;
   }
-  return <UptimeTrack rule={rule} />;
+  return <UptimeTrack rule={rule} labels={labels} />;
+}
+
+/** RuleVisual 轴文案的本地化标签。Localized labels for RuleVisual axis text. */
+export function useRuleVisualLabels(): RuleVisualLabels {
+  const t = useTranslations('monitoringProto');
+  return {hours24: t('hours24'), now: t('now'), noEvents24h: t('noEvents24h')};
 }

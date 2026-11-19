@@ -42,8 +42,6 @@ export function MonitoringPagePrototype() {
   const [ruleFocus, setRuleFocus] = useState<string | null>(null);
 
   const firingCount = PROTO_ALERTS.filter((a) => a.status === 'firing').length;
-  const enabledCount = PROTO_CLUSTER_RULES.filter((r) => r.enabled).length;
-  const channelCount = PROTO_CHANNELS_COUNT;
 
   return (
     <div className='flex min-h-screen flex-col bg-background p-4 text-foreground'>
@@ -52,22 +50,14 @@ export function MonitoringPagePrototype() {
           <TabsList>
             <TabsTrigger value='alerts'>
               {t('tabAlerts')}
-              <Badge size='sm' tone={firingCount > 0 ? 'danger' : 'neutral'} className='ml-1.5'>
-                {firingCount}
-              </Badge>
+              {firingCount > 0 ? (
+                <Badge size='sm' tone='danger' className='ml-1.5'>
+                  {firingCount}
+                </Badge>
+              ) : null}
             </TabsTrigger>
-            <TabsTrigger value='rules'>
-              {t('tabRules')}
-              <Badge size='sm' className='ml-1.5'>
-                {enabledCount}
-              </Badge>
-            </TabsTrigger>
-            <TabsTrigger value='notify'>
-              {t('tabNotify')}
-              <Badge size='sm' className='ml-1.5'>
-                {channelCount}
-              </Badge>
-            </TabsTrigger>
+            <TabsTrigger value='rules'>{t('tabRules')}</TabsTrigger>
+            <TabsTrigger value='notify'>{t('tabNotify')}</TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value='alerts' className='min-h-0 flex-1'>
@@ -92,6 +82,3 @@ export function MonitoringPagePrototype() {
     </div>
   );
 }
-
-// Channel count kept simple for the tab badge. / 通知面板徽标用的渠道数。
-const PROTO_CHANNELS_COUNT = 4;

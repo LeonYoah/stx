@@ -81,12 +81,13 @@ export function OnboardingPathChooser() {
         showCloseButton
       >
         <DialogHeader>
-          <DialogTitle id='stx-onboarding-path-title'>
-            {t('pathTitle')}
-          </DialogTitle>
-          <DialogDescription id='stx-onboarding-path-desc'>
-            {t('pathSubtitle')}
-          </DialogDescription>
+          {/* 自定义 id 会覆盖 Radix 分配的 context.titleId/descriptionId，aria-labelledby
+              指向不存在的元素并触发「requires a DialogTitle」告警；id 必须由 Radix 生成。 */}
+          {/* A custom id overrides Radix's context.titleId/descriptionId so aria-labelledby
+              points nowhere and the "requires a DialogTitle" warning fires — ids must stay
+              Radix-generated. */}
+          <DialogTitle>{t('pathTitle')}</DialogTitle>
+          <DialogDescription>{t('pathSubtitle')}</DialogDescription>
         </DialogHeader>
         <div className='grid gap-3 sm:grid-cols-2'>
           <button

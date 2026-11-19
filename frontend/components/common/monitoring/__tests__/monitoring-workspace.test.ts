@@ -18,7 +18,7 @@
 // 深链映射とアラート一覧のクエリ構築。design.md §9.1 の旧URLマッピングを担保する。
 // Deep-link mapping and alert-list query construction, covering design.md §9.1 legacy URLs.
 
-import {describe, expect, it} from 'vitest';
+import {beforeEach, describe, expect, it} from 'vitest';
 import {resolveMonitoringTab} from '../MonitoringWorkspace';
 import {
   applyAlertFilterChange,
@@ -121,5 +121,86 @@ describe('applyAlertFilterChange', () => {
   it('keeps the page for pure pagination', () => {
     const next = applyAlertFilterChange({...base, page: 2}, {page: 4}, false);
     expect(next.page).toBe(4);
+  });
+});
+
+import {findAlertMemories} from '../alerts/AlertsPanel';
+import type {AlertInstance} from '@/lib/services/monitoring';
+import type {TroubleshootingMemoryEntry} from '@/lib/services/troubleshooting';
+
+const MEMORY_KEY = 'stx_troubleshooting_memories';
+
+function seedMemories(entries: Partial<TroubleshootingMemoryEntry>[]) {
+  const now = new Date('2026-11-19T00:00:00Z').toISOString();
+  localStorage.setItem(
+    MEMORY_KEY,
+    JSON.stringify(
+      entries.map((e, i) => ({
+        id: `mem-${i}`,
+        target_type: 'alert',
+        fingerprint: '',
+        title: '',
+        solution: '',
+        created_at: now,
+        updated_at: now,
+        ...e,
+      })),
+    ),
+  );
+}
+
+function alertWith(patch: Partial<AlertInstance>): AlertInstance {
+  return {
+    alert_id: 'remote:fp:1',
+    source_type: 'metric',
+    cluster_id: '6',
+    cluster_name: 'c1',
+    severity: 'critical',
+    alert_name: '节点离线',
+    rule_key: 'node_offline',
+    summary: '',
+    description: '',
+    status: 'firing',
+    lifecycle_status: 'firing',
+    handling_status: 'none',
+    created_at: '2026-11-19T00:00:00Z',
+    firing_at: '2026-11-19T00:00:00Z',
+    last_seen_at: '2026-11-19T00:00:00Z',
+    ...patch,
+  } as AlertInstance;
+}
+
+describe('findAlertMemories', () => {
+  beforeEach(() => localStorage.removeItem(MEMORY_KEY));
+
+  it('matches memories saved under the catalog rule key', () => {
+    seedMemories([{fingerprint: 'node_offline', title: 'node offline runbook'}]);
+    expect(findAlertMemories(alertWith({}))).toHaveLength(1);
+  });
+
+  it('falls back to original_alert_name for memories saved under the legacy YAML name', () => {
+    seedMemories([{fingerprint: 'seatunnelmetricsendpointdown', title: 'legacy runbook'}]);
+    const alert = alertWith({
+      source_ref: {original_alert_name: 'SeaTunnelMetricsEndpointDown'},
+    });
+    const matches = findAlertMemories(alert);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].title).toBe('legacy runbook');
+  });
+
+  it('prefers the catalog key over the legacy fallback', () => {
+    seedMemories([
+      {fingerprint: 'node_offline', title: 'catalog runbook'},
+      {fingerprint: 'seatunnelmetricsendpointdown', title: 'legacy runbook'},
+    ]);
+    const alert = alertWith({
+      source_ref: {original_alert_name: 'SeaTunnelMetricsEndpointDown'},
+    });
+    expect(findAlertMemories(alert)[0].title).toBe('catalog runbook');
+  });
+
+  it('returns empty when neither fingerprint matches', () => {
+    seedMemories([{fingerprint: 'unrelated', title: 'other'}]);
+    expect(findAlertMemories(alertWith({}))).toHaveLength(0);
   });
 });

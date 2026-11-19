@@ -221,6 +221,28 @@ type AlertNotificationDefaults struct {
 
 需补装（`cd frontend && pnpm dlx shadcn@latest add @uiarc/<id>`）：`drawer`、`select`、`multi-select`、`number-field`、`dropdown-menu`、`alert`、`pagination`、`sortable-data-table`、`filter-toolbar`、`skeleton`、`card`、`timeline`、`accordion`、`checkbox`、`tooltip`。装后按 PR #163 的受控 vendoring 约定核对 License 头与 `licenses/third_party_mit_files.txt`。
 
+### 9.7 视觉规范（2026-11-19 改定：对齐 PR #163 拍板的「8–10px 桌面后台收紧版」）
+
+本模块视觉以 `ui-conventions.md §18`（控制台控件统一）与
+`11-18-unified-admin-console-lists/design.md §3.1 / §3.2 / §3.6` 为准，不再另行自创版式规则。要点与本模块映射：
+
+- **容器级 Token 覆盖（不改 Arc 源码圆角）**：`/monitoring` 根容器 + 所有 Portal 表面（抽屉内容、弹层内容若可传 class）统一覆盖
+  `--radius-control: 0.5rem`（8px）、`--radius-panel: 0.625rem`（10px）、`--control-height-md: 2rem`（32px）、`--control-height-sm: 1.75rem`（28px）。
+  禁止再逐个组件手写 `h-*` / `rounded-*` / `shadow-*`。
+- **防框框堆叠**：每个列表页只保留一层主卡片外框；筛选栏、搜索框、状态分段直接落页面画布，不外包带框工具条；
+  卡片内部先间距分组、其次 1px `--border-subtle` 分隔线；相邻汇总指标（告警统计）合并单框 + 内分割线。
+- **弹层收紧（vendored 本地改，文件头注明）**：`foundation.css :root` 新增 `--radius-popover: .625rem`；
+  `DropdownMenu` / `Select` / `Combobox` 弹层外框用 `var(--radius-popover)`、内边距 4px、选项圆角 `calc(var(--radius-popover) - 4px)`、选项行高 32px、高亮项图标 `--foreground`。
+- **选型（按 §18 表）**：状态筛选 `SegmentedControl` + Arc `Badge sm` 计数；少量选项 `Select`（标签可选，不显示必须 `aria-label`）；
+  >10 项 / 可搜索用 `Combobox`；行内「更多」Arc `Button ghost iconOnly` + Arc `DropdownMenu`，≤2 个行内动作直接摆无框 ghost 按钮；
+  单条不可撤销行内确认 `ConfirmMorph`（原版胶囊）；批量 / 破坏性确认 `ui/alert-dialog`；`Button` 全部 Arc，不加 `ActionButton`。
+- **表格卡片**：按 §10 / 163 design §4.4 做 `TableCard`（`common/layout/`，含加载条、`TableSkeletonRows` 首屏、空 / 错误插槽、
+  `border-t bg-muted/10` 分页底栏：左总数与每页条数，右 `ui/pagination`）。
+- **详情宿主**：沿用本模块已实现的 Arc `Drawer`（贴边、附着侧直角）；内部为「先间距、后 `--border-subtle` 分隔行」的设置分组，
+  底部固定操作栏；未保存拦截保留。
+- **本地改登记**（升级 Arc 时 diff 合并）：`foundation.css` 的 `--radius-popover`；三种弹层样式；`Button.iconOnly`；
+  `Select`/`Combobox` 可选标签与 `aria-label`；`chip-group` count（本模块不用可暂缓）。
+
 ### 9.6 回归（Egolite 矩阵，`/monitoring`）
 
 | 面板 | 必测交互 |

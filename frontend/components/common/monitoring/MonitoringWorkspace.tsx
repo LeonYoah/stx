@@ -35,10 +35,12 @@ import {
   TabsTrigger,
 } from '@/components/arc/tabs/tabs';
 import {ModuleNavTabs, WorkspaceHeader} from '@/components/common/layout';
+import {cn} from '@/lib/utils';
 import {AlertsPanel} from './alerts/AlertsPanel';
 import {RulesPanel} from './rules/RulesPanel';
 import {NotifyPanel} from './notify/NotifyPanel';
 import {useMonitoringFiringCount} from './use-firing-count';
+import styles from './monitoring.module.css';
 
 type MonitoringTab = 'alerts' | 'rules' | 'notify';
 
@@ -62,13 +64,19 @@ export function resolveMonitoringTab(
       return 'notify';
     case 'rules':
     case 'policies':
-      return section === 'history' || section === 'deliveries' || section === 'channels'
+      return section === 'history' ||
+        section === 'deliveries' ||
+        section === 'channels'
         ? 'notify'
         : 'rules';
     default:
       break;
   }
-  if (section === 'history' || section === 'deliveries' || section === 'channels') {
+  if (
+    section === 'history' ||
+    section === 'deliveries' ||
+    section === 'channels'
+  ) {
     return 'notify';
   }
   return 'alerts';
@@ -126,8 +134,14 @@ export function MonitoringWorkspace() {
   const openNotify = useCallback(() => setTab('notify'), [setTab]);
 
   return (
-    <div className='flex min-h-0 flex-1 flex-col gap-3.5'>
-      <Tabs value={tab} onValueChange={setTab} className='flex min-h-0 flex-1 flex-col'>
+    // 容器级 token 收紧挂根节点；portal 表面（抽屉）另挂 styles.scope。
+    // Container-level token tightening on the root; portal surfaces get styles.scope too.
+    <div className={cn(styles.scope, 'flex min-h-0 flex-1 flex-col gap-3.5')}>
+      <Tabs
+        value={tab}
+        onValueChange={setTab}
+        className='flex min-h-0 flex-1 flex-col'
+      >
         {/* 与诊断中心共用模块导航；二级面板收进 actions，沿用旧告警中心的壳。
             Shared module nav with diagnostics; secondary panels live in actions like the old workspace. */}
         <WorkspaceHeader

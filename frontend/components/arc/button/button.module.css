@@ -33,6 +33,9 @@
 .sm { min-height: var(--control-height-sm); padding-inline: var(--space-3); font-size: var(--text-sm); }
 .md { min-height: var(--control-height-md); }
 .lg { min-height: var(--control-height-lg); padding-inline: var(--space-5); font-size: var(--text-sm); }
+/* 本地修改：iconOnly 方形按钮——宽度跟随高度、去水平内边距（design §3.2）。
+   Local modification: square icon-only button — width follows height, no side padding. */
+.iconOnly { aspect-ratio: 1; padding-inline: 0; }
 .loader { position: absolute; left: 50%; top: 50%; display: grid; width: var(--space-4); height: var(--space-4); margin: calc(var(--space-4) / -2); }
 .spinner { border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
 .loadingLabel { opacity: 0; }

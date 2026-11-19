@@ -31,7 +31,15 @@
 
 "use client";
 
-import { forwardRef, useId, useState } from "react";
+/*
+ * 本地修改：`label` 改为可选并新增 `aria-label`——不显示标签时必须传 `aria-label`
+ * （缺两者 dev 告警），供筛选栏等无可见标签场景使用（design §3.2）；升级 Arc 时 diff 合并。
+ * Local modification: `label` is now optional and `aria-label` was added — a
+ * label-less Select must pass `aria-label` (dev warns when both are missing),
+ * for toolbar use (design §3.2); diff-merge on Arc upgrades.
+ */
+
+import { forwardRef, useEffect, useId, useRef, useState } from "react";
 import type { ComponentPropsWithoutRef } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -41,7 +49,9 @@ import { motionTokens } from "../lib/motion-tokens";
 import styles from "./select.module.css";
 
 export interface SelectProps extends Omit<ComponentPropsWithoutRef<typeof SelectPrimitive.Root>, "children"> {
-  label: string;
+  /** 可见标签；不传时必须给 `aria-label`。Visible label; required unless `aria-label` is given. */
+  label?: string;
+  "aria-label"?: string;
   description?: string;
   placeholder?: string;
   id?: string;
@@ -59,10 +69,19 @@ const valueRoll: Variants = {
 const valueFade: Variants = { enter: { opacity: 0 }, center: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: motionTokens.duration.instant } }, exit: { opacity: 0, transition: { duration: motionTokens.duration.instant } } };
 
 export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select(
-  { label, description, placeholder = "Select an option", options, id, className, disabled, onValueChange, ...rootProps },
+  { label, "aria-label": ariaLabel, description, placeholder = "Select an option", options, id, className, disabled, onValueChange, ...rootProps },
   ref,
 ) {
   const generatedId = useId();
+  // 本地修改：标签与 aria-label 必须有一个，否则屏幕阅读器拿不到字段名（dev 告警一次）。
+  // Local modification: one of label / aria-label is required; warn once in dev.
+  const warned = useRef(false);
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production" && !warned.current && !label && !ariaLabel) {
+      warned.current = true;
+      console.warn("[arc/select] Select without a visible `label` must pass `aria-label`.");
+    }
+  }, [label, ariaLabel]);
   const controlId = id ?? generatedId;
   const hintId = description ? `${controlId}-description` : undefined;
   const reduceMotion = useReducedMotion();
@@ -76,11 +95,12 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
 
   return (
     <div className={styles.field}>
-      <label htmlFor={controlId}>{label}</label>
+      {label ? <label htmlFor={controlId}>{label}</label> : null}
       <SelectPrimitive.Root {...rootProps} disabled={disabled} onValueChange={(next) => { setUncontrolledValue(next); onValueChange?.(next); }}>
         <SelectPrimitive.Trigger
           ref={ref}
           id={controlId}
+          aria-label={label ? undefined : ariaLabel}
           aria-describedby={hintId}
           className={[styles.trigger, className].filter(Boolean).join(" ")}
         >

@@ -26,7 +26,8 @@
  */
 import {useEffect} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
+import {Button} from '@/components/arc/button/button';
+import styles from './monitoring.module.css';
 
 export function DiscardConfirmStrip({
   onDiscard,
@@ -38,19 +39,21 @@ export function DiscardConfirmStrip({
   const t = useTranslations('monitoring');
   return (
     <div className='flex w-full items-center gap-2' data-testid='discard-confirm'>
-      <span className='min-w-0 flex-1 truncate text-xs text-destructive'>
+      <span className={`min-w-0 flex-1 truncate ${styles.xsText} ${styles.dangerText}`}>
         {t('unsavedChanges')}
       </span>
+      {/* 放弃修改是不可逆操作的入口，用 danger 文字色但保持 ghost 形态。
+          Discard is a destructive entry, kept ghost-shaped with danger text. */}
       <Button
         type='button'
         variant='ghost'
         size='sm'
-        className='h-7 rounded-md text-xs text-destructive hover:text-destructive'
+        className={styles.dangerText}
         onClick={onDiscard}
       >
         {t('discardChanges')}
       </Button>
-      <Button type='button' size='sm' className='h-7 rounded-md text-xs' onClick={onKeepEditing}>
+      <Button type='button' size='sm' onClick={onKeepEditing}>
         {t('keepEditing')}
       </Button>
     </div>

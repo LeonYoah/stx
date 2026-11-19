@@ -73,6 +73,13 @@
   --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem;
   --space-12: 3rem; --space-16: 4rem; --space-20: 5rem; --space-24: 6rem;
   --radius-control: 1.125rem; --radius-panel: 1.625rem; --radius-surface: 2.125rem; --radius-pill: 9999px;
+  /* 本地修改：新增 --radius-popover 供 DropdownMenu / Select / Combobox 弹层统一收紧
+     （design §3.6：外框 10px、内边距 4px、选项 6px）。必须定义在 :root——弹层经
+     Portal 渲染到 body，容器上的变量传不进去；升级 Arc 时 diff 合并。
+     Local modification: --radius-popover tightens the DropdownMenu / Select / Combobox
+     popups (design §3.6: 10px frame, 4px padding, 6px options). It must live on :root —
+     popups portal to <body> so container-scoped vars never reach them; diff-merge on upgrades. */
+  --radius-popover: .625rem;
   --control-height-sm: 2.25rem; --control-height-md: 2.75rem; --control-height-lg: 3.125rem;
   --font-display: var(--font-geist, "Geist Variable"), sans-serif;
   --font-body: var(--font-inter, "Inter Variable"), sans-serif;

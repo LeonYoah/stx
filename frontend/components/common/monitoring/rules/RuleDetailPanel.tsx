@@ -28,7 +28,7 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useLocale, useTranslations} from 'next-intl';
 import {Accordion, type AccordionItem} from '@/components/arc/accordion/accordion';
-import {Badge} from '@/components/arc/badge/badge';
+import {NeutralChip, SeverityChip} from '../status-chips';
 import {Combobox} from '@/components/arc/combobox/combobox';
 import ConfirmMorph from '@/components/arc/confirm-morph/confirm-morph';
 import {MultiSelect} from '@/components/arc/multi-select/multi-select';
@@ -36,7 +36,7 @@ import {NumberField} from '@/components/arc/number-field/number-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Select} from '@/components/arc/select/select';
 import {Switch} from '@/components/arc/switch/switch';
-import {Button} from '@/components/ui/button';
+import {Button} from '@/components/arc/button/button';
 import services from '@/lib/services';
 import type {
   AlertNotificationDefaults,
@@ -47,7 +47,9 @@ import type {
   NotificationRecipientUser,
 } from '@/lib/services/monitoring';
 import type {ClusterInfo} from '@/lib/services/cluster';
-import {formatRuleThreshold, severityTone, thresholdUnitLabel} from '../monitoring-utils';
+import {cn} from '@/lib/utils';
+import {formatRuleThreshold, thresholdUnitLabel} from '../monitoring-utils';
+import styles from '../monitoring.module.css';
 import {DiscardConfirmStrip, useBeforeUnload} from '../dirty-close';
 import {layerBody} from './RulesPanel';
 
@@ -112,7 +114,6 @@ export function RuleDetailPanel({
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
   const [defaults, setDefaults] = useState<AlertNotificationDefaults | null>(null);
   const [addingCluster, setAddingCluster] = useState(false);
-  const [restoreArmed, setRestoreArmed] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -235,170 +236,191 @@ export function RuleDetailPanel({
   const addableClusters = clusters.filter((c) => !overriddenClusterIds.has(c.id));
 
   return (
-    // 负 margin 抵消 body 内边距，让头部元信息条与 footer 贴到抽屉边；footer 由
-    // flex 布局钉在底部，不再用 sticky（sticky 在内容不足时不会吸附）。
-    // Negative margins cancel the body padding so the meta band and footer reach
-    // the drawer edges; the footer is pinned by flex layout, not sticky (sticky
-    // cannot pull up when content is short).
-    <div data-testid='rule-detail-panel' className='-m-5 flex h-full flex-col sm:-m-6'>
-      <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 sm:px-6'>
-        {/* 级别 + key 紧跟标题，作为头部视觉延伸；滚动时仍 sticky 不丢上下文。
-            Severity + key sit directly under the title as a visual extension of
-            the header; still sticky while scrolling. */}
-        <div className='sticky top-0 -mx-5 mb-1 flex items-center gap-2 bg-(--surface-raised) px-5 py-2.5 sm:-mx-6 sm:px-6'>
-          <Badge tone={severityTone(severity)} size='sm'>
-            {severity === 'critical' ? t('severityCritical') : t('severityWarning')}
-          </Badge>
-          <span className='truncate font-mono text-xs text-muted-foreground'>{rule.key}</span>
-        </div>
+    <div data-testid='rule-detail-panel' className={styles.detailCol}>
+      {/* 级别 + key 作为头部视觉延伸，固定不滚动。
+          Severity + key extend the header; pinned above the scroll area. */}
+      <div className={styles.metaBand}>
+        <SeverityChip
+          severity={severity}
+          label={
+            severity === 'critical'
+              ? t('severityCritical')
+              : t('severityWarning')
+          }
+        />
+        <span className={cn(styles.sub, styles.mono)}>{rule.key}</span>
+      </div>
 
-        <div className='space-y-4 pb-4'>
-        <p className='text-sm text-muted-foreground'>
+      <div className={styles.detailScroll}>
+        <p className={styles.descText}>
           {locale === 'en' ? (rule.description_en || rule.description) : rule.description}
         </p>
 
-        <div className='flex items-center justify-between'>
-          <span className='text-sm'>{t('fieldEnabled')}</span>
-          <Switch
-            checked={rule.enabled}
-            onCheckedChange={(on) => void onToggleEnabled(rule, on)}
-            aria-label={t('fieldEnabled')}
-          />
-        </div>
-
-        <div className='flex items-start gap-3'>
-          {rule.threshold ? (
-            rule.threshold.value == null && draft.threshold == null ? (
-              // null 阈值是"等于部署数"动态语义，NumberField 无法表示空值，提供入口切换到固定值编辑
-              // a null threshold is the dynamic "equals deployed count" semantic; NumberField can't render emptiness, so offer a switch into fixed-value editing
-              <div className='flex-1 rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-xs text-muted-foreground'>
-                {t('thresholdDeployedHint')}
-                <button
-                  type='button'
-                  className='ml-2 text-primary underline-offset-2 hover:underline'
-                  onClick={() => setDraft((d) => ({...d, threshold: rule.threshold?.min ?? 1}))}
-                >
-                  {t('thresholdSetFixed')}
-                </button>
-              </div>
-            ) : (
-              <div className='w-40'>
-                <NumberField
-                  label={t('fieldThreshold')}
-                  value={draft.threshold ?? rule.threshold.value ?? undefined}
-                  onValueChange={(v) => setDraft((d) => ({...d, threshold: v}))}
-                  min={rule.threshold.min}
-                  max={rule.threshold.max}
-                  prefix={rule.threshold.operator}
-                  suffix={thresholdUnitLabel(rule.threshold.unit, t) || undefined}
-                  description={t('thresholdRange', {min: rule.threshold.min, max: rule.threshold.max})}
-                />
-              </div>
-            )
-          ) : (
-            <div className='flex-1 rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-xs text-muted-foreground'>
-              {t('noThreshold')}
+        {/* 全局层设置分组：左标签右控件的分隔行，一个分组一个边框。
+            Global-layer settings group: label-left/control-right rows, one border. */}
+        <div className={styles.groupInner}>
+          <div className={styles.groupRow}>
+            <div className={styles.rowLabel}>
+              <span className={styles.rowLabelText}>{t('fieldEnabled')}</span>
             </div>
-          )}
-          <Select
-            label={t('fieldFor')}
-            value={String(draft.for_seconds ?? rule.for_seconds)}
-            onValueChange={(v) => setDraft((d) => ({...d, for_seconds: Number(v)}))}
-            disabled={!rule.for_editable}
-            className='w-36'
-            options={FOR_OPTIONS_SECONDS.map((sec) => ({
-              value: String(sec),
-              label: sec === 0 ? t('realtime') : t('forMinutes', {minutes: sec / 60}),
-            }))}
-          />
-        </div>
-
-        <div className='space-y-1.5'>
-          <span className='text-sm font-medium'>{t('fieldSeverity')}</span>
-          <SegmentedControl
-            label={t('fieldSeverity')}
-            value={severity}
-            onValueChange={(v) => setDraft((d) => ({...d, severity: v as LayerDraft['severity']}))}
-            options={[
-              {value: 'warning', label: t('severityWarning')},
-              {value: 'critical', label: t('severityCritical')},
-            ]}
-          />
-          <p className='text-xs text-muted-foreground'>
-            {severity === 'critical' ? t('severityCriticalDesc') : t('severityWarningDesc')}
-          </p>
-        </div>
-
-        {severity === 'critical' ? (
-          <div className='space-y-1.5'>
-            <span className='text-sm font-medium'>{t('fieldNotify')}</span>
-            <SegmentedControl
-              label={t('fieldNotify')}
-              value={notifyMode}
-              onValueChange={(v) => setDraft((d) => ({...d, notify_mode: v as ClusterRuleNotifyMode}))}
-              options={[
-                {value: 'default', label: t('notifyDefault')},
-                {value: 'custom', label: t('notifyCustom')},
-              ]}
+            <Switch
+              checked={rule.enabled}
+              onCheckedChange={(on) => void onToggleEnabled(rule, on)}
+              aria-label={t('fieldEnabled')}
             />
-            <p className='text-xs text-muted-foreground'>
-              {notifyMode === 'custom'
-                ? t('notifyCustomDesc')
-                : defaultsTargets
-                  ? t('notifyDefaultSummary', {targets: defaultsTargets})
-                  : defaults?.configured
-                    ? t('notifyDefaultDesc')
-                    : t('notifyDefaultUnset')}
-              {notifyMode === 'default' && !defaults?.configured && onConfigureNotify ? (
-                <>
-                  {' '}
-                  <button
-                    type='button'
-                    className='text-primary underline underline-offset-2'
-                    onClick={onConfigureNotify}
-                  >
-                    {t('goConfigureNotify')}
-                  </button>
-                </>
-              ) : null}
-            </p>
-            {notifyMode === 'custom' ? (
-              <div className='space-y-3 pt-1'>
-                <MultiSelect
-                  label={t('notifyChannels')}
-                  options={channelOptions}
-                  value={draft.channel_ids.map(String)}
-                  onValueChange={(v) => setDraft((d) => ({...d, channel_ids: v.map(Number)}))}
-                  placeholder={t('notifyChannelsPlaceholder')}
-                />
-                <MultiSelect
-                  label={t('notifyReceivers')}
-                  options={userOptions}
-                  value={draft.receiver_user_ids.map(String)}
-                  onValueChange={(v) => setDraft((d) => ({...d, receiver_user_ids: v.map(Number)}))}
-                  placeholder={t('notifyReceiversPlaceholder')}
-                />
-                {customMissingChannel ? (
-                  <p className='text-xs text-destructive'>
-                    {t('notifyMissingForCritical')}
-                    {onConfigureNotify ? (
-                      <>
-                        {' '}
-                        <button
-                          type='button'
-                          className='underline underline-offset-2'
-                          onClick={onConfigureNotify}
-                        >
-                          {t('goConfigureNotify')}
-                        </button>
-                      </>
-                    ) : null}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
           </div>
-        ) : null}
+
+          {/* 有阈值时阈值/持续时间两列并排（标签同基线）；无阈值只渲染持续时间。
+              Threshold + duration share one two-column row (aligned labels);
+              no-threshold rules render duration only, no placeholder. */}
+          <div className={cn(styles.groupRow, styles.groupRowStack)}>
+            <div className={rule.threshold ? styles.fieldRow : cn(styles.fieldRow, 'grid-cols-1 sm:grid-cols-2')}>
+              {rule.threshold ? (
+                rule.threshold.value == null && draft.threshold == null ? (
+                  <div className={styles.field}>
+                    <span className={styles.fieldLabel}>{t('fieldThreshold')}</span>
+                    {/* null 阈值 = "等于部署数"动态语义，NumberField 无法表示空值，
+                        提供入口切换到固定值编辑。
+                        A null threshold is dynamic (= deployed count); NumberField
+                        can't render emptiness, so offer a switch into fixed-value editing. */}
+                    <span className={styles.fieldDesc}>
+                      {t('thresholdDeployedHint')}{' '}
+                      <button
+                        type='button'
+                        className={styles.linkBtn}
+                        onClick={() => setDraft((d) => ({...d, threshold: rule.threshold?.min ?? 1}))}
+                      >
+                        {t('thresholdSetFixed')}
+                      </button>
+                    </span>
+                  </div>
+                ) : (
+                  <div className={styles.field}>
+                    <NumberField
+                      label={t('fieldThreshold')}
+                      value={draft.threshold ?? rule.threshold.value ?? undefined}
+                      onValueChange={(v) => setDraft((d) => ({...d, threshold: v}))}
+                      min={rule.threshold.min}
+                      max={rule.threshold.max}
+                      prefix={rule.threshold.operator}
+                      suffix={thresholdUnitLabel(rule.threshold.unit, t) || undefined}
+                    />
+                    <span className={styles.fieldDesc}>
+                      {t('thresholdRange', {min: rule.threshold.min, max: rule.threshold.max})}
+                    </span>
+                  </div>
+                )
+              ) : null}
+              <div className={styles.field}>
+                <Select
+                  label={t('fieldFor')}
+                  value={String(draft.for_seconds ?? rule.for_seconds)}
+                  onValueChange={(v) => setDraft((d) => ({...d, for_seconds: Number(v)}))}
+                  disabled={!rule.for_editable}
+                  options={FOR_OPTIONS_SECONDS.map((sec) => ({
+                    value: String(sec),
+                    label: sec === 0 ? t('realtime') : t('durationMinutes', {minutes: sec / 60}),
+                  }))}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className={cn(styles.groupRow, styles.groupRowStack)}>
+            <span className={styles.fieldLabel}>{t('fieldSeverity')}</span>
+            <div>
+              <SegmentedControl
+                label={t('fieldSeverity')}
+                value={severity}
+                onValueChange={(v) => setDraft((d) => ({...d, severity: v as LayerDraft['severity']}))}
+                options={[
+                  {value: 'warning', label: t('severityWarning')},
+                  {value: 'critical', label: t('severityCritical')},
+                ]}
+              />
+            </div>
+            <span className={styles.fieldDesc}>
+              {severity === 'critical' ? t('severityCriticalDesc') : t('severityWarningDesc')}
+            </span>
+          </div>
+
+          {severity === 'critical' ? (
+            <>
+              <div className={cn(styles.groupRow, styles.groupRowStack)}>
+                <span className={styles.fieldLabel}>{t('fieldNotify')}</span>
+                <div>
+                  <SegmentedControl
+                    label={t('fieldNotify')}
+                    value={notifyMode}
+                    onValueChange={(v) =>
+                      setDraft((d) => ({...d, notify_mode: v as ClusterRuleNotifyMode}))
+                    }
+                    options={[
+                      {value: 'default', label: t('notifyDefault')},
+                      {value: 'custom', label: t('notifyCustom')},
+                    ]}
+                  />
+                </div>
+                <span className={styles.fieldDesc}>
+                  {notifyMode === 'custom'
+                    ? t('notifyCustomDesc')
+                    : defaultsTargets
+                      ? t('notifyDefaultSummary', {targets: defaultsTargets})
+                      : defaults?.configured
+                        ? t('notifyDefaultDesc')
+                        : t('notifyDefaultUnset')}
+                  {notifyMode === 'default' && !defaults?.configured && onConfigureNotify ? (
+                    <>
+                      {' '}
+                      <button
+                        type='button'
+                        className={styles.linkBtn}
+                        onClick={onConfigureNotify}
+                      >
+                        {t('goConfigureNotify')}
+                      </button>
+                    </>
+                  ) : null}
+                </span>
+              </div>
+              {notifyMode === 'custom' ? (
+                <div className={cn(styles.groupRow, styles.groupRowStack)}>
+                  <MultiSelect
+                    label={t('notifyChannels')}
+                    options={channelOptions}
+                    value={draft.channel_ids.map(String)}
+                    onValueChange={(v) => setDraft((d) => ({...d, channel_ids: v.map(Number)}))}
+                    placeholder={t('notifyChannelsPlaceholder')}
+                  />
+                  <MultiSelect
+                    label={t('notifyReceivers')}
+                    options={userOptions}
+                    value={draft.receiver_user_ids.map(String)}
+                    onValueChange={(v) => setDraft((d) => ({...d, receiver_user_ids: v.map(Number)}))}
+                    placeholder={t('notifyReceiversPlaceholder')}
+                  />
+                  {customMissingChannel ? (
+                    <p className={cn(styles.rowHint, styles.dangerText)}>
+                      {t('notifyMissingForCritical')}
+                      {onConfigureNotify ? (
+                        <>
+                          {' '}
+                          <button
+                            type='button'
+                            className={styles.linkBtn}
+                            onClick={onConfigureNotify}
+                          >
+                            {t('goConfigureNotify')}
+                          </button>
+                        </>
+                      ) : null}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
 
         <OverridesSection
           rule={rule}
@@ -412,69 +434,49 @@ export function RuleDetailPanel({
           channels={channels}
           users={users}
         />
-        </div>
       </div>
 
-      {/* 底栏常驻抽屉底部：保存只写全局层；保存中/已保存/错误内联在按钮旁。
-          关闭被拦截或恢复默认确认时原位换成对应的确认行，不弹新组件。
-          Persistent bottom bar; save writes the global layer, status stays inline.
-          An intercepted close or a restore-default click swaps this row for the
-          matching inline confirm. */}
-      <div className='flex items-center gap-2 border-t border-border/60 bg-(--surface-raised) px-5 py-3 sm:px-6'>
+      {/* 底栏常驻详情底部：保存只写全局层；保存中/已保存/错误内联在按钮旁；
+          恢复默认走 ConfirmMorph；关闭被拦截时原位换成放弃确认行。
+          Persistent bottom bar; save writes the global layer, status stays inline;
+          restore-default goes through ConfirmMorph; an intercepted close swaps
+          in the discard row. */}
+      <div className={styles.detailFoot}>
         {discardArmed ? (
           <DiscardConfirmStrip
             onDiscard={() => onDiscard?.()}
             onKeepEditing={() => onKeepEditing?.()}
           />
-        ) : restoreArmed ? (
-          <div className='flex w-full items-center gap-2' data-testid='restore-confirm'>
-            <span className='min-w-0 flex-1 truncate text-xs text-muted-foreground'>
-              {t('restoreDefaultConfirm')}
-            </span>
-            <Button
-              type='button'
-              variant='ghost'
-              size='sm'
-              className='h-7 rounded-md text-xs text-destructive hover:text-destructive'
-              onClick={() => {
-                setRestoreArmed(false);
-                void restoreDefault();
-              }}
-            >
-              {t('restoreDefault')}
-            </Button>
-            <Button
-              type='button'
-              size='sm'
-              className='h-7 rounded-md text-xs'
-              onClick={() => setRestoreArmed(false)}
-            >
-              {t('deleteCancel')}
-            </Button>
-          </div>
         ) : (
           <>
             <Button
               type='button'
               size='sm'
-              className='h-7 rounded-md text-xs'
+              loading={saving}
               disabled={saveDisabled}
               onClick={() => void save()}
             >
               {t('save')}
             </Button>
-            {saving ? <span className='text-xs text-muted-foreground'>{t('saving')}</span> : null}
-            {!saving && saved ? <span className='text-xs text-muted-foreground'>{t('saved')}</span> : null}
-            {error ? <span className='min-w-0 truncate text-xs text-destructive' title={error}>{error}</span> : null}
-            <Button
-              type='button'
-              variant='ghost'
-              size='sm'
-              className='ml-auto h-7 rounded-md text-xs text-muted-foreground'
-              onClick={() => setRestoreArmed(true)}
-            >
-              {t('restoreDefault')}
-            </Button>
+            {saving ? <span className={cn(styles.xsText, styles.muted)}>{t('saving')}</span> : null}
+            {!saving && saved ? <span className={cn(styles.xsText, styles.muted)}>{t('saved')}</span> : null}
+            {error ? (
+              <span className={cn(styles.xsText, styles.dangerText, 'min-w-0 truncate')} title={error}>
+                {error}
+              </span>
+            ) : null}
+            <span className={styles.detailFootGrow} />
+            {/* 恢复默认 = 删除全局层配置回到目录默认，单项确认用 ConfirmMorph。
+                Restore deletes the global layer back to catalog defaults. */}
+            <ConfirmMorph
+              label={t('restoreDefault')}
+              prompt={t('restoreDefaultConfirm')}
+              confirmLabel={t('restoreDefault')}
+              cancelLabel={t('deleteCancel')}
+              pendingLabel={t('saving')}
+              tone='neutral'
+              onConfirm={restoreDefault}
+            />
           </>
         )}
       </div>
@@ -524,14 +526,13 @@ function OverridesSection({
   }));
 
   return (
-    <div className='space-y-2'>
-      <div className='flex items-center justify-between'>
-        <span className='text-sm font-medium'>{t('detailExceptions')}</span>
+    <div className={styles.sectionStack} style={{gap: 8}}>
+      <div className={styles.sectionHead}>
+        <span className={styles.sectionTitle}>{t('detailExceptions')}</span>
         <Button
           type='button'
           variant='ghost'
           size='sm'
-          className='h-7 rounded-md text-xs'
           disabled={addable.length === 0}
           onClick={() => onToggleAdd(!adding)}
         >
@@ -553,9 +554,7 @@ function OverridesSection({
       {items.length ? (
         <Accordion items={items} />
       ) : (
-        <p className='rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-xs text-muted-foreground'>
-          {t('exceptionsEmpty')}
-        </p>
+        <p className={styles.hintBox}>{t('exceptionsEmpty')}</p>
       )}
     </div>
   );
@@ -632,21 +631,25 @@ function OverrideEditor({
   ].filter(Boolean) as string[];
 
   return (
-    <div className='space-y-3 text-sm'>
+    <div className={cn(styles.groupInner, styles.sectionStack)} style={{gap: 0}}>
       {overriddenFields.length ? (
-        <div className='flex flex-wrap gap-1'>
-          {overriddenFields.map((f) => (
-            <Badge key={f} size='sm' outline>
-              {f}
-            </Badge>
-          ))}
+        <div className={styles.groupRow}>
+          <div className={cn(styles.rowLabel, styles.inlineBadgeRow)}>
+            {overriddenFields.map((f) => (
+              <NeutralChip key={f}>{f}</NeutralChip>
+            ))}
+          </div>
         </div>
       ) : (
-        <p className='text-xs text-muted-foreground'>{t('inheritGlobal')}</p>
+        <div className={styles.groupRow}>
+          <span className={styles.rowHint}>{t('inheritGlobal')}</span>
+        </div>
       )}
 
-      <div className='flex items-center justify-between'>
-        <span>{t('fieldEnabled')}</span>
+      <div className={styles.groupRow}>
+        <div className={styles.rowLabel}>
+          <span className={styles.rowLabelText}>{t('fieldEnabled')}</span>
+        </div>
         <Switch
           checked={draft.enabled ?? eff.enabled}
           onCheckedChange={(on) => setDraft((d) => ({...d, enabled: on}))}
@@ -655,83 +658,104 @@ function OverrideEditor({
       </div>
 
       {rule.threshold ? (
-        <div className='space-y-1'>
+        <div className={cn(styles.groupRow, styles.groupRowStack)}>
           {draft.threshold != null ? (
-            <NumberField
-              label={t('fieldThreshold')}
-              value={draft.threshold}
-              onValueChange={(v) => setDraft((d) => ({...d, threshold: v}))}
-              min={rule.threshold.min}
-              max={rule.threshold.max}
-              suffix={thresholdUnitLabel(rule.threshold.unit, t) || undefined}
-            />
+            <div className={styles.field}>
+              <NumberField
+                label={t('fieldThreshold')}
+                value={draft.threshold}
+                onValueChange={(v) => setDraft((d) => ({...d, threshold: v}))}
+                min={rule.threshold.min}
+                max={rule.threshold.max}
+                suffix={thresholdUnitLabel(rule.threshold.unit, t) || undefined}
+              />
+              <span className={styles.fieldDesc}>
+                <button
+                  type='button'
+                  className={styles.linkBtn}
+                  onClick={() => setDraft((d) => ({...d, threshold: null}))}
+                >
+                  {t('inheritGlobal')}
+                </button>
+              </span>
+            </div>
           ) : (
-            <div className='rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-xs text-muted-foreground'>
-              {t('inheritGlobal')}
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>{t('fieldThreshold')}</span>
+              <span className={styles.fieldDesc}>
+                {t('inheritGlobal')}{' '}
+                <button
+                  type='button'
+                  className={styles.linkBtn}
+                  onClick={() =>
+                    setDraft((d) => ({
+                      ...d,
+                      // 生效阈值 null（=部署数）时用 min 兜底，否则空值永远进不了编辑态
+                      // fall back to min when the effective threshold is null (= deployed count)
+                      threshold:
+                        ov.effective.threshold ?? rule.threshold?.value ?? rule.threshold?.min ?? 1,
+                    }))
+                  }
+                >
+                  {t('detailAddException')}
+                </button>
+              </span>
             </div>
           )}
-          <button
-            type='button'
-            className='text-xs text-primary underline-offset-2 hover:underline'
-            onClick={() =>
-              setDraft((d) => ({
-                ...d,
-                // 生效阈值 null（=部署数）时用 min 兜底，否则空值永远进不了编辑态
-                // fall back to min when the effective threshold is null (= deployed count), otherwise the editor can never be entered
-                threshold: d.threshold == null ? (ov.effective.threshold ?? rule.threshold?.value ?? rule.threshold?.min ?? 1) : null,
-              }))
-            }
-          >
-            {draft.threshold == null ? t('detailAddException') : t('inheritGlobal')}
-          </button>
         </div>
       ) : null}
 
-      <Select
-        label={t('fieldFor')}
-        value={draft.for_seconds != null ? String(draft.for_seconds) : 'inherit'}
-        onValueChange={(v) =>
-          setDraft((d) => ({...d, for_seconds: v === 'inherit' ? null : Number(v)}))
-        }
-        disabled={!rule.for_editable}
-        options={[
-          {value: 'inherit', label: `${t('inheritGlobal')} (${formatRuleThreshold(rule, t)})`},
-          ...FOR_OPTIONS_SECONDS.map((sec) => ({
-            value: String(sec),
-            label: sec === 0 ? t('realtime') : t('forMinutes', {minutes: sec / 60}),
-          })),
-        ]}
-      />
+      <div className={cn(styles.groupRow, styles.groupRowStack)}>
+        <Select
+          label={t('fieldFor')}
+          value={draft.for_seconds != null ? String(draft.for_seconds) : 'inherit'}
+          onValueChange={(v) =>
+            setDraft((d) => ({...d, for_seconds: v === 'inherit' ? null : Number(v)}))
+          }
+          disabled={!rule.for_editable}
+          options={[
+            {value: 'inherit', label: `${t('inheritGlobal')} (${formatRuleThreshold(rule, t)})`},
+            ...FOR_OPTIONS_SECONDS.map((sec) => ({
+              value: String(sec),
+              label: sec === 0 ? t('realtime') : t('durationMinutes', {minutes: sec / 60}),
+            })),
+          ]}
+        />
+      </div>
 
-      <Select
-        label={t('fieldSeverity')}
-        value={draft.severity ?? 'inherit'}
-        onValueChange={(v) =>
-          setDraft((d) => ({...d, severity: v === 'inherit' ? null : (v as 'warning' | 'critical')}))
-        }
-        options={[
-          {value: 'inherit', label: `${t('inheritGlobal')} (${eff.severity === 'critical' ? t('severityCritical') : t('severityWarning')})`},
-          {value: 'warning', label: t('severityWarning')},
-          {value: 'critical', label: t('severityCritical')},
-        ]}
-      />
+      <div className={cn(styles.groupRow, styles.groupRowStack)}>
+        <Select
+          label={t('fieldSeverity')}
+          value={draft.severity ?? 'inherit'}
+          onValueChange={(v) =>
+            setDraft((d) => ({...d, severity: v === 'inherit' ? null : (v as 'warning' | 'critical')}))
+          }
+          options={[
+            {value: 'inherit', label: `${t('inheritGlobal')} (${eff.severity === 'critical' ? t('severityCritical') : t('severityWarning')})`},
+            {value: 'warning', label: t('severityWarning')},
+            {value: 'critical', label: t('severityCritical')},
+          ]}
+        />
+      </div>
 
       {effSeverity === 'critical' ? (
         <>
-          <Select
-            label={t('fieldNotify')}
-            value={draft.notify_mode ?? 'inherit'}
-            onValueChange={(v) =>
-              setDraft((d) => ({...d, notify_mode: v === 'inherit' ? null : (v as ClusterRuleNotifyMode)}))
-            }
-            options={[
-              {value: 'inherit', label: t('inheritGlobal')},
-              {value: 'default', label: t('notifyDefault')},
-              {value: 'custom', label: t('notifyCustom')},
-            ]}
-          />
+          <div className={cn(styles.groupRow, styles.groupRowStack)}>
+            <Select
+              label={t('fieldNotify')}
+              value={draft.notify_mode ?? 'inherit'}
+              onValueChange={(v) =>
+                setDraft((d) => ({...d, notify_mode: v === 'inherit' ? null : (v as ClusterRuleNotifyMode)}))
+              }
+              options={[
+                {value: 'inherit', label: t('inheritGlobal')},
+                {value: 'default', label: t('notifyDefault')},
+                {value: 'custom', label: t('notifyCustom')},
+              ]}
+            />
+          </div>
           {effNotify === 'custom' ? (
-            <>
+            <div className={cn(styles.groupRow, styles.groupRowStack)}>
               <MultiSelect
                 label={t('notifyChannels')}
                 options={channels.map((c) => ({value: String(c.id), label: c.name}))}
@@ -746,18 +770,20 @@ function OverrideEditor({
                 onValueChange={(v) => setDraft((d) => ({...d, receiver_user_ids: v.map(Number)}))}
                 placeholder={t('notifyReceiversPlaceholder')}
               />
-              {missing ? <p className='text-xs text-destructive'>{t('notifyMissingForCritical')}</p> : null}
-            </>
+              {missing ? <p className={cn(styles.rowHint, styles.dangerText)}>{t('notifyMissingForCritical')}</p> : null}
+            </div>
           ) : null}
         </>
       ) : null}
 
-      {err ? <p className='text-xs text-destructive'>{err}</p> : null}
-      <div className='flex items-center gap-2'>
+      {err ? <div className={styles.groupRow}><span className={cn(styles.rowHint, styles.dangerText)}>{err}</span></div> : null}
+
+      <div className={styles.groupRow}>
+        <span className={styles.rowLabel} />
         <Button
           type='button'
           size='sm'
-          className='h-7 rounded-md text-xs'
+          loading={saving}
           disabled={saving || missing}
           onClick={() => void submit()}
         >
@@ -767,6 +793,8 @@ function OverrideEditor({
           label={t('deleteException')}
           prompt={t('deleteExceptionPrompt', {name: ov.cluster_name || `#${ov.cluster_id}`})}
           confirmLabel={t('deleteConfirm')}
+          cancelLabel={t('deleteCancel')}
+          pendingLabel={t('saving')}
           onConfirm={onDelete}
         />
       </div>

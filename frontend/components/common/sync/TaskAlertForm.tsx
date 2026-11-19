@@ -19,8 +19,8 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Info, Loader2} from 'lucide-react';
-import {Button} from '@/components/ui/button';
+import {Info} from 'lucide-react';
+import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {MultiSelect} from '@/components/arc/multi-select/multi-select';
 import {NumberField} from '@/components/arc/number-field/number-field';
@@ -252,9 +252,11 @@ export function TaskAlertForm({
       ) : null}
 
       <fieldset className='space-y-2' disabled={readOnly}>
-        <Label className='text-xs font-semibold'>{t('channelsLabel')}</Label>
         {visibleChannels.length === 0 ? (
-          <p className='text-xs text-muted-foreground'>{t('noChannels')}</p>
+          <>
+            <Label className='text-xs font-semibold'>{t('channelsLabel')}</Label>
+            <p className='text-xs text-muted-foreground'>{t('noChannels')}</p>
+          </>
         ) : (
           <div data-testid='task-alert-channels'>
             <MultiSelect
@@ -361,12 +363,11 @@ export function TaskAlertForm({
           ) : null}
         </div>
         <div className='flex items-center gap-2'>
-          <Button type='button' variant='outline' size='sm' onClick={onCancel} disabled={saving}>
+          <Button type='button' variant='secondary' size='sm' onClick={onCancel} disabled={saving}>
             {t('cancel')}
           </Button>
           {!readOnly ? (
-            <Button type='button' size='sm' onClick={submit} disabled={saving} data-testid='task-alert-save'>
-              {saving ? <Loader2 className='mr-1 size-3.5 animate-spin' /> : null}
+            <Button type='button' size='sm' loading={saving} onClick={submit} disabled={saving} data-testid='task-alert-save'>
               {saving ? t('saving') : t('save')}
             </Button>
           ) : null}

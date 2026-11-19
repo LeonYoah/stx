@@ -18,11 +18,14 @@
 'use client';
 
 /**
- * Alerts panel: metric strip, filter toolbar, server-driven table, detail drawer.
- * 告警面板：指标行（点击即筛选）、filter-toolbar、服务端分页 sortable-data-table、
- * Arc drawer 详情（命中规则 / 时间线 / 投递记录）。筛选与页码同步 URL，筛选变化重置 page=1。
+ * Alerts panel: status segmented control with counts, one-row toolbar
+ * (search + popover filters + time range), bordered table surface with
+ * whole-row buttons, and a persistent detail rail (drawer below 1080px).
+ * 告警面板：带计数的状态分段、单行工具栏（搜索 + Popover 筛选 + 时间）、
+ * 边框表格表面（整行按钮 + 方向键）、≥1080px 常驻详情栏（design.md §9.7）。
+ * 筛选与页码同步 URL，筛选变化重置 page=1。
  */
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 import {useLocale, useTranslations} from 'next-intl';
 import {
@@ -32,20 +35,28 @@ import {
   ChevronRight,
   ExternalLink,
   Lightbulb,
+  MoreHorizontal,
   X,
 } from 'lucide-react';
-import {Badge} from '@/components/arc/badge/badge';
-import {Drawer, DrawerContent} from '@/components/arc/drawer/drawer';
+import {
+  AlertStatusChip,
+  DeliveryChip,
+  NeutralChip,
+  SeverityChip,
+} from '../status-chips';
+import {Button} from '@/components/arc/button/button';
+import {Combobox} from '@/components/arc/combobox/combobox';
+import {useDrawerItem} from '@/components/arc/drawer/drawer';
 import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
-import {Pagination} from '@/components/arc/pagination/pagination';
 import {SearchField} from '@/components/arc/search-field/search-field';
 import {Select} from '@/components/arc/select/select';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
-import {Skeleton} from '@/components/arc/skeleton/skeleton';
-import {SortableDataTable, type DataColumn} from '@/components/arc/sortable-data-table/sortable-data-table';
-import {Button} from '@/components/ui/button';
-import {CompactTimeFilter, formatToDateTimeLocal} from '@/components/common/layout/CompactTimeFilter';
+import {
+  CompactTimeFilter,
+  formatToDateTimeLocal,
+} from '@/components/common/layout/CompactTimeFilter';
+import {TableCard} from '@/components/common/layout/TableCard';
 import {TroubleshootingMemoryCard} from '@/components/common/troubleshooting/TroubleshootingMemoryCard';
 import {SaveMemoryDialog} from '@/components/common/troubleshooting/SaveMemoryDialog';
 import {syncAutoCloseReason} from '@/components/common/sync/task-alert-utils';
@@ -55,6 +66,7 @@ import type {TroubleshootingMemoryEntry} from '@/lib/services/troubleshooting';
 import type {
   AlertInstance,
   AlertInstanceFilterParams,
+  AlertInstanceStats,
   ClusterRule,
   NotificationDelivery,
 } from '@/lib/services/monitoring';
@@ -66,19 +78,31 @@ import {
   formatRuleThreshold,
   isCritical,
   minutesAgo,
-  severityTone,
   type AlertRowStatus,
   type MonitoringTranslator,
 } from '../monitoring-utils';
+import {DetailHost, useDetailNarrow} from '../detail-host';
+import styles from '../monitoring.module.css';
 
 const PAGE_SIZE = 10;
 const SILENCE_MINUTES = 30;
-// Radix Select 的 option value 不允许空串，用哨兵值表示「全部」。
-// Radix select options cannot use an empty string, so a sentinel stands in for "all".
+/** Radix Select 不允许空字符串选项值，「全部」用哨兵值再映射回 ''。
+    Radix Select rejects empty-string option values; "all" uses a sentinel mapped back to ''. */
 const ALL_VALUE = '__all__';
 
+const ALERT_COLS = '110px minmax(0,1.6fr) 84px 88px minmax(0,1fr) 96px 148px';
+
 /** 列表筛选的 URL/请求参数键，写回 URL 时只动这组键避免踩到别的 tab 参数。 / Alert filter keys owned by this panel. */
-const FILTER_KEYS = ['scope', 'status', 'severity', 'cluster_id', 'q', 'page', 'start_time', 'end_time'] as const;
+const FILTER_KEYS = [
+  'scope',
+  'status',
+  'severity',
+  'cluster_id',
+  'q',
+  'page',
+  'start_time',
+  'end_time',
+] as const;
 
 /** datetime-local 墙上时间转 RFC3339（与旧告警中心一致的时区处理）。 / Wall-time input value to RFC3339, same timezone handling as the old alerts center. */
 function toRFC3339(value: string): string | undefined {
@@ -88,24 +112,15 @@ function toRFC3339(value: string): string | undefined {
   return wallTimeToRFC3339(value);
 }
 
-function StatusCell({status, t}: {status: AlertRowStatus; t: MonitoringTranslator}) {
-  return (
-    <span className='flex items-center gap-1.5 whitespace-nowrap text-xs'>
-      <span
-        className={cn('size-1.5 shrink-0 rounded-full', {
-          'animate-pulse bg-destructive': status === 'firing',
-          'bg-muted-foreground/50': status === 'acknowledged',
-          'bg-(--warning)': status === 'silenced',
-          'bg-muted-foreground/30': status === 'resolved',
-          'bg-muted-foreground/60': status === 'closed',
-        })}
-        aria-hidden
-      />
-      <span className={status === 'firing' ? 'text-destructive' : 'text-muted-foreground'}>
-        {t(`status.${status}`)}
-      </span>
-    </span>
-  );
+function StatusCell({
+  status,
+  t,
+}: {
+  status: AlertRowStatus;
+  t: MonitoringTranslator;
+}) {
+  // 软色状态徽章沿用旧版设计（status-chips.tsx）。 / Soft status chip keeps the legacy badge design.
+  return <AlertStatusChip status={status} label={t(`status.${status}`)} />;
 }
 
 export interface AlertFilters {
@@ -119,7 +134,10 @@ export interface AlertFilters {
   endTime: string;
 }
 
-function readFilters(sp: URLSearchParams, initialClusterId?: string | null): AlertFilters {
+function readFilters(
+  sp: URLSearchParams,
+  initialClusterId?: string | null,
+): AlertFilters {
   return {
     scope: sp.get('scope') ?? 'all',
     status: sp.get('status') ?? '',
@@ -148,15 +166,24 @@ export function applyAlertFilterChange(
   return next;
 }
 
-export function buildAlertInstanceParams(f: AlertFilters): AlertInstanceFilterParams {
-  const params: AlertInstanceFilterParams = {page: f.page, page_size: PAGE_SIZE};
+export function buildAlertInstanceParams(
+  f: AlertFilters,
+): AlertInstanceFilterParams {
+  const params: AlertInstanceFilterParams = {
+    page: f.page,
+    page_size: PAGE_SIZE,
+  };
   if (f.scope === 'cluster' || f.scope === 'job') {
     params.scope = f.scope;
   }
   if (f.status === 'acknowledged' || f.status === 'silenced') {
     params.handling_status = f.status;
     params.status = 'firing';
-  } else if (f.status === 'firing' || f.status === 'resolved' || f.status === 'closed') {
+  } else if (
+    f.status === 'firing' ||
+    f.status === 'resolved' ||
+    f.status === 'closed'
+  ) {
     params.status = f.status;
   }
   if (f.severity === 'warning' || f.severity === 'critical') {
@@ -176,6 +203,32 @@ export function buildAlertInstanceParams(f: AlertFilters): AlertInstanceFilterPa
   return params;
 }
 
+// 旧 YAML 告警名映射到目录 rule_key 后，迁移前按原名保存的排障经验指纹不再命中；
+// 先用目录 key 匹配，落空再用 source_ref.original_alert_name 兜底一次。
+// 保存新经验仍写目录 key（见 SaveMemoryDialog initialData）。
+// After legacy YAML names were mapped onto catalog rule keys, memories saved under
+// the old fingerprint stop matching; fall back to source_ref.original_alert_name
+// once when the catalog key misses. New memories still save the catalog key.
+export function findAlertMemories(
+  alert: AlertInstance,
+  title?: string,
+): TroubleshootingMemoryEntry[] {
+  const matches = services.troubleshooting.findMatchingMemories({
+    fingerprint: alert.rule_key || alert.alert_name,
+    title: title || alert.alert_name || alert.rule_key,
+    target_type: 'alert',
+  });
+  const original = alert.source_ref?.original_alert_name?.trim();
+  if (matches.length > 0 || !original) {
+    return matches;
+  }
+  return services.troubleshooting.findMatchingMemories({
+    fingerprint: original,
+    title: original,
+    target_type: 'alert',
+  });
+}
+
 interface AlertsPanelProps {
   /** cluster_id 深链初值。Initial cluster filter from the cluster-detail deep link. */
   initialClusterId?: string | null;
@@ -184,35 +237,63 @@ interface AlertsPanelProps {
   onGoRules?: () => void;
 }
 
-export function AlertsPanel({initialClusterId, onOpenRule, onGoRules}: AlertsPanelProps) {
+export function AlertsPanel({
+  initialClusterId,
+  onOpenRule,
+  onGoRules,
+}: AlertsPanelProps) {
   const t = useTranslations('monitoring');
   const locale = useLocale();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const ago = useCallback((iso?: string | null) => formatAgo(minutesAgo(iso), t), [t]);
+  const narrow = useDetailNarrow();
+  const ago = useCallback(
+    (iso?: string | null) => formatAgo(minutesAgo(iso), t),
+    [t],
+  );
   const displayName = useCallback(
-    (a: AlertInstance) => (locale === 'en' ? a.alert_name_en || a.alert_name : a.alert_name),
+    (a: AlertInstance) =>
+      locale === 'en' ? a.alert_name_en || a.alert_name : a.alert_name,
     [locale],
   );
 
   const filters = useMemo(
-    () => readFilters(new URLSearchParams(searchParams.toString()), initialClusterId),
+    () =>
+      readFilters(
+        new URLSearchParams(searchParams.toString()),
+        initialClusterId,
+      ),
     [searchParams, initialClusterId],
   );
-  const {scope, status, severity, clusterId, query, page, startTime, endTime} = filters;
+  const {scope, status, severity, clusterId, query, page, startTime, endTime} =
+    filters;
 
   const [rows, setRows] = useState<AlertInstance[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [metrics, setMetrics] = useState({firing: 0, critical: 0, new24h: 0});
-  const [clusterOptions, setClusterOptions] = useState<{value: string; label: string}[]>([]);
+  // 重试不打 URL 参数也能触发重拉（nonce 进查询依赖）。
+  // Retry bumps a nonce in the fetch deps instead of touching URL params.
+  const [fetchNonce, setFetchNonce] = useState(0);
+  // 分段计数走一次无筛选的轻量请求（page_size=1），不为每个分段单独计数。
+  // Segment counts come from one unfiltered lightweight request, not one per segment.
+  const [segStats, setSegStats] = useState<{
+    total: number | null;
+    stats: AlertInstanceStats | null;
+  }>({
+    total: null,
+    stats: null,
+  });
+  const [clusterOptions, setClusterOptions] = useState<
+    {value: string; label: string}[]
+  >([]);
   const [active, setActive] = useState<AlertInstance | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   // 排障经验版本号：保存经验后 +1 触发行指示与详情命中重算。
   // Memory version bumped after saving so row indicators and detail matches recompute.
   const [memoriesVersion, setMemoriesVersion] = useState(0);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const writeFilters = useCallback(
     (patch: Partial<AlertFilters>, resetPage: boolean) => {
@@ -221,14 +302,30 @@ export function AlertsPanel({initialClusterId, onOpenRule, onGoRules}: AlertsPan
         params.delete(k);
       }
       const next = applyAlertFilterChange(filters, patch, resetPage);
-      if (next.scope !== 'all') {params.set('scope', next.scope);}
-      if (next.status) {params.set('status', next.status);}
-      if (next.severity) {params.set('severity', next.severity);}
-      if (next.clusterId) {params.set('cluster_id', next.clusterId);}
-      if (next.query) {params.set('q', next.query);}
-      if (next.startTime) {params.set('start_time', next.startTime);}
-      if (next.endTime) {params.set('end_time', next.endTime);}
-      if (next.page > 1) {params.set('page', String(next.page));}
+      if (next.scope !== 'all') {
+        params.set('scope', next.scope);
+      }
+      if (next.status) {
+        params.set('status', next.status);
+      }
+      if (next.severity) {
+        params.set('severity', next.severity);
+      }
+      if (next.clusterId) {
+        params.set('cluster_id', next.clusterId);
+      }
+      if (next.query) {
+        params.set('q', next.query);
+      }
+      if (next.startTime) {
+        params.set('start_time', next.startTime);
+      }
+      if (next.endTime) {
+        params.set('end_time', next.endTime);
+      }
+      if (next.page > 1) {
+        params.set('page', String(next.page));
+      }
       router.replace(`${pathname}?${params.toString()}`, {scroll: false});
     },
     [filters, pathname, router, searchParams],
@@ -242,41 +339,49 @@ export function AlertsPanel({initialClusterId, onOpenRule, onGoRules}: AlertsPan
     services.monitoring
       .getAlertInstances(buildAlertInstanceParams(filters))
       .then((data) => {
-        if (!alive) {return;}
+        if (!alive) {
+          return;
+        }
         setRows(Array.isArray(data?.alerts) ? data.alerts : []);
         setTotal(data?.total ?? 0);
         setLoading(false);
       })
       .catch((err) => {
-        if (!alive) {return;}
+        if (!alive) {
+          return;
+        }
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
     return () => {
       alive = false;
     };
-  }, [filters]);
+  }, [filters, fetchNonce]);
 
-  // 指标卡计数与可选集群列表。Metric strip counts and the cluster filter options.
+  // 状态分段计数（一次无筛选请求）与集群筛选项。
+  // Status segment counts (one unfiltered request) and cluster filter options.
   useEffect(() => {
     let alive = true;
-    const dayAgo = new Date(Date.now() - 86400_000).toISOString();
     Promise.all([
-      services.monitoring.getAlertInstances({status: 'firing', page: 1, page_size: 1}),
-      services.monitoring.getAlertInstances({status: 'firing', severity: 'critical', page: 1, page_size: 1}),
-      services.monitoring.getAlertInstances({start_time: dayAgo, page: 1, page_size: 1}),
+      services.monitoring
+        .getAlertInstances({page: 1, page_size: 1})
+        .catch(() => null),
       services.cluster.getClusters({current: 1, size: 200}).catch(() => null),
     ])
-      .then(([firing, critical, fresh, clusters]) => {
-        if (!alive) {return;}
-        setMetrics({
-          firing: firing?.stats?.firing ?? firing?.total ?? 0,
-          critical: critical?.total ?? 0,
-          new24h: fresh?.total ?? 0,
+      .then(([unfiltered, clusters]) => {
+        if (!alive) {
+          return;
+        }
+        setSegStats({
+          total: unfiltered?.total ?? 0,
+          stats: unfiltered?.stats ?? null,
         });
         const items = clusters?.clusters ?? [];
         setClusterOptions(
-          items.map((c: {id: number; name: string}) => ({value: String(c.id), label: c.name})),
+          items.map((c: {id: number; name: string}) => ({
+            value: String(c.id),
+            label: c.name,
+          })),
         );
       })
       .catch(() => undefined);
@@ -285,10 +390,30 @@ export function AlertsPanel({initialClusterId, onOpenRule, onGoRules}: AlertsPan
     };
   }, []);
 
+  // 「/」聚焦搜索。「/」 focuses the search field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (
+        e.key === '/' &&
+        !el?.closest('input, textarea, select, [contenteditable="true"]')
+      ) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const patchInstance = useCallback(
     (alertId: string, result: Partial<AlertInstance>) => {
-      setRows((prev) => prev.map((a) => (a.alert_id === alertId ? {...a, ...result} : a)));
-      setActive((prev) => (prev?.alert_id === alertId ? {...prev, ...result} : prev));
+      setRows((prev) =>
+        prev.map((a) => (a.alert_id === alertId ? {...a, ...result} : a)),
+      );
+      setActive((prev) =>
+        prev?.alert_id === alertId ? {...prev, ...result} : prev,
+      );
     },
     [],
   );
@@ -315,32 +440,34 @@ export function AlertsPanel({initialClusterId, onOpenRule, onGoRules}: AlertsPan
     [patchInstance],
   );
 
-  // 行内筛选下拉：'all' 哨兵对应空筛选，URL 里不落地。选项标签统一带字段名前缀，
-  // 触发器才不会三个都只显示「全部」。'all' sentinel maps to an empty filter; option
-  // labels carry the field prefix so the triggers don't all read "All".
-  const label = (field: string, value: string) => t('filterLabel', {field, value});
-  const statusOptions = [
-    {value: ALL_VALUE, label: label(t('alertStatusLabel'), t('scopeAll'))},
-    ...(['firing', 'acknowledged', 'silenced', 'resolved'] as const).map((v) => ({
-      value: v,
-      label: label(t('alertStatusLabel'), t(`status.${v}`)),
-    })),
-  ];
-  const severityOptions = [
-    {value: ALL_VALUE, label: label(t('fieldSeverity'), t('scopeAll'))},
-    {value: 'warning', label: label(t('fieldSeverity'), t('severityWarning'))},
-    {value: 'critical', label: label(t('fieldSeverity'), t('severityCritical'))},
-  ];
-  const clusterFilterOptions = [
-    {value: ALL_VALUE, label: label(t('colCluster'), t('scopeAll'))},
-    ...clusterOptions.map((o) => ({value: o.value, label: label(t('colCluster'), o.label)})),
-  ];
-  const hasActiveFilter = Boolean(status || severity || clusterId);
+  const hasActiveFilter = Boolean(
+    status || severity || clusterId || scope !== 'all',
+  );
   // 任意筛选激活（含时间与搜索词）时给出「清除筛选」空态分支。
   // Any active filter (including time and query) selects the filtered empty-state branch.
-  const anyFilterActive = Boolean(status || severity || clusterId || query.trim() || startTime || endTime);
+  const anyFilterActive = Boolean(
+    status ||
+    severity ||
+    clusterId ||
+    query.trim() ||
+    startTime ||
+    endTime ||
+    scope !== 'all',
+  );
   const clearAllFilters = useCallback(
-    () => writeFilters({status: '', severity: '', clusterId: '', query: '', startTime: '', endTime: '', scope: 'all'}, true),
+    () =>
+      writeFilters(
+        {
+          status: '',
+          severity: '',
+          clusterId: '',
+          query: '',
+          startTime: '',
+          endTime: '',
+          scope: 'all',
+        },
+        true,
+      ),
     [writeFilters],
   );
 
@@ -353,7 +480,9 @@ export function AlertsPanel({initialClusterId, onOpenRule, onGoRules}: AlertsPan
       const now = new Date();
       writeFilters(
         {
-          startTime: formatToDateTimeLocal(new Date(now.getTime() - minutes * 60_000)),
+          startTime: formatToDateTimeLocal(
+            new Date(now.getTime() - minutes * 60_000),
+          ),
           endTime: formatToDateTimeLocal(now),
         },
         true,
@@ -366,12 +495,7 @@ export function AlertsPanel({initialClusterId, onOpenRule, onGoRules}: AlertsPan
   const alertMemoryMap = useMemo(() => {
     const map = new Map<string, boolean>();
     for (const a of rows) {
-      const matches = services.troubleshooting.findMatchingMemories({
-        fingerprint: a.rule_key || a.alert_name,
-        title: displayName(a) || a.rule_key,
-        target_type: 'alert',
-      });
-      if (matches.length > 0) {
+      if (findAlertMemories(a, displayName(a)).length > 0) {
         map.set(a.alert_id, true);
       }
     }
@@ -411,236 +535,198 @@ export function AlertsPanel({initialClusterId, onOpenRule, onGoRules}: AlertsPan
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const columns: DataColumn<Record<string, unknown>>[] = [
+  const drawerAlert = useDrawerItem(active);
+
+  const activeIndex = active
+    ? pageItems.findIndex((a) => a.alert_id === active.alert_id)
+    : -1;
+  const detailNav =
+    active && activeIndex >= 0
+      ? {
+          index: activeIndex,
+          total: pageItems.length,
+          onPrev: () =>
+            activeIndex > 0 && setActive(pageItems[activeIndex - 1]),
+          onNext: () =>
+            activeIndex < pageItems.length - 1 &&
+            setActive(pageItems[activeIndex + 1]),
+        }
+      : undefined;
+
+  const onRowKeyDown = (
+    e: React.KeyboardEvent<HTMLElement>,
+    alert: AlertInstance,
+  ) => {
+    if (e.target !== e.currentTarget) {
+      return;
+    }
+    const rows = Array.from(
+      e.currentTarget.parentElement?.querySelectorAll<HTMLElement>(
+        '[data-mrow]',
+      ) ?? [],
+    );
+    const i = rows.indexOf(e.currentTarget);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      rows[i + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setActive(alert);
+    }
+  };
+
+  const segCount = (n?: number) =>
+    n == null ? undefined : <span className={styles.count}>{n}</span>;
+
+  const retry = useCallback(() => {
+    setError(null);
+    setFetchNonce((n) => n + 1);
+  }, []);
+
+  const statsCells: {
+    label: string;
+    value: number | null;
+    active: boolean;
+    onClick: () => void;
+  }[] = [
     {
-      key: 'status',
-      label: t('colStatus'),
-      sortable: true,
-      width: 96,
-      render: (_, row) => <StatusCell status={alertRowStatus(row.alert as AlertInstance)} t={t} />,
+      label: t('chipAll'),
+      value: segStats.total,
+      active: !status,
+      onClick: () => writeFilters({status: ''}, true),
     },
     {
-      key: 'name',
-      label: t('colAlert'),
-      sortable: true,
-      render: (_, row) => {
-        const alert = row.alert as AlertInstance;
-        return (
-          <button
-            type='button'
-            className='min-w-0 text-left'
-            onClick={() => setActive(alert)}
-            data-testid={`alert-name-${alert.alert_id}`}
-          >
-            <div className='flex items-center gap-1.5'>
-              <span className='truncate text-sm font-medium hover:underline'>{displayName(alert)}</span>
-              {alertMemoryMap.get(alert.alert_id) ? (
-                <Lightbulb className='size-3.5 shrink-0 text-emerald-500' aria-hidden />
-              ) : null}
-            </div>
-            <div className='truncate font-mono text-xs text-muted-foreground'>{alert.rule_key}</div>
-          </button>
-        );
-      },
+      label: t('status.firing'),
+      value: segStats.stats?.firing ?? null,
+      active: status === 'firing',
+      onClick: () => writeFilters({status: 'firing'}, true),
     },
     {
-      key: 'severity',
-      label: t('fieldSeverity'),
-      sortable: true,
-      width: 76,
-      render: (_, row) => {
-        const alert = row.alert as AlertInstance;
-        return (
-          <Badge tone={severityTone(alert.severity)} size='sm'>
-            {isCritical(alert) ? t('severityCritical') : t('severityWarning')}
-          </Badge>
-        );
-      },
-    },
-    {
-      key: 'scope',
-      label: t('colScope'),
-      width: 76,
-      render: (_, row) => (
-        <Badge size='sm' outline>
-          {alertScopeOf(row.alert as AlertInstance) === 'cluster' ? t('scopeCluster') : t('scopeJob')}
-        </Badge>
-      ),
-    },
-    {
-      key: 'cluster',
-      label: t('colCluster'),
-      sortable: true,
-      render: (_, row) => (
-        <span className='block min-w-0 truncate text-xs text-muted-foreground'>
-          {(row.alert as AlertInstance).cluster_name}
-        </span>
-      ),
-    },
-    {
-      key: 'time',
-      label: t('colTime'),
-      sortable: true,
-      numeric: true,
-      width: 92,
-      render: (_, row) => {
-        const alert = row.alert as AlertInstance;
-        return (
-          <span className='whitespace-nowrap text-xs tabular-nums text-muted-foreground'>
-            {ago(alert.firing_at || alert.created_at)}
-          </span>
-        );
-      },
-    },
-    {
-      key: 'actions',
-      label: '',
-      width: 140,
-      render: (_, row) => {
-        const alert = row.alert as AlertInstance;
-        const rowStatus = alertRowStatus(alert);
-        return (
-          <div className='flex justify-end'>
-            <DropdownMenu
-              label={t('moreActions')}
-              items={[
-                {
-                  label: t('actionAck'),
-                  icon: <CheckCheck className='size-4' aria-hidden />,
-                  disabled: rowStatus !== 'firing' || actionBusy,
-                  onSelect: () => void runAction(alert, 'ack'),
-                },
-                {
-                  label: t('actionSilence'),
-                  icon: <BellOff className='size-4' aria-hidden />,
-                  disabled: rowStatus !== 'firing' || actionBusy,
-                  onSelect: () => void runAction(alert, 'silence'),
-                },
-                {
-                  label: t('actionClose'),
-                  icon: <X className='size-4' aria-hidden />,
-                  destructive: true,
-                  separatorBefore: true,
-                  disabled: alert.status === 'closed' || actionBusy,
-                  onSelect: () => void runAction(alert, 'close'),
-                },
-              ]}
-            />
-          </div>
-        );
-      },
+      label: t('status.resolved'),
+      value: segStats.stats?.resolved ?? null,
+      active: status === 'resolved',
+      onClick: () => writeFilters({status: 'resolved'}, true),
     },
   ];
 
-  const tableRows = pageItems.map((a) => ({
-    id: a.alert_id,
-    status: alertRowStatus(a),
-    name: displayName(a),
-    severity: a.severity,
-    scope: alertScopeOf(a),
-    cluster: a.cluster_name,
-    time: a.firing_at || a.created_at,
-    alert: a,
-  }));
-
   return (
-    <div className='relative flex h-full flex-col gap-3'>
-      <div className='grid grid-cols-3 divide-x divide-border/60 rounded-lg border border-border/60 bg-card'>
-        {(
-          [
-            {
-              label: t('metricFiring'),
-              value: metrics.firing,
-              active: status === 'firing' && !severity,
-              onClick: () => writeFilters({status: 'firing', severity: ''}, true),
-            },
-            {
-              label: t('metricCritical'),
-              value: metrics.critical,
-              active: severity === 'critical',
-              onClick: () => writeFilters({status: 'firing', severity: 'critical'}, true),
-            },
-            {
-              label: t('metricNew24h'),
-              value: metrics.new24h,
-              active: false,
-              onClick: () => writeFilters({status: '', severity: ''}, true),
-            },
-          ]
-        ).map((m) => (
+    <div className={styles.page}>
+      {/* 汇总指标合并为单框 + 内分割线，格点击复用状态筛选（§9.7 防框堆叠）。
+          Summary metrics merge into one frame with inner dividers; cells reuse the status filter. */}
+      <div
+        className={styles.statsBar}
+        role='group'
+        aria-label={t('alertStatusLabel')}
+      >
+        {statsCells.map((m) => (
           <button
             key={m.label}
             type='button'
+            aria-pressed={m.active}
             onClick={m.onClick}
-            className={cn('px-4 py-3 text-left transition-colors hover:bg-muted/40', m.active && 'bg-muted/50')}
+            className={cn(styles.statCell, m.active && styles.statCellActive)}
           >
-            <div className='text-xs text-muted-foreground'>{m.label}</div>
-            <div className='mt-1 text-2xl font-medium tabular-nums'>{m.value}</div>
+            <span className={styles.statLabel}>{m.label}</span>
+            <span className={styles.statValue}>{m.value ?? '–'}</span>
           </button>
         ))}
       </div>
 
-      <div className='flex flex-wrap items-center gap-3'>
+      <div className={styles.toolbar}>
+        {/* 状态分段：计数来自一次无筛选请求；已确认/已静默无廉价计数，只显示文字。
+            Status segments: counts from one unfiltered request; acknowledged /
+            silenced have no cheap count and show text only. */}
         <SegmentedControl
-          label={t('alertScopeLabel')}
-          value={scope}
-          onValueChange={(v) => writeFilters({scope: v}, true)}
+          label={t('alertStatusLabel')}
+          value={status || 'all'}
+          onValueChange={(v) =>
+            writeFilters({status: v === 'all' ? '' : v}, true)
+          }
           options={[
-            {value: 'all', label: t('scopeAll')},
-            {value: 'cluster', label: t('scopeCluster')},
-            {value: 'job', label: t('scopeJob')},
+            {
+              value: 'all',
+              label: t('chipAll'),
+              accessory: segCount(segStats.total ?? undefined),
+            },
+            {
+              value: 'firing',
+              label: t('status.firing'),
+              accessory: segCount(segStats.stats?.firing),
+            },
+            {value: 'acknowledged', label: t('status.acknowledged')},
+            {value: 'silenced', label: t('status.silenced')},
+            {
+              value: 'resolved',
+              label: t('status.resolved'),
+              accessory: segCount(segStats.stats?.resolved),
+            },
           ]}
         />
-        <div className='flex flex-wrap items-center gap-2 [&_label]:sr-only'>
-          <div className='w-36'>
-            <Select
-              label={t('alertStatusLabel')}
-              value={status || ALL_VALUE}
-              onValueChange={(v) => writeFilters({status: v === ALL_VALUE ? '' : v}, true)}
-              options={statusOptions}
-            />
-          </div>
-          <div className='w-32'>
-            <Select
-              label={t('fieldSeverity')}
-              value={severity || ALL_VALUE}
-              onValueChange={(v) => writeFilters({severity: v === ALL_VALUE ? '' : v}, true)}
-              options={severityOptions}
-            />
-          </div>
-          <div className='w-40'>
-            <Select
-              label={t('colCluster')}
-              value={clusterId || ALL_VALUE}
-              onValueChange={(v) => writeFilters({clusterId: v === ALL_VALUE ? '' : v}, true)}
-              options={clusterFilterOptions}
-            />
-          </div>
-          {hasActiveFilter ? (
-            <Button
-              type='button'
-              variant='ghost'
-              size='sm'
-              className='h-8 px-2 text-xs text-muted-foreground'
-              onClick={() => writeFilters({status: '', severity: '', clusterId: ''}, true)}
-            >
-              {t('clearFilters')}
-            </Button>
-          ) : null}
-        </div>
-        <div className='w-56 min-w-[200px] max-w-sm flex-1 [&_label]:sr-only'>
+        <div className={styles.toolbarSearch}>
           <SearchField
+            ref={searchRef}
             label={t('alertSearchLabel')}
             value={query}
             onValueChange={(v) => writeFilters({query: v}, true)}
             placeholder={t('alertSearchPlaceholder')}
             clearLabel={t('searchClear')}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && query) {
+                writeFilters({query: ''}, true);
+              }
+            }}
+          />
+        </div>
+        {/* 范围 / 级别是小枚举用 Select；集群可超过 10 项用可搜索 Combobox（§18 选型）。
+            Scope/severity are small enums (Select); clusters can exceed 10 so they
+            get the searchable Combobox (§18 selection rules). */}
+        <div className={cn(styles.filterCtrl, styles.filterWsm)}>
+          <Select
+            label={t('alertScopeLabel')}
+            value={scope}
+            onValueChange={(v) => writeFilters({scope: v}, true)}
+            options={[
+              {value: 'all', label: t('scopeAll')},
+              {value: 'cluster', label: t('scopeCluster')},
+              {value: 'job', label: t('scopeJob')},
+            ]}
+          />
+        </div>
+        <div className={cn(styles.filterCtrl, styles.filterWsm)}>
+          <Select
+            label={t('fieldSeverity')}
+            value={severity || ALL_VALUE}
+            onValueChange={(v) =>
+              writeFilters({severity: v === ALL_VALUE ? '' : v}, true)
+            }
+            options={[
+              {value: ALL_VALUE, label: t('scopeAll')},
+              {value: 'warning', label: t('severityWarning')},
+              {value: 'critical', label: t('severityCritical')},
+            ]}
+          />
+        </div>
+        <div className={cn(styles.filterCtrl, styles.filterW)}>
+          <Combobox
+            label={t('colCluster')}
+            value={clusterId || ALL_VALUE}
+            onValueChange={(v) =>
+              writeFilters(
+                {clusterId: v === ALL_VALUE || v === '' ? '' : v},
+                true,
+              )
+            }
+            placeholder={t('colCluster')}
+            options={[
+              {value: ALL_VALUE, label: t('scopeAll')},
+              ...clusterOptions,
+            ]}
           />
         </div>
         {/* 时间范围：预设 + 自定义起止，改动重置 page=1 并落 URL（旧告警中心同款）。
             Time range: presets and custom bounds, resets page=1 and lands in the URL. */}
         <CompactTimeFilter
-          className='w-full border-t-0 pt-0'
+          className='border-t-0 pt-0'
           startTime={startTime}
           endTime={endTime}
           activePreset={activePreset}
@@ -658,66 +744,193 @@ export function AlertsPanel({initialClusterId, onOpenRule, onGoRules}: AlertsPan
             writeFilters({startTime: '', endTime: ''}, true);
           }}
         />
+        {hasActiveFilter ? (
+          <Button
+            type='button'
+            variant='ghost'
+            size='sm'
+            onClick={clearAllFilters}
+          >
+            {t('clearFilters')}
+          </Button>
+        ) : null}
       </div>
 
-      {error ? (
-        <div className='rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
-          {error}
-        </div>
-      ) : null}
-
-      <div className='min-h-0 flex-1 overflow-y-auto'>
-        {loading && rows.length === 0 ? (
-          <div className='space-y-2 py-2' aria-busy>
-            {Array.from({length: 5}).map((_, i) => (
-              <Skeleton key={i} className='h-12 w-full' lines={1} />
-            ))}
-          </div>
-        ) : pageItems.length === 0 ? (
-          // 无告警与「有筛选无结果」两种空态文案不同；后者给清除筛选动作。
-          // Two empty states: no alerts at all vs. filters yielding nothing.
-          <EmptyState
-            title={anyFilterActive ? t('emptyFilteredTitle') : t('emptyAlertsTitle')}
-            description={anyFilterActive ? t('emptyFilteredDesc') : t('emptyAlertsDesc')}
-            action={
-              anyFilterActive ? (
-                <Button type='button' variant='outline' size='sm' onClick={clearAllFilters}>
-                  {t('clearFilters')}
-                </Button>
-              ) : (
-                <Button type='button' size='sm' onClick={onGoRules}>
-                  {t('emptyAlertsAction')}
-                </Button>
-              )
-            }
-          />
-        ) : (
-          <>
-            {/* vendored SortableDataTable 不暴露行回调：点击在外层委托，行内名称按钮提供键盘路径。
-                The vendored table exposes no row callback: clicks are delegated on the
-                wrapper; the name button keeps a keyboard path. */}
-            <div
-              className='hidden sm:block [&_tbody_tr]:cursor-pointer'
-              onClick={(e) => {
-                const el = e.target as HTMLElement;
-                if (el.closest('button, a, input, select, textarea, [role="button"], [role="menu"], [role="checkbox"]')) {return;}
-                const tr = el.closest('tr');
-                const marker = tr?.querySelector('[data-testid^="alert-name-"]');
-                const id = marker?.getAttribute('data-testid')?.slice('alert-name-'.length);
-                const alert = id ? pageItems.find((a) => a.alert_id === id) : undefined;
-                if (alert) {setActive(alert);}
-              }}
-            >
-              <SortableDataTable
-                rows={tableRows}
-                columns={columns}
-                rowKey='id'
-                caption={t('tabAlerts')}
-                emptyMessage={t('alertsEmpty')}
-                itemName={{one: t('itemAlert'), other: t('itemAlerts')}}
+      <div className={styles.split}>
+        <div className={styles.listCol}>
+          {/* 唯一主卡片：加载条/骨架/错误/空态/底部分页都由 TableCard 统一承载（§4.4）。
+              The single main card: TableCard owns bar/skeleton/error/empty/pagination. */}
+          <TableCard
+            loading={loading}
+            hasData={pageItems.length > 0}
+            skeletonColumns={7}
+            skeletonRows={8}
+            error={error}
+            onRetry={retry}
+            empty={
+              // 无告警与「有筛选无结果」两种空态文案不同；后者给清除筛选动作。
+              // Two empty states: no alerts at all vs. filters yielding nothing.
+              <EmptyState
+                title={
+                  anyFilterActive
+                    ? t('emptyFilteredTitle')
+                    : t('emptyAlertsTitle')
+                }
+                description={
+                  anyFilterActive
+                    ? t('emptyFilteredDesc')
+                    : t('emptyAlertsDesc')
+                }
+                action={
+                  anyFilterActive ? (
+                    <Button
+                      type='button'
+                      variant='secondary'
+                      size='sm'
+                      onClick={clearAllFilters}
+                    >
+                      {t('clearFilters')}
+                    </Button>
+                  ) : (
+                    <Button type='button' size='sm' onClick={onGoRules}>
+                      {t('emptyAlertsAction')}
+                    </Button>
+                  )
+                }
               />
+            }
+            pagination={{
+              currentPage: page,
+              totalPages,
+              pageSize: PAGE_SIZE,
+              totalItems: total,
+              onPageChange: (p) => writeFilters({page: p}, false),
+            }}
+          >
+            <div
+              className={cn(styles.rowHead, styles.tableArea)}
+              style={{'--cols': ALERT_COLS} as React.CSSProperties}
+              aria-hidden
+            >
+              <span>{t('colStatus')}</span>
+              <span>{t('colAlert')}</span>
+              <span>{t('fieldSeverity')}</span>
+              <span>{t('colScope')}</span>
+              <span>{t('colCluster')}</span>
+              <span>{t('colTime')}</span>
+              <span />
             </div>
-            <div className='sm:hidden'>
+            <div className={cn(styles.tableScroll, styles.tableArea)}>
+              {pageItems.map((alert) => {
+                const rowStatus = alertRowStatus(alert);
+                return (
+                  <div
+                    key={alert.alert_id}
+                    data-testid={`alert-row-${alert.alert_id}`}
+                    data-mrow={alert.alert_id}
+                    role='button'
+                    tabIndex={0}
+                    onClick={(e) => {
+                      if (
+                        (e.target as HTMLElement).closest(
+                          'button, a, input, select, [role="menu"], [role="checkbox"]',
+                        )
+                      ) {
+                        return;
+                      }
+                      setActive(alert);
+                    }}
+                    onKeyDown={(e) => onRowKeyDown(e, alert)}
+                    className={cn(
+                      styles.row,
+                      active?.alert_id === alert.alert_id && styles.rowActive,
+                    )}
+                    style={{'--cols': ALERT_COLS} as React.CSSProperties}
+                  >
+                    <StatusCell status={rowStatus} t={t} />
+                    <div className={styles.rowName}>
+                      <span className={styles.rowNameInline}>
+                        <span
+                          className={styles.name}
+                          title={displayName(alert)}
+                        >
+                          {displayName(alert)}
+                        </span>
+                        {alertMemoryMap.get(alert.alert_id) ? (
+                          <Lightbulb
+                            className={cn(
+                              'size-3.5 shrink-0',
+                              styles.accentText,
+                            )}
+                            aria-hidden
+                          />
+                        ) : null}
+                      </span>
+                      <span className={cn(styles.sub, styles.mono)}>
+                        {alert.rule_key}
+                      </span>
+                    </div>
+                    <SeverityChip
+                      severity={alert.severity}
+                      label={
+                        isCritical(alert)
+                          ? t('severityCritical')
+                          : t('severityWarning')
+                      }
+                    />
+                    <NeutralChip>
+                      {alertScopeOf(alert) === 'cluster'
+                        ? t('scopeCluster')
+                        : t('scopeJob')}
+                    </NeutralChip>
+                    <span className={styles.sub} title={alert.cluster_name}>
+                      {alert.cluster_name}
+                    </span>
+                    <span className={cn(styles.sub, styles.num, styles.nowrap)}>
+                      {ago(alert.firing_at || alert.created_at)}
+                    </span>
+                    <div className={styles.rowActions}>
+                      <DropdownMenu
+                        trigger={
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            iconOnly
+                            aria-label={t('moreActions')}
+                          >
+                            <MoreHorizontal className='size-4' aria-hidden />
+                          </Button>
+                        }
+                        items={[
+                          {
+                            label: t('actionAck'),
+                            icon: <CheckCheck className='size-4' aria-hidden />,
+                            disabled: rowStatus !== 'firing' || actionBusy,
+                            onSelect: () => void runAction(alert, 'ack'),
+                          },
+                          {
+                            label: t('actionSilence'),
+                            icon: <BellOff className='size-4' aria-hidden />,
+                            disabled: rowStatus !== 'firing' || actionBusy,
+                            onSelect: () => void runAction(alert, 'silence'),
+                          },
+                          {
+                            label: t('actionClose'),
+                            icon: <X className='size-4' aria-hidden />,
+                            destructive: true,
+                            separatorBefore: true,
+                            disabled: alert.status === 'closed' || actionBusy,
+                            onSelect: () => void runAction(alert, 'close'),
+                          },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className={styles.mobileList}>
               {pageItems.map((alert) => (
                 <MobileAlertCard
                   key={alert.alert_id}
@@ -728,33 +941,33 @@ export function AlertsPanel({initialClusterId, onOpenRule, onGoRules}: AlertsPan
                 />
               ))}
             </div>
-          </>
-        )}
-      </div>
+          </TableCard>
+        </div>
 
-      <Pagination page={page} pageCount={totalPages} onPageChange={(p) => writeFilters({page: p}, false)} />
-
-      <Drawer open={active != null} onOpenChange={(open) => !open && setActive(null)}>
-        {active ? (
-          <DrawerContent
-            side='right'
-            title={displayName(active)}
-            description={active.cluster_name}
-            className='w-[min(92vw,460px)] rounded-none!'
-          >
+        <DetailHost
+          open={active != null}
+          hasContent={drawerAlert != null}
+          onOpenChange={(o) => !o && setActive(null)}
+          narrow={narrow}
+          title={drawerAlert ? displayName(drawerAlert) : ''}
+          meta={drawerAlert?.cluster_name}
+          nav={detailNav}
+        >
+          {drawerAlert ? (
             <AlertDetailBody
-              alert={active}
+              key={drawerAlert.alert_id}
+              alert={drawerAlert}
               ago={ago}
               memoriesVersion={memoriesVersion}
               onMemorySaved={() => setMemoriesVersion((v) => v + 1)}
               onNavigateDiagnostics={navigateToDiagnostics}
               onOpenRule={onOpenRule}
-              onAck={() => void runAction(active, 'ack')}
-              onSilence={() => void runAction(active, 'silence')}
+              onAck={() => void runAction(drawerAlert, 'ack')}
+              onSilence={() => void runAction(drawerAlert, 'silence')}
             />
-          </DrawerContent>
-        ) : null}
-      </Drawer>
+          ) : null}
+        </DetailHost>
+      </div>
     </div>
   );
 }
@@ -773,26 +986,43 @@ function MobileAlertCard({
   const t = useTranslations('monitoring');
   const locale = useLocale();
   return (
-    <div className='border-b border-border/40 px-2 py-3'>
-      <button type='button' className='flex w-full items-center gap-2 text-left' onClick={onOpen}>
+    <button type='button' className={styles.mobileCard} onClick={onOpen}>
+      <span className={styles.rowNameInline}>
         <StatusCell status={alertRowStatus(alert)} t={t} />
-        <span className='min-w-0 flex-1 truncate text-sm font-medium'>
-          {locale === 'en' ? alert.alert_name_en || alert.alert_name : alert.alert_name}
+        <span className={cn(styles.name, 'min-w-0 flex-1')}>
+          {locale === 'en'
+            ? alert.alert_name_en || alert.alert_name
+            : alert.alert_name}
         </span>
-        {hasMemory ? <Lightbulb className='size-3.5 shrink-0 text-emerald-500' aria-hidden /> : null}
-        <ChevronRight className='size-4 shrink-0 text-muted-foreground' aria-hidden />
-      </button>
-      <div className='mt-1.5 flex flex-wrap items-center gap-2 pl-4 text-xs text-muted-foreground'>
-        <Badge tone={severityTone(alert.severity)} size='sm'>
-          {isCritical(alert) ? t('severityCritical') : t('severityWarning')}
-        </Badge>
-        <Badge size='sm' outline>
-          {alertScopeOf(alert) === 'cluster' ? t('scopeCluster') : t('scopeJob')}
-        </Badge>
-        <span className='min-w-0 truncate'>{alert.cluster_name}</span>
-        <span className='whitespace-nowrap tabular-nums'>{ago(alert.firing_at || alert.created_at)}</span>
-      </div>
-    </div>
+        {hasMemory ? (
+          <Lightbulb
+            className={cn('size-3.5 shrink-0', styles.accentText)}
+            aria-hidden
+          />
+        ) : null}
+        <ChevronRight
+          className={cn('size-4 shrink-0', styles.muted)}
+          aria-hidden
+        />
+      </span>
+      <span className={styles.mobileCardMeta}>
+        <SeverityChip
+          severity={alert.severity}
+          label={
+            isCritical(alert) ? t('severityCritical') : t('severityWarning')
+          }
+        />
+        <NeutralChip>
+          {alertScopeOf(alert) === 'cluster'
+            ? t('scopeCluster')
+            : t('scopeJob')}
+        </NeutralChip>
+        <span className={styles.truncate}>{alert.cluster_name}</span>
+        <span className={cn(styles.nowrap, styles.num)}>
+          {ago(alert.firing_at || alert.created_at)}
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -820,28 +1050,27 @@ function AlertDetailBody({
   const tAlert = useTranslations('syncAlert');
   const tsT = useTranslations('troubleshooting');
   const locale = useLocale();
-  const alertDisplayName = locale === 'en' ? alert.alert_name_en || alert.alert_name : alert.alert_name;
+  const alertDisplayName =
+    locale === 'en'
+      ? alert.alert_name_en || alert.alert_name
+      : alert.alert_name;
   const router = useRouter();
   const rowStatus = alertRowStatus(alert);
   const [rule, setRule] = useState<ClusterRule | null>(null);
   const [deliveries, setDeliveries] = useState<NotificationDelivery[]>([]);
   const [memoryDialogOpen, setMemoryDialogOpen] = useState(false);
 
-  // 命中排障经验：fingerprint 取 rule_key 兜底 alert_name，与旧告警中心一致。
-  // Memory match: fingerprint falls back to alert_name like the old alerts center.
+  // 命中排障经验：目录 key 优先，旧 YAML 指纹经 findAlertMemories 兜底。
+  // Memory match: catalog key first, legacy YAML fingerprint via findAlertMemories.
   const matchedMemories = useMemo(
-    () =>
-      services.troubleshooting.findMatchingMemories({
-        fingerprint: alert.rule_key || alert.alert_name,
-        title: alertDisplayName || alert.rule_key,
-        target_type: 'alert',
-      }),
+    () => findAlertMemories(alert, alertDisplayName),
     // findMatchingMemories 读 localStorage，版本号是唯一的重算信号。
     // The lookup reads localStorage; the version bump is the only recompute signal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [alert, memoriesVersion],
   );
-  const primaryMemory: TroubleshootingMemoryEntry | null = matchedMemories[0] ?? null;
+  const primaryMemory: TroubleshootingMemoryEntry | null =
+    matchedMemories[0] ?? null;
 
   // 集群级告警拉一次规则视图拿生效阈值与例外归属；投递记录按集群拉一页再按 alert_id 收窄。
   // Cluster alerts fetch the rule view for effective threshold/override info; deliveries are fetched
@@ -855,11 +1084,19 @@ function AlertDetailBody({
         .catch(() => undefined);
     }
     services.monitoring
-      .listNotificationDeliveries({cluster_id: alert.cluster_id || undefined, page: 1, page_size: 50})
+      .listNotificationDeliveries({
+        cluster_id: alert.cluster_id || undefined,
+        page: 1,
+        page_size: 50,
+      })
       .then((d) => {
-        if (!alive) {return;}
+        if (!alive) {
+          return;
+        }
         setDeliveries(
-          (d?.deliveries ?? []).filter((x) => x.alert_id === alert.alert_id).slice(0, 10),
+          (d?.deliveries ?? [])
+            .filter((x) => x.alert_id === alert.alert_id)
+            .slice(0, 10),
         );
       })
       .catch(() => undefined);
@@ -868,16 +1105,26 @@ function AlertDetailBody({
     };
   }, [alert]);
 
-  const override = rule?.overrides?.find((o) => String(o.cluster_id) === alert.cluster_id);
+  const override = rule?.overrides?.find(
+    (o) => String(o.cluster_id) === alert.cluster_id,
+  );
   const timelineEvents = useMemo(() => {
     const evs: {key: string; at?: string | null; note?: string}[] = [
       {key: 'triggered', at: alert.firing_at || alert.created_at},
     ];
     for (const d of deliveries) {
-      evs.push({key: 'notified', at: d.sent_at || d.created_at, note: d.channel_name});
+      evs.push({
+        key: 'notified',
+        at: d.sent_at || d.created_at,
+        note: d.channel_name,
+      });
     }
     if (alert.acknowledged_at) {
-      evs.push({key: 'acknowledged', at: alert.acknowledged_at, note: alert.acknowledged_by});
+      evs.push({
+        key: 'acknowledged',
+        at: alert.acknowledged_at,
+        note: alert.acknowledged_by,
+      });
     }
     if (alert.resolved_at) {
       evs.push({key: 'resolved', at: alert.resolved_at});
@@ -889,284 +1136,360 @@ function AlertDetailBody({
   }, [alert, deliveries]);
 
   return (
-    <div className='space-y-4 px-1 pb-4'>
-      <div className='flex items-center gap-2'>
-        <Badge tone={severityTone(alert.severity)} size='sm'>
-          {isCritical(alert) ? t('severityCritical') : t('severityWarning')}
-        </Badge>
+    <div className={styles.detailCol}>
+      <div className={styles.metaBand}>
+        <SeverityChip
+          severity={alert.severity}
+          label={
+            isCritical(alert) ? t('severityCritical') : t('severityWarning')
+          }
+        />
         <StatusCell status={rowStatus} t={t} />
       </div>
 
-      {alert.summary || alert.description ? (
-        <p className='text-sm text-muted-foreground'>{alert.summary || alert.description}</p>
-      ) : null}
-      {alert.description && alert.description !== alert.summary ? (
-        <p className='rounded-lg bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground'>
-          {alert.description}
-        </p>
-      ) : null}
+      <div className={styles.detailScroll}>
+        {alert.summary || alert.description ? (
+          <p className={styles.descText}>
+            {alert.summary || alert.description}
+          </p>
+        ) : null}
+        {alert.description && alert.description !== alert.summary ? (
+          <p className={styles.hintBox}>{alert.description}</p>
+        ) : null}
 
-      {alert.rule_key ? (
-        <div className='rounded-lg border border-border/60 px-3 py-2.5 text-sm'>
-          <span className='text-muted-foreground'>{t('hitRule')}</span>{' '}
-          <button
-            type='button'
-            className='font-medium text-primary underline-offset-2 hover:underline'
-            onClick={() => onOpenRule?.(alert.rule_key)}
-          >
-            {alert.rule_key}
-          </button>
-          {rule ? (
-            <span className='text-muted-foreground'>
-              {' · '}
-              {override ? t('fromException') : t('fromGlobal')}
-              {' · '}
-              <span className='whitespace-nowrap'>{formatRuleThreshold(rule, t)}</span>
-            </span>
-          ) : null}
+        {alert.rule_key ? (
+          <div className={styles.groupInner}>
+            <div className={styles.kvRow}>
+              <span className={styles.kvKey}>{t('hitRule')}</span>
+              <span className={styles.kvVal}>
+                <button
+                  type='button'
+                  className={styles.linkBtn}
+                  style={{fontSize: 'inherit', fontWeight: 500}}
+                  onClick={() => onOpenRule?.(alert.rule_key)}
+                >
+                  {alert.rule_key}
+                </button>
+                {rule ? (
+                  <span className={styles.muted}>
+                    {' · '}
+                    {override ? t('fromException') : t('fromGlobal')}
+                    {' · '}
+                    <span className={styles.nowrap}>
+                      {formatRuleThreshold(rule, t)}
+                    </span>
+                  </span>
+                ) : null}
+              </span>
+            </div>
+          </div>
+        ) : null}
+
+        {/* 历史排障经验 / Troubleshooting memory */}
+        <TroubleshootingMemoryCard
+          matchedMemory={primaryMemory}
+          totalMatches={matchedMemories.length}
+          onAddOrEdit={() => setMemoryDialogOpen(true)}
+        />
+
+        {/* 上下文：集群 / 主机 / 进程 / 事件 ID，作业告警附任务与自动关闭原因。
+            Context: cluster/host/process/event id plus sync-episode extras. */}
+        <div className={styles.sectionStack} style={{gap: 8}}>
+          <span className={styles.sectionTitle}>
+            {tMc('alerts.contextAndTopology')}
+          </span>
+          <div className={styles.groupInner}>
+            <div className={styles.kvRow}>
+              <span className={styles.kvKey}>
+                {tMc('alerts.belongCluster')}
+              </span>
+              <span className={styles.kvVal}>
+                {alert.cluster_name || alert.cluster_id || '-'}
+              </span>
+            </div>
+            {alert.source_ref?.hostname ? (
+              <div className={styles.kvRow}>
+                <span className={styles.kvKey}>
+                  {tMc('alerts.affectedHost')}
+                </span>
+                <span className={cn(styles.kvVal, styles.mono)}>
+                  {alert.source_ref.hostname}
+                </span>
+              </div>
+            ) : null}
+            {alert.source_ref?.process_name ? (
+              <div className={styles.kvRow}>
+                <span className={styles.kvKey}>
+                  {tMc('alerts.associatedProcess')}
+                </span>
+                <span className={cn(styles.kvVal, styles.mono)}>
+                  {alert.source_ref.process_name}
+                </span>
+              </div>
+            ) : null}
+            {alert.source_ref?.event_id ? (
+              <div className={styles.kvRow}>
+                <span className={styles.kvKey}>
+                  {tMc('alerts.associatedEventId')}
+                </span>
+                <span className={cn(styles.kvVal, styles.mono)}>
+                  #{alert.source_ref.event_id}
+                </span>
+              </div>
+            ) : null}
+            {alert.source_ref?.original_alert_name ? (
+              <div className={styles.kvRow}>
+                <span className={styles.kvKey}>{t('originalAlertName')}</span>
+                <span className={cn(styles.kvVal, styles.mono)}>
+                  {alert.source_ref.original_alert_name}
+                </span>
+              </div>
+            ) : null}
+            {alert.source_ref?.task_id ? (
+              <div className={styles.kvRow}>
+                <span className={styles.kvKey}>
+                  {tAlert('policyTaskColumn')}
+                </span>
+                <span
+                  className={styles.kvVal}
+                  title={alert.source_ref.task_name}
+                >
+                  {alert.source_ref.task_name || `#${alert.source_ref.task_id}`}
+                </span>
+              </div>
+            ) : null}
+            {alert.source_ref?.job_id ? (
+              <div className={styles.kvRow}>
+                <span className={styles.kvKey}>{tAlert('jobLabel')}</span>
+                <span className={cn(styles.kvVal, styles.mono, styles.nowrap)}>
+                  #{alert.source_ref.job_id}
+                  {alert.source_ref.engine_job_id
+                    ? ` · ${alert.source_ref.engine_job_id}`
+                    : ''}
+                </span>
+              </div>
+            ) : null}
+            {syncAutoCloseReason(alert.source_ref?.resolve_reason) ? (
+              <div className={styles.kvRow}>
+                <span className={styles.kvKey}>
+                  {tAlert('closeReasonLabel')}
+                </span>
+                <span className={styles.kvVal}>
+                  {tAlert(
+                    `closeReason_${syncAutoCloseReason(alert.source_ref?.resolve_reason)}`,
+                  )}
+                </span>
+              </div>
+            ) : null}
+            {alert.source_ref?.reminders_paused ? (
+              <div className={styles.kvRow}>
+                <span className={styles.warningText}>
+                  {tAlert('remindersPausedHint')}
+                </span>
+              </div>
+            ) : null}
+            {(alert.source_ref?.occurrence_count ?? 0) > 0 ? (
+              <div className={styles.kvRow}>
+                <span className={styles.kvKey}>
+                  {tAlert('occurrenceLabel')}
+                </span>
+                <span className={styles.kvVal}>
+                  {tAlert('occurrences', {
+                    count: alert.source_ref?.occurrence_count ?? 0,
+                  })}
+                </span>
+              </div>
+            ) : null}
+            {alert.source_ref?.link ? (
+              <div className={styles.kvRow}>
+                <span className={styles.detailFootGrow} />
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  data-testid='alert-open-job'
+                  onClick={() =>
+                    router.push(alert.source_ref?.link || '/workbench')
+                  }
+                >
+                  <ExternalLink className='size-3.5' aria-hidden />
+                  {alert.source_ref.job_id
+                    ? tAlert('openJob')
+                    : tAlert('openTask')}
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </div>
-      ) : null}
 
+        {/* 处理记录：确认时间 / 静默至 / 最新备注。Handling record. */}
+        {alert.silenced_until || alert.acknowledged_at || alert.latest_note ? (
+          <div className={styles.sectionStack} style={{gap: 8}}>
+            <span className={styles.sectionTitle}>
+              {tMc('alerts.handlingNotes')}
+            </span>
+            <div className={styles.groupInner}>
+              {alert.silenced_until ? (
+                <div className={styles.kvRow}>
+                  <span className={styles.kvKey}>
+                    {tMc('alerts.silencedUntilLabel')}
+                  </span>
+                  <span className={cn(styles.kvVal, styles.mono)}>
+                    {ago(alert.silenced_until)}
+                  </span>
+                </div>
+              ) : null}
+              {alert.acknowledged_at ? (
+                <div className={styles.kvRow}>
+                  <span className={styles.kvKey}>
+                    {tMc('alerts.acknowledgedTimeLabel')}
+                  </span>
+                  <span className={cn(styles.kvVal, styles.mono)}>
+                    {ago(alert.acknowledged_at)}
+                    {alert.acknowledged_by ? ` · ${alert.acknowledged_by}` : ''}
+                  </span>
+                </div>
+              ) : null}
+              {alert.latest_note ? (
+                <div
+                  className={styles.kvRow}
+                  style={{alignItems: 'flex-start'}}
+                >
+                  <span className={styles.kvKey}>
+                    {tMc('alerts.latestNoteLabel')}
+                  </span>
+                  <span className={cn(styles.kvVal, 'whitespace-normal')}>
+                    {alert.latest_note}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {/* 前往诊断：沿旧告警中心的 /diagnostics 参数拼法。
+            Diagnostics deep link, same query shape as the old alerts center. */}
+        <div>
+          <Button
+            type='button'
+            size='sm'
+            variant='secondary'
+            onClick={() => onNavigateDiagnostics(alert)}
+          >
+            <Activity className='size-3.5' aria-hidden />
+            {tMc('alerts.navigateToDiagnostics')}
+            <ExternalLink className='size-3' aria-hidden />
+          </Button>
+        </div>
+
+        <div className={styles.sectionStack} style={{gap: 8}}>
+          <span className={styles.sectionTitle}>{t('timeline')}</span>
+          <ol className={styles.timeline}>
+            {timelineEvents.map((ev, i) => (
+              <li key={i} className={styles.tlItem}>
+                <span className={styles.tlDot}>
+                  <TimelineDot kind={ev.key} />
+                </span>
+                <span className={styles.tlHead}>
+                  <span>{t(`timelineKind.${ev.key}`)}</span>
+                  <span className={cn(styles.sub, styles.num, styles.nowrap)}>
+                    {ago(ev.at)}
+                  </span>
+                </span>
+                {ev.note ? (
+                  <div className={styles.tlNote}>{ev.note}</div>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <div className={styles.sectionStack} style={{gap: 8}}>
+          <span className={styles.sectionTitle}>{t('deliveries')}</span>
+          {deliveries.length === 0 ? (
+            <p className={styles.hintBox}>{t('deliveriesEmpty')}</p>
+          ) : (
+            <ul className={styles.lineList}>
+              {deliveries.map((d) => (
+                <li key={d.id} className={styles.lineItem}>
+                  <span
+                    className={cn(styles.truncate, styles.mono, styles.xsText)}
+                  >
+                    {d.channel_name ?? d.channel_id}
+                  </span>
+                  <span className='flex shrink-0 items-center gap-2'>
+                    <DeliveryChip
+                      status={d.status}
+                      label={t(`delivery.${d.status}`)}
+                    />
+                    <span className={cn(styles.sub, styles.num, styles.nowrap)}>
+                      {ago(d.sent_at || d.created_at)}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* 沉淀/更新排障经验：字段沿用旧告警中心（fingerprint=rule_key||alert_name，target=alert）。
+            Save/update troubleshooting memory; same field mapping as the old alerts center. */}
+        <SaveMemoryDialog
+          open={memoryDialogOpen}
+          onOpenChange={setMemoryDialogOpen}
+          initialData={{
+            id: primaryMemory?.id,
+            target_type: 'alert',
+            fingerprint: alert.rule_key || alert.alert_name,
+            title:
+              primaryMemory?.title ||
+              `${alertDisplayName || alert.rule_key} ${tsT('defaultTitleSuffix')}`,
+            error_summary: alert.summary || alert.description,
+            root_cause: primaryMemory?.root_cause,
+            solution: primaryMemory?.solution || '',
+            preventive_tips: primaryMemory?.preventive_tips,
+            tags:
+              primaryMemory?.tags ||
+              ['alert', alert.source_type || 'metric'].filter(Boolean),
+            cluster_id: alert.cluster_id,
+            cluster_name: alert.cluster_name,
+            author: primaryMemory?.author,
+          }}
+          onSaved={onMemorySaved}
+        />
+      </div>
+
+      {/* 处理动作钉在底部操作栏（仅触发中可确认/静默）。
+          Handling actions pinned to the bottom bar for firing alerts. */}
       {rowStatus === 'firing' ? (
-        <div className='flex gap-2'>
-          <Button type='button' size='sm' className='h-8 rounded-md text-xs' onClick={onAck}>
-            <CheckCheck className='mr-1.5 size-3.5' aria-hidden />
+        <div className={styles.detailFoot}>
+          <Button type='button' size='sm' onClick={onAck}>
+            <CheckCheck className='size-3.5' aria-hidden />
             {t('actionAck')}
           </Button>
-          <Button type='button' size='sm' variant='outline' className='h-8 rounded-md text-xs' onClick={onSilence}>
-            <BellOff className='mr-1.5 size-3.5' aria-hidden />
+          <Button
+            type='button'
+            size='sm'
+            variant='secondary'
+            onClick={onSilence}
+          >
+            <BellOff className='size-3.5' aria-hidden />
             {t('actionSilence')}
           </Button>
         </div>
       ) : null}
-
-      {/* 历史排障经验 / Troubleshooting memory */}
-      <TroubleshootingMemoryCard
-        matchedMemory={primaryMemory}
-        totalMatches={matchedMemories.length}
-        onAddOrEdit={() => setMemoryDialogOpen(true)}
-      />
-
-      {/* 上下文：集群 / 主机 / 进程 / 事件 ID，作业告警附任务与自动关闭原因。
-          Context: cluster/host/process/event id plus sync-episode extras. */}
-      <div className='space-y-2'>
-        <span className='text-sm font-medium'>{tMc('alerts.contextAndTopology')}</span>
-        <div className='divide-y rounded-lg border border-border/60 text-xs'>
-          <div className='flex items-center justify-between gap-3 px-3 py-2.5'>
-            <span className='text-muted-foreground'>{tMc('alerts.belongCluster')}</span>
-            <span className='min-w-0 truncate font-medium'>
-              {alert.cluster_name || alert.cluster_id || '-'}
-            </span>
-          </div>
-          {alert.source_ref?.hostname ? (
-            <div className='flex items-center justify-between gap-3 px-3 py-2.5'>
-              <span className='text-muted-foreground'>{tMc('alerts.affectedHost')}</span>
-              <span className='min-w-0 truncate font-mono font-medium'>{alert.source_ref.hostname}</span>
-            </div>
-          ) : null}
-          {alert.source_ref?.process_name ? (
-            <div className='flex items-center justify-between gap-3 px-3 py-2.5'>
-              <span className='text-muted-foreground'>{tMc('alerts.associatedProcess')}</span>
-              <span className='min-w-0 truncate font-mono font-medium'>{alert.source_ref.process_name}</span>
-            </div>
-          ) : null}
-          {alert.source_ref?.event_id ? (
-            <div className='flex items-center justify-between gap-3 px-3 py-2.5'>
-              <span className='text-muted-foreground'>{tMc('alerts.associatedEventId')}</span>
-              <span className='font-mono font-medium'>#{alert.source_ref.event_id}</span>
-            </div>
-          ) : null}
-          {alert.source_ref?.original_alert_name ? (
-            <div className='flex items-center justify-between gap-3 px-3 py-2.5'>
-              <span className='text-muted-foreground'>{t('originalAlertName')}</span>
-              <span className='min-w-0 truncate font-mono font-medium'>
-                {alert.source_ref.original_alert_name}
-              </span>
-            </div>
-          ) : null}
-          {alert.source_ref?.task_id ? (
-            <div className='flex items-center justify-between gap-3 px-3 py-2.5'>
-              <span className='text-muted-foreground'>{tAlert('policyTaskColumn')}</span>
-              <span className='min-w-0 truncate font-medium' title={alert.source_ref.task_name}>
-                {alert.source_ref.task_name || `#${alert.source_ref.task_id}`}
-              </span>
-            </div>
-          ) : null}
-          {alert.source_ref?.job_id ? (
-            <div className='flex items-center justify-between gap-3 px-3 py-2.5'>
-              <span className='text-muted-foreground'>{tAlert('jobLabel')}</span>
-              <span className='whitespace-nowrap font-mono font-medium'>
-                #{alert.source_ref.job_id}
-                {alert.source_ref.engine_job_id ? ` · ${alert.source_ref.engine_job_id}` : ''}
-              </span>
-            </div>
-          ) : null}
-          {syncAutoCloseReason(alert.source_ref?.resolve_reason) ? (
-            <div className='flex items-center justify-between gap-3 px-3 py-2.5'>
-              <span className='whitespace-nowrap text-muted-foreground'>{tAlert('closeReasonLabel')}</span>
-              <span className='min-w-0 text-right'>
-                {tAlert(`closeReason_${syncAutoCloseReason(alert.source_ref?.resolve_reason)}`)}
-              </span>
-            </div>
-          ) : null}
-          {alert.source_ref?.reminders_paused ? (
-            <div className='px-3 py-2.5 text-(--warning)'>{tAlert('remindersPausedHint')}</div>
-          ) : null}
-          {(alert.source_ref?.occurrence_count ?? 0) > 0 ? (
-            <div className='flex items-center justify-between gap-3 px-3 py-2.5'>
-              <span className='text-muted-foreground'>{tAlert('occurrenceLabel')}</span>
-              <span className='whitespace-nowrap'>
-                {tAlert('occurrences', {count: alert.source_ref?.occurrence_count ?? 0})}
-              </span>
-            </div>
-          ) : null}
-          {alert.source_ref?.link ? (
-            <div className='flex items-center justify-end px-3 py-2.5'>
-              <Button
-                type='button'
-                variant='outline'
-                size='sm'
-                className='h-7 gap-1 rounded-md text-xs'
-                data-testid='alert-open-job'
-                onClick={() => router.push(alert.source_ref?.link || '/workbench')}
-              >
-                <ExternalLink className='size-3' aria-hidden />
-                {alert.source_ref.job_id ? tAlert('openJob') : tAlert('openTask')}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {/* 处理记录：确认时间 / 静默至 / 最新备注。Handling record. */}
-      {alert.silenced_until || alert.acknowledged_at || alert.latest_note ? (
-        <div className='space-y-2'>
-          <span className='text-sm font-medium'>{tMc('alerts.handlingNotes')}</span>
-          <div className='space-y-1.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-xs'>
-            {alert.silenced_until ? (
-              <div className='flex items-center gap-2'>
-                <span className='text-muted-foreground'>{tMc('alerts.silencedUntilLabel')}:</span>
-                <span className='font-mono font-medium'>{ago(alert.silenced_until)}</span>
-              </div>
-            ) : null}
-            {alert.acknowledged_at ? (
-              <div className='flex items-center gap-2'>
-                <span className='text-muted-foreground'>{tMc('alerts.acknowledgedTimeLabel')}:</span>
-                <span className='font-mono font-medium'>
-                  {ago(alert.acknowledged_at)}
-                  {alert.acknowledged_by ? ` · ${alert.acknowledged_by}` : ''}
-                </span>
-              </div>
-            ) : null}
-            {alert.latest_note ? (
-              <div className='space-y-1 border-t border-border/50 pt-1.5'>
-                <span className='text-muted-foreground'>{tMc('alerts.latestNoteLabel')}:</span>
-                <p className='text-foreground'>{alert.latest_note}</p>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {/* 前往诊断：沿旧告警中心的 /diagnostics 参数拼法。
-          Diagnostics deep link, same query shape as the old alerts center. */}
-      <Button
-        type='button'
-        size='sm'
-        className='h-8 rounded-md text-xs'
-        onClick={() => onNavigateDiagnostics(alert)}
-      >
-        <Activity className='mr-1.5 size-3.5' aria-hidden />
-        {tMc('alerts.navigateToDiagnostics')}
-        <ExternalLink className='ml-1 size-3 opacity-70' aria-hidden />
-      </Button>
-
-      <div className='space-y-2'>
-        <span className='text-sm font-medium'>{t('timeline')}</span>
-        <ol className='relative space-y-3 border-l border-border/60 pl-4'>
-          {timelineEvents.map((ev, i) => (
-            <li key={i} className='relative text-sm'>
-              <span className='absolute -left-[21px] top-0.5 flex size-3.5 items-center justify-center rounded-full bg-card'>
-                <TimelineDot kind={ev.key} />
-              </span>
-              <div className='flex items-baseline justify-between gap-2'>
-                <span>{t(`timelineKind.${ev.key}`)}</span>
-                <span className='shrink-0 whitespace-nowrap text-xs tabular-nums text-muted-foreground'>
-                  {ago(ev.at)}
-                </span>
-              </div>
-              {ev.note ? <div className='mt-0.5 text-xs text-muted-foreground'>{ev.note}</div> : null}
-            </li>
-          ))}
-        </ol>
-      </div>
-
-      <div className='space-y-2'>
-        <span className='text-sm font-medium'>{t('deliveries')}</span>
-        {deliveries.length === 0 ? (
-          <p className='rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-xs text-muted-foreground'>
-            {t('deliveriesEmpty')}
-          </p>
-        ) : (
-          <ul className='space-y-1.5'>
-            {deliveries.map((d) => (
-              <li
-                key={d.id}
-                className='flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2 text-sm'
-              >
-                <span className='truncate font-mono text-xs'>{d.channel_name ?? d.channel_id}</span>
-                <span className='flex shrink-0 items-center gap-2'>
-                  <Badge
-                    size='sm'
-                    tone={d.status === 'sent' ? 'success' : d.status === 'failed' ? 'danger' : 'neutral'}
-                    outline
-                  >
-                    {t(`delivery.${d.status}`)}
-                  </Badge>
-                  <span className='whitespace-nowrap text-xs tabular-nums text-muted-foreground'>
-                    {ago(d.sent_at || d.created_at)}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* 沉淀/更新排障经验：字段沿用旧告警中心（fingerprint=rule_key||alert_name，target=alert）。
-          Save/update troubleshooting memory; same field mapping as the old alerts center. */}
-      <SaveMemoryDialog
-        open={memoryDialogOpen}
-        onOpenChange={setMemoryDialogOpen}
-        initialData={{
-          id: primaryMemory?.id,
-          target_type: 'alert',
-          fingerprint: alert.rule_key || alert.alert_name,
-          title:
-            primaryMemory?.title ||
-            `${alertDisplayName || alert.rule_key} ${tsT('defaultTitleSuffix')}`,
-          error_summary: alert.summary || alert.description,
-          root_cause: primaryMemory?.root_cause,
-          solution: primaryMemory?.solution || '',
-          preventive_tips: primaryMemory?.preventive_tips,
-          tags: primaryMemory?.tags || ['alert', alert.source_type || 'metric'].filter(Boolean),
-          cluster_id: alert.cluster_id,
-          cluster_name: alert.cluster_name,
-          author: primaryMemory?.author,
-        }}
-        onSaved={onMemorySaved}
-      />
     </div>
   );
 }
 
 function TimelineDot({kind}: {kind: string}) {
-  const cls = {
-    triggered: 'bg-destructive',
-    notified: 'bg-(--info, var(--accent))',
-    acknowledged: 'bg-(--warning)',
-    resolved: 'bg-(--success)',
-    closed: 'bg-muted-foreground/60',
-  }[kind] ?? 'bg-muted-foreground/40';
-  return <span className={cn('size-2 rounded-full', cls)} aria-hidden />;
+  const cls =
+    {
+      triggered: styles.dotFiring,
+      notified: styles.dotSilenced,
+      acknowledged: styles.dotAcknowledged,
+      resolved: styles.dotResolved,
+      closed: styles.dotClosed,
+    }[kind] ?? styles.dotClosed;
+  return <span className={cn(styles.tlDotInner, cls)} aria-hidden />;
 }

@@ -1,3 +1,7 @@
+/* 本地修改：弹层收紧为 --radius-popover（10px）、内边距 4px、选项 6px 圆角与
+   32px 行高（design §3.6）；升级 Arc 时 diff 合并。
+   Local modification: popup tightened to --radius-popover (10px) with 4px padding,
+   6px option corners and 32px rows (design §3.6); diff-merge on Arc upgrades. */
 .field { display: grid; gap: var(--space-2); min-width: 0; }
 .field label { font-size: var(--text-sm); font-weight: 500; }
 /* The trigger anchors the floating menu. Radix opens on pointerdown and measures this box, so it never scales: press feedback is color only. */
@@ -14,13 +18,13 @@
 .trigger[data-state="open"] .chevron { transform: rotate(180deg); }
 .hint { color: var(--text-muted); font-size: var(--text-xs); }
 /* Radix holds the animation until the menu is positioned, so it always grows from the trigger edge. */
-.content { --menu-x: 0px; --menu-y: -6px; box-sizing: border-box; z-index: 1000; width: var(--radix-select-trigger-width); min-width: var(--radix-select-trigger-width); max-width: min(24rem, calc(100vw - 20px)); max-height: min(320px, var(--radix-select-content-available-height)); overflow: hidden; border: 1px solid var(--border); border-radius: calc(var(--radius-control) + 2px); padding: 6px; background: var(--surface-raised); color: var(--foreground); box-shadow: var(--shadow-floating); transform-origin: var(--radix-select-content-transform-origin); animation: select-in var(--duration-standard) var(--ease-enter) both; }
+.content { --menu-x: 0px; --menu-y: -6px; box-sizing: border-box; z-index: 1000; width: var(--radix-select-trigger-width); min-width: var(--radix-select-trigger-width); max-width: min(24rem, calc(100vw - 20px)); max-height: min(320px, var(--radix-select-content-available-height)); overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-popover); padding: 4px; background: var(--surface-raised); color: var(--foreground); box-shadow: var(--shadow-floating); transform-origin: var(--radix-select-content-transform-origin); animation: select-in var(--duration-standard) var(--ease-enter) both; }
 .content[data-side="top"] { --menu-y: 6px; }
 .content[data-side="left"] { --menu-x: 6px; --menu-y: 0px; }
 .content[data-side="right"] { --menu-x: -6px; --menu-y: 0px; }
 .content[data-state="closed"] { animation: select-out var(--duration-instant) var(--ease-standard) both; }
-.viewport { padding: 2px 0; }
-.item { position: relative; display: flex; align-items: center; min-height: 36px; border-radius: calc(var(--radius-control) - 4px); padding: 0 34px 0 11px; color: var(--foreground); font-size: var(--text-sm); cursor: default; outline: none; user-select: none; transition: background-color var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard); }
+.viewport { padding: 0; }
+.item { position: relative; display: flex; align-items: center; min-height: 32px; border-radius: calc(var(--radius-popover) - 4px); padding: 0 34px 0 11px; color: var(--foreground); font-size: var(--text-sm); cursor: default; outline: none; user-select: none; transition: background-color var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard); }
 .item[data-highlighted] { background: var(--surface-muted); }
 .item[data-disabled] { opacity: .45; }
 .indicator { position: absolute; right: 10px; display: inline-flex; align-items: center; color: var(--foreground); animation: indicator-in var(--duration-standard) var(--ease-enter) 40ms both; }

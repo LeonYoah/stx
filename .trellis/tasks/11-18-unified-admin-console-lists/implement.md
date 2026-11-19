@@ -14,7 +14,6 @@
 - [ ] 核对 `ui/popover` 的 3 处用法是否被当作菜单使用。
 - 选型已全部拍板（design §3、§3.1、§3.4、§3.6、规范 §17、§18），Phase 0 不再有待定项。
 - [ ] 差异清单逐区域列出要一起换成 Arc 的控件（搜索框、按钮、输入框、日期），确认是否需要安装 `textarea`、`checkbox`。
-- [ ] 差异清单列出 91 处手写颜色 class 的 `Badge`，以及每处对应的 tone。
 - [ ] 把选型表写回 `ui-conventions.md`。
 - 评审门槛：用户确认差异清单和选型表之后，才进入 Phase 1。
 
@@ -39,8 +38,7 @@
 ## Phase 2 · 试点：审计日志
 
 - [ ] 接入 `TableCard` 与 `useServerListQuery`。
-- [ ] `AuditLogMain` 持有查询状态，`AuditLogTable` 只负责渲染。
-- [ ] 状态列换成 Arc `badge`（`size='sm'` 加 `dot`）。用每页 100 行加自动刷新验证动画不卡顿，并把结论写进 PR。
+- [ ] `AuditLogMain` 持有查询状态，`AuditLogTable` 只负责渲染；状态标签保留原本 `ui/badge` 不动。
 - [ ] 迁移前后截图对比；Egolite 跑审计用例。
 - 评审门槛：试点通过后，再批量迁移其余页面。
 
@@ -72,8 +70,7 @@
 - [ ] 作业列表工具栏的 `StatPillsBar` 换成 `chip-group` 多选 + 计数；URL 支持多值并兼容旧单值链接；只选"运行中"时才能按速率 / CDC 延迟排序。
 - [ ] 下拉、可搜索下拉、行内"更多"换成 Arc；同一块区域里相邻的 shadcn 控件一起换，做到不混用。
 - [ ] 用普通 `Dialog` 承载的纯确认，改成 `AlertDialog`。
-- [ ] 手写颜色 class 的 `Badge` 换成 Arc `badge` 的 `tone`，每个域只用一个映射函数。完成后用 `grep` 确认没有遗漏。
-- [ ] 下拉框、更多菜单按 `inventory.md` 的清单逐处替换。
+- [ ] 下拉框、更多菜单按 `inventory.md` 的清单逐处替换（原本 `ui/badge` 保持不动）。
 - [ ] diff 只能是组件替换，不能有布局、数据流或轮询的改动。
 - [ ] Egolite：每一处替换各一条用例。
 

@@ -16,8 +16,8 @@ STX 控制台采用现代化控制台体验架构：
 - **弹窗美学与分级**：消除无边框感，重内容弹窗（详情、巡检、配置、DAG）显式放宽并采用内部滚动。
 - **向导式闭环引导**：新增关键异步/物理资源后，必须提供带有操作命令与实时心跳侦听的引导向导。
 - **保密凭据安全**：敏感密码/Token 字段不回显、保存后脱敏，编辑时支持“保持原密码”与“重写覆盖”。
-- **控制台控件统一**：以工作台的 Arc 外观为准，同一块区域不混用 Arc 与 shadcn（见 §18）。
-- **状态标签分工**：状态用 Arc `Badge` 的 `tone`，中性标签用 `ui/badge` 的 `outline` / `secondary`，不手写颜色 class（见 §17）。
+- **控制台控件统一**：采用 Arc 桌面后台收紧版（8–10px 圆角、32/28px 高度），同一块区域不混用 Arc 与 shadcn（`ui/badge` 豁免，见 §18）。
+- **状态标签保留原版**：全站列表与详情的状态标签继续保留原本 shadcn `ui/badge` 不动，已采用 Arc `Badge` 的 §14 场景维持现状（见 §17）。
 - **微动效赋能**：借助 GSAP 微动效库为表格行与卡片网格赋予克制丝滑的入场动效。
 
 新增或重构前端 UI 时必须严格遵循本约定。
@@ -379,25 +379,10 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 
 ## 17. 状态标签（Badge）
 
-- **按用途分两种**：
-  - **状态**用 Arc `Badge`（`@/components/arc/badge/badge`）的 `tone`：成功、失败、警告、进行中、已停用这类有好坏或进度含义的标签。
-  - **非状态的中性标签**用 `ui/badge` 的 `outline` 或 `secondary`：版本号、数量、分类、类型、引擎名。
-- **不要手写颜色 class**：不给 `Badge` 写 `text-green-600`、`bg-amber-500/10`、`border-rose-500/30` 这类颜色。
-  `ui/badge` 没有语义色，手写会导致同一状态各页配色、字号、底色都不一样，深色主题下还容易缺少适配。
-  需要颜色就用 Arc `tone`，颜色来自主题 token，深色和浅色都已调好。
-- **状态 → tone 对照**（沿用 `JobDetailDialog.jobStatusTone`）：
-
-  | tone | 含义 | 例子 |
-  |---|---|---|
-  | `success` | 成功、已完成、健康、已启用 | SUCCESS、FINISHED、SAVEPOINT_DONE、在线 |
-  | `info` | 进行中、运行中、已调度 | RUNNING、执行中、巡检中 |
-  | `warning` | 等待、即将超限、需要注意、未知中间态 | PENDING、排队、告警级别 warning |
-  | `danger` | 失败、错误、离线、严重 | FAILED、离线、告警级别 critical |
-  | `neutral` | 已取消、已停止、已禁用 | CANCELED、已停用 |
-
-- **每个域只有一个映射函数**（如 `jobStatusTone`、`alertSeverityTone`），放在该域的 `*-format.ts` 里。不要在 JSX 里逐处写 `switch`。
-- **列表的状态列**统一用 `size='sm'` 加 `dot`；详情页标题旁的状态可以用 `outline`。同一张表里不要混用尺寸。
-- **文案走 next-intl**；未知的后端状态值用 `t.has()` 兜底，tone 落到 `warning`。
+- **保留原本 shadcn `ui/badge` 不动**：列表、详情与卡片里的状态标签及中性标签继续沿用 `@/components/ui/badge`（`components/ui/badge.tsx` 保持原样，不做向 Arc `Badge` 的批量替换）。
+- **§14 已有 Arc `Badge` 维持现状**：工作台定时侧栏、作业详情、升级向导以及 `SegmentedControl` / `chip-group` 计数处已使用的 Arc `Badge` 保持不动，也不要求反向改回 `ui/badge`。
+- **一致性与深色可读性**：同一域内的状态配色与尺寸（如 `text-[11px] py-0 px-1.5` 或默认大小）保持统一；新增或顺手修改状态样式时必须同时带好浅色与 `dark:` 对比度变体（如 `text-amber-600 dark:text-amber-400 border-amber-500/30`）。
+- **文案走 next-intl**：未知的后端状态值用 `t.has()` 兜底，避免运行时报缺键错误。
 
 ---
 
@@ -412,7 +397,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - **弹层统一收紧**：`DropdownMenu`、`Select`、`Combobox` 的弹层圆角都用 `--radius-popover`（**10px** / `0.625rem`，定义在 `foundation.css` 的 `:root`，
   因为弹层通过 Portal 渲染到 `body`），内边距 4px，选项圆角为 `calc(var(--radius-popover) - 4px)`（6px），选项行高 32px；
   图标平时是 `--text-secondary`，高亮时是 `--foreground`。新增其他弹层组件也按这一套，不要写死 20–26px 的圆角。
-- **同一块区域只用一套组件**：同一行筛选栏、同一个对话框、同一张表里，控件要么全是 Arc，要么全是 shadcn。
+- **同一块区域只用一套组件**：同一行筛选栏、同一个对话框、同一张表里，交互控件要么全是 Arc，要么全是 shadcn（原本 `ui/badge` 豁免，可在 Arc 页面/表格内保留原样）。
   把某个控件换成 Arc 时，同一区域里相邻的搜索框（`SearchField`）、按钮（`Button`）、输入框（`Input`）、日期（`ArcDateRangePicker`）一起换。
 - **选型**：
 
@@ -450,7 +435,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] **[排版防碎裂]** 关键标识、键值单元、代码、状态组是否声明了防被迫换行保护（`whitespace-nowrap` / `truncate` / `overflow-x-auto`），杜绝机械等宽 Grid 导致的字符内部被迫断行？
 - [ ] 同一行筛选栏、同一个对话框、同一张表里是否只用一套控件（Arc 或 shadcn），没有 Arc 胶囊控件和 8px 圆角的 shadcn 控件挨在一起？下拉、可搜索下拉、行内"更多"与行内确认是否按 §18 选型？控制台容器是否按 §18 覆写 8–10px / 32–28px 桌面收紧变量且没有逐个组件手写 `h-*` / `rounded-*`？弹层圆角是否用 `--radius-popover`（10px/6px），没有写死？
 - [ ] **[防框框堆叠]** 列表页是否只保留一层主卡片外框（筛选栏直接落画布、没有额外套卡片或边框），内部优先间距与 1px `--border-subtle` 分割线，行内没有多枚带框按钮/胶囊并排叠框？
-- [ ] 状态标签是否用 Arc `Badge` 的 `tone`（经域内唯一的映射函数）？中性标签是否用 `ui/badge` 的 `outline` / `secondary`？是否没有给 `Badge` 手写颜色 class？
+- [ ] 状态标签是否保留原本 shadcn `ui/badge`（或 §14 既有的 Arc `Badge`），新增/顺手修改的状态样式是否兼顾浅色与 `dark:` 对比度？
 - [ ] 加载状态是否采用 `TableSkeletonRows` + `TableLoadingBar` 的零塌陷架构，而非大 Spinner？
 - [ ] 筛选栏是否统一左对齐？搜索框等输入项是否已支持 **Enter** 快捷提交？
 - [ ] 表格底部分页是否通过 `border-t bg-muted/10` 封装在 Table Card 内？

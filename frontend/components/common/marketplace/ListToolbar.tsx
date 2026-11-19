@@ -17,18 +17,23 @@
 
 'use client';
 
-import type {ReactNode} from 'react';
-import {LayoutGrid, Rows3} from 'lucide-react';
+import type {CSSProperties, ReactNode} from 'react';
+import {LayoutGrid, List} from 'lucide-react';
 import {useTranslations} from 'next-intl';
-import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {cn} from '@/lib/utils';
 import type {MarketplaceViewMode} from './types';
 
+// 局部收敛 Arc 分段控件圆角与高度，使其在非监控页也与控制台保持一致的紧凑尺度。
+// Local token scope so Arc SegmentedControl keeps compact 8px/28px console sizing here too.
+const VIEW_TOGGLE_SCOPE: CSSProperties = {
+  ['--radius-control' as string]: '0.5rem',
+  ['--control-height-sm' as string]: '1.75rem',
+};
+
 /**
- * List header: title + muted count + table/card ToggleGroup.
- * Keyboard-reachable, aria-pressed via Radix Toggle, i18n labels; parent persists mode.
- * 列表标题行：标题 + 灰色计数 + 表格/卡片切换。
- * 键盘可达，Radix Toggle 提供 aria-pressed，文案走 i18n；视图记忆由调用方持久化。
+ * List header: title + muted count + icon-only Arc SegmentedControl (table / card).
+ * 列表标题行：标题 + 灰色计数 + 纯图标 Arc 分段视图切换（列表 / 卡片）。
  */
 export function MarketplaceListToolbar({
   title,
@@ -65,45 +70,35 @@ export function MarketplaceListToolbar({
         </p>
       </div>
 
-      <div className='flex items-center gap-2'>
+      <div
+        className='flex items-center gap-2'
+        style={VIEW_TOGGLE_SCOPE}
+        data-testid='marketplace-view-toggle'
+      >
         {trailing}
-        <ToggleGroup
-          type='single'
+        <SegmentedControl
+          label={t('viewModeLabel')}
           value={viewMode}
           onValueChange={(value) => {
-            // Keep current selection when the user re-clicks the active item.
-            // 再次点击当前项时保持选择，避免清空。
             if (value === 'table' || value === 'card') {
               onViewModeChange(value);
             }
           }}
-          variant='outline'
-          size='sm'
-          className='rounded-md border border-border/60'
-          aria-label={t('viewModeLabel')}
-          data-testid='marketplace-view-toggle'
-        >
-          <ToggleGroupItem
-            value='table'
-            aria-label={t('viewTable')}
-            aria-pressed={viewMode === 'table'}
-            data-testid='marketplace-view-table'
-            className='gap-1.5 rounded-md px-2.5'
-          >
-            <Rows3 className='size-3.5' />
-            <span className='hidden sm:inline'>{t('viewTable')}</span>
-          </ToggleGroupItem>
-          <ToggleGroupItem
-            value='card'
-            aria-label={t('viewCard')}
-            aria-pressed={viewMode === 'card'}
-            data-testid='marketplace-view-card'
-            className='gap-1.5 rounded-md px-2.5'
-          >
-            <LayoutGrid className='size-3.5' />
-            <span className='hidden sm:inline'>{t('viewCard')}</span>
-          </ToggleGroupItem>
-        </ToggleGroup>
+          options={[
+            {
+              value: 'table',
+              label: <List className='size-4' aria-hidden />,
+              ariaLabel: t('viewTable'),
+              testId: 'marketplace-view-table',
+            },
+            {
+              value: 'card',
+              label: <LayoutGrid className='size-4' aria-hidden />,
+              ariaLabel: t('viewCard'),
+              testId: 'marketplace-view-card',
+            },
+          ]}
+        />
       </div>
     </div>
   );

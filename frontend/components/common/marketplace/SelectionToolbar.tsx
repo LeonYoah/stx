@@ -24,8 +24,9 @@ import {Button} from '@/components/ui/button';
 import {cn} from '@/lib/utils';
 
 /**
- * Prestige-style bulk action strip:「已选 N 项」+ actions; table view only.
- * Prestige 风格批量操作条：已选数量 + 操作；仅表格视图展示。
+ * 底部居中浮动批量操作条：避让底部 Dock，不顶高上方表格造成布局跳动；仅表格有选中时出现。
+ * Centered floating bulk action bar above the bottom Dock: avoids pushing the table
+ * down when items are selected; rendered in table view when selectedCount > 0.
  */
 export function MarketplaceSelectionToolbar({
   selectedCount,
@@ -50,39 +51,43 @@ export function MarketplaceSelectionToolbar({
   }
 
   return (
-    <div
-      data-testid={dataTestId}
-      role='region'
-      aria-label={t('selectionToolbarAria')}
-      className={cn(
-        'flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2',
-        className,
-      )}
-    >
-      <span
-        data-testid={`${dataTestId}-count`}
-        className='text-sm font-medium text-foreground'
+    <div className='pointer-events-none fixed inset-x-0 bottom-24 z-30 flex justify-center px-4'>
+      <div
+        data-testid={dataTestId}
+        role='region'
+        aria-label={t('selectionToolbarAria')}
+        className={cn(
+          'pointer-events-auto flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/95 px-3.5 py-2 shadow-xl backdrop-blur-sm',
+          className,
+        )}
       >
-        {t('selectedCount', {count: selectedCount})}
-      </span>
-      {hint ? (
-        <span className='text-xs text-muted-foreground'>{hint}</span>
-      ) : null}
-      <div className='ml-auto flex flex-wrap items-center gap-1.5'>{children}</div>
-      {onClear ? (
-        <Button
-          type='button'
-          variant='ghost'
-          size='sm'
-          className='h-8 rounded-md text-xs'
-          data-testid={`${dataTestId}-clear`}
-          onClick={onClear}
-          aria-label={t('clearSelection')}
+        <span
+          data-testid={`${dataTestId}-count`}
+          className='text-sm font-medium tabular-nums text-foreground'
         >
-          <X className='mr-1 size-3.5' />
-          {t('clearSelection')}
-        </Button>
-      ) : null}
+          {t('selectedCount', {count: selectedCount})}
+        </span>
+        {hint ? (
+          <span className='text-xs text-muted-foreground'>{hint}</span>
+        ) : null}
+        {children ? (
+          <div className='flex flex-wrap items-center gap-1.5'>{children}</div>
+        ) : null}
+        {onClear ? (
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon'
+            className='size-8 rounded-md'
+            data-testid={`${dataTestId}-clear`}
+            onClick={onClear}
+            aria-label={t('clearSelection')}
+            title={t('clearSelection')}
+          >
+            <X className='size-4' aria-hidden />
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }

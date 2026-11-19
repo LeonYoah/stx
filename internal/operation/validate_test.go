@@ -128,12 +128,12 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"monitoring.overview.get": {}, "monitoring.cluster.overview.get": {},
 		"monitoring.alert-policy.list": {}, "monitoring.alert-policy.execution.list": {},
 		"monitoring.alert-instance.list": {}, "monitoring.remote-alert.list": {},
-		"monitoring.cluster.rule.list": {}, "monitoring.integration.status": {},
-		"monitoring.alert-policy.bootstrap.get": {}, "monitoring.alert-rule.catalog": {},
-		"monitoring.notifiable-user.list": {},
-		"monitoring.platform-health.get":  {}, "monitoring.notification-channel.list": {},
-		"monitoring.notification-delivery.list": {}, "monitoring.notification-route.list": {},
-		"monitor.config.get": {}, "monitor.event.list": {}, "monitor.event.stats": {},
+		"monitoring.cluster-rule.list": {}, "monitoring.cluster-rule.get": {},
+		"monitoring.integration.status": {}, "monitoring.alert-rule.catalog": {},
+		"monitoring.notifiable-user.list": {}, "monitoring.notification-defaults.get": {},
+		"monitoring.platform-health.get": {}, "monitoring.notification-channel.list": {},
+		"monitoring.notification-delivery.list": {},
+		"monitor.config.get":                    {}, "monitor.event.list": {}, "monitor.event.stats": {},
 		"diagnostics.bootstrap.get": {}, "diagnostics.inspection.list": {}, "diagnostics.inspection.get": {},
 		"diagnostics.resource.list": {}, "diagnostics.resource.get": {},
 		"diagnostics.task.list": {}, "diagnostics.task.get": {}, "diagnostics.task.steps": {}, "diagnostics.task.logs": {},
@@ -215,7 +215,7 @@ func TestMonitoringReadOperationsExposeSupportedFilters(t *testing.T) {
 	expectedQueries := map[string][]string{
 		"monitoring.alert-policy.list":           {"policy_type", "task_id"},
 		"monitoring.alert-policy.execution.list": {"status", "event_type", "start_time", "end_time", "page", "page_size"},
-		"monitoring.alert-instance.list":         {"source_type", "cluster_id", "severity", "status", "lifecycle_status", "handling_status", "start_time", "end_time", "page", "page_size"},
+		"monitoring.alert-instance.list":         {"source_type", "scope", "cluster_id", "severity", "status", "lifecycle_status", "handling_status", "start_time", "end_time", "page", "page_size"},
 		"monitoring.remote-alert.list":           {"cluster_id", "status", "start_time", "end_time", "page", "page_size"},
 		"monitoring.notification-delivery.list":  {"policy_id", "channel_id", "status", "event_type", "cluster_id", "start_time", "end_time", "page", "page_size"},
 	}
@@ -343,7 +343,7 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 32)
+	require.Len(t, RouteExceptions(), 33)
 	require.Contains(t, exceptions, "GET /api/v1/version")
 	require.Contains(t, exceptions, "POST /api/v1/sync/engine-events/:cluster_id")
 	require.Contains(t, exceptions, "POST /api/v1/auth/login")
@@ -356,8 +356,9 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 		"DELETE /api/v1/diagnostics/auto-policies/:id",
 		"DELETE /api/v1/hosts/:id",
 		"DELETE /api/v1/monitoring/alert-policies/:id",
+		"DELETE /api/v1/monitoring/cluster-rules/:key",
+		"DELETE /api/v1/monitoring/cluster-rules/:key/clusters/:clusterId",
 		"DELETE /api/v1/monitoring/notification-channels/:id",
-		"DELETE /api/v1/monitoring/notification-routes/:id",
 		"DELETE /api/v1/plugins/:name/dependencies/:depId",
 		"DELETE /api/v1/plugins/:name/dependencies/disables/:disableId",
 		"DELETE /api/v1/plugins/:name/local",

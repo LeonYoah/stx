@@ -98,7 +98,7 @@ func setupMonitoringNodeOfflineTestDB(t *testing.T) (*gorm.DB, func()) {
 	return database, cleanup
 }
 
-func TestEvaluateNodeHealthAlerts_emitsAndResolvesNodeOfflineEpisode(t *testing.T) {
+func TestEvaluateAvailabilityAlerts_emitsAndResolvesNodeOfflineEpisode(t *testing.T) {
 	database, cleanup := setupMonitoringNodeOfflineTestDB(t)
 	t.Cleanup(cleanup)
 
@@ -199,11 +199,28 @@ func TestEvaluateNodeHealthAlerts_emitsAndResolvesNodeOfflineEpisode(t *testing.
 
 	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyNodeOffline, []uint{channel.ID})
 
-	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
-		t.Fatalf("EvaluateNodeHealthAlerts returned error: %v", err)
+	// 第一次评估只记 pending 起点，未持续满 for 不触发。
+	// The first evaluation only records the pending start; nothing fires before for elapses.
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	offlineEvent, err := monitorService.GetLatestNodeEventByTypes(ctx, node.ID, []monitor.ProcessEventType{monitor.EventTypeNodeOffline})
+	if err != nil {
+		t.Fatalf("failed to load node_offline event: %v", err)
+	}
+	if offlineEvent != nil {
+		t.Fatalf("expected no node_offline event before the for window matured, got %+v", offlineEvent)
 	}
 
-	offlineEvent, err := monitorService.GetLatestNodeEventByTypes(ctx, node.ID, []monitor.ProcessEventType{monitor.EventTypeNodeOffline})
+	ageAvailabilityPending(service,
+		availabilityPendingKey{RuleKey: AlertRuleKeyNodeOffline, ClusterID: testCluster.ID, NodeID: node.ID, HostID: node.HostID},
+		time.Hour)
+
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+
+	offlineEvent, err = monitorService.GetLatestNodeEventByTypes(ctx, node.ID, []monitor.ProcessEventType{monitor.EventTypeNodeOffline})
 	if err != nil {
 		t.Fatalf("failed to load node_offline event: %v", err)
 	}
@@ -216,8 +233,8 @@ func TestEvaluateNodeHealthAlerts_emitsAndResolvesNodeOfflineEpisode(t *testing.
 		t.Fatalf("expected exactly one notification delivery, got %d", hitCount.Load())
 	}
 
-	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
-		t.Fatalf("second EvaluateNodeHealthAlerts returned error: %v", err)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("second EvaluateAvailabilityAlerts returned error: %v", err)
 	}
 	if hitCount.Load() != 1 {
 		t.Fatalf("expected no duplicate delivery for active offline episode, got %d", hitCount.Load())
@@ -246,8 +263,8 @@ func TestEvaluateNodeHealthAlerts_emitsAndResolvesNodeOfflineEpisode(t *testing.
 		t.Fatalf("failed to update node back to running: %v", err)
 	}
 
-	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
-		t.Fatalf("third EvaluateNodeHealthAlerts returned error: %v", err)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("third EvaluateAvailabilityAlerts returned error: %v", err)
 	}
 
 	recoveredEvent, err := monitorService.GetLatestNodeEventByTypes(ctx, node.ID, []monitor.ProcessEventType{monitor.EventTypeNodeRecovered})
@@ -279,7 +296,7 @@ func TestEvaluateNodeHealthAlerts_emitsAndResolvesNodeOfflineEpisode(t *testing.
 	}
 }
 
-func TestEvaluateNodeHealthAlerts_repeatsNodeOfflineReminderAfterCooldown(t *testing.T) {
+func TestEvaluateAvailabilityAlerts_repeatsNodeOfflineReminderAfterCooldown(t *testing.T) {
 	database, cleanup := setupMonitoringNodeOfflineTestDB(t)
 	t.Cleanup(cleanup)
 
@@ -383,8 +400,14 @@ func TestEvaluateNodeHealthAlerts_repeatsNodeOfflineReminderAfterCooldown(t *tes
 		t.Fatalf("failed to save default notification cooldown: %v", err)
 	}
 
-	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
-		t.Fatalf("first EvaluateNodeHealthAlerts returned error: %v", err)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("first EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	ageAvailabilityPending(service,
+		availabilityPendingKey{RuleKey: AlertRuleKeyNodeOffline, ClusterID: testCluster.ID, NodeID: node.ID, HostID: node.HostID},
+		time.Hour)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("second EvaluateAvailabilityAlerts returned error: %v", err)
 	}
 	if !waitForCondition(2*time.Second, func() bool {
 		return hitCount.Load() == 1
@@ -425,8 +448,8 @@ func TestEvaluateNodeHealthAlerts_repeatsNodeOfflineReminderAfterCooldown(t *tes
 		t.Fatalf("failed to backdate delivery sent_at: %v", err)
 	}
 
-	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
-		t.Fatalf("second EvaluateNodeHealthAlerts returned error: %v", err)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("second EvaluateAvailabilityAlerts returned error: %v", err)
 	}
 	if !waitForCondition(2*time.Second, func() bool {
 		return hitCount.Load() == 2
@@ -446,7 +469,7 @@ func TestEvaluateNodeHealthAlerts_repeatsNodeOfflineReminderAfterCooldown(t *tes
 	}
 }
 
-func TestEvaluateNodeHealthAlerts_suppressesTransientRuntimeHostOfflineWithinGraceWindow(t *testing.T) {
+func TestEvaluateAvailabilityAlerts_keepsTransientAgentOfflinePendingUntilForElapses(t *testing.T) {
 	database, cleanup := setupMonitoringNodeOfflineTestDB(t)
 	t.Cleanup(cleanup)
 
@@ -477,7 +500,7 @@ func TestEvaluateNodeHealthAlerts_suppressesTransientRuntimeHostOfflineWithinGra
 	service := NewService(clusterService, monitorService, repo)
 
 	testCluster := &clusterapp.Cluster{
-		Name:           "node-offline-runtime-grace",
+		Name:           "agent-offline-pending",
 		Description:    "test cluster",
 		DeploymentMode: clusterapp.DeploymentModeHybrid,
 		Version:        "2.3.11",
@@ -520,55 +543,50 @@ func TestEvaluateNodeHealthAlerts_suppressesTransientRuntimeHostOfflineWithinGra
 	service.nodeHealthEvaluatorStartedAt = now.Add(-2 * time.Minute)
 	service.nodeHealthStartupSuppression = 30 * time.Second
 
-	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
-		t.Fatalf("EvaluateNodeHealthAlerts during runtime grace returned error: %v", err)
+	// Agent 掉线但未持续满 for：只记 pending，不发任何事件。
+	// Agent down but the for window not yet covered: pending is recorded, no event is emitted.
+	agentSubject := availabilityPendingKey{RuleKey: clusterRuleKeyAgentOffline, ClusterID: testCluster.ID, HostID: 7}
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts during pending returned error: %v", err)
+	}
+	if !pendingSubjectExists(service, agentSubject) {
+		t.Fatal("expected agent_offline pending to be recorded")
+	}
+	for _, eventType := range []monitor.ProcessEventType{monitor.EventTypeAgentOffline, monitor.EventTypeNodeOffline} {
+		var count int64
+		if err := database.WithContext(ctx).Model(&monitor.ProcessEvent{}).
+			Where("cluster_id = ? AND event_type = ?", testCluster.ID, eventType).Count(&count).Error; err != nil {
+			t.Fatalf("failed to count %s events: %v", eventType, err)
+		}
+		if count != 0 {
+			t.Fatalf("expected no %s event while pending, got %d", eventType, count)
+		}
 	}
 
-	offlineEvent, err := monitorService.GetLatestNodeEventByTypes(ctx, node.ID, []monitor.ProcessEventType{
-		monitor.EventTypeNodeOffline,
-	})
-	if err != nil {
-		t.Fatalf("failed to query node_offline event during runtime grace: %v", err)
-	}
-	if offlineEvent != nil {
-		t.Fatalf("expected no node_offline event during runtime grace, got %+v", offlineEvent)
-	}
-
-	if observedSince, ok := service.nodeHealthOfflineObservedAt[node.ID]; !ok || observedSince.IsZero() {
-		t.Fatal("expected runtime host_offline observation to be recorded")
-	}
-
+	// 心跳中途恢复：pending 清零，不再触发。
+	// Heartbeat recovers midway: the pending start is cleared and nothing ever fires.
 	recoveredHeartbeat := time.Now().UTC()
 	hostProvider.hosts[7].LastHeartbeat = &recoveredHeartbeat
-	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
-		t.Fatalf("EvaluateNodeHealthAlerts after recovery returned error: %v", err)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts after recovery returned error: %v", err)
 	}
-
-	offlineEvent, err = monitorService.GetLatestNodeEventByTypes(ctx, node.ID, []monitor.ProcessEventType{
-		monitor.EventTypeNodeOffline,
-	})
-	if err != nil {
-		t.Fatalf("failed to query node_offline event after recovery: %v", err)
+	if pendingSubjectExists(service, agentSubject) {
+		t.Fatal("expected agent_offline pending to be cleared after recovery")
 	}
-	if offlineEvent != nil {
-		t.Fatalf("expected no node_offline event after transient recovery, got %+v", offlineEvent)
+	var total int64
+	if err := database.WithContext(ctx).Model(&monitor.ProcessEvent{}).
+		Where("cluster_id = ? AND event_type IN ?", testCluster.ID, []monitor.ProcessEventType{
+			monitor.EventTypeAgentOffline, monitor.EventTypeAgentRecovered,
+			monitor.EventTypeNodeOffline, monitor.EventTypeNodeRecovered,
+		}).Count(&total).Error; err != nil {
+		t.Fatalf("failed to count availability events: %v", err)
 	}
-
-	recoveredEvent, err := monitorService.GetLatestNodeEventByTypes(ctx, node.ID, []monitor.ProcessEventType{
-		monitor.EventTypeNodeRecovered,
-	})
-	if err != nil {
-		t.Fatalf("failed to query node_recovered event after transient recovery: %v", err)
-	}
-	if recoveredEvent != nil {
-		t.Fatalf("expected no node_recovered event for suppressed transient offline, got %+v", recoveredEvent)
-	}
-	if _, ok := service.nodeHealthOfflineObservedAt[node.ID]; ok {
-		t.Fatal("expected runtime host_offline observation to be cleared after recovery")
+	if total != 0 {
+		t.Fatalf("expected no availability events for a transient agent blip, got %d", total)
 	}
 }
 
-func TestEvaluateNodeHealthAlerts_suppressesColdStartHostOfflineUntilStartupWindowElapses(t *testing.T) {
+func TestEvaluateAvailabilityAlerts_suppressesColdStartAgentOfflineUntilStartupWindowElapses(t *testing.T) {
 	database, cleanup := setupMonitoringNodeOfflineTestDB(t)
 	t.Cleanup(cleanup)
 
@@ -600,7 +618,7 @@ func TestEvaluateNodeHealthAlerts_suppressesColdStartHostOfflineUntilStartupWind
 	service := NewService(clusterService, monitorService, repo)
 
 	testCluster := &clusterapp.Cluster{
-		Name:           "node-offline-startup-suppression",
+		Name:           "agent-offline-startup-suppression",
 		Description:    "test cluster",
 		DeploymentMode: clusterapp.DeploymentModeHybrid,
 		Version:        "2.3.11",
@@ -643,96 +661,325 @@ func TestEvaluateNodeHealthAlerts_suppressesColdStartHostOfflineUntilStartupWind
 	service.nodeHealthEvaluatorStartedAt = processStart
 	service.nodeHealthStartupSuppression = 30 * time.Second
 
-	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
-		t.Fatalf("EvaluateNodeHealthAlerts within startup suppression returned error: %v", err)
+	agentSubject := availabilityPendingKey{RuleKey: clusterRuleKeyAgentOffline, ClusterID: testCluster.ID, HostID: 8}
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts within startup suppression returned error: %v", err)
+	}
+	// pending 已满也要被启动窗口压住。
+	// Even a fully matured pending is held back inside the startup window.
+	ageAvailabilityPending(service, agentSubject, time.Hour)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts within startup suppression returned error: %v", err)
 	}
 
-	offlineEvent, err := monitorService.GetLatestNodeEventByTypes(ctx, node.ID, []monitor.ProcessEventType{
-		monitor.EventTypeNodeOffline,
+	event, err := monitorService.GetLatestSubjectEventByTypes(ctx, testCluster.ID, 0, 8, []monitor.ProcessEventType{
+		monitor.EventTypeAgentOffline,
 	})
 	if err != nil {
-		t.Fatalf("failed to query node_offline event during startup suppression: %v", err)
+		t.Fatalf("failed to query agent_offline event during startup suppression: %v", err)
 	}
-	if offlineEvent != nil {
-		t.Fatalf("expected no node_offline event during startup suppression, got %+v", offlineEvent)
+	if event != nil {
+		t.Fatalf("expected no agent_offline event during startup suppression, got %+v", event)
 	}
 
 	service.nodeHealthEvaluatorStartedAt = processStart.Add(-31 * time.Second)
-	service.nodeHealthOfflineObservedAt[node.ID] = processStart.Add(-31 * time.Second)
-	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
-		t.Fatalf("EvaluateNodeHealthAlerts after startup suppression returned error: %v", err)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts after startup suppression returned error: %v", err)
 	}
 
-	offlineEvent, err = monitorService.GetLatestNodeEventByTypes(ctx, node.ID, []monitor.ProcessEventType{
-		monitor.EventTypeNodeOffline,
+	event, err = monitorService.GetLatestSubjectEventByTypes(ctx, testCluster.ID, 0, 8, []monitor.ProcessEventType{
+		monitor.EventTypeAgentOffline,
 	})
 	if err != nil {
-		t.Fatalf("failed to query node_offline event after startup suppression: %v", err)
+		t.Fatalf("failed to query agent_offline event after startup suppression: %v", err)
 	}
-	if offlineEvent == nil {
-		t.Fatal("expected node_offline event after startup suppression elapsed")
-	}
-	if offlineEvent.EventType != monitor.EventTypeNodeOffline {
-		t.Fatalf("expected node_offline event type, got %s", offlineEvent.EventType)
+	if event == nil {
+		t.Fatal("expected agent_offline event after startup suppression elapsed")
 	}
 }
 
-func TestEvaluateNodeOfflineState_hostOfflineUsesRuntimeGraceAtServiceLayer(t *testing.T) {
-	now := time.Now().UTC()
+func TestAvailabilityNodeOfflineReasons_mergesProcessAndMetricReasons(t *testing.T) {
 	node := &clusterapp.NodeInfo{
-		ID:         9,
-		ClusterID:  1,
-		HostID:     2,
-		HostName:   "host-offline",
-		HostIP:     "10.0.0.9",
-		Role:       clusterapp.NodeRoleWorker,
-		Status:     clusterapp.NodeStatusRunning,
-		IsOnline:   false,
-		ProcessPID: 2345,
-		UpdatedAt:  now,
+		ID:            9,
+		ClusterID:     1,
+		HostID:        2,
+		HostName:      "host-9",
+		HostIP:        "10.0.0.9",
+		Role:          clusterapp.NodeRoleWorker,
+		Status:        clusterapp.NodeStatusStopped,
+		IsOnline:      true,
+		ProcessPID:    0,
+		HazelcastPort: 5802,
+		UpdatedAt:     time.Now().UTC(),
 	}
-	cfg := &monitor.MonitorConfig{
-		AutoMonitor:     true,
-		AutoRestart:     true,
-		MonitorInterval: 5,
-		RestartDelay:    10,
-	}
-	service := &Service{
-		nodeHealthOfflineObservedAt: make(map[uint]time.Time),
+	signals := &availabilityMetricSignals{
+		endpointDown:  map[string]struct{}{availabilitySignalKey(1, "10.0.0.9:5802"): {}},
+		nodeStateDown: map[string]struct{}{availabilitySignalKey(1, "10.0.0.9:5802"): {}},
 	}
 
-	offline, matured, reason, observedSince, grace := evaluateNodeOfflineState(node, cfg, now)
-	if !offline {
-		t.Fatal("expected host-offline node to be considered offline")
+	reasons := availabilityNodeOfflineReasons(node, signals)
+	want := []string{
+		availabilityReasonProcessStopped,
+		availabilityReasonMetricsEndpointDown,
+		availabilityReasonNodeStateDown,
 	}
-	if !matured {
-		t.Fatal("expected base host-offline state to be offline before service-layer suppression")
+	if len(reasons) != len(want) {
+		t.Fatalf("expected %d merged reasons, got %v", len(want), reasons)
 	}
-	if reason != "host_offline" {
-		t.Fatalf("expected host_offline reason, got %q", reason)
-	}
-	if grace != 0 {
-		t.Fatalf("expected base evaluator to report zero direct grace for host_offline, got %s", grace)
-	}
-	if !observedSince.Equal(now) {
-		t.Fatalf("expected base evaluator observedSince to be now, got %s want %s", observedSince, now)
+	for i, reason := range want {
+		if reasons[i] != reason {
+			t.Fatalf("reason %d mismatch: got %q want %q", i, reasons[i], reason)
+		}
 	}
 
-	observedSince, grace, matured = service.applyRuntimeHostOfflineGrace(node, cfg, now, offline)
-	if matured {
-		t.Fatal("expected runtime host_offline grace to delay alert maturation")
+	// Agent 掉线时进程侧与指标原因都不再产生（up==0 / node_state==0 的指标证据除外——
+	// 这里把指标信号也置空验证进程侧原因被抑制）。
+	// While the agent is down process-side reasons are suppressed (metric evidence would
+	// still count; here the signal maps are emptied to prove the process side is gated).
+	node.IsOnline = false
+	if reasons := availabilityNodeOfflineReasons(node, nil); len(reasons) != 0 {
+		t.Fatalf("expected no reasons while agent is offline, got %v", reasons)
 	}
-	if grace < minNodeRuntimeOfflineGraceWindow {
-		t.Fatalf("expected runtime host_offline grace to be at least %s, got %s", minNodeRuntimeOfflineGraceWindow, grace)
+}
+
+// setupAvailabilityCluster 是可用性评估测试的公共装配：一个集群 + 若干节点 + AutoMonitor 配置。
+// setupAvailabilityCluster is the shared harness of the availability tests: one cluster with
+// the given nodes plus an AutoMonitor config.
+func setupAvailabilityCluster(t *testing.T, nodes []*clusterapp.ClusterNode, hosts map[uint]*clusterapp.HostInfo) (*gorm.DB, *Service, *monitor.Service, *clusterapp.Cluster, context.Context) {
+	t.Helper()
+	database, cleanup := setupMonitoringNodeOfflineTestDB(t)
+	t.Cleanup(cleanup)
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	clusterRepo := clusterapp.NewRepository(database)
+	if hosts == nil {
+		hosts = map[uint]*clusterapp.HostInfo{}
 	}
-	if observedSince.IsZero() {
-		t.Fatal("expected runtime host_offline observation time to be recorded")
+	for _, node := range nodes {
+		if _, ok := hosts[node.HostID]; !ok {
+			hosts[node.HostID] = &clusterapp.HostInfo{
+				ID:            node.HostID,
+				Name:          "host-" + strconv.FormatUint(uint64(node.HostID), 10),
+				IPAddress:     "10.0.0." + strconv.FormatUint(uint64(node.HostID), 10),
+				AgentID:       "agent-" + strconv.FormatUint(uint64(node.HostID), 10),
+				AgentStatus:   "installed",
+				LastHeartbeat: ptrTime(now),
+			}
+		}
+	}
+	clusterService := clusterapp.NewService(clusterRepo, &stubNodeOfflineHostProvider{hosts: hosts}, &clusterapp.ServiceConfig{
+		HeartbeatTimeout: 30 * time.Second,
+	})
+	monitorRepo := monitor.NewRepository(database)
+	monitorService := monitor.NewService(monitorRepo)
+	service := NewService(clusterService, monitorService, NewRepository(database))
+
+	testCluster := &clusterapp.Cluster{
+		Name:           "availability-cluster",
+		DeploymentMode: clusterapp.DeploymentModeHybrid,
+		Version:        "2.3.11",
+		Status:         clusterapp.ClusterStatusRunning,
+		InstallDir:     "/opt/seatunnel",
+		CreatedBy:      1,
+	}
+	if err := database.WithContext(ctx).Create(testCluster).Error; err != nil {
+		t.Fatalf("failed to create cluster: %v", err)
+	}
+	for _, node := range nodes {
+		node.ClusterID = testCluster.ID
+		if node.InstallDir == "" {
+			node.InstallDir = "/opt/seatunnel"
+		}
+		if err := database.WithContext(ctx).Create(node).Error; err != nil {
+			t.Fatalf("failed to create node: %v", err)
+		}
+	}
+	if err := monitorRepo.CreateConfig(ctx, &monitor.MonitorConfig{
+		ClusterID: testCluster.ID, AutoMonitor: true, MonitorInterval: 5,
+		RestartDelay: 10, MaxRestarts: 3, TimeWindow: 300, CooldownPeriod: 1800, ConfigVersion: 1,
+	}); err != nil {
+		t.Fatalf("failed to create monitor config: %v", err)
+	}
+	return database, service, monitorService, testCluster, ctx
+}
+
+func countAvailabilityEvents(t *testing.T, database *gorm.DB, clusterID uint, eventType monitor.ProcessEventType) int64 {
+	t.Helper()
+	var count int64
+	if err := database.Model(&monitor.ProcessEvent{}).
+		Where("cluster_id = ? AND event_type = ?", clusterID, eventType).Count(&count).Error; err != nil {
+		t.Fatalf("failed to count %s events: %v", eventType, err)
+	}
+	return count
+}
+
+func TestEvaluateAvailabilityAlerts_agentOfflineAloneWhenEngineMetricsUp(t *testing.T) {
+	node := &clusterapp.ClusterNode{
+		HostID: 9, Role: clusterapp.NodeRoleMasterWorker, HazelcastPort: 5801,
+		Status: clusterapp.NodeStatusRunning, ProcessPID: 4242,
+	}
+	database, service, monitorService, testCluster, ctx := setupAvailabilityCluster(t, []*clusterapp.ClusterNode{node}, nil)
+
+	// Agent 心跳超时：主机离线；引擎指标没有 down 证据时只出 agent_offline，不出 node_offline。
+	// Agent heartbeat timed out so the host is offline; without engine-metric down evidence
+	// only agent_offline fires, never node_offline.
+	stale := time.Now().UTC().Add(-time.Hour)
+	providerHosts := map[uint]*clusterapp.HostInfo{
+		9: {ID: 9, Name: "host-9", IPAddress: "10.0.0.9", AgentID: "agent-9", AgentStatus: "installed", LastHeartbeat: &stale},
+	}
+	clusterRepo := clusterapp.NewRepository(database)
+	clusterService := clusterapp.NewService(clusterRepo, &stubNodeOfflineHostProvider{hosts: providerHosts}, &clusterapp.ServiceConfig{HeartbeatTimeout: 30 * time.Second})
+	service = NewService(clusterService, monitorService, NewRepository(database))
+
+	agentSubject := availabilityPendingKey{RuleKey: clusterRuleKeyAgentOffline, ClusterID: testCluster.ID, HostID: 9}
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	ageAvailabilityPending(service, agentSubject, time.Hour)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
 	}
 
-	_, _, matured = service.applyRuntimeHostOfflineGrace(node, cfg, observedSince.Add(grace), offline)
-	if !matured {
-		t.Fatal("expected runtime host_offline grace to mature after grace window elapsed")
+	if got := countAvailabilityEvents(t, database, testCluster.ID, monitor.EventTypeAgentOffline); got != 1 {
+		t.Fatalf("expected one agent_offline event, got %d", got)
 	}
+	if got := countAvailabilityEvents(t, database, testCluster.ID, monitor.EventTypeNodeOffline); got != 0 {
+		t.Fatalf("expected no node_offline event while only the agent is down, got %d", got)
+	}
+	// master_unavailable 也应触发：唯一的 master/worker 节点不健康。
+	// master_unavailable should fire too: the only master/worker node is unhealthy.
+	if !pendingSubjectExists(service, availabilityPendingKey{RuleKey: clusterRuleKeyMasterUnavailable, ClusterID: testCluster.ID}) {
+		t.Fatal("expected master_unavailable pending while the only master is unhealthy")
+	}
+}
+
+func TestEvaluateAvailabilityAlerts_masterUnavailableFiresAndRecovers(t *testing.T) {
+	master := &clusterapp.ClusterNode{
+		HostID: 10, Role: clusterapp.NodeRoleMaster, HazelcastPort: 5801,
+		Status: clusterapp.NodeStatusStopped, ProcessPID: 0,
+	}
+	worker := &clusterapp.ClusterNode{
+		HostID: 11, Role: clusterapp.NodeRoleWorker, HazelcastPort: 5802,
+		Status: clusterapp.NodeStatusRunning, ProcessPID: 1111,
+	}
+	database, service, monitorService, testCluster, ctx := setupAvailabilityCluster(t,
+		[]*clusterapp.ClusterNode{master, worker}, nil)
+
+	subject := availabilityPendingKey{RuleKey: clusterRuleKeyMasterUnavailable, ClusterID: testCluster.ID}
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	if got := countAvailabilityEvents(t, database, testCluster.ID, monitor.EventTypeMasterUnavailable); got != 0 {
+		t.Fatalf("expected no master_unavailable event before for elapses, got %d", got)
+	}
+	ageAvailabilityPending(service, subject, time.Hour)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	if got := countAvailabilityEvents(t, database, testCluster.ID, monitor.EventTypeMasterUnavailable); got != 1 {
+		t.Fatalf("expected one master_unavailable event, got %d", got)
+	}
+
+	// Master 恢复后写 master_recovered，阶段关闭。
+	// After the master recovers a master_recovered event closes the episode.
+	if err := database.WithContext(ctx).Model(&clusterapp.ClusterNode{}).Where("id = ?", master.ID).
+		Updates(map[string]interface{}{"status": clusterapp.NodeStatusRunning, "process_pid": 4242}).Error; err != nil {
+		t.Fatalf("failed to revive master node: %v", err)
+	}
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	if got := countAvailabilityEvents(t, database, testCluster.ID, monitor.EventTypeMasterRecovered); got != 1 {
+		t.Fatalf("expected one master_recovered event, got %d", got)
+	}
+	_ = monitorService
+}
+
+func TestEvaluateAvailabilityAlerts_workerInsufficientFiresOnShortfall(t *testing.T) {
+	master := &clusterapp.ClusterNode{
+		HostID: 12, Role: clusterapp.NodeRoleMaster, HazelcastPort: 5801,
+		Status: clusterapp.NodeStatusRunning, ProcessPID: 1,
+	}
+	workerDown := &clusterapp.ClusterNode{
+		HostID: 13, Role: clusterapp.NodeRoleWorker, HazelcastPort: 5802,
+		Status: clusterapp.NodeStatusStopped, ProcessPID: 0,
+	}
+	workerUp := &clusterapp.ClusterNode{
+		HostID: 14, Role: clusterapp.NodeRoleWorker, HazelcastPort: 5803,
+		Status: clusterapp.NodeStatusRunning, ProcessPID: 2,
+	}
+	database, service, _, testCluster, ctx := setupAvailabilityCluster(t,
+		[]*clusterapp.ClusterNode{master, workerDown, workerUp}, nil)
+
+	// 阈值缺省 = 部署数 2，健康 1 → 触发。
+	// The default threshold is the deployed count (2); 1 healthy worker fires the alert.
+	subject := availabilityPendingKey{RuleKey: clusterRuleKeyWorkerInsufficient, ClusterID: testCluster.ID}
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	ageAvailabilityPending(service, subject, time.Hour)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	if got := countAvailabilityEvents(t, database, testCluster.ID, monitor.EventTypeWorkerInsufficient); got != 1 {
+		t.Fatalf("expected one worker_insufficient event, got %d", got)
+	}
+}
+
+func TestEvaluateAvailabilityAlerts_pendingResetsWhenSubjectRecovers(t *testing.T) {
+	node := &clusterapp.ClusterNode{
+		HostID: 15, Role: clusterapp.NodeRoleMasterWorker, HazelcastPort: 5801,
+		Status: clusterapp.NodeStatusStopped, ProcessPID: 0,
+	}
+	database, service, _, testCluster, ctx := setupAvailabilityCluster(t, []*clusterapp.ClusterNode{node}, nil)
+
+	subject := availabilityPendingKey{RuleKey: AlertRuleKeyNodeOffline, ClusterID: testCluster.ID, NodeID: node.ID, HostID: node.HostID}
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	if !pendingSubjectExists(service, subject) {
+		t.Fatal("expected pending after the first unhealthy observation")
+	}
+
+	// 中途恢复一次：pending 清零；再次停止后计时从头开始。
+	// One recovery in between clears pending; after the node stops again the timer restarts.
+	if err := database.WithContext(ctx).Model(&clusterapp.ClusterNode{}).Where("id = ?", node.ID).
+		Updates(map[string]interface{}{"status": clusterapp.NodeStatusRunning, "process_pid": 4242}).Error; err != nil {
+		t.Fatalf("failed to revive node: %v", err)
+	}
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	if pendingSubjectExists(service, subject) {
+		t.Fatal("expected pending cleared after the midway recovery")
+	}
+	if err := database.WithContext(ctx).Model(&clusterapp.ClusterNode{}).Where("id = ?", node.ID).
+		Updates(map[string]interface{}{"status": clusterapp.NodeStatusStopped, "process_pid": 0}).Error; err != nil {
+		t.Fatalf("failed to stop node again: %v", err)
+	}
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
+	}
+	if got := countAvailabilityEvents(t, database, testCluster.ID, monitor.EventTypeNodeOffline); got != 0 {
+		t.Fatalf("expected no node_offline event because the for timer restarted, got %d", got)
+	}
+}
+
+// ageAvailabilityPending 把主体的 pending 起点回拨，让 for 窗口立即满足，避免测试真等持续时间。
+// ageAvailabilityPending backdates a subject's pending start so the for window is already
+// covered, avoiding real waits in tests.
+func ageAvailabilityPending(service *Service, subject availabilityPendingKey, age time.Duration) {
+	service.availabilityEvaluator.mu.Lock()
+	defer service.availabilityEvaluator.mu.Unlock()
+	service.availabilityEvaluator.pending[subject] = time.Now().UTC().Add(-age)
+}
+
+func pendingSubjectExists(service *Service, subject availabilityPendingKey) bool {
+	service.availabilityEvaluator.mu.Lock()
+	defer service.availabilityEvaluator.mu.Unlock()
+	_, ok := service.availabilityEvaluator.pending[subject]
+	return ok
 }
 
 func ptrTime(value time.Time) *time.Time {

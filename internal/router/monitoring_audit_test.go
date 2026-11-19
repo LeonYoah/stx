@@ -45,11 +45,11 @@ func TestMonitoringAuditMiddlewareRecordsSuccessfulCLIWrite(t *testing.T) {
 		c.Next()
 	})
 	router.Use(monitoringAuditMiddleware(repo))
-	router.PUT("/api/v1/monitoring/notification-routes/:id", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"data": gin.H{"id": 9}})
+	router.PUT("/api/v1/monitoring/cluster-rules/:key", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"data": gin.H{"key": "node_offline"}})
 	})
 
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/monitoring/notification-routes/9", nil)
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/monitoring/cluster-rules/node_offline", nil)
 	request.Header.Set("X-STX-Client", "cli")
 	request.Header.Set("X-Request-ID", "request-monitoring-audit")
 	response := httptest.NewRecorder()
@@ -66,10 +66,10 @@ func TestMonitoringAuditMiddlewareRecordsSuccessfulCLIWrite(t *testing.T) {
 		t.Fatalf("expected one monitoring audit row, total=%d logs=%+v", total, logs)
 	}
 	item := logs[0]
-	if item.Action != "update" || item.ResourceType != "monitoring_notification_route" || item.ResourceID != "9" || item.ClientType != "cli" || item.UserID == nil || *item.UserID != 7 {
+	if item.Action != "update" || item.ResourceType != "monitoring_cluster_rule" || item.ResourceID != "node_offline" || item.ClientType != "cli" || item.UserID == nil || *item.UserID != 7 {
 		t.Fatalf("unexpected monitoring audit row: %+v", item)
 	}
-	if item.Details["operation_id"] != "monitoring.notification-route.update" || item.ResultStatus != "succeeded" || item.RiskLevel != "R1" {
+	if item.Details["operation_id"] != "monitoring.cluster-rule.update" || item.ResultStatus != "succeeded" || item.RiskLevel != "R1" {
 		t.Fatalf("monitoring audit links are incomplete: %+v", item)
 	}
 }

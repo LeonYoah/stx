@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -63,6 +64,7 @@ func setupMonitoringNotificationTestDB(t *testing.T) (*gorm.DB, func()) {
 		&ClusterRuleOverride{},
 		&AlertNotificationDefaults{},
 		&SyncAlertEpisode{},
+		&monitor.ProcessEvent{},
 		&auth.User{},
 	); err != nil {
 		os.RemoveAll(tempDir)

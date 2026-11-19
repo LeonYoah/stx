@@ -44,21 +44,11 @@ var (
 	// ErrAlertPolicyReceiverUserEmailMissing indicates a referenced receiver user has no valid email.
 	// ErrAlertPolicyReceiverUserEmailMissing 表示引用的通知接收用户未配置有效邮箱。
 	ErrAlertPolicyReceiverUserEmailMissing = errors.New("monitoring: alert policy receiver user email missing")
-	// ErrAlertPolicyUnsupportedTemplate indicates the template key is unknown.
-	// ErrAlertPolicyUnsupportedTemplate 表示模板键不存在。
-	ErrAlertPolicyUnsupportedTemplate = errors.New("monitoring: unsupported alert policy template")
-	// ErrAlertPolicyTemplateTypeMismatch indicates the template does not match the policy type.
-	// ErrAlertPolicyTemplateTypeMismatch 表示模板与策略类型不匹配。
-	ErrAlertPolicyTemplateTypeMismatch = errors.New("monitoring: alert policy template type mismatch")
-	// ErrAlertPolicyLegacyBridgeRequiresClusterScope indicates a legacy-backed policy must target one cluster.
-	// ErrAlertPolicyLegacyBridgeRequiresClusterScope 表示旧规则桥接策略必须绑定具体集群。
-	ErrAlertPolicyLegacyBridgeRequiresClusterScope = errors.New("monitoring: legacy-backed policy requires concrete cluster scope")
-	// ErrAlertPolicyLegacyRuleUnsupported indicates the referenced legacy rule bridge target is unsupported.
-	// ErrAlertPolicyLegacyRuleUnsupported 表示引用的旧规则桥接目标不受支持。
-	ErrAlertPolicyLegacyRuleUnsupported = errors.New("monitoring: unsupported legacy rule bridge")
-	// ErrAlertPolicyLegacyBridgeConflict indicates another policy already bridges the same legacy rule.
-	// ErrAlertPolicyLegacyBridgeConflict 表示已有其他策略桥接到同一条旧规则。
-	ErrAlertPolicyLegacyBridgeConflict = errors.New("monitoring: duplicate legacy rule bridge policy")
+	// ErrAlertPolicyUseClusterRules 表示写接口只接受 sync_job：平台健康与指标模板策略已由
+	// 集群级规则目录取代。
+	// ErrAlertPolicyUseClusterRules means the write API only accepts sync_job: platform-health
+	// and metrics-template policies were replaced by the cluster rule catalog.
+	ErrAlertPolicyUseClusterRules = errors.New("monitoring: platform_health and metrics_template policies are replaced by cluster rules; use /cluster-rules")
 )
 
 // 作业告警（sync_job）策略的错误。

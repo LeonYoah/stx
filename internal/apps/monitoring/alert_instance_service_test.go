@@ -21,6 +21,9 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestService_ListAlertInstances_usesDisplayStatusAndCloseFlow(t *testing.T) {
@@ -192,5 +195,77 @@ func TestResolveRemoteLifecycleStatus_expiresFiringRecords(t *testing.T) {
 				t.Fatalf("inferred resolved_at=%v, want present=%v", resolvedAt, tc.wantResolvedAt)
 			}
 		})
+	}
+}
+
+// TestService_ListAlertInstances_scopeFilter 覆盖 scope 派生与过滤：metric 远程告警 →
+// cluster，任务级 sync 阶段 → job；scope 过滤与 source_type 并存。
+// TestService_ListAlertInstances_scopeFilter covers scope derivation and filtering: a metric
+// remote alert maps to cluster, a task-level sync episode to job; the scope filter coexists
+// with source_type.
+func TestService_ListAlertInstances_scopeFilter(t *testing.T) {
+	database, cleanup := setupMonitoringNotificationTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	repo := NewRepository(database)
+	service := NewService(nil, nil, repo)
+
+	// 本地事件查询 JOIN hosts / clusters，测试只关心 scope 派生，建空表即可。
+	// The local-event query JOINs hosts / clusters; the test only cares about scope derivation,
+	// so empty stub tables are enough.
+	require.NoError(t, database.Exec("CREATE TABLE IF NOT EXISTS hosts (id INTEGER PRIMARY KEY, name TEXT, ip_address TEXT)").Error)
+	require.NoError(t, database.Exec("CREATE TABLE IF NOT EXISTS clusters (id INTEGER PRIMARY KEY, name TEXT)").Error)
+
+	startsAt := time.Date(2026, 3, 10, 1, 0, 0, 0, time.UTC)
+	record := &RemoteAlertRecord{
+		Fingerprint:    "fp-scope-cluster",
+		StartsAt:       startsAt.Unix(),
+		Status:         "firing",
+		AlertName:      "CPU usage high",
+		Severity:       "warning",
+		ClusterID:      "6",
+		LastReceivedAt: startsAt,
+	}
+	if err := database.WithContext(ctx).Create(record).Error; err != nil {
+		t.Fatalf("failed to create remote alert record: %v", err)
+	}
+	episode := &SyncAlertEpisode{
+		Scope:           SyncAlertEpisodeScopeTask,
+		ClusterID:       6,
+		TaskID:          9,
+		RuleKey:         syncalert.RuleJobFailed,
+		Status:          SyncAlertEpisodeFiring,
+		Severity:        AlertSeverityCritical,
+		FirstFiredAt:    startsAt,
+		LastOccurredAt:  startsAt,
+		OccurrenceCount: 1,
+	}
+	if err := database.WithContext(ctx).Create(episode).Error; err != nil {
+		t.Fatalf("failed to create sync alert episode: %v", err)
+	}
+
+	all, err := service.ListAlertInstances(ctx, &AlertInstanceFilter{})
+	if err != nil || len(all.Alerts) != 2 {
+		t.Fatalf("expected 2 alerts without scope filter, got %+v err=%v", all, err)
+	}
+	scopeBySourceKey := map[string]string{}
+	for _, item := range all.Alerts {
+		scopeBySourceKey[item.AlertID] = item.Scope
+	}
+	if scopeBySourceKey[buildRemoteAlertSourceKey(record.Fingerprint, record.StartsAt)] != "cluster" {
+		t.Fatalf("metric alert should derive cluster scope, got %+v", scopeBySourceKey)
+	}
+	if scopeBySourceKey[buildSyncAlertSourceKey(episode.ID)] != "job" {
+		t.Fatalf("task episode should derive job scope, got %+v", scopeBySourceKey)
+	}
+
+	clusterOnly, err := service.ListAlertInstances(ctx, &AlertInstanceFilter{Scope: "cluster"})
+	if err != nil || len(clusterOnly.Alerts) != 1 || clusterOnly.Alerts[0].Scope != "cluster" {
+		t.Fatalf("scope=cluster should keep only the remote alert, got %+v err=%v", clusterOnly, err)
+	}
+	jobOnly, err := service.ListAlertInstances(ctx, &AlertInstanceFilter{Scope: "job"})
+	if err != nil || len(jobOnly.Alerts) != 1 || jobOnly.Alerts[0].Scope != "job" {
+		t.Fatalf("scope=job should keep only the episode, got %+v err=%v", jobOnly, err)
 	}
 }

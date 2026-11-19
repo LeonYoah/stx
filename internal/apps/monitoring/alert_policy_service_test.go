@@ -19,6 +19,7 @@ package monitoring
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,6 +29,7 @@ import (
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	hostapp "github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -116,52 +118,23 @@ func setupMonitoringAlertPolicyService(t *testing.T) (*Service, *Repository, *cl
 }
 
 func TestUpsertAlertPolicyRequestValidate(t *testing.T) {
-	t.Run("platform health requires template key", func(t *testing.T) {
+	// 非 sync_job 的策略类型已被集群级规则目录取代，写接口一律拒绝并提示改用 cluster-rules。
+	// Non-sync_job policy types were replaced by the cluster rule catalog; the write API rejects
+	// them all with guidance to use cluster-rules.
+	for _, policyType := range []AlertPolicyBuilderKind{
+		AlertPolicyBuilderKindPlatformHealth,
+		AlertPolicyBuilderKindMetricsTemplate,
+		AlertPolicyBuilderKind("custom_promql"),
+	} {
 		req := &UpsertAlertPolicyRequest{
-			Name:       "master unavailable",
-			PolicyType: AlertPolicyBuilderKindPlatformHealth,
+			Name:       "legacy policy",
+			PolicyType: policyType,
 			Severity:   AlertSeverityCritical,
 		}
-		if err := req.Validate(); err == nil {
-			t.Fatalf("expected validation error, got nil")
+		if err := req.Validate(); !errors.Is(err, ErrAlertPolicyUseClusterRules) {
+			t.Fatalf("expected ErrAlertPolicyUseClusterRules for %s, got %v", policyType, err)
 		}
-	})
-
-	// custom_promql 构建器已随内嵌可观测移除，存量请求一律按非法 policy_type 拒绝。
-	// The custom_promql builder was removed with embedded observability; such requests are
-	// rejected as an invalid policy_type.
-	t.Run("custom promql policy type rejected", func(t *testing.T) {
-		req := &UpsertAlertPolicyRequest{
-			Name:       "failed jobs",
-			PolicyType: AlertPolicyBuilderKind("custom_promql"),
-			Severity:   AlertSeverityWarning,
-		}
-		if err := req.Validate(); err == nil {
-			t.Fatalf("expected validation error, got nil")
-		}
-	})
-
-	t.Run("valid metrics template request passes", func(t *testing.T) {
-		cooldown := 15
-		req := &UpsertAlertPolicyRequest{
-			Name:            "cpu high",
-			PolicyType:      AlertPolicyBuilderKindMetricsTemplate,
-			TemplateKey:     "cpu_usage_high",
-			Severity:        AlertSeverityCritical,
-			CooldownMinutes: &cooldown,
-			Conditions: []*AlertPolicyConditionDTO{
-				{
-					MetricKey:     "cpu_usage",
-					Operator:      ">",
-					Threshold:     "80",
-					WindowMinutes: 5,
-				},
-			},
-		}
-		if err := req.Validate(); err != nil {
-			t.Fatalf("expected validation success, got %v", err)
-		}
-	})
+	}
 }
 
 func TestNormalizeAlertPolicyChannelIDs(t *testing.T) {
@@ -212,13 +185,27 @@ func TestCreateAlertPolicy_persistsReceiverUserIDs(t *testing.T) {
 		clusterID = strconv.FormatUint(uint64(cluster.ID), 10)
 	}
 
+	channel := &NotificationChannel{
+		Name:       "persist-receivers-webhook",
+		Type:       NotificationChannelTypeWebhook,
+		Enabled:    true,
+		ConfigJSON: `{"webhook":{"url":"http://127.0.0.1:1/hook"}}`,
+	}
+	if err := repo.CreateNotificationChannel(ctx, channel); err != nil {
+		t.Fatalf("failed to create notification channel: %v", err)
+	}
+
 	created, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:            "Node offline notify admins",
-		PolicyType:      AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:     AlertRuleKeyNodeOffline,
-		ClusterID:       clusterID,
-		Severity:        AlertSeverityCritical,
-		ReceiverUserIDs: []uint64{adminUser.ID},
+		Name:       "Job failed notify admins",
+		PolicyType: AlertPolicyBuilderKindSyncJob,
+		ClusterID:  clusterID,
+		Severity:   AlertSeverityCritical,
+		TaskID:     7,
+		Conditions: []*AlertPolicyConditionDTO{
+			{MetricKey: syncalert.RuleJobFailed, Operator: ">=", Threshold: "1"},
+		},
+		NotificationChannelIDs: []uint{channel.ID},
+		ReceiverUserIDs:        []uint64{adminUser.ID},
 	})
 	if err != nil {
 		t.Fatalf("expected create success, got %v", err)
@@ -233,183 +220,6 @@ func TestCreateAlertPolicy_persistsReceiverUserIDs(t *testing.T) {
 	}
 	if got := unmarshalAlertPolicyReceiverUserIDs(stored.ReceiverUserIDsJSON); len(got) != 1 || got[0] != adminUser.ID {
 		t.Fatalf("unexpected stored receiver user ids: %+v", got)
-	}
-}
-
-func TestGetAlertPolicyCenterBootstrap_returnsDefaultAdminRecipients(t *testing.T) {
-	service, _, _, ctx := setupMonitoringAlertPolicyService(t)
-
-	adminUser := &auth.User{
-		Username: "bootstrap-admin",
-		Nickname: "Bootstrap Admin",
-		Email:    "bootstrap-admin@example.com",
-		IsActive: true,
-		IsAdmin:  true,
-	}
-	if err := adminUser.SetPassword("admin123", auth.DefaultBcryptCost); err != nil {
-		t.Fatalf("failed to set password: %v", err)
-	}
-	if err := service.repo.db.WithContext(ctx).Create(adminUser).Error; err != nil {
-		t.Fatalf("failed to create admin user: %v", err)
-	}
-
-	bootstrap, err := service.GetAlertPolicyCenterBootstrap(ctx)
-	if err != nil {
-		t.Fatalf("GetAlertPolicyCenterBootstrap returned error: %v", err)
-	}
-	if len(bootstrap.NotifiableUsers) == 0 {
-		t.Fatal("expected notifiable users in bootstrap")
-	}
-	if len(bootstrap.DefaultReceiverUserIDs) == 0 || bootstrap.DefaultReceiverUserIDs[0] != adminUser.ID {
-		t.Fatalf("unexpected default receiver user ids: %+v", bootstrap.DefaultReceiverUserIDs)
-	}
-}
-
-func TestCreateAlertPolicy_syncsLegacyRuntimeRule(t *testing.T) {
-	service, repo, cluster, ctx := setupMonitoringAlertPolicyService(t)
-
-	enabled := false
-	req := &UpsertAlertPolicyRequest{
-		Name:          "Process restart failed - production",
-		Description:   "Escalate restart failures through unified policy center",
-		PolicyType:    AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:   AlertRuleKeyProcessRestartFailed,
-		LegacyRuleKey: AlertRuleKeyProcessRestartFailed,
-		ClusterID:     "0",
-		Severity:      AlertSeverityWarning,
-		Enabled:       &enabled,
-	}
-	req.ClusterID = "1"
-	if cluster != nil {
-		req.ClusterID = strconv.FormatUint(uint64(cluster.ID), 10)
-	}
-
-	created, err := service.CreateAlertPolicy(ctx, req)
-	if err != nil {
-		t.Fatalf("expected create success, got %v", err)
-	}
-	if created.LegacyRuleKey != AlertRuleKeyProcessRestartFailed {
-		t.Fatalf("expected legacy rule key to be canonicalized, got %s", created.LegacyRuleKey)
-	}
-
-	rule, err := repo.GetRuleByClusterAndKey(ctx, cluster.ID, AlertRuleKeyProcessRestartFailed)
-	if err != nil {
-		t.Fatalf("failed to get synced legacy rule: %v", err)
-	}
-	if rule.RuleName != req.Name {
-		t.Fatalf("expected synced rule name %q, got %q", req.Name, rule.RuleName)
-	}
-	if rule.Description != req.Description {
-		t.Fatalf("expected synced description %q, got %q", req.Description, rule.Description)
-	}
-	if rule.Severity != AlertSeverityWarning {
-		t.Fatalf("expected warning severity, got %s", rule.Severity)
-	}
-	if rule.Enabled {
-		t.Fatalf("expected synced rule to be disabled")
-	}
-	if rule.Threshold != 1 || rule.WindowSeconds != 300 {
-		t.Fatalf("expected bridge to keep default threshold/window, got threshold=%d window=%d", rule.Threshold, rule.WindowSeconds)
-	}
-}
-
-func TestCreateAlertPolicy_legacyBridgeRequiresConcreteCluster(t *testing.T) {
-	service, _, _, ctx := setupMonitoringAlertPolicyService(t)
-
-	_, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:          "Restart failed - global",
-		Description:   "invalid global bridge",
-		PolicyType:    AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:   AlertRuleKeyProcessRestartFailed,
-		LegacyRuleKey: AlertRuleKeyProcessRestartFailed,
-		ClusterID:     "all",
-		Severity:      AlertSeverityCritical,
-	})
-	if err == nil {
-		t.Fatalf("expected bridge scope validation error, got nil")
-	}
-	if err != ErrAlertPolicyLegacyBridgeRequiresClusterScope {
-		t.Fatalf("expected ErrAlertPolicyLegacyBridgeRequiresClusterScope, got %v", err)
-	}
-}
-
-func TestCreateAlertPolicy_duplicateLegacyBridgeRejected(t *testing.T) {
-	service, _, cluster, ctx := setupMonitoringAlertPolicyService(t)
-
-	clusterID := "1"
-	if cluster != nil {
-		clusterID = strconv.FormatUint(uint64(cluster.ID), 10)
-	}
-
-	_, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:          "Restart failed policy A",
-		PolicyType:    AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:   AlertRuleKeyProcessRestartFailed,
-		LegacyRuleKey: AlertRuleKeyProcessRestartFailed,
-		ClusterID:     clusterID,
-		Severity:      AlertSeverityCritical,
-	})
-	if err != nil {
-		t.Fatalf("failed to create first legacy-backed policy: %v", err)
-	}
-
-	_, err = service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:          "Restart failed policy B",
-		PolicyType:    AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:   AlertRuleKeyProcessRestartFailed,
-		LegacyRuleKey: AlertRuleKeyProcessRestartFailed,
-		ClusterID:     clusterID,
-		Severity:      AlertSeverityWarning,
-	})
-	if err == nil {
-		t.Fatalf("expected duplicate bridge conflict, got nil")
-	}
-	if err != ErrAlertPolicyLegacyBridgeConflict {
-		t.Fatalf("expected ErrAlertPolicyLegacyBridgeConflict, got %v", err)
-	}
-}
-
-func TestDeleteAlertPolicy_restoresDefaultLegacyRuntimeRule(t *testing.T) {
-	service, repo, cluster, ctx := setupMonitoringAlertPolicyService(t)
-
-	enabled := false
-	created, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:          "Restart failed custom",
-		Description:   "custom description",
-		PolicyType:    AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:   AlertRuleKeyProcessRestartFailed,
-		LegacyRuleKey: AlertRuleKeyProcessRestartFailed,
-		ClusterID:     strconv.FormatUint(uint64(cluster.ID), 10),
-		Severity:      AlertSeverityWarning,
-		Enabled:       &enabled,
-	})
-	if err != nil {
-		t.Fatalf("failed to create legacy-backed policy: %v", err)
-	}
-
-	if err := service.DeleteAlertPolicy(ctx, created.ID); err != nil {
-		t.Fatalf("failed to delete alert policy: %v", err)
-	}
-
-	rule, err := repo.GetRuleByClusterAndKey(ctx, cluster.ID, AlertRuleKeyProcessRestartFailed)
-	if err != nil {
-		t.Fatalf("failed to get restored legacy rule: %v", err)
-	}
-	defaultRule := defaultRuleByKey(cluster.ID, AlertRuleKeyProcessRestartFailed)
-	if defaultRule == nil {
-		t.Fatalf("expected default rule definition")
-	}
-	if rule.RuleName != defaultRule.RuleName {
-		t.Fatalf("expected restored rule name %q, got %q", defaultRule.RuleName, rule.RuleName)
-	}
-	if rule.Description != defaultRule.Description {
-		t.Fatalf("expected restored rule description %q, got %q", defaultRule.Description, rule.Description)
-	}
-	if rule.Severity != defaultRule.Severity {
-		t.Fatalf("expected restored severity %s, got %s", defaultRule.Severity, rule.Severity)
-	}
-	if rule.Enabled != defaultRule.Enabled {
-		t.Fatalf("expected restored enabled %v, got %v", defaultRule.Enabled, rule.Enabled)
 	}
 }
 

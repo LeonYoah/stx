@@ -850,10 +850,29 @@ func (s *Service) validateClusterRuleSave(ctx context.Context, ruleKey string, c
 		layers.overrides[def.Key][clusterID] = candidate
 	}
 	effective := resolveClusterRuleFromLayers(def, layers, clusterID)
-	if resolveRuleSeverity(effective) != AlertSeverityCritical {
+	if resolveRuleSeverity(effective) == AlertSeverityCritical {
+		if err := s.validateClusterRuleEffectiveNotification(ctx, effective.ChannelIDs, effective.ReceiverUserIDs); err != nil {
+			return err
+		}
+	}
+	if clusterID != 0 {
 		return nil
 	}
-	return s.validateClusterRuleEffectiveNotification(ctx, effective.ChannelIDs, effective.ReceiverUserIDs)
+	// 全局保存会把未覆盖 severity 的例外一起推成 critical；逐条复算例外的生效结果，
+	// 任何一个不满足 critical 不变式都拒绝整次写入，避免保存后遗留不可外投的 critical 规则。
+	// A global save also pushes overrides that don't pin severity into critical; re-resolve
+	// every stored override and reject the write when any of them violates the critical
+	// invariant, so no unreachable critical rule is left behind.
+	for _, overrideClusterID := range layers.overrideClusterIDs(def.Key) {
+		overrideEffective := resolveClusterRuleFromLayers(def, layers, overrideClusterID)
+		if resolveRuleSeverity(overrideEffective) != AlertSeverityCritical {
+			continue
+		}
+		if err := s.validateClusterRuleEffectiveNotification(ctx, overrideEffective.ChannelIDs, overrideEffective.ReceiverUserIDs); err != nil {
+			return fmt.Errorf("cluster_id=%d: %w", overrideClusterID, err)
+		}
+	}
+	return nil
 }
 
 // validateClusterRuleEffectiveNotification 校验 critical 规则的生效通知：至少有一个启用的

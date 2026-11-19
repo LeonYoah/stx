@@ -28,27 +28,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TestNotificationChannelDraft handles POST /api/v1/monitoring/notification-channels/test
-// TestNotificationChannelDraft 处理未保存通知渠道草稿测试发送接口。
-func (h *Handler) TestNotificationChannelDraft(c *gin.Context) {
-	var req NotificationChannelDraftTestRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
-		return
-	}
-	if err := req.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
-		return
-	}
-
-	data, err := h.service.TestNotificationChannelDraft(c.Request.Context(), &req)
-	if err != nil {
-		c.JSON(getNotificationChannelTestStatusCode(err), Response{ErrorMsg: "Failed to test notification channel: " + err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
 // TestNotificationChannel handles POST /api/v1/monitoring/notification-channels/:id/test
 // TestNotificationChannel 处理通知渠道测试发送接口。
 func (h *Handler) TestNotificationChannel(c *gin.Context) {
@@ -65,6 +44,27 @@ func (h *Handler) TestNotificationChannel(c *gin.Context) {
 	}
 
 	data, err := h.service.TestNotificationChannel(c.Request.Context(), uint(channelID), &req)
+	if err != nil {
+		c.JSON(getNotificationChannelTestStatusCode(err), Response{ErrorMsg: "Failed to test notification channel: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, Response{Data: data})
+}
+
+// TestNotificationChannelDraft handles POST /api/v1/monitoring/notification-channels/test
+// TestNotificationChannelDraft 处理未保存通知渠道草稿测试发送接口。
+func (h *Handler) TestNotificationChannelDraft(c *gin.Context) {
+	var req NotificationChannelDraftTestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
+		return
+	}
+	if err := req.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
+		return
+	}
+
+	data, err := h.service.TestNotificationChannelDraft(c.Request.Context(), &req)
 	if err != nil {
 		c.JSON(getNotificationChannelTestStatusCode(err), Response{ErrorMsg: "Failed to test notification channel: " + err.Error()})
 		return
@@ -91,22 +91,6 @@ func (h *Handler) TestNotificationChannelConnection(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-func getNotificationChannelTestStatusCode(err error) int {
-	switch {
-	case err == nil:
-		return http.StatusOK
-	case errors.Is(err, ErrAlertPolicyReceiverUserNotFound),
-		errors.Is(err, ErrAlertPolicyReceiverUserInactive),
-		errors.Is(err, ErrAlertPolicyReceiverUserEmailMissing),
-		errors.Is(err, ErrInvalidNotificationChannel):
-		return http.StatusBadRequest
-	case errors.Is(err, ErrNotificationChannelNotFound):
-		return http.StatusNotFound
-	default:
-		return http.StatusInternalServerError
-	}
 }
 
 // ListNotificationDeliveries handles GET /api/v1/monitoring/notification-deliveries
@@ -204,77 +188,18 @@ func (h *Handler) ListNotificationDeliveries(c *gin.Context) {
 	c.JSON(http.StatusOK, Response{Data: data})
 }
 
-// ListNotificationRoutes handles GET /api/v1/monitoring/notification-routes
-// ListNotificationRoutes 处理通知路由列表接口。
-func (h *Handler) ListNotificationRoutes(c *gin.Context) {
-	data, err := h.service.ListNotificationRoutes(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to list notification routes: " + err.Error()})
-		return
+func getNotificationChannelTestStatusCode(err error) int {
+	switch {
+	case err == nil:
+		return http.StatusOK
+	case errors.Is(err, ErrAlertPolicyReceiverUserNotFound),
+		errors.Is(err, ErrAlertPolicyReceiverUserInactive),
+		errors.Is(err, ErrAlertPolicyReceiverUserEmailMissing),
+		errors.Is(err, ErrInvalidNotificationChannel):
+		return http.StatusBadRequest
+	case errors.Is(err, ErrNotificationChannelNotFound):
+		return http.StatusNotFound
+	default:
+		return http.StatusInternalServerError
 	}
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// CreateNotificationRoute handles POST /api/v1/monitoring/notification-routes
-// CreateNotificationRoute 处理新增通知路由接口。
-func (h *Handler) CreateNotificationRoute(c *gin.Context) {
-	var req UpsertNotificationRouteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
-		return
-	}
-	if err := req.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
-		return
-	}
-
-	data, err := h.service.CreateNotificationRoute(c.Request.Context(), &req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to create notification route: " + err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// UpdateNotificationRoute handles PUT /api/v1/monitoring/notification-routes/:id
-// UpdateNotificationRoute 处理更新通知路由接口。
-func (h *Handler) UpdateNotificationRoute(c *gin.Context) {
-	routeID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid route id"})
-		return
-	}
-
-	var req UpsertNotificationRouteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
-		return
-	}
-	if err := req.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
-		return
-	}
-
-	data, err := h.service.UpdateNotificationRoute(c.Request.Context(), uint(routeID), &req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to update notification route: " + err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// DeleteNotificationRoute handles DELETE /api/v1/monitoring/notification-routes/:id
-// DeleteNotificationRoute 处理删除通知路由接口。
-func (h *Handler) DeleteNotificationRoute(c *gin.Context) {
-	routeID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid route id"})
-		return
-	}
-
-	if err := h.service.DeleteNotificationRoute(c.Request.Context(), uint(routeID)); err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to delete notification route: " + err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, Response{Data: gin.H{"id": routeID}})
 }

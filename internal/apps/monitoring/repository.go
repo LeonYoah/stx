@@ -139,56 +139,6 @@ func (r *Repository) ListCriticalEvents(ctx context.Context, filter *AlertEventQ
 	return rows, total, nil
 }
 
-// ListRulesByClusterID returns alert rules for one cluster.
-// ListRulesByClusterID 返回指定集群的告警规则。
-func (r *Repository) ListRulesByClusterID(ctx context.Context, clusterID uint) ([]*AlertRule, error) {
-	var rules []*AlertRule
-	err := r.db.WithContext(ctx).
-		Where("cluster_id = ?", clusterID).
-		Order("id ASC").
-		Find(&rules).Error
-	if err != nil {
-		return nil, err
-	}
-	return rules, nil
-}
-
-// GetRuleByID gets one alert rule by ID.
-// GetRuleByID 根据 ID 获取单条告警规则。
-func (r *Repository) GetRuleByID(ctx context.Context, id uint) (*AlertRule, error) {
-	var rule AlertRule
-	err := r.db.WithContext(ctx).First(&rule, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &rule, nil
-}
-
-// GetRuleByClusterAndKey gets one rule by cluster and rule key.
-// GetRuleByClusterAndKey 根据集群和规则键获取规则。
-func (r *Repository) GetRuleByClusterAndKey(ctx context.Context, clusterID uint, ruleKey string) (*AlertRule, error) {
-	var rule AlertRule
-	err := r.db.WithContext(ctx).
-		Where("cluster_id = ? AND rule_key = ?", clusterID, ruleKey).
-		First(&rule).Error
-	if err != nil {
-		return nil, err
-	}
-	return &rule, nil
-}
-
-// CreateRule creates one alert rule.
-// CreateRule 创建告警规则。
-func (r *Repository) CreateRule(ctx context.Context, rule *AlertRule) error {
-	return r.db.WithContext(ctx).Create(rule).Error
-}
-
-// SaveRule updates one alert rule.
-// SaveRule 更新告警规则。
-func (r *Repository) SaveRule(ctx context.Context, rule *AlertRule) error {
-	return r.db.WithContext(ctx).Save(rule).Error
-}
-
 // GetEventStateByEventID returns state for one event. Nil if not found.
 // GetEventStateByEventID 返回单个事件状态，未找到返回 nil。
 func (r *Repository) GetEventStateByEventID(ctx context.Context, eventID uint) (*AlertEventState, error) {

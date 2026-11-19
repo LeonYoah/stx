@@ -76,8 +76,8 @@ func (s *Service) DispatchAlertPolicyEvent(ctx context.Context, event *monitor.P
 	if s.repo == nil || event == nil {
 		return nil
 	}
-	if event.EventType == monitor.EventTypeNodeRecovered {
-		return s.dispatchLocalResolvedAlertPolicyEvent(ctx, event)
+	if firingType, recovered := availabilityRecoveredFiringTypes[event.EventType]; recovered {
+		return s.dispatchLocalResolvedAlertPolicyEvent(ctx, event, firingType)
 	}
 	if !isAlertableEventType(event.EventType) {
 		return nil
@@ -133,19 +133,15 @@ func (s *Service) dispatchLocalAlertPolicyReminder(
 	return s.dispatchLocalAlertPolicy(ctx, sourceEvent, clusterName, policy, channelMap)
 }
 
-func (s *Service) DispatchActiveNodeOfflineReminder(
-	ctx context.Context,
-	clusterID uint,
-	clusterName string,
-	nodeID uint,
-) error {
-	if s.repo == nil || s.monitorService == nil || clusterID == 0 || nodeID == 0 {
+func (s *Service) dispatchLocalResolvedAlertPolicyEvent(ctx context.Context, recoveryEvent *monitor.ProcessEvent, firingType monitor.ProcessEventType) error {
+	if s.repo == nil || recoveryEvent == nil {
 		return nil
 	}
+	if firingType == "" {
+		firingType = monitor.EventTypeNodeOffline
+	}
 
-	sourceEvent, err := s.monitorService.GetLatestNodeEventByTypes(ctx, nodeID, []monitor.ProcessEventType{
-		monitor.EventTypeNodeOffline,
-	})
+	sourceEvent, err := s.resolveLocalRecoveredAlertSourceEvent(ctx, recoveryEvent, firingType)
 	if err != nil {
 		return err
 	}
@@ -153,50 +149,11 @@ func (s *Service) DispatchActiveNodeOfflineReminder(
 		return nil
 	}
 
-	rule, err := s.ResolveClusterRule(ctx, AlertRuleKeyNodeOffline, clusterID)
-	if err != nil {
-		return err
-	}
-	if !rule.deliversExternally() {
+	ruleKey := eventTypeToRuleKey(sourceEvent.EventType)
+	if strings.TrimSpace(ruleKey) == "" {
 		return nil
 	}
-
-	channels, err := s.repo.ListNotificationChannels(ctx)
-	if err != nil {
-		return err
-	}
-	channelMap := make(map[uint]*NotificationChannel, len(channels))
-	for _, channel := range channels {
-		if channel == nil {
-			continue
-		}
-		channelMap[channel.ID] = channel
-	}
-
-	_, err = s.dispatchLocalAlertPolicyReminder(
-		ctx,
-		sourceEvent,
-		clusterName,
-		rule.deliveryPolicy(),
-		channelMap,
-	)
-	return err
-}
-
-func (s *Service) dispatchLocalResolvedAlertPolicyEvent(ctx context.Context, recoveryEvent *monitor.ProcessEvent) error {
-	if s.repo == nil || recoveryEvent == nil || recoveryEvent.EventType != monitor.EventTypeNodeRecovered {
-		return nil
-	}
-
-	sourceEvent, err := s.resolveLocalRecoveredAlertSourceEvent(ctx, recoveryEvent)
-	if err != nil {
-		return err
-	}
-	if sourceEvent == nil {
-		return nil
-	}
-
-	rule, err := s.ResolveClusterRule(ctx, AlertRuleKeyNodeOffline, sourceEvent.ClusterID)
+	rule, err := s.ResolveClusterRule(ctx, ruleKey, sourceEvent.ClusterID)
 	if err != nil {
 		return err
 	}
@@ -228,23 +185,26 @@ func (s *Service) dispatchLocalResolvedAlertPolicyEvent(ctx context.Context, rec
 	return err
 }
 
-func (s *Service) resolveLocalRecoveredAlertSourceEvent(ctx context.Context, recoveryEvent *monitor.ProcessEvent) (*monitor.ProcessEvent, error) {
+func (s *Service) resolveLocalRecoveredAlertSourceEvent(ctx context.Context, recoveryEvent *monitor.ProcessEvent, firingType monitor.ProcessEventType) (*monitor.ProcessEvent, error) {
 	if recoveryEvent == nil || s.monitorService == nil {
 		return nil, nil
 	}
+	if firingType == "" {
+		firingType = monitor.EventTypeNodeOffline
+	}
 
-	if offlineEventID := parseLocalRecoveredOfflineEventID(recoveryEvent.Details); offlineEventID > 0 {
-		sourceEvent, err := s.monitorService.GetEvent(ctx, offlineEventID)
+	if firingEventID := parseLocalRecoveredFiringEventID(recoveryEvent.Details); firingEventID > 0 {
+		sourceEvent, err := s.monitorService.GetEvent(ctx, firingEventID)
 		if err != nil && !errors.Is(err, monitor.ErrEventNotFound) {
 			return nil, err
 		}
-		if err == nil && sourceEvent != nil && sourceEvent.EventType == monitor.EventTypeNodeOffline {
+		if err == nil && sourceEvent != nil && sourceEvent.EventType == firingType {
 			return sourceEvent, nil
 		}
 	}
 
-	sourceEvent, err := s.monitorService.GetLatestNodeEventByTypes(ctx, recoveryEvent.NodeID, []monitor.ProcessEventType{
-		monitor.EventTypeNodeOffline,
+	sourceEvent, err := s.monitorService.GetLatestSubjectEventByTypes(ctx, recoveryEvent.ClusterID, recoveryEvent.NodeID, recoveryEvent.HostID, []monitor.ProcessEventType{
+		firingType,
 	})
 	if err != nil {
 		return nil, err
@@ -1074,6 +1034,27 @@ func buildLocalAlertPolicyMessageFields(
 		if event.HostID > 0 {
 			appendField("主机 ID", strconv.FormatUint(uint64(event.HostID), 10))
 		}
+	case monitor.EventTypeAgentOffline:
+		appendField("原因", truncateAlertFieldText(localAlertPolicyDetailValue(details, "reason")))
+		appendField("主机", localAlertPolicyDetailValue(details, "host_name"))
+		appendField("主机 IP", localAlertPolicyDetailValue(details, "host_ip"))
+		appendField("节点", localAlertPolicyDetailValue(details, "nodes"))
+		appendField("异常起始", localAlertPolicyDetailValue(details, "observed_since"))
+		if event.HostID > 0 {
+			appendField("主机 ID", strconv.FormatUint(uint64(event.HostID), 10))
+		}
+	case monitor.EventTypeMasterUnavailable:
+		appendField("原因", truncateAlertFieldText(localAlertPolicyDetailValue(details, "reason")))
+		appendField("部署 Master 数", localAlertPolicyDetailValue(details, "deployed_masters"))
+		appendField("健康 Master 数", localAlertPolicyDetailValue(details, "healthy_masters"))
+		appendField("异常节点", localAlertPolicyDetailValue(details, "unhealthy_nodes"))
+		appendField("异常起始", localAlertPolicyDetailValue(details, "observed_since"))
+	case monitor.EventTypeWorkerInsufficient:
+		appendField("原因", truncateAlertFieldText(localAlertPolicyDetailValue(details, "reason")))
+		appendField("部署 Worker 数", localAlertPolicyDetailValue(details, "deployed_workers"))
+		appendField("健康 Worker 数", localAlertPolicyDetailValue(details, "healthy_workers"))
+		appendField("期望基线", localAlertPolicyDetailValue(details, "threshold"))
+		appendField("异常起始", localAlertPolicyDetailValue(details, "observed_since"))
 	default:
 		appendField("原因", truncateAlertFieldText(localAlertPolicyDetailValue(details, "reason")))
 		appendField("进程", strings.TrimSpace(firstNonEmpty(event.ProcessName, "unknown")))
@@ -1195,6 +1176,12 @@ func localizeProcessEventType(eventType monitor.ProcessEventType) string {
 		monitor.EventTypeNodeStopRequested:       "节点停止请求",
 		monitor.EventTypeNodeOffline:             "节点离线",
 		monitor.EventTypeNodeRecovered:           "节点恢复",
+		monitor.EventTypeAgentOffline:            "Agent 离线",
+		monitor.EventTypeAgentRecovered:          "Agent 恢复",
+		monitor.EventTypeMasterUnavailable:       "Master 不可用",
+		monitor.EventTypeMasterRecovered:         "Master 恢复",
+		monitor.EventTypeWorkerInsufficient:      "可用 Worker 不足",
+		monitor.EventTypeWorkerRecovered:         "Worker 恢复",
 	}
 	if raw == "" {
 		return "unknown"
@@ -1246,14 +1233,22 @@ func prettyLocalAlertPolicyDetails(raw string) string {
 	return string(pretty)
 }
 
-func parseLocalRecoveredOfflineEventID(raw string) uint {
+// parseLocalRecoveredFiringEventID 从恢复事件 Details 解析触发事件 ID；新恢复事件写
+// firing_event_id，node_recovered 的旧键 offline_event_id 一并兼容。
+// parseLocalRecoveredFiringEventID reads the firing event id from a recovery event's Details;
+// newer recovery events write firing_event_id while node_recovered's legacy key
+// offline_event_id stays supported.
+func parseLocalRecoveredFiringEventID(raw string) uint {
 	details := parseLocalAlertPolicyDetails(raw)
 	payload, ok := details.(map[string]interface{})
 	if !ok {
 		return 0
 	}
 
-	value := strings.TrimSpace(fmt.Sprintf("%v", payload["offline_event_id"]))
+	value := strings.TrimSpace(fmt.Sprintf("%v", payload["firing_event_id"]))
+	if value == "" || value == "<nil>" {
+		value = strings.TrimSpace(fmt.Sprintf("%v", payload["offline_event_id"]))
+	}
 	if value == "" || value == "<nil>" {
 		return 0
 	}

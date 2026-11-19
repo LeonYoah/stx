@@ -317,6 +317,55 @@ func TestSaveClusterRuleConfig_criticalRequiresChannel(t *testing.T) {
 	require.ErrorIs(t, err, ErrClusterRuleChannelDisabled)
 }
 
+// TestSaveClusterRuleConfig_globalCriticalChecksOverrides 断言保存全局配置为 critical 时，
+// 每个已有集群例外都按叠加后的生效结果复算 critical 不变式，任一不满足即拒绝且报错带集群 ID。
+// TestSaveClusterRuleConfig_globalCriticalChecksOverrides asserts a global save to critical
+// re-resolves every stored override's effective config against the critical invariant; any
+// violation rejects the whole write with the cluster id in the error.
+func TestSaveClusterRuleConfig_globalCriticalChecksOverrides(t *testing.T) {
+	service, repo, _, ctx := setupMonitoringAlertPolicyService(t)
+
+	channel := &NotificationChannel{Name: "ops", Type: NotificationChannelTypeWebhook, Enabled: true, Endpoint: "http://example.com"}
+	require.NoError(t, repo.CreateNotificationChannel(ctx, channel))
+	idsJSON, err := marshalAlertPolicyChannelIDs([]uint{channel.ID})
+	require.NoError(t, err)
+
+	enabled := true
+	// 集群 11 的例外固定 none 通知、severity 继承全局层：全局改 critical 后它也变 critical，
+	// 而生效通知为 none → 无渠道，违反 critical 不变式。
+	// The cluster-11 override pins notify mode none and inherits severity: a global flip to
+	// critical makes it critical too, with no channels — a critical-invariant violation.
+	_, err = service.SaveClusterRuleOverride(ctx, AlertRuleKeyNodeOffline, 11, &clusterRuleFields{
+		Enabled:    &enabled,
+		NotifyMode: clusterRuleNotifyModeNone,
+	})
+	require.NoError(t, err)
+
+	critical := string(AlertSeverityCritical)
+	warning := string(AlertSeverityWarning)
+	_, err = service.SaveClusterRuleConfig(ctx, AlertRuleKeyNodeOffline, &clusterRuleFields{
+		Severity:       &critical,
+		NotifyMode:     clusterRuleNotifyModeCustom,
+		ChannelIDsJSON: idsJSON,
+	})
+	require.ErrorIs(t, err, ErrClusterRuleCriticalChannelRequired)
+	require.Contains(t, err.Error(), "cluster_id=11", "error must name the violating override cluster")
+
+	// 例外固定 warning 后不再继承 critical，全局保存放行。
+	// Once the override pins warning it no longer inherits critical, and the global save passes.
+	_, err = service.SaveClusterRuleOverride(ctx, AlertRuleKeyNodeOffline, 11, &clusterRuleFields{
+		Enabled:  &enabled,
+		Severity: &warning,
+	})
+	require.NoError(t, err)
+	_, err = service.SaveClusterRuleConfig(ctx, AlertRuleKeyNodeOffline, &clusterRuleFields{
+		Severity:       &critical,
+		NotifyMode:     clusterRuleNotifyModeCustom,
+		ChannelIDsJSON: idsJSON,
+	})
+	require.NoError(t, err)
+}
+
 // TestBuildManagedRuleGroups_clusterOverride 断言 tsdb 规则组的全局 rule 用
 // cluster_id!~"…" 排掉例外集群，例外集群按 cluster_id="…" 单独生成。
 // TestBuildManagedRuleGroups_clusterOverride asserts the managed group's global rule excludes

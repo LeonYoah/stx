@@ -424,10 +424,6 @@ func Serve() {
 			monitoringService := monitoringapp.NewService(clusterService, monitorService, monitoringRepo)
 			monitorService.SetOnEventRecorded(monitoringService.DispatchAlertPolicyEvent)
 			monitoringService.StartNodeHealthEvaluator(ctx)
-			// 升级兼容：旧告警类别的通知路由在新语义下永不命中，启动时扫出并 WARN。
-			// Upgrade compatibility: routes with legacy alert categories can never match under
-			// the new semantics; surface them with one WARN at startup.
-			monitoringService.WarnOnInvalidNotificationRoutes(ctx)
 			clusterHandler.SetOnOperationExecuted(func(ctx context.Context, event *cluster.OperationEvent) error {
 				if event == nil {
 					return nil
@@ -544,10 +540,15 @@ func Serve() {
 				monitoringRouter.POST("/alert-instances/:id/ack", monitoringHandler.AcknowledgeAlertInstance)
 				monitoringRouter.POST("/alert-instances/:id/silence", monitoringHandler.SilenceAlertInstance)
 				monitoringRouter.POST("/alert-instances/:id/close", monitoringHandler.CloseAlertInstance)
-				monitoringRouter.GET("/clusters/:id/rules", monitoringHandler.ListClusterRules)
-				monitoringRouter.PUT("/clusters/:id/rules/:ruleId", monitoringHandler.UpdateClusterRule)
+				monitoringRouter.GET("/cluster-rules", monitoringHandler.ListClusterRuleViews)
+				monitoringRouter.GET("/cluster-rules/:key", monitoringHandler.GetClusterRuleView)
+				monitoringRouter.PUT("/cluster-rules/:key", monitoringHandler.PutClusterRule)
+				monitoringRouter.DELETE("/cluster-rules/:key", monitoringHandler.DeleteClusterRule)
+				monitoringRouter.PUT("/cluster-rules/:key/clusters/:clusterId", monitoringHandler.PutClusterRuleOverride)
+				monitoringRouter.DELETE("/cluster-rules/:key/clusters/:clusterId", monitoringHandler.DeleteClusterRuleOverride)
+				monitoringRouter.GET("/alert-notification-defaults", monitoringHandler.GetAlertNotificationDefaults)
+				monitoringRouter.PUT("/alert-notification-defaults", monitoringHandler.PutAlertNotificationDefaults)
 				monitoringRouter.GET("/integration/status", monitoringHandler.GetIntegrationStatus)
-				monitoringRouter.GET("/alert-policies/bootstrap", monitoringHandler.GetAlertPolicyCenterBootstrap)
 				monitoringRouter.GET("/alert-rules/catalog", monitoringHandler.GetAlertRuleCatalog)
 				monitoringRouter.GET("/notifiable-users", monitoringHandler.ListNotifiableUsers)
 				monitoringRouter.GET("/platform-health", monitoringHandler.GetPlatformHealth)
@@ -559,10 +560,6 @@ func Serve() {
 				monitoringRouter.POST("/notification-channels/test-connection", monitoringHandler.TestNotificationChannelConnection)
 				monitoringRouter.POST("/notification-channels/:id/test", monitoringHandler.TestNotificationChannel)
 				monitoringRouter.GET("/notification-deliveries", monitoringHandler.ListNotificationDeliveries)
-				monitoringRouter.GET("/notification-routes", monitoringHandler.ListNotificationRoutes)
-				monitoringRouter.POST("/notification-routes", monitoringHandler.CreateNotificationRoute)
-				monitoringRouter.PUT("/notification-routes/:id", monitoringHandler.UpdateNotificationRoute)
-				monitoringRouter.DELETE("/notification-routes/:id", monitoringHandler.DeleteNotificationRoute)
 			}
 
 			diagnosticsRouter := apiV1Router.Group("/diagnostics")

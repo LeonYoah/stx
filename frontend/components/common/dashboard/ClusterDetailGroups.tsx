@@ -42,6 +42,7 @@ import {
   type HomeDetailPanel,
 } from '@/lib/services/dashboard';
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
+import {DashboardPanel} from './DashboardPanel';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
 
@@ -109,7 +110,6 @@ export function ClusterDetailGroups({
 }) {
   const t = useTranslations('dashboard.home.clusterTab.detail');
   const [group, setGroup] = useState<DetailGroup>('jvm');
-  const panel = 'rounded-xl border border-border/70 bg-card/40 p-4';
 
   const resource = usePolledResource<HomeClusterDetail>(
     JSON.stringify([
@@ -341,22 +341,28 @@ export function ClusterDetailGroups({
   });
 
   return (
-    <section className={panel} data-testid='home-cluster-detail'>
-      <div className='mb-3 flex flex-wrap items-center gap-3'>
-        <h3 className='text-sm font-medium'>{t('title')}</h3>
-        <SegmentedControl
-          label={t('title')}
-          value={group}
-          onValueChange={(value) => setGroup(value as DetailGroup)}
-          options={DETAIL_GROUPS.map((key) => ({
-            value: key,
-            label: t(`groups.${key}`),
-          }))}
-        />
-        {resource.refreshing ? (
-          <span className='text-xs text-muted-foreground'>{t('refreshing')}</span>
-        ) : null}
-      </div>
+    <DashboardPanel
+      title={t('title')}
+      actions={
+        <>
+          <SegmentedControl
+            label={t('title')}
+            value={group}
+            onValueChange={(value) => setGroup(value as DetailGroup)}
+            options={DETAIL_GROUPS.map((key) => ({
+              value: key,
+              label: t(`groups.${key}`),
+            }))}
+          />
+          {resource.refreshing ? (
+            <span className='ml-2 text-xs text-muted-foreground'>
+              {t('refreshing')}
+            </span>
+          ) : null}
+        </>
+      }
+      testId='home-cluster-detail'
+    >
 
       {data?.partial_errors?.length ? (
         <p className='mb-3 text-xs text-amber-600 dark:text-amber-400' role='status'>
@@ -595,6 +601,6 @@ export function ClusterDetailGroups({
           })}
         </div>
       )}
-    </section>
+    </DashboardPanel>
   );
 }

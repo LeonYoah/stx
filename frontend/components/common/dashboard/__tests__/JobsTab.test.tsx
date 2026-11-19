@@ -15,7 +15,13 @@
  * limitations under the License.
  */
 
-import {fireEvent, render, screen, within} from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
@@ -291,6 +297,43 @@ describe('JobsTab', () => {
     expect(screen.getByTestId('calendar').textContent).toBe(
       '次失败|1|2026-11-15',
     );
+  });
+
+  it('collapses empty secondary panels into one-line strips', async () => {
+    const empty = payload('prometheus');
+    empty.top_write = [];
+    empty.top_cdc = [];
+    empty.checkpoints = [];
+    empty.hotspots = [];
+    empty.flow = [];
+    home.getJobs.mockResolvedValue(empty);
+    // 数据量：不拆分且四个指标都没有行 → 面板缩矮条（分段控件随之隐藏）。
+    // Volume: unsplit with zero rows across all four metrics → strip (segmented
+    // controls go with it).
+    home.getVolume.mockResolvedValue({...volumePayload(), series: []});
+    renderTab();
+    await screen.findByTestId('home-throughput');
+    // 等 volume 数据回来后 home-volume 才缩条。/ home-volume only strips after volume data arrives.
+    await waitFor(() =>
+      expect(screen.getByTestId('home-volume').className).toContain('h-11'),
+    );
+    for (const testId of [
+      'home-top-write',
+      'home-top-cdc',
+      'home-flow',
+      'home-checkpoints',
+      'home-hotspots',
+      'home-volume',
+    ]) {
+      const strip = screen.getByTestId(testId);
+      expect(strip.className).toContain('h-11');
+      expect(strip.textContent).toContain('该时间窗内没有数据');
+      expect(strip.querySelector('h3')?.textContent).toBeTruthy();
+    }
+    // 矮条不渲染图表与分段控件。/ Strips render neither charts nor segmented controls.
+    expect(screen.queryByTestId('beui-bar')).toBeNull();
+    expect(screen.queryByText('按集群')).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
   });
 
   it('shows only the calendar without Prometheus and requests a custom window as given', async () => {

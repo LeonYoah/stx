@@ -17,7 +17,7 @@
 
 'use client';
 
-import type {ReactNode} from 'react';
+import type {CSSProperties, ReactNode} from 'react';
 import {cn} from '@/lib/utils';
 
 /**
@@ -37,6 +37,7 @@ export function DashboardPanel({
   emptyLabel,
   testId,
   className,
+  style,
   children,
 }: {
   title?: string;
@@ -51,6 +52,8 @@ export function DashboardPanel({
   emptyLabel?: string;
   testId?: string;
   className?: string;
+  /** 面板级 CSS 变量覆盖（如图表主题色）。/ Panel-level CSS variable overrides (e.g. chart accent). */
+  style?: CSSProperties;
   children?: ReactNode;
 }) {
   if (empty) {
@@ -60,6 +63,7 @@ export function DashboardPanel({
           'flex h-11 items-center gap-3 rounded-xl border border-dashed border-border/60 px-4 text-xs',
           className,
         )}
+        style={style}
         data-testid={testId}
       >
         {title ? <h3 className='text-foreground/80'>{title}</h3> : null}
@@ -80,6 +84,7 @@ export function DashboardPanel({
         !flush && 'p-4',
         className,
       )}
+      style={style}
       data-testid={testId}
     >
       {title || hint || actions ? (

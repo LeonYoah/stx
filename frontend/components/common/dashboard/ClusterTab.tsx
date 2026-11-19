@@ -55,6 +55,7 @@ import {formatDateTimeMinuteTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {formatDurationSeconds} from './dashboard-format';
 import {ClusterDetailGroups} from './ClusterDetailGroups';
+import {DashboardPanel} from './DashboardPanel';
 import {TrendEmptyState} from './TrendEmptyState';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
@@ -309,7 +310,6 @@ export function ClusterTab({
     : [];
   const allGood =
     signalItems.length > 0 && signalItems.every((item) => item.ok);
-  const panel = 'rounded-xl border border-border/70 bg-card/40 p-4';
 
   return (
     <div className='flex flex-col gap-3' data-testid='home-cluster-tab'>
@@ -345,13 +345,11 @@ export function ClusterTab({
         <TrendEmptyState reason={data.reason} />
       ) : data ? (
         <>
-          <section className={panel} data-testid='home-availability'>
-            <div className='mb-3 flex flex-wrap items-baseline gap-2'>
-              <h3 className='text-sm font-medium'>{t('availability.title')}</h3>
-              <span className='text-xs text-muted-foreground'>
-                {t('availability.hint', {cell: cellText})}
-              </span>
-            </div>
+          <DashboardPanel
+            title={t('availability.title')}
+            hint={t('availability.hint', {cell: cellText})}
+            testId='home-availability'
+          >
             {availability.length === 0 ? (
               <p className='py-4 text-center text-xs text-muted-foreground'>
                 {t('availability.empty')}
@@ -421,7 +419,7 @@ export function ClusterTab({
                 })}
               </div>
             )}
-          </section>
+          </DashboardPanel>
 
           <div className='grid gap-3 lg:grid-cols-2'>
             {[
@@ -447,13 +445,11 @@ export function ClusterTab({
             ].map((chart) => {
               const line = lineFor(chart.key, chart.reference);
               return (
-                <section key={chart.key} className={panel}>
-                  <div className='mb-2 flex items-baseline gap-2'>
-                    <h3 className='text-sm font-medium'>{chart.title}</h3>
-                    <span className='text-xs text-muted-foreground'>
-                      {chart.unit}
-                    </span>
-                  </div>
+                <DashboardPanel
+                  key={chart.key}
+                  title={chart.title}
+                  hint={chart.unit}
+                >
                   <LineChart
                     label={chart.title}
                     unit={chart.unit}
@@ -468,16 +464,13 @@ export function ClusterTab({
                       `${format.number(value, {maximumFractionDigits: 2})}${chart.suffix}`
                     }
                   />
-                </section>
+                </DashboardPanel>
               );
             })}
-            <section className={panel}>
-              <div className='mb-2 flex items-baseline gap-2'>
-                <h3 className='text-sm font-medium'>{t('charts.jobState')}</h3>
-                <span className='text-xs text-muted-foreground'>
-                  {t('charts.jobStateUnit')}
-                </span>
-              </div>
+            <DashboardPanel
+              title={t('charts.jobState')}
+              hint={t('charts.jobStateUnit')}
+            >
               {composition.series.length === 0 ? (
                 <p className='py-16 text-center text-xs text-muted-foreground'>
                   {t('charts.empty')}
@@ -490,7 +483,7 @@ export function ClusterTab({
                   formatValue={(value) => format.number(value)}
                 />
               )}
-            </section>
+            </DashboardPanel>
           </div>
 
           {/* 节点指标细节：按组懒加载，引擎未上报的组显示空态。/ Node metric details: lazily loaded
@@ -501,16 +494,13 @@ export function ClusterTab({
 
       {data ? (
         <div className='grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]'>
-          <section
-            className='overflow-hidden rounded-xl border border-border/70 bg-card/40'
-            data-testid='home-node-table'
+          <DashboardPanel
+            title={t('nodes.title')}
+            hint={t('nodes.count', {count: data.nodes.length})}
+            flush
+            className='overflow-hidden'
+            testId='home-node-table'
           >
-            <div className='flex items-baseline gap-2 px-4 pb-2 pt-3'>
-              <h3 className='text-sm font-medium'>{t('nodes.title')}</h3>
-              <span className='text-xs text-muted-foreground'>
-                {t('nodes.count', {count: data.nodes.length})}
-              </span>
-            </div>
             <StudioTable label={t('nodes.title')}>
               <StudioTableScroll>
                 <StudioTableContent minWidth={760}>
@@ -651,19 +641,15 @@ export function ClusterTab({
                 </StudioTableContent>
               </StudioTableScroll>
             </StudioTable>
-          </section>
+          </DashboardPanel>
 
           {signals ? (
-            <section className={panel} data-testid='home-signals'>
-              <div className='mb-3 flex items-baseline gap-2'>
-                <h3 className='text-sm font-medium'>{t('signals.title')}</h3>
-                {allGood ? (
-                  <span className='text-xs text-muted-foreground'>
-                    {t('signals.allGood')}
-                  </span>
-                ) : null}
-              </div>
-              <ul className='flex flex-col divide-y divide-border/60'>
+            <DashboardPanel
+              title={t('signals.title')}
+              hint={allGood ? t('signals.allGood') : undefined}
+              testId='home-signals'
+            >
+              <ul className='mt-1 flex flex-col divide-y divide-border/60'>
                 {signalItems.map((item) => (
                   <li
                     key={item.key}
@@ -690,7 +676,7 @@ export function ClusterTab({
                   </li>
                 ))}
               </ul>
-            </section>
+            </DashboardPanel>
           ) : null}
         </div>
       ) : null}

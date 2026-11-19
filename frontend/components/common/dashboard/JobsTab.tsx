@@ -32,7 +32,6 @@ import {
   StudioTableCell,
   StudioTableColumn,
   StudioTableContent,
-  StudioTableEmptyRow,
   StudioTableHeader,
   StudioTableRow,
   StudioTableScroll,
@@ -118,7 +117,6 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   );
   const data = resource.data;
   const hasMetrics = data?.source === 'prometheus';
-  const panel = 'rounded-xl border border-border/70 bg-card/40 p-4';
   const isBytes = metric.endsWith('bytes');
   const formatRate = (value: number) => `${formatCompactNumber(value)}/s`;
   // 格子主数值按「窗口均值」格式化：行类 compact+/s；字节类 formatBytes 拆数字与单位，
@@ -310,18 +308,6 @@ export function JobsTab({query}: {query: DashboardQuery}) {
       {t('empty')}
     </p>
   );
-  const header = (title: string, hint: string, extra?: React.ReactNode) => (
-    <div className='mb-2 flex flex-wrap items-center gap-2'>
-      <h3 className='text-sm font-medium'>{title}</h3>
-      <span className='text-xs text-muted-foreground'>{hint}</span>
-      {/* 窄屏时控件换到下一行，并在容器内横向滚动，不撑破页面。/ On narrow screens controls wrap and scroll inside. */}
-      {extra ? (
-        <div className='w-full max-w-full overflow-x-auto sm:ml-auto sm:w-auto'>
-          {extra}
-        </div>
-      ) : null}
-    </div>
-  );
 
   if (resource.loading && !data) {
     return (
@@ -329,7 +315,8 @@ export function JobsTab({query}: {query: DashboardQuery}) {
         className='grid gap-3 lg:grid-cols-2'
         data-testid='home-jobs-loading'
       >
-        <div className='h-[340px] animate-pulse rounded-xl bg-muted/40 lg:col-span-2' />
+        {/* 与新吞吐面板同高（指标格行 ~84px + 图表区 ~340px），加载完成不跳动。/ Matches the new throughput panel (~84px tab row + ~340px chart area) so loading does not jump. */}
+        <div className='h-[424px] animate-pulse rounded-xl bg-muted/40 lg:col-span-2' />
         <div className='h-[300px] animate-pulse rounded-xl bg-muted/40' />
         <div className='h-[300px] animate-pulse rounded-xl bg-muted/40' />
       </div>
@@ -337,10 +324,10 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   }
 
   const calendarBlock = calendar ? (
-    <section className={panel} data-testid='home-calendar'>
-      {header(
-        t('calendar.title'),
-        t('calendar.hint', {weeks: calendar.weeks}),
+    <DashboardPanel
+      title={t('calendar.title')}
+      hint={t('calendar.hint', {weeks: calendar.weeks})}
+      actions={
         <SegmentedControl
           label={t('calendar.modeLabel')}
           value={calendarMode}
@@ -349,8 +336,10 @@ export function JobsTab({query}: {query: DashboardQuery}) {
             {value: 'runs', label: t('calendar.runs')},
             {value: 'failed', label: t('calendar.failed')},
           ]}
-        />,
-      )}
+        />
+      }
+      testId='home-calendar'
+    >
       <div className='overflow-x-auto'>
         {/* beUI 日历的月份与图例走它自己的 LocaleProvider。/ beUI reads month names and legend text from its LocaleProvider. */}
         <LocaleProvider locale={locale === 'zh' ? 'zh-CN' : 'en-US'}>
@@ -380,7 +369,7 @@ export function JobsTab({query}: {query: DashboardQuery}) {
           />
         </LocaleProvider>
       </div>
-    </section>
+    </DashboardPanel>
   ) : null;
 
   return (
@@ -444,15 +433,17 @@ export function JobsTab({query}: {query: DashboardQuery}) {
             </div>
           </DashboardPanel>
 
-          <section className={panel} data-testid='home-volume'>
-            {header(
-              t('volume.title'),
+          <DashboardPanel
+            title={t('volume.title')}
+            hint={
               volumeData?.oldest_sample_ms &&
-                volumeData.oldest_sample_ms > volumeData.start_ms
+              volumeData.oldest_sample_ms > volumeData.start_ms
                 ? t('volume.since', {
                     date: formatDateTz(volumeData.oldest_sample_ms),
                   })
-                : t('volume.hint'),
+                : t('volume.hint')
+            }
+            actions={
               <div className='flex flex-wrap items-center gap-2'>
                 <SegmentedControl
                   label={t('volume.metricLabel')}
@@ -474,8 +465,21 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                     label: t(`volume.splits.${key}`),
                   }))}
                 />
-              </div>,
-            )}
+              </div>
+            }
+            // 只「不拆分且四个指标都没有行」才缩矮条；切到空的单指标仍保留面板内
+            // 空态，否则分段控件被藏掉、用户切不回来。
+            // Strip only when unsplit and all four metrics have no rows; an empty
+            // single metric keeps the in-panel empty state so the segmented
+            // controls stay reachable.
+            empty={
+              volumeData != null &&
+              volumeSplit === 'none' &&
+              (volumeData.series ?? []).length === 0
+            }
+            emptyLabel={t('empty')}
+            testId='home-volume'
+          >
             {volume.loading && !volumeData ? (
               <div className='h-[240px] animate-pulse rounded-lg bg-muted/40' />
             ) : volumeChart.series.length === 0 ? (
@@ -501,88 +505,91 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                 ) : null}
               </>
             )}
-          </section>
+          </DashboardPanel>
 
           <div className='grid gap-3 lg:grid-cols-2'>
-            <section className={panel} data-testid='home-top-write'>
-              {header(t('topWrite.title'), t('topWrite.hint'))}
-              {data.top_write.length === 0 ? (
-                empty('h-[220px]')
-              ) : (
-                <BarChart
-                  {...bars(
-                    data.top_write,
-                    t('topWrite.series'),
-                    'var(--series-2)',
-                  )}
-                  orientation='horizontal'
-                  label={t('topWrite.title')}
-                  formatValue={formatRate}
-                />
-              )}
-            </section>
-            <section className={panel} data-testid='home-top-cdc'>
-              {header(t('topCdc.title'), t('topCdc.hint'))}
-              {data.top_cdc.length === 0 ? (
-                empty('h-[220px]')
-              ) : (
-                <BarChart
-                  {...bars(data.top_cdc, t('topCdc.series'), 'var(--warning)')}
-                  orientation='horizontal'
-                  label={t('topCdc.title')}
-                  formatValue={(value) =>
-                    `${format.number(value, {maximumFractionDigits: 1})}s`
-                  }
-                />
-              )}
-            </section>
-            <section className={panel} data-testid='home-flow'>
-              {header(t('flow.title'), t('flow.hint'))}
-              {flow.links.length === 0 ? (
-                empty('h-[240px]')
-              ) : (
-                <SankeyChart
-                  nodes={flow.nodes}
-                  links={flow.links}
-                  label={t('flow.title')}
-                  formatValue={(value) => formatCompactNumber(value)}
-                />
-              )}
-            </section>
+            <DashboardPanel
+              title={t('topWrite.title')}
+              hint={t('topWrite.hint')}
+              empty={data.top_write.length === 0}
+              emptyLabel={t('empty')}
+              testId='home-top-write'
+            >
+              <BarChart
+                {...bars(
+                  data.top_write,
+                  t('topWrite.series'),
+                  'var(--series-2)',
+                )}
+                orientation='horizontal'
+                label={t('topWrite.title')}
+                formatValue={formatRate}
+              />
+            </DashboardPanel>
+            <DashboardPanel
+              title={t('topCdc.title')}
+              hint={t('topCdc.hint')}
+              empty={data.top_cdc.length === 0}
+              emptyLabel={t('empty')}
+              testId='home-top-cdc'
+            >
+              <BarChart
+                {...bars(data.top_cdc, t('topCdc.series'), 'var(--warning)')}
+                orientation='horizontal'
+                label={t('topCdc.title')}
+                formatValue={(value) =>
+                  `${format.number(value, {maximumFractionDigits: 1})}s`
+                }
+              />
+            </DashboardPanel>
+            <DashboardPanel
+              title={t('flow.title')}
+              hint={t('flow.hint')}
+              empty={flow.links.length === 0}
+              emptyLabel={t('empty')}
+              testId='home-flow'
+            >
+              <SankeyChart
+                nodes={flow.nodes}
+                links={flow.links}
+                label={t('flow.title')}
+                formatValue={(value) => formatCompactNumber(value)}
+              />
+            </DashboardPanel>
             {calendarBlock}
-            <section
-              className={panel}
-              data-testid='home-checkpoints'
+            <DashboardPanel
+              title={t('checkpoint.title')}
+              hint={t('checkpoint.hint')}
+              empty={checkpointData.length === 0}
+              emptyLabel={t('empty')}
+              testId='home-checkpoints'
               // Arc BarChart 只读 --accent；在本区块内换成 Checkpoint 阶段色。/ Arc BarChart reads --accent only.
               style={{'--accent': 'var(--series-3)'} as CSSProperties}
             >
-              {header(t('checkpoint.title'), t('checkpoint.hint'))}
-              {checkpointData.length === 0 ? (
-                empty('h-[220px]')
-              ) : (
-                <ArcBarChart
-                  data={checkpointData}
-                  label={t('checkpoint.title')}
-                  period={t('checkpoint.period')}
-                  unit={t('checkpoint.unit')}
-                  height={220}
-                  showAverage={false}
-                  averageLabel={t('checkpoint.average')}
-                  valueLabel={t('checkpoint.value')}
-                  categoryLabel={t('checkpoint.category')}
-                  formatValue={(value) =>
-                    format.number(value, {maximumFractionDigits: 2})
-                  }
-                />
-              )}
-            </section>
-            <section
-              className='overflow-hidden rounded-xl border border-border/70 bg-card/40'
-              data-testid='home-hotspots'
+              <ArcBarChart
+                data={checkpointData}
+                label={t('checkpoint.title')}
+                period={t('checkpoint.period')}
+                unit={t('checkpoint.unit')}
+                height={220}
+                showAverage={false}
+                averageLabel={t('checkpoint.average')}
+                valueLabel={t('checkpoint.value')}
+                categoryLabel={t('checkpoint.category')}
+                formatValue={(value) =>
+                  format.number(value, {maximumFractionDigits: 2})
+                }
+              />
+            </DashboardPanel>
+            <DashboardPanel
+              title={t('hotspots.title')}
+              hint={t('hotspots.hint')}
+              empty={data.hotspots.length === 0}
+              emptyLabel={t('empty')}
+              flush
+              className='overflow-hidden'
+              testId='home-hotspots'
             >
-              <div className='px-4 pt-4'>
-                {header(t('hotspots.title'), t('hotspots.hint'))}
-              </div>
               <StudioTable label={t('hotspots.title')}>
                 <StudioTableScroll>
                   <StudioTableContent>
@@ -599,44 +606,38 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                       </StudioTableColumn>
                     </StudioTableHeader>
                     <StudioTableBody>
-                      {data.hotspots.length === 0 ? (
-                        <StudioTableEmptyRow colSpan={4}>
-                          {t('empty')}
-                        </StudioTableEmptyRow>
-                      ) : (
-                        data.hotspots.map((item) => (
-                          <StudioTableRow
-                            key={`${item.kind}-${item.job_id}-${item.vertex}`}
+                      {data.hotspots.map((item) => (
+                        <StudioTableRow
+                          key={`${item.kind}-${item.job_id}-${item.vertex}`}
+                        >
+                          <StudioTableCell
+                            className='max-w-[14rem] truncate'
+                            title={item.name}
                           >
-                            <StudioTableCell
-                              className='max-w-[14rem] truncate'
-                              title={item.name}
-                            >
-                              {item.name}
-                            </StudioTableCell>
-                            <StudioTableCell className='font-mono text-muted-foreground'>
-                              {item.vertex || '-'}
-                            </StudioTableCell>
-                            <StudioTableCell className='text-muted-foreground'>
-                              {t(`hotspots.${item.kind ?? 'busy'}`)}
-                            </StudioTableCell>
-                            <StudioTableCell
-                              align='end'
-                              className='tabular-nums'
-                            >
-                              {format.number(item.value, {
-                                style: 'percent',
-                                maximumFractionDigits: 0,
-                              })}
-                            </StudioTableCell>
-                          </StudioTableRow>
-                        ))
-                      )}
+                            {item.name}
+                          </StudioTableCell>
+                          <StudioTableCell className='font-mono text-muted-foreground'>
+                            {item.vertex || '-'}
+                          </StudioTableCell>
+                          <StudioTableCell className='text-muted-foreground'>
+                            {t(`hotspots.${item.kind ?? 'busy'}`)}
+                          </StudioTableCell>
+                          <StudioTableCell
+                            align='end'
+                            className='tabular-nums'
+                          >
+                            {format.number(item.value, {
+                              style: 'percent',
+                              maximumFractionDigits: 0,
+                            })}
+                          </StudioTableCell>
+                        </StudioTableRow>
+                      ))}
                     </StudioTableBody>
                   </StudioTableContent>
                 </StudioTableScroll>
               </StudioTable>
-            </section>
+            </DashboardPanel>
           </div>
         </>
       )}

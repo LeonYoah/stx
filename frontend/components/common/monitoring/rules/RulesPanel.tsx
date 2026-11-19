@@ -49,7 +49,11 @@ import {formatRuleThreshold} from '../monitoring-utils';
 import {DetailHost, useDetailNarrow} from '../detail-host';
 import styles from '../monitoring.module.css';
 import {RuleDetailPanel} from './RuleDetailPanel';
-import {JobRulesPanel} from './JobRulesPanel';
+import {
+  JobRulesPanel,
+  type JobSegCounts,
+  type JobStatusFilter,
+} from './JobRulesPanel';
 
 export interface RulesPanelProps {
   /** 深链初始选中规则。Deep-linked rule key to open on mount. */
@@ -104,6 +108,15 @@ export function RulesPanel({
   const [statusFilter, setStatusFilter] = useState<RuleStatusFilter>('all');
   const [sort, setSort] = useState<RuleSort>('default');
   const [query, setQuery] = useState('');
+  // 作业级筛选态在此托管，让两级共用同一工具栏行（交互样式对齐集群级）。
+  // Job-level filter state lives here so both scopes share one toolbar row.
+  const [jobStatusFilter, setJobStatusFilter] = useState<JobStatusFilter>('all');
+  const [jobQuery, setJobQuery] = useState('');
+  const [jobCounts, setJobCounts] = useState<JobSegCounts>({
+    all: 0,
+    enabled: 0,
+    disabled: 0,
+  });
   const [activeKey, setActiveKey] = useState<string | null>(
     initialActiveKey ?? null,
   );
@@ -523,7 +536,35 @@ export function RulesPanel({
               />
             </div>
           </>
-        ) : null}
+        ) : (
+          <>
+            <SegmentedControl
+              label={t('alertStatusLabel')}
+              value={jobStatusFilter}
+              onValueChange={(v) => setJobStatusFilter(v as JobStatusFilter)}
+              options={[
+                statusSeg('all', t('chipAll'), jobCounts.all),
+                statusSeg('enabled', t('chipEnabled'), jobCounts.enabled),
+                statusSeg('disabled', t('chipDisabled'), jobCounts.disabled),
+              ]}
+            />
+            <div className={styles.toolbarSearch}>
+              <SearchField
+                ref={searchRef}
+                label={t('searchLabel')}
+                value={jobQuery}
+                onValueChange={setJobQuery}
+                placeholder={t('jobSearchPlaceholder')}
+                clearLabel={t('searchClear')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && jobQuery) {
+                    setJobQuery('');
+                  }
+                }}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {scope === 'cluster' ? (
@@ -692,7 +733,13 @@ export function RulesPanel({
           </DetailHost>
         </div>
       ) : (
-        <JobRulesPanel />
+        <JobRulesPanel
+          statusFilter={jobStatusFilter}
+          query={jobQuery}
+          onStatusFilterChange={setJobStatusFilter}
+          onQueryChange={setJobQuery}
+          onCountsChange={setJobCounts}
+        />
       )}
     </div>
   );

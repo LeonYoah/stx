@@ -69,11 +69,8 @@
   min-height: 0;
 }
 
-/* 列表 + 常驻详情栏的分栏。relative 供 rail 绝对定位悬浮在列表右上，
-   列表宽度不因详情开合而变化。relative so the rail overlays the list's
-   right edge without reflowing it. */
+/* 列表 + 常驻详情栏的分栏。List column beside the persistent detail rail. */
 .split {
-  position: relative;
   display: flex;
   gap: 16px;
   flex: 1;
@@ -606,26 +603,25 @@
 
 /* ---------------- detail host (rail / drawer) ---------------- */
 
-/* 常驻详情栏：绝对定位覆在列表右缘，与列表同顶同底——列表不再因详情开合
-   而改宽；悬浮层才有阴影。内容超高由 .detailScroll 内部滚动。
-   Persistent rail: absolute over the list's right edge, flush top and bottom
-   with it — opening/closing no longer reflows the list; floating layer gets a
-   shadow. Overflowing content scrolls inside .detailScroll. */
+/* 常驻详情栏：占位停靠（不悬浮），吸顶粘住并受视口高度约束，内容超高由
+   .detailScroll 内部滚动——两侧高度各自固定，详情滚动不带动列表。
+   Persistent docked rail (not an overlay): sticks below the top edge, capped at
+   viewport height, overflowing content scrolls inside .detailScroll — both
+   columns keep fixed heights and scroll independently. */
 .rail {
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  z-index: 10;
+  flex: none;
+  align-self: flex-start;
+  position: sticky;
+  top: 16px;
   width: 440px;
   max-width: 46%;
+  max-height: calc(100dvh - 96px);
   display: flex;
   flex-direction: column;
   min-height: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-panel);
   background: var(--surface);
-  box-shadow: var(--shadow-floating);
   overflow: hidden;
 }
 
@@ -808,6 +804,23 @@
   padding: 4px 0;
   font-size: var(--text-xs);
   color: var(--text-muted);
+}
+
+/* 告警描述是原始 JSON 负载时按代码块排版：等宽、自动换行、限高自滚。
+   Raw JSON payloads in alert summaries render as a wrapped mono block. */
+.codeBlock {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .errorBox {

@@ -1145,12 +1145,13 @@ function AlertDetailBody({
 
       <div className={styles.detailScroll}>
         {alert.summary || alert.description ? (
-          <p className={styles.descText}>
-            {alert.summary || alert.description}
-          </p>
+          <JsonOrText
+            text={alert.summary || alert.description || ''}
+            className={styles.descText}
+          />
         ) : null}
         {alert.description && alert.description !== alert.summary ? (
-          <p className={styles.hintBox}>{alert.description}</p>
+          <JsonOrText text={alert.description} className={styles.hintBox} />
         ) : null}
 
         {alert.rule_key ? (
@@ -1488,4 +1489,23 @@ function TimelineDot({kind}: {kind: string}) {
       closed: styles.dotClosed,
     }[kind] ?? styles.dotClosed;
   return <span className={cn(styles.tlDotInner, cls)} aria-hidden />;
+}
+
+// 可用性告警的 summary/description 可能是原始 JSON 负载（含被截断、缺开头
+// 花括号的片段）：能解析就美化，解析不了但明显是 JSON 片段也按代码块排版。
+// Raw JSON payloads — including truncated fragments — render as a code block.
+function JsonOrText({text, className}: {text: string; className: string}) {
+  const pretty = useMemo(() => {
+    const trimmed = text.trim();
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch {
+      return /"[^"]*"\s*:/.test(trimmed) ? trimmed : null;
+    }
+  }, [text]);
+  return pretty != null ? (
+    <pre className={styles.codeBlock}>{pretty}</pre>
+  ) : (
+    <p className={className}>{text}</p>
+  );
 }

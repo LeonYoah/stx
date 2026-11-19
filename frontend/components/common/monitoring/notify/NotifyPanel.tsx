@@ -668,20 +668,25 @@ export function NotifyPanel() {
             </TableCard>
           </div>
 
-          {/* 编辑走常驻栏/抽屉；新建是小表单用居中弹窗（创建型不用抽屉）。
-              Editing uses the rail/drawer; creation is a centered dialog —
-              drawer is for editing, not for a small create form. */}
+          {/* 编辑走常驻栏/抽屉；新建是小表单用居中弹窗（创建型不用抽屉），
+              且创建态取消直接关闭——只有编辑才需要未保存拦截。Portal 表面必须
+              挂 styles.scope 才能吃到容器级 token（按钮圆角/控件高度）。
+              Editing uses the rail/drawer; creation is a centered dialog that
+              closes directly without the dirty-close guard — only edits get the
+              interception. Portal surfaces must carry styles.scope to inherit
+              container-level tokens (control radii/heights). */}
           {editKey === '__new__' ? (
             <Dialog
               open
               onOpenChange={(o) => {
                 if (!o) {
-                  requestEdit(null);
+                  setEditKey(null);
+                  setChannelDirty(false);
                 }
               }}
             >
               <DialogContent
-                className='overflow-hidden p-0 sm:max-w-lg'
+                className={cn('overflow-hidden p-0 sm:max-w-lg', styles.scope)}
                 showCloseButton
               >
                 <DialogHeader className='px-5 pt-5'>
@@ -690,7 +695,7 @@ export function NotifyPanel() {
                     {t('newChannel')}
                   </DialogDescription>
                 </DialogHeader>
-                <div className='flex h-[min(72dvh,640px)] min-h-0 flex-col'>
+                <div className='flex max-h-[min(78dvh,680px)] min-h-0 flex-col'>
                   <ChannelDrawerBody
                     key='__new__'
                     channel={null}
@@ -699,14 +704,11 @@ export function NotifyPanel() {
                       setChannelDirty(false);
                       await load().catch(() => undefined);
                     }}
-                    onCancel={() => requestEdit(null)}
-                    onDirtyChange={setChannelDirty}
-                    discardArmed={discardArmed}
-                    onDiscard={discardAndCommit}
-                    onKeepEditing={() => {
-                      setDiscardArmed(false);
-                      pendingRef.current = null;
+                    onCancel={() => {
+                      setEditKey(null);
+                      setChannelDirty(false);
                     }}
+                    onDirtyChange={setChannelDirty}
                   />
                 </div>
               </DialogContent>

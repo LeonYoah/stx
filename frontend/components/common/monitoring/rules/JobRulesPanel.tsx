@@ -29,8 +29,6 @@ import {NeutralChip, SoftChip} from '../status-chips';
 import {Button} from '@/components/arc/button/button';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
-import {SearchField} from '@/components/arc/search-field/search-field';
-import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Skeleton} from '@/components/arc/skeleton/skeleton';
 import {Switch} from '@/components/arc/switch/switch';
 import {TableCard} from '@/components/common/layout/TableCard';
@@ -50,11 +48,32 @@ import {DiscardConfirmStrip, useBeforeUnload} from '../dirty-close';
 import {DetailHost, useDetailNarrow} from '../detail-host';
 import styles from '../monitoring.module.css';
 
-type JobStatusFilter = 'all' | 'enabled' | 'disabled';
+export type JobStatusFilter = 'all' | 'enabled' | 'disabled';
+
+export interface JobSegCounts {
+  all: number;
+  enabled: number;
+  disabled: number;
+}
 
 const PAGE_SIZE = 10;
 
-export function JobRulesPanel() {
+export function JobRulesPanel({
+  statusFilter,
+  query,
+  onStatusFilterChange,
+  onQueryChange,
+  onCountsChange,
+}: {
+  // 筛选态由 RulesPanel 托管，筛选控件渲染在共享工具栏行内，与集群级一致。
+  // Filter state is owned by RulesPanel so its controls render inside the
+  // shared toolbar row, matching the cluster-level layout.
+  statusFilter: JobStatusFilter;
+  query: string;
+  onStatusFilterChange: (v: JobStatusFilter) => void;
+  onQueryChange: (v: string) => void;
+  onCountsChange?: (c: JobSegCounts) => void;
+}) {
   const t = useTranslations('monitoring');
   const ts = useTranslations('syncAlert');
   const narrow = useDetailNarrow();
@@ -64,8 +83,6 @@ export function JobRulesPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<number | null>(null);
-  const [statusFilter, setStatusFilter] = useState<JobStatusFilter>('all');
-  const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<{
     taskId: number;
     taskName?: string;
@@ -78,7 +95,6 @@ export function JobRulesPanel() {
   // 放弃后要跳转的目标：null = 直接关闭，否则换到另一行。
   // Where to land after discard: null closes, a policy switches rows.
   const pendingRef = useRef<AlertPolicy | null | 'close'>('close');
-  const searchRef = useRef<HTMLInputElement>(null);
   useBeforeUnload(formDirty && editing != null);
 
   // 打开动画期间保留最后一次编辑对象，抽屉滑出时表单不先消失。
@@ -160,22 +176,6 @@ export function JobRulesPanel() {
     });
   }, [load]);
 
-  // 「/」聚焦搜索。「/」 focuses the search field.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (
-        e.key === '/' &&
-        !el?.closest('input, textarea, select, [contenteditable="true"]')
-      ) {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return policies.filter((p) => {
@@ -213,6 +213,11 @@ export function JobRulesPanel() {
     }),
     [policies],
   );
+
+  // 段计数上报给共享工具栏。Counts feed the shared toolbar segments.
+  useEffect(() => {
+    onCountsChange?.(segCounts);
+  }, [segCounts, onCountsChange]);
 
   const toggle = useCallback(
     async (policy: AlertPolicy, enabled: boolean) => {
@@ -345,43 +350,9 @@ export function JobRulesPanel() {
         }
       : undefined;
 
-  const seg = (v: JobStatusFilter, label: string, count: number) => ({
-    value: v,
-    label,
-    accessory: <span className={styles.count}>{count}</span>,
-  });
-
   return (
     <div className={styles.split}>
       <div className={styles.listCol} data-mcols='job'>
-        <div className={styles.toolbar}>
-          <SegmentedControl
-            label={t('alertStatusLabel')}
-            value={statusFilter}
-            onValueChange={(v) => setStatusFilter(v as JobStatusFilter)}
-            options={[
-              seg('all', t('chipAll'), segCounts.all),
-              seg('enabled', t('chipEnabled'), segCounts.enabled),
-              seg('disabled', t('chipDisabled'), segCounts.disabled),
-            ]}
-          />
-          <div className={styles.toolbarSearch}>
-            <SearchField
-              ref={searchRef}
-              label={t('searchLabel')}
-              value={query}
-              onValueChange={setQuery}
-              placeholder={t('jobSearchPlaceholder')}
-              clearLabel={t('searchClear')}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape' && query) {
-                  setQuery('');
-                }
-              }}
-            />
-          </div>
-        </div>
-
         {/* 唯一主卡片：骨架/错误/空态由 TableCard 统一承载（§4.4）。
             Single main card; skeleton/error/empty states are owned by TableCard. */}
         <TableCard
@@ -420,8 +391,8 @@ export function JobRulesPanel() {
                     size='sm'
                     variant='secondary'
                     onClick={() => {
-                      setStatusFilter('all');
-                      setQuery('');
+                      onStatusFilterChange('all');
+                      onQueryChange('');
                     }}
                   >
                     {t('clearFilters')}

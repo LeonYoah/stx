@@ -23,7 +23,9 @@
 - [ ] 安装 Arc `select`、`dropdown-menu`（`pnpm dlx shadcn@latest add @uiarc/<name> --yes`），同步 `licenses/third_party_mit_files.txt`。
 - [ ] 按 design §3.2 补改 `Select`、`Combobox`、`DropdownMenu`、`Button`、`chip-group`（`count`），在文件头注明本地改动；为每项新增能力补单测
       （无标签时有 `aria-label`、自定义触发器能打开菜单、`iconOnly` 为正方形）。
-- [ ] 在控制台外层容器上覆盖 Arc 高度变量（36px / 行内 32px），不改圆角。
+- [ ] 在控制台外层容器上覆盖 Arc 高度变量（36px / 行内 32px），控件不改圆角。
+- [ ] 按 design §3.2 收紧三种弹层：`foundation.css` 的 `:root` 加 `--radius-popover`，`DropdownMenu`、`Select`、`Combobox` 改用它，选项行高 34px，高亮时图标变深。
+      工作台已有的 `Combobox` 弹层会一起变，Egolite 补一条工作台用例，确认没有被裁切或错位。
 
 - [ ] `TableCard`：容器、保底高度、加载条、首屏骨架 / 空状态 / 错误状态插槽、分页底栏。视觉与 §10 一致。
 - [ ] `useServerListQuery`：page / pageSize / filters；`patch` 时回到第 1 页；可选同步到 URL。

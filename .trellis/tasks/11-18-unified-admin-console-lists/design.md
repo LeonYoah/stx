@@ -75,11 +75,19 @@
 
 ### 3.1 视觉方向：以工作台的 Arc 外观为准（2026-11-18 用户确认）
 
-- **尺寸**：沿用工作台已上线的做法，只覆盖高度变量，**不改 Arc 圆角**：
+- **尺寸**：沿用工作台已上线的做法，只覆盖高度变量，**控件不改 Arc 圆角**：
   - 控件 36px（`--control-height-md: 2.25rem`）；
   - 表格行内控件 32px（`--control-height-sm: 2rem`）；
-  - 圆角保持 Arc 默认：控件 18px，弹层 20–26px。
+  - 控件圆角保持 Arc 默认 18px，卡片、面板的 `--radius-panel` 也不动。
   覆盖写在控制台的外层容器上，只写一处，不逐个组件改；工作台自己的局部覆盖（`studio-chrome.css`）保持不变。
+- **弹层收紧**（2026-11-19 用户确认，参考 affectUI 的下拉菜单，组件仍用 Arc，不引入 affectUI）：
+  - 适用于 `DropdownMenu`、`Select`、`Combobox` 三种弹层；
+  - 弹层圆角统一 14px，选项圆角 9px（弹层圆角减去 5px 内边距），选项行高 34px；
+  - 图标平时用 `--text-secondary`，选项高亮时变成 `--foreground`；
+  - 1px 细边和投影沿用 Arc 现有的 `--border` 与 `--shadow-floating`，字号沿用 `--text-sm`。
+  Arc 原版三种弹层的圆角本身就不一致（菜单 26/20px，下拉选择 20/14px，可搜索下拉 26/21px），统一后同一页面的弹层外观一致。
+  不引入 affectUI 的原因：它是手写实现，不基于 Radix；颜色写死、主题变量自成一套；用法是传选项数组；
+  只换菜单又会和 Arc 的下拉选择挨在一起，违反下面"同一块区域只用一套"。
 - **同一块区域只用一套**：同一行筛选栏、同一个对话框、同一张表里，控件要么全是 Arc，要么全是 shadcn，
   不允许 Arc 胶囊控件和 8px 圆角的 shadcn 控件挨在一起。所以换下拉时，同一行的搜索框（Arc `SearchField`）、
   按钮（Arc `Button`）、日期（`ArcDateRangePicker`）要一起换。
@@ -106,6 +114,7 @@ Arc 组件是拷进仓库的源码。按既有约定直接修改，在文件头�
 | `Combobox`（已装） | 3 处用法都是单选、本地过滤；筛选栏里不显示标签 | 标签改为可选 |
 | `DropdownMenu`（新装） | 7 处触发器是图标按钮；1 处用了菜单内标题 | 支持传入自定义触发器（同 Radix `asChild`）；支持菜单内标题。子菜单、勾选项、快捷键现有代码都没用，不补 |
 | `Button`（已装） | 行内"更多"需要正方形纯图标按钮 | 加 `iconOnly`：宽高相等、去掉左右内边距，必须传 `aria-label` |
+| 弹层：`DropdownMenu`、`Select`、`Combobox` 的样式文件，以及 `foundation.css` | 三种弹层圆角不一致，且 20–26px 在密集列表里显得重（§3.1） | `foundation.css` 的 `:root` 新增 `--radius-popover: .875rem`（14px）。必须定义在 `:root`：菜单和下拉选择通过 Portal 渲染到 `body`，外层容器上定义的变量传不进去。三种弹层的外框圆角改用 `var(--radius-popover)`，选项与高亮块改用 `calc(var(--radius-popover) - 5px)`，`Select` 的内边距由 6px 改为 5px 与另外两种一致；选项 `min-height` 由 36px 改为 34px；`DropdownMenu` 与 `Select` 的选项高亮时，图标颜色改为 `--foreground`。快捷键、子菜单、勾选动画不补 |
 | `chip-group`（已装） | 作业状态多选需要显示计数 | `ChipOption` 加可选的 `count`：显示在文字后面，等宽数字，固定最小宽度，轮询时相邻芯片不跳动。现有 3 个调用方不传，不受影响。`+N more` 的英文只在传了 `maxVisible` 时出现，作业状态不用；以后要用，再按其他 Arc 组件的做法改成通过参数传入文案。**不复制出新组件** |
 
 **新装的组件**：`select`、`dropdown-menu`。如果 5 个列表的对话框用到多行文本框或复选框，再装 `textarea`、`checkbox`，以 Phase 0 的清单为准。

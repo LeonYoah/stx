@@ -909,6 +909,11 @@ func (a *Agent) sendHeartbeat() {
 	_, err := a.grpcClient.SendHeartbeat(a.ctx, usage, processes)
 	if err != nil {
 		logger.ErrorF(ctx, "Heartbeat failed: %v / 心跳失败：%v", err, err)
+		// 平台自监控：累计心跳失败，下一轮主机指标上报时带出去。
+		// Platform self-monitoring: count the failure so the next host-metrics report carries it.
+		if a.metricsCollector != nil {
+			a.metricsCollector.RecordHeartbeatFailure()
+		}
 
 		// Check if agent needs to re-register (Control Plane restarted)
 		// 检查是否需要重新注册（Control Plane 重启了）
@@ -1084,6 +1089,16 @@ func (a *Agent) handleCommand(ctx context.Context, cmd *pb.CommandRequest) (*pb.
 
 	// Execute the command / 执行命令
 	resp, err := a.executor.Execute(ctx, cmd, reporter)
+	// 平台自监控：按 {type,result} 累计命令结果（执行器错误或 FAILED 状态都算 failed）。
+	// Platform self-monitoring: count the outcome under {type,result} (executor errors
+	// and FAILED statuses both count as failed).
+	if a.metricsCollector != nil {
+		result := "success"
+		if err != nil || resp == nil || resp.Status == pb.CommandStatus_FAILED {
+			result = "failed"
+		}
+		a.metricsCollector.RecordCommandResult(cmd.Type.String(), result)
+	}
 	if err != nil {
 		logger.ErrorF(ctx, "Command %s failed: %v / 命令 %s 失败：%v", cmd.CommandId, err, cmd.CommandId, err)
 	} else if resp.Status == pb.CommandStatus_FAILED {

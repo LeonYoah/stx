@@ -261,6 +261,27 @@ const (
 	// AlertRuleKeyNodeOffline is the rule key for sustained node-unavailable episodes.
 	// AlertRuleKeyNodeOffline 表示节点持续不可用阶段的规则键。
 	AlertRuleKeyNodeOffline = "node_offline"
+
+	// AlertRuleKeyPlatformServerMemoryHigh 是平台自监控规则键：STX server 内存持续超限。
+	// AlertRuleKeyPlatformServerMemoryHigh is the platform self-monitoring rule key for
+	// sustained STX server memory pressure.
+	AlertRuleKeyPlatformServerMemoryHigh = "stx_server_memory_high"
+	// AlertRuleKeyPlatformServerHTTP5xxRatioHigh 是平台自监控规则键：HTTP 5xx 比例超限。
+	// AlertRuleKeyPlatformServerHTTP5xxRatioHigh is the platform rule key for an
+	// elevated HTTP 5xx ratio on the control plane.
+	AlertRuleKeyPlatformServerHTTP5xxRatioHigh = "stx_server_http_5xx_ratio_high"
+	// AlertRuleKeyPlatformTSDBCompactionFailed 是平台自监控规则键：内嵌 tsdb compaction 失败。
+	// AlertRuleKeyPlatformTSDBCompactionFailed is the platform rule key for embedded
+	// tsdb compaction failures.
+	AlertRuleKeyPlatformTSDBCompactionFailed = "stx_tsdb_compaction_failed"
+	// AlertRuleKeyPlatformAgentMemoryHigh 是平台自监控规则键：Agent 进程内存持续超限。
+	// AlertRuleKeyPlatformAgentMemoryHigh is the platform rule key for sustained agent
+	// process memory pressure.
+	AlertRuleKeyPlatformAgentMemoryHigh = "stx_agent_memory_high"
+	// AlertRuleKeyPlatformAgentVersionMismatch 是平台自监控规则键：Agent 版本与 server 不一致。
+	// AlertRuleKeyPlatformAgentVersionMismatch is the platform rule key for agents
+	// running a version different from the server.
+	AlertRuleKeyPlatformAgentVersionMismatch = "stx_agent_version_mismatch"
 )
 
 // AlertInstanceFilter represents filters for unified alert instances.

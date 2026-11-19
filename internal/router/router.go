@@ -63,13 +63,16 @@ import (
 	"github.com/LeonYoah/stx/internal/otel_trace"
 	"github.com/LeonYoah/stx/internal/pkg/debugpprof"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
+	"github.com/LeonYoah/stx/internal/pkg/selfmetrics"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"github.com/LeonYoah/stx/internal/session"
 	"github.com/LeonYoah/stx/internal/tlsbootstrap"
+	"github.com/LeonYoah/stx/internal/version"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	promcollectors "github.com/prometheus/client_golang/prometheus/collectors"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -97,6 +100,24 @@ func Serve() {
 		log.Fatalf("[API] 初始化数据库失败: %v\n", err)
 	}
 
+	// 平台自监控采集器先行创建：HTTP 中间件与 gRPC 拦截器挂载后立即开始计数，
+	// 待内嵌 tsdb 就绪（observability.enabled 且 Start 成功）再注册进 registry 供
+	// 自抓取写回；observability 关闭时采集器只在进程内存计数，不产生 tsdb 写入。
+	// agents_connected 的 GaugeFunc 惰性读 agentManager，允许后者在采集器创建后才初始化。
+	// Platform self-monitoring collectors are created first: once the HTTP middleware and
+	// gRPC interceptors are wired they start counting immediately; after the embedded tsdb
+	// is ready (observability.enabled and Start succeeded) they register into the registry
+	// for self-scrape write-back. With observability off they only count in-process.
+	// The agents_connected GaugeFunc reads agentManager lazily so the manager may be
+	// initialized after the collector exists.
+	var agentManager *agent.Manager
+	self := selfmetrics.New(version.Version, func() float64 {
+		if agentManager == nil {
+			return 0
+		}
+		return float64(len(agentManager.ListAgents()))
+	})
+
 	// 内嵌可观测存储：observability.enabled 时打开进程内 tsdb + PromQL 引擎；
 	// 打开失败只记日志并保持未就绪（embedts.Ready()=false），大盘/趋势/诊断类查询走既有空态降级，不阻断启动。
 	// Embedded observability storage: open the in-process tsdb + PromQL engine when observability
@@ -117,6 +138,19 @@ func Serve() {
 		}
 		if err != nil {
 			logger.ErrorF(ctx, "[Observability] 内嵌 tsdb 启动失败，可观测查询将降级为空态: %v / embedded tsdb failed to start, observability queries will degrade: %v", err, err)
+		} else {
+			// Start 成功后注册平台自监控采集器与 SQL 连接池统计（db_name="stx"）。
+			// 注册失败只记 WARN：自监控降级不影响业务接口。
+			// After Start succeeds, register platform self-monitoring collectors and the
+			// SQL pool stats (db_name="stx"). Registration failures only log a WARN —
+			// degraded self-monitoring must not affect business APIs.
+			selfCollectors := self.Collectors()
+			if sqlDB, derr := db.DB(ctx).DB(); derr == nil && sqlDB != nil {
+				selfCollectors = append(selfCollectors, promcollectors.NewDBStatsCollector(sqlDB, "stx"))
+			}
+			if rerr := embedts.RegisterSelfCollectors(selfCollectors...); rerr != nil {
+				logger.WarnF(ctx, "[Observability] 平台自监控采集器注册失败: %v / failed to register platform self collectors: %v", rerr, rerr)
+			}
 		}
 		// Serve() 目前没有优雅停机钩子（ctx 为 Background）：若未来换成可取消上下文，Done 时先关 tsdb；
 		// defer 兜底进程退出路径上的清理。Close 幂等，两个钩子同时触发也安全。
@@ -134,14 +168,13 @@ func Serve() {
 	// Initialize gRPC server (if enabled)
 	// Requirements: 1.1, 3.4 - Starts gRPC server and heartbeat timeout detection
 	var grpcSrv *grpcServer.Server
-	var agentManager *agent.Manager
 	if config.IsGRPCEnabled() {
 		// Provision gRPC TLS only when grpc.tls_enabled is explicitly true.
 		// 仅当 grpc.tls_enabled 显式为 true 时准备 gRPC TLS。
 		if _, err := tlsbootstrap.EnsureGRPCTLS(tlsbootstrap.Options{}); err != nil {
 			log.Printf("[TLS] 准备 gRPC TLS 失败，将按当前配置继续: %v / Failed to bootstrap gRPC TLS, continuing with current config: %v\n", err, err)
 		}
-		grpcSrv, agentManager = initGRPCServer(ctx)
+		grpcSrv, agentManager = initGRPCServer(ctx, self)
 		if grpcSrv != nil {
 			defer grpcSrv.Stop()
 		}
@@ -170,7 +203,12 @@ func Serve() {
 
 	// 补充中间件
 	// Add middleware
-	r.Use(otelgin.Middleware(config.Config.App.AppName), loggerMiddleware())
+	// self.GinMiddleware 统计 stx_server_http_requests_total / 延迟直方图：
+	// route 用 gin 路由模板收敛基数，SSE / 长轮询 / 健康探活只计数不进直方图。
+	// self.GinMiddleware records stx_server_http_requests_total / the latency histogram:
+	// route labels use gin route templates to bound cardinality, while SSE / long-poll /
+	// health probes only count and skip the histogram.
+	r.Use(otelgin.Middleware(config.Config.App.AppName), loggerMiddleware(), self.GinMiddleware())
 
 	apiGroup := r.Group(config.Config.App.APIPrefix)
 	{
@@ -423,6 +461,10 @@ func Serve() {
 			monitoringRepo := monitoringapp.NewRepository(db.DB(context.Background()))
 			monitoringService := monitoringapp.NewService(clusterService, monitorService, monitoringRepo)
 			monitorService.SetOnEventRecorded(monitoringService.DispatchAlertPolicyEvent)
+			// 平台快照以 hosts 表为主集合（离线 / 旧版 Agent 也在列表中）。
+			// The platform snapshot merges metrics onto the hosts table (offline / legacy
+			// agents still appear).
+			monitoringService.SetPlatformHostLister(hostService)
 			monitoringService.StartNodeHealthEvaluator(ctx)
 			clusterHandler.SetOnOperationExecuted(func(ctx context.Context, event *cluster.OperationEvent) error {
 				if event == nil {
@@ -552,6 +594,7 @@ func Serve() {
 				monitoringRouter.GET("/alert-rules/catalog", monitoringHandler.GetAlertRuleCatalog)
 				monitoringRouter.GET("/notifiable-users", monitoringHandler.ListNotifiableUsers)
 				monitoringRouter.GET("/platform-health", monitoringHandler.GetPlatformHealth)
+				monitoringRouter.GET("/platform", monitoringHandler.GetPlatformSnapshot)
 				monitoringRouter.GET("/notification-channels", monitoringHandler.ListNotificationChannels)
 				monitoringRouter.POST("/notification-channels", monitoringHandler.CreateNotificationChannel)
 				monitoringRouter.PUT("/notification-channels/:id", monitoringHandler.UpdateNotificationChannel)
@@ -1287,7 +1330,7 @@ func debugPprofHandler(c *gin.Context) {
 // initGRPCServer initializes and starts the gRPC server for Agent communication.
 // initGRPCServer 初始化并启动用于 Agent 通信的 gRPC 服务器。
 // Requirements: 1.1, 3.4 - Starts gRPC server and heartbeat timeout detection.
-func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
+func initGRPCServer(ctx context.Context, self *selfmetrics.Metrics) (*grpcServer.Server, *agent.Manager) {
 	grpcConfig := config.GetGRPCConfig()
 
 	// 创建 logger
@@ -1345,6 +1388,12 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	// 创建并启动 gRPC 服务器
 	// Create and start gRPC server
 	srv := grpcServer.NewServer(serverConfig, agentManager, hostService, auditRepo, logger)
+	// 平台自监控：gRPC 指标拦截器在 Start 前注入，Start 后生效于所有 Agent 调用。
+	// Platform self-monitoring: inject the gRPC metrics interceptors before Start so
+	// every Agent call is instrumented once serving begins.
+	if self != nil {
+		srv.SetMetricsInterceptors(self.UnaryServerInterceptor, self.StreamServerInterceptor)
+	}
 
 	// Set cluster node provider for gRPC handlers (for monitor config push after agent registration)
 	// 设置 gRPC 处理器的集群节点提供者（用于 Agent 注册后推送监控配置）

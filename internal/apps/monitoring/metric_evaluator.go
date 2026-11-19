@@ -43,6 +43,7 @@ import (
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
+	"github.com/LeonYoah/stx/internal/version"
 )
 
 const (
@@ -643,6 +644,219 @@ func (s *Service) listManagedAlertPolicyClusterNames(ctx context.Context) (map[s
 	return result, nil
 }
 
+// buildManagedMetricPolicyRule 把一条启用中的指标模板策略适配为 rulefmt.Rule：
+// 标签/注解/表达式与原写 Prometheus 规则文件的字段完全一致，保证指纹与通知文案不漂移；
+// for 直接转成 model.Duration（原先经 "Nm" 字符串过一道 yaml）。
+// buildManagedMetricPolicyRule adapts one enabled metrics-template policy into a rulefmt.Rule:
+// labels/annotations/expression are byte-for-byte what the old Prometheus rule file carried so
+// fingerprints and notification text do not drift; 'for' converts straight to model.Duration
+// (previously round-tripped through an "Nm" yaml string).
+func buildManagedMetricPolicyRule(policy *AlertPolicy, clusterNames map[string]string) (*rulefmt.Rule, bool, error) {
+	if policy == nil || !policy.Enabled {
+		return nil, false, nil
+	}
+
+	clusterScopeName := strings.TrimSpace(firstNonEmpty(clusterNames[strings.TrimSpace(policy.ClusterID)], policy.ClusterID, "全部集群"))
+	ruleLabels := map[string]string{
+		"managed_by":  "stx",
+		"policy_id":   strconv.FormatUint(uint64(policy.ID), 10),
+		"policy_name": strings.TrimSpace(firstNonEmpty(policy.Name, "未命名策略")),
+		"policy_type": string(policy.PolicyType),
+		"severity":    strings.TrimSpace(firstNonEmpty(string(normalizeAlertPolicySeverity(policy.Severity)), string(AlertSeverityWarning))),
+	}
+	annotations := map[string]string{
+		"policy_id":     strconv.FormatUint(uint64(policy.ID), 10),
+		"policy_name":   strings.TrimSpace(firstNonEmpty(policy.Name, "未命名策略")),
+		"cluster_scope": clusterScopeName,
+	}
+	if strings.TrimSpace(policy.TemplateKey) != "" {
+		ruleLabels["template_key"] = strings.TrimSpace(policy.TemplateKey)
+		annotations["template_key"] = strings.TrimSpace(policy.TemplateKey)
+		annotations["template_name"] = alertPolicyTemplateDisplayNameZH(strings.TrimSpace(policy.TemplateKey))
+	}
+
+	var expr string
+	forMinutes := 1
+	switch policy.PolicyType {
+	case AlertPolicyBuilderKindMetricsTemplate:
+		template, ok := findAlertPolicyTemplateSummary(strings.TrimSpace(policy.TemplateKey))
+		if !ok {
+			return nil, false, nil
+		}
+		condition := resolveMetricPolicyCondition(policy, template)
+		annotations["condition"] = buildMetricConditionDescriptionZH(condition)
+		annotations["summary"] = buildManagedMetricAlertSummaryAnnotation(policy, template)
+		annotations["description"] = buildManagedMetricAlertDescriptionAnnotation(policy, template, condition)
+		annotations["current_value"] = `{{ printf "%.6f" $value }}`
+
+		builtExpr, err := buildMetricTemplatePromQL(policy, template, condition)
+		if err != nil {
+			return nil, false, err
+		}
+		expr = builtExpr
+		forMinutes = maxInt(condition.WindowMinutes, 1)
+	default:
+		return nil, false, nil
+	}
+
+	rule := &rulefmt.Rule{
+		Alert:       sanitizeManagedPrometheusAlertName(policy.ID),
+		Expr:        expr,
+		For:         model.Duration(time.Duration(forMinutes) * time.Minute),
+		Labels:      ruleLabels,
+		Annotations: annotations,
+	}
+	return rule, true, nil
+}
+
+func sanitizeManagedPrometheusAlertName(policyID uint) string {
+	return fmt.Sprintf("STXManagedPolicy_%d", policyID)
+}
+
+func findAlertPolicyTemplateSummary(templateKey string) (*AlertPolicyTemplateSummaryDTO, bool) {
+	for _, item := range allAlertPolicyTemplateSummaries() {
+		if item == nil {
+			continue
+		}
+		if strings.TrimSpace(item.Key) == strings.TrimSpace(templateKey) {
+			return item, true
+		}
+	}
+	return nil, false
+}
+
+type resolvedMetricPolicyCondition struct {
+	Operator      string
+	Threshold     string
+	WindowMinutes int
+}
+
+// ListEnabledManagedMetricAlertPolicies 返回启用中的 metrics_template 策略（按 id 排序），
+// 是 managed 规则组的数据源。
+// ListEnabledManagedMetricAlertPolicies returns enabled metrics-template policies ordered by
+// id; it is the data source of the managed rule group.
+func (r *Repository) ListEnabledManagedMetricAlertPolicies(ctx context.Context) ([]*AlertPolicy, error) {
+	var policies []*AlertPolicy
+	if err := r.db.WithContext(ctx).
+		Where("enabled = ? AND policy_type IN ?", true, []AlertPolicyBuilderKind{AlertPolicyBuilderKindMetricsTemplate}).
+		Order("id ASC").
+		Find(&policies).Error; err != nil {
+		return nil, err
+	}
+	return policies, nil
+}
+
+func resolveMetricPolicyCondition(policy *AlertPolicy, template *AlertPolicyTemplateSummaryDTO) resolvedMetricPolicyCondition {
+	condition := resolvedMetricPolicyCondition{
+		Operator:      strings.TrimSpace(firstNonEmpty(template.DefaultOperator, ">")),
+		Threshold:     strings.TrimSpace(firstNonEmpty(template.DefaultThreshold, "0")),
+		WindowMinutes: template.DefaultWindowMins,
+	}
+	conditions := unmarshalAlertPolicyConditions(policy.ConditionsJSON)
+	if len(conditions) > 0 && conditions[0] != nil {
+		if value := strings.TrimSpace(conditions[0].Operator); value != "" {
+			condition.Operator = value
+		}
+		if value := strings.TrimSpace(conditions[0].Threshold); value != "" {
+			condition.Threshold = value
+		}
+		if conditions[0].WindowMinutes > 0 {
+			condition.WindowMinutes = conditions[0].WindowMinutes
+		}
+	}
+	if condition.WindowMinutes <= 0 {
+		condition.WindowMinutes = 1
+	}
+	if condition.Operator == "" {
+		condition.Operator = ">"
+	}
+	if condition.Threshold == "" {
+		condition.Threshold = "0"
+	}
+	return condition
+}
+
+func buildMetricTemplatePromQL(policy *AlertPolicy, template *AlertPolicyTemplateSummaryDTO, condition resolvedMetricPolicyCondition) (string, error) {
+	if template == nil {
+		return "", fmt.Errorf("template is required")
+	}
+
+	matchers := []string{`job="seatunnel_engine_http"`}
+	clusterID := strings.TrimSpace(policy.ClusterID)
+	if clusterID != "" && !strings.EqualFold(clusterID, "all") {
+		matchers = append(matchers, fmt.Sprintf(`cluster_id=%q`, clusterID))
+	}
+	window := fmt.Sprintf("%dm", maxInt(condition.WindowMinutes, 1))
+	op := strings.TrimSpace(condition.Operator)
+	threshold := strings.TrimSpace(condition.Threshold)
+	if threshold == "" {
+		threshold = "0"
+	}
+
+	switch strings.TrimSpace(template.Key) {
+	case "cpu_usage_high":
+		return fmt.Sprintf(`sum by (cluster_id, cluster_name, cluster, instance) (rate(%s[%s])) %s %s`, buildPrometheusSelector("process_cpu_seconds_total", matchers...), window, op, threshold), nil
+	case "memory_usage_high":
+		used := buildPrometheusSelector("jvm_memory_bytes_used", append(matchers, `area="heap"`)...)
+		maxv := buildPrometheusSelector("jvm_memory_bytes_max", append(matchers, `area="heap"`)...)
+		return fmt.Sprintf(`max by (cluster_id, cluster_name, cluster, instance) ((%s) / clamp_min((%s), 1)) %s %s`, used, maxv, op, threshold), nil
+	case "fd_usage_high":
+		openFds := buildPrometheusSelector("process_open_fds", matchers...)
+		maxFds := buildPrometheusSelector("process_max_fds", matchers...)
+		return fmt.Sprintf(`max by (cluster_id, cluster_name, cluster, instance) ((%s) / clamp_min((%s), 1)) %s %s`, openFds, maxFds, op, threshold), nil
+	case "failed_jobs_high":
+		return fmt.Sprintf(`sum by (cluster_id, cluster_name, cluster, instance) (%s) %s %s`, buildPrometheusSelector("job_count", append(matchers, `state="FAILED"`)...), op, threshold), nil
+	case "job_thread_pool_queue_backlog_high":
+		return fmt.Sprintf(`max by (cluster_id, cluster_name, cluster, instance) (%s) %s %s`, buildPrometheusSelector("job_thread_pool_queueTaskCount", matchers...), op, threshold), nil
+	case "job_thread_pool_rejection_high":
+		return fmt.Sprintf(`sum by (cluster_id, cluster_name, cluster, instance) (increase(%s[%s])) %s %s`, buildPrometheusSelector("job_thread_pool_rejection_total", matchers...), window, op, threshold), nil
+	case "deadlocked_threads_detected":
+		return fmt.Sprintf(`max by (cluster_id, cluster_name, cluster, instance) (%s) %s %s`, buildPrometheusSelector("jvm_threads_deadlocked", matchers...), op, threshold), nil
+	case "split_brain_risk":
+		return fmt.Sprintf(`min by (cluster_id, cluster_name, cluster, instance) (%s) %s %s`, buildPrometheusSelector("hazelcast_partition_isClusterSafe", matchers...), op, threshold), nil
+	case AlertRuleKeyPlatformServerMemoryHigh,
+		AlertRuleKeyPlatformServerHTTP5xxRatioHigh,
+		AlertRuleKeyPlatformTSDBCompactionFailed,
+		AlertRuleKeyPlatformAgentMemoryHigh,
+		AlertRuleKeyPlatformAgentVersionMismatch:
+		// 平台自监控模板不走 seatunnel_engine_http 匹配器：信号来自内嵌自抓取
+		//（job=stx_embedded）与 Agent 上报通道（stx_agent_* / stx_host_*）。
+		// Platform self-monitoring templates skip the seatunnel_engine_http matcher:
+		// signals come from the embedded self-scrape (job=stx_embedded) and the
+		// agent report channel (stx_agent_* / stx_host_*).
+		return buildPlatformMetricPromQL(template.Key, window, op, threshold)
+	default:
+		return "", fmt.Errorf("unsupported metrics template: %s", template.Key)
+	}
+}
+
+// buildPlatformMetricPromQL 生成平台自监控模板的 PromQL 表达式。
+// window 作用于 range 函数窗口（5xx 比例），阈值/算子来自策略条件；
+// 版本不一致模板把当前 server 版本注入 stx_agent_build_info 的版本不等匹配器（%q 转义）。
+// buildPlatformMetricPromQL renders the PromQL for platform self-monitoring
+// templates. window feeds range functions (5xx ratio), operator/threshold come
+// from the policy condition; the version-mismatch template injects the current
+// server version into the stx_agent_build_info inequality matcher (%q-escaped).
+func buildPlatformMetricPromQL(templateKey, window, op, threshold string) (string, error) {
+	switch strings.TrimSpace(templateKey) {
+	case AlertRuleKeyPlatformServerMemoryHigh:
+		return fmt.Sprintf(`process_resident_memory_bytes{job="stx_embedded"} %s %s`, op, threshold), nil
+	case AlertRuleKeyPlatformServerHTTP5xxRatioHigh:
+		return fmt.Sprintf(`sum(rate(stx_server_http_requests_total{code="5xx"}[%s])) / sum(rate(stx_server_http_requests_total[%s])) %s %s`, window, window, op, threshold), nil
+	case AlertRuleKeyPlatformTSDBCompactionFailed:
+		// 固定 1h 窗口累计 compaction 失败次数；触发时机由 for 持续时间控制。
+		// The 1h window is pinned: compaction failures accumulate, and the for
+		// duration controls when the alert fires.
+		return fmt.Sprintf(`increase(prometheus_tsdb_compactions_failed_total{job="stx_embedded"}[1h]) %s %s`, op, threshold), nil
+	case AlertRuleKeyPlatformAgentMemoryHigh:
+		return fmt.Sprintf(`max by (host_id, host_name) (stx_agent_process_resident_memory_bytes) %s %s`, op, threshold), nil
+	case AlertRuleKeyPlatformAgentVersionMismatch:
+		return fmt.Sprintf(`max by (host_id, host_name, version) (stx_agent_build_info{version!=%q}) %s %s`, version.Version, op, threshold), nil
+	default:
+		return "", fmt.Errorf("unsupported platform metrics template: %s", templateKey)
+	}
+}
+
 func buildPrometheusSelector(metric string, matchers ...string) string {
 	trimmedMetric := strings.TrimSpace(metric)
 	items := make([]string, 0, len(matchers))
@@ -657,6 +871,26 @@ func buildPrometheusSelector(metric string, matchers ...string) string {
 		return trimmedMetric
 	}
 	return fmt.Sprintf("%s{%s}", trimmedMetric, strings.Join(items, ","))
+}
+
+func buildMetricConditionDescriptionZH(condition resolvedMetricPolicyCondition) string {
+	return fmt.Sprintf("持续 %d 分钟，条件：%s %s", maxInt(condition.WindowMinutes, 1), strings.TrimSpace(firstNonEmpty(condition.Operator, ">")), strings.TrimSpace(firstNonEmpty(condition.Threshold, "0")))
+}
+
+func buildManagedMetricAlertSummaryAnnotation(policy *AlertPolicy, template *AlertPolicyTemplateSummaryDTO) string {
+	policyName := escapePrometheusTemplateText(strings.TrimSpace(firstNonEmpty(policy.Name, "未命名策略")))
+	templateName := escapePrometheusTemplateText(alertPolicyTemplateDisplayNameZH(strings.TrimSpace(template.Key)))
+	return fmt.Sprintf(`{{ $labels.cluster_name }} / {{ $labels.instance }} 触发指标告警：%s（%s）`, policyName, templateName)
+}
+
+func buildManagedMetricAlertDescriptionAnnotation(policy *AlertPolicy, template *AlertPolicyTemplateSummaryDTO, condition resolvedMetricPolicyCondition) string {
+	description := escapePrometheusTemplateText(strings.TrimSpace(firstNonEmpty(
+		policy.Description,
+		alertPolicyTemplateDescriptionZH(template.Key),
+		alertPolicyTemplateDisplayNameZH(template.Key),
+	)))
+	conditionText := escapePrometheusTemplateText(buildMetricConditionDescriptionZH(condition))
+	return fmt.Sprintf(`%s；当前值：{{ printf "%%.6f" $value }}；%s。`, description, conditionText)
 }
 
 func escapePrometheusTemplateText(value string) string {
@@ -699,9 +933,77 @@ func alertPolicyTemplateDisplayNameZH(templateKey string) string {
 		return "死锁线程异常"
 	case "split_brain_risk":
 		return "集群安全性异常"
+	case AlertRuleKeyPlatformServerMemoryHigh:
+		return "STX server 内存过高"
+	case AlertRuleKeyPlatformServerHTTP5xxRatioHigh:
+		return "STX server 5xx 比例过高"
+	case AlertRuleKeyPlatformTSDBCompactionFailed:
+		return "内嵌 tsdb compaction 失败"
+	case AlertRuleKeyPlatformAgentMemoryHigh:
+		return "Agent 内存过高"
+	case AlertRuleKeyPlatformAgentVersionMismatch:
+		return "Agent 版本不一致"
 	default:
 		return strings.TrimSpace(firstNonEmpty(templateKey, "指标告警"))
 	}
+}
+
+func alertPolicyTemplateDescriptionZH(templateKey string) string {
+	switch strings.TrimSpace(templateKey) {
+	case "master_unavailable":
+		return "检测受管 SeaTunnel 集群是否已经没有健康的 Master / Coordinator 节点。"
+	case "worker_insufficient":
+		return "检测单个集群中健康 Worker 数量是否持续低于预期基线。"
+	case AlertRuleKeyNodeOffline:
+		return "检测节点心跳或运行态可见性是否持续丢失。"
+	case "agent_offline":
+		return "检测控制面是否失去了集群运维所需的 Agent 连接。"
+	case AlertRuleKeyProcessCrashed:
+		return "跟踪受管 SeaTunnel 进程是否发生重复崩溃。"
+	case AlertRuleKeyProcessRestartFailed:
+		return "检测自动重启已经无法恢复故障进程的情况。"
+	case AlertRuleKeyProcessRestartLimitReached:
+		return "检测运行时是否进入类似 crash-loop 的重启上限异常。"
+	case AlertRuleKeyClusterRestartRequested:
+		return "当用户在控制面触发集群或节点重启时发送通知。"
+	case AlertRuleKeyNodeStopRequested:
+		return "当用户在控制面手动停止节点时立即发送通知。"
+	case "cpu_usage_high":
+		return "基于 process_cpu_seconds_total 持续检测 SeaTunnel 进程 CPU 负载，表示评估窗口内的平均 CPU 核使用量，而不是宿主机总 CPU 百分比。"
+	case "memory_usage_high":
+		return "基于 jvm_memory_bytes_used 和 jvm_memory_bytes_max 持续检测 SeaTunnel JVM 堆内存使用率是否超过阈值。"
+	case "fd_usage_high":
+		return "基于 process_open_fds 和 process_max_fds 提前发现文件句柄耗尽风险。"
+	case "failed_jobs_high":
+		return "基于带 FAILED 状态标签的 job_count 持续检测失败作业数量是否异常。"
+	case "job_thread_pool_queue_backlog_high":
+		return "基于 job_thread_pool_queueTaskCount 检测作业线程池队列积压，避免演变为高延迟或饥饿。"
+	case "job_thread_pool_rejection_high":
+		return "当 job_thread_pool_rejection_total 持续增长时告警，表示任务已被拒绝而不是被排队或执行。"
+	case "deadlocked_threads_detected":
+		return "基于 jvm_threads_deadlocked 检测 JVM 死锁线程，避免任务执行与恢复流程被卡死。"
+	case "split_brain_risk":
+		return "基于 hazelcast_partition_isClusterSafe 检测集群分区安全性异常，提前发现脑裂风险。"
+	case AlertRuleKeyPlatformServerMemoryHigh:
+		return "检测 STX server 进程 RSS 内存是否持续超过配置的内存上限。"
+	case AlertRuleKeyPlatformServerHTTP5xxRatioHigh:
+		return "检测控制面全部 HTTP 请求中 5xx 响应的占比是否持续超过配置阈值。"
+	case AlertRuleKeyPlatformTSDBCompactionFailed:
+		return "内嵌 tsdb 报告 compaction 失败时立即告警；持续失败会让可观测历史数据面临丢失风险。"
+	case AlertRuleKeyPlatformAgentMemoryHigh:
+		return "检测任一受管主机上的 Agent 进程 RSS 是否持续超过配置的内存上限。"
+	case AlertRuleKeyPlatformAgentVersionMismatch:
+		return "检测受管 Agent 上报的版本号是否持续与 STX server 版本不一致。"
+	default:
+		return strings.TrimSpace(firstNonEmpty(alertPolicyTemplateDisplayNameZH(templateKey), "指标告警"))
+	}
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 // metricEvalIntervalFromConfig 解析 observability.eval_interval（Prometheus duration 语法）；

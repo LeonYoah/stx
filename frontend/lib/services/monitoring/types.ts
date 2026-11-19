@@ -736,3 +736,71 @@ export type UpdateAlertNotificationDefaultsRequest = Omit<
   AlertNotificationDefaults,
   'configured'
 >;
+
+/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* 平台自监控快照 / Platform self-monitoring snapshot                  */
+/* ------------------------------------------------------------------ */
+
+/** Server 侧内嵌 TSDB 概况 / Server-side embedded TSDB overview. */
+export interface PlatformTSDBStatus {
+  head_series?: number;
+  blocks_bytes?: number;
+  compactions_failed?: number;
+}
+
+/** STX server 进程与控制面指标快照 / STX server process & control-plane snapshot. */
+export interface PlatformServerSnapshot {
+  version?: string;
+  uptime_seconds?: number;
+  rss_bytes?: number;
+  heap_inuse_bytes?: number;
+  goroutines?: number;
+  /** 近 5 分钟 HTTP 请求速率（req/s） / HTTP request rate over 5m (req/s). */
+  http_rps?: number;
+  /** 近 5 分钟 5xx 占比（0-1） / 5xx ratio over 5m (0-1). */
+  http_5xx_ratio?: number;
+  /** 近 5 分钟 HTTP P95 时延（秒） / HTTP P95 latency over 5m (s). */
+  http_p95_seconds?: number;
+  db_open?: number;
+  db_in_use?: number;
+  /** 近 5 分钟连接池等待速率 / Connection-pool wait rate over 5m. */
+  db_wait_count_rate?: number;
+  agents_connected?: number;
+  tsdb?: PlatformTSDBStatus;
+}
+
+/** 单个 Agent 进程指标快照；旧版 Agent 不上报时指标字段为 null。
+ *  Per-Agent process snapshot; metric fields stay null for legacy agents. */
+export interface PlatformAgentSnapshot {
+  host_id?: number;
+  host_name?: string;
+  version?: string;
+  rss_bytes?: number | null;
+  /** CPU 占用核数（rate 值，1.0 = 1 核） / CPU cores in use (rate; 1.0 = one core). */
+  cpu_ratio?: number | null;
+  goroutines?: number | null;
+  uptime_seconds?: number | null;
+  /** 近 1 小时失败指令数 / Failed commands over the last hour. */
+  command_failures_1h?: number | null;
+  /** RFC3339 最近指标上报时间 / RFC3339 timestamp of the last metrics report. */
+  last_report_at?: string | null;
+  online: boolean;
+}
+
+/** 快照携带的固定趋势序列（[毫秒时间戳, 值]）/ Fixed trend series in the snapshot ([epoch ms, value]). */
+export interface PlatformTrends {
+  rss_bytes?: [number, number][];
+  heap_inuse_bytes?: [number, number][];
+  http_rps?: [number, number][];
+  http_5xx_ratio?: [number, number][];
+}
+
+/** GET /api/v1/monitoring/platform 返回的平台快照 / Platform snapshot returned by GET /api/v1/monitoring/platform. */
+export interface PlatformSnapshotData {
+  available: boolean;
+  reason?: string;
+  server?: PlatformServerSnapshot;
+  agents: PlatformAgentSnapshot[];
+  trends?: PlatformTrends;
+}

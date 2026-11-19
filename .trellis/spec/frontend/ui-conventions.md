@@ -367,6 +367,17 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - **轮询**：`usePolledResource` 30 秒一次，页面不可见暂停、回到可见立即刷新；刷新失败保留旧数据。
 - **beUI 引入**：sparkline 依赖链放在 `components/charts/`，其 `lib/i18n.tsx` 改名为 `components/charts/beui-i18n.tsx`，`lib/utils`、`lib/ease` 用仓库已有版本；Arc 组件保持上游原格式（不跑 prettier），两类文件都保留 MIT 头并登记 `licenses/third_party_mit_files.txt`。
 
+## 17. 控制台「平台」页签（Platform Self-Monitoring）
+
+- **结构**：控制台五段 Tab（集群 / 作业 / 主机 / **平台** / 作业列表），`tab=platform` 深链走 `use-dashboard-query` 的 `HomeTab` 白名单；主体为 `PlatformTab`（`components/common/dashboard/`），**不再**放告警中心。
+- **数据**：快照走 `services.monitoring.getPlatformSnapshotSafe()`（`GET /api/v1/monitoring/platform`），normalizer 兜底 `agents=[]`；`usePolledResource` 30s 轮询（平台快照不随集群范围/时间窗变化，key 固定）；首载用 `h-[300px]` 骨架块，`refreshing` 只 dim 表格 + 底部一行提示。
+- **视觉与集群/主机页签同构**：容器 `rounded-xl border border-border/70 bg-card/40 p-4`，单元格 `rounded-lg border border-border/50 p-3`；Server 身份行仿主机卡（`h3` + `v{version}` 芯片 + 已运行/在线 Agent/Goroutine 若干 muted 行内项）。
+- **趋势**：内存（RSS + 堆内存双序列）、HTTP QPS、HTTP 5xx 比例三张 Arc `LineChart`（height≈150、带图例 `legendClear`/`legendAll`/`categoryLabel`），序列色固定语义映射（RSS `--series-2`、堆 `--series-4`、QPS `--series-1`、5xx `--danger`），不按展示文案取色（避免中英文换色）；空序列由 Arc 空态处理。
+- **单值格**：控制面（HTTP P95 / DB 连接池 in_use/open / 连接等待）与内嵌存储（Head 序列 / Block 占用 / 压缩失败）用「标签 + 值」信号列表格，压缩失败非零时追加 `HEALTH_TONE` 徽标。
+- **降级**：`available=false` 时整区换 `TrendEmptyState`（按 `reason` 区分未启用/未就绪）+ 一行外部探活提示（`/api/v1/health`），不出现实现名。
+- **Agent 表**：`StudioTable`（不是 `ui/table`），在线/离线、版本不一致徽标用 `HEALTH_TONE`（不一致为 amber，非红点）；`null` 指标列渲染 `-`，`command_failures_1h>0` 染 `text-destructive`；`StudioTableBody dimmed` 承载刷新态。
+- **监控中心回退**：告警中心恢复两段 Tab（告警事件 / 告警策略与通知），`TabsList` 回 `grid-cols-2`；旧深链 `?tab=platform` 落回 alerts（平台入口只在控制台）。
+
 ## 一致性检查项
 
 在提交代码前，必须核对以下检查清单：
@@ -399,3 +410,4 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] 大盘新指标是否遵循「一个指标一种图」：趋势折线 / 占比 Donut / 快满 Progress / 横向分组柱 / 恒零异常 MetricCard？同一指标没有重复出两种图？
 - [ ] 大盘折线是否走 `colorForLabels` 语义色表（rx/读 `--series-1`、tx/写 `--series-2`、iowait `--warning`、steal / BLOCKED `--danger`），未知名走 `SERIES_PALETTE` 稳定兜底，没有再用 Arc 默认灰阶或私有调色板？
 - [ ] 恒零「有没有」指标（死锁、线程池拒绝）是否用指标卡而不是平线折线？全 0 的维度序列是否不画？虚线是否只给参考量（committed / peak / 阈值）？
+- [ ] 平台页签是否位于控制台（`dashboard.home.platformTab` 命名空间 + `HomeTab` 白名单），走 `getPlatformSnapshotSafe` 与 `agents=[]` 兜底，降级用 `TrendEmptyState` 并提示外部探测 `/api/v1/health`，图表按固定语义色取色、表格用 `StudioTable`？

@@ -27,10 +27,12 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 import {useLocale, useTranslations} from 'next-intl';
 import {ArrowDownWideNarrow, Check, LayoutGrid, List, Undo2, X} from 'lucide-react';
+import {LayoutGroup, motion} from 'motion/react';
 import {Alert} from '@/components/arc/alert/alert';
-import {SeverityChip} from '../status-chips';
+import {SeverityChip, NeutralChip} from '../status-chips';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Combobox} from '@/components/arc/combobox/combobox';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
 import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
@@ -38,14 +40,17 @@ import {SearchField} from '@/components/arc/search-field/search-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Switch} from '@/components/arc/switch/switch';
 import {TableCard} from '@/components/common/layout/TableCard';
+import {ViewToggle} from '@/components/common/ViewToggle';
 import services from '@/lib/services';
+import type {ClusterInfo} from '@/lib/services/cluster';
 import type {
   AlertNotificationDefaults,
   ClusterRule,
   ClusterRuleLayerRequest,
 } from '@/lib/services/monitoring';
 import {cn} from '@/lib/utils';
-import {formatRuleThreshold} from '../monitoring-utils';
+import {formatRuleThreshold, resolveRuleForCluster} from '../monitoring-utils';
+import {useViewMorph} from '@/lib/animations/view-morph';
 import {DetailHost, useDetailNarrow} from '../detail-host';
 import {UnsavedChangesDialog} from '../dirty-close';
 import styles from '../monitoring.module.css';
@@ -64,6 +69,9 @@ export interface RulesPanelProps {
 
 type RuleStatusFilter = 'all' | 'enabled' | 'disabled' | 'exceptions';
 type RuleSort = 'default' | 'name' | 'severity';
+type PendingNav =
+  | {type: 'key'; key: string | null}
+  | {type: 'cluster'; clusterId: number | null};
 
 const PAGE_SIZE = 10;
 
@@ -121,17 +129,19 @@ export function RulesPanel({
   const [activeKey, setActiveKey] = useState<string | null>(
     initialActiveKey ?? null,
   );
-  // 未保存拦截：dirty 由详情上报；discardTarget !== undefined 时弹出居中
-  // 确认弹窗，undefined = 无拦截，null = 待关闭，string = 待切换的规则 key。
-  // Dirty-close guard: dirty comes from the detail; a defined discardTarget
-  // opens the confirm dialog (null = pending close, string = pending rule key).
+  // 视角切换：null = 全局默认基线，number = 查看并直接编辑该集群的生效配置。
+  // Context perspective: null = global baseline; number = view & edit effective rules for one cluster.
+  const [contextClusterId, setContextClusterId] = useState<number | null>(null);
+  // 未保存拦截：dirty 由详情上报；pendingNav 非空时弹出居中确认弹窗，
+  // 确认放弃后才落地目标行或切换集群视角。
+  // Dirty-close guard: dirty comes from detail; pendingNav opens the confirm dialog
+  // before switching rule or cluster perspective.
   const [ruleDirty, setRuleDirty] = useState(false);
-  const [discardTarget, setDiscardTarget] = useState<string | null | undefined>(
-    undefined,
-  );
+  const [pendingNav, setPendingNav] = useState<PendingNav | null>(null);
   const view = searchParams.get('view') === 'grid' ? 'grid' : 'list';
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rules, setRules] = useState<ClusterRule[]>([]);
+  const [clusters, setClusters] = useState<ClusterInfo[]>([]);
   const [defaults, setDefaults] = useState<AlertNotificationDefaults | null>(
     null,
   );
@@ -140,18 +150,25 @@ export function RulesPanel({
   const [toggling, setToggling] = useState<Set<string>>(new Set());
   const [undo, setUndo] = useState<{
     enabled: boolean;
-    layers: {key: string; raw: ClusterRuleLayerRequest}[];
+    layers: {
+      key: string;
+      clusterId: number | null;
+      existed: boolean;
+      raw: ClusterRuleLayerRequest | null;
+    }[];
   } | null>(null);
   const [batchBusy, setBatchBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    const [ruleData, defData] = await Promise.all([
+    const [ruleData, defData, clusterData] = await Promise.all([
       services.monitoring.listClusterRules(),
       services.monitoring.getAlertNotificationDefaults().catch(() => null),
+      services.cluster.getClusters({current: 1, size: 200}).catch(() => null),
     ]);
     setRules(Array.isArray(ruleData) ? ruleData : []);
     setDefaults(defData);
+    setClusters((clusterData?.clusters ?? []) as ClusterInfo[]);
     setLoading(false);
   }, []);
 
@@ -178,16 +195,58 @@ export function RulesPanel({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const clusterOverrideCounts = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const r of rules) {
+      for (const ov of r.overrides) {
+        map.set(ov.cluster_id, (map.get(ov.cluster_id) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [rules]);
+
+  const contextOptions = useMemo(() => {
+    const base = [{value: 'global', label: t('contextGlobal')}];
+    const seen = new Set<number>();
+    for (const c of clusters) {
+      seen.add(c.id);
+      const cnt = clusterOverrideCounts.get(c.id) ?? 0;
+      base.push({
+        value: String(c.id),
+        label:
+          cnt > 0
+            ? t('contextClusterCount', {name: c.name, count: cnt})
+            : c.name,
+      });
+    }
+    // 补充不在首页集群列表中但已有专属配置的集群。
+    // Include overridden clusters absent from the fetched cluster page.
+    for (const [id, cnt] of clusterOverrideCounts.entries()) {
+      if (!seen.has(id)) {
+        const ovName =
+          rules
+            .flatMap((r) => r.overrides)
+            .find((o) => o.cluster_id === id)?.cluster_name || `#${id}`;
+        base.push({
+          value: String(id),
+          label: t('contextClusterCount', {name: ovName, count: cnt}),
+        });
+      }
+    }
+    return base;
+  }, [clusters, clusterOverrideCounts, rules, t]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = rules.filter((r) => {
-      if (statusFilter === 'enabled' && !r.enabled) {
+      const resolved = resolveRuleForCluster(r, contextClusterId);
+      if (statusFilter === 'enabled' && !resolved.enabled) {
         return false;
       }
-      if (statusFilter === 'disabled' && r.enabled) {
+      if (statusFilter === 'disabled' && resolved.enabled) {
         return false;
       }
-      if (statusFilter === 'exceptions' && r.override_count === 0) {
+      if (statusFilter === 'exceptions' && !resolved.isOverridden) {
         return false;
       }
       const name = locale === 'en' ? r.name_en || r.name : r.name;
@@ -210,28 +269,41 @@ export function RulesPanel({
     if (sort === 'severity') {
       return [...list].sort(
         (a, b) =>
-          Number(b.severity === 'critical') - Number(a.severity === 'critical'),
+          Number(
+            resolveRuleForCluster(b, contextClusterId).severity === 'critical',
+          ) -
+          Number(
+            resolveRuleForCluster(a, contextClusterId).severity === 'critical',
+          ),
       );
     }
     return list;
-  }, [rules, statusFilter, query, locale, sort]);
+  }, [rules, contextClusterId, statusFilter, query, locale, sort]);
 
-  const segCounts = useMemo(
-    () => ({
-      all: rules.length,
-      enabled: rules.filter((r) => r.enabled).length,
-      disabled: rules.filter((r) => !r.enabled).length,
-      exceptions: rules.filter((r) => r.override_count > 0).length,
-    }),
-    [rules],
-  );
+  const segCounts = useMemo(() => {
+    let enabled = 0;
+    let disabled = 0;
+    let exceptions = 0;
+    for (const r of rules) {
+      const resolved = resolveRuleForCluster(r, contextClusterId);
+      if (resolved.enabled) {
+        enabled += 1;
+      } else {
+        disabled += 1;
+      }
+      if (resolved.isOverridden) {
+        exceptions += 1;
+      }
+    }
+    return {all: rules.length, enabled, disabled, exceptions};
+  }, [rules, contextClusterId]);
 
   // 客户端分页：目录 ~21 条，分页保持列表区高度稳定。
   // Client-side pagination keeps the list region a stable height.
   const [page, setPage] = useState(1);
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, query, sort, view]);
+  }, [statusFilter, query, sort, view, contextClusterId]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice(
@@ -244,33 +316,58 @@ export function RulesPanel({
   // Keep the last opened rule mounted while the drawer slides out.
   const drawerRule = useDrawerItem(active);
 
-  // 有未保存草稿时先拦截并弹出确认框；确认放弃后才落地目标行或关闭。
-  // Dirty drafts intercept close/row-switch with a dialog; only discard commits.
+  // 有未保存草稿时先拦截并弹出确认框；确认放弃后才落地目标行或切换视角。
+  // Dirty drafts intercept close/row-switch/context-switch; only discard commits.
   const requestKey = useCallback(
     (key: string | null) => {
       if (key === activeKey) {
         return;
       }
       if (ruleDirty && activeKey != null) {
-        setDiscardTarget(key);
+        setPendingNav({type: 'key', key});
         return;
       }
       setActiveKey(key);
       setRuleDirty(false);
-      setDiscardTarget(undefined);
+      setPendingNav(null);
     },
     [activeKey, ruleDirty],
   );
 
+  const requestContextCluster = useCallback(
+    (clusterId: number | null) => {
+      if (clusterId === contextClusterId) {
+        return;
+      }
+      if (ruleDirty && activeKey != null) {
+        setPendingNav({type: 'cluster', clusterId});
+        return;
+      }
+      setContextClusterId(clusterId);
+      setUndo(null);
+      setRuleDirty(false);
+      setPendingNav(null);
+    },
+    [contextClusterId, ruleDirty, activeKey],
+  );
+
   const commitPending = useCallback(() => {
-    setActiveKey(discardTarget ?? null);
+    if (!pendingNav) {
+      return;
+    }
+    if (pendingNav.type === 'key') {
+      setActiveKey(pendingNav.key);
+    } else {
+      setContextClusterId(pendingNav.clusterId);
+      setUndo(null);
+    }
     setRuleDirty(false);
-    setDiscardTarget(undefined);
-  }, [discardTarget]);
+    setPendingNav(null);
+  }, [pendingNav]);
 
   useEffect(() => {
     if (!ruleDirty) {
-      setDiscardTarget(undefined);
+      setPendingNav(null);
     }
   }, [ruleDirty]);
 
@@ -318,7 +415,8 @@ export function RulesPanel({
     [pageItems],
   );
 
-  /** 行内即时开关：整层 PUT，失败回滚并在行内提示。 Inline enable toggle with rollback. */
+  /** 行内即时开关：按当前视角写全局层或单集群覆盖层，失败回滚并在行内提示。
+   * Inline enable toggle: updates global or cluster-override layer depending on active perspective. */
   const toggleEnabled = useCallback(
     async (rule: ClusterRule, on: boolean) => {
       if (toggling.has(rule.key)) {
@@ -326,19 +424,63 @@ export function RulesPanel({
       }
       setToggling((s) => new Set(s).add(rule.key));
       setError(null);
-      const prev = rule.enabled;
+      const snapshotRule = rule;
+      if (contextClusterId == null) {
+        setRules((rs) =>
+          rs.map((r) => (r.key === rule.key ? {...r, enabled: on} : r)),
+        );
+        try {
+          const updated = await services.monitoring.updateClusterRule(
+            rule.key,
+            layerBody(rule.global, {enabled: on}),
+          );
+          setRules((rs) => rs.map((r) => (r.key === rule.key ? updated : r)));
+        } catch (err) {
+          setRules((rs) =>
+            rs.map((r) => (r.key === rule.key ? snapshotRule : r)),
+          );
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setToggling((s) => {
+            const next = new Set(s);
+            next.delete(rule.key);
+            return next;
+          });
+        }
+        return;
+      }
+
+      const ov =
+        rule.overrides.find((o) => o.cluster_id === contextClusterId) ?? null;
       setRules((rs) =>
-        rs.map((r) => (r.key === rule.key ? {...r, enabled: on} : r)),
+        rs.map((r) => {
+          if (r.key !== rule.key) {
+            return r;
+          }
+          if (ov) {
+            return {
+              ...r,
+              overrides: r.overrides.map((o) =>
+                o.cluster_id === contextClusterId
+                  ? {...o, enabled: on, effective: {...o.effective, enabled: on}}
+                  : o,
+              ),
+            };
+          }
+          return r;
+        }),
       );
       try {
-        const updated = await services.monitoring.updateClusterRule(
+        const body = ov ? layerBody(ov, {enabled: on}) : {enabled: on};
+        const updated = await services.monitoring.updateClusterRuleOverride(
           rule.key,
-          layerBody(rule.global, {enabled: on}),
+          contextClusterId,
+          body,
         );
         setRules((rs) => rs.map((r) => (r.key === rule.key ? updated : r)));
       } catch (err) {
         setRules((rs) =>
-          rs.map((r) => (r.key === rule.key ? {...r, enabled: prev} : r)),
+          rs.map((r) => (r.key === rule.key ? snapshotRule : r)),
         );
         setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -349,14 +491,17 @@ export function RulesPanel({
         });
       }
     },
-    [toggling],
+    [toggling, contextClusterId],
   );
 
-  /** 批量开关：逐条 PUT 全局层；undo 保存旧层供一键还原。 Batch toggle; undo keeps prior layers. */
+  /** 批量开关：按当前视角更新全局或集群覆盖层；undo 保存旧状态供一键还原。
+   * Batch toggle on active perspective; undo restores prior layers (or removes created overrides). */
   const batchSet = useCallback(
     async (enabled: boolean) => {
       const targets = rules.filter(
-        (r) => selected.has(r.key) && r.enabled !== enabled,
+        (r) =>
+          selected.has(r.key) &&
+          resolveRuleForCluster(r, contextClusterId).enabled !== enabled,
       );
       if (targets.length === 0) {
         setSelected(new Set());
@@ -364,17 +509,44 @@ export function RulesPanel({
       }
       setBatchBusy(true);
       setError(null);
-      const prevLayers = targets.map((r) => ({
-        key: r.key,
-        raw: layerBody(r.global, {}),
-      }));
+      const prevLayers = targets.map((r) => {
+        if (contextClusterId == null) {
+          return {
+            key: r.key,
+            clusterId: null,
+            existed: true,
+            raw: layerBody(r.global, {}),
+          };
+        }
+        const ov =
+          r.overrides.find((o) => o.cluster_id === contextClusterId) ?? null;
+        return {
+          key: r.key,
+          clusterId: contextClusterId,
+          existed: ov != null,
+          raw: ov ? layerBody(ov, {}) : null,
+        };
+      });
       try {
         for (const r of targets) {
-          const updated = await services.monitoring.updateClusterRule(
-            r.key,
-            layerBody(r.global, {enabled}),
-          );
-          setRules((rs) => rs.map((x) => (x.key === r.key ? updated : x)));
+          if (contextClusterId == null) {
+            const updated = await services.monitoring.updateClusterRule(
+              r.key,
+              layerBody(r.global, {enabled}),
+            );
+            setRules((rs) => rs.map((x) => (x.key === r.key ? updated : x)));
+          } else {
+            const ov =
+              r.overrides.find((o) => o.cluster_id === contextClusterId) ??
+              null;
+            const updated =
+              await services.monitoring.updateClusterRuleOverride(
+                r.key,
+                contextClusterId,
+                ov ? layerBody(ov, {enabled}) : {enabled},
+              );
+            setRules((rs) => rs.map((x) => (x.key === r.key ? updated : x)));
+          }
         }
         setUndo({enabled, layers: prevLayers});
       } catch (err) {
@@ -385,7 +557,7 @@ export function RulesPanel({
         setSelected(new Set());
       }
     },
-    [rules, selected, load],
+    [rules, selected, contextClusterId, load],
   );
 
   const undoBatch = useCallback(async () => {
@@ -396,9 +568,27 @@ export function RulesPanel({
     setUndo(null);
     setBatchBusy(true);
     try {
-      for (const {key, raw} of layers) {
-        const updated = await services.monitoring.updateClusterRule(key, raw);
-        setRules((rs) => rs.map((x) => (x.key === key ? updated : x)));
+      for (const {key, clusterId, existed, raw} of layers) {
+        if (clusterId == null) {
+          if (raw) {
+            const updated = await services.monitoring.updateClusterRule(
+              key,
+              raw,
+            );
+            setRules((rs) => rs.map((x) => (x.key === key ? updated : x)));
+          }
+        } else if (existed && raw) {
+          const updated = await services.monitoring.updateClusterRuleOverride(
+            key,
+            clusterId,
+            raw,
+          );
+          setRules((rs) => rs.map((x) => (x.key === key ? updated : x)));
+        } else {
+          await services.monitoring.deleteClusterRuleOverride(key, clusterId);
+          const fresh = await services.monitoring.getClusterRule(key);
+          setRules((rs) => rs.map((x) => (x.key === key ? fresh : x)));
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -481,6 +671,25 @@ export function RulesPanel({
         />
         {scope === 'cluster' ? (
           <>
+            <div className={cn(styles.filterCtrl, styles.filterWlg)}>
+              <Combobox
+                label={t('contextLabel')}
+                value={contextClusterId != null ? String(contextClusterId) : 'global'}
+                onValueChange={(v) => {
+                  if (!v || v === 'global') {
+                    requestContextCluster(null);
+                    return;
+                  }
+                  const id = Number(v);
+                  if (Number.isFinite(id) && id > 0) {
+                    requestContextCluster(id);
+                  }
+                }}
+                options={contextOptions}
+                placeholder={t('contextGlobal')}
+                emptyMessage={t('comboboxEmpty')}
+              />
+            </div>
             <SegmentedControl
               label={t('alertStatusLabel')}
               value={statusFilter}
@@ -532,19 +741,19 @@ export function RulesPanel({
                   onSelect: () => setSort(v),
                 }))}
               />
-              <SegmentedControl
+              <ViewToggle
                 label={t('viewModeLabel')}
                 value={view}
                 onValueChange={setView}
                 options={[
                   {
                     value: 'list',
-                    label: <List className='size-4' aria-hidden />,
+                    icon: List,
                     ariaLabel: t('viewList'),
                   },
                   {
                     value: 'grid',
-                    label: <LayoutGrid className='size-4' aria-hidden />,
+                    icon: LayoutGrid,
                     ariaLabel: t('viewGrid'),
                   },
                 ]}
@@ -623,30 +832,34 @@ export function RulesPanel({
                 />
               }
             >
-              {view === 'grid' ? (
-                <div className={styles.cardsGrid}>
-                  {pageItems.map((rule) => (
-                    <RuleCard
-                      key={rule.key}
-                      rule={rule}
-                      active={activeKey === rule.key}
-                      onOpen={() => requestKey(rule.key)}
-                      onToggleEnabled={(on) => void toggleEnabled(rule, on)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <RuleListView
-                  rules={pageItems}
-                  activeKey={activeKey}
-                  selected={selected}
-                  toggling={toggling}
-                  onOpen={requestKey}
-                  onSelect={toggleSelect}
-                  onSelectAll={toggleSelectAllPage}
-                  onToggleEnabled={toggleEnabled}
-                />
-              )}
+              <LayoutGroup>
+                {view === 'grid' ? (
+                  <div className={styles.cardsGrid}>
+                    {pageItems.map((rule) => (
+                      <RuleCard
+                        key={rule.key}
+                        rule={rule}
+                        contextClusterId={contextClusterId}
+                        active={activeKey === rule.key}
+                        onOpen={() => requestKey(rule.key)}
+                        onToggleEnabled={(on) => void toggleEnabled(rule, on)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <RuleListView
+                    rules={pageItems}
+                    contextClusterId={contextClusterId}
+                    activeKey={activeKey}
+                    selected={selected}
+                    toggling={toggling}
+                    onOpen={requestKey}
+                    onSelect={toggleSelect}
+                    onSelectAll={toggleSelectAllPage}
+                    onToggleEnabled={toggleEnabled}
+                  />
+                )}
+              </LayoutGroup>
             </TableCard>
 
             {selected.size > 0 ? (
@@ -731,20 +944,23 @@ export function RulesPanel({
           >
             {drawerRule ? (
               <RuleDetailPanel
-                key={drawerRule.key}
+                key={`${drawerRule.key}:${contextClusterId ?? 'global'}`}
                 rule={drawerRule}
+                contextClusterId={contextClusterId}
+                clusters={clusters}
                 onClose={() => requestKey(null)}
                 onSaved={applySaved}
                 onToggleEnabled={toggleEnabled}
                 onConfigureNotify={onConfigureNotify}
+                onSwitchToGlobal={() => requestContextCluster(null)}
                 onDirtyChange={setRuleDirty}
               />
             ) : null}
           </DetailHost>
           <UnsavedChangesDialog
-            open={discardTarget !== undefined}
+            open={pendingNav !== null}
             onDiscard={commitPending}
-            onKeepEditing={() => setDiscardTarget(undefined)}
+            onKeepEditing={() => setPendingNav(null)}
           />
         </div>
       ) : (
@@ -762,6 +978,7 @@ export function RulesPanel({
 
 function RuleListView({
   rules,
+  contextClusterId,
   activeKey,
   selected,
   toggling,
@@ -771,6 +988,7 @@ function RuleListView({
   onToggleEnabled,
 }: {
   rules: ClusterRule[];
+  contextClusterId: number | null;
   activeKey: string | null;
   selected: Set<string>;
   toggling: Set<string>;
@@ -782,6 +1000,9 @@ function RuleListView({
   const t = useTranslations('monitoring');
   const locale = useLocale();
   const listRef = useRef<HTMLDivElement>(null);
+  // 表/卡共用锚点：同名 layoutId 让切换时名称、级别、描述做形变位移。
+  // Shared morph anchors so title/severity/description FLIP between row and card.
+  const morph = useViewMorph('monitoring-rules');
   const allSelected = rules.length > 0 && rules.every((r) => selected.has(r.key));
   const someSelected = !allSelected && rules.some((r) => selected.has(r.key));
 
@@ -817,11 +1038,14 @@ function RuleListView({
         <span>{t('fieldSeverity')}</span>
         <span>{t('colStatus')}</span>
         <span className='hidden lg:block'>{t('colThreshold')}</span>
-        <span className={styles.right}>{t('colExceptions')}</span>
+        <span className={styles.right}>
+          {contextClusterId != null ? t('colSource') : t('colExceptions')}
+        </span>
         <span className={styles.right}>{t('fieldEnabled')}</span>
       </div>
       <div className={styles.tableScroll} ref={listRef}>
         {rules.map((rule) => {
+          const resolved = resolveRuleForCluster(rule, contextClusterId);
           const name = locale === 'en' ? rule.name_en || rule.name : rule.name;
           const description =
             locale === 'en'
@@ -848,7 +1072,7 @@ function RuleListView({
               className={cn(
                 styles.row,
                 activeKey === rule.key && styles.rowActive,
-                !rule.enabled && styles.rowMuted,
+                !resolved.enabled && styles.rowMuted,
               )}
             >
               <Checkbox
@@ -857,25 +1081,41 @@ function RuleListView({
                 aria-label={t('selectRule', {name})}
               />
               <div className={styles.rowName}>
-                <span className={styles.name} title={name}>
+                <motion.span
+                  layoutId={morph.id(rule.key, 'title')}
+                  transition={morph.transition}
+                  className={styles.name}
+                  title={name}
+                >
                   {name}
-                </span>
-                <span className={styles.sub} title={description}>
+                </motion.span>
+                <motion.span
+                  layoutId={morph.id(rule.key, 'desc')}
+                  transition={morph.transition}
+                  className={styles.sub}
+                  title={description}
+                >
                   {description}
-                </span>
+                </motion.span>
                 <span className={cn(styles.sub, styles.mono)}>{rule.key}</span>
               </div>
-              <SeverityChip
-                severity={rule.severity}
-                label={
-                  rule.severity === 'critical'
-                    ? t('severityCritical')
-                    : t('severityWarning')
-                }
-              />
+              <motion.span
+                layoutId={morph.id(rule.key, 'sev')}
+                transition={morph.transition}
+                className='min-w-0'
+              >
+                <SeverityChip
+                  severity={resolved.severity}
+                  label={
+                    resolved.severity === 'critical'
+                      ? t('severityCritical')
+                      : t('severityWarning')
+                  }
+                />
+              </motion.span>
               <span className={cn(styles.statusCell, styles.statusIdle)}>
-                {rule.enabled ? (
-                  rule.external_channel_missing ? (
+                {resolved.enabled ? (
+                  resolved.externalChannelMissing ? (
                     <span className={styles.warningText}>
                       <span
                         className={cn(styles.dot, styles.dotSilenced)}
@@ -891,14 +1131,31 @@ function RuleListView({
                 )}
               </span>
               <span className={cn(styles.sub, styles.num, 'hidden lg:block')}>
-                {formatRuleThreshold(rule, t)}
+                {formatRuleThreshold(
+                  {
+                    threshold: resolved.threshold,
+                    for_seconds: resolved.forSeconds,
+                    key: rule.key,
+                  },
+                  t,
+                )}
               </span>
               <span className={cn(styles.sub, styles.num, styles.right)}>
-                {rule.override_count > 0 ? rule.override_count : '—'}
+                {contextClusterId != null ? (
+                  resolved.isOverridden ? (
+                    <NeutralChip>{t('sourceCustom')}</NeutralChip>
+                  ) : (
+                    t('sourceGlobal')
+                  )
+                ) : rule.override_count > 0 ? (
+                  rule.override_count
+                ) : (
+                  '—'
+                )}
               </span>
               <div className={styles.rowActions}>
                 <Switch
-                  checked={rule.enabled}
+                  checked={resolved.enabled}
                   disabled={toggling.has(rule.key)}
                   onCheckedChange={(on) => void onToggleEnabled(rule, on)}
                   aria-label={t('fieldEnabled')}
@@ -915,22 +1172,34 @@ function RuleListView({
 
 function RuleCard({
   rule,
+  contextClusterId,
   active,
   onOpen,
   onToggleEnabled,
 }: {
   rule: ClusterRule;
+  contextClusterId: number | null;
   active: boolean;
   onOpen: () => void;
   onToggleEnabled: (on: boolean) => void;
 }) {
   const t = useTranslations('monitoring');
   const locale = useLocale();
+  const morph = useViewMorph('monitoring-rules');
+  const resolved = resolveRuleForCluster(rule, contextClusterId);
   const name = locale === 'en' ? rule.name_en || rule.name : rule.name;
   const description =
     locale === 'en'
       ? rule.description_en || rule.description
       : rule.description;
+  const metaSuffix =
+    contextClusterId != null
+      ? resolved.isOverridden
+        ? ` · ${t('sourceCustom')}`
+        : ''
+      : rule.override_count > 0
+        ? ` · ${t('exceptions', {count: rule.override_count})}`
+        : '';
   return (
     <div
       role='button'
@@ -956,35 +1225,55 @@ function RuleCard({
       className={cn(
         styles.card,
         active && styles.cardActive,
-        !rule.enabled && styles.rowMuted,
+        !resolved.enabled && styles.rowMuted,
       )}
     >
       <div className={styles.cardRow}>
-        <span className={cn(styles.name, 'min-w-0 flex-1')} title={name}>
+        <motion.span
+          layoutId={morph.id(rule.key, 'title')}
+          transition={morph.transition}
+          className={cn(styles.name, 'min-w-0 flex-1')}
+          title={name}
+        >
           {name}
-        </span>
-        <SeverityChip
-          severity={rule.severity}
-          label={
-            rule.severity === 'critical'
-              ? t('severityCritical')
-              : t('severityWarning')
-          }
+        </motion.span>
+        <motion.span
+          layoutId={morph.id(rule.key, 'sev')}
+          transition={morph.transition}
           className='shrink-0'
-        />
+        >
+          <SeverityChip
+            severity={resolved.severity}
+            label={
+              resolved.severity === 'critical'
+                ? t('severityCritical')
+                : t('severityWarning')
+            }
+          />
+        </motion.span>
       </div>
-      <p className={cn(styles.sub, styles.clamp2)} title={description}>
+      <motion.p
+        layoutId={morph.id(rule.key, 'desc')}
+        transition={morph.transition}
+        className={cn(styles.sub, styles.clamp2)}
+        title={description}
+      >
         {description}
-      </p>
+      </motion.p>
       <div className={styles.cardRow} style={{alignItems: 'center'}}>
         <span className={cn(styles.sub, styles.num, 'min-w-0 truncate')}>
-          {formatRuleThreshold(rule, t)}
-          {rule.override_count > 0
-            ? ` · ${t('exceptions', {count: rule.override_count})}`
-            : ''}
+          {formatRuleThreshold(
+            {
+              threshold: resolved.threshold,
+              for_seconds: resolved.forSeconds,
+              key: rule.key,
+            },
+            t,
+          )}
+          {metaSuffix}
         </span>
         <Switch
-          checked={rule.enabled}
+          checked={resolved.enabled}
           onCheckedChange={onToggleEnabled}
           onClick={(e) => e.stopPropagation()}
           aria-label={t('fieldEnabled')}

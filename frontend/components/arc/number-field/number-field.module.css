@@ -1,3 +1,13 @@
+/*
+ * 本地修改：1) `.display[data-hidden]` 补充 `opacity: 0; pointer-events: none;`，防止子元素
+ * `<Glyph>` 的内联 `visibility: visible` 穿透父级 `visibility: hidden` 导致清空输入时残留幽灵数字；
+ * 2) `.number` 增加 `min-height: calc(1em * var(--leading-body))`，防止空草稿时容器坍缩为 0×0。
+ * 升级 Arc 时 diff 合并。
+ * Local modification: 1) add `opacity: 0; pointer-events: none;` on `.display[data-hidden]` so
+ * child `<Glyph>` inline `visibility: visible` cannot bleed through `visibility: hidden` on
+ * empty drafts; 2) give `.number` `min-height: calc(1em * var(--leading-body))` so empty drafts
+ * do not collapse the box to 0x0. Diff-merge on Arc upgrades.
+ */
 .field { --nf-height: var(--control-height-md); --nf-step: calc(var(--nf-height) - 10px); --nf-inset: 3px; --nf-text: max(var(--text-base), var(--text-field)); --nf-width: var(--number-field-width, 196px); --nf-limit: color-mix(in oklab, var(--warning) 72%, var(--foreground)); display: grid; min-width: 0; }
 .field[data-size="sm"] { --nf-height: var(--control-height-sm); --nf-step: calc(var(--nf-height) - 8px); --nf-inset: 3px; --nf-text: max(var(--text-sm), var(--text-field)); --nf-width: var(--number-field-width, 164px); }
 .field[data-size="lg"] { --nf-height: var(--control-height-lg); --nf-step: calc(var(--nf-height) - 10px); --nf-inset: 4px; --nf-text: var(--text-lg); --nf-width: var(--number-field-width, 228px); }
@@ -39,9 +49,9 @@
 .char { display: inline-block; overflow-x: clip; white-space: pre; }
 /* The rolling digits and the real input share one cell. The input only draws the caret and selection; its text is always painted by a span
    (the digits, or the draft mirror while typing), so the value keeps one weight and position whether it is rolling or being edited. */
-.number { position: relative; display: inline-grid; align-items: center; }
+.number { position: relative; display: inline-grid; align-items: center; min-height: calc(1em * var(--leading-body)); }
 .display { display: inline-flex; grid-area: 1 / 1; }
-.display[data-hidden] { position: absolute; top: 0; left: 0; visibility: hidden; }
+.display[data-hidden] { position: absolute; top: 0; left: 0; visibility: hidden; opacity: 0; pointer-events: none; }
 .mirror { grid-area: 1 / 1; white-space: pre; }
 .input { position: absolute; z-index: 1; top: 0; left: 0; width: calc(100% + 1em); height: 100%; margin: 0; border: 0; padding: 0; background: transparent; color: transparent; caret-color: var(--foreground); font: inherit; font-variant-numeric: inherit; letter-spacing: inherit; line-height: inherit; text-align: left; outline: none; }
 .input:focus-visible { outline: none; }

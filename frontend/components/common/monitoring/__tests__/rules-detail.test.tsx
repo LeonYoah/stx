@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-// 规则详情面板：继承展示、通知模式切换、critical 无启用外部渠道时禁止保存、例外增删。
+// 规则详情面板：继承展示、通知模式切换、critical 无启用外部渠道时禁止保存、
+// 按集群单独配置的差异摘要与子视图聚焦编辑。
 // Rule detail panel: inheritance display, notify-mode switching, save blocked when critical has
-// no enabled external channel, and override create/delete.
+// no enabled external channel, and per-cluster override diff list + focused subview.
 
 import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
@@ -83,16 +84,22 @@ const baseRule: ClusterRule = {
   external_channel_missing: false,
 };
 
-function renderPanel(rule: ClusterRule, onSaved = vi.fn()) {
+function renderPanel(
+  rule: ClusterRule,
+  onSaved = vi.fn(),
+  extra?: {contextClusterId?: number | null; onDirtyChange?: (d: boolean) => void},
+) {
   return {
     onSaved,
     ...render(
       <NextIntlClientProvider locale='zh' messages={zh}>
         <RuleDetailPanel
           rule={rule}
+          contextClusterId={extra?.contextClusterId}
           onClose={() => undefined}
           onSaved={onSaved}
           onToggleEnabled={() => undefined}
+          onDirtyChange={extra?.onDirtyChange}
         />
       </NextIntlClientProvider>,
     ),
@@ -151,7 +158,10 @@ describe('RuleDetailPanel', () => {
   it('saves the global layer with whole-layer replacement', async () => {
     updateClusterRule.mockResolvedValue({...baseRule, enabled: false});
     const onSaved = vi.fn();
-    renderPanel({...baseRule, severity: 'warning', global: {...baseRule.global, severity: 'warning', notify_mode: 'default'}}, onSaved);
+    renderPanel(
+      {...baseRule, severity: 'warning', global: {...baseRule.global, severity: 'warning', notify_mode: 'default'}},
+      onSaved,
+    );
     fireEvent.click(await screen.findByRole('button', {name: '保存'}));
     await waitFor(() => expect(updateClusterRule).toHaveBeenCalledTimes(1));
     const [key, body] = updateClusterRule.mock.calls[0];
@@ -161,23 +171,39 @@ describe('RuleDetailPanel', () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
-  it('creates an override with an all-inherit layer for a picked cluster', async () => {
-    updateClusterRuleOverride.mockResolvedValue(baseRule);
-    renderPanel(baseRule);
-    fireEvent.click(await screen.findByRole('button', {name: '添加集群例外'}));
-    // Radix Select 的 trigger 也占用 combobox 角色，取真正的 input。
-    // The Radix Select trigger also claims the combobox role; pick the real input.
+  it('drills into an in-memory cluster subview on add without an empty PUT, then saves on submit', async () => {
+    const safeRule: ClusterRule = {
+      ...baseRule,
+      severity: 'warning',
+      global: {...baseRule.global, severity: 'warning', notify_mode: 'default'},
+    };
+    updateClusterRuleOverride.mockResolvedValue(safeRule);
+    renderPanel(safeRule);
+    fireEvent.click(await screen.findByRole('button', {name: '为集群配置'}));
     const input = await screen.findAllByRole('combobox').then((els) => els.find((el) => el.tagName === 'INPUT')!);
     fireEvent.focus(input);
     fireEvent.change(input, {target: {value: 'prod'}});
     const option = await screen.findByRole('option', {name: /prod-st-1/});
     fireEvent.click(option);
+    // 选定集群后进入子视图，不发空 PUT。Picking a cluster opens the subview without an empty PUT.
+    expect(updateClusterRuleOverride).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', {name: '返回全局配置'})).toBeInTheDocument();
+    const save = screen.getByRole('button', {name: '保存'});
+    expect(save).toBeDisabled();
+    // 修改开关后解锁保存并提交该集群覆盖。Toggling switch enables save and submits the cluster override.
+    fireEvent.click(screen.getByRole('switch'));
+    await waitFor(() => expect(save).not.toBeDisabled());
+    fireEvent.click(save);
     await waitFor(() =>
-      expect(updateClusterRuleOverride).toHaveBeenCalledWith('node_offline', 6, {}),
+      expect(updateClusterRuleOverride).toHaveBeenCalledWith(
+        'node_offline',
+        6,
+        expect.objectContaining({enabled: false}),
+      ),
     );
   });
 
-  it('deletes an override through confirm-morph', async () => {
+  it('shows compact diff summary and deletes an override through confirm-morph', async () => {
     const withOverride: ClusterRule = {
       ...baseRule,
       override_count: 1,
@@ -199,16 +225,36 @@ describe('RuleDetailPanel', () => {
     deleteClusterRuleOverride.mockResolvedValue({key: 'node_offline'});
     getClusterRule.mockResolvedValue(withOverride);
     renderPanel(withOverride);
-    // accordion 默认展开第一项：删除按钮可见，按两次（armed→confirm）。
-    const del = await screen.findByRole('button', {name: '删除例外'});
+    // 列表直接展示该集群的差异摘要。Summary line displays only changed fields without expanding.
+    expect(await screen.findByText('关闭 · 持续 5 分钟')).toBeInTheDocument();
+    const del = screen.getByRole('button', {name: '恢复全局'});
     fireEvent.click(del);
-    // ConfirmMorph 有 280ms 防误触间隔，等确认键真正可用再按。
-    // ConfirmMorph arms for 280ms; wait past the arm delay before confirming.
     const confirm = await screen.findByRole('button', {name: '删除'});
     await new Promise((resolve) => setTimeout(resolve, 320));
     fireEvent.click(confirm);
     await waitFor(() =>
       expect(deleteClusterRuleOverride).toHaveBeenCalledWith('node_offline', 6),
+    );
+  });
+
+  it('opens directly into the cluster override editor when contextClusterId is set', async () => {
+    const safeRule: ClusterRule = {
+      ...baseRule,
+      severity: 'warning',
+      global: {...baseRule.global, severity: 'warning', notify_mode: 'default'},
+    };
+    updateClusterRuleOverride.mockResolvedValue(safeRule);
+    renderPanel(safeRule, vi.fn(), {contextClusterId: 6});
+    expect(await screen.findByText('prod-st-1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: '返回全局配置'})).toBeNull();
+    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.click(screen.getByRole('button', {name: '保存'}));
+    await waitFor(() =>
+      expect(updateClusterRuleOverride).toHaveBeenCalledWith(
+        'node_offline',
+        6,
+        expect.objectContaining({enabled: false}),
+      ),
     );
   });
 });

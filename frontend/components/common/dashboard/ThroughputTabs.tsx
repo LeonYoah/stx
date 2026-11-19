@@ -17,7 +17,7 @@
 
 'use client';
 
-import {type KeyboardEvent, useRef} from 'react';
+import {type CSSProperties, type KeyboardEvent, useRef} from 'react';
 import {cn} from '@/lib/utils';
 import type {RateSummary} from './dashboard-format';
 import {DASHBOARD_CELL_DIVIDER} from './KpiStrip';
@@ -117,74 +117,88 @@ export function ThroughputTabs({
   };
 
   return (
-    // 与指标栏共用 inset 分隔线；只外扩右边缘（末行底线留作与图表的分隔）。
-    // Shares the KPI strip's inset dividers; only the right edge is over-drawn
-    // (the last-row bottom line doubles as the separator above the chart).
-    <div
-      role='tablist'
-      aria-label={label}
-      className='-mr-px grid grid-cols-2 lg:grid-cols-4'
-    >
-      {items.map((item, index) => {
-        const selected = item.key === value;
-        const avg = item.summary
-          ? formatValue(item.key, item.summary.avg)
-          : null;
-        const peak = item.summary
-          ? formatValue(item.key, item.summary.peak)
-          : null;
-        return (
-          <button
-            key={item.key}
-            ref={(node) => {
-              tabRefs.current[index] = node;
-            }}
-            type='button'
-            role='tab'
-            aria-selected={selected}
-            aria-controls={panelId}
-            tabIndex={selected ? 0 : -1}
-            title={valueHint}
-            data-testid={`home-throughput-tab-${item.key}`}
-            onClick={() => onValueChange(item.key)}
-            onKeyDown={(event) => onKeyDown(event, index)}
-            className={cn(
-              DASHBOARD_CELL_DIVIDER,
-              'relative px-4 py-3 text-left outline-none transition-colors',
-              'focus-visible:bg-muted/30 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
-              'aria-selected:bg-muted/50',
-            )}
-          >
-            {selected ? (
-              <span
-                aria-hidden
-                className='absolute inset-x-0 top-0 h-0.5'
-                style={{background: item.color}}
-              />
-            ) : null}
-            <span className='block text-xs text-muted-foreground'>
-              {item.label}
-            </span>
-            <span className='mt-1 flex items-baseline gap-0.5 text-xl font-medium tabular-nums'>
-              {avg ? (
-                <>
-                  {avg.text}
-                  {avg.unit ? (
-                    <small className='text-xs text-muted-foreground'>
-                      {avg.unit}
-                    </small>
-                  ) : null}
-                </>
-              ) : (
-                '—'
+    // 外包圆角裁剪层：选中格的色条 / 背景会溢出面板左上、右上圆角，在这层裁掉；
+    // tablist 的 -mr-px 让最右列右线同样被裁。不给整个吞吐面板加 overflow-hidden，
+    // 否则会裁掉 BrushChart 的提示层。
+    // An outer rounded clipper: the selected cell's color bar / background would
+    // overflow the panel's top corners; the tablist's -mr-px lets it crop the
+    // last column's right line too. The whole throughput panel must NOT get
+    // overflow-hidden — it would clip BrushChart tooltips.
+    <div className='overflow-hidden rounded-t-xl'>
+      <div
+        role='tablist'
+        aria-label={label}
+        className='-mr-px grid grid-cols-2 lg:grid-cols-4'
+      >
+        {items.map((item, index) => {
+          const selected = item.key === value;
+          const avg = item.summary
+            ? formatValue(item.key, item.summary.avg)
+            : null;
+          const peak = item.summary
+            ? formatValue(item.key, item.summary.peak)
+            : null;
+          return (
+            <button
+              key={item.key}
+              ref={(node) => {
+                tabRefs.current[index] = node;
+              }}
+              type='button'
+              role='tab'
+              aria-selected={selected}
+              aria-controls={panelId}
+              tabIndex={selected ? 0 : -1}
+              title={valueHint}
+              data-testid={`home-throughput-tab-${item.key}`}
+              onClick={() => onValueChange(item.key)}
+              onKeyDown={(event) => onKeyDown(event, index)}
+              className={cn(
+                DASHBOARD_CELL_DIVIDER,
+                'relative px-4 py-3 text-left transition-colors',
+                'focus-visible:bg-muted/30',
+                'aria-selected:bg-muted/50',
               )}
-            </span>
-            <span className='mt-0.5 block text-xs text-muted-foreground'>
-              {peak ? peakLabel(`${peak.text} ${peak.unit}`.trim()) : ''}
-            </span>
-          </button>
-        );
-      })}
+              // 焦点框向内收 2px，避免被圆角裁剪层切掉；foundation 的 :focus-visible
+              // outline 带 !important，不要再用 outline-none / ring 叠加第二个框。
+              // Pull the keyboard focus outline 2px inward so the rounded clipper
+              // does not clip it; foundation's :focus-visible outline is
+              // !important, so do not stack a second frame via ring/outline-none.
+              style={
+                {'--focus-outline-offset': '-2px'} as CSSProperties
+              }
+            >
+              {selected ? (
+                <span
+                  aria-hidden
+                  className='absolute inset-x-0 top-0 h-0.5'
+                  style={{background: item.color}}
+                />
+              ) : null}
+              <span className='block text-xs text-muted-foreground'>
+                {item.label}
+              </span>
+              <span className='mt-1 flex items-baseline gap-0.5 text-xl font-medium tabular-nums'>
+                {avg ? (
+                  <>
+                    {avg.text}
+                    {avg.unit ? (
+                      <small className='text-xs text-muted-foreground'>
+                        {avg.unit}
+                      </small>
+                    ) : null}
+                  </>
+                ) : (
+                  '—'
+                )}
+              </span>
+              <span className='mt-0.5 block text-xs text-muted-foreground'>
+                {peak ? peakLabel(`${peak.text} ${peak.unit}`.trim()) : ''}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

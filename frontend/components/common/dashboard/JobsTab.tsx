@@ -413,7 +413,16 @@ export function JobsTab({query}: {query: DashboardQuery}) {
               <p className='mb-2 text-xs text-muted-foreground'>
                 {t('throughput.title')} · {t('throughput.hint')}
               </p>
-              <div style={{color: THROUGHPUT_COLOR[metric]}}>
+              {/* BrushChart 的 .line/.area/.dot 固定读 --series-1（color 无效），
+                  局部覆盖该变量让曲线跟随选中格的颜色。
+                  BrushChart's .line/.area/.dot read --series-1 only (a color
+                  style does nothing) — override it locally so the curve follows
+                  the selected cell's color. */}
+              <div
+                style={
+                  {'--series-1': THROUGHPUT_COLOR[metric]} as CSSProperties
+                }
+              >
                 <BrushChart
                   data={throughput.data}
                   label={t(`throughput.${metric}`)}

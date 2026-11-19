@@ -17,42 +17,27 @@
 
 'use client';
 
-import Link from 'next/link';
 import {useTranslations} from 'next-intl';
-import {MetricCard} from '@/components/arc/metric-card/metric-card';
-import {Skeleton} from '@/components/ui/skeleton';
 import type {HomeSummary, HomeVolume} from '@/lib/services/dashboard';
 import {formatDateTz} from '@/lib/timezone';
-import {formatCompactNumber, scaledCompact, trendChangePercent} from './dashboard-format';
-
-interface KpiItem {
-  key: string;
-  href: string;
-  label: string;
-  value: number;
-  suffix?: string;
-  decimals?: number;
-  context: string;
-  change?: string;
-}
+import {
+  formatCompactNumber,
+  scaledCompact,
+  trendChangePercent,
+} from './dashboard-format';
+import {KpiStrip, KpiStripSkeleton, type KpiStripItem} from './KpiStrip';
 
 /**
- * 指标卡数值缩放：value 可能任意大（一年窗口的行数可达百亿级），统一经 scaledCompact 压到
- * ≤999.9 + 单位后缀，避免长数字溢出到相邻卡片；suffix 与单位拼接成「B 行」「M 行/秒」。
- * KPI value scaling: values can be arbitrarily large (a year of rows reaches tens of billions),
- * so every number goes through scaledCompact to stay ≤999.9 plus a unit suffix, keeping long
- * digits from overflowing into the neighboring card; the unit joins the suffix as "B 行"/"M 行/秒".
+ * 指标格数值缩放：value 可能任意大（一年窗口的行数可达百亿级），统一经 scaledCompact 压到
+ * ≤999.9 + 量级后缀（K/M/B），避免长数字溢出相邻格；计量单位单独进 unit，小号显示。
+ * KPI value scaling: values can be arbitrarily large (a year of rows reaches tens of
+ * billions), so every number goes through scaledCompact to stay ≤999.9 plus a magnitude
+ * suffix (K/M/B), keeping long digits from overflowing into the neighboring cell; the
+ * measure unit goes to `unit` separately and renders smaller.
  */
-function scaledKpi(value: number, suffix?: string) {
+function scaledKpi(value: number) {
   const scaled = scaledCompact(value);
-  const unit = scaled.unit;
-  return {
-    value: scaled.value,
-    decimals: scaled.decimals,
-    // 现有单位串（行/秒、秒、行）已自带前导空格，单位词头直接拼接即可。
-    // Existing unit strings already carry a leading space, so the scale unit just prefixes them.
-    suffix: unit ? `${unit}${suffix ?? ''}` : suffix,
-  };
+  return {value: scaled.value, decimals: scaled.decimals, scale: scaled.unit};
 }
 
 /** 最早样本日的标注（走系统显示时区的 M/D 或本地化短日期）。/ Oldest-sample day marker in the display timezone. */
@@ -61,11 +46,13 @@ function volumeSinceLabel(oldestMs: number): string {
 }
 
 /**
- * 首页顶部 7 张指标卡（Arc MetricCard），整卡可点击跳到对应页签或告警中心；数据量卡展示当前时间窗写入行数。
- * 涨跌标签只用于「越大越好」的写入速率；失败数用中性文字，避免 Arc 把「+1」染成绿色。
- * The seven home KPI cards (Arc MetricCard); each card links to its tab or the alert center, and the volume card shows
- * rows written in the current window. Signed change chips are used only for the write rate (higher is better);
- * failures use neutral text so Arc never paints "+1" green.
+ * 首页顶部指标栏：把汇总 / 数据量接口数据映射成 KpiStripItem[]，渲染交给 KpiStrip。
+ * 涨跌只用于「越大越好」的写入速率；失败数等保持中性文字。异常染色：
+ * 失败 > 0 / CDC 超阈值 / 严重告警 > 0 → danger，集群有降级 → warning。
+ * The home KPI strip: maps summary / volume payloads to KpiStripItem[] and lets
+ * KpiStrip render. Signed changes are used only for the write rate (higher is
+ * better); failures stay neutral. Tints: failures > 0 / CDC over threshold /
+ * critical alerts > 0 → danger, degraded clusters → warning.
  */
 export function DashboardKpiRow({
   summary,
@@ -81,22 +68,17 @@ export function DashboardKpiRow({
   const t = useTranslations('dashboard.home');
 
   if (loading && !summary) {
-    return (
-      <div
-        className='grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7'
-        data-testid='home-kpi-loading'
-      >
-        {Array.from({length: 7}).map((_, index) => (
-          <Skeleton key={index} className='h-[158px] rounded-xl' />
-        ))}
-      </div>
-    );
+    return <KpiStripSkeleton count={7} />;
   }
 
   const jobs = summary?.jobs;
   const clusters = summary?.clusters;
   const writeChange = jobs ? trendChangePercent(jobs.write_trend) : null;
   const cdc = jobs?.max_cdc_delay_seconds;
+  const cdcOver =
+    cdc !== undefined && jobs !== null && jobs !== undefined
+      ? cdc >= jobs.cdc_threshold_seconds
+      : false;
   // 本月起点早于最早样本时，月累计实际从最早样本算起，文案要注明起始日。
   // When the month start predates the oldest sample, the month total really starts at that
   // sample, so the caption names the effective start date.
@@ -116,7 +98,8 @@ export function DashboardKpiRow({
           month: formatCompactNumber(volumeTotals.month.write_rows),
         })
     : t('kpi.volumeEmpty');
-  const items: KpiItem[] = [
+  const degraded = (clusters?.degraded ?? 0) + (clusters?.unhealthy ?? 0);
+  const items: KpiStripItem[] = [
     {
       key: 'running',
       href: buildHref({tab: 'list', status: 'running'}),
@@ -131,7 +114,8 @@ export function DashboardKpiRow({
       key: 'write',
       href: buildHref({tab: 'list', status: 'running', sort: 'rate'}),
       label: t('kpi.writeRate'),
-      ...scaledKpi(Math.round(jobs?.write_qps ?? 0), t('unit.rowsPerSec')),
+      ...scaledKpi(Math.round(jobs?.write_qps ?? 0)),
+      unit: t('unit.rowsPerSec').trim(),
       context:
         writeChange === null
           ? t('kpi.writeContextNow')
@@ -139,32 +123,37 @@ export function DashboardKpiRow({
       change:
         writeChange === null
           ? undefined
-          : `${writeChange >= 0 ? '+' : '−'}${Math.abs(writeChange)}%`,
+          : {percent: writeChange, good: writeChange >= 0},
     },
     {
       key: 'cdc',
       href: buildHref({tab: 'list', status: 'running', sort: 'cdc_delay'}),
       label: t('kpi.cdc'),
-      ...scaledKpi(Math.round(cdc ?? 0), t('unit.seconds')),
-      context: jobs?.max_cdc_job_name || t('kpi.cdcNone'),
-      change:
-        cdc !== undefined && jobs && cdc >= jobs.cdc_threshold_seconds
-          ? t('kpi.cdcOver')
-          : undefined,
+      ...scaledKpi(Math.round(cdc ?? 0)),
+      unit: t('unit.seconds').trim(),
+      context: cdcOver
+        ? t('kpi.cdcOverContext', {
+            name: jobs?.max_cdc_job_name || t('kpi.cdcNone'),
+          })
+        : jobs?.max_cdc_job_name || t('kpi.cdcNone'),
+      tone: cdcOver ? 'danger' : undefined,
     },
     {
       key: 'failed',
       href: buildHref({tab: 'list', status: 'failed'}),
       label: t('kpi.failed'),
       ...scaledKpi(jobs?.failed_24h ?? 0),
-      context: t('kpi.failedContext'),
-      change: t('kpi.failedYesterday', {count: jobs?.failed_prev_24h ?? 0}),
+      context: t('kpi.failedContextWithPrev', {
+        count: jobs?.failed_prev_24h ?? 0,
+      }),
+      tone: (jobs?.failed_24h ?? 0) > 0 ? 'danger' : undefined,
     },
     {
       key: 'volume',
       href: buildHref({tab: 'jobs'}),
       label: t('kpi.volume'),
-      ...scaledKpi(Math.round(volumeTotals?.window.write_rows ?? 0), t('unit.rows')),
+      ...scaledKpi(Math.round(volumeTotals?.window.write_rows ?? 0)),
+      unit: t('unit.rows').trim(),
       context: volumeContext,
     },
     {
@@ -172,17 +161,19 @@ export function DashboardKpiRow({
       href: '/clusters',
       label: t('kpi.clusters'),
       value: clusters?.healthy ?? 0,
-      suffix: `/${clusters?.total ?? 0}`,
-      context: t('kpi.clustersContext', {
-        online: clusters?.nodes_online ?? 0,
-        total: clusters?.nodes_total ?? 0,
-      }),
-      change:
-        clusters && clusters.degraded + clusters.unhealthy > 0
-          ? t('kpi.clustersDegraded', {
-              count: clusters.degraded + clusters.unhealthy,
+      unit: `/ ${clusters?.total ?? 0}`,
+      context:
+        degraded > 0
+          ? t('kpi.clustersDegradedContext', {
+              count: degraded,
+              online: clusters?.nodes_online ?? 0,
+              total: clusters?.nodes_total ?? 0,
             })
-          : undefined,
+          : t('kpi.clustersContext', {
+              online: clusters?.nodes_online ?? 0,
+              total: clusters?.nodes_total ?? 0,
+            }),
+      tone: degraded > 0 ? 'warning' : undefined,
     },
     {
       key: 'alerts',
@@ -190,31 +181,9 @@ export function DashboardKpiRow({
       label: t('kpi.alerts'),
       ...scaledKpi(summary?.alerts.active ?? 0),
       context: t('kpi.alertsContext', {count: summary?.alerts.critical ?? 0}),
+      tone: (summary?.alerts.critical ?? 0) > 0 ? 'danger' : undefined,
     },
   ];
 
-  return (
-    <div
-      className='grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7'
-      data-testid='home-kpi-row'
-    >
-      {items.map((item) => (
-        <Link
-          key={item.key}
-          href={item.href}
-          className='block h-full min-w-0 rounded-xl transition-transform active:scale-[0.99] [&>article]:h-full'
-          data-testid={`home-kpi-${item.key}`}
-        >
-          <MetricCard
-            label={item.label}
-            value={item.value}
-            suffix={item.suffix}
-            decimals={item.decimals}
-            context={item.context}
-            change={item.change}
-          />
-        </Link>
-      ))}
-    </div>
-  );
+  return <KpiStrip items={items} label={t('kpi.label')} />;
 }

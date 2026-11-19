@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-// ルール詳細パネル：継承表示、通知モード切替、critical で有効な外部渠道なしは保存不可、例外の追加/削除。
+// 规则详情面板：继承展示、通知模式切换、critical 无启用外部渠道时禁止保存、例外增删。
 // Rule detail panel: inheritance display, notify-mode switching, save blocked when critical has
 // no enabled external channel, and override create/delete.
 

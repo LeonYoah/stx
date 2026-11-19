@@ -149,7 +149,7 @@ function readFilters(
 }
 
 /**
- * フィルタ変更を適用し、フィルタ変更時は page=1 に戻す。ページ移動だけなら page を維持。
+ * 应用筛选补丁：筛选变化时重置 page=1，仅翻页则保留当前页码。
  * Applies a filter patch; a filter change resets to page 1 while paging itself keeps the page.
  */
 export function applyAlertFilterChange(
@@ -683,6 +683,7 @@ export function AlertsPanel({
             label={t('alertScopeLabel')}
             value={scope}
             onValueChange={(v) => writeFilters({scope: v}, true)}
+            displayValue={scope === 'all' ? t('alertScopeLabel') : undefined}
             options={[
               {value: 'all', label: t('scopeAll')},
               {value: 'cluster', label: t('scopeCluster')},
@@ -697,6 +698,7 @@ export function AlertsPanel({
             onValueChange={(v) =>
               writeFilters({severity: v === ALL_VALUE ? '' : v}, true)
             }
+            displayValue={!severity ? t('fieldSeverity') : undefined}
             options={[
               {value: ALL_VALUE, label: t('scopeAll')},
               {value: 'warning', label: t('severityWarning')},
@@ -714,6 +716,7 @@ export function AlertsPanel({
                 true,
               )
             }
+            displayValue={!clusterId ? t('colCluster') : undefined}
             placeholder={t('colCluster')}
             options={[
               {value: ALL_VALUE, label: t('scopeAll')},

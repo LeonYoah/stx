@@ -4095,7 +4095,8 @@
       "trigger": {
         "manual": "手动发起",
         "cluster_detail": "集群详情",
-        "diagnostics_workspace": "诊断中心"
+        "diagnostics_workspace": "诊断中心",
+        "auto": "自动触发"
       },
       "actions": {
         "viewErrorGroup": "查看错误组"

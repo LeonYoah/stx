@@ -71,6 +71,10 @@ export interface ComboboxProps
   onValueChange?: (value: string) => void;
   description?: string;
   placeholder?: string;
+  // 本地修改：提供时覆盖输入框展示的已选文本（如筛选器在「全部」态下显示维度名）。
+  // Local modification: overrides the shown selected text — e.g. a filter shows
+  // its dimension name while "all" is selected.
+  displayValue?: string;
   emptyMessage?: string;
   className?: string;
 }
@@ -98,6 +102,7 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
     onValueChange,
     description,
     placeholder = "Search or select…",
+    displayValue,
     emptyMessage = "No matches found",
     id,
     className,
@@ -242,7 +247,7 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
     }
   };
 
-  const inputValue = open ? query : selectedOption?.label ?? "";
+  const inputValue = open ? query : displayValue ?? selectedOption?.label ?? "";
   const activeOption = activeIndex >= 0 ? filteredOptions[activeIndex] : undefined;
 
   return (
@@ -258,7 +263,7 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
           role="combobox"
           value={inputValue}
           // While searching, the chosen label stays in place as muted placeholder copy instead of vanishing.
-          placeholder={selectedOption?.label ?? placeholder}
+          placeholder={displayValue ?? selectedOption?.label ?? placeholder}
           disabled={disabled}
           aria-describedby={hintId}
           aria-expanded={open}

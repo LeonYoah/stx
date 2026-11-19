@@ -48,9 +48,17 @@ import {cn} from '@/lib/utils';
 import {ChannelDrawerBody} from './ChannelDrawerBody';
 import {useBeforeUnload} from '../dirty-close';
 import {DetailHost, useDetailNarrow} from '../detail-host';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import styles from '../monitoring.module.css';
 
 const CHANNEL_TYPES = ['webhook', 'email', 'dingtalk', 'wecom', 'feishu'];
+const PAGE_SIZE = 10;
 /** Radix Select 不允许空字符串选项值，「全部」用哨兵值再映射回 ''。 / Sentinel for "all" (Radix rejects ''). */
 const ALL_VALUE = '__all__';
 
@@ -314,20 +322,31 @@ export function NotifyPanel() {
       );
     });
   }, [channels, typeFilter, query]);
+  const [page, setPage] = useState(1);
+  // 筛选变化回第一页。Filters reset to page 1.
+  useEffect(() => {
+    setPage(1);
+  }, [query, typeFilter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE,
+  );
 
   const activeIndex = editingChannel
-    ? filtered.findIndex((c) => c.id === editingChannel.id)
+    ? pageItems.findIndex((c) => c.id === editingChannel.id)
     : -1;
   const detailNav =
     editingChannel && activeIndex >= 0
       ? {
           index: activeIndex,
-          total: filtered.length,
+          total: pageItems.length,
           onPrev: () =>
-            activeIndex > 0 && requestEdit(filtered[activeIndex - 1].id),
+            activeIndex > 0 && requestEdit(pageItems[activeIndex - 1].id),
           onNext: () =>
-            activeIndex < filtered.length - 1 &&
-            requestEdit(filtered[activeIndex + 1].id),
+            activeIndex < pageItems.length - 1 &&
+            requestEdit(pageItems[activeIndex + 1].id),
         }
       : undefined;
 
@@ -497,6 +516,7 @@ export function NotifyPanel() {
               label={t('channelTypeLabel')}
               value={typeFilter || ALL_VALUE}
               onValueChange={(v) => setTypeFilter(v === ALL_VALUE ? '' : v)}
+              displayValue={!typeFilter ? t('channelTypeLabel') : undefined}
               options={typeOptions}
             />
           </div>
@@ -520,10 +540,17 @@ export function NotifyPanel() {
             <TableCard
               loading={loading}
               hasData={filtered.length > 0}
-              skeletonColumns={6}
+              skeletonColumns={5}
               skeletonRows={5}
               error={error}
               onRetry={retryLoad}
+              pagination={{
+                currentPage: safePage,
+                totalPages,
+                pageSize: PAGE_SIZE,
+                totalItems: filtered.length,
+                onPageChange: setPage,
+              }}
               empty={
                 <EmptyState
                   title={
@@ -562,7 +589,7 @@ export function NotifyPanel() {
                 <span className={styles.right}>{t('fieldEnabled')}</span>
               </div>
               <div className={styles.tableScroll}>
-                {filtered.map((c) => (
+                {pageItems.map((c) => (
                   <div
                     key={c.id}
                     data-mrow={c.id}
@@ -641,45 +668,90 @@ export function NotifyPanel() {
             </TableCard>
           </div>
 
-          <DetailHost
-            open={drawerOpen}
-            hasContent={drawerChannel != null}
-            onOpenChange={(o) => !o && requestEdit(null)}
-            narrow={narrow}
-            title={editKey === '__new__' ? t('newChannel') : t('editChannel')}
-            meta={editingChannel?.name}
-            nav={detailNav}
-            drawerWidth='w-[min(92vw,480px)]'
-          >
-            {drawerChannel ? (
-              <ChannelDrawerBody
-                key={String(editKey)}
-                channel={editKey === '__new__' ? null : editingChannel}
-                onDelete={
-                  editingChannel
-                    ? async () => {
-                        await deleteChannel(editingChannel.id);
-                        setEditKey(null);
-                        setChannelDirty(false);
-                      }
-                    : undefined
+          {/* 编辑走常驻栏/抽屉；新建是小表单用居中弹窗（创建型不用抽屉）。
+              Editing uses the rail/drawer; creation is a centered dialog —
+              drawer is for editing, not for a small create form. */}
+          {editKey === '__new__' ? (
+            <Dialog
+              open
+              onOpenChange={(o) => {
+                if (!o) {
+                  requestEdit(null);
                 }
-                onSaved={async () => {
-                  setEditKey(null);
-                  setChannelDirty(false);
-                  await load().catch(() => undefined);
-                }}
-                onCancel={() => requestEdit(null)}
-                onDirtyChange={setChannelDirty}
-                discardArmed={discardArmed}
-                onDiscard={discardAndCommit}
-                onKeepEditing={() => {
-                  setDiscardArmed(false);
-                  pendingRef.current = null;
-                }}
-              />
-            ) : null}
-          </DetailHost>
+              }}
+            >
+              <DialogContent
+                className='overflow-hidden p-0 sm:max-w-lg'
+                showCloseButton
+              >
+                <DialogHeader className='px-5 pt-5'>
+                  <DialogTitle>{t('newChannel')}</DialogTitle>
+                  <DialogDescription className='sr-only'>
+                    {t('newChannel')}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className='flex h-[min(72dvh,640px)] min-h-0 flex-col'>
+                  <ChannelDrawerBody
+                    key='__new__'
+                    channel={null}
+                    onSaved={async () => {
+                      setEditKey(null);
+                      setChannelDirty(false);
+                      await load().catch(() => undefined);
+                    }}
+                    onCancel={() => requestEdit(null)}
+                    onDirtyChange={setChannelDirty}
+                    discardArmed={discardArmed}
+                    onDiscard={discardAndCommit}
+                    onKeepEditing={() => {
+                      setDiscardArmed(false);
+                      pendingRef.current = null;
+                    }}
+                  />
+                </div>
+              </DialogContent>
+            </Dialog>
+          ) : (
+            <DetailHost
+              open={drawerOpen}
+              hasContent={drawerChannel != null}
+              onOpenChange={(o) => !o && requestEdit(null)}
+              narrow={narrow}
+              title={t('editChannel')}
+              meta={editingChannel?.name}
+              nav={detailNav}
+              drawerWidth='w-[min(92vw,480px)]'
+            >
+              {drawerChannel ? (
+                <ChannelDrawerBody
+                  key={String(editKey)}
+                  channel={editingChannel}
+                  onDelete={
+                    editingChannel
+                      ? async () => {
+                          await deleteChannel(editingChannel.id);
+                          setEditKey(null);
+                          setChannelDirty(false);
+                        }
+                      : undefined
+                  }
+                  onSaved={async () => {
+                    setEditKey(null);
+                    setChannelDirty(false);
+                    await load().catch(() => undefined);
+                  }}
+                  onCancel={() => requestEdit(null)}
+                  onDirtyChange={setChannelDirty}
+                  discardArmed={discardArmed}
+                  onDiscard={discardAndCommit}
+                  onKeepEditing={() => {
+                    setDiscardArmed(false);
+                    pendingRef.current = null;
+                  }}
+                />
+              ) : null}
+            </DetailHost>
+          )}
         </div>
       </section>
     </div>

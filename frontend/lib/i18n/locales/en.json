@@ -4095,7 +4095,8 @@
       "trigger": {
         "manual": "Manual",
         "cluster_detail": "Cluster Detail",
-        "diagnostics_workspace": "Diagnostics Workspace"
+        "diagnostics_workspace": "Diagnostics Workspace",
+        "auto": "Auto trigger"
       },
       "actions": {
         "viewErrorGroup": "View Error Group"

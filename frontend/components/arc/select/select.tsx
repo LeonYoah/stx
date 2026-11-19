@@ -54,6 +54,10 @@ export interface SelectProps extends Omit<ComponentPropsWithoutRef<typeof Select
   "aria-label"?: string;
   description?: string;
   placeholder?: string;
+  // 本地修改：提供时覆盖触发器显示文本（如筛选器在「全部」态下显示维度名）。
+  // Local modification: overrides the trigger's shown text when provided —
+  // e.g. a filter shows its dimension name while "all" is selected.
+  displayValue?: string;
   id?: string;
   className?: string;
   options: { value: string; label: string; disabled?: boolean }[];
@@ -69,7 +73,7 @@ const valueRoll: Variants = {
 const valueFade: Variants = { enter: { opacity: 0 }, center: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: motionTokens.duration.instant } }, exit: { opacity: 0, transition: { duration: motionTokens.duration.instant } } };
 
 export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select(
-  { label, "aria-label": ariaLabel, description, placeholder = "Select an option", options, id, className, disabled, onValueChange, ...rootProps },
+  { label, "aria-label": ariaLabel, description, placeholder = "Select an option", displayValue, options, id, className, disabled, onValueChange, ...rootProps },
   ref,
 ) {
   const generatedId = useId();
@@ -88,7 +92,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
   const [uncontrolledValue, setUncontrolledValue] = useState(rootProps.defaultValue ?? "");
   const currentValue = rootProps.value ?? uncontrolledValue;
   const index = options.findIndex((option) => option.value === currentValue);
-  const shown = currentValue ? options[index]?.label ?? "" : placeholder;
+  const shown = displayValue ?? (currentValue ? options[index]?.label ?? "" : placeholder);
   const [previousIndex, setPreviousIndex] = useState(index);
   const [direction, setDirection] = useState(1);
   if (previousIndex !== index) { setPreviousIndex(index); setDirection(index > previousIndex ? 1 : -1); }

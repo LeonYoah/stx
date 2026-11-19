@@ -52,6 +52,8 @@ import styles from '../monitoring.module.css';
 
 type JobStatusFilter = 'all' | 'enabled' | 'disabled';
 
+const PAGE_SIZE = 10;
+
 export function JobRulesPanel() {
   const t = useTranslations('monitoring');
   const ts = useTranslations('syncAlert');
@@ -191,6 +193,18 @@ export function JobRulesPanel() {
     });
   }, [policies, statusFilter, query]);
 
+  // 客户端分页保持列表区高度稳定。Client-side pagination keeps a stable height.
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, query]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE,
+  );
+
   const segCounts = useMemo(
     () => ({
       all: policies.length,
@@ -316,18 +330,18 @@ export function JobRulesPanel() {
   };
 
   const activeIndex = editing
-    ? filtered.findIndex((p) => p.task_id === editing.taskId)
+    ? pageItems.findIndex((p) => p.task_id === editing.taskId)
     : -1;
   const detailNav =
     editing && activeIndex >= 0
       ? {
           index: activeIndex,
-          total: filtered.length,
+          total: pageItems.length,
           onPrev: () =>
-            activeIndex > 0 && openEditor(filtered[activeIndex - 1]),
+            activeIndex > 0 && openEditor(pageItems[activeIndex - 1]),
           onNext: () =>
-            activeIndex < filtered.length - 1 &&
-            openEditor(filtered[activeIndex + 1]),
+            activeIndex < pageItems.length - 1 &&
+            openEditor(pageItems[activeIndex + 1]),
         }
       : undefined;
 
@@ -384,6 +398,13 @@ export function JobRulesPanel() {
               setLoading(false);
             });
           }}
+          pagination={{
+            currentPage: safePage,
+            totalPages,
+            pageSize: PAGE_SIZE,
+            totalItems: filtered.length,
+            onPageChange: setPage,
+          }}
           empty={
             <EmptyState
               title={policies.length === 0 ? t('jobEmpty') : t('emptyFiltered')}
@@ -416,7 +437,7 @@ export function JobRulesPanel() {
             <span className={styles.right}>{t('fieldEnabled')}</span>
           </div>
           <div className={styles.tableScroll}>
-            {filtered.map((policy) => (
+            {pageItems.map((policy) => (
               <div
                 key={policy.id}
                 data-testid={`job-rule-row-${policy.id}`}

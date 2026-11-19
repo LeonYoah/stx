@@ -60,6 +60,8 @@ export interface RulesPanelProps {
 type RuleStatusFilter = 'all' | 'enabled' | 'disabled' | 'exceptions';
 type RuleSort = 'default' | 'name' | 'severity';
 
+const PAGE_SIZE = 10;
+
 /** 整层替换 PUT 的体：raw 层字段原样回传，调用方只覆盖要改的字段。 / Whole-layer PUT body builder. */
 export function layerBody(
   raw: {
@@ -207,6 +209,19 @@ export function RulesPanel({
       exceptions: rules.filter((r) => r.override_count > 0).length,
     }),
     [rules],
+  );
+
+  // 客户端分页：目录 ~21 条，分页保持列表区高度稳定。
+  // Client-side pagination keeps the list region a stable height.
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, query, sort, view]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE,
   );
 
   const active = rules.find((r) => r.key === activeKey) ?? null;
@@ -390,18 +405,18 @@ export function RulesPanel({
   }, [load]);
 
   const activeIndex = active
-    ? filtered.findIndex((r) => r.key === active.key)
+    ? pageItems.findIndex((r) => r.key === active.key)
     : -1;
   const detailNav =
     active && activeIndex >= 0
       ? {
           index: activeIndex,
-          total: filtered.length,
+          total: pageItems.length,
           onPrev: () =>
-            activeIndex > 0 && requestKey(filtered[activeIndex - 1].key),
+            activeIndex > 0 && requestKey(pageItems[activeIndex - 1].key),
           onNext: () =>
-            activeIndex < filtered.length - 1 &&
-            requestKey(filtered[activeIndex + 1].key),
+            activeIndex < pageItems.length - 1 &&
+            requestKey(pageItems[activeIndex + 1].key),
         }
       : undefined;
 
@@ -514,8 +529,8 @@ export function RulesPanel({
       {scope === 'cluster' ? (
         <div className={styles.split}>
           <div className={styles.listCol} data-mcols='rules'>
-            {/* 唯一主卡片：骨架/错误/空态由 TableCard 统一承载（§4.4）；21 条客户端
-                规则无分页。Single main card via TableCard; ~21 client-side rules need no pagination. */}
+            {/* 唯一主卡片：骨架/错误/空态/分页由 TableCard 统一承载（§4.4）。
+                Single main card via TableCard: skeleton/error/empty/pagination. */}
             <TableCard
               loading={loading}
               hasData={filtered.length > 0}
@@ -523,6 +538,13 @@ export function RulesPanel({
               skeletonRows={8}
               error={error}
               onRetry={retryLoad}
+              pagination={{
+                currentPage: safePage,
+                totalPages,
+                pageSize: PAGE_SIZE,
+                totalItems: filtered.length,
+                onPageChange: setPage,
+              }}
               empty={
                 <EmptyState
                   title={t('emptyFiltered')}
@@ -547,7 +569,7 @@ export function RulesPanel({
             >
               {view === 'grid' ? (
                 <div className={styles.cardsGrid}>
-                  {filtered.map((rule) => (
+                  {pageItems.map((rule) => (
                     <RuleCard
                       key={rule.key}
                       rule={rule}
@@ -559,7 +581,7 @@ export function RulesPanel({
                 </div>
               ) : (
                 <RuleListView
-                  rules={filtered}
+                  rules={pageItems}
                   activeKey={activeKey}
                   selected={selected}
                   toggling={toggling}

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-// 深链映射とアラート一覧のクエリ構築。design.md §9.1 の旧URLマッピングを担保する。
+// 深链映射与告警列表查询构建，覆盖 design.md §9.1 的旧 URL 映射。
 // Deep-link mapping and alert-list query construction, covering design.md §9.1 legacy URLs.
 
 import {beforeEach, describe, expect, it} from 'vitest';

@@ -414,13 +414,19 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                 {t('throughput.title')} · {t('throughput.hint')}
               </p>
               {/* BrushChart 的 .line/.area/.dot 固定读 --series-1（color 无效），
-                  局部覆盖该变量让曲线跟随选中格的颜色。
+                  写系指标局部覆盖成 --series-2 让曲线跟随选中格的颜色。读系指标
+                  不能写 `--series-1: var(--series-1)`——自引用是无效值，stroke 会
+                  回退成黑色。
                   BrushChart's .line/.area/.dot read --series-1 only (a color
-                  style does nothing) — override it locally so the curve follows
-                  the selected cell's color. */}
+                  style does nothing), so write metrics override it to
+                  --series-2 to match the selected cell. Read metrics must NOT
+                  set `--series-1: var(--series-1)` — the self-reference is an
+                  invalid value and the stroke falls back to black. */}
               <div
                 style={
-                  {'--series-1': THROUGHPUT_COLOR[metric]} as CSSProperties
+                  metric === 'write' || metric === 'write_bytes'
+                    ? ({'--series-1': 'var(--series-2)'} as CSSProperties)
+                    : undefined
                 }
               >
                 <BrushChart

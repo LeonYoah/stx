@@ -17,10 +17,11 @@
 
 'use client';
 
-import {type CSSProperties, type KeyboardEvent, useRef} from 'react';
+import type {CSSProperties} from 'react';
 import {cn} from '@/lib/utils';
 import type {RateSummary} from './dashboard-format';
 import {DASHBOARD_CELL_DIVIDER} from './KpiStrip';
+import {useRovingKeys} from './use-roving-keys';
 
 export const THROUGHPUT_KEYS = [
   'write',
@@ -81,40 +82,15 @@ export function ThroughputTabs({
   /** 主数值口径提示，挂在格子 title 上。/ Headline-number basis hint, set as the cell's title. */
   valueHint: string;
 }) {
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-
-  const activate = (index: number) => {
-    const item = items[index];
-    if (!item) {
-      return;
-    }
-    onValueChange(item.key);
-    tabRefs.current[index]?.focus();
-  };
-
-  const onKeyDown = (event: KeyboardEvent, index: number) => {
-    let target: number | null = null;
-    switch (event.key) {
-      case 'ArrowRight':
-      case 'ArrowDown':
-        target = (index + 1) % items.length;
-        break;
-      case 'ArrowLeft':
-      case 'ArrowUp':
-        target = (index - 1 + items.length) % items.length;
-        break;
-      case 'Home':
-        target = 0;
-        break;
-      case 'End':
-        target = items.length - 1;
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
-    activate(target);
-  };
+  const {refAt, onKeyDown} = useRovingKeys<HTMLButtonElement>(
+    items.length,
+    (index) => {
+      const item = items[index];
+      if (item) {
+        onValueChange(item.key);
+      }
+    },
+  );
 
   return (
     // 外包圆角裁剪层：选中格的色条 / 背景会溢出面板左上、右上圆角，在这层裁掉；
@@ -141,9 +117,7 @@ export function ThroughputTabs({
           return (
             <button
               key={item.key}
-              ref={(node) => {
-                tabRefs.current[index] = node;
-              }}
+              ref={refAt(index)}
               type='button'
               role='tab'
               aria-selected={selected}

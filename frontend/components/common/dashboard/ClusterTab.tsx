@@ -17,10 +17,9 @@
 
 'use client';
 
-import {useMemo} from 'react';
+import {useEffect, useMemo, useRef} from 'react';
 import {useFormatter, useTranslations} from 'next-intl';
 import {LineChart} from '@/components/arc/line-chart/line-chart';
-import {RadioCards} from '@/components/arc/radio-cards/radio-cards';
 import {
   CompositionChart,
   type CompositionChartSeries,
@@ -55,6 +54,11 @@ import {formatDateTimeMinuteTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {formatDurationSeconds} from './dashboard-format';
 import {ClusterDetailGroups} from './ClusterDetailGroups';
+import {
+  ClusterScopeStrip,
+  ClusterScopeStripSkeleton,
+  type ClusterScopeItem,
+} from './ClusterScopeStrip';
 import {DashboardPanel} from './DashboardPanel';
 import {TrendEmptyState} from './TrendEmptyState';
 import type {DashboardQuery} from './use-dashboard-query';
@@ -90,11 +94,11 @@ const HEALTH_TONE: Record<string, string> = {
 };
 
 /**
- * 首页集群页签：集群卡片（切换范围）→ 节点可用性 → 堆 / CPU / GC / 引擎作业状态趋势 → 节点表 + 异常信号。
- * 未接入 Prometheus 时卡片与节点表照常（Agent 心跳），趋势区显示统一空态。
- * The home cluster tab: cluster cards (scope switch) → node availability → heap / CPU / GC / engine job state trends →
- * node table + anomaly signals. Without Prometheus the cards and node table still load (agent heartbeats) and the
- * trend area shows the shared empty state.
+ * 首页集群页签：集群范围选择条（切换范围）→ 节点可用性 → 堆 / CPU / GC / 引擎作业状态趋势 → 节点表 + 异常信号。
+ * 未接入 Prometheus 时选择条与节点表照常（Agent 心跳），趋势区显示统一空态。
+ * The home cluster tab: cluster scope strip (scope switch) → node availability → heap / CPU / GC / engine job state
+ * trends → node table + anomaly signals. Without Prometheus the strip and node table still load (agent heartbeats)
+ * and the trend area shows the shared empty state.
  */
 export function ClusterTab({
   query,
@@ -233,15 +237,15 @@ export function ClusterTab({
       </span>
     </span>
   );
-  const options = [
+  const items = [
     {
-      value: 'all',
-      label: t('allClusters'),
+      key: 'all',
+      title: t('allClusters'),
       description: cardDescription({...totals, heap: totals.heap || undefined}),
     },
     ...cards.map((card) => ({
-      value: String(card.id),
-      label: card.version ? `${card.name} · ${card.version}` : card.name,
+      key: String(card.id),
+      title: card.version ? `${card.name} · ${card.version}` : card.name,
       description: cardDescription({
         online: card.nodes_online,
         total: card.nodes_total,
@@ -264,6 +268,19 @@ export function ClusterTab({
       ),
     })),
   ];
+  // 集群格数据与所选范围无关，切换范围触发的重拉会先把 data 清空；
+  // 留上一份格子让选择条不卸载，键盘焦点才不会掉到 <body>（零塌陷）。
+  // Cluster cells are scope-independent, but a scope-switch refetch clears
+  // data first; keep the previous cells so the strip stays mounted and
+  // keyboard focus is not dropped to <body> (zero-collapse).
+  const lastItems = useRef<ClusterScopeItem[]>([]);
+  useEffect(() => {
+    if (data) {
+      lastItems.current = items;
+    }
+  }, [data, items]);
+  const stripItems =
+    data || lastItems.current.length === 0 ? items : lastItems.current;
 
   const availability = byKey.get('availability') ?? [];
   const cellText = data
@@ -313,26 +330,16 @@ export function ClusterTab({
 
   return (
     <div className='flex flex-col gap-3' data-testid='home-cluster-tab'>
-      {resource.loading && !data ? (
-        <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-3'>
-          {Array.from({length: 3}).map((_, index) => (
-            <div
-              key={index}
-              className='h-[104px] animate-pulse rounded-xl bg-muted/40'
-            />
-          ))}
-        </div>
+      {resource.loading && !data && lastItems.current.length === 0 ? (
+        <ClusterScopeStripSkeleton count={3} />
       ) : (
-        <RadioCards
-          aria-label={t('cardsLabel')}
-          name='home-cluster-scope'
-          layout='grid'
-          minColumnWidth={260}
+        <ClusterScopeStrip
+          label={t('cardsLabel')}
           value={query.clusterId ? String(query.clusterId) : 'all'}
           onValueChange={(value) =>
             update({clusterId: value === 'all' ? undefined : value, page: 1})
           }
-          options={options}
+          items={stripItems}
         />
       )}
       {data?.partial_errors?.length ? (

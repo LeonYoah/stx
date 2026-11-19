@@ -404,7 +404,8 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 ## 18. 控制台控件统一（Arc）
 
 - **视觉以工作台的 Arc 外观为准**：控件 36px（`--control-height-md: 2.25rem`），表格行内控件 32px（`--control-height-sm: 2rem`），
-  **控件不改 Arc 圆角**（18px）。高度只在控制台外层容器上覆盖一次，不要逐个组件写 `h-*`。
+  **保留 Arc 原有一套圆角与几何角度设计**，不魔改组件圆角，也不在 `foundation.css` 叠 `corner-shape: superellipse` 覆盖。高度只在控制台外层容器上覆盖一次，不要逐个组件写 `h-*`。
+- **避免框框堆叠**：页面只保留一层主外框（如 `TableCard`），筛选栏、搜索框与状态分段控件直接落页面画布，不再外包一层带边框卡片；`TableCard` 内部与详情区块先靠间距分组、其次用 1px `--border-subtle` 分隔线，禁止卡片套卡片。行内操作平时以无框 `ghost` 按钮或 `DropdownMenu` 为主，不把多个带边框按钮/胶囊并排堆叠。
 - **弹层统一收紧**：`DropdownMenu`、`Select`、`Combobox` 的弹层圆角都用 `--radius-popover`（14px，定义在 `foundation.css` 的 `:root`，
   因为弹层通过 Portal 渲染到 `body`），选项圆角为 `calc(var(--radius-popover) - 5px)`，选项行高 34px；
   图标平时是 `--text-secondary`，高亮时是 `--foreground`。新增其他弹层组件也按这一套，不要写死 20–26px 的圆角。
@@ -416,7 +417,9 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
   |---|---|
   | 少量选项的下拉 | Arc `Select`；2–5 个短选项且互斥的筛选用 `SegmentedControl`（与 §3 一致），选项会随数据增加时仍用 `Select` |
   | 可搜索下拉（选项 >10 个，或来自数量不固定的数据，如主机、用户、插件） | Arc `Combobox` |
-  | 行内"更多" | Arc `Button` ghost + `iconOnly` 做触发器，Arc `DropdownMenu` 做菜单；单行动作 ≤2 个时直接摆按钮 |
+  | 行内"更多" | Arc `Button` ghost + `iconOnly` 做触发器，Arc `DropdownMenu` 做菜单；单行动作 ≤2 个时直接摆无框 `ghost` 按钮 |
+  | 行内轻确认（单条、不可撤回、只涉及自己、有按钮可锚定） | Arc `ConfirmMorph`（保持原版设计，每行最多锚定 1 个核心动作，不与多枚描边按钮并排叠框） |
+  | 破坏性 / 影响他人或批量的不可撤回确认 | `ui/alert-dialog` |
   | 菜单里的危险项 | `destructive`，点了再走 `AlertDialog`，不直接执行 |
   | 命令面板（快速打开） | `ui/command`，不要拿它拼可搜索下拉 |
   | 状态筛选 | 见 §3：`SegmentedControl`（单选）/ `chip-group`（多选），计数用 Arc `Badge` |
@@ -442,7 +445,8 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 - [ ] **[降噪与防堆砌]** 页面与弹窗是否遵循渐进式披露（Progressive Disclosure），严禁在首屏将概览、重型表格与复杂表单全量无脑平铺？
 - [ ] **[下钻与速览]** 次级重型内容是否通过 Tab / 抽屉 / 折叠面板进行物理分流？主视图是否仅保留轻量速览与穿透动作？
 - [ ] **[排版防碎裂]** 关键标识、键值单元、代码、状态组是否声明了防被迫换行保护（`whitespace-nowrap` / `truncate` / `overflow-x-auto`），杜绝机械等宽 Grid 导致的字符内部被迫断行？
-- [ ] 同一行筛选栏、同一个对话框、同一张表里是否只用一套控件（Arc 或 shadcn），没有 Arc 胶囊控件和 8px 圆角的 shadcn 控件挨在一起？下拉、可搜索下拉、行内"更多"是否按 §18 选型？是否没有逐个组件手写 `h-*` 改 Arc 高度？弹层圆角是否用 `--radius-popover`，没有写死？
+- [ ] 同一行筛选栏、同一个对话框、同一张表里是否只用一套控件（Arc 或 shadcn），没有 Arc 胶囊控件和 8px 圆角的 shadcn 控件挨在一起？下拉、可搜索下拉、行内"更多"与行内确认是否按 §18 选型？是否保留 Arc 原有圆角设计且没有逐个组件手写 `h-*` 改高度？弹层圆角是否用 `--radius-popover`，没有写死？
+- [ ] **[防框框堆叠]** 列表页是否只保留一层主卡片外框（筛选栏直接落画布、没有额外套卡片或边框），内部优先间距与 1px `--border-subtle` 分割线，行内没有多枚带框按钮/胶囊并排叠框？
 - [ ] 状态标签是否用 Arc `Badge` 的 `tone`（经域内唯一的映射函数）？中性标签是否用 `ui/badge` 的 `outline` / `secondary`？是否没有给 `Badge` 手写颜色 class？
 - [ ] 加载状态是否采用 `TableSkeletonRows` + `TableLoadingBar` 的零塌陷架构，而非大 Spinner？
 - [ ] 筛选栏是否统一左对齐？搜索框等输入项是否已支持 **Enter** 快捷提交？

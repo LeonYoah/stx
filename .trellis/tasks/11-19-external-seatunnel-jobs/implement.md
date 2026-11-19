@@ -16,7 +16,7 @@
 
 ### Step 1：配置与数据模型基础
 1. `internal/config/config.go` & `config.example.yaml`：
-   - 添加 `Sync.ExternalJobDiscoveryEnabled *bool`（默认 `true`）与 `Sync.ExternalJobDiscoveryInfoBudget int`（默认 `20`）。
+   - 添加 `Sync.ExternalJobDiscoveryEnabled *bool`（默认 `true`）、`Sync.ExternalJobDiscoveryIntervalSeconds int`（默认 `60`）与 `Sync.ExternalJobDiscoveryMaxNewPerRound int`（默认 `200`），定义在 `internal/config/model.go`。
 2. `internal/apps/cluster/`：
    - 在 `ClusterConfig` 规范与更新/读取中支持 `external_job_discovery_enabled`（`*bool` / 可缺省）；
    - 为 `sync` 提供集群发现列表查询方法（返回开启发现的在线/配置端口集群 ID）。
@@ -32,7 +32,8 @@
 2. 收敛 `internal/apps/sync/` 所有作业入口：
    - `repository.go` (`applyJobFilter`)：新增 `Source` 筛选；非管理员权限条件统一包含 `source = 'external'`。
    - `job_list.go` (`scopeJobFilterForActor`, `decorateJobsForList`)、`execution.go` (`getJobInstanceForActor`, `GetJobForActor`, `CancelJobForActor`)、`home_summary.go` (`jobViewableFunc`, `GetHomeJobSummary`)、`dashboard_jobs.go`、`job_sparklines.go`、`handler.go` (`RecoverJob`) 统一走 `EvaluateJobPermissions` / `RecoverJobForActor`。
-   - 为 `RecoverJob` 对外部作业补充明确错误码 `ErrExternalJobRecoverUnsupported`。
+   - `RecoverJob` 对外部作业复用已有的 `ErrRecoverSourceRequired`，不新增错误码。
+   - `DeleteTaskForActor` 改为保留作业行并写 `task_deleted_at`（见 design §6），补对应的可见性、展示与 Recover 测试。
 3. 编写单元测试：覆盖管理员/普通用户/所有者/协作者在 STX 公开任务作业、私有任务作业、外部作业上的 `View / Stop / Recover` 全矩阵（含列表、单条、sparklines、timeseries、logs、checkpoint、events、home summary）。
 
 ### Step 3：复用对账器与事件通道的外部作业发现
@@ -41,7 +42,7 @@
    - `repository.go` 新增 `FindExistingEngineJobIDsByCluster`、`BackfillEngineEventJobInstanceID`。
 2. `job_reconciler.go` & `external_discovery.go`：
    - 在 `reconcileActiveJobs` 合并活跃作业集群与外部发现集群，复用 `clusterReconcileScheduler.tryDispatch`；
-   - 在 `reconcileClusterJobs` 复用同一次 `ListRunningJobs` / `ListFinishedJobs` 结果识别未知 `engine_job_id`，按每轮预算先跑运行中作业再跑历史终态作业的 `GetJobInfo`（超配额走列表摘要落库 + `startTerminalMetricsBackfill` 补全），遇传输错误立即止损；
+   - 先做引擎调用去重（finished 只调一次不带状态的列表；解析列表项的 `jobDag` / `metrics` / `errorMsg`，已结束作业不再逐个调 `GetJobInfo`），再在 `reconcileClusterJobs` 用同一份列表结果识别未知 `engine_job_id`，过提交守卫后直接用列表项建行，每轮受 `MaxNewPerRound` 限制，遇传输错误立即止损；
    - 保护并发判重（`singleflight` / 集群发现锁）。
 3. `engine_events.go`：
    - 在 `IngestEngineEvents` 遇到未知 `engine_job_id` 的 `JOB_STATUS` 事件时入防抖发现队列；
@@ -51,7 +52,7 @@
    - 确认 `alertSignalForJob` 显式跳过外部作业（不发出告警）。
 5. 编写集成/竞态测试（`go test -race ./internal/apps/sync/`）：
    - 确认列表只请求一次（无重复拉取）；
-   - 覆盖运行中/各种终态发现、Recover 复用同 `engine_job_id` 不重复建行、配额限制、传输错误止损与退避、事件通道发现与事件回填、未知 mode 统计。
+   - 覆盖运行中/各种终态发现、Recover 复用同 `engine_job_id` 不重复建行、每轮新建上限、STX 提交与对账并发不重复建行、删除任务后不重新导入、每轮每集群只发 2 次列表请求、传输错误止损与退避、事件通道发现与事件回填、未知 mode 统计。
 
 ### Step 4：Handler、CLI 与契约同步
 1. `internal/apps/sync/handler.go` & `types.go`：支持 `GET /api/v1/sync/jobs?source=stx|external` 校验与透传；更新错误码映射。
@@ -85,4 +86,4 @@ cd frontend && pnpm exec tsc --noEmit && pnpm test
 
 ## 4. 高风险点与回滚边界
 - **MySQL/PG/SQLite 列变更**：`TaskID` 去除 `NOT NULL` 与新增 `Source` 列需通过 `./scripts/test_db_compat.sh` 实测 GORM `AutoMigrate` 对已有数据的迁移兼容性（尤其 SQLite 改表约束）。
-- **引擎历史作业风暴**：首次上线时若集群保留大量历史终态作业，必须靠 `ExternalJobDiscoveryInfoBudget` 限流 + 已有传输止损退避兜底；如遇异常可通过配置 `sync.external_job_discovery_enabled: false` 即刻关闭发现，不影响既有作业对账。
+- **引擎历史作业风暴**：首次上线时若集群保留大量历史终态作业，引擎默认只保留 24 小时，且已结束作业直接用列表项入库、不额外请求；仍靠 `ExternalJobDiscoveryMaxNewPerRound` 限制每轮写库行数 + 已有传输止损退避兜底；如遇异常可通过配置 `sync.external_job_discovery_enabled: false` 即刻关闭发现，不影响既有作业对账。

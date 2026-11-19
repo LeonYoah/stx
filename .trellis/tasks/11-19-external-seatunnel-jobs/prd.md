@@ -16,17 +16,39 @@
   - `/plan-dag` 已对空 `submitted_content` 返回 `200 + available=false (reason=no_submitted_content)`。
   - `getClusterJobLogs` 按 `cluster_id` + `engine_job_id` 经 Agent 读节点日志文件，不依赖脚本或 `TaskID`。
   - `refreshJobInstance`、`CancelJob`、`GetJobCheckpointSnapshot` 目前仅从 `submit_spec` 读取端点，尚未在缺失时回退 `runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil)`。
+- **当前对账的引擎调用量**（每轮默认 10 秒、每个有非终态作业的集群一次）：`/running-jobs` 1 次 + `/finished-jobs` 与 `/finished-jobs/{FINISHED,FAILED,CANCELED,CANCELLED,SAVEPOINT_DONE}` 共 6 次（v2 非 2xx 时各自再试 hazelcast 旧路径）+ 每个匹配到的活跃作业 1 次 `/job-info`。`reconcileActiveJobs` 在没有非终态作业时直接返回，`reconcileClusterJobs` 在 `len(jobs)==0` 时直接返回。`job_reconciler_event_mode_interval_seconds` 默认 `0`（自适应关闭）。
+- **提交顺序**：`submitTaskInstanceWithPayload` 先调引擎 `Submit`，成功后才 `CreateJobInstance`；对账在后台协程并行执行。
+- **删除任务**：`DeleteTaskForActor` 会连带 `DeleteJobInstancesByTaskIDs`，且不检查是否仍有运行中作业。
+- **已有可复用的拒绝路径**：`RecoverJob` 对 `TaskID == 0 || PlatformJobID == ""` 返回 `ErrRecoverSourceRequired`；`alertSignalForJob` 与 CDC 延迟告警已跳过 `TaskID == 0`。
+
+## Confirmed Facts (from SeaTunnel Source, 2.3.11 / 2.3.12 / 2.3.13 / 3.1.0 / dev)
+
+- **finished 列表**：不带状态的 `/finished-jobs`（v2 与 `/hazelcast/rest/maps/finished-jobs` 都一样）返回保留期内全部已结束作业；`/finished-jobs/{state}` 按 `JobStatus.name()` 精确匹配，`CANCELLED` 不在枚举里，恒返回 `[]`。不带 `page` 参数时不分页。
+- **finished 列表项 = 终态 job-info**：列表每一项都带 `jobDag`、`metrics`、`errorMsg`、`createTime`、`finishTime`，与 `/job-info` 查已结束作业走的是同一个 `getJobInfoJson(JobState, metrics, dag)`。pipeline 结束时先写 `IMAP_FINISHED_JOB_METRICS`，作业终态最后写，所以列表出现终态时终态指标已就绪。
+- **running 列表**：`/running-jobs` 每一项带完整 `jobDag`、`metrics`、`envOptions`（引擎为每个作业还原一次 DAG、取一次指标）；3.1.0 起另有轻量的 `/running-jobs/summary`（仅 jobId / jobName / jobStatus / createTime）。
+- **作业模式可得**：`jobDag.envOptions` 是用户 env 块原样；缺 `job.mode` 时引擎按默认 `BATCH` 运行。
+- **保留期**：`history-job-expire-minutes` 默认 `1440`（24 小时）。
+- **提交可见性**：`CoordinatorService.submitJob` 在 REST 提交返回之前就已 `runningJobInfoIMap.put` 并进入 PENDING，作业会先于 STX 落库出现在 `/running-jobs`，开启非终态上报时 PENDING 事件也可能先到。
+- **jobId 唯一性**：同一 jobId 非 savepoint 恢复时重复提交会被拒绝（"has already been submitted"）；3.1.0 起 `restoreMode` + `restoreSourceJobId` 会以新 jobId 从别的作业 checkpoint 恢复。
+- **未知作业**：`/job-info` 对不存在的作业返回 200 + 仅含 `jobId` 的空壳。
+- **`JOB_STATUS` 事件**：只含 `jobId / jobName / jobStatus / createdTime`，`createdTime` 是事件产生时间而非作业创建时间；非终态仅在 `report-non-terminal-job-state=true` 时上报。
 
 ## Requirements
 
 1. **采集与防重复拉取（拉为主，推为加速）**
-   - 拉取侧直接复用 `StartJobReconciler` + `SeaTunnelEngineClient`：对开启外部作业发现的集群，在单次 `reconcileClusterJobs` 中复用同一次 `ListRunningJobs` 与 `ListFinishedJobs` 的结果，覆盖**所有作业类型与状态**（非终态 + 全部终态），不新增独立轮询线程，不重复请求列表接口。
-   - 推送侧复用 `event-report-http`：对开启事件通道且开启发现的集群，收到未知 `engine_job_id` 的 `JOB_STATUS` 事件后防抖触发 `GetJobInfo` 校验并落库，实现 3.0+ 集群的秒级发现。
-   - 严格沿用现有并发信号量、传输层止损与指数退避机制；对每轮新发现外部作业的 `GetJobInfo` 补详情实施配额控制（优先运行中作业，历史终态按列表摘要先落库、再按配额/按需补详情），避免首次接入打满引擎或超时。
+   - 拉取侧直接复用 `StartJobReconciler` + `SeaTunnelEngineClient`，不新增独立轮询线程。先做引擎调用去重（对现有 STX 作业同样生效，可作为前置 PR）：
+     - finished 列表每轮只调 1 次不带状态的 `/finished-jobs`，删除按状态的 5 次子集请求；
+     - 解析列表项里的 `jobDag`、`metrics`、`errorMsg` 直接推进作业状态，已结束作业不再逐个调 `/job-info`；运行中作业用 `/running-jobs` 项里的 `metrics` 与 `jobDag` 更新，`/job-info` 只保留给详情页 `fresh` 刷新、列表里找不到需要确认消失、以及事件触发的单作业刷新。
+     - 目标调用量：每轮每集群 2 次列表请求（running + finished），与已纳管作业对账共用，外部发现不额外请求列表。
+   - 没有非终态作业但开启外部发现的集群也要被巡检，但使用独立的较低频率（新增 `sync.external_job_discovery_interval_seconds`，默认 `60`），不依赖事件模式开关。
+   - 推送侧复用 `event-report-http`：收到未知 `engine_job_id` 的 `JOB_STATUS` 事件后入防抖队列（有上限、按 `(cluster_id, engine_job_id)` 去重），到期重新查库，仍不存在才调一次 `/job-info`，用 `engineJobInfoLooksOrphaned` 排除空壳后落库。
+   - **防止把 STX 自己的提交识别成外部作业**：提交前把 `platformJobID` 登记到进程内「提交中」集合，落库后移除，发现时跳过；另设宽限期，未知作业需在连续两轮列表中出现，或其 `createTime` 早于当前时间超过 `submit_timeout_seconds`，才允许导入。
+   - **首次接入的写库上限**：已结束外部作业直接用 finished 列表项入库，无需额外请求；保留期默认只有 24 小时，但仍限制每轮每集群新建行数（`sync.external_job_discovery_max_new_per_round`，默认 `200`），运行中优先，其余留给下一轮。库内判重的 `IN` 查询按 500 个一批。
+   - **删除任务不再删除作业记录**：`DeleteTaskForActor` 保留 `sync_job_instances`，作业行写入 `task_deleted_at`（或等价标记），这样引擎保留期内的历史作业不会被重新导入，运行中作业仍可对账与停止。展示为「任务已删除」，不再给工作台链接；Recover 返回明确错误；非管理员仅发起人可见。需另定已删除任务作业的清理策略。
 
 2. **内外区分、未知模式与首页/大盘统计口径**
    - 在 `JobInstance` 上显式区分提交来源（`source = "stx" | "external"`，现有作业默认 `stx`），外部作业允许 `TaskID = 0`、`CreatedBy = 0`。
-   - 外部作业因无脚本且引擎列表/详情不返回 `env.job.mode`，`job_mode` 保持空串（未知），不强行归类为 `streaming`；前端展示为“未知 / -”，按 `mode=batch|streaming` 筛选只匹配已知模式作业。
+   - 外部作业的模式取自引擎返回的 `jobDag.envOptions["job.mode"]`（`STREAMING` / `BATCH`），缺失时按引擎默认 `batch`；仅在拿不到 `jobDag` 时 `job_mode` 才为空串，前端展示为“-”，按 `mode=batch|streaming` 筛选只匹配已知模式作业。
    - 首页汇总（`HomeJobSummary`）与大盘统计（`JobDashboard` / `RunningJobCountsByCluster`）**包含外部作业**（真实反映集群负载、总 QPS 与失败状态）；`RunningStreaming` 与 `RunningBatch` 只统计已知模式作业，不得把未知模式混入 `RunningStreaming`。
 
 3. **统一作业权限模型（Backend + Frontend）**
@@ -46,7 +68,9 @@
 ## Acceptance Criteria
 
 - [ ] **不重复拉取**：`reconcileActiveJobs` 每轮对每个集群最多执行一轮 `reconcileClusterJobs`；已纳管 STX 作业与外部作业发现共享同一次 `ListRunningJobs` / `ListFinishedJobs` 调用；事件模式下仍在完整对账周期中发现外部作业。
-- [ ] **全量状态覆盖与限流保护**：运行中及已结束（FINISHED/FAILED/CANCELED/SAVEPOINT_DONE）的外部作业均可被发现；同 `(cluster_id, engine_job_id)` 不重复建表行（包括已有 `recover` 历史行）；每轮 `GetJobInfo` 受配额控制，传输失败立即止损并触发退避。
+- [ ] **全量状态覆盖与限流保护**：运行中及已结束（FINISHED/FAILED/CANCELED/SAVEPOINT_DONE）的外部作业均可被发现；同 `(cluster_id, engine_job_id)` 不重复建表行（包括已有 `recover` 历史行、STX 提交与对账并发、已删除任务的历史作业）；每轮新建行数受上限控制，传输失败立即止损并触发退避。
+- [ ] **引擎调用去重**：每轮每集群最多 1 次 `/running-jobs` + 1 次 `/finished-jobs`；已结束作业不再逐个调 `/job-info`；没有活跃作业的集群按 `external_job_discovery_interval_seconds` 巡检。
+- [ ] **模式识别**：带 `job.mode` 的外部作业按其模式统计；未写 `job.mode` 的按 `batch`。
 - [ ] **事件加速发现**：3.0+ 开启事件通道与发现开关的集群，收到未知 `engine_job_id` 的 `JOB_STATUS` 事件后能防抖调用 `GetJobInfo` 建出外部作业并把同批/后续事件关联到 `job_instance_id`。
 - [ ] **开关控制**：全局关闭或单集群显式关闭后，不再为该集群发现新外部作业，已有历史记录保持可读；默认情况下集群外部发现开启。
 - [ ] **统一作业权限模型**：

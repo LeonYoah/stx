@@ -62,7 +62,7 @@ import {
   type StatPillItem,
 } from '@/components/common/layout';
 import {
-  MarketplaceListToolbar,
+  MarketplaceViewToggle,
   runWithConcurrency,
   useMarketplaceViewMode,
   type MarketplaceSelectionState,
@@ -460,31 +460,35 @@ export function PackageMain() {
               onChange={(key) => setActiveTab(key as 'online' | 'local')}
             />
 
-            {activeTab === 'online' && (
-              <Button
-                variant='ghost'
-                size='sm'
-                onClick={refreshVersions}
-                disabled={refreshingVersions}
-                className='h-7 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground'
-              >
-                <RefreshCw
-                  className={`mr-1 h-3 w-3 ${refreshingVersions ? 'animate-spin' : ''}`}
-                />
-                {t('installer.refreshVersions')}
-              </Button>
-            )}
+            <div className='flex items-center gap-2'>
+              <MarketplaceViewToggle
+                viewMode={
+                  activeTab === 'online' ? onlineViewMode : localViewMode
+                }
+                onViewModeChange={
+                  activeTab === 'online' ? setOnlineViewMode : setLocalViewMode
+                }
+              />
+              {activeTab === 'online' && (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={refreshVersions}
+                  disabled={refreshingVersions}
+                  className='h-7 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground'
+                >
+                  <RefreshCw
+                    className={`mr-1 h-3 w-3 ${refreshingVersions ? 'animate-spin' : ''}`}
+                  />
+                  {t('installer.refreshVersions')}
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className='flex flex-1 flex-col gap-4 p-3 sm:p-4'>
             {activeTab === 'online' ? (
               <>
-                <MarketplaceListToolbar
-                  title={t('marketplaceUi.packageListOnline')}
-                  count={onlineCount}
-                  viewMode={onlineViewMode}
-                  onViewModeChange={setOnlineViewMode}
-                />
                 <PackageTable
                   type='online'
                   versions={packages?.versions || []}
@@ -527,12 +531,6 @@ export function PackageMain() {
               </>
             ) : (
               <>
-                <MarketplaceListToolbar
-                  title={t('marketplaceUi.packageListLocal')}
-                  count={localCount}
-                  viewMode={localViewMode}
-                  onViewModeChange={setLocalViewMode}
-                />
                 <PackageTable
                   type='local'
                   localPackages={packages?.local_packages || []}

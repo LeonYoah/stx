@@ -49,8 +49,8 @@ import {FlipCard} from '@/components/inspira/ui/flip-card';
 import {
   buildMarketplaceCardHover,
   buildMarketplaceGridVariants,
-  MARKETPLACE_MOTION_INSTANT,
 } from '@/lib/animations/marketplace-motion';
+import {useViewMorph} from '@/lib/animations/view-morph';
 import {cn} from '@/lib/utils';
 import {
   CATALOG_TABLE_COLUMNS,
@@ -66,13 +66,6 @@ import {
 import {MarketplaceSelectionToolbar} from './SelectionToolbar';
 import {MarketplaceStatusDot} from './StatusDot';
 import type {MarketplaceCatalogItem, MarketplaceViewMode} from './types';
-
-/** Table ↔ card morph duration stays in the 150–250ms band. / 表卡形变时长落在 150～250ms。 */
-const MORPH_TRANSITION = {
-  type: 'tween' as const,
-  duration: 0.2,
-  ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
-};
 
 /** Interactive selectors that must not trigger shell onOpen. / 不应触发外壳 onOpen 的交互选择器。 */
 export const MARKETPLACE_INTERACTIVE_SELECTOR =
@@ -404,18 +397,7 @@ function MorphItem({
 
   // layoutId only on the outer morph shell — never on the flip rotateY layer.
   // layoutId 只挂在表卡形变外壳，绝不与翻面 rotateY 内层共用。
-  const shellLayoutId = reduceMotion
-    ? undefined
-    : `marketplace-item-${item.id}`;
-  const titleLayoutId = reduceMotion
-    ? undefined
-    : `marketplace-item-${item.id}-title`;
-  const iconLayoutId = reduceMotion
-    ? undefined
-    : `marketplace-item-${item.id}-icon`;
-  const layoutTransition = reduceMotion
-    ? MARKETPLACE_MOTION_INSTANT
-    : MORPH_TRANSITION;
+  const morph = useViewMorph('marketplace');
 
   const openTestId =
     item.testIds?.open || `marketplace-open-${item.id}`;
@@ -442,8 +424,8 @@ function MorphItem({
       {!selection ? item.leading : null}
       {item.icon ? (
         <motion.div
-          layoutId={iconLayoutId}
-          transition={layoutTransition}
+          layoutId={morph.id(item.id, 'icon')}
+          transition={morph.transition}
           data-testid={`marketplace-icon-${item.id}`}
           className='flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground ring-1 ring-border/60'
         >
@@ -452,8 +434,8 @@ function MorphItem({
       ) : null}
       <div className='min-w-0'>
         <motion.div
-          layoutId={titleLayoutId}
-          transition={layoutTransition}
+          layoutId={morph.id(item.id, 'title')}
+          transition={morph.transition}
           className='min-w-0 max-w-full'
         >
           {titleNode}
@@ -656,8 +638,8 @@ function MorphItem({
       <div className={cn('flex min-w-0 items-start gap-3', item.onOpen && 'pr-9')}>
         {item.icon ? (
           <motion.div
-            layoutId={iconLayoutId}
-            transition={layoutTransition}
+            layoutId={morph.id(item.id, 'icon')}
+            transition={morph.transition}
             data-testid={`marketplace-icon-${item.id}`}
             className='flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted/80 text-muted-foreground ring-1 ring-border/50 md:size-11'
           >
@@ -666,8 +648,8 @@ function MorphItem({
         ) : null}
         <div className='min-w-0 flex-1 space-y-0.5'>
           <motion.div
-            layoutId={titleLayoutId}
-            transition={layoutTransition}
+            layoutId={morph.id(item.id, 'title')}
+            transition={morph.transition}
             className='min-w-0 max-w-full text-base font-semibold tracking-tight'
           >
             {titleNode}
@@ -804,9 +786,9 @@ function MorphItem({
 
   return (
     <motion.div
-      layout={!reduceMotion}
-      layoutId={shellLayoutId}
-      transition={layoutTransition}
+      layout={morph.layout}
+      layoutId={morph.id(item.id)}
+      transition={morph.transition}
       variants={itemVariants}
       // 显式 initial/animate，避免父级已 visible 时子项卡在 hidden。
       // Explicit initial/animate so children cannot stick hidden when the parent is already visible.

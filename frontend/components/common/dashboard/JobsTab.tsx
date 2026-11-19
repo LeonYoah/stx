@@ -52,14 +52,20 @@ import {
   formatBytes,
   formatCompactNumber,
   SERIES_PALETTE,
+  summarizeRate,
 } from './dashboard-format';
+import {DashboardPanel} from './DashboardPanel';
+import {
+  THROUGHPUT_COLOR,
+  THROUGHPUT_KEYS,
+  ThroughputTabs,
+  type ThroughputKey,
+} from './ThroughputTabs';
 import {TrendEmptyState} from './TrendEmptyState';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
 
 const JOBS_POLL_MS = 30_000;
-const THROUGHPUT_KEYS = ['write', 'read', 'write_bytes', 'read_bytes'] as const;
-type ThroughputKey = (typeof THROUGHPUT_KEYS)[number];
 
 const VOLUME_METRICS = [
   'write_rows',
@@ -77,14 +83,6 @@ const VOLUME_COLORS = SERIES_PALETTE;
 /** 周桶标签的「MM/DD」格式化。/ MM/DD formatter for week-bucket labels. */
 const formatDay = (date: Date) =>
   `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
-
-/** 读用 --series-1、写用 --series-2，与作业详情趋势图同色。/ Read --series-1, write --series-2, matching job trends. */
-const THROUGHPUT_COLOR: Record<ThroughputKey, string> = {
-  write: 'var(--series-2)',
-  read: 'var(--series-1)',
-  write_bytes: 'var(--series-2)',
-  read_bytes: 'var(--series-1)',
-};
 
 /**
  * 首页作业页签：全局吞吐（事件标注）→ 写入 / CDC 延迟 Top 8 → 数据流向 + 运行日历 → Checkpoint + 算子热点。
@@ -123,6 +121,19 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   const panel = 'rounded-xl border border-border/70 bg-card/40 p-4';
   const isBytes = metric.endsWith('bytes');
   const formatRate = (value: number) => `${formatCompactNumber(value)}/s`;
+  // 格子主数值按「窗口均值」格式化：行类 compact+/s；字节类 formatBytes 拆数字与单位，
+  // 单位后补 /s。/ Cell formatting for window-average values: compact+/s for rows;
+  // formatBytes splits number and unit for bytes, with /s appended to the unit.
+  const formatThroughputValue = (key: ThroughputKey, value: number) => {
+    if (key.endsWith('bytes')) {
+      const text = formatBytes(value);
+      const index = text.lastIndexOf(' ');
+      return index === -1
+        ? {text, unit: ''}
+        : {text: text.slice(0, index), unit: `${text.slice(index + 1)}/s`};
+    }
+    return {text: formatCompactNumber(value), unit: '/s'};
+  };
 
   // 数据量面板独立拉取：桶粒度由后端按窗口跨度自动选（auto），只有拆分会重写序列形状，
   // 全部指标一次取回再本地切换。
@@ -220,6 +231,18 @@ export function JobsTab({query}: {query: DashboardQuery}) {
       minSpan: brushMinSpan(points, data?.step_seconds ?? 0),
     };
   }, [data, metric]);
+  const throughputTabs = useMemo(
+    () =>
+      THROUGHPUT_KEYS.map((key) => ({
+        key,
+        label: t(`throughput.${key}`),
+        summary: summarizeRate(
+          data?.throughput.find((item) => item.key === key)?.points ?? [],
+        ),
+        color: THROUGHPUT_COLOR[key],
+      })),
+    [data, t],
+  );
   const annotations = useMemo(
     () =>
       (data?.annotations ?? []).map((item) => ({
@@ -378,38 +401,48 @@ export function JobsTab({query}: {query: DashboardQuery}) {
         </>
       ) : (
         <>
-          <section className={panel} data-testid='home-throughput'>
-            {header(
-              t('throughput.title'),
-              t('throughput.hint'),
-              <SegmentedControl
-                label={t('throughput.metricLabel')}
-                value={metric}
-                onValueChange={(value) => setMetric(value as ThroughputKey)}
-                options={THROUGHPUT_KEYS.map((key) => ({
-                  value: key,
-                  label: t(`throughput.${key}`),
-                }))}
-              />,
-            )}
-            <div style={{color: THROUGHPUT_COLOR[metric]}}>
-              <BrushChart
-                data={throughput.data}
-                label={t(`throughput.${metric}`)}
-                unit={isBytes ? 'B/s' : '/s'}
-                height={240}
-                overviewHeight={48}
-                minSpan={throughput.minSpan}
-                annotations={annotations}
-                formatDate={(date) => formatDateTimeMinuteTz(date.getTime())}
-                formatTime={(date) =>
-                  formatDateTimeMinuteTz(date.getTime()).slice(-5)
-                }
-                formatValue={formatRate}
-                emptyLabel={t('empty')}
-              />
+          <DashboardPanel
+            variant='primary'
+            flush
+            testId='home-throughput'
+          >
+            <ThroughputTabs
+              items={throughputTabs}
+              value={metric}
+              onValueChange={setMetric}
+              label={t('throughput.metricLabel')}
+              panelId='home-throughput-panel'
+              formatValue={formatThroughputValue}
+              peakLabel={(v) => t('throughput.peak', {value: v})}
+              valueHint={t('throughput.avgHint')}
+            />
+            <div
+              id='home-throughput-panel'
+              role='tabpanel'
+              className='p-4'
+            >
+              <p className='mb-2 text-xs text-muted-foreground'>
+                {t('throughput.title')} · {t('throughput.hint')}
+              </p>
+              <div style={{color: THROUGHPUT_COLOR[metric]}}>
+                <BrushChart
+                  data={throughput.data}
+                  label={t(`throughput.${metric}`)}
+                  unit={isBytes ? 'B/s' : '/s'}
+                  height={240}
+                  overviewHeight={48}
+                  minSpan={throughput.minSpan}
+                  annotations={annotations}
+                  formatDate={(date) => formatDateTimeMinuteTz(date.getTime())}
+                  formatTime={(date) =>
+                    formatDateTimeMinuteTz(date.getTime()).slice(-5)
+                  }
+                  formatValue={formatRate}
+                  emptyLabel={t('empty')}
+                />
+              </div>
             </div>
-          </section>
+          </DashboardPanel>
 
           <section className={panel} data-testid='home-volume'>
             {header(

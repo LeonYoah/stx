@@ -584,8 +584,10 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 		}
 
 		ruleName := ""
+		ruleNameEN := ""
 		if rule.Definition != nil {
 			ruleName = strings.TrimSpace(rule.Definition.Name)
+			ruleNameEN = strings.TrimSpace(rule.Definition.NameEN)
 		}
 		item := &AlertInstance{
 			AlertID:         sourceKey,
@@ -594,6 +596,7 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 			ClusterName:     strings.TrimSpace(row.ClusterName),
 			Severity:        rule.Severity,
 			AlertName:       ruleName,
+			AlertNameEN:     ruleNameEN,
 			RuleKey:         strings.TrimSpace(rule.RuleKey),
 			Summary:         buildLocalAlertSummary(row, ruleName),
 			Description:     strings.TrimSpace(row.Details),
@@ -882,14 +885,29 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 			lastSeenAt = firingAt
 		}
 
+		ruleKey := remoteRecordRuleKey(row)
+		storedName := strings.TrimSpace(row.AlertName)
+		if ruleKey == "" {
+			ruleKey = legacyAlertNameRuleKeys[storedName]
+		}
+		alertName := storedName
+		alertNameEN := ""
+		originalAlertName := ""
+		if def := lookupClusterRuleDefinition(ruleKey); def != nil {
+			originalAlertName = storedName
+			alertName = strings.TrimSpace(def.Name)
+			alertNameEN = strings.TrimSpace(def.NameEN)
+		}
+
 		item := &AlertInstance{
 			AlertID:         sourceKey,
 			SourceType:      AlertSourceTypeMetric,
 			ClusterID:       strings.TrimSpace(row.ClusterID),
 			ClusterName:     strings.TrimSpace(row.ClusterName),
 			Severity:        AlertSeverity(strings.TrimSpace(row.Severity)),
-			AlertName:       strings.TrimSpace(row.AlertName),
-			RuleKey:         remoteRecordRuleKey(row),
+			AlertName:       alertName,
+			AlertNameEN:     alertNameEN,
+			RuleKey:         ruleKey,
 			Summary:         strings.TrimSpace(row.Summary),
 			Description:     strings.TrimSpace(row.Description),
 			Status:          displayStatus,
@@ -900,9 +918,10 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 			LastSeenAt:      lastSeenAt,
 			ResolvedAt:      firstNonNilTime(toUTCTimePointer(row.ResolvedAt), inferredResolvedAt),
 			SourceRef: &AlertInstanceSourceRef{
-				Fingerprint: strings.TrimSpace(row.Fingerprint),
-				Receiver:    strings.TrimSpace(row.Receiver),
-				Env:         strings.TrimSpace(row.Env),
+				Fingerprint:       strings.TrimSpace(row.Fingerprint),
+				Receiver:          strings.TrimSpace(row.Receiver),
+				Env:               strings.TrimSpace(row.Env),
+				OriginalAlertName: originalAlertName,
 			},
 		}
 		applyAlertStateToInstance(item, state)
@@ -1011,6 +1030,24 @@ func buildLocalAlertSourceKey(eventID uint) string {
 
 func buildRemoteAlertSourceKey(fingerprint string, startsAt int64) string {
 	return fmt.Sprintf("remote:%s:%d", strings.TrimSpace(fingerprint), startsAt)
+}
+
+// legacyAlertNameRuleKeys 把迁移前内置 YAML 规则的告警名映射到目录 rule_key。
+// 仅影响展示与 rule_key 派生，不回写存储。
+// legacyAlertNameRuleKeys maps pre-migration built-in YAML alert names onto
+// catalog rule keys. Display/derivation only; stored records are untouched.
+var legacyAlertNameRuleKeys = map[string]string{
+	"SeaTunnelMetricsEndpointDown":       AlertRuleKeyNodeOffline,
+	"SeaTunnelNodeStateDown":             AlertRuleKeyNodeOffline,
+	"SeaTunnelPartitionUnsafe":           "split_brain_risk",
+	"SeaTunnelJobThreadPoolQueueHigh":    "job_thread_pool_queue_backlog_high",
+	"SeaTunnelCoordinatorBacklogGrowing": "coordinator_backlog_growing",
+	"SeaTunnelCoordinatorRejectingTasks": "job_thread_pool_rejection_high",
+	"SeaTunnelJVMHeapUsageHigh":          "memory_usage_high",
+	"SeaTunnelProcessCpuHigh":            "cpu_usage_high",
+	"SeaTunnelGCTimeHigh":                "gc_time_high",
+	"SeaTunnelFDUsageHigh":               "fd_usage_high",
+	"SeaTunnelThreadDeadlock":            "deadlocked_threads_detected",
 }
 
 // remoteRecordRuleKey 从告警记录的 labels 里取出规则键（评估器写入的 template_key），

@@ -191,7 +191,8 @@ type AlertNotificationDefaults struct {
 ### 9.2 告警
 
 - 指标行：Arc `metric-card` ×3（触发中、其中严重、近 24 小时新增），点击即应用对应筛选。
-- 工具栏：`segmented-control`（全部 / 集群级 / 作业级）+ `filter-toolbar`（状态、级别、集群、时间）+ `search-field`。筛选变化重置 page=1，参数同步 URL。
+- 页头：沿用全局 `WorkspaceHeader` + `ModuleNavTabs`（告警中心 / 诊断中心，`reorderGroupId='monitoring-diagnostics'`），菜单「告警与诊断」下两个模块的切换入口不能丢；告警 / 规则 / 通知三个面板 tabs 放在页头 actions 位。
+- 工具栏：`segmented-control`（全部 / 集群级 / 作业级）+ 行内 Arc `select`（状态、级别、集群，与相邻控件同高）+ `search-field`；有任一筛选时显示「清除筛选」文字按钮。筛选变化重置 page=1，参数同步 URL。不用 `filter-toolbar`：它自带面板边框与内边距，适合独立一行承载 chips，塞进同一行会变成胶囊套胶囊且高度不齐（用户评审否决）。
 - 列表：`sortable-data-table`（server-driven：每页 rows 由接口返回，排序以受控 `defaultSort` + 请求参数实现，后端不支持的列 `sortable:false`）+ Arc `pagination`；状态 / 级别 / 范围用 `badge`（tone）。首屏 `skeleton` 占位、刷新保持高度（零塌陷）。
 - 行操作：`dropdown-menu`（确认、静默 30 分钟、关闭）；结果在行内更新，不只靠 toast。
 - 详情：Arc `drawer`。内容依次：标题与 badge → “命中规则：xxx（全局 / 集群例外），生效阈值 / 持续时间” → `timeline`（触发、通知、确认、恢复）→ 该告警的投递记录 → 现有排障 / 记忆面板。
@@ -224,7 +225,7 @@ type AlertNotificationDefaults struct {
 
 | 面板 | 必测交互 |
 |---|---|
-| 告警 | 指标卡筛选；范围切换；filter-toolbar 增删筛选；搜索；分页；确认 / 静默 / 关闭；详情 drawer（命中规则、时间线、投递）；URL 深链恢复筛选 |
+| 告警 | 指标卡筛选；范围切换；状态 / 级别 / 集群下拉筛选与清除；搜索；分页；确认 / 静默 / 关闭；详情 drawer（命中规则、时间线、投递）；URL 深链恢复筛选 |
 | 规则 · 集群级 | chip 筛选；行内开关；编辑阈值 / 持续时间并保存；三种通知模式；添加 / 删除集群例外；恢复默认；未配置默认通知时的提示与跳转 |
 | 规则 · 作业级 | 列表；行内开关；drawer 中编辑任务告警并保存；任务设置页的同一表单行为一致 |
 | 通知 | 保存默认通知；新建 / 编辑 / 测试 / 删除渠道；渠道详情中的投递记录 |

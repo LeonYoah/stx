@@ -45,6 +45,21 @@ frontend/components/arc/segmented-control/segmented-control.tsx
 frontend/components/arc/split-button/split-button.tsx
 frontend/components/arc/switch/switch.tsx
 frontend/components/arc/tabs/tabs.tsx
+frontend/components/arc/accordion/accordion.tsx
+frontend/components/arc/alert/alert.tsx
+frontend/components/arc/card/card.tsx
+frontend/components/arc/checkbox/checkbox.tsx
+frontend/components/arc/drawer/drawer.tsx
+frontend/components/arc/dropdown-menu/dropdown-menu.tsx
+frontend/components/arc/filter-toolbar/filter-toolbar.tsx
+frontend/components/arc/multi-select/multi-select.tsx
+frontend/components/arc/number-field/number-field.tsx
+frontend/components/arc/pagination/pagination.tsx
+frontend/components/arc/select/select.tsx
+frontend/components/arc/skeleton/skeleton.tsx
+frontend/components/arc/sortable-data-table/sortable-data-table.tsx
+frontend/components/arc/timeline/timeline.tsx
+frontend/components/arc/tooltip/tooltip.tsx
 
 # Inspira UI FlipCard (MIT, Copyright (c) 2024-2026 rahulv.dev):
 # Upstream: https://github.com/unovue/inspira-ui

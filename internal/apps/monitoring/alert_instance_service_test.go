@@ -269,3 +269,92 @@ func TestService_ListAlertInstances_scopeFilter(t *testing.T) {
 		t.Fatalf("scope=job should keep only the episode, got %+v err=%v", jobOnly, err)
 	}
 }
+
+func TestService_ListAlertInstances_mapsLegacyYamlRuleNames(t *testing.T) {
+	database, cleanup := setupMonitoringNotificationTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	repo := NewRepository(database)
+	service := NewService(nil, nil, repo)
+
+	// 旧 YAML 告警没有 template_key label，只能靠告警名映射到目录规则。
+	// Legacy YAML alerts carry no template_key label; only the stored alert name
+	// can map them onto a catalog rule.
+	require.NoError(t, database.Exec("CREATE TABLE IF NOT EXISTS hosts (id INTEGER PRIMARY KEY, name TEXT, ip_address TEXT)").Error)
+	require.NoError(t, database.Exec("CREATE TABLE IF NOT EXISTS clusters (id INTEGER PRIMARY KEY, name TEXT)").Error)
+
+	startsAt := time.Date(2026, 3, 10, 1, 0, 0, 0, time.UTC)
+	legacy := &RemoteAlertRecord{
+		Fingerprint:    "fp-legacy-node-offline",
+		StartsAt:       startsAt.Unix(),
+		Status:         "firing",
+		AlertName:      "SeaTunnelMetricsEndpointDown",
+		Severity:       "critical",
+		ClusterID:      "6",
+		LastReceivedAt: startsAt,
+	}
+	unknown := &RemoteAlertRecord{
+		Fingerprint:    "fp-custom-alert",
+		StartsAt:       startsAt.Unix(),
+		Status:         "firing",
+		AlertName:      "MyCustomAlert",
+		Severity:       "warning",
+		ClusterID:      "6",
+		LastReceivedAt: startsAt,
+	}
+	for _, record := range []*RemoteAlertRecord{legacy, unknown} {
+		if err := database.WithContext(ctx).Create(record).Error; err != nil {
+			t.Fatalf("failed to create remote alert record: %v", err)
+		}
+	}
+
+	alerts, err := service.ListAlertInstances(ctx, &AlertInstanceFilter{SourceType: AlertSourceTypeMetric})
+	if err != nil {
+		t.Fatalf("ListAlertInstances returned error: %v", err)
+	}
+	if len(alerts.Alerts) != 2 {
+		t.Fatalf("expected 2 alerts, got %d", len(alerts.Alerts))
+	}
+
+	byName := map[string]*AlertInstance{}
+	for _, item := range alerts.Alerts {
+		byName[item.SourceRef.OriginalAlertName+item.AlertID] = item
+	}
+
+	mapped := byName["SeaTunnelMetricsEndpointDown"+buildRemoteAlertSourceKey(legacy.Fingerprint, legacy.StartsAt)]
+	if mapped == nil {
+		t.Fatalf("legacy alert missing original name: %+v", alerts.Alerts)
+	}
+	if mapped.RuleKey != AlertRuleKeyNodeOffline {
+		t.Fatalf("expected mapped rule key node_offline, got %q", mapped.RuleKey)
+	}
+	if mapped.AlertName != "节点离线" || mapped.AlertNameEN != "Node offline" {
+		t.Fatalf("expected catalog display names, got %q / %q", mapped.AlertName, mapped.AlertNameEN)
+	}
+
+	for legacyName, wantKey := range map[string]string{
+		"SeaTunnelNodeStateDown":             AlertRuleKeyNodeOffline,
+		"SeaTunnelPartitionUnsafe":           "split_brain_risk",
+		"SeaTunnelJobThreadPoolQueueHigh":    "job_thread_pool_queue_backlog_high",
+		"SeaTunnelCoordinatorBacklogGrowing": "coordinator_backlog_growing",
+		"SeaTunnelCoordinatorRejectingTasks": "job_thread_pool_rejection_high",
+		"SeaTunnelJVMHeapUsageHigh":          "memory_usage_high",
+		"SeaTunnelProcessCpuHigh":            "cpu_usage_high",
+		"SeaTunnelGCTimeHigh":                "gc_time_high",
+		"SeaTunnelFDUsageHigh":               "fd_usage_high",
+		"SeaTunnelThreadDeadlock":            "deadlocked_threads_detected",
+	} {
+		if got := legacyAlertNameRuleKeys[legacyName]; got != wantKey {
+			t.Fatalf("legacy mapping %s = %q, want %q", legacyName, got, wantKey)
+		}
+	}
+
+	custom := byName[""+buildRemoteAlertSourceKey(unknown.Fingerprint, unknown.StartsAt)]
+	if custom == nil {
+		t.Fatalf("custom alert missing: %+v", alerts.Alerts)
+	}
+	if custom.RuleKey != "" || custom.AlertName != "MyCustomAlert" || custom.AlertNameEN != "" {
+		t.Fatalf("unmapped alert should keep stored name and empty rule key, got %+v", custom)
+	}
+}

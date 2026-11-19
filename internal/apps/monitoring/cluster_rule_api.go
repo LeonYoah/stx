@@ -94,6 +94,7 @@ type ClusterRuleView struct {
 	Name                   string                     `json:"name"`
 	NameEN                 string                     `json:"name_en"`
 	Description            string                     `json:"description"`
+	DescriptionEN          string                     `json:"description_en"`
 	Scope                  string                     `json:"scope"`
 	DefaultEnabled         bool                       `json:"default_enabled"`
 	Enabled                bool                       `json:"enabled"`
@@ -221,6 +222,7 @@ func (s *Service) buildClusterRuleViews(ctx context.Context, keys []string) ([]*
 			Name:                   def.Name,
 			NameEN:                 def.NameEN,
 			Description:            def.Description,
+			DescriptionEN:          def.DescriptionEN,
 			Scope:                  clusterRuleScope,
 			DefaultEnabled:         def.DefaultEnabled,
 			Enabled:                effective.Enabled,

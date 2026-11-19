@@ -305,6 +305,7 @@ type AlertInstance struct {
 	ClusterName     string                  `json:"cluster_name"`
 	Severity        AlertSeverity           `json:"severity"`
 	AlertName       string                  `json:"alert_name"`
+	AlertNameEN     string                  `json:"alert_name_en,omitempty"`
 	RuleKey         string                  `json:"rule_key"`
 	Summary         string                  `json:"summary"`
 	Description     string                  `json:"description"`
@@ -335,6 +336,10 @@ type AlertInstanceSourceRef struct {
 	Hostname    string `json:"hostname,omitempty"`
 	Receiver    string `json:"receiver,omitempty"`
 	Env         string `json:"env,omitempty"`
+	// OriginalAlertName 保留映射前的存储告警名（旧 YAML 规则名），详情页展示用。
+	// OriginalAlertName keeps the stored alert name before catalog mapping (legacy
+	// YAML rule name), shown on the detail drawer.
+	OriginalAlertName string `json:"original_alert_name,omitempty"`
 	// 以下字段只用于 sync 来源：任务、作业、累计次数与跳转链接。
 	// The fields below are only set for the sync source: task, job, occurrence count and deep link.
 	TaskID          uint   `json:"task_id,omitempty"`

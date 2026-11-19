@@ -108,7 +108,10 @@ describe('TaskAlertSection', () => {
     expect(await screen.findByTestId('task-alert-error')).toHaveTextContent('至少选择一个通知渠道');
     expect(updateTaskAlert).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('task-alert-channel-2'));
+    // 渠道选择已换成 Arc multi-select：点开触发器再点选项。
+    // Channel selection is now an Arc multi-select: open the trigger, then pick the option.
+    fireEvent.click(screen.getByTestId('task-alert-channels').querySelector('button')!);
+    fireEvent.click(await screen.findByRole('option', {name: '运维群'}));
     fireEvent.click(screen.getByTestId('task-alert-save'));
     await waitFor(() => expect(updateTaskAlert).toHaveBeenCalledTimes(1));
     expect(updateTaskAlert).toHaveBeenCalledWith(42, {
@@ -189,20 +192,20 @@ describe('TaskAlertSection', () => {
     expect(await screen.findByTestId('task-alert-cdc-channel-warning')).toHaveTextContent('未开启事件通道');
     expect(getEventChannel).toHaveBeenCalledWith(7);
 
-    fireEvent.change(screen.getByTestId('task-alert-cdc-threshold'), {target: {value: '5'}});
-    // 错误显示在输入框下方并标红边框，底部不重复。/ The error shows under the input with a red border, not at the bottom.
-    expect(await screen.findByTestId('task-alert-cdc-threshold-error')).toHaveTextContent('延迟阈值需要是 10 到 86400');
-    expect(screen.getByTestId('task-alert-cdc-threshold').className).toContain('border-destructive');
-    fireEvent.click(screen.getByTestId('task-alert-channel-2'));
-    fireEvent.click(screen.getByTestId('task-alert-save'));
-    expect(screen.queryByTestId('task-alert-error')).not.toBeInTheDocument();
-    expect(updateTaskAlert).not.toHaveBeenCalled();
-
-    // 留空按默认值，不报错。/ Empty means the default and is not an error.
-    fireEvent.change(screen.getByTestId('task-alert-cdc-threshold'), {target: {value: ''}});
+    // Arc NumberField 在自身边界内钳制：输入 5 失焦后回到下限 10，表单错误不会再出现。
+    // The Arc NumberField clamps inside its own bounds: typing 5 settles at the 10 floor on blur,
+    // so the form-level error never surfaces.
+    const thresholdInput = screen.getByTestId('task-alert-cdc-threshold').querySelector('input')!;
+    fireEvent.change(thresholdInput, {target: {value: '5'}});
+    fireEvent.blur(thresholdInput);
     expect(screen.queryByTestId('task-alert-cdc-threshold-error')).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByTestId('task-alert-cdc-threshold'), {target: {value: '30'}});
+    // 渠道选择已换成 Arc multi-select：点开触发器再点选项。
+    // Channel selection is now an Arc multi-select: open the trigger, then pick the option.
+    fireEvent.click(screen.getByTestId('task-alert-channels').querySelector('button')!);
+    fireEvent.click(await screen.findByRole('option', {name: '运维群'}));
+
+    fireEvent.change(thresholdInput, {target: {value: '30'}});
     fireEvent.click(screen.getByTestId('task-alert-save'));
     await waitFor(() => expect(updateTaskAlert).toHaveBeenCalledTimes(1));
     expect(updateTaskAlert.mock.calls[0][1]).toMatchObject({

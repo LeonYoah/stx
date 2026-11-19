@@ -25,14 +25,10 @@ import '../app/globals.css';
 import '../components/arc/foundation.css';
 import zhMessages from '../lib/i18n/locales/zh.json';
 import enMessages from '../lib/i18n/locales/en.json';
-// 原型词条不进生产 locale，只在 Storybook 合并。Prototype copy stays out of production locales; merged here only.
-import zhProto from '../components/common/monitoring/prototype/messages.zh.json';
-import enProto from '../components/common/monitoring/prototype/messages.en.json';
-
-type Messages = typeof zhMessages & typeof zhProto;
+type Messages = typeof zhMessages;
 const messages: Record<'zh' | 'en', Messages> = {
-  zh: {...zhMessages, ...zhProto} as Messages,
-  en: {...enMessages, ...enProto} as Messages,
+  zh: zhMessages,
+  en: enMessages,
 };
 
 function StoryShell({

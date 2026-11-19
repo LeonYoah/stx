@@ -26,7 +26,6 @@ import type {
   AcknowledgeAlertRequest,
   AlertActionResult,
   AlertPolicy,
-  AlertPolicyCenterBootstrapData,
   AlertPolicyListData,
   AlertPolicyListFilter,
   AlertFilterParams,
@@ -34,9 +33,7 @@ import type {
   AlertInstanceFilterParams,
   AlertInstanceListData,
   AlertListData,
-  AlertRule,
   AlertRuleCatalogItem,
-  AlertRuleListData,
   ClusterHealthData,
   ClusterMonitoringOverviewData,
   IntegrationStatusData,
@@ -50,17 +47,17 @@ import type {
   NotificationDeliveryListData,
   NotificationChannelTestResult,
   NotificationChannelTestRequest,
+  AlertNotificationDefaults,
+  ClusterRule,
+  ClusterRuleLayerRequest,
   NotifiableUserListData,
-  NotificationRoute,
-  NotificationRouteListData,
   PlatformHealthData,
   RemoteAlertFilterParams,
   RemoteAlertListData,
   SilenceAlertRequest,
   UpsertAlertPolicyRequest,
+  UpdateAlertNotificationDefaultsRequest,
   UpsertNotificationChannelRequest,
-  UpsertNotificationRouteRequest,
-  UpdateAlertRuleRequest,
 } from './types';
 
 function normalizeAlertPolicy(policy: AlertPolicy): AlertPolicy {
@@ -89,24 +86,6 @@ function normalizeAlertPolicyListData(
     ...data,
     policies: Array.isArray(data.policies)
       ? data.policies.map(normalizeAlertPolicy)
-      : [],
-  };
-}
-
-function normalizeAlertPolicyCenterBootstrapData(
-  data: AlertPolicyCenterBootstrapData,
-): AlertPolicyCenterBootstrapData {
-  return {
-    ...data,
-    capabilities: Array.isArray(data.capabilities) ? data.capabilities : [],
-    builders: Array.isArray(data.builders) ? data.builders : [],
-    templates: Array.isArray(data.templates) ? data.templates : [],
-    components: Array.isArray(data.components) ? data.components : [],
-    notifiable_users: Array.isArray(data.notifiable_users)
-      ? data.notifiable_users
-      : [],
-    default_receiver_user_ids: Array.isArray(data.default_receiver_user_ids)
-      ? data.default_receiver_user_ids
       : [],
   };
 }
@@ -263,29 +242,8 @@ export class MonitoringService extends BaseService {
     );
   }
 
-  /**
-   * List alert rules for one cluster.
-   * 获取集群告警规则列表。
-   */
-  static async getClusterRules(clusterId: number): Promise<AlertRuleListData> {
-    return this.get<AlertRuleListData>(`/clusters/${clusterId}/rules`);
-  }
-
-  /**
-   * Update one alert rule.
-   * 更新一条告警规则。
-   */
-  static async updateClusterRule(
-    clusterId: number,
-    ruleId: number,
-    payload: UpdateAlertRuleRequest,
-  ): Promise<AlertRule> {
-    return this.put<AlertRule>(
-      `/clusters/${clusterId}/rules/${ruleId}`,
-      payload,
-    );
-  }
-
+  
+  
   /**
    * Get observability integration status.
    * 获取可观测组件联动状态。
@@ -294,17 +252,7 @@ export class MonitoringService extends BaseService {
     return this.get<IntegrationStatusData>('/integration/status');
   }
 
-  /**
-   * Get unified alert policy center bootstrap payload.
-   * 获取统一告警策略中心初始化数据。
-   */
-  static async getAlertPolicyCenterBootstrap(): Promise<AlertPolicyCenterBootstrapData> {
-    const data = await this.get<AlertPolicyCenterBootstrapData>(
-      '/alert-policies/bootstrap',
-    );
-    return normalizeAlertPolicyCenterBootstrapData(data);
-  }
-
+  
   /**
    * List selectable notification recipient users.
    * 获取可选通知接收用户列表。
@@ -518,41 +466,95 @@ export class MonitoringService extends BaseService {
     );
   }
 
+  
+  
+  
+  
   /**
-   * List notification routes.
-   * 获取通知路由列表。
+   * List all cluster-level alert rules with resolved and raw config layers.
+   * 获取全部集群级告警规则（含生效值与各层原值）。
    */
-  static async listNotificationRoutes(): Promise<NotificationRouteListData> {
-    return this.get<NotificationRouteListData>('/notification-routes');
+  static async listClusterRules(): Promise<ClusterRule[]> {
+    const data = await this.get<ClusterRule[] | {rules?: ClusterRule[]}>(
+      '/cluster-rules',
+    );
+    return Array.isArray(data) ? data : (data.rules ?? []);
   }
 
   /**
-   * Create notification route.
-   * 创建通知路由。
+   * Get one cluster-level alert rule view.
+   * 获取单条集群级告警规则。
    */
-  static async createNotificationRoute(
-    payload: UpsertNotificationRouteRequest,
-  ): Promise<NotificationRoute> {
-    return this.post<NotificationRoute>('/notification-routes', payload);
+  static async getClusterRule(key: string): Promise<ClusterRule> {
+    return this.get<ClusterRule>(`/cluster-rules/${key}`);
   }
 
   /**
-   * Update notification route.
-   * 更新通知路由。
+   * Replace the global config layer of a cluster rule.
+   * 整层替换集群规则的全局配置。
    */
-  static async updateNotificationRoute(
-    id: number,
-    payload: UpsertNotificationRouteRequest,
-  ): Promise<NotificationRoute> {
-    return this.put<NotificationRoute>(`/notification-routes/${id}`, payload);
+  static async updateClusterRule(
+    key: string,
+    payload: ClusterRuleLayerRequest,
+  ): Promise<ClusterRule> {
+    return this.put<ClusterRule>(`/cluster-rules/${key}`, payload);
   }
 
   /**
-   * Delete notification route.
-   * 删除通知路由。
+   * Replace a cluster-scoped override layer of a cluster rule.
+   * 整层替换集群规则的集群例外层。
    */
-  static async deleteNotificationRoute(id: number): Promise<{id: number}> {
-    return this.delete<{id: number}>(`/notification-routes/${id}`);
+  static async updateClusterRuleOverride(
+    key: string,
+    clusterId: number,
+    payload: ClusterRuleLayerRequest,
+  ): Promise<ClusterRule> {
+    return this.put<ClusterRule>(
+      `/cluster-rules/${key}/clusters/${clusterId}`,
+      payload,
+    );
+  }
+
+  /**
+   * Reset a cluster rule's global layer to catalog defaults.
+   * 恢复集群规则全局层为目录默认。
+   */
+  static async deleteClusterRule(key: string): Promise<{key: string}> {
+    return this.delete<{key: string}>(`/cluster-rules/${key}`);
+  }
+
+  /**
+   * Delete a cluster-scoped override layer.
+   * 删除集群规则的集群例外层。
+   */
+  static async deleteClusterRuleOverride(
+    key: string,
+    clusterId: number,
+  ): Promise<{key: string}> {
+    return this.delete<{key: string}>(
+      `/cluster-rules/${key}/clusters/${clusterId}`,
+    );
+  }
+
+  /**
+   * Get the alert-level default notification (unconfigured returns configured=false).
+   * 获取默认通知（未配置时 configured=false，不报 404）。
+   */
+  static async getAlertNotificationDefaults(): Promise<AlertNotificationDefaults> {
+    return this.get<AlertNotificationDefaults>('/alert-notification-defaults');
+  }
+
+  /**
+   * Replace the alert-level default notification.
+   * 整层替换默认通知。
+   */
+  static async updateAlertNotificationDefaults(
+    payload: UpdateAlertNotificationDefaultsRequest,
+  ): Promise<AlertNotificationDefaults> {
+    return this.put<AlertNotificationDefaults>(
+      '/alert-notification-defaults',
+      payload,
+    );
   }
 
   // ==================== Safe Methods 安全方法 ====================
@@ -759,48 +761,8 @@ export class MonitoringService extends BaseService {
     }
   }
 
-  static async getClusterRulesSafe(clusterId: number): Promise<{
-    success: boolean;
-    data?: AlertRuleListData;
-    error?: string;
-  }> {
-    try {
-      const data = await this.getClusterRules(clusterId);
-      return {success: true, data};
-    } catch (error) {
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to get cluster rules',
-      };
-    }
-  }
-
-  static async updateClusterRuleSafe(
-    clusterId: number,
-    ruleId: number,
-    payload: UpdateAlertRuleRequest,
-  ): Promise<{
-    success: boolean;
-    data?: AlertRule;
-    error?: string;
-  }> {
-    try {
-      const data = await this.updateClusterRule(clusterId, ruleId, payload);
-      return {success: true, data};
-    } catch (error) {
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to update cluster rule',
-      };
-    }
-  }
-
+  
+  
   static async getIntegrationStatusSafe(): Promise<{
     success: boolean;
     data?: IntegrationStatusData;
@@ -820,25 +782,7 @@ export class MonitoringService extends BaseService {
     }
   }
 
-  static async getAlertPolicyCenterBootstrapSafe(): Promise<{
-    success: boolean;
-    data?: AlertPolicyCenterBootstrapData;
-    error?: string;
-  }> {
-    try {
-      const data = await this.getAlertPolicyCenterBootstrap();
-      return {success: true, data};
-    } catch (error) {
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to get alert policy center bootstrap',
-      };
-    }
-  }
-
+  
   static async listAlertPoliciesSafe(): Promise<{
     success: boolean;
     data?: AlertPolicyListData;
@@ -1165,84 +1109,7 @@ export class MonitoringService extends BaseService {
     }
   }
 
-  static async listNotificationRoutesSafe(): Promise<{
-    success: boolean;
-    data?: NotificationRouteListData;
-    error?: string;
-  }> {
-    try {
-      const data = await this.listNotificationRoutes();
-      return {success: true, data};
-    } catch (error) {
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to list notification routes',
-      };
-    }
+  
+  
+  
   }
-
-  static async createNotificationRouteSafe(
-    payload: UpsertNotificationRouteRequest,
-  ): Promise<{
-    success: boolean;
-    data?: NotificationRoute;
-    error?: string;
-  }> {
-    try {
-      const data = await this.createNotificationRoute(payload);
-      return {success: true, data};
-    } catch (error) {
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to create notification route',
-      };
-    }
-  }
-
-  static async updateNotificationRouteSafe(
-    id: number,
-    payload: UpsertNotificationRouteRequest,
-  ): Promise<{
-    success: boolean;
-    data?: NotificationRoute;
-    error?: string;
-  }> {
-    try {
-      const data = await this.updateNotificationRoute(id, payload);
-      return {success: true, data};
-    } catch (error) {
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to update notification route',
-      };
-    }
-  }
-
-  static async deleteNotificationRouteSafe(id: number): Promise<{
-    success: boolean;
-    data?: {id: number};
-    error?: string;
-  }> {
-    try {
-      const data = await this.deleteNotificationRoute(id);
-      return {success: true, data};
-    } catch (error) {
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Failed to delete notification route',
-      };
-    }
-  }
-}

@@ -32,6 +32,8 @@
     "test:e2e:mock": "E2E_API_MODE=mock playwright test",
     "test:e2e:upgrade-prepare-negative": "playwright test e2e/upgrade-prepare-negative.spec.ts",
     "test:e2e:upgrade-prepare-template": "playwright test e2e/upgrade-prepare-template.spec.ts",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
     "lint:fix-staged": "eslint --fix $(git diff --cached --name-only --diff-filter=ACM | grep -E '\\.(js|jsx|ts|tsx)$' | sed 's|^frontend/||' | xargs) "
   },
   "dependencies": {
@@ -104,6 +106,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@playwright/test": "^1.55.0",
+    "@storybook/nextjs-vite": "^10.6.7",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
@@ -118,6 +121,7 @@
     "eslint-plugin-prettier": "^5.4.1",
     "jsdom": "^27.3.0",
     "prettier": "^3.5.3",
+    "storybook": "^10.6.7",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.2",
     "typescript": "^5",

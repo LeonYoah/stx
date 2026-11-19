@@ -1,0 +1,180 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+'use client';
+
+/**
+ * Per-engine mini visual used as the card's image hero.
+ * 按引擎类型渲染的卡片「图片」区：指标=阈值 sparkline，可用性/同步=24h 健康轨道，事件=触发时间轴。
+ */
+import type {ProtoRule} from './rules-mock';
+
+const W = 280;
+const H = 88;
+const PAD = 10;
+
+function Sparkline({rule}: {rule: ProtoRule}) {
+  const series = rule.visual.series ?? [];
+  if (series.length < 2) {
+    return null;
+  }
+  const max = Math.max(100, ...series);
+  const inner = {w: W - PAD * 2, h: H - PAD * 2 - 14};
+  const x = (i: number) => PAD + (i / (series.length - 1)) * inner.w;
+  const y = (v: number) => PAD + inner.h - (v / max) * inner.h;
+  const points = series.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+  const areaPoints = [`${x(0).toFixed(1)},${y(0).toFixed(1)}`]
+    .concat(points.slice(1))
+    .concat([`${x(series.length - 1).toFixed(1)},${(PAD + inner.h).toFixed(1)}`, `${x(0).toFixed(1)},${(PAD + inner.h).toFixed(1)}`]);
+  const thresholdY = rule.threshold ? y(rule.threshold.value) : null;
+  const firing = rule.firingCount > 0;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className='h-full w-full' role='img' aria-hidden='true'>
+      <defs>
+        <linearGradient id={`fill-${rule.key}`} x1='0' y1='0' x2='0' y2='1'>
+          <stop offset='0%' stopColor={firing ? 'var(--danger, #e5484d)' : 'var(--accent, #0091ff)'} stopOpacity='0.22' />
+          <stop offset='100%' stopColor={firing ? 'var(--danger, #e5484d)' : 'var(--accent, #0091ff)'} stopOpacity='0' />
+        </linearGradient>
+      </defs>
+      {thresholdY != null ? (
+        <line
+          x1={PAD}
+          x2={W - PAD}
+          y1={thresholdY}
+          y2={thresholdY}
+          stroke='var(--danger, #e5484d)'
+          strokeOpacity='0.55'
+          strokeDasharray='4 3'
+          strokeWidth='1'
+        />
+      ) : null}
+      <polygon points={areaPoints.join(' ')} fill={`url(#fill-${rule.key})`} />
+      <polyline
+        points={points.join(' ')}
+        fill='none'
+        stroke={firing ? 'var(--danger, #e5484d)' : 'var(--accent, #0091ff)'}
+        strokeWidth='1.6'
+        strokeLinejoin='round'
+        strokeLinecap='round'
+      />
+      {rule.threshold ? (
+        <text
+          x={W - PAD}
+          y={(thresholdY ?? PAD) - 3}
+          textAnchor='end'
+          fontSize='8.5'
+          fill='var(--text-secondary, #6b7280)'
+        >
+          {rule.threshold.operator} {rule.threshold.value}
+          {rule.threshold.unit}
+        </text>
+      ) : null}
+    </svg>
+  );
+}
+
+function UptimeTrack({rule}: {rule: ProtoRule}) {
+  const segments = rule.visual.segments ?? [];
+  const inner = {w: W - PAD * 2};
+  const gap = 2;
+  const bw = (inner.w - gap * (segments.length - 1)) / Math.max(1, segments.length);
+  const barY = PAD + 16;
+  const barH = H - PAD * 2 - 22;
+  const colors: Record<string, string> = {
+    ok: 'var(--success, #30a46c)',
+    bad: 'var(--danger, #e5484d)',
+    degraded: 'var(--warning, #f5a524)',
+  };
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className='h-full w-full' role='img' aria-hidden='true'>
+      {segments.map((seg, i) => (
+        <rect
+          key={i}
+          x={PAD + i * (bw + gap)}
+          y={seg === 'ok' ? barY + barH * 0.28 : barY}
+          width={bw}
+          height={seg === 'ok' ? barH * 0.72 : barH}
+          rx='1.5'
+          fill={colors[seg]}
+          fillOpacity={seg === 'ok' ? 0.45 : 0.9}
+        />
+      ))}
+      <text x={PAD} y={H - PAD} fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
+        24h
+      </text>
+      <text x={W - PAD} y={H - PAD} textAnchor='end' fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
+        now
+      </text>
+    </svg>
+  );
+}
+
+function EventTrack({rule}: {rule: ProtoRule}) {
+  const events = rule.visual.events ?? [];
+  const inner = {w: W - PAD * 2};
+  const axisY = PAD + (H - PAD * 2) / 2;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className='h-full w-full' role='img' aria-hidden='true'>
+      <line
+        x1={PAD}
+        x2={W - PAD}
+        y1={axisY}
+        y2={axisY}
+        stroke='var(--border, #e5e7eb)'
+        strokeWidth='1.5'
+      />
+      {events.length === 0 ? (
+        <text
+          x={W / 2}
+          y={axisY - 8}
+          textAnchor='middle'
+          fontSize='9'
+          fill='var(--text-secondary, #6b7280)'
+        >
+          ·
+        </text>
+      ) : (
+        events.map((hour, i) => {
+          const cx = PAD + (hour / 23) * inner.w;
+          return (
+            <g key={i}>
+              <circle cx={cx} cy={axisY} r='4.5' fill='var(--danger, #e5484d)' fillOpacity='0.9' />
+              <circle cx={cx} cy={axisY} r='8' fill='var(--danger, #e5484d)' fillOpacity='0.15' />
+            </g>
+          );
+        })
+      )}
+      <text x={PAD} y={H - PAD} fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
+        24h
+      </text>
+      <text x={W - PAD} y={H - PAD} textAnchor='end' fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
+        now
+      </text>
+    </svg>
+  );
+}
+
+export function RuleVisual({rule}: {rule: ProtoRule}) {
+  if (rule.engine === 'tsdb') {
+    return <Sparkline rule={rule} />;
+  }
+  if (rule.engine === 'event') {
+    return <EventTrack rule={rule} />;
+  }
+  return <UptimeTrack rule={rule} />;
+}

@@ -49,7 +49,12 @@
 - 集群 / 主机 / 平台 / 作业列表页签的布局与图表：只换成 `DashboardPanel` 样式，不动内容和结构。
 - 作业详情「指标」页签：可以复用本任务的指标页签组件，另开任务。
 - 「CDC 延迟」不做成第 5 个吞吐页签：`/dashboard/home/jobs` 没有全局 CDC 时序，它已有「CDC 延迟 Top 8」面板。
-- 页面头部（`WorkspaceHeader`、时间窗、集群范围、刷新）不改。
+- 页面头部（`WorkspaceHeader`、时间窗、刷新）不改。
+
+> **追加范围（第二轮，design §11）**：用户复看后认为头部「全部集群」下拉与集群页签大卡片仍和条带视觉不统一，追加：
+> 头部范围选择 shadcn `Select` → Arc `Combobox`（可搜索，`all` → `clusterId: undefined` 与 `home-scope` testid 不变）；
+> 集群页签 Arc `RadioCards` → `ClusterScopeStrip` 分隔格选择条（`radiogroup` / `radio`、roving tabindex 与 `ThroughputTabs` 共用
+> `use-roving-keys`、健康徽标与描述信息不丢）；顺带清理 dev overlay 告警（React 19 key、Radix Dialog 标题、GSAP 空选择器）。
 
 ## 验收标准
 

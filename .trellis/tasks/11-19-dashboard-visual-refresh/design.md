@@ -285,3 +285,45 @@ zh / en 同步，键都在 `dashboard.home` 下：
 ## 10. 回滚
 
 纯前端、无数据与接口变化：回退本任务提交即可。新组件只在首页引用，不影响其他页面。
+
+## 11. 第二轮追加：范围选择与集群选择条
+
+> 第一轮上线后用户仍反馈「没质感」：头部 Select 与大卡片 `RadioCards` 和新的条带视觉不统一。
+> 仍不改接口与 CLI、不改 `components/arc/` 源码。对应 prd「追加范围」。
+
+### 11.1 头部集群范围：shadcn `Select` → Arc `Combobox`
+
+- 依据 `11-18-unified-admin-console-lists/design.md` §3：集群名长度不固定、需要搜索，选型 Arc `Combobox`，
+  不新增 `select` / `dropdown-menu` 依赖。
+- `HomeDashboard`：保留 `label={t('scope.label')}`（外层 `[&_label]:sr-only` 视觉隐藏但留在 DOM 供无障碍）、
+  `placeholder` / `emptyMessage`、`className='min-w-52'`、`data-testid='home-scope'` 经 Arc props 透传到输入框。
+- 选项：`all`（全部集群）+ 已加载集群 + 未知 `cluster` 时的 `clusterFallback` 兜底项；
+  选中 `all` 仍映射 `clusterId: undefined`，URL 行为不变。
+
+### 11.2 集群页签：`RadioCards` → `ClusterScopeStrip`
+
+- 新组件 `components/common/dashboard/ClusterScopeStrip.tsx`：
+  - 复用 `KpiStrip` 的 `DASHBOARD_CELL_DIVIDER` 与底板（`overflow-hidden rounded-xl border bg-card`），
+    格子 `-mr-px -mb-px`、`grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`；
+  - 语义：外层 `role='radiogroup'` + `aria-label`，格子 `button role='radio'`、`aria-checked`、
+    roving tabindex（选中格 `tabIndex=0`）；
+  - 选中格 `aria-checked:bg-muted/50` + 顶部 2px `--accent` 色条；焦点用 `--focus-outline-offset: -2px` 内缩；
+  - 首格「全部集群」+ 每集群一格，保留原卡片全部信息（名称 / 版本 / 节点在线 / 运行数 / 堆 / 告警 + `HEALTH_TONE` 徽标）；
+  - `ClusterScopeStripSkeleton`：同底板 3 格各 3 条骨架，等高不塌陷。
+- `ClusterTab`：`update({clusterId: value === 'all' ? undefined : value, page: 1})` 不变。
+- **焦点保持**：`usePolledResource` 换 key 时 `data` 归零会把选择条换成骨架、焦点掉回 body。
+  `ClusterTab` 用 `useRef` 记住上一组 `ClusterScopeItem[]`，refetch 期间继续渲染旧条，数据回来后替换。
+- 键盘导航抽到 `use-roving-keys.ts`（←/↑ 上一格、→/↓ 下一格循环、Home/End 首尾），
+  `ClusterScopeStrip` 与 `ThroughputTabs` 共用。
+
+### 11.3 控制台告警清理（React 19 / Radix / GSAP）
+
+| 告警 | 根因 | 修法 |
+|---|---|---|
+| `Each child in a list should have a unique "key"`（ClusterDetailGroups） | React 19 对拼进 children 数组的动态兄弟表达式逐个校验 key；且 `cellShell()` 返回的对象带 `key` / `title` / `unit` 被 `{...shell}` 展开（key 展开告警 + 非 DOM 属性泄漏） | 动态兄弟（actions、事件列表、加载 / 空 / 网格三分支、格内 head / body、MetricCard / Sparkline）全部显式 `key`；`cellShell` 只留 `className` / `data-testid` |
+| `DialogContent requires a DialogTitle` / `Missing Description`（×2，StrictMode 双调用） | `OnboardingPathChooser` 给 `DialogTitle` / `DialogDescription` 传了自定义 `id`，覆盖 Radix context 生成的 `titleId` / `descriptionId`，`aria-labelledby` 指向不存在的元素 | 删掉自定义 `id`，让 Radix 生成；不改 Arc 源码 |
+| `GSAP target .radar-pulse-ring not found` | `StatPillsBar` 无 `pulse` 项时选择器为空仍启动动画 | 动画前 `querySelector` 探测，无目标不启动 |
+| `<path d="undefined">` | 富夹具全页签扫描未复现；`Sparkline` 已把非有限值转 `null`、无有效基线时返回空 path | 不改共享图表内部，保持观察 |
+| `401 user-info` / `proxy.kapa.ai 404` / `requestStorageAccess` / RSC 预取 `ERR_ABORTED` | 登录前预检、第三方 Ask AI 代理、第三方存储权限、Next 软导航取消预取 | 非本仓库缺陷，分类记录 |
+
+验证：Playwright 夹具全页签扫描无 React 警告；ArrowRight 选集群 → `?cluster=11` 且焦点落在 `home-cluster-scope-11`，ArrowLeft 返回 `home-cluster-scope-all`；dashboard 54 单测 + `tsc` 通过。

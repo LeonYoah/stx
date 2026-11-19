@@ -36,6 +36,7 @@ import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
 import {cn} from '@/lib/utils';
 import {RuleVisual, useRuleVisualLabels} from './RuleVisual';
+import {formatThreshold} from './threshold-format';
 import {
   PROTO_CLUSTERS,
   PROTO_JOB_RULES,
@@ -314,7 +315,7 @@ function RuleCard({
         aria-label={name}
         className='block h-[104px] w-full border-b border-border/50 bg-muted/20'
       >
-        <RuleVisual rule={rule} labels={visualLabels} />
+        <RuleVisual rule={rule} labels={visualLabels} showAxis={false} />
       </button>
 
       <div className='space-y-2 px-3.5 py-3'>
@@ -344,13 +345,8 @@ function RuleCard({
         </div>
         <div className='flex items-center justify-between gap-2 text-xs text-muted-foreground'>
           <span className='min-w-0 truncate'>
-            {rule.threshold
-              ? `${rule.threshold.operator} ${rule.threshold.value}${rule.threshold.unit} · ${t('forMinutes', {minutes: rule.forMinutes})}`
-              : rule.engine === 'event'
-                ? t('instantEvent')
-                : rule.forMinutes === 0
-                  ? t('realtime')
-                  : t('forMinutes', {minutes: rule.forMinutes})}
+            {formatThreshold(rule, t)}
+            {rule.exceptionCount > 0 ? ` · ${t('exceptions', {count: rule.exceptionCount})}` : ''}
           </span>
           <Switch
             checked={enabled}
@@ -360,9 +356,6 @@ function RuleCard({
             className='shrink-0'
           />
         </div>
-        {rule.exceptionCount > 0 ? (
-          <div className='text-xs text-muted-foreground/80'>{t('exceptions', {count: rule.exceptionCount})}</div>
-        ) : null}
       </div>
     </div>
   );
@@ -586,7 +579,7 @@ function RuleListView({
   const locale = useLocale();
   const visualLabels = useRuleVisualLabels();
   const cols =
-    'grid-cols-[auto_44px_minmax(0,1.4fr)_auto_auto_minmax(0,1fr)_auto_auto]';
+    'grid-cols-[1.25rem_2.75rem_minmax(0,1.4fr)_4.5rem_6rem_minmax(0,1fr)_3.5rem_4.75rem]';
   return (
     <div>
       <div
@@ -599,10 +592,10 @@ function RuleListView({
         <span className='size-4' />
         <span className='size-11' />
         <span>{t('colRule')}</span>
-        <span className='text-center'>{t('fieldSeverity')}</span>
+        <span>{t('fieldSeverity')}</span>
         <span>{t('colStatus')}</span>
         <span className='hidden md:block'>{t('colThreshold')}</span>
-        <span className='hidden lg:block'>{t('detailExceptions')}</span>
+        <span className='hidden text-right lg:block'>{t('detailExceptions')}</span>
         <span className='text-right'>{t('fieldEnabled')}</span>
       </div>
       {rules.map((rule) => {
@@ -646,7 +639,7 @@ function RuleListView({
             <Badge tone={rule.severity === 'critical' ? 'danger' : 'warning'} size='sm'>
               {rule.severity === 'critical' ? t('severityCritical') : t('severityWarning')}
             </Badge>
-            <span className='w-20 whitespace-nowrap text-xs text-muted-foreground'>
+            <span className='whitespace-nowrap text-xs text-muted-foreground'>
               {rule.firingCount > 0 ? (
                 <span className='flex items-center gap-1.5 text-destructive'>
                   <span className='size-1.5 animate-pulse rounded-full bg-destructive' aria-hidden />
@@ -657,18 +650,12 @@ function RuleListView({
               )}
             </span>
             <span className='hidden min-w-0 truncate text-xs tabular-nums text-muted-foreground md:block'>
-              {rule.threshold
-                ? `${rule.threshold.operator} ${rule.threshold.value}${rule.threshold.unit} · ${t('forMinutes', {minutes: rule.forMinutes})}`
-                : rule.engine === 'event'
-                  ? t('instantEvent')
-                  : rule.forMinutes === 0
-                    ? t('realtime')
-                    : t('forMinutes', {minutes: rule.forMinutes})}
+              {formatThreshold(rule, t)}
             </span>
-            <span className='hidden w-16 truncate text-xs tabular-nums text-muted-foreground lg:block'>
+            <span className='hidden truncate text-right text-xs tabular-nums text-muted-foreground lg:block'>
               {rule.exceptionCount > 0 ? rule.exceptionCount : '—'}
             </span>
-            <div className='flex items-center gap-1.5'>
+            <div className='flex items-center justify-end gap-1.5'>
               <Switch
                 checked={enabled}
                 onCheckedChange={(on) => onToggleEnabled(rule.key, on)}

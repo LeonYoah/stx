@@ -120,7 +120,7 @@
     "defaultNotify": "默认通知",
     "channels": "通知渠道",
     "recipients": "接收人",
-    "recipientsStub": "接收人多选（原型省略）。",
+    "recipientsStub": "接收人多选（原型省略）",
     "cooldown": "冷却时间",
     "cooldownUnit": "分钟",
     "recoveryNotify": "恢复时通知",

@@ -99,7 +99,7 @@ function Sparkline({rule}: {rule: ProtoRule}) {
   );
 }
 
-function UptimeTrack({rule, labels}: {rule: ProtoRule; labels: RuleVisualLabels}) {
+function UptimeTrack({rule, labels, showAxis}: {rule: ProtoRule; labels: RuleVisualLabels; showAxis: boolean}) {
   const segments = rule.visual.segments ?? [];
   const inner = {w: W - PAD * 2};
   const gap = 2;
@@ -126,17 +126,21 @@ function UptimeTrack({rule, labels}: {rule: ProtoRule; labels: RuleVisualLabels}
           fillOpacity={seg === 'ok' ? 0.5 : 0.9}
         />
       ))}
-      <text x={PAD} y={H - PAD} fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
-        {labels.hours24}
-      </text>
-      <text x={W - PAD} y={H - PAD} textAnchor='end' fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
-        {labels.now}
-      </text>
+      {showAxis ? (
+        <>
+          <text x={PAD} y={H - PAD} fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
+            {labels.hours24}
+          </text>
+          <text x={W - PAD} y={H - PAD} textAnchor='end' fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
+            {labels.now}
+          </text>
+        </>
+      ) : null}
     </svg>
   );
 }
 
-function EventTrack({rule, labels, compact}: {rule: ProtoRule; labels: RuleVisualLabels; compact?: boolean}) {
+function EventTrack({rule, labels, compact, showAxis}: {rule: ProtoRule; labels: RuleVisualLabels; compact?: boolean; showAxis: boolean}) {
   const events = rule.visual.events ?? [];
   const inner = {w: W - PAD * 2};
   const axisY = PAD + (H - PAD * 2) / 2;
@@ -174,24 +178,28 @@ function EventTrack({rule, labels, compact}: {rule: ProtoRule; labels: RuleVisua
           </g>
         );
       })}
-      <text x={PAD} y={H - PAD} fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
-        {labels.hours24}
-      </text>
-      <text x={W - PAD} y={H - PAD} textAnchor='end' fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
-        {labels.now}
-      </text>
+      {showAxis ? (
+        <>
+          <text x={PAD} y={H - PAD} fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
+            {labels.hours24}
+          </text>
+          <text x={W - PAD} y={H - PAD} textAnchor='end' fontSize='8.5' fill='var(--text-secondary, #6b7280)'>
+            {labels.now}
+          </text>
+        </>
+      ) : null}
     </svg>
   );
 }
 
-export function RuleVisual({rule, labels, compact}: {rule: ProtoRule; labels: RuleVisualLabels; compact?: boolean}) {
+export function RuleVisual({rule, labels, compact, showAxis = true}: {rule: ProtoRule; labels: RuleVisualLabels; compact?: boolean; showAxis?: boolean}) {
   if (rule.engine === 'tsdb') {
     return <Sparkline rule={rule} />;
   }
   if (rule.engine === 'event') {
-    return <EventTrack rule={rule} labels={labels} compact={compact} />;
+    return <EventTrack rule={rule} labels={labels} compact={compact} showAxis={showAxis} />;
   }
-  return <UptimeTrack rule={rule} labels={labels} />;
+  return <UptimeTrack rule={rule} labels={labels} showAxis={showAxis} />;
 }
 
 /** RuleVisual 轴文案的本地化标签。Localized labels for RuleVisual axis text. */

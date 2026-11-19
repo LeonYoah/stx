@@ -24,7 +24,7 @@
  */
 import {useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Check, CheckCircle2, MoreHorizontal, Pencil, Plus, Send, Trash2, X, XCircle} from 'lucide-react';
+import {Check, CheckCircle2, Pencil, Plus, Send, Trash2, X, XCircle} from 'lucide-react';
 import {ActionButton} from '@/components/arc/action-button/action-button';
 import {Badge} from '@/components/arc/badge/badge';
 import {Button as ArcButton} from '@/components/arc/button/button';
@@ -72,12 +72,7 @@ export function NotifyPanel() {
   return (
     <div className='relative flex h-full flex-col gap-4 overflow-y-auto'>
       <section className='rounded-lg border border-border/70 bg-card p-4'>
-        <div className='flex items-center justify-between'>
-          <h3 className='text-sm font-medium'>{t('defaultNotify')}</h3>
-          <ArcButton variant='primary' size='sm' loading={saving} onClick={saveDefaults}>
-            {saving ? t('saving') : t('save')}
-          </ArcButton>
-        </div>
+        <h3 className='text-sm font-medium'>{t('defaultNotify')}</h3>
         <div className='mt-3 grid gap-4 md:grid-cols-2'>
           <div className='space-y-2'>
             <span className='text-sm text-muted-foreground'>{t('channels')}</span>
@@ -109,20 +104,27 @@ export function NotifyPanel() {
               {t('recipientsStub')}
             </div>
           </div>
-          <div className='w-44'>
-            <NumberField
-              label={t('cooldown')}
-              value={cooldown}
-              onValueChange={setCooldown}
-              min={0}
-              max={1440}
-              suffix={t('cooldownUnit')}
-            />
+          <div className='flex items-end justify-between gap-6'>
+            <div className='w-44'>
+              <NumberField
+                label={t('cooldown')}
+                value={cooldown}
+                onValueChange={setCooldown}
+                min={0}
+                max={1440}
+                suffix={t('cooldownUnit')}
+              />
+            </div>
+            <div className='flex items-center justify-between gap-3'>
+              <span className='text-sm text-muted-foreground'>{t('recoveryNotify')}</span>
+              <Switch checked={recoveryNotify} onCheckedChange={setRecoveryNotify} aria-label={t('recoveryNotify')} />
+            </div>
           </div>
-          <div className='flex items-center justify-between gap-3'>
-            <span className='text-sm text-muted-foreground'>{t('recoveryNotify')}</span>
-            <Switch checked={recoveryNotify} onCheckedChange={setRecoveryNotify} aria-label={t('recoveryNotify')} />
-          </div>
+        </div>
+        <div className='mt-4 flex justify-end border-t border-border/60 pt-3'>
+          <ArcButton variant='primary' size='sm' loading={saving} onClick={saveDefaults}>
+            {saving ? t('saving') : t('save')}
+          </ArcButton>
         </div>
       </section>
 
@@ -137,7 +139,7 @@ export function NotifyPanel() {
         {channels.map((c) => (
           <div
             key={c.key}
-            className='grid grid-cols-[minmax(0,1.2fr)_auto_minmax(0,1.4fr)_auto_auto] items-center gap-3 border-b border-border/50 px-4 py-3 last:border-b-0 hover:bg-muted/30'
+            className='grid grid-cols-[minmax(0,1fr)_5rem_minmax(0,13rem)_3rem_12.5rem] items-center gap-4 border-b border-border/50 px-4 py-3 last:border-b-0 hover:bg-muted/30'
             data-testid={`proto-channel-${c.key}`}
           >
             <div className='min-w-0'>
@@ -156,7 +158,7 @@ export function NotifyPanel() {
               aria-label={t('fieldEnabled')}
             />
             {deleteArmed === c.key ? (
-              <span className='flex items-center gap-1'>
+              <span className='flex items-center justify-end gap-1'>
                 <span className='whitespace-nowrap text-xs text-destructive'>{t('deleteConfirm')}</span>
                 <Button
                   type='button'
@@ -183,7 +185,7 @@ export function NotifyPanel() {
                 </Button>
               </span>
             ) : (
-              <div className='flex items-center gap-1'>
+              <div className='flex items-center justify-end gap-1'>
                 <ActionButton
                   label={t('testChannel')}
                   pendingLabel={t('testing')}
@@ -193,7 +195,6 @@ export function NotifyPanel() {
                 />
                 <DropdownMenu
                   label={t('moreActions')}
-                  icon={<MoreHorizontal className='size-4' aria-hidden />}
                   items={[
                     {
                       label: t('editChannel'),

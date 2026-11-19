@@ -28,7 +28,6 @@ import {
   BellOff,
   CheckCheck,
   ChevronRight,
-  MoreHorizontal,
   TrendingDown,
   TrendingUp,
   X,
@@ -234,13 +233,13 @@ export function AlertsPanel({onOpenRule}: {onOpenRule?: (ruleKey: string) => voi
     {
       key: 'actions',
       label: '',
-      width: 116,
+      width: 140,
       render: (_, row) => {
         const alert = row.alert as ProtoAlert;
         return (
+          <div className='flex justify-end'>
           <DropdownMenu
             label={t('moreActions')}
-            icon={<MoreHorizontal className='size-4' aria-hidden />}
             items={[
               {
                 label: t('actionAck'),
@@ -264,6 +263,7 @@ export function AlertsPanel({onOpenRule}: {onOpenRule?: (ruleKey: string) => voi
               },
             ]}
           />
+          </div>
         );
       },
     },
@@ -347,7 +347,7 @@ export function AlertsPanel({onOpenRule}: {onOpenRule?: (ruleKey: string) => voi
         />
         {/* 组件内空态文案只有英文；无激活筛选时 chips 容器里唯一的 span 就是它，藏掉由「添加筛选」承担入口。
             The built-in empty note is English-only; with no active filters it is the only span in the chips track. */}
-        <div className={cn(activeChips.length === 0 && '[&>div>div>div>span:last-child]:hidden!')}>
+        <div className={cn('w-full sm:w-auto', activeChips.length === 0 && '[&>div>div>div>span:last-child]:hidden!')}>
           <FilterToolbar
             filters={activeChips}
             onRemove={(id) => setField(id, null)}

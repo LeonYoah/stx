@@ -120,7 +120,7 @@
     "defaultNotify": "Default notification",
     "channels": "Channels",
     "recipients": "Recipients",
-    "recipientsStub": "Recipient multi-select (omitted in prototype).",
+    "recipientsStub": "Recipient multi-select (omitted in prototype)",
     "cooldown": "Cooldown",
     "cooldownUnit": "min",
     "recoveryNotify": "Notify on recovery",

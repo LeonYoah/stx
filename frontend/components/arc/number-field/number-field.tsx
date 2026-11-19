@@ -33,7 +33,7 @@
 
 import { AnimatePresence, animate, motion, useMotionValue, useReducedMotion, useTransform, type MotionValue, type Variants } from "motion/react";
 import { Minus, Plus } from "lucide-react";
-import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type Ref } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type Ref } from "react";
 import { motionTokens } from "../lib/motion-tokens";
 import styles from "./number-field.module.css";
 
@@ -67,6 +67,10 @@ export interface NumberFieldProps {
   size?: NumberFieldSize;
   /** A short note beside the label when a press meets a limit or a typed value passes one. `false` hides it; a function writes the copy. */
   limitHint?: boolean | ((edge: "min" | "max", limit: number) => string);
+  // 本地修改：在标签旁追加辅助元素（如 Tooltip 图标），避免外层再叠一个重复 Label。
+  // Local modification: optional addon next to the label (e.g. a Tooltip icon)
+  // so callers don't stack a duplicate outer Label.
+  labelAddon?: ReactNode;
 }
 
 export type NumberFieldSize = "sm" | "md" | "lg";
@@ -262,7 +266,7 @@ function StepButton({ toward, label, disabled, controls, limit, pressed, iconRef
  * large steps, Home and End jump to the limits, and `scrub` lets the label be dragged. Typing edits a plain draft that
  * applies live while valid; the rolling digits return once it commits on Enter, blur, or the next step.
  */
-export function NumberField({ label, value, defaultValue = 0, onValueChange, min = 0, max = Number.MAX_SAFE_INTEGER, step: stepProp = 1, largeStep, description, disabled, id, prefix, suffix, scrub = false, locale = "en-US", formatOptions, size = "md", limitHint = true }: NumberFieldProps) {
+export function NumberField({ label, value, defaultValue = 0, onValueChange, min = 0, max = Number.MAX_SAFE_INTEGER, step: stepProp = 1, largeStep, description, disabled, id, prefix, suffix, scrub = false, locale = "en-US", formatOptions, size = "md", limitHint = true, labelAddon }: NumberFieldProps) {
   const reduced = useReducedMotion();
   const generatedId = useId();
   const inputId = id ?? generatedId;
@@ -482,7 +486,10 @@ export function NumberField({ label, value, defaultValue = 0, onValueChange, min
 
   return <div className={styles.field} data-size={size}>
     <div className={styles.head}>
-      <label htmlFor={inputId} className={styles.label} data-scrub={(scrub && !disabled) || undefined} onPointerDown={onScrubStart} onPointerMove={onScrubMove} onPointerUp={onScrubEnd} onPointerCancel={onScrubEnd} onClick={event => { if (suppressClick.current) { event.preventDefault(); suppressClick.current = false; } }}>{label}</label>
+      <span className="inline-flex min-w-0 items-center gap-1">
+        <label htmlFor={inputId} className={styles.label} data-scrub={(scrub && !disabled) || undefined} onPointerDown={onScrubStart} onPointerMove={onScrubMove} onPointerUp={onScrubEnd} onPointerCancel={onScrubEnd} onClick={event => { if (suppressClick.current) { event.preventDefault(); suppressClick.current = false; } }}>{label}</label>
+        {labelAddon}
+      </span>
       <LimitNote id={limitId} edge={noteEdge} text={noteText} />
     </div>
     <div ref={controlRef} className={styles.control} data-scrubbing={scrubbing || undefined} data-disabled={disabled || undefined} data-warn={outside ? (outside > 0 ? "max" : "min") : undefined}>

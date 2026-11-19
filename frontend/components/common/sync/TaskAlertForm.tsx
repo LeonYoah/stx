@@ -191,29 +191,28 @@ export function TaskAlertForm({
         >
           <div className='flex flex-wrap items-start gap-3'>
             <div className='space-y-1'>
-              <Label className='flex items-center gap-1 whitespace-nowrap text-xs font-semibold'>
-                {t('cdcDelayThresholdLabel')}
-                <Tooltip
-                  content={
-                    <span className='block max-w-xs space-y-1 text-[11px] leading-snug'>
-                      <span className='block'>{t('cdcDelayThresholdHint')}</span>
-                      <span className='block'>{t('cdcDelayScopeHint')}</span>
-                    </span>
-                  }
-                >
-                  <button
-                    type='button'
-                    className='text-muted-foreground hover:text-foreground'
-                    data-testid='task-alert-cdc-hint'
-                    aria-label={`${t('cdcDelayThresholdHint')} ${t('cdcDelayScopeHint')}`}
-                  >
-                    <Info className='size-3.5' />
-                  </button>
-                </Tooltip>
-              </Label>
               <div data-testid='task-alert-cdc-threshold'>
                 <NumberField
                   label={t('cdcDelayThresholdLabel')}
+                  labelAddon={
+                    <Tooltip
+                      content={
+                        <span className='block max-w-xs space-y-1 text-[11px] leading-snug'>
+                          <span className='block'>{t('cdcDelayThresholdHint')}</span>
+                          <span className='block'>{t('cdcDelayScopeHint')}</span>
+                        </span>
+                      }
+                    >
+                      <button
+                        type='button'
+                        className='text-muted-foreground hover:text-foreground'
+                        data-testid='task-alert-cdc-hint'
+                        aria-label={`${t('cdcDelayThresholdHint')} ${t('cdcDelayScopeHint')}`}
+                      >
+                        <Info className='size-3.5' />
+                      </button>
+                    </Tooltip>
+                  }
                   value={Number(form.cdcDelayThreshold) || 0}
                   min={10}
                   onValueChange={(v) => update({cdcDelayThreshold: String(v)})}
@@ -226,7 +225,6 @@ export function TaskAlertForm({
               ) : null}
             </div>
             <div className='space-y-1'>
-              <Label className='whitespace-nowrap text-xs font-semibold'>{t('cdcDelayDurationLabel')}</Label>
               <div data-testid='task-alert-cdc-duration'>
                 <NumberField
                   label={t('cdcDelayDurationLabel')}
@@ -299,8 +297,7 @@ export function TaskAlertForm({
 
       <fieldset className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end' disabled={readOnly}>
         <div className='space-y-1'>
-          <Label className='whitespace-nowrap text-xs font-semibold'>{t('cooldownLabel')}</Label>
-          <div className='w-28' data-testid='task-alert-cooldown'>
+          <div className='w-36' data-testid='task-alert-cooldown'>
             <NumberField
               label={t('cooldownLabel')}
               value={Number(form.cooldown) || 0}

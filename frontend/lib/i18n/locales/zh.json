@@ -4675,12 +4675,6 @@
       "streaming": "流",
       "batch": "批"
     },
-    "runTypeFilter": {
-      "label": "运行类型",
-      "all": "全部",
-      "formal": "正式",
-      "preview": "预览"
-    },
     "groups": {
       "all": "全部",
       "failed": "失败",

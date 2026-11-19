@@ -4675,12 +4675,6 @@
       "streaming": "Streaming",
       "batch": "Batch"
     },
-    "runTypeFilter": {
-      "label": "Run type",
-      "all": "All",
-      "formal": "Formal",
-      "preview": "Preview"
-    },
     "groups": {
       "all": "All",
       "failed": "Failed",

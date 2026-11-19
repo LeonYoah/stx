@@ -60,8 +60,6 @@ export interface JobListQuery {
   statusGroup: SyncJobStatusGroup | '';
   /** 仅 global 预设暴露 / Exposed by the global preset only. */
   mode: 'streaming' | 'batch' | '';
-  /** 仅 task 预设暴露：formal → exclude_run_type=preview，preview → run_type=preview / Task preset only. */
-  runType: 'all' | 'formal' | 'preview';
   keyword: string;
   /** 仅 global / Global preset only. */
   clusterId?: number;
@@ -160,7 +158,6 @@ export const JOB_STATUS_GROUPS: SyncJobStatusGroup[] = [
 export const DEFAULT_JOB_LIST_QUERY: JobListQuery = {
   statusGroup: '',
   mode: '',
-  runType: 'all',
   keyword: '',
   clusterId: undefined,
   sort: 'started_at',

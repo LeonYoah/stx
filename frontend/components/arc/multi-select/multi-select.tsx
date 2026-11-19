@@ -51,6 +51,10 @@ export interface MultiSelectProps {
   defaultValue?: string[];
   onValueChange?: (value: string[]) => void;
   placeholder?: string;
+  // 本地修改：options 为空时菜单里展示一条说明，否则展开是一根空白条。
+  // Local modification: message row inside the menu when options is empty —
+  // without it the open menu renders as a bare empty strip.
+  emptyMessage?: string;
   description?: string;
   maxVisible?: number;
   disabled?: boolean;
@@ -89,7 +93,7 @@ function CheckMark({ reduce }: { reduce: boolean | null }) {
   </svg>;
 }
 
-export function MultiSelect({ label, options, value, defaultValue = [], onValueChange, placeholder = "Select options", description, maxVisible = 2, disabled = false, className }: MultiSelectProps) {
+export function MultiSelect({ label, options, value, defaultValue = [], onValueChange, placeholder = "Select options", emptyMessage, description, maxVisible = 2, disabled = false, className }: MultiSelectProps) {
   const id = useId();
   const labelId = `${id}-label`;
   const valueId = `${id}-value`;
@@ -159,6 +163,7 @@ export function MultiSelect({ label, options, value, defaultValue = [], onValueC
         initial={reduce ? { opacity: 0 } : { opacity: 0, y: -6, scale: .97 }}
         animate={{ opacity: 1, y: 0, scale: 1, transition: reduce ? { duration: motionTokens.duration.instant } : { ...motionTokens.spring.snappy, opacity: { duration: motionTokens.duration.fast, ease: enter } } }}
         exit={{ opacity: 0, ...(reduce ? {} : { y: -4, scale: .98 }), transition: { duration: motionTokens.duration.instant, ease: standard } }}>
+        {options.length === 0 ? <div className={styles.empty}>{emptyMessage ?? "No options"}</div> : null}
         {options.map((option, index) => <button type="button" role="option" aria-selected={selectedSet.has(option.value)} aria-disabled={option.disabled || undefined} key={option.value} className={styles.option} data-active={activeIndex === index} disabled={option.disabled} onPointerMove={() => { if (activeIndex !== index) {setActiveIndex(index);} }} onClick={() => toggle(option)}>
           <span>{option.label}</span><AnimatePresence initial={false}>{selectedSet.has(option.value) && <CheckMark key="check" reduce={reduce} />}</AnimatePresence>
         </button>)}

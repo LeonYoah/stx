@@ -218,6 +218,23 @@
      internal scroller on its own. */
 }
 
+/* 各列表的桌面栅格列挂在 data-mcols 选择器上，行内不再内联 --cols——
+   内联自定义属性优先级高于媒体查询，窄屏回退（底部 @media）会被压死。
+   Desktop grid tracks live on the data-mcols selector, never inline on rows:
+   an inline custom property beats the media-query fallback for narrow widths. */
+.listCol[data-mcols='rules'] :is(.row, .rowHead) {
+  --cols: 24px minmax(0, 1.6fr) 80px 110px minmax(0, 1fr) 72px 64px;
+}
+.listCol[data-mcols='job'] :is(.row, .rowHead) {
+  --cols: minmax(0, 1.4fr) minmax(0, 1fr) 64px;
+}
+.listCol[data-mcols='channels'] :is(.row, .rowHead) {
+  --cols: minmax(0, 1.5fr) 96px minmax(0, 1.2fr) 96px 64px;
+}
+.listCol[data-mcols='alerts'] :is(.row, .rowHead) {
+  --cols: 110px minmax(0, 1.6fr) 84px 88px minmax(0, 1fr) 96px 148px;
+}
+
 .rowHead {
   display: grid;
   grid-template-columns: var(--cols);
@@ -490,12 +507,11 @@
   background: var(--surface);
 }
 
-/* 嵌在详情面板内的分组：同心圆角 = 外框 − 4px（scope 下 10 − 4 = 6px）。
-   Nested inside the detail panel: concentric radius (panel minus 4px). */
+/* 嵌在详情面板内的分组：rail/抽屉本身已是唯一外框，分组只保留行分隔线，
+   不再叠内边框与底色（详情内不框套框）。
+   Nested inside the detail panel: the rail/drawer is the only frame; the group
+   keeps hairline row separators only — no nested border or fill. */
 .groupInner {
-  border: 1px solid var(--border);
-  border-radius: max(6px, calc(var(--radius-panel) - 4px));
-  background: var(--surface);
 }
 
 .groupHead {
@@ -780,10 +796,10 @@
   margin: 0;
 }
 
+/* 空态/错误提示在详情里用纯文字，不加虚线框（面板内不框套框）。
+   Empty/error hints stay plain text inside the panel — no dashed box. */
 .hintBox {
-  padding: 10px 12px;
-  border: 1px dashed var(--border);
-  border-radius: max(6px, calc(var(--radius-panel) - 4px));
+  padding: 4px 0;
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
@@ -882,15 +898,20 @@
   list-style: none;
 }
 
+/* 投递记录等明细行：详情面板内不用小框，行之间用 hairline 分隔。
+   Detail-list rows (e.g. deliveries): no boxed rows inside the panel,
+   hairline separators between rows. */
 .lineItem {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: max(6px, calc(var(--radius-panel) - 4px));
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
   font-size: var(--text-sm);
+}
+.lineItem:last-child {
+  border-bottom: 0;
 }
 
 /* ---------------- misc ---------------- */
@@ -1014,7 +1035,7 @@
     display: none;
   }
   .listCol[data-mcols='channels'] :is(.row, .rowHead) {
-    --cols: minmax(0, 1fr) 40px 104px;
+    --cols: minmax(0, 1fr) 40px;
   }
   .listCol[data-mcols='channels'] :is(.row, .rowHead) > :nth-child(2),
   .listCol[data-mcols='channels'] :is(.row, .rowHead) > :nth-child(3),

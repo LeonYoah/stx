@@ -6304,6 +6304,7 @@
     "secretKeepHint": "Leave empty to keep the saved secret",
     "rulesEmptyDesc": "The catalog holds built-in rules; add per-cluster exceptions as needed",
     "jobRulesEmptyDesc": "Job alert policies enabled from task settings appear here",
-    "channelsSearchLabel": "Search channels"
+    "channelsSearchLabel": "Search channels",
+    "selectEmpty": "No options available"
   }
 }

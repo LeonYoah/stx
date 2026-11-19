@@ -35,3 +35,5 @@
 .option:disabled { opacity: .42; cursor: not-allowed; }
 .check { flex: 0 0 auto; }
 @media (prefers-reduced-motion: reduce) { .trigger, .chevron, .option, .clear, .chip, .more { transition: none; } }
+/* 本地修改：空选项时的菜单内说明行。Local: empty-options message row. */
+.empty { padding: 6px 8px; color: var(--text-muted); font-size: var(--text-sm); }

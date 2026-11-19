@@ -90,8 +90,6 @@ const SILENCE_MINUTES = 30;
     Radix Select rejects empty-string option values; "all" uses a sentinel mapped back to ''. */
 const ALL_VALUE = '__all__';
 
-const ALERT_COLS = '110px minmax(0,1.6fr) 84px 88px minmax(0,1fr) 96px 148px';
-
 /** 列表筛选的 URL/请求参数键，写回 URL 时只动这组键避免踩到别的 tab 参数。 / Alert filter keys owned by this panel. */
 const FILTER_KEYS = [
   'scope',
@@ -757,7 +755,7 @@ export function AlertsPanel({
       </div>
 
       <div className={styles.split}>
-        <div className={styles.listCol}>
+        <div className={styles.listCol} data-mcols='alerts'>
           {/* 唯一主卡片：加载条/骨架/错误/空态/底部分页都由 TableCard 统一承载（§4.4）。
               The single main card: TableCard owns bar/skeleton/error/empty/pagination. */}
           <TableCard
@@ -807,11 +805,7 @@ export function AlertsPanel({
               onPageChange: (p) => writeFilters({page: p}, false),
             }}
           >
-            <div
-              className={cn(styles.rowHead, styles.tableArea)}
-              style={{'--cols': ALERT_COLS} as React.CSSProperties}
-              aria-hidden
-            >
+            <div className={cn(styles.rowHead, styles.tableArea)} aria-hidden>
               <span>{t('colStatus')}</span>
               <span>{t('colAlert')}</span>
               <span>{t('fieldSeverity')}</span>
@@ -845,7 +839,6 @@ export function AlertsPanel({
                       styles.row,
                       active?.alert_id === alert.alert_id && styles.rowActive,
                     )}
-                    style={{'--cols': ALERT_COLS} as React.CSSProperties}
                   >
                     <StatusCell status={rowStatus} t={t} />
                     <div className={styles.rowName}>

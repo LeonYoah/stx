@@ -391,6 +391,7 @@ export function RuleDetailPanel({
                     value={draft.channel_ids.map(String)}
                     onValueChange={(v) => setDraft((d) => ({...d, channel_ids: v.map(Number)}))}
                     placeholder={t('notifyChannelsPlaceholder')}
+                    emptyMessage={t('selectEmpty')}
                   />
                   <MultiSelect
                     label={t('notifyReceivers')}
@@ -398,6 +399,7 @@ export function RuleDetailPanel({
                     value={draft.receiver_user_ids.map(String)}
                     onValueChange={(v) => setDraft((d) => ({...d, receiver_user_ids: v.map(Number)}))}
                     placeholder={t('notifyReceiversPlaceholder')}
+                    emptyMessage={t('selectEmpty')}
                   />
                   {customMissingChannel ? (
                     <p className={cn(styles.rowHint, styles.dangerText)}>
@@ -762,6 +764,7 @@ function OverrideEditor({
                 value={(draft.channel_ids ?? []).map(String)}
                 onValueChange={(v) => setDraft((d) => ({...d, channel_ids: v.map(Number)}))}
                 placeholder={t('notifyChannelsPlaceholder')}
+                emptyMessage={t('selectEmpty')}
               />
               <MultiSelect
                 label={t('notifyReceivers')}
@@ -769,6 +772,7 @@ function OverrideEditor({
                 value={(draft.receiver_user_ids ?? []).map(String)}
                 onValueChange={(v) => setDraft((d) => ({...d, receiver_user_ids: v.map(Number)}))}
                 placeholder={t('notifyReceiversPlaceholder')}
+                emptyMessage={t('selectEmpty')}
               />
               {missing ? <p className={cn(styles.rowHint, styles.dangerText)}>{t('notifyMissingForCritical')}</p> : null}
             </div>

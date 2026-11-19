@@ -26,7 +26,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 import {useLocale, useTranslations} from 'next-intl';
-import {ArrowDownWideNarrow, Check, Undo2, X} from 'lucide-react';
+import {ArrowDownWideNarrow, Check, LayoutGrid, List, Undo2, X} from 'lucide-react';
 import {Alert} from '@/components/arc/alert/alert';
 import {SeverityChip} from '../status-chips';
 import {Button} from '@/components/arc/button/button';
@@ -59,8 +59,6 @@ export interface RulesPanelProps {
 
 type RuleStatusFilter = 'all' | 'enabled' | 'disabled' | 'exceptions';
 type RuleSort = 'default' | 'name' | 'severity';
-
-const RULE_COLS = '24px minmax(0,1.6fr) 80px 110px minmax(0,1fr) 72px 64px';
 
 /** 整层替换 PUT 的体：raw 层字段原样回传，调用方只覆盖要改的字段。 / Whole-layer PUT body builder. */
 export function layerBody(
@@ -496,8 +494,16 @@ export function RulesPanel({
                 value={view}
                 onValueChange={setView}
                 options={[
-                  {value: 'list', label: t('viewList')},
-                  {value: 'grid', label: t('viewGrid')},
+                  {
+                    value: 'list',
+                    label: <List className='size-4' aria-hidden />,
+                    ariaLabel: t('viewList'),
+                  },
+                  {
+                    value: 'grid',
+                    label: <LayoutGrid className='size-4' aria-hidden />,
+                    ariaLabel: t('viewGrid'),
+                  },
                 ]}
               />
             </div>
@@ -713,11 +719,7 @@ function RuleListView({
 
   return (
     <>
-      <div
-        className={styles.rowHead}
-        style={{'--cols': RULE_COLS} as React.CSSProperties}
-        aria-hidden
-      >
+      <div className={styles.rowHead} aria-hidden>
         <span />
         <span>{t('colRule')}</span>
         <span>{t('fieldSeverity')}</span>
@@ -756,7 +758,6 @@ function RuleListView({
                 activeKey === rule.key && styles.rowActive,
                 !rule.enabled && styles.rowMuted,
               )}
-              style={{'--cols': RULE_COLS} as React.CSSProperties}
             >
               <Checkbox
                 checked={selected.has(rule.key)}

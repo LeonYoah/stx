@@ -6304,6 +6304,7 @@
     "secretKeepHint": "留空表示不修改已保存的密钥",
     "rulesEmptyDesc": "规则目录只包含内置规则；可按集群加例外",
     "jobRulesEmptyDesc": "在任务设置里开启作业告警策略后会出现在这里",
-    "channelsSearchLabel": "搜索渠道"
+    "channelsSearchLabel": "搜索渠道",
+    "selectEmpty": "暂无可选项"
   }
 }

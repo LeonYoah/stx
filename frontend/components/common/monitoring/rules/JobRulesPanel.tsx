@@ -50,8 +50,6 @@ import {DiscardConfirmStrip, useBeforeUnload} from '../dirty-close';
 import {DetailHost, useDetailNarrow} from '../detail-host';
 import styles from '../monitoring.module.css';
 
-const JOB_COLS = 'minmax(0,1.4fr) minmax(0,1fr) 64px';
-
 type JobStatusFilter = 'all' | 'enabled' | 'disabled';
 
 export function JobRulesPanel() {
@@ -412,11 +410,7 @@ export function JobRulesPanel() {
             />
           }
         >
-          <div
-            className={styles.rowHead}
-            style={{'--cols': JOB_COLS} as React.CSSProperties}
-            aria-hidden
-          >
+          <div className={styles.rowHead} aria-hidden>
             <span>{t('jobColTask')}</span>
             <span>{t('colAlert')}</span>
             <span className={styles.right}>{t('fieldEnabled')}</span>
@@ -445,7 +439,6 @@ export function JobRulesPanel() {
                   editing?.taskId === policy.task_id && styles.rowActive,
                   !policy.enabled && styles.rowMuted,
                 )}
-                style={{'--cols': JOB_COLS} as React.CSSProperties}
               >
                 <div className={styles.rowName}>
                   <span className={cn(styles.name, styles.mono)}>

@@ -27,8 +27,10 @@
  */
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
+import {Trash2} from 'lucide-react';
 import {DeliveryChip} from '../status-chips';
 import {Button} from '@/components/arc/button/button';
+import ConfirmMorph from '@/components/arc/confirm-morph/confirm-morph';
 import {Input} from '@/components/arc/input/input';
 import {Select} from '@/components/arc/select/select';
 import {Switch} from '@/components/arc/switch/switch';
@@ -48,6 +50,7 @@ export function ChannelDrawerBody({
   channel,
   onSaved,
   onCancel,
+  onDelete,
   onDirtyChange,
   discardArmed,
   onDiscard,
@@ -55,6 +58,8 @@ export function ChannelDrawerBody({
 }: {
   channel: NotificationChannel | null;
   onSaved: () => void;
+  /** 已有渠道的删除入口（详情页内承载破坏性操作）。Delete entry for an existing channel. */
+  onDelete?: () => Promise<void>;
   onCancel: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   discardArmed?: boolean;
@@ -221,6 +226,20 @@ export function ChannelDrawerBody({
           <Button type='button' size='sm' variant='ghost' onClick={onCancel}>
             {t('close')}
           </Button>
+          {channel && onDelete ? (
+            <>
+              <span className={styles.detailFootGrow} />
+              <ConfirmMorph
+                label={t('deleteChannel')}
+                icon={<Trash2 className='size-3.5' aria-hidden />}
+                prompt={t('deleteChannelPrompt')}
+                confirmLabel={t('deleteConfirm')}
+                cancelLabel={t('deleteCancel')}
+                pendingLabel={t('saving')}
+                onConfirm={onDelete}
+              />
+            </>
+          ) : null}
         </div>
       )}
     </div>

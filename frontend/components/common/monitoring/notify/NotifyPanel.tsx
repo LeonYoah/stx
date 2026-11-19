@@ -23,14 +23,13 @@
  * list-page layout (search + type filter + table + detail rail / drawer).
  * 通知面板：默认通知 = 设置分组（渠道/接收人/冷却/恢复通知 四行，左标签右控件，
  * 保存在分组标题行右侧）；渠道列表按列表页版式（搜索 + 类型筛选 + 表格 +
- * 常驻详情栏 / 抽屉），行内测试与 ConfirmMorph 删除。
+ * 常驻详情栏 / 抽屉），行内测试与启用开关，删除收敛进详情抽屉。
  */
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Pencil, Plus, Trash2} from 'lucide-react';
+import {Plus} from 'lucide-react';
 import {NeutralChip, SoftChip} from '../status-chips';
 import {Button} from '@/components/arc/button/button';
-import ConfirmMorph from '@/components/arc/confirm-morph/confirm-morph';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {MultiSelect} from '@/components/arc/multi-select/multi-select';
@@ -51,8 +50,6 @@ import {useBeforeUnload} from '../dirty-close';
 import {DetailHost, useDetailNarrow} from '../detail-host';
 import styles from '../monitoring.module.css';
 
-const CHANNEL_COLS =
-  'minmax(0,1.5fr) 96px minmax(0,1.2fr) 96px minmax(0,1fr) 64px';
 const CHANNEL_TYPES = ['webhook', 'email', 'dingtalk', 'wecom', 'feishu'];
 /** Radix Select 不允许空字符串选项值，「全部」用哨兵值再映射回 ''。 / Sentinel for "all" (Radix rejects ''). */
 const ALL_VALUE = '__all__';
@@ -424,6 +421,7 @@ export function NotifyPanel() {
                     setDefaults((d) => ({...d, channel_ids: v.map(Number)}))
                   }
                   placeholder={t('notifyChannelsPlaceholder')}
+                  emptyMessage={t('selectEmpty')}
                 />
               </div>
             </div>
@@ -440,6 +438,7 @@ export function NotifyPanel() {
                     }))
                   }
                   placeholder={t('notifyReceiversPlaceholder')}
+                  emptyMessage={t('selectEmpty')}
                 />
               </div>
             </div>
@@ -555,17 +554,12 @@ export function NotifyPanel() {
                 />
               }
             >
-              <div
-                className={styles.rowHead}
-                style={{'--cols': CHANNEL_COLS} as React.CSSProperties}
-                aria-hidden
-              >
+              <div className={styles.rowHead} aria-hidden>
                 <span>{t('channelName')}</span>
                 <span>{t('channelTypeLabel')}</span>
                 <span>{t('channelTarget')}</span>
                 <span>{t('testChannel')}</span>
                 <span className={styles.right}>{t('fieldEnabled')}</span>
-                <span />
               </div>
               <div className={styles.tableScroll}>
                 {filtered.map((c) => (
@@ -591,7 +585,6 @@ export function NotifyPanel() {
                       editKey === c.id && styles.rowActive,
                       !c.enabled && styles.rowMuted,
                     )}
-                    style={{'--cols': CHANNEL_COLS} as React.CSSProperties}
                   >
                     <div className={styles.rowName}>
                       <span className={styles.name} title={c.name}>
@@ -642,29 +635,6 @@ export function NotifyPanel() {
                         aria-label={t('fieldEnabled')}
                       />
                     </div>
-                    <div className={styles.rowActions}>
-                      <Button
-                        type='button'
-                        variant='ghost'
-                        size='sm'
-                        iconOnly
-                        aria-label={t('editChannel')}
-                        onClick={() => requestEdit(c.id)}
-                      >
-                        <Pencil className='size-3.5' aria-hidden />
-                      </Button>
-                      <span onClick={(e) => e.stopPropagation()}>
-                        <ConfirmMorph
-                          label={t('deleteChannel')}
-                          icon={<Trash2 className='size-3.5' aria-hidden />}
-                          prompt={t('deleteChannelPrompt')}
-                          confirmLabel={t('deleteConfirm')}
-                          cancelLabel={t('deleteCancel')}
-                          pendingLabel={t('saving')}
-                          onConfirm={() => deleteChannel(c.id)}
-                        />
-                      </span>
-                    </div>
                   </div>
                 ))}
               </div>
@@ -685,6 +655,15 @@ export function NotifyPanel() {
               <ChannelDrawerBody
                 key={String(editKey)}
                 channel={editKey === '__new__' ? null : editingChannel}
+                onDelete={
+                  editingChannel
+                    ? async () => {
+                        await deleteChannel(editingChannel.id);
+                        setEditKey(null);
+                        setChannelDirty(false);
+                      }
+                    : undefined
+                }
                 onSaved={async () => {
                   setEditKey(null);
                   setChannelDirty(false);

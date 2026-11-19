@@ -414,7 +414,7 @@ pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
 
   | 场景 | 组件 |
   |---|---|
-  | 少量选项的下拉 | Arc `Select`；选项 ≤4 个且互斥的筛选用 `SegmentedControl` |
+  | 少量选项的下拉 | Arc `Select`；2–5 个短选项且互斥的筛选用 `SegmentedControl`（与 §3 一致），选项会随数据增加时仍用 `Select` |
   | 可搜索下拉（选项 >10 个，或来自数量不固定的数据，如主机、用户、插件） | Arc `Combobox` |
   | 行内"更多" | Arc `Button` ghost + `iconOnly` 做触发器，Arc `DropdownMenu` 做菜单；单行动作 ≤2 个时直接摆按钮 |
   | 菜单里的危险项 | `destructive`，点了再走 `AlertDialog`，不直接执行 |

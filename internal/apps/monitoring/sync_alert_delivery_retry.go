@@ -348,11 +348,22 @@ func (h *SyncAlertHub) retrySyncAlertDelivery(ctx context.Context, delivery *Not
 		if firing != nil {
 			return false, h.cancelDeliveryRetry(ctx, delivery, "alert is firing again")
 		}
-		if policy, err = h.loadRetryPolicy(ctx, delivery); err != nil || policy == nil {
-			return false, err
-		}
-		if !policy.SendRecovery {
-			return false, h.cancelDeliveryRetry(ctx, delivery, "recovery notifications are off")
+		if episode.Scope == SyncAlertEpisodeScopeCluster {
+			rule, ruleErr := h.clusterRule(ctx, episode.ClusterID, episode.RuleKey)
+			if ruleErr != nil {
+				return false, ruleErr
+			}
+			if !rule.deliversExternally() || !rule.SendRecovery {
+				return false, h.cancelDeliveryRetry(ctx, delivery, "cluster alert rule is disabled")
+			}
+			policy = rule.deliveryPolicy()
+		} else {
+			if policy, err = h.loadRetryPolicy(ctx, delivery); err != nil || policy == nil {
+				return false, err
+			}
+			if !policy.SendRecovery {
+				return false, h.cancelDeliveryRetry(ctx, delivery, "recovery notifications are off")
+			}
 		}
 	default:
 		return false, h.cancelDeliveryRetry(ctx, delivery, "event type is not retried")
@@ -501,37 +512,31 @@ func (h *SyncAlertHub) loadRetryPolicy(ctx context.Context, delivery *Notificati
 // policy with the rule selected; for clusters the cluster rule must be enabled and the policy still bound to it.
 // Otherwise the row is canceled and nil is returned.
 func (h *SyncAlertHub) retryFiringPolicy(ctx context.Context, episode *SyncAlertEpisode, delivery *NotificationDelivery) (*AlertPolicy, error) {
+	if episode.Scope == SyncAlertEpisodeScopeCluster {
+		// 集群级投递的策略载体是解析时合成的（PolicyID=0），重试时重新解析规则而不是查策略表。
+		// Cluster deliveries carry a synthesized policy (PolicyID=0), so retries re-resolve the
+		// rule instead of looking the policy table up.
+		rule, err := h.clusterRule(ctx, episode.ClusterID, episode.RuleKey)
+		if err != nil {
+			return nil, err
+		}
+		if !rule.deliversExternally() {
+			return nil, h.cancelDeliveryRetry(ctx, delivery, "cluster alert rule is disabled")
+		}
+		return rule.deliveryPolicy(), nil
+	}
 	policy, err := h.loadRetryPolicy(ctx, delivery)
 	if err != nil || policy == nil {
 		return nil, err
 	}
-	if episode.Scope == SyncAlertEpisodeScopeTask {
-		current, err := h.service.repo.GetSyncJobAlertPolicyByTaskID(ctx, episode.TaskID)
-		if err != nil {
-			return nil, err
-		}
-		if current == nil || current.ID != policy.ID || !syncJobPolicyHasRule(current, episode.RuleKey) {
-			return nil, h.cancelDeliveryRetry(ctx, delivery, "alert policy no longer covers the rule")
-		}
-		return current, nil
-	}
-	rule, err := h.clusterRule(ctx, episode.ClusterID, episode.RuleKey)
+	current, err := h.service.repo.GetSyncJobAlertPolicyByTaskID(ctx, episode.TaskID)
 	if err != nil {
 		return nil, err
 	}
-	if rule == nil || !rule.Enabled {
-		return nil, h.cancelDeliveryRetry(ctx, delivery, "cluster alert rule is disabled")
+	if current == nil || current.ID != policy.ID || !syncJobPolicyHasRule(current, episode.RuleKey) {
+		return nil, h.cancelDeliveryRetry(ctx, delivery, "alert policy no longer covers the rule")
 	}
-	policies, err := h.clusterPolicies(ctx, episode.ClusterID, episode.RuleKey)
-	if err != nil {
-		return nil, err
-	}
-	for _, candidate := range policies {
-		if candidate != nil && candidate.ID == policy.ID {
-			return candidate, nil
-		}
-	}
-	return nil, h.cancelDeliveryRetry(ctx, delivery, "alert policy no longer covers the rule")
+	return current, nil
 }
 
 // alertPolicyHasChannel 判断渠道是否仍绑定在策略上。

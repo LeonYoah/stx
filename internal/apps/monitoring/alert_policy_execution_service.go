@@ -88,12 +88,14 @@ func (s *Service) DispatchAlertPolicyEvent(ctx context.Context, event *monitor.P
 		return nil
 	}
 
-	clusterID := strconv.FormatUint(uint64(event.ClusterID), 10)
-	policies, err := s.repo.ListEnabledAlertPoliciesByClusterAndLegacyRuleKey(ctx, clusterID, ruleKey)
+	// 事件类规则收敛到集群规则目录：未启用或不满足外投条件（warning / 无渠道）时直接丢弃。
+	// Event rules now resolve through the cluster rule catalog; disabled rules or rules that
+	// must not deliver externally (warning / no channel) are dropped.
+	rule, err := s.ResolveClusterRule(ctx, ruleKey, event.ClusterID)
 	if err != nil {
 		return err
 	}
-	if len(policies) == 0 {
+	if !rule.deliversExternally() {
 		return nil
 	}
 
@@ -117,32 +119,8 @@ func (s *Service) DispatchAlertPolicyEvent(ctx context.Context, event *monitor.P
 		channelMap[channel.ID] = channel
 	}
 
-	matchedAt := localAlertPolicyMatchedAt(event)
-	var dispatchErrs []error
-	for _, policy := range policies {
-		if policy == nil {
-			continue
-		}
-
-		summary, err := s.dispatchLocalAlertPolicy(ctx, event, clusterName, policy, channelMap)
-		if err != nil {
-			dispatchErrs = append(dispatchErrs, err)
-		}
-
-		stateUpdate := &AlertPolicyExecutionStateUpdate{
-			MatchCountDelta:     1,
-			DeliveryCountDelta:  summary.DeliveryCountDelta,
-			LastMatchedAt:       &matchedAt,
-			LastDeliveredAt:     summary.LastDeliveredAt,
-			LastExecutionStatus: summary.LastExecutionStatus,
-			LastExecutionError:  strings.TrimSpace(summary.LastExecutionError),
-		}
-		if err := s.repo.ApplyAlertPolicyExecutionState(ctx, policy.ID, stateUpdate); err != nil {
-			dispatchErrs = append(dispatchErrs, err)
-		}
-	}
-
-	return errors.Join(dispatchErrs...)
+	_, err = s.dispatchLocalAlertPolicy(ctx, event, clusterName, rule.deliveryPolicy(), channelMap)
+	return err
 }
 
 func (s *Service) dispatchLocalAlertPolicyReminder(
@@ -175,15 +153,11 @@ func (s *Service) DispatchActiveNodeOfflineReminder(
 		return nil
 	}
 
-	policies, err := s.repo.ListEnabledAlertPoliciesByClusterAndLegacyRuleKey(
-		ctx,
-		strconv.FormatUint(uint64(clusterID), 10),
-		AlertRuleKeyNodeOffline,
-	)
+	rule, err := s.ResolveClusterRule(ctx, AlertRuleKeyNodeOffline, clusterID)
 	if err != nil {
 		return err
 	}
-	if len(policies) == 0 {
+	if !rule.deliversExternally() {
 		return nil
 	}
 
@@ -199,35 +173,14 @@ func (s *Service) DispatchActiveNodeOfflineReminder(
 		channelMap[channel.ID] = channel
 	}
 
-	var dispatchErrs []error
-	for _, policy := range policies {
-		if policy == nil {
-			continue
-		}
-
-		summary, err := s.dispatchLocalAlertPolicyReminder(
-			ctx,
-			sourceEvent,
-			clusterName,
-			policy,
-			channelMap,
-		)
-		if err != nil {
-			dispatchErrs = append(dispatchErrs, err)
-		}
-
-		stateUpdate := &AlertPolicyExecutionStateUpdate{
-			DeliveryCountDelta:  summary.DeliveryCountDelta,
-			LastDeliveredAt:     summary.LastDeliveredAt,
-			LastExecutionStatus: summary.LastExecutionStatus,
-			LastExecutionError:  strings.TrimSpace(summary.LastExecutionError),
-		}
-		if err := s.repo.ApplyAlertPolicyExecutionState(ctx, policy.ID, stateUpdate); err != nil {
-			dispatchErrs = append(dispatchErrs, err)
-		}
-	}
-
-	return errors.Join(dispatchErrs...)
+	_, err = s.dispatchLocalAlertPolicyReminder(
+		ctx,
+		sourceEvent,
+		clusterName,
+		rule.deliveryPolicy(),
+		channelMap,
+	)
+	return err
 }
 
 func (s *Service) dispatchLocalResolvedAlertPolicyEvent(ctx context.Context, recoveryEvent *monitor.ProcessEvent) error {
@@ -243,12 +196,11 @@ func (s *Service) dispatchLocalResolvedAlertPolicyEvent(ctx context.Context, rec
 		return nil
 	}
 
-	clusterID := strconv.FormatUint(uint64(sourceEvent.ClusterID), 10)
-	policies, err := s.repo.ListEnabledAlertPoliciesByClusterAndLegacyRuleKey(ctx, clusterID, AlertRuleKeyNodeOffline)
+	rule, err := s.ResolveClusterRule(ctx, AlertRuleKeyNodeOffline, sourceEvent.ClusterID)
 	if err != nil {
 		return err
 	}
-	if len(policies) == 0 {
+	if !rule.deliversExternally() || !rule.SendRecovery {
 		return nil
 	}
 
@@ -272,29 +224,8 @@ func (s *Service) dispatchLocalResolvedAlertPolicyEvent(ctx context.Context, rec
 		channelMap[channel.ID] = channel
 	}
 
-	var dispatchErrs []error
-	for _, policy := range policies {
-		if policy == nil || !policy.SendRecovery {
-			continue
-		}
-
-		summary, err := s.dispatchLocalResolvedAlertPolicy(ctx, sourceEvent, recoveryEvent, clusterName, policy, channelMap)
-		if err != nil {
-			dispatchErrs = append(dispatchErrs, err)
-		}
-
-		stateUpdate := &AlertPolicyExecutionStateUpdate{
-			DeliveryCountDelta:  summary.DeliveryCountDelta,
-			LastDeliveredAt:     summary.LastDeliveredAt,
-			LastExecutionStatus: summary.LastExecutionStatus,
-			LastExecutionError:  strings.TrimSpace(summary.LastExecutionError),
-		}
-		if err := s.repo.ApplyAlertPolicyExecutionState(ctx, policy.ID, stateUpdate); err != nil {
-			dispatchErrs = append(dispatchErrs, err)
-		}
-	}
-
-	return errors.Join(dispatchErrs...)
+	_, err = s.dispatchLocalResolvedAlertPolicy(ctx, sourceEvent, recoveryEvent, clusterName, rule.deliveryPolicy(), channelMap)
+	return err
 }
 
 func (s *Service) resolveLocalRecoveredAlertSourceEvent(ctx context.Context, recoveryEvent *monitor.ProcessEvent) (*monitor.ProcessEvent, error) {
@@ -359,7 +290,7 @@ func (s *Service) dispatchLocalResolvedAlertPolicy(
 // that builds the per-channel body. Local process events and sync job alerts both build one and then share the same
 // delivery path (dedupe, cooldown resend, silence, close, recovery precondition).
 type alertMessage struct {
-	SourceType  AlertSourceType
+	SourceType AlertSourceType
 	// Kind 是消息的存储种类，用于退避重试这类只看存储表的分支判断，不能用类别代替
 	// （集群级作业规则归 platform_health 后按类别判断会丢掉 sync 的退避重试）。
 	// Kind is the storage kind of the message, for branches that care about the backing
@@ -489,13 +420,6 @@ func summarizeAlertPolicyExecutionStatus(summary alertPolicyDispatchSummary) Ale
 	default:
 		return AlertPolicyExecutionStatusMatched
 	}
-}
-
-func localAlertPolicyMatchedAt(event *monitor.ProcessEvent) time.Time {
-	if event == nil || event.CreatedAt.IsZero() {
-		return timeNowUTC()
-	}
-	return event.CreatedAt.UTC()
 }
 
 func laterUTCTimePointer(current *time.Time, candidate *time.Time) *time.Time {
@@ -847,26 +771,23 @@ func buildLocalAlertPolicyPayload(
 	title := buildLocalAlertPolicyMessageTitle(sourceEvent, policy, deliveryEventType)
 	message := buildLocalAlertPolicyMessageText(sourceEvent, recoveryEvent, clusterName, policy, deliveryEventType)
 	alert := map[string]interface{}{
-		"source_type":     AlertSourceTypePlatformHealth,
-		"source_key":      buildLocalAlertSourceKey(sourceEvent.ID),
-		"event_type":      sourceEvent.EventType,
-		"status":          strings.ToLower(string(deliveryEventType)),
-		"policy_id":       policy.ID,
-		"policy_name":     strings.TrimSpace(policy.Name),
-		"policy_type":     policy.PolicyType,
-		"template_key":    strings.TrimSpace(policy.TemplateKey),
-		"legacy_rule_key": strings.TrimSpace(policy.LegacyRuleKey),
-		"severity":        policy.Severity,
-		"cluster_id":      strconv.FormatUint(uint64(sourceEvent.ClusterID), 10),
-		"cluster_name":    strings.TrimSpace(clusterName),
-		"node_id":         sourceEvent.NodeID,
-		"host_id":         sourceEvent.HostID,
-		"process_name":    strings.TrimSpace(sourceEvent.ProcessName),
-		"pid":             sourceEvent.PID,
-		"role":            strings.TrimSpace(sourceEvent.Role),
-		"event_id":        sourceEvent.ID,
-		"fired_at":        sourceEvent.CreatedAt.UTC().Format(time.RFC3339),
-		"details":         parseLocalAlertPolicyDetails(sourceEvent.Details),
+		"source_type":  AlertSourceTypePlatformHealth,
+		"source_key":   buildLocalAlertSourceKey(sourceEvent.ID),
+		"event_type":   sourceEvent.EventType,
+		"status":       strings.ToLower(string(deliveryEventType)),
+		"rule_key":     strings.TrimSpace(policy.LegacyRuleKey),
+		"policy_name":  strings.TrimSpace(policy.Name),
+		"severity":     policy.Severity,
+		"cluster_id":   strconv.FormatUint(uint64(sourceEvent.ClusterID), 10),
+		"cluster_name": strings.TrimSpace(clusterName),
+		"node_id":      sourceEvent.NodeID,
+		"host_id":      sourceEvent.HostID,
+		"process_name": strings.TrimSpace(sourceEvent.ProcessName),
+		"pid":          sourceEvent.PID,
+		"role":         strings.TrimSpace(sourceEvent.Role),
+		"event_id":     sourceEvent.ID,
+		"fired_at":     sourceEvent.CreatedAt.UTC().Format(time.RFC3339),
+		"details":      parseLocalAlertPolicyDetails(sourceEvent.Details),
 	}
 	if recoveryEvent != nil {
 		alert["resolved_at"] = recoveryEvent.CreatedAt.UTC().Format(time.RFC3339)

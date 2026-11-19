@@ -514,22 +514,23 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 		return nil, err
 	}
 
-	ruleCache := make(map[uint]map[string]*AlertRule)
+	ruleCache := make(map[string]*resolvedRuleConfig)
 	items := make([]*AlertInstance, 0, len(rows))
 	for _, row := range rows {
 		if row == nil {
 			continue
 		}
 
-		rules, err := s.getClusterRuleMap(ctx, row.ClusterID, ruleCache)
-		if err != nil {
-			return nil, err
-		}
-
 		ruleKey := eventTypeToRuleKey(row.EventType)
-		rule := rules[ruleKey]
-		if rule == nil {
-			rule = defaultRuleByKey(row.ClusterID, ruleKey)
+		cacheKey := strconv.FormatUint(uint64(row.ClusterID), 10) + "|" + ruleKey
+		rule, ok := ruleCache[cacheKey]
+		if !ok {
+			resolved, err := s.ResolveClusterRule(ctx, ruleKey, row.ClusterID)
+			if err != nil {
+				return nil, err
+			}
+			rule = resolved
+			ruleCache[cacheKey] = rule
 		}
 		if rule == nil || !rule.Enabled {
 			continue
@@ -566,15 +567,19 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 			lastSeenAt = resolvedAt.UTC()
 		}
 
+		ruleName := ""
+		if rule.Definition != nil {
+			ruleName = strings.TrimSpace(rule.Definition.Name)
+		}
 		item := &AlertInstance{
 			AlertID:         sourceKey,
 			SourceType:      AlertSourceTypePlatformHealth,
 			ClusterID:       strconv.FormatUint(uint64(row.ClusterID), 10),
 			ClusterName:     strings.TrimSpace(row.ClusterName),
 			Severity:        rule.Severity,
-			AlertName:       strings.TrimSpace(rule.RuleName),
+			AlertName:       ruleName,
 			RuleKey:         strings.TrimSpace(rule.RuleKey),
-			Summary:         buildLocalAlertSummary(row, rule),
+			Summary:         buildLocalAlertSummary(row, ruleName),
 			Description:     strings.TrimSpace(row.Details),
 			Status:          displayStatus,
 			LifecycleStatus: lifecycleStatus,
@@ -1119,15 +1124,12 @@ func alertDisplayStatusWeight(status AlertDisplayStatus) int {
 	}
 }
 
-func buildLocalAlertSummary(row *AlertEventSource, rule *AlertRule) string {
+func buildLocalAlertSummary(row *AlertEventSource, ruleName string) string {
 	if row == nil {
 		return ""
 	}
 
-	base := ""
-	if rule != nil {
-		base = strings.TrimSpace(rule.RuleName)
-	}
+	base := strings.TrimSpace(ruleName)
 	if row.EventType == monitor.EventTypeClusterRestartRequested {
 		switch {
 		case base != "" && strings.TrimSpace(row.ClusterName) != "":

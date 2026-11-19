@@ -59,6 +59,9 @@ func setupMonitoringNotificationTestDB(t *testing.T) (*gorm.DB, func()) {
 		&NotificationRoute{},
 		&NotificationDelivery{},
 		&RemoteAlertRecord{},
+		&ClusterRuleConfig{},
+		&ClusterRuleOverride{},
+		&AlertNotificationDefaults{},
 		&SyncAlertEpisode{},
 		&auth.User{},
 	); err != nil {
@@ -105,23 +108,19 @@ func TestService_IngestRemoteAlertRecord_dispatchesAndDeduplicatesRemoteNotifica
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	route := &NotificationRoute{
-		Name:               "remote critical",
-		Enabled:            true,
-		SourceType:         string(AlertSourceTypeMetric),
-		Severity:           "critical",
-		ChannelID:          channel.ID,
-		SendResolved:       false,
-		MuteIfAcknowledged: true,
-		MuteIfSilenced:     true,
-	}
-	if err := repo.CreateNotificationRoute(ctx, route); err != nil {
-		t.Fatalf("failed to create notification route: %v", err)
+	// managed 规则投递：critical + 自定义渠道才满足外投；默认通知的 send_recovery=false 先挡住恢复。
+	// Managed rule delivery: critical + custom channels qualify for external delivery; the
+	// default notification's send_recovery=false blocks recovery first.
+	enableClusterRuleForDelivery(t, service, ctx, "cpu_usage_high", []uint{channel.ID})
+	if _, err := service.SaveAlertNotificationDefaults(ctx, nil, nil, 0, false); err != nil {
+		t.Fatalf("failed to save default notification: %v", err)
 	}
 
 	startsAt := time.Date(2026, 3, 8, 10, 0, 0, 0, time.UTC)
 	labels := map[string]string{
 		"alertname":    "HighCpuUsage",
+		"managed_by":   "stx",
+		"rule_key":     "cpu_usage_high",
 		"severity":     "critical",
 		"cluster_id":   "6",
 		"cluster_name": "alpha",
@@ -219,9 +218,8 @@ func TestService_IngestRemoteAlertRecord_dispatchesAndDeduplicatesRemoteNotifica
 		t.Fatalf("expected resolved delivery to be skipped when send_resolved=false, got hit count %d", got)
 	}
 
-	route.SendResolved = true
-	if err := repo.SaveNotificationRoute(ctx, route); err != nil {
-		t.Fatalf("failed to enable send_resolved: %v", err)
+	if _, err := service.SaveAlertNotificationDefaults(ctx, nil, nil, 0, true); err != nil {
+		t.Fatalf("failed to enable send_recovery: %v", err)
 	}
 
 	if err := service.ingestRemoteAlertRecord(ctx, resolvedRecord); err != nil {
@@ -243,7 +241,7 @@ func TestService_IngestRemoteAlertRecord_dispatchesAndDeduplicatesRemoteNotifica
 	}
 }
 
-func TestService_IngestRemoteAlertRecord_skipsMutedAcknowledgedRemoteAlert(t *testing.T) {
+func TestService_IngestRemoteAlertRecord_skipsSilencedManagedRemoteAlert(t *testing.T) {
 	database, cleanup := setupMonitoringNotificationTestDB(t)
 	defer cleanup()
 
@@ -268,30 +266,19 @@ func TestService_IngestRemoteAlertRecord_skipsMutedAcknowledgedRemoteAlert(t *te
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	route := &NotificationRoute{
-		Name:               "remote all",
-		Enabled:            true,
-		SourceType:         string(AlertSourceTypeMetric),
-		ChannelID:          channel.ID,
-		SendResolved:       true,
-		MuteIfAcknowledged: true,
-		MuteIfSilenced:     true,
-	}
-	if err := repo.CreateNotificationRoute(ctx, route); err != nil {
-		t.Fatalf("failed to create notification route: %v", err)
-	}
+	enableClusterRuleForDelivery(t, service, ctx, "cpu_usage_high", []uint{channel.ID})
 
 	startsAt := time.Date(2026, 3, 8, 11, 0, 0, 0, time.UTC)
 	sourceKey := buildRemoteAlertSourceKey("fp-ack", startsAt.Unix())
+	silencedUntil := time.Now().Add(time.Hour).UTC()
 	if err := repo.SaveAlertState(ctx, &AlertState{
 		SourceType:     AlertSourceTypeMetric,
 		SourceKey:      sourceKey,
 		ClusterID:      "6",
-		HandlingStatus: AlertHandlingStatusAcknowledged,
-		AcknowledgedBy: "tester",
-		AcknowledgedAt: func() *time.Time { t := time.Now().UTC(); return &t }(),
+		HandlingStatus: AlertHandlingStatusSilenced,
+		SilencedUntil:  &silencedUntil,
 	}); err != nil {
-		t.Fatalf("failed to save acknowledged state: %v", err)
+		t.Fatalf("failed to save silenced state: %v", err)
 	}
 
 	record := &RemoteAlertRecord{
@@ -299,14 +286,16 @@ func TestService_IngestRemoteAlertRecord_skipsMutedAcknowledgedRemoteAlert(t *te
 		StartsAt:    startsAt.Unix(),
 		Status:      "firing",
 		Receiver:    "ops",
-		AlertName:   "DiskFull",
-		Severity:    "warning",
+		AlertName:   "cpu_usage_high",
+		Severity:    "critical",
 		ClusterID:   "6",
 		ClusterName: "alpha",
 		Summary:     "Disk usage is high",
 		LabelsJSON: mustMarshalJSON(map[string]string{
-			"alertname":    "DiskFull",
-			"severity":     "warning",
+			"alertname":    "cpu_usage_high",
+			"managed_by":   "stx",
+			"rule_key":     "cpu_usage_high",
+			"severity":     "critical",
 			"cluster_id":   "6",
 			"cluster_name": "alpha",
 		}),
@@ -318,7 +307,7 @@ func TestService_IngestRemoteAlertRecord_skipsMutedAcknowledgedRemoteAlert(t *te
 		t.Fatalf("ingestRemoteAlertRecord returned error: %v", err)
 	}
 	if got := hitCount.Load(); got != 0 {
-		t.Fatalf("expected acknowledged alert to be muted, got hit count %d", got)
+		t.Fatalf("expected silenced alert to be muted, got hit count %d", got)
 	}
 
 	var deliveryCount int64
@@ -379,31 +368,25 @@ func TestService_IngestRemoteAlertRecord_dispatchesManagedMetricPolicyFiringAndR
 		t.Fatalf("failed to marshal receiver user ids: %v", err)
 	}
 
-	policy := &AlertPolicy{
-		Name:                       "内存 0.5",
-		Description:                "堆内存持续过高",
-		PolicyType:                 AlertPolicyBuilderKindMetricsTemplate,
-		TemplateKey:                "memory_usage_high",
-		ClusterID:                  "6",
-		Severity:                   AlertSeverityCritical,
-		Enabled:                    true,
-		CooldownMinutes:            10,
-		SendRecovery:               true,
-		NotificationChannelIDsJSON: channelIDsJSON,
-		ReceiverUserIDsJSON:        receiverUserIDsJSON,
-	}
-	if err := database.Create(policy).Error; err != nil {
-		t.Fatalf("failed to create managed alert policy: %v", err)
+	severity := string(AlertSeverityCritical)
+	if err := repo.UpsertClusterRuleConfig(ctx, &ClusterRuleConfig{
+		RuleKey:             "memory_usage_high",
+		Severity:            &severity,
+		NotifyMode:          clusterRuleNotifyModeCustom,
+		ChannelIDsJSON:      channelIDsJSON,
+		ReceiverUserIDsJSON: receiverUserIDsJSON,
+	}); err != nil {
+		t.Fatalf("failed to create managed cluster rule config: %v", err)
 	}
 
 	startsAt := time.Date(2026, 3, 10, 1, 0, 0, 0, time.UTC)
-	// managed_by=stx + policy_id 标签与内嵌评估器产出一致，走 managed 策略投递路径。
-	// managed_by=stx plus policy_id mirrors the evaluator's labels and selects the managed
-	// policy delivery path.
+	// managed_by=stx + rule_key 标签与内嵌评估器产出一致，走 managed 规则投递路径。
+	// managed_by=stx plus rule_key mirrors the evaluator's labels and selects the managed
+	// rule delivery path.
 	managedLabels := map[string]string{
-		"alertname":    sanitizeManagedPrometheusAlertName(policy.ID),
+		"alertname":    "memory_usage_high",
 		"managed_by":   "stx",
-		"policy_id":    policyIDLabel(policy),
+		"rule_key":     "memory_usage_high",
 		"policy_name":  "内存 0.5",
 		"severity":     "critical",
 		"cluster_id":   "6",
@@ -451,8 +434,8 @@ func TestService_IngestRemoteAlertRecord_dispatchesManagedMetricPolicyFiringAndR
 	if firingDelivery.Status != string(NotificationDeliveryStatusSent) {
 		t.Fatalf("expected firing delivery status sent, got %s", firingDelivery.Status)
 	}
-	if firingDelivery.PolicyID != policy.ID {
-		t.Fatalf("expected policy id %d, got %d", policy.ID, firingDelivery.PolicyID)
+	if firingDelivery.PolicyID != 0 {
+		t.Fatalf("expected policy id 0 for rule delivery, got %d", firingDelivery.PolicyID)
 	}
 
 	body, _ := lastBody.Load().(string)

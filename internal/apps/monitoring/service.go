@@ -90,12 +90,20 @@ type Service struct {
 	clustersHealthMu    sync.Mutex
 	clustersHealthCache map[uint]*ClusterHealthData
 	clustersHealthUntil map[uint]time.Time
+
+	// clusterRuleCache 是 ResolveClusterRule 的短 TTL 进程内缓存（键为 ruleKey|clusterID）；
+	// 配置写入后由 invalidateClusterRuleResolution 清空并触发 TSDB 规则组重建。
+	// clusterRuleCache is the short-TTL in-process cache of ResolveClusterRule (keyed
+	// ruleKey|clusterID); config writes clear it via invalidateClusterRuleResolution which also
+	// triggers a tsdb rule-group rebuild.
+	clusterRuleCacheMu sync.Mutex
+	clusterRuleCache   map[string]*clusterRuleCacheEntry
 }
 
 // NewService creates a monitoring service.
 // NewService 创建监控中心服务。
 func NewService(clusterService *cluster.Service, monitorService *monitor.Service, repo *Repository) *Service {
-	return &Service{
+	service := &Service{
 		clusterService:               clusterService,
 		monitorService:               monitorService,
 		repo:                         repo,
@@ -104,6 +112,8 @@ func NewService(clusterService *cluster.Service, monitorService *monitor.Service
 		clustersHealthCache:          make(map[uint]*ClusterHealthData),
 		clustersHealthUntil:          make(map[uint]time.Time),
 	}
+	service.ensureClusterRuleCache()
+	return service
 }
 
 // GetOverview returns global monitoring overview data.

@@ -23,7 +23,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -31,6 +30,27 @@ import (
 
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 )
+
+// enableClusterRuleForDelivery 把一条集群级规则配成 critical + 自定义渠道，让事件 / 集群
+// 信号满足外投条件（critical 且生效通知里至少一个渠道）。
+// enableClusterRuleForDelivery configures a cluster rule as critical + custom channels so
+// event / cluster signals qualify for external delivery (critical plus at least one channel).
+func enableClusterRuleForDelivery(t *testing.T, service *Service, ctx context.Context, ruleKey string, channelIDs []uint) {
+	t.Helper()
+	severity := string(AlertSeverityCritical)
+	idsJSON, err := marshalAlertPolicyChannelIDs(channelIDs)
+	if err != nil {
+		t.Fatalf("marshal channel ids: %v", err)
+	}
+	if _, err := service.SaveClusterRuleConfig(ctx, ruleKey, &clusterRuleFields{
+		Enabled:        ptrBool(true),
+		Severity:       &severity,
+		NotifyMode:     clusterRuleNotifyModeCustom,
+		ChannelIDsJSON: idsJSON,
+	}); err != nil {
+		t.Fatalf("save cluster rule config for %s: %v", ruleKey, err)
+	}
+}
 
 func TestDispatchAlertPolicyEvent_sendsUnifiedPolicyNotification(t *testing.T) {
 	service, repo, cluster, ctx := setupMonitoringAlertPolicyService(t)
@@ -56,19 +76,7 @@ func TestDispatchAlertPolicyEvent_sendsUnifiedPolicyNotification(t *testing.T) {
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	policy, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:                   "Unified restart failed policy",
-		Description:            "send webhook directly from unified policy",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            AlertRuleKeyProcessRestartFailed,
-		LegacyRuleKey:          AlertRuleKeyProcessRestartFailed,
-		ClusterID:              strconv.FormatUint(uint64(cluster.ID), 10),
-		Severity:               AlertSeverityCritical,
-		NotificationChannelIDs: []uint{channel.ID},
-	})
-	if err != nil {
-		t.Fatalf("failed to create policy: %v", err)
-	}
+	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyProcessRestartFailed, []uint{channel.ID})
 
 	event := &monitor.ProcessEvent{
 		ID:          1001,
@@ -106,39 +114,14 @@ func TestDispatchAlertPolicyEvent_sendsUnifiedPolicyNotification(t *testing.T) {
 	if NotificationDeliveryStatus(delivery.Status) != NotificationDeliveryStatusSent {
 		t.Fatalf("expected sent delivery status, got %s", delivery.Status)
 	}
-	if delivery.AlertName != policy.Name {
-		t.Fatalf("expected alert name %q, got %q", policy.Name, delivery.AlertName)
-	}
-
-	storedPolicy, err := repo.GetAlertPolicyByID(ctx, policy.ID)
-	if err != nil {
-		t.Fatalf("failed to reload policy: %v", err)
-	}
-	if storedPolicy.MatchCount != 1 {
-		t.Fatalf("expected match_count=1, got %d", storedPolicy.MatchCount)
-	}
-	if storedPolicy.DeliveryCount != 1 {
-		t.Fatalf("expected delivery_count=1, got %d", storedPolicy.DeliveryCount)
-	}
-	if storedPolicy.LastMatchedAt == nil {
-		t.Fatalf("expected last_matched_at to be set")
-	}
-	if !storedPolicy.LastMatchedAt.Equal(event.CreatedAt.UTC()) {
-		t.Fatalf("expected last_matched_at=%s, got %s", event.CreatedAt.UTC(), storedPolicy.LastMatchedAt.UTC())
-	}
-	if storedPolicy.LastDeliveredAt == nil {
-		t.Fatalf("expected last_delivered_at to be set")
-	}
-	if storedPolicy.LastExecutionStatus != AlertPolicyExecutionStatusSent {
-		t.Fatalf("expected last_execution_status=sent, got %s", storedPolicy.LastExecutionStatus)
-	}
-	if storedPolicy.LastExecutionError != "" {
-		t.Fatalf("expected empty last_execution_error, got %q", storedPolicy.LastExecutionError)
+	expectedName := lookupClusterRuleDefinition(AlertRuleKeyProcessRestartFailed).Name
+	if delivery.AlertName != expectedName {
+		t.Fatalf("expected alert name %q, got %q", expectedName, delivery.AlertName)
 	}
 
 	body, _ := lastBody.Load().(string)
-	if !strings.Contains(body, `"policy_name":"Unified restart failed policy"`) {
-		t.Fatalf("expected payload to include policy_name, got %s", body)
+	if !strings.Contains(body, expectedName) {
+		t.Fatalf("expected payload to include rule name %q, got %s", expectedName, body)
 	}
 	if !strings.Contains(body, `"event_type":"restart_failed"`) {
 		t.Fatalf("expected payload to include event_type, got %s", body)
@@ -290,18 +273,7 @@ func TestDispatchAlertPolicyEvent_deduplicatesSentDelivery(t *testing.T) {
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	policy, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:                   "Unified crash policy",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            AlertRuleKeyProcessCrashed,
-		LegacyRuleKey:          AlertRuleKeyProcessCrashed,
-		ClusterID:              strconv.FormatUint(uint64(cluster.ID), 10),
-		Severity:               AlertSeverityCritical,
-		NotificationChannelIDs: []uint{channel.ID},
-	})
-	if err != nil {
-		t.Fatalf("failed to create policy: %v", err)
-	}
+	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyProcessCrashed, []uint{channel.ID})
 
 	event := &monitor.ProcessEvent{
 		ID:          2002,
@@ -325,19 +297,6 @@ func TestDispatchAlertPolicyEvent_deduplicatesSentDelivery(t *testing.T) {
 		t.Fatalf("expected deduplicated single webhook call, got %d", hitCount.Load())
 	}
 
-	storedPolicy, err := repo.GetAlertPolicyByID(ctx, policy.ID)
-	if err != nil {
-		t.Fatalf("failed to reload policy: %v", err)
-	}
-	if storedPolicy.MatchCount != 2 {
-		t.Fatalf("expected match_count=2 after duplicate dispatch, got %d", storedPolicy.MatchCount)
-	}
-	if storedPolicy.DeliveryCount != 1 {
-		t.Fatalf("expected delivery_count=1 after duplicate dispatch, got %d", storedPolicy.DeliveryCount)
-	}
-	if storedPolicy.LastExecutionStatus != AlertPolicyExecutionStatusSent {
-		t.Fatalf("expected last_execution_status=sent, got %s", storedPolicy.LastExecutionStatus)
-	}
 }
 
 func TestDispatchAlertPolicyEvent_recordsFailedExecutionState(t *testing.T) {
@@ -359,18 +318,7 @@ func TestDispatchAlertPolicyEvent_recordsFailedExecutionState(t *testing.T) {
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	policy, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:                   "Unified crash policy",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            AlertRuleKeyProcessCrashed,
-		LegacyRuleKey:          AlertRuleKeyProcessCrashed,
-		ClusterID:              strconv.FormatUint(uint64(cluster.ID), 10),
-		Severity:               AlertSeverityCritical,
-		NotificationChannelIDs: []uint{channel.ID},
-	})
-	if err != nil {
-		t.Fatalf("failed to create policy: %v", err)
-	}
+	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyProcessCrashed, []uint{channel.ID})
 
 	event := &monitor.ProcessEvent{
 		ID:          3003,
@@ -384,7 +332,7 @@ func TestDispatchAlertPolicyEvent_recordsFailedExecutionState(t *testing.T) {
 		CreatedAt:   time.Date(2026, 3, 9, 11, 0, 0, 0, time.UTC),
 	}
 
-	err = service.DispatchAlertPolicyEvent(ctx, event)
+	err := service.DispatchAlertPolicyEvent(ctx, event)
 	if err == nil {
 		t.Fatalf("expected dispatch error, got nil")
 	}
@@ -392,27 +340,23 @@ func TestDispatchAlertPolicyEvent_recordsFailedExecutionState(t *testing.T) {
 		t.Fatalf("expected http status 500 error, got %v", err)
 	}
 
-	storedPolicy, err := repo.GetAlertPolicyByID(ctx, policy.ID)
+	delivery, err := repo.GetNotificationDeliveryByDedupKey(
+		ctx,
+		buildLocalAlertSourceKey(event.ID),
+		channel.ID,
+		string(NotificationDeliveryEventTypeFiring),
+	)
 	if err != nil {
-		t.Fatalf("failed to reload policy: %v", err)
+		t.Fatalf("failed to query delivery: %v", err)
 	}
-	if storedPolicy.MatchCount != 1 {
-		t.Fatalf("expected match_count=1, got %d", storedPolicy.MatchCount)
+	if delivery == nil {
+		t.Fatalf("expected delivery record to be created")
 	}
-	if storedPolicy.DeliveryCount != 0 {
-		t.Fatalf("expected delivery_count=0, got %d", storedPolicy.DeliveryCount)
+	if NotificationDeliveryStatus(delivery.Status) != NotificationDeliveryStatusFailed {
+		t.Fatalf("expected failed delivery status, got %s", delivery.Status)
 	}
-	if storedPolicy.LastMatchedAt == nil {
-		t.Fatalf("expected last_matched_at to be set")
-	}
-	if storedPolicy.LastDeliveredAt != nil {
-		t.Fatalf("expected last_delivered_at to remain nil on failed delivery")
-	}
-	if storedPolicy.LastExecutionStatus != AlertPolicyExecutionStatusFailed {
-		t.Fatalf("expected last_execution_status=failed, got %s", storedPolicy.LastExecutionStatus)
-	}
-	if !strings.Contains(storedPolicy.LastExecutionError, "http status 500") {
-		t.Fatalf("expected last_execution_error to record downstream failure, got %q", storedPolicy.LastExecutionError)
+	if !strings.Contains(delivery.LastError, "http status 500") {
+		t.Fatalf("expected last_error to record downstream failure, got %q", delivery.LastError)
 	}
 }
 
@@ -440,20 +384,7 @@ func TestDispatchAlertPolicyEvent_sendsResolvedNotificationForNodeRecovered(t *t
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	sendRecovery := true
-	policy, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:                   "Node offline policy",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            AlertRuleKeyNodeOffline,
-		LegacyRuleKey:          AlertRuleKeyNodeOffline,
-		ClusterID:              strconv.FormatUint(uint64(cluster.ID), 10),
-		Severity:               AlertSeverityCritical,
-		SendRecovery:           &sendRecovery,
-		NotificationChannelIDs: []uint{channel.ID},
-	})
-	if err != nil {
-		t.Fatalf("failed to create node_offline policy: %v", err)
-	}
+	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyNodeOffline, []uint{channel.ID})
 
 	offlineEvent := &monitor.ProcessEvent{
 		ClusterID:   cluster.ID,
@@ -521,23 +452,6 @@ func TestDispatchAlertPolicyEvent_sendsResolvedNotificationForNodeRecovered(t *t
 		t.Fatalf("expected resolved delivery status sent, got %s", resolvedDelivery.Status)
 	}
 
-	storedPolicy, err := repo.GetAlertPolicyByID(ctx, policy.ID)
-	if err != nil {
-		t.Fatalf("failed to reload policy: %v", err)
-	}
-	if storedPolicy.MatchCount != 1 {
-		t.Fatalf("expected match_count to remain 1 after recovery delivery, got %d", storedPolicy.MatchCount)
-	}
-	if storedPolicy.DeliveryCount != 2 {
-		t.Fatalf("expected delivery_count=2 after firing+resolved, got %d", storedPolicy.DeliveryCount)
-	}
-	if storedPolicy.LastExecutionStatus != AlertPolicyExecutionStatusSent {
-		t.Fatalf("expected last_execution_status=sent, got %s", storedPolicy.LastExecutionStatus)
-	}
-	if storedPolicy.LastDeliveredAt == nil {
-		t.Fatal("expected last_delivered_at to be updated by resolved notification")
-	}
-
 	body, _ := lastBody.Load().(string)
 	if !strings.Contains(body, `"status":"resolved"`) {
 		t.Fatalf("expected resolved payload status, got %s", body)
@@ -568,20 +482,10 @@ func TestDispatchAlertPolicyEvent_skipsResolvedNotificationWhenSendRecoveryDisab
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	sendRecovery := false
-	policy, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:                   "Node offline policy",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            AlertRuleKeyNodeOffline,
-		LegacyRuleKey:          AlertRuleKeyNodeOffline,
-		ClusterID:              strconv.FormatUint(uint64(cluster.ID), 10),
-		Severity:               AlertSeverityCritical,
-		SendRecovery:           &sendRecovery,
-		NotificationChannelIDs: []uint{channel.ID},
-	})
-	if err != nil {
-		t.Fatalf("failed to create node_offline policy: %v", err)
+	if _, err := service.SaveAlertNotificationDefaults(ctx, nil, nil, 0, false); err != nil {
+		t.Fatalf("failed to disable recovery notifications: %v", err)
 	}
+	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyNodeOffline, []uint{channel.ID})
 
 	offlineEvent := &monitor.ProcessEvent{
 		ClusterID:   cluster.ID,
@@ -642,20 +546,10 @@ func TestDispatchAlertPolicyEvent_skipsResolvedNotificationWhenSendRecoveryDisab
 		t.Fatalf("expected no resolved delivery row when send_recovery=false, got %+v", resolvedDelivery)
 	}
 
-	storedPolicy, err := repo.GetAlertPolicyByID(ctx, policy.ID)
-	if err != nil {
-		t.Fatalf("failed to reload policy: %v", err)
-	}
-	if storedPolicy.MatchCount != 1 {
-		t.Fatalf("expected match_count=1, got %d", storedPolicy.MatchCount)
-	}
-	if storedPolicy.DeliveryCount != 1 {
-		t.Fatalf("expected delivery_count=1 with only firing delivery, got %d", storedPolicy.DeliveryCount)
-	}
 }
 
-func TestListAlertPolicyExecutions_returnsPolicyScopedHistory(t *testing.T) {
-	service, _, cluster, ctx := setupMonitoringAlertPolicyService(t)
+func TestDispatchAlertPolicyEvent_writesDeliveryWithoutPolicyID(t *testing.T) {
+	service, repo, cluster, ctx := setupMonitoringAlertPolicyService(t)
 
 	var hitCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -674,18 +568,7 @@ func TestListAlertPolicyExecutions_returnsPolicyScopedHistory(t *testing.T) {
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	policy, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:                   "History policy",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            AlertRuleKeyProcessRestartFailed,
-		LegacyRuleKey:          AlertRuleKeyProcessRestartFailed,
-		ClusterID:              strconv.FormatUint(uint64(cluster.ID), 10),
-		Severity:               AlertSeverityCritical,
-		NotificationChannelIDs: []uint{channel.ID},
-	})
-	if err != nil {
-		t.Fatalf("failed to create policy: %v", err)
-	}
+	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyProcessRestartFailed, []uint{channel.ID})
 
 	event := &monitor.ProcessEvent{
 		ID:          4004,
@@ -705,23 +588,24 @@ func TestListAlertPolicyExecutions_returnsPolicyScopedHistory(t *testing.T) {
 		t.Fatalf("expected one webhook call, got %d", hitCount.Load())
 	}
 
-	history, err := service.ListAlertPolicyExecutions(ctx, policy.ID, &NotificationDeliveryFilter{
-		Page:     1,
-		PageSize: 10,
-	})
+	// 集群级规则的投递不再绑定策略行：policy_id 恒为 0。
+	// Cluster-rule deliveries are no longer bound to a policy row: policy_id is always 0.
+	delivery, err := repo.GetNotificationDeliveryByDedupKey(
+		ctx,
+		buildLocalAlertSourceKey(event.ID),
+		channel.ID,
+		string(NotificationDeliveryEventTypeFiring),
+	)
 	if err != nil {
-		t.Fatalf("failed to list policy execution history: %v", err)
+		t.Fatalf("failed to query delivery: %v", err)
 	}
-	if history.Total != 1 {
-		t.Fatalf("expected history total=1, got %d", history.Total)
+	if delivery == nil {
+		t.Fatalf("expected delivery record to be created")
 	}
-	if len(history.Deliveries) != 1 {
-		t.Fatalf("expected 1 delivery item, got %d", len(history.Deliveries))
+	if delivery.PolicyID != 0 {
+		t.Fatalf("expected delivery policy_id=0, got %d", delivery.PolicyID)
 	}
-	if history.Deliveries[0].PolicyID != policy.ID {
-		t.Fatalf("expected delivery policy_id=%d, got %d", policy.ID, history.Deliveries[0].PolicyID)
-	}
-	if history.Deliveries[0].ChannelID != channel.ID {
-		t.Fatalf("expected delivery channel_id=%d, got %d", channel.ID, history.Deliveries[0].ChannelID)
+	if delivery.ChannelID != channel.ID {
+		t.Fatalf("expected delivery channel_id=%d, got %d", channel.ID, delivery.ChannelID)
 	}
 }

@@ -79,6 +79,9 @@ func setupMonitoringNodeOfflineTestDB(t *testing.T) (*gorm.DB, func()) {
 		&AlertEventState{},
 		&AlertState{},
 		&RemoteAlertRecord{},
+		&ClusterRuleConfig{},
+		&ClusterRuleOverride{},
+		&AlertNotificationDefaults{},
 		&SyncAlertEpisode{},
 	); err != nil {
 		_ = os.RemoveAll(tempDir)
@@ -194,20 +197,7 @@ func TestEvaluateNodeHealthAlerts_emitsAndResolvesNodeOfflineEpisode(t *testing.
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	policy, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:                   "Node offline policy",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            AlertRuleKeyNodeOffline,
-		ClusterID:              strconv.FormatUint(uint64(testCluster.ID), 10),
-		Severity:               AlertSeverityCritical,
-		NotificationChannelIDs: []uint{channel.ID},
-	})
-	if err != nil {
-		t.Fatalf("failed to create alert policy: %v", err)
-	}
-	if policy.LegacyRuleKey != AlertRuleKeyNodeOffline {
-		t.Fatalf("expected node_offline legacy rule key, got %q", policy.LegacyRuleKey)
-	}
+	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyNodeOffline, []uint{channel.ID})
 
 	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
 		t.Fatalf("EvaluateNodeHealthAlerts returned error: %v", err)
@@ -388,17 +378,9 @@ func TestEvaluateNodeHealthAlerts_repeatsNodeOfflineReminderAfterCooldown(t *tes
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	cooldown := 1
-	if _, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:                   "Node offline repeated reminder",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            AlertRuleKeyNodeOffline,
-		ClusterID:              strconv.FormatUint(uint64(testCluster.ID), 10),
-		Severity:               AlertSeverityCritical,
-		CooldownMinutes:        &cooldown,
-		NotificationChannelIDs: []uint{channel.ID},
-	}); err != nil {
-		t.Fatalf("failed to create alert policy: %v", err)
+	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyNodeOffline, []uint{channel.ID})
+	if _, err := service.SaveAlertNotificationDefaults(ctx, nil, nil, 1, true); err != nil {
+		t.Fatalf("failed to save default notification cooldown: %v", err)
 	}
 
 	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
@@ -754,6 +736,10 @@ func TestEvaluateNodeOfflineState_hostOfflineUsesRuntimeGraceAtServiceLayer(t *t
 }
 
 func ptrTime(value time.Time) *time.Time {
+	return &value
+}
+
+func ptrBool(value bool) *bool {
 	return &value
 }
 

@@ -89,3 +89,38 @@ var (
 	// ErrAlertPolicySyncJobTypeChange means a policy cannot switch between sync_job and other types.
 	ErrAlertPolicySyncJobTypeChange = errors.New("monitoring: cannot change a policy to or from sync_job")
 )
+
+// 集群级规则目录（cluster_rule_catalog.go）与配置（cluster_rule_config.go）的错误。
+// Errors of the cluster rule catalog (cluster_rule_catalog.go) and config (cluster_rule_config.go).
+var (
+	// ErrClusterRuleNotFound 表示规则键不在目录里。
+	// ErrClusterRuleNotFound means the rule key is not in the catalog.
+	ErrClusterRuleNotFound = errors.New("monitoring: cluster rule not found")
+	// ErrClusterRuleInvalidSeverity 表示级别不是 warning / critical。
+	// ErrClusterRuleInvalidSeverity means the severity is not warning / critical.
+	ErrClusterRuleInvalidSeverity = errors.New("monitoring: cluster rule severity must be warning or critical")
+	// ErrClusterRuleInvalidNotifyMode 表示通知方式不是 default / custom / none。
+	// ErrClusterRuleInvalidNotifyMode means the notify mode is not default / custom / none.
+	ErrClusterRuleInvalidNotifyMode = errors.New("monitoring: cluster rule notify mode must be default, custom or none")
+	// ErrClusterRuleInvalidThreshold 表示阈值超出目录允许的范围。
+	// ErrClusterRuleInvalidThreshold means the threshold is outside the catalog range.
+	ErrClusterRuleInvalidThreshold = errors.New("monitoring: cluster rule threshold out of range")
+	// ErrClusterRuleInvalidFor 表示持续时间不是正数。
+	// ErrClusterRuleInvalidFor means the duration is not positive.
+	ErrClusterRuleInvalidFor = errors.New("monitoring: cluster rule for_seconds must be positive")
+	// ErrClusterRuleUnsupportedField 表示规则没有该可编辑字段（如事件规则没有阈值 / 持续时间）。
+	// ErrClusterRuleUnsupportedField means the rule does not have that editable field (e.g. event
+	// rules have no threshold / duration).
+	ErrClusterRuleUnsupportedField = errors.New("monitoring: cluster rule does not support this field")
+	// ErrClusterRuleChannelDisabled 表示规则自定义通知选择了停用的渠道。
+	// ErrClusterRuleChannelDisabled means the rule's custom notification selects a disabled channel.
+	ErrClusterRuleChannelDisabled = errors.New("monitoring: selected notification channel is disabled")
+	// ErrClusterRuleEmailRecipientMissing 表示选了邮件渠道却没有任何可达接收人。
+	// ErrClusterRuleEmailRecipientMissing means an email channel is selected but nobody would
+	// receive it.
+	ErrClusterRuleEmailRecipientMissing = errors.New("monitoring: email channel selected but no recipient: pick receivers or configure recipients on the channel")
+	// ErrClusterRuleCriticalChannelRequired 表示 critical 规则的生效通知没有任何启用的外部渠道。
+	// ErrClusterRuleCriticalChannelRequired means the effective notification of a critical rule
+	// has no enabled external channel.
+	ErrClusterRuleCriticalChannelRequired = errors.New("monitoring: a critical rule needs at least one enabled notification channel (configure the default notification or custom channels)")
+)

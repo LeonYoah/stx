@@ -22,7 +22,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -137,17 +136,7 @@ func TestEvaluateNodeHealthAlerts_resendsFailedFirstNodeOfflineAlert(t *testing.
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	_, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:                   "Node offline policy",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            AlertRuleKeyNodeOffline,
-		ClusterID:              strconv.FormatUint(uint64(testCluster.ID), 10),
-		Severity:               AlertSeverityCritical,
-		NotificationChannelIDs: []uint{channel.ID},
-	})
-	if err != nil {
-		t.Fatalf("failed to create alert policy: %v", err)
-	}
+	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyNodeOffline, []uint{channel.ID})
 	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
 		t.Fatalf("EvaluateNodeHealthAlerts returned error: %v", err)
 	}

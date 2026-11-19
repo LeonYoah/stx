@@ -60,26 +60,47 @@ func (s *Service) validateSyncJobPolicy(ctx context.Context, repo *Repository, c
 		return ErrAlertPolicySyncJobConflict
 	}
 	notifyOwner := req.NotifyTaskOwner != nil && *req.NotifyTaskOwner
-	for _, channelID := range normalizeAlertPolicyChannelIDs(req.NotificationChannelIDs) {
+	_, err = validateAlertChannelSelection(ctx, repo, req.NotificationChannelIDs, len(req.ReceiverUserIDs) > 0 || notifyOwner,
+		ErrAlertPolicyNotificationChannelNotFound, ErrAlertPolicySyncJobChannelDisabled, ErrAlertPolicySyncJobEmailRecipientMissing)
+	return err
+}
+
+// validateAlertChannelSelection 逐条校验所选通知渠道存在且启用；每个邮件渠道在没有外部接收人
+// 来源（策略接收人、任务负责人等）时，必须自带收件人。错误哨兵由调用方给出，作业策略与集群
+// 规则校验共用同一套检查但保留各自的报错语义。
+// validateAlertChannelSelection validates each selected notification channel exists and is
+// enabled; every email channel without an outside recipient source (policy receivers, task
+// owner, etc.) needs channel-level recipients. Error sentinels come from the caller so job
+// policies and cluster rule validation share the check while keeping their own error semantics.
+func validateAlertChannelSelection(
+	ctx context.Context,
+	repo *Repository,
+	channelIDs []uint,
+	hasOutsideRecipient bool,
+	notFoundErr, disabledErr, emailRecipientErr error,
+) ([]*NotificationChannel, error) {
+	channels := make([]*NotificationChannel, 0, len(channelIDs))
+	for _, channelID := range normalizeAlertPolicyChannelIDs(channelIDs) {
 		channel, err := repo.GetNotificationChannelByID(ctx, channelID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrAlertPolicyNotificationChannelNotFound
+				return nil, notFoundErr
 			}
-			return err
+			return nil, err
 		}
 		if !channel.Enabled {
-			return ErrAlertPolicySyncJobChannelDisabled
+			return nil, disabledErr
 		}
-		if channel.Type != NotificationChannelTypeEmail || len(req.ReceiverUserIDs) > 0 || notifyOwner {
+		channels = append(channels, channel)
+		if channel.Type != NotificationChannelTypeEmail || hasOutsideRecipient {
 			continue
 		}
 		channelConfig := unmarshalNotificationChannelConfig(channel.Type, channel.ConfigJSON)
 		if channelConfig == nil || channelConfig.Email == nil || len(channelConfig.Email.Recipients) == 0 {
-			return ErrAlertPolicySyncJobEmailRecipientMissing
+			return nil, emailRecipientErr
 		}
 	}
-	return nil
+	return channels, nil
 }
 
 // closeSyncTaskEpisodes 结束任务全部 firing 阶段（不发通知），用于删除策略。

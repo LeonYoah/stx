@@ -63,6 +63,9 @@ func setupMonitoringAlertPolicyTestDB(t *testing.T) (*gorm.DB, func()) {
 		&NotificationChannel{},
 		&NotificationDelivery{},
 		&SyncAlertEpisode{},
+		&ClusterRuleConfig{},
+		&ClusterRuleOverride{},
+		&AlertNotificationDefaults{},
 		&RemoteAlertRecord{},
 	); err != nil {
 		_ = os.RemoveAll(tempDir)

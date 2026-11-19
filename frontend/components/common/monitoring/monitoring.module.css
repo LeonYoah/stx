@@ -69,6 +69,26 @@
   min-height: 0;
 }
 
+/* 桌面端（≥1080px，rail 常驻态）将页面锁定在「顶栏下方到 Dock 上方」的视口区间，
+   左右列表与详情栏完全等高、各自内部滚动，不因行数或表单长短参差不齐或掉到底部 Dock 下。
+   Desktop (≥1080px, persistent rail): bound the page between header and bottom Dock
+   so list and rail share the exact same height and scroll independently. */
+@media (min-width: 1080px) {
+  .pageViewport {
+    height: calc(100dvh - 196px);
+    min-height: 460px;
+  }
+  .pageViewport .split {
+    align-items: stretch;
+  }
+  .pageViewport .rail {
+    position: static;
+    align-self: stretch;
+    height: 100%;
+    max-height: 100%;
+  }
+}
+
 /* 列表 + 常驻详情栏的分栏。List column beside the persistent detail rail. */
 .split {
   display: flex;
@@ -78,6 +98,7 @@
 }
 
 .listCol {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -226,7 +247,7 @@
   --cols: 24px minmax(0, 1.6fr) 80px 110px minmax(0, 1fr) 72px 64px;
 }
 .listCol[data-mcols='job'] :is(.row, .rowHead) {
-  --cols: minmax(0, 1.4fr) minmax(0, 1fr) 64px;
+  --cols: 24px minmax(0, 1.4fr) minmax(0, 1fr) 64px;
 }
 .listCol[data-mcols='channels'] :is(.row, .rowHead) {
   --cols: minmax(0, 1.5fr) 96px minmax(0, 1.2fr) 96px 64px;
@@ -615,7 +636,7 @@
   top: 16px;
   width: 440px;
   max-width: 46%;
-  max-height: calc(100dvh - 96px);
+  max-height: calc(100dvh - 128px);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -734,20 +755,18 @@
 
 /* ---------------- batch bar ---------------- */
 
-/* 底部居中浮起的批量条，浮层才有阴影。Floating batch bar; only layers float. */
-/* 浮动批量条：页面在文档级滚动，sticky 只能钉在列表末尾（首屏看不到），
-   改为固定于视口底部、高于 Dock（约 72px + 间距）并水平居中。
-   Floating batch bar: the page scrolls at document level so sticky only lands
-   at the list's end (off-screen initially); fix it to the viewport bottom,
-   above the dock (~72px + gap), centered. */
+/* 底部居中浮起的批量条，浮层才有阴影。相对 .listCol 定位在底部分页栏上方，
+   不遮挡页码按钮也不受右侧详情栏宽度影响。
+   Floating batch bar: anchored inside .listCol just above the pagination footer
+   so it never covers page buttons or drifts off-center when the rail is open. */
 .batchBarWrap {
-  position: fixed;
-  bottom: 96px;
-  left: 0;
-  right: 0;
+  position: absolute;
+  bottom: 58px;
+  left: 16px;
+  right: 16px;
   display: flex;
   justify-content: center;
-  z-index: 30;
+  z-index: 20;
   pointer-events: none;
 }
 .batchBarWrap > * {
@@ -1047,9 +1066,8 @@
     display: none;
   }
   .listCol[data-mcols='job'] :is(.row, .rowHead) {
-    --cols: minmax(0, 1fr) 60px;
+    --cols: 24px minmax(0, 1fr) 48px;
   }
-  .listCol[data-mcols='job'] :is(.row, .rowHead) > :nth-child(2),
   .listCol[data-mcols='job'] :is(.row, .rowHead) > :nth-child(3) {
     display: none;
   }

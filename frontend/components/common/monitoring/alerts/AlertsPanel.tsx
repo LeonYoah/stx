@@ -608,7 +608,7 @@ export function AlertsPanel({
   ];
 
   return (
-    <div className={styles.page}>
+    <div className={cn(styles.page, styles.pageViewport)}>
       {/* 汇总指标合并为单框 + 内分割线，格点击复用状态筛选（§9.7 防框堆叠）。
           Summary metrics merge into one frame with inner dividers; cells reuse the status filter. */}
       <div

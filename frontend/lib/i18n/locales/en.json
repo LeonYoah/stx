@@ -6115,6 +6115,7 @@
     "detailAddException": "Add cluster exception",
     "closeDetail": "Close detail",
     "selectRule": "Select {name}",
+    "selectAll": "Select all",
     "save": "Save",
     "saving": "Saving",
     "saved": "Saved",

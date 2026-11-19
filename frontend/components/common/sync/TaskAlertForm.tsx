@@ -343,7 +343,7 @@ export function TaskAlertForm({
       <div
         className={
           pinnedFooter
-            ? 'flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-5 py-3 sm:px-6'
+            ? 'flex flex-wrap items-center justify-between gap-2 border-t border-(--border-subtle) bg-(--surface-raised) px-5 py-3 sm:px-6'
             : 'flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3'
         }
       >

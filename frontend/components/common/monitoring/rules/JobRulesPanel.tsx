@@ -25,8 +25,10 @@
  */
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
+import {Undo2, X} from 'lucide-react';
 import {NeutralChip, SoftChip} from '../status-chips';
 import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {Skeleton} from '@/components/arc/skeleton/skeleton';
@@ -58,6 +60,24 @@ export interface JobSegCounts {
 
 const PAGE_SIZE = 10;
 
+function policyToggleBody(policy: AlertPolicy, enabled: boolean) {
+  return {
+    name: policy.name,
+    description: policy.description,
+    cluster_id: policy.cluster_id,
+    policy_type: 'sync_job' as const,
+    severity: policy.severity,
+    enabled,
+    cooldown_minutes: policy.cooldown_minutes,
+    send_recovery: policy.send_recovery,
+    conditions: policy.conditions || undefined,
+    receiver_user_ids: policy.receiver_user_ids,
+    notification_channel_ids: policy.notification_channel_ids,
+    task_id: policy.task_id,
+    notify_task_owner: policy.notify_task_owner,
+  };
+}
+
 export function JobRulesPanel({
   statusFilter,
   query,
@@ -83,6 +103,12 @@ export function JobRulesPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [undo, setUndo] = useState<{
+    enabled: boolean;
+    policies: AlertPolicy[];
+  } | null>(null);
   const [editing, setEditing] = useState<{
     taskId: number;
     taskName?: string;
@@ -218,6 +244,36 @@ export function JobRulesPanel({
     onCountsChange?.(segCounts);
   }, [segCounts, onCountsChange]);
 
+  const toggleSelect = (id: number, on: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  // 表头全选框作用于当前页所有作业策略。Header select-all toggles the current page.
+  const selectAllOnPage = useCallback(
+    (on: boolean) => {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const p of pageItems) {
+          if (on) {
+            next.add(p.id);
+          } else {
+            next.delete(p.id);
+          }
+        }
+        return next;
+      });
+    },
+    [pageItems],
+  );
+
   const toggle = useCallback(
     async (policy: AlertPolicy, enabled: boolean) => {
       if (toggling != null) {
@@ -230,21 +286,10 @@ export function JobRulesPanel({
         ps.map((p) => (p.id === policy.id ? {...p, enabled} : p)),
       );
       try {
-        const updated = await services.monitoring.updateAlertPolicy(policy.id, {
-          name: policy.name,
-          description: policy.description,
-          cluster_id: policy.cluster_id,
-          policy_type: 'sync_job',
-          severity: policy.severity,
-          enabled,
-          cooldown_minutes: policy.cooldown_minutes,
-          send_recovery: policy.send_recovery,
-          conditions: policy.conditions || undefined,
-          receiver_user_ids: policy.receiver_user_ids,
-          notification_channel_ids: policy.notification_channel_ids,
-          task_id: policy.task_id,
-          notify_task_owner: policy.notify_task_owner,
-        });
+        const updated = await services.monitoring.updateAlertPolicy(
+          policy.id,
+          policyToggleBody(policy, enabled),
+        );
         setPolicies((ps) =>
           ps.map((p) => (p.id === policy.id ? {...p, ...updated} : p)),
         );
@@ -259,6 +304,72 @@ export function JobRulesPanel({
     },
     [toggling],
   );
+
+  const batchSet = useCallback(
+    async (enabled: boolean) => {
+      const targets = policies.filter(
+        (p) => selected.has(p.id) && p.enabled !== enabled,
+      );
+      if (targets.length === 0) {
+        setSelected(new Set());
+        return;
+      }
+      setBatchBusy(true);
+      setError(null);
+      try {
+        for (const p of targets) {
+          const updated = await services.monitoring.updateAlertPolicy(
+            p.id,
+            policyToggleBody(p, enabled),
+          );
+          setPolicies((ps) =>
+            ps.map((x) => (x.id === p.id ? {...x, ...updated} : x)),
+          );
+        }
+        setUndo({enabled, policies: targets});
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        await load().catch(() => undefined);
+      } finally {
+        setBatchBusy(false);
+        setSelected(new Set());
+      }
+    },
+    [policies, selected, load],
+  );
+
+  const undoBatch = useCallback(async () => {
+    if (!undo) {
+      return;
+    }
+    const items = undo.policies;
+    setUndo(null);
+    setBatchBusy(true);
+    try {
+      for (const p of items) {
+        const updated = await services.monitoring.updateAlertPolicy(
+          p.id,
+          policyToggleBody(p, p.enabled),
+        );
+        setPolicies((ps) =>
+          ps.map((x) => (x.id === p.id ? {...x, ...updated} : x)),
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBatchBusy(false);
+    }
+  }, [undo]);
+
+  // 撤销条约 5 秒自动消失，与集群级批量栏保持一致。Auto-dismiss undo bar after ~5s.
+  useEffect(() => {
+    if (!undo) {
+      return;
+    }
+    const timer = setTimeout(() => setUndo(null), 5000);
+    return () => clearTimeout(timer);
+  }, [undo]);
 
   const openEditor = useCallback(
     (policy: AlertPolicy) => {
@@ -350,6 +461,11 @@ export function JobRulesPanel({
         }
       : undefined;
 
+  const allPageSelected =
+    pageItems.length > 0 && pageItems.every((p) => selected.has(p.id));
+  const somePageSelected =
+    !allPageSelected && pageItems.some((p) => selected.has(p.id));
+
   return (
     <div className={styles.split}>
       <div className={styles.listCol} data-mcols='job'>
@@ -358,7 +474,7 @@ export function JobRulesPanel({
         <TableCard
           loading={loading}
           hasData={filtered.length > 0}
-          skeletonColumns={3}
+          skeletonColumns={4}
           skeletonRows={6}
           error={error}
           onRetry={() => {
@@ -402,7 +518,18 @@ export function JobRulesPanel({
             />
           }
         >
-          <div className={styles.rowHead} aria-hidden>
+          <div className={styles.rowHead}>
+            <Checkbox
+              checked={
+                allPageSelected
+                  ? true
+                  : somePageSelected
+                    ? 'indeterminate'
+                    : false
+              }
+              onCheckedChange={(v) => selectAllOnPage(v === true)}
+              aria-label={t('selectAll')}
+            />
             <span>{t('jobColTask')}</span>
             <span>{t('colAlert')}</span>
             <span className={styles.right}>{t('fieldEnabled')}</span>
@@ -432,6 +559,13 @@ export function JobRulesPanel({
                   !policy.enabled && styles.rowMuted,
                 )}
               >
+                <Checkbox
+                  checked={selected.has(policy.id)}
+                  onCheckedChange={(v) => toggleSelect(policy.id, v === true)}
+                  aria-label={t('selectRule', {
+                    name: policy.task_name ?? `#${policy.task_id}`,
+                  })}
+                />
                 <div className={styles.rowName}>
                   <span className={cn(styles.name, styles.mono)}>
                     {policy.task_name ?? `#${policy.task_id}`}
@@ -472,6 +606,67 @@ export function JobRulesPanel({
             ))}
           </div>
         </TableCard>
+
+        {selected.size > 0 ? (
+          <div className={styles.batchBarWrap}>
+            <div className={styles.batchBar} role='status'>
+              <span>{t('selected', {count: selected.size})}</span>
+              <span className={styles.batchActions}>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='secondary'
+                  disabled={batchBusy}
+                  onClick={() => void batchSet(true)}
+                >
+                  {t('batchEnable')}
+                </Button>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='secondary'
+                  disabled={batchBusy}
+                  onClick={() => void batchSet(false)}
+                >
+                  {t('batchDisable')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='sm'
+                  iconOnly
+                  aria-label={t('batchClear')}
+                  onClick={() => setSelected(new Set())}
+                >
+                  <X className='size-4' aria-hidden />
+                </Button>
+              </span>
+            </div>
+          </div>
+        ) : undo ? (
+          <div className={styles.batchBarWrap}>
+            <div className={styles.batchBar} role='status'>
+              <span>
+                {t(
+                  undo.enabled
+                    ? 'batchAppliedEnabled'
+                    : 'batchAppliedDisabled',
+                  {count: undo.policies.length},
+                )}
+              </span>
+              <Button
+                type='button'
+                size='sm'
+                variant='ghost'
+                disabled={batchBusy}
+                onClick={() => void undoBatch()}
+              >
+                <Undo2 className='size-4' aria-hidden />
+                {t('undo')}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <DetailHost

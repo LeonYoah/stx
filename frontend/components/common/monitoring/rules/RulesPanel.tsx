@@ -299,6 +299,25 @@ export function RulesPanel({
     });
   };
 
+  // 表头全选框仅作用在当前页行，与 Product Listing 一键全选交互一致。
+  // Header select-all toggles every item on the current page.
+  const toggleSelectAllPage = useCallback(
+    (on: boolean) => {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const r of pageItems) {
+          if (on) {
+            next.add(r.key);
+          } else {
+            next.delete(r.key);
+          }
+        }
+        return next;
+      });
+    },
+    [pageItems],
+  );
+
   /** 行内即时开关：整层 PUT，失败回滚并在行内提示。 Inline enable toggle with rollback. */
   const toggleEnabled = useCallback(
     async (rule: ClusterRule, on: boolean) => {
@@ -436,7 +455,7 @@ export function RulesPanel({
   });
 
   return (
-    <div className={styles.page}>
+    <div className={cn(styles.page, styles.pageViewport)}>
       {defaultsMissing ? (
         <Alert tone='warning' title={t('bannerMissingDefaultNotify')}>
           <Button
@@ -624,6 +643,7 @@ export function RulesPanel({
                   toggling={toggling}
                   onOpen={requestKey}
                   onSelect={toggleSelect}
+                  onSelectAll={toggleSelectAllPage}
                   onToggleEnabled={toggleEnabled}
                 />
               )}
@@ -747,6 +767,7 @@ function RuleListView({
   toggling,
   onOpen,
   onSelect,
+  onSelectAll,
   onToggleEnabled,
 }: {
   rules: ClusterRule[];
@@ -755,11 +776,14 @@ function RuleListView({
   toggling: Set<string>;
   onOpen: (key: string) => void;
   onSelect: (key: string, on: boolean) => void;
+  onSelectAll: (on: boolean) => void;
   onToggleEnabled: (rule: ClusterRule, on: boolean) => void;
 }) {
   const t = useTranslations('monitoring');
   const locale = useLocale();
   const listRef = useRef<HTMLDivElement>(null);
+  const allSelected = rules.length > 0 && rules.every((r) => selected.has(r.key));
+  const someSelected = !allSelected && rules.some((r) => selected.has(r.key));
 
   // 方向键在行间移动焦点，Enter / Space 打开。
   // Arrow keys move focus across rows; Enter / Space opens.
@@ -783,8 +807,12 @@ function RuleListView({
 
   return (
     <>
-      <div className={styles.rowHead} aria-hidden>
-        <span />
+      <div className={styles.rowHead}>
+        <Checkbox
+          checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+          onCheckedChange={(v) => onSelectAll(v === true)}
+          aria-label={t('selectAll')}
+        />
         <span>{t('colRule')}</span>
         <span>{t('fieldSeverity')}</span>
         <span>{t('colStatus')}</span>

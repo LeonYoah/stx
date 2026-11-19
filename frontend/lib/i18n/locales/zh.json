@@ -6115,6 +6115,7 @@
     "detailAddException": "添加集群例外",
     "closeDetail": "关闭详情",
     "selectRule": "选择 {name}",
+    "selectAll": "全选",
     "save": "保存",
     "saving": "保存中",
     "saved": "已保存",

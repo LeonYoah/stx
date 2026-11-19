@@ -104,7 +104,7 @@ export function KpiStripSkeleton(props: {count: number}): JSX.Element;
 | cdc | 最大 CDC 延迟 | `scaledCompact(max_cdc_delay_seconds)` / `秒` | 超阈值时：超阈值 · {作业名}；否则：{作业名} 或「暂无 CDC 延迟数据」 | — | `cdc >= cdc_threshold_seconds` → danger |
 | failed | 失败作业 | `jobs.failed_24h` | 近 24 小时 · 昨日 {failed_prev_24h} | — | `failed_24h > 0` → danger |
 | volume | 数据量 | `scaledCompact(totals.window.write_rows)` / `行` | 现有 `volumeContext`（今日 · 本月 / 自 {日期} 起），超长截断 + `title` | — | — |
-| clusters | 集群健康 | `clusters.healthy` / unit `/ {total}` | 有降级：{n} 个降级 · 节点 {online}/{total} 在线；否则：节点 {online}/{total} 在线 | — | `degraded + unhealthy > 0` → warning |
+| clusters | 集群健康 | `clusters.healthy` / unit `/ {total}` | 有异常：{n} 个异常 · 节点 {online}/{total} 在线；只有降级：{n} 个降级 · 节点 {online}/{total} 在线；否则：节点 {online}/{total} 在线 | — | `unhealthy > 0` → danger；否则 `degraded > 0` → warning |
 | alerts | 活跃告警 | `alerts.active` | 严重 {critical} | — | `critical > 0` → danger |
 
 - 失败数、昨日数仍是中性文字，不带正负号（spec §16 既有规则）。
@@ -258,6 +258,7 @@ zh / en 同步，键都在 `dashboard.home` 下：
 | `kpi.failedContextWithPrev` | 近 24 小时 · 昨日 {count} | Last 24h · {count} yesterday | 合并原 `failedContext` + `failedYesterday` |
 | `kpi.cdcOverContext` | 超阈值 · {name} | Over threshold · {name} | |
 | `kpi.clustersDegradedContext` | {count} 个降级 · 节点 {online}/{total} 在线 | {count} degraded · {online}/{total} nodes online | |
+| `kpi.clustersUnhealthyContext` | {count} 个异常 · 节点 {online}/{total} 在线 | {count} unhealthy · {online}/{total} nodes online | 集群页「异常」徽标对齐，异常优先于降级 |
 | `jobsTab.throughput.peak` | 峰值 {value} | Peak {value} | |
 | `jobsTab.throughput.avgHint` | 窗口均值 | Window average | 格子 `title`，说明主数值口径 |
 

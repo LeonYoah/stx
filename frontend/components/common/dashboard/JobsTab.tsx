@@ -123,13 +123,18 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   // 单位后补 /s。/ Cell formatting for window-average values: compact+/s for rows;
   // formatBytes splits number and unit for bytes, with /s appended to the unit.
   const formatThroughputValue = (key: ThroughputKey, value: number) => {
+    // 小于最小显示刻度的非零速率不能显示成 0（会被读成「没有流量」），用「<刻度」表示。
+    // A nonzero rate below the smallest displayable step must not render as 0
+    // (it reads as "no traffic") — show "<step" instead.
     if (key.endsWith('bytes')) {
+      if (value > 0 && value < 1) return {text: '<1', unit: 'B/s'};
       const text = formatBytes(value);
       const index = text.lastIndexOf(' ');
       return index === -1
         ? {text, unit: ''}
         : {text: text.slice(0, index), unit: `${text.slice(index + 1)}/s`};
     }
+    if (value > 0 && value < 0.1) return {text: '<0.1', unit: '/s'};
     return {text: formatCompactNumber(value), unit: '/s'};
   };
 

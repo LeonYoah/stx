@@ -222,7 +222,8 @@
         "label": "Key metrics",
         "failedContextWithPrev": "Last 24h · {count} yesterday",
         "cdcOverContext": "Over threshold · {name}",
-        "clustersDegradedContext": "{count} degraded · {online}/{total} nodes online"
+        "clustersDegradedContext": "{count} degraded · {online}/{total} nodes online",
+        "clustersUnhealthyContext": "{count} unhealthy · {online}/{total} nodes online"
       },
       "unit": {
         "rowsPerSec": " rows/s",

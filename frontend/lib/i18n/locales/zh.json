@@ -222,7 +222,8 @@
         "label": "核心指标",
         "failedContextWithPrev": "近 24 小时 · 昨日 {count}",
         "cdcOverContext": "超阈值 · {name}",
-        "clustersDegradedContext": "{count} 个降级 · 节点 {online}/{total} 在线"
+        "clustersDegradedContext": "{count} 个降级 · 节点 {online}/{total} 在线",
+        "clustersUnhealthyContext": "{count} 个异常 · 节点 {online}/{total} 在线"
       },
       "unit": {
         "rowsPerSec": " 行/秒",

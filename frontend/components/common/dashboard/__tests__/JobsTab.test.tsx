@@ -299,6 +299,46 @@ describe('JobsTab', () => {
     );
   });
 
+  it('shows sub-tick nonzero rates as "<step" instead of 0', async () => {
+    // 真实 7d 窗口量级：行类 avg 0.00208 / peak 0.00417，字节类 avg 0.01875 / peak 0.0375。
+    // Real 7d-window magnitudes: rows avg 0.00208 / peak 0.00417, bytes avg 0.01875 / peak 0.0375.
+    const tiny = payload('prometheus');
+    tiny.throughput = [
+      {
+        key: 'write',
+        points: [
+          [0, 0.00208],
+          [15_000, 0.00417],
+        ],
+      },
+      {key: 'read', points: [[0, 0]]},
+      {
+        key: 'write_bytes',
+        points: [
+          [0, 0.01875],
+          [15_000, 0.0375],
+        ],
+      },
+      {key: 'read_bytes', points: [[0, 0]]},
+    ];
+    home.getJobs.mockResolvedValue(tiny);
+    renderTab();
+    await screen.findByTestId('home-throughput');
+    const tablist = screen.getByRole('tablist', {name: '吞吐指标'});
+    const writeTab = within(tablist).getByTestId('home-throughput-tab-write');
+    expect(writeTab.textContent).toContain('<0.1');
+    expect(writeTab.textContent).toContain('峰值 <0.1 /s');
+    const bytesTab = within(tablist).getByTestId(
+      'home-throughput-tab-write_bytes',
+    );
+    expect(bytesTab.textContent).toContain('<1');
+    expect(bytesTab.textContent).toContain('峰值 <1 B/s');
+    // 全 0 序列仍显示 0。/ An all-zero series still shows 0.
+    const readTab = within(tablist).getByTestId('home-throughput-tab-read');
+    expect(readTab.textContent).toContain('峰值 0 /s');
+    expect(readTab.textContent).not.toContain('<');
+  });
+
   it('collapses empty secondary panels into one-line strips', async () => {
     const empty = payload('prometheus');
     empty.top_write = [];

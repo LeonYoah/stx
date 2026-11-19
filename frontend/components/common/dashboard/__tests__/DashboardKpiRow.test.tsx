@@ -172,6 +172,36 @@ describe('DashboardKpiRow', () => {
     expect(cellOf('home-kpi-volume')).not.toHaveAttribute('data-tone');
   });
 
+  it('tints the clusters cell danger with the unhealthy caption when a cluster is unhealthy', () => {
+    renderRow(
+      {
+        ...summary,
+        clusters: {...summary.clusters, healthy: 0, degraded: 0, unhealthy: 1},
+      },
+      false,
+      volume,
+    );
+    expect(cellOf('home-kpi-clusters').dataset.tone).toBe('danger');
+    expect(screen.getByTestId('home-kpi-clusters').textContent).toContain(
+      '1 个异常 · 节点 4/4 在线',
+    );
+  });
+
+  it('keeps the unhealthy severity when degraded and unhealthy coexist', () => {
+    renderRow(
+      {
+        ...summary,
+        clusters: {...summary.clusters, degraded: 1, unhealthy: 1},
+      },
+      false,
+      volume,
+    );
+    expect(cellOf('home-kpi-clusters').dataset.tone).toBe('danger');
+    expect(screen.getByTestId('home-kpi-clusters').textContent).toContain(
+      '1 个异常 ·',
+    );
+  });
+
   it('clears the tone when failures, CDC and alerts are all fine', () => {
     renderRow(
       {

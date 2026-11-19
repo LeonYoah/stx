@@ -48,11 +48,11 @@ function volumeSinceLabel(oldestMs: number): string {
 /**
  * 首页顶部指标栏：把汇总 / 数据量接口数据映射成 KpiStripItem[]，渲染交给 KpiStrip。
  * 涨跌只用于「越大越好」的写入速率；失败数等保持中性文字。异常染色：
- * 失败 > 0 / CDC 超阈值 / 严重告警 > 0 → danger，集群有降级 → warning。
+ * 失败 > 0 / CDC 超阈值 / 严重告警 > 0 / 集群有异常 → danger，仅降级 → warning。
  * The home KPI strip: maps summary / volume payloads to KpiStripItem[] and lets
  * KpiStrip render. Signed changes are used only for the write rate (higher is
  * better); failures stay neutral. Tints: failures > 0 / CDC over threshold /
- * critical alerts > 0 → danger, degraded clusters → warning.
+ * critical alerts > 0 / unhealthy clusters > 0 → danger, degraded → warning.
  */
 export function DashboardKpiRow({
   summary,
@@ -98,7 +98,11 @@ export function DashboardKpiRow({
           month: formatCompactNumber(volumeTotals.month.write_rows),
         })
     : t('kpi.volumeEmpty');
-  const degraded = (clusters?.degraded ?? 0) + (clusters?.unhealthy ?? 0);
+  // 异常优先于降级：集群有 unhealthy 就标红用异常文案，只看 degraded 时会和集群页的「异常」徽标对不上。
+  // Unhealthy outranks degraded: an unhealthy cluster tints danger with the unhealthy caption —
+  // tinting on degraded alone would contradict the cluster page's red badge.
+  const degraded = clusters?.degraded ?? 0;
+  const unhealthy = clusters?.unhealthy ?? 0;
   const items: KpiStripItem[] = [
     {
       key: 'running',
@@ -163,17 +167,24 @@ export function DashboardKpiRow({
       value: clusters?.healthy ?? 0,
       unit: `/ ${clusters?.total ?? 0}`,
       context:
-        degraded > 0
-          ? t('kpi.clustersDegradedContext', {
-              count: degraded,
+        unhealthy > 0
+          ? t('kpi.clustersUnhealthyContext', {
+              count: unhealthy,
               online: clusters?.nodes_online ?? 0,
               total: clusters?.nodes_total ?? 0,
             })
-          : t('kpi.clustersContext', {
-              online: clusters?.nodes_online ?? 0,
-              total: clusters?.nodes_total ?? 0,
-            }),
-      tone: degraded > 0 ? 'warning' : undefined,
+          : degraded > 0
+            ? t('kpi.clustersDegradedContext', {
+                count: degraded,
+                online: clusters?.nodes_online ?? 0,
+                total: clusters?.nodes_total ?? 0,
+              })
+            : t('kpi.clustersContext', {
+                online: clusters?.nodes_online ?? 0,
+                total: clusters?.nodes_total ?? 0,
+              }),
+      tone:
+        unhealthy > 0 ? 'danger' : degraded > 0 ? 'warning' : undefined,
     },
     {
       key: 'alerts',

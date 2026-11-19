@@ -311,13 +311,19 @@ export function HomeDashboard() {
         onValueChange={(value) => update({tab: value as HomeTab})}
         className='flex flex-col gap-3'
       >
-        <TabsList aria-label={t('title')}>
-          <TabsTrigger value='cluster'>{t('tabs.cluster')}</TabsTrigger>
-          <TabsTrigger value='jobs'>{t('tabs.jobs')}</TabsTrigger>
-          <TabsTrigger value='hosts'>{t('tabs.hosts')}</TabsTrigger>
-          <TabsTrigger value='platform'>{t('tabs.platform')}</TabsTrigger>
-          <TabsTrigger value='list'>{t('tabs.list')}</TabsTrigger>
-        </TabsList>
+        {/* Arc 的 listShell 是 inline-flex，会被父级 flex-col 拉满；包一层横向
+            flex 让页签行按内容宽度。/ Arc's listShell is inline-flex and gets
+            stretched by the flex-col parent; a horizontal flex wrapper keeps it
+            content-width. */}
+        <div className='flex'>
+          <TabsList aria-label={t('title')}>
+            <TabsTrigger value='cluster'>{t('tabs.cluster')}</TabsTrigger>
+            <TabsTrigger value='jobs'>{t('tabs.jobs')}</TabsTrigger>
+            <TabsTrigger value='hosts'>{t('tabs.hosts')}</TabsTrigger>
+            <TabsTrigger value='platform'>{t('tabs.platform')}</TabsTrigger>
+            <TabsTrigger value='list'>{t('tabs.list')}</TabsTrigger>
+          </TabsList>
+        </div>
         <TabsContent value='cluster'>
           <ClusterTab query={query} update={update} />
         </TabsContent>

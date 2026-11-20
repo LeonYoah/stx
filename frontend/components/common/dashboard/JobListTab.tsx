@@ -119,6 +119,10 @@ export function JobListTab({
         query.mode === 'streaming' || query.mode === 'batch'
           ? query.mode
           : '',
+      source:
+        query.source === 'stx' || query.source === 'external'
+          ? query.source
+          : '',
       // global 预设固定排除预览运行，不暴露运行类型筛选。
       // The global preset always excludes preview runs; no run-type filter.
       runType: 'all',
@@ -151,6 +155,9 @@ export function JobListTab({
       }
       if (patch.mode !== undefined) {
         urlPatch.mode = patch.mode || undefined;
+      }
+      if (patch.source !== undefined) {
+        urlPatch.source = patch.source || undefined;
       }
       if (patch.keyword !== undefined) {
         urlPatch.q = patch.keyword || undefined;

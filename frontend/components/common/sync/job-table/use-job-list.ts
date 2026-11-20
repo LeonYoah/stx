@@ -84,6 +84,7 @@ export function buildJobListParams(
   if (scope.kind === 'all') {
     params.exclude_run_type = 'preview';
     params.mode = query.mode || undefined;
+    params.source = query.source || undefined;
     params.cluster_id = query.clusterId;
   } else {
     params.task_id = scope.taskId;

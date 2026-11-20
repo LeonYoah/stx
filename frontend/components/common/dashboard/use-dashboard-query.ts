@@ -39,6 +39,7 @@ export interface DashboardQuery {
   clusterId: number | undefined;
   status: string;
   mode: string;
+  source: string;
   q: string;
   sort: string;
   order: 'asc' | 'desc' | '';
@@ -79,6 +80,7 @@ export function useDashboardQuery() {
       clusterId: Number.isInteger(cluster) && cluster > 0 ? cluster : undefined,
       status: searchParams.get('status') ?? '',
       mode: searchParams.get('mode') ?? '',
+      source: searchParams.get('source') ?? '',
       q: searchParams.get('q') ?? '',
       sort: searchParams.get('sort') ?? '',
       order: order === 'asc' || order === 'desc' ? order : '',
@@ -100,6 +102,7 @@ export function useDashboardQuery() {
         clusterId: 'cluster',
         status: 'status',
         mode: 'mode',
+        source: 'source',
         q: 'q',
         sort: 'sort',
         order: 'order',

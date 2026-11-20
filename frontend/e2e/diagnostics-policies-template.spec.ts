@@ -72,14 +72,11 @@ test.describe('diagnostics policies panel template', () => {
     await expect(row.getByText('3 次')).toBeVisible();
   });
 
-  test('navigates from the policy detail to its trigger records', async ({
-    page,
-  }) => {
+  test('navigates from a policy row to its trigger records', async ({page}) => {
     await openPoliciesTab(page);
-    await page.getByTestId('policy-row-2').click();
-    await expect(page.getByTestId('detail-rail')).toBeVisible();
+    await expect(page.getByTestId('policy-row-2')).toBeVisible();
 
-    await page.getByTestId('policy-view-records').click();
+    await page.getByTestId('policy-view-records-2').click();
     // 回记录视图并按该策略过滤：URL 落 auto_policy_id，徽章与过滤后列表出现。
     // Back to the records view filtered by this policy: auto_policy_id lands
     // in the URL, the badge and the filtered list appear.

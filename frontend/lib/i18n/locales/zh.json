@@ -4386,6 +4386,8 @@
       "keywordsHint": "用于按错误标题、异常类、错误文本等做筛选；留空表示不过滤。",
       "ruleKeysLabel": "告警规则",
       "ruleCatalogEmpty": "暂无告警规则目录",
+      "ruleKeysSearchPlaceholder": "按名称或键搜索规则",
+      "ruleKeysNoMatch": "没有匹配 \"{query}\" 的告警规则",
       "ruleKeyRemove": "移除告警规则 \"{key}\"",
       "alertFiringThresholdLabel": "至少 N 个对象同时触发",
       "alertFiringWindowLabel": "至少持续触发 N 分钟（0 = 立即）",

@@ -4386,6 +4386,8 @@
       "keywordsHint": "Filter by error title, exception class, and error text; leave empty to match anything.",
       "ruleKeysLabel": "Alert rules",
       "ruleCatalogEmpty": "No alert rule catalog available",
+      "ruleKeysSearchPlaceholder": "Search rules by name or key",
+      "ruleKeysNoMatch": "No alert rules match \"{query}\"",
       "ruleKeyRemove": "Remove alert rule \"{key}\"",
       "alertFiringThresholdLabel": "At least N objects firing together",
       "alertFiringWindowLabel": "Firing for at least N minutes (0 = immediate)",

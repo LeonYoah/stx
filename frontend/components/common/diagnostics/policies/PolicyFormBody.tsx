@@ -50,11 +50,11 @@ import type {AlertRuleCatalogItem} from '@/lib/services/monitoring/types';
 import {Badge} from '@/components/arc/badge/badge';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Combobox} from '@/components/arc/combobox/combobox';
 import ConfirmMorph from '@/components/arc/confirm-morph/confirm-morph';
 import {Input} from '@/components/arc/input/input';
 import {NumberField} from '@/components/arc/number-field/number-field';
-import {Select} from '@/components/arc/select/select';
-import {Switch} from '@/components/arc/switch/switch';
+import {SearchField} from '@/components/arc/search-field/search-field';
 import {
   CronExpressionEditor,
   type CronPresetOption,
@@ -143,8 +143,6 @@ export interface PolicyFormBodyProps {
   onCancel: () => void;
   /** 已有策略的删除入口（详情页内承载破坏性操作）。Delete entry for an existing policy. */
   onDelete?: () => Promise<void>;
-  /** 「查看触发记录」：跳到按本策略过滤的巡检记录。"View trigger records": jump to inspection records filtered by this policy. */
-  onViewRecords?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -157,10 +155,10 @@ export function PolicyFormBody({
   onSaved,
   onCancel,
   onDelete,
-  onViewRecords,
   onDirtyChange,
 }: PolicyFormBodyProps) {
   const t = useTranslations('diagnosticsCenter.autoPolicies');
+  const tFilters = useTranslations('diagnosticsCenter.filters');
   const tMonitoring = useTranslations('monitoring');
   const tCluster = useTranslations('cluster');
   const commonT = useTranslations('common');
@@ -174,6 +172,7 @@ export function PolicyFormBody({
     formFromPolicy(policy, templates, defaultClusterId),
   );
   const [saving, setSaving] = useState(false);
+  const [ruleSearch, setRuleSearch] = useState('');
 
   const dirty = JSON.stringify(form) !== JSON.stringify(base);
   useEffect(() => {
@@ -295,6 +294,21 @@ export function PolicyFormBody({
     },
     [],
   );
+
+  // 规则目录按搜索词过滤（名称或键，大小写不敏感），空词回退全量。
+  // Rule catalog filtered by the search term (name or key, case-insensitive);
+  // an empty term falls back to the full catalog.
+  const filteredRuleCatalog = useMemo(() => {
+    const query = ruleSearch.trim().toLowerCase();
+    if (!query) {
+      return ruleCatalog;
+    }
+    return ruleCatalog.filter(
+      (item) =>
+        item.name.toLowerCase().includes(query) ||
+        item.rule_key.toLowerCase().includes(query),
+    );
+  }, [ruleCatalog, ruleSearch]);
 
   // 已选规则键 → 目录项的索引：命中显示目录名，未命中说明是目录外失效键。
   // Index of selected rule keys to catalog entries: hits render the catalog name, misses
@@ -446,7 +460,7 @@ export function PolicyFormBody({
               <span className='text-sm'>{scopeLabel}</span>
             </>
           ) : (
-            <Select
+            <Combobox
               label={t('clusterLabel')}
               value={String(form.clusterId)}
               onValueChange={(value) => {
@@ -458,26 +472,32 @@ export function PolicyFormBody({
               }}
               options={clusterSelectOptions}
               placeholder={t('clusterPlaceholder')}
+              emptyMessage={tFilters('noClusterMatch')}
             />
           )}
         </div>
 
-        <div className={layout.field}>
-          <NumberField
-            label={t('cooldownLabel')}
-            value={form.cooldownMinutes}
-            onValueChange={(v) => setField('cooldownMinutes', v)}
-            min={1}
-            max={1440}
-          />
-        </div>
-
-        <div className={layout.field}>
-          <Switch
-            label={t('enabledLabel')}
-            checked={form.enabled}
-            onCheckedChange={(v) => setField('enabled', v)}
-          />
+        {/* 冷却与启用同行：表单语义走 Checkbox（保存才生效，不用 Switch）。
+            Cooldown and enable share a row; enable uses a Checkbox because it
+            only applies on save (no Switch in a saved form). */}
+        <div className='grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4'>
+          <div className={layout.field}>
+            <NumberField
+              label={t('cooldownLabel')}
+              value={form.cooldownMinutes}
+              onValueChange={(v) => setField('cooldownMinutes', v)}
+              min={1}
+              max={1440}
+            />
+          </div>
+          <div className={layout.field}>
+            <Checkbox
+              id='auto-policy-enabled'
+              label={t('enabledLabel')}
+              checked={form.enabled}
+              onCheckedChange={(v) => setField('enabled', v === true)}
+            />
+          </div>
         </div>
 
         {/* 巡检触发条件（单列，适配 520px 详情栏） / Inspection conditions (single column for the 520px rail) */}
@@ -502,7 +522,7 @@ export function PolicyFormBody({
                   className='rounded-lg border bg-card/60 p-3 space-y-2.5 shadow-2xs'
                 >
                   <div className='flex items-center justify-between border-b pb-2'>
-                    <span className='text-xs font-semibold uppercase tracking-wider text-primary'>
+                    <span className='text-xs font-medium text-foreground'>
                       {getCategoryLabel(category)}
                     </span>
                     <Badge tone='neutral' className='text-[10px]'>
@@ -521,11 +541,24 @@ export function PolicyFormBody({
                         <div
                           key={tpl.code}
                           className={cn(
-                            'space-y-2 rounded-md border p-3 transition-colors',
+                            'space-y-2 rounded-md border p-3 transition-colors cursor-pointer',
                             isChecked
                               ? 'border-primary/40 bg-primary/5'
                               : 'bg-muted/20 border-border/60',
                           )}
+                          onClick={(e) => {
+                            // 卡面空白处点击切换选中；命中内部控件（输入/按钮）时放行。
+                            // Clicking card whitespace toggles; clicks that land on
+                            // inner controls pass through untouched.
+                            if (
+                              (e.target as HTMLElement).closest(
+                                'input, button, a, textarea, select, [role="combobox"]',
+                              )
+                            ) {
+                              return;
+                            }
+                            handleToggleCondition(tpl.code, !isChecked);
+                          }}
                         >
                           <Checkbox
                             id={`chk-${tpl.code}`}
@@ -538,7 +571,10 @@ export function PolicyFormBody({
                           />
 
                           {isChecked && !tpl.immediate_on_match ? (
-                            <div className='mt-2.5 pl-6 space-y-2 border-t border-border/40 pt-2'>
+                            <div
+                              className='mt-2.5 pl-6 space-y-2 border-t border-border/40 pt-2 cursor-default'
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               {shouldRenderCronExprInput(tpl) ? (
                                 <div className='space-y-2 w-full'>
                                   <CronExpressionEditor
@@ -680,9 +716,15 @@ export function PolicyFormBody({
 
                               {tpl.category === 'alert_firing' ? (
                                 <div className='space-y-1.5'>
-                                  <span className={layout.fieldLabel}>
-                                    {t('ruleKeysLabel')}
-                                  </span>
+                                  {/* 规则数可变且会很长：先按名称/键搜索再勾选（§ 长列表可搜索）。
+                                      Rule list is dynamic and can be long: search by name/key before picking. */}
+                                  <SearchField
+                                    label={t('ruleKeysLabel')}
+                                    value={ruleSearch}
+                                    onValueChange={setRuleSearch}
+                                    placeholder={t('ruleKeysSearchPlaceholder')}
+                                    autoComplete='off'
+                                  />
                                   {(condition?.rule_keys || []).length > 0 ? (
                                     <div className='flex flex-wrap gap-1'>
                                       {(condition?.rule_keys || []).map(
@@ -737,17 +779,24 @@ export function PolicyFormBody({
                                       )}
                                     </div>
                                   ) : null}
-                                  <div className='max-h-40 overflow-y-auto rounded-md border border-border/60 divide-y divide-border/40'>
+                                  <div className='max-h-40 overflow-y-auto rounded border border-border/60 divide-y divide-border/40'>
                                     {ruleCatalog.length === 0 ? (
                                       <div className='px-2.5 py-2 text-[11px] text-muted-foreground'>
                                         {t('ruleCatalogEmpty')}
                                       </div>
+                                    ) : filteredRuleCatalog.length === 0 ? (
+                                      <div className='px-2.5 py-2 text-[11px] text-muted-foreground'>
+                                        {t('ruleKeysNoMatch', {
+                                          query: ruleSearch.trim(),
+                                        })}
+                                      </div>
                                     ) : (
                                       (['cluster', 'job'] as const).map(
                                         (scope) => {
-                                          const items = ruleCatalog.filter(
-                                            (item) => item.scope === scope,
-                                          );
+                                          const items =
+                                            filteredRuleCatalog.filter(
+                                              (item) => item.scope === scope,
+                                            );
                                           if (items.length === 0) {
                                             return null;
                                           }
@@ -810,23 +859,20 @@ export function PolicyFormBody({
         <div className='rounded-lg border bg-card/60 p-3 space-y-2.5 shadow-2xs'>
           <div className='flex items-center justify-between'>
             <div className='flex items-center gap-2'>
-              <label
-                htmlFor='auto-policy-auto-create-task'
-                className='text-xs font-medium'
-              >
-                {t('autoBundleTitle')}
-              </label>
+              <Checkbox
+                id='auto-policy-auto-create-task'
+                label={t('autoBundleTitle')}
+                checked={form.autoCreateTask}
+                onCheckedChange={(v) =>
+                  setField('autoCreateTask', v === true)
+                }
+              />
               <HelpHint
                 label={t('autoBundleTitle')}
                 content={t('autoBundleHint')}
                 data-testid='auto-policy-auto-bundle-hint'
               />
             </div>
-            <Switch
-              id='auto-policy-auto-create-task'
-              checked={form.autoCreateTask}
-              onCheckedChange={(v) => setField('autoCreateTask', v)}
-            />
           </div>
 
           {form.autoCreateTask ? (
@@ -850,7 +896,7 @@ export function PolicyFormBody({
               {(form.taskOptions.selected_resources || []).includes(
                 'jvm_dump',
               ) ? (
-                <div className='rounded-lg border bg-background p-3'>
+                <div className='rounded-md bg-muted/40 p-3'>
                   <NumberField
                     label={t('jvmMinFreeMBLabel')}
                     value={form.taskOptions.jvm_dump_min_free_mb ?? 2048}
@@ -870,17 +916,14 @@ export function PolicyFormBody({
               ) : null}
 
               <div className='flex items-center gap-2'>
-                <Switch
+                <Checkbox
                   id='auto-policy-auto-start-task'
+                  label={t('autoStartTaskLabel')}
                   checked={form.autoStartTask}
-                  onCheckedChange={(v) => setField('autoStartTask', v)}
+                  onCheckedChange={(v) =>
+                    setField('autoStartTask', v === true)
+                  }
                 />
-                <label
-                  htmlFor='auto-policy-auto-start-task'
-                  className='text-xs font-normal text-muted-foreground'
-                >
-                  {t('autoStartTaskLabel')}
-                </label>
                 <HelpHint
                   label={t('autoStartTaskLabel')}
                   content={t('autoStartTaskHint')}
@@ -905,17 +948,6 @@ export function PolicyFormBody({
         <Button type='button' size='sm' variant='ghost' onClick={onCancel}>
           {commonT('cancel')}
         </Button>
-        {policy && onViewRecords ? (
-          <Button
-            type='button'
-            size='sm'
-            variant='ghost'
-            onClick={onViewRecords}
-            data-testid='policy-view-records'
-          >
-            {t('viewRecords')}
-          </Button>
-        ) : null}
         {policy && onDelete ? (
           <>
             <span className={layout.detailFootGrow} />

@@ -34,7 +34,7 @@ import {
   type ReactNode,
 } from 'react';
 import {useTranslations} from 'next-intl';
-import {Plus} from 'lucide-react';
+import {History, Plus} from 'lucide-react';
 import {toast} from '@/lib/toast';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Badge} from '@/components/arc/badge/badge';
@@ -597,6 +597,21 @@ export function PoliciesPanel({
                       : '—'}
                   </span>
                   <div className={layout.rowActions}>
+                    {/* 「查看触发记录」是行级导航操作，不进表单底栏（导航 ≠ 表单提交）。
+                        "View trigger records" is a per-row navigation action, not a
+                        form action, so it lives on the row rather than the form footer. */}
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      iconOnly
+                      aria-label={t('viewRecords')}
+                      title={t('viewRecords')}
+                      data-testid={`policy-view-records-${p.id}`}
+                      onClick={() => requestViewRecords(p.id)}
+                    >
+                      <History className='size-3.5' aria-hidden />
+                    </Button>
                     <Switch
                       checked={p.enabled}
                       onCheckedChange={(v) => void togglePolicy(p, v)}
@@ -659,11 +674,6 @@ export function PoliciesPanel({
                 onDelete={
                   editingPolicy
                     ? () => deletePolicy(editingPolicy.id)
-                    : undefined
-                }
-                onViewRecords={
-                  drawerPolicy
-                    ? () => requestViewRecords(drawerPolicy.id)
                     : undefined
                 }
                 onSaved={() => {

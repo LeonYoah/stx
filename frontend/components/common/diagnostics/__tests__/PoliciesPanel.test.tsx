@@ -303,12 +303,10 @@ describe('PoliciesPanel', () => {
     await waitFor(() => expect(onSelectPolicy).toHaveBeenCalledWith(2));
   });
 
-  it('navigates to trigger records from the detail footer', async () => {
+  it('navigates to trigger records from a row action', async () => {
     const onViewRecords = vi.fn();
     renderPanel(undefined, {onViewRecords});
-    fireEvent.click(await screen.findByTestId('policy-row-1'));
-    await screen.findByTestId('detail-rail');
-    fireEvent.click(await screen.findByTestId('policy-view-records'));
+    fireEvent.click(await screen.findByTestId('policy-view-records-1'));
     expect(onViewRecords).toHaveBeenCalledWith(1);
   });
 });

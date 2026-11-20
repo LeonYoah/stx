@@ -100,7 +100,8 @@
     "detailNav": {
       "prev": "Previous item",
       "next": "Next item"
-    }
+    },
+    "searchClear": "Clear search"
   },
   "dashboard": {
     "title": "Console",

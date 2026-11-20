@@ -29,8 +29,9 @@ const listUsers = vi.fn();
 const updateUser = vi.fn();
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({push: vi.fn()}),
+  useRouter: () => ({push: vi.fn(), replace: vi.fn()}),
   usePathname: () => '/admin/users',
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/hooks/use-auth', () => ({

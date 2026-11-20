@@ -18,43 +18,27 @@
 'use client';
 
 /**
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * 用户管理：TableCard + useServerListQuery；删除/停用仍走 AlertDialog；不能操作自己。
+ * User management: TableCard + useServerListQuery; delete/deactivate stay on
+ * AlertDialog; self-actions remain blocked.
  */
 
-import {useState, useEffect, useCallback, useRef} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
+import {Pencil, Plus, RefreshCw, Trash2, Users} from 'lucide-react';
+import {Button} from '@/components/arc/button/button';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {SearchField} from '@/components/arc/search-field/search-field';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Switch} from '@/components/ui/switch';
-import {Pagination} from '@/components/ui/pagination';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import {Badge} from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -66,7 +50,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {Badge} from '@/components/ui/badge';
 import {
   Tooltip,
   TooltipContent,
@@ -74,27 +57,26 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {toast} from '@/lib/toast';
-import {Plus, Pencil, Trash2, Search, Users, RefreshCw} from 'lucide-react';
-import {WorkspaceHeader, TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
-import {AccountsNavTabs} from './AccountsNavTabs';
-import {useGSAP} from '@gsap/react';
-import {animateTableRows} from '@/lib/animations/gsap-motion';
-import services from '@/lib/services';
+import {TableCard, WorkspaceHeader} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
+import {useServerListQuery} from '@/lib/hooks/use-server-list-query';
 import {useAuth} from '@/hooks/use-auth';
+import services from '@/lib/services';
 import type {
-  UserInfo,
   CreateUserRequest,
   UpdateUserRequest,
+  UserInfo,
 } from '@/lib/services/admin/user.service';
 import {formatDateTz} from '@/lib/timezone';
+import {cn} from '@/lib/utils';
+import {AccountsNavTabs} from './AccountsNavTabs';
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-/**
- * 用户管理组件
- */
+const DEFAULT_PAGE_SIZE = 10;
+
 export function UserManagement() {
   const t = useTranslations();
   // 当前登录用户：不能停用自己或取消自己的管理员权限（后端同样拒绝），避免唯一管理员把自己锁在门外。
@@ -103,24 +85,27 @@ export function UserManagement() {
   const {user: currentUser} = useAuth();
   const isSelf = (user: UserInfo | null) =>
     Boolean(user && currentUser && user.id === currentUser.id);
+
+  const {page, pageSize, filters, setPage, setPageSize, patchFilters, resetFilters} =
+    useServerListQuery({
+      initialFilters: {username: ''},
+      defaultPageSize: DEFAULT_PAGE_SIZE,
+    });
+
+  const [usernameDraft, setUsernameDraft] = useState(filters.username);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [searchUsername, setSearchUsername] = useState('');
-  const [pageSize, setPageSize] = useState(10);
+  const [error, setError] = useState<string | null>(null);
 
-  // 对话框状态
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserInfo | null>(null);
-  // 待确认停用的用户 / User awaiting deactivation confirmation
   const [deactivateTarget, setDeactivateTarget] = useState<UserInfo | null>(
     null,
   );
 
-  // 表单状态
   const [formData, setFormData] = useState<CreateUserRequest & {id?: number}>({
     username: '',
     password: '',
@@ -129,33 +114,37 @@ export function UserManagement() {
     is_admin: false,
   });
 
-  /**
-   * 加载用户列表 / Load user list
-   */
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
       const response = await services.adminUser.listUsers({
-        current: currentPage,
+        current: page,
         size: pageSize,
-        username: searchUsername || undefined,
+        username: filters.username || undefined,
       });
       setUsers(response.users || []);
       setTotal(response.total || 0);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '加载用户列表失败');
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'));
+      setUsers([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchUsername]);
+  }, [page, pageSize, filters.username, t]);
 
   useEffect(() => {
-    loadUsers();
+    void loadUsers();
   }, [loadUsers]);
 
-  /**
-   * 打开创建对话框
-   */
+  const commitUsername = useCallback(() => {
+    const next = usernameDraft.trim();
+    if (next !== filters.username) {
+      patchFilters({username: next});
+    }
+  }, [usernameDraft, filters.username, patchFilters]);
+
   const handleOpenCreate = () => {
     setFormData({
       username: '',
@@ -167,9 +156,6 @@ export function UserManagement() {
     setIsCreateDialogOpen(true);
   };
 
-  /**
-   * 打开编辑对话框
-   */
   const handleOpenEdit = (user: UserInfo) => {
     setSelectedUser(user);
     setFormData({
@@ -183,17 +169,11 @@ export function UserManagement() {
     setIsEditDialogOpen(true);
   };
 
-  /**
-   * 打开删除确认对话框
-   */
   const handleOpenDelete = (user: UserInfo) => {
     setSelectedUser(user);
     setIsDeleteDialogOpen(true);
   };
 
-  /**
-   * 创建用户
-   */
   const handleCreate = async () => {
     if (!formData.username || formData.username.length < 3) {
       toast.error(t('admin.userManagement.errors.usernameTooShort'));
@@ -218,15 +198,12 @@ export function UserManagement() {
       });
       toast.success(t('admin.userManagement.createSuccess'));
       setIsCreateDialogOpen(false);
-      loadUsers();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '创建用户失败');
+      void loadUsers();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     }
   };
 
-  /**
-   * 更新用户
-   */
   const handleUpdate = async () => {
     if (!selectedUser) {
       return;
@@ -258,48 +235,36 @@ export function UserManagement() {
       await services.adminUser.updateUser(selectedUser.id, updateData);
       toast.success(t('admin.userManagement.updateSuccess'));
       setIsEditDialogOpen(false);
-      loadUsers();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '更新用户失败');
+      void loadUsers();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     }
   };
 
-  /**
-   * 删除用户
-   */
   const handleDelete = async () => {
     if (!selectedUser) {
       return;
     }
-
     try {
       await services.adminUser.deleteUser(selectedUser.id);
       toast.success(t('admin.userManagement.deleteSuccess'));
       setIsDeleteDialogOpen(false);
-      loadUsers();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '删除用户失败');
+      void loadUsers();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     }
   };
 
-  /**
-   * 更新用户启用状态 / Update a user's active state
-   */
   const updateActive = async (user: UserInfo, active: boolean) => {
     try {
       await services.adminUser.updateUser(user.id, {is_active: active});
       toast.success(t('admin.userManagement.updateSuccess'));
-      loadUsers();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '更新用户状态失败');
+      void loadUsers();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('common.error'));
     }
   };
 
-  /**
-   * 切换用户状态：启用立即生效；停用需先确认（停用后该用户的会话与 CLI 令牌都会被拒绝）；当前用户不可切换。
-   * Toggle a user's state: enabling applies at once; disabling needs confirmation (the user's sessions and CLI
-   * tokens are rejected afterwards); the current user cannot be toggled.
-   */
   const handleToggleActive = (user: UserInfo) => {
     if (isSelf(user)) {
       return;
@@ -311,9 +276,6 @@ export function UserManagement() {
     void updateActive(user, true);
   };
 
-  /**
-   * 确认停用 / Confirm deactivation
-   */
   const handleConfirmDeactivate = async () => {
     const target = deactivateTarget;
     setDeactivateTarget(null);
@@ -322,190 +284,210 @@ export function UserManagement() {
     }
   };
 
-  const tableContainerRef = useRef<HTMLDivElement>(null);
-
-  // 用户列表更新后执行平滑交错入场动效
-  // Trigger staggered entrance animation when users data updates
-  useGSAP(
-    () => {
-      if (users.length > 0 && !loading) {
-        animateTableRows('.user-data-row');
-      }
-    },
-    {dependencies: [users, loading], scope: tableContainerRef},
-  );
-
-  /**
-   * 搜索
-   */
-  const handleSearch = () => {
-    setCurrentPage(1);
-    loadUsers();
-  };
-
-  const totalPages = Math.ceil(total / pageSize);
+  const filtersActive = Boolean(filters.username);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
-    <div className='space-y-6'>
-      {/* 页面标题 */}
+    <div className={cn(layout.page, layout.pageViewport)}>
       <WorkspaceHeader
         icon={<Users />}
         title={t('admin.userManagement.title')}
         tabs={<AccountsNavTabs activeKey='users' />}
         actions={
           <div className='flex gap-2'>
-            <Button variant='outline' onClick={loadUsers} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => void loadUsers()}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={cn('size-3.5', loading && 'animate-spin')}
+                aria-hidden
+              />
               {t('common.refresh')}
             </Button>
-            <Button onClick={handleOpenCreate}>
-              <Plus className='h-4 w-4 mr-2' />
+            <Button type='button' size='sm' onClick={handleOpenCreate}>
+              <Plus className='size-3.5' aria-hidden />
               {t('admin.userManagement.createUser')}
             </Button>
           </div>
         }
       />
 
-      {/* 搜索栏 */}
-      <div className='flex gap-3'>
-        <div className='flex-1 max-w-sm'>
-          <Input
-            placeholder={t('admin.userManagement.username')}
-            value={searchUsername}
-            onChange={(e) => setSearchUsername(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          />
-        </div>
-        <Button variant='outline' onClick={handleSearch} className='active:scale-[0.98]'>
-          <Search className='h-4 w-4 mr-2' />
-          {t('common.search')}
-        </Button>
-      </div>
-
-      {/* 用户表格与底部分页一体化卡片 / User Table and Pagination Integrated Card */}
-      <div ref={tableContainerRef} className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
-        <TableLoadingBar loading={loading} />
-        <div className='overflow-x-auto flex-1'>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>{t('admin.userManagement.username')}</TableHead>
-                <TableHead>{t('admin.userManagement.nickname')}</TableHead>
-                <TableHead>{t('admin.userManagement.email')}</TableHead>
-                <TableHead>{t('admin.userManagement.isAdmin')}</TableHead>
-                <TableHead>{t('admin.userManagement.isActive')}</TableHead>
-                <TableHead>{t('admin.userManagement.createdAt')}</TableHead>
-                <TableHead>{t('admin.userManagement.actions')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading && users.length === 0 ? (
-                <TableSkeletonRows columns={8} rows={10} />
-              ) : users.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={8}
-                    className='text-center py-12 text-muted-foreground'
-                  >
-                    {t('admin.userManagement.noUsers')}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                users.map((user) => (
-                  <TableRow
-                    key={user.id}
-                    className={`user-data-row transition-opacity duration-200 ${
-                      loading ? 'opacity-60 pointer-events-none' : ''
-                    }`}
-                  >
-                    <TableCell>{user.id}</TableCell>
-                    <TableCell className='font-medium'>{user.username}</TableCell>
-                    <TableCell>{user.nickname || '-'}</TableCell>
-                    <TableCell>{user.email || '-'}</TableCell>
-                    <TableCell>
-                      {user.is_admin ? (
-                        <Badge variant='default'>
-                          {t('admin.userManagement.isAdmin')}
-                        </Badge>
-                      ) : (
-                        <Badge variant='secondary'>User</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {isSelf(user) ? (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className='inline-flex'>
-                                <Switch
-                                  checked={user.is_active}
-                                  disabled
-                                  aria-label={`${t('admin.userManagement.isActive')} ${user.username}`}
-                                />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>
-                                {t('admin.userManagement.cannotDeactivateSelf')}
-                              </p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      ) : (
-                        <Switch
-                          checked={user.is_active}
-                          aria-label={`${t('admin.userManagement.isActive')} ${user.username}`}
-                          onCheckedChange={() => handleToggleActive(user)}
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {formatDateTz(user.created_at)}
-                    </TableCell>
-                    <TableCell>
-                      <div className='flex gap-2'>
-                        <Button
-                          variant='ghost'
-                          size='icon'
-                          onClick={() => handleOpenEdit(user)}
-                        >
-                          <Pencil className='h-4 w-4' />
-                        </Button>
-                        <Button
-                          variant='ghost'
-                          size='icon'
-                          onClick={() => handleOpenDelete(user)}
-                        >
-                          <Trash2 className='h-4 w-4 text-destructive' />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-
-        {/* 底部分页栏 / Table Footer Pagination */}
-        <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            pageSize={pageSize}
-            totalItems={total}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setCurrentPage(1);
+      <div className={layout.toolbar}>
+        <div className={layout.toolbarSearch}>
+          <SearchField
+            label={t('admin.userManagement.username')}
+            value={usernameDraft}
+            onValueChange={(v) => {
+              setUsernameDraft(v);
+              if (v === '' && filters.username !== '') {
+                patchFilters({username: ''});
+              }
             }}
-            pageSizeOptions={[10, 20, 50, 100]}
+            placeholder={t('admin.userManagement.username')}
+            clearLabel={t('common.searchClear')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitUsername();
+              }
+            }}
           />
+        </div>
+        {filtersActive ? (
+          <Button
+            type='button'
+            size='sm'
+            variant='ghost'
+            onClick={() => {
+              setUsernameDraft('');
+              resetFilters();
+            }}
+          >
+            {t('common.clearFilters')}
+          </Button>
+        ) : null}
+      </div>
+
+      <div className={layout.split}>
+        <div className={layout.listCol} data-mcols='users'>
+          <TableCard
+            loading={loading}
+            hasData={users.length > 0}
+            skeletonColumns={7}
+            skeletonRows={8}
+            error={error}
+            onRetry={() => void loadUsers()}
+            pagination={{
+              currentPage: page,
+              totalPages,
+              pageSize,
+              totalItems: total,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+              pageSizeOptions: [10, 20, 50, 100],
+            }}
+            empty={
+              <EmptyState
+                title={t('admin.userManagement.noUsers')}
+                description={
+                  filtersActive
+                    ? t('common.noMatchingData')
+                    : t('admin.userManagement.title')
+                }
+                action={
+                  filtersActive ? (
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='secondary'
+                      onClick={() => {
+                        setUsernameDraft('');
+                        resetFilters();
+                      }}
+                    >
+                      {t('common.clearFilters')}
+                    </Button>
+                  ) : undefined
+                }
+              />
+            }
+          >
+            <div className={layout.rowHead} aria-hidden>
+              <span>{t('admin.userManagement.username')}</span>
+              <span>{t('admin.userManagement.nickname')}</span>
+              <span>{t('admin.userManagement.email')}</span>
+              <span>{t('admin.userManagement.isAdmin')}</span>
+              <span>{t('admin.userManagement.isActive')}</span>
+              <span>{t('admin.userManagement.createdAt')}</span>
+              <span>{t('admin.userManagement.actions')}</span>
+            </div>
+            <div className={layout.tableScroll}>
+              {users.map((user) => (
+                <div
+                  key={user.id}
+                  className={cn(layout.row)}
+                  data-testid={`user-row-${user.id}`}
+                  style={{cursor: 'default'}}
+                >
+                  <div className={layout.rowName}>
+                    <span className={layout.name} title={user.username}>
+                      {user.username}
+                    </span>
+                    <span className={layout.sub}>#{user.id}</span>
+                  </div>
+                  <span className={layout.sub}>{user.nickname || '-'}</span>
+                  <span className={cn(layout.sub, 'truncate')} title={user.email || ''}>
+                    {user.email || '-'}
+                  </span>
+                  {user.is_admin ? (
+                    <Badge variant='default'>
+                      {t('admin.userManagement.isAdmin')}
+                    </Badge>
+                  ) : (
+                    <Badge variant='secondary'>User</Badge>
+                  )}
+                  <div>
+                    {isSelf(user) ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className='inline-flex'>
+                              <Switch
+                                checked={user.is_active}
+                                disabled
+                                aria-label={`${t('admin.userManagement.isActive')} ${user.username}`}
+                              />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{t('admin.userManagement.cannotDeactivateSelf')}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <Switch
+                        checked={user.is_active}
+                        aria-label={`${t('admin.userManagement.isActive')} ${user.username}`}
+                        onCheckedChange={() => handleToggleActive(user)}
+                      />
+                    )}
+                  </div>
+                  <span className={cn(layout.sub, 'whitespace-nowrap')}>
+                    {formatDateTz(user.created_at)}
+                  </span>
+                  <div className='flex items-center gap-1'>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      iconOnly
+                      aria-label={t('common.edit')}
+                      onClick={() => handleOpenEdit(user)}
+                    >
+                      <Pencil className='size-3.5' aria-hidden />
+                    </Button>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      iconOnly
+                      aria-label={t('common.delete')}
+                      onClick={() => handleOpenDelete(user)}
+                    >
+                      <Trash2 className='size-3.5 text-destructive' aria-hidden />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </TableCard>
         </div>
       </div>
 
-      {/* 创建用户对话框 */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -575,17 +557,19 @@ export function UserManagement() {
           </div>
           <DialogFooter>
             <Button
-              variant='outline'
+              type='button'
+              variant='secondary'
               onClick={() => setIsCreateDialogOpen(false)}
             >
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreate}>{t('common.create')}</Button>
+            <Button type='button' onClick={() => void handleCreate()}>
+              {t('common.create')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* 编辑用户对话框 */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -660,17 +644,19 @@ export function UserManagement() {
           </div>
           <DialogFooter>
             <Button
-              variant='outline'
+              type='button'
+              variant='secondary'
               onClick={() => setIsEditDialogOpen(false)}
             >
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleUpdate}>{t('common.save')}</Button>
+            <Button type='button' onClick={() => void handleUpdate()}>
+              {t('common.save')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* 停用确认对话框 / Deactivation confirmation dialog */}
       <AlertDialog
         open={deactivateTarget !== null}
         onOpenChange={(open) => {
@@ -692,14 +678,13 @@ export function UserManagement() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDeactivate}>
+            <AlertDialogAction onClick={() => void handleConfirmDeactivate()}>
               {t('admin.userManagement.deactivate')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* 删除确认对话框 */}
       <AlertDialog
         open={isDeleteDialogOpen}
         onOpenChange={setIsDeleteDialogOpen}
@@ -717,7 +702,7 @@ export function UserManagement() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>
+            <AlertDialogAction onClick={() => void handleDelete()}>
               {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>

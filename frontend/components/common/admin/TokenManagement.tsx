@@ -17,24 +17,22 @@
 
 'use client';
 
-import {useCallback, useEffect, useRef, useState} from 'react';
+/**
+ * 令牌管理：TableCard + SegmentedControl（计数来自接口全量 active/expired/revoked）。
+ * Token management: TableCard + SegmentedControl (counts from API totals).
+ */
+
+import {useCallback, useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Check, Copy, KeyRound, Plus, RefreshCw, Search, ShieldOff} from 'lucide-react';
+import {Check, Copy, KeyRound, Plus, RefreshCw, ShieldOff} from 'lucide-react';
 import {toast} from '@/lib/toast';
-import {useGSAP} from '@gsap/react';
-import {Button} from '@/components/ui/button';
+import {Button} from '@/components/arc/button/button';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
-import {Pagination} from '@/components/ui/pagination';
 import {Badge} from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import {
   Dialog,
   DialogContent,
@@ -60,22 +58,22 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
-import {
-  StatPillsBar,
-  TableLoadingBar,
-  TableSkeletonRows,
-  WorkspaceHeader,
-} from '@/components/common/layout';
-import {animateTableRows} from '@/lib/animations/gsap-motion';
+import {TableCard, WorkspaceHeader} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
+import {useServerListQuery} from '@/lib/hooks/use-server-list-query';
 import services from '@/lib/services';
 import type {UserInfo} from '@/lib/services/admin/user.service';
 import type {
   CLITokenInfo,
   CreateCLITokenResult,
 } from '@/lib/services/admin/token.service';
+import {cn} from '@/lib/utils';
 import {AccountsNavTabs} from './AccountsNavTabs';
 
 type ExpiresPreset = '7d' | '30d' | '90d' | 'never' | 'custom';
+
+const DEFAULT_PAGE_SIZE = 10;
+const ALL_VALUE = 'all';
 
 /**
  * 管理员令牌管理页：签发永久或定期 CLI 令牌，原文只展示一次。
@@ -83,6 +81,13 @@ type ExpiresPreset = '7d' | '30d' | '90d' | 'never' | 'custom';
  */
 export function TokenManagement() {
   const t = useTranslations();
+  const {page, pageSize, filters, setPage, setPageSize, patchFilters, resetFilters} =
+    useServerListQuery({
+      initialFilters: {name: '', status: ALL_VALUE},
+      defaultPageSize: DEFAULT_PAGE_SIZE,
+    });
+
+  const [nameDraft, setNameDraft] = useState(filters.name);
   const [tokens, setTokens] = useState<CLITokenInfo[]>([]);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [total, setTotal] = useState(0);
@@ -90,10 +95,7 @@ export function TokenManagement() {
   const [expiredCount, setExpiredCount] = useState(0);
   const [revokedCount, setRevokedCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [searchName, setSearchName] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [error, setError] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isRevokeOpen, setIsRevokeOpen] = useState(false);
   const [selectedToken, setSelectedToken] = useState<CLITokenInfo | null>(null);
@@ -105,45 +107,45 @@ export function TokenManagement() {
   const [formUserId, setFormUserId] = useState('');
   const [expiresPreset, setExpiresPreset] = useState<ExpiresPreset>('never');
   const [customDays, setCustomDays] = useState('60');
-  const tableContainerRef = useRef<HTMLDivElement>(null);
 
   const loadTokens = useCallback(async () => {
     setLoading(true);
     try {
       const response = await services.adminToken.listTokens({
-        current: currentPage,
+        current: page,
         size: pageSize,
-        name: searchName || undefined,
-        status: statusFilter === 'all' ? undefined : statusFilter,
+        name: filters.name || undefined,
+        status: filters.status === ALL_VALUE ? undefined : filters.status,
       });
       setTokens(response.tokens || []);
       setTotal(response.total || 0);
       setActiveCount(response.active || 0);
       setExpiredCount(response.expired || 0);
       setRevokedCount(response.revoked || 0);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
+      setError(null);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
           : t('admin.tokenManagement.loadError'),
       );
+      setTokens([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchName, statusFilter, t]);
+  }, [page, pageSize, filters.name, filters.status, t]);
 
   useEffect(() => {
     void loadTokens();
   }, [loadTokens]);
 
-  useGSAP(
-    () => {
-      if (tokens.length > 0 && !loading) {
-        animateTableRows('.token-data-row');
-      }
-    },
-    {dependencies: [tokens, loading], scope: tableContainerRef},
-  );
+  const commitName = useCallback(() => {
+    const next = nameDraft.trim();
+    if (next !== filters.name) {
+      patchFilters({name: next});
+    }
+  }, [nameDraft, filters.name, patchFilters]);
 
   const openCreate = async () => {
     setFormName('');
@@ -202,10 +204,10 @@ export function TokenManagement() {
       setIssuedToken(issued);
       toast.success(t('admin.tokenManagement.createSuccess'));
       void loadTokens();
-    } catch (error) {
+    } catch (err) {
       toast.error(
-        error instanceof Error
-          ? error.message
+        err instanceof Error
+          ? err.message
           : t('admin.tokenManagement.createError'),
       );
     }
@@ -230,10 +232,10 @@ export function TokenManagement() {
       toast.success(t('admin.tokenManagement.revokeSuccess'));
       setIsRevokeOpen(false);
       void loadTokens();
-    } catch (error) {
+    } catch (err) {
       toast.error(
-        error instanceof Error
-          ? error.message
+        err instanceof Error
+          ? err.message
           : t('admin.tokenManagement.revokeError'),
       );
     }
@@ -259,12 +261,18 @@ export function TokenManagement() {
     return new Date(token.expires_at).toLocaleString();
   };
 
+  const segCount = (n: number) => (
+    <span className={layout.count}>{n}</span>
+  );
+
+  const filtersActive =
+    Boolean(filters.name) || filters.status !== ALL_VALUE;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const dialogClass =
     'border border-border/80 dark:border-border/60 shadow-2xl sm:max-w-lg';
 
   return (
-    <div className='space-y-6'>
+    <div className={cn(layout.page, layout.pageViewport)}>
       <WorkspaceHeader
         icon={<KeyRound />}
         title={t('admin.tokenManagement.title')}
@@ -272,183 +280,206 @@ export function TokenManagement() {
         tabs={<AccountsNavTabs activeKey='tokens' />}
         actions={
           <div className='flex gap-2'>
-            <Button variant='outline' onClick={() => void loadTokens()} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => void loadTokens()}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={cn('size-3.5', loading && 'animate-spin')}
+                aria-hidden
+              />
               {t('common.refresh')}
             </Button>
-            <Button onClick={() => void openCreate()}>
-              <Plus className='h-4 w-4 mr-2' />
+            <Button type='button' size='sm' onClick={() => void openCreate()}>
+              <Plus className='size-3.5' aria-hidden />
               {t('admin.tokenManagement.createToken')}
             </Button>
           </div>
         }
       />
 
-      <StatPillsBar
-        activeKey={statusFilter}
-        onChange={(key) => {
-          setStatusFilter(key);
-          setCurrentPage(1);
-        }}
-        items={[
-          {
-            key: 'all',
-            label: t('admin.tokenManagement.filterAll'),
-            count: activeCount + expiredCount + revokedCount,
-          },
-          {
-            key: 'active',
-            label: t('admin.tokenManagement.statusActive'),
-            count: activeCount,
-            variant: 'success',
-          },
-          {
-            key: 'expired',
-            label: t('admin.tokenManagement.statusExpired'),
-            count: expiredCount,
-            variant: 'warning',
-          },
-          {
-            key: 'revoked',
-            label: t('admin.tokenManagement.statusRevoked'),
-            count: revokedCount,
-            variant: 'danger',
-          },
-        ]}
-      />
-
-      <div className='flex gap-3'>
-        <div className='flex-1 max-w-sm'>
-          <Input
+      <div className={layout.toolbar}>
+        <SegmentedControl
+          label={t('admin.tokenManagement.status')}
+          value={filters.status}
+          onValueChange={(v) => patchFilters({status: v})}
+          options={[
+            {
+              value: ALL_VALUE,
+              label: t('admin.tokenManagement.filterAll'),
+              accessory: segCount(activeCount + expiredCount + revokedCount),
+            },
+            {
+              value: 'active',
+              label: t('admin.tokenManagement.statusActive'),
+              accessory: segCount(activeCount),
+            },
+            {
+              value: 'expired',
+              label: t('admin.tokenManagement.statusExpired'),
+              accessory: segCount(expiredCount),
+            },
+            {
+              value: 'revoked',
+              label: t('admin.tokenManagement.statusRevoked'),
+              accessory: segCount(revokedCount),
+            },
+          ]}
+        />
+        <div className={layout.toolbarSearch}>
+          <SearchField
+            label={t('admin.tokenManagement.searchName')}
+            value={nameDraft}
+            onValueChange={(v) => {
+              setNameDraft(v);
+              if (v === '' && filters.name !== '') {
+                patchFilters({name: ''});
+              }
+            }}
             placeholder={t('admin.tokenManagement.searchName')}
-            value={searchName}
-            onChange={(event) => setSearchName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                setCurrentPage(1);
-                void loadTokens();
+            clearLabel={t('common.searchClear')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitName();
               }
             }}
           />
         </div>
-        <Button
-          variant='outline'
-          onClick={() => {
-            setCurrentPage(1);
-            void loadTokens();
-          }}
-          className='active:scale-[0.98]'
-        >
-          <Search className='h-4 w-4 mr-2' />
-          {t('common.search')}
-        </Button>
+        {filtersActive ? (
+          <Button
+            type='button'
+            size='sm'
+            variant='ghost'
+            onClick={() => {
+              setNameDraft('');
+              resetFilters();
+            }}
+          >
+            {t('common.clearFilters')}
+          </Button>
+        ) : null}
       </div>
 
-      <div
-        ref={tableContainerRef}
-        className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'
-      >
-        <TableLoadingBar loading={loading} />
-        <div className='overflow-x-auto flex-1'>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>{t('admin.tokenManagement.name')}</TableHead>
-                <TableHead>{t('admin.tokenManagement.owner')}</TableHead>
-                <TableHead>{t('admin.tokenManagement.prefix')}</TableHead>
-                <TableHead>{t('admin.tokenManagement.expires')}</TableHead>
-                <TableHead>{t('admin.tokenManagement.lastUsedAt')}</TableHead>
-                <TableHead>{t('admin.tokenManagement.status')}</TableHead>
-                <TableHead>{t('admin.userManagement.actions')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading && tokens.length === 0 ? (
-                <TableSkeletonRows columns={8} rows={10} />
-              ) : tokens.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={8}
-                    className='text-center py-12 text-muted-foreground'
-                  >
-                    {t('admin.tokenManagement.noTokens')}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                tokens.map((token) => (
-                  <TableRow
-                    key={token.id}
-                    className={`token-data-row transition-opacity duration-200 ${
-                      loading ? 'opacity-60 pointer-events-none' : ''
-                    }`}
-                  >
-                    <TableCell>{token.id}</TableCell>
-                    <TableCell className='font-medium'>
-                      {token.name || '-'}
-                    </TableCell>
-                    <TableCell>{token.username || '-'}</TableCell>
-                    <TableCell>
-                      <span className='font-mono whitespace-nowrap'>
-                        {token.token_prefix}******
-                      </span>
-                    </TableCell>
-                    <TableCell className='whitespace-nowrap'>
-                      {expiryLabel(token)}
-                    </TableCell>
-                    <TableCell className='whitespace-nowrap'>
-                      {token.last_used_at
-                        ? new Date(token.last_used_at).toLocaleString()
-                        : '-'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          token.status === 'active'
-                            ? 'default'
-                            : token.status === 'expired'
-                              ? 'secondary'
-                              : 'destructive'
-                        }
-                      >
-                        {statusLabel(token.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {token.status === 'revoked' ? (
-                        <span className='text-muted-foreground'>-</span>
-                      ) : (
-                        <Button
-                          variant='ghost'
-                          size='icon'
-                          onClick={() => {
-                            setSelectedToken(token);
-                            setIsRevokeOpen(true);
-                          }}
-                        >
-                          <ShieldOff className='h-4 w-4 text-destructive' />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-        <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            pageSize={pageSize}
-            totalItems={total}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setCurrentPage(1);
+      <div className={layout.split}>
+        <div className={layout.listCol} data-mcols='tokens'>
+          <TableCard
+            loading={loading}
+            hasData={tokens.length > 0}
+            skeletonColumns={7}
+            skeletonRows={8}
+            error={error}
+            onRetry={() => void loadTokens()}
+            pagination={{
+              currentPage: page,
+              totalPages,
+              pageSize,
+              totalItems: total,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+              pageSizeOptions: [10, 20, 50, 100],
             }}
-            pageSizeOptions={[10, 20, 50, 100]}
-          />
+            empty={
+              <EmptyState
+                title={t('admin.tokenManagement.noTokens')}
+                description={
+                  filtersActive
+                    ? t('common.noMatchingData')
+                    : t('admin.tokenManagement.subtitle')
+                }
+                action={
+                  filtersActive ? (
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='secondary'
+                      onClick={() => {
+                        setNameDraft('');
+                        resetFilters();
+                      }}
+                    >
+                      {t('common.clearFilters')}
+                    </Button>
+                  ) : undefined
+                }
+              />
+            }
+          >
+            <div className={layout.rowHead} aria-hidden>
+              <span>{t('admin.tokenManagement.name')}</span>
+              <span>{t('admin.tokenManagement.owner')}</span>
+              <span>{t('admin.tokenManagement.prefix')}</span>
+              <span>{t('admin.tokenManagement.expires')}</span>
+              <span>{t('admin.tokenManagement.lastUsedAt')}</span>
+              <span>{t('admin.tokenManagement.status')}</span>
+              <span>{t('admin.userManagement.actions')}</span>
+            </div>
+            <div className={layout.tableScroll}>
+              {tokens.map((token) => (
+                <div
+                  key={token.id}
+                  className={cn(layout.row)}
+                  style={{cursor: 'default'}}
+                  data-testid={`token-row-${token.id}`}
+                >
+                  <div className={layout.rowName}>
+                    <span className={layout.name} title={token.name || '-'}>
+                      {token.name || '-'}
+                    </span>
+                    <span className={layout.sub}>#{token.id}</span>
+                  </div>
+                  <span className={layout.sub}>{token.username || '-'}</span>
+                  <span className='font-mono text-xs whitespace-nowrap'>
+                    {token.token_prefix}******
+                  </span>
+                  <span className={cn(layout.sub, 'whitespace-nowrap')}>
+                    {expiryLabel(token)}
+                  </span>
+                  <span className={cn(layout.sub, 'whitespace-nowrap')}>
+                    {token.last_used_at
+                      ? new Date(token.last_used_at).toLocaleString()
+                      : '-'}
+                  </span>
+                  <Badge
+                    variant={
+                      token.status === 'active'
+                        ? 'default'
+                        : token.status === 'expired'
+                          ? 'secondary'
+                          : 'destructive'
+                    }
+                  >
+                    {statusLabel(token.status)}
+                  </Badge>
+                  <div>
+                    {token.status === 'revoked' ? (
+                      <span className='text-muted-foreground'>-</span>
+                    ) : (
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        iconOnly
+                        aria-label={t('admin.tokenManagement.revokeToken')}
+                        onClick={() => {
+                          setSelectedToken(token);
+                          setIsRevokeOpen(true);
+                        }}
+                      >
+                        <ShieldOff
+                          className='size-3.5 text-destructive'
+                          aria-hidden
+                        />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </TableCard>
         </div>
       </div>
 
@@ -483,17 +514,18 @@ export function TokenManagement() {
                 />
                 <Button
                   type='button'
-                  variant='outline'
+                  variant='secondary'
                   onClick={() => void handleCopy(issuedToken.token || '')}
+                  aria-label={t('common.copy')}
                 >
                   {copied ? (
-                    <Check className='h-4 w-4' />
+                    <Check className='size-4' aria-hidden />
                   ) : (
-                    <Copy className='h-4 w-4' />
+                    <Copy className='size-4' aria-hidden />
                   )}
                 </Button>
               </div>
-              <p className='text-xs text-muted-foreground font-mono whitespace-nowrap overflow-x-auto'>
+              <p className='overflow-x-auto text-xs font-mono text-muted-foreground whitespace-nowrap'>
                 stx login --server &lt;url&gt; --token-stdin
               </p>
             </div>
@@ -579,15 +611,19 @@ export function TokenManagement() {
           )}
           <DialogFooter>
             {issuedToken?.token ? (
-              <Button onClick={() => setIsCreateOpen(false)}>
+              <Button type='button' onClick={() => setIsCreateOpen(false)}>
                 {t('common.close')}
               </Button>
             ) : (
               <>
-                <Button variant='outline' onClick={() => setIsCreateOpen(false)}>
+                <Button
+                  type='button'
+                  variant='secondary'
+                  onClick={() => setIsCreateOpen(false)}
+                >
                   {t('common.cancel')}
                 </Button>
-                <Button onClick={() => void handleCreate()}>
+                <Button type='button' onClick={() => void handleCreate()}>
                   {t('common.create')}
                 </Button>
               </>

@@ -18,351 +18,354 @@
 'use client';
 
 /**
- * Audit Log Main Component
- * 审计日志主组件
- *
- * This component provides the main interface for audit log management,
- * including listing, searching, and filtering operations.
- * 本组件提供审计日志管理的主界面，包括列表、搜索和过滤操作。
+ * 审计日志主页：TableCard + useServerListQuery；追踪仍走 AuditTraceSheet。
+ * Audit log page: TableCard + useServerListQuery; traces stay on AuditTraceSheet.
  */
 
-import {useState, useEffect, useCallback, useMemo, type KeyboardEvent} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
+import {RefreshCw, ScrollText} from 'lucide-react';
+import {Button} from '@/components/arc/button/button';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import {Select} from '@/components/arc/select/select';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {Separator} from '@/components/ui/separator';
-import {toast} from '@/lib/toast';
-import {Search, ScrollText, RefreshCw} from 'lucide-react';
-import {motion} from 'motion/react';
-import {easeOut} from 'motion';
-import {ArcDateRangePicker, WorkspaceHeader} from '@/components/common/layout';
-import services from '@/lib/services';
-import {AuditLogInfo, ListAuditLogsRequest} from '@/lib/services/audit/types';
-import {AuditLogTable} from './AuditLogTable';
-import {AuditTraceSheet} from './AuditTraceSheet';
+  ArcDateRangePicker,
+  TableCard,
+  WorkspaceHeader,
+} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
+import {useServerListQuery} from '@/lib/hooks/use-server-list-query';
 import {dateRangeToYmdPair, ymdPairToDateRange} from '@/lib/date-range';
 import {wallTimeToRFC3339} from '@/lib/timezone';
+import services from '@/lib/services';
+import {AuditLogInfo, ListAuditLogsRequest} from '@/lib/services/audit/types';
 import type {DateRange} from '@/components/arc/date-range-picker/date-range-picker';
+import {cn} from '@/lib/utils';
+import {AuditLogTable} from './AuditLogTable';
+import {AuditTraceSheet} from './AuditTraceSheet';
 
 /** 审计筛选只暴露用户能理解的操作类别，不把每一种内部 action 铺进下拉框。
  * Audit filters expose user-facing action categories, not every internal action.
  */
-const AUDIT_ACTION_GROUPS = ['create', 'update', 'delete', 'lifecycle', 'install', 'diagnose', 'task'] as const;
+const AUDIT_ACTION_GROUPS = [
+  'create',
+  'update',
+  'delete',
+  'lifecycle',
+  'install',
+  'diagnose',
+  'task',
+] as const;
 
 /** 对象只保留控制层资源。命令、任务模块不做成筛选项。
  * Object filters keep control-plane resources. Commands and task modules are not filters.
  */
-const AUDIT_RESOURCE_TYPES = ['host', 'cluster', 'cluster_node', 'user', 'plugin', 'cli_token'] as const;
+const AUDIT_RESOURCE_TYPES = [
+  'host',
+  'cluster',
+  'cluster_node',
+  'user',
+  'plugin',
+  'cli_token',
+] as const;
 
 const AUDIT_SOURCES = ['web', 'cli', 'system'] as const;
 
 const DEFAULT_PAGE_SIZE = 20;
+const ALL_VALUE = 'all';
 
-/**
- * Audit Log Main Component
- * 审计日志主组件
- */
+type AuditFilters = {
+  username: string;
+  source: string;
+  actionGroup: string;
+  resourceType: string;
+  startDate: string;
+  endDate: string;
+};
+
+const INITIAL_FILTERS: AuditFilters = {
+  username: '',
+  source: ALL_VALUE,
+  actionGroup: ALL_VALUE,
+  resourceType: ALL_VALUE,
+  startDate: '',
+  endDate: '',
+};
+
 export function AuditLogMain() {
   const t = useTranslations();
+  const {
+    page,
+    pageSize,
+    filters,
+    setPage,
+    setPageSize,
+    patchFilters,
+    resetFilters,
+  } = useServerListQuery({
+    initialFilters: INITIAL_FILTERS,
+    defaultPageSize: DEFAULT_PAGE_SIZE,
+  });
 
-  // Data state / 数据状态
+  const [usernameDraft, setUsernameDraft] = useState(filters.username);
   const [logs, setLogs] = useState<AuditLogInfo[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-
-  // Filter state / 过滤状态
-  const [searchUsername, setSearchUsername] = useState('');
-  const [filterSource, setFilterSource] = useState<string>('all');
-  const [filterActionGroup, setFilterActionGroup] = useState<string>('all');
-  const [filterResourceType, setFilterResourceType] = useState<string>('all');
-  const [filterStartDate, setFilterStartDate] = useState('');
-  const [filterEndDate, setFilterEndDate] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [traceLog, setTraceLog] = useState<AuditLogInfo | null>(null);
+
   const dateRange = useMemo(
-    () => ymdPairToDateRange(filterStartDate, filterEndDate),
-    [filterStartDate, filterEndDate],
+    () => ymdPairToDateRange(filters.startDate, filters.endDate),
+    [filters.startDate, filters.endDate],
   );
 
-
-  /**
-   * Load audit logs list
-   * 加载审计日志列表
-   */
   const loadLogs = useCallback(async () => {
     setLoading(true);
     try {
-      // 日期转 RFC3339：开始日 00:00:00，结束日 23:59:59.999（含当天整日）
       let startTime: string | undefined;
       let endTime: string | undefined;
-      if (filterStartDate) {
-        startTime = wallTimeToRFC3339(filterStartDate + 'T00:00:00');
+      if (filters.startDate) {
+        startTime = wallTimeToRFC3339(filters.startDate + 'T00:00:00');
       }
-      if (filterEndDate) {
-        endTime = wallTimeToRFC3339(filterEndDate + 'T23:59:59.999');
+      if (filters.endDate) {
+        endTime = wallTimeToRFC3339(filters.endDate + 'T23:59:59.999');
       }
       const params: ListAuditLogsRequest = {
-        current: currentPage,
+        current: page,
         size: pageSize,
-        username: searchUsername || undefined,
-        client_type: filterSource !== 'all' ? filterSource : undefined,
-        action_group: filterActionGroup !== 'all' ? filterActionGroup : undefined,
+        username: filters.username || undefined,
+        client_type: filters.source !== ALL_VALUE ? filters.source : undefined,
+        action_group:
+          filters.actionGroup !== ALL_VALUE ? filters.actionGroup : undefined,
         resource_type:
-          filterResourceType !== 'all' ? filterResourceType : undefined,
+          filters.resourceType !== ALL_VALUE ? filters.resourceType : undefined,
         start_time: startTime,
         end_time: endTime,
       };
 
       const result = await services.audit.getAuditLogsSafe(params);
-
       if (result.success && result.data) {
         setLogs(result.data.logs || []);
         setTotal(result.data.total || 0);
+        setError(null);
       } else {
-        toast.error(result.error || t('audit.loadError'));
+        setError(result.error || t('audit.loadError'));
         setLogs([]);
         setTotal(0);
       }
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('audit.loadError'),
-      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('audit.loadError'));
       setLogs([]);
       setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [
-    currentPage,
-    pageSize,
-    searchUsername,
-    filterSource,
-    filterActionGroup,
-    filterResourceType,
-    filterStartDate,
-    filterEndDate,
-    t,
-  ]);
+  }, [page, pageSize, filters, t]);
 
   useEffect(() => {
-    loadLogs();
+    void loadLogs();
   }, [loadLogs]);
 
-  /**
-   * Handle search
-   * 处理搜索
-   */
-  const handleSearch = () => {
-    setCurrentPage(1);
-    loadLogs();
-  };
-
-  /**
-   * Handle refresh
-   * 处理刷新
-   */
-  const handleRefresh = () => {
-    loadLogs();
-  };
-
-  /**
-   * Submit filter form via Enter key
-   * 通过 Enter 键提交过滤条件
-   */
-  const handleFilterInputKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter') {
-      return;
+  const commitUsername = useCallback(() => {
+    const next = usernameDraft.trim();
+    if (next !== filters.username) {
+      patchFilters({username: next});
     }
-    e.preventDefault();
-    handleSearch();
-  };
+  }, [usernameDraft, filters.username, patchFilters]);
 
-  /**
-   * Handle page change
-   * 处理页面变化
-   */
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
-  };
-
-  /**
-   * 应用 Arc 日期范围：日历日闭区间，查询时结束日含 23:59:59.999。
-   * Apply an Arc date range: inclusive calendar days; the query end includes 23:59:59.999.
-   */
   const handleDateRangeChange = (range: DateRange) => {
     const next = dateRangeToYmdPair(range);
-    setFilterStartDate(next.startDate);
-    setFilterEndDate(next.endDate);
-    setCurrentPage(1);
+    patchFilters({startDate: next.startDate, endDate: next.endDate});
   };
 
-  /**
-   * Clear all filters
-   * 清除所有过滤条件
-   */
   const handleClearFilters = () => {
-    setSearchUsername('');
-    setFilterSource('all');
-    setFilterActionGroup('all');
-    setFilterResourceType('all');
-    setFilterStartDate('');
-    setFilterEndDate('');
-    setCurrentPage(1);
+    setUsernameDraft('');
+    resetFilters();
   };
 
-  const totalPages = Math.ceil(total / pageSize);
+  const filtersActive =
+    Boolean(filters.username) ||
+    filters.source !== ALL_VALUE ||
+    filters.actionGroup !== ALL_VALUE ||
+    filters.resourceType !== ALL_VALUE ||
+    Boolean(filters.startDate) ||
+    Boolean(filters.endDate);
 
-  const containerVariants = {
-    hidden: {opacity: 0},
-    visible: {
-      opacity: 1,
-      transition: {
-        duration: 0.5,
-        staggerChildren: 0.1,
-        ease: easeOut,
-      },
-    },
-  };
-
-  const itemVariants = {
-    hidden: {opacity: 0, y: 20},
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: {duration: 0.6, ease: easeOut},
-    },
-  };
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
-    <motion.div
-      className='space-y-6 flex-1 flex flex-col'
-      initial='hidden'
-      animate='visible'
-      variants={containerVariants}
-    >
-      {/* Header / 标题 */}
-      <motion.div variants={itemVariants}>
-        <WorkspaceHeader
-          icon={<ScrollText />}
-          title={t('audit.auditLogsTitle')}
-          subtitle={t('audit.auditLogsDescription')}
-          actions={
-            <Button variant='outline' onClick={handleRefresh}>
-              <RefreshCw className='h-4 w-4 mr-2' />
-              {t('common.refresh')}
-            </Button>
-          }
-        />
-      </motion.div>
+    <div className={cn(layout.page, layout.pageViewport)}>
+      <WorkspaceHeader
+        icon={<ScrollText />}
+        title={t('audit.auditLogsTitle')}
+        subtitle={t('audit.auditLogsDescription')}
+        actions={
+          <Button
+            type='button'
+            variant='secondary'
+            size='sm'
+            onClick={() => void loadLogs()}
+            disabled={loading}
+          >
+            <RefreshCw
+              className={cn('size-3.5', loading && 'animate-spin')}
+              aria-hidden
+            />
+            {t('common.refresh')}
+          </Button>
+        }
+      />
 
-      <Separator />
-
-      {/* Filters / 筛选条件 */}
-      <motion.div
-        className='flex flex-wrap gap-2.5 items-center'
-        variants={itemVariants}
-      >
-        <div className='min-w-[150px] max-w-[200px]'>
-          <Input
+      <div className={layout.toolbar}>
+        <div className={layout.toolbarSearch}>
+          <SearchField
+            label={t('audit.searchUsernamePlaceholder')}
+            value={usernameDraft}
+            onValueChange={(v) => {
+              setUsernameDraft(v);
+              if (v === '' && filters.username !== '') {
+                patchFilters({username: ''});
+              }
+            }}
             placeholder={t('audit.searchUsernamePlaceholder')}
-            value={searchUsername}
-            onChange={(e) => setSearchUsername(e.target.value)}
-            onKeyDown={handleFilterInputKeyDown}
-            className='h-9 text-xs'
+            clearLabel={t('common.searchClear')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitUsername();
+              }
+            }}
           />
         </div>
-
-        <Select value={filterSource} onValueChange={setFilterSource}>
-          <SelectTrigger className='w-[120px] h-9 text-xs'>
-            <SelectValue placeholder={t('audit.source')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all'>{t('audit.allSources')}</SelectItem>
-            {AUDIT_SOURCES.map((source) => (
-              <SelectItem key={source} value={source}>
-                {source === 'system' ? t('audit.actorSystem') : t(`audit.clientTypes.${source}`)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={filterActionGroup} onValueChange={setFilterActionGroup}>
-          <SelectTrigger className='w-[120px] h-9 text-xs'>
-            <SelectValue placeholder={t('audit.action')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all'>{t('audit.allActions')}</SelectItem>
-            {AUDIT_ACTION_GROUPS.map((group) => (
-              <SelectItem key={group} value={group}>
-                {t(`audit.actionGroups.${group}`)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={filterResourceType} onValueChange={setFilterResourceType}>
-          <SelectTrigger className='w-[140px] h-9 text-xs'>
-            <SelectValue placeholder={t('audit.resourceType')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all'>{t('audit.allResourceTypes')}</SelectItem>
-            {AUDIT_RESOURCE_TYPES.map((resourceType) => (
-              <SelectItem key={resourceType} value={resourceType}>
-                {t(`audit.resourceTypes.${resourceType}`)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
+        <div className={cn(layout.filterCtrl, layout.filterWsm)}>
+          <Select
+            label={t('audit.source')}
+            value={filters.source}
+            onValueChange={(v) => patchFilters({source: v})}
+            displayValue={
+              filters.source === ALL_VALUE ? t('audit.source') : undefined
+            }
+            options={[
+              {value: ALL_VALUE, label: t('audit.allSources')},
+              ...AUDIT_SOURCES.map((source) => ({
+                value: source,
+                label:
+                  source === 'system'
+                    ? t('audit.actorSystem')
+                    : t(`audit.clientTypes.${source}`),
+              })),
+            ]}
+          />
+        </div>
+        <div className={cn(layout.filterCtrl, layout.filterWsm)}>
+          <Select
+            label={t('audit.action')}
+            value={filters.actionGroup}
+            onValueChange={(v) => patchFilters({actionGroup: v})}
+            displayValue={
+              filters.actionGroup === ALL_VALUE ? t('audit.action') : undefined
+            }
+            options={[
+              {value: ALL_VALUE, label: t('audit.allActions')},
+              ...AUDIT_ACTION_GROUPS.map((group) => ({
+                value: group,
+                label: t(`audit.actionGroups.${group}`),
+              })),
+            ]}
+          />
+        </div>
+        <div className={cn(layout.filterCtrl, layout.filterWmd)}>
+          <Select
+            label={t('audit.resourceType')}
+            value={filters.resourceType}
+            onValueChange={(v) => patchFilters({resourceType: v})}
+            displayValue={
+              filters.resourceType === ALL_VALUE
+                ? t('audit.resourceType')
+                : undefined
+            }
+            options={[
+              {value: ALL_VALUE, label: t('audit.allResourceTypes')},
+              ...AUDIT_RESOURCE_TYPES.map((resourceType) => ({
+                value: resourceType,
+                label: t(`audit.resourceTypes.${resourceType}`),
+              })),
+            ]}
+          />
+        </div>
         <ArcDateRangePicker
           value={dateRange}
           onChange={handleDateRangeChange}
           label={t('common.dateRange.label')}
           placeholder={t('common.dateRange.placeholder')}
         />
-
-        <Button onClick={handleSearch} size='sm' className='h-9 active:scale-[0.98]'>
-          <Search className='h-3.5 w-3.5 mr-1.5' />
-          {t('common.search')}
-        </Button>
-
-        {(searchUsername || filterSource !== 'all' || filterActionGroup !== 'all' || filterResourceType !== 'all' || filterStartDate || filterEndDate) && (
-          <Button variant='ghost' size='sm' onClick={handleClearFilters} className='h-9 text-muted-foreground hover:text-foreground'>
+        {filtersActive ? (
+          <Button
+            type='button'
+            size='sm'
+            variant='ghost'
+            onClick={handleClearFilters}
+          >
             {t('common.clearFilters')}
           </Button>
-        )}
-      </motion.div>
+        ) : null}
+      </div>
 
-      {/* Audit Log Table / 审计日志表格 */}
-      <motion.div variants={itemVariants} className='flex-1 flex flex-col'>
-        <AuditLogTable
-          logs={logs}
-          loading={loading}
-          currentPage={currentPage}
-          totalPages={totalPages}
-          total={total}
-          pageSize={pageSize}
-          onPageChange={handlePageChange}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setCurrentPage(1);
-          }}
-          onOpenTrace={setTraceLog}
-        />
-      </motion.div>
-      <AuditTraceSheet log={traceLog} onOpenChange={(open) => {
-        if (!open) {
-          setTraceLog(null);
-        }
-      }} />
-    </motion.div>
+      <div className={layout.split}>
+        <div className={layout.listCol} data-mcols='audit'>
+          <TableCard
+            loading={loading}
+            hasData={logs.length > 0}
+            skeletonColumns={9}
+            skeletonRows={8}
+            error={error}
+            onRetry={() => void loadLogs()}
+            pagination={{
+              currentPage: page,
+              totalPages,
+              pageSize,
+              totalItems: total,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+              pageSizeOptions: [10, 20, 50, 100],
+            }}
+            empty={
+              <EmptyState
+                title={t('audit.noAuditLogs')}
+                description={
+                  filtersActive
+                    ? t('common.noMatchingData')
+                    : t('audit.auditLogsDescription')
+                }
+                action={
+                  filtersActive ? (
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='secondary'
+                      onClick={handleClearFilters}
+                    >
+                      {t('common.clearFilters')}
+                    </Button>
+                  ) : undefined
+                }
+              />
+            }
+          >
+            <AuditLogTable logs={logs} onOpenTrace={setTraceLog} />
+          </TableCard>
+        </div>
+      </div>
+
+      <AuditTraceSheet
+        log={traceLog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTraceLog(null);
+          }
+        }}
+      />
+    </div>
   );
 }

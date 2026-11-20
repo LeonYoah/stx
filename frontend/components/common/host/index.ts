@@ -24,6 +24,7 @@
  */
 
 export {HostMain} from './HostMain';
+export type {HostMainProps} from './HostMain';
 export {HostTable} from './HostTable';
 export {HostDetail} from './HostDetail';
 export {HostDetailPage} from './HostDetailPage';

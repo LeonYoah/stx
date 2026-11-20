@@ -18,421 +18,481 @@
 'use client';
 
 /**
- * Host Management Main Component
- * 主机管理主组件
- *
- * This component provides the main interface for host management,
- * including listing, searching, filtering, and CRUD operations.
- * 本组件提供主机管理的主界面，包括列表、搜索、过滤和 CRUD 操作。
+ * 主机管理：TableCard + DetailHost；/hosts/[id] 深链打开常驻详情；
+ * 状态分段无分桶计数；创建/编辑/安装对话框保持原样。
+ * Host management: TableCard + DetailHost; /hosts/[id] deep-links into the
+ * persistent detail; status segments have no bucket counts; create/edit/install
+ * dialogs stay as they are.
  */
 
-import {useState, useEffect, useCallback} from 'react';
+import {useCallback, useEffect, useState} from 'react';
+import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import {Layers, Plus, RefreshCw, Server} from 'lucide-react';
 import {toast} from '@/lib/toast';
-import {Plus, Search, Server, Layers, RefreshCw} from 'lucide-react';
-import {WorkspaceHeader, StatPillsBar, ModuleNavTabs} from '@/components/common/layout';
-import {motion} from 'motion/react';
-import {easeOut} from 'motion';
+import {Button} from '@/components/arc/button/button';
+import {useDrawerItem} from '@/components/arc/drawer/drawer';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import {Select} from '@/components/arc/select/select';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {
+  DetailHost,
+  ModuleNavTabs,
+  TableCard,
+  WorkspaceHeader,
+  useDetailNarrow,
+} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
+import {useServerListQuery} from '@/lib/hooks/use-server-list-query';
 import services from '@/lib/services';
 import {
   HostInfo,
-  HostType,
   HostStatus,
+  HostType,
   ListHostsRequest,
 } from '@/lib/services/host/types';
-import {HostTable} from './HostTable';
-import {HostDetail} from './HostDetail';
+import {cn} from '@/lib/utils';
 import {CreateHostDialog} from './CreateHostDialog';
 import {EditHostDialog} from './EditHostDialog';
+import {HostDetail} from './HostDetail';
 import {HostInstallGuideDialog} from './HostInstallGuideDialog';
+import {HostTable} from './HostTable';
 
 const DEFAULT_PAGE_SIZE = 10;
+const ALL_VALUE = 'all';
 
-/**
- * Host Management Main Component
- * 主机管理主组件
- */
-export function HostMain() {
+export interface HostMainProps {
+  /** `/hosts/[id]` 深链目标。Deep-link target from `/hosts/[id]`. */
+  initialHostId?: number | null;
+}
+
+export function HostMain({initialHostId = null}: HostMainProps) {
   const t = useTranslations();
+  const router = useRouter();
+  const narrow = useDetailNarrow();
 
-  // Data state / 数据状态
+  const {page, pageSize, filters, setPage, setPageSize, patchFilters, resetFilters} =
+    useServerListQuery({
+      initialFilters: {
+        name: '',
+        hostType: ALL_VALUE,
+        status: ALL_VALUE,
+      },
+      defaultPageSize: DEFAULT_PAGE_SIZE,
+    });
+
+  const [nameDraft, setNameDraft] = useState(filters.name);
   const [hosts, setHosts] = useState<HostInfo[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [error, setError] = useState<string | null>(null);
 
-  // Filter state / 过滤状态
-  const [searchName, setSearchName] = useState('');
-  const [filterHostType, setFilterHostType] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [selectedHostId, setSelectedHostId] = useState<number | null>(
+    initialHostId,
+  );
+  const [selectedHost, setSelectedHost] = useState<HostInfo | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // Dialog state / 对话框状态
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [selectedHost, setSelectedHost] = useState<HostInfo | null>(null);
+  const [editHost, setEditHost] = useState<HostInfo | null>(null);
   const [guideHost, setGuideHost] = useState<HostInfo | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
-  /**
-   * Load hosts list
-   * 加载主机列表
-   */
+  const drawerOpen = selectedHostId !== null;
+  const drawerHost = useDrawerItem(selectedHost);
+
   const loadHosts = useCallback(async () => {
     setLoading(true);
     try {
       const params: ListHostsRequest = {
-        current: currentPage,
+        current: page,
         size: pageSize,
-        name: searchName || undefined,
+        name: filters.name || undefined,
         host_type:
-          filterHostType !== 'all' ? (filterHostType as HostType) : undefined,
-        status: filterStatus !== 'all' ? (filterStatus as HostStatus) : undefined,
+          filters.hostType !== ALL_VALUE
+            ? (filters.hostType as HostType)
+            : undefined,
+        status:
+          filters.status !== ALL_VALUE
+            ? (filters.status as HostStatus)
+            : undefined,
       };
-
       const result = await services.host.getHostsSafe(params);
-
       if (result.success && result.data) {
         setHosts(result.data.hosts || []);
         setTotal(result.data.total || 0);
+        setError(null);
       } else {
-        toast.error(result.error || t('host.loadError'));
+        setError(result.error || t('host.loadError'));
         setHosts([]);
         setTotal(0);
       }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('host.loadError'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('host.loadError'));
       setHosts([]);
       setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchName, filterHostType, filterStatus, t]);
+  }, [page, pageSize, filters, t]);
 
   useEffect(() => {
-    loadHosts();
+    void loadHosts();
   }, [loadHosts]);
 
-  /**
-   * Handle search
-   * 处理搜索
-   */
-  const handleSearch = () => {
-    setCurrentPage(1);
-    loadHosts();
-  };
+  const loadHostDetail = useCallback(
+    async (hostId: number, seed?: HostInfo) => {
+      if (seed && seed.id === hostId) {
+        setSelectedHost(seed);
+      }
+      setLoadingDetail(true);
+      try {
+        const result = await services.host.getHostSafe(hostId);
+        if (result.success && result.data) {
+          setSelectedHost(result.data);
+        } else if (!seed) {
+          toast.error(result.error || t('host.loadError'));
+          setSelectedHostId(null);
+          setSelectedHost(null);
+          router.replace('/hosts');
+        }
+      } finally {
+        setLoadingDetail(false);
+      }
+    },
+    [router, t],
+  );
 
-  /**
-   * Handle refresh
-   * 处理刷新
-   */
-  const handleRefresh = () => {
-    loadHosts();
-  };
+  // 深链：外部 /hosts/[id] 打开对应常驻详情。
+  // Deep link: /hosts/[id] opens the matching persistent detail.
+  useEffect(() => {
+    if (initialHostId) {
+      setSelectedHostId(initialHostId);
+      void loadHostDetail(initialHostId);
+    }
+  }, [initialHostId, loadHostDetail]);
 
-  /**
-   * Handle page change
-   * 处理页面变化
-   */
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
-  };
+  const openHostDetail = useCallback(
+    (host: HostInfo) => {
+      setSelectedHostId(host.id);
+      setSelectedHost(host);
+      void loadHostDetail(host.id, host);
+      // 仅在深链路由上同步 path，避免 /hosts 列表选中时整页重挂丢失筛选。
+      // Sync the path only on the deep-link route so selecting from /hosts
+      // does not remount and wipe filters.
+      if (initialHostId != null) {
+        router.replace(`/hosts/${host.id}`);
+      }
+    },
+    [initialHostId, loadHostDetail, router],
+  );
 
-  /**
-   * Handle view host detail
-   * 处理查看主机详情
-   */
-  const handleViewDetail = (host: HostInfo) => {
-    setSelectedHost(host);
-    setIsDetailOpen(true);
-  };
+  const handleCloseDetail = useCallback(() => {
+    setSelectedHostId(null);
+    setSelectedHost(null);
+    if (initialHostId != null) {
+      router.replace('/hosts');
+    }
+  }, [initialHostId, router]);
 
-  /**
-   * Handle edit host
-   * 处理编辑主机
-   */
+  const commitName = useCallback(() => {
+    const next = nameDraft.trim();
+    if (next !== filters.name) {
+      patchFilters({name: next});
+    }
+  }, [nameDraft, filters.name, patchFilters]);
+
   const handleEdit = (host: HostInfo) => {
-    setSelectedHost(host);
+    setEditHost(host);
     setIsEditDialogOpen(true);
   };
 
-  /**
-   * Handle delete host
-   * 处理删除主机
-   */
   const handleDelete = async (host: HostInfo) => {
     const result = await services.host.deleteHostSafe(host.id);
     if (result.success) {
       toast.success(t('host.deleteSuccess'));
-      loadHosts();
+      if (selectedHostId === host.id) {
+        handleCloseDetail();
+      }
+      void loadHosts();
     } else {
       toast.error(result.error || t('host.deleteError'));
     }
   };
 
-  /**
-   * Handle host created
-   * 处理主机创建完成
-   */
   const handleHostCreated = (newHost?: HostInfo) => {
-    loadHosts();
+    void loadHosts();
     if (newHost && newHost.host_type !== HostType.BARE_METAL) {
       setIsCreateDialogOpen(false);
       toast.success(t('host.createSuccess'));
     }
   };
 
-  /**
-   * Handle open install guide
-   * 处理打开 Agent 安装引导
-   */
   const handleOpenInstallGuide = (host: HostInfo) => {
     setGuideHost(host);
     setIsGuideOpen(true);
   };
 
-  /**
-   * Handle host updated
-   * 处理主机更新完成
-   */
   const handleHostUpdated = () => {
     setIsEditDialogOpen(false);
-    loadHosts();
+    void loadHosts();
+    if (editHost) {
+      void loadHostDetail(editHost.id, editHost);
+    }
     toast.success(t('host.updateSuccess'));
   };
 
-  /**
-   * Clear all filters
-   * 清除所有过滤条件
-   */
   const handleClearFilters = () => {
-    setSearchName('');
-    setFilterHostType('all');
-    setFilterStatus('all');
-    setCurrentPage(1);
+    setNameDraft('');
+    resetFilters();
   };
 
-  const totalPages = Math.ceil(total / pageSize);
+  const filtersActive =
+    Boolean(filters.name) ||
+    filters.hostType !== ALL_VALUE ||
+    filters.status !== ALL_VALUE;
 
-  const containerVariants = {
-    hidden: {opacity: 0},
-    visible: {
-      opacity: 1,
-      transition: {
-        duration: 0.5,
-        staggerChildren: 0.1,
-        ease: easeOut,
-      },
-    },
-  };
-
-  const itemVariants = {
-    hidden: {opacity: 0, y: 20},
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: {duration: 0.6, ease: easeOut},
-    },
-  };
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const activeIndex = selectedHost
+    ? hosts.findIndex((h) => h.id === selectedHost.id)
+    : -1;
+  const detailNav =
+    selectedHost && activeIndex >= 0
+      ? {
+          index: activeIndex,
+          total: hosts.length,
+          onPrev: () =>
+            activeIndex > 0 && openHostDetail(hosts[activeIndex - 1]),
+          onNext: () =>
+            activeIndex < hosts.length - 1 &&
+            openHostDetail(hosts[activeIndex + 1]),
+        }
+      : undefined;
 
   return (
-    <motion.div
-      className='space-y-6'
-      initial='hidden'
-      animate='visible'
-      variants={containerVariants}
-    >
-      {/* Header / 标题 */}
-      <motion.div variants={itemVariants}>
-        <WorkspaceHeader
-          icon={<Server />}
-          title={t('host.title')}
-          subtitle={t('host.description')}
-          tabs={
-            <ModuleNavTabs
-              reorderGroupId='clusters-hosts'
-              items={[
-                {
-                  key: 'clusters',
-                  label: t('cluster.title'),
-                  href: '/clusters',
-                  icon: <Layers className='size-3.5' />,
-                },
-                {
-                  key: 'hosts',
-                  label: t('host.title'),
-                  href: '/hosts',
-                  icon: <Server className='size-3.5' />,
-                },
-              ]}
-              activeKey='hosts'
-            />
-          }
-          actions={
-            <>
-              <Button variant='outline' onClick={handleRefresh}>
-                <RefreshCw className='h-4 w-4 mr-2' />
-                {t('common.refresh')}
-              </Button>
-              <Button onClick={() => setIsCreateDialogOpen(true)}>
-                <Plus className='h-4 w-4 mr-2' />
-                {t('host.createHost')}
-              </Button>
-            </>
-          }
-        />
-      </motion.div>
+    <div className={cn(layout.page, layout.pageViewport)}>
+      <WorkspaceHeader
+        icon={<Server />}
+        title={t('host.title')}
+        subtitle={t('host.description')}
+        tabs={
+          <ModuleNavTabs
+            reorderGroupId='clusters-hosts'
+            items={[
+              {
+                key: 'clusters',
+                label: t('cluster.title'),
+                href: '/clusters',
+                icon: <Layers className='size-3.5' />,
+              },
+              {
+                key: 'hosts',
+                label: t('host.title'),
+                href: '/hosts',
+                icon: <Server className='size-3.5' />,
+              },
+            ]}
+            activeKey='hosts'
+          />
+        }
+        actions={
+          <>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => void loadHosts()}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={cn('size-3.5', loading && 'animate-spin')}
+                aria-hidden
+              />
+              {t('common.refresh')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              onClick={() => setIsCreateDialogOpen(true)}
+            >
+              <Plus className='size-3.5' aria-hidden />
+              {t('host.createHost')}
+            </Button>
+          </>
+        }
+      />
 
-      {/* Status Pills / 状态胶囊栏 */}
-      <motion.div variants={itemVariants}>
-        <StatPillsBar
-          items={[
-            {key: 'all', label: t('host.allStatuses')},
+      <div className={layout.toolbar}>
+        <SegmentedControl
+          label={t('host.status')}
+          value={filters.status}
+          onValueChange={(v) => patchFilters({status: v})}
+          options={[
+            {value: ALL_VALUE, label: t('host.allStatuses')},
             {
-              key: HostStatus.CONNECTED,
+              value: HostStatus.CONNECTED,
               label: t('host.statuses.connected'),
-              variant: 'success',
             },
-            {
-              key: HostStatus.PENDING,
-              label: t('host.statuses.pending'),
-              variant: 'warning',
-            },
-            {
-              key: HostStatus.OFFLINE,
-              label: t('host.statuses.offline'),
-              variant: 'default',
-            },
-            {
-              key: HostStatus.ERROR,
-              label: t('host.statuses.error'),
-              variant: 'danger',
-            },
+            {value: HostStatus.PENDING, label: t('host.statuses.pending')},
+            {value: HostStatus.OFFLINE, label: t('host.statuses.offline')},
+            {value: HostStatus.ERROR, label: t('host.statuses.error')},
           ]}
-          activeKey={filterStatus}
-          onChange={(newStatus) => {
-            setFilterStatus(newStatus);
-            setCurrentPage(1);
-          }}
         />
-      </motion.div>
-
-      {/* Filters / 过滤器 */}
-      <motion.div
-        className='flex flex-wrap gap-3 items-center'
-        variants={itemVariants}
-      >
-        <div className='flex-1 min-w-[200px] max-w-sm'>
-          <Input
+        <div className={layout.toolbarSearch}>
+          <SearchField
+            label={t('host.searchPlaceholder')}
+            value={nameDraft}
+            onValueChange={(v) => {
+              setNameDraft(v);
+              if (v === '' && filters.name !== '') {
+                patchFilters({name: ''});
+              }
+            }}
             placeholder={t('host.searchPlaceholder')}
-            value={searchName}
-            onChange={(e) => setSearchName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            clearLabel={t('common.searchClear')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitName();
+              }
+            }}
           />
         </div>
-
-        <Select value={filterHostType} onValueChange={setFilterHostType}>
-          <SelectTrigger className='w-[160px]'>
-            <SelectValue placeholder={t('host.hostType')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all'>{t('host.allTypes')}</SelectItem>
-            <SelectItem value={HostType.BARE_METAL}>
-              {t('host.types.bareMetal')}
-            </SelectItem>
-            <SelectItem value={HostType.DOCKER}>
-              {t('host.types.docker')}
-            </SelectItem>
-            <SelectItem value={HostType.KUBERNETES}>
-              {t('host.types.kubernetes')}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Button variant='outline' onClick={handleSearch} className='active:scale-[0.98]'>
-          <Search className='h-4 w-4 mr-2' />
-          {t('common.search')}
-        </Button>
-
-        {(searchName || filterHostType !== 'all' || filterStatus !== 'all') && (
-          <Button variant='ghost' onClick={handleClearFilters} className='text-muted-foreground hover:text-foreground'>
+        <div className={cn(layout.filterCtrl, layout.filterWmd)}>
+          <Select
+            label={t('host.hostType')}
+            value={filters.hostType}
+            onValueChange={(v) => patchFilters({hostType: v})}
+            displayValue={
+              filters.hostType === ALL_VALUE ? t('host.hostType') : undefined
+            }
+            options={[
+              {value: ALL_VALUE, label: t('host.allTypes')},
+              {value: HostType.BARE_METAL, label: t('host.types.bareMetal')},
+              {value: HostType.DOCKER, label: t('host.types.docker')},
+              {value: HostType.KUBERNETES, label: t('host.types.kubernetes')},
+            ]}
+          />
+        </div>
+        {filtersActive ? (
+          <Button
+            type='button'
+            size='sm'
+            variant='ghost'
+            onClick={handleClearFilters}
+          >
             {t('common.clearFilters')}
           </Button>
-        )}
-      </motion.div>
+        ) : null}
+      </div>
 
-      {/* Host Table / 主机表格 */}
-      <motion.div variants={itemVariants}>
-        <HostTable
-          hosts={hosts}
-          loading={loading}
-          currentPage={currentPage}
-          totalPages={totalPages}
-          total={total}
-          pageSize={pageSize}
-          onPageChange={handlePageChange}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setCurrentPage(1);
+      <div className={layout.split}>
+        <div className={layout.listCol} data-mcols='hosts'>
+          <TableCard
+            loading={loading}
+            hasData={hosts.length > 0}
+            skeletonColumns={7}
+            skeletonRows={8}
+            error={error}
+            onRetry={() => void loadHosts()}
+            pagination={{
+              currentPage: page,
+              totalPages,
+              pageSize,
+              totalItems: total,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+              pageSizeOptions: [10, 20, 50, 100],
+            }}
+            empty={
+              <EmptyState
+                title={t('host.noHosts')}
+                description={
+                  filtersActive
+                    ? t('common.noMatchingData')
+                    : t('host.description')
+                }
+                action={
+                  filtersActive ? (
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='secondary'
+                      onClick={handleClearFilters}
+                    >
+                      {t('common.clearFilters')}
+                    </Button>
+                  ) : undefined
+                }
+              />
+            }
+          >
+            <HostTable
+              hosts={hosts}
+              selectedHostId={selectedHostId}
+              onViewDetail={openHostDetail}
+              onEdit={handleEdit}
+              onDelete={(host) => void handleDelete(host)}
+              onInstallAgent={handleOpenInstallGuide}
+            />
+          </TableCard>
+        </div>
+
+        <DetailHost
+          open={drawerOpen}
+          hasContent={drawerHost != null || loadingDetail}
+          onOpenChange={(o) => {
+            if (!o) {
+              handleCloseDetail();
+            }
           }}
-          onViewDetail={handleViewDetail}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          onInstallAgent={handleOpenInstallGuide}
-        />
-      </motion.div>
+          narrow={narrow}
+          title={drawerHost?.name || t('host.title')}
+          meta={drawerHost?.ip_address || drawerHost?.description}
+          nav={detailNav}
+          wide
+          drawerWidth='w-[min(92vw,640px)]'
+        >
+          <HostDetail
+            key={drawerHost?.id ?? 'pending'}
+            host={drawerHost ?? null}
+            loading={loadingDetail}
+            onEdit={() => {
+              if (drawerHost) {
+                handleEdit(drawerHost);
+              }
+            }}
+          />
+        </DetailHost>
+      </div>
 
-      {/* Create Host Dialog / 创建主机对话框 */}
       <CreateHostDialog
         open={isCreateDialogOpen}
         onOpenChange={setIsCreateDialogOpen}
         onSuccess={handleHostCreated}
-        onViewDetail={handleViewDetail}
+        onViewDetail={openHostDetail}
       />
 
-      {/* Agent Install Guide Dialog / Agent 部署与接入引导弹窗 */}
       <HostInstallGuideDialog
         open={isGuideOpen}
         onOpenChange={setIsGuideOpen}
         host={guideHost}
         onConnected={() => {
-          loadHosts();
+          void loadHosts();
         }}
-        onViewDetail={handleViewDetail}
+        onViewDetail={openHostDetail}
       />
 
-      {/* Edit Host Dialog / 编辑主机对话框 */}
-      {selectedHost && (
+      {editHost ? (
         <EditHostDialog
           open={isEditDialogOpen}
           onOpenChange={setIsEditDialogOpen}
-          host={selectedHost}
+          host={editHost}
           onSuccess={handleHostUpdated}
         />
-      )}
-
-      {/* Host Detail / 主机详情 */}
-      {selectedHost && (
-        <HostDetail
-          open={isDetailOpen}
-          onOpenChange={setIsDetailOpen}
-          host={selectedHost}
-          onEdit={() => {
-            setIsDetailOpen(false);
-            setIsEditDialogOpen(true);
-          }}
-        />
-      )}
-    </motion.div>
+      ) : null}
+    </div>
   );
 }

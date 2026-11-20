@@ -21,9 +21,9 @@ import {
   normalizeAutoPolicyTaskOptions,
   normalizeConditionItemsForSave,
   shouldRenderCronExprInput,
-} from '../AutoPolicyConfigPanel';
+} from '../policies/policy-form-utils';
 
-describe('AutoPolicyConfigPanel helpers', () => {
+describe('policy form utils', () => {
   it('renders cron input for scheduled templates with a default cron expression', () => {
     expect(
       shouldRenderCronExprInput({

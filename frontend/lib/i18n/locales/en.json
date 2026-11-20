@@ -4096,13 +4096,8 @@
       "errors": "Errors",
       "inspections": "Inspections",
       "tasks": "Diagnosis Execution",
-      "memories": "Playbooks"
-    },
-    "tabDescriptions": {
-      "errors": "Aggregate historical anomalies as problem clues and continue investigating from there.",
-      "inspections": "Run a lightweight check first and decide whether live evidence collection is needed.",
-      "tasks": "Review diagnosis execution, bundles, and diagnostic reports.",
-      "memories": "Reuse verified remediation playbooks, root causes, and prevention notes."
+      "memories": "Playbooks",
+      "policies": "Policies"
     },
     "status": {
       "planned": "Planned"
@@ -4303,9 +4298,6 @@
       "adminOnly": "Admin only"
     },
     "autoPolicies": {
-      "buttonLabel": "Auto Inspection Settings",
-      "title": "Auto Inspection Policies",
-      "count": "{count} policies",
       "create": "New Policy",
       "empty": "No auto-inspection policies yet",
       "loadPoliciesError": "Failed to load policy list",
@@ -4337,21 +4329,12 @@
       "clusterPlaceholder": "Select a cluster scope",
       "globalPolicyOption": "Global policy (all clusters)",
       "clusterOption": "{name} (#{id})",
-      "clusterHint": "Choose a global policy to apply to every cluster, or select a specific cluster to scope it there only.",
       "cooldownLabel": "Cooldown (Minutes)",
-      "cooldownHint": "The same policy will not trigger again during the cooldown window after it fires.",
       "enabledLabel": "Enable Policy",
       "autoBundleTitle": "Auto Generate Diagnostic Bundle and Report",
       "autoBundleHint": "When this policy triggers an inspection, automatically create a diagnostic task with the selected resources.",
       "resourceRequired": "Select at least one resource for automatic collection",
-      "includeThreadDump": "Collect Thread Dump",
-      "includeThreadDumpHint": "Recommended to stay enabled for analyzing thread states and potential deadlocks.",
-      "includeJVMDump": "Collect JVM Dump",
-      "includeJVMDumpHint": "Recommended only for memory issues such as OOM because dump files can be large.",
-      "logSampleLinesLabel": "Log Sample Lines",
-      "logSampleLinesHint": "Controls how many lines are sampled for each key step. More lines provide more context but also increase bundle size.",
       "jvmMinFreeMBLabel": "Minimum Free Space for JVM Dump (MB)",
-      "jvmMinFreeMBHint": "Applies only when JVM dump collection is enabled to avoid generating dumps on hosts with too little free space.",
       "autoStartTaskLabel": "Automatically start the diagnostic task",
       "autoStartTaskHint": "When off, the task is only created and not run immediately.",
       "conditionsLabel": "Trigger Conditions",
@@ -4359,7 +4342,6 @@
       "cronExprLabel": "Cron Expression",
       "cronExprHint": "Leave blank to use the default: {defaultExpr}",
       "cronUseDefault": "Use default",
-      "cronExprInvalid": "Invalid cron expression. Please enter a standard 5-field cron expression.",
       "thresholdLabel": "Threshold (default {value})",
       "windowLabel": "Window (default {minutes} min)",
       "noTemplates": "No condition templates available",
@@ -4375,11 +4357,24 @@
       "keywordsPlaceholder": "Separate multiple keywords with commas",
       "keywordsHint": "Filter by error title, exception class, and error text; leave empty to match anything.",
       "ruleKeysLabel": "Alert rules",
-      "ruleKeysHint": "Matches the alert rule catalog exactly; multi-select.",
       "ruleCatalogEmpty": "No alert rule catalog available",
       "ruleKeyRemove": "Remove alert rule \"{key}\"",
       "alertFiringThresholdLabel": "At least N objects firing together",
-      "alertFiringWindowLabel": "Firing for at least N minutes (0 = immediate)"
+      "alertFiringWindowLabel": "Firing for at least N minutes (0 = immediate)",
+      "statusLabel": "Status",
+      "statusAll": "All",
+      "statusEnabled": "Enabled",
+      "searchLabel": "Search policies",
+      "searchPlaceholder": "Search by name",
+      "searchClear": "Clear search",
+      "autoBundleColumn": "Auto bundle",
+      "filteredEmpty": "No matching policies",
+      "deletePolicy": "Delete policy",
+      "deletePolicyPrompt": "This policy will no longer trigger inspections. This cannot be undone.",
+      "deleteConfirm": "Delete",
+      "deleting": "Deleting…",
+      "emptyDesc": "Create a policy to run inspections automatically when conditions match.",
+      "filteredEmptyDesc": "Adjust the search or status filter and try again."
     },
     "tasks": {
       "title": "Diagnosis Execution",

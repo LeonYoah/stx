@@ -19,4 +19,4 @@ export {DiagnosticsWorkspace} from './DiagnosticsWorkspace';
 
 export {DiagnosticsErrorCenter} from './DiagnosticsErrorCenter';
 export {DiagnosticsInspectionCenter} from './DiagnosticsInspectionCenter';
-export {AutoPolicyConfigPanel} from './AutoPolicyConfigPanel';
+export {PoliciesPanel} from './policies/PoliciesPanel';

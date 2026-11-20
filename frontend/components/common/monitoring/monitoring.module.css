@@ -256,6 +256,11 @@
 .listCol[data-mcols='deliveries'] :is(.row, .rowHead) {
   --cols: minmax(0, 1.6fr) minmax(0, 1fr) 72px 88px 56px 56px 88px minmax(0, 1.2fr);
 }
+/* 诊断策略：名称 / 作用范围 / 条件摘要 / 自动诊断包 / 启用。
+   Diagnostics policies: name / scope / conditions / auto bundle / enabled. */
+.listCol[data-mcols='policies'] :is(.row, .rowHead) {
+  --cols: minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr) 56px;
+}
 
 .rowHead {
   display: grid;
@@ -1249,6 +1254,15 @@
 }
 
 /* 阈值/持续时间两列并排，标签同基线（§9.7）。Two-column field row. */
+  /* 窄屏策略行只留名称 + 启用开关。Narrow policy rows keep name + switch only. */
+  .listCol[data-mcols='policies'] :is(.row, .rowHead) {
+    --cols: minmax(0, 1fr) 40px;
+  }
+  .listCol[data-mcols='policies'] :is(.row, .rowHead) > :nth-child(2),
+  .listCol[data-mcols='policies'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='policies'] :is(.row, .rowHead) > :nth-child(4) {
+    display: none;
+  }
 .fieldRow {
   display: grid;
   grid-template-columns: 1fr 1fr;

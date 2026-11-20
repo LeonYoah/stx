@@ -24,18 +24,11 @@ import type {
   InspectionConditionTemplate,
 } from '@/lib/services/diagnostics';
 import type {AlertRuleCatalogItem} from '@/lib/services/monitoring/types';
-import {AutoPolicyConfigPanel} from '../AutoPolicyConfigPanel';
+import {PolicyFormBody} from '../policies/PolicyFormBody';
 
-const listAutoPoliciesSafe = vi.hoisted(() => vi.fn());
-const listBuiltinConditionTemplatesSafe = vi.hoisted(() => vi.fn());
-const getAlertRuleCatalogSafe = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/services', () => ({
-  default: {
-    diagnostics: {listAutoPoliciesSafe, listBuiltinConditionTemplatesSafe},
-    monitoring: {getAlertRuleCatalogSafe},
-  },
+  default: {diagnostics: {}, monitoring: {}},
 }));
-vi.mock('@/lib/i18n', () => ({useLocale: () => ({locale: 'zh-CN'})}));
 
 const catalog: AlertRuleCatalogItem[] = [
   {
@@ -96,19 +89,23 @@ const policyWithDeadRuleKey: InspectionAutoPolicy = {
   updated_at: '2026-11-01T00:00:00Z',
 };
 
-function renderPanel() {
+function renderForm(ruleCatalog: AlertRuleCatalogItem[] = catalog) {
   return render(
     <NextIntlClientProvider locale='zh' messages={zh}>
-      <AutoPolicyConfigPanel
-        open={true}
-        onOpenChange={() => {}}
+      <PolicyFormBody
+        policy={policyWithDeadRuleKey}
+        templates={[alertFiringTemplate]}
+        ruleCatalog={ruleCatalog}
         clusterOptions={[{cluster_id: 1, cluster_name: 'stx-prod'}]}
+        defaultClusterId={0}
+        onSaved={() => {}}
+        onCancel={() => {}}
       />
     </NextIntlClientProvider>,
   );
 }
 
-describe('auto policy rule picker', () => {
+describe('policy form rule picker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // 测试环境没有 matchMedia，模拟普通动画偏好。
@@ -121,27 +118,12 @@ describe('auto policy rule picker', () => {
         removeEventListener: vi.fn(),
       })),
     });
-    listAutoPoliciesSafe.mockResolvedValue({
-      success: true,
-      data: {
-        items: [policyWithDeadRuleKey],
-        total: 1,
-        page: 1,
-        page_size: 100,
-      },
-    });
-    listBuiltinConditionTemplatesSafe.mockResolvedValue({
-      success: true,
-      data: [alertFiringTemplate],
-    });
-    getAlertRuleCatalogSafe.mockResolvedValue({success: true, data: catalog});
   });
 
-  it('groups the catalog by scope into exactly two groups', async () => {
-    renderPanel();
-    fireEvent.click(await screen.findByRole('button', {name: '编辑'}));
+  it('groups the catalog by scope into exactly two groups', () => {
+    renderForm();
 
-    expect(await screen.findByText('集群级')).toBeVisible();
+    expect(screen.getByText('集群级')).toBeVisible();
     expect(screen.getByText('作业级')).toBeVisible();
     // 旧三类分组（platform_health / metric / job 类别文案）不再出现。
     // The legacy three-category group labels no longer render.
@@ -155,12 +137,11 @@ describe('auto policy rule picker', () => {
   });
 
   it('shows catalog names for known keys and a removable warning badge for unknown keys', async () => {
-    renderPanel();
-    fireEvent.click(await screen.findByRole('button', {name: '编辑'}));
+    renderForm();
 
     // 目录内键显示目录名，title 保留原始规则键。
     // In-catalog keys render the catalog name with the raw rule key on title.
-    const knownBadge = await screen.findByTitle('node_offline');
+    const knownBadge = screen.getByTitle('node_offline');
     expect(knownBadge).toHaveTextContent('节点离线');
 
     // 目录外键以警示徽标显示原始键，点击移除按钮取消勾选。
@@ -178,12 +159,15 @@ describe('auto policy rule picker', () => {
     );
   });
 
-  it('renders the translated unknown_alert_rule_key reason in the list', async () => {
-    renderPanel();
+  it('shows the catalog empty hint instead of flagging keys when the catalog failed to load', () => {
+    renderForm([]);
+    expect(screen.getByText('暂无告警规则目录')).toBeVisible();
+    // 目录未加载时不把已选键标为失效（无移除按钮）。
+    // Selected keys are not flagged as dead while the catalog is unloaded (no remove button).
     expect(
-      await screen.findByText(
-        /告警规则 "stx_server_memory_high" 已不在规则目录/,
-      ),
-    ).toBeVisible();
+      screen.queryByRole('button', {
+        name: '移除告警规则 "stx_server_memory_high"',
+      }),
+    ).not.toBeInTheDocument();
   });
 });

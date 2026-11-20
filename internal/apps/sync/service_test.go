@@ -948,6 +948,33 @@ func TestCreateGlobalVariableRejectsReservedBuiltinVariableKey(t *testing.T) {
 	}
 }
 
+func TestIsReservedBuiltinVariableKey(t *testing.T) {
+	// 剔除日期占位符后仍含英文字母的 key 是普通变量名，不得误判为保留字
+	// Keys with ASCII letters left after removing date tokens are ordinary variable names, not reserved keys
+	cases := []struct {
+		key      string
+		reserved bool
+	}{
+		{"system.biz.date", true},
+		{"system.task.instance.id", true},
+		{"yyyyMMdd", true},
+		{"yyyy-MM-dd", true},
+		{"yyyyMMdd-1", true},
+		{"add_months(yyyyMMdd, -1)", true},
+		{"pass", false},
+		{"class", false},
+		{"password", false},
+		{"mysqlpass", false},
+		{"server_address", false},
+		{"MY_CUSTOM_VAR", false},
+	}
+	for _, tc := range cases {
+		if got := isReservedBuiltinVariableKey(tc.key); got != tc.reserved {
+			t.Errorf("isReservedBuiltinVariableKey(%q) = %v, want %v", tc.key, got, tc.reserved)
+		}
+	}
+}
+
 func TestGlobalVariableSecretMaskingAndResolution(t *testing.T) {
 	service := newTestSyncService(t)
 	ctx := context.Background()

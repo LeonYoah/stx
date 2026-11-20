@@ -239,7 +239,18 @@ func looksLikeTimeExpression(expr string) bool {
 	if matches := timeOffsetExpressionPattern.FindStringSubmatch(expr); len(matches) == 4 {
 		formatExpr = strings.TrimSpace(matches[1])
 	}
-	return javaFormatTokenPattern.MatchString(formatExpr) && javaDateFormatToGoLayout(formatExpr) != ""
+	if !javaFormatTokenPattern.MatchString(formatExpr) {
+		return false
+	}
+	// 剔除日期占位符后不得含英文字母，否则是普通变量名（如 pass 中的 ss、class 中的 ss）
+	// Any ASCII letter left after removing date tokens means an ordinary variable name (e.g. ss inside pass/class)
+	stripped := javaFormatTokenPattern.ReplaceAllString(formatExpr, "")
+	for _, r := range stripped {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return false
+		}
+	}
+	return javaDateFormatToGoLayout(formatExpr) != ""
 }
 
 func formatBuiltinTimeExpression(expr string, base time.Time) (string, error) {

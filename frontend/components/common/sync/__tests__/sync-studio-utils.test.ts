@@ -16,6 +16,10 @@
  */
 
 import {describe, expect, it} from 'vitest';
+import type {
+  SyncJobInstance,
+  SyncJobListParams,
+} from '@/lib/services/sync';
 import {
   buildInsertedCuratedContent,
   buildStudioGridTemplateColumns,
@@ -44,6 +48,7 @@ import {
   resolveVariableSuggestions,
   studioSaveSegment,
   formatSyncUserFacingError,
+  findSyncJobsByIdInput,
   STUDIO_LAYOUT_STORAGE_KEY,
   writeStudioLayoutPrefs,
 } from '../sync-studio-utils';
@@ -1173,3 +1178,62 @@ describe('formatSyncUserFacingError', () => {
   });
 });
 
+
+describe('findSyncJobsByIdInput', () => {
+  const job = (id: number, platform?: string, engine?: string) =>
+    ({id, platform_job_id: platform, engine_job_id: engine}) as SyncJobInstance;
+
+  const listJobsOf = (
+    hits: Record<string, SyncJobInstance[]>,
+    calls: string[] = [],
+  ) =>
+    (async (params: SyncJobListParams) => {
+      const key = params.job_id
+        ? `id:${params.job_id}`
+        : params.platform_job_id
+          ? `platform:${params.platform_job_id}`
+          : `engine:${params.engine_job_id}`;
+      calls.push(key);
+      return {items: hits[key] ?? []};
+    }) as (params: SyncJobListParams) => Promise<{items?: SyncJobInstance[]}>;
+
+  it('strips # prefixes and matches the internal id first', async () => {
+    const calls: string[] = [];
+    const found = await findSyncJobsByIdInput(
+      listJobsOf({'id:100': [job(100, 'p100')]}, calls),
+      '#100',
+    );
+    expect(found.map((item) => item.id)).toEqual([100]);
+    expect(calls).toContain('id:100');
+  });
+
+  it('collects platform and engine hits deduped by job id', async () => {
+    const target = job(98, '179519364461900000');
+    const found = await findSyncJobsByIdInput(
+      listJobsOf({
+        'platform:179519364461900000': [target],
+        'engine:179519364461900000': [target],
+      }),
+      '179519364461900000',
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].id).toBe(98);
+  });
+
+  it('firstOnly stops after the first hit', async () => {
+    const calls: string[] = [];
+    await findSyncJobsByIdInput(
+      listJobsOf({'id:14': [job(14)]}, calls),
+      '14',
+      {firstOnly: true},
+    );
+    expect(calls).toEqual(['id:14']);
+  });
+
+  it('returns [] for non-numeric input without hitting the backend', async () => {
+    const calls: string[] = [];
+    const found = await findSyncJobsByIdInput(listJobsOf({}, calls), 'abc');
+    expect(found).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+});

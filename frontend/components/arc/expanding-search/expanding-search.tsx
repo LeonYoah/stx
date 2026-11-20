@@ -71,6 +71,11 @@ export interface ExpandingSearchProps {
    * Local modification: Enter with no highlighted item submits the raw query text (e.g. a typed Job ID).
    */
   onSubmit?: (query: string) => void;
+  /**
+   * 本地修改：输入变化时回传当前查询文本，供调用方做远程建议。
+   * Local modification: reports the raw query text on change so the caller can fetch remote suggestions.
+   */
+  onQueryChange?: (query: string) => void;
   onExpandedChange?: (expanded: boolean) => void;
   /** The widest the field grows. It never grows past its container. */
   expandedWidth?: number;
@@ -219,7 +224,7 @@ function Listbox({ id, label, groups, query, activeIndex, optionId, reduced, key
   </div>;
 }
 
-export function ExpandingSearch({ label, items, suggestions = [], suggestionsLabel = "Recent", placeholder, onSelect, onSubmit, onExpandedChange, expandedWidth = 360, maxResults = 6, anchor = "end", emptyHint = "Try a shorter word or check the spelling.", className }: ExpandingSearchProps) {
+export function ExpandingSearch({ label, items, suggestions = [], suggestionsLabel = "Recent", placeholder, onSelect, onSubmit, onQueryChange, onExpandedChange, expandedWidth = 360, maxResults = 6, anchor = "end", emptyHint = "Try a shorter word or check the spelling.", className }: ExpandingSearchProps) {
   const id = useId();
   const reduced = useReducedMotion() ?? false;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -281,6 +286,7 @@ export function ExpandingSearch({ label, items, suggestions = [], suggestionsLab
     if (!open.current) {return;}
     open.current = false;
     flushSync(() => { setExpanded(false); setFocused(false); setQuery(""); setActive(-1); });
+    onQueryChange?.("");
     if (returnFocus) {buttonRef.current?.focus({ preventScroll: true });}
     morphTo(size.current.collapsed);
     onExpandedChange?.(false);
@@ -332,7 +338,7 @@ export function ExpandingSearch({ label, items, suggestions = [], suggestionsLab
         autoComplete="off" autoCorrect="off" spellCheck={false} enterKeyHint="search"
         initial={false} animate={{ opacity: expanded ? 1 : 0 }}
         transition={expanded ? { duration: reduced ? .15 : .2, ease: enter, delay: reduced ? 0 : .08 } : { duration: reduced ? .1 : .08, ease: standard }}
-        onChange={event => { const next = event.target.value; setQuery(next); setActive(next.trim() ? 0 : -1); keyboard.current = false; }}
+        onChange={event => { const next = event.target.value; setQuery(next); setActive(next.trim() ? 0 : -1); keyboard.current = false; onQueryChange?.(next); }}
         onFocus={() => setFocused(true)}
         onBlur={() => {
           // Switching windows keeps the search as it was; the field refocuses on return.

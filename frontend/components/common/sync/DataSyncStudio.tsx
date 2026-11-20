@@ -391,6 +391,7 @@ import {
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveFolderParent,
+  findSyncJobsByIdInput,
   isCursorAtFinishedEnumValue,
   resolveOptionAssignmentContext,
   resolveOptionKeyFromLine,
@@ -843,8 +844,39 @@ export function DataSyncStudio() {
     setExpandedFolderIds((prev) => (prev.length > 0 ? [] : allFolderIds));
   }, [allFolderIds]);
 
-  // 顶栏展开搜索只覆盖本地文件和已加载作业。不在列表里的数字 Job ID 仍走 Cmd/Ctrl+P。
-  // The toolbar expanding search covers local files and loaded jobs. Numeric Job IDs outside that list stay on Cmd/Ctrl+P.
+  // 顶栏快速打开的远程命中：数字输入防抖查后端，覆盖未加载作业（全局而非当前任务）。
+  // Remote hits for the top-bar quick open: numeric input queries the backend
+  // debounced so jobs outside the loaded set are found globally, not per task.
+  const [quickOpenQuery, setQuickOpenQuery] = useState('');
+  const [remoteJobs, setRemoteJobs] = useState<SyncJobInstance[]>([]);
+  useEffect(() => {
+    if (!/^\d+$/.test(quickOpenQuery.trim().replace(/^#+/, ''))) {
+      setRemoteJobs([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      findSyncJobsByIdInput(
+        (params) => services.sync.listJobs(params),
+        quickOpenQuery,
+      )
+        .then((items) => {
+          if (!cancelled) {
+            setRemoteJobs(items);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setRemoteJobs([]);
+          }
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [quickOpenQuery]);
+
   const quickOpenItems = useMemo(() => {
     const files = flattenTree(tree)
       .filter((node) => node.node_type === 'file')
@@ -855,15 +887,21 @@ export function DataSyncStudio() {
         group: t('matchingFiles'),
         keywords: [String(node.id)],
       }));
-    const jobItems = jobs.slice(0, 50).map((job) => ({
+    const toJobItem = (job: SyncJobInstance) => ({
       id: `job-${job.id}`,
       title: `#${job.id}`,
       meta: findTreeNode(tree, job.task_id)?.name || job.platform_job_id || '',
       group: t('matchingJobs'),
       keywords: [String(job.id), `#${job.id}`, job.platform_job_id || ''].filter(Boolean),
-    }));
-    return [...files, ...jobItems];
-  }, [jobs, t, tree]);
+    });
+    const jobItems = jobs.slice(0, 50).map(toJobItem);
+    // 远端命中与已加载作业按内部 id 去重，避免同一行出现两次。
+    // Remote hits are deduped against loaded jobs by internal id so the same row never appears twice.
+    const remoteItems = remoteJobs
+      .filter((job) => !jobs.some((loaded) => loaded.id === job.id))
+      .map(toJobItem);
+    return [...files, ...jobItems, ...remoteItems];
+  }, [jobs, remoteJobs, t, tree]);
 
   const [customVariableRows, setCustomVariableRows] = useState<VariableRow[]>(
     [],
@@ -4397,30 +4435,14 @@ export function DataSyncStudio() {
       const raw = trimmed.replace(/^#+/, '');
       let job = null;
       if (/^\d+$/.test(raw)) {
-        if (raw.length <= 10) {
-          const byId = await services.sync.listJobs({
-            current: 1,
-            size: 1,
-            job_id: Number(raw),
-          });
-          job = byId.items?.[0] || null;
-        }
-        if (!job) {
-          const byPlatform = await services.sync.listJobs({
-            current: 1,
-            size: 1,
-            platform_job_id: raw,
-          });
-          job = byPlatform.items?.[0] || null;
-        }
-        if (!job) {
-          const byEngine = await services.sync.listJobs({
-            current: 1,
-            size: 1,
-            engine_job_id: raw,
-          });
-          job = byEngine.items?.[0] || null;
-        }
+        job =
+          (
+            await findSyncJobsByIdInput(
+              (params) => services.sync.listJobs(params),
+              raw,
+              {firstOnly: true},
+            )
+          )[0] ?? null;
       }
       // 非数字入力（タスク名等）の最終手段：キーワード照合。数字は id 系で尽きているので混ぜない。
       // Last resort for non-numeric input (task names): keyword match; digits already exhausted id forms.
@@ -4728,6 +4750,7 @@ export function DataSyncStudio() {
                 // Route input with no matching suggestion (e.g. an unloaded Job ID) to locate on Enter.
                 void handleLocateJobId(query);
               }}
+              onQueryChange={setQuickOpenQuery}
             />
           </div>
 

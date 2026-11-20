@@ -25,6 +25,7 @@ import type {
   SyncFormat,
   SyncGlobalVariable,
   SyncJobInstance,
+  SyncJobListParams,
   SyncJSON,
   SyncPluginFactoryInfo,
   SyncPluginType,
@@ -4445,4 +4446,45 @@ function findMatchingBraceOffset(content: string, openIdx: number): number {
     }
   }
   return -1;
+}
+
+/**
+ * 数字输入按 内部 id → platform_job_id → engine_job_id 的顺序精确匹配作业，
+ * 顶栏快速打开的建议列表与 Enter 定位共用同一路由。`#` 前缀在此剥除，
+ * 非数字输入直接返回空；`firstOnly` 时首个命中即短路后续查询。
+ * Matches a numeric input exactly against internal id, platform_job_id, then
+ * engine_job_id — shared by the top-bar quick open for remote suggestions and
+ * Enter-to-locate. '#' prefixes are stripped here; non-numeric input returns
+ * []. With `firstOnly` the first hit short-circuits the remaining lookups.
+ */
+export async function findSyncJobsByIdInput(
+  listJobs: (
+    params: SyncJobListParams,
+  ) => Promise<{items?: SyncJobInstance[] | null}>,
+  input: string,
+  options?: {firstOnly?: boolean},
+): Promise<SyncJobInstance[]> {
+  const raw = input.trim().replace(/^#+/, '');
+  if (!/^\d+$/.test(raw)) {
+    return [];
+  }
+  const found: SyncJobInstance[] = [];
+  const seen = new Set<number>();
+  const push = async (params: SyncJobListParams) => {
+    if (options?.firstOnly && found.length) {
+      return;
+    }
+    const data = await listJobs({current: 1, size: 1, ...params});
+    const job = data.items?.[0];
+    if (job && !seen.has(job.id)) {
+      seen.add(job.id);
+      found.push(job);
+    }
+  };
+  if (raw.length <= 10) {
+    await push({job_id: Number(raw)});
+  }
+  await push({platform_job_id: raw});
+  await push({engine_job_id: raw});
+  return found;
 }

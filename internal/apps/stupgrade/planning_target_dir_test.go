@@ -136,6 +136,42 @@ func TestWaitForClusterHealthy(t *testing.T) {
 	}
 }
 
+func TestNodeTargetSourceJavaHomeJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	empty := ""
+	raw, err := json.Marshal(NodeTarget{JavaHome: "/opt/jdk21", SourceJavaHome: &empty})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !json.Valid(raw) || !containsJSONKey(raw, "source_java_home") {
+		t.Fatalf("empty source_java_home must be persisted, got %s", raw)
+	}
+	var got NodeTarget
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.SourceJavaHome == nil || *got.SourceJavaHome != "" {
+		t.Fatalf("empty source must round-trip as non-nil empty, got %#v", got.SourceJavaHome)
+	}
+
+	var legacy NodeTarget
+	if err := json.Unmarshal([]byte(`{"java_home":"/opt/jdk8"}`), &legacy); err != nil {
+		t.Fatalf("legacy unmarshal: %v", err)
+	}
+	if legacy.SourceJavaHome != nil {
+		t.Fatalf("legacy snapshot without the key must stay nil, got %#v", legacy.SourceJavaHome)
+	}
+}
+
+func containsJSONKey(raw []byte, key string) bool {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return false
+	}
+	_, ok := obj[key]
+	return ok
+}
+
 func TestPrecheckRequestNodeJavaHomesJSON(t *testing.T) {
 	t.Parallel()
 	var req PrecheckRequest

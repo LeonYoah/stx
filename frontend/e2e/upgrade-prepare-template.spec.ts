@@ -61,7 +61,16 @@ test.describe('upgrade prepare template', () => {
     await expect(
       page.getByTestId('upgrade-prepare-node-jdk-101'),
     ).toBeVisible();
+    await expect(page.getByTestId('upgrade-prepare-continue')).toBeDisabled();
 
+    await page
+      .getByTestId('upgrade-prepare-node-jdk-101')
+      .getByRole('combobox')
+      .click();
+    await page.getByRole('option', {name: /default-java/}).click();
+    await expect(page.getByTestId('upgrade-prepare-continue')).toBeDisabled();
+
+    await page.getByTestId('upgrade-prepare-run-precheck').click();
     await expect(page.getByTestId('upgrade-prepare-continue')).toBeEnabled();
     await page.getByTestId('upgrade-prepare-continue').click();
 

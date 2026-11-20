@@ -781,7 +781,8 @@ func (s *Service) executeSmokeTestStep(ctx context.Context, task *UpgradeTask, s
 		output, err = s.runManagedCommand(ctx, target.HostID, map[string]string{
 			"sub_command": "run_smoke_test_template",
 			"install_dir": target.TargetInstallDir,
-			// 新目录还没有节点记录，显式带上节点 JDK。/ The new directory has no node record yet, so send the node JDK explicitly.
+			// SWITCH_VERSION 已把目标 JDK 写入节点记录；冒烟仍显式带上计划里的目标路径，避免补全器按旧目录漏传。
+			// SWITCH_VERSION already wrote the target JDK onto the node record; smoke still sends the plan's target path so the enricher cannot miss it against the old directory.
 			"java_home": target.JavaHome,
 		})
 		if err == nil || !isRetryableSmokeTestError(err) || attempt == maxAttempts {
@@ -1249,20 +1250,40 @@ func (s *Service) finalizeNodeExecutionsRollbackFailed(ctx context.Context, task
 }
 
 // nodeJavaHomePointer 返回切版本或回滚时要写入的 JDK。
-// 旧计划快照没有 source_java_home，源 JDK 写在 java_home 里；回滚必须回落到该值，不能写成空串把节点清成自动探测。
+// 回滚：SourceJavaHome != nil 时原样写回（空串表示源是自动探测）；nil 表示旧快照，回落到 java_home。
+// 切版本：写入目标 java_home；旧快照两个字段都空则不碰节点记录。
 // nodeJavaHomePointer returns the JDK to persist on switch or rollback.
-// Legacy snapshots have no source_java_home and stored the source JDK in java_home;
-// rollback must fall back to that value instead of writing an empty string that
-// would clear the node to auto detection.
+// Restore writes SourceJavaHome as-is when present (empty means the source was auto
+// detection); a nil pointer is a legacy snapshot and falls back to java_home.
+// Switch writes the target java_home; both empty on a legacy snapshot leaves the node untouched.
 func nodeJavaHomePointer(target NodeTarget, restore bool) *string {
-	if target.JavaHome == "" && target.SourceJavaHome == "" {
+	if restore {
+		if target.SourceJavaHome != nil {
+			value := *target.SourceJavaHome
+			return &value
+		}
+		if target.JavaHome == "" {
+			return nil
+		}
+		value := target.JavaHome
+		return &value
+	}
+	if target.JavaHome == "" && target.SourceJavaHome == nil {
 		return nil
 	}
 	value := target.JavaHome
-	if restore && target.SourceJavaHome != "" {
-		value = target.SourceJavaHome
-	}
 	return &value
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
+func derefStringPtr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (s *Service) restoreClusterMetadata(ctx context.Context, clusterID uint, nodeTargets []NodeTarget, sourceVersion string) error {

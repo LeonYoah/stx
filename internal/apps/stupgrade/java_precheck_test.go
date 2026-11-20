@@ -230,8 +230,8 @@ func TestRunPrecheckTargetJavaHomeOverridesNode(t *testing.T) {
 	if passed.NodeTargets[0].JavaHome != "/opt/jdk21" {
 		t.Fatalf("target java_home = %q, want /opt/jdk21", passed.NodeTargets[0].JavaHome)
 	}
-	if passed.NodeTargets[0].SourceJavaHome != "/opt/jdk8" {
-		t.Fatalf("source java_home = %q, want /opt/jdk8", passed.NodeTargets[0].SourceJavaHome)
+	if derefStringPtr(passed.NodeTargets[0].SourceJavaHome) != "/opt/jdk8" {
+		t.Fatalf("source java_home = %q, want /opt/jdk8", derefStringPtr(passed.NodeTargets[0].SourceJavaHome))
 	}
 }
 
@@ -263,8 +263,8 @@ func TestRunPrecheckNodeJavaHomeEmptyMeansAuto(t *testing.T) {
 	if result.NodeTargets[0].JavaHome != "" {
 		t.Fatalf("target java_home should stay empty for auto, got %q", result.NodeTargets[0].JavaHome)
 	}
-	if result.NodeTargets[0].SourceJavaHome != "/opt/jdk8" {
-		t.Fatalf("source java_home = %q, want /opt/jdk8", result.NodeTargets[0].SourceJavaHome)
+	if derefStringPtr(result.NodeTargets[0].SourceJavaHome) != "/opt/jdk8" {
+		t.Fatalf("source java_home = %q, want /opt/jdk8", derefStringPtr(result.NodeTargets[0].SourceJavaHome))
 	}
 }
 

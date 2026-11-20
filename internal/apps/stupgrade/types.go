@@ -262,9 +262,12 @@ type NodeTarget struct {
 	TargetVersion    string `json:"target_version"`
 	SourceInstallDir string `json:"source_install_dir"`
 	TargetInstallDir string `json:"target_install_dir"`
-	// SourceJavaHome 是升级前节点上的 JDK，回滚时写回，不作为本次启动参数。
-	// SourceJavaHome is the node's JDK before the upgrade; it is restored on rollback and is not used to start the new version.
-	SourceJavaHome string `json:"source_java_home,omitempty"`
+	// SourceJavaHome 是升级前节点上的 JDK，回滚时写回。用指针区分：nil 表示旧快照没有该字段，
+	// 非 nil 的空串表示源就是自动探测，必须原样写回，不能回落到目标 java_home。
+	// SourceJavaHome is the node's JDK before the upgrade, restored on rollback. A pointer
+	// distinguishes nil (legacy snapshot omitted the field) from a non-nil empty string
+	// (source was auto detection and must be restored as-is, not fallen back to target java_home).
+	SourceJavaHome *string `json:"source_java_home,omitempty"`
 	// JavaHome 是本次升级的目标 JDK（预检/启动/冒烟都用它）；未指定时回落到当前节点 java_home。
 	// JavaHome is the target JDK for this upgrade (precheck, start, smoke); falls back to the current node java_home when unset.
 	JavaHome string `json:"java_home,omitempty"`

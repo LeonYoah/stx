@@ -16,7 +16,7 @@
  */
 
 import {describe, it, expect, vi, beforeEach} from 'vitest';
-import {render, screen, waitFor} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {JavaHomePicker} from '../JavaHomePicker';
 
@@ -63,7 +63,11 @@ describe('JavaHomePicker', () => {
   beforeEach(() => {
     listJavaRuntimes.mockReset();
     listJavaRuntimes.mockResolvedValue([
-      {java_home: '/usr/lib/jvm/java-11', version: 11, version_string: '11.0.2'},
+      {
+        java_home: '/usr/lib/jvm/java-11',
+        version: 11,
+        version_string: '11.0.2',
+      },
       {java_home: '/opt/java/jdk8', version: 8, version_string: '1.8.0'},
     ]);
   });
@@ -71,9 +75,7 @@ describe('JavaHomePicker', () => {
   it('probes host JDK list on mount (AC1b / AC1b2)', async () => {
     const onChange = vi.fn();
     render(
-      wrap(
-        <JavaHomePicker hostId={1} value='' onChange={onChange} id='jdk' />,
-      ),
+      wrap(<JavaHomePicker hostId={1} value='' onChange={onChange} id='jdk' />),
     );
     await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalledWith(1));
     expect(screen.getByText('JDK path')).toBeInTheDocument();
@@ -97,6 +99,30 @@ describe('JavaHomePicker', () => {
     await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalledWith(1));
     expect(screen.queryByText('JDK path')).not.toBeInTheDocument();
     expect(screen.getByText('Auto')).toBeInTheDocument();
+  });
+
+  it('hides auto detection when hideAuto is set', async () => {
+    const onChange = vi.fn();
+    render(
+      wrap(
+        <JavaHomePicker
+          hostId={1}
+          value=''
+          onChange={onChange}
+          hideLabel
+          hideAuto
+          id='jdk-required'
+        />,
+      ),
+    );
+    await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalledWith(1));
+    expect(screen.queryByText('Auto')).not.toBeInTheDocument();
+    expect(screen.queryByText('Auto detect')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('combobox'));
+    expect(screen.queryByText('Auto detect')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('/usr/lib/jvm/java-11 (Java 11)'),
+    ).toBeInTheDocument();
   });
 
   it('prefills process JDK as custom when not in list (AC1f)', async () => {
@@ -132,7 +158,9 @@ describe('JavaHomePicker', () => {
     listJavaRuntimes.mockRejectedValue(new Error('network'));
     const onChange = vi.fn();
     render(wrap(<JavaHomePicker hostId={5} value='' onChange={onChange} />));
-    expect(await screen.findByText('Could not load the JDK list')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Could not load the JDK list'),
+    ).toBeInTheDocument();
   });
 
   it('marks a detected list value with Detected badge (AC1b)', async () => {

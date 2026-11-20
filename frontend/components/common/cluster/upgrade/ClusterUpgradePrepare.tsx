@@ -37,12 +37,7 @@ import {Button} from '@/components/arc/button/button';
 import {Badge} from '@/components/arc/badge/badge';
 import {ButtonGroup} from '@/components/arc/button-group/button-group';
 import {WorkspaceHeader} from '@/components/common/layout';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Separator} from '@/components/ui/separator';
@@ -289,6 +284,10 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
       toast.error(t('runPrecheckFirst'));
       return;
     }
+    if (!hasExplicitTargetJdks(precheck, confirmedRequest)) {
+      toast.error(t('targetJdkRequired'));
+      return;
+    }
     if (isPrecheckStale) {
       toast.error(t('continueRequiresLatestPrecheck'));
       return;
@@ -375,12 +374,26 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
     return !isSameUpgradeRequest(currentDraftRequest, confirmedRequest);
   }, [confirmedRequest, currentDraftRequest, precheck]);
 
+  const missingDraftTargetJdks =
+    Boolean(precheck) && !hasExplicitTargetJdks(precheck, currentDraftRequest);
+  const hasConfirmedTargetJdks = hasExplicitTargetJdks(
+    precheck,
+    confirmedRequest,
+  );
+
   const canContinueToConfig = useMemo(
     () =>
       Boolean(precheck) &&
       !isPrecheckStale &&
+      hasConfirmedTargetJdks &&
       !blockingIssues.some((issue) => !canContinueThroughConfig(issue)),
-    [blockingIssues, canContinueThroughConfig, isPrecheckStale, precheck],
+    [
+      blockingIssues,
+      canContinueThroughConfig,
+      hasConfirmedTargetJdks,
+      isPrecheckStale,
+      precheck,
+    ],
   );
 
   // 「进入配置合并页」不可用时的原因 / Why continuing to the merge page is blocked
@@ -390,9 +403,11 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
     ? null
     : !precheck
       ? t('runPrecheckFirst')
-      : isPrecheckStale
-        ? t('draftChangedNoticeTitle')
-        : t('continueBlockedHint');
+      : missingDraftTargetJdks
+        ? t('targetJdkRequired')
+        : isPrecheckStale
+          ? t('draftChangedNoticeTitle')
+          : t('continueBlockedHint');
 
   // 零塌陷加载：首屏骨架屏占位 / Zero-collapse loading skeleton
   if (loading && !cluster) {
@@ -931,10 +946,9 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                               id={`upgrade-target-jdk-${target.cluster_node_id}`}
                               hostId={target.host_id}
                               hideLabel
+                              hideAuto
                               value={
                                 nodeJavaHomes[String(target.cluster_node_id)] ??
-                                target.java_home ??
-                                target.source_java_home ??
                                 ''
                               }
                               onChange={({javaHome}) =>
@@ -1037,13 +1051,28 @@ const JDK_NODE_ISSUE_CODES = new Set([
 function compactNodeJavaHomes(
   homes: Record<string, string>,
 ): Record<string, string> | undefined {
-  const keys = Object.keys(homes).sort();
-  if (keys.length === 0) {
-    return undefined;
-  }
   const next: Record<string, string> = {};
-  for (const key of keys) {
-    next[key] = homes[key] ?? '';
+  for (const key of Object.keys(homes).sort()) {
+    const value = (homes[key] ?? '').trim();
+    if (value) {
+      next[key] = value;
+    }
   }
-  return next;
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function hasExplicitTargetJdks(
+  precheck: PrecheckResult | null,
+  request: CreatePlanRequest | null,
+): boolean {
+  if (!precheck?.node_targets?.length || !request) {
+    return false;
+  }
+  const homes = compactNodeJavaHomes(request.node_java_homes || {});
+  if (!homes) {
+    return false;
+  }
+  return precheck.node_targets.every((target) =>
+    Boolean(homes[String(target.cluster_node_id)]),
+  );
 }

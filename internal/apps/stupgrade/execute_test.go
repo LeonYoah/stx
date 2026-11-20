@@ -583,14 +583,14 @@ func TestNodeJavaHomePointer(t *testing.T) {
 	if got := nodeJavaHomePointer(NodeTarget{}, true); got != nil {
 		t.Fatalf("legacy empty snapshot rollback should not clear java_home, got %q", *got)
 	}
-	target := NodeTarget{JavaHome: "/opt/jdk21", SourceJavaHome: "/opt/jdk8"}
+	target := NodeTarget{JavaHome: "/opt/jdk21", SourceJavaHome: stringPtr("/opt/jdk8")}
 	if got := nodeJavaHomePointer(target, false); got == nil || *got != "/opt/jdk21" {
 		t.Fatalf("switch pointer = %#v, want /opt/jdk21", got)
 	}
 	if got := nodeJavaHomePointer(target, true); got == nil || *got != "/opt/jdk8" {
 		t.Fatalf("restore pointer = %#v, want /opt/jdk8", got)
 	}
-	auto := NodeTarget{SourceJavaHome: "/opt/jdk8"}
+	auto := NodeTarget{SourceJavaHome: stringPtr("/opt/jdk8")}
 	if got := nodeJavaHomePointer(auto, false); got == nil || *got != "" {
 		t.Fatalf("explicit auto should write empty java_home, got %#v", got)
 	}
@@ -603,6 +603,13 @@ func TestNodeJavaHomePointer(t *testing.T) {
 	}
 	if got := nodeJavaHomePointer(legacy, true); got == nil || *got != "/opt/jdk8" {
 		t.Fatalf("legacy rollback must not clear source JDK, got %#v", got)
+	}
+	emptySource := NodeTarget{JavaHome: "/opt/jdk21", SourceJavaHome: stringPtr("")}
+	if got := nodeJavaHomePointer(emptySource, false); got == nil || *got != "/opt/jdk21" {
+		t.Fatalf("switch with empty source should persist target, got %#v", got)
+	}
+	if got := nodeJavaHomePointer(emptySource, true); got == nil || *got != "" {
+		t.Fatalf("empty source must restore auto, not the target JDK, got %#v", got)
 	}
 }
 
@@ -637,8 +644,8 @@ func TestService_ExecutePlan_writesTargetJavaHomeAndRestoresOnRollback(t *testin
 	if target.JavaHome != "/opt/jdk21" {
 		t.Fatalf("plan target java_home = %q, want /opt/jdk21", target.JavaHome)
 	}
-	if target.SourceJavaHome != "/opt/jdk8" {
-		t.Fatalf("plan source java_home = %q, want /opt/jdk8", target.SourceJavaHome)
+	if derefStringPtr(target.SourceJavaHome) != "/opt/jdk8" {
+		t.Fatalf("plan source java_home = %q, want /opt/jdk8", derefStringPtr(target.SourceJavaHome))
 	}
 
 	task, err := service.ExecutePlan(context.Background(), result.Plan.ID, 7)
@@ -700,6 +707,57 @@ func TestService_ExecutePlan_writesTargetJavaHomeAndRestoresOnRollback(t *testin
 	}
 	if !foundRollbackLog {
 		t.Fatalf("expected rollback logs to be present, got %+v", logs)
+	}
+}
+
+func TestService_ExecutePlan_restoresEmptySourceJavaHomeOnRollback(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	clusterOperator := &stubClusterOperator{}
+	agentSender := &stubAgentCommandSender{
+		agents:               map[uint]string{101: "agent-node-a"},
+		javaVersion:          21,
+		javaVersionByHome:    map[string]int{"/opt/jdk21": 21},
+		failTargetHealthOnce: true,
+		failedInstallDir:     "/opt/seatunnel-2.3.12",
+	}
+	service := newExecutionService(t, repo, clusterOperator, agentSender)
+	setNodeJavaHome(t, service, "")
+
+	result, err := service.CreatePlanFromRequest(context.Background(), &CreatePlanRequest{
+		PrecheckRequest: PrecheckRequest{
+			ClusterID:     1,
+			TargetVersion: "2.3.12",
+			NodeJavaHomes: map[uint]string{11: "/opt/jdk21"},
+		},
+	}, 7)
+	if err != nil {
+		t.Fatalf("CreatePlanFromRequest returned error: %v", err)
+	}
+	if result == nil || result.Plan == nil {
+		t.Fatal("expected a ready plan")
+	}
+	target := result.Plan.Snapshot.NodeTargets[0]
+	if target.SourceJavaHome == nil || *target.SourceJavaHome != "" {
+		t.Fatalf("source java_home pointer = %#v, want non-nil empty", target.SourceJavaHome)
+	}
+
+	task, err := service.ExecutePlan(context.Background(), result.Plan.ID, 7)
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if task.RollbackStatus != ExecutionStatusRollbackSucceeded {
+		t.Fatalf("expected rollback status rollback_succeeded, got %s", task.RollbackStatus)
+	}
+	homes := clusterOperator.nodeJavaHomes[11]
+	if len(homes) < 2 {
+		t.Fatalf("expected switch then restore java_home writes, got %+v", homes)
+	}
+	if homes[0] != "/opt/jdk21" {
+		t.Fatalf("switch should persist target JDK, got %+v", homes)
+	}
+	if lastString(homes) != "" {
+		t.Fatalf("rollback must restore empty source JDK, got %+v", homes)
 	}
 }
 

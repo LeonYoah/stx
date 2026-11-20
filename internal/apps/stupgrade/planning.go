@@ -304,6 +304,7 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			return nil, nil, err
 		}
 		targetJavaHome, javaHomeErr := resolveTargetJavaHome(node.ID, node.JavaHome, req)
+		sourceJavaHome := node.JavaHome
 		target := NodeTarget{
 			ClusterNodeID:    node.ID,
 			HostID:           node.HostID,
@@ -315,7 +316,7 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			TargetVersion:    targetVersion,
 			SourceInstallDir: node.InstallDir,
 			TargetInstallDir: resolveTargetInstallDir(node.InstallDir, sourceVersion, targetVersion, resolvedTargetInstallDir),
-			SourceJavaHome:   node.JavaHome,
+			SourceJavaHome:   &sourceJavaHome,
 			JavaHome:         targetJavaHome,
 		}
 		targets = append(targets, target)

@@ -21,7 +21,7 @@ import {Badge} from '@/components/ui/badge';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Sparkline} from '@/components/charts/sparkline';
-import type {SyncJobInstance} from '@/lib/services/sync';
+import type {SyncJobInstance, SyncJobListSort} from '@/lib/services/sync';
 import {
   formatDateTimeMinuteTz,
   formatDateTimeTz,
@@ -53,6 +53,13 @@ import {
 import type {JobColumnDef, JobTableContext} from './types';
 
 type CellProps = {job: SyncJobInstance; ctx: JobTableContext};
+
+/** 时间列维度菜单的排序键 → i18n 键。/ Sort key → i18n key for the time column's dimension menu. */
+const TIME_SORT_LABEL_KEYS: Partial<Record<SyncJobListSort, string>> = {
+  started_at: 'startedAt',
+  finished_at: 'finishedAt',
+  duration: 'duration',
+};
 
 /** 全选复选框（仅当前页）。/ Select-all checkbox scoped to the current page. */
 function SelectAllHeader({ctx}: {ctx: JobTableContext}) {
@@ -512,6 +519,11 @@ export const JOB_COLUMNS: JobColumnDef[] = [
     id: 'timeline',
     presets: ['global', 'task'],
     sortKey: 'started_at',
+    // 时间列挂三个维度：列头点按切方向，caret 菜单切维度（需关注 / 速率 / 延迟走各自列头）。
+    // The time column hosts three dimensions: header click toggles direction and the caret
+    // menu switches dimension (attention / rate / delay stay on their own column headers).
+    sortKeys: ['started_at', 'finished_at', 'duration'],
+    sortKeyLabel: (ctx, key) => ctx.t(TIME_SORT_LABEL_KEYS[key] ?? key),
     minWidth: 120,
     header: (ctx) => ctx.t('columns.timeline'),
     cell: (job, ctx) => <TimelineCell job={job} ctx={ctx} />,

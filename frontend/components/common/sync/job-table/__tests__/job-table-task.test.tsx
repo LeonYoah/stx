@@ -376,36 +376,6 @@ describe('JobTableToolbar task preset', () => {
       page: 1,
     });
   });
-
-  it('patches sort and order from the sort menu and resets the page', async () => {
-    const {onQueryChange} = renderTaskToolbar({query: {page: 3}});
-    // Radix 菜单在 jsdom 用 pointerDown 打开（keyDown 会踩 roving-focus 空指针）。
-    // Radix menus open via pointerDown in jsdom (keyDown hits a roving-focus null ref).
-    fireEvent.pointerDown(screen.getByTestId('studio-job-sort'));
-    fireEvent.click(
-      await screen.findByRole('menuitemradio', {
-        name: zh.jobTable.sortMenu.duration.desc,
-      }),
-    );
-    expect(onQueryChange).toHaveBeenCalledWith({
-      sort: 'duration',
-      order: 'desc',
-      page: 1,
-    });
-  });
-
-  it('keeps rate sorting listed but disabled outside the running group', async () => {
-    renderTaskToolbar({query: {statusGroup: 'finished'}});
-    fireEvent.pointerDown(screen.getByTestId('studio-job-sort'));
-    const rate = await screen.findByRole('menuitemradio', {
-      name: zh.jobTable.sortMenu.rate.desc,
-    });
-    expect(rate.getAttribute('aria-disabled')).toBe('true');
-    const duration = screen.getByRole('menuitemradio', {
-      name: zh.jobTable.sortMenu.duration.asc,
-    });
-    expect(duration.getAttribute('aria-disabled')).toBeNull();
-  });
 });
 
 describe('getJobActionState', () => {

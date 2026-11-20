@@ -19,6 +19,8 @@
 
 import {useMemo} from 'react';
 import {useFormatter, useTranslations} from 'next-intl';
+import {Check, ChevronDown} from 'lucide-react';
+import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {TableLoadingBar} from '@/components/common/layout';
 import {Pagination} from '@/components/ui/pagination';
@@ -199,22 +201,27 @@ export function JobTable({
             <StudioTableHeader>
               {columns.map((column) => {
                 const headerNode = column.header(ctx);
+                // 多维度列（时间列）：sortKeys 覆盖 sortKey；方向指示命中任一维度。
+                // Multi-dimension column (time): sortKeys supersedes sortKey; the direction
+                // indicator lights up on any of the dimensions.
+                const sortKeys =
+                  column.sortKeys ?? (column.sortKey ? [column.sortKey] : []);
                 const sortable = Boolean(
-                  column.sortKey &&
+                  sortKeys.length > 0 &&
                     (column.sortableWhen?.(query) ?? true),
                 );
+                const activeSortKey = sortKeys.includes(query.sort)
+                  ? query.sort
+                  : sortKeys[0];
+                const sortedHere = sortable && sortKeys.includes(query.sort);
                 return (
                   <StudioTableColumn
                     key={column.id}
                     align={column.align}
                     allowsSorting={sortable}
-                    sortDirection={
-                      sortable && query.sort === column.sortKey
-                        ? query.order
-                        : undefined
-                    }
+                    sortDirection={sortedHere ? query.order : undefined}
                     title={
-                      !sortable && column.sortKey
+                      !sortable && sortKeys.length > 0
                         ? t('sortNeedsRunning')
                         : undefined
                     }
@@ -225,17 +232,48 @@ export function JobTable({
                   >
                     {sortable &&
                     typeof headerNode === 'string' &&
-                    column.sortKey ? (
-                      <StudioSortableColumnHeader
-                        label={headerNode}
-                        sortDirection={
-                          query.sort === column.sortKey
-                            ? query.order
-                            : undefined
-                        }
-                        aria-label={t('sortColumn', {column: headerNode})}
-                        onSort={() => toggleSort(column.sortKey!)}
-                      />
+                    activeSortKey ? (
+                      <span className='inline-flex items-center'>
+                        <StudioSortableColumnHeader
+                          label={headerNode}
+                          sortDirection={
+                            sortedHere ? query.order : undefined
+                          }
+                          aria-label={t('sortColumn', {column: headerNode})}
+                          onSort={() => toggleSort(activeSortKey)}
+                        />
+                        {sortKeys.length > 1 && column.sortKeyLabel ? (
+                          <DropdownMenu
+                            trigger={
+                              <button
+                                type='button'
+                                aria-label={t('sortDimension')}
+                                className='-ml-0.5 inline-flex size-5 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground'
+                              >
+                                <ChevronDown className='size-3' aria-hidden />
+                              </button>
+                            }
+                            // 与监控规则面板同款：当前维度 ✓，其余项用等宽占位对齐。
+                            // Same pattern as the monitoring rules panel: a check on the
+                            // active dimension and equal-width spacers keep labels aligned.
+                            items={sortKeys.map((key) => ({
+                              label: column.sortKeyLabel!(ctx, key),
+                              icon:
+                                key === activeSortKey ? (
+                                  <Check className='size-4' aria-hidden />
+                                ) : (
+                                  <span className='size-4' />
+                                ),
+                              onSelect: () =>
+                                onQueryChange({
+                                  sort: key,
+                                  order: query.order,
+                                  page: 1,
+                                }),
+                            }))}
+                          />
+                        ) : null}
+                      </span>
                     ) : (
                       headerNode
                     )}

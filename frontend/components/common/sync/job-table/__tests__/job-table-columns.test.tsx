@@ -276,6 +276,49 @@ describe('JobTable column registry', () => {
     });
   });
 
+  it('switches the time dimension from the header caret menu, keeping the order', async () => {
+    const onQueryChange = renderTable([job(1, 'running')], {
+      query: {sort: 'started_at', order: 'asc', page: 3},
+    });
+    // Radix 菜单在 jsdom 用 pointerDown 打开（keyDown 会踩 roving-focus 空指针）。
+    // Radix menus open via pointerDown in jsdom (keyDown hits a roving-focus null ref).
+    fireEvent.pointerDown(
+      screen.getByRole('button', {name: zh.jobTable.sortDimension}),
+    );
+    const started = await screen.findByRole('menuitem', {
+      name: zh.jobTable.startedAt,
+    });
+    // 当前维度带 ✓ 图标，其余项是等宽占位 span。/ The active dimension carries a
+    // check icon; the rest render an equal-width spacer.
+    expect(started.querySelector('svg')).toBeTruthy();
+    const finished = screen.getByRole('menuitem', {
+      name: zh.jobTable.finishedAt,
+    });
+    expect(finished.querySelector('svg')).toBeNull();
+    fireEvent.click(finished);
+    expect(onQueryChange).toHaveBeenCalledWith({
+      sort: 'finished_at',
+      order: 'asc',
+      page: 1,
+    });
+  });
+
+  it('marks the active dimension and toggles its direction on header click', () => {
+    const onQueryChange = renderTable([job(1, 'running')], {
+      query: {sort: 'duration', order: 'asc', page: 2},
+    });
+    // 方向指示落在时间列（duration 命中 sortKeys）。/ Direction lands on the time column
+    // (duration matches sortKeys).
+    const th = screen.getByText('时间').closest('th')!;
+    expect(th.getAttribute('aria-sort')).toBe('ascending');
+    fireEvent.click(screen.getByText('时间'));
+    expect(onQueryChange).toHaveBeenCalledWith({
+      sort: 'duration',
+      order: 'desc',
+      page: 1,
+    });
+  });
+
   it('external jobs get the source badge, a mode placeholder, no task ref and no workbench link', async () => {
     renderTable([
       job(7, 'success', {

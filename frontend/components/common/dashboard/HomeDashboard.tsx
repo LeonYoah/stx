@@ -30,14 +30,8 @@ import {STXMark} from '@/components/icons/logo';
 import {WorkspaceHeader} from '@/components/common/layout';
 import {ArcDateRangePicker} from '@/components/common/layout/ArcDateRangePicker';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {Combobox} from '@/components/arc/combobox/combobox';
 import {Button} from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import services from '@/lib/services';
 import {HomeService, type HomeAttentionItem} from '@/lib/services/dashboard';
 import {formatTimeTz} from '@/lib/timezone';
@@ -224,37 +218,55 @@ export function HomeDashboard() {
                 </>
               );
             })()}
-            <Select
-              value={scopeValue}
-              onValueChange={(value) =>
-                update({
-                  clusterId: value === 'all' ? undefined : value,
-                  page: 1,
-                })
-              }
-            >
-              <SelectTrigger
-                size='sm'
-                className='h-8.5 min-w-40 text-xs'
-                aria-label={t('scope.label')}
+            {/* shortcut: Arc Combobox 的 label 必填且渲染成输入框上方可见 <label>，
+                头部一行放不下，这里外包一层把 label 视觉隐藏（留在 DOM 里，屏幕阅读器
+                可读）；#163 合入后若 Combobox 支持隐藏 label 可清理这层。控件高度保持
+                Arc 默认 --control-height-md（44px），与旁边的时间窗分段控件、日期范围
+                选择器同高；样式层压不过组件 CSS module 的 min-height，别加 h-8.5。
+                Arc Combobox requires a label that renders as a visible <label> above
+                the input, which does not fit the header row; the wrapper hides it
+                visually but keeps it in the DOM for screen readers (clean up once
+                #163 gives Combobox a hidden-label option). Height stays at Arc's
+                default --control-height-md (44px) — level with the range segmented
+                control and the date picker next to it; utility layers cannot beat the
+                component CSS module's min-height, so do not add h-8.5. */}
+            <div className='[&_label]:sr-only'>
+              <Combobox
+                label={t('scope.label')}
+                placeholder={t('scope.label')}
+                emptyMessage={t('scope.empty')}
+                className='min-w-52'
+                options={[
+                  {value: 'all', label: t('scope.all')},
+                  ...clusters.map((item) => ({
+                    value: String(item.id),
+                    label: item.name,
+                  })),
+                  ...(query.clusterId && !clusterNames.has(query.clusterId)
+                    ? [
+                        {
+                          value: String(query.clusterId),
+                          label: t('scope.clusterFallback', {
+                            id: query.clusterId,
+                          }),
+                        },
+                      ]
+                    : []),
+                ]}
+                value={scopeValue}
+                onValueChange={(value) =>
+                  update({
+                    // 清空按钮给空串，按「全部集群」处理（行为与原 Select 一致）。
+                    // The clear button reports an empty string; treat it as "all
+                    // clusters" (same as the old Select behavior).
+                    clusterId:
+                      value === 'all' || value === '' ? undefined : value,
+                    page: 1,
+                  })
+                }
                 data-testid='home-scope'
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>{t('scope.all')}</SelectItem>
-                {clusters.map((item) => (
-                  <SelectItem key={item.id} value={String(item.id)}>
-                    {item.name}
-                  </SelectItem>
-                ))}
-                {query.clusterId && !clusterNames.has(query.clusterId) ? (
-                  <SelectItem value={String(query.clusterId)}>
-                    {t('scope.clusterFallback', {id: query.clusterId})}
-                  </SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
+              />
+            </div>
             <Button
               variant='outline'
               size='sm'
@@ -311,13 +323,19 @@ export function HomeDashboard() {
         onValueChange={(value) => update({tab: value as HomeTab})}
         className='flex flex-col gap-3'
       >
-        <TabsList aria-label={t('title')}>
-          <TabsTrigger value='cluster'>{t('tabs.cluster')}</TabsTrigger>
-          <TabsTrigger value='jobs'>{t('tabs.jobs')}</TabsTrigger>
-          <TabsTrigger value='hosts'>{t('tabs.hosts')}</TabsTrigger>
-          <TabsTrigger value='platform'>{t('tabs.platform')}</TabsTrigger>
-          <TabsTrigger value='list'>{t('tabs.list')}</TabsTrigger>
-        </TabsList>
+        {/* Arc 的 listShell 是 inline-flex，会被父级 flex-col 拉满；包一层横向
+            flex 让页签行按内容宽度。/ Arc's listShell is inline-flex and gets
+            stretched by the flex-col parent; a horizontal flex wrapper keeps it
+            content-width. */}
+        <div className='flex'>
+          <TabsList aria-label={t('title')}>
+            <TabsTrigger value='cluster'>{t('tabs.cluster')}</TabsTrigger>
+            <TabsTrigger value='jobs'>{t('tabs.jobs')}</TabsTrigger>
+            <TabsTrigger value='hosts'>{t('tabs.hosts')}</TabsTrigger>
+            <TabsTrigger value='platform'>{t('tabs.platform')}</TabsTrigger>
+            <TabsTrigger value='list'>{t('tabs.list')}</TabsTrigger>
+          </TabsList>
+        </div>
         <TabsContent value='cluster'>
           <ClusterTab query={query} update={update} />
         </TabsContent>

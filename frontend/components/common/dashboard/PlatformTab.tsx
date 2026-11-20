@@ -45,6 +45,7 @@ import {
   formatCompactNumber,
   formatDurationSeconds,
 } from './dashboard-format';
+import {DashboardPanel} from './DashboardPanel';
 import {TrendEmptyState} from './TrendEmptyState';
 import {usePolledResource} from './use-polled-resource';
 
@@ -168,13 +169,13 @@ export function PlatformTab() {
         // While self-monitoring is unavailable only the empty state and the probe
         // note render: in-process metrics cannot see the server itself crash.
         <>
-          <div className='rounded-xl border border-border/70 bg-card/40 p-4'>
+          <DashboardPanel>
             <TrendEmptyState
               reason={snapshot?.reason}
               description={t('noPromDesc')}
               unavailableDescription={t('noPromUnavailableDesc')}
             />
-          </div>
+          </DashboardPanel>
           <p className='text-center text-[11px] text-muted-foreground'>
             {t('externalProbeNote')}
           </p>
@@ -182,7 +183,7 @@ export function PlatformTab() {
       ) : (
         <>
           {/* Server 身份行 + 指标面板组（结构与主机卡一致）/ Identity header + panel grid, same shape as a host card */}
-          <div className='rounded-xl border border-border/70 bg-card/40 p-4'>
+          <DashboardPanel>
             <div className='mb-3 flex flex-wrap items-center gap-x-3 gap-y-1'>
               <h3 className='text-sm font-medium'>{t('serverTitle')}</h3>
               {server?.version ? (
@@ -331,19 +332,16 @@ export function PlatformTab() {
                 badLabel={t('signals.bad')}
               />
             </div>
-          </div>
+          </DashboardPanel>
 
           {/* Agent 进程表：与节点表同款 StudioTable / Agent table, same StudioTable as the node table */}
-          <section
-            className='overflow-hidden rounded-xl border border-border/70 bg-card/40'
-            data-testid='home-agent-table'
+          <DashboardPanel
+            title={t('agents.title')}
+            hint={t('agents.count', {count: agents.length})}
+            flush
+            className='overflow-hidden'
+            testId='home-agent-table'
           >
-            <div className='flex items-baseline gap-2 px-4 pb-2 pt-3'>
-              <h3 className='text-sm font-medium'>{t('agents.title')}</h3>
-              <span className='text-xs text-muted-foreground'>
-                {t('agents.count', {count: agents.length})}
-              </span>
-            </div>
             <StudioTable label={t('agents.title')}>
               <StudioTableScroll>
                 <StudioTableContent minWidth={880}>
@@ -387,7 +385,7 @@ export function PlatformTab() {
                 </StudioTableContent>
               </StudioTableScroll>
             </StudioTable>
-          </section>
+          </DashboardPanel>
         </>
       )}
       {resource.refreshing ? (

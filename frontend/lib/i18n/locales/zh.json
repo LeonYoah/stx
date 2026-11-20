@@ -184,7 +184,8 @@
       "scope": {
         "label": "范围",
         "all": "全部集群",
-        "clusterFallback": "集群 #{id}"
+        "clusterFallback": "集群 #{id}",
+        "empty": "没有匹配的集群"
       },
       "refresh": "刷新",
       "updatedAt": "更新于 {time}",
@@ -210,19 +211,20 @@
         "writeContextNow": "当前合计（10 秒对账）",
         "cdc": "最大 CDC 延迟",
         "cdcNone": "暂无 CDC 延迟数据",
-        "cdcOver": "超阈值",
         "failed": "失败作业",
-        "failedContext": "近 24 小时（含失败中）",
-        "failedYesterday": "昨日 {count}",
         "clusters": "集群健康",
         "clustersContext": "节点 {online}/{total} 在线",
-        "clustersDegraded": "{count} 个降级",
         "alerts": "活跃告警",
         "alertsContext": "严重 {count}",
         "volume": "数据量",
         "volumeContext": "今日 {today} · 本月 {month}",
         "volumeContextSince": "今日 {today} · 自 {date} 起 {month}",
-        "volumeEmpty": "可观测未开启"
+        "volumeEmpty": "可观测未开启",
+        "label": "核心指标",
+        "failedContextWithPrev": "近 24 小时 · 昨日 {count}",
+        "cdcOverContext": "超阈值 · {name}",
+        "clustersDegradedContext": "{count} 个降级 · 节点 {online}/{total} 在线",
+        "clustersUnhealthyContext": "{count} 个异常 · 节点 {online}/{total} 在线"
       },
       "unit": {
         "rowsPerSec": " 行/秒",
@@ -248,7 +250,9 @@
           "read": "读取 行/秒",
           "write_bytes": "写入 字节/秒",
           "read_bytes": "读取 字节/秒",
-          "metricLabel": "吞吐指标"
+          "metricLabel": "吞吐指标",
+          "peak": "峰值 {value}",
+          "avgHint": "窗口均值"
         },
         "annotation": {
           "job_failed": "作业失败",
@@ -4704,12 +4708,6 @@
       "all": "全部模式",
       "streaming": "流",
       "batch": "批"
-    },
-    "runTypeFilter": {
-      "label": "运行类型",
-      "all": "全部",
-      "formal": "正式",
-      "preview": "预览"
     },
     "groups": {
       "all": "全部",

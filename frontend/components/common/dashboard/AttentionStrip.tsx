@@ -43,6 +43,20 @@ export function AttentionStrip({
   const format = useFormatter();
   const visible = items.slice(0, MAX_ITEMS);
 
+  // 无事项时退成无框单行文字：空横条留着边框会像一块没收起来的区域。
+  // With nothing pending the strip falls back to a borderless one-liner — a
+  // framed empty bar reads like a section that failed to collapse.
+  if (visible.length === 0) {
+    return (
+      <p
+        data-testid='home-attention'
+        className='px-1 text-xs text-muted-foreground'
+      >
+        {t('title')} · {t('empty')}
+      </p>
+    );
+  }
+
   return (
     <div
       className='flex min-h-11 items-center gap-2 overflow-x-auto rounded-xl border border-border/70 bg-card/40 px-3 py-1.5'
@@ -51,73 +65,69 @@ export function AttentionStrip({
       <span className='shrink-0 pr-1 text-xs text-muted-foreground'>
         {t('title')}
       </span>
-      {visible.length === 0 ? (
-        <span className='text-xs text-muted-foreground'>{t('empty')}</span>
-      ) : (
-        visible.map((item, index) => {
-          const Icon = item.kind === 'job_failed' ? CircleAlert : AlertTriangle;
-          const detail =
-            item.kind === 'cdc_delay' && item.value !== undefined
-              ? `${format.number(item.value, {maximumFractionDigits: 1})}s`
-              : item.kind === 'backpressure' && item.value !== undefined
-                ? format.number(item.value, {
-                    style: 'percent',
-                    maximumFractionDigits: 0,
-                  })
-                : item.detail;
-          const body = (
-            <>
-              <Icon
-                className={cn(
-                  'size-3.5 shrink-0',
-                  item.severity === 'critical'
-                    ? 'text-destructive'
-                    : 'text-amber-500',
-                )}
-                aria-hidden='true'
-              />
-              <span className='text-muted-foreground'>
-                {t(`kind.${item.kind}`)}
-              </span>
-              <span className='max-w-[16rem] truncate font-medium text-foreground'>
-                {item.title}
-              </span>
-              {detail ? (
-                <span className='max-w-[14rem] truncate text-muted-foreground'>
-                  {detail}
-                </span>
-              ) : null}
-            </>
-          );
-          const chipClass =
-            'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-background/60 px-2.5 text-xs';
-          const key = `${item.kind}-${item.job_id ?? item.alert_id ?? index}`;
-          if (item.kind !== 'alert' && !item.viewable) {
-            return (
-              <Tooltip key={key}>
-                <TooltipTrigger asChild>
-                  <span className={cn(chipClass, 'cursor-default opacity-80')}>
-                    {body}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>{t('noAccess')}</TooltipContent>
-              </Tooltip>
-            );
-          }
-          return (
-            <Link
-              key={key}
-              href={item.kind === 'alert' ? '/monitoring' : jobHref(item)}
+      {visible.map((item, index) => {
+        const Icon = item.kind === 'job_failed' ? CircleAlert : AlertTriangle;
+        const detail =
+          item.kind === 'cdc_delay' && item.value !== undefined
+            ? `${format.number(item.value, {maximumFractionDigits: 1})}s`
+            : item.kind === 'backpressure' && item.value !== undefined
+              ? format.number(item.value, {
+                  style: 'percent',
+                  maximumFractionDigits: 0,
+                })
+              : item.detail;
+        const body = (
+          <>
+            <Icon
               className={cn(
-                chipClass,
-                'transition-colors hover:border-border hover:bg-muted/40',
+                'size-3.5 shrink-0',
+                item.severity === 'critical'
+                  ? 'text-destructive'
+                  : 'text-amber-500',
               )}
-            >
-              {body}
-            </Link>
+              aria-hidden='true'
+            />
+            <span className='text-muted-foreground'>
+              {t(`kind.${item.kind}`)}
+            </span>
+            <span className='max-w-[16rem] truncate font-medium text-foreground'>
+              {item.title}
+            </span>
+            {detail ? (
+              <span className='max-w-[14rem] truncate text-muted-foreground'>
+                {detail}
+              </span>
+            ) : null}
+          </>
+        );
+        const chipClass =
+          'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-background/60 px-2.5 text-xs';
+        const key = `${item.kind}-${item.job_id ?? item.alert_id ?? index}`;
+        if (item.kind !== 'alert' && !item.viewable) {
+          return (
+            <Tooltip key={key}>
+              <TooltipTrigger asChild>
+                <span className={cn(chipClass, 'cursor-default opacity-80')}>
+                  {body}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{t('noAccess')}</TooltipContent>
+            </Tooltip>
           );
-        })
-      )}
+        }
+        return (
+          <Link
+            key={key}
+            href={item.kind === 'alert' ? '/monitoring' : jobHref(item)}
+            className={cn(
+              chipClass,
+              'transition-colors hover:border-border hover:bg-muted/40',
+            )}
+          >
+            {body}
+          </Link>
+        );
+      })}
     </div>
   );
 }

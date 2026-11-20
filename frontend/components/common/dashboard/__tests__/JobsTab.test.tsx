@@ -15,7 +15,13 @@
  * limitations under the License.
  */
 
-import {fireEvent, render, screen, within} from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
@@ -233,9 +239,42 @@ describe('JobsTab', () => {
       '写入 行/秒|2|作业失败',
     );
     expect(home.getJobs).toHaveBeenCalledWith({cluster_id: 2, range: '1h'});
-    fireEvent.click(screen.getByText('读取 行/秒'));
+    // 吞吐分段控件已换成页签格：同名的 role=group 不再存在，只有 role=tablist。
+    // The segmented control became tab cells: no role=group with that label, only a tablist.
+    const tablist = screen.getByRole('tablist', {name: '吞吐指标'});
+    expect(
+      screen.queryByRole('group', {name: '吞吐指标'}),
+    ).toBeNull();
+    // 格子主数值是窗口均值，说明行是峰值：write [[0,5],[15000,6]] → 5.5 /s，峰值 6 /s。
+    // Cell headline is the window average, caption the peak: write → 5.5 /s, peak 6 /s.
+    const writeTab = within(tablist).getByTestId('home-throughput-tab-write');
+    expect(writeTab.textContent).toContain('5.5');
+    expect(writeTab.textContent).toContain('峰值 6 /s');
+    // 空序列的格子显示「—」。/ An empty series shows "—".
+    expect(
+      within(tablist).getByTestId('home-throughput-tab-write_bytes')
+        .textContent,
+    ).toContain('—');
+    fireEvent.click(
+      within(tablist).getByTestId('home-throughput-tab-read'),
+    );
     expect(screen.getByTestId('brush').textContent).toBe(
       '读取 行/秒|1|作业失败',
+    );
+    // roving tabindex：选中格上按 →，选择跟随焦点移动到下一格。
+    // Roving tabindex: ArrowRight on the selected tab moves selection and focus together.
+    const readTab = within(tablist).getByTestId(
+      'home-throughput-tab-read',
+    );
+    readTab.focus();
+    fireEvent.keyDown(readTab, {key: 'ArrowRight'});
+    const bytesTab = within(tablist).getByTestId(
+      'home-throughput-tab-write_bytes',
+    );
+    expect(bytesTab.getAttribute('aria-selected')).toBe('true');
+    expect(bytesTab).toHaveFocus();
+    expect(screen.getByTestId('brush').textContent).toBe(
+      '写入 字节/秒|0|作业失败',
     );
     expect(
       within(screen.getByTestId('home-top-write')).getByTestId('beui-bar')
@@ -258,6 +297,83 @@ describe('JobsTab', () => {
     expect(screen.getByTestId('calendar').textContent).toBe(
       '次失败|1|2026-11-15',
     );
+  });
+
+  it('shows sub-tick nonzero rates as "<step" instead of 0', async () => {
+    // 真实 7d 窗口量级：行类 avg 0.00208 / peak 0.00417，字节类 avg 0.01875 / peak 0.0375。
+    // Real 7d-window magnitudes: rows avg 0.00208 / peak 0.00417, bytes avg 0.01875 / peak 0.0375.
+    const tiny = payload('prometheus');
+    tiny.throughput = [
+      {
+        key: 'write',
+        points: [
+          [0, 0.00208],
+          [15_000, 0.00417],
+        ],
+      },
+      {key: 'read', points: [[0, 0]]},
+      {
+        key: 'write_bytes',
+        points: [
+          [0, 0.01875],
+          [15_000, 0.0375],
+        ],
+      },
+      {key: 'read_bytes', points: [[0, 0]]},
+    ];
+    home.getJobs.mockResolvedValue(tiny);
+    renderTab();
+    await screen.findByTestId('home-throughput');
+    const tablist = screen.getByRole('tablist', {name: '吞吐指标'});
+    const writeTab = within(tablist).getByTestId('home-throughput-tab-write');
+    expect(writeTab.textContent).toContain('<0.1');
+    expect(writeTab.textContent).toContain('峰值 <0.1 /s');
+    const bytesTab = within(tablist).getByTestId(
+      'home-throughput-tab-write_bytes',
+    );
+    expect(bytesTab.textContent).toContain('<1');
+    expect(bytesTab.textContent).toContain('峰值 <1 B/s');
+    // 全 0 序列仍显示 0。/ An all-zero series still shows 0.
+    const readTab = within(tablist).getByTestId('home-throughput-tab-read');
+    expect(readTab.textContent).toContain('峰值 0 /s');
+    expect(readTab.textContent).not.toContain('<');
+  });
+
+  it('collapses empty secondary panels into one-line strips', async () => {
+    const empty = payload('prometheus');
+    empty.top_write = [];
+    empty.top_cdc = [];
+    empty.checkpoints = [];
+    empty.hotspots = [];
+    empty.flow = [];
+    home.getJobs.mockResolvedValue(empty);
+    // 数据量：不拆分且四个指标都没有行 → 面板缩矮条（分段控件随之隐藏）。
+    // Volume: unsplit with zero rows across all four metrics → strip (segmented
+    // controls go with it).
+    home.getVolume.mockResolvedValue({...volumePayload(), series: []});
+    renderTab();
+    await screen.findByTestId('home-throughput');
+    // 等 volume 数据回来后 home-volume 才缩条。/ home-volume only strips after volume data arrives.
+    await waitFor(() =>
+      expect(screen.getByTestId('home-volume').className).toContain('h-11'),
+    );
+    for (const testId of [
+      'home-top-write',
+      'home-top-cdc',
+      'home-flow',
+      'home-checkpoints',
+      'home-hotspots',
+      'home-volume',
+    ]) {
+      const strip = screen.getByTestId(testId);
+      expect(strip.className).toContain('h-11');
+      expect(strip.textContent).toContain('该时间窗内没有数据');
+      expect(strip.querySelector('h3')?.textContent).toBeTruthy();
+    }
+    // 矮条不渲染图表与分段控件。/ Strips render neither charts nor segmented controls.
+    expect(screen.queryByTestId('beui-bar')).toBeNull();
+    expect(screen.queryByText('按集群')).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
   });
 
   it('shows only the calendar without Prometheus and requests a custom window as given', async () => {

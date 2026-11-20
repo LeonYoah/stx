@@ -22,6 +22,7 @@ import {
   formatCompactNumber,
   formatDurationSeconds,
   scaledCompact,
+  summarizeRate,
   trendChangePercent,
 } from '../dashboard-format';
 
@@ -53,6 +54,26 @@ describe('dashboard-format', () => {
     );
     expect(formatDurationSeconds(3 * 3600 + 12 * 60, units)).toBe('3h 12m');
     expect(formatDurationSeconds(30, units)).toBe('<1m');
+  });
+
+  it('summarizes a rate series into window average and peak', () => {
+    expect(summarizeRate([])).toBeNull();
+    expect(
+      summarizeRate([
+        [0, Number.NaN],
+        [1, Number.POSITIVE_INFINITY],
+      ]),
+    ).toBeNull();
+    // NaN / Infinity 的点被忽略，不参与均值。/ NaN and Infinity points are skipped.
+    expect(
+      summarizeRate([
+        [0, 10],
+        [1, Number.NaN],
+        [2, 30],
+        [3, 20],
+      ]),
+    ).toEqual({avg: 20, peak: 30});
+    expect(summarizeRate([[0, 0]])).toEqual({avg: 0, peak: 0});
   });
 
   it('computes the write-rate change against the first sample', () => {

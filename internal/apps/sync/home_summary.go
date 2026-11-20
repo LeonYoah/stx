@@ -100,9 +100,12 @@ func (s *Service) GetHomeJobSummary(ctx context.Context, actor executionapp.Acto
 	out.Running = total
 	var cdcJob *JobInstance
 	for _, job := range runningJobs {
-		if effectiveJobMode(job) == string(TaskModeBatch) {
+		// 模式未知的外部作业只计入 Running，不归入任一模式。
+		// External jobs with an unknown mode count toward Running only, not toward either mode.
+		switch effectiveJobMode(job) {
+		case string(TaskModeBatch):
 			out.RunningBatch++
-		} else {
+		case string(TaskModeStreaming):
 			out.RunningStreaming++
 		}
 		metrics := jobMetrics(job)
@@ -232,8 +235,9 @@ func (s *Service) fillHomeTrends(ctx context.Context, out *HomeJobSummary, clust
 	}
 }
 
-// jobViewableFunc 返回判定函数：管理员全可见；否则自己创建的或可查看任务下的作业可见。
-// jobViewableFunc returns a predicate: admins see all; others see their own jobs and jobs under viewable tasks.
+// jobViewableFunc 返回与 EvaluateJobPermissions 的 CanView 一致的判定函数；scope 已由 scopeJobFilterForActor 填好可查看任务。
+// jobViewableFunc returns a predicate matching CanView in EvaluateJobPermissions; scope already carries the
+// viewable tasks from scopeJobFilterForActor.
 func jobViewableFunc(actor executionapp.Actor, scope *JobFilter) func(*JobInstance) bool {
 	if actor.IsAdmin {
 		return func(*JobInstance) bool { return true }
@@ -246,8 +250,11 @@ func jobViewableFunc(actor executionapp.Actor, scope *JobFilter) func(*JobInstan
 		if job == nil {
 			return false
 		}
-		if job.CreatedBy == uint(actor.UserID) {
+		if job.Source == JobSourceExternal || (job.CreatedBy != 0 && job.CreatedBy == uint(actor.UserID)) {
 			return true
+		}
+		if job.TaskDeletedAt != nil {
+			return false
 		}
 		_, ok := tasks[job.TaskID]
 		return ok

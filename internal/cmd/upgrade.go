@@ -19,12 +19,14 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/stupgrade"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
 	"github.com/LeonYoah/stx/internal/operation"
 	"github.com/spf13/cobra"
@@ -35,10 +37,12 @@ type upgradeRequestOptions struct {
 	packageChecksum     string
 	packageArch         string
 	targetInstallDir    string
+	javaHome            string
 	connectorNames      []string
 	nodeIDs             []uint
 	requestFile         string
 	configMergePlanFile string
+	mergeStrategy       string
 }
 
 type upgradeTaskCLIData struct {
@@ -82,7 +86,7 @@ func newUpgradePrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
 		Use:     "precheck <cluster-id>",
 		Short:   "Precheck a SeaTunnel upgrade",
 		Long:    upgradeOperationDescription("stupgrade.precheck"),
-		Example: "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new",
+		Example: "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --java-home /usr/lib/jvm/java-21",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			body, clusterID, err := buildUpgradeRequest(command, args[0], &request, false)
@@ -99,9 +103,20 @@ func newUpgradePrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
 			var data any
 			requestID, err := client.Request(command.Context(), http.MethodPost, "/api/v1/st-upgrade/precheck", body, &data)
 			if err != nil {
+				// 预检查 409 的 data 内含 issues 等失败详情，先原样输出再报最终错误。
+				// A 409 precheck carries issues in data; surface them before the final error.
+				renderAPIErrorData(command, "stupgrade.precheck", err)
 				return err
 			}
 			nextCommand := fmt.Sprintf("stx upgrade plan create %d --request-file resolved-upgrade-plan.json", clusterID)
+			if pending := pendingMergeConflictCount(data); pending > 0 {
+				// ready 不覆盖合并冲突：预检查通过后仍需先解决 pending 冲突才能建计划。
+				// ready does not cover merge conflicts: pending conflicts still block plan creation.
+				_ = stderrEventWriter(command).Emit(clioutput.Event{
+					Event: "warning", OperationID: "stupgrade.precheck", Level: "warning",
+					Message: fmt.Sprintf("配置合并存在 %d 个待决冲突：用 --merge-strategy keep-local|use-target 批量解决，或在合并计划中逐个标记 / config merge plan has %d pending conflicts: resolve them with --merge-strategy keep-local|use-target or resolve each conflict in the merge plan", pending, pending),
+				})
+			}
 			return renderWriteResult(command, "stupgrade.precheck", requestID, data, nextCommand)
 		},
 	}
@@ -117,7 +132,7 @@ func newUpgradePlanCreateCommand(storeProvider authStoreProvider) *cobra.Command
 		Use:     "create <cluster-id>",
 		Short:   "Create a SeaTunnel upgrade plan",
 		Long:    upgradeOperationDescription("stupgrade.plan.create"),
-		Example: "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --config-merge-plan-file merge-plan.json",
+		Example: "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --java-home /usr/lib/jvm/java-21 --config-merge-plan-file merge-plan.json",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			body, _, err := buildUpgradeRequest(command, args[0], &request, true)
@@ -134,6 +149,9 @@ func newUpgradePlanCreateCommand(storeProvider authStoreProvider) *cobra.Command
 			var data any
 			requestID, err := client.Request(command.Context(), http.MethodPost, "/api/v1/st-upgrade/plan", body, &data)
 			if err != nil {
+				// 建计划 409 的 data 内嵌预检查结果（issues / config_merge_plan），先输出再报错。
+				// A 409 plan-create embeds the precheck result in data; surface it before the error.
+				renderAPIErrorData(command, "stupgrade.plan.create", err)
 				return err
 			}
 			nextCommand := ""
@@ -267,11 +285,13 @@ func addUpgradeRequestFlags(command *cobra.Command, request *upgradeRequestOptio
 	command.Flags().StringVar(&request.packageChecksum, "package-checksum", "", "Expected target package SHA-256 checksum")
 	command.Flags().StringVar(&request.packageArch, "package-arch", "", "Target package architecture")
 	command.Flags().StringVar(&request.targetInstallDir, "target-install-dir", "", "Target SeaTunnel installation directory")
+	command.Flags().StringVar(&request.javaHome, "java-home", "", "Target JDK for the new version; does not change the running cluster until upgrade starts")
 	command.Flags().StringSliceVar(&request.connectorNames, "connector", nil, "Connector to keep; may be specified more than once")
 	command.Flags().UintSliceVar(&request.nodeIDs, "node-id", nil, "Cluster node ID to upgrade; may be specified more than once")
 	command.Flags().StringVar(&request.requestFile, "request-file", "", "JSON file containing the complete request body")
 	if includeMergePlan {
 		command.Flags().StringVar(&request.configMergePlanFile, "config-merge-plan-file", "", "JSON file containing the resolved config merge plan")
+		command.Flags().StringVar(&request.mergeStrategy, "merge-strategy", "", "Bulk-resolve pending merge conflicts: keep-local or use-target")
 	}
 }
 
@@ -294,6 +314,7 @@ func buildUpgradeRequest(command *cobra.Command, clusterIDText string, request *
 	setChangedString(command, body, "package-checksum", request.packageChecksum)
 	setChangedString(command, body, "package-arch", request.packageArch)
 	setChangedString(command, body, "target-install-dir", request.targetInstallDir)
+	setChangedString(command, body, "java-home", request.javaHome)
 	if command.Flags().Changed("connector") {
 		body["connector_names"] = request.connectorNames
 	}
@@ -312,8 +333,52 @@ func buildUpgradeRequest(command *cobra.Command, clusterIDText string, request *
 		if _, exists := body["config_merge_plan"]; !exists {
 			return nil, 0, clioutput.NewError(clioutput.CodeUsage, "--config-merge-plan-file or config_merge_plan in --request-file is required", clioutput.ExitUsage, false)
 		}
+		if err := applyMergeStrategyToBody(body, request.mergeStrategy); err != nil {
+			return nil, 0, err
+		}
 	}
 	return body, clusterID, nil
+}
+
+// applyMergeStrategyToBody 对请求正文中的合并计划套用批量冲突解决策略。
+// applyMergeStrategyToBody applies the bulk conflict-resolution strategy to the
+// merge plan embedded in the request body.
+func applyMergeStrategyToBody(body map[string]any, strategyValue string) error {
+	if strings.TrimSpace(strategyValue) == "" {
+		return nil
+	}
+	strategy, err := stupgrade.ParseMergeStrategy(strategyValue)
+	if err != nil {
+		return clioutput.NewError(clioutput.CodeUsage, err.Error(), clioutput.ExitUsage, false)
+	}
+	raw, err := json.Marshal(body["config_merge_plan"])
+	if err != nil {
+		return clioutput.NewError(clioutput.CodeUsage, "config_merge_plan is not valid JSON", clioutput.ExitUsage, false)
+	}
+	var plan stupgrade.ConfigMergePlan
+	if err := json.Unmarshal(raw, &plan); err != nil {
+		return clioutput.NewError(clioutput.CodeUsage, "config_merge_plan cannot be decoded: "+err.Error(), clioutput.ExitUsage, false)
+	}
+	if err := stupgrade.ApplyMergeStrategy(&plan, strategy); err != nil {
+		return clioutput.NewError(clioutput.CodeUsage, err.Error(), clioutput.ExitUsage, false)
+	}
+	body["config_merge_plan"] = plan
+	return nil
+}
+
+// pendingMergeConflictCount 统计预检查结果里合并计划剩余的待决冲突数。
+// pendingMergeConflictCount counts unresolved conflicts left in the precheck
+// result's merge plan.
+func pendingMergeConflictCount(data any) int {
+	result, ok := data.(map[string]any)
+	if !ok {
+		return 0
+	}
+	plan, ok := result["config_merge_plan"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	return int(anyNumericID(plan["conflict_count"]))
 }
 
 func parsePositiveUint(value, field string) (uint, error) {

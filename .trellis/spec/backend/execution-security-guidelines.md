@@ -418,6 +418,7 @@ UpgradeTaskStep.retry_count
 - Agent 完成文件安装后，Control Plane 必须先按“集群、主机、角色”创建或刷新节点，再调用集群 Service 的启动方法。
 - 节点已经存在时只刷新安装目录、端口和 `java_home`，不能重复创建相同角色节点。
 - `cluster_nodes.java_home` 是节点 JDK 的唯一来源（issue #91）：为空表示 Agent 自动探测；扩容节点只取本次请求的值，不继承其他节点。
+- 升级目标 JDK 是请求字段（`java_home` / `node_java_homes`），写入计划快照 `NodeTarget.java_home`；预检、冒烟和新版本启动都用它。`cluster_nodes.java_home` 只在 `SWITCH_VERSION` 写成目标值，回滚写回 `source_java_home`。`source_java_home` 用指针区分「旧快照缺字段」（nil，回落到当时的 `java_home`）和「源就是空/自动探测」（非 nil 空串，必须原样写回，不能回落到目标 JDK）。不要为了过预检去改正在跑的旧集群 JDK。升级准备页必须为每个节点显式选择目标 JDK，不能预填源 JDK 或自动探测。
 - 带 `install_dir` 且调用方没有显式给 `java_home` 键的 Agent 命令，由 `agent.Manager` 的参数补全器按“主机 + 安装目录”从节点记录补上 `java_home`；预检、安装等需要明确语义的调用方必须显式下发该键（可为空）。
 - 节点登记或启动失败时，安装任务必须进入 `failed`，并在 `error`、`message` 中返回真实原因；不能保留 `success`。
 - 安装和启动全部完成后，`current_step` 必须为 `complete`。

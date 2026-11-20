@@ -154,6 +154,12 @@ func normalizeJobListFilter(filter *JobFilter) error {
 		}
 		filter.Mode = mode
 	}
+	switch source := JobSource(strings.ToLower(strings.TrimSpace(string(filter.Source)))); source {
+	case "", JobSourceSTX, JobSourceExternal:
+		filter.Source = source
+	default:
+		return fmt.Errorf("%w: source must be stx or external", ErrInvalidJobListQuery)
+	}
 	switch filter.Sort {
 	case "", jobListSortAttention, jobListSortStartedAt, jobListSortCreatedAt:
 		return nil
@@ -231,6 +237,7 @@ func (s *Service) ListJobsWithOptions(ctx context.Context, actor executionapp.Ac
 			return nil, err
 		}
 	}
+	s.decorateJobPermissions(ctx, actor, jobs)
 	return out, nil
 }
 

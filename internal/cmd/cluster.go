@@ -262,7 +262,7 @@ func newClusterNodeAddBatchCommand(storeProvider authStoreProvider) *cobra.Comma
 
 func newClusterNodeUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var installDir, overridesFile, requestFile string
+	var installDir, overridesFile, requestFile, javaHome string
 	var hazelcastPort, apiPort, workerPort int
 	command := &cobra.Command{
 		Use:     "update <cluster-id> <node-id>",
@@ -277,6 +277,7 @@ func newClusterNodeUpdateCommand(storeProvider authStoreProvider) *cobra.Command
 			if body == nil {
 				body = make(map[string]any)
 				setChangedString(command, body, "install-dir", installDir)
+				setChangedString(command, body, "java-home", javaHome)
 				setChangedInt(command, body, "hazelcast-port", hazelcastPort)
 				setChangedInt(command, body, "api-port", apiPort)
 				setChangedInt(command, body, "worker-port", workerPort)
@@ -293,6 +294,7 @@ func newClusterNodeUpdateCommand(storeProvider authStoreProvider) *cobra.Command
 	}
 	addSecureWriteFlags(command, &options)
 	command.Flags().StringVar(&installDir, "install-dir", "", "SeaTunnel installation directory")
+	command.Flags().StringVar(&javaHome, "java-home", "", "Node JDK directory; an explicit empty string clears the custom path back to auto detection")
 	command.Flags().IntVar(&hazelcastPort, "hazelcast-port", 0, "Hazelcast port")
 	command.Flags().IntVar(&apiPort, "api-port", 0, "REST API port")
 	command.Flags().IntVar(&workerPort, "worker-port", 0, "Worker Hazelcast port")

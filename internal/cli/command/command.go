@@ -199,7 +199,7 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 			requestID, err = client.RequestWithHeaders(command.Context(), strings.ToUpper(spec.Method), requestPath, requestBody, headers, &data)
 		}
 		if err != nil {
-			return handleConfirmationError(command, spec.ID, err)
+			return handleConfirmationError(command, spec.ID, err, write.idempotencyKey)
 		}
 		options, err := clioutput.OptionsFromCommand(command)
 		if err != nil {
@@ -300,6 +300,14 @@ func prepareWriteHeaders(command *cobra.Command, spec operation.OperationSpec, o
 	if spec.Risk == operation.RiskR0 {
 		return nil, nil
 	}
+	// 服务端把确认记录绑定到幂等键与请求哈希；带确认编号却不复用同一幂等键必然失败，
+	// 因此在本地提前报错，避免一次注定返回 ErrConfirmationInvalid 的请求。
+	// The server binds confirmations to the idempotency key and request hash; supplying
+	// a confirmation ID without reusing the same key always fails, so fail fast locally
+	// instead of sending a request that can only return ErrConfirmationInvalid.
+	if strings.TrimSpace(options.confirmationID) != "" && strings.TrimSpace(options.idempotencyKey) == "" {
+		return nil, clioutput.NewError(clioutput.CodeUsage, "--confirmation-id requires --idempotency-key (reuse the key emitted with confirmation_required) / 使用 --confirmation-id 时必须同时复用上次的 --idempotency-key", clioutput.ExitUsage, false)
+	}
 	if strings.TrimSpace(options.idempotencyKey) == "" {
 		options.idempotencyKey = uuid.NewString()
 		_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
@@ -320,7 +328,7 @@ func prepareWriteHeaders(command *cobra.Command, spec operation.OperationSpec, o
 
 // handleConfirmationError 在服务端要求二次确认时输出可重试信息。
 // handleConfirmationError emits retry details when the server requires one-time confirmation.
-func handleConfirmationError(command *cobra.Command, operationID string, err error) error {
+func handleConfirmationError(command *cobra.Command, operationID string, err error, idempotencyKey string) error {
 	var apiErr *cliClient.APIError
 	if !errors.As(err, &apiErr) || apiErr.ErrorCode != "confirmation_required" || len(apiErr.Data) == 0 {
 		return err
@@ -337,8 +345,24 @@ func handleConfirmationError(command *cobra.Command, operationID string, err err
 	_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
 		Event: "confirmation_required", OperationID: operationID, RequestID: apiErr.RequestID, Level: "warning",
 		Message: data.Impact, ConfirmationID: data.ConfirmationID, RiskLevel: data.RiskLevel, ExpiresAt: data.ExpiresAt,
+		IdempotencyKey: idempotencyKey, NextCommand: confirmationRetryCommand(command, idempotencyKey, data.ConfirmationID),
 	})
 	return err
+}
+
+// confirmationRetryCommand 生成复用同一幂等键与确认编号的重试命令提示。
+// confirmationRetryCommand builds the retry command that reuses the same
+// idempotency key and the issued confirmation ID.
+func confirmationRetryCommand(command *cobra.Command, idempotencyKey, confirmationID string) string {
+	if strings.TrimSpace(idempotencyKey) == "" || strings.TrimSpace(confirmationID) == "" {
+		return ""
+	}
+	parts := []string{command.CommandPath()}
+	if args := command.Flags().Args(); len(args) > 0 {
+		parts = append(parts, args...)
+	}
+	parts = append(parts, "--confirm", "--idempotency-key", idempotencyKey, "--confirmation-id", confirmationID)
+	return strings.Join(parts, " ")
 }
 
 func isGeneratedSafetyHeader(name string) bool {

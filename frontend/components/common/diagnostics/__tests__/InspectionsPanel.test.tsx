@@ -535,7 +535,11 @@ describe('InspectionsPanel', () => {
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
     fireEvent.click(screen.getByRole('button', {name: '巡检记录'}));
     expect(onViewChange).not.toHaveBeenCalled();
-    expect(await screen.findByTestId('discard-confirm-dialog')).toBeVisible();
+    // 入场动画从 opacity:0 起步，并行跑时首帧可能迟迟不落地；在场即视为拦截成功，
+    // 与 PoliciesPanel 同款断言保持一致。
+    // The entry animation starts at opacity:0 and its first frame can stall under
+    // parallel load; presence already proves interception, matching PoliciesPanel's test.
+    await screen.findByTestId('discard-confirm-dialog');
     fireEvent.click(screen.getByTestId('discard-confirm-action'));
     expect(onViewChange).toHaveBeenCalledWith('records');
   });

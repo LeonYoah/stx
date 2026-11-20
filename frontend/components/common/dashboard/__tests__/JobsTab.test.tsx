@@ -210,6 +210,7 @@ const base: DashboardQuery = {
   clusterId: undefined,
   status: '',
   mode: '',
+  source: '',
   q: '',
   sort: '',
   order: '',

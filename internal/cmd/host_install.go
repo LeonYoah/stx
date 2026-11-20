@@ -48,7 +48,7 @@ func addHostInstallCommands(root *cobra.Command, storeProvider authStoreProvider
 }
 
 func newHostPrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
-	var namespace, installDir, javaHome, requestFile string
+	var namespace, installDir, javaHome, targetVersion, requestFile string
 	var minMemoryMB, minDiskSpaceMB int64
 	var minCPUCores int
 	var ports []int
@@ -68,6 +68,7 @@ func newHostPrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
 			}
 			setChangedString(command, body, "install-dir", installDir)
 			setChangedString(command, body, "java-home", javaHome)
+			setChangedString(command, body, "target-version", targetVersion)
 			if command.Flags().Changed("min-memory-mb") {
 				body["min_memory_mb"] = minMemoryMB
 			}
@@ -99,6 +100,7 @@ func newHostPrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
 	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
 	command.Flags().StringVar(&installDir, "install-dir", "", "SeaTunnel installation directory to check")
 	command.Flags().StringVar(&javaHome, "java-home", "", "Node JDK directory; <java-home>/bin/java is used, empty keeps auto detection")
+	command.Flags().StringVar(&targetVersion, "target-version", "", "SeaTunnel version being installed; enables version-aware JDK checks (3.1.0+ requires Java 11)")
 	command.Flags().Int64Var(&minMemoryMB, "min-memory-mb", 0, "Minimum available memory in MiB")
 	command.Flags().IntVar(&minCPUCores, "min-cpu-cores", 0, "Minimum CPU core count")
 	command.Flags().Int64Var(&minDiskSpaceMB, "min-disk-space-mb", 0, "Minimum available disk space in MiB")

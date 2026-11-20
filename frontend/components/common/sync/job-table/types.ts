@@ -60,6 +60,8 @@ export interface JobListQuery {
   statusGroup: SyncJobStatusGroup | '';
   /** 仅 global 预设暴露 / Exposed by the global preset only. */
   mode: 'streaming' | 'batch' | '';
+  /** 仅 global 预设暴露：stx / external / ''（全部）/ Global preset only: stx / external / '' (all). */
+  source?: 'stx' | 'external' | '';
   keyword: string;
   /** 仅 global / Global preset only. */
   clusterId?: number;

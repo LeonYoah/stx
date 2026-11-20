@@ -55,7 +55,7 @@ func (s *Service) reportAlert(signal syncalert.Signal) bool {
 // alertSignalForJob 用作业和任务的快照组装作业级信号；数据预览不产生信号，返回 false。
 // alertSignalForJob builds a job-level signal from job and task snapshots; data previews produce none (false).
 func (s *Service) alertSignalForJob(ctx context.Context, kind syncalert.SignalKind, rule string, job *JobInstance, task *Task, message string) (syncalert.Signal, bool) {
-	if job == nil || job.RunType == RunTypePreview || job.TaskID == 0 {
+	if job == nil || job.RunType == RunTypePreview || job.Source == JobSourceExternal || job.TaskID == 0 {
 		return syncalert.Signal{}, false
 	}
 	if task == nil && s.repo != nil {

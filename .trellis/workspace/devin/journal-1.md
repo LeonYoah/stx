@@ -96,3 +96,11 @@ E2 跨层实现完成：内嵌 tsdb 最早样本探测、日 / 月桶 increase �
 - E1 集群指标细化：`/dashboard/home/clusters/detail` 按 jvm/gc/sched/store/proc 懒加载 + 前端细节区 + 事件标注；实测五组全有真实数据 — `36a12c9d`
 - E3 主机指标：agent gopsutil v4 → `ReportHostMetrics` gRPC → 控制面写内嵌 tsdb（身份标签防注入 + SeriesTracker stale）；`/dashboard/home/hosts` + 「主机」页签；真实 agent 全链路验证通过（10 面板真数据）— 同 `36a12c9d`
 - 教训：显示格式上 LineChart 会自拼 unit，formatValue 不要重复加后缀；字节量纲须用 IEC formatBytes 而非 formatCompactNumber（B=Billion≠Byte）。
+
+## 2026-11-20 PR #169 跟进（feat/external-seatunnel-jobs）
+
+- main 并入 #165（SeaTunnel 3.1.0 基线）后 PR 冲突，唯一冲突文件 `route_baseline.json`，重新 `contract-report -write` 生成（314 路由 / 33 例外，本 PR 无新增路由，仅 source 行号位移）— `06297a4`
+- `job_permissions.go` 缺 Apache 头导致 License Policy Check 失败，补头后 `check_license.py` 通过 — `77bb218`
+- 验证：`go build ./...`、`go test ./internal/operation/... ./internal/apps/sync/...`、前端 `tsc --noEmit` 全绿，已推送
+- 待办：评审 4 必改项已在 e12378bc 文档修订吸收但未逐条回复；「停止结果未知→卡在 cancelling」为 STX 既有 bug，本 PR 未修
+- 修复「停止结果未知 → 卡在 cancelling」：`applyEngineJobInfoUpdate` 在取消中作业越过 `cancel_deadline` 且引擎仍报 RUNNING/PENDING 时恢复引擎真实状态并写 `cancel_outcome=reverted`，允许重新停止；spec `job-status-reconciler.md` 已同步，新增 `TestCancelOverdueEngineRunningRevertsToRunning`

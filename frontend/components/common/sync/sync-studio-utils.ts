@@ -2724,6 +2724,9 @@ export function getRunModeLabel(
   if (runType === 'preview') {
     return t('runModePreview');
   }
+  if (runType === 'external' || job.source === 'external') {
+    return t('runModeExternal');
+  }
   const submitSpec = toObject(job.submit_spec);
   const triggerSource = String(
     submitSpec.trigger_source || submitSpec.trigger_mode || '',
@@ -2834,11 +2837,18 @@ export function getJobActionState(
   ctx: {isAdmin: boolean; isOwner: boolean; canRun: boolean; currentUserId?: number; disableRecover: boolean},
 ): {showRecover: boolean; canRecover: boolean; showStop: boolean; canStop: boolean} {
   const showStop = isJobLifecycleActive(getDisplayJobLifecycleStatus(job));
+  const external = job.source === 'external';
+  // 后端返回的 can_stop / can_recover 是权威权限；旧接口未返回时退回本地推断。
+  // can_stop / can_recover from the backend are authoritative; fall back to local inference for older responses.
+  const permittedRecover = job.can_recover ?? ctx.canRun;
+  const permittedStop =
+    job.can_stop ??
+    (ctx.isAdmin || ctx.isOwner || (ctx.currentUserId !== undefined && job.created_by === ctx.currentUserId));
   return {
-    showRecover: job.run_type !== 'preview',
-    canRecover: !ctx.disableRecover && canRecoverFromJob(job) && ctx.canRun,
+    showRecover: job.run_type !== 'preview' && !external,
+    canRecover: !external && !ctx.disableRecover && canRecoverFromJob(job) && permittedRecover,
     showStop,
-    canStop: ctx.isAdmin || ctx.isOwner || (ctx.currentUserId !== undefined && job.created_by === ctx.currentUserId),
+    canStop: permittedStop,
   };
 }
 

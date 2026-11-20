@@ -211,7 +211,15 @@
      --focus-outline-offset    default 2px; components inside clipped containers set a negative offset */
 :focus:not(:focus-visible),
 :is(input:not([type="button"], [type="checkbox"], [type="color"], [type="file"], [type="image"], [type="radio"], [type="range"], [type="reset"], [type="submit"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [tabindex="-1"]):focus { outline: none !important; }
-:focus-visible:not(input:not([type="button"], [type="checkbox"], [type="color"], [type="file"], [type="image"], [type="radio"], [type="range"], [type="reset"], [type="submit"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [tabindex="-1"]) {
+/* 描边按键盘模态放行：app/layout.tsx 在 <html> 上打 data-input-modality；
+   Radix 系触发器关闭时被脚本 refocus，Chromium 会把这次焦点判成键盘模态，
+   不加门控的话鼠标选完每项都会留下焦点环。属性缺失（脚本未跑）时照常出环。
+   The ring is gated on keyboard modality, tracked by the data-input-modality
+   attribute that app/layout.tsx stamps on <html>: Radix-family triggers
+   refocus themselves on close and Chromium's :focus-visible heuristic counts
+   that script focus as keyboard, so the ring would stick after every mouse
+   selection. Attribute absent (script not yet run) still allows the ring. */
+html:not([data-input-modality="pointer"]) :focus-visible:not(input:not([type="button"], [type="checkbox"], [type="color"], [type="file"], [type="image"], [type="radio"], [type="range"], [type="reset"], [type="submit"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [tabindex="-1"]) {
   outline: var(--focus-outline-width, 2px) solid var(--focus-outline, color-mix(in oklab, var(--accent-strong) 72%, transparent)) !important;
   outline-offset: var(--focus-outline-offset, 2px) !important;
 }

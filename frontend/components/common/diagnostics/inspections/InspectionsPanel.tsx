@@ -34,6 +34,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Check, Play, RefreshCw, Settings2, Trash2, X} from 'lucide-react';
 import {toast} from '@/lib/toast';
+import {SearchField} from '@/components/arc/search-field/search-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Button} from '@/components/arc/button/button';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
@@ -135,6 +136,9 @@ export function InspectionsPanel({
     useState<InspectionStatusFilter>('all');
   const [severityFilter, setSeverityFilter] =
     useState<InspectionSeverityFilter>('all');
+  const [keywordInput, setKeywordInput] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -210,6 +214,7 @@ export function InspectionsPanel({
           status: statusFilter !== 'all' ? statusFilter : undefined,
           severity: severityFilter !== 'all' ? severityFilter : undefined,
           auto_policy_id: autoPolicyId,
+          keyword: keyword || undefined,
           page,
           page_size: PAGE_SIZE,
         });
@@ -236,7 +241,7 @@ export function InspectionsPanel({
         }
       }
     },
-    [autoPolicyId, clusterId, page, severityFilter, statusFilter, t],
+    [autoPolicyId, clusterId, keyword, page, severityFilter, statusFilter, t],
   );
 
   const loadReportDetail = useCallback(
@@ -502,11 +507,37 @@ export function InspectionsPanel({
     }
   };
 
+  // 「/」聚焦搜索，与错误面板一致。「/」 focuses the search field, same as the errors panel.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (
+        e.key === '/' &&
+        !el?.closest('input, textarea, select, [contenteditable="true"]')
+      ) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const commitKeyword = useCallback(() => {
+    setKeyword(keywordInput.trim());
+    setPage(1);
+  }, [keywordInput]);
+
   const filtersActive =
-    statusFilter !== 'all' || severityFilter !== 'all' || autoPolicyId != null;
+    statusFilter !== 'all' ||
+    severityFilter !== 'all' ||
+    autoPolicyId != null ||
+    keyword !== '';
   const resetAllFilters = useCallback(() => {
     setStatusFilter('all');
     setSeverityFilter('all');
+    setKeywordInput('');
+    setKeyword('');
     onAutoPolicyFilter?.(null);
     setPage(1);
   }, [onAutoPolicyFilter]);
@@ -592,6 +623,37 @@ export function InspectionsPanel({
             seg('pending', t('status.pending')),
           ]}
         />
+        <div className={layout.toolbarSearch}>
+          <SearchField
+            ref={searchRef}
+            label={t('searchLabel')}
+            value={keywordInput}
+            onValueChange={(v) => {
+              setKeywordInput(v);
+              // 清空输入即移除已提交关键字；新关键字仍按 Enter 提交。
+              // Clearing the input also drops the committed keyword; new
+              // keywords still submit on Enter.
+              if (v === '' && keyword !== '') {
+                setKeyword('');
+                setPage(1);
+              }
+            }}
+            placeholder={t('keywordPlaceholder')}
+            clearLabel={t('searchClear')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitKeyword();
+              } else if (e.key === 'Escape' && keywordInput) {
+                setKeywordInput('');
+                if (keyword !== '') {
+                  setKeyword('');
+                  setPage(1);
+                }
+              }
+            }}
+          />
+        </div>
         <div className={cn(layout.filterCtrl, layout.filterWsm)}>
           <Select
             label={t('filters.severity')}

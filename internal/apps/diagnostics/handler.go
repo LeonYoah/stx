@@ -1019,6 +1019,7 @@ func parseInspectionReportFilter(c *gin.Context) (*ClusterInspectionReportFilter
 		TriggerSource: InspectionTriggerSource(strings.TrimSpace(c.Query("trigger_source"))),
 		AutoPolicyID:  autoPolicyID,
 		Severity:      InspectionFindingSeverity(strings.TrimSpace(c.Query("severity"))),
+		Keyword:       strings.TrimSpace(c.Query("keyword")),
 		StartTime:     startTime,
 		EndTime:       endTime,
 		Page:          page,

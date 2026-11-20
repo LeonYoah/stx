@@ -156,10 +156,14 @@ type ClusterInspectionReportFilter struct {
 	// AutoPolicyID limits the list to reports triggered by that policy when non-zero.
 	AutoPolicyID uint                      `json:"auto_policy_id"`
 	Severity     InspectionFindingSeverity `json:"severity"`
-	StartTime    *time.Time                `json:"start_time"`
-	EndTime      *time.Time                `json:"end_time"`
-	Page         int                       `json:"page"`
-	PageSize     int                       `json:"page_size"`
+	// Keyword 模糊匹配报告摘要、错误信息、触发原因与自动策略名；纯数字额外精确命中报告 ID。
+	// Keyword fuzzy-matches report summary, error message, trigger reason, and
+	// auto-policy name; pure digits additionally match the report ID exactly.
+	Keyword   string     `json:"keyword"`
+	StartTime *time.Time `json:"start_time"`
+	EndTime   *time.Time `json:"end_time"`
+	Page      int        `json:"page"`
+	PageSize  int        `json:"page_size"`
 }
 
 // ClusterInspectionFindingFilter defines list filters for inspection findings.

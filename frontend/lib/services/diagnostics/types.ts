@@ -227,6 +227,8 @@ export interface DiagnosticsInspectionReportListParams {
   /** 只列出该自动巡检策略触发的报告。Restrict the list to reports triggered by one auto policy. */
   auto_policy_id?: number;
   severity?: DiagnosticsInspectionFindingSeverity;
+  /** 模糊匹配摘要/错误/触发原因/策略名；纯数字精确命中报告 ID。Fuzzy-matches summary, error, trigger reason, policy name; digits match report id. */
+  keyword?: string;
   start_time?: string;
   end_time?: string;
   page?: number;

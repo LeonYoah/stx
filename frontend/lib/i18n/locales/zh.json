@@ -4198,6 +4198,9 @@
       "finishedAt": "完成时间",
       "taskLabel": "任务 #{id}",
       "refreshingLabel": "正在刷新...",
+      "searchLabel": "按关键字筛选巡检报告",
+      "keywordPlaceholder": "搜索摘要、错误信息或策略名",
+      "searchClear": "清除搜索",
       "filters": {
         "status": "按状态筛选",
         "severity": "按严重级别筛选",

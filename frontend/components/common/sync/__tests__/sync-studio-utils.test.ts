@@ -1066,6 +1066,42 @@ describe('formatSyncUserFacingError', () => {
     expect(formatted.description).toContain('JDBC URL');
   });
 
+  // 引擎堆栈按最深 caused-by 分类：API-09 中间层的 "Failed connecting" 不能盖过 Access denied
+  // Engine stacktraces classify by deepest caused-by: the intermediate API-09 "Failed connecting"
+  // must not mask the real "Access denied" auth failure.
+  it('classifies engine save-mode failure by deepest caused-by and summarizes the stack', () => {
+    const body = {
+      status: 'fail',
+      message:
+        "CompletionException: org.apache.seatunnel.engine.common.exception.JobException: org.apache.seatunnel.common.exception.SeaTunnelRuntimeException: ErrorCode:[API-09], ErrorDescription:[Handle save mode failed]\n" +
+        '\tat org.apache.seatunnel.engine.server.master.JobMaster.handleSaveMode(JobMaster.java:792)\n' +
+        'Caused by: org.apache.seatunnel.api.table.catalog.exception.CatalogException: ErrorCode:[API-03], ErrorDescription:[Catalog initialize failed] - Failed connecting to the configured JDBC URL via JDBC.\n' +
+        '\tat org.apache.seatunnel.connectors.seatunnel.jdbc.catalog.AbstractJdbcCatalog.getConnection(AbstractJdbcCatalog.java:155)\n' +
+        "Caused by: java.sql.SQLException: Access denied for user 'root'@'172.17.0.1' (using password: YES)",
+    };
+    const raw = `submit job failed: status=500 body=${JSON.stringify(body)}`;
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.category).toBe('auth');
+    expect(formatted.description).toContain('Handle save mode failed');
+    expect(formatted.description).toContain('Access denied');
+    expect(formatted.description).not.toContain('at org.apache');
+    expect(formatted.raw).toBe(raw);
+  });
+
+  it('falls back to whole-message probing when the deepest cause has no signal', () => {
+    const body = {
+      status: 'fail',
+      message:
+        'JobException: something failed\n' +
+        '\tat com.example.Foo.run(Foo.java:1)\n' +
+        'Caused by: java.lang.RuntimeException: connection timed out after 30s',
+    };
+    const raw = `submit job failed: status=500 body=${JSON.stringify(body)}`;
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.category).toBe('network');
+    expect(formatted.description).toContain('timed out');
+  });
+
   it('still classifies when a caused-by layer reports plugin absent', () => {
     const raw =
       "Unable to create a sink for identifier 'Http'. | caused by: RuntimeException: Plugin PluginIdentifier{engineType='seatunnel', pluginType='sink', pluginName='Http'} not found.";

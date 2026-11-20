@@ -2033,6 +2033,71 @@ export function hasDuplicateWorkspaceName(
   return listSiblingNames(tree, parentId, excludeId).includes(normalized);
 }
 
+// 从 "submit job failed: status=NNN body={...}" 的 body JSON 中取出引擎返回的 message 字段
+// Pull the engine-returned "message" field out of a "submit job failed ... body={...}" envelope
+function extractEngineBodyMessage(raw: string): string | null {
+  const match = raw.match(/body=\s*(\{[\s\S]*\})\s*$/);
+  if (!match) {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(match[1]);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as {message?: unknown}).message === 'string'
+    ) {
+      return (parsed as {message: string}).message;
+    }
+  } catch {
+    // 非 JSON body（如纯文本错误）直接返回 null
+    // Non-JSON body (plain-text errors) just returns null
+  }
+  return null;
+}
+
+// FQCN 类名缩写为简单名，提升错误可读性
+// Shorten fully-qualified class names to simple names for readability
+function shortenExceptionNames(text: string): string {
+  return text.replace(/\b(?:[a-zA-Z_$][\w$]*\.){2,}([A-Z][\w$]*)/g, '$1');
+}
+
+// 提取堆栈中最深一层的 Caused by 内容；没有 caused-by 层时返回 null
+// Extract the deepest "Caused by" payload from a stacktrace; null when absent
+function extractDeepestCause(text: string): string | null {
+  // 最后一次 "caused by" 才是最深层；单行 "a | caused by: A | caused by: B" 与 Java 多行堆栈同适用
+  // The last "caused by" is the deepest; covers both single-line pipe form and multi-line Java stacks
+  const idx = text.toLowerCase().lastIndexOf('caused by:');
+  if (idx < 0) {
+    return null;
+  }
+  const value = text
+    .slice(idx + 'caused by:'.length)
+    .split(/\r?\n/, 1)[0]
+    .trim();
+  return value || null;
+}
+
+// 把引擎堆栈压缩成 "外层错误描述 — 最深层原因" 的一句话摘要
+// Condense an engine stacktrace into an "outer error — deepest cause" one-liner
+function summarizeEngineMessage(message: string, fallback: string): string {
+  const lines = message
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('at '));
+  if (lines.length === 0) {
+    return fallback;
+  }
+  const firstLine = shortenExceptionNames(lines[0]);
+  const outer =
+    firstLine.match(/ErrorDescription:\[([^\]]+)\]/)?.[1]?.trim() || firstLine;
+  const deepest = extractDeepestCause(message);
+  const deepestShort = deepest ? shortenExceptionNames(deepest) : '';
+  return deepestShort && deepestShort !== outer
+    ? `${outer} — ${deepestShort}`
+    : outer;
+}
+
 export function formatSyncUserFacingError(
   error: unknown,
   fallbackTitle: string,
@@ -2139,84 +2204,102 @@ export function formatSyncUserFacingError(
     };
   }
 
-  // 2. 库表未找到或 Schema 映射失败（只认明确的表缺失措辞："resolution failed" 会误吞
-  // tablePath 解析里的连接/驱动等深层失败，不再归为库表问题）
-  // Table/schema mismatch — only explicit table-missing wording counts; "resolution failed"
-  // would mislabel deeper tablePath failures (connect/driver) as schema problems.
-  if (
-    /table[^\n]*(?:doesn't exist|does not exist)/i.test(cleanMessage) ||
-    /unknown table/i.test(cleanMessage) ||
-    /table\s+(?:or\s+view\s+)?not\s+found/i.test(cleanMessage) ||
-    /schema.*not found/i.test(cleanMessage)
-  ) {
-    return {
-      title: fallbackTitle,
-      description: cleanMessage,
-      category: 'schema',
-      suggestion: '请核对任务配置中的 Source/Sink 库表名（database-names / table-names）是否拼写正确，并确认目标库中该表确实已创建。',
-      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
-    };
-  }
+  // 引擎返回的堆栈解包为 "外层简述 — 最深层 Caused by" 摘要；分类探测先走最深原因，
+  // 中间层包装措辞（如 Failed connecting）不得盖过真实根因，没命中再退回整条消息保持原有匹配宽度。
+  // Engine stacktraces unwrap to an "outer — deepest Caused-by" summary; classification probes
+  // the deepest cause first so intermediate wrappers can't mask the real root cause, then falls
+  // back to the whole message to preserve the original match breadth.
+  const engineBodyMessage = extractEngineBodyMessage(rawMessage) ?? '';
+  const description = summarizeEngineMessage(
+    engineBodyMessage || cleanMessage,
+    cleanMessage,
+  );
+  const raw = rawMessage !== description ? rawMessage : undefined;
+  const probes = [
+    engineBodyMessage ? extractDeepestCause(engineBodyMessage) : null,
+    cleanMessage,
+  ].filter((probe): probe is string => Boolean(probe));
 
-  // 3. 网络连通性或超时
-  if (
-    /connection.*(?:refused|timed out|reset)/i.test(cleanMessage) ||
-    /Communications link failure/i.test(cleanMessage) ||
-    /failed connect/i.test(cleanMessage)
-  ) {
-    return {
-      title: fallbackTitle,
-      description: cleanMessage,
-      category: 'network',
-      suggestion: '请检查目标数据源的主机地址（Host）和端口（Port）是否可正常连接，确认 SeaTunnel 节点与数据源之间未被安全组或防火墙拦截。',
-      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
-    };
-  }
+  for (const probe of probes) {
+    // 2. 库表未找到或 Schema 映射失败（只认明确的表缺失措辞："resolution failed" 会误吞
+    // tablePath 解析里的连接/驱动等深层失败，不再归为库表问题）
+    // Table/schema mismatch — only explicit table-missing wording counts; "resolution failed"
+    // would mislabel deeper tablePath failures (connect/driver) as schema problems.
+    if (
+      /table[^\n]*(?:doesn't exist|does not exist)/i.test(probe) ||
+      /unknown table/i.test(probe) ||
+      /table\s+(?:or\s+view\s+)?not\s+found/i.test(probe) ||
+      /schema.*not found/i.test(probe)
+    ) {
+      return {
+        title: fallbackTitle,
+        description,
+        category: 'schema',
+        suggestion: '请核对任务配置中的 Source/Sink 库表名（database-names / table-names）是否拼写正确，并确认目标库中该表确实已创建。',
+        raw,
+      };
+    }
 
-  // 4. 账号认证或权限（只认明确的认证失败信号；裸 "password" 会误吞配置/字段类报错）
-  // Auth — only explicit auth-failure signals; a bare "password" would mislabel
-  // config/field errors that merely mention the word.
-  if (
-    /access denied/i.test(cleanMessage) ||
-    /authentication failed/i.test(cleanMessage) ||
-    /password\s+authentication/i.test(cleanMessage) ||
-    /invalid\s+(?:password|credentials?)/i.test(cleanMessage) ||
-    /incorrect\s+password/i.test(cleanMessage)
-  ) {
-    return {
-      title: fallbackTitle,
-      description: cleanMessage,
-      category: 'auth',
-      suggestion: '请检查数据源连接配置中的用户名与密码，确认该账号已被授予目标数据库的访问及数据读写权限。',
-      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
-    };
-  }
+    // 3. 网络连通性或超时
+    if (
+      /connection.*(?:refused|timed out|reset)/i.test(probe) ||
+      /Communications link failure/i.test(probe) ||
+      /failed connect/i.test(probe)
+    ) {
+      return {
+        title: fallbackTitle,
+        description,
+        category: 'network',
+        suggestion: '请检查目标数据源的主机地址（Host）和端口（Port）是否可正常连接，确认 SeaTunnel 节点与数据源之间未被安全组或防火墙拦截。',
+        raw,
+      };
+    }
 
-  // 5. HOCON 语法结构错误（含后端 humanize 的「未加双引号的 {{变量}} 或未闭合括号」歧义提示，按语法错误展示）
-  // HOCON syntax/structure errors — including the backend humanized ambiguous hint that mentions
-  // unquoted "{{变量}}" OR unmatched braces; keep those as syntax errors, not undefined variables.
-  if (
-    /configparsefailed/i.test(cleanMessage) ||
-    /配置解析失败/i.test(cleanMessage) ||
-    /ConfigException/i.test(cleanMessage) ||
-    /syntax error/i.test(cleanMessage) ||
-    /expecting/i.test(cleanMessage)
-  ) {
-    return {
-      title: t('configParseFailedTitle'),
-      description: cleanMessage,
-      category: 'syntax',
-      suggestion: '请检查任务配置的语法结构，特别注意大括号、中括号成对匹配以及字符串引号闭合情况。',
-      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
-    };
+    // 4. 账号认证或权限（只认明确的认证失败信号；裸 "password" 会误吞配置/字段类报错）
+    // Auth — only explicit auth-failure signals; a bare "password" would mislabel
+    // config/field errors that merely mention the word.
+    if (
+      /access denied/i.test(probe) ||
+      /authentication failed/i.test(probe) ||
+      /password\s+authentication/i.test(probe) ||
+      /invalid\s+(?:password|credentials?)/i.test(probe) ||
+      /incorrect\s+password/i.test(probe)
+    ) {
+      return {
+        title: fallbackTitle,
+        description,
+        category: 'auth',
+        suggestion: '请检查数据源连接配置中的用户名与密码，确认该账号已被授予目标数据库的访问及数据读写权限。',
+        raw,
+      };
+    }
+
+    // 5. HOCON 语法结构错误（含后端 humanize 的「未加双引号的 {{变量}} 或未闭合括号」歧义提示，按语法错误展示）
+    // HOCON syntax/structure errors — including the backend humanized ambiguous hint that mentions
+    // unquoted "{{变量}}" OR unmatched braces; keep those as syntax errors, not undefined variables.
+    if (
+      /configparsefailed/i.test(probe) ||
+      /配置解析失败/i.test(probe) ||
+      /ConfigException/i.test(probe) ||
+      /syntax error/i.test(probe) ||
+      /expecting/i.test(probe)
+    ) {
+      return {
+        title: t('configParseFailedTitle'),
+        description,
+        category: 'syntax',
+        suggestion: '请检查任务配置的语法结构，特别注意大括号、中括号成对匹配以及字符串引号闭合情况。',
+        raw,
+      };
+    }
   }
 
   // 6. 默认通用/运行时错误
   return {
     title: fallbackTitle,
-    description: cleanMessage || t('unknownError'),
+    description: description || t('unknownError'),
     category: 'runtime',
-    raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
+    raw,
   };
 }
 

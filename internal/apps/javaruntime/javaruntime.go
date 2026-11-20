@@ -30,6 +30,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // ParamJavaHome 是下发给 Agent 的节点 JDK 参数名，与 Agent 侧 javaenv.ParamJavaHome 一致。
@@ -173,12 +175,50 @@ func Interpret(configured string, success bool, output string) *Result {
 	switch {
 	case !success:
 		result.Status = StatusFailed
-	case result.Version == 8 || result.Version == 11:
-		result.Status = StatusPassed
 	default:
-		result.Status = StatusWarning
+		// Interpret 不带目标版本上下文，沿用 {8,11} 的默认矩阵；
+		// 目标版本感知判定见 StatusForTarget（≥3.1.0 要求 JDK 11+）。
+		// Interpret has no target-version context, so it keeps the legacy {8,11} matrix;
+		// target-aware verdicts live in StatusForTarget (JDK 11+ required since 3.1.0).
+		result.Status = StatusForTarget(result.Version, "")
 	}
 	return result
+}
+
+// MinSupportedMajor 返回目标 SeaTunnel 版本要求的最低 JDK 主版本号。
+// SeaTunnel 3.1.0 起官方硬性要求 JDK 11+（class major 55 + 强制 --add-opens 启动旗标，
+// JDK 8 启动器必然失败）；更早的目标版本仍兼容 JDK 8。
+// MinSupportedMajor returns the minimum JDK major a SeaTunnel target requires.
+// SeaTunnel 3.1.0 hard-requires JDK 11+ (class major 55 plus mandatory --add-opens launcher
+// flags, so a JDK 8 launcher always fails); earlier targets still run on JDK 8.
+func MinSupportedMajor(targetVersion string) int {
+	if seatunnel.CompareVersions(targetVersion, "3.1.0") >= 0 {
+		return 11
+	}
+	return 8
+}
+
+// StatusForTarget 按目标 SeaTunnel 版本评估已探测到的 JDK 主版本号：
+// 目标 ≥3.1.0 时低于 11 的 JDK 判失败（升级/安装后引擎必然无法启动），11+ 判通过；
+// 更早目标维持既有矩阵 {8,11} 通过、其余警告；版本未知时保守警告。
+// StatusForTarget evaluates a detected JDK major version against the SeaTunnel target:
+// for targets ≥3.1.0 a JDK below 11 fails outright (the engine cannot start), 11+ passes;
+// older targets keep the legacy matrix of {8,11} passed and everything else warning;
+// unknown versions degrade to warning.
+func StatusForTarget(version int, targetVersion string) string {
+	if version <= 0 {
+		return StatusWarning
+	}
+	if MinSupportedMajor(targetVersion) >= 11 {
+		if version < 11 {
+			return StatusFailed
+		}
+		return StatusPassed
+	}
+	if version == 8 || version == 11 {
+		return StatusPassed
+	}
+	return StatusWarning
 }
 
 // FailureMessage 返回带节点、路径与原因的双语失败信息，供预检阻断时展示（AC1c / AC2）。

@@ -385,6 +385,12 @@ type UpdateNodeRequest struct {
 	APIPort       *int           `json:"api_port"`            // REST API port (Master only, optional) / REST API 端口（仅 Master，可选）
 	WorkerPort    *int           `json:"worker_port"`         // Worker hazelcast port (Hybrid only) / Worker Hazelcast 端口（仅混合模式）
 	Overrides     *NodeOverrides `json:"overrides,omitempty"` // Node-level JSON overrides / 节点级 JSON 覆盖配置
+	// JavaHome 显式指定该节点的新 JDK 目录；显式空串表示清除自定义路径回到自动探测。
+	// 升级为需要更高 JDK 的 SeaTunnel 版本（≥3.1.0）时用于换 JDK 后重跑预检。
+	// JavaHome explicitly sets the node's JDK directory; an explicit empty string clears the
+	// custom path back to auto detection. Used to swap JDKs (e.g. before upgrading to a
+	// SeaTunnel ≥3.1.0 target that requires Java 11+) and rerun precheck.
+	JavaHome *string `json:"java_home,omitempty"`
 }
 
 // NodeInfo represents node information for API responses.

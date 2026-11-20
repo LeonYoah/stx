@@ -216,6 +216,8 @@ test.describe.serial('STX CLI real installer', () => {
       hostId,
       '--install-dir',
       installDir,
+      '--target-version',
+      seatunnelVersion,
       '--port',
       `${clusterPort},${workerPort},${httpPort},${javaProxyPort}`,
     ]);

@@ -369,6 +369,8 @@ export interface PrecheckRequest {
   ports?: number[];
   /** Node JDK directory; empty means auto detection / 节点 JDK 目录，空表示自动探测 */
   java_home?: string;
+  /** SeaTunnel target version for version-aware JDK checks (3.1.0+ requires Java 11) / 目标 SeaTunnel 版本，用于版本感知的 JDK 判定（3.1.0+ 要求 Java 11） */
+  target_version?: string;
 }
 
 /**

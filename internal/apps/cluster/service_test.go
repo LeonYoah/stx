@@ -293,6 +293,108 @@ func TestUpdateNodeSyncsSeatunnelHTTPPortAndRestartsNode(t *testing.T) {
 	}
 }
 
+// mockJavaCheckSender 模拟带 JDK 校验的 Agent：check_java 按 java_home 回执自定义路径与版本；
+// failHomes 中的路径返回不可用。其他命令沿用 mockOperationAgentSender。
+// mockJavaCheckSender fakes a JDK-checking Agent: check_java echoes the java_home as a custom
+// source with a version; paths in failHomes report unusable. Other commands fall through to
+// mockOperationAgentSender.
+type mockJavaCheckSender struct {
+	mockOperationAgentSender
+	failHomes map[string]bool
+}
+
+func (m *mockJavaCheckSender) SendCommand(ctx context.Context, agentID string, commandType string, params map[string]string) (bool, string, error) {
+	if commandType == "check_java" {
+		home := strings.TrimSpace(params["java_home"])
+		if m.failHomes[home] {
+			return false, fmt.Sprintf(`{"success":false,"message":"JDK path missing","details":{"java_home":"%s","java_home_source":"custom","java_bin":"%s/bin/java","error_reason":"not_found"}}`, home, home), nil
+		}
+		return true, fmt.Sprintf(`{"success":true,"message":"ok","details":{"java_home":"%s","java_home_source":"custom","java_bin":"%s/bin/java","installed_version":"17","version_string":"17.0.1"}}`, home, home), nil
+	}
+	return m.mockOperationAgentSender.SendCommand(ctx, agentID, commandType, params)
+}
+
+// TestUpdateNodeJavaHome 覆盖节点 JDK 更新：可设置新路径、显式空串清除回自动探测、非法路径与
+// Agent 验活失败均被拒绝且不写库。这是升级为需要更高 JDK 的 SeaTunnel 版本（≥3.1.0）时唯一的换 JDK 出口。
+// TestUpdateNodeJavaHome covers node JDK updates: setting a new path, clearing to auto detection
+// with an explicit empty string, and rejecting invalid paths plus Agent-verified unusable JDKs
+// without persisting. This is the only remediation path when upgrading to a SeaTunnel version
+// that needs a newer JDK (≥3.1.0).
+func TestUpdateNodeJavaHome(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	hostProvider := NewMockHostProvider()
+	now := time.Now()
+	hostProvider.AddHost(&HostInfo{ID: 1, Name: "host-1", IPAddress: "127.0.0.1", AgentID: "agent-1", LastHeartbeat: &now})
+	service := NewService(repo, hostProvider, &ServiceConfig{})
+	service.SetAgentCommandSender(&mockJavaCheckSender{failHomes: map[string]bool{"/opt/missing": true}})
+
+	ctx := context.Background()
+	cluster := &Cluster{Name: "demo", DeploymentMode: DeploymentModeHybrid, InstallDir: "/opt/seatunnel", Status: ClusterStatusRunning}
+	if err := repo.Create(ctx, cluster); err != nil {
+		t.Fatalf("create cluster failed: %v", err)
+	}
+	node := &ClusterNode{
+		ClusterID:     cluster.ID,
+		HostID:        1,
+		Role:          NodeRoleMasterWorker,
+		InstallDir:    "/opt/seatunnel",
+		HazelcastPort: 5801,
+		WorkerPort:    5802,
+		JavaHome:      "/opt/jdk8",
+		Status:        NodeStatusRunning,
+	}
+	if err := repo.AddNode(ctx, node); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+
+	// 设置新 JDK 路径并归一化。/ Set a new JDK path, normalized.
+	newHome := "/opt/jdk17/"
+	updated, err := service.UpdateNode(ctx, cluster.ID, node.ID, &UpdateNodeRequest{JavaHome: &newHome})
+	if err != nil {
+		t.Fatalf("UpdateNode returned error: %v", err)
+	}
+	if updated.JavaHome != "/opt/jdk17" {
+		t.Fatalf("expected java_home /opt/jdk17, got %q", updated.JavaHome)
+	}
+	persisted, err := repo.GetNodeByID(ctx, node.ID)
+	if err != nil || persisted.JavaHome != "/opt/jdk17" {
+		t.Fatalf("persisted java_home = %q, err=%v", persisted.JavaHome, err)
+	}
+
+	// 显式空串清除自定义路径。/ An explicit empty string clears the custom path.
+	cleared := ""
+	updated, err = service.UpdateNode(ctx, cluster.ID, node.ID, &UpdateNodeRequest{JavaHome: &cleared})
+	if err != nil {
+		t.Fatalf("UpdateNode clear returned error: %v", err)
+	}
+	if updated.JavaHome != "" {
+		t.Fatalf("expected cleared java_home, got %q", updated.JavaHome)
+	}
+
+	// 非法路径被拒且不写库。/ An invalid path is rejected without persisting.
+	bad := "relative/jdk"
+	if _, err := service.UpdateNode(ctx, cluster.ID, node.ID, &UpdateNodeRequest{JavaHome: &bad}); err == nil {
+		t.Fatal("expected invalid java_home to be rejected")
+	}
+	persisted, _ = repo.GetNodeByID(ctx, node.ID)
+	if persisted.JavaHome != "" {
+		t.Fatalf("java_home should stay cleared after rejection, got %q", persisted.JavaHome)
+	}
+
+	// Agent 现场校验不通过同样被拒且不写库。/ A JDK the Agent cannot run is also rejected without persisting.
+	missing := "/opt/missing"
+	if _, err := service.UpdateNode(ctx, cluster.ID, node.ID, &UpdateNodeRequest{JavaHome: &missing}); err == nil {
+		t.Fatal("expected Agent-unusable java_home to be rejected")
+	}
+	persisted, _ = repo.GetNodeByID(ctx, node.ID)
+	if persisted.JavaHome != "" {
+		t.Fatalf("java_home should stay cleared after verify failure, got %q", persisted.JavaHome)
+	}
+}
+
 // genValidHostID generates valid host IDs for tests
 // genValidHostID 为测试生成有效的主机 ID
 func genValidHostID() gopter.Gen {

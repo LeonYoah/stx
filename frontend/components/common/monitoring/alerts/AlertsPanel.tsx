@@ -92,6 +92,7 @@ import {
   type MonitoringTranslator,
 } from '../monitoring-utils';
 import {DetailHost, useDetailNarrow} from '@/components/common/layout';
+import {BatchBar, usePagedSelection} from '@/components/common/layout';
 import styles from '../monitoring.module.css';
 import layout from '@/components/common/layout/list-detail.module.css';
 
@@ -479,42 +480,24 @@ export function AlertsPanel({
     );
   }, [rows, query]);
 
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const pageAlertIds = useMemo(
+    () => pageItems.map((a) => a.alert_id),
+    [pageItems],
+  );
+  const {
+    ids: selected,
+    setIds: setSelected,
+    toggle: toggleSelect,
+    togglePage: toggleSelectAllPage,
+    pageAllSelected,
+    pageSomeSelected,
+  } = usePagedSelection(pageAlertIds);
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResult, setBatchResult] = useState<{
     ok: number;
     skipped: number;
     failed: number;
   } | null>(null);
-
-  const toggleSelect = useCallback((id: string, on: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (on) {
-        next.add(id);
-      } else {
-        next.delete(id);
-      }
-      return next;
-    });
-  }, []);
-
-  const toggleSelectAllPage = useCallback(
-    (on: boolean) => {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        for (const a of pageItems) {
-          if (on) {
-            next.add(a.alert_id);
-          } else {
-            next.delete(a.alert_id);
-          }
-        }
-        return next;
-      });
-    },
-    [pageItems],
-  );
 
   // 批量动作与行内菜单同一判定：确认/静默仅 firing，关闭排除已关闭；
   // 串行逐条调用，与作业批量一致，避免同时压向集群。
@@ -645,12 +628,6 @@ export function AlertsPanel({
     },
     [router],
   );
-
-  const pageAllSelected =
-    pageItems.length > 0 &&
-    pageItems.every((a) => selected.has(a.alert_id));
-  const pageSomeSelected =
-    !pageAllSelected && pageItems.some((a) => selected.has(a.alert_id));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -1074,68 +1051,51 @@ export function AlertsPanel({
             </div>
           </TableCard>
 
-          {selected.size > 0 || batchResult ? (
-            <div className={layout.batchBarWrap}>
-              <div className={layout.batchBar} role='status'>
-                {selected.size > 0 ? (
-                  <>
-                    <span>{t('selected', {count: selected.size})}</span>
-                    <span className={layout.batchActions}>
-                      <Button
-                        type='button'
-                        size='sm'
-                        variant='secondary'
-                        disabled={batchBusy}
-                        onClick={() => void runBatch('ack')}
-                      >
-                        {t('actionAck')}
-                      </Button>
-                      <Button
-                        type='button'
-                        size='sm'
-                        variant='secondary'
-                        disabled={batchBusy}
-                        onClick={() => void runBatch('silence')}
-                      >
-                        {t('actionSilence')}
-                      </Button>
-                      <Button
-                        type='button'
-                        size='sm'
-                        variant='secondary'
-                        disabled={batchBusy}
-                        onClick={() => void runBatch('close')}
-                      >
-                        {t('actionClose')}
-                      </Button>
-                    </span>
-                  </>
-                ) : null}
-                {batchResult ? (
-                  <span className={layout.sub}>
-                    {t('batchResult', {
-                      ok: batchResult.ok,
-                      failed: batchResult.failed,
-                      skipped: batchResult.skipped,
-                    })}
-                  </span>
-                ) : null}
-                <Button
-                  type='button'
-                  variant='ghost'
-                  size='sm'
-                  iconOnly
-                  aria-label={t('batchClear')}
-                  onClick={() => {
-                    setSelected(new Set());
-                    setBatchResult(null);
-                  }}
-                >
-                  <X className='size-4' aria-hidden />
-                </Button>
-              </div>
-            </div>
-          ) : null}
+          <BatchBar
+            selectedCount={selected.size}
+            busy={batchBusy}
+            result={
+              batchResult
+                ? t('batchResult', {
+                    ok: batchResult.ok,
+                    failed: batchResult.failed,
+                    skipped: batchResult.skipped,
+                  })
+                : null
+            }
+            onClear={() => {
+              setSelected(new Set());
+              setBatchResult(null);
+            }}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => void runBatch('ack')}
+            >
+              {t('actionAck')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => void runBatch('silence')}
+            >
+              {t('actionSilence')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => void runBatch('close')}
+            >
+              {t('actionClose')}
+            </Button>
+          </BatchBar>
         </div>
 
         <DetailHost

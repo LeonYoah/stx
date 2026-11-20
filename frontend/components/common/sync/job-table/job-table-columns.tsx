@@ -18,7 +18,8 @@
 'use client';
 
 import {Badge} from '@/components/ui/badge';
-import {Checkbox} from '@/components/ui/checkbox';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {mergeIdsIntoSelection} from '@/components/common/layout';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Sparkline} from '@/components/charts/sparkline';
 import type {SyncJobInstance} from '@/lib/services/sync';
@@ -54,7 +55,7 @@ import type {JobColumnDef, JobTableContext} from './types';
 
 type CellProps = {job: SyncJobInstance; ctx: JobTableContext};
 
-/** 全选复选框（仅当前页）。/ Select-all checkbox scoped to the current page. */
+/** 全选复选框（仅当前页）：merge 语义，不丢其他页的勾选。/ Select-all checkbox scoped to the current page; merge semantics keep picks made on other pages. */
 function SelectAllHeader({ctx}: {ctx: JobTableContext}) {
   const selection = ctx.selection;
   if (!selection) {
@@ -63,13 +64,19 @@ function SelectAllHeader({ctx}: {ctx: JobTableContext}) {
   const allSelected =
     ctx.items.length > 0 &&
     ctx.items.every((job) => selection.ids.has(job.id));
+  const someSelected =
+    !allSelected && ctx.items.some((job) => selection.ids.has(job.id));
   return (
     <Checkbox
-      checked={allSelected}
-      aria-label={ctx.t('selected', {count: ctx.items.length})}
+      checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+      aria-label={ctx.t('selectAll')}
       onCheckedChange={(checked) =>
         selection.onChange(
-          checked ? new Set(ctx.items.map((job) => job.id)) : new Set(),
+          mergeIdsIntoSelection(
+            selection.ids,
+            ctx.items.map((job) => job.id),
+            checked === true,
+          ),
         )
       }
     />

@@ -177,6 +177,41 @@ describe('JobTable column registry', () => {
     expect(screen.getAllByRole('checkbox').length).toBeGreaterThan(0);
   });
 
+  it('select-all merges the page into the selection instead of replacing it', () => {
+    const onChange = vi.fn();
+    // 999 代表在其他页勾选的作业；全选本页不能把它冲掉。
+    // 999 stands for a job picked on another page; page select-all must not drop it.
+    renderTable([job(1, 'running'), job(2, 'running')], {
+      selection: {ids: new Set([999]), onChange},
+    });
+    const header = screen.getByRole('checkbox', {name: '全选本页'});
+    // 表头状态只看本页：跨页勾选不显示半选。
+    // The header only reflects the current page: off-page picks don't mark it.
+    expect(header).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(header);
+    expect(onChange).toHaveBeenCalledWith(new Set([999, 1, 2]));
+  });
+
+  it('shows indeterminate when only part of the page is selected', () => {
+    renderTable([job(1, 'running'), job(2, 'running')], {
+      selection: {ids: new Set([1]), onChange: vi.fn()},
+    });
+    expect(
+      screen.getByRole('checkbox', {name: '全选本页'}),
+    ).toHaveAttribute('aria-checked', 'mixed');
+  });
+
+  it('deselect-all clears only the current page and keeps off-page picks', () => {
+    const onChange = vi.fn();
+    renderTable([job(1, 'running'), job(2, 'running')], {
+      selection: {ids: new Set([1, 2, 999]), onChange},
+    });
+    const header = screen.getByRole('checkbox', {name: '全选本页'});
+    expect(header).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(header);
+    expect(onChange).toHaveBeenCalledWith(new Set([999]));
+  });
+
   it('renders live QPS for running jobs and the muted average for finished ones', () => {
     const items = [
       job(1, 'running', {live: {read_qps: 8, write_qps: 4}}),

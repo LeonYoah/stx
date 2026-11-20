@@ -31,7 +31,6 @@ import type {
   SyncJobStatusGroup,
 } from '@/lib/services/sync';
 import {JOB_STATUS_GROUPS, type JobListQuery, type JobTablePreset} from './types';
-import type {JobBulkAction, JobBulkResult} from './use-job-bulk-actions';
 
 const PILL_VARIANT: Partial<
   Record<SyncJobStatusGroup, StatPillItem['variant']>
@@ -48,24 +47,15 @@ export interface JobTableToolbarProps {
   /** patch 语义；筛选变化时由本组件负责把 page 重置为 1 / Patch semantics; this component resets page on filter changes. */
   onQueryChange: (patch: Partial<JobListQuery>) => void;
   statusCounts: Partial<Record<SyncJobStatusGroup, number>>;
-  /** 不传 = 没有批量条 / Omit for no bulk bar. */
-  bulk?: {
-    selectedCount: number;
-    running: JobBulkAction | null;
-    result: JobBulkResult | null;
-    onStop: () => void;
-    onRecover: () => void;
-    onClear: () => void;
-  };
   testIdPrefix: string;
 }
 
 /**
- * 作业表工具栏：状态胶囊 + 关键字 + 模式（global）/ 运行类型（task）筛选 + 批量操作条。
+ * 作业表工具栏：状态胶囊 + 关键字 + 模式（global）/ 运行类型（task）筛选。
  * 所有筛选变化都附带 page: 1（不依赖宿主）。
  * global 预设是两行布局（胶囊一行、筛选一行）；task 预设压缩为单行 ≤36px——
  * 运行类型与可展开搜索收进胶囊栏右侧的 actions 槽，溢出横向滚动而不是换行。
- * Job table toolbar: status pills, keyword, mode (global) / run type (task) filters and the bulk action bar.
+ * Job table toolbar: status pills, keyword, mode (global) / run type (task) filters.
  * Every filter change carries page: 1 (not left to the host).
  * The global preset uses two rows (pills, then filters); the task preset compresses everything into a single
  * ≤36px row — run type and the expandable search sit in the pills bar's actions slot, overflowing into
@@ -76,7 +66,6 @@ export function JobTableToolbar({
   query,
   onQueryChange,
   statusCounts,
-  bulk,
   testIdPrefix,
 }: JobTableToolbarProps) {
   const t = useTranslations('jobTable');
@@ -181,83 +170,23 @@ export function JobTableToolbar({
         // one list, and the toolbar keeps only status pills and search.
         null;
 
-  const bulkBar =
-    bulk && (bulk.selectedCount > 0 || bulk.result) ? (
-      <div
-        className='flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs'
-        data-testid={`${testIdPrefix}-bulk`}
-        role='status'
-      >
-        {bulk.selectedCount > 0 ? (
-          <>
-            <span className='font-medium'>
-              {t('selected', {count: bulk.selectedCount})}
-            </span>
-            <Button
-              size='sm'
-              variant='outline'
-              className='h-7'
-              disabled={Boolean(bulk.running)}
-              onClick={bulk.onStop}
-            >
-              {t('stop')}
-            </Button>
-            <Button
-              size='sm'
-              variant='outline'
-              className='h-7'
-              disabled={Boolean(bulk.running)}
-              onClick={bulk.onRecover}
-            >
-              {t('recover')}
-            </Button>
-            <Button
-              size='sm'
-              variant='ghost'
-              className='h-7'
-              onClick={bulk.onClear}
-            >
-              {t('clearSelection')}
-            </Button>
-          </>
-        ) : null}
-        {bulk.result ? (
-          <span className='text-muted-foreground'>
-            {t('bulk.result', {
-              ok: bulk.result.ok,
-              failed: bulk.result.failures.length,
-              skipped: bulk.result.skipped,
-            })}
-            {bulk.result.failures.slice(0, 3).map((item) => (
-              <span key={item.id} className='ml-2 text-destructive'>
-                {t('bulk.itemFailed', {id: item.id, message: item.message})}
-              </span>
-            ))}
-          </span>
-        ) : null}
-      </div>
-    ) : null;
-
   // task 预设：单行 ≤36px——状态胶囊（带计数）+ 运行类型 + 可展开搜索；溢出横向滚动，不换行。
   // Task preset: a single ≤36px row — status pills (with counts) + run type + expandable search; overflow
   // scrolls horizontally instead of wrapping.
   if (preset === 'task') {
     return (
-      <>
-        <StatPillsBar
-          items={pills}
-          activeKey={query.statusGroup || 'all'}
-          onChange={handleStatusGroup}
-          className='h-9 flex-nowrap gap-2 overflow-x-auto overflow-y-hidden border-b border-border/60 px-2 [&>div]:shrink-0 [&>div]:flex-nowrap'
-          actions={
-            <>
-              {typeControl}
-              {searchControl}
-            </>
-          }
-        />
-        {bulkBar}
-      </>
+      <StatPillsBar
+        items={pills}
+        activeKey={query.statusGroup || 'all'}
+        onChange={handleStatusGroup}
+        className='h-9 flex-nowrap gap-2 overflow-x-auto overflow-y-hidden border-b border-border/60 px-2 [&>div]:shrink-0 [&>div]:flex-nowrap'
+        actions={
+          <>
+            {typeControl}
+            {searchControl}
+          </>
+        }
+      />
     );
   }
 
@@ -273,8 +202,6 @@ export function JobTableToolbar({
         {searchControl}
         {typeControl}
       </div>
-
-      {bulkBar}
     </>
   );
 }

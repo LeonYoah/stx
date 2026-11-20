@@ -76,6 +76,7 @@ import {localizeDiagnosticsText} from '../text-utils';
 import {DetailHost, useDetailNarrow} from '@/components/common/layout';
 import {DirtyCloseDialog} from '@/components/common/layout';
 import {NeutralChip, SoftChip} from '@/components/common/layout';
+import {BatchBar, usePagedSelection} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 
 const PAGE_SIZE = 10;
@@ -164,7 +165,15 @@ export function InspectionsPanel({
   // 勾选集合 + 批量删除状态；跨页勾选保留在 Set 里直到执行或手动清空。
   // Checkbox selection plus batch-delete state; selections live in the Set
   // across pages until executed or cleared.
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const pageIds = useMemo(() => reports.map((r) => r.id), [reports]);
+  const {
+    ids: selectedIds,
+    setIds: setSelectedIds,
+    toggle: toggleSelect,
+    togglePage: toggleSelectAllPage,
+    pageAllSelected,
+    pageSomeSelected,
+  } = usePagedSelection(pageIds);
   const [batchBusy, setBatchBusy] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [batchResult, setBatchResult] = useState<{
@@ -397,39 +406,6 @@ export function InspectionsPanel({
       onSelectReport?.(result.report.id);
     },
     [loadReports, onSelectReport],
-  );
-
-  const toggleSelect = useCallback((id: number, on: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (on) {
-        next.add(id);
-      } else {
-        next.delete(id);
-      }
-      return next;
-    });
-  }, []);
-
-  const pageAllSelected =
-    reports.length > 0 && reports.every((r) => selectedIds.has(r.id));
-  const pageSomeSelected =
-    !pageAllSelected && reports.some((r) => selectedIds.has(r.id));
-  const toggleSelectAllPage = useCallback(
-    (on: boolean) => {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        for (const r of reports) {
-          if (on) {
-            next.add(r.id);
-          } else {
-            next.delete(r.id);
-          }
-        }
-        return next;
-      });
-    },
-    [reports],
   );
 
   // 删除走服务端逐条判定：在跑记录/绑定任务未终态的会被跳过并回传原因。
@@ -909,53 +885,34 @@ export function InspectionsPanel({
             </div>
           </TableCard>
 
-          {selectedIds.size > 0 || batchResult ? (
-            <div className={layout.batchBarWrap}>
-              <div className={layout.batchBar} role='status'>
-                {selectedIds.size > 0 ? (
-                  <>
-                    <span>
-                      {t('selected', {count: selectedIds.size})}
-                    </span>
-                    <span className={layout.batchActions}>
-                      <Button
-                        type='button'
-                        size='sm'
-                        variant='secondary'
-                        disabled={batchBusy}
-                        onClick={() => setDeleteConfirmOpen(true)}
-                        data-testid='inspection-batch-delete'
-                      >
-                        <Trash2 className='size-3.5' aria-hidden />
-                        {commonT('delete')}
-                      </Button>
-                    </span>
-                  </>
-                ) : null}
-                {batchResult ? (
-                  <span className={layout.sub}>
-                    {t('batchDeleteResult', {
-                      deleted: batchResult.deleted,
-                      skipped: batchResult.skipped,
-                    })}
-                  </span>
-                ) : null}
-                <Button
-                  type='button'
-                  variant='ghost'
-                  size='sm'
-                  iconOnly
-                  aria-label={t('batchClear')}
-                  onClick={() => {
-                    setSelectedIds(new Set());
-                    setBatchResult(null);
-                  }}
-                >
-                  <X className='size-4' aria-hidden />
-                </Button>
-              </div>
-            </div>
-          ) : null}
+          <BatchBar
+            selectedCount={selectedIds.size}
+            busy={batchBusy}
+            result={
+              batchResult
+                ? t('batchDeleteResult', {
+                    deleted: batchResult.deleted,
+                    skipped: batchResult.skipped,
+                  })
+                : null
+            }
+            onClear={() => {
+              setSelectedIds(new Set());
+              setBatchResult(null);
+            }}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => setDeleteConfirmOpen(true)}
+              data-testid='inspection-batch-delete'
+            >
+              <Trash2 className='size-3.5' aria-hidden />
+              {commonT('delete')}
+            </Button>
+          </BatchBar>
         </div>
 
         <DetailHost

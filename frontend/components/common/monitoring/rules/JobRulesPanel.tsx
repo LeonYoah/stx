@@ -25,7 +25,7 @@
  */
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Undo2, X} from 'lucide-react';
+import {Undo2} from 'lucide-react';
 import {NeutralChip, SoftChip} from '@/components/common/layout';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
@@ -48,6 +48,7 @@ import {TaskAlertForm} from '@/components/common/sync/TaskAlertForm';
 import {cn} from '@/lib/utils';
 import {DirtyCloseDialog, useBeforeUnload} from '@/components/common/layout';
 import {DetailHost, useDetailNarrow} from '@/components/common/layout';
+import {BatchBar, usePagedSelection} from '@/components/common/layout';
 import styles from '../monitoring.module.css';
 import layout from '@/components/common/layout/list-detail.module.css';
 
@@ -104,7 +105,6 @@ export function JobRulesPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<number | null>(null);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [undo, setUndo] = useState<{
     enabled: boolean;
@@ -230,6 +230,15 @@ export function JobRulesPanel({
     (safePage - 1) * PAGE_SIZE,
     safePage * PAGE_SIZE,
   );
+  const pageIds = useMemo(() => pageItems.map((p) => p.id), [pageItems]);
+  const {
+    ids: selected,
+    setIds: setSelected,
+    toggle: toggleSelect,
+    togglePage: selectAllOnPage,
+    pageAllSelected: allPageSelected,
+    pageSomeSelected: somePageSelected,
+  } = usePagedSelection(pageIds);
 
   const segCounts = useMemo(
     () => ({
@@ -244,36 +253,6 @@ export function JobRulesPanel({
   useEffect(() => {
     onCountsChange?.(segCounts);
   }, [segCounts, onCountsChange]);
-
-  const toggleSelect = (id: number, on: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (on) {
-        next.add(id);
-      } else {
-        next.delete(id);
-      }
-      return next;
-    });
-  };
-
-  // 表头全选框作用于当前页所有作业策略。Header select-all toggles the current page.
-  const selectAllOnPage = useCallback(
-    (on: boolean) => {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        for (const p of pageItems) {
-          if (on) {
-            next.add(p.id);
-          } else {
-            next.delete(p.id);
-          }
-        }
-        return next;
-      });
-    },
-    [pageItems],
-  );
 
   const toggle = useCallback(
     async (policy: AlertPolicy, enabled: boolean) => {
@@ -462,11 +441,6 @@ export function JobRulesPanel({
         }
       : undefined;
 
-  const allPageSelected =
-    pageItems.length > 0 && pageItems.every((p) => selected.has(p.id));
-  const somePageSelected =
-    !allPageSelected && pageItems.some((p) => selected.has(p.id));
-
   return (
     <div className={layout.split}>
       <div className={layout.listCol} data-mcols='job'>
@@ -609,64 +583,52 @@ export function JobRulesPanel({
         </TableCard>
 
         {selected.size > 0 ? (
-          <div className={styles.batchBarWrap}>
-            <div className={styles.batchBar} role='status'>
-              <span>{t('selected', {count: selected.size})}</span>
-              <span className={styles.batchActions}>
-                <Button
-                  type='button'
-                  size='sm'
-                  variant='secondary'
-                  disabled={batchBusy}
-                  onClick={() => void batchSet(true)}
-                >
-                  {t('batchEnable')}
-                </Button>
-                <Button
-                  type='button'
-                  size='sm'
-                  variant='secondary'
-                  disabled={batchBusy}
-                  onClick={() => void batchSet(false)}
-                >
-                  {t('batchDisable')}
-                </Button>
-                <Button
-                  type='button'
-                  variant='ghost'
-                  size='sm'
-                  iconOnly
-                  aria-label={t('batchClear')}
-                  onClick={() => setSelected(new Set())}
-                >
-                  <X className='size-4' aria-hidden />
-                </Button>
-              </span>
-            </div>
-          </div>
+          <BatchBar
+            selectedCount={selected.size}
+            busy={batchBusy}
+            onClear={() => setSelected(new Set())}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => void batchSet(true)}
+            >
+              {t('batchEnable')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => void batchSet(false)}
+            >
+              {t('batchDisable')}
+            </Button>
+          </BatchBar>
         ) : undo ? (
-          <div className={styles.batchBarWrap}>
-            <div className={styles.batchBar} role='status'>
-              <span>
-                {t(
-                  undo.enabled
-                    ? 'batchAppliedEnabled'
-                    : 'batchAppliedDisabled',
-                  {count: undo.policies.length},
-                )}
-              </span>
-              <Button
-                type='button'
-                size='sm'
-                variant='ghost'
-                disabled={batchBusy}
-                onClick={() => void undoBatch()}
-              >
-                <Undo2 className='size-4' aria-hidden />
-                {t('undo')}
-              </Button>
-            </div>
-          </div>
+          <BatchBar
+            selectedCount={0}
+            result={t(
+              undo.enabled
+                ? 'batchAppliedEnabled'
+                : 'batchAppliedDisabled',
+              {count: undo.policies.length},
+            )}
+            onClear={() => setUndo(null)}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='ghost'
+              disabled={batchBusy}
+              onClick={() => void undoBatch()}
+            >
+              <Undo2 className='size-4' aria-hidden />
+              {t('undo')}
+            </Button>
+          </BatchBar>
         ) : null}
       </div>
 

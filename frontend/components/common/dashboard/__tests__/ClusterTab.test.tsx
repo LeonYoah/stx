@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-import type {ReactNode} from 'react';
 import {fireEvent, render, screen, within} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
@@ -66,29 +65,6 @@ vi.mock('@/components/charts/status-bar', () => ({
   ),
   StatusBarPlot: () => null,
   StatusBarTooltip: () => null,
-}));
-vi.mock('@/components/arc/radio-cards/radio-cards', () => ({
-  RadioCards: ({
-    options,
-    value,
-    onValueChange,
-  }: {
-    options: {value: string; label: ReactNode}[];
-    value: string;
-    onValueChange: (value: string) => void;
-  }) => (
-    <div data-testid='cards'>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          aria-pressed={option.value === value}
-          onClick={() => onValueChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  ),
 }));
 
 const dashboard = (source: 'prometheus' | 'none'): HomeClusterDashboard => ({
@@ -290,8 +266,17 @@ describe('ClusterTab', () => {
       within(screen.getByTestId('home-signals')).getAllByText('异常'),
     ).toHaveLength(1);
 
+    // 范围选择条：首格「全部集群」选中，集群格带健康徽标；点击切换范围。
+    // Scope strip: the "all clusters" cell is selected, cluster cells carry health
+    // badges; clicking a cell switches the scope.
+    const scope = screen.getByTestId('home-cluster-scope');
+    const cells = within(scope).getAllByRole('radio');
+    expect(cells).toHaveLength(3);
+    expect(cells[0]?.getAttribute('aria-checked')).toBe('true');
+    expect(cells[1]?.getAttribute('aria-checked')).toBe('false');
+    expect(within(cells[2]!).getByText('异常')).toBeTruthy();
     fireEvent.click(
-      within(screen.getByTestId('cards')).getByText('single · 3.0.0'),
+      within(scope).getByText('single · 3.0.0'),
     );
     expect(update).toHaveBeenCalledWith({clusterId: '2', page: 1});
   });
@@ -306,7 +291,7 @@ describe('ClusterTab', () => {
       within(screen.getByTestId('home-node-table')).getByText('10.0.0.1:5801'),
     ).toBeTruthy();
     expect(
-      within(screen.getByTestId('cards')).getAllByRole('button'),
+      within(screen.getByTestId('home-cluster-scope')).getAllByRole('radio'),
     ).toHaveLength(3);
   });
 

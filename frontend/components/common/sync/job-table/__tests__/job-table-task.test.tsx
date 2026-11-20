@@ -337,7 +337,7 @@ describe('JobTable task preset', () => {
 });
 
 describe('JobTableToolbar task preset', () => {
-  it('renders status pills with counts, the run-type filter and a collapsed search on one row', () => {
+  it('renders status pills with counts and a collapsed search on one row', () => {
     const {container} = renderTaskToolbar();
     expect(screen.getByTestId('studio-job-pill-all').textContent).toContain(
       '3',
@@ -345,16 +345,10 @@ describe('JobTableToolbar task preset', () => {
     expect(screen.getByTestId('studio-job-pill-failed').textContent).toContain(
       '2',
     );
-    const group = screen.getByRole('group', {
-      name: tJobTable.runTypeFilter.label,
-    });
-    expect(within(group).getByText(tJobTable.runTypeFilter.all)).toBeTruthy();
-    expect(
-      within(group).getByText(tJobTable.runTypeFilter.formal),
-    ).toBeTruthy();
-    expect(
-      within(group).getByText(tJobTable.runTypeFilter.preview),
-    ).toBeTruthy();
+    // 运行类型筛选已移除：预览与正式运行同列展示，工具栏没有第二个分段控件。
+    // The run-type filter is gone — preview and formal runs share one list, so the
+    // toolbar shows no second segmented control.
+    expect(screen.queryAllByRole('group')).toHaveLength(0);
     // 关键字默认收成图标按钮；整条工具栏单行不换行（溢出横向滚动）。
     // The keyword input collapses to an icon button by default; the toolbar is one non-wrapping row that
     // scrolls horizontally on overflow.
@@ -374,23 +368,6 @@ describe('JobTableToolbar task preset', () => {
     });
     fireEvent.click(screen.getByTestId('studio-job-pill-all'));
     expect(onQueryChange).toHaveBeenCalledWith({statusGroup: '', page: 1});
-  });
-
-  it('patches runType and resets the page via the run-type filter', () => {
-    const {onQueryChange} = renderTaskToolbar();
-    const group = screen.getByRole('group', {
-      name: tJobTable.runTypeFilter.label,
-    });
-    fireEvent.click(within(group).getByText(tJobTable.runTypeFilter.preview));
-    expect(onQueryChange).toHaveBeenCalledWith({
-      runType: 'preview',
-      page: 1,
-    });
-    fireEvent.click(within(group).getByText(tJobTable.runTypeFilter.formal));
-    expect(onQueryChange).toHaveBeenCalledWith({
-      runType: 'formal',
-      page: 1,
-    });
   });
 
   it('expands the search icon into an input and submits the keyword', () => {

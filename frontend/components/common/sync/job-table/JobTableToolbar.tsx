@@ -192,23 +192,10 @@ export function JobTableToolbar({
           ]}
         />
       </>
-    ) : (
-      <SegmentedControl
-        label={t('runTypeFilter.label')}
-        value={query.runType}
-        onValueChange={(value) =>
-          onQueryChange({
-            runType: value as JobListQuery['runType'],
-            page: 1,
-          })
-        }
-        options={[
-          {value: 'all', label: t('runTypeFilter.all')},
-          {value: 'formal', label: t('runTypeFilter.formal')},
-          {value: 'preview', label: t('runTypeFilter.preview')},
-        ]}
-      />
-    );
+    ) : // task 预设不再按运行类型筛分：预览与正式运行同列展示，工具栏只留状态 pills 和搜索。
+    // The task preset no longer filters by run type — preview and formal runs share
+    // one list, and the toolbar keeps only status pills and search.
+    null;
 
   const bulkBar =
     bulk && (bulk.selectedCount > 0 || bulk.result) ? (

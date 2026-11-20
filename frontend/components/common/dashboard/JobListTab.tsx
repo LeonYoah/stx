@@ -116,22 +116,18 @@ export function JobListTab({
         ? (query.status as SyncJobStatusGroup)
         : '',
       mode:
-        query.mode === 'streaming' || query.mode === 'batch'
-          ? query.mode
-          : '',
+        query.mode === 'streaming' || query.mode === 'batch' ? query.mode : '',
       source:
         query.source === 'stx' || query.source === 'external'
           ? query.source
           : '',
-      // global 预设固定排除预览运行，不暴露运行类型筛选。
-      // The global preset always excludes preview runs; no run-type filter.
-      runType: 'all',
       keyword: query.q,
       clusterId: query.clusterId,
       sort: VALID_SORTS.includes(query.sort)
         ? (query.sort as SyncJobListSort)
         : DEFAULT_SORT,
-      order: query.order === 'asc' || query.order === 'desc' ? query.order : 'desc',
+      order:
+        query.order === 'asc' || query.order === 'desc' ? query.order : 'desc',
       // 顶栏时间窗 → 「窗口内活跃」筛选：自定义窗口传毫秒端点，预设传 range（'all' 不筛）。
       // The header range becomes the "active in window" filter: a custom window sends ms ends, a preset
       // sends range ('all' stays unfiltered).
@@ -226,9 +222,14 @@ export function JobListTab({
             stop_with_savepoint: action === 'savepointStop',
           });
           toast.success(
-            t(action === 'savepointStop' ? 'action.savepointOk' : 'action.stopOk', {
-              id: job.id,
-            }),
+            t(
+              action === 'savepointStop'
+                ? 'action.savepointOk'
+                : 'action.stopOk',
+              {
+                id: job.id,
+              },
+            ),
           );
         }
       } catch (err) {
@@ -340,7 +341,12 @@ export function JobListTab({
         actor={
           detail
             ? actor(detail.job)
-            : {isAdmin: false, isOwner: false, canRun: false, disableRecover: false}
+            : {
+                isAdmin: false,
+                isOwner: false,
+                canRun: false,
+                disableRecover: false,
+              }
         }
         onAction={(action, job) =>
           setConfirm({action, jobs: [job], bulk: false})

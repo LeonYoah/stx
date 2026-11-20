@@ -41,6 +41,7 @@ type stubClusterOperator struct {
 	clusterVersions   []string
 	clusterInstallDir []string
 	nodeInstallDirs   map[uint][]string
+	nodeJavaHomes     map[uint][]string
 	// stopErrOnCall 让第 N 次 Stop 返回错误（1 起计）。stopErrOnCall makes the Nth Stop call fail (1-based).
 	stopErrOnCall            int
 	stopUnreportedFailOnCall int
@@ -146,10 +147,21 @@ func (s *stubClusterOperator) UpdateNode(ctx context.Context, clusterID uint, no
 	if s.nodeInstallDirs == nil {
 		s.nodeInstallDirs = make(map[uint][]string)
 	}
+	if s.nodeJavaHomes == nil {
+		s.nodeJavaHomes = make(map[uint][]string)
+	}
 	if req.InstallDir != nil {
 		s.nodeInstallDirs[nodeID] = append(s.nodeInstallDirs[nodeID], *req.InstallDir)
 	}
-	return &clusterapp.ClusterNode{ID: nodeID, ClusterID: clusterID, InstallDir: derefString(req.InstallDir)}, nil
+	if req.JavaHome != nil {
+		s.nodeJavaHomes[nodeID] = append(s.nodeJavaHomes[nodeID], *req.JavaHome)
+	}
+	return &clusterapp.ClusterNode{
+		ID:         nodeID,
+		ClusterID:  clusterID,
+		InstallDir: derefString(req.InstallDir),
+		JavaHome:   derefString(req.JavaHome),
+	}, nil
 }
 
 type stubPackageTransferer struct {
@@ -190,6 +202,9 @@ type stubAgentCommandSender struct {
 	// javaVersion 是 check_java 上报的 JDK 主版本号；0 时按 11 应答。
 	// javaVersion is the JDK major reported by check_java; 0 answers as 11.
 	javaVersion int
+	// javaVersionByHome 按 java_home 覆盖上报版本，用于验证目标 JDK 覆盖当前节点路径。
+	// javaVersionByHome overrides the reported version by java_home, to verify a target JDK override.
+	javaVersionByHome map[string]int
 }
 
 func (s *stubAgentCommandSender) GetAgentByHostID(hostID uint) (string, bool) {
@@ -230,6 +245,11 @@ func (s *stubAgentCommandSender) SendCommand(ctx context.Context, agentID string
 		if configured := strings.TrimSpace(copied["java_home"]); configured != "" {
 			source = "custom"
 			home = configured
+		}
+		if s.javaVersionByHome != nil {
+			if override, ok := s.javaVersionByHome[home]; ok {
+				version = override
+			}
 		}
 		return true, fmt.Sprintf(`{"success":true,"message":"ok","details":{"installed_version":"%d","java_home":"%s","java_bin":"%s/bin/java","java_home_source":"%s","version_string":"%d.0.1"}}`, version, home, home, source, version), nil
 	case "check_process":
@@ -553,6 +573,101 @@ func TestService_ExecutePlan_failureTriggersRollback(t *testing.T) {
 	if got := lastString(clusterOperator.nodeInstallDirs[11]); got != "/opt/seatunnel-2.3.11" {
 		t.Fatalf("expected node install dir restored to source version, got %q", got)
 	}
+}
+
+func TestNodeJavaHomePointer(t *testing.T) {
+	t.Parallel()
+	if got := nodeJavaHomePointer(NodeTarget{}, false); got != nil {
+		t.Fatalf("legacy empty snapshot should not clear java_home, got %q", *got)
+	}
+	if got := nodeJavaHomePointer(NodeTarget{}, true); got != nil {
+		t.Fatalf("legacy empty snapshot rollback should not clear java_home, got %q", *got)
+	}
+	target := NodeTarget{JavaHome: "/opt/jdk21", SourceJavaHome: stringPtr("/opt/jdk8")}
+	if got := nodeJavaHomePointer(target, false); got == nil || *got != "/opt/jdk21" {
+		t.Fatalf("switch pointer = %#v, want /opt/jdk21", got)
+	}
+	if got := nodeJavaHomePointer(target, true); got == nil || *got != "/opt/jdk8" {
+		t.Fatalf("restore pointer = %#v, want /opt/jdk8", got)
+	}
+	auto := NodeTarget{SourceJavaHome: stringPtr("/opt/jdk8")}
+	if got := nodeJavaHomePointer(auto, false); got == nil || *got != "" {
+		t.Fatalf("explicit auto should write empty java_home, got %#v", got)
+	}
+	if got := nodeJavaHomePointer(auto, true); got == nil || *got != "/opt/jdk8" {
+		t.Fatalf("auto rollback should restore source, got %#v", got)
+	}
+	legacy := NodeTarget{JavaHome: "/opt/jdk8"}
+	if got := nodeJavaHomePointer(legacy, false); got == nil || *got != "/opt/jdk8" {
+		t.Fatalf("legacy switch should keep java_home, got %#v", got)
+	}
+	if got := nodeJavaHomePointer(legacy, true); got == nil || *got != "/opt/jdk8" {
+		t.Fatalf("legacy rollback must not clear source JDK, got %#v", got)
+	}
+	emptySource := NodeTarget{JavaHome: "/opt/jdk21", SourceJavaHome: stringPtr("")}
+	if got := nodeJavaHomePointer(emptySource, false); got == nil || *got != "/opt/jdk21" {
+		t.Fatalf("switch with empty source should persist target, got %#v", got)
+	}
+	if got := nodeJavaHomePointer(emptySource, true); got == nil || *got != "" {
+		t.Fatalf("empty source must restore auto, not the target JDK, got %#v", got)
+	}
+}
+
+func TestService_ExecutePlan_writesTargetJavaHomeAndRestoresOnRollback(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	clusterOperator := &stubClusterOperator{}
+	agentSender := &stubAgentCommandSender{
+		agents:               map[uint]string{101: "agent-node-a"},
+		javaVersion:          8,
+		javaVersionByHome:    map[string]int{"/opt/jdk8": 8, "/opt/jdk21": 21},
+		failTargetHealthOnce: true,
+		failedInstallDir:     "/opt/seatunnel-2.3.12",
+	}
+	service := newExecutionService(t, repo, clusterOperator, agentSender)
+	setNodeJavaHome(t, service, "/opt/jdk8")
+
+	result, err := service.CreatePlanFromRequest(context.Background(), &CreatePlanRequest{
+		PrecheckRequest: PrecheckRequest{
+			ClusterID:     1,
+			TargetVersion: "2.3.12",
+			JavaHome:      "/opt/jdk21",
+		},
+	}, 7)
+	if err != nil {
+		t.Fatalf("CreatePlanFromRequest returned error: %v", err)
+	}
+	if result == nil || result.Plan == nil {
+		t.Fatal("expected a ready plan")
+	}
+	target := result.Plan.Snapshot.NodeTargets[0]
+	if target.JavaHome != "/opt/jdk21" {
+		t.Fatalf("plan target java_home = %q, want /opt/jdk21", target.JavaHome)
+	}
+	if derefStringPtr(target.SourceJavaHome) != "/opt/jdk8" {
+		t.Fatalf("plan source java_home = %q, want /opt/jdk8", derefStringPtr(target.SourceJavaHome))
+	}
+
+	task, err := service.ExecutePlan(context.Background(), result.Plan.ID, 7)
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if task.Status != ExecutionStatusFailed {
+		t.Fatalf("expected task status failed, got %s", task.Status)
+	}
+	if task.RollbackStatus != ExecutionStatusRollbackSucceeded {
+		t.Fatalf("expected rollback status rollback_succeeded, got %s", task.RollbackStatus)
+	}
+	homes := clusterOperator.nodeJavaHomes[11]
+	if len(homes) < 2 {
+		t.Fatalf("expected switch then restore java_home writes, got %+v", homes)
+	}
+	if homes[0] != "/opt/jdk21" {
+		t.Fatalf("switch should persist target JDK, got %+v", homes)
+	}
+	if lastString(homes) != "/opt/jdk8" {
+		t.Fatalf("rollback should restore source JDK, got %+v", homes)
+	}
 	if len(task.NodeExecutions) != 1 || task.NodeExecutions[0].Status != ExecutionStatusRollbackSucceeded {
 		t.Fatalf("expected node execution rollback_succeeded, got %+v", task.NodeExecutions)
 	}
@@ -592,6 +707,57 @@ func TestService_ExecutePlan_failureTriggersRollback(t *testing.T) {
 	}
 	if !foundRollbackLog {
 		t.Fatalf("expected rollback logs to be present, got %+v", logs)
+	}
+}
+
+func TestService_ExecutePlan_restoresEmptySourceJavaHomeOnRollback(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	clusterOperator := &stubClusterOperator{}
+	agentSender := &stubAgentCommandSender{
+		agents:               map[uint]string{101: "agent-node-a"},
+		javaVersion:          21,
+		javaVersionByHome:    map[string]int{"/opt/jdk21": 21},
+		failTargetHealthOnce: true,
+		failedInstallDir:     "/opt/seatunnel-2.3.12",
+	}
+	service := newExecutionService(t, repo, clusterOperator, agentSender)
+	setNodeJavaHome(t, service, "")
+
+	result, err := service.CreatePlanFromRequest(context.Background(), &CreatePlanRequest{
+		PrecheckRequest: PrecheckRequest{
+			ClusterID:     1,
+			TargetVersion: "2.3.12",
+			NodeJavaHomes: map[uint]string{11: "/opt/jdk21"},
+		},
+	}, 7)
+	if err != nil {
+		t.Fatalf("CreatePlanFromRequest returned error: %v", err)
+	}
+	if result == nil || result.Plan == nil {
+		t.Fatal("expected a ready plan")
+	}
+	target := result.Plan.Snapshot.NodeTargets[0]
+	if target.SourceJavaHome == nil || *target.SourceJavaHome != "" {
+		t.Fatalf("source java_home pointer = %#v, want non-nil empty", target.SourceJavaHome)
+	}
+
+	task, err := service.ExecutePlan(context.Background(), result.Plan.ID, 7)
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if task.RollbackStatus != ExecutionStatusRollbackSucceeded {
+		t.Fatalf("expected rollback status rollback_succeeded, got %s", task.RollbackStatus)
+	}
+	homes := clusterOperator.nodeJavaHomes[11]
+	if len(homes) < 2 {
+		t.Fatalf("expected switch then restore java_home writes, got %+v", homes)
+	}
+	if homes[0] != "/opt/jdk21" {
+		t.Fatalf("switch should persist target JDK, got %+v", homes)
+	}
+	if lastString(homes) != "" {
+		t.Fatalf("rollback must restore empty source JDK, got %+v", homes)
 	}
 }
 

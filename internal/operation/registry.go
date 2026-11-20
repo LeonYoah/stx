@@ -2353,8 +2353,10 @@ func stUpgradeOperationSpecs() []OperationSpec {
 				{Name: "cluster_id", Location: InputBody, Required: true, Description: "Cluster ID"},
 				{Name: "target_version", Location: InputBody, Required: true, Description: "Target SeaTunnel version"},
 				{Name: "target_install_dir", Location: InputBody, Required: false, Description: "Target installation directory"},
+				{Name: "java_home", Location: InputBody, Required: false, Description: "Target JDK for the new version"},
+				{Name: "node_java_homes", Location: InputBody, Required: false, Description: "Per-node target JDK map keyed by cluster node ID"},
 			},
-			Example:       "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new",
+			Example:       "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --java-home /usr/lib/jvm/java-21",
 			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.precheck","request_id":"req_example","data":{"ready":true},"result_meta":{"complete":true}}`,
 		},
 		{
@@ -2364,9 +2366,12 @@ func stUpgradeOperationSpecs() []OperationSpec {
 			Input: []InputSpec{
 				{Name: "cluster_id", Location: InputBody, Required: true, Description: "Cluster ID"},
 				{Name: "target_version", Location: InputBody, Required: true, Description: "Target SeaTunnel version"},
+				{Name: "target_install_dir", Location: InputBody, Required: false, Description: "Target installation directory"},
+				{Name: "java_home", Location: InputBody, Required: false, Description: "Target JDK for the new version"},
+				{Name: "node_java_homes", Location: InputBody, Required: false, Description: "Per-node target JDK map keyed by cluster node ID"},
 				{Name: "config_merge_plan", Location: InputBody, Required: true, Description: "Resolved configuration merge plan"},
 			},
-			Example:       "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --config-merge-plan-file merge-plan.json",
+			Example:       "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --java-home /usr/lib/jvm/java-21 --config-merge-plan-file merge-plan.json",
 			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.plan.create","request_id":"req_example","data":{"plan":{"id":1,"status":"ready"}},"result_meta":{"complete":true,"next_command":"stx upgrade plan execute 1 --confirm"}}`,
 		},
 		{

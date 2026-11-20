@@ -125,7 +125,7 @@ func (s *Service) RunPrecheck(ctx context.Context, req *PrecheckRequest) (*Prech
 	selectedNodes, nodeSelectionIssues := filterNodeScope(nodes, req.NodeIDs)
 	result.Issues = append(result.Issues, nodeSelectionIssues...)
 
-	nodeTargets, nodeIssues, err := s.buildNodeTargets(ctx, selectedNodes, clusterInfo.Version, targetVersion, packageManifest.Arch, packageManifest.SizeBytes, req.TargetInstallDir)
+	nodeTargets, nodeIssues, err := s.buildNodeTargets(ctx, selectedNodes, clusterInfo.Version, targetVersion, packageManifest.Arch, packageManifest.SizeBytes, req)
 	if err != nil {
 		return nil, err
 	}
@@ -290,15 +290,21 @@ func validatePackageManifest(info *installerapp.PackageInfo, manifest PackageMan
 	return issues
 }
 
-func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.NodeInfo, sourceVersion, targetVersion, packageArch string, packageSize int64, targetInstallDir string) ([]NodeTarget, []BlockingIssue, error) {
+func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.NodeInfo, sourceVersion, targetVersion, packageArch string, packageSize int64, req *PrecheckRequest) ([]NodeTarget, []BlockingIssue, error) {
 	targets := make([]NodeTarget, 0, len(nodes))
 	issues := make([]BlockingIssue, 0)
+	targetInstallDir := ""
+	if req != nil {
+		targetInstallDir = req.TargetInstallDir
+	}
 	resolvedTargetInstallDir := strings.TrimSpace(targetInstallDir)
 	for _, node := range nodes {
 		hostInfo, err := s.hostProvider.Get(ctx, node.HostID)
 		if err != nil {
 			return nil, nil, err
 		}
+		targetJavaHome, javaHomeErr := resolveTargetJavaHome(node.ID, node.JavaHome, req)
+		sourceJavaHome := node.JavaHome
 		target := NodeTarget{
 			ClusterNodeID:    node.ID,
 			HostID:           node.HostID,
@@ -310,9 +316,21 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			TargetVersion:    targetVersion,
 			SourceInstallDir: node.InstallDir,
 			TargetInstallDir: resolveTargetInstallDir(node.InstallDir, sourceVersion, targetVersion, resolvedTargetInstallDir),
-			JavaHome:         node.JavaHome,
+			SourceJavaHome:   &sourceJavaHome,
+			JavaHome:         targetJavaHome,
 		}
 		targets = append(targets, target)
+		if javaHomeErr != nil {
+			issues = append(issues, blockingIssue(
+				CheckCategoryNode,
+				"jdk_path_invalid",
+				fmt.Sprintf("node %s target JDK path is invalid: %v / 节点 %s 的目标 JDK 路径不合法：%v", node.HostName, javaHomeErr, node.HostName, javaHomeErr),
+				map[string]string{
+					"host_id":   fmt.Sprintf("%d", node.HostID),
+					"java_home": firstNonEmptyStr(targetJavaHome, node.JavaHome),
+				},
+			))
+		}
 
 		if !node.IsOnline {
 			issues = append(issues, blockingIssue(
@@ -341,8 +359,10 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 		if issue := s.checkTargetInstallDirWritable(ctx, node, target); issue != nil {
 			issues = append(issues, *issue)
 		}
-		if issue := s.checkJavaRuntimeForTarget(ctx, node, target); issue != nil {
-			issues = append(issues, *issue)
+		if javaHomeErr == nil {
+			if issue := s.checkJavaRuntimeForTarget(ctx, node, target); issue != nil {
+				issues = append(issues, *issue)
+			}
 		}
 		if isDiskInsufficient(hostInfo, packageSize) {
 			issues = append(issues, blockingIssue(
@@ -771,6 +791,22 @@ func resolveTargetInstallDir(currentInstallDir, sourceVersion, targetVersion, ov
 	return buildTargetInstallDir(currentInstallDir, sourceVersion, targetVersion)
 }
 
+// resolveTargetJavaHome 解析本次升级要用的目标 JDK：节点级覆盖 > 请求级 java_home > 当前节点 java_home。
+// 节点级显式给出键（含空串）表示自动探测或指定路径，不再回落到当前节点路径。
+// resolveTargetJavaHome resolves the target JDK for this upgrade: per-node override > request java_home > current node java_home.
+// A present per-node key (including empty) means auto detection or an explicit path and does not fall back to the current node path.
+func resolveTargetJavaHome(nodeID uint, current string, req *PrecheckRequest) (string, error) {
+	if req != nil && req.NodeJavaHomes != nil {
+		if value, ok := req.NodeJavaHomes[nodeID]; ok {
+			return javaruntime.Validate(value)
+		}
+	}
+	if req != nil && strings.TrimSpace(req.JavaHome) != "" {
+		return javaruntime.Validate(req.JavaHome)
+	}
+	return javaruntime.Validate(current)
+}
+
 func isArchBlocking(packageArch, hostArch string) bool {
 	trimmedPackageArch := strings.TrimSpace(strings.ToLower(packageArch))
 	trimmedHostArch := strings.TrimSpace(strings.ToLower(hostArch))
@@ -954,7 +990,7 @@ func (s *Service) checkJavaRuntimeForTarget(ctx context.Context, node *clusterap
 		issue := blockingIssue(
 			CheckCategoryNode,
 			"jdk_below_required",
-			fmt.Sprintf("node %s runs Java %d but SeaTunnel %s requires Java %d+; install a newer JDK and update the node java_home (cluster node update) / 节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+；请安装新版 JDK 后更新节点 java_home（cluster node update）", target.HostName, rt.Version, target.TargetVersion, javaruntime.MinSupportedMajor(target.TargetVersion), target.HostName, rt.Version, target.TargetVersion, javaruntime.MinSupportedMajor(target.TargetVersion)),
+			fmt.Sprintf("node %s runs Java %d but SeaTunnel %s requires Java %d+; choose a newer target JDK on the upgrade prepare page / 节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+；请在升级准备页为目标节点选择更高版本 JDK", target.HostName, rt.Version, target.TargetVersion, javaruntime.MinSupportedMajor(target.TargetVersion), target.HostName, rt.Version, target.TargetVersion, javaruntime.MinSupportedMajor(target.TargetVersion)),
 			metadata,
 		)
 		return &issue

@@ -36,6 +36,50 @@ var ErrConnectorMissing = errors.New("sync: cluster is missing a required connec
 // engineConnectorMissingPattern matches SeaTunnel FactoryUtil's fixed wording when a plugin is absent (API-06), same in 2.3.x and 3.0.
 var engineConnectorMissingPattern = regexp.MustCompile(`(?i)Unable to create a (source|sink|transform) for identifier '([^']+)'`)
 
+// engineCausedBySplit 把压平的异常文本按 "caused by:" 切分层段：java-proxy 用 " | caused by: " 拼接，
+// 引擎作业失败原因里则是 Java 原生 "Caused by: " 堆栈。
+// engineCausedBySplit splits a flattened exception chain on "caused by:": the java-proxy joins layers
+// with " | caused by: ", while engine job failure reasons use Java's native "Caused by: " stack lines.
+var engineCausedBySplit = regexp.MustCompile(`(?i)\s*\|?\s*caused by:`)
+
+// enginePluginAbsentSignals 是「确实没找到插件」的确定信号，逐层段匹配，
+// 对齐 java-proxy isPluginNotFound 对 Throwable 链的判定（FactoryUtil 工厂发现失败 / PluginIdentifier not found）。
+// enginePluginAbsentSignals are the definitive "plugin genuinely absent" signals, matched per chain
+// segment — mirroring the java-proxy isPluginNotFound check over the Throwable chain (FactoryUtil
+// discovery failure / PluginIdentifier not found).
+var enginePluginAbsentSignals = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)could not find any factor`),
+	regexp.MustCompile(`(?i)no factory found for identifier`),
+	regexp.MustCompile(`(?i)pluginidentifier[^\n]*not found`),
+	regexp.MustCompile(`(?i)not found[^\n]*(?:factor|plugin)|(?:factor|plugin)[^\n]*not found`),
+	regexp.MustCompile(`连接器未安装`),
+}
+
+// engineMessageIndicatesMissingPlugin 只在「确实没找到插件」时返回 true。
+// API-06 外层措辞把所有工厂初始化失败包成同一句：有 caused-by 链时逐段找确定信号，
+// 找不到就透传原始错误（如 JDBC 连不通被包成同一措辞）；裸外层措辞（引擎 REST 只回外层
+// message，无 caused-by）维持既有归类，缺插件是该路径最常见的形态。
+// engineMessageIndicatesMissingPlugin reports true only when the plugin is genuinely absent.
+// The API-06 wrapper folds every factory-init failure into one sentence: when a caused-by chain
+// exists, look for a definitive absent signal per segment — absent that, the raw error passes
+// through (e.g. a JDBC connect failure wrapped in the same wording). A bare wrapper message
+// (engine REST returns only the outer message, no caused-by) keeps the existing classification
+// since a missing plugin is the most common shape on that path.
+func engineMessageIndicatesMissingPlugin(message string) bool {
+	segments := engineCausedBySplit.Split(message, -1)
+	if len(segments) == 1 {
+		return true
+	}
+	for _, segment := range segments {
+		for _, signal := range enginePluginAbsentSignals {
+			if signal.MatchString(segment) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ConnectorMissingError 携带缺失连接器的类型与标识，原始引擎错误保留在 Cause 里供排查。
 // ConnectorMissingError carries the missing connector's type and identifier; the raw engine error stays in Cause.
 type ConnectorMissingError struct {
@@ -77,7 +121,7 @@ func classifyEngineSubmitError(err error) error {
 		return err
 	}
 	match := engineConnectorMissingPattern.FindStringSubmatch(err.Error())
-	if match == nil {
+	if match == nil || !engineMessageIndicatesMissingPlugin(err.Error()) {
 		return err
 	}
 	return &ConnectorMissingError{

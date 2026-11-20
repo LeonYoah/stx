@@ -517,7 +517,10 @@ func humanizeResolutionDetail(detail string) string {
 	switch {
 	case strings.Contains(lower, "can not find catalog table with factoryid"):
 		return fmt.Sprintf("目标数据库中未找到匹配的物理表元数据（物理表不存在或已被删除，请检查 table-names / table-pattern 配置或在数据库中建表） | %s", detail)
-	case strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist"):
+	// 「表不存在」只认带 table 语境的措辞：裸 "does not exist" 会误吞路径/文件/用户等不相干错误。
+	// Table-missing only counts with table context: a bare "does not exist" would swallow unrelated
+	// path/file/user failures.
+	case strings.Contains(lower, "table") && (strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist")):
 		return fmt.Sprintf("指定数据表在数据库中不存在（请核对表名拼写或在数据库中建表） | %s", detail)
 	case strings.Contains(lower, "access denied for user") || strings.Contains(lower, "password authentication failed"):
 		return fmt.Sprintf("数据库账号或密码认证失败（请检查连接配置中的用户名密码） | %s", detail)

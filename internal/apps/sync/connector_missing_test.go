@@ -40,6 +40,13 @@ func TestClassifyEngineSubmitError(t *testing.T) {
 		{name: "http sink", err: errors.New(engineHTTPSinkMissing), wantType: "sink", wantIdent: "Http", wantMissed: true},
 		{name: "source", err: errors.New("body=Unable to create a source for identifier 'MySQL-CDC'."), wantType: "source", wantIdent: "MySQL-CDC", wantMissed: true},
 		{name: "transform mixed case", err: errors.New("unable to create a Transform for identifier 'Sql'"), wantType: "transform", wantIdent: "Sql", wantMissed: true},
+		{name: "caused by plugin not found", err: errors.New("Unable to create a sink for identifier 'Http'. | caused by: RuntimeException: Plugin PluginIdentifier{engineType='seatunnel', pluginType='sink', pluginName='Http'} not found."), wantType: "sink", wantIdent: "Http", wantMissed: true},
+		{name: "caused by factory discovery miss", err: errors.New("Unable to create a source for identifier 'MySQL-CDC'. Caused by: FactoryException: Could not find any factory for identifier 'MySQL-CDC' that implements 'TableSourceFactory' in the classpath."), wantType: "source", wantIdent: "MySQL-CDC", wantMissed: true},
+		// API-06 外层措辞包着深层失败（如 JDBC 连不通）不是缺连接器，必须原样透传。
+		// A deeper failure wrapped in the API-06 wording (e.g. JDBC unreachable) is not a missing
+		// connector and must pass through unchanged.
+		{name: "caused by jdbc unreachable", err: errors.New("Source[0]-MySQL-CDC official tablePath resolution failed: FactoryException: ErrorCode:[API-06], ErrorDescription:[Factory initialize failed] - Unable to create a source for identifier 'MySQL-CDC'. | caused by: CatalogException: ErrorCode:[API-03], ErrorDescription:[Catalog initialize failed] - Failed connecting to the configured JDBC URL via JDBC.")},
+		{name: "caused by catalog table miss", err: errors.New("Unable to create a source for identifier 'MySQL-CDC'. | caused by: SeaTunnelException: Can not find catalog table with factoryId [MySQL]")},
 		{name: "other failure", err: errors.New("sync: submit job failed: status=500 body=plugin not found")},
 	}
 	for _, tc := range cases {

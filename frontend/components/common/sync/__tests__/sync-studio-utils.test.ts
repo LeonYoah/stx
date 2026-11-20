@@ -1057,5 +1057,21 @@ describe('formatSyncUserFacingError', () => {
     const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
     expect(formatted.category).not.toBe('connector');
   });
+
+  it('does not classify API-06 wording with a deeper caused-by as connector-missing', () => {
+    const raw =
+      "Source[0]-MySQL-CDC official tablePath resolution failed: FactoryException: ErrorCode:[API-06], ErrorDescription:[Factory initialize failed] - Unable to create a source for identifier 'MySQL-CDC'. | caused by: CatalogException: ErrorCode:[API-03], ErrorDescription:[Catalog initialize failed] - Failed connecting to the configured JDBC URL via JDBC.";
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.category).not.toBe('connector');
+    expect(formatted.description).toContain('JDBC URL');
+  });
+
+  it('still classifies when a caused-by layer reports plugin absent', () => {
+    const raw =
+      "Unable to create a sink for identifier 'Http'. | caused by: RuntimeException: Plugin PluginIdentifier{engineType='seatunnel', pluginType='sink', pluginName='Http'} not found.";
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.category).toBe('connector');
+    expect(formatted.raw).toBe(raw);
+  });
 });
 

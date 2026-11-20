@@ -136,6 +136,20 @@ export interface UserFacingErrorState {
 const ENGINE_CONNECTOR_MISSING_PATTERN =
   /Unable to create a (source|sink|transform) for identifier '([^']+)'/i;
 
+// 压平异常链的分层标记；有链时只认某一层确实报「找不到插件」的确定信号，否则深层原因
+// （如 JDBC 连不通）被 API-06 外层措辞包成同一句，不能算缺连接器。
+// Chain-layer markers for flattened exceptions; with a chain present, only a definitive
+// "plugin absent" signal in some layer counts — otherwise a deeper cause (e.g. JDBC
+// unreachable) wrapped in the same API-06 wording must not read as a missing connector.
+const CAUSED_BY_SPLIT = /\s*\|?\s*caused by:/i;
+const PLUGIN_ABSENT_PATTERNS = [
+  /could not find any factor/i,
+  /no factory found for identifier/i,
+  /pluginidentifier[^\n]*not found/i,
+  /not found[^\n]*(?:factor|plugin)|(?:factor|plugin)[^\n]*not found/i,
+  /连接器未安装/,
+];
+
 export interface ConnectorMissingInfo {
   pluginType: 'source' | 'sink' | 'transform';
   identifier: string;
@@ -151,6 +165,15 @@ export function parseConnectorMissingError(
 ): ConnectorMissingInfo | null {
   const match = ENGINE_CONNECTOR_MISSING_PATTERN.exec(message);
   if (match) {
+    const segments = message.split(CAUSED_BY_SPLIT);
+    if (
+      segments.length > 1 &&
+      !segments.some(segment =>
+        PLUGIN_ABSENT_PATTERNS.some(pattern => pattern.test(segment)),
+      )
+    ) {
+      return null;
+    }
     return {
       pluginType: match[1].toLowerCase() as ConnectorMissingInfo['pluginType'],
       identifier: match[2],
@@ -2144,10 +2167,14 @@ export function formatSyncUserFacingError(
     };
   }
 
-  // 2. 库表未找到或 Schema 映射失败
+  // 2. 库表未找到或 Schema 映射失败（只认明确的表缺失措辞："resolution failed" 会误吞
+  // tablePath 解析里的连接/驱动等深层失败，不再归为库表问题）
+  // Table/schema mismatch — only explicit table-missing wording counts; "resolution failed"
+  // would mislabel deeper tablePath failures (connect/driver) as schema problems.
   if (
-    /table.*(?:doesn't exist|not found|resolution failed)/i.test(cleanMessage) ||
-    /Unknown table/i.test(cleanMessage) ||
+    /table[^\n]*(?:doesn't exist|does not exist)/i.test(cleanMessage) ||
+    /unknown table/i.test(cleanMessage) ||
+    /table\s+(?:or\s+view\s+)?not\s+found/i.test(cleanMessage) ||
     /schema.*not found/i.test(cleanMessage)
   ) {
     return {
@@ -2163,7 +2190,7 @@ export function formatSyncUserFacingError(
   if (
     /connection.*(?:refused|timed out|reset)/i.test(cleanMessage) ||
     /Communications link failure/i.test(cleanMessage) ||
-    /failed to connect/i.test(cleanMessage)
+    /failed connect/i.test(cleanMessage)
   ) {
     return {
       title: fallbackTitle,
@@ -2174,11 +2201,15 @@ export function formatSyncUserFacingError(
     };
   }
 
-  // 4. 账号认证或权限
+  // 4. 账号认证或权限（只认明确的认证失败信号；裸 "password" 会误吞配置/字段类报错）
+  // Auth — only explicit auth-failure signals; a bare "password" would mislabel
+  // config/field errors that merely mention the word.
   if (
     /access denied/i.test(cleanMessage) ||
     /authentication failed/i.test(cleanMessage) ||
-    /password/i.test(cleanMessage)
+    /password\s+authentication/i.test(cleanMessage) ||
+    /invalid\s+(?:password|credentials?)/i.test(cleanMessage) ||
+    /incorrect\s+password/i.test(cleanMessage)
   ) {
     return {
       title: fallbackTitle,

@@ -120,7 +120,7 @@
 .toolbarSearch {
   flex: 1 1 220px;
   min-width: 180px;
-  max-width: 360px;
+  max-width: 280px;
 }
 
 .toolbarRight {
@@ -155,6 +155,11 @@
 .filterWsm {
   flex: none;
   width: 128px;
+}
+
+.filterWmd {
+  flex: none;
+  width: 200px;
 }
 
 /* ---------------- list surface + rows ---------------- */

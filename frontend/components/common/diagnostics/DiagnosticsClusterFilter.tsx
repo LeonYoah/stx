@@ -70,8 +70,12 @@ export function DiagnosticsClusterFilter({
     [clusterOptions, t, tCluster],
   );
 
+  const selectedLabel = options.find((o) =>
+    value ? o.value === String(value) : o.value === ALL_VALUE,
+  )?.label;
+
   return (
-    <div className={cn(layout.filterCtrl, layout.filterWsm)}>
+    <div className={cn(layout.filterCtrl, layout.filterWmd)}>
       <Combobox
         label={t('cluster')}
         value={value ? String(value) : ALL_VALUE}
@@ -87,6 +91,7 @@ export function DiagnosticsClusterFilter({
         placeholder={t('cluster')}
         emptyMessage={t('noClusterMatch')}
         options={options}
+        title={selectedLabel}
         data-testid='diagnostics-cluster-filter'
       />
     </div>

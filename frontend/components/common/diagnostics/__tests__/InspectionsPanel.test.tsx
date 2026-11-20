@@ -171,6 +171,19 @@ function renderPanel(props?: {
   );
 }
 
+// 状态筛选是 Arc Select：trigger 的可访问名来自内容文本；jsdom 的 pointerdown
+// 不带 pointerType=mouse，Radix 不响应，用 ArrowDown 走键盘开门，选项在 portal 里。
+// The status filter is an Arc Select: its trigger's accessible name comes from
+// its content text. jsdom pointerdown lacks pointerType=mouse so Radix ignores
+// it — ArrowDown opens it via the keyboard path; options render in a portal.
+async function pickStatus(optionName: string) {
+  fireEvent.keyDown(
+    screen.getByRole('combobox', {name: /按状态筛选/}),
+    {key: 'ArrowDown'},
+  );
+  fireEvent.click(await screen.findByRole('option', {name: optionName}));
+}
+
 function mockDetail(id: number, data?: object) {
   getInspectionReportDetailSafe.mockImplementation((targetId: number) =>
     Promise.resolve({
@@ -276,7 +289,7 @@ describe('InspectionsPanel', () => {
         expect.objectContaining({page: 2}),
       ),
     );
-    fireEvent.click(screen.getByRole('button', {name: '失败'}));
+    await pickStatus('失败');
     await waitFor(() =>
       expect(getInspectionReportsSafe).toHaveBeenLastCalledWith(
         expect.objectContaining({page: 1, status: 'failed'}),
@@ -362,7 +375,7 @@ describe('InspectionsPanel', () => {
       });
     renderPanel();
 
-    fireEvent.click(screen.getByRole('button', {name: '失败'}));
+    await pickStatus('失败');
     expect(await screen.findByTestId('inspection-row-2')).toBeVisible();
 
     // 首个请求晚到：旧响应不得覆盖已生效的筛选结果。

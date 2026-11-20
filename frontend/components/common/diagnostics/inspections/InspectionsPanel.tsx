@@ -541,10 +541,6 @@ export function InspectionsPanel({
     onAutoPolicyFilter?.(null);
     setPage(1);
   }, [onAutoPolicyFilter]);
-  const seg = (key: InspectionStatusFilter, label: string) => ({
-    value: key,
-    label,
-  });
 
   // 策略名展示：优先映射表命中，退化 #id（策略可能已被删除）。
   // Policy display name: map hit first, #id fallback for deleted policies.
@@ -608,21 +604,26 @@ export function InspectionsPanel({
     <div className={layout.page} style={{overflowY: 'auto'}}>
       <div className={layout.toolbar}>
         {viewSwitch}
-        <SegmentedControl
-          label={t('filters.status')}
-          value={statusFilter}
-          onValueChange={(v) => {
-            setStatusFilter(v as InspectionStatusFilter);
-            setPage(1);
-          }}
-          options={[
-            seg('all', t('statusAll')),
-            seg('failed', t('status.failed')),
-            seg('completed', t('status.completed')),
-            seg('running', t('status.running')),
-            seg('pending', t('status.pending')),
-          ]}
-        />
+        <div className={cn(layout.filterCtrl, layout.filterWsm)}>
+          <Select
+            label={t('filters.status')}
+            value={statusFilter}
+            onValueChange={(v) => {
+              setStatusFilter(v as InspectionStatusFilter);
+              setPage(1);
+            }}
+            displayValue={
+              statusFilter === 'all' ? t('filters.status') : undefined
+            }
+            options={[
+              {value: 'all', label: t('statusAll')},
+              {value: 'failed', label: t('status.failed')},
+              {value: 'completed', label: t('status.completed')},
+              {value: 'running', label: t('status.running')},
+              {value: 'pending', label: t('status.pending')},
+            ]}
+          />
+        </div>
         <div className={layout.toolbarSearch}>
           <SearchField
             ref={searchRef}
@@ -714,16 +715,19 @@ export function InspectionsPanel({
               <span className='inline-flex'>{startButton}</span>
             </Tooltip>
           )}
-          <Button
-            type='button'
-            size='sm'
-            variant='secondary'
-            onClick={() => setCleanupSettingsOpen(true)}
-            data-testid='inspection-cleanup-settings'
-          >
-            <Settings2 className='size-3.5' aria-hidden />
-            {t('cleanupSettings.title')}
-          </Button>
+          <Tooltip content={t('cleanupSettings.title')}>
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              iconOnly
+              aria-label={t('cleanupSettings.title')}
+              onClick={() => setCleanupSettingsOpen(true)}
+              data-testid='inspection-cleanup-settings'
+            >
+              <Settings2 className='size-3.5' aria-hidden />
+            </Button>
+          </Tooltip>
           <Button
             type='button'
             size='sm'

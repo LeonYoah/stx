@@ -26,9 +26,7 @@ import {Button} from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+} from '@/components/arc/dialog/dialog';
 import {Label} from '@/components/ui/label';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
@@ -103,14 +101,21 @@ export function TaskAlertDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
-      <DialogContent className='max-h-[88vh] overflow-y-auto border border-border/80 shadow-2xl dark:border-border/60 sm:max-w-[640px]' aria-describedby={undefined}>
-        <DialogHeader>
-          <DialogTitle className='flex items-center gap-2'>
-            <BellRing className='size-4 text-primary' />
+      <DialogContent
+        className='arc-compact max-h-[88vh]! w-[min(calc(100vw-2rem),640px)]!'
+        aria-describedby={undefined}
+        title={
+          <span className='flex items-center gap-2'>
+            <BellRing className='size-4 text-primary shrink-0' />
             <span>{t('dialogTitle')}</span>
-            {taskName ? <span className='truncate text-sm font-normal text-muted-foreground'>· {taskName}</span> : null}
-          </DialogTitle>
-        </DialogHeader>
+            {taskName ? (
+              <span className='truncate text-sm font-normal text-muted-foreground'>
+                · {taskName}
+              </span>
+            ) : null}
+          </span>
+        }
+      >
         <TaskAlertForm
           initial={config}
           clusterId={clusterId}

@@ -46,9 +46,7 @@ import {Button} from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/ui/input';
 import {
   Table,
@@ -231,11 +229,10 @@ export function StudioActionErrorDialog({
       <DialogContent
         aria-describedby={undefined}
         data-testid='studio-action-error-dialog'
-        className='flex h-auto max-h-[85vh] w-[94vw] max-w-2xl flex-col overflow-hidden border border-border/80 p-6 shadow-2xl sm:max-w-2xl dark:border-border/60'
+        title={error?.title ?? ''}
+        className='arc-compact flex h-auto max-h-[85vh]! w-[min(94vw,672px)]! flex-col overflow-hidden'
+        bodyClassName='flex min-h-0 flex-1 flex-col overflow-hidden'
       >
-        <DialogHeader className='shrink-0 pb-2'>
-          <DialogTitle>{error?.title ?? ''}</DialogTitle>
-        </DialogHeader>
         <div className='min-h-0 flex-1 overflow-auto pr-1'>
           <StudioErrorDiagnosticsView error={error} />
         </div>

@@ -670,10 +670,10 @@ export function NotifyPanel() {
 
           {/* 编辑走常驻栏/抽屉；新建是小表单用居中弹窗（创建型不用抽屉），
               且创建态取消直接关闭——只有编辑才需要未保存拦截。Portal 表面必须
-              挂 styles.scope 才能吃到容器级 token（按钮圆角/控件高度）。
+              挂 .arc-compact 才能吃到容器级 token（按钮圆角/控件高度）。
               Editing uses the rail/drawer; creation is a centered dialog that
               closes directly without the dirty-close guard — only edits get the
-              interception. Portal surfaces must carry styles.scope to inherit
+              interception. Portal surfaces must carry .arc-compact to inherit
               container-level tokens (control radii/heights). */}
           {editKey === '__new__' ? (
             <Dialog
@@ -686,7 +686,7 @@ export function NotifyPanel() {
               }}
             >
               <DialogContent
-                className={cn('overflow-hidden p-0 sm:max-w-lg', styles.scope)}
+                className='arc-compact overflow-hidden p-0 sm:max-w-lg'
                 showCloseButton
               >
                 <DialogHeader className='px-5 pt-5'>

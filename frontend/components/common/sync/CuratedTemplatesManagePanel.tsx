@@ -44,21 +44,8 @@ import {HelpHint} from '@/components/common/HelpHint';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+} from '@/components/arc/dialog/dialog';
+import {Button as ArcButton} from '@/components/arc/button/button';
 import {
   Select,
   SelectContent,
@@ -819,47 +806,40 @@ export function CuratedTemplatesManagePanel({
         }}
       >
         <DialogContent
-          className='w-full sm:max-w-4xl lg:max-w-5xl h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border border-border/80 shadow-2xl'
+          className='arc-compact h-[85vh]! w-[min(94vw,1024px)]!'
+          bodyClassName='flex min-h-0 flex-1 flex-col p-0! overflow-hidden'
           {...(previewItem?.description ? {} : {'aria-describedby': undefined})}
+          description={previewItem?.description || undefined}
+          title={
+            <span className='flex flex-wrap items-center gap-2 pr-4'>
+              <Eye className='size-4 text-primary shrink-0' />
+              <span className='truncate'>
+                {previewItem?.name || t('curatedPreviewTitle')}
+              </span>
+              {previewItem ? (
+                <span className='flex items-center gap-1.5 shrink-0'>
+                  <Badge variant='secondary' className='text-xs'>
+                    {getOriginLabel(previewItem.origin)}
+                  </Badge>
+                  <Badge variant='outline' className='text-xs font-mono'>
+                    {previewItem.section}
+                  </Badge>
+                  {previewItem.has_override &&
+                  previewItem.origin === 'builtin' ? (
+                    <Badge
+                      variant='outline'
+                      className='text-xs text-primary border-primary/40'
+                    >
+                      {t('curatedHasOverride')}
+                    </Badge>
+                  ) : null}
+                </span>
+              ) : null}
+            </span>
+          }
         >
-          <DialogHeader className='p-6 pb-4 border-b border-border/60 shrink-0 bg-background'>
-            <div className='flex flex-wrap items-center justify-between gap-2 pr-6'>
-              <div className='flex items-center gap-2 min-w-0'>
-                <DialogTitle className='text-base sm:text-lg font-semibold flex items-center gap-2 truncate'>
-                  <Eye className='size-4 text-primary shrink-0' />
-                  <span className='truncate'>
-                    {previewItem?.name || t('curatedPreviewTitle')}
-                  </span>
-                </DialogTitle>
-                {previewItem ? (
-                  <div className='flex items-center gap-1.5 shrink-0'>
-                    <Badge variant='secondary' className='text-xs'>
-                      {getOriginLabel(previewItem.origin)}
-                    </Badge>
-                    <Badge variant='outline' className='text-xs font-mono'>
-                      {previewItem.section}
-                    </Badge>
-                    {previewItem.has_override &&
-                    previewItem.origin === 'builtin' ? (
-                      <Badge
-                        variant='outline'
-                        className='text-xs text-primary border-primary/40'
-                      >
-                        {t('curatedHasOverride')}
-                      </Badge>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            {previewItem?.description ? (
-              <DialogDescription className='text-xs text-muted-foreground mt-1'>
-                {previewItem.description}
-              </DialogDescription>
-            ) : null}
-          </DialogHeader>
 
-          <div className='flex-1 min-h-0 p-6 flex flex-col gap-2 overflow-hidden bg-muted/5'>
+          <div className='flex-1 min-h-0 p-5 flex flex-col gap-2 overflow-hidden bg-muted/5'>
             <div className='flex items-center justify-between gap-2 shrink-0'>
               <span className='text-xs font-medium text-foreground flex items-center gap-1.5'>
                 <FileCode className='size-3.5 text-muted-foreground' />
@@ -899,63 +879,59 @@ export function CuratedTemplatesManagePanel({
             </div>
           </div>
 
-          <DialogFooter className='p-4 border-t border-border/60 bg-muted/15 flex items-center justify-between sm:justify-between shrink-0'>
+          <div className='px-5 py-3.5 border-t border-border/60 bg-muted/15 flex items-center justify-between shrink-0'>
             <div className='flex items-center gap-2'>
-              <Button
+              <ArcButton
                 type='button'
-                variant='outline'
+                variant='secondary'
                 size='sm'
-                className='text-xs'
                 onClick={() => void handleCopyScript(previewContent)}
               >
-                <Copy className='size-3.5 mr-1.5' />
+                <Copy className='size-3.5' />
                 {t('curatedCopyScript')}
-              </Button>
+              </ArcButton>
             </div>
             <div className='flex items-center gap-2'>
               {previewItem && isOwned(previewItem) ? (
-                <Button
+                <ArcButton
                   type='button'
-                  variant='outline'
+                  variant='secondary'
                   size='sm'
-                  className='text-xs'
                   onClick={() => {
                     const item = previewItem;
                     setPreviewOpen(false);
                     openEdit(item);
                   }}
                 >
-                  <Pencil className='size-3.5 mr-1.5' />
+                  <Pencil className='size-3.5' />
                   {t('curatedEdit')}
-                </Button>
+                </ArcButton>
               ) : null}
               {previewItem ? (
-                <Button
+                <ArcButton
                   type='button'
                   variant='secondary'
                   size='sm'
-                  className='text-xs'
                   onClick={() => {
                     const item = previewItem;
                     setPreviewOpen(false);
                     void openCopy(item);
                   }}
                 >
-                  <CopyPlus className='size-3.5 mr-1.5' />
+                  <CopyPlus className='size-3.5' />
                   {t('curatedCreateCopy')}
-                </Button>
+                </ArcButton>
               ) : null}
-              <Button
+              <ArcButton
                 type='button'
-                variant='outline'
+                variant='secondary'
                 size='sm'
-                className='text-xs'
                 onClick={() => setPreviewOpen(false)}
               >
                 {t('close')}
-              </Button>
+              </ArcButton>
             </div>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -970,22 +946,21 @@ export function CuratedTemplatesManagePanel({
         }}
       >
         <DialogContent
-          className='w-full sm:max-w-4xl lg:max-w-5xl h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border border-border/80 shadow-2xl'
+          className='arc-compact h-[85vh]! w-[min(94vw,1024px)]!'
+          bodyClassName='flex min-h-0 flex-1 flex-col p-0! overflow-hidden'
           aria-describedby={undefined}
-        >
-          <DialogHeader className='p-6 pb-4 border-b border-border/60 shrink-0 bg-background'>
-            <div className='flex items-center justify-between gap-2 pr-6'>
-              <DialogTitle className='text-base sm:text-lg font-semibold flex items-center gap-2'>
-                <Pencil className='size-4 text-primary shrink-0' />
-                <span>{editorTitle}</span>
-              </DialogTitle>
+          title={
+            <span className='flex items-center gap-2 pr-4'>
+              <Pencil className='size-4 text-primary shrink-0' />
+              <span>{editorTitle}</span>
               {editorMode === 'copy' ? (
                 <Badge variant='secondary' className='text-xs'>
                   {t('curatedCreateCopy')}
                 </Badge>
               ) : null}
-            </div>
-          </DialogHeader>
+            </span>
+          }
+        >
 
           <div className='flex-1 min-h-0 p-6 flex flex-col gap-3.5 overflow-hidden bg-muted/5'>
             <div className='grid grid-cols-1 sm:grid-cols-3 gap-3.5 shrink-0'>
@@ -1103,30 +1078,31 @@ export function CuratedTemplatesManagePanel({
             </div>
           </div>
 
-          <DialogFooter className='p-4 border-t border-border/60 bg-muted/15 flex items-center justify-end gap-2 shrink-0'>
-            <Button
+          <div className='px-5 py-3.5 border-t border-border/60 bg-muted/15 flex items-center justify-end gap-2 shrink-0'>
+            <ArcButton
               type='button'
-              variant='outline'
+              variant='secondary'
+              size='sm'
               disabled={saving}
               onClick={() => setEditorOpen(false)}
             >
               {t('cancel')}
-            </Button>
-            <Button
+            </ArcButton>
+            <ArcButton
               type='button'
+              variant='primary'
+              size='sm'
+              loading={saving}
               disabled={saving || !editName.trim() || !editContent.trim()}
               onClick={() => void handleSave()}
             >
-              {saving ? (
-                <Loader2 className='size-3.5 mr-1.5 animate-spin' />
-              ) : null}
-              <span>{t('confirm')}</span>
-            </Button>
-          </DialogFooter>
+              {t('confirm')}
+            </ArcButton>
+          </div>
         </DialogContent>
       </Dialog>
 
-      <AlertDialog
+      <Dialog
         open={!!pendingDelete}
         onOpenChange={(open) => {
           if (!open) {
@@ -1134,17 +1110,27 @@ export function CuratedTemplatesManagePanel({
           }
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('curatedDeleteTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('curatedDeleteConfirm')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+        <DialogContent
+          role='alertdialog'
+          showCloseButton={false}
+          className='arc-compact w-[min(calc(100vw-2rem),420px)]!'
+          onPointerDownOutside={(event) => event.preventDefault()}
+          title={t('curatedDeleteTitle')}
+          description={t('curatedDeleteConfirm')}
+        >
+          <div className='flex flex-col-reverse gap-2 sm:flex-row sm:justify-end'>
+            <ArcButton
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => setPendingDelete(null)}
+            >
+              {t('cancel')}
+            </ArcButton>
+            <ArcButton
+              type='button'
+              variant='danger'
+              size='sm'
               onClick={() => {
                 const item = pendingDelete;
                 setPendingDelete(null);
@@ -1154,10 +1140,10 @@ export function CuratedTemplatesManagePanel({
               }}
             >
               {t('curatedDeleteConfirmAction')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </ArcButton>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

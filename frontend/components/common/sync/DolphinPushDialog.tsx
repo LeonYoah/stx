@@ -20,28 +20,20 @@
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
-import {AlertTriangle, Loader2} from 'lucide-react';
+import {AlertTriangle} from 'lucide-react';
 
-import {Button} from '@/components/ui/button';
-import {Checkbox} from '@/components/ui/checkbox';
+import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {Input} from '@/components/ui/input';
+} from '@/components/arc/dialog/dialog';
+import {Input} from '@/components/arc/input/input';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {Select} from '@/components/arc/select/select';
+import {Switch} from '@/components/arc/switch/switch';
 import {Label} from '@/components/ui/label';
 import {ScrollArea} from '@/components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {Switch} from '@/components/ui/switch';
 import {HelpHint} from '@/components/common/HelpHint';
 import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
 import {cn} from '@/lib/utils';
@@ -336,18 +328,16 @@ export function DolphinPushDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className='flex max-h-[88vh] flex-col overflow-hidden border border-border/80 p-0 shadow-2xl sm:max-w-4xl dark:border-border/60'
+        aria-describedby={undefined}
+        title={bound ? t('dolphinUpdateNode') : t('dolphinPushTitle')}
+        className='arc-compact max-h-[88vh]! w-[min(94vw,896px)]!'
+        bodyClassName='flex min-h-0 flex-1 flex-col p-0! overflow-hidden'
       >
-        <DialogHeader className='border-b border-border/60 px-6 py-4'>
-          <DialogTitle>
-            {bound ? t('dolphinUpdateNode') : t('dolphinPushTitle')}
-          </DialogTitle>
-        </DialogHeader>
-        <ScrollArea className='min-h-0 flex-1 px-6 py-4'>
+        <ScrollArea className='min-h-0 flex-1 px-5 py-4'>
           <div className='space-y-4'>
             {!connectionsLoaded ? null : connections.length === 0 ? (
               <div
-                className='space-y-3 rounded-lg border border-border/50 bg-muted/10 p-3'
+                className='space-y-3 rounded-[var(--radius-control)] border border-border/60 bg-muted/15 p-3.5'
                 data-testid='dolphin-new-connection-form'
               >
                 <p className='text-xs leading-relaxed text-muted-foreground'>
@@ -370,19 +360,16 @@ export function DolphinPushDialog({
               <>
                 <div className='grid gap-3 sm:grid-cols-2'>
                   <div className='space-y-1.5 min-w-0'>
-                    <Label>{t('dolphinConnection')}</Label>
-                    <Select value={connectionId} onValueChange={setConnectionId}>
-                      <SelectTrigger className='w-full'>
-                        <SelectValue placeholder={t('dolphinSelectConnection')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {connections.map((item) => (
-                          <SelectItem key={item.id} value={String(item.id)}>
-                            {item.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Select
+                      label={t('dolphinConnection')}
+                      placeholder={t('dolphinSelectConnection')}
+                      value={connectionId}
+                      onValueChange={setConnectionId}
+                      options={connections.map((item) => ({
+                        value: String(item.id),
+                        label: item.name,
+                      }))}
+                    />
                     {selectedConnection?.token_set ? (
                       <p className='text-[11px] text-muted-foreground'>
                         {t('dolphinConnectionTokenSet')}
@@ -394,24 +381,21 @@ export function DolphinPushDialog({
                     ) : null}
                   </div>
                   <div className='space-y-1.5 min-w-0'>
-                    <Label>{t('dolphinProject')}</Label>
-                    <Select value={projectCode} onValueChange={setProjectCode}>
-                      <SelectTrigger className='w-full'>
-                        <SelectValue placeholder={t('dolphinSelectProject')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {projects.map((item) => (
-                          <SelectItem key={item.code} value={String(item.code)}>
-                            {item.name} ({item.code})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Select
+                      label={t('dolphinProject')}
+                      placeholder={t('dolphinSelectProject')}
+                      value={projectCode}
+                      onValueChange={setProjectCode}
+                      options={projects.map((item) => ({
+                        value: String(item.code),
+                        label: `${item.name} (${item.code})`,
+                      }))}
+                    />
                   </div>
                 </div>
 
                 <details
-                  className='rounded-lg border border-border/50 bg-muted/10 p-3'
+                  className='rounded-[var(--radius-control)] border border-border/60 bg-muted/15 p-3.5'
                   data-testid='dolphin-new-connection-details'
                 >
                   <summary className='cursor-pointer text-xs font-medium'>
@@ -436,7 +420,7 @@ export function DolphinPushDialog({
             )}
 
             {bound ? (
-              <div className='space-y-3 rounded-lg border border-border/50 bg-muted/10 p-3 text-xs'>
+              <div className='space-y-3 rounded-[var(--radius-control)] border border-border/60 bg-muted/15 p-3.5 text-xs'>
                 {/* 已绑定状态行：再次推送的覆盖范围放进问号 / Bound status row; what a re-push overwrites lives in the help hint */}
                 <div className='flex items-center gap-2 font-medium' data-testid='dolphin-bound-status'>
                   <span>{t('dolphinBound')}</span>
@@ -467,38 +451,29 @@ export function DolphinPushDialog({
               </div>
             ) : (
               <>
-                <div className='flex flex-wrap gap-2'>
-                  {(['new', 'reuse'] as const).map((item) => (
-                    <button
-                      key={item}
-                      type='button'
-                      onClick={() => setMode(item)}
-                      className={cn(
-                        'rounded-full border px-3 py-1 text-xs',
-                        mode === item
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border/60 text-muted-foreground',
-                      )}
-                    >
-                      {item === 'new' ? t('dolphinModeNew') : t('dolphinModeReuse')}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  label={t('dolphinPushTitle')}
+                  value={mode}
+                  onValueChange={(value) => setMode(value as 'new' | 'reuse')}
+                  options={[
+                    {value: 'new', label: t('dolphinModeNew')},
+                    {value: 'reuse', label: t('dolphinModeReuse')},
+                  ]}
+                />
                 {mode === 'new' ? (
                   <div className='space-y-3'>
-                    <div className='space-y-1.5'>
-                      <Label>{t('dolphinWorkflowName')}</Label>
-                      <Input
-                        value={workflowName}
-                        onChange={(event) => setWorkflowName(event.target.value)}
-                      />
-                    </div>
-                    <label className='flex items-center gap-2 text-xs'>
+                    <Input
+                      id='dolphin-workflow-name'
+                      label={t('dolphinWorkflowName')}
+                      value={workflowName}
+                      onChange={(event) => setWorkflowName(event.target.value)}
+                    />
+                    <div className='flex items-center gap-2 text-xs'>
                       <Switch
                         checked={useBuiltinSchedule}
                         onCheckedChange={setUseBuiltinSchedule}
+                        label={t('dolphinUseBuiltinSchedule')}
                       />
-                      {t('dolphinUseBuiltinSchedule')}
                       {status?.builtin_schedule?.cron_expr ? (
                         <code className='whitespace-nowrap font-mono text-[11px] text-muted-foreground'>
                           {status.builtin_schedule.cron_expr}
@@ -508,25 +483,20 @@ export function DolphinPushDialog({
                           {t('dolphinNoBuiltinCron')}
                         </span>
                       )}
-                    </label>
+                    </div>
                   </div>
                 ) : (
                   <div className='space-y-3'>
-                    <div className='space-y-1.5'>
-                      <Label>{t('dolphinWorkflow')}</Label>
-                      <Select value={workflowCode} onValueChange={setWorkflowCode}>
-                        <SelectTrigger className='w-full'>
-                          <SelectValue placeholder={t('dolphinSelectWorkflow')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {workflows.map((item) => (
-                            <SelectItem key={item.code} value={String(item.code)}>
-                              {item.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <Select
+                      label={t('dolphinWorkflow')}
+                      placeholder={t('dolphinSelectWorkflow')}
+                      value={workflowCode}
+                      onValueChange={setWorkflowCode}
+                      options={workflows.map((item) => ({
+                        value: String(item.code),
+                        label: item.name,
+                      }))}
+                    />
                     <div className='grid gap-3 sm:grid-cols-2'>
                       <NodeChecks
                         title={t('dolphinUpstreams')}
@@ -578,14 +548,15 @@ export function DolphinPushDialog({
             ) : null}
           </div>
         </ScrollArea>
-        <DialogFooter className='border-t border-border/60 bg-muted/20 px-6 py-3'>
-          <Button type='button' variant='outline' onClick={() => onOpenChange(false)}>
+        <div className='flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/20 px-5 py-3 sm:flex-row sm:justify-end'>
+          <Button type='button' variant='secondary' size='sm' onClick={() => onOpenChange(false)}>
             {t('cancel')}
           </Button>
           <DisabledReasonTooltip reason={blockedReason}>
             <Button
               type='button'
               variant='secondary'
+              size='sm'
               data-testid='dolphin-dry-run'
               aria-disabled={blockedReason ? 'true' : undefined}
               disabled={busy}
@@ -602,8 +573,11 @@ export function DolphinPushDialog({
           <DisabledReasonTooltip reason={blockedReason}>
             <Button
               type='button'
+              variant='primary'
+              size='sm'
               data-testid='dolphin-confirm-push'
               aria-disabled={blockedReason ? 'true' : undefined}
+              loading={busy}
               disabled={busy}
               onClick={() => {
                 if (blockedReason) {
@@ -612,10 +586,10 @@ export function DolphinPushDialog({
                 void submit(false);
               }}
             >
-              {busy ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinConfirmPush')}
+              {t('dolphinConfirmPush')}
             </Button>
           </DisabledReasonTooltip>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -650,35 +624,26 @@ function ConnectionCreateFields({
   return (
     <div className='space-y-3'>
       <div className='grid gap-3 sm:grid-cols-2'>
-        <div className='space-y-1.5 min-w-0'>
-          <Label htmlFor='dolphin-connection-name'>{t('dolphinConnectionName')}</Label>
-          <Input
-            id='dolphin-connection-name'
-            value={connName}
-            onChange={(event) => onNameChange(event.target.value)}
-            placeholder={t('dolphinConnectionName')}
-          />
-        </div>
-        <div className='space-y-1.5 min-w-0'>
-          <Label htmlFor='dolphin-connection-url'>
-            {t('dolphinBaseURL')}
-            <span className='text-destructive'>*</span>
-          </Label>
-          <Input
-            id='dolphin-connection-url'
-            value={connURL}
-            onChange={(event) => onURLChange(event.target.value)}
-            placeholder='http://dolphin:12345/dolphinscheduler'
-            autoComplete='off'
-          />
-        </div>
-        <div className='space-y-1.5 min-w-0 sm:col-span-2'>
-          <Label htmlFor='dolphin-open-api-token'>
-            {t('dolphinOpenApiToken')}
-            <span className='text-destructive'>*</span>
-          </Label>
+        <Input
+          id='dolphin-connection-name'
+          label={t('dolphinConnectionName')}
+          value={connName}
+          onChange={(event) => onNameChange(event.target.value)}
+          placeholder={t('dolphinConnectionName')}
+        />
+        <Input
+          id='dolphin-connection-url'
+          label={`${t('dolphinBaseURL')} *`}
+          value={connURL}
+          onChange={(event) => onURLChange(event.target.value)}
+          placeholder='http://dolphin:12345/dolphinscheduler'
+          autoComplete='off'
+        />
+        <div className='sm:col-span-2'>
           <Input
             id='dolphin-open-api-token'
+            label={`${t('dolphinOpenApiToken')} *`}
+            description={t('dolphinOpenApiTokenHint')}
             data-testid='dolphin-open-api-token'
             type='password'
             value={connToken}
@@ -688,29 +653,33 @@ function ConnectionCreateFields({
             required
             aria-required='true'
           />
-          <p className='text-[11px] leading-relaxed text-muted-foreground'>
-            {t('dolphinOpenApiTokenHint')}
-          </p>
         </div>
         <div className='space-y-1.5 min-w-0 sm:col-span-2'>
           <div className='flex items-center gap-2'>
-            <Label htmlFor='dolphin-connection-version'>{t('dolphinVersion')}</Label>
+            <Label htmlFor='dolphin-connection-version' className='text-sm font-medium'>
+              {t('dolphinVersion')}
+            </Label>
             <HelpHint
               label={t('dolphinVersion')}
               content={t('dolphinVersionHint')}
               data-testid='dolphin-connection-version-hint'
             />
           </div>
-          <Input
-            id='dolphin-connection-version'
-            value={connVersion}
-            onChange={(event) => onVersionChange(event.target.value)}
-            placeholder={t('dolphinVersionPlaceholder')}
-          />
+          <div className='[&_label]:sr-only'>
+            <Input
+              id='dolphin-connection-version'
+              label={t('dolphinVersion')}
+              value={connVersion}
+              onChange={(event) => onVersionChange(event.target.value)}
+              placeholder={t('dolphinVersionPlaceholder')}
+            />
+          </div>
         </div>
       </div>
-      <Button type='button' size='sm' disabled={creating} onClick={onSave}>
-        {creating ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinSaveConnection')}
+      {/* 保存连接使用次级按钮，避免与底部「确认推送」主操作争抢视觉焦点。 */}
+      {/* Keep Save Connection secondary so it never competes with the primary Push CTA. */}
+      <Button type='button' variant='secondary' size='sm' loading={creating} disabled={creating} onClick={onSave}>
+        {t('dolphinSaveConnection')}
       </Button>
     </div>
   );
@@ -730,27 +699,24 @@ function NodeChecks({
   onChange: (values: number[]) => void;
 }) {
   return (
-    <div className='rounded-lg border border-border/50 p-3'>
+    <div className='rounded-[var(--radius-control)] border border-border/50 p-3'>
       <div className='mb-2 text-xs font-medium'>{title}</div>
       <div className='max-h-40 space-y-1.5 overflow-auto'>
         {tasks.map((task) => {
           const checked = selected.includes(task.code);
           return (
-            <label key={task.code} className='flex items-center gap-2 text-xs'>
-              <Checkbox
-                checked={checked}
-                onCheckedChange={(value) => {
-                  if (value) {
-                    onChange([...selected, task.code]);
-                    return;
-                  }
-                  onChange(selected.filter((code) => code !== task.code));
-                }}
-              />
-              <span className='truncate font-mono'>
-                {task.name} #{task.code}
-              </span>
-            </label>
+            <Checkbox
+              key={task.code}
+              checked={checked}
+              label={`${task.name} #${task.code}`}
+              onCheckedChange={(value) => {
+                if (value) {
+                  onChange([...selected, task.code]);
+                  return;
+                }
+                onChange(selected.filter((code) => code !== task.code));
+              }}
+            />
           );
         })}
       </div>

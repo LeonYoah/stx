@@ -267,3 +267,18 @@ html[data-stx-splash] body::before {
   z-index: 2147483646;
   background: #000;
 }
+
+/*
+ * 控制台半胶囊紧凑密度预设（14px 半胶囊控件 / 16px 面板圆角 / 34px & 30px 行高）：
+ * 供监控中心与数据同步工作台等后台模块复用，兼顾桌面信息密度与半胶囊呼吸感；
+ * 挂到 <body> 下的 Portal 弹层（Drawer / Dialog）需在内容节点上同样附带该类。
+ * Console semi-capsule density preset (14px control / 16px panel / 34px & 30px heights):
+ * shared across monitoring and DataSyncStudio for airy semi-capsule proportions;
+ * portal surfaces (Drawer / Dialog) should attach this class to their content node.
+ */
+.arc-compact {
+  --radius-control: 0.875rem;
+  --radius-panel: 1rem;
+  --control-height-md: 2.125rem;
+  --control-height-sm: 1.875rem;
+}

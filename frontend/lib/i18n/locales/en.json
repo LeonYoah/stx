@@ -4782,6 +4782,8 @@
     "close": "Close",
     "closeAllTabs": "Close All",
     "closeOtherTabs": "Close Others",
+    "openFiles": "Open files",
+    "tabActions": "Tab actions",
     "collapseAll": "Collapse All",
     "expandAll": "Expand All",
     "filterFiles": "Search files or folders...",

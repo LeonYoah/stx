@@ -134,9 +134,9 @@ export function MonitoringWorkspace() {
   const openNotify = useCallback(() => setTab('notify'), [setTab]);
 
   return (
-    // 容器级 token 收紧挂根节点；portal 表面（抽屉）另挂 styles.scope。
-    // Container-level token tightening on the root; portal surfaces get styles.scope too.
-    <div className={cn(styles.scope, 'flex min-h-0 flex-1 flex-col gap-3.5')}>
+    // 容器级紧凑 token 挂根节点（globals.css .arc-compact）；portal 表面（抽屉/弹窗）另挂 .arc-compact。
+    // Compact container tokens on root (globals.css .arc-compact); portal surfaces attach .arc-compact too.
+    <div className='arc-compact flex min-h-0 flex-1 flex-col gap-3.5'>
       <Tabs
         value={tab}
         onValueChange={setTab}

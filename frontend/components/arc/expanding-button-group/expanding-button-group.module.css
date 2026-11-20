@@ -1,8 +1,15 @@
-.group { --ebg-h: 36px; --ebg-icon: 16px; --ebg-start: 10px; --ebg-gap: 7px; --ebg-end: 14px; --ebg-pad: 3px; position: relative; isolation: isolate; display: inline-flex; max-width: 100%; flex: none; align-items: center; gap: 2px; padding: var(--ebg-pad); border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); }
+/*
+ * 本地修改：外框与内部按钮圆角改由 --radius-control 驱动（内层按外框减去内边距与边框计算同心圆角），
+ * 以便跟随 .arc-compact 收紧为 8px/4px，同时保留上游 18px 默认值下的胶囊形态；升级 Arc 时 diff 合并。
+ * Local modification: drive outer and item radii from --radius-control (concentric inner
+ * radius minus padding and border) so .arc-compact tightens it to 8px/4px while upstream
+ * 18px remains pill-shaped; diff-merge on Arc upgrades.
+ */
+.group { --ebg-h: 36px; --ebg-icon: 16px; --ebg-start: 10px; --ebg-gap: 7px; --ebg-end: 14px; --ebg-pad: 3px; position: relative; isolation: isolate; display: inline-flex; max-width: 100%; flex: none; align-items: center; gap: 2px; padding: var(--ebg-pad); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
 
 /* The box never scales: its width is the animation, so a press answers with the icon and with color. The label overflows to the
    right of the icon and the clipped width reveals it. min-width keeps the spring's settle from pinching a collapsed button. */
-.item { position: relative; display: inline-flex; height: var(--ebg-h); min-width: var(--ebg-h); flex: none; align-items: center; justify-content: flex-start; gap: var(--ebg-gap); overflow: clip; border: 0; border-radius: var(--radius-pill); padding: 0 0 0 var(--ebg-start); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); font-weight: 500; line-height: 1; letter-spacing: var(--tracking-body); white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-standard) var(--ease-standard); }
+.item { position: relative; display: inline-flex; height: var(--ebg-h); min-width: var(--ebg-h); flex: none; align-items: center; justify-content: flex-start; gap: var(--ebg-gap); overflow: clip; border: 0; border-radius: calc(var(--radius-control) - var(--ebg-pad) - 1px); padding: 0 0 0 var(--ebg-start); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); font-weight: 500; line-height: 1; letter-spacing: var(--tracking-body); white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-standard) var(--ease-standard); }
 .sm .item { font-size: var(--text-xs); }
 .item[data-expanded] { color: var(--foreground); background: var(--surface-muted); }
 .item[data-tone="danger"][data-expanded] { color: var(--danger); background: color-mix(in oklab, var(--danger) 10%, var(--surface)); }

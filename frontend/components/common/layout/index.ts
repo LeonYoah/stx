@@ -30,3 +30,4 @@ export * from './TableCard';
 export * from './RouteProgressBar';
 export * from './ModuleNavTabs';
 export * from './ExpandableTextPanel';
+export * from './UnsavedChangesDialog';

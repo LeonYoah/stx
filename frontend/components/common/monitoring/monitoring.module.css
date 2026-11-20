@@ -27,19 +27,10 @@
 
 /* ---------------- page shells ---------------- */
 
-/* 容器级 Token 收紧（ui-conventions §18 / design §9.7）：监控根节点与所有
-   Portal 表面（抽屉内容等挂在 body 下、容器变量传不进去的节点）统一挂这个类。
-   不再逐个组件手写 h-* / rounded-*。
-   Container-level token tightening (ui-conventions §18 / design §9.7): apply this
-   class on the monitoring root and every portal surface (drawer content lives
-   under <body>, where container vars cannot reach). No per-component h-* /
-   rounded-* overrides. */
-.scope {
-  --radius-control: 0.5rem;
-  --radius-panel: 0.625rem;
-  --control-height-md: 2rem;
-  --control-height-sm: 1.75rem;
-}
+/* 容器级紧凑密度 token（8px/10px 圆角与 32px/28px 行高）已抽到 globals.css 的
+   .arc-compact，由工作台与监控中心共用；抽屉/弹窗等 Portal 表面需在内容节点上挂 .arc-compact。
+   Compact density tokens now live in globals.css (.arc-compact) for reuse across
+   monitoring and workbench; portal surfaces attach .arc-compact on their content node. */
 
 /* Arc Drawer 的贴边圆角在组件样式里写死（22px/18px），容器 token 够不到；
    这里按「附着侧直角、游离侧 --radius-panel」收紧。!important 用于稳定盖过

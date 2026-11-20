@@ -22,13 +22,12 @@ import type {LucideIcon} from 'lucide-react';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {cn} from '@/lib/utils';
 
-// 图标视图切换在监控 .scope 之外也要保持 8px/28px 紧凑尺度，token 收敛进组件，
-// 调用方不必各自重复局部覆盖。
-// Compact 8px/28px control tokens live inside the component so icon view toggles
-// stay consistent outside monitoring's .scope without per-caller overrides.
+// 图标视图切换在 .arc-compact 容器之外也要保持统一的半胶囊紧凑尺度，token 收敛进组件。
+// Semi-capsule compact tokens live inside the component so icon view toggles
+// stay consistent outside .arc-compact containers without per-caller overrides.
 const COMPACT_SCOPE: CSSProperties = {
-  ['--radius-control' as string]: '0.5rem',
-  ['--control-height-sm' as string]: '1.75rem',
+  ['--radius-control' as string]: '0.875rem',
+  ['--control-height-sm' as string]: '1.875rem',
 };
 
 export interface ViewToggleOption {

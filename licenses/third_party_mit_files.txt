@@ -26,6 +26,7 @@ frontend/components/arc/combobox/combobox.tsx
 frontend/components/arc/confirm-morph/confirm-morph.tsx
 frontend/components/arc/copy-button/copy-button.tsx
 frontend/components/arc/date-range-picker/date-range-picker.tsx
+frontend/components/arc/dialog/dialog.tsx
 frontend/components/arc/donut-chart/donut-chart.tsx
 frontend/components/arc/empty-state/empty-state.tsx
 frontend/components/arc/expanding-button-group/expanding-button-group.tsx

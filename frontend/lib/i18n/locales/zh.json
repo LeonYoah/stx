@@ -4782,6 +4782,8 @@
     "close": "关闭",
     "closeAllTabs": "关闭全部",
     "closeOtherTabs": "关闭其他",
+    "openFiles": "已打开文件",
+    "tabActions": "标签页操作",
     "collapseAll": "全部折叠",
     "expandAll": "全部展开",
     "filterFiles": "搜索文件或目录...",

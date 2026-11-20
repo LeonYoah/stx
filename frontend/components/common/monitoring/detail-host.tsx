@@ -166,9 +166,9 @@ export function DetailHost({
             title={title}
             description={typeof meta === 'string' ? meta : undefined}
             className={cn(
-              // DrawerContent portal 到 body，容器变量传不进去，scope + 贴边圆角必须重挂。
-              // DrawerContent portals to <body>; re-apply the scope and edge radii there.
-              styles.scope,
+              // DrawerContent portal 到 body，容器变量传不进去，.arc-compact + 贴边圆角必须重挂。
+              // DrawerContent portals to <body>; re-apply .arc-compact and edge radii there.
+              'arc-compact',
               styles.drawerPanel,
               drawerWidth ?? 'w-[min(92vw,480px)]',
               '[&>div[class*=body]]:flex-1 [&>div[class*=body]]:p-0!',

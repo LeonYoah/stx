@@ -4671,6 +4671,13 @@
       "streaming": "Streaming",
       "batch": "Batch"
     },
+    "source": {
+      "label": "Source",
+      "all": "All sources",
+      "stx": "STX",
+      "external": "External"
+    },
+    "taskDeleted": "Task deleted",
     "runTypeFilter": {
       "label": "Run type",
       "all": "All",
@@ -5105,6 +5112,7 @@
     "checkpointId": "Checkpoint ID",
     "checkpointStatus": "Checkpoint Status",
     "runMode": "Run Mode",
+    "runModeExternal": "External",
     "runModePreview": "Preview",
     "runModeManual": "Manual",
     "runModeSchedule": "Schedule",

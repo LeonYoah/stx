@@ -21,16 +21,15 @@ import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Search} from 'lucide-react';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
-import {
-  StatPillsBar,
-  type StatPillItem,
-} from '@/components/common/layout';
+import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
-import type {
-  SyncJobStatusGroup,
-} from '@/lib/services/sync';
-import {JOB_STATUS_GROUPS, type JobListQuery, type JobTablePreset} from './types';
+import type {SyncJobStatusGroup} from '@/lib/services/sync';
+import {
+  JOB_STATUS_GROUPS,
+  type JobListQuery,
+  type JobTablePreset,
+} from './types';
 import type {JobBulkAction, JobBulkResult} from './use-job-bulk-actions';
 
 const PILL_VARIANT: Partial<
@@ -161,21 +160,38 @@ export function JobTableToolbar({
 
   const typeControl =
     preset === 'global' ? (
-      <SegmentedControl
-        label={t('columns.mode')}
-        value={query.mode || 'all'}
-        onValueChange={(value) =>
-          onQueryChange({
-            mode: value === 'streaming' || value === 'batch' ? value : '',
-            page: 1,
-          })
-        }
-        options={[
-          {value: 'all', label: t('mode.all')},
-          {value: 'streaming', label: t('mode.streaming')},
-          {value: 'batch', label: t('mode.batch')},
-        ]}
-      />
+      <>
+        <SegmentedControl
+          label={t('columns.mode')}
+          value={query.mode || 'all'}
+          onValueChange={(value) =>
+            onQueryChange({
+              mode: value === 'streaming' || value === 'batch' ? value : '',
+              page: 1,
+            })
+          }
+          options={[
+            {value: 'all', label: t('mode.all')},
+            {value: 'streaming', label: t('mode.streaming')},
+            {value: 'batch', label: t('mode.batch')},
+          ]}
+        />
+        <SegmentedControl
+          label={t('source.label')}
+          value={query.source || 'all'}
+          onValueChange={(value) =>
+            onQueryChange({
+              source: value === 'stx' || value === 'external' ? value : '',
+              page: 1,
+            })
+          }
+          options={[
+            {value: 'all', label: t('source.all')},
+            {value: 'stx', label: t('source.stx')},
+            {value: 'external', label: t('source.external')},
+          ]}
+        />
+      </>
     ) : (
       <SegmentedControl
         label={t('runTypeFilter.label')}

@@ -4671,6 +4671,13 @@
       "streaming": "流",
       "batch": "批"
     },
+    "source": {
+      "label": "来源",
+      "all": "全部来源",
+      "stx": "STX",
+      "external": "外部"
+    },
+    "taskDeleted": "任务已删除",
     "runTypeFilter": {
       "label": "运行类型",
       "all": "全部",
@@ -5105,6 +5112,7 @@
     "checkpointId": "Checkpoint ID",
     "checkpointStatus": "Checkpoint 状态",
     "runMode": "运行方式",
+    "runModeExternal": "外部提交",
     "runModePreview": "预览",
     "runModeManual": "手动",
     "runModeSchedule": "调度",

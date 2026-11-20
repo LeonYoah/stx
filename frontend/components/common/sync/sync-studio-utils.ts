@@ -2724,6 +2724,9 @@ export function getRunModeLabel(
   if (runType === 'preview') {
     return t('runModePreview');
   }
+  if (runType === 'external' || job.source === 'external') {
+    return t('runModeExternal');
+  }
   const submitSpec = toObject(job.submit_spec);
   const triggerSource = String(
     submitSpec.trigger_source || submitSpec.trigger_mode || '',

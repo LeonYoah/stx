@@ -241,6 +241,7 @@ const query: DashboardQuery = {
   clusterId: undefined,
   status: '',
   mode: '',
+  source: '',
   q: '',
   sort: '',
   order: '',

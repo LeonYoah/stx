@@ -8605,6 +8605,10 @@ paths:
         in: query
         name: mode
         type: string
+      - description: stx|external
+        in: query
+        name: source
+        type: string
       - description: 集群 ID
         in: query
         name: cluster_id

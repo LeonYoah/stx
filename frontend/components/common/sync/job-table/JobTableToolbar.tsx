@@ -25,7 +25,8 @@ import SegmentedControl from '@/components/arc/segmented-control/segmented-contr
 import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
-import type {SyncJobListSort, SyncJobStatusGroup} from '@/lib/services/sync';
+import type {SyncJobStatusGroup} from '@/lib/services/sync';
+import {TIME_SORT_KEYS} from './job-table-columns';
 import {
   JOB_STATUS_GROUPS,
   type JobListQuery,
@@ -198,56 +199,16 @@ export function JobTableToolbar({
     // one list, and the toolbar keeps only status pills and search.
     null;
 
-  // 排序菜单汇集全部维度（列头点按排序仍保留为快捷路径）；速率 / CDC 延迟只在
-  // 「运行中」组有效，非运行中组保留选项但禁用——藏掉会让人以为功能不存在。
-  // The sort menu gathers every dimension (header click-sort stays as a shortcut);
-  // rate / CDC delay only apply inside the Running group — elsewhere they stay
-  // listed but disabled, since hiding them looks like a missing feature.
-  const runningOnly = query.statusGroup !== 'running';
-  const sortOptions: {
-    sort: SyncJobListSort;
-    order: 'asc' | 'desc';
-    label: string;
-    disabled?: boolean;
-    separatorBefore?: boolean;
-  }[] = [
-    {sort: 'started_at', order: 'desc', label: t('sortMenu.started_at.desc')},
-    {sort: 'started_at', order: 'asc', label: t('sortMenu.started_at.asc')},
-    {sort: 'finished_at', order: 'desc', label: t('sortMenu.finished_at.desc')},
-    {sort: 'finished_at', order: 'asc', label: t('sortMenu.finished_at.asc')},
-    {sort: 'duration', order: 'desc', label: t('sortMenu.duration.desc')},
-    {sort: 'duration', order: 'asc', label: t('sortMenu.duration.asc')},
-    {
-      sort: 'attention',
-      order: 'desc',
-      label: t('sortMenu.attention.desc'),
-      separatorBefore: true,
-    },
-    {
-      sort: 'rate',
-      order: 'desc',
-      label: t('sortMenu.rate.desc'),
-      disabled: runningOnly,
-    },
-    {
-      sort: 'rate',
-      order: 'asc',
-      label: t('sortMenu.rate.asc'),
-      disabled: runningOnly,
-    },
-    {
-      sort: 'cdc_delay',
-      order: 'desc',
-      label: t('sortMenu.cdc_delay.desc'),
-      disabled: runningOnly,
-    },
-    {
-      sort: 'cdc_delay',
-      order: 'asc',
-      label: t('sortMenu.cdc_delay.asc'),
-      disabled: runningOnly,
-    },
-  ];
+  // 排序菜单只收时间维度：字段×方向的 11 项铺满菜单过于重复，方向留给时间列头
+  // 点按切换（列头指示在任一维度命中时点亮）。其余列仍走各自列头排序。
+  // The sort menu holds only the time dimensions — 11 field×direction rows repeated the
+  // same suffixes; direction stays on the time header click (its indicator lights on any
+  // of them). Other columns keep their own header sorting.
+  const sortKeyLabels: Record<(typeof TIME_SORT_KEYS)[number], string> = {
+    started_at: t('startedAt'),
+    finished_at: t('finishedAt'),
+    duration: t('duration'),
+  };
   const sortMenu = (
     <DropdownMenu
       label={t('sortMenu.label')}
@@ -255,22 +216,15 @@ export function JobTableToolbar({
       // 与监控规则面板同款：当前项 ✓，其余项用等宽占位对齐。
       // Same pattern as the monitoring rules panel: a check on the active option
       // and equal-width spacers keep labels aligned.
-      items={sortOptions.map((option) => ({
-        label: option.label,
-        disabled: option.disabled,
-        separatorBefore: option.separatorBefore,
+      items={TIME_SORT_KEYS.map((key) => ({
+        label: sortKeyLabels[key],
         icon:
-          query.sort === option.sort && query.order === option.order ? (
+          query.sort === key ? (
             <Check className='size-4' aria-hidden />
           ) : (
             <span className='size-4' />
           ),
-        onSelect: () =>
-          onQueryChange({
-            sort: option.sort,
-            order: option.order,
-            page: 1,
-          }),
+        onSelect: () => onQueryChange({sort: key, order: query.order, page: 1}),
       }))}
     />
   );

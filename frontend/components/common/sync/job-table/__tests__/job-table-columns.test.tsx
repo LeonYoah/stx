@@ -290,6 +290,20 @@ describe('JobTable column registry', () => {
     });
   });
 
+  it('lights the time column for any of its dimensions and toggles that one', () => {
+    const onQueryChange = renderTable([job(1, 'running')], {
+      query: {sort: 'duration', order: 'asc', page: 2},
+    });
+    const th = screen.getByText('时间').closest('th')!;
+    expect(th.getAttribute('aria-sort')).toBe('ascending');
+    fireEvent.click(screen.getByText('时间'));
+    expect(onQueryChange).toHaveBeenCalledWith({
+      sort: 'duration',
+      order: 'desc',
+      page: 1,
+    });
+  });
+
   it('external jobs get the source badge, a mode placeholder, no task ref and no workbench link', async () => {
     renderTable([
       job(7, 'success', {

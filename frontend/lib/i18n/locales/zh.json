@@ -4743,30 +4743,7 @@
     "sortColumn": "按 {column} 排序",
     "sortNeedsRunning": "选中「运行中」后可按速率或延迟排序",
     "sortMenu": {
-      "label": "排序",
-      "started_at": {
-        "desc": "开始时间（新→旧）",
-        "asc": "开始时间（旧→新）"
-      },
-      "finished_at": {
-        "desc": "结束时间（新→旧）",
-        "asc": "结束时间（旧→新）"
-      },
-      "duration": {
-        "desc": "耗时（长→短）",
-        "asc": "耗时（短→长）"
-      },
-      "attention": {
-        "desc": "需关注优先"
-      },
-      "rate": {
-        "desc": "写入速率（高→低）",
-        "asc": "写入速率（低→高）"
-      },
-      "cdc_delay": {
-        "desc": "CDC 延迟（高→低）",
-        "asc": "CDC 延迟（低→高）"
-      }
+      "label": "排序"
     },
     "taskRef": "任务 #{id}",
     "ranFor": "已运行 {duration}",

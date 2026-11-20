@@ -54,6 +54,13 @@ import type {JobColumnDef, JobTableContext} from './types';
 
 type CellProps = {job: SyncJobInstance; ctx: JobTableContext};
 
+/** 时间列承载的排序维度；工具栏「排序」菜单复用同一份清单。/ Sort dimensions hosted by the time column; the toolbar sort menu reuses this list. */
+export const TIME_SORT_KEYS = [
+  'started_at',
+  'finished_at',
+  'duration',
+] as const satisfies readonly SyncJobListSort[];
+
 /** 全选复选框（仅当前页）。/ Select-all checkbox scoped to the current page. */
 function SelectAllHeader({ctx}: {ctx: JobTableContext}) {
   const selection = ctx.selection;
@@ -512,6 +519,10 @@ export const JOB_COLUMNS: JobColumnDef[] = [
     id: 'timeline',
     presets: ['global', 'task'],
     sortKey: 'started_at',
+    // 维度切换走工具栏「排序」菜单；列头负责方向：命中任一维度即点亮，点按作用于当前维度。
+    // Dimension switching lives in the toolbar sort menu; the header owns direction — it
+    // lights on any matching dimension and clicking toggles the active one.
+    sortKeys: [...TIME_SORT_KEYS],
     minWidth: 120,
     header: (ctx) => ctx.t('columns.timeline'),
     cell: (job, ctx) => <TimelineCell job={job} ctx={ctx} />,

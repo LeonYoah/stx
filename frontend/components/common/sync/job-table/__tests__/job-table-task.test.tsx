@@ -377,38 +377,45 @@ describe('JobTableToolbar task preset', () => {
     });
   });
 
-  it('patches sort and order from the sort menu and resets the page', async () => {
-    const {onQueryChange} = renderTaskToolbar({query: {page: 3}});
+  it('lists the three time dimensions with the active one checked', async () => {
+    renderTaskToolbar({query: {sort: 'duration', order: 'desc'}});
     // Radix 菜单在 jsdom 用 pointerDown 打开（keyDown 会踩 roving-focus 空指针）。
     // Radix menus open via pointerDown in jsdom (keyDown hits a roving-focus null ref).
     fireEvent.pointerDown(
       screen.getByRole('button', {name: zh.jobTable.sortMenu.label}),
     );
-    fireEvent.click(
-      await screen.findByRole('menuitem', {
-        name: zh.jobTable.sortMenu.duration.desc,
-      }),
-    );
-    expect(onQueryChange).toHaveBeenCalledWith({
-      sort: 'duration',
-      order: 'desc',
-      page: 1,
+    const started = await screen.findByRole('menuitem', {
+      name: zh.jobTable.startedAt,
     });
+    const finished = screen.getByRole('menuitem', {
+      name: zh.jobTable.finishedAt,
+    });
+    const duration = screen.getByRole('menuitem', {
+      name: zh.jobTable.duration,
+    });
+    // 当前维度带 ✓ 图标，其余项是等宽占位 span。/ The active dimension carries a
+    // check icon; the rest render an equal-width spacer.
+    expect(started.querySelector('svg')).toBeNull();
+    expect(finished.querySelector('svg')).toBeNull();
+    expect(duration.querySelector('svg')).toBeTruthy();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
   });
 
-  it('keeps rate sorting listed but disabled outside the running group', async () => {
-    renderTaskToolbar({query: {statusGroup: 'finished'}});
+  it('patches the sort dimension from the menu and keeps the order', async () => {
+    const {onQueryChange} = renderTaskToolbar({
+      query: {sort: 'started_at', order: 'asc', page: 3},
+    });
     fireEvent.pointerDown(
       screen.getByRole('button', {name: zh.jobTable.sortMenu.label}),
     );
-    const rate = await screen.findByRole('menuitem', {
-      name: zh.jobTable.sortMenu.rate.desc,
+    fireEvent.click(
+      await screen.findByRole('menuitem', {name: zh.jobTable.finishedAt}),
+    );
+    expect(onQueryChange).toHaveBeenCalledWith({
+      sort: 'finished_at',
+      order: 'asc',
+      page: 1,
     });
-    expect(rate.getAttribute('aria-disabled')).toBe('true');
-    const duration = screen.getByRole('menuitem', {
-      name: zh.jobTable.sortMenu.duration.asc,
-    });
-    expect(duration.getAttribute('aria-disabled')).toBeNull();
   });
 });
 

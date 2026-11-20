@@ -152,8 +152,7 @@ function renderTaskToolbar(
   } = {},
 ) {
   const onQueryChange =
-    overrides.onQueryChange ??
-    vi.fn<(patch: Partial<JobListQuery>) => void>();
+    overrides.onQueryChange ?? vi.fn<(patch: Partial<JobListQuery>) => void>();
   const utils = render(
     <NextIntlClientProvider locale='zh' messages={zh} timeZone='Asia/Shanghai'>
       <JobTableToolbar
@@ -191,7 +190,9 @@ describe('JobTable task preset', () => {
     const older = job({id: 9, started_at: '2026-01-01T00:00:00Z'});
     const newer = job({id: 26});
     renderTaskTable([newer, older], {activeJobId: 9});
-    expect(screen.getByTestId('studio-job-row-9').dataset.selected).toBe('true');
+    expect(screen.getByTestId('studio-job-row-9').dataset.selected).toBe(
+      'true',
+    );
     expect(
       screen.getByTestId('studio-job-row-26').dataset.selected,
     ).toBeUndefined();
@@ -199,9 +200,7 @@ describe('JobTable task preset', () => {
 
   it('keeps only details and quick actions inline for a running job; stop does not bubble', () => {
     const handlers = renderTaskTable([job({})]);
-    expect(
-      screen.getByRole('button', {name: tJobTable.detail}),
-    ).toBeTruthy();
+    expect(screen.getByRole('button', {name: tJobTable.detail})).toBeTruthy();
     expect(
       screen.getByRole('button', {name: tJobTable.moreActions}),
     ).toBeTruthy();
@@ -210,9 +209,7 @@ describe('JobTable task preset', () => {
     expect(
       screen.queryByRole('button', {name: tJobTable.savepointStop}),
     ).toBeNull();
-    expect(
-      screen.queryByRole('button', {name: tJobTable.recover}),
-    ).toBeNull();
+    expect(screen.queryByRole('button', {name: tJobTable.recover})).toBeNull();
 
     fireEvent.click(screen.getByRole('button', {name: tJobTable.stop}));
     expect(handlers.onAction).toHaveBeenCalledWith(
@@ -258,9 +255,7 @@ describe('JobTable task preset', () => {
 
   it('shows a recover action on terminal jobs and wires it to the host', () => {
     const handlers = renderTaskTable([job({status: 'failed'})]);
-    expect(
-      screen.queryByRole('button', {name: tJobTable.stop}),
-    ).toBeNull();
+    expect(screen.queryByRole('button', {name: tJobTable.stop})).toBeNull();
     fireEvent.click(screen.getByRole('button', {name: tJobTable.recover}));
     expect(handlers.onAction).toHaveBeenCalledWith(
       'recover',
@@ -381,6 +376,47 @@ describe('JobTableToolbar task preset', () => {
       page: 1,
     });
   });
+
+  it('lists the three time dimensions with the active one checked', async () => {
+    renderTaskToolbar({query: {sort: 'duration', order: 'desc'}});
+    // Radix 菜单在 jsdom 用 pointerDown 打开（keyDown 会踩 roving-focus 空指针）。
+    // Radix menus open via pointerDown in jsdom (keyDown hits a roving-focus null ref).
+    fireEvent.pointerDown(
+      screen.getByRole('button', {name: zh.jobTable.sortMenu.label}),
+    );
+    const started = await screen.findByRole('menuitem', {
+      name: zh.jobTable.startedAt,
+    });
+    const finished = screen.getByRole('menuitem', {
+      name: zh.jobTable.finishedAt,
+    });
+    const duration = screen.getByRole('menuitem', {
+      name: zh.jobTable.duration,
+    });
+    // 当前维度带 ✓ 图标，其余项是等宽占位 span。/ The active dimension carries a
+    // check icon; the rest render an equal-width spacer.
+    expect(started.querySelector('svg')).toBeNull();
+    expect(finished.querySelector('svg')).toBeNull();
+    expect(duration.querySelector('svg')).toBeTruthy();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
+  });
+
+  it('patches the sort dimension from the menu and keeps the order', async () => {
+    const {onQueryChange} = renderTaskToolbar({
+      query: {sort: 'started_at', order: 'asc', page: 3},
+    });
+    fireEvent.pointerDown(
+      screen.getByRole('button', {name: zh.jobTable.sortMenu.label}),
+    );
+    fireEvent.click(
+      await screen.findByRole('menuitem', {name: zh.jobTable.finishedAt}),
+    );
+    expect(onQueryChange).toHaveBeenCalledWith({
+      sort: 'finished_at',
+      order: 'asc',
+      page: 1,
+    });
+  });
 });
 
 describe('getJobActionState', () => {
@@ -418,8 +454,8 @@ describe('getJobActionState', () => {
     expect(
       getJobActionState(failed, {...ctx, disableRecover: true}).canRecover,
     ).toBe(false);
-    expect(
-      getJobActionState(failed, {...ctx, canRun: false}).canRecover,
-    ).toBe(false);
+    expect(getJobActionState(failed, {...ctx, canRun: false}).canRecover).toBe(
+      false,
+    );
   });
 });

@@ -237,7 +237,7 @@ for clusterID, items := range grouped {
 
 ### 2. 签名
 
-- `GET /api/v1/sync/jobs`：旧参数不变；新增 `status_group`（`running|failed|pending|stopping|canceled|finished`，逗号分隔）、`status`（原始状态）、`mode`、`cluster_id`、`keyword`、`exclude_run_type`、`sort`（`attention|started_at|created_at|rate|cdc_delay`）、`order`、`with_counts=1`、`with_live=1`。页码同时认 `current/size`（网页）与 `page/page_size`（CLI）。
+- `GET /api/v1/sync/jobs`：旧参数不变；新增 `status_group`（`running|failed|pending|stopping|canceled|finished`，逗号分隔）、`status`（原始状态）、`mode`、`cluster_id`、`keyword`、`exclude_run_type`、`sort`（`attention|started_at|created_at|finished_at|duration|rate|cdc_delay`）、`order`、`with_counts=1`、`with_live=1`。页码同时认 `current/size`（网页）与 `page/page_size`（CLI）。
 - `GET /api/v1/sync/jobs/sparklines?ids=1,2&range=1h&metric=write`：`ids` ≤ 100。
 - `GET /api/v1/dashboard/home/summary?cluster_id=`。
 
@@ -246,6 +246,7 @@ for clusterID, items := range grouped {
 - **快照里的整数类型**：刚构造的 `submit_spec` 里是 Go 原生整数（`task.ClusterID` 为 `uint`），从库里读出后是 `float64`；`intValue` / `uintValue` 两种都要认，测试要用 `uint` 构造，别只用字面量 `3`（那是 `int`）。
 - **维度列**：`sync_job_instances.cluster_id / job_mode` 由 `JobInstance.BeforeCreate` 从 `submit_spec` 派生（`job_mode` 优先看 `submitted_content` 里的 `job.mode`）；启动时后台回填历史行，快照缺失退回任务当前集群与模式，用 `UpdateColumns` 不改 `updated_at`。模式 / 集群筛选只查这两列，不在 SQL 里解析 JSON。
 - **状态组映射只在后端**（`jobStatusGroups`）。`attention` = 失败 > 运行中 > 等待 > 停止中 > 已取消 > 已完成，同组按 `COALESCE(started_at, created_at) DESC`。不传 `sort` 时保持 `created_at DESC`。
+- `finished_at` 排序把 NULL（运行中 / 等待中）永远排在最后，与方向无关；`duration` 用方言表达式算「结束-开始」（未结束按当前时间，`started_at` 缺失回退 `created_at`）：MySQL `TIMESTAMPDIFF`、PostgreSQL `EXTRACT(EPOCH)`、SQLite `julianday` 差。
 - `rate / cdc_delay` 值不在列里，只允许在 `status_group=running` 下内存排序（上限 2000 行），否则 400。
 - `with_live=1` 只补 `task_name` 与 `live`（读写速率、累计、CDC 延迟），来源是 `result_preview.metrics` 与事件运行时；速率只在运行中出现。集群名由前端用集群列表映射，sync 不依赖 cluster 模块。
 - **可见范围**：`ListJobsForActor` / `ListJobsWithOptions` / sparklines 与 `GetJob` 一致：管理员全部；有 `task_id` 且可查看该任务则看该任务全部作业；否则 `created_by = self OR task_id IN 可查看任务`。

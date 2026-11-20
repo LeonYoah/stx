@@ -199,22 +199,28 @@ export function JobTable({
             <StudioTableHeader>
               {columns.map((column) => {
                 const headerNode = column.header(ctx);
+                // 多维度列（时间列）：sortKeys 覆盖 sortKey；方向指示命中任一维度，
+                // 列头点按作用于当前维度，未命中时回到首个维度。
+                // Multi-dimension column (time): sortKeys supersedes sortKey; the direction
+                // indicator lights on any match, and clicking toggles the active dimension
+                // or falls back to the first one.
+                const sortKeys =
+                  column.sortKeys ?? (column.sortKey ? [column.sortKey] : []);
                 const sortable = Boolean(
-                  column.sortKey &&
-                    (column.sortableWhen?.(query) ?? true),
+                  sortKeys.length > 0 && (column.sortableWhen?.(query) ?? true),
                 );
+                const activeSortKey = sortKeys.includes(query.sort)
+                  ? query.sort
+                  : sortKeys[0];
+                const sortedHere = sortable && sortKeys.includes(query.sort);
                 return (
                   <StudioTableColumn
                     key={column.id}
                     align={column.align}
                     allowsSorting={sortable}
-                    sortDirection={
-                      sortable && query.sort === column.sortKey
-                        ? query.order
-                        : undefined
-                    }
+                    sortDirection={sortedHere ? query.order : undefined}
                     title={
-                      !sortable && column.sortKey
+                      !sortable && sortKeys.length > 0
                         ? t('sortNeedsRunning')
                         : undefined
                     }
@@ -223,18 +229,12 @@ export function JobTable({
                       width: column.width,
                     }}
                   >
-                    {sortable &&
-                    typeof headerNode === 'string' &&
-                    column.sortKey ? (
+                    {sortable && typeof headerNode === 'string' ? (
                       <StudioSortableColumnHeader
                         label={headerNode}
-                        sortDirection={
-                          query.sort === column.sortKey
-                            ? query.order
-                            : undefined
-                        }
+                        sortDirection={sortedHere ? query.order : undefined}
                         aria-label={t('sortColumn', {column: headerNode})}
-                        onSort={() => toggleSort(column.sortKey!)}
+                        onSort={() => toggleSort(activeSortKey)}
                       />
                     ) : (
                       headerNode

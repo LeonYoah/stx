@@ -4742,6 +4742,9 @@
     },
     "sortColumn": "Sort by {column}",
     "sortNeedsRunning": "Select Running to sort by rate or delay",
+    "sortMenu": {
+      "label": "Sort"
+    },
     "taskRef": "Task #{id}",
     "ranFor": "Running for {duration}",
     "tookFor": "Took {duration}",
@@ -4798,7 +4801,8 @@
     "units": {
       "d": "d",
       "h": "h",
-      "m": "m"
+      "m": "m",
+      "s": "s"
     },
     "avgPrefix": "avg ",
     "avgRateHint": "Job finished: average rate over its run (rows ÷ duration)"
@@ -5180,6 +5184,7 @@
     "runFailed": "Run failed",
     "actualExecutedScript": "Executed Script",
     "noActualExecutedScript": "No executed script is available for this job instance.",
+    "externalScriptEmpty": "Externally submitted jobs have no submitted script snapshot.",
     "savepointStopTriggered": "Savepoint stop has been triggered",
     "taskStopped": "Task stopped",
     "cancelTaskFailed": "Failed to cancel the task",
@@ -5586,6 +5591,8 @@
     "submitExpiredTooltip": "The engine never registered this job within {minutes} minutes; the submit may have been rejected or lost. Check the engine logs before resubmitting.",
     "stopOverdueBadge": "Stop overdue",
     "stopOverdueTooltip": "A stop was requested, but the job has not stopped after {minutes} minutes. STX keeps checking; inspect the engine if needed.",
+    "stopRevertedBadge": "Stop not applied",
+    "stopRevertedTooltip": "The stop request never reached the engine or never took effect; the job is running again. You can stop it again.",
     "submitOutcomePendingTitle": "Previous submit is still being confirmed",
     "submitOutcomePendingDescription": "The submit of job #{jobId} is still being confirmed until {deadline}. Try again afterwards.",
     "jobEvents": {

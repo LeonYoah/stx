@@ -215,6 +215,72 @@ func TestListJobsWithOptionsInMemoryRateSort(t *testing.T) {
 	}
 }
 
+func TestListJobsFinishedAtAndDurationSort(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	db := service.repo.db
+	admin := executionapp.Actor{UserID: 1, IsAdmin: true}
+	base := time.Date(2026, 11, 14, 8, 0, 0, 0, time.UTC)
+	at := func(minutes int) *time.Time { v := base.Add(time.Duration(minutes) * time.Minute); return &v }
+	runningStart := time.Now().Add(-30 * time.Minute) // 运行中约 30 分钟，介于 10/60/120 分钟之间。/ ~30m so it lands mid-order.
+	jobs := []*JobInstance{
+		{RunType: RunTypeRun, Status: JobStatusSuccess, CreatedBy: 1, StartedAt: at(0), FinishedAt: at(120)}, // 120 分钟
+		{RunType: RunTypeRun, Status: JobStatusSuccess, CreatedBy: 1, StartedAt: at(10), FinishedAt: at(20)}, // 10 分钟
+		{RunType: RunTypeRun, Status: JobStatusFailed, CreatedBy: 1, StartedAt: at(30), FinishedAt: at(90)},  // 60 分钟
+		{RunType: RunTypeRun, Status: JobStatusRunning, CreatedBy: 1, StartedAt: &runningStart},              // 无 finished_at
+	}
+	for _, job := range jobs {
+		if err := db.WithContext(ctx).Create(job).Error; err != nil {
+			t.Fatalf("create job: %v", err)
+		}
+	}
+	ids := func(data *JobListData) []uint {
+		out := make([]uint, 0, len(data.Items))
+		for _, job := range data.Items {
+			out = append(out, job.ID)
+		}
+		return out
+	}
+	list := func(sort, order string) []uint {
+		data, err := service.ListJobsWithOptions(ctx, admin, &JobFilter{Sort: sort, Order: order}, JobListOptions{})
+		if err != nil {
+			t.Fatalf("list sort=%s order=%s: %v", sort, order, err)
+		}
+		return ids(data)
+	}
+	// 结束时间：NULL finished_at 的 running 行不论方向都垫底。
+	// finished_at: the running row with NULL finished_at always sorts last.
+	if got, want := list(jobListSortFinishedAt, "desc"), []uint{jobs[0].ID, jobs[2].ID, jobs[1].ID, jobs[3].ID}; !equalUints(got, want) {
+		t.Fatalf("finished_at desc = %v, want %v", got, want)
+	}
+	if got, want := list(jobListSortFinishedAt, "asc"), []uint{jobs[1].ID, jobs[2].ID, jobs[0].ID, jobs[3].ID}; !equalUints(got, want) {
+		t.Fatalf("finished_at asc = %v, want %v", got, want)
+	}
+	// 耗时：已完成按 finished-started，运行中按 now-started（≈30 分钟，夹在 10 与 60 之间）。
+	// duration: finished jobs order by finished-started; the running job counts to now (~30m).
+	if got, want := list(jobListSortDuration, "desc"), []uint{jobs[0].ID, jobs[2].ID, jobs[3].ID, jobs[1].ID}; !equalUints(got, want) {
+		t.Fatalf("duration desc = %v, want %v", got, want)
+	}
+	if got, want := list(jobListSortDuration, "asc"), []uint{jobs[1].ID, jobs[3].ID, jobs[2].ID, jobs[0].ID}; !equalUints(got, want) {
+		t.Fatalf("duration asc = %v, want %v", got, want)
+	}
+	if _, err := service.ListJobsWithOptions(ctx, admin, &JobFilter{Sort: "bogus"}, JobListOptions{}); !errors.Is(err, ErrInvalidJobListQuery) {
+		t.Fatalf("unsupported sort err = %v, want ErrInvalidJobListQuery", err)
+	}
+}
+
+func equalUints(a, b []uint) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestListJobsVisibilityMatchesGetJob(t *testing.T) {
 	service := newTestSyncService(t)
 	_, privateTask := seedJobListFixture(t, service)

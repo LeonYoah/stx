@@ -4742,6 +4742,9 @@
     },
     "sortColumn": "按 {column} 排序",
     "sortNeedsRunning": "选中「运行中」后可按速率或延迟排序",
+    "sortMenu": {
+      "label": "排序"
+    },
     "taskRef": "任务 #{id}",
     "ranFor": "已运行 {duration}",
     "tookFor": "耗时 {duration}",
@@ -4798,7 +4801,8 @@
     "units": {
       "d": " 天",
       "h": " 小时",
-      "m": " 分"
+      "m": " 分",
+      "s": " 秒"
     },
     "avgPrefix": "均 ",
     "avgRateHint": "作业已结束：运行期间的平均速率（累计条数 ÷ 耗时）"
@@ -5180,6 +5184,7 @@
     "runFailed": "运行失败",
     "actualExecutedScript": "实际执行脚本",
     "noActualExecutedScript": "当前任务实例暂无可展示的实际执行脚本。",
+    "externalScriptEmpty": "外部提交作业不包含脚本快照。",
     "savepointStopTriggered": "任务已触发 Savepoint 停止",
     "taskStopped": "任务已停止",
     "cancelTaskFailed": "取消任务失败",
@@ -5586,6 +5591,8 @@
     "submitExpiredTooltip": "引擎在 {minutes} 分钟内一直没有出现这个作业，提交可能已被拒绝或丢失。请查看引擎日志后再重新提交。",
     "stopOverdueBadge": "停止超时",
     "stopOverdueTooltip": "已请求停止，但超过 {minutes} 分钟作业仍未停下。STX 会继续确认，必要时请到引擎侧检查。",
+    "stopRevertedBadge": "停止未生效",
+    "stopRevertedTooltip": "停止请求未送达引擎或未生效，作业已恢复运行。可重新发起停止。",
     "submitOutcomePendingTitle": "上一次提交还在确认中",
     "submitOutcomePendingDescription": "作业 #{jobId} 的提交结果还在确认中，最晚 {deadline} 出结论，请稍后再提交。",
     "jobEvents": {

@@ -19,12 +19,14 @@
 
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Search} from 'lucide-react';
+import {ArrowDownWideNarrow, Check, Search} from 'lucide-react';
+import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import type {SyncJobStatusGroup} from '@/lib/services/sync';
+import {TIME_SORT_KEYS} from './job-table-columns';
 import {
   JOB_STATUS_GROUPS,
   type JobListQuery,
@@ -197,6 +199,36 @@ export function JobTableToolbar({
     // one list, and the toolbar keeps only status pills and search.
     null;
 
+  // 排序菜单只收时间维度：字段×方向的 11 项铺满菜单过于重复，方向留给时间列头
+  // 点按切换（列头指示在任一维度命中时点亮）。其余列仍走各自列头排序。
+  // The sort menu holds only the time dimensions — 11 field×direction rows repeated the
+  // same suffixes; direction stays on the time header click (its indicator lights on any
+  // of them). Other columns keep their own header sorting.
+  const sortKeyLabels: Record<(typeof TIME_SORT_KEYS)[number], string> = {
+    started_at: t('startedAt'),
+    finished_at: t('finishedAt'),
+    duration: t('duration'),
+  };
+  const sortMenu = (
+    <DropdownMenu
+      label={t('sortMenu.label')}
+      icon={<ArrowDownWideNarrow className='size-4' aria-hidden />}
+      // 与监控规则面板同款：当前项 ✓，其余项用等宽占位对齐。
+      // Same pattern as the monitoring rules panel: a check on the active option
+      // and equal-width spacers keep labels aligned.
+      items={TIME_SORT_KEYS.map((key) => ({
+        label: sortKeyLabels[key],
+        icon:
+          query.sort === key ? (
+            <Check className='size-4' aria-hidden />
+          ) : (
+            <span className='size-4' />
+          ),
+        onSelect: () => onQueryChange({sort: key, order: query.order, page: 1}),
+      }))}
+    />
+  );
+
   const bulkBar =
     bulk && (bulk.selectedCount > 0 || bulk.result) ? (
       <div
@@ -269,6 +301,7 @@ export function JobTableToolbar({
             <>
               {typeControl}
               {searchControl}
+              {sortMenu}
             </>
           }
         />
@@ -288,6 +321,7 @@ export function JobTableToolbar({
       <div className='flex flex-wrap items-center gap-2'>
         {searchControl}
         {typeControl}
+        {sortMenu}
       </div>
 
       {bulkBar}

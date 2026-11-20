@@ -17,6 +17,7 @@
 
 import {describe, expect, it} from 'vitest';
 import {
+  formatJobDurationSeconds,
   formatRatePair,
   formatTotalPair,
   isRunningStatus,
@@ -125,6 +126,25 @@ describe('job-table-format', () => {
         Date.now(),
       ),
     ).toBe(0);
+  });
+
+  it('formats job durations precisely down to the second, scaling units with magnitude', () => {
+    const units = {d: ' 天', h: ' 小时', m: ' 分', s: ' 秒'};
+    expect(formatJobDurationSeconds(42, units)).toBe('42 秒');
+    // 分钟级起秒位补零，运行中跳动时宽度稳定。/ From minutes up, the seconds segment pads so ticking stays aligned.
+    expect(formatJobDurationSeconds(5 * 60 + 3, units)).toBe('5 分 03 秒');
+    expect(formatJobDurationSeconds(10 * 60, units)).toBe('10 分 00 秒');
+    expect(formatJobDurationSeconds(3 * 3600 + 12 * 60 + 5, units)).toBe(
+      '3 小时 12 分 05 秒',
+    );
+    expect(formatJobDurationSeconds(2 * 86400 + 4 * 3600 + 3 * 60 + 2, units)).toBe(
+      '2 天 04 小时 03 分 02 秒',
+    );
+    // 恰好一天整：天之后的单位全零仍要补位。/ Exactly one day still pads the trailing units.
+    expect(formatJobDurationSeconds(86400, units)).toBe(
+      '1 天 00 小时 00 分 00 秒',
+    );
+    expect(formatJobDurationSeconds(-5, units)).toBe('0 秒');
   });
 
   it('formats read/write rate and total pairs with placeholders', () => {

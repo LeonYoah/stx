@@ -24,6 +24,7 @@ import {
   getTaskTimeoutMinutes,
   isCancelOutcomeUnknown,
   isCancelOverdue,
+  isCancelReverted,
   isSubmitOutcomeExpired,
   isSubmitOutcomeUnknown,
   parseSubmitOutcomePendingError,
@@ -84,6 +85,16 @@ describe('cancel outcome helpers', () => {
     expect(isCancelOverdue(cancelling)).toBe(true);
     expect(getCancelTimeoutMinutes(cancelling)).toBe(10);
     expect(isCancelOverdue(job({status: 'cancelling'}))).toBe(false);
+  });
+
+  it('flags a reverted stop only while the job is still active', () => {
+    const reverted = job({status: 'running', result_preview: {cancel_outcome: 'reverted'}});
+    expect(isCancelReverted(reverted)).toBe(true);
+    // 终态不再提示：作业自然结束后再挂"停止未生效"徽标是过时信息。
+    // Terminal jobs no longer hint: a finished job showing "stop not applied" is stale noise.
+    expect(isCancelReverted(job({status: 'success', result_preview: {cancel_outcome: 'reverted'}}))).toBe(false);
+    expect(isCancelReverted(job({status: 'running'}))).toBe(false);
+    expect(isCancelReverted(null)).toBe(false);
   });
 });
 

@@ -511,10 +511,34 @@ func applyJobListOrder(query *gorm.DB, filter *JobFilter) *gorm.DB {
 		return query.Order(jobAttentionOrderExpr()).Order(startedExpr + " DESC").Order("id DESC")
 	case jobListSortStartedAt:
 		return query.Order(startedExpr + " " + direction).Order("id " + direction)
+	case jobListSortFinishedAt:
+		// finished_at 为空的行（运行中 / 等待中）不论方向都排最后。/ Rows without finished_at
+		// (running / pending) always sort last regardless of direction.
+		return query.Order("CASE WHEN finished_at IS NULL THEN 1 ELSE 0 END").
+			Order("finished_at " + direction).Order("id " + direction)
+	case jobListSortDuration:
+		return query.Order(jobDurationOrderExpr(query.Dialector.Name()) + " " + direction).
+			Order("id " + direction)
 	case jobListSortCreatedAt:
 		return query.Order("created_at " + direction).Order("id " + direction)
 	default:
 		return query.Order("created_at DESC")
+	}
+}
+
+// jobDurationOrderExpr 生成「结束-开始」时长的方言排序表达式：未结束的作业按当前时间计，
+// started_at 缺失时回退 created_at。/ jobDurationOrderExpr builds the dialect-specific elapsed-time
+// expression; unfinished jobs count to now and a missing started_at falls back to created_at.
+func jobDurationOrderExpr(dialect string) string {
+	switch dialect {
+	case "mysql":
+		return "TIMESTAMPDIFF(SECOND, COALESCE(started_at, created_at), COALESCE(finished_at, NOW()))"
+	case "postgres":
+		return "EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - COALESCE(started_at, created_at)))"
+	default:
+		// SQLite：julianday 差值是以天为单位的浮点，排序只取相对大小。
+		// SQLite: the julianday difference is fractional days; only relative order matters.
+		return "julianday(COALESCE(finished_at, CURRENT_TIMESTAMP)) - julianday(COALESCE(started_at, created_at))"
 	}
 }
 

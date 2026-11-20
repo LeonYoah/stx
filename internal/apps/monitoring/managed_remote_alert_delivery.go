@@ -26,29 +26,23 @@ import (
 	"strings"
 	"time"
 
-	"gorm.io/gorm"
-
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
-// parseManagedRemotePolicyID 从记录 labels 里识别 managed 策略告警：managed_by=stx 时按
-// policy_id 返回策略 ID；标签缺失 policy_id 时返回 (0, true) 表示「是 managed 记录但策略不可解析」。
-// parseManagedRemotePolicyID recognises managed policy alerts from record labels: with
-// managed_by=stx it returns the policy id from policy_id; a missing policy_id yields
-// (0, true), i.e. "a managed record whose policy cannot be resolved".
-func parseManagedRemotePolicyID(record *RemoteAlertRecord) (uint, bool) {
+// parseManagedRemoteRuleKey 从记录 labels 里识别 managed 规则告警：managed_by=stx 时按
+// rule_key 返回目录规则键；标签缺失 rule_key 时返回 ("", true) 表示「是 managed 记录但规则不可解析」。
+// parseManagedRemoteRuleKey recognises managed rule alerts from record labels: with
+// managed_by=stx it returns the catalog key from rule_key; a missing rule_key yields
+// ("", true), i.e. "a managed record whose rule cannot be resolved".
+func parseManagedRemoteRuleKey(record *RemoteAlertRecord) (string, bool) {
 	if record == nil {
-		return 0, false
+		return "", false
 	}
 	labels := parseRemoteAlertLabels(record)
 	if !strings.EqualFold(strings.TrimSpace(labels["managed_by"]), "stx") {
-		return 0, false
+		return "", false
 	}
-	parsedID, err := strconv.ParseUint(strings.TrimSpace(labels["policy_id"]), 10, 32)
-	if err != nil || parsedID == 0 {
-		return 0, true
-	}
-	return uint(parsedID), true
+	return strings.TrimSpace(labels["rule_key"]), true
 }
 
 func parseRemoteAlertLabels(record *RemoteAlertRecord) map[string]string {
@@ -78,43 +72,28 @@ func (s *Service) deliverManagedRemoteAlertPolicyNotifications(
 	record *RemoteAlertRecord,
 	previousRecord *RemoteAlertRecord,
 ) (bool, error) {
-	policyID, handled := parseManagedRemotePolicyID(record)
+	ruleKey, handled := parseManagedRemoteRuleKey(record)
 	if !handled {
 		return false, nil
 	}
-	if policyID == 0 {
+	if ruleKey == "" {
 		return true, nil
 	}
 
-	policy, err := s.repo.GetAlertPolicyByID(ctx, policyID)
+	clusterID, _ := strconv.ParseUint(strings.TrimSpace(record.ClusterID), 10, 32)
+	rule, err := s.ResolveClusterRule(ctx, ruleKey, uint(clusterID))
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return true, nil
-		}
 		return true, err
 	}
-	if policy == nil || !policy.Enabled {
+	// warning / 通知关闭 / 未启用的规则不外投；unknown 键（比如阶段 3 之前的 availability
+	// 规则）同样直接吞掉。
+	// Rules that are warning / notification-off / disabled do not deliver externally; unknown
+	// keys (e.g. availability rules before phase 3) are swallowed the same way.
+	if !rule.deliversExternally() {
 		return true, nil
 	}
 
-	summary, err := s.dispatchManagedRemoteAlertPolicy(ctx, record, policy)
-	stateUpdate := &AlertPolicyExecutionStateUpdate{
-		DeliveryCountDelta:  summary.DeliveryCountDelta,
-		LastDeliveredAt:     summary.LastDeliveredAt,
-		LastExecutionStatus: summary.LastExecutionStatus,
-		LastExecutionError:  strings.TrimSpace(summary.LastExecutionError),
-	}
-	if previousRecord == nil && strings.EqualFold(strings.TrimSpace(record.Status), string(NotificationDeliveryEventTypeFiring)) {
-		matchedAt := time.Unix(record.StartsAt, 0).UTC()
-		stateUpdate.MatchCountDelta = 1
-		stateUpdate.LastMatchedAt = &matchedAt
-	}
-	if applyErr := s.repo.ApplyAlertPolicyExecutionState(ctx, policy.ID, stateUpdate); applyErr != nil {
-		if err != nil {
-			return true, errors.Join(err, applyErr)
-		}
-		return true, applyErr
-	}
+	_, err = s.dispatchManagedRemoteAlertPolicy(ctx, record, rule.deliveryPolicy())
 	return true, err
 }
 
@@ -367,9 +346,8 @@ func buildManagedRemoteAlertPolicyPayload(
 		"source_key":   buildRemoteAlertSourceKey(record.Fingerprint, record.StartsAt),
 		"event_type":   eventType,
 		"status":       strings.ToLower(string(eventType)),
-		"policy_id":    policy.ID,
+		"rule_key":     strings.TrimSpace(policy.TemplateKey),
 		"policy_name":  strings.TrimSpace(policy.Name),
-		"template_key": strings.TrimSpace(policy.TemplateKey),
 		"cluster_id":   strings.TrimSpace(record.ClusterID),
 		"cluster_name": strings.TrimSpace(record.ClusterName),
 		"severity":     strings.TrimSpace(record.Severity),
@@ -414,11 +392,4 @@ func buildManagedRemoteAlertPolicyPayload(
 	default:
 		return nil, fmt.Errorf("unsupported channel type")
 	}
-}
-
-func policyIDLabel(policy *AlertPolicy) string {
-	if policy == nil {
-		return ""
-	}
-	return strconv.FormatUint(uint64(policy.ID), 10)
 }

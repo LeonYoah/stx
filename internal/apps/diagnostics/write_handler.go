@@ -30,13 +30,16 @@ import (
 )
 
 const (
-	diagnosticsInspectionExecutionModule = "diagnostics_inspection"
-	diagnosticsAutoPolicyExecutionModule = "diagnostics_auto_policy"
-	diagnosticsTaskStartExecutionModule  = "diagnostics_task_start"
-	diagnosticsInspectionRunImpact       = "立即巡检会读取集群状态、进程事件、告警和近期错误，并保存巡检报告。"
-	diagnosticsAutoPolicyCreateImpact    = "创建自动巡检策略后，启用的条件可能自动发起巡检和诊断任务。"
-	diagnosticsAutoPolicyUpdateImpact    = "修改自动巡检策略会改变后续自动巡检和诊断任务的触发方式。"
-	diagnosticsTaskStartImpact           = "启动诊断任务会执行任务中已选择的资源采集步骤，部分步骤可能增加节点负载。"
+	diagnosticsInspectionExecutionModule        = "diagnostics_inspection"
+	diagnosticsAutoPolicyExecutionModule        = "diagnostics_auto_policy"
+	diagnosticsTaskStartExecutionModule         = "diagnostics_task_start"
+	diagnosticsInspectionCleanupExecutionModule = "diagnostics_inspection_cleanup"
+	diagnosticsInspectionRunImpact              = "立即巡检会读取集群状态、进程事件、告警和近期错误，并保存巡检报告。"
+	diagnosticsAutoPolicyCreateImpact           = "创建自动巡检策略后，启用的条件可能自动发起巡检和诊断任务。"
+	diagnosticsAutoPolicyUpdateImpact           = "修改自动巡检策略会改变后续自动巡检和诊断任务的触发方式。"
+	diagnosticsTaskStartImpact                  = "启动诊断任务会执行任务中已选择的资源采集步骤，部分步骤可能增加节点负载。"
+	diagnosticsInspectionCleanupUpdateImpact    = "修改巡检记录清理设置会改变后续自动清理巡检报告和绑定诊断数据的保留策略。"
+	diagnosticsInspectionBatchDeleteImpact      = "删除巡检记录会同时删除其巡检发现项、绑定的诊断任务和磁盘采集包，不可恢复。"
 )
 
 // beginDiagnosticsSynchronousWrite 为 CLI 和直接 API 写请求创建同步执行记录，网页请求保持现有行为。
@@ -120,6 +123,13 @@ func (h *Handler) writeExistingDiagnosticsSynchronousWrite(c *gin.Context, item 
 			return
 		}
 		c.JSON(http.StatusOK, Response{Data: localizeDiagnosticTask(data, diagnosticsLanguageFromRequest(c))})
+	case "diagnostics.inspection-cleanup.update":
+		data, loadErr := h.service.GetInspectionCleanupSettings(c.Request.Context())
+		if loadErr != nil {
+			h.writeDiagnosticsError(c, loadErr)
+			return
+		}
+		c.JSON(http.StatusOK, Response{Data: data})
 	default:
 		h.writeDiagnosticsError(c, executionapp.ErrConcurrentUpdate)
 	}

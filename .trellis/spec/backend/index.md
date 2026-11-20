@@ -23,12 +23,14 @@
 | [质量规范](./quality-guidelines.md) | 代码标准、注释规范、License 头、语言输出约定、禁止模式 | 已填写 |
 | [日志规范](./logging-guidelines.md) | 结构化日志与日志级别 | 已填写 |
 | [作业状态对账器](./job-status-reconciler.md) | GetJob/ListJobs 读库、集群对账与 sync 观察字段 | 已填写 |
-| [同步作业告警](./sync-alerts.md) | 作业级规则（任务上配置才生效）与集群级默认规则、信号契约、告警阶段（合并 / 提醒 / 恢复）、投递、任务告警接口与 CLI | 已填写 |
+| [同步作业告警](./sync-alerts.md) | 作业级规则（任务上配置才生效）与集群级同步规则（解析自集群规则目录）、信号契约、告警阶段（合并 / 提醒 / 恢复）、投递、任务告警接口与 CLI | 已填写 |
+| [集群告警规则目录与默认通知](./cluster-alert-rules.md) | 21 条集群级规则目录、全局/集群例外三层解析、可用性评估器（节点/Master/Worker/Agent）、critical 外部渠道校验、默认通知、旧配置迁移与已移除接口 | 已填写 |
 | [实时可观测性与事件上报](./engine-events-and-realtime.md) | 提交时注入 observability、`/metrics/realtime` 代理（只找 active master）、`event-report-http` 事件通道（接收端只对 token 错误返回非 2xx） | 已填写 |
 | [作业计划 DAG](./job-plan-dag.md) | 运行作业用提交内容经 config tool 推导表结构与建表计划（`/jobs/:id/plan-dag`），原因码代替报错、不缓存不回写 | 已填写 |
 | [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md) | 提交等待、守护进程、登录令牌、推送绑定与 CLI 退出码 | 已填写 |
 | [SeaTunnel 无偏移时间解析](./engine-timezone.md) | 引擎/日志无偏移时间：`STX_SEATUNNEL_TIMEZONE` > Master 心跳时区 > `time.Local` | 已填写 |
 | [内嵌 tsdb 自观测](./embedded-tsdb-self-obs.md) | 自抓取 `job=stx_embedded`、Go/进程采集器、integration status 存储 meta | 已填写 |
+| [平台自监控](./platform-self-monitoring.md) | server HTTP/gRPC/DB/build 指标、Agent 进程上报白名单、平台快照接口与告警模板、外部探活边界 | 已填写 |
 | [内嵌 tsdb 容量与默认值](./embedded-tsdb-capacity.md) | `max_samples` / `sample_limit` 收紧、序列规模基准 | 已填写 |
 | [进程剖析 pprof](./pprof.md) | 本机 loopback 监听、管理员 API/CLI、内嵌 tsdb 接口怎么测 | 已填写 |
 
@@ -44,9 +46,11 @@
 - 涉及 `/metrics/realtime`、作业提交内容注入、SeaTunnel 事件上报或 `sync_engine_events` 时，阅读[实时可观测性与事件上报](./engine-events-and-realtime.md)。
 - 涉及作业详情的表结构 / 建表计划、`submit_spec.submitted_content` 的保存或 config tool WebUI DAG 时，阅读[作业计划 DAG](./job-plan-dag.md)。
 - 涉及作业告警（提交失败、提交超时、作业失败、停止超时、作业状态获取失败、事件通道降级）、`monitoring_sync_alert_episodes`、任务告警配置或修改会发出告警信号的状态写入时，阅读[同步作业告警](./sync-alerts.md)。
+- 涉及集群级告警规则目录、全局/集群例外配置、`node_offline` / `master_unavailable` / `worker_insufficient` / `agent_offline` 可用性评估、默认通知或旧策略/路由迁移时，阅读[集群告警规则目录与默认通知](./cluster-alert-rules.md)。
 - 涉及 DolphinScheduler SHELL 节点、`--wait`/`--close-job`、登录令牌或工作流推送时，阅读[DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)。
 - 涉及引擎 REST / 作业 `finishTime`、诊断日志时间窗或 Agent 心跳时区时，阅读[SeaTunnel 无偏移时间解析](./engine-timezone.md)。
 - 涉及内嵌 tsdb 自抓取、`prometheus_tsdb_*` / `go_*` 查询或 integration status 存储 meta 时，阅读[内嵌 tsdb 自观测](./embedded-tsdb-self-obs.md)。
+- 涉及 server 自指标（`stx_server_*`）、Agent 进程指标（`stx_agent_*`）、`/monitoring/platform` 快照或 `platform_health` 告警模板时，阅读[平台自监控](./platform-self-monitoring.md)。
 - 涉及 `max_samples`、抓取 `sample_limit` 或序列规模基准时，阅读[内嵌 tsdb 容量与默认值](./embedded-tsdb-capacity.md)。
 - 涉及进程剖析、pprof 监听或测量内嵌 tsdb 接口耗时时，阅读[进程剖析 pprof](./pprof.md)。
 - 新增源文件、方法或用户可见文案时，按[质量规范](./quality-guidelines.md)检查注释、License 头和语言输出。

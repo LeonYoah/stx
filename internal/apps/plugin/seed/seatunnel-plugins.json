@@ -8,7 +8,8 @@
     "JDBC and most connector-local jars can stay under plugins/<connector>/ and are picked up by getPluginJarAndDependencyPaths.",
     "file-s3 keeps relying on the engine-bundled seatunnel-shade-hadoop-aws; docs-only hadoop-aws/aws-java-sdk-bundle are not duplicated in the seed.",
     "file-base and file-base-hadoop stay hidden in marketplace but are auto-attached for matching file connectors.",
-    "http-base stays visible and is auto-attached for http-* and prometheus."
+    "http-base stays visible and is auto-attached for http-* and prometheus.",
+    "For 3.1.0, 11 new connectors from upstream v3.1.0 release are added to catalog and dependency baseline (azure-event-hubs, cdc-oceanbase, file-smb, google-analytics4, http-asana, http-intercom, http-paypal, http-splunk, http-typeform, syslog, websocket)."
   ],
   "hidden_plugins": [
     "file-base",
@@ -58,6 +59,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "azure-event-hubs",
+      "display_name": "Azure Event Hubs",
+      "artifact_id": "connector-azure-event-hubs",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
+    },
+    {
       "name": "azure-queue-storage",
       "display_name": "Azure Queue Storage",
       "artifact_id": "connector-azure-queue-storage",
@@ -105,6 +113,13 @@
       "artifact_id": "connector-cdc-mysql",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
+    },
+    {
+      "name": "cdc-oceanbase",
+      "display_name": "Cdc Oceanbase",
+      "artifact_id": "connector-cdc-oceanbase",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
     },
     {
       "name": "cdc-opengauss",
@@ -345,6 +360,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "file-smb",
+      "display_name": "File Smb",
+      "artifact_id": "connector-file-smb",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
+    },
+    {
       "name": "firebase",
       "display_name": "Firebase",
       "artifact_id": "connector-firebase",
@@ -364,6 +386,13 @@
       "artifact_id": "connector-google-ads",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
+      "name": "google-analytics4",
+      "display_name": "Google Analytics4",
+      "artifact_id": "connector-google-analytics4",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
     },
     {
       "name": "google-bigtable",
@@ -422,6 +451,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/connector-v2"
     },
     {
+      "name": "http-asana",
+      "display_name": "Http Asana",
+      "artifact_id": "connector-http-asana",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
+    },
+    {
       "name": "http-base",
       "display_name": "Http Base",
       "artifact_id": "connector-http-base",
@@ -448,6 +484,13 @@
       "artifact_id": "connector-http-gitlab",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
+    },
+    {
+      "name": "http-intercom",
+      "display_name": "Http Intercom",
+      "artifact_id": "connector-http-intercom",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
     },
     {
       "name": "http-jira",
@@ -499,6 +542,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "http-paypal",
+      "display_name": "Http Paypal",
+      "artifact_id": "connector-http-paypal",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
+    },
+    {
       "name": "http-persistiq",
       "display_name": "Http Persistiq",
       "artifact_id": "connector-http-persistiq",
@@ -520,11 +570,25 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
     },
     {
+      "name": "http-splunk",
+      "display_name": "Http Splunk",
+      "artifact_id": "connector-http-splunk",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
+    },
+    {
       "name": "http-stripe",
       "display_name": "HTTP Stripe",
       "artifact_id": "connector-http-stripe",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
+      "name": "http-typeform",
+      "display_name": "Http Typeform",
+      "artifact_id": "connector-http-typeform",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
     },
     {
       "name": "http-wechat",
@@ -800,6 +864,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "syslog",
+      "display_name": "Syslog",
+      "artifact_id": "connector-syslog",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
+    },
+    {
       "name": "tablestore",
       "display_name": "Tablestore",
       "artifact_id": "connector-tablestore",
@@ -833,6 +904,13 @@
       "artifact_id": "connector-web3j",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
+    },
+    {
+      "name": "websocket",
+      "display_name": "Websocket",
+      "artifact_id": "connector-websocket",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2"
     }
   ],
   "default_not_required": [
@@ -842,6 +920,7 @@
     "amazondynamodb",
     "amazonsqs",
     "assert",
+    "azure-event-hubs",
     "azure-queue-storage",
     "azurecosmosdb",
     "bigquery",
@@ -864,6 +943,7 @@
     "firebase",
     "fluss",
     "google-ads",
+    "google-analytics4",
     "google-bigtable",
     "google-firestore",
     "google-pubsub",
@@ -901,11 +981,13 @@
     "sls",
     "snmp",
     "socket",
+    "syslog",
     "tablestore",
     "tdengine",
     "tiktok-ads",
     "typesense",
-    "web3j"
+    "web3j",
+    "websocket"
   ],
   "profiles": [
     {
@@ -3528,6 +3610,241 @@
           "note": ""
         }
       ]
+    },
+    {
+      "plugin_name": "file-smb",
+      "artifact_id": "connector-file-smb",
+      "profile_key": "default",
+      "profile_name": "Default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-file-smb",
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.1.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-file-base",
+          "version": "3.1.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+          "note": ""
+        }
+      ],
+      "applies_to": "*",
+      "include_versions": [
+        "3.1.0"
+      ],
+      "exclude_versions": []
+    },
+    {
+      "plugin_name": "cdc-oceanbase",
+      "artifact_id": "connector-cdc-oceanbase",
+      "profile_key": "default",
+      "profile_name": "Default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-cdc-oceanbase",
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.1.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-cdc-mysql",
+          "version": "3.1.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+          "note": "伴生 connector / companion connector"
+        },
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-jdbc",
+          "version": "3.1.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+          "note": "伴生 connector / companion connector"
+        },
+        {
+          "group_id": "mysql",
+          "artifact_id": "mysql-connector-java",
+          "version": "8.0.28",
+          "target_dir": "plugins/connector-cdc-oceanbase",
+          "required": true,
+          "source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+          "note": ""
+        }
+      ],
+      "applies_to": "*",
+      "include_versions": [
+        "3.1.0"
+      ],
+      "exclude_versions": []
+    },
+    {
+      "plugin_name": "http-asana",
+      "artifact_id": "connector-http-asana",
+      "profile_key": "default",
+      "profile_name": "Default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-http-asana",
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.1.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-http-base",
+          "version": "3.1.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+          "note": ""
+        }
+      ],
+      "applies_to": "*",
+      "include_versions": [
+        "3.1.0"
+      ],
+      "exclude_versions": []
+    },
+    {
+      "plugin_name": "http-intercom",
+      "artifact_id": "connector-http-intercom",
+      "profile_key": "default",
+      "profile_name": "Default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-http-intercom",
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.1.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-http-base",
+          "version": "3.1.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+          "note": ""
+        }
+      ],
+      "applies_to": "*",
+      "include_versions": [
+        "3.1.0"
+      ],
+      "exclude_versions": []
+    },
+    {
+      "plugin_name": "http-paypal",
+      "artifact_id": "connector-http-paypal",
+      "profile_key": "default",
+      "profile_name": "Default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-http-paypal",
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.1.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-http-base",
+          "version": "3.1.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+          "note": ""
+        }
+      ],
+      "applies_to": "*",
+      "include_versions": [
+        "3.1.0"
+      ],
+      "exclude_versions": []
+    },
+    {
+      "plugin_name": "http-splunk",
+      "artifact_id": "connector-http-splunk",
+      "profile_key": "default",
+      "profile_name": "Default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-http-splunk",
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.1.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-http-base",
+          "version": "3.1.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+          "note": ""
+        }
+      ],
+      "applies_to": "*",
+      "include_versions": [
+        "3.1.0"
+      ],
+      "exclude_versions": []
+    },
+    {
+      "plugin_name": "http-typeform",
+      "artifact_id": "connector-http-typeform",
+      "profile_key": "default",
+      "profile_name": "Default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-http-typeform",
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.1.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-http-base",
+          "version": "3.1.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "https://seatunnel.apache.org/zh-CN/docs/3.1.0/connector-v2",
+          "note": ""
+        }
+      ],
+      "applies_to": "*",
+      "include_versions": [
+        "3.1.0"
+      ],
+      "exclude_versions": []
     }
   ],
   "template_version": "2.3.12",
@@ -3536,6 +3853,7 @@
     "2.3.12",
     "2.3.13",
     "3.0.0-SNAPSHOT",
-    "3.0.0"
+    "3.0.0",
+    "3.1.0"
   ]
 }

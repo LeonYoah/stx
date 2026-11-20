@@ -60,8 +60,8 @@ export interface JobListQuery {
   statusGroup: SyncJobStatusGroup | '';
   /** 仅 global 预设暴露 / Exposed by the global preset only. */
   mode: 'streaming' | 'batch' | '';
-  /** 仅 task 预设暴露：formal → exclude_run_type=preview，preview → run_type=preview / Task preset only. */
-  runType: 'all' | 'formal' | 'preview';
+  /** 仅 global 预设暴露：stx / external / ''（全部）/ Global preset only: stx / external / '' (all). */
+  source?: 'stx' | 'external' | '';
   keyword: string;
   /** 仅 global / Global preset only. */
   clusterId?: number;
@@ -134,6 +134,8 @@ export interface JobColumnDef {
   header: (ctx: JobTableContext) => ReactNode;
   /** 有值则可排序（映射到服务端排序键）/ Server sort key when sortable. */
   sortKey?: SyncJobListSort;
+  /** 列共享的多排序维度（含 sortKey）：方向指示与列头点按作用于当前命中维度。/ Multiple sort dimensions sharing this column (includes sortKey): the direction indicator and header click act on whichever is active. */
+  sortKeys?: SyncJobListSort[];
   /** 额外排序条件：rate / cdc_delay 只在 running 组可排 / Extra gating, e.g. rate / cdc_delay only inside the running group. */
   sortableWhen?: (query: JobListQuery) => boolean;
   align?: 'start' | 'end';
@@ -160,7 +162,6 @@ export const JOB_STATUS_GROUPS: SyncJobStatusGroup[] = [
 export const DEFAULT_JOB_LIST_QUERY: JobListQuery = {
   statusGroup: '',
   mode: '',
-  runType: 'all',
   keyword: '',
   clusterId: undefined,
   sort: 'started_at',

@@ -94,8 +94,11 @@ type DAGResponse struct {
 	Data     *DAGResult `json:"data"`
 }
 type JobResponse struct {
-	ErrorMsg string       `json:"error_msg"`
-	Data     *JobInstance `json:"data"`
+	// ErrorCode 只在有专门处理的失败上下发（如 connector_missing），CLI 与前端据此给出指引。
+	// ErrorCode is only set for failures with dedicated handling (e.g. connector_missing) so CLI and UI can guide the user.
+	ErrorCode string       `json:"error_code,omitempty"`
+	ErrorMsg  string       `json:"error_msg"`
+	Data      *JobInstance `json:"data"`
 }
 
 // JobRealtimeResponse 包装作业实时指标结果。
@@ -534,7 +537,7 @@ func (h *Handler) PreviewTask(c *gin.Context) {
 	}
 	job, err := h.service.PreviewTaskForActor(c.Request.Context(), currentExecutionActor(c), id, &req, syncExecutionRequest(c, map[string]any{"task_id": id, "request": req}))
 	if err != nil {
-		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
+		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorCode: syncErrorCode(err), ErrorMsg: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
@@ -579,7 +582,7 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 		details["error"] = err.Error()
 		_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
 			"submit", "sync_task", strconv.FormatUint(uint64(id), 10), "", details)
-		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
+		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorCode: syncErrorCode(err), ErrorMsg: err.Error()})
 		return
 	}
 	details["result_status"] = "success"
@@ -614,10 +617,11 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 // @Param status query string false "原始状态，逗号分隔"
 // @Param status_group query string false "状态组，逗号分隔：running|failed|pending|stopping|canceled|finished"
 // @Param mode query string false "streaming|batch"
+// @Param source query string false "stx|external"
 // @Param cluster_id query int false "集群 ID"
 // @Param keyword query string false "任务名（模糊）、引擎作业 ID 或平台作业 ID（精确）"
 // @Param exclude_run_type query string false "排除的运行类型，逗号分隔，如 preview"
-// @Param sort query string false "attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）"
+// @Param sort query string false "attention|started_at|created_at|finished_at|duration|rate|cdc_delay（后两者需 status_group=running）"
 // @Param order query string false "asc|desc" default(desc)
 // @Param with_counts query int false "1 = 返回各状态组计数"
 // @Param with_live query int false "1 = 返回任务名与当前读写速率、条数与逻辑表数"
@@ -676,6 +680,7 @@ func (h *Handler) ListJobs(c *gin.Context) {
 		filter.ClusterID = uint(parsed)
 	}
 	filter.Mode = strings.TrimSpace(c.Query("mode"))
+	filter.Source = JobSource(c.Query("source"))
 	filter.Keyword = strings.TrimSpace(c.Query("keyword"))
 	filter.Sort = c.Query("sort")
 	filter.Order = c.Query("order")
@@ -711,7 +716,7 @@ func (h *Handler) ListJobs(c *gin.Context) {
 // @Tags Sync
 // @Produce json
 // @Param ids query string true "逗号分隔的作业 ID，最多 100 个；无权查看的 ID 被忽略"
-// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param metric query string false "write|read" default(write)
 // @Success 200 {object} JobSparklinesResponse
 // @Failure 400 {object} JobSparklinesResponse
@@ -781,7 +786,7 @@ func (h *Handler) GetJobRealtime(c *gin.Context) {
 // @Tags Sync
 // @Produce json
 // @Param id path int true "作业 ID"
-// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param step query int false "步长（秒），0 表示按范围自动"
 // @Param metrics query string false "逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure,table"
 // @Success 200 {object} JobTimeseriesResponse
@@ -980,20 +985,17 @@ func (h *Handler) RecoverJob(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
 	}
-	if sourceJob.TaskID > 0 {
-		task, err := h.service.GetTaskForActor(c.Request.Context(), actor, sourceJob.TaskID)
-		if err != nil {
-			c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
-			return
-		}
-		if !task.CanUserRun(uint(actor.UserID), actor.IsAdmin) {
-			c.JSON(http.StatusForbidden, JobResponse{ErrorMsg: ErrTaskReadOnly.Error()})
-			return
-		}
+	if sourceJob.Source == JobSourceExternal || sourceJob.TaskID == 0 {
+		c.JSON(h.getStatusCodeForError(ErrRecoverSourceRequired), JobResponse{ErrorCode: syncErrorCode(ErrRecoverSourceRequired), ErrorMsg: ErrRecoverSourceRequired.Error()})
+		return
+	}
+	if !sourceJob.CanRecover {
+		c.JSON(http.StatusForbidden, JobResponse{ErrorMsg: ErrTaskReadOnly.Error()})
+		return
 	}
 	job, err := h.service.RecoverJobWithExecution(c.Request.Context(), id, getCurrentUserID(c), req.Draft, syncExecutionRequest(c, map[string]any{"source_job_id": id, "draft": req.Draft}))
 	if err != nil {
-		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
+		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorCode: syncErrorCode(err), ErrorMsg: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
@@ -1061,6 +1063,10 @@ func (h *Handler) getStatusCodeForError(err error) int {
 	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored), errors.Is(err, ErrInvalidTaskCollaborator), errors.Is(err, ErrCuratedTemplateNameRequired), errors.Is(err, ErrCuratedTemplateContentRequired), errors.Is(err, ErrCuratedTemplateSectionInvalid), errors.Is(err, ErrCuratedBuiltinIDRequired), errors.Is(err, ErrUnreplacedVariable), errors.Is(err, ErrUndefinedTemplateVariable), errors.Is(err, ErrInvalidScheduleTime), errors.Is(err, ErrSchedulerConnectionInvalid), errors.Is(err, ErrDolphinPushInvalid), errors.Is(err, ErrDolphinCycle), errors.Is(err, ErrScheduleLockedByDolphin), errors.Is(err, ErrDolphinNodeMissing), errors.Is(err, ErrDolphinUnsupportedVersion), errors.Is(err, ErrEventChannelVersionUnsupported), errors.Is(err, ErrEventChannelExternalURLMissing), errors.Is(err, ErrEventChannelSecretMissing), errors.Is(err, ErrInvalidTaskTimeout), errors.Is(err, ErrInvalidJobListQuery):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, ErrAttachGenerationMismatch), errors.Is(err, ErrJobCancellingTimeout), errors.Is(err, ErrDolphinVersionConflict), errors.Is(err, ErrSchedulerBindingExists), errors.Is(err, ErrDolphinPushNoNewVersion), errors.Is(err, ErrSubmitOutcomePending):
+		return http.StatusConflict
+	case errors.Is(err, ErrConnectorMissing):
+		// 集群状态不满足任务前提，重试不会成功；409 让 CLI 归为冲突而不是可重试的服务端错误。
+		// The cluster does not meet the job's precondition and retrying will not help; 409 keeps the CLI from treating it as a retryable server error.
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError

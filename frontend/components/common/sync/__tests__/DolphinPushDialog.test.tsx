@@ -49,7 +49,7 @@ vi.mock('@/lib/services/sync/sync.service', () => ({
   },
 }));
 
-vi.mock('sonner', () => ({
+vi.mock('@/lib/toast', () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
@@ -102,7 +102,7 @@ describe('DolphinPushDialog', () => {
   });
 
   it('refuses to save a connection without the Open API token', async () => {
-    const {toast} = await import('sonner');
+    const {toast} = await import('@/lib/toast');
     listSchedulerConnections.mockResolvedValue({items: []});
     renderDialog();
 

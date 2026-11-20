@@ -55,6 +55,13 @@ func (s *Service) StartInspection(ctx context.Context, req *StartClusterInspecti
 		return nil, err
 	}
 
+	// 报告创建后执行链路改用不随请求取消的 ctx：浏览器断开或代理超时不应让
+	// 已入库的报告永远停在 running（僵尸 reconcile 只能兜底进程重启）。
+	// After the report is created, the execution path switches to a context detached
+	// from request cancellation: a browser disconnect or proxy timeout must not leave
+	// the persisted report running forever (reconcile only covers process restarts).
+	ctx = context.WithoutCancel(ctx)
+
 	startedAt := timex.Now()
 	report := &ClusterInspectionReport{
 		ClusterID:         req.ClusterID,

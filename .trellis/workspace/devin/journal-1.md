@@ -96,3 +96,18 @@ E2 跨层实现完成：内嵌 tsdb 最早样本探测、日 / 月桶 increase �
 - E1 集群指标细化：`/dashboard/home/clusters/detail` 按 jvm/gc/sched/store/proc 懒加载 + 前端细节区 + 事件标注；实测五组全有真实数据 — `36a12c9d`
 - E3 主机指标：agent gopsutil v4 → `ReportHostMetrics` gRPC → 控制面写内嵌 tsdb（身份标签防注入 + SeriesTracker stale）；`/dashboard/home/hosts` + 「主机」页签；真实 agent 全链路验证通过（10 面板真数据）— 同 `36a12c9d`
 - 教训：显示格式上 LineChart 会自拼 unit，formatValue 不要重复加后缀；字节量纲须用 IEC formatBytes 而非 formatCompactNumber（B=Billion≠Byte）。
+
+## 2026-11-20 PR #169 跟进（feat/external-seatunnel-jobs）
+
+- main 并入 #165（SeaTunnel 3.1.0 基线）后 PR 冲突，唯一冲突文件 `route_baseline.json`，重新 `contract-report -write` 生成（314 路由 / 33 例外，本 PR 无新增路由，仅 source 行号位移）— `06297a4`
+- `job_permissions.go` 缺 Apache 头导致 License Policy Check 失败，补头后 `check_license.py` 通过 — `77bb218`
+- 验证：`go build ./...`、`go test ./internal/operation/... ./internal/apps/sync/...`、前端 `tsc --noEmit` 全绿，已推送
+- 待办：评审 4 必改项已在 e12378bc 文档修订吸收但未逐条回复；「停止结果未知→卡在 cancelling」为 STX 既有 bug，本 PR 未修
+- 修复「停止结果未知 → 卡在 cancelling」：`applyEngineJobInfoUpdate` 在取消中作业越过 `cancel_deadline` 且引擎仍报 RUNNING/PENDING 时恢复引擎真实状态并写 `cancel_outcome=reverted`，允许重新停止；spec `job-status-reconciler.md` 已同步，新增 `TestCancelOverdueEngineRunningRevertsToRunning`
+- 前端补齐外部作业设计稿偏差：运行方式列加独立来源徽标（`STX` / `外部`），外部作业隐去「在工作台打开」与「任务 #0」悬浮引用、空 `mode` 显示 `-`；`cancel_outcome=reverted` 新增 `isCancelReverted` + `JobOutcomeHints`「停止未生效」提示（列表/详情/控制台共用）；外部作业脚本页签文案改为 `externalScriptEmpty`
+- 验证：接主环境真实库（`seatunnel.db` 拷贝 + 本机 SeaTunnel 3.0.0）提交外部冒烟作业，浏览器实测「外部」徽标/STX 徽标/外部菜单无工作台入口；`vitest` 753 全过、`tsc --noEmit` 干净、zh/en key 零偏差
+- 评审反馈修正：外部作业「外部」来源徽标与「外部提交」runMode 徽标同义，列表行只保留来源徽标（`getRunModeLabel` 对 source=external 恒返回外部提交）— `23c50e956`
+- 作业表耗时格式化：`TimelineCell` 精确到天/时/分/秒动态出现（`<1分` 改 `42 秒`），`jobTable.units` 补 `s`；大盘作业列表与工作台任务列表共用生效 — `61a6103f0`
+- 作业列表排序菜单（方案 A，GitHub/Linear 式）：`sort` 扩 `finished_at`（NULL 恒垫底）与 `duration`（方言表达式：MySQL `TIMESTAMPDIFF` / PG `EXTRACT(EPOCH)` / SQLite `julianday`，未结束按 now、`started_at` 缺失回退 `created_at`）；新增通用 `SortMenu`（`components/common/SortMenu.tsx`，radio 项 = sort+order 组合，禁用项保留附原因）接入 `JobTableToolbar` 两个预设；swagger 注解 / registry_sync / spec / docs 三件套同步；CLI `--sort` 为透传 flag 免改
+- 排序交互迭代：PR169 squash 合入时点早于后续推送，新开 `feat/job-sort-column-menu` 补合 6 个遗漏提交（`79d5ed9f0`）；评审从方案 A（工具栏下拉）先改列头内嵌 caret 菜单（`708130ef1`），最终按偏好定为工具栏独立「排序」按钮——复用监控规则面板同款 Arc `DropdownMenu`（图标+标签胶囊触发器、当前项 ✓ + 等宽占位、滑动高亮），删除通用 `SortMenu` 组件，列头点按排序保留为快捷路径（`88f7781ec`，PR #176）
+- 排序菜单收敛：字段×方向 11 项视觉过密，改为仅时间维度 3 项（✓ 当前项，复用 `startedAt/finishedAt/duration` 文案）；方向归位时间列头——`sortKeys` 让方向指示在任一维度命中时点亮、点按作用于当前维度；时间维度清单抽 `TIME_SORT_KEYS` 供列注册表与工具栏共用；菜单项复用 Arc `DropdownMenu`（kubai 020：菜单承载重复长标签是反面案例）

@@ -16,6 +16,7 @@
  */
 
 import type {Metadata} from 'next';
+import Script from 'next/script';
 import {Toaster} from '@/components/ui/sonner';
 import {ThemeProvider} from '@/components/common/layout/ThemeProvider';
 import {I18nProvider} from '@/lib/i18n';
@@ -85,8 +86,31 @@ export default function RootLayout({
          * a black cover goes up first so the home page never flashes.
          */}
         <script dangerouslySetInnerHTML={{__html: welcomeSplashBootScript}} />
+        {/*
+         * 输入模态追踪：pointerdown 记 pointer、keydown 记 keyboard。
+         * Radix 类控件关闭时脚本 refocus 触发器，Chromium 会把这次焦点判成
+         * 键盘模态并保留 :focus-visible 描边；foundation.css 按此属性在指针
+         * 模态下隐藏描边（产品约定：指针焦点不画环）。
+         * Track input modality: pointerdown marks "pointer", keydown marks
+         * "keyboard". Radix-style controls refocus their trigger on close and
+         * Chromium counts that as keyboard modality, leaving a :focus-visible
+         * ring after every mouse selection; foundation.css hides the ring
+         * under pointer modality (product rule: pointer focus never rings).
+         */}
+        <Script
+          id='input-modality-tracker'
+          strategy='beforeInteractive'
+          dangerouslySetInnerHTML={{
+            __html: `(function(){var d=document.documentElement;d.dataset.inputModality="pointer";addEventListener("pointerdown",function(){d.dataset.inputModality="pointer"},true);addEventListener("keydown",function(){d.dataset.inputModality="keyboard"},true)})()`,
+          }}
+        />
       </head>
-      <body className='hide-scrollbar font-sans antialiased'>
+      {/* 浏览器扩展会向 body 注入属性（如 mpa-*），与 SSR 输出不符属预期噪音。
+          Browser extensions inject attributes onto body (e.g. mpa-*); diverging from SSR output is expected noise. */}
+      <body
+        className='hide-scrollbar font-sans antialiased'
+        suppressHydrationWarning
+      >
         <I18nProvider>
           <ThemeProvider
             attribute='class'

@@ -45,6 +45,9 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   variant?: ButtonVariant;
   size?: ButtonSize;
   loading?: boolean;
+  // 本地修改：纯图标方形按钮，调用方必须传 aria-label（design §3.2）。
+  // Local modification: square icon-only button — callers must pass aria-label.
+  iconOnly?: boolean;
 }
 
 /** Icon buttons press a little deeper, wide buttons a little less, so every size reads as the same push. */
@@ -109,7 +112,7 @@ function LabelPhase({ children, icon, reduced, ref }: { children: ReactNode; ico
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { className, variant = "primary", size = "md", loading = false, disabled, children, onClick, ...props },
+  { className, variant = "primary", size = "md", loading = false, disabled, children, onClick, iconOnly, ...props },
   ref,
 ) {
   const reduceMotion = useReducedMotion() ?? false;
@@ -126,7 +129,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   const popup = props["aria-haspopup"];
   const anchorsLayer = (popup !== undefined && popup !== false && popup !== "false") || props.role === "combobox" || (props as Record<string, unknown>)["data-state"] !== undefined;
   const inert = disabled || loading || props["aria-disabled"] === true || props["aria-disabled"] === "true";
-  const classes = [styles.button, styles[variant], styles[size], className].filter(Boolean).join(" ");
+  const classes = [styles.button, styles[variant], styles[size], iconOnly ? styles.iconOnly : "", className].filter(Boolean).join(" ");
 
   return (
     <motion.button

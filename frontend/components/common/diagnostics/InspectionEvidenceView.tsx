@@ -18,11 +18,13 @@
 'use client';
 
 import Link from 'next/link';
+import {useId, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {ArrowUpRight, Copy, FileSearch, Search} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import type {DiagnosticsInspectionFinding} from '@/lib/services/diagnostics';
 import {Button} from '@/components/ui/button';
+import {cn} from '@/lib/utils';
 import {localizeDiagnosticsText} from './text-utils';
 
 interface InspectionFindingCardProps {
@@ -33,9 +35,18 @@ interface InspectionFindingCardProps {
 }
 
 const severityStyles = {
-  critical: 'border-l-rose-600 dark:border-l-rose-400',
-  warning: 'border-l-amber-500 dark:border-l-amber-400',
-  info: 'border-l-sky-600 dark:border-l-sky-400',
+  critical: {
+    border: 'border-l-rose-600 dark:border-l-rose-400',
+    text: 'text-rose-600 dark:text-rose-400',
+  },
+  warning: {
+    border: 'border-l-amber-500 dark:border-l-amber-400',
+    text: 'text-amber-600 dark:text-amber-400',
+  },
+  info: {
+    border: 'border-l-sky-600 dark:border-l-sky-400',
+    text: 'text-sky-600 dark:text-sky-400',
+  },
 } as const;
 
 // 一条发现先呈现观测值，检查代码和排查方向由读者自行展开。
@@ -57,6 +68,9 @@ export function InspectionFindingCard({
     recommendation ||
     finding.related_error_group_id,
   );
+  const severity = severityStyles[finding.severity];
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsId = useId();
 
   const copyRecommendation = async () => {
     try {
@@ -69,18 +83,18 @@ export function InspectionFindingCard({
 
   return (
     <article
-      className={`border border-border/70 border-l-[3px] bg-card ${severityStyles[finding.severity]} ${compact ? 'px-4 py-4' : 'px-5 py-6 sm:px-7 sm:py-7'}`}
+      className={`border border-border/70 border-l-[3px] bg-card ${severity.border} ${compact ? 'px-4 py-4' : 'px-5 py-6 sm:px-7 sm:py-7'}`}
     >
       <div className='flex items-start gap-4 sm:gap-6'>
         <span
           aria-hidden='true'
-          className='shrink-0 pt-0.5 font-mono text-xs tabular-nums text-muted-foreground/70'
+          className='shrink-0 pt-0.5 font-mono text-xs tabular-nums text-muted-foreground'
         >
           {String(index + 1).padStart(2, '0')}
         </span>
         <div className='min-w-0 flex-1'>
           <div className='mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs'>
-            <span className='font-semibold text-foreground'>
+            <span className={`font-semibold ${severity.text}`}>
               {t(`severity.${finding.severity}`)}
             </span>
             {origin !== '-' && (
@@ -109,57 +123,87 @@ export function InspectionFindingCard({
             </p>
           </div>
           {hasDetails && (
-            <details className='group mt-5 border-t border-border/60 pt-3'>
-              <summary className='w-fit cursor-pointer list-none text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary [&::-webkit-details-marker]:hidden'>
+            <div className='mt-5 border-t border-border/60 pt-3'>
+              <button
+                type='button'
+                aria-expanded={detailsOpen}
+                aria-controls={detailsId}
+                onClick={() => setDetailsOpen(open => !open)}
+                className='w-fit text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary motion-reduce:transition-none'
+              >
                 <span className='inline-flex items-center gap-2'>
                   <Search aria-hidden='true' className='h-3.5 w-3.5' />
                   {t('evidence.details')}
-                  <span aria-hidden='true' className='group-open:rotate-90'>
+                  <span
+                    aria-hidden='true'
+                    className={cn(
+                      'inline-block transition-transform duration-150 motion-reduce:transition-none',
+                      detailsOpen && 'rotate-90',
+                    )}
+                  >
                     →
                   </span>
                 </span>
-              </summary>
-              <div className='space-y-4 pt-4 text-sm'>
-                {(finding.category || finding.check_code) && (
-                  <p className='break-words text-xs text-muted-foreground'>
-                    {[finding.category, finding.check_code]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
+              </button>
+              {/* 折叠内容常驻 DOM 才能做高度过渡；inert 在收起时把它移出无障碍树与焦点序列。
+                  Content stays mounted so its height can transition; inert removes it from the a11y tree and tab order while collapsed. */}
+              <div
+                id={detailsId}
+                inert={!detailsOpen}
+                className={cn(
+                  'grid transition-[grid-template-rows] motion-reduce:transition-none',
+                  detailsOpen
+                    ? 'grid-rows-[1fr] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]'
+                    : 'grid-rows-[0fr] duration-150 ease-[cubic-bezier(0.55,0,1,0.45)]',
                 )}
-                {recommendation && (
-                  <div className='border-l-2 border-border pl-3'>
-                    <div className='flex flex-wrap items-center gap-2'>
-                      <span className='text-xs font-medium text-foreground'>
-                        {t('evidence.investigate')}
-                      </span>
-                      <Button
-                        type='button'
-                        variant='ghost'
-                        size='sm'
-                        className='h-7 gap-1 px-2 text-xs'
-                        onClick={() => void copyRecommendation()}
+              >
+                <div className='min-h-0 overflow-hidden'>
+                  <div className='space-y-4 pt-4 text-sm'>
+                    {(finding.category || finding.check_code) && (
+                      <p className='break-words text-xs text-muted-foreground'>
+                        {[finding.category, finding.check_code]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                    )}
+                    {recommendation && (
+                      <div className='border-l-2 border-border pl-3'>
+                        <div className='flex flex-wrap items-center gap-2'>
+                          <span className='text-xs font-medium text-foreground'>
+                            {t('evidence.investigate')}
+                          </span>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            className='h-7 gap-1 px-2 text-xs'
+                            onClick={() => void copyRecommendation()}
+                          >
+                            <Copy aria-hidden='true' className='h-3.5 w-3.5' />
+                            {t('evidence.copy')}
+                          </Button>
+                        </div>
+                        <p className='mt-1 max-w-3xl whitespace-pre-wrap leading-relaxed text-muted-foreground'>
+                          {recommendation}
+                        </p>
+                      </div>
+                    )}
+                    {finding.related_error_group_id > 0 && (
+                      <Link
+                        href={`/diagnostics?tab=errors&cluster_id=${finding.cluster_id}&group_id=${finding.related_error_group_id}&source=inspection-finding`}
+                        className='inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary'
                       >
-                        <Copy aria-hidden='true' className='h-3.5 w-3.5' />
-                        {t('evidence.copy')}
-                      </Button>
-                    </div>
-                    <p className='mt-1 max-w-3xl whitespace-pre-wrap leading-relaxed text-muted-foreground'>
-                      {recommendation}
-                    </p>
+                        {t('actions.viewErrorGroup')}
+                        <ArrowUpRight
+                          aria-hidden='true'
+                          className='h-3.5 w-3.5'
+                        />
+                      </Link>
+                    )}
                   </div>
-                )}
-                {finding.related_error_group_id > 0 && (
-                  <Link
-                    href={`/diagnostics?tab=errors&cluster_id=${finding.cluster_id}&group_id=${finding.related_error_group_id}&source=inspection-finding`}
-                    className='inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary'
-                  >
-                    {t('actions.viewErrorGroup')}
-                    <ArrowUpRight aria-hidden='true' className='h-3.5 w-3.5' />
-                  </Link>
-                )}
+                </div>
               </div>
-            </details>
+            </div>
           )}
         </div>
       </div>

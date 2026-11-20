@@ -34,20 +34,19 @@ import {
   Clock,
   Copy,
   Database,
+  ExternalLink,
   Gauge,
   Lightbulb,
   Search,
   Zap,
 } from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/ui/input';
 import {
   Table,
@@ -121,6 +120,8 @@ export function StudioErrorDiagnosticsView({
 
   const getCategoryBadge = () => {
     switch (error.category) {
+      case 'connector':
+        return <Badge variant='outline' className='border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'>{t('connectorMissingBadge')}</Badge>;
       case 'syntax':
         return <Badge variant='outline' className='border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'>语法解析异常</Badge>;
       case 'schema':
@@ -173,6 +174,19 @@ export function StudioErrorDiagnosticsView({
         </div>
       ) : null}
 
+      {/* 可直接修复的错误：新标签页打开，避免离开工作台丢掉未保存的草稿。 */}
+      {/* Fixable errors open in a new tab so leaving the workbench never drops an unsaved draft. */}
+      {error.action ? (
+        <div className='flex justify-end'>
+          <Button asChild size='sm' className='h-8 gap-1.5'>
+            <a href={error.action.href} target='_blank' rel='noopener noreferrer'>
+              {error.action.label}
+              <ExternalLink className='size-3.5' />
+            </a>
+          </Button>
+        </div>
+      ) : null}
+
       {/* 详细技术堆栈（支持折叠） */}
       {error.raw && error.raw !== error.description ? (
         <div className='mt-1 space-y-1.5'>
@@ -215,11 +229,10 @@ export function StudioActionErrorDialog({
       <DialogContent
         aria-describedby={undefined}
         data-testid='studio-action-error-dialog'
-        className='flex h-auto max-h-[85vh] w-[94vw] max-w-2xl flex-col overflow-hidden border border-border/80 p-6 shadow-2xl sm:max-w-2xl dark:border-border/60'
+        title={error?.title ?? ''}
+        className='arc-compact flex h-auto max-h-[85vh]! w-[min(94vw,672px)]! flex-col overflow-hidden'
+        bodyClassName='flex min-h-0 flex-1 flex-col overflow-hidden'
       >
-        <DialogHeader className='shrink-0 pb-2'>
-          <DialogTitle>{error?.title ?? ''}</DialogTitle>
-        </DialogHeader>
         <div className='min-h-0 flex-1 overflow-auto pr-1'>
           <StudioErrorDiagnosticsView error={error} />
         </div>
@@ -1317,7 +1330,9 @@ export function JobScriptDialogContent({
   if (!script) {
     return (
       <div className='rounded-md border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-sm text-muted-foreground'>
-        {t('noActualExecutedScript')}
+        {job.source === 'external'
+          ? t('externalScriptEmpty')
+          : t('noActualExecutedScript')}
       </div>
     );
   }

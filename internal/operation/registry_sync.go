@@ -51,10 +51,11 @@ func syncOperationSpecs() []OperationSpec {
 		{Name: "status", Location: InputQuery, Required: false, Description: "Filter by raw job status, comma-separated (running,failed,canceled,success,...)"},
 		{Name: "status_group", Location: InputQuery, Required: false, Description: "Filter by status group, comma-separated: running|failed|pending|stopping|canceled|finished"},
 		{Name: "mode", Location: InputQuery, Required: false, Description: "Filter by job mode: streaming|batch"},
+		{Name: "source", Location: InputQuery, Required: false, Description: "Filter by job source: stx (submitted by STX) | external (discovered on the cluster)"},
 		{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Filter by cluster ID"},
 		{Name: "keyword", Location: InputQuery, Required: false, Description: "Task name (fuzzy), engine job ID or platform job ID (exact)"},
 		{Name: "exclude_run_type", Location: InputQuery, Required: false, Description: "Comma-separated run types to exclude, e.g. preview"},
-		{Name: "sort", Location: InputQuery, Required: false, Description: "Sort: attention|started_at|created_at; rate|cdc_delay need status_group=running (default created_at desc)"},
+		{Name: "sort", Location: InputQuery, Required: false, Description: "Sort: attention|started_at|created_at|finished_at|duration; rate|cdc_delay need status_group=running (default created_at desc)"},
 		{Name: "order", Location: InputQuery, Required: false, Description: "Sort order: asc|desc (default desc)"},
 		{Name: "with_counts", Location: InputQuery, Required: false, Description: "Set to 1 to include per-status-group counts"},
 		{Name: "with_live", Location: InputQuery, Required: false, Description: "Set to 1 to include task names and live read/write rates, totals, and logical table count"},
@@ -65,7 +66,7 @@ func syncOperationSpecs() []OperationSpec {
 
 	jobSparklineInputs := []InputSpec{
 		{Name: "ids", Location: InputQuery, Required: true, Description: "Comma-separated job instance IDs (max 100); IDs you cannot view are ignored"},
-		{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h)"},
+		{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h)"},
 		{Name: "metric", Location: InputQuery, Required: false, Description: "write (default) or read"},
 	}
 
@@ -85,9 +86,9 @@ func syncOperationSpecs() []OperationSpec {
 	}
 	timeseriesInputs := []InputSpec{
 		{Name: "id", Location: InputPath, Required: true, Description: "Job instance ID"},
-		{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+		{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 		{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds; overrides range"},
-		{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now): RFC3339 or unix seconds/milliseconds; span at most 31 days"},
+		{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now): RFC3339 or unix seconds/milliseconds; span at most 366 days"},
 		{Name: "step", Location: InputQuery, Required: false, Description: "Step in seconds (0 = auto from range or window)"},
 		{Name: "metrics", Location: InputQuery, Required: false, Description: "Comma-separated metric keys: throughput,rows,cdc_delay,checkpoint,busy,backpressure,table"},
 	}

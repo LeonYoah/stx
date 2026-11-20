@@ -24,7 +24,7 @@ import {describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
 import {StudioActionErrorDialog} from '../StudioDialogs';
 
-vi.mock('sonner', () => ({
+vi.mock('@/lib/toast', () => ({
   toast: {success: vi.fn(), error: vi.fn()},
 }));
 
@@ -52,5 +52,37 @@ describe('StudioActionErrorDialog', () => {
     const description = screen.getByText(/Caused by: java.lang.RuntimeException: boom/);
     expect(description.className).toContain('max-h-[40vh]');
     expect(description.className).toContain('overflow-auto');
+  });
+
+  it('shows the connector-missing badge and opens the install action in a new tab', () => {
+    render(
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <StudioActionErrorDialog
+          error={{
+            title: zh.workbenchStudio.connectorMissingTitle,
+            description: zh.workbenchStudio.connectorMissingPreviewDescription,
+            category: 'connector',
+            suggestion: zh.workbenchStudio.connectorMissingSuggestion.replace(
+              '{identifier}',
+              'Http',
+            ),
+            action: {
+              label: zh.workbenchStudio.connectorMissingAction,
+              href: '/plugins?q=http',
+            },
+          }}
+          onOpenChange={vi.fn()}
+        />
+      </NextIntlClientProvider>,
+    );
+
+    expect(
+      screen.getByText(zh.workbenchStudio.connectorMissingBadge),
+    ).toBeTruthy();
+    const link = screen.getByRole('link', {
+      name: zh.workbenchStudio.connectorMissingAction,
+    });
+    expect(link.getAttribute('href')).toBe('/plugins?q=http');
+    expect(link.getAttribute('target')).toBe('_blank');
   });
 });

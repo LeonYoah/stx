@@ -42,12 +42,44 @@ func (r *Repository) DeleteTaskVersionsByTaskIDs(ctx context.Context, taskIDs []
 	return r.db.WithContext(ctx).Where("task_id IN ?", taskIDs).Delete(&TaskVersion{}).Error
 }
 
-// DeleteJobInstancesByTaskIDs deletes run history for the provided task ids.
-func (r *Repository) DeleteJobInstancesByTaskIDs(ctx context.Context, taskIDs []uint) error {
+// MarkJobInstancesTaskDeleted 给已删除任务的作业行写删除时间，保留运行历史。
+// MarkJobInstancesTaskDeleted stamps jobs of deleted tasks and keeps their run history.
+func (r *Repository) MarkJobInstancesTaskDeleted(ctx context.Context, taskIDs []uint, at time.Time) error {
 	if len(taskIDs) == 0 {
 		return nil
 	}
-	return r.db.WithContext(ctx).Where("task_id IN ?", taskIDs).Delete(&JobInstance{}).Error
+	return r.db.WithContext(ctx).Model(&JobInstance{}).
+		Where("task_id IN ? AND task_deleted_at IS NULL", taskIDs).
+		UpdateColumn("task_deleted_at", at.UTC()).Error
+}
+
+// BackfillEngineEventJobInstanceID 把导入前就已入库的该作业事件挂到新建的作业行上，详情「事件」页不漏首条事件。
+// BackfillEngineEventJobInstanceID links events stored before the import to the new job row so the detail events tab
+// keeps the first ones.
+func (r *Repository) BackfillEngineEventJobInstanceID(ctx context.Context, clusterID uint, engineJobID string, jobInstanceID uint) error {
+	return r.db.WithContext(ctx).Model(&EngineEvent{}).
+		Where("cluster_id = ? AND engine_job_id = ? AND job_instance_id IS NULL", clusterID, engineJobID).
+		UpdateColumn("job_instance_id", jobInstanceID).Error
+}
+
+// ExistingEngineJobIDs 返回某集群下已有作业行（任意来源、任意状态）的引擎作业 ID，供外部发现判重。
+// ExistingEngineJobIDs returns engine job IDs that already have rows on one cluster (any source or status),
+// used to dedupe external discovery.
+func (r *Repository) ExistingEngineJobIDs(ctx context.Context, clusterID uint, engineJobIDs []string) (map[string]struct{}, error) {
+	out := make(map[string]struct{}, len(engineJobIDs))
+	for start := 0; start < len(engineJobIDs); start += 500 {
+		end := min(start+500, len(engineJobIDs))
+		var ids []string
+		if err := r.db.WithContext(ctx).Model(&JobInstance{}).
+			Where("(cluster_id = ? OR cluster_id = 0) AND engine_job_id IN ?", clusterID, engineJobIDs[start:end]).
+			Distinct().Pluck("engine_job_id", &ids).Error; err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			out[id] = struct{}{}
+		}
+	}
+	return out, nil
 }
 
 // DeletePreviewRowsByTaskIDs deletes preview rows for the provided task ids.
@@ -392,14 +424,23 @@ func (r *Repository) applyJobFilter(query *gorm.DB, filter *JobFilter, withStatu
 		return query
 	}
 	if !filter.IncludeAll {
+		// 与 EvaluateJobPermissions 的 CanView 等价：外部作业登录可见；已删任务的作业只对发起人可见。
+		// Mirrors CanView in EvaluateJobPermissions: external jobs are visible to signed-in users; jobs of deleted
+		// tasks stay visible to their submitter only.
 		if len(filter.VisibleTaskIDs) > 0 {
-			query = query.Where("(created_by = ? OR task_id IN ?)", filter.OwnerUserID, filter.VisibleTaskIDs)
+			query = query.Where("(source = ? OR created_by = ? OR (task_id IN ? AND task_deleted_at IS NULL))",
+				JobSourceExternal, filter.OwnerUserID, filter.VisibleTaskIDs)
 		} else {
-			query = query.Where("created_by = ?", filter.OwnerUserID)
+			query = query.Where("(source = ? OR created_by = ?)", JobSourceExternal, filter.OwnerUserID)
 		}
 	}
 	if filter.TaskID > 0 {
-		query = query.Where("task_id = ?", filter.TaskID)
+		// 按任务筛选时排除已删任务留下的作业：MySQL 重启后自增 ID 可能被新任务复用。
+		// Filtering by task skips rows left by a deleted task: MySQL may reuse the auto-increment ID after restart.
+		query = query.Where("task_id = ? AND task_deleted_at IS NULL", filter.TaskID)
+	}
+	if filter.Source != "" {
+		query = query.Where("source = ?", filter.Source)
 	}
 	if len(filter.IDs) > 0 {
 		query = query.Where("id IN ?", filter.IDs)
@@ -470,10 +511,34 @@ func applyJobListOrder(query *gorm.DB, filter *JobFilter) *gorm.DB {
 		return query.Order(jobAttentionOrderExpr()).Order(startedExpr + " DESC").Order("id DESC")
 	case jobListSortStartedAt:
 		return query.Order(startedExpr + " " + direction).Order("id " + direction)
+	case jobListSortFinishedAt:
+		// finished_at 为空的行（运行中 / 等待中）不论方向都排最后。/ Rows without finished_at
+		// (running / pending) always sort last regardless of direction.
+		return query.Order("CASE WHEN finished_at IS NULL THEN 1 ELSE 0 END").
+			Order("finished_at " + direction).Order("id " + direction)
+	case jobListSortDuration:
+		return query.Order(jobDurationOrderExpr(query.Dialector.Name()) + " " + direction).
+			Order("id " + direction)
 	case jobListSortCreatedAt:
 		return query.Order("created_at " + direction).Order("id " + direction)
 	default:
 		return query.Order("created_at DESC")
+	}
+}
+
+// jobDurationOrderExpr 生成「结束-开始」时长的方言排序表达式：未结束的作业按当前时间计，
+// started_at 缺失时回退 created_at。/ jobDurationOrderExpr builds the dialect-specific elapsed-time
+// expression; unfinished jobs count to now and a missing started_at falls back to created_at.
+func jobDurationOrderExpr(dialect string) string {
+	switch dialect {
+	case "mysql":
+		return "TIMESTAMPDIFF(SECOND, COALESCE(started_at, created_at), COALESCE(finished_at, NOW()))"
+	case "postgres":
+		return "EXTRACT(EPOCH FROM (COALESCE(finished_at, NOW()) - COALESCE(started_at, created_at)))"
+	default:
+		// SQLite：julianday 差值是以天为单位的浮点，排序只取相对大小。
+		// SQLite: the julianday difference is fractional days; only relative order matters.
+		return "julianday(COALESCE(finished_at, CURRENT_TIMESTAMP)) - julianday(COALESCE(started_at, created_at))"
 	}
 }
 
@@ -514,6 +579,7 @@ func (r *Repository) BackfillJobDimensions(ctx context.Context, batch int) (int,
 			Select("id", "task_id", "cluster_id", "job_mode", "submit_spec").
 			Where("id > ?", lastID).
 			Where("(cluster_id IS NULL OR cluster_id = 0 OR job_mode IS NULL OR job_mode = '')").
+			Where("source <> ?", JobSourceExternal).
 			Order("id ASC").Limit(batch).Find(&jobs).Error
 		if err != nil {
 			return updated, err

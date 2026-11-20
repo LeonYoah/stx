@@ -133,7 +133,7 @@ describe('metrics-trend-data', () => {
     expect(reordered.get('queue--5→2')).toBe(colors.get('queue--5→2'));
   });
 
-  it('derives the job lifetime window with fallbacks and the 31-day cap', () => {
+  it('derives the job lifetime window with fallbacks and the 366-day cap', () => {
     const now = Date.parse('2026-11-14T13:00:00Z');
     const start = Date.parse('2026-11-14T12:13:03Z');
     // 终态窗口补 LIFETIME_TAIL_MS 尾巴罩住延迟落盘的终值样本，且不越过 now。
@@ -147,7 +147,7 @@ describe('metrics-trend-data', () => {
       updated_at: '2026-11-14T12:39:44Z',
     }, false, now)).toEqual({start, end: Date.parse('2026-11-14T12:39:44Z') + LIFETIME_TAIL_MS});
     expect(jobLifetimeWindow({started_at: '2026-11-14T12:13:03Z'}, true, now)).toEqual({start, end: now});
-    const long = jobLifetimeWindow({started_at: '2026-08-01T00:00:00Z'}, true, now)!;
+    const long = jobLifetimeWindow({started_at: '2025-01-01T00:00:00Z'}, true, now)!;
     expect(long.end - long.start).toBe(MAX_TREND_WINDOW_MS);
     expect(jobLifetimeWindow({}, false, now)).toBeNull();
     expect(jobLifetimeWindow(null, false, now)).toBeNull();

@@ -1,0 +1,388 @@
+/*
+ * MIT License
+ *
+ * Copyright (c) 2026 Saurabh Chauhan
+ *
+ * Vendored from beUI Table (https://beui.dev/components/motion/table).
+ * Registry: https://beui.dev/r/table.json
+ * Upstream: https://github.com/starc007/ui-components
+ * License: https://github.com/starc007/ui-components/blob/main/LICENSE
+ *
+ * 本地改动：beUI 的 lib/i18n 指向 components/charts/beui-i18n.tsx，不占用 STX next-intl 的 frontend/lib/i18n/；
+ * lib/utils、lib/ease、lib/touch 用仓库已有版本。
+ * Local change: beUI's lib/i18n points at components/charts/beui-i18n.tsx so it does not shadow STX's next-intl
+ * frontend/lib/i18n/; lib/utils, lib/ease and lib/touch are the copies already in the repo.
+ * Local STX adaptations remain under the same MIT terms and are not relicensed as Apache-2.0.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+"use client";
+
+import {
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  ChevronUp,
+  GripVertical,
+  MoreHorizontal,
+  Trash2,
+} from "lucide-react";
+import { motion } from "motion/react";
+import { type PointerEvent as ReactPointerEvent, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { Checkbox } from "@/components/motion/checkbox";
+import { EASE_OUT, SPRING_PRESS } from "@/lib/ease";
+import { TOUCH_GESTURE_CLASS } from "@/lib/touch";
+import { cn } from "@/lib/utils";
+import type { TableTranslate } from "./messages";
+import { TableMenu } from "./table-menu";
+import type {
+  HeaderCellRefs,
+  InsertPosition,
+  SortState,
+  TableColumn,
+} from "./types";
+import { alignFlex, alignText, COLUMN_ACTIVE_SHADOW } from "./utils";
+
+export interface TableHeaderProps<T> {
+  columns: TableColumn<T>[];
+  rowHeight: number;
+  reduce: boolean;
+  thRefs: HeaderCellRefs;
+  selectable: boolean;
+  allSelected: boolean;
+  someSelected: boolean;
+  onToggleAll: () => void;
+  sort: SortState | null;
+  onToggleSort: (key: string) => void;
+  resizable: boolean;
+  onResizeStart: (key: string, e: ReactPointerEvent) => void;
+  onResizeMove: (e: ReactPointerEvent) => void;
+  onResizeEnd: (e: ReactPointerEvent) => void;
+  reorderable: boolean;
+  dragKey: string | null;
+  dropIndex: number | null;
+  onReorderStart: (key: string, e: ReactPointerEvent) => void;
+  onReorderMove: (e: ReactPointerEvent) => void;
+  onReorderEnd: (e: ReactPointerEvent) => void;
+  onInsertColumn?: (index: number, position: InsertPosition) => void;
+  onDeleteColumn?: (columnKey: string, index: number) => void;
+  onColumnRename?: (columnKey: string, value: string) => void;
+  activeColumn: string | null;
+  onColumnActivate?: (key: string) => void;
+  onColumnDeactivate?: () => void;
+  t: TableTranslate;
+}
+
+/** Column insert / delete menu items shared by the header cell and the portal handle. */
+function columnMenuItems<T>(
+  column: TableColumn<T>,
+  index: number,
+  onInsertColumn: ((index: number, position: InsertPosition) => void) | undefined,
+  onDeleteColumn: ((columnKey: string, index: number) => void) | undefined,
+  t: TableTranslate,
+) {
+  return [
+    ...(onInsertColumn
+      ? [
+          {
+            label: t("insertBefore"),
+            icon: <ArrowLeftToLine />,
+            onSelect: () => onInsertColumn(index, "before"),
+          },
+          {
+            label: t("insertAfter"),
+            icon: <ArrowRightToLine />,
+            onSelect: () => onInsertColumn(index, "after"),
+          },
+        ]
+      : []),
+    ...(onDeleteColumn
+      ? [
+          {
+            label: t("deleteColumn"),
+            icon: <Trash2 />,
+            destructive: true,
+            onSelect: () => onDeleteColumn(column.key, index),
+          },
+        ]
+      : []),
+  ];
+}
+
+/** The ellipse handle, portaled so it can sit on the column's top border without
+ * the scroll container clipping it. Straddles the border to bridge hover. */
+function ColumnHandle<T>({
+  column,
+  index,
+  thRefs,
+  onInsertColumn,
+  onDeleteColumn,
+  onEnter,
+  onLeave,
+  t,
+}: {
+  column: TableColumn<T>;
+  index: number;
+  thRefs: HeaderCellRefs;
+  onInsertColumn?: (index: number, position: InsertPosition) => void;
+  onDeleteColumn?: (columnKey: string, index: number) => void;
+  onEnter: () => void;
+  onLeave: () => void;
+  t: TableTranslate;
+}) {
+  useEffect(() => {
+    window.addEventListener("scroll", onLeave, true);
+    return () => window.removeEventListener("scroll", onLeave, true);
+  }, [onLeave]);
+
+  const el = thRefs.current[column.key];
+  if (!el || typeof document === "undefined") return null;
+  const rect = el.getBoundingClientRect();
+
+  return createPortal(
+    <div
+      style={{
+        position: "fixed",
+        top: rect.top,
+        left: rect.left + rect.width / 2,
+        transform: "translate(-50%, -50%)",
+        zIndex: 40,
+      }}
+      onPointerEnter={onEnter}
+      onPointerLeave={onLeave}
+    >
+      <TableMenu
+        ariaLabel={t("columnOptions", { column: column.key })}
+        triggerClassName="flex h-2 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+        trigger={<MoreHorizontal className="h-3 w-3" />}
+        items={columnMenuItems(column, index, onInsertColumn, onDeleteColumn, t)}
+      />
+    </div>,
+    document.body,
+  );
+}
+
+export function TableHeader<T>({
+  columns,
+  rowHeight,
+  reduce,
+  thRefs,
+  selectable,
+  allSelected,
+  someSelected,
+  onToggleAll,
+  sort,
+  onToggleSort,
+  resizable,
+  onResizeStart,
+  onResizeMove,
+  onResizeEnd,
+  reorderable,
+  dragKey,
+  dropIndex,
+  onReorderStart,
+  onReorderMove,
+  onReorderEnd,
+  onInsertColumn,
+  onDeleteColumn,
+  onColumnRename,
+  activeColumn,
+  onColumnActivate,
+  onColumnDeactivate,
+  t,
+}: TableHeaderProps<T>) {
+  const hasColumnMenu = !!(onInsertColumn || onDeleteColumn);
+  const activeIndex = columns.findIndex((c) => c.key === activeColumn);
+  return (
+    <>
+      {hasColumnMenu && activeColumn && activeIndex >= 0 ? (
+        <ColumnHandle
+          column={columns[activeIndex]}
+          index={activeIndex}
+          thRefs={thRefs}
+          onInsertColumn={onInsertColumn}
+          onDeleteColumn={onDeleteColumn}
+          onEnter={() => onColumnActivate?.(activeColumn)}
+          onLeave={() => onColumnDeactivate?.()}
+          t={t}
+        />
+      ) : null}
+      <thead>
+      <tr style={{ height: rowHeight }}>
+        {selectable ? (
+          <th className="sticky top-0 z-10 border-border border-b bg-muted">
+            <div className="flex items-center justify-center">
+              <Checkbox
+                checked={allSelected}
+                indeterminate={!allSelected && someSelected}
+                onCheckedChange={onToggleAll}
+                aria-label={t("selectAll")}
+                className="size-6"
+              />
+            </div>
+          </th>
+        ) : null}
+        {columns.map((column, index) => {
+          const active = sort?.key === column.key;
+          const isDragging = dragKey === column.key;
+          const isActive = activeColumn === column.key;
+          return (
+            <th
+              key={column.key}
+              ref={(el) => {
+                thRefs.current[column.key] = el;
+              }}
+              onPointerEnter={() => onColumnActivate?.(column.key)}
+              onPointerLeave={() => onColumnDeactivate?.()}
+              style={isActive ? { boxShadow: COLUMN_ACTIVE_SHADOW } : undefined}
+              aria-sort={
+                active
+                  ? sort?.direction === "asc"
+                    ? "ascending"
+                    : "descending"
+                  : undefined
+              }
+              data-drop={dragKey ? dropIndex === index : undefined}
+              data-dropend={
+                dragKey
+                  ? dropIndex === columns.length && index === columns.length - 1
+                  : undefined
+              }
+              className={cn(
+                "group sticky top-0 z-10 border-border border-b bg-muted p-0 font-medium text-muted-foreground",
+                "data-[drop=true]:before:absolute data-[drop=true]:before:inset-y-0 data-[drop=true]:before:left-0 data-[drop=true]:before:w-0.5 data-[drop=true]:before:bg-primary",
+                "data-[dropend=true]:after:absolute data-[dropend=true]:after:inset-y-0 data-[dropend=true]:after:right-0 data-[dropend=true]:after:w-0.5 data-[dropend=true]:after:bg-primary",
+              )}
+            >
+              <motion.div
+                className={cn(
+                  "flex h-full items-center",
+                  alignFlex(column.align),
+                )}
+                style={{ height: rowHeight }}
+                animate={
+                  reduce
+                    ? { opacity: isDragging ? 0.5 : 1 }
+                    : {
+                        scale: isDragging ? 1.04 : 1,
+                        opacity: isDragging ? 0.5 : 1,
+                      }
+                }
+                transition={SPRING_PRESS}
+              >
+                {reorderable ? (
+                  <button
+                    type="button"
+                    aria-label={t("reorderColumn", { column: column.key })}
+                    onPointerDown={(e) => onReorderStart(column.key, e)}
+                    onPointerMove={onReorderMove}
+                    onPointerUp={onReorderEnd}
+                    onPointerCancel={onReorderEnd}
+                    className={cn(
+                      "flex h-full w-6 cursor-grab touch-none items-center justify-center text-muted-foreground/60 transition-colors hover:text-foreground active:cursor-grabbing",
+                      // The grip owns the whole press, so iOS must not open its
+                      // callout out of the same one and cancel the drag.
+                      TOUCH_GESTURE_CLASS,
+                    )}
+                  >
+                    <GripVertical className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+                {column.sortable ? (
+                  <button
+                    type="button"
+                    onClick={() => onToggleSort(column.key)}
+                    className={cn(
+                      "flex h-full min-w-0 flex-1 select-none items-center gap-1 px-4 transition-colors hover:text-foreground",
+                      alignFlex(column.align),
+                      active && "text-foreground",
+                    )}
+                  >
+                    <span className="truncate">{column.header}</span>
+                    <motion.span
+                      aria-hidden
+                      className="inline-flex shrink-0"
+                      animate={{
+                        rotate: active && sort?.direction === "desc" ? 180 : 0,
+                        opacity: active ? 1 : 0.35,
+                      }}
+                      transition={
+                        reduce
+                          ? { duration: 0 }
+                          : { duration: 0.18, ease: EASE_OUT }
+                      }
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    </motion.span>
+                  </button>
+                ) : onColumnRename ? (
+                  <input
+                    value={
+                      typeof column.header === "string" ? column.header : ""
+                    }
+                    aria-label={t("renameColumn", { column: column.key })}
+                    size={1}
+                    onChange={(e) =>
+                      onColumnRename(column.key, e.target.value)
+                    }
+                    className={cn(
+                      "min-w-0 flex-1 truncate appearance-none rounded-md border-0 bg-transparent px-4 font-medium text-muted-foreground outline-none transition-colors focus:bg-muted focus:text-foreground",
+                      alignText(column.align),
+                    )}
+                  />
+                ) : (
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate px-4",
+                      alignText(column.align),
+                    )}
+                  >
+                    {column.header}
+                  </span>
+                )}
+              </motion.div>
+              {resizable ? (
+                <button
+                  type="button"
+                  aria-label={t("resizeColumn", { column: column.key })}
+                  tabIndex={-1}
+                  onPointerDown={(e) => onResizeStart(column.key, e)}
+                  onPointerMove={onResizeMove}
+                  onPointerUp={onResizeEnd}
+                  onPointerCancel={onResizeEnd}
+                  className={cn(
+                    "absolute top-0 right-0 h-full w-1.5 cursor-col-resize touch-none bg-transparent transition-colors hover:bg-muted",
+                    // Same for the resize drag: the handle drives it end to end.
+                    TOUCH_GESTURE_CLASS,
+                  )}
+                />
+              ) : null}
+            </th>
+          );
+        })}
+        <th
+          aria-hidden
+          className="sticky top-0 z-10 border-border border-b bg-muted"
+        />
+      </tr>
+    </thead>
+    </>
+  );
+}

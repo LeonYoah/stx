@@ -152,8 +152,7 @@ function renderTaskToolbar(
   } = {},
 ) {
   const onQueryChange =
-    overrides.onQueryChange ??
-    vi.fn<(patch: Partial<JobListQuery>) => void>();
+    overrides.onQueryChange ?? vi.fn<(patch: Partial<JobListQuery>) => void>();
   const utils = render(
     <NextIntlClientProvider locale='zh' messages={zh} timeZone='Asia/Shanghai'>
       <JobTableToolbar
@@ -191,7 +190,9 @@ describe('JobTable task preset', () => {
     const older = job({id: 9, started_at: '2026-01-01T00:00:00Z'});
     const newer = job({id: 26});
     renderTaskTable([newer, older], {activeJobId: 9});
-    expect(screen.getByTestId('studio-job-row-9').dataset.selected).toBe('true');
+    expect(screen.getByTestId('studio-job-row-9').dataset.selected).toBe(
+      'true',
+    );
     expect(
       screen.getByTestId('studio-job-row-26').dataset.selected,
     ).toBeUndefined();
@@ -199,9 +200,7 @@ describe('JobTable task preset', () => {
 
   it('keeps only details and quick actions inline for a running job; stop does not bubble', () => {
     const handlers = renderTaskTable([job({})]);
-    expect(
-      screen.getByRole('button', {name: tJobTable.detail}),
-    ).toBeTruthy();
+    expect(screen.getByRole('button', {name: tJobTable.detail})).toBeTruthy();
     expect(
       screen.getByRole('button', {name: tJobTable.moreActions}),
     ).toBeTruthy();
@@ -210,9 +209,7 @@ describe('JobTable task preset', () => {
     expect(
       screen.queryByRole('button', {name: tJobTable.savepointStop}),
     ).toBeNull();
-    expect(
-      screen.queryByRole('button', {name: tJobTable.recover}),
-    ).toBeNull();
+    expect(screen.queryByRole('button', {name: tJobTable.recover})).toBeNull();
 
     fireEvent.click(screen.getByRole('button', {name: tJobTable.stop}));
     expect(handlers.onAction).toHaveBeenCalledWith(
@@ -258,9 +255,7 @@ describe('JobTable task preset', () => {
 
   it('shows a recover action on terminal jobs and wires it to the host', () => {
     const handlers = renderTaskTable([job({status: 'failed'})]);
-    expect(
-      screen.queryByRole('button', {name: tJobTable.stop}),
-    ).toBeNull();
+    expect(screen.queryByRole('button', {name: tJobTable.stop})).toBeNull();
     fireEvent.click(screen.getByRole('button', {name: tJobTable.recover}));
     expect(handlers.onAction).toHaveBeenCalledWith(
       'recover',
@@ -337,7 +332,7 @@ describe('JobTable task preset', () => {
 });
 
 describe('JobTableToolbar task preset', () => {
-  it('renders status pills with counts, the run-type filter and a collapsed search on one row', () => {
+  it('renders status pills with counts and a collapsed search on one row', () => {
     const {container} = renderTaskToolbar();
     expect(screen.getByTestId('studio-job-pill-all').textContent).toContain(
       '3',
@@ -345,16 +340,10 @@ describe('JobTableToolbar task preset', () => {
     expect(screen.getByTestId('studio-job-pill-failed').textContent).toContain(
       '2',
     );
-    const group = screen.getByRole('group', {
-      name: tJobTable.runTypeFilter.label,
-    });
-    expect(within(group).getByText(tJobTable.runTypeFilter.all)).toBeTruthy();
-    expect(
-      within(group).getByText(tJobTable.runTypeFilter.formal),
-    ).toBeTruthy();
-    expect(
-      within(group).getByText(tJobTable.runTypeFilter.preview),
-    ).toBeTruthy();
+    // 运行类型筛选已移除：预览与正式运行同列展示，工具栏没有第二个分段控件。
+    // The run-type filter is gone — preview and formal runs share one list, so the
+    // toolbar shows no second segmented control.
+    expect(screen.queryAllByRole('group')).toHaveLength(0);
     // 关键字默认收成图标按钮；整条工具栏单行不换行（溢出横向滚动）。
     // The keyword input collapses to an icon button by default; the toolbar is one non-wrapping row that
     // scrolls horizontally on overflow.
@@ -376,23 +365,6 @@ describe('JobTableToolbar task preset', () => {
     expect(onQueryChange).toHaveBeenCalledWith({statusGroup: '', page: 1});
   });
 
-  it('patches runType and resets the page via the run-type filter', () => {
-    const {onQueryChange} = renderTaskToolbar();
-    const group = screen.getByRole('group', {
-      name: tJobTable.runTypeFilter.label,
-    });
-    fireEvent.click(within(group).getByText(tJobTable.runTypeFilter.preview));
-    expect(onQueryChange).toHaveBeenCalledWith({
-      runType: 'preview',
-      page: 1,
-    });
-    fireEvent.click(within(group).getByText(tJobTable.runTypeFilter.formal));
-    expect(onQueryChange).toHaveBeenCalledWith({
-      runType: 'formal',
-      page: 1,
-    });
-  });
-
   it('expands the search icon into an input and submits the keyword', () => {
     const {onQueryChange} = renderTaskToolbar();
     fireEvent.click(screen.getByTestId('studio-job-search-toggle'));
@@ -401,6 +373,47 @@ describe('JobTableToolbar task preset', () => {
     fireEvent.submit(input.closest('form')!);
     expect(onQueryChange).toHaveBeenCalledWith({
       keyword: 'engine-9',
+      page: 1,
+    });
+  });
+
+  it('lists the three time dimensions with the active one checked', async () => {
+    renderTaskToolbar({query: {sort: 'duration', order: 'desc'}});
+    // Radix 菜单在 jsdom 用 pointerDown 打开（keyDown 会踩 roving-focus 空指针）。
+    // Radix menus open via pointerDown in jsdom (keyDown hits a roving-focus null ref).
+    fireEvent.pointerDown(
+      screen.getByRole('button', {name: zh.jobTable.sortMenu.label}),
+    );
+    const started = await screen.findByRole('menuitem', {
+      name: zh.jobTable.startedAt,
+    });
+    const finished = screen.getByRole('menuitem', {
+      name: zh.jobTable.finishedAt,
+    });
+    const duration = screen.getByRole('menuitem', {
+      name: zh.jobTable.duration,
+    });
+    // 当前维度带 ✓ 图标，其余项是等宽占位 span。/ The active dimension carries a
+    // check icon; the rest render an equal-width spacer.
+    expect(started.querySelector('svg')).toBeNull();
+    expect(finished.querySelector('svg')).toBeNull();
+    expect(duration.querySelector('svg')).toBeTruthy();
+    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
+  });
+
+  it('patches the sort dimension from the menu and keeps the order', async () => {
+    const {onQueryChange} = renderTaskToolbar({
+      query: {sort: 'started_at', order: 'asc', page: 3},
+    });
+    fireEvent.pointerDown(
+      screen.getByRole('button', {name: zh.jobTable.sortMenu.label}),
+    );
+    fireEvent.click(
+      await screen.findByRole('menuitem', {name: zh.jobTable.finishedAt}),
+    );
+    expect(onQueryChange).toHaveBeenCalledWith({
+      sort: 'finished_at',
+      order: 'asc',
       page: 1,
     });
   });
@@ -441,8 +454,8 @@ describe('getJobActionState', () => {
     expect(
       getJobActionState(failed, {...ctx, disableRecover: true}).canRecover,
     ).toBe(false);
-    expect(
-      getJobActionState(failed, {...ctx, canRun: false}).canRecover,
-    ).toBe(false);
+    expect(getJobActionState(failed, {...ctx, canRun: false}).canRecover).toBe(
+      false,
+    );
   });
 });

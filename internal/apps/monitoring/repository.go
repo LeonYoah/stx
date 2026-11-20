@@ -139,56 +139,6 @@ func (r *Repository) ListCriticalEvents(ctx context.Context, filter *AlertEventQ
 	return rows, total, nil
 }
 
-// ListRulesByClusterID returns alert rules for one cluster.
-// ListRulesByClusterID 返回指定集群的告警规则。
-func (r *Repository) ListRulesByClusterID(ctx context.Context, clusterID uint) ([]*AlertRule, error) {
-	var rules []*AlertRule
-	err := r.db.WithContext(ctx).
-		Where("cluster_id = ?", clusterID).
-		Order("id ASC").
-		Find(&rules).Error
-	if err != nil {
-		return nil, err
-	}
-	return rules, nil
-}
-
-// GetRuleByID gets one alert rule by ID.
-// GetRuleByID 根据 ID 获取单条告警规则。
-func (r *Repository) GetRuleByID(ctx context.Context, id uint) (*AlertRule, error) {
-	var rule AlertRule
-	err := r.db.WithContext(ctx).First(&rule, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &rule, nil
-}
-
-// GetRuleByClusterAndKey gets one rule by cluster and rule key.
-// GetRuleByClusterAndKey 根据集群和规则键获取规则。
-func (r *Repository) GetRuleByClusterAndKey(ctx context.Context, clusterID uint, ruleKey string) (*AlertRule, error) {
-	var rule AlertRule
-	err := r.db.WithContext(ctx).
-		Where("cluster_id = ? AND rule_key = ?", clusterID, ruleKey).
-		First(&rule).Error
-	if err != nil {
-		return nil, err
-	}
-	return &rule, nil
-}
-
-// CreateRule creates one alert rule.
-// CreateRule 创建告警规则。
-func (r *Repository) CreateRule(ctx context.Context, rule *AlertRule) error {
-	return r.db.WithContext(ctx).Create(rule).Error
-}
-
-// SaveRule updates one alert rule.
-// SaveRule 更新告警规则。
-func (r *Repository) SaveRule(ctx context.Context, rule *AlertRule) error {
-	return r.db.WithContext(ctx).Save(rule).Error
-}
-
 // GetEventStateByEventID returns state for one event. Nil if not found.
 // GetEventStateByEventID 返回单个事件状态，未找到返回 nil。
 func (r *Repository) GetEventStateByEventID(ctx context.Context, eventID uint) (*AlertEventState, error) {
@@ -370,4 +320,31 @@ func (r *Repository) ListUnresolvedRemoteAlerts(ctx context.Context, clusterIDs 
 		Where("LOWER(status) <> ?", "resolved").
 		Find(&rows).Error
 	return rows, err
+}
+
+// ResolveStaleRemoteAlertsByFingerprint 把同指纹、starts_at 不同的未恢复记录标记为已恢复。
+// 评估器重启或规则组重载会重置内存态，相同告警会以新 starts_at 重新上报；旧行若无人收编就会
+// 一直挂着 firing，造成重复实例与计数虚高。新的（指纹, starts_at）实例出现时，旧实例一律按
+// resolvedAt 收编为 resolved，同一指纹任意时刻只保留一个未恢复实例。
+// ResolveStaleRemoteAlertsByFingerprint marks unresolved records of the same fingerprint but a
+// different starts_at as resolved. Evaluator restarts or rule-group reloads reset in-memory state,
+// so the same alert is reported again with a fresh starts_at; without superseding, the old rows
+// would stay firing forever, duplicating instances and inflating counts. When a new
+// (fingerprint, starts_at) instance arrives, every older instance is folded into resolved at
+// resolvedAt, keeping at most one unresolved instance per fingerprint at any moment.
+func (r *Repository) ResolveStaleRemoteAlertsByFingerprint(ctx context.Context, fingerprint string, keepStartsAt int64, resolvedAt time.Time) error {
+	fingerprint = strings.TrimSpace(fingerprint)
+	if fingerprint == "" {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&RemoteAlertRecord{}).
+		Where("fingerprint = ?", fingerprint).
+		Where("starts_at <> ?", keepStartsAt).
+		Where("LOWER(status) <> ?", "resolved").
+		Updates(map[string]interface{}{
+			"status":      "resolved",
+			"resolved_at": resolvedAt.UTC(),
+			"ends_at":     resolvedAt.Unix(),
+			"updated_at":  timex.Now(),
+		}).Error
 }

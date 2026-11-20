@@ -19,7 +19,7 @@
 
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {AlertCircle, CheckCircle2, Loader2, XCircle} from 'lucide-react';
 
 import services from '@/lib/services';
@@ -35,6 +35,7 @@ import {
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {HelpHint} from '@/components/common/HelpHint';
+import {JavaHomePicker} from '@/components/common/java/JavaHomePicker';
 import {Switch} from '@/components/ui/switch';
 import {
   ClusterConfig,
@@ -126,6 +127,7 @@ export function EditNodeDialog({
   >(clusterConfig);
 
   const [installDir, setInstallDir] = useState('');
+  const [javaHome, setJavaHome] = useState('');
   const [hazelcastPort, setHazelcastPort] = useState(0);
   const [apiPort, setApiPort] = useState(0);
   const [jvmOverrideEnabled, setJvmOverrideEnabled] = useState(false);
@@ -162,6 +164,7 @@ export function EditNodeDialog({
       );
       setResolvedClusterConfig(effectiveClusterConfig);
       setInstallDir(resolveNodeInstallDir(node, clusterInstallDir));
+      setJavaHome(node.java_home?.trim() ?? '');
       setHazelcastPort(
         node.hazelcast_port ||
           clusterPortDefaults.hazelcastPort ||
@@ -258,6 +261,14 @@ export function EditNodeDialog({
         node.id,
         {
           install_dir: installDir.trim(),
+          // 仅变化时提交：服务端会对新路径做 Agent 验活，未改时不下发可避免
+          // 主机离线时仅改端口被 JDK 校验挡住。
+          // Only sent when changed: the server verifies the new path via the Agent,
+          // so omitting unchanged values keeps port-only edits unblocked on offline hosts.
+          java_home:
+            javaHome.trim() !== (node.java_home?.trim() ?? '')
+              ? javaHome.trim()
+              : undefined,
           hazelcast_port: hazelcastPort,
           api_port:
             node.role === NodeRole.WORKER ? undefined : apiPort || undefined,
@@ -360,6 +371,13 @@ export function EditNodeDialog({
                 placeholder={t('cluster.installDirPlaceholder')}
               />
             </div>
+
+            {/* 节点 JDK 可编辑：升级为需要更高 JDK 的版本（≥3.1.0）时的换 JDK 出口。/ Editable node JDK: the remediation path when upgrading to a version needing a newer JDK (≥3.1.0). */}
+            <JavaHomePicker
+              hostId={node.host_id}
+              value={javaHome}
+              onChange={({javaHome: next}) => setJavaHome(next)}
+            />
 
             <div className='space-y-3 rounded-lg border p-4'>
               <div className='flex items-center gap-2'>

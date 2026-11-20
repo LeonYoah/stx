@@ -75,7 +75,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {
   ArrowLeft,
   Play,
@@ -105,6 +105,7 @@ import {
   Cpu,
   SlidersHorizontal,
   HelpCircle,
+  X,
 } from 'lucide-react';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Checkbox} from '@/components/ui/checkbox';
@@ -382,6 +383,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [monitoringOverview, setMonitoringOverview] =
     useState<ClusterMonitoringOverviewData | null>(null);
+  // 告警横幅关闭记忆：按集群持久化「已关闭的告警数」，告警数变化时重新展示
+  // Banner dismissal is persisted per cluster by alert count; it resurfaces when the count changes
+  const [dismissedAlertCount, setDismissedAlertCount] = useState<
+    number | null
+  >(null);
   const [runtimeStorage, setRuntimeStorage] =
     useState<RuntimeStorageDetails | null>(null);
   const [stxJavaProxy, setStxJavaProxy] = useState<StxJavaProxyStatus | null>(
@@ -670,6 +676,22 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     }
     setMonitoringOverview(result.data);
   }, [clusterId]);
+
+  // localStorage 键按集群隔离；挂载后恢复已关闭的告警数
+  // Storage key is scoped per cluster; restore the dismissed count after mount
+  const alertsBannerStorageKey = `stx:cluster-alerts-banner:${clusterId}`;
+  useEffect(() => {
+    setDismissedAlertCount(
+      Number(window.localStorage.getItem(alertsBannerStorageKey) ?? -1),
+    );
+  }, [alertsBannerStorageKey]);
+
+  // 关闭横幅并记住当前告警数 / Dismiss the banner and remember the current alert count
+  const dismissAlertsBanner = useCallback(() => {
+    const count = monitoringOverview?.stats.active_alerts_1h ?? 0;
+    setDismissedAlertCount(count);
+    window.localStorage.setItem(alertsBannerStorageKey, String(count));
+  }, [monitoringOverview, alertsBannerStorageKey]);
 
   const loadRuntimeStorageList = useCallback(
     async (
@@ -2011,37 +2033,58 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         />
       </motion.div>
 
-      {monitoringOverview && monitoringOverview.stats.active_alerts_1h > 0 && (
-        <motion.div variants={itemVariants}>
-          <Card className='border-destructive/40 bg-destructive/5'>
-            <CardContent className='flex flex-col gap-4 py-4 md:flex-row md:items-center md:justify-between'>
-              <div className='space-y-1'>
-                <div className='flex items-center gap-2 text-sm font-medium text-destructive'>
-                  <AlertTriangle className='h-4 w-4' />
-                  {t('cluster.activeAlertsBanner.title', {
-                    count: monitoringOverview.stats.active_alerts_1h,
-                  })}
+      {monitoringOverview &&
+        monitoringOverview.stats.active_alerts_1h > 0 &&
+        dismissedAlertCount !==
+          monitoringOverview.stats.active_alerts_1h && (
+          <motion.div variants={itemVariants}>
+            <Card className='border-destructive/40 bg-destructive/5'>
+              <CardContent className='flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5'>
+                <div className='flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5'>
+                  <span className='flex items-center gap-1.5 text-sm font-medium text-destructive'>
+                    <AlertTriangle className='h-3.5 w-3.5' />
+                    {t('cluster.activeAlertsBanner.title', {
+                      count: monitoringOverview.stats.active_alerts_1h,
+                    })}
+                  </span>
+                  {/* 仅在确有重启失败事件时才展示「无法恢复」的强提示 / Only show the recovery warning when restart failures actually occurred */}
+                  <span className='text-sm text-muted-foreground'>
+                    {monitoringOverview.stats.restart_failed_events_24h > 0
+                      ? t('cluster.activeAlertsBanner.description', {
+                          restartFailed:
+                            monitoringOverview.stats.restart_failed_events_24h,
+                        })
+                      : t('cluster.activeAlertsBanner.descriptionGeneric', {
+                          count: monitoringOverview.stats.active_alerts_1h,
+                        })}
+                  </span>
                 </div>
-                <p className='text-sm text-muted-foreground'>
-                  {t('cluster.activeAlertsBanner.description', {
-                    restartFailed:
-                      monitoringOverview.stats.restart_failed_events_24h,
-                  })}
-                </p>
-              </div>
-              <Button
-                variant='outline'
-                onClick={() =>
-                  router.push(`/monitoring?tab=alerts&cluster_id=${clusterId}`)
-                }
-              >
-                <AlertTriangle className='mr-2 h-4 w-4' />
-                {t('cluster.activeAlertsBanner.action')}
-              </Button>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
+                <div className='flex shrink-0 items-center gap-1'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() =>
+                      router.push(
+                        `/monitoring?tab=alerts&cluster_id=${clusterId}`,
+                      )
+                    }
+                  >
+                    {t('cluster.activeAlertsBanner.action')}
+                  </Button>
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    className='h-8 w-8 text-muted-foreground'
+                    aria-label={t('common.close')}
+                    onClick={dismissAlertsBanner}
+                  >
+                    <X className='h-4 w-4' />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
       <motion.div variants={itemVariants}>
         <Tabs

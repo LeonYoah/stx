@@ -59,7 +59,7 @@ import {
   Trash2,
   Layers3,
 } from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import type {
   InstalledPlugin,
   OfficialDependenciesResponse,

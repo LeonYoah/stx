@@ -19,19 +19,17 @@
 
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Search} from 'lucide-react';
+import {ArrowDownWideNarrow, Check, Search} from 'lucide-react';
+import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
-import {
-  StatPillsBar,
-  type StatPillItem,
-} from '@/components/common/layout';
+import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import type {
   SyncJobStatusGroup,
 } from '@/lib/services/sync';
+import {TIME_SORT_KEYS} from './job-table-columns';
 import {JOB_STATUS_GROUPS, type JobListQuery, type JobTablePreset} from './types';
-import type {JobBulkAction, JobBulkResult} from './use-job-bulk-actions';
 
 const PILL_VARIANT: Partial<
   Record<SyncJobStatusGroup, StatPillItem['variant']>
@@ -48,24 +46,15 @@ export interface JobTableToolbarProps {
   /** patch 语义；筛选变化时由本组件负责把 page 重置为 1 / Patch semantics; this component resets page on filter changes. */
   onQueryChange: (patch: Partial<JobListQuery>) => void;
   statusCounts: Partial<Record<SyncJobStatusGroup, number>>;
-  /** 不传 = 没有批量条 / Omit for no bulk bar. */
-  bulk?: {
-    selectedCount: number;
-    running: JobBulkAction | null;
-    result: JobBulkResult | null;
-    onStop: () => void;
-    onRecover: () => void;
-    onClear: () => void;
-  };
   testIdPrefix: string;
 }
 
 /**
- * 作业表工具栏：状态胶囊 + 关键字 + 模式（global）/ 运行类型（task）筛选 + 批量操作条。
+ * 作业表工具栏：状态胶囊 + 关键字 + 模式（global）/ 运行类型（task）筛选。
  * 所有筛选变化都附带 page: 1（不依赖宿主）。
  * global 预设是两行布局（胶囊一行、筛选一行）；task 预设压缩为单行 ≤36px——
  * 运行类型与可展开搜索收进胶囊栏右侧的 actions 槽，溢出横向滚动而不是换行。
- * Job table toolbar: status pills, keyword, mode (global) / run type (task) filters and the bulk action bar.
+ * Job table toolbar: status pills, keyword, mode (global) / run type (task) filters.
  * Every filter change carries page: 1 (not left to the host).
  * The global preset uses two rows (pills, then filters); the task preset compresses everything into a single
  * ≤36px row — run type and the expandable search sit in the pills bar's actions slot, overflowing into
@@ -76,7 +65,6 @@ export function JobTableToolbar({
   query,
   onQueryChange,
   statusCounts,
-  bulk,
   testIdPrefix,
 }: JobTableToolbarProps) {
   const t = useTranslations('jobTable');
@@ -161,116 +149,91 @@ export function JobTableToolbar({
 
   const typeControl =
     preset === 'global' ? (
-      <SegmentedControl
-        label={t('columns.mode')}
-        value={query.mode || 'all'}
-        onValueChange={(value) =>
-          onQueryChange({
-            mode: value === 'streaming' || value === 'batch' ? value : '',
-            page: 1,
-          })
-        }
-        options={[
-          {value: 'all', label: t('mode.all')},
-          {value: 'streaming', label: t('mode.streaming')},
-          {value: 'batch', label: t('mode.batch')},
-        ]}
-      />
-    ) : (
-      <SegmentedControl
-        label={t('runTypeFilter.label')}
-        value={query.runType}
-        onValueChange={(value) =>
-          onQueryChange({
-            runType: value as JobListQuery['runType'],
-            page: 1,
-          })
-        }
-        options={[
-          {value: 'all', label: t('runTypeFilter.all')},
-          {value: 'formal', label: t('runTypeFilter.formal')},
-          {value: 'preview', label: t('runTypeFilter.preview')},
-        ]}
-      />
-    );
+      <>
+        <SegmentedControl
+          label={t('columns.mode')}
+          value={query.mode || 'all'}
+          onValueChange={(value) =>
+            onQueryChange({
+              mode: value === 'streaming' || value === 'batch' ? value : '',
+              page: 1,
+            })
+          }
+          options={[
+            {value: 'all', label: t('mode.all')},
+            {value: 'streaming', label: t('mode.streaming')},
+            {value: 'batch', label: t('mode.batch')},
+          ]}
+        />
+        <SegmentedControl
+          label={t('source.label')}
+          value={query.source || 'all'}
+          onValueChange={(value) =>
+            onQueryChange({
+              source: value === 'stx' || value === 'external' ? value : '',
+              page: 1,
+            })
+          }
+          options={[
+            {value: 'all', label: t('source.all')},
+            {value: 'stx', label: t('source.stx')},
+            {value: 'external', label: t('source.external')},
+          ]}
+        />
+      </>
+    ) : // task 预设不再按运行类型筛分：预览与正式运行同列展示，工具栏只留状态 pills 和搜索。
+    // The task preset no longer filters by run type — preview and formal runs share
+    // one list, and the toolbar keeps only status pills and search.
+    null;
 
-  const bulkBar =
-    bulk && (bulk.selectedCount > 0 || bulk.result) ? (
-      <div
-        className='flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs'
-        data-testid={`${testIdPrefix}-bulk`}
-        role='status'
-      >
-        {bulk.selectedCount > 0 ? (
-          <>
-            <span className='font-medium'>
-              {t('selected', {count: bulk.selectedCount})}
-            </span>
-            <Button
-              size='sm'
-              variant='outline'
-              className='h-7'
-              disabled={Boolean(bulk.running)}
-              onClick={bulk.onStop}
-            >
-              {t('stop')}
-            </Button>
-            <Button
-              size='sm'
-              variant='outline'
-              className='h-7'
-              disabled={Boolean(bulk.running)}
-              onClick={bulk.onRecover}
-            >
-              {t('recover')}
-            </Button>
-            <Button
-              size='sm'
-              variant='ghost'
-              className='h-7'
-              onClick={bulk.onClear}
-            >
-              {t('clearSelection')}
-            </Button>
-          </>
-        ) : null}
-        {bulk.result ? (
-          <span className='text-muted-foreground'>
-            {t('bulk.result', {
-              ok: bulk.result.ok,
-              failed: bulk.result.failures.length,
-              skipped: bulk.result.skipped,
-            })}
-            {bulk.result.failures.slice(0, 3).map((item) => (
-              <span key={item.id} className='ml-2 text-destructive'>
-                {t('bulk.itemFailed', {id: item.id, message: item.message})}
-              </span>
-            ))}
-          </span>
-        ) : null}
-      </div>
-    ) : null;
+  // 排序菜单只收时间维度：字段×方向的 11 项铺满菜单过于重复，方向留给时间列头
+  // 点按切换（列头指示在任一维度命中时点亮）。其余列仍走各自列头排序。
+  // The sort menu holds only the time dimensions — 11 field×direction rows repeated the
+  // same suffixes; direction stays on the time header click (its indicator lights on any
+  // of them). Other columns keep their own header sorting.
+  const sortKeyLabels: Record<(typeof TIME_SORT_KEYS)[number], string> = {
+    started_at: t('startedAt'),
+    finished_at: t('finishedAt'),
+    duration: t('duration'),
+  };
+  const sortMenu = (
+    <DropdownMenu
+      label={t('sortMenu.label')}
+      icon={<ArrowDownWideNarrow className='size-4' aria-hidden />}
+      // 与监控规则面板同款：当前项 ✓，其余项用等宽占位对齐。
+      // Same pattern as the monitoring rules panel: a check on the active option
+      // and equal-width spacers keep labels aligned.
+      items={TIME_SORT_KEYS.map((key) => ({
+        label: sortKeyLabels[key],
+        icon:
+          query.sort === key ? (
+            <Check className='size-4' aria-hidden />
+          ) : (
+            <span className='size-4' />
+          ),
+        onSelect: () => onQueryChange({sort: key, order: query.order, page: 1}),
+      }))}
+    />
+  );
 
   // task 预设：单行 ≤36px——状态胶囊（带计数）+ 运行类型 + 可展开搜索；溢出横向滚动，不换行。
   // Task preset: a single ≤36px row — status pills (with counts) + run type + expandable search; overflow
   // scrolls horizontally instead of wrapping.
   if (preset === 'task') {
     return (
-      <>
-        <StatPillsBar
-          items={pills}
-          activeKey={query.statusGroup || 'all'}
-          onChange={handleStatusGroup}
-          className='h-9 flex-nowrap gap-2 overflow-x-auto overflow-y-hidden border-b border-border/60 px-2 [&>div]:shrink-0 [&>div]:flex-nowrap'
-          actions={
-            <>
-              {typeControl}
-              {searchControl}
-            </>
-          }
-        />
-        {bulkBar}
-      </>
+      <StatPillsBar
+        items={pills}
+        activeKey={query.statusGroup || 'all'}
+        onChange={handleStatusGroup}
+        className='h-9 flex-nowrap gap-2 overflow-x-auto overflow-y-hidden border-b border-border/60 px-2 [&>div]:shrink-0 [&>div]:flex-nowrap'
+        actions={
+          <>
+            {typeControl}
+            {searchControl}
+            {sortMenu}
+          </>
+        }
+      />
     );
   }
 
@@ -285,9 +248,8 @@ export function JobTableToolbar({
       <div className='flex flex-wrap items-center gap-2'>
         {searchControl}
         {typeControl}
+        {sortMenu}
       </div>
-
-      {bulkBar}
     </>
   );
 }

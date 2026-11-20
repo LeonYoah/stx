@@ -190,11 +190,22 @@ func (s *Service) ListAutoPolicies(ctx context.Context, clusterID *uint, page, p
 	if err != nil {
 		return nil, err
 	}
+	stats, err := s.repo.ListAutoPolicyTriggerStats(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	page, pageSize = normalizePagination(page, pageSize)
 	items := make([]*InspectionAutoPolicyInfo, 0, len(policies))
 	for _, policy := range policies {
-		items = append(items, policy.ToInfo())
+		info := policy.ToInfo()
+		if info != nil {
+			if entry := stats[policy.ID]; entry != nil {
+				info.LastTriggeredAt = entry.LastTriggeredAt
+				info.TriggerCount7d = entry.TriggerCount7d
+			}
+		}
+		items = append(items, info)
 	}
 	return &InspectionAutoPolicyListData{
 		Items:    items,

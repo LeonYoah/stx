@@ -25,10 +25,10 @@
  * Do not wrap mono long text in ScrollArea (vertical-only bar + overflow-hidden clips lines).
  */
 
-import {useCallback, useMemo, useState, type CSSProperties, type ReactNode} from 'react';
+import {Fragment, useCallback, useMemo, useState, type CSSProperties, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {Check, Copy, Maximize2} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 import {Button} from '@/components/ui/button';
 import {
@@ -61,6 +61,11 @@ export type ExpandableTextPanelProps = {
    * false: keep lines + horizontal scroll; true: wrap with break-all.
    */
   wrap?: boolean;
+  /**
+   * 逐行命中的提亮正则（如堆栈里的异常类行）；不传则纯文本渲染。
+   * Per-line emphasis regex (e.g. exception lines in stacks); plain text when unset.
+   */
+  emphasisPattern?: RegExp;
   showCopy?: boolean;
   showExpand?: boolean;
   /**
@@ -105,6 +110,7 @@ export function ExpandableTextPanel({
   bodyClassName,
   tone = 'dark',
   wrap = false,
+  emphasisPattern,
   showCopy = true,
   showExpand = true,
   showToolbar,
@@ -127,6 +133,35 @@ export function ExpandableTextPanel({
     return raw.length > 0 ? raw : resolvedEmpty;
   }, [content, resolvedEmpty]);
   const hasContent = typeof content === 'string' && content.trim().length > 0;
+
+  // 命中 emphasisPattern 的行提亮；全局正则带 lastIndex 状态，复制后再逐行 test。
+  // Lines matching emphasisPattern are highlighted; global regexps carry lastIndex
+  // state, so clone before testing per line.
+  const renderedContent = useMemo(() => {
+    if (!emphasisPattern) {
+      return displayText;
+    }
+    const pattern = emphasisPattern.global
+      ? new RegExp(
+          emphasisPattern.source,
+          emphasisPattern.flags.replace('g', ''),
+        )
+      : emphasisPattern;
+    const emphasisClass =
+      tone === 'dark'
+        ? 'font-semibold text-zinc-50'
+        : 'font-semibold text-foreground';
+    return displayText.split('\n').map((line, index) => (
+      <Fragment key={index}>
+        {index > 0 ? '\n' : null}
+        {pattern.test(line) ? (
+          <span className={emphasisClass}>{line}</span>
+        ) : (
+          line
+        )}
+      </Fragment>
+    ));
+  }, [displayText, emphasisPattern, tone]);
 
   const toolbarVisible =
     showToolbar ??
@@ -188,7 +223,7 @@ export function ExpandableTextPanel({
       )}
       style={isFlexHeight ? undefined : heightStyle}
     >
-      <pre className={preClassName}>{displayText}</pre>
+      <pre className={preClassName}>{renderedContent}</pre>
     </div>
   );
 
@@ -315,7 +350,7 @@ export function ExpandableTextPanel({
                   tone === 'dark' ? 'text-zinc-300' : undefined,
                 )}
               >
-                {displayText}
+                {renderedContent}
               </pre>
             </div>
           </WorkbenchDialogContent>

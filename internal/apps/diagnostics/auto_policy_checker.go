@@ -363,7 +363,7 @@ func (c *AutoPolicyChecker) triggerAutoPolicyInspection(ctx context.Context, clu
 
 	if report != nil && report.Report != nil && report.Report.ID > 0 {
 		trimmedReason := truncateString(strings.TrimSpace(triggerReason), 200)
-		if err := c.repo.UpdateInspectionReportAutoTriggerReason(ctx, report.Report.ID, trimmedReason); err != nil {
+		if err := c.repo.SetInspectionReportAutoTrigger(ctx, report.Report.ID, policy.ID, trimmedReason); err != nil {
 			log.Printf("[DiagnosticsAutoPolicy] update auto trigger reason failed: cluster_id=%d policy_id=%d report_id=%d err=%v", clusterID, policy.ID, report.Report.ID, err)
 		}
 	}

@@ -77,7 +77,7 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 	// 没有活跃作业时也要补拉刚失败作业的错误信息。/ Backfill late error messages even when no job is active.
 	s.backfillFailedJobErrors(ctx, time.Now())
 	jobs, err := s.repo.ListNonTerminalJobInstances(ctx, 500)
-	if err != nil || len(jobs) == 0 {
+	if err != nil {
 		return err
 	}
 	taskCluster := map[uint]uint{}
@@ -123,7 +123,9 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 		})
 	}
 	channels := s.eventChannelSnapshot(ctx)
+	discovery := s.externalDiscoveryClusters(ctx)
 	for clusterID, items := range grouped {
+		discover := discovery[clusterID]
 		s.reconcile.tryDispatch(ctx, clusterID, func(ctx context.Context) error {
 			// 事件通道健康时只做轻量拉取，完整对账（running/finished 列表）降到每 60 秒一次兜底。
 			// With a healthy event channel only light pulls run; full reconciles (running/finished lists) drop to a
@@ -131,11 +133,24 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 			if s.useEventModeReconcile(ctx, clusterID, channels) && !s.fullReconcileDue(clusterID) {
 				return s.reconcileClusterJobsLight(ctx, clusterID, items)
 			}
-			if err := s.reconcileClusterJobs(ctx, clusterID, items); err != nil {
+			if err := s.reconcileClusterPass(ctx, clusterID, items, discover); err != nil {
 				return err
 			}
 			s.markFullReconcile(clusterID)
 			return nil
+		}, func(err error) {
+			s.finishClusterReconcile(ctx, clusterID, err)
+		})
+	}
+	// 没有非终态作业的集群只做外部发现，按发现间隔派发，与对账共用并发上限、进行中跳过与退避。
+	// Clusters without non-terminal jobs only run discovery, dispatched at the discovery interval and sharing the
+	// reconcile concurrency cap, in-flight skip and backoff.
+	for clusterID := range discovery {
+		if _, ok := grouped[clusterID]; ok || !s.externalDiscoveryDue(clusterID, now) {
+			continue
+		}
+		s.reconcile.tryDispatch(ctx, clusterID, func(ctx context.Context) error {
+			return s.reconcileClusterPass(ctx, clusterID, nil, true)
 		}, func(err error) {
 			s.finishClusterReconcile(ctx, clusterID, err)
 		})
@@ -342,8 +357,19 @@ var errReconcileNoEndpoint = errors.New("sync: no usable engine endpoint")
 // failure) and the scheduler backs off; a non-2xx finished list or job-info does not count and keeps the
 // previous one-by-one handling.
 func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs []*JobInstance) error {
-	if len(jobs) == 0 {
+	return s.reconcileClusterPass(ctx, clusterID, jobs, false)
+}
+
+// reconcileClusterPass 是 reconcileClusterJobs 的完整版本：discover 为 true 时，推进已有作业后再用同一份列表做外部发现。
+// reconcileClusterPass is the full form of reconcileClusterJobs: with discover set, the same lists feed external
+// discovery after the known jobs advance.
+func (s *Service) reconcileClusterPass(ctx context.Context, clusterID uint, jobs []*JobInstance, discover bool) error {
+	discover = discover && clusterID > 0
+	if len(jobs) == 0 && !discover {
 		return nil
+	}
+	if discover {
+		defer s.markExternalDiscoveryRun(clusterID, time.Now())
 	}
 	var endpoint *EngineEndpoint
 	if s.runtimeResolver != nil {
@@ -382,25 +408,24 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 		runningMap[strings.TrimSpace(item.JobID)] = item
 	}
 
+	finished, finErr := s.listFinishedJobsOnce(ctx, endpoint)
+	if finErr != nil {
+		s.recordRemainingSyncFailures(ctx, jobs)
+		return finErr
+	}
 	finishedMap := map[string]*EngineJobListItem{}
-	for _, state := range []string{"", "FINISHED", "FAILED", "CANCELED", "CANCELLED", "SAVEPOINT_DONE"} {
-		items, err := s.engineClient.ListFinishedJobs(ctx, endpoint, state)
-		if err != nil {
-			// 超时或连不上：剩下的列表和 job-info 本轮都不再请求。某个状态的接口不存在（非 2xx）照旧跳过。
-			// Timeout or unreachable: skip the remaining lists and job-info this pass. A missing state endpoint
-			// (non-2xx) is still just skipped.
-			if isEngineTransportError(err) {
-				s.recordRemainingSyncFailures(ctx, jobs)
-				return err
-			}
+	for _, item := range finished {
+		if item == nil {
 			continue
 		}
-		for _, item := range items {
-			if item == nil {
-				continue
+		finishedMap[strings.TrimSpace(item.JobID)] = item
+	}
+	if discover {
+		defer func() {
+			if err := s.discoverExternalJobs(ctx, clusterID, endpoint, running, finished); err != nil {
+				logger.WarnF(ctx, "[Sync] external job discovery failed: cluster=%d err=%v", clusterID, err)
 			}
-			finishedMap[strings.TrimSpace(item.JobID)] = item
-		}
+		}()
 	}
 
 	for i, job := range jobs {
@@ -412,6 +437,14 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 			continue
 		}
 		if item, ok := runningMap[engineJobID]; ok {
+			// running 列表已带指标时直接用列表项，省掉逐个 job-info。
+			// When the running list carries metrics, use the item and skip the per-job job-info call.
+			if item.Metrics != nil {
+				if _, err := s.applyEngineJobInfoUpdate(ctx, job, engineListItemToInfo(item)); err != nil {
+					s.recordJobSyncFailure(ctx, job)
+				}
+				continue
+			}
 			// Prefer job-info so running metrics (and 30s metrics_log) are captured, not only list status.
 			// 优先拉 job-info，才能写入运行中指标与 30s metrics_log，而不是只同步列表状态。
 			detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, engineJobID)
@@ -434,6 +467,14 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 			// Always fetch job-info for finished jobs: finished list omits metrics, which would skip end metrics_log.
 			// 终态必须拉 job-info：finished 列表无 metrics，否则会漏掉终态 metrics_log。
 			info := engineListItemToInfo(item)
+			// finished 列表项与终态 job-info 同源；带指标时直接落终态，不再逐个请求。
+			// A finished list item matches the final job-info; with metrics it settles the job without a detail call.
+			if item.Metrics != nil {
+				if _, err := s.applyEngineJobInfoUpdate(ctx, job, info); err != nil {
+					s.recordJobSyncFailure(ctx, job)
+				}
+				continue
+			}
 			detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, engineJobID)
 			if detailErr != nil {
 				s.recordJobSyncFailure(ctx, job)
@@ -506,6 +547,32 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 		}
 	}
 	return nil
+}
+
+// listFinishedJobsOnce 只调一次不带状态的 finished 列表；该接口不存在（非 2xx）时才退回按状态分别请求。
+// 返回错误仅表示传输层失败，调用方据此止损。
+// listFinishedJobsOnce calls the stateless finished list once and only falls back to per-state lists when that
+// endpoint is missing (non-2xx). An error means a transport failure, so callers stop the pass.
+func (s *Service) listFinishedJobsOnce(ctx context.Context, endpoint *EngineEndpoint) ([]*EngineJobListItem, error) {
+	items, err := s.engineClient.ListFinishedJobs(ctx, endpoint, "")
+	if err == nil {
+		return items, nil
+	}
+	if isEngineTransportError(err) {
+		return nil, err
+	}
+	var out []*EngineJobListItem
+	for _, state := range []string{"FINISHED", "FAILED", "CANCELED", "CANCELLED", "SAVEPOINT_DONE"} {
+		stateItems, stateErr := s.engineClient.ListFinishedJobs(ctx, endpoint, state)
+		if stateErr != nil {
+			if isEngineTransportError(stateErr) {
+				return nil, stateErr
+			}
+			continue
+		}
+		out = append(out, stateItems...)
+	}
+	return out, nil
 }
 
 // expireUnknownSubmit 在引擎可达且确认没有该作业、并且已过提交截止时间时，把待确认作业判为失败。

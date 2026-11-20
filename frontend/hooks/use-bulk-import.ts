@@ -18,7 +18,7 @@
 'use client';
 
 import {useState, useCallback} from 'react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 
 export function useBulkImport(initialItems: string[] = []) {
   const [items, setItems] = useState<string[]>(initialItems);

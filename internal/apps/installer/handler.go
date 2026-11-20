@@ -712,6 +712,11 @@ type PrecheckRequest struct {
 	// JavaHome 是该节点指定的 JDK 目录；为空时沿用原有的 PATH 探测。
 	// JavaHome is the JDK directory specified for this node; empty keeps the original PATH detection.
 	JavaHome string `json:"java_home"`
+	// TargetVersion 是目标 SeaTunnel 版本，用于版本感知的 JDK 判定（≥3.1.0 要求 JDK 11+）；
+	// 为空时沿用 {8,11} 的旧矩阵，保证旧调用方行为不变。
+	// TargetVersion is the SeaTunnel version being installed, enabling version-aware JDK verdicts
+	// (≥3.1.0 requires JDK 11+); empty keeps the legacy {8,11} matrix for older callers.
+	TargetVersion string `json:"target_version,omitempty"`
 }
 
 // PrecheckResponse represents the response for precheck.

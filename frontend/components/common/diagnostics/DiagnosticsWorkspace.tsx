@@ -17,64 +17,80 @@
 
 'use client';
 
+/**
+ * 诊断工作台：错误 / 巡检 / 经验库 三个同级 Arc 标签，外壳与告警中心对齐
+ * （.arc-compact + Arc Tabs + 模块导航）。巡检标签内部用「巡检记录 | 自动巡检」
+ * 分段承载原巡检策略页；旧 ?tab=policies 链接自动改写到 tab=inspections&view=auto。
+ * 集群筛选下沉到各面板工具栏的共享 Combobox，cluster_id 是唯一的 URL 事实源；
+ * 自动策略表单脏时顶层切换走未保存确认。
+ * Diagnostics workspace: errors / inspections / memories as three peer Arc tabs,
+ * sharing the monitoring shell (.arc-compact + Arc Tabs + module nav). The
+ * inspections tab hosts the old policies page behind a "records | auto" segment;
+ * legacy ?tab=policies links rewrite to tab=inspections&view=auto. Cluster
+ * filtering lives in each panel toolbar via a shared Combobox with cluster_id as
+ * the single URL source of truth; a dirty policy form suspends top-level tab
+ * switches behind the unsaved-changes confirmation.
+ */
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import Link from 'next/link';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
-import {
-  ArrowUpRight,
-  RefreshCw,
-  Server,
-  Settings,
-  ScanSearch,
-  BellRing,
-  X,
-} from 'lucide-react';
-import {toast} from 'sonner';
+import {ScanSearch, BellRing} from 'lucide-react';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
-import {
-  rememberPreferredClusterId,
-  isSoleDefaultCluster,
-} from '@/lib/cluster-preference';
+import {rememberPreferredClusterId} from '@/lib/cluster-preference';
 import type {
   DiagnosticsTabKey,
   DiagnosticsWorkspaceBootstrapData,
 } from '@/lib/services/diagnostics';
-import {Badge} from '@/components/ui/badge';
-import {Button} from '@/components/ui/button';
 import {Card, CardContent} from '@/components/ui/card';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
-import {cn} from '@/lib/utils';
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/arc/tabs/tabs';
 import {WorkspaceHeader, ModuleNavTabs} from '@/components/common/layout';
 import {TroubleshootingMemoryCenter} from '@/components/common/troubleshooting';
-import {DiagnosticsErrorCenter} from './DiagnosticsErrorCenter';
-import {DiagnosticsInspectionCenter} from './DiagnosticsInspectionCenter';
-import {AutoPolicyConfigPanel} from './AutoPolicyConfigPanel';
+import {DiagnosticsClusterFilter} from './DiagnosticsClusterFilter';
+import {ErrorsPanel} from './errors/ErrorsPanel';
+import {InspectionsPanel} from './inspections/InspectionsPanel';
+import type {InspectionsView} from './inspections/InspectionsPanel';
+import {DirtyCloseDialog} from '@/components/common/layout';
 
-// 解析当前激活的诊断标签页（错误 / 巡检 / 经验库）
-// Resolve currently active diagnostics tab (errors / inspections / memories)
+// 解析当前激活的诊断标签页（错误 / 巡检 / 经验库）；旧 policies 链接并入巡检。
+// Resolve the active diagnostics tab (errors / inspections / memories); legacy
+// "policies" links fold into the inspections tab.
 function resolveTab(
   tab: string | null,
   fallback: DiagnosticsTabKey = 'errors',
 ): DiagnosticsTabKey {
+  if (tab === 'policies') {
+    return 'inspections';
+  }
   if (tab === 'errors' || tab === 'inspections' || tab === 'memories') {
     return tab;
   }
   return fallback;
 }
 
+// 工作台二级标签由前端固定，bootstrap.default_tab 只决定默认落点。
+// Secondary tabs are fixed in the frontend; bootstrap.default_tab only picks the landing tab.
+const DIAGNOSTICS_TABS: DiagnosticsTabKey[] = [
+  'errors',
+  'inspections',
+  'memories',
+];
+
+// 巡检标签内部分段：records = 巡检记录（默认，URL 省略 view），auto = 自动巡检策略。
+// Segments inside the inspections tab: records = inspection reports (default,
+// view omitted from the URL), auto = auto-inspection policies.
+function resolveInspectionsView(view: string | null): InspectionsView {
+  return view === 'auto' ? 'auto' : 'records';
+}
+
 export function DiagnosticsWorkspace() {
   const t = useTranslations('diagnosticsCenter');
-  const tCluster = useTranslations('cluster');
   const tDock = useTranslations('dock');
-  const commonT = useTranslations('common');
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -82,15 +98,20 @@ export function DiagnosticsWorkspace() {
   const [loading, setLoading] = useState(true);
   const [bootstrap, setBootstrap] =
     useState<DiagnosticsWorkspaceBootstrapData | null>(null);
-  const [autoPolicyOpen, setAutoPolicyOpen] = useState(false);
+  // 策略表单脏态由巡检面板上报；顶层切标签时挂起目标标签走未保存确认。
+  // The policies view reports form dirty state through the inspections panel; a
+  // dirty form suspends top-level tab switches behind the confirmation dialog.
+  const [policiesDirty, setPoliciesDirty] = useState(false);
+  const [pendingTab, setPendingTab] = useState<DiagnosticsTabKey | null>(null);
 
+  const rawTab = searchParams.get('tab');
   const activeTab = useMemo(
     () =>
       resolveTab(
-        searchParams.get('tab'),
+        rawTab,
         bootstrap?.default_tab ? resolveTab(bootstrap.default_tab) : 'errors',
       ),
-    [bootstrap?.default_tab, searchParams],
+    [bootstrap?.default_tab, rawTab],
   );
 
   const selectedClusterId = searchParams.get('cluster_id') || 'all';
@@ -98,17 +119,12 @@ export function DiagnosticsWorkspace() {
   const alertId = searchParams.get('alert_id') || '';
   const groupId = searchParams.get('group_id') || '';
   const reportId = searchParams.get('report_id') || '';
-  const findingId = searchParams.get('finding_id') || '';
-  const taskId = searchParams.get('task_id') || '';
-  const hasWorkspaceContext = Boolean(
-    selectedClusterId !== 'all' ||
-      source ||
-      alertId ||
-      groupId ||
-      reportId ||
-      findingId ||
-      taskId,
-  );
+  // finding_id / task_id 仅作为换集群时清理的 URL 键保留，不再单独消费。
+  // finding_id / task_id survive only as URL keys cleared on cluster change;
+  // nothing consumes them directly anymore.
+  const policyId = searchParams.get('policy_id') || '';
+  const autoPolicyId = searchParams.get('auto_policy_id') || '';
+  const inspectionsView = resolveInspectionsView(searchParams.get('view'));
 
   const updateQuery = useCallback(
     (updates: Record<string, string | null>) => {
@@ -126,6 +142,15 @@ export function DiagnosticsWorkspace() {
     },
     [pathname, router, searchParams],
   );
+
+  // 旧 ?tab=policies 链接改写到巡检标签的自动巡检视图，其余深链参数原样保留。
+  // Legacy ?tab=policies links rewrite to the auto view inside inspections;
+  // every other deep-link param carries over untouched.
+  useEffect(() => {
+    if (rawTab === 'policies') {
+      updateQuery({tab: 'inspections', view: 'auto'});
+    }
+  }, [rawTab, updateQuery]);
 
   const loadBootstrap = useCallback(async () => {
     setLoading(true);
@@ -173,275 +198,140 @@ export function DiagnosticsWorkspace() {
     updateQuery({cluster_id: soleId});
   }, [bootstrap, searchParams, updateQuery]);
 
-  const selectedClusterName = useMemo(() => {
-    if (!bootstrap || selectedClusterId === 'all') {
-      return '';
-    }
-    const cluster = (bootstrap.cluster_options || []).find(
-      (item) => String(item.cluster_id) === selectedClusterId,
-    );
-    return cluster?.cluster_name || '';
-  }, [bootstrap, selectedClusterId]);
-  const entrySourceLabel = useMemo(() => {
-    switch (source) {
-      case 'alerts':
-        return t('tasks.entrySource.alerts');
-      case 'inspection-finding':
-        return t('tasks.entrySource.inspectionFinding');
-      case 'cluster-detail':
-        return t('tasks.entrySource.clusterDetail');
-      case 'cluster-detail-summary':
-        return t('tasks.entrySource.clusterDetailSummary');
-      default:
-        return source;
-    }
-  }, [source, t]);
-
-  // 工作台二级标签列表（错误 / 巡检 / 经验库）
-  // Workspace secondary tab list (errors / inspections / memories)
-  const tabs = useMemo(() => {
-    const defaultList = [
-      {
-        key: 'errors' as DiagnosticsTabKey,
-        label: t('tabs.errors'),
-        description: t('tabDescriptions.errors'),
-      },
-      {
-        key: 'inspections' as DiagnosticsTabKey,
-        label: t('tabs.inspections'),
-        description: t('tabDescriptions.inspections'),
-      },
-      {
-        key: 'memories' as DiagnosticsTabKey,
-        label: t('tabs.memories'),
-        description: t('tabDescriptions.memories'),
-      },
-    ];
-    if (!bootstrap?.tabs || bootstrap.tabs.length === 0) {
-      return defaultList;
-    }
-    const list = [...bootstrap.tabs];
-    if (!list.some((item) => item.key === 'memories')) {
-      list.push({
-        key: 'memories' as DiagnosticsTabKey,
-        label: t('tabs.memories'),
-        description: t('tabDescriptions.memories'),
-      });
-    }
-    return list;
-  }, [bootstrap?.tabs, t]);
-
-  // 切换二级 Tab 并同步 URL / Switch secondary tab and sync URL
+  // 切换二级 Tab 并同步 URL；巡检标签内策略表单脏时先确认再跳。
+  // Switch the secondary tab and sync the URL; a dirty policy form inside the
+  // inspections tab confirms first.
   const handleTabChange = useCallback(
     (value: string) => {
-      updateQuery({tab: resolveTab(value) as string});
+      const next = resolveTab(value);
+      if (next === activeTab) {
+        return;
+      }
+      if (activeTab === 'inspections' && policiesDirty) {
+        setPendingTab(next);
+        return;
+      }
+      updateQuery({tab: next});
+    },
+    [activeTab, policiesDirty, updateQuery],
+  );
+
+  const commitPendingTab = useCallback(() => {
+    const target = pendingTab;
+    setPendingTab(null);
+    setPoliciesDirty(false);
+    if (target) {
+      updateQuery({tab: target});
+    }
+  }, [pendingTab, updateQuery]);
+
+  // 集群筛选统一走 cluster_id；换集群时清掉指向旧集群的深链与过滤参数。
+  // Cluster filtering flows through cluster_id only; switching clusters drops
+  // deep links and filters that point at the previous cluster.
+  const handleClusterChange = useCallback(
+    (clusterId: number | undefined) => {
+      if (clusterId) {
+        rememberPreferredClusterId(String(clusterId));
+      }
+      updateQuery({
+        cluster_id: clusterId ? String(clusterId) : null,
+        source: null,
+        alert_id: null,
+        group_id: null,
+        report_id: null,
+        finding_id: null,
+        task_id: null,
+        policy_id: null,
+        auto_policy_id: null,
+      });
     },
     [updateQuery],
   );
 
+  const handleViewChange = useCallback(
+    (view: InspectionsView) => {
+      updateQuery({view: view === 'auto' ? 'auto' : null});
+    },
+    [updateQuery],
+  );
+
+  // 「自动 · 规则名」徽章：跳到自动巡检视图并打开对应策略详情。
+  // "Auto · <policy>" chip: jump to the auto view and open that policy detail.
+  const handleOpenPolicy = useCallback(
+    (id: number) => {
+      updateQuery({view: 'auto', policy_id: String(id)});
+    },
+    [updateQuery],
+  );
+
+  // 「查看触发记录」：回巡检记录视图并按该策略过滤。
+  // "View trigger records": back to the records view filtered by that policy.
+  const handleViewPolicyRecords = useCallback(
+    (id: number) => {
+      updateQuery({
+        view: null,
+        policy_id: null,
+        report_id: null,
+        auto_policy_id: String(id),
+      });
+    },
+    [updateQuery],
+  );
+
+  const clusterIdNumber =
+    selectedClusterId !== 'all'
+      ? Number.parseInt(selectedClusterId, 10)
+      : undefined;
+  const clusterOptions = bootstrap?.cluster_options || [];
+
   return (
-    <div className='space-y-3.5 flex-1 flex flex-col'>
-      {/* 头部：二级 Tab 放入 actions，与告警中心 chrome 对齐 */}
-      {/* Header: secondary tabs in actions to match alert-center chrome */}
-      <WorkspaceHeader
-        icon={<ScanSearch />}
-        title={t('title')}
-        subtitle={t('subtitle')}
-        tabs={
-          <ModuleNavTabs
-            reorderGroupId='monitoring-diagnostics'
-            items={[
-              {
-                key: 'monitoring',
-                label: tDock('monitoringCenter'),
-                href: '/monitoring',
-                icon: <BellRing className='size-3.5' />,
-              },
-              {
-                key: 'diagnostics',
-                label: t('title'),
-                href: '/diagnostics',
-                icon: <ScanSearch className='size-3.5' />,
-              },
-            ]}
-            activeKey='diagnostics'
-          />
-        }
-        actions={
-          <div className='flex flex-wrap items-center gap-2'>
-            <Tabs
-              value={activeTab}
-              onValueChange={handleTabChange}
-              className='w-full sm:w-auto'
-            >
-              <TabsList className='grid w-full grid-cols-3 sm:w-[360px] bg-muted/60 p-1 h-8.5'>
+    <div className='arc-compact flex min-h-0 flex-1 flex-col gap-3.5'>
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className='flex min-h-0 flex-1 flex-col'
+      >
+        {/* 头部：二级 Arc 标签放入 actions，与告警中心 chrome 对齐。
+            Header: secondary Arc tabs in actions to match the monitoring chrome. */}
+        <WorkspaceHeader
+          icon={<ScanSearch />}
+          title={t('title')}
+          subtitle={t('subtitle')}
+          tabs={
+            <ModuleNavTabs
+              reorderGroupId='monitoring-diagnostics'
+              items={[
+                {
+                  key: 'monitoring',
+                  label: tDock('monitoringCenter'),
+                  href: '/monitoring',
+                  icon: <BellRing className='size-3.5' />,
+                },
+                {
+                  key: 'diagnostics',
+                  label: t('title'),
+                  href: '/diagnostics',
+                  icon: <ScanSearch className='size-3.5' />,
+                },
+              ]}
+              activeKey='diagnostics'
+            />
+          }
+          actions={
+            <TabsList>
+              {DIAGNOSTICS_TABS.map((key) => (
                 <TabsTrigger
-                  value='errors'
-                  className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+                  key={key}
+                  value={key}
+                  data-testid={`diagnostics-tab-${key}`}
                 >
-                  {t('tabs.errors')}
+                  {t(`tabs.${key}`)}
                 </TabsTrigger>
-                <TabsTrigger
-                  value='inspections'
-                  className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
-                >
-                  {t('tabs.inspections')}
-                </TabsTrigger>
-                <TabsTrigger
-                  value='memories'
-                  className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
-                >
-                  {t('tabs.memories')}
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => setAutoPolicyOpen(true)}
-              className='h-8.5 text-xs'
-            >
-              <Settings className='mr-1.5 h-3.5 w-3.5' />
-              {t('autoPolicies.buttonLabel')}
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => void loadBootstrap()}
-              className='h-8.5 text-xs'
-            >
-              <RefreshCw
-                className={cn('mr-1.5 h-3.5 w-3.5', loading && 'animate-spin')}
-              />
-              {commonT('refresh')}
-            </Button>
-          </div>
-        }
-      />
+              ))}
+            </TabsList>
+          }
+        />
 
-      {/* 集群上下文与过滤工具条（紧凑型设计，提升可用空间） / Cluster Context & Filter Bar */}
-      <div className='flex flex-col gap-2.5 rounded-lg border bg-card/60 p-2.5 shadow-2xs sm:flex-row sm:items-center sm:justify-between'>
-        <div className='flex flex-wrap items-center gap-2.5'>
-          <div className='flex items-center gap-1.5'>
-            <Server className='h-3.5 w-3.5 text-muted-foreground' />
-            <Select
-              value={selectedClusterId}
-              onValueChange={(value) => {
-                if (value !== 'all') {
-                  rememberPreferredClusterId(value);
-                }
-                updateQuery({
-                  cluster_id: value === 'all' ? null : value,
-                  source: null,
-                  alert_id: null,
-                  group_id: null,
-                  report_id: null,
-                  finding_id: null,
-                  task_id: null,
-                });
-              }}
-            >
-              <SelectTrigger className='h-8 text-xs w-[190px] bg-background'>
-                <SelectValue placeholder={t('filters.cluster')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>{t('filters.allClusters')}</SelectItem>
-                {(bootstrap?.cluster_options || []).map((cluster) => (
-                  <SelectItem
-                    key={cluster.cluster_id}
-                    value={String(cluster.cluster_id)}
-                  >
-                    {cluster.cluster_name}
-                    {isSoleDefaultCluster(
-                      (bootstrap?.cluster_options || []).map((item) => ({
-                        id: item.cluster_id,
-                      })),
-                      cluster.cluster_id,
-                    )
-                      ? ` · ${tCluster('defaultBadge')}`
-                      : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* 上下文标签组 / Context Badges */}
-          <div className='flex flex-wrap items-center gap-1.5'>
-            <Badge
-              variant={selectedClusterName ? 'secondary' : 'outline'}
-              className='text-xs'
-            >
-              {selectedClusterName
-                ? t('context.clusterScoped', {name: selectedClusterName})
-                : t('context.global')}
-            </Badge>
-            {source ? (
-              <Badge
-                variant='secondary'
-                className='text-xs flex items-center gap-1'
-              >
-                {t('context.source', {source: entrySourceLabel})}
-                <X
-                  className='h-3 w-3 cursor-pointer opacity-70 hover:opacity-100'
-                  onClick={() => updateQuery({source: null})}
-                />
-              </Badge>
-            ) : null}
-            {alertId ? (
-              <Badge
-                variant='secondary'
-                className='text-xs flex items-center gap-1'
-              >
-                {t('context.alert', {id: alertId})}
-                <X
-                  className='h-3 w-3 cursor-pointer opacity-70 hover:opacity-100'
-                  onClick={() => updateQuery({alert_id: null})}
-                />
-              </Badge>
-            ) : null}
-            {selectedClusterId !== 'all' ? (
-              <Button
-                asChild
-                variant='ghost'
-                size='sm'
-                className='h-7 text-xs px-2 gap-1 text-primary'
-              >
-                <Link href={`/clusters/${selectedClusterId}`}>
-                  {t('context.goToCluster')}
-                  <ArrowUpRight className='h-3 w-3' />
-                </Link>
-              </Button>
-            ) : null}
-          </div>
-        </div>
-
-        {hasWorkspaceContext ? (
-          <Button
-            variant='ghost'
-            size='sm'
-            className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground'
-            onClick={() =>
-              updateQuery({
-                cluster_id: null,
-                source: null,
-                alert_id: null,
-                group_id: null,
-                report_id: null,
-                finding_id: null,
-                task_id: null,
-              })
-            }
-          >
-            <X className='mr-1 h-3 w-3' />
-            {t('clearContext')}
-          </Button>
-        ) : null}
-      </div>
-
-      {/* 标签页内容区（无重复 TabsList；切换由 Header actions 控制） */}
-      {/* Tab content area (no duplicate TabsList; switching is controlled from header actions) */}
-      <div className='flex-1 flex flex-col'>
         {loading && !bootstrap ? (
           <Card>
             <CardContent className='py-8 text-sm text-muted-foreground'>
@@ -450,62 +340,69 @@ export function DiagnosticsWorkspace() {
           </Card>
         ) : null}
 
-        {tabs.map((tab) => {
-          if (tab.key !== activeTab) {
-            return null;
-          }
-          if (tab.key === 'errors') {
-            return (
-              <DiagnosticsErrorCenter
-                key={tab.key}
-                clusterId={
-                  selectedClusterId !== 'all'
-                    ? Number.parseInt(selectedClusterId, 10)
-                    : undefined
-                }
-                clusterName={selectedClusterName || undefined}
-                groupId={groupId ? Number.parseInt(groupId, 10) : undefined}
-                onSelectGroup={(value) =>
-                  updateQuery({group_id: value ? String(value) : null})
-                }
-              />
-            );
-          }
-          if (tab.key === 'inspections') {
-            return (
-              <DiagnosticsInspectionCenter
-                key={tab.key}
-                clusterId={
-                  selectedClusterId !== 'all'
-                    ? Number.parseInt(selectedClusterId, 10)
-                    : undefined
-                }
-                clusterName={selectedClusterName || undefined}
-                reportId={reportId ? Number.parseInt(reportId, 10) : undefined}
-                onSelectReport={(value) =>
-                  updateQuery({report_id: value ? String(value) : null})
-                }
-              />
-            );
-          }
-          return (
-            <TroubleshootingMemoryCenter
-              key={tab.key}
-              clusterId={
-                selectedClusterId !== 'all'
-                  ? Number.parseInt(selectedClusterId, 10)
-                  : undefined
+        <TabsContent value='errors' className='min-h-0 flex-1 flex flex-col'>
+          {activeTab === 'errors' ? (
+            <ErrorsPanel
+              clusterId={clusterIdNumber}
+              clusterOptions={clusterOptions}
+              groupId={groupId ? Number.parseInt(groupId, 10) : undefined}
+              onSelectGroup={(value) =>
+                updateQuery({group_id: value ? String(value) : null})
               }
-              clusterName={selectedClusterName || undefined}
+              onClusterChange={handleClusterChange}
             />
-          );
-        })}
-      </div>
+          ) : null}
+        </TabsContent>
+        <TabsContent value='inspections' className='min-h-0 flex-1'>
+          {activeTab === 'inspections' ? (
+            <InspectionsPanel
+              clusterId={clusterIdNumber}
+              clusterOptions={clusterOptions}
+              reportId={reportId ? Number.parseInt(reportId, 10) : undefined}
+              onSelectReport={(value) =>
+                updateQuery({report_id: value ? String(value) : null})
+              }
+              onClusterChange={handleClusterChange}
+              view={inspectionsView}
+              onViewChange={handleViewChange}
+              policyId={
+                policyId ? Number.parseInt(policyId, 10) : undefined
+              }
+              onSelectPolicy={(value) =>
+                updateQuery({policy_id: value ? String(value) : null})
+              }
+              autoPolicyId={
+                autoPolicyId ? Number.parseInt(autoPolicyId, 10) : undefined
+              }
+              onAutoPolicyFilter={(value) =>
+                updateQuery({auto_policy_id: value ? String(value) : null})
+              }
+              onOpenPolicy={handleOpenPolicy}
+              onViewPolicyRecords={handleViewPolicyRecords}
+              onDirtyChange={setPoliciesDirty}
+            />
+          ) : null}
+        </TabsContent>
+        <TabsContent value='memories' className='min-h-0 flex-1'>
+          {activeTab === 'memories' ? (
+            <TroubleshootingMemoryCenter
+              clusterId={clusterIdNumber}
+              clusterFilter={
+                <DiagnosticsClusterFilter
+                  value={clusterIdNumber}
+                  clusterOptions={clusterOptions}
+                  onChange={handleClusterChange}
+                />
+              }
+            />
+          ) : null}
+        </TabsContent>
+      </Tabs>
 
-      <AutoPolicyConfigPanel
-        open={autoPolicyOpen}
-        onOpenChange={setAutoPolicyOpen}
-        clusterOptions={bootstrap?.cluster_options || []}
+      <DirtyCloseDialog
+        open={pendingTab !== null}
+        onDiscard={commitPendingTab}
+        onKeepEditing={() => setPendingTab(null)}
       />
     </div>
   );

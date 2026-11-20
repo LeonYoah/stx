@@ -19,6 +19,7 @@ package seatunnel
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -53,6 +54,55 @@ const (
 	DefaultInstallerSlotAllocationStrategy = "RANDOM"
 )
 
+// JavaRequirement describes the JDK range a SeaTunnel release can run on.
+// MinSupported is a hard floor (below it the engine cannot start); Recommended
+// lists the versions treated as passed; anything above MaxRecommended is a
+// compatibility warning rather than a failure.
+// JavaRequirement 描述某个 SeaTunnel 版本可用的 JDK 范围。MinSupported 是硬下限
+// （低于它引擎无法启动）；Recommended 是判定为通过的版本；高于 MaxRecommended
+// 属于兼容性警告而非失败。
+type JavaRequirement struct {
+	MinSupported   int   `json:"min_supported"`
+	Recommended    []int `json:"recommended"`
+	MaxRecommended int   `json:"max_recommended"`
+}
+
+// JavaRequirementForVersion returns the JDK requirement of a SeaTunnel release.
+// SeaTunnel 3.1.0 dropped Java 8 and requires Java 11 or 17; earlier releases
+// (2.x / 3.0.x) run on Java 8 or 11. Unknown or empty versions keep the legacy
+// 8/11 profile so existing flows are not newly blocked.
+// JavaRequirementForVersion 返回某个 SeaTunnel 版本的 JDK 要求。SeaTunnel 3.1.0
+// 移除了 Java 8，要求 Java 11 或 17；更早版本（2.x / 3.0.x）使用 Java 8 或 11。
+// 未知或空版本沿用 8/11 要求，避免存量流程被新增阻断。
+func JavaRequirementForVersion(seatunnelVersion string) JavaRequirement {
+	if strings.TrimSpace(seatunnelVersion) != "" && CompareVersions(seatunnelVersion, "3.1.0") >= 0 {
+		return JavaRequirement{MinSupported: 11, Recommended: []int{11, 17}, MaxRecommended: 17}
+	}
+	return JavaRequirement{MinSupported: 8, Recommended: []int{8, 11}, MaxRecommended: 11}
+}
+
+// RecommendedText joins Recommended with the caller-provided separator (e.g.
+// " 或 " / " or ") for bilingual messages.
+// RecommendedText 用调用方给定的连接词（如 " 或 " / " or "）拼接 Recommended，供双语消息使用。
+func (r JavaRequirement) RecommendedText(sep string) string {
+	parts := make([]string, 0, len(r.Recommended))
+	for _, v := range r.Recommended {
+		parts = append(parts, strconv.Itoa(v))
+	}
+	return strings.Join(parts, sep)
+}
+
+// Contains reports whether a Java major version is in the recommended set.
+// Contains 判断 Java 主版本是否属于推荐集合。
+func (r JavaRequirement) Contains(version int) bool {
+	for _, v := range r.Recommended {
+		if v == version {
+			return true
+		}
+	}
+	return false
+}
+
 // VersionCapabilities describes which advanced runtime settings are supported by
 // one SeaTunnel release from the install wizard perspective.
 // VersionCapabilities 描述安装向导视角下某个 SeaTunnel 版本支持的高级运行时配置能力。
@@ -79,13 +129,24 @@ type VersionCapabilities struct {
 	DefaultSlotAllocationStrategy  string `json:"default_slot_allocation_strategy"`
 	DefaultHTTPEnabled             bool   `json:"default_http_enabled"`
 	DefaultJobLogMode              string `json:"default_job_log_mode"`
+	// MinJavaVersion 是该版本可启动的最低 JDK 主版本（低于则引擎无法运行）。
+	// MinJavaVersion is the lowest JDK major version that can start this release.
+	MinJavaVersion int `json:"min_java_version"`
+	// RecommendedJavaVersions 是判定为通过的 JDK 主版本；高于 MaxRecommendedJavaVersion 仅告警。
+	// RecommendedJavaVersions are the JDK majors treated as passed; anything above MaxRecommendedJavaVersion only warns.
+	RecommendedJavaVersions   []int `json:"recommended_java_versions"`
+	MaxRecommendedJavaVersion int   `json:"max_recommended_java_version"`
 }
 
 // CapabilitiesForVersion returns the SeaTunnel runtime capability matrix used by
 // the installer and cluster deployment wizard.
 // CapabilitiesForVersion 返回安装器和集群部署向导使用的 SeaTunnel 运行时能力矩阵。
 func CapabilitiesForVersion(version string) VersionCapabilities {
+	javaReq := JavaRequirementForVersion(version)
 	capabilities := VersionCapabilities{
+		MinJavaVersion:                 javaReq.MinSupported,
+		RecommendedJavaVersions:        append([]int(nil), javaReq.Recommended...),
+		MaxRecommendedJavaVersion:      javaReq.MaxRecommended,
 		DefaultDynamicSlot:             DefaultInstallerDynamicSlot,
 		DefaultStaticSlotNum:           DefaultInstallerStaticSlotNum,
 		DefaultHistoryJobExpireMinutes: DefaultInstallerHistoryJobExpireMinutes,

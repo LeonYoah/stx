@@ -47,6 +47,7 @@ const (
 	cancelOutcomeKey          = "cancel_outcome"
 	cancelOutcomeUnknown      = "unknown"
 	cancelOutcomeConfirmed    = "confirmed"
+	cancelOutcomeReverted     = "reverted"
 	cancelErrorKey            = "cancel_error"
 	cancelRequestedAtKey      = "cancel_requested_at"
 	cancelTimeoutSecondsKey   = "cancel_timeout_seconds"

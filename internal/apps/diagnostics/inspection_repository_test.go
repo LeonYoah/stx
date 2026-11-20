@@ -18,6 +18,7 @@
 package diagnostics
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -151,5 +152,64 @@ func TestInspectionRepositoryCreateAndListReportsAndFindings(t *testing.T) {
 	}
 	if errorGroupFindings[0].CheckCode != "recent_error_burst" {
 		t.Fatalf("unexpected finding check code: %s", errorGroupFindings[0].CheckCode)
+	}
+}
+
+func TestInspectionRepositoryListReportsKeyword(t *testing.T) {
+	repo := newInspectionTestRepository(t)
+	ctx := t.Context()
+
+	// 策略名子查询只依赖 id/name 两列，裸表避开策略模型自定义 JSON 列在
+	// sqlite 下的迁移问题。
+	// The policy-name subquery only reads id/name; a raw table keeps the
+	// policy model's custom JSON columns out of sqlite migration here.
+	if err := repo.db.Exec("CREATE TABLE diagnostics_inspection_auto_policies (id INTEGER PRIMARY KEY, name TEXT)").Error; err != nil {
+		t.Fatalf("create policy table: %v", err)
+	}
+	if err := repo.db.Exec("INSERT INTO diagnostics_inspection_auto_policies (id, name) VALUES (9, 'nightly-guard')").Error; err != nil {
+		t.Fatalf("seed policy: %v", err)
+	}
+
+	seed := []*ClusterInspectionReport{
+		{ClusterID: 7, Status: InspectionReportStatusCompleted, TriggerSource: InspectionTriggerSourceAuto, Summary: "auto run", AutoPolicyID: 9},
+		{ClusterID: 7, Status: InspectionReportStatusFailed, TriggerSource: InspectionTriggerSourceManual, Summary: "manual run", ErrorMessage: "dial tcp timeout"},
+		{ClusterID: 7, Status: InspectionReportStatusCompleted, TriggerSource: InspectionTriggerSourceManual, Summary: "plain report"},
+	}
+	for _, report := range seed {
+		if err := repo.CreateInspectionReport(ctx, report); err != nil {
+			t.Fatalf("create report: %v", err)
+		}
+	}
+
+	cases := []struct {
+		name    string
+		keyword string
+		wantIDs []uint
+	}{
+		{"policy name", "nightly", []uint{seed[0].ID}},
+		{"error message", "timeout", []uint{seed[1].ID}},
+		{"numeric id", strconv.FormatUint(uint64(seed[2].ID), 10), []uint{seed[2].ID}},
+		{"summary text", "PLAIN", []uint{seed[2].ID}},
+		{"no match", "zzz", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reports, total, err := repo.ListInspectionReports(ctx, &ClusterInspectionReportFilter{
+				Keyword:  tc.keyword,
+				Page:     1,
+				PageSize: 20,
+			})
+			if err != nil {
+				t.Fatalf("list reports: %v", err)
+			}
+			if int(total) != len(tc.wantIDs) {
+				t.Fatalf("expected %d reports, got total=%d", len(tc.wantIDs), total)
+			}
+			for i, want := range tc.wantIDs {
+				if reports[i].ID != want {
+					t.Fatalf("expected report %d, got %d", want, reports[i].ID)
+				}
+			}
+		})
 	}
 }

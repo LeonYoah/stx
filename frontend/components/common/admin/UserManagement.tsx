@@ -73,7 +73,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {Plus, Pencil, Trash2, Search, Users, RefreshCw} from 'lucide-react';
 import {WorkspaceHeader, TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
 import {AccountsNavTabs} from './AccountsNavTabs';

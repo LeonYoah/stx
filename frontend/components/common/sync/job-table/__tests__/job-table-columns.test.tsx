@@ -177,6 +177,41 @@ describe('JobTable column registry', () => {
     expect(screen.getAllByRole('checkbox').length).toBeGreaterThan(0);
   });
 
+  it('select-all merges the page into the selection instead of replacing it', () => {
+    const onChange = vi.fn();
+    // 999 代表在其他页勾选的作业；全选本页不能把它冲掉。
+    // 999 stands for a job picked on another page; page select-all must not drop it.
+    renderTable([job(1, 'running'), job(2, 'running')], {
+      selection: {ids: new Set([999]), onChange},
+    });
+    const header = screen.getByRole('checkbox', {name: '全选本页'});
+    // 表头状态只看本页：跨页勾选不显示半选。
+    // The header only reflects the current page: off-page picks don't mark it.
+    expect(header).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(header);
+    expect(onChange).toHaveBeenCalledWith(new Set([999, 1, 2]));
+  });
+
+  it('shows indeterminate when only part of the page is selected', () => {
+    renderTable([job(1, 'running'), job(2, 'running')], {
+      selection: {ids: new Set([1]), onChange: vi.fn()},
+    });
+    expect(
+      screen.getByRole('checkbox', {name: '全选本页'}),
+    ).toHaveAttribute('aria-checked', 'mixed');
+  });
+
+  it('deselect-all clears only the current page and keeps off-page picks', () => {
+    const onChange = vi.fn();
+    renderTable([job(1, 'running'), job(2, 'running')], {
+      selection: {ids: new Set([1, 2, 999]), onChange},
+    });
+    const header = screen.getByRole('checkbox', {name: '全选本页'});
+    expect(header).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(header);
+    expect(onChange).toHaveBeenCalledWith(new Set([999]));
+  });
+
   it('renders live QPS for running jobs and the muted average for finished ones', () => {
     const items = [
       job(1, 'running', {live: {read_qps: 8, write_qps: 4}}),
@@ -274,5 +309,80 @@ describe('JobTable column registry', () => {
       order: 'desc',
       page: 1,
     });
+  });
+
+  it('switches the sort direction on the sorted time column header', () => {
+    const onQueryChange = renderTable([job(1, 'running')], {
+      query: {sort: 'started_at', order: 'asc', page: 2},
+    });
+    const th = screen.getByText('时间').closest('th')!;
+    expect(th.getAttribute('aria-sort')).toBe('ascending');
+    fireEvent.click(screen.getByText('时间'));
+    expect(onQueryChange).toHaveBeenCalledWith({
+      sort: 'started_at',
+      order: 'desc',
+      page: 1,
+    });
+  });
+
+  it('lights the time column for any of its dimensions and toggles that one', () => {
+    const onQueryChange = renderTable([job(1, 'running')], {
+      query: {sort: 'duration', order: 'asc', page: 2},
+    });
+    const th = screen.getByText('时间').closest('th')!;
+    expect(th.getAttribute('aria-sort')).toBe('ascending');
+    fireEvent.click(screen.getByText('时间'));
+    expect(onQueryChange).toHaveBeenCalledWith({
+      sort: 'duration',
+      order: 'desc',
+      page: 1,
+    });
+  });
+
+  it('external jobs get the source badge, a mode placeholder, no task ref and no workbench link', async () => {
+    renderTable([
+      job(7, 'success', {
+        source: 'external',
+        run_type: 'external',
+        task_id: 0,
+        task_version: 0,
+        mode: undefined,
+      }),
+      job(8, 'running'),
+    ]);
+    const ext = screen.getByTestId('job-row-7');
+    expect(within(ext).getByText('外部')).toBeTruthy();
+    // 「外部提交」与来源徽标同义，不重复渲染。/ "外部提交" duplicates the source badge and is not rendered twice.
+    expect(within(ext).queryByText('外部提交')).toBeNull();
+    // 缺 jobDag 的外部作业 mode 为空时显示占位符。/ External jobs without jobDag show the mode placeholder.
+    expect(
+      within(ext).getByText('外部').parentElement!.textContent,
+    ).toContain('-');
+    // 悬浮提示不再出现「任务 #0」。/ The hover title no longer says "Task #0".
+    expect(within(ext).getByText('#7 · e7').title).toBe('#7 · e7');
+
+    const stx = screen.getByTestId('job-row-8');
+    expect(within(stx).getByText('STX')).toBeTruthy();
+    expect(within(stx).getByText('手动')).toBeTruthy();
+    expect(within(stx).getByText('#8 · e8').title).toBe('任务 #18 · e8');
+
+    // 「在工作台打开」对外部作业隐藏。/ "Open in workbench" is hidden for external jobs.
+    const extTrigger = within(ext).getByRole('button', {name: '更多操作'});
+    fireEvent.pointerDown(extTrigger);
+    expect(
+      await screen.findByRole('menuitem', {name: '复制作业 ID'}),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('menuitem', {name: '在工作台打开'}),
+    ).toBeNull();
+  });
+
+  it('keeps the workbench link for STX jobs in the global preset', async () => {
+    renderTable([job(8, 'running')]);
+    const row = screen.getByTestId('job-row-8');
+    const trigger = within(row).getByRole('button', {name: '更多操作'});
+    fireEvent.pointerDown(trigger);
+    await screen.findByRole('menu');
+    expect(screen.getByText('在工作台打开')).toBeTruthy();
   });
 });

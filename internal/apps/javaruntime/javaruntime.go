@@ -30,6 +30,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // ParamJavaHome 是下发给 Agent 的节点 JDK 参数名，与 Agent 侧 javaenv.ParamJavaHome 一致。
@@ -173,12 +175,49 @@ func Interpret(configured string, success bool, output string) *Result {
 	switch {
 	case !success:
 		result.Status = StatusFailed
-	case result.Version == 8 || result.Version == 11:
-		result.Status = StatusPassed
 	default:
-		result.Status = StatusWarning
+		// Interpret 不带目标版本上下文，沿用 {8,11} 的默认矩阵；
+		// 目标版本感知判定见 StatusForTarget（≥3.1.0 要求 JDK 11+）。
+		// Interpret has no target-version context, so it keeps the legacy {8,11} matrix;
+		// target-aware verdicts live in StatusForTarget (JDK 11+ required since 3.1.0).
+		result.Status = StatusForTarget(result.Version, "")
 	}
 	return result
+}
+
+// MinSupportedMajor 返回目标 SeaTunnel 版本要求的最低 JDK 主版本号。
+// SeaTunnel 3.1.0 起官方硬性要求 JDK 11+（class major 55 + 强制 --add-opens 启动旗标，
+// JDK 8 启动器必然失败）；更早的目标版本仍兼容 JDK 8。
+// MinSupportedMajor returns the minimum JDK major a SeaTunnel target requires.
+// SeaTunnel 3.1.0 hard-requires JDK 11+ (class major 55 plus mandatory --add-opens launcher
+// flags, so a JDK 8 launcher always fails); earlier targets still run on JDK 8.
+func MinSupportedMajor(targetVersion string) int {
+	// 唯一事实来源在 seatunnel.JavaRequirementForVersion，避免两份版本规则漂移。
+	// seatunnel.JavaRequirementForVersion is the single source of truth; keep one copy of the version rules.
+	return seatunnel.JavaRequirementForVersion(targetVersion).MinSupported
+}
+
+// StatusForTarget 按目标 SeaTunnel 版本评估已探测到的 JDK 主版本号，矩阵来自
+// seatunnel.JavaRequirementForVersion：推荐集合判通过；低于 MinSupported 判失败
+// （升级/安装后引擎必然无法启动）；高于推荐上限或非推荐的其余版本判警告；
+// 版本未知（≤0）保守警告不阻断。
+// StatusForTarget evaluates a detected JDK major version against the SeaTunnel target,
+// using the matrix from seatunnel.JavaRequirementForVersion: a recommended major passes;
+// anything below MinSupported fails outright (the engine cannot start); anything above
+// MaxRecommended or otherwise unrecommended warns; an unknown version (≤0) degrades to warning.
+func StatusForTarget(version int, targetVersion string) string {
+	if version <= 0 {
+		return StatusWarning
+	}
+	requirement := seatunnel.JavaRequirementForVersion(targetVersion)
+	switch {
+	case requirement.Contains(version):
+		return StatusPassed
+	case version < requirement.MinSupported:
+		return StatusFailed
+	default:
+		return StatusWarning
+	}
 }
 
 // FailureMessage 返回带节点、路径与原因的双语失败信息，供预检阻断时展示（AC1c / AC2）。

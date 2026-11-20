@@ -1,459 +1,154 @@
 # UI 约定
 
-> 现代 STX 控制台布局、组件、加载动效、高密度数据展示与交互规范。
+> STX 控制台（`frontend/`）的全局界面、通用组件、交互契约与技术防坑规范。
 
 ---
 
-## 概述
+## 1. 页面布局、头部与图标
 
-STX 控制台采用现代化控制台体验架构：
-- **主框架布局**：底部常驻 macOS 风格悬浮 Dock 导航栏（`ManagementBar`）+ 顶部轻量路由进度条（`RouteProgressBar`）+ 统一页面级自适应容器（`@container/main`）。
-- **统一页面头部**：全站主页面标准化采用 **`WorkspaceHeader`**（面包屑导航、大标题、副标题描述、与 Dock 严格对齐的语义图标、右侧操作区）。
-- **数据量化与状态筛选**：状态筛选用 Arc `SegmentedControl`（单选）或 Arc `chip-group`（多选），都带计数；`StatPillsBar` 已弃用（见 §3）。
-- **信息密度哲学**：坚决杜绝在列表与卡片顶部堆砌冗长的“无效说明文案”，首屏垂直空间 100% 让渡给真实业务数据。
-- **非阻塞平滑加载**：淘汰会导致容器高度塌陷闪烁的大 Spinner，统一采用初次骨架屏（`TableSkeletonRows`）与刷新非阻塞进度条（`TableLoadingBar`）。
-- **表格卡片收口**：表格与底部分页栏封装于统一卡片内，两极对齐，使用规范页码与箭头，杜绝“上一步/下一步”。
-- **弹窗美学与分级**：消除无边框感，重内容弹窗（详情、巡检、配置、DAG）显式放宽并采用内部滚动。
-- **向导式闭环引导**：新增关键异步/物理资源后，必须提供带有操作命令与实时心跳侦听的引导向导。
-- **保密凭据安全**：敏感密码/Token 字段不回显、保存后脱敏，编辑时支持“保持原密码”与“重写覆盖”。
-- **控制台控件统一**：采用 Arc 桌面后台收紧版（8–10px 圆角、32/28px 高度），同一块区域不混用 Arc 与 shadcn（`ui/badge` 豁免，见 §18）。
-- **状态标签保留原版**：全站列表与详情的状态标签继续保留原本 shadcn `ui/badge` 不动，已采用 Arc `Badge` 的 §14 场景维持现状（见 §17）。
-- **微动效赋能**：借助 GSAP 微动效库为表格行与卡片网格赋予克制丝滑的入场动效。
-
-新增或重构前端 UI 时必须严格遵循本约定。
+- **主框架与容器**：`app/(main)/layout.tsx` 提供底部常驻 Dock（`ManagementBar`）与顶部路由进度条（`RouteProgressBar`）；内容区为全宽自适应容器，`app/(main)/*` 单页**严禁**再套自带 `max-w-*`、居中或大 padding 的外层 `container`。
+- **统一页头**：主页面头部统一使用 `components/common/layout/WorkspaceHeader`，`icon` 必须与 Dock 栏保持一致（`lucide-react`）：
+  - 仪表盘 `LayoutDashboard` / 集群 `Layers` / 主机 `Server` / 数据同步 `Workflow` / 安装包 `Package` / 插件 `Boxes` / 诊断 `Activity` / 监控告警 `Bell` / 审计 `FileText` / 命令历史 `Terminal` / 用户 `Users`。
+- **图标选型先确认，再改代码**：换图标或加新图标前，先在已安装的 `lucide-react`、`@tabler/icons-react` 中检索（Arc 无图标集，HeroUI 文档用 Gravity UI），按实际显示尺寸（如侧栏 16px）列出至少 3 个候选及取舍原因，等开发者确认后再改；仅用单枚未装库图标时内联 SVG，不引整包。
+- **禁用状态光标**：点不了的按钮保持默认箭头，**禁止** `cursor: not-allowed`（避免系统红色禁止图标遮挡按钮）；禁用靠视觉变淡，原因放 Tooltip。
 
 ---
 
-## 1. 页面主布局与常驻 Dock 栏
+## 2. 信息密度、渐进式披露与防碎裂
 
-- **主布局架构**：由 `app/(main)/layout.tsx` 控制，采用“无全局侧栏 + 底部常驻 Dock 栏”设计。
-  - 底部常驻悬浮 Dock 栏（`ManagementBar`）保持持续挂载，在路由切换时**零卸载、零重绘**；
-  - 搭配客户端预取（Prefetching）与顶部路由加载指示（`RouteProgressBar`），保证页面跳转极致丝滑。
-- **页面容器与内边距**：
-  - 内容区使用全宽自适应容器：`w-full max-w-none px-3 sm:px-4 lg:px-6 xl:px-8 2xl:px-10 py-6 mb-8`；
-  - `(main)` 下的所有单页**严禁**再额外嵌套自带 `max-w-*`、居中或重复 padding 的外层 `container`，以免与全局主容器冲突。
-- **页面结构**：各子路由 `page.tsx` 保持轻量，负责组装对应的 `WorkspaceHeader` 与功能主组件（如 `ClusterMain`、`HostMain`、`DiagnosticsInspectionCenter`）。
+- **拒绝无效横幅**：严禁在列表或卡片顶部堆砌静态说明文字；技术说明优先放在 Placeholder、标签旁 `Tooltip`、`HelpHint` 或极紧凑单行提示条。
+- **渐进式披露**：严禁在单屏内把基础属性、多张重型明细表与复杂表单从上到下全量平铺；重型明细、日志与编辑交互通过二级 Tab、Drawer 或 Dialog 物理分流。
+- **原子信息防被迫换行**：ID / Key / 键值对 / 状态胶囊 / URL / 代码单元不得因窄列挤压在字符中间折断。按场景选用：`flex-wrap` + `inline-flex items-center shrink-0 whitespace-nowrap`、`overflow-x-auto whitespace-nowrap`、或 `truncate` + `title` / `Tooltip`。
+- **Radix `ScrollArea` 内截断坑**：`ScrollArea` 内部默认 `display: table; min-width: 100%`，弹性子项只写 `min-w-0 flex-1` + `truncate` 仍会被撑宽；截断子项须用 `w-0 min-w-0 flex-1`（或固定 `max-w-*`），树视口需覆写为 `display: block; min-width: 0`。
 
 ---
 
-## 2. 页面标题与头部规范（`WorkspaceHeader`）
+## 3. 列表、筛选、加载与表格卡片（`TableCard`）
 
-- **统一标准组件**：主页面头部**必须统一使用** `components/common/layout/WorkspaceHeader`，**严禁**各页面随意手写 `flex items-center gap-3` 等零散标题块。
-- **语义图标一致性**：`WorkspaceHeader` 的 `icon` 属性必须与底部 Dock 栏保持严格一致的语义图标（来自 `lucide-react`）：
-  - 控制台仪表盘：`LayoutDashboard`
-  - 集群管理：`Layers`
-  - 主机管理：`Server`
-  - 数据同步：`Workflow`
-  - 安装包管理：`Package`
-  - 插件市场：`Boxes`
-  - 诊断中心：`Activity`
-  - 监控告警：`Bell`
-  - 审计日志：`FileText`
-  - 命令历史：`Terminal`
-  - 用户管理：`Users`
-- **图标选型先确认，再改代码**：
-  - 换图标或加一枚新图标时，不要按名字从 Lucide 里随手挑一个就提交。先去项目已经依赖的 `lucide-react`、`@tabler/icons-react` 里找，再看当前界面用的组件库：Arc / `@uiarc` 没有图标集；HeroUI 文档用的是 Gravity UI（`@gravity-ui/icons`），不是 HeroUI 自带。需要时再看 Heroicons、Phosphor。
-  - 按图标真正出现的尺寸看，侧栏是 16px。放大图好看不够。和旁边已经定下来的图标放在一起比，避免时钟撞上定时、地球当成全局、分支当成版本。
-  - 至少列出 3 个候选，写清来源、图标名，以及不建议的原因。等开发者点名确认后再改代码。开发者没点头之前，保持现有图标。
-  - 确认后优先用已经装上的库。只有一枚、且来自还没安装的库时，内联这一个 SVG，不要为了一枚图标加整包。
-- **结构化配置**：
-  - 支持清晰的面包屑导航（`breadcrumbs`）；
-  - 副标题简要阐述页面职责（如“STX 集群运行状态与节点拓扑”）；
-  - 右侧统一集成 `actions` 操作槽（刷新按钮、主创建按钮、辅助配置等），按钮增加 `active:scale-[0.98]` 触感微反馈。
+- **管理列表详情标准**：常驻详情统一用 `components/common/layout/DetailHost`（≥1080px 常驻 rail、窄屏 Drawer、J/K 导航）+ `common/layout/list-detail.module.css`（`.page` / `.split` / `.listCol[data-mcols]` / `.row` / detail 类）；编辑脏态拦截用 `DirtyCloseDialog` / `UnsavedChangesDialog`（均在 `common/layout/`）。**不要**再为管理列表详情新造一套宿主；`ui/sheet` 只留给审计追踪等临时覆盖层。
+- **`StatPillsBar` 已弃用**：新代码不得使用。状态筛选改用 Arc `SegmentedControl`（单选，2–5 项或后端只接受单值）或 Arc `chip-group`（多选，如作业 7 态）；立即生效的单个开关条件用 Arc `Switch`。一排控件只表示一个维度。存量调用随页面迁移，最后一处迁走后删除组件。
+- **筛选计数**：只有后端（或客户端已持有的**全集**）能给出与列表总数一致的分桶统计时，才在 `SegmentedControl` / `chip-group` 上显示计数（等宽数字、固定最小宽度；危险类 >0 用 `tone='danger'`）。**禁止**只按当前页行数做分桶计数（会与分页总数矛盾）。错误中心 / 巡检列表保持分段或下拉筛选、**不带**当前页桶计数；告警状态分段可显示计数，因其来自一次未过滤的服务端轻量统计。
+- **筛选栏**：保持左对齐，搜索框限宽（如 `flex-1 min-w-[200px] max-w-sm`），输入项支持 **Enter** 直接触发主查询且不误触发清空/关闭等次要动作；筛选变化必须重置 `page = 1`。
+- **零塌陷加载与 `TableCard`**：带分页的列表优先复用已有共享原语 **`components/common/layout/TableCard.tsx`**（勿重建）：
+  - 首屏无数据时使用 `TableSkeletonRows`（加载超过 **300ms** 才显现，显现后至少保留 **500ms** 防闪烁）；
+  - 刷新/翻页保留旧数据与容器高度，顶部显示 `TableLoadingBar`；
+  - 错误留在卡片内提供重试（已有旧数据时降为顶部提示条）。
+- **分页规范**：统一使用 `@/components/ui/pagination`（或 Arc `pagination`），左总数/每页条数、右页码，**严禁**使用「上一步 / 下一步」文案。
+- **响应式列隐藏**：CSS Grid 表格列使用 `data-*` 属性选择器配合 `@media` 隐藏窄屏列，**禁止**在行节点内联 `--cols` 样式（会覆盖 `@media` 回退导致列错位）。
 
 ---
 
-## 3. 状态统计与筛选
+## 4. 动效、表卡切换与浮动批量条
 
-适用于集群、主机、告警、诊断、作业等**有状态分布的列表页**。
+- **GSAP 入场**：表格行（`animateTableRows`）与卡片网格（`animateGridCards`）动效收敛在 `lib/animations/gsap-motion.ts`，时长 150–300ms、`easeOut`。
+- **表卡切换与共享形变（`ViewToggle` + `useViewMorph`）**：
+  - 同一列表在表格与网格卡片间切换时，切换按钮使用 `components/common/ViewToggle.tsx`（16px 图标 + `ariaLabel`），直接并入卡片头或筛选栏右侧，不另起占用整行空间的独立标题工具条。
+  - 共享元素形变调用 `lib/animations/view-morph.ts` 的 `useViewMorph(scope)`：同一 item 在两种视图使用相同 `part` 锚点生成 `layoutId`，Motion 以 200ms tween 做 FLIP 形变，`useReducedMotion` 自动退化（外层需包 `LayoutGroup`）。
+- **底部浮动批量操作条**：多选批量操作采用避让底部 Dock（`bottom-24`）的居中浮动条（仅 `selectedCount > 0` 时出现，清除收敛为紧凑 X 图标按钮），**禁止**在表格上方插入整行占位横条顶高表格；分栏页面与底部分页共存时定位在分页栏上方，不遮挡页码。
 
-- **`StatPillsBar` 已弃用**：新代码不得使用。现有调用处按任务 `11-18-unified-admin-console-lists` 分期迁移，最后一处迁走后删除组件。
-- **选型**：
+---
+
+## 5. 弹窗、抽屉与长文本
+
+- **shadcn 弹窗宽度硬要求**：`ui/dialog` / `ui/alert-dialog` 底座自带 `sm:max-w-lg`，调用处写不带断点前缀的 `max-w-*` 会在宽屏被覆盖导致大弹窗被锁成 512px。宽度一律写 `sm:max-w-*`（`components/ui/__tests__/dialog-width-classes.test.ts` 自动扫描拦截）；重内容弹窗显式放宽至 `sm:max-w-4xl` 以上并采用 `flex flex-col overflow-hidden` + 内部 `overflow-auto min-h-0 flex-1`（长 mono 日志禁止再包 `ScrollArea`）。
+- **详情 vs 临时覆盖**：管理列表的行详情走 `DetailHost`（§3）；`ui/sheet` 仅用于临时覆盖（如审计 `AuditTraceSheet`），不要把常驻详情塞回右侧 Sheet。
+- **Arc 弹窗与共享未保存确认**：
+  - Arc 弹窗走 `@/components/arc/dialog/dialog`（内容节点附带 `.arc-compact`，尺寸显式写 `w-[min(...)]!` / `max-h-[85vh]!`）。
+  - 跨模块未保存拦截统一走 `components/common/layout/UnsavedChangesDialog`（支持两/三动作、禁用遮罩误点、默认焦点落在安全留守按钮）；常规两动作场景直接用文案已绑定的 `DirtyCloseDialog`。仅编辑脏态触发、新建取消直接退出，**禁止**在底栏做内联替换条或绝对定位硬盖。
+- **只读长文本**：错误堆栈、运行日志、JSON/配置样本统一用 `components/common/layout/ExpandableTextPanel`（原生双向 `overflow-auto`，放大走 `WorkbenchDialogContent`）。
+- **确认分层**：破坏性 / 影响他人或批量 → `ui/alert-dialog`；单条、不可撤回、只涉及自己且有按钮可锚定 → Arc `ConfirmMorph`（每行最多锚定 1 个）；能撤回的操作可不确认。全站禁止 `window.confirm`。用普通 `Dialog` 承载的纯确认应改为 `AlertDialog`。
+
+---
+
+## 6. 凭据安全与异步引导
+
+- **敏感凭据（Secret / Password / Token）**：查询与列表严禁回显明文（脱敏展示）；编辑框默认留空表示保留原值，仅显式输入新值时覆盖；工作台任务变量密文存 `custom_variables`、类型元数据存 `custom_variable_types`。
+- **异步资源引导**：主机接入等涉及异步外部步骤的创建动作，提交后必须接续带一键复制命令与实时心跳侦听的状态闭环向导（如 `HostInstallGuideDialog`）。
+
+---
+
+## 7. 国际化、时间与产品文案
+
+- **单语言与防缺键**：所有可见文案走 `lib/i18n/locales/{zh,en}.json`，**严禁**同屏出现「中文 / English」双语拼接；请求后端本地化文本时显式传 `lang`；后端动态枚举在调用翻译前必须先用 `t.has(key)` 检查，缺失时回落原值或兜底文案（不能靠 `try/catch`）。改动语言包后运行：
+  ```bash
+  cd frontend && pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
+  ```
+- **时间显示**：时间格式化一律使用 `lib/timezone`（`formatDateTimeMinuteTz` / `formatTimeTz`），不直接调用 `next-intl` 的 `format.dateTime`。
+- **产品语言（不暴露底层实现名）**：界面、提示与错误文案禁止出现 `Prometheus` / `Alertmanager` / `Grafana` / `PromQL`（SeaTunnel 配置键如 `metrics.prometheus.enabled` 除外）；接口实现枚举（`source:"prometheus"`、`reason:"prometheus_unavailable"`）只在代码内映射文案。监控中心面向用户只分 **集群级 / 作业级**（`scope=cluster|job`），底层及诊断自动策略仍保留 `source_type`（`platform_health` / `metric` / `job`）；判断 sync 告警阶段一律看 `alert_id` 的 `sync:` 前缀。
+
+---
+
+## 8. Arc 与 beUI 组件约定
+
+- **安装与许可**：免费 Arc 组件装入 `frontend/components/arc/`（`cd frontend && pnpm dlx shadcn@latest add @uiarc/<name> --yes`），不覆盖 `components/ui/`，不安装 `@uiarc-pro`；beUI 放在 `components/motion/` / `components/charts/`（不覆盖仓库 `lib/i18n/`、`lib/utils.ts`、`lib/ease.ts`）。两类 vendored 文件均须保留 MIT 头、登记 `licenses/third_party_mit_files.txt`；对组件做局部 STX 扩展必须加双语 `Local modification` 注释以便升级 diff 合并。
+- **主题与桌面后台收紧尺度（任务 `11-18-unified-admin-console-lists` 目标）**：`app/layout.tsx` 引入一次 `@/components/arc/foundation.css`，`ThemeProvider` 的 `ArcThemeAttribute` 同步 `html[data-theme]`。控制台外层容器覆盖（不魔改各组件圆角源码；工作台 `studio-chrome.css` 独立）：
+  - `--radius-control: 0.5rem`（**8px**）、`--radius-panel: 0.625rem`（**10px**）、`--control-height-md: 2rem`（**32px**）、`--control-height-sm: 1.75rem`（**28px**）；
+  - 弹层 `--radius-popover: 0.625rem`（**10px**，定义在 `:root`，因 Portal 挂到 `body`），内边距 4px，选项圆角 6px、行高 32px；
+  - `ConfirmMorph` / `Switch` 保持胶囊；不叠 `corner-shape: superellipse`。
+  - Portal 表面（`DrawerContent`、`DialogContent`）内容节点须挂 `.arc-compact`。
+- **同一块区域只用一套组件**：同一行筛选栏、同一个对话框、同一张表里，交互控件要么全是 Arc，要么全是 shadcn（§9 的 `ui/badge` 豁免）。换下拉时，同行搜索框 / 按钮 / 日期一起换。
+- **控件选型**：
 
   | 场景 | 组件 |
   |---|---|
-  | 互斥的状态筛选或视图切换（2–5 项），以及后端只接受单个值的筛选 | Arc `SegmentedControl`，计数放在 `accessory` 插槽 |
-  | 项数多、需要多选的状态筛选（如作业的 7 个状态组） | Arc `chip-group`，用本地补充的 `count` 显示计数 |
-  | 立即生效的单个开关条件（如"只看已启用"） | Arc `Switch` |
-  | 详情页的汇总数字 | 放到详情页签上（Arc `Tabs` 的 trigger），不要单独铺一排汇总栏 |
+  | 少量选项下拉 | Arc `Select`；2–5 个短选项且互斥的筛选用 `SegmentedControl` |
+  | 可搜索 / 长列表 / 数量不固定的数据 | Arc `Combobox` |
+  | 行内「更多」 | Arc `Button` ghost + `iconOnly` + Arc `DropdownMenu`；≤2 个动作可直接摆 ghost |
+  | 行内轻确认 | Arc `ConfirmMorph`（§5） |
+  | 破坏性确认 | `ui/alert-dialog` |
+  | 命令面板 | `ui/command`（不要拿它拼可搜索下拉） |
+  | 状态标签 | 见 §9 |
 
-- **一排控件只表示一个维度**：类型和启用状态、来源和类型这类不同维度要拆成两个控件，不能挤在同一排。
-- **计数**：用 Arc `Badge size='sm'`（不要用 `ui/badge`，见 §18），等宽数字并固定最小宽度，轮询时相邻选项不跳动。
-  失败、触发中这类需要注意的选项，计数大于 0 时用 `tone='danger'`，其他用 `neutral`；选中样式本身不带颜色。
-- **交互联动**：切换筛选后页码回到第 1 页；多选时不选任何一项等于"全部"，"全部"的含义由调用方处理。
-- **防膨胀**：不要为了展示几个状态数字铺几张大卡片；筛选控件紧凑地放在头部下方。
-
----
-
-## 4. 高信噪比哲学与渐进式披露（Anti-Noise & Progressive Disclosure）
-
-这是 STX 控制台在所有页面、卡片、弹窗与详情组件中确立的**最高视觉与信息架构原则**。高密度（High Density）不等于无序堆砌（Clutter）；高密度是通过消除视觉杂质、紧凑对齐来提高信息获取效率，而堆砌则是将不同认知负荷、不同优先级的复杂组件全量平铺在同一视口内。
-
-### 4.1 首屏数据与聚焦优先（Primary Focus First）
-- **单一视觉目标**：每个容器（单页 / 弹窗 / 卡片）在任意时刻只解决一个主要的视觉焦点；
-- **首屏数据优先**：
-  - **严禁**在卡片顶部、列表顶部堆砌大段不可交互、显而易见的静态说明文本（例如“本页面用于管理集群安装包，您可以点击上传或者查看……”等废话横幅）；此类无效文字会挤占 100~200px 宝贵的垂直高度，导致真正重要的数据列表需要用户滚动才能看到。
-
-### 4.2 渐进式披露与反平铺堆叠（Progressive Disclosure vs. Flat Dumping）
-- **严禁全量平铺展开（Anti-Flat-Dumping）**：
-  - **严禁**在同一个长滚动容器中，将“基础属性 + 多个多行数据表格 + 复杂新增/编辑表单”从上到下全量平铺堆叠；
-  - 这种反模式会导致用户首屏抓不住重点，视觉充斥大量同等权重的边框与输入框，产生极强的拥挤感和压迫感。
-- **工作台右侧是高级属性，上下两段都是**：设置页上段只放任务属性（执行模式、集群、变量），下段只放运行属性（可观测性、超时、告警）。任务变量只保留一个标题，不要再套「自定义变量」卡片。精选模板和插件默认参数都在「模板管理」页签里用分段视图切换，不要把模板浏览器再塞进设置页。两段各自滚动，不要再合成一条长列表。
-- **多维信息物理隔离（Dimensional Isolation）**：
-  - 复杂实体必须按职责维度进行物理分流：
-    - **概览（Overview）**：仅展示决策核心（核心指标、关键状态胶囊、基础属性、主操作入口），保持清爽克制与视觉呼吸感；
-    - **重型明细（Details / Sub-tables / Logs）**：从属数据表格、日志流、事件历史必须隔离在独立的二级 Tab、侧边抽屉（Sheet）或独立弹窗中；
-    - **高阶配置 / 表单（Configuration / Edit）**：复杂表单或上传组件独立收纳，高级可选参数默认收入折叠面板（Accordion）按需展开。
-- **轻量速览与下钻穿透（Snapshot & Drill-Down）**：
-  - 主视图若需体现次级从属实体的存在，**只允许采用轻量级的“状态速览条（Snapshot Bar）/ 微型状态胶囊（Stat Pill）+ 显式一键下钻动作”**（例如：`包含 3 项关联实体 → [查看与配置明细]`）；
-  - 严禁直接把次级模块的完整复杂表格平铺在主视图中。
-
-### 4.3 提示信息轻量化与紧凑布局
-- **提示轻量化**：
-  - 若确需提供技术说明、依赖约束或注意事项，优先采用：
-    1. 输入框内的占位提示（Placeholder）；
-    2. 字段标签旁带 `Tooltip` 气泡；
-    3. 极紧凑单行警告条（内边距微小的 Warning Banner）；
-    4. 或收纳在“帮助向导”的抽屉/弹窗内，按需展开。
-- **两极对齐与紧凑布局**：
-  - 工具栏、筛选栏、表格底栏均采用极简紧凑的排版，最大化提升信息密度与交互效率。
+- **可访问名称（强制）**：`Select` / `Combobox` 的可见 `label` 可为可选，但**去掉可见标签后必须仍有可见标签或 `aria-label` 之一**，控件不得缺少可访问名称。纯图标按钮同理必须传 `aria-label`。大盘头部集群范围若去掉 `[&_label]:sr-only` 兜底，须改为不传 `label` + 明确 `aria-label`（或保留可见标签），禁止「既无可见标签又无 aria-label」。
+- **`SegmentedControl` 跨挂载点共享 `layoutGroup`**：互斥挂载点（如「通知渠道 | 投递记录」「巡检记录 | 自动」）必须传相同 `layoutGroup` 字符串。
+- **日期范围选择**：全局起止日期走 `components/common/layout/ArcDateRangePicker`（默认 `months={1}`、`maxDate` 用 `useToday()`；需分钟精度时开 `withTime`）。
+- **技术防坑**：
+  - `localStorage` 状态首帧必须使用服务端一致的默认值，挂载后再同步，避免水合报错。
+  - 整页 `html` 状态锁（如拖拽光标 `html[data-studio-resizing]`）必须写在非 CSS Module 文件中，否则 Next 生产构建报错。
+  - 引入 Arc CSS Module 的单测依赖 `vitest.config.ts` 中 `css.postcss.plugins: []`。
+  - beUI 图表进入视口才播放生长动画；多序列图表显式按语义色板（`TREND_COLORS` / `colorForLabels` / `SERIES_PALETTE`）着色，不依赖 Arc 默认灰阶。
+  - `/monitoring` 旧子路由与旧参数重定向并收敛至 `/monitoring?tab=alerts|rules|notify`。
 
 ---
 
-## 5. 非阻塞平滑加载体系（Zero-Collapse Visual Loading）
+## 9. 状态标签（Badge）
 
-彻底淘汰传统“数据一刷新就出现整屏/整卡片大 Spinner，导致容器瞬间塌陷闪烁”的粗暴加载方式。
-
-- **初次加载（Initial Loading）**：
-  - 当页面或列表尚无任何缓存数据时，使用 **`TableSkeletonRows`** 或骨架卡片进行占位，预估行高与列数，保持容器骨架稳定。
-- **异步刷新 / 翻页 / 搜索（Background Refreshing）**：
-  - 表格或列表容器顶部挂载 **`TableLoadingBar`**（2px 渐变非阻塞动态进度条）；
-  - 数据行保持渲染，仅附加透明度淡化与点击拦截：`opacity-60 pointer-events-none transition-opacity duration-200`；
-  - 容器尺寸始终保持**零塌陷、零跳动**，用户能清晰感知旧数据正在被后台无缝替换。
+- **保留原本 shadcn `ui/badge` 不动**：列表、详情与卡片里的状态标签及中性标签继续沿用 `@/components/ui/badge`，不做向 Arc `Badge` 的批量替换，也不修改 `components/ui/badge.tsx` 本身。
+- **已有 Arc `Badge` 维持现状**：工作台定时侧栏、作业详情、升级向导以及 `SegmentedControl` / `chip-group` 计数处已使用的 Arc `Badge` 保持不动。
+- **一致性与深色可读性**：同一域内配色与尺寸保持统一；新增或顺手修改时必须同时带好浅色与 `dark:` 对比度变体。
+- **文案走 next-intl**：未知后端状态值用 `t.has()` 兜底。
 
 ---
 
-## 6. 筛选栏（列表/搜索页）
+## 10. 控制台首页（监控大盘 + 全局作业列表）
 
-- **对齐**：筛选栏在项目内必须**左对齐**。不要用 `w-full` 把整栏拉满、把操作推到最右，或加弹性空白把操作推到末尾。
-- **搜索框**：使用限定宽度（如 `flex-1 min-w-[200px] max-w-sm`），避免搜索框过宽；其他筛选（下拉、按钮）自然排在右侧。
-- **提交交互**：凡是带明确“搜索 / 刷新 / 应用过滤”主按钮的筛选区，除鼠标点击按钮外，所有可编辑输入项（如文本、数字、日期）都应支持 **Enter** 直接触发该主操作。
-- **主次动作隔离**：Enter 只触发主动作（如搜索、刷新、应用过滤），不应误触发“清空条件”“关闭弹窗”等次要按钮。
+> 布局与视觉由 PR #168 落地；本任务**不再改大盘布局**，只对齐确认 / 下拉 / 溢出菜单，并清理 Combobox 可访问名称兜底。
 
----
-
-## 7. 弹窗设计美学与尺寸分级标准（Dialog Hierarchy & Width）
-
-### 7.1 视觉层级与边框质感
-- 解决“弹框看着跟没边框似的”苍白问题：
-  - `DialogContent` 必须保持明确的外边框与立体感：`border bg-background shadow-lg`；
-  - Header、Body 与 Footer 之间通过清晰的分隔线 `border-b` / `border-t` 区隔；
-  - Footer 底栏采用微弱的层次底色（如 `bg-muted/15` 或 `bg-muted/10 px-6 py-3`），形成扎实稳重的收口。
-
-### 7.2 弹窗尺寸严格分级
-严禁所有场景混用默认狭窄弹窗。按内容体量显式划分为三级：
-1. **轻量确认 / 简单操作（Small）**：
-   - 适用：删除确认、快速重启、轻量重命名等；
-   - 尺寸：`sm:max-w-md` ~ `sm:max-w-lg`。
-2. **标准表单 / 中型配置（Medium）**：
-   - 适用：新建用户、编辑集群标签、普通规则表单；
-   - 尺寸：`sm:max-w-xl` ~ `sm:max-w-2xl`。
-3. **重内容 / 详情 / 巡检报告 / 日志流 / DAG / 代码预览（Large & Heavy）**：
-   - 适用：主机详情弹窗、自动巡检发现报告、安装插件详情、DAG 预览、配置 Diff 比较；
-   - 必须显式在 `DialogContent` 上放宽尺寸，严禁挤在窄框内：
-     - `sm:max-w-4xl` 或 `sm:max-w-5xl`，甚至特定全屏级工具使用 `w-[92vw] max-w-[1400px]`；
-     - 高度限制：`max-h-[85vh]` 或 `h-[88vh]`；
-     - 结构收口：`flex flex-col overflow-hidden`，内部内容区通过 `overflow-auto min-h-0 flex-1` 自行滚动；**长 mono 日志/堆栈/证据禁止用 `ScrollArea` 包一层**（默认只有纵向条，易裁切长行）。
-
-> **断点前缀是硬要求**：`DialogContent` / `AlertDialogContent` 底座自带 `sm:max-w-lg`，调用处写不带前缀的 `max-w-4xl` 会在宽屏被底座覆盖，大弹窗被锁成 512px（曾导致步骤名被挤成「预检/查」）。宽度一律写 `sm:max-w-*`；`components/ui/__tests__/dialog-width-classes.test.ts` 会扫描全部弹窗并拦截违规写法。
-
-### 7.3 只读长文本面板（ExpandableTextPanel）
-适用于错误堆栈、运行日志、配置/JSON 预览、证据样本等**只读长文本**：
-
-- 统一使用 `frontend/components/common/layout/ExpandableTextPanel`：
-  - 紧凑区用原生 `overflow-auto`（双向滚动），**禁止**再包 `ScrollArea`；
-  - 「放大查看」必须走 `WorkbenchDialogContent`（约 `94vw` / 最高 `1400px` / `88vh`），禁止手写窄 `max-w-5xl` 放大框；
-  - `wrap=false`（默认）保留行并横向可滚；`wrap=true` 用于 JSON/配置折行预览；
-  - `tone='dark'` 用于堆栈/日志；`tone='plain'` 用于浅色边框场景；
-- 短摘要、卡片内一两行预览可继续本地写 `<pre>`；**可编辑**大文本放大（如排障方案表单）不并入本组件，沿用既有字段内放大编辑模式。
+- **结构**：`app/(main)/dashboard/page.tsx` 只装配 `HomeDashboard`（`components/common/dashboard/`）。顶部 `WorkspaceHeader`（操作区放范围选择与刷新）→ `KpiStrip` 指标条 → 「需要处理」横条 → Arc `Tabs`（集群 / 作业 / 主机 / 平台 / 作业列表）。页签、范围（`cluster`）与列表筛选写在 URL（`useDashboardQuery`）。区块页签按内容宽度：Arc `listShell` 是 `inline-flex`，在 `flex-col` 父级里外包 `<div className='flex'>`。
+- **头部集群范围**：Arc `Combobox`（集群名不固定，需搜索）。`label` 可选；去掉历史 `[&_label]:sr-only` 后必须保留可见标签或 `aria-label`（§8）。`data-testid='home-scope'` 透传到输入框；`all` → `clusterId: undefined`；当前 `cluster` 不在已加载列表时保留 `clusterFallback`。
+- **指标条（`KpiStrip`）**：一底板 7 格，格间「右 + 下」1px inset 分隔（`DASHBOARD_CELL_DIVIDER`）；数字 24px 量级；`tone` 只染数字：失败 / CDC 超阈 / 严重告警 / 集群异常 → danger，仅降级 → warning。涨跌符号只给「越大越好」的写入速率。首屏用 `KpiStripSkeleton`。
+- **面板层级（`DashboardPanel`）**：`primary` / `secondary` 两档；`empty` 收成 `h-11` 矮条；`flush` 去内边距用于指标页签行与表格。
+- **吞吐页签（`ThroughputTabs`）**：读 / 写 × 行 / 字节 4 格驱动 `BrushChart`，**不再**使用分段控件；与 `ClusterScopeStrip` 共用 `use-roving-keys.ts`。
+- **集群范围条（`ClusterScopeStrip`）**：替代大圆角 `RadioCards`；底板 + 分隔线格子，`radiogroup` + roving tabindex，选中格顶部 accent 色条；保留健康徽标与节点 / 运行 / 堆 / 告警说明。
+- **作业列表**：**不要**恢复已删除的「全部 / 正式 / 预览」运行类型分段控件；状态筛选仍为工具栏现状（`StatPillsBar`，计数来自 `with_counts`），本期对齐层再换成 `chip-group` 多选。详情就地走 `JobDetailHost`，不复刻工作台整页。
+- **需要处理**：无事项时只渲染无框单行文字，不留空边框。
+- **图表选型 / 配色 / 时间窗 / 轮询 / 空态 / 产品文案**：延续既有大盘约定（一个指标一种图；`colorForLabels` / `SERIES_PALETTE`；自定义窗口写 URL `start`/`end`，前端截取 366 天；`usePolledResource` 30s；`TrendEmptyState` 按 `reason` 区分；界面不出现底层实现名）。
+- **平台页签**：`tab=platform`，主体 `PlatformTab`；快照 `getPlatformSnapshotSafe()`；降级用 `TrendEmptyState`；Agent 表用 `StudioTable`。
 
 ---
 
-## 8. 关键运维链路的向导式引导交互（Actionable Guidance）
+## 11. 提交前检查
 
-适用于主机接入、集群创建、初始化部署等**涉及异步外部操作或多步骤链路的场景**。
-
-- **拒绝冷冰冰的“提交即关闭”**：
-  - 用户新增资源（如新增主机）后，仅弹出一个“添加成功”并直接关闭弹窗会导致用户陷入迷茫（不知道还要复制命令到目标机器运行）；
-- **向导式闭环引导规范**：
-  - 关键资源创建成功后，必须自动或引导弹出“操作指引与接入向导”（如 `HostInstallGuideDialog`）；
-  - 提供环境检测提示、一键复制单行命令按钮（带成功反馈）；
-  - 内置实时心跳侦听机制（通过定时轮询或 SSE 监听 Agent 上线）；
-  - 当监听到真实心跳后，自动将界面流转为“已接入成功”的高亮庆祝状态，形成有始有终的完整交互闭环。
-
----
-
-## 9. 敏感保密凭据（Secret / Password）与变量体系规范
-
-适用于全局变量、任务自定义变量、数据源连接密码、访问密钥（AccessKey/SecretKey）、认证 Token 等场景。
-
-- **存储与传输原则**：
-  - 敏感凭据保存后，后端接口**严禁**再明文返回密码原文；
-  - 前端展示统一进行保密脱敏（如固定显示 `••••••••`、锁定为不可反查状态并标注“保密”胶囊）；
-- **任务定义与运行时兼顾契约（DataSync Variables Contract）**：
-  - 在数据同步工作台中，任务级自定义变量同时支持普通文本（`string`）与保密凭据（`secret`）；
-  - 真实值写入 `task.definition.custom_variables`（以供 SeaTunnel 任务引擎无感知安全注入）；
-  - 变量类型元数据写入 `task.definition.custom_variable_types`（例如 `{"DB_PASS": "secret"}`），确保前端重新加载或编辑时准确呈现脱敏锁与安全状态；
-- **编辑交互契约**：
-  - 打开编辑态时，密码框默认保持空状态或置灰占位，并明确提示“留空保持原密码不变”；
-  - 仅当用户在编辑框内重新键入新密码时，才将新明文提交并覆盖更新；若保持留空，前端自动回填并保留原始敏感值；
-  - 杜绝在列表内直接暴露行内明文输入框，统一通过专属弹窗（如 `CustomVariableDialog`、`GlobalVariableDialog`）进行严谨的类型选型与键名校验（避免冲突平台内置时间保留字）；
-  - 变量项支持快捷复制变量引用语法 `{{KEY}}`，单击直接复制并向用户弹出明确成功的 Toast 反馈。
-
----
-
-## 10. 表格卡片一体化、视口保底高度与底部分页规范（Table Card & Pagination）
-
-适用于用户管理、主机列表、审计日志、命令历史、告警列表等**所有带分页的数据表格页面**。
-
-- **一体化收口（Table Card Integration）**：
-  - 表格与分页栏必须作为统一的实体封装在同一个卡片或容器内（如 `border rounded-lg relative overflow-hidden bg-card/40 shadow-xs`）；
-  - 分页栏作为表格底栏（Table Footer），紧接在表格下方，使用 `border-t bg-muted/10`（或 `bg-muted/15`）区隔并添加适当内边距（如 `px-4 py-2.5`）；
-  - **严禁**让分页控制栏脱离表格外框、孤立悬空在下方的整片大空白区域中。
-- **视口自适应保底高度与底部锚定（Viewport-Fitting Min-Height & Bottom-Anchored Pagination）**：
-  - **痛点预防**：当表格仅检索到 1~2 行数据时，若不设保底高度，表格卡片会瞬间塌陷为一条极其细窄的缝隙，分页栏浮在屏幕上方，卡片下方留下 70% 的黑色视觉空洞，严重破坏企业级桌面端控制台质感；
-  - **结构规范**：
-    - 外层 Table Card 容器必须采用 Flex 纵向列流并声明视口响应式最小高度：`flex flex-col flex-1 min-h-[480px] sm:min-h-[calc(100vh-270px)]`；
-    - 中间表格内容区声明伸缩扩展：`flex-1`（或包装在 `flex-1 min-h-0` 中）；
-    - 底部分页栏声明底部外边距自适应吸底：`mt-auto border-t bg-muted/10`；
-    - **效果保障**：在数据量极少时，卡片自然撑开填满首屏黄金可视区，分页栏始终稳稳扎根在卡片底部；在数据多页或展开时，高度自然向外延伸滚动，兼顾美学稳定性与内容延展性。
-- **两极对齐版式（Polar Layout）**：
-  - **左侧**：展示数据体量指标（`共 {total} 条`）及可选的每页条数选择器（`每页 [10/20/50/100] 条`）；
-  - **右侧**：展示紧凑精美的页码操作区（上一页箭头、具体页码按键、当前激活页高亮、多页省略号 `...`、下一页箭头）。按钮尺寸使用轻量图标键（`h-8 w-8`）或紧凑型按钮。
-- **语义与文案严谨性（Semantic Precision）**：
-  - **严禁**在表格分页中使用“上一步 / 下一步”（`previous / next` 文案）；此类文案专属于 Wizard 向导或分步表单；
-  - 分页必须使用“上一页 / 下一页”（`prevPage / nextPage`）或直接使用语义明确的左右箭头图标与数字页码。
-- **组件复用**：
-  - 统一使用 `@/components/ui/pagination` 组件，不得各页面随意手写独立且样式割裂的分页标签；
-  - 保持完整的双语国际化支持（`useTranslations('common')`）。
-
----
-
-## 11. GSAP 声明式微动效体系（Micro-Interactions）
-
-为了提供丝滑的桌面级工业质感，项目在 `lib/animations/gsap-motion.ts` 中封装了统一的 GSAP 微动效。
-
-- **表格数据入场**：在表格外层挂载 `ref={tableContainerRef}`，利用 `useGSAP` 监听数据与 loading 变化，触发 `animateTableRows('.xxx-data-row')` 产生轻微的错峰平滑进场。
-- **卡片网格入场**：对集群卡片、工作台节点卡片等网格，触发 `animateGridCards` 实现自然排列动画。
-- **动效克制原则**：动效时间控制在 150ms~300ms 之间，缓动采用 `easeOut`，重点在于消除生硬闪烁，绝不可阻碍用户的正常快速操作。
-
----
-
-## 12. 高度收敛、对齐与内部滚动
-
-适用于监控中心、诊断中心、任务中心、日志中心这类**信息密度高、左右分栏、卡片内列表很多**的页面。
-
-### 12.1 外层布局：同一行对齐靠父级 Grid 控制
-- 若存在“左侧创建/列表 + 右侧详情”的结构，不要左右两列各自 `space-y-*` 堆叠；
-- 上下对齐靠父级统一网格（Grid）定位，不靠子列自己凑高度。
-
-### 12.2 固定高度 + 内部滚动
-- 任务列表、执行步骤、节点明细、日志流等内容区优先使用 **固定高度 / 最大高度 + 内部滚动**；
-- 模式：外层卡片 `flex flex-col overflow-hidden`，内容区 `flex-1 min-h-0`，内嵌 `ScrollArea`；
-- 原则：**外层负责收口，内层负责滚动**。
-
-### 12.3 文本截断与 Hover 查看全量
-- 凡是做了 `truncate` / 单行省略的字段，必须提供 hover 查看完整值的入口（`title` 或 `Tooltip`）；
-- 严禁为了显示长文本而破坏既有表格宽度与网格对齐。
-
-### 12.4 原子信息完整性与防被迫换行（Atomic Integrity & Anti-Forced-Wrapping）
-- **核心定义**：
-  - **原子数据单元在视觉上具有不可分割性**；
-  - 凡是属于原子语义的信息——包括技术标识符（ID / Code / UUID / Key）、单行键值对（Key-Value Item）、复合状态胶囊、度量数值带单位、文件路径与 API URL、单行代码片段，**严禁因容器宽度不足而在单词/字符中间被机械切断折行**。
-- **常见反模式（严禁出现）**：
-  - **机械等宽栅格切分**：盲目使用 `grid-cols-2 / grid-cols-3 / grid-cols-4` 将容器切成若干细窄列（如单列仅 ~200px），导致较长标识符或键值被迫折成两截（如 `key: \n value`，或单词中间折断）；
-  - **行内徽标折叠**：状态徽标或标签内部的文字被上下挤压折叠。
-- **三种通用排版策略（严禁无策略的自然断行）**：
-  1. **策略 A：弹性自适应流（整块换行，内部不拆）**：
-     - 适用：并列的键值对、标签组、属性卡片；
-     - 样式：父级 `flex flex-wrap items-center gap-x-4 gap-y-2`，子单元声明 `inline-flex items-center shrink-0 whitespace-nowrap`。允许整个键值单元整体换到下一行，绝不在单元内部断开。
-  2. **策略 B：单行溢出滚动保护（保持绝对单行工整）**：
-     - 适用：代码条、命令行、长路径、复合坐标（如 Maven GAV）、单行横向流水步骤；
-     - 样式：`flex items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-none`，子项保持在一条物理水平线，超宽时横向滚动，保证绝对不折行，并配有一键复制。
-  3. **策略 C：单行截断 + 全量悬浮穿透**：
-     - 适用：表格数据列、列表中的长名称、单行描述；
-     - 样式：`truncate max-w-[...]` 配合 `title` 或 `Tooltip`，以优雅单行省略替代破相折行。
-     - **在 `ScrollArea` 或按内容定宽的容器里，只写 `truncate` 不够**：Radix `ScrollArea` 的内层是 `display: table; min-width: 100%`，会按子内容的最小宽度（min-content）撑开；`whitespace-nowrap` 的长文本即使 `truncate`，它的最小宽度仍是整行文字，会把整张卡片撑宽、挤出可视区（`min-w-0` 不能阻止这一点）。截断元素所在的弹性子项要用 `w-0 min-w-0 flex-1`（或固定的 `max-w-[...]`），让它不参与撑宽，只占剩余空间。
-     - 实例：工作台右侧设置栏的告警摘要（`TaskAlertSection`）最初只写了 `min-w-0 flex-1` + `truncate`，长摘要把"运行与集群"卡片撑出侧栏；改为 `w-0 min-w-0 flex-1` 后与改动前宽度一致。改动侧栏这类容器后，要在 1024～1920 几种窗口宽度下对比改动前后卡片的实际宽度。
-
----
-
-## 13. 国际化（i18n）
-
-- **语言包**：在 `lib/i18n/locales/` 下（如 `zh.json`、`en.json`）。所有用户可见文案统一走 i18n key。
-- **单语言可切换展示**：界面在切换语言后仅展示当前目标语言；**严禁**同屏采用“中文 / English”斜杠拼接或并排展示。
-- **跨层语言传递**：对于诊断报告、日志分析、模板说明等由后端生成的文本，前端请求时必须显式传参 `lang`，保证双语切换一致性。
-- **静态文案键**：代码中通过 `useTranslations` 直接引用的字符串键，必须同时存在于 `zh.json` 与 `en.json`。`frontend/lib/i18n/__tests__/translation-coverage.test.ts` 会扫描生产代码并检查缺键。
-- **语言包结构**：测试必须递归比较全部叶子键，不能只比较语言包第一层；ICU 参数（如 `{count}`）也必须在中英文中保持一致。
-- **动态后端值**：审计 action、资源类型、状态等由后端返回的动态值，不得直接调用可能缺键的 `t(dynamicKey)`。必须先调用 `t.has(dynamicKey)`；不存在时显示服务端原值或明确的兜底文案，避免 `next-intl` 在页面运行时报告缺键错误。
-
-```tsx
-// 错误：try/catch 无法阻止 next-intl 先报告缺键错误。
-// Wrong: try/catch cannot stop next-intl from reporting a missing key first.
-try {
-  return t(dynamicKey);
-} catch {
-  return fallback;
-}
-
-// 正确：先检查文案是否存在，再调用翻译函数。
-// Correct: check message existence before calling the translator.
-return t.has(dynamicKey) ? t(dynamicKey) : fallback;
-```
-
-国际化改动至少运行：
-
-```bash
-cd frontend
-pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
-```
-
----
-
-## 14. Arc 组件（工作台）
-
-- 免费组件放在 `frontend/components/arc/`。从 `frontend/` 执行 `pnpm dlx shadcn@latest add @uiarc/<name> --yes`。注册表是 `frontend/components.json` 的 `@uiarc`。不要覆盖 `components/ui/`，也不要安装 `@uiarc-pro`。
-- **作业详情趋势图**：指标「趋势」用 Arc `line-chart`（吞吐 / 条数 / 忙碌度 / 背压）、`brush-chart`（CDC 延迟 + 事件标注）、`bar-chart`（Checkpoint 耗时）、`donut-chart`（累计条数构成：已提交 / 已写未提交 / 已读未写）。不要再手写 recharts `LineChart`。图序：吞吐、累计条数、CDC 延迟（第三，独占一行）、Checkpoint、构成、忙碌度、背压。CDC 不要放第一行，离线 / 批任务不是 CDC。时间窗是 `15m | 1h | 6h | 24h | 7d | 作业全程` 分段控件，旁边放 `ArcDateRangePicker withTime` 选自定义起止（精确到分钟）。已结束的作业默认「作业全程」，运行中默认 `1h`：相对当前的预设一过就看不到已结束作业的数据。作业全程用 `jobLifetimeWindow()`：开始取 `started_at`（缺省 `created_at`），结束取 `finished_at`；运行中不传 `end`（后端取 now，自动刷新时窗口跟着长）；`finished_at` 早于开始（引擎时区错位）时依次退到 `updated_at`、当前时间。自定义窗口固定不变，不做自动刷新。后端 `GET /sync/jobs/:id/timeseries` 收 `start` / `end`（RFC3339 或秒/毫秒时间戳，优先于 `range`，跨度 ≤ 31 天，step 按约 240 点自动选），响应带 `range: "custom"` 与 `start_ms` / `end_ms`；CLI 对应 `stx sync job timeseries <id> --start … --end …`。Brush 的 `minSpan` 必须按序列 step 缩短，不能用默认 7 天。**配色**：Arc 折线默认「首条 accent + 其余灰阶」，在中性 accent 主题下整屏发灰。趋势图一律用 `metrics-trend-data.ts` 的 `TREND_COLORS`（Arc `--series-*`）按阶段配色：读 `--series-1`、写 `--series-2`、Checkpoint `--series-3`、已提交 `--series-4`，同一阶段在折线、环形图、指标卡色标里同色。环形图每段显式给 `color`（Arc 按出现顺序取色，某段为 0 被过滤后其余段会整体换色）。忙碌度 / 背压用 `colorByName()`：Source 跟读色、Sink 跟写色，其余按名字轮流取色，两张图共用一张映射。`BarChart` 只读 `--accent`，在 Checkpoint 区块上局部覆盖 `--accent`，不要改组件源码。`pickAxisLabel` 末尾刻度强制保留，离末尾不足半个 step 的等距刻度要让位，避免两个时间叠字。
-- **全局日期范围**：告警筛选、审计日志等起止日期一律走 `ArcDateRangePicker`（`components/common/layout/ArcDateRangePicker`），底层是 Arc `date-range-picker`。相对小时窗口（近 1 小时 / 6 小时等）用 `SegmentedControl`，不要再放 `datetime-local` 或 `type="date"`。选择器 `locale` / `weekStartsOn` / 预设与 Apply/Cancel 等操作文案跟当前语言走 next-intl；`maxDate` 用 Arc `useToday()`，首帧不要 `new Date()`。Apply 之后把闭区间写成开始日 `00:00`、结束日 `23:59:59.999`（`lib/date-range.ts`），不要写成 `T23:59`（会变成 23:59:00.000，丢掉最后一分钟）。封装默认 `months={1}`：Arc 的 `months="auto"` 按视口宽度判断（≥ 712px 双月），桌面上总会摊成双月 + 竖排预设，面板过宽；官网演示是窄框所以是单月。**精确到分钟**：Arc 选择器加了 STX 扩展 `withTime`（`startTimeLabel` / `endTimeLabel` 走 `common.dateRange.startTime/endTime`），日历下方出现起止 HH:mm；`start` 落在该分钟 `:00.000`，`end` 落在该分钟 `:59.999`，同一天结束早于开始时禁用应用；预设仍表示整天，时刻回到 00:00–23:59。时间输入是组件内的 24 小时制 HH:mm 文本框（`ClockField`，接受 `1213` / `12:13` / `9`，失焦或回车规范化，非法回原值，↑/↓ 调分钟、Shift 调小时）：不用原生 `<input type="time">`，它按浏览器语言显示，英文浏览器会变成 `12:13 PM`；也不用 Arc `time-picker`，面板外壳是 `overflow: clip`，它的下拉会被裁掉。月份标题是按钮，点开「按年选月」网格（3×4，左右箭头按年翻页、年内方向键 ±1/±4），选月后回到日历并落到该月 1 日；`previousYearLabel` / `nextYearLabel` / `chooseMonthLabel` / `backToCalendarLabel` 走 `common.dateRange`。**嵌在 Radix Dialog 里时**，点面板内不可聚焦区域（标题、标签、空白）会被外层 FocusScope 把焦点拽到 dialog 容器——`onRootBlur` 只看 `relatedTarget` 会误判焦点离开而关闭；组件用 `pointerInside`（document `pointerdown`/`pointerup` 记录手势是否起于 root 内）抑制这类 blur，键盘 Tab 移出仍关闭。告警筛选（`CompactTimeFilter`）开 `withTime`，用 `wallTimesToDateTimeRange` / `dateTimeRangeToWallTimes` 往返（结束写成 `THH:mm:59.999`），恢复替换 `datetime-local` 前的分钟精度；审计日志仍按天。
-- `app/layout.tsx` 引入一次 `@/components/arc/foundation.css`。Arc 只认 `html[data-theme]`。`ThemeProvider` 里的 `ArcThemeAttribute` 把 `resolvedTheme` 写成 `light` 或 `dark`。Tailwind 继续用 `class`。
-- 界面文案仍走 next-intl，一次只显示一种语言。`SearchField.clearLabel`、`CopyButton.copiedLabel` / `failedLabel`，以及 `DateRangePicker` 的 `applyLabel` / `cancelLabel` 等操作文案，都是给中文用的可选文案，默认保持英文。不要改组件的动画实现。
-- 顶栏不要给每个动作单独描边再留缝，那会像一串胶囊。按 Cursor / Figma / HeroUI Toolbar：状态和侧栏开关无边框；探查用一组 `ExpandingButtonGroup`；保存、发布、运行、停止用一组 `button-group` outline，Savepoint 变体进末尾菜单。不要用 `solid`（深色主题会反成白）。不要把「版本管理」塞进菜单。发布弹窗取消用 Arc `button` secondary，确认用 primary（`loading` 跟发布中）。保存段跟随当前草稿：保存中显示「保存中」；已有文件且草稿干净显示「已保存」；没有文件，或正文、右侧栏、全局变量把草稿弄脏，立刻回到「保存」。不要用定时器把已保存打回保存。`reserve` 锁住「保存 / 保存中 / 已保存」宽度。保存失败且草稿仍脏时必须停在「保存」。发布段只打开对话框。测试、DAG、预览不写 `doneLabel`。定时侧栏不要套卡片：标题 + `switch` + 状态 `badge` 一行，长说明进 HelpHint；Cron 预设用 `chip-group`，解除绑定用 `confirm-morph`，展开后单独占一行。顶栏三列是「面包屑 0.7fr / 搜索 280px / 动作 max-content」。搜索槽固定 280px 并靠左，`ExpandingSearch` 的壳是绝对定位，必须在槽内从左往右展开，不要盖住保存/运行。不在本地列表里的数字 Job ID 仍走 Cmd/Ctrl+P 对话框。顶栏把 `--control-height-md` 收到 `2.25rem`。右侧栏和控制台用 `.studio-sidebar-chrome` 同一套行高。发布按钮用短文案「发布」，弹窗标题仍用「发布新版本」。文件树范围只保留「我的 | 全部」：我的 = 自己的任务 + 公开任务。模板管理用分段控件切换「精选」和「插件默认」；插件默认的长说明收进 HelpHint，不要在列表上堆一段静态提示。精选分区用 `chip-group` 多选，来源用分段控件，插件列表用 `combobox`（选中即插入）。全局变量类型用分段控件，时间类别用 `chip-group` 单选。底部控制台「任务 / 日志 / 预览 / Checkpoint」也用分段控件。打开文件后默认停在「任务」，不要切到「日志」。任务表和预览表用 `StudioDataTable`：HeroUI Table 的解剖（粘性表头、列排序、表内空状态、底栏分页），颜色走 Arc token，不要装 `@heroui/react`，也不要 uppercase 表头。任务 / 预览贴满控制台，不要再套一层卡片边框；预览分页放 `StudioTableFooter`，刷新用 `TableLoadingBar` 而不是居中 Spinner。行内操作保持 ghost。预览左右栏用 Arc `ResizablePanels`：拖动分隔条改宽度，拖过最小宽度或按 Enter 收起数据集栏，不要再写死 12.5rem。作业详情页签用 Arc `Tabs`。指标「快照 | 趋势」用 `SegmentedControl`，放在页签同一行右侧，说明进 HelpHint，不要在页签下面再叠一条分段。状态用 Arc `Badge`，恢复 / 停止用 Arc `Button`。侧栏文案用短标签，长说明放 tooltip 或 hint，不要靠 `truncate` 把功能入口吞掉。侧栏标题不要 uppercase。
-- 左侧文件树用 beUI File Tree（`frontend/components/motion/file-tree.tsx`）做展开、选中高亮和键盘导航，不要换成 Arc Tree view 或 File dropzone。右键、行内重命名/新建、拖拽移动仍由 `TreeView` 适配层保留。安装 `@beui/*` 时不要写入 `lib/i18n.tsx`，那会覆盖 next-intl 的 `lib/i18n/`；文案走 `ariaLabel` / `labels` 或 next-intl。目录栏标题行只放「资源」计数和一个「资源操作」菜单，不要并排堆新建目录/文件/展开/刷新四枚图标。树行也不要并排悬停操作图标，以免挤掉文件名；这些动作走资源操作菜单和右键，双击重命名。文件名随资源栏宽度截断（`min-w-0` + `truncate`），`vN` / 「草稿」徽章 `shrink-0` 留在行尾，不要被栏宽裁掉。截断后悬停用 Tooltip 展示全称。空目录用一句空状态加「新建目录」。Radix ScrollArea 默认 `display:table` 会把树行撑出栏宽，资源树视口必须覆盖成 `display:block; min-width:0`。
-- 工作台外壳（资源栏 / 编辑区 / 右侧栏 / 控制台）用网格拖动手柄改宽高，尺寸和开合一起记在 `localStorage`。分隔条叠在卡片接缝上：平时是 1px 线，握把只在悬停、聚焦或拖动时出现，不要常驻白条或 6px 轨道。分隔条光标用 Figma 小三角（`public/cursors/{ew,ns}-resize.png` 与 2x，热点 16,16）：两个实心三角、中间留缝、贴合细白边、带抗锯齿。Chromium 不绘制 SVG 光标，所以必须用 PNG；系统 `col-resize` 仅作兜底。不要 `not-allowed`。拖动期间给 `html[data-studio-resizing=x|y]`，用 `!important` 盖住 Monaco 的文本光标。整页 `html` 锁必须写在非 CSS Module 文件（`studio-split-handle.css`）：Next 生产构建要求 module 选择器含本地 class，`:global(html[...])` 会让 `next build` 失败。预览左右栏继续用 Arc `ResizablePanels`（只有横向，且开合是组件内部状态，不能驱动顶栏开关）。HeroUI Pro `Resizable` 和 beUI 都没有可装的免费分隔条，不要为外壳再装一套。默认左 240px、右 360px、控制台 260px；顶栏开关仍负责开合。
-- 工作台左右侧栏开合记在 `localStorage`，但首帧必须用默认值（左展开、右收起），挂载后再套用上次记录。不要在 `useState` 初始值里读存储：服务端没有这份记录，客户端若记住了「右侧展开」，水合会改掉顶栏开关的 `aria-label` 和图标。Next 开发态会因此弹出红色报错层，开关点不了。那不是 Arc 的禁用样式。
-- 点不了的按钮用默认箭头，不要 `cursor: not-allowed`。这套系统光标会把禁止光标画成一块红色大图标，盖在「停止」这类禁用按钮上。禁用只靠变淡，原因放 tooltip。
-- 工作台右侧图标栏：设置 `Settings`（齿轮），模板 `FileStack`（叠放的模板文件），定时 `Clock3`，版本 Lucide `Tags`（两枚标签），全局变量用 Gravity UI 的 `curly-brackets`（16px 实心花括号，内联 SVG，不引入整包）。Arc 和 HeroUI 都没有自己的图标集。不要用数据库、扳手、地球、Git 分支、叠放菱形，或和定时相同的时钟，冒充设置、模板、全局变量和版本。
-- 集群升级三页（准备 / 配置合并 / 执行）共用 `.upgrade-steps` 轨道，当前步是抬起的选中块。返回、清空、刷新这类次要动作进 `ButtonGroup` 或 Arc `Button` secondary；继续、生成计划、启动执行用 primary，进行中走 `loading`，阻断原因用 `aria-disabled` + tooltip。状态用 Arc `Badge`。配置文件切换用 Arc `Tabs`。执行页「步骤 | 节点」用 `SegmentedControl`。长说明进 HelpHint，不要在标题下再铺一整段。状态摘要是一行四格，不要四张大卡片。
-- 单测一旦引入 Arc 的 CSS Module，`vitest.config.ts` 的 `css.postcss.plugins` 必须是空数组。否则 Vite 会拒绝 `postcss.config.mjs` 里的字符串插件 `@tailwindcss/postcss`。
-
-## 15. 工作台草稿手动保存与离开拦截（Workbench Draft Save）
-
-适用于 `/workbench` → `DataSyncStudio` 的未落盘草稿防丢：
-
-- **只手动保存草稿**：编辑后必须点顶栏「保存」才调用 `persistCurrentFile(false)` / `updateTask`。不要防抖自动保存，更不要自动 `publishTask`。
-- **共享状态**：顶栏 Arc 保存段展示「保存 / 保存中 / 已保存」，失败时另用 `DraftSaveStatusBadge` 提供重试。成功以状态指示为准，避免双重成功 toast。
-- **离开风险**：任意可编辑 `editorDrafts.dirty`，或保存中 / 失败未恢复时，挂 `beforeunload`，并捕获站内离开 `/workbench` 的链接点击；对话框提供留下 / 保存并离开 / 丢弃并离开，默认焦点不在「丢弃」。
-- **只读**：`!editor.canEdit` 时保存按钮不可用；无其它可编辑脏草稿时不拦截离开。
-
----
-
-## 15. 登录开屏动画（Welcome Splash）
-
-- **触发**：只在登录成功后播放一次（密码登录 `AuthService.login`、OAuth `CallbackHandler`）。两者都是整页跳转，跳转前统一调用 `beginWelcomeSplashTransition()`：写入带时间戳的 `sessionStorage['stx:welcome-splash']`，并把当前页淡入纯黑。
-- **防首页先露出**：根布局 `<head>` 里的内联脚本 `welcomeSplashBootScript` 在首帧前读取并消费标记，命中后给 `<html>` 加 `data-stx-splash`，`globals.css` 用 `body::before` 先铺纯黑遮罩；`WelcomeSplash` 水合后接手，退场开始时才撤遮罩。遮罩有 15 秒兜底超时，不会永久黑屏。
-- **不播放的情况**：标记超过 60 秒、落地页是 `/login`、自动化浏览器（`navigator.webdriver`）。E2E 要验证动画时，先设置 `localStorage['stx:welcome-splash-force'] = '1'`。
-- **可跳过**：右下角「跳过」按钮和 `Esc` 都会进入快速退场；`prefers-reduced-motion` 下只渐显品牌和欢迎语，约 2 秒结束。
-- **视觉约束**：整段开屏为单色银白。奇点着色器（移植自 Inspira UI Singularity Background，MIT）在片元里去色，LOGO 图形保留品牌蓝，这是全片唯一的色彩；粒子、尾迹、冲击波一律中性白。不要加彩色背景、彩色渐变字，也不要用书法类艺术字。品牌字和英文欢迎语用 Michroma（`@fontsource/michroma`）。中文欢迎语用 `public/fonts/stx-splash-greeting.woff2`：这是只含欢迎语字形的 Noto Serif SC Light 子集，约 2KB。不要为几个字引入整套中文字体包，那样会多出约 6MB 分片，还会给每个页面的全局 CSS 加约 100KB 的 `@font-face`。
-- **欢迎语字体再生成**：修改 `zh.json` 的 `splash.welcomeBack` 后，运行 `cd frontend && bash scripts/fonts/build-splash-greeting-font.sh`（依赖 curl、node、uv），并提交 `public/fonts/stx-splash-greeting.*`。`greeting-font.test.ts` 会校验清单中的文案与语言包一致。
-- **碎裂节奏**：撞击前内爆收缩（`uZoom`）→ 撞击瞬间短暂慢放（顿帧）+ 径向过曝 → 镜头震动、放射光芒、双冲击波、碎片带边缘高光，部分碎片朝镜头放大飞出 → 粒子带速度拖影炸开。
-- **实现分层**：`splash-timeline.ts` 放时间轴和纯数学，有单测；`singularity-renderer.ts` 是原生 WebGL2，不可用时降级为 CSS 漩涡；`splash-assets.ts` 负责品牌排版和粒子采样；`splash-director.ts` 用单条 rAF 时间轴驱动画面，逐帧不触发 React 渲染。
-
-## 16. 控制台首页（监控大盘 + 全局作业列表）
-
-- **结构**：`app/(main)/dashboard/page.tsx` 只装配 `HomeDashboard`（`components/common/dashboard/`）。顶部 `WorkspaceHeader`（保留 STX 标识，操作区放范围选择与刷新）→ 6 张 Arc `MetricCard` 指标卡 → 「需要处理」横条 → Arc `Tabs`（集群 / 作业 / 作业列表）。页签、范围（`cluster`）与列表筛选都写在 URL（`useDashboardQuery`），页面用 `Suspense` 包住。
-- **指标卡**：`MetricCard` 没有插槽，不改内部，迷你曲线不放进卡片；整卡用 `<Link>` 包裹跳转。`change` 以 `+ / −` 开头会被 Arc 染成涨绿跌红，只用于「越大越好」的写入速率；失败数等用不带符号的中性文字（如「昨日 1」）。首屏加载用等高骨架（158px），不塌陷。
-- **需要处理**：合并作业失败、CDC 延迟、高背压与告警，严重在前，单行横向滚动，最多 10 条。`viewable=false` 的作业只显示（Tooltip 说明无权限），不跳转。
-- **作业列表**：状态筛选用 Arc `chip-group` 多选（计数来自 `with_counts`；URL 里的状态用逗号分隔多个值，并兼容旧的单值链接；迁移前现状为 `StatPillsBar`），模式用 Arc `SegmentedControl`，搜索框限宽并支持 Enter；表格复用 `StudioDataTable` 原语，底栏 `StudioTableFooter` + `Pagination`（只有一页时只显示总数）。列为：作业、集群、模式、状态、读取 / 写入速率、读取 / 写入条数、CDC 延迟、开始时间、结束时间（下方注耗时）、操作。默认 `sort=started_at&order=desc`；状态列表头可切到「失败优先」（attention）；速率 / CDC 延迟排序只在只选了「运行中」时可点。速率列：运行中显示对账快照的当前速率；已结束显示运行期间平均速率（累计条数 ÷ 耗时），加「均」前缀、浅色并用 title 说明，不为它查时序。结束时间早于开始时间（引擎时区配置错位）时用 `jobTimeBounds()` 退回 `updated_at`，与详情「作业全程」一致。迷你曲线用 beUI `Sparkline`，每次列表刷新后对本页运行中作业发**一次** `getJobSparklines`；监控不可用时整列不渲染。行点击打开 `JobPreviewDrawer`（`Sheet`），「详情」与抽屉里的「打开作业详情」走工作台深链 `/workbench?task=&job=`，首页不复刻 `JobDetailDialog`。批量停止 / 恢复串行调用现有接口，结果写在列表上方的状态条里，不只靠 toast。
-- **集群页签（默认页签）**：Arc `RadioCards` 做集群卡片（全部 + 每个集群，选中即切换范围，与头部范围同步）→ beUI `StatusBar`（每节点一行，可用 / 不可用用 `--success` / `--danger`）→ 2×2：Arc `LineChart`（堆带 85% 虚线参考序列、CPU、GC，节点颜色用 `colorByName` 跟实例名）与 beUI `CompositionChart`（引擎作业状态，状态语义色，全 0 的状态不画）→ 节点表（`StudioDataTable`，数值列 `minWidth: 0` 防止被 7rem 默认宽度挤出）+ 异常信号（单列清单：标签 / 数值 / 正常 · 异常徽标，不要两列小卡片，否则标签被截断）。头部时间窗分段控件只在非作业列表页签显示，写 URL `range`。监控不可用时卡片与节点表照常，趋势区换成 `TrendEmptyState`。
-- **作业页签**：Arc `BrushChart` 全局吞吐（读 / 写 × 行 / 字节分段切换，事件标注），beUI `BarChart` horizontal 写入 / CDC 延迟 Top 8，beUI `SankeyChart` 数据流向，beUI `HeatCalendar` 运行日历（运行 / 失败切换，外面包 `LocaleProvider` 让月份与图例走当前语言，`labels` 传 next-intl 文案；`endDate` 用 `Date.UTC` 构造后端给的 `end_date`），Arc `BarChart` Checkpoint（区块内覆盖 `--accent`，传 `averageLabel` / `valueLabel` / `categoryLabel`，`formatValue` 不要再带单位以免与 `unit` 重复），算子热点小表。监控不可用时只有运行日历出图。
-- **主机页签**：每台 agent 主机一张卡（头部：主机名 / IP / 状态徽标 / 规格 / 「已运行 N 天」/ 心跳），身体 8 格：CPU / 内存 / 负载（核数虚线参考）/ 网络 / 磁盘读写 / 磁盘使用率（100% 虚线）6 张折线 + 文件系统容量 · inode 合并的 `Progress` 列表（按容量降序，≥85% warning、≥95% danger，一格占两列）+ TCP 连接与 fd 两张 `MetricCard`+`Sparkline` 小卡合并一格。`stx_host_boot_time_seconds` 经 `boot_time_ms` 换算 uptime。`source=none` 时清单照常、卡片不画图也不重复原因文案（顶部 `TrendEmptyState` 横幅已说明）。
-- **集群细节（ClusterDetailGroups）**：按组懒加载，一个指标一种图——趋势用折线；恒零「有没有」指标（死锁线程、线程池拒绝）用每节点 `MetricCard`（>0 时包层 `--foreground: var(--danger)` 把数值染红），拒绝带 `Sparkline`；Hazelcast 分区分布用 `DonutChart`；本地持有 / 备份条目合并成横向分组 `BarChart`（类目 `实例 · store`，单节点只留 store 名）；fd 用量用 `Progress`（open/max，≥80% warning）。虚线规则：已提交堆、峰值线程、GC 占比 10% 阈值、成员数节点参考都画 `dashed` 参考序列；全 0 的 Hazelcast 队列类型整条不画；「类加载数」与「类加载速率」合并成一条折线（速率只是同线的斜率）。
-- **大盘图表选型原则（一个指标一种图）**：默认折线回答「怎么变」；「占多少比例」用 Donut；「谁快满了」用按使用率排序的 `Progress` 列表；「各 store × 节点差多少」用横向分组柱；「恒零异常有没有发生」用 `MetricCard`（有迷你趋势需求时加 `Sparkline`）。同一指标不得同时画两种图；为凑对称加的重复图直接删。配色一律走 `dashboard-format.ts` 的 `colorForLabels` / `dimensionColor`：rx / 读 `--series-1`，tx / 写 `--series-2`，CPU user `--series-1`、system `--series-2`、iowait `--warning`、steal `--danger`，BLOCKED `--danger`、WAITING / queued `--warning`，JVM 池按 Eden / Survivor / Old、Metaspace / CodeHeap、Direct / Mapped 分组取色；同语义多实例逐级调淡（`color-mix`）保持方向一致；未知名按名字序轮流取 `SERIES_PALETTE`。单维度多实例面板（members、store_heap 等）按实例着色跟节点色。禁止依赖 Arc 折线默认色（第 3 条起全是同一个灰），禁止各处再写私有调色板（JobsTab 的 `VOLUME_COLORS` 已并入 `SERIES_PALETTE`）。
-- **时间选择器**：头部「分段控件 + `ArcDateRangePicker withTime`」，与作业详情趋势一致；自定义窗口写 URL `start` / `end`（毫秒），此时分段控件无选中，点预设清掉；前端截取 31 天；自定义窗口固定，`usePolledResource` 间隔传 0 不轮询。
-- **beUI 进入视口才播放生长动画**：整页截图时未滚到的图表是空的，验证前先滚一遍页面。vendored `sankey-chart/plot.tsx` 的几何（连线 d / opacity、节点 y / height、标签 y）同时作为静态属性传入，因为 motion 没写入时整图会空白或标签错位（STX 本地适配，文件头已注明）。
-- **趋势空态按原因区分**：`TrendEmptyState` 接收接口的 `reason`：`observability_disabled` 显示「内置监控未开启」，说明需管理员在服务端配置中开启（前端没有开关页，不放跳转入口）；其余（`prometheus_unavailable` / `prometheus_error`）显示「监控数据暂不可用，稍后自动重试」。作业详情趋势与预览抽屉同样区分。
-- **用户可见文案不出现底层实现名**：监控是产品内置能力，界面、提示、错误信息不写 Prometheus / Alertmanager / Grafana / PromQL，用「内置监控」「监控指标」「指标告警」等产品语言；接口里的实现细节枚举值（`source:"prometheus"`、`reason:"prometheus_unavailable"`）只在代码里判断，显示时映射为文案。告警类别 `source_type` 只有 `platform_health` / `metric` / `job` 三个产品值，直接按「平台健康 / 指标告警 / 作业告警」翻译；判断 sync 阶段一律走 `alert_id` 的 `sync:` 前缀（`isSyncEpisode`），不要按类别猜。唯一例外：SeaTunnel 自己的配置键（如 `metrics.prometheus.enabled`）原样显示。
-- **时间与数字**：时间一律用 `lib/timezone`（`formatDateTimeMinuteTz` / `formatTimeTz`），跟随用户设置的显示时区，不直接用 next-intl `format.dateTime`。
-- **轮询**：`usePolledResource` 30 秒一次，页面不可见暂停、回到可见立即刷新；刷新失败保留旧数据。
-- **beUI 引入**：sparkline 依赖链放在 `components/charts/`，其 `lib/i18n.tsx` 改名为 `components/charts/beui-i18n.tsx`，`lib/utils`、`lib/ease` 用仓库已有版本；Arc 组件保持上游原格式（不跑 prettier），两类文件都保留 MIT 头并登记 `licenses/third_party_mit_files.txt`。
-
-## 17. 状态标签（Badge）
-
-- **保留原本 shadcn `ui/badge` 不动**：列表、详情与卡片里的状态标签及中性标签继续沿用 `@/components/ui/badge`（`components/ui/badge.tsx` 保持原样，不做向 Arc `Badge` 的批量替换）。
-- **§14 已有 Arc `Badge` 维持现状**：工作台定时侧栏、作业详情、升级向导以及 `SegmentedControl` / `chip-group` 计数处已使用的 Arc `Badge` 保持不动，也不要求反向改回 `ui/badge`。
-- **一致性与深色可读性**：同一域内的状态配色与尺寸（如 `text-[11px] py-0 px-1.5` 或默认大小）保持统一；新增或顺手修改状态样式时必须同时带好浅色与 `dark:` 对比度变体（如 `text-amber-600 dark:text-amber-400 border-amber-500/30`）。
-- **文案走 next-intl**：未知的后端状态值用 `t.has()` 兜底，避免运行时报缺键错误。
-
----
-
-## 18. 控制台控件统一（Arc）
-
-- **视觉采用 Arc 桌面后台收紧版（对齐 `product-listing` 观感）**：不魔改 Arc 组件源码的圆角写法，只在控制台外层容器覆盖 CSS 变量（工作台保留 `studio-chrome.css` 自身覆盖）：
-  - `--radius-control: 0.5rem`（**8px**，`SegmentedControl` / `Tabs` 内层高亮块自动保持同心圆角）；
-  - `--radius-panel: 0.625rem`（**10px**，`TableCard` 主外框同步 10px）；
-  - `--control-height-md: 2rem`（**32px**）、行内控件 `--control-height-sm: 1.75rem`（**28px**）；
-  - `ConfirmMorph` 与 `Switch` 保持 Arc 原版胶囊形态；不在 `foundation.css` 叠 `corner-shape: superellipse` 覆盖，也不要逐个组件手写 `h-*` 或 `rounded-*`。
-- **避免框框堆叠**：页面只保留一层主外框（如 `TableCard`），筛选栏、搜索框与状态分段控件直接落页面画布，不再外包一层带边框卡片；`TableCard` 内部与详情区块先靠间距分组、其次用 1px `--border-subtle` 分隔线（相邻汇总指标优先合并单框 + 内分割线），禁止卡片套卡片。行内操作平时以无框 `ghost` 按钮或 `DropdownMenu` 为主，不把多个带边框按钮/胶囊并排堆叠。
-- **弹层统一收紧**：`DropdownMenu`、`Select`、`Combobox` 的弹层圆角都用 `--radius-popover`（**10px** / `0.625rem`，定义在 `foundation.css` 的 `:root`，
-  因为弹层通过 Portal 渲染到 `body`），内边距 4px，选项圆角为 `calc(var(--radius-popover) - 4px)`（6px），选项行高 32px；
-  图标平时是 `--text-secondary`，高亮时是 `--foreground`。新增其他弹层组件也按这一套，不要写死 20–26px 的圆角。
-- **同一块区域只用一套组件**：同一行筛选栏、同一个对话框、同一张表里，交互控件要么全是 Arc，要么全是 shadcn（原本 `ui/badge` 豁免，可在 Arc 页面/表格内保留原样）。
-  把某个控件换成 Arc 时，同一区域里相邻的搜索框（`SearchField`）、按钮（`Button`）、输入框（`Input`）、日期（`ArcDateRangePicker`）一起换。
-- **选型**：
-
-  | 场景 | 组件 |
-  |---|---|
-  | 少量选项的下拉 | Arc `Select`；2–5 个短选项且互斥的筛选用 `SegmentedControl`（与 §3 一致），选项会随数据增加时仍用 `Select` |
-  | 可搜索下拉（选项 >10 个，或来自数量不固定的数据，如主机、用户、插件） | Arc `Combobox` |
-  | 行内"更多" | Arc `Button` ghost + `iconOnly` 做触发器，Arc `DropdownMenu` 做菜单；单行动作 ≤2 个时直接摆无框 `ghost` 按钮 |
-  | 行内轻确认（单条、不可撤回、只涉及自己、有按钮可锚定） | Arc `ConfirmMorph`（保持原版设计，每行最多锚定 1 个核心动作，不与多枚描边按钮并排叠框） |
-  | 破坏性 / 影响他人或批量的不可撤回确认 | `ui/alert-dialog` |
-  | 菜单里的危险项 | `destructive`，点了再走 `AlertDialog`，不直接执行 |
-  | 命令面板（快速打开） | `ui/command`，不要拿它拼可搜索下拉 |
-  | 状态筛选 | 见 §3：`SegmentedControl`（单选）/ `chip-group`（多选），计数用 Arc `Badge` |
-
-- **弹出位置用组件默认值**（Arc 菜单 `sideOffset=6`、`align="end"`），不要另外加偏移把菜单推离触发器。
-- **不显示标签的 `Select` / `Combobox` / 纯图标按钮必须传 `aria-label`**，文案走 next-intl。
-- **Arc 源码的本地改动**（`Select`、`Combobox` 可选标签，`DropdownMenu` 自定义触发器，`Button` 的 `iconOnly`，`chip-group` 的 `count`，三种弹层改用 `--radius-popover`）要在文件头注明，
-  升级 Arc 时用 diff 合并，不要直接用注册表覆盖。也不要为了加功能把 Arc 组件复制成另一个组件。
-- **对话框外框暂时仍用 `ui/dialog`**，框内控件按本节换成 Arc；外框是否换成 Arc `Dialog` 另行决定。
-- **迁移进度**：管理列表（审计、用户、错误中心、巡检、告警）、工作台（含底部控制台）、首页大盘（含作业列表）先完成；其他页面的表单与对话框分期迁移。
-  迁移期间页面与页面之间可以暂时不同，但每个页面内部必须统一。
-
----
-
-## 一致性检查项
-
-在提交代码前，必须核对以下检查清单：
-- [ ] 页面头部是否使用了统一的 `WorkspaceHeader`？语义图标是否与 Dock 栏对齐？
-- [ ] 新增或替换图标前，是否查过 Lucide、Tabler、Arc、HeroUI（Gravity UI），并列了至少 3 个候选给开发者确认？没确认就不要改。
-- [ ] 页面是否没有再手写冲突的外层 `container` 或冗余的大 Padding？
-- [ ] 状态筛选是否用 Arc `SegmentedControl`（单选）或 `chip-group`（多选）并带计数，而不是已弃用的 `StatPillsBar`？每一排是否只表示一个维度？危险类计数大于 0 时是否为 `danger`？
-- [ ] 是否消除了卡片顶部的“大篇幅无效说明文字”，保证高密度垂直视口？
-- [ ] **[降噪与防堆砌]** 页面与弹窗是否遵循渐进式披露（Progressive Disclosure），严禁在首屏将概览、重型表格与复杂表单全量无脑平铺？
-- [ ] **[下钻与速览]** 次级重型内容是否通过 Tab / 抽屉 / 折叠面板进行物理分流？主视图是否仅保留轻量速览与穿透动作？
-- [ ] **[排版防碎裂]** 关键标识、键值单元、代码、状态组是否声明了防被迫换行保护（`whitespace-nowrap` / `truncate` / `overflow-x-auto`），杜绝机械等宽 Grid 导致的字符内部被迫断行？
-- [ ] 同一行筛选栏、同一个对话框、同一张表里是否只用一套控件（Arc 或 shadcn），没有 Arc 胶囊控件和 8px 圆角的 shadcn 控件挨在一起？下拉、可搜索下拉、行内"更多"与行内确认是否按 §18 选型？控制台容器是否按 §18 覆写 8–10px / 32–28px 桌面收紧变量且没有逐个组件手写 `h-*` / `rounded-*`？弹层圆角是否用 `--radius-popover`（10px/6px），没有写死？
-- [ ] **[防框框堆叠]** 列表页是否只保留一层主卡片外框（筛选栏直接落画布、没有额外套卡片或边框），内部优先间距与 1px `--border-subtle` 分割线，行内没有多枚带框按钮/胶囊并排叠框？
-- [ ] 状态标签是否保留原本 shadcn `ui/badge`（或 §14 既有的 Arc `Badge`），新增/顺手修改的状态样式是否兼顾浅色与 `dark:` 对比度？
-- [ ] 加载状态是否采用 `TableSkeletonRows` + `TableLoadingBar` 的零塌陷架构，而非大 Spinner？
-- [ ] 筛选栏是否统一左对齐？搜索框等输入项是否已支持 **Enter** 快捷提交？
-- [ ] 表格底部分页是否通过 `border-t bg-muted/10` 封装在 Table Card 内？
-- [ ] 分页栏是否统一使用 `@/components/ui/pagination`？是否杜绝了“上一步/下一步”？
-- [ ] 弹窗是否具有明显的边框与层次感？重内容弹窗是否已显式放宽至 `sm:max-w-4xl` 以上？
-- [ ] 新建物理/异步资源是否有引导式交互（一键命令、实时状态侦听）？
-- [ ] 密码/Token 字段是否满足“保存后脱敏、编辑时不回显”的安全规范？
-- [ ] 语言包是否已在 `zh.json` 与 `en.json` 补充对应的独立单语言文案？
-- [ ] 动态后端值是否在调用翻译函数前使用 `t.has()` 检查，并准备原值或兜底文案？
-- [ ] 国际化覆盖测试是否通过，确认深层键、静态代码引用和 ICU 参数均无缺失？
-- [ ] 自增/修改的代码注释是否严格遵循“中文在前，英文在后”的双语规范？
-- [ ] 工作台若改用 Arc 控件，是否仍保留 `components/ui`、`data-theme` 同步？保存段是否跟随草稿：干净显示「已保存」，一改回到「保存」，失败且仍脏时不显示「已保存」？
-- [ ] 工作台任务 / 预览表是否用 `StudioDataTable`（粘头、排序、底栏、空状态），颜色是否仍走 Arc token 而不是另一套主题？预览左右栏是否用 Arc `ResizablePanels`，而不是写死宽度？工作台外壳是否可拖动改宽高，拖动光标是否是 Figma 小三角 PNG（中间留缝、带抗锯齿），而不是过大的系统光标，树行是否不再堆悬停图标，文件名是否随栏宽截断且 `vN` / 草稿徽章不被裁掉，截断文件名 hover 是否能看到全称？
-- [ ] 作业详情趋势图是否用 Arc `line-chart` / `brush-chart` / `bar-chart` / `donut-chart`，而不是手写 recharts？告警和审计的起止日期是否走 `ArcDateRangePicker`，而不是 `datetime-local` / `type="date"`？需要分钟精度的地方（告警、趋势自定义窗口）是否开了 `withTime`？趋势图是否按 `TREND_COLORS` 阶段配色，而不是 Arc 默认灰阶？已结束作业是否默认「作业全程」？
-- [ ] 工作台草稿是否只靠手动保存（非发布、无自动保存），并在未落盘时提供离开拦截与共享保存状态？
-- [ ] 登录后的整页跳转是否先走 `beginWelcomeSplashTransition()`？新增登录入口时不要绕过开屏契约。
-- [ ] 修改开屏中文欢迎语后，是否已重跑 `build-splash-greeting-font.sh` 并提交子集字体？
-- [ ] 首页指标卡的 `change` 是否只对「越大越好」的指标带正负号？首页时间是否走 `lib/timezone`？
-- [ ] 大盘新指标是否遵循「一个指标一种图」：趋势折线 / 占比 Donut / 快满 Progress / 横向分组柱 / 恒零异常 MetricCard？同一指标没有重复出两种图？
-- [ ] 大盘折线是否走 `colorForLabels` 语义色表（rx/读 `--series-1`、tx/写 `--series-2`、iowait `--warning`、steal / BLOCKED `--danger`），未知名走 `SERIES_PALETTE` 稳定兜底，没有再用 Arc 默认灰阶或私有调色板？
-- [ ] 恒零「有没有」指标（死锁、线程池拒绝）是否用指标卡而不是平线折线？全 0 的维度序列是否不画？虚线是否只给参考量（committed / peak / 阈值）？
+- [ ] 页面未使用冲突的外层 `container`，头部使用 `WorkspaceHeader` 且图标与 Dock 对齐；新/改图标已列出候选并经确认。
+- [ ] 无顶部废话横幅与无脑平铺堆叠；原子字段有防被迫换行保护（`ScrollArea` 内截断用 `w-0 min-w-0 flex-1`）。
+- [ ] 管理列表详情是否用 `DetailHost`（而非常驻 `ui/sheet`）？脏态离开是否走 `DirtyCloseDialog` / `UnsavedChangesDialog`？
+- [ ] 筛选栏左对齐且支持 Enter 提交；列表使用既有 `TableCard` 零塌陷加载与 `@/components/ui/pagination`；新代码是否未再引入 `StatPillsBar`？筛选计数是否来自全集/服务端而非当前页？
+- [ ] `Select` / `Combobox` / 纯图标按钮是否具备可见标签或 `aria-label`（控件不得无名）？大盘头部是否已去掉无替代的 `sr-only` 兜底？
+- [ ] 同一行筛选栏 / 对话框 / 表内是否只用一套控件（`ui/badge` 豁免）？下拉 / 可搜索下拉 / 行内更多 / 行内确认是否按 §8 选型？弹层是否走 `--radius-popover`？
+- [ ] 状态标签是否保留原本 `ui/badge`（或既有 Arc `Badge`），并兼顾 `dark:` 对比度？
+- [ ] 表格/卡片切换用 `ViewToggle` + `useViewMorph`；多选批量条浮于 Dock 上方；互斥挂载的 `SegmentedControl` 传共享 `layoutGroup`。
+- [ ] shadcn 弹窗宽度使用 `sm:max-w-*`；Arc 弹窗/抽屉 Portal 节点挂 `.arc-compact`；无 `window.confirm`。
+- [ ] 敏感凭据不回显明文；异步资源创建后有心跳闭环向导。
+- [ ] 中英文文案完整且单语展示，动态后端值先 `t.has()`；时间走 `lib/timezone`；无底层实现名泄露。
+- [ ] 新增/修改注释遵循「中文在前，英文在后」；vendored 组件保留 MIT 头与本地改动标注。
+- [ ] 大盘是否仍用 `KpiStrip` / `ThroughputTabs` / `DashboardPanel` / `ClusterScopeStrip`，且未恢复「全部/正式/预览」分段？指标条涨跌符号是否只给「越大越好」的写入速率？

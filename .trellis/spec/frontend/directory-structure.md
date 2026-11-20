@@ -25,7 +25,7 @@ frontend/
 │   │   ├── commands/           # 命令日志
 │   │   ├── audit-logs/
 │   │   ├── diagnostics/        # 诊断与巡检
-│   │   ├── monitoring/         # 监控、告警、集成、规则
+│   │   ├── monitoring/         # 监控中心（/monitoring 三面板；旧 sub-routes 重定向）
 │   │   ├── admin/users/
 │   │   ├── sync/               # 数据同步工作台
 │   │   ├── workbench/          # 运行工作台
@@ -40,26 +40,28 @@ frontend/
 ├── components/
 │   ├── ui/                     # 基础组件（Button、Card、Select、Table、Pagination 等）
 │   ├── common/                 # 领域组件
+│   │   ├── ViewToggle.tsx      # 通用纯图标分段视图切换（基于 Arc SegmentedControl）
 │   │   ├── auth/               # LoginForm、CallbackHandler、LoginBrandPanel
 │   │   ├── cluster/            # ClusterMain、ClusterCard、弹窗、配置
-│   │   ├── diagnostics/        # 诊断与巡检界面（Inspection、ErrorCenter、TaskCenter）
+│   │   ├── diagnostics/        # 诊断与巡检界面（Inspection、TaskCenter、DiagnosticsClusterFilter、errors/ 错误组面板、inspections/ 巡检面板（内嵌「巡检记录｜自动巡检」分段）、policies/ 自动巡检策略视图与 policy-describe）
 │   │   ├── host/               # HostTable、HostDetail、HostInstallGuideDialog
 │   │   ├── installer/          # PackageMain、InstallWizard、步骤向导
 │   │   ├── markdown/           # Markdown 展示
+│   │   ├── marketplace/        # 市场共享组件（MorphCatalog、MarketplaceViewToggle、SelectionToolbar 等）
 │   │   ├── plugin/             # PluginMain、PluginCard、弹窗
-│   │   ├── monitoring/         # MonitoringOverview、告警中心、规则面板
+│   │   ├── monitoring/         # MonitoringWorkspace（alerts/、rules/、notify/、status-chips）
 │   │   ├── audit/              # CommandMain、CommandTable、AuditLogMain、AuditLogTable
 │   │   ├── config/             # 配置相关 UI
 │   │   ├── schedule/           # 调度配置
-│   │   ├── sync/               # 数据同步工作台组件
-│   │   ├── layout/             # ManagementBar(常驻Dock)、RouteProgressBar、WorkspaceHeader、StatPillsBar（已弃用）、TableLoadingBar、TableSkeletonRows、EmptyState、ThemeProvider
+│   │   ├── sync/               # 数据同步工作台组件（含 StudioFileTabs、VariableDialogForm）
+│   │   ├── layout/             # ManagementBar、WorkspaceHeader、ModuleNavTabs、StatPillsBar、TableCard、TableLoadingBar、TableSkeletonRows、UnsavedChangesDialog、ArcDateRangePicker、CompactTimeFilter、ExpandableTextPanel、ThemeProvider、DetailHost、DirtyCloseGuard、SoftChip、list-detail.module.css
 │   │   └── ...
 │   ├── animate-ui/             # 动效、radix 变体
-│   ├── motion/                 # beUI motion 控件（File Tree、SharedLayoutBg）
+│   ├── motion/                 # beUI motion 控件（File Tree、Table、SharedLayoutBg）
 │   ├── loading/                # PageLoading
 │   └── icons/
 ├── lib/
-│   ├── animations/             # GSAP 声明式微动效库（gsap-motion.ts）
+│   ├── animations/             # GSAP 微动效（gsap-motion.ts）与表卡形变（view-morph.ts）
 │   ├── services/               # API 服务层
 │   │   ├── core/               # api-client、base.service、types
 │   │   ├── auth/
@@ -91,7 +93,7 @@ frontend/
 
 - **页面**：`app/(main)/...` 下每条路由通常有一个 `page.tsx`，渲染**页面级组件**（组合统一的 `WorkspaceHeader` 与对应领域的主组件如 `ClusterMain`、`HostMain`、`PackageMain`）。全局布局由 `(main)/layout.tsx` 提供常驻 Dock 栏；单页严禁额外增加冲突的外层 `container` 或重复的大 padding。
 - **功能组件**：在 `components/common/<domain>/` 下（如 `cluster/`、`diagnostics/`、`installer/`、`sync/`）。每个目录可有主列表或详情组件、卡片、弹窗和表格。优先组合 `components/ui/` 中的小组件。
-- **Arc 控件**：免费注册表组件放在 `components/arc/`。工作台、作业详情趋势图、告警/审计的日期范围选择器都按需使用；不要把它写回 `components/ui/`。约定见 [UI 约定](./ui-conventions.md) 第 14 节。
+- **Arc 控件**：免费注册表组件放在 `components/arc/`。工作台、作业详情趋势图、告警/审计的日期范围选择器都按需使用；不要把它写回 `components/ui/`。约定见 [UI 约定](./ui-conventions.md) 第 8 节。
 - **beUI motion**：工作台资源树使用 `components/motion/file-tree.tsx`。注册表是 `frontend/components.json` 的 `@beui`。不要覆盖 `lib/i18n/` 或 `lib/utils.ts`。
 - **Services**：按后端领域在 `lib/services/` 下分目录（如 `cluster/`、`host/`）。每个目录有继承 `BaseService` 的 `*.service.ts`、可选的 `types.ts` 以及统一导出的 `index.ts`。后端基础路径为 `/api/v1`；services 使用相对路径（如 `/hosts`、`/clusters/:id/nodes`）。
 - **Hooks**：数据拉取或领域相关 hooks（如 `use-host.ts`、`use-audit.ts`），调用 services 并暴露 loading/error 状态，供页面或 common 组件使用。

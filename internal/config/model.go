@@ -123,6 +123,18 @@ type SyncConfig struct {
 	// SubmitTimeoutSeconds caps how long an unknown submit waits for the engine to register the job; 0 or unset
 	// means the 300-second default, and tasks may override it.
 	SubmitTimeoutSeconds int `mapstructure:"submit_timeout_seconds"`
+	// ExternalJobDiscoveryEnabled 控制是否把非 STX 提交的 SeaTunnel 作业纳入作业列表；不填为开启，显式 false 关闭，集群可再单独关闭。
+	// ExternalJobDiscoveryEnabled controls whether SeaTunnel jobs not submitted by STX are imported into the job
+	// list; unset means on, an explicit false turns it off, and each cluster may still opt out on its own.
+	ExternalJobDiscoveryEnabled *bool `mapstructure:"external_job_discovery_enabled"`
+	// ExternalJobDiscoveryIntervalSeconds 是没有非终态作业的集群做外部作业发现的间隔；0 或不填表示默认 60 秒。
+	// ExternalJobDiscoveryIntervalSeconds is how often clusters without non-terminal jobs are scanned for external
+	// jobs; 0 or unset means 60 seconds.
+	ExternalJobDiscoveryIntervalSeconds int `mapstructure:"external_job_discovery_interval_seconds"`
+	// ExternalJobDiscoveryMaxNewPerRound 是每轮每个集群最多新建的外部作业行数；0 或不填表示默认 200。
+	// ExternalJobDiscoveryMaxNewPerRound caps how many external job rows one cluster may create per pass; 0 or
+	// unset means 200.
+	ExternalJobDiscoveryMaxNewPerRound int `mapstructure:"external_job_discovery_max_new_per_round"`
 	// StopTimeoutSeconds 是停止请求发出后等待作业真正停下的上限，超过只标记停止超时；0 或不填表示默认 300 秒。
 	// StopTimeoutSeconds caps how long a stop request waits for the job to actually stop before it is flagged as
 	// overdue; 0 or unset means the 300-second default.
@@ -309,13 +321,20 @@ type ObservabilityStorageConfig struct {
 	// Dir 是 tsdb 数据目录（blocks + WAL + head）。
 	Dir string `mapstructure:"dir"`
 
-	// Retention 是时间保留期（如 31d，支持 s/m/h/d/w/y 单位）。
-	// Retention is the time-based retention (e.g. 31d; units s/m/h/d/w/y are supported).
+	// Retention 是可选的时间保留期（如 90d，支持 s/m/h/d/w/y 单位）；留空或写 "0" 表示不按时间删除。
+	// Retention is the optional time-based retention (e.g. 90d; units s/m/h/d/w/y are supported);
+	// empty or "0" disables time-based deletion.
 	Retention string `mapstructure:"retention"`
 
-	// MaxSize 是块存储的字节数上限：未配置时默认 30GiB，显式写 0 才表示不限。
-	// MaxSize caps retained block bytes: defaults to 30GiB when unset; an explicit 0 means unlimited.
+	// MaxSize 是块存储的字节数上限：未配置时运行时按 min(30GiB, 数据目录所在磁盘 20%) 自适应
+	// （下限 1GiB），显式写 0 表示不限。
+	// MaxSize caps retained block bytes: when unset the runtime derives min(30GiB, 20% of the
+	// data-dir disk) floored at 1GiB; an explicit 0 means unlimited.
 	MaxSize int64 `mapstructure:"max_size"`
+
+	// MaxSizeSet 标记用户是否在配置文件里显式写了 max_size；由加载流程记录，不参与解码。
+	// MaxSizeSet records whether max_size was explicitly configured; set by the loader, not decoded.
+	MaxSizeSet bool `mapstructure:"-"`
 }
 
 // ObservabilitySeatunnelMetricConfig SeaTunnel metrics 探测配置

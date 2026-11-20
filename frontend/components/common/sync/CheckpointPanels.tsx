@@ -54,15 +54,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+} from '@/components/arc/dialog/dialog';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {
   Table,
@@ -75,29 +72,17 @@ import {
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {HelpHint} from '@/components/common/HelpHint';
-import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {PreviewDataTable} from './PreviewDataTable';
+import {TableLoadingBar} from '@/components/common/layout';
 import {
   ResizablePanel,
   ResizablePanels,
 } from '@/components/arc/resizable-panels/resizable-panels';
-import {Pagination} from '@/components/ui/pagination';
 import {cn} from '@/lib/utils';
 import {
-  StudioSortableColumnHeader,
   StudioTable,
-  StudioTableBody,
-  StudioTableCell,
-  StudioTableColumn,
-  StudioTableContent,
   StudioTableEmpty,
-  StudioTableEmptyRow,
   StudioTableFooter,
-  StudioTableHeader,
-  StudioTableRow,
-  StudioTableScroll,
-  applyStudioSort,
-  nextStudioSort,
-  type StudioSortDescriptor,
 } from './StudioDataTable';
 import type {
   RuntimeStorageCheckpointInspectResult,
@@ -118,7 +103,6 @@ import {
   formatCheckpointFieldValue,
   formatSizeBytes,
   getCheckpointEnumBadgeClass,
-  getPreviewRowKindBadgeClass,
   summarizeCheckpointSourceState,
   summarizeCheckpointSubtaskMetrics,
 } from './sync-studio-utils';
@@ -222,32 +206,23 @@ export function PreviewWorkspacePanel({
   previewSnapshot,
   datasets,
   selectedDatasetName,
-  previewPage,
   loading,
   monacoTheme,
   onSelectDataset,
-  onChangePage,
 }: {
   job: SyncJobInstance | null;
   previewSnapshot: SyncPreviewSnapshot | null;
   datasets: SyncPreviewDataset[];
   selectedDatasetName: string;
-  previewPage: number;
   loading?: boolean;
   monacoTheme: string;
   onSelectDataset: (name: string) => void;
-  onChangePage: (page: number) => void;
 }) {
   const t = useTranslations('workbenchStudio');
   const [previewScriptOpen, setPreviewScriptOpen] = useState(false);
-  const [sort, setSort] = useState<StudioSortDescriptor | null>(null);
   // 记住数据集栏的占比，刷新预览时不要把人拖过的宽度复位。
   // Remember the dataset pane share so a preview refresh does not reset a dragged width.
   const [datasetShare] = useState(readPreviewDatasetShare);
-
-  useEffect(() => {
-    setSort(null);
-  }, [selectedDatasetName]);
 
   if (!job) {
     return (
@@ -280,20 +255,7 @@ export function PreviewWorkspacePanel({
     previewSnapshot?.empty_reason === 'preview_not_ready'
       ? t('preparingPreview')
       : t('noPreviewDataFallback');
-  const pageSize = Math.max(activeDataset?.page_size || 20, 1);
-  const sortedRows = applyStudioSort(rows, sort, (row, key) => row[key]);
-  const total = Math.max(
-    activeDataset?.total || sortedRows.length,
-    sortedRows.length,
-  );
-  const totalPages = Math.max(Math.ceil(total / pageSize), 1);
-  const currentPage = Math.min(Math.max(previewPage, 1), totalPages);
-  const pageRows = sortedRows.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
   const showSkeleton = Boolean(loading) && columns.length === 0;
-  const skeletonColumns = 5;
 
   return (
     <div className='studio-preview-split'>
@@ -376,124 +338,37 @@ export function PreviewWorkspacePanel({
           ) : null}
         </div>
         <TableLoadingBar loading={Boolean(loading)} />
-        {showSkeleton ? (
-          <StudioTableScroll>
-            <StudioTableContent>
-              <StudioTableHeader>
-                {Array.from({length: skeletonColumns}).map((_, index) => (
-                  <StudioTableColumn key={index}>
-                    <span className='sr-only'>{t('columns')}</span>
-                  </StudioTableColumn>
-                ))}
-              </StudioTableHeader>
-              <StudioTableBody>
-                <TableSkeletonRows
-                  columns={skeletonColumns}
-                  rows={6}
-                  rowHeight='h-8'
-                />
-              </StudioTableBody>
-            </StudioTableContent>
-          </StudioTableScroll>
-        ) : columns.length > 0 ? (
-          <StudioTableScroll>
-            <StudioTableContent minWidth={Math.max(columns.length * 120, 480)}>
-              <StudioTableHeader>
-                {columns.map((column) => (
-                  <StudioTableColumn
-                    key={column}
-                    allowsSorting
-                    sortDirection={
-                      sort?.key === column ? sort.direction : undefined
-                    }
-                  >
-                    <StudioSortableColumnHeader
-                      label={column}
-                      sortDirection={
-                        sort?.key === column ? sort.direction : undefined
-                      }
-                      aria-label={t('sortColumn', {column})}
-                      onSort={() =>
-                        setSort((current) => nextStudioSort(current, column))
-                      }
-                    />
-                  </StudioTableColumn>
-                ))}
-              </StudioTableHeader>
-              <StudioTableBody dimmed={Boolean(loading)}>
-                {pageRows.length > 0 ? (
-                  pageRows.map((row, index) => (
-                    <StudioTableRow key={index}>
-                      {columns.map((column) => (
-                        <StudioTableCell key={`${index}-${column}`}>
-                          {column === 'RowKind' ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant='outline'
-                                  className={cn(
-                                    'max-w-full truncate rounded-sm',
-                                    getPreviewRowKindBadgeClass(
-                                      formatCellValue(row[column]),
-                                    ),
-                                  )}
-                                >
-                                  {formatCellValue(row[column])}
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {formatCellValue(row[column])}
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className='block max-w-[22rem] truncate'>
-                                  {formatCellValue(row[column])}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent className='max-w-[480px] break-all'>
-                                {formatCellValue(row[column])}
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </StudioTableCell>
-                      ))}
-                    </StudioTableRow>
-                  ))
-                ) : (
-                  <StudioTableEmptyRow colSpan={columns.length}>
-                    {t('noPreviewDataFallback')}
-                  </StudioTableEmptyRow>
-                )}
-              </StudioTableBody>
-            </StudioTableContent>
-          </StudioTableScroll>
+        {columns.length > 0 || showSkeleton ? (
+          <PreviewDataTable
+            key={activeDataset?.name || ''}
+            columns={columns}
+            rows={rows}
+            loading={loading}
+            emptyMessage={t('noPreviewDataFallback')}
+          />
         ) : (
           <StudioTableEmpty>{previewEmptyMessage}</StudioTableEmpty>
         )}
         <StudioTableFooter>
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            pageSize={pageSize}
-            totalItems={total}
-            onPageChange={onChangePage}
-            showPageSizeSelector={false}
-            className='w-full gap-2'
-          />
+          <span className='font-mono tabular-nums'>
+            {t('previewRowCount', {count: rows.length})}
+          </span>
+          {previewSnapshot?.truncated ? (
+            <span className='text-muted-foreground'>
+              {t('previewRowLimitReached', {limit: previewSnapshot.row_limit})}
+            </span>
+          ) : null}
         </StudioTableFooter>
       </StudioTable>
       </ResizablePanel>
       </ResizablePanels>
       <Dialog open={previewScriptOpen} onOpenChange={setPreviewScriptOpen}>
-        <DialogContent className='flex h-[86vh] w-[94vw] max-w-[94vw] flex-col overflow-hidden sm:max-w-[1380px]'>
-          <DialogHeader>
-            <DialogTitle>{t('injectedScript')}</DialogTitle>
-            <DialogDescription>
-              {previewContentFormat.toUpperCase()}
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent
+          className='arc-compact h-[86vh]! w-[min(94vw,1380px)]!'
+          bodyClassName='flex min-h-0 flex-1 flex-col overflow-hidden'
+          title={t('injectedScript')}
+          description={previewContentFormat.toUpperCase()}
+        >
           <div className='min-h-0 flex-1 overflow-hidden rounded-md border border-border/50'>
             <MonacoEditor
               height='100%'
@@ -2461,57 +2336,44 @@ export function CheckpointInspectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* 弹窗高度固定为 85vh，使用 sm:max-w-[1200px] 覆盖 DialogContent 默认的 sm:max-w-lg 限制 */}
-      {/* Fixed 85vh dialog height and sm:max-w-[1200px] to override default sm:max-w-lg narrow constrain */}
-      <DialogContent className='flex h-[85vh] w-[94vw] sm:max-w-[1200px] flex-col overflow-hidden p-0'>
-        {/* 顶部现代化标题与状态栏 */}
-        {/* Modern header and status bar */}
-        <div className='border-b border-border/60 bg-muted/15 px-6 py-3.5 shrink-0'>
-          <div className='flex flex-wrap items-center justify-between gap-3'>
-            <div className='flex items-center gap-2.5'>
-              <div className='flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary'>
-                <Activity className='size-4' />
-              </div>
-              <div>
-                <div className='flex items-center gap-2'>
-                  <DialogTitle className='text-base font-semibold text-foreground'>
-                    {t('checkpointFileDetails')}
-                  </DialogTitle>
-                  <Badge
-                    variant='outline'
-                    className='font-mono text-xs px-2 py-0'
-                  >
-                    #{checkpointId}
-                  </Badge>
-                  {renderCheckpointFieldValue('status', status)}
-                </div>
-                <DialogDescription className='sr-only'>
-                  {activeResult?.path || '-'}
-                </DialogDescription>
-              </div>
-            </div>
-
-            {/* 右侧关键度量胶囊 */}
-            {/* Right key metric pills */}
-            <div className='flex items-center gap-2'>
-              <div className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground shadow-xs'>
+      <DialogContent
+        aria-describedby={undefined}
+        className='arc-compact h-[85vh]! w-[min(94vw,1200px)]!'
+        bodyClassName='flex min-h-0 flex-1 flex-col p-0! overflow-hidden'
+        title={
+          <span className='flex flex-wrap items-center gap-2.5 pr-4'>
+            <span className='flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary'>
+              <Activity className='size-4' />
+            </span>
+            <span>{t('checkpointFileDetails')}</span>
+            <Badge
+              variant='outline'
+              className='font-mono text-xs px-2 py-0'
+            >
+              #{checkpointId}
+            </Badge>
+            {renderCheckpointFieldValue('status', status)}
+            <span className='ml-auto flex items-center gap-2'>
+              <span className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs font-normal text-muted-foreground shadow-xs'>
                 <Clock className='size-3 text-primary' />
                 <span className='font-mono font-medium text-foreground'>
                   {duration}
                 </span>
-              </div>
-              <div className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground shadow-xs'>
+              </span>
+              <span className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs font-normal text-muted-foreground shadow-xs'>
                 <HardDrive className='size-3 text-emerald-500' />
                 <span className='font-mono font-medium text-foreground'>
                   {stateSizeFormatted}
                 </span>
-              </div>
-            </div>
-          </div>
-
-          {/* 路径条与一键复制 */}
-          {/* File path strip with quick copy */}
-          <div className='mt-2.5 flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/60 px-3 py-1.5 text-xs'>
+              </span>
+            </span>
+          </span>
+        }
+      >
+        {/* 路径条与一键复制 */}
+        {/* File path strip with quick copy */}
+        <div className='border-b border-border/60 bg-muted/15 px-5 py-2.5 shrink-0'>
+          <div className='flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/60 px-3 py-1.5 text-xs'>
             <div className='flex min-w-0 items-center gap-2'>
               <FileCode className='size-3.5 shrink-0 text-muted-foreground' />
               <span

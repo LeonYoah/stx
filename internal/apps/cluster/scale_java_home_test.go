@@ -79,6 +79,34 @@ func TestPlanScaleOutCustomJavaHomeVersionAndFailure(t *testing.T) {
 	}
 }
 
+// TestPlanScaleOutJavaGateFollowsClusterVersion 覆盖版本感知判定：3.1.0 集群上 Java 8 阻断、Java 11/17 通过；
+// 判定按集群版本分档，同一主机别的集群用 Java 8 不受牵连。
+// TestPlanScaleOutJavaGateFollowsClusterVersion covers the version-aware verdict: Java 8 blocks on a 3.1.0
+// cluster while Java 11/17 pass; the verdict tiers with the cluster version, so another cluster on the same
+// host may still use Java 8.
+func TestPlanScaleOutJavaGateFollowsClusterVersion(t *testing.T) {
+	env := newScaleTestEnv(t, DeploymentModeHybrid, map[uint]NodeRole{1: NodeRoleMasterWorker})
+	env.cluster.Version = "3.1.0"
+	if err := env.svc.repo.Update(context.Background(), env.cluster); err != nil {
+		t.Fatalf("update cluster version: %v", err)
+	}
+
+	plan := env.mustPlanOut(t, ScaleOutRequest{HostID: 2, JavaHome: "/opt/jdk8"})
+	checks := findCheck(plan, "java")
+	if len(checks) != 1 || checks[0].Status != ScaleCheckFailed || !checks[0].Blocking || plan.CanSubmit {
+		t.Fatalf("Java 8 must block a 3.1.0 cluster: checks=%+v can_submit=%v", checks, plan.CanSubmit)
+	}
+
+	for _, version := range []string{"11", "17"} {
+		env.agent.javaVersion["agent-3"] = version
+		plan = env.mustPlanOut(t, ScaleOutRequest{HostID: 3, JavaHome: "/opt/jdk" + version})
+		checks = findCheck(plan, "java")
+		if len(checks) != 1 || checks[0].Status != ScaleCheckPassed {
+			t.Fatalf("Java %s must pass on a 3.1.0 cluster: checks=%+v", version, checks)
+		}
+	}
+}
+
 // TestPlanScaleOutDoesNotInheritPeerJavaHome 覆盖 AC1d/AC6：已有节点指定了 JDK，新节点未指定时不继承、仍走自动探测。
 // TestPlanScaleOutDoesNotInheritPeerJavaHome covers AC1d/AC6: an existing node has a JDK, and a new node without
 // one does not inherit it and keeps auto detection.
@@ -239,7 +267,6 @@ func TestPlanScaleOutRegisterPrefersProcessJavaHome(t *testing.T) {
 		t.Fatalf("expected process JDK preselected, got %q", plan.Target.JavaHome)
 	}
 }
-
 
 // TestCreateDiscoveryPersistsJavaHome 覆盖 AC1e：创建集群时发现节点携带的 java_home 写入节点记录。
 // TestCreateDiscoveryPersistsJavaHome covers AC1e: java_home on discovered nodes is stored when creating a cluster.

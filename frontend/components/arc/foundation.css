@@ -72,8 +72,14 @@
   --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem;
   --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem;
   --space-12: 3rem; --space-16: 4rem; --space-20: 5rem; --space-24: 6rem;
-  --radius-control: 1.125rem; --radius-panel: 1.625rem; --radius-surface: 2.125rem; --radius-pill: 9999px;
-  --control-height-sm: 2.25rem; --control-height-md: 2.75rem; --control-height-lg: 3.125rem;
+  /* 本地修改：全局收口为半胶囊桌面控制台尺度（14px 控件 / 16px 面板 / 12px 弹层 / 30px & 34px 控件高度），
+     让大盘、监控与工作台所有 Arc 组件与 Portal 弹层默认同源统一；升级 Arc 时 diff 合并。
+     Local modification: global semi-capsule console density (14px control / 16px panel /
+     12px popover / 30px & 34px control heights) so dashboard, monitoring, workbench,
+     and all portaled Arc layers share one baseline; diff-merge on Arc upgrades. */
+  --radius-control: .875rem; --radius-panel: 1rem; --radius-surface: 2.125rem; --radius-pill: 9999px;
+  --radius-popover: .75rem;
+  --control-height-sm: 1.875rem; --control-height-md: 2.125rem; --control-height-lg: 3.125rem;
   --font-display: var(--font-geist, "Geist Variable"), sans-serif;
   --font-body: var(--font-inter, "Inter Variable"), sans-serif;
   --text-xs: .75rem; --text-sm: .875rem; --text-base: 1rem; --text-lg: 1.125rem;
@@ -205,7 +211,15 @@
      --focus-outline-offset    default 2px; components inside clipped containers set a negative offset */
 :focus:not(:focus-visible),
 :is(input:not([type="button"], [type="checkbox"], [type="color"], [type="file"], [type="image"], [type="radio"], [type="range"], [type="reset"], [type="submit"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [tabindex="-1"]):focus { outline: none !important; }
-:focus-visible:not(input:not([type="button"], [type="checkbox"], [type="color"], [type="file"], [type="image"], [type="radio"], [type="range"], [type="reset"], [type="submit"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [tabindex="-1"]) {
+/* 描边按键盘模态放行：app/layout.tsx 在 <html> 上打 data-input-modality；
+   Radix 系触发器关闭时被脚本 refocus，Chromium 会把这次焦点判成键盘模态，
+   不加门控的话鼠标选完每项都会留下焦点环。属性缺失（脚本未跑）时照常出环。
+   The ring is gated on keyboard modality, tracked by the data-input-modality
+   attribute that app/layout.tsx stamps on <html>: Radix-family triggers
+   refocus themselves on close and Chromium's :focus-visible heuristic counts
+   that script focus as keyboard, so the ring would stick after every mouse
+   selection. Attribute absent (script not yet run) still allows the ring. */
+html:not([data-input-modality="pointer"]) :focus-visible:not(input:not([type="button"], [type="checkbox"], [type="color"], [type="file"], [type="image"], [type="radio"], [type="range"], [type="reset"], [type="submit"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [tabindex="-1"]) {
   outline: var(--focus-outline-width, 2px) solid var(--focus-outline, color-mix(in oklab, var(--accent-strong) 72%, transparent)) !important;
   outline-offset: var(--focus-outline-offset, 2px) !important;
 }

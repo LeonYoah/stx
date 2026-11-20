@@ -20,7 +20,15 @@ export type SyncJSON = Record<string, unknown>;
 export type SyncTaskStatus = 'draft' | 'published' | 'archived';
 export type SyncTaskMode = 'streaming' | 'batch';
 export type SyncNodeType = 'folder' | 'file';
-export type SyncRunType = 'preview' | 'run' | 'recover' | 'schedule';
+export type SyncRunType =
+  | 'preview'
+  | 'run'
+  | 'recover'
+  | 'schedule'
+  | 'external';
+
+/** 作业来源：stx = 平台提交；external = 在集群上发现的外部作业 / Job source: stx = submitted by STX; external = discovered on the cluster. */
+export type SyncJobSource = 'stx' | 'external';
 export type SyncJobStatus =
   | 'pending'
   | 'running'
@@ -310,6 +318,12 @@ export interface SyncJobInstance {
   /** 仅全局列表 with_live=1 时返回 / Only returned by the global list with with_live=1. */
   task_name?: string;
   live?: SyncJobLiveMetrics;
+  source?: SyncJobSource;
+  /** 所属任务被删除的时间；作业记录仍保留 / When the owning task was deleted; the job row is kept. */
+  task_deleted_at?: string;
+  /** 后端按当前用户裁决的操作权限 / Action permissions decided by the backend for the caller. */
+  can_stop?: boolean;
+  can_recover?: boolean;
 }
 
 /**
@@ -341,6 +355,8 @@ export type SyncJobListSort =
   | 'attention'
   | 'started_at'
   | 'created_at'
+  | 'finished_at'
+  | 'duration'
   | 'rate'
   | 'cdc_delay';
 
@@ -353,6 +369,7 @@ export type SyncJobListParams = {
   engine_job_id?: string;
   status_group?: string;
   mode?: SyncTaskMode;
+  source?: SyncJobSource;
   cluster_id?: number;
   keyword?: string;
   exclude_run_type?: string;
@@ -609,7 +626,11 @@ export interface SyncJobEventList {
 }
 
 /** 事件通道状态 / Event channel state. */
-export type SyncEventChannelState = 'disabled' | 'pending_restart' | 'healthy' | 'degraded';
+export type SyncEventChannelState =
+  | 'disabled'
+  | 'pending_restart'
+  | 'healthy'
+  | 'degraded';
 
 /** 事件通道写入 seatunnel.yaml 的单项结果 / Per-config outcome of writing seatunnel.yaml. */
 export interface SyncEventChannelConfigResult {

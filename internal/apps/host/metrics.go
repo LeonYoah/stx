@@ -48,10 +48,18 @@ const (
 	hostMetricsLabelCap  = 16
 	hostMetricsJob       = "stx_host"
 	hostMetricsPrefix    = "stx_host_"
+	// agentMetricsPrefix 是 Agent 进程自指标前缀：与主机指标走同一上报通道，
+	// server 侧白名单同样放行。
+	// agentMetricsPrefix is the Agent self-metrics prefix: it rides the same report
+	// channel as host metrics, so the server-side whitelist admits it too.
+	agentMetricsPrefix = "stx_agent_"
 )
 
 var (
-	hostMetricNameRe = regexp.MustCompile(`^stx_host_[a-zA-Z_:][a-zA-Z0-9_:]*$`)
+	// hostMetricNameRe 放行 stx_host_*（主机指标）与 stx_agent_*（Agent 进程自指标）两个前缀。
+	// hostMetricNameRe admits both stx_host_* (host metrics) and stx_agent_*
+	// (Agent process self-metrics) prefixes.
+	hostMetricNameRe = regexp.MustCompile(`^stx_(host|agent)_[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 	hostLabelNameRe  = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 	// reservedHostLabels 是身份标签，样本维度不允许覆盖（防 agent 侧注入污染）。

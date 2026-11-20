@@ -18,7 +18,7 @@
 'use client';
 
 import {useState, useCallback} from 'react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 
 /**
  * 检测文件内容是否为二进制文件

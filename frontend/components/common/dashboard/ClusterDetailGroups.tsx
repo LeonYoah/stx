@@ -42,6 +42,7 @@ import {
   type HomeDetailPanel,
 } from '@/lib/services/dashboard';
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
+import {DashboardPanel} from './DashboardPanel';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
 
@@ -109,7 +110,6 @@ export function ClusterDetailGroups({
 }) {
   const t = useTranslations('dashboard.home.clusterTab.detail');
   const [group, setGroup] = useState<DetailGroup>('jvm');
-  const panel = 'rounded-xl border border-border/70 bg-card/40 p-4';
 
   const resource = usePolledResource<HomeClusterDetail>(
     JSON.stringify([
@@ -332,40 +332,59 @@ export function ClusterDetailGroups({
     )
     .map((item) => item.key);
 
-  const cellShell = (key: string, title: string, unit: string, wide = false, testKey?: string) => ({
-    key,
-    className: `rounded-lg border border-border/50 p-3${wide ? ' md:col-span-2' : ''}`,
+  // 避免把 key 放进展开对象：React 19 会对 `{...props}` 中包含 key 报错。
+  // Keep `key` out of spread props: React 19 warns whenever a spread object carries `key`.
+  const cellProps = (key: string, wide = false, testKey?: string) => ({
+    className: `rounded-[var(--radius-panel)] border border-border/50 p-3${wide ? ' md:col-span-2' : ''}`,
     'data-testid': `detail-panel-${testKey ?? key}`,
-    title,
-    unit,
   });
 
   return (
-    <section className={panel} data-testid='home-cluster-detail'>
-      <div className='mb-3 flex flex-wrap items-center gap-3'>
-        <h3 className='text-sm font-medium'>{t('title')}</h3>
-        <SegmentedControl
-          label={t('title')}
-          value={group}
-          onValueChange={(value) => setGroup(value as DetailGroup)}
-          options={DETAIL_GROUPS.map((key) => ({
-            value: key,
-            label: t(`groups.${key}`),
-          }))}
-        />
-        {resource.refreshing ? (
-          <span className='text-xs text-muted-foreground'>{t('refreshing')}</span>
-        ) : null}
-      </div>
+    <DashboardPanel
+      title={t('title')}
+      actions={
+        // 动态兄弟元素拼进 children 数组时必须显式给 key，否则 React 19 报
+        // 「unique key」告警（数组里的元素不走静态子级校验）。
+        // Dynamic sibling expressions land in a children array and must carry
+        // explicit keys — React 19's "unique key" warning otherwise fires
+        // (array children skip static-children validation).
+        <>
+          <SegmentedControl
+            key='groups'
+            label={t('title')}
+            value={group}
+            onValueChange={(value) => setGroup(value as DetailGroup)}
+            options={DETAIL_GROUPS.map((key) => ({
+              value: key,
+              label: t(`groups.${key}`),
+            }))}
+          />
+          {resource.refreshing ? (
+            <span
+              key='refreshing'
+              className='ml-2 text-xs text-muted-foreground'
+            >
+              {t('refreshing')}
+            </span>
+          ) : null}
+        </>
+      }
+      testId='home-cluster-detail'
+    >
 
       {data?.partial_errors?.length ? (
-        <p className='mb-3 text-xs text-amber-600 dark:text-amber-400' role='status'>
+        <p
+          key='partial-errors'
+          className='mb-3 text-xs text-amber-600 dark:text-amber-400'
+          role='status'
+        >
           {t('partial', {keys: data.partial_errors.join(', ')})}
         </p>
       ) : null}
 
       {data && data.events.length > 0 ? (
         <ul
+          key='detail-events'
           className='mb-3 flex flex-wrap gap-1.5'
           data-testid='detail-events'
         >
@@ -385,7 +404,10 @@ export function ClusterDetailGroups({
       ) : null}
 
       {resource.loading && !data ? (
-        <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
+        <div
+          key='cells-loading'
+          className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'
+        >
           {Array.from({length: 3}).map((_, index) => (
             <div
               key={index}
@@ -396,17 +418,24 @@ export function ClusterDetailGroups({
       ) : data && data.panels.every((item) => item.series.length === 0) ? (
         // 整组无序列：引擎未上报这类指标（老版本 / 未开启）。/ Whole group empty: the engine does not
         // report these metrics (old version / disabled).
-        <p className='py-10 text-center text-xs text-muted-foreground'>
+        <p
+          key='cells-empty'
+          className='py-10 text-center text-xs text-muted-foreground'
+        >
           {t('emptyGroup')}
         </p>
       ) : (
-        <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
+        <div
+          key='cells-grid'
+          className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'
+        >
           {cellOrder.map((key) => {
             const item = panelsByKey.get(key);
             if (!item) {
               return null;
             }
-            const shell = cellShell(key, panelTitle(item), item.unit);
+            const title = panelTitle(item);
+            const props = cellProps(key);
 
             if (key === 'deadlocked' || key === 'reject') {
               const cards =
@@ -415,19 +444,22 @@ export function ClusterDetailGroups({
               // Usually-zero "is it happening" metrics: one card per node (red when
               // >0); rejections carry a mini trend.
               return (
-                <div {...shell} key={key}>
+                <div key={key} {...props}>
                   <div className='mb-2 flex items-baseline gap-2'>
-                    <h4 className='text-xs font-medium'>{shell.title}</h4>
+                    <h4 className='text-xs font-medium'>{title}</h4>
                     <span className='text-[11px] text-muted-foreground'>
                       {t.has(`units.${item.unit}`) ? t(`units.${item.unit}`) : ''}
                     </span>
                   </div>
                   {cards.length === 0 ? (
-                    <p className='py-6 text-center text-xs text-muted-foreground'>
+                    <p
+                      key='body'
+                      className='py-6 text-center text-xs text-muted-foreground'
+                    >
                       {t('emptyPanel')}
                     </p>
                   ) : (
-                    <div className='flex flex-col gap-3'>
+                    <div key='body' className='flex flex-col gap-3'>
                       {cards.map((card) => (
                         <div
                           key={card.instance}
@@ -440,14 +472,16 @@ export function ClusterDetailGroups({
                           }
                         >
                           <MetricCard
+                            key='metric'
                             label={card.instance}
                             value={card.value}
-                            context={shell.title}
+                            context={title}
                           />
                           {key === 'reject' ? (
                             <Sparkline
+                              key='spark'
                               data={card.points.map((point) => point[1])}
-                              label={`${card.instance} ${shell.title}`}
+                              label={`${card.instance} ${title}`}
                               variant='area'
                               height={28}
                               className='mt-1 text-[var(--series-1)]'
@@ -464,13 +498,14 @@ export function ClusterDetailGroups({
             if (key === 'partitions') {
               // 分区分布：各节点占比 Donut。/ Partition spread: per-node share donut.
               return (
-                <div {...shell} key={key}>
+                <div key={key} {...props}>
                   <div className='mb-2 flex items-baseline gap-2'>
-                    <h4 className='text-xs font-medium'>{shell.title}</h4>
+                    <h4 className='text-xs font-medium'>{title}</h4>
                   </div>
                   <DonutChart
+                    key='body'
                     data={partitionDonut}
-                    label={shell.title}
+                    label={title}
                     size={170}
                     legend
                     otherLabel={t('other')}
@@ -483,18 +518,22 @@ export function ClusterDetailGroups({
             if (key === 'store_owned') {
               // 本地持有 + 备份合并的横向分组柱。/ Owned + backup merged grouped bars.
               return (
-                <div {...shell} key={key}>
+                <div key={key} {...props}>
                   <div className='mb-2 flex items-baseline gap-2'>
                     <h4 className='text-xs font-medium'>
                       {t('panels.store_entries')}
                     </h4>
                   </div>
                   {storeBars.categories.length === 0 ? (
-                    <p className='py-6 text-center text-xs text-muted-foreground'>
+                    <p
+                      key='body'
+                      className='py-6 text-center text-xs text-muted-foreground'
+                    >
                       {t('emptyPanel')}
                     </p>
                   ) : (
                     <BarChart
+                      key='body'
                       categories={storeBars.categories}
                       series={[
                         {
@@ -512,7 +551,7 @@ export function ClusterDetailGroups({
                       ]}
                       orientation='horizontal'
                       layout='grouped'
-                      label={shell.title}
+                      label={title}
                       formatValue={(value) => formatCompactNumber(value)}
                     />
                   )}
@@ -523,16 +562,19 @@ export function ClusterDetailGroups({
             if (key === 'fds') {
               // fd：每节点一条 Progress（已打开 / 上限）。/ fds: open / max per node.
               return (
-                <div {...shell} key={key}>
+                <div key={key} {...props}>
                   <div className='mb-2 flex items-baseline gap-2'>
-                    <h4 className='text-xs font-medium'>{shell.title}</h4>
+                    <h4 className='text-xs font-medium'>{title}</h4>
                   </div>
                   {fdRows.length === 0 ? (
-                    <p className='py-6 text-center text-xs text-muted-foreground'>
+                    <p
+                      key='body'
+                      className='py-6 text-center text-xs text-muted-foreground'
+                    >
                       {t('emptyPanel')}
                     </p>
                   ) : (
-                    <ul className='flex flex-col gap-2'>
+                    <ul key='body' className='flex flex-col gap-2'>
                       {fdRows.map((row) => (
                         <li
                           key={row.instance}
@@ -548,7 +590,7 @@ export function ClusterDetailGroups({
                             value={row.percent}
                             className='h-1.5'
                             indicatorClassName={fdTone(row.percent)}
-                            aria-label={`${row.instance} ${shell.title}`}
+                            aria-label={`${row.instance} ${title}`}
                           />
                           <span className='font-mono text-[11px]'>
                             {formatCompactNumber(row.open)} /{' '}
@@ -565,15 +607,15 @@ export function ClusterDetailGroups({
             const suffix = unitSuffix(item.unit);
             const chart = charts.get(item.key);
             return (
-              <div {...shell} key={key}>
+              <div key={key} {...props}>
                 <div className='mb-2 flex items-baseline gap-2'>
-                  <h4 className='text-xs font-medium'>{shell.title}</h4>
+                  <h4 className='text-xs font-medium'>{title}</h4>
                   <span className='text-[11px] text-muted-foreground'>
                     {t.has(`units.${item.unit}`) ? t(`units.${item.unit}`) : ''}
                   </span>
                 </div>
                 <LineChart
-                  label={shell.title}
+                  label={title}
                   // 字节面板单位走 formatBytes（IEC），其余让 unit 拼后缀。
                   // Byte panels carry their unit in formatBytes (IEC); others take the suffix.
                   unit={item.unit === 'bytes' ? '' : suffix}
@@ -595,6 +637,6 @@ export function ClusterDetailGroups({
           })}
         </div>
       )}
-    </section>
+    </DashboardPanel>
   );
 }

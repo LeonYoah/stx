@@ -90,22 +90,22 @@ type ThroughputSeries struct {
 // JobDashboard is the payload of GET /api/v1/dashboard/home/jobs. Aggregates are global; the run calendar always comes
 // from the DB.
 type JobDashboard struct {
-	Source        string                  `json:"source"`
-	Reason        string                  `json:"reason,omitempty"`
-	Range         string                  `json:"range"`
-	StartMs       int64                   `json:"start_ms"`
-	EndMs         int64                   `json:"end_ms"`
-	StepSeconds   int                     `json:"step_seconds"`
-	WindowSeconds int                     `json:"window_seconds"`
-	Throughput    []ThroughputSeries      `json:"throughput"`
-	Annotations   []syncapp.JobAnnotation `json:"annotations"`
-	TopWrite      []JobRank               `json:"top_write"`
-	TopCDC        []JobRank               `json:"top_cdc"`
-	Flow          []FlowLink              `json:"flow"`
-	Checkpoints   []JobRank               `json:"checkpoints"`
-	Hotspots      []JobRank               `json:"hotspots"`
-	Calendar      *syncapp.JobCalendar    `json:"calendar"`
-	PartialErrors []string                `json:"partial_errors,omitempty"`
+	Source        string `json:"source"`
+	Reason        string `json:"reason,omitempty"`
+	Range         string `json:"range"`
+	StartMs       int64  `json:"start_ms"`
+	EndMs         int64  `json:"end_ms"`
+	StepSeconds   int    `json:"step_seconds"`
+	WindowSeconds int    `json:"window_seconds"`
+	Throughput     []ThroughputSeries      `json:"throughput"`
+	Annotations    []syncapp.JobAnnotation `json:"annotations"`
+	TopWrite       []JobRank               `json:"top_write"`
+	TopCDC         []JobRank               `json:"top_cdc"`
+	Flow           []FlowLink              `json:"flow"`
+	Checkpoints    []JobRank               `json:"checkpoints"`
+	Hotspots       []JobRank               `json:"hotspots"`
+	Calendar       *syncapp.JobCalendar    `json:"calendar"`
+	PartialErrors  []string                `json:"partial_errors,omitempty"`
 }
 
 // JobDashboardService 组合 Prometheus 与 sync，生成首页作业大盘。
@@ -115,12 +115,16 @@ type JobDashboardService struct {
 	now          func() time.Time
 	rangeQuery   rangeQueryFunc
 	instantQuery instantQueryFunc
+	// instantLongQuery 走放宽超时引擎，供 increase(x[window]) 这类扫满窗口的即时查询。
+	// instantLongQuery runs on the relaxed-timeout engine for instant queries whose range
+	// selector spans the whole window (e.g. increase(x[1y])).
+	instantLongQuery instantQueryFunc
 }
 
 // NewJobDashboardService 创建作业大盘服务。
 // NewJobDashboardService creates the job dashboard service.
 func NewJobDashboardService(jobs JobDashboardSource) *JobDashboardService {
-	return &JobDashboardService{jobs: jobs, now: time.Now, rangeQuery: dashboardPromCache.wrapRange(promquery.Range), instantQuery: dashboardPromCache.wrapInstant(promquery.Instant)}
+	return &JobDashboardService{jobs: jobs, now: time.Now, rangeQuery: dashboardPromCache.wrapRange(promquery.Range), instantQuery: dashboardPromCache.wrapInstant(promquery.Instant), instantLongQuery: dashboardPromCache.wrapInstant(promquery.InstantLong)}
 }
 
 // GetJobDashboard 生成作业大盘。只有时间窗非法时返回错误；其余失败记入 PartialErrors。
@@ -142,7 +146,7 @@ func (s *JobDashboardService) GetJobDashboard(ctx context.Context, actor executi
 	span := int(end.Sub(start).Seconds())
 	out := &JobDashboard{
 		Range: rangeName, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), StepSeconds: step, WindowSeconds: span,
-		Throughput: []ThroughputSeries{}, Annotations: []syncapp.JobAnnotation{}, TopWrite: []JobRank{}, TopCDC: []JobRank{},
+		Throughput:     []ThroughputSeries{}, Annotations: []syncapp.JobAnnotation{}, TopWrite: []JobRank{}, TopCDC: []JobRank{},
 		Flow: []FlowLink{}, Checkpoints: []JobRank{}, Hotspots: []JobRank{},
 	}
 	if s.jobs != nil {
@@ -175,11 +179,15 @@ func (s *JobDashboardService) fillMetrics(ctx context.Context, out *JobDashboard
 		sel = fmt.Sprintf(`cluster_id=%s`, strconv.Quote(strconv.FormatUint(uint64(clusterID), 10)))
 	}
 	window := fmt.Sprintf("%ds", span)
+	// 吞吐速率窗口取 max(1m, step)：长步长时覆盖整个取样间隔，不会漏掉峰值。
+	// Throughput rate windows use max(1m, step): coarse steps cover the whole sampling
+	// interval instead of missing peaks.
+	rateWindow := promquery.RangeWindow(step, time.Minute)
 	tasks := []*promTask{
-		{key: "read", step: step, query: fmt.Sprintf(`sum(rate(stx_job_source_received_rows_total{%s}[1m]))`, sel)},
-		{key: "write", step: step, query: fmt.Sprintf(`sum(rate(stx_job_sink_write_rows_total{%s}[1m]))`, sel)},
-		{key: "read_bytes", step: step, query: fmt.Sprintf(`sum(rate(stx_job_source_received_bytes_total{%s}[1m]))`, sel)},
-		{key: "write_bytes", step: step, query: fmt.Sprintf(`sum(rate(stx_job_sink_write_bytes_total{%s}[1m]))`, sel)},
+		{key: "read", step: step, query: fmt.Sprintf(`sum(rate(stx_job_source_received_rows_total{%s}[%s]))`, sel, rateWindow)},
+		{key: "write", step: step, query: fmt.Sprintf(`sum(rate(stx_job_sink_write_rows_total{%s}[%s]))`, sel, rateWindow)},
+		{key: "read_bytes", step: step, query: fmt.Sprintf(`sum(rate(stx_job_source_received_bytes_total{%s}[%s]))`, sel, rateWindow)},
+		{key: "write_bytes", step: step, query: fmt.Sprintf(`sum(rate(stx_job_sink_write_bytes_total{%s}[%s]))`, sel, rateWindow)},
 		{key: "written", instant: true, query: fmt.Sprintf(`sum by (job_id) (increase(stx_job_sink_write_rows_total{%s}[%s]))`, sel, window)},
 		{key: "cdc", instant: true, query: fmt.Sprintf(`topk(%d, max by (job_id) (max_over_time(stx_job_cdc_delay_seconds{%s}[%s])))`, jobRankLimit, sel, window)},
 		{key: "ckpt_duration", instant: true, query: fmt.Sprintf(`topk(%d, max by (job_id) (max_over_time(stx_job_checkpoint_duration_seconds{%s}[%s])))`, checkpointLimit, sel, window)},
@@ -187,13 +195,22 @@ func (s *JobDashboardService) fillMetrics(ctx context.Context, out *JobDashboard
 		{key: "busy", instant: true, query: fmt.Sprintf(`topk(%d, max by (job_id, vertex) (max_over_time(stx_job_vertex_busy_ratio{%s}[%s])))`, hotspotLimit, sel, window)},
 		{key: "backpressure", instant: true, query: fmt.Sprintf(`topk(%d, max by (job_id, edge) (max_over_time(stx_job_edge_backpressure_ratio{%s}[%s])))`, hotspotLimit, sel, window)},
 	}
+	// 6 条窗口级即时查询（increase/max_over_time [window]）在超过 31 天的窗口下要扫满全部
+	// 历史数据，必须走放宽超时的长引擎，否则生产密度下会超时进 partial_errors。
+	// The six window-spanning instant queries (increase/max_over_time [window]) scan the full
+	// history beyond the 31-day threshold, so they must run on the relaxed-timeout engine or
+	// they time out into partial_errors under production density.
+	instantFn := s.instantQuery
+	if end.Sub(start) > promquery.LongWindowSpan {
+		instantFn = s.instantLongQuery
+	}
 	var wg gosync.WaitGroup
 	for _, task := range tasks {
 		wg.Add(1)
 		go func(task *promTask) {
 			defer wg.Done()
 			if task.instant {
-				task.samples, task.err = s.instantQuery(ctx, task.query, end)
+				task.samples, task.err = instantFn(ctx, task.query, end)
 			} else {
 				task.series, task.err = s.rangeQuery(ctx, task.query, start, end, task.step)
 			}
@@ -360,9 +377,9 @@ func NewJobDashboardHandler(service *JobDashboardService) *JobDashboardHandler {
 // @Tags Dashboard
 // @Produce json
 // @Param cluster_id query int false "集群 ID，空表示全部集群"
-// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param start query string false "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range"
-// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 31 天"
+// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 366 天"
 // @Param weeks query int false "运行日历周数（1~52）" default(16)
 // @Success 200 {object} DashboardDataResponse{data=JobDashboard}
 // @Failure 400 {object} DashboardDataResponse

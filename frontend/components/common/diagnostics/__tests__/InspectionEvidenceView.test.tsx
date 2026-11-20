@@ -70,11 +70,16 @@ describe('inspection evidence view', () => {
     );
     expect(screen.getByText('Worker 内存持续偏高')).toBeInTheDocument();
     expect(screen.getByText('heap.use=87% · worker-03')).toBeVisible();
-    const details = screen.getByText('查看检查信息').closest('details');
-    expect(details).not.toHaveAttribute('open');
-    fireEvent.click(screen.getByText('查看检查信息'));
-    expect(details).toHaveAttribute('open');
-    expect(screen.getByText('查看线程与 GC 指标')).toBeVisible();
+    const toggle = screen.getByRole('button', {name: /查看检查信息/});
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    const region = document.getElementById(
+      toggle.getAttribute('aria-controls') ?? '',
+    );
+    expect(region).toHaveAttribute('inert');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(region).not.toHaveAttribute('inert');
+    expect(screen.getByText('查看线程与 GC 指标')).toBeInTheDocument();
   });
 
   it('keeps the empty state readable in English', () => {

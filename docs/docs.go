@@ -1135,8 +1135,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
-                                "type": "integer",
-                                "format": "int64"
+                                "type": "integer"
                             }
                         }
                     },
@@ -2594,7 +2593,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -2606,7 +2605,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 366 天",
                         "name": "end",
                         "in": "query"
                     }
@@ -2666,7 +2665,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -2678,7 +2677,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 366 天",
                         "name": "end",
                         "in": "query"
                     }
@@ -2730,7 +2729,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -2742,7 +2741,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 366 天",
                         "name": "end",
                         "in": "query"
                     }
@@ -2794,7 +2793,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -2806,7 +2805,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 31 天",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 366 天",
                         "name": "end",
                         "in": "query"
                     },
@@ -2910,7 +2909,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -2922,13 +2921,13 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "自定义终点，缺省为当前时间；跨度不超过 400 天（\u003e62 天进入月桶）",
+                        "description": "自定义终点，缺省为当前时间；跨度不超过 366 天（\u003e62 天进入周桶，\u003e182 天进入月桶）",
                         "name": "end",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets",
+                        "description": "桶粒度：auto|quarter_hour|hour|day|week|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets",
                         "name": "granularity",
                         "in": "query"
                     },
@@ -5106,6 +5105,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "stx|external",
+                        "name": "source",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "集群 ID",
                         "name": "cluster_id",
@@ -5125,7 +5130,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）",
+                        "description": "attention|started_at|created_at|finished_at|duration|rate|cdc_delay（后两者需 status_group=running）",
                         "name": "sort",
                         "in": "query"
                     },
@@ -5248,7 +5253,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -5458,7 +5463,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "default": "1h",
-                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "description": "时间范围：15m|1h|6h|24h|7d|30d|90d|1y",
                         "name": "range",
                         "in": "query"
                     },
@@ -8951,8 +8956,7 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number",
-                            "format": "float64"
+                            "type": "number"
                         }
                     }
                 }
@@ -9007,8 +9011,7 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number",
-                            "format": "float64"
+                            "type": "number"
                         }
                     }
                 }
@@ -9472,8 +9475,7 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number",
-                            "format": "float64"
+                            "type": "number"
                         }
                     }
                 }
@@ -9487,6 +9489,9 @@ const docTemplate = `{
                 },
                 "label": {
                     "type": "string"
+                },
+                "no_data": {
+                    "type": "boolean"
                 },
                 "partial": {
                     "type": "boolean"
@@ -10617,6 +10622,9 @@ const docTemplate = `{
                 "status": {
                     "$ref": "#/definitions/host.HostStatus"
                 },
+                "timezone": {
+                    "type": "string"
+                },
                 "total_disk": {
                     "type": "integer"
                 },
@@ -11611,6 +11619,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "bundled": {
+                    "description": "Bundled 表示该连接器来自安装包自带，不是控制面额外安装，列表展示但不提供卸载。\nBundled means the connector ships with the package, not a Control Plane extra install; listed but not uninstallable.",
+                    "type": "boolean"
+                },
                 "category": {
                     "description": "分类 / Category",
                     "allOf": [
@@ -11818,11 +11830,6 @@ const docTemplate = `{
                 "MirrorSourceApache": "Apache 官方仓库",
                 "MirrorSourceHuaweiCloud": "华为云镜像"
             },
-            "x-enum-descriptions": [
-                "Apache 官方仓库",
-                "阿里云镜像",
-                "华为云镜像"
-            ],
             "x-enum-varnames": [
                 "MirrorSourceApache",
                 "MirrorSourceAliyun",
@@ -11919,12 +11926,6 @@ const docTemplate = `{
                 "PluginCategorySource": "Source / Data source (legacy, for compatibility / 遗留，用于兼容)",
                 "PluginCategoryTransform": "Transform / 数据转换 (deprecated, not fetched from Maven / 已弃用，不从 Maven 获取)"
             },
-            "x-enum-descriptions": [
-                "Source / Data source (legacy, for compatibility / 遗留，用于兼容)",
-                "Sink / Data sink (legacy, for compatibility / 遗留，用于兼容)",
-                "Connector / 连接器 (primary category, can be used as source or sink / 主要分类，可作为 source 或 sink)",
-                "Transform / 数据转换 (deprecated, not fetched from Maven / 已弃用，不从 Maven 获取)"
-            ],
             "x-enum-varnames": [
                 "PluginCategorySource",
                 "PluginCategorySink",
@@ -12150,12 +12151,6 @@ const docTemplate = `{
                 "PluginStatusEnabled": "已启用 / Enabled",
                 "PluginStatusInstalled": "已安装 / Installed"
             },
-            "x-enum-descriptions": [
-                "可用 / Available",
-                "已安装 / Installed",
-                "已启用 / Enabled",
-                "已禁用 / Disabled"
-            ],
             "x-enum-varnames": [
                 "PluginStatusAvailable",
                 "PluginStatusInstalled",
@@ -12861,8 +12856,7 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number",
-                            "format": "float64"
+                            "type": "number"
                         }
                     }
                 },
@@ -12910,8 +12904,7 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number",
-                            "format": "float64"
+                            "type": "number"
                         }
                     }
                 }
@@ -13141,8 +13134,7 @@ const docTemplate = `{
                     "description": "StatusCounts 只在 with_counts=1 时返回：按状态组计数，不受状态筛选影响。\nStatusCounts is returned only with with_counts=1: counts per status group, ignoring the status filter.",
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer",
-                        "format": "int64"
+                        "type": "integer"
                     }
                 },
                 "total": {
@@ -13305,6 +13297,10 @@ const docTemplate = `{
                 "data": {
                     "$ref": "#/definitions/sync.JobInstance"
                 },
+                "error_code": {
+                    "description": "ErrorCode 只在有专门处理的失败上下发（如 connector_missing），CLI 与前端据此给出指引。\nErrorCode is only set for failures with dedicated handling (e.g. connector_missing) so CLI and UI can guide the user.",
+                    "type": "string"
+                },
                 "error_msg": {
                     "type": "string"
                 }
@@ -13331,8 +13327,7 @@ const docTemplate = `{
                         "items": {
                             "type": "array",
                             "items": {
-                                "type": "number",
-                                "format": "float64"
+                                "type": "number"
                             }
                         }
                     }
@@ -13477,8 +13472,7 @@ const docTemplate = `{
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number",
-                            "format": "float64"
+                            "type": "number"
                         }
                     }
                 },

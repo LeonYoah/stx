@@ -38,7 +38,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {Separator} from '@/components/ui/separator';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {Search, Terminal, RefreshCw} from 'lucide-react';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';

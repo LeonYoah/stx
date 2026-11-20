@@ -134,6 +134,17 @@ const (
 	RunTypeRun      RunType = "run"
 	RunTypeRecover  RunType = "recover"
 	RunTypeSchedule RunType = "schedule"
+	RunTypeExternal RunType = "external"
+)
+
+// JobSource 表示作业由谁提交：STX 自己提交，或在 SeaTunnel 集群上被外部（CLI、REST、其他调度器）提交后由对账发现。
+// JobSource tells who submitted a job: STX itself, or an external client (CLI, REST, other schedulers) whose job
+// the reconciler discovered on the SeaTunnel cluster.
+type JobSource string
+
+const (
+	JobSourceSTX      JobSource = "stx"
+	JobSourceExternal JobSource = "external"
 )
 
 // JobStatus represents sync job instance status.
@@ -397,14 +408,21 @@ type JobInstance struct {
 	TaskVersion             int       `json:"task_version" gorm:"not null"`
 	RunType                 RunType   `json:"run_type" gorm:"size:20;not null;index"`
 	PlatformJobID           string    `json:"platform_job_id" gorm:"size:32;index"`
-	EngineJobID             string    `json:"engine_job_id" gorm:"size:255;index"`
+	EngineJobID             string    `json:"engine_job_id" gorm:"size:255;index;index:idx_cluster_engine_job,priority:2"`
 	RecoveredFromInstanceID *uint     `json:"recovered_from_instance_id,omitempty" gorm:"index"`
 	Status                  JobStatus `json:"status" gorm:"size:20;default:pending;index"`
 	// ClusterID / JobMode 是从提交快照派生的维度列，创建时由 BeforeCreate 填写、启动时回填历史行，供作业列表按集群 / 模式筛选。
 	// ClusterID / JobMode are dimension columns derived from the submit snapshot: BeforeCreate fills them and startup
 	// backfills old rows, so the job list can filter by cluster and mode in SQL.
-	ClusterID uint   `json:"cluster_id" gorm:"index"`
+	ClusterID uint   `json:"cluster_id" gorm:"index;index:idx_cluster_engine_job,priority:1"`
 	JobMode   string `json:"-" gorm:"size:20;index"`
+	// Source 区分 STX 提交与外部发现的作业；老数据靠列默认值视为 stx。
+	// Source separates STX-submitted jobs from discovered external ones; old rows default to stx via the column.
+	Source JobSource `json:"source" gorm:"size:20;not null;default:'stx';index"`
+	// TaskDeletedAt 记录所属任务被删除的时间：作业行保留，避免引擎上的历史作业被再次当作外部作业导入。
+	// TaskDeletedAt marks when the owning task was deleted; the row is kept so the engine's history is not
+	// re-imported as external jobs.
+	TaskDeletedAt *time.Time `json:"task_deleted_at,omitempty" gorm:"index"`
 	// LastSyncedAt 记录最近一次成功向 SeaTunnel 对齐状态的时间（UTC）。
 	// LastSyncedAt is when STX last successfully synced runtime state from SeaTunnel (UTC).
 	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
@@ -448,6 +466,10 @@ type JobInstance struct {
 	// TaskName / Live are filled only for the global job list (with_live=1) and are not persisted.
 	TaskName string          `json:"task_name,omitempty" gorm:"-"`
 	Live     *JobLiveMetrics `json:"live,omitempty" gorm:"-"`
+	// CanStop / CanRecover 是按当前用户裁决的操作权限，响应时填充，不落库。
+	// CanStop / CanRecover are the caller's action permissions, filled at response time and not persisted.
+	CanStop    bool `json:"can_stop" gorm:"-"`
+	CanRecover bool `json:"can_recover" gorm:"-"`
 }
 
 // TableName returns the sync job instance table name.

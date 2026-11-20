@@ -1886,7 +1886,6 @@ definitions:
       points:
         items:
           items:
-            format: float64
             type: number
           type: array
         type: array
@@ -1923,7 +1922,6 @@ definitions:
       points:
         items:
           items:
-            format: float64
             type: number
           type: array
         type: array
@@ -2235,7 +2233,6 @@ definitions:
       points:
         items:
           items:
-            format: float64
             type: number
           type: array
         type: array
@@ -2246,6 +2243,8 @@ definitions:
         type: integer
       label:
         type: string
+      no_data:
+        type: boolean
       partial:
         type: boolean
       start_ms:
@@ -3059,6 +3058,8 @@ definitions:
         type: integer
       status:
         $ref: '#/definitions/host.HostStatus'
+      timezone:
+        type: string
       total_disk:
         type: integer
       total_memory:
@@ -3740,6 +3741,11 @@ definitions:
         items:
           type: string
         type: array
+      bundled:
+        description: |-
+          Bundled 表示该连接器来自安装包自带，不是控制面额外安装，列表展示但不提供卸载。
+          Bundled means the connector ships with the package, not a Control Plane extra install; listed but not uninstallable.
+        type: boolean
       category:
         allOf:
         - $ref: '#/definitions/plugin.PluginCategory'
@@ -3882,10 +3888,6 @@ definitions:
       MirrorSourceAliyun: 阿里云镜像
       MirrorSourceApache: Apache 官方仓库
       MirrorSourceHuaweiCloud: 华为云镜像
-    x-enum-descriptions:
-    - Apache 官方仓库
-    - 阿里云镜像
-    - 华为云镜像
     x-enum-varnames:
     - MirrorSourceApache
     - MirrorSourceAliyun
@@ -3954,12 +3956,6 @@ definitions:
       PluginCategorySource: Source / Data source (legacy, for compatibility / 遗留，用于兼容)
       PluginCategoryTransform: Transform / 数据转换 (deprecated, not fetched from Maven
         / 已弃用，不从 Maven 获取)
-    x-enum-descriptions:
-    - Source / Data source (legacy, for compatibility / 遗留，用于兼容)
-    - Sink / Data sink (legacy, for compatibility / 遗留，用于兼容)
-    - Connector / 连接器 (primary category, can be used as source or sink / 主要分类，可作为
-      source 或 sink)
-    - Transform / 数据转换 (deprecated, not fetched from Maven / 已弃用，不从 Maven 获取)
     x-enum-varnames:
     - PluginCategorySource
     - PluginCategorySink
@@ -4127,11 +4123,6 @@ definitions:
       PluginStatusDisabled: 已禁用 / Disabled
       PluginStatusEnabled: 已启用 / Enabled
       PluginStatusInstalled: 已安装 / Installed
-    x-enum-descriptions:
-    - 可用 / Available
-    - 已安装 / Installed
-    - 已启用 / Enabled
-    - 已禁用 / Disabled
     x-enum-varnames:
     - PluginStatusAvailable
     - PluginStatusInstalled
@@ -4614,7 +4605,6 @@ definitions:
       cdc_trend:
         items:
           items:
-            format: float64
             type: number
           type: array
         type: array
@@ -4647,7 +4637,6 @@ definitions:
       write_trend:
         items:
           items:
-            format: float64
             type: number
           type: array
         type: array
@@ -4827,7 +4816,6 @@ definitions:
         type: array
       status_counts:
         additionalProperties:
-          format: int64
           type: integer
         description: |-
           StatusCounts 只在 with_counts=1 时返回：按状态组计数，不受状态筛选影响。
@@ -4946,6 +4934,11 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/sync.JobInstance'
+      error_code:
+        description: |-
+          ErrorCode 只在有专门处理的失败上下发（如 connector_missing），CLI 与前端据此给出指引。
+          ErrorCode is only set for failures with dedicated handling (e.g. connector_missing) so CLI and UI can guide the user.
+        type: string
       error_msg:
         type: string
     type: object
@@ -4962,7 +4955,6 @@ definitions:
         additionalProperties:
           items:
             items:
-              format: float64
               type: number
             type: array
           type: array
@@ -5067,7 +5059,6 @@ definitions:
         description: '[ts_ms, value]'
         items:
           items:
-            format: float64
             type: number
           type: array
         type: array
@@ -6070,7 +6061,6 @@ paths:
           description: OK
           schema:
             additionalProperties:
-              format: int64
               type: integer
             type: object
         "400":
@@ -7016,7 +7006,7 @@ paths:
         name: cluster_id
         type: integer
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -7024,7 +7014,7 @@ paths:
         in: query
         name: start
         type: string
-      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+      - description: 自定义终点，缺省为当前时间；跨度不超过 366 天
         in: query
         name: end
         type: string
@@ -7061,7 +7051,7 @@ paths:
         required: true
         type: string
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -7069,7 +7059,7 @@ paths:
         in: query
         name: start
         type: string
-      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+      - description: 自定义终点，缺省为当前时间；跨度不超过 366 天
         in: query
         name: end
         type: string
@@ -7100,7 +7090,7 @@ paths:
         name: cluster_id
         type: integer
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -7108,7 +7098,7 @@ paths:
         in: query
         name: start
         type: string
-      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+      - description: 自定义终点，缺省为当前时间；跨度不超过 366 天
         in: query
         name: end
         type: string
@@ -7139,7 +7129,7 @@ paths:
         name: cluster_id
         type: integer
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -7147,7 +7137,7 @@ paths:
         in: query
         name: start
         type: string
-      - description: 自定义终点，缺省为当前时间；跨度不超过 31 天
+      - description: 自定义终点，缺省为当前时间；跨度不超过 366 天
         in: query
         name: end
         type: string
@@ -7209,7 +7199,7 @@ paths:
         name: cluster_id
         type: integer
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -7217,11 +7207,11 @@ paths:
         in: query
         name: start
         type: string
-      - description: 自定义终点，缺省为当前时间；跨度不超过 400 天（>62 天进入月桶）
+      - description: 自定义终点，缺省为当前时间；跨度不超过 366 天（>62 天进入周桶，>182 天进入月桶）
         in: query
         name: end
         type: string
-      - description: 桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals
+      - description: 桶粒度：auto|quarter_hour|hour|day|week|month；auto 按窗口跨度选桶，缺省只回 totals
           不出 buckets
         in: query
         name: granularity
@@ -8615,6 +8605,10 @@ paths:
         in: query
         name: mode
         type: string
+      - description: stx|external
+        in: query
+        name: source
+        type: string
       - description: 集群 ID
         in: query
         name: cluster_id
@@ -8627,7 +8621,7 @@ paths:
         in: query
         name: exclude_run_type
         type: string
-      - description: attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）
+      - description: attention|started_at|created_at|finished_at|duration|rate|cdc_delay（后两者需 status_group=running）
         in: query
         name: sort
         type: string
@@ -8785,7 +8779,7 @@ paths:
         required: true
         type: integer
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string
@@ -8857,7 +8851,7 @@ paths:
         required: true
         type: string
       - default: 1h
-        description: 时间范围：15m|1h|6h|24h|7d
+        description: 时间范围：15m|1h|6h|24h|7d|30d|90d|1y
         in: query
         name: range
         type: string

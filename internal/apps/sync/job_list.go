@@ -29,11 +29,13 @@ import (
 // 全局作业列表的排序键。空值表示旧行为（created_at DESC）。
 // Sort keys of the global job list. Empty means the legacy order (created_at DESC).
 const (
-	jobListSortAttention = "attention"
-	jobListSortStartedAt = "started_at"
-	jobListSortCreatedAt = "created_at"
-	jobListSortRate      = "rate"
-	jobListSortCDCDelay  = "cdc_delay"
+	jobListSortAttention  = "attention"
+	jobListSortStartedAt  = "started_at"
+	jobListSortCreatedAt  = "created_at"
+	jobListSortFinishedAt = "finished_at"
+	jobListSortDuration   = "duration"
+	jobListSortRate       = "rate"
+	jobListSortCDCDelay   = "cdc_delay"
 )
 
 // jobListInMemorySortLimit 是内存排序（rate / cdc_delay）最多处理的运行中作业数。
@@ -154,8 +156,14 @@ func normalizeJobListFilter(filter *JobFilter) error {
 		}
 		filter.Mode = mode
 	}
+	switch source := JobSource(strings.ToLower(strings.TrimSpace(string(filter.Source)))); source {
+	case "", JobSourceSTX, JobSourceExternal:
+		filter.Source = source
+	default:
+		return fmt.Errorf("%w: source must be stx or external", ErrInvalidJobListQuery)
+	}
 	switch filter.Sort {
-	case "", jobListSortAttention, jobListSortStartedAt, jobListSortCreatedAt:
+	case "", jobListSortAttention, jobListSortStartedAt, jobListSortCreatedAt, jobListSortFinishedAt, jobListSortDuration:
 		return nil
 	case jobListSortRate, jobListSortCDCDelay:
 		if !onlyRunningStatuses(filter.Statuses) {
@@ -231,6 +239,7 @@ func (s *Service) ListJobsWithOptions(ctx context.Context, actor executionapp.Ac
 			return nil, err
 		}
 	}
+	s.decorateJobPermissions(ctx, actor, jobs)
 	return out, nil
 }
 

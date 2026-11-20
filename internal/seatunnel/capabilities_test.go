@@ -119,6 +119,46 @@ func TestCapabilitiesForVersion(t *testing.T) {
 	})
 }
 
+// JDK 要求随 SeaTunnel 版本分档：3.1.0 起移除 Java 8，未知/空版本沿用 8/11 兜底。
+// The JDK requirement tiers with the SeaTunnel version: Java 8 is dropped from 3.1.0, and unknown/empty
+// versions keep the legacy 8/11 profile.
+func TestJavaRequirementForVersion(t *testing.T) {
+	cases := []struct {
+		version     string
+		min         int
+		recommended []int
+	}{
+		{"2.3.13", 8, []int{8, 11}},
+		{"3.0.0", 8, []int{8, 11}},
+		{"3.1.0", 11, []int{11, 17}},
+		{"3.1.1", 11, []int{11, 17}},
+		{"", 8, []int{8, 11}},
+		{"unknown", 8, []int{8, 11}},
+	}
+	for _, tc := range cases {
+		req := JavaRequirementForVersion(tc.version)
+		if req.MinSupported != tc.min {
+			t.Fatalf("%s: MinSupported = %d, want %d", tc.version, req.MinSupported, tc.min)
+		}
+		for _, want := range tc.recommended {
+			if !req.Contains(want) {
+				t.Fatalf("%s: expected Java %d recommended, got %+v", tc.version, want, req.Recommended)
+			}
+		}
+		if req.MaxRecommended != tc.recommended[len(tc.recommended)-1] {
+			t.Fatalf("%s: MaxRecommended = %d", tc.version, req.MaxRecommended)
+		}
+	}
+
+	for _, version := range []string{"2.3.13", "3.1.0", ""} {
+		capabilities := CapabilitiesForVersion(version)
+		req := JavaRequirementForVersion(version)
+		if capabilities.MinJavaVersion != req.MinSupported || capabilities.MaxRecommendedJavaVersion != req.MaxRecommended {
+			t.Fatalf("%s: capabilities JDK fields = %+v, requirement = %+v", version, capabilities, req)
+		}
+	}
+}
+
 func TestCompareVersions(t *testing.T) {
 	testCases := []struct {
 		name string

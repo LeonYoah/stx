@@ -211,6 +211,45 @@ func TestRunPrecheckCustomJavaHome(t *testing.T) {
 	}
 }
 
+// TestRunPrecheckTargetVersionAwareJava 覆盖目标版本感知判定：3.1.0 时 JDK 8 阻断、JDK 17 通过；
+// 未带目标版本时沿用旧 {8,11} 矩阵。
+// TestRunPrecheckTargetVersionAwareJava covers target-aware verdicts: on 3.1.0 JDK 8 blocks and
+// JDK 17 passes; without a target version the legacy {8,11} matrix applies.
+func TestRunPrecheckTargetVersionAwareJava(t *testing.T) {
+	jdkDetails := func(version string) map[string]string {
+		return map[string]string{"java_home_source": "custom", "java_home": "/opt/jdk", "java_bin": "/opt/jdk/bin/java", "installed_version": version}
+	}
+	cases := []struct {
+		name       string
+		version    string
+		target     string
+		wantStatus CheckStatus
+	}{
+		{"jdk8 blocked on 3.1.0", "8", "3.1.0", CheckStatusFailed},
+		{"jdk11 passes on 3.1.0", "11", "3.1.0", CheckStatusPassed},
+		{"jdk17 passes on 3.1.0", "17", "3.1.0", CheckStatusPassed},
+		{"jdk8 passes on 3.0.0", "8", "3.0.0", CheckStatusPassed},
+		{"jdk17 warns on 3.0.0", "17", "3.0.0", CheckStatusWarning},
+		{"jdk8 passes without target", "8", "", CheckStatusPassed},
+		{"jdk17 warns without target", "17", "", CheckStatusWarning},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agent := &javaPrecheckAgent{javaSuccess: true, javaDetails: jdkDetails(tc.version)}
+			result, err := newJavaPrecheckService(t, agent).RunPrecheck(context.Background(), 10, &PrecheckRequest{
+				InstallDir: "/opt/seatunnel", JavaHome: "/opt/jdk", TargetVersion: tc.target,
+			})
+			if err != nil {
+				t.Fatalf("RunPrecheck error: %v", err)
+			}
+			item := javaItemOf(t, result)
+			if item.Status != tc.wantStatus {
+				t.Fatalf("java status = %s, want %s (%s)", item.Status, tc.wantStatus, item.Message)
+			}
+		})
+	}
+}
+
 // TestRunPrecheckRejectsRelativeJavaHome：非法路径不下发到 Agent 并阻断。
 // TestRunPrecheckRejectsRelativeJavaHome: an invalid path never reaches the Agent and blocks.
 func TestRunPrecheckRejectsRelativeJavaHome(t *testing.T) {

@@ -41,6 +41,7 @@ import {
   type HomeHostDashboard,
 } from '@/lib/services/dashboard';
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
+import {DashboardPanel} from './DashboardPanel';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
 import {TrendEmptyState} from './TrendEmptyState';
@@ -100,7 +101,6 @@ const usageTone = (percent: number) =>
  */
 export function HostsTab({query}: {query: DashboardQuery}) {
   const t = useTranslations('dashboard.home.hostsTab');
-  const panel = 'rounded-xl border border-border/70 bg-card/40 p-4';
 
   const resource = usePolledResource<HomeHostDashboard>(
     JSON.stringify([
@@ -132,9 +132,9 @@ export function HostsTab({query}: {query: DashboardQuery}) {
   return (
     <section className='flex flex-col gap-3' data-testid='home-hosts'>
       {metricsOff ? (
-        <div className={panel}>
+        <DashboardPanel>
           <TrendEmptyState reason={data.reason} />
-        </div>
+        </DashboardPanel>
       ) : null}
       {data?.partial_errors?.length ? (
         <p className='text-xs text-amber-600 dark:text-amber-400' role='status'>
@@ -155,11 +155,11 @@ export function HostsTab({query}: {query: DashboardQuery}) {
         // 无主机（或集群过滤后为空）：一句话空态，不伪装成「指标缺失」。
         // No hosts (or the cluster filter emptied the list): a plain note, not a fake
         // "metrics missing" state.
-        <section className={panel}>
+        <DashboardPanel>
           <p className='py-10 text-center text-xs text-muted-foreground'>
             {t('emptyDescription')}
           </p>
-        </section>
+        </DashboardPanel>
       ) : (
         data.hosts.map((item) => (
           <HostCard
@@ -312,7 +312,7 @@ function HostCard({
     .map((item) => item.key);
 
   return (
-    <div className='rounded-xl border border-border/70 bg-card/40 p-4'>
+    <DashboardPanel>
       <div className='mb-3 flex flex-wrap items-center gap-x-3 gap-y-1'>
         <h3 className='text-sm font-medium'>{host.name}</h3>
         <span className='font-mono text-xs text-muted-foreground'>{host.ip}</span>
@@ -484,6 +484,6 @@ function HostCard({
           })}
         </div>
       )}
-    </div>
+    </DashboardPanel>
   );
 }

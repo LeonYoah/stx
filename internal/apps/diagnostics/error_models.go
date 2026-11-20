@@ -137,8 +137,12 @@ type SeatunnelErrorGroupFilter struct {
 	ExceptionClass string     `json:"exception_class"`
 	StartTime      *time.Time `json:"start_time"`
 	EndTime        *time.Time `json:"end_time"`
-	Page           int        `json:"page"`
-	PageSize       int        `json:"page_size"`
+	// 频次过滤作用于组内聚合的 occurrence_count（闭区间），供前端频次分段使用。
+	// Occurrence filters bound the aggregated occurrence_count (closed range) for the frontend frequency segments.
+	MinOccurrences *int `json:"min_occurrences"`
+	MaxOccurrences *int `json:"max_occurrences"`
+	Page           int  `json:"page"`
+	PageSize       int  `json:"page_size"`
 }
 
 // SeatunnelErrorEventFilter defines query filters for error events.

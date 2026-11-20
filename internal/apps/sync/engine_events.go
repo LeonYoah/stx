@@ -497,6 +497,11 @@ func (s *Service) IngestEngineEvents(ctx context.Context, clusterID uint, author
 		events = append(events, event)
 		if job != nil && event.EventType == EngineEventTypeJobStatus {
 			statusJobs[event.EngineJobID] = job
+		} else if job == nil && event.EventType == EngineEventTypeJobStatus && event.EngineJobID != "" {
+			// 未知作业的状态事件只用来唤醒该集群的外部发现，导入仍走列表对账。
+			// A status event for an unknown job only wakes the cluster's external discovery; import still goes
+			// through the list reconcile.
+			s.requestExternalDiscovery(clusterID)
 		}
 	}
 

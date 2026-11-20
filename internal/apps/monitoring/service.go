@@ -19,8 +19,6 @@ package monitoring
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -31,14 +29,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"gorm.io/gorm"
+	"github.com/prometheus/common/model"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
-	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -59,8 +56,11 @@ type Service struct {
 
 	nodeHealthEvaluatorStartedAt time.Time
 	nodeHealthStartupSuppression time.Duration
-	nodeHealthOfflineObservedAt  map[uint]time.Time
-	nodeHealthStateMu            sync.Mutex
+
+	// availabilityEvaluator 持有可用性规则的内存 pending 状态（availability_evaluator.go）。
+	// availabilityEvaluator keeps the in-memory pending state of the availability rules
+	// (availability_evaluator.go).
+	availabilityEvaluator *availabilityEvaluator
 
 	// syncTaskNames 由 sync 注入，用于策略列表显示任务名；未注入时不显示。
 	// syncTaskNames is injected by sync so the policy list can show task names; nothing is shown without it.
@@ -88,20 +88,36 @@ type Service struct {
 	clustersHealthMu    sync.Mutex
 	clustersHealthCache map[uint]*ClusterHealthData
 	clustersHealthUntil map[uint]time.Time
+
+	// clusterRuleCache 是 ResolveClusterRule 的短 TTL 进程内缓存（键为 ruleKey|clusterID）；
+	// 配置写入后由 invalidateClusterRuleResolution 清空并触发 TSDB 规则组重建。
+	// clusterRuleCache is the short-TTL in-process cache of ResolveClusterRule (keyed
+	// ruleKey|clusterID); config writes clear it via invalidateClusterRuleResolution which also
+	// triggers a tsdb rule-group rebuild.
+	clusterRuleCacheMu sync.Mutex
+	clusterRuleCache   map[string]*clusterRuleCacheEntry
+
+	// platformHosts 是平台快照读取 hosts 表的可选依赖（platform_snapshot.go）；
+	// 未注入时快照的 Agent 列表为空。
+	// platformHosts is the optional hosts-table dependency for the platform snapshot
+	// (platform_snapshot.go); the agent list stays empty without it.
+	platformHosts platformHostLister
 }
 
 // NewService creates a monitoring service.
 // NewService 创建监控中心服务。
 func NewService(clusterService *cluster.Service, monitorService *monitor.Service, repo *Repository) *Service {
-	return &Service{
+	service := &Service{
 		clusterService:               clusterService,
 		monitorService:               monitorService,
 		repo:                         repo,
 		nodeHealthStartupSuppression: defaultNodeHealthStartupSuppressionWindow(),
-		nodeHealthOfflineObservedAt:  make(map[uint]time.Time),
+		availabilityEvaluator:        newAvailabilityEvaluator(),
 		clustersHealthCache:          make(map[uint]*ClusterHealthData),
 		clustersHealthUntil:          make(map[uint]time.Time),
 	}
+	service.ensureClusterRuleCache()
+	return service
 }
 
 // GetOverview returns global monitoring overview data.
@@ -308,90 +324,6 @@ func (s *Service) countFiringAlertsForCluster(ctx context.Context, clusterID uin
 	return alerts.Stats.Firing, nil
 }
 
-// ListClusterRules returns rules for one cluster.
-// ListClusterRules 返回单集群告警规则列表。
-func (s *Service) ListClusterRules(ctx context.Context, clusterID uint) (*AlertRuleListData, error) {
-	if s.repo == nil {
-		return nil, fmt.Errorf("monitoring repository is not configured")
-	}
-	if clusterID == 0 {
-		return nil, fmt.Errorf("invalid cluster id")
-	}
-	if _, err := s.clusterService.Get(ctx, clusterID); err != nil {
-		return nil, err
-	}
-
-	if err := s.ensureDefaultRules(ctx, clusterID); err != nil {
-		return nil, err
-	}
-
-	rules, err := s.repo.ListRulesByClusterID(ctx, clusterID)
-	if err != nil {
-		return nil, err
-	}
-
-	items := make([]*AlertRuleDTO, 0, len(rules))
-	for _, rule := range rules {
-		items = append(items, toAlertRuleDTO(rule))
-	}
-
-	return &AlertRuleListData{
-		GeneratedAt: timex.Now(),
-		ClusterID:   clusterID,
-		Rules:       items,
-	}, nil
-}
-
-// UpdateClusterRule updates one rule in cluster scope.
-// UpdateClusterRule 更新集群维度的一条告警规则。
-func (s *Service) UpdateClusterRule(ctx context.Context, clusterID, ruleID uint, req *UpdateAlertRuleRequest) (*AlertRuleDTO, error) {
-	if s.repo == nil {
-		return nil, fmt.Errorf("monitoring repository is not configured")
-	}
-	if clusterID == 0 || ruleID == 0 {
-		return nil, fmt.Errorf("invalid cluster id or rule id")
-	}
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
-	if _, err := s.clusterService.Get(ctx, clusterID); err != nil {
-		return nil, err
-	}
-
-	rule, err := s.repo.GetRuleByID(ctx, ruleID)
-	if err != nil {
-		return nil, err
-	}
-	if rule.ClusterID != clusterID {
-		return nil, fmt.Errorf("rule does not belong to cluster")
-	}
-
-	if req.RuleName != nil {
-		rule.RuleName = strings.TrimSpace(*req.RuleName)
-	}
-	if req.Description != nil {
-		rule.Description = strings.TrimSpace(*req.Description)
-	}
-	if req.Severity != nil {
-		rule.Severity = *req.Severity
-	}
-	if req.Enabled != nil {
-		rule.Enabled = *req.Enabled
-	}
-	if req.Threshold != nil {
-		rule.Threshold = *req.Threshold
-	}
-	if req.WindowSeconds != nil {
-		rule.WindowSeconds = *req.WindowSeconds
-	}
-
-	if err := s.repo.SaveRule(ctx, rule); err != nil {
-		return nil, err
-	}
-
-	return toAlertRuleDTO(rule), nil
-}
-
 // GetIntegrationStatus returns integration health status of monitoring stack.
 // GetIntegrationStatus 返回监控栈集成状态。
 //
@@ -436,14 +368,41 @@ func disabledIntegrationComponent(name string) *IntegrationComponentStatus {
 // embeddedTSDBComponent 返回内嵌 tsdb 组件状态：就绪探测 + 目录/保留期元信息。
 // embeddedTSDBComponent returns the embedded tsdb component: readiness plus dir/retention meta.
 func (s *Service) embeddedTSDBComponent(obsCfg config.ObservabilityConfig) *IntegrationComponentStatus {
+	// 保留期与容量上限优先展示运行实例的实际生效值（自适应计算后）；未启动时退回配置原文，
+	// 空 retention 统一显示 "unlimited"。
+	// Retention/size meta prefer the running instance's effective values (after auto derivation);
+	// while not started they fall back to the raw config, and an empty retention reads "unlimited".
+	retention := strings.TrimSpace(obsCfg.Storage.Retention)
+	if retention == "" {
+		retention = "unlimited"
+	} else if d, err := model.ParseDuration(retention); err == nil && d <= 0 {
+		retention = "unlimited"
+	}
+	maxSize := strconv.FormatInt(obsCfg.Storage.MaxSize, 10)
+	maxSizeSource := embedts.MaxBytesSourceConfig
+	if !obsCfg.Storage.MaxSizeSet {
+		maxSizeSource = "auto"
+	}
+	if opts, ok := embedts.CurrentOptions(); ok {
+		if opts.RetentionDuration > 0 {
+			retention = model.Duration(opts.RetentionDuration).String()
+		} else {
+			retention = "unlimited"
+		}
+		maxSize = strconv.FormatInt(opts.MaxBytes, 10)
+		if opts.MaxBytesSource != "" {
+			maxSizeSource = opts.MaxBytesSource
+		}
+	}
 	component := &IntegrationComponentStatus{
 		Name:    "embedded_tsdb",
 		URL:     strings.TrimSpace(obsCfg.Storage.Dir),
 		Healthy: embedts.Ready(),
 		Meta: map[string]string{
-			"dir":       strings.TrimSpace(obsCfg.Storage.Dir),
-			"retention": strings.TrimSpace(obsCfg.Storage.Retention),
-			"max_size":  strconv.FormatInt(obsCfg.Storage.MaxSize, 10),
+			"dir":             strings.TrimSpace(obsCfg.Storage.Dir),
+			"retention":       retention,
+			"max_size":        maxSize,
+			"max_size_source": maxSizeSource,
 		},
 	}
 	if !component.Healthy {
@@ -776,9 +735,9 @@ func (s *Service) DeleteNotificationChannel(ctx context.Context, id uint) error 
 	return s.repo.DeleteNotificationChannel(ctx, id)
 }
 
-// StartNodeHealthEvaluator starts a background loop that converts sustained node-unavailable
-// states into local alertable events.
-// StartNodeHealthEvaluator 启动后台循环，将持续性的节点不可用状态转换为本地可告警事件。
+// StartNodeHealthEvaluator starts a background loop that runs the availability evaluator
+// (availability_evaluator.go) on the shared eval interval.
+// StartNodeHealthEvaluator 启动后台循环，按统一评估周期运行可用性评估器（availability_evaluator.go）。
 func (s *Service) StartNodeHealthEvaluator(ctx context.Context) {
 	if s == nil || s.clusterService == nil || s.monitorService == nil {
 		return
@@ -789,12 +748,12 @@ func (s *Service) StartNodeHealthEvaluator(ctx context.Context) {
 	}
 
 	go func() {
-		ticker := time.NewTicker(defaultNodeHealthEvaluationInterval)
+		ticker := time.NewTicker(metricEvalIntervalFromConfig())
 		defer ticker.Stop()
 
 		for {
-			if err := s.EvaluateNodeHealthAlerts(ctx); err != nil {
-				log.Printf("[Monitoring] evaluate node health alerts failed: %v / 评估节点健康告警失败: %v", err, err)
+			if err := s.EvaluateAvailabilityAlerts(ctx); err != nil {
+				log.Printf("[Monitoring] evaluate availability alerts failed: %v / 评估可用性告警失败: %v", err, err)
 			}
 
 			select {
@@ -806,132 +765,12 @@ func (s *Service) StartNodeHealthEvaluator(ctx context.Context) {
 	}()
 }
 
-// EvaluateNodeHealthAlerts scans managed clusters and emits node_offline / node_recovered
-// events when one node crosses the sustained-health boundary.
-// EvaluateNodeHealthAlerts 扫描受管集群，并在节点跨越持续状态边界时发出 node_offline / node_recovered 事件。
-func (s *Service) EvaluateNodeHealthAlerts(ctx context.Context) error {
-	if s == nil || s.clusterService == nil || s.monitorService == nil {
-		return nil
-	}
-
-	clusters, _, err := s.clusterService.List(ctx, &cluster.ClusterFilter{Page: 1, PageSize: 1000})
-	if err != nil {
-		return err
-	}
-
-	now := timeNowUTC()
-	var evalErrs []error
-	for _, item := range clusters {
-		if item == nil {
-			continue
-		}
-
-		cfg, err := s.monitorService.GetOrCreateConfig(ctx, item.ID)
-		if err != nil {
-			evalErrs = append(evalErrs, err)
-			continue
-		}
-		if cfg == nil || !cfg.AutoMonitor {
-			continue
-		}
-
-		nodes, err := s.clusterService.GetNodes(ctx, item.ID)
-		if err != nil {
-			evalErrs = append(evalErrs, err)
-			continue
-		}
-
-		for _, node := range nodes {
-			if node == nil || shouldSkipNodeOfflineEvaluation(node) {
-				continue
-			}
-
-			offline, matured, reason, observedSince, graceWindow := evaluateNodeOfflineState(node, cfg, now)
-			if reason == "host_offline" {
-				observedSince, graceWindow, matured = s.applyRuntimeHostOfflineGrace(node, cfg, now, offline)
-			} else {
-				s.clearRuntimeHostOfflineObservation(node.ID)
-			}
-			switch {
-			case offline && matured:
-				if s.shouldSuppressNodeOfflineDuringStartup(now, reason) {
-					continue
-				}
-				if err := s.recordNodeOfflineEpisode(ctx, item.ID, strings.TrimSpace(item.Name), node, reason, observedSince, graceWindow); err != nil {
-					evalErrs = append(evalErrs, err)
-				}
-			case !offline:
-				s.clearRuntimeHostOfflineObservation(node.ID)
-				if err := s.recordNodeRecoveredEpisode(ctx, item.ID, node, now); err != nil {
-					evalErrs = append(evalErrs, err)
-				}
-			}
-		}
-	}
-
-	return errors.Join(evalErrs...)
-}
-
-func (s *Service) shouldSuppressNodeOfflineDuringStartup(now time.Time, reason string) bool {
-	if s == nil || s.nodeHealthEvaluatorStartedAt.IsZero() || s.nodeHealthStartupSuppression <= 0 {
-		return false
-	}
-	if strings.TrimSpace(reason) != "host_offline" {
-		return false
-	}
-	return now.Before(s.nodeHealthEvaluatorStartedAt.UTC().Add(s.nodeHealthStartupSuppression))
-}
-
 func defaultNodeHealthStartupSuppressionWindow() time.Duration {
 	window := time.Duration(config.Config.GRPC.HeartbeatTimeout) * time.Second
 	if window <= 0 {
 		window = 30 * time.Second
 	}
 	return window
-}
-
-func (s *Service) applyRuntimeHostOfflineGrace(node *cluster.NodeInfo, cfg *monitor.MonitorConfig, now time.Time, offline bool) (time.Time, time.Duration, bool) {
-	if node == nil {
-		return time.Time{}, 0, false
-	}
-	if !offline {
-		s.clearRuntimeHostOfflineObservation(node.ID)
-		return time.Time{}, 0, false
-	}
-
-	graceWindow := nodeRuntimeOfflineGrace(cfg)
-	observedSince := s.getOrInitRuntimeHostOfflineObservation(node.ID, now)
-	return observedSince, graceWindow, !now.Before(observedSince.Add(graceWindow))
-}
-
-func (s *Service) getOrInitRuntimeHostOfflineObservation(nodeID uint, now time.Time) time.Time {
-	if s == nil {
-		return now.UTC()
-	}
-
-	s.nodeHealthStateMu.Lock()
-	defer s.nodeHealthStateMu.Unlock()
-
-	if s.nodeHealthOfflineObservedAt == nil {
-		s.nodeHealthOfflineObservedAt = make(map[uint]time.Time)
-	}
-	if observedSince, ok := s.nodeHealthOfflineObservedAt[nodeID]; ok && !observedSince.IsZero() {
-		return observedSince.UTC()
-	}
-
-	observedSince := now.UTC()
-	s.nodeHealthOfflineObservedAt[nodeID] = observedSince
-	return observedSince
-}
-
-func (s *Service) clearRuntimeHostOfflineObservation(nodeID uint) {
-	if s == nil || nodeID == 0 {
-		return
-	}
-
-	s.nodeHealthStateMu.Lock()
-	defer s.nodeHealthStateMu.Unlock()
-	delete(s.nodeHealthOfflineObservedAt, nodeID)
 }
 
 func shouldSkipNodeOfflineEvaluation(node *cluster.NodeInfo) bool {
@@ -944,183 +783,6 @@ func shouldSkipNodeOfflineEvaluation(node *cluster.NodeInfo) bool {
 	default:
 		return false
 	}
-}
-
-func evaluateNodeOfflineState(
-	node *cluster.NodeInfo,
-	cfg *monitor.MonitorConfig,
-	now time.Time,
-) (offline bool, matured bool, reason string, observedSince time.Time, graceWindow time.Duration) {
-	if node == nil {
-		return false, false, "", time.Time{}, 0
-	}
-
-	if !node.IsOnline {
-		return true, true, "host_offline", now, 0
-	}
-
-	graceWindow = nodeRuntimeOfflineGrace(cfg)
-	switch {
-	case node.Status == cluster.NodeStatusOffline:
-		observedSince = node.UpdatedAt.UTC()
-		return true, !now.Before(observedSince.Add(graceWindow)), "host_visibility_lost", observedSince, graceWindow
-	case node.Status == cluster.NodeStatusError:
-		observedSince = node.UpdatedAt.UTC()
-		return true, !now.Before(observedSince.Add(graceWindow)), "node_error", observedSince, graceWindow
-	case node.Status == cluster.NodeStatusStopped:
-		observedSince = node.UpdatedAt.UTC()
-		return true, !now.Before(observedSince.Add(graceWindow)), "process_stopped", observedSince, graceWindow
-	case node.ProcessPID <= 0:
-		observedSince = node.UpdatedAt.UTC()
-		return true, !now.Before(observedSince.Add(graceWindow)), "process_missing", observedSince, graceWindow
-	default:
-		return false, false, "", time.Time{}, 0
-	}
-}
-
-func nodeRuntimeOfflineGrace(cfg *monitor.MonitorConfig) time.Duration {
-	if cfg == nil {
-		return minNodeRuntimeOfflineGraceWindow
-	}
-
-	intervalSeconds := cfg.MonitorInterval
-	if intervalSeconds <= 0 {
-		intervalSeconds = 5
-	}
-
-	restartDelaySeconds := cfg.RestartDelay
-	if restartDelaySeconds <= 0 {
-		restartDelaySeconds = 10
-	}
-
-	grace := time.Duration(intervalSeconds*2) * time.Second
-	if cfg.AutoRestart {
-		grace = time.Duration(restartDelaySeconds+intervalSeconds*2) * time.Second
-	}
-	if grace < minNodeRuntimeOfflineGraceWindow {
-		grace = minNodeRuntimeOfflineGraceWindow
-	}
-	return grace
-}
-
-func (s *Service) recordNodeOfflineEpisode(
-	ctx context.Context,
-	clusterID uint,
-	clusterName string,
-	node *cluster.NodeInfo,
-	reason string,
-	observedSince time.Time,
-	graceWindow time.Duration,
-) error {
-	if node == nil {
-		return nil
-	}
-
-	active, err := s.isNodeOfflineEpisodeActive(ctx, node.ID)
-	if err != nil {
-		return err
-	}
-	if active {
-		return s.DispatchActiveNodeOfflineReminder(ctx, clusterID, strings.TrimSpace(clusterName), node.ID)
-	}
-
-	details, err := json.Marshal(map[string]string{
-		"reason":          strings.TrimSpace(reason),
-		"host_name":       strings.TrimSpace(node.HostName),
-		"host_ip":         strings.TrimSpace(node.HostIP),
-		"node_status":     string(node.Status),
-		"is_online":       fmt.Sprintf("%t", node.IsOnline),
-		"process_pid":     strconv.Itoa(node.ProcessPID),
-		"observed_since":  observedSince.UTC().Format(time.RFC3339),
-		"grace_seconds":   strconv.FormatInt(int64(graceWindow/time.Second), 10),
-		"evaluation_mode": "sustained_node_health",
-	})
-	if err != nil {
-		return err
-	}
-
-	return s.monitorService.RecordEvent(ctx, &monitor.ProcessEvent{
-		ClusterID:   clusterID,
-		NodeID:      node.ID,
-		HostID:      node.HostID,
-		EventType:   monitor.EventTypeNodeOffline,
-		PID:         node.ProcessPID,
-		ProcessName: monitoringProcessNameForRole(string(node.Role)),
-		InstallDir:  node.InstallDir,
-		Role:        string(node.Role),
-		Details:     string(details),
-	})
-}
-
-func (s *Service) recordNodeRecoveredEpisode(ctx context.Context, clusterID uint, node *cluster.NodeInfo, recoveredAt time.Time) error {
-	if node == nil {
-		return nil
-	}
-
-	active, err := s.isNodeOfflineEpisodeActive(ctx, node.ID)
-	if err != nil {
-		return err
-	}
-	if !active {
-		return nil
-	}
-
-	var offlineEventID uint
-	if s.monitorService != nil {
-		offlineEvent, err := s.monitorService.GetLatestNodeEventByTypes(ctx, node.ID, []monitor.ProcessEventType{
-			monitor.EventTypeNodeOffline,
-		})
-		if err != nil {
-			return err
-		}
-		if offlineEvent != nil && !offlineEvent.CreatedAt.After(recoveredAt) {
-			offlineEventID = offlineEvent.ID
-		}
-	}
-
-	detailMap := map[string]string{
-		"host_name":       strings.TrimSpace(node.HostName),
-		"host_ip":         strings.TrimSpace(node.HostIP),
-		"node_status":     string(node.Status),
-		"is_online":       fmt.Sprintf("%t", node.IsOnline),
-		"process_pid":     strconv.Itoa(node.ProcessPID),
-		"recovered_at":    recoveredAt.UTC().Format(time.RFC3339),
-		"evaluation_mode": "sustained_node_health",
-	}
-	if offlineEventID > 0 {
-		detailMap["offline_event_id"] = strconv.FormatUint(uint64(offlineEventID), 10)
-	}
-
-	details, err := json.Marshal(detailMap)
-	if err != nil {
-		return err
-	}
-
-	return s.monitorService.RecordEvent(ctx, &monitor.ProcessEvent{
-		ClusterID:   clusterID,
-		NodeID:      node.ID,
-		HostID:      node.HostID,
-		EventType:   monitor.EventTypeNodeRecovered,
-		PID:         node.ProcessPID,
-		ProcessName: monitoringProcessNameForRole(string(node.Role)),
-		InstallDir:  node.InstallDir,
-		Role:        string(node.Role),
-		Details:     string(details),
-	})
-}
-
-func (s *Service) isNodeOfflineEpisodeActive(ctx context.Context, nodeID uint) (bool, error) {
-	lastMarker, err := s.monitorService.GetLatestNodeEventByTypes(ctx, nodeID, []monitor.ProcessEventType{
-		monitor.EventTypeNodeOffline,
-		monitor.EventTypeNodeRecovered,
-	})
-	if err != nil {
-		return false, err
-	}
-	if lastMarker == nil {
-		return false, nil
-	}
-	return lastMarker.EventType == monitor.EventTypeNodeOffline, nil
 }
 
 func monitoringProcessNameForRole(role string) string {
@@ -1172,6 +834,9 @@ func alertableProcessEventTypes() []monitor.ProcessEventType {
 		monitor.EventTypeNodeRestartRequested,
 		monitor.EventTypeNodeStopRequested,
 		monitor.EventTypeNodeOffline,
+		monitor.EventTypeAgentOffline,
+		monitor.EventTypeMasterUnavailable,
+		monitor.EventTypeWorkerInsufficient,
 	}
 }
 
@@ -1200,27 +865,14 @@ func eventTypeToRuleKey(eventType monitor.ProcessEventType) string {
 		return AlertRuleKeyNodeStopRequested
 	case monitor.EventTypeNodeOffline:
 		return AlertRuleKeyNodeOffline
+	case monitor.EventTypeAgentOffline:
+		return clusterRuleKeyAgentOffline
+	case monitor.EventTypeMasterUnavailable:
+		return clusterRuleKeyMasterUnavailable
+	case monitor.EventTypeWorkerInsufficient:
+		return clusterRuleKeyWorkerInsufficient
 	default:
 		return ""
-	}
-}
-
-func toAlertRuleDTO(rule *AlertRule) *AlertRuleDTO {
-	if rule == nil {
-		return nil
-	}
-	return &AlertRuleDTO{
-		ID:            rule.ID,
-		ClusterID:     rule.ClusterID,
-		RuleKey:       rule.RuleKey,
-		RuleName:      rule.RuleName,
-		Description:   rule.Description,
-		Severity:      rule.Severity,
-		Enabled:       rule.Enabled,
-		Threshold:     rule.Threshold,
-		WindowSeconds: rule.WindowSeconds,
-		CreatedAt:     rule.CreatedAt,
-		UpdatedAt:     rule.UpdatedAt,
 	}
 }
 
@@ -1252,142 +904,6 @@ func toNotificationChannelDTO(channel *NotificationChannel) *NotificationChannel
 		CreatedAt:   channel.CreatedAt,
 		UpdatedAt:   channel.UpdatedAt,
 	}
-}
-
-func (s *Service) ensureDefaultRules(ctx context.Context, clusterID uint) error {
-	for _, tpl := range defaultClusterRules(clusterID) {
-		_, err := s.repo.GetRuleByClusterAndKey(ctx, clusterID, tpl.RuleKey)
-		if err == nil {
-			continue
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if createErr := s.repo.CreateRule(ctx, tpl); createErr != nil {
-			if isDuplicateKeyError(createErr) {
-				continue
-			}
-			return createErr
-		}
-	}
-	return nil
-}
-
-func (s *Service) getClusterRuleMap(ctx context.Context, clusterID uint, cache map[uint]map[string]*AlertRule) (map[string]*AlertRule, error) {
-	if ruleMap, ok := cache[clusterID]; ok {
-		return ruleMap, nil
-	}
-	if err := s.ensureDefaultRules(ctx, clusterID); err != nil {
-		return nil, err
-	}
-
-	rules, err := s.repo.ListRulesByClusterID(ctx, clusterID)
-	if err != nil {
-		return nil, err
-	}
-
-	ruleMap := make(map[string]*AlertRule, len(rules))
-	for _, rule := range rules {
-		ruleMap[rule.RuleKey] = rule
-	}
-	cache[clusterID] = ruleMap
-	return ruleMap, nil
-}
-
-func defaultClusterRules(clusterID uint) []*AlertRule {
-	return []*AlertRule{
-		{
-			ClusterID:     clusterID,
-			RuleKey:       AlertRuleKeyProcessCrashed,
-			RuleName:      "进程崩溃告警",
-			Description:   "当检测到进程崩溃事件时触发告警",
-			Severity:      AlertSeverityCritical,
-			Enabled:       true,
-			Threshold:     1,
-			WindowSeconds: 300,
-		},
-		{
-			ClusterID:     clusterID,
-			RuleKey:       AlertRuleKeyProcessRestartFailed,
-			RuleName:      "进程重启失败告警",
-			Description:   "当自动重启失败时触发告警",
-			Severity:      AlertSeverityCritical,
-			Enabled:       true,
-			Threshold:     1,
-			WindowSeconds: 300,
-		},
-		{
-			ClusterID:     clusterID,
-			RuleKey:       AlertRuleKeyProcessRestartLimitReached,
-			RuleName:      "达到重启上限告警",
-			Description:   "当进程达到重启上限时触发告警",
-			Severity:      AlertSeverityCritical,
-			Enabled:       true,
-			Threshold:     1,
-			WindowSeconds: 300,
-		},
-		{
-			ClusterID:     clusterID,
-			RuleKey:       AlertRuleKeyClusterRestartRequested,
-			RuleName:      "重启事件通知",
-			Description:   "当通过控制面发起集群或节点重启时触发通知，用于邮件联动与变更确认",
-			Severity:      AlertSeverityWarning,
-			Enabled:       true,
-			Threshold:     1,
-			WindowSeconds: 60,
-		},
-		{
-			ClusterID:     clusterID,
-			RuleKey:       AlertRuleKeyNodeStopRequested,
-			RuleName:      "节点停止事件通知",
-			Description:   "当通过控制面手动停止某个节点时立即记录并触发通知",
-			Severity:      AlertSeverityWarning,
-			Enabled:       true,
-			Threshold:     1,
-			WindowSeconds: 60,
-		},
-		{
-			ClusterID:     clusterID,
-			RuleKey:       AlertRuleKeyNodeOffline,
-			RuleName:      "节点离线告警",
-			Description:   "当节点在宽限窗口后仍不可用时触发告警，覆盖主机离线和进程持续不可见两类场景",
-			Severity:      AlertSeverityCritical,
-			Enabled:       true,
-			Threshold:     1,
-			WindowSeconds: 60,
-		},
-		// 同步作业的集群级规则默认开启；没有策略时只在告警中心显示，不发通知。
-		// Sync job cluster-level rules are on by default; without a policy they only show in the alert center.
-		{
-			ClusterID:     clusterID,
-			RuleKey:       syncalert.RuleStatusUnavailable,
-			RuleName:      "作业状态获取失败告警",
-			Description:   "当集群的作业状态（running 列表）持续获取不到超过窗口时间时触发告警，期间作业状态可能已经过时",
-			Severity:      AlertSeverityWarning,
-			Enabled:       true,
-			Threshold:     1,
-			WindowSeconds: 300,
-		},
-		{
-			ClusterID:     clusterID,
-			RuleKey:       syncalert.RuleEventChannelDegraded,
-			RuleName:      "事件通道降级告警",
-			Description:   "当集群的 SeaTunnel 事件通道从健康变为降级时触发告警，期间时间线与 CDC 延迟数据可能中断",
-			Severity:      AlertSeverityWarning,
-			Enabled:       true,
-			Threshold:     1,
-			WindowSeconds: 60,
-		},
-	}
-}
-
-func defaultRuleByKey(clusterID uint, ruleKey string) *AlertRule {
-	for _, rule := range defaultClusterRules(clusterID) {
-		if rule.RuleKey == ruleKey {
-			return rule
-		}
-	}
-	return nil
 }
 
 func resolveClusterEnvLabel(c *cluster.Cluster) string {

@@ -35,7 +35,7 @@ import {
   type ReactNode,
 } from 'react';
 import {useTheme} from 'next-themes';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {
   AlertTriangle,
   Check,
@@ -93,6 +93,10 @@ import {
 import './studio-chrome.css';
 import {Button as ArcButton} from '@/components/arc/button/button';
 import {ButtonGroup} from '@/components/arc/button-group/button-group';
+import {
+  Dialog as ArcDialog,
+  DialogContent as ArcDialogContent,
+} from '@/components/arc/dialog/dialog';
 import {Input as ArcField} from '@/components/arc/input/input';
 import {ExpandingButtonGroup} from '@/components/arc/expanding-button-group/expanding-button-group';
 import {ExpandingSearch} from '@/components/arc/expanding-search/expanding-search';
@@ -136,24 +140,6 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -236,6 +222,7 @@ import {
   StudioSidebarShell,
 } from './StudioSidebarShell';
 import {DraftSaveStatusBadge} from './DraftSaveStatusBadge';
+import {StudioFileTabs} from './StudioFileTabs';
 import {WorkbenchLeaveDialog} from './WorkbenchLeaveDialog';
 import {SettingsSidebarPanel} from './SettingsSidebarPanel';
 import {CuratedTemplatesManagePanel} from './CuratedTemplatesManagePanel';
@@ -465,6 +452,19 @@ export function DataSyncStudio() {
   // Job deep link ?task=&job= (from alert notifications): used once on the first workspace load.
   const searchParams = useSearchParams();
   const deepLinkRef = useRef<JobDeepLink | null>(parseJobDeepLink(searchParams));
+  // 已处理过的深链按 taskId:jobId 记 key；初始值标记挂载时由 loadWorkspace 消费的那条，防止重放。
+  // Applied deep links are keyed by taskId:jobId; the initial value marks the one consumed by
+  // loadWorkspace at mount so it is not replayed.
+  const appliedDeepLinkKeyRef = useRef<string>(
+    (() => {
+      const initial = parseJobDeepLink(searchParams);
+      return initial ? `${initial.taskId}:${initial.jobId ?? 0}` : '';
+    })(),
+  );
+  // handleSelectNode 在渲染期重新赋值，保证深链重放总调用最新闭包。
+  // handleSelectNode is re-assigned into this ref every render so deep-link replay always calls
+  // the latest closure.
+  const selectNodeRef = useRef<((node: SyncTaskTreeNode) => void) | undefined>(undefined);
   const [workspaceUsers, setWorkspaceUsers] = useState<
     NotificationRecipientUser[]
   >([]);
@@ -683,7 +683,6 @@ export function DataSyncStudio() {
     useState<RuntimeStorageCheckpointInspectResult | null>(null);
   const [recoverSourceId, setRecoverSourceId] = useState<string>('');
   const [previewDatasetName, setPreviewDatasetName] = useState('');
-  const [previewPage, setPreviewPage] = useState(1);
   const [openTabs, setOpenTabs] = useState<OpenFileTab[]>([]);
   const [editorDrafts, setEditorDrafts] = useState<
     Record<number, EditorDraftState>
@@ -929,8 +928,6 @@ export function DataSyncStudio() {
 
   const restoredWorkspaceTabsRef = useRef<PersistedWorkspaceTabs | null>(null);
   const customVariableRowsRef = useRef<VariableRow[]>([]);
-  const tabStripRef = useRef<HTMLDivElement | null>(null);
-  const tabButtonRefs = useRef<Record<number, HTMLElement | null>>({});
 
   if (
     restoredWorkspaceTabsRef.current === null &&
@@ -1748,7 +1745,19 @@ export function DataSyncStudio() {
     }
   }, [globalVariablePage, t]);
 
+  // 工作区只启动加载一次：StrictMode 挂载期 effect 双调用或依赖抖动导致的第二次 loadWorkspace
+  // 会在首次选任务→loadJobs 回填后再执行 setJobs([])，而 selectedNodeId 不变不再触发重载，
+  // 运行记录被永久清空（表现为点了作业失败深链却「找不到运行记录」）。
+  // The workspace must boot only once: a second loadWorkspace (StrictMode double-effect or dep
+  // churn) runs setJobs([]) after the first run already refilled jobs via loadJobs, and with
+  // selectedNodeId unchanged no reload fires — leaving the runs list permanently empty (the
+  // "deep link opens but no run record" bug).
+  const workspaceBootedRef = useRef(false);
   useEffect(() => {
+    if (workspaceBootedRef.current) {
+      return;
+    }
+    workspaceBootedRef.current = true;
     void loadWorkspace(deepLinkRef.current?.taskId ?? null);
   }, [loadWorkspace]);
 
@@ -1791,30 +1800,6 @@ export function DataSyncStudio() {
   }, [editor.id, editor.name]);
 
   useEffect(() => {
-    if (!selectedNodeId) {
-      return;
-    }
-    const strip = tabStripRef.current;
-    const activeTab = tabButtonRefs.current[selectedNodeId];
-    if (!strip || !activeTab) {
-      return;
-    }
-    const stripRect = strip.getBoundingClientRect();
-    const tabRect = activeTab.getBoundingClientRect();
-    const isOutOfView =
-      tabRect.left < stripRect.left || tabRect.right > stripRect.right;
-    if (!isOutOfView) {
-      return;
-    }
-    const targetLeft =
-      activeTab.offsetLeft - strip.clientWidth / 2 + activeTab.clientWidth / 2;
-    strip.scrollTo({
-      left: Math.max(0, targetLeft),
-      behavior: 'smooth',
-    });
-  }, [openTabs, selectedNodeId]);
-
-  useEffect(() => {
     if (selectedNodeId) {
       void loadJobs(selectedNodeId);
       void loadVersions(selectedNodeId);
@@ -1843,14 +1828,12 @@ export function DataSyncStudio() {
   useEffect(() => {
     if (previewDatasets.length === 0) {
       setPreviewDatasetName('');
-      setPreviewPage(1);
       return;
     }
     if (
       !previewDatasets.some((dataset) => dataset.name === previewDatasetName)
     ) {
       setPreviewDatasetName(previewDatasets[0]?.name || '');
-      setPreviewPage(1);
     }
   }, [previewDatasetName, previewDatasets]);
 
@@ -3547,6 +3530,43 @@ export function DataSyncStudio() {
     }
   };
 
+  // 每次渲染同步最新 handleSelectNode 到 ref，供深链重放 effect 调用。
+  // Sync the latest handleSelectNode into the ref every render for the deep-link replay effect.
+  useEffect(() => {
+    selectNodeRef.current = handleSelectNode;
+  });
+
+  // 深链在已挂载的 /workbench 上再次导航也要生效：loadWorkspace 只在挂载时消费一次
+  // deepLinkRef，停留在工作台时再点 ?task&job 链接只会改 searchParams 而不会重挂载，旧链接
+  // 会被静默丢弃（表现为「点了告警却找不到运行记录」）。这里监听参数变化重放深链。
+  // Deep links must also apply on in-place navigation to an already-mounted /workbench:
+  // loadWorkspace consumes deepLinkRef only at mount, so clicking another ?task&job link while
+  // staying on the page only changes searchParams without remounting, silently dropping the link
+  // (users click an alert and never see the run record). Replay such links on params change.
+  useEffect(() => {
+    const link = parseJobDeepLink(searchParams);
+    if (!link) {
+      return;
+    }
+    const key = `${link.taskId}:${link.jobId ?? 0}`;
+    if (appliedDeepLinkKeyRef.current === key) {
+      return;
+    }
+    const node = findTreeNode(tree, link.taskId);
+    if (!node || node.node_type !== 'file') {
+      // 工作区仍在加载时不判失败：effect 依赖 tree/loading，树就绪后会重跑。
+      // Do not warn while the workspace is still loading: this effect re-runs once tree/loading settle.
+      if (!loading) {
+        appliedDeepLinkKeyRef.current = key;
+        toast.warning(tAlert('deepLinkTaskNotFound', {id: link.taskId}));
+      }
+      return;
+    }
+    appliedDeepLinkKeyRef.current = key;
+    deepLinkRef.current = link;
+    void selectNodeRef.current?.(node);
+  }, [searchParams, tree, loading, tAlert]);
+
   const handleCloseTab = async (taskId: number) => {
     setOpenTabs((current) => current.filter((tab) => tab.id !== taskId));
     if (selectedNodeId !== taskId) {
@@ -3881,7 +3901,9 @@ export function DataSyncStudio() {
     } catch (error) {
       // 长错误进限高诊断弹窗，避免 toast 被堆栈撑满视口。
       // Long failures go to the height-capped dialog so a stack trace cannot stretch the toast.
-      setActionError(formatSyncUserFacingError(error, t('previewFailed'), t));
+      setActionError(
+        formatSyncUserFacingError(error, t('previewFailed'), t, {preview: true}),
+      );
     } finally {
       setActionPending((current) => (current === 'preview' ? null : current));
     }
@@ -4506,7 +4528,7 @@ export function DataSyncStudio() {
     preferredRecoverSourceId === null;
 
   return (
-    <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
+    <div className='arc-compact -mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
       <Card className='relative z-20 gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
         <CardContent className='studio-topbar grid h-12 min-w-0 grid-cols-[minmax(0,max-content)_280px_minmax(max-content,1fr)] items-center gap-3 overflow-visible px-3'>
           {/* 左侧：顶栏最左端左栏开关（#110 AC11）+ 面包屑 / 状态 */}
@@ -4702,7 +4724,7 @@ export function DataSyncStudio() {
             {/* 探查动作：Arc 展开按钮组。打开结果的动作不写 doneLabel，避免误显示已完成。 */}
             {/* Inspect actions: Arc expanding group. Actions that open a result omit doneLabel so they do not flash as finished. */}
             <ExpandingButtonGroup
-              size='md'
+              size='sm'
               label={t('inspectActions')}
               defaultExpanded='test'
               items={[
@@ -5127,126 +5149,20 @@ export function DataSyncStudio() {
           )}
         >
           <CardContent className='flex h-full min-h-0 min-w-0 flex-col p-0'>
-            {/* VS Code 风格平铺直角标签页栏 */}
-            {/* VS Code style flat rectangular tab bar */}
-            <div className='flex h-9 shrink-0 items-stretch justify-between border-b border-border/40 bg-muted/25 px-0 select-none overflow-hidden'>
-              <div
-                ref={tabStripRef}
-                className='flex h-full flex-1 items-stretch overflow-x-auto scrollbar-none'
-              >
-                {openTabs.length > 0 ? (
-                  openTabs.map((tab) => {
-                    const isTabActive = selectedNodeId === tab.id;
-                    const isTabDirty = Boolean(editorDrafts[tab.id]?.dirty);
-                    return (
-                      <div
-                        key={tab.id}
-                        ref={(node) => {
-                          tabButtonRefs.current[tab.id] = node;
-                        }}
-                        role='tab'
-                        aria-selected={isTabActive}
-                        tabIndex={0}
-                        className={cn(
-                          'group relative flex h-full items-center gap-2 border-r border-border/40 px-3 text-xs select-none cursor-pointer transition-colors',
-                          isTabActive
-                            ? '-mb-px border-b border-b-background bg-background font-medium text-foreground z-10'
-                            : 'bg-transparent text-muted-foreground/80 hover:bg-muted/40 hover:text-foreground',
-                        )}
-                        onClick={() => void handleSelectTab(tab.id)}
-                        onAuxClick={(e) => {
-                          if (e.button === 1) {
-                            e.preventDefault();
-                            void handleCloseTab(tab.id);
-                          }
-                        }}
-                      >
-                        {/* 激活状态顶部 2px 主题色高光指示条 */}
-                        {/* 2px primary accent bar on top for active tab */}
-                        {isTabActive ? (
-                          <span className='absolute inset-x-0 top-0 h-[2px] bg-primary' />
-                        ) : null}
-
-                        <FileCode2
-                          className={cn(
-                            'size-3.5 shrink-0',
-                            isTabActive
-                              ? 'text-primary'
-                              : 'text-muted-foreground/60',
-                          )}
-                        />
-                        <span className='max-w-[150px] truncate' title={tab.name}>
-                          {tab.name}
-                        </span>
-
-                        <div className='relative ml-0.5 flex size-4 shrink-0 items-center justify-center'>
-                          {isTabDirty ? (
-                            <span
-                              aria-label={t('unsavedDraft')}
-                              title={t('unsavedChanges')}
-                              className='size-2 rounded-full bg-amber-500 transition-all group-hover:scale-0 group-hover:opacity-0'
-                            />
-                          ) : null}
-                          <button
-                            type='button'
-                            aria-label={`${t('close')} ${tab.name}`}
-                            className={cn(
-                              'absolute inset-0 flex items-center justify-center rounded-xs text-muted-foreground transition-all hover:bg-muted-foreground/20 hover:text-foreground',
-                              isTabDirty
-                                ? 'scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100'
-                                : isTabActive
-                                  ? 'opacity-60 hover:opacity-100'
-                                  : 'opacity-0 group-hover:opacity-60 hover:!opacity-100',
-                            )}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleCloseTab(tab.id);
-                            }}
-                          >
-                            <X className='size-2.5' />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className='flex items-center px-3 text-xs text-muted-foreground/60'>
-                    {t('noOpenFiles')}
-                  </div>
-                )}
-              </div>
-
-              {/* 标签栏快捷菜单（关闭其他 / 关闭全部） */}
-              {/* Tab bar action dropdown (close others / close all) */}
-              {openTabs.length > 0 ? (
-                <div className='flex items-center px-1 border-l border-border/30 bg-muted/10'>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size='icon'
-                        variant='ghost'
-                        className='size-7 shrink-0 text-muted-foreground hover:text-foreground'
-                      >
-                        <MoreHorizontal className='size-3.5' />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align='end'>
-                      {selectedNodeId ? (
-                        <DropdownMenuItem
-                          disabled={openTabs.length <= 1}
-                          onClick={() => handleCloseOtherTabs(selectedNodeId)}
-                        >
-                          {t('closeOtherTabs')}
-                        </DropdownMenuItem>
-                      ) : null}
-                      <DropdownMenuItem onClick={handleCloseAllTabs}>
-                        {t('closeAllTabs')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              ) : null}
-            </div>
+            {/* 编辑器打开文件标签栏（Radix Tabs + Motion 指示条 + 右键菜单） */}
+            {/* Workbench file tabs (Radix Tabs + Motion indicator + context menu) */}
+            <StudioFileTabs
+              tabs={openTabs.map((tab) => ({
+                id: tab.id,
+                name: tab.name,
+                dirty: Boolean(editorDrafts[tab.id]?.dirty),
+              }))}
+              activeTabId={selectedNodeId}
+              onSelectTab={(tabId) => void handleSelectTab(tabId)}
+              onCloseTab={(tabId) => void handleCloseTab(tabId)}
+              onCloseOtherTabs={handleCloseOtherTabs}
+              onCloseAllTabs={handleCloseAllTabs}
+            />
             {/* VS Code 风格文件路径面包屑条 */}
             {/* VS Code style file path breadcrumb bar */}
             {openTabs.length > 0 && activeTaskBreadcrumbs.length > 0 ? (
@@ -5727,16 +5643,11 @@ export function DataSyncStudio() {
                   previewSnapshot={previewSnapshot}
                   datasets={previewDatasets}
                   selectedDatasetName={selectedPreviewDataset?.name || ''}
-                  previewPage={previewPage}
                   loading={
                     actionPending === 'preview' || previewSnapshotLoading
                   }
                   monacoTheme={monacoTheme}
-                  onSelectDataset={(name) => {
-                    setPreviewDatasetName(name);
-                    setPreviewPage(1);
-                  }}
-                  onChangePage={setPreviewPage}
+                  onSelectDataset={setPreviewDatasetName}
                 />
               ) : (
                 <CheckpointWorkspacePanel
@@ -5780,7 +5691,7 @@ export function DataSyncStudio() {
         onSave={handleSaveCustomVariable}
       />
 
-      <Dialog
+      <ArcDialog
         open={scheduleDialogOpen}
         onOpenChange={(open) => {
           setScheduleDialogOpen(open);
@@ -5791,11 +5702,12 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='flex h-[90vh] w-[min(96vw,1280px)] sm:max-w-none flex-col overflow-hidden p-0'>
-          <DialogHeader className='border-b border-border/60 px-6 py-4'>
-            <DialogTitle>{t('taskSchedule')}</DialogTitle>
-          </DialogHeader>
-          <div className='min-h-0 flex-1 overflow-y-auto px-6 py-4'>
+        <ArcDialogContent
+          className='arc-compact h-[90vh]! w-[min(96vw,1280px)]!'
+          bodyClassName='flex min-h-0 flex-1 flex-col p-0! overflow-hidden'
+          title={t('taskSchedule')}
+        >
+          <div className='min-h-0 flex-1 overflow-y-auto px-5 py-4'>
             <TaskScheduleSidebarPanel
               value={scheduleDraft}
               lastTriggeredAt={
@@ -5811,10 +5723,11 @@ export function DataSyncStudio() {
               className='mx-auto w-full max-w-6xl'
             />
           </div>
-          <DialogFooter className='border-t border-border/60 px-6 py-4'>
-            <Button
+          <div className='flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3.5'>
+            <ArcButton
               type='button'
-              variant='outline'
+              variant='secondary'
+              size='sm'
               onClick={() => {
                 setScheduleDraft(
                   extractTaskScheduleValue(editor.definition || {}),
@@ -5823,17 +5736,22 @@ export function DataSyncStudio() {
               }}
             >
               {t('cancel')}
-            </Button>
-            <Button type='button' onClick={handleConfirmScheduleDialog}>
+            </ArcButton>
+            <ArcButton
+              type='button'
+              variant='primary'
+              size='sm'
+              onClick={handleConfirmScheduleDialog}
+            >
               {t('confirm')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </ArcButton>
+          </div>
+        </ArcDialogContent>
+      </ArcDialog>
 
       {/* combo 精选整文替换确认 */}
       {/* Confirm before combo curated replace-all */}
-      <AlertDialog
+      <ArcDialog
         open={curatedReplaceDialogOpen}
         onOpenChange={(open) => {
           setCuratedReplaceDialogOpen(open);
@@ -5842,25 +5760,41 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('curatedReplaceTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('curatedReplaceConfirm')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmCuratedReplace}>
+        <ArcDialogContent
+          role='alertdialog'
+          showCloseButton={false}
+          className='arc-compact w-[min(calc(100vw-2rem),420px)]!'
+          onPointerDownOutside={(event) => event.preventDefault()}
+          title={t('curatedReplaceTitle')}
+          description={t('curatedReplaceConfirm')}
+        >
+          <div className='flex flex-col-reverse gap-2 sm:flex-row sm:justify-end'>
+            <ArcButton
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => {
+                setCuratedReplaceDialogOpen(false);
+                setPendingCuratedInsert(null);
+              }}
+            >
+              {t('cancel')}
+            </ArcButton>
+            <ArcButton
+              type='button'
+              variant='primary'
+              size='sm'
+              onClick={handleConfirmCuratedReplace}
+            >
               {t('curatedReplaceConfirmAction')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </ArcButton>
+          </div>
+        </ArcDialogContent>
+      </ArcDialog>
 
       {/* 另存精选模板弹窗 */}
       {/* Save-as curated template dialog */}
-      <Dialog
+      <ArcDialog
         open={curatedSaveDialogOpen}
         onOpenChange={(open) => {
           if (!curatedSaving) {
@@ -5868,11 +5802,12 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='sm:max-w-md' aria-describedby={undefined}>
-          <DialogHeader>
-            <DialogTitle>{t('saveAsCurated')}</DialogTitle>
-          </DialogHeader>
-          <div className='grid gap-4 py-2'>
+        <ArcDialogContent
+          className='arc-compact w-[min(calc(100vw-2rem),460px)]!'
+          aria-describedby={undefined}
+          title={t('saveAsCurated')}
+        >
+          <div className='grid gap-4'>
             <div className='grid gap-2'>
               <div className='flex items-center gap-2'>
                 <Label htmlFor='curated-save-name'>
@@ -5929,33 +5864,34 @@ export function DataSyncStudio() {
                 </SelectContent>
               </Select>
             </div>
+            <div className='flex items-center justify-end gap-2 border-t border-border/50 pt-4'>
+              <ArcButton
+                type='button'
+                variant='secondary'
+                size='sm'
+                onClick={() => setCuratedSaveDialogOpen(false)}
+                disabled={curatedSaving}
+              >
+                {t('cancel')}
+              </ArcButton>
+              <ArcButton
+                type='button'
+                variant='primary'
+                size='sm'
+                loading={curatedSaving}
+                onClick={() => void handleConfirmSaveAsCuratedTemplate()}
+                disabled={curatedSaving || !curatedSaveName.trim()}
+              >
+                {t('confirm')}
+              </ArcButton>
+            </div>
           </div>
-          <DialogFooter>
-            <Button
-              type='button'
-              variant='outline'
-              onClick={() => setCuratedSaveDialogOpen(false)}
-              disabled={curatedSaving}
-            >
-              {t('cancel')}
-            </Button>
-            <Button
-              type='button'
-              onClick={() => void handleConfirmSaveAsCuratedTemplate()}
-              disabled={curatedSaving || !curatedSaveName.trim()}
-            >
-              {curatedSaving ? (
-                <Loader2 className='size-3.5 animate-spin' />
-              ) : null}
-              <span>{t('confirm')}</span>
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </ArcDialogContent>
+      </ArcDialog>
 
       {/* 发布新版本弹窗 */}
       {/* Publish new version dialog */}
-      <Dialog
+      <ArcDialog
         open={publishDialogOpen}
         onOpenChange={(open) => {
           if (!publishing) {
@@ -5963,8 +5899,8 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent
-          className='sm:max-w-md'
+        <ArcDialogContent
+          className='arc-compact w-[min(calc(100vw-2rem),440px)]!'
           aria-describedby={undefined}
           // 打开时焦点直接进备注输入框，避免自动聚焦到标题旁的说明按钮而弹出 Tooltip
           // Focus the comment input on open so auto-focus doesn't land on the help button and pop its Tooltip
@@ -5972,12 +5908,11 @@ export function DataSyncStudio() {
             event.preventDefault();
             document.getElementById('publish-version-comment')?.focus();
           }}
-        >
-          <DialogHeader>
-            {/* HelpCircle 放在 DialogTitle 外，避免说明进入弹窗可访问名称 */}
-            {/* HelpCircle sits outside DialogTitle so the description stays out of the dialog's accessible name */}
-            <div className='flex items-center gap-1.5'>
-              <DialogTitle>{t('publishNewVersion')}</DialogTitle>
+          title={
+            // HelpCircle 放在标题文案外侧避免进入弹窗默认可访问名称，保持 Arc Dialog 标题视觉。
+            // Keep HelpCircle aligned beside the title inside Arc Dialog's header slot.
+            <span className='flex items-center gap-1.5'>
+              <span>{t('publishNewVersion')}</span>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -5995,9 +5930,10 @@ export function DataSyncStudio() {
                   {t('versionManagementDesc')}
                 </TooltipContent>
               </Tooltip>
-            </div>
-          </DialogHeader>
-          <div className='py-2'>
+            </span>
+          }
+        >
+          <div className='space-y-4'>
             {/* 弹窗里的字段和确认也走 Arc，不再混 shadcn 主按钮。 */}
             {/* The dialog field and confirm actions stay Arc instead of mixing a shadcn primary. */}
             <ArcField
@@ -6013,29 +5949,29 @@ export function DataSyncStudio() {
                 }
               }}
             />
+            <div className='flex items-center justify-end gap-2 border-t border-border/50 pt-4'>
+              <ArcButton
+                type='button'
+                variant='secondary'
+                size='sm'
+                onClick={() => setPublishDialogOpen(false)}
+                disabled={publishing}
+              >
+                {t('cancel')}
+              </ArcButton>
+              <ArcButton
+                type='button'
+                variant='primary'
+                size='sm'
+                loading={publishing}
+                onClick={() => void handleConfirmPublish()}
+              >
+                {t('confirm')}
+              </ArcButton>
+            </div>
           </div>
-          <DialogFooter>
-            <ArcButton
-              type='button'
-              variant='secondary'
-              size='sm'
-              onClick={() => setPublishDialogOpen(false)}
-              disabled={publishing}
-            >
-              {t('cancel')}
-            </ArcButton>
-            <ArcButton
-              type='button'
-              variant='primary'
-              size='sm'
-              loading={publishing}
-              onClick={() => void handleConfirmPublish()}
-            >
-              {t('confirm')}
-            </ArcButton>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </ArcDialogContent>
+      </ArcDialog>
 
       <StudioActionErrorDialog
         error={actionError}
@@ -6046,40 +5982,38 @@ export function DataSyncStudio() {
         }}
       />
 
-      <Dialog open={validationOpen} onOpenChange={setValidationOpen}>
-        <DialogContent
+      <ArcDialog open={validationOpen} onOpenChange={setValidationOpen}>
+        <ArcDialogContent
           className={cn(
-            'w-[94vw] max-w-[94vw] transition-all',
+            'arc-compact max-h-[85vh]!',
             (validationResult?.checks?.length ?? 0) > 0
-              ? 'sm:max-w-[1100px]'
-              : 'sm:max-w-[680px]',
+              ? 'w-[min(94vw,1100px)]!'
+              : 'w-[min(94vw,680px)]!',
           )}
-        >
-          <DialogHeader>
-            <DialogTitle>{validationTitle}</DialogTitle>
-            {validationResult?.summary &&
+          title={validationTitle}
+          description={
+            validationResult?.summary &&
             validationResult.summary.replace(/^sync:\s*/, '').trim() !==
-              validationTitle.trim() ? (
-              <DialogDescription className='truncate'>
-                {validationResult.summary.replace(/^sync:\s*/, '')}
-              </DialogDescription>
-            ) : null}
-          </DialogHeader>
+              validationTitle.trim()
+              ? validationResult.summary.replace(/^sync:\s*/, '')
+              : undefined
+          }
+        >
           <ValidationResultPanel result={validationResult} />
-        </DialogContent>
-      </Dialog>
+        </ArcDialogContent>
+      </ArcDialog>
 
-      <Dialog
+      <ArcDialog
         open={previewRunDialog.open}
         onOpenChange={(open) =>
           setPreviewRunDialog((current) => ({...current, open}))
         }
       >
-        <DialogContent className='sm:max-w-md'>
-          <DialogHeader>
-            <DialogTitle>{t('previewSettings')}</DialogTitle>
-            <DialogDescription>{t('previewRowLimitDesc')}</DialogDescription>
-          </DialogHeader>
+        <ArcDialogContent
+          className='arc-compact w-[min(calc(100vw-2rem),448px)]!'
+          title={t('previewSettings')}
+          description={t('previewRowLimitDesc')}
+        >
           <div className='grid gap-3'>
             <div className='grid gap-2'>
               <Label htmlFor='preview-row-limit'>{t('previewRowLimit')}</Label>
@@ -6121,25 +6055,31 @@ export function DataSyncStudio() {
                 {t('previewTimeoutMinutesDesc')}
               </div>
             </div>
-            <div className='flex justify-end gap-2'>
-              <Button
-                variant='outline'
+            <div className='flex justify-end gap-2 border-t border-border/50 pt-4'>
+              <ArcButton
+                type='button'
+                variant='secondary'
+                size='sm'
                 onClick={() =>
                   setPreviewRunDialog((current) => ({...current, open: false}))
                 }
               >
                 {t('cancel')}
-              </Button>
-              <Button onClick={() => void handleConfirmPreview()}>
+              </ArcButton>
+              <ArcButton
+                type='button'
+                variant='primary'
+                size='sm'
+                onClick={() => void handleConfirmPreview()}
+              >
                 {t('startPreview')}
-              </Button>
+              </ArcButton>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </ArcDialogContent>
+      </ArcDialog>
 
-
-      <Dialog
+      <ArcDialog
         open={dagOpen}
         onOpenChange={(open) => {
           setDagOpen(open);
@@ -6148,26 +6088,28 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent
+        <ArcDialogContent
           className={cn(
-            'flex flex-col overflow-hidden transition-all',
+            'arc-compact flex flex-col overflow-hidden',
             dagError
-              ? 'h-auto max-h-[85vh] w-[94vw] max-w-2xl p-6'
-              : 'h-[88vh] w-[92vw] max-w-[92vw] gap-0 p-0 sm:max-w-[1400px]',
+              ? 'h-auto max-h-[85vh]! w-[min(94vw,672px)]!'
+              : 'h-[88vh]! w-[min(92vw,1400px)]!',
           )}
-        >
-          <DialogHeader className={cn(dagError ? 'pb-2' : 'border-b border-border/60 px-5 pb-3 pt-4')}>
-            <DialogTitle>{dagError ? 'DAG 生成未通过' : t('dagPreview')}</DialogTitle>
-            {!dagError ? (
-              <DialogDescription>
-                {t('dagSummary', {
+          bodyClassName={
+            dagError
+              ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
+              : 'flex min-h-0 flex-1 flex-col p-0! overflow-hidden'
+          }
+          title={dagError ? 'DAG 生成未通过' : t('dagPreview')}
+          description={
+            !dagError
+              ? t('dagSummary', {
                   nodes: dagNodes.length,
                   edges: dagEdges.length,
-                })}
-              </DialogDescription>
-            ) : null}
-          </DialogHeader>
-
+                })
+              : undefined
+          }
+        >
           {dagError ? (
             <div className='min-h-0 flex-1 overflow-auto pr-1'>
               <StudioErrorDiagnosticsView error={dagError} />
@@ -6179,7 +6121,7 @@ export function DataSyncStudio() {
               <JobTopology mode='plan' jobDag={dagWebUIJob.jobDag} warnings={dagWarnings} />
             </div>
           ) : (
-            <div className='min-h-0 flex-1 overflow-auto px-6 pb-6'>
+            <div className='min-h-0 flex-1 overflow-auto p-5'>
               <Card>
                 <CardHeader className='pb-3'>
                   <CardTitle className='text-sm'>{t('rawDagJson')}</CardTitle>
@@ -6192,8 +6134,8 @@ export function DataSyncStudio() {
               </Card>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+        </ArcDialogContent>
+      </ArcDialog>
 
       <JobDetailDialog
         job={detailJob}
@@ -6242,7 +6184,7 @@ export function DataSyncStudio() {
         }
       />
 
-      <Dialog
+      <ArcDialog
         open={Boolean(versionPreview)}
         onOpenChange={(open) => {
           if (!open) {
@@ -6250,22 +6192,19 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='sm:max-w-5xl'>
-          <DialogHeader>
-            <DialogTitle>
-              {t('versionPreview')}{' '}
-              {versionPreview ? `v${versionPreview.version}` : ''}
-            </DialogTitle>
-          </DialogHeader>
+        <ArcDialogContent
+          className='arc-compact w-[min(94vw,1024px)]!'
+          title={`${t('versionPreview')}${versionPreview ? ` v${versionPreview.version}` : ''}`}
+        >
           <pre className='max-h-[70vh] overflow-auto rounded-lg border p-4 text-xs text-muted-foreground'>
             {versionPreview
               ? versionPreview.content_snapshot
               : t('noVersionContent')}
           </pre>
-        </DialogContent>
-      </Dialog>
+        </ArcDialogContent>
+      </ArcDialog>
 
-      <Dialog
+      <ArcDialog
         open={Boolean(compareVersion)}
         onOpenChange={(open) => {
           if (!open) {
@@ -6273,14 +6212,12 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='flex h-[88vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden p-0 gap-0 sm:max-w-[1320px]'>
-          <DialogHeader>
-            <DialogTitle className='px-6 pt-6'>
-              {t('versionCompare')}{' '}
-              {compareVersion ? `v${compareVersion.version}` : ''}
-            </DialogTitle>
-          </DialogHeader>
-          <div className='mx-6 flex flex-wrap items-center justify-between gap-3 rounded-t-lg border border-b-0 border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground'>
+        <ArcDialogContent
+          className='arc-compact h-[88vh]! w-[min(96vw,1320px)]!'
+          bodyClassName='flex min-h-0 flex-1 flex-col p-0! overflow-hidden'
+          title={`${t('versionCompare')}${compareVersion ? ` v${compareVersion.version}` : ''}`}
+        >
+          <div className='mx-5 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-t-lg border border-b-0 border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground'>
             <div className='flex items-center gap-2'>
               <GitCompareArrows className='size-4 text-primary' />
               <Badge variant='outline'>Diff</Badge>
@@ -6311,7 +6248,7 @@ export function DataSyncStudio() {
               </div>
             </div>
           </div>
-          <div className='mx-6 mb-6 min-h-0 flex-1 overflow-hidden rounded-lg border border-border/60'>
+          <div className='mx-5 mb-5 min-h-0 flex-1 overflow-hidden rounded-lg border border-border/60'>
             <MonacoDiffEditor
               height='100%'
               theme={
@@ -6340,17 +6277,16 @@ export function DataSyncStudio() {
               }}
             />
           </div>
-        </DialogContent>
-      </Dialog>
+        </ArcDialogContent>
+      </ArcDialog>
 
-      <Dialog open={logsDialogOpen} onOpenChange={setLogsDialogOpen}>
-        <DialogContent
-          className='flex h-[88vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden sm:max-w-[1400px]'
+      <ArcDialog open={logsDialogOpen} onOpenChange={setLogsDialogOpen}>
+        <ArcDialogContent
+          className='arc-compact h-[88vh]! w-[min(96vw,1400px)]!'
+          bodyClassName='flex min-h-0 flex-1 flex-col gap-3 overflow-hidden'
           aria-describedby={undefined}
+          title={t('logViewer')}
         >
-          <DialogHeader>
-            <DialogTitle>{t('logViewer')}</DialogTitle>
-          </DialogHeader>
           <div className='studio-sidebar-chrome flex flex-wrap items-center justify-between gap-2'>
             <div className='flex items-center gap-2'>
               <div className='studio-search-field w-[320px]'>
@@ -6408,8 +6344,8 @@ export function DataSyncStudio() {
             }
           />
           </div>
-        </DialogContent>
-      </Dialog>
+        </ArcDialogContent>
+      </ArcDialog>
 
       <CheckpointInspectDialog
         open={checkpointInspectDialogOpen}
@@ -6419,24 +6355,24 @@ export function DataSyncStudio() {
         onResultUpdate={setCheckpointInspectDialogResult}
       />
 
-      <Dialog
+      <ArcDialog
         open={treeDialog.open}
         onOpenChange={(open) => setTreeDialog((prev) => ({...prev, open}))}
       >
-        <DialogContent className='sm:max-w-md'>
-          <DialogHeader>
-            <DialogTitle>
-              {treeDialog.action === 'create-folder'
-                ? t('newFolder')
-                : treeDialog.action === 'create-file'
-                  ? t('newFile')
-                  : treeDialog.action === 'move'
-                    ? t('moveTo')
-                    : treeDialog.action === 'delete'
-                      ? t('deleteConfirm')
-                      : t('rename')}
-            </DialogTitle>
-          </DialogHeader>
+        <ArcDialogContent
+          className='arc-compact w-[min(calc(100vw-2rem),448px)]!'
+          title={
+            treeDialog.action === 'create-folder'
+              ? t('newFolder')
+              : treeDialog.action === 'create-file'
+                ? t('newFile')
+                : treeDialog.action === 'move'
+                  ? t('moveTo')
+                  : treeDialog.action === 'delete'
+                    ? t('deleteConfirm')
+                    : t('rename')
+          }
+        >
           <div className='grid gap-3'>
             {treeDialog.action === 'delete' ? (
               <div className='grid gap-3'>
@@ -6520,9 +6456,11 @@ export function DataSyncStudio() {
                 />
               </div>
             )}
-            <div className='flex justify-end gap-2'>
-              <Button
-                variant='outline'
+            <div className='flex justify-end gap-2 border-t border-border/50 pt-4'>
+              <ArcButton
+                type='button'
+                variant='secondary'
+                size='sm'
                 onClick={() =>
                   setTreeDialog({
                     open: false,
@@ -6534,14 +6472,19 @@ export function DataSyncStudio() {
                 }
               >
                 {t('cancel')}
-              </Button>
-              <Button onClick={() => void handleTreeDialogSubmit()}>
+              </ArcButton>
+              <ArcButton
+                type='button'
+                variant={treeDialog.action === 'delete' ? 'danger' : 'primary'}
+                size='sm'
+                onClick={() => void handleTreeDialogSubmit()}
+              >
                 {t('confirm')}
-              </Button>
+              </ArcButton>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </ArcDialogContent>
+      </ArcDialog>
 
       {/* 资源树精致 VSCode 风格右键菜单 */}
       {/* Studio Tree refined VSCode-style context menu */}

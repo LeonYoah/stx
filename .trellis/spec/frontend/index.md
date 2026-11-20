@@ -22,7 +22,7 @@
 
 | 文档 | 说明 | 状态 |
 | --- | --- | --- |
-| [UI 约定](./ui-conventions.md) | Dock 导航、WorkspaceHeader、StatPillsBar、零塌陷加载、表格与分页卡片、弹窗与引导、ExpandableTextPanel 长文本、凭证保密规范、工作台 Arc 控件 | 已填写 |
+| [UI 约定](./ui-conventions.md) | Dock 导航、WorkspaceHeader、StatPillsBar、零塌陷加载与 `TableCard`、分页卡片、弹窗与 `UnsavedChangesDialog`、`ViewToggle` + `useViewMorph`、Arc 半胶囊尺度与工作台/监控中心规范 | 已填写 |
 | [目录结构](./directory-structure.md) | App Router、Dock 架构、公共 UI 模块化、lib 与 hooks 组织 | 已填写 |
 | [API 与 Services](./api-and-services.md) | API 客户端、BaseService 服务层、错误拦截、类型与运行时兜底 | 已填写 |
 | [E2E 测试](./e2e-testing.md) | Playwright 目录、夹具策略、功能流样例、CI 门禁过滤规则 | 已填写 |
@@ -67,7 +67,7 @@
 - **推送不绑定 STX 登录令牌**：任务侧栏和推送弹窗只负责把 SHELL 节点推到 Dolphin，不得放「打开令牌管理」或任何签发/绑定 `stx_` 的入口。Worker 令牌由用户在令牌管理页签发后，自行 `stx login --token` 或写入 Worker 环境。
 - **推送绑定已发布版本**：未发布或已推送版本没有更新时，推送预演/确认按钮必须禁用并说明原因。作业列表要把 Dolphin 触发（`trigger_source=dolphin` / `external_ref=ds:...`）与内置定时、手动运行区分开，并展示任务版本。
 - **Dolphin Open API Token**：推送弹窗必须把该字段做成带标签的密码必填项（请求头 `token`），无连接时直接展开新建表单；不得只靠折叠面板里的 placeholder。它与 Worker 上的 `STX_TOKEN`（管理员签发的 `stx_` 登录令牌）不是同一张令牌。
-- **作业告警**：任务设置侧栏的"告警"分组未配置时只显示一行和"配置"按钮，编辑放在弹窗里；表单 `TaskAlertForm` 与策略中心共用，保存走 `services.sync.updateTaskAlert`（不跟随任务版本，不要放进任务定义或发布流程）。告警通知和告警中心的作业链接是 `/sync?task=<id>&job=<id>`，`/sync` 页面必须把这两个参数带到 `/workbench`，工作台据此打开任务并选中作业（不在最近 50 条时单独读取）。后端契约见 [同步作业告警](../backend/sync-alerts.md)。
+- **作业告警**：任务设置侧栏的"告警"分组未配置时只显示一行和"配置"按钮，编辑放在弹窗里；表单 `TaskAlertForm`（Arc 控件）与监控中心「规则 → 作业级」抽屉共用，保存走 `services.sync.updateTaskAlert`（不跟随任务版本，不要放进任务定义或发布流程）。告警通知和告警中心的作业链接是 `/sync?task=<id>&job=<id>`，`/sync` 页面必须把这两个参数带到 `/workbench`，工作台据此打开任务并选中作业（不在最近 50 条时单独读取）。后端契约见 [同步作业告警](../backend/sync-alerts.md)。
 - **作业详情与拓扑**：运行记录行点击即打开作业详情，行内只留详情 / 恢复 / 保存点停止 / 停止，操作可用性只用 `getJobActionState`；拓扑（React Flow + dagre）只能在 `job-detail/JobTopology` 的动态 chunk 中加载，布局按结构签名缓存。契约见 [作业详情与 Flink 风格拓扑](./api-and-services.md#scenario-作业详情与-flink-风格拓扑)，后端见 [作业计划 DAG](../backend/job-plan-dag.md)。
 - **E2E 覆盖**：新增或修改功能代码时，涉及核心流程、多步骤向导、核心增删改动作需同步补充 Playwright 测试或夹具参考（参见 [E2E 测试](./e2e-testing.md)）。
 

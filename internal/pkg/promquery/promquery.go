@@ -84,10 +84,62 @@ func UnavailableReason() string {
 	return ""
 }
 
+// OldestSampleMs 返回 tsdb 最早样本的毫秒时间戳；引擎未就绪或尚无样本时返回 0，
+// 前端用它把窗口中「早于最早样本」的部分画成无数据占位。
+// OldestSampleMs returns the timestamp of the oldest tsdb sample in ms; 0 when the engine is not
+// ready or holds no samples. The frontend uses it to render the part of the window before the
+// oldest sample as a no-data placeholder.
+func OldestSampleMs() int64 {
+	if oldest, ok := embedts.OldestSampleTime(); ok {
+		return oldest.UnixMilli()
+	}
+	return 0
+}
+
+// longRangeSpan 是长窗口阈值：跨度超过它时改用放宽超时（query_timeout ×4）的引擎，
+// 一年窗口不会被默认 8s 截断；短窗口行为不变。
+// longRangeSpan is the long-window threshold: spans beyond it run on the relaxed-timeout
+// engine (query_timeout ×4) so a year window is not cut by the default 8s; short windows unchanged.
+const longRangeSpan = 31 * 24 * time.Hour
+
+// LongWindowSpan 是长窗口阈值，供调用方判断一条即时查询是否需要放宽超时的引擎。
+// LongWindowSpan is the long-window threshold so callers can pick the relaxed-timeout
+// engine for instant queries whose range selector spans beyond it.
+const LongWindowSpan = longRangeSpan
+
+// longQuerySlots 限制长跨度查询的并发数：长引擎与短引擎共用同一 ActiveQueryTracker
+// （槽位 max(4, GOMAXPROCS)），一次一年窗口的首页会并发十几条全量扫描，不设上限会把
+// 槽位占满、告警评估和其他短窗口查询全部排队。信号量给长查询单独留 2 个名额。
+// longQuerySlots caps concurrent long-span queries: the long engine shares the same
+// ActiveQueryTracker (max(4, GOMAXPROCS) slots) with the short engine, and one year-window
+// page view fires a dozen full scans that would starve alert evaluation and short-window
+// queries. A semaphore reserves at most 2 slots for long queries.
+var longQuerySlots = make(chan struct{}, 2)
+
+// acquireLongSlot 占用一个长查询名额，返回释放函数；ctx 取消时按 ctx 错误返回。
+// acquireLongSlot takes one long-query slot and returns the release func; honors ctx cancel.
+func acquireLongSlot(ctx context.Context) (func(), error) {
+	select {
+	case longQuerySlots <- struct{}{}:
+		return func() { <-longQuerySlots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 // Range 执行区间查询（query_range 语义）。
 // Range runs a range query (query_range semantics).
 func Range(ctx context.Context, promQL string, start, end time.Time, stepSeconds int) ([]Series, error) {
 	engine, queryable := embedts.QueryEngine()
+	long := end.Sub(start) > longRangeSpan
+	if long {
+		engine, queryable = embedts.QueryEngineLong()
+		release, err := acquireLongSlot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
 	if engine == nil || queryable == nil {
 		return nil, errNotReady
 	}
@@ -121,7 +173,28 @@ func Range(ctx context.Context, promQL string, start, end time.Time, stepSeconds
 // Instant 执行即时查询（at 为零值时取当前时间）。
 // Instant runs an instant query (now when at is zero).
 func Instant(ctx context.Context, promQL string, at time.Time) ([]Sample, error) {
+	return instant(ctx, promQL, at, false)
+}
+
+// InstantLong 用放宽超时的引擎执行即时查询，供 increase(x[1y]) 这类扫长窗口的表达式；
+// 与 Range 一样占用长查询信号量。是否走长引擎由调用方按表达式窗口判断（LongWindowSpan）。
+// InstantLong runs an instant query on the relaxed-timeout engine for expressions whose
+// range selector spans a long window (e.g. increase(x[1y])); it takes the same semaphore
+// as Range. Callers decide via LongWindowSpan whether a query qualifies.
+func InstantLong(ctx context.Context, promQL string, at time.Time) ([]Sample, error) {
+	return instant(ctx, promQL, at, true)
+}
+
+func instant(ctx context.Context, promQL string, at time.Time, long bool) ([]Sample, error) {
 	engine, queryable := embedts.QueryEngine()
+	if long {
+		engine, queryable = embedts.QueryEngineLong()
+		release, err := acquireLongSlot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
 	if engine == nil || queryable == nil {
 		return nil, errNotReady
 	}

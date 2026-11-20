@@ -158,6 +158,12 @@ export interface SeaTunnelVersionCapabilities {
   default_slot_allocation_strategy: SlotAllocationStrategy;
   default_http_enabled: boolean;
   default_job_log_mode: JobLogMode;
+  /** Lowest JDK major that can start this version / 该版本可启动的最低 JDK 主版本 */
+  min_java_version: number;
+  /** JDK majors treated as passed / 判定为通过的 JDK 主版本 */
+  recommended_java_versions: number[];
+  /** Above this only warns / 高于此版本仅告警 */
+  max_recommended_java_version: number;
 }
 
 /**
@@ -369,6 +375,8 @@ export interface PrecheckRequest {
   ports?: number[];
   /** Node JDK directory; empty means auto detection / 节点 JDK 目录，空表示自动探测 */
   java_home?: string;
+  /** SeaTunnel target version for version-aware JDK checks (3.1.0+ requires Java 11) / 目标 SeaTunnel 版本，用于版本感知的 JDK 判定（3.1.0+ 要求 Java 11） */
+  target_version?: string;
 }
 
 /**

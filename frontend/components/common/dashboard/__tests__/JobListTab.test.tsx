@@ -118,6 +118,7 @@ const baseQuery: DashboardQuery = {
   clusterId: undefined,
   status: '',
   mode: '',
+  source: '',
   q: '',
   sort: '',
   order: '',
@@ -174,7 +175,6 @@ describe('JobListTab', () => {
       mode: 'batch',
       cluster_id: 3,
       keyword: 'orders',
-      exclude_run_type: 'preview',
       sort: 'started_at',
       order: 'desc',
       with_counts: 1,
@@ -311,7 +311,7 @@ describe('JobListTab', () => {
     const rate = within(row).getByText('均 10 / 5/s');
     expect(rate.getAttribute('title')).toContain('平均速率');
     expect(within(row).getByText('6K / 3K')).toBeTruthy();
-    expect(within(row).getByText('耗时 10 分')).toBeTruthy();
+    expect(within(row).getByText('耗时 10 分 00 秒')).toBeTruthy();
   });
 
   it('opens the full detail dialog on row click', async () => {

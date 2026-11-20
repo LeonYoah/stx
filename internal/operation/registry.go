@@ -529,9 +529,9 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 			{Name: "weeks", Location: InputQuery, Required: false, Description: "Run calendar weeks, 1-52 (default 16)"},
 		},
 		Example: "stx dashboard home jobs --range 6h",
@@ -557,9 +557,9 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 		},
 		Example: "stx dashboard home clusters --cluster_id 1 --range 1h",
 		OutputExample: `{
@@ -585,9 +585,9 @@ var registry = append([]OperationSpec{
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
 			{Name: "group", Location: InputQuery, Required: true, Description: "Detail group: jvm|gc|sched|store|proc"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 		},
 		Example: "stx dashboard home cluster-detail --cluster_id 1 --group jvm --range 6h",
 		OutputExample: `{
@@ -612,9 +612,9 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to hosts running nodes of this cluster"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 		},
 		Example: "stx dashboard home hosts --cluster_id 1 --range 6h",
 		OutputExample: `{
@@ -639,10 +639,10 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 400 days"},
-			{Name: "granularity", Location: InputQuery, Required: false, Description: "Bucket granularity: auto|quarter_hour|hour|day|month; auto picks by window span, omit for totals only"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
+			{Name: "granularity", Location: InputQuery, Required: false, Description: "Bucket granularity: auto|quarter_hour|hour|day|week|month; auto picks by window span, omit for totals only"},
 			{Name: "split", Location: InputQuery, Required: false, Description: "Split series by: none|cluster|task (default none)"},
 		},
 		Example: "stx dashboard home volume --granularity day --split cluster",
@@ -1847,6 +1847,12 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 	}
 	errorCommon = append(errorCommon, timeRange...)
 	errorCommon = append(errorCommon, page...)
+	// 频次过滤只作用于错误组列表（组内聚合字段），事件列表不暴露。
+	// Occurrence filters apply to the group list only (aggregated field); the event list does not expose them.
+	errorOccurrences := []InputSpec{
+		{Name: "min_occurrences", Location: InputQuery, Description: "Minimum occurrence count (inclusive)"},
+		{Name: "max_occurrences", Location: InputQuery, Description: "Maximum occurrence count (inclusive)"},
+	}
 	return []OperationSpec{
 		diagnosticsReadOperation("diagnostics.bootstrap.get", []string{"diagnostics", "bootstrap", "get"}, "Get diagnostics workspace bootstrap", "/api/v1/diagnostics/bootstrap",
 			[]InputSpec{{Name: "source", Location: InputQuery, Description: "Workspace entry source"}, {Name: "alert_id", Location: InputQuery, Description: "Related alert ID"}, {Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, lang},
@@ -1887,13 +1893,75 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 }`,
 		},
 		diagnosticsReadOperation("diagnostics.inspection.list", []string{"diagnostics", "inspection", "list"}, "List inspection reports", "/api/v1/diagnostics/inspections",
-			append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, {Name: "status", Location: InputQuery, Description: "Inspection status"}, {Name: "trigger_source", Location: InputQuery, Description: "Inspection trigger source"}, {Name: "severity", Location: InputQuery, Description: "Finding severity"}}, append(timeRange, append(page, lang)...)...),
+			append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, {Name: "status", Location: InputQuery, Description: "Inspection status"}, {Name: "trigger_source", Location: InputQuery, Description: "Inspection trigger source"}, {Name: "auto_policy_id", Location: InputQuery, Description: "Auto-inspection policy ID"}, {Name: "severity", Location: InputQuery, Description: "Finding severity"}}, append(timeRange, append(page, lang)...)...),
 			"stx diagnostics inspection list --cluster_id 6 --page_size 20"),
 		diagnosticsReadOperation("diagnostics.inspection.get", []string{"diagnostics", "inspection", "get"}, "Get inspection report detail", "/api/v1/diagnostics/inspections/:id", append(append([]InputSpec{}, id...), lang), "stx diagnostics inspection get 1"),
 		diagnosticsWriteOperation("diagnostics.inspection.run", []string{"diagnostics", "inspection", "run"}, "Run an inspection immediately", "POST", "/api/v1/diagnostics/inspections", RiskR1,
 			"立即巡检会读取集群状态、进程事件、告警和近期错误，并保存巡检报告。", false, false,
 			[]InputSpec{{Name: "request", Location: InputBody, Required: true, Description: "Inspection request"}},
 			"stx diagnostics inspection run --cluster-id 6 --confirm"),
+		diagnosticsReadOperation("diagnostics.inspection-cleanup.get", []string{"diagnostics", "inspection", "cleanup", "get"}, "Get inspection record cleanup settings", "/api/v1/diagnostics/inspection-cleanup-settings", nil,
+			"stx diagnostics inspection cleanup get"),
+		{
+			ID:           "diagnostics.inspection-cleanup.update",
+			CommandPath:  []string{"diagnostics", "inspection", "cleanup", "set"},
+			Summary:      "Update inspection record cleanup settings",
+			GeneratedCLI: true,
+			Method:       "PUT",
+			Route:        "/api/v1/diagnostics/inspection-cleanup-settings",
+			Mode:         ModeNormal,
+			AuthRequired: true,
+			Risk:         RiskR1,
+			Revision:     1,
+			SupportsPick: true,
+			Impact: &ImpactSpec{
+				Level:   RiskR1,
+				Message: "修改巡检记录清理设置会改变后续自动清理巡检报告和绑定诊断数据的保留策略。",
+			},
+			Input: []InputSpec{
+				{Name: "request", Location: InputBody, Required: true, Description: "Cleanup settings: retention_days and max_reports (0 disables each)"},
+			},
+			Example: "stx diagnostics inspection cleanup set --request-file cleanup-settings.json --confirm",
+			OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "diagnostics.inspection-cleanup.update",
+  "request_id": "req_example",
+  "data": {"retention_days":30,"max_reports":200},
+  "result_meta": {"complete": true}
+}`,
+		},
+		{
+			// 巡检记录删除只保留服务端和网页入口：规范禁止 CLI 暴露任何资源删除命令，
+			// 因此不生成命令、不设置命令路径和样例。
+			// Inspection record deletion stays server/web only: CLI specs forbid exposing
+			// any resource deletion command, so no generated command, path, or example.
+			ID:           "diagnostics.inspection.batch-delete",
+			Summary:      "Batch delete inspection reports with bound diagnostic data",
+			GeneratedCLI: false,
+			Method:       "POST",
+			Route:        "/api/v1/diagnostics/inspections/batch-delete",
+			Mode:         ModeNormal,
+			AuthRequired: true,
+			Risk:         RiskR1,
+			Revision:     1,
+			SupportsPick: false,
+			Impact: &ImpactSpec{
+				Level:   RiskR1,
+				Message: "删除巡检记录会同时删除其巡检发现项、绑定的诊断任务和磁盘采集包，不可恢复。",
+			},
+			Input: []InputSpec{
+				{Name: "request", Location: InputBody, Required: true, Description: "Batch delete request: ids (1-500)"},
+				{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable key for retrying the same request"},
+				{Name: "X-STX-Confirm", Location: InputHeader, Required: true, Description: "Explicit confirmation of the operation impact"},
+			},
+			OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "diagnostics.inspection.batch-delete",
+  "request_id": "req_example",
+  "data": {"results":[{"id":1,"result":"deleted"}],"deleted":1,"skipped":0},
+  "result_meta": {"complete": true}
+}`,
+		},
 		diagnosticsReadOperation("diagnostics.task.list", []string{"diagnostics", "task", "list"}, "List diagnostic tasks", "/api/v1/diagnostics/tasks",
 			append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, {Name: "trigger_source", Location: InputQuery, Description: "Diagnostic trigger source"}, {Name: "status", Location: InputQuery, Description: "Diagnostic task status"}}, append(page, lang)...),
 			"stx diagnostics task list --cluster_id 6 --page_size 20"),
@@ -1942,7 +2010,7 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 		diagnosticsDownloadOperation("diagnostics.task.bundle.download", []string{"diagnostics", "task", "bundle"}, "Download a diagnostic task bundle", "/api/v1/diagnostics/tasks/:id/bundle", append([]InputSpec{}, id...), "stx diagnostics task bundle 1 --file /tmp/diagnostics-1.zip"),
 		diagnosticsDownloadOperation("diagnostics.task.html.download", []string{"diagnostics", "task", "html"}, "Download a diagnostic task HTML report", "/api/v1/diagnostics/tasks/:id/html", append([]InputSpec{}, id...), "stx diagnostics task html 1 --file /tmp/diagnostics-1.html"),
 		diagnosticsDownloadOperation("diagnostics.task.file.download", []string{"diagnostics", "task", "file"}, "Download one diagnostic task file", "/api/v1/diagnostics/tasks/:id/files/*path", []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Diagnostic task ID"}, {Name: "path", Location: InputPath, Required: true, Description: "Relative artifact path"}}, "stx diagnostics task file 1 manifest.json --file /tmp/manifest.json"),
-		diagnosticsReadOperation("diagnostics.error.group.list", []string{"diagnostics", "error", "group", "list"}, "List SeaTunnel error groups", "/api/v1/diagnostics/errors/groups", errorCommon, "stx diagnostics error group list --cluster_id 6 --page_size 20"),
+		diagnosticsReadOperation("diagnostics.error.group.list", []string{"diagnostics", "error", "group", "list"}, "List SeaTunnel error groups", "/api/v1/diagnostics/errors/groups", append(append([]InputSpec{}, errorCommon...), errorOccurrences...), "stx diagnostics error group list --cluster_id 6 --min_occurrences 10 --page_size 20"),
 		diagnosticsReadOperation("diagnostics.error.event.list", []string{"diagnostics", "error", "event", "list"}, "List SeaTunnel error events", "/api/v1/diagnostics/errors/events", append([]InputSpec{{Name: "group_id", Location: InputQuery, Description: "Error group ID"}}, errorCommon...), "stx diagnostics error event list --cluster_id 6 --page_size 20"),
 		diagnosticsReadOperation("diagnostics.error.group.get", []string{"diagnostics", "error", "group", "get"}, "Get SeaTunnel error group detail", "/api/v1/diagnostics/errors/groups/:id",
 			append(append([]InputSpec{}, id...), append([]InputSpec{{Name: "event_limit", Location: InputQuery, Description: "Maximum recent events to include"}}, errorCommon...)...), "stx diagnostics error group get 1 --event_limit 20"),
@@ -2100,6 +2168,7 @@ func monitoringReadOperationSpecs() []OperationSpec {
 	}
 	alertInstanceInputs := append([]InputSpec{
 		{Name: "source_type", Location: InputQuery, Description: "Alert category: platform_health, metric or job"},
+		{Name: "scope", Location: InputQuery, Description: "Alert scope: cluster or job"},
 		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
 		{Name: "severity", Location: InputQuery, Description: "Alert severity: warning or critical"},
 		{Name: "status", Location: InputQuery, Description: "Display status: firing, resolved, or closed"},
@@ -2117,16 +2186,18 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		monitoringReadOperation("monitoring.alert-policy.execution.list", []string{"monitoring", "alert-policy", "execution", "list"}, "List alert policy executions", "/api/v1/monitoring/alert-policies/:id/executions", policyExecutionInputs),
 		monitoringReadOperation("monitoring.alert-instance.list", []string{"monitoring", "alert-instance", "list"}, "List alert instances", "/api/v1/monitoring/alert-instances", alertInstanceInputs),
 		monitoringReadOperation("monitoring.remote-alert.list", []string{"monitoring", "remote-alert", "list"}, "List remote alerts", "/api/v1/monitoring/remote-alerts", remoteAlertInputs),
-		monitoringReadOperation("monitoring.cluster.rule.list", []string{"monitoring", "cluster", "rule", "list"}, "List cluster alert rules", "/api/v1/monitoring/clusters/:id/rules", clusterID),
+		monitoringReadOperation("monitoring.cluster-rule.list", []string{"monitoring", "cluster-rule", "list"}, "List cluster-level alert rules", "/api/v1/monitoring/cluster-rules", nil),
+		monitoringReadOperation("monitoring.cluster-rule.get", []string{"monitoring", "cluster-rule", "get"}, "Get one cluster-level alert rule", "/api/v1/monitoring/cluster-rules/:key",
+			[]InputSpec{{Name: "key", Location: InputPath, Required: true, Description: "Cluster rule key"}}),
+		monitoringReadOperation("monitoring.notification-defaults.get", []string{"monitoring", "notification-defaults", "get"}, "Get alert notification defaults", "/api/v1/monitoring/alert-notification-defaults", nil),
 		monitoringReadOperation("monitoring.integration.status", []string{"monitoring", "integration", "status"}, "Get monitoring integration status", "/api/v1/monitoring/integration/status", nil),
-		monitoringReadOperation("monitoring.alert-policy.bootstrap.get", []string{"monitoring", "alert-policy", "bootstrap", "get"}, "Get alert policy center bootstrap", "/api/v1/monitoring/alert-policies/bootstrap", nil),
 		monitoringReadOperation("monitoring.alert-rule.catalog", []string{"monitoring", "alert-rule", "catalog"}, "List alert rule catalog", "/api/v1/monitoring/alert-rules/catalog",
 			[]InputSpec{{Name: "lang", Location: InputQuery, Description: "Response language: zh or en"}}),
 		monitoringReadOperation("monitoring.notifiable-user.list", []string{"monitoring", "notifiable-user", "list"}, "List notifiable users", "/api/v1/monitoring/notifiable-users", nil),
 		monitoringReadOperation("monitoring.platform-health.get", []string{"monitoring", "platform-health", "get"}, "Get platform health", "/api/v1/monitoring/platform-health", nil),
+		monitoringReadOperation("monitoring.platform.get", []string{"monitoring", "platform"}, "Get platform self-monitoring snapshot", "/api/v1/monitoring/platform", nil),
 		monitoringReadOperation("monitoring.notification-channel.list", []string{"monitoring", "notification-channel", "list"}, "List notification channels", "/api/v1/monitoring/notification-channels", nil),
 		monitoringReadOperation("monitoring.notification-delivery.list", []string{"monitoring", "notification-delivery", "list"}, "List notification deliveries", "/api/v1/monitoring/notification-deliveries", monitoringDeliveryFilterInputs(true)),
-		monitoringReadOperation("monitoring.notification-route.list", []string{"monitoring", "notification-route", "list"}, "List notification routes", "/api/v1/monitoring/notification-routes", nil),
 	}
 }
 
@@ -2352,8 +2423,10 @@ func stUpgradeOperationSpecs() []OperationSpec {
 				{Name: "cluster_id", Location: InputBody, Required: true, Description: "Cluster ID"},
 				{Name: "target_version", Location: InputBody, Required: true, Description: "Target SeaTunnel version"},
 				{Name: "target_install_dir", Location: InputBody, Required: false, Description: "Target installation directory"},
+				{Name: "java_home", Location: InputBody, Required: false, Description: "Target JDK for the new version"},
+				{Name: "node_java_homes", Location: InputBody, Required: false, Description: "Per-node target JDK map keyed by cluster node ID"},
 			},
-			Example:       "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new",
+			Example:       "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --java-home /usr/lib/jvm/java-21",
 			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.precheck","request_id":"req_example","data":{"ready":true},"result_meta":{"complete":true}}`,
 		},
 		{
@@ -2363,9 +2436,12 @@ func stUpgradeOperationSpecs() []OperationSpec {
 			Input: []InputSpec{
 				{Name: "cluster_id", Location: InputBody, Required: true, Description: "Cluster ID"},
 				{Name: "target_version", Location: InputBody, Required: true, Description: "Target SeaTunnel version"},
+				{Name: "target_install_dir", Location: InputBody, Required: false, Description: "Target installation directory"},
+				{Name: "java_home", Location: InputBody, Required: false, Description: "Target JDK for the new version"},
+				{Name: "node_java_homes", Location: InputBody, Required: false, Description: "Per-node target JDK map keyed by cluster node ID"},
 				{Name: "config_merge_plan", Location: InputBody, Required: true, Description: "Resolved configuration merge plan"},
 			},
-			Example:       "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --config-merge-plan-file merge-plan.json",
+			Example:       "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --java-home /usr/lib/jvm/java-21 --config-merge-plan-file merge-plan.json",
 			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.plan.create","request_id":"req_example","data":{"plan":{"id":1,"status":"ready"}},"result_meta":{"complete":true,"next_command":"stx upgrade plan execute 1 --confirm"}}`,
 		},
 		{
@@ -2509,7 +2585,8 @@ var routeExceptions = []RouteException{
 	{Method: "DELETE", Route: "/api/v1/hosts/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/monitoring/alert-policies/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/monitoring/notification-channels/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
-	{Method: "DELETE", Route: "/api/v1/monitoring/notification-routes/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/monitoring/cluster-rules/:key", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/monitoring/cluster-rules/:key/clusters/:clusterId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/:depId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/disables/:disableId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/local", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},

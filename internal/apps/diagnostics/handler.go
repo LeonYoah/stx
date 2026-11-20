@@ -36,6 +36,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -302,6 +303,104 @@ func (h *Handler) GetInspectionReportDetail(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: localizeInspectionReportDetailData(data, lang)})
+}
+
+// GetInspectionCleanupSettings handles GET /api/v1/diagnostics/inspection-cleanup-settings.
+// GetInspectionCleanupSettings 处理 GET /api/v1/diagnostics/inspection-cleanup-settings。
+func (h *Handler) GetInspectionCleanupSettings(c *gin.Context) {
+	data, err := h.service.GetInspectionCleanupSettings(c.Request.Context())
+	if err != nil {
+		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, Response{Data: data})
+}
+
+// PutInspectionCleanupSettings handles PUT /api/v1/diagnostics/inspection-cleanup-settings.
+// PutInspectionCleanupSettings 处理 PUT /api/v1/diagnostics/inspection-cleanup-settings。
+func (h *Handler) PutInspectionCleanupSettings(c *gin.Context) {
+	var req UpdateInspectionCleanupSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
+		return
+	}
+	executionItem, existing, err := h.beginDiagnosticsSynchronousWrite(c, "diagnostics.inspection-cleanup.update", diagnosticsInspectionCleanupExecutionModule, "", executionapp.RiskLevelR1, diagnosticsInspectionCleanupUpdateImpact, req)
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingDiagnosticsSynchronousWrite(c, executionItem)
+		return
+	}
+
+	data, err := h.service.SaveInspectionCleanupSettings(c.Request.Context(), &req)
+	h.finishDiagnosticsSynchronousWrite(c, executionItem, audit.UintID(inspectionCleanupSettingsRowID), err)
+	if err != nil {
+		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, Response{Data: data})
+}
+
+// BatchDeleteInspectionReports handles POST /api/v1/diagnostics/inspections/batch-delete.
+// BatchDeleteInspectionReports 处理 POST /api/v1/diagnostics/inspections/batch-delete。
+func (h *Handler) BatchDeleteInspectionReports(c *gin.Context) {
+	var req BatchDeleteInspectionReportsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
+		return
+	}
+	executionItem, existing, err := h.beginDiagnosticsSynchronousWrite(c, "diagnostics.inspection.batch-delete", diagnosticsInspectionCleanupExecutionModule, "", executionapp.RiskLevelR1, diagnosticsInspectionBatchDeleteImpact, req)
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingDiagnosticsSynchronousWrite(c, executionItem)
+		return
+	}
+
+	results, err := h.service.DeleteInspectionReports(c.Request.Context(), req.IDs)
+	h.finishDiagnosticsSynchronousWrite(c, executionItem, "", err)
+	if err != nil {
+		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+		return
+	}
+
+	data := &BatchDeleteInspectionReportsData{Results: results}
+	for _, item := range results {
+		if item == nil {
+			continue
+		}
+		if item.Result == InspectionDeleteResultDeleted {
+			data.Deleted++
+		} else {
+			data.Skipped++
+		}
+	}
+	// 删除动作必须留痕：谁选了哪些记录、删了几条、跳了几条。
+	// The delete must be auditable: who selected which records, how many deleted/skipped.
+	if recordErr := audit.RecordFromGin(
+		c,
+		h.auditRepo,
+		auth.GetUserIDFromContext(c),
+		auth.GetUsernameFromContext(c),
+		"diagnostics.inspection.batch-delete",
+		"inspection_report",
+		"",
+		"inspection record cleanup",
+		audit.AuditDetails{
+			"ids":           req.IDs,
+			"deleted":       data.Deleted,
+			"skipped":       data.Skipped,
+			"result_status": "succeeded",
+			"trigger":       "manual",
+		},
+	); recordErr != nil {
+		logger.WarnF(c.Request.Context(), "[Diagnostics] 记录巡检删除审计失败: %v", recordErr)
+	}
+	c.JSON(http.StatusOK, Response{Data: data})
 }
 
 // CreateDiagnosticTask handles POST /api/v1/diagnostics/tasks.
@@ -812,6 +911,14 @@ func parseErrorGroupFilter(c *gin.Context) (*SeatunnelErrorGroupFilter, error) {
 	if err != nil {
 		return nil, err
 	}
+	minOccurrences, err := parseOptionalNonNegativeInt(c.Query("min_occurrences"))
+	if err != nil {
+		return nil, err
+	}
+	maxOccurrences, err := parseOptionalNonNegativeInt(c.Query("max_occurrences"))
+	if err != nil {
+		return nil, err
+	}
 
 	return &SeatunnelErrorGroupFilter{
 		ClusterID:      clusterID,
@@ -823,6 +930,8 @@ func parseErrorGroupFilter(c *gin.Context) (*SeatunnelErrorGroupFilter, error) {
 		ExceptionClass: strings.TrimSpace(c.Query("exception_class")),
 		StartTime:      startTime,
 		EndTime:        endTime,
+		MinOccurrences: minOccurrences,
+		MaxOccurrences: maxOccurrences,
 		Page:           page,
 		PageSize:       pageSize,
 	}, nil
@@ -883,6 +992,10 @@ func parseInspectionReportFilter(c *gin.Context) (*ClusterInspectionReportFilter
 	if err != nil {
 		return nil, err
 	}
+	autoPolicyID, err := parseOptionalUint(c.Query("auto_policy_id"))
+	if err != nil {
+		return nil, err
+	}
 	page, err := parseOptionalInt(c.Query("page"), 1)
 	if err != nil {
 		return nil, err
@@ -904,7 +1017,9 @@ func parseInspectionReportFilter(c *gin.Context) (*ClusterInspectionReportFilter
 		ClusterID:     clusterID,
 		Status:        InspectionReportStatus(strings.TrimSpace(c.Query("status"))),
 		TriggerSource: InspectionTriggerSource(strings.TrimSpace(c.Query("trigger_source"))),
+		AutoPolicyID:  autoPolicyID,
 		Severity:      InspectionFindingSeverity(strings.TrimSpace(c.Query("severity"))),
+		Keyword:       strings.TrimSpace(c.Query("keyword")),
 		StartTime:     startTime,
 		EndTime:       endTime,
 		Page:          page,
@@ -996,6 +1111,20 @@ func parseOptionalInt(raw string, defaultValue int) (int, error) {
 	return parsed, nil
 }
 
+// parseOptionalNonNegativeInt 解析可选非负整数查询参数：空 → nil；非整数或负数报错（400 风格同上）。
+// parseOptionalNonNegativeInt parses an optional non-negative integer query value: empty → nil; non-integer or negative errors out (400 like above).
+func parseOptionalNonNegativeInt(raw string) (*int, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return nil, errors.New("invalid integer query value")
+	}
+	return &parsed, nil
+}
+
 // parseOptionalTime 解析时间查询参数：要求 RFC3339 带偏移；无偏移值必须同时提供 tz（IANA）参数。
 // parseOptionalTime parses a time query value: RFC3339 with offset, or a naive value plus an explicit tz parameter.
 func parseOptionalTime(raw, tz string) (*time.Time, error) {
@@ -1012,7 +1141,7 @@ func parseOptionalTime(raw, tz string) (*time.Time, error) {
 
 func getDiagnosticsStatusCode(err error) int {
 	switch {
-	case errors.Is(err, ErrInvalidSeatunnelErrorRequest), errors.Is(err, ErrInvalidInspectionRequest), errors.Is(err, ErrInvalidDiagnosticTaskRequest), errors.Is(err, ErrInvalidAutoPolicyRequest):
+	case errors.Is(err, ErrInvalidSeatunnelErrorRequest), errors.Is(err, ErrInvalidInspectionRequest), errors.Is(err, ErrInvalidDiagnosticTaskRequest), errors.Is(err, ErrInvalidAutoPolicyRequest), errors.Is(err, ErrInvalidInspectionCleanupRequest):
 		return http.StatusBadRequest
 	case errors.Is(err, executionapp.ErrIdempotencyKeyMissing):
 		return http.StatusBadRequest

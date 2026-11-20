@@ -219,6 +219,12 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 	if c.Sync.StopTimeoutSeconds <= 0 {
 		c.Sync.StopTimeoutSeconds = 300
 	}
+	if c.Sync.ExternalJobDiscoveryIntervalSeconds <= 0 {
+		c.Sync.ExternalJobDiscoveryIntervalSeconds = 60
+	}
+	if c.Sync.ExternalJobDiscoveryMaxNewPerRound <= 0 {
+		c.Sync.ExternalJobDiscoveryMaxNewPerRound = 200
+	}
 	if c.Sync.JobReconcilerClusterConcurrency <= 0 {
 		c.Sync.JobReconcilerClusterConcurrency = 4
 	}
@@ -312,15 +318,14 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 	if strings.TrimSpace(c.Observability.Storage.Dir) == "" {
 		c.Observability.Storage.Dir = "./data/tsdb"
 	}
-	if strings.TrimSpace(c.Observability.Storage.Retention) == "" {
-		c.Observability.Storage.Retention = "31d"
-	}
-	// 存储上限默认 30GiB；显式写 0 才表示不限，与 enabled 的 IsSet 默认值语义一致。
-	// Storage cap defaults to 30GiB; an explicit 0 means unlimited, mirroring the IsSet-based
-	// default semantics used by observability.enabled.
-	if !storageMaxSizeSet {
-		c.Observability.Storage.MaxSize = 30 << 30
-	}
+	// 时间保留期缺省留空：默认只按容量清理、不按时间删除；显式写 "0" 同义。
+	// Time retention stays empty by default: data is pruned by capacity only; an explicit "0" is equivalent.
+	c.Observability.Storage.MaxSizeSet = storageMaxSizeSet
+	// max_size 不在配置层填默认值：实际缺省值依赖数据目录所在磁盘（min(30GiB, 磁盘总容量 20%)，
+	// 下限 1GiB），由 embedts 启动时计算；显式写 0 表示容量不限。
+	// max_size gets no config-level default: the effective cap depends on the data-dir disk
+	// (min(30GiB, 20% of disk total), floored at 1GiB) and is computed when embedts starts;
+	// an explicit 0 means unlimited.
 	if strings.TrimSpace(c.Observability.ScrapeInterval) == "" {
 		c.Observability.ScrapeInterval = "15s"
 	}
@@ -363,7 +368,7 @@ func validateConfig(c *configModel) error {
 	if strings.TrimSpace(c.Observability.Storage.Dir) == "" {
 		return fmt.Errorf("observability.storage.dir is required when observability.enabled=true")
 	}
-	if err := validateObservabilityDuration("observability.storage.retention", c.Observability.Storage.Retention); err != nil {
+	if err := validateObservabilityRetention(c.Observability.Storage.Retention); err != nil {
 		return err
 	}
 	if c.Observability.Storage.MaxSize < 0 {
@@ -449,6 +454,26 @@ func validateObservabilityDuration(name, raw string) error {
 	}
 	if d <= 0 {
 		return fmt.Errorf("%s must be greater than 0", name)
+	}
+	return nil
+}
+
+// validateObservabilityRetention 校验时间保留期：允许留空或 "0"（不按时间删除，默认只按容量清理）；
+// 非空时必须是合法的 Prometheus duration 且不小于 0。
+// validateObservabilityRetention validates the time retention: empty or "0" disables time-based
+// deletion (capacity-only retention is the default); a non-empty value must be a valid
+// non-negative Prometheus duration.
+func validateObservabilityRetention(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	d, err := model.ParseDuration(trimmed)
+	if err != nil {
+		return fmt.Errorf("observability.storage.retention must be a valid duration such as 30d or 90d: %w", err)
+	}
+	if d < 0 {
+		return fmt.Errorf("observability.storage.retention must be >= 0 (empty or 0 disables time-based retention)")
 	}
 	return nil
 }

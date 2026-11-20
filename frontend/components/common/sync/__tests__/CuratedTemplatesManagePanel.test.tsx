@@ -24,7 +24,7 @@ import {render, screen, fireEvent, waitFor} from '@testing-library/react';
 import {CuratedTemplatesManagePanel} from '../CuratedTemplatesManagePanel';
 import services from '@/lib/services';
 import {copyToClipboard} from '@/lib/utils';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 
 // Radix Tooltip 打开时测量尺寸，jsdom 没有 ResizeObserver，这里给个空实现
 // Radix Tooltip measures size when open; jsdom lacks ResizeObserver, so stub it
@@ -97,8 +97,8 @@ vi.mock('next-themes', () => ({
   useTheme: () => ({resolvedTheme: 'dark'}),
 }));
 
-// Mock sonner
-vi.mock('sonner', () => ({
+// Mock toast
+vi.mock('@/lib/toast', () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),

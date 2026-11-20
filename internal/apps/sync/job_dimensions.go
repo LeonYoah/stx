@@ -47,6 +47,9 @@ func fillJobDimensions(job *JobInstance) {
 	if job == nil {
 		return
 	}
+	if job.Source == "" {
+		job.Source = JobSourceSTX
+	}
 	if job.ClusterID == 0 {
 		job.ClusterID = uintValue(job.SubmitSpec, "cluster_id")
 	}

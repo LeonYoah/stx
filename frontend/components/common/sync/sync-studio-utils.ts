@@ -2062,6 +2062,19 @@ function shortenExceptionNames(text: string): string {
   return text.replace(/\b(?:[a-zA-Z_$][\w$]*\.){2,}([A-Z][\w$]*)/g, '$1');
 }
 
+// 堆栈区展示解码后的引擎堆栈（真实换行），信封行保留作上下文
+// Stacktrace view shows the decoded engine stack (real newlines); the envelope line stays as context
+function formatRawForDisplay(raw: string, engineMessage: string): string {
+  if (!engineMessage) {
+    return raw;
+  }
+  const head = raw
+    .slice(0, Math.max(0, raw.indexOf('body=')))
+    .replace(/[:=]\s*$/, '')
+    .trim();
+  return head ? `${head}\n\n${engineMessage}` : engineMessage;
+}
+
 // 提取堆栈中最深一层的 Caused by 内容；没有 caused-by 层时返回 null
 // Extract the deepest "Caused by" payload from a stacktrace; null when absent
 function extractDeepestCause(text: string): string | null {
@@ -2214,7 +2227,10 @@ export function formatSyncUserFacingError(
     engineBodyMessage || cleanMessage,
     cleanMessage,
   );
-  const raw = rawMessage !== description ? rawMessage : undefined;
+  const raw =
+    rawMessage !== description
+      ? formatRawForDisplay(rawMessage, engineBodyMessage)
+      : undefined;
   const probes = [
     engineBodyMessage ? extractDeepestCause(engineBodyMessage) : null,
     cleanMessage,

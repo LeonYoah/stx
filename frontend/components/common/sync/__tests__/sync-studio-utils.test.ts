@@ -1085,7 +1085,11 @@ describe('formatSyncUserFacingError', () => {
     expect(formatted.description).toContain('Handle save mode failed');
     expect(formatted.description).toContain('Access denied');
     expect(formatted.description).not.toContain('at org.apache');
-    expect(formatted.raw).toBe(raw);
+    // 堆栈区展示解码后的引擎堆栈：保留状态行 + 真实换行的完整链
+    // Stacktrace view shows the decoded engine stack: status line + real newlines
+    expect(formatted.raw).toContain('status=500');
+    expect(formatted.raw).toContain('Caused by: java.sql.SQLException');
+    expect(formatted.raw).not.toContain('\\n\\tat');
   });
 
   it('falls back to whole-message probing when the deepest cause has no signal', () => {

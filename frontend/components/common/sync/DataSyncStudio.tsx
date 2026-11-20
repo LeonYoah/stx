@@ -860,7 +860,7 @@ export function DataSyncStudio() {
       title: `#${job.id}`,
       meta: findTreeNode(tree, job.task_id)?.name || job.platform_job_id || '',
       group: t('matchingJobs'),
-      keywords: [String(job.id), job.platform_job_id || ''].filter(Boolean),
+      keywords: [String(job.id), `#${job.id}`, job.platform_job_id || ''].filter(Boolean),
     }));
     return [...files, ...jobItems];
   }, [jobs, t, tree]);
@@ -4722,6 +4722,11 @@ export function DataSyncStudio() {
                 if (node) {
                   void handleQuickOpenFile(node);
                 }
+              }}
+              onSubmit={(query) => {
+                // 候補に載らない入力（未読み込みの Job ID 等）も Enter で定位に回す。
+                // Route input with no matching suggestion (e.g. an unloaded Job ID) to locate on Enter.
+                void handleLocateJobId(query);
               }}
             />
           </div>

@@ -66,6 +66,11 @@ export interface ExpandingSearchProps {
   suggestionsLabel?: string;
   placeholder?: string;
   onSelect?: (item: ExpandingSearchItem) => void;
+  /**
+   * 本地修改：无匹配项时按 Enter 提交原始查询文本（如直接输入的 Job ID）。
+   * Local modification: Enter with no highlighted item submits the raw query text (e.g. a typed Job ID).
+   */
+  onSubmit?: (query: string) => void;
   onExpandedChange?: (expanded: boolean) => void;
   /** The widest the field grows. It never grows past its container. */
   expandedWidth?: number;
@@ -214,7 +219,7 @@ function Listbox({ id, label, groups, query, activeIndex, optionId, reduced, key
   </div>;
 }
 
-export function ExpandingSearch({ label, items, suggestions = [], suggestionsLabel = "Recent", placeholder, onSelect, onExpandedChange, expandedWidth = 360, maxResults = 6, anchor = "end", emptyHint = "Try a shorter word or check the spelling.", className }: ExpandingSearchProps) {
+export function ExpandingSearch({ label, items, suggestions = [], suggestionsLabel = "Recent", placeholder, onSelect, onSubmit, onExpandedChange, expandedWidth = 360, maxResults = 6, anchor = "end", emptyHint = "Try a shorter word or check the spelling.", className }: ExpandingSearchProps) {
   const id = useId();
   const reduced = useReducedMotion() ?? false;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -300,15 +305,17 @@ export function ExpandingSearch({ label, items, suggestions = [], suggestionsLab
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") { event.preventDefault(); collapse(true); return; }
+    if (event.key === "Enter") {
+      if (activeItem) { event.preventDefault(); choose(activeItem); }
+      else if (onSubmit && trimmed) { event.preventDefault(); collapse(true); onSubmit(trimmed); }
+      return;
+    }
     if (!panelOpen || !flat.length) {return;}
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       keyboard.current = true;
       setActive(activeIndex < 0 ? (step > 0 ? 0 : flat.length - 1) : (activeIndex + step + flat.length) % flat.length);
-    } else if (event.key === "Enter" && activeItem) {
-      event.preventDefault();
-      choose(activeItem);
     }
   }
 

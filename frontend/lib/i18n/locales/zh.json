@@ -4712,6 +4712,12 @@
       "streaming": "流",
       "batch": "批"
     },
+    "source": {
+      "label": "来源",
+      "all": "全部来源",
+      "stx": "STX",
+      "external": "外部"
+    },
     "groups": {
       "all": "全部",
       "failed": "失败",
@@ -4761,6 +4767,7 @@
     "multiTableBadge": "多表 ({count} 表)",
     "viewMultiTableMetricsHint": "点击查看多表分表指标明细",
     "cdcDelayTooltip": "近 1 分钟最大 {max}，更新于 {time}（延迟 ≥1 秒时引擎才上报）",
+    "runModeExternal": "外部提交",
     "runModePreview": "预览",
     "runModeDolphin": "Dolphin 调度",
     "runModeSchedule": "调度",
@@ -5142,6 +5149,7 @@
     "checkpointId": "Checkpoint ID",
     "checkpointStatus": "Checkpoint 状态",
     "runMode": "运行方式",
+    "runModeExternal": "外部提交",
     "runModePreview": "预览",
     "runModeManual": "手动",
     "runModeSchedule": "调度",

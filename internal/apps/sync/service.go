@@ -58,8 +58,12 @@ type Service struct {
 	executionTargetResolver ExecutionTargetResolver
 	clusterLogProvider      ClusterLogProvider
 	clusterVersionProvider  ClusterVersionProvider
-	executionService        *executionapp.Service
-	dolphinHTTPClient       *http.Client
+	// clusterDiscoveryProvider 提供开启外部作业发现的集群；external 保存发现的内存状态。
+	// clusterDiscoveryProvider lists clusters with external discovery on; external holds the discovery state.
+	clusterDiscoveryProvider ClusterDiscoveryProvider
+	external                 externalDiscoveryState
+	executionService         *executionapp.Service
+	dolphinHTTPClient        *http.Client
 	// realtime 保存实时指标代理的 master 缓存、请求合并与作业查看标记。
 	// realtime holds the realtime proxy master cache, request coalescing and job watch marks.
 	realtime realtimeState
@@ -699,7 +703,7 @@ func (s *Service) DeleteTaskForActor(ctx context.Context, actor executionapp.Act
 		if err := tx.DeleteTaskVersionsByTaskIDs(ctx, targetIDs); err != nil {
 			return err
 		}
-		if err := tx.DeleteJobInstancesByTaskIDs(ctx, targetIDs); err != nil {
+		if err := tx.MarkJobInstancesTaskDeleted(ctx, targetIDs, time.Now()); err != nil {
 			return err
 		}
 		return tx.DeleteTasksByIDs(ctx, targetIDs)
@@ -1232,6 +1236,7 @@ func (s *Service) PreviewTask(ctx context.Context, id uint, createdBy uint, opts
 			if err != nil {
 				return nil, err
 			}
+			defer s.trackInflightSubmit(instance.PlatformJobID)()
 			resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{Endpoint: endpoint, Format: previewFormat, JobID: instance.PlatformJobID, JobName: s.previewJobName(task), Body: previewPayload})
 			if err != nil {
 				return nil, classifyEngineSubmitError(err)
@@ -1462,7 +1467,7 @@ func (s *Service) GetJobCheckpointSnapshot(
 		snapshot.Message = "Checkpoint overview is not ready yet."
 		return snapshot, nil
 	}
-	endpoint := endpointFromSubmitSpec(instance.SubmitSpec)
+	endpoint := s.resolveJobEngineEndpoint(ctx, instance)
 	if endpoint == nil {
 		snapshot.EmptyReason = "checkpoint_not_ready"
 		snapshot.Message = "Checkpoint endpoint is unavailable."
@@ -1749,6 +1754,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 				instance.SubmitSpec["install_dir"] = target.InstallDir
 			}
 		}
+		defer s.trackInflightSubmit(platformJobID)()
 		resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{Endpoint: endpoint, Format: submitFormat, JobID: platformJobID, JobName: jobName, StartWithSavepoint: startWithSavepoint, Body: submitBody})
 		err = classifyEngineSubmitError(err)
 		if err != nil {
@@ -1840,7 +1846,7 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 			if submitSpecExecutionMode(instance.SubmitSpec) == "local" {
 				_ = s.stopLocalJob(ctx, instance)
 			} else if s.engineClient != nil && strings.TrimSpace(instance.EngineJobID) != "" {
-				if endpoint := endpointFromSubmitSpec(instance.SubmitSpec); endpoint != nil {
+				if endpoint := s.resolveJobEngineEndpoint(ctx, instance); endpoint != nil {
 					_ = s.engineClient.StopJob(ctx, endpoint, instance.EngineJobID, false)
 				}
 			}
@@ -1888,7 +1894,7 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
 			return nil, ErrExecutionTargetUnavailable
 		}
-		endpoint := endpointFromSubmitSpec(instance.SubmitSpec)
+		endpoint := s.resolveJobEngineEndpoint(ctx, instance)
 		if endpoint == nil {
 			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
 			return nil, ErrExecutionTargetUnavailable
@@ -2782,7 +2788,7 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 			return instance, nil
 		}
 	}
-	endpoint := endpointFromSubmitSpec(instance.SubmitSpec)
+	endpoint := s.resolveJobEngineEndpoint(ctx, instance)
 	if endpoint == nil {
 		return instance, nil
 	}

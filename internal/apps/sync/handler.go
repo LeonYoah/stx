@@ -617,6 +617,7 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 // @Param status query string false "原始状态，逗号分隔"
 // @Param status_group query string false "状态组，逗号分隔：running|failed|pending|stopping|canceled|finished"
 // @Param mode query string false "streaming|batch"
+// @Param source query string false "stx|external"
 // @Param cluster_id query int false "集群 ID"
 // @Param keyword query string false "任务名（模糊）、引擎作业 ID 或平台作业 ID（精确）"
 // @Param exclude_run_type query string false "排除的运行类型，逗号分隔，如 preview"
@@ -679,6 +680,7 @@ func (h *Handler) ListJobs(c *gin.Context) {
 		filter.ClusterID = uint(parsed)
 	}
 	filter.Mode = strings.TrimSpace(c.Query("mode"))
+	filter.Source = JobSource(c.Query("source"))
 	filter.Keyword = strings.TrimSpace(c.Query("keyword"))
 	filter.Sort = c.Query("sort")
 	filter.Order = c.Query("order")
@@ -983,16 +985,13 @@ func (h *Handler) RecoverJob(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
 	}
-	if sourceJob.TaskID > 0 {
-		task, err := h.service.GetTaskForActor(c.Request.Context(), actor, sourceJob.TaskID)
-		if err != nil {
-			c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
-			return
-		}
-		if !task.CanUserRun(uint(actor.UserID), actor.IsAdmin) {
-			c.JSON(http.StatusForbidden, JobResponse{ErrorMsg: ErrTaskReadOnly.Error()})
-			return
-		}
+	if sourceJob.Source == JobSourceExternal || sourceJob.TaskID == 0 {
+		c.JSON(h.getStatusCodeForError(ErrRecoverSourceRequired), JobResponse{ErrorCode: syncErrorCode(ErrRecoverSourceRequired), ErrorMsg: ErrRecoverSourceRequired.Error()})
+		return
+	}
+	if !sourceJob.CanRecover {
+		c.JSON(http.StatusForbidden, JobResponse{ErrorMsg: ErrTaskReadOnly.Error()})
+		return
 	}
 	job, err := h.service.RecoverJobWithExecution(c.Request.Context(), id, getCurrentUserID(c), req.Draft, syncExecutionRequest(c, map[string]any{"source_job_id": id, "draft": req.Draft}))
 	if err != nil {

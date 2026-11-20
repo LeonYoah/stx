@@ -21,16 +21,15 @@ import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Search} from 'lucide-react';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
-import {
-  StatPillsBar,
-  type StatPillItem,
-} from '@/components/common/layout';
+import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
-import type {
-  SyncJobStatusGroup,
-} from '@/lib/services/sync';
-import {JOB_STATUS_GROUPS, type JobListQuery, type JobTablePreset} from './types';
+import type {SyncJobStatusGroup} from '@/lib/services/sync';
+import {
+  JOB_STATUS_GROUPS,
+  type JobListQuery,
+  type JobTablePreset,
+} from './types';
 import type {JobBulkAction, JobBulkResult} from './use-job-bulk-actions';
 
 const PILL_VARIANT: Partial<
@@ -161,25 +160,42 @@ export function JobTableToolbar({
 
   const typeControl =
     preset === 'global' ? (
-      <SegmentedControl
-        label={t('columns.mode')}
-        value={query.mode || 'all'}
-        onValueChange={(value) =>
-          onQueryChange({
-            mode: value === 'streaming' || value === 'batch' ? value : '',
-            page: 1,
-          })
-        }
-        options={[
-          {value: 'all', label: t('mode.all')},
-          {value: 'streaming', label: t('mode.streaming')},
-          {value: 'batch', label: t('mode.batch')},
-        ]}
-      />
+      <>
+        <SegmentedControl
+          label={t('columns.mode')}
+          value={query.mode || 'all'}
+          onValueChange={(value) =>
+            onQueryChange({
+              mode: value === 'streaming' || value === 'batch' ? value : '',
+              page: 1,
+            })
+          }
+          options={[
+            {value: 'all', label: t('mode.all')},
+            {value: 'streaming', label: t('mode.streaming')},
+            {value: 'batch', label: t('mode.batch')},
+          ]}
+        />
+        <SegmentedControl
+          label={t('source.label')}
+          value={query.source || 'all'}
+          onValueChange={(value) =>
+            onQueryChange({
+              source: value === 'stx' || value === 'external' ? value : '',
+              page: 1,
+            })
+          }
+          options={[
+            {value: 'all', label: t('source.all')},
+            {value: 'stx', label: t('source.stx')},
+            {value: 'external', label: t('source.external')},
+          ]}
+        />
+      </>
     ) : // task 预设不再按运行类型筛分：预览与正式运行同列展示，工具栏只留状态 pills 和搜索。
-        // The task preset no longer filters by run type — preview and formal runs share
-        // one list, and the toolbar keeps only status pills and search.
-        null;
+    // The task preset no longer filters by run type — preview and formal runs share
+    // one list, and the toolbar keeps only status pills and search.
+    null;
 
   const bulkBar =
     bulk && (bulk.selectedCount > 0 || bulk.result) ? (

@@ -4712,6 +4712,12 @@
       "streaming": "Streaming",
       "batch": "Batch"
     },
+    "source": {
+      "label": "Source",
+      "all": "All sources",
+      "stx": "STX",
+      "external": "External"
+    },
     "groups": {
       "all": "All",
       "failed": "Failed",
@@ -4761,6 +4767,7 @@
     "multiTableBadge": "Multi-Table ({count})",
     "viewMultiTableMetricsHint": "Click to view per-table metrics breakdown",
     "cdcDelayTooltip": "Max {max} in the last minute, updated {time} (the engine only reports delays ≥ 1s)",
+    "runModeExternal": "External",
     "runModePreview": "Preview",
     "runModeDolphin": "Dolphin schedule",
     "runModeSchedule": "Schedule",
@@ -5142,6 +5149,7 @@
     "checkpointId": "Checkpoint ID",
     "checkpointStatus": "Checkpoint Status",
     "runMode": "Run Mode",
+    "runModeExternal": "External",
     "runModePreview": "Preview",
     "runModeManual": "Manual",
     "runModeSchedule": "Schedule",

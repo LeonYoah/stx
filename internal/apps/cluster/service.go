@@ -2914,3 +2914,51 @@ func (s *Service) UpdateNodeProcessStatus(ctx context.Context, nodeID uint, pid 
 func (s *Service) RefreshClusterStatusFromNodes(ctx context.Context, clusterID uint) {
 	s.updateClusterStatusFromNodes(ctx, clusterID)
 }
+
+// ExternalJobDiscoveryOverride 读取集群配置里的外部作业发现开关；未配置返回 nil，表示继承全局。
+// ExternalJobDiscoveryOverride reads the cluster's external job discovery switch; nil means inherit the global one.
+func (c ClusterConfig) ExternalJobDiscoveryOverride() *bool {
+	if len(c) == 0 {
+		return nil
+	}
+	switch value := c["external_job_discovery_enabled"].(type) {
+	case bool:
+		return &value
+	case string:
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "true", "1", "yes":
+			enabled := true
+			return &enabled
+		case "false", "0", "no":
+			disabled := false
+			return &disabled
+		}
+	}
+	return nil
+}
+
+// ListExternalDiscoveryClusterIDs 返回没有关闭外部作业发现、且不处于未部署 / 部署中 / 已停止状态的集群。
+// 端点是否可达交给对账器解析，解析不到时由对账退避兜底。
+// ListExternalDiscoveryClusterIDs returns clusters that have not opted out of external job discovery and are not
+// created / deploying / stopped. Endpoint reachability is left to the reconciler, whose backoff covers failures.
+func (s *Service) ListExternalDiscoveryClusterIDs(ctx context.Context) ([]uint, error) {
+	clusters, _, err := s.repo.List(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]uint, 0, len(clusters))
+	for _, item := range clusters {
+		if item == nil {
+			continue
+		}
+		switch item.Status {
+		case ClusterStatusCreated, ClusterStatusDeploying, ClusterStatusStopped:
+			continue
+		}
+		if override := item.Config.ExternalJobDiscoveryOverride(); override != nil && !*override {
+			continue
+		}
+		ids = append(ids, item.ID)
+	}
+	return ids, nil
+}

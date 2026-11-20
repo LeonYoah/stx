@@ -118,6 +118,7 @@ const baseQuery: DashboardQuery = {
   clusterId: undefined,
   status: '',
   mode: '',
+  source: '',
   q: '',
   sort: '',
   order: '',

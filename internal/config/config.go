@@ -219,6 +219,12 @@ func setDefaults(c *configModel, observabilityEnabledSet bool, storageMaxSizeSet
 	if c.Sync.StopTimeoutSeconds <= 0 {
 		c.Sync.StopTimeoutSeconds = 300
 	}
+	if c.Sync.ExternalJobDiscoveryIntervalSeconds <= 0 {
+		c.Sync.ExternalJobDiscoveryIntervalSeconds = 60
+	}
+	if c.Sync.ExternalJobDiscoveryMaxNewPerRound <= 0 {
+		c.Sync.ExternalJobDiscoveryMaxNewPerRound = 200
+	}
 	if c.Sync.JobReconcilerClusterConcurrency <= 0 {
 		c.Sync.JobReconcilerClusterConcurrency = 4
 	}

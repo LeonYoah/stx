@@ -59,7 +59,7 @@ import {
 import {WorkspaceHeader, ModuleNavTabs} from '@/components/common/layout';
 import {TroubleshootingMemoryCenter} from '@/components/common/troubleshooting';
 import {ErrorsPanel} from './errors/ErrorsPanel';
-import {DiagnosticsInspectionCenter} from './DiagnosticsInspectionCenter';
+import {InspectionsPanel} from './inspections/InspectionsPanel';
 import {PoliciesPanel} from './policies/PoliciesPanel';
 // shortcut: 暂直接复用告警中心的未保存确认弹窗；告警中心组件的并行改动落地后，统一提升到
 // common/layout。
@@ -442,9 +442,9 @@ export function DiagnosticsWorkspace() {
         </TabsContent>
         <TabsContent value='inspections' className='min-h-0 flex-1'>
           {activeTab === 'inspections' ? (
-            <DiagnosticsInspectionCenter
+            <InspectionsPanel
               clusterId={clusterIdNumber}
-              clusterName={selectedClusterName || undefined}
+              clusterOptions={bootstrap?.cluster_options || []}
               reportId={reportId ? Number.parseInt(reportId, 10) : undefined}
               onSelectReport={(value) =>
                 updateQuery({report_id: value ? String(value) : null})

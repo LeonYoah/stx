@@ -4168,9 +4168,6 @@
     },
     "inspections": {
       "title": "巡检",
-      "globalHint": "请选择一个受管集群，先做一次轻量检查，再决定是否继续抓现场证据。",
-      "clusterScopedHint": "当前已按集群 {name} 过滤检查记录。",
-      "matchedReports": "匹配巡检报告 {count} 条",
       "startInspection": "立即巡检",
       "selectClusterFirst": "请先在上方选择一个集群，再发起巡检。",
       "resourcesLabel": "本次采集资源",
@@ -4188,24 +4185,15 @@
       "errorThresholdRangeError": "错误触发阈值必须在 1 到 1000 之间",
       "loadReportsError": "加载巡检报告失败",
       "loadDetailError": "加载巡检详情失败",
-      "listTitle": "检查记录",
       "detailTitle": "检查结果",
       "empty": "当前筛选条件下暂无巡检报告。",
-      "selectReport": "请选择左侧巡检报告查看本次发现项。",
       "summaryFallback": "本次巡检暂无摘要。",
       "requestedBy": "发起人",
-      "startedAt": "开始时间",
       "finishedAt": "完成时间",
-      "countSummary": "发现摘要",
-      "counts": "共 {total} 项（严重 {critical} / 告警 {warning} / 信息 {info}）",
-      "nodeLabel": "来源节点",
       "taskLabel": "任务 #{id}",
       "refreshingLabel": "正在刷新...",
-      "findingsTitle": "发现的问题",
-      "noFindings": "当前巡检没有结构化发现项。",
       "filters": {
         "status": "按状态筛选",
-        "allStatuses": "全部状态",
         "severity": "按严重级别筛选",
         "allSeverities": "全部级别"
       },
@@ -4228,13 +4216,6 @@
       },
       "actions": {
         "viewErrorGroup": "查看错误组"
-      },
-      "listPills": {
-        "all": "全部报告",
-        "failed": "执行失败",
-        "completed": "已完成",
-        "running": "执行中",
-        "pending": "排队中"
       },
       "evidence": {
         "observed": "观测依据",
@@ -4292,7 +4273,9 @@
         "confirmCreate": "确认生成",
         "executionLogsTitle": "执行日志",
         "executionLogsDescription": "诊断包生成步骤及执行状态",
-        "noExecutionSteps": "暂无执行步骤记录"
+        "noExecutionSteps": "暂无执行步骤记录",
+        "lookbackField": "回溯时间",
+        "nodeScopeLabel": "采集节点范围"
       },
       "followUp": {
         "title": "继续诊断",
@@ -4303,7 +4286,31 @@
         "createTaskError": "诊断包生成失败",
         "taskCompleteSuccess": "诊断资源采集已完成",
         "taskFailed": "诊断资源采集失败"
-      }
+      },
+      "statusAll": "全部",
+      "resetFilters": "重置筛选",
+      "emptyAll": "暂无巡检报告",
+      "clusterLabel": "归属集群",
+      "lookbackField": "巡检时间范围",
+      "minutesSuffix": "分钟",
+      "lookbackPresetLabel": "快捷档位",
+      "presetMinutes": "{count} 分钟",
+      "presetHours": "{count} 小时",
+      "columns": {
+        "id": "编号",
+        "trigger": "触发方式",
+        "status": "状态",
+        "findings": "发现项与摘要",
+        "lookback": "回溯窗口",
+        "finishedAt": "完成时间"
+      },
+      "findingCount": {
+        "critical": "{count} 严重",
+        "warning": "{count} 告警",
+        "info": "{count} 提示"
+      },
+      "emptyDesc": "换个筛选条件试试",
+      "emptyAllDesc": "发起一次巡检后，这里会展示报告记录"
     },
     "resourceSelector": {
       "loading": "正在加载诊断资源…",

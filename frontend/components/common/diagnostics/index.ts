@@ -18,5 +18,5 @@
 export {DiagnosticsWorkspace} from './DiagnosticsWorkspace';
 
 export {ErrorsPanel} from './errors/ErrorsPanel';
-export {DiagnosticsInspectionCenter} from './DiagnosticsInspectionCenter';
+export {InspectionsPanel} from './inspections/InspectionsPanel';
 export {PoliciesPanel} from './policies/PoliciesPanel';

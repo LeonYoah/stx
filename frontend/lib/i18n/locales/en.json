@@ -4168,9 +4168,6 @@
     },
     "inspections": {
       "title": "Inspections",
-      "globalHint": "Select a managed cluster to run a lightweight diagnosis check first, and then decide whether to collect live evidence.",
-      "clusterScopedHint": "Diagnosis checks are filtered for cluster {name}.",
-      "matchedReports": "{count} matched reports",
       "startInspection": "Run Inspection",
       "selectClusterFirst": "Select a cluster above before starting an inspection.",
       "resourcesLabel": "Resources to Collect",
@@ -4188,24 +4185,15 @@
       "errorThresholdRangeError": "Error trigger threshold must be between 1 and 1000",
       "loadReportsError": "Failed to load inspection reports",
       "loadDetailError": "Failed to load inspection detail",
-      "listTitle": "Check History",
       "detailTitle": "Check Result",
       "empty": "No inspection reports match the current filters.",
-      "selectReport": "Select an inspection report to review its findings.",
       "summaryFallback": "No inspection summary is available for this report.",
       "requestedBy": "Requested By",
-      "startedAt": "Started At",
       "finishedAt": "Finished At",
-      "countSummary": "Finding Summary",
-      "counts": "{total} findings ({critical} critical / {warning} warning / {info} info)",
-      "nodeLabel": "Origin Node",
       "taskLabel": "Task #{id}",
       "refreshingLabel": "Refreshing...",
-      "findingsTitle": "Detected Issues",
-      "noFindings": "This inspection produced no structured findings.",
       "filters": {
         "status": "Filter by status",
-        "allStatuses": "All Statuses",
         "severity": "Filter by severity",
         "allSeverities": "All Severities"
       },
@@ -4228,13 +4216,6 @@
       },
       "actions": {
         "viewErrorGroup": "View Error Group"
-      },
-      "listPills": {
-        "all": "All reports",
-        "failed": "Failed",
-        "completed": "Completed",
-        "running": "Running",
-        "pending": "Queued"
       },
       "evidence": {
         "observed": "Observed evidence",
@@ -4292,7 +4273,9 @@
         "confirmCreate": "Confirm",
         "executionLogsTitle": "Execution Logs",
         "executionLogsDescription": "Diagnostic bundle generation steps and execution status",
-        "noExecutionSteps": "No execution steps recorded yet"
+        "noExecutionSteps": "No execution steps recorded yet",
+        "lookbackField": "Lookback Window",
+        "nodeScopeLabel": "Node Scope"
       },
       "followUp": {
         "title": "Continue Diagnosis",
@@ -4303,7 +4286,31 @@
         "createTaskError": "Failed to generate diagnostic bundle",
         "taskCompleteSuccess": "Diagnostics resource collection completed",
         "taskFailed": "Diagnostics resource collection failed"
-      }
+      },
+      "statusAll": "All",
+      "resetFilters": "Reset",
+      "emptyAll": "No inspection reports yet",
+      "clusterLabel": "Cluster",
+      "lookbackField": "Inspection Window",
+      "minutesSuffix": "min",
+      "lookbackPresetLabel": "Presets",
+      "presetMinutes": "{count} min",
+      "presetHours": "{count} h",
+      "columns": {
+        "id": "ID",
+        "trigger": "Trigger",
+        "status": "Status",
+        "findings": "Findings & Summary",
+        "lookback": "Window",
+        "finishedAt": "Finished"
+      },
+      "findingCount": {
+        "critical": "{count} critical",
+        "warning": "{count} warning",
+        "info": "{count} info"
+      },
+      "emptyDesc": "Try different filters",
+      "emptyAllDesc": "Reports appear here after an inspection runs"
     },
     "resourceSelector": {
       "loading": "Loading diagnostics resources…",

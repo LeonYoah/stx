@@ -266,6 +266,11 @@
 .listCol[data-mcols='errors'] :is(.row, .rowHead) {
   --cols: minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1fr) 88px 140px;
 }
+/* 诊断巡检：编号 / 触发方式 / 状态 / 发现项+摘要 / 回溯窗口 / 完成时间。
+   Diagnostics inspections: id / trigger / status / findings+summary / window / finished. */
+.listCol[data-mcols='inspections'] :is(.row, .rowHead) {
+  --cols: 56px minmax(0, 0.6fr) 84px minmax(0, 1.7fr) 104px 132px;
+}
 
 .rowHead {
   display: grid;
@@ -1275,6 +1280,16 @@
   .listCol[data-mcols='errors'] :is(.row, .rowHead) > :nth-child(2),
   .listCol[data-mcols='errors'] :is(.row, .rowHead) > :nth-child(3),
   .listCol[data-mcols='errors'] :is(.row, .rowHead) > :nth-child(5) {
+    display: none;
+  }
+  /* 窄屏巡检行只留状态 + 发现项摘要。Narrow inspection rows keep status + findings summary. */
+  .listCol[data-mcols='inspections'] :is(.row, .rowHead) {
+    --cols: 76px minmax(0, 1fr);
+  }
+  .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(1),
+  .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(2),
+  .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(5),
+  .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(6) {
     display: none;
   }
 }

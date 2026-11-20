@@ -54,15 +54,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+} from '@/components/arc/dialog/dialog';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {
   Table,
@@ -366,13 +363,12 @@ export function PreviewWorkspacePanel({
       </ResizablePanel>
       </ResizablePanels>
       <Dialog open={previewScriptOpen} onOpenChange={setPreviewScriptOpen}>
-        <DialogContent className='flex h-[86vh] w-[94vw] max-w-[94vw] flex-col overflow-hidden sm:max-w-[1380px]'>
-          <DialogHeader>
-            <DialogTitle>{t('injectedScript')}</DialogTitle>
-            <DialogDescription>
-              {previewContentFormat.toUpperCase()}
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent
+          className='arc-compact h-[86vh]! w-[min(94vw,1380px)]!'
+          bodyClassName='flex min-h-0 flex-1 flex-col overflow-hidden'
+          title={t('injectedScript')}
+          description={previewContentFormat.toUpperCase()}
+        >
           <div className='min-h-0 flex-1 overflow-hidden rounded-md border border-border/50'>
             <MonacoEditor
               height='100%'
@@ -2340,57 +2336,44 @@ export function CheckpointInspectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* 弹窗高度固定为 85vh，使用 sm:max-w-[1200px] 覆盖 DialogContent 默认的 sm:max-w-lg 限制 */}
-      {/* Fixed 85vh dialog height and sm:max-w-[1200px] to override default sm:max-w-lg narrow constrain */}
-      <DialogContent className='flex h-[85vh] w-[94vw] sm:max-w-[1200px] flex-col overflow-hidden p-0'>
-        {/* 顶部现代化标题与状态栏 */}
-        {/* Modern header and status bar */}
-        <div className='border-b border-border/60 bg-muted/15 px-6 py-3.5 shrink-0'>
-          <div className='flex flex-wrap items-center justify-between gap-3'>
-            <div className='flex items-center gap-2.5'>
-              <div className='flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary'>
-                <Activity className='size-4' />
-              </div>
-              <div>
-                <div className='flex items-center gap-2'>
-                  <DialogTitle className='text-base font-semibold text-foreground'>
-                    {t('checkpointFileDetails')}
-                  </DialogTitle>
-                  <Badge
-                    variant='outline'
-                    className='font-mono text-xs px-2 py-0'
-                  >
-                    #{checkpointId}
-                  </Badge>
-                  {renderCheckpointFieldValue('status', status)}
-                </div>
-                <DialogDescription className='sr-only'>
-                  {activeResult?.path || '-'}
-                </DialogDescription>
-              </div>
-            </div>
-
-            {/* 右侧关键度量胶囊 */}
-            {/* Right key metric pills */}
-            <div className='flex items-center gap-2'>
-              <div className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground shadow-xs'>
+      <DialogContent
+        aria-describedby={undefined}
+        className='arc-compact h-[85vh]! w-[min(94vw,1200px)]!'
+        bodyClassName='flex min-h-0 flex-1 flex-col p-0! overflow-hidden'
+        title={
+          <span className='flex flex-wrap items-center gap-2.5 pr-4'>
+            <span className='flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary'>
+              <Activity className='size-4' />
+            </span>
+            <span>{t('checkpointFileDetails')}</span>
+            <Badge
+              variant='outline'
+              className='font-mono text-xs px-2 py-0'
+            >
+              #{checkpointId}
+            </Badge>
+            {renderCheckpointFieldValue('status', status)}
+            <span className='ml-auto flex items-center gap-2'>
+              <span className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs font-normal text-muted-foreground shadow-xs'>
                 <Clock className='size-3 text-primary' />
                 <span className='font-mono font-medium text-foreground'>
                   {duration}
                 </span>
-              </div>
-              <div className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground shadow-xs'>
+              </span>
+              <span className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs font-normal text-muted-foreground shadow-xs'>
                 <HardDrive className='size-3 text-emerald-500' />
                 <span className='font-mono font-medium text-foreground'>
                   {stateSizeFormatted}
                 </span>
-              </div>
-            </div>
-          </div>
-
-          {/* 路径条与一键复制 */}
-          {/* File path strip with quick copy */}
-          <div className='mt-2.5 flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/60 px-3 py-1.5 text-xs'>
+              </span>
+            </span>
+          </span>
+        }
+      >
+        {/* 路径条与一键复制 */}
+        {/* File path strip with quick copy */}
+        <div className='border-b border-border/60 bg-muted/15 px-5 py-2.5 shrink-0'>
+          <div className='flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/60 px-3 py-1.5 text-xs'>
             <div className='flex min-w-0 items-center gap-2'>
               <FileCode className='size-3.5 shrink-0 text-muted-foreground' />
               <span

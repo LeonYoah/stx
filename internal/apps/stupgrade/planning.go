@@ -31,6 +31,7 @@ import (
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	hostapp "github.com/LeonYoah/stx/internal/apps/host"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	pluginapp "github.com/LeonYoah/stx/internal/apps/plugin"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
@@ -124,7 +125,7 @@ func (s *Service) RunPrecheck(ctx context.Context, req *PrecheckRequest) (*Prech
 	selectedNodes, nodeSelectionIssues := filterNodeScope(nodes, req.NodeIDs)
 	result.Issues = append(result.Issues, nodeSelectionIssues...)
 
-	nodeTargets, nodeIssues, err := s.buildNodeTargets(ctx, selectedNodes, clusterInfo.Version, targetVersion, packageManifest.Arch, packageManifest.SizeBytes, req.TargetInstallDir)
+	nodeTargets, nodeIssues, err := s.buildNodeTargets(ctx, selectedNodes, clusterInfo.Version, targetVersion, packageManifest.Arch, packageManifest.SizeBytes, req)
 	if err != nil {
 		return nil, err
 	}
@@ -289,15 +290,21 @@ func validatePackageManifest(info *installerapp.PackageInfo, manifest PackageMan
 	return issues
 }
 
-func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.NodeInfo, sourceVersion, targetVersion, packageArch string, packageSize int64, targetInstallDir string) ([]NodeTarget, []BlockingIssue, error) {
+func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.NodeInfo, sourceVersion, targetVersion, packageArch string, packageSize int64, req *PrecheckRequest) ([]NodeTarget, []BlockingIssue, error) {
 	targets := make([]NodeTarget, 0, len(nodes))
 	issues := make([]BlockingIssue, 0)
+	targetInstallDir := ""
+	if req != nil {
+		targetInstallDir = req.TargetInstallDir
+	}
 	resolvedTargetInstallDir := strings.TrimSpace(targetInstallDir)
 	for _, node := range nodes {
 		hostInfo, err := s.hostProvider.Get(ctx, node.HostID)
 		if err != nil {
 			return nil, nil, err
 		}
+		targetJavaHome, javaHomeErr := resolveTargetJavaHome(node.ID, node.JavaHome, req)
+		sourceJavaHome := node.JavaHome
 		target := NodeTarget{
 			ClusterNodeID:    node.ID,
 			HostID:           node.HostID,
@@ -309,9 +316,21 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			TargetVersion:    targetVersion,
 			SourceInstallDir: node.InstallDir,
 			TargetInstallDir: resolveTargetInstallDir(node.InstallDir, sourceVersion, targetVersion, resolvedTargetInstallDir),
-			JavaHome:         node.JavaHome,
+			SourceJavaHome:   &sourceJavaHome,
+			JavaHome:         targetJavaHome,
 		}
 		targets = append(targets, target)
+		if javaHomeErr != nil {
+			issues = append(issues, blockingIssue(
+				CheckCategoryNode,
+				"jdk_path_invalid",
+				fmt.Sprintf("node %s target JDK path is invalid: %v / 节点 %s 的目标 JDK 路径不合法：%v", node.HostName, javaHomeErr, node.HostName, javaHomeErr),
+				map[string]string{
+					"host_id":   fmt.Sprintf("%d", node.HostID),
+					"java_home": firstNonEmptyStr(targetJavaHome, node.JavaHome),
+				},
+			))
+		}
 
 		if !node.IsOnline {
 			issues = append(issues, blockingIssue(
@@ -339,6 +358,11 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 		}
 		if issue := s.checkTargetInstallDirWritable(ctx, node, target); issue != nil {
 			issues = append(issues, *issue)
+		}
+		if javaHomeErr == nil {
+			if issue := s.checkJavaRuntimeForTarget(ctx, node, target); issue != nil {
+				issues = append(issues, *issue)
+			}
 		}
 		if isDiskInsufficient(hostInfo, packageSize) {
 			issues = append(issues, blockingIssue(
@@ -767,6 +791,22 @@ func resolveTargetInstallDir(currentInstallDir, sourceVersion, targetVersion, ov
 	return buildTargetInstallDir(currentInstallDir, sourceVersion, targetVersion)
 }
 
+// resolveTargetJavaHome 解析本次升级要用的目标 JDK：节点级覆盖 > 请求级 java_home > 当前节点 java_home。
+// 节点级显式给出键（含空串）表示自动探测或指定路径，不再回落到当前节点路径。
+// resolveTargetJavaHome resolves the target JDK for this upgrade: per-node override > request java_home > current node java_home.
+// A present per-node key (including empty) means auto detection or an explicit path and does not fall back to the current node path.
+func resolveTargetJavaHome(nodeID uint, current string, req *PrecheckRequest) (string, error) {
+	if req != nil && req.NodeJavaHomes != nil {
+		if value, ok := req.NodeJavaHomes[nodeID]; ok {
+			return javaruntime.Validate(value)
+		}
+	}
+	if req != nil && strings.TrimSpace(req.JavaHome) != "" {
+		return javaruntime.Validate(req.JavaHome)
+	}
+	return javaruntime.Validate(current)
+}
+
 func isArchBlocking(packageArch, hostArch string) bool {
 	trimmedPackageArch := strings.TrimSpace(strings.ToLower(packageArch))
 	trimmedHostArch := strings.TrimSpace(strings.ToLower(hostArch))
@@ -897,6 +937,83 @@ func (s *Service) checkTargetInstallDirWritable(ctx context.Context, node *clust
 		},
 	)
 	return &issue
+}
+
+// checkJavaRuntimeForTarget 通过节点 Agent 校验节点 JDK 满足目标版本的最低要求。
+// Agent 不在线或未配置命令发送器时跳过（离线已由 node_offline 拦截）。
+// SeaTunnel 3.1.0 起官方硬性要求 JDK 11+（class major 55，JDK 8 启动器必然失败），
+// 必须提前阻断而非拖到引擎启动步骤；更早目标版本沿用 {8,11} 通过、其余警告的矩阵。
+// checkJavaRuntimeForTarget verifies via the node Agent that the node JDK meets the
+// target version's minimum requirement. Skipped when the Agent is offline or no command
+// sender is configured (offline nodes are already blocked by node_offline). SeaTunnel
+// 3.1.0 hard-requires JDK 11+ (class major 55, a JDK 8 launcher always fails), so block
+// early instead of dying at engine startup; earlier targets keep the {8,11} matrix.
+func (s *Service) checkJavaRuntimeForTarget(ctx context.Context, node *clusterapp.NodeInfo, target NodeTarget) *BlockingIssue {
+	if s.agentCommandSender == nil || node == nil || !node.IsOnline {
+		return nil
+	}
+	agentID, connected := s.agentCommandSender.GetAgentByHostID(target.HostID)
+	if !connected || agentID == "" {
+		return nil
+	}
+	success, output, err := s.agentCommandSender.SendCommand(ctx, agentID, "check_java", javaruntime.CheckParams(target.JavaHome))
+	if err != nil {
+		issue := blockingIssue(
+			CheckCategoryNode,
+			"java_check_failed",
+			fmt.Sprintf("cannot check Java on node %s: %v / 无法检查节点 %s 的 Java 环境：%v", target.HostName, err, target.HostName, err),
+			map[string]string{"host_id": fmt.Sprintf("%d", target.HostID)},
+		)
+		return &issue
+	}
+	rt := javaruntime.Interpret(target.JavaHome, success, output)
+	metadata := map[string]string{
+		"host_id":        fmt.Sprintf("%d", target.HostID),
+		"target_version": target.TargetVersion,
+		"required_java":  fmt.Sprintf("%d+", javaruntime.MinSupportedMajor(target.TargetVersion)),
+		"detected_java":  fmt.Sprintf("%d", rt.Version),
+		"java_home":      firstNonEmptyStr(rt.JavaHome, target.JavaHome),
+	}
+	if rt.Status == javaruntime.StatusFailed {
+		issue := blockingIssue(
+			CheckCategoryNode,
+			"java_unusable",
+			fmt.Sprintf("node %s has no usable JDK for SeaTunnel %s: %s / 节点 %s 的 JDK 不可用于 SeaTunnel %s：%s", target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName), target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName)),
+			metadata,
+		)
+		return &issue
+	}
+	switch javaruntime.StatusForTarget(rt.Version, target.TargetVersion) {
+	case javaruntime.StatusPassed:
+		return nil
+	case javaruntime.StatusFailed:
+		issue := blockingIssue(
+			CheckCategoryNode,
+			"jdk_below_required",
+			fmt.Sprintf("node %s runs Java %d but SeaTunnel %s requires Java %d+; choose a newer target JDK on the upgrade prepare page / 节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+；请在升级准备页为目标节点选择更高版本 JDK", target.HostName, rt.Version, target.TargetVersion, javaruntime.MinSupportedMajor(target.TargetVersion), target.HostName, rt.Version, target.TargetVersion, javaruntime.MinSupportedMajor(target.TargetVersion)),
+			metadata,
+		)
+		return &issue
+	default:
+		issue := warningIssue(
+			CheckCategoryNode,
+			"jdk_unusual_version",
+			fmt.Sprintf("node %s runs Java %d; SeaTunnel %s recommends Java 8 or 11 / 节点 %s 运行 Java %d；SeaTunnel %s 推荐 Java 8 或 11", target.HostName, rt.Version, target.TargetVersion, target.HostName, rt.Version, target.TargetVersion),
+			metadata,
+		)
+		return &issue
+	}
+}
+
+// firstNonEmptyStr 返回第一个非空字符串。
+// firstNonEmptyStr returns the first non-empty string.
+func firstNonEmptyStr(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // extractAgentResultMessage 从 Agent 预检 JSON 输出中提取 message，非 JSON 时原样返回。

@@ -60,6 +60,9 @@ func setupMetricEvaluatorTestDB(t *testing.T) (*gorm.DB, func()) {
 		&NotificationChannel{},
 		&NotificationDelivery{},
 		&NotificationRoute{},
+		&ClusterRuleConfig{},
+		&ClusterRuleOverride{},
+		&AlertNotificationDefaults{},
 		&RemoteAlertRecord{},
 	))
 
@@ -144,20 +147,12 @@ func TestMetricEvaluatorFiringThenResolved(t *testing.T) {
 	// managed 投递缝认领并累计执行状态。
 	// Seed an enabled metric policy: records produced by NotifyFunc with managed_by/policy_id
 	// labels must be claimed by the managed delivery seam and accumulate execution state.
-	policy := &AlertPolicy{
-		Name:                       "CPU 高负载",
-		PolicyType:                 AlertPolicyBuilderKindMetricsTemplate,
-		TemplateKey:                "cpu_usage_high",
-		ClusterID:                  "all",
-		Severity:                   AlertSeverityWarning,
-		Enabled:                    true,
-		SendRecovery:               true,
-		ConditionsJSON:             "[]",
-		NotificationChannelIDsJSON: "[]",
-		ReceiverUserIDsJSON:        "[]",
-		LastExecutionStatus:        AlertPolicyExecutionStatusIdle,
-	}
-	require.NoError(t, repo.db.WithContext(ctx).Create(policy).Error)
+	severity := string(AlertSeverityCritical)
+	require.NoError(t, repo.UpsertClusterRuleConfig(ctx, &ClusterRuleConfig{
+		RuleKey:  "cpu_usage_high",
+		Enabled:  ptrBool(true),
+		Severity: &severity,
+	}))
 
 	const testSource = "stx-test"
 	evaluator, err := NewMetricEvaluator(service, MetricEvaluatorOptions{
@@ -177,12 +172,12 @@ func TestMetricEvaluatorFiringThenResolved(t *testing.T) {
 			Expr:  `stx_eval_test_metric > 5`,
 			For:   model.Duration(120 * time.Millisecond),
 			Labels: map[string]string{
-				"managed_by":  "stx",
-				"policy_id":   fmt.Sprintf("%d", policy.ID),
-				"policy_name": policy.Name,
-				"severity":    "warning",
+				"managed_by": "stx",
+				"rule_key":   "cpu_usage_high",
+				"severity":   "warning",
 			},
 			Annotations: map[string]string{
+				"rule_name":   "CPU 高负载",
 				"summary":     "evaluator test firing",
 				"description": "evaluator test description",
 			},
@@ -205,8 +200,8 @@ func TestMetricEvaluatorFiringThenResolved(t *testing.T) {
 	// for=120ms gate: the firing record cannot appear earlier than ~100ms (CI margin included).
 	require.GreaterOrEqual(t, time.Since(startedAt), 80*time.Millisecond, "alert fired before the for gate elapsed")
 
-	// AlertName 按统一告警记录语义取 policy_name → alertname。
-	// AlertName resolves policy_name → alertname per the unified alert-record semantics.
+	// AlertName 按统一告警记录语义取 rule_name → alertname。
+	// AlertName resolves rule_name → alertname per the unified alert-record semantics.
 	require.Equal(t, "CPU 高负载", firing.AlertName)
 	require.Equal(t, "warning", firing.Severity)
 	require.Equal(t, "1", firing.ClusterID)
@@ -219,24 +214,16 @@ func TestMetricEvaluatorFiringThenResolved(t *testing.T) {
 	var firingLabels map[string]string
 	require.NoError(t, json.Unmarshal([]byte(firing.LabelsJSON), &firingLabels))
 	require.Equal(t, "stx", firingLabels["managed_by"])
-	require.Equal(t, fmt.Sprintf("%d", policy.ID), firingLabels["policy_id"])
+	require.Equal(t, "cpu_usage_high", firingLabels["rule_key"])
 
-	// managed 投递缝已认领该告警并累计策略匹配数（无渠道时不发通知但记录状态）。
-	// The managed delivery seam claimed the alert and bumped the policy match counter
-	// (no channels configured, so nothing is sent but execution state is recorded).
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		var reloaded AlertPolicy
-		require.NoError(t, repo.db.WithContext(ctx).First(&reloaded, policy.ID).Error)
-		if reloaded.MatchCount >= 1 {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
-	var reloaded AlertPolicy
-	require.NoError(t, repo.db.WithContext(ctx).First(&reloaded, policy.ID).Error)
-	require.Equal(t, 1, reloaded.MatchCount)
-	require.NotNil(t, reloaded.LastMatchedAt)
+	// 标签 severity=warning 只影响展示；外投判定看解析配置——此规则配了 critical 但未配渠道，
+	// managed 投递缝认领后不外投，不应产生投递记录。
+	// The severity label is display-only; external delivery follows the resolved config — this
+	// rule is critical but has no channels, so the managed seam claims it without sending and
+	// no delivery row may exist.
+	var deliveryCount int64
+	require.NoError(t, repo.db.WithContext(ctx).Model(&NotificationDelivery{}).Count(&deliveryCount).Error)
+	require.Zero(t, deliveryCount)
 
 	// 指标回落 → 同一告警进入 resolved：同指纹同 starts_at 的记录翻转状态并落 ResolvedAt。
 	// Metric recovers → the same alert resolves: the record sharing fingerprint + starts_at
@@ -330,78 +317,65 @@ func TestRemoteAlertRecordFromRuleAlert(t *testing.T) {
 	})
 }
 
-// TestBuildManagedMetricPolicyRule 覆盖策略 → rulefmt.Rule 适配：标签/注解/表达式/for 与原
-// 写 Prometheus 规则文件的字段一一对应；禁用/非指标模板/未知模板返回 ok=false。
-// TestBuildManagedMetricPolicyRule covers the policy → rulefmt.Rule adapter: labels,
-// annotations, expression and 'for' match the fields the old Prometheus rule file carried;
-// disabled / non-metric / unknown-template policies return ok=false.
-func TestBuildManagedMetricPolicyRule(t *testing.T) {
-	clusterNames := map[string]string{"all": "全部集群", "7": "prod-cluster"}
+// TestBuildManagedClusterRule 覆盖解析配置 → rulefmt.Rule 适配：alert 名取稳定 rule_key，
+// labels 带 managed_by / rule_key / severity，for 取生效持续时间，表达式按集群匹配器注入
+// label 约束且可被 promql 解析。
+// TestBuildManagedClusterRule covers the resolved-config → rulefmt.Rule adapter: the alert
+// name is the stable rule_key, labels carry managed_by / rule_key / severity, 'for' is the
+// effective duration, and the cluster matcher is injected into a promql-parseable expression.
+func TestBuildManagedClusterRule(t *testing.T) {
+	def := lookupClusterRuleDefinition("cpu_usage_high")
+	require.NotNil(t, def)
 
-	t.Run("metrics template", func(t *testing.T) {
-		policy := &AlertPolicy{
-			ID:             5,
-			Name:           "CPU 告警",
-			PolicyType:     AlertPolicyBuilderKindMetricsTemplate,
-			TemplateKey:    "cpu_usage_high",
-			ClusterID:      "all",
-			Severity:       AlertSeverityCritical,
-			Enabled:        true,
-			ConditionsJSON: `[{"metric_key":"cpu","operator":">","threshold":"0.8","window_minutes":3}]`,
-		}
-		rule, ok, err := buildManagedMetricPolicyRule(policy, clusterNames)
-		require.NoError(t, err)
-		require.True(t, ok)
-		require.Equal(t, "STXManagedPolicy_5", rule.Alert)
-		require.Equal(t, model.Duration(3*time.Minute), rule.For)
-		require.Contains(t, rule.Expr, `process_cpu_seconds_total{job="seatunnel_engine_http"}[3m]`)
-		require.Contains(t, rule.Expr, `> 0.8`)
-		require.Equal(t, "stx", rule.Labels["managed_by"])
-		require.Equal(t, "5", rule.Labels["policy_id"])
-		require.Equal(t, "critical", rule.Labels["severity"])
-		require.Equal(t, "cpu_usage_high", rule.Labels["template_key"])
-		require.Contains(t, rule.Annotations["summary"], "CPU 告警")
-		require.Contains(t, rule.Annotations["condition"], "3")
-		require.NotEmpty(t, rule.Annotations["current_value"])
-	})
-
-	t.Run("cluster scoped", func(t *testing.T) {
-		policy := &AlertPolicy{
-			ID:          9,
-			Name:        "队列积压",
-			PolicyType:  AlertPolicyBuilderKindMetricsTemplate,
-			TemplateKey: "job_thread_pool_queue_backlog_high",
-			ClusterID:   "7",
-			Enabled:     true,
-		}
-		rule, ok, err := buildManagedMetricPolicyRule(policy, clusterNames)
-		require.NoError(t, err)
-		require.True(t, ok)
-		require.Contains(t, rule.Expr, `cluster_id="7"`)
-		require.Equal(t, "prod-cluster", rule.Annotations["cluster_scope"])
-	})
-
-	t.Run("disabled / unknown / non-metric", func(t *testing.T) {
-		disabled := &AlertPolicy{ID: 1, PolicyType: AlertPolicyBuilderKindMetricsTemplate, TemplateKey: "cpu_usage_high", Enabled: false}
-		_, ok, err := buildManagedMetricPolicyRule(disabled, clusterNames)
-		require.NoError(t, err)
-		require.False(t, ok)
-
-		unknown := &AlertPolicy{ID: 2, PolicyType: AlertPolicyBuilderKindMetricsTemplate, TemplateKey: "no_such_template", Enabled: true}
-		_, ok, err = buildManagedMetricPolicyRule(unknown, clusterNames)
-		require.NoError(t, err)
-		require.False(t, ok)
-
-		syncJob := &AlertPolicy{ID: 3, PolicyType: AlertPolicyBuilderKindSyncJob, Enabled: true}
-		_, ok, err = buildManagedMetricPolicyRule(syncJob, clusterNames)
-		require.NoError(t, err)
-		require.False(t, ok)
-	})
+	cfg := &resolvedRuleConfig{
+		RuleKey:    def.Key,
+		Definition: def,
+		Enabled:    true,
+		Severity:   AlertSeverityCritical,
+		ForSeconds: 180,
+	}
+	rule := buildManagedClusterRule(cfg, `cluster_id="7"`, "prod-cluster")
+	require.NotNil(t, rule)
+	require.Equal(t, "cpu_usage_high", rule.Alert)
+	require.Equal(t, model.Duration(180*time.Second), rule.For)
+	require.Equal(t, "stx", rule.Labels["managed_by"])
+	require.Equal(t, "cpu_usage_high", rule.Labels["rule_key"])
+	require.Equal(t, "critical", rule.Labels["severity"])
+	require.Equal(t, "cpu_usage_high", rule.Annotations["rule_key"])
+	require.Equal(t, "prod-cluster", rule.Annotations["cluster_scope"])
+	require.Contains(t, rule.Expr, `cluster_id="7"`)
+	_, err := metricRuleExprParser.ParseExpr(rule.Expr)
+	require.NoError(t, err, "generated expression must parse: %s", rule.Expr)
 }
 
-// TestBuiltinMetricRuleGroups 校验内嵌默认规则文件解析成功且规模正确（10 录制 + 11 告警）。
+// TestBuildManagedClusterRule_thresholdPercentToRatio 验证用户态百分比阈值在 tsdb 表达式里
+// 按设计换算为 ratio（80 → 0.8）。
+// TestBuildManagedClusterRule_thresholdPercentToRatio verifies a user-facing percent threshold
+// converts to a ratio inside the tsdb expression (80 → 0.8).
+func TestBuildManagedClusterRule_thresholdPercentToRatio(t *testing.T) {
+	def := lookupClusterRuleDefinition("cpu_usage_high")
+	require.NotNil(t, def)
+	require.NotNil(t, def.Threshold)
+
+	threshold := 80.0
+	cfg := &resolvedRuleConfig{
+		RuleKey:    def.Key,
+		Definition: def,
+		Enabled:    true,
+		Threshold:  &threshold,
+		ForSeconds: 600,
+	}
+	rule := buildManagedClusterRule(cfg, "", "全部集群")
+	require.Contains(t, rule.Expr, "> 0.8", "percent 80 must render as ratio 0.8: %s", rule.Expr)
+	_, err := metricRuleExprParser.ParseExpr(rule.Expr)
+	require.NoError(t, err)
+}
+
+// TestBuiltinMetricRuleGroups 校验内嵌默认规则文件解析成功且规模正确（10 录制 + 0 告警：
+// 告警组已收敛到集群规则目录，录制规则保留）。
 // TestBuiltinMetricRuleGroups asserts the embedded default rule file parses and has the
-// expected shape (10 recording + 11 alerting rules).
+// expected shape (10 recording + 0 alerting: the alert group moved into the cluster rule
+// catalog, recording rules stay).
 func TestBuiltinMetricRuleGroups(t *testing.T) {
 	groups, err := builtinMetricRuleGroupsOnce()
 	require.NoError(t, err)
@@ -420,7 +394,7 @@ func TestBuiltinMetricRuleGroups(t *testing.T) {
 		}
 	}
 	require.Equal(t, 10, recording)
-	require.Equal(t, 11, alerting)
+	require.Equal(t, 0, alerting)
 }
 
 // TestMetricEvaluator_RestoresForStateAcrossRestart 验证 firing 告警跨重启的 for 状态恢复：
@@ -571,8 +545,24 @@ func TestMetricEvaluator_BuiltinRulesEvaluateEndToEnd(t *testing.T) {
 	for i := range groups.Groups {
 		groups.Groups[i].Interval = 0
 	}
-	evaluator.sources = []string{builtinMetricRulesSource}
+	evaluator.sources = []string{builtinMetricRulesSource, managedMetricRulesSource}
 	evaluator.loader.setGroups(builtinMetricRulesSource, groups)
+
+	// 目录默认关闭的 tsdb 规则也全部打开，让受测表达式覆盖整个目录告警面。
+	// Enable the catalog tsdb rules that are off by default so every catalog alert expression
+	// is exercised.
+	for _, key := range []string{
+		"cpu_usage_high",
+		"gc_time_high",
+		"job_thread_pool_queue_backlog_high",
+		"coordinator_backlog_growing",
+		"failed_jobs_high",
+	} {
+		require.NoError(t, repo.UpsertClusterRuleConfig(ctx, &ClusterRuleConfig{
+			RuleKey: key,
+			Enabled: ptrBool(true),
+		}))
+	}
 
 	baseLabels := map[string]string{
 		"job":          "seatunnel_engine_http",
@@ -632,6 +622,7 @@ func TestMetricEvaluator_BuiltinRulesEvaluateEndToEnd(t *testing.T) {
 		{"hazelcast_partition_isClusterSafe", nil, 1},
 		{"hazelcast_partition_isLocalMemberSafe", nil, 0},
 		{"jvm_threads_deadlocked", nil, 2},
+		{"job_count", map[string]string{"state": "FAILED"}, 3},
 	}
 	for _, sample := range instantSamples {
 		appendEvalSample(t, ctx, sample.metric, merged(sample.extra), time.Now(), sample.value)
@@ -641,21 +632,21 @@ func TestMetricEvaluator_BuiltinRulesEvaluateEndToEnd(t *testing.T) {
 	t.Cleanup(evaluator.Stop)
 
 	// 录制规则先产出 seatunnel: 序列，依赖它们的告警要再过一个评估周期才转 pending——
-	// 轮询直到 11 条告警名凑齐。
+	// 轮询直到全部目录 tsdb 告警（alertname=rule_key）凑齐。
 	// Recording rules must emit the seatunnel:* series before dependent alerts turn pending,
-	// which takes a couple of eval cycles—poll until all 11 alert names show up.
+	// which takes a couple of eval cycles—poll until every catalog tsdb alert (alertname is the
+	// rule_key) shows up.
 	expectedAlertnames := map[string]struct{}{
-		"SeaTunnelMetricsEndpointDown":       {},
-		"SeaTunnelNodeStateDown":             {},
-		"SeaTunnelPartitionUnsafe":           {},
-		"SeaTunnelJobThreadPoolQueueHigh":    {},
-		"SeaTunnelCoordinatorBacklogGrowing": {},
-		"SeaTunnelCoordinatorRejectingTasks": {},
-		"SeaTunnelJVMHeapUsageHigh":          {},
-		"SeaTunnelProcessCpuHigh":            {},
-		"SeaTunnelGCTimeHigh":                {},
-		"SeaTunnelFDUsageHigh":               {},
-		"SeaTunnelThreadDeadlock":            {},
+		"split_brain_risk":                   {},
+		"deadlocked_threads_detected":        {},
+		"job_thread_pool_rejection_high":     {},
+		"memory_usage_high":                  {},
+		"fd_usage_high":                      {},
+		"cpu_usage_high":                     {},
+		"gc_time_high":                       {},
+		"job_thread_pool_queue_backlog_high": {},
+		"coordinator_backlog_growing":        {},
+		"failed_jobs_high":                   {},
 	}
 	seen := map[string]struct{}{}
 	deadline := time.Now().Add(10 * time.Second)

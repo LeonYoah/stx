@@ -309,6 +309,49 @@ func (r *Repository) ListNodeEventsAfter(ctx context.Context, nodeIDs []uint, af
 	return events, nil
 }
 
+// GetLatestEventBySubject retrieves the latest event matching one alert subject
+// (cluster + node + host tuple; zero ids match rows whose column is 0). The availability
+// evaluator dedupes host / cluster scoped episodes on this tuple rather than node id alone.
+// GetLatestEventBySubject 返回某告警主体（cluster + node + host 元组，0 值匹配为 0 的列）
+// 在指定类型集合中的最新事件；可用性评估器用它对主机 / 集群级告警阶段去重。
+func (r *Repository) GetLatestEventBySubject(ctx context.Context, clusterID, nodeID, hostID uint, eventTypes []ProcessEventType) (*ProcessEvent, error) {
+	if clusterID == 0 || len(eventTypes) == 0 {
+		return nil, nil
+	}
+	var event ProcessEvent
+	err := r.db.WithContext(ctx).
+		Where("cluster_id = ? AND node_id = ? AND host_id = ? AND event_type IN ?", clusterID, nodeID, hostID, eventTypes).
+		Order("created_at DESC").
+		First(&event).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &event, nil
+}
+
+// ListClusterEventsAfter 返回若干集群在指定时间之后、匹配类型的全部事件（created_at 升序），
+// 供告警生命周期为节点 / 主机 / 集群级事件统一解析恢复时间。
+// ListClusterEventsAfter returns all matching events of the given clusters after a time
+// (created_at ascending), so alert lifecycle can resolve recovery times uniformly for node,
+// host and cluster scoped events.
+func (r *Repository) ListClusterEventsAfter(ctx context.Context, clusterIDs []uint, after time.Time, eventTypes []ProcessEventType) ([]ProcessEvent, error) {
+	if len(clusterIDs) == 0 || len(eventTypes) == 0 {
+		return nil, nil
+	}
+	var events []ProcessEvent
+	err := r.db.WithContext(ctx).
+		Where("cluster_id IN ? AND event_type IN ? AND created_at > ?", clusterIDs, eventTypes, timex.Bound(after)).
+		Order("created_at ASC").
+		Find(&events).Error
+	if err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
 // CountEventsByType counts events by type for a cluster within a time range.
 // CountEventsByType 统计集群在时间范围内按类型分组的事件数量。
 func (r *Repository) CountEventsByType(ctx context.Context, clusterID uint, eventType ProcessEventType, since *time.Time) (int64, error) {

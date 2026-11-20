@@ -22,6 +22,7 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -1625,6 +1626,26 @@ func (s *Service) UpdateNode(ctx context.Context, clusterID uint, nodeID uint, r
 		node.Overrides = normalizedOverrides
 	}
 
+	if req.JavaHome != nil {
+		javaHome, err := javaruntime.Validate(*req.JavaHome)
+		if err != nil {
+			return nil, err
+		}
+		// 显式指定路径时让 Agent 现场校验 <java_home>/bin/java，不可用的 JDK 不能写进
+		// 节点唯一数据源（升级预检会再查，但错误应尽量在写入时暴露）。
+		// 显式空串表示清除回自动探测，无需校验。
+		// An explicit path is verified live via the Agent's check_java so an unusable JDK
+		// never lands in the node's single source of truth (the upgrade precheck would catch
+		// it later, but errors should surface at write time). An explicit empty string clears
+		// to auto detection and needs no check.
+		if javaHome != "" {
+			if err := s.verifyNodeJavaRuntime(ctx, node.HostID, javaHome); err != nil {
+				return nil, err
+			}
+		}
+		node.JavaHome = javaHome
+	}
+
 	if req.APIPort != nil && node.Role != NodeRoleWorker && node.APIPort != originalNodeAPIPort {
 		if err := s.syncNodeRuntimeAPIPort(ctx, clusterID, node, originalNodeAPIPort); err != nil {
 			return nil, err
@@ -1646,6 +1667,36 @@ func (s *Service) UpdateNode(ctx context.Context, clusterID uint, nodeID uint, r
 	s.notifyClusterTopologyChanged(ctx, clusterID)
 
 	return node, nil
+}
+
+// verifyNodeJavaRuntime 通过节点 Agent 校验指定 JDK 可用：主机离线、无 Agent、发送器缺失或
+// check_java 失败都拒绝写入，返回可直接展示的双语错误（含节点与路径）。
+// verifyNodeJavaRuntime asks the node Agent to verify the given JDK: an offline host, missing
+// Agent or sender, or a failed check_java all reject the write with a user-visible bilingual
+// error naming the node and path.
+func (s *Service) verifyNodeJavaRuntime(ctx context.Context, hostID uint, javaHome string) error {
+	if s.hostProvider == nil || s.agentSender == nil {
+		return fmt.Errorf("host provider or agent sender not configured / 主机提供者或 Agent 发送器未配置")
+	}
+	hostInfo, err := s.hostProvider.GetHostByID(ctx, hostID)
+	if err != nil {
+		return err
+	}
+	if hostInfo == nil || !hostInfo.IsOnline(s.heartbeatTimeout) {
+		return fmt.Errorf("host %d is offline, cannot verify JDK / 主机 %d 离线，无法校验 JDK", hostID, hostID)
+	}
+	if hostInfo.AgentID == "" {
+		return fmt.Errorf("host %d has no agent, cannot verify JDK / 主机 %d 未安装 Agent，无法校验 JDK", hostID, hostID)
+	}
+	success, output, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_java", javaruntime.CheckParams(javaHome))
+	if err != nil {
+		return fmt.Errorf("check node JDK / 检查节点 JDK: %w", err)
+	}
+	rt := javaruntime.Interpret(javaHome, success, output)
+	if rt.Status == javaruntime.StatusFailed {
+		return errors.New(rt.FailureMessage(hostInfo.Name))
+	}
+	return nil
 }
 
 func (s *Service) syncNodeRuntimeAPIPort(ctx context.Context, clusterID uint, node *ClusterNode, previousAPIPort int) error {

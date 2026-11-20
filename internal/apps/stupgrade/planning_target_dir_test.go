@@ -19,6 +19,7 @@ package stupgrade
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -132,5 +133,88 @@ func TestWaitForClusterHealthy(t *testing.T) {
 	service.SetClusterOperator(&stubClusterOperator{})
 	if err := service.waitForClusterHealthy(context.Background(), 1); err != nil {
 		t.Fatalf("expected skip, got %v", err)
+	}
+}
+
+func TestNodeTargetSourceJavaHomeJSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	empty := ""
+	raw, err := json.Marshal(NodeTarget{JavaHome: "/opt/jdk21", SourceJavaHome: &empty})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !json.Valid(raw) || !containsJSONKey(raw, "source_java_home") {
+		t.Fatalf("empty source_java_home must be persisted, got %s", raw)
+	}
+	var got NodeTarget
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.SourceJavaHome == nil || *got.SourceJavaHome != "" {
+		t.Fatalf("empty source must round-trip as non-nil empty, got %#v", got.SourceJavaHome)
+	}
+
+	var legacy NodeTarget
+	if err := json.Unmarshal([]byte(`{"java_home":"/opt/jdk8"}`), &legacy); err != nil {
+		t.Fatalf("legacy unmarshal: %v", err)
+	}
+	if legacy.SourceJavaHome != nil {
+		t.Fatalf("legacy snapshot without the key must stay nil, got %#v", legacy.SourceJavaHome)
+	}
+}
+
+func containsJSONKey(raw []byte, key string) bool {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return false
+	}
+	_, ok := obj[key]
+	return ok
+}
+
+func TestPrecheckRequestNodeJavaHomesJSON(t *testing.T) {
+	t.Parallel()
+	var req PrecheckRequest
+	if err := json.Unmarshal([]byte(`{"cluster_id":1,"target_version":"3.1.0","node_java_homes":{"11":"/opt/jdk21"}}`), &req); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if req.NodeJavaHomes[11] != "/opt/jdk21" {
+		t.Fatalf("node_java_homes = %#v", req.NodeJavaHomes)
+	}
+}
+
+func TestResolveTargetJavaHome(t *testing.T) {
+	t.Parallel()
+	nodeID := uint(11)
+	current := "/opt/jdk8"
+	cases := []struct {
+		name string
+		req  *PrecheckRequest
+		want string
+		fail bool
+	}{
+		{name: "falls back to current node", req: nil, want: current},
+		{name: "cluster-wide override", req: &PrecheckRequest{JavaHome: "/opt/jdk21"}, want: "/opt/jdk21"},
+		{name: "per-node override wins", req: &PrecheckRequest{JavaHome: "/opt/jdk21", NodeJavaHomes: map[uint]string{nodeID: "/usr/lib/jvm/java-17"}}, want: "/usr/lib/jvm/java-17"},
+		{name: "per-node empty means auto", req: &PrecheckRequest{JavaHome: "/opt/jdk21", NodeJavaHomes: map[uint]string{nodeID: ""}}, want: ""},
+		{name: "other node keeps cluster-wide", req: &PrecheckRequest{JavaHome: "/opt/jdk21", NodeJavaHomes: map[uint]string{99: "/opt/other"}}, want: "/opt/jdk21"},
+		{name: "rejects relative path", req: &PrecheckRequest{JavaHome: "opt/jdk21"}, fail: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveTargetJavaHome(nodeID, current, tc.req)
+			if tc.fail {
+				if err == nil {
+					t.Fatal("expected invalid java_home to fail")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveTargetJavaHome returned %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

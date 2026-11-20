@@ -36,10 +36,10 @@ func addMonitoringWriteCommands(root *cobra.Command, storeProvider authStoreProv
 	}
 	alertPolicyCommand := childCommand(monitoringCommand, "alert-policy")
 	alertInstanceCommand := childCommand(monitoringCommand, "alert-instance")
-	clusterRuleCommand := childCommand(childCommand(monitoringCommand, "cluster"), "rule")
+	clusterRuleCommand := childCommand(monitoringCommand, "cluster-rule")
 	notificationChannelCommand := childCommand(monitoringCommand, "notification-channel")
-	notificationRouteCommand := childCommand(monitoringCommand, "notification-route")
-	if alertPolicyCommand == nil || alertInstanceCommand == nil || clusterRuleCommand == nil || notificationChannelCommand == nil || notificationRouteCommand == nil {
+	notificationDefaultsCommand := childCommand(monitoringCommand, "notification-defaults")
+	if alertPolicyCommand == nil || alertInstanceCommand == nil || clusterRuleCommand == nil || notificationChannelCommand == nil || notificationDefaultsCommand == nil {
 		panic("generated monitoring subcommand is missing")
 	}
 
@@ -61,12 +61,28 @@ func addMonitoringWriteCommands(root *cobra.Command, storeProvider authStoreProv
 		newMonitoringAlertActionCommand(storeProvider, "close"),
 	)
 	clusterRuleCommand.AddCommand(newMonitoringRequestFileCommand(storeProvider, monitoringRequestFileCommand{
-		Use: "update <cluster-id> <rule-id>", Short: "Update a cluster alert rule", Example: "stx monitoring cluster rule update 6 1 --request-file ./rule.json --confirm",
-		OperationID: "monitoring.cluster.rule.update", Method: http.MethodPut, Args: cobra.ExactArgs(2),
-		Path: func(args []string) string {
-			return "/api/v1/monitoring/clusters/" + url.PathEscape(args[0]) + "/rules/" + url.PathEscape(args[1])
-		},
-		NextCommand: func(args []string) string { return "stx monitoring cluster rule list " + args[0] },
+		Use: "update <key>", Short: "Update the global layer of a cluster rule", Example: "stx monitoring cluster-rule update node_offline --request-file ./rule.json --confirm",
+		OperationID: "monitoring.cluster-rule.update", Method: http.MethodPut, Args: cobra.ExactArgs(1),
+		Path:        func(args []string) string { return "/api/v1/monitoring/cluster-rules/" + url.PathEscape(args[0]) },
+		NextCommand: func(args []string) string { return "stx monitoring cluster-rule get " + args[0] },
+	}))
+	clusterRuleOverrideCommand := &cobra.Command{Use: "override", Short: "Manage cluster rule overrides"}
+	clusterRuleCommand.AddCommand(clusterRuleOverrideCommand)
+	clusterRuleOverrideCommand.AddCommand(
+		newMonitoringRequestFileCommand(storeProvider, monitoringRequestFileCommand{
+			Use: "set <key> <cluster-id>", Short: "Set one cluster's override of a rule", Example: "stx monitoring cluster-rule override set node_offline 6 --request-file ./override.json --confirm",
+			OperationID: "monitoring.cluster-rule-override.set", Method: http.MethodPut, Args: cobra.ExactArgs(2),
+			Path: func(args []string) string {
+				return "/api/v1/monitoring/cluster-rules/" + url.PathEscape(args[0]) + "/clusters/" + url.PathEscape(args[1])
+			},
+			NextCommand: func(args []string) string { return "stx monitoring cluster-rule get " + args[0] },
+		}),
+	)
+	notificationDefaultsCommand.AddCommand(newMonitoringRequestFileCommand(storeProvider, monitoringRequestFileCommand{
+		Use: "update", Short: "Update alert notification defaults", Example: "stx monitoring notification-defaults update --request-file ./defaults.json --confirm",
+		OperationID: "monitoring.notification-defaults.update", Method: http.MethodPut, Args: cobra.NoArgs,
+		Path:        func([]string) string { return "/api/v1/monitoring/alert-notification-defaults" },
+		NextCommand: func([]string) string { return "stx monitoring notification-defaults get" },
 	}))
 	notificationChannelCommand.AddCommand(
 		newMonitoringRequestFileCommand(storeProvider, monitoringRequestFileCommand{
@@ -91,18 +107,6 @@ func addMonitoringWriteCommands(root *cobra.Command, storeProvider authStoreProv
 			Use: "test-connection", Short: "Test notification channel connectivity", Example: "stx monitoring notification-channel test-connection --request-file ./channel.json --confirm",
 			OperationID: "monitoring.notification-channel.test-connection", Method: http.MethodPost, Args: cobra.NoArgs,
 			Path: func([]string) string { return "/api/v1/monitoring/notification-channels/test-connection" }, NextCommand: func([]string) string { return "stx monitoring notification-channel list" },
-		}),
-	)
-	notificationRouteCommand.AddCommand(
-		newMonitoringRequestFileCommand(storeProvider, monitoringRequestFileCommand{
-			Use: "create", Short: "Create a notification route", Example: "stx monitoring notification-route create --request-file ./route.json --confirm",
-			OperationID: "monitoring.notification-route.create", Method: http.MethodPost, Args: cobra.NoArgs,
-			Path: func([]string) string { return "/api/v1/monitoring/notification-routes" }, NextCommand: func([]string) string { return "stx monitoring notification-route list" },
-		}),
-		newMonitoringRequestFileCommand(storeProvider, monitoringRequestFileCommand{
-			Use: "update <id>", Short: "Update a notification route", Example: "stx monitoring notification-route update 1 --request-file ./route.json --confirm",
-			OperationID: "monitoring.notification-route.update", Method: http.MethodPut, Args: cobra.ExactArgs(1),
-			Path: func(args []string) string { return "/api/v1/monitoring/notification-routes/" + url.PathEscape(args[0]) }, NextCommand: func([]string) string { return "stx monitoring notification-route list" },
 		}),
 	)
 }

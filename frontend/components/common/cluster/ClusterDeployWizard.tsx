@@ -39,7 +39,7 @@ import {
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {ChevronLeft, ChevronRight, X, PlayCircle, Layers} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {usePackages} from '@/hooks/use-installer';
 import {
@@ -308,6 +308,7 @@ export function ClusterDeployWizard({
             install_dir: config.installDir,
             ports: portsToCheck,
             java_home: hostWithRole.javaHome || undefined,
+            target_version: config.version || undefined,
           },
         );
         return {

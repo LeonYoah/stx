@@ -37,7 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {Plus, Search, Server, Layers, RefreshCw} from 'lucide-react';
 import {WorkspaceHeader, StatPillsBar, ModuleNavTabs} from '@/components/common/layout';
 import {motion} from 'motion/react';

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 
 /**
  * 复制文本并提示；失败时静默（如非安全上下文没有 clipboard）。

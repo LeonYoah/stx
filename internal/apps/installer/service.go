@@ -1902,17 +1902,23 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 
 	// Check 4: Java environment
 	// 检查 4：Java 环境
-	// Supported: Java 8, 11 (passed)
-	// Other versions: warning (not blocking)
+	// Supported: Java 8, 11 for targets <3.1.0; Java 11+ for targets ≥3.1.0 (passed)
+	// Below the required major: failed (blocking); other versions: warning
 	// Not installed: failed
-	// 支持：Java 8、11（通过）
-	// 其他版本：警告（不阻塞）
+	// 支持：目标 <3.1.0 时 Java 8、11；目标 ≥3.1.0 时 Java 11+（通过）
+	// 低于要求主版本：失败（阻断）；其他版本：警告（不阻塞）
 	// 未安装：失败
 	javaItem := PrecheckItem{
 		Name:    "java",
 		Details: make(map[string]interface{}),
 	}
-	javaItem.Details["supported_versions"] = []int{8, 11}
+	targetVersion := ""
+	if req != nil {
+		targetVersion = req.TargetVersion
+	}
+	minJavaMajor := javaruntime.MinSupportedMajor(targetVersion)
+	javaItem.Details["supported_versions"] = supportedJavaVersions(minJavaMajor)
+	javaItem.Details["required_java"] = fmt.Sprintf("%d+", minJavaMajor)
 
 	// 指定了节点 JDK 时只检查 <java_home>/bin/java（AC2），失败直接阻断并带上节点、路径与原因；
 	// 未指定时下面的原有逻辑保持不变（AC6）。
@@ -1923,7 +1929,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 		javaHome = req.JavaHome
 	}
 	if strings.TrimSpace(javaHome) != "" {
-		s.runCustomJavaPrecheck(ctx, hostInfo, javaHome, &javaItem)
+		s.runCustomJavaPrecheck(ctx, hostInfo, javaHome, targetVersion, &javaItem)
 		if javaItem.Status == CheckStatusFailed {
 			result.OverallStatus = CheckStatusFailed
 		}
@@ -1949,7 +1955,7 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 		// Java not installed
 		// Java 未安装
 		javaItem.Status = CheckStatusFailed
-		javaItem.Message = "Java is not installed. Please install Java 8 or 11. / Java 未安装。请安装 Java 8 或 11。"
+		javaItem.Message = fmt.Sprintf("Java is not installed. Please install Java %d+. / Java 未安装。请安装 Java %d+。", minJavaMajor, minJavaMajor)
 		if output != "" {
 			javaItem.Details["output"] = output
 		}
@@ -1973,11 +1979,17 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 			javaItem.Details["java_home_source"] = javaruntime.SourceDetected
 		}
 
-		if javaVersion == 8 || javaVersion == 11 {
+		if javaVersion == 8 || javaVersion == 11 || javaVersion >= minJavaMajor {
 			// Supported version
 			// 支持的版本
 			javaItem.Status = CheckStatusPassed
 			javaItem.Message = fmt.Sprintf("Java %d is installed (supported) / Java %d 已安装（支持）", javaVersion, javaVersion)
+		} else if javaVersion > 0 && javaVersion < minJavaMajor {
+			// 目标版本要求更高 JDK（如 ≥3.1.0 要求 11+），低于下限必失败。
+			// The target requires a newer JDK (≥3.1.0 needs 11+); anything below must block.
+			javaItem.Status = CheckStatusFailed
+			javaItem.Message = fmt.Sprintf("Java %d is installed but SeaTunnel %s requires Java %d+. / Java %d 已安装，但 SeaTunnel %s 要求 Java %d+。", javaVersion, targetVersion, minJavaMajor, javaVersion, targetVersion, minJavaMajor)
+			result.OverallStatus = CheckStatusFailed
 		} else if javaVersion > 0 {
 			// Other version - warning but not blocking
 			// 其他版本 - 警告但不阻塞
@@ -1992,6 +2004,15 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 	}
 	result.Items = append(result.Items, javaItem)
 	return s.finishPrecheckSummary(ctx, hostID, result), nil
+}
+
+// supportedJavaVersions 把最低 JDK 主版本号展开成预检详情里展示的支持列表。
+// supportedJavaVersions expands the minimum JDK major into the supported list shown in precheck details.
+func supportedJavaVersions(minMajor int) []int {
+	if minMajor >= 11 {
+		return []int{11, 17}
+	}
+	return []int{8, 11}
 }
 
 // finishPrecheckSummary 汇总各检查项得到整体状态与摘要。
@@ -2047,7 +2068,7 @@ func (s *Service) finishPrecheckSummary(ctx context.Context, hostID uint, result
 // runCustomJavaPrecheck checks the node's specified JDK: a malformed path, a missing path, a non-executable
 // bin/java or an unsupported Agent fails; 8 and 11 pass, other versions warn. Details record the checked
 // java_home, java_bin, source and version (AC3).
-func (s *Service) runCustomJavaPrecheck(ctx context.Context, hostInfo *HostInfo, javaHome string, item *PrecheckItem) {
+func (s *Service) runCustomJavaPrecheck(ctx context.Context, hostInfo *HostInfo, javaHome string, targetVersion string, item *PrecheckItem) {
 	nodeName := strings.TrimSpace(hostInfo.Name)
 	if nodeName == "" {
 		nodeName = fmt.Sprintf("#%d", hostInfo.ID)
@@ -2083,14 +2104,25 @@ func (s *Service) runCustomJavaPrecheck(ctx context.Context, hostInfo *HostInfo,
 	if rt.Reason != "" {
 		item.Details["error_reason"] = rt.Reason
 	}
-	switch rt.Status {
+	// 目标版本感知的判定优先于通用矩阵：≥3.1.0 时低于 11 的 JDK 必须阻断，
+	// 同时让 17+ 判通过而非"推荐 8 或 11"的方向性误导。
+	// The target-aware verdict takes precedence over the generic matrix: on ≥3.1.0
+	// a JDK below 11 must block, while 17+ passes instead of misleading "prefer 8 or 11".
+	switch javaruntime.StatusForTarget(rt.Version, targetVersion) {
 	case javaruntime.StatusPassed:
 		item.Status = CheckStatusPassed
 		item.Message = fmt.Sprintf("节点 %s 使用 JDK %s，Java %d（支持）/ Node %s uses JDK %s, Java %d (supported)", nodeName, rt.JavaBin, rt.Version, nodeName, rt.JavaBin, rt.Version)
-	case javaruntime.StatusWarning:
+	case javaruntime.StatusFailed:
+		item.Status = CheckStatusFailed
+		item.Message = fmt.Sprintf("节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+ / Node %s runs Java %d but SeaTunnel %s requires Java %d+", nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion), nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion))
+	default:
 		item.Status = CheckStatusWarning
 		item.Message = fmt.Sprintf("节点 %s 使用 JDK %s，Java %d，推荐 8 或 11 / Node %s uses JDK %s, Java %d; Java 8 or 11 is recommended", nodeName, rt.JavaBin, rt.Version, nodeName, rt.JavaBin, rt.Version)
-	default:
+	}
+	// JDK 完全不可用（路径错误、执行失败、Agent 过旧）时保持阻断，不进入版本矩阵。
+	// A JDK that is unusable at all (bad path, exec failure, old Agent) stays blocking
+	// regardless of the version matrix.
+	if rt.Status == javaruntime.StatusFailed {
 		item.Status = CheckStatusFailed
 		item.Message = rt.FailureMessage(nodeName)
 	}

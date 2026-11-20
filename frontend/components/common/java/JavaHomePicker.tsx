@@ -55,6 +55,10 @@ interface JavaHomePickerProps {
   disabled?: boolean;
   className?: string;
   id?: string;
+  /** Hide the field label when the parent already names the control / 父级已有标题时隐藏字段标签 */
+  hideLabel?: boolean;
+  /** Hide auto-detect; the parent requires an explicit JDK path / 隐藏自动探测，由父级要求必须显式选择 JDK */
+  hideAuto?: boolean;
 }
 
 /**
@@ -69,6 +73,8 @@ export function JavaHomePicker({
   disabled,
   className,
   id,
+  hideLabel,
+  hideAuto,
 }: JavaHomePickerProps) {
   const t = useTranslations();
   const [candidates, setCandidates] = useState<JavaRuntimeCandidate[]>([]);
@@ -154,35 +160,54 @@ export function JavaHomePicker({
       return CUSTOM_VALUE;
     }
     if (!value) {
-      return AUTO_VALUE;
+      return hideAuto ? '' : AUTO_VALUE;
     }
     if (candidates.some((c) => c.java_home === value)) {
       return value;
     }
     return CUSTOM_VALUE;
-  }, [customMode, value, candidates]);
+  }, [customMode, hideAuto, value, candidates]);
 
   const badgeLabel = customMode
     ? t('javaHome.badgeCustom')
     : value
       ? t('javaHome.badgeDetected')
-      : t('javaHome.badgeAuto');
+      : hideAuto
+        ? ''
+        : t('javaHome.badgeAuto');
 
   return (
     <div className={cn('space-y-2', className)}>
-      <div className='flex items-center gap-2'>
-        <Label htmlFor={id} className='text-xs'>
-          {t('javaHome.label')}
-        </Label>
-        <HelpHint label={t('javaHome.label')} content={t('javaHome.help')} />
-        <Badge variant='outline' className='h-5 text-[10px]'>
-          {badgeLabel}
-        </Badge>
-        {loading && <Loader2 className='h-3 w-3 animate-spin text-muted-foreground' />}
-      </div>
+      {hideLabel ? (
+        <div className='flex items-center gap-2'>
+          {badgeLabel ? (
+            <Badge variant='outline' className='h-5 text-[10px]'>
+              {badgeLabel}
+            </Badge>
+          ) : null}
+          {loading && (
+            <Loader2 className='h-3 w-3 animate-spin text-muted-foreground' />
+          )}
+        </div>
+      ) : (
+        <div className='flex items-center gap-2'>
+          <Label htmlFor={id} className='text-xs'>
+            {t('javaHome.label')}
+          </Label>
+          <HelpHint label={t('javaHome.label')} content={t('javaHome.help')} />
+          {badgeLabel ? (
+            <Badge variant='outline' className='h-5 text-[10px]'>
+              {badgeLabel}
+            </Badge>
+          ) : null}
+          {loading && (
+            <Loader2 className='h-3 w-3 animate-spin text-muted-foreground' />
+          )}
+        </div>
+      )}
       <Select
         disabled={disabled || loading}
-        value={selectValue}
+        value={selectValue || undefined}
         onValueChange={(next) => {
           if (next === CUSTOM_VALUE) {
             setCustomMode(true);
@@ -201,7 +226,11 @@ export function JavaHomePicker({
           <SelectValue placeholder={t('javaHome.placeholder')} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={AUTO_VALUE}>{t('javaHome.optionAuto')}</SelectItem>
+          {hideAuto ? null : (
+            <SelectItem value={AUTO_VALUE}>
+              {t('javaHome.optionAuto')}
+            </SelectItem>
+          )}
           {candidates.map((c) => (
             <SelectItem key={c.java_home} value={c.java_home}>
               {t('javaHome.optionDetected', {
@@ -210,7 +239,9 @@ export function JavaHomePicker({
               })}
             </SelectItem>
           ))}
-          <SelectItem value={CUSTOM_VALUE}>{t('javaHome.optionCustom')}</SelectItem>
+          <SelectItem value={CUSTOM_VALUE}>
+            {t('javaHome.optionCustom')}
+          </SelectItem>
         </SelectContent>
       </Select>
       {customMode && (
@@ -225,7 +256,10 @@ export function JavaHomePicker({
         />
       )}
       {loadError && (
-        <p className='text-[11px] text-amber-700 dark:text-amber-300' role='status'>
+        <p
+          className='text-[11px] text-amber-700 dark:text-amber-300'
+          role='status'
+        >
           {t('javaHome.loadFailed')}
         </p>
       )}

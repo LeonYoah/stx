@@ -88,6 +88,54 @@ func TestInterpretCustom(t *testing.T) {
 	}
 }
 
+// 目标版本感知矩阵：≥3.1.0 要求 11+，低于阻断；更早目标沿用 {8,11} 通过、其余警告。
+// The target-aware matrix: ≥3.1.0 requires 11+, below is blocked; older targets keep
+// {8,11} passed and everything else warning.
+func TestStatusForTarget(t *testing.T) {
+	cases := []struct {
+		version int
+		target  string
+		want    string
+	}{
+		{8, "3.1.0", StatusFailed},
+		{10, "3.1.0", StatusFailed},
+		{11, "3.1.0", StatusPassed},
+		{17, "3.1.0", StatusPassed},
+		{21, "3.1.0", StatusPassed},
+		{8, "3.2.0", StatusFailed},
+		{8, "3.0.0", StatusPassed},
+		{11, "3.0.0", StatusPassed},
+		{17, "3.0.0", StatusWarning},
+		{8, "2.3.12", StatusPassed},
+		{17, "2.3.12", StatusWarning},
+		// 版本未知（0/-1）保守警告，不阻断。/ Unknown versions degrade to warning, never block.
+		{0, "3.1.0", StatusWarning},
+		{-1, "3.1.0", StatusWarning},
+		// 空目标沿用旧矩阵。/ Empty target keeps the legacy matrix.
+		{8, "", StatusPassed},
+		{17, "", StatusWarning},
+	}
+	for _, tc := range cases {
+		if got := StatusForTarget(tc.version, tc.target); got != tc.want {
+			t.Fatalf("StatusForTarget(%d, %q) = %s, want %s", tc.version, tc.target, got, tc.want)
+		}
+	}
+}
+
+func TestMinSupportedMajor(t *testing.T) {
+	for _, tc := range []struct {
+		target string
+		want   int
+	}{
+		{"3.1.0", 11}, {"3.1.1", 11}, {"3.2.0", 11}, {"4.0.0", 11},
+		{"3.0.0", 8}, {"2.3.12", 8}, {"", 8},
+	} {
+		if got := MinSupportedMajor(tc.target); got != tc.want {
+			t.Fatalf("MinSupportedMajor(%q) = %d, want %d", tc.target, got, tc.want)
+		}
+	}
+}
+
 // 旧 Agent 忽略 java_home 时必须失败，避免静默用错 JDK。
 // An old Agent that ignores java_home must fail so the wrong JDK is never used silently.
 func TestInterpretOldAgentFailsForCustom(t *testing.T) {

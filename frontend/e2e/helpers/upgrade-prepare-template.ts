@@ -121,6 +121,8 @@ function buildReadyPrecheck() {
         target_version: targetVersion,
         source_install_dir: '/opt/seatunnel-2.3.13',
         target_install_dir: targetInstallDir,
+        source_java_home: '/usr/lib/jvm/java-8-temurin',
+        java_home: '/usr/lib/jvm/java-8-temurin',
       },
     ],
     generated_at: now,
@@ -169,6 +171,8 @@ function buildBlockedPrecheck() {
         target_version: targetVersion,
         source_install_dir: '/opt/seatunnel-2.3.13',
         target_install_dir: targetInstallDir,
+        source_java_home: '/usr/lib/jvm/java-8-temurin',
+        java_home: '/usr/lib/jvm/java-8-temurin',
       },
     ],
     generated_at: now,
@@ -241,6 +245,28 @@ export async function installUpgradePrepareTemplateRoutes(
             },
           ],
         }),
+      });
+      return;
+    }
+
+    if (
+      request.method() === 'GET' &&
+      pathname.endsWith('/java-runtimes')
+    ) {
+      await route.fulfill({
+        status: 200,
+        json: ok([
+          {
+            java_home: '/usr/lib/jvm/java-8-temurin',
+            version: 8,
+            version_string: '1.8.0_512',
+          },
+          {
+            java_home: '/usr/lib/jvm/default-java',
+            version: 21,
+            version_string: '21.0.13',
+          },
+        ]),
       });
       return;
     }

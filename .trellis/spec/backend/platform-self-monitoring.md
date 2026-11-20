@@ -37,7 +37,7 @@ embedts.RegisterSelfCollectors(reg ...prometheus.Collector) error
 ### 4. 平台健康告警模板
 
 - 五条内置模板归类 `platform_health`：`stx_server_memory_high`、`stx_server_http_5xx_ratio_high`、`stx_tsdb_compaction_failed`、`stx_agent_memory_high`、`stx_agent_version_mismatch`。
-- 走 metrics 模板求值器，`metric_source="stx_platform"`；PromQL 只带 `job="stx_embedded"` 或 Agent 上报序列，严禁混入 `job="seatunnel_engine_http"`。
+- PromQL 表达式构造保留在 `buildPlatformMetricPromQL`，只带 `job="stx_embedded"` 或 Agent 上报序列，严禁混入 `job="seatunnel_engine_http"`；模板摘要随 `/alert-rules/catalog` 暴露（注：`/alert-policies` 写接口在告警模型收拢后已收缩为仅接收 `sync_job`）。
 - 版本不一致模板用 `fmt.Sprintf` 注入 server 版本时必须先做 PromQL 字符串转义。
 
 ### 5. 边界：进程内自监控的盲区

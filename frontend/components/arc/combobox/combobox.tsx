@@ -31,6 +31,14 @@
 
 "use client";
 
+/*
+ * 本地修改：`label` 改为可选——不显示标签时必须传 `aria-label`（缺两者 dev 告警），
+ * 供筛选栏等无可见标签场景使用（design §3.2）；升级 Arc 时 diff 合并。
+ * Local modification: `label` is now optional — a label-less Combobox must pass
+ * `aria-label` (dev warns when both are missing) for toolbar use (design §3.2);
+ * diff-merge on Arc upgrades.
+ */
+
 import { animate, AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import {
@@ -55,13 +63,18 @@ export interface ComboboxOption {
 
 export interface ComboboxProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "defaultValue" | "onChange" | "placeholder"> {
-  label: string;
+  /** 可见标签；不传时必须给 `aria-label`。Visible label; required unless `aria-label` is given. */
+  label?: string;
   options: ComboboxOption[];
   value?: string;
   defaultValue?: string;
   onValueChange?: (value: string) => void;
   description?: string;
   placeholder?: string;
+  // 本地修改：提供时覆盖输入框展示的已选文本（如筛选器在「全部」态下显示维度名）。
+  // Local modification: overrides the shown selected text — e.g. a filter shows
+  // its dimension name while "all" is selected.
+  displayValue?: string;
   emptyMessage?: string;
   className?: string;
 }
@@ -89,6 +102,7 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
     onValueChange,
     description,
     placeholder = "Search or select…",
+    displayValue,
     emptyMessage = "No matches found",
     id,
     className,
@@ -99,6 +113,18 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
   forwardedRef,
 ) {
   const generatedId = useId();
+  // 本地修改：标签与 aria-label 必须有一个，否则屏幕阅读器拿不到字段名（dev 告警一次）。
+  // Local modification: one of label / aria-label is required; warn once in dev.
+  const warned = useRef(false);
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production" && !warned.current && !label && !inputProps["aria-label"]) {
+      warned.current = true;
+      console.warn("[arc/combobox] Combobox without a visible `label` must pass `aria-label`.");
+    }
+    // inputProps 的 aria-label 每次渲染都进 rest，依赖原始属性而非解构变量。
+    // The aria-label lands in rest props; depend on the raw props bag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [label, inputProps["aria-label"]]);
   const controlId = id ?? generatedId;
   const listboxId = `${controlId}-listbox`;
   const hintId = description ? `${controlId}-description` : undefined;
@@ -221,12 +247,12 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
     }
   };
 
-  const inputValue = open ? query : selectedOption?.label ?? "";
+  const inputValue = open ? query : displayValue ?? selectedOption?.label ?? "";
   const activeOption = activeIndex >= 0 ? filteredOptions[activeIndex] : undefined;
 
   return (
     <div ref={rootRef} className={styles.field}>
-      <label htmlFor={controlId}>{label}</label>
+      {label ? <label htmlFor={controlId}>{label}</label> : null}
       <div className={[styles.control, open ? styles.open : "", disabled ? styles.disabled : "", className ?? ""].filter(Boolean).join(" ")}>
         <Search className={styles.searchIcon} size={16} strokeWidth={1.75} aria-hidden="true" />
         <input
@@ -237,7 +263,7 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
           role="combobox"
           value={inputValue}
           // While searching, the chosen label stays in place as muted placeholder copy instead of vanishing.
-          placeholder={selectedOption?.label ?? placeholder}
+          placeholder={displayValue ?? selectedOption?.label ?? placeholder}
           disabled={disabled}
           aria-describedby={hintId}
           aria-expanded={open}
@@ -286,7 +312,7 @@ export const Combobox = forwardRef<HTMLInputElement, ComboboxProps>(function Com
             role="presentation"
           >
             <AutoHeight reduceMotion={reduceMotion}>
-            <div id={listboxId} className={styles.listbox} role="listbox" aria-label={`${label} options`}>
+            <div id={listboxId} className={styles.listbox} role="listbox" aria-label={`${label ?? inputProps["aria-label"] ?? ""} options`}>
               {filteredOptions.length ? filteredOptions.map((option, index) => (
                 <div
                   key={option.value}

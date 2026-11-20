@@ -134,11 +134,12 @@ export function CronExpressionEditor({
   }, [expression]);
 
   const derivedExpression = useMemo(() => expressionFromParts(parts), [parts]);
-  const previewState = useMemo(() => {
+  // 下次运行时间仅依赖表达式与时区，不随外层传入的新 translator 函数重算。
+  // Next-run calculation depends only on expression and timezone, not inline translator references.
+  const nextRunsState = useMemo(() => {
     try {
       return {
         ok: true,
-        text: cronToText(expression || derivedExpression, translator),
         nextRuns: getNextRuns(
           expression || derivedExpression,
           5,
@@ -152,7 +153,10 @@ export function CronExpressionEditor({
         error: error instanceof Error ? error.message : labels.invalidCronExpression,
       } as const;
     }
-  }, [derivedExpression, expression, labels.invalidCronExpression, timezone, translator]);
+  }, [derivedExpression, expression, labels.invalidCronExpression, timezone]);
+  const previewText = nextRunsState.ok
+    ? cronToText(expression || derivedExpression, translator)
+    : '';
 
   const selectedPreset = presets.find(
     (preset) => (expression || derivedExpression) === preset.expr,
@@ -231,21 +235,21 @@ export function CronExpressionEditor({
           </span>
           {footer}
         </div>
-        {previewState.ok ? (
+        {nextRunsState.ok ? (
           <div className='space-y-2 text-xs'>
             <div>
               <div className='font-mono text-xs text-foreground'>
                 {expression || derivedExpression}
               </div>
               <div className='mt-1 leading-relaxed text-muted-foreground'>
-                {previewState.text}
+                {previewText}
               </div>
             </div>
             <div className='min-w-0 space-y-1'>
               <div className='text-[11px] font-medium text-muted-foreground'>
                 {labels.nextRuns}
               </div>
-              {previewState.nextRuns.map((run, index) => (
+              {nextRunsState.nextRuns.map((run, index) => (
                 <div
                   key={`${run.toISOString()}-${index}`}
                   className='overflow-x-auto whitespace-nowrap font-mono text-[11px] tabular-nums text-foreground/90'
@@ -256,7 +260,7 @@ export function CronExpressionEditor({
             </div>
           </div>
         ) : (
-          <div className='text-xs text-destructive'>{previewState.error}</div>
+          <div className='text-xs text-destructive'>{nextRunsState.error}</div>
         )}
       </div>
     </div>

@@ -39,7 +39,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {Play, Square, RotateCcw, Loader2} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {ClusterInfo, ClusterStatus, OperationType} from '@/lib/services/cluster/types';
 

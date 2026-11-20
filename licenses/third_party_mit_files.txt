@@ -210,3 +210,4 @@ frontend/components/motion/table/use-column-resize.ts
 frontend/components/motion/table/use-column-sort.ts
 frontend/components/motion/table/use-row-selection.ts
 frontend/components/motion/table/utils.ts
+frontend/components/arc/toast-stack/toast-stack.tsx

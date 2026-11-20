@@ -4733,6 +4733,7 @@
     "multiTableBadge": "多表 ({count} 表)",
     "viewMultiTableMetricsHint": "点击查看多表分表指标明细",
     "cdcDelayTooltip": "近 1 分钟最大 {max}，更新于 {time}（延迟 ≥1 秒时引擎才上报）",
+    "runModeExternal": "外部提交",
     "runModePreview": "预览",
     "runModeDolphin": "Dolphin 调度",
     "runModeSchedule": "调度",

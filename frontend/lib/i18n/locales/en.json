@@ -4733,6 +4733,7 @@
     "multiTableBadge": "Multi-Table ({count})",
     "viewMultiTableMetricsHint": "Click to view per-table metrics breakdown",
     "cdcDelayTooltip": "Max {max} in the last minute, updated {time} (the engine only reports delays ≥ 1s)",
+    "runModeExternal": "External",
     "runModePreview": "Preview",
     "runModeDolphin": "Dolphin schedule",
     "runModeSchedule": "Schedule",

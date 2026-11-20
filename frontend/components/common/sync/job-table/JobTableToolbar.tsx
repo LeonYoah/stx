@@ -22,9 +22,10 @@ import {useTranslations} from 'next-intl';
 import {Search} from 'lucide-react';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
+import {SortMenu, type SortMenuOption} from '@/components/common/SortMenu';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
-import type {SyncJobStatusGroup} from '@/lib/services/sync';
+import type {SyncJobListSort, SyncJobStatusGroup} from '@/lib/services/sync';
 import {
   JOB_STATUS_GROUPS,
   type JobListQuery,
@@ -197,6 +198,54 @@ export function JobTableToolbar({
     // one list, and the toolbar keeps only status pills and search.
     null;
 
+  // 排序菜单汇集全部排序维度（列头点按排序仍保留为快捷路径）；速率 / CDC 延迟只在
+  // 「运行中」组有效，非运行中组保留选项但禁用并说明原因——藏掉会让人以为功能不存在。
+  // The sort menu gathers every sort dimension (header click-sort stays as a shortcut);
+  // rate / CDC delay only apply inside the Running group — elsewhere they stay listed
+  // but disabled with the reason shown, since hiding them looks like a missing feature.
+  const runningOnlyHint = t('sortNeedsRunning');
+  const runningOnlySorts: SortMenuOption<SyncJobListSort>[] = (
+    ['rate', 'cdc_delay'] as const
+  ).flatMap((sort) =>
+    (['desc', 'asc'] as const).map((order) => ({
+      sort,
+      order,
+      label: t(`sortMenu.${sort}.${order}`),
+      disabledReason:
+        query.statusGroup === 'running' ? undefined : runningOnlyHint,
+    })),
+  );
+  const sortMenu = (
+    <SortMenu<SyncJobListSort>
+      label={t('sortMenu.label')}
+      value={{sort: query.sort, order: query.order}}
+      onSelect={(sort, order) => onQueryChange({sort, order, page: 1})}
+      testId={`${testIdPrefix}-sort`}
+      options={[
+        {
+          sort: 'started_at',
+          order: 'desc',
+          label: t('sortMenu.started_at.desc'),
+        },
+        {sort: 'started_at', order: 'asc', label: t('sortMenu.started_at.asc')},
+        {
+          sort: 'finished_at',
+          order: 'desc',
+          label: t('sortMenu.finished_at.desc'),
+        },
+        {
+          sort: 'finished_at',
+          order: 'asc',
+          label: t('sortMenu.finished_at.asc'),
+        },
+        {sort: 'duration', order: 'desc', label: t('sortMenu.duration.desc')},
+        {sort: 'duration', order: 'asc', label: t('sortMenu.duration.asc')},
+        {sort: 'attention', order: 'desc', label: t('sortMenu.attention.desc')},
+        ...runningOnlySorts,
+      ]}
+    />
+  );
+
   const bulkBar =
     bulk && (bulk.selectedCount > 0 || bulk.result) ? (
       <div
@@ -269,6 +318,7 @@ export function JobTableToolbar({
             <>
               {typeControl}
               {searchControl}
+              {sortMenu}
             </>
           }
         />
@@ -288,6 +338,7 @@ export function JobTableToolbar({
       <div className='flex flex-wrap items-center gap-2'>
         {searchControl}
         {typeControl}
+        {sortMenu}
       </div>
 
       {bulkBar}

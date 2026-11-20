@@ -8621,7 +8621,7 @@ paths:
         in: query
         name: exclude_run_type
         type: string
-      - description: attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）
+      - description: attention|started_at|created_at|finished_at|duration|rate|cdc_delay（后两者需 status_group=running）
         in: query
         name: sort
         type: string

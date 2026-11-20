@@ -55,7 +55,7 @@ func syncOperationSpecs() []OperationSpec {
 		{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Filter by cluster ID"},
 		{Name: "keyword", Location: InputQuery, Required: false, Description: "Task name (fuzzy), engine job ID or platform job ID (exact)"},
 		{Name: "exclude_run_type", Location: InputQuery, Required: false, Description: "Comma-separated run types to exclude, e.g. preview"},
-		{Name: "sort", Location: InputQuery, Required: false, Description: "Sort: attention|started_at|created_at; rate|cdc_delay need status_group=running (default created_at desc)"},
+		{Name: "sort", Location: InputQuery, Required: false, Description: "Sort: attention|started_at|created_at|finished_at|duration; rate|cdc_delay need status_group=running (default created_at desc)"},
 		{Name: "order", Location: InputQuery, Required: false, Description: "Sort order: asc|desc (default desc)"},
 		{Name: "with_counts", Location: InputQuery, Required: false, Description: "Set to 1 to include per-status-group counts"},
 		{Name: "with_live", Location: InputQuery, Required: false, Description: "Set to 1 to include task names and live read/write rates, totals, and logical table count"},

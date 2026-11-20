@@ -621,7 +621,7 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 // @Param cluster_id query int false "集群 ID"
 // @Param keyword query string false "任务名（模糊）、引擎作业 ID 或平台作业 ID（精确）"
 // @Param exclude_run_type query string false "排除的运行类型，逗号分隔，如 preview"
-// @Param sort query string false "attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）"
+// @Param sort query string false "attention|started_at|created_at|finished_at|duration|rate|cdc_delay（后两者需 status_group=running）"
 // @Param order query string false "asc|desc" default(desc)
 // @Param with_counts query int false "1 = 返回各状态组计数"
 // @Param with_live query int false "1 = 返回任务名与当前读写速率、条数与逻辑表数"

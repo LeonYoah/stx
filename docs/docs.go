@@ -5130,7 +5130,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "attention|started_at|created_at|rate|cdc_delay（后两者需 status_group=running）",
+                        "description": "attention|started_at|created_at|finished_at|duration|rate|cdc_delay（后两者需 status_group=running）",
                         "name": "sort",
                         "in": "query"
                     },

@@ -31,3 +31,6 @@ export * from './RouteProgressBar';
 export * from './ModuleNavTabs';
 export * from './ExpandableTextPanel';
 export * from './UnsavedChangesDialog';
+export * from './DetailHost';
+export * from './DirtyCloseGuard';
+export * from './SoftChip';

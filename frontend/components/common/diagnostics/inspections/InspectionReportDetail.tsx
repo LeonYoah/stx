@@ -60,12 +60,8 @@ import type {
   DiagnosticsTaskNodeScope,
   DiagnosticsTaskOptions,
 } from '@/lib/services/diagnostics';
-// shortcut: 暂直接复用告警中心的详情列样式与软徽章；告警中心组件的并行改动落地后，统一提升到
-// common/layout。
-// Temporary direct reuse of the monitoring detail styles and soft chips; promote to common/layout
-// once the in-flight monitoring component changes land.
-import {SoftChip} from '../../monitoring/status-chips';
-import styles from '../../monitoring/monitoring.module.css';
+import {SoftChip} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
 import {
   inspectionStatusTone,
   inspectionTaskStatusKey,
@@ -212,8 +208,8 @@ export function InspectionReportDetail({
   const hasFindings = findings.length > 0;
 
   return (
-    <div className={styles.detailCol} data-testid='inspection-report-detail'>
-      <div className={styles.detailScroll}>
+    <div className={layout.detailCol} data-testid='inspection-report-detail'>
+      <div className={layout.detailScroll}>
         {loading && !report ? (
           <div className='space-y-3'>
             <Skeleton className='h-16 w-full' />
@@ -421,14 +417,14 @@ export function InspectionReportDetail({
       </div>
 
       {report ? (
-        <div className={styles.detailFoot}>
+        <div className={layout.detailFoot}>
           <UIButton asChild variant='outline' size='sm'>
             <Link href={`/diagnostics/inspections/${report.id}`}>
               {t('evidence.viewFullReport')}
               <ArrowUpRight className='size-3.5' aria-hidden />
             </Link>
           </UIButton>
-          <span className={styles.detailFootGrow} />
+          <span className={layout.detailFootGrow} />
           <Button type='button' variant='ghost' size='sm' onClick={onClose}>
             {t('evidence.close')}
           </Button>

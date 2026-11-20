@@ -88,6 +88,16 @@
         "thisQuarter": "本季度",
         "yearToDate": "今年至今"
       }
+    },
+    "dirtyClose": {
+      "title": "放弃未保存的修改？",
+      "description": "当前表单还有未保存的更改，关闭或切换后这些修改将丢失。",
+      "keepEditing": "继续编辑",
+      "discard": "放弃修改"
+    },
+    "detailNav": {
+      "prev": "上一条",
+      "next": "下一条"
     }
   },
   "dashboard": {
@@ -6425,10 +6435,6 @@
     "notifyDefaultSummary": "默认通知 · {targets}",
     "notifyDefaultUnset": "默认通知未配置",
     "unsavedChanges": "有未保存的修改",
-    "unsavedChangesTitle": "放弃未保存的修改？",
-    "unsavedChangesDescription": "当前表单还有未保存的更改，关闭或切换后这些修改将丢失。",
-    "discardChanges": "放弃修改",
-    "keepEditing": "继续编辑",
     "emptyAlertsTitle": "暂无告警",
     "emptyAlertsDesc": "当前没有匹配的告警实例。到规则页确认告警规则已启用并配置通知。",
     "emptyAlertsAction": "查看规则",
@@ -6440,8 +6446,6 @@
     "comboboxEmpty": "无匹配项",
     "unitWorkers": "台",
     "originalAlertName": "原始告警名",
-    "detailPrev": "上一条",
-    "detailNext": "下一条",
     "durationMinutes": "{minutes} 分钟",
     "sortLabel": "排序",
     "sortDefault": "目录顺序",

@@ -29,7 +29,8 @@ import {useLocale, useTranslations} from 'next-intl';
 import {ArrowDownWideNarrow, Check, LayoutGrid, List, Undo2, X} from 'lucide-react';
 import {LayoutGroup, motion} from 'motion/react';
 import {Alert} from '@/components/arc/alert/alert';
-import {SeverityChip, NeutralChip} from '../status-chips';
+import {SeverityChip} from '../status-chips';
+import {NeutralChip} from '@/components/common/layout';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Combobox} from '@/components/arc/combobox/combobox';
@@ -51,9 +52,10 @@ import type {
 import {cn} from '@/lib/utils';
 import {formatRuleThreshold, resolveRuleForCluster} from '../monitoring-utils';
 import {useViewMorph} from '@/lib/animations/view-morph';
-import {DetailHost, useDetailNarrow} from '../detail-host';
-import {UnsavedChangesDialog} from '../dirty-close';
+import {DetailHost, useDetailNarrow} from '@/components/common/layout';
+import {DirtyCloseDialog} from '@/components/common/layout';
 import styles from '../monitoring.module.css';
+import layout from '@/components/common/layout/list-detail.module.css';
 import {RuleDetailPanel} from './RuleDetailPanel';
 import {
   JobRulesPanel,
@@ -643,11 +645,11 @@ export function RulesPanel({
   const statusSeg = (key: RuleStatusFilter, label: string, count: number) => ({
     value: key,
     label,
-    accessory: <span className={styles.count}>{count}</span>,
+    accessory: <span className={layout.count}>{count}</span>,
   });
 
   return (
-    <div className={cn(styles.page, styles.pageViewport)}>
+    <div className={cn(layout.page, layout.pageViewport)}>
       {defaultsMissing ? (
         <Alert tone='warning' title={t('bannerMissingDefaultNotify')}>
           <Button
@@ -661,7 +663,7 @@ export function RulesPanel({
         </Alert>
       ) : null}
 
-      <div className={styles.toolbar}>
+      <div className={layout.toolbar}>
         <SegmentedControl
           label={t('panelTitle')}
           value={scope}
@@ -673,7 +675,7 @@ export function RulesPanel({
         />
         {scope === 'cluster' ? (
           <>
-            <div className={cn(styles.filterCtrl, styles.filterWlg)}>
+            <div className={cn(layout.filterCtrl, styles.filterWlg)}>
               <Combobox
                 label={t('contextLabel')}
                 value={contextClusterId != null ? String(contextClusterId) : 'global'}
@@ -707,7 +709,7 @@ export function RulesPanel({
                 ),
               ]}
             />
-            <div className={styles.toolbarSearch}>
+            <div className={layout.toolbarSearch}>
               <SearchField
                 ref={searchRef}
                 label={t('searchLabel')}
@@ -722,7 +724,7 @@ export function RulesPanel({
                 }}
               />
             </div>
-            <div className={styles.toolbarRight}>
+            <div className={layout.toolbarRight}>
               <DropdownMenu
                 label={t('sortLabel')}
                 icon={<ArrowDownWideNarrow className='size-4' aria-hidden />}
@@ -774,7 +776,7 @@ export function RulesPanel({
                 statusSeg('disabled', t('chipDisabled'), jobCounts.disabled),
               ]}
             />
-            <div className={styles.toolbarSearch}>
+            <div className={layout.toolbarSearch}>
               <SearchField
                 ref={searchRef}
                 label={t('searchLabel')}
@@ -794,8 +796,8 @@ export function RulesPanel({
       </div>
 
       {scope === 'cluster' ? (
-        <div className={styles.split}>
-          <div className={styles.listCol} data-mcols='rules'>
+        <div className={layout.split}>
+          <div className={layout.listCol} data-mcols='rules'>
             {/* 唯一主卡片：骨架/错误/空态/分页由 TableCard 统一承载（§4.4）。
                 Single main card via TableCard: skeleton/error/empty/pagination. */}
             <TableCard
@@ -959,7 +961,7 @@ export function RulesPanel({
               />
             ) : null}
           </DetailHost>
-          <UnsavedChangesDialog
+          <DirtyCloseDialog
             open={pendingNav !== null}
             onDiscard={commitPending}
             onKeepEditing={() => setPendingNav(null)}
@@ -1030,7 +1032,7 @@ function RuleListView({
 
   return (
     <>
-      <div className={styles.rowHead}>
+      <div className={layout.rowHead}>
         <Checkbox
           checked={allSelected ? true : someSelected ? 'indeterminate' : false}
           onCheckedChange={(v) => onSelectAll(v === true)}
@@ -1040,12 +1042,12 @@ function RuleListView({
         <span>{t('fieldSeverity')}</span>
         <span>{t('colStatus')}</span>
         <span className='hidden lg:block'>{t('colThreshold')}</span>
-        <span className={styles.right}>
+        <span className={layout.right}>
           {contextClusterId != null ? t('colSource') : t('colExceptions')}
         </span>
-        <span className={styles.right}>{t('fieldEnabled')}</span>
+        <span className={layout.right}>{t('fieldEnabled')}</span>
       </div>
-      <div className={styles.tableScroll} ref={listRef}>
+      <div className={layout.tableScroll} ref={listRef}>
         {rules.map((rule) => {
           const resolved = resolveRuleForCluster(rule, contextClusterId);
           const name = locale === 'en' ? rule.name_en || rule.name : rule.name;
@@ -1072,9 +1074,9 @@ function RuleListView({
               }}
               onKeyDown={onRowKeyDown}
               className={cn(
-                styles.row,
-                activeKey === rule.key && styles.rowActive,
-                !resolved.enabled && styles.rowMuted,
+                layout.row,
+                activeKey === rule.key && layout.rowActive,
+                !resolved.enabled && layout.rowMuted,
               )}
             >
               <Checkbox
@@ -1082,11 +1084,11 @@ function RuleListView({
                 onCheckedChange={(v) => onSelect(rule.key, v === true)}
                 aria-label={t('selectRule', {name})}
               />
-              <div className={styles.rowName}>
+              <div className={layout.rowName}>
                 <motion.span
                   layoutId={morph.id(rule.key, 'title')}
                   transition={morph.transition}
-                  className={styles.name}
+                  className={layout.name}
                   title={name}
                 >
                   {name}
@@ -1094,12 +1096,12 @@ function RuleListView({
                 <motion.span
                   layoutId={morph.id(rule.key, 'desc')}
                   transition={morph.transition}
-                  className={styles.sub}
+                  className={layout.sub}
                   title={description}
                 >
                   {description}
                 </motion.span>
-                <span className={cn(styles.sub, styles.mono)}>{rule.key}</span>
+                <span className={cn(layout.sub, styles.mono)}>{rule.key}</span>
               </div>
               <motion.span
                 layoutId={morph.id(rule.key, 'sev')}
@@ -1132,7 +1134,7 @@ function RuleListView({
                   t('firingNone')
                 )}
               </span>
-              <span className={cn(styles.sub, styles.num, 'hidden lg:block')}>
+              <span className={cn(layout.sub, styles.num, 'hidden lg:block')}>
                 {formatRuleThreshold(
                   {
                     threshold: resolved.threshold,
@@ -1142,7 +1144,7 @@ function RuleListView({
                   t,
                 )}
               </span>
-              <span className={cn(styles.sub, styles.num, styles.right)}>
+              <span className={cn(layout.sub, styles.num, layout.right)}>
                 {contextClusterId != null ? (
                   resolved.isOverridden ? (
                     <NeutralChip>{t('sourceCustom')}</NeutralChip>
@@ -1155,7 +1157,7 @@ function RuleListView({
                   '—'
                 )}
               </span>
-              <div className={styles.rowActions}>
+              <div className={layout.rowActions}>
                 <Switch
                   checked={resolved.enabled}
                   disabled={toggling.has(rule.key)}
@@ -1227,14 +1229,14 @@ function RuleCard({
       className={cn(
         styles.card,
         active && styles.cardActive,
-        !resolved.enabled && styles.rowMuted,
+        !resolved.enabled && layout.rowMuted,
       )}
     >
       <div className={styles.cardRow}>
         <motion.span
           layoutId={morph.id(rule.key, 'title')}
           transition={morph.transition}
-          className={cn(styles.name, 'min-w-0 flex-1')}
+          className={cn(layout.name, 'min-w-0 flex-1')}
           title={name}
         >
           {name}
@@ -1257,13 +1259,13 @@ function RuleCard({
       <motion.p
         layoutId={morph.id(rule.key, 'desc')}
         transition={morph.transition}
-        className={cn(styles.sub, styles.clamp2)}
+        className={cn(layout.sub, styles.clamp2)}
         title={description}
       >
         {description}
       </motion.p>
       <div className={styles.cardRow} style={{alignItems: 'center'}}>
-        <span className={cn(styles.sub, styles.num, 'min-w-0 truncate')}>
+        <span className={cn(layout.sub, styles.num, 'min-w-0 truncate')}>
           {formatRuleThreshold(
             {
               threshold: resolved.threshold,

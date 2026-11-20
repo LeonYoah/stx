@@ -29,7 +29,8 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useLocale, useTranslations} from 'next-intl';
 import {ArrowLeft, Plus} from 'lucide-react';
-import {NeutralChip, SeverityChip} from '../status-chips';
+import {SeverityChip} from '../status-chips';
+import {NeutralChip} from '@/components/common/layout';
 import {Combobox} from '@/components/arc/combobox/combobox';
 import ConfirmMorph from '@/components/arc/confirm-morph/confirm-morph';
 import {MultiSelect} from '@/components/arc/multi-select/multi-select';
@@ -58,7 +59,8 @@ import {
   thresholdUnitLabel,
 } from '../monitoring-utils';
 import styles from '../monitoring.module.css';
-import {UnsavedChangesDialog, useBeforeUnload} from '../dirty-close';
+import layout from '@/components/common/layout/list-detail.module.css';
+import {DirtyCloseDialog, useBeforeUnload} from '@/components/common/layout';
 import {layerBody} from './RulesPanel';
 
 const FOR_OPTIONS_SECONDS = [0, 60, 120, 300, 600, 900, 1800] as const;
@@ -328,7 +330,7 @@ export function RuleDetailPanel({
       existingOverride?.effective.severity ?? rule.severity;
 
     return (
-      <div data-testid='rule-detail-panel' className={styles.detailCol}>
+      <div data-testid='rule-detail-panel' className={layout.detailCol}>
         <div className={styles.metaBand}>
           <SeverityChip
             severity={effSeverity}
@@ -338,7 +340,7 @@ export function RuleDetailPanel({
                 : t('severityWarning')
             }
           />
-          <span className={cn(styles.sub, styles.mono)}>{rule.key}</span>
+          <span className={cn(layout.sub, styles.mono)}>{rule.key}</span>
           <NeutralChip className='ml-auto'>{clusterName}</NeutralChip>
         </div>
 
@@ -352,13 +354,13 @@ export function RuleDetailPanel({
               <ArrowLeft className='size-3.5' aria-hidden />
               {t('backToGlobal')}
             </button>
-            <span className={styles.xsText}>
+            <span className={layout.xsText}>
               {t('exceptionFor', {cluster: clusterName})}
             </span>
           </div>
         ) : onSwitchToGlobal ? (
           <div className={styles.subviewBar}>
-            <span className={cn(styles.xsText, styles.muted)}>
+            <span className={cn(layout.xsText, layout.muted)}>
               {t('exceptionFor', {cluster: clusterName})}
             </span>
             <button
@@ -392,7 +394,7 @@ export function RuleDetailPanel({
           onConfigureNotify={onConfigureNotify}
         />
 
-        <UnsavedChangesDialog
+        <DirtyCloseDialog
           open={confirmBackOpen}
           onDiscard={() => {
             setConfirmBackOpen(false);
@@ -406,7 +408,7 @@ export function RuleDetailPanel({
   }
 
   return (
-    <div data-testid='rule-detail-panel' className={styles.detailCol}>
+    <div data-testid='rule-detail-panel' className={layout.detailCol}>
       {/* 级别 + key 作为头部视觉延伸，固定不滚动。
           Severity + key extend the header; pinned above the scroll area. */}
       <div className={styles.metaBand}>
@@ -418,10 +420,10 @@ export function RuleDetailPanel({
               : t('severityWarning')
           }
         />
-        <span className={cn(styles.sub, styles.mono)}>{rule.key}</span>
+        <span className={cn(layout.sub, styles.mono)}>{rule.key}</span>
       </div>
 
-      <div className={styles.detailScroll}>
+      <div className={layout.detailScroll}>
         <p className={styles.descText}>
           {locale === 'en'
             ? rule.description_en || rule.description
@@ -455,8 +457,8 @@ export function RuleDetailPanel({
             >
               {rule.threshold ? (
                 rule.threshold.value == null && draft.threshold == null ? (
-                  <div className={styles.field}>
-                    <span className={styles.fieldLabel}>
+                  <div className={layout.field}>
+                    <span className={layout.fieldLabel}>
                       {t('fieldThreshold')}
                     </span>
                     <span className={styles.fieldDesc}>
@@ -476,7 +478,7 @@ export function RuleDetailPanel({
                     </span>
                   </div>
                 ) : (
-                  <div className={styles.field}>
+                  <div className={layout.field}>
                     <NumberField
                       label={t('fieldThreshold')}
                       value={
@@ -501,7 +503,7 @@ export function RuleDetailPanel({
                   </div>
                 )
               ) : null}
-              <div className={styles.field}>
+              <div className={layout.field}>
                 <Select
                   label={t('fieldFor')}
                   value={String(draft.for_seconds ?? rule.for_seconds)}
@@ -522,7 +524,7 @@ export function RuleDetailPanel({
           </div>
 
           <div className={cn(styles.groupRow, styles.groupRowStack)}>
-            <span className={styles.fieldLabel}>{t('fieldSeverity')}</span>
+            <span className={layout.fieldLabel}>{t('fieldSeverity')}</span>
             <div>
               <SegmentedControl
                 label={t('fieldSeverity')}
@@ -549,7 +551,7 @@ export function RuleDetailPanel({
           {severity === 'critical' ? (
             <>
               <div className={cn(styles.groupRow, styles.groupRowStack)}>
-                <span className={styles.fieldLabel}>{t('fieldNotify')}</span>
+                <span className={layout.fieldLabel}>{t('fieldNotify')}</span>
                 <div>
                   <SegmentedControl
                     label={t('fieldNotify')}
@@ -616,7 +618,7 @@ export function RuleDetailPanel({
                     emptyMessage={t('selectEmpty')}
                   />
                   {customMissingChannel ? (
-                    <p className={cn(styles.rowHint, styles.dangerText)}>
+                    <p className={cn(styles.rowHint, layout.dangerText)}>
                       {t('notifyMissingForCritical')}
                       {onConfigureNotify ? (
                         <>
@@ -640,9 +642,9 @@ export function RuleDetailPanel({
 
         {/* 按集群单独配置：紧凑 Diff 摘要行 + 选集群后进聚焦子视图。
             Per-cluster overrides: compact diff summary rows + drill-down subview. */}
-        <div className={styles.sectionStack} style={{gap: 8}}>
+        <div className={layout.sectionStack} style={{gap: 8}}>
           <div className={styles.sectionHead}>
-            <span className={styles.sectionTitle}>{t('detailExceptions')}</span>
+            <span className={layout.sectionTitle}>{t('detailExceptions')}</span>
             <Button
               type='button'
               variant='ghost'
@@ -724,7 +726,7 @@ export function RuleDetailPanel({
 
       {/* 底栏常驻详情底部：全局视图只显示全局层保存；状态内联在按钮旁。
           Persistent bottom bar: global view shows only global save; status stays inline. */}
-      <div className={styles.detailFoot}>
+      <div className={layout.detailFoot}>
         <Button
           type='button'
           size='sm'
@@ -735,20 +737,20 @@ export function RuleDetailPanel({
           {t('save')}
         </Button>
         {saving ? (
-          <span className={cn(styles.xsText, styles.muted)}>{t('saving')}</span>
+          <span className={cn(layout.xsText, layout.muted)}>{t('saving')}</span>
         ) : null}
         {!saving && saved ? (
-          <span className={cn(styles.xsText, styles.muted)}>{t('saved')}</span>
+          <span className={cn(layout.xsText, layout.muted)}>{t('saved')}</span>
         ) : null}
         {error ? (
           <span
-            className={cn(styles.xsText, styles.dangerText, 'min-w-0 truncate')}
+            className={cn(layout.xsText, layout.dangerText, 'min-w-0 truncate')}
             title={error}
           >
             {error}
           </span>
         ) : null}
-        <span className={styles.detailFootGrow} />
+        <span className={layout.detailFootGrow} />
         <ConfirmMorph
           label={t('restoreDefault')}
           prompt={t('restoreDefaultConfirm')}
@@ -877,7 +879,7 @@ function OverrideSubview({
 
   return (
     <>
-      <div className={styles.detailScroll}>
+      <div className={layout.detailScroll}>
         <p className={styles.descText}>{t('clusterOverrideSubtitle')}</p>
 
         <div className={styles.groupInner}>
@@ -924,7 +926,7 @@ function OverrideSubview({
             >
               {rule.threshold ? (
                 draft.threshold != null ? (
-                  <div className={styles.field}>
+                  <div className={layout.field}>
                     <NumberField
                       label={t('fieldThreshold')}
                       value={draft.threshold}
@@ -956,9 +958,9 @@ function OverrideSubview({
                     </span>
                   </div>
                 ) : (
-                  <div className={styles.field}>
-                    <div className={styles.fieldHeadRow}>
-                      <span className={styles.fieldLabel}>
+                  <div className={layout.field}>
+                    <div className={layout.fieldHeadRow}>
+                      <span className={layout.fieldLabel}>
                         {t('fieldThreshold')}
                       </span>
                       <button
@@ -989,7 +991,7 @@ function OverrideSubview({
                 )
               ) : null}
 
-              <div className={styles.field}>
+              <div className={layout.field}>
                 <Select
                   label={t('fieldFor')}
                   value={
@@ -1136,7 +1138,7 @@ function OverrideSubview({
                     emptyMessage={t('selectEmpty')}
                   />
                   {missingChannel ? (
-                    <p className={cn(styles.rowHint, styles.dangerText)}>
+                    <p className={cn(styles.rowHint, layout.dangerText)}>
                       {t('notifyMissingForCritical')}
                       {onConfigureNotify ? (
                         <>
@@ -1159,7 +1161,7 @@ function OverrideSubview({
         </div>
       </div>
 
-      <div className={styles.detailFoot}>
+      <div className={layout.detailFoot}>
         <Button
           type='button'
           size='sm'
@@ -1170,25 +1172,25 @@ function OverrideSubview({
           {t('save')}
         </Button>
         {saving ? (
-          <span className={cn(styles.xsText, styles.muted)}>{t('saving')}</span>
+          <span className={cn(layout.xsText, layout.muted)}>{t('saving')}</span>
         ) : null}
         {!saving && saved ? (
-          <span className={cn(styles.xsText, styles.muted)}>{t('saved')}</span>
+          <span className={cn(layout.xsText, layout.muted)}>{t('saved')}</span>
         ) : null}
         {!saving && !saved && !override && isAllInherited ? (
-          <span className={cn(styles.xsText, styles.muted)}>
+          <span className={cn(layout.xsText, layout.muted)}>
             {t('overrideNoChangesHint')}
           </span>
         ) : null}
         {err ? (
           <span
-            className={cn(styles.xsText, styles.dangerText, 'min-w-0 truncate')}
+            className={cn(layout.xsText, layout.dangerText, 'min-w-0 truncate')}
             title={err}
           >
             {err}
           </span>
         ) : null}
-        <span className={styles.detailFootGrow} />
+        <span className={layout.detailFootGrow} />
         {onDelete ? (
           <ConfirmMorph
             label={t('deleteException')}

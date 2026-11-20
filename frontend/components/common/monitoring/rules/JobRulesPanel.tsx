@@ -26,7 +26,7 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Undo2, X} from 'lucide-react';
-import {NeutralChip, SoftChip} from '../status-chips';
+import {NeutralChip, SoftChip} from '@/components/common/layout';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
@@ -46,9 +46,10 @@ import type {
 } from '@/lib/services/sync';
 import {TaskAlertForm} from '@/components/common/sync/TaskAlertForm';
 import {cn} from '@/lib/utils';
-import {UnsavedChangesDialog, useBeforeUnload} from '../dirty-close';
-import {DetailHost, useDetailNarrow} from '../detail-host';
+import {DirtyCloseDialog, useBeforeUnload} from '@/components/common/layout';
+import {DetailHost, useDetailNarrow} from '@/components/common/layout';
 import styles from '../monitoring.module.css';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 export type JobStatusFilter = 'all' | 'enabled' | 'disabled';
 
@@ -467,8 +468,8 @@ export function JobRulesPanel({
     !allPageSelected && pageItems.some((p) => selected.has(p.id));
 
   return (
-    <div className={styles.split}>
-      <div className={styles.listCol} data-mcols='job'>
+    <div className={layout.split}>
+      <div className={layout.listCol} data-mcols='job'>
         {/* 唯一主卡片：骨架/错误/空态由 TableCard 统一承载（§4.4）。
             Single main card; skeleton/error/empty states are owned by TableCard. */}
         <TableCard
@@ -518,7 +519,7 @@ export function JobRulesPanel({
             />
           }
         >
-          <div className={styles.rowHead}>
+          <div className={layout.rowHead}>
             <Checkbox
               checked={
                 allPageSelected
@@ -532,9 +533,9 @@ export function JobRulesPanel({
             />
             <span>{t('jobColTask')}</span>
             <span>{t('colAlert')}</span>
-            <span className={styles.right}>{t('fieldEnabled')}</span>
+            <span className={layout.right}>{t('fieldEnabled')}</span>
           </div>
-          <div className={styles.tableScroll}>
+          <div className={layout.tableScroll}>
             {pageItems.map((policy) => (
               <div
                 key={policy.id}
@@ -554,9 +555,9 @@ export function JobRulesPanel({
                 }}
                 onKeyDown={(e) => onRowKeyDown(e, policy)}
                 className={cn(
-                  styles.row,
-                  editing?.taskId === policy.task_id && styles.rowActive,
-                  !policy.enabled && styles.rowMuted,
+                  layout.row,
+                  editing?.taskId === policy.task_id && layout.rowActive,
+                  !policy.enabled && layout.rowMuted,
                 )}
               >
                 <Checkbox
@@ -566,8 +567,8 @@ export function JobRulesPanel({
                     name: policy.task_name ?? `#${policy.task_id}`,
                   })}
                 />
-                <div className={styles.rowName}>
-                  <span className={cn(styles.name, styles.mono)}>
+                <div className={layout.rowName}>
+                  <span className={cn(layout.name, styles.mono)}>
                     {policy.task_name ?? `#${policy.task_id}`}
                   </span>
                 </div>
@@ -593,7 +594,7 @@ export function JobRulesPanel({
                       : t('notify_none')}
                   </SoftChip>
                 </span>
-                <div className={styles.rowActions}>
+                <div className={layout.rowActions}>
                   <Switch
                     checked={policy.enabled}
                     disabled={toggling === policy.id}
@@ -682,8 +683,8 @@ export function JobRulesPanel({
       >
         {drawerEditing ? (
           drawerEditing.config ? (
-            <div className={styles.detailCol}>
-              <div className={styles.detailFill}>
+            <div className={layout.detailCol}>
+              <div className={layout.detailFill}>
                 <TaskAlertForm
                   initial={drawerEditing.config}
                   clusterId={drawerEditing.clusterId}
@@ -699,8 +700,8 @@ export function JobRulesPanel({
               </div>
             </div>
           ) : (
-            <div className={styles.detailCol}>
-              <div className={styles.detailScroll} aria-busy>
+            <div className={layout.detailCol}>
+              <div className={layout.detailScroll} aria-busy>
                 {Array.from({length: 6}).map((_, i) => (
                   <Skeleton key={i} className='h-10 w-full' lines={1} />
                 ))}
@@ -709,7 +710,7 @@ export function JobRulesPanel({
           )
         ) : null}
       </DetailHost>
-      <UnsavedChangesDialog
+      <DirtyCloseDialog
         open={discardTarget !== null}
         onDiscard={discardAndClose}
         onKeepEditing={() => setDiscardTarget(null)}

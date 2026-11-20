@@ -31,6 +31,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Trash2} from 'lucide-react';
 import {DeliveryChip} from '../status-chips';
+
 import {Button} from '@/components/arc/button/button';
 import ConfirmMorph from '@/components/arc/confirm-morph/confirm-morph';
 import {Input} from '@/components/arc/input/input';
@@ -59,6 +60,7 @@ import {
   type WebhookLikeChannelType,
 } from '../notification-channel-utils';
 import styles from '../monitoring.module.css';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 const CHANNEL_TYPES: NotificationChannelType[] = [
   'webhook',
@@ -328,9 +330,9 @@ export function ChannelDrawerBody({
   const secretChangedType = isWebhookType && channel?.type !== form.type;
 
   return (
-    <div className={styles.detailCol}>
-      <div className={styles.detailScroll}>
-        <div className={styles.field}>
+    <div className={layout.detailCol}>
+      <div className={layout.detailScroll}>
+        <div className={layout.field}>
           <Input
             label={t('channelName')}
             value={form.name}
@@ -340,8 +342,8 @@ export function ChannelDrawerBody({
             autoComplete='off'
           />
         </div>
-        <div className={styles.field}>
-          <span className={styles.fieldLabel}>{t('channelTypeLabel')}</span>
+        <div className={layout.field}>
+          <span className={layout.fieldLabel}>{t('channelTypeLabel')}</span>
           <SegmentedControl
             label={t('channelTypeLabel')}
             value={form.type}
@@ -359,7 +361,7 @@ export function ChannelDrawerBody({
         </div>
         {isWebhookType ? (
           <>
-            <div className={styles.field}>
+            <div className={layout.field}>
               <Input
                 label={t('channelEndpoint')}
                 value={form.endpoint}
@@ -379,7 +381,7 @@ export function ChannelDrawerBody({
               ) : null}
             </div>
             {channelTypeSupportsSecret(form.type as WebhookLikeChannelType) ? (
-              <div className={styles.field}>
+              <div className={layout.field}>
                 <Input
                   label={t('channelSecret')}
                   type='password'
@@ -408,7 +410,7 @@ export function ChannelDrawerBody({
                   {t(`secretHint.${form.type}`)}
                 </span>
                 {form.clearSecret ? (
-                  <span className={cn(styles.fieldDesc, styles.dangerText)}>
+                  <span className={cn(styles.fieldDesc, layout.dangerText)}>
                     {t('clearSecretDone')}{' '}
                     <button
                       type='button'
@@ -446,7 +448,7 @@ export function ChannelDrawerBody({
         ) : (
           <>
             <div className={styles.fieldRow}>
-              <div className={styles.field}>
+              <div className={layout.field}>
                 <Input
                   label={t('emailHost')}
                   value={form.email.host}
@@ -454,7 +456,7 @@ export function ChannelDrawerBody({
                   placeholder='smtp.example.com'
                 />
               </div>
-              <div className={styles.field}>
+              <div className={layout.field}>
                 <NumberField
                   label={t('emailPort')}
                   value={form.email.port}
@@ -464,7 +466,7 @@ export function ChannelDrawerBody({
                 />
               </div>
             </div>
-            <div className={styles.field}>
+            <div className={layout.field}>
               <Select
                 label={t('emailSecurity')}
                 options={EMAIL_SECURITY_OPTIONS.map((s) => ({
@@ -478,7 +480,7 @@ export function ChannelDrawerBody({
               />
             </div>
             <div className={styles.fieldRow}>
-              <div className={styles.field}>
+              <div className={layout.field}>
                 <Input
                   label={t('emailUsername')}
                   value={form.email.username}
@@ -486,7 +488,7 @@ export function ChannelDrawerBody({
                   autoComplete='off'
                 />
               </div>
-              <div className={styles.field}>
+              <div className={layout.field}>
                 <Input
                   label={t('emailPassword')}
                   type='password'
@@ -502,7 +504,7 @@ export function ChannelDrawerBody({
               </div>
             </div>
             <div className={styles.fieldRow}>
-              <div className={styles.field}>
+              <div className={layout.field}>
                 <Input
                   label={t('emailFrom')}
                   value={form.email.from}
@@ -510,7 +512,7 @@ export function ChannelDrawerBody({
                   placeholder='alerts@example.com'
                 />
               </div>
-              <div className={styles.field}>
+              <div className={layout.field}>
                 <Input
                   label={t('emailFromName')}
                   value={form.email.fromName}
@@ -518,7 +520,7 @@ export function ChannelDrawerBody({
                 />
               </div>
             </div>
-            <div className={styles.field}>
+            <div className={layout.field}>
               <Input
                 label={t('emailRecipients')}
                 value={form.email.recipients}
@@ -529,7 +531,7 @@ export function ChannelDrawerBody({
             </div>
           </>
         )}
-        <div className={styles.field}>
+        <div className={layout.field}>
           <Input
             label={t('fieldDescription')}
             value={form.description}
@@ -538,8 +540,8 @@ export function ChannelDrawerBody({
             }
           />
         </div>
-        <div className={styles.field}>
-          <span className={styles.fieldLabel}>{t('fieldEnabled')}</span>
+        <div className={layout.field}>
+          <span className={layout.fieldLabel}>{t('fieldEnabled')}</span>
           <Switch
             checked={form.enabled}
             onCheckedChange={(v) => setForm((f) => ({...f, enabled: v}))}
@@ -547,7 +549,7 @@ export function ChannelDrawerBody({
           />
         </div>
         {error ? (
-          <div className={cn(styles.hintBox, styles.dangerText)} role='alert'>
+          <div className={cn(styles.hintBox, layout.dangerText)} role='alert'>
             {error}
           </div>
         ) : null}
@@ -555,7 +557,7 @@ export function ChannelDrawerBody({
           <div
             className={cn(
               styles.hintBox,
-              testResult.ok ? styles.muted : styles.dangerText,
+              testResult.ok ? layout.muted : layout.dangerText,
             )}
             role='status'
           >
@@ -565,8 +567,8 @@ export function ChannelDrawerBody({
           </div>
         ) : null}
         {channel && deliveries.length > 0 ? (
-          <div className={styles.sectionStack} style={{gap: 8}}>
-            <span className={styles.sectionTitle}>{t('deliveries')}</span>
+          <div className={layout.sectionStack} style={{gap: 8}}>
+            <span className={layout.sectionTitle}>{t('deliveries')}</span>
             <ul className={styles.lineList}>
               {deliveries.map((d) => (
                 <li key={d.id} className={styles.lineItem}>
@@ -578,7 +580,7 @@ export function ChannelDrawerBody({
         ) : null}
       </div>
 
-      <div className={styles.detailFoot}>
+      <div className={layout.detailFoot}>
         <Button
           type='button'
           size='sm'
@@ -603,7 +605,7 @@ export function ChannelDrawerBody({
         </Button>
         {channel && onDelete ? (
           <>
-            <span className={styles.detailFootGrow} />
+            <span className={layout.detailFootGrow} />
             <ConfirmMorph
               label={t('deleteChannel')}
               icon={<Trash2 className='size-3.5' aria-hidden />}
@@ -623,7 +625,7 @@ export function ChannelDrawerBody({
 function DeliveryLine({d, t}: {d: NotificationDelivery; t: MonitoringTranslator}) {
   return (
     <>
-      <span className={cn(styles.truncate, styles.mono, styles.xsText)}>
+      <span className={cn(styles.truncate, styles.mono, layout.xsText)}>
         {d.alert_name || d.alert_id}
       </span>
       <span className='flex shrink-0 items-center gap-2'>
@@ -631,7 +633,7 @@ function DeliveryLine({d, t}: {d: NotificationDelivery; t: MonitoringTranslator}
           status={d.status}
           label={t(`delivery.${d.status}`)}
         />
-        <span className={cn(styles.sub, styles.num, styles.nowrap)}>
+        <span className={cn(layout.sub, styles.num, styles.nowrap)}>
           {formatAgo(minutesAgo(d.sent_at || d.created_at), t)}
         </span>
       </span>

@@ -50,17 +50,10 @@ import type {AlertRuleCatalogItem} from '@/lib/services/monitoring/types';
 import {cn} from '@/lib/utils';
 import {PolicyFormBody} from './PolicyFormBody';
 import {INVALID_REASON_CODES} from './policy-form-utils';
-// shortcut: 暂直接复用告警中心的详情宿主 / 脏关确认 / 列表样式；告警中心组件的并行改动落地后，统一提升到
-// common/layout。
-// Temporary direct reuse of the monitoring detail host, dirty-close guard and list styles; promote to common/layout
-// once the in-flight monitoring component changes land.
-import {
-  UnsavedChangesDialog,
-  useBeforeUnload,
-} from '../../monitoring/dirty-close';
-import {DetailHost, useDetailNarrow} from '../../monitoring/detail-host';
-import {NeutralChip} from '../../monitoring/status-chips';
-import styles from '../../monitoring/monitoring.module.css';
+import {DirtyCloseDialog, useBeforeUnload} from '@/components/common/layout';
+import {DetailHost, useDetailNarrow} from '@/components/common/layout';
+import {NeutralChip} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 const PAGE_SIZE = 10;
 type PolicyStatusFilter = 'all' | 'enabled' | 'invalid';
@@ -330,12 +323,12 @@ export function PoliciesPanel({
   const seg = (key: PolicyStatusFilter, label: string, count: number) => ({
     value: key,
     label,
-    accessory: <span className={styles.count}>{count}</span>,
+    accessory: <span className={layout.count}>{count}</span>,
   });
 
   return (
-    <div className={styles.page} style={{overflowY: 'auto'}}>
-      <div className={styles.toolbar}>
+    <div className={layout.page} style={{overflowY: 'auto'}}>
+      <div className={layout.toolbar}>
         <SegmentedControl
           label={t('statusLabel')}
           value={statusFilter}
@@ -346,7 +339,7 @@ export function PoliciesPanel({
             seg('invalid', t('invalidBadge'), statusCounts.invalid),
           ]}
         />
-        <div className={styles.toolbarSearch}>
+        <div className={layout.toolbarSearch}>
           <SearchField
             ref={searchRef}
             label={t('searchLabel')}
@@ -361,7 +354,7 @@ export function PoliciesPanel({
             }}
           />
         </div>
-        <div className={styles.toolbarRight}>
+        <div className={layout.toolbarRight}>
           <Button
             type='button'
             size='sm'
@@ -375,8 +368,8 @@ export function PoliciesPanel({
         </div>
       </div>
 
-      <div className={styles.split}>
-        <div className={styles.listCol} data-mcols='policies'>
+      <div className={layout.split}>
+        <div className={layout.listCol} data-mcols='policies'>
           {/* 唯一主卡片：骨架/错误/空态由 TableCard 统一承载（§4.4）。
               Single main card; skeleton/error/empty states are owned by TableCard. */}
           <TableCard
@@ -425,14 +418,14 @@ export function PoliciesPanel({
               />
             }
           >
-            <div className={styles.rowHead} aria-hidden>
+            <div className={layout.rowHead} aria-hidden>
               <span>{t('nameLabel')}</span>
               <span>{t('clusterLabel')}</span>
               <span>{t('conditionsLabel')}</span>
               <span>{t('autoBundleColumn')}</span>
-              <span className={styles.right}>{t('enabledLabel')}</span>
+              <span className={layout.right}>{t('enabledLabel')}</span>
             </div>
-            <div className={styles.tableScroll}>
+            <div className={layout.tableScroll}>
               {pageItems.map((p) => (
                 <div
                   key={p.id}
@@ -452,14 +445,14 @@ export function PoliciesPanel({
                   }}
                   onKeyDown={(e) => onRowKeyDown(e, p.id)}
                   className={cn(
-                    styles.row,
-                    editKey === p.id && styles.rowActive,
-                    !p.enabled && styles.rowMuted,
+                    layout.row,
+                    editKey === p.id && layout.rowActive,
+                    !p.enabled && layout.rowMuted,
                   )}
                 >
-                  <div className={styles.rowName}>
-                    <div className={styles.rowNameInline}>
-                      <span className={styles.name} title={p.name}>
+                  <div className={layout.rowName}>
+                    <div className={layout.rowNameInline}>
+                      <span className={layout.name} title={p.name}>
                         {p.name}
                       </span>
                       {/* 失效徽标 + 原因行：后端只回原因码 + 取值，文案由本侧按 i18n 翻译。
@@ -472,7 +465,7 @@ export function PoliciesPanel({
                     </div>
                     {p.invalid_reason ? (
                       <span
-                        className={cn(styles.sub, styles.dangerText)}
+                        className={cn(layout.sub, layout.dangerText)}
                         title={invalidReasonText(p)}
                       >
                         {invalidReasonText(p)}
@@ -482,13 +475,13 @@ export function PoliciesPanel({
                   <NeutralChip title={scopeLabel(p)}>
                     {scopeLabel(p)}
                   </NeutralChip>
-                  <span className={styles.sub}>
+                  <span className={layout.sub}>
                     {t('conditionsSummary', {
                       count: (p.conditions || []).length,
                       minutes: p.cooldown_minutes,
                     })}
                   </span>
-                  <span className={styles.sub}>
+                  <span className={layout.sub}>
                     {p.auto_create_task
                       ? t('autoBundleSummary', {
                           mode: p.auto_start_task
@@ -497,7 +490,7 @@ export function PoliciesPanel({
                         })
                       : '—'}
                   </span>
-                  <div className={styles.rowActions}>
+                  <div className={layout.rowActions}>
                     <Switch
                       checked={p.enabled}
                       onCheckedChange={(v) => void togglePolicy(p, v)}
@@ -572,7 +565,7 @@ export function PoliciesPanel({
             ) : null}
           </DetailHost>
         )}
-        <UnsavedChangesDialog
+        <DirtyCloseDialog
           open={discardTarget !== null}
           onDiscard={discardAndCommit}
           onKeepEditing={() => setDiscardTarget(null)}

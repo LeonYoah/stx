@@ -56,13 +56,9 @@ import {
 } from './inspection-utils';
 import {formatErrorDateTime} from '../errors/error-utils';
 import {localizeDiagnosticsText} from '../text-utils';
-// shortcut: 暂直接复用告警中心的详情宿主 / 列表样式 / 软徽章；告警中心组件的并行改动落地后，统一提升到
-// common/layout。
-// Temporary direct reuse of the monitoring detail host, list styles and soft chips; promote to common/layout
-// once the in-flight monitoring component changes land.
-import {DetailHost, useDetailNarrow} from '../../monitoring/detail-host';
-import {NeutralChip, SoftChip} from '../../monitoring/status-chips';
-import styles from '../../monitoring/monitoring.module.css';
+import {DetailHost, useDetailNarrow} from '@/components/common/layout';
+import {NeutralChip, SoftChip} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 const PAGE_SIZE = 20;
 const AUTO_REFRESH_MS = 5000;
@@ -337,8 +333,8 @@ export function InspectionsPanel({
   );
 
   return (
-    <div className={styles.page} style={{overflowY: 'auto'}}>
-      <div className={styles.toolbar}>
+    <div className={layout.page} style={{overflowY: 'auto'}}>
+      <div className={layout.toolbar}>
         <SegmentedControl
           label={t('filters.status')}
           value={statusFilter}
@@ -354,7 +350,7 @@ export function InspectionsPanel({
             seg('pending', t('status.pending')),
           ]}
         />
-        <div className={cn(styles.filterCtrl, styles.filterWsm)}>
+        <div className={cn(layout.filterCtrl, layout.filterWsm)}>
           <Select
             label={t('filters.severity')}
             value={severityFilter}
@@ -388,7 +384,7 @@ export function InspectionsPanel({
             {t('resetFilters')}
           </Button>
         ) : null}
-        <div className={styles.toolbarRight}>
+        <div className={layout.toolbarRight}>
           {/* 未选集群时保留禁用态但用 Tooltip 说明原因。
               Without a selected cluster the action stays disabled and the
               tooltip explains why. */}
@@ -416,8 +412,8 @@ export function InspectionsPanel({
         </div>
       </div>
 
-      <div className={styles.split}>
-        <div className={styles.listCol} data-mcols='inspections'>
+      <div className={layout.split}>
+        <div className={layout.listCol} data-mcols='inspections'>
           {/* 唯一主卡片：骨架/错误/空态由 TableCard 统一承载（§4.4）。
               Single main card; skeleton/error/empty states are owned by TableCard. */}
           <TableCard
@@ -459,7 +455,7 @@ export function InspectionsPanel({
               />
             }
           >
-            <div className={styles.rowHead} aria-hidden>
+            <div className={layout.rowHead} aria-hidden>
               <span>{t('columns.id')}</span>
               <span>{t('columns.trigger')}</span>
               <span>{t('columns.status')}</span>
@@ -467,7 +463,7 @@ export function InspectionsPanel({
               <span>{t('columns.lookback')}</span>
               <span>{t('columns.finishedAt')}</span>
             </div>
-            <div className={styles.tableScroll}>
+            <div className={layout.tableScroll}>
               {reports.map((report) => (
                 <div
                   key={report.id}
@@ -478,11 +474,11 @@ export function InspectionsPanel({
                   onClick={() => openReportDetail(report)}
                   onKeyDown={(e) => onRowKeyDown(e, report.id)}
                   className={cn(
-                    styles.row,
-                    selectedReportId === report.id && styles.rowActive,
+                    layout.row,
+                    selectedReportId === report.id && layout.rowActive,
                   )}
                 >
-                  <span className={cn(styles.sub, 'font-mono')}>
+                  <span className={cn(layout.sub, 'font-mono')}>
                     #{report.id}
                   </span>
                   <NeutralChip
@@ -493,9 +489,9 @@ export function InspectionsPanel({
                   <SoftChip tone={inspectionStatusTone(report.status)}>
                     {t(`status.${report.status}`)}
                   </SoftChip>
-                  <div className={styles.rowName}>
+                  <div className={layout.rowName}>
                     <span
-                      className={styles.name}
+                      className={layout.name}
                       title={
                         report.status === 'completed' &&
                         report.finding_total === 0
@@ -510,7 +506,7 @@ export function InspectionsPanel({
                         : localizeDiagnosticsText(report.summary) ||
                           t('summaryFallback')}
                     </span>
-                    <span className={styles.sub}>
+                    <span className={layout.sub}>
                       <span className='inline-flex flex-wrap items-center gap-1.5'>
                         {report.critical_count > 0 ? (
                           <SoftChip tone='rose'>
@@ -544,14 +540,14 @@ export function InspectionsPanel({
                     </span>
                   </div>
                   <span
-                    className={cn(styles.sub, 'whitespace-nowrap font-mono')}
+                    className={cn(layout.sub, 'whitespace-nowrap font-mono')}
                   >
                     {t('lookbackValue', {
                       minutes: report.lookback_minutes || 30,
                     })}
                   </span>
                   <span
-                    className={cn(styles.sub, 'whitespace-nowrap font-mono')}
+                    className={cn(layout.sub, 'whitespace-nowrap font-mono')}
                   >
                     {formatErrorDateTime(
                       report.finished_at || report.created_at,

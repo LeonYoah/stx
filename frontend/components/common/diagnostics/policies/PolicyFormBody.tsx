@@ -67,11 +67,7 @@ import {
   normalizeConditionItemsForSave,
   shouldRenderCronExprInput,
 } from './policy-form-utils';
-// shortcut: 暂直接复用告警中心的详情列样式；告警中心组件的并行改动落地后，统一提升到
-// common/layout。
-// Temporary direct reuse of the monitoring detail-column styles; promote to common/layout
-// once the in-flight monitoring component changes land.
-import styles from '../../monitoring/monitoring.module.css';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 const DEFAULT_TASK_OPTIONS: DiagnosticsTaskOptions = {
   include_thread_dump: false,
@@ -428,9 +424,9 @@ export function PolicyFormBody({
   );
 
   return (
-    <div className={styles.detailCol} data-testid='policy-form-body'>
-      <div className={styles.detailScroll}>
-        <div className={styles.field}>
+    <div className={layout.detailCol} data-testid='policy-form-body'>
+      <div className={layout.detailScroll}>
+        <div className={layout.field}>
           <Input
             label={t('nameLabel')}
             value={form.name}
@@ -440,10 +436,10 @@ export function PolicyFormBody({
           />
         </div>
 
-        <div className={styles.field}>
+        <div className={layout.field}>
           {policy ? (
             <>
-              <span className={styles.fieldLabel}>{t('clusterLabel')}</span>
+              <span className={layout.fieldLabel}>{t('clusterLabel')}</span>
               <span className='text-sm'>{scopeLabel}</span>
             </>
           ) : (
@@ -463,7 +459,7 @@ export function PolicyFormBody({
           )}
         </div>
 
-        <div className={styles.field}>
+        <div className={layout.field}>
           <NumberField
             label={t('cooldownLabel')}
             value={form.cooldownMinutes}
@@ -473,7 +469,7 @@ export function PolicyFormBody({
           />
         </div>
 
-        <div className={styles.field}>
+        <div className={layout.field}>
           <Switch
             label={t('enabledLabel')}
             checked={form.enabled}
@@ -482,17 +478,17 @@ export function PolicyFormBody({
         </div>
 
         {/* 巡检触发条件（单列，适配 520px 详情栏） / Inspection conditions (single column for the 520px rail) */}
-        <div className={styles.sectionStack} style={{gap: 10}}>
-          <div className={styles.fieldHeadRow}>
-            <span className={styles.sectionTitle}>{t('conditionsLabel')}</span>
-            <span className={cn(styles.xsText, styles.muted)}>
+        <div className={layout.sectionStack} style={{gap: 10}}>
+          <div className={layout.fieldHeadRow}>
+            <span className={layout.sectionTitle}>{t('conditionsLabel')}</span>
+            <span className={cn(layout.xsText, layout.muted)}>
               {t('selectedConditionsCount', {
                 count: form.conditions.filter((c) => c.enabled).length,
               })}
             </span>
           </div>
           {templates.length === 0 ? (
-            <span className={cn(styles.xsText, styles.muted)}>
+            <span className={cn(layout.xsText, layout.muted)}>
               {t('noTemplates')}
             </span>
           ) : (
@@ -681,7 +677,7 @@ export function PolicyFormBody({
 
                               {tpl.category === 'alert_firing' ? (
                                 <div className='space-y-1.5'>
-                                  <span className={styles.fieldLabel}>
+                                  <span className={layout.fieldLabel}>
                                     {t('ruleKeysLabel')}
                                   </span>
                                   {(condition?.rule_keys || []).length > 0 ? (
@@ -893,7 +889,7 @@ export function PolicyFormBody({
         </div>
       </div>
 
-      <div className={styles.detailFoot}>
+      <div className={layout.detailFoot}>
         <Button
           type='button'
           size='sm'
@@ -908,7 +904,7 @@ export function PolicyFormBody({
         </Button>
         {policy && onDelete ? (
           <>
-            <span className={styles.detailFootGrow} />
+            <span className={layout.detailFootGrow} />
             <ConfirmMorph
               label={t('deletePolicy')}
               icon={<Trash2 className='size-3.5' aria-hidden />}

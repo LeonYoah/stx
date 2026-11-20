@@ -88,6 +88,16 @@
         "thisQuarter": "This quarter",
         "yearToDate": "Year to date"
       }
+    },
+    "dirtyClose": {
+      "title": "Discard unsaved changes?",
+      "description": "You have unsaved changes. Closing or switching now will discard them.",
+      "keepEditing": "Keep editing",
+      "discard": "Discard changes"
+    },
+    "detailNav": {
+      "prev": "Previous item",
+      "next": "Next item"
     }
   },
   "dashboard": {
@@ -6425,10 +6435,6 @@
     "notifyDefaultSummary": "Default notification · {targets}",
     "notifyDefaultUnset": "Default notification is not configured",
     "unsavedChanges": "Unsaved changes",
-    "unsavedChangesTitle": "Discard unsaved changes?",
-    "unsavedChangesDescription": "You have unsaved changes. Closing or switching now will discard them.",
-    "discardChanges": "Discard changes",
-    "keepEditing": "Keep editing",
     "emptyAlertsTitle": "No alerts",
     "emptyAlertsDesc": "No alert instances match right now. Check the rules page to confirm rules are enabled and notifications configured.",
     "emptyAlertsAction": "View rules",
@@ -6440,8 +6446,6 @@
     "comboboxEmpty": "No matches",
     "unitWorkers": "workers",
     "originalAlertName": "Original alert name",
-    "detailPrev": "Previous item",
-    "detailNext": "Next item",
     "durationMinutes": "{minutes} min",
     "sortLabel": "Sort",
     "sortDefault": "Catalog order",

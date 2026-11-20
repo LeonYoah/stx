@@ -26,7 +26,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
 import type {ClusterRule} from '@/lib/services/monitoring';
 import {RuleDetailPanel} from '../rules/RuleDetailPanel';
-import {UnsavedChangesDialog} from '../dirty-close';
+import {DirtyCloseDialog} from '@/components/common/layout';
 import {layerBody} from '../rules/RulesPanel';
 
 const updateClusterRule = vi.fn();
@@ -285,7 +285,7 @@ describe('dirty-close interception', () => {
     const onKeepEditing = vi.fn();
     render(
       <NextIntlClientProvider locale='zh' messages={zh}>
-        <UnsavedChangesDialog
+        <DirtyCloseDialog
           open
           onDiscard={onDiscard}
           onKeepEditing={onKeepEditing}

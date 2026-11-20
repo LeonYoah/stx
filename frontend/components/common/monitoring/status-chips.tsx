@@ -22,28 +22,7 @@
 // from the legacy alerts center — explicitly requested to stay unchanged.
 import {AlertCircle, AlertTriangle, Archive, BadgeCheck, CheckCircle2, Info, VolumeX} from 'lucide-react';
 import type {ReactNode} from 'react';
-import {Badge} from '@/components/ui/badge';
-import {cn} from '@/lib/utils';
-
-const tones = {
-  rose: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
-  amber: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
-  blue: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
-  emerald: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
-  muted: 'bg-muted text-muted-foreground border-border',
-} as const;
-
-export type ChipTone = keyof typeof tones;
-
-/** 软色徽章基座：圆角统一收敛为 rounded-md，与 ui/badge 和 8px 控件同族。
-    Soft-tint chip base: radius converged to rounded-md, same family as ui/badge and the 8px controls. */
-export function SoftChip({tone, className, children}: {tone: ChipTone; className?: string; children: ReactNode}) {
-  return (
-    <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold', tones[tone], className)}>
-      {children}
-    </span>
-  );
-}
+import {SoftChip} from '@/components/common/layout';
 
 /** 级别徽章：critical 玫瑰 / warning 琥珀 / 其他蓝色，图标 3.5px（旧版 renderSeverityBadge）。 / Severity chip — legacy renderSeverityBadge look. */
 export function SeverityChip({severity, label, className}: {severity: string; label: ReactNode; className?: string}) {
@@ -95,13 +74,4 @@ export function DeliveryChip({status, label, className}: {status: string; label:
     return <SoftChip tone='rose' className={className}><AlertCircle className={icon} aria-hidden />{label}</SoftChip>;
   }
   return <SoftChip tone='muted' className={className}>{label}</SoftChip>;
-}
-
-/** 中性小标签（范围、渠道类型、字段名等）：沿用旧版 ui/badge outline。 / Neutral small label — legacy ui/badge outline. */
-export function NeutralChip({children, className, title}: {children: ReactNode; className?: string; title?: string}) {
-  return (
-    <Badge variant='outline' title={title} className={cn('shrink-0 px-1.5 py-0 text-[11px] font-normal', className)}>
-      {children}
-    </Badge>
-  );
 }

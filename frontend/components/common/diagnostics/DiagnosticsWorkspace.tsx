@@ -61,11 +61,7 @@ import {TroubleshootingMemoryCenter} from '@/components/common/troubleshooting';
 import {ErrorsPanel} from './errors/ErrorsPanel';
 import {InspectionsPanel} from './inspections/InspectionsPanel';
 import {PoliciesPanel} from './policies/PoliciesPanel';
-// shortcut: 暂直接复用告警中心的未保存确认弹窗；告警中心组件的并行改动落地后，统一提升到
-// common/layout。
-// Temporary direct reuse of the monitoring unsaved-changes dialog; promote to common/layout
-// once the in-flight monitoring component changes land.
-import {UnsavedChangesDialog} from '../monitoring/dirty-close';
+import {DirtyCloseDialog} from '@/components/common/layout';
 
 // 解析当前激活的诊断标签页（错误 / 巡检 / 巡检策略 / 经验库）
 // Resolve currently active diagnostics tab (errors / inspections / policies / memories)
@@ -471,7 +467,7 @@ export function DiagnosticsWorkspace() {
         </TabsContent>
       </Tabs>
 
-      <UnsavedChangesDialog
+      <DirtyCloseDialog
         open={pendingTab !== null}
         onDiscard={commitPendingTab}
         onKeepEditing={() => setPendingTab(null)}

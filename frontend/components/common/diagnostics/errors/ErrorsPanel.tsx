@@ -49,13 +49,9 @@ import {
   occurrenceHeatTone,
   type ErrorHeatFilter,
 } from './error-utils';
-// shortcut: 暂直接复用告警中心的详情宿主 / 列表样式 / 软徽章；告警中心组件的并行改动落地后，统一提升到
-// common/layout。
-// Temporary direct reuse of the monitoring detail host, list styles and soft chips; promote to common/layout
-// once the in-flight monitoring component changes land.
-import {DetailHost, useDetailNarrow} from '../../monitoring/detail-host';
-import {SoftChip, NeutralChip} from '../../monitoring/status-chips';
-import styles from '../../monitoring/monitoring.module.css';
+import {DetailHost, useDetailNarrow} from '@/components/common/layout';
+import {SoftChip, NeutralChip} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 const PAGE_SIZE = 20;
 const EVENT_LIMIT = 20;
@@ -285,8 +281,8 @@ export function ErrorsPanel({
   const seg = (key: ErrorHeatFilter, label: string) => ({value: key, label});
 
   return (
-    <div className={styles.page} style={{overflowY: 'auto'}}>
-      <div className={styles.toolbar}>
+    <div className={layout.page} style={{overflowY: 'auto'}}>
+      <div className={layout.toolbar}>
         <SegmentedControl
           label={t('freqLabel')}
           value={heatFilter}
@@ -301,7 +297,7 @@ export function ErrorsPanel({
             seg('low', t('freqLow')),
           ]}
         />
-        <div className={styles.toolbarSearch}>
+        <div className={layout.toolbarSearch}>
           <SearchField
             ref={searchRef}
             label={t('searchLabel')}
@@ -332,7 +328,7 @@ export function ErrorsPanel({
             }}
           />
         </div>
-        <div className={styles.toolbarRight}>
+        <div className={layout.toolbarRight}>
           <Button
             type='button'
             size='sm'
@@ -350,8 +346,8 @@ export function ErrorsPanel({
         </div>
       </div>
 
-      <div className={styles.split}>
-        <div className={styles.listCol} data-mcols='errors'>
+      <div className={layout.split}>
+        <div className={layout.listCol} data-mcols='errors'>
           {/* 唯一主卡片：骨架/错误/空态由 TableCard 统一承载（§4.4）。
               Single main card; skeleton/error/empty states are owned by TableCard. */}
           <TableCard
@@ -392,14 +388,14 @@ export function ErrorsPanel({
               />
             }
           >
-            <div className={styles.rowHead} aria-hidden>
+            <div className={layout.rowHead} aria-hidden>
               <span>{t('columns.group')}</span>
               <span>{t('columns.exception')}</span>
               <span>{t('columns.node')}</span>
               <span>{t('columns.occurrences')}</span>
               <span>{t('columns.lastSeen')}</span>
             </div>
-            <div className={styles.tableScroll}>
+            <div className={layout.tableScroll}>
               {groups.map((group) => (
                 <div
                   key={group.id}
@@ -410,13 +406,13 @@ export function ErrorsPanel({
                   onClick={() => openGroupDetail(group)}
                   onKeyDown={(e) => onRowKeyDown(e, group.id)}
                   className={cn(
-                    styles.row,
-                    selectedGroupId === group.id && styles.rowActive,
+                    layout.row,
+                    selectedGroupId === group.id && layout.rowActive,
                   )}
                 >
-                  <div className={styles.rowName}>
-                    <div className={styles.rowNameInline}>
-                      <span className={styles.name} title={group.title}>
+                  <div className={layout.rowName}>
+                    <div className={layout.rowNameInline}>
+                      <span className={layout.name} title={group.title}>
                         {group.title || '-'}
                       </span>
                       {groupMemoryMap.get(group.id) ? (
@@ -427,7 +423,7 @@ export function ErrorsPanel({
                       ) : null}
                     </div>
                     <span
-                      className={styles.sub}
+                      className={layout.sub}
                       title={group.sample_message || group.fingerprint}
                     >
                       {group.sample_message || group.fingerprint}
@@ -437,7 +433,7 @@ export function ErrorsPanel({
                     {group.exception_class || '-'}
                   </NeutralChip>
                   <span
-                    className={styles.sub}
+                    className={layout.sub}
                     title={formatNodeOrigin({
                       nodeId: group.last_node_id,
                       hostId: group.last_host_id,
@@ -455,7 +451,7 @@ export function ErrorsPanel({
                   <SoftChip tone={occurrenceHeatTone(group.occurrence_count)}>
                     {t('occurrencesShort', {count: group.occurrence_count})}
                   </SoftChip>
-                  <span className={cn(styles.sub, 'whitespace-nowrap')}>
+                  <span className={cn(layout.sub, 'whitespace-nowrap')}>
                     {formatErrorDateTime(group.last_seen_at)}
                   </span>
                 </div>

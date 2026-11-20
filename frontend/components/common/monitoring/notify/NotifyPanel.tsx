@@ -28,7 +28,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Plus} from 'lucide-react';
-import {NeutralChip, SoftChip} from '../status-chips';
+import {NeutralChip, SoftChip} from '@/components/common/layout';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Button} from '@/components/arc/button/button';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
@@ -48,10 +48,11 @@ import type {
 import {cn} from '@/lib/utils';
 import {ChannelDrawerBody} from './ChannelDrawerBody';
 import {DeliveriesPanel, type NotifyView} from './DeliveriesPanel';
-import {UnsavedChangesDialog, useBeforeUnload} from '../dirty-close';
-import {DetailHost, useDetailNarrow} from '../detail-host';
+import {DirtyCloseDialog, useBeforeUnload} from '@/components/common/layout';
+import {DetailHost, useDetailNarrow} from '@/components/common/layout';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import styles from '../monitoring.module.css';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 const CHANNEL_TYPES = ['webhook', 'email', 'dingtalk', 'wecom', 'feishu'];
 const PAGE_SIZE = 10;
@@ -408,7 +409,7 @@ export function NotifyPanel() {
   }, [load]);
 
   return (
-    <div className={styles.page} style={{overflowY: 'auto'}}>
+    <div className={layout.page} style={{overflowY: 'auto'}}>
       {/* 默认通知：设置分组，保存在分组标题行右侧；首屏加载在分组内出骨架行。
           Default notification as a settings group; save sits in the group head,
           and the first load shows skeleton rows inside the group. */}
@@ -422,15 +423,15 @@ export function NotifyPanel() {
           </span>
           <span className='flex items-center gap-2'>
             {defaultsStatus === 'saved' ? (
-              <span className={cn(styles.xsText, styles.muted)}>
+              <span className={cn(layout.xsText, layout.muted)}>
                 {t('saved')}
               </span>
             ) : null}
             {defaultsStatus === 'error' ? (
               <span
                 className={cn(
-                  styles.xsText,
-                  styles.dangerText,
+                  layout.xsText,
+                  layout.dangerText,
                   'max-w-56 truncate',
                 )}
                 title={defaultsError ?? undefined}
@@ -459,7 +460,7 @@ export function NotifyPanel() {
           </>
         ) : (
           <div className={styles.groupRowGrid}>
-            <div className={styles.field}>
+            <div className={layout.field}>
               <MultiSelect
                 label={t('channels')}
                 options={channelOptions}
@@ -471,7 +472,7 @@ export function NotifyPanel() {
                 emptyMessage={t('selectEmpty')}
               />
             </div>
-            <div className={styles.field}>
+            <div className={layout.field}>
               <MultiSelect
                 label={t('recipients')}
                 options={userOptions}
@@ -486,7 +487,7 @@ export function NotifyPanel() {
                 emptyMessage={t('selectEmpty')}
               />
             </div>
-            <div className={styles.field}>
+            <div className={layout.field}>
               <NumberField
                 label={t('cooldown')}
                 value={defaults.cooldown_minutes}
@@ -497,8 +498,8 @@ export function NotifyPanel() {
                 suffix={t('cooldownUnit')}
               />
             </div>
-            <div className={styles.field}>
-              <span className={styles.fieldLabel}>{t('recoveryNotify')}</span>
+            <div className={layout.field}>
+              <span className={layout.fieldLabel}>{t('recoveryNotify')}</span>
               <Switch
                 checked={defaults.send_recovery}
                 onCheckedChange={(v) =>
@@ -512,7 +513,7 @@ export function NotifyPanel() {
       </section>
 
       {/* 渠道 / Channels */}
-      <section className={styles.sectionStack} style={{flex: 1, minHeight: 0}}>
+      <section className={layout.sectionStack} style={{flex: 1, minHeight: 0}}>
         {view === 'deliveries' ? (
           <DeliveriesPanel
             view={view}
@@ -521,7 +522,7 @@ export function NotifyPanel() {
           />
         ) : (
           <>
-            <div className={styles.toolbar}>
+            <div className={layout.toolbar}>
               <SegmentedControl
                 label={t('notifyViewLabel')}
                 layoutGroup='notify-view'
@@ -532,7 +533,7 @@ export function NotifyPanel() {
                   {value: 'deliveries', label: t('deliveries')},
                 ]}
               />
-              <div className={styles.toolbarSearch}>
+              <div className={layout.toolbarSearch}>
                 <SearchField
                   ref={searchRef}
                   label={t('channelsSearchLabel')}
@@ -547,7 +548,7 @@ export function NotifyPanel() {
                   }}
                 />
               </div>
-              <div className={cn(styles.filterCtrl, styles.filterW)}>
+              <div className={cn(layout.filterCtrl, styles.filterW)}>
                 <Select
                   label={t('channelTypeLabel')}
                   value={typeFilter || ALL_VALUE}
@@ -556,7 +557,7 @@ export function NotifyPanel() {
                   options={typeOptions}
                 />
               </div>
-              <div className={styles.toolbarRight}>
+              <div className={layout.toolbarRight}>
                 <Button
                   type='button'
                   size='sm'
@@ -569,8 +570,8 @@ export function NotifyPanel() {
               </div>
             </div>
 
-            <div className={styles.split}>
-          <div className={styles.listCol} data-mcols='channels'>
+            <div className={layout.split}>
+          <div className={layout.listCol} data-mcols='channels'>
             {/* 唯一主卡片：骨架/错误/空态由 TableCard 统一承载（§4.4）。
                 Single main card; skeleton/error/empty states are owned by TableCard. */}
             <TableCard
@@ -625,14 +626,14 @@ export function NotifyPanel() {
                 />
               }
             >
-              <div className={styles.rowHead} aria-hidden>
+              <div className={layout.rowHead} aria-hidden>
                 <span>{t('channelName')}</span>
                 <span>{t('channelTypeLabel')}</span>
                 <span>{t('channelTarget')}</span>
                 <span>{t('testChannel')}</span>
-                <span className={styles.right}>{t('fieldEnabled')}</span>
+                <span className={layout.right}>{t('fieldEnabled')}</span>
               </div>
-              <div className={styles.tableScroll}>
+              <div className={layout.tableScroll}>
                 {pageItems.map((c) => (
                   <div
                     key={c.id}
@@ -652,13 +653,13 @@ export function NotifyPanel() {
                     }}
                     onKeyDown={(e) => onRowKeyDown(e, c.id)}
                     className={cn(
-                      styles.row,
-                      editKey === c.id && styles.rowActive,
-                      !c.enabled && styles.rowMuted,
+                      layout.row,
+                      editKey === c.id && layout.rowActive,
+                      !c.enabled && layout.rowMuted,
                     )}
                   >
-                    <div className={styles.rowName}>
-                      <span className={styles.name} title={c.name}>
+                    <div className={layout.rowName}>
+                      <span className={layout.name} title={c.name}>
                         {c.name}
                       </span>
                     </div>
@@ -666,13 +667,13 @@ export function NotifyPanel() {
                       {t(`channelType.${c.type}`)}
                     </NeutralChip>
                     <span
-                      className={cn(styles.sub, styles.mono)}
+                      className={cn(layout.sub, styles.mono)}
                       title={c.endpoint || c.config?.email?.host || ''}
                     >
                       {c.endpoint || c.config?.email?.host || '—'}
                     </span>
                     <span
-                      className={styles.rowActions}
+                      className={layout.rowActions}
                       style={{justifyContent: 'flex-start'}}
                     >
                       <Button
@@ -687,11 +688,11 @@ export function NotifyPanel() {
                       {testResult[c.id] ? (
                         <span
                           className={cn(
-                            styles.xsText,
+                            layout.xsText,
                             'max-w-28 truncate',
                             testResult[c.id].ok
-                              ? styles.muted
-                              : styles.dangerText,
+                              ? layout.muted
+                              : layout.dangerText,
                           )}
                           title={testResult[c.id].detail ?? t('testOk')}
                         >
@@ -699,7 +700,7 @@ export function NotifyPanel() {
                         </span>
                       ) : null}
                     </span>
-                    <div className={styles.rowActions}>
+                    <div className={layout.rowActions}>
                       <Switch
                         checked={c.enabled}
                         onCheckedChange={(v) => void toggleChannel(c, v)}
@@ -773,7 +774,7 @@ export function NotifyPanel() {
               ) : null}
             </DetailHost>
           )}
-          <UnsavedChangesDialog
+          <DirtyCloseDialog
             open={discardTarget !== null}
             onDiscard={discardAndCommit}
             onKeepEditing={() => setDiscardTarget(null)}

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import type {ChipTone} from '../../monitoring/status-chips';
+import type {ChipTone} from '@/components/common/layout';
 import type {
   DiagnosticsInspectionFinding,
   DiagnosticsInspectionReportStatus,

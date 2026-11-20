@@ -49,12 +49,12 @@ frontend/
 │   │   ├── markdown/           # Markdown 展示
 │   │   ├── marketplace/        # 市场共享组件（MorphCatalog、MarketplaceViewToggle、SelectionToolbar 等）
 │   │   ├── plugin/             # PluginMain、PluginCard、弹窗
-│   │   ├── monitoring/         # MonitoringWorkspace（alerts/、rules/、notify/、detail-host、dirty-close、status-chips）
+│   │   ├── monitoring/         # MonitoringWorkspace（alerts/、rules/、notify/、status-chips）
 │   │   ├── audit/              # CommandMain、CommandTable、AuditLogMain、AuditLogTable
 │   │   ├── config/             # 配置相关 UI
 │   │   ├── schedule/           # 调度配置
 │   │   ├── sync/               # 数据同步工作台组件（含 StudioFileTabs、VariableDialogForm）
-│   │   ├── layout/             # ManagementBar、WorkspaceHeader、ModuleNavTabs、StatPillsBar、TableCard、TableLoadingBar、TableSkeletonRows、UnsavedChangesDialog、ArcDateRangePicker、CompactTimeFilter、ExpandableTextPanel、ThemeProvider
+│   │   ├── layout/             # ManagementBar、WorkspaceHeader、ModuleNavTabs、StatPillsBar、TableCard、TableLoadingBar、TableSkeletonRows、UnsavedChangesDialog、ArcDateRangePicker、CompactTimeFilter、ExpandableTextPanel、ThemeProvider、DetailHost、DirtyCloseGuard、SoftChip、list-detail.module.css
 │   │   └── ...
 │   ├── animate-ui/             # 动效、radix 变体
 │   ├── motion/                 # beUI motion 控件（File Tree、Table、SharedLayoutBg）

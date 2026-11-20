@@ -18,16 +18,17 @@
 'use client';
 
 /**
- * 监控详情共用的未保存修改确认弹窗与浏览器离开拦截：
- * 弹窗 UI 复用 common/layout/UnsavedChangesDialog，这里只绑定监控文案与 beforeunload。
- * Shared dirty-close guard for monitoring detail editors: delegates dialog UI
- * to common/layout/UnsavedChangesDialog and wires monitoring copy + beforeunload.
+ * 未保存修改的关闭拦截：弹窗 UI 复用 UnsavedChangesDialog，这里绑定公共
+ * dirtyClose 文案并附加 beforeunload 拦截；dirty 判定由调用方负责。
+ * Dirty-close guard: dialog UI delegates to UnsavedChangesDialog; this wrapper
+ * binds the shared dirtyClose copy and wires beforeunload. Dirty detection
+ * stays with the caller.
  */
 import {useEffect} from 'react';
 import {useTranslations} from 'next-intl';
-import {UnsavedChangesDialog as SharedUnsavedChangesDialog} from '@/components/common/layout';
+import {UnsavedChangesDialog as SharedUnsavedChangesDialog} from './UnsavedChangesDialog';
 
-export function UnsavedChangesDialog({
+export function DirtyCloseDialog({
   open,
   onDiscard,
   onKeepEditing,
@@ -36,15 +37,15 @@ export function UnsavedChangesDialog({
   onDiscard: () => void;
   onKeepEditing: () => void;
 }) {
-  const t = useTranslations('monitoring');
+  const t = useTranslations('common');
 
   return (
     <SharedUnsavedChangesDialog
       open={open}
-      title={t('unsavedChangesTitle')}
-      description={t('unsavedChangesDescription')}
-      keepLabel={t('keepEditing')}
-      discardLabel={t('discardChanges')}
+      title={t('dirtyClose.title')}
+      description={t('dirtyClose.description')}
+      keepLabel={t('dirtyClose.keepEditing')}
+      discardLabel={t('dirtyClose.discard')}
       onKeepEditing={onKeepEditing}
       onDiscard={onDiscard}
     />

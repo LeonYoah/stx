@@ -43,12 +43,8 @@ import type {
   DiagnosticsErrorGroup,
 } from '@/lib/services/diagnostics';
 import {cn} from '@/lib/utils';
-// shortcut: 暂直接复用告警中心的详情列样式与软徽章；告警中心组件的并行改动落地后，统一提升到
-// common/layout。
-// Temporary direct reuse of the monitoring detail styles and soft chips; promote to common/layout
-// once the in-flight monitoring component changes land.
-import {SoftChip} from '../../monitoring/status-chips';
-import styles from '../../monitoring/monitoring.module.css';
+import {SoftChip} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
 import {
   formatErrorDateTime,
   formatNodeOrigin,
@@ -106,8 +102,8 @@ export function ErrorGroupDetail({
     : '-';
 
   return (
-    <div className={styles.detailCol} data-testid='error-group-detail'>
-      <div className={styles.detailScroll}>
+    <div className={layout.detailCol} data-testid='error-group-detail'>
+      <div className={layout.detailScroll}>
         {loading && !group ? (
           <div className='space-y-3'>
             <Skeleton className='h-16 w-full' />
@@ -283,7 +279,7 @@ export function ErrorGroupDetail({
       </div>
 
       {group ? (
-        <div className={styles.detailFoot}>
+        <div className={layout.detailFoot}>
           {group.last_cluster_id ? (
             <UIButton asChild variant='outline' size='sm'>
               <a
@@ -305,7 +301,7 @@ export function ErrorGroupDetail({
             <Lightbulb className='size-3.5' aria-hidden />
             {primaryMemory ? tsT('updateSolution') : tsT('recordSolution')}
           </Button>
-          <span className={styles.detailFootGrow} />
+          <span className={layout.detailFootGrow} />
           <Button type='button' variant='ghost' size='sm' onClick={onClose}>
             {t('closeDetail')}
           </Button>

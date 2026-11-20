@@ -26,6 +26,7 @@
 ## 3. 列表、筛选、加载与表格卡片（`TableCard`）
 
 - **状态概览与筛选**：有状态分布的列表页可使用 `StatPillsBar` 或 `SegmentedControl` + `Badge` 作一键筛选；筛选变化必须重置 `page = 1`。
+- **列表 + 常驻详情分栏**：统一复用 `components/common/layout/DetailHost`（≥1080px 常驻 rail、窄屏 Drawer、J/K 导航）+ `common/layout/list-detail.module.css`（`.page` / `.split` / `.listCol[data-mcols]` / `.row` / detail 类），编辑脏态拦截用 `common/layout/DirtyCloseDialog`。
 - **筛选栏**：保持左对齐，搜索框限宽（如 `flex-1 min-w-[200px] max-w-sm`），输入项支持 **Enter** 直接触发主查询且不误触发清空/关闭等次要动作。
 - **零塌陷加载与 `TableCard`**：带分页的列表优先复用共享原语 **`components/common/layout/TableCard.tsx`**（或单层主卡片 + `border-t bg-muted/10` 底栏）：
   - 首屏无数据时使用 `TableSkeletonRows`（加载超过 **300ms** 才显现，显现后至少保留 **500ms** 防闪烁）；
@@ -51,7 +52,7 @@
 - **shadcn 弹窗宽度硬要求**：`ui/dialog` / `ui/alert-dialog` 底座自带 `sm:max-w-lg`，调用处写不带断点前缀的 `max-w-*` 会在宽屏被覆盖导致大弹窗被锁成 512px。宽度一律写 `sm:max-w-*`（`components/ui/__tests__/dialog-width-classes.test.ts` 自动扫描拦截）；重内容弹窗显式放宽至 `sm:max-w-4xl` 以上并采用 `flex flex-col overflow-hidden` + 内部 `overflow-auto min-h-0 flex-1`（长 mono 日志禁止再包 `ScrollArea`）。
 - **Arc 弹窗与共享未保存确认**：
   - Arc 弹窗走 `@/components/arc/dialog/dialog`（内容节点附带 `.arc-compact`，尺寸显式写 `w-[min(...)]!` / `max-h-[85vh]!`）。
-  - 跨模块未保存拦截统一走 `components/common/layout/UnsavedChangesDialog`（支持两/三动作、禁用遮罩误点、默认焦点落在安全留守按钮），仅编辑脏态触发、新建取消直接退出，**禁止**在底栏做内联替换条或绝对定位硬盖。
+  - 跨模块未保存拦截统一走 `components/common/layout/UnsavedChangesDialog`（支持两/三动作、禁用遮罩误点、默认焦点落在安全留守按钮）；常规两动作场景直接用文案已绑定的 `DirtyCloseDialog`。仅编辑脏态触发、新建取消直接退出，**禁止**在底栏做内联替换条或绝对定位硬盖。
 - **只读长文本**：错误堆栈、运行日志、JSON/配置样本统一用 `components/common/layout/ExpandableTextPanel`（原生双向 `overflow-auto`，放大走 `WorkbenchDialogContent`）。
 
 ---

@@ -3,82 +3,77 @@
 每个阶段一个 PR，提交信息用中文。开工前按 AGENTS.md 读 `.trellis/spec/frontend/index.md` 和 `ui-conventions.md`。
 新增或修改的注释写中英双语，中文在前。
 
+**范围收缩（2026-11-20）**：#168 大盘布局已合入；#170 诊断 list+detail 已合入；告警中心 list+detail 已在 main。Phase 4/5 改为组件对齐；Phase 1 **不**新建 `TableCard`。
+
 **每个 PR 的门槛**：
-- 现有 CI 通过：vitest、`pnpm exec tsc --noEmit`、已有的 Playwright E2E。lint 要区分存量问题。
+- 现有 CI 通过：vitest、`pnpm exec tsc --noEmit`、已有 Playwright E2E。lint 区分存量问题。
 - PR 描述附 Egolite 回归记录，格式见文末。
 
 ## Phase 0 · 差异清单与选型拍板（只改文档）
 
-- [ ] 按 design §6.1 产出两层页面的差异清单，放在本任务目录的 `inventory.md`。
-- [ ] 核对审计、用户在筛选变化时是否漏了"回到第 1 页"。
-- [ ] 核对 `ui/popover` 的 3 处用法是否被当作菜单使用。
-- 选型已全部拍板（design §3、§3.1、§3.4、§3.6、规范 §17、§18），Phase 0 不再有待定项。
-- [ ] 差异清单逐区域列出要一起换成 Arc 的控件（搜索框、按钮、输入框、日期），确认是否需要安装 `textarea`、`checkbox`。
-- [ ] 把选型表写回 `ui-conventions.md`。
-- 评审门槛：用户确认差异清单和选型表之后，才进入 Phase 1。
+- [ ] 按 design §6.1 产出差异清单 → 本任务目录 `inventory.md`（按 **当前 main** 盘点，勿用 2026-11-18 旧行号）。
+- [ ] 核对审计、用户筛选是否漏「回第 1 页」。
+- [ ] 核对 `ui/popover` 是否被当菜单。
+- [ ] grep `window.confirm` 与巡检策略确认路径（#170 后可能已无三处旧调用）。
+- 选型已拍板（design §3、§3.1、§3.3 计数政策、§3.4、DetailHost 标准、规范 §3/§5/§8/§9/§10）。
+- [ ] 列出要对齐的 Arc 控件包；确认 `textarea` / `checkbox` 是否还需新装。
+- 评审门槛：用户确认清单后进入 Phase 1。
 
 ## Phase 1 · 公共件与 Arc 改造
 
-- [ ] 安装 Arc `select`、`dropdown-menu`（`pnpm dlx shadcn@latest add @uiarc/<name> --yes`），同步 `licenses/third_party_mit_files.txt`。
-- [ ] 按 design §3.2 补改 `Select`、`Combobox`、`DropdownMenu`、`Button`、`chip-group`（`count`），在文件头注明本地改动；为每项新增能力补单测
-      （无标签时有 `aria-label`、自定义触发器能打开菜单、`iconOnly` 为正方形）。
-- [ ] 在控制台外层容器上覆盖 Arc 桌面后台收紧变量（`--radius-control: 0.5rem` 8px、`--radius-panel: 0.625rem` 10px、`--control-height-md: 2rem` 32px、`--control-height-sm: 1.75rem` 28px），零改动 Arc 组件圆角源码（`ConfirmMorph` / `Switch` 保持胶囊）。
-- [ ] 按 design §3.2 收紧三种弹层：`foundation.css` 的 `:root` 加 `--radius-popover: 0.625rem`（10px），`DropdownMenu`、`Select`、`Combobox` 改用它，内边距 4px，选项圆角 6px、行高 32px，高亮时图标变深。
-      工作台已有的 `Combobox` 弹层会一起变，Egolite 补一条工作台用例，确认没有被裁切或错位。
-
-- [ ] `TableCard`：容器、保底高度、加载条、首屏骨架 / 空状态 / 错误状态插槽、分页底栏。视觉与 §10 一致。
-- [ ] `useServerListQuery`：page / pageSize / filters；`patch` 时回到第 1 页；可选同步到 URL。
-- [ ] 单测：
-  - hook 的页码重置；
-  - 每页条数变化时回到第 1 页；
-  - URL 同步的往返；
-  - `TableCard` 在加载、空、错误、正常四种状态下的渲染。
-- 本阶段不迁移任何页面。
+- [ ] **不要**新建 `TableCard`（`common/layout/TableCard.tsx` 已存在）。
+- [ ] 按需补齐 Arc：`Select` / `DropdownMenu` / `Button` `iconOnly` / `chip-group` `count` / 弹层 Token；`Combobox` label 在 main 已可选——验收：**无可见标签时必须有 `aria-label`**（单测覆盖）。
+- [ ] 控制台外层覆盖 8–10px / 32–28px Token；`:root` `--radius-popover`；三种弹层收紧。
+- [ ] 新建 `useServerListQuery`：page / pageSize / filters；`patch` 回第 1 页；可选 URL 同步 + 单测。
+- [ ] 单测：`TableCard` 四态（若缺补）；hook 页码重置 / pageSize / URL 往返。
+- 本阶段不迁移页面。
 
 ## Phase 2 · 试点：审计日志
 
-- [ ] 接入 `TableCard` 与 `useServerListQuery`。
-- [ ] `AuditLogMain` 持有查询状态，`AuditLogTable` 只负责渲染；状态标签保留原本 `ui/badge` 不动。
-- [ ] 迁移前后截图对比；Egolite 跑审计用例。
-- 评审门槛：试点通过后，再批量迁移其余页面。
+- [ ] 接入既有 `TableCard` + `useServerListQuery`。
+- [ ] `AuditLogMain` 持查询状态，`AuditLogTable` 只渲染；追踪保持 `AuditTraceSheet`（临时 Sheet）。
+- [ ] 状态标签保留 `ui/badge`。
+- [ ] 截图对比 + Egolite 审计用例。
+- 评审门槛：试点通过后再迁用户。
 
 ## Phase 3 · 用户中心
 
-- [ ] 令牌管理的 `StatPillsBar` 换成 `SegmentedControl` + 计数（design §3.3）。
+- [ ] 令牌 `StatPillsBar` → `SegmentedControl`（有可靠计数才显示数字）。
+- [ ] 接入 `TableCard` + hook；确认 / 表单按选型。
+- [ ] Egolite：用户用例，必盖「不能操作自己」。
 
-- [ ] 接入两个公共件，确认与表单弹窗按选型表处理。
-- [ ] Egolite：用户用例，"不能操作自己"必须覆盖。
+## Phase 4 · 错误中心 + 巡检（仅组件对齐）
 
-## Phase 4 · 错误中心 + 巡检
+> list + `DetailHost` + `TableCard` 已由 #170 落地。**禁止**重做布局或加回当前页桶计数。
 
-- [ ] 两页的 `StatPillsBar` 换成 `SegmentedControl` + 计数（design §3.3）。
+- [ ] Select / Combobox / DropdownMenu / 确认路径对齐选型；同一区域不混用。
+- [ ] 可选：接线 `useServerListQuery`（不改变筛选语义）。
+- [ ] 复核策略页确认（`DirtyCloseDialog` / 删除确认），勿按旧 `window.confirm` 行号改。
+- [ ] Egolite：两页 + 跳转链路；断言筛选无页内桶计数。
 
-- [ ] 两页接入公共件；巡检的启动对话框保留 `Dialog`。
-- [ ] Egolite：两页用例，以及跳转链路。
+## Phase 5 · 告警中心（仅组件对齐）
 
-## Phase 5 · 告警中心
+> list + `DetailHost` 已在 main。**禁止**重做骨架。
 
-- [ ] 告警状态的 `StatPillsBar` 换成 `SegmentedControl` + 计数（design §3.3）。
-- [ ] "关闭告警"接入 Arc `ConfirmMorph` 行内确认（保持 Arc 原设计，同排其余操作用无框 `ghost` 或收进菜单，避免叠框）。
+- [ ] 「关闭告警」接 `ConfirmMorph`（防叠框）。
+- [ ] 其余下拉 / 菜单 / 确认对齐；状态分段计数保持服务端全集统计。
+- [ ] 可选接线 `useServerListQuery`。
+- [ ] Egolite：深链、关闭确认展开/取消/确认、DetailHost J/K。
 
-- [ ] 先换卡片与查询状态，再处理行操作与详情面板（可拆成两个 PR）。
-- [ ] Egolite：告警用例，含深链参数，以及"关闭告警"行内确认（展开、取消、确认）和行内不叠框/不挤压检查。
+## Phase 6 · 交互组件对齐层（单独 PR；可与 Phase 1–5 并行）
 
-## Phase 6 · 交互组件对齐层（单独 PR，Phase 0 之后可与 Phase 1–5 并行）
-
-- [ ] 3 处 `window.confirm` 换成 `AlertDialog`（文案沿用现有 i18n key）。
-- [ ] 作业列表工具栏的 `StatPillsBar` 换成 `chip-group` 多选 + 计数；URL 支持多值并兼容旧单值链接；只选"运行中"时才能按速率 / CDC 延迟排序。
-- [ ] 下拉、可搜索下拉、行内"更多"换成 Arc；同一块区域里相邻的 shadcn 控件一起换，做到不混用。
-- [ ] 用普通 `Dialog` 承载的纯确认，改成 `AlertDialog`。
-- [ ] 下拉框、更多菜单按 `inventory.md` 的清单逐处替换（原本 `ui/badge` 保持不动）。
-- [ ] diff 只能是组件替换，不能有布局、数据流或轮询的改动。
-- [ ] Egolite：每一处替换各一条用例。
+- [ ] 工作台 + **大盘**：确认、下拉、溢出菜单按清单替换；**不改** `KpiStrip` / `ThroughputTabs` / `DashboardPanel` / `ClusterScopeStrip` / 作业列表结构。
+- [ ] 大盘头部：去掉 `[&_label]:sr-only`；Combobox 使用可选 label + **`aria-label`（或可见 label）**——验收控件有可访问名称。
+- [ ] **不要**恢复「全部 / 正式 / 预览」运行类型分段。
+- [ ] 作业工具栏 `StatPillsBar` → `chip-group` 多选 + 计数；URL 多值兼容；只选「运行中」可速率排序。
+- [ ] 全库复核 `window.confirm` 与 Dialog→AlertDialog 纯确认。
+- [ ] diff 仅组件替换；Egolite 每处替换一条。
 
 ## Phase 7 · 收尾
 
-- [ ] 删除各页面里被公共件替代的重复代码（确认没有引用后再删）。
-- [ ] `ui-conventions.md` §10 补充 `TableCard` 与 `useServerListQuery` 的用法；更新一致性检查项。
-- [ ] 如果 vendored 文件有增减，同步 `licenses/third_party_mit_files.txt`。
+- [ ] 删除迁移页重复的卡片/分页代码。
+- [ ] `ui-conventions.md` 核对 `TableCard` / `useServerListQuery` / DetailHost / 计数政策 / Combobox a11y 检查项。
+- [ ] vendored 增减同步 `licenses/third_party_mit_files.txt`。
 
 ## Egolite 回归记录格式（附在 PR 描述里）
 

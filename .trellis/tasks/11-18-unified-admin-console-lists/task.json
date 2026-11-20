@@ -2,7 +2,7 @@
   "id": "unified-admin-console-lists",
   "name": "unified-admin-console-lists",
   "title": "全局 UI 统一：管理列表迁移 + 全站交互组件对齐",
-  "description": "5 个管理列表（审计、用户、错误中心、巡检、告警）抽出公共表格卡片与查询状态并完成迁移；工作台（含底部控制台）、首页大盘（含作业列表）等页面只对齐确认弹窗、下拉框、更多菜单、状态标签，不动布局。每阶段附 Egolite 回归记录。",
+  "description": "审计/用户做完整 TableCard+useServerListQuery 迁移；告警与诊断（#170）已是 list+DetailHost，仅做交互组件对齐；大盘布局（#168）出范围，Phase 6 只对齐确认/下拉/菜单并清理 Combobox a11y。StatPillsBar 退役；保留 ui/badge。每阶段附 Egolite 回归。",
   "status": "planning",
   "dev_type": "frontend",
   "scope": "frontend",
@@ -19,11 +19,11 @@
   "next_action": [
     {
       "phase": 1,
-      "action": "phase0-inventory-and-decisions"
+      "action": "phase0-inventory-against-current-main"
     },
     {
       "phase": 2,
-      "action": "implement-table-card-and-query-hook"
+      "action": "implement-use-server-list-query-and-arc-gaps"
     }
   ],
   "commit": null,
@@ -32,6 +32,12 @@
   "children": [],
   "parent": null,
   "relatedFiles": [
+    "frontend/components/common/layout/TableCard.tsx",
+    "frontend/components/common/layout/DetailHost.tsx",
+    "frontend/components/common/layout/DirtyCloseGuard.tsx",
+    "frontend/components/common/layout/UnsavedChangesDialog.tsx",
+    "frontend/components/common/layout/SoftChip.tsx",
+    "frontend/components/common/layout/list-detail.module.css",
     "frontend/components/common/layout/TableLoadingBar.tsx",
     "frontend/components/common/layout/TableSkeletonRows.tsx",
     "frontend/components/common/layout/WorkspaceHeader.tsx",
@@ -42,13 +48,15 @@
     "frontend/components/common/audit/AuditLogTable.tsx",
     "frontend/components/common/audit/AuditTraceSheet.tsx",
     "frontend/components/common/admin/UserManagement.tsx",
-    "frontend/components/common/diagnostics/DiagnosticsErrorCenter.tsx",
-    "frontend/components/common/diagnostics/DiagnosticsInspectionCenter.tsx",
-    "frontend/components/common/monitoring/MonitoringAlertsCenter.tsx",
-    "frontend/components/common/monitoring/MonitoringPolicyCenter.tsx",
-    "frontend/components/common/sync/TaskAlertSection.tsx",
+    "frontend/components/common/admin/TokenManagement.tsx",
+    "frontend/components/common/diagnostics/errors/ErrorsPanel.tsx",
+    "frontend/components/common/diagnostics/inspections/InspectionsPanel.tsx",
+    "frontend/components/common/diagnostics/policies/PoliciesPanel.tsx",
+    "frontend/components/common/monitoring/alerts/AlertsPanel.tsx",
+    "frontend/components/common/dashboard/HomeDashboard.tsx",
+    "frontend/components/common/sync/job-table/JobTableToolbar.tsx",
     ".trellis/spec/frontend/ui-conventions.md"
   ],
-  "notes": "用户确认：范围分两层（管理列表完整迁移；工作台/控制台/大盘只对齐交互组件）；回归用 Egolite（Mac），现有 CI 保持通过；以 ui-conventions 已有选型为起点；不做移动端 Drawer、审计批量操作。",
+  "notes": "2026-11-20 收口：DetailHost 为管理列表详情标准；Phase4/5 仅组件对齐；大盘布局出范围；筛选禁止当前页桶计数；Combobox 可访问名称强制；#168/#170 已合入 main。Badge 保留 ui/badge；StatPillsBar 弃用；不做移动端专用 Drawer、审计批量、万能表。",
   "meta": {}
 }

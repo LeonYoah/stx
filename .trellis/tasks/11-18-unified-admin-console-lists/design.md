@@ -1,274 +1,181 @@
 # 设计：管理列表迁移 + 全站交互组件对齐
 
-> 关联：`11-17-unified-job-table`、`11-17-job-detail-host`、PR #160（预览表 beUI Table 的边界）
-> 规范：`.trellis/spec/frontend/ui-conventions.md`（§6 筛选栏、§7 弹窗、§10 表格卡片与分页、§14 Arc 组件）
+> 关联：`11-17-unified-job-table`、`11-17-job-detail-host`、PR #160、PR #168（大盘视觉）、PR #170（诊断对齐告警中心）
+> 规范：`.trellis/spec/frontend/ui-conventions.md`（§3 列表/DetailHost、§5 弹窗、§8 Arc、§9 Badge、§10 大盘）
+> 收口：2026-11-20（按 #168/#170 与告警中心现状收缩范围）
 
 ## 1. 结论
 
 统一的是**框架与交互组件的选型**，不是同一个领域表格。
 
-- 5 个管理列表都是服务端驱动的列表：分页、筛选、排序以后端为准。它们已经遵守 §10，问题是**同一套卡片和分页底栏拷贝了 5 份**，
-  查询状态也各写各的。所以只抽两个公共件（§4），不建"万能壳"。
-- 作业域的 `JobTable` 不外溢到告警、审计、用户；它的列定义、轮询、批量逻辑留在作业域。
-- 交互组件（确认、下拉、菜单、标签、页签）的选型是**全局性的**，先定选型（§3），再分两层落地：
-  - 管理列表随骨架迁移一起换；
-  - 工作台（含底部控制台）、首页大盘只换组件，不动布局。
+- **仍缺骨架的管理列表**（审计、用户）是服务端驱动列表：抽 / 复用 `TableCard`（已存在）与 `useServerListQuery`（待建），不建「万能壳」。
+- **告警、错误、巡检、巡检策略**的 list + 常驻详情已完成（告警在 main；其余随 #170）。本期只做交互组件对齐，可选接线查询 hook。
+- **大盘布局**由 #168 完成，本期不改；只对齐确认 / 下拉 / 溢出菜单并清理 Combobox a11y 兜底。
+- 作业域 `JobTable` 不外溢到告警 / 审计 / 用户。
 
-## 2. 现有资产（代码事实）
+## 2. 现有资产（2026-11-20，main `918bfdc1`）
 
 | 资产 | 位置 | 实际能力 | 本任务中的用法 |
 |---|---|---|---|
 | 页头 / 模块页签 | `common/layout/`：`WorkspaceHeader`、`ModuleNavTabs` | 统一页头、页面级页签 | 直接复用 |
-| 状态胶囊 | `common/layout/StatPillsBar` | 可点击的状态计数胶囊 | **已弃用**（见 §3.3）：本期迁走 6 处，其余随下期页面迁移，迁完后删除 |
-| 加载与骨架 | `common/layout/`：`TableLoadingBar`、`TableSkeletonRows` | 刷新时的顶部加载条、首屏骨架行 | 收进 §4.1 的表格卡片 |
-| 分页 | `ui/pagination` | §10 指定的分页组件 | 收进表格卡片底栏 |
-| `StudioDataTable` | `common/sync/StudioDataTable.tsx` | HeroUI 解剖结构的表格原语（`StudioTable`/`Header`/`Column`/`SortableColumnHeader`/`Row`/`Cell`/`EmptyRow`/`Footer`）+ **客户端排序**（`applyStudioSort`） | 只用于工作台任务表这类本地数据，**不作为**服务端列表的基座 |
-| beUI Table | `components/motion/table/` | 虚拟滚动、列宽拖动、本地排序 | 只用于预览这类客户端大样本，不用于管理列表 |
-| 作业表 | `common/sync/job-table/` | 作业域的列、工具栏、行操作、详情宿主 | 作为模式参考，不复用到其他实体 |
+| **`TableCard`** | `common/layout/TableCard.tsx`（208） | §3/§4.4 卡片、加载条、骨架/空/错、分页底栏 | **已存在，禁止重建**；审计 / 用户接入 |
+| **`DetailHost` + list-detail CSS** | `DetailHost.tsx`（222）、`list-detail.module.css`（623） | 常驻 rail / 窄屏 Drawer / J/K | 管理列表详情标准；已用于告警 / 错误 / 巡检 / 策略 / 通知 / 规则 |
+| **脏关闭** | `DirtyCloseGuard.tsx`（`DirtyCloseDialog`）、`UnsavedChangesDialog.tsx` | 未保存确认 + beforeunload | 策略等编辑页已用；迁移页复用 |
+| **`SoftChip`** | `SoftChip.tsx`（56） | 轻量状态芯片 | 诊断 / 告警行内已用 |
+| 状态胶囊 | `StatPillsBar`（178） | 可点击状态计数 | **已弃用**；本期迁令牌 + 作业工具栏 |
+| 加载与骨架 | `TableLoadingBar`、`TableSkeletonRows` | 刷新条、首屏骨架 | 已收进 `TableCard` |
+| 分页 | `ui/pagination` | §3 指定 | `TableCard` 底栏 |
+| `StudioDataTable` | `common/sync/StudioDataTable.tsx` | 客户端排序表格原语 | 只用于工作台任务表等本地数据 |
+| beUI Table | `components/motion/table/` | 虚拟滚动等 | 只用于预览大样本 |
+| 作业表 | `common/sync/job-table/` | 列、工具栏、`JobDetailHost` | 模式参考；工具栏 `StatPillsBar` 在对齐层替换 |
+| 大盘件（#168） | `KpiStrip` / `ThroughputTabs` / `DashboardPanel` / `ClusterScopeStrip` | 指标条、吞吐格、面板、集群范围条 | **布局冻结**；规范见 ui-conventions §10 |
+
+**已不存在（勿再按旧库存盘）**：`MonitoringAlertsCenter.tsx`、`DiagnosticsErrorCenter.tsx`、`DiagnosticsInspectionCenter.tsx`、`MonitoringPolicyCenter.tsx` 单体文件。
 
 ## 3. 交互组件统一选型
 
-状态列：**已定** = 规范已有结论，直接执行；**待定** = Phase 0 拍板后写回规范。
-
 | 场景 | 组件 | 出处 / 状态 | 说明 |
 |---|---|---|---|
-| 破坏性 / 不可逆确认（删除、停用、强制停止） | `ui/alert-dialog` | §7，**已定** | 写清后果，危险按钮用 destructive；全站禁止 `window.confirm` |
-| 表单创建 / 编辑 | `ui/dialog` 外框 + 内部 Arc 控件 | §7，**已定** | 宽度按 §7.2 分级。本期外框不换；框内的输入框、下拉、按钮按 §3.1 换成 Arc |
-| 行内轻确认 | Arc `confirm-morph` | §14 / §18，**已定**（2026-11-19 用户确认） | 保持 Arc 原版设计，用于"单条、不可撤回、只涉及自己、且有按钮可锚定"的行内操作（见 §3.4） |
-| 少量选项的下拉选择 | Arc `Select`（需补改，见 §3.2） | **已定**（2026-11-18） | 2–5 个短选项且互斥的筛选用 `SegmentedControl`（与 §3.3 一致）；6 个及以上，或选项会随数据增加时用 `Select` |
-| 可搜索 / 长列表选择 | Arc `Combobox`（需补改，见 §3.2） | **已定**（2026-11-18） | 选项 >10 个或来自数量不固定的数据（主机、用户、插件）时使用；`ui/command` 只留给快速打开这类命令面板 |
-| 行内"更多"菜单 | Arc `DropdownMenu` + Arc `Button` ghost 图标按钮做触发器（均需补改，见 §3.2） | **已定**（2026-11-18） | 危险项用 `destructive`，点了再走 `AlertDialog`；`ui/popover` 不当菜单用；单行动作 ≤2 个时直接摆无框 `ghost` 按钮 |
-| 状态 / 级别标签与中性标签 | 原本 shadcn `ui/badge`（`components/ui/badge.tsx`） | **已定**（2026-11-19 用户确认保留原版），写入规范 §17 | 保持原版 `ui/badge` 不动，不做向 Arc `Badge` 的全站迁移；`§14` 已用的 Arc `Badge` 维持现状 |
-| 页面级页签 | `ModuleNavTabs` | **已定** | 监控中心、诊断中心、账号子导航 |
-| 详情内页签 | Arc `Tabs` | §14，**已定** | |
-| 工具栏互斥筛选 / 视图切换 | Arc `SegmentedControl` | §14，**已定** | |
-| 详情 / 追踪面板 | `ui/sheet`（右侧） | **已定**（现状一致） | |
-| 状态筛选（单选，2–5 项） | Arc `SegmentedControl` + 计数 | **已定**（2026-11-18），见 §3.3 | 后端只接受单个值的列表一律单选 |
-| 状态筛选（多选，项数多） | Arc `chip-group` + 计数（需补改，见 §3.2） | **已定**，见 §3.3 | 目前只有作业状态（7 项） |
-| 立即生效的单个开关条件（如"只看已启用"） | Arc `Switch` | **已定** | 不要和类型筛选挤在同一排 |
-| 详情页的汇总数字 | 放到详情页签上（Arc `Tabs` 的 trigger） | **下期**，随集群详情页签迁移 | 去掉单独的汇总栏 |
-| 分页 | `ui/pagination` | §10，**已定** | |
-| 日期范围 | `ArcDateRangePicker` | §14，**已定** | |
+| 破坏性 / 不可逆确认 | `ui/alert-dialog` | §5，**已定** | 禁止 `window.confirm` |
+| 表单创建 / 编辑 | `ui/dialog` 或已迁页的 Arc `Dialog` + 内部 Arc 控件 | §5，**已定** | 本期不强制换外框；#170 部分策略弹窗已用 Arc `Dialog` |
+| 行内轻确认 | Arc `confirm-morph` | §5 / §8，**已定** | 单条、不可撤回、只涉及自己、有按钮可锚定（§3.4） |
+| 少量选项下拉 | Arc `Select`（源码补丁见 §3.2） | **已定** | 2–5 互斥筛选用 `SegmentedControl` |
+| 可搜索 / 长列表 | Arc `Combobox` | **已定** | main 上 `label` **已可选**；必须可见标签或 `aria-label`（§3.2 a11y） |
+| 行内「更多」 | Arc `DropdownMenu` + `Button` `iconOnly` | **已定** | `ui/popover` 不当菜单 |
+| 状态 / 中性标签 | shadcn `ui/badge` | §9，**已定** | 不做 Arc Badge 批量迁移 |
+| 页面级页签 | `ModuleNavTabs` | **已定** | |
+| 详情内页签 | Arc `Tabs` | **已定** | |
+| 工具栏互斥筛选 | Arc `SegmentedControl` | **已定** | 计数规则见 §3.3 |
+| **管理列表常驻详情** | **`DetailHost`** | §3，**已定（2026-11-20）** | 取代「详情一律 `ui/sheet`」；Sheet 仅临时覆盖（审计追踪） |
+| 状态筛选多选 | Arc `chip-group` + 计数 | **已定** | 作业状态；计数来自 `with_counts` |
+| 分页 | `ui/pagination` | **已定** | |
+| 日期范围 | `ArcDateRangePicker` | **已定** | |
 
-**状态标签的决定（已定，2026-11-19 用户确认）**：
+### 3.1 视觉方向：8–10px 桌面后台收紧版（2026-11-19 拍板）
 
-- **保留原本 shadcn `ui/badge` 不动**：列表、详情与卡片里的状态标签和中性标签继续沿用 `components/ui/badge.tsx`（6px `rounded-md`、1px 边框、紧凑内边距，与 8–10px 收紧后的 Arc 控件天然协调），**不再将全站 91 处状态标签批量替换为 Arc `Badge`**，也不修改 `components/ui/badge.tsx` 本身。
-- **边界**：
-  - 规范 `§14` 中已经接入的 Arc `Badge`（工作台定时侧栏、作业详情、升级向导）与 `SegmentedControl` / `chip-group` 内的计数标签保持现状；
-  - 其余页面保留 `ui/badge` 原有用法，不因"同一区域只用一套"强制替换表格内的 `ui/badge`；后续代码若新增或顺手修改状态标签时注意补齐 `dark:` 适配并保持域内配色一致。
+- 控制台外层覆盖 Token：`--radius-control: 0.5rem`、`--radius-panel: 0.625rem`、`--control-height-md: 2rem`、`--control-height-sm: 1.75rem`；`--radius-popover: 0.625rem`（`:root`）；不魔改组件圆角源码；`ConfirmMorph` / `Switch` 保持胶囊；不启 `superellipse`。
+- **避免框框堆叠**：只留 `TableCard` 一层主外框；筛选落画布；行内以 ghost / 菜单为主。
+- **同一块区域只用一套**：Arc 与 shadcn 不混用（`ui/badge` 豁免）。
+- **分两期**：本期 = 审计 / 用户完整迁移 + 告警 / 诊断 / 工作台 / 大盘组件对齐；其他页面表单下期。对话框外框不强制本期统一。
 
-### 3.1 视觉方向：8–10px 桌面后台收紧版（2026-11-19 用户拍板，对齐 Arc `product-listing` 观感）
+### 3.2 Arc 源码改动与 a11y
 
-- **容器级 Token 收紧（零改动 Arc 源码圆角）**：Arc 的 `Button`、`Input`、`SearchField`、`SegmentedControl`、`Tabs` 等免费组件全部通过 `--radius-control` / `--radius-panel` / `--control-height-*` 驱动外观。不魔改各组件源码的圆角写法，只在控制台外层容器统一覆盖 CSS 变量（工作台自己的局部覆盖 `studio-chrome.css` 保持独立不变，不在 `foundation.css` 叠 `corner-shape: superellipse` 覆盖）：
-  - 控件圆角 `--radius-control: 0.5rem`（**8px**，`SegmentedControl` / `Tabs` 内层选中块自动按 `calc(var(--radius-control) - 4px)` 保持同心圆角）；
-  - 卡片 / 面板圆角 `--radius-panel: 0.625rem`（**10px**，表格主外框 `TableCard` 同步为 10px）；
-  - 控件高度 `--control-height-md: 2rem`（**32px**）、行内控件 `--control-height-sm: 1.75rem`（**28px**）；
-  - `ConfirmMorph` 与 `Switch` 本身硬编码 `--radius-pill`，保持 Arc 原版胶囊形态不改。
-- **避免框框堆叠**：
-  - 列表页只保留 `TableCard` 一层主外框；筛选栏、搜索框与状态分段控件直接放在页面画布上，不再外包一层带边框的独立卡片或工具栏框；
-  - `TableCard` 内部及详情面板遵循"先靠间距分组，其次用 1px `--border-subtle` 分隔线，仅在真正需要独立边界时才用卡片"（相邻汇总指标优先合成单框 + 内部分割线），禁止卡片套卡片、表格内再嵌带框子容器；
-  - 表格行内操作平时以无框 `ghost` 按钮或 `DropdownMenu` 为主，不把多个带边框按钮或描边胶囊并排堆叠；使用 `ConfirmMorph` 时每行最多锚定 1 个核心动作，列宽预留展开余量或让次要动作收进菜单，避免撞框。
-- **弹层收紧**（2026-11-19 随 8–10px 桌面收紧版同步定稿，组件仍用 Arc，不引入 affectUI）：
-  - 适用于 `DropdownMenu`、`Select`、`Combobox` 三种弹层；
-  - 弹层圆角统一 **10px**（`--radius-popover: 0.625rem`），内边距 **4px**，选项圆角 **6px**（`calc(var(--radius-popover) - 4px)`），选项行高 **32px**；
-  - 图标平时用 `--text-secondary`，选项高亮时变成 `--foreground`；
-  - 1px 细边和投影沿用 Arc 现有的 `--border` 与 `--shadow-floating`，字号沿用 `--text-sm`。
-  Arc 原版三种弹层的圆角本身就不一致（菜单 26/20px，下拉选择 20/14px，可搜索下拉 26/21px），统一后同一页面的弹层外观一致，且 10px / 6px 与 8px 控件圆角和 4px 栅格对齐。
-  不引入 affectUI 的原因：它是手写实现，不基于 Radix；颜色写死、主题变量自成一套；用法是传选项数组；
-  只换菜单又会和 Arc 的下拉选择挨在一起，违反下面"同一块区域只用一套"。
-- **同一块区域只用一套**：同一行筛选栏、同一个对话框、同一张表里，控件要么全是 Arc，要么全是 shadcn，
-  不允许 Arc 胶囊控件和 8px 圆角的 shadcn 控件挨在一起。所以换下拉时，同一行的搜索框（Arc `SearchField`）、
-  按钮（Arc `Button`）、日期（`ArcDateRangePicker`）要一起换。
-- **分两期**：
-  - **本期（本任务）**：5 个管理列表，以及它们打开的详情面板和对话框，内部控件全部换成 Arc；
-    工作台（含底部控制台）、首页大盘（含作业列表）按"同一块区域只用一套"补齐剩下的小组件。
-  - **下期（另开任务）**：集群、主机、安装包、插件、监控策略等其他页面的表单与对话框
-    （全站 `ui/button` 107、`ui/input` 53、`ui/dialog` 45、`ui/checkbox` 24、`ui/textarea` 13、`ui/switch` 13 个文件里的剩余部分）。
-    这期间页面与页面之间风格可以不同，但每个页面内部必须统一。
-- **对话框外框本期不换**：继续用 `ui/dialog`，只换框内控件；Arc `Dialog` 放到下期一起评估。
-- **弹出位置**：用组件默认值（Arc 菜单 `sideOffset=6`、`align="end"`），不要另外加偏移。
-
-- **一排控件只表示一个维度**：不要把两个维度（如渠道类型和启用状态、排障记忆的来源和类型）挤在同一排，
-  否则选了其中一项，另一个维度就没法再选。
-
-### 3.2 要补的 Arc 源码改动
-
-Arc 组件是拷进仓库的源码。按既有约定直接修改，在文件头注明本地改动，升级时用 diff 合并（同 `ArcDateRangePicker` 的 `withTime`）。
-下表只列现有用法实际需要的能力：
-
-| 组件 | 现有用法里用到、Arc 版缺少的能力 | 改动 |
+| 组件 | 现状（main） | 本期仍要做 |
 |---|---|---|
-| `Select`（新装） | 筛选栏里的下拉都没有可见标签；4 个文件在选项里放了图标；1 个文件用了分组 | 标签改为可选（不显示时必须传 `aria-label`）；选项支持图标；那 1 处分组改写成不分组，或者补上分组支持 |
-| `Combobox`（已装） | 3 处用法都是单选、本地过滤；筛选栏里不显示标签 | 标签改为可选 |
-| `DropdownMenu`（新装） | 7 处触发器是图标按钮；1 处用了菜单内标题 | 支持传入自定义触发器（同 Radix `asChild`）；支持菜单内标题。子菜单、勾选项、快捷键现有代码都没用，不补 |
-| `Button`（已装） | 行内"更多"需要正方形纯图标按钮 | 加 `iconOnly`：宽高相等、去掉左右内边距，必须传 `aria-label` |
-| 弹层：`DropdownMenu`、`Select`、`Combobox` 的样式文件，以及 `foundation.css` | 三种弹层圆角不一致，且 20–26px 在密集列表里显得重（§3.1） | `foundation.css` 的 `:root` 新增 `--radius-popover: .625rem`（10px）。必须定义在 `:root`：菜单和下拉选择通过 Portal 渲染到 `body`，外层容器上定义的变量传不进去。三种弹层的外框圆角改用 `var(--radius-popover)`，内边距统一为 4px，选项与高亮块改用 `calc(var(--radius-popover) - 4px)`（6px）；选项 `min-height` 由 36px 改为 32px；`DropdownMenu` 与 `Select` 的选项高亮时，图标颜色改为 `--foreground`。快捷键、子菜单、勾选动画不补 |
-| `chip-group`（已装） | 作业状态多选需要显示计数 | `ChipOption` 加可选的 `count`：显示在文字后面，等宽数字，固定最小宽度，轮询时相邻芯片不跳动。现有 3 个调用方不传，不受影响。`+N more` 的英文只在传了 `maxVisible` 时出现，作业状态不用；以后要用，再按其他 Arc 组件的做法改成通过参数传入文案。**不复制出新组件** |
+| `Combobox` | `label` 已可选；缺 label 且无 `aria-label` 时 dev warn | 大盘头部去掉 `[&_label]:sr-only`，改为不传 label + `aria-label`（或可见 label）；**验收：控件必有可访问名称** |
+| `Select` | 已安装 | 标签可选时同样强制 `aria-label`；选项图标 / 分组按 Phase 0 清单补 |
+| `DropdownMenu` / `Button` `iconOnly` / `chip-group` `count` | 已安装 | 按缺口补自定义触发器、`iconOnly`、`count`；文件头注明 Local modification |
+| 弹层样式 | 随 Token 收紧 | `:root` `--radius-popover` + 三种弹层 10/6/4/32 |
 
-**新装的组件**：`select`、`dropdown-menu`。如果 5 个列表的对话框用到多行文本框或复选框，再装 `textarea`、`checkbox`，以 Phase 0 的清单为准。
+**a11y 硬约束（stx UI 检查）**：标签可可选，但「无可见标签且无 `aria-label`」一律不合格。
 
-### 3.3 `StatPillsBar` 退役与状态筛选
+### 3.3 `StatPillsBar` 退役与筛选计数
 
-- **用户已确认全站退役**：工作台控制台的同一行里，`StatPillsBar` 和两个 Arc `SegmentedControl` 并排，看上去像三套页签，没法统一样式。
-- **计数的显示**：在 Arc 控件里用 Arc `Badge size='sm'`，不用 `ui/badge`（§3.1 同一区域不混用）；
-  计数用等宽数字并固定最小宽度。`SegmentedControl` 的计数放在它自带的 `accessory` 插槽里。
-- **保留"需要注意"的信号**：原来的胶囊会用红色加呼吸点提示失败数。改造后，失败、触发中这类选项的计数大于 0 时，
-  计数用 `tone='danger'`，其他计数用 `neutral`；选中样式本身不带颜色。
-- **"全部"的含义由调用方处理**：多选时不选任何一项就是"全部"，点"全部"清空选择；组件本身不加这个概念。
-- **排序不可用时要说明原因**：速率 / CDC 延迟两列现在用 `sortableWhen` 判断能否排序，不能排序时表头的 `title` 显示 `sortNeedsRunning`
-  （现文案：选中「运行中」后可按速率或延迟排序）。改成多选后，条件变成"只选了运行中"，选了运行中和失败时仍不能排序，
-  原文案会误导，要改成：只选「运行中」时可按速率或延迟排序（中英文同步）。说明保留在表头上，不能只把表头变灰。
-- **本期 6 处**：
+- 全站退役；计数用 Arc `Badge size='sm'` 放在 `accessory` / chip `count`。
+- **计数政策（2026-11-20）**：
+  - **禁止**当前页分桶计数（与分页总数矛盾）——错误 / 巡检已去掉，**不要加回**。
+  - 分段控件可保留；无可靠全集统计则**不显示数字**。
+  - 告警：继续用一次未过滤轻量请求的服务端统计。
+  - 策略：客户端已持有全集时可显示与 scoped 列表一致的计数。
+  - 作业：`with_counts` 服务端计数 → `chip-group`。
+- **本期迁移**：
 
-| 位置 | 现在 | 换成 | 阶段 |
-|---|---|---|---|
-| `JobTableToolbar.tsx:260/279`（工作台、首页） | 作业状态 7 项 | `chip-group` 多选 + 计数；只选了"运行中"时才能按速率 / CDC 延迟排序；URL 兼容旧单值 | Phase 6 |
-| `MonitoringAlertsCenter.tsx:688` | 告警状态 4 项，接口只接受一个值 | `SegmentedControl` + 计数 | Phase 5 |
-| `DiagnosticsErrorCenter.tsx:425` | 错误热度 4 项 | `SegmentedControl` + 计数 | Phase 4 |
-| `DiagnosticsInspectionCenter.tsx:633` | 巡检状态 5 项，接口只接受一个值 | `SegmentedControl` + 计数 | Phase 4 |
-| `TokenManagement.tsx:286` | 令牌状态 4 项 | `SegmentedControl` + 计数 | Phase 3 |
-
-- **下期 10 处**（随所在页面迁移，各处去向先记在这里）：
-  - `ClusterMain.tsx:327`、`HostMain.tsx:298`：状态 5 项，接口只接受一个值 → `SegmentedControl`；
-  - `ClusterConfigs.tsx:733`（一致 / 不一致）、`MonitoringPolicyCenter.tsx:2101`（启用 / 禁用）、`:2632`（投递成功 / 失败）
-    → `SegmentedControl` + 计数；
-  - `PluginMain.tsx:2195`、`PackageMain.tsx:456`：这两处是切换视图，不是筛选 → `SegmentedControl` + 计数；
-  - `ClusterDetail.tsx:2555`：页签里再切换 checkpoint / imap → `SegmentedControl`，避免页签套页签；
-  - `MonitoringPolicyCenter.tsx:2428`：渠道类型和"已启用"挤在一排 → 类型用 `SegmentedControl`，"只看已启用"用 `Switch`；
-  - `TroubleshootingMemoryCenter.tsx:337`：来源和类型挤在一排 → 拆成两个 `SegmentedControl`；
-  - `ClusterDetail.tsx:1910`：节点汇总栏，点击跳到对应页签，不是筛选 → 计数放到"节点 / 诊断 / 告警"页签上，
-    节点页签里再加状态和角色两个 `SegmentedControl`。和集群详情页签改用 Arc `Tabs` 一起做。
-
-### 3.4 确认方式按操作分类（已定：2026-11-19 用户确认选方案 A 行内确认）
-
-Phase 0 的差异清单里，每个行内操作都要标明"能否撤回、影响谁、用哪种确认"，按下面的规则判断：
-
-| 操作的性质 | 确认方式 | 例子 |
+| 位置 | 换成 | 阶段 |
 |---|---|---|
-| 能撤回 | 不确认，直接执行，提示条给结果（有撤回接口时带"撤销"） | 静默告警 30 分钟 |
-| 不能撤回，但只涉及自己的一条记录，且有按钮可以锚定 | 在按钮旁行内确认（Arc `confirm-morph`） | 关闭单条告警、解除绑定 |
-| 不能撤回，且影响别人、范围大、批量，或还要先做别的决定 | `AlertDialog` | 删除用户、停用用户、吊销令牌 |
+| `JobTableToolbar` 两处 `StatPillsBar` | `chip-group` 多选 + 计数；URL 多值兼容 | Phase 6 |
+| `TokenManagement` | `SegmentedControl`（有可靠计数才显示） | Phase 3 |
+| 告警 / 错误 / 巡检 | 已不用 `StatPillsBar` | Phase 4/5 仅组件对齐 |
 
-- **已定规则（方案 A）**：放开 Arc `confirm-morph` 用于"单条、不可撤回、只涉及自己、且有按钮可锚定"的行内操作，同步写回规范 §18；其余涉及他人、批量或影响面大的不可撤回操作仍用 `AlertDialog`。
-- **防叠框与原设计约束**：
-  - `ConfirmMorph` 保持 Arc 原有胶囊样式与角度设计，不魔改其圆角或边框；
-  - 同一行内只把最核心的 1 个单条动作做成 `ConfirmMorph`（其余次要动作走无边框 `ghost` 或收进 `DropdownMenu`），避免一行排多个带框胶囊造成框框堆叠；操作列需预留展开余量或在窄列时单独占行/让相邻图标让位。
-- **本期必补**：告警中心的"关闭告警"现在点了直接执行，没有任何确认（`MonitoringAlertsCenter.tsx` 的 `handleClose`）。
-  关闭后没有重新打开的接口，并且会抑制该事件后续的通知，本期必须接入 `ConfirmMorph` 补上行内确认。
+- **下期**：`ClusterMain`、`HostMain`、`ClusterConfigs`、`PluginMain`、`PackageMain`、`ClusterDetail`×2、`TroubleshootingMemoryCenter` 等。
 
-### 3.5 出错与成功的提示位置
+### 3.4 确认方式按操作分类（2026-11-19 方案 A）
 
-- **表单字段错误显示在字段下面**：用户中心新建 / 编辑对话框里，用户名太短、密码太短、邮箱格式不对现在用 `toast.error` 报
-  （`UserManagement.tsx` 的创建与编辑校验）。随框内控件换成 Arc 时，改用 Arc `Input` 的 `error` 属性显示在对应字段下，
-  并保持对话框打开；不再为字段错误弹提示条。其他 4 个列表的对话框按同一规则检查。
-- **列表加载失败留在表格里**：现在加载失败只弹一条提示条（用户中心、告警中心），几秒后消失，表格停在旧数据或空白。
-  改为显示在 `TableCard` 的错误状态插槽里：写明哪里失败，并给"重试"按钮；有旧数据时保留旧数据，在卡片顶部显示错误条。
-  不再同时弹提示条。
-- **提示条只用于用户刚做完的操作**：创建、保存、删除成功，静默、关闭告警的结果。后端返回的操作失败仍可用提示条，
-  但需要用户修正的失败（如表单提交被后端拒绝）要回到对应字段或对话框里显示。
+| 性质 | 方式 | 例 |
+|---|---|---|
+| 能撤回 | 不确认 + toast（可带撤销） | 静默告警 |
+| 单条、不可撤回、只涉及自己、有锚点 | `ConfirmMorph` | 关闭单条告警 |
+| 影响他人 / 批量 / 范围大 | `AlertDialog` | 删用户、吊销令牌 |
 
-### 3.6 弹层数值与圆角曲线（已定：2026-11-19）
+- 告警「关闭」现状无确认 → 本期补 `ConfirmMorph`。
+- 巡检策略删除 / 脏关闭：#170 已改，Phase 6 复核即可，勿按旧 `MonitoringPolicyCenter` 行号改。
 
-- §3.1 的弹层数值（外框圆角 **10px**、选项圆角 **6px**、内边距 **4px**、行高 **32px**）同时满足"内圆角 = 外圆角 − 内边距"同心规则与 4px 栅格，与 8px 控件圆角保持同一视觉密度。
-- **不启用连续圆角（`corner-shape: superellipse`）**：不在 `foundation.css` 增加 `:where(*) { corner-shape: superellipse(1.25); }` 全局覆盖，保持组件现有原生圆角行为。
+### 3.5 出错与成功提示
+
+- 表单字段错误落在字段 `error`；列表加载失败留在 `TableCard` 错误插槽 + 重试；toast 只用于用户刚完成的操作结果。
+
+### 3.6 弹层数值（2026-11-19）
+
+- 外框 10px、选项 6px、内边距 4px、行高 32px；不启连续圆角。
 
 ## 4. 管理列表骨架
 
-### 4.1 只抽两个公共件
+### 4.1 公共件
 
-| 公共件 | 落点 | 职责 | 依据 |
+| 公共件 | 落点 | 职责 | 状态 |
 |---|---|---|---|
-| `TableCard`（暂名） | `common/layout/`，与 `TableLoadingBar` 同目录 | §10 的卡片容器与保底高度；刷新时的加载条；首屏骨架 / 空状态 / 错误状态插槽；分页底栏（左侧总数与每页条数，右侧 `ui/pagination`）；加载与数字列的约定见 §4.4 | 5 个页面各有一份拷贝 |
-| `useServerListQuery`（暂名） | `common/layout/` 或 `lib/hooks/` | 持有 page / pageSize / filters；`patch(filters)` 时回到第 1 页；生成请求参数；可选同步到 URL | 告警、巡检、错误中心各自实现了页码重置，审计和用户没有 |
+| `TableCard` | `common/layout/TableCard.tsx` | 卡片、保底高度、加载、骨架/空/错、分页 | **已有，复用** |
+| `useServerListQuery` | `common/layout/` 或 `lib/hooks/` | page / pageSize / filters；`patch` 回第 1 页；可选 URL 同步 | **待建** |
 
-不抽 `ServerListShell`、工具栏原语、`RowActionsMenu`、`StatusBadge`、`FilterSelect`。迁移过程中如果某个模式在 ≥3 个页面重复，
-再按同样的标准提出。
+不抽万能 `ServerListShell` / `RowActionsMenu` / `StatusBadge`。详情宿主用既有 `DetailHost`，不另造。
 
-### 4.2 页面结构
+### 4.2 页面结构（完整迁移页）
 
 ```
-<Domain>Page（取数、权限、增删改）
+<Domain>Page
   ├─ WorkspaceHeader / ModuleNavTabs
-  ├─ 筛选栏（按 §6，各域自己的筛选项；状态筛选用 SegmentedControl / chip-group 带计数，见 §3.3）
-  ├─ TableCard
-  │    ├─ 各域自己的列定义（每个域一个唯一入口）
-  │    └─ 行操作（按钮；>2 个时次要动作进 DropdownMenu）
-  └─ 覆盖层：Sheet 详情 / Dialog 表单 / AlertDialog 确认
+  ├─ 筛选栏（SegmentedControl / Select / Combobox；计数见 §3.3）
+  ├─ TableCard（域内列 + 行操作）
+  └─ DetailHost 常驻详情 或 临时 Sheet（仅追踪类）
+       + Dialog / AlertDialog / ConfirmMorph
 ```
 
-### 4.3 各页面迁移要点
+### 4.3 各页要点（收缩后）
 
 | 页面 | 要点 | 风险 |
 |---|---|---|
-| 审计（试点） | `AuditLogMain` 持有查询状态，`AuditLogTable` 只负责渲染；接入 `TableCard` | 日期时区换算（`lib/date-range.ts`）与追踪面板链路不能回退 |
-| 用户 | 新建 / 编辑用 `Dialog`，删除 / 停用用 `AlertDialog`（现状已是）；接入两个公共件 | "不能操作自己"等约束保持不变 |
-| 错误中心、巡检 | 两页共用同一套结构；巡检的启动对话框保留 `Dialog` | 与告警、作业、集群的跳转参数 |
-| 告警（最后做） | 文件 1384 行，先换卡片和查询状态，再处理行操作与详情面板 | 状态流转、深链参数、排障面板 |
+| 审计（试点） | 接入 `TableCard` + hook；`AuditTraceSheet` 保持 Sheet | 时区与追踪链路 |
+| 用户 | 接入两公共件；令牌换分段；删除/停用 `AlertDialog` | 「不能操作自己」 |
+| 错误 / 巡检 / 策略 | **不重做骨架**；组件对齐；可选 hook | 勿加回页内桶计数 |
+| 告警 | **不重做骨架**；关闭补 ConfirmMorph；组件对齐 | 深链、状态流转 |
 
-### 4.4 `TableCard` 的加载状态与数字列
+### 4.4 `TableCard` 加载约定
 
-**现状**：刷新一次会同时出现多种提示：顶部加载条，整张表变半透明且不能点击（`opacity-50` / `opacity-60` 加 `pointer-events-none`，
-5 个列表都有），告警、错误中心、巡检、用户中心还会让刷新按钮图标旋转。另外，用户中心、审计、错误中心会在数据每次变化后（翻页、筛选、刷新）
-把所有行从透明重新淡入一遍（`animateTableRows`），看起来像整张表重新加载。
+已由现组件实现：一次等待一种提示；骨架仅首屏（300ms / 500ms）；行入场只播一次；数字列 `tabular-nums`；`aria-busy`。新接入页不要旁路这些约定。
 
-**约定**（由 `TableCard` 统一实现，各页面不再自己写）：
+## 5. 交互组件对齐层（工作台、大盘、已 list+detail 页）
 
-- **一次等待只有一种提示**：刷新时旧数据保持原样，照常可读、可点；只显示顶部加载条。不要再把表格变半透明或禁止点击。
-  用户手动点的刷新按钮，图标可以旋转（图标本身表示"刷新"），这时不再另外显示加载条。
-- **骨架只用于首屏**：没有任何数据时才显示 `TableSkeletonRows`。骨架在加载超过 300ms 后才出现，出现后至少保留 500ms，
-  避免一闪而过；这条延迟规则写成一个公共工具，5 个页面共用。
-- **行的入场动画只播一次**：骨架换成真实数据时播放；之后翻页、筛选、轮询刷新都不再重播。
-- **错误状态**见 §3.5：失败信息和"重试"留在卡片里。
-- **数字列与时间列用等宽数字**：数量、耗时、时间戳这类列统一加 `tabular-nums`，刷新时数字不左右跳动。
-  现在 5 个页面里只有巡检有 2 处。由 `TableCard` 或列定义统一提供，不逐个单元格手写。
-- **无障碍**：加载中的区域加 `aria-busy`。
-
-## 5. 交互组件对齐层（工作台（含底部控制台）、首页大盘及其他页面）
-
-- 只替换组件，不改布局、列表骨架、数据流、轮询和深链。
-- 必改：3 处 `window.confirm` → `AlertDialog`：`TaskAlertSection.tsx:90`、`MonitoringPolicyCenter.tsx:1680`、`:1846`。
-- 逐个判断：sync 下 5 个用普通 `Dialog` 承载确认的文件（`TaskAlertSection`、`CuratedTemplatesManagePanel`、`DataSyncStudio`、
-  `DolphinPushDialog`、`StudioDialogs`）。纯确认改成 `AlertDialog`，带表单的保留。
-- 状态标签：**保留原本 shadcn `ui/badge` 不动**，不做向 Arc `badge` 的批量替换。
-- 下拉框、更多菜单按 §3 选型换成 Arc；同一块区域里相邻的搜索框、按钮一起换（§3.1；表格/列表内既有 `ui/badge` 保留原样）。具体替换清单来自 Phase 0 的差异清单。
-- 状态筛选（第五类）：作业列表工具栏的 `StatPillsBar` 按 §3.3 换成 `chip-group` 多选。
-- 其他页面本期只处理 `window.confirm`；它们的下拉、菜单、状态筛选和表单一起放到下期。
+- 只换组件，不改布局 / 骨架 / 数据流 / 轮询 / 深链。
+- 大盘：确认、Select/Combobox/DropdownMenu；清 `sr-only` + 保证 aria 名称；**不**改 `KpiStrip` / `ThroughputTabs` / `ClusterScopeStrip` / 作业列表结构；**不**恢复运行类型分段。
+- 告警 / 诊断：在现有 `DetailHost` 壳内对齐控件。
+- 作业工具栏：`StatPillsBar` → `chip-group`。
+- 复核全库 `window.confirm` 与 Dialog-vs-AlertDialog；以 grep 现状为准。
 
 ## 6. Phase 0 差异清单与回归矩阵
 
-### 6.1 差异清单格式
+### 6.1 差异清单
 
-两层页面分开列，每格写"当前实现 → 目标实现"，没有差异的写"一致"。
-
-- **管理列表**：卡片容器、分页底栏、加载 / 空 / 错态、筛选栏、页码重置、行操作、确认、下拉、详情面板。
-- **工作台（含底部控制台）、首页大盘及其他页面**：只列确认、下拉、更多菜单、状态筛选四类，并精确到文件和行号。
+- **完整迁移页**（审计、用户）：卡片、分页、加载态、筛选、页码重置、行操作、确认、下拉、详情宿主。
+- **对齐层页**（工作台、大盘、告警、错误、巡检、策略）：只列确认、下拉、更多菜单、状态筛选；精确到文件。
 
 ### 6.2 Egolite 回归矩阵
 
-每条用例写成可以逐条勾选的步骤，并写明失败判定，例如"筛选后表格未刷新"或"页码未回到 1"。
-
 | 页面 | 必须覆盖 |
 |---|---|
-| 审计 `/audit-logs` | 来源 / 动作 / 资源 / 日期筛选；翻页与每页条数；筛选后页码回到 1；打开追踪面板；时区显示 |
-| 用户 `/admin/users` | 搜索与翻页；新建 / 编辑对话框提交；字段校验错误显示在字段下且对话框不关闭（§3.5）；删除 / 停用确认；不能操作自己；令牌页签 |
-| 错误中心 `/diagnostics` | 热度筛选；翻页；详情面板；跳转到作业或集群 |
-| 巡检 `/diagnostics` | 启动巡检对话框；报告筛选与翻页；报告详情；下载或查看 |
-| 告警 `/monitoring?tab=alerts` | 状态 / 级别 / 时间筛选；翻页；行操作；关闭告警有确认（§3.4）；详情面板；深链参数 |
-| 状态筛选（本期 6 处） | 切换后页码回到 1；计数和列表结果一致；危险计数 >0 时为红色；键盘左右切换可用；作业列表多选组合筛选正确，只选"运行中"时速率排序可用，否则不可用，且表头说明原因（§3.3） |
-| 作业列表深链 | 旧链接（单个状态）和新链接（多个状态，逗号分隔）都能正确恢复筛选；`/sync?task=&job=` 仍能跳到工作台对应作业 |
-| 5 个列表的加载状态（§4.4） | 刷新时旧数据不变暗、可点击，只有一种加载提示；翻页、筛选后行不重播入场动画；断网或接口报错时表格内显示错误与重试，不只弹提示条；数字列刷新时不跳动 |
-| 交互组件对齐层 | 每一处被替换的组件：确认（取消与确认两条路径）、下拉（选中、清空、键盘操作）、更多菜单（每个菜单项） |
+| 审计 `/audit-logs` | 筛选、翻页、页码回 1、追踪 Sheet、时区 |
+| 用户 `/admin/users` | 搜索翻页、表单字段错误、删/停确认、不能操作自己、令牌分段 |
+| 错误 / 巡检 `/diagnostics` | 筛选（无错误的页内桶计数）、翻页、DetailHost J/K、跳转；巡检启动对话框 |
+| 告警 `/monitoring?tab=alerts` | 状态分段计数与列表一致、翻页、关闭 ConfirmMorph、DetailHost、深链 |
+| 大盘 | 布局无回归；头部 Combobox 可访问名称；确认/下拉/菜单替换点 |
+| 作业列表 | 多选状态 URL 新旧兼容；只选「运行中」时速率排序 |
+| 加载态（审计/用户） | 刷新不熄屏；错误在卡片内 |
 
 ## 7. 风险
 
 | 风险 | 缓解 |
 |---|---|
-| 公共件抽象过度，难以适配告警等复杂页面 | 只抽 §4.1 两个件，用插槽注入，告警最后迁移 |
-| 控制台外层统一收紧 Arc 高度与圆角后，升级向导、作业详情等已用 Arc 的页面从 44px/18px 变成 32px/8px | 回归时覆盖这些页面；个别需要大尺寸的地方局部覆盖回去 |
-| 去掉 `StatPillsBar` 后，失败数不再醒目 | 危险类计数大于 0 时用 `tone='danger'`（§3.3） |
-| 作业状态改成多选后，旧链接失效 | URL 解析兼容单值；回归矩阵覆盖新旧两种链接 |
-| `StatPillsBar` 迁移跨两期，期间新代码继续使用它 | 规范标为已弃用，检查项要求新代码不得使用 |
-| Arc 源码本地改动在升级时被覆盖 | 改动集中且在文件头注明；升级走 diff 合并 |
-| 交互组件对齐层误改了布局或数据流 | 单独 PR；回归矩阵覆盖每一处替换；评审时检查 diff 只涉及组件替换 |
-| 服务端列表误用客户端排序语义（`StudioDataTable` / beUI Table） | 在规范和评审清单中写明边界 |
-| vendored 的 Arc / beUI 组件升级 | 项目适配集中在封装层；改动在文件头注明；同步 `licenses/third_party_mit_files.txt` |
+| 误把告警/诊断当骨架迁移重做 | Phase 4/5 清单明示「仅组件对齐」；评审拒布局 diff |
+| 误改大盘布局 | Phase 6 单独 PR；diff 白名单组件替换 |
+| 加回当前页桶计数 | 规范 §3 + 本设计 §3.3；回归断言 |
+| Combobox 去掉 sr-only 后无名 | Phase 1/6 AC 强制可见标签或 aria-label |
+| Token 收紧影响已有 Arc 页 | Egolite 覆盖升级向导 / 作业详情 |
+| `StatPillsBar` 跨期残留 | 规范弃用；新代码禁用 |

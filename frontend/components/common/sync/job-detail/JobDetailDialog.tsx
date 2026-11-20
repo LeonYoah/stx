@@ -27,7 +27,7 @@ import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/arc/tabs/tabs';
 import {HelpHint} from '@/components/common/HelpHint';
-import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} from '@/components/ui/dialog';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {ExpandableTextPanel} from '@/components/common/layout';
@@ -181,17 +181,18 @@ export function JobDetailDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className='flex h-[88vh] w-[92vw] max-w-[92vw] flex-col gap-0 overflow-hidden border border-border/80 p-0 shadow-2xl sm:max-w-[1400px] dark:border-border/60'
+        aria-describedby={undefined}
+        className='arc-compact h-[88vh]! w-[min(92vw,1400px)]!'
+        bodyClassName='flex min-h-0 flex-1 flex-col p-0! overflow-hidden'
         data-testid='sync-job-detail'
-      >
-        <DialogHeader className='space-y-2 border-b border-border/60 px-5 pb-3 pt-4 text-left'>
-          <div className='flex flex-wrap items-center gap-2 pr-8'>
-            <DialogTitle className='text-base'>{t('title', {id: job.id})}</DialogTitle>
+        title={
+          <span className='flex flex-wrap items-center gap-2 pr-4'>
+            <span>{t('title', {id: job.id})}</span>
             <Badge tone={jobStatusTone(displayStatus)} size='sm' dot outline>
               {getJobStatusLabel(displayStatus)}
             </Badge>
             <JobOutcomeHints job={job} />
-            <div className='ml-auto flex items-center gap-1.5'>
+            <span className='ml-auto flex items-center gap-1.5'>
               {clusterId && engineJobId && !local ? (
                 <SeaTunnelObserveMenu clusterId={clusterId} engineJobId={engineJobId} variant='button' />
               ) : null}
@@ -221,30 +222,31 @@ export function JobDetailDialog({
                   </Button>
                 </>
               ) : null}
-            </div>
-          </div>
-          <DialogDescription asChild>
-            <dl className='flex flex-wrap gap-x-5 gap-y-1 text-xs'>
-              {meta.map((item) => (
-                <div key={item.label} className='flex min-w-0 items-center gap-1.5'>
-                  <dt className='whitespace-nowrap text-muted-foreground'>{item.label}</dt>
-                  <dd className={cn('min-w-0 max-w-[260px] truncate text-foreground', item.mono && 'font-mono')} title={item.value}>
-                    {item.value}
-                  </dd>
-                  {item.copy ? (
-                    <CopyButton
-                      value={item.value}
-                      label={t('copy')}
-                      copiedLabel={t('copied')}
-                      failedLabel={t('copyFailed')}
-                      iconOnly
-                      variant='plain'
-                    />
-                  ) : null}
-                </div>
-              ))}
-            </dl>
-          </DialogDescription>
+            </span>
+          </span>
+        }
+      >
+        <div className='space-y-2 border-b border-border/60 px-5 py-2.5 text-left'>
+          <dl className='flex flex-wrap gap-x-5 gap-y-1 text-xs'>
+            {meta.map((item) => (
+              <div key={item.label} className='flex min-w-0 items-center gap-1.5'>
+                <dt className='whitespace-nowrap text-muted-foreground'>{item.label}</dt>
+                <dd className={cn('min-w-0 max-w-[260px] truncate text-foreground', item.mono && 'font-mono')} title={item.value}>
+                  {item.value}
+                </dd>
+                {item.copy ? (
+                  <CopyButton
+                    value={item.value}
+                    label={t('copy')}
+                    copiedLabel={t('copied')}
+                    failedLabel={t('copyFailed')}
+                    iconOnly
+                    variant='plain'
+                  />
+                ) : null}
+              </div>
+            ))}
+          </dl>
           {errorMessage ? (
             <div className='rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-xs'>
               <div className='flex items-start gap-2'>
@@ -266,7 +268,7 @@ export function JobDetailDialog({
               ) : null}
             </div>
           ) : null}
-        </DialogHeader>
+        </div>
 
         <Tabs value={tab} onValueChange={(value) => onTabChange(value as JobDetailTab)} className='flex min-h-0 flex-1 flex-col'>
           <div className='studio-detail-tabs flex min-w-0 items-center gap-3 px-5 pt-2.5'>

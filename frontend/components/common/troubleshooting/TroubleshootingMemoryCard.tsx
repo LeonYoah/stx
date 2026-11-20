@@ -17,11 +17,8 @@
 
 'use client';
 
-import {useState, useCallback} from 'react';
 import {useTranslations} from 'next-intl';
 import {
-  Check,
-  Copy,
   Edit3,
   Lightbulb,
   PlusCircle,
@@ -29,7 +26,6 @@ import {
   Tag,
   User,
 } from 'lucide-react';
-import {toast} from 'sonner';
 import {cn} from '@/lib/utils';
 import {useLocale} from '@/lib/i18n';
 import {
@@ -37,7 +33,8 @@ import {
   type TroubleshootingMemoryEntry,
 } from '@/lib/services/troubleshooting';
 import {Badge} from '@/components/ui/badge';
-import {Button} from '@/components/ui/button';
+import {Button} from '@/components/arc/button/button';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {formatDateTz} from '@/lib/timezone';
 
 export interface TroubleshootingMemoryCardProps {
@@ -90,27 +87,11 @@ export function TroubleshootingMemoryCard({
   className,
 }: TroubleshootingMemoryCardProps) {
   const t = useTranslations('troubleshooting');
+  const tCommon = useTranslations('common');
   const {locale} = useLocale();
-  const isEn = String(locale).toLowerCase().startsWith('en');
   // 官方经典方案自动做中英文两版自适应，自定义方案保持原样
   // Adapt official preset memories bilingually; keep custom entries as-is
   const memory = getLocalizedMemory(matchedMemory, locale);
-  const [copiedSolution, setCopiedSolution] = useState(false);
-
-  // 复制解决方案内容到剪贴板
-  // Copy verified solution text to clipboard
-  const handleCopySolution = useCallback(
-    (text: string) => {
-      if (!text) {
-        return;
-      }
-      navigator.clipboard.writeText(text);
-      setCopiedSolution(true);
-      toast.success(t('solutionCopied'));
-      setTimeout(() => setCopiedSolution(false), 2000);
-    },
-    [t],
-  );
 
   // 未命中历史经验时的引导提示态
   // Guidance prompt state when no historical solution is matched
@@ -118,36 +99,34 @@ export function TroubleshootingMemoryCard({
     return (
       <div
         className={cn(
-          'rounded-lg border border-dashed border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-950/15 p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs',
+          'rounded-xl border border-border/60 bg-muted/20 p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs',
           className,
         )}
       >
         <div className='flex items-start gap-2.5'>
-          <div className='p-1.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0'>
+          <div className='p-1.5 rounded-lg bg-muted text-muted-foreground mt-0.5 shrink-0'>
             <Lightbulb className='h-4 w-4' />
           </div>
           <div className='space-y-0.5'>
-            <div className='font-semibold text-foreground flex items-center gap-1.5'>
+            <div className='font-medium text-foreground flex items-center gap-1.5'>
               <span>{t('title')}</span>
               <span className='text-[11px] font-normal text-muted-foreground'>
-                {isEn
-                  ? '(No record for this fingerprint)'
-                  : '（尚未记录此指纹经验）'}
+                ({t('notRecordedForFingerprint')})
               </span>
             </div>
-            <p className='text-muted-foreground text-[11px] leading-relaxed'>
+            <p className='text-muted-foreground text-[11px] leading-relaxed text-pretty'>
               {t('noMemoryFound')}
             </p>
           </div>
         </div>
         {onAddOrEdit && (
           <Button
-            variant='outline'
+            variant='secondary'
             size='sm'
             onClick={onAddOrEdit}
-            className='h-7 px-2.5 text-xs shrink-0 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 gap-1'
+            className='shrink-0'
           >
-            <PlusCircle className='h-3.5 w-3.5' />
+            <PlusCircle className='size-3.5' />
             {t('recordSolution')}
           </Button>
         )}
@@ -160,46 +139,41 @@ export function TroubleshootingMemoryCard({
   return (
     <div
       className={cn(
-        'rounded-lg border border-emerald-500/40 bg-emerald-500/5 dark:bg-emerald-950/20 p-3.5 space-y-2.5 text-xs shadow-xs',
+        'rounded-xl border border-border/60 bg-muted/20 p-3.5 space-y-2.5 text-xs',
         className,
       )}
     >
       {/* 头部：标题与元数据 / Card Header: Title & Metadata */}
-      <div className='flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/20 pb-2'>
-        <div className='flex items-center gap-2 flex-wrap'>
-          <div className='p-1 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0'>
+      <div className='flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2'>
+        <div className='flex items-center gap-2 flex-wrap min-w-0'>
+          <div className='p-1 rounded-md bg-muted text-muted-foreground shrink-0'>
             <Lightbulb className='h-4 w-4' />
           </div>
-          <span className='font-semibold text-foreground text-sm tracking-tight'>
+          <span className='font-medium text-foreground text-sm'>
             {memory.title}
           </span>
           {memory.is_preset ? (
-            <Badge
-              variant='outline'
-              className='text-[10px] py-0 px-1.5 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
-            >
-              {isEn ? 'Built-in' : t('presetSolution')}
+            <Badge variant='outline' className='text-[10px] py-0 px-1.5'>
+              {t('presetSolution')}
             </Badge>
           ) : (
-            <Badge
-              variant='outline'
-              className='text-[10px] py-0 px-1.5 border-primary/30 text-primary bg-primary/10'
-            >
-              {isEn ? 'Internal' : t('teamSolution')}
+            <Badge variant='secondary' className='text-[10px] py-0 px-1.5'>
+              {t('teamSolution')}
             </Badge>
           )}
           {totalMatches > 1 && (
-            <Badge variant='secondary' className='text-[10px] py-0 px-1.5'>
-              {isEn
-                ? `${totalMatches} solutions found`
-                : `共 ${totalMatches} 条相关方案`}
+            <Badge
+              variant='secondary'
+              className='text-[10px] py-0 px-1.5 tabular-nums'
+            >
+              {t('matchedCount', {count: totalMatches})}
             </Badge>
           )}
         </div>
 
         {/* 作者与编辑操作 / Author and Edit Actions */}
         <div className='flex items-center gap-2'>
-          <span className='text-[11px] text-muted-foreground flex items-center gap-1 font-mono'>
+          <span className='text-[11px] text-muted-foreground flex items-center gap-1 font-mono tabular-nums'>
             <User className='h-3 w-3' />
             {memory.author} · {formatDateTime(memory.updated_at)}
           </span>
@@ -208,14 +182,10 @@ export function TroubleshootingMemoryCard({
               variant='ghost'
               size='sm'
               onClick={onAddOrEdit}
-              className='h-6 px-1.5 text-xs text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/15'
+              className='-mr-1'
             >
-              <Edit3 className='mr-1 h-3 w-3' />
-              {memory.is_preset
-                ? isEn
-                  ? 'Add Note'
-                  : '补充心得'
-                : t('edit')}
+              <Edit3 className='size-3' />
+              {memory.is_preset ? t('addNote') : t('edit')}
             </Button>
           )}
         </div>
@@ -223,43 +193,32 @@ export function TroubleshootingMemoryCard({
 
       {/* 根本原因剖析（若有） / Root Cause (if available) */}
       {memory.root_cause && (
-        <div className='space-y-1 bg-background/60 p-2.5 rounded-md border border-emerald-500/15'>
-          <div className='font-medium text-foreground text-[11px] flex items-center gap-1 text-muted-foreground'>
-            <span>{isEn ? 'Root Cause Analysis:' : '根因分析：'}</span>
+        <div className='space-y-1 rounded-lg border border-border/50 bg-background/60 p-2.5'>
+          <div className='text-[11px] font-medium text-muted-foreground'>
+            {t('rootCause')}
           </div>
-          <p className='text-muted-foreground leading-relaxed text-xs'>
+          <p className='text-muted-foreground leading-relaxed text-pretty'>
             {memory.root_cause}
           </p>
         </div>
       )}
 
       {/* 核心必填：已验证的解决方案与执行步骤 / Core Verified Solution & Remediation Steps */}
-      <div className='space-y-1.5 bg-emerald-500/10 dark:bg-emerald-900/25 p-3 rounded-md border border-emerald-500/25'>
-        <div className='flex items-center justify-between'>
-          <span className='font-semibold text-emerald-950 dark:text-emerald-100 flex items-center gap-1 text-xs'>
-            <ShieldCheck className='h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400' />
+      <div className='space-y-1.5 rounded-lg border border-border/60 bg-background/80 p-3'>
+        <div className='flex items-center justify-between gap-2'>
+          <span className='font-medium text-foreground flex items-center gap-1.5 text-xs'>
+            <ShieldCheck className='h-3.5 w-3.5 text-primary' />
             {t('solutionActionsHint')}
           </span>
-          <Button
-            variant='ghost'
-            size='sm'
-            onClick={() => handleCopySolution(memory.solution)}
-            className='h-6 px-1.5 text-xs text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20'
-          >
-            {copiedSolution ? (
-              <>
-                <Check className='mr-1 h-3 w-3 text-emerald-600 dark:text-emerald-400' />
-                {isEn ? 'Copied' : '已复制'}
-              </>
-            ) : (
-              <>
-                <Copy className='mr-1 h-3 w-3' />
-                {t('copySolution')}
-              </>
-            )}
-          </Button>
+          <CopyButton
+            value={memory.solution}
+            variant='plain'
+            label={t('copySolution')}
+            copiedLabel={tCommon('copied')}
+            failedLabel={tCommon('copyFailed')}
+          />
         </div>
-        <pre className='whitespace-pre-wrap font-sans text-xs leading-relaxed text-foreground select-text'>
+        <pre className='whitespace-pre-wrap font-sans text-xs leading-relaxed text-foreground select-text text-pretty'>
           {memory.solution}
         </pre>
       </div>
@@ -267,11 +226,12 @@ export function TroubleshootingMemoryCard({
       {/* 防范建议与标签 / Preventive Tips & Tags */}
       <div className='flex flex-wrap items-center justify-between gap-2 pt-0.5 text-[11px] text-muted-foreground'>
         {memory.preventive_tips ? (
-          <div className='flex items-center gap-1 leading-snug'>
+          <div className='flex items-center gap-1.5 leading-snug'>
+            <Lightbulb className='h-3 w-3 shrink-0' />
             <span className='font-medium text-foreground'>
-              {isEn ? '💡 Prevention:' : `💡 ${t('preventiveTips')}:`}
+              {t('preventiveTips')}:
             </span>
-            <span>{memory.preventive_tips}</span>
+            <span className='text-pretty'>{memory.preventive_tips}</span>
           </div>
         ) : (
           <div />
@@ -283,7 +243,7 @@ export function TroubleshootingMemoryCard({
             {memory.tags.map((tag) => (
               <span
                 key={tag}
-                className='px-1.5 py-0.2 rounded bg-background/80 border text-[10px] font-mono'
+                className='px-1.5 py-0.2 rounded bg-background/80 border border-border/50 text-[10px] font-mono'
               >
                 #{tag}
               </span>

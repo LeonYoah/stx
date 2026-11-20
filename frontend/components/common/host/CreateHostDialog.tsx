@@ -47,7 +47,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {Terminal} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {HostType, CreateHostRequest, HostInfo} from '@/lib/services/host/types';
 import {HostInstallGuideContent} from './HostInstallGuideContent';

@@ -42,6 +42,13 @@ func (h *Handler) ListAlertInstances(c *gin.Context) {
 		}
 		filter.SourceType = parsed
 	}
+	if scope := strings.TrimSpace(c.Query("scope")); scope != "" {
+		if scope != "cluster" && scope != "job" {
+			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid scope"})
+			return
+		}
+		filter.Scope = scope
+	}
 	if clusterID := strings.TrimSpace(c.Query("cluster_id")); clusterID != "" {
 		filter.ClusterID = clusterID
 	}

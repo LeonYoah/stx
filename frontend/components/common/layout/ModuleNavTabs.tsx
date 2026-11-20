@@ -304,7 +304,13 @@ export function ModuleNavTabs({
       )}
     >
       {reorderable ? (
+        // dnd-kit 默认每次渲染生成随机 id，SSR/CSR 不一致会让 aria-describedby
+        // 触发 hydration mismatch；用 reorderGroupId 固定下来。
+        // dnd-kit generates a random id per render, so SSR/CSR disagree on
+        // aria-describedby and React reports a hydration mismatch; pin it to
+        // the reorder group.
         <DndContext
+          id={`module-nav-${reorderGroupId}`}
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}

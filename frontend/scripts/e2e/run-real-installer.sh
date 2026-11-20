@@ -239,39 +239,35 @@ docker rm -f "${MINIO_NAME}" >/dev/null 2>&1 || true
 JAVA_PROXY_SCRIPT_PATH="${ROOT_DIR}/scripts/stx-java-proxy.sh"
 JAVA_PROXY_LIB_PATH="${ROOT_DIR}/lib/stx-java-proxy-${JAVA_PROXY_EPOCH}.jar"
 if [[ ! -f "${JAVA_PROXY_LIB_PATH}" ]]; then
-  # Maven Central 偶发 429：多试几次，避免 E2E 整场被 parent POM 下载卡住。
-  # Maven Central occasionally returns 429; retry so E2E is not killed by a parent POM fetch.
-  mvn_ok=false
-  # GitHub runner 共享出口 IP 常被 Central 限流，artifact 明明存在却返回失败；
-  # 失败重试时切到 GCS 的 Central 镜像端点绕开被限流的路径。
-  # GitHub runners share egress IPs that Central frequently throttles; on retry,
-  # fall back to the GCS mirror of Central to bypass the throttled endpoint.
-  mvn_mirror_settings="${TMP_DIR}/maven-mirror-settings.xml"
-  cat >"${mvn_mirror_settings}" <<'XML'
+  # repo.maven.apache.org（Cloudflare）边缘节点曾持续对 runner 回 404 且被负缓存放大；
+  # 改走 Google 的 Central 全量镜像，与重试叠加避免 E2E 被 parent POM 卡住。
+  # repo.maven.apache.org (Cloudflare) edges have served persistent 404s to runners,
+  # amplified by Maven's negative cache; route Central through Google's full mirror
+  # on top of the retries so a parent POM fetch cannot kill the whole E2E job.
+  MAVEN_SETTINGS="${TMP_DIR}/e2e-maven-settings.xml"
+  cat >"${MAVEN_SETTINGS}" <<'EOF'
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
   <mirrors>
     <mirror>
-      <id>central-gcs-mirror</id>
-      <name>Google Cloud Storage mirror of Maven Central</name>
-      <url>https://maven-central.storage-download.googleapis.com/maven2</url>
+      <id>gcs-central-mirror</id>
+      <name>Google Cloud Storage Maven Central mirror</name>
+      <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
       <mirrorOf>central</mirrorOf>
     </mirror>
   </mirrors>
 </settings>
-XML
+EOF
+  mvn_ok=false
   for attempt in 1 2 3 4 5 6 7 8; do
     # -U 强制重解析：中央仓库瞬时失败会被 Maven 负缓存进 ~/.m2，
     # 不加 -U 时重试只会反复命中缓存，循环形同虚设。
     # -U forces re-resolution: a transient Central failure is negatively cached
     # in ~/.m2, so without it retries just hit the cache again.
-    mvn_cmd=(mvn -q -U -DskipTests package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+    mvn_cmd=(mvn -s "${MAVEN_SETTINGS}" -q -U -DskipTests package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
     if [[ "${JAVA_PROXY_EPOCH}" == "v3" ]]; then
       mvn_cmd+=(-P'epoch-v3,!epoch-v2')
     else
       mvn_cmd+=(-Pepoch-v2)
-    fi
-    if [[ "${attempt}" -ge 2 ]]; then
-      mvn_cmd+=(-s "${mvn_mirror_settings}")
     fi
     if "${mvn_cmd[@]}"; then
       mvn_ok=true

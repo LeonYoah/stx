@@ -342,29 +342,44 @@ func TestSyncAlertHub_stopTimeoutResolvesOnlyItsJob(t *testing.T) {
 func TestSyncAlertHub_clusterRules(t *testing.T) {
 	f := setupSyncAlertFixture(t)
 
-	// D2 没有策略：建阶段，不发通知。
-	// D2 without a policy: an episode but no notification.
+	// D2 目录默认关闭：信号直接丢弃，不建阶段。
+	// D2 is disabled in the catalog: the signal drops without opening an episode.
 	degraded := f.signal(syncalert.KindFire, syncalert.RuleEventChannelDegraded, 0, 0)
+	f.handle(t, degraded)
+	if len(f.episodes(t)) != 0 {
+		t.Fatalf("disabled-by-default rule must not open episodes, got %+v", f.episodes(t))
+	}
+	// 开启规则但未配外投（warning 默认级别）：建阶段不发通知。
+	// Enabling the rule without external delivery (default warning severity) opens an episode
+	// but stays silent.
+	if _, err := f.service.SaveClusterRuleConfig(f.ctx, syncalert.RuleEventChannelDegraded, &clusterRuleFields{
+		Enabled: ptrBool(true),
+	}); err != nil {
+		t.Fatalf("enable cluster rule: %v", err)
+	}
 	f.handle(t, degraded)
 	episodes := f.episodes(t)
 	if len(episodes) != 1 || episodes[0].Scope != SyncAlertEpisodeScopeCluster || episodes[0].TaskID != 0 {
 		t.Fatalf("expected one cluster episode, got %+v", episodes)
 	}
 	if f.webhook.count() != 0 {
-		t.Fatalf("no policy means no notification")
+		t.Fatalf("warning rule means no notification")
 	}
 
-	// D1：持续时间不到窗口不建阶段；到了窗口建阶段，并按集群策略通知。
-	// D1: no episode before the window; once the window passes an episode opens and cluster policies notify.
-	if _, err := f.service.CreateAlertPolicy(f.ctx, &UpsertAlertPolicyRequest{
-		Name:                   "status unavailable",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            syncalert.RuleStatusUnavailable,
-		ClusterID:              itoa(f.clusterID),
-		Severity:               AlertSeverityWarning,
-		NotificationChannelIDs: []uint{f.channel.ID},
+	// D1：持续时间不到窗口不建阶段；到了窗口建阶段，并按生效通知（critical + 渠道）通知。
+	// D1: no episode before the window; once the window passes an episode opens and the
+	// effective notification (critical + channels) delivers.
+	critical := string(AlertSeverityCritical)
+	idsJSON, err := marshalAlertPolicyChannelIDs([]uint{f.channel.ID})
+	if err != nil {
+		t.Fatalf("marshal channel ids: %v", err)
+	}
+	if _, err := f.service.SaveClusterRuleConfig(f.ctx, syncalert.RuleStatusUnavailable, &clusterRuleFields{
+		Severity:       &critical,
+		NotifyMode:     clusterRuleNotifyModeCustom,
+		ChannelIDsJSON: idsJSON,
 	}); err != nil {
-		t.Fatalf("create cluster policy: %v", err)
+		t.Fatalf("configure cluster rule: %v", err)
 	}
 	observe := f.signal(syncalert.KindObserve, syncalert.RuleStatusUnavailable, 0, 0)
 	observe.Since = f.now.Add(-2 * time.Minute)
@@ -386,13 +401,10 @@ func TestSyncAlertHub_clusterRules(t *testing.T) {
 
 	// 集群规则停用后丢弃。
 	// A disabled cluster rule drops the signal.
-	rule, err := f.repo.GetRuleByClusterAndKey(f.ctx, f.clusterID, syncalert.RuleEventChannelDegraded)
-	if err != nil {
-		t.Fatalf("load rule: %v", err)
-	}
-	rule.Enabled = false
-	if err := f.repo.SaveRule(f.ctx, rule); err != nil {
-		t.Fatalf("disable rule: %v", err)
+	if _, err := f.service.SaveClusterRuleConfig(f.ctx, syncalert.RuleEventChannelDegraded, &clusterRuleFields{
+		Enabled: ptrBool(false),
+	}); err != nil {
+		t.Fatalf("disable cluster rule: %v", err)
 	}
 	clear := f.signal(syncalert.KindResolve, syncalert.RuleEventChannelDegraded, 0, 0)
 	clear.ResolveScope = syncalert.ResolveClusterRule

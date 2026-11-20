@@ -57,7 +57,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {Puzzle, RefreshCw, Trash2, Loader2, Plus, Eye, Layers3, Package} from 'lucide-react';
 import {useRouter} from 'next/navigation';
 import services from '@/lib/services';

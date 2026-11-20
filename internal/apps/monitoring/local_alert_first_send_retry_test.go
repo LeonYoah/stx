@@ -22,7 +22,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -36,7 +35,7 @@ import (
 // Re-review #85-1 (Codex P2): when a local process alert (node offline) fails its first send and the channel recovers
 // while the node is still offline, the next sweep must resend the first alert. The backoff retry only scans sync
 // alerts, so "an undelivered first alert is left to the backoff retry" may only apply to sync alerts.
-func TestEvaluateNodeHealthAlerts_resendsFailedFirstNodeOfflineAlert(t *testing.T) {
+func TestEvaluateAvailabilityAlerts_resendsFailedFirstNodeOfflineAlert(t *testing.T) {
 	database, cleanup := setupMonitoringNodeOfflineTestDB(t)
 	t.Cleanup(cleanup)
 
@@ -137,19 +136,15 @@ func TestEvaluateNodeHealthAlerts_resendsFailedFirstNodeOfflineAlert(t *testing.
 		t.Fatalf("failed to create notification channel: %v", err)
 	}
 
-	_, err := service.CreateAlertPolicy(ctx, &UpsertAlertPolicyRequest{
-		Name:                   "Node offline policy",
-		PolicyType:             AlertPolicyBuilderKindPlatformHealth,
-		TemplateKey:            AlertRuleKeyNodeOffline,
-		ClusterID:              strconv.FormatUint(uint64(testCluster.ID), 10),
-		Severity:               AlertSeverityCritical,
-		NotificationChannelIDs: []uint{channel.ID},
-	})
-	if err != nil {
-		t.Fatalf("failed to create alert policy: %v", err)
+	enableClusterRuleForDelivery(t, service, ctx, AlertRuleKeyNodeOffline, []uint{channel.ID})
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
 	}
-	if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
-		t.Fatalf("EvaluateNodeHealthAlerts returned error: %v", err)
+	ageAvailabilityPending(service,
+		availabilityPendingKey{RuleKey: AlertRuleKeyNodeOffline, ClusterID: testCluster.ID, NodeID: node.ID, HostID: node.HostID},
+		time.Hour)
+	if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
+		t.Fatalf("EvaluateAvailabilityAlerts returned error: %v", err)
 	}
 	if !waitForCondition(2*time.Second, func() bool { return hitCount.Load() == 1 }) {
 		t.Fatalf("expected the first (failing) delivery attempt, got %d", hitCount.Load())
@@ -170,7 +165,7 @@ func TestEvaluateNodeHealthAlerts_resendsFailedFirstNodeOfflineAlert(t *testing.
 	// The channel recovers while the node is still offline: the next sweep resends the first alert, then no duplicates.
 	statusCode.Store(http.StatusOK)
 	for i := 0; i < 3; i++ {
-		if err := service.EvaluateNodeHealthAlerts(ctx); err != nil {
+		if err := service.EvaluateAvailabilityAlerts(ctx); err != nil {
 			t.Fatalf("sweep %d returned error: %v", i+1, err)
 		}
 	}

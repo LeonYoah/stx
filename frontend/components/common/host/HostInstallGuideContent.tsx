@@ -30,7 +30,7 @@ import {useState, useEffect, useCallback, useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {
   Copy,
   Check,

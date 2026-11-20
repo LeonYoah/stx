@@ -239,14 +239,30 @@ docker rm -f "${MINIO_NAME}" >/dev/null 2>&1 || true
 JAVA_PROXY_SCRIPT_PATH="${ROOT_DIR}/scripts/stx-java-proxy.sh"
 JAVA_PROXY_LIB_PATH="${ROOT_DIR}/lib/stx-java-proxy-${JAVA_PROXY_EPOCH}.jar"
 if [[ ! -f "${JAVA_PROXY_LIB_PATH}" ]]; then
-  # Maven Central 偶发 429：多试几次，避免 E2E 整场被 parent POM 下载卡住。
-  # Maven Central occasionally returns 429; retry so E2E is not killed by a parent POM fetch.
+  # repo.maven.apache.org（Cloudflare）边缘节点曾持续对 runner 回 404 且被负缓存放大；
+  # 改走 Google 的 Central 全量镜像，与重试叠加避免 E2E 被 parent POM 卡住。
+  # repo.maven.apache.org (Cloudflare) edges have served persistent 404s to runners,
+  # amplified by Maven's negative cache; route Central through Google's full mirror
+  # on top of the retries so a parent POM fetch cannot kill the whole E2E job.
+  MAVEN_SETTINGS="${TMP_DIR}/e2e-maven-settings.xml"
+  cat >"${MAVEN_SETTINGS}" <<'EOF'
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <mirrors>
+    <mirror>
+      <id>gcs-central-mirror</id>
+      <name>Google Cloud Storage Maven Central mirror</name>
+      <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+      <mirrorOf>central</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
+EOF
   mvn_ok=false
   for attempt in 1 2 3 4 5; do
     if [[ "${JAVA_PROXY_EPOCH}" == "v3" ]]; then
-      mvn_cmd=(mvn -q -DskipTests -P'epoch-v3,!epoch-v2' package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+      mvn_cmd=(mvn -s "${MAVEN_SETTINGS}" -q -DskipTests -P'epoch-v3,!epoch-v2' package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
     else
-      mvn_cmd=(mvn -q -DskipTests -Pepoch-v2 package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+      mvn_cmd=(mvn -s "${MAVEN_SETTINGS}" -q -DskipTests -Pepoch-v2 package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
     fi
     if "${mvn_cmd[@]}"; then
       mvn_ok=true

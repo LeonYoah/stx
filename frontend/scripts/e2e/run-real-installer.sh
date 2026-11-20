@@ -242,27 +242,48 @@ if [[ ! -f "${JAVA_PROXY_LIB_PATH}" ]]; then
   # Maven Central 偶发 429：多试几次，避免 E2E 整场被 parent POM 下载卡住。
   # Maven Central occasionally returns 429; retry so E2E is not killed by a parent POM fetch.
   mvn_ok=false
-  for attempt in 1 2 3 4 5; do
+  # GitHub runner 共享出口 IP 常被 Central 限流，artifact 明明存在却返回失败；
+  # 失败重试时切到 GCS 的 Central 镜像端点绕开被限流的路径。
+  # GitHub runners share egress IPs that Central frequently throttles; on retry,
+  # fall back to the GCS mirror of Central to bypass the throttled endpoint.
+  mvn_mirror_settings="${TMP_DIR}/maven-mirror-settings.xml"
+  cat >"${mvn_mirror_settings}" <<'XML'
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <mirrors>
+    <mirror>
+      <id>central-gcs-mirror</id>
+      <name>Google Cloud Storage mirror of Maven Central</name>
+      <url>https://maven-central.storage-download.googleapis.com/maven2</url>
+      <mirrorOf>central</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
+XML
+  for attempt in 1 2 3 4 5 6 7 8; do
     # -U 强制重解析：中央仓库瞬时失败会被 Maven 负缓存进 ~/.m2，
     # 不加 -U 时重试只会反复命中缓存，循环形同虚设。
     # -U forces re-resolution: a transient Central failure is negatively cached
     # in ~/.m2, so without it retries just hit the cache again.
+    mvn_cmd=(mvn -q -U -DskipTests package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
     if [[ "${JAVA_PROXY_EPOCH}" == "v3" ]]; then
-      mvn_cmd=(mvn -q -U -DskipTests -P'epoch-v3,!epoch-v2' package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+      mvn_cmd+=(-P'epoch-v3,!epoch-v2')
     else
-      mvn_cmd=(mvn -q -U -DskipTests -Pepoch-v2 package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+      mvn_cmd+=(-Pepoch-v2)
+    fi
+    if [[ "${attempt}" -ge 2 ]]; then
+      mvn_cmd+=(-s "${mvn_mirror_settings}")
     fi
     if "${mvn_cmd[@]}"; then
       mvn_ok=true
       break
     fi
-    if [[ "${attempt}" -lt 5 ]]; then
-      echo "[e2e-real] mvn package failed (attempt ${attempt}/5), retrying in $((attempt * 4))s..."
-      sleep $((attempt * 4))
+    if [[ "${attempt}" -lt 8 ]]; then
+      echo "[e2e-real] mvn package failed (attempt ${attempt}/8), retrying in $((attempt * 10))s..."
+      sleep $((attempt * 10))
     fi
   done
   if [[ "${mvn_ok}" != "true" ]]; then
-    echo "[e2e-real] mvn package failed after 5 attempts" >&2
+    echo "[e2e-real] mvn package failed after 8 attempts" >&2
     exit 1
   fi
   BUILT_JAVA_PROXY_JAR="$(find "${ROOT_DIR}/tools/stx-java-proxy/target" -maxdepth 1 -type f -name "stx-java-proxy-${JAVA_PROXY_EPOCH}.jar" | sort | head -n 1 || true)"

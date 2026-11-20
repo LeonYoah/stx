@@ -291,6 +291,7 @@ export function JobListTab({
         selection={{ids: selected, onChange: setSelected}}
         bulkBar={
           <BatchBar
+            placement='center'
             selectedCount={selected.size}
             selectedText={t('selected', {count: selected.size})}
             clearLabel={t('clearSelection')}

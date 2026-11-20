@@ -21,6 +21,7 @@ import {useCallback, useMemo, useState} from 'react';
 import type {ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {X} from 'lucide-react';
+import {cn} from '@/lib/utils';
 import {Button} from '@/components/arc/button/button';
 import layout from './list-detail.module.css';
 
@@ -112,6 +113,10 @@ export interface BatchBarProps {
   clearLabel?: string;
   /** 批量条 data-testid。/ Optional data-testid on the bar. */
   testId?: string;
+  /** 悬浮位置：footer = 分页脚上方（默认）；center = 表格可视区垂直居中。
+      / Overlay placement: 'footer' floats above the pagination footer
+      (default); 'center' floats at the vertical middle of the table. */
+  placement?: 'footer' | 'center';
 }
 
 // BatchBar 是三个面板共用的悬浮批量条：表格底部 .batchBarWrap 锚定，
@@ -128,13 +133,19 @@ export function BatchBar({
   selectedText,
   clearLabel,
   testId,
+  placement = 'footer',
 }: BatchBarProps) {
   const t = useTranslations('common');
   if (selectedCount <= 0 && !result) {
     return null;
   }
   return (
-    <div className={layout.batchBarWrap}>
+    <div
+      className={cn(
+        layout.batchBarWrap,
+        placement === 'center' && layout.batchBarWrapCenter,
+      )}
+    >
       <div className={layout.batchBar} role='status' data-testid={testId}>
         {selectedCount > 0 ? (
           <span>

@@ -240,6 +240,17 @@
   pointer-events: none;
 }
 
+/* 居中变体：铺满容器后 align-items 居中，批量条浮在表格可视区正中，
+   适合分页脚较矮、底部锚定容易和页脚挤在一起的场景（如作业表）。
+   Centered variant: stretch the overlay across the container and center its
+   item, so the bar floats mid-table for hosts whose short footer makes the
+   bottom anchor look cramped (e.g. the job table). */
+.batchBarWrapCenter {
+  top: 0;
+  bottom: 0;
+  align-items: center;
+}
+
 .batchBarWrap > * {
   pointer-events: auto;
 }

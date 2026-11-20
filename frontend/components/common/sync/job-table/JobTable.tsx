@@ -75,9 +75,10 @@ export interface JobTableProps {
   currentUsername?: string;
   /** 不传 = 没有多选列 / Omit for no checkbox column. */
   selection?: {ids: Set<number>; onChange: (ids: Set<number>) => void};
-  /** 批量动作条（通常 BatchBar）：挂在表格外层 relative 容器底部、分页脚上方。
-      / Bulk action bar (usually BatchBar): anchored at the bottom of the outer
-      relative container, just above the pagination footer. */
+  /** 批量动作条（通常 BatchBar）：绝对定位挂在表格外层 relative 容器内，
+      垂直位置由 BatchBar 的 placement 决定。
+      / Bulk action bar (usually BatchBar): absolutely positioned inside the
+      outer relative container; vertical placement comes from BatchBar's prop. */
   bulkBar?: React.ReactNode;
   /** 工作台当前选中作业（行高亮）/ Currently selected workbench job (row highlight). */
   activeJobId?: number | null;

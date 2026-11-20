@@ -19,6 +19,7 @@ import {act, render, renderHook, screen, fireEvent} from '@testing-library/react
 import {NextIntlClientProvider} from 'next-intl';
 import {describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
+import layout from '../list-detail.module.css';
 import {
   BatchBar,
   mergeIdsIntoSelection,
@@ -101,5 +102,24 @@ describe('BatchBar', () => {
       ),
     );
     expect(screen.getByText('已删除 1 条，跳过 1 条')).toBeTruthy();
+  });
+
+  it('applies the centered overlay class only for placement="center"', () => {
+    const {container, unmount} = render(
+      wrap(
+        <BatchBar selectedCount={1} placement='center' onClear={vi.fn()} />,
+      ),
+    );
+    const centered = container.firstElementChild;
+    expect(centered?.classList.contains(layout.batchBarWrap)).toBe(true);
+    expect(centered?.classList.contains(layout.batchBarWrapCenter)).toBe(true);
+    unmount();
+
+    const {container: footerBox} = render(
+      wrap(<BatchBar selectedCount={1} onClear={vi.fn()} />),
+    );
+    const bottom = footerBox.firstElementChild;
+    expect(bottom?.classList.contains(layout.batchBarWrap)).toBe(true);
+    expect(bottom?.classList.contains(layout.batchBarWrapCenter)).toBe(false);
   });
 });

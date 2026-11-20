@@ -104,3 +104,8 @@ E2 跨层实现完成：内嵌 tsdb 最早样本探测、日 / 月桶 increase �
 - 验证：`go build ./...`、`go test ./internal/operation/... ./internal/apps/sync/...`、前端 `tsc --noEmit` 全绿，已推送
 - 待办：评审 4 必改项已在 e12378bc 文档修订吸收但未逐条回复；「停止结果未知→卡在 cancelling」为 STX 既有 bug，本 PR 未修
 - 修复「停止结果未知 → 卡在 cancelling」：`applyEngineJobInfoUpdate` 在取消中作业越过 `cancel_deadline` 且引擎仍报 RUNNING/PENDING 时恢复引擎真实状态并写 `cancel_outcome=reverted`，允许重新停止；spec `job-status-reconciler.md` 已同步，新增 `TestCancelOverdueEngineRunningRevertsToRunning`
+- 前端补齐外部作业设计稿偏差：运行方式列加独立来源徽标（`STX` / `外部`），外部作业隐去「在工作台打开」与「任务 #0」悬浮引用、空 `mode` 显示 `-`；`cancel_outcome=reverted` 新增 `isCancelReverted` + `JobOutcomeHints`「停止未生效」提示（列表/详情/控制台共用）；外部作业脚本页签文案改为 `externalScriptEmpty`
+- 验证：接主环境真实库（`seatunnel.db` 拷贝 + 本机 SeaTunnel 3.0.0）提交外部冒烟作业，浏览器实测「外部」徽标/STX 徽标/外部菜单无工作台入口；`vitest` 753 全过、`tsc --noEmit` 干净、zh/en key 零偏差
+- 评审反馈修正：外部作业「外部」来源徽标与「外部提交」runMode 徽标同义，列表行只保留来源徽标（`getRunModeLabel` 对 source=external 恒返回外部提交）— `23c50e956`
+- 作业表耗时格式化：`TimelineCell` 精确到天/时/分/秒动态出现（`<1分` 改 `42 秒`），`jobTable.units` 补 `s`；大盘作业列表与工作台任务列表共用生效 — `61a6103f0`
+- 作业列表排序菜单（方案 A，GitHub/Linear 式）：`sort` 扩 `finished_at`（NULL 恒垫底）与 `duration`（方言表达式：MySQL `TIMESTAMPDIFF` / PG `EXTRACT(EPOCH)` / SQLite `julianday`，未结束按 now、`started_at` 缺失回退 `created_at`）；新增通用 `SortMenu`（`components/common/SortMenu.tsx`，radio 项 = sort+order 组合，禁用项保留附原因）接入 `JobTableToolbar` 两个预设；swagger 注解 / registry_sync / spec / docs 三件套同步；CLI `--sort` 为透传 flag 免改

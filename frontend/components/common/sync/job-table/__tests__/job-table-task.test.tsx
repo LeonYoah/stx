@@ -152,8 +152,7 @@ function renderTaskToolbar(
   } = {},
 ) {
   const onQueryChange =
-    overrides.onQueryChange ??
-    vi.fn<(patch: Partial<JobListQuery>) => void>();
+    overrides.onQueryChange ?? vi.fn<(patch: Partial<JobListQuery>) => void>();
   const utils = render(
     <NextIntlClientProvider locale='zh' messages={zh} timeZone='Asia/Shanghai'>
       <JobTableToolbar
@@ -191,7 +190,9 @@ describe('JobTable task preset', () => {
     const older = job({id: 9, started_at: '2026-01-01T00:00:00Z'});
     const newer = job({id: 26});
     renderTaskTable([newer, older], {activeJobId: 9});
-    expect(screen.getByTestId('studio-job-row-9').dataset.selected).toBe('true');
+    expect(screen.getByTestId('studio-job-row-9').dataset.selected).toBe(
+      'true',
+    );
     expect(
       screen.getByTestId('studio-job-row-26').dataset.selected,
     ).toBeUndefined();
@@ -199,9 +200,7 @@ describe('JobTable task preset', () => {
 
   it('keeps only details and quick actions inline for a running job; stop does not bubble', () => {
     const handlers = renderTaskTable([job({})]);
-    expect(
-      screen.getByRole('button', {name: tJobTable.detail}),
-    ).toBeTruthy();
+    expect(screen.getByRole('button', {name: tJobTable.detail})).toBeTruthy();
     expect(
       screen.getByRole('button', {name: tJobTable.moreActions}),
     ).toBeTruthy();
@@ -210,9 +209,7 @@ describe('JobTable task preset', () => {
     expect(
       screen.queryByRole('button', {name: tJobTable.savepointStop}),
     ).toBeNull();
-    expect(
-      screen.queryByRole('button', {name: tJobTable.recover}),
-    ).toBeNull();
+    expect(screen.queryByRole('button', {name: tJobTable.recover})).toBeNull();
 
     fireEvent.click(screen.getByRole('button', {name: tJobTable.stop}));
     expect(handlers.onAction).toHaveBeenCalledWith(
@@ -258,9 +255,7 @@ describe('JobTable task preset', () => {
 
   it('shows a recover action on terminal jobs and wires it to the host', () => {
     const handlers = renderTaskTable([job({status: 'failed'})]);
-    expect(
-      screen.queryByRole('button', {name: tJobTable.stop}),
-    ).toBeNull();
+    expect(screen.queryByRole('button', {name: tJobTable.stop})).toBeNull();
     fireEvent.click(screen.getByRole('button', {name: tJobTable.recover}));
     expect(handlers.onAction).toHaveBeenCalledWith(
       'recover',
@@ -381,6 +376,36 @@ describe('JobTableToolbar task preset', () => {
       page: 1,
     });
   });
+
+  it('patches sort and order from the sort menu and resets the page', async () => {
+    const {onQueryChange} = renderTaskToolbar({query: {page: 3}});
+    // Radix 菜单在 jsdom 用 pointerDown 打开（keyDown 会踩 roving-focus 空指针）。
+    // Radix menus open via pointerDown in jsdom (keyDown hits a roving-focus null ref).
+    fireEvent.pointerDown(screen.getByTestId('studio-job-sort'));
+    fireEvent.click(
+      await screen.findByRole('menuitemradio', {
+        name: zh.jobTable.sortMenu.duration.desc,
+      }),
+    );
+    expect(onQueryChange).toHaveBeenCalledWith({
+      sort: 'duration',
+      order: 'desc',
+      page: 1,
+    });
+  });
+
+  it('keeps rate sorting listed but disabled outside the running group', async () => {
+    renderTaskToolbar({query: {statusGroup: 'finished'}});
+    fireEvent.pointerDown(screen.getByTestId('studio-job-sort'));
+    const rate = await screen.findByRole('menuitemradio', {
+      name: zh.jobTable.sortMenu.rate.desc,
+    });
+    expect(rate.getAttribute('aria-disabled')).toBe('true');
+    const duration = screen.getByRole('menuitemradio', {
+      name: zh.jobTable.sortMenu.duration.asc,
+    });
+    expect(duration.getAttribute('aria-disabled')).toBeNull();
+  });
 });
 
 describe('getJobActionState', () => {
@@ -418,8 +443,8 @@ describe('getJobActionState', () => {
     expect(
       getJobActionState(failed, {...ctx, disableRecover: true}).canRecover,
     ).toBe(false);
-    expect(
-      getJobActionState(failed, {...ctx, canRun: false}).canRecover,
-    ).toBe(false);
+    expect(getJobActionState(failed, {...ctx, canRun: false}).canRecover).toBe(
+      false,
+    );
   });
 });

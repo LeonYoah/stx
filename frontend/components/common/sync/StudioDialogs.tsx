@@ -1330,7 +1330,9 @@ export function JobScriptDialogContent({
   if (!script) {
     return (
       <div className='rounded-md border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-sm text-muted-foreground'>
-        {t('noActualExecutedScript')}
+        {job.source === 'external'
+          ? t('externalScriptEmpty')
+          : t('noActualExecutedScript')}
       </div>
     );
   }

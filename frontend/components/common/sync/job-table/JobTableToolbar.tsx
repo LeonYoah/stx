@@ -269,6 +269,7 @@ export function JobTableToolbar({
             <>
               {typeControl}
               {searchControl}
+              {sortMenu}
             </>
           }
         />
@@ -288,6 +289,7 @@ export function JobTableToolbar({
       <div className='flex flex-wrap items-center gap-2'>
         {searchControl}
         {typeControl}
+        {sortMenu}
       </div>
 
       {bulkBar}

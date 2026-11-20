@@ -28,13 +28,14 @@ import {
   getSubmitOutcomeDeadline,
   getSubmitTimeoutMinutes,
   isCancelOverdue,
+  isCancelReverted,
   isSubmitOutcomeExpired,
   isSubmitOutcomeUnknown,
 } from './sync-studio-utils';
 
 /**
- * 作业状态旁的结果提示：提交确认中、提交超时、停止超时。没有需要提示的情况时不渲染。
- * Outcome hints next to a job status: confirming submit, submit timed out, stop overdue. Renders nothing otherwise.
+ * 作业状态旁的结果提示：提交确认中、提交超时、停止超时、停止未生效。没有需要提示的情况时不渲染。
+ * Outcome hints next to a job status: confirming submit, submit timed out, stop overdue, stop reverted. Renders nothing otherwise.
  */
 export function JobOutcomeHints({
   job,
@@ -69,6 +70,14 @@ export function JobOutcomeHints({
       key: 'stop-overdue',
       label: t('stopOverdueBadge'),
       tooltip: t('stopOverdueTooltip', {minutes: getCancelTimeoutMinutes(job)}),
+      tone: 'warn',
+    });
+  }
+  if (isCancelReverted(job)) {
+    hints.push({
+      key: 'stop-reverted',
+      label: t('stopRevertedBadge'),
+      tooltip: t('stopRevertedTooltip'),
       tone: 'warn',
     });
   }

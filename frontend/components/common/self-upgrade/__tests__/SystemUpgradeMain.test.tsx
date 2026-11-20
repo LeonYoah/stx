@@ -48,7 +48,7 @@ vi.mock('@/components/common/layout/WorkspaceHeader', () => ({
   ),
 }));
 
-vi.mock('sonner', () => ({
+vi.mock('@/lib/toast', () => ({
   toast: {message: vi.fn(), success: vi.fn(), error: vi.fn()},
 }));
 

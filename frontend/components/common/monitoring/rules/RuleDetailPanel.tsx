@@ -172,7 +172,9 @@ export function RuleDetailPanel({
       services.monitoring.getAlertNotificationDefaults().catch(() => null),
       propClusters
         ? Promise.resolve(null)
-        : services.cluster.getClusters({current: 1, size: 200}).catch(() => null),
+        : // 后端 ListClustersRequest 限制 size<=100，超过会被 binding 拒绝。
+          // Backend caps ListClustersRequest size at 100; larger values fail binding.
+          services.cluster.getClusters({current: 1, size: 100}).catch(() => null),
     ]).then(([ch, us, def, cl]) => {
       setChannels(ch.channels ?? []);
       setUsers(us.users ?? []);

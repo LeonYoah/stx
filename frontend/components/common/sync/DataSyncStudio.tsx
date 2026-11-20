@@ -35,7 +35,7 @@ import {
   type ReactNode,
 } from 'react';
 import {useTheme} from 'next-themes';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {
   AlertTriangle,
   Check,

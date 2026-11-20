@@ -44,7 +44,7 @@ vi.mock('@/lib/services', () => ({
   },
 }));
 
-vi.mock('sonner', () => ({
+vi.mock('@/lib/toast', () => ({
   toast: {success: vi.fn(), error: vi.fn(), warning: vi.fn()},
 }));
 

@@ -24,7 +24,7 @@
 
 import {useCallback, useMemo, useState} from 'react';
 import {motion, useReducedMotion} from 'motion/react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {usePackages} from '@/hooks/use-installer';
 import {notifyOnboardingResourcesChanged} from '@/lib/onboarding/events';
 import {PackageTable} from './PackageTable';

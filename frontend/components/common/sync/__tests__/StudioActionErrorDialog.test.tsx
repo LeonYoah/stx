@@ -24,7 +24,7 @@ import {describe, expect, it, vi} from 'vitest';
 import zh from '@/lib/i18n/locales/zh.json';
 import {StudioActionErrorDialog} from '../StudioDialogs';
 
-vi.mock('sonner', () => ({
+vi.mock('@/lib/toast', () => ({
   toast: {success: vi.fn(), error: vi.fn()},
 }));
 

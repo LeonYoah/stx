@@ -19,7 +19,7 @@
 
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {HelpCircle, Radio, RefreshCw} from 'lucide-react';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {

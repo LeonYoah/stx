@@ -20,7 +20,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Check, Copy, KeyRound, Plus, RefreshCw, Search, ShieldOff} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {useGSAP} from '@gsap/react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';

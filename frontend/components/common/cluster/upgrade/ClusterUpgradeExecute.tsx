@@ -21,7 +21,7 @@ import Link from 'next/link';
 import {useCallback, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {
   AlertTriangle,
   ArrowLeft,

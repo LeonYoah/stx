@@ -38,7 +38,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {
   Copy,
   Check,

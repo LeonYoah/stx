@@ -4392,12 +4392,46 @@ export function DataSyncStudio() {
       return false;
     }
     try {
-      const result = await services.sync.listJobs({
-        current: 1,
-        size: 1,
-        platform_job_id: trimmed,
-      });
-      const job = result.items?.[0] || null;
+      // 入力は #N・内部 id・platform/engine job id のいずれでも受け付ける。
+      // Accept #N, internal id, and platform/engine job id alike.
+      const raw = trimmed.replace(/^#+/, '');
+      let job = null;
+      if (/^\d+$/.test(raw)) {
+        if (raw.length <= 10) {
+          const byId = await services.sync.listJobs({
+            current: 1,
+            size: 1,
+            job_id: Number(raw),
+          });
+          job = byId.items?.[0] || null;
+        }
+        if (!job) {
+          const byPlatform = await services.sync.listJobs({
+            current: 1,
+            size: 1,
+            platform_job_id: raw,
+          });
+          job = byPlatform.items?.[0] || null;
+        }
+        if (!job) {
+          const byEngine = await services.sync.listJobs({
+            current: 1,
+            size: 1,
+            engine_job_id: raw,
+          });
+          job = byEngine.items?.[0] || null;
+        }
+      }
+      // 非数字入力（タスク名等）の最終手段：キーワード照合。数字は id 系で尽きているので混ぜない。
+      // Last resort for non-numeric input (task names): keyword match; digits already exhausted id forms.
+      if (!job && !/^\d+$/.test(raw)) {
+        const byKeyword = await services.sync.listJobs({
+          current: 1,
+          size: 1,
+          keyword: raw,
+        });
+        job = byKeyword.items?.[0] || null;
+      }
       if (!job) {
         toast.error(t('jobIdNotFound'));
         return false;

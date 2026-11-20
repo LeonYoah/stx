@@ -434,6 +434,9 @@ func (r *Repository) applyJobFilter(query *gorm.DB, filter *JobFilter, withStatu
 			query = query.Where("(source = ? OR created_by = ?)", JobSourceExternal, filter.OwnerUserID)
 		}
 	}
+	if filter.JobID > 0 {
+		query = query.Where("id = ?", filter.JobID)
+	}
 	if filter.TaskID > 0 {
 		// 按任务筛选时排除已删任务留下的作业：MySQL 重启后自增 ID 可能被新任务复用。
 		// Filtering by task skips rows left by a deleted task: MySQL may reuse the auto-increment ID after restart.

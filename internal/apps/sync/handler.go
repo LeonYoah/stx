@@ -640,6 +640,16 @@ func (h *Handler) ListJobs(c *gin.Context) {
 		PlatformJobID: strings.TrimSpace(c.Query("platform_job_id")),
 		EngineJobID:   strings.TrimSpace(c.Query("engine_job_id")),
 	}
+	// job_id は UI の #N 表示＝内部数値 ID の完全一致検索（クイック定位用）。
+	// job_id filters by the internal numeric id (the UI's #N display) for quick locate.
+	if raw := strings.TrimSpace(c.Query("job_id")); raw != "" {
+		parsed, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, JobListResponse{ErrorMsg: "invalid job_id"})
+			return
+		}
+		filter.JobID = uint(parsed)
+	}
 	if taskID := c.Query("task_id"); taskID != "" {
 		parsed, err := strconv.ParseUint(taskID, 10, 64)
 		if err != nil {

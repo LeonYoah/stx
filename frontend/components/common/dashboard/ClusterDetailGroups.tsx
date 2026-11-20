@@ -332,12 +332,11 @@ export function ClusterDetailGroups({
     )
     .map((item) => item.key);
 
-  const cellShell = (key: string, title: string, unit: string, wide = false, testKey?: string) => ({
-    key,
-    className: `rounded-lg border border-border/50 p-3${wide ? ' md:col-span-2' : ''}`,
+  // 避免把 key 放进展开对象：React 19 会对 `{...props}` 中包含 key 报错。
+  // Keep `key` out of spread props: React 19 warns whenever a spread object carries `key`.
+  const cellProps = (key: string, wide = false, testKey?: string) => ({
+    className: `rounded-[var(--radius-panel)] border border-border/50 p-3${wide ? ' md:col-span-2' : ''}`,
     'data-testid': `detail-panel-${testKey ?? key}`,
-    title,
-    unit,
   });
 
   return (
@@ -406,7 +405,8 @@ export function ClusterDetailGroups({
             if (!item) {
               return null;
             }
-            const shell = cellShell(key, panelTitle(item), item.unit);
+            const title = panelTitle(item);
+            const props = cellProps(key);
 
             if (key === 'deadlocked' || key === 'reject') {
               const cards =
@@ -415,9 +415,9 @@ export function ClusterDetailGroups({
               // Usually-zero "is it happening" metrics: one card per node (red when
               // >0); rejections carry a mini trend.
               return (
-                <div {...shell} key={key}>
+                <div key={key} {...props}>
                   <div className='mb-2 flex items-baseline gap-2'>
-                    <h4 className='text-xs font-medium'>{shell.title}</h4>
+                    <h4 className='text-xs font-medium'>{title}</h4>
                     <span className='text-[11px] text-muted-foreground'>
                       {t.has(`units.${item.unit}`) ? t(`units.${item.unit}`) : ''}
                     </span>
@@ -442,12 +442,12 @@ export function ClusterDetailGroups({
                           <MetricCard
                             label={card.instance}
                             value={card.value}
-                            context={shell.title}
+                            context={title}
                           />
                           {key === 'reject' ? (
                             <Sparkline
                               data={card.points.map((point) => point[1])}
-                              label={`${card.instance} ${shell.title}`}
+                              label={`${card.instance} ${title}`}
                               variant='area'
                               height={28}
                               className='mt-1 text-[var(--series-1)]'
@@ -464,13 +464,13 @@ export function ClusterDetailGroups({
             if (key === 'partitions') {
               // 分区分布：各节点占比 Donut。/ Partition spread: per-node share donut.
               return (
-                <div {...shell} key={key}>
+                <div key={key} {...props}>
                   <div className='mb-2 flex items-baseline gap-2'>
-                    <h4 className='text-xs font-medium'>{shell.title}</h4>
+                    <h4 className='text-xs font-medium'>{title}</h4>
                   </div>
                   <DonutChart
                     data={partitionDonut}
-                    label={shell.title}
+                    label={title}
                     size={170}
                     legend
                     otherLabel={t('other')}
@@ -483,7 +483,7 @@ export function ClusterDetailGroups({
             if (key === 'store_owned') {
               // 本地持有 + 备份合并的横向分组柱。/ Owned + backup merged grouped bars.
               return (
-                <div {...shell} key={key}>
+                <div key={key} {...props}>
                   <div className='mb-2 flex items-baseline gap-2'>
                     <h4 className='text-xs font-medium'>
                       {t('panels.store_entries')}
@@ -512,7 +512,7 @@ export function ClusterDetailGroups({
                       ]}
                       orientation='horizontal'
                       layout='grouped'
-                      label={shell.title}
+                      label={title}
                       formatValue={(value) => formatCompactNumber(value)}
                     />
                   )}
@@ -523,9 +523,9 @@ export function ClusterDetailGroups({
             if (key === 'fds') {
               // fd：每节点一条 Progress（已打开 / 上限）。/ fds: open / max per node.
               return (
-                <div {...shell} key={key}>
+                <div key={key} {...props}>
                   <div className='mb-2 flex items-baseline gap-2'>
-                    <h4 className='text-xs font-medium'>{shell.title}</h4>
+                    <h4 className='text-xs font-medium'>{title}</h4>
                   </div>
                   {fdRows.length === 0 ? (
                     <p className='py-6 text-center text-xs text-muted-foreground'>
@@ -548,7 +548,7 @@ export function ClusterDetailGroups({
                             value={row.percent}
                             className='h-1.5'
                             indicatorClassName={fdTone(row.percent)}
-                            aria-label={`${row.instance} ${shell.title}`}
+                            aria-label={`${row.instance} ${title}`}
                           />
                           <span className='font-mono text-[11px]'>
                             {formatCompactNumber(row.open)} /{' '}
@@ -565,15 +565,15 @@ export function ClusterDetailGroups({
             const suffix = unitSuffix(item.unit);
             const chart = charts.get(item.key);
             return (
-              <div {...shell} key={key}>
+              <div key={key} {...props}>
                 <div className='mb-2 flex items-baseline gap-2'>
-                  <h4 className='text-xs font-medium'>{shell.title}</h4>
+                  <h4 className='text-xs font-medium'>{title}</h4>
                   <span className='text-[11px] text-muted-foreground'>
                     {t.has(`units.${item.unit}`) ? t(`units.${item.unit}`) : ''}
                   </span>
                 </div>
                 <LineChart
-                  label={shell.title}
+                  label={title}
                   // 字节面板单位走 formatBytes（IEC），其余让 unit 拼后缀。
                   // Byte panels carry their unit in formatBytes (IEC); others take the suffix.
                   unit={item.unit === 'bytes' ? '' : suffix}

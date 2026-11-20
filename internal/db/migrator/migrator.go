@@ -190,6 +190,13 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		return fmt.Errorf("migrate legacy remote alerts failed: %w", err)
 	}
 
+	// 回填存量自动触发巡检报告的 auto_policy_id（历史只靠 auto_trigger_reason 前缀归因）。
+	// Backfill auto_policy_id on stored auto-triggered inspection reports (history only
+	// carried attribution inside the auto_trigger_reason prefix).
+	if err := backfillDiagnosticsReportAutoPolicyIDs(database); err != nil {
+		return fmt.Errorf("backfill diagnostics report auto policy ids failed: %w", err)
+	}
+
 	// 告警模型收拢：一次性把遗留非作业告警策略 / 旧规则行 / 通知路由迁移进集群规则目录
 	// 配置表（旧行不删，只置非作业策略 Enabled=false）。
 	// Alert-model consolidation: one-time fold of legacy non-job policies, legacy rule rows and
@@ -440,6 +447,7 @@ func managedModels() []interface{} {
 		&diagnostics.DiagnosticNodeExecution{},     // 诊断任务节点执行表 / Diagnostics node execution table
 		&diagnostics.DiagnosticStepLog{},           // 诊断任务日志表 / Diagnostics task log table
 		&diagnostics.InspectionAutoPolicy{},        // 诊断自动巡检策略表 / Diagnostics auto-inspection policy table
+		&diagnostics.InspectionCleanupSettings{},   // 巡检记录清理设置表（单行）/ Inspection record cleanup settings table (single row)
 		&diagnostics.TroubleshootingMemory{},       // 诊断排障经验记忆库表 / Diagnostics troubleshooting memory table
 		&stupgrade.UpgradePlanRecord{},             // SeaTunnel 升级计划表 / SeaTunnel upgrade plan table
 		&stupgrade.UpgradeTask{},                   // SeaTunnel 升级任务表 / SeaTunnel upgrade task table

@@ -71,6 +71,7 @@ func MigrateAlertRuleCatalog(database *gorm.DB) error
   - `sync`：`sync_event_channel_degraded`
   - `event`：`cluster_restart_requested`、`node_stop_requested`
 - 阈值统一使用用户可读单位（`percent` / `count` / `workers`），`tsdb` 表达式内部自动做百分比到 ratio 换算。
+- **`AlertRuleCatalog`（`/alert-rules/catalog`）派生契约**：集群级按 `clusterRuleCatalog` 顺序输出（名称取 `Name`/`NameEN`，`category` 由 `Engine` 派生：`tsdb→metric`、其余→`platform_health`，`scope=cluster`），作业级追加 `syncalert.TaskRules()`（`category=job`，`scope=job`）；不再从策略模板摘要拼装，5 条 `stx_*` 平台自监控模板不在目录内。诊断自动巡检 `ALERT_FIRING` 条件引用目录外规则键时 `InvalidReason=unknown_alert_rule_key`（`invalid_detail` 为首个未知键），存量策略不改写、仅提示。
 
 ### 三层配置解析与缓存
 - 解析顺序：**目录默认 → `ClusterRuleConfig`（全局）→ `ClusterRuleOverride`（集群例外）**。

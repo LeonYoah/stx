@@ -2,6 +2,10 @@
 .viewport { position: fixed; z-index: 60; bottom: var(--space-6); width: min(22.5rem, calc(100% - var(--space-8))); pointer-events: none; }
 .bottom-right { right: var(--space-6); }
 .bottom-left { left: var(--space-6); }
+/* 居中 toast 抬高避开底部悬浮导航坞（dock 区约 5rem）；窄屏无 dock，仍回落到底缘。
+   Centered toasts lift clear of the floating bottom dock (~5rem zone); on
+   narrow screens the dock is hidden so the media rule below drops it back. */
+.viewport.bottom-center { bottom: calc(var(--space-6) + 5rem); }
 .bottom-center { right: 0; left: 0; margin-inline: auto; }
 .contained { position: absolute; z-index: 2; bottom: var(--space-4); }
 .contained.bottom-right { right: var(--space-4); }

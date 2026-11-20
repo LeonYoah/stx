@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 281)
+	require.Len(t, Registry(), 284)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -136,6 +136,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"monitoring.notification-delivery.list": {},
 		"monitor.config.get":                    {}, "monitor.event.list": {}, "monitor.event.stats": {},
 		"diagnostics.bootstrap.get": {}, "diagnostics.inspection.list": {}, "diagnostics.inspection.get": {},
+		"diagnostics.inspection-cleanup.get": {}, "diagnostics.inspection-cleanup.update": {},
 		"diagnostics.resource.list": {}, "diagnostics.resource.get": {},
 		"diagnostics.task.list": {}, "diagnostics.task.get": {}, "diagnostics.task.steps": {}, "diagnostics.task.logs": {},
 		"diagnostics.task.artifacts":   {},
@@ -239,6 +240,23 @@ func TestMonitoringReadOperationsExposeSupportedFilters(t *testing.T) {
 			require.NotContains(t, spec.Example, " list 1", operationID)
 		}
 	}
+}
+
+func TestDiagnosticsInspectionListExposesAutoPolicyFilter(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+	spec, exists := byID["diagnostics.inspection.list"]
+	require.True(t, exists)
+	queryNames := make([]string, 0, len(spec.Input))
+	for _, input := range spec.Input {
+		if input.Location == InputQuery {
+			queryNames = append(queryNames, input.Name)
+		}
+	}
+	require.Contains(t, queryNames, "auto_policy_id")
+	require.Contains(t, queryNames, "trigger_source")
 }
 
 func TestRegistryContainsClusterWriteOperations(t *testing.T) {
@@ -432,6 +450,22 @@ func TestRegistryAdminUserOperations(t *testing.T) {
 	require.False(t, byID["admin.token.revoke"].GeneratedCLI)
 	require.Equal(t, RiskR1, byID["admin.token.create"].Risk)
 	require.Equal(t, RiskR1, byID["admin.token.revoke"].Risk)
+}
+
+func TestRegistryErrorGroupListExposesOccurrenceFilters(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+
+	spec := byID["diagnostics.error.group.list"]
+	require.Contains(t, spec.Input, InputSpec{Name: "min_occurrences", Location: InputQuery, Description: "Minimum occurrence count (inclusive)"})
+	require.Contains(t, spec.Input, InputSpec{Name: "max_occurrences", Location: InputQuery, Description: "Maximum occurrence count (inclusive)"})
+	// 频次过滤只挂在错误组列表，事件列表不暴露。
+	// Occurrence filters live on the group list only; the event list must not expose them.
+	for _, input := range byID["diagnostics.error.event.list"].Input {
+		require.NotContains(t, []string{"min_occurrences", "max_occurrences"}, input.Name)
+	}
 }
 
 func TestValidateRejectsInvalidHelpExample(t *testing.T) {

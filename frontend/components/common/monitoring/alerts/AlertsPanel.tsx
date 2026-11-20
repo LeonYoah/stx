@@ -42,12 +42,8 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import {
-  AlertStatusChip,
-  DeliveryChip,
-  NeutralChip,
-  SeverityChip,
-} from '../status-chips';
+import {AlertStatusChip, DeliveryChip, SeverityChip} from '../status-chips';
+import {NeutralChip} from '@/components/common/layout';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Combobox} from '@/components/arc/combobox/combobox';
@@ -95,8 +91,10 @@ import {
   type AlertRowStatus,
   type MonitoringTranslator,
 } from '../monitoring-utils';
-import {DetailHost, useDetailNarrow} from '../detail-host';
+import {DetailHost, useDetailNarrow} from '@/components/common/layout';
+import {BatchBar, usePagedSelection} from '@/components/common/layout';
 import styles from '../monitoring.module.css';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 const PAGE_SIZE = 10;
 const SILENCE_MINUTES = 30;
@@ -482,42 +480,24 @@ export function AlertsPanel({
     );
   }, [rows, query]);
 
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const pageAlertIds = useMemo(
+    () => pageItems.map((a) => a.alert_id),
+    [pageItems],
+  );
+  const {
+    ids: selected,
+    setIds: setSelected,
+    toggle: toggleSelect,
+    togglePage: toggleSelectAllPage,
+    pageAllSelected,
+    pageSomeSelected,
+  } = usePagedSelection(pageAlertIds);
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResult, setBatchResult] = useState<{
     ok: number;
     skipped: number;
     failed: number;
   } | null>(null);
-
-  const toggleSelect = useCallback((id: string, on: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (on) {
-        next.add(id);
-      } else {
-        next.delete(id);
-      }
-      return next;
-    });
-  }, []);
-
-  const toggleSelectAllPage = useCallback(
-    (on: boolean) => {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        for (const a of pageItems) {
-          if (on) {
-            next.add(a.alert_id);
-          } else {
-            next.delete(a.alert_id);
-          }
-        }
-        return next;
-      });
-    },
-    [pageItems],
-  );
 
   // 批量动作与行内菜单同一判定：确认/静默仅 firing，关闭排除已关闭；
   // 串行逐条调用，与作业批量一致，避免同时压向集群。
@@ -649,12 +629,6 @@ export function AlertsPanel({
     [router],
   );
 
-  const pageAllSelected =
-    pageItems.length > 0 &&
-    pageItems.every((a) => selected.has(a.alert_id));
-  const pageSomeSelected =
-    !pageAllSelected && pageItems.some((a) => selected.has(a.alert_id));
-
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const drawerAlert = useDrawerItem(active);
@@ -698,7 +672,7 @@ export function AlertsPanel({
   };
 
   const segCount = (n?: number) =>
-    n == null ? undefined : <span className={styles.count}>{n}</span>;
+    n == null ? undefined : <span className={layout.count}>{n}</span>;
 
   const retry = useCallback(() => {
     setError(null);
@@ -732,7 +706,7 @@ export function AlertsPanel({
   ];
 
   return (
-    <div className={cn(styles.page, styles.pageViewport)}>
+    <div className={cn(layout.page, layout.pageViewport)}>
       {/* 汇总指标合并为单框 + 内分割线，格点击复用状态筛选（§9.7 防框堆叠）。
           Summary metrics merge into one frame with inner dividers; cells reuse the status filter. */}
       <div
@@ -754,7 +728,7 @@ export function AlertsPanel({
         ))}
       </div>
 
-      <div className={styles.toolbar}>
+      <div className={layout.toolbar}>
         {/* 状态分段：计数来自一次无筛选请求；已确认/已静默无廉价计数，只显示文字。
             Status segments: counts from one unfiltered request; acknowledged /
             silenced have no cheap count and show text only. */}
@@ -784,7 +758,7 @@ export function AlertsPanel({
             },
           ]}
         />
-        <div className={styles.toolbarSearch}>
+        <div className={layout.toolbarSearch}>
           <SearchField
             ref={searchRef}
             label={t('alertSearchLabel')}
@@ -802,7 +776,7 @@ export function AlertsPanel({
         {/* 范围 / 级别是小枚举用 Select；集群可超过 10 项用可搜索 Combobox（§18 选型）。
             Scope/severity are small enums (Select); clusters can exceed 10 so they
             get the searchable Combobox (§18 selection rules). */}
-        <div className={cn(styles.filterCtrl, styles.filterWsm)}>
+        <div className={cn(layout.filterCtrl, layout.filterWsm)}>
           <Select
             label={t('alertScopeLabel')}
             value={scope}
@@ -815,7 +789,7 @@ export function AlertsPanel({
             ]}
           />
         </div>
-        <div className={cn(styles.filterCtrl, styles.filterWsm)}>
+        <div className={cn(layout.filterCtrl, layout.filterWsm)}>
           <Select
             label={t('fieldSeverity')}
             value={severity || ALL_VALUE}
@@ -830,7 +804,7 @@ export function AlertsPanel({
             ]}
           />
         </div>
-        <div className={cn(styles.filterCtrl, styles.filterW)}>
+        <div className={cn(layout.filterCtrl, styles.filterW)}>
           <Combobox
             label={t('colCluster')}
             value={clusterId || ALL_VALUE}
@@ -881,8 +855,8 @@ export function AlertsPanel({
         ) : null}
       </div>
 
-      <div className={styles.split}>
-        <div className={styles.listCol} data-mcols='alerts'>
+      <div className={layout.split}>
+        <div className={layout.listCol} data-mcols='alerts'>
           {/* 唯一主卡片：加载条/骨架/错误/空态/底部分页都由 TableCard 统一承载（§4.4）。
               The single main card: TableCard owns bar/skeleton/error/empty/pagination. */}
           <TableCard
@@ -932,7 +906,7 @@ export function AlertsPanel({
               onPageChange: (p) => writeFilters({page: p}, false),
             }}
           >
-            <div className={cn(styles.rowHead, styles.tableArea)}>
+            <div className={cn(layout.rowHead, styles.tableArea)}>
               <Checkbox
                 checked={
                   pageAllSelected ? true : pageSomeSelected ? 'indeterminate' : false
@@ -948,7 +922,7 @@ export function AlertsPanel({
               <span>{t('colTime')}</span>
               <span />
             </div>
-            <div className={cn(styles.tableScroll, styles.tableArea)}>
+            <div className={cn(layout.tableScroll, styles.tableArea)}>
               {pageItems.map((alert) => {
                 const rowStatus = alertRowStatus(alert);
                 return (
@@ -970,8 +944,8 @@ export function AlertsPanel({
                     }}
                     onKeyDown={(e) => onRowKeyDown(e, alert)}
                     className={cn(
-                      styles.row,
-                      active?.alert_id === alert.alert_id && styles.rowActive,
+                      layout.row,
+                      active?.alert_id === alert.alert_id && layout.rowActive,
                     )}
                   >
                     <Checkbox
@@ -982,10 +956,10 @@ export function AlertsPanel({
                       aria-label={t('selectAlert', {name: displayName(alert)})}
                     />
                     <StatusCell status={rowStatus} t={t} />
-                    <div className={styles.rowName}>
-                      <span className={styles.rowNameInline}>
+                    <div className={layout.rowName}>
+                      <span className={layout.rowNameInline}>
                         <span
-                          className={styles.name}
+                          className={layout.name}
                           title={displayName(alert)}
                         >
                           {displayName(alert)}
@@ -1000,7 +974,7 @@ export function AlertsPanel({
                           />
                         ) : null}
                       </span>
-                      <span className={cn(styles.sub, styles.mono)}>
+                      <span className={cn(layout.sub, styles.mono)}>
                         {alert.rule_key}
                       </span>
                     </div>
@@ -1017,13 +991,13 @@ export function AlertsPanel({
                         ? t('scopeCluster')
                         : t('scopeJob')}
                     </NeutralChip>
-                    <span className={styles.sub} title={alert.cluster_name}>
+                    <span className={layout.sub} title={alert.cluster_name}>
                       {alert.cluster_name}
                     </span>
-                    <span className={cn(styles.sub, styles.num, styles.nowrap)}>
+                    <span className={cn(layout.sub, styles.num, styles.nowrap)}>
                       {ago(alert.firing_at || alert.created_at)}
                     </span>
-                    <div className={styles.rowActions}>
+                    <div className={layout.rowActions}>
                       <DropdownMenu
                         trigger={
                           <Button
@@ -1077,68 +1051,51 @@ export function AlertsPanel({
             </div>
           </TableCard>
 
-          {selected.size > 0 || batchResult ? (
-            <div className={styles.batchBarWrap}>
-              <div className={styles.batchBar} role='status'>
-                {selected.size > 0 ? (
-                  <>
-                    <span>{t('selected', {count: selected.size})}</span>
-                    <span className={styles.batchActions}>
-                      <Button
-                        type='button'
-                        size='sm'
-                        variant='secondary'
-                        disabled={batchBusy}
-                        onClick={() => void runBatch('ack')}
-                      >
-                        {t('actionAck')}
-                      </Button>
-                      <Button
-                        type='button'
-                        size='sm'
-                        variant='secondary'
-                        disabled={batchBusy}
-                        onClick={() => void runBatch('silence')}
-                      >
-                        {t('actionSilence')}
-                      </Button>
-                      <Button
-                        type='button'
-                        size='sm'
-                        variant='secondary'
-                        disabled={batchBusy}
-                        onClick={() => void runBatch('close')}
-                      >
-                        {t('actionClose')}
-                      </Button>
-                    </span>
-                  </>
-                ) : null}
-                {batchResult ? (
-                  <span className={styles.sub}>
-                    {t('batchResult', {
-                      ok: batchResult.ok,
-                      failed: batchResult.failed,
-                      skipped: batchResult.skipped,
-                    })}
-                  </span>
-                ) : null}
-                <Button
-                  type='button'
-                  variant='ghost'
-                  size='sm'
-                  iconOnly
-                  aria-label={t('batchClear')}
-                  onClick={() => {
-                    setSelected(new Set());
-                    setBatchResult(null);
-                  }}
-                >
-                  <X className='size-4' aria-hidden />
-                </Button>
-              </div>
-            </div>
-          ) : null}
+          <BatchBar
+            selectedCount={selected.size}
+            busy={batchBusy}
+            result={
+              batchResult
+                ? t('batchResult', {
+                    ok: batchResult.ok,
+                    failed: batchResult.failed,
+                    skipped: batchResult.skipped,
+                  })
+                : null
+            }
+            onClear={() => {
+              setSelected(new Set());
+              setBatchResult(null);
+            }}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => void runBatch('ack')}
+            >
+              {t('actionAck')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => void runBatch('silence')}
+            >
+              {t('actionSilence')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => void runBatch('close')}
+            >
+              {t('actionClose')}
+            </Button>
+          </BatchBar>
         </div>
 
         <DetailHost
@@ -1184,9 +1141,9 @@ function MobileAlertCard({
   const locale = useLocale();
   return (
     <button type='button' className={styles.mobileCard} onClick={onOpen}>
-      <span className={styles.rowNameInline}>
+      <span className={layout.rowNameInline}>
         <StatusCell status={alertRowStatus(alert)} t={t} />
-        <span className={cn(styles.name, 'min-w-0 flex-1')}>
+        <span className={cn(layout.name, 'min-w-0 flex-1')}>
           {locale === 'en'
             ? alert.alert_name_en || alert.alert_name
             : alert.alert_name}
@@ -1198,7 +1155,7 @@ function MobileAlertCard({
           />
         ) : null}
         <ChevronRight
-          className={cn('size-4 shrink-0', styles.muted)}
+          className={cn('size-4 shrink-0', layout.muted)}
           aria-hidden
         />
       </span>
@@ -1344,7 +1301,7 @@ function AlertDetailBody({
   }, [alert, deliveries, t]);
 
   return (
-    <div className={styles.detailCol}>
+    <div className={layout.detailCol}>
       <div className={styles.metaBand}>
         <SeverityChip
           severity={alert.severity}
@@ -1355,7 +1312,7 @@ function AlertDetailBody({
         <StatusCell status={rowStatus} t={t} />
       </div>
 
-      <div className={styles.detailScroll}>
+      <div className={layout.detailScroll}>
         {alert.summary || alert.description ? (
           <AlertPayload
             text={alert.summary || alert.description || ''}
@@ -1383,7 +1340,7 @@ function AlertDetailBody({
                   {alert.rule_key}
                 </button>
                 {rule ? (
-                  <span className={styles.muted}>
+                  <span className={layout.muted}>
                     {' · '}
                     {override ? t('fromException') : t('fromGlobal')}
                     {' · '}
@@ -1406,8 +1363,8 @@ function AlertDetailBody({
 
         {/* 上下文：集群 / 主机 / 进程 / 事件 ID，作业告警附任务与自动关闭原因。
             Context: cluster/host/process/event id plus sync-episode extras. */}
-        <div className={styles.sectionStack} style={{gap: 8}}>
-          <span className={styles.sectionTitle}>
+        <div className={layout.sectionStack} style={{gap: 8}}>
+          <span className={layout.sectionTitle}>
             {tMc('alerts.contextAndTopology')}
           </span>
           <div className={styles.groupInner}>
@@ -1514,7 +1471,7 @@ function AlertDetailBody({
             ) : null}
             {alert.source_ref?.link ? (
               <div className={styles.kvRow}>
-                <span className={styles.detailFootGrow} />
+                <span className={layout.detailFootGrow} />
                 <Button
                   type='button'
                   variant='secondary'
@@ -1536,8 +1493,8 @@ function AlertDetailBody({
 
         {/* 处理记录：确认时间 / 静默至 / 最新备注。Handling record. */}
         {alert.silenced_until || alert.acknowledged_at || alert.latest_note ? (
-          <div className={styles.sectionStack} style={{gap: 8}}>
-            <span className={styles.sectionTitle}>
+          <div className={layout.sectionStack} style={{gap: 8}}>
+            <span className={layout.sectionTitle}>
               {tMc('alerts.handlingNotes')}
             </span>
             <div className={styles.groupInner}>
@@ -1594,8 +1551,8 @@ function AlertDetailBody({
           </Button>
         </div>
 
-        <div className={styles.sectionStack} style={{gap: 8}}>
-          <span className={styles.sectionTitle}>{t('timeline')}</span>
+        <div className={layout.sectionStack} style={{gap: 8}}>
+          <span className={layout.sectionTitle}>{t('timeline')}</span>
           <Timeline
             events={timelineEvents}
             now={Date.now()}
@@ -1606,8 +1563,8 @@ function AlertDetailBody({
           />
         </div>
 
-        <div className={styles.sectionStack} style={{gap: 8}}>
-          <span className={styles.sectionTitle}>{t('deliveries')}</span>
+        <div className={layout.sectionStack} style={{gap: 8}}>
+          <span className={layout.sectionTitle}>{t('deliveries')}</span>
           {deliveries.length === 0 ? (
             <p className={styles.hintBox}>{t('deliveriesEmpty')}</p>
           ) : (
@@ -1615,7 +1572,7 @@ function AlertDetailBody({
               {deliveries.map((d) => (
                 <li key={d.id} className={styles.lineItem}>
                   <span
-                    className={cn(styles.truncate, styles.mono, styles.xsText)}
+                    className={cn(styles.truncate, styles.mono, layout.xsText)}
                   >
                     {d.channel_name ?? d.channel_id}
                   </span>
@@ -1624,7 +1581,7 @@ function AlertDetailBody({
                       status={d.status}
                       label={t(`delivery.${d.status}`)}
                     />
-                    <span className={cn(styles.sub, styles.num, styles.nowrap)}>
+                    <span className={cn(layout.sub, styles.num, styles.nowrap)}>
                       {ago(d.sent_at || d.created_at)}
                     </span>
                   </span>
@@ -1664,7 +1621,7 @@ function AlertDetailBody({
       {/* 处理动作钉在底部操作栏（仅触发中可确认/静默）。
           Handling actions pinned to the bottom bar for firing alerts. */}
       {rowStatus === 'firing' ? (
-        <div className={styles.detailFoot}>
+        <div className={layout.detailFoot}>
           <Button type='button' size='sm' onClick={onAck}>
             <CheckCheck className='size-3.5' aria-hidden />
             {t('actionAck')}

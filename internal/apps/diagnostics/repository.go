@@ -20,6 +20,7 @@ package diagnostics
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -501,6 +502,12 @@ func (r *Repository) applyGroupFilters(query *gorm.DB, filter *SeatunnelErrorGro
 		// Use LOWER for case-insensitive exception class matching, compatible with multiple databases.
 		query = query.Where("LOWER(exception_class) LIKE LOWER(?)", "%"+exceptionClass+"%")
 	}
+	if filter.MinOccurrences != nil {
+		query = query.Where("occurrence_count >= ?", *filter.MinOccurrences)
+	}
+	if filter.MaxOccurrences != nil {
+		query = query.Where("occurrence_count <= ?", *filter.MaxOccurrences)
+	}
 	return query
 }
 
@@ -566,6 +573,9 @@ func applyInspectionReportFilters(query *gorm.DB, filter *ClusterInspectionRepor
 	if triggerSource := strings.TrimSpace(string(filter.TriggerSource)); triggerSource != "" {
 		query = query.Where("trigger_source = ?", triggerSource)
 	}
+	if filter.AutoPolicyID > 0 {
+		query = query.Where("auto_policy_id = ?", filter.AutoPolicyID)
+	}
 	if severity := strings.TrimSpace(string(filter.Severity)); severity != "" {
 		findingQuery := query.Session(&gorm.Session{NewDB: true}).
 			Model(&ClusterInspectionFinding{}).
@@ -578,6 +588,26 @@ func applyInspectionReportFilters(query *gorm.DB, filter *ClusterInspectionRepor
 	}
 	if filter.EndTime != nil {
 		query = query.Where("created_at <= ?", timex.Bound(*filter.EndTime))
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		// 策略名经子查询命中：记录行「自动 · 名称」徽章显示的就是它。
+		// Policy names resolve through a subquery — that is the name shown on
+		// each row's "auto · <name>" chip.
+		policyQuery := query.Session(&gorm.Session{NewDB: true}).
+			Model(&InspectionAutoPolicy{}).
+			Select("id").
+			Where("LOWER(name) LIKE LOWER(?)", like)
+		// 使用 LOWER 进行大小写不敏感模糊匹配，兼容多数据库；纯数字再精确命中报告 ID。
+		// Use LOWER for case-insensitive fuzzy matching across databases; pure
+		// digits also match the report ID exactly.
+		clause := "LOWER(summary) LIKE LOWER(?) OR LOWER(error_message) LIKE LOWER(?) OR LOWER(auto_trigger_reason) LIKE LOWER(?) OR auto_policy_id IN (?)"
+		args := []any{like, like, like, policyQuery}
+		if id, err := strconv.ParseUint(keyword, 10, 64); err == nil {
+			clause = "id = ? OR " + clause
+			args = append([]any{id}, args...)
+		}
+		query = query.Where(clause, args...)
 	}
 	return query
 }

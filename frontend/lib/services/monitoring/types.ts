@@ -165,13 +165,14 @@ export interface AlertInstanceStats {
 }
 
 /**
- * Alert rule catalog entry: rule key, display name and category.
- * 告警规则目录项：规则键、显示名与告警类别。
+ * Alert rule catalog entry: rule key, display name, category and scope.
+ * 告警规则目录项：规则键、显示名、告警类别与级别范围。
  */
 export interface AlertRuleCatalogItem {
   rule_key: string;
   name: string;
   category: AlertSourceType;
+  scope: AlertScope;
 }
 
 export interface AlertInstanceSourceRef {

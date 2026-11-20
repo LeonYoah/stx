@@ -37,3 +37,15 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver =
     ObserverStub as unknown as typeof ResizeObserver;
 }
+
+// jsdom 缺 Pointer Capture / scrollIntoView，Radix Select 开下拉时必调；给空桩。
+// jsdom lacks Pointer Capture / scrollIntoView, which Radix Select calls when
+// opening; empty stubs suffice.
+if (typeof Element !== 'undefined' && !Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.releasePointerCapture = () => {};
+}
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}

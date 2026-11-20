@@ -71,9 +71,31 @@ func TestInspectionAutoPolicyInvalidReason(t *testing.T) {
 			wantDetail: "ALERT_FIRING",
 		},
 		{
+			name: "ALERT_FIRING with retired stx_ rule key",
+			conditions: InspectionConditionItems{
+				{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"stx_server_memory_high"}},
+			},
+			wantReason: AutoPolicyInvalidUnknownAlertRuleKey,
+			wantDetail: "stx_server_memory_high",
+		},
+		{
+			name: "ALERT_FIRING first unknown key wins",
+			conditions: InspectionConditionItems{
+				{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline", "stx_agent_memory_high", "stx_tsdb_compaction_failed"}},
+			},
+			wantReason: AutoPolicyInvalidUnknownAlertRuleKey,
+			wantDetail: "stx_agent_memory_high",
+		},
+		{
 			name: "ALERT_FIRING with rule keys",
 			conditions: InspectionConditionItems{
 				{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline"}},
+			},
+		},
+		{
+			name: "ALERT_FIRING with new catalog keys",
+			conditions: InspectionConditionItems{
+				{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"gc_time_high", "coordinator_backlog_growing"}},
 			},
 		},
 		{

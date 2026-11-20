@@ -26,9 +26,12 @@ import type {
   DiagnosticsErrorGroupDetailData,
   DiagnosticsErrorGroupListData,
   DiagnosticsErrorGroupListParams,
+  DiagnosticsInspectionCleanupSettings,
   DiagnosticsInspectionReportDetailData,
   DiagnosticsInspectionReportListData,
   DiagnosticsInspectionReportListParams,
+  BatchDeleteInspectionReportsData,
+  UpdateDiagnosticsInspectionCleanupSettingsRequest,
   DiagnosticsResourceDefinition,
   DiagnosticsTask,
   DiagnosticsTaskCreateRequestOptions,
@@ -353,6 +356,121 @@ export class DiagnosticsService extends BaseService {
       return {
         success: false,
         error: error instanceof Error ? error.message : '加载巡检详情失败',
+      };
+    }
+  }
+
+  /**
+   * Get global inspection record cleanup settings.
+   * 获取全局巡检记录清理设置。
+   */
+  static async getInspectionCleanupSettings(): Promise<DiagnosticsInspectionCleanupSettings> {
+    return this.get<DiagnosticsInspectionCleanupSettings>(
+      '/inspection-cleanup-settings',
+      withDiagnosticsLanguage(),
+    );
+  }
+
+  /**
+   * Safely get global inspection record cleanup settings.
+   * 安全获取全局巡检记录清理设置。
+   */
+  static async getInspectionCleanupSettingsSafe(): Promise<{
+    success: boolean;
+    data?: DiagnosticsInspectionCleanupSettings;
+    error?: string;
+  }> {
+    try {
+      const data = await this.getInspectionCleanupSettings();
+      return {success: true, data};
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '加载清理设置失败',
+      };
+    }
+  }
+
+  /**
+   * Update global inspection record cleanup settings.
+   * 更新全局巡检记录清理设置。
+   */
+  static async updateInspectionCleanupSettings(
+    payload: UpdateDiagnosticsInspectionCleanupSettingsRequest,
+  ): Promise<DiagnosticsInspectionCleanupSettings> {
+    const executionHeaders = createWebExecutionHeaders(
+      'diagnostics-inspection-cleanup',
+      {confirmed: true},
+    );
+    return this.putWithConfig<DiagnosticsInspectionCleanupSettings>(
+      '/inspection-cleanup-settings',
+      payload,
+      {
+        params: withDiagnosticsLanguage(),
+        headers: executionHeaders.headers,
+      },
+    );
+  }
+
+  /**
+   * Safely update global inspection record cleanup settings.
+   * 安全更新全局巡检记录清理设置。
+   */
+  static async updateInspectionCleanupSettingsSafe(
+    payload: UpdateDiagnosticsInspectionCleanupSettingsRequest,
+  ): Promise<{
+    success: boolean;
+    data?: DiagnosticsInspectionCleanupSettings;
+    error?: string;
+  }> {
+    try {
+      const data = await this.updateInspectionCleanupSettings(payload);
+      return {success: true, data};
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '保存清理设置失败',
+      };
+    }
+  }
+
+  /**
+   * Batch delete inspection reports with their bound diagnostic data.
+   * 批量删除巡检记录及其绑定的诊断数据。
+   */
+  static async batchDeleteInspectionReports(
+    ids: number[],
+  ): Promise<BatchDeleteInspectionReportsData> {
+    const executionHeaders = createWebExecutionHeaders(
+      'diagnostics-inspection-batch-delete',
+      {confirmed: true},
+    );
+    return this.postWithConfig<BatchDeleteInspectionReportsData>(
+      '/inspections/batch-delete',
+      {ids},
+      {
+        params: withDiagnosticsLanguage(),
+        headers: executionHeaders.headers,
+      },
+    );
+  }
+
+  /**
+   * Safely batch delete inspection reports with their bound diagnostic data.
+   * 安全批量删除巡检记录及其绑定的诊断数据。
+   */
+  static async batchDeleteInspectionReportsSafe(ids: number[]): Promise<{
+    success: boolean;
+    data?: BatchDeleteInspectionReportsData;
+    error?: string;
+  }> {
+    try {
+      const data = await this.batchDeleteInspectionReports(ids);
+      return {success: true, data};
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '删除巡检记录失败',
       };
     }
   }

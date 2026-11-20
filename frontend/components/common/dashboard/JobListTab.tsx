@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useMemo, useRef, useState} from 'react';
 import {useTheme} from 'next-themes';
 import {useTranslations} from 'next-intl';
 import {toast} from '@/lib/toast';
@@ -32,6 +32,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {useAuth} from '@/hooks/use-auth';
+import {Button} from '@/components/arc/button/button';
+import {BatchBar, usePagedSelection} from '@/components/common/layout';
 import services from '@/lib/services';
 import type {
   SyncJobInstance,
@@ -42,6 +44,7 @@ import {
   JobDetailHost,
   JobTable,
   JobTableToolbar,
+  mergeKnownJobs,
   useJobBulkActions,
   useJobList,
   useJobSparklines,
@@ -96,7 +99,6 @@ export function JobListTab({
   const monacoTheme = resolvedTheme === 'light' ? 'vs' : 'vs-dark';
   const {user: currentUser} = useAuth();
   const initiatorUsers = useNotifiableUsers();
-  const [selected, setSelected] = useState<Set<number>>(new Set());
   // 完整详情弹窗：点击行 / 行操作「详情」/ 多表徽章都就地打开工作台同款 JobDetailDialog（不再有轻量预览抽屉）。
   // Full detail dialog: row click, the row "details" action, and the multi-table badge all open the same
   // workbench JobDetailDialog in place (no lightweight preview drawer).
@@ -184,14 +186,12 @@ export function JobListTab({
   const sparklines = useJobSparklines(list.items, list.updatedAt);
   const bulk = useJobBulkActions(list.reload);
 
-  // 选择只保留当前页仍存在的行。/ Keep only selections that still exist on this page.
-  useEffect(() => {
-    setSelected((prev) => {
-      const ids = new Set(list.items.map((job) => job.id));
-      const next = new Set([...prev].filter((id) => ids.has(id)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [list.items]);
+  // 跨页勾选在执行/手动清空前都保留；已消失的作业交给批量动作逐条回报。
+  // Selections survive paging until executed or cleared; jobs that vanish are
+  // reported per-item by the bulk action.
+  const pageJobIds = useMemo(() => list.items.map((job) => job.id), [list.items]);
+  const {ids: selected, setIds: setSelected} = usePagedSelection(pageJobIds);
+  const knownJobsRef = useRef<ReadonlyMap<number, SyncJobInstance>>(new Map());
 
   // 大盘逐行构造权限上下文：isOwner = 作业发起人；后端仍是最终裁决。
   // Per-row actor context on the dashboard: isOwner means the job initiator; the backend stays the final arbiter.
@@ -241,9 +241,23 @@ export function JobListTab({
     [list.reload, t],
   );
 
+  // 跨页勾选的作业可能不在当前页 items 里：快照累积所有见过的作业，按 id 解析。
+  // Jobs picked on other pages are absent from the current items: resolve them
+  // through an accumulating snapshot of every job seen so far.
+  const knownJobs = useMemo(() => {
+    knownJobsRef.current = mergeKnownJobs(
+      [],
+      list.items,
+      knownJobsRef.current,
+    );
+    return knownJobsRef.current;
+  }, [list.items]);
   const selectedJobs = useMemo(
-    () => list.items.filter((job) => selected.has(job.id)),
-    [list.items, selected],
+    () =>
+      [...selected]
+        .map((id) => knownJobs.get(id))
+        .filter((job): job is SyncJobInstance => job != null),
+    [selected, knownJobs],
   );
 
   const handleConfirm = () => {
@@ -270,16 +284,6 @@ export function JobListTab({
         query={jobQuery}
         onQueryChange={onQueryChange}
         statusCounts={list.statusCounts}
-        bulk={{
-          selectedCount: selected.size,
-          running: bulk.running,
-          result: bulk.result,
-          onStop: () =>
-            setConfirm({action: 'stop', jobs: selectedJobs, bulk: true}),
-          onRecover: () =>
-            setConfirm({action: 'recover', jobs: selectedJobs, bulk: true}),
-          onClear: () => setSelected(new Set()),
-        }}
         testIdPrefix='home-job'
       />
 
@@ -296,6 +300,62 @@ export function JobListTab({
         currentUserId={currentUser?.id}
         currentUsername={currentUser?.username || currentUser?.nickname}
         selection={{ids: selected, onChange: setSelected}}
+        bulkBar={
+          <BatchBar
+            placement='center'
+            selectedCount={selected.size}
+            selectedText={t('selected', {count: selected.size})}
+            clearLabel={t('clearSelection')}
+            busy={Boolean(bulk.running)}
+            testId='home-job-bulk'
+            result={
+              bulk.result ? (
+                <>
+                  {t('bulk.result', {
+                    ok: bulk.result.ok,
+                    failed: bulk.result.failures.length,
+                    skipped: bulk.result.skipped,
+                  })}
+                  {bulk.result.failures.slice(0, 3).map((item) => (
+                    <span key={item.id} className='ml-2 text-destructive'>
+                      {t('bulk.itemFailed', {
+                        id: item.id,
+                        message: item.message,
+                      })}
+                    </span>
+                  ))}
+                </>
+              ) : null
+            }
+            onClear={() => {
+              setSelected(new Set());
+              bulk.clearResult();
+            }}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={Boolean(bulk.running)}
+              onClick={() =>
+                setConfirm({action: 'stop', jobs: selectedJobs, bulk: true})
+              }
+            >
+              {t('stop')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={Boolean(bulk.running)}
+              onClick={() =>
+                setConfirm({action: 'recover', jobs: selectedJobs, bulk: true})
+              }
+            >
+              {t('recover')}
+            </Button>
+          </BatchBar>
+        }
         onRowActivate={(job) => setDetail({job, tab: 'topology'})}
         onOpenDetail={(job, tab) => setDetail({job, tab: tab ?? 'topology'})}
         onAction={(action, job) =>

@@ -256,7 +256,9 @@ func (s *Service) evaluateActiveAlertFindings(ctx context.Context, clusterID uin
 			Category:        "alert",
 			CheckCode:       inspectionCheckActiveAlert,
 			CheckName:       bilingualText("活动告警", "Active Alert"),
-			Summary:         bilingualText(fmt.Sprintf("活动 %s 告警：%s", strings.TrimSpace(string(alert.Severity)), strings.TrimSpace(alert.AlertName)), fmt.Sprintf("Active %s alert: %s", strings.TrimSpace(string(alert.Severity)), strings.TrimSpace(alert.AlertName))),
+			// Summary 只承载告警名；检查名与严重度由各自字段在展示层单独呈现，复述会读出重复。
+			// Summary carries only the alert name; check name and severity render from their own fields and would read duplicated.
+			Summary:         strings.TrimSpace(alert.AlertName),
 			Recommendation:  bilingualText("在执行重启或扩缩容前，先查看告警详情与关联运行时证据。", "Review the alert detail and linked runtime evidence before performing restart or scale actions."),
 			EvidenceSummary: truncateString(firstNonEmptyString(alert.Summary, alert.Description), 1024),
 			RelatedAlertID:  strings.TrimSpace(alert.AlertID),

@@ -25,8 +25,8 @@
  */
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Undo2, X} from 'lucide-react';
-import {NeutralChip, SoftChip} from '../status-chips';
+import {Undo2} from 'lucide-react';
+import {NeutralChip, SoftChip} from '@/components/common/layout';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
@@ -46,9 +46,11 @@ import type {
 } from '@/lib/services/sync';
 import {TaskAlertForm} from '@/components/common/sync/TaskAlertForm';
 import {cn} from '@/lib/utils';
-import {UnsavedChangesDialog, useBeforeUnload} from '../dirty-close';
-import {DetailHost, useDetailNarrow} from '../detail-host';
+import {DirtyCloseDialog, useBeforeUnload} from '@/components/common/layout';
+import {DetailHost, useDetailNarrow} from '@/components/common/layout';
+import {BatchBar, usePagedSelection} from '@/components/common/layout';
 import styles from '../monitoring.module.css';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 export type JobStatusFilter = 'all' | 'enabled' | 'disabled';
 
@@ -103,7 +105,6 @@ export function JobRulesPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<number | null>(null);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [undo, setUndo] = useState<{
     enabled: boolean;
@@ -229,6 +230,15 @@ export function JobRulesPanel({
     (safePage - 1) * PAGE_SIZE,
     safePage * PAGE_SIZE,
   );
+  const pageIds = useMemo(() => pageItems.map((p) => p.id), [pageItems]);
+  const {
+    ids: selected,
+    setIds: setSelected,
+    toggle: toggleSelect,
+    togglePage: selectAllOnPage,
+    pageAllSelected: allPageSelected,
+    pageSomeSelected: somePageSelected,
+  } = usePagedSelection(pageIds);
 
   const segCounts = useMemo(
     () => ({
@@ -243,36 +253,6 @@ export function JobRulesPanel({
   useEffect(() => {
     onCountsChange?.(segCounts);
   }, [segCounts, onCountsChange]);
-
-  const toggleSelect = (id: number, on: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (on) {
-        next.add(id);
-      } else {
-        next.delete(id);
-      }
-      return next;
-    });
-  };
-
-  // 表头全选框作用于当前页所有作业策略。Header select-all toggles the current page.
-  const selectAllOnPage = useCallback(
-    (on: boolean) => {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        for (const p of pageItems) {
-          if (on) {
-            next.add(p.id);
-          } else {
-            next.delete(p.id);
-          }
-        }
-        return next;
-      });
-    },
-    [pageItems],
-  );
 
   const toggle = useCallback(
     async (policy: AlertPolicy, enabled: boolean) => {
@@ -461,14 +441,9 @@ export function JobRulesPanel({
         }
       : undefined;
 
-  const allPageSelected =
-    pageItems.length > 0 && pageItems.every((p) => selected.has(p.id));
-  const somePageSelected =
-    !allPageSelected && pageItems.some((p) => selected.has(p.id));
-
   return (
-    <div className={styles.split}>
-      <div className={styles.listCol} data-mcols='job'>
+    <div className={layout.split}>
+      <div className={layout.listCol} data-mcols='job'>
         {/* 唯一主卡片：骨架/错误/空态由 TableCard 统一承载（§4.4）。
             Single main card; skeleton/error/empty states are owned by TableCard. */}
         <TableCard
@@ -518,7 +493,7 @@ export function JobRulesPanel({
             />
           }
         >
-          <div className={styles.rowHead}>
+          <div className={layout.rowHead}>
             <Checkbox
               checked={
                 allPageSelected
@@ -532,9 +507,9 @@ export function JobRulesPanel({
             />
             <span>{t('jobColTask')}</span>
             <span>{t('colAlert')}</span>
-            <span className={styles.right}>{t('fieldEnabled')}</span>
+            <span className={layout.right}>{t('fieldEnabled')}</span>
           </div>
-          <div className={styles.tableScroll}>
+          <div className={layout.tableScroll}>
             {pageItems.map((policy) => (
               <div
                 key={policy.id}
@@ -554,9 +529,9 @@ export function JobRulesPanel({
                 }}
                 onKeyDown={(e) => onRowKeyDown(e, policy)}
                 className={cn(
-                  styles.row,
-                  editing?.taskId === policy.task_id && styles.rowActive,
-                  !policy.enabled && styles.rowMuted,
+                  layout.row,
+                  editing?.taskId === policy.task_id && layout.rowActive,
+                  !policy.enabled && layout.rowMuted,
                 )}
               >
                 <Checkbox
@@ -566,8 +541,8 @@ export function JobRulesPanel({
                     name: policy.task_name ?? `#${policy.task_id}`,
                   })}
                 />
-                <div className={styles.rowName}>
-                  <span className={cn(styles.name, styles.mono)}>
+                <div className={layout.rowName}>
+                  <span className={cn(layout.name, styles.mono)}>
                     {policy.task_name ?? `#${policy.task_id}`}
                   </span>
                 </div>
@@ -593,7 +568,7 @@ export function JobRulesPanel({
                       : t('notify_none')}
                   </SoftChip>
                 </span>
-                <div className={styles.rowActions}>
+                <div className={layout.rowActions}>
                   <Switch
                     checked={policy.enabled}
                     disabled={toggling === policy.id}
@@ -608,64 +583,52 @@ export function JobRulesPanel({
         </TableCard>
 
         {selected.size > 0 ? (
-          <div className={styles.batchBarWrap}>
-            <div className={styles.batchBar} role='status'>
-              <span>{t('selected', {count: selected.size})}</span>
-              <span className={styles.batchActions}>
-                <Button
-                  type='button'
-                  size='sm'
-                  variant='secondary'
-                  disabled={batchBusy}
-                  onClick={() => void batchSet(true)}
-                >
-                  {t('batchEnable')}
-                </Button>
-                <Button
-                  type='button'
-                  size='sm'
-                  variant='secondary'
-                  disabled={batchBusy}
-                  onClick={() => void batchSet(false)}
-                >
-                  {t('batchDisable')}
-                </Button>
-                <Button
-                  type='button'
-                  variant='ghost'
-                  size='sm'
-                  iconOnly
-                  aria-label={t('batchClear')}
-                  onClick={() => setSelected(new Set())}
-                >
-                  <X className='size-4' aria-hidden />
-                </Button>
-              </span>
-            </div>
-          </div>
+          <BatchBar
+            selectedCount={selected.size}
+            busy={batchBusy}
+            onClear={() => setSelected(new Set())}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => void batchSet(true)}
+            >
+              {t('batchEnable')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy}
+              onClick={() => void batchSet(false)}
+            >
+              {t('batchDisable')}
+            </Button>
+          </BatchBar>
         ) : undo ? (
-          <div className={styles.batchBarWrap}>
-            <div className={styles.batchBar} role='status'>
-              <span>
-                {t(
-                  undo.enabled
-                    ? 'batchAppliedEnabled'
-                    : 'batchAppliedDisabled',
-                  {count: undo.policies.length},
-                )}
-              </span>
-              <Button
-                type='button'
-                size='sm'
-                variant='ghost'
-                disabled={batchBusy}
-                onClick={() => void undoBatch()}
-              >
-                <Undo2 className='size-4' aria-hidden />
-                {t('undo')}
-              </Button>
-            </div>
-          </div>
+          <BatchBar
+            selectedCount={0}
+            result={t(
+              undo.enabled
+                ? 'batchAppliedEnabled'
+                : 'batchAppliedDisabled',
+              {count: undo.policies.length},
+            )}
+            onClear={() => setUndo(null)}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='ghost'
+              disabled={batchBusy}
+              onClick={() => void undoBatch()}
+            >
+              <Undo2 className='size-4' aria-hidden />
+              {t('undo')}
+            </Button>
+          </BatchBar>
         ) : null}
       </div>
 
@@ -682,8 +645,8 @@ export function JobRulesPanel({
       >
         {drawerEditing ? (
           drawerEditing.config ? (
-            <div className={styles.detailCol}>
-              <div className={styles.detailFill}>
+            <div className={layout.detailCol}>
+              <div className={layout.detailFill}>
                 <TaskAlertForm
                   initial={drawerEditing.config}
                   clusterId={drawerEditing.clusterId}
@@ -699,8 +662,8 @@ export function JobRulesPanel({
               </div>
             </div>
           ) : (
-            <div className={styles.detailCol}>
-              <div className={styles.detailScroll} aria-busy>
+            <div className={layout.detailCol}>
+              <div className={layout.detailScroll} aria-busy>
                 {Array.from({length: 6}).map((_, i) => (
                   <Skeleton key={i} className='h-10 w-full' lines={1} />
                 ))}
@@ -709,7 +672,7 @@ export function JobRulesPanel({
           )
         ) : null}
       </DetailHost>
-      <UnsavedChangesDialog
+      <DirtyCloseDialog
         open={discardTarget !== null}
         onDiscard={discardAndClose}
         onKeepEditing={() => setDiscardTarget(null)}

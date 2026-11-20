@@ -43,18 +43,18 @@ frontend/
 │   │   ├── ViewToggle.tsx      # 通用纯图标分段视图切换（基于 Arc SegmentedControl）
 │   │   ├── auth/               # LoginForm、CallbackHandler、LoginBrandPanel
 │   │   ├── cluster/            # ClusterMain、ClusterCard、弹窗、配置
-│   │   ├── diagnostics/        # 诊断与巡检界面（Inspection、ErrorCenter、TaskCenter）
+│   │   ├── diagnostics/        # 诊断与巡检界面（Inspection、TaskCenter、DiagnosticsClusterFilter、errors/ 错误组面板、inspections/ 巡检面板（内嵌「巡检记录｜自动巡检」分段）、policies/ 自动巡检策略视图与 policy-describe）
 │   │   ├── host/               # HostTable、HostDetail、HostInstallGuideDialog
 │   │   ├── installer/          # PackageMain、InstallWizard、步骤向导
 │   │   ├── markdown/           # Markdown 展示
 │   │   ├── marketplace/        # 市场共享组件（MorphCatalog、MarketplaceViewToggle、SelectionToolbar 等）
 │   │   ├── plugin/             # PluginMain、PluginCard、弹窗
-│   │   ├── monitoring/         # MonitoringWorkspace（alerts/、rules/、notify/、detail-host、dirty-close、status-chips）
+│   │   ├── monitoring/         # MonitoringWorkspace（alerts/、rules/、notify/、status-chips）
 │   │   ├── audit/              # CommandMain、CommandTable、AuditLogMain、AuditLogTable
 │   │   ├── config/             # 配置相关 UI
 │   │   ├── schedule/           # 调度配置
 │   │   ├── sync/               # 数据同步工作台组件（含 StudioFileTabs、VariableDialogForm）
-│   │   ├── layout/             # ManagementBar、WorkspaceHeader、ModuleNavTabs、StatPillsBar、TableCard、TableLoadingBar、TableSkeletonRows、UnsavedChangesDialog、ArcDateRangePicker、CompactTimeFilter、ExpandableTextPanel、ThemeProvider
+│   │   ├── layout/             # ManagementBar、WorkspaceHeader、ModuleNavTabs、StatPillsBar、TableCard、TableLoadingBar、TableSkeletonRows、UnsavedChangesDialog、ArcDateRangePicker、CompactTimeFilter、ExpandableTextPanel、ThemeProvider、DetailHost、DirtyCloseGuard、SoftChip、list-detail.module.css
 │   │   └── ...
 │   ├── animate-ui/             # 动效、radix 变体
 │   ├── motion/                 # beUI motion 控件（File Tree、Table、SharedLayoutBg）

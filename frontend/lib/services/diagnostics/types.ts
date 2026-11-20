@@ -139,6 +139,9 @@ export interface DiagnosticsErrorGroupListParams {
   exception_class?: string;
   start_time?: string;
   end_time?: string;
+  /** 频次过滤作用于组的 occurrence_count（闭区间）/ Bounds the group's occurrence_count (closed range). */
+  min_occurrences?: number;
+  max_occurrences?: number;
   page?: number;
   page_size?: number;
 }
@@ -178,6 +181,8 @@ export interface DiagnosticsInspectionReport {
   created_at: string;
   updated_at: string;
   auto_trigger_reason?: string;
+  /** 触发本报告的自动巡检策略 ID；手动巡检为 0 或缺省。Auto policy that triggered this report; 0/absent for manual runs. */
+  auto_policy_id?: number;
   cluster_name?: string;
 }
 
@@ -219,7 +224,11 @@ export interface DiagnosticsInspectionReportListParams {
   cluster_id?: number;
   status?: DiagnosticsInspectionReportStatus;
   trigger_source?: DiagnosticsInspectionTriggerSource;
+  /** 只列出该自动巡检策略触发的报告。Restrict the list to reports triggered by one auto policy. */
+  auto_policy_id?: number;
   severity?: DiagnosticsInspectionFindingSeverity;
+  /** 模糊匹配摘要/错误/触发原因/策略名；纯数字精确命中报告 ID。Fuzzy-matches summary, error, trigger reason, policy name; digits match report id. */
+  keyword?: string;
   start_time?: string;
   end_time?: string;
   page?: number;
@@ -231,6 +240,43 @@ export interface StartDiagnosticsInspectionRequest {
   trigger_source?: DiagnosticsInspectionTriggerSource;
   lookback_minutes?: number;
   error_threshold?: number;
+}
+
+/** 全局巡检记录清理设置；两个维度都为 0 表示不自动清理。Global inspection record cleanup settings; 0 on both disables auto cleanup. */
+export interface DiagnosticsInspectionCleanupSettings {
+  retention_days: number;
+  max_reports: number;
+  updated_at?: string;
+}
+
+/** 更新巡检记录清理设置的完整请求体（完整替换语义）。Full replace body for cleanup settings updates. */
+export interface UpdateDiagnosticsInspectionCleanupSettingsRequest {
+  retention_days: number;
+  max_reports: number;
+}
+
+/** 单条巡检记录删除结果码。Per-record delete outcome code. */
+export type DiagnosticsInspectionDeleteResultCode =
+  | 'deleted'
+  | 'not_found'
+  | 'skipped_running'
+  | 'skipped_task_running';
+
+export interface DiagnosticsInspectionDeleteResult {
+  id: number;
+  result: DiagnosticsInspectionDeleteResultCode;
+  reason?: string;
+  task_id?: number;
+}
+
+export interface BatchDeleteInspectionReportsRequest {
+  ids: number[];
+}
+
+export interface BatchDeleteInspectionReportsData {
+  results: DiagnosticsInspectionDeleteResult[];
+  deleted: number;
+  skipped: number;
 }
 
 export type DiagnosticsResourceCode =
@@ -548,6 +594,10 @@ export interface InspectionAutoPolicy {
   invalid_reason: string;
   /** 失效的具体取值（旧条件模板码等），翻译文案插值用 / Offending value for i18n interpolation. */
   invalid_detail?: string;
+  /** 最近一次触发时间；从未触发为 null/缺省（仅列表接口返回）。Latest trigger time; null when never fired (list endpoint only). */
+  last_triggered_at?: string | null;
+  /** 近 7 天触发次数（仅列表接口返回）。Trigger count within the last 7 days (list endpoint only). */
+  trigger_count_7d?: number;
   created_at: string;
   updated_at: string;
 }

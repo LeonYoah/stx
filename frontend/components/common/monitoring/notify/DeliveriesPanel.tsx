@@ -47,9 +47,11 @@ import type {
   NotificationDeliveryStatus,
 } from '@/lib/services/monitoring';
 import {cn} from '@/lib/utils';
-import {DeliveryChip, NeutralChip} from '../status-chips';
+import {DeliveryChip} from '../status-chips';
+import {NeutralChip} from '@/components/common/layout';
 import {formatAgo, minutesAgo} from '../monitoring-utils';
 import styles from '../monitoring.module.css';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 const PAGE_SIZE = 10;
 /** Radix Select 不允许空字符串选项值，「全部」用哨兵值再映射回 ''。 / Sentinel for "all" (Radix rejects ''). */
@@ -153,7 +155,7 @@ export function DeliveriesPanel({
 
   return (
     <>
-      <div className={styles.toolbar}>
+      <div className={layout.toolbar}>
         <SegmentedControl
           label={t('notifyViewLabel')}
           layoutGroup='notify-view'
@@ -164,7 +166,7 @@ export function DeliveriesPanel({
             {value: 'deliveries', label: t('deliveries')},
           ]}
         />
-        <div className={cn(styles.filterCtrl, styles.filterW)}>
+        <div className={cn(layout.filterCtrl, styles.filterW)}>
           <Select
             label={t('channels')}
             value={channelId || ALL_VALUE}
@@ -176,7 +178,7 @@ export function DeliveriesPanel({
             options={channelOptions}
           />
         </div>
-        <div className={cn(styles.filterCtrl, styles.filterW)}>
+        <div className={cn(layout.filterCtrl, styles.filterW)}>
           <Select
             label={t('deliveryStatusLabel')}
             value={status || ALL_VALUE}
@@ -188,7 +190,7 @@ export function DeliveriesPanel({
             options={statusOptions}
           />
         </div>
-        <div className={cn(styles.filterCtrl, styles.filterW)}>
+        <div className={cn(layout.filterCtrl, styles.filterW)}>
           <Select
             label={t('deliveryEventLabel')}
             value={eventType || ALL_VALUE}
@@ -202,8 +204,8 @@ export function DeliveriesPanel({
         </div>
       </div>
 
-      <div className={styles.split}>
-        <div className={styles.listCol} data-mcols='deliveries'>
+      <div className={layout.split}>
+        <div className={layout.listCol} data-mcols='deliveries'>
           <TableCard
             loading={loading}
             hasData={items.length > 0}
@@ -244,7 +246,7 @@ export function DeliveriesPanel({
               />
             }
           >
-            <div className={styles.rowHead} aria-hidden>
+            <div className={layout.rowHead} aria-hidden>
               <span>{t('deliveryColAlert')}</span>
               <span>{t('channels')}</span>
               <span>{t('deliveryEventLabel')}</span>
@@ -254,19 +256,19 @@ export function DeliveriesPanel({
               <span>{t('deliveryColTime')}</span>
               <span>{t('deliveryColError')}</span>
             </div>
-            <div className={styles.tableScroll}>
+            <div className={layout.tableScroll}>
               {items.map((d) => (
-                <div key={d.id} className={cn(styles.row, styles.rowStatic)}>
-                  <div className={styles.rowName}>
-                    <span className={styles.name} title={d.alert_name || d.alert_id}>
+                <div key={d.id} className={cn(layout.row, styles.rowStatic)}>
+                  <div className={layout.rowName}>
+                    <span className={layout.name} title={d.alert_name || d.alert_id}>
                       {d.alert_name || d.alert_id}
                     </span>
                     {d.cluster_name ? (
-                      <span className={styles.sub}>{d.cluster_name}</span>
+                      <span className={layout.sub}>{d.cluster_name}</span>
                     ) : null}
                   </div>
                   <span
-                    className={cn(styles.sub, styles.truncate)}
+                    className={cn(layout.sub, styles.truncate)}
                     title={d.channel_name ?? ''}
                   >
                     {d.channel_name || '—'}
@@ -284,13 +286,13 @@ export function DeliveriesPanel({
                         : d.status
                     }
                   />
-                  <span className={cn(styles.sub, styles.num, styles.nowrap)}>
+                  <span className={cn(layout.sub, styles.num, styles.nowrap)}>
                     {d.attempt_count}
                   </span>
-                  <span className={cn(styles.sub, styles.num, styles.nowrap)}>
+                  <span className={cn(layout.sub, styles.num, styles.nowrap)}>
                     {d.response_status_code ?? '—'}
                   </span>
-                  <span className={cn(styles.sub, styles.num, styles.nowrap)}>
+                  <span className={cn(layout.sub, styles.num, styles.nowrap)}>
                     {formatAgo(minutesAgo(d.sent_at || d.created_at), t)}
                   </span>
                   {d.last_error ? (
@@ -299,7 +301,7 @@ export function DeliveriesPanel({
                         <button
                           type='button'
                           className={cn(
-                            styles.sub,
+                            layout.sub,
                             styles.truncate,
                             styles.errCell,
                           )}
@@ -328,7 +330,7 @@ export function DeliveriesPanel({
                       </PopoverContent>
                     </Popover>
                   ) : (
-                    <span className={styles.sub}>—</span>
+                    <span className={layout.sub}>—</span>
                   )}
                 </div>
               ))}

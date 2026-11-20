@@ -30,7 +30,6 @@ import {
   Save,
   ShieldCheck,
   Tag,
-  User,
   X,
 } from 'lucide-react';
 import {toast} from '@/lib/toast';
@@ -47,7 +46,7 @@ import {Combobox} from '@/components/arc/combobox/combobox';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input as ArcInput} from '@/components/arc/input/input';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
-import {UnsavedChangesDialog} from '@/components/common/layout/UnsavedChangesDialog';
+import {DirtyCloseDialog} from '@/components/common/layout';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
@@ -204,7 +203,6 @@ export function SaveMemoryDialog({
   onSaved,
 }: SaveMemoryDialogProps) {
   const t = useTranslations('troubleshooting');
-  const tGuard = useTranslations('monitoring');
   const {user: currentUser} = useAuth();
   const defaultAuthorName =
     currentUser?.nickname?.trim() || currentUser?.username?.trim() || '运维工程师';
@@ -259,12 +257,16 @@ export function SaveMemoryDialog({
 
   // 弹窗打开时拉取有权限的候选用户列表（用于作者快捷下拉选择）
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     let isMounted = true;
     services.monitoring
       .listNotifiableUsers()
       .then((res) => {
-        if (!isMounted || !res?.users) return;
+        if (!isMounted || !res?.users) {
+          return;
+        }
         const opts = res.users.map((u) => {
           const displayName = u.nickname?.trim() || u.username;
           return {
@@ -879,13 +881,8 @@ export function SaveMemoryDialog({
         </DialogContent>
       </Dialog>
 
-      <UnsavedChangesDialog
+      <DirtyCloseDialog
         open={confirmDiscardOpen}
-        onOpenChange={setConfirmDiscardOpen}
-        title={tGuard('unsavedChangesTitle')}
-        description={tGuard('unsavedChangesDescription')}
-        keepLabel={tGuard('keepEditing')}
-        discardLabel={tGuard('discardChanges')}
         onKeepEditing={() => setConfirmDiscardOpen(false)}
         onDiscard={() => {
           setConfirmDiscardOpen(false);

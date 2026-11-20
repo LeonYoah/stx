@@ -63,7 +63,11 @@ function TooltipContent({
         data-slot='tooltip-content'
         sideOffset={sideOffset}
         className={cn(
-          'bg-primary text-primary-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance',
+          // z-[90] 对齐 Arc 浮层层级（dialog 51、dropdown 60、tooltip 90）：
+          // shadcn 默认 z-50 会让 Arc 弹窗内的 HelpHint 被弹窗本体盖住。
+          // z-[90] matches the Arc overlay scale (dialog 51, dropdown 60,
+          // tooltip 90); the shadcn default z-50 hides tooltips inside Arc dialogs.
+          'bg-primary text-primary-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-[90] w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance',
           className,
         )}
         {...props}

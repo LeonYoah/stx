@@ -36,7 +36,7 @@ import {ChevronDown, ChevronUp, X} from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
 import {Drawer, DrawerContent} from '@/components/arc/drawer/drawer';
 import {cn} from '@/lib/utils';
-import styles from './monitoring.module.css';
+import styles from './list-detail.module.css';
 
 const NARROW_QUERY = '(max-width: 1079px)';
 
@@ -67,7 +67,7 @@ export interface DetailNav {
 }
 
 function NavControls({nav}: {nav: DetailNav}) {
-  const t = useTranslations('monitoring');
+  const t = useTranslations('common.detailNav');
   return (
     <span className={styles.detailNav} data-testid='detail-nav'>
       <Button
@@ -75,7 +75,7 @@ function NavControls({nav}: {nav: DetailNav}) {
         variant='ghost'
         size='sm'
         iconOnly
-        aria-label={t('detailPrev')}
+        aria-label={t('prev')}
         disabled={nav.index <= 0}
         onClick={nav.onPrev}
       >
@@ -86,7 +86,7 @@ function NavControls({nav}: {nav: DetailNav}) {
         variant='ghost'
         size='sm'
         iconOnly
-        aria-label={t('detailNext')}
+        aria-label={t('next')}
         disabled={nav.index >= nav.total - 1}
         onClick={nav.onNext}
       >

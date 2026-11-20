@@ -957,6 +957,12 @@ func TestIsReservedBuiltinVariableKey(t *testing.T) {
 	}{
 		{"system.biz.date", true},
 		{"system.task.instance.id", true},
+		{"system.custom", true},
+		{"system.foo.bar", true},
+		{"add_months(yyyyMMdd, -1)", true},
+		{"THIS_DAY(yyyyMMdd)", true},
+		{"foo(1)", false},
+		{"get_value(a,b)", false},
 		{"yyyyMMdd", true},
 		{"yyyy-MM-dd", true},
 		{"yyyyMMdd-1", true},

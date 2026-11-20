@@ -293,8 +293,69 @@ export function resolveBuiltinPreviewExpression(
     const target = new Date(now.getTime() + hours * 60 * 60 * 1000);
     return formatBuiltinPreviewDate(target, format.trim());
   }
-  if (/(yyyy|MM|dd|HH|mm|ss)/.test(trimmed)) {
+  // 剔除日期占位符后不得含英文字母，否则是普通变量名（如 pass 中的 ss），与后端 looksLikeTimeExpression 对齐
+  // Any ASCII letter left after removing date tokens means an ordinary variable name (e.g. ss in pass); mirrors backend looksLikeTimeExpression
+  if (
+    /(yyyy|MM|dd|HH|mm|ss)/.test(trimmed) &&
+    !/[a-zA-Z]/.test(trimmed.replace(/yyyy|MM|dd|HH|mm|ss/g, ''))
+  ) {
     return formatBuiltinPreviewDate(now, trimmed);
   }
   return null;
+}
+
+/**
+ * 校验变量键名是否为平台保留字（单一实现，与后端 isReservedBuiltinVariableKey 对齐）
+ * Check if variable key is reserved builtin keyword (single source of truth, mirrors backend isReservedBuiltinVariableKey)
+ */
+export function isReservedBuiltinVariableKey(key: string): boolean {
+  const trimmed = key.trim();
+  if (!trimmed) {
+    return false;
+  }
+  const fixed = new Set([
+    'system.biz.date',
+    'system.biz.curdate',
+    'system.datetime',
+    'system.task.execute.path',
+    'system.task.instance.id',
+    'system.task.definition.name',
+    'system.task.definition.code',
+    'system.workflow.instance.id',
+    'system.workflow.definition.name',
+    'system.workflow.definition.code',
+    'system.project.name',
+    'system.project.code',
+  ]);
+  if (fixed.has(trimmed) || trimmed.startsWith('system.')) {
+    return true;
+  }
+
+  // 内置时间函数调用校验，如 add_months(yyyyMMdd, -1)；未列出的 name(...) 视为普通变量名
+  // Built-in time function call check; unlisted name(...) is an ordinary variable
+  if (
+    /^(add_months|this_day|last_day|year_week|month_first_day|month_last_day|week_first_day|week_last_day)\s*\(.*\)$/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+
+  // 校验是否为时间格式占位模式（如 yyyyMMdd、yyyy-MM-dd、yyyyMMdd-1 等）
+  // 必须包含标准日期占位符（yyyy、MM、dd、HH、mm、ss），且剔除日期占位符和分隔符/偏移量后不得含有普通英文标识符
+  const offsetMatch = trimmed.match(/^(.+?)([+-])([0-9*/. ]+)$/);
+  const formatExpr = offsetMatch ? offsetMatch[1].trim() : trimmed;
+  const dateTokens = ['yyyy', 'MM', 'dd', 'HH', 'mm', 'ss'];
+  const hasDateToken = dateTokens.some((token) => formatExpr.includes(token));
+  if (!hasDateToken) {
+    return false;
+  }
+
+  const stripped = formatExpr.replace(/yyyy|MM|dd|HH|mm|ss/g, '');
+  if (/[a-zA-Z]/.test(stripped)) {
+    // 包含其他英文字符（如 mysqlpass234 中的 pass、password、address 等），为普通变量名
+    return false;
+  }
+
+  return true;
 }

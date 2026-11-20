@@ -603,6 +603,8 @@ export function RuleDetailPanel({
                     }
                     placeholder={t('notifyChannelsPlaceholder')}
                     emptyMessage={t('selectEmpty')}
+                    searchPlaceholder={t('selectSearchPlaceholder')}
+                    noMatchMessage={t('comboboxEmpty')}
                   />
                   <MultiSelect
                     label={t('notifyReceivers')}
@@ -616,6 +618,8 @@ export function RuleDetailPanel({
                     }
                     placeholder={t('notifyReceiversPlaceholder')}
                     emptyMessage={t('selectEmpty')}
+                    searchPlaceholder={t('selectSearchPlaceholder')}
+                    noMatchMessage={t('comboboxEmpty')}
                   />
                   {customMissingChannel ? (
                     <p className={cn(styles.rowHint, layout.dangerText)}>
@@ -1120,6 +1124,8 @@ function OverrideSubview({
                     }
                     placeholder={t('notifyChannelsPlaceholder')}
                     emptyMessage={t('selectEmpty')}
+                    searchPlaceholder={t('selectSearchPlaceholder')}
+                    noMatchMessage={t('comboboxEmpty')}
                   />
                   <MultiSelect
                     label={t('notifyReceivers')}
@@ -1136,6 +1142,8 @@ function OverrideSubview({
                     }
                     placeholder={t('notifyReceiversPlaceholder')}
                     emptyMessage={t('selectEmpty')}
+                    searchPlaceholder={t('selectSearchPlaceholder')}
+                    noMatchMessage={t('comboboxEmpty')}
                   />
                   {missingChannel ? (
                     <p className={cn(styles.rowHint, layout.dangerText)}>

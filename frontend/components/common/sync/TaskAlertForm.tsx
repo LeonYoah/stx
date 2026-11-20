@@ -266,6 +266,8 @@ export function TaskAlertForm({
               value={form.channelIds.map(String)}
               onValueChange={(v) => update({channelIds: v.map(Number)})}
               placeholder={t('channelsLabel')}
+              searchPlaceholder={t('selectSearchPlaceholder')}
+              noMatchMessage={t('comboboxEmpty')}
             />
           </div>
         )}
@@ -282,6 +284,8 @@ export function TaskAlertForm({
             value={form.receiverUserIds.map(String)}
             onValueChange={(v) => update({receiverUserIds: v.map(Number)})}
             placeholder={t('receiversPlaceholder')}
+            searchPlaceholder={t('selectSearchPlaceholder')}
+            noMatchMessage={t('comboboxEmpty')}
           />
           <label className='flex cursor-pointer items-center gap-2 text-xs'>
             <Checkbox

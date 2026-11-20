@@ -59,6 +59,15 @@ export interface MultiSelectProps {
   maxVisible?: number;
   disabled?: boolean;
   className?: string;
+  /**
+   * 本地修改：菜单内搜索。缺省在 options > 7 时自动开启；传 true/false 强制开关。
+   * Local modification: in-menu search. Auto-enabled past 7 options; pass a boolean to force.
+   */
+  searchable?: boolean;
+  /** 本地修改：搜索框占位文案。Local: search input placeholder. */
+  searchPlaceholder?: string;
+  /** 本地修改：搜索无匹配的说明文案。Local: message when the query matches nothing. */
+  noMatchMessage?: string;
 }
 
 const enter = motionTokens.ease.enter;
@@ -93,7 +102,7 @@ function CheckMark({ reduce }: { reduce: boolean | null }) {
   </svg>;
 }
 
-export function MultiSelect({ label, options, value, defaultValue = [], onValueChange, placeholder = "Select options", emptyMessage, description, maxVisible = 2, disabled = false, className }: MultiSelectProps) {
+export function MultiSelect({ label, options, value, defaultValue = [], onValueChange, placeholder = "Select options", emptyMessage, description, maxVisible = 2, disabled = false, className, searchable, searchPlaceholder = "Search…", noMatchMessage }: MultiSelectProps) {
   const id = useId();
   const labelId = `${id}-label`;
   const valueId = `${id}-value`;
@@ -106,9 +115,18 @@ export function MultiSelect({ label, options, value, defaultValue = [], onValueC
   const labelFor = (item: string) => options.find((option) => option.value === item)?.label ?? item;
   const visible = selected.slice(0, maxVisible).map((item) => ({ value: item, label: labelFor(item) }));
   const remaining = Math.max(0, selected.length - visible.length);
+  // 本地修改：搜索状态与过滤后的可视列表；关闭时随高亮一起清空。
+  // Local: search query + filtered list; cleared together with the highlight on close.
+  const searchOn = searchable ?? options.length > 7;
+  const [query, setQuery] = useState("");
+  const queryNorm = query.trim().toLowerCase();
+  const visibleOptions = useMemo(
+    () => queryNorm ? options.filter((option) => option.label.toLowerCase().includes(queryNorm) || option.value.toLowerCase().includes(queryNorm)) : options,
+    [options, queryNorm],
+  );
   // A closed menu forgets its highlight, so the next open starts clean instead of on a stale hovered row.
   const [wasOpen, setWasOpen] = useState(open);
-  if (wasOpen !== open) { setWasOpen(open); if (!open) {setActiveIndex(-1);} }
+  if (wasOpen !== open) { setWasOpen(open); if (!open) {setActiveIndex(-1); setQuery("");} }
   const [previousRemaining, setPreviousRemaining] = useState(remaining);
   const [countDirection, setCountDirection] = useState(1);
   if (previousRemaining !== remaining) { setPreviousRemaining(remaining); setCountDirection(remaining > previousRemaining ? 1 : -1); }
@@ -125,18 +143,27 @@ export function MultiSelect({ label, options, value, defaultValue = [], onValueC
     update(selectedSet.has(option.value) ? selected.filter((item) => item !== option.value) : [...selected, option.value]);
   };
   const clear = () => { update([]); setOpen(false); };
-  const enabled = options.map((option, index) => option.disabled ? -1 : index).filter((index) => index >= 0);
+  const enabled = visibleOptions.map((option, index) => option.disabled ? -1 : index).filter((index) => index >= 0);
+  const step = (direction: 1 | -1) => {
+    if (!enabled.length) {return;}
+    setOpen(true);
+    const current = enabled.indexOf(activeIndex);
+    const next = current < 0 ? (direction === 1 ? 0 : enabled.length - 1) : (current + direction + enabled.length) % enabled.length;
+    setActiveIndex(enabled[next]!);
+  };
   const onKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) {return;}
-    if (event.key === "Enter" && open && activeIndex >= 0) { event.preventDefault(); toggle(options[activeIndex]!); return; }
+    if (event.key === "Enter" && open && activeIndex >= 0) { event.preventDefault(); toggle(visibleOptions[activeIndex]!); return; }
     if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen((current) => !current); return; }
     if (event.key === "Escape") { setOpen(false); return; }
-    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && enabled.length) {
-      event.preventDefault(); setOpen(true);
-      const current = enabled.indexOf(activeIndex);
-      const next = current < 0 ? (event.key === "ArrowDown" ? 0 : enabled.length - 1) : event.key === "ArrowDown" ? (current + 1) % enabled.length : (current - 1 + enabled.length) % enabled.length;
-      setActiveIndex(enabled[next]!);
-    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); step(event.key === "ArrowDown" ? 1 : -1); }
+  };
+  // 本地修改：搜索框内沿用同一套方向键/回车导航，焦点不用离开输入框。
+  // Local: the search input reuses the same arrow/enter navigation so focus never leaves it.
+  const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" && activeIndex >= 0) { event.preventDefault(); toggle(visibleOptions[activeIndex]!); return; }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); step(event.key === "ArrowDown" ? 1 : -1); return; }
+    if (event.key === "Escape") { setOpen(false); }
   };
   const reduce = useReducedMotion();
 
@@ -163,10 +190,16 @@ export function MultiSelect({ label, options, value, defaultValue = [], onValueC
         initial={reduce ? { opacity: 0 } : { opacity: 0, y: -6, scale: .97 }}
         animate={{ opacity: 1, y: 0, scale: 1, transition: reduce ? { duration: motionTokens.duration.instant } : { ...motionTokens.spring.snappy, opacity: { duration: motionTokens.duration.fast, ease: enter } } }}
         exit={{ opacity: 0, ...(reduce ? {} : { y: -4, scale: .98 }), transition: { duration: motionTokens.duration.instant, ease: standard } }}>
+        {searchOn ? <input type="text" role="searchbox" aria-label={searchPlaceholder} className={styles.search} placeholder={searchPlaceholder} value={query} autoFocus onChange={(event) => { setQuery(event.target.value); setActiveIndex(-1); }} onKeyDown={onSearchKeyDown} /> : null}
+        {/* 本地修改：列表区限高滚动，长选项不再撑破弹窗/视口。
+            Local: capped scrollable list region so long menus can't overflow dialogs/viewport. */}
+        <div className={styles.list}>
         {options.length === 0 ? <div className={styles.empty}>{emptyMessage ?? "No options"}</div> : null}
-        {options.map((option, index) => <button type="button" role="option" aria-selected={selectedSet.has(option.value)} aria-disabled={option.disabled || undefined} key={option.value} className={styles.option} data-active={activeIndex === index} disabled={option.disabled} onPointerMove={() => { if (activeIndex !== index) {setActiveIndex(index);} }} onClick={() => toggle(option)}>
+        {options.length > 0 && visibleOptions.length === 0 ? <div className={styles.empty}>{noMatchMessage ?? "No matches"}</div> : null}
+        {visibleOptions.map((option, index) => <button type="button" role="option" aria-selected={selectedSet.has(option.value)} aria-disabled={option.disabled || undefined} key={option.value} className={styles.option} data-active={activeIndex === index} disabled={option.disabled} onPointerMove={() => { if (activeIndex !== index) {setActiveIndex(index);} }} onClick={() => toggle(option)}>
           <span>{option.label}</span><AnimatePresence initial={false}>{selectedSet.has(option.value) && <CheckMark key="check" reduce={reduce} />}</AnimatePresence>
         </button>)}
+        </div>
       </motion.div>}
     </AnimatePresence>
     </div>

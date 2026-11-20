@@ -6171,7 +6171,9 @@
     "remindersPaused": "Reminders stopped",
     "remindersPausedHint": "Recovery could not be confirmed for over 24 hours, so reminders stopped; the alert stays open. Check the job and the event channel.",
     "closeReason_recovered": "Auto-recovered",
-    "closeReason_closed": "Closed manually"
+    "closeReason_closed": "Closed manually",
+    "selectSearchPlaceholder": "Search options",
+    "comboboxEmpty": "No matches"
   },
   "javaHome": {
     "label": "JDK path",
@@ -6572,6 +6574,7 @@
     "diffNotifyDefault": "Default notify",
     "diffNotifyCustom": "Custom notify",
     "switchToGlobalView": "Global default",
-    "globalChannelsSummary": "Inheriting global channels: {targets}"
+    "globalChannelsSummary": "Inheriting global channels: {targets}",
+    "selectSearchPlaceholder": "Search options"
   }
 }

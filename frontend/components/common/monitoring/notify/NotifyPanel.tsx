@@ -470,6 +470,8 @@ export function NotifyPanel() {
                 }
                 placeholder={t('notifyChannelsPlaceholder')}
                 emptyMessage={t('selectEmpty')}
+                searchPlaceholder={t('selectSearchPlaceholder')}
+                noMatchMessage={t('comboboxEmpty')}
               />
             </div>
             <div className={layout.field}>
@@ -485,6 +487,8 @@ export function NotifyPanel() {
                 }
                 placeholder={t('notifyReceiversPlaceholder')}
                 emptyMessage={t('selectEmpty')}
+                searchPlaceholder={t('selectSearchPlaceholder')}
+                noMatchMessage={t('comboboxEmpty')}
               />
             </div>
             <div className={layout.field}>

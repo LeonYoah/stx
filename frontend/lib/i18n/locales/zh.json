@@ -6171,7 +6171,9 @@
     "remindersPaused": "已停止提醒",
     "remindersPausedHint": "无法确认是否恢复已超过 24 小时，已停止提醒；告警保持未恢复，请检查作业和事件通道。",
     "closeReason_recovered": "已自动恢复",
-    "closeReason_closed": "已手动关闭"
+    "closeReason_closed": "已手动关闭",
+    "selectSearchPlaceholder": "搜索选项",
+    "comboboxEmpty": "无匹配项"
   },
   "javaHome": {
     "label": "JDK 路径",
@@ -6572,6 +6574,7 @@
     "diffNotifyDefault": "默认通知",
     "diffNotifyCustom": "自定义通知",
     "switchToGlobalView": "切回全局默认",
-    "globalChannelsSummary": "沿用全局渠道：{targets}"
+    "globalChannelsSummary": "沿用全局渠道：{targets}",
+    "selectSearchPlaceholder": "搜索选项"
   }
 }

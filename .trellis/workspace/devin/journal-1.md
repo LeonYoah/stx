@@ -106,3 +106,4 @@ E2 跨层实现完成：内嵌 tsdb 最早样本探测、日 / 月桶 increase �
 - 修复「停止结果未知 → 卡在 cancelling」：`applyEngineJobInfoUpdate` 在取消中作业越过 `cancel_deadline` 且引擎仍报 RUNNING/PENDING 时恢复引擎真实状态并写 `cancel_outcome=reverted`，允许重新停止；spec `job-status-reconciler.md` 已同步，新增 `TestCancelOverdueEngineRunningRevertsToRunning`
 - 前端补齐外部作业设计稿偏差：运行方式列加独立来源徽标（`STX` / `外部`），外部作业隐去「在工作台打开」与「任务 #0」悬浮引用、空 `mode` 显示 `-`；`cancel_outcome=reverted` 新增 `isCancelReverted` + `JobOutcomeHints`「停止未生效」提示（列表/详情/控制台共用）；外部作业脚本页签文案改为 `externalScriptEmpty`
 - 验证：接主环境真实库（`seatunnel.db` 拷贝 + 本机 SeaTunnel 3.0.0）提交外部冒烟作业，浏览器实测「外部」徽标/STX 徽标/外部菜单无工作台入口；`vitest` 753 全过、`tsc --noEmit` 干净、zh/en key 零偏差
+- 评审反馈修正：外部作业「外部」来源徽标与「外部提交」runMode 徽标同义，列表行只保留来源徽标（`getRunModeLabel` 对 source=external 恒返回外部提交）— `23c50e956`

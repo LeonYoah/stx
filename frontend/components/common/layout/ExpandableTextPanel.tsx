@@ -296,7 +296,12 @@ export function ExpandableTextPanel({
 
       {showExpand ? (
         <Dialog open={expanded} onOpenChange={setExpanded}>
-          <WorkbenchDialogContent className='gap-0 border border-border/80 p-0 shadow-2xl dark:border-border/60'>
+          {/* 本面板常嵌在错误/任务等弹窗里：放大窗与遮罩抬到 z-[70]，否则与宿主弹窗同层按挂载序互压。
+              This panel is often nested inside error/task dialogs: raise window + overlay to z-[70] or same-z mount order lets the host cover it. */}
+          <WorkbenchDialogContent
+            className='z-[70] gap-0 border border-border/80 p-0 shadow-2xl dark:border-border/60'
+            overlayClassName='z-[70]'
+          >
             <DialogHeader className='shrink-0 space-y-1 border-b px-4 py-3 pr-12 text-left'>
               <DialogTitle className='text-base'>
                 {title || resolvedExpandLabel}

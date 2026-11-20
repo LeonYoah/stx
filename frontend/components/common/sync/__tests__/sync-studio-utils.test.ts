@@ -532,16 +532,39 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
       expect(result[0].children).toHaveLength(3);
     });
 
-    it('keeps own private tasks and public tasks, but filters out non-own private tasks when scope is mine_and_public', () => {
+    it('keeps only own tasks when scope is mine_and_public; others public/private stay under all', () => {
       const result = filterTree(sampleTree, '', 'mine_and_public', 4);
       expect(result).toHaveLength(1);
       const childNames = result[0].children?.map((c) => c.name);
-      // Own task kept
       expect(childNames).toContain('my_private_task.conf');
-      // Public task kept ("公开任务也属于自己任务")
-      expect(childNames).toContain('public_shared_task.conf');
-      // Other user's private task filtered out!
+      // Other user's public task is not "mine" — visible only under "all"
+      expect(childNames).not.toContain('public_shared_task.conf');
       expect(childNames).not.toContain('other_user_private_task.conf');
+    });
+
+    it('keeps tasks collaborated on by current user in mine_and_public but not only_mine', () => {
+      const tree = [
+        {
+          ...sampleTree[0],
+          children: [
+            {
+              ...sampleTree[0].children![0],
+              id: 9,
+              name: 'collab_shared_task.conf',
+              created_by: 2,
+              is_owner: false,
+              is_public: false,
+              is_collaborator: true,
+            },
+          ],
+        },
+      ];
+      expect(
+        filterTree(tree, '', 'mine_and_public', 4)[0].children?.map(
+          (c) => c.name,
+        ),
+      ).toEqual(['collab_shared_task.conf']);
+      expect(filterTree(tree, '', 'only_mine', 4)).toHaveLength(0);
     });
 
     it('keeps only tasks created by user when scope is only_mine', () => {
@@ -660,11 +683,9 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
         expect(filterTree(tree, '', 'only_mine', 4)).toHaveLength(0);
       });
 
-      it('keeps other users public empty folder in mine_and_public but not only_mine', () => {
+      it('hides other users public empty folder outside all scope', () => {
         const tree = [otherPublicEmptyFolder];
-        expect(
-          filterTree(tree, '', 'mine_and_public', 4).map((n) => n.name),
-        ).toEqual(['other-public-empty']);
+        expect(filterTree(tree, '', 'mine_and_public', 4)).toHaveLength(0);
         expect(filterTree(tree, '', 'only_mine', 4)).toHaveLength(0);
         expect(filterTree(tree, '', 'all', 4).map((n) => n.name)).toEqual([
           'other-public-empty',

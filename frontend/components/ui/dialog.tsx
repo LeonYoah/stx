@@ -63,15 +63,21 @@ function DialogOverlay({
 
 function DialogContent({
   className,
+  overlayClassName,
   children,
   showCloseButton = true,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  /**
+   * 遮罩层级覆盖：弹窗内再开弹窗（如长文放大）需与内容一起抬层时使用。
+   * Overlay class override: pair with content z-bump when a dialog opens inside another dialog.
+   */
+  overlayClassName?: string;
 }) {
   return (
     <DialogPortal data-slot='dialog-portal'>
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         data-slot='dialog-content'
         className={cn(
@@ -104,6 +110,7 @@ function WorkbenchDialogContent({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  overlayClassName?: string;
 }) {
   return (
     <DialogContent

@@ -529,8 +529,8 @@ export function DataSyncStudio() {
     useState<TreeFilterScope>('mine_and_public');
   useEffect(() => {
     const saved = localStorage.getItem('stx_studio_tree_filter_scope');
-    // 「可见」三档里的 only_mine 已从界面拿掉；旧值并入「我的」（自己的 + 公开的）。
-    // The old three-way "Visible" filter is gone; only_mine migrates into Mine (own + public).
+    // 「可见」三档里的 only_mine 已从界面拿掉；旧值并入「我的」（自己创建 + 协作）。
+    // The old three-way "Visible" filter is gone; only_mine migrates into Mine (created + collaborated).
     if (saved === 'all') {
       setTreeFilterScope('all');
     } else if (saved === 'only_mine') {
@@ -5051,8 +5051,8 @@ export function DataSyncStudio() {
                   clearLabel={t('clearSearch')}
                 />
               </div>
-              {/* 任务过滤：我的=自己的+公开的；全部=不过滤。去掉含糊的「可见」。 */}
-              {/* Mine = own + public. All = unfiltered. The old "Visible" label is gone. */}
+              {/* 任务过滤：我的=自己创建 + 协作的；全部=不过滤（含他人任务）。去掉含糊的「可见」。 */}
+              {/* Mine = created + collaborated. All = unfiltered incl. others'. The old "Visible" label is gone. */}
               <SegmentedControl
                 label={t('treeFilterMineAndPublicTooltip')}
                 value={treeFilterScope}

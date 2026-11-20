@@ -1879,16 +1879,15 @@ export function isNodeMatchingScope(
     Boolean(node.is_owner) ||
     (Boolean(currentUserId) && node.created_by === currentUserId);
   const isCollaborator = Boolean(node.is_collaborator);
-  // 公开任务：若未显式设为 false，则为公开任务
-  const isPublic = node.is_public !== false;
 
   if (scope === 'only_mine') {
     return isOwner;
   }
 
   if (scope === 'mine_and_public') {
-    // 公开任务也属于自己任务
-    return isOwner || isCollaborator || isPublic;
+    // 「我的」= 我创建 + 我协作；他人公开任务不归我，留在「全部」看（保留 scope 值兼容 localStorage 存档）。
+    // "Mine" = created-by-me + collaborated; others' public tasks stay under "All" (scope key kept for localStorage compat).
+    return isOwner || isCollaborator;
   }
 
   return true;

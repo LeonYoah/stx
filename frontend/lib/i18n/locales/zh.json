@@ -5499,7 +5499,7 @@
     "treeFilterAll": "全部",
     "treeFilterMineAndPublic": "我的",
     "treeFilterOnlyMine": "仅我创建",
-    "treeFilterMineAndPublicTooltip": "自己的任务和公开任务。别人的私有任务不显示。",
+    "treeFilterMineAndPublicTooltip": "自己创建或协作的任务。他人的任务在「全部」查看。",
     "records": "条快照",
     "copy": "复制",
     "locate": "定位",

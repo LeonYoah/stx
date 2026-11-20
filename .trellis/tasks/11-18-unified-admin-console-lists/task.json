@@ -1,8 +1,8 @@
 {
   "id": "unified-admin-console-lists",
   "name": "unified-admin-console-lists",
-  "title": "全局 UI 统一：管理列表迁移 + 全站交互组件对齐",
-  "description": "审计/用户做完整 TableCard+useServerListQuery 迁移；告警与诊断（#170）已是 list+DetailHost，仅做交互组件对齐；大盘布局（#168）出范围，Phase 6 只对齐确认/下拉/菜单并清理 Combobox a11y。StatPillsBar 退役；保留 ui/badge。每阶段附 Egolite 回归。",
+  "title": "三页列表迁移：审计 / 用户 / 主机（组件复用）",
+  "description": "2026-11-21 选 A：只完整迁移审计、用户中心（含令牌）、主机（含 /hosts/[id] 深链接）。复用 TableCard、DetailHost 等告警中心同款原语，不重建 TableCard；新建 useServerListQuery。告警/错误/巡检/策略、集群、命令记录、大盘布局本期不动。",
   "status": "planning",
   "dev_type": "frontend",
   "scope": "frontend",
@@ -19,11 +19,11 @@
   "next_action": [
     {
       "phase": 1,
-      "action": "phase0-inventory-against-current-main"
+      "action": "phase0-inventory-three-pages-on-main"
     },
     {
       "phase": 2,
-      "action": "implement-use-server-list-query-and-arc-gaps"
+      "action": "implement-use-server-list-query-reuse-primitives"
     }
   ],
   "commit": null,
@@ -42,21 +42,20 @@
     "frontend/components/common/layout/TableSkeletonRows.tsx",
     "frontend/components/common/layout/WorkspaceHeader.tsx",
     "frontend/components/common/layout/StatPillsBar.tsx",
-    "frontend/components/common/layout/ModuleNavTabs.tsx",
     "frontend/components/ui/pagination.tsx",
     "frontend/components/common/audit/AuditLogMain.tsx",
     "frontend/components/common/audit/AuditLogTable.tsx",
     "frontend/components/common/audit/AuditTraceSheet.tsx",
     "frontend/components/common/admin/UserManagement.tsx",
     "frontend/components/common/admin/TokenManagement.tsx",
-    "frontend/components/common/diagnostics/errors/ErrorsPanel.tsx",
-    "frontend/components/common/diagnostics/inspections/InspectionsPanel.tsx",
-    "frontend/components/common/diagnostics/policies/PoliciesPanel.tsx",
-    "frontend/components/common/monitoring/alerts/AlertsPanel.tsx",
-    "frontend/components/common/dashboard/HomeDashboard.tsx",
-    "frontend/components/common/sync/job-table/JobTableToolbar.tsx",
+    "frontend/components/common/host/HostMain.tsx",
+    "frontend/components/common/host/HostTable.tsx",
+    "frontend/components/common/host/HostDetail.tsx",
+    "frontend/components/common/host/HostDetailPage.tsx",
+    "frontend/app/(main)/hosts/page.tsx",
+    "frontend/app/(main)/hosts/[id]/page.tsx",
     ".trellis/spec/frontend/ui-conventions.md"
   ],
-  "notes": "2026-11-20 收口：DetailHost 为管理列表详情标准；Phase4/5 仅组件对齐；大盘布局出范围；筛选禁止当前页桶计数；Combobox 可访问名称强制；#168/#170 已合入 main。Badge 保留 ui/badge；StatPillsBar 弃用；不做移动端专用 Drawer、审计批量、万能表。",
+  "notes": "2026-11-21 选 A：三页完整迁移；告警/诊断/策略/集群完全不动；主机 DetailHost + /hosts/[id] 深链接；令牌保留接口全量计数；主机分段无假计数；不重建 TableCard。",
   "meta": {}
 }

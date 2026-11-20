@@ -155,21 +155,26 @@ function JobNameCell({job, ctx}: CellProps) {
  */
 function RunModeCell({job, ctx}: CellProps) {
   const t = ctx.t;
+  const external = job.source === 'external';
   return (
     <div className='flex items-center gap-1 whitespace-nowrap'>
       <Badge
         variant='outline'
         className='rounded-sm px-1 py-0 text-[10px]'
       >
-        {t(job.source === 'external' ? 'source.external' : 'source.stx')}
+        {t(external ? 'source.external' : 'source.stx')}
       </Badge>
-      <Badge
-        variant='outline'
-        className='rounded-sm px-1 py-0 text-[10px]'
-        title={job.external_ref || undefined}
-      >
-        {getRunModeLabel(job, t)}
-      </Badge>
+      {/* 外部作业的运行方式恒为「外部提交」，与来源徽标同义，不再重复渲染。
+          External jobs always run "submitted externally", which the source badge already says — skip the duplicate. */}
+      {!external && (
+        <Badge
+          variant='outline'
+          className='rounded-sm px-1 py-0 text-[10px]'
+          title={job.external_ref || undefined}
+        >
+          {getRunModeLabel(job, t)}
+        </Badge>
+      )}
       {job.mode ? (
         <Badge
           variant='outline'

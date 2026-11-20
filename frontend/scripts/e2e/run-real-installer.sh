@@ -243,10 +243,14 @@ if [[ ! -f "${JAVA_PROXY_LIB_PATH}" ]]; then
   # Maven Central occasionally returns 429; retry so E2E is not killed by a parent POM fetch.
   mvn_ok=false
   for attempt in 1 2 3 4 5; do
+    # -U 强制重解析：中央仓库瞬时失败会被 Maven 负缓存进 ~/.m2，
+    # 不加 -U 时重试只会反复命中缓存，循环形同虚设。
+    # -U forces re-resolution: a transient Central failure is negatively cached
+    # in ~/.m2, so without it retries just hit the cache again.
     if [[ "${JAVA_PROXY_EPOCH}" == "v3" ]]; then
-      mvn_cmd=(mvn -q -DskipTests -P'epoch-v3,!epoch-v2' package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+      mvn_cmd=(mvn -q -U -DskipTests -P'epoch-v3,!epoch-v2' package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
     else
-      mvn_cmd=(mvn -q -DskipTests -Pepoch-v2 package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+      mvn_cmd=(mvn -q -U -DskipTests -Pepoch-v2 package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
     fi
     if "${mvn_cmd[@]}"; then
       mvn_ok=true

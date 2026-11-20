@@ -34,6 +34,7 @@ import {PoliciesPanel} from '../policies/PoliciesPanel';
 
 const listAutoPoliciesSafe = vi.hoisted(() => vi.fn());
 const listBuiltinConditionTemplatesSafe = vi.hoisted(() => vi.fn());
+const listResourcesSafe = vi.hoisted(() => vi.fn());
 const getAlertRuleCatalogSafe = vi.hoisted(() => vi.fn());
 const updateAutoPolicySafe = vi.hoisted(() => vi.fn());
 const deleteAutoPolicySafe = vi.hoisted(() => vi.fn());
@@ -43,6 +44,7 @@ vi.mock('@/lib/services', () => ({
     diagnostics: {
       listAutoPoliciesSafe,
       listBuiltinConditionTemplatesSafe,
+      listResourcesSafe,
       updateAutoPolicySafe,
       deleteAutoPolicySafe,
       createAutoPolicySafe,
@@ -144,6 +146,7 @@ describe('PoliciesPanel', () => {
       success: true,
       data: [alertFiringTemplate],
     });
+    listResourcesSafe.mockResolvedValue({success: true, data: []});
     getAlertRuleCatalogSafe.mockResolvedValue({success: true, data: []});
     updateAutoPolicySafe.mockResolvedValue({success: true, data: {}});
     deleteAutoPolicySafe.mockResolvedValue({success: true});

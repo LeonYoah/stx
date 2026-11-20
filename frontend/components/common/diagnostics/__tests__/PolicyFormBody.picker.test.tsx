@@ -26,8 +26,9 @@ import type {
 import type {AlertRuleCatalogItem} from '@/lib/services/monitoring/types';
 import {PolicyFormBody} from '../policies/PolicyFormBody';
 
+const listResourcesSafe = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/services', () => ({
-  default: {diagnostics: {}, monitoring: {}},
+  default: {diagnostics: {listResourcesSafe}, monitoring: {}},
 }));
 
 const catalog: AlertRuleCatalogItem[] = [
@@ -118,6 +119,7 @@ describe('policy form rule picker', () => {
         removeEventListener: vi.fn(),
       })),
     });
+    listResourcesSafe.mockResolvedValue({success: true, data: []});
   });
 
   it('groups the catalog by scope into exactly two groups', () => {

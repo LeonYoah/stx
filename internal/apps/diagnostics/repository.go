@@ -501,6 +501,12 @@ func (r *Repository) applyGroupFilters(query *gorm.DB, filter *SeatunnelErrorGro
 		// Use LOWER for case-insensitive exception class matching, compatible with multiple databases.
 		query = query.Where("LOWER(exception_class) LIKE LOWER(?)", "%"+exceptionClass+"%")
 	}
+	if filter.MinOccurrences != nil {
+		query = query.Where("occurrence_count >= ?", *filter.MinOccurrences)
+	}
+	if filter.MaxOccurrences != nil {
+		query = query.Where("occurrence_count <= ?", *filter.MaxOccurrences)
+	}
 	return query
 }
 

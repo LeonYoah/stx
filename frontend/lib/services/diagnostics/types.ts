@@ -143,6 +143,9 @@ export interface DiagnosticsErrorGroupListParams {
   exception_class?: string;
   start_time?: string;
   end_time?: string;
+  /** 频次过滤作用于组的 occurrence_count（闭区间）/ Bounds the group's occurrence_count (closed range). */
+  min_occurrences?: number;
+  max_occurrences?: number;
   page?: number;
   page_size?: number;
 }

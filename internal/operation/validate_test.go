@@ -434,6 +434,22 @@ func TestRegistryAdminUserOperations(t *testing.T) {
 	require.Equal(t, RiskR1, byID["admin.token.revoke"].Risk)
 }
 
+func TestRegistryErrorGroupListExposesOccurrenceFilters(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+
+	spec := byID["diagnostics.error.group.list"]
+	require.Contains(t, spec.Input, InputSpec{Name: "min_occurrences", Location: InputQuery, Description: "Minimum occurrence count (inclusive)"})
+	require.Contains(t, spec.Input, InputSpec{Name: "max_occurrences", Location: InputQuery, Description: "Maximum occurrence count (inclusive)"})
+	// 频次过滤只挂在错误组列表，事件列表不暴露。
+	// Occurrence filters live on the group list only; the event list must not expose them.
+	for _, input := range byID["diagnostics.error.event.list"].Input {
+		require.NotContains(t, []string{"min_occurrences", "max_occurrences"}, input.Name)
+	}
+}
+
 func TestValidateRejectsInvalidHelpExample(t *testing.T) {
 	specs := Registry()
 	specs[0].Example = "stx cluster list"

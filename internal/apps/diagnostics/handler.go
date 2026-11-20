@@ -812,6 +812,14 @@ func parseErrorGroupFilter(c *gin.Context) (*SeatunnelErrorGroupFilter, error) {
 	if err != nil {
 		return nil, err
 	}
+	minOccurrences, err := parseOptionalNonNegativeInt(c.Query("min_occurrences"))
+	if err != nil {
+		return nil, err
+	}
+	maxOccurrences, err := parseOptionalNonNegativeInt(c.Query("max_occurrences"))
+	if err != nil {
+		return nil, err
+	}
 
 	return &SeatunnelErrorGroupFilter{
 		ClusterID:      clusterID,
@@ -823,6 +831,8 @@ func parseErrorGroupFilter(c *gin.Context) (*SeatunnelErrorGroupFilter, error) {
 		ExceptionClass: strings.TrimSpace(c.Query("exception_class")),
 		StartTime:      startTime,
 		EndTime:        endTime,
+		MinOccurrences: minOccurrences,
+		MaxOccurrences: maxOccurrences,
 		Page:           page,
 		PageSize:       pageSize,
 	}, nil
@@ -994,6 +1004,20 @@ func parseOptionalInt(raw string, defaultValue int) (int, error) {
 		return 0, errors.New("invalid integer query value")
 	}
 	return parsed, nil
+}
+
+// parseOptionalNonNegativeInt 解析可选非负整数查询参数：空 → nil；非整数或负数报错（400 风格同上）。
+// parseOptionalNonNegativeInt parses an optional non-negative integer query value: empty → nil; non-integer or negative errors out (400 like above).
+func parseOptionalNonNegativeInt(raw string) (*int, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return nil, errors.New("invalid integer query value")
+	}
+	return &parsed, nil
 }
 
 // parseOptionalTime 解析时间查询参数：要求 RFC3339 带偏移；无偏移值必须同时提供 tz（IANA）参数。

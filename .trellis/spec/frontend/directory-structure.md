@@ -43,7 +43,7 @@ frontend/
 │   │   ├── ViewToggle.tsx      # 通用纯图标分段视图切换（基于 Arc SegmentedControl）
 │   │   ├── auth/               # LoginForm、CallbackHandler、LoginBrandPanel
 │   │   ├── cluster/            # ClusterMain、ClusterCard、弹窗、配置
-│   │   ├── diagnostics/        # 诊断与巡检界面（Inspection、ErrorCenter、TaskCenter、policies/ 自动巡检策略面板）
+│   │   ├── diagnostics/        # 诊断与巡检界面（Inspection、TaskCenter、policies/ 自动巡检策略面板、errors/ 错误组面板）
 │   │   ├── host/               # HostTable、HostDetail、HostInstallGuideDialog
 │   │   ├── installer/          # PackageMain、InstallWizard、步骤向导
 │   │   ├── markdown/           # Markdown 展示

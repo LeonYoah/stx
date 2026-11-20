@@ -58,13 +58,13 @@ import {
 } from '@/components/arc/tabs/tabs';
 import {WorkspaceHeader, ModuleNavTabs} from '@/components/common/layout';
 import {TroubleshootingMemoryCenter} from '@/components/common/troubleshooting';
-import {DiagnosticsErrorCenter} from './DiagnosticsErrorCenter';
+import {ErrorsPanel} from './errors/ErrorsPanel';
 import {DiagnosticsInspectionCenter} from './DiagnosticsInspectionCenter';
 import {PoliciesPanel} from './policies/PoliciesPanel';
-// shortcut: 诊断工作台暂直接复用监控的未保存确认弹窗；第 2 步错误面板接入后随
-// DetailHost 一并提升到 common/layout。
-// Temporary direct reuse of the monitoring unsaved-changes dialog; promote to
-// common/layout together with DetailHost once the error panel joins in step 2.
+// shortcut: 暂直接复用告警中心的未保存确认弹窗；告警中心组件的并行改动落地后，统一提升到
+// common/layout。
+// Temporary direct reuse of the monitoring unsaved-changes dialog; promote to common/layout
+// once the in-flight monitoring component changes land.
 import {UnsavedChangesDialog} from '../monitoring/dirty-close';
 
 // 解析当前激活的诊断标签页（错误 / 巡检 / 巡检策略 / 经验库）
@@ -128,12 +128,12 @@ export function DiagnosticsWorkspace() {
   const taskId = searchParams.get('task_id') || '';
   const hasWorkspaceContext = Boolean(
     selectedClusterId !== 'all' ||
-      source ||
-      alertId ||
-      groupId ||
-      reportId ||
-      findingId ||
-      taskId,
+    source ||
+    alertId ||
+    groupId ||
+    reportId ||
+    findingId ||
+    taskId,
   );
 
   const updateQuery = useCallback(
@@ -330,7 +330,9 @@ export function DiagnosticsWorkspace() {
                   <SelectValue placeholder={t('filters.cluster')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='all'>{t('filters.allClusters')}</SelectItem>
+                  <SelectItem value='all'>
+                    {t('filters.allClusters')}
+                  </SelectItem>
                   {(bootstrap?.cluster_options || []).map((cluster) => (
                     <SelectItem
                       key={cluster.cluster_id}
@@ -426,11 +428,11 @@ export function DiagnosticsWorkspace() {
           </Card>
         ) : null}
 
-        <TabsContent value='errors' className='min-h-0 flex-1'>
+        <TabsContent value='errors' className='min-h-0 flex-1 flex flex-col'>
           {activeTab === 'errors' ? (
-            <DiagnosticsErrorCenter
+            <ErrorsPanel
               clusterId={clusterIdNumber}
-              clusterName={selectedClusterName || undefined}
+              clusterOptions={bootstrap?.cluster_options || []}
               groupId={groupId ? Number.parseInt(groupId, 10) : undefined}
               onSelectGroup={(value) =>
                 updateQuery({group_id: value ? String(value) : null})

@@ -261,6 +261,11 @@
 .listCol[data-mcols='policies'] :is(.row, .rowHead) {
   --cols: minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr) 56px;
 }
+/* 诊断错误组：标题+摘要 / 异常类 / 来源节点 / 频次 / 最近出现。
+   Diagnostics error groups: title+sample / exception / origin node / heat / last seen. */
+.listCol[data-mcols='errors'] :is(.row, .rowHead) {
+  --cols: minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1fr) 88px 140px;
+}
 
 .rowHead {
   display: grid;
@@ -1254,15 +1259,6 @@
 }
 
 /* 阈值/持续时间两列并排，标签同基线（§9.7）。Two-column field row. */
-  /* 窄屏策略行只留名称 + 启用开关。Narrow policy rows keep name + switch only. */
-  .listCol[data-mcols='policies'] :is(.row, .rowHead) {
-    --cols: minmax(0, 1fr) 40px;
-  }
-  .listCol[data-mcols='policies'] :is(.row, .rowHead) > :nth-child(2),
-  .listCol[data-mcols='policies'] :is(.row, .rowHead) > :nth-child(3),
-  .listCol[data-mcols='policies'] :is(.row, .rowHead) > :nth-child(4) {
-    display: none;
-  }
 .fieldRow {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1310,6 +1306,24 @@
   .listCol[data-mcols='deliveries'] :is(.row, .rowHead) > :nth-child(6),
   .listCol[data-mcols='deliveries'] :is(.row, .rowHead) > :nth-child(7),
   .listCol[data-mcols='deliveries'] :is(.row, .rowHead) > :nth-child(8) {
+    display: none;
+  }
+  /* 窄屏策略行只留名称 + 启用开关。Narrow policy rows keep name + switch only. */
+  .listCol[data-mcols='policies'] :is(.row, .rowHead) {
+    --cols: minmax(0, 1fr) 40px;
+  }
+  .listCol[data-mcols='policies'] :is(.row, .rowHead) > :nth-child(2),
+  .listCol[data-mcols='policies'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='policies'] :is(.row, .rowHead) > :nth-child(4) {
+    display: none;
+  }
+  /* 窄屏错误组行只留标题 + 频次徽章。Narrow error rows keep title + heat chip only. */
+  .listCol[data-mcols='errors'] :is(.row, .rowHead) {
+    --cols: minmax(0, 1fr) 64px;
+  }
+  .listCol[data-mcols='errors'] :is(.row, .rowHead) > :nth-child(2),
+  .listCol[data-mcols='errors'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='errors'] :is(.row, .rowHead) > :nth-child(5) {
     display: none;
   }
 }

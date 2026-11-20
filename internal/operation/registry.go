@@ -1847,6 +1847,12 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 	}
 	errorCommon = append(errorCommon, timeRange...)
 	errorCommon = append(errorCommon, page...)
+	// 频次过滤只作用于错误组列表（组内聚合字段），事件列表不暴露。
+	// Occurrence filters apply to the group list only (aggregated field); the event list does not expose them.
+	errorOccurrences := []InputSpec{
+		{Name: "min_occurrences", Location: InputQuery, Description: "Minimum occurrence count (inclusive)"},
+		{Name: "max_occurrences", Location: InputQuery, Description: "Maximum occurrence count (inclusive)"},
+	}
 	return []OperationSpec{
 		diagnosticsReadOperation("diagnostics.bootstrap.get", []string{"diagnostics", "bootstrap", "get"}, "Get diagnostics workspace bootstrap", "/api/v1/diagnostics/bootstrap",
 			[]InputSpec{{Name: "source", Location: InputQuery, Description: "Workspace entry source"}, {Name: "alert_id", Location: InputQuery, Description: "Related alert ID"}, {Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, lang},
@@ -1942,7 +1948,7 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 		diagnosticsDownloadOperation("diagnostics.task.bundle.download", []string{"diagnostics", "task", "bundle"}, "Download a diagnostic task bundle", "/api/v1/diagnostics/tasks/:id/bundle", append([]InputSpec{}, id...), "stx diagnostics task bundle 1 --file /tmp/diagnostics-1.zip"),
 		diagnosticsDownloadOperation("diagnostics.task.html.download", []string{"diagnostics", "task", "html"}, "Download a diagnostic task HTML report", "/api/v1/diagnostics/tasks/:id/html", append([]InputSpec{}, id...), "stx diagnostics task html 1 --file /tmp/diagnostics-1.html"),
 		diagnosticsDownloadOperation("diagnostics.task.file.download", []string{"diagnostics", "task", "file"}, "Download one diagnostic task file", "/api/v1/diagnostics/tasks/:id/files/*path", []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Diagnostic task ID"}, {Name: "path", Location: InputPath, Required: true, Description: "Relative artifact path"}}, "stx diagnostics task file 1 manifest.json --file /tmp/manifest.json"),
-		diagnosticsReadOperation("diagnostics.error.group.list", []string{"diagnostics", "error", "group", "list"}, "List SeaTunnel error groups", "/api/v1/diagnostics/errors/groups", errorCommon, "stx diagnostics error group list --cluster_id 6 --page_size 20"),
+		diagnosticsReadOperation("diagnostics.error.group.list", []string{"diagnostics", "error", "group", "list"}, "List SeaTunnel error groups", "/api/v1/diagnostics/errors/groups", append(append([]InputSpec{}, errorCommon...), errorOccurrences...), "stx diagnostics error group list --cluster_id 6 --min_occurrences 10 --page_size 20"),
 		diagnosticsReadOperation("diagnostics.error.event.list", []string{"diagnostics", "error", "event", "list"}, "List SeaTunnel error events", "/api/v1/diagnostics/errors/events", append([]InputSpec{{Name: "group_id", Location: InputQuery, Description: "Error group ID"}}, errorCommon...), "stx diagnostics error event list --cluster_id 6 --page_size 20"),
 		diagnosticsReadOperation("diagnostics.error.group.get", []string{"diagnostics", "error", "group", "get"}, "Get SeaTunnel error group detail", "/api/v1/diagnostics/errors/groups/:id",
 			append(append([]InputSpec{}, id...), append([]InputSpec{{Name: "event_limit", Location: InputQuery, Description: "Maximum recent events to include"}}, errorCommon...)...), "stx diagnostics error group get 1 --event_limit 20"),

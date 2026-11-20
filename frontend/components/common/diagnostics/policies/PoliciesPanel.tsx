@@ -50,11 +50,14 @@ import type {AlertRuleCatalogItem} from '@/lib/services/monitoring/types';
 import {cn} from '@/lib/utils';
 import {PolicyFormBody} from './PolicyFormBody';
 import {INVALID_REASON_CODES} from './policy-form-utils';
-// shortcut: 诊断面板暂直接复用监控详情宿主 / 脏关确认 / 列表样式；第 2 步错误面板
-// 接入后一并提升到 common/layout。
-// Temporary direct reuse of the monitoring detail host, dirty-close guard and
-// list styles; promote to common/layout once the error panel joins in step 2.
-import {UnsavedChangesDialog, useBeforeUnload} from '../../monitoring/dirty-close';
+// shortcut: 暂直接复用告警中心的详情宿主 / 脏关确认 / 列表样式；告警中心组件的并行改动落地后，统一提升到
+// common/layout。
+// Temporary direct reuse of the monitoring detail host, dirty-close guard and list styles; promote to common/layout
+// once the in-flight monitoring component changes land.
+import {
+  UnsavedChangesDialog,
+  useBeforeUnload,
+} from '../../monitoring/dirty-close';
 import {DetailHost, useDetailNarrow} from '../../monitoring/detail-host';
 import {NeutralChip} from '../../monitoring/status-chips';
 import styles from '../../monitoring/monitoring.module.css';
@@ -91,8 +94,7 @@ export function PoliciesPanel({
     number | '__new__' | 'close' | null
   >(null);
   const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] =
-    useState<PolicyStatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<PolicyStatusFilter>('all');
   const searchRef = useRef<HTMLInputElement>(null);
 
   useBeforeUnload(formDirty && editKey !== null);
@@ -135,12 +137,11 @@ export function PoliciesPanel({
   }, [formDirty]);
 
   const load = useCallback(async () => {
-    const [policiesResult, templatesResult, catalogResult] =
-      await Promise.all([
-        services.diagnostics.listAutoPoliciesSafe({page_size: 100}),
-        services.diagnostics.listBuiltinConditionTemplatesSafe(),
-        services.monitoring.getAlertRuleCatalogSafe(locale),
-      ]);
+    const [policiesResult, templatesResult, catalogResult] = await Promise.all([
+      services.diagnostics.listAutoPoliciesSafe({page_size: 100}),
+      services.diagnostics.listBuiltinConditionTemplatesSafe(),
+      services.monitoring.getAlertRuleCatalogSafe(locale),
+    ]);
     if (policiesResult.success && policiesResult.data) {
       setPolicies(policiesResult.data.items || []);
       setError(null);
@@ -394,13 +395,9 @@ export function PoliciesPanel({
             }}
             empty={
               <EmptyState
-                title={
-                  scoped.length === 0 ? t('empty') : t('filteredEmpty')
-                }
+                title={scoped.length === 0 ? t('empty') : t('filteredEmpty')}
                 description={
-                  scoped.length === 0
-                    ? t('emptyDesc')
-                    : t('filteredEmptyDesc')
+                  scoped.length === 0 ? t('emptyDesc') : t('filteredEmptyDesc')
                 }
                 action={
                   scoped.length === 0 ? (

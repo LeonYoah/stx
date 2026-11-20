@@ -67,10 +67,10 @@ import {
   normalizeConditionItemsForSave,
   shouldRenderCronExprInput,
 } from './policy-form-utils';
-// shortcut: 诊断面板暂直接复用监控详情列样式；第 2 步错误面板接入后随 DetailHost
-// 一并提升到 common/layout。
-// Reuse the monitoring detail-column styles for now; promote to common/layout
-// together with DetailHost once the error panel joins in step 2.
+// shortcut: 暂直接复用告警中心的详情列样式；告警中心组件的并行改动落地后，统一提升到
+// common/layout。
+// Temporary direct reuse of the monitoring detail-column styles; promote to common/layout
+// once the in-flight monitoring component changes land.
 import styles from '../../monitoring/monitoring.module.css';
 
 const DEFAULT_TASK_OPTIONS: DiagnosticsTaskOptions = {
@@ -484,9 +484,7 @@ export function PolicyFormBody({
         {/* 巡检触发条件（单列，适配 520px 详情栏） / Inspection conditions (single column for the 520px rail) */}
         <div className={styles.sectionStack} style={{gap: 10}}>
           <div className={styles.fieldHeadRow}>
-            <span className={styles.sectionTitle}>
-              {t('conditionsLabel')}
-            </span>
+            <span className={styles.sectionTitle}>{t('conditionsLabel')}</span>
             <span className={cn(styles.xsText, styles.muted)}>
               {t('selectedConditionsCount', {
                 count: form.conditions.filter((c) => c.enabled).length,
@@ -536,10 +534,7 @@ export function PolicyFormBody({
                             description={tpl.description}
                             checked={isChecked}
                             onCheckedChange={(checked) =>
-                              handleToggleCondition(
-                                tpl.code,
-                                checked === true,
-                              )
+                              handleToggleCondition(tpl.code, checked === true)
                             }
                           />
 
@@ -566,8 +561,7 @@ export function PolicyFormBody({
                                     labels={{
                                       cronExpression: t('cronExprLabel'),
                                       timezone: commonT('timezone'),
-                                      cronFiveField:
-                                        scheduleT('cronFiveField'),
+                                      cronFiveField: scheduleT('cronFiveField'),
                                       cronTimezonePlaceholder: scheduleT(
                                         'cronTimezonePlaceholder',
                                       ),
@@ -624,12 +618,8 @@ export function PolicyFormBody({
                                             value: tpl.default_threshold,
                                           })
                                     }
-                                    placeholder={String(
-                                      tpl.default_threshold,
-                                    )}
-                                    value={
-                                      condition?.threshold_override ?? ''
-                                    }
+                                    placeholder={String(tpl.default_threshold)}
+                                    value={condition?.threshold_override ?? ''}
                                     onChange={(e) =>
                                       handleConditionOverride(
                                         tpl.code,
@@ -650,16 +640,14 @@ export function PolicyFormBody({
                                       tpl.code === 'ALERT_FIRING'
                                         ? t('alertFiringWindowLabel')
                                         : t('windowLabel', {
-                                            minutes:
-                                              tpl.default_window_minutes,
+                                            minutes: tpl.default_window_minutes,
                                           })
                                     }
                                     placeholder={String(
                                       tpl.default_window_minutes,
                                     )}
                                     value={
-                                      condition?.window_minutes_override ??
-                                      ''
+                                      condition?.window_minutes_override ?? ''
                                     }
                                     onChange={(e) =>
                                       handleConditionOverride(
@@ -679,9 +667,9 @@ export function PolicyFormBody({
                                   label={t('keywordsLabel')}
                                   description={t('keywordsHint')}
                                   placeholder={t('keywordsPlaceholder')}
-                                  value={(
-                                    condition?.extra_keywords || []
-                                  ).join(', ')}
+                                  value={(condition?.extra_keywords || []).join(
+                                    ', ',
+                                  )}
                                   onChange={(e) =>
                                     handleConditionKeywordsOverride(
                                       tpl.code,
@@ -915,12 +903,7 @@ export function PolicyFormBody({
         >
           {policy ? t('saveEdit') : t('createConfirm')}
         </Button>
-        <Button
-          type='button'
-          size='sm'
-          variant='ghost'
-          onClick={onCancel}
-        >
+        <Button type='button' size='sm' variant='ghost' onClick={onCancel}>
           {commonT('cancel')}
         </Button>
         {policy && onDelete ? (

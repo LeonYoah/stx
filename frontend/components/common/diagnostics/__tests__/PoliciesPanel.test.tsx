@@ -99,7 +99,14 @@ const policies: InspectionAutoPolicy[] = [
   policy({id: 4, name: 'other-cluster', cluster_id: 2}),
 ];
 
-function renderPanel(clusterId?: number) {
+function renderPanel(
+  clusterId?: number,
+  props?: {
+    focusPolicyId?: number;
+    onSelectPolicy?: (id: number | null) => void;
+    onViewRecords?: (id: number) => void;
+  },
+) {
   return render(
     <NextIntlClientProvider locale='zh' messages={zh}>
       <PoliciesPanel
@@ -108,6 +115,9 @@ function renderPanel(clusterId?: number) {
           {cluster_id: 1, cluster_name: 'stx-prod'},
           {cluster_id: 2, cluster_name: 'stx-dev'},
         ]}
+        focusPolicyId={props?.focusPolicyId}
+        onSelectPolicy={props?.onSelectPolicy}
+        onViewRecords={props?.onViewRecords}
       />
     </NextIntlClientProvider>,
   );
@@ -239,5 +249,66 @@ describe('PoliciesPanel', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('detail-rail')).not.toBeInTheDocument(),
     );
+  });
+
+  it('renders the behavior sentence and trigger stats columns', async () => {
+    getAlertRuleCatalogSafe.mockResolvedValue({
+      success: true,
+      data: [{rule_key: 'jvm_heap', name: 'JVM 堆内存过高'}],
+    });
+    listAutoPoliciesSafe.mockResolvedValue({
+      success: true,
+      data: {
+        items: [
+          policy({
+            id: 9,
+            name: 'alert-watch',
+            conditions: [
+              {
+                template_code: 'ALERT_FIRING',
+                enabled: true,
+                rule_keys: ['jvm_heap'],
+              },
+            ],
+            last_triggered_at: new Date(
+              Date.now() - 5 * 60 * 1000,
+            ).toISOString(),
+            trigger_count_7d: 3,
+          }),
+          policy({id: 10, name: 'never-ran', trigger_count_7d: 0}),
+        ],
+        total: 2,
+        page: 1,
+        page_size: 100,
+      },
+    });
+    renderPanel();
+    const row = await screen.findByTestId('policy-row-9');
+    // 行为句把启用条件翻译成「当 … 时，自动巡检 …」。
+    // The behavior sentence renders enabled conditions as "when …, inspect …".
+    expect(
+      within(row).getByText(/当 告警 JVM 堆内存过高 触发 时，自动巡检 全局/),
+    ).toBeVisible();
+    // 触发统计：分钟前的最近触发 + 7 天计数；未触发策略显示 —。
+    // Trigger stats: minutes-ago last trigger + 7d count; untriggered shows —.
+    expect(within(row).getByText('3 次')).toBeVisible();
+    const neverRow = screen.getByTestId('policy-row-10');
+    expect(within(neverRow).getAllByText('—').length).toBe(2);
+  });
+
+  it('opens the deep-linked policy detail via focusPolicyId', async () => {
+    const onSelectPolicy = vi.fn();
+    renderPanel(undefined, {focusPolicyId: 2, onSelectPolicy});
+    expect(await screen.findByTestId('detail-rail')).toBeVisible();
+    await waitFor(() => expect(onSelectPolicy).toHaveBeenCalledWith(2));
+  });
+
+  it('navigates to trigger records from the detail footer', async () => {
+    const onViewRecords = vi.fn();
+    renderPanel(undefined, {onViewRecords});
+    fireEvent.click(await screen.findByTestId('policy-row-1'));
+    await screen.findByTestId('detail-rail');
+    fireEvent.click(await screen.findByTestId('policy-view-records'));
+    expect(onViewRecords).toHaveBeenCalledWith(1);
   });
 });

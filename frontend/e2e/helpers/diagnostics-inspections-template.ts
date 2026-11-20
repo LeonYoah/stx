@@ -29,6 +29,7 @@ type InspectionReport = {
   cluster_id: number;
   status: 'pending' | 'running' | 'completed' | 'failed';
   trigger_source: string;
+  auto_policy_id?: number;
   lookback_minutes: number;
   error_threshold: number;
   requested_by_user_id: number;
@@ -194,9 +195,57 @@ function createInitialState() {
         cluster_name: 'stx-dev',
         summary: 'dev cluster report',
       }),
+      // 自动触发的报告带 auto_policy_id，驱动「自动 · 规则名」徽章与过滤桩。
+      // The auto-triggered report carries auto_policy_id to drive the
+      // "auto · <policy>" chip and the filter stub.
+      buildReport({
+        id: 4,
+        status: 'completed',
+        trigger_source: 'auto',
+        auto_policy_id: 7,
+        summary: 'auto policy report',
+      }),
     ] as InspectionReport[],
+    policies: [
+      {
+        id: 7,
+        cluster_id: prodClusterId,
+        name: 'nightly-auto',
+        enabled: true,
+        conditions: [
+          {template_code: 'SCHEDULED', enabled: true, rule_keys: []},
+        ],
+        cooldown_minutes: 30,
+        auto_create_task: false,
+        auto_start_task: false,
+        task_options: {
+          include_thread_dump: false,
+          include_jvm_dump: false,
+          jvm_dump_min_free_mb: 2048,
+          selected_resources: [] as string[],
+        },
+        invalid_reason: '',
+        last_triggered_at: now,
+        trigger_count_7d: 2,
+        created_at: now,
+        updated_at: now,
+      },
+    ],
   };
 }
+
+const conditionTemplates = [
+  {
+    code: 'SCHEDULED',
+    category: 'schedule',
+    name: '定时巡检',
+    description: '按周期执行巡检',
+    default_threshold: 1,
+    default_window_minutes: 0,
+    default_cron_expr: '0 3 * * *',
+    immediate_on_match: false,
+  },
+];
 
 /**
  * 诊断工作台 / 巡检报告接口的模板路由桩：bootstrap、报告列表（识别状态、集群与
@@ -239,6 +288,9 @@ export async function installDiagnosticsInspectionsTemplateRoutes(
     if (method === 'GET' && pathname === '/api/v1/diagnostics/inspections') {
       const status = url.searchParams.get('status') ?? '';
       const clusterId = Number(url.searchParams.get('cluster_id') ?? '');
+      const autoPolicyId = Number(
+        url.searchParams.get('auto_policy_id') ?? '',
+      );
       const pageNo = Number(url.searchParams.get('page') ?? '1') || 1;
       const pageSize =
         Number(url.searchParams.get('page_size') ?? '20') || 20;
@@ -249,12 +301,49 @@ export async function installDiagnosticsInspectionsTemplateRoutes(
       if (!Number.isNaN(clusterId) && url.searchParams.has('cluster_id')) {
         items = items.filter((r) => r.cluster_id === clusterId);
       }
+      if (!Number.isNaN(autoPolicyId) && url.searchParams.has('auto_policy_id')) {
+        items = items.filter((r) => r.auto_policy_id === autoPolicyId);
+      }
       const total = items.length;
       items = items.slice((pageNo - 1) * pageSize, pageNo * pageSize);
       await route.fulfill({
         status: 200,
         json: ok({items, total, page: pageNo, page_size: pageSize}),
       });
+      return;
+    }
+
+    // 记录视图会为「自动 · 规则名」徽章拉一次策略列表；自动视图再拉一次带统计的
+    // 完整列表。同一个桩两处共用。
+    // The records view fetches the policy list once for the "auto · <policy>"
+    // chip; the auto view fetches the full list again with trigger stats. The
+    // same stub serves both.
+    if (method === 'GET' && pathname === '/api/v1/diagnostics/auto-policies') {
+      await route.fulfill({
+        status: 200,
+        json: ok({
+          items: state.policies,
+          total: state.policies.length,
+          page: 1,
+          page_size: 100,
+        }),
+      });
+      return;
+    }
+
+    if (
+      method === 'GET' &&
+      pathname === '/api/v1/diagnostics/auto-policies/templates'
+    ) {
+      await route.fulfill({status: 200, json: ok(conditionTemplates)});
+      return;
+    }
+
+    if (
+      method === 'GET' &&
+      pathname === '/api/v1/monitoring/alert-rules/catalog'
+    ) {
+      await route.fulfill({status: 200, json: ok([])});
       return;
     }
 
@@ -337,4 +426,6 @@ export async function installDiagnosticsInspectionsTemplateRoutes(
 
 export const diagnosticsInspectionsTemplate = {
   listErrorMessage: 'inspection list exploded',
+  autoPolicyId: 7,
+  autoPolicyName: 'nightly-auto',
 };

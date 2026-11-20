@@ -22,9 +22,13 @@ import {
 } from './helpers/diagnostics-policies-template';
 
 async function openPoliciesTab(page: Page) {
-  await page.goto('/diagnostics?tab=policies');
-  await expect(page).toHaveURL(/tab=policies/);
-  await expect(page.getByTestId('diagnostics-tab-policies')).toBeVisible();
+  // 自动巡检合并进巡检标签：view=auto 直达策略视图。
+  // Auto inspection merged into the inspections tab; view=auto lands on the
+  // policies view directly.
+  await page.goto('/diagnostics?tab=inspections&view=auto');
+  await expect(page).toHaveURL(/tab=inspections/);
+  await expect(page).toHaveURL(/view=auto/);
+  await expect(page.getByTestId('diagnostics-tab-inspections')).toBeVisible();
 }
 
 test.describe('diagnostics policies panel template', () => {
@@ -36,7 +40,16 @@ test.describe('diagnostics policies panel template', () => {
     state = await installDiagnosticsPoliciesTemplateRoutes(page);
   });
 
-  test('loads the policy list under tab=policies with scope and invalid rows', async ({
+  test('rewrites the legacy tab=policies link to inspections + auto view', async ({
+    page,
+  }) => {
+    await page.goto('/diagnostics?tab=policies');
+    await expect(page).toHaveURL(/tab=inspections/);
+    await expect(page).toHaveURL(/view=auto/);
+    await expect(page.getByTestId('policy-row-1')).toBeVisible();
+  });
+
+  test('loads the policy list with scope, invalid rows and trigger stats', async ({
     page,
   }) => {
     await openPoliciesTab(page);
@@ -48,6 +61,33 @@ test.describe('diagnostics policies panel template', () => {
     // The invalid row carries the badge plus its translated reason line.
     await expect(
       page.getByText(/已不在规则目录|no longer in the rule catalog/i),
+    ).toBeVisible();
+    // 行为句 + 7 天触发计数列：policy 2 命中规则目录与统计桩。
+    // Behavior sentence + 7d count column: policy 2 hits the rule catalog and
+    // the stats fixture.
+    const row = page.getByTestId('policy-row-2');
+    await expect(
+      row.getByText(/当 告警 GC 耗时过高 触发 时，自动巡检 stx-prod/),
+    ).toBeVisible();
+    await expect(row.getByText('3 次')).toBeVisible();
+  });
+
+  test('navigates from the policy detail to its trigger records', async ({
+    page,
+  }) => {
+    await openPoliciesTab(page);
+    await page.getByTestId('policy-row-2').click();
+    await expect(page.getByTestId('detail-rail')).toBeVisible();
+
+    await page.getByTestId('policy-view-records').click();
+    // 回记录视图并按该策略过滤：URL 落 auto_policy_id，徽章与过滤后列表出现。
+    // Back to the records view filtered by this policy: auto_policy_id lands
+    // in the URL, the badge and the filtered list appear.
+    await expect(page).not.toHaveURL(/view=auto/);
+    await expect(page).toHaveURL(/auto_policy_id=2/);
+    await expect(page.getByTestId('inspection-row-90')).toBeVisible();
+    await expect(
+      page.getByText(/触发规则：prod-gc-alert|Policy: prod-gc-alert/i),
     ).toBeVisible();
   });
 
@@ -102,13 +142,13 @@ test.describe('diagnostics policies panel template', () => {
     await page.getByTestId('policy-row-1').click();
     await page.getByLabel(/策略名称|Policy Name/i).fill('dirty-name');
 
-    await page.getByTestId('diagnostics-tab-inspections').click();
+    await page.getByTestId('diagnostics-tab-memories').click();
     await expect(page.getByTestId('discard-confirm-dialog')).toBeVisible();
 
     // 放弃修改后执行原请求的切标签。
     // Discarding performs the originally requested tab switch.
     await page.getByTestId('discard-confirm-action').click();
-    await expect(page).toHaveURL(/tab=inspections/);
+    await expect(page).toHaveURL(/tab=memories/);
   });
 
   test('deletes a policy through the two-step ConfirmMorph', async ({page}) => {

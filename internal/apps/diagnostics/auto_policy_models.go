@@ -246,9 +246,18 @@ type InspectionAutoPolicyInfo struct {
 	// InvalidDetail 携带失效的具体取值（旧条件模板码等），供界面翻译时插值展示。
 	// InvalidDetail carries the offending value (e.g. the retired condition template code)
 	// so the UI can interpolate it into the translated message.
-	InvalidDetail string    `json:"invalid_detail,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	InvalidDetail string `json:"invalid_detail,omitempty"`
+	// LastTriggeredAt 是该策略最近一次触发巡检的时间；从未触发为 null。
+	// 仅在列表响应中由服务层聚合填充，详情接口不保证携带。
+	// LastTriggeredAt is the policy's latest inspection trigger time; null when it never
+	// fired. It is only populated by the list endpoint via service-side aggregation.
+	LastTriggeredAt *time.Time `json:"last_triggered_at"`
+	// TriggerCount7d 是近 7 天该策略触发巡检的次数，同 LastTriggeredAt 仅在列表响应填充。
+	// TriggerCount7d counts inspections this policy triggered in the last 7 days; like
+	// LastTriggeredAt it is only populated by the list endpoint.
+	TriggerCount7d int64     `json:"trigger_count_7d"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // 自动巡检策略失效原因码。/ Invalid-reason codes for auto policies.

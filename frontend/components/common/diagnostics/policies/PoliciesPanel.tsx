@@ -25,7 +25,14 @@
  * centered create dialog — with the same dirty-form interception on close,
  * row switch, and panel exit.
  */
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {useTranslations} from 'next-intl';
 import {Plus} from 'lucide-react';
 import {toast} from '@/lib/toast';
@@ -48,8 +55,11 @@ import type {
 } from '@/lib/services/diagnostics';
 import type {AlertRuleCatalogItem} from '@/lib/services/monitoring/types';
 import {cn} from '@/lib/utils';
+import {DiagnosticsClusterFilter} from '../DiagnosticsClusterFilter';
 import {PolicyFormBody} from './PolicyFormBody';
 import {INVALID_REASON_CODES} from './policy-form-utils';
+import {describePolicySentence} from './policy-describe';
+import {minutesAgo, formatAgo} from '../../monitoring/monitoring-utils';
 import {DirtyCloseDialog, useBeforeUnload} from '@/components/common/layout';
 import {DetailHost, useDetailNarrow} from '@/components/common/layout';
 import {NeutralChip} from '@/components/common/layout';
@@ -57,6 +67,10 @@ import layout from '@/components/common/layout/list-detail.module.css';
 
 const PAGE_SIZE = 10;
 type PolicyStatusFilter = 'all' | 'enabled' | 'invalid';
+// 详情底部「查看触发记录」也要过脏表单拦截，借 discardTarget 挂起跳转。
+// The detail footer's "view trigger records" rides the same dirty-form
+// interception via a dedicated discard target.
+type DiscardTarget = number | '__new__' | 'close' | {recordsFor: number};
 
 export interface PoliciesPanelProps {
   /** 当前工作台所选集群；未选时显示全部策略。Selected workspace cluster; all policies when unset. */
@@ -64,15 +78,31 @@ export interface PoliciesPanelProps {
   clusterOptions: DiagnosticsClusterOption[];
   /** 向工作台上报表单脏态，用于顶层标签切换拦截。Report form dirty state so the workspace can intercept tab switches. */
   onDirtyChange?: (dirty: boolean) => void;
+  /** 宿主注入的分段切换控件（工具栏最左，与记录视图共享 layoutGroup）。Host-provided view segment rendered first in the toolbar. */
+  viewSwitch?: ReactNode;
+  /** URL 深链的目标策略 id；到达时打开详情。Deep-linked policy id; opens the detail when it arrives. */
+  focusPolicyId?: number;
+  /** 详情开合时回填 policy_id。Writes policy_id while the detail opens/closes. */
+  onSelectPolicy?: (policyId: number | null) => void;
+  /** 详情底部「查看触发记录」。Detail footer "view trigger records" for this policy. */
+  onViewRecords?: (policyId: number) => void;
+  /** 工具栏集群筛选变化时回填 cluster_id。Writes cluster_id back through the toolbar filter. */
+  onClusterChange?: (clusterId: number | undefined) => void;
 }
 
 export function PoliciesPanel({
   clusterId,
   clusterOptions,
   onDirtyChange,
+  viewSwitch,
+  focusPolicyId,
+  onSelectPolicy,
+  onViewRecords,
+  onClusterChange,
 }: PoliciesPanelProps) {
   const t = useTranslations('diagnosticsCenter.autoPolicies');
   const commonT = useTranslations('common');
+  const tMonitoring = useTranslations('monitoring');
   const {locale} = useLocale();
   const narrow = useDetailNarrow();
 
@@ -83,9 +113,9 @@ export function PoliciesPanel({
   const [error, setError] = useState<string | null>(null);
   const [editKey, setEditKey] = useState<number | '__new__' | null>(null);
   const [formDirty, setFormDirty] = useState(false);
-  const [discardTarget, setDiscardTarget] = useState<
-    number | '__new__' | 'close' | null
-  >(null);
+  const [discardTarget, setDiscardTarget] = useState<DiscardTarget | null>(
+    null,
+  );
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<PolicyStatusFilter>('all');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -98,6 +128,16 @@ export function PoliciesPanel({
   const editingPolicy = policies.find((p) => p.id === editKey) ?? null;
   const drawerOpen = editKey !== null && editKey !== '__new__';
   const drawerPolicy = useDrawerItem(editingPolicy);
+
+  // 详情开合时同步 policy_id 深链（仅真实策略 id；__new__ 与关闭都清掉）。
+  // Sync the policy_id deep link on detail open/close (only real ids; '__new__'
+  // and close both clear it).
+  const syncPolicySelection = useCallback(
+    (key: number | '__new__' | null) => {
+      onSelectPolicy?.(typeof key === 'number' ? key : null);
+    },
+    [onSelectPolicy],
+  );
 
   // 表单有改动时关闭、切行都走未保存确认。
   // Closing or switching rows with a dirty form goes through the unsaved-changes confirmation.
@@ -112,16 +152,23 @@ export function PoliciesPanel({
       }
       setEditKey(key);
       setDiscardTarget(null);
+      syncPolicySelection(key);
     },
-    [formDirty, editKey],
+    [formDirty, editKey, syncPolicySelection],
   );
 
   const discardAndCommit = useCallback(() => {
     const target = discardTarget;
     setDiscardTarget(null);
     setFormDirty(false);
-    setEditKey(target && target !== 'close' ? target : null);
-  }, [discardTarget]);
+    if (target && typeof target === 'object') {
+      onViewRecords?.(target.recordsFor);
+      return;
+    }
+    const next = target && target !== 'close' ? target : null;
+    setEditKey(next);
+    syncPolicySelection(next);
+  }, [discardTarget, onViewRecords, syncPolicySelection]);
 
   useEffect(() => {
     if (!formDirty) {
@@ -175,6 +222,37 @@ export function PoliciesPanel({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // policy_id 深链：列表加载完成后打开对应详情（同 report_id / group_id 的
+  // deep-link 语义）。requestEdit 内部会处理脏表单拦截，不在列表里的 id
+  // 静默忽略。
+  // policy_id deep link: once the list loads, open the matching detail (same
+  // semantics as report_id / group_id). requestEdit still intercepts dirty
+  // forms; ids outside the list are ignored silently.
+  const focusedRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (loading || !focusPolicyId || focusPolicyId === focusedRef.current) {
+      return;
+    }
+    if (policies.some((p) => p.id === focusPolicyId)) {
+      focusedRef.current = focusPolicyId;
+      requestEdit(focusPolicyId);
+    }
+  }, [loading, focusPolicyId, policies, requestEdit]);
+
+  // 「查看触发记录」：脏表单先挂起跳转，复用 discardTarget 确认流。
+  // "View trigger records": suspend the navigation behind the discard dialog
+  // when the form is dirty.
+  const requestViewRecords = useCallback(
+    (policyId: number) => {
+      if (formDirty && editKey !== null) {
+        setDiscardTarget({recordsFor: policyId});
+        return;
+      }
+      onViewRecords?.(policyId);
+    },
+    [formDirty, editKey, onViewRecords],
+  );
 
   const scopeLabel = useCallback(
     (policy: InspectionAutoPolicy) =>
@@ -308,9 +386,10 @@ export function PoliciesPanel({
       toast.success(t('deleteSuccess'));
       setEditKey(null);
       setFormDirty(false);
+      syncPolicySelection(null);
       await load();
     },
-    [load, t],
+    [load, t, syncPolicySelection],
   );
 
   const defaultClusterId =
@@ -329,6 +408,7 @@ export function PoliciesPanel({
   return (
     <div className={layout.page} style={{overflowY: 'auto'}}>
       <div className={layout.toolbar}>
+        {viewSwitch}
         <SegmentedControl
           label={t('statusLabel')}
           value={statusFilter}
@@ -354,6 +434,11 @@ export function PoliciesPanel({
             }}
           />
         </div>
+        <DiagnosticsClusterFilter
+          value={clusterId}
+          clusterOptions={clusterOptions}
+          onChange={onClusterChange}
+        />
         <div className={layout.toolbarRight}>
           <Button
             type='button'
@@ -421,8 +506,8 @@ export function PoliciesPanel({
             <div className={layout.rowHead} aria-hidden>
               <span>{t('nameLabel')}</span>
               <span>{t('clusterLabel')}</span>
-              <span>{t('conditionsLabel')}</span>
-              <span>{t('autoBundleColumn')}</span>
+              <span>{t('lastTriggeredColumn')}</span>
+              <span className={layout.right}>{t('triggers7dColumn')}</span>
               <span className={layout.right}>{t('enabledLabel')}</span>
             </div>
             <div className={layout.tableScroll}>
@@ -463,6 +548,9 @@ export function PoliciesPanel({
                         </Badge>
                       ) : null}
                     </div>
+                    {/* 失效原因优先于行为句——先解释「为什么不会跑」再看条件。
+                        The invalid reason outranks the behavior sentence —
+                        explain why it won't run before the conditions. */}
                     {p.invalid_reason ? (
                       <span
                         className={cn(layout.sub, layout.dangerText)}
@@ -470,24 +558,42 @@ export function PoliciesPanel({
                       >
                         {invalidReasonText(p)}
                       </span>
-                    ) : null}
+                    ) : (
+                      <span
+                        className={layout.sub}
+                        title={describePolicySentence(p, {
+                          templates,
+                          ruleCatalog,
+                          clusterOptions,
+                          t,
+                        })}
+                      >
+                        {describePolicySentence(p, {
+                          templates,
+                          ruleCatalog,
+                          clusterOptions,
+                          t,
+                        })}
+                      </span>
+                    )}
                   </div>
                   <NeutralChip title={scopeLabel(p)}>
                     {scopeLabel(p)}
                   </NeutralChip>
+                  {/* 触发统计来自后端聚合（最近一次 + 7 天计数），未触发显示 —。
+                      Trigger stats come from backend aggregates (latest + 7d
+                      count); untriggered policies show —. */}
                   <span className={layout.sub}>
-                    {t('conditionsSummary', {
-                      count: (p.conditions || []).length,
-                      minutes: p.cooldown_minutes,
-                    })}
+                    {p.last_triggered_at
+                      ? formatAgo(
+                          minutesAgo(p.last_triggered_at),
+                          tMonitoring,
+                        )
+                      : '—'}
                   </span>
-                  <span className={layout.sub}>
-                    {p.auto_create_task
-                      ? t('autoBundleSummary', {
-                          mode: p.auto_start_task
-                            ? t('autoBundleModeCreateAndStart')
-                            : t('autoBundleModeCreateOnly'),
-                        })
+                  <span className={cn(layout.sub, layout.right)}>
+                    {(p.trigger_count_7d ?? 0) > 0
+                      ? t('triggers7dValue', {count: p.trigger_count_7d ?? 0})
                       : '—'}
                   </span>
                   <div className={layout.rowActions}>
@@ -553,6 +659,11 @@ export function PoliciesPanel({
                 onDelete={
                   editingPolicy
                     ? () => deletePolicy(editingPolicy.id)
+                    : undefined
+                }
+                onViewRecords={
+                  drawerPolicy
+                    ? () => requestViewRecords(drawerPolicy.id)
                     : undefined
                 }
                 onSaved={() => {

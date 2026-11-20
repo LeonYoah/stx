@@ -15,11 +15,7 @@
  * limitations under the License.
  */
 
-export type DiagnosticsTabKey =
-  | 'errors'
-  | 'inspections'
-  | 'policies'
-  | 'memories';
+export type DiagnosticsTabKey = 'errors' | 'inspections' | 'memories';
 export type DiagnosticsInspectionReportStatus =
   | 'pending'
   | 'running'
@@ -185,6 +181,8 @@ export interface DiagnosticsInspectionReport {
   created_at: string;
   updated_at: string;
   auto_trigger_reason?: string;
+  /** 触发本报告的自动巡检策略 ID；手动巡检为 0 或缺省。Auto policy that triggered this report; 0/absent for manual runs. */
+  auto_policy_id?: number;
   cluster_name?: string;
 }
 
@@ -226,6 +224,8 @@ export interface DiagnosticsInspectionReportListParams {
   cluster_id?: number;
   status?: DiagnosticsInspectionReportStatus;
   trigger_source?: DiagnosticsInspectionTriggerSource;
+  /** 只列出该自动巡检策略触发的报告。Restrict the list to reports triggered by one auto policy. */
+  auto_policy_id?: number;
   severity?: DiagnosticsInspectionFindingSeverity;
   start_time?: string;
   end_time?: string;
@@ -555,6 +555,10 @@ export interface InspectionAutoPolicy {
   invalid_reason: string;
   /** 失效的具体取值（旧条件模板码等），翻译文案插值用 / Offending value for i18n interpolation. */
   invalid_detail?: string;
+  /** 最近一次触发时间；从未触发为 null/缺省（仅列表接口返回）。Latest trigger time; null when never fired (list endpoint only). */
+  last_triggered_at?: string | null;
+  /** 近 7 天触发次数（仅列表接口返回）。Trigger count within the last 7 days (list endpoint only). */
+  trigger_count_7d?: number;
   created_at: string;
   updated_at: string;
 }

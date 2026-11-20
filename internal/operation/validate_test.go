@@ -241,6 +241,23 @@ func TestMonitoringReadOperationsExposeSupportedFilters(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsInspectionListExposesAutoPolicyFilter(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+	spec, exists := byID["diagnostics.inspection.list"]
+	require.True(t, exists)
+	queryNames := make([]string, 0, len(spec.Input))
+	for _, input := range spec.Input {
+		if input.Location == InputQuery {
+			queryNames = append(queryNames, input.Name)
+		}
+	}
+	require.Contains(t, queryNames, "auto_policy_id")
+	require.Contains(t, queryNames, "trigger_source")
+}
+
 func TestRegistryContainsClusterWriteOperations(t *testing.T) {
 	byID := make(map[string]OperationSpec)
 	for _, spec := range Registry() {

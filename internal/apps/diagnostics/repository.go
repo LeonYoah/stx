@@ -572,6 +572,9 @@ func applyInspectionReportFilters(query *gorm.DB, filter *ClusterInspectionRepor
 	if triggerSource := strings.TrimSpace(string(filter.TriggerSource)); triggerSource != "" {
 		query = query.Where("trigger_source = ?", triggerSource)
 	}
+	if filter.AutoPolicyID > 0 {
+		query = query.Where("auto_policy_id = ?", filter.AutoPolicyID)
+	}
 	if severity := strings.TrimSpace(string(filter.Severity)); severity != "" {
 		findingQuery := query.Session(&gorm.Session{NewDB: true}).
 			Model(&ClusterInspectionFinding{}).

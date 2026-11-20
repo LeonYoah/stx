@@ -18,14 +18,17 @@
 'use client';
 
 /**
- * 巡检面板：状态分段（服务端筛选，无分桶计数）+ 严重度下拉 + TableCard 列表 +
- * 常驻详情栏 / 抽屉，与错误面板、巡检策略面板同款布局；report_id 随 URL 深链；
- * 当前页存在 pending / running 报告时每 5s 静默刷新。
- * Inspection panel: status segments (server-side, no bucket counts) + severity
- * select + TableCard list + persistent rail / drawer, same layout as the
- * errors and policies panels; report_id stays deep-linked via the URL; the
- * list silently refreshes every 5s while the current page has pending /
- * running reports.
+ * 巡检面板：「巡检记录 | 自动巡检」分段视图。记录视图 = 状态分段（服务端筛选，
+ * 无分桶计数）+ 严重度下拉 + 集群 Combobox + TableCard 列表 + 常驻详情栏 /
+ * 抽屉；自动视图复用 PoliciesPanel。report_id / policy_id / auto_policy_id /
+ * view 均随 URL 深链；当前页存在 pending / running 报告时每 5s 静默刷新；
+ * 策略表单脏时切视图走未保存确认。
+ * Inspections panel: a "records | auto" segmented view. The records view keeps
+ * status segments (server-side, no bucket counts) + severity select + cluster
+ * Combobox + TableCard list + persistent rail / drawer; the auto view reuses
+ * PoliciesPanel. report_id / policy_id / auto_policy_id / view stay deep-linked
+ * via the URL; the list silently refreshes every 5s while pending / running
+ * reports remain; switching views with a dirty policy form confirms first.
  */
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
@@ -46,6 +49,8 @@ import type {
   DiagnosticsTask,
 } from '@/lib/services/diagnostics';
 import {cn} from '@/lib/utils';
+import {DiagnosticsClusterFilter} from '../DiagnosticsClusterFilter';
+import {PoliciesPanel} from '../policies/PoliciesPanel';
 import {InspectionReportDetail} from './InspectionReportDetail';
 import {StartInspectionDialog} from './StartInspectionDialog';
 import {
@@ -57,11 +62,15 @@ import {
 import {formatErrorDateTime} from '../errors/error-utils';
 import {localizeDiagnosticsText} from '../text-utils';
 import {DetailHost, useDetailNarrow} from '@/components/common/layout';
+import {DirtyCloseDialog} from '@/components/common/layout';
 import {NeutralChip, SoftChip} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 
 const PAGE_SIZE = 20;
 const AUTO_REFRESH_MS = 5000;
+const AUTO_POLICIES_FETCH_SIZE = 100;
+
+export type InspectionsView = 'records' | 'auto';
 
 export interface InspectionsPanelProps {
   /** 工作台所选集群：列表按集群预过滤，也是「发起巡检」的目标集群。Selected workspace cluster; pre-filters the list and is the target of "run inspection". */
@@ -70,6 +79,23 @@ export interface InspectionsPanelProps {
   /** URL 深链的目标巡检报告。Deep-linked inspection report id from the URL. */
   reportId?: number;
   onSelectReport?: (reportId: number | null) => void;
+  /** 工具栏集群筛选变化时回填 cluster_id。Writes cluster_id back through the toolbar filter. */
+  onClusterChange?: (clusterId: number | undefined) => void;
+  /** 当前分段视图（records | auto），由工作台按 URL view 解析。Current segment, resolved from the URL view param. */
+  view?: InspectionsView;
+  onViewChange?: (view: InspectionsView) => void;
+  /** URL 深链的目标自动巡检策略（auto 视图详情）。Deep-linked auto policy id for the auto view. */
+  policyId?: number;
+  onSelectPolicy?: (policyId: number | null) => void;
+  /** 记录视图的 auto_policy_id 过滤。Records view auto_policy_id filter. */
+  autoPolicyId?: number;
+  onAutoPolicyFilter?: (policyId: number | null) => void;
+  /** 「自动 · 规则名」徽章点击：跳到自动视图并打开策略。Auto chip click: jump to the auto view and open the policy. */
+  onOpenPolicy?: (policyId: number) => void;
+  /** 策略详情「查看触发记录」：回记录视图并应用 auto_policy_id。Policy detail "view trigger records": back to records filtered by the policy. */
+  onViewPolicyRecords?: (policyId: number) => void;
+  /** 向工作台上报策略表单脏态（顶层标签切换拦截用）。Reports policy-form dirty state for top-level tab interception. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export function InspectionsPanel({
@@ -77,6 +103,16 @@ export function InspectionsPanel({
   clusterOptions,
   reportId,
   onSelectReport,
+  onClusterChange,
+  view = 'records',
+  onViewChange,
+  policyId,
+  onSelectPolicy,
+  autoPolicyId,
+  onAutoPolicyFilter,
+  onOpenPolicy,
+  onViewPolicyRecords,
+  onDirtyChange,
 }: InspectionsPanelProps) {
   const t = useTranslations('diagnosticsCenter.inspections');
   const commonT = useTranslations('common');
@@ -91,6 +127,17 @@ export function InspectionsPanel({
   const [error, setError] = useState<string | null>(null);
   const [reports, setReports] = useState<DiagnosticsInspectionReport[]>([]);
   const [reportTotal, setReportTotal] = useState(0);
+  // 自动策略 id → 名称映射：记录行的「自动 · 规则名」徽章与 auto_policy_id
+  // 过滤徽章共用，只在进入本面板时拉一次。
+  // Auto policy id -> name map shared by the "auto · <name>" row chip and the
+  // auto_policy_id filter badge; fetched once on panel mount.
+  const [policyNames, setPolicyNames] = useState<Map<number, string>>(
+    new Map(),
+  );
+  // 策略表单脏态（auto 视图上报）+ 切视图拦截目标。Dirty policy form reported
+  // by the auto view plus the suspended target of a view switch.
+  const [policiesDirty, setPoliciesDirty] = useState(false);
+  const [pendingView, setPendingView] = useState<InspectionsView | null>(null);
 
   const [selectedReportId, setSelectedReportId] = useState<number | null>(
     reportId ?? null,
@@ -130,6 +177,7 @@ export function InspectionsPanel({
           cluster_id: clusterId,
           status: statusFilter !== 'all' ? statusFilter : undefined,
           severity: severityFilter !== 'all' ? severityFilter : undefined,
+          auto_policy_id: autoPolicyId,
           page,
           page_size: PAGE_SIZE,
         });
@@ -156,7 +204,7 @@ export function InspectionsPanel({
         }
       }
     },
-    [clusterId, page, severityFilter, statusFilter, t],
+    [autoPolicyId, clusterId, page, severityFilter, statusFilter, t],
   );
 
   const loadReportDetail = useCallback(
@@ -193,6 +241,65 @@ export function InspectionsPanel({
   useEffect(() => {
     void loadReports();
   }, [loadReports]);
+
+  // 面板挂载时拉一次策略列表，只为徽章取名字（auto 视图自带独立拉取）。
+  // Fetch the policy list once on mount — only the chips need names here; the
+  // auto view loads its own copy.
+  useEffect(() => {
+    let active = true;
+    void services.diagnostics
+      .listAutoPoliciesSafe({page_size: AUTO_POLICIES_FETCH_SIZE})
+      .then((result) => {
+        if (!active || !result.success || !result.data) {
+          return;
+        }
+        setPolicyNames(
+          new Map(
+            (result.data.items || []).map((policy) => [
+              policy.id,
+              policy.name,
+            ]),
+          ),
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // 策略表单脏态上抛给工作台（顶层标签拦截）；视图切换本身在 requestView 里拦截。
+  // Policy-form dirty state is forwarded to the workspace for tab interception;
+  // view switches are intercepted locally in requestView.
+  useEffect(() => {
+    onDirtyChange?.(policiesDirty);
+  }, [policiesDirty, onDirtyChange]);
+
+  const reportPoliciesDirty = useCallback((dirty: boolean) => {
+    setPoliciesDirty(dirty);
+  }, []);
+
+  const requestView = useCallback(
+    (next: InspectionsView) => {
+      if (next === view) {
+        return;
+      }
+      if (policiesDirty) {
+        setPendingView(next);
+        return;
+      }
+      onViewChange?.(next);
+    },
+    [view, policiesDirty, onViewChange],
+  );
+
+  const commitPendingView = useCallback(() => {
+    const target = pendingView;
+    setPendingView(null);
+    setPoliciesDirty(false);
+    if (target) {
+      onViewChange?.(target);
+    }
+  }, [pendingView, onViewChange]);
 
   // URL 深链：外部传入 report_id 时打开对应详情。
   // Deep link: an external report_id opens that report's detail.
@@ -313,11 +420,41 @@ export function InspectionsPanel({
     }
   };
 
-  const filtersActive = statusFilter !== 'all' || severityFilter !== 'all';
+  const filtersActive =
+    statusFilter !== 'all' || severityFilter !== 'all' || autoPolicyId != null;
+  const resetAllFilters = useCallback(() => {
+    setStatusFilter('all');
+    setSeverityFilter('all');
+    onAutoPolicyFilter?.(null);
+    setPage(1);
+  }, [onAutoPolicyFilter]);
   const seg = (key: InspectionStatusFilter, label: string) => ({
     value: key,
     label,
   });
+
+  // 策略名展示：优先映射表命中，退化 #id（策略可能已被删除）。
+  // Policy display name: map hit first, #id fallback for deleted policies.
+  const policyLabel = useCallback(
+    (id: number) => policyNames.get(id) ?? `#${id}`,
+    [policyNames],
+  );
+
+  // 分段切换同一 layoutGroup：记录 / 自动两处挂载点共享过渡（同通知面板）。
+  // Shared layoutGroup gives the records / auto mount points one morph
+  // transition, mirroring the notify panel.
+  const viewSwitch = (
+    <SegmentedControl
+      label={t('viewLabel')}
+      value={view}
+      onValueChange={(v) => requestView(v as InspectionsView)}
+      layoutGroup='diagnostics-view'
+      options={[
+        {value: 'records', label: t('viewRecords')},
+        {value: 'auto', label: t('viewAuto')},
+      ]}
+    />
+  );
 
   const startButton = (
     <Button
@@ -332,9 +469,32 @@ export function InspectionsPanel({
     </Button>
   );
 
+  if (view === 'auto') {
+    return (
+      <>
+        <PoliciesPanel
+          clusterId={clusterId}
+          clusterOptions={clusterOptions}
+          onDirtyChange={reportPoliciesDirty}
+          viewSwitch={viewSwitch}
+          focusPolicyId={policyId}
+          onSelectPolicy={onSelectPolicy}
+          onViewRecords={onViewPolicyRecords}
+          onClusterChange={onClusterChange}
+        />
+        <DirtyCloseDialog
+          open={pendingView !== null}
+          onDiscard={commitPendingView}
+          onKeepEditing={() => setPendingView(null)}
+        />
+      </>
+    );
+  }
+
   return (
     <div className={layout.page} style={{overflowY: 'auto'}}>
       <div className={layout.toolbar}>
+        {viewSwitch}
         <SegmentedControl
           label={t('filters.status')}
           value={statusFilter}
@@ -369,16 +529,31 @@ export function InspectionsPanel({
             ]}
           />
         </div>
+        <DiagnosticsClusterFilter
+          value={clusterId}
+          clusterOptions={clusterOptions}
+          onChange={onClusterChange}
+        />
+        {autoPolicyId ? (
+          <SoftChip tone='blue' className='gap-1'>
+            {t('policyFilterChip', {name: policyLabel(autoPolicyId)})}
+            <button
+              type='button'
+              aria-label={commonT('clearFilters')}
+              className='inline-flex items-center'
+              onClick={() => onAutoPolicyFilter?.(null)}
+              data-testid='inspection-policy-filter-clear'
+            >
+              <X className='size-3' aria-hidden />
+            </button>
+          </SoftChip>
+        ) : null}
         {filtersActive ? (
           <Button
             type='button'
             size='sm'
             variant='ghost'
-            onClick={() => {
-              setStatusFilter('all');
-              setSeverityFilter('all');
-              setPage(1);
-            }}
+            onClick={resetAllFilters}
           >
             <X className='size-3' aria-hidden />
             {t('resetFilters')}
@@ -442,11 +617,7 @@ export function InspectionsPanel({
                       type='button'
                       size='sm'
                       variant='secondary'
-                      onClick={() => {
-                        setStatusFilter('all');
-                        setSeverityFilter('all');
-                        setPage(1);
-                      }}
+                      onClick={resetAllFilters}
                     >
                       {commonT('clearFilters')}
                     </Button>
@@ -481,11 +652,35 @@ export function InspectionsPanel({
                   <span className={cn(layout.sub, 'font-mono')}>
                     #{report.id}
                   </span>
-                  <NeutralChip
-                    title={t(`trigger.${report.trigger_source}`)}
-                  >
-                    {t(`trigger.${report.trigger_source}`)}
-                  </NeutralChip>
+                  {report.trigger_source === 'auto' && report.auto_policy_id ? (
+                    /* 自动触发的报告挂「自动 · 规则名」徽章，点击直达该策略详情。
+                       Auto-triggered reports show an "auto · <policy>" chip that
+                       jumps straight to the policy detail. */
+                    <button
+                      type='button'
+                      className={layout.chipBtn}
+                      title={t('trigger.autoChip', {
+                        name: policyLabel(report.auto_policy_id),
+                      })}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenPolicy?.(report.auto_policy_id as number);
+                      }}
+                      data-testid={`inspection-auto-chip-${report.id}`}
+                    >
+                      <SoftChip tone='blue'>
+                        {t('trigger.autoChip', {
+                          name: policyLabel(report.auto_policy_id),
+                        })}
+                      </SoftChip>
+                    </button>
+                  ) : (
+                    <NeutralChip
+                      title={t(`trigger.${report.trigger_source}`)}
+                    >
+                      {t(`trigger.${report.trigger_source}`)}
+                    </NeutralChip>
+                  )}
                   <SoftChip tone={inspectionStatusTone(report.status)}>
                     {t(`status.${report.status}`)}
                   </SoftChip>
@@ -592,6 +787,12 @@ export function InspectionsPanel({
         open={startDialogOpen}
         onOpenChange={setStartDialogOpen}
         onStarted={handleInspectionStarted}
+      />
+
+      <DirtyCloseDialog
+        open={pendingView !== null}
+        onDiscard={commitPendingView}
+        onKeepEditing={() => setPendingView(null)}
       />
     </div>
   );

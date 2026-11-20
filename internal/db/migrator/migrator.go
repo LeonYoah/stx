@@ -190,6 +190,13 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		return fmt.Errorf("migrate legacy remote alerts failed: %w", err)
 	}
 
+	// 回填存量自动触发巡检报告的 auto_policy_id（历史只靠 auto_trigger_reason 前缀归因）。
+	// Backfill auto_policy_id on stored auto-triggered inspection reports (history only
+	// carried attribution inside the auto_trigger_reason prefix).
+	if err := backfillDiagnosticsReportAutoPolicyIDs(database); err != nil {
+		return fmt.Errorf("backfill diagnostics report auto policy ids failed: %w", err)
+	}
+
 	// 告警模型收拢：一次性把遗留非作业告警策略 / 旧规则行 / 通知路由迁移进集群规则目录
 	// 配置表（旧行不删，只置非作业策略 Enabled=false）。
 	// Alert-model consolidation: one-time fold of legacy non-job policies, legacy rule rows and

@@ -41,6 +41,7 @@ import type {
   DiagnosticsErrorEvent,
 } from '@/lib/services/diagnostics';
 import {cn} from '@/lib/utils';
+import {DiagnosticsClusterFilter} from '../DiagnosticsClusterFilter';
 import {ErrorGroupDetail} from './ErrorGroupDetail';
 import {
   formatErrorDateTime,
@@ -63,6 +64,8 @@ export interface ErrorsPanelProps {
   /** URL 深链的目标错误组。Deep-linked error group id from the URL. */
   groupId?: number;
   onSelectGroup?: (groupId: number | null) => void;
+  /** 工具栏集群筛选变化时回填 cluster_id。Writes cluster_id back through the toolbar filter. */
+  onClusterChange?: (clusterId: number | undefined) => void;
 }
 
 export function ErrorsPanel({
@@ -70,6 +73,7 @@ export function ErrorsPanel({
   clusterOptions,
   groupId,
   onSelectGroup,
+  onClusterChange,
 }: ErrorsPanelProps) {
   const t = useTranslations('diagnosticsCenter.errors');
   const tsT = useTranslations('troubleshooting');
@@ -328,6 +332,11 @@ export function ErrorsPanel({
             }}
           />
         </div>
+        <DiagnosticsClusterFilter
+          value={clusterId}
+          clusterOptions={clusterOptions}
+          onChange={onClusterChange}
+        />
         <div className={layout.toolbarRight}>
           <Button
             type='button'

@@ -893,6 +893,10 @@ func parseInspectionReportFilter(c *gin.Context) (*ClusterInspectionReportFilter
 	if err != nil {
 		return nil, err
 	}
+	autoPolicyID, err := parseOptionalUint(c.Query("auto_policy_id"))
+	if err != nil {
+		return nil, err
+	}
 	page, err := parseOptionalInt(c.Query("page"), 1)
 	if err != nil {
 		return nil, err
@@ -914,6 +918,7 @@ func parseInspectionReportFilter(c *gin.Context) (*ClusterInspectionReportFilter
 		ClusterID:     clusterID,
 		Status:        InspectionReportStatus(strings.TrimSpace(c.Query("status"))),
 		TriggerSource: InspectionTriggerSource(strings.TrimSpace(c.Query("trigger_source"))),
+		AutoPolicyID:  autoPolicyID,
 		Severity:      InspectionFindingSeverity(strings.TrimSpace(c.Query("severity"))),
 		StartTime:     startTime,
 		EndTime:       endTime,

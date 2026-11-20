@@ -38,6 +38,9 @@ const getTaskSafe = vi.hoisted(() => vi.fn());
 const listResourcesSafe = vi.hoisted(() => vi.fn());
 const startInspectionSafe = vi.hoisted(() => vi.fn());
 const createTaskSafe = vi.hoisted(() => vi.fn());
+const listAutoPoliciesSafe = vi.hoisted(() => vi.fn());
+const listBuiltinConditionTemplatesSafe = vi.hoisted(() => vi.fn());
+const getAlertRuleCatalogSafe = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/services', () => ({
   default: {
     diagnostics: {
@@ -47,8 +50,13 @@ vi.mock('@/lib/services', () => ({
       listResourcesSafe,
       startInspectionSafe,
       createTaskSafe,
+      listAutoPoliciesSafe,
+      listBuiltinConditionTemplatesSafe,
       getTaskHTMLUrl: (id: number) => `/tasks/${id}/html`,
       getTaskBundleUrl: (id: number) => `/tasks/${id}/bundle`,
+    },
+    monitoring: {
+      getAlertRuleCatalogSafe,
     },
   },
 }));
@@ -128,6 +136,14 @@ function renderPanel(props?: {
   clusterId?: number;
   reportId?: number;
   onSelectReport?: (id: number | null) => void;
+  view?: 'records' | 'auto';
+  onViewChange?: (view: 'records' | 'auto') => void;
+  policyId?: number;
+  onSelectPolicy?: (id: number | null) => void;
+  autoPolicyId?: number;
+  onAutoPolicyFilter?: (id: number | null) => void;
+  onOpenPolicy?: (id: number) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   return render(
     <NextIntlClientProvider locale='zh' messages={zh}>
@@ -136,6 +152,14 @@ function renderPanel(props?: {
         clusterOptions={clusterOptions}
         reportId={props?.reportId}
         onSelectReport={props?.onSelectReport}
+        view={props?.view}
+        onViewChange={props?.onViewChange}
+        policyId={props?.policyId}
+        onSelectPolicy={props?.onSelectPolicy}
+        autoPolicyId={props?.autoPolicyId}
+        onAutoPolicyFilter={props?.onAutoPolicyFilter}
+        onOpenPolicy={props?.onOpenPolicy}
+        onDirtyChange={props?.onDirtyChange}
       />
     </NextIntlClientProvider>,
   );
@@ -174,6 +198,18 @@ describe('InspectionsPanel', () => {
     });
     mockDetail(1);
     listResourcesSafe.mockResolvedValue({success: true, data: []});
+    listAutoPoliciesSafe.mockResolvedValue({
+      success: true,
+      data: {
+        items: [{id: 7, name: '夜间巡检', cluster_id: 1, enabled: true}],
+        total: 1,
+      },
+    });
+    listBuiltinConditionTemplatesSafe.mockResolvedValue({
+      success: true,
+      data: [],
+    });
+    getAlertRuleCatalogSafe.mockResolvedValue({success: true, data: []});
   });
 
   afterEach(() => {
@@ -386,5 +422,83 @@ describe('InspectionsPanel', () => {
     });
     fireEvent.click(screen.getByRole('button', {name: '重试'}));
     expect(await screen.findByTestId('inspection-row-1')).toBeVisible();
+  });
+
+  it('renders the auto-trigger chip with the policy name and opens the policy', async () => {
+    getInspectionReportsSafe.mockResolvedValue({
+      success: true,
+      data: {
+        items: [
+          report({id: 5, trigger_source: 'auto', auto_policy_id: 7}),
+          report({id: 6, trigger_source: 'auto'}),
+        ],
+        total: 2,
+        page: 1,
+        page_size: 20,
+      },
+    });
+    const onOpenPolicy = vi.fn();
+    renderPanel({onOpenPolicy});
+    const chip = await screen.findByTestId('inspection-auto-chip-5');
+    await waitFor(() => expect(chip).toHaveTextContent('自动 · 夜间巡检'));
+    // 无归属策略 id 的自动报告退回普通触发徽章。
+    // Auto reports without a policy id keep the plain trigger chip.
+    expect(screen.queryByTestId('inspection-auto-chip-6')).toBeNull();
+    fireEvent.click(chip);
+    expect(onOpenPolicy).toHaveBeenCalledWith(7);
+    // 点徽章不触发行选中。Chip clicks must not select the row.
+    expect(getInspectionReportDetailSafe).not.toHaveBeenCalled();
+  });
+
+  it('sends auto_policy_id server-side and shows a removable filter badge', async () => {
+    const onAutoPolicyFilter = vi.fn();
+    renderPanel({autoPolicyId: 7, onAutoPolicyFilter});
+    await waitFor(() =>
+      expect(getInspectionReportsSafe).toHaveBeenCalledWith(
+        expect.objectContaining({auto_policy_id: 7}),
+      ),
+    );
+    await screen.findByTestId('inspection-row-1');
+    expect(await screen.findByText('触发规则：夜间巡检')).toBeVisible();
+    fireEvent.click(screen.getByTestId('inspection-policy-filter-clear'));
+    expect(onAutoPolicyFilter).toHaveBeenCalledWith(null);
+  });
+
+  it('switches to the auto view through the segment callback', async () => {
+    const onViewChange = vi.fn();
+    renderPanel({onViewChange});
+    await screen.findByTestId('inspection-row-1');
+    fireEvent.click(screen.getByRole('button', {name: '自动巡检'}));
+    expect(onViewChange).toHaveBeenCalledWith('auto');
+  });
+
+  it('renders the policies view when view=auto', async () => {
+    renderPanel({view: 'auto'});
+    // 自动视图渲染策略列表（来自 PoliciesPanel），分段仍留在工具栏。
+    // The auto view renders the policy list (PoliciesPanel) while the view
+    // segment stays in the toolbar.
+    expect(await screen.findByTestId('policy-row-7')).toBeVisible();
+    expect(screen.getByRole('button', {name: '巡检记录'})).toBeVisible();
+    expect(screen.getByTestId('policy-create')).toBeVisible();
+  });
+
+  it('intercepts a view switch while the policy form is dirty', async () => {
+    const onViewChange = vi.fn();
+    const onDirtyChange = vi.fn();
+    renderPanel({view: 'auto', onViewChange, onDirtyChange});
+    fireEvent.click(await screen.findByTestId('policy-row-7'));
+    await screen.findByTestId('detail-rail');
+    // 改名称产生脏态，再点「巡检记录」→ 未保存确认拦截。
+    // Edit the name to go dirty, then pick "巡检记录" → the unsaved dialog
+    // intercepts the switch.
+    fireEvent.change(screen.getByLabelText('策略名称'), {
+      target: {value: 'renamed'},
+    });
+    await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));
+    fireEvent.click(screen.getByRole('button', {name: '巡检记录'}));
+    expect(onViewChange).not.toHaveBeenCalled();
+    expect(await screen.findByTestId('discard-confirm-dialog')).toBeVisible();
+    fireEvent.click(screen.getByTestId('discard-confirm-action'));
+    expect(onViewChange).toHaveBeenCalledWith('records');
   });
 });

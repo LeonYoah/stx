@@ -103,10 +103,14 @@ type ClusterInspectionReport struct {
 	WarningCount      int                     `json:"warning_count" gorm:"default:0"`
 	InfoCount         int                     `json:"info_count" gorm:"default:0"`
 	AutoTriggerReason string                  `json:"auto_trigger_reason" gorm:"size:200"`
-	StartedAt         *time.Time              `json:"started_at" gorm:"index"`
-	FinishedAt        *time.Time              `json:"finished_at" gorm:"index"`
-	CreatedAt         time.Time               `json:"created_at" gorm:"autoCreateTime;index"`
-	UpdatedAt         time.Time               `json:"updated_at" gorm:"autoUpdateTime"`
+	// AutoPolicyID 记录触发本报告的自动巡检策略 ID；手动巡检为 0。存量数据由迁移回填。
+	// AutoPolicyID identifies the auto-inspection policy that triggered this report;
+	// manual inspections keep 0. Historical rows are backfilled by the migrator.
+	AutoPolicyID uint       `json:"auto_policy_id" gorm:"index;not null;default:0"`
+	StartedAt    *time.Time `json:"started_at" gorm:"index"`
+	FinishedAt   *time.Time `json:"finished_at" gorm:"index"`
+	CreatedAt    time.Time  `json:"created_at" gorm:"autoCreateTime;index"`
+	UpdatedAt    time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName specifies the table name for ClusterInspectionReport.
@@ -145,14 +149,17 @@ func (ClusterInspectionFinding) TableName() string {
 // ClusterInspectionReportFilter defines list filters for inspection reports.
 // ClusterInspectionReportFilter 定义巡检报告列表过滤条件。
 type ClusterInspectionReportFilter struct {
-	ClusterID     uint                      `json:"cluster_id"`
-	Status        InspectionReportStatus    `json:"status"`
-	TriggerSource InspectionTriggerSource   `json:"trigger_source"`
-	Severity      InspectionFindingSeverity `json:"severity"`
-	StartTime     *time.Time                `json:"start_time"`
-	EndTime       *time.Time                `json:"end_time"`
-	Page          int                       `json:"page"`
-	PageSize      int                       `json:"page_size"`
+	ClusterID     uint                    `json:"cluster_id"`
+	Status        InspectionReportStatus  `json:"status"`
+	TriggerSource InspectionTriggerSource `json:"trigger_source"`
+	// AutoPolicyID 非零时只列出该自动巡检策略触发的报告。
+	// AutoPolicyID limits the list to reports triggered by that policy when non-zero.
+	AutoPolicyID uint                      `json:"auto_policy_id"`
+	Severity     InspectionFindingSeverity `json:"severity"`
+	StartTime    *time.Time                `json:"start_time"`
+	EndTime      *time.Time                `json:"end_time"`
+	Page         int                       `json:"page"`
+	PageSize     int                       `json:"page_size"`
 }
 
 // ClusterInspectionFindingFilter defines list filters for inspection findings.
@@ -197,6 +204,7 @@ type ClusterInspectionReportInfo struct {
 	WarningCount      int                     `json:"warning_count"`
 	InfoCount         int                     `json:"info_count"`
 	AutoTriggerReason string                  `json:"auto_trigger_reason,omitempty"`
+	AutoPolicyID      uint                    `json:"auto_policy_id,omitempty"`
 	StartedAt         *time.Time              `json:"started_at,omitempty"`
 	FinishedAt        *time.Time              `json:"finished_at,omitempty"`
 	CreatedAt         time.Time               `json:"created_at"`
@@ -265,6 +273,7 @@ func (r *ClusterInspectionReport) ToInfo() *ClusterInspectionReportInfo {
 		WarningCount:      r.WarningCount,
 		InfoCount:         r.InfoCount,
 		AutoTriggerReason: r.AutoTriggerReason,
+		AutoPolicyID:      r.AutoPolicyID,
 		StartedAt:         r.StartedAt,
 		FinishedAt:        r.FinishedAt,
 		CreatedAt:         r.CreatedAt,

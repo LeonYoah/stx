@@ -4100,28 +4100,20 @@
     "workspaceTitle": "Unified Diagnosis Workspace",
     "loading": "Loading diagnostics workspace...",
     "loadError": "Failed to load diagnostics center",
-    "clearContext": "Clear Context",
     "comingSoon": "{tab} will be implemented in upcoming phases.",
     "tabs": {
       "errors": "Errors",
       "inspections": "Inspections",
       "tasks": "Diagnosis Execution",
-      "memories": "Playbooks",
-      "policies": "Policies"
+      "memories": "Playbooks"
     },
     "status": {
       "planned": "Planned"
     },
     "filters": {
       "cluster": "Filter by cluster",
-      "allClusters": "All Clusters"
-    },
-    "context": {
-      "global": "Global scope",
-      "clusterScoped": "Scoped cluster: {name}",
-      "source": "Entry source: {source}",
-      "alert": "Alert: {id}",
-      "goToCluster": "Back to cluster"
+      "allClusters": "All Clusters",
+      "noClusterMatch": "No matching clusters"
     },
     "boundaries": {
       "title": "Current Boundaries"
@@ -4222,7 +4214,8 @@
         "manual": "Manual",
         "cluster_detail": "Cluster Detail",
         "diagnostics_workspace": "Diagnostics Workspace",
-        "auto": "Auto trigger"
+        "auto": "Auto trigger",
+        "autoChip": "Auto · {name}"
       },
       "actions": {
         "viewErrorGroup": "View Error Group"
@@ -4299,6 +4292,10 @@
       },
       "statusAll": "All",
       "resetFilters": "Reset",
+      "viewLabel": "View",
+      "viewRecords": "Records",
+      "viewAuto": "Auto",
+      "policyFilterChip": "Policy: {name}",
       "emptyAll": "No inspection reports yet",
       "clusterLabel": "Cluster",
       "lookbackField": "Inspection Window",
@@ -4399,6 +4396,18 @@
       "searchPlaceholder": "Search by name",
       "searchClear": "Clear search",
       "autoBundleColumn": "Auto bundle",
+      "lastTriggeredColumn": "Last triggered",
+      "triggers7dColumn": "7d triggers",
+      "triggers7dValue": "{count}",
+      "viewRecords": "View trigger records",
+      "describe": {
+        "sentence": "When {condition}, auto-inspect {scope}",
+        "cron": "on schedule {expr}",
+        "alertFiring": "alert {rules} fires",
+        "noCondition": "no enabled condition",
+        "or": "or",
+        "bundleSuffix": ", and generate a diagnostic bundle"
+      },
       "filteredEmpty": "No matching policies",
       "deletePolicy": "Delete policy",
       "deletePolicyPrompt": "This policy will no longer trigger inspections. This cannot be undone.",

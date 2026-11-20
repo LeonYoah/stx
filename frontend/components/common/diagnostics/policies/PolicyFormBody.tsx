@@ -143,6 +143,8 @@ export interface PolicyFormBodyProps {
   onCancel: () => void;
   /** 已有策略的删除入口（详情页内承载破坏性操作）。Delete entry for an existing policy. */
   onDelete?: () => Promise<void>;
+  /** 「查看触发记录」：跳到按本策略过滤的巡检记录。"View trigger records": jump to inspection records filtered by this policy. */
+  onViewRecords?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -155,6 +157,7 @@ export function PolicyFormBody({
   onSaved,
   onCancel,
   onDelete,
+  onViewRecords,
   onDirtyChange,
 }: PolicyFormBodyProps) {
   const t = useTranslations('diagnosticsCenter.autoPolicies');
@@ -902,6 +905,17 @@ export function PolicyFormBody({
         <Button type='button' size='sm' variant='ghost' onClick={onCancel}>
           {commonT('cancel')}
         </Button>
+        {policy && onViewRecords ? (
+          <Button
+            type='button'
+            size='sm'
+            variant='ghost'
+            onClick={onViewRecords}
+            data-testid='policy-view-records'
+          >
+            {t('viewRecords')}
+          </Button>
+        ) : null}
         {policy && onDelete ? (
           <>
             <span className={layout.detailFootGrow} />

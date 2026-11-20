@@ -20,6 +20,8 @@ package diagnostics
 import (
 	"context"
 	"errors"
+	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -157,16 +159,20 @@ func (r *Repository) GetLastInspectionReportForRequester(ctx context.Context, cl
 	return &report, nil
 }
 
-// UpdateInspectionReportAutoTriggerReason updates one inspection report auto-trigger reason only.
-// UpdateInspectionReportAutoTriggerReason 仅更新一条巡检报告的自动触发原因。
-func (r *Repository) UpdateInspectionReportAutoTriggerReason(ctx context.Context, reportID uint, reason string) error {
+// SetInspectionReportAutoTrigger writes the auto-policy attribution (policy id + reason)
+// onto one inspection report in a single update.
+// SetInspectionReportAutoTrigger 一次性把自动巡检归因（策略 ID 与触发原因）写入一条巡检报告。
+func (r *Repository) SetInspectionReportAutoTrigger(ctx context.Context, reportID uint, policyID uint, reason string) error {
 	if r == nil || r.db == nil {
 		return ErrDiagnosticsRepositoryUnavailable
 	}
 	result := r.db.WithContext(ctx).
 		Model(&ClusterInspectionReport{}).
 		Where("id = ?", reportID).
-		Update("auto_trigger_reason", reason)
+		Updates(map[string]interface{}{
+			"auto_policy_id":      policyID,
+			"auto_trigger_reason": reason,
+		})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -174,4 +180,94 @@ func (r *Repository) UpdateInspectionReportAutoTriggerReason(ctx context.Context
 		return ErrInspectionReportNotFound
 	}
 	return nil
+}
+
+// AutoPolicyTriggerStats aggregates trigger history for one auto policy.
+// AutoPolicyTriggerStats 汇总一条自动巡检策略的触发历史。
+type AutoPolicyTriggerStats struct {
+	LastTriggeredAt *time.Time
+	TriggerCount7d  int64
+}
+
+// ListAutoPolicyTriggerStats 按 auto_policy_id 聚合巡检报告，产出每条策略的最近触发时间
+// 与近 7 天触发次数。固定两条分组聚合查询，避免随策略数 N+1。
+// ListAutoPolicyTriggerStats aggregates inspection reports by auto_policy_id, yielding each
+// policy's last trigger time and 7-day trigger count. It runs exactly two grouped aggregate
+// queries, so the cost stays constant regardless of policy count.
+func (r *Repository) ListAutoPolicyTriggerStats(ctx context.Context) (map[uint]*AutoPolicyTriggerStats, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrDiagnosticsRepositoryUnavailable
+	}
+	stats := make(map[uint]*AutoPolicyTriggerStats)
+
+	if strings.EqualFold(r.db.Dialector.Name(), "sqlite") {
+		// SQLite 把 created_at 存成带本地偏移的文本，裸 MAX 做字典序比较不可靠；
+		// 用 julianday 取瞬时最大后由 strftime 还原为 UTC 文本。
+		// SQLite stores created_at as local-offset text, where a bare MAX compares
+		// lexicographically; MAX over julianday picks the true latest instant and
+		// strftime converts it back to UTC text.
+		type lastRow struct {
+			AutoPolicyID    uint
+			LastTriggeredAt string
+		}
+		var rows []lastRow
+		if err := r.db.WithContext(ctx).
+			Model(&ClusterInspectionReport{}).
+			Select("auto_policy_id, strftime('%Y-%m-%d %H:%M:%f', MAX(julianday(created_at))) AS last_triggered_at").
+			Where("auto_policy_id > 0").
+			Group("auto_policy_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			parsed, err := time.ParseInLocation("2006-01-02 15:04:05.999", row.LastTriggeredAt, time.UTC)
+			if err != nil {
+				continue
+			}
+			last := parsed.UTC()
+			stats[row.AutoPolicyID] = &AutoPolicyTriggerStats{LastTriggeredAt: &last}
+		}
+	} else {
+		type lastRow struct {
+			AutoPolicyID    uint
+			LastTriggeredAt time.Time
+		}
+		var rows []lastRow
+		if err := r.db.WithContext(ctx).
+			Model(&ClusterInspectionReport{}).
+			Select("auto_policy_id, MAX(created_at) AS last_triggered_at").
+			Where("auto_policy_id > 0").
+			Group("auto_policy_id").
+			Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			last := row.LastTriggeredAt
+			stats[row.AutoPolicyID] = &AutoPolicyTriggerStats{LastTriggeredAt: &last}
+		}
+	}
+
+	type countRow struct {
+		AutoPolicyID uint
+		Cnt          int64
+	}
+	var countRows []countRow
+	countQuery := r.db.WithContext(ctx).
+		Model(&ClusterInspectionReport{}).
+		Select("auto_policy_id, COUNT(*) AS cnt").
+		Where("auto_policy_id > 0").
+		Group("auto_policy_id")
+	countQuery = applyOccurredAtLowerBound(countQuery, "created_at", time.Now().Add(-7*24*time.Hour))
+	if err := countQuery.Scan(&countRows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range countRows {
+		entry, ok := stats[row.AutoPolicyID]
+		if !ok {
+			entry = &AutoPolicyTriggerStats{}
+			stats[row.AutoPolicyID] = entry
+		}
+		entry.TriggerCount7d = row.Cnt
+	}
+	return stats, nil
 }

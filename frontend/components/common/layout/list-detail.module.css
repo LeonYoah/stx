@@ -203,11 +203,12 @@
   --cols: minmax(0, 1.6fr) minmax(0, 1fr) 72px 88px 56px 56px 88px minmax(0, 1.2fr);
 }
 
-/* 诊断策略：名称 / 作用范围 / 条件摘要 / 自动诊断包 / 启用。
-   Diagnostics policies: name / scope / conditions / auto bundle / enabled. */
+/* 诊断策略：名称+行为句 / 作用范围 / 最近触发 / 7 天触发 / 启用。
+   Diagnostics policies: name+behavior sentence / scope / last triggered /
+   7d triggers / enabled. */
 
 .listCol[data-mcols='policies'] :is(.row, .rowHead) {
-  --cols: minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr) 56px;
+  --cols: minmax(0, 2.1fr) minmax(0, 0.9fr) 110px 84px 56px;
 }
 
 /* 诊断错误组：标题+摘要 / 异常类 / 来源节点 / 频次 / 最近出现。
@@ -312,6 +313,22 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* 可点击徽章的按钮复位：外观全交给内部 SoftChip。
+   Button reset for clickable chips; the inner SoftChip owns all visuals. */
+
+.chipBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.chipBtn:disabled {
+  cursor: default;
 }
 
 .right {

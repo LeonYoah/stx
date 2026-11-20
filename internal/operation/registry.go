@@ -1893,7 +1893,7 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 }`,
 		},
 		diagnosticsReadOperation("diagnostics.inspection.list", []string{"diagnostics", "inspection", "list"}, "List inspection reports", "/api/v1/diagnostics/inspections",
-			append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, {Name: "status", Location: InputQuery, Description: "Inspection status"}, {Name: "trigger_source", Location: InputQuery, Description: "Inspection trigger source"}, {Name: "severity", Location: InputQuery, Description: "Finding severity"}}, append(timeRange, append(page, lang)...)...),
+			append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, {Name: "status", Location: InputQuery, Description: "Inspection status"}, {Name: "trigger_source", Location: InputQuery, Description: "Inspection trigger source"}, {Name: "auto_policy_id", Location: InputQuery, Description: "Auto-inspection policy ID"}, {Name: "severity", Location: InputQuery, Description: "Finding severity"}}, append(timeRange, append(page, lang)...)...),
 			"stx diagnostics inspection list --cluster_id 6 --page_size 20"),
 		diagnosticsReadOperation("diagnostics.inspection.get", []string{"diagnostics", "inspection", "get"}, "Get inspection report detail", "/api/v1/diagnostics/inspections/:id", append(append([]InputSpec{}, id...), lang), "stx diagnostics inspection get 1"),
 		diagnosticsWriteOperation("diagnostics.inspection.run", []string{"diagnostics", "inspection", "run"}, "Run an inspection immediately", "POST", "/api/v1/diagnostics/inspections", RiskR1,

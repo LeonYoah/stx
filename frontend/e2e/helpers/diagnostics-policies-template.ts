@@ -45,6 +45,8 @@ type PolicyItem = {
   };
   invalid_reason: string;
   invalid_detail?: string;
+  last_triggered_at?: string | null;
+  trigger_count_7d?: number;
   created_at: string;
   updated_at: string;
 };
@@ -92,6 +94,8 @@ function createInitialState() {
             rule_keys: ['gc_time_high'],
           },
         ],
+        last_triggered_at: now,
+        trigger_count_7d: 3,
       }),
       buildPolicy({
         id: 3,
@@ -245,6 +249,49 @@ export async function installDiagnosticsPoliciesTemplateRoutes(
       pathname === '/api/v1/monitoring/alert-rules/catalog'
     ) {
       await route.fulfill({status: 200, json: ok(ruleCatalog)});
+      return;
+    }
+
+    // 「查看触发记录」跳回记录视图会拉报告列表：桩只负责把 auto_policy_id
+    // 过滤落到实处（返回一条归属该策略的自动报告）。
+    // The "view trigger records" jump back into the records view fetches the
+    // report list; this stub honours auto_policy_id by returning one
+    // policy-attributed auto report.
+    if (method === 'GET' && pathname === '/api/v1/diagnostics/inspections') {
+      const autoPolicyId = Number(
+        url.searchParams.get('auto_policy_id') ?? '',
+      );
+      const items =
+        url.searchParams.has('auto_policy_id') &&
+        !Number.isNaN(autoPolicyId)
+          ? [
+              {
+                id: 90,
+                cluster_id: prodClusterId,
+                status: 'completed',
+                trigger_source: 'auto',
+                auto_policy_id: autoPolicyId,
+                lookback_minutes: 30,
+                error_threshold: 1,
+                requested_by_user_id: 0,
+                requested_by: 'auto',
+                summary: 'auto report',
+                error_message: '',
+                finding_total: 0,
+                critical_count: 0,
+                warning_count: 0,
+                info_count: 0,
+                started_at: now,
+                finished_at: now,
+                created_at: now,
+                updated_at: now,
+              },
+            ]
+          : [];
+      await route.fulfill({
+        status: 200,
+        json: ok({items, total: items.length, page: 1, page_size: 20}),
+      });
       return;
     }
 

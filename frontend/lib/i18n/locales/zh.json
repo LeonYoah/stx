@@ -4100,28 +4100,20 @@
     "workspaceTitle": "统一诊断工作台",
     "loading": "加载诊断中心中...",
     "loadError": "加载诊断中心失败",
-    "clearContext": "清除上下文",
     "comingSoon": "{tab} 能力将在后续阶段逐步落地。",
     "tabs": {
       "errors": "错误",
       "inspections": "巡检",
       "tasks": "诊断执行",
-      "memories": "经验库",
-      "policies": "巡检策略"
+      "memories": "经验库"
     },
     "status": {
       "planned": "规划中"
     },
     "filters": {
       "cluster": "按集群筛选",
-      "allClusters": "全部集群"
-    },
-    "context": {
-      "global": "当前为全局筛选",
-      "clusterScoped": "筛选集群：{name}",
-      "source": "进入来源：{source}",
-      "alert": "告警：{id}",
-      "goToCluster": "返回集群详情"
+      "allClusters": "全部集群",
+      "noClusterMatch": "没有匹配的集群"
     },
     "boundaries": {
       "title": "当前边界"
@@ -4222,7 +4214,8 @@
         "manual": "手动发起",
         "cluster_detail": "集群详情",
         "diagnostics_workspace": "诊断中心",
-        "auto": "自动触发"
+        "auto": "自动触发",
+        "autoChip": "自动 · {name}"
       },
       "actions": {
         "viewErrorGroup": "查看错误组"
@@ -4299,6 +4292,10 @@
       },
       "statusAll": "全部",
       "resetFilters": "重置筛选",
+      "viewLabel": "视图",
+      "viewRecords": "巡检记录",
+      "viewAuto": "自动巡检",
+      "policyFilterChip": "触发规则：{name}",
       "emptyAll": "暂无巡检报告",
       "clusterLabel": "归属集群",
       "lookbackField": "巡检时间范围",
@@ -4399,6 +4396,18 @@
       "searchPlaceholder": "按名称搜索",
       "searchClear": "清除搜索",
       "autoBundleColumn": "自动诊断包",
+      "lastTriggeredColumn": "最近触发",
+      "triggers7dColumn": "近 7 天触发",
+      "triggers7dValue": "{count} 次",
+      "viewRecords": "查看触发记录",
+      "describe": {
+        "sentence": "当 {condition} 时，自动巡检 {scope}",
+        "cron": "定时 {expr}",
+        "alertFiring": "告警 {rules} 触发",
+        "noCondition": "未启用条件",
+        "or": "或",
+        "bundleSuffix": "，并生成诊断包"
+      },
       "filteredEmpty": "没有匹配的策略",
       "deletePolicy": "删除策略",
       "deletePolicyPrompt": "删除后该策略不再自动触发巡检，此操作不可恢复。",

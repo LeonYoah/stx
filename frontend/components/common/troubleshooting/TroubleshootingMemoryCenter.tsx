@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useState, useEffect, useMemo, useCallback} from 'react';
+import {useState, useEffect, useMemo, useCallback, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   AlertCircle,
@@ -89,6 +89,9 @@ export interface TroubleshootingMemoryCenterProps {
   // 可选过滤的集群名称
   // Optional cluster name filter
   clusterName?: string;
+  // 宿主注入的集群筛选控件（工具栏末端插槽）。Host-provided cluster filter
+  // control rendered at the end of the toolbar slot.
+  clusterFilter?: ReactNode;
   // 选定某条排障经验时的外部回调
   // External callback when selecting a memory entry
   onSelectMemory?: (memory: TroubleshootingMemoryEntry) => void;
@@ -117,6 +120,7 @@ function formatDateTime(value?: string | null): string {
 export function TroubleshootingMemoryCenter({
   clusterId,
   clusterName,
+  clusterFilter,
   onSelectMemory,
   className,
 }: TroubleshootingMemoryCenterProps) {
@@ -365,6 +369,7 @@ export function TroubleshootingMemoryCenter({
         </div>
 
         <div className='flex items-center gap-2'>
+          {clusterFilter}
           <Button
             variant='outline'
             size='sm'

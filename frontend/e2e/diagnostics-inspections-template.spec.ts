@@ -16,7 +16,10 @@
  */
 
 import {expect, test, type Page} from '@playwright/test';
-import {installDiagnosticsInspectionsTemplateRoutes} from './helpers/diagnostics-inspections-template';
+import {
+  diagnosticsInspectionsTemplate,
+  installDiagnosticsInspectionsTemplateRoutes,
+} from './helpers/diagnostics-inspections-template';
 
 async function openInspectionsTab(page: Page, clusterId?: number) {
   const clusterQuery = clusterId ? `&cluster_id=${clusterId}` : '';
@@ -170,6 +173,61 @@ test.describe('diagnostics inspections panel template', () => {
     await expect(
       page.getByTestId('inspection-start-submit'),
     ).toBeVisible();
+  });
+
+  test('switches to the auto view and opens the policy from the auto chip', async ({
+    page,
+  }) => {
+    await openInspectionsTab(page);
+    // 自动触发报告带「自动 · 规则名」徽章。
+    // The auto-triggered report carries the "auto · <policy>" chip.
+    const chip = page.getByTestId('inspection-auto-chip-4');
+    await expect(chip).toContainText(
+      `自动 · ${diagnosticsInspectionsTemplate.autoPolicyName}`,
+    );
+    await chip.click();
+
+    // 点击跳自动巡检视图并打开该策略详情，URL 同步 view / policy_id。
+    // Clicking jumps to the auto view with the policy detail open; the URL
+    // syncs view / policy_id.
+    await expect(page).toHaveURL(/view=auto/);
+    await expect(page).toHaveURL(/policy_id=7/);
+    await expect(page.getByTestId('detail-rail')).toBeVisible();
+  });
+
+  test('filters records by auto_policy_id and removes the badge', async ({
+    page,
+  }) => {
+    await page.goto('/diagnostics?tab=inspections&auto_policy_id=7');
+    // 只剩该策略触发的报告，工具栏出现可移除筛选徽章。
+    // Only the policy-triggered report remains and the toolbar shows the
+    // removable filter badge.
+    await expect(page.getByTestId('inspection-row-4')).toBeVisible();
+    await expect(page.getByTestId('inspection-row-1')).toHaveCount(0);
+    await expect(
+      page.getByText(
+        `触发规则：${diagnosticsInspectionsTemplate.autoPolicyName}`,
+      ),
+    ).toBeVisible();
+
+    await page.getByTestId('inspection-policy-filter-clear').click();
+    await expect(page).not.toHaveURL(/auto_policy_id/);
+    await expect(page.getByTestId('inspection-row-1')).toBeVisible();
+  });
+
+  test('switches to the auto view via the segment and back', async ({page}) => {
+    await openInspectionsTab(page);
+    await expect(page.getByTestId('inspection-row-1')).toBeVisible();
+
+    await page.getByRole('button', {name: /^自动巡检$|^Auto$/}).click();
+    await expect(page).toHaveURL(/view=auto/);
+    await expect(page.getByTestId('policy-row-7')).toBeVisible();
+
+    // 回记录视图时 URL 清掉 view，报告列表原样恢复。
+    // Switching back clears view from the URL and restores the report list.
+    await page.getByRole('button', {name: /^巡检记录$|^Records$/}).click();
+    await expect(page).not.toHaveURL(/view=/);
+    await expect(page.getByTestId('inspection-row-1')).toBeVisible();
   });
 
   test('shows the error state and recovers on retry', async ({page}) => {

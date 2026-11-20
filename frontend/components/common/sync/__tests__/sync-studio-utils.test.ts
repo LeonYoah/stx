@@ -567,6 +567,43 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
       expect(filterTree(tree, '', 'only_mine', 4)).toHaveLength(0);
     });
 
+    it('admin is_owner does not leak others tasks into mine scopes', () => {
+      // 管理员视角下后端对全部节点回 is_owner=true（可管理语义），过滤必须看 created_by。
+      // Backend returns is_owner=true on every node for admins (manage semantics);
+      // filtering must trust created_by instead.
+      const tree = [
+        {
+          ...sampleTree[0],
+          children: [
+            {
+              ...sampleTree[0].children![1],
+              id: 8,
+              name: 'lyb_admin_visible.conf',
+              created_by: 1,
+              is_owner: true,
+              is_public: false,
+              is_collaborator: false,
+            },
+            {
+              ...sampleTree[0].children![0],
+              id: 7,
+              name: 'mine_admin_task.conf',
+              created_by: 4,
+              is_owner: true,
+              is_public: false,
+              is_collaborator: false,
+            },
+          ],
+        },
+      ];
+      for (const scope of ['mine_and_public', 'only_mine'] as const) {
+        const names = filterTree(tree, '', scope, 4)[0].children?.map(
+          (c) => c.name,
+        );
+        expect(names).toEqual(['mine_admin_task.conf']);
+      }
+    });
+
     it('keeps only tasks created by user when scope is only_mine', () => {
       const result = filterTree(sampleTree, '', 'only_mine', 4);
       expect(result).toHaveLength(1);

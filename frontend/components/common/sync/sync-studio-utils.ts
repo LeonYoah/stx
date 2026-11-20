@@ -1875,19 +1875,20 @@ export function isNodeMatchingScope(
     return true;
   }
 
-  const isOwner =
-    Boolean(node.is_owner) ||
-    (Boolean(currentUserId) && node.created_by === currentUserId);
+  // 「我的」按真实创建人判定：后端 is_owner 对管理员恒为 true（可管理语义），不能用作"我创建的"依据。
+  // "Mine" keys off the real creator: backend is_owner is always true for admins (manage semantics), so it can't mean "created by me".
+  const isMine =
+    Boolean(currentUserId) && node.created_by === currentUserId;
   const isCollaborator = Boolean(node.is_collaborator);
 
   if (scope === 'only_mine') {
-    return isOwner;
+    return isMine;
   }
 
   if (scope === 'mine_and_public') {
     // 「我的」= 我创建 + 我协作；他人公开任务不归我，留在「全部」看（保留 scope 值兼容 localStorage 存档）。
     // "Mine" = created-by-me + collaborated; others' public tasks stay under "All" (scope key kept for localStorage compat).
-    return isOwner || isCollaborator;
+    return isMine || isCollaborator;
   }
 
   return true;

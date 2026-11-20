@@ -524,6 +524,7 @@ export function NotifyPanel() {
             <div className={styles.toolbar}>
               <SegmentedControl
                 label={t('notifyViewLabel')}
+                layoutGroup='notify-view'
                 value={view}
                 onValueChange={(v) => requestView(v as NotifyView)}
                 options={[

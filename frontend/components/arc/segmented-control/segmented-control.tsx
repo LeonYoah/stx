@@ -48,9 +48,20 @@ export interface SegmentedControlProps {
   /** Called when the pointer or focus reaches an option, before it is chosen. Use it to start loading what that option shows. */
   onOptionIntent?: (value: string) => void;
   className?: string;
+  /**
+   * 跨实例共享的 LayoutGroup 键：同一逻辑切换被渲染成两个不同时挂载的实例
+   * （如二级视图的两侧各挂一份）时，传同一个键可让选中态胶囊继承上一实例
+   * 的位置做形变，而不是瞬移。默认按实例隔离（useId），互不串扰。
+   * Shared LayoutGroup key across remounted instances: when one logical switch
+   * is rendered as two never-coexisting instances, passing the same key lets
+   * the selection pill morph from the previous instance's position instead of
+   * teleporting. Defaults to a per-instance useId so unrelated controls never
+   * interfere.
+   */
+  layoutGroup?: string;
 }
 
-export default function SegmentedControl({ options, value, onValueChange, label, onOptionIntent, className }: SegmentedControlProps) {
+export default function SegmentedControl({ options, value, onValueChange, label, onOptionIntent, className, layoutGroup }: SegmentedControlProps) {
   const id = useId();
   const reduced = useReducedMotion();
   const track = useRef<HTMLDivElement>(null);
@@ -97,7 +108,7 @@ export default function SegmentedControl({ options, value, onValueChange, label,
   };
 
   return <div className={`${styles.root} ${className ?? ""}`} role="group" aria-label={label}>
-    <LayoutGroup id={id}><motion.div ref={track} layoutScroll className={styles.track}>
+    <LayoutGroup id={layoutGroup ?? id}><motion.div ref={track} layoutScroll className={styles.track}>
       {options.map((option, index) => <button key={option.value} id={`${id}-${option.value}`} className={styles.button} type="button" data-value={option.value} data-testid={option.testId} aria-pressed={value === option.value} aria-label={option.ariaLabel} tabIndex={index === selectedIndex ? 0 : -1} onClick={() => onValueChange(option.value)} onKeyDown={onKeyDown} onPointerEnter={onOptionIntent ? () => onOptionIntent(option.value) : undefined} onFocus={onOptionIntent ? () => onOptionIntent(option.value) : undefined}>
         {value === option.value && <motion.span className={styles.selection} layoutId="selection" layoutDependency={value} transition={reduced ? { duration: 0 } : motionTokens.spring.morph} aria-hidden="true" />}
         <span className={styles.label}>{option.label}{option.accessory}</span>

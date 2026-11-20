@@ -46,6 +46,7 @@ import {
 } from '../status-chips';
 import {Button} from '@/components/arc/button/button';
 import {Combobox} from '@/components/arc/combobox/combobox';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
 import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
@@ -61,7 +62,7 @@ import {TroubleshootingMemoryCard} from '@/components/common/troubleshooting/Tro
 import {SaveMemoryDialog} from '@/components/common/troubleshooting/SaveMemoryDialog';
 import {syncAutoCloseReason} from '@/components/common/sync/task-alert-utils';
 import services from '@/lib/services';
-import {wallTimeToRFC3339} from '@/lib/timezone';
+import {formatDateTimeMinuteTz, wallTimeToRFC3339} from '@/lib/timezone';
 import type {TroubleshootingMemoryEntry} from '@/lib/services/troubleshooting';
 import type {
   AlertInstance,
@@ -1145,13 +1146,16 @@ function AlertDetailBody({
 
       <div className={styles.detailScroll}>
         {alert.summary || alert.description ? (
-          <JsonOrText
+          <AlertPayload
             text={alert.summary || alert.description || ''}
-            className={styles.descText}
+            textClass={styles.descText}
           />
         ) : null}
         {alert.description && alert.description !== alert.summary ? (
-          <JsonOrText text={alert.description} className={styles.hintBox} />
+          <AlertPayload
+            text={alert.description}
+            textClass={styles.hintBox}
+          />
         ) : null}
 
         {alert.rule_key ? (
@@ -1491,21 +1495,158 @@ function TimelineDot({kind}: {kind: string}) {
   return <span className={cn(styles.tlDotInner, cls)} aria-hidden />;
 }
 
-// 可用性告警的 summary/description 可能是原始 JSON 负载（含被截断、缺开头
-// 花括号的片段）：能解析就美化，解析不了但明显是 JSON 片段也按代码块排版。
-// Raw JSON payloads — including truncated fragments — render as a code block.
-function JsonOrText({text, className}: {text: string; className: string}) {
-  const pretty = useMemo(() => {
-    const trimmed = text.trim();
+// 可用性告警 Details 里与上下文区（host_name→受影响主机）或命中规则行
+// （grace_seconds=for 窗口）重复的键不再二次展示；evaluation_mode 是后端
+// 实现细节、reasons 与 reason 恒等，一并剔除。
+// Keys skipped in the fact list: they duplicate the context block (host_name)
+// or the hit-rule row (grace_seconds == for window); evaluation_mode is a
+// backend implementation detail and reasons always mirrors reason.
+const PAYLOAD_HIDDEN_KEYS = new Set([
+  'evaluation_mode',
+  'reasons',
+  'host_name',
+  'grace_seconds',
+]);
+const PAYLOAD_FIELD_ORDER = [
+  'reason',
+  'node_status',
+  'is_online',
+  'process_pid',
+  'host_ip',
+  'nodes',
+  'unhealthy_nodes',
+  'deployed_masters',
+  'healthy_masters',
+  'deployed_workers',
+  'healthy_workers',
+  'threshold',
+  'observed_since',
+  'recovered_at',
+  'firing_event_id',
+  'offline_event_id',
+];
+const PAYLOAD_TIME_KEYS = new Set(['observed_since', 'recovered_at']);
+
+// summary/description 可能是纯文本、可用性评估器写入的 Details JSON，或被
+// 截断的 JSON 片段：对象负载提炼为轻量 KV 事实行 + 默认收起的原始数据；
+// 片段与纯文本保持原有排版。
+// The summary/description can be plain text, an availability-evaluator Details
+// JSON object, or a truncated JSON fragment: objects become light KV fact rows
+// plus a collapsed raw payload; fragments and plain text keep their old layout.
+function AlertPayload({text, textClass}: {text: string; textClass: string}) {
+  const tMc = useTranslations('monitoringCenter');
+  const tCluster = useTranslations('cluster');
+  const tCommon = useTranslations('common');
+  const parsed = useMemo(() => {
     try {
-      return JSON.stringify(JSON.parse(trimmed), null, 2);
+      const value: unknown = JSON.parse(text.trim());
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+      }
+      const entries = Object.entries(value as Record<string, unknown>);
+      if (
+        entries.length === 0 ||
+        !entries.every(([, v]) =>
+          ['string', 'number', 'boolean'].includes(typeof v),
+        )
+      ) {
+        return null;
+      }
+      return {
+        pretty: JSON.stringify(value, null, 2),
+        entries: entries.map(([key, v]) => ({key, raw: String(v)})),
+      };
     } catch {
-      return /"[^"]*"\s*:/.test(trimmed) ? trimmed : null;
+      return null;
     }
   }, [text]);
-  return pretty != null ? (
-    <pre className={styles.codeBlock}>{pretty}</pre>
-  ) : (
-    <p className={className}>{text}</p>
+
+  const facts = useMemo(() => {
+    if (!parsed) {
+      return [];
+    }
+    const orderOf = (key: string) => {
+      const index = PAYLOAD_FIELD_ORDER.indexOf(key);
+      return index === -1 ? PAYLOAD_FIELD_ORDER.length : index;
+    };
+    return [...parsed.entries]
+      .filter(({key}) => !PAYLOAD_HIDDEN_KEYS.has(key))
+      .sort((a, b) => orderOf(a.key) - orderOf(b.key))
+      .map(({key, raw}) => {
+        const label = tMc.has(`alerts.payloadFields.${key}`)
+          ? tMc(`alerts.payloadFields.${key}`)
+          : key;
+        let value = raw;
+        if (key === 'reason') {
+          value = raw
+            .split(',')
+            .map((code) => code.trim())
+            .filter(Boolean)
+            .map((code) =>
+              tMc.has(`alerts.payloadReasons.${code}`)
+                ? tMc(`alerts.payloadReasons.${code}`)
+                : code,
+            )
+            .join('、');
+        } else if (key === 'node_status') {
+          value = tCluster.has(`nodeStatuses.${raw}`)
+            ? tCluster(`nodeStatuses.${raw}`)
+            : raw;
+        } else if (key === 'is_online') {
+          value =
+            raw === 'true'
+              ? tMc('alerts.payloadOnline')
+              : raw === 'false'
+                ? tMc('alerts.payloadOffline')
+                : raw;
+        } else if (PAYLOAD_TIME_KEYS.has(key)) {
+          const at = new Date(raw);
+          value = Number.isNaN(at.getTime()) ? raw : formatDateTimeMinuteTz(at);
+        }
+        return {key, label, value};
+      });
+  }, [parsed, tCluster, tMc]);
+
+  if (!parsed) {
+    const trimmed = text.trim();
+    return /"[^"]*"\s*:/.test(trimmed) ? (
+      <pre className={styles.codeBlock}>{trimmed}</pre>
+    ) : (
+      <p className={textClass}>{text}</p>
+    );
+  }
+
+  return (
+    <div className={styles.payload}>
+      <div className={styles.groupInner}>
+        {facts.map(({key, label, value}) => (
+          <div key={key} className={styles.kvRow}>
+            <span className={styles.kvKey}>{label}</span>
+            <span className={cn(styles.kvVal, styles.mono)}>{value}</span>
+          </div>
+        ))}
+      </div>
+      <details className={styles.rawPayload}>
+        <summary className={styles.rawSummary}>
+          <ChevronRight className={styles.rawChevron} aria-hidden />
+          <span>{tMc('alerts.rawPayload')}</span>
+          {/* 阻止复制按钮的点击冒泡触发 details 开合。Stop copy clicks toggling the disclosure. */}
+          <span
+            className={styles.rawCopy}
+            onClick={(event) => event.preventDefault()}
+          >
+            <CopyButton
+              value={parsed.pretty}
+              iconOnly
+              variant='plain'
+              label={tCommon('copy')}
+              copiedLabel={tCommon('copied')}
+              failedLabel={tCommon('copyFailed')}
+            />
+          </span>
+        </summary>
+        <pre className={styles.codeBlock}>{parsed.pretty}</pre>
+      </details>
+    </div>
   );
 }

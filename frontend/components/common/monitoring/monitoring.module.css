@@ -405,6 +405,57 @@
   white-space: nowrap;
 }
 
+/* 错误单元格：截断文本本身即触发器，点击弹出全文气泡。
+   Error cell: the truncated text is the trigger, click opens the full text bubble. */
+.errCell {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .errCell:hover {
+    color: var(--foreground);
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+  }
+}
+
+.errCell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.errPop {
+  font-size: var(--text-xs);
+}
+
+.errPopHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 2px;
+  color: var(--text-muted);
+}
+
+.errPopText {
+  margin: 0;
+  padding: 8px 12px 12px;
+  max-height: 220px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ---------------- status dots ---------------- */
 
 .dot {
@@ -869,6 +920,60 @@
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* 可用性告警 Details 摘要：事实行沿用 kvRow 分隔线，原始负载默认收起。
+   Availability payload facts reuse kvRow hairlines; raw payload stays collapsed. */
+.payload {
+  display: flex;
+  flex-direction: column;
+}
+
+.rawPayload {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.rawSummary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.rawSummary::-webkit-details-marker {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rawSummary:hover {
+    color: var(--text-secondary);
+  }
+}
+
+.rawChevron {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.rawPayload[open] .rawChevron {
+  transform: rotate(90deg);
+}
+
+.rawCopy {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+}
+
+.rawPayload .codeBlock {
+  margin: 0 16px 10px;
 }
 
 .errorBox {

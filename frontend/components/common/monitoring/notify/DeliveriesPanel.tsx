@@ -29,8 +29,14 @@ import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Button} from '@/components/arc/button/button';
+import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {Select} from '@/components/arc/select/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {TableCard} from '@/components/common/layout/TableCard';
 import services from '@/lib/services';
 import type {
@@ -73,6 +79,7 @@ export function DeliveriesPanel({
   channels: NotificationChannel[];
 }) {
   const t = useTranslations('monitoring');
+  const tc = useTranslations('common');
   const [items, setItems] = useState<NotificationDelivery[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -149,6 +156,7 @@ export function DeliveriesPanel({
       <div className={styles.toolbar}>
         <SegmentedControl
           label={t('notifyViewLabel')}
+          layoutGroup='notify-view'
           value={view}
           onValueChange={(v) => onViewChange(v as NotifyView)}
           options={[
@@ -285,12 +293,43 @@ export function DeliveriesPanel({
                   <span className={cn(styles.sub, styles.num, styles.nowrap)}>
                     {formatAgo(minutesAgo(d.sent_at || d.created_at), t)}
                   </span>
-                  <span
-                    className={cn(styles.sub, styles.truncate)}
-                    title={d.last_error ?? ''}
-                  >
-                    {d.last_error || '—'}
-                  </span>
+                  {d.last_error ? (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type='button'
+                          className={cn(
+                            styles.sub,
+                            styles.truncate,
+                            styles.errCell,
+                          )}
+                        >
+                          {d.last_error}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align='end'
+                        className={cn(
+                          'w-[min(440px,calc(100vw-32px))] rounded-[var(--radius-panel)] p-0',
+                          styles.errPop,
+                        )}
+                      >
+                        <div className={styles.errPopHead}>
+                          <span>{t('deliveryColError')}</span>
+                          <CopyButton
+                            variant='plain'
+                            value={d.last_error}
+                            label={tc('copy')}
+                            copiedLabel={tc('copied')}
+                            failedLabel={tc('copyFailed')}
+                          />
+                        </div>
+                        <pre className={styles.errPopText}>{d.last_error}</pre>
+                      </PopoverContent>
+                    </Popover>
+                  ) : (
+                    <span className={styles.sub}>—</span>
+                  )}
                 </div>
               ))}
             </div>

@@ -719,11 +719,11 @@ export function DiagnosticsErrorCenter({
                   />
                 </div>
 
-                {/* 拓扑上下文卡片 / Topology Context */}
+                {/* 节点上下文卡片 / Node Context */}
                 <div className='sheet-section-animate rounded-lg border p-3.5 space-y-2 bg-muted/15'>
                   <div className='font-semibold text-foreground flex items-center gap-1.5'>
                     <Server className='h-3.5 w-3.5 text-primary' />
-                    <span>受影响拓扑与来源</span>
+                    <span>受影响节点与来源</span>
                   </div>
                   <div className='grid gap-1.5 text-muted-foreground sm:grid-cols-2'>
                     <div>
@@ -892,10 +892,10 @@ export function DiagnosticsErrorCenter({
                 <Button
                   variant='outline'
                   size='sm'
-                  className='h-8 text-xs gap-1 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10'
+                  className='h-8 text-xs gap-1'
                   onClick={() => setMemoryDialogOpen(true)}
                 >
-                  <Lightbulb className='h-3.5 w-3.5 text-emerald-500' />
+                  <Lightbulb className='h-3.5 w-3.5 text-muted-foreground' />
                   {primaryMemory ? tsT('updateSolution') : tsT('recordSolution')}
                 </Button>
               </div>

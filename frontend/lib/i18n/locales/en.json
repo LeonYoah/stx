@@ -4319,7 +4319,7 @@
       "invalidReasons": {
         "legacy_condition_code": "Condition template \"{detail}\" is no longer supported by the embedded monitor. Edit the policy and re-select.",
         "alert_firing_without_rule_keys": "The \"ALERT_FIRING\" condition has no alert rules selected, so the policy never fires. Edit to fix.",
-        "legacy_source_type": "Alert category \"{detail}\" is no longer supported. Edit and re-select.",
+        "unknown_alert_rule_key": "Alert rule \"{detail}\" is no longer in the rule catalog, so the policy never fires. Edit and re-select.",
         "unknown": "This policy contains a condition that no longer fires. Edit and re-select."
       },
       "autoBundleSummary": "Auto bundle: {mode}",
@@ -4373,6 +4373,7 @@
       "ruleKeysLabel": "Alert rules",
       "ruleKeysHint": "Matches the alert rule catalog exactly; multi-select.",
       "ruleCatalogEmpty": "No alert rule catalog available",
+      "ruleKeyRemove": "Remove alert rule \"{key}\"",
       "alertFiringThresholdLabel": "At least N objects firing together",
       "alertFiringWindowLabel": "Firing for at least N minutes (0 = immediate)"
     },

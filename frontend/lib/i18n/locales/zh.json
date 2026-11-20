@@ -4319,7 +4319,7 @@
       "invalidReasons": {
         "legacy_condition_code": "条件模板 \"{detail}\" 已失效：内置监控不再提供该巡检条件，请编辑策略重新选择。",
         "alert_firing_without_rule_keys": "\"ALERT_FIRING\" 条件未选择告警规则，策略不会触发，请编辑补齐。",
-        "legacy_source_type": "告警类别 \"{detail}\" 已失效，请编辑并重新选择。",
+        "unknown_alert_rule_key": "告警规则 \"{detail}\" 已不在规则目录，策略不会触发，请编辑并重新选择。",
         "unknown": "策略包含已失效的条件，请编辑并重新选择。"
       },
       "autoBundleSummary": "自动诊断包：{mode}",
@@ -4373,6 +4373,7 @@
       "ruleKeysLabel": "告警规则",
       "ruleKeysHint": "按告警规则目录精确匹配；可多选。",
       "ruleCatalogEmpty": "暂无告警规则目录",
+      "ruleKeyRemove": "移除告警规则 \"{key}\"",
       "alertFiringThresholdLabel": "至少 N 个对象同时触发",
       "alertFiringWindowLabel": "至少持续触发 N 分钟（0 = 立即）"
     },

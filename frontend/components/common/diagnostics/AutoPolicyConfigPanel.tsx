@@ -17,8 +17,8 @@
 
 'use client';
 
-import {useCallback, useEffect, useState} from 'react';
-import {Loader2, Plus, Trash2, ShieldAlert} from 'lucide-react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
+import {Loader2, Plus, Trash2, ShieldAlert, X} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
 import services from '@/lib/services';
@@ -37,10 +37,7 @@ import type {
   DiagnosticsResourceCode,
   DiagnosticsTaskOptions,
 } from '@/lib/services/diagnostics';
-import type {
-  AlertRuleCatalogItem,
-  AlertSourceType,
-} from '@/lib/services/monitoring/types';
+import type {AlertRuleCatalogItem} from '@/lib/services/monitoring/types';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
@@ -81,7 +78,7 @@ interface AutoPolicyConfigPanelProps {
 const INVALID_REASON_CODES = new Set([
   'legacy_condition_code',
   'alert_firing_without_rule_keys',
-  'legacy_source_type',
+  'unknown_alert_rule_key',
 ]);
 
 export function shouldRenderCronExprInput(
@@ -183,7 +180,7 @@ export function AutoPolicyConfigPanel({
   clusterOptions,
 }: AutoPolicyConfigPanelProps) {
   const t = useTranslations('diagnosticsCenter.autoPolicies');
-  const tAlerts = useTranslations('monitoringCenter.alerts');
+  const tMonitoring = useTranslations('monitoring');
   const tCluster = useTranslations('cluster');
   const commonT = useTranslations('common');
   const scheduleT = useTranslations('workbenchStudio');
@@ -308,27 +305,30 @@ export function AutoPolicyConfigPanel({
     setFormOpen(true);
   }, [clusterOptions]);
 
-  const openEditForm = useCallback((policy: InspectionAutoPolicy) => {
-    setEditingPolicy(policy);
-    setFormName(policy.name);
-    setFormClusterId(policy.cluster_id);
-    setFormEnabled(policy.enabled);
-    setFormCooldown(policy.cooldown_minutes);
-    // 加载时丢掉模板列表里不存在的旧条件码（如已删除的 PROM_* / NODE_UNHEALTHY），
-    // 下次保存即为干净数据。
-    // Drop condition codes no longer in the template list (e.g. deleted PROM_* /
-    // NODE_UNHEALTHY) when loading; the next save persists clean data.
-    const supported = new Set(templates.map((tpl) => tpl.code));
-    setFormConditions(
-      (policy.conditions || []).filter((condition) =>
-        supported.has(condition.template_code),
-      ),
-    );
-    setFormAutoCreateTask(policy.auto_create_task);
-    setFormAutoStartTask(policy.auto_start_task);
-    setFormTaskOptions(normalizeAutoPolicyTaskOptions(policy.task_options));
-    setFormOpen(true);
-  }, [templates]);
+  const openEditForm = useCallback(
+    (policy: InspectionAutoPolicy) => {
+      setEditingPolicy(policy);
+      setFormName(policy.name);
+      setFormClusterId(policy.cluster_id);
+      setFormEnabled(policy.enabled);
+      setFormCooldown(policy.cooldown_minutes);
+      // 加载时丢掉模板列表里不存在的旧条件码（如已删除的 PROM_* / NODE_UNHEALTHY），
+      // 下次保存即为干净数据。
+      // Drop condition codes no longer in the template list (e.g. deleted PROM_* /
+      // NODE_UNHEALTHY) when loading; the next save persists clean data.
+      const supported = new Set(templates.map((tpl) => tpl.code));
+      setFormConditions(
+        (policy.conditions || []).filter((condition) =>
+          supported.has(condition.template_code),
+        ),
+      );
+      setFormAutoCreateTask(policy.auto_create_task);
+      setFormAutoStartTask(policy.auto_start_task);
+      setFormTaskOptions(normalizeAutoPolicyTaskOptions(policy.task_options));
+      setFormOpen(true);
+    },
+    [templates],
+  );
 
   const handleToggleCondition = useCallback(
     (templateCode: string, checked: boolean) => {
@@ -415,25 +415,16 @@ export function AutoPolicyConfigPanel({
     [],
   );
 
-  /**
-   * 规则目录按告警类别分组的标签。
-   * Category group labels for the rule catalog.
-   */
-  const getRuleCategoryLabel = useCallback(
-    (category: AlertSourceType) => {
-      switch (category) {
-        case 'platform_health':
-          return tAlerts('sourceTypes.platform_health');
-        case 'metric':
-          return tAlerts('sourceTypes.metric');
-        case 'job':
-          return tAlerts('sourceTypes.job');
-        default:
-          return category;
-      }
-    },
-    [tAlerts],
-  );
+  // 已选规则键 → 目录项的索引：命中显示目录名，未命中说明是目录外失效键。
+  // Index of selected rule keys to catalog entries: hits render the catalog name, misses
+  // mark a dead out-of-catalog key.
+  const ruleCatalogByKey = useMemo(() => {
+    const map = new Map<string, AlertRuleCatalogItem>();
+    for (const item of ruleCatalog) {
+      map.set(item.rule_key, item);
+    }
+    return map;
+  }, [ruleCatalog]);
 
   const handleSave = useCallback(async () => {
     if (!formName.trim()) {
@@ -609,7 +600,10 @@ export function AutoPolicyConfigPanel({
                             </Badge>
                             {/* 失效徽标：旧条件（PROM_* / NODE_UNHEALTHY / 未选规则的 ALERT_FIRING）永不触发，升级后需要显式引导编辑 / Invalid badge: legacy conditions (PROM_* / NODE_UNHEALTHY / ALERT_FIRING without rule keys) never fire; guide the user to edit after upgrade */}
                             {policy.invalid_reason && (
-                              <Badge variant='destructive' className='text-[11px]'>
+                              <Badge
+                                variant='destructive'
+                                className='text-[11px]'
+                              >
                                 {t('invalidBadge')}
                               </Badge>
                             )}
@@ -1123,15 +1117,56 @@ export function AutoPolicyConfigPanel({
                                       0 ? (
                                         <div className='flex flex-wrap gap-1'>
                                           {(condition?.rule_keys || []).map(
-                                            (ruleKey) => (
-                                              <Badge
-                                                key={ruleKey}
-                                                variant='secondary'
-                                                className='text-[10px] font-mono px-1.5 py-0'
-                                              >
-                                                {ruleKey}
-                                              </Badge>
-                                            ),
+                                            (ruleKey) => {
+                                              const catalogItem =
+                                                ruleCatalogByKey.get(ruleKey);
+                                              // 目录外规则键（迁移后失效）：警示样式展示原始键并允许移除；目录未加载时不误判。
+                                              // Out-of-catalog rule key (dead after migration): warn with the
+                                              // raw key and offer removal; skipped while the catalog is empty.
+                                              if (
+                                                !catalogItem &&
+                                                ruleCatalog.length > 0
+                                              ) {
+                                                return (
+                                                  <Badge
+                                                    key={ruleKey}
+                                                    variant='destructive'
+                                                    className='text-[10px] font-mono px-1.5 py-0 flex items-center gap-0.5'
+                                                  >
+                                                    {ruleKey}
+                                                    <Button
+                                                      type='button'
+                                                      variant='ghost'
+                                                      size='sm'
+                                                      aria-label={t(
+                                                        'ruleKeyRemove',
+                                                        {key: ruleKey},
+                                                      )}
+                                                      className='h-4 w-4 p-0 hover:bg-transparent'
+                                                      onClick={() =>
+                                                        handleConditionRuleKeyToggle(
+                                                          tpl.code,
+                                                          ruleKey,
+                                                          false,
+                                                        )
+                                                      }
+                                                    >
+                                                      <X className='h-3 w-3' />
+                                                    </Button>
+                                                  </Badge>
+                                                );
+                                              }
+                                              return (
+                                                <Badge
+                                                  key={ruleKey}
+                                                  variant='secondary'
+                                                  title={ruleKey}
+                                                  className='text-[10px] px-1.5 py-0'
+                                                >
+                                                  {catalogItem?.name ?? ruleKey}
+                                                </Badge>
+                                              );
+                                            },
                                           )}
                                         </div>
                                       ) : null}
@@ -1141,60 +1176,57 @@ export function AutoPolicyConfigPanel({
                                             {t('ruleCatalogEmpty')}
                                           </div>
                                         ) : (
-                                          (
-                                            [
-                                              'platform_health',
-                                              'metric',
-                                              'job',
-                                            ] as AlertSourceType[]
-                                          ).map((category) => {
-                                            const items = ruleCatalog.filter(
-                                              (item) =>
-                                                item.category === category,
-                                            );
-                                            if (items.length === 0) {
-                                              return null;
-                                            }
-                                            return (
-                                              <div key={category}>
-                                                <div className='px-2.5 py-1 text-[10px] font-medium text-muted-foreground bg-muted/40'>
-                                                  {getRuleCategoryLabel(
-                                                    category,
-                                                  )}
+                                          (['cluster', 'job'] as const).map(
+                                            (scope) => {
+                                              const items = ruleCatalog.filter(
+                                                (item) => item.scope === scope,
+                                              );
+                                              if (items.length === 0) {
+                                                return null;
+                                              }
+                                              return (
+                                                <div key={scope}>
+                                                  <div className='px-2.5 py-1 text-[10px] font-medium text-muted-foreground bg-muted/40'>
+                                                    {scope === 'cluster'
+                                                      ? tMonitoring(
+                                                          'scopeCluster',
+                                                        )
+                                                      : tMonitoring('scopeJob')}
+                                                  </div>
+                                                  {items.map((item) => {
+                                                    const checked = (
+                                                      condition?.rule_keys || []
+                                                    ).includes(item.rule_key);
+                                                    return (
+                                                      <label
+                                                        key={item.rule_key}
+                                                        className='flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-muted/30'
+                                                      >
+                                                        <Checkbox
+                                                          checked={checked}
+                                                          onCheckedChange={(
+                                                            value,
+                                                          ) =>
+                                                            handleConditionRuleKeyToggle(
+                                                              tpl.code,
+                                                              item.rule_key,
+                                                              value === true,
+                                                            )
+                                                          }
+                                                        />
+                                                        <span className='truncate'>
+                                                          {item.name}
+                                                        </span>
+                                                        <span className='ml-auto shrink-0 text-[10px] text-muted-foreground font-mono'>
+                                                          {item.rule_key}
+                                                        </span>
+                                                      </label>
+                                                    );
+                                                  })}
                                                 </div>
-                                                {items.map((item) => {
-                                                  const checked = (
-                                                    condition?.rule_keys || []
-                                                  ).includes(item.rule_key);
-                                                  return (
-                                                    <label
-                                                      key={item.rule_key}
-                                                      className='flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-muted/30'
-                                                    >
-                                                      <Checkbox
-                                                        checked={checked}
-                                                        onCheckedChange={(
-                                                          value,
-                                                        ) =>
-                                                          handleConditionRuleKeyToggle(
-                                                            tpl.code,
-                                                            item.rule_key,
-                                                            value === true,
-                                                          )
-                                                        }
-                                                      />
-                                                      <span className='truncate'>
-                                                        {item.name}
-                                                      </span>
-                                                      <span className='ml-auto shrink-0 text-[10px] text-muted-foreground font-mono'>
-                                                        {item.rule_key}
-                                                      </span>
-                                                    </label>
-                                                  );
-                                                })}
-                                              </div>
-                                            );
-                                          })
+                                              );
+                                            },
+                                          )
                                         )}
                                       </div>
                                     </div>

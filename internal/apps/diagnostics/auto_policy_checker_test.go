@@ -145,6 +145,7 @@ func TestServiceCreateAutoPolicy_validatesAlertFiringCondition(t *testing.T) {
 		{name: "missing rule keys", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true}, wantErr: "at least one rule key"},
 		{name: "blank rule keys", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{" ", ""}}, wantErr: "at least one rule key"},
 		{name: "unknown rule key", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"not_a_rule"}}, wantErr: "unknown alert rule key"},
+		{name: "retired stx_ template key", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"stx_server_memory_high"}}, wantErr: "unknown alert rule key"},
 		{name: "zero threshold", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline"}, ThresholdOverride: intPtr(0)}, wantErr: "threshold"},
 		{name: "negative window", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline"}, WindowMinutesOverride: intPtr(-1)}, wantErr: "window"},
 		{name: "window too large", condition: InspectionConditionItem{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline"}, WindowMinutesOverride: intPtr(1441)}, wantErr: "window"},
@@ -166,14 +167,14 @@ func TestServiceCreateAutoPolicy_validatesAlertFiringCondition(t *testing.T) {
 		Name:      "alert-firing-ok",
 		ClusterID: 7,
 		Conditions: InspectionConditionItems{
-			{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline", " node_offline ", "cpu_usage_high"}},
+			{TemplateCode: ConditionCodeAlertFiring, Enabled: true, RuleKeys: []string{"node_offline", " node_offline ", "cpu_usage_high", "gc_time_high"}},
 		},
 	})
 	if err != nil {
 		t.Fatalf("CreateAutoPolicy returned error: %v", err)
 	}
-	if got := policy.Conditions[0].RuleKeys; len(got) != 2 || got[0] != "node_offline" || got[1] != "cpu_usage_high" {
-		t.Fatalf("expected deduped rule keys [node_offline cpu_usage_high], got %v", got)
+	if got := policy.Conditions[0].RuleKeys; len(got) != 3 || got[0] != "node_offline" || got[1] != "cpu_usage_high" || got[2] != "gc_time_high" {
+		t.Fatalf("expected deduped rule keys [node_offline cpu_usage_high gc_time_high], got %v", got)
 	}
 
 	// 已删除的旧条件码按未知模板 400。

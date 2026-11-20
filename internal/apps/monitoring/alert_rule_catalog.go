@@ -23,10 +23,10 @@ import (
 	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 )
 
-// AlertRuleCatalogItem 是告警规则目录的一项：规则键、显示名与所属告警类别，作为巡检条件、
-// 通知路由 rule_key 与 CLI 的唯一取值来源。
+// AlertRuleCatalogItem 是告警规则目录的一项：规则键、显示名与所属告警类别，作为巡检条件
+// 与 CLI 的唯一取值来源。
 // AlertRuleCatalogItem is one alert rule catalog entry: rule key, display name and category.
-// It is the single source of truth for inspection conditions, notification route rule keys and the CLI.
+// It is the single source of truth for inspection conditions and the CLI.
 type AlertRuleCatalogItem struct {
 	RuleKey  string          `json:"rule_key"`
 	Name     string          `json:"name"`
@@ -45,41 +45,41 @@ func alertScopeFromSourceType(sourceType AlertSourceType) string {
 	return clusterRuleScope
 }
 
-// AlertRuleCatalog 返回全部可选规则键的目录：平台健康与指标规则来自策略模板，作业规则来自
-// syncalert 任务规则；按 rule_key 去重，集群级作业规则已随平台健康模板出现，不重复列出。
-// AlertRuleCatalog lists every selectable rule key: platform-health and metric entries come
-// from policy templates, job rules from syncalert task rules; entries are deduped by rule key
-// and cluster-level sync rules already appear via the platform health templates.
+// alertCategoryFromClusterEngine 把集群规则的判定引擎映射回兼容的告警类别：
+// tsdb 引擎 → metric，其余（availability / event / sync）→ platform_health。
+// alertCategoryFromClusterEngine maps a cluster rule's engine back to the compatible alert
+// category: tsdb → metric, everything else (availability / event / sync) → platform_health.
+func alertCategoryFromClusterEngine(engine clusterRuleEngine) AlertSourceType {
+	if engine == clusterRuleEngineTSDB {
+		return AlertSourceTypeMetric
+	}
+	return AlertSourceTypePlatformHealth
+}
+
+// AlertRuleCatalog 返回全部可选规则键的目录：集群级规则按 clusterRuleCatalog 顺序输出，
+// 名称取目录 Name/NameEN；作业级规则来自 syncalert.TaskRules()；按 rule_key 去重。
+// AlertRuleCatalog lists every selectable rule key: cluster-level entries follow
+// clusterRuleCatalog order and take their names from Name/NameEN; job-level entries come
+// from syncalert.TaskRules(); entries are deduped by rule key.
 func AlertRuleCatalog(lang string) []*AlertRuleCatalogItem {
 	english := strings.EqualFold(strings.TrimSpace(lang), "en")
-	items := make([]*AlertRuleCatalogItem, 0, 16)
-	seen := make(map[string]bool, 16)
-	for _, tpl := range allAlertPolicyTemplateSummaries() {
-		if tpl == nil || tpl.Key == "" || seen[tpl.Key] {
+	items := make([]*AlertRuleCatalogItem, 0, len(clusterRuleCatalog)+len(syncalert.TaskRules()))
+	seen := make(map[string]bool, len(clusterRuleCatalog)+len(syncalert.TaskRules()))
+	for _, rule := range clusterRuleCatalog {
+		if rule == nil || rule.Key == "" || seen[rule.Key] {
 			continue
 		}
-		var category AlertSourceType
-		switch AlertPolicyBuilderKind(strings.TrimSpace(tpl.SourceKind)) {
-		case AlertPolicyBuilderKindPlatformHealth:
-			category = AlertSourceTypePlatformHealth
-		case AlertPolicyBuilderKindMetricsTemplate:
-			category = AlertSourceTypeMetric
-		default:
-			continue
+		seen[rule.Key] = true
+		name := rule.Name
+		if english && strings.TrimSpace(rule.NameEN) != "" {
+			name = rule.NameEN
 		}
-		seen[tpl.Key] = true
-		name := strings.TrimSpace(tpl.Name)
-		if !english {
-			// 中文名与告警中心一致：作业类规则键走 sync 目录名，其余走模板中文名。
-			// zh names match the alert center: sync rule keys take the sync catalog
-			// name, everything else the template zh name.
-			if syncName, ok := syncAlertRuleCatalog[tpl.Key]; ok {
-				name = syncName.Name
-			} else {
-				name = alertPolicyTemplateDisplayNameZH(tpl.Key)
-			}
-		}
-		items = append(items, &AlertRuleCatalogItem{RuleKey: tpl.Key, Name: name, Category: category, Scope: alertScopeFromSourceType(category)})
+		items = append(items, &AlertRuleCatalogItem{
+			RuleKey:  rule.Key,
+			Name:     name,
+			Category: alertCategoryFromClusterEngine(rule.Engine),
+			Scope:    clusterRuleScope,
+		})
 	}
 	for _, ruleKey := range syncalert.TaskRules() {
 		if seen[ruleKey] {

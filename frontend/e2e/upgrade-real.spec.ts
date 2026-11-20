@@ -141,6 +141,48 @@ test.describe.serial('upgrade real e2e', () => {
     );
     console.log('[upgrade-real] precheck indicates ready to continue');
 
+    // 升级页要求每个节点显式选择目标 JDK，否则 continue 保持禁用；
+    // 选完后预检视为过期，需要重跑拿到最新确认请求。
+    // The prepare page requires an explicit target JDK per node before continuing;
+    // choosing one marks the precheck stale, so rerun it before continuing.
+    const fallbackJavaHome =
+      process.env.JAVA_HOME || '/usr/lib/jvm/default-java';
+    const jdkPickers = page.locator(
+      '[data-testid^="upgrade-prepare-node-jdk-"]',
+    );
+    const jdkPickerCount = await jdkPickers.count();
+    console.log(
+      `[upgrade-real] selecting target JDK for ${jdkPickerCount} node target(s)`,
+    );
+    for (let i = 0; i < jdkPickerCount; i++) {
+      const picker = jdkPickers.nth(i);
+      await expect(picker.getByRole('combobox')).toBeEnabled({
+        timeout: 60000,
+      });
+      if (await picker.locator('input').isVisible()) {
+        await picker.locator('input').fill(fallbackJavaHome);
+        continue;
+      }
+      await picker.getByRole('combobox').click();
+      const detectedOption = page
+        .getByRole('option', {name: /\//})
+        .first();
+      if ((await detectedOption.count()) > 0) {
+        await detectedOption.click();
+      } else {
+        await page.getByRole('option').first().click();
+        await picker.locator('input').fill(fallbackJavaHome);
+      }
+    }
+    await page.getByTestId('upgrade-prepare-run-precheck').click();
+    console.log('[upgrade-real] reran precheck with explicit target JDKs');
+    await expect(page.getByTestId('upgrade-prepare-ready-badge')).toContainText(
+      /可继续|就绪|Ready/i,
+      {
+        timeout: 180000,
+      },
+    );
+
     await expect(page.getByTestId('upgrade-prepare-continue')).toBeEnabled({
       timeout: 180000,
     });

@@ -29,6 +29,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Plus} from 'lucide-react';
 import {NeutralChip, SoftChip} from '../status-chips';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Button} from '@/components/arc/button/button';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
@@ -46,15 +47,10 @@ import type {
 } from '@/lib/services/monitoring';
 import {cn} from '@/lib/utils';
 import {ChannelDrawerBody} from './ChannelDrawerBody';
+import {DeliveriesPanel, type NotifyView} from './DeliveriesPanel';
 import {UnsavedChangesDialog, useBeforeUnload} from '../dirty-close';
 import {DetailHost, useDetailNarrow} from '../detail-host';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import styles from '../monitoring.module.css';
 
 const CHANNEL_TYPES = ['webhook', 'email', 'dingtalk', 'wecom', 'feishu'];
@@ -77,6 +73,10 @@ export function NotifyPanel() {
     send_recovery: true,
   });
   const [configured, setConfigured] = useState(false);
+  // 最近一次从服务端拿到的默认通知快照，用于脏判断；未配置时保存钮不常亮。
+  // Last server-known defaults snapshot for dirty tracking so the save button
+  // is not permanently lit.
+  const [savedDefaults, setSavedDefaults] = useState(defaults);
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [users, setUsers] = useState<NotificationRecipientUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,29 +92,28 @@ export function NotifyPanel() {
   >(null);
   const [defaultsError, setDefaultsError] = useState<string | null>(null);
   const [channelDirty, setChannelDirty] = useState(false);
-  const [discardTarget, setDiscardTarget] = useState<
-    number | '__new__' | 'close' | null
-  >(null);
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [view, setView] = useState<NotifyView>('channels');
+  const [discardTarget, setDiscardTarget] = useState<
+    number | '__new__' | 'close' | NotifyView | null
+  >(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  useBeforeUnload(channelDirty && typeof editKey === 'number');
+  useBeforeUnload(channelDirty && editKey !== null);
 
   const editingChannel = channels.find((c) => c.id === editKey) ?? null;
-  const drawerOpen = editKey !== null;
-  const drawerChannel = useDrawerItem(
-    editingChannel ?? (editKey === '__new__' ? 'new' : null),
-  );
+  const drawerOpen = editKey !== null && editKey !== '__new__';
+  const drawerChannel = useDrawerItem(editingChannel);
 
-  // 编辑已有渠道且表单有改动时，关闭或切行弹出确认弹窗；新建直接关闭。
-  // Intercept closing or switching when editing an existing dirty channel;
-  // new-channel creation closes directly without prompting.
+  // 表单有改动时（新建或编辑）关闭、切行、切视图都走未保存确认。
+  // Closing, switching rows, or switching views with a dirty form (new or
+  // existing channel) goes through the unsaved-changes confirmation.
   const requestEdit = useCallback(
     (key: number | '__new__' | null) => {
       if (key === editKey) {
         return;
       }
-      if (channelDirty && typeof editKey === 'number') {
+      if (channelDirty && editKey !== null) {
         setDiscardTarget(key ?? 'close');
         return;
       }
@@ -128,8 +127,31 @@ export function NotifyPanel() {
     const target = discardTarget;
     setDiscardTarget(null);
     setChannelDirty(false);
+    if (target === 'channels' || target === 'deliveries') {
+      setEditKey(null);
+      setView(target);
+      return;
+    }
     setEditKey(target && target !== 'close' ? target : null);
   }, [discardTarget]);
+
+  // 渠道编辑有脏表单时，切到投递记录视图同样走未保存确认；否则直接切换。
+  // Switching to the deliveries view with a dirty channel edit goes through the
+  // same unsaved-changes confirmation; otherwise the switch is immediate.
+  const requestView = useCallback(
+    (v: NotifyView) => {
+      if (v === view) {
+        return;
+      }
+      if (channelDirty && editKey !== null) {
+        setDiscardTarget(v);
+        return;
+      }
+      setEditKey(null);
+      setView(v);
+    },
+    [view, channelDirty, editKey],
+  );
 
   useEffect(() => {
     if (!channelDirty) {
@@ -146,12 +168,14 @@ export function NotifyPanel() {
       services.monitoring.listNotifiableUsers().catch(() => ({users: []})),
     ]);
     if (def?.configured) {
-      setDefaults({
+      const next = {
         channel_ids: def.channel_ids ?? [],
         receiver_user_ids: def.receiver_user_ids ?? [],
         cooldown_minutes: def.cooldown_minutes ?? 30,
         send_recovery: def.send_recovery ?? true,
-      });
+      };
+      setDefaults(next);
+      setSavedDefaults(next);
       setConfigured(true);
     }
     setChannels(ch.channels ?? []);
@@ -189,12 +213,14 @@ export function NotifyPanel() {
       const saved =
         await services.monitoring.updateAlertNotificationDefaults(defaults);
       setConfigured(saved.configured);
-      setDefaults({
+      const next = {
         channel_ids: saved.channel_ids ?? [],
         receiver_user_ids: saved.receiver_user_ids ?? [],
         cooldown_minutes: saved.cooldown_minutes,
         send_recovery: saved.send_recovery,
-      });
+      };
+      setDefaults(next);
+      setSavedDefaults(next);
       setDefaultsStatus('saved');
       setTimeout(
         () => setDefaultsStatus((s) => (s === 'saved' ? null : s)),
@@ -307,6 +333,9 @@ export function NotifyPanel() {
     [t],
   );
 
+  const defaultsDirty =
+    JSON.stringify(defaults) !== JSON.stringify(savedDefaults);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return channels.filter((c) => {
@@ -413,7 +442,7 @@ export function NotifyPanel() {
               type='button'
               size='sm'
               loading={defaultsStatus === 'saving'}
-              disabled={loading}
+              disabled={loading || !defaultsDirty}
               onClick={() => void saveDefaults()}
             >
               {t('save')}
@@ -429,57 +458,47 @@ export function NotifyPanel() {
             ))}
           </>
         ) : (
-          <>
-            <div className={cn(styles.groupRow, styles.groupRowStack)}>
-              <div className={cn(styles.rowControl, 'w-72 max-w-full')}>
-                <MultiSelect
-                  label={t('channels')}
-                  options={channelOptions}
-                  value={defaults.channel_ids.map(String)}
-                  onValueChange={(v) =>
-                    setDefaults((d) => ({...d, channel_ids: v.map(Number)}))
-                  }
-                  placeholder={t('notifyChannelsPlaceholder')}
-                  emptyMessage={t('selectEmpty')}
-                />
-              </div>
+          <div className={styles.groupRowGrid}>
+            <div className={styles.field}>
+              <MultiSelect
+                label={t('channels')}
+                options={channelOptions}
+                value={defaults.channel_ids.map(String)}
+                onValueChange={(v) =>
+                  setDefaults((d) => ({...d, channel_ids: v.map(Number)}))
+                }
+                placeholder={t('notifyChannelsPlaceholder')}
+                emptyMessage={t('selectEmpty')}
+              />
             </div>
-            <div className={cn(styles.groupRow, styles.groupRowStack)}>
-              <div className={cn(styles.rowControl, 'w-72 max-w-full')}>
-                <MultiSelect
-                  label={t('recipients')}
-                  options={userOptions}
-                  value={defaults.receiver_user_ids.map(String)}
-                  onValueChange={(v) =>
-                    setDefaults((d) => ({
-                      ...d,
-                      receiver_user_ids: v.map(Number),
-                    }))
-                  }
-                  placeholder={t('notifyReceiversPlaceholder')}
-                  emptyMessage={t('selectEmpty')}
-                />
-              </div>
+            <div className={styles.field}>
+              <MultiSelect
+                label={t('recipients')}
+                options={userOptions}
+                value={defaults.receiver_user_ids.map(String)}
+                onValueChange={(v) =>
+                  setDefaults((d) => ({
+                    ...d,
+                    receiver_user_ids: v.map(Number),
+                  }))
+                }
+                placeholder={t('notifyReceiversPlaceholder')}
+                emptyMessage={t('selectEmpty')}
+              />
             </div>
-            <div className={cn(styles.groupRow, styles.groupRowStack)}>
-              <div className={cn(styles.rowControl, styles.fieldWsm)}>
-                <NumberField
-                  label={t('cooldown')}
-                  value={defaults.cooldown_minutes}
-                  onValueChange={(v) =>
-                    setDefaults((d) => ({...d, cooldown_minutes: v}))
-                  }
-                  min={0}
-                  suffix={t('cooldownUnit')}
-                />
-              </div>
+            <div className={styles.field}>
+              <NumberField
+                label={t('cooldown')}
+                value={defaults.cooldown_minutes}
+                onValueChange={(v) =>
+                  setDefaults((d) => ({...d, cooldown_minutes: v}))
+                }
+                min={0}
+                suffix={t('cooldownUnit')}
+              />
             </div>
-            <div className={styles.groupRow}>
-              <div className={styles.rowLabel}>
-                <span className={styles.rowLabelText}>
-                  {t('recoveryNotify')}
-                </span>
-              </div>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>{t('recoveryNotify')}</span>
               <Switch
                 checked={defaults.send_recovery}
                 onCheckedChange={(v) =>
@@ -488,52 +507,68 @@ export function NotifyPanel() {
                 aria-label={t('recoveryNotify')}
               />
             </div>
-          </>
+          </div>
         )}
       </section>
 
       {/* 渠道 / Channels */}
       <section className={styles.sectionStack} style={{flex: 1, minHeight: 0}}>
-        <div className={styles.toolbar}>
-          <span className={styles.sectionTitle}>{t('channels')}</span>
-          <div className={styles.toolbarSearch}>
-            <SearchField
-              ref={searchRef}
-              label={t('channelsSearchLabel')}
-              value={query}
-              onValueChange={setQuery}
-              placeholder={t('channelSearchPlaceholder')}
-              clearLabel={t('searchClear')}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape' && query) {
-                  setQuery('');
-                }
-              }}
-            />
-          </div>
-          <div className={cn(styles.filterCtrl, styles.filterW)}>
-            <Select
-              label={t('channelTypeLabel')}
-              value={typeFilter || ALL_VALUE}
-              onValueChange={(v) => setTypeFilter(v === ALL_VALUE ? '' : v)}
-              displayValue={!typeFilter ? t('channelTypeLabel') : undefined}
-              options={typeOptions}
-            />
-          </div>
-          <div className={styles.toolbarRight}>
-            <Button
-              type='button'
-              size='sm'
-              variant='secondary'
-              onClick={() => requestEdit('__new__')}
-            >
-              <Plus className='size-3.5' aria-hidden />
-              {t('newChannel')}
-            </Button>
-          </div>
-        </div>
+        {view === 'deliveries' ? (
+          <DeliveriesPanel
+            view={view}
+            onViewChange={requestView}
+            channels={channels}
+          />
+        ) : (
+          <>
+            <div className={styles.toolbar}>
+              <SegmentedControl
+                label={t('notifyViewLabel')}
+                value={view}
+                onValueChange={(v) => requestView(v as NotifyView)}
+                options={[
+                  {value: 'channels', label: t('channels')},
+                  {value: 'deliveries', label: t('deliveries')},
+                ]}
+              />
+              <div className={styles.toolbarSearch}>
+                <SearchField
+                  ref={searchRef}
+                  label={t('channelsSearchLabel')}
+                  value={query}
+                  onValueChange={setQuery}
+                  placeholder={t('channelSearchPlaceholder')}
+                  clearLabel={t('searchClear')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape' && query) {
+                      setQuery('');
+                    }
+                  }}
+                />
+              </div>
+              <div className={cn(styles.filterCtrl, styles.filterW)}>
+                <Select
+                  label={t('channelTypeLabel')}
+                  value={typeFilter || ALL_VALUE}
+                  onValueChange={(v) => setTypeFilter(v === ALL_VALUE ? '' : v)}
+                  displayValue={!typeFilter ? t('channelTypeLabel') : undefined}
+                  options={typeOptions}
+                />
+              </div>
+              <div className={styles.toolbarRight}>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='secondary'
+                  onClick={() => requestEdit('__new__')}
+                >
+                  <Plus className='size-3.5' aria-hidden />
+                  {t('newChannel')}
+                </Button>
+              </div>
+            </div>
 
-        <div className={styles.split}>
+            <div className={styles.split}>
           <div className={styles.listCol} data-mcols='channels'>
             {/* 唯一主卡片：骨架/错误/空态由 TableCard 统一承载（§4.4）。
                 Single main card; skeleton/error/empty states are owned by TableCard. */}
@@ -555,16 +590,24 @@ export function NotifyPanel() {
                 <EmptyState
                   title={
                     channels.length === 0
-                      ? t('alertsEmpty')
-                      : t('emptyFiltered')
+                      ? t('channelsEmpty')
+                      : t('channelsFilteredEmpty')
                   }
                   description={
                     channels.length === 0
-                      ? t('emptyAlertsDesc')
+                      ? t('channelsEmptyDesc')
                       : t('emptyFilteredDesc')
                   }
                   action={
-                    typeFilter || query ? (
+                    channels.length === 0 ? (
+                      <Button
+                        type='button'
+                        size='sm'
+                        onClick={() => requestEdit('__new__')}
+                      >
+                        {t('newChannel')}
+                      </Button>
+                    ) : typeFilter || query ? (
                       <Button
                         type='button'
                         size='sm'
@@ -668,49 +711,30 @@ export function NotifyPanel() {
             </TableCard>
           </div>
 
-          {/* 编辑走常驻栏/抽屉；新建是小表单用居中弹窗（创建型不用抽屉），
-              且创建态取消直接关闭——只有编辑才需要未保存拦截。Portal 表面必须
-              挂 .arc-compact 才能吃到容器级 token（按钮圆角/控件高度）。
-              Editing uses the rail/drawer; creation is a centered dialog that
-              closes directly without the dirty-close guard — only edits get the
-              interception. Portal surfaces must carry .arc-compact to inherit
-              container-level tokens (control radii/heights). */}
+          {/* 编辑走常驻栏/抽屉；新建用居中 Arc 弹窗（创建型不用抽屉），同一
+              ChannelDrawerBody 承载两种容器；关闭与切换视图统一走脏表单拦截。
+              Editing uses the rail/drawer; creation is a centered Arc dialog.
+              Both containers host the same ChannelDrawerBody, and closing or
+              switching views goes through the dirty-form interception. */}
           {editKey === '__new__' ? (
-            <Dialog
-              open
-              onOpenChange={(o) => {
-                if (!o) {
-                  setEditKey(null);
-                  setChannelDirty(false);
-                }
-              }}
-            >
+            <Dialog open onOpenChange={(o) => !o && requestEdit(null)}>
               <DialogContent
-                className='arc-compact overflow-hidden p-0 sm:max-w-lg'
-                showCloseButton
+                className='w-[min(calc(100vw-2rem),560px)]!'
+                title={t('newChannel')}
+                description={t('newChannelDesc')}
+                bodyClassName='flex! min-h-0! flex-col! overflow-hidden! p-0! h-[min(80dvh,720px)]!'
               >
-                <DialogHeader className='px-5 pt-5'>
-                  <DialogTitle>{t('newChannel')}</DialogTitle>
-                  <DialogDescription className='sr-only'>
-                    {t('newChannel')}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className='flex max-h-[min(78dvh,680px)] min-h-0 flex-col'>
-                  <ChannelDrawerBody
-                    key='__new__'
-                    channel={null}
-                    onSaved={async () => {
-                      setEditKey(null);
-                      setChannelDirty(false);
-                      await load().catch(() => undefined);
-                    }}
-                    onCancel={() => {
-                      setEditKey(null);
-                      setChannelDirty(false);
-                    }}
-                    onDirtyChange={setChannelDirty}
-                  />
-                </div>
+                <ChannelDrawerBody
+                  key='__new__'
+                  channel={null}
+                  onSaved={async () => {
+                    setEditKey(null);
+                    setChannelDirty(false);
+                    await load().catch(() => undefined);
+                  }}
+                  onCancel={() => requestEdit(null)}
+                  onDirtyChange={setChannelDirty}
+                />
               </DialogContent>
             </Dialog>
           ) : (
@@ -753,7 +777,9 @@ export function NotifyPanel() {
             onDiscard={discardAndCommit}
             onKeepEditing={() => setDiscardTarget(null)}
           />
-        </div>
+            </div>
+          </>
+        )}
       </section>
     </div>
   );

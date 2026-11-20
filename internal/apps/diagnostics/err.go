@@ -68,4 +68,7 @@ var (
 	// ErrInvalidAutoPolicyRequest indicates the auto-policy request is invalid.
 	// ErrInvalidAutoPolicyRequest 表示自动策略请求非法。
 	ErrInvalidAutoPolicyRequest = errors.New("diagnostics: invalid auto-policy request")
+	// ErrInvalidInspectionCleanupRequest 表示巡检清理请求非法。
+	// ErrInvalidInspectionCleanupRequest indicates the inspection cleanup request is invalid.
+	ErrInvalidInspectionCleanupRequest = errors.New("diagnostics: invalid inspection cleanup request")
 )

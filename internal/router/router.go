@@ -535,6 +535,10 @@ func Serve() {
 			diagnosticsService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 			diagnosticsService.SetExecutionService(executionService)
 			executionProviders.Register("diagnostics", diagnosticsService)
+			// 启动时收尾上次进程遗留的非终态巡检记录/诊断任务，避免列表永远转圈。
+			// Close non-terminal inspection reports/diagnostic tasks orphaned by the
+			// previous process at startup so lists stop spinning forever.
+			diagnosticsService.ReconcileInterruptedDiagnostics(ctx, time.Now())
 			diagnosticsService.StartAutoPolicyRuntime(ctx)
 			// 升级兼容：旧 PROM_*/NODE_UNHEALTHY 条件的巡检策略不会触发，启动时扫出并 WARN。
 			// Upgrade compatibility: policies with legacy PROM_*/NODE_UNHEALTHY conditions never
@@ -615,6 +619,9 @@ func Serve() {
 				diagnosticsRouter.POST("/inspections", diagnosticsHandler.StartInspection)
 				diagnosticsRouter.GET("/inspections", diagnosticsHandler.ListInspectionReports)
 				diagnosticsRouter.GET("/inspections/:id", diagnosticsHandler.GetInspectionReportDetail)
+				diagnosticsRouter.POST("/inspections/batch-delete", diagnosticsHandler.BatchDeleteInspectionReports)
+				diagnosticsRouter.GET("/inspection-cleanup-settings", diagnosticsHandler.GetInspectionCleanupSettings)
+				diagnosticsRouter.PUT("/inspection-cleanup-settings", diagnosticsHandler.PutInspectionCleanupSettings)
 				diagnosticsRouter.POST("/tasks", diagnosticsHandler.CreateDiagnosticTask)
 				diagnosticsRouter.GET("/tasks", diagnosticsHandler.ListDiagnosticTasks)
 				diagnosticsRouter.GET("/tasks/:id", diagnosticsHandler.GetDiagnosticTask)

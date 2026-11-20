@@ -453,46 +453,6 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
-/* ---------------- batch bar ---------------- */
-
-/* 底部居中浮起的批量条，浮层才有阴影。相对 .listCol 定位在底部分页栏上方，
-   不遮挡页码按钮也不受右侧详情栏宽度影响。
-   Floating batch bar: anchored inside .listCol just above the pagination footer
-   so it never covers page buttons or drifts off-center when the rail is open. */
-
-.batchBarWrap {
-  position: absolute;
-  bottom: 58px;
-  left: 16px;
-  right: 16px;
-  display: flex;
-  justify-content: center;
-  z-index: 20;
-  pointer-events: none;
-}
-
-.batchBarWrap > * {
-  pointer-events: auto;
-}
-
-.batchBar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 8px 6px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-panel);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-floating);
-  font-size: var(--text-sm);
-}
-
-.batchActions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
 .sectionHead {
   display: flex;
   align-items: center;

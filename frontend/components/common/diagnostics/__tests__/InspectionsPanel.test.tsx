@@ -41,6 +41,9 @@ const createTaskSafe = vi.hoisted(() => vi.fn());
 const listAutoPoliciesSafe = vi.hoisted(() => vi.fn());
 const listBuiltinConditionTemplatesSafe = vi.hoisted(() => vi.fn());
 const getAlertRuleCatalogSafe = vi.hoisted(() => vi.fn());
+const batchDeleteInspectionReportsSafe = vi.hoisted(() => vi.fn());
+const getInspectionCleanupSettingsSafe = vi.hoisted(() => vi.fn());
+const updateInspectionCleanupSettingsSafe = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/services', () => ({
   default: {
     diagnostics: {
@@ -52,6 +55,9 @@ vi.mock('@/lib/services', () => ({
       createTaskSafe,
       listAutoPoliciesSafe,
       listBuiltinConditionTemplatesSafe,
+      batchDeleteInspectionReportsSafe,
+      getInspectionCleanupSettingsSafe,
+      updateInspectionCleanupSettingsSafe,
       getTaskHTMLUrl: (id: number) => `/tasks/${id}/html`,
       getTaskBundleUrl: (id: number) => `/tasks/${id}/bundle`,
     },
@@ -210,6 +216,25 @@ describe('InspectionsPanel', () => {
       data: [],
     });
     getAlertRuleCatalogSafe.mockResolvedValue({success: true, data: []});
+    batchDeleteInspectionReportsSafe.mockResolvedValue({
+      success: true,
+      data: {
+        results: [
+          {id: 1, result: 'deleted'},
+          {id: 2, result: 'deleted'},
+        ],
+        deleted: 2,
+        skipped: 0,
+      },
+    });
+    getInspectionCleanupSettingsSafe.mockResolvedValue({
+      success: true,
+      data: {retention_days: 30, max_reports: 200},
+    });
+    updateInspectionCleanupSettingsSafe.mockResolvedValue({
+      success: true,
+      data: {retention_days: 30, max_reports: 200},
+    });
   });
 
   afterEach(() => {
@@ -500,5 +525,91 @@ describe('InspectionsPanel', () => {
     expect(await screen.findByTestId('discard-confirm-dialog')).toBeVisible();
     fireEvent.click(screen.getByTestId('discard-confirm-action'));
     expect(onViewChange).toHaveBeenCalledWith('records');
+  });
+
+  it('selects rows, offers select-all for the page, and shows the batch bar', async () => {
+    renderPanel();
+    await screen.findByTestId('inspection-row-1');
+    expect(screen.queryByTestId('inspection-batch-delete')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('inspection-select-1'));
+    expect(await screen.findByText('已选 1 条')).toBeVisible();
+    // 勾选不触发行详情。Checkbox clicks must not open the row detail.
+    expect(getInspectionReportDetailSafe).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('checkbox', {name: '全选本页'}));
+    expect(await screen.findByText('已选 3 条')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', {name: '清空选择'}));
+    await waitFor(() =>
+      expect(screen.queryByText(/已选 \d+ 条/)).toBeNull(),
+    );
+  });
+
+  it('deletes the selected reports through the confirm dialog', async () => {
+    renderPanel();
+    await screen.findByTestId('inspection-row-1');
+    fireEvent.click(screen.getByTestId('inspection-select-1'));
+    fireEvent.click(screen.getByTestId('inspection-select-2'));
+    fireEvent.click(await screen.findByTestId('inspection-batch-delete'));
+    expect(await screen.findByText('删除所选巡检记录？')).toBeVisible();
+    fireEvent.click(screen.getByTestId('inspection-batch-delete-confirm'));
+    await waitFor(() =>
+      expect(batchDeleteInspectionReportsSafe).toHaveBeenCalledWith([1, 2]),
+    );
+    // 删除完成后清空选择、回填结果并刷新列表。
+    // After the delete the selection clears, the result line shows and the
+    // list reloads.
+    await waitFor(() =>
+      expect(screen.queryByText(/已选 \d+ 条/)).toBeNull(),
+    );
+    expect(await screen.findByText('已删除 2 条，跳过 0 条')).toBeVisible();
+    await waitFor(() =>
+      expect(getInspectionReportsSafe).toHaveBeenLastCalledWith(
+        expect.objectContaining({page: 1}),
+      ),
+    );
+  });
+
+  it('shows the skipped count when some records refuse deletion', async () => {
+    batchDeleteInspectionReportsSafe.mockResolvedValue({
+      success: true,
+      data: {
+        results: [
+          {id: 1, result: 'deleted'},
+          {id: 3, result: 'skipped', reason: '报告仍在执行'},
+        ],
+        deleted: 1,
+        skipped: 1,
+      },
+    });
+    renderPanel();
+    await screen.findByTestId('inspection-row-1');
+    fireEvent.click(screen.getByTestId('inspection-select-1'));
+    fireEvent.click(screen.getByTestId('inspection-select-3'));
+    fireEvent.click(await screen.findByTestId('inspection-batch-delete'));
+    fireEvent.click(screen.getByTestId('inspection-batch-delete-confirm'));
+    await waitFor(() =>
+      expect(batchDeleteInspectionReportsSafe).toHaveBeenCalledWith([1, 3]),
+    );
+    expect(await screen.findByText('已删除 1 条，跳过 1 条')).toBeVisible();
+  });
+
+  it('opens the cleanup settings dialog, loads values, and saves them', async () => {
+    renderPanel();
+    await screen.findByTestId('inspection-row-1');
+    fireEvent.click(screen.getByTestId('inspection-cleanup-settings'));
+    await waitFor(() =>
+      expect(getInspectionCleanupSettingsSafe).toHaveBeenCalled(),
+    );
+    const save = await screen.findByTestId('cleanup-settings-save');
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(updateInspectionCleanupSettingsSafe).toHaveBeenCalledWith({
+        retention_days: 30,
+        max_reports: 200,
+      }),
+    );
   });
 });

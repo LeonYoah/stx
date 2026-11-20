@@ -218,11 +218,48 @@
   --cols: minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1fr) 88px 140px;
 }
 
-/* 诊断巡检：编号 / 触发方式 / 状态 / 发现项+摘要 / 回溯窗口 / 完成时间。
-   Diagnostics inspections: id / trigger / status / findings+summary / window / finished. */
+/* 诊断巡检：勾选 / 编号 / 触发方式 / 状态 / 发现项+摘要 / 回溯窗口 / 完成时间。
+   Diagnostics inspections: checkbox / id / trigger / status / findings+summary / window / finished. */
 
 .listCol[data-mcols='inspections'] :is(.row, .rowHead) {
-  --cols: 56px minmax(0, 0.6fr) 84px minmax(0, 1.7fr) 104px 132px;
+  --cols: 24px 56px minmax(0, 0.6fr) 84px minmax(0, 1.7fr) 104px 132px;
+}
+
+/* 悬浮批量条：锚定在 listCol 内、分页脚上方，详情栏打开时也不遮分页。
+   Floating batch bar: anchored inside .listCol just above the pagination footer
+   so it never covers page buttons or drifts off-center when the rail is open. */
+
+.batchBarWrap {
+  position: absolute;
+  bottom: 58px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.batchBarWrap > * {
+  pointer-events: auto;
+}
+
+.batchBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-floating);
+  font-size: var(--text-sm);
+}
+
+.batchActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .rowHead {

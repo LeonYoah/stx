@@ -1900,6 +1900,68 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 			"立即巡检会读取集群状态、进程事件、告警和近期错误，并保存巡检报告。", false, false,
 			[]InputSpec{{Name: "request", Location: InputBody, Required: true, Description: "Inspection request"}},
 			"stx diagnostics inspection run --cluster-id 6 --confirm"),
+		diagnosticsReadOperation("diagnostics.inspection-cleanup.get", []string{"diagnostics", "inspection", "cleanup", "get"}, "Get inspection record cleanup settings", "/api/v1/diagnostics/inspection-cleanup-settings", nil,
+			"stx diagnostics inspection cleanup get"),
+		{
+			ID:           "diagnostics.inspection-cleanup.update",
+			CommandPath:  []string{"diagnostics", "inspection", "cleanup", "set"},
+			Summary:      "Update inspection record cleanup settings",
+			GeneratedCLI: true,
+			Method:       "PUT",
+			Route:        "/api/v1/diagnostics/inspection-cleanup-settings",
+			Mode:         ModeNormal,
+			AuthRequired: true,
+			Risk:         RiskR1,
+			Revision:     1,
+			SupportsPick: true,
+			Impact: &ImpactSpec{
+				Level:   RiskR1,
+				Message: "修改巡检记录清理设置会改变后续自动清理巡检报告和绑定诊断数据的保留策略。",
+			},
+			Input: []InputSpec{
+				{Name: "request", Location: InputBody, Required: true, Description: "Cleanup settings: retention_days and max_reports (0 disables each)"},
+			},
+			Example: "stx diagnostics inspection cleanup set --request-file cleanup-settings.json --confirm",
+			OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "diagnostics.inspection-cleanup.update",
+  "request_id": "req_example",
+  "data": {"retention_days":30,"max_reports":200},
+  "result_meta": {"complete": true}
+}`,
+		},
+		{
+			// 巡检记录删除只保留服务端和网页入口：规范禁止 CLI 暴露任何资源删除命令，
+			// 因此不生成命令、不设置命令路径和样例。
+			// Inspection record deletion stays server/web only: CLI specs forbid exposing
+			// any resource deletion command, so no generated command, path, or example.
+			ID:           "diagnostics.inspection.batch-delete",
+			Summary:      "Batch delete inspection reports with bound diagnostic data",
+			GeneratedCLI: false,
+			Method:       "POST",
+			Route:        "/api/v1/diagnostics/inspections/batch-delete",
+			Mode:         ModeNormal,
+			AuthRequired: true,
+			Risk:         RiskR1,
+			Revision:     1,
+			SupportsPick: false,
+			Impact: &ImpactSpec{
+				Level:   RiskR1,
+				Message: "删除巡检记录会同时删除其巡检发现项、绑定的诊断任务和磁盘采集包，不可恢复。",
+			},
+			Input: []InputSpec{
+				{Name: "request", Location: InputBody, Required: true, Description: "Batch delete request: ids (1-500)"},
+				{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable key for retrying the same request"},
+				{Name: "X-STX-Confirm", Location: InputHeader, Required: true, Description: "Explicit confirmation of the operation impact"},
+			},
+			OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "diagnostics.inspection.batch-delete",
+  "request_id": "req_example",
+  "data": {"results":[{"id":1,"result":"deleted"}],"deleted":1,"skipped":0},
+  "result_meta": {"complete": true}
+}`,
+		},
 		diagnosticsReadOperation("diagnostics.task.list", []string{"diagnostics", "task", "list"}, "List diagnostic tasks", "/api/v1/diagnostics/tasks",
 			append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, {Name: "trigger_source", Location: InputQuery, Description: "Diagnostic trigger source"}, {Name: "status", Location: InputQuery, Description: "Diagnostic task status"}}, append(page, lang)...),
 			"stx diagnostics task list --cluster_id 6 --page_size 20"),

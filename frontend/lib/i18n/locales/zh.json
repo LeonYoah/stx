@@ -4220,6 +4220,29 @@
       "actions": {
         "viewErrorGroup": "查看错误组"
       },
+      "selectAll": "全选本页",
+      "selectRow": "选择巡检报告 #{id}",
+      "selected": "已选 {count} 条",
+      "batchClear": "清空选择",
+      "batchDeleteResult": "已删除 {deleted} 条，跳过 {skipped} 条",
+      "batchDeleteError": "删除巡检记录失败",
+      "batchDeleteSuccess": "已删除 {count} 条巡检记录",
+      "batchDeletePartial": "已删除 {deleted} 条，{skipped} 条被跳过（仍在执行或绑定任务未结束）",
+      "batchDeleteConfirmTitle": "删除所选巡检记录？",
+      "batchDeleteConfirmDesc": "将删除 {count} 条巡检记录，并一并删除其巡检发现项、绑定的诊断任务和磁盘诊断包。此操作不可恢复；仍在执行的记录会被跳过。",
+      "cleanupSettings": {
+        "title": "巡检记录清理",
+        "description": "全局设置，对手动和自动触发的巡检记录统一生效。清理会一并删除巡检发现项、绑定的诊断任务和磁盘诊断包。",
+        "retentionDays": "保留天数",
+        "retentionDaysHint": "创建时间超过该天数的巡检记录会被自动清理。0 表示不按天数清理。",
+        "maxReports": "最多保留份数",
+        "maxReportsHint": "巡检记录总数超过该值时，最旧的记录会被自动清理。0 表示不按数量清理。",
+        "daysSuffix": "天",
+        "zeroMeansDisabled": "两项都为 0 时不做任何自动清理；正在执行中的记录永远不会被清理。",
+        "loadError": "加载清理设置失败",
+        "saveError": "保存清理设置失败",
+        "saveSuccess": "清理设置已保存，下一轮自动清理按新值执行。"
+      },
       "evidence": {
         "observed": "观测依据",
         "details": "查看检查信息",

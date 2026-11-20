@@ -28,6 +28,11 @@ import (
 
 const autoPolicyEvaluationInterval = time.Minute
 
+// inspectionCleanupSweepInterval 自动清理不跟着每分钟评估跑，单独降频到 10 分钟一轮。
+// inspectionCleanupSweepInterval runs the retention sweep at a lower frequency than the
+// per-minute policy evaluation.
+const inspectionCleanupSweepInterval = 10 * time.Minute
+
 // StartAutoPolicyRuntime starts the background evaluator for scheduled and Prometheus-backed auto policies.
 // StartAutoPolicyRuntime 启动定时巡检与 Prometheus 自动策略的后台评估循环。
 func (s *Service) StartAutoPolicyRuntime(ctx context.Context) {
@@ -74,5 +79,13 @@ func (s *Service) runAutoPolicyEvaluationRound(ctx context.Context, now time.Tim
 		if err := s.policyChecker.CheckAlertFiringPolicies(ctx, item.ID, now); err != nil {
 			log.Printf("[DiagnosticsAutoPolicy] alert-firing evaluation failed: cluster_id=%d err=%v", item.ID, err)
 		}
+	}
+
+	// 巡检记录清理是全局动作（不区分集群），放在集群循环外按低频窗口跑。
+	// Inspection record cleanup is a global action (cluster-agnostic), so it runs once
+	// per round outside the cluster loop on its own low-frequency window.
+	if s.inspectionCleanupLastSweep.IsZero() || now.Sub(s.inspectionCleanupLastSweep) >= inspectionCleanupSweepInterval {
+		s.inspectionCleanupLastSweep = now
+		s.sweepExpiredInspectionReports(ctx, now)
 	}
 }

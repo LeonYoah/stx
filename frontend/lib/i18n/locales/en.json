@@ -4220,6 +4220,29 @@
       "actions": {
         "viewErrorGroup": "View Error Group"
       },
+      "selectAll": "Select all on this page",
+      "selectRow": "Select inspection report #{id}",
+      "selected": "{count} selected",
+      "batchClear": "Clear selection",
+      "batchDeleteResult": "Deleted {deleted}, skipped {skipped}",
+      "batchDeleteError": "Failed to delete inspection reports",
+      "batchDeleteSuccess": "Deleted {count} inspection report(s)",
+      "batchDeletePartial": "Deleted {deleted}; skipped {skipped} (still running or bound task not finished)",
+      "batchDeleteConfirmTitle": "Delete selected inspection reports?",
+      "batchDeleteConfirmDesc": "This deletes {count} inspection report(s) together with their findings, bound diagnostic tasks and on-disk diagnostic bundles. This cannot be undone; reports still running are skipped.",
+      "cleanupSettings": {
+        "title": "Inspection record cleanup",
+        "description": "Global settings applied to manually and automatically triggered inspection records alike. Cleanup also removes findings, bound diagnostic tasks and on-disk diagnostic bundles.",
+        "retentionDays": "Retention days",
+        "retentionDaysHint": "Inspection records older than this many days are cleaned up automatically. 0 disables age-based cleanup.",
+        "maxReports": "Max reports to keep",
+        "maxReportsHint": "When total reports exceed this value, the oldest ones are cleaned up automatically. 0 disables count-based cleanup.",
+        "daysSuffix": "days",
+        "zeroMeansDisabled": "With both at 0 nothing is cleaned automatically; reports still running are never cleaned.",
+        "loadError": "Failed to load cleanup settings",
+        "saveError": "Failed to save cleanup settings",
+        "saveSuccess": "Cleanup settings saved; the next cleanup sweep uses the new values."
+      },
       "evidence": {
         "observed": "Observed evidence",
         "details": "Check details",

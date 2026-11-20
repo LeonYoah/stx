@@ -447,6 +447,7 @@ func managedModels() []interface{} {
 		&diagnostics.DiagnosticNodeExecution{},     // 诊断任务节点执行表 / Diagnostics node execution table
 		&diagnostics.DiagnosticStepLog{},           // 诊断任务日志表 / Diagnostics task log table
 		&diagnostics.InspectionAutoPolicy{},        // 诊断自动巡检策略表 / Diagnostics auto-inspection policy table
+		&diagnostics.InspectionCleanupSettings{},   // 巡检记录清理设置表（单行）/ Inspection record cleanup settings table (single row)
 		&diagnostics.TroubleshootingMemory{},       // 诊断排障经验记忆库表 / Diagnostics troubleshooting memory table
 		&stupgrade.UpgradePlanRecord{},             // SeaTunnel 升级计划表 / SeaTunnel upgrade plan table
 		&stupgrade.UpgradeTask{},                   // SeaTunnel 升级任务表 / SeaTunnel upgrade task table

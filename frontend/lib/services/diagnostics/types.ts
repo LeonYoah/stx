@@ -240,6 +240,43 @@ export interface StartDiagnosticsInspectionRequest {
   error_threshold?: number;
 }
 
+/** 全局巡检记录清理设置；两个维度都为 0 表示不自动清理。Global inspection record cleanup settings; 0 on both disables auto cleanup. */
+export interface DiagnosticsInspectionCleanupSettings {
+  retention_days: number;
+  max_reports: number;
+  updated_at?: string;
+}
+
+/** 更新巡检记录清理设置的完整请求体（完整替换语义）。Full replace body for cleanup settings updates. */
+export interface UpdateDiagnosticsInspectionCleanupSettingsRequest {
+  retention_days: number;
+  max_reports: number;
+}
+
+/** 单条巡检记录删除结果码。Per-record delete outcome code. */
+export type DiagnosticsInspectionDeleteResultCode =
+  | 'deleted'
+  | 'not_found'
+  | 'skipped_running'
+  | 'skipped_task_running';
+
+export interface DiagnosticsInspectionDeleteResult {
+  id: number;
+  result: DiagnosticsInspectionDeleteResultCode;
+  reason?: string;
+  task_id?: number;
+}
+
+export interface BatchDeleteInspectionReportsRequest {
+  ids: number[];
+}
+
+export interface BatchDeleteInspectionReportsData {
+  results: DiagnosticsInspectionDeleteResult[];
+  deleted: number;
+  skipped: number;
+}
+
 export type DiagnosticsResourceCode =
   | 'error_context'
   | 'process_events'

@@ -17,6 +17,8 @@
 
 export {DiagnosticsService} from './diagnostics.service';
 export type {
+  BatchDeleteInspectionReportsData,
+  BatchDeleteInspectionReportsRequest,
   CreateDiagnosticsTaskRequest,
   CreateInspectionAutoPolicyRequest,
   DiagnosticsClusterOption,
@@ -28,6 +30,9 @@ export type {
   DiagnosticsErrorGroupDetailData,
   DiagnosticsErrorGroupListData,
   DiagnosticsErrorGroupListParams,
+  DiagnosticsInspectionCleanupSettings,
+  DiagnosticsInspectionDeleteResult,
+  DiagnosticsInspectionDeleteResultCode,
   DiagnosticsInspectionFinding,
   DiagnosticsInspectionFindingSeverity,
   DiagnosticsInspectionReport,
@@ -66,6 +71,7 @@ export type {
   InspectionConditionItem,
   InspectionConditionTemplate,
   StartDiagnosticsInspectionRequest,
+  UpdateDiagnosticsInspectionCleanupSettingsRequest,
   UpdateInspectionAutoPolicyRequest,
   DiagnosticsWorkspaceBootstrapData,
   DiagnosticsWorkspaceBootstrapParams,

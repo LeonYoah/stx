@@ -36,6 +36,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -302,6 +303,104 @@ func (h *Handler) GetInspectionReportDetail(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: localizeInspectionReportDetailData(data, lang)})
+}
+
+// GetInspectionCleanupSettings handles GET /api/v1/diagnostics/inspection-cleanup-settings.
+// GetInspectionCleanupSettings 处理 GET /api/v1/diagnostics/inspection-cleanup-settings。
+func (h *Handler) GetInspectionCleanupSettings(c *gin.Context) {
+	data, err := h.service.GetInspectionCleanupSettings(c.Request.Context())
+	if err != nil {
+		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, Response{Data: data})
+}
+
+// PutInspectionCleanupSettings handles PUT /api/v1/diagnostics/inspection-cleanup-settings.
+// PutInspectionCleanupSettings 处理 PUT /api/v1/diagnostics/inspection-cleanup-settings。
+func (h *Handler) PutInspectionCleanupSettings(c *gin.Context) {
+	var req UpdateInspectionCleanupSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
+		return
+	}
+	executionItem, existing, err := h.beginDiagnosticsSynchronousWrite(c, "diagnostics.inspection-cleanup.update", diagnosticsInspectionCleanupExecutionModule, "", executionapp.RiskLevelR1, diagnosticsInspectionCleanupUpdateImpact, req)
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingDiagnosticsSynchronousWrite(c, executionItem)
+		return
+	}
+
+	data, err := h.service.SaveInspectionCleanupSettings(c.Request.Context(), &req)
+	h.finishDiagnosticsSynchronousWrite(c, executionItem, audit.UintID(inspectionCleanupSettingsRowID), err)
+	if err != nil {
+		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, Response{Data: data})
+}
+
+// BatchDeleteInspectionReports handles POST /api/v1/diagnostics/inspections/batch-delete.
+// BatchDeleteInspectionReports 处理 POST /api/v1/diagnostics/inspections/batch-delete。
+func (h *Handler) BatchDeleteInspectionReports(c *gin.Context) {
+	var req BatchDeleteInspectionReportsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
+		return
+	}
+	executionItem, existing, err := h.beginDiagnosticsSynchronousWrite(c, "diagnostics.inspection.batch-delete", diagnosticsInspectionCleanupExecutionModule, "", executionapp.RiskLevelR1, diagnosticsInspectionBatchDeleteImpact, req)
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingDiagnosticsSynchronousWrite(c, executionItem)
+		return
+	}
+
+	results, err := h.service.DeleteInspectionReports(c.Request.Context(), req.IDs)
+	h.finishDiagnosticsSynchronousWrite(c, executionItem, "", err)
+	if err != nil {
+		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+		return
+	}
+
+	data := &BatchDeleteInspectionReportsData{Results: results}
+	for _, item := range results {
+		if item == nil {
+			continue
+		}
+		if item.Result == InspectionDeleteResultDeleted {
+			data.Deleted++
+		} else {
+			data.Skipped++
+		}
+	}
+	// 删除动作必须留痕：谁选了哪些记录、删了几条、跳了几条。
+	// The delete must be auditable: who selected which records, how many deleted/skipped.
+	if recordErr := audit.RecordFromGin(
+		c,
+		h.auditRepo,
+		auth.GetUserIDFromContext(c),
+		auth.GetUsernameFromContext(c),
+		"diagnostics.inspection.batch-delete",
+		"inspection_report",
+		"",
+		"inspection record cleanup",
+		audit.AuditDetails{
+			"ids":           req.IDs,
+			"deleted":       data.Deleted,
+			"skipped":       data.Skipped,
+			"result_status": "succeeded",
+			"trigger":       "manual",
+		},
+	); recordErr != nil {
+		logger.WarnF(c.Request.Context(), "[Diagnostics] 记录巡检删除审计失败: %v", recordErr)
+	}
+	c.JSON(http.StatusOK, Response{Data: data})
 }
 
 // CreateDiagnosticTask handles POST /api/v1/diagnostics/tasks.
@@ -1041,7 +1140,7 @@ func parseOptionalTime(raw, tz string) (*time.Time, error) {
 
 func getDiagnosticsStatusCode(err error) int {
 	switch {
-	case errors.Is(err, ErrInvalidSeatunnelErrorRequest), errors.Is(err, ErrInvalidInspectionRequest), errors.Is(err, ErrInvalidDiagnosticTaskRequest), errors.Is(err, ErrInvalidAutoPolicyRequest):
+	case errors.Is(err, ErrInvalidSeatunnelErrorRequest), errors.Is(err, ErrInvalidInspectionRequest), errors.Is(err, ErrInvalidDiagnosticTaskRequest), errors.Is(err, ErrInvalidAutoPolicyRequest), errors.Is(err, ErrInvalidInspectionCleanupRequest):
 		return http.StatusBadRequest
 	case errors.Is(err, executionapp.ErrIdempotencyKeyMissing):
 		return http.StatusBadRequest

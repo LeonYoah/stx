@@ -79,6 +79,9 @@ type Service struct {
 	autoPolicyRuntime sync.Once
 	policyChecker     *AutoPolicyChecker
 	troubleshooting   *TroubleshootingService
+	// inspectionCleanupLastSweep 只在评估循环 goroutine 里读写，不需要锁。
+	// inspectionCleanupLastSweep is only touched by the evaluation goroutine, no lock.
+	inspectionCleanupLastSweep time.Time
 }
 
 // SetExecutionService 设置诊断任务使用的公共执行服务。

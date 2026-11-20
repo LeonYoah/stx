@@ -32,14 +32,25 @@
  */
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Check, Play, RefreshCw, X} from 'lucide-react';
+import {Check, Play, RefreshCw, Settings2, Trash2, X} from 'lucide-react';
 import {toast} from '@/lib/toast';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Button} from '@/components/arc/button/button';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {Select} from '@/components/arc/select/select';
 import {Tooltip} from '@/components/arc/tooltip/tooltip';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {TableCard} from '@/components/common/layout/TableCard';
 import services from '@/lib/services';
 import type {
@@ -52,6 +63,7 @@ import {cn} from '@/lib/utils';
 import {DiagnosticsClusterFilter} from '../DiagnosticsClusterFilter';
 import {PoliciesPanel} from '../policies/PoliciesPanel';
 import {InspectionReportDetail} from './InspectionReportDetail';
+import {InspectionCleanupSettingsDialog} from './InspectionCleanupSettingsDialog';
 import {StartInspectionDialog} from './StartInspectionDialog';
 import {
   inspectionStatusTone,
@@ -148,6 +160,17 @@ export function InspectionsPanel({
   const [findings, setFindings] = useState<DiagnosticsInspectionFinding[]>([]);
   const [bundleTask, setBundleTask] = useState<DiagnosticsTask | null>(null);
   const [startDialogOpen, setStartDialogOpen] = useState(false);
+  const [cleanupSettingsOpen, setCleanupSettingsOpen] = useState(false);
+  // 勾选集合 + 批量删除状态；跨页勾选保留在 Set 里直到执行或手动清空。
+  // Checkbox selection plus batch-delete state; selections live in the Set
+  // across pages until executed or cleared.
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [batchResult, setBatchResult] = useState<{
+    deleted: number;
+    skipped: number;
+  } | null>(null);
   const reportsRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
 
@@ -376,6 +399,89 @@ export function InspectionsPanel({
     [loadReports, onSelectReport],
   );
 
+  const toggleSelect = useCallback((id: number, on: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (on) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const pageAllSelected =
+    reports.length > 0 && reports.every((r) => selectedIds.has(r.id));
+  const pageSomeSelected =
+    !pageAllSelected && reports.some((r) => selectedIds.has(r.id));
+  const toggleSelectAllPage = useCallback(
+    (on: boolean) => {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const r of reports) {
+          if (on) {
+            next.add(r.id);
+          } else {
+            next.delete(r.id);
+          }
+        }
+        return next;
+      });
+    },
+    [reports],
+  );
+
+  // 删除走服务端逐条判定：在跑记录/绑定任务未终态的会被跳过并回传原因。
+  // Deletion is decided per record server-side: running reports or bound tasks
+  // that are not terminal come back skipped with a reason.
+  const runBatchDelete = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || batchBusy) {
+      return;
+    }
+    setBatchBusy(true);
+    try {
+      const result =
+        await services.diagnostics.batchDeleteInspectionReportsSafe(ids);
+      if (!result.success || !result.data) {
+        toast.error(result.error || t('batchDeleteError'));
+        return;
+      }
+      const {deleted, skipped, results} = result.data;
+      const deletedIds = new Set(
+        (results || [])
+          .filter((item) => item.result === 'deleted')
+          .map((item) => item.id),
+      );
+      // 打开中的详情行若被删掉，同步关闭详情栏。
+      // Close the detail rail when the open row was among the deleted ones.
+      if (selectedReportId != null && deletedIds.has(selectedReportId)) {
+        handleCloseDetail();
+      }
+      setSelectedIds(new Set());
+      setBatchResult({deleted, skipped});
+      if (skipped > 0) {
+        toast.warning(
+          t('batchDeletePartial', {deleted, skipped}),
+        );
+      } else {
+        toast.success(t('batchDeleteSuccess', {count: deleted}));
+      }
+      setPage(1);
+      void loadReports();
+    } finally {
+      setBatchBusy(false);
+    }
+  }, [
+    batchBusy,
+    handleCloseDetail,
+    loadReports,
+    selectedIds,
+    selectedReportId,
+    t,
+  ]);
+
   const totalPages = Math.max(1, Math.ceil(reportTotal / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
 
@@ -574,6 +680,16 @@ export function InspectionsPanel({
             type='button'
             size='sm'
             variant='secondary'
+            onClick={() => setCleanupSettingsOpen(true)}
+            data-testid='inspection-cleanup-settings'
+          >
+            <Settings2 className='size-3.5' aria-hidden />
+            {t('cleanupSettings.title')}
+          </Button>
+          <Button
+            type='button'
+            size='sm'
+            variant='secondary'
             onClick={() => void loadReports()}
             disabled={loading}
             data-testid='inspections-refresh'
@@ -626,7 +742,21 @@ export function InspectionsPanel({
               />
             }
           >
-            <div className={layout.rowHead} aria-hidden>
+            {/* rowHead 内含全选 checkbox，不能再挂 aria-hidden（SR 会找不到它）。
+                rowHead now contains the select-all checkbox, so aria-hidden is
+                off — otherwise screen readers would miss the control. */}
+            <div className={layout.rowHead}>
+              <Checkbox
+                checked={
+                  pageAllSelected
+                    ? true
+                    : pageSomeSelected
+                      ? 'indeterminate'
+                      : false
+                }
+                onCheckedChange={(v) => toggleSelectAllPage(v === true)}
+                aria-label={t('selectAll')}
+              />
               <span>{t('columns.id')}</span>
               <span>{t('columns.trigger')}</span>
               <span>{t('columns.status')}</span>
@@ -642,13 +772,32 @@ export function InspectionsPanel({
                   data-testid={`inspection-row-${report.id}`}
                   role='button'
                   tabIndex={0}
-                  onClick={() => openReportDetail(report)}
+                  onClick={(e) => {
+                    // 勾选框/徽章点击不触发行详情。
+                    // Checkbox/chip clicks must not open the row detail.
+                    if (
+                      (e.target as HTMLElement).closest(
+                        'button, a, input, select, [role="menu"], [role="checkbox"]',
+                      )
+                    ) {
+                      return;
+                    }
+                    openReportDetail(report);
+                  }}
                   onKeyDown={(e) => onRowKeyDown(e, report.id)}
                   className={cn(
                     layout.row,
                     selectedReportId === report.id && layout.rowActive,
                   )}
                 >
+                  <Checkbox
+                    checked={selectedIds.has(report.id)}
+                    onCheckedChange={(v) =>
+                      toggleSelect(report.id, v === true)
+                    }
+                    aria-label={t('selectRow', {id: report.id})}
+                    data-testid={`inspection-select-${report.id}`}
+                  />
                   <span className={cn(layout.sub, 'font-mono')}>
                     #{report.id}
                   </span>
@@ -752,6 +901,54 @@ export function InspectionsPanel({
               ))}
             </div>
           </TableCard>
+
+          {selectedIds.size > 0 || batchResult ? (
+            <div className={layout.batchBarWrap}>
+              <div className={layout.batchBar} role='status'>
+                {selectedIds.size > 0 ? (
+                  <>
+                    <span>
+                      {t('selected', {count: selectedIds.size})}
+                    </span>
+                    <span className={layout.batchActions}>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='secondary'
+                        disabled={batchBusy}
+                        onClick={() => setDeleteConfirmOpen(true)}
+                        data-testid='inspection-batch-delete'
+                      >
+                        <Trash2 className='size-3.5' aria-hidden />
+                        {commonT('delete')}
+                      </Button>
+                    </span>
+                  </>
+                ) : null}
+                {batchResult ? (
+                  <span className={layout.sub}>
+                    {t('batchDeleteResult', {
+                      deleted: batchResult.deleted,
+                      skipped: batchResult.skipped,
+                    })}
+                  </span>
+                ) : null}
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='sm'
+                  iconOnly
+                  aria-label={t('batchClear')}
+                  onClick={() => {
+                    setSelectedIds(new Set());
+                    setBatchResult(null);
+                  }}
+                >
+                  <X className='size-4' aria-hidden />
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <DetailHost
@@ -787,6 +984,43 @@ export function InspectionsPanel({
         onOpenChange={setStartDialogOpen}
         onStarted={handleInspectionStarted}
       />
+
+      <InspectionCleanupSettingsDialog
+        open={cleanupSettingsOpen}
+        onOpenChange={setCleanupSettingsOpen}
+      />
+
+      <AlertDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('batchDeleteConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('batchDeleteConfirmDesc', {count: selectedIds.size})}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchBusy}>
+              {commonT('cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={batchBusy}
+              onClick={(e) => {
+                e.preventDefault();
+                setDeleteConfirmOpen(false);
+                void runBatchDelete();
+              }}
+              data-testid='inspection-batch-delete-confirm'
+            >
+              {commonT('delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <DirtyCloseDialog
         open={pendingView !== null}

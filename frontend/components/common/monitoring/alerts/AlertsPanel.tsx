@@ -1075,12 +1075,12 @@ export function AlertsPanel({
           </TableCard>
 
           {selected.size > 0 || batchResult ? (
-            <div className={styles.batchBarWrap}>
-              <div className={styles.batchBar} role='status'>
+            <div className={layout.batchBarWrap}>
+              <div className={layout.batchBar} role='status'>
                 {selected.size > 0 ? (
                   <>
                     <span>{t('selected', {count: selected.size})}</span>
-                    <span className={styles.batchActions}>
+                    <span className={layout.batchActions}>
                       <Button
                         type='button'
                         size='sm'

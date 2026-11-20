@@ -56,7 +56,7 @@ import {
   CheckCircle2,
   Layers3,
 } from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import type {Plugin, MirrorSource} from '@/lib/services/plugin/types';
 import {PluginDetailDialog} from '@/components/common/plugin/PluginDetailDialog';
 import {getPluginDependencyStatusMeta} from '@/components/common/plugin/dependency-status';

@@ -33,7 +33,7 @@ import {
   User,
   X,
 } from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {useAuth} from '@/hooks/use-auth';
 import {cn} from '@/lib/utils';
 import services from '@/lib/services';

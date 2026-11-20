@@ -27,7 +27,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Lightbulb, RefreshCw} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Button} from '@/components/arc/button/button';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';

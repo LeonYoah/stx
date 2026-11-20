@@ -31,7 +31,7 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Trash2, X} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {cn} from '@/lib/utils';
 import {

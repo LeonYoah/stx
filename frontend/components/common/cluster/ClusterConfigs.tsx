@@ -36,7 +36,7 @@ import {Label} from '@/components/ui/label';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {Settings, RefreshCw, FileText, Server, Check, AlertTriangle, Edit, History, Upload, Download, Loader2, FolderSync, Eye, GitCompareArrows, WandSparkles, Search, MoreHorizontal} from 'lucide-react';
 import {ConfigService} from '@/lib/services/config';
 import type {ConfigInfo, ConfigVersionInfo} from '@/lib/services/config';

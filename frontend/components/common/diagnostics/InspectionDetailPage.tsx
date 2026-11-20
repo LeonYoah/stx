@@ -36,7 +36,7 @@ import {
   Loader2,
   Package,
 } from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import type {
   DiagnosticsInspectionFinding,

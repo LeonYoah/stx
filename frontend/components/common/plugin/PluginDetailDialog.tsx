@@ -31,7 +31,7 @@ import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {
   Table,
   TableBody,

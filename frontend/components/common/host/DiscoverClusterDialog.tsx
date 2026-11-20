@@ -40,7 +40,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Search, CheckCircle, AlertCircle, Server, FolderOpen, Tag } from 'lucide-react';
 import { JavaHomePicker } from '@/components/common/java/JavaHomePicker';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import {
   DiscoveredCluster,
   DiscoveryResult,

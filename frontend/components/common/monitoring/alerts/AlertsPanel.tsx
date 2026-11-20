@@ -33,10 +33,14 @@ import {
   BellOff,
   CheckCheck,
   ChevronRight,
+  CircleCheck,
+  CircleX,
   ExternalLink,
   Lightbulb,
   MoreHorizontal,
+  Send,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   AlertStatusChip,
@@ -45,6 +49,7 @@ import {
   SeverityChip,
 } from '../status-chips';
 import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Combobox} from '@/components/arc/combobox/combobox';
 import {CopyButton} from '@/components/arc/copy-button/copy-button';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
@@ -58,11 +63,19 @@ import {
   formatToDateTimeLocal,
 } from '@/components/common/layout/CompactTimeFilter';
 import {TableCard} from '@/components/common/layout/TableCard';
+import {
+  Timeline,
+  type TimelineEvent,
+} from '@/components/arc/timeline/timeline';
 import {TroubleshootingMemoryCard} from '@/components/common/troubleshooting/TroubleshootingMemoryCard';
 import {SaveMemoryDialog} from '@/components/common/troubleshooting/SaveMemoryDialog';
 import {syncAutoCloseReason} from '@/components/common/sync/task-alert-utils';
 import services from '@/lib/services';
-import {formatDateTimeMinuteTz, wallTimeToRFC3339} from '@/lib/timezone';
+import {
+  formatDateTimeMinuteTz,
+  resolveDisplayTimezone,
+  wallTimeToRFC3339,
+} from '@/lib/timezone';
 import type {TroubleshootingMemoryEntry} from '@/lib/services/troubleshooting';
 import type {
   AlertInstance,
@@ -87,6 +100,19 @@ import styles from '../monitoring.module.css';
 
 const PAGE_SIZE = 10;
 const SILENCE_MINUTES = 30;
+
+/** 生命周期条节点样式：触发=危险、恢复=成功，其余中性；文案本身已写明结果。/ Lifecycle marker styling: triggered=danger, resolved=success, others neutral (the title already states the outcome). */
+const LIFECYCLE_TONE: Record<string, TimelineEvent['tone']> = {
+  triggered: 'danger',
+  resolved: 'success',
+};
+const LIFECYCLE_ICON: Record<string, React.ReactNode> = {
+  triggered: <Zap className='size-3.5' aria-hidden />,
+  notified: <Send className='size-3.5' aria-hidden />,
+  acknowledged: <CheckCheck className='size-3.5' aria-hidden />,
+  resolved: <CircleCheck className='size-3.5' aria-hidden />,
+  closed: <CircleX className='size-3.5' aria-hidden />,
+};
 /** Radix Select 不允许空字符串选项值，「全部」用哨兵值再映射回 ''。
     Radix Select rejects empty-string option values; "all" uses a sentinel mapped back to ''. */
 const ALL_VALUE = '__all__';
@@ -365,7 +391,9 @@ export function AlertsPanel({
       services.monitoring
         .getAlertInstances({page: 1, page_size: 1})
         .catch(() => null),
-      services.cluster.getClusters({current: 1, size: 200}).catch(() => null),
+      // 后端 ListClustersRequest 限制 size<=100，超过会被 binding 拒绝。
+      // Backend caps ListClustersRequest size at 100; larger values fail binding.
+      services.cluster.getClusters({current: 1, size: 100}).catch(() => null),
     ])
       .then(([unfiltered, clusters]) => {
         if (!alive) {
@@ -437,6 +465,110 @@ export function AlertsPanel({
       }
     },
     [patchInstance],
+  );
+
+  // 搜索是接口参数之外的客户端收窄，只作用于已返回的当前页。Search narrows the returned page client-side.
+  const pageItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      return rows;
+    }
+    return rows.filter(
+      (a) =>
+        a.alert_name.toLowerCase().includes(q) ||
+        (a.alert_name_en ?? '').toLowerCase().includes(q) ||
+        a.rule_key.toLowerCase().includes(q) ||
+        a.cluster_name.toLowerCase().includes(q),
+    );
+  }, [rows, query]);
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchResult, setBatchResult] = useState<{
+    ok: number;
+    skipped: number;
+    failed: number;
+  } | null>(null);
+
+  const toggleSelect = useCallback((id: string, on: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllPage = useCallback(
+    (on: boolean) => {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const a of pageItems) {
+          if (on) {
+            next.add(a.alert_id);
+          } else {
+            next.delete(a.alert_id);
+          }
+        }
+        return next;
+      });
+    },
+    [pageItems],
+  );
+
+  // 批量动作与行内菜单同一判定：确认/静默仅 firing，关闭排除已关闭；
+  // 串行逐条调用，与作业批量一致，避免同时压向集群。
+  // Same eligibility as the row menu — ack/silence only for firing, close for
+  // anything not closed; serial calls, matching job bulk actions, keep the
+  // cluster from being hit all at once.
+  const runBatch = useCallback(
+    async (kind: 'ack' | 'silence' | 'close') => {
+      const targets = rows.filter((a) => selected.has(a.alert_id));
+      if (targets.length === 0) {
+        return;
+      }
+      setBatchBusy(true);
+      setBatchResult(null);
+      const outcome = {ok: 0, skipped: 0, failed: 0};
+      try {
+        for (const alert of targets) {
+          const eligible =
+            kind === 'close'
+              ? alert.status !== 'closed'
+              : alertRowStatus(alert) === 'firing';
+          if (!eligible) {
+            outcome.skipped += 1;
+            continue;
+          }
+          try {
+            const result =
+              kind === 'ack'
+                ? await services.monitoring.acknowledgeAlertInstance(
+                    alert.alert_id,
+                  )
+                : kind === 'silence'
+                  ? await services.monitoring.silenceAlertInstance(
+                      alert.alert_id,
+                      {
+                        duration_minutes: SILENCE_MINUTES,
+                      },
+                    )
+                  : await services.monitoring.closeAlertInstance(alert.alert_id);
+            patchInstance(alert.alert_id, result as Partial<AlertInstance>);
+            outcome.ok += 1;
+          } catch {
+            outcome.failed += 1;
+          }
+        }
+      } finally {
+        setBatchBusy(false);
+        setBatchResult(outcome);
+      }
+    },
+    [rows, selected, patchInstance],
   );
 
   const hasActiveFilter = Boolean(
@@ -517,20 +649,11 @@ export function AlertsPanel({
     [router],
   );
 
-  // 搜索是接口参数之外的客户端收窄，只作用于已返回的当前页。Search narrows the returned page client-side.
-  const pageItems = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) {
-      return rows;
-    }
-    return rows.filter(
-      (a) =>
-        a.alert_name.toLowerCase().includes(q) ||
-        (a.alert_name_en ?? '').toLowerCase().includes(q) ||
-        a.rule_key.toLowerCase().includes(q) ||
-        a.cluster_name.toLowerCase().includes(q),
-    );
-  }, [rows, query]);
+  const pageAllSelected =
+    pageItems.length > 0 &&
+    pageItems.every((a) => selected.has(a.alert_id));
+  const pageSomeSelected =
+    !pageAllSelected && pageItems.some((a) => selected.has(a.alert_id));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -809,7 +932,14 @@ export function AlertsPanel({
               onPageChange: (p) => writeFilters({page: p}, false),
             }}
           >
-            <div className={cn(styles.rowHead, styles.tableArea)} aria-hidden>
+            <div className={cn(styles.rowHead, styles.tableArea)}>
+              <Checkbox
+                checked={
+                  pageAllSelected ? true : pageSomeSelected ? 'indeterminate' : false
+                }
+                onCheckedChange={(v) => toggleSelectAllPage(v === true)}
+                aria-label={t('selectAll')}
+              />
               <span>{t('colStatus')}</span>
               <span>{t('colAlert')}</span>
               <span>{t('fieldSeverity')}</span>
@@ -844,6 +974,13 @@ export function AlertsPanel({
                       active?.alert_id === alert.alert_id && styles.rowActive,
                     )}
                   >
+                    <Checkbox
+                      checked={selected.has(alert.alert_id)}
+                      onCheckedChange={(v) =>
+                        toggleSelect(alert.alert_id, v === true)
+                      }
+                      aria-label={t('selectAlert', {name: displayName(alert)})}
+                    />
                     <StatusCell status={rowStatus} t={t} />
                     <div className={styles.rowName}>
                       <span className={styles.rowNameInline}>
@@ -939,6 +1076,69 @@ export function AlertsPanel({
               ))}
             </div>
           </TableCard>
+
+          {selected.size > 0 || batchResult ? (
+            <div className={styles.batchBarWrap}>
+              <div className={styles.batchBar} role='status'>
+                {selected.size > 0 ? (
+                  <>
+                    <span>{t('selected', {count: selected.size})}</span>
+                    <span className={styles.batchActions}>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='secondary'
+                        disabled={batchBusy}
+                        onClick={() => void runBatch('ack')}
+                      >
+                        {t('actionAck')}
+                      </Button>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='secondary'
+                        disabled={batchBusy}
+                        onClick={() => void runBatch('silence')}
+                      >
+                        {t('actionSilence')}
+                      </Button>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='secondary'
+                        disabled={batchBusy}
+                        onClick={() => void runBatch('close')}
+                      >
+                        {t('actionClose')}
+                      </Button>
+                    </span>
+                  </>
+                ) : null}
+                {batchResult ? (
+                  <span className={styles.sub}>
+                    {t('batchResult', {
+                      ok: batchResult.ok,
+                      failed: batchResult.failed,
+                      skipped: batchResult.skipped,
+                    })}
+                  </span>
+                ) : null}
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='sm'
+                  iconOnly
+                  aria-label={t('batchClear')}
+                  onClick={() => {
+                    setSelected(new Set());
+                    setBatchResult(null);
+                  }}
+                >
+                  <X className='size-4' aria-hidden />
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <DetailHost
@@ -1105,7 +1305,7 @@ function AlertDetailBody({
   const override = rule?.overrides?.find(
     (o) => String(o.cluster_id) === alert.cluster_id,
   );
-  const timelineEvents = useMemo(() => {
+  const timelineEvents = useMemo<TimelineEvent[]>(() => {
     const evs: {key: string; at?: string | null; note?: string}[] = [
       {key: 'triggered', at: alert.firing_at || alert.created_at},
     ];
@@ -1129,8 +1329,19 @@ function AlertDetailBody({
     if (alert.closed_at) {
       evs.push({key: 'closed', at: alert.closed_at, note: alert.closed_by});
     }
-    return evs;
-  }, [alert, deliveries]);
+    return evs
+      .filter((ev): ev is {key: string; at: string; note?: string} =>
+        Boolean(ev.at),
+      )
+      .map((ev, i) => ({
+        id: `${ev.key}-${i}`,
+        at: ev.at,
+        title: t(`timelineKind.${ev.key}`),
+        meta: ev.note,
+        tone: LIFECYCLE_TONE[ev.key],
+        icon: LIFECYCLE_ICON[ev.key],
+      }));
+  }, [alert, deliveries, t]);
 
   return (
     <div className={styles.detailCol}>
@@ -1385,24 +1596,14 @@ function AlertDetailBody({
 
         <div className={styles.sectionStack} style={{gap: 8}}>
           <span className={styles.sectionTitle}>{t('timeline')}</span>
-          <ol className={styles.timeline}>
-            {timelineEvents.map((ev, i) => (
-              <li key={i} className={styles.tlItem}>
-                <span className={styles.tlDot}>
-                  <TimelineDot kind={ev.key} />
-                </span>
-                <span className={styles.tlHead}>
-                  <span>{t(`timelineKind.${ev.key}`)}</span>
-                  <span className={cn(styles.sub, styles.num, styles.nowrap)}>
-                    {ago(ev.at)}
-                  </span>
-                </span>
-                {ev.note ? (
-                  <div className={styles.tlNote}>{ev.note}</div>
-                ) : null}
-              </li>
-            ))}
-          </ol>
+          <Timeline
+            events={timelineEvents}
+            now={Date.now()}
+            label={t('timeline')}
+            timeZone={resolveDisplayTimezone()}
+            locale={locale}
+            headingLevel={4}
+          />
         </div>
 
         <div className={styles.sectionStack} style={{gap: 8}}>
@@ -1481,18 +1682,6 @@ function AlertDetailBody({
       ) : null}
     </div>
   );
-}
-
-function TimelineDot({kind}: {kind: string}) {
-  const cls =
-    {
-      triggered: styles.dotFiring,
-      notified: styles.dotSilenced,
-      acknowledged: styles.dotAcknowledged,
-      resolved: styles.dotResolved,
-      closed: styles.dotClosed,
-    }[kind] ?? styles.dotClosed;
-  return <span className={cn(styles.tlDotInner, cls)} aria-hidden />;
 }
 
 // 可用性告警 Details 里与上下文区（host_name→受影响主机）或命中规则行

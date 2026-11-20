@@ -1916,8 +1916,9 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 	if req != nil {
 		targetVersion = req.TargetVersion
 	}
-	minJavaMajor := javaruntime.MinSupportedMajor(targetVersion)
-	javaItem.Details["supported_versions"] = supportedJavaVersions(minJavaMajor)
+	javaRequirement := seatunnel.JavaRequirementForVersion(targetVersion)
+	minJavaMajor := javaRequirement.MinSupported
+	javaItem.Details["supported_versions"] = javaRequirement.Recommended
 	javaItem.Details["required_java"] = fmt.Sprintf("%d+", minJavaMajor)
 
 	// 指定了节点 JDK 时只检查 <java_home>/bin/java（AC2），失败直接阻断并带上节点、路径与原因；
@@ -1979,40 +1980,33 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 			javaItem.Details["java_home_source"] = javaruntime.SourceDetected
 		}
 
-		if javaVersion == 8 || javaVersion == 11 || javaVersion >= minJavaMajor {
-			// Supported version
-			// 支持的版本
+		switch javaruntime.StatusForTarget(javaVersion, targetVersion) {
+		case javaruntime.StatusPassed:
+			// 推荐集合内（legacy {8,11} / ≥3.1.0 {11,17}）判通过。
+			// Inside the recommended set (legacy {8,11}, ≥3.1.0 {11,17}) passes.
 			javaItem.Status = CheckStatusPassed
 			javaItem.Message = fmt.Sprintf("Java %d is installed (supported) / Java %d 已安装（支持）", javaVersion, javaVersion)
-		} else if javaVersion > 0 && javaVersion < minJavaMajor {
+		case javaruntime.StatusFailed:
 			// 目标版本要求更高 JDK（如 ≥3.1.0 要求 11+），低于下限必失败。
 			// The target requires a newer JDK (≥3.1.0 needs 11+); anything below must block.
 			javaItem.Status = CheckStatusFailed
 			javaItem.Message = fmt.Sprintf("Java %d is installed but SeaTunnel %s requires Java %d+. / Java %d 已安装，但 SeaTunnel %s 要求 Java %d+。", javaVersion, targetVersion, minJavaMajor, javaVersion, targetVersion, minJavaMajor)
 			result.OverallStatus = CheckStatusFailed
-		} else if javaVersion > 0 {
-			// Other version - warning but not blocking
-			// 其他版本 - 警告但不阻塞
+		case javaruntime.StatusWarning:
 			javaItem.Status = CheckStatusWarning
-			javaItem.Message = fmt.Sprintf("Java %d is installed. Recommended: Java 8 or 11. / Java %d 已安装。推荐：Java 8 或 11。", javaVersion, javaVersion)
-		} else {
-			// Cannot determine version
-			// 无法确定版本
-			javaItem.Status = CheckStatusWarning
-			javaItem.Message = "Java is installed but version cannot be determined / Java 已安装但无法确定版本"
+			if javaVersion <= 0 {
+				// Cannot determine version
+				// 无法确定版本
+				javaItem.Message = "Java is installed but version cannot be determined / Java 已安装但无法确定版本"
+			} else {
+				// 高于推荐上限或非推荐版本 - 警告但不阻塞
+				// Above the recommended max or otherwise unrecommended - warning but not blocking
+				javaItem.Message = fmt.Sprintf("Java %d is installed. Recommended: Java %s. / Java %d 已安装。推荐：Java %s。", javaVersion, javaRequirement.RecommendedText(" or "), javaVersion, javaRequirement.RecommendedText(" 或 "))
+			}
 		}
 	}
 	result.Items = append(result.Items, javaItem)
 	return s.finishPrecheckSummary(ctx, hostID, result), nil
-}
-
-// supportedJavaVersions 把最低 JDK 主版本号展开成预检详情里展示的支持列表。
-// supportedJavaVersions expands the minimum JDK major into the supported list shown in precheck details.
-func supportedJavaVersions(minMajor int) []int {
-	if minMajor >= 11 {
-		return []int{11, 17}
-	}
-	return []int{8, 11}
 }
 
 // finishPrecheckSummary 汇总各检查项得到整体状态与摘要。
@@ -2116,8 +2110,9 @@ func (s *Service) runCustomJavaPrecheck(ctx context.Context, hostInfo *HostInfo,
 		item.Status = CheckStatusFailed
 		item.Message = fmt.Sprintf("节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+ / Node %s runs Java %d but SeaTunnel %s requires Java %d+", nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion), nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion))
 	default:
+		recommended := seatunnel.JavaRequirementForVersion(targetVersion)
 		item.Status = CheckStatusWarning
-		item.Message = fmt.Sprintf("节点 %s 使用 JDK %s，Java %d，推荐 8 或 11 / Node %s uses JDK %s, Java %d; Java 8 or 11 is recommended", nodeName, rt.JavaBin, rt.Version, nodeName, rt.JavaBin, rt.Version)
+		item.Message = fmt.Sprintf("节点 %s 使用 JDK %s，Java %d，推荐 %s / Node %s uses JDK %s, Java %d; Java %s is recommended", nodeName, rt.JavaBin, rt.Version, recommended.RecommendedText(" 或 "), nodeName, rt.JavaBin, rt.Version, recommended.RecommendedText(" or "))
 	}
 	// JDK 完全不可用（路径错误、执行失败、Agent 过旧）时保持阻断，不进入版本矩阵。
 	// A JDK that is unusable at all (bad path, exec failure, old Agent) stays blocking

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import {MAX_CUSTOM_WINDOW_MS} from '@/lib/time-window';
 import type {BarChartDatum} from '@/components/arc/bar-chart/bar-chart';
 import type {BrushChartAnnotation, BrushChartDatum} from '@/components/arc/brush-chart/brush-chart';
 import type {DonutChartDatum} from '@/components/arc/donut-chart/donut-chart';
@@ -293,8 +294,9 @@ export function scalePoints(points: TrendPoint[], factor: number): TrendPoint[] 
   return points.map(([ts, value]) => [ts, value * factor]);
 }
 
-/** 与后端一致的自定义时间窗上限（31 天）。 / Custom window cap matching the backend (31 days). */
-export const MAX_TREND_WINDOW_MS = 31 * 24 * 60 * 60 * 1000;
+/** 与后端一致的自定义时间窗上限（366 天）；统一定义在 lib/time-window。
+ * Custom window cap matching the backend (366 days); defined once in lib/time-window. */
+export const MAX_TREND_WINDOW_MS = MAX_CUSTOM_WINDOW_MS;
 
 /** 终态样本在对账标记 + 下一轮导出（最坏约 25s）后才落盘，作业全程窗口需多留一段尾巴才能罩住终值。
  * Terminal samples land only after the reconcile marks the job and the next export runs (up to ~25s),
@@ -311,10 +313,10 @@ const parseInstant = (value?: string | null): number | null => {
 
 /**
  * 作业全程时间窗：开始取 started_at（缺省 created_at），结束取 finished_at；运行中或结束时间不可信（早于开始，
- * 如引擎时区错位）时依次退到 updated_at、当前时间。跨度超过 31 天时只保留最后 31 天。
+ * 如引擎时区错位）时依次退到 updated_at、当前时间。跨度超过上限时只保留最后一年。
  * Job lifetime window: start at started_at (else created_at) and end at finished_at; while running, or when the finish
  * time is not trustworthy (before the start, e.g. an engine timezone skew), fall back to updated_at and then now. Spans
- * longer than 31 days keep only the last 31 days.
+ * longer than the cap keep only the last year.
  */
 export function jobLifetimeWindow(
   job: {started_at?: string; finished_at?: string; created_at?: string; updated_at?: string} | null,

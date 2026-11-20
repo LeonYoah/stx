@@ -529,9 +529,9 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 			{Name: "weeks", Location: InputQuery, Required: false, Description: "Run calendar weeks, 1-52 (default 16)"},
 		},
 		Example: "stx dashboard home jobs --range 6h",
@@ -557,9 +557,9 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 		},
 		Example: "stx dashboard home clusters --cluster_id 1 --range 1h",
 		OutputExample: `{
@@ -585,9 +585,9 @@ var registry = append([]OperationSpec{
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
 			{Name: "group", Location: InputQuery, Required: true, Description: "Detail group: jvm|gc|sched|store|proc"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 		},
 		Example: "stx dashboard home cluster-detail --cluster_id 1 --group jvm --range 6h",
 		OutputExample: `{
@@ -612,9 +612,9 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to hosts running nodes of this cluster"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 		},
 		Example: "stx dashboard home hosts --cluster_id 1 --range 6h",
 		OutputExample: `{
@@ -639,10 +639,10 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 400 days"},
-			{Name: "granularity", Location: InputQuery, Required: false, Description: "Bucket granularity: auto|quarter_hour|hour|day|month; auto picks by window span, omit for totals only"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
+			{Name: "granularity", Location: InputQuery, Required: false, Description: "Bucket granularity: auto|quarter_hour|hour|day|week|month; auto picks by window span, omit for totals only"},
 			{Name: "split", Location: InputQuery, Required: false, Description: "Split series by: none|cluster|task (default none)"},
 		},
 		Example: "stx dashboard home volume --granularity day --split cluster",
@@ -2124,6 +2124,7 @@ func monitoringReadOperationSpecs() []OperationSpec {
 			[]InputSpec{{Name: "lang", Location: InputQuery, Description: "Response language: zh or en"}}),
 		monitoringReadOperation("monitoring.notifiable-user.list", []string{"monitoring", "notifiable-user", "list"}, "List notifiable users", "/api/v1/monitoring/notifiable-users", nil),
 		monitoringReadOperation("monitoring.platform-health.get", []string{"monitoring", "platform-health", "get"}, "Get platform health", "/api/v1/monitoring/platform-health", nil),
+		monitoringReadOperation("monitoring.platform.get", []string{"monitoring", "platform"}, "Get platform self-monitoring snapshot", "/api/v1/monitoring/platform", nil),
 		monitoringReadOperation("monitoring.notification-channel.list", []string{"monitoring", "notification-channel", "list"}, "List notification channels", "/api/v1/monitoring/notification-channels", nil),
 		monitoringReadOperation("monitoring.notification-delivery.list", []string{"monitoring", "notification-delivery", "list"}, "List notification deliveries", "/api/v1/monitoring/notification-deliveries", monitoringDeliveryFilterInputs(true)),
 		monitoringReadOperation("monitoring.notification-route.list", []string{"monitoring", "notification-route", "list"}, "List notification routes", "/api/v1/monitoring/notification-routes", nil),

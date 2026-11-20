@@ -185,7 +185,7 @@ export function MonitoringCenterWorkspace() {
             onValueChange={handleTabChange}
             className='w-full sm:w-auto'
           >
-            <TabsList className='grid w-full grid-cols-2 sm:w-[320px] bg-muted/60 p-1 h-8.5'>
+            <TabsList className='grid w-full grid-cols-2 sm:w-[280px] bg-muted/60 p-1 h-8.5'>
               <TabsTrigger
                 value='alerts'
                 className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'

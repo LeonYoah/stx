@@ -32,7 +32,6 @@ import {
   StudioTableCell,
   StudioTableColumn,
   StudioTableContent,
-  StudioTableEmptyRow,
   StudioTableHeader,
   StudioTableRow,
   StudioTableScroll,
@@ -52,14 +51,20 @@ import {
   formatBytes,
   formatCompactNumber,
   SERIES_PALETTE,
+  summarizeRate,
 } from './dashboard-format';
+import {DashboardPanel} from './DashboardPanel';
+import {
+  THROUGHPUT_COLOR,
+  THROUGHPUT_KEYS,
+  ThroughputTabs,
+  type ThroughputKey,
+} from './ThroughputTabs';
 import {TrendEmptyState} from './TrendEmptyState';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
 
 const JOBS_POLL_MS = 30_000;
-const THROUGHPUT_KEYS = ['write', 'read', 'write_bytes', 'read_bytes'] as const;
-type ThroughputKey = (typeof THROUGHPUT_KEYS)[number];
 
 const VOLUME_METRICS = [
   'write_rows',
@@ -74,13 +79,9 @@ type VolumeSplit = (typeof VOLUME_SPLITS)[number];
 /** 拆分序列色板：直接用共享 SERIES_PALETTE，同组在各图里同色。/ Split-series colors: reuse the shared SERIES_PALETTE so a group keeps one color across charts. */
 const VOLUME_COLORS = SERIES_PALETTE;
 
-/** 读用 --series-1、写用 --series-2，与作业详情趋势图同色。/ Read --series-1, write --series-2, matching job trends. */
-const THROUGHPUT_COLOR: Record<ThroughputKey, string> = {
-  write: 'var(--series-2)',
-  read: 'var(--series-1)',
-  write_bytes: 'var(--series-2)',
-  read_bytes: 'var(--series-1)',
-};
+/** 周桶标签的「MM/DD」格式化。/ MM/DD formatter for week-bucket labels. */
+const formatDay = (date: Date) =>
+  `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
 
 /**
  * 首页作业页签：全局吞吐（事件标注）→ 写入 / CDC 延迟 Top 8 → 数据流向 + 运行日历 → Checkpoint + 算子热点。
@@ -116,9 +117,26 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   );
   const data = resource.data;
   const hasMetrics = data?.source === 'prometheus';
-  const panel = 'rounded-xl border border-border/70 bg-card/40 p-4';
   const isBytes = metric.endsWith('bytes');
   const formatRate = (value: number) => `${formatCompactNumber(value)}/s`;
+  // 格子主数值按「窗口均值」格式化：行类 compact+/s；字节类 formatBytes 拆数字与单位，
+  // 单位后补 /s。/ Cell formatting for window-average values: compact+/s for rows;
+  // formatBytes splits number and unit for bytes, with /s appended to the unit.
+  const formatThroughputValue = (key: ThroughputKey, value: number) => {
+    // 小于最小显示刻度的非零速率不能显示成 0（会被读成「没有流量」），用「<刻度」表示。
+    // A nonzero rate below the smallest displayable step must not render as 0
+    // (it reads as "no traffic") — show "<step" instead.
+    if (key.endsWith('bytes')) {
+      if (value > 0 && value < 1) return {text: '<1', unit: 'B/s'};
+      const text = formatBytes(value);
+      const index = text.lastIndexOf(' ');
+      return index === -1
+        ? {text, unit: ''}
+        : {text: text.slice(0, index), unit: `${text.slice(index + 1)}/s`};
+    }
+    if (value > 0 && value < 0.1) return {text: '<0.1', unit: '/s'};
+    return {text: formatCompactNumber(value), unit: '/s'};
+  };
 
   // 数据量面板独立拉取：桶粒度由后端按窗口跨度自动选（auto），只有拆分会重写序列形状，
   // 全部指标一次取回再本地切换。
@@ -173,15 +191,25 @@ export function JobsTab({query}: {query: DashboardQuery}) {
       );
     return {
       categories: buckets.map((bucket) => {
-        const label =
-          granularity === 'month'
-            ? bucket.label
-            : granularity === 'day'
-              ? bucket.label.slice(5)
-              : sameDay
-                ? bucket.label.slice(11)
-                : bucket.label.slice(5);
-        return bucket.partial ? `${label}*` : label;
+        // 亚日粒度标签带时刻（"YYYY-MM-DD HH:mm"），同日取 "HH:mm"、跨日取 "MM-DD"；
+        // 日取 "MM-DD"，周取「周一–周日」，月原样。no_data 桶（整桶早于最早样本）加 · 标记，柱体留空。
+        // Sub-day labels carry the clock ("YYYY-MM-DD HH:mm"): same-day shows "HH:mm", multi-day
+        // shows "MM-DD"; days show "MM-DD", weeks "Mon–Sun", months stay as they are. no_data
+        // buckets (entirely before the oldest sample) get a · marker and an empty bar.
+        let label: string;
+        if (granularity === 'month') {
+          label = bucket.label;
+        } else if (granularity === 'week') {
+          const monday = new Date(`${bucket.label}T00:00:00`);
+          const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000);
+          label = `${formatDay(monday)}–${formatDay(sunday)}`;
+        } else if (granularity === 'day') {
+          label = bucket.label.slice(5);
+        } else {
+          label = sameDay ? bucket.label.slice(11) : bucket.label.slice(5);
+        }
+        const marked = bucket.no_data ? `${label}·` : label;
+        return bucket.partial ? `${marked}*` : marked;
       }),
       series: rows.map((row, index) => ({
         id: row.group_id,
@@ -190,9 +218,11 @@ export function JobsTab({query}: {query: DashboardQuery}) {
             ? t('volume.all')
             : (volumeData?.groups?.[row.group_id] ?? `#${row.group_id}`),
         color: VOLUME_COLORS[index % VOLUME_COLORS.length],
-        values: row.totals,
+        // no_data 桶画成空柱（NaN 留缺口），不显示成 0。/ no_data buckets render as gaps (NaN), not zeros.
+        values: row.totals.map((value, i) => (buckets[i]?.no_data ? NaN : value)),
       })),
       hasPartial: buckets.some((bucket) => bucket.partial),
+      hasNoData: buckets.some((bucket) => bucket.no_data),
     };
   }, [volumeData, volumeMetric, volumeSplit, t]);
 
@@ -204,6 +234,18 @@ export function JobsTab({query}: {query: DashboardQuery}) {
       minSpan: brushMinSpan(points, data?.step_seconds ?? 0),
     };
   }, [data, metric]);
+  const throughputTabs = useMemo(
+    () =>
+      THROUGHPUT_KEYS.map((key) => ({
+        key,
+        label: t(`throughput.${key}`),
+        summary: summarizeRate(
+          data?.throughput.find((item) => item.key === key)?.points ?? [],
+        ),
+        color: THROUGHPUT_COLOR[key],
+      })),
+    [data, t],
+  );
   const annotations = useMemo(
     () =>
       (data?.annotations ?? []).map((item) => ({
@@ -271,18 +313,6 @@ export function JobsTab({query}: {query: DashboardQuery}) {
       {t('empty')}
     </p>
   );
-  const header = (title: string, hint: string, extra?: React.ReactNode) => (
-    <div className='mb-2 flex flex-wrap items-center gap-2'>
-      <h3 className='text-sm font-medium'>{title}</h3>
-      <span className='text-xs text-muted-foreground'>{hint}</span>
-      {/* 窄屏时控件换到下一行，并在容器内横向滚动，不撑破页面。/ On narrow screens controls wrap and scroll inside. */}
-      {extra ? (
-        <div className='w-full max-w-full overflow-x-auto sm:ml-auto sm:w-auto'>
-          {extra}
-        </div>
-      ) : null}
-    </div>
-  );
 
   if (resource.loading && !data) {
     return (
@@ -290,7 +320,8 @@ export function JobsTab({query}: {query: DashboardQuery}) {
         className='grid gap-3 lg:grid-cols-2'
         data-testid='home-jobs-loading'
       >
-        <div className='h-[340px] animate-pulse rounded-xl bg-muted/40 lg:col-span-2' />
+        {/* 与新吞吐面板同高（指标格行 ~84px + 图表区 ~340px），加载完成不跳动。/ Matches the new throughput panel (~84px tab row + ~340px chart area) so loading does not jump. */}
+        <div className='h-[424px] animate-pulse rounded-xl bg-muted/40 lg:col-span-2' />
         <div className='h-[300px] animate-pulse rounded-xl bg-muted/40' />
         <div className='h-[300px] animate-pulse rounded-xl bg-muted/40' />
       </div>
@@ -298,10 +329,10 @@ export function JobsTab({query}: {query: DashboardQuery}) {
   }
 
   const calendarBlock = calendar ? (
-    <section className={panel} data-testid='home-calendar'>
-      {header(
-        t('calendar.title'),
-        t('calendar.hint', {weeks: calendar.weeks}),
+    <DashboardPanel
+      title={t('calendar.title')}
+      hint={t('calendar.hint', {weeks: calendar.weeks})}
+      actions={
         <SegmentedControl
           label={t('calendar.modeLabel')}
           value={calendarMode}
@@ -310,8 +341,10 @@ export function JobsTab({query}: {query: DashboardQuery}) {
             {value: 'runs', label: t('calendar.runs')},
             {value: 'failed', label: t('calendar.failed')},
           ]}
-        />,
-      )}
+        />
+      }
+      testId='home-calendar'
+    >
       <div className='overflow-x-auto'>
         {/* beUI 日历的月份与图例走它自己的 LocaleProvider。/ beUI reads month names and legend text from its LocaleProvider. */}
         <LocaleProvider locale={locale === 'zh' ? 'zh-CN' : 'en-US'}>
@@ -341,7 +374,7 @@ export function JobsTab({query}: {query: DashboardQuery}) {
           />
         </LocaleProvider>
       </div>
-    </section>
+    </DashboardPanel>
   ) : null;
 
   return (
@@ -362,48 +395,75 @@ export function JobsTab({query}: {query: DashboardQuery}) {
         </>
       ) : (
         <>
-          <section className={panel} data-testid='home-throughput'>
-            {header(
-              t('throughput.title'),
-              t('throughput.hint'),
-              <SegmentedControl
-                label={t('throughput.metricLabel')}
-                value={metric}
-                onValueChange={(value) => setMetric(value as ThroughputKey)}
-                options={THROUGHPUT_KEYS.map((key) => ({
-                  value: key,
-                  label: t(`throughput.${key}`),
-                }))}
-              />,
-            )}
-            <div style={{color: THROUGHPUT_COLOR[metric]}}>
-              <BrushChart
-                data={throughput.data}
-                label={t(`throughput.${metric}`)}
-                unit={isBytes ? 'B/s' : '/s'}
-                height={240}
-                overviewHeight={48}
-                minSpan={throughput.minSpan}
-                annotations={annotations}
-                formatDate={(date) => formatDateTimeMinuteTz(date.getTime())}
-                formatTime={(date) =>
-                  formatDateTimeMinuteTz(date.getTime()).slice(-5)
+          <DashboardPanel
+            variant='primary'
+            flush
+            testId='home-throughput'
+          >
+            <ThroughputTabs
+              items={throughputTabs}
+              value={metric}
+              onValueChange={setMetric}
+              label={t('throughput.metricLabel')}
+              panelId='home-throughput-panel'
+              formatValue={formatThroughputValue}
+              peakLabel={(v) => t('throughput.peak', {value: v})}
+              valueHint={t('throughput.avgHint')}
+            />
+            <div
+              id='home-throughput-panel'
+              role='tabpanel'
+              className='p-4'
+            >
+              <p className='mb-2 text-xs text-muted-foreground'>
+                {t('throughput.title')} · {t('throughput.hint')}
+              </p>
+              {/* BrushChart 的 .line/.area/.dot 固定读 --series-1（color 无效），
+                  写系指标局部覆盖成 --series-2 让曲线跟随选中格的颜色。读系指标
+                  不能写 `--series-1: var(--series-1)`——自引用是无效值，stroke 会
+                  回退成黑色。
+                  BrushChart's .line/.area/.dot read --series-1 only (a color
+                  style does nothing), so write metrics override it to
+                  --series-2 to match the selected cell. Read metrics must NOT
+                  set `--series-1: var(--series-1)` — the self-reference is an
+                  invalid value and the stroke falls back to black. */}
+              <div
+                style={
+                  metric === 'write' || metric === 'write_bytes'
+                    ? ({'--series-1': 'var(--series-2)'} as CSSProperties)
+                    : undefined
                 }
-                formatValue={formatRate}
-                emptyLabel={t('empty')}
-              />
+              >
+                <BrushChart
+                  data={throughput.data}
+                  label={t(`throughput.${metric}`)}
+                  unit={isBytes ? 'B/s' : '/s'}
+                  height={240}
+                  overviewHeight={48}
+                  minSpan={throughput.minSpan}
+                  annotations={annotations}
+                  formatDate={(date) => formatDateTimeMinuteTz(date.getTime())}
+                  formatTime={(date) =>
+                    formatDateTimeMinuteTz(date.getTime()).slice(-5)
+                  }
+                  formatValue={formatRate}
+                  emptyLabel={t('empty')}
+                />
+              </div>
             </div>
-          </section>
+          </DashboardPanel>
 
-          <section className={panel} data-testid='home-volume'>
-            {header(
-              t('volume.title'),
+          <DashboardPanel
+            title={t('volume.title')}
+            hint={
               volumeData?.oldest_sample_ms &&
-                volumeData.oldest_sample_ms > volumeData.start_ms
+              volumeData.oldest_sample_ms > volumeData.start_ms
                 ? t('volume.since', {
                     date: formatDateTz(volumeData.oldest_sample_ms),
                   })
-                : t('volume.hint'),
+                : t('volume.hint')
+            }
+            actions={
               <div className='flex flex-wrap items-center gap-2'>
                 <SegmentedControl
                   label={t('volume.metricLabel')}
@@ -425,8 +485,21 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                     label: t(`volume.splits.${key}`),
                   }))}
                 />
-              </div>,
-            )}
+              </div>
+            }
+            // 只「不拆分且四个指标都没有行」才缩矮条；切到空的单指标仍保留面板内
+            // 空态，否则分段控件被藏掉、用户切不回来。
+            // Strip only when unsplit and all four metrics have no rows; an empty
+            // single metric keeps the in-panel empty state so the segmented
+            // controls stay reachable.
+            empty={
+              volumeData != null &&
+              volumeSplit === 'none' &&
+              (volumeData.series ?? []).length === 0
+            }
+            emptyLabel={t('empty')}
+            testId='home-volume'
+          >
             {volume.loading && !volumeData ? (
               <div className='h-[240px] animate-pulse rounded-lg bg-muted/40' />
             ) : volumeChart.series.length === 0 ? (
@@ -445,90 +518,98 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                     {t('volume.partialHint')}
                   </p>
                 ) : null}
+                {volumeChart.hasNoData ? (
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    {t('volume.noDataHint')}
+                  </p>
+                ) : null}
               </>
             )}
-          </section>
+          </DashboardPanel>
 
           <div className='grid gap-3 lg:grid-cols-2'>
-            <section className={panel} data-testid='home-top-write'>
-              {header(t('topWrite.title'), t('topWrite.hint'))}
-              {data.top_write.length === 0 ? (
-                empty('h-[220px]')
-              ) : (
-                <BarChart
-                  {...bars(
-                    data.top_write,
-                    t('topWrite.series'),
-                    'var(--series-2)',
-                  )}
-                  orientation='horizontal'
-                  label={t('topWrite.title')}
-                  formatValue={formatRate}
-                />
-              )}
-            </section>
-            <section className={panel} data-testid='home-top-cdc'>
-              {header(t('topCdc.title'), t('topCdc.hint'))}
-              {data.top_cdc.length === 0 ? (
-                empty('h-[220px]')
-              ) : (
-                <BarChart
-                  {...bars(data.top_cdc, t('topCdc.series'), 'var(--warning)')}
-                  orientation='horizontal'
-                  label={t('topCdc.title')}
-                  formatValue={(value) =>
-                    `${format.number(value, {maximumFractionDigits: 1})}s`
-                  }
-                />
-              )}
-            </section>
-            <section className={panel} data-testid='home-flow'>
-              {header(t('flow.title'), t('flow.hint'))}
-              {flow.links.length === 0 ? (
-                empty('h-[240px]')
-              ) : (
-                <SankeyChart
-                  nodes={flow.nodes}
-                  links={flow.links}
-                  label={t('flow.title')}
-                  formatValue={(value) => formatCompactNumber(value)}
-                />
-              )}
-            </section>
+            <DashboardPanel
+              title={t('topWrite.title')}
+              hint={t('topWrite.hint')}
+              empty={data.top_write.length === 0}
+              emptyLabel={t('empty')}
+              testId='home-top-write'
+            >
+              <BarChart
+                {...bars(
+                  data.top_write,
+                  t('topWrite.series'),
+                  'var(--series-2)',
+                )}
+                orientation='horizontal'
+                label={t('topWrite.title')}
+                formatValue={formatRate}
+              />
+            </DashboardPanel>
+            <DashboardPanel
+              title={t('topCdc.title')}
+              hint={t('topCdc.hint')}
+              empty={data.top_cdc.length === 0}
+              emptyLabel={t('empty')}
+              testId='home-top-cdc'
+            >
+              <BarChart
+                {...bars(data.top_cdc, t('topCdc.series'), 'var(--warning)')}
+                orientation='horizontal'
+                label={t('topCdc.title')}
+                formatValue={(value) =>
+                  `${format.number(value, {maximumFractionDigits: 1})}s`
+                }
+              />
+            </DashboardPanel>
+            <DashboardPanel
+              title={t('flow.title')}
+              hint={t('flow.hint')}
+              empty={flow.links.length === 0}
+              emptyLabel={t('empty')}
+              testId='home-flow'
+            >
+              <SankeyChart
+                nodes={flow.nodes}
+                links={flow.links}
+                label={t('flow.title')}
+                formatValue={(value) => formatCompactNumber(value)}
+              />
+            </DashboardPanel>
             {calendarBlock}
-            <section
-              className={panel}
-              data-testid='home-checkpoints'
+            <DashboardPanel
+              title={t('checkpoint.title')}
+              hint={t('checkpoint.hint')}
+              empty={checkpointData.length === 0}
+              emptyLabel={t('empty')}
+              testId='home-checkpoints'
               // Arc BarChart 只读 --accent；在本区块内换成 Checkpoint 阶段色。/ Arc BarChart reads --accent only.
               style={{'--accent': 'var(--series-3)'} as CSSProperties}
             >
-              {header(t('checkpoint.title'), t('checkpoint.hint'))}
-              {checkpointData.length === 0 ? (
-                empty('h-[220px]')
-              ) : (
-                <ArcBarChart
-                  data={checkpointData}
-                  label={t('checkpoint.title')}
-                  period={t('checkpoint.period')}
-                  unit={t('checkpoint.unit')}
-                  height={220}
-                  showAverage={false}
-                  averageLabel={t('checkpoint.average')}
-                  valueLabel={t('checkpoint.value')}
-                  categoryLabel={t('checkpoint.category')}
-                  formatValue={(value) =>
-                    format.number(value, {maximumFractionDigits: 2})
-                  }
-                />
-              )}
-            </section>
-            <section
-              className='overflow-hidden rounded-xl border border-border/70 bg-card/40'
-              data-testid='home-hotspots'
+              <ArcBarChart
+                data={checkpointData}
+                label={t('checkpoint.title')}
+                period={t('checkpoint.period')}
+                unit={t('checkpoint.unit')}
+                height={220}
+                showAverage={false}
+                averageLabel={t('checkpoint.average')}
+                valueLabel={t('checkpoint.value')}
+                categoryLabel={t('checkpoint.category')}
+                formatValue={(value) =>
+                  format.number(value, {maximumFractionDigits: 2})
+                }
+              />
+            </DashboardPanel>
+            <DashboardPanel
+              title={t('hotspots.title')}
+              hint={t('hotspots.hint')}
+              empty={data.hotspots.length === 0}
+              emptyLabel={t('empty')}
+              flush
+              className='overflow-hidden'
+              testId='home-hotspots'
             >
-              <div className='px-4 pt-4'>
-                {header(t('hotspots.title'), t('hotspots.hint'))}
-              </div>
               <StudioTable label={t('hotspots.title')}>
                 <StudioTableScroll>
                   <StudioTableContent>
@@ -545,44 +626,38 @@ export function JobsTab({query}: {query: DashboardQuery}) {
                       </StudioTableColumn>
                     </StudioTableHeader>
                     <StudioTableBody>
-                      {data.hotspots.length === 0 ? (
-                        <StudioTableEmptyRow colSpan={4}>
-                          {t('empty')}
-                        </StudioTableEmptyRow>
-                      ) : (
-                        data.hotspots.map((item) => (
-                          <StudioTableRow
-                            key={`${item.kind}-${item.job_id}-${item.vertex}`}
+                      {data.hotspots.map((item) => (
+                        <StudioTableRow
+                          key={`${item.kind}-${item.job_id}-${item.vertex}`}
+                        >
+                          <StudioTableCell
+                            className='max-w-[14rem] truncate'
+                            title={item.name}
                           >
-                            <StudioTableCell
-                              className='max-w-[14rem] truncate'
-                              title={item.name}
-                            >
-                              {item.name}
-                            </StudioTableCell>
-                            <StudioTableCell className='font-mono text-muted-foreground'>
-                              {item.vertex || '-'}
-                            </StudioTableCell>
-                            <StudioTableCell className='text-muted-foreground'>
-                              {t(`hotspots.${item.kind ?? 'busy'}`)}
-                            </StudioTableCell>
-                            <StudioTableCell
-                              align='end'
-                              className='tabular-nums'
-                            >
-                              {format.number(item.value, {
-                                style: 'percent',
-                                maximumFractionDigits: 0,
-                              })}
-                            </StudioTableCell>
-                          </StudioTableRow>
-                        ))
-                      )}
+                            {item.name}
+                          </StudioTableCell>
+                          <StudioTableCell className='font-mono text-muted-foreground'>
+                            {item.vertex || '-'}
+                          </StudioTableCell>
+                          <StudioTableCell className='text-muted-foreground'>
+                            {t(`hotspots.${item.kind ?? 'busy'}`)}
+                          </StudioTableCell>
+                          <StudioTableCell
+                            align='end'
+                            className='tabular-nums'
+                          >
+                            {format.number(item.value, {
+                              style: 'percent',
+                              maximumFractionDigits: 0,
+                            })}
+                          </StudioTableCell>
+                        </StudioTableRow>
+                      ))}
                     </StudioTableBody>
                   </StudioTableContent>
                 </StudioTableScroll>
               </StudioTable>
-            </section>
+            </DashboardPanel>
           </div>
         </>
       )}

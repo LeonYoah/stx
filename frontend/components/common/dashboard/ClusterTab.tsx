@@ -17,10 +17,9 @@
 
 'use client';
 
-import {useMemo} from 'react';
+import {useEffect, useMemo, useRef} from 'react';
 import {useFormatter, useTranslations} from 'next-intl';
 import {LineChart} from '@/components/arc/line-chart/line-chart';
-import {RadioCards} from '@/components/arc/radio-cards/radio-cards';
 import {
   CompositionChart,
   type CompositionChartSeries,
@@ -55,6 +54,12 @@ import {formatDateTimeMinuteTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {formatDurationSeconds} from './dashboard-format';
 import {ClusterDetailGroups} from './ClusterDetailGroups';
+import {
+  ClusterScopeStrip,
+  ClusterScopeStripSkeleton,
+  type ClusterScopeItem,
+} from './ClusterScopeStrip';
+import {DashboardPanel} from './DashboardPanel';
 import {TrendEmptyState} from './TrendEmptyState';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
@@ -89,11 +94,11 @@ const HEALTH_TONE: Record<string, string> = {
 };
 
 /**
- * 首页集群页签：集群卡片（切换范围）→ 节点可用性 → 堆 / CPU / GC / 引擎作业状态趋势 → 节点表 + 异常信号。
- * 未接入 Prometheus 时卡片与节点表照常（Agent 心跳），趋势区显示统一空态。
- * The home cluster tab: cluster cards (scope switch) → node availability → heap / CPU / GC / engine job state trends →
- * node table + anomaly signals. Without Prometheus the cards and node table still load (agent heartbeats) and the
- * trend area shows the shared empty state.
+ * 首页集群页签：集群范围选择条（切换范围）→ 节点可用性 → 堆 / CPU / GC / 引擎作业状态趋势 → 节点表 + 异常信号。
+ * 未接入 Prometheus 时选择条与节点表照常（Agent 心跳），趋势区显示统一空态。
+ * The home cluster tab: cluster scope strip (scope switch) → node availability → heap / CPU / GC / engine job state
+ * trends → node table + anomaly signals. Without Prometheus the strip and node table still load (agent heartbeats)
+ * and the trend area shows the shared empty state.
  */
 export function ClusterTab({
   query,
@@ -232,15 +237,15 @@ export function ClusterTab({
       </span>
     </span>
   );
-  const options = [
+  const items = [
     {
-      value: 'all',
-      label: t('allClusters'),
+      key: 'all',
+      title: t('allClusters'),
       description: cardDescription({...totals, heap: totals.heap || undefined}),
     },
     ...cards.map((card) => ({
-      value: String(card.id),
-      label: card.version ? `${card.name} · ${card.version}` : card.name,
+      key: String(card.id),
+      title: card.version ? `${card.name} · ${card.version}` : card.name,
       description: cardDescription({
         online: card.nodes_online,
         total: card.nodes_total,
@@ -263,6 +268,19 @@ export function ClusterTab({
       ),
     })),
   ];
+  // 集群格数据与所选范围无关，切换范围触发的重拉会先把 data 清空；
+  // 留上一份格子让选择条不卸载，键盘焦点才不会掉到 <body>（零塌陷）。
+  // Cluster cells are scope-independent, but a scope-switch refetch clears
+  // data first; keep the previous cells so the strip stays mounted and
+  // keyboard focus is not dropped to <body> (zero-collapse).
+  const lastItems = useRef<ClusterScopeItem[]>([]);
+  useEffect(() => {
+    if (data) {
+      lastItems.current = items;
+    }
+  }, [data, items]);
+  const stripItems =
+    data || lastItems.current.length === 0 ? items : lastItems.current;
 
   const availability = byKey.get('availability') ?? [];
   const cellText = data
@@ -309,30 +327,19 @@ export function ClusterTab({
     : [];
   const allGood =
     signalItems.length > 0 && signalItems.every((item) => item.ok);
-  const panel = 'rounded-xl border border-border/70 bg-card/40 p-4';
 
   return (
     <div className='flex flex-col gap-3' data-testid='home-cluster-tab'>
-      {resource.loading && !data ? (
-        <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-3'>
-          {Array.from({length: 3}).map((_, index) => (
-            <div
-              key={index}
-              className='h-[104px] animate-pulse rounded-xl bg-muted/40'
-            />
-          ))}
-        </div>
+      {resource.loading && !data && lastItems.current.length === 0 ? (
+        <ClusterScopeStripSkeleton count={3} />
       ) : (
-        <RadioCards
-          aria-label={t('cardsLabel')}
-          name='home-cluster-scope'
-          layout='grid'
-          minColumnWidth={260}
+        <ClusterScopeStrip
+          label={t('cardsLabel')}
           value={query.clusterId ? String(query.clusterId) : 'all'}
           onValueChange={(value) =>
             update({clusterId: value === 'all' ? undefined : value, page: 1})
           }
-          options={options}
+          items={stripItems}
         />
       )}
       {data?.partial_errors?.length ? (
@@ -345,13 +352,11 @@ export function ClusterTab({
         <TrendEmptyState reason={data.reason} />
       ) : data ? (
         <>
-          <section className={panel} data-testid='home-availability'>
-            <div className='mb-3 flex flex-wrap items-baseline gap-2'>
-              <h3 className='text-sm font-medium'>{t('availability.title')}</h3>
-              <span className='text-xs text-muted-foreground'>
-                {t('availability.hint', {cell: cellText})}
-              </span>
-            </div>
+          <DashboardPanel
+            title={t('availability.title')}
+            hint={t('availability.hint', {cell: cellText})}
+            testId='home-availability'
+          >
             {availability.length === 0 ? (
               <p className='py-4 text-center text-xs text-muted-foreground'>
                 {t('availability.empty')}
@@ -421,7 +426,7 @@ export function ClusterTab({
                 })}
               </div>
             )}
-          </section>
+          </DashboardPanel>
 
           <div className='grid gap-3 lg:grid-cols-2'>
             {[
@@ -447,13 +452,11 @@ export function ClusterTab({
             ].map((chart) => {
               const line = lineFor(chart.key, chart.reference);
               return (
-                <section key={chart.key} className={panel}>
-                  <div className='mb-2 flex items-baseline gap-2'>
-                    <h3 className='text-sm font-medium'>{chart.title}</h3>
-                    <span className='text-xs text-muted-foreground'>
-                      {chart.unit}
-                    </span>
-                  </div>
+                <DashboardPanel
+                  key={chart.key}
+                  title={chart.title}
+                  hint={chart.unit}
+                >
                   <LineChart
                     label={chart.title}
                     unit={chart.unit}
@@ -468,16 +471,13 @@ export function ClusterTab({
                       `${format.number(value, {maximumFractionDigits: 2})}${chart.suffix}`
                     }
                   />
-                </section>
+                </DashboardPanel>
               );
             })}
-            <section className={panel}>
-              <div className='mb-2 flex items-baseline gap-2'>
-                <h3 className='text-sm font-medium'>{t('charts.jobState')}</h3>
-                <span className='text-xs text-muted-foreground'>
-                  {t('charts.jobStateUnit')}
-                </span>
-              </div>
+            <DashboardPanel
+              title={t('charts.jobState')}
+              hint={t('charts.jobStateUnit')}
+            >
               {composition.series.length === 0 ? (
                 <p className='py-16 text-center text-xs text-muted-foreground'>
                   {t('charts.empty')}
@@ -490,7 +490,7 @@ export function ClusterTab({
                   formatValue={(value) => format.number(value)}
                 />
               )}
-            </section>
+            </DashboardPanel>
           </div>
 
           {/* 节点指标细节：按组懒加载，引擎未上报的组显示空态。/ Node metric details: lazily loaded
@@ -501,16 +501,13 @@ export function ClusterTab({
 
       {data ? (
         <div className='grid gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]'>
-          <section
-            className='overflow-hidden rounded-xl border border-border/70 bg-card/40'
-            data-testid='home-node-table'
+          <DashboardPanel
+            title={t('nodes.title')}
+            hint={t('nodes.count', {count: data.nodes.length})}
+            flush
+            className='overflow-hidden'
+            testId='home-node-table'
           >
-            <div className='flex items-baseline gap-2 px-4 pb-2 pt-3'>
-              <h3 className='text-sm font-medium'>{t('nodes.title')}</h3>
-              <span className='text-xs text-muted-foreground'>
-                {t('nodes.count', {count: data.nodes.length})}
-              </span>
-            </div>
             <StudioTable label={t('nodes.title')}>
               <StudioTableScroll>
                 <StudioTableContent minWidth={760}>
@@ -651,19 +648,15 @@ export function ClusterTab({
                 </StudioTableContent>
               </StudioTableScroll>
             </StudioTable>
-          </section>
+          </DashboardPanel>
 
           {signals ? (
-            <section className={panel} data-testid='home-signals'>
-              <div className='mb-3 flex items-baseline gap-2'>
-                <h3 className='text-sm font-medium'>{t('signals.title')}</h3>
-                {allGood ? (
-                  <span className='text-xs text-muted-foreground'>
-                    {t('signals.allGood')}
-                  </span>
-                ) : null}
-              </div>
-              <ul className='flex flex-col divide-y divide-border/60'>
+            <DashboardPanel
+              title={t('signals.title')}
+              hint={allGood ? t('signals.allGood') : undefined}
+              testId='home-signals'
+            >
+              <ul className='mt-1 flex flex-col divide-y divide-border/60'>
                 {signalItems.map((item) => (
                   <li
                     key={item.key}
@@ -690,7 +683,7 @@ export function ClusterTab({
                   </li>
                 ))}
               </ul>
-            </section>
+            </DashboardPanel>
           ) : null}
         </div>
       ) : null}

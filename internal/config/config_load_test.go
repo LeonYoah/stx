@@ -101,8 +101,14 @@ observability:
 		if err != nil {
 			t.Fatalf("旧配置段不应阻止加载 / legacy sections must not block loading: %v", err)
 		}
-		if !loaded.Observability.Enabled || loaded.Observability.Storage.Retention == "" {
+		if !loaded.Observability.Enabled || loaded.Observability.Storage.Dir == "" {
 			t.Fatalf("内置监控配置应取默认值 / built-in monitoring should take defaults: %+v", loaded.Observability)
+		}
+		// 默认 retention 留空（不按时间删除），max_size 不填默认值、仅记录是否显式配置。
+		// The default retention stays empty (no time-based deletion) and max_size keeps no
+		// config-level default; only the explicit-set flag is recorded.
+		if loaded.Observability.Storage.Retention != "" || loaded.Observability.Storage.MaxSizeSet {
+			t.Fatalf("默认不应回填 retention/max_size / defaults must not backfill retention/max_size: %+v", loaded.Observability.Storage)
 		}
 	})
 	if strings.Contains(stderr, "WARN") {

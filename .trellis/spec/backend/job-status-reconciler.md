@@ -269,7 +269,7 @@ for clusterID, items := range grouped {
 
 ### 5. Good / Base / Bad
 
-- Good：首页列表 `status_group=failed&sort=attention&exclude_run_type=preview&with_counts=1&with_live=1`。
+- Good：首页列表 `status_group=failed&sort=attention&with_counts=1&with_live=1`（预览与正式运行不再筛分，前端不发 `run_type` / `exclude_run_type`；参数仍保留兼容其他调用方）。
 - Base：工作台按 `task_id` 拉运行记录，不带新参数，结果与升级前一致。
 - Bad：在 SQL 里 `JSON_EXTRACT(submit_spec, '$.mode')` 过滤（三库语法不同）；或为列表逐行请求引擎 Checkpoint。
 

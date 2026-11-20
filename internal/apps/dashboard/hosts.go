@@ -47,7 +47,7 @@ var hostPanels = []detailPanel{
 		// 非 idle 时间占比 × 100 ÷ 核数 = 使用率%；缺 cores 序列时整面板空（agent 版本过旧）。
 		// Non-idle share × 100 ÷ cores = utilization %; a missing cores series empties the
 		// whole panel (agent too old).
-		{dimLabel: "mode", expr: `100 * sum by (host_id, mode) (rate(stx_host_cpu_seconds_total{%[1]s, mode!="idle"}[5m])) / on(host_id) group_left() max by (host_id) (stx_host_cpu_cores{%[1]s})`},
+		{dimLabel: "mode", kind: detailRate, expr: `100 * sum by (host_id, mode) (rate(stx_host_cpu_seconds_total{%[1]s, mode!="idle"}[5m])) / on(host_id) group_left() max by (host_id) (stx_host_cpu_cores{%[1]s})`},
 	}},
 	{key: "memory", unit: "bytes", queries: []detailQuery{
 		// 三件套：已用 = total − available，缓存与可用直接读。/ The memory triad:
@@ -60,15 +60,15 @@ var hostPanels = []detailPanel{
 		{dimLabel: "kind", expr: `max by (host_id, kind) (stx_host_load{%[1]s})`},
 	}},
 	{key: "net", unit: "bytes_per_second", queries: []detailQuery{
-		{dim: "rx", dimLabel: "iface", expr: `sum by (host_id, iface) (rate(stx_host_net_receive_bytes_total{%[1]s}[5m]))`},
-		{dim: "tx", dimLabel: "iface", expr: `sum by (host_id, iface) (rate(stx_host_net_transmit_bytes_total{%[1]s}[5m]))`},
+		{dim: "rx", dimLabel: "iface", kind: detailRate, expr: `sum by (host_id, iface) (rate(stx_host_net_receive_bytes_total{%[1]s}[5m]))`},
+		{dim: "tx", dimLabel: "iface", kind: detailRate, expr: `sum by (host_id, iface) (rate(stx_host_net_transmit_bytes_total{%[1]s}[5m]))`},
 	}},
 	{key: "disk_io", unit: "bytes_per_second", queries: []detailQuery{
-		{dim: "read", dimLabel: "device", expr: `sum by (host_id, device) (rate(stx_host_disk_read_bytes_total{%[1]s}[5m]))`},
-		{dim: "write", dimLabel: "device", expr: `sum by (host_id, device) (rate(stx_host_disk_write_bytes_total{%[1]s}[5m]))`},
+		{dim: "read", dimLabel: "device", kind: detailRate, expr: `sum by (host_id, device) (rate(stx_host_disk_read_bytes_total{%[1]s}[5m]))`},
+		{dim: "write", dimLabel: "device", kind: detailRate, expr: `sum by (host_id, device) (rate(stx_host_disk_write_bytes_total{%[1]s}[5m]))`},
 	}},
 	{key: "disk_util", unit: "percent", queries: []detailQuery{
-		{dimLabel: "device", expr: `100 * sum by (host_id, device) (rate(stx_host_disk_io_time_seconds_total{%[1]s}[5m]))`},
+		{dimLabel: "device", kind: detailRate, expr: `100 * sum by (host_id, device) (rate(stx_host_disk_io_time_seconds_total{%[1]s}[5m]))`},
 	}},
 	{key: "fs_used", unit: "percent", queries: []detailQuery{
 		{dimLabel: "mountpoint", expr: `100 * (1 - stx_host_fs_avail_bytes{%[1]s} / clamp_min(stx_host_fs_size_bytes{%[1]s}, 1))`},
@@ -264,7 +264,7 @@ func (s *HostDashboardService) GetHostDashboard(ctx context.Context, clusterID u
 	tasks := []*hostTask{}
 	for p, panel := range hostPanels {
 		for _, q := range panel.queries {
-			tasks = append(tasks, &hostTask{panel: p, dim: q.dim, dimL: q.dimLabel, query: fmt.Sprintf(q.expr, sel)})
+			tasks = append(tasks, &hostTask{panel: p, dim: q.dim, dimL: q.dimLabel, query: fmt.Sprintf(adaptDetailExpr(q.kind, q.expr, step), sel)})
 		}
 	}
 	var wg gosync.WaitGroup
@@ -393,9 +393,9 @@ func NewHostDashboardHandler(service *HostDashboardService) *HostDashboardHandle
 // @Tags Dashboard
 // @Produce json
 // @Param cluster_id query int false "只看跑该集群节点的主机"
-// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param start query string false "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range"
-// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 31 天"
+// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 366 天"
 // @Success 200 {object} DashboardDataResponse{data=HostDashboard}
 // @Failure 400 {object} DashboardDataResponse
 // @Router /api/v1/dashboard/home/hosts [get]

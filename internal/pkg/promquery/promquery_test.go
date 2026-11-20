@@ -146,3 +146,24 @@ func TestInstant_ScalarResultErrors(t *testing.T) {
 	_, err := Instant(ctx, "42", time.Now())
 	require.Error(t, err)
 }
+
+func TestRangeWindow(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, "1m", RangeWindow(30, time.Minute))
+	require.Equal(t, "1m", RangeWindow(60, time.Minute))
+	require.Equal(t, "5m", RangeWindow(60, 5*time.Minute))
+	require.Equal(t, "10m", RangeWindow(600, 5*time.Minute))
+	require.Equal(t, "2d", RangeWindow(172800, time.Minute))
+}
+
+func TestSampleGauge(t *testing.T) {
+	t.Parallel()
+	expr := `sum by (instance) (jvm_threads_current{a="1"})`
+	// 步长 ≤5m 原样返回。/ Steps at or below 5m pass through verbatim.
+	require.Equal(t, expr, SampleGauge(300, "avg", expr))
+	require.Equal(t, expr, SampleGauge(60, "max", expr))
+	require.Equal(t, `sum by (instance) (avg_over_time(jvm_threads_current{a="1"}[1h]))`, SampleGauge(3600, "avg", expr))
+	// 多选择器表达式（如 offheap 差值）每个选择器都包装。/ Compound exprs wrap every selector.
+	got := SampleGauge(172800, "max", `max by (instance) (process_resident_memory_bytes{a="1"}) - on (instance) max by (instance) (jvm_memory_bytes_used{a="1",area="heap"})`)
+	require.Equal(t, `max by (instance) (max_over_time(process_resident_memory_bytes{a="1"}[2d])) - on (instance) max by (instance) (max_over_time(jvm_memory_bytes_used{a="1",area="heap"}[2d]))`, got)
+}

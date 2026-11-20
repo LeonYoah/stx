@@ -69,14 +69,15 @@ var volumeGranularities = map[string]bool{
 	"quarter_hour": true,
 	"hour":         true,
 	"day":          true,
+	"week":         true,
 	"month":        true,
 }
 
 // volumeGranularityFor 按窗口跨度自动挑桶粒度：跨度越短桶越细，与其他面板按窗口选 step 同理；
-// 短窗用刻钟保证还有几根柱子可看，长窗回到自然日 / 月。
+// 短窗用刻钟保证还有几根柱子可看，长窗逐级退到自然日 / 周 / 月。
 // volumeGranularityFor picks the bucket granularity from the window span — shorter spans get finer
 // buckets, the same way the other panels pick their step. Short windows use quarter-hours so the
-// chart still has a few bars; long windows fall back to calendar days / months.
+// chart still has a few bars; long windows fall back stepwise to calendar days / weeks / months.
 func volumeGranularityFor(span time.Duration) string {
 	switch {
 	case span <= 6*time.Hour:
@@ -85,6 +86,8 @@ func volumeGranularityFor(span time.Duration) string {
 		return "hour"
 	case span <= 62*24*time.Hour:
 		return "day"
+	case span <= 182*24*time.Hour:
+		return "week"
 	default:
 		return "month"
 	}
@@ -125,13 +128,17 @@ type VolumeTotals struct {
 	MonthStartMs int64        `json:"month_start_ms"`
 }
 
-// VolumeBucket 是一个日 / 月桶；partial=true 表示桶被时间窗裁掉了一头。
-// VolumeBucket is one day/month bucket; partial=true means the window clipped one side of it.
+// VolumeBucket 是一个桶；partial=true 表示桶被时间窗或最早样本裁掉了一头，
+// no_data=true 表示整桶早于最早样本（数值恒为 0）。
+// VolumeBucket is one bucket; partial=true means the window or the oldest sample clipped one
+// side of it, and no_data=true means the whole bucket predates the oldest sample (values are
+// always 0).
 type VolumeBucket struct {
 	StartMs int64  `json:"start_ms"`
 	EndMs   int64  `json:"end_ms"`
 	Label   string `json:"label"`
 	Partial bool   `json:"partial"`
+	NoData  bool   `json:"no_data,omitempty"`
 }
 
 // VolumeSeries 是「指标 × 分组」的一条桶值序列，Totals 与 Buckets 按下标对齐；
@@ -180,19 +187,22 @@ type volumeSpan struct {
 // the engine.
 const volumeQueryConcurrency = 4
 
-// volumeMaxCustomSpan 放开读写量接口的自定义窗口上限：月桶只在 >62 天的窗口生效，
-// 默认 31 天上限让 month 粒度永远不可达；400 天覆盖一整年加季度对比。
-// volumeMaxCustomSpan loosens the custom-window cap for the volume endpoint: monthly
-// buckets only engage beyond 62 days, so the default 31-day cap made month unreachable;
-// 400 days covers a full year plus quarter comparisons.
-const volumeMaxCustomSpan = 400 * 24 * time.Hour
+// volumeMaxCustomSpan 与全局自定义窗口契约一致（约一年）：月桶只在 >62 天的窗口生效，
+// 默认 31 天上限会让 month 粒度永远不可达。
+// volumeMaxCustomSpan follows the global custom-window contract (~1 year): monthly buckets
+// only engage beyond 62 days, so the default 31-day cap would make month unreachable.
+const volumeMaxCustomSpan = promquery.MaxCustomSpan
 
 // volumeEqualWidths 是等宽桶粒度 → 固定桶宽；这些粒度的满桶可合并成一条 range 查询。
+// 周桶是日历周但宽恒为 7 天，同样可合并；月桶宽度不一，仍走即时日切块。
 // volumeEqualWidths maps equal-width bucket granularities to their fixed width — full
-// buckets of these merge into a single range query per metric.
+// buckets of these merge into a single range query per metric. Calendar weeks are always
+// 7 days wide so they merge too; months vary and stay on the instant day-chunk path.
 var volumeEqualWidths = map[string]time.Duration{
 	"quarter_hour": 15 * time.Minute,
 	"hour":         time.Hour,
+	"day":          24 * time.Hour,
+	"week":         7 * 24 * time.Hour,
 }
 
 // VolumeService 生成首页读写量数据（指标卡总量 + 日 / 月柱状图）。
@@ -294,9 +304,15 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 		out.Granularity = granularity
 		buckets := volumeBuckets(start, end, loc, granularity)
 		out.Buckets = buckets
+		markVolumeNoData(out.Buckets, out.OldestSampleMs)
 		fullWidth := volumeEqualWidths[granularity]
 		fullIdx := []int{}
 		for i, b := range buckets {
+			// no_data 桶整桶早于最早样本，值恒为 0，不值得发查询。
+			// no_data buckets lie entirely before the oldest sample — always 0, skip querying.
+			if b.NoData {
+				continue
+			}
 			span := volumeSpan{key: strconv.Itoa(i), bucket: i, start: time.UnixMilli(b.StartMs), end: time.UnixMilli(b.EndMs)}
 			if fullWidth > 0 && b.EndMs-b.StartMs == fullWidth.Milliseconds() {
 				fullIdx = append(fullIdx, i)
@@ -366,11 +382,12 @@ func (s *VolumeService) GetVolume(ctx context.Context, actor executionapp.Actor,
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			// 经 queryVolumeIncrease 走日桶切块：>24h 的 increase 在内嵌 tsdb 上按自然日拆分求和
-			// （400 天的 window 总量也在此覆盖）。
-			// Routed through queryVolumeIncrease's day chunking: >24h increases split into calendar
-			// days on the embedded tsdb (the 400-day window totals included).
-			iResults[i].samples, iResults[i].err = s.queryVolumeIncrease(ctx, volumeMetrics[task.metric].counter, sel, task.split, task.span.start, task.span.end, loc)
+			// 经 queryVolumeIncrease：>24h 的 increase 走一条 increase[1d] range 查询 + 尾部即时，
+			// 单次求值只扫一天样本（一年窗口总量同此覆盖）。
+			// Routed through queryVolumeIncrease: >24h increases run as one increase[1d] range
+			// query plus a tail instant, each evaluation scanning at most a day of samples
+			// (year-long window totals included).
+			iResults[i].samples, iResults[i].err = s.queryVolumeIncrease(ctx, volumeMetrics[task.metric].counter, sel, task.split, task.span.start, task.span.end)
 		}(i, task)
 	}
 	for i, task := range rangeTasks {
@@ -536,42 +553,52 @@ func (s *VolumeService) resolveGroupNames(ctx context.Context, actor executionap
 // series and trip max_samples=10M at about 56 long-running jobs.
 const volumeIncreaseMaxSpan = 24 * time.Hour
 
-// queryVolumeIncrease 对跨度 ≤1 天的区间发一条 increase；更长的区间按日桶拆开再把样本加总。
-// 完整日桶的求值时刻落在当地零点，能命中 alignPresetNow 对齐后的 15s PromQL 缓存。
-// queryVolumeIncrease issues one increase when the span is ≤1 day; longer spans are split into day
-// buckets and the samples are summed. Full-day buckets evaluate at local midnight so they can hit
-// the 15s PromQL cache after alignPresetNow.
-func (s *VolumeService) queryVolumeIncrease(ctx context.Context, counter, sel, splitBy string, start, end time.Time, loc *time.Location) ([]promquery.Sample, error) {
+// queryVolumeIncrease 对跨度 ≤1 天的区间发一条 increase 即时查询；更长的区间改用一条
+// increase[1d] 的 range 查询（求值点从 start+1d 起按日步进，逐日增量互不重疉、合起来恰好
+// 覆盖区间），尾部不足一天的部分再补一条即时 increase。逐日即时切块在长窗口下是每天一条
+// 查询，一年窗口总量要发 ~366 × 指标数条——range 形态把它收敛成一次引擎调用。
+// queryVolumeIncrease issues one instant increase for spans ≤1 day; longer spans use a single
+// increase[1d] range query (eval points step daily from start+1d so the daily increments are
+// disjoint and tile the span exactly), plus one tail instant for the trailing partial day.
+// Per-day instant chunks are one query per day — a year-long totals span would fire ~366
+// queries per metric; the range form collapses that into one engine call.
+func (s *VolumeService) queryVolumeIncrease(ctx context.Context, counter, sel, splitBy string, start, end time.Time) ([]promquery.Sample, error) {
+	if !end.After(start) {
+		return nil, nil
+	}
+	span := end.Sub(start)
+	if span <= volumeIncreaseMaxSpan {
+		return s.instantQuery(ctx, volumeQuery(counter, sel, splitBy, span), end)
+	}
+	// 完整日覆盖 (start, start+fullDays·24h]：eval 点落在每个 24h 边界，increase[1d] 恰好不重不漏。
+	// Full days cover (start, start+fullDays·24h]: eval points land on each 24h boundary so
+	// increase[1d] tiles the span without gaps or overlap.
+	fullDays := int64(span / volumeIncreaseMaxSpan)
+	dayEnd := start.Add(time.Duration(fullDays) * volumeIncreaseMaxSpan)
 	var merged []promquery.Sample
-	for _, chunk := range volumeIncreaseChunks(start, end, loc) {
-		samples, err := s.instantQuery(ctx, volumeQuery(counter, sel, splitBy, chunk.end.Sub(chunk.start)), chunk.end)
+	series, err := s.rangeQuery(ctx, volumeQuery(counter, sel, splitBy, volumeIncreaseMaxSpan), start.Add(volumeIncreaseMaxSpan), dayEnd, int(volumeIncreaseMaxSpan.Seconds()))
+	if err != nil {
+		return nil, err
+	}
+	for _, serie := range series {
+		sum := 0.0
+		var ts int64
+		for _, pt := range serie.Points {
+			sum += pt[1]
+			if int64(pt[0]) > ts {
+				ts = int64(pt[0])
+			}
+		}
+		merged = mergeVolumeSamples(merged, []promquery.Sample{{Metric: serie.Metric, Value: sum, TsMs: ts}}, splitBy)
+	}
+	if tail := end.Sub(dayEnd); tail > 0 {
+		samples, err := s.instantQuery(ctx, volumeQuery(counter, sel, splitBy, tail), end)
 		if err != nil {
 			return nil, err
 		}
 		merged = mergeVolumeSamples(merged, samples, splitBy)
 	}
 	return merged, nil
-}
-
-// volumeIncreaseChunks 把长窗口切成显示时区的自然日；DST 下单日超过 24h 时仍只发一条（约 25h，远低于上限）。
-// volumeIncreaseChunks splits a long window onto display-timezone calendar days; a DST day longer
-// than 24h stays one query (~25h, well under the sample cap).
-func volumeIncreaseChunks(start, end time.Time, loc *time.Location) []volumeSpan {
-	if !end.After(start) || end.Sub(start) <= volumeIncreaseMaxSpan {
-		return []volumeSpan{{start: start, end: end}}
-	}
-	buckets := volumeBuckets(start, end, loc, "day")
-	if len(buckets) <= 1 {
-		return []volumeSpan{{start: start, end: end}}
-	}
-	chunks := make([]volumeSpan, 0, len(buckets))
-	for _, bucket := range buckets {
-		chunks = append(chunks, volumeSpan{
-			start: time.UnixMilli(bucket.StartMs),
-			end:   time.UnixMilli(bucket.EndMs),
-		})
-	}
-	return chunks
 }
 
 // mergeVolumeSamples 把多段日桶的即时样本按分组加总；无拆分时合成一条。
@@ -658,14 +685,19 @@ func floorLocal(t time.Time, loc *time.Location, monthly bool) time.Time {
 	return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, loc)
 }
 
-// volumeFloor 返回 t 所在桶的起点，按显示时区的自然界对齐（刻钟 / 整点 / 日 / 月）。
+// volumeFloor 返回 t 所在桶的起点，按显示时区的自然界对齐（刻钟 / 整点 / 日 / 周 / 月）；
+// 周取当周周一零点。
 // volumeFloor returns the start of the bucket containing t, aligned to the display timezone's
-// natural boundary (quarter-hour / hour / day / month).
+// natural boundary (quarter-hour / hour / day / week / month); weeks start on Monday 00:00.
 func volumeFloor(t time.Time, loc *time.Location, granularity string) time.Time {
 	l := t.In(loc)
 	switch granularity {
 	case "month":
 		return time.Date(l.Year(), l.Month(), 1, 0, 0, 0, 0, loc)
+	case "week":
+		// Go 的 Weekday 周日为 0；换算成「距周一的天数」再回退到周一。
+		// Go's Weekday starts at Sunday; convert to days-since-Monday then step back.
+		return time.Date(l.Year(), l.Month(), l.Day()-(int(l.Weekday())+6)%7, 0, 0, 0, 0, loc)
 	case "day":
 		return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, loc)
 	case "hour":
@@ -675,15 +707,17 @@ func volumeFloor(t time.Time, loc *time.Location, granularity string) time.Time 
 	}
 }
 
-// volumeNext 返回桶的下一个起点：日 / 月走日历加法（跨 DST 仍对），刻钟 / 小时走固定步长
-// （DST 中不存在的本地时刻被跳过，相邻桶自然衔接）。
-// volumeNext advances a bucket start: days/months use calendar arithmetic (correct across DST);
-// quarter-hours/hours use fixed steps (nonexistent local times under DST are skipped and
+// volumeNext 返回桶的下一个起点：日 / 周 / 月走日历加法（跨 DST 仍对），刻钟 / 小时走固定
+// 步长（DST 中不存在的本地时刻被跳过，相邻桶自然衔接）。
+// volumeNext advances a bucket start: days/weeks/months use calendar arithmetic (correct across
+// DST); quarter-hours/hours use fixed steps (nonexistent local times under DST are skipped and
 // neighbouring buckets join up naturally).
 func volumeNext(t time.Time, granularity string) time.Time {
 	switch granularity {
 	case "month":
 		return t.AddDate(0, 1, 0)
+	case "week":
+		return t.AddDate(0, 0, 7)
 	case "day":
 		return t.AddDate(0, 0, 1)
 	case "hour":
@@ -693,14 +727,14 @@ func volumeNext(t time.Time, granularity string) time.Time {
 	}
 }
 
-// volumeLabel 是桶的展示标签：亚日粒度带时刻，日取 YYYY-MM-DD，月取 YYYY-MM。
-// volumeLabel renders a bucket label: sub-day granularities carry the time, days are YYYY-MM-DD,
-// months YYYY-MM.
+// volumeLabel 是桶的展示标签：亚日粒度带时刻，日 / 周取 YYYY-MM-DD（周为其周一日期），月取 YYYY-MM。
+// volumeLabel renders a bucket label: sub-day granularities carry the time, days/weeks are
+// YYYY-MM-DD (a week is labeled by its Monday), months YYYY-MM.
 func volumeLabel(t time.Time, granularity string) string {
 	switch granularity {
 	case "month":
 		return t.Format("2006-01")
-	case "day":
+	case "day", "week":
 		return t.Format("2006-01-02")
 	default:
 		return t.Format("2006-01-02 15:04")
@@ -737,6 +771,23 @@ func volumeBuckets(start, end time.Time, loc *time.Location, granularity string)
 	return buckets
 }
 
+// markVolumeNoData 按最早样本标记桶：整桶早于最早样本记 no_data（值恒为 0），
+// 跨过最早样本的桶照常计算但记 partial。
+// markVolumeNoData flags buckets against the oldest sample: buckets entirely before it get
+// no_data (values stay 0); the bucket straddling it is computed normally but marked partial.
+func markVolumeNoData(buckets []VolumeBucket, oldestMs int64) {
+	if oldestMs <= 0 {
+		return
+	}
+	for i := range buckets {
+		if buckets[i].EndMs <= oldestMs {
+			buckets[i].NoData = true
+		} else if buckets[i].StartMs < oldestMs {
+			buckets[i].Partial = true
+		}
+	}
+}
+
 // addVolumeCount 把一条样本值累加进对应方向的总量。
 // addVolumeCount accumulates one sample into the matching direction's total.
 func addVolumeCount(counts *VolumeCounts, metric string, value float64) {
@@ -770,10 +821,10 @@ func NewVolumeHandler(service *VolumeService) *VolumeHandler {
 // @Tags Dashboard
 // @Produce json
 // @Param cluster_id query int false "集群 ID，空表示全部集群"
-// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param start query string false "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range"
-// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 400 天（>62 天进入月桶）"
-// @Param granularity query string false "桶粒度：auto|quarter_hour|hour|day|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets"
+// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 366 天（>62 天进入周桶，>182 天进入月桶）"
+// @Param granularity query string false "桶粒度：auto|quarter_hour|hour|day|week|month；auto 按窗口跨度选桶，缺省只回 totals 不出 buckets"
 // @Param split query string false "拆分维度：none|cluster|task" default(none)
 // @Success 200 {object} DashboardDataResponse{data=HomeVolume}
 // @Failure 400 {object} DashboardDataResponse
@@ -790,7 +841,7 @@ func (h *VolumeHandler) GetVolume(c *gin.Context) {
 	}
 	granularity := strings.ToLower(strings.TrimSpace(c.Query("granularity")))
 	if granularity != "" && !volumeGranularities[granularity] {
-		c.JSON(http.StatusBadRequest, DashboardDataResponse{ErrorMsg: "granularity must be auto|quarter_hour|hour|day|month"})
+		c.JSON(http.StatusBadRequest, DashboardDataResponse{ErrorMsg: "granularity must be auto|quarter_hour|hour|day|week|month"})
 		return
 	}
 	split := strings.ToLower(strings.TrimSpace(c.DefaultQuery("split", "none")))

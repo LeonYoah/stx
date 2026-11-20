@@ -21,6 +21,8 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	pb "github.com/LeonYoah/stx/agent"
 )
 
 // collectOnce 真采一轮（本机环境），返回 name → samples 索引。
@@ -68,6 +70,73 @@ func TestCollectHostMetricsEmitsCoreSeries(t *testing.T) {
 	// 负载三维齐全。/ All three load kinds present.
 	if len(seen["stx_host_load"]) != 3 {
 		t.Fatalf("load kinds = %v", seen["stx_host_load"])
+	}
+}
+
+// collectSamples 采一轮并按 name 索引完整样本（自指标断言需要读标签与值）。
+// collectSamples runs one round and indexes full samples by name (self-metric
+// assertions need labels and values).
+func collectSamples(t *testing.T, c *MetricsCollector) map[string][]*pb.HostMetricSample {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	samples := c.CollectHostMetrics(ctx)
+	if len(samples) == 0 {
+		t.Fatal("no host samples collected")
+	}
+	seen := map[string][]*pb.HostMetricSample{}
+	for _, s := range samples {
+		seen[s.Name] = append(seen[s.Name], s)
+	}
+	return seen
+}
+
+// TestCollectAgentSelfEmitsSelfSeries 锁定 stx_agent_* 自指标随主机指标同轮上报。
+// TestCollectAgentSelfEmitsSelfSeries locks stx_agent_* self-metrics riding the same
+// round as host metrics.
+func TestCollectAgentSelfEmitsSelfSeries(t *testing.T) {
+	c := NewMetricsCollector(nil)
+	c.SetSelfVersion("9.9.9-test")
+	c.RecordHeartbeatFailure()
+	c.RecordCommandResult("INSTALL", "success")
+	c.RecordCommandResult("INSTALL", "failed")
+	c.RecordCommandResult("PRECHECK", "success")
+
+	seen := collectSamples(t, c)
+	for _, name := range []string{
+		"stx_agent_heap_inuse_bytes",
+		"stx_agent_goroutines",
+		"stx_agent_uptime_seconds",
+		"stx_agent_build_info",
+		"stx_agent_heartbeat_failures_total",
+		"stx_agent_commands_total",
+	} {
+		if len(seen[name]) == 0 {
+			t.Fatalf("missing self series %s", name)
+		}
+	}
+
+	// build_info 必须带 version 标签且恒为 1。
+	// build_info must carry the version label and stay constant 1.
+	build := seen["stx_agent_build_info"][0]
+	if build.Labels["version"] != "9.9.9-test" || build.Value != 1 {
+		t.Fatalf("build_info = %v %+v", build.Value, build.Labels)
+	}
+	if seen["stx_agent_heartbeat_failures_total"][0].Value != 1 {
+		t.Fatalf("heartbeat failures = %v", seen["stx_agent_heartbeat_failures_total"][0].Value)
+	}
+	if seen["stx_agent_goroutines"][0].Value <= 0 || seen["stx_agent_uptime_seconds"][0].Value < 0 {
+		t.Fatalf("runtime series invalid: %+v", seen)
+	}
+
+	// 命令结果按 {type,result} 维度展开，累计值正确。
+	// Command outcomes expand over {type,result} with the right totals.
+	got := map[string]float64{}
+	for _, s := range seen["stx_agent_commands_total"] {
+		got[s.Labels["type"]+"/"+s.Labels["result"]] = s.Value
+	}
+	if got["INSTALL/success"] != 1 || got["INSTALL/failed"] != 1 || got["PRECHECK/success"] != 1 {
+		t.Fatalf("command totals = %v", got)
 	}
 }
 

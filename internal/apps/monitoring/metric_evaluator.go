@@ -43,6 +43,7 @@ import (
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/embedts"
+	"github.com/LeonYoah/stx/internal/version"
 )
 
 const (
@@ -736,8 +737,46 @@ func buildMetricTemplatePromQL(policy *AlertPolicy, template *AlertPolicyTemplat
 		return fmt.Sprintf(`max by (cluster_id, cluster_name, cluster, instance) (%s) %s %s`, buildPrometheusSelector("jvm_threads_deadlocked", matchers...), op, threshold), nil
 	case "split_brain_risk":
 		return fmt.Sprintf(`min by (cluster_id, cluster_name, cluster, instance) (%s) %s %s`, buildPrometheusSelector("hazelcast_partition_isClusterSafe", matchers...), op, threshold), nil
+	case AlertRuleKeyPlatformServerMemoryHigh,
+		AlertRuleKeyPlatformServerHTTP5xxRatioHigh,
+		AlertRuleKeyPlatformTSDBCompactionFailed,
+		AlertRuleKeyPlatformAgentMemoryHigh,
+		AlertRuleKeyPlatformAgentVersionMismatch:
+		// 平台自监控模板不走 seatunnel_engine_http 匹配器：信号来自内嵌自抓取
+		//（job=stx_embedded）与 Agent 上报通道（stx_agent_* / stx_host_*）。
+		// Platform self-monitoring templates skip the seatunnel_engine_http matcher:
+		// signals come from the embedded self-scrape (job=stx_embedded) and the
+		// agent report channel (stx_agent_* / stx_host_*).
+		return buildPlatformMetricPromQL(template.Key, window, op, threshold)
 	default:
 		return "", fmt.Errorf("unsupported metrics template: %s", template.Key)
+	}
+}
+
+// buildPlatformMetricPromQL 生成平台自监控模板的 PromQL 表达式。
+// window 作用于 range 函数窗口（5xx 比例），阈值/算子来自策略条件；
+// 版本不一致模板把当前 server 版本注入 stx_agent_build_info 的版本不等匹配器（%q 转义）。
+// buildPlatformMetricPromQL renders the PromQL for platform self-monitoring
+// templates. window feeds range functions (5xx ratio), operator/threshold come
+// from the policy condition; the version-mismatch template injects the current
+// server version into the stx_agent_build_info inequality matcher (%q-escaped).
+func buildPlatformMetricPromQL(templateKey, window, op, threshold string) (string, error) {
+	switch strings.TrimSpace(templateKey) {
+	case AlertRuleKeyPlatformServerMemoryHigh:
+		return fmt.Sprintf(`process_resident_memory_bytes{job="stx_embedded"} %s %s`, op, threshold), nil
+	case AlertRuleKeyPlatformServerHTTP5xxRatioHigh:
+		return fmt.Sprintf(`sum(rate(stx_server_http_requests_total{code="5xx"}[%s])) / sum(rate(stx_server_http_requests_total[%s])) %s %s`, window, window, op, threshold), nil
+	case AlertRuleKeyPlatformTSDBCompactionFailed:
+		// 固定 1h 窗口累计 compaction 失败次数；触发时机由 for 持续时间控制。
+		// The 1h window is pinned: compaction failures accumulate, and the for
+		// duration controls when the alert fires.
+		return fmt.Sprintf(`increase(prometheus_tsdb_compactions_failed_total{job="stx_embedded"}[1h]) %s %s`, op, threshold), nil
+	case AlertRuleKeyPlatformAgentMemoryHigh:
+		return fmt.Sprintf(`max by (host_id, host_name) (stx_agent_process_resident_memory_bytes) %s %s`, op, threshold), nil
+	case AlertRuleKeyPlatformAgentVersionMismatch:
+		return fmt.Sprintf(`max by (host_id, host_name, version) (stx_agent_build_info{version!=%q}) %s %s`, version.Version, op, threshold), nil
+	default:
+		return "", fmt.Errorf("unsupported platform metrics template: %s", templateKey)
 	}
 }
 
@@ -817,6 +856,16 @@ func alertPolicyTemplateDisplayNameZH(templateKey string) string {
 		return "死锁线程异常"
 	case "split_brain_risk":
 		return "集群安全性异常"
+	case AlertRuleKeyPlatformServerMemoryHigh:
+		return "STX server 内存过高"
+	case AlertRuleKeyPlatformServerHTTP5xxRatioHigh:
+		return "STX server 5xx 比例过高"
+	case AlertRuleKeyPlatformTSDBCompactionFailed:
+		return "内嵌 tsdb compaction 失败"
+	case AlertRuleKeyPlatformAgentMemoryHigh:
+		return "Agent 内存过高"
+	case AlertRuleKeyPlatformAgentVersionMismatch:
+		return "Agent 版本不一致"
 	default:
 		return strings.TrimSpace(firstNonEmpty(templateKey, "指标告警"))
 	}
@@ -858,6 +907,16 @@ func alertPolicyTemplateDescriptionZH(templateKey string) string {
 		return "基于 jvm_threads_deadlocked 检测 JVM 死锁线程，避免任务执行与恢复流程被卡死。"
 	case "split_brain_risk":
 		return "基于 hazelcast_partition_isClusterSafe 检测集群分区安全性异常，提前发现脑裂风险。"
+	case AlertRuleKeyPlatformServerMemoryHigh:
+		return "检测 STX server 进程 RSS 内存是否持续超过配置的内存上限。"
+	case AlertRuleKeyPlatformServerHTTP5xxRatioHigh:
+		return "检测控制面全部 HTTP 请求中 5xx 响应的占比是否持续超过配置阈值。"
+	case AlertRuleKeyPlatformTSDBCompactionFailed:
+		return "内嵌 tsdb 报告 compaction 失败时立即告警；持续失败会让可观测历史数据面临丢失风险。"
+	case AlertRuleKeyPlatformAgentMemoryHigh:
+		return "检测任一受管主机上的 Agent 进程 RSS 是否持续超过配置的内存上限。"
+	case AlertRuleKeyPlatformAgentVersionMismatch:
+		return "检测受管 Agent 上报的版本号是否持续与 STX server 版本不一致。"
 	default:
 		return strings.TrimSpace(firstNonEmpty(alertPolicyTemplateDisplayNameZH(templateKey), "指标告警"))
 	}

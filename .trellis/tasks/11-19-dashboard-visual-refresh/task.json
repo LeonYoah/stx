@@ -1,0 +1,32 @@
+{
+  "id": "dashboard-visual-refresh",
+  "name": "dashboard-visual-refresh",
+  "title": "首页大盘视觉改版：指标栏与作业指标页签",
+  "description": "首页顶部 7 张指标卡改成一条指标栏；作业页签吞吐面板改成指标页签驱动一张图；面板分主次、空面板缩成矮条。纯前端，不改接口与 CLI。",
+  "status": "in_progress",
+  "dev_type": "frontend",
+  "scope": null,
+  "package": "frontend",
+  "priority": "P2",
+  "creator": "devin",
+  "assignee": "devin",
+  "createdAt": "2026-11-19",
+  "completedAt": null,
+  "branch": "feat/dashboard-visual-refresh",
+  "base_branch": "main",
+  "worktree_path": "/Users/mac/.t3/worktrees/stx/t3-3030a6cf-479a6d281cfcdf13",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/components/common/dashboard/DashboardKpiRow.tsx",
+    "frontend/components/common/dashboard/JobsTab.tsx",
+    "frontend/components/common/dashboard/HomeDashboard.tsx",
+    "frontend/components/common/dashboard/AttentionStrip.tsx",
+    ".trellis/spec/frontend/ui-conventions.md"
+  ],
+  "notes": "",
+  "meta": {}
+}

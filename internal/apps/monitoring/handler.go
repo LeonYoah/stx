@@ -248,6 +248,20 @@ func (h *Handler) GetPlatformHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, Response{Data: data})
 }
 
+// GetPlatformSnapshot handles GET /api/v1/monitoring/platform.
+// 平台自监控快照：observability 不可用时不报错，返回 available=false + reason 的空态快照。
+// GetPlatformSnapshot 处理平台自监控快照查询接口。
+// Platform self-monitoring snapshot: when observability is unavailable it does not
+// error — the response is an empty snapshot with available=false and a reason.
+func (h *Handler) GetPlatformSnapshot(c *gin.Context) {
+	data, err := h.service.GetPlatformSnapshot(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to get platform snapshot: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, Response{Data: data})
+}
+
 // ListNotificationChannels handles GET /api/v1/monitoring/notification-channels
 // ListNotificationChannels 处理 GET /api/v1/monitoring/notification-channels
 func (h *Handler) ListNotificationChannels(c *gin.Context) {

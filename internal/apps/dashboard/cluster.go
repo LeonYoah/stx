@@ -122,18 +122,18 @@ type DashboardSeries struct {
 // ClusterDashboard 是 GET /api/v1/dashboard/home/clusters 的返回。
 // ClusterDashboard is the payload of GET /api/v1/dashboard/home/clusters.
 type ClusterDashboard struct {
-	Source        string            `json:"source"`
-	Reason        string            `json:"reason,omitempty"`
-	Range         string            `json:"range"`
-	StartMs       int64             `json:"start_ms"`
-	EndMs         int64             `json:"end_ms"`
-	StepSeconds   int               `json:"step_seconds"`
-	CellSeconds   int               `json:"cell_seconds"`
-	Clusters      []ClusterCard     `json:"clusters"`
-	Nodes         []ClusterNodeRow  `json:"nodes"`
-	Signals       *ClusterSignals   `json:"signals"`
-	Series        []DashboardSeries `json:"series"`
-	PartialErrors []string          `json:"partial_errors,omitempty"`
+	Source      string `json:"source"`
+	Reason      string `json:"reason,omitempty"`
+	Range       string `json:"range"`
+	StartMs     int64  `json:"start_ms"`
+	EndMs       int64  `json:"end_ms"`
+	StepSeconds int    `json:"step_seconds"`
+	CellSeconds int    `json:"cell_seconds"`
+	Clusters       []ClusterCard     `json:"clusters"`
+	Nodes          []ClusterNodeRow  `json:"nodes"`
+	Signals        *ClusterSignals   `json:"signals"`
+	Series         []DashboardSeries `json:"series"`
+	PartialErrors  []string          `json:"partial_errors,omitempty"`
 }
 
 // ClusterDashboardService 组合 DB / 心跳与 Prometheus，生成首页集群大盘。
@@ -177,7 +177,7 @@ func (s *ClusterDashboardService) GetClusterDashboard(ctx context.Context, clust
 	}
 	out := &ClusterDashboard{
 		Range: rangeName, StartMs: start.UnixMilli(), EndMs: end.UnixMilli(), StepSeconds: step, CellSeconds: cell,
-		Clusters: []ClusterCard{}, Nodes: []ClusterNodeRow{}, Series: []DashboardSeries{},
+		Clusters:       []ClusterCard{}, Nodes: []ClusterNodeRow{}, Series: []DashboardSeries{},
 	}
 	s.fillInventory(ctx, out, clusterID)
 
@@ -284,17 +284,26 @@ func (s *ClusterDashboardService) fillMetrics(ctx context.Context, out *ClusterD
 	if clusterID > 0 {
 		sel += fmt.Sprintf(`,cluster_id=%s`, strconv.Quote(strconv.FormatUint(uint64(clusterID), 10)))
 	}
-	heapExpr := fmt.Sprintf(`100 * max by (cluster_id, instance) (jvm_memory_bytes_used{%[1]s,area="heap"}) / max by (cluster_id, instance) (clamp_min(jvm_memory_bytes_max{%[1]s,area="heap"}, 1))`, sel)
-	cpuExpr := fmt.Sprintf(`sum by (cluster_id, instance) (rate(process_cpu_seconds_total{%s}[5m]))`, sel)
+	// 区间表达式按 step 取样：计数器速率窗口取 max(5m, step)，仪表面板在步长超过 5m 时
+	// 包 avg_over_time 覆盖整个取样间隔；即时查询保持原样（*_Now 表达式）。
+	// Range expressions sample by step: counter rates use max(5m, step) windows and gauge panels
+	// wrap avg_over_time once the step exceeds 5m; instant queries stay verbatim (*_Now exprs).
+	heapSel := fmt.Sprintf(`jvm_memory_bytes_used{%[1]s,area="heap"}`, sel)
+	heapMaxSel := fmt.Sprintf(`jvm_memory_bytes_max{%[1]s,area="heap"}`, sel)
+	heapExpr := fmt.Sprintf(`100 * max by (cluster_id, instance) (%s) / max by (cluster_id, instance) (clamp_min(%s, 1))`,
+		promquery.SampleGauge(step, "avg", heapSel), promquery.SampleGauge(step, "avg", heapMaxSel))
+	heapExprNow := fmt.Sprintf(`100 * max by (cluster_id, instance) (%s) / max by (cluster_id, instance) (clamp_min(%s, 1))`, heapSel, heapMaxSel)
+	cpuExpr := fmt.Sprintf(`sum by (cluster_id, instance) (rate(process_cpu_seconds_total{%s}[%s]))`, sel, promquery.RangeWindow(step, 5*time.Minute))
+	cpuExprNow := fmt.Sprintf(`sum by (cluster_id, instance) (rate(process_cpu_seconds_total{%s}[5m]))`, sel)
 	tasks := []*promTask{
 		{key: "up_range", step: cell, query: fmt.Sprintf(`min by (instance) (min_over_time(up{%s}[%ds]))`, sel, cell)},
 		{key: "state_range", step: cell, query: fmt.Sprintf(`min by (instance) (min_over_time(node_state{%s}[%ds]))`, sel, cell)},
 		{key: "heap", step: step, query: heapExpr},
 		{key: "cpu", step: step, query: cpuExpr},
-		{key: "gc", step: step, query: fmt.Sprintf(`100 * sum by (cluster_id, instance) (rate(jvm_gc_collection_seconds_sum{%s}[5m]))`, sel)},
-		{key: "job_state", step: step, query: fmt.Sprintf(`sum by (type) (job_count{%s})`, sel)},
-		{key: "heap_now", instant: true, query: heapExpr},
-		{key: "cpu_now", instant: true, query: cpuExpr},
+		{key: "gc", step: step, query: fmt.Sprintf(`100 * sum by (cluster_id, instance) (rate(jvm_gc_collection_seconds_sum{%s}[%s]))`, sel, promquery.RangeWindow(step, 5*time.Minute))},
+		{key: "job_state", step: step, query: fmt.Sprintf(`sum by (type) (%s)`, promquery.SampleGauge(step, "avg", fmt.Sprintf(`job_count{%s}`, sel)))},
+		{key: "heap_now", instant: true, query: heapExprNow},
+		{key: "cpu_now", instant: true, query: cpuExprNow},
 		{key: "threads_now", instant: true, query: fmt.Sprintf(`max by (cluster_id, instance) (jvm_threads_current{%s})`, sel)},
 		{key: "fd_now", instant: true, query: fmt.Sprintf(`100 * max by (cluster_id, instance) (process_open_fds{%[1]s}) / max by (cluster_id, instance) (clamp_min(process_max_fds{%[1]s}, 1))`, sel)},
 		{key: "uptime_now", instant: true, query: fmt.Sprintf(`max by (cluster_id, instance) (time() - process_start_time_seconds{%s})`, sel)},
@@ -559,9 +568,9 @@ func NewClusterDashboardHandler(service *ClusterDashboardService) *ClusterDashbo
 // @Tags Dashboard
 // @Produce json
 // @Param cluster_id query int false "集群 ID，空表示全部集群"
-// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d|30d|90d|1y" default(1h)
 // @Param start query string false "自定义起点：RFC3339 或秒 / 毫秒时间戳，优先于 range"
-// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 31 天"
+// @Param end query string false "自定义终点，缺省为当前时间；跨度不超过 366 天"
 // @Success 200 {object} DashboardDataResponse{data=ClusterDashboard}
 // @Failure 400 {object} DashboardDataResponse
 // @Router /api/v1/dashboard/home/clusters [get]

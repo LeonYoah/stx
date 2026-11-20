@@ -32,6 +32,45 @@ export function formatCompactNumber(
   }).format(value);
 }
 
+const SCALED_UNITS = ['', 'K', 'M', 'B', 'T'] as const;
+
+/**
+ * 大数字缩放：把任意大小的数压成 ≤999.9 的值 + 单位后缀（K/M/B/T），供宽度受限的
+ * 指标卡 / 标题数字复用，避免长数字溢出相邻卡片。小于 1000 的原样返回。
+ * Scale large numbers into a value ≤999.9 plus a unit suffix (K/M/B/T) so width-limited
+ * KPI cards and headline numbers never overflow into neighboring cards. Values below
+ * 1000 pass through unchanged.
+ */
+export function scaledCompact(value: number | null | undefined): {
+  value: number;
+  decimals: number;
+  unit: string;
+} {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return {value: 0, decimals: 0, unit: ''};
+  }
+  const sign = Math.sign(value) || 1;
+  let scaled = Math.abs(value);
+  let tier = 0;
+  // 先按 1000 分档；取整后若顶到 1000 再进一档（999.96 → 1.0M 而不是 1000.0K）。
+  // Tier by 1000 first; if the rounded value reaches 1000, step up once more
+  // (999.96 → 1.0M rather than 1000.0K).
+  while (scaled >= 1000 && tier < SCALED_UNITS.length - 1) {
+    scaled /= 1000;
+    tier += 1;
+  }
+  if (tier === 0) {
+    return {value, decimals: 0, unit: ''};
+  }
+  let rounded = Math.round(scaled * 10) / 10;
+  if (rounded >= 1000 && tier < SCALED_UNITS.length - 1) {
+    scaled /= 1000;
+    tier += 1;
+    rounded = Math.round(scaled * 10) / 10;
+  }
+  return {value: sign * rounded, decimals: 1, unit: SCALED_UNITS[tier]};
+}
+
 /**
  * 时长（秒）→ 「2 天 4 小时」/「3 小时 12 分」/「5 分」，只取最大的两级。
  * Duration (seconds) → "2d 4h" / "3h 12m" / "5m", keeping only the two largest units.
@@ -250,4 +289,41 @@ export function formatBytes(bytes: number): string {
     index++;
   } while (value >= 1024 && index < units.length - 1);
   return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
+}
+
+/** 速率序列的窗口统计。/ Windowed stats for a rate series. */
+export interface RateSummary {
+  avg: number;
+  peak: number;
+}
+
+/**
+ * 窗口内速率点的均值与峰值；忽略 NaN / Infinity / null，没有有效点时返回 null。
+ * 均值跟随头部时间窗，与「窗口内平均」口径一致；不用最后一个点是因为它和
+ * 指标栏的 10 秒对账实时值口径不同，两处数字对不上会让人困惑。
+ * Average and peak of the rate points inside the window; NaN / Infinity / null are
+ * ignored and an all-invalid series returns null. The average follows the header's
+ * time window, matching the "window average" wording; the last point is not used
+ * because it is a different sampling from the KPI strip's 10-second reconcile and
+ * the two numbers would disagree.
+ */
+export function summarizeRate(points: [number, number][]): RateSummary | null {
+  let sum = 0;
+  let count = 0;
+  let peak = Number.NEGATIVE_INFINITY;
+  for (const point of points) {
+    const value = point?.[1];
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+    sum += value;
+    count += 1;
+    if (value > peak) {
+      peak = value;
+    }
+  }
+  if (count === 0) {
+    return null;
+  }
+  return {avg: sum / count, peak};
 }

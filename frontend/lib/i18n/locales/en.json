@@ -184,7 +184,8 @@
       "scope": {
         "label": "Scope",
         "all": "All clusters",
-        "clusterFallback": "Cluster #{id}"
+        "clusterFallback": "Cluster #{id}",
+        "empty": "No matching clusters"
       },
       "refresh": "Refresh",
       "updatedAt": "Updated {time}",
@@ -199,7 +200,8 @@
         "cluster": "Clusters",
         "jobs": "Jobs",
         "list": "Job list",
-        "hosts": "Hosts"
+        "hosts": "Hosts",
+        "platform": "Platform"
       },
       "kpi": {
         "running": "Running jobs",
@@ -209,19 +211,20 @@
         "writeContextNow": "Current total (10s reconcile)",
         "cdc": "Max CDC delay",
         "cdcNone": "No CDC delay data",
-        "cdcOver": "Over threshold",
         "failed": "Failures",
-        "failedContext": "Last 24h, incl. failing",
-        "failedYesterday": "Yesterday {count}",
         "clusters": "Cluster health",
         "clustersContext": "{online}/{total} nodes online",
-        "clustersDegraded": "{count} degraded",
         "alerts": "Active alerts",
         "alertsContext": "{count} critical",
         "volume": "Data volume",
         "volumeContext": "Today {today} · This month {month}",
         "volumeContextSince": "Today {today} · Since {date} {month}",
-        "volumeEmpty": "Observability off"
+        "volumeEmpty": "Observability off",
+        "label": "Key metrics",
+        "failedContextWithPrev": "Last 24h · {count} yesterday",
+        "cdcOverContext": "Over threshold · {name}",
+        "clustersDegradedContext": "{count} degraded · {online}/{total} nodes online",
+        "clustersUnhealthyContext": "{count} unhealthy · {online}/{total} nodes online"
       },
       "unit": {
         "rowsPerSec": " rows/s",
@@ -247,7 +250,9 @@
           "read": "Read rows/s",
           "write_bytes": "Write bytes/s",
           "read_bytes": "Read bytes/s",
-          "metricLabel": "Throughput metric"
+          "metricLabel": "Throughput metric",
+          "peak": "Peak {value}",
+          "avgHint": "Window average"
         },
         "annotation": {
           "job_failed": "Job failed",
@@ -328,7 +333,8 @@
             "task": "By task"
           },
           "all": "All",
-          "partialHint": "* Edge buckets are clipped by the time window"
+          "partialHint": "* Edge buckets are clipped by the time window",
+          "noDataHint": "· Buckets before the oldest sample have no data (not counted as 0)"
         }
       },
       "list": {
@@ -399,8 +405,12 @@
           "6h": "6h",
           "24h": "24h",
           "7d": "7d",
+          "30d": "30d",
+          "90d": "90d",
+          "1y": "1y",
           "all": "All",
-          "custom": "Custom range"
+          "custom": "Custom range",
+          "trimmed": "Trimmed to the last year"
         },
         "allClusters": "All clusters",
         "cardsLabel": "Choose cluster scope",
@@ -592,6 +602,68 @@
         "fsInodes": "inodes",
         "refCores": "cores",
         "uptime": "up {d}"
+      },
+      "platformTab": {
+        "loadError": "Failed to load platform monitoring data",
+        "refreshing": "Refreshing…",
+        "emptyPanel": "No data",
+        "legendClear": "Clear",
+        "legendAll": "All",
+        "time": "Time",
+        "serverTitle": "STX Server",
+        "uptime": "up {d}",
+        "agentsOnline": "{count} agents online",
+        "goroutines": "{count} goroutines",
+        "seriesRss": "RSS",
+        "seriesHeap": "Heap",
+        "panels": {
+          "memory": "Memory",
+          "memoryUnit": "bytes",
+          "httpQps": "HTTP QPS",
+          "qpsUnit": "req/s",
+          "http5xx": "HTTP 5xx ratio",
+          "ratioUnit": "%",
+          "control": "Control plane",
+          "storage": "Embedded storage"
+        },
+        "rows": {
+          "httpP95": "HTTP P95",
+          "dbPool": "DB pool",
+          "dbPoolHint": "in use / open",
+          "dbWait": "Connection waits",
+          "headSeries": "Head series",
+          "blocks": "Block size",
+          "compactions": "Compactions failed"
+        },
+        "signals": {
+          "ok": "OK",
+          "bad": "Alerting"
+        },
+        "agents": {
+          "title": "Agent processes",
+          "count": "{count}",
+          "host": "Host",
+          "status": "Status",
+          "version": "Version",
+          "uptime": "Uptime",
+          "rss": "RSS",
+          "cpu": "CPU",
+          "goroutines": "Goroutines",
+          "cmdFailures": "Failed cmds (1h)",
+          "lastReport": "Last report",
+          "empty": "No registered agents",
+          "online": "Online",
+          "offline": "Offline",
+          "versionMismatch": "Version mismatch"
+        },
+        "noPromDesc": "Built-in monitoring is off, so platform self-monitoring is unavailable. It can be enabled in the server config.",
+        "noPromUnavailableDesc": "Monitoring data is temporarily unavailable (storage not ready or a query failed) and will retry automatically.",
+        "externalProbeNote": "In-process self-monitoring cannot detect an STX Server crash. Probe /api/v1/health externally on a schedule.",
+        "units": {
+          "d": "d",
+          "h": "h",
+          "m": "m"
+        }
       }
     }
   },
@@ -3335,6 +3407,26 @@
         "deadlocked_threads_detected": {
           "name": "Deadlocked threads detected",
           "description": "Detect JVM deadlocks that can stall task scheduling, execution, and recovery."
+        },
+        "stx_server_memory_high": {
+          "name": "STX server memory high",
+          "description": "Fires when the STX server process memory usage stays above the threshold."
+        },
+        "stx_server_http_5xx_ratio_high": {
+          "name": "STX server HTTP 5xx ratio high",
+          "description": "Fires when the HTTP 5xx error ratio of the STX server stays above the threshold."
+        },
+        "stx_tsdb_compaction_failed": {
+          "name": "Embedded storage compaction failed",
+          "description": "Fires when compaction of the built-in metrics storage fails."
+        },
+        "stx_agent_memory_high": {
+          "name": "Agent memory high",
+          "description": "Fires when a host Agent process memory usage stays above the threshold."
+        },
+        "stx_agent_version_mismatch": {
+          "name": "Agent version mismatch",
+          "description": "Fires when a host Agent version differs from the STX server version."
         }
       },
       "editTitle": "Edit Policy",
@@ -4583,12 +4675,6 @@
       "streaming": "Streaming",
       "batch": "Batch"
     },
-    "runTypeFilter": {
-      "label": "Run type",
-      "all": "All",
-      "formal": "Formal",
-      "preview": "Preview"
-    },
     "groups": {
       "all": "All",
       "failed": "Failed",
@@ -5646,7 +5732,8 @@
           "status": "Status"
         },
         "legendClear": "Clear",
-        "legendAll": "Show all"
+        "legendAll": "Show all",
+        "rangeTrimmed": "Trimmed to the last year"
       }
     },
     "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)",

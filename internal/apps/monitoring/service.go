@@ -33,6 +33,8 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/prometheus/common/model"
+
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/LeonYoah/stx/internal/config"
@@ -88,6 +90,12 @@ type Service struct {
 	clustersHealthMu    sync.Mutex
 	clustersHealthCache map[uint]*ClusterHealthData
 	clustersHealthUntil map[uint]time.Time
+
+	// platformHosts 是平台快照读取 hosts 表的可选依赖（platform_snapshot.go）；
+	// 未注入时快照的 Agent 列表为空。
+	// platformHosts is the optional hosts-table dependency for the platform snapshot
+	// (platform_snapshot.go); the agent list stays empty without it.
+	platformHosts platformHostLister
 }
 
 // NewService creates a monitoring service.
@@ -436,14 +444,41 @@ func disabledIntegrationComponent(name string) *IntegrationComponentStatus {
 // embeddedTSDBComponent 返回内嵌 tsdb 组件状态：就绪探测 + 目录/保留期元信息。
 // embeddedTSDBComponent returns the embedded tsdb component: readiness plus dir/retention meta.
 func (s *Service) embeddedTSDBComponent(obsCfg config.ObservabilityConfig) *IntegrationComponentStatus {
+	// 保留期与容量上限优先展示运行实例的实际生效值（自适应计算后）；未启动时退回配置原文，
+	// 空 retention 统一显示 "unlimited"。
+	// Retention/size meta prefer the running instance's effective values (after auto derivation);
+	// while not started they fall back to the raw config, and an empty retention reads "unlimited".
+	retention := strings.TrimSpace(obsCfg.Storage.Retention)
+	if retention == "" {
+		retention = "unlimited"
+	} else if d, err := model.ParseDuration(retention); err == nil && d <= 0 {
+		retention = "unlimited"
+	}
+	maxSize := strconv.FormatInt(obsCfg.Storage.MaxSize, 10)
+	maxSizeSource := embedts.MaxBytesSourceConfig
+	if !obsCfg.Storage.MaxSizeSet {
+		maxSizeSource = "auto"
+	}
+	if opts, ok := embedts.CurrentOptions(); ok {
+		if opts.RetentionDuration > 0 {
+			retention = model.Duration(opts.RetentionDuration).String()
+		} else {
+			retention = "unlimited"
+		}
+		maxSize = strconv.FormatInt(opts.MaxBytes, 10)
+		if opts.MaxBytesSource != "" {
+			maxSizeSource = opts.MaxBytesSource
+		}
+	}
 	component := &IntegrationComponentStatus{
 		Name:    "embedded_tsdb",
 		URL:     strings.TrimSpace(obsCfg.Storage.Dir),
 		Healthy: embedts.Ready(),
 		Meta: map[string]string{
-			"dir":       strings.TrimSpace(obsCfg.Storage.Dir),
-			"retention": strings.TrimSpace(obsCfg.Storage.Retention),
-			"max_size":  strconv.FormatInt(obsCfg.Storage.MaxSize, 10),
+			"dir":             strings.TrimSpace(obsCfg.Storage.Dir),
+			"retention":       retention,
+			"max_size":        maxSize,
+			"max_size_source": maxSizeSource,
 		},
 	}
 	if !component.Healthy {

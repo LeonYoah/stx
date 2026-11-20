@@ -152,6 +152,13 @@ type Server struct {
 	// listener is the network listener.
 	// listener 是网络监听器。
 	listener net.Listener
+
+	// metricsUnary / metricsStream 是平台自监控注入的可选指标拦截器；
+	// 未注入时为 nil，buildServerOptions 不拼进拦截器链。
+	// metricsUnary / metricsStream are optional metrics interceptors injected by
+	// platform self-monitoring; nil means buildServerOptions leaves them out of the chain.
+	metricsUnary  grpc.UnaryServerInterceptor
+	metricsStream grpc.StreamServerInterceptor
 }
 
 // NewServer creates a new gRPC server instance.
@@ -268,6 +275,15 @@ func (s *Server) GetPort() int {
 	return s.config.Port
 }
 
+// SetMetricsInterceptors 注入平台自监控的 gRPC 指标拦截器，必须在 Start 之前调用；
+// 任一为 nil 则该方向不启用指标观测。
+// SetMetricsInterceptors injects platform self-monitoring gRPC metrics interceptors;
+// call before Start. A nil argument disables instrumentation on that direction.
+func (s *Server) SetMetricsInterceptors(unary grpc.UnaryServerInterceptor, stream grpc.StreamServerInterceptor) {
+	s.metricsUnary = unary
+	s.metricsStream = stream
+}
+
 // buildServerOptions builds gRPC server options based on configuration.
 // buildServerOptions 根据配置构建 gRPC 服务器选项。
 func (s *Server) buildServerOptions() ([]grpc.ServerOption, error) {
@@ -307,15 +323,27 @@ func (s *Server) buildServerOptions() ([]grpc.ServerOption, error) {
 
 	// Add interceptors
 	// 添加拦截器
+	// 指标拦截器放在 logging/recovery 之后：panic 先被 recovery 转成错误码，
+	// 指标才能记到真实的 gRPC status 而不是进程崩溃。
+	// The metrics interceptor runs after logging/recovery: panics are first converted
+	// into error codes by recovery, so metrics observe a real gRPC status instead of a crash.
+	unaryInterceptors := []grpc.UnaryServerInterceptor{
+		s.loggingUnaryInterceptor,
+		s.recoveryUnaryInterceptor,
+	}
+	streamInterceptors := []grpc.StreamServerInterceptor{
+		s.loggingStreamInterceptor,
+		s.recoveryStreamInterceptor,
+	}
+	if s.metricsUnary != nil {
+		unaryInterceptors = append(unaryInterceptors, s.metricsUnary)
+	}
+	if s.metricsStream != nil {
+		streamInterceptors = append(streamInterceptors, s.metricsStream)
+	}
 	opts = append(opts,
-		grpc.ChainUnaryInterceptor(
-			s.loggingUnaryInterceptor,
-			s.recoveryUnaryInterceptor,
-		),
-		grpc.ChainStreamInterceptor(
-			s.loggingStreamInterceptor,
-			s.recoveryStreamInterceptor,
-		),
+		grpc.ChainUnaryInterceptor(unaryInterceptors...),
+		grpc.ChainStreamInterceptor(streamInterceptors...),
 	)
 
 	return opts, nil

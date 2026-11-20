@@ -82,7 +82,12 @@ export function StatPillsBar({
   useGSAP(
     () => {
       animatePillsEntrance('.stat-pill-item');
-      animatePulsingRadar('.radar-pulse-ring');
+      // 没有 pulse 项时选择器为空，GSAP 会打「target not found」告警，先探再启动。
+      // With no pulse item the selector matches nothing and GSAP logs a
+      // "target not found" warning — probe before animating.
+      if (containerRef.current?.querySelector('.radar-pulse-ring')) {
+        animatePulsingRadar('.radar-pulse-ring');
+      }
     },
     {scope: containerRef, dependencies: [items.length]},
   );

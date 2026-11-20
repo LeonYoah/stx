@@ -49,7 +49,7 @@ import {
   type TrendWindow,
 } from './metrics-trend-data';
 
-const RANGES = ['15m', '1h', '6h', '24h', '7d'] as const;
+const RANGES = ['15m', '1h', '6h', '24h', '7d', '30d', '90d', '1y'] as const;
 const LIFETIME = 'lifetime';
 
 type RangeKey = (typeof RANGES)[number];
@@ -95,6 +95,10 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
     setSelection(defaultSelection(job));
   }
   const [autoRefresh, setAutoRefresh] = useState(true);
+  // 日历选择被截成最近一年时置位，控件旁给出可见提示；下次选择时清除。
+  // Set when a calendar pick was trimmed to the last year so a notice shows next to the
+  // control; cleared on the next selection.
+  const [rangeTrimmed, setRangeTrimmed] = useState(false);
   const [data, setData] = useState<SyncJobTimeseries | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -189,8 +193,11 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
   }, [job, running]);
   const handlePickRange = useCallback((picked: DateRange) => {
     const end = picked.end.getTime();
-    // 与后端同样限制 31 天，超出时保留靠近结束的一段。 / Cap at 31 days like the backend, keeping the part nearest the end.
-    setSelection({kind: 'custom', window: {start: Math.max(picked.start.getTime(), end - MAX_TREND_WINDOW_MS), end}});
+    // 与后端同样限制一年，超出时保留靠近结束的一段并给出可见提示。 / Cap at one year like the
+    // backend, keeping the part nearest the end and surfacing a visible notice.
+    const start = picked.start.getTime();
+    setRangeTrimmed(start < end - MAX_TREND_WINDOW_MS);
+    setSelection({kind: 'custom', window: {start: Math.max(start, end - MAX_TREND_WINDOW_MS), end}});
   }, []);
   const segmentValue = selection.kind === 'preset' ? selection.range : selection.kind === 'lifetime' ? LIFETIME : '';
 
@@ -364,8 +371,10 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
         <SegmentedControl
           label={t('range')}
           value={segmentValue}
-          onValueChange={(value) =>
-            setSelection(value === LIFETIME ? {kind: 'lifetime'} : {kind: 'preset', range: value as RangeKey})}
+          onValueChange={(value) => {
+            setRangeTrimmed(false);
+            setSelection(value === LIFETIME ? {kind: 'lifetime'} : {kind: 'preset', range: value as RangeKey});
+          }}
           options={[
             ...RANGES.map((item) => ({value: item, label: item})),
             ...(canLifetime ? [{value: LIFETIME, label: t('rangeLifetime')}] : []),
@@ -379,6 +388,9 @@ export function MetricsTrendView({job, active}: {job: SyncJobInstance | null; ac
           minDate={pickerMinDate}
           withTime
         />
+        {rangeTrimmed ? (
+          <span className='text-xs text-warning'>{t('rangeTrimmed')}</span>
+        ) : null}
         <Switch
           checked={autoRefresh}
           onCheckedChange={setAutoRefresh}

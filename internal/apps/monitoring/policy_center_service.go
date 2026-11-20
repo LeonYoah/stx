@@ -18,174 +18,8 @@
 package monitoring
 
 import (
-	"context"
-	"fmt"
-	"strings"
-
-	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/pkg/syncalert"
-	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
-
-// GetAlertPolicyCenterBootstrap returns unified policy-center bootstrap payload.
-// GetAlertPolicyCenterBootstrap 返回统一策略中心初始化数据。
-func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPolicyCenterBootstrapData, error) {
-	integrationStatus, err := s.GetIntegrationStatus(ctx)
-	if err != nil {
-		return nil, err
-	}
-	notifiableUsers, defaultReceiverUserIDs, err := s.resolveNotificationRecipientDirectory(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	componentMap := indexIntegrationComponents(integrationStatus.Components)
-	metricsStatus, metricsReason := resolveMetricsPolicyCapability(componentMap)
-
-	capabilities := []*AlertPolicyCapabilityDTO{
-		{
-			Key:     AlertPolicyCapabilityKeyPlatformHealth,
-			Title:   "Platform Health Policies",
-			Summary: "Use STX-managed runtime and cluster signals to detect health issues even when built-in monitoring is off.",
-			Status:  AlertPolicyCapabilityStatusAvailable,
-		},
-		{
-			Key:       AlertPolicyCapabilityKeyMetricsTemplates,
-			Title:     "Metrics Templates",
-			Summary:   "Enable CPU, memory, FD, failed-job, and other metrics-driven alert policies through built-in monitoring.",
-			Status:    metricsStatus,
-			Reason:    metricsReason,
-			DependsOn: []string{"embedded_tsdb", "seatunnel_metrics"},
-		},
-		{
-			Key:     AlertPolicyCapabilityKeyWebhookNotification,
-			Title:   "Webhook / IM Notifications",
-			Summary: "Deliver alert notifications through webhook-compatible channels such as Webhook, WeCom, DingTalk, and Feishu.",
-			Status:  AlertPolicyCapabilityStatusAvailable,
-		},
-		{
-			Key:     AlertPolicyCapabilityKeyInAppNotification,
-			Title:   "In-App Notification Center",
-			Summary: "Provide a built-in notification inbox, receiver experience, and recovery follow-up inside STX.",
-			Status:  AlertPolicyCapabilityStatusPlanned,
-			Reason:  "Planned next step after the unified policy domain lands.",
-		},
-	}
-
-	builders := []*AlertPolicyBuilderDTO{
-		{
-			Key:           AlertPolicyBuilderKindPlatformHealth,
-			Title:         "Platform Health Policies",
-			Description:   "Create unified policies for cluster availability, node liveness, process stability, and operation failures.",
-			Status:        AlertPolicyCapabilityStatusAvailable,
-			CapabilityKey: AlertPolicyCapabilityKeyPlatformHealth,
-			Recommended:   true,
-		},
-		{
-			Key:           AlertPolicyBuilderKindMetricsTemplate,
-			Title:         "Metrics Templates",
-			Description:   "Start from curated metric templates for CPU, memory, FD, failed jobs, and other engine metric signals.",
-			Status:        metricsStatus,
-			CapabilityKey: AlertPolicyCapabilityKeyMetricsTemplates,
-			Recommended:   true,
-		},
-	}
-
-	return &AlertPolicyCenterBootstrapData{
-		GeneratedAt:            timex.Now(),
-		CapabilityMode:         "unified_capability_aware",
-		Capabilities:           capabilities,
-		Builders:               builders,
-		Templates:              buildVisibleAlertPolicyTemplateSummaries(capabilities),
-		Components:             cloneIntegrationComponents(integrationStatus.Components),
-		NotifiableUsers:        notifiableUsers,
-		DefaultReceiverUserIDs: defaultReceiverUserIDs,
-	}, nil
-}
-
-func indexIntegrationComponents(components []*IntegrationComponentStatus) map[string]*IntegrationComponentStatus {
-	result := make(map[string]*IntegrationComponentStatus, len(components))
-	for _, component := range components {
-		if component == nil {
-			continue
-		}
-		result[strings.TrimSpace(strings.ToLower(component.Name))] = component
-	}
-	return result
-}
-
-func cloneIntegrationComponents(components []*IntegrationComponentStatus) []*IntegrationComponentStatus {
-	if len(components) == 0 {
-		return []*IntegrationComponentStatus{}
-	}
-	result := make([]*IntegrationComponentStatus, 0, len(components))
-	for _, component := range components {
-		if component == nil {
-			continue
-		}
-		cloned := *component
-		result = append(result, &cloned)
-	}
-	return result
-}
-
-func resolveMetricsPolicyCapability(componentMap map[string]*IntegrationComponentStatus) (AlertPolicyCapabilityStatus, string) {
-	if !config.Config.Observability.Enabled {
-		return AlertPolicyCapabilityStatusUnavailable, "Observability is disabled. Turn on built-in monitoring to unlock metric policies. Local platform-health alerts still work."
-	}
-	// 指标类策略依赖内嵌 tsdb（存储+查询）与 SeaTunnel 抓取目标两组件。
-	// Metric policies depend on the embedded tsdb (storage+query) and the SeaTunnel scrape targets.
-	if reason := explainUnhealthyComponent(componentMap["embedded_tsdb"], "Built-in monitoring storage"); reason != "" {
-		return AlertPolicyCapabilityStatusUnavailable, reason
-	}
-	if reason := explainUnhealthyComponent(componentMap["seatunnel_metrics"], "Engine metric collection"); reason != "" {
-		return AlertPolicyCapabilityStatusUnavailable, reason
-	}
-	return AlertPolicyCapabilityStatusAvailable, ""
-}
-
-func explainUnhealthyComponent(component *IntegrationComponentStatus, displayName string) string {
-	if component == nil {
-		return fmt.Sprintf("%s status is unavailable.", displayName)
-	}
-	if component.Healthy {
-		return ""
-	}
-	if strings.TrimSpace(component.Error) != "" {
-		return fmt.Sprintf("%s is not ready: %s", displayName, strings.TrimSpace(component.Error))
-	}
-	if component.StatusCode > 0 {
-		return fmt.Sprintf("%s is not ready: HTTP %d.", displayName, component.StatusCode)
-	}
-	return fmt.Sprintf("%s is not ready.", displayName)
-}
-
-func buildVisibleAlertPolicyTemplateSummaries(capabilities []*AlertPolicyCapabilityDTO) []*AlertPolicyTemplateSummaryDTO {
-	statusByCapability := make(map[string]AlertPolicyCapabilityStatus, len(capabilities))
-	for _, capability := range capabilities {
-		if capability == nil {
-			continue
-		}
-		statusByCapability[strings.TrimSpace(capability.Key)] = capability.Status
-	}
-
-	result := make([]*AlertPolicyTemplateSummaryDTO, 0)
-	for _, template := range allAlertPolicyTemplateSummaries() {
-		if template == nil {
-			continue
-		}
-		status, exists := statusByCapability[strings.TrimSpace(template.CapabilityKey)]
-		if exists && status != AlertPolicyCapabilityStatusAvailable {
-			continue
-		}
-		cloned := *template
-		if len(template.RequiredSignals) > 0 {
-			cloned.RequiredSignals = append([]string{}, template.RequiredSignals...)
-		}
-		result = append(result, &cloned)
-	}
-	return result
-}
 
 func allAlertPolicyTemplateSummaries() []*AlertPolicyTemplateSummaryDTO {
 	return []*AlertPolicyTemplateSummaryDTO{
@@ -414,6 +248,86 @@ func allAlertPolicyTemplateSummaries() []*AlertPolicyTemplateSummaryDTO {
 			DefaultOperator:   "<",
 			DefaultThreshold:  "1",
 			DefaultWindowMins: 1,
+			Recommended:       true,
+		},
+		// 平台自监控模板（PR-161）：PromQL 走 metrics_template 评估器，
+		// 分类归为 platform_health；指标来自内嵌自抓取（job=stx_embedded）与 Agent 上报通道。
+		// Platform self-monitoring templates (PR-161): they evaluate through the
+		// metrics_template evaluator while grouping under platform_health; signals come
+		// from the embedded self-scrape (job=stx_embedded) and the agent report channel.
+		{
+			Key:               AlertRuleKeyPlatformServerMemoryHigh,
+			Name:              "STX server memory high",
+			Description:       "Alert when the STX server process RSS stays above the configured memory limit.",
+			Category:          "platform_health",
+			SourceKind:        string(AlertPolicyBuilderKindMetricsTemplate),
+			CapabilityKey:     AlertPolicyCapabilityKeyMetricsTemplates,
+			MetricSource:      "stx_platform",
+			RequiredSignals:   []string{"process_resident_memory_bytes"},
+			SuggestedPromQL:   `process_resident_memory_bytes{job="stx_embedded"} > 2147483648`,
+			DefaultOperator:   ">",
+			DefaultThreshold:  "2147483648",
+			DefaultWindowMins: 5,
+			Recommended:       true,
+		},
+		{
+			Key:               AlertRuleKeyPlatformServerHTTP5xxRatioHigh,
+			Name:              "STX server HTTP 5xx ratio high",
+			Description:       "Alert when the share of 5xx responses across all control-plane HTTP requests stays above the configured ratio.",
+			Category:          "platform_health",
+			SourceKind:        string(AlertPolicyBuilderKindMetricsTemplate),
+			CapabilityKey:     AlertPolicyCapabilityKeyMetricsTemplates,
+			MetricSource:      "stx_platform",
+			RequiredSignals:   []string{"stx_server_http_requests_total"},
+			SuggestedPromQL:   `sum(rate(stx_server_http_requests_total{code="5xx"}[5m])) / sum(rate(stx_server_http_requests_total[5m])) > 0.05`,
+			DefaultOperator:   ">",
+			DefaultThreshold:  "0.05",
+			DefaultWindowMins: 10,
+			Recommended:       true,
+		},
+		{
+			Key:               AlertRuleKeyPlatformTSDBCompactionFailed,
+			Name:              "Embedded tsdb compaction failed",
+			Description:       "Alert immediately when the embedded tsdb reports compaction failures; sustained failures risk losing observability history.",
+			Category:          "platform_health",
+			SourceKind:        string(AlertPolicyBuilderKindMetricsTemplate),
+			CapabilityKey:     AlertPolicyCapabilityKeyMetricsTemplates,
+			MetricSource:      "stx_platform",
+			RequiredSignals:   []string{"prometheus_tsdb_compactions_failed_total"},
+			SuggestedPromQL:   `increase(prometheus_tsdb_compactions_failed_total{job="stx_embedded"}[1h]) > 0`,
+			DefaultOperator:   ">",
+			DefaultThreshold:  "0",
+			DefaultWindowMins: 1,
+			Recommended:       true,
+		},
+		{
+			Key:               AlertRuleKeyPlatformAgentMemoryHigh,
+			Name:              "Agent memory high",
+			Description:       "Alert when an agent process RSS stays above the configured memory limit on any managed host.",
+			Category:          "platform_health",
+			SourceKind:        string(AlertPolicyBuilderKindMetricsTemplate),
+			CapabilityKey:     AlertPolicyCapabilityKeyMetricsTemplates,
+			MetricSource:      "stx_platform",
+			RequiredSignals:   []string{"stx_agent_process_resident_memory_bytes"},
+			SuggestedPromQL:   `max by (host_id, host_name) (stx_agent_process_resident_memory_bytes) > 536870912`,
+			DefaultOperator:   ">",
+			DefaultThreshold:  "536870912",
+			DefaultWindowMins: 10,
+			Recommended:       true,
+		},
+		{
+			Key:               AlertRuleKeyPlatformAgentVersionMismatch,
+			Name:              "Agent version mismatch",
+			Description:       "Alert when a managed agent keeps reporting a version different from the STX server version.",
+			Category:          "platform_health",
+			SourceKind:        string(AlertPolicyBuilderKindMetricsTemplate),
+			CapabilityKey:     AlertPolicyCapabilityKeyMetricsTemplates,
+			MetricSource:      "stx_platform",
+			RequiredSignals:   []string{"stx_agent_build_info"},
+			SuggestedPromQL:   `max by (host_id, host_name, version) (stx_agent_build_info) == 1`,
+			DefaultOperator:   "==",
+			DefaultThreshold:  "1",
+			DefaultWindowMins: 30,
 			Recommended:       true,
 		},
 	}

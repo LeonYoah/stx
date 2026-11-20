@@ -280,11 +280,7 @@ func (h *SyncAlertHub) fireCluster(ctx context.Context, signal syncalert.Signal)
 	if err != nil || !created {
 		return err
 	}
-	policies, err := h.clusterPolicies(ctx, signal.ClusterID, signal.RuleKey)
-	if err != nil {
-		return err
-	}
-	return h.dispatchEpisode(ctx, episode, policies, NotificationDeliveryEventTypeFiring, true, false)
+	return h.dispatchEpisode(ctx, episode, rule.deliveryPolicies(), NotificationDeliveryEventTypeFiring, true, false)
 }
 
 // observeCluster 处理 D1 观测：持续失败超过规则窗口才算成立；已有阶段时只累计次数。
@@ -305,7 +301,7 @@ func (h *SyncAlertHub) observeCluster(ctx context.Context, signal syncalert.Sign
 	if err != nil || rule == nil || !rule.Enabled {
 		return err
 	}
-	window := time.Duration(rule.WindowSeconds) * time.Second
+	window := time.Duration(rule.ForSeconds) * time.Second
 	if window <= 0 {
 		window = defaultSyncStatusUnavailableWindow
 	}
@@ -356,11 +352,11 @@ func (h *SyncAlertHub) resolve(ctx context.Context, signal syncalert.Signal) err
 		if err != nil || episode == nil {
 			return err
 		}
-		policies, err := h.clusterPolicies(ctx, signal.ClusterID, signal.RuleKey)
+		rule, err := h.clusterRule(ctx, signal.ClusterID, signal.RuleKey)
 		if err != nil {
 			return err
 		}
-		return h.resolveEpisode(ctx, episode, signal.OccurredAt, syncAlertResolveRecovered, policies)
+		return h.resolveEpisode(ctx, episode, signal.OccurredAt, syncAlertResolveRecovered, rule.deliveryPolicies())
 	case syncalert.ResolveCDCDelay:
 		return h.resolveCDCDelay(ctx, signal)
 	default:
@@ -543,10 +539,11 @@ func (h *SyncAlertHub) remindCheck(ctx context.Context, episodeID uint) (*SyncAl
 		}
 		policies = []*AlertPolicy{policy}
 	} else {
-		policies, err = h.clusterPolicies(ctx, episode.ClusterID, episode.RuleKey)
-		if err != nil {
-			return nil, nil, version, err
+		rule, ruleErr := h.clusterRule(ctx, episode.ClusterID, episode.RuleKey)
+		if ruleErr != nil {
+			return nil, nil, version, ruleErr
 		}
+		policies = rule.deliveryPolicies()
 	}
 	reminding := make([]*AlertPolicy, 0, len(policies))
 	for _, policy := range policies {
@@ -621,20 +618,11 @@ func (h *SyncAlertHub) dispatchEpisode(ctx context.Context, episode *SyncAlertEp
 	return errors.Join(errs...)
 }
 
-// clusterRule 读取集群的默认规则，必要时先补齐默认规则。
-// clusterRule loads the cluster's default rule, creating missing defaults first.
-func (h *SyncAlertHub) clusterRule(ctx context.Context, clusterID uint, ruleKey string) (*AlertRule, error) {
-	rules, err := h.service.getClusterRuleMap(ctx, clusterID, map[uint]map[string]*AlertRule{})
-	if err != nil {
-		return nil, err
-	}
-	return rules[ruleKey], nil
-}
-
-// clusterPolicies 返回绑定到集群这条规则的启用策略。
-// clusterPolicies returns the enabled policies bound to the cluster's rule.
-func (h *SyncAlertHub) clusterPolicies(ctx context.Context, clusterID uint, ruleKey string) ([]*AlertPolicy, error) {
-	return h.service.repo.ListEnabledAlertPoliciesByClusterAndLegacyRuleKey(ctx, strconv.FormatUint(uint64(clusterID), 10), ruleKey)
+// clusterRule 读取集群级规则的生效配置（目录默认 → 全局配置 → 集群例外）。
+// clusterRule returns the effective cluster rule config (catalog default → global config →
+// cluster override).
+func (h *SyncAlertHub) clusterRule(ctx context.Context, clusterID uint, ruleKey string) (*resolvedRuleConfig, error) {
+	return h.service.ResolveClusterRule(ctx, ruleKey, clusterID)
 }
 
 // syncJobPolicyHasRule 判断任务策略的条件里是否勾选了这条规则。

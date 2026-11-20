@@ -145,9 +145,11 @@ check_eq "yaml database.port untouched" "$(yaml_get "$ycfg" database.port)" "por
 check_eq "yaml line count kept" "$(wc -l <"$ycfg")" "$before_lines"
 # 逐行比较（行数不变），不依赖 diff/cmp（精简镜像可能没有 diffutils）。/ Line-by-line compare without diff/cmp.
 changed="$(awk 'NR == FNR { a[FNR] = $0; next } a[FNR] != $0 { n++ } END { print n + 0 }' "$ROOT_DIR/config.example.yaml" "$ycfg")"
-# 10 次写入中 4 次与原值相同（observability.* 默认值），仅 6 行实际变化（行尾注释按原实现被替换掉）。
-# 4 of the 10 writes equal the existing values (observability.* defaults), so exactly 6 lines change.
-check_eq "yaml only targeted lines changed" "$changed" "6"
+# 10 次写入中 3 次与原值相同（enabled/scrape_interval/metrics.path 默认值），retention 新默认为
+# 空串、写入 "31d" 也计一行，共 7 行实际变化（行尾注释按原实现被替换掉）。
+# 3 of the 10 writes equal the existing defaults; retention now defaults to "" so writing "31d"
+# also counts, leaving exactly 7 changed lines.
+check_eq "yaml only targeted lines changed" "$changed" "7"
 cp "$ycfg" "$ycfg.bak"
 if stx_yaml_set "$ycfg" "observability.storage.nope" "x" 2>/dev/null; then
   echo "FAIL yaml missing key should fail"; fail=1

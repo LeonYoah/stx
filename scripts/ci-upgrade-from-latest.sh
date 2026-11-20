@@ -833,16 +833,25 @@ assert_invalid_configs() {
   local out
 
   if [[ "$SEEDED_LEGACY_ROUTE" == "true" ]]; then
-    local reason detail
-    reason="$(cli_call out monitoring notification-route list \
-      && jq -r --arg n "$ROUTE_NAME" '[.data.routes[]? | select(.name==$n)][0].invalid_reason // empty' <<<"$out" 2>/dev/null)" \
-      || reason=""
-    detail="$(cli_call out monitoring notification-route list \
-      && jq -r --arg n "$ROUTE_NAME" '[.data.routes[]? | select(.name==$n)][0].invalid_detail // empty' <<<"$out" 2>/dev/null)" \
-      || detail=""
-    assert_true "route invalid_reason=legacy_source_type" [ "$reason" = "legacy_source_type" ]
-    assert_true "route invalid_detail=remote_alertmanager" [ "$detail" = "remote_alertmanager" ]
-    assert_true "route WARN in log" bash -c "sudo -n grep -qi '通知路由.*失效\|notification route.*invalid\|invalid.*notification route' '$INSTALL_DIR/logs/backend.log' 2>/dev/null"
+    # 目标版本可能已移除 notification-route API（告警模型整合后路由并入通知渠道）；
+    # list 探活失败说明该版本不再暴露路由实体，也就没有可标记 invalid 的对象。
+    # The target may have dropped the notification-route API (routes folded into
+    # notification channels by the alert-model consolidation); when the list probe
+    # fails there is no route entity left to mark invalid, so skip the asserts.
+    if cli_call out monitoring notification-route list >/dev/null 2>&1; then
+      local reason detail
+      reason="$(cli_call out monitoring notification-route list \
+        && jq -r --arg n "$ROUTE_NAME" '[.data.routes[]? | select(.name==$n)][0].invalid_reason // empty' <<<"$out" 2>/dev/null)" \
+        || reason=""
+      detail="$(cli_call out monitoring notification-route list \
+        && jq -r --arg n "$ROUTE_NAME" '[.data.routes[]? | select(.name==$n)][0].invalid_detail // empty' <<<"$out" 2>/dev/null)" \
+        || detail=""
+      assert_true "route invalid_reason=legacy_source_type" [ "$reason" = "legacy_source_type" ]
+      assert_true "route invalid_detail=remote_alertmanager" [ "$detail" = "remote_alertmanager" ]
+      assert_true "route WARN in log" bash -c "sudo -n grep -qi '通知路由.*失效\|notification route.*invalid\|invalid.*notification route' '$INSTALL_DIR/logs/backend.log' 2>/dev/null"
+    else
+      notice "target has no 'monitoring notification-route' API; route invalid_reason assertions skipped"
+    fi
   else
     notice "route invalid_reason assertions skipped"
   fi

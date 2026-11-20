@@ -36,11 +36,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	pb "github.com/LeonYoah/stx/agent"
 	"github.com/LeonYoah/stx/agent/internal/javaenv"
 	"github.com/LeonYoah/stx/agent/internal/process"
+	stxversion "github.com/LeonYoah/stx/internal/version"
 )
 
 // MetricsCollector collects system and process metrics
@@ -69,6 +71,27 @@ type MetricsCollector struct {
 	// more goroutine+thread and eventually hits Go's 10k thread limit. The mark
 	// clears itself when the goroutine finally returns.
 	fsStuck sync.Map
+
+	// selfStartedAt 是采集器创建时间，用作 stx_agent_uptime_seconds 的基准。
+	// selfStartedAt is the collector creation time, the baseline of stx_agent_uptime_seconds.
+	selfStartedAt time.Time
+
+	// selfVersion 是 stx_agent_build_info{version} 上报的版本号，可在测试中覆写。
+	// selfVersion is the version reported on stx_agent_build_info{version}; tests may override it.
+	selfVersion string
+
+	// heartbeatFailures 累计心跳发送失败次数（stx_agent_heartbeat_failures_total）。
+	// heartbeatFailures accumulates heartbeat send failures (stx_agent_heartbeat_failures_total).
+	heartbeatFailures atomic.Uint64
+
+	// commandCounts 按 {type,result} 累计命令执行结果（stx_agent_commands_total）。
+	// commandCounts accumulates command outcomes per {type,result} (stx_agent_commands_total).
+	commandCounts map[[2]string]*uint64
+
+	// selfMu 保护 commandCounts 的并发读写（命令回调与采集循环可能重叠）。
+	// selfMu guards commandCounts against concurrent writes (command callbacks may
+	// overlap the collection loop).
+	selfMu sync.Mutex
 }
 
 // cpuStats stores CPU statistics for usage calculation
@@ -91,7 +114,40 @@ type cpuStats struct {
 func NewMetricsCollector(pm *process.ProcessManager) *MetricsCollector {
 	return &MetricsCollector{
 		processManager: pm,
+		selfStartedAt:  time.Now(),
+		selfVersion:    stxversion.Version,
+		commandCounts:  make(map[[2]string]*uint64),
 	}
+}
+
+// SetSelfVersion 覆盖 stx_agent_build_info 上报的版本号（测试与自定义构建用）。
+// SetSelfVersion overrides the version reported on stx_agent_build_info
+// (used by tests and custom builds).
+func (c *MetricsCollector) SetSelfVersion(v string) {
+	c.selfVersion = v
+}
+
+// RecordHeartbeatFailure 累计一次心跳发送失败。
+// RecordHeartbeatFailure counts one heartbeat send failure.
+func (c *MetricsCollector) RecordHeartbeatFailure() {
+	c.heartbeatFailures.Add(1)
+}
+
+// RecordCommandResult 按 {type,result} 累计一次命令执行结果。
+// result 只取 success / failed，保证标签基数恒定。
+// RecordCommandResult counts one command outcome under {type,result}.
+// result is restricted to success / failed so label cardinality stays constant.
+func (c *MetricsCollector) RecordCommandResult(commandType, result string) {
+	c.selfMu.Lock()
+	defer c.selfMu.Unlock()
+	key := [2]string{commandType, result}
+	count, ok := c.commandCounts[key]
+	if !ok {
+		var n uint64
+		count = &n
+		c.commandCounts[key] = count
+	}
+	*count++
 }
 
 // CollectResourceUsage collects current system resource usage

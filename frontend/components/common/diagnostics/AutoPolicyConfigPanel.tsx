@@ -20,7 +20,7 @@
 import {useCallback, useEffect, useState} from 'react';
 import {Loader2, Plus, Trash2, ShieldAlert} from 'lucide-react';
 import {useTranslations} from 'next-intl';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {useLocale} from '@/lib/i18n';
 import {cn} from '@/lib/utils';

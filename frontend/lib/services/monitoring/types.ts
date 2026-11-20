@@ -182,6 +182,8 @@ export interface AlertInstanceSourceRef {
   hostname?: string;
   receiver?: string;
   env?: string;
+  /** 映射到目录规则前的存储告警名（旧 YAML 规则名） / Stored alert name before catalog-rule mapping (legacy YAML rule name) */
+  original_alert_name?: string;
   /** 以下字段只用于 sync 阶段（alert_id 以 sync: 前缀标识，类别按规则归属）。 / The fields below are only set for sync episodes (alert_id carries the sync: prefix; category follows the rule). */
   task_id?: number;
   task_name?: string;
@@ -206,6 +208,7 @@ export interface AlertInstance {
   cluster_name: string;
   severity: AlertSeverity | string;
   alert_name: string;
+  alert_name_en?: string;
   rule_key: string;
   summary: string;
   description: string;
@@ -224,6 +227,7 @@ export interface AlertInstance {
   closed_at?: string | null;
   latest_note?: string;
   source_ref?: AlertInstanceSourceRef | null;
+  scope?: AlertScope;
 }
 
 export interface AlertInstanceListData {
@@ -237,6 +241,7 @@ export interface AlertInstanceListData {
 
 export interface AlertInstanceFilterParams {
   source_type?: AlertSourceType;
+  scope?: AlertScope;
   cluster_id?: string;
   severity?: AlertSeverity;
   status?: AlertDisplayStatus;
@@ -358,34 +363,8 @@ export interface PlatformHealthData {
   critical_alerts: number;
 }
 
-export interface AlertRule {
-  id: number;
-  cluster_id: number;
-  rule_key: string;
-  rule_name: string;
-  description: string;
-  severity: AlertSeverity;
-  enabled: boolean;
-  threshold: number;
-  window_seconds: number;
-  created_at: string;
-  updated_at: string;
-}
 
-export interface AlertRuleListData {
-  generated_at: string;
-  cluster_id: number;
-  rules: AlertRule[];
-}
 
-export interface UpdateAlertRuleRequest {
-  rule_name?: string;
-  description?: string;
-  severity?: AlertSeverity;
-  enabled?: boolean;
-  threshold?: number;
-  window_seconds?: number;
-}
 
 export interface IntegrationComponentStatus {
   name: string;
@@ -400,11 +379,6 @@ export interface IntegrationStatusData {
   components: IntegrationComponentStatus[];
 }
 
-export type AlertPolicyCapabilityStatus =
-  | 'available'
-  | 'unavailable'
-  | 'planned';
-
 export type AlertPolicyBuilderKind =
   | 'platform_health'
   | 'metrics_template'
@@ -417,40 +391,8 @@ export type AlertPolicyExecutionStatus =
   | 'failed'
   | 'partial';
 
-export interface AlertPolicyCapability {
-  key: string;
-  title: string;
-  summary: string;
-  status: AlertPolicyCapabilityStatus | string;
-  reason?: string;
-  depends_on?: string[];
-}
 
-export interface AlertPolicyBuilderOption {
-  key: AlertPolicyBuilderKind | string;
-  title: string;
-  description: string;
-  status: AlertPolicyCapabilityStatus | string;
-  capability_key: string;
-  recommended: boolean;
-}
 
-export interface AlertPolicyTemplateSummary {
-  key: string;
-  name: string;
-  description: string;
-  category: string;
-  source_kind: string;
-  capability_key: string;
-  legacy_rule_key?: string;
-  metric_source?: string;
-  required_signals?: string[];
-  suggested_promql?: string;
-  default_operator?: string;
-  default_threshold?: string;
-  default_window_minutes?: number;
-  recommended: boolean;
-}
 
 export interface NotificationRecipientUser {
   id: number;
@@ -460,16 +402,6 @@ export interface NotificationRecipientUser {
   is_admin: boolean;
 }
 
-export interface AlertPolicyCenterBootstrapData {
-  generated_at: string;
-  capability_mode: string;
-  capabilities: AlertPolicyCapability[];
-  builders: AlertPolicyBuilderOption[];
-  templates: AlertPolicyTemplateSummary[];
-  components: IntegrationComponentStatus[];
-  notifiable_users: NotificationRecipientUser[];
-  default_receiver_user_ids: number[];
-}
 
 export interface AlertPolicyCondition {
   metric_key: string;
@@ -490,7 +422,6 @@ export interface AlertPolicy {
   enabled: boolean;
   cooldown_minutes: number;
   send_recovery: boolean;
-  promql?: string;
   conditions: AlertPolicyCondition[];
   notification_channel_ids: number[];
   receiver_user_ids: number[];
@@ -531,7 +462,6 @@ export interface UpsertAlertPolicyRequest {
   enabled?: boolean;
   cooldown_minutes?: number;
   send_recovery?: boolean;
-  promql?: string;
   conditions?: AlertPolicyCondition[];
   notification_channel_ids?: number[];
   receiver_user_ids?: number[];
@@ -645,27 +575,7 @@ export interface NotifiableUserListData {
   default_receiver_user_ids: number[];
 }
 
-export interface NotificationRoute {
-  id: number;
-  name: string;
-  enabled: boolean;
-  source_type?: AlertSourceType | '' | string;
-  cluster_id?: string;
-  severity?: AlertSeverity | '' | string;
-  rule_key?: string;
-  channel_id: number;
-  send_resolved: boolean;
-  mute_if_acknowledged: boolean;
-  mute_if_silenced: boolean;
-  created_at: string;
-  updated_at: string;
-}
 
-export interface NotificationRouteListData {
-  generated_at: string;
-  total: number;
-  routes: NotificationRoute[];
-}
 
 export type NotificationDeliveryEventType =
   | 'firing'
@@ -721,15 +631,176 @@ export interface NotificationDeliveryFilterParams {
   page_size?: number;
 }
 
-export interface UpsertNotificationRouteRequest {
+
+/**
+ * 告警实例范围：job 任务级，其余归为 cluster 集群级。
+ * Alert instance scope: "job" for job-level alerts, everything else is "cluster".
+ */
+export type AlertScope = 'cluster' | 'job';
+
+export type ClusterRuleNotifyMode = 'default' | 'custom' | 'none';
+
+/**
+ * 集群规则阈值视图：value 为生效值、default 为目录默认值。
+ * Cluster rule threshold view: value is the effective value, default the catalog default.
+ */
+export interface ClusterRuleThreshold {
+  // null 表示"等于部署数"语义（worker_insufficient） / null carries the "equals deployed count" semantic (worker_insufficient)
+  value: number | null;
+  default: number | null;
+  unit: string;
+  operator: string;
+  min: number;
+  max: number;
+}
+
+/**
+ * 一层配置（全局或例外）的用户原值：null 字段表示继承上一层。
+ * One raw config layer (global or override): null fields inherit the layer above.
+ */
+export interface ClusterRuleLayer {
+  enabled: boolean | null;
+  threshold: number | null;
+  for_seconds: number | null;
+  severity: AlertSeverity | null;
+  notify_mode: ClusterRuleNotifyMode | null;
+  channel_ids: number[];
+  receiver_user_ids: number[];
+}
+
+export interface ClusterRuleOverrideEffective {
+  enabled: boolean;
+  severity: AlertSeverity;
+  threshold: number | null;
+  for_seconds: number;
+  external_channel_missing: boolean;
+}
+
+export interface ClusterRuleOverride extends ClusterRuleLayer {
+  cluster_id: number;
+  cluster_name: string;
+  effective: ClusterRuleOverrideEffective;
+}
+
+/**
+ * GET /monitoring/cluster-rules 返回的单条集群规则视图：顶层为生效值，global/overrides 为用户原值。
+ * One cluster rule view: top level carries effective values, global/overrides the raw layers.
+ */
+export interface ClusterRule {
+  key: string;
   name: string;
-  enabled?: boolean;
-  source_type?: AlertSourceType | '';
-  cluster_id?: string;
-  severity?: AlertSeverity | '';
-  rule_key?: string;
-  channel_id: number;
-  send_resolved?: boolean;
-  mute_if_acknowledged?: boolean;
-  mute_if_silenced?: boolean;
+  name_en: string;
+  description: string;
+  description_en?: string;
+  scope: 'cluster';
+  default_enabled: boolean;
+  enabled: boolean;
+  severity: AlertSeverity;
+  threshold: ClusterRuleThreshold | null;
+  for_seconds: number;
+  default_for_seconds: number;
+  for_editable: boolean;
+  notify_mode: ClusterRuleNotifyMode;
+  channel_ids: number[];
+  receiver_user_ids: number[];
+  has_global_config: boolean;
+  global: ClusterRuleLayer;
+  overrides: ClusterRuleOverride[];
+  override_count: number;
+  external_channel_missing: boolean;
+}
+
+/**
+ * PUT /monitoring/cluster-rules/:key[/clusters/:clusterId] 请求体：整层替换，字段省略或 null = 继承。
+ * PUT body for one layer: whole-layer replacement, omitted or null fields inherit.
+ */
+export interface ClusterRuleLayerRequest {
+  enabled?: boolean | null;
+  threshold?: number | null;
+  for_seconds?: number | null;
+  severity?: AlertSeverity | null;
+  notify_mode?: ClusterRuleNotifyMode | null;
+  channel_ids?: number[] | null;
+  receiver_user_ids?: number[] | null;
+}
+
+export interface AlertNotificationDefaults {
+  channel_ids: number[];
+  receiver_user_ids: number[];
+  cooldown_minutes: number;
+  send_recovery: boolean;
+  configured: boolean;
+}
+
+export type UpdateAlertNotificationDefaultsRequest = Omit<
+  AlertNotificationDefaults,
+  'configured'
+>;
+
+/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* 平台自监控快照 / Platform self-monitoring snapshot                  */
+/* ------------------------------------------------------------------ */
+
+/** Server 侧内嵌 TSDB 概况 / Server-side embedded TSDB overview. */
+export interface PlatformTSDBStatus {
+  head_series?: number;
+  blocks_bytes?: number;
+  compactions_failed?: number;
+}
+
+/** STX server 进程与控制面指标快照 / STX server process & control-plane snapshot. */
+export interface PlatformServerSnapshot {
+  version?: string;
+  uptime_seconds?: number;
+  rss_bytes?: number;
+  heap_inuse_bytes?: number;
+  goroutines?: number;
+  /** 近 5 分钟 HTTP 请求速率（req/s） / HTTP request rate over 5m (req/s). */
+  http_rps?: number;
+  /** 近 5 分钟 5xx 占比（0-1） / 5xx ratio over 5m (0-1). */
+  http_5xx_ratio?: number;
+  /** 近 5 分钟 HTTP P95 时延（秒） / HTTP P95 latency over 5m (s). */
+  http_p95_seconds?: number;
+  db_open?: number;
+  db_in_use?: number;
+  /** 近 5 分钟连接池等待速率 / Connection-pool wait rate over 5m. */
+  db_wait_count_rate?: number;
+  agents_connected?: number;
+  tsdb?: PlatformTSDBStatus;
+}
+
+/** 单个 Agent 进程指标快照；旧版 Agent 不上报时指标字段为 null。
+ *  Per-Agent process snapshot; metric fields stay null for legacy agents. */
+export interface PlatformAgentSnapshot {
+  host_id?: number;
+  host_name?: string;
+  version?: string;
+  rss_bytes?: number | null;
+  /** CPU 占用核数（rate 值，1.0 = 1 核） / CPU cores in use (rate; 1.0 = one core). */
+  cpu_ratio?: number | null;
+  goroutines?: number | null;
+  uptime_seconds?: number | null;
+  /** 近 1 小时失败指令数 / Failed commands over the last hour. */
+  command_failures_1h?: number | null;
+  /** RFC3339 最近指标上报时间 / RFC3339 timestamp of the last metrics report. */
+  last_report_at?: string | null;
+  online: boolean;
+}
+
+/** 快照携带的固定趋势序列（[毫秒时间戳, 值]）/ Fixed trend series in the snapshot ([epoch ms, value]). */
+export interface PlatformTrends {
+  rss_bytes?: [number, number][];
+  heap_inuse_bytes?: [number, number][];
+  http_rps?: [number, number][];
+  http_5xx_ratio?: [number, number][];
+}
+
+/** GET /api/v1/monitoring/platform 返回的平台快照 / Platform snapshot returned by GET /api/v1/monitoring/platform. */
+export interface PlatformSnapshotData {
+  available: boolean;
+  reason?: string;
+  server?: PlatformServerSnapshot;
+  agents: PlatformAgentSnapshot[];
+  trends?: PlatformTrends;
 }

@@ -529,9 +529,9 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 			{Name: "weeks", Location: InputQuery, Required: false, Description: "Run calendar weeks, 1-52 (default 16)"},
 		},
 		Example: "stx dashboard home jobs --range 6h",
@@ -557,9 +557,9 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 		},
 		Example: "stx dashboard home clusters --cluster_id 1 --range 1h",
 		OutputExample: `{
@@ -585,9 +585,9 @@ var registry = append([]OperationSpec{
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
 			{Name: "group", Location: InputQuery, Required: true, Description: "Detail group: jvm|gc|sched|store|proc"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 		},
 		Example: "stx dashboard home cluster-detail --cluster_id 1 --group jvm --range 6h",
 		OutputExample: `{
@@ -612,9 +612,9 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to hosts running nodes of this cluster"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 31 days"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
 		},
 		Example: "stx dashboard home hosts --cluster_id 1 --range 6h",
 		OutputExample: `{
@@ -639,10 +639,10 @@ var registry = append([]OperationSpec{
 		SupportsPick: true,
 		Input: []InputSpec{
 			{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Limit to one cluster (default: all clusters)"},
-			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h); ignored when start is set"},
+			{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d|30d|90d|1y (default 1h); ignored when start is set"},
 			{Name: "start", Location: InputQuery, Required: false, Description: "Custom window start: RFC3339 or unix seconds/milliseconds"},
-			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 400 days"},
-			{Name: "granularity", Location: InputQuery, Required: false, Description: "Bucket granularity: auto|quarter_hour|hour|day|month; auto picks by window span, omit for totals only"},
+			{Name: "end", Location: InputQuery, Required: false, Description: "Custom window end (default now); span at most 366 days"},
+			{Name: "granularity", Location: InputQuery, Required: false, Description: "Bucket granularity: auto|quarter_hour|hour|day|week|month; auto picks by window span, omit for totals only"},
 			{Name: "split", Location: InputQuery, Required: false, Description: "Split series by: none|cluster|task (default none)"},
 		},
 		Example: "stx dashboard home volume --granularity day --split cluster",
@@ -2100,6 +2100,7 @@ func monitoringReadOperationSpecs() []OperationSpec {
 	}
 	alertInstanceInputs := append([]InputSpec{
 		{Name: "source_type", Location: InputQuery, Description: "Alert category: platform_health, metric or job"},
+		{Name: "scope", Location: InputQuery, Description: "Alert scope: cluster or job"},
 		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
 		{Name: "severity", Location: InputQuery, Description: "Alert severity: warning or critical"},
 		{Name: "status", Location: InputQuery, Description: "Display status: firing, resolved, or closed"},
@@ -2117,16 +2118,18 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		monitoringReadOperation("monitoring.alert-policy.execution.list", []string{"monitoring", "alert-policy", "execution", "list"}, "List alert policy executions", "/api/v1/monitoring/alert-policies/:id/executions", policyExecutionInputs),
 		monitoringReadOperation("monitoring.alert-instance.list", []string{"monitoring", "alert-instance", "list"}, "List alert instances", "/api/v1/monitoring/alert-instances", alertInstanceInputs),
 		monitoringReadOperation("monitoring.remote-alert.list", []string{"monitoring", "remote-alert", "list"}, "List remote alerts", "/api/v1/monitoring/remote-alerts", remoteAlertInputs),
-		monitoringReadOperation("monitoring.cluster.rule.list", []string{"monitoring", "cluster", "rule", "list"}, "List cluster alert rules", "/api/v1/monitoring/clusters/:id/rules", clusterID),
+		monitoringReadOperation("monitoring.cluster-rule.list", []string{"monitoring", "cluster-rule", "list"}, "List cluster-level alert rules", "/api/v1/monitoring/cluster-rules", nil),
+		monitoringReadOperation("monitoring.cluster-rule.get", []string{"monitoring", "cluster-rule", "get"}, "Get one cluster-level alert rule", "/api/v1/monitoring/cluster-rules/:key",
+			[]InputSpec{{Name: "key", Location: InputPath, Required: true, Description: "Cluster rule key"}}),
+		monitoringReadOperation("monitoring.notification-defaults.get", []string{"monitoring", "notification-defaults", "get"}, "Get alert notification defaults", "/api/v1/monitoring/alert-notification-defaults", nil),
 		monitoringReadOperation("monitoring.integration.status", []string{"monitoring", "integration", "status"}, "Get monitoring integration status", "/api/v1/monitoring/integration/status", nil),
-		monitoringReadOperation("monitoring.alert-policy.bootstrap.get", []string{"monitoring", "alert-policy", "bootstrap", "get"}, "Get alert policy center bootstrap", "/api/v1/monitoring/alert-policies/bootstrap", nil),
 		monitoringReadOperation("monitoring.alert-rule.catalog", []string{"monitoring", "alert-rule", "catalog"}, "List alert rule catalog", "/api/v1/monitoring/alert-rules/catalog",
 			[]InputSpec{{Name: "lang", Location: InputQuery, Description: "Response language: zh or en"}}),
 		monitoringReadOperation("monitoring.notifiable-user.list", []string{"monitoring", "notifiable-user", "list"}, "List notifiable users", "/api/v1/monitoring/notifiable-users", nil),
 		monitoringReadOperation("monitoring.platform-health.get", []string{"monitoring", "platform-health", "get"}, "Get platform health", "/api/v1/monitoring/platform-health", nil),
+		monitoringReadOperation("monitoring.platform.get", []string{"monitoring", "platform"}, "Get platform self-monitoring snapshot", "/api/v1/monitoring/platform", nil),
 		monitoringReadOperation("monitoring.notification-channel.list", []string{"monitoring", "notification-channel", "list"}, "List notification channels", "/api/v1/monitoring/notification-channels", nil),
 		monitoringReadOperation("monitoring.notification-delivery.list", []string{"monitoring", "notification-delivery", "list"}, "List notification deliveries", "/api/v1/monitoring/notification-deliveries", monitoringDeliveryFilterInputs(true)),
-		monitoringReadOperation("monitoring.notification-route.list", []string{"monitoring", "notification-route", "list"}, "List notification routes", "/api/v1/monitoring/notification-routes", nil),
 	}
 }
 
@@ -2514,7 +2517,8 @@ var routeExceptions = []RouteException{
 	{Method: "DELETE", Route: "/api/v1/hosts/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/monitoring/alert-policies/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/monitoring/notification-channels/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
-	{Method: "DELETE", Route: "/api/v1/monitoring/notification-routes/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/monitoring/cluster-rules/:key", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/monitoring/cluster-rules/:key/clusters/:clusterId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/:depId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/disables/:disableId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/local", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},

@@ -20,7 +20,7 @@
 import Link from 'next/link';
 import {useTranslations} from 'next-intl';
 import {ArrowUpRight, Copy, FileSearch, Search} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import type {DiagnosticsInspectionFinding} from '@/lib/services/diagnostics';
 import {Button} from '@/components/ui/button';
 import {localizeDiagnosticsText} from './text-utils';

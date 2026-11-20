@@ -64,22 +64,23 @@ func monitoringAuditTargetFor(c *gin.Context) (monitoringAuditTarget, bool) {
 	method := strings.ToUpper(c.Request.Method)
 	path := c.FullPath()
 	targets := map[string]monitoringAuditTarget{
-		http.MethodPost + " /api/v1/monitoring/alert-policies":                        {operationID: "monitoring.alert-policy.create", action: "create", resourceType: "monitoring_alert_policy"},
-		http.MethodPut + " /api/v1/monitoring/alert-policies/:id":                     {operationID: "monitoring.alert-policy.update", action: "update", resourceType: "monitoring_alert_policy"},
-		http.MethodDelete + " /api/v1/monitoring/alert-policies/:id":                  {operationID: "monitoring.alert-policy.delete", action: "delete", resourceType: "monitoring_alert_policy"},
-		http.MethodPost + " /api/v1/monitoring/alert-instances/:id/ack":               {operationID: "monitoring.alert-instance.ack", action: "ack", resourceType: "monitoring_alert_instance"},
-		http.MethodPost + " /api/v1/monitoring/alert-instances/:id/silence":           {operationID: "monitoring.alert-instance.silence", action: "silence", resourceType: "monitoring_alert_instance"},
-		http.MethodPost + " /api/v1/monitoring/alert-instances/:id/close":             {operationID: "monitoring.alert-instance.close", action: "close", resourceType: "monitoring_alert_instance"},
-		http.MethodPut + " /api/v1/monitoring/clusters/:id/rules/:ruleId":             {operationID: "monitoring.cluster.rule.update", action: "update", resourceType: "monitoring_cluster_rule"},
-		http.MethodPost + " /api/v1/monitoring/notification-channels":                 {operationID: "monitoring.notification-channel.create", action: "create", resourceType: "monitoring_notification_channel"},
-		http.MethodPut + " /api/v1/monitoring/notification-channels/:id":              {operationID: "monitoring.notification-channel.update", action: "update", resourceType: "monitoring_notification_channel"},
-		http.MethodDelete + " /api/v1/monitoring/notification-channels/:id":           {operationID: "monitoring.notification-channel.delete", action: "delete", resourceType: "monitoring_notification_channel"},
-		http.MethodPost + " /api/v1/monitoring/notification-channels/:id/test":        {operationID: "monitoring.notification-channel.test", action: "test", resourceType: "monitoring_notification_channel"},
-		http.MethodPost + " /api/v1/monitoring/notification-channels/test":            {operationID: "monitoring.notification-channel.test-draft", action: "test", resourceType: "monitoring_notification_channel_draft", resourceID: "draft"},
-		http.MethodPost + " /api/v1/monitoring/notification-channels/test-connection": {operationID: "monitoring.notification-channel.test-connection", action: "test_connection", resourceType: "monitoring_notification_channel_draft", resourceID: "connection"},
-		http.MethodPost + " /api/v1/monitoring/notification-routes":                   {operationID: "monitoring.notification-route.create", action: "create", resourceType: "monitoring_notification_route"},
-		http.MethodPut + " /api/v1/monitoring/notification-routes/:id":                {operationID: "monitoring.notification-route.update", action: "update", resourceType: "monitoring_notification_route"},
-		http.MethodDelete + " /api/v1/monitoring/notification-routes/:id":             {operationID: "monitoring.notification-route.delete", action: "delete", resourceType: "monitoring_notification_route"},
+		http.MethodPost + " /api/v1/monitoring/alert-policies":                           {operationID: "monitoring.alert-policy.create", action: "create", resourceType: "monitoring_alert_policy"},
+		http.MethodPut + " /api/v1/monitoring/alert-policies/:id":                        {operationID: "monitoring.alert-policy.update", action: "update", resourceType: "monitoring_alert_policy"},
+		http.MethodDelete + " /api/v1/monitoring/alert-policies/:id":                     {operationID: "monitoring.alert-policy.delete", action: "delete", resourceType: "monitoring_alert_policy"},
+		http.MethodPost + " /api/v1/monitoring/alert-instances/:id/ack":                  {operationID: "monitoring.alert-instance.ack", action: "ack", resourceType: "monitoring_alert_instance"},
+		http.MethodPost + " /api/v1/monitoring/alert-instances/:id/silence":              {operationID: "monitoring.alert-instance.silence", action: "silence", resourceType: "monitoring_alert_instance"},
+		http.MethodPost + " /api/v1/monitoring/alert-instances/:id/close":                {operationID: "monitoring.alert-instance.close", action: "close", resourceType: "monitoring_alert_instance"},
+		http.MethodPut + " /api/v1/monitoring/cluster-rules/:key":                        {operationID: "monitoring.cluster-rule.update", action: "update", resourceType: "monitoring_cluster_rule"},
+		http.MethodDelete + " /api/v1/monitoring/cluster-rules/:key":                     {operationID: "monitoring.cluster-rule.delete", action: "delete", resourceType: "monitoring_cluster_rule"},
+		http.MethodPut + " /api/v1/monitoring/cluster-rules/:key/clusters/:clusterId":    {operationID: "monitoring.cluster-rule-override.update", action: "update", resourceType: "monitoring_cluster_rule_override"},
+		http.MethodDelete + " /api/v1/monitoring/cluster-rules/:key/clusters/:clusterId": {operationID: "monitoring.cluster-rule-override.delete", action: "delete", resourceType: "monitoring_cluster_rule_override"},
+		http.MethodPut + " /api/v1/monitoring/alert-notification-defaults":               {operationID: "monitoring.alert-notification-defaults.update", action: "update", resourceType: "monitoring_alert_notification_defaults", resourceID: "defaults"},
+		http.MethodPost + " /api/v1/monitoring/notification-channels":                    {operationID: "monitoring.notification-channel.create", action: "create", resourceType: "monitoring_notification_channel"},
+		http.MethodPut + " /api/v1/monitoring/notification-channels/:id":                 {operationID: "monitoring.notification-channel.update", action: "update", resourceType: "monitoring_notification_channel"},
+		http.MethodDelete + " /api/v1/monitoring/notification-channels/:id":              {operationID: "monitoring.notification-channel.delete", action: "delete", resourceType: "monitoring_notification_channel"},
+		http.MethodPost + " /api/v1/monitoring/notification-channels/:id/test":           {operationID: "monitoring.notification-channel.test", action: "test", resourceType: "monitoring_notification_channel"},
+		http.MethodPost + " /api/v1/monitoring/notification-channels/test":               {operationID: "monitoring.notification-channel.test-draft", action: "test", resourceType: "monitoring_notification_channel_draft", resourceID: "draft"},
+		http.MethodPost + " /api/v1/monitoring/notification-channels/test-connection":    {operationID: "monitoring.notification-channel.test-connection", action: "test_connection", resourceType: "monitoring_notification_channel_draft", resourceID: "connection"},
 	}
 	target, ok := targets[method+" "+path]
 	if !ok {
@@ -88,7 +89,9 @@ func monitoringAuditTargetFor(c *gin.Context) (monitoringAuditTarget, bool) {
 	if target.resourceID == "" {
 		switch target.resourceType {
 		case "monitoring_cluster_rule":
-			target.resourceID = strings.TrimSpace(c.Param("id")) + "/" + strings.TrimSpace(c.Param("ruleId"))
+			target.resourceID = strings.TrimSpace(c.Param("key"))
+		case "monitoring_cluster_rule_override":
+			target.resourceID = strings.TrimSpace(c.Param("key")) + "/" + strings.TrimSpace(c.Param("clusterId"))
 		default:
 			target.resourceID = strings.TrimSpace(c.Param("id"))
 		}

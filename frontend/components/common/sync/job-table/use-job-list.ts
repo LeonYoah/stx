@@ -81,17 +81,14 @@ export function buildJobListParams(
   } else if (query.activeRange) {
     params.range = query.activeRange;
   }
+  // 预览与正式运行不再按运行类型筛分，任何范围都不发 run_type / exclude_run_type。
+  // Preview and formal runs are no longer filtered by run type — neither run_type nor
+  // exclude_run_type is sent for any scope.
   if (scope.kind === 'all') {
-    params.exclude_run_type = 'preview';
     params.mode = query.mode || undefined;
     params.cluster_id = query.clusterId;
   } else {
     params.task_id = scope.taskId;
-    if (query.runType === 'formal') {
-      params.exclude_run_type = 'preview';
-    } else if (query.runType === 'preview') {
-      params.run_type = 'preview';
-    }
   }
   return params;
 }
@@ -190,7 +187,6 @@ export function useJobList({
       query.page === 1 &&
       query.statusGroup === '' &&
       query.keyword === '' &&
-      query.runType === 'all' &&
       list.data !== null &&
       !items.some((job) => job.id === pinnedJobId),
   );

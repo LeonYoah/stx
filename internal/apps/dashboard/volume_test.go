@@ -211,6 +211,35 @@ func TestVolumeBuckets_SubDayAligned(t *testing.T) {
 	}
 }
 
+func TestVolumeBuckets_WeekSplit(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	// 2026-11-16 是周一；窗口跨三个周（11-09 / 11-16 / 11-23）：三个周桶，中间完整两端被裁。
+	// 2026-11-16 is a Monday; the window spans three weeks (Nov 9 / Nov 16 / Nov 23): three week
+	// buckets, the middle one complete and both edges clipped.
+	start := time.Date(2026, 11, 10, 12, 0, 0, 0, loc)
+	end := time.Date(2026, 11, 24, 12, 0, 0, 0, loc)
+	buckets := volumeBuckets(start, end, loc, "week")
+	if len(buckets) != 3 {
+		t.Fatalf("want 3 week buckets, got %d: %+v", len(buckets), buckets)
+	}
+	// 周桶起点必须是当地周一零点，标签取周一日期。
+	// Week buckets must start at local Monday midnight; the label is the Monday's date.
+	if buckets[0].Label != "2026-11-09" || buckets[1].Label != "2026-11-16" {
+		t.Fatalf("bad week labels: %+v", buckets)
+	}
+	mon := time.UnixMilli(buckets[1].StartMs).In(loc)
+	if mon.Weekday() != time.Monday || mon.Hour() != 0 {
+		t.Fatalf("week bucket not Monday-aligned: %v", mon)
+	}
+	// 相邻周一正好差 7 天（上海无 DST）。/ Adjacent Mondays are exactly 7 days apart (no DST).
+	if diff := buckets[2].StartMs - buckets[1].StartMs; diff != 7*24*3600*1000 {
+		t.Fatalf("week span should be 7d, got %dms", diff)
+	}
+	if !buckets[0].Partial || buckets[1].Partial || !buckets[2].Partial {
+		t.Fatalf("partial flags wrong: %+v", buckets)
+	}
+}
+
 func TestVolumeGranularityFor(t *testing.T) {
 	cases := []struct {
 		span time.Duration
@@ -222,7 +251,10 @@ func TestVolumeGranularityFor(t *testing.T) {
 		{72 * time.Hour, "hour"},
 		{7 * 24 * time.Hour, "day"},
 		{62 * 24 * time.Hour, "day"},
-		{90 * 24 * time.Hour, "month"},
+		{90 * 24 * time.Hour, "week"},
+		{182 * 24 * time.Hour, "week"},
+		{183 * 24 * time.Hour, "month"},
+		{366 * 24 * time.Hour, "month"},
 	}
 	for _, c := range cases {
 		if got := volumeGranularityFor(c.span); got != c.want {
@@ -252,19 +284,13 @@ func TestGetVolume_AutoGranularity(t *testing.T) {
 	if data.Buckets[0].Partial || data.Buckets[3].Partial {
 		t.Fatalf("aligned window must not mark partial: %+v", data.Buckets)
 	}
-	// 扇出收敛：4 个满刻钟桶合并成每指标一条 range 查询；即时查询 = 各 totals
-	// 跨度按 24h 上限切成日块后的条数（window/today 各 1 块，month 十余块）。
+	// 扇出收敛：4 个满刻钟桶合并成每指标一条 range 查询；window(1h) 与 today(18h) 各一条
+	// 即时查询，month(15.75d) 走一条 range + 一条尾段即时。合计每指标 5 条。
 	// Fan-out collapsed: 4 full quarter-hour buckets merge into one range query per metric;
-	// instant queries equal each totals span's day-chunk count under the 24h cap
-	// (window/today one chunk each, month a dozen-plus).
-	loc := timex.DisplayLocation()
-	now := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
-	alignedNow := alignPresetNow(now, nil)
-	wantInst := len(volumeIncreaseChunks(now.Add(-time.Hour), now, loc)) +
-		len(volumeIncreaseChunks(floorLocal(now, loc, false), alignedNow, loc)) +
-		len(volumeIncreaseChunks(floorLocal(now, loc, true), alignedNow, loc))
-	if len(queries) != (wantInst+1)*len(volumeMetrics) {
-		t.Fatalf("queries = %d want %d", len(queries), (wantInst+1)*len(volumeMetrics))
+	// window(1h) and today(18h) are one instant each, month(15.75d) is one range plus a tail
+	// instant — 5 queries per metric.
+	if len(queries) != 5*len(volumeMetrics) {
+		t.Fatalf("queries = %d want %d: %v", len(queries), 5*len(volumeMetrics), queries)
 	}
 	// 桶值来自 range 查询点：[900s] → 每桶 900。/ Bucket values come from range points:
 	// [900s] → 900 per bucket.
@@ -275,24 +301,36 @@ func TestGetVolume_AutoGranularity(t *testing.T) {
 	}
 }
 
-func TestVolumeIncreaseChunks_LongSpanSplitsDays(t *testing.T) {
+func TestQueryVolumeIncrease_LongSpanUsesRange(t *testing.T) {
+	var queries []string
+	svc := newTestVolumeService(&queries, nil, volumeSamplesFor(1.0))
 	loc, _ := time.LoadLocation("Asia/Shanghai")
+	// 15 天 18 小时的长跨度：一条 increase[1d] range（15 个逐日点）+ 一条 18h 尾段即时，
+	// 合计 2 条查询覆盖全部 15.75 天；逐日切块旧实现要 16 条。
+	// A 15d18h span: one increase[1d] range (15 daily points) plus one 18h tail instant — 2
+	// queries cover all 15.75 days; the old per-day chunking needed 16.
 	start := time.Date(2026, 11, 1, 0, 0, 0, 0, loc)
 	end := time.Date(2026, 11, 16, 18, 0, 0, 0, loc)
-	chunks := volumeIncreaseChunks(start, end, loc)
-	if len(chunks) != 16 {
-		t.Fatalf("want 16 day chunks, got %d", len(chunks))
+	samples, err := svc.queryVolumeIncrease(context.Background(), "m", "", "", start, end)
+	if err != nil {
+		t.Fatalf("queryVolumeIncrease: %v", err)
 	}
-	if !chunks[0].start.Equal(start) || chunks[0].end.Sub(chunks[0].start) != 24*time.Hour {
-		t.Fatalf("bad first chunk: %+v", chunks[0])
+	if len(queries) != 2 {
+		t.Fatalf("long span must use 1 range + 1 instant, got %d: %v", len(queries), queries)
 	}
-	if !chunks[len(chunks)-1].end.Equal(end) || chunks[len(chunks)-1].end.Sub(chunks[len(chunks)-1].start) != 18*time.Hour {
-		t.Fatalf("bad last chunk: %+v", chunks[len(chunks)-1])
+	// 总值 = 15×86400 + 18×3600 = 完整跨度秒数（perSecond=1）。
+	// Total = 15×86400 + 18×3600 = the whole span in seconds (perSecond=1).
+	want := float64(end.Sub(start).Seconds())
+	if len(samples) != 1 || samples[0].Value != want {
+		t.Fatalf("long span total = %+v want %.0f", samples, want)
 	}
-	short := volumeIncreaseChunks(end.Add(-6*time.Hour), end, loc)
-	if len(short) != 1 {
-		t.Fatalf("spans ≤1d must stay one query, got %d", len(short))
+	// 短跨度仍是一条即时查询。/ Short spans stay a single instant query.
+	queries = nil
+	samples, err = svc.queryVolumeIncrease(context.Background(), "m", "", "", end.Add(-6*time.Hour), end)
+	if err != nil || len(queries) != 1 {
+		t.Fatalf("short span must be one instant, got %d err=%v", len(queries), err)
 	}
+	_ = samples
 }
 
 func TestVolumeQuery(t *testing.T) {
@@ -323,15 +361,18 @@ func TestGetVolume_TotalsAndDayBuckets(t *testing.T) {
 	if len(data.Buckets) != 2 || !data.Buckets[0].Partial || !data.Buckets[1].Partial {
 		t.Fatalf("bad buckets: %+v", data.Buckets)
 	}
-	// 每秒 2 ⇒ 86400 秒窗口 = 172800；今日 18h = 129600；本月 15 天 18h = 2736000。
-	// 2/s ⇒ 86400s window = 172800; today 18h = 129600; month 15d18h = 2736000.
+	// 每秒 2 ⇒ 86400 秒窗口 = 172800；今日 18h = 129600；本月 15 个完整日走 range（fake 点值
+	// = 86400 原始秒数不带系数）+ 尾段 18h 即时 ×2 = 1296000 + 129600 = 1425600。
+	// 2/s ⇒ 86400s window = 172800; today 18h = 129600; the month is 15 full days via range
+	// (fake points carry raw span seconds, no perSecond factor) plus an 18h tail instant ×2
+	// = 1296000 + 129600 = 1425600.
 	if data.Totals == nil || data.Totals.Window.WriteRows != 172800 {
 		t.Fatalf("bad window total: %+v", data.Totals)
 	}
 	if data.Totals.Today.WriteRows != 18*3600*2 {
 		t.Fatalf("bad today total: %+v", data.Totals.Today)
 	}
-	if data.Totals.Month.WriteRows != (15*86400+18*3600)*2 {
+	if data.Totals.Month.WriteRows != 15*86400+18*3600*2 {
 		t.Fatalf("bad month total: %+v", data.Totals.Month)
 	}
 	if data.Totals.TodayStartMs != time.Date(2026, 11, 16, 0, 0, 0, 0, timex.DisplayLocation()).UnixMilli() {
@@ -423,11 +464,12 @@ func TestGetVolume_NoGranularityOnlyTotals(t *testing.T) {
 	if data.Totals == nil || data.Totals.Window.WriteRows != 3600 {
 		t.Fatalf("bad totals: %+v", data.Totals)
 	}
-	// 窗口 1h、今日 18h 仍各 4 条；本月 16 个日桶 × 4 指标。不得再发一条 increase[15d]。
-	// Window 1h and today 18h stay 4 queries each; the month is 16 day buckets × 4 metrics. A
-	// single increase[15d] is not allowed.
-	if len(queries) != 4+4+16*4 {
-		t.Fatalf("want 72 totals queries after day-splitting month, got %d", len(queries))
+	// 窗口 1h、今日 18h 各 4 条；本月 ~15.75d 走一条 increase[1d] range + 一条尾段即时 ×4 指标。
+	// 不得再发一条 increase[15d]，也不再逐日切块。
+	// Window 1h and today 18h are 4 queries each; the ~15.75d month is one increase[1d] range
+	// plus a tail instant ×4 metrics — no single increase[15d] and no per-day chunks.
+	if len(queries) != 4+4+2*4 {
+		t.Fatalf("want 16 totals queries with range-summed month, got %d", len(queries))
 	}
 	assertIncreaseSpansWithinDay(t, queries)
 }
@@ -486,8 +528,72 @@ func TestGetVolume_MonthBucketsUseDayIncreases(t *testing.T) {
 		t.Fatalf("want Sep/Oct/Nov buckets, got %+v", data.Buckets)
 	}
 	assertIncreaseSpansWithinDay(t, queries)
-	if data.Series[0].Totals[0] <= 0 || data.Series[0].Totals[1] <= 0 {
-		t.Fatalf("day-chunked month bars should still sum: %+v", data.Series[0])
+	// 9 月桶整桶早于最早样本（10-20）：no_data 不发查询、值恒 0；10 / 11 月照常求和。
+	// September is entirely before the Oct 20 oldest sample: no_data, unqueried, always 0;
+	// October/November still sum normally.
+	if data.Series[0].Totals[0] != 0 || !data.Buckets[0].NoData {
+		t.Fatalf("September bucket should be no_data with 0 total: %+v", data.Series[0])
+	}
+	if data.Series[0].Totals[1] <= 0 || data.Series[0].Totals[2] <= 0 {
+		t.Fatalf("range-summed month bars should still sum: %+v", data.Series[0])
+	}
+}
+
+func TestGetVolume_YearWindowQueryBudget(t *testing.T) {
+	withPrometheus(t, true)
+	var queries []string
+	svc := newTestVolumeService(&queries, nil, volumeSamplesFor(1.0))
+	// 1y 窗口 + month：最早样本 10-20 之前有 11 个整月 no_data 桶不发查询；其余月桶与
+	// window/month totals 各走一条 range + 一条尾段即时。预算 ≪ 逐日切块的上千条。
+	// 1y window + month: the 11 whole months before the Oct 20 oldest sample are no_data and
+	// skipped; remaining month buckets plus window/month totals each cost one range plus a
+	// tail instant — the budget stays far below the old per-day chunking's ~1000 queries.
+	data, err := svc.GetVolume(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, 0, "1y", nil, "month", "none")
+	if err != nil {
+		t.Fatalf("GetVolume: %v", err)
+	}
+	if data.Granularity != "month" || len(data.Buckets) != 13 {
+		t.Fatalf("want 13 month buckets, got granularity=%q buckets=%d", data.Granularity, len(data.Buckets))
+	}
+	if len(queries) > 20*len(volumeMetrics) {
+		t.Fatalf("year window must stay a few queries per span, got %d", len(queries))
+	}
+	assertIncreaseSpansWithinDay(t, queries)
+	noData := 0
+	for _, b := range data.Buckets {
+		if b.NoData {
+			noData++
+		}
+	}
+	if noData == 0 {
+		t.Fatal("months before the oldest sample should be flagged no_data")
+	}
+}
+
+func TestGetVolume_NoDataAndStraddleBuckets(t *testing.T) {
+	withPrometheus(t, true)
+	var queries []string
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	svc := newTestVolumeService(&queries, nil, volumeSamplesFor(1.0))
+	custom := &promquery.Window{
+		Start: time.Date(2026, 9, 1, 0, 0, 0, 0, loc),
+		End:   time.Date(2026, 11, 16, 18, 0, 0, 0, loc),
+	}
+	data, err := svc.GetVolume(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, 0, "", custom, "month", "none")
+	if err != nil {
+		t.Fatalf("GetVolume: %v", err)
+	}
+	// 最早样本 10-20：9 月整桶早于它记 no_data；10 月桶跨过它记 partial。
+	// Oldest sample Oct 20: the September bucket is entirely before it → no_data; the October
+	// bucket straddles it → partial.
+	if len(data.Buckets) != 3 {
+		t.Fatalf("want 3 month buckets, got %+v", data.Buckets)
+	}
+	if !data.Buckets[0].NoData || data.Buckets[0].Partial {
+		t.Fatalf("September bucket should be no_data and not partial: %+v", data.Buckets[0])
+	}
+	if !data.Buckets[1].Partial || data.Buckets[1].NoData {
+		t.Fatalf("October bucket should be partial, not no_data: %+v", data.Buckets[1])
 	}
 }
 

@@ -48,7 +48,7 @@ vi.mock('@/lib/services', () => ({
 
 vi.mock('@gsap/react', () => ({useGSAP: () => undefined}));
 vi.mock('@/lib/animations/gsap-motion', () => ({animateTableRows: vi.fn()}));
-vi.mock('sonner', () => ({toast: {success: vi.fn(), error: vi.fn()}}));
+vi.mock('@/lib/toast', () => ({toast: {success: vi.fn(), error: vi.fn()}}));
 
 const baseUser = {
   nickname: '',

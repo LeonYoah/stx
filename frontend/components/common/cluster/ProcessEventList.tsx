@@ -46,7 +46,7 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { Loader2, RefreshCw, Activity, AlertTriangle, XCircle, Play, Square } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import {
   ProcessEvent,
   ProcessEventType,

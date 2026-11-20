@@ -33,12 +33,6 @@ import (
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
-type alertPolicyLegacyBridgeRef struct {
-	ClusterID     uint
-	RuleKey       string
-	HasLegacyRule bool
-}
-
 // ListAlertPolicies returns unified alert policy resources.
 // ListAlertPolicies 返回统一告警策略资源列表。
 // filter 为空时返回全部；policy_type、task_id 可选，用于在策略中心按"作业告警"和任务筛选。
@@ -119,21 +113,11 @@ func (s *Service) CreateAlertPolicy(ctx context.Context, req *UpsertAlertPolicyR
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
-	template, err := resolveAlertPolicyTemplate(req.PolicyType, req.TemplateKey)
-	if err != nil {
-		return nil, err
-	}
 	if err := s.validateAlertPolicyScopes(ctx, req.ClusterID, req.NotificationChannelIDs, req.ReceiverUserIDs); err != nil {
 		return nil, err
 	}
-	legacyRuleKey := resolveAlertPolicyLegacyRuleKey(req.PolicyType, template, req.LegacyRuleKey)
-	if err := s.validateAlertPolicyLegacyBridge(ctx, 0, req.PolicyType, req.ClusterID, legacyRuleKey); err != nil {
+	if err := s.validateSyncJobPolicy(ctx, s.repo, 0, req); err != nil {
 		return nil, err
-	}
-	if req.PolicyType == AlertPolicyBuilderKindSyncJob {
-		if err := s.validateSyncJobPolicy(ctx, s.repo, 0, req); err != nil {
-			return nil, err
-		}
 	}
 
 	conditionsJSON, err := marshalAlertPolicyConditions(req.Conditions)
@@ -153,22 +137,17 @@ func (s *Service) CreateAlertPolicy(ctx context.Context, req *UpsertAlertPolicyR
 		Name:                       strings.TrimSpace(req.Name),
 		Description:                strings.TrimSpace(req.Description),
 		PolicyType:                 req.PolicyType,
-		TemplateKey:                strings.TrimSpace(req.TemplateKey),
-		LegacyRuleKey:              legacyRuleKey,
 		ClusterID:                  normalizeAlertPolicyClusterID(req.ClusterID),
 		Severity:                   normalizeAlertPolicySeverity(req.Severity),
 		Enabled:                    req.Enabled == nil || *req.Enabled,
 		CooldownMinutes:            resolveAlertPolicyCooldownMinutes(req.CooldownMinutes),
 		SendRecovery:               req.SendRecovery == nil || *req.SendRecovery,
-		PromQL:                     strings.TrimSpace(req.PromQL),
 		ConditionsJSON:             conditionsJSON,
 		NotificationChannelIDsJSON: channelIDsJSON,
 		ReceiverUserIDsJSON:        receiverUserIDsJSON,
 		LastExecutionStatus:        AlertPolicyExecutionStatusIdle,
-	}
-	if req.PolicyType == AlertPolicyBuilderKindSyncJob {
-		policy.TaskID = req.TaskID
-		policy.NotifyTaskOwner = req.NotifyTaskOwner != nil && *req.NotifyTaskOwner
+		TaskID:                     req.TaskID,
+		NotifyTaskOwner:            req.NotifyTaskOwner != nil && *req.NotifyTaskOwner,
 	}
 
 	if err := s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -179,9 +158,6 @@ func (s *Service) CreateAlertPolicy(ctx context.Context, req *UpsertAlertPolicyR
 		policy.Enabled = req.Enabled == nil || *req.Enabled
 		policy.SendRecovery = req.SendRecovery == nil || *req.SendRecovery
 		if err := txRepo.SaveAlertPolicy(ctx, policy); err != nil {
-			return err
-		}
-		if err := s.syncAlertPolicyLegacyBridge(ctx, txRepo, policy); err != nil {
 			return err
 		}
 		return nil
@@ -207,15 +183,7 @@ func (s *Service) UpdateAlertPolicy(ctx context.Context, id uint, req *UpsertAle
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
-	template, err := resolveAlertPolicyTemplate(req.PolicyType, req.TemplateKey)
-	if err != nil {
-		return nil, err
-	}
 	if err := s.validateAlertPolicyScopes(ctx, req.ClusterID, req.NotificationChannelIDs, req.ReceiverUserIDs); err != nil {
-		return nil, err
-	}
-	legacyRuleKey := resolveAlertPolicyLegacyRuleKey(req.PolicyType, template, req.LegacyRuleKey)
-	if err := s.validateAlertPolicyLegacyBridge(ctx, id, req.PolicyType, req.ClusterID, legacyRuleKey); err != nil {
 		return nil, err
 	}
 
@@ -248,33 +216,23 @@ func (s *Service) UpdateAlertPolicy(ctx context.Context, id uint, req *UpsertAle
 			return err
 		}
 
-		previousBridgeRef, err := buildAlertPolicyLegacyBridgeRef(policy)
-		if err != nil {
-			return err
-		}
 		// 作业告警策略不能和其他类型互转；所属任务创建后不可改，以库里的为准。
 		// Job alert policies cannot switch type; the owning task is immutable and the stored one wins.
-		if (policy.PolicyType == AlertPolicyBuilderKindSyncJob) != (req.PolicyType == AlertPolicyBuilderKindSyncJob) {
+		if policy.PolicyType != AlertPolicyBuilderKindSyncJob {
 			return ErrAlertPolicySyncJobTypeChange
 		}
-		if policy.PolicyType == AlertPolicyBuilderKindSyncJob {
-			req.TaskID = policy.TaskID
-			if err := s.validateSyncJobPolicy(ctx, txRepo, policy.ID, req); err != nil {
-				return err
-			}
-			if req.NotifyTaskOwner != nil {
-				policy.NotifyTaskOwner = *req.NotifyTaskOwner
-			}
+		req.TaskID = policy.TaskID
+		if err := s.validateSyncJobPolicy(ctx, txRepo, policy.ID, req); err != nil {
+			return err
+		}
+		if req.NotifyTaskOwner != nil {
+			policy.NotifyTaskOwner = *req.NotifyTaskOwner
 		}
 
 		policy.Name = strings.TrimSpace(req.Name)
 		policy.Description = strings.TrimSpace(req.Description)
-		policy.PolicyType = req.PolicyType
-		policy.TemplateKey = strings.TrimSpace(req.TemplateKey)
-		policy.LegacyRuleKey = legacyRuleKey
 		policy.ClusterID = normalizeAlertPolicyClusterID(req.ClusterID)
 		policy.Severity = normalizeAlertPolicySeverity(req.Severity)
-		policy.PromQL = strings.TrimSpace(req.PromQL)
 		policy.ConditionsJSON = conditionsJSON
 		policy.NotificationChannelIDsJSON = channelIDsJSON
 		policy.ReceiverUserIDsJSON = receiverUserIDsJSON
@@ -299,19 +257,6 @@ func (s *Service) UpdateAlertPolicy(ctx context.Context, id uint, req *UpsertAle
 			if err := closeSyncTaskEpisodesByRules(ctx, txRepo, policy.TaskID, []string{syncalert.RuleCDCDelayHigh}, syncalert.ResolveReasonRuleRemoved); err != nil {
 				return err
 			}
-		}
-
-		nextBridgeRef, err := buildAlertPolicyLegacyBridgeRef(policy)
-		if err != nil {
-			return err
-		}
-		if previousBridgeRef.HasLegacyRule && !sameAlertPolicyLegacyBridgeRef(previousBridgeRef, nextBridgeRef) {
-			if err := s.restoreAlertPolicyLegacyBridge(ctx, txRepo, previousBridgeRef); err != nil {
-				return err
-			}
-		}
-		if err := s.syncAlertPolicyLegacyBridge(ctx, txRepo, policy); err != nil {
-			return err
 		}
 
 		updated = policy
@@ -348,16 +293,6 @@ func (s *Service) DeleteAlertPolicy(ctx context.Context, id uint) error {
 				return ErrAlertPolicyNotFound
 			}
 			return err
-		}
-
-		bridgeRef, err := buildAlertPolicyLegacyBridgeRef(policy)
-		if err != nil {
-			return err
-		}
-		if bridgeRef.HasLegacyRule {
-			if err := s.restoreAlertPolicyLegacyBridge(ctx, txRepo, bridgeRef); err != nil {
-				return err
-			}
 		}
 
 		if err := txRepo.DeleteAlertPolicy(ctx, id); err != nil {
@@ -404,84 +339,6 @@ func (s *Service) validateAlertPolicyScopes(ctx context.Context, clusterID strin
 		return err
 	}
 	return nil
-}
-
-func (s *Service) validateAlertPolicyLegacyBridge(ctx context.Context, currentPolicyID uint, policyType AlertPolicyBuilderKind, clusterID string, legacyRuleKey string) error {
-	if !isLegacyBackedAlertPolicy(policyType, legacyRuleKey) {
-		return nil
-	}
-
-	parsedClusterID, hasConcreteCluster, err := parseAlertPolicyConcreteClusterID(clusterID)
-	if err != nil {
-		return err
-	}
-	if !hasConcreteCluster {
-		return ErrAlertPolicyLegacyBridgeRequiresClusterScope
-	}
-	if defaultRuleByKey(parsedClusterID, legacyRuleKey) == nil {
-		return ErrAlertPolicyLegacyRuleUnsupported
-	}
-
-	existingPolicy, err := s.repo.GetAlertPolicyByClusterAndLegacyRuleKey(
-		ctx,
-		strconv.FormatUint(uint64(parsedClusterID), 10),
-		legacyRuleKey,
-	)
-	if err == nil && existingPolicy != nil && existingPolicy.ID != currentPolicyID {
-		return ErrAlertPolicyLegacyBridgeConflict
-	}
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
-	}
-	return nil
-}
-
-func (s *Service) syncAlertPolicyLegacyBridge(ctx context.Context, repo *Repository, policy *AlertPolicy) error {
-	bridgeRef, err := buildAlertPolicyLegacyBridgeRef(policy)
-	if err != nil {
-		return err
-	}
-	if !bridgeRef.HasLegacyRule {
-		return nil
-	}
-
-	if err := ensureDefaultRulesWithRepo(ctx, repo, bridgeRef.ClusterID); err != nil {
-		return err
-	}
-	rule, err := repo.GetRuleByClusterAndKey(ctx, bridgeRef.ClusterID, bridgeRef.RuleKey)
-	if err != nil {
-		return err
-	}
-	rule.RuleName = strings.TrimSpace(policy.Name)
-	rule.Description = strings.TrimSpace(policy.Description)
-	rule.Severity = normalizeAlertPolicySeverity(policy.Severity)
-	rule.Enabled = policy.Enabled
-	return repo.SaveRule(ctx, rule)
-}
-
-func (s *Service) restoreAlertPolicyLegacyBridge(ctx context.Context, repo *Repository, bridgeRef alertPolicyLegacyBridgeRef) error {
-	if !bridgeRef.HasLegacyRule {
-		return nil
-	}
-	defaultRule := defaultRuleByKey(bridgeRef.ClusterID, bridgeRef.RuleKey)
-	if defaultRule == nil {
-		return ErrAlertPolicyLegacyRuleUnsupported
-	}
-	if err := ensureDefaultRulesWithRepo(ctx, repo, bridgeRef.ClusterID); err != nil {
-		return err
-	}
-
-	rule, err := repo.GetRuleByClusterAndKey(ctx, bridgeRef.ClusterID, bridgeRef.RuleKey)
-	if err != nil {
-		return err
-	}
-	rule.RuleName = defaultRule.RuleName
-	rule.Description = defaultRule.Description
-	rule.Severity = defaultRule.Severity
-	rule.Enabled = defaultRule.Enabled
-	rule.Threshold = defaultRule.Threshold
-	rule.WindowSeconds = defaultRule.WindowSeconds
-	return repo.SaveRule(ctx, rule)
 }
 
 func normalizeAlertPolicySeverity(severity AlertSeverity) AlertSeverity {
@@ -623,7 +480,6 @@ func toAlertPolicyDTO(policy *AlertPolicy) *AlertPolicyDTO {
 		Enabled:                policy.Enabled,
 		CooldownMinutes:        policy.CooldownMinutes,
 		SendRecovery:           policy.SendRecovery,
-		PromQL:                 policy.PromQL,
 		Conditions:             unmarshalAlertPolicyConditions(policy.ConditionsJSON),
 		NotificationChannelIDs: unmarshalAlertPolicyChannelIDs(policy.NotificationChannelIDsJSON),
 		ReceiverUserIDs:        unmarshalAlertPolicyReceiverUserIDs(policy.ReceiverUserIDsJSON),
@@ -649,94 +505,4 @@ func derefInt(value *int) int {
 
 func timeNowUTC() time.Time {
 	return timex.Now()
-}
-
-func resolveAlertPolicyTemplate(policyType AlertPolicyBuilderKind, templateKey string) (*AlertPolicyTemplateSummaryDTO, error) {
-	if policyType == AlertPolicyBuilderKindSyncJob {
-		return nil, nil
-	}
-
-	normalizedTemplateKey := strings.TrimSpace(templateKey)
-	for _, template := range allAlertPolicyTemplateSummaries() {
-		if template == nil || template.Key != normalizedTemplateKey {
-			continue
-		}
-		if template.SourceKind != string(policyType) {
-			return nil, ErrAlertPolicyTemplateTypeMismatch
-		}
-		return template, nil
-	}
-	return nil, ErrAlertPolicyUnsupportedTemplate
-}
-
-func resolveAlertPolicyLegacyRuleKey(policyType AlertPolicyBuilderKind, template *AlertPolicyTemplateSummaryDTO, fallbackLegacyRuleKey string) string {
-	if policyType == AlertPolicyBuilderKindSyncJob {
-		return ""
-	}
-	if template != nil {
-		return strings.TrimSpace(template.LegacyRuleKey)
-	}
-	return strings.TrimSpace(fallbackLegacyRuleKey)
-}
-
-func isLegacyBackedAlertPolicy(policyType AlertPolicyBuilderKind, legacyRuleKey string) bool {
-	return policyType == AlertPolicyBuilderKindPlatformHealth && strings.TrimSpace(legacyRuleKey) != ""
-}
-
-func parseAlertPolicyConcreteClusterID(clusterID string) (uint, bool, error) {
-	normalizedClusterID := normalizeAlertPolicyClusterID(clusterID)
-	if normalizedClusterID == "all" {
-		return 0, false, nil
-	}
-
-	parsedClusterID, err := strconv.ParseUint(normalizedClusterID, 10, 32)
-	if err != nil {
-		return 0, false, ErrAlertPolicyInvalidClusterScope
-	}
-	return uint(parsedClusterID), true, nil
-}
-
-func buildAlertPolicyLegacyBridgeRef(policy *AlertPolicy) (alertPolicyLegacyBridgeRef, error) {
-	if policy == nil || !isLegacyBackedAlertPolicy(policy.PolicyType, policy.LegacyRuleKey) {
-		return alertPolicyLegacyBridgeRef{}, nil
-	}
-
-	clusterID, hasConcreteCluster, err := parseAlertPolicyConcreteClusterID(policy.ClusterID)
-	if err != nil {
-		return alertPolicyLegacyBridgeRef{}, err
-	}
-	if !hasConcreteCluster {
-		return alertPolicyLegacyBridgeRef{}, nil
-	}
-
-	return alertPolicyLegacyBridgeRef{
-		ClusterID:     clusterID,
-		RuleKey:       strings.TrimSpace(policy.LegacyRuleKey),
-		HasLegacyRule: true,
-	}, nil
-}
-
-func sameAlertPolicyLegacyBridgeRef(left, right alertPolicyLegacyBridgeRef) bool {
-	return left.HasLegacyRule == right.HasLegacyRule &&
-		left.ClusterID == right.ClusterID &&
-		left.RuleKey == right.RuleKey
-}
-
-func ensureDefaultRulesWithRepo(ctx context.Context, repo *Repository, clusterID uint) error {
-	for _, tpl := range defaultClusterRules(clusterID) {
-		_, err := repo.GetRuleByClusterAndKey(ctx, clusterID, tpl.RuleKey)
-		if err == nil {
-			continue
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if createErr := repo.CreateRule(ctx, tpl); createErr != nil {
-			if isDuplicateKeyError(createErr) {
-				continue
-			}
-			return createErr
-		}
-	}
-	return nil
 }

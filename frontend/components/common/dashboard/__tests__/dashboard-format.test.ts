@@ -21,6 +21,8 @@ import {
   dimensionColor,
   formatCompactNumber,
   formatDurationSeconds,
+  scaledCompact,
+  summarizeRate,
   trendChangePercent,
 } from '../dashboard-format';
 
@@ -31,6 +33,20 @@ describe('dashboard-format', () => {
     expect(formatCompactNumber(Number.NaN)).toBe('-');
   });
 
+  it('scales large numbers into ≤999.9 plus a unit, keeping KPI cards narrow', () => {
+    // 小于 1000 原样通过；向上按 K/M/B/T 分档，取整顶到 1000 时再进一档。
+    // Below 1000 passes through; tiers go K/M/B/T, and a rounded 1000 steps up once more.
+    expect(scaledCompact(999)).toEqual({value: 999, decimals: 0, unit: ''});
+    expect(scaledCompact(0)).toEqual({value: 0, decimals: 0, unit: ''});
+    expect(scaledCompact(27200)).toEqual({value: 27.2, decimals: 1, unit: 'K'});
+    expect(scaledCompact(1_523_000)).toEqual({value: 1.5, decimals: 1, unit: 'M'});
+    expect(scaledCompact(103_800_000_000)).toEqual({value: 103.8, decimals: 1, unit: 'B'});
+    expect(scaledCompact(999_960_000)).toEqual({value: 1, decimals: 1, unit: 'B'});
+    expect(scaledCompact(-2_500_000)).toEqual({value: -2.5, decimals: 1, unit: 'M'});
+    expect(scaledCompact(Number.NaN)).toEqual({value: 0, decimals: 0, unit: ''});
+    expect(scaledCompact(undefined)).toEqual({value: 0, decimals: 0, unit: ''});
+  });
+
   it('keeps the two largest duration units', () => {
     const units = {d: 'd', h: 'h', m: 'm'};
     expect(formatDurationSeconds(2 * 86400 + 4 * 3600 + 59, units)).toBe(
@@ -38,6 +54,26 @@ describe('dashboard-format', () => {
     );
     expect(formatDurationSeconds(3 * 3600 + 12 * 60, units)).toBe('3h 12m');
     expect(formatDurationSeconds(30, units)).toBe('<1m');
+  });
+
+  it('summarizes a rate series into window average and peak', () => {
+    expect(summarizeRate([])).toBeNull();
+    expect(
+      summarizeRate([
+        [0, Number.NaN],
+        [1, Number.POSITIVE_INFINITY],
+      ]),
+    ).toBeNull();
+    // NaN / Infinity 的点被忽略，不参与均值。/ NaN and Infinity points are skipped.
+    expect(
+      summarizeRate([
+        [0, 10],
+        [1, Number.NaN],
+        [2, 30],
+        [3, 20],
+      ]),
+    ).toEqual({avg: 20, peak: 30});
+    expect(summarizeRate([[0, 0]])).toEqual({avg: 0, peak: 0});
   });
 
   it('computes the write-rate change against the first sample', () => {

@@ -110,6 +110,22 @@ func (s *Service) ListAlertInstances(ctx context.Context, filter *AlertInstanceF
 		items = append(items, syncItems...)
 	}
 
+	// scope 派生与过滤：job → job，其余 → cluster；与旧 source_type 过滤并存。
+	// Scope derivation and filtering: job → job, everything else → cluster; it coexists with
+	// the legacy source_type filter.
+	scoped := items[:0]
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		item.Scope = alertScopeFromSourceType(item.SourceType)
+		if filter.Scope != "" && item.Scope != filter.Scope {
+			continue
+		}
+		scoped = append(scoped, item)
+	}
+	items = scoped
+
 	sort.Slice(items, func(i, j int) bool {
 		left := items[i]
 		right := items[j]
@@ -514,22 +530,23 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 		return nil, err
 	}
 
-	ruleCache := make(map[uint]map[string]*AlertRule)
+	ruleCache := make(map[string]*resolvedRuleConfig)
 	items := make([]*AlertInstance, 0, len(rows))
 	for _, row := range rows {
 		if row == nil {
 			continue
 		}
 
-		rules, err := s.getClusterRuleMap(ctx, row.ClusterID, ruleCache)
-		if err != nil {
-			return nil, err
-		}
-
 		ruleKey := eventTypeToRuleKey(row.EventType)
-		rule := rules[ruleKey]
-		if rule == nil {
-			rule = defaultRuleByKey(row.ClusterID, ruleKey)
+		cacheKey := strconv.FormatUint(uint64(row.ClusterID), 10) + "|" + ruleKey
+		rule, ok := ruleCache[cacheKey]
+		if !ok {
+			resolved, err := s.ResolveClusterRule(ctx, ruleKey, row.ClusterID)
+			if err != nil {
+				return nil, err
+			}
+			rule = resolved
+			ruleCache[cacheKey] = rule
 		}
 		if rule == nil || !rule.Enabled {
 			continue
@@ -566,15 +583,22 @@ func (s *Service) buildLocalAlertInstances(ctx context.Context, filter *AlertIns
 			lastSeenAt = resolvedAt.UTC()
 		}
 
+		ruleName := ""
+		ruleNameEN := ""
+		if rule.Definition != nil {
+			ruleName = strings.TrimSpace(rule.Definition.Name)
+			ruleNameEN = strings.TrimSpace(rule.Definition.NameEN)
+		}
 		item := &AlertInstance{
 			AlertID:         sourceKey,
 			SourceType:      AlertSourceTypePlatformHealth,
 			ClusterID:       strconv.FormatUint(uint64(row.ClusterID), 10),
 			ClusterName:     strings.TrimSpace(row.ClusterName),
 			Severity:        rule.Severity,
-			AlertName:       strings.TrimSpace(rule.RuleName),
+			AlertName:       ruleName,
+			AlertNameEN:     ruleNameEN,
 			RuleKey:         strings.TrimSpace(rule.RuleKey),
-			Summary:         buildLocalAlertSummary(row, rule),
+			Summary:         buildLocalAlertSummary(row, ruleName),
 			Description:     strings.TrimSpace(row.Details),
 			Status:          displayStatus,
 			LifecycleStatus: lifecycleStatus,
@@ -620,10 +644,34 @@ func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEven
 		return s.monitorService.HasNodeEventAfter(ctx, row.NodeID, row.CreatedAt, types)
 	}
 
+	subjectLookup := func(types []monitor.ProcessEventType) (bool, *monitor.ProcessEvent, error) {
+		if recoveryIndex != nil {
+			event := recoveryIndex.firstSubjectAfter(row.ClusterID, row.NodeID, row.HostID, row.CreatedAt, types)
+			if event == nil {
+				return false, nil, nil
+			}
+			return true, event, nil
+		}
+		return false, nil, nil
+	}
+
 	switch row.EventType {
 	case monitor.EventTypeNodeOffline:
 		recovered, recoveryEvent, err := lookup([]monitor.ProcessEventType{
 			monitor.EventTypeNodeRecovered,
+		})
+		if err != nil {
+			return AlertLifecycleStatusFiring, nil, err
+		}
+		if !recovered || recoveryEvent == nil {
+			return AlertLifecycleStatusFiring, nil, nil
+		}
+
+		resolvedAt := recoveryEvent.CreatedAt.UTC()
+		return AlertLifecycleStatusResolved, &resolvedAt, nil
+	case monitor.EventTypeAgentOffline, monitor.EventTypeMasterUnavailable, monitor.EventTypeWorkerInsufficient:
+		recovered, recoveryEvent, err := subjectLookup([]monitor.ProcessEventType{
+			availabilityFiringRecoveredTypes[row.EventType],
 		})
 		if err != nil {
 			return AlertLifecycleStatusFiring, nil, err
@@ -656,10 +704,40 @@ func (s *Service) resolveLocalAlertLifecycle(ctx context.Context, row *AlertEven
 	}
 }
 
-// localRecoveryIndex 按节点缓存恢复类事件，供一次列表内判定生命周期，避免逐条查库。
-// localRecoveryIndex caches recovery events per node so one list can resolve lifecycles without per-row queries.
+// localRecoveryIndex 按节点缓存恢复类事件，供一次列表内判定生命周期，避免逐条查库；
+// bySubject 额外按 cluster|node|host 元组索引主机 / 集群级恢复事件。
+// localRecoveryIndex caches recovery events per node so one list can resolve lifecycles
+// without per-row queries; bySubject additionally indexes host / cluster scoped recovery
+// events by the cluster|node|host tuple.
 type localRecoveryIndex struct {
-	byNode map[uint][]monitor.ProcessEvent
+	byNode    map[uint][]monitor.ProcessEvent
+	bySubject map[string][]monitor.ProcessEvent
+}
+
+func alertSubjectKey(clusterID, nodeID, hostID uint) string {
+	return strconv.FormatUint(uint64(clusterID), 10) + "|" +
+		strconv.FormatUint(uint64(nodeID), 10) + "|" +
+		strconv.FormatUint(uint64(hostID), 10)
+}
+
+func (idx *localRecoveryIndex) firstSubjectAfter(clusterID, nodeID, hostID uint, after time.Time, types []monitor.ProcessEventType) *monitor.ProcessEvent {
+	if idx == nil {
+		return nil
+	}
+	allowed := make(map[monitor.ProcessEventType]struct{}, len(types))
+	for _, eventType := range types {
+		allowed[eventType] = struct{}{}
+	}
+	for i := range idx.bySubject[alertSubjectKey(clusterID, nodeID, hostID)] {
+		event := &idx.bySubject[alertSubjectKey(clusterID, nodeID, hostID)][i]
+		if !event.CreatedAt.UTC().After(timex.Bound(after)) {
+			continue
+		}
+		if _, ok := allowed[event.EventType]; ok {
+			return event
+		}
+	}
+	return nil
 }
 
 func (idx *localRecoveryIndex) firstAfter(nodeID uint, after time.Time, types []monitor.ProcessEventType) *monitor.ProcessEvent {
@@ -684,37 +762,69 @@ func (idx *localRecoveryIndex) firstAfter(nodeID uint, after time.Time, types []
 
 func (s *Service) loadLocalRecoveryIndex(ctx context.Context, rows []*AlertEventSource) (*localRecoveryIndex, error) {
 	if s.monitorService == nil || len(rows) == 0 {
-		return &localRecoveryIndex{byNode: map[uint][]monitor.ProcessEvent{}}, nil
+		return &localRecoveryIndex{byNode: map[uint][]monitor.ProcessEvent{}, bySubject: map[string][]monitor.ProcessEvent{}}, nil
 	}
 	nodeIDs := make([]uint, 0, len(rows))
-	seen := make(map[uint]struct{}, len(rows))
+	clusterIDs := make([]uint, 0, len(rows))
+	seenNode := make(map[uint]struct{}, len(rows))
+	seenCluster := make(map[uint]struct{}, len(rows))
 	var minCreated time.Time
 	for _, row := range rows {
-		if row == nil || row.NodeID == 0 {
+		if row == nil {
 			continue
 		}
-		if _, ok := seen[row.NodeID]; !ok {
-			seen[row.NodeID] = struct{}{}
-			nodeIDs = append(nodeIDs, row.NodeID)
+		if row.NodeID != 0 {
+			if _, ok := seenNode[row.NodeID]; !ok {
+				seenNode[row.NodeID] = struct{}{}
+				nodeIDs = append(nodeIDs, row.NodeID)
+			}
+		}
+		if row.ClusterID != 0 {
+			if _, ok := seenCluster[row.ClusterID]; !ok {
+				seenCluster[row.ClusterID] = struct{}{}
+				clusterIDs = append(clusterIDs, row.ClusterID)
+			}
 		}
 		if minCreated.IsZero() || row.CreatedAt.Before(minCreated) {
 			minCreated = row.CreatedAt
 		}
 	}
-	if len(nodeIDs) == 0 {
-		return &localRecoveryIndex{byNode: map[uint][]monitor.ProcessEvent{}}, nil
+	index := &localRecoveryIndex{
+		byNode:    make(map[uint][]monitor.ProcessEvent, len(nodeIDs)),
+		bySubject: map[string][]monitor.ProcessEvent{},
 	}
-	events, err := s.monitorService.ListNodeEventsAfter(ctx, nodeIDs, minCreated, []monitor.ProcessEventType{
-		monitor.EventTypeStarted,
-		monitor.EventTypeRestarted,
-		monitor.EventTypeNodeRecovered,
-	})
-	if err != nil {
-		return nil, err
+	if len(nodeIDs) > 0 {
+		events, err := s.monitorService.ListNodeEventsAfter(ctx, nodeIDs, minCreated, []monitor.ProcessEventType{
+			monitor.EventTypeStarted,
+			monitor.EventTypeRestarted,
+			monitor.EventTypeNodeRecovered,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, event := range events {
+			index.byNode[event.NodeID] = append(index.byNode[event.NodeID], event)
+		}
 	}
-	index := &localRecoveryIndex{byNode: make(map[uint][]monitor.ProcessEvent, len(nodeIDs))}
-	for _, event := range events {
-		index.byNode[event.NodeID] = append(index.byNode[event.NodeID], event)
+	if len(clusterIDs) > 0 {
+		// 主机 / 集群级主体（agent_offline / master_unavailable / worker_insufficient）的恢复事件
+		// node_id 为 0，节点查询取不到；按集群取回后按 subject 元组建索引。
+		// Recovery events of host / cluster scoped subjects (agent_offline /
+		// master_unavailable / worker_insufficient) carry node_id 0 and are invisible to the
+		// node query; fetch them per cluster and index them by the subject tuple.
+		events, err := s.monitorService.ListClusterEventsAfter(ctx, clusterIDs, minCreated, []monitor.ProcessEventType{
+			monitor.EventTypeNodeRecovered,
+			monitor.EventTypeAgentRecovered,
+			monitor.EventTypeMasterRecovered,
+			monitor.EventTypeWorkerRecovered,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, event := range events {
+			key := alertSubjectKey(event.ClusterID, event.NodeID, event.HostID)
+			index.bySubject[key] = append(index.bySubject[key], event)
+		}
 	}
 	return index, nil
 }
@@ -775,14 +885,29 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 			lastSeenAt = firingAt
 		}
 
+		ruleKey := remoteRecordRuleKey(row)
+		storedName := strings.TrimSpace(row.AlertName)
+		if ruleKey == "" {
+			ruleKey = legacyAlertNameRuleKeys[storedName]
+		}
+		alertName := storedName
+		alertNameEN := ""
+		originalAlertName := ""
+		if def := lookupClusterRuleDefinition(ruleKey); def != nil {
+			originalAlertName = storedName
+			alertName = strings.TrimSpace(def.Name)
+			alertNameEN = strings.TrimSpace(def.NameEN)
+		}
+
 		item := &AlertInstance{
 			AlertID:         sourceKey,
 			SourceType:      AlertSourceTypeMetric,
 			ClusterID:       strings.TrimSpace(row.ClusterID),
 			ClusterName:     strings.TrimSpace(row.ClusterName),
 			Severity:        AlertSeverity(strings.TrimSpace(row.Severity)),
-			AlertName:       strings.TrimSpace(row.AlertName),
-			RuleKey:         remoteRecordRuleKey(row),
+			AlertName:       alertName,
+			AlertNameEN:     alertNameEN,
+			RuleKey:         ruleKey,
 			Summary:         strings.TrimSpace(row.Summary),
 			Description:     strings.TrimSpace(row.Description),
 			Status:          displayStatus,
@@ -793,9 +918,10 @@ func (s *Service) buildRemoteAlertInstances(ctx context.Context, filter *AlertIn
 			LastSeenAt:      lastSeenAt,
 			ResolvedAt:      firstNonNilTime(toUTCTimePointer(row.ResolvedAt), inferredResolvedAt),
 			SourceRef: &AlertInstanceSourceRef{
-				Fingerprint: strings.TrimSpace(row.Fingerprint),
-				Receiver:    strings.TrimSpace(row.Receiver),
-				Env:         strings.TrimSpace(row.Env),
+				Fingerprint:       strings.TrimSpace(row.Fingerprint),
+				Receiver:          strings.TrimSpace(row.Receiver),
+				Env:               strings.TrimSpace(row.Env),
+				OriginalAlertName: originalAlertName,
 			},
 		}
 		applyAlertStateToInstance(item, state)
@@ -904,6 +1030,24 @@ func buildLocalAlertSourceKey(eventID uint) string {
 
 func buildRemoteAlertSourceKey(fingerprint string, startsAt int64) string {
 	return fmt.Sprintf("remote:%s:%d", strings.TrimSpace(fingerprint), startsAt)
+}
+
+// legacyAlertNameRuleKeys 把迁移前内置 YAML 规则的告警名映射到目录 rule_key。
+// 仅影响展示与 rule_key 派生，不回写存储。
+// legacyAlertNameRuleKeys maps pre-migration built-in YAML alert names onto
+// catalog rule keys. Display/derivation only; stored records are untouched.
+var legacyAlertNameRuleKeys = map[string]string{
+	"SeaTunnelMetricsEndpointDown":       AlertRuleKeyNodeOffline,
+	"SeaTunnelNodeStateDown":             AlertRuleKeyNodeOffline,
+	"SeaTunnelPartitionUnsafe":           "split_brain_risk",
+	"SeaTunnelJobThreadPoolQueueHigh":    "job_thread_pool_queue_backlog_high",
+	"SeaTunnelCoordinatorBacklogGrowing": "coordinator_backlog_growing",
+	"SeaTunnelCoordinatorRejectingTasks": "job_thread_pool_rejection_high",
+	"SeaTunnelJVMHeapUsageHigh":          "memory_usage_high",
+	"SeaTunnelProcessCpuHigh":            "cpu_usage_high",
+	"SeaTunnelGCTimeHigh":                "gc_time_high",
+	"SeaTunnelFDUsageHigh":               "fd_usage_high",
+	"SeaTunnelThreadDeadlock":            "deadlocked_threads_detected",
 }
 
 // remoteRecordRuleKey 从告警记录的 labels 里取出规则键（评估器写入的 template_key），
@@ -1119,15 +1263,12 @@ func alertDisplayStatusWeight(status AlertDisplayStatus) int {
 	}
 }
 
-func buildLocalAlertSummary(row *AlertEventSource, rule *AlertRule) string {
+func buildLocalAlertSummary(row *AlertEventSource, ruleName string) string {
 	if row == nil {
 		return ""
 	}
 
-	base := ""
-	if rule != nil {
-		base = strings.TrimSpace(rule.RuleName)
-	}
+	base := strings.TrimSpace(ruleName)
 	if row.EventType == monitor.EventTypeClusterRestartRequested {
 		switch {
 		case base != "" && strings.TrimSpace(row.ClusterName) != "":

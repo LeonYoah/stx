@@ -55,7 +55,7 @@ import {cn} from '@/lib/utils';
 import {AgentNodeList, AgentVersionsPanel} from './AgentNodesPanel';
 import {ExecuteActions} from './ExecuteActions';
 import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 
 // 去掉可选的 v 前缀，便于比较与展示版本号
 // Strip an optional leading v so versions compare and render consistently

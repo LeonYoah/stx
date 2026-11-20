@@ -183,3 +183,30 @@ func TestDetailEventsDiffing(t *testing.T) {
 		t.Fatalf("empty events = %+v", got)
 	}
 }
+
+// TestAdaptDetailExpr 验证按取样语义适配步长：速率窗口 max(5m, step)，均值仪表包
+// avg_over_time，峰值仪表包 max_over_time，步长 ≤5m 时全部原样。
+// TestAdaptDetailExpr verifies step adaptation per sampling semantics: rate windows become
+// max(5m, step), mean gauges wrap avg_over_time, peak gauges wrap max_over_time, and steps
+// at or below 5m keep every expression verbatim.
+func TestAdaptDetailExpr(t *testing.T) {
+	rateExpr := `sum by (mode) (rate(stx_host_cpu_seconds_total{%[1]s}[5m]))`
+	if got := adaptDetailExpr(detailRate, rateExpr, 30); got != rateExpr {
+		t.Fatalf("short step must keep [5m]: %s", got)
+	}
+	if got := adaptDetailExpr(detailRate, rateExpr, 172800); !strings.Contains(got, "[2d]") || strings.Contains(got, "[5m]") {
+		t.Fatalf("long step rate must use [2d]: %s", got)
+	}
+	gauge := `max by (instance) (jvm_threads_current{%[1]s})`
+	if got := adaptDetailExpr(detailGaugeAvg, gauge, 172800); !strings.Contains(got, `avg_over_time(jvm_threads_current{%[1]s}[2d])`) {
+		t.Fatalf("avg gauge wrap missing: %s", got)
+	}
+	if got := adaptDetailExpr(detailGaugeMax, gauge, 172800); !strings.Contains(got, `max_over_time(jvm_threads_current{%[1]s}[2d])`) {
+		t.Fatalf("max gauge wrap missing: %s", got)
+	}
+	for _, kind := range []detailQueryKind{detailGaugeAvg, detailGaugeMax, detailRate} {
+		if got := adaptDetailExpr(kind, gauge, 300); got != gauge {
+			t.Fatalf("step<=5m must not wrap (kind=%d): %s", kind, got)
+		}
+	}
+}

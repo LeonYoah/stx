@@ -1,3 +1,5 @@
+/* 本地修改：卡片与选中框圆角跟随 --radius-panel，以便在 .arc-compact 弹窗内与外框同族；升级 Arc 时 diff 合并。
+   Local modification: card & selection ring radius follow --radius-panel for .arc-compact parity. */
 .root {
   position: relative;
   display: grid;
@@ -19,7 +21,7 @@
   top: 0;
   left: 0;
   border: 1.5px solid var(--control-on);
-  border-radius: 20px;
+  border-radius: var(--radius-panel);
   pointer-events: none;
 }
 
@@ -31,7 +33,7 @@
   gap: 4px 12px;
   padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: var(--radius-panel);
   background: var(--surface);
   cursor: pointer;
   user-select: none;

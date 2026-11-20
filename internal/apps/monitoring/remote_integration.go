@@ -80,22 +80,14 @@ func remoteAlertSupersedeTime(record *RemoteAlertRecord) time.Time {
 	return time.Now().UTC()
 }
 
-// deliverRemoteAlertRecord 按记录归属选择投递路径：managed_by=stx 的策略告警走
-// deliverManagedRemoteAlertPolicyNotifications（去重/冷却/静默/恢复语义所在地），
-// 其余告警回落到 deliverRemoteAlertNotifications 的路由匹配投递。
-// deliverRemoteAlertRecord picks the delivery path by record ownership: managed_by=stx policy
-// alerts go through deliverManagedRemoteAlertPolicyNotifications (home of
-// dedupe/cooldown/silence/recovery semantics), everything else falls back to route-match
-// delivery in deliverRemoteAlertNotifications.
+// deliverRemoteAlertRecord 走 managed 规则投递路径（去重/冷却/静默/恢复语义所在地）；
+// 非 managed 记录不再回落到路由匹配投递——告警模型收拢后只有 managed 规则会产生记录。
+// deliverRemoteAlertRecord uses the managed rule delivery path (home of
+// dedupe/cooldown/silence/recovery semantics); non-managed records no longer fall back to
+// route-match delivery — after the alert-model consolidation only managed rules produce records.
 func (s *Service) deliverRemoteAlertRecord(ctx context.Context, record *RemoteAlertRecord, previousRecord *RemoteAlertRecord) error {
-	handled, err := s.deliverManagedRemoteAlertPolicyNotifications(ctx, record, previousRecord)
-	if err != nil {
-		return err
-	}
-	if !handled {
-		return s.deliverRemoteAlertNotifications(ctx, record)
-	}
-	return nil
+	_, err := s.deliverManagedRemoteAlertPolicyNotifications(ctx, record, previousRecord)
+	return err
 }
 
 func firstNonEmpty(values ...string) string {

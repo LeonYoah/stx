@@ -33,12 +33,12 @@ import (
 // JobTimeseriesResult is the payload of GET /sync/jobs/:id/timeseries; there is no local fallback, so source is only
 // "prometheus" or "none".
 type JobTimeseriesResult struct {
-	Source                     string                    `json:"source"`
-	Reason                     string                    `json:"reason,omitempty"`
-	Range                      string                    `json:"range"`
-	StartMs                    int64                     `json:"start_ms"`
-	EndMs                      int64                     `json:"end_ms"`
-	StepSeconds                int                       `json:"step_seconds"`
+	Source      string `json:"source"`
+	Reason      string `json:"reason,omitempty"`
+	Range       string `json:"range"`
+	StartMs     int64  `json:"start_ms"`
+	EndMs       int64  `json:"end_ms"`
+	StepSeconds int    `json:"step_seconds"`
 	EngineObservabilityEnabled bool                      `json:"engine_observability_enabled"`
 	Series                     []JobTimeseriesSeries     `json:"series"`
 	Annotations                []JobTimeseriesAnnotation `json:"annotations"`
@@ -116,7 +116,7 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 		}
 		dur, ok := timeseriesRangeDurations[rangeKey]
 		if !ok {
-			return nil, fmt.Errorf("unsupported range %q (want 15m|1h|6h|24h|7d, or start/end)", rangeKey)
+			return nil, fmt.Errorf("unsupported range %q (want 15m|1h|6h|24h|7d|30d|90d|1y, or start/end)", rangeKey)
 		}
 		if step <= 0 {
 			step = timeseriesRangeSteps[rangeKey]
@@ -149,7 +149,7 @@ func (s *Service) getJobTimeseries(ctx context.Context, instance *JobInstance, r
 	}
 	var queries []tsQuery
 	for _, key := range metricKeys {
-		for _, tpl := range timeseriesPromQL(key, jobID, engineObs) {
+		for _, tpl := range timeseriesPromQL(key, jobID, engineObs, step) {
 			queries = append(queries, tsQuery{tpl: tpl})
 		}
 	}
@@ -204,15 +204,25 @@ type promQLTemplate struct {
 	query string
 }
 
-func timeseriesPromQL(metricKey, jobID string, engineObs bool) []promQLTemplate {
+// timeseriesPromQL 生成一个指标组的查询模板；速率窗口取 max(1m, step)，仪表序列在步长超过
+// 5 分钟时包 avg_over_time（忙碌度/背压）或 max_over_time（CDC 延迟、checkpoint 耗时），
+// 长窗口下每个取样点覆盖整个取样间隔。
+// timeseriesPromQL builds the query templates for one metric group; rate windows use
+// max(1m, step) and gauge series wrap avg_over_time (busy/backpressure) or max_over_time
+// (CDC delay, checkpoint duration) once the step exceeds five minutes, so long windows sample
+// every point across its whole interval.
+func timeseriesPromQL(metricKey, jobID string, engineObs bool, step int) []promQLTemplate {
 	id := strconv.Quote(jobID)
+	rateWindow := promquery.RangeWindow(step, time.Minute)
+	avg := func(expr string) string { return promquery.SampleGauge(step, "avg", expr) }
+	maxg := func(expr string) string { return promquery.SampleGauge(step, "max", expr) }
 	switch metricKey {
 	case "throughput":
 		return []promQLTemplate{
 			{key: "throughput_read", label: "read", unit: "records/s",
-				query: fmt.Sprintf(`sum(rate(stx_job_source_received_rows_total{job_id=%s}[1m]))`, id)},
+				query: fmt.Sprintf(`sum(rate(stx_job_source_received_rows_total{job_id=%s}[%s]))`, id, rateWindow)},
 			{key: "throughput_write", label: "write", unit: "records/s",
-				query: fmt.Sprintf(`sum(rate(stx_job_sink_write_rows_total{job_id=%s}[1m]))`, id)},
+				query: fmt.Sprintf(`sum(rate(stx_job_sink_write_rows_total{job_id=%s}[%s]))`, id, rateWindow)},
 		}
 	case "rows":
 		return []promQLTemplate{
@@ -226,12 +236,12 @@ func timeseriesPromQL(metricKey, jobID string, engineObs bool) []promQLTemplate 
 	case "cdc_delay":
 		return []promQLTemplate{{
 			key: "cdc_delay", label: "cdc_delay", unit: "seconds",
-			query: fmt.Sprintf(`max(stx_job_cdc_delay_seconds{job_id=%s})`, id),
+			query: fmt.Sprintf(`max(%s)`, maxg(fmt.Sprintf(`stx_job_cdc_delay_seconds{job_id=%s}`, id))),
 		}}
 	case "checkpoint":
 		return []promQLTemplate{
 			{key: "checkpoint_duration", label: "duration", unit: "seconds",
-				query: fmt.Sprintf(`max(stx_job_checkpoint_duration_seconds{job_id=%s})`, id)},
+				query: fmt.Sprintf(`max(%s)`, maxg(fmt.Sprintf(`stx_job_checkpoint_duration_seconds{job_id=%s}`, id)))},
 			{key: "checkpoint_failed", label: "failed", unit: "count",
 				query: fmt.Sprintf(`sum(stx_job_checkpoint_failed_total{job_id=%s})`, id)},
 		}
@@ -247,9 +257,9 @@ func timeseriesPromQL(metricKey, jobID string, engineObs bool) []promQLTemplate 
 		// via `and` so an idle real table still renders as 0 instead of disappearing.
 		return []promQLTemplate{
 			{key: "table_throughput_read", label: "read", unit: "records/s",
-				query: fmt.Sprintf(`sum by (table) (rate(stx_job_table_rows_total{job_id=%s,direction="read"}[1m])) and on(table) (sum by (table) (stx_job_table_rows_total{job_id=%s,direction="read"}) > 0)`, id, id)},
+				query: fmt.Sprintf(`sum by (table) (rate(stx_job_table_rows_total{job_id=%s,direction="read"}[%s])) and on(table) (sum by (table) (stx_job_table_rows_total{job_id=%s,direction="read"}) > 0)`, id, rateWindow, id)},
 			{key: "table_throughput_write", label: "write", unit: "records/s",
-				query: fmt.Sprintf(`sum by (table) (rate(stx_job_table_rows_total{job_id=%s,direction="write"}[1m])) and on(table) (sum by (table) (stx_job_table_rows_total{job_id=%s,direction="write"}) > 0)`, id, id)},
+				query: fmt.Sprintf(`sum by (table) (rate(stx_job_table_rows_total{job_id=%s,direction="write"}[%s])) and on(table) (sum by (table) (stx_job_table_rows_total{job_id=%s,direction="write"}) > 0)`, id, rateWindow, id)},
 			{key: "table_rows_read", label: "read", unit: "rows",
 				query: fmt.Sprintf(`sum by (table) (stx_job_table_rows_total{job_id=%s,direction="read"}) > 0`, id)},
 			{key: "table_rows_write", label: "write", unit: "rows",
@@ -261,7 +271,7 @@ func timeseriesPromQL(metricKey, jobID string, engineObs bool) []promQLTemplate 
 		}
 		return []promQLTemplate{{
 			key: "busy", label: "busy", unit: "ratio",
-			query: fmt.Sprintf(`stx_job_vertex_busy_ratio{job_id=%s}`, id),
+			query: avg(fmt.Sprintf(`stx_job_vertex_busy_ratio{job_id=%s}`, id)),
 		}}
 	case "backpressure":
 		if !engineObs {
@@ -269,7 +279,7 @@ func timeseriesPromQL(metricKey, jobID string, engineObs bool) []promQLTemplate 
 		}
 		return []promQLTemplate{{
 			key: "backpressure", label: "backpressure", unit: "ratio",
-			query: fmt.Sprintf(`stx_job_edge_backpressure_ratio{job_id=%s}`, id),
+			query: avg(fmt.Sprintf(`stx_job_edge_backpressure_ratio{job_id=%s}`, id)),
 		}}
 	default:
 		return nil

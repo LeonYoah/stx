@@ -47,7 +47,7 @@ import {
 } from '@/components/ui/select';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Loader2, RefreshCw, Copy, Check, FileText} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import type {NodeInfo} from '@/lib/services/cluster/types';
 

@@ -102,6 +102,17 @@ func TestClustersHealthCountsUnrecoveredLocalAlerts(t *testing.T) {
 		t.Fatalf("create process event: %v", err)
 	}
 
+	// 目录默认级别是 warning；配成 critical 才能验证 critical 计数。
+	// The catalog default severity is warning; configure critical to verify the critical count.
+	sev := string(AlertSeverityCritical)
+	if err := repo.UpsertClusterRuleConfig(ctx, &ClusterRuleConfig{
+		RuleKey:  AlertRuleKeyNodeOffline,
+		Severity: &sev,
+	}); err != nil {
+		t.Fatalf("save cluster rule config: %v", err)
+	}
+	service.invalidateClusterRuleResolution()
+
 	health, err := service.GetClustersHealth(ctx)
 	if err != nil {
 		t.Fatalf("clusters health: %v", err)

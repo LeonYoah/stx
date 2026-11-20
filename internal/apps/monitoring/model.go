@@ -261,12 +261,37 @@ const (
 	// AlertRuleKeyNodeOffline is the rule key for sustained node-unavailable episodes.
 	// AlertRuleKeyNodeOffline 表示节点持续不可用阶段的规则键。
 	AlertRuleKeyNodeOffline = "node_offline"
+
+	// AlertRuleKeyPlatformServerMemoryHigh 是平台自监控规则键：STX server 内存持续超限。
+	// AlertRuleKeyPlatformServerMemoryHigh is the platform self-monitoring rule key for
+	// sustained STX server memory pressure.
+	AlertRuleKeyPlatformServerMemoryHigh = "stx_server_memory_high"
+	// AlertRuleKeyPlatformServerHTTP5xxRatioHigh 是平台自监控规则键：HTTP 5xx 比例超限。
+	// AlertRuleKeyPlatformServerHTTP5xxRatioHigh is the platform rule key for an
+	// elevated HTTP 5xx ratio on the control plane.
+	AlertRuleKeyPlatformServerHTTP5xxRatioHigh = "stx_server_http_5xx_ratio_high"
+	// AlertRuleKeyPlatformTSDBCompactionFailed 是平台自监控规则键：内嵌 tsdb compaction 失败。
+	// AlertRuleKeyPlatformTSDBCompactionFailed is the platform rule key for embedded
+	// tsdb compaction failures.
+	AlertRuleKeyPlatformTSDBCompactionFailed = "stx_tsdb_compaction_failed"
+	// AlertRuleKeyPlatformAgentMemoryHigh 是平台自监控规则键：Agent 进程内存持续超限。
+	// AlertRuleKeyPlatformAgentMemoryHigh is the platform rule key for sustained agent
+	// process memory pressure.
+	AlertRuleKeyPlatformAgentMemoryHigh = "stx_agent_memory_high"
+	// AlertRuleKeyPlatformAgentVersionMismatch 是平台自监控规则键：Agent 版本与 server 不一致。
+	// AlertRuleKeyPlatformAgentVersionMismatch is the platform rule key for agents
+	// running a version different from the server.
+	AlertRuleKeyPlatformAgentVersionMismatch = "stx_agent_version_mismatch"
 )
 
 // AlertInstanceFilter represents filters for unified alert instances.
 // AlertInstanceFilter 表示统一告警实例查询过滤条件。
 type AlertInstanceFilter struct {
-	SourceType      AlertSourceType      `json:"source_type"`
+	SourceType AlertSourceType `json:"source_type"`
+	// Scope 是聚合范围：job 只含作业级告警，cluster 含其余全部；与 source_type 并存。
+	// Scope is the aggregate scope: job keeps job-level alerts only, cluster keeps everything
+	// else; it coexists with source_type.
+	Scope           string               `json:"scope"`
 	ClusterID       string               `json:"cluster_id"`
 	Severity        AlertSeverity        `json:"severity"`
 	Status          AlertDisplayStatus   `json:"status"`
@@ -292,12 +317,16 @@ type AlertInstanceStats struct {
 // AlertInstance represents one normalized alert item for frontend.
 // AlertInstance 表示返回给前端的统一告警项。
 type AlertInstance struct {
-	AlertID         string                  `json:"alert_id"`
-	SourceType      AlertSourceType         `json:"source_type"`
+	AlertID    string          `json:"alert_id"`
+	SourceType AlertSourceType `json:"source_type"`
+	// Scope 由 source_type 派生：job → job，其余 → cluster。
+	// Scope derives from source_type: job → job, everything else → cluster.
+	Scope           string                  `json:"scope"`
 	ClusterID       string                  `json:"cluster_id"`
 	ClusterName     string                  `json:"cluster_name"`
 	Severity        AlertSeverity           `json:"severity"`
 	AlertName       string                  `json:"alert_name"`
+	AlertNameEN     string                  `json:"alert_name_en,omitempty"`
 	RuleKey         string                  `json:"rule_key"`
 	Summary         string                  `json:"summary"`
 	Description     string                  `json:"description"`
@@ -328,6 +357,10 @@ type AlertInstanceSourceRef struct {
 	Hostname    string `json:"hostname,omitempty"`
 	Receiver    string `json:"receiver,omitempty"`
 	Env         string `json:"env,omitempty"`
+	// OriginalAlertName 保留映射前的存储告警名（旧 YAML 规则名），详情页展示用。
+	// OriginalAlertName keeps the stored alert name before catalog mapping (legacy
+	// YAML rule name), shown on the detail drawer.
+	OriginalAlertName string `json:"original_alert_name,omitempty"`
 	// 以下字段只用于 sync 来源：任务、作业、累计次数与跳转链接。
 	// The fields below are only set for the sync source: task, job, occurrence count and deep link.
 	TaskID          uint   `json:"task_id,omitempty"`
@@ -356,61 +389,6 @@ type AlertInstanceListData struct {
 	Total       int64               `json:"total"`
 	Stats       *AlertInstanceStats `json:"stats"`
 	Alerts      []*AlertInstance    `json:"alerts"`
-}
-
-// AlertRuleDTO represents a monitoring alert rule for frontend.
-// AlertRuleDTO 表示前端可消费的告警规则。
-type AlertRuleDTO struct {
-	ID            uint          `json:"id"`
-	ClusterID     uint          `json:"cluster_id"`
-	RuleKey       string        `json:"rule_key"`
-	RuleName      string        `json:"rule_name"`
-	Description   string        `json:"description"`
-	Severity      AlertSeverity `json:"severity"`
-	Enabled       bool          `json:"enabled"`
-	Threshold     int           `json:"threshold"`
-	WindowSeconds int           `json:"window_seconds"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
-}
-
-// AlertRuleListData represents rule list payload.
-// AlertRuleListData 表示规则列表响应数据。
-type AlertRuleListData struct {
-	GeneratedAt time.Time       `json:"generated_at"`
-	ClusterID   uint            `json:"cluster_id"`
-	Rules       []*AlertRuleDTO `json:"rules"`
-}
-
-// UpdateAlertRuleRequest represents patch fields for one alert rule.
-// UpdateAlertRuleRequest 表示告警规则更新请求。
-type UpdateAlertRuleRequest struct {
-	RuleName      *string        `json:"rule_name"`
-	Description   *string        `json:"description"`
-	Severity      *AlertSeverity `json:"severity"`
-	Enabled       *bool          `json:"enabled"`
-	Threshold     *int           `json:"threshold"`
-	WindowSeconds *int           `json:"window_seconds"`
-}
-
-// Validate validates update request values.
-// Validate 验证规则更新请求参数。
-func (r *UpdateAlertRuleRequest) Validate() error {
-	if r == nil {
-		return fmt.Errorf("empty request")
-	}
-	if r.Severity != nil {
-		if *r.Severity != AlertSeverityWarning && *r.Severity != AlertSeverityCritical {
-			return fmt.Errorf("invalid severity")
-		}
-	}
-	if r.Threshold != nil && (*r.Threshold < 1 || *r.Threshold > 9999) {
-		return fmt.Errorf("threshold must be between 1 and 9999")
-	}
-	if r.WindowSeconds != nil && (*r.WindowSeconds < 10 || *r.WindowSeconds > 86400) {
-		return fmt.Errorf("window_seconds must be between 10 and 86400")
-	}
-	return nil
 }
 
 // AcknowledgeAlertRequest represents acknowledge action payload.
@@ -544,28 +522,6 @@ const (
 	AlertPolicyExecutionStatusPartial AlertPolicyExecutionStatus = "partial"
 )
 
-// AlertPolicyCapabilityDTO represents one capability card in the unified policy center.
-// AlertPolicyCapabilityDTO 表示统一策略中心中的能力卡片。
-type AlertPolicyCapabilityDTO struct {
-	Key       string                      `json:"key"`
-	Title     string                      `json:"title"`
-	Summary   string                      `json:"summary"`
-	Status    AlertPolicyCapabilityStatus `json:"status"`
-	Reason    string                      `json:"reason,omitempty"`
-	DependsOn []string                    `json:"depends_on,omitempty"`
-}
-
-// AlertPolicyBuilderDTO represents one builder entry in the policy center.
-// AlertPolicyBuilderDTO 表示策略中心中的构建器入口。
-type AlertPolicyBuilderDTO struct {
-	Key           AlertPolicyBuilderKind      `json:"key"`
-	Title         string                      `json:"title"`
-	Description   string                      `json:"description"`
-	Status        AlertPolicyCapabilityStatus `json:"status"`
-	CapabilityKey string                      `json:"capability_key"`
-	Recommended   bool                        `json:"recommended"`
-}
-
 // AlertPolicyTemplateSummaryDTO represents one recommended policy template summary.
 // AlertPolicyTemplateSummaryDTO 表示一条推荐策略模板摘要。
 type AlertPolicyTemplateSummaryDTO struct {
@@ -593,28 +549,6 @@ type NotificationRecipientUserDTO struct {
 	Nickname string `json:"nickname"`
 	Email    string `json:"email"`
 	IsAdmin  bool   `json:"is_admin"`
-}
-
-// AlertPolicyCenterBootstrapData represents bootstrap payload for unified policy center.
-// AlertPolicyCenterBootstrapData 表示统一策略中心的初始化数据。
-type AlertPolicyCenterBootstrapData struct {
-	GeneratedAt            time.Time                        `json:"generated_at"`
-	CapabilityMode         string                           `json:"capability_mode"`
-	Capabilities           []*AlertPolicyCapabilityDTO      `json:"capabilities"`
-	Builders               []*AlertPolicyBuilderDTO         `json:"builders"`
-	Templates              []*AlertPolicyTemplateSummaryDTO `json:"templates"`
-	Components             []*IntegrationComponentStatus    `json:"components"`
-	NotifiableUsers        []*NotificationRecipientUserDTO  `json:"notifiable_users"`
-	DefaultReceiverUserIDs []uint64                         `json:"default_receiver_user_ids"`
-}
-
-// AlertPolicyConditionDTO represents one condition item in a persisted alert policy.
-// AlertPolicyConditionDTO 表示持久化告警策略中的一条条件项。
-type AlertPolicyConditionDTO struct {
-	MetricKey     string `json:"metric_key"`
-	Operator      string `json:"operator"`
-	Threshold     string `json:"threshold"`
-	WindowMinutes int    `json:"window_minutes"`
 }
 
 // NotificationEmailSecurity represents SMTP transport security mode.
@@ -756,7 +690,6 @@ type AlertPolicyDTO struct {
 	Enabled                bool                       `json:"enabled"`
 	CooldownMinutes        int                        `json:"cooldown_minutes"`
 	SendRecovery           bool                       `json:"send_recovery"`
-	PromQL                 string                     `json:"promql,omitempty"`
 	Conditions             []*AlertPolicyConditionDTO `json:"conditions"`
 	NotificationChannelIDs []uint                     `json:"notification_channel_ids"`
 	ReceiverUserIDs        []uint64                   `json:"receiver_user_ids"`
@@ -803,7 +736,6 @@ type UpsertAlertPolicyRequest struct {
 	Enabled                *bool                      `json:"enabled"`
 	CooldownMinutes        *int                       `json:"cooldown_minutes"`
 	SendRecovery           *bool                      `json:"send_recovery"`
-	PromQL                 string                     `json:"promql"`
 	Conditions             []*AlertPolicyConditionDTO `json:"conditions"`
 	NotificationChannelIDs []uint                     `json:"notification_channel_ids"`
 	ReceiverUserIDs        []uint64                   `json:"receiver_user_ids"`
@@ -824,10 +756,11 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 	if strings.TrimSpace(r.Name) == "" {
 		return fmt.Errorf("name is required")
 	}
-	switch r.PolicyType {
-	case AlertPolicyBuilderKindPlatformHealth, AlertPolicyBuilderKindMetricsTemplate, AlertPolicyBuilderKindSyncJob:
-	default:
-		return fmt.Errorf("invalid policy_type")
+	// platform_health / metrics_template 策略已被集群级规则目录取代，写接口只接受 sync_job。
+	// platform_health / metrics_template policies were replaced by the cluster rule catalog;
+	// the write API only accepts sync_job.
+	if r.PolicyType != AlertPolicyBuilderKindSyncJob {
+		return ErrAlertPolicyUseClusterRules
 	}
 	switch r.Severity {
 	case AlertSeverityWarning, AlertSeverityCritical:
@@ -837,12 +770,7 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 	if r.CooldownMinutes != nil && (*r.CooldownMinutes < 0 || *r.CooldownMinutes > 7*24*60) {
 		return fmt.Errorf("cooldown_minutes must be between 0 and 10080")
 	}
-	switch r.PolicyType {
-	case AlertPolicyBuilderKindPlatformHealth, AlertPolicyBuilderKindMetricsTemplate:
-		if strings.TrimSpace(r.TemplateKey) == "" {
-			return fmt.Errorf("template_key is required")
-		}
-	case AlertPolicyBuilderKindSyncJob:
+	{
 		// 作业告警策略：条件的 metric_key 就是勾选的作业级规则，至少一条，至少一个渠道。
 		// Job alert policies: each condition's metric_key is a selected job rule; at least one rule and one channel.
 		if r.TaskID == 0 {
@@ -1046,71 +974,13 @@ const (
 	NotificationDeliveryStatusExhausted NotificationDeliveryStatus = "exhausted"
 )
 
-// NotificationRouteDTO is frontend DTO for notification routes.
-// NotificationRouteDTO 是前端使用的通知路由 DTO。
-type NotificationRouteDTO struct {
-	ID                 uint   `json:"id"`
-	Name               string `json:"name"`
-	Enabled            bool   `json:"enabled"`
-	SourceType         string `json:"source_type,omitempty"`
-	ClusterID          string `json:"cluster_id,omitempty"`
-	Severity           string `json:"severity,omitempty"`
-	RuleKey            string `json:"rule_key,omitempty"`
-	ChannelID          uint   `json:"channel_id"`
-	SendResolved       bool   `json:"send_resolved"`
-	MuteIfAcknowledged bool   `json:"mute_if_acknowledged"`
-	MuteIfSilenced     bool   `json:"mute_if_silenced"`
-	// InvalidReason 非空表示该路由带的是 #146 之前的旧告警类别，在当前内置监控语义下
-	// 永远不会命中，需要编辑重新选择；存量数据不自动改写，只显式提示。
-	// 取值是稳定的原因码（见 NotificationRouteInvalidReason*），由前端按 i18n 翻译展示。
-	// InvalidReason is non-empty when the route carries a pre-#146 alert category that can
-	// never match under the embedded monitor; stored rows are not rewritten, only surfaced.
-	// The value is a stable reason code (see NotificationRouteInvalidReason*) that the
-	// frontend translates through i18n.
-	InvalidReason string `json:"invalid_reason"`
-	// InvalidDetail 携带失效的具体取值（这里是旧 source_type），供界面翻译时插值展示。
-	// InvalidDetail carries the offending value (the legacy source_type here) so the UI
-	// can interpolate it into the translated message.
-	InvalidDetail string    `json:"invalid_detail,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-}
-
-// NotificationRouteInvalidReasonLegacySourceType 是通知路由失效原因码：路由绑定的
-// source_type 属于旧告警类别（local_process_event / remote_alertmanager / sync 等），
-// 在 #146 之后的新类别语义下永远不会命中。
-// NotificationRouteInvalidReasonLegacySourceType is the invalid-reason code for routes
-// whose source_type is a retired alert category (local_process_event / remote_alertmanager /
-// sync etc.) that never matches under the post-#146 category semantics.
-const NotificationRouteInvalidReasonLegacySourceType = "legacy_source_type"
-
-// NotificationRouteInvalidReason 返回存量通知路由的失效原因码（空串表示有效）。
-// 判定独立于写入校验：旧版本允许 local_process_event / remote_alertmanager / sync，
-// 这些取值在 #146 的新告警类别语义下不匹配任何告警。返回的是稳定原因码而不是整句文案，
-// 文案由前端按 i18n 渲染（invalid_detail 携带旧 source_type 供插值）。
-// NotificationRouteInvalidReason returns the invalid-reason code for a stored route ("" when
-// valid). The check is deliberately separate from write validation: older versions allowed
-// local_process_event / remote_alertmanager / sync, none of which matches any alert under the
-// post-#146 category semantics. It returns a stable code rather than a full sentence; the UI
-// renders the message via i18n (invalid_detail carries the legacy source_type).
-func NotificationRouteInvalidReason(sourceType string) string {
-	sourceType = strings.TrimSpace(sourceType)
-	if sourceType == "" {
-		return ""
-	}
-	switch AlertSourceType(sourceType) {
-	case AlertSourceTypePlatformHealth, AlertSourceTypeMetric, AlertSourceTypeJob:
-		return ""
-	}
-	return NotificationRouteInvalidReasonLegacySourceType
-}
-
-// NotificationRouteListData represents notification route list payload.
-// NotificationRouteListData 表示通知路由列表响应。
-type NotificationRouteListData struct {
-	GeneratedAt time.Time               `json:"generated_at"`
-	Total       int                     `json:"total"`
-	Routes      []*NotificationRouteDTO `json:"routes"`
+// AlertPolicyConditionDTO represents one condition item in a persisted alert policy.
+// AlertPolicyConditionDTO 表示持久化告警策略中的一条条件项。
+type AlertPolicyConditionDTO struct {
+	MetricKey     string `json:"metric_key"`
+	Operator      string `json:"operator"`
+	Threshold     string `json:"threshold"`
+	WindowMinutes int    `json:"window_minutes"`
 }
 
 // NotificationDeliveryFilter represents notification history query filters.
@@ -1158,50 +1028,6 @@ type NotificationDeliveryListData struct {
 	PageSize    int                        `json:"page_size"`
 	Total       int64                      `json:"total"`
 	Deliveries  []*NotificationDeliveryDTO `json:"deliveries"`
-}
-
-// UpsertNotificationRouteRequest represents create/update route payload.
-// UpsertNotificationRouteRequest 表示新增/更新通知路由请求。
-type UpsertNotificationRouteRequest struct {
-	Name               string `json:"name"`
-	Enabled            *bool  `json:"enabled"`
-	SourceType         string `json:"source_type"`
-	ClusterID          string `json:"cluster_id"`
-	Severity           string `json:"severity"`
-	RuleKey            string `json:"rule_key"`
-	ChannelID          uint   `json:"channel_id"`
-	SendResolved       *bool  `json:"send_resolved"`
-	MuteIfAcknowledged *bool  `json:"mute_if_acknowledged"`
-	MuteIfSilenced     *bool  `json:"mute_if_silenced"`
-}
-
-// Validate validates notification route request.
-// Validate 验证通知路由请求参数。
-func (r *UpsertNotificationRouteRequest) Validate() error {
-	if r == nil {
-		return fmt.Errorf("empty request")
-	}
-	if strings.TrimSpace(r.Name) == "" {
-		return fmt.Errorf("name is required")
-	}
-	if r.ChannelID == 0 {
-		return fmt.Errorf("channel_id is required")
-	}
-	if r.SourceType != "" {
-		switch AlertSourceType(strings.TrimSpace(r.SourceType)) {
-		case AlertSourceTypePlatformHealth, AlertSourceTypeMetric, AlertSourceTypeJob:
-		default:
-			return fmt.Errorf("invalid source_type")
-		}
-	}
-	if r.Severity != "" {
-		switch AlertSeverity(strings.TrimSpace(r.Severity)) {
-		case AlertSeverityWarning, AlertSeverityCritical:
-		default:
-			return fmt.Errorf("invalid severity")
-		}
-	}
-	return nil
 }
 
 // UpsertNotificationChannelRequest represents create/update channel payload.

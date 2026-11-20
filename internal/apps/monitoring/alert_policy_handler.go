@@ -204,8 +204,7 @@ func getAlertPolicyStatusCode(err error) int {
 		return http.StatusOK
 	case errors.Is(err, ErrAlertPolicyNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrAlertPolicyLegacyBridgeConflict),
-		errors.Is(err, ErrAlertPolicySyncJobConflict):
+	case errors.Is(err, ErrAlertPolicySyncJobConflict):
 		return http.StatusConflict
 	case errors.Is(err, ErrAlertPolicyInvalidID),
 		errors.Is(err, ErrAlertPolicyInvalidClusterScope),
@@ -214,10 +213,7 @@ func getAlertPolicyStatusCode(err error) int {
 		errors.Is(err, ErrAlertPolicyReceiverUserNotFound),
 		errors.Is(err, ErrAlertPolicyReceiverUserInactive),
 		errors.Is(err, ErrAlertPolicyReceiverUserEmailMissing),
-		errors.Is(err, ErrAlertPolicyUnsupportedTemplate),
-		errors.Is(err, ErrAlertPolicyTemplateTypeMismatch),
-		errors.Is(err, ErrAlertPolicyLegacyBridgeRequiresClusterScope),
-		errors.Is(err, ErrAlertPolicyLegacyRuleUnsupported),
+		errors.Is(err, ErrAlertPolicyUseClusterRules),
 		errors.Is(err, ErrAlertPolicySyncJobTaskRequired),
 		errors.Is(err, ErrAlertPolicySyncJobInvalidRule),
 		errors.Is(err, ErrAlertPolicySyncJobInvalidCDCDelay),

@@ -150,6 +150,24 @@ function isWildcardField(value: string) {
 }
 
 const WEEKDAY_INDEX: Record<string, number> = {Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6};
+const wallClockFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function getWallClockFormatter(timeZone: string) {
+  let formatter = wallClockFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      minute: 'numeric',
+      hour: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      weekday: 'short',
+    });
+    wallClockFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
 
 /**
  * 取指定时区下的墙上时间字段；未指定时区时使用浏览器本地时区。
@@ -165,15 +183,7 @@ export function wallClock(date: Date, timeZone?: string) {
       weekday: date.getDay(),
     };
   }
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    minute: 'numeric',
-    hour: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    weekday: 'short',
-  }).formatToParts(date);
+  const parts = getWallClockFormatter(timeZone).formatToParts(date);
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
   return {
     minute: Number(get('minute')),
@@ -184,34 +194,39 @@ export function wallClock(date: Date, timeZone?: string) {
   };
 }
 
-export function matchDate(parsed: ReturnType<typeof parseCron>, date: Date, timeZone?: string) {
-  const clock = wallClock(date, timeZone);
-  const minuteMatched = parsed.expanded.minute.includes(clock.minute);
-  const hourMatched = parsed.expanded.hour.includes(clock.hour);
+function matchDayAndMonth(
+  parsed: ReturnType<typeof parseCron>,
+  clock: ReturnType<typeof wallClock>,
+) {
   const monthMatched = parsed.expanded.month.includes(clock.month);
+  if (!monthMatched) {
+    return false;
+  }
   const domMatched = parsed.expanded.dayOfMonth.includes(clock.day);
   const dowMatched = parsed.expanded.dayOfWeek.includes(clock.weekday);
-
   const domWildcard = isWildcardField(parsed.fields.dayOfMonth);
   const dowWildcard = isWildcardField(parsed.fields.dayOfWeek);
 
-  let dayMatched = false;
-  if (domWildcard && dowWildcard) {
-    dayMatched = true;
-  } else if (domWildcard) {
-    dayMatched = dowMatched;
-  } else if (dowWildcard) {
-    dayMatched = domMatched;
-  } else {
-    dayMatched = domMatched || dowMatched;
-  }
+  if (domWildcard && dowWildcard) return true;
+  if (domWildcard) return dowMatched;
+  if (dowWildcard) return domMatched;
+  return domMatched || dowMatched;
+}
 
-  return minuteMatched && hourMatched && monthMatched && dayMatched;
+export function matchDate(parsed: ReturnType<typeof parseCron>, date: Date, timeZone?: string) {
+  const clock = wallClock(date, timeZone);
+  return (
+    parsed.expanded.minute.includes(clock.minute) &&
+    parsed.expanded.hour.includes(clock.hour) &&
+    matchDayAndMonth(parsed, clock)
+  );
 }
 
 /**
  * 计算下几次触发时间；timeZone 为任务时区（与后端调度一致），省略时使用浏览器时区。
+ * 对不匹配的日/小时采用大步长快进（预留 DST 安全缓冲），避免跨月/跨季表达式逐分钟循环卡死主线程。
  * Next fire times; timeZone is the task timezone (matching the backend scheduler), browser-local when omitted.
+ * Fast-forwards across non-matching days/hours with DST-safe buffers so sparse expressions stay instant.
  */
 export function getNextRuns(expr: string, count = 5, from = new Date(), timeZone?: string) {
   const parsed = parseCron(expr);
@@ -223,11 +238,22 @@ export function getNextRuns(expr: string, count = 5, from = new Date(), timeZone
   const maxAttempts = 60 * 24 * 366;
 
   while (results.length < count && attempts < maxAttempts) {
-    if (matchDate(parsed, cursor, timeZone)) {
+    const clock = wallClock(cursor, timeZone);
+    let stepMinutes = 1;
+
+    if (!matchDayAndMonth(parsed, clock)) {
+      // 保留 90 分钟跨日缓冲，兼容任意夏令时跳变且不会跳过次日 00:00。
+      // Keep a 90-minute midnight buffer so any DST shift still lands before next day's 00:00.
+      const remainingInDay = (23 - clock.hour) * 60 + (60 - clock.minute);
+      stepMinutes = remainingInDay > 120 ? remainingInDay - 90 : 1;
+    } else if (!parsed.expanded.hour.includes(clock.hour)) {
+      stepMinutes = 60 - clock.minute > 35 ? 30 : 1;
+    } else if (parsed.expanded.minute.includes(clock.minute)) {
       results.push(new Date(cursor));
     }
-    cursor.setTime(cursor.getTime() + 60000);
-    attempts += 1;
+
+    cursor.setTime(cursor.getTime() + stepMinutes * 60000);
+    attempts += stepMinutes;
   }
 
   return results;

@@ -48,7 +48,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {Checkbox} from '@/components/ui/checkbox';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {
   RefreshCw,
   Search,
@@ -119,7 +119,7 @@ import {
 import {DropdownMenuItem} from '@/components/ui/dropdown-menu';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {
-  MarketplaceListToolbar,
+  MarketplaceViewToggle,
   MarketplaceMorphCatalog,
   runWithConcurrency,
   useMarketplaceViewMode,
@@ -2301,18 +2301,36 @@ export function PluginMain() {
               {t('common.clearFilters')}
             </Button>
           )}
+
+          {/* 列表计数与表格/卡片切换收进过滤栏右端，不再单列一行工具栏。
+              List count and the table/card toggle live at the end of the
+              filter row instead of a standalone toolbar row. */}
+          <div className='ml-auto flex items-center gap-2.5'>
+            {activeTab !== 'custom' ? (
+              <span className='text-xs text-muted-foreground'>
+                {t('marketplaceUi.itemCount', {
+                  count:
+                    activeTab === 'available'
+                      ? filteredAvailablePlugins.length
+                      : getFilteredLocalPlugins().length,
+                })}
+              </span>
+            ) : null}
+            <MarketplaceViewToggle
+              viewMode={
+                activeTab === 'local' ? localViewMode : availableViewMode
+              }
+              onViewModeChange={
+                activeTab === 'local' ? setLocalViewMode : setAvailableViewMode
+              }
+            />
+          </div>
         </div>
 
         {/* 内容展示区 / Content display area */}
         <CardContent className='space-y-4 p-4'>
           {activeTab === 'available' && (
             <>
-              <MarketplaceListToolbar
-                title={t('marketplaceUi.listAvailable')}
-                count={filteredAvailablePlugins.length}
-                viewMode={availableViewMode}
-                onViewModeChange={setAvailableViewMode}
-              />
               <PluginGrid
                 plugins={filteredAvailablePlugins}
                 loading={loading}
@@ -2382,12 +2400,6 @@ export function PluginMain() {
 
           {activeTab === 'local' && (
             <>
-              <MarketplaceListToolbar
-                title={t('marketplaceUi.listLocal')}
-                count={getFilteredLocalPlugins().length}
-                viewMode={localViewMode}
-                onViewModeChange={setLocalViewMode}
-              />
               <MarketplaceMorphCatalog
                 items={localCatalogItems}
                 viewMode={localViewMode}
@@ -2490,12 +2502,6 @@ export function PluginMain() {
 
           {activeTab === 'custom' && (
             <div className='space-y-4'>
-              <MarketplaceListToolbar
-                title={t('marketplaceUi.listCustom')}
-                count={0}
-                viewMode={availableViewMode}
-                onViewModeChange={setAvailableViewMode}
-              />
               <div className='rounded-xl border border-dashed border-border/60 py-12 text-center'>
                 <Upload className='mx-auto mb-4 size-12 text-muted-foreground opacity-60' />
                 <p className='text-sm text-muted-foreground'>

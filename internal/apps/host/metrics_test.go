@@ -108,6 +108,53 @@ func TestWriteHostMetricsRoundTripAndStale(t *testing.T) {
 	}
 }
 
+// TestWriteHostMetricsAgentPrefixAndReservedLabels 锁定白名单契约：stx_agent_* 放行、
+// 非法前缀拒绝、保留身份标签不可被样本维度覆盖。
+// TestWriteHostMetricsAgentPrefixAndReservedLabels locks the whitelist contract:
+// stx_agent_* is admitted, foreign prefixes are rejected, and reserved identity
+// labels cannot be overridden by sample dimensions.
+func TestWriteHostMetricsAgentPrefixAndReservedLabels(t *testing.T) {
+	if err := embedts.Start(context.Background(), embedts.Options{Dir: t.TempDir()}); err != nil {
+		t.Fatalf("start embedded tsdb: %v", err)
+	}
+	t.Cleanup(func() {
+		hostTrackers.Delete(uint(9))
+		_ = embedts.Close()
+	})
+	ctx := context.Background()
+
+	written, err := WriteHostMetrics(ctx, 9, "agent-host", "10.0.0.2:7001", []HostMetricSample{
+		{Name: "stx_agent_process_resident_memory_bytes", Value: 12345},
+		{Name: "stx_agent_build_info", Labels: map[string]string{"version": "1.0.0"}, Value: 1},
+		{Name: "stx_evil_metric", Value: 1}, // 非法前缀 → 丢弃 / foreign prefix → dropped
+		{Name: "stx_agent_commands_total", Labels: map[string]string{
+			"type": "INSTALL", "result": "success",
+			"job": "injected", "host_id": "999", // 保留标签注入被忽略 / reserved-label injection ignored
+		}, Value: 7},
+	})
+	if err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if written != 3 {
+		t.Fatalf("written = %d want 3", written)
+	}
+
+	at := time.Now().Add(30 * time.Second)
+	if vec := instantVector(t, `stx_agent_process_resident_memory_bytes{host_id="9"}`, at); len(vec) != 1 || vec[0].F != 12345 {
+		t.Fatalf("agent rss = %+v", vec)
+	}
+	vec := instantVector(t, `stx_agent_commands_total{host_id="9"}`, at)
+	if len(vec) != 1 {
+		t.Fatalf("commands = %+v", vec)
+	}
+	if vec[0].Metric.Get("job") != "stx_host" || vec[0].Metric.Get("type") != "INSTALL" {
+		t.Fatalf("reserved label injection leaked: %+v", vec[0].Metric)
+	}
+	if vec := instantVector(t, `stx_agent_commands_total{host_id="999"}`, at); len(vec) != 0 {
+		t.Fatalf("host_id override leaked: %+v", vec)
+	}
+}
+
 func TestWriteHostMetricsNoStore(t *testing.T) {
 	_ = embedts.Close()
 	written, err := WriteHostMetrics(context.Background(), 1, "h", "h:1", []HostMetricSample{{Name: "stx_host_load1", Value: 1}})

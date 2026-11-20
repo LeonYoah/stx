@@ -17,7 +17,6 @@
 
 import {readdirSync, readFileSync} from 'node:fs';
 import path from 'node:path';
-import {fileURLToPath} from 'node:url';
 import ts from 'typescript';
 import {describe, expect, it} from 'vitest';
 import {createTranslator} from 'next-intl';
@@ -31,6 +30,9 @@ const ignoredDirectories = new Set([
   'e2e',
   'node_modules',
   '__tests__',
+  // 仅 Storybook 使用的原型代码，文案放在原型目录内，不进生产语言包。
+  // Storybook-only prototype code keeps its messages beside itself, not in production locales.
+  'prototype',
 ]);
 
 type MessageTree = Record<string, unknown>;

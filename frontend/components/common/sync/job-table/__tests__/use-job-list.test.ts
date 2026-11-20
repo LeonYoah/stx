@@ -89,27 +89,14 @@ describe('resolveJobListSort / buildJobListParams', () => {
     ).toBe('cdc_delay');
   });
 
-  it('maps the task scope run-type filter onto run_type / exclude_run_type', () => {
-    const all = buildJobListParams({kind: 'task', taskId: 9}, query(), 20);
-    expect(all.task_id).toBe(9);
-    expect(all.exclude_run_type).toBeUndefined();
-    expect(all.run_type).toBeUndefined();
-    const formal = buildJobListParams(
-      {kind: 'task', taskId: 9},
-      query({runType: 'formal'}),
-      20,
-    );
-    expect(formal.exclude_run_type).toBe('preview');
-    const preview = buildJobListParams(
-      {kind: 'task', taskId: 9},
-      query({runType: 'preview'}),
-      20,
-    );
-    expect(preview.run_type).toBe('preview');
-    expect(preview.exclude_run_type).toBeUndefined();
-    // global 预设恒排除预览运行。/ The global scope always excludes preview runs.
+  it('sends no run-type params for either scope: preview and formal runs are merged', () => {
+    const task = buildJobListParams({kind: 'task', taskId: 9}, query(), 20);
+    expect(task.task_id).toBe(9);
+    expect(task.exclude_run_type).toBeUndefined();
+    expect(task.run_type).toBeUndefined();
     const global = buildJobListParams({kind: 'all'}, query(), 20);
-    expect(global.exclude_run_type).toBe('preview');
+    expect(global.exclude_run_type).toBeUndefined();
+    expect(global.run_type).toBeUndefined();
     expect(global.task_id).toBeUndefined();
   });
 });

@@ -20,7 +20,7 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTheme} from 'next-themes';
 import {useTranslations} from 'next-intl';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -119,9 +119,6 @@ export function JobListTab({
         query.mode === 'streaming' || query.mode === 'batch'
           ? query.mode
           : '',
-      // global 预设固定排除预览运行，不暴露运行类型筛选。
-      // The global preset always excludes preview runs; no run-type filter.
-      runType: 'all',
       keyword: query.q,
       clusterId: query.clusterId,
       sort: VALID_SORTS.includes(query.sort)

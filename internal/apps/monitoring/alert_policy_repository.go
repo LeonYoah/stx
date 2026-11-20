@@ -36,48 +36,11 @@ func (r *Repository) ListAlertPolicies(ctx context.Context) ([]*AlertPolicy, err
 	return policies, nil
 }
 
-// ListEnabledAlertPoliciesByClusterAndLegacyRuleKey returns enabled policies for one cluster/rule pair.
-// ListEnabledAlertPoliciesByClusterAndLegacyRuleKey 返回指定集群和旧规则键下已启用的统一策略。
-func (r *Repository) ListEnabledAlertPoliciesByClusterAndLegacyRuleKey(ctx context.Context, clusterID string, legacyRuleKey string) ([]*AlertPolicy, error) {
-	var policies []*AlertPolicy
-	if err := r.db.WithContext(ctx).
-		Where(
-			"cluster_id = ? AND enabled = ? AND (legacy_rule_key = ? OR ((legacy_rule_key = '' OR legacy_rule_key IS NULL) AND template_key = ?))",
-			clusterID,
-			true,
-			legacyRuleKey,
-			legacyRuleKey,
-		).
-		Order("updated_at DESC").
-		Order("id DESC").
-		Find(&policies).Error; err != nil {
-		return nil, err
-	}
-	return policies, nil
-}
-
 // GetAlertPolicyByID returns one alert policy by ID.
 // GetAlertPolicyByID 根据 ID 返回统一告警策略。
 func (r *Repository) GetAlertPolicyByID(ctx context.Context, id uint) (*AlertPolicy, error) {
 	var policy AlertPolicy
 	if err := r.db.WithContext(ctx).First(&policy, id).Error; err != nil {
-		return nil, err
-	}
-	return &policy, nil
-}
-
-// GetAlertPolicyByClusterAndLegacyRuleKey returns one alert policy by cluster scope and legacy rule key.
-// GetAlertPolicyByClusterAndLegacyRuleKey 根据集群范围和旧规则键返回统一告警策略。
-func (r *Repository) GetAlertPolicyByClusterAndLegacyRuleKey(ctx context.Context, clusterID string, legacyRuleKey string) (*AlertPolicy, error) {
-	var policy AlertPolicy
-	if err := r.db.WithContext(ctx).
-		Where(
-			"cluster_id = ? AND (legacy_rule_key = ? OR ((legacy_rule_key = '' OR legacy_rule_key IS NULL) AND template_key = ?))",
-			clusterID,
-			legacyRuleKey,
-			legacyRuleKey,
-		).
-		First(&policy).Error; err != nil {
 		return nil, err
 	}
 	return &policy, nil

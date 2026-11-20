@@ -37,7 +37,7 @@ import {
   Unplug,
   Upload,
 } from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 
 import {DolphinPushDialog} from '@/components/common/sync/DolphinPushDialog';
 import {SyncService} from '@/lib/services/sync/sync.service';

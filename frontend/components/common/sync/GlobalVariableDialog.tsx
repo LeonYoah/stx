@@ -22,7 +22,7 @@
 
 import React, {useState, useEffect} from 'react';
 import {useTranslations} from 'next-intl';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {FileText, Lock} from 'lucide-react';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {

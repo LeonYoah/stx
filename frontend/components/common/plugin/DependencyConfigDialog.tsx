@@ -34,7 +34,7 @@ import {
 import {Badge} from '@/components/ui/badge';
 import {FileUpload} from '@/components/ui/file-upload';
 import {HelpHint} from '@/components/common/HelpHint';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {FileCode, Package, Plus, RefreshCw, Trash2, Upload} from 'lucide-react';
 import {PluginService} from '@/lib/services/plugin';
 import type {PluginDependencyConfig} from '@/lib/services/plugin';

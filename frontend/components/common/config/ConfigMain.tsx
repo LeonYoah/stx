@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { RefreshCw, Settings, FileText, Server, Check, AlertTriangle } from 'lucide-react';
 import {WorkspaceHeader} from '@/components/common/layout';
 import { motion } from 'motion/react';

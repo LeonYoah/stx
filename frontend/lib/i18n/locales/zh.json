@@ -5580,6 +5580,7 @@
     "jobEvents": {
       "open": "事件时间线",
       "title": "作业 #{id} 事件时间线",
+      "feedLabel": "作业事件",
       "empty": "还没有收到引擎事件。请确认集群已开启事件上报并完成滚动重启。",
       "delayValue": "延迟 {value}",
       "lifecycleGroup": "{count} 条生命周期事件（点击展开）",
@@ -6240,6 +6241,8 @@
     "firingNone": "无告警",
     "restoreDefault": "恢复默认",
     "selected": "已选 {count} 条",
+    "selectAlert": "选择 {name}",
+    "batchResult": "完成 {ok} 条，失败 {failed} 条，跳过 {skipped} 条",
     "batchEnable": "批量启用",
     "batchDisable": "批量禁用",
     "batchClear": "清除",

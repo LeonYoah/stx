@@ -99,7 +99,6 @@
     "react-use-measure": "^2.1.7",
     "recharts": "^2.15.3",
     "remark-gfm": "^4.0.1",
-    "sonner": "^2.0.4",
     "tailwind-merge": "^3.3.0",
     "vaul": "^1.1.2",
     "zod": "^3.25.45"

@@ -24,7 +24,7 @@ import {Button} from '@/components/ui/button';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {useVirtualizer} from '@tanstack/react-virtual';
 
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 
 interface TagSelectorProps extends React.HTMLAttributes<HTMLDivElement> {

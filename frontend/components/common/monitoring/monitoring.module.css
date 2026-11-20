@@ -249,7 +249,7 @@
   --cols: minmax(0, 1.5fr) 96px minmax(0, 1.2fr) 96px 64px;
 }
 .listCol[data-mcols='alerts'] :is(.row, .rowHead) {
-  --cols: 110px minmax(0, 1.6fr) 84px 88px minmax(0, 1fr) 96px 148px;
+  --cols: 24px 110px minmax(0, 1.6fr) 84px 88px minmax(0, 1fr) 96px 148px;
 }
 /* 投递记录：告警 / 渠道 / 事件 / 状态 / 尝试 / 响应 / 时间 / 错误。
    Deliveries: alert / channel / event / status / attempts / response / time / error. */
@@ -1009,55 +1009,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
-}
-
-/* 时间线。Timeline. */
-.timeline {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin: 0;
-  padding: 0 0 0 20px;
-  list-style: none;
-  border-left: 1px solid var(--border-subtle);
-}
-
-.tlItem {
-  position: relative;
-  font-size: var(--text-sm);
-}
-
-.tlDot {
-  position: absolute;
-  left: -23px;
-  top: 5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 10px;
-  height: 10px;
-  border-radius: var(--radius-pill);
-  background: var(--surface);
-}
-
-.tlDotInner {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-pill);
-}
-
-.tlHead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.tlNote {
-  margin-top: 2px;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
 }
 
 /* 投递记录等小行列表。Compact line items (deliveries etc.). */

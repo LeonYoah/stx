@@ -192,10 +192,9 @@ func Interpret(configured string, success bool, output string) *Result {
 // SeaTunnel 3.1.0 hard-requires JDK 11+ (class major 55 plus mandatory --add-opens launcher
 // flags, so a JDK 8 launcher always fails); earlier targets still run on JDK 8.
 func MinSupportedMajor(targetVersion string) int {
-	if seatunnel.CompareVersions(targetVersion, "3.1.0") >= 0 {
-		return 11
-	}
-	return 8
+	// 唯一事实来源在 seatunnel.JavaRequirementForVersion，避免两份版本规则漂移。
+	// seatunnel.JavaRequirementForVersion is the single source of truth; keep one copy of the version rules.
+	return seatunnel.JavaRequirementForVersion(targetVersion).MinSupported
 }
 
 // StatusForTarget 按目标 SeaTunnel 版本评估已探测到的 JDK 主版本号：

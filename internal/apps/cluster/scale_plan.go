@@ -32,6 +32,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/javaruntime"
 	"github.com/LeonYoah/stx/internal/clustermembers"
 	"github.com/LeonYoah/stx/internal/processidentity"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 	"gopkg.in/yaml.v3"
 )
 
@@ -834,9 +835,9 @@ func (s *ScaleService) addInstallChecks(ctx context.Context, plan *ScalePlan, cl
 	}
 
 	if desired.JavaHome != "" {
-		plan.addCheck(s.customJavaCheck(ctx, host, desired.JavaHome, lang))
+		plan.addCheck(s.customJavaCheck(ctx, host, desired.JavaHome, cluster.Version, lang))
 	} else {
-		plan.addCheck(s.detectedJavaCheck(ctx, host, lang))
+		plan.addCheck(s.detectedJavaCheck(ctx, host, cluster.Version, lang))
 	}
 
 	for _, port := range scaleListenPorts(desired) {
@@ -881,9 +882,11 @@ func (s *ScaleService) addInstallChecks(ctx context.Context, plan *ScalePlan, cl
 	plan.addCheck(diskCheck)
 }
 
-// detectedJavaCheck 未指定 JDK 时的原有 Java 预检（AC6：行为不变）。
-// detectedJavaCheck is the original Java precheck without a specified JDK (AC6: unchanged behavior).
-func (s *ScaleService) detectedJavaCheck(ctx context.Context, host *HostInfo, lang string) ScaleCheck {
+// detectedJavaCheck 未指定 JDK 时的 Java 预检：沿用"有可用 Java 即通过"（AC6），仅新增低于集群版本
+// 最低 JDK 时阻断（3.1.0 集群跑 Java 8 必然起不来）。
+// detectedJavaCheck is the Java precheck without a specified JDK: it keeps "any usable Java passes" (AC6)
+// and only adds a block for a JDK below the cluster version's minimum (Java 8 cannot start a 3.1.0 cluster).
+func (s *ScaleService) detectedJavaCheck(ctx context.Context, host *HostInfo, clusterVersion, lang string) ScaleCheck {
 	javaCheck := ScaleCheck{Name: "java", Blocking: true}
 	success, output, err := s.svc.agentSender.SendCommand(ctx, host.AgentID, "check_java", map[string]string{})
 	message := parseCommandMessage(output)
@@ -895,21 +898,33 @@ func (s *ScaleService) detectedJavaCheck(ctx context.Context, host *HostInfo, la
 		javaCheck.Message = scaleText(lang, "未检测到可用的 Java（STX 不负责安装 JDK）："+message, "no usable Java found (STX does not install a JDK): "+message)
 		return javaCheck
 	}
-	javaCheck.Status = ScaleCheckPassed
-	javaCheck.Message = message
-	// 只回传探测到的 JDK 目录供前端预填（AC1b），判定保持不变（AC6）。
-	// Only report the detected JDK directory for frontend prefill (AC1b); the verdict is unchanged (AC6).
-	if rt := javaruntime.Interpret("", success, output); rt.Source == javaruntime.SourceDetected && rt.JavaHome != "" {
+	rt := javaruntime.Interpret("", success, output)
+	// 只回传探测到的 JDK 目录供前端预填（AC1b）。
+	// Only report the detected JDK directory for frontend prefill (AC1b).
+	if rt.Source == javaruntime.SourceDetected && rt.JavaHome != "" {
 		javaCheck.Target = rt.JavaHome
 	}
+	// 判定沿用"有可用 Java 即通过"（AC6），唯一新增是低于集群版本最低 JDK（如 3.1.0 集群跑 Java 8）时阻断。
+	// The verdict stays "any usable Java passes" (AC6); the only addition is blocking a JDK below the cluster
+	// version's minimum (e.g. Java 8 on a 3.1.0 cluster).
+	if javaruntime.StatusForTarget(rt.Version, clusterVersion) == javaruntime.StatusFailed {
+		javaCheck.Status = ScaleCheckFailed
+		javaCheck.Message = scaleText(lang,
+			fmt.Sprintf("Java %d 低于集群 SeaTunnel %s 要求的 Java %d+（STX 不负责安装 JDK）", rt.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion)),
+			fmt.Sprintf("Java %d is below the Java %d+ required by this cluster's SeaTunnel %s (STX does not install a JDK)", rt.Version, javaruntime.MinSupportedMajor(clusterVersion), clusterVersion))
+		return javaCheck
+	}
+	javaCheck.Status = ScaleCheckPassed
+	javaCheck.Message = message
 	return javaCheck
 }
 
-// customJavaCheck 检查新节点指定的 JDK：只检查 <java_home>/bin/java；路径缺失或不可执行阻断并带上路径与原因，
-// 8 或 11 通过，其他版本警告（AC2/AC3）。
+// customJavaCheck 检查新节点指定的 JDK：只检查 <java_home>/bin/java；路径缺失或不可执行阻断并带上路径与原因；
+// 判定按集群 SeaTunnel 版本分档：低于最低要求阻断（3.1.0 起 Java 8 不可用）、推荐版本通过、其余警告（AC2/AC3）。
 // customJavaCheck checks the new node's specified JDK: only <java_home>/bin/java is checked; a missing path or a
-// non-executable binary blocks with the path and reason, 8 or 11 pass and other versions warn (AC2/AC3).
-func (s *ScaleService) customJavaCheck(ctx context.Context, host *HostInfo, javaHome string, lang string) ScaleCheck {
+// non-executable binary blocks with the path and reason. The verdict follows the cluster's SeaTunnel version:
+// below minimum blocks (Java 8 is unusable from 3.1.0), recommended versions pass, others warn (AC2/AC3).
+func (s *ScaleService) customJavaCheck(ctx context.Context, host *HostInfo, javaHome, clusterVersion, lang string) ScaleCheck {
 	check := ScaleCheck{Name: "java", Blocking: true, Target: javaHome}
 	nodeName := hostLabel(host, 0)
 	success, output, err := s.svc.agentSender.SendCommand(ctx, host.AgentID, "check_java", javaruntime.CheckParams(javaHome))
@@ -924,19 +939,33 @@ func (s *ScaleService) customJavaCheck(ctx context.Context, host *HostInfo, java
 	if rt.JavaBin != "" {
 		check.Target = rt.JavaBin
 	}
-	switch rt.Status {
+	// 判定按集群 SeaTunnel 版本分档：Agent 失败沿用失败；其余按目标版本矩阵（3.1.0 起 Java 8 不再通过）。
+	// The verdict tiers with the cluster's SeaTunnel version: an Agent failure stays failed; everything else
+	// follows the target-version matrix (Java 8 no longer passes on 3.1.0).
+	verdict := javaruntime.StatusForTarget(rt.Version, clusterVersion)
+	if rt.Status == javaruntime.StatusFailed {
+		verdict = javaruntime.StatusFailed
+	}
+	switch verdict {
 	case javaruntime.StatusPassed:
 		check.Status = ScaleCheckPassed
 		check.Message = scaleText(lang,
 			fmt.Sprintf("使用 JDK %s，Java %d（%s）", rt.JavaBin, rt.Version, rt.VersionString),
 			fmt.Sprintf("uses JDK %s, Java %d (%s)", rt.JavaBin, rt.Version, rt.VersionString))
 	case javaruntime.StatusWarning:
+		recommended := seatunnel.JavaRequirementForVersion(clusterVersion)
 		check.Status = ScaleCheckWarning
 		check.Message = scaleText(lang,
-			fmt.Sprintf("使用 JDK %s，Java %d（%s），推荐 8 或 11", rt.JavaBin, rt.Version, rt.VersionString),
-			fmt.Sprintf("uses JDK %s, Java %d (%s); Java 8 or 11 is recommended", rt.JavaBin, rt.Version, rt.VersionString))
+			fmt.Sprintf("使用 JDK %s，Java %d（%s），推荐 %s", rt.JavaBin, rt.Version, rt.VersionString, recommended.RecommendedText(" 或 ")),
+			fmt.Sprintf("uses JDK %s, Java %d (%s); Java %s is recommended", rt.JavaBin, rt.Version, rt.VersionString, recommended.RecommendedText(" or ")))
 	default:
 		check.Status = ScaleCheckFailed
+		if rt.Version > 0 && rt.Version < javaruntime.MinSupportedMajor(clusterVersion) {
+			check.Message = scaleText(lang,
+				fmt.Sprintf("节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+", nodeName, rt.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion)),
+				fmt.Sprintf("Java %d on node %s is below the Java %d+ required by SeaTunnel %s", rt.Version, nodeName, javaruntime.MinSupportedMajor(clusterVersion), clusterVersion))
+			break
+		}
 		reason := firstNonEmpty(rt.Message, rt.Reason)
 		check.Message = scaleText(lang,
 			fmt.Sprintf("节点 %s 的 JDK 不可用（%s）：%s", nodeName, firstNonEmpty(rt.JavaBin, javaHome), reason),
@@ -976,7 +1005,7 @@ func (s *ScaleService) addRegisterChecks(ctx context.Context, plan *ScalePlan, c
 	// 纳管模式只有指定了 JDK 时才检查 Java；未指定时与原来一致（AC6）。
 	// Register mode only checks Java when a JDK is specified; otherwise it is unchanged (AC6).
 	if desired.JavaHome != "" {
-		plan.addCheck(s.customJavaCheck(ctx, host, desired.JavaHome, lang))
+		plan.addCheck(s.customJavaCheck(ctx, host, desired.JavaHome, cluster.Version, lang))
 	}
 	portCheck := ScaleCheck{Name: "port_listening", Blocking: true, Target: strconv.Itoa(desired.HazelcastPort)}
 	if listening, _, err := s.runAgentCheck(ctx, host.AgentID, "check_port", map[string]string{"port": strconv.Itoa(desired.HazelcastPort)}); err != nil || !listening {

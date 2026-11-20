@@ -109,3 +109,4 @@ E2 跨层实现完成：内嵌 tsdb 最早样本探测、日 / 月桶 increase �
 - 评审反馈修正：外部作业「外部」来源徽标与「外部提交」runMode 徽标同义，列表行只保留来源徽标（`getRunModeLabel` 对 source=external 恒返回外部提交）— `23c50e956`
 - 作业表耗时格式化：`TimelineCell` 精确到天/时/分/秒动态出现（`<1分` 改 `42 秒`），`jobTable.units` 补 `s`；大盘作业列表与工作台任务列表共用生效 — `61a6103f0`
 - 作业列表排序菜单（方案 A，GitHub/Linear 式）：`sort` 扩 `finished_at`（NULL 恒垫底）与 `duration`（方言表达式：MySQL `TIMESTAMPDIFF` / PG `EXTRACT(EPOCH)` / SQLite `julianday`，未结束按 now、`started_at` 缺失回退 `created_at`）；新增通用 `SortMenu`（`components/common/SortMenu.tsx`，radio 项 = sort+order 组合，禁用项保留附原因）接入 `JobTableToolbar` 两个预设；swagger 注解 / registry_sync / spec / docs 三件套同步；CLI `--sort` 为透传 flag 免改
+- 排序交互迭代：PR169 squash 合入时点早于后续推送，新开 `feat/job-sort-column-menu` 补合 6 个遗漏提交（`79d5ed9f0`）；评审从方案 A（工具栏下拉）先改列头内嵌 caret 菜单（`708130ef1`），最终按偏好定为工具栏独立「排序」按钮——复用监控规则面板同款 Arc `DropdownMenu`（图标+标签胶囊触发器、当前项 ✓ + 等宽占位、滑动高亮），删除通用 `SortMenu` 组件，列头点按排序保留为快捷路径（`88f7781ec`，PR #176）

@@ -105,6 +105,37 @@ export function jobDurationSeconds(
 }
 
 /**
+ * 作业耗时精确格式：天 / 小时 / 分 / 秒按量级动态出现（不足一级不显示），非首位单位补零
+ * 让运行中的耗时跳动时位数稳定。与 formatDurationSeconds 的紧凑两级取舍不同——耗时是给用户
+ * 判断快慢的精确数字，不用「<1 分」这种近似。
+ * Precise job duration: day / hour / minute / second segments appear as the magnitude requires
+ * (smaller leading units are omitted), non-leading segments zero-padded so the ticking duration
+ * of a running job keeps a stable width. Unlike formatDurationSeconds' compact two-tier output,
+ * a job's elapsed time needs exact numbers rather than "<1m".
+ */
+export function formatJobDurationSeconds(
+  seconds: number,
+  units: {d: string; h: string; m: string; s: string},
+): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  const pad = (v: number) => String(v).padStart(2, '0');
+  if (days > 0) {
+    return `${days}${units.d} ${pad(hours)}${units.h} ${pad(minutes)}${units.m} ${pad(secs)}${units.s}`;
+  }
+  if (hours > 0) {
+    return `${hours}${units.h} ${pad(minutes)}${units.m} ${pad(secs)}${units.s}`;
+  }
+  if (minutes > 0) {
+    return `${minutes}${units.m} ${pad(secs)}${units.s}`;
+  }
+  return `${secs}${units.s}`;
+}
+
+/**
  * 列表的读 / 写速率：运行中用对账快照里的当前速率；已结束用运行期间的平均速率（累计条数 ÷ 耗时秒数），
  * average=true 时界面加「均」并用浅色，避免和实时速率混淆。耗时未知时不估算。
  * Read / write rates for the list: running jobs use the current rate from the reconcile snapshot; finished jobs use the

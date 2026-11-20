@@ -2541,6 +2541,20 @@ export function isCancelOverdue(job?: SyncJobInstance | null): boolean {
   return job?.cancel_overdue === true;
 }
 
+/**
+ * 停止请求越过截止时间后引擎仍报运行：对账已把作业回退为运行中并标记 reverted，提示可重新停止。
+ * 仅在作业仍活跃时展示；作业终态或重新发起停止（后端会清掉 cancel_outcome）后不再提示。
+ * The stop passed its deadline while the engine still reported the job live: reconciliation reverted
+ * the job to running with cancel_outcome=reverted, meaning the stop can be issued again. Only shown
+ * while the job is active — a terminal job or a fresh stop (which clears cancel_outcome) ends the hint.
+ */
+export function isCancelReverted(job?: SyncJobInstance | null): boolean {
+  return (
+    String(job?.result_preview?.cancel_outcome || '') === 'reverted' &&
+    isJobLifecycleActive(getDisplayJobLifecycleStatus(job ?? null))
+  );
+}
+
 /** 停止超时时长（分钟），用于提示文案 / The stop timeout in minutes, for hint text. */
 export function getCancelTimeoutMinutes(job?: SyncJobInstance | null): number {
   const seconds = Number(job?.result_preview?.cancel_timeout_seconds || 0);

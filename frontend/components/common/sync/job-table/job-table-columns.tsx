@@ -22,14 +22,13 @@ import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {mergeIdsIntoSelection} from '@/components/common/layout';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Sparkline} from '@/components/charts/sparkline';
-import type {SyncJobInstance} from '@/lib/services/sync';
+import type {SyncJobInstance, SyncJobListSort} from '@/lib/services/sync';
 import {
   formatDateTimeMinuteTz,
   formatDateTimeTz,
   formatTimeTz,
 } from '@/lib/timezone';
 import {cn} from '@/lib/utils';
-import {formatDurationSeconds} from '../../dashboard/dashboard-format';
 import {JobOutcomeHints} from '../JobOutcomeHints';
 import {
   formatJobDateTime,
@@ -42,6 +41,7 @@ import {
 } from '../sync-studio-utils';
 import {JobRowActions} from './JobRowActions';
 import {
+  formatJobDurationSeconds,
   formatRatePair,
   formatTotalPair,
   isRunningStatus,
@@ -54,6 +54,13 @@ import {
 import type {JobColumnDef, JobTableContext} from './types';
 
 type CellProps = {job: SyncJobInstance; ctx: JobTableContext};
+
+/** 时间列承载的排序维度；工具栏「排序」菜单复用同一份清单。/ Sort dimensions hosted by the time column; the toolbar sort menu reuses this list. */
+export const TIME_SORT_KEYS = [
+  'started_at',
+  'finished_at',
+  'duration',
+] as const satisfies readonly SyncJobListSort[];
 
 /** 全选复选框（仅当前页）：merge 语义，不丢其他页的勾选。/ Select-all checkbox scoped to the current page; merge semantics keep picks made on other pages. */
 function SelectAllHeader({ctx}: {ctx: JobTableContext}) {
@@ -137,6 +144,10 @@ function JobNameCell({job, ctx}: CellProps) {
   }
   const name = jobDisplayName(job);
   const engineRef = job.engine_job_id ? ` · ${job.engine_job_id}` : '';
+  // 外部作业 task_id 恒为 0，「任务 #0」没有引用价值，悬浮提示只留作业与引擎 ID。
+  // External jobs always have task_id 0, so "Task #0" is noise — keep only job and engine IDs in the title.
+  const taskRef =
+    job.task_id > 0 ? ctx.t('taskRef', {id: job.task_id}) : `#${job.id}`;
   return (
     <div className='flex min-w-0 max-w-[280px] flex-col'>
       <span className='truncate font-medium text-foreground' title={name}>
@@ -144,7 +155,7 @@ function JobNameCell({job, ctx}: CellProps) {
       </span>
       <span
         className='truncate font-mono text-[11px] text-muted-foreground'
-        title={`${ctx.t('taskRef', {id: job.task_id})}${engineRef}`}
+        title={`${taskRef}${engineRef}`}
       >
         {`#${job.id}${engineRef}`}
       </span>
@@ -158,15 +169,26 @@ function JobNameCell({job, ctx}: CellProps) {
  */
 function RunModeCell({job, ctx}: CellProps) {
   const t = ctx.t;
+  const external = job.source === 'external';
   return (
     <div className='flex items-center gap-1 whitespace-nowrap'>
       <Badge
         variant='outline'
         className='rounded-sm px-1 py-0 text-[10px]'
-        title={job.external_ref || undefined}
       >
-        {getRunModeLabel(job, t)}
+        {t(external ? 'source.external' : 'source.stx')}
       </Badge>
+      {/* 外部作业的运行方式恒为「外部提交」，与来源徽标同义，不再重复渲染。
+          External jobs always run "submitted externally", which the source badge already says — skip the duplicate. */}
+      {!external && (
+        <Badge
+          variant='outline'
+          className='rounded-sm px-1 py-0 text-[10px]'
+          title={job.external_ref || undefined}
+        >
+          {getRunModeLabel(job, t)}
+        </Badge>
+      )}
       {job.mode ? (
         <Badge
           variant='outline'
@@ -174,7 +196,11 @@ function RunModeCell({job, ctx}: CellProps) {
         >
           {t(`mode.${job.mode}`)}
         </Badge>
-      ) : null}
+      ) : (
+        // 缺 jobDag 的外部作业拿不到 mode，按设计稿显示占位符而不是留白。
+        // External jobs without jobDag have no mode; show a placeholder per the design instead of blank.
+        <span className='text-muted-foreground'>-</span>
+      )}
       {job.task_version > 0 ? (
         <span className='font-mono text-[10px] text-muted-foreground'>
           v{job.task_version}
@@ -368,9 +394,14 @@ function TimelineCell({job, ctx}: CellProps) {
   const {startMs, endMs} = jobTimeBounds(job);
   const running = isRunningStatus(job.status);
   const duration = jobDurationSeconds(job, ctx.updatedAt);
-  const units = {d: ctx.t('units.d'), h: ctx.t('units.h'), m: ctx.t('units.m')};
+  const units = {
+    d: ctx.t('units.d'),
+    h: ctx.t('units.h'),
+    m: ctx.t('units.m'),
+    s: ctx.t('units.s'),
+  };
   const durationText =
-    duration > 0 ? formatDurationSeconds(duration, units) : null;
+    duration > 0 ? formatJobDurationSeconds(duration, units) : null;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -495,6 +526,10 @@ export const JOB_COLUMNS: JobColumnDef[] = [
     id: 'timeline',
     presets: ['global', 'task'],
     sortKey: 'started_at',
+    // 维度切换走工具栏「排序」菜单；列头负责方向：命中任一维度即点亮，点按作用于当前维度。
+    // Dimension switching lives in the toolbar sort menu; the header owns direction — it
+    // lights on any matching dimension and clicking toggles the active one.
+    sortKeys: [...TIME_SORT_KEYS],
     minWidth: 120,
     header: (ctx) => ctx.t('columns.timeline'),
     cell: (job, ctx) => <TimelineCell job={job} ctx={ctx} />,
@@ -509,7 +544,9 @@ export const JOB_COLUMNS: JobColumnDef[] = [
       <JobRowActions
         job={job}
         actor={ctx.actorOf(job)}
-        showWorkbenchLink={ctx.preset === 'global'}
+        showWorkbenchLink={
+          ctx.preset === 'global' && job.source !== 'external'
+        }
         t={ctx.t}
         onOpenDetail={ctx.onOpenDetail}
         onAction={ctx.onAction}

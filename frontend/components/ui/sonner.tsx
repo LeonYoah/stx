@@ -17,48 +17,32 @@
 
 'use client';
 
-import {useTheme} from 'next-themes';
-import {Toaster as Sonner, ToasterProps} from 'sonner';
+import {useEffect} from 'react';
+import {
+  ToastStack,
+  ToastStackProvider,
+  useToastStack,
+} from '@/components/arc/toast-stack/toast-stack';
+import {bindToastBridge, unbindToastBridge} from '@/lib/toast';
 
-const Toaster = ({...props}: ToasterProps) => {
-  const {theme = 'system'} = useTheme();
+/**
+ * 把 `lib/toast` 门面绑定到 Provider 内的 stack api；卸载时解绑。
+ * Binds the `lib/toast` facade to the stack api living inside the provider.
+ */
+function ToastBridge() {
+  const api = useToastStack();
+  useEffect(() => {
+    bindToastBridge(api);
+    return () => unbindToastBridge(api);
+  }, [api]);
+  return null;
+}
 
-  return (
-    <Sonner
-      theme={theme as ToasterProps['theme']}
-      className='toaster group'
-      position='top-center'
-      toastOptions={{
-        style: {
-          background: 'var(--popover)',
-          border: '1px solid var(--border)',
-          color: 'var(--popover-foreground)',
-        },
-        className: 'group',
-        unstyled: false,
-      }}
-      style={
-        {
-          '--normal-bg': 'var(--popover)',
-          '--normal-text': 'var(--popover-foreground)',
-          '--normal-border': 'var(--border)',
-          '--success-bg': 'var(--popover)',
-          '--success-text': 'var(--popover-foreground)',
-          '--success-border': 'hsl(var(--border))',
-          '--error-bg': 'var(--popover)',
-          '--error-text': 'var(--popover-foreground)',
-          '--error-border': 'hsl(var(--border))',
-          '--warning-bg': 'var(--popover)',
-          '--warning-text': 'var(--popover-foreground)',
-          '--warning-border': 'hsl(var(--border))',
-          '--info-bg': 'var(--popover)',
-          '--info-text': 'var(--popover-foreground)',
-          '--info-border': 'hsl(var(--border))',
-        } as React.CSSProperties
-      }
-      {...props}
-    />
-  );
-};
+const Toaster = () => (
+  <ToastStackProvider>
+    <ToastBridge />
+    <ToastStack position='bottom-center' />
+  </ToastStackProvider>
+);
 
 export {Toaster};

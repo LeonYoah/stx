@@ -5579,6 +5579,7 @@
     "jobEvents": {
       "open": "Event timeline",
       "title": "Job #{id} event timeline",
+      "feedLabel": "Job events",
       "empty": "No engine events yet. Make sure event reporting is enabled for the cluster and a rolling restart was done.",
       "delayValue": "delay {value}",
       "lifecycleGroup": "{count} lifecycle events (click to expand)",
@@ -6239,6 +6240,8 @@
     "firingNone": "No alerts",
     "restoreDefault": "Restore defaults",
     "selected": "{count} selected",
+    "selectAlert": "Select {name}",
+    "batchResult": "{ok} done, {failed} failed, {skipped} skipped",
     "batchEnable": "Enable",
     "batchDisable": "Disable",
     "batchClear": "Clear",

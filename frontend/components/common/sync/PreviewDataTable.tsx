@@ -20,7 +20,7 @@
 import {useLayoutEffect, useMemo, useRef, useState, type MouseEvent} from 'react';
 import {useTranslations} from 'next-intl';
 import {Check, Copy} from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {Badge} from '@/components/ui/badge';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Table, type TableColumn} from '@/components/motion/table';

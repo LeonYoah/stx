@@ -49,17 +49,22 @@ test.describe('diagnostics inspections panel template', () => {
     await expect(
       page.getByTestId('inspection-row-1').getByText(/已完成|Completed/),
     ).toBeVisible();
-    // 状态分段不显示与服务端总数矛盾的分桶计数。
-    // The status segments show no bucket counts that could contradict the
-    // server-side total.
-    const statusSegment = page.getByRole('button', {
+    // 状态筛选是下拉：打开确认「失败」项在列，且不显示与服务端总数矛盾的
+    // 分桶计数。
+    // The status filter is a select: open it and confirm the Failed option is
+    // listed without bucket counts that could contradict the server total.
+    await page
+      .getByRole('combobox', {name: /按状态筛选|Filter by status/i})
+      .click();
+    const failedOption = page.getByRole('option', {
       name: /^失败$|^Failed$/,
     });
-    await expect(statusSegment).toBeVisible();
-    await expect(statusSegment).not.toContainText(/\d/);
+    await expect(failedOption).toBeVisible();
+    await expect(failedOption).not.toContainText(/\d/);
+    await page.keyboard.press('Escape');
   });
 
-  test('filters by the failed segment via the status param', async ({
+  test('filters by the failed status option via the status param', async ({
     page,
   }) => {
     const requests: string[] = [];
@@ -71,10 +76,13 @@ test.describe('diagnostics inspections panel template', () => {
     await openInspectionsTab(page);
     await expect(page.getByTestId('inspection-row-1')).toBeVisible();
 
-    await page.getByRole('button', {name: /^失败$|^Failed$/}).click();
+    await page
+      .getByRole('combobox', {name: /按状态筛选|Filter by status/i})
+      .click();
+    await page.getByRole('option', {name: /^失败$|^Failed$/}).click();
 
-    // 分段走服务端参数：只剩失败行，请求带 status=failed。
-    // The segment is server-side: only the failed row remains and the request
+    // 筛选走服务端参数：只剩失败行，请求带 status=failed。
+    // The filter is server-side: only the failed row remains and the request
     // carries status=failed.
     await expect(page.getByTestId('inspection-row-2')).toBeVisible();
     await expect(page.getByTestId('inspection-row-1')).toHaveCount(0);

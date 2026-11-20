@@ -91,7 +91,6 @@ interface PolicyFormState {
   enabled: boolean;
   cooldownMinutes: number;
   conditions: InspectionConditionItem[];
-  autoCreateTask: boolean;
   autoStartTask: boolean;
   taskOptions: DiagnosticsTaskOptions;
 }
@@ -108,7 +107,6 @@ function formFromPolicy(
       enabled: true,
       cooldownMinutes: 30,
       conditions: [],
-      autoCreateTask: false,
       autoStartTask: false,
       taskOptions: {...DEFAULT_TASK_OPTIONS},
     };
@@ -126,7 +124,6 @@ function formFromPolicy(
     conditions: (policy.conditions || []).filter((condition) =>
       supported.has(condition.template_code),
     ),
-    autoCreateTask: policy.auto_create_task,
     autoStartTask: policy.auto_start_task,
     taskOptions: normalizeAutoPolicyTaskOptions(policy.task_options),
   };
@@ -321,21 +318,11 @@ export function PolicyFormBody({
     return map;
   }, [ruleCatalog]);
 
-  const getCategoryLabel = useCallback(
-    (category: string) => {
-      switch (category) {
-        case 'java_error':
-          return t('categories.javaError');
-        case 'error_rate':
-          return t('categories.errorRate');
-        case 'alert_firing':
-          return t('categories.alertFiring');
-        case 'schedule':
-          return t('categories.schedule');
-        default:
-          return category;
-      }
-    },
+  // 触发方式只有两类：规则触发（错误 / 告警条件）与定时触发（schedule）。
+  // Trigger modes come in two kinds: rule triggers (error / alert conditions)
+  // and scheduled triggers (schedule category).
+  const triggerGroupLabel = useCallback(
+    (group: 'rule' | 'schedule') => t(`triggerGroups.${group}`),
     [t],
   );
 
@@ -374,13 +361,10 @@ export function PolicyFormBody({
       toast.error(t('nameRequired'));
       return;
     }
-    if (
-      form.autoCreateTask &&
-      (form.taskOptions.selected_resources || []).length === 0
-    ) {
-      toast.error(t('resourceRequired'));
-      return;
-    }
+    // 空 selected_resources 由后端落到默认采集集（见 resource_selector 的
+    // default_selected），无需前端强校验。
+    // Empty selected_resources falls back to the backend default set (see
+    // default_selected in the resource selector); no client-side gate needed.
     setSaving(true);
     try {
       if (policy) {
@@ -391,9 +375,9 @@ export function PolicyFormBody({
             enabled: form.enabled,
             conditions: normalizeConditionItemsForSave(form.conditions),
             cooldown_minutes: form.cooldownMinutes,
-            auto_create_task: form.autoCreateTask,
+            auto_create_task: true,
             auto_start_task: form.autoStartTask,
-            task_options: form.autoCreateTask ? form.taskOptions : undefined,
+            task_options: form.taskOptions,
           },
         );
         if (!result.success) {
@@ -408,9 +392,9 @@ export function PolicyFormBody({
           enabled: form.enabled,
           conditions: normalizeConditionItemsForSave(form.conditions),
           cooldown_minutes: form.cooldownMinutes,
-          auto_create_task: form.autoCreateTask,
+          auto_create_task: true,
           auto_start_task: form.autoStartTask,
-          task_options: form.autoCreateTask ? form.taskOptions : undefined,
+          task_options: form.taskOptions,
         });
         if (!result.success) {
           toast.error(result.error || t('createError'));
@@ -424,21 +408,18 @@ export function PolicyFormBody({
     }
   }, [form, onSaved, policy, t]);
 
-  const groupedTemplates = useMemo(
-    () =>
-      templates.reduce<Record<string, InspectionConditionTemplate[]>>(
-        (acc, tpl) => {
-          const key = tpl.category;
-          if (!acc[key]) {
-            acc[key] = [];
-          }
-          acc[key].push(tpl);
-          return acc;
-        },
-        {},
-      ),
-    [templates],
-  );
+  const groupedTemplates = useMemo(() => {
+    const groups: Record<'rule' | 'schedule', InspectionConditionTemplate[]> = {
+      rule: [],
+      schedule: [],
+    };
+    for (const tpl of templates) {
+      groups[tpl.category === 'schedule' ? 'schedule' : 'rule'].push(tpl);
+    }
+    return (Object.entries(groups) as Array<
+      ['rule' | 'schedule', InspectionConditionTemplate[]]
+    >).filter(([, items]) => items.length > 0);
+  }, [templates]);
 
   return (
     <div className={layout.detailCol} data-testid='policy-form-body'>
@@ -515,15 +496,15 @@ export function PolicyFormBody({
               {t('noTemplates')}
             </span>
           ) : (
-            Object.entries(groupedTemplates).map(
-              ([category, categoryTemplates]) => (
+            groupedTemplates.map(
+              ([group, categoryTemplates]) => (
                 <div
-                  key={category}
+                  key={group}
                   className='rounded-lg border bg-card/60 p-3 space-y-2.5 shadow-2xs'
                 >
                   <div className='flex items-center justify-between border-b pb-2'>
                     <span className='text-xs font-medium text-foreground'>
-                      {getCategoryLabel(category)}
+                      {triggerGroupLabel(group)}
                     </span>
                     <Badge tone='neutral' className='text-[10px]'>
                       {categoryTemplates.length}
@@ -855,83 +836,74 @@ export function PolicyFormBody({
           )}
         </div>
 
-        {/* 自动诊断任务收集编排 / Auto Task Bundle */}
+        {/* 自动诊断任务收集编排：始终生成，配置项只有采集内容与自动执行。
+            Auto task bundle: always generated; only the collected resources
+            and auto-start are configurable. */}
         <div className='rounded-lg border bg-card/60 p-3 space-y-2.5 shadow-2xs'>
-          <div className='flex items-center justify-between'>
+          <div className='flex items-center gap-2'>
+            <span className='text-xs font-medium'>{t('autoBundleTitle')}</span>
+            <HelpHint
+              label={t('autoBundleTitle')}
+              content={t('autoBundleHint')}
+              data-testid='auto-policy-auto-bundle-hint'
+            />
+          </div>
+
+          <div className='space-y-3 border-t pt-3'>
+            <DiagnosticResourceSelector
+              selectedResources={form.taskOptions.selected_resources || []}
+              onChange={(resources: DiagnosticsResourceCode[]) =>
+                setForm((f) => ({
+                  ...f,
+                  taskOptions: {
+                    ...f.taskOptions,
+                    selected_resources: resources,
+                    include_thread_dump: resources.includes('thread_dump'),
+                    include_jvm_dump: resources.includes('jvm_dump'),
+                  },
+                }))
+              }
+              disabled={saving}
+            />
+
+            {(form.taskOptions.selected_resources || []).includes(
+              'jvm_dump',
+            ) ? (
+              <div className='rounded-md bg-muted/40 p-3'>
+                <NumberField
+                  label={t('jvmMinFreeMBLabel')}
+                  value={form.taskOptions.jvm_dump_min_free_mb ?? 2048}
+                  onValueChange={(v) =>
+                    setForm((f) => ({
+                      ...f,
+                      taskOptions: {
+                        ...f.taskOptions,
+                        jvm_dump_min_free_mb: v,
+                      },
+                    }))
+                  }
+                  min={256}
+                  step={256}
+                />
+              </div>
+            ) : null}
+
             <div className='flex items-center gap-2'>
               <Checkbox
-                id='auto-policy-auto-create-task'
-                label={t('autoBundleTitle')}
-                checked={form.autoCreateTask}
+                id='auto-policy-auto-start-task'
+                label={t('autoStartTaskLabel')}
+                checked={form.autoStartTask}
                 onCheckedChange={(v) =>
-                  setField('autoCreateTask', v === true)
+                  setField('autoStartTask', v === true)
                 }
               />
               <HelpHint
-                label={t('autoBundleTitle')}
-                content={t('autoBundleHint')}
-                data-testid='auto-policy-auto-bundle-hint'
+                label={t('autoStartTaskLabel')}
+                content={t('autoStartTaskHint')}
+                data-testid='auto-policy-auto-start-hint'
               />
             </div>
           </div>
-
-          {form.autoCreateTask ? (
-            <div className='space-y-3 border-t pt-3'>
-              <DiagnosticResourceSelector
-                selectedResources={form.taskOptions.selected_resources || []}
-                onChange={(resources: DiagnosticsResourceCode[]) =>
-                  setForm((f) => ({
-                    ...f,
-                    taskOptions: {
-                      ...f.taskOptions,
-                      selected_resources: resources,
-                      include_thread_dump: resources.includes('thread_dump'),
-                      include_jvm_dump: resources.includes('jvm_dump'),
-                    },
-                  }))
-                }
-                disabled={saving}
-              />
-
-              {(form.taskOptions.selected_resources || []).includes(
-                'jvm_dump',
-              ) ? (
-                <div className='rounded-md bg-muted/40 p-3'>
-                  <NumberField
-                    label={t('jvmMinFreeMBLabel')}
-                    value={form.taskOptions.jvm_dump_min_free_mb ?? 2048}
-                    onValueChange={(v) =>
-                      setForm((f) => ({
-                        ...f,
-                        taskOptions: {
-                          ...f.taskOptions,
-                          jvm_dump_min_free_mb: v,
-                        },
-                      }))
-                    }
-                    min={256}
-                    step={256}
-                  />
-                </div>
-              ) : null}
-
-              <div className='flex items-center gap-2'>
-                <Checkbox
-                  id='auto-policy-auto-start-task'
-                  label={t('autoStartTaskLabel')}
-                  checked={form.autoStartTask}
-                  onCheckedChange={(v) =>
-                    setField('autoStartTask', v === true)
-                  }
-                />
-                <HelpHint
-                  label={t('autoStartTaskLabel')}
-                  content={t('autoStartTaskHint')}
-                  data-testid='auto-policy-auto-start-hint'
-                />
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
 

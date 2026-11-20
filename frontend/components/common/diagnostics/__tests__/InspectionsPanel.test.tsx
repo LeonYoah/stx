@@ -194,7 +194,7 @@ describe('InspectionsPanel', () => {
     });
     getInspectionReportsSafe.mockResolvedValue({
       success: true,
-      data: {items: reports, total: reports.length, page: 1, page_size: 20},
+      data: {items: reports, total: reports.length, page: 1, page_size: 10},
     });
     mockDetail(1);
     listResourcesSafe.mockResolvedValue({success: true, data: []});
@@ -238,7 +238,7 @@ describe('InspectionsPanel', () => {
   it('sends the status filter server-side and resets to page 1', async () => {
     getInspectionReportsSafe.mockResolvedValue({
       success: true,
-      data: {items: reports, total: 45, page: 1, page_size: 20},
+      data: {items: reports, total: 45, page: 1, page_size: 10},
     });
     renderPanel();
     await screen.findByTestId('inspection-row-1');
@@ -270,7 +270,7 @@ describe('InspectionsPanel', () => {
         items: [report({id: 9, status: 'running'})],
         total: 1,
         page: 1,
-        page_size: 20,
+        page_size: 10,
       },
     });
     renderPanel();
@@ -300,7 +300,7 @@ describe('InspectionsPanel', () => {
         items: [report({id: 9, status: 'completed'})],
         total: 1,
         page: 1,
-        page_size: 20,
+        page_size: 10,
       },
     });
     renderPanel();
@@ -332,7 +332,7 @@ describe('InspectionsPanel', () => {
           items: [report({id: 2, status: 'failed'})],
           total: 1,
           page: 1,
-          page_size: 20,
+          page_size: 10,
         },
       });
     renderPanel();
@@ -345,7 +345,7 @@ describe('InspectionsPanel', () => {
     // filtered result.
     resolveFirst?.({
       success: true,
-      data: {items: reports, total: 3, page: 1, page_size: 20},
+      data: {items: reports, total: 3, page: 1, page_size: 10},
     });
     await waitFor(() =>
       expect(screen.queryByTestId('inspection-row-1')).toBeNull(),
@@ -418,7 +418,7 @@ describe('InspectionsPanel', () => {
 
     getInspectionReportsSafe.mockResolvedValue({
       success: true,
-      data: {items: reports, total: reports.length, page: 1, page_size: 20},
+      data: {items: reports, total: reports.length, page: 1, page_size: 10},
     });
     fireEvent.click(screen.getByRole('button', {name: '重试'}));
     expect(await screen.findByTestId('inspection-row-1')).toBeVisible();
@@ -434,7 +434,7 @@ describe('InspectionsPanel', () => {
         ],
         total: 2,
         page: 1,
-        page_size: 20,
+        page_size: 10,
       },
     });
     const onOpenPolicy = vi.fn();
@@ -491,7 +491,7 @@ describe('InspectionsPanel', () => {
     // 改名称产生脏态，再点「巡检记录」→ 未保存确认拦截。
     // Edit the name to go dirty, then pick "巡检记录" → the unsaved dialog
     // intercepts the switch.
-    fireEvent.change(screen.getByLabelText('策略名称'), {
+    fireEvent.change(screen.getByLabelText('自动巡检名称'), {
       target: {value: 'renamed'},
     });
     await waitFor(() => expect(onDirtyChange).toHaveBeenCalledWith(true));

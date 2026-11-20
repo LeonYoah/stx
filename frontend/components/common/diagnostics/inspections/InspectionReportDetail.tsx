@@ -18,19 +18,18 @@
 'use client';
 
 /**
- * 巡检报告详情体：元信息 + 按严重度排序的发现项 + 零发现 / 未完成说明 +
- * 诊断包区（生成 / 重新生成 / 执行日志 / 预览 / 下载，含 2s 轮询）+ 底部操作，
- * 常驻详情栏 / 抽屉形态共用（detailCol 结构由宿主给宽）。
- * Inspection report detail body: meta + severity-sorted findings + zero /
- * incomplete states + the bundle section (generate / regenerate / execution
- * logs / preview / download with 2s polling) + footer actions, shared by the
+ * 巡检报告详情体：元信息 + 摘要 + 按严重度排序的发现项 + 零发现 / 未完成说明 +
+ * 诊断包区（生成 / 重新生成 / 执行日志 / 预览 / 下载，含 2s 轮询），
+ * 常驻详情栏 / 抽屉形态共用（detailCol 结构由宿主给宽）。完整报告页仅作深链入口。
+ * Inspection report detail body: meta + summary + severity-sorted findings +
+ * zero / incomplete states + the bundle section (generate / regenerate /
+ * execution logs / preview / download with 2s polling), shared by the
  * persistent rail and the drawer (the detailCol contract is width-adaptive).
+ * The standalone report page remains only as a deep-link target.
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
-import Link from 'next/link';
 import {useTranslations} from 'next-intl';
 import {
-  ArrowUpRight,
   Download,
   ExternalLink,
   FileText,
@@ -87,7 +86,6 @@ export interface InspectionReportDetailProps {
   loading: boolean;
   clusterOptions: DiagnosticsClusterOption[];
   onBundleTaskChange: (task: DiagnosticsTask) => void;
-  onClose: () => void;
 }
 
 export function InspectionReportDetail({
@@ -97,7 +95,6 @@ export function InspectionReportDetail({
   loading,
   clusterOptions,
   onBundleTaskChange,
-  onClose,
 }: InspectionReportDetailProps) {
   const t = useTranslations('diagnosticsCenter.inspections');
   const tc = useTranslations('diagnosticsCenter');
@@ -268,6 +265,15 @@ export function InspectionReportDetail({
               </div>
             </div>
 
+            {/* 报告摘要与完整页同源，保证详情栏信息等价（深链页不再重复）。
+                The report summary mirrors the standalone page so the rail is
+                information-complete (the deep-linked page is not repeated). */}
+            {report.summary ? (
+              <p className='text-sm leading-relaxed text-muted-foreground'>
+                {localizeDiagnosticsText(report.summary)}
+              </p>
+            ) : null}
+
             {report.error_message ? (
               <p
                 role='alert'
@@ -415,21 +421,6 @@ export function InspectionReportDetail({
           </>
         ) : null}
       </div>
-
-      {report ? (
-        <div className={layout.detailFoot}>
-          <UIButton asChild variant='outline' size='sm'>
-            <Link href={`/diagnostics/inspections/${report.id}`}>
-              {t('evidence.viewFullReport')}
-              <ArrowUpRight className='size-3.5' aria-hidden />
-            </Link>
-          </UIButton>
-          <span className={layout.detailFootGrow} />
-          <Button type='button' variant='ghost' size='sm' onClick={onClose}>
-            {t('evidence.close')}
-          </Button>
-        </div>
-      ) : null}
 
       {/* 生成现场诊断包确认弹窗 */}
       <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>

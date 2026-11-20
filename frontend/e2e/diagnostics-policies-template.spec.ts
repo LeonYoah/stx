@@ -94,7 +94,7 @@ test.describe('diagnostics policies panel template', () => {
     const form = page.getByTestId('policy-form-body');
     await expect(form).toBeVisible();
 
-    await form.getByLabel(/策略名称|Policy Name/i).fill('e2e-new-policy');
+    await form.getByLabel(/自动巡检名称|Auto-inspection name/i).fill('e2e-new-policy');
     await page.getByTestId('policy-form-save').click();
 
     await expect(page.getByTestId('policy-form-body')).toHaveCount(0);
@@ -111,7 +111,7 @@ test.describe('diagnostics policies panel template', () => {
     await page.getByTestId('policy-row-1').click();
     await expect(page.getByTestId('detail-rail')).toBeVisible();
 
-    await page.getByLabel(/策略名称|Policy Name/i).fill('renamed-policy');
+    await page.getByLabel(/自动巡检名称|Auto-inspection name/i).fill('renamed-policy');
     await page.getByRole('button', {name: 'Close'}).click();
     await expect(page.getByTestId('discard-confirm-dialog')).toBeVisible();
 
@@ -121,7 +121,7 @@ test.describe('diagnostics policies panel template', () => {
     await expect(
       page.getByTestId('discard-confirm-dialog'),
     ).toHaveCount(0);
-    await expect(page.getByLabel(/策略名称|Policy Name/i)).toHaveValue(
+    await expect(page.getByLabel(/自动巡检名称|Auto-inspection name/i)).toHaveValue(
       'renamed-policy',
     );
 
@@ -137,7 +137,7 @@ test.describe('diagnostics policies panel template', () => {
   }) => {
     await openPoliciesTab(page);
     await page.getByTestId('policy-row-1').click();
-    await page.getByLabel(/策略名称|Policy Name/i).fill('dirty-name');
+    await page.getByLabel(/自动巡检名称|Auto-inspection name/i).fill('dirty-name');
 
     await page.getByTestId('diagnostics-tab-memories').click();
     await expect(page.getByTestId('discard-confirm-dialog')).toBeVisible();
@@ -159,7 +159,7 @@ test.describe('diagnostics policies panel template', () => {
         req.url().includes('/api/v1/diagnostics/auto-policies/2'),
     );
     await page
-      .getByRole('button', {name: /删除策略|Delete policy/i})
+      .getByRole('button', {name: /删除自动巡检|Delete auto-inspection/i})
       .click();
     // 提示文案会同时渲染在 aria-live 状态区，这里以唯一确认按钮为准；
     // ConfirmMorph 280ms 防误触窗口后 Enter 作答（确认按钮带 autofocus），
@@ -188,7 +188,7 @@ test.describe('diagnostics policies panel template', () => {
     const form = page.getByTestId('policy-form-body');
     await expect(form).toBeVisible();
 
-    await form.getByLabel(/策略名称|Policy Name/i).fill('e2e-fail-policy');
+    await form.getByLabel(/自动巡检名称|Auto-inspection name/i).fill('e2e-fail-policy');
     await page.getByTestId('policy-form-save').click();
 
     // 失败时弹窗保留并提示错误。

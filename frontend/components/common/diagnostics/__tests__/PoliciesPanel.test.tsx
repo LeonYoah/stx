@@ -205,7 +205,7 @@ describe('PoliciesPanel', () => {
 
     // 改名称产生脏态，再点关闭 → 未保存确认。
     // Edit the name to go dirty, then close → unsaved confirmation.
-    fireEvent.change(screen.getByLabelText('策略名称'), {
+    fireEvent.change(screen.getByLabelText('自动巡检名称'), {
       target: {value: 'renamed'},
     });
     fireEvent.click(screen.getByRole('button', {name: 'Close'}));
@@ -219,7 +219,7 @@ describe('PoliciesPanel', () => {
         screen.queryByTestId('discard-confirm-dialog'),
       ).not.toBeInTheDocument(),
     );
-    expect(screen.getByLabelText('策略名称')).toHaveValue('renamed');
+    expect(screen.getByLabelText('自动巡检名称')).toHaveValue('renamed');
 
     // 再点关闭并「放弃修改」→ 详情关闭。
     // Close again and "discard" → the detail closes.
@@ -235,7 +235,7 @@ describe('PoliciesPanel', () => {
     fireEvent.click(await screen.findByTestId('policy-row-2'));
     await screen.findByTestId('detail-rail');
 
-    fireEvent.click(screen.getByRole('button', {name: '删除策略'}));
+    fireEvent.click(screen.getByRole('button', {name: '删除自动巡检'}));
     expect(deleteAutoPolicySafe).not.toHaveBeenCalled();
     // ConfirmMorph 有 280ms 防误触窗口（ARM_MS），等确认按钮激活再点。
     // ConfirmMorph ignores answers within the 280ms arm window; wait it out.

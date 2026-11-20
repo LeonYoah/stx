@@ -66,7 +66,7 @@ import {DirtyCloseDialog} from '@/components/common/layout';
 import {NeutralChip, SoftChip} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 const AUTO_REFRESH_MS = 5000;
 const AUTO_POLICIES_FETCH_SIZE = 100;
 
@@ -777,7 +777,6 @@ export function InspectionsPanel({
             loading={loadingDetail}
             clusterOptions={clusterOptions}
             onBundleTaskChange={setBundleTask}
-            onClose={handleCloseDetail}
           />
         </DetailHost>
       </div>

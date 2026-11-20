@@ -95,11 +95,12 @@ test.describe('diagnostics inspections panel template', () => {
     // independent of the current filter.
     const detail = page.getByTestId('inspection-report-detail');
     await expect(detail.getByText('stx-dev')).toBeVisible();
-    // 底部保留完整报告入口。
-    // The full-report entry stays at the footer.
+    // 详情栏信息完整（含摘要），不再有独立的完整报告入口。
+    // The rail is information-complete (summary included); the separate
+    // full-report entry was removed.
     await expect(
       detail.getByRole('link', {name: /查看完整报告|View full report/i}),
-    ).toHaveAttribute('href', '/diagnostics/inspections/3');
+    ).toHaveCount(0);
   });
 
   test('switches reports with J/K while the detail is open', async ({

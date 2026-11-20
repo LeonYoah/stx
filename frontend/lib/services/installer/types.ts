@@ -158,6 +158,12 @@ export interface SeaTunnelVersionCapabilities {
   default_slot_allocation_strategy: SlotAllocationStrategy;
   default_http_enabled: boolean;
   default_job_log_mode: JobLogMode;
+  /** Lowest JDK major that can start this version / 该版本可启动的最低 JDK 主版本 */
+  min_java_version: number;
+  /** JDK majors treated as passed / 判定为通过的 JDK 主版本 */
+  recommended_java_versions: number[];
+  /** Above this only warns / 高于此版本仅告警 */
+  max_recommended_java_version: number;
 }
 
 /**

@@ -341,6 +341,7 @@ export function ClusterDeployWizard({
     config.javaProxyPort,
     config.deploymentMode,
     config.runtime.enable_http,
+    config.version,
     httpServiceSupported,
   ]);
 

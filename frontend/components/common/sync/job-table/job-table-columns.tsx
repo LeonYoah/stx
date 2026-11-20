@@ -130,6 +130,10 @@ function JobNameCell({job, ctx}: CellProps) {
   }
   const name = jobDisplayName(job);
   const engineRef = job.engine_job_id ? ` · ${job.engine_job_id}` : '';
+  // 外部作业 task_id 恒为 0，「任务 #0」没有引用价值，悬浮提示只留作业与引擎 ID。
+  // External jobs always have task_id 0, so "Task #0" is noise — keep only job and engine IDs in the title.
+  const taskRef =
+    job.task_id > 0 ? ctx.t('taskRef', {id: job.task_id}) : `#${job.id}`;
   return (
     <div className='flex min-w-0 max-w-[280px] flex-col'>
       <span className='truncate font-medium text-foreground' title={name}>
@@ -137,7 +141,7 @@ function JobNameCell({job, ctx}: CellProps) {
       </span>
       <span
         className='truncate font-mono text-[11px] text-muted-foreground'
-        title={`${ctx.t('taskRef', {id: job.task_id})}${engineRef}`}
+        title={`${taskRef}${engineRef}`}
       >
         {`#${job.id}${engineRef}`}
       </span>
@@ -156,6 +160,12 @@ function RunModeCell({job, ctx}: CellProps) {
       <Badge
         variant='outline'
         className='rounded-sm px-1 py-0 text-[10px]'
+      >
+        {t(job.source === 'external' ? 'source.external' : 'source.stx')}
+      </Badge>
+      <Badge
+        variant='outline'
+        className='rounded-sm px-1 py-0 text-[10px]'
         title={job.external_ref || undefined}
       >
         {getRunModeLabel(job, t)}
@@ -167,7 +177,11 @@ function RunModeCell({job, ctx}: CellProps) {
         >
           {t(`mode.${job.mode}`)}
         </Badge>
-      ) : null}
+      ) : (
+        // 缺 jobDag 的外部作业拿不到 mode，按设计稿显示占位符而不是留白。
+        // External jobs without jobDag have no mode; show a placeholder per the design instead of blank.
+        <span className='text-muted-foreground'>-</span>
+      )}
       {job.task_version > 0 ? (
         <span className='font-mono text-[10px] text-muted-foreground'>
           v{job.task_version}
@@ -502,7 +516,9 @@ export const JOB_COLUMNS: JobColumnDef[] = [
       <JobRowActions
         job={job}
         actor={ctx.actorOf(job)}
-        showWorkbenchLink={ctx.preset === 'global'}
+        showWorkbenchLink={
+          ctx.preset === 'global' && job.source !== 'external'
+        }
         t={ctx.t}
         onOpenDetail={ctx.onOpenDetail}
         onAction={ctx.onAction}

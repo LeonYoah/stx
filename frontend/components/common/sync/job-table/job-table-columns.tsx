@@ -28,7 +28,6 @@ import {
   formatTimeTz,
 } from '@/lib/timezone';
 import {cn} from '@/lib/utils';
-import {formatDurationSeconds} from '../../dashboard/dashboard-format';
 import {JobOutcomeHints} from '../JobOutcomeHints';
 import {
   formatJobDateTime,
@@ -41,6 +40,7 @@ import {
 } from '../sync-studio-utils';
 import {JobRowActions} from './JobRowActions';
 import {
+  formatJobDurationSeconds,
   formatRatePair,
   formatTotalPair,
   isRunningStatus,
@@ -380,9 +380,14 @@ function TimelineCell({job, ctx}: CellProps) {
   const {startMs, endMs} = jobTimeBounds(job);
   const running = isRunningStatus(job.status);
   const duration = jobDurationSeconds(job, ctx.updatedAt);
-  const units = {d: ctx.t('units.d'), h: ctx.t('units.h'), m: ctx.t('units.m')};
+  const units = {
+    d: ctx.t('units.d'),
+    h: ctx.t('units.h'),
+    m: ctx.t('units.m'),
+    s: ctx.t('units.s'),
+  };
   const durationText =
-    duration > 0 ? formatDurationSeconds(duration, units) : null;
+    duration > 0 ? formatJobDurationSeconds(duration, units) : null;
   return (
     <Tooltip>
       <TooltipTrigger asChild>

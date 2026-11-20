@@ -4798,7 +4798,8 @@
     "units": {
       "d": "d",
       "h": "h",
-      "m": "m"
+      "m": "m",
+      "s": "s"
     },
     "avgPrefix": "avg ",
     "avgRateHint": "Job finished: average rate over its run (rows ÷ duration)"

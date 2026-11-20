@@ -123,6 +123,18 @@ type SyncConfig struct {
 	// SubmitTimeoutSeconds caps how long an unknown submit waits for the engine to register the job; 0 or unset
 	// means the 300-second default, and tasks may override it.
 	SubmitTimeoutSeconds int `mapstructure:"submit_timeout_seconds"`
+	// ExternalJobDiscoveryEnabled 控制是否把非 STX 提交的 SeaTunnel 作业纳入作业列表；不填为开启，显式 false 关闭，集群可再单独关闭。
+	// ExternalJobDiscoveryEnabled controls whether SeaTunnel jobs not submitted by STX are imported into the job
+	// list; unset means on, an explicit false turns it off, and each cluster may still opt out on its own.
+	ExternalJobDiscoveryEnabled *bool `mapstructure:"external_job_discovery_enabled"`
+	// ExternalJobDiscoveryIntervalSeconds 是没有非终态作业的集群做外部作业发现的间隔；0 或不填表示默认 60 秒。
+	// ExternalJobDiscoveryIntervalSeconds is how often clusters without non-terminal jobs are scanned for external
+	// jobs; 0 or unset means 60 seconds.
+	ExternalJobDiscoveryIntervalSeconds int `mapstructure:"external_job_discovery_interval_seconds"`
+	// ExternalJobDiscoveryMaxNewPerRound 是每轮每个集群最多新建的外部作业行数；0 或不填表示默认 200。
+	// ExternalJobDiscoveryMaxNewPerRound caps how many external job rows one cluster may create per pass; 0 or
+	// unset means 200.
+	ExternalJobDiscoveryMaxNewPerRound int `mapstructure:"external_job_discovery_max_new_per_round"`
 	// StopTimeoutSeconds 是停止请求发出后等待作业真正停下的上限，超过只标记停止超时；0 或不填表示默认 300 秒。
 	// StopTimeoutSeconds caps how long a stop request waits for the job to actually stop before it is flagged as
 	// overdue; 0 or unset means the 300-second default.

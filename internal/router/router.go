@@ -850,6 +850,7 @@ func Serve() {
 			syncService.SetExecutionTargetResolver(syncapp.NewDefaultExecutionTargetResolver(clusterRepo, hostRepo))
 			syncService.SetClusterLogProvider(clusterService)
 			syncService.SetClusterVersionProvider(clusterService)
+			syncService.SetClusterDiscoveryProvider(clusterService)
 			syncService.SetConfigToolClient(syncapp.NewDefaultConfigToolClient())
 			syncService.SetConfigToolResolver(syncapp.NewDefaultConfigToolResolver(clusterService))
 			if agentManager != nil {

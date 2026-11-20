@@ -38,6 +38,8 @@ func engineListItemToInfo(item *EngineJobListItem) *EngineJobInfo {
 		CreateTime:   item.CreateTime,
 		FinishedTime: item.FinishedTime,
 		ErrorMsg:     item.ErrorMsg,
+		JobDag:       item.JobDag,
+		Metrics:      item.Metrics,
 	}
 }
 

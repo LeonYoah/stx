@@ -134,10 +134,6 @@ export interface JobColumnDef {
   header: (ctx: JobTableContext) => ReactNode;
   /** 有值则可排序（映射到服务端排序键）/ Server sort key when sortable. */
   sortKey?: SyncJobListSort;
-  /** 列头 caret 菜单可切的多排序维度（含 sortKey）；缺省按 sortKey 单键。/ Multiple sort dimensions switchable via the header caret menu (includes sortKey); defaults to sortKey alone. */
-  sortKeys?: SyncJobListSort[];
-  /** 维度菜单项文案。/ Label of one dimension in the caret menu. */
-  sortKeyLabel?: (ctx: JobTableContext, key: SyncJobListSort) => string;
   /** 额外排序条件：rate / cdc_delay 只在 running 组可排 / Extra gating, e.g. rate / cdc_delay only inside the running group. */
   sortableWhen?: (query: JobListQuery) => boolean;
   align?: 'start' | 'end';

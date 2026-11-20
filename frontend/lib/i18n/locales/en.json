@@ -4742,7 +4742,32 @@
     },
     "sortColumn": "Sort by {column}",
     "sortNeedsRunning": "Select Running to sort by rate or delay",
-    "sortDimension": "Change time sort field",
+    "sortMenu": {
+      "label": "Sort",
+      "started_at": {
+        "desc": "Start time (newest first)",
+        "asc": "Start time (oldest first)"
+      },
+      "finished_at": {
+        "desc": "Finish time (newest first)",
+        "asc": "Finish time (oldest first)"
+      },
+      "duration": {
+        "desc": "Duration (longest first)",
+        "asc": "Duration (shortest first)"
+      },
+      "attention": {
+        "desc": "Needs attention first"
+      },
+      "rate": {
+        "desc": "Write rate (high→low)",
+        "asc": "Write rate (low→high)"
+      },
+      "cdc_delay": {
+        "desc": "CDC delay (high→low)",
+        "asc": "CDC delay (low→high)"
+      }
+    },
     "taskRef": "Task #{id}",
     "ranFor": "Running for {duration}",
     "tookFor": "Took {duration}",

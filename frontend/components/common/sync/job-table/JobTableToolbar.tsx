@@ -19,12 +19,13 @@
 
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Search} from 'lucide-react';
+import {ArrowDownWideNarrow, Check, Search} from 'lucide-react';
+import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
-import type {SyncJobStatusGroup} from '@/lib/services/sync';
+import type {SyncJobListSort, SyncJobStatusGroup} from '@/lib/services/sync';
 import {
   JOB_STATUS_GROUPS,
   type JobListQuery,
@@ -197,6 +198,83 @@ export function JobTableToolbar({
     // one list, and the toolbar keeps only status pills and search.
     null;
 
+  // 排序菜单汇集全部维度（列头点按排序仍保留为快捷路径）；速率 / CDC 延迟只在
+  // 「运行中」组有效，非运行中组保留选项但禁用——藏掉会让人以为功能不存在。
+  // The sort menu gathers every dimension (header click-sort stays as a shortcut);
+  // rate / CDC delay only apply inside the Running group — elsewhere they stay
+  // listed but disabled, since hiding them looks like a missing feature.
+  const runningOnly = query.statusGroup !== 'running';
+  const sortOptions: {
+    sort: SyncJobListSort;
+    order: 'asc' | 'desc';
+    label: string;
+    disabled?: boolean;
+    separatorBefore?: boolean;
+  }[] = [
+    {sort: 'started_at', order: 'desc', label: t('sortMenu.started_at.desc')},
+    {sort: 'started_at', order: 'asc', label: t('sortMenu.started_at.asc')},
+    {sort: 'finished_at', order: 'desc', label: t('sortMenu.finished_at.desc')},
+    {sort: 'finished_at', order: 'asc', label: t('sortMenu.finished_at.asc')},
+    {sort: 'duration', order: 'desc', label: t('sortMenu.duration.desc')},
+    {sort: 'duration', order: 'asc', label: t('sortMenu.duration.asc')},
+    {
+      sort: 'attention',
+      order: 'desc',
+      label: t('sortMenu.attention.desc'),
+      separatorBefore: true,
+    },
+    {
+      sort: 'rate',
+      order: 'desc',
+      label: t('sortMenu.rate.desc'),
+      disabled: runningOnly,
+    },
+    {
+      sort: 'rate',
+      order: 'asc',
+      label: t('sortMenu.rate.asc'),
+      disabled: runningOnly,
+    },
+    {
+      sort: 'cdc_delay',
+      order: 'desc',
+      label: t('sortMenu.cdc_delay.desc'),
+      disabled: runningOnly,
+    },
+    {
+      sort: 'cdc_delay',
+      order: 'asc',
+      label: t('sortMenu.cdc_delay.asc'),
+      disabled: runningOnly,
+    },
+  ];
+  const sortMenu = (
+    <DropdownMenu
+      label={t('sortMenu.label')}
+      icon={<ArrowDownWideNarrow className='size-4' aria-hidden />}
+      // 与监控规则面板同款：当前项 ✓，其余项用等宽占位对齐。
+      // Same pattern as the monitoring rules panel: a check on the active option
+      // and equal-width spacers keep labels aligned.
+      items={sortOptions.map((option) => ({
+        label: option.label,
+        disabled: option.disabled,
+        separatorBefore: option.separatorBefore,
+        icon:
+          query.sort === option.sort && query.order === option.order ? (
+            <Check className='size-4' aria-hidden />
+          ) : (
+            <span className='size-4' />
+          ),
+        onSelect: () =>
+          onQueryChange({
+            sort: option.sort,
+            order: option.order,
+            page: 1,
+          }),
+      }))}
+    />
+  );
+
   const bulkBar =
     bulk && (bulk.selectedCount > 0 || bulk.result) ? (
       <div
@@ -269,6 +347,7 @@ export function JobTableToolbar({
             <>
               {typeControl}
               {searchControl}
+              {sortMenu}
             </>
           }
         />
@@ -288,6 +367,7 @@ export function JobTableToolbar({
       <div className='flex flex-wrap items-center gap-2'>
         {searchControl}
         {typeControl}
+        {sortMenu}
       </div>
 
       {bulkBar}

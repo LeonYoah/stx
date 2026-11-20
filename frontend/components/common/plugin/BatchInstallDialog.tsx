@@ -51,7 +51,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import services from '@/lib/services';
 import type { Plugin } from '@/lib/services/plugin/types';

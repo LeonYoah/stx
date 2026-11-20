@@ -30,7 +30,7 @@ import {
   BellRing,
   X,
 } from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {
   rememberPreferredClusterId,

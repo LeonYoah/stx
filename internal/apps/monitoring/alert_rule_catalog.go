@@ -31,6 +31,18 @@ type AlertRuleCatalogItem struct {
 	RuleKey  string          `json:"rule_key"`
 	Name     string          `json:"name"`
 	Category AlertSourceType `json:"category"`
+	// Scope 由类别派生：job → job，其余 → cluster。
+	// Scope derives from the category: job → job, everything else → cluster.
+	Scope string `json:"scope"`
+}
+
+// alertScopeFromSourceType 把告警类别映射为聚合 scope。
+// alertScopeFromSourceType maps an alert category onto its aggregate scope.
+func alertScopeFromSourceType(sourceType AlertSourceType) string {
+	if sourceType == AlertSourceTypeJob {
+		return "job"
+	}
+	return clusterRuleScope
 }
 
 // AlertRuleCatalog 返回全部可选规则键的目录：平台健康与指标规则来自策略模板，作业规则来自
@@ -67,7 +79,7 @@ func AlertRuleCatalog(lang string) []*AlertRuleCatalogItem {
 				name = alertPolicyTemplateDisplayNameZH(tpl.Key)
 			}
 		}
-		items = append(items, &AlertRuleCatalogItem{RuleKey: tpl.Key, Name: name, Category: category})
+		items = append(items, &AlertRuleCatalogItem{RuleKey: tpl.Key, Name: name, Category: category, Scope: alertScopeFromSourceType(category)})
 	}
 	for _, ruleKey := range syncalert.TaskRules() {
 		if seen[ruleKey] {
@@ -78,7 +90,7 @@ func AlertRuleCatalog(lang string) []*AlertRuleCatalogItem {
 		if !english {
 			name = syncAlertRuleName(ruleKey)
 		}
-		items = append(items, &AlertRuleCatalogItem{RuleKey: ruleKey, Name: name, Category: AlertSourceTypeJob})
+		items = append(items, &AlertRuleCatalogItem{RuleKey: ruleKey, Name: name, Category: AlertSourceTypeJob, Scope: "job"})
 	}
 	return items
 }

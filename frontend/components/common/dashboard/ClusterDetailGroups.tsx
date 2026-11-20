@@ -332,14 +332,11 @@ export function ClusterDetailGroups({
     )
     .map((item) => item.key);
 
-  // 只放 DOM 属性：key 混进展开对象会触发 React 19「展开含 key」告警，
-  // title/unit 不是有效 div 属性（title 还会冒出多余的悬停提示）。
-  // DOM props only: a `key` inside the spread object trips React 19's
-  // "spreading a key" warning, and title/unit are not valid div attributes
-  // (title would also show a stray hover tooltip).
-  const cellShell = (key: string) => ({
-    className: 'rounded-lg border border-border/50 p-3',
-    'data-testid': `detail-panel-${key}`,
+  // 避免把 key 放进展开对象：React 19 会对 `{...props}` 中包含 key 报错。
+  // Keep `key` out of spread props: React 19 warns whenever a spread object carries `key`.
+  const cellProps = (key: string, wide = false, testKey?: string) => ({
+    className: `rounded-[var(--radius-panel)] border border-border/50 p-3${wide ? ' md:col-span-2' : ''}`,
+    'data-testid': `detail-panel-${testKey ?? key}`,
   });
 
   return (
@@ -438,7 +435,7 @@ export function ClusterDetailGroups({
               return null;
             }
             const title = panelTitle(item);
-            const shell = cellShell(key);
+            const props = cellProps(key);
 
             if (key === 'deadlocked' || key === 'reject') {
               const cards =
@@ -447,11 +444,8 @@ export function ClusterDetailGroups({
               // Usually-zero "is it happening" metrics: one card per node (red when
               // >0); rejections carry a mini trend.
               return (
-                <div {...shell} key={key}>
-                  <div
-                    key='head'
-                    className='mb-2 flex items-baseline gap-2'
-                  >
+                <div key={key} {...props}>
+                  <div className='mb-2 flex items-baseline gap-2'>
                     <h4 className='text-xs font-medium'>{title}</h4>
                     <span className='text-[11px] text-muted-foreground'>
                       {t.has(`units.${item.unit}`) ? t(`units.${item.unit}`) : ''}
@@ -504,11 +498,8 @@ export function ClusterDetailGroups({
             if (key === 'partitions') {
               // 分区分布：各节点占比 Donut。/ Partition spread: per-node share donut.
               return (
-                <div {...shell} key={key}>
-                  <div
-                    key='head'
-                    className='mb-2 flex items-baseline gap-2'
-                  >
+                <div key={key} {...props}>
+                  <div className='mb-2 flex items-baseline gap-2'>
                     <h4 className='text-xs font-medium'>{title}</h4>
                   </div>
                   <DonutChart
@@ -527,11 +518,8 @@ export function ClusterDetailGroups({
             if (key === 'store_owned') {
               // 本地持有 + 备份合并的横向分组柱。/ Owned + backup merged grouped bars.
               return (
-                <div {...shell} key={key}>
-                  <div
-                    key='head'
-                    className='mb-2 flex items-baseline gap-2'
-                  >
+                <div key={key} {...props}>
+                  <div className='mb-2 flex items-baseline gap-2'>
                     <h4 className='text-xs font-medium'>
                       {t('panels.store_entries')}
                     </h4>
@@ -574,11 +562,8 @@ export function ClusterDetailGroups({
             if (key === 'fds') {
               // fd：每节点一条 Progress（已打开 / 上限）。/ fds: open / max per node.
               return (
-                <div {...shell} key={key}>
-                  <div
-                    key='head'
-                    className='mb-2 flex items-baseline gap-2'
-                  >
+                <div key={key} {...props}>
+                  <div className='mb-2 flex items-baseline gap-2'>
                     <h4 className='text-xs font-medium'>{title}</h4>
                   </div>
                   {fdRows.length === 0 ? (
@@ -622,18 +607,14 @@ export function ClusterDetailGroups({
             const suffix = unitSuffix(item.unit);
             const chart = charts.get(item.key);
             return (
-              <div {...shell} key={key}>
-                <div
-                  key='head'
-                  className='mb-2 flex items-baseline gap-2'
-                >
+              <div key={key} {...props}>
+                <div className='mb-2 flex items-baseline gap-2'>
                   <h4 className='text-xs font-medium'>{title}</h4>
                   <span className='text-[11px] text-muted-foreground'>
                     {t.has(`units.${item.unit}`) ? t(`units.${item.unit}`) : ''}
                   </span>
                 </div>
                 <LineChart
-                  key='body'
                   label={title}
                   // 字节面板单位走 formatBytes（IEC），其余让 unit 拼后缀。
                   // Byte panels carry their unit in formatBytes (IEC); others take the suffix.

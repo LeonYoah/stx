@@ -17,24 +17,14 @@
 
 'use client';
 
-import {Loader2} from 'lucide-react';
 import {useTranslations} from 'next-intl';
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {Button} from '@/components/ui/button';
+import {UnsavedChangesDialog} from '@/components/common/layout';
 
 /**
  * 工作台未落盘草稿离开确认：留下 / 保存并离开 / 丢弃并离开。
- * Workbench leave confirm when drafts are unsaved: Stay / Save&Leave / Discard&Leave.
- * 默认焦点落在「留下」，避免误点丢弃。
- * Default focus stays on Stay so Discard is not the accidental default.
+ * 视觉与交互统一复用规则页共用的 UnsavedChangesDialog。
+ * Workbench leave confirm when drafts are unsaved: Stay / Save&Leave / Discard&Leave,
+ * reusing the shared rule-page UnsavedChangesDialog shell and focus behavior.
  */
 export function WorkbenchLeaveDialog({
   open,
@@ -54,73 +44,23 @@ export function WorkbenchLeaveDialog({
   const t = useTranslations('workbenchStudio');
 
   return (
-    <AlertDialog
+    <UnsavedChangesDialog
       open={open}
-      onOpenChange={(next) => {
-        if (busy) {
-          return;
-        }
-        onOpenChange(next);
-        if (!next) {
-          onStay();
-        }
-      }}
-    >
-      <AlertDialogContent
-        className='border border-border/80 shadow-2xl dark:border-border/60 sm:max-w-md'
-        data-testid='studio-leave-unsaved-dialog'
-        onOpenAutoFocus={(event) => {
-          // 默认焦点给「留下」，不要落在「丢弃」。
-          // Prefer Stay as the initial focus; never land on Discard.
-          event.preventDefault();
-          const stay = document.querySelector<HTMLElement>(
-            '[data-testid="studio-leave-stay"]',
-          );
-          stay?.focus();
-        }}
-      >
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t('leaveUnsavedTitle')}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {t('leaveUnsavedDescription')}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter className='flex-col gap-2 sm:flex-col sm:space-x-0'>
-          <AlertDialogCancel
-            data-testid='studio-leave-stay'
-            disabled={busy}
-            onClick={onStay}
-          >
-            {t('leaveStay')}
-          </AlertDialogCancel>
-          <Button
-            type='button'
-            data-testid='studio-leave-save'
-            className='gap-1.5'
-            disabled={busy}
-            onClick={onSaveAndLeave}
-          >
-            {busy ? (
-              <>
-                <Loader2 className='size-3.5 animate-spin' aria-hidden />
-                <span>{t('leaveSavingAndLeaving')}</span>
-              </>
-            ) : (
-              t('leaveSaveAndLeave')
-            )}
-          </Button>
-          <Button
-            type='button'
-            variant='outline'
-            data-testid='studio-leave-discard'
-            className='border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive'
-            disabled={busy}
-            onClick={onDiscardAndLeave}
-          >
-            {t('leaveDiscardAndLeave')}
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      busy={busy}
+      title={t('leaveUnsavedTitle')}
+      description={t('leaveUnsavedDescription')}
+      keepLabel={t('leaveStay')}
+      discardLabel={t('leaveDiscardAndLeave')}
+      saveLabel={t('leaveSaveAndLeave')}
+      savingLabel={t('leaveSavingAndLeaving')}
+      onOpenChange={onOpenChange}
+      onKeepEditing={onStay}
+      onDiscard={onDiscardAndLeave}
+      onSave={onSaveAndLeave}
+      dialogTestId='studio-leave-unsaved-dialog'
+      keepTestId='studio-leave-stay'
+      saveTestId='studio-leave-save'
+      discardTestId='studio-leave-discard'
+    />
   );
 }

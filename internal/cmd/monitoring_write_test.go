@@ -47,7 +47,9 @@ func TestMonitoringWriteCommandsSendExpectedRequests(t *testing.T) {
 		{name: "instance ack", operationID: "monitoring.alert-instance.ack", method: http.MethodPost, path: "/api/v1/monitoring/alert-instances/alert-1/ack", args: []string{"monitoring", "alert-instance", "ack", "alert-1", "--note", "checked"}, assertBody: assertMonitoringNote("checked")},
 		{name: "instance silence", operationID: "monitoring.alert-instance.silence", method: http.MethodPost, path: "/api/v1/monitoring/alert-instances/alert-1/silence", args: []string{"monitoring", "alert-instance", "silence", "alert-1", "--duration-minutes", "30"}, assertBody: assertMonitoringDuration(30)},
 		{name: "instance close", operationID: "monitoring.alert-instance.close", method: http.MethodPost, path: "/api/v1/monitoring/alert-instances/alert-1/close", args: []string{"monitoring", "alert-instance", "close", "alert-1", "--note", "resolved"}, assertBody: assertMonitoringNote("resolved")},
-		{name: "rule update", operationID: "monitoring.cluster.rule.update", method: http.MethodPut, path: "/api/v1/monitoring/clusters/6/rules/3", args: []string{"monitoring", "cluster", "rule", "update", "6", "3", "--request-file", requestFile}},
+		{name: "cluster rule update", operationID: "monitoring.cluster-rule.update", method: http.MethodPut, path: "/api/v1/monitoring/cluster-rules/node_offline", args: []string{"monitoring", "cluster-rule", "update", "node_offline", "--request-file", requestFile}},
+		{name: "cluster rule override set", operationID: "monitoring.cluster-rule-override.set", method: http.MethodPut, path: "/api/v1/monitoring/cluster-rules/node_offline/clusters/6", args: []string{"monitoring", "cluster-rule", "override", "set", "node_offline", "6", "--request-file", requestFile}},
+		{name: "notification defaults update", operationID: "monitoring.notification-defaults.update", method: http.MethodPut, path: "/api/v1/monitoring/alert-notification-defaults", args: []string{"monitoring", "notification-defaults", "update", "--request-file", requestFile}},
 		{name: "channel create", operationID: "monitoring.notification-channel.create", method: http.MethodPost, path: "/api/v1/monitoring/notification-channels", args: []string{"monitoring", "notification-channel", "create", "--request-file", requestFile}},
 		{name: "channel update", operationID: "monitoring.notification-channel.update", method: http.MethodPut, path: "/api/v1/monitoring/notification-channels/4", args: []string{"monitoring", "notification-channel", "update", "4", "--request-file", requestFile}},
 		{name: "channel test", operationID: "monitoring.notification-channel.test", method: http.MethodPost, path: "/api/v1/monitoring/notification-channels/4/test", args: []string{"monitoring", "notification-channel", "test", "4", "--receiver-user-id", "8"}, assertBody: func(t *testing.T, body map[string]any) {
@@ -57,8 +59,6 @@ func TestMonitoringWriteCommandsSendExpectedRequests(t *testing.T) {
 		}},
 		{name: "channel draft test", operationID: "monitoring.notification-channel.test-draft", method: http.MethodPost, path: "/api/v1/monitoring/notification-channels/test", args: []string{"monitoring", "notification-channel", "test-draft", "--request-file", requestFile}},
 		{name: "channel connection test", operationID: "monitoring.notification-channel.test-connection", method: http.MethodPost, path: "/api/v1/monitoring/notification-channels/test-connection", args: []string{"monitoring", "notification-channel", "test-connection", "--request-file", requestFile}},
-		{name: "route create", operationID: "monitoring.notification-route.create", method: http.MethodPost, path: "/api/v1/monitoring/notification-routes", args: []string{"monitoring", "notification-route", "create", "--request-file", requestFile}},
-		{name: "route update", operationID: "monitoring.notification-route.update", method: http.MethodPut, path: "/api/v1/monitoring/notification-routes/5", args: []string{"monitoring", "notification-route", "update", "5", "--request-file", requestFile}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -124,10 +124,10 @@ func TestRootCommandRegistersMonitoringWriteCommands(t *testing.T) {
 	paths := [][]string{
 		{"monitoring", "alert-policy", "create"}, {"monitoring", "alert-policy", "update"},
 		{"monitoring", "alert-instance", "ack"}, {"monitoring", "alert-instance", "silence"}, {"monitoring", "alert-instance", "close"},
-		{"monitoring", "cluster", "rule", "update"},
+		{"monitoring", "cluster-rule", "update"}, {"monitoring", "cluster-rule", "override", "set"},
+		{"monitoring", "notification-defaults", "update"},
 		{"monitoring", "notification-channel", "create"}, {"monitoring", "notification-channel", "update"}, {"monitoring", "notification-channel", "test"},
 		{"monitoring", "notification-channel", "test-draft"}, {"monitoring", "notification-channel", "test-connection"},
-		{"monitoring", "notification-route", "create"}, {"monitoring", "notification-route", "update"},
 	}
 	for _, path := range paths {
 		found, remaining, err := root.Find(path)

@@ -448,6 +448,20 @@ func (s *Service) ListNodeEventsAfter(ctx context.Context, nodeIDs []uint, after
 	return s.repo.ListNodeEventsAfter(ctx, nodeIDs, after, eventTypes)
 }
 
+// GetLatestSubjectEventByTypes 返回某告警主体（cluster+node+host 元组）在指定类型集合中的最新事件。
+// GetLatestSubjectEventByTypes returns the latest event of the given types for one alert
+// subject (cluster+node+host tuple).
+func (s *Service) GetLatestSubjectEventByTypes(ctx context.Context, clusterID, nodeID, hostID uint, eventTypes []ProcessEventType) (*ProcessEvent, error) {
+	return s.repo.GetLatestEventBySubject(ctx, clusterID, nodeID, hostID, eventTypes)
+}
+
+// ListClusterEventsAfter 批量读取若干集群在指定时间之后的匹配事件，供告警生命周期判定。
+// ListClusterEventsAfter batch-loads matching cluster events after a time for alert
+// lifecycle resolution.
+func (s *Service) ListClusterEventsAfter(ctx context.Context, clusterIDs []uint, after time.Time, eventTypes []ProcessEventType) ([]ProcessEvent, error) {
+	return s.repo.ListClusterEventsAfter(ctx, clusterIDs, after, eventTypes)
+}
+
 // GetEventStats retrieves event statistics for a cluster.
 // GetEventStats 获取集群的事件统计。
 func (s *Service) GetEventStats(ctx context.Context, clusterID uint, since *time.Time) (map[ProcessEventType]int64, error) {

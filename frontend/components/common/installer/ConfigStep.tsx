@@ -78,7 +78,7 @@ import type {
 } from '@/lib/services/installer/types';
 import {installerService} from '@/lib/services/installer';
 import {Button} from '@/components/ui/button';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {RuntimeAdvancedConfigCard} from '@/components/common/installer/RuntimeAdvancedConfigCard';
 import {
   HELP_HINT_DELAY_MS,

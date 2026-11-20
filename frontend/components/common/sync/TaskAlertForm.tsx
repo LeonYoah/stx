@@ -19,13 +19,15 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Info, Loader2} from 'lucide-react';
-import {Button} from '@/components/ui/button';
-import {Checkbox} from '@/components/ui/checkbox';
-import {Input} from '@/components/ui/input';
+import {Info} from 'lucide-react';
+import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {MultiSelect} from '@/components/arc/multi-select/multi-select';
+import {NumberField} from '@/components/arc/number-field/number-field';
+import {Switch} from '@/components/arc/switch/switch';
+import {Tooltip} from '@/components/arc/tooltip/tooltip';
+import ConfirmMorph from '@/components/arc/confirm-morph/confirm-morph';
 import {Label} from '@/components/ui/label';
-import {Switch} from '@/components/ui/switch';
-import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {
   NotificationChannel,
   NotificationRecipientUser,
@@ -64,6 +66,8 @@ export function TaskAlertForm({
   onSubmit,
   onCancel,
   onDelete,
+  onDirtyChange,
+  pinnedFooter,
 }: {
   initial: SyncTaskAlertConfig | null;
   /** 任务所在集群，用于提示 B4 的事件通道前置条件；拿不到时不提示。/ Task cluster for the B4 channel hint. */
@@ -74,7 +78,11 @@ export function TaskAlertForm({
   readOnly?: boolean;
   onSubmit: (request: SyncTaskAlertRequest) => void;
   onCancel: () => void;
-  onDelete?: () => void;
+  onDelete?: () => void | Promise<void>;
+  /** 表单相对 initial 是否被改，供宿主抽屉拦截未保存关闭。Whether form diverges from initial, so the host drawer can intercept an unsaved close. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** 抽屉整高布局：字段区独立滚动、操作栏钉在底部；宿主需给 drawer body flex-1。Drawer layout: fields scroll, action bar pinned to the bottom. */
+  pinnedFooter?: boolean;
 }) {
   const t = useTranslations('syncAlert');
   const [form, setForm] = useState<TaskAlertFormState>(() => initialTaskAlertForm(initial));
@@ -83,6 +91,9 @@ export function TaskAlertForm({
     setForm(initialTaskAlertForm(initial));
     setShowErrors(false);
   }, [initial]);
+  useEffect(() => {
+    onDirtyChange?.(JSON.stringify(form) !== JSON.stringify(initialTaskAlertForm(initial)));
+  }, [form, initial, onDirtyChange]);
 
   // 只列出启用的渠道；已选但被停用的渠道仍显示，方便取消勾选。
   // List enabled channels only; selected-but-disabled ones stay visible so they can be unticked.
@@ -133,8 +144,6 @@ export function TaskAlertForm({
   const cdcThresholdInvalid = cdcSelected && parseCdcDelayThreshold(form.cdcDelayThreshold) === null;
   const cdcDurationInvalid = cdcSelected && parseCdcDelayDuration(form.cdcDelayDuration) === null;
   const bottomError = error === 'errorCdcDelayThreshold' || error === 'errorCdcDelayDuration' ? null : error;
-  const cdcInputClass = (invalid: boolean) =>
-    invalid ? 'h-8 w-28 text-xs border-destructive focus-visible:ring-destructive/40' : 'h-8 w-28 text-xs';
 
   const update = (patch: Partial<TaskAlertFormState>) => setForm((current) => ({...current, ...patch}));
   const toggle = <T,>(values: T[], value: T, checked: boolean) =>
@@ -148,8 +157,8 @@ export function TaskAlertForm({
     onSubmit(buildTaskAlertRequest(form, channels));
   };
 
-  return (
-    <div className='space-y-4' data-testid='task-alert-form'>
+  const body = (
+    <>
       {readOnly ? <p className='rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground'>{t('readOnly')}</p> : null}
 
       <fieldset className='space-y-2' disabled={readOnly}>
@@ -182,33 +191,33 @@ export function TaskAlertForm({
         >
           <div className='flex flex-wrap items-start gap-3'>
             <div className='space-y-1'>
-              <Label className='flex items-center gap-1 whitespace-nowrap text-xs font-semibold'>
-                {t('cdcDelayThresholdLabel')}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      className='text-muted-foreground hover:text-foreground'
-                      data-testid='task-alert-cdc-hint'
-                      aria-label={`${t('cdcDelayThresholdHint')} ${t('cdcDelayScopeHint')}`}
+              <div data-testid='task-alert-cdc-threshold'>
+                <NumberField
+                  label={t('cdcDelayThresholdLabel')}
+                  labelAddon={
+                    <Tooltip
+                      content={
+                        <span className='block max-w-xs space-y-1 text-[11px] leading-snug'>
+                          <span className='block'>{t('cdcDelayThresholdHint')}</span>
+                          <span className='block'>{t('cdcDelayScopeHint')}</span>
+                        </span>
+                      }
                     >
-                      <Info className='size-3.5' />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent className='max-w-xs space-y-1 text-[11px] leading-snug'>
-                    <p>{t('cdcDelayThresholdHint')}</p>
-                    <p>{t('cdcDelayScopeHint')}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </Label>
-              <Input
-                value={form.cdcDelayThreshold}
-                inputMode='numeric'
-                className={cdcInputClass(cdcThresholdInvalid)}
-                data-testid='task-alert-cdc-threshold'
-                aria-invalid={cdcThresholdInvalid}
-                onChange={(event) => update({cdcDelayThreshold: event.target.value})}
-              />
+                      <button
+                        type='button'
+                        className='text-muted-foreground hover:text-foreground'
+                        data-testid='task-alert-cdc-hint'
+                        aria-label={`${t('cdcDelayThresholdHint')} ${t('cdcDelayScopeHint')}`}
+                      >
+                        <Info className='size-3.5' />
+                      </button>
+                    </Tooltip>
+                  }
+                  value={Number(form.cdcDelayThreshold) || 0}
+                  min={10}
+                  onValueChange={(v) => update({cdcDelayThreshold: String(v)})}
+                />
+              </div>
               {cdcThresholdInvalid ? (
                 <p className='max-w-56 text-[10px] text-destructive' data-testid='task-alert-cdc-threshold-error'>
                   {t('errorCdcDelayThreshold')}
@@ -216,15 +225,15 @@ export function TaskAlertForm({
               ) : null}
             </div>
             <div className='space-y-1'>
-              <Label className='whitespace-nowrap text-xs font-semibold'>{t('cdcDelayDurationLabel')}</Label>
-              <Input
-                value={form.cdcDelayDuration}
-                inputMode='numeric'
-                className={cdcInputClass(cdcDurationInvalid)}
-                data-testid='task-alert-cdc-duration'
-                aria-invalid={cdcDurationInvalid}
-                onChange={(event) => update({cdcDelayDuration: event.target.value})}
-              />
+              <div data-testid='task-alert-cdc-duration'>
+                <NumberField
+                  label={t('cdcDelayDurationLabel')}
+                  value={Number(form.cdcDelayDuration) || 0}
+                  min={1}
+                  max={60}
+                  onValueChange={(v) => update({cdcDelayDuration: String(v)})}
+                />
+              </div>
               {cdcDurationInvalid ? (
                 <p className='max-w-56 text-[10px] text-destructive' data-testid='task-alert-cdc-duration-error'>
                   {t('errorCdcDelayDuration')}
@@ -241,43 +250,39 @@ export function TaskAlertForm({
       ) : null}
 
       <fieldset className='space-y-2' disabled={readOnly}>
-        <Label className='text-xs font-semibold'>{t('channelsLabel')}</Label>
         {visibleChannels.length === 0 ? (
-          <p className='text-xs text-muted-foreground'>{t('noChannels')}</p>
+          <>
+            <Label className='text-xs font-semibold'>{t('channelsLabel')}</Label>
+            <p className='text-xs text-muted-foreground'>{t('noChannels')}</p>
+          </>
         ) : (
-          <div className='flex flex-wrap gap-2'>
-            {visibleChannels.map((channel) => (
-              <label
-                key={channel.id}
-                className='flex cursor-pointer items-center gap-1.5 rounded-md border border-border/60 px-2 py-1 text-xs hover:bg-muted/30'
-              >
-                <Checkbox
-                  checked={form.channelIds.includes(channel.id)}
-                  data-testid={`task-alert-channel-${channel.id}`}
-                  onCheckedChange={(checked) => update({channelIds: toggle(form.channelIds, channel.id, checked === true)})}
-                />
-                <span className='whitespace-nowrap'>{channel.name}</span>
-                <span className='whitespace-nowrap text-[10px] uppercase text-muted-foreground'>{channel.type}</span>
-              </label>
-            ))}
+          <div data-testid='task-alert-channels'>
+            <MultiSelect
+              label={t('channelsLabel')}
+              options={visibleChannels.map((channel) => ({
+                value: String(channel.id),
+                label: channel.name,
+              }))}
+              value={form.channelIds.map(String)}
+              onValueChange={(v) => update({channelIds: v.map(Number)})}
+              placeholder={t('channelsLabel')}
+            />
           </div>
         )}
       </fieldset>
 
       {emailSelected ? (
         <fieldset className='space-y-2 rounded-md border border-dashed border-border/70 p-2.5' disabled={readOnly}>
-          <Label className='text-xs font-semibold'>{t('receiversLabel')}</Label>
-          <div className='flex max-h-32 flex-wrap gap-1.5 overflow-y-auto'>
-            {users.map((user) => (
-              <label key={user.id} className='flex cursor-pointer items-center gap-1.5 rounded border border-border/50 px-1.5 py-0.5 text-[11px]'>
-                <Checkbox
-                  checked={form.receiverUserIds.includes(user.id)}
-                  onCheckedChange={(checked) => update({receiverUserIds: toggle(form.receiverUserIds, user.id, checked === true)})}
-                />
-                <span className='whitespace-nowrap'>{user.nickname || user.username}</span>
-              </label>
-            ))}
-          </div>
+          <MultiSelect
+            label={t('receiversLabel')}
+            options={users.map((user) => ({
+              value: String(user.id),
+              label: user.nickname || user.username,
+            }))}
+            value={form.receiverUserIds.map(String)}
+            onValueChange={(v) => update({receiverUserIds: v.map(Number)})}
+            placeholder={t('receiversPlaceholder')}
+          />
           <label className='flex cursor-pointer items-center gap-2 text-xs'>
             <Checkbox
               checked={form.notifyTaskOwner}
@@ -292,15 +297,14 @@ export function TaskAlertForm({
 
       <fieldset className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end' disabled={readOnly}>
         <div className='space-y-1'>
-          <Label className='whitespace-nowrap text-xs font-semibold'>{t('cooldownLabel')}</Label>
-          <Input
-            value={form.cooldown}
-            inputMode='numeric'
-            className='h-8 w-28 text-xs'
-            data-testid='task-alert-cooldown'
-            aria-invalid={showErrors && error === 'errorCooldown'}
-            onChange={(event) => update({cooldown: event.target.value})}
-          />
+          <div className='w-36' data-testid='task-alert-cooldown'>
+            <NumberField
+              label={t('cooldownLabel')}
+              value={Number(form.cooldown) || 0}
+              min={0}
+              onValueChange={(v) => update({cooldown: String(v)})}
+            />
+          </div>
           <p className='text-[11px] text-muted-foreground'>{t('cooldownHint')}</p>
         </div>
         <label className='flex items-center gap-2 whitespace-nowrap text-xs'>
@@ -318,22 +322,49 @@ export function TaskAlertForm({
           {t(bottomError)}
         </p>
       ) : null}
+    </>
+  );
 
-      <div className='flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3'>
+  return (
+    <div
+      className={pinnedFooter ? 'flex h-full flex-col' : 'space-y-4'}
+      data-testid='task-alert-form'
+    >
+      {pinnedFooter ? (
+        // 抽屉内字段区独立滚动，操作栏由 flex 钉在底部（宿主需已抵消 body 内边距）。
+        // In a drawer the fields scroll on their own and the action bar is pinned
+        // by flex; the host is expected to have cancelled the body padding.
+        <div className='min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6'>
+          {body}
+        </div>
+      ) : (
+        body
+      )}
+      <div
+        className={
+          pinnedFooter
+            ? 'flex flex-wrap items-center justify-between gap-2 border-t border-(--border-subtle) bg-(--surface-raised) px-5 py-3 sm:px-6'
+            : 'flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3'
+        }
+      >
         <div>
           {onDelete && initial?.configured && !readOnly ? (
-            <Button type='button' variant='ghost' size='sm' className='text-destructive' disabled={saving} onClick={onDelete}>
-              {t('delete')}
-            </Button>
+            <ConfirmMorph
+              label={t('delete')}
+              prompt={t('deleteConfirm')}
+              confirmLabel={t('delete')}
+              cancelLabel={t('cancel')}
+              pendingLabel={t('saving')}
+              onConfirm={onDelete}
+            />
           ) : null}
         </div>
         <div className='flex items-center gap-2'>
-          <Button type='button' variant='outline' size='sm' onClick={onCancel} disabled={saving}>
+          <Button type='button' variant='secondary' size='sm' onClick={onCancel} disabled={saving}>
             {t('cancel')}
           </Button>
           {!readOnly ? (
-            <Button type='button' size='sm' onClick={submit} disabled={saving} data-testid='task-alert-save'>
-              {saving ? <Loader2 className='mr-1 size-3.5 animate-spin' /> : null}
+            <Button type='button' size='sm' loading={saving} onClick={submit} disabled={saving} data-testid='task-alert-save'>
               {saving ? t('saving') : t('save')}
             </Button>
           ) : null}

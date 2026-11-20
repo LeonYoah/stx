@@ -40,7 +40,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {HostInfo, HostType, UpdateHostRequest} from '@/lib/services/host/types';
 

@@ -17,6 +17,6 @@
 
 import {redirect} from 'next/navigation';
 
-export default function MonitoringHistoryRedirectPage() {
-  redirect('/monitoring?tab=policies');
+export default function MonitoringRedirectPage() {
+  redirect('/monitoring?tab=notify');
 }

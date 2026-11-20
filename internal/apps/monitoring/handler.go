@@ -71,75 +71,12 @@ func (h *Handler) GetClusterOverview(c *gin.Context) {
 	c.JSON(http.StatusOK, Response{Data: data})
 }
 
-// ListClusterRules handles GET /api/v1/monitoring/clusters/:id/rules
-// ListClusterRules 处理 GET /api/v1/monitoring/clusters/:id/rules
-func (h *Handler) ListClusterRules(c *gin.Context) {
-	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid cluster id"})
-		return
-	}
-
-	data, err := h.service.ListClusterRules(c.Request.Context(), uint(clusterID))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to list cluster rules: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// UpdateClusterRule handles PUT /api/v1/monitoring/clusters/:id/rules/:ruleId
-// UpdateClusterRule 处理 PUT /api/v1/monitoring/clusters/:id/rules/:ruleId
-func (h *Handler) UpdateClusterRule(c *gin.Context) {
-	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid cluster id"})
-		return
-	}
-	ruleID, err := strconv.ParseUint(c.Param("ruleId"), 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid rule id"})
-		return
-	}
-
-	var req UpdateAlertRuleRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid request body: " + err.Error()})
-		return
-	}
-
-	if err := req.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
-		return
-	}
-
-	data, err := h.service.UpdateClusterRule(c.Request.Context(), uint(clusterID), uint(ruleID), &req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to update cluster rule: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
 // GetIntegrationStatus handles GET /api/v1/monitoring/integration/status
 // GetIntegrationStatus 处理 GET /api/v1/monitoring/integration/status
 func (h *Handler) GetIntegrationStatus(c *gin.Context) {
 	data, err := h.service.GetIntegrationStatus(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to get integration status: " + err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, Response{Data: data})
-}
-
-// GetAlertPolicyCenterBootstrap handles GET /api/v1/monitoring/alert-policies/bootstrap.
-// GetAlertPolicyCenterBootstrap 处理统一策略中心初始化接口。
-func (h *Handler) GetAlertPolicyCenterBootstrap(c *gin.Context) {
-	data, err := h.service.GetAlertPolicyCenterBootstrap(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to load alert policy center bootstrap: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: data})

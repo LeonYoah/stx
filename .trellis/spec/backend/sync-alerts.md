@@ -8,7 +8,7 @@
 - 修改 `applyEngineJobInfoUpdate`、`submitTaskInstanceWithPayload`、`submitLocalTaskInstance`、`expireUnknownSubmit`、`markCancelOverdue`、集群对账结束（`finishClusterReconcile`）或事件通道状态写入时，必须确认信号仍然在同样的时机发出。
 - 原则：
   - **作业级告警只在用户配置后生效**：任务没有 `sync_job` 策略、策略停用或没勾选这条规则时，信号直接丢弃，不建阶段，不发通知。
-  - **集群级规则默认开启**：作为每个集群的默认规则（与"节点离线"一样）；没有策略时只在告警中心显示，不发通知。
+  - **集群级同步规则归属规则目录**：`sync_status_unavailable`（默认开启，5m）与 `sync_event_channel_degraded`（默认关闭）由集群级规则目录（[集群告警规则目录与默认通知](./cluster-alert-rules.md)）管理与解析；级别为 `warning` 时只进告警中心，为 `critical` 时按规则自定义或默认通知外投。
   - **只用现有信号**，不新增引擎调用；数据预览（`run_type=preview`）不产生信号。
   - **sync 不 import monitoring**：两边只依赖 `internal/pkg/syncalert`，在 `router.go` 里注入；没注入时 sync 照常工作。
 
@@ -125,14 +125,14 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 - 正文：状态、规则、集群、任务、作业 `#id`、引擎作业 ID、触发来源、累计次数、首次 / 最近发生时间、恢复时间、错误摘要（500 字符）、策略、链接。
 - webhook 带结构化 `alert`：`source_type`（`platform_health` 或 `job`，按规则归属：集群级规则平台健康、任务级规则作业告警）、`source_key`、`status`、`scope`、`rule_key`、`task_id`、`job_id`、`occurrence_count`、`link` 等。
 - **类别与存储种类分离**：`source_type` 表示告警类别（`platform_health` / `metric` / `job`），sync 阶段是存储种类（`source_key` 前缀 `sync:episode:`），两者不再混用；重试等内部识别走存储种类前缀，不走类别。
-- 链接：`{app.console_url}/sync?task=<id>&job=<id>`，`console_url` 为空时不带链接；告警中心用相对链接 `/sync?task=&job=`。**不要用 `external_url`**：它是 Agent、Alertmanager 回调的后端地址（默认 17800），默认安装里前端在另一个端口（17880），拼出来的链接会 404。
+- 链接：`{app.console_url}/sync?task=<id>&job=<id>`，`console_url` 为空时不带链接；告警中心用相对链接 `/sync?task=&job=`。**不要用 `external_url`**：它是 Agent 上报等的后端地址（默认 17800），默认安装里前端在另一个端口（17880），拼出来的链接会 404。
 - 邮件收件人：策略接收人 + `notify_task_owner` 时的任务创建人邮箱（用户停用或没有邮箱时忽略，不让告警失败），按小写去重。
 
 ### 任务告警配置（TaskConfig）
 - `rules ⊆ {sync_submit_failed, sync_submit_timeout, sync_job_failed, sync_stop_timeout, sync_cdc_delay_high}`，至少一条；新配置前端默认不勾选 B4；`channel_ids` 至少一个、必须存在且启用；`cooldown_minutes` 0–1440；PUT 时 `enabled`、`send_recovery` 默认 true，`cooldown_minutes` 默认 60。
 - `cdc_delay_threshold_seconds`（默认 60，10–86400）、`cdc_delay_duration_minutes`（默认 5，1–60）：PUT **不填时保留已保存的值**（老客户端不会把自定义值冲回默认），新建时不填或明确填 0 按默认，超范围 400；不论是否勾选 B4 都校验。B4 条件写成 `threshold=<秒> window_minutes=<分钟>`，通用策略接口同样校验（`ErrAlertPolicySyncJobInvalidCDCDelay`）。没勾选 B4 时参数存进一条 `metric_key=sync_cdc_delay_params` 的只保存参数的条件（不是规则：不出现在 `rules`，不能单独存在、最多一条、不能和 B4 条件并存、同样校验范围；读取先认 B4 条件），所以去掉 B4 再勾回仍是原来的阈值和持续时间（t1 实测 B1：此前去掉 B4 时参数随条件一起丢失，读回变成默认 5 分钟）。CLI `--cdc-delay-threshold` / `--cdc-delay-duration`，勾选 B4 而没给参数时先 GET 保留当前值；只改这两个参数时不要求 `--rules` / `--channel`，先 GET 再 PUT 保留其余字段。
 - 底层是 `policy_type=sync_job` 的告警策略：规则写在 `conditions[].metric_key`（`operator=">=" threshold="1"`），`cluster_id` 只用于展示，匹配按 `task_id`；同一任务只能有一条。
-- 通用策略接口也能改 `sync_job`：必须带 `task_id`（创建后不可改，以库里为准），不能在 `sync_job` 与其他类型之间互转。
+- `/alert-policies` 的 `POST` / `PUT` 只接受 `sync_job`（其余类型返回 400 `ErrAlertPolicyUseClusterRules`）：必须带 `task_id`（创建后不可改，以库里为准），不能在 `sync_job` 与其他类型之间互转。
 - 不跟随任务版本，保存即生效。
 
 ### 不阻塞

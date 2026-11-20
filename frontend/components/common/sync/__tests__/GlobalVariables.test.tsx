@@ -42,8 +42,8 @@ vi.mock('next-intl', () => ({
   },
 }));
 
-// Mock sonner toast
-vi.mock('sonner', () => ({
+// Mock toast
+vi.mock('@/lib/toast', () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),

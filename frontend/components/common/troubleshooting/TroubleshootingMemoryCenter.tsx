@@ -44,7 +44,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 import {useLocale} from '@/lib/i18n';
 import services from '@/lib/services';

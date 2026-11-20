@@ -18,13 +18,19 @@
 'use client';
 
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {useTranslations} from 'next-intl';
-import {Braces} from 'lucide-react';
+import {useLocale, useTranslations} from 'next-intl';
+import {
+  Activity,
+  Clock3,
+  FileCode2,
+  RefreshCw,
+  Waypoints,
+} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Skeleton} from '@/components/ui/skeleton';
+import {Timeline, type TimelineEvent} from '@/components/arc/timeline/timeline';
 import {ExpandableTextPanel, TableLoadingBar} from '@/components/common/layout';
-import {cn} from '@/lib/utils';
-import {formatDateTimeTz} from '@/lib/timezone';
+import {formatDateTimeTz, resolveDisplayTimezone} from '@/lib/timezone';
 import services from '@/lib/services';
 import type {SyncEngineEvent, SyncJobInstance} from '@/lib/services/sync';
 import {getRealtimeEntry} from './sync-studio-utils';
@@ -144,18 +150,60 @@ function EventRawData({event}: {event: SyncEngineEvent}) {
   return <ExpandableTextPanel content={content} height={240} className='mt-1.5' />;
 }
 
-function familyClass(family: EngineEventFamily): string {
-  switch (family) {
-    case 'status':
-      return 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300';
-    case 'schema':
-      return 'border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300';
-    case 'delay':
-      return 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300';
-    default:
-      return 'border-border/60 bg-muted/40 text-muted-foreground';
-  }
+/** 生命周期折叠组内每条子事件：行内展开自己的原始数据。/ One lifecycle sub-event; expands its raw data in place. */
+function LifecycleSubRow({event}: {event: SyncEngineEvent}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li>
+      <button
+        type='button'
+        className='flex w-full flex-wrap items-center gap-2 py-0.5 text-left font-mono text-[11px] text-muted-foreground hover:text-foreground'
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className='whitespace-nowrap'>
+          {formatDateTimeTz(event.event_time_ms)}
+        </span>
+        <span>{event.event_type}</span>
+      </button>
+      {open ? <EventRawData event={event} /> : null}
+    </li>
+  );
 }
+
+/** 折叠组详情：组内生命周期事件逐条列出。/ Group detail: the folded lifecycle events one per row. */
+function LifecycleGroupDetail({events}: {events: SyncEngineEvent[]}) {
+  return (
+    <ul className='space-y-0.5'>
+      {events.map((event) => (
+        <LifecycleSubRow key={event.id} event={event} />
+      ))}
+    </ul>
+  );
+}
+
+/** 状态事件按结果着色，其余保持中性；标题本身已写明结果，tone 只做点缀。/ Status events get an outcome tone; others stay neutral since the title already states it. */
+function eventTone(event: SyncEngineEvent): TimelineEvent['tone'] {
+  if (engineEventFamily(event.event_type) !== 'status') {
+    return undefined;
+  }
+  const status = (event.job_status ?? '').toUpperCase();
+  if (status === 'FAILED' || status === 'CANCELED' || status === 'ERROR') {
+    return 'danger';
+  }
+  if (status === 'FINISHED') {
+    return 'success';
+  }
+  return undefined;
+}
+
+const FAMILY_ICON: Record<EngineEventFamily, React.ReactNode> = {
+  status: <Activity className='size-3.5' aria-hidden />,
+  schema: <FileCode2 className='size-3.5' aria-hidden />,
+  delay: <Clock3 className='size-3.5' aria-hidden />,
+  lifecycle: <RefreshCw className='size-3.5' aria-hidden />,
+  other: <Waypoints className='size-3.5' aria-hidden />,
+};
 
 /**
  * 作业事件时间线：引擎上报的状态变化、DDL（schema change）、CDC 延迟与生命周期事件。作为作业详情的页签内嵌，
@@ -171,15 +219,12 @@ export function JobEventTimelineContent({
   active: boolean;
 }) {
   const t = useTranslations('workbenchStudio.jobEvents');
+  const locale = useLocale();
   const [events, setEvents] = useState<SyncEngineEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
-  // 按事件 ID 记录哪些事件展开了原始数据。/ Which events (by id) show their raw data.
-  const [rawOpen, setRawOpen] = useState<Record<number, boolean>>({});
-  const toggleRaw = (eventId: number) => setRawOpen((current) => ({...current, [eventId]: !current[eventId]}));
   const loadedRef = useRef(false);
   const jobId = job?.id ?? 0;
   const running = getRealtimeEntry(job).running;
@@ -191,7 +236,6 @@ export function JobEventTimelineContent({
     let disposed = false;
     loadedRef.current = false;
     setLoading(true);
-    setExpanded({});
     const load = async () => {
       if (loadedRef.current) {
         setRefreshing(true);
@@ -227,19 +271,44 @@ export function JobEventTimelineContent({
 
   const rows = useMemo(() => buildTimelineRows(events), [events]);
 
-  const eventDetail = (event: SyncEngineEvent): string => {
-    const payload = (event.payload ?? {}) as Record<string, unknown>;
-    switch (engineEventFamily(event.event_type)) {
-      case 'status':
-        return event.job_status || '-';
-      case 'delay':
-        return t('delayValue', {value: `${(Number(payload.delay_ms ?? 0) / 1000).toFixed(1)}s`});
-      case 'schema':
-        return schemaChangeSummary(payload) || event.event_type;
-      default:
-        return event.event_type;
-    }
-  };
+  const timelineEvents = useMemo<TimelineEvent[]>(() => {
+    const eventTitle = (event: SyncEngineEvent): string => {
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      switch (engineEventFamily(event.event_type)) {
+        case 'status':
+          return event.job_status || '-';
+        case 'delay':
+          return t('delayValue', {value: `${(Number(payload.delay_ms ?? 0) / 1000).toFixed(1)}s`});
+        case 'schema':
+          return schemaChangeSummary(payload) || event.event_type;
+        default:
+          return event.event_type;
+      }
+    };
+    return rows.map((row): TimelineEvent => {
+      if (row.kind === 'lifecycle') {
+        const last = row.events[row.events.length - 1];
+        return {
+          id: `lifecycle-${last.id}`,
+          at: last.event_time_ms,
+          title: t('lifecycleGroup', {count: row.events.length}),
+          meta: t('family.lifecycle'),
+          detail: <LifecycleGroupDetail events={row.events} />,
+          icon: FAMILY_ICON.lifecycle,
+        };
+      }
+      const family = engineEventFamily(row.event.event_type);
+      return {
+        id: String(row.event.id),
+        at: row.event.event_time_ms,
+        title: eventTitle(row.event),
+        meta: `${t(`family.${family}`)} · ${row.event.event_type}`,
+        detail: <EventRawData event={row.event} />,
+        tone: eventTone(row.event),
+        icon: FAMILY_ICON[family],
+      };
+    });
+  }, [rows, t]);
 
   return (
     <div className='flex h-full min-h-0 flex-col'>
@@ -264,82 +333,19 @@ export function JobEventTimelineContent({
             </div>
           ) : error ? (
             <p className='p-2 text-xs text-destructive'>{error}</p>
-          ) : rows.length === 0 ? (
+          ) : timelineEvents.length === 0 ? (
             <p className='p-6 text-center text-xs text-muted-foreground'>{t('empty')}</p>
           ) : (
-            <ul className='divide-y divide-border/50' data-testid='sync-job-event-timeline'>
-              {rows.map((row, index) => {
-                if (row.kind === 'lifecycle') {
-                  const first = row.events[row.events.length - 1];
-                  const isOpen = Boolean(expanded[index]);
-                  return (
-                    <li key={`lifecycle-${first.id}`} className='py-1.5'>
-                      <button
-                        type='button'
-                        className='flex w-full flex-wrap items-center gap-2 text-left text-xs'
-                        onClick={() => setExpanded((current) => ({...current, [index]: !current[index]}))}
-                      >
-                        <span className='whitespace-nowrap font-mono text-[11px] text-muted-foreground'>
-                          {formatDateTimeTz(first.event_time_ms)}
-                        </span>
-                        <Badge variant='outline' className={cn('whitespace-nowrap text-[10px]', familyClass('lifecycle'))}>
-                          {t('family.lifecycle')}
-                        </Badge>
-                        <span className='text-muted-foreground'>
-                          {t('lifecycleGroup', {count: row.events.length})}
-                        </span>
-                      </button>
-                      {isOpen ? (
-                        <ul className='mt-1 space-y-0.5 pl-6'>
-                          {row.events.map((event) => (
-                            <li key={event.id}>
-                              <button
-                                type='button'
-                                className='flex w-full flex-wrap gap-2 text-left font-mono text-[11px] text-muted-foreground hover:text-foreground'
-                                onClick={() => toggleRaw(event.id)}
-                                aria-expanded={Boolean(rawOpen[event.id])}
-                              >
-                                <span className='whitespace-nowrap'>{formatDateTimeTz(event.event_time_ms)}</span>
-                                <span>{event.event_type}</span>
-                              </button>
-                              {rawOpen[event.id] ? <EventRawData event={event} /> : null}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </li>
-                  );
-                }
-                const family = engineEventFamily(row.event.event_type);
-                const rawShown = Boolean(rawOpen[row.event.id]);
-                return (
-                  <li key={row.event.id} className='py-1.5'>
-                    {/* 点击整行查看原始数据：格式化摘要可能漏掉细节。/ Click the row for raw data: the summary may omit details. */}
-                    <button
-                      type='button'
-                      className='group flex w-full flex-wrap items-center gap-2 text-left text-xs'
-                      onClick={() => toggleRaw(row.event.id)}
-                      aria-expanded={rawShown}
-                    >
-                      <span className='whitespace-nowrap font-mono text-[11px] text-muted-foreground'>
-                        {formatDateTimeTz(row.event.event_time_ms)}
-                      </span>
-                      <Badge variant='outline' className={cn('whitespace-nowrap text-[10px]', familyClass(family))}>
-                        {t(`family.${family}`)}
-                      </Badge>
-                      <span className='min-w-0 flex-1 break-words font-mono text-[11px]' title={row.event.event_type}>
-                        {eventDetail(row.event)}
-                      </span>
-                      <span className='inline-flex shrink-0 items-center gap-0.5 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100'>
-                        <Braces className='size-3' />
-                        {rawShown ? t('hideRaw') : t('viewRaw')}
-                      </span>
-                    </button>
-                    {rawShown ? <EventRawData event={row.event} /> : null}
-                  </li>
-                );
-              })}
-            </ul>
+            <div data-testid='sync-job-event-timeline'>
+              <Timeline
+                events={timelineEvents}
+                now={Date.now()}
+                label={t('feedLabel')}
+                timeZone={resolveDisplayTimezone()}
+                locale={locale}
+                headingLevel={4}
+              />
+            </div>
           )}
         </div>
     </div>

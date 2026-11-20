@@ -38,7 +38,7 @@ import Image from 'next/image';
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {usePathname} from 'next/navigation';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 import {
   ensureKapaWidget,

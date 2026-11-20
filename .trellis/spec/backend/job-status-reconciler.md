@@ -72,6 +72,7 @@ func effectiveSubmitTimeout(task *Task) time.Duration / effectiveStopTimeout(tas
 - **ctx 解绑**：`SubmitTaskWithExecutionOptions`、`RecoverJobWithExecution`、`submitTaskInstanceWithPayload`、`CancelJob` 用 `context.WithoutCancel`；`attachExternalRef` 的等待仍可被调用方取消。
 - **停止**：进入 `cancel_requested` 时在 `result_preview` 写 `cancel_requested_at`、`cancel_timeout_seconds`、`cancel_deadline`。`stop-job` 结果未知时**不恢复成运行中**，按成功路径进入 `cancelling`，写 `cancel_outcome=unknown`、`cancel_error`；到终态时改为 `confirmed`。确定失败保持原有恢复和"cancel request failed"。
 - **停止超时**：`reconcileActiveJobs` 只看本地截止时间，越过时写一次 `cancel_overdue_at`，状态不变；作业响应带派生字段 `cancel_overdue`。
+- **停止未生效回退**：对账 / 刷新发现取消中作业已越过 `cancel_deadline` 且引擎仍报 `RUNNING` / `PENDING` 时，说明停止请求没有送达或没有生效，作业恢复为引擎真实状态并写 `cancel_outcome=reverted`，允许用户重新发起停止；截止前引擎报运行仍保持 `cancelling`。
 
 ### 4. 校验与错误对应表
 
@@ -97,7 +98,7 @@ func effectiveSubmitTimeout(task *Task) time.Duration / effectiveStopTimeout(tas
 ### 6. 必须有的测试
 
 - `engine_client_outcome_test.go`：分类函数表驱动；超时不回退 v1；连接被拒仍回退；504 未知、503 回退；2xx 非 JSON 成功；停止超时未知。
-- `submit_outcome_test.go`：登记字段和截止时间（全局 / 任务覆盖）；确定失败不建记录；调用方取消后仍落库；拦截与过期后放行；同一 ref 接管；不登记事件预期；对账确认 / 截止前等待 / 过期判失败；恢复提交截止前不采信旧终态；停止未知保持 cancelling 与终态确认；停止确定失败恢复；停止超时只标记一次；超时解析与生效值。
+- `submit_outcome_test.go`：登记字段和截止时间（全局 / 任务覆盖）；确定失败不建记录；调用方取消后仍落库；拦截与过期后放行；同一 ref 接管；不登记事件预期；对账确认 / 截止前等待 / 过期判失败；恢复提交截止前不采信旧终态；停止未知保持 cancelling 与终态确认；停止确定失败恢复；停止超时只标记一次；越过截止时间引擎仍报运行则回退运行中并可重停；超时解析与生效值。
 - CLI：unknown 提交和停止打印 warning；409 走冲突退出码 6。
 
 ### 7. 错误与正确示例

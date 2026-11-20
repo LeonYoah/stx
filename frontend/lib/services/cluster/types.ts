@@ -720,6 +720,8 @@ export interface UpdateNodeRequest {
   worker_port?: number;
   /** Node-level JSON overrides / 节点级 JSON 覆盖配置 */
   overrides?: NodeOverrides;
+  /** Node JDK directory; explicit empty string clears the custom path back to auto detection / 节点 JDK 目录；显式空串表示清除自定义路径回到自动探测 */
+  java_home?: string;
 }
 
 /**

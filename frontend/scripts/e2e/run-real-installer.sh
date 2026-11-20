@@ -239,26 +239,47 @@ docker rm -f "${MINIO_NAME}" >/dev/null 2>&1 || true
 JAVA_PROXY_SCRIPT_PATH="${ROOT_DIR}/scripts/stx-java-proxy.sh"
 JAVA_PROXY_LIB_PATH="${ROOT_DIR}/lib/stx-java-proxy-${JAVA_PROXY_EPOCH}.jar"
 if [[ ! -f "${JAVA_PROXY_LIB_PATH}" ]]; then
-  # Maven Central 偶发 429：多试几次，避免 E2E 整场被 parent POM 下载卡住。
-  # Maven Central occasionally returns 429; retry so E2E is not killed by a parent POM fetch.
+  # repo.maven.apache.org（Cloudflare）边缘节点曾持续对 runner 回 404 且被负缓存放大；
+  # 改走 Google 的 Central 全量镜像，与重试叠加避免 E2E 被 parent POM 卡住。
+  # repo.maven.apache.org (Cloudflare) edges have served persistent 404s to runners,
+  # amplified by Maven's negative cache; route Central through Google's full mirror
+  # on top of the retries so a parent POM fetch cannot kill the whole E2E job.
+  MAVEN_SETTINGS="${TMP_DIR}/e2e-maven-settings.xml"
+  cat >"${MAVEN_SETTINGS}" <<'EOF'
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <mirrors>
+    <mirror>
+      <id>gcs-central-mirror</id>
+      <name>Google Cloud Storage Maven Central mirror</name>
+      <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+      <mirrorOf>central</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>
+EOF
   mvn_ok=false
-  for attempt in 1 2 3 4 5; do
+  for attempt in 1 2 3 4 5 6 7 8; do
+    # -U 强制重解析：中央仓库瞬时失败会被 Maven 负缓存进 ~/.m2，
+    # 不加 -U 时重试只会反复命中缓存，循环形同虚设。
+    # -U forces re-resolution: a transient Central failure is negatively cached
+    # in ~/.m2, so without it retries just hit the cache again.
+    mvn_cmd=(mvn -s "${MAVEN_SETTINGS}" -q -U -DskipTests package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
     if [[ "${JAVA_PROXY_EPOCH}" == "v3" ]]; then
-      mvn_cmd=(mvn -q -DskipTests -P'epoch-v3,!epoch-v2' package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+      mvn_cmd+=(-P'epoch-v3,!epoch-v2')
     else
-      mvn_cmd=(mvn -q -DskipTests -Pepoch-v2 package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml")
+      mvn_cmd+=(-Pepoch-v2)
     fi
     if "${mvn_cmd[@]}"; then
       mvn_ok=true
       break
     fi
-    if [[ "${attempt}" -lt 5 ]]; then
-      echo "[e2e-real] mvn package failed (attempt ${attempt}/5), retrying in $((attempt * 4))s..."
-      sleep $((attempt * 4))
+    if [[ "${attempt}" -lt 8 ]]; then
+      echo "[e2e-real] mvn package failed (attempt ${attempt}/8), retrying in $((attempt * 10))s..."
+      sleep $((attempt * 10))
     fi
   done
   if [[ "${mvn_ok}" != "true" ]]; then
-    echo "[e2e-real] mvn package failed after 5 attempts" >&2
+    echo "[e2e-real] mvn package failed after 8 attempts" >&2
     exit 1
   fi
   BUILT_JAVA_PROXY_JAR="$(find "${ROOT_DIR}/tools/stx-java-proxy/target" -maxdepth 1 -type f -name "stx-java-proxy-${JAVA_PROXY_EPOCH}.jar" | sort | head -n 1 || true)"

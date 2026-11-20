@@ -118,6 +118,13 @@ sync:
   # 停止超时：点停止后超过这么久作业仍未停下，标记为"停止超时"（状态保持停止中，不判失败）
   # 0 或不填表示默认 300 秒；任务设置里可以单独覆盖（1~120 分钟）
   stop_timeout_seconds: 300
+  # 外部作业纳管：把 SeaTunnel CLI、REST、其他调度器直接提交到本平台集群的作业也纳入作业列表（只读可见，仅管理员可停止）
+  # 不填为开启；设为 false 关闭全部集群；单个集群可在集群配置里用 external_job_discovery_enabled: false 关闭
+  external_job_discovery_enabled: true
+  # 没有运行中作业的集群做外部作业发现的间隔；0 或不填表示默认 60 秒
+  external_job_discovery_interval_seconds: 60
+  # 每轮每个集群最多新建的外部作业记录数，运行中优先，其余留到下一轮；0 或不填表示默认 200
+  external_job_discovery_max_new_per_round: 200
   # 同时对账的集群数上限：一个集群很慢时，其他集群照常按对账间隔更新；0 或不填表示默认 4
   job_reconciler_cluster_concurrency: 4
   # 集群查询超时或连不上时，下一轮对账按 10、20、40…秒推迟，最长推迟这么久；成功一次立即恢复；0 或不填表示默认 120 秒

@@ -25,7 +25,7 @@ export {
   CATALOG_TABLE_MIN_WIDTH,
   CATALOG_TABLE_MIN_WIDTH_SELECTABLE,
 } from './catalog-table-grid';
-export {MarketplaceListToolbar} from './ListToolbar';
+export {MarketplaceViewToggle} from './MarketplaceViewToggle';
 export {
   MarketplaceMorphCatalog,
   hasMarketplaceMenuActions,

@@ -46,15 +46,34 @@ limitations under the License.
   but changed meaning: it used to wire the external trio and now enables embedded monitoring. Since the v1.4.0
   config template defaults it to `true`, embedded monitoring starts collecting automatically after upgrade,
   writing metrics to `data/tsdb` and raising memory/disk usage; see the embedded monitoring doc for tuning.
+- 告警配置一次性迁移（SchemaFlag `alert_rule_catalog_v1`，事务内执行，重复启动不再跑）：
+  旧的指标模板 / 平台健康策略迁移为集群规则目录的全局配置与集群例外；旧通知路由按过滤条件并入
+  默认通知或对应规则的自定义通知；有启用渠道的策略记为严重级别、无渠道的记为警告。旧策略行保留
+  但置为停用，便于排查；`sync_job` 任务告警策略不受影响。One-time alert-config migration
+  (SchemaFlag `alert_rule_catalog_v1`, transactional, skipped on later boots): legacy metric-template /
+  platform-health policies become the cluster-rule catalog's global config and per-cluster overrides;
+  legacy notification routes are merged into the notification defaults or a rule's custom notification by
+  match condition; policies with enabled channels become critical, otherwise warning. Legacy policy rows
+  are kept but disabled for audit; `sync_job` task policies are untouched.
 
 ## 破坏性变更 / Breaking Changes
 
-- 告警类别统一为 `platform_health` / `metric` / `job`；创建通知路由或策略时传旧值返回 400。
+- 告警类别统一为 `platform_health` / `metric` / `job`；创建或更新告警策略时传旧值返回 400。
   Alert categories are now `platform_health` / `metric` / `job`; requests with legacy values get 400.
-- 旧告警类别的通知路由、旧条件的自动巡检策略不再生效但不会删除：列表 / 详情 API、CLI 与
-  界面通过 `invalid_reason` 标出，需编辑重新选择。Legacy-category notification routes and
-  legacy-condition auto policies stop working but are not deleted: `invalid_reason` flags them
-  in API, CLI and UI for re-editing.
+- 通知路由接口已删除：`/api/v1/monitoring/notification-routes` 的增删改查不再可用（调用方收到 404）。
+  通知改由「通知渠道 + 默认通知 + 规则自定义通知」承载；旧路由数据行保留在表中不再生效，
+  升级迁移时按过滤条件并入默认通知或对应规则的自定义通知。Notification-route APIs are removed:
+  CRUD under `/api/v1/monitoring/notification-routes` now 404s. Notification is carried by channels +
+  defaults + per-rule custom config; legacy route rows stay in the table but no longer apply, and the
+  upgrade migration merges them into defaults or per-rule custom notification by match condition.
+- 旧条件的自动巡检策略不再生效但不会删除：列表 / 详情 API、CLI 与
+  界面通过 `invalid_reason` 标出，需编辑重新选择。Legacy-condition auto policies stop working
+  but are not deleted: `invalid_reason` flags them in API, CLI and UI for re-editing.
+- 非 `sync_job` 的告警策略（`platform_health` / `metrics_template` / `custom_promql`）创建与更新
+  一律被拒绝并提示改用 cluster-rules；只保留 `sync_job` 任务告警策略的读写（集群级规则改为
+  内置目录，见新功能）。Non-`sync_job` alert policies (`platform_health` / `metrics_template` /
+  `custom_promql`) are rejected on create/update with guidance to use cluster-rules; only `sync_job`
+  task policies remain writable (cluster-level rules are now a builtin catalog, see Features).
 - 删除接口：`GET /monitoring/prometheus/discovery`、`GET /monitoring/prometheus/jobs/metrics`、
   `POST /monitoring/alertmanager/webhook`、`ANY /monitoring/proxy/grafana`、
   `ANY /monitoring/proxy/grafana/*proxyPath`。Removed APIs: the two Prometheus discovery
@@ -78,6 +97,24 @@ limitations under the License.
   Embedded tsdb self-observability and capacity guardrails.
 - 管理员可用的进程 pprof 剖析，默认关闭。Admin-only process pprof profiling, off by default.
 - 告警规则目录：内置规则可视化查阅。Alert rule catalog for browsing builtin rules.
+- 集群级告警规则目录化：21 条内置规则统一替代旧的内置 YAML 规则与策略模板，支持全局配置、
+  单集群例外、开关 / 阈值 / 持续时间 / 级别 / 通知方式编辑，重叠来源的重复告警去重；
+  「警告」只进告警中心，「严重」必须外发。Cluster-level rules are now a 21-rule catalog replacing
+  the builtin YAML rules and policy templates: global config + per-cluster overrides for enable /
+  threshold / duration / severity / notification, with dedup across overlapping sources; warning
+  stays in the alert center, critical must deliver externally.
+- 告警中心重构：`/monitoring` 分为告警 / 规则 / 通知三个面板；告警实例按范围过滤
+  （`scope=cluster|job`）。Reworked alert center: `/monitoring` has alerts / rules / notification
+  panels; alert instances filter by scope (`scope=cluster|job`).
+- 可用性告警：节点离线 / Agent 离线 / Master 不可用 / 可用 Worker 不足由可用性评估器统一判定，
+  支持持续时间、启动抑制与恢复通知。Availability alerts (node offline / agent offline / master
+  unavailable / insufficient workers) are evaluated by one availability evaluator with duration,
+  startup suppression and recovery notification.
+- 新增监控接口与 CLI：`GET|PUT|DELETE /api/v1/monitoring/cluster-rules[/:key[/clusters/:clusterId]]`、
+  `GET|PUT /api/v1/monitoring/alert-notification-defaults`；`stx monitoring cluster-rule list|get|update
+  |override set|delete`、`stx monitoring notification-defaults get|update`。New monitoring APIs and CLI:
+  the cluster-rules and alert-notification-defaults endpoints, plus `stx monitoring cluster-rule …`
+  and `stx monitoring notification-defaults …` commands.
 - CLI 支持导入本地升级包并跟踪自升级任务：`stx self-upgrade import <file> --confirm`（流式上传）、
   `stx self-upgrade task get <id> --wait`、`stx self-upgrade task cancel <id> --confirm`。
   The CLI can now import local upgrade packages and track self-upgrade tasks.

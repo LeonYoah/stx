@@ -163,6 +163,8 @@ var pluginArtifactMappingsForPath = map[string]string{
 	"tidb-cdc":      "connector-cdc-tidb",
 	"db2-cdc":       "connector-cdc-db2",
 	"opengauss-cdc": "connector-cdc-opengauss",
+	// 3.1.0 起新增 / Added in 3.1.0
+	"oceanbase-cdc": "connector-cdc-oceanbase",
 
 	// File connectors / 文件连接器
 	"localfile": "connector-file-local",
@@ -173,6 +175,8 @@ var pluginArtifactMappingsForPath = map[string]string{
 	"sftpfile":  "connector-file-sftp",
 	"cosfile":   "connector-file-cos",
 	"obsfile":   "connector-file-obs",
+	// 3.1.0 起新增 / Added in 3.1.0
+	"smbfile": "connector-file-smb",
 
 	// HTTP-based connectors / 基于 HTTP 的连接器
 	"http":      "connector-http-base",
@@ -187,6 +191,12 @@ var pluginArtifactMappingsForPath = map[string]string{
 	"onesignal": "connector-http-onesignal",
 	"persistiq": "connector-http-persistiq",
 	"wechat":    "connector-http-wechat",
+	// 3.1.0 起新增 / Added in 3.1.0
+	"asana":    "connector-http-asana",
+	"intercom": "connector-http-intercom",
+	"paypal":   "connector-http-paypal",
+	"splunk":   "connector-http-splunk",
+	"typeform": "connector-http-typeform",
 
 	// JDBC connector and JDBC-based databases / JDBC 连接器和基于 JDBC 的数据库
 	// All these databases use connector-jdbc with their respective drivers
@@ -215,6 +225,12 @@ var pluginArtifactMappingsForPath = map[string]string{
 	"highgo":     "connector-jdbc", // Driver: com.highgo.jdbc.Driver (瀚高数据库)
 	"presto":     "connector-jdbc", // Driver: com.facebook.presto.jdbc.PrestoDriver
 	"trino":      "connector-jdbc", // Driver: io.trino.jdbc.TrinoDriver
+
+	// 3.1.0 起新增的消息与分析类连接器：名字与 connector- 前缀推导结果不一致，需显式映射。
+	// Messaging/analytics connectors added in 3.1.0 whose names do not match the
+	// connector-<name> default derivation and need explicit mapping.
+	"azureeventhubs":   "connector-azure-event-hubs",
+	"googleanalytics4": "connector-google-analytics4",
 }
 
 // getArtifactIDForPath returns the correct Maven artifact ID for a plugin name.

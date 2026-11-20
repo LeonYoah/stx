@@ -86,6 +86,10 @@ type EngineJobListItem struct {
 	CreateTime   string      `json:"createTime"`
 	FinishedTime string      `json:"finishTime"`
 	ErrorMsg     interface{} `json:"errorMsg"`
+	// JobDag / Metrics 与 /job-info 同源：已结束作业直接用列表项，不再逐个拉详情。
+	// JobDag / Metrics match /job-info, so finished jobs use the list item without a per-job detail call.
+	JobDag  map[string]interface{} `json:"jobDag"`
+	Metrics map[string]interface{} `json:"metrics"`
 }
 
 // EngineJobInfo describes job-info response subset used by sync studio.

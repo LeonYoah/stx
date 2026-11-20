@@ -38,6 +38,8 @@ func engineListItemToInfo(item *EngineJobListItem) *EngineJobInfo {
 		CreateTime:   item.CreateTime,
 		FinishedTime: item.FinishedTime,
 		ErrorMsg:     item.ErrorMsg,
+		JobDag:       item.JobDag,
+		Metrics:      item.Metrics,
 	}
 }
 
@@ -94,7 +96,19 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 		observedStatus = normalizeJobStatus(rawEngineStatus)
 		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling || previousStatus == JobStatusDoingSavepoint {
 			if observedStatus == JobStatusPending || observedStatus == JobStatusRunning {
-				observedStatus = previousStatus
+				// 截止前引擎仍报运行视为停止进行中，保持取消中；越过截止时间仍报运行说明停止请求
+				// 没有送达或没有生效，回到引擎真实状态，否则作业永远卡在 cancelling 且无法重停。
+				// Before the deadline a live engine status means the stop is still in flight, so the job
+				// stays cancelling; past the deadline it proves the stop never landed, so surface the
+				// engine truth or the job is stuck in cancelling forever with no way to stop it again.
+				if isCancelOverdue(instance, time.Now()) {
+					if instance.ResultPreview == nil {
+						instance.ResultPreview = JSONMap{}
+					}
+					instance.ResultPreview[cancelOutcomeKey] = cancelOutcomeReverted
+				} else {
+					observedStatus = previousStatus
+				}
 			} else if observedStatus == JobStatusSuccess {
 				// Stop-with-savepoint completion is SAVEPOINT_DONE; plain FINISHED while cancelling → canceled.
 				// 带 Savepoint 停完是 SAVEPOINT_DONE；取消过程中若报 FINISHED 则记为 canceled。

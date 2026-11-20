@@ -305,13 +305,15 @@ func (e *MetricEvaluator) updateRuleGroups(ctx context.Context) {
 	}
 }
 
-// buildManagedRuleGroups 读取启用中的 metrics_template 策略并转成 rulefmt 组；
-// 无策略时返回空组集（等价于原「写入空规则文件」）。
-// buildManagedRuleGroups reads enabled metrics_template policies and converts them into a
-// rulefmt group; with no policies it returns an empty group set (equivalent to the old
-// "write an empty rule file").
+// buildManagedRuleGroups 从规则目录生成托管 tsdb 规则组：每条启用规则一条全局 rule
+// （`cluster_id!~"<例外集群>"` 排除所有例外集群）+ 每个存在例外且启用规则的集群一条
+// rule（`cluster_id="<id>"`）；labels 带 managed_by=stx 与 rule_key。
+// buildManagedRuleGroups generates the managed tsdb rule group from the rule catalog: one
+// global rule per enabled rule (`cluster_id!~"<exception clusters>"` excludes every overridden
+// cluster) plus one rule per cluster that has an override and still enables the rule
+// (`cluster_id="<id>"`); labels carry managed_by=stx and rule_key.
 func (e *MetricEvaluator) buildManagedRuleGroups(ctx context.Context) (*rulefmt.RuleGroups, error) {
-	policies, err := e.service.repo.ListEnabledManagedMetricAlertPolicies(ctx)
+	layers, err := e.service.loadClusterRuleLayers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -319,22 +321,97 @@ func (e *MetricEvaluator) buildManagedRuleGroups(ctx context.Context) (*rulefmt.
 	if err != nil {
 		return nil, err
 	}
-	ruleList := make([]rulefmt.Rule, 0, len(policies))
-	for _, policy := range policies {
-		rule, ok, err := buildManagedMetricPolicyRule(policy, clusterNames)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
+	ruleList := make([]rulefmt.Rule, 0, len(clusterRuleCatalog))
+	for _, def := range clusterRuleCatalog {
+		if def == nil || def.Engine != clusterRuleEngineTSDB || def.Expr == nil {
 			continue
 		}
-		ruleList = append(ruleList, *rule)
+		exceptionIDs := layers.overrideClusterIDs(def.Key)
+		globalMatcher := ""
+		if len(exceptionIDs) > 0 {
+			globalMatcher = clusterRuleExceptionMatcher(exceptionIDs)
+		}
+		global := resolveClusterRuleFromLayers(def, layers, 0)
+		if global != nil && global.Enabled {
+			ruleList = append(ruleList, *buildManagedClusterRule(global, globalMatcher, clusterNames["all"]))
+		}
+		for _, clusterID := range exceptionIDs {
+			resolved := resolveClusterRuleFromLayers(def, layers, clusterID)
+			if resolved == nil || !resolved.Enabled {
+				continue
+			}
+			matcher := fmt.Sprintf(`cluster_id="%d"`, clusterID)
+			ruleList = append(ruleList, *buildManagedClusterRule(resolved, matcher, clusterNames[strconv.FormatUint(uint64(clusterID), 10)]))
+		}
 	}
 	return &rulefmt.RuleGroups{
 		Groups: []rulefmt.RuleGroup{
 			{Name: managedMetricRuleGroupName, Rules: ruleList},
 		},
 	}, nil
+}
+
+// clusterRuleExceptionMatcher 生成「排除全部例外集群」的负向正则匹配器；Prometheus 的
+// 正则匹配整体锚定，id 列表用 | 连接不会误匹配更长的 id。
+// clusterRuleExceptionMatcher builds the negative-regex matcher excluding every exception
+// cluster; Prometheus anchors regex matches, so joining ids with | never mis-matches longer
+// ids.
+func clusterRuleExceptionMatcher(exceptionIDs []uint) string {
+	parts := make([]string, 0, len(exceptionIDs))
+	for _, id := range exceptionIDs {
+		parts = append(parts, strconv.FormatUint(uint64(id), 10))
+	}
+	return fmt.Sprintf(`cluster_id!~"%s"`, strings.Join(parts, "|"))
+}
+
+// buildManagedClusterRule 把一条解析后的 tsdb 规则适配为 rulefmt.Rule：alert 名取稳定
+// rule_key，labels 带 managed_by=stx / rule_key / severity，for 取生效持续时间。
+// buildManagedClusterRule adapts one resolved tsdb rule into a rulefmt.Rule: the alert name is
+// the stable rule_key, labels carry managed_by=stx / rule_key / severity, and 'for' is the
+// resolved duration.
+func buildManagedClusterRule(cfg *resolvedRuleConfig, clusterMatcher string, clusterScope string) *rulefmt.Rule {
+	def := cfg.Definition
+	annotations := map[string]string{
+		"rule_key":      def.Key,
+		"rule_name":     escapePrometheusTemplateText(def.Name),
+		"cluster_scope": escapePrometheusTemplateText(firstNonEmpty(clusterScope, "全部集群")),
+		"condition":     buildClusterRuleConditionText(cfg),
+		"summary":       fmt.Sprintf(`{{ $labels.cluster_name }} / {{ $labels.instance }}：%s`, escapePrometheusTemplateText(def.Name)),
+		"description":   fmt.Sprintf(`%s；当前值：{{ printf "%%.6f" $value }}。`, escapePrometheusTemplateText(def.Description)),
+		"current_value": `{{ printf "%.6f" $value }}`,
+	}
+	return &rulefmt.Rule{
+		Alert: def.Key,
+		Expr:  def.Expr(cfg, clusterMatcher),
+		For:   model.Duration(time.Duration(cfg.ForSeconds) * time.Second),
+		Labels: map[string]string{
+			"managed_by": "stx",
+			"rule_key":   def.Key,
+			"severity":   string(resolveRuleSeverity(cfg)),
+		},
+		Annotations: annotations,
+	}
+}
+
+// buildClusterRuleConditionText 生成通知里的判定条件摘要（持续时长 + 阈值条件）。
+// buildClusterRuleConditionText renders the alert condition summary used in notifications
+// (duration + threshold clause).
+func buildClusterRuleConditionText(cfg *resolvedRuleConfig) string {
+	text := fmt.Sprintf("持续 %s", formatClusterRuleForDuration(cfg.ForSeconds))
+	if cfg.Definition != nil && cfg.Definition.Threshold != nil {
+		text += fmt.Sprintf("，条件：%s %s", cfg.Definition.Threshold.Operator, formatClusterRuleThreshold(cfg.thresholdValue()))
+	}
+	return text
+}
+
+func formatClusterRuleForDuration(forSeconds int) string {
+	if forSeconds <= 0 {
+		return "0m"
+	}
+	if forSeconds%60 == 0 {
+		return fmt.Sprintf("%dm", forSeconds/60)
+	}
+	return fmt.Sprintf("%ds", forSeconds)
 }
 
 // onRuleAlerts 是 rules.NotifyFunc：把上游状态机给出的 firing/resolved 告警翻译成
@@ -438,7 +515,7 @@ func remoteAlertRecordFromRuleAlert(alert *rules.Alert, now time.Time) *RemoteAl
 	if env == "" {
 		env = "unknown"
 	}
-	alertName := strings.TrimSpace(firstNonEmpty(labelsMap["policy_name"], annotationsMap["policy_name"], labelsMap["alertname"]))
+	alertName := strings.TrimSpace(firstNonEmpty(labelsMap["policy_name"], annotationsMap["policy_name"], annotationsMap["rule_name"], labelsMap["alertname"]))
 	if alertName == "" {
 		alertName = "unknown_alert"
 	}
@@ -546,27 +623,6 @@ func (h *metricEvaluatorSlogHandler) WithGroup(_ string) slog.Handler      { ret
 // value on evaluator-generated records, keeping the alert center's receiver column unchanged.
 const managedAlertmanagerDefaultReceiver = "stx-webhook"
 
-type resolvedMetricPolicyCondition struct {
-	Operator      string
-	Threshold     string
-	WindowMinutes int
-}
-
-// ListEnabledManagedMetricAlertPolicies 返回启用中的 metrics_template 策略（按 id 排序），
-// 是 managed 规则组的数据源。
-// ListEnabledManagedMetricAlertPolicies returns enabled metrics_template policies ordered by
-// id; it is the data source of the managed rule group.
-func (r *Repository) ListEnabledManagedMetricAlertPolicies(ctx context.Context) ([]*AlertPolicy, error) {
-	var policies []*AlertPolicy
-	if err := r.db.WithContext(ctx).
-		Where("enabled = ? AND policy_type IN ?", true, []AlertPolicyBuilderKind{AlertPolicyBuilderKindMetricsTemplate}).
-		Order("id ASC").
-		Find(&policies).Error; err != nil {
-		return nil, err
-	}
-	return policies, nil
-}
-
 // listManagedAlertPolicyClusterNames 列出集群 id→名映射，供规则注解展示集群范围。
 // listManagedAlertPolicyClusterNames lists cluster id→name pairs for cluster-scope annotations.
 func (s *Service) listManagedAlertPolicyClusterNames(ctx context.Context) (map[string]string, error) {
@@ -667,6 +723,27 @@ func findAlertPolicyTemplateSummary(templateKey string) (*AlertPolicyTemplateSum
 		}
 	}
 	return nil, false
+}
+
+type resolvedMetricPolicyCondition struct {
+	Operator      string
+	Threshold     string
+	WindowMinutes int
+}
+
+// ListEnabledManagedMetricAlertPolicies 返回启用中的 metrics_template 策略（按 id 排序），
+// 是 managed 规则组的数据源。
+// ListEnabledManagedMetricAlertPolicies returns enabled metrics-template policies ordered by
+// id; it is the data source of the managed rule group.
+func (r *Repository) ListEnabledManagedMetricAlertPolicies(ctx context.Context) ([]*AlertPolicy, error) {
+	var policies []*AlertPolicy
+	if err := r.db.WithContext(ctx).
+		Where("enabled = ? AND policy_type IN ?", true, []AlertPolicyBuilderKind{AlertPolicyBuilderKindMetricsTemplate}).
+		Order("id ASC").
+		Find(&policies).Error; err != nil {
+		return nil, err
+	}
+	return policies, nil
 }
 
 func resolveMetricPolicyCondition(policy *AlertPolicy, template *AlertPolicyTemplateSummaryDTO) resolvedMetricPolicyCondition {

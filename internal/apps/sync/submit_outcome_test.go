@@ -430,6 +430,58 @@ func TestCancelUnknownOutcomeStaysCancelling(t *testing.T) {
 	}
 }
 
+func TestCancelOverdueEngineRunningRevertsToRunning(t *testing.T) {
+	service, engine, task := newOutcomeTestService(t, nil)
+	job := createRunningJob(t, service, task.ID, nil)
+	engine.stopErr = newEngineCallUnknownError(context.DeadlineExceeded, "v2", "http://engine:8080", "")
+
+	if _, err := service.CancelJob(context.Background(), job.ID, false); err != nil {
+		t.Fatalf("unknown stop outcome must not fail the request: %v", err)
+	}
+	stored := reloadJob(t, service, job.ID)
+	if stored.Status != JobStatusCancelling {
+		t.Fatalf("status = %s, want cancelling", stored.Status)
+	}
+
+	// 截止前引擎仍报 RUNNING：停止可能在路上，保持 cancelling。
+	// Before the deadline a RUNNING engine report keeps the job cancelling: the stop may still be in flight.
+	updated, err := service.applyEngineJobInfoUpdate(context.Background(), stored, &EngineJobInfo{JobID: "501", JobStatus: "RUNNING"})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if updated.Status != JobStatusCancelling {
+		t.Fatalf("before the deadline RUNNING keeps cancelling, got %s", updated.Status)
+	}
+
+	stored = reloadJob(t, service, job.ID)
+	stored.ResultPreview[cancelDeadlineKey] = time.Now().Add(-time.Second).UTC().Format(time.RFC3339)
+	if err := service.repo.UpdateJobSyncMetadata(context.Background(), job.ID, map[string]any{"result_preview": stored.ResultPreview}); err != nil {
+		t.Fatalf("move deadline: %v", err)
+	}
+
+	// 越过截止时间引擎仍报 RUNNING：停止没有送达，恢复运行中并允许重新停止。
+	// Past the deadline a RUNNING engine report proves the stop never landed: revert to running so the job
+	// can be stopped again.
+	updated, err = service.applyEngineJobInfoUpdate(context.Background(), stored, &EngineJobInfo{JobID: "501", JobStatus: "RUNNING"})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if updated.Status != JobStatusRunning {
+		t.Fatalf("overdue RUNNING must revert to running, got %s", updated.Status)
+	}
+	if got := stringValue(updated.ResultPreview, cancelOutcomeKey); got != cancelOutcomeReverted {
+		t.Fatalf("cancel_outcome = %q, want %q", got, cancelOutcomeReverted)
+	}
+
+	engine.stopErr = nil
+	if _, err := service.CancelJob(context.Background(), job.ID, false); err != nil {
+		t.Fatalf("a reverted job must accept a fresh stop: %v", err)
+	}
+	if again := reloadJob(t, service, job.ID); again.Status != JobStatusCancelling {
+		t.Fatalf("fresh stop must enter cancelling again, got %s", again.Status)
+	}
+}
+
 func TestCancelDefiniteFailureRestoresStatus(t *testing.T) {
 	service, engine, task := newOutcomeTestService(t, nil)
 	job := createRunningJob(t, service, task.ID, nil)

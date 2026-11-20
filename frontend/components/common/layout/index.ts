@@ -26,6 +26,8 @@ export * from './CompactTimeFilter';
 export * from './ArcDateRangePicker';
 export * from './TableLoadingBar';
 export * from './TableSkeletonRows';
+export * from './TableCard';
 export * from './RouteProgressBar';
 export * from './ModuleNavTabs';
 export * from './ExpandableTextPanel';
+export * from './UnsavedChangesDialog';

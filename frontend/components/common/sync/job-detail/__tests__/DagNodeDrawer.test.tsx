@@ -26,7 +26,7 @@ import zh from '@/lib/i18n/locales/zh.json';
 import {normalizeJobDag, type DagVertex} from '../dag-model';
 import {DagNodeDrawer} from '../DagNodeDrawer';
 
-vi.mock('sonner', () => ({toast: {success: vi.fn()}}));
+vi.mock('@/lib/toast', () => ({toast: {success: vi.fn()}}));
 
 // Radix Popper 依赖 ResizeObserver，jsdom 未提供 / Radix Popper needs ResizeObserver, which jsdom lacks
 globalThis.ResizeObserver ??= class {

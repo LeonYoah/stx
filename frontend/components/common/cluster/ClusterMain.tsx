@@ -37,7 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 import {Plus, Search, Layers, Server, RefreshCw} from 'lucide-react';
 import {WorkspaceHeader, StatPillsBar, TableLoadingBar, ModuleNavTabs} from '@/components/common/layout';
 import {Pagination} from '@/components/ui/pagination';

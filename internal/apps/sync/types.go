@@ -160,6 +160,9 @@ type JobFilter struct {
 	Mode      string
 	ClusterID uint
 	Keyword   string
+	// Source 为空表示全部来源，否则只取 stx 或 external。
+	// Source empty means every source; otherwise only stx or external.
+	Source JobSource
 	// Sort 为空时保持 created_at DESC，兼容旧调用方；取值见 jobListSort*。
 	// Sort keeps created_at DESC when empty for old callers; see jobListSort* for values.
 	Sort  string

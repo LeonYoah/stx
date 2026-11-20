@@ -96,6 +96,30 @@ const (
 	// EventTypeNodeRecovered indicates one node-offline episode has ended and the node is healthy again.
 	// EventTypeNodeRecovered 表示某个节点离线告警阶段已经结束，节点重新恢复健康。
 	EventTypeNodeRecovered ProcessEventType = "node_recovered"
+
+	// EventTypeAgentOffline indicates the control plane lost the agent heartbeat of one host.
+	// EventTypeAgentOffline 表示控制面失去某台主机的 Agent 心跳。
+	EventTypeAgentOffline ProcessEventType = "agent_offline"
+
+	// EventTypeAgentRecovered indicates one agent-offline episode ended; the host heartbeat is back.
+	// EventTypeAgentRecovered 表示某个 Agent 离线告警阶段结束，主机心跳恢复。
+	EventTypeAgentRecovered ProcessEventType = "agent_recovered"
+
+	// EventTypeMasterUnavailable indicates no healthy master-capable node remains in the cluster.
+	// EventTypeMasterUnavailable 表示集群内已没有健康 Master 节点。
+	EventTypeMasterUnavailable ProcessEventType = "master_unavailable"
+
+	// EventTypeMasterRecovered indicates one master-unavailable episode ended.
+	// EventTypeMasterRecovered 表示某个 Master 不可用告警阶段结束。
+	EventTypeMasterRecovered ProcessEventType = "master_recovered"
+
+	// EventTypeWorkerInsufficient indicates healthy worker count stayed below the expected baseline.
+	// EventTypeWorkerInsufficient 表示健康 Worker 数量持续低于预期基线。
+	EventTypeWorkerInsufficient ProcessEventType = "worker_insufficient"
+
+	// EventTypeWorkerRecovered indicates one worker-insufficient episode ended.
+	// EventTypeWorkerRecovered 表示某个 Worker 不足告警阶段结束。
+	EventTypeWorkerRecovered ProcessEventType = "worker_recovered"
 )
 
 // ProcessEvent represents a process lifecycle event.
@@ -103,16 +127,16 @@ const (
 // Requirements: 6.1, 6.2 - Process event model
 type ProcessEvent struct {
 	ID          uint             `json:"id" gorm:"primaryKey;autoIncrement"`
-	ClusterID   uint             `json:"cluster_id" gorm:"index"`                // 关联的集群 ID / Associated cluster ID
+	ClusterID   uint             `json:"cluster_id" gorm:"index"`                                                                      // 关联的集群 ID / Associated cluster ID
 	NodeID      uint             `json:"node_id" gorm:"index;index:idx_process_events_node_type_created,priority:1"`                   // 关联的节点 ID / Associated node ID
-	HostID      uint             `json:"host_id" gorm:"index"`                                                                          // 关联的主机 ID / Associated host ID
+	HostID      uint             `json:"host_id" gorm:"index"`                                                                         // 关联的主机 ID / Associated host ID
 	EventType   ProcessEventType `json:"event_type" gorm:"size:30;index;index:idx_process_events_node_type_created,priority:2"`        // 事件类型 / Event type
-	PID         int              `json:"pid"`                                                                                           // 进程 PID / Process PID
-	ProcessName string           `json:"process_name" gorm:"size:100"`                                                                  // 进程名称 / Process name
-	InstallDir  string           `json:"install_dir" gorm:"size:255"`                                                                   // 安装目录 / Install directory
-	Role        string           `json:"role" gorm:"size:20"`                                                                           // 节点角色 / Node role
-	Details     string           `json:"details" gorm:"type:text"`                                                                      // 事件详情（JSON）/ Event details (JSON)
-	CreatedAt   time.Time        `json:"created_at" gorm:"autoCreateTime;index;index:idx_process_events_node_type_created,priority:3"`  // 事件时间 / Event time
+	PID         int              `json:"pid"`                                                                                          // 进程 PID / Process PID
+	ProcessName string           `json:"process_name" gorm:"size:100"`                                                                 // 进程名称 / Process name
+	InstallDir  string           `json:"install_dir" gorm:"size:255"`                                                                  // 安装目录 / Install directory
+	Role        string           `json:"role" gorm:"size:20"`                                                                          // 节点角色 / Node role
+	Details     string           `json:"details" gorm:"type:text"`                                                                     // 事件详情（JSON）/ Event details (JSON)
+	CreatedAt   time.Time        `json:"created_at" gorm:"autoCreateTime;index;index:idx_process_events_node_type_created,priority:3"` // 事件时间 / Event time
 }
 
 // TableName specifies the table name for ProcessEvent.

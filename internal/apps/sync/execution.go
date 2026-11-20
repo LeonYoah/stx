@@ -57,23 +57,16 @@ func (s *Service) ListJobsForActor(ctx context.Context, actor executionapp.Actor
 }
 
 func (s *Service) getJobInstanceForActor(ctx context.Context, actor executionapp.Actor, id uint) (*JobInstance, error) {
-	if actor.IsAdmin {
-		return s.repo.GetJobInstanceByID(ctx, id)
-	}
 	instance, err := s.repo.GetJobInstanceByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if instance.CreatedBy == uint(actor.UserID) {
-		return instance, nil
+	perms := s.loadJobPermissions(ctx, actor, instance)
+	if !perms.CanView {
+		return nil, ErrJobInstanceNotFound
 	}
-	if instance.TaskID > 0 {
-		task, err := s.repo.GetTaskByID(ctx, instance.TaskID)
-		if err == nil && task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
-			return instance, nil
-		}
-	}
-	return nil, ErrJobInstanceNotFound
+	applyJobPermissions(instance, perms)
+	return instance, nil
 }
 
 // GetJobForActor 按当前用户归属或任务可见性读取一个作业。
@@ -126,8 +119,8 @@ func (s *Service) GetJobCheckpointSnapshotForActor(ctx context.Context, actor ex
 	return s.GetJobCheckpointSnapshot(ctx, id, pipelineID, limit, status)
 }
 
-// CancelJobForActor 在权限检查后请求取消作业。仅管理员、发起人或任务所有者可取消。
-// CancelJobForActor requests cancellation after enforcing ownership. Only administrators, the job submitter, or task owner may cancel.
+// CancelJobForActor 在权限检查后请求取消作业，权限见 EvaluateJobPermissions。
+// CancelJobForActor requests cancellation after the EvaluateJobPermissions check.
 func (s *Service) CancelJobForActor(ctx context.Context, actor executionapp.Actor, id uint, stopWithSavepoint bool) (*JobInstance, error) {
 	if err := s.enforceSchedulerScope(ctx, 0, id); err != nil {
 		return nil, err
@@ -136,17 +129,8 @@ func (s *Service) CancelJobForActor(ctx context.Context, actor executionapp.Acto
 	if err != nil {
 		return nil, err
 	}
-	if !actor.IsAdmin && instance.CreatedBy != uint(actor.UserID) {
-		isOwner := false
-		if instance.TaskID > 0 {
-			task, err := s.repo.GetTaskByID(ctx, instance.TaskID)
-			if err == nil && (task.CreatedBy != 0 && task.CreatedBy == uint(actor.UserID)) {
-				isOwner = true
-			}
-		}
-		if !isOwner {
-			return nil, ErrTaskPermissionDenied
-		}
+	if !instance.CanStop {
+		return nil, ErrTaskPermissionDenied
 	}
 	return s.CancelJob(ctx, id, stopWithSavepoint)
 }

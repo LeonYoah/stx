@@ -2100,6 +2100,7 @@ func monitoringReadOperationSpecs() []OperationSpec {
 	}
 	alertInstanceInputs := append([]InputSpec{
 		{Name: "source_type", Location: InputQuery, Description: "Alert category: platform_health, metric or job"},
+		{Name: "scope", Location: InputQuery, Description: "Alert scope: cluster or job"},
 		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
 		{Name: "severity", Location: InputQuery, Description: "Alert severity: warning or critical"},
 		{Name: "status", Location: InputQuery, Description: "Display status: firing, resolved, or closed"},
@@ -2117,9 +2118,11 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		monitoringReadOperation("monitoring.alert-policy.execution.list", []string{"monitoring", "alert-policy", "execution", "list"}, "List alert policy executions", "/api/v1/monitoring/alert-policies/:id/executions", policyExecutionInputs),
 		monitoringReadOperation("monitoring.alert-instance.list", []string{"monitoring", "alert-instance", "list"}, "List alert instances", "/api/v1/monitoring/alert-instances", alertInstanceInputs),
 		monitoringReadOperation("monitoring.remote-alert.list", []string{"monitoring", "remote-alert", "list"}, "List remote alerts", "/api/v1/monitoring/remote-alerts", remoteAlertInputs),
-		monitoringReadOperation("monitoring.cluster.rule.list", []string{"monitoring", "cluster", "rule", "list"}, "List cluster alert rules", "/api/v1/monitoring/clusters/:id/rules", clusterID),
+		monitoringReadOperation("monitoring.cluster-rule.list", []string{"monitoring", "cluster-rule", "list"}, "List cluster-level alert rules", "/api/v1/monitoring/cluster-rules", nil),
+		monitoringReadOperation("monitoring.cluster-rule.get", []string{"monitoring", "cluster-rule", "get"}, "Get one cluster-level alert rule", "/api/v1/monitoring/cluster-rules/:key",
+			[]InputSpec{{Name: "key", Location: InputPath, Required: true, Description: "Cluster rule key"}}),
+		monitoringReadOperation("monitoring.notification-defaults.get", []string{"monitoring", "notification-defaults", "get"}, "Get alert notification defaults", "/api/v1/monitoring/alert-notification-defaults", nil),
 		monitoringReadOperation("monitoring.integration.status", []string{"monitoring", "integration", "status"}, "Get monitoring integration status", "/api/v1/monitoring/integration/status", nil),
-		monitoringReadOperation("monitoring.alert-policy.bootstrap.get", []string{"monitoring", "alert-policy", "bootstrap", "get"}, "Get alert policy center bootstrap", "/api/v1/monitoring/alert-policies/bootstrap", nil),
 		monitoringReadOperation("monitoring.alert-rule.catalog", []string{"monitoring", "alert-rule", "catalog"}, "List alert rule catalog", "/api/v1/monitoring/alert-rules/catalog",
 			[]InputSpec{{Name: "lang", Location: InputQuery, Description: "Response language: zh or en"}}),
 		monitoringReadOperation("monitoring.notifiable-user.list", []string{"monitoring", "notifiable-user", "list"}, "List notifiable users", "/api/v1/monitoring/notifiable-users", nil),
@@ -2127,7 +2130,6 @@ func monitoringReadOperationSpecs() []OperationSpec {
 		monitoringReadOperation("monitoring.platform.get", []string{"monitoring", "platform"}, "Get platform self-monitoring snapshot", "/api/v1/monitoring/platform", nil),
 		monitoringReadOperation("monitoring.notification-channel.list", []string{"monitoring", "notification-channel", "list"}, "List notification channels", "/api/v1/monitoring/notification-channels", nil),
 		monitoringReadOperation("monitoring.notification-delivery.list", []string{"monitoring", "notification-delivery", "list"}, "List notification deliveries", "/api/v1/monitoring/notification-deliveries", monitoringDeliveryFilterInputs(true)),
-		monitoringReadOperation("monitoring.notification-route.list", []string{"monitoring", "notification-route", "list"}, "List notification routes", "/api/v1/monitoring/notification-routes", nil),
 	}
 }
 
@@ -2353,8 +2355,10 @@ func stUpgradeOperationSpecs() []OperationSpec {
 				{Name: "cluster_id", Location: InputBody, Required: true, Description: "Cluster ID"},
 				{Name: "target_version", Location: InputBody, Required: true, Description: "Target SeaTunnel version"},
 				{Name: "target_install_dir", Location: InputBody, Required: false, Description: "Target installation directory"},
+				{Name: "java_home", Location: InputBody, Required: false, Description: "Target JDK for the new version"},
+				{Name: "node_java_homes", Location: InputBody, Required: false, Description: "Per-node target JDK map keyed by cluster node ID"},
 			},
-			Example:       "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new",
+			Example:       "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --java-home /usr/lib/jvm/java-21",
 			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.precheck","request_id":"req_example","data":{"ready":true},"result_meta":{"complete":true}}`,
 		},
 		{
@@ -2364,9 +2368,12 @@ func stUpgradeOperationSpecs() []OperationSpec {
 			Input: []InputSpec{
 				{Name: "cluster_id", Location: InputBody, Required: true, Description: "Cluster ID"},
 				{Name: "target_version", Location: InputBody, Required: true, Description: "Target SeaTunnel version"},
+				{Name: "target_install_dir", Location: InputBody, Required: false, Description: "Target installation directory"},
+				{Name: "java_home", Location: InputBody, Required: false, Description: "Target JDK for the new version"},
+				{Name: "node_java_homes", Location: InputBody, Required: false, Description: "Per-node target JDK map keyed by cluster node ID"},
 				{Name: "config_merge_plan", Location: InputBody, Required: true, Description: "Resolved configuration merge plan"},
 			},
-			Example:       "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --config-merge-plan-file merge-plan.json",
+			Example:       "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --java-home /usr/lib/jvm/java-21 --config-merge-plan-file merge-plan.json",
 			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.plan.create","request_id":"req_example","data":{"plan":{"id":1,"status":"ready"}},"result_meta":{"complete":true,"next_command":"stx upgrade plan execute 1 --confirm"}}`,
 		},
 		{
@@ -2510,7 +2517,8 @@ var routeExceptions = []RouteException{
 	{Method: "DELETE", Route: "/api/v1/hosts/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/monitoring/alert-policies/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/monitoring/notification-channels/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
-	{Method: "DELETE", Route: "/api/v1/monitoring/notification-routes/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/monitoring/cluster-rules/:key", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/monitoring/cluster-rules/:key/clusters/:clusterId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/:depId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/disables/:disableId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/local", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},

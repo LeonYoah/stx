@@ -341,6 +341,7 @@ export function InstallWizard({
         min_disk_space_mb: 5120,
         install_dir: config.installDir || undefined,
         ports,
+        target_version: config.version || undefined,
       });
     } catch (err) {
       console.error('Precheck failed:', err);

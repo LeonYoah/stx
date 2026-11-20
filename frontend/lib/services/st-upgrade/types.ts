@@ -177,6 +177,8 @@ export interface NodeTarget {
   target_version: string;
   source_install_dir: string;
   target_install_dir: string;
+  source_java_home?: string;
+  java_home?: string;
 }
 
 export interface PlanStep {
@@ -229,6 +231,8 @@ export interface PrecheckRequest {
   connector_profiles?: Record<string, string[]>;
   node_ids?: number[];
   target_install_dir?: string;
+  java_home?: string;
+  node_java_homes?: Record<string, string>;
 }
 
 export interface CreatePlanRequest extends PrecheckRequest {

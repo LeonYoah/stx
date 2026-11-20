@@ -47,7 +47,7 @@ func TestUpgradePrecheckSendsRequestAndNextCommand(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body["cluster_id"] != float64(8) || body["target_version"] != "2.3.13" || body["target_install_dir"] != "/tmp/seatunnel-2.3.13-new" {
+		if body["cluster_id"] != float64(8) || body["target_version"] != "2.3.13" || body["target_install_dir"] != "/tmp/seatunnel-2.3.13-new" || body["java_home"] != "/usr/lib/jvm/java-21" {
 			t.Fatalf("升级预检查正文错误: %#v", body)
 		}
 		_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"ready": true}})
@@ -56,7 +56,7 @@ func TestUpgradePrecheckSendsRequestAndNextCommand(t *testing.T) {
 
 	store := newExecutionTestStore(t, server.URL, "test-token")
 	stdout, stderr, exitCode := runUpgradeCommand(t, store,
-		"upgrade", "precheck", "8", "--target-version", "2.3.13", "--target-install-dir", "/tmp/seatunnel-2.3.13-new")
+		"upgrade", "precheck", "8", "--target-version", "2.3.13", "--target-install-dir", "/tmp/seatunnel-2.3.13-new", "--java-home", "/usr/lib/jvm/java-21")
 	if exitCode != int(clioutput.ExitSuccess) || strings.TrimSpace(stderr) != "" {
 		t.Fatalf("升级预检查失败: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
 	}

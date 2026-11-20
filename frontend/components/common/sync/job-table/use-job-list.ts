@@ -86,6 +86,7 @@ export function buildJobListParams(
   // exclude_run_type is sent for any scope.
   if (scope.kind === 'all') {
     params.mode = query.mode || undefined;
+    params.source = query.source || undefined;
     params.cluster_id = query.clusterId;
   } else {
     params.task_id = scope.taskId;

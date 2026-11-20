@@ -51,6 +51,7 @@ func syncOperationSpecs() []OperationSpec {
 		{Name: "status", Location: InputQuery, Required: false, Description: "Filter by raw job status, comma-separated (running,failed,canceled,success,...)"},
 		{Name: "status_group", Location: InputQuery, Required: false, Description: "Filter by status group, comma-separated: running|failed|pending|stopping|canceled|finished"},
 		{Name: "mode", Location: InputQuery, Required: false, Description: "Filter by job mode: streaming|batch"},
+		{Name: "source", Location: InputQuery, Required: false, Description: "Filter by job source: stx (submitted by STX) | external (discovered on the cluster)"},
 		{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Filter by cluster ID"},
 		{Name: "keyword", Location: InputQuery, Required: false, Description: "Task name (fuzzy), engine job ID or platform job ID (exact)"},
 		{Name: "exclude_run_type", Location: InputQuery, Required: false, Description: "Comma-separated run types to exclude, e.g. preview"},

@@ -37,6 +37,7 @@ type upgradeRequestOptions struct {
 	packageChecksum     string
 	packageArch         string
 	targetInstallDir    string
+	javaHome            string
 	connectorNames      []string
 	nodeIDs             []uint
 	requestFile         string
@@ -85,7 +86,7 @@ func newUpgradePrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
 		Use:     "precheck <cluster-id>",
 		Short:   "Precheck a SeaTunnel upgrade",
 		Long:    upgradeOperationDescription("stupgrade.precheck"),
-		Example: "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new",
+		Example: "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --java-home /usr/lib/jvm/java-21",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			body, clusterID, err := buildUpgradeRequest(command, args[0], &request, false)
@@ -131,7 +132,7 @@ func newUpgradePlanCreateCommand(storeProvider authStoreProvider) *cobra.Command
 		Use:     "create <cluster-id>",
 		Short:   "Create a SeaTunnel upgrade plan",
 		Long:    upgradeOperationDescription("stupgrade.plan.create"),
-		Example: "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --config-merge-plan-file merge-plan.json",
+		Example: "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --java-home /usr/lib/jvm/java-21 --config-merge-plan-file merge-plan.json",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			body, _, err := buildUpgradeRequest(command, args[0], &request, true)
@@ -284,6 +285,7 @@ func addUpgradeRequestFlags(command *cobra.Command, request *upgradeRequestOptio
 	command.Flags().StringVar(&request.packageChecksum, "package-checksum", "", "Expected target package SHA-256 checksum")
 	command.Flags().StringVar(&request.packageArch, "package-arch", "", "Target package architecture")
 	command.Flags().StringVar(&request.targetInstallDir, "target-install-dir", "", "Target SeaTunnel installation directory")
+	command.Flags().StringVar(&request.javaHome, "java-home", "", "Target JDK for the new version; does not change the running cluster until upgrade starts")
 	command.Flags().StringSliceVar(&request.connectorNames, "connector", nil, "Connector to keep; may be specified more than once")
 	command.Flags().UintSliceVar(&request.nodeIDs, "node-id", nil, "Cluster node ID to upgrade; may be specified more than once")
 	command.Flags().StringVar(&request.requestFile, "request-file", "", "JSON file containing the complete request body")
@@ -312,6 +314,7 @@ func buildUpgradeRequest(command *cobra.Command, clusterIDText string, request *
 	setChangedString(command, body, "package-checksum", request.packageChecksum)
 	setChangedString(command, body, "package-arch", request.packageArch)
 	setChangedString(command, body, "target-install-dir", request.targetInstallDir)
+	setChangedString(command, body, "java-home", request.javaHome)
 	if command.Flags().Changed("connector") {
 		body["connector_names"] = request.connectorNames
 	}

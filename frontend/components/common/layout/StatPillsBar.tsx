@@ -17,10 +17,9 @@
 
 'use client';
 
-import React, {useRef} from 'react';
-import {useGSAP} from '@gsap/react';
+import React from 'react';
 import {cn} from '@/lib/utils';
-import {animatePillsEntrance, animatePulsingRadar} from '@/lib/animations/gsap-motion';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 
 export type StatPillVariant = 'default' | 'danger' | 'warning' | 'success' | 'info';
 
@@ -64,109 +63,94 @@ export interface StatPillsBarProps {
   // 自定义容器样式
   // Custom container class name
   className?: string;
+  // 分组无障碍名（透传给底层 SegmentedControl 的 aria-label）
+  // Accessible group label forwarded to the underlying SegmentedControl
+  label?: string;
 }
 
-// 统一的紧凑状态胶囊栏组件（取代臃肿的大 KPI 卡片，释放首屏空间）
-// Unified compact status pills bar component (replaces bulky KPI cards, maximizes viewport space)
+// 计数微标的语义配色：仅在数值非 0 时上色变体，0 保持灰色降噪。
+// Count chip tinting: variant color only applies to non-zero counts; zeros stay muted.
+const COUNT_TONE: Record<StatPillVariant, string> = {
+  danger: 'text-destructive',
+  warning: 'text-amber-600 dark:text-amber-400',
+  success: 'text-emerald-600 dark:text-emerald-400',
+  info: 'text-blue-600 dark:text-blue-400',
+  default: 'text-foreground/80',
+};
+
+function CountAccessory({
+  item,
+}: {
+  item: StatPillItem;
+}) {
+  const count = item.count ?? 0;
+  const nonzero = typeof count === 'number' ? count > 0 : Boolean(count);
+  return (
+    <span className='ml-1 inline-flex items-center gap-1 align-middle'>
+      {item.pulse ? (
+        <span className='relative flex h-1.5 w-1.5'>
+          <span className='absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75' />
+          <span className='relative inline-flex h-1.5 w-1.5 rounded-full bg-rose-500' />
+        </span>
+      ) : null}
+      {item.count !== undefined ? (
+        <span
+          className={cn(
+            'rounded-full bg-muted/70 px-1 font-mono text-[10px] leading-4',
+            nonzero
+              ? COUNT_TONE[item.variant ?? 'default']
+              : 'text-muted-foreground',
+          )}
+        >
+          {item.count}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+// 统一的紧凑状态胶囊栏：内部复用 Arc SegmentedControl，与顶栏「我的/全部」等
+// 段控件共用轨道与滑动选中胶囊动效，API 与原 StatPillItem 保持不变。
+// Unified compact status pills bar: internally backed by the Arc
+// SegmentedControl, sharing the track and morphing selection pill with the
+// top-bar segmented controls; the StatPillItem API is unchanged.
 export function StatPillsBar({
   items,
   activeKey,
   onChange,
   actions,
   className,
+  label,
 }: StatPillsBarProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // GSAP 辅助动效：状态胶囊交错淡入，活跃警报光环脉冲
-  // GSAP auxiliary motion: staggered pill entrance and active radar pulse ring
-  useGSAP(
-    () => {
-      animatePillsEntrance('.stat-pill-item');
-      // 没有 pulse 项时选择器为空，GSAP 会打「target not found」告警，先探再启动。
-      // With no pulse item the selector matches nothing and GSAP logs a
-      // "target not found" warning — probe before animating.
-      if (containerRef.current?.querySelector('.radar-pulse-ring')) {
-        animatePulsingRadar('.radar-pulse-ring');
-      }
-    },
-    {scope: containerRef, dependencies: [items.length]},
-  );
-
-  // 解析胶囊的样式配色
-  // Resolve color and border styles based on semantic variant and active state
-  const getPillStyles = (item: StatPillItem) => {
-    const isActive = activeKey === item.key;
-
-    if (isActive) {
-      switch (item.variant) {
-        case 'danger':
-          return 'bg-destructive/15 text-destructive border-destructive/30 shadow-2xs font-semibold';
-        case 'warning':
-          return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 shadow-2xs font-semibold';
-        case 'success':
-          return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 shadow-2xs font-semibold';
-        case 'info':
-          return 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30 shadow-2xs font-semibold';
-        default:
-          return 'bg-primary/10 text-primary border-primary/30 shadow-2xs font-semibold';
-      }
-    }
-
-    return 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/60';
-  };
-
   return (
     <div
-      ref={containerRef}
       className={cn(
         'flex flex-wrap items-center justify-between gap-2.5',
         className,
       )}
     >
-      {/* 左侧状态胶囊选择组 */}
-      {/* Left status pill selector group */}
-      <div className='flex items-center gap-1.5 flex-wrap'>
-        {items.map((item) => {
-          const isActive = activeKey === item.key;
-          return (
-            <button
-              key={item.key}
-              type='button'
-              data-testid={item.dataTestId}
-              onClick={() => onChange(item.key)}
-              className={cn(
-                'stat-pill-item relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs border transition-all duration-150 active:scale-[0.97] cursor-pointer select-none',
-                getPillStyles(item),
-              )}
-            >
-              {/* 持续呼吸脉冲光环（存在严重警告或触发状态时呈现） */}
-              {/* Continuous pulsing radar ring indicator for critical/active states */}
-              {item.pulse && (
-                <span className='relative flex h-2 w-2'>
-                  <span className='radar-pulse-ring absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75' />
-                  <span className='relative inline-flex rounded-full h-2 w-2 bg-rose-500' />
-                </span>
-              )}
-
+      <SegmentedControl
+        label={label}
+        value={activeKey}
+        onValueChange={onChange}
+        className='min-w-0'
+        options={items.map((item) => ({
+          value: item.key,
+          label: item.icon ? (
+            <span className='inline-flex items-center gap-1'>
               {item.icon}
-              <span>{item.label}</span>
-
-              {item.count !== undefined && (
-                <span
-                  className={cn(
-                    'font-mono font-semibold px-1.5 py-0.5 rounded-full text-[11px] leading-none',
-                    isActive
-                      ? 'bg-background/80 shadow-2xs'
-                      : 'bg-muted text-muted-foreground',
-                  )}
-                >
-                  {item.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+              {item.label}
+            </span>
+          ) : (
+            item.label
+          ),
+          accessory:
+            item.count !== undefined || item.pulse ? (
+              <CountAccessory item={item} />
+            ) : undefined,
+          testId: item.dataTestId,
+        }))}
+      />
 
       {/* 右侧扩展操作区 */}
       {/* Right optional action buttons slot */}

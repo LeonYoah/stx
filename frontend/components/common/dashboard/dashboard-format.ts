@@ -290,3 +290,40 @@ export function formatBytes(bytes: number): string {
   } while (value >= 1024 && index < units.length - 1);
   return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
 }
+
+/** 速率序列的窗口统计。/ Windowed stats for a rate series. */
+export interface RateSummary {
+  avg: number;
+  peak: number;
+}
+
+/**
+ * 窗口内速率点的均值与峰值；忽略 NaN / Infinity / null，没有有效点时返回 null。
+ * 均值跟随头部时间窗，与「窗口内平均」口径一致；不用最后一个点是因为它和
+ * 指标栏的 10 秒对账实时值口径不同，两处数字对不上会让人困惑。
+ * Average and peak of the rate points inside the window; NaN / Infinity / null are
+ * ignored and an all-invalid series returns null. The average follows the header's
+ * time window, matching the "window average" wording; the last point is not used
+ * because it is a different sampling from the KPI strip's 10-second reconcile and
+ * the two numbers would disagree.
+ */
+export function summarizeRate(points: [number, number][]): RateSummary | null {
+  let sum = 0;
+  let count = 0;
+  let peak = Number.NEGATIVE_INFINITY;
+  for (const point of points) {
+    const value = point?.[1];
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+    sum += value;
+    count += 1;
+    if (value > peak) {
+      peak = value;
+    }
+  }
+  if (count === 0) {
+    return null;
+  }
+  return {avg: sum / count, peak};
+}

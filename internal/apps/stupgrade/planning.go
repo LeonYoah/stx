@@ -995,10 +995,11 @@ func (s *Service) checkJavaRuntimeForTarget(ctx context.Context, node *clusterap
 		)
 		return &issue
 	default:
+		recommended := seatunnel.JavaRequirementForVersion(target.TargetVersion)
 		issue := warningIssue(
 			CheckCategoryNode,
 			"jdk_unusual_version",
-			fmt.Sprintf("node %s runs Java %d; SeaTunnel %s recommends Java 8 or 11 / 节点 %s 运行 Java %d；SeaTunnel %s 推荐 Java 8 或 11", target.HostName, rt.Version, target.TargetVersion, target.HostName, rt.Version, target.TargetVersion),
+			fmt.Sprintf("node %s runs Java %d; SeaTunnel %s recommends Java %s / 节点 %s 运行 Java %d；SeaTunnel %s 推荐 Java %s", target.HostName, rt.Version, target.TargetVersion, recommended.RecommendedText(" or "), target.HostName, rt.Version, target.TargetVersion, recommended.RecommendedText(" 或 ")),
 			metadata,
 		)
 		return &issue

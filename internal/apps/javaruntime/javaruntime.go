@@ -197,27 +197,27 @@ func MinSupportedMajor(targetVersion string) int {
 	return seatunnel.JavaRequirementForVersion(targetVersion).MinSupported
 }
 
-// StatusForTarget 按目标 SeaTunnel 版本评估已探测到的 JDK 主版本号：
-// 目标 ≥3.1.0 时低于 11 的 JDK 判失败（升级/安装后引擎必然无法启动），11+ 判通过；
-// 更早目标维持既有矩阵 {8,11} 通过、其余警告；版本未知时保守警告。
-// StatusForTarget evaluates a detected JDK major version against the SeaTunnel target:
-// for targets ≥3.1.0 a JDK below 11 fails outright (the engine cannot start), 11+ passes;
-// older targets keep the legacy matrix of {8,11} passed and everything else warning;
-// unknown versions degrade to warning.
+// StatusForTarget 按目标 SeaTunnel 版本评估已探测到的 JDK 主版本号，矩阵来自
+// seatunnel.JavaRequirementForVersion：推荐集合判通过；低于 MinSupported 判失败
+// （升级/安装后引擎必然无法启动）；高于推荐上限或非推荐的其余版本判警告；
+// 版本未知（≤0）保守警告不阻断。
+// StatusForTarget evaluates a detected JDK major version against the SeaTunnel target,
+// using the matrix from seatunnel.JavaRequirementForVersion: a recommended major passes;
+// anything below MinSupported fails outright (the engine cannot start); anything above
+// MaxRecommended or otherwise unrecommended warns; an unknown version (≤0) degrades to warning.
 func StatusForTarget(version int, targetVersion string) string {
 	if version <= 0 {
 		return StatusWarning
 	}
-	if MinSupportedMajor(targetVersion) >= 11 {
-		if version < 11 {
-			return StatusFailed
-		}
+	requirement := seatunnel.JavaRequirementForVersion(targetVersion)
+	switch {
+	case requirement.Contains(version):
 		return StatusPassed
+	case version < requirement.MinSupported:
+		return StatusFailed
+	default:
+		return StatusWarning
 	}
-	if version == 8 || version == 11 {
-		return StatusPassed
-	}
-	return StatusWarning
 }
 
 // FailureMessage 返回带节点、路径与原因的双语失败信息，供预检阻断时展示（AC1c / AC2）。

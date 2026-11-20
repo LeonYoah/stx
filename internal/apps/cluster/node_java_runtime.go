@@ -72,9 +72,11 @@ func (s *Service) GetNodeJavaRuntime(ctx context.Context, clusterID, nodeID uint
 		return nil, fmt.Errorf("check node JDK / 检查节点 JDK: %w", err)
 	}
 	result := javaruntime.Interpret(configured, success, output)
-	if success {
-		// Interpret 不带版本上下文，这里用集群版本重新分档（3.1.0 集群上的 Java 8 判为不可用）。
-		// Interpret has no version context; re-tier with the cluster version (Java 8 fails on a 3.1.0 cluster).
+	// Interpret 已判失败的结果（如旧 Agent 忽略自定义 java_home）不能被版本矩阵翻案，
+	// 只在成功且未判失败时按集群版本重新分档（3.1.0 集群上的 Java 8 判为不可用）。
+	// A result Interpret already failed (e.g. an old Agent ignoring a custom java_home) must not be
+	// overturned by the version matrix; re-tier only on success (Java 8 fails on a 3.1.0 cluster).
+	if success && result.Status != javaruntime.StatusFailed {
 		result.Status = javaruntime.StatusForTarget(result.Version, clusterVersion)
 		if result.Status == javaruntime.StatusFailed && result.Version > 0 {
 			result.Reason = "below_required_java"

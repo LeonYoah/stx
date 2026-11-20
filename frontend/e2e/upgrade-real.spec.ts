@@ -142,17 +142,19 @@ test.describe.serial('upgrade real e2e', () => {
     console.log('[upgrade-real] precheck indicates ready to continue');
 
     // 升级页要求每个节点显式选择目标 JDK，否则 continue 保持禁用；
-    // 选完后预检视为过期，需要重跑拿到最新确认请求。
-    // The prepare page requires an explicit target JDK per node before continuing;
-    // choosing one marks the precheck stale, so rerun it before continuing.
-    const fallbackJavaHome =
-      process.env.JAVA_HOME || '/usr/lib/jvm/default-java';
+    // 优先选与节点现有 JAVA_HOME 一致的探测项，模拟"升级沿用已存 JDK"，
+    // 探测不到时走自定义入口填入同一路径。选完后预检视为过期，需要重跑。
+    // The prepare page requires an explicit target JDK per node before continuing.
+    // Prefer the detected option matching the node's existing JAVA_HOME to mirror
+    // "keep the stored JDK across upgrade"; fall back to the custom entry with the
+    // same path. Choosing one marks the precheck stale, so rerun it afterwards.
+    const nodeJavaHome = process.env.JAVA_HOME || '/usr/lib/jvm/default-java';
     const jdkPickers = page.locator(
       '[data-testid^="upgrade-prepare-node-jdk-"]',
     );
     const jdkPickerCount = await jdkPickers.count();
     console.log(
-      `[upgrade-real] selecting target JDK for ${jdkPickerCount} node target(s)`,
+      `[upgrade-real] selecting target JDK ${nodeJavaHome} for ${jdkPickerCount} node target(s)`,
     );
     for (let i = 0; i < jdkPickerCount; i++) {
       const picker = jdkPickers.nth(i);
@@ -160,18 +162,21 @@ test.describe.serial('upgrade real e2e', () => {
         timeout: 60000,
       });
       if (await picker.locator('input').isVisible()) {
-        await picker.locator('input').fill(fallbackJavaHome);
+        await picker.locator('input').fill(nodeJavaHome);
         continue;
       }
       await picker.getByRole('combobox').click();
-      const detectedOption = page
-        .getByRole('option', {name: /\//})
-        .first();
-      if ((await detectedOption.count()) > 0) {
+      const options = page.getByRole('option');
+      await options.first().waitFor({state: 'visible'});
+      const matchingOption = options.filter({hasText: nodeJavaHome}).first();
+      const detectedOption = options.filter({hasText: '/'}).first();
+      if ((await matchingOption.count()) > 0) {
+        await matchingOption.click();
+      } else if ((await detectedOption.count()) > 0) {
         await detectedOption.click();
       } else {
-        await page.getByRole('option').first().click();
-        await picker.locator('input').fill(fallbackJavaHome);
+        await options.first().click();
+        await picker.locator('input').fill(nodeJavaHome);
       }
     }
     await page.getByTestId('upgrade-prepare-run-precheck').click();

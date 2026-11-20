@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/ui-conventions.md", "reason": "一致性检查项（KpiStrip、DashboardPanel、§16 更新）"}
+{"file": ".trellis/spec/frontend/e2e-testing.md", "reason": "e2e/dashboard.spec.ts 回归"}

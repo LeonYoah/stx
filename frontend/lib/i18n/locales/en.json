@@ -184,7 +184,8 @@
       "scope": {
         "label": "Scope",
         "all": "All clusters",
-        "clusterFallback": "Cluster #{id}"
+        "clusterFallback": "Cluster #{id}",
+        "empty": "No matching clusters"
       },
       "refresh": "Refresh",
       "updatedAt": "Updated {time}",
@@ -210,19 +211,20 @@
         "writeContextNow": "Current total (10s reconcile)",
         "cdc": "Max CDC delay",
         "cdcNone": "No CDC delay data",
-        "cdcOver": "Over threshold",
         "failed": "Failures",
-        "failedContext": "Last 24h, incl. failing",
-        "failedYesterday": "Yesterday {count}",
         "clusters": "Cluster health",
         "clustersContext": "{online}/{total} nodes online",
-        "clustersDegraded": "{count} degraded",
         "alerts": "Active alerts",
         "alertsContext": "{count} critical",
         "volume": "Data volume",
         "volumeContext": "Today {today} · This month {month}",
         "volumeContextSince": "Today {today} · Since {date} {month}",
-        "volumeEmpty": "Observability off"
+        "volumeEmpty": "Observability off",
+        "label": "Key metrics",
+        "failedContextWithPrev": "Last 24h · {count} yesterday",
+        "cdcOverContext": "Over threshold · {name}",
+        "clustersDegradedContext": "{count} degraded · {online}/{total} nodes online",
+        "clustersUnhealthyContext": "{count} unhealthy · {online}/{total} nodes online"
       },
       "unit": {
         "rowsPerSec": " rows/s",
@@ -248,7 +250,9 @@
           "read": "Read rows/s",
           "write_bytes": "Write bytes/s",
           "read_bytes": "Read bytes/s",
-          "metricLabel": "Throughput metric"
+          "metricLabel": "Throughput metric",
+          "peak": "Peak {value}",
+          "avgHint": "Window average"
         },
         "annotation": {
           "job_failed": "Job failed",
@@ -4703,12 +4707,6 @@
       "all": "All modes",
       "streaming": "Streaming",
       "batch": "Batch"
-    },
-    "runTypeFilter": {
-      "label": "Run type",
-      "all": "All",
-      "formal": "Formal",
-      "preview": "Preview"
     },
     "groups": {
       "all": "All",

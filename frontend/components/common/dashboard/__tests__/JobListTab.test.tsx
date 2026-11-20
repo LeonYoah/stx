@@ -174,7 +174,6 @@ describe('JobListTab', () => {
       mode: 'batch',
       cluster_id: 3,
       keyword: 'orders',
-      exclude_run_type: 'preview',
       sort: 'started_at',
       order: 'desc',
       with_counts: 1,

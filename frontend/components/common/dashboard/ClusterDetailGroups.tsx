@@ -42,6 +42,7 @@ import {
   type HomeDetailPanel,
 } from '@/lib/services/dashboard';
 import {formatDateTimeMinuteTz} from '@/lib/timezone';
+import {DashboardPanel} from './DashboardPanel';
 import type {DashboardQuery} from './use-dashboard-query';
 import {usePolledResource} from './use-polled-resource';
 
@@ -109,7 +110,6 @@ export function ClusterDetailGroups({
 }) {
   const t = useTranslations('dashboard.home.clusterTab.detail');
   const [group, setGroup] = useState<DetailGroup>('jvm');
-  const panel = 'rounded-xl border border-border/70 bg-card/40 p-4';
 
   const resource = usePolledResource<HomeClusterDetail>(
     JSON.stringify([
@@ -340,31 +340,51 @@ export function ClusterDetailGroups({
   });
 
   return (
-    <section className={panel} data-testid='home-cluster-detail'>
-      <div className='mb-3 flex flex-wrap items-center gap-3'>
-        <h3 className='text-sm font-medium'>{t('title')}</h3>
-        <SegmentedControl
-          label={t('title')}
-          value={group}
-          onValueChange={(value) => setGroup(value as DetailGroup)}
-          options={DETAIL_GROUPS.map((key) => ({
-            value: key,
-            label: t(`groups.${key}`),
-          }))}
-        />
-        {resource.refreshing ? (
-          <span className='text-xs text-muted-foreground'>{t('refreshing')}</span>
-        ) : null}
-      </div>
+    <DashboardPanel
+      title={t('title')}
+      actions={
+        // 动态兄弟元素拼进 children 数组时必须显式给 key，否则 React 19 报
+        // 「unique key」告警（数组里的元素不走静态子级校验）。
+        // Dynamic sibling expressions land in a children array and must carry
+        // explicit keys — React 19's "unique key" warning otherwise fires
+        // (array children skip static-children validation).
+        <>
+          <SegmentedControl
+            key='groups'
+            label={t('title')}
+            value={group}
+            onValueChange={(value) => setGroup(value as DetailGroup)}
+            options={DETAIL_GROUPS.map((key) => ({
+              value: key,
+              label: t(`groups.${key}`),
+            }))}
+          />
+          {resource.refreshing ? (
+            <span
+              key='refreshing'
+              className='ml-2 text-xs text-muted-foreground'
+            >
+              {t('refreshing')}
+            </span>
+          ) : null}
+        </>
+      }
+      testId='home-cluster-detail'
+    >
 
       {data?.partial_errors?.length ? (
-        <p className='mb-3 text-xs text-amber-600 dark:text-amber-400' role='status'>
+        <p
+          key='partial-errors'
+          className='mb-3 text-xs text-amber-600 dark:text-amber-400'
+          role='status'
+        >
           {t('partial', {keys: data.partial_errors.join(', ')})}
         </p>
       ) : null}
 
       {data && data.events.length > 0 ? (
         <ul
+          key='detail-events'
           className='mb-3 flex flex-wrap gap-1.5'
           data-testid='detail-events'
         >
@@ -384,7 +404,10 @@ export function ClusterDetailGroups({
       ) : null}
 
       {resource.loading && !data ? (
-        <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
+        <div
+          key='cells-loading'
+          className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'
+        >
           {Array.from({length: 3}).map((_, index) => (
             <div
               key={index}
@@ -395,11 +418,17 @@ export function ClusterDetailGroups({
       ) : data && data.panels.every((item) => item.series.length === 0) ? (
         // 整组无序列：引擎未上报这类指标（老版本 / 未开启）。/ Whole group empty: the engine does not
         // report these metrics (old version / disabled).
-        <p className='py-10 text-center text-xs text-muted-foreground'>
+        <p
+          key='cells-empty'
+          className='py-10 text-center text-xs text-muted-foreground'
+        >
           {t('emptyGroup')}
         </p>
       ) : (
-        <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
+        <div
+          key='cells-grid'
+          className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'
+        >
           {cellOrder.map((key) => {
             const item = panelsByKey.get(key);
             if (!item) {
@@ -423,11 +452,14 @@ export function ClusterDetailGroups({
                     </span>
                   </div>
                   {cards.length === 0 ? (
-                    <p className='py-6 text-center text-xs text-muted-foreground'>
+                    <p
+                      key='body'
+                      className='py-6 text-center text-xs text-muted-foreground'
+                    >
                       {t('emptyPanel')}
                     </p>
                   ) : (
-                    <div className='flex flex-col gap-3'>
+                    <div key='body' className='flex flex-col gap-3'>
                       {cards.map((card) => (
                         <div
                           key={card.instance}
@@ -440,12 +472,14 @@ export function ClusterDetailGroups({
                           }
                         >
                           <MetricCard
+                            key='metric'
                             label={card.instance}
                             value={card.value}
                             context={title}
                           />
                           {key === 'reject' ? (
                             <Sparkline
+                              key='spark'
                               data={card.points.map((point) => point[1])}
                               label={`${card.instance} ${title}`}
                               variant='area'
@@ -469,6 +503,7 @@ export function ClusterDetailGroups({
                     <h4 className='text-xs font-medium'>{title}</h4>
                   </div>
                   <DonutChart
+                    key='body'
                     data={partitionDonut}
                     label={title}
                     size={170}
@@ -490,11 +525,15 @@ export function ClusterDetailGroups({
                     </h4>
                   </div>
                   {storeBars.categories.length === 0 ? (
-                    <p className='py-6 text-center text-xs text-muted-foreground'>
+                    <p
+                      key='body'
+                      className='py-6 text-center text-xs text-muted-foreground'
+                    >
                       {t('emptyPanel')}
                     </p>
                   ) : (
                     <BarChart
+                      key='body'
                       categories={storeBars.categories}
                       series={[
                         {
@@ -528,11 +567,14 @@ export function ClusterDetailGroups({
                     <h4 className='text-xs font-medium'>{title}</h4>
                   </div>
                   {fdRows.length === 0 ? (
-                    <p className='py-6 text-center text-xs text-muted-foreground'>
+                    <p
+                      key='body'
+                      className='py-6 text-center text-xs text-muted-foreground'
+                    >
                       {t('emptyPanel')}
                     </p>
                   ) : (
-                    <ul className='flex flex-col gap-2'>
+                    <ul key='body' className='flex flex-col gap-2'>
                       {fdRows.map((row) => (
                         <li
                           key={row.instance}
@@ -595,6 +637,6 @@ export function ClusterDetailGroups({
           })}
         </div>
       )}
-    </section>
+    </DashboardPanel>
   );
 }

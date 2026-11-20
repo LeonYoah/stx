@@ -22,18 +22,16 @@ import zh from '@/lib/i18n/locales/zh.json';
 import type {HomeSummary, HomeVolume} from '@/lib/services/dashboard';
 import {DashboardKpiRow} from '../DashboardKpiRow';
 
-vi.mock('@/components/arc/metric-card/metric-card', () => ({
-  MetricCard: (props: {
-    label: string;
+vi.mock('@/components/arc/animated-counter/animated-counter', () => ({
+  AnimatedCounter: (props: {
     value: number;
+    decimals?: number;
     suffix?: string;
-    context: string;
-    change?: string;
   }) => (
-    <div data-testid='metric-card'>
-      {props.label}|{props.value}
-      {props.suffix ?? ''}|{props.context}|{props.change ?? ''}
-    </div>
+    <span data-testid='counter'>
+      {props.value}
+      {props.suffix ?? ''}
+    </span>
   ),
 }));
 
@@ -104,23 +102,26 @@ const renderRow = (
     </NextIntlClientProvider>,
   );
 
+const cellOf = (testId: string) =>
+  screen.getByTestId(testId).closest('li') as HTMLElement;
+
 describe('DashboardKpiRow', () => {
-  it('renders the seven KPIs with neutral failure wording and a signed write-rate change', () => {
+  it('renders the seven KPI cells as links with their hrefs unchanged', () => {
     renderRow(summary, false, volume);
-    const cards = screen
-      .getAllByTestId('metric-card')
-      .map((node) => node.textContent);
-    expect(cards).toHaveLength(7);
-    expect(cards[0]).toBe('运行中作业|9|流 7 · 批 2|');
-    // 大数字经 scaledCompact 缩放：27,200 → 27.2K；1,523,000 → 1.5M，避免溢出相邻卡片。
-    // Large numbers go through scaledCompact: 27,200 → 27.2K, 1,523,000 → 1.5M, so long digits
-    // never overflow into the neighboring card.
-    expect(cards[1]).toBe('全局写入速率|27.2K 行/秒|较 1 小时前|+6%');
-    expect(cards[2]).toBe('最大 CDC 延迟|74 秒|pg-cdc-ledger|超阈值');
-    // 失败数用中性文字，不带正负号，避免 Arc 染成绿色。/ Neutral failure wording, no sign, so Arc never paints it green.
-    expect(cards[3]).toBe('失败作业|2|近 24 小时（含失败中）|昨日 1');
-    expect(cards[4]).toBe('数据量|1.5M 行|今日 5M · 本月 60M|');
-    expect(cards[5]).toBe('集群健康|1/2|节点 4/4 在线|1 个降级');
+    expect(screen.getByTestId('home-kpi-row').tagName).toBe('NAV');
+    for (const key of [
+      'running',
+      'write',
+      'cdc',
+      'failed',
+      'volume',
+      'clusters',
+      'alerts',
+    ]) {
+      const link = screen.getByTestId(`home-kpi-${key}`);
+      expect(link.tagName).toBe('A');
+      expect(link).toHaveTextContent(/\S/);
+    }
     expect(screen.getByTestId('home-kpi-failed').getAttribute('href')).toBe(
       '/dashboard?tab=list&status=failed',
     );
@@ -129,6 +130,131 @@ describe('DashboardKpiRow', () => {
     );
     expect(screen.getByTestId('home-kpi-alerts').getAttribute('href')).toBe(
       '/monitoring',
+    );
+  });
+
+  it('scales values, renders the magnitude next to digits and the unit as small text', () => {
+    renderRow(summary, false, volume);
+    // 大数字经 scaledCompact 缩放：27,200 → 27.2K；1,523,000 → 1.5M。量级与数字同字号，
+    // 计量单位是独立的小号节点，不混进计数器。
+    // Large numbers go through scaledCompact: 27,200 → 27.2K, 1,523,000 → 1.5M.
+    // The magnitude shares the digits' size; the measure unit is a separate small node.
+    const write = screen.getByTestId('home-kpi-write');
+    expect(write).toHaveTextContent('27.2K');
+    expect(write).toHaveTextContent('行/秒');
+    const counters = write.querySelectorAll("[data-testid='counter']");
+    expect(counters).toHaveLength(1);
+    expect(counters[0].textContent).toBe('27.2K');
+    expect(counters[0].textContent).not.toContain('行/秒');
+    expect(screen.getByTestId('home-kpi-volume')).toHaveTextContent('1.5M');
+    expect(screen.getByTestId('home-kpi-volume')).toHaveTextContent(
+      '今日 5M · 本月 60M',
+    );
+  });
+
+  it('tints danger cells: failures > 0, CDC over threshold, critical alerts', () => {
+    renderRow(summary, false, volume);
+    expect(cellOf('home-kpi-failed').dataset.tone).toBe('danger');
+    // CDC 超阈值：数值染红，说明以「超阈值 ·」开头。/ CDC over threshold: danger tint, caption opens with "超阈值 ·".
+    expect(cellOf('home-kpi-cdc').dataset.tone).toBe('danger');
+    expect(screen.getByTestId('home-kpi-cdc').textContent).toContain(
+      '超阈值 · pg-cdc-ledger',
+    );
+    expect(cellOf('home-kpi-alerts').dataset.tone).toBe('danger');
+    // 集群有降级 → 警告色，说明以「N 个降级 ·」开头。/ Degraded clusters → warning tint, caption opens with "N 个降级 ·".
+    expect(cellOf('home-kpi-clusters').dataset.tone).toBe('warning');
+    expect(screen.getByTestId('home-kpi-clusters').textContent).toContain(
+      '1 个降级 · 节点 4/4 在线',
+    );
+    // 其余格不染色。/ The rest carry no tone.
+    expect(cellOf('home-kpi-running')).not.toHaveAttribute('data-tone');
+    expect(cellOf('home-kpi-write')).not.toHaveAttribute('data-tone');
+    expect(cellOf('home-kpi-volume')).not.toHaveAttribute('data-tone');
+  });
+
+  it('tints the clusters cell danger with the unhealthy caption when a cluster is unhealthy', () => {
+    renderRow(
+      {
+        ...summary,
+        clusters: {...summary.clusters, healthy: 0, degraded: 0, unhealthy: 1},
+      },
+      false,
+      volume,
+    );
+    expect(cellOf('home-kpi-clusters').dataset.tone).toBe('danger');
+    expect(screen.getByTestId('home-kpi-clusters').textContent).toContain(
+      '1 个异常 · 节点 4/4 在线',
+    );
+  });
+
+  it('keeps the unhealthy severity when degraded and unhealthy coexist', () => {
+    renderRow(
+      {
+        ...summary,
+        clusters: {...summary.clusters, degraded: 1, unhealthy: 1},
+      },
+      false,
+      volume,
+    );
+    expect(cellOf('home-kpi-clusters').dataset.tone).toBe('danger');
+    expect(screen.getByTestId('home-kpi-clusters').textContent).toContain(
+      '1 个异常 ·',
+    );
+  });
+
+  it('clears the tone when failures, CDC and alerts are all fine', () => {
+    renderRow(
+      {
+        ...summary,
+        jobs: {...summary.jobs!, failed_24h: 0, max_cdc_delay_seconds: 10},
+        clusters: {...summary.clusters, degraded: 0},
+        alerts: {active: 1, critical: 0},
+      },
+      false,
+      volume,
+    );
+    expect(cellOf('home-kpi-failed')).not.toHaveAttribute('data-tone');
+    expect(cellOf('home-kpi-cdc')).not.toHaveAttribute('data-tone');
+    expect(cellOf('home-kpi-clusters')).not.toHaveAttribute('data-tone');
+    expect(cellOf('home-kpi-alerts')).not.toHaveAttribute('data-tone');
+  });
+
+  it('shows a signed up/down change only on the write rate', () => {
+    renderRow(summary, false, volume);
+    const write = screen.getByTestId('home-kpi-write');
+    // 写入速率上涨：↗ +6%（涨绿）。/ Rising write rate: up arrow +6%.
+    expect(write.textContent).toContain('+6%');
+    expect(write.textContent).toContain('较 1 小时前');
+    // 失败数与昨日数仍是中性文字，不带正负号。/ Failure and yesterday counts stay neutral, no sign.
+    expect(screen.getByTestId('home-kpi-failed').textContent).toContain(
+      '近 24 小时 · 昨日 1',
+    );
+    expect(screen.getByTestId('home-kpi-failed').textContent).not.toContain(
+      '+1',
+    );
+  });
+
+  it('marks a falling write rate and falls back to "current total" without a trend', () => {
+    const falling: HomeSummary = {
+      ...summary,
+      jobs: {
+        ...summary.jobs!,
+        write_trend: [
+          [0, 100],
+          [3_600_000, 50],
+        ],
+      },
+    };
+    const {unmount} = renderRow(falling, false, volume);
+    expect(screen.getByTestId('home-kpi-write').textContent).toContain('−50%');
+    unmount();
+    const noTrend: HomeSummary = {
+      ...summary,
+      jobs: {...summary.jobs!, write_trend: []},
+    };
+    renderRow(noTrend, false, volume);
+    expect(screen.getByTestId('home-kpi-write').textContent).toContain(
+      '当前合计（10 秒对账）',
     );
   });
 
@@ -159,8 +285,11 @@ describe('DashboardKpiRow', () => {
     );
   });
 
-  it('keeps a fixed-height skeleton while the first load is pending', () => {
+  it('keeps a same-grid skeleton while the first load is pending', () => {
     renderRow(null, true);
-    expect(screen.getByTestId('home-kpi-loading').children).toHaveLength(7);
+    // 骨架与真实指标栏同一底板与网格：ul 下仍是 7 个格子。
+    // The skeleton shares the strip's board and grid: seven cells under the ul.
+    const board = screen.getByTestId('home-kpi-loading');
+    expect(board.querySelector('ul')?.children).toHaveLength(7);
   });
 });

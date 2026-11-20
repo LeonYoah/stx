@@ -4597,12 +4597,7 @@ export function DataSyncStudio() {
 
                 {editor.id ? (
                   <div className='flex items-center gap-1.5 shrink-0'>
-                    {/* 版本号 / Version */}
-                    <span className='rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground'>
-                      v{editor.currentVersion || 1}
-                    </span>
-
-                    {/* 发布状态微胶囊 / Publish status micro-pill */}
+                    {/* 版本 + 发布状态合并微胶囊 / Merged version + publish status micro-pill */}
                     <span
                       className={cn(
                         'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-normal leading-none',
@@ -4619,6 +4614,10 @@ export function DataSyncStudio() {
                             : 'bg-muted-foreground/50',
                         )}
                       />
+                      <span className='font-mono'>
+                        v{editor.currentVersion || 1}
+                      </span>
+                      ·
                       {editor.status === 'published' ? t('published') : t('draft')}
                     </span>
 

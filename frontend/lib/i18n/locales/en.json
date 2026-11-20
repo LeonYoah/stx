@@ -5860,6 +5860,8 @@
     "connectorMissingPreviewDescription": "Preview needs the HTTP connector on the cluster. Preview temporarily swaps the job's sink for an HTTP sink that sends sample rows back to STX, and this cluster does not have it installed yet.",
     "connectorMissingSuggestion": "Install the connector for \"{identifier}\" on this cluster from the plugin market, then run again.",
     "connectorMissingAction": "Install from plugin market",
+    "connectorInitFailedTitle": "Connector failed to initialize",
+    "connectorInitFailedSuggestion": "The connector is installed, but the engine could not initialize it — usually a datasource connectivity, credential, or permission problem. The engine REST reply only carries the outer error; the real cause lives in the cluster Master log. Check the datasource connection settings or inspect the Master log.",
     "connectorType": {
       "source": "source",
       "sink": "sink",

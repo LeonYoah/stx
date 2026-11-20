@@ -1064,7 +1064,7 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, ErrAttachGenerationMismatch), errors.Is(err, ErrJobCancellingTimeout), errors.Is(err, ErrDolphinVersionConflict), errors.Is(err, ErrSchedulerBindingExists), errors.Is(err, ErrDolphinPushNoNewVersion), errors.Is(err, ErrSubmitOutcomePending):
 		return http.StatusConflict
-	case errors.Is(err, ErrConnectorMissing):
+	case errors.Is(err, ErrConnectorMissing), errors.Is(err, ErrConnectorInitFailed):
 		// 集群状态不满足任务前提，重试不会成功；409 让 CLI 归为冲突而不是可重试的服务端错误。
 		// The cluster does not meet the job's precondition and retrying will not help; 409 keeps the CLI from treating it as a retryable server error.
 		return http.StatusConflict

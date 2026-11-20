@@ -2091,8 +2091,34 @@ export function formatSyncUserFacingError(
       ? String((error as {errorCode?: unknown}).errorCode ?? '')
       : '';
 
-  // 0. 集群缺连接器：预览会注入 Http sink，用户没写过它，需要单独说明是预览本身依赖 HTTP 连接器。
-  // 0. Cluster lacks a connector: preview injects an Http sink the user never wrote, so say preview itself needs it.
+  // 清洗引擎或包装层的套娃前缀
+  // Clean nested wrapper prefixes from engine or RPC layers
+  const cleanMessage = rawMessage
+    .replace(/^sync:\s*/, '')
+    .replace(/^java\.lang\.RuntimeException:\s*/, '')
+    .replace(/^org\.apache\.seatunnel\.common\.exception\.\w+:\s*/, '')
+    .trim();
+
+  // 0. 连接器已安装但引擎初始化失败：必须先于缺连接器判定——消息尾部仍带 "Unable to create"
+  // 措辞，不挡掉会被当成缺插件误报；真实 cause 只在引擎 master 日志里。
+  // 0. Installed-but-init-failed must precede the missing-connector check — the message tail
+  // still carries "Unable to create" wording and would otherwise misread as a missing plugin;
+  // the real cause only exists in the engine master log.
+  if (
+    errorCode === 'connector_init_failed' ||
+    /is installed on the cluster but the engine failed to initialize/i.test(rawMessage)
+  ) {
+    return {
+      title: t('connectorInitFailedTitle'),
+      description: cleanMessage || rawMessage,
+      category: 'runtime',
+      suggestion: t('connectorInitFailedSuggestion'),
+      raw: rawMessage,
+    };
+  }
+
+  // 0.1 集群缺连接器：预览会注入 Http sink，用户没写过它，需要单独说明是预览本身依赖 HTTP 连接器。
+  // 0.1 Cluster lacks a connector: preview injects an Http sink the user never wrote, so say preview itself needs it.
   const missingConnector = parseConnectorMissingError(rawMessage, errorCode);
   if (missingConnector) {
     const previewSink =
@@ -2118,14 +2144,6 @@ export function formatSyncUserFacingError(
       },
     };
   }
-  // 清洗引擎或包装层的套娃前缀
-  // Clean nested wrapper prefixes from engine or RPC layers
-  const cleanMessage = rawMessage
-    .replace(/^sync:\s*/, '')
-    .replace(/^java\.lang\.RuntimeException:\s*/, '')
-    .replace(/^org\.apache\.seatunnel\.common\.exception\.\w+:\s*/, '')
-    .trim();
-
   // 1. 未发布版本检查（运行 / 恢复 / 定时等正式入口要求至少发布一次）
   // Unpublished gate: run / recover / schedule require at least one published version.
   if (rawMessage.includes('sync: task has not been published')) {

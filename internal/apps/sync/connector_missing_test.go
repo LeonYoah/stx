@@ -98,3 +98,64 @@ func TestSubmitConnectorMissingMapsToConflict(t *testing.T) {
 		t.Fatalf("status = %d, want 409", status)
 	}
 }
+
+type stubInstalledPlugins struct {
+	names []string
+	err   error
+}
+
+func (s stubInstalledPlugins) ListInstalledPluginNames(context.Context, uint) ([]string, error) {
+	return s.names, s.err
+}
+
+func TestSubmitInstalledConnectorMapsToInitFailed(t *testing.T) {
+	service, engine, task := newOutcomeTestService(t, nil)
+	service.SetInstalledPluginProvider(stubInstalledPlugins{names: []string{"cdc-mysql", "jdbc"}})
+	// 裸 API-06 措辞但插件记录已安装：REST 剥掉了真实 cause，只能判定为初始化失败。
+	// Bare API-06 wording with the plugin recorded as installed: REST stripped the real cause,
+	// so this can only be an init failure.
+	engine.submitErr = errors.New("body=Unable to create a source for identifier 'MySQL-CDC'.")
+	_, err := service.SubmitTaskWithOptions(context.Background(), task.ID, 1, &SubmitOptions{})
+	if !errors.Is(err, ErrConnectorInitFailed) {
+		t.Fatalf("installed connector must surface ErrConnectorInitFailed, got %v", err)
+	}
+	if errors.Is(err, ErrConnectorMissing) {
+		t.Fatal("installed connector must not be reported as missing")
+	}
+	if syncErrorCode(err) != ErrorCodeConnectorInitFailed {
+		t.Fatalf("error code = %q, want %q", syncErrorCode(err), ErrorCodeConnectorInitFailed)
+	}
+	if status := (&Handler{}).getStatusCodeForError(err); status != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", status)
+	}
+}
+
+func TestSubmitUninstalledConnectorStaysMissing(t *testing.T) {
+	service, engine, task := newOutcomeTestService(t, nil)
+	service.SetInstalledPluginProvider(stubInstalledPlugins{names: []string{"jdbc"}})
+	engine.submitErr = errors.New(engineHTTPSinkMissing)
+	_, err := service.SubmitTaskWithOptions(context.Background(), task.ID, 1, &SubmitOptions{})
+	if !errors.Is(err, ErrConnectorMissing) {
+		t.Fatalf("uninstalled connector must stay ErrConnectorMissing, got %v", err)
+	}
+}
+
+func TestConnectorIdentifierInstalled(t *testing.T) {
+	names := []string{"cdc-mysql", "jdbc", "http-feishu"}
+	cases := []struct {
+		identifier string
+		want       bool
+	}{
+		{"MySQL-CDC", true},   // 词序不同也同名 / token order does not matter
+		{"Jdbc", true},
+		{"Http", false},
+		{"feishu", false},     // 子集不同名 / subset is not a match
+		{"Http-Feishu", true}, // 大小写无关 / case-insensitive
+		{"MySQL-CDC-Extra", false},
+	}
+	for _, tc := range cases {
+		if got := connectorIdentifierInstalled(tc.identifier, names); got != tc.want {
+			t.Fatalf("identifier %q installed = %v, want %v", tc.identifier, got, tc.want)
+		}
+	}
+}

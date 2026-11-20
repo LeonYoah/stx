@@ -28,9 +28,21 @@ import (
 // ErrorCodeConnectorMissing is the error_code returned when the cluster lacks a connector; CLI and UI use it to guide installation.
 const ErrorCodeConnectorMissing = "connector_missing"
 
+// ErrorCodeConnectorInitFailed 是「连接器已安装但引擎初始化失败」时的 error_code：
+// 引擎 REST 只回外层 API-06 措辞，真实 cause（如数据源账号被拒）只在 master 日志里，指引用户去查连接/账号。
+// ErrorCodeConnectorInitFailed is the error_code for "connector installed but engine init failed":
+// the engine REST reply only carries the outer API-06 wording while the real cause (e.g. datasource
+// auth rejection) lives in the master log, so the guidance points at connectivity/credentials.
+const ErrorCodeConnectorInitFailed = "connector_init_failed"
+
 // ErrConnectorMissing 表示引擎找不到任务需要的连接器（集群未安装对应插件）。
 // ErrConnectorMissing reports that the engine cannot find a connector the job needs (plugin not installed on the cluster).
 var ErrConnectorMissing = errors.New("sync: cluster is missing a required connector")
+
+// ErrConnectorInitFailed 表示连接器已安装但引擎初始化失败（数据源连接/配置问题居多）。
+// ErrConnectorInitFailed reports that an installed connector failed to initialize on the engine
+// (most often a datasource connectivity or config problem).
+var ErrConnectorInitFailed = errors.New("sync: connector is installed but the engine failed to initialize it")
 
 // engineConnectorMissingPattern 匹配 SeaTunnel FactoryUtil 在插件缺失时的固定措辞（API-06），2.3.x 与 3.0 一致。
 // engineConnectorMissingPattern matches SeaTunnel FactoryUtil's fixed wording when a plugin is absent (API-06), same in 2.3.x and 3.0.
@@ -107,6 +119,33 @@ func (e *ConnectorMissingError) Unwrap() error {
 	return e.Cause
 }
 
+// ConnectorInitFailedError 表示连接器已装但引擎初始化失败；Identifier 用于提示与前端识别，
+// Cause 保留原始引擎报文（含 REST 剥掉 cause 的裸 API-06 措辞）。
+// ConnectorInitFailedError reports an installed connector that failed to initialize on the engine;
+// Identifier feeds hints and UI matching, Cause keeps the raw engine message (including the bare
+// API-06 wording whose cause the engine REST layer strips).
+type ConnectorInitFailedError struct {
+	PluginType string
+	Identifier string
+	Cause      error
+}
+
+// Error 明确「已安装但初始化失败」，引导用户查数据源连通性/账号而不是重装插件。
+// Error states "installed but init failed" to steer users to connectivity/credentials instead of reinstalling.
+func (e *ConnectorInitFailedError) Error() string {
+	return fmt.Sprintf("sync: connector %q is installed on the cluster but the engine failed to initialize it (usually a datasource connectivity or credential problem; the real cause is only in the engine master log): %v", e.Identifier, e.Cause)
+}
+
+// Is 让 errors.Is(err, ErrConnectorInitFailed) 命中。 / Is lets errors.Is match ErrConnectorInitFailed.
+func (e *ConnectorInitFailedError) Is(target error) bool {
+	return target == ErrConnectorInitFailed
+}
+
+// Unwrap 保留原始引擎错误链。 / Unwrap keeps the raw engine error chain.
+func (e *ConnectorInitFailedError) Unwrap() error {
+	return e.Cause
+}
+
 // classifyEngineSubmitError 把引擎「找不到连接器」的提交失败归类为 ConnectorMissingError，其余错误原样返回。
 // 结果未知（EngineCallUnknownError）不归类：调用方要按未知结果登记待确认作业。
 // classifyEngineSubmitError turns the engine's "connector not found" submit failure into ConnectorMissingError and
@@ -131,11 +170,56 @@ func classifyEngineSubmitError(err error) error {
 	}
 }
 
+// connectorIdentifierInstalled 判断引擎标识符（如 MySQL-CDC）是否对应平台已安装插件名
+// （如 cdc-mysql）：两边按连字符/大小写拆成词集比对，词序不同也算同名。
+// connectorIdentifierInstalled tells whether an engine identifier (e.g. MySQL-CDC) refers to an
+// installed platform plugin name (e.g. cdc-mysql): both sides are compared as lowercase word sets,
+// so different token order still counts as the same plugin.
+func connectorIdentifierInstalled(identifier string, pluginNames []string) bool {
+	want := connectorNameTokens(identifier)
+	if len(want) == 0 {
+		return false
+	}
+	for _, name := range pluginNames {
+		got := connectorNameTokens(name)
+		if len(got) != len(want) {
+			continue
+		}
+		match := true
+		for token := range want {
+			if _, ok := got[token]; !ok {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+var connectorTokenSplit = regexp.MustCompile(`[^a-z0-9]+`)
+
+func connectorNameTokens(name string) map[string]struct{} {
+	tokens := make(map[string]struct{})
+	for _, token := range connectorTokenSplit.Split(strings.ToLower(name), -1) {
+		if token != "" {
+			tokens[token] = struct{}{}
+		}
+	}
+	return tokens
+}
+
 // syncErrorCode 返回需要随响应下发的 error_code；没有专门错误码时为空。
 // syncErrorCode returns the error_code to send with the response; empty when no dedicated code applies.
 func syncErrorCode(err error) string {
-	if errors.Is(err, ErrConnectorMissing) {
+	switch {
+	case errors.Is(err, ErrConnectorMissing):
 		return ErrorCodeConnectorMissing
+	case errors.Is(err, ErrConnectorInitFailed):
+		return ErrorCodeConnectorInitFailed
+	default:
+		return ""
 	}
-	return ""
 }

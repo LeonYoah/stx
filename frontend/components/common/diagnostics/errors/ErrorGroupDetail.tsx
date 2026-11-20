@@ -52,6 +52,11 @@ import {
   resolveGroupClusterLabel,
 } from './error-utils';
 
+// 堆栈证据里把 ERROR 级日志行、"Caused by" 链与异常类行提亮，方便扫读。
+// Highlight ERROR-level log lines, "Caused by" chains, and exception class lines in stack evidence for scanability.
+const STACK_EVIDENCE_EMPHASIS =
+  /\bERROR\b|\bCaused by\b|^[\w.$]+(?:Exception|Error|Throwable)\b/;
+
 export interface ErrorGroupDetailProps {
   /** 保留的错误组（useDrawerItem 输出），深链时可能为空。Retained group (useDrawerItem output); may be null on deep links before the fetch resolves. */
   group: DiagnosticsErrorGroup | null;
@@ -96,6 +101,10 @@ export function ErrorGroupDetail({
 
   const selectedEvent =
     events.find((item) => item.id === selectedEventId) ?? events[0];
+
+  // 整列都是空 job 时只剩占位符，直接收掉给来源列让位。
+  // An all-empty job column is pure placeholder; drop it so the source column gets the room.
+  const hasJobIds = events.some((event) => Boolean(event.job_id));
 
   const clusterLabel = group
     ? resolveGroupClusterLabel(group.last_cluster_id, clusterOptions)
@@ -216,12 +225,18 @@ export function ErrorGroupDetail({
                         }
                       }}
                       className={cn(
-                        'grid cursor-pointer grid-cols-[110px_minmax(0,1fr)_64px_minmax(0,1fr)] items-center gap-2 px-2.5 py-1.5 text-xs transition-colors hover:bg-muted/40',
+                        'grid cursor-pointer items-center gap-2 px-2.5 py-1.5 text-xs transition-colors hover:bg-muted/40',
+                        hasJobIds
+                          ? 'grid-cols-[110px_minmax(0,1fr)_64px_minmax(0,1fr)]'
+                          : 'grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)]',
                         selectedEvent?.id === event.id &&
                           'bg-primary/5 font-medium border-l-2 border-l-primary',
                       )}
                     >
-                      <span className='whitespace-nowrap text-muted-foreground font-mono truncate'>
+                      <span
+                        className='whitespace-nowrap text-muted-foreground font-mono truncate'
+                        title={formatErrorDateTime(event.occurred_at)}
+                      >
                         {formatErrorDateTime(event.occurred_at)}
                       </span>
                       <span
@@ -242,10 +257,15 @@ export function ErrorGroupDetail({
                           role: event.role,
                         })}
                       </span>
-                      <span className='font-mono text-foreground truncate'>
-                        {event.job_id || '-'}
-                      </span>
-                      <span className='truncate font-mono text-muted-foreground'>
+                      {hasJobIds ? (
+                        <span className='font-mono text-foreground truncate'>
+                          {event.job_id || '-'}
+                        </span>
+                      ) : null}
+                      <span
+                        className='truncate font-mono text-muted-foreground'
+                        title={event.source_file || undefined}
+                      >
                         {event.source_file || '-'}
                       </span>
                     </div>
@@ -263,12 +283,16 @@ export function ErrorGroupDetail({
                 <span className='truncate'>{t('evidenceTitle')}</span>
               </div>
               <ExpandableTextPanel
-                title='Stack Trace / Exception Snapshot'
-                subtitle={selectedEvent?.source_file || 'Standard Error Stream'}
+                title={t('evidencePanelTitle')}
+                subtitle={
+                  selectedEvent?.source_file || t('evidenceDefaultSource')
+                }
                 content={selectedEvent?.evidence || ''}
                 emptyLabel={t('noEvidence')}
                 height={260}
-                tone='dark'
+                tone='plain'
+                wrap
+                emphasisPattern={STACK_EVIDENCE_EMPHASIS}
                 expandLabel={t('expandEvidence')}
                 copyLabel={t('copyEvidence')}
                 copiedLabel={t('copiedEvidence')}

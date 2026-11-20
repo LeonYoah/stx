@@ -4129,6 +4129,8 @@
       "empty": "No error groups match the current filters.",
       "recentEventsTitle": "Recent Event Samples",
       "evidenceTitle": "Evidence Sample",
+      "evidencePanelTitle": "Stack Trace",
+      "evidenceDefaultSource": "Standard error stream",
       "expandEvidence": "Expand",
       "copyEvidence": "Copy full stack",
       "copiedEvidence": "Copied",

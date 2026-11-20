@@ -4129,6 +4129,8 @@
       "empty": "当前筛选条件下暂无错误组。",
       "recentEventsTitle": "近期事件样本",
       "evidenceTitle": "错误证据样本",
+      "evidencePanelTitle": "异常堆栈",
+      "evidenceDefaultSource": "标准错误流",
       "expandEvidence": "放大查看",
       "copyEvidence": "复制完整堆栈",
       "copiedEvidence": "已复制",

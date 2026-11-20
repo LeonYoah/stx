@@ -807,7 +807,7 @@ export function InspectionsPanel({
                        jumps straight to the policy detail. */
                     <button
                       type='button'
-                      className={layout.chipBtn}
+                      className={cn(layout.chipBtn, 'min-w-0 max-w-full')}
                       title={t('trigger.autoChip', {
                         name: policyLabel(report.auto_policy_id),
                       })}
@@ -817,10 +817,17 @@ export function InspectionsPanel({
                       }}
                       data-testid={`inspection-auto-chip-${report.id}`}
                     >
-                      <SoftChip tone='blue'>
-                        {t('trigger.autoChip', {
-                          name: policyLabel(report.auto_policy_id),
-                        })}
+                      {/* 策略名长于触发列时文字截断，完整名见按钮 title；不截断会溢出压到状态列。
+                          Truncate long policy names to the trigger column (full name stays on the button title); otherwise the chip bleeds over the status column. */}
+                      <SoftChip
+                        tone='blue'
+                        className='shrink min-w-0 max-w-full'
+                      >
+                        <span className='min-w-0 truncate'>
+                          {t('trigger.autoChip', {
+                            name: policyLabel(report.auto_policy_id),
+                          })}
+                        </span>
                       </SoftChip>
                     </button>
                   ) : (

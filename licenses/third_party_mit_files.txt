@@ -211,3 +211,5 @@ frontend/components/motion/table/use-column-sort.ts
 frontend/components/motion/table/use-row-selection.ts
 frontend/components/motion/table/utils.ts
 frontend/components/arc/toast-stack/toast-stack.tsx
+frontend/components/arc/password-field/password-field.tsx
+frontend/components/arc/password-strength/password-strength.tsx

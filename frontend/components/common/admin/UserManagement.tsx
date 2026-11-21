@@ -39,11 +39,11 @@ import {
 } from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
-import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
 import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {Input} from '@/components/arc/input/input';
+import {PasswordField} from '@/components/arc/password-field/password-field';
 import {SearchField} from '@/components/arc/search-field/search-field';
 import {Switch} from '@/components/arc/switch/switch';
 import {Badge} from '@/components/ui/badge';
@@ -79,13 +79,13 @@ import {useServerListQuery} from '@/lib/hooks/use-server-list-query';
 import {useAuth} from '@/hooks/use-auth';
 import services from '@/lib/services';
 import type {
-  CreateUserRequest,
   UpdateUserRequest,
   UserInfo,
 } from '@/lib/services/admin/user.service';
 import {formatDateTimeTz, formatDateTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {AccountsNavTabs} from './AccountsNavTabs';
+import {CreateUserDialog} from './CreateUserDialog';
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -123,16 +123,7 @@ export function UserManagement() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 新建弹窗独立表单态，避免与右侧常驻详情编辑态互相覆盖。
-  // Separate state for the create dialog so creating a user never clobbers an open detail rail.
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateUserRequest>({
-    username: '',
-    password: '',
-    nickname: '',
-    email: '',
-    is_admin: false,
-  });
 
   // 常驻详情栏状态（含脏表单拦截与名称飞入来源行）。
   // Persistent detail rail state (with dirty-form interception and name fly-in origin).
@@ -318,13 +309,6 @@ export function UserManagement() {
   }, [pendingTarget, closeDetailImmediate, applyUserSelection]);
 
   const handleOpenCreate = () => {
-    setCreateForm({
-      username: '',
-      password: '',
-      nickname: '',
-      email: '',
-      is_admin: false,
-    });
     setIsCreateDialogOpen(true);
   };
 
@@ -334,36 +318,6 @@ export function UserManagement() {
       return;
     }
     setDeleteTarget(user);
-  };
-
-  const handleCreate = async () => {
-    if (!createForm.username || createForm.username.length < 3) {
-      toast.error(t('admin.userManagement.errors.usernameTooShort'));
-      return;
-    }
-    if (!createForm.password || createForm.password.length < 6) {
-      toast.error(t('admin.userManagement.errors.passwordTooShort'));
-      return;
-    }
-    if (createForm.email && !isValidEmail(createForm.email)) {
-      toast.error(t('admin.userManagement.errors.invalidEmail'));
-      return;
-    }
-
-    try {
-      await services.adminUser.createUser({
-        username: createForm.username,
-        password: createForm.password,
-        nickname: createForm.nickname,
-        email: createForm.email?.trim(),
-        is_admin: createForm.is_admin,
-      });
-      toast.success(t('admin.userManagement.createSuccess'));
-      setIsCreateDialogOpen(false);
-      void loadUsers();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('common.error'));
-    }
   };
 
   const handleUpdate = async () => {
@@ -956,11 +910,19 @@ export function UserManagement() {
                       value={drawerUser.username}
                       disabled
                     />
-                    <Input
+                    <PasswordField
                       id='edit-password'
-                      type='password'
                       label={t('admin.userManagement.password')}
                       placeholder={t('admin.userManagement.passwordPlaceholder')}
+                      autoComplete='new-password'
+                      messages={{
+                        showPassword: t(
+                          'admin.userManagement.passwordStrength.showPassword',
+                        ),
+                        hidePassword: t(
+                          'admin.userManagement.passwordStrength.hidePassword',
+                        ),
+                      }}
                       value={editForm.password}
                       onChange={(e) =>
                         setEditForm({...editForm, password: e.target.value})
@@ -1050,71 +1012,11 @@ export function UserManagement() {
         onKeepEditing={() => setPendingTarget(null)}
       />
 
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent
-          title={t('admin.userManagement.createUser')}
-          className='w-[min(calc(100vw-2rem),480px)]!'
-          bodyClassName='max-h-[min(85dvh,640px)] overflow-y-auto'
-        >
-          <div className='space-y-4'>
-            <Input
-              id='username'
-              label={t('admin.userManagement.username')}
-              value={createForm.username}
-              onChange={(e) =>
-                setCreateForm({...createForm, username: e.target.value})
-              }
-            />
-            <Input
-              id='password'
-              type='password'
-              label={t('admin.userManagement.password')}
-              value={createForm.password}
-              onChange={(e) =>
-                setCreateForm({...createForm, password: e.target.value})
-              }
-            />
-            <Input
-              id='nickname'
-              label={t('admin.userManagement.nickname')}
-              value={createForm.nickname}
-              onChange={(e) =>
-                setCreateForm({...createForm, nickname: e.target.value})
-              }
-            />
-            <Input
-              id='email'
-              type='email'
-              label={t('admin.userManagement.email')}
-              value={createForm.email || ''}
-              onChange={(e) =>
-                setCreateForm({...createForm, email: e.target.value})
-              }
-            />
-            <Switch
-              id='is_admin'
-              label={t('admin.userManagement.isAdmin')}
-              checked={createForm.is_admin}
-              onCheckedChange={(checked) =>
-                setCreateForm({...createForm, is_admin: checked})
-              }
-            />
-          </div>
-          <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
-            <Button
-              type='button'
-              variant='secondary'
-              size='sm'
-              onClick={() => setIsCreateDialogOpen(false)}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button type='button' size='sm' onClick={() => void handleCreate()}>
-              {t('common.create')}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <CreateUserDialog
+        open={isCreateDialogOpen}
+        onOpenChange={setIsCreateDialogOpen}
+        onCreated={() => void loadUsers()}
+      />
 
       <AlertDialog
         open={deactivateTarget !== null}

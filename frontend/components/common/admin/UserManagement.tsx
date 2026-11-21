@@ -18,28 +18,24 @@
 'use client';
 
 /**
- * 用户管理：TableCard + useServerListQuery；删除/停用仍走 AlertDialog；不能操作自己。
- * User management: TableCard + useServerListQuery; delete/deactivate stay on
- * AlertDialog; self-actions remain blocked.
+ * 用户管理：TableCard + usePagedSelection/BatchBar + Arc 新建/编辑弹窗；
+ * 破坏性确认仍走 AlertDialog；不能操作自己（批量跳过）。
+ * User management: TableCard + usePagedSelection/BatchBar + Arc create/edit;
+ * destructive confirms stay on AlertDialog; self is never mutated (batch skip).
  */
 
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Pencil, Plus, RefreshCw, Trash2, Users} from 'lucide-react';
+import {Pencil, Plus, RefreshCw, Trash2, Users, UserX} from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {SearchField} from '@/components/arc/search-field/search-field';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Switch} from '@/components/ui/switch';
 import {Badge} from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,7 +53,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {toast} from '@/lib/toast';
-import {TableCard, WorkspaceHeader} from '@/components/common/layout';
+import {
+  BatchBar,
+  TableCard,
+  WorkspaceHeader,
+  usePagedSelection,
+} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 import {useServerListQuery} from '@/lib/hooks/use-server-list-query';
 import {useAuth} from '@/hooks/use-auth';
@@ -76,6 +77,8 @@ function isValidEmail(value: string): boolean {
 }
 
 const DEFAULT_PAGE_SIZE = 10;
+
+type BatchKind = 'delete' | 'deactivate';
 
 export function UserManagement() {
   const t = useTranslations();
@@ -105,6 +108,13 @@ export function UserManagement() {
   const [deactivateTarget, setDeactivateTarget] = useState<UserInfo | null>(
     null,
   );
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchConfirm, setBatchConfirm] = useState<BatchKind | null>(null);
+  const [batchResult, setBatchResult] = useState<{
+    ok: number;
+    skipped: number;
+    failed: number;
+  } | null>(null);
 
   const [formData, setFormData] = useState<CreateUserRequest & {id?: number}>({
     username: '',
@@ -113,6 +123,17 @@ export function UserManagement() {
     email: '',
     is_admin: false,
   });
+
+  const pageIds = useMemo(() => users.map((u) => u.id), [users]);
+  const {
+    ids: selectedIds,
+    setIds: setSelectedIds,
+    toggle: toggleSelect,
+    togglePage: toggleSelectPage,
+    clear: clearSelection,
+    pageAllSelected,
+    pageSomeSelected,
+  } = usePagedSelection(pageIds);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -170,6 +191,10 @@ export function UserManagement() {
   };
 
   const handleOpenDelete = (user: UserInfo) => {
+    if (isSelf(user)) {
+      toast.error(t('admin.userManagement.errors.cannotDeleteSelf'));
+      return;
+    }
     setSelectedUser(user);
     setIsDeleteDialogOpen(true);
   };
@@ -242,13 +267,18 @@ export function UserManagement() {
   };
 
   const handleDelete = async () => {
-    if (!selectedUser) {
+    if (!selectedUser || isSelf(selectedUser)) {
       return;
     }
     try {
       await services.adminUser.deleteUser(selectedUser.id);
       toast.success(t('admin.userManagement.deleteSuccess'));
       setIsDeleteDialogOpen(false);
+      {
+        const next = new Set(selectedIds);
+        next.delete(selectedUser.id);
+        setSelectedIds(next);
+      }
       void loadUsers();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('common.error'));
@@ -283,6 +313,61 @@ export function UserManagement() {
       await updateActive(target, false);
     }
   };
+
+  const runBatch = useCallback(
+    async (kind: BatchKind) => {
+      const ids = Array.from(selectedIds);
+      if (ids.length === 0) {
+        return;
+      }
+      setBatchBusy(true);
+      setBatchResult(null);
+      const outcome = {ok: 0, skipped: 0, failed: 0};
+      const byId = new Map(users.map((u) => [u.id, u]));
+      for (const id of ids) {
+        if (currentUser && id === currentUser.id) {
+          outcome.skipped += 1;
+          continue;
+        }
+        if (kind === 'deactivate') {
+          const known = byId.get(id);
+          if (known && !known.is_active) {
+            outcome.skipped += 1;
+            continue;
+          }
+          try {
+            await services.adminUser.updateUser(id, {is_active: false});
+            outcome.ok += 1;
+          } catch {
+            outcome.failed += 1;
+          }
+        } else {
+          try {
+            await services.adminUser.deleteUser(id);
+            outcome.ok += 1;
+          } catch {
+            outcome.failed += 1;
+          }
+        }
+      }
+      setBatchResult(outcome);
+      setBatchBusy(false);
+      setBatchConfirm(null);
+      clearSelection();
+      void loadUsers();
+      if (outcome.skipped > 0 && currentUser && selectedIds.has(currentUser.id)) {
+        toast.message(t('admin.userManagement.batchSkipSelf'));
+      }
+      toast.success(
+        t('admin.userManagement.batchResult', {
+          ok: outcome.ok,
+          skipped: outcome.skipped,
+          failed: outcome.failed,
+        }),
+      );
+    },
+    [selectedIds, users, currentUser, clearSelection, loadUsers, t],
+  );
 
   const filtersActive = Boolean(filters.username);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -357,7 +442,7 @@ export function UserManagement() {
           <TableCard
             loading={loading}
             hasData={users.length > 0}
-            skeletonColumns={7}
+            skeletonColumns={8}
             skeletonRows={8}
             error={error}
             onRetry={() => void loadUsers()}
@@ -396,7 +481,18 @@ export function UserManagement() {
               />
             }
           >
-            <div className={layout.rowHead} aria-hidden>
+            <div className={layout.rowHead}>
+              <Checkbox
+                checked={
+                  pageAllSelected
+                    ? true
+                    : pageSomeSelected
+                      ? 'indeterminate'
+                      : false
+                }
+                onCheckedChange={(v) => toggleSelectPage(v === true)}
+                aria-label={t('admin.userManagement.selectAll')}
+              />
               <span>{t('admin.userManagement.username')}</span>
               <span>{t('admin.userManagement.nickname')}</span>
               <span>{t('admin.userManagement.email')}</span>
@@ -413,6 +509,13 @@ export function UserManagement() {
                   data-testid={`user-row-${user.id}`}
                   style={{cursor: 'default'}}
                 >
+                  <Checkbox
+                    checked={selectedIds.has(user.id)}
+                    onCheckedChange={(v) => toggleSelect(user.id, v === true)}
+                    aria-label={t('admin.userManagement.selectRow', {
+                      username: user.username,
+                    })}
+                  />
                   <div className={layout.rowName}>
                     <span className={layout.name} title={user.username}>
                       {user.username}
@@ -420,7 +523,10 @@ export function UserManagement() {
                     <span className={layout.sub}>#{user.id}</span>
                   </div>
                   <span className={layout.sub}>{user.nickname || '-'}</span>
-                  <span className={cn(layout.sub, 'truncate')} title={user.email || ''}>
+                  <span
+                    className={cn(layout.sub, 'truncate')}
+                    title={user.email || ''}
+                  >
                     {user.email || '-'}
                   </span>
                   {user.is_admin ? (
@@ -470,30 +576,102 @@ export function UserManagement() {
                     >
                       <Pencil className='size-3.5' aria-hidden />
                     </Button>
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      size='sm'
-                      iconOnly
-                      aria-label={t('common.delete')}
-                      onClick={() => handleOpenDelete(user)}
-                    >
-                      <Trash2 className='size-3.5 text-destructive' aria-hidden />
-                    </Button>
+                    {isSelf(user) ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className='inline-flex'>
+                              <Button
+                                type='button'
+                                variant='ghost'
+                                size='sm'
+                                iconOnly
+                                disabled
+                                aria-label={t('common.delete')}
+                              >
+                                <Trash2
+                                  className='size-3.5 text-destructive'
+                                  aria-hidden
+                                />
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>
+                              {t('admin.userManagement.errors.cannotDeleteSelf')}
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        iconOnly
+                        aria-label={t('common.delete')}
+                        onClick={() => handleOpenDelete(user)}
+                      >
+                        <Trash2
+                          className='size-3.5 text-destructive'
+                          aria-hidden
+                        />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           </TableCard>
+
+          <BatchBar
+            selectedCount={selectedIds.size}
+            busy={batchBusy}
+            result={
+              batchResult
+                ? t('admin.userManagement.batchResult', {
+                    ok: batchResult.ok,
+                    skipped: batchResult.skipped,
+                    failed: batchResult.failed,
+                  })
+                : null
+            }
+            onClear={() => {
+              clearSelection();
+              setBatchResult(null);
+            }}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy || selectedIds.size === 0}
+              onClick={() => setBatchConfirm('deactivate')}
+            >
+              <UserX className='size-3.5' aria-hidden />
+              {t('admin.userManagement.batchDeactivate')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy || selectedIds.size === 0}
+              onClick={() => setBatchConfirm('delete')}
+            >
+              <Trash2 className='size-3.5' aria-hidden />
+              {t('admin.userManagement.batchDelete')}
+            </Button>
+          </BatchBar>
         </div>
       </div>
 
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('admin.userManagement.createUser')}</DialogTitle>
-          </DialogHeader>
-          <div className='space-y-4 py-4'>
+        <DialogContent
+          title={t('admin.userManagement.createUser')}
+          className='w-[min(calc(100vw-2rem),480px)]!'
+          bodyClassName='max-h-[min(85dvh,640px)] overflow-y-auto'
+        >
+          <div className='space-y-4'>
             <div className='space-y-2'>
               <Label htmlFor='username'>
                 {t('admin.userManagement.username')}
@@ -555,7 +733,7 @@ export function UserManagement() {
               </Label>
             </div>
           </div>
-          <DialogFooter>
+          <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
             <Button
               type='button'
               variant='secondary'
@@ -566,16 +744,17 @@ export function UserManagement() {
             <Button type='button' onClick={() => void handleCreate()}>
               {t('common.create')}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('admin.userManagement.editUser')}</DialogTitle>
-          </DialogHeader>
-          <div className='space-y-4 py-4'>
+        <DialogContent
+          title={t('admin.userManagement.editUser')}
+          className='w-[min(calc(100vw-2rem),480px)]!'
+          bodyClassName='max-h-[min(85dvh,640px)] overflow-y-auto'
+        >
+          <div className='space-y-4'>
             <div className='space-y-2'>
               <Label htmlFor='edit-username'>
                 {t('admin.userManagement.username')}
@@ -642,7 +821,7 @@ export function UserManagement() {
               ) : null}
             </div>
           </div>
-          <DialogFooter>
+          <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
             <Button
               type='button'
               variant='secondary'
@@ -653,7 +832,7 @@ export function UserManagement() {
             <Button type='button' onClick={() => void handleUpdate()}>
               {t('common.save')}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -704,6 +883,49 @@ export function UserManagement() {
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={() => void handleDelete()}>
               {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={batchConfirm !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBatchConfirm(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {batchConfirm === 'deactivate'
+                ? t('admin.userManagement.batchDeactivateConfirmTitle')
+                : t('admin.userManagement.batchDeleteConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {batchConfirm === 'deactivate'
+                ? t('admin.userManagement.batchDeactivateConfirmDesc', {
+                    count: selectedIds.size,
+                  })
+                : t('admin.userManagement.batchDeleteConfirmDesc', {
+                    count: selectedIds.size,
+                  })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={batchBusy || !batchConfirm}
+              onClick={() => {
+                if (batchConfirm) {
+                  void runBatch(batchConfirm);
+                }
+              }}
+            >
+              {batchConfirm === 'deactivate'
+                ? t('admin.userManagement.batchDeactivate')
+                : t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

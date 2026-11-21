@@ -33,13 +33,7 @@ import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
 import {Switch} from '@/components/ui/switch';
 import {Badge} from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {HostInfo, HostType, UpdateHostRequest} from '@/lib/services/host/types';
@@ -171,18 +165,21 @@ export function EditHostDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='sm:max-w-[500px] max-h-[90vh] overflow-y-auto'>
-        <DialogHeader>
-          <DialogTitle className='flex items-center gap-2'>
+      <DialogContent
+        title={
+          <span className='inline-flex items-center gap-2'>
             {t('host.editHost')}
             <Badge variant='outline'>
-              {t(`host.types.${host.host_type === HostType.BARE_METAL ? 'bareMetal' : host.host_type}`)}
+              {t(
+                `host.types.${host.host_type === HostType.BARE_METAL ? 'bareMetal' : host.host_type}`,
+              )}
             </Badge>
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className='space-y-4 py-4'>
-          {/* Host Name / 主机名称 */}
+          </span>
+        }
+        className='w-[min(calc(100vw-2rem),500px)]!'
+        bodyClassName='max-h-[min(85dvh,720px)] overflow-y-auto'
+      >
+        <div className='space-y-4'>
           <div className='space-y-2'>
             <Label htmlFor='edit-name'>{t('host.name')} *</Label>
             <Input
@@ -193,7 +190,6 @@ export function EditHostDialog({
             />
           </div>
 
-          {/* Description / 描述 */}
           <div className='space-y-2'>
             <Label htmlFor='edit-description'>{t('host.descriptionLabel')}</Label>
             <Textarea
@@ -207,28 +203,26 @@ export function EditHostDialog({
             />
           </div>
 
-          {/* Bare Metal Fields / 物理机字段 */}
-          {host.host_type === HostType.BARE_METAL && (
-            <>
-              <div className='space-y-2'>
-                <Label htmlFor='edit-ip_address'>{t('host.ipAddress')} *</Label>
-                <Input
-                  id='edit-ip_address'
-                  value={formData.ip_address || ''}
-                  onChange={(e) =>
-                    setFormData({...formData, ip_address: e.target.value})
-                  }
-                  placeholder='192.168.1.100'
-                />
-              </div>
-            </>
-          )}
+          {host.host_type === HostType.BARE_METAL ? (
+            <div className='space-y-2'>
+              <Label htmlFor='edit-ip_address'>{t('host.ipAddress')} *</Label>
+              <Input
+                id='edit-ip_address'
+                value={formData.ip_address || ''}
+                onChange={(e) =>
+                  setFormData({...formData, ip_address: e.target.value})
+                }
+                placeholder='192.168.1.100'
+              />
+            </div>
+          ) : null}
 
-          {/* Docker Fields / Docker 字段 */}
-          {host.host_type === HostType.DOCKER && (
+          {host.host_type === HostType.DOCKER ? (
             <>
               <div className='space-y-2'>
-                <Label htmlFor='edit-docker_api_url'>{t('host.dockerApiUrl')} *</Label>
+                <Label htmlFor='edit-docker_api_url'>
+                  {t('host.dockerApiUrl')} *
+                </Label>
                 <Input
                   id='edit-docker_api_url'
                   value={formData.docker_api_url || ''}
@@ -249,26 +243,32 @@ export function EditHostDialog({
                     setFormData({...formData, docker_tls_enabled: checked})
                   }
                 />
-                <Label htmlFor='edit-docker_tls_enabled'>{t('host.tlsEnabled')}</Label>
+                <Label htmlFor='edit-docker_tls_enabled'>
+                  {t('host.tlsEnabled')}
+                </Label>
               </div>
-              {formData.docker_tls_enabled && (
+              {formData.docker_tls_enabled ? (
                 <div className='space-y-2'>
-                  <Label htmlFor='edit-docker_cert_path'>{t('host.certPath')}</Label>
+                  <Label htmlFor='edit-docker_cert_path'>
+                    {t('host.certPath')}
+                  </Label>
                   <Input
                     id='edit-docker_cert_path'
                     value={formData.docker_cert_path || ''}
                     onChange={(e) =>
-                      setFormData({...formData, docker_cert_path: e.target.value})
+                      setFormData({
+                        ...formData,
+                        docker_cert_path: e.target.value,
+                      })
                     }
                     placeholder='/path/to/certs'
                   />
                 </div>
-              )}
+              ) : null}
             </>
-          )}
+          ) : null}
 
-          {/* Kubernetes Fields / Kubernetes 字段 */}
-          {host.host_type === HostType.KUBERNETES && (
+          {host.host_type === HostType.KUBERNETES ? (
             <>
               <div className='space-y-2'>
                 <Label htmlFor='edit-k8s_api_url'>{t('host.k8sApiUrl')} *</Label>
@@ -323,17 +323,17 @@ export function EditHostDialog({
                 </p>
               </div>
             </>
-          )}
+          ) : null}
         </div>
 
-        <DialogFooter>
+        <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
           <Button variant='outline' onClick={handleClose} disabled={loading}>
             {t('common.cancel')}
           </Button>
           <Button onClick={handleSubmit} disabled={loading}>
             {loading ? t('common.saving') : t('common.save')}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

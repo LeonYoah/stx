@@ -251,25 +251,25 @@
   --cols: minmax(0, 0.9fr) minmax(0, 1fr) 88px 88px 96px minmax(0, 1.1fr) 96px 110px 140px;
 }
 
-/* 用户：用户名 / 昵称 / 邮箱 / 角色 / 启用 / 创建时间 / 操作。
-   Users: username / nickname / email / role / active / created / actions. */
+/* 用户：勾选 / 用户名 / 昵称 / 邮箱 / 角色 / 启用 / 创建时间 / 操作。
+   Users: check / username / nickname / email / role / active / created / actions. */
 
 .listCol[data-mcols='users'] :is(.row, .rowHead) {
-  --cols: minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 72px 56px 132px 72px;
+  --cols: 24px minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 72px 56px 132px 72px;
 }
 
-/* 令牌：名称 / 所有者 / 前缀 / 过期 / 最近使用 / 状态 / 操作。
-   Tokens: name / owner / prefix / expiry / last used / status / actions. */
+/* 令牌：勾选 / 名称 / 所有者 / 前缀 / 过期 / 最近使用 / 状态 / 操作。
+   Tokens: check / name / owner / prefix / expiry / last used / status / actions. */
 
 .listCol[data-mcols='tokens'] :is(.row, .rowHead) {
-  --cols: minmax(0, 1.1fr) minmax(0, 0.8fr) 120px 132px 132px 80px 56px;
+  --cols: 24px minmax(0, 1.1fr) minmax(0, 0.8fr) 120px 132px 132px 80px 56px;
 }
 
-/* 主机：名称 / 类型 / 连接 / 状态 / 资源 / 创建时间 / 操作。
-   Hosts: name / type / connection / status / resources / created / actions. */
+/* 主机：勾选 / 名称 / 类型 / 连接 / 状态 / 资源 / 创建时间 / 操作。
+   Hosts: check / name / type / connection / status / resources / created / actions. */
 
 .listCol[data-mcols='hosts'] :is(.row, .rowHead) {
-  --cols: minmax(0, 1.2fr) 88px minmax(0, 1.1fr) 88px 120px 132px 108px;
+  --cols: 24px minmax(0, 1.2fr) 88px minmax(0, 1.1fr) 88px 120px 132px 108px;
 }
 
 /* 悬浮批量条：锚定在 listCol 内、分页脚上方，详情栏打开时也不遮分页。
@@ -1155,37 +1155,37 @@
   .listCol[data-mcols='audit'] :is(.row, .rowHead) > :nth-child(9) {
     display: none;
   }
-  /* 窄屏用户行只留用户名 + 操作。Narrow user rows keep username + actions. */
+  /* 窄屏用户行只留勾选 + 用户名 + 操作。Narrow user rows keep check + username + actions. */
   .listCol[data-mcols='users'] :is(.row, .rowHead) {
-    --cols: minmax(0, 1fr) 72px;
+    --cols: 24px minmax(0, 1fr) 72px;
   }
-  .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(2),
   .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(3),
   .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(4),
   .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(5),
-  .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(6) {
+  .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(6),
+  .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(7) {
     display: none;
   }
-  /* 窄屏令牌行只留名称 + 操作。Narrow token rows keep name + actions. */
+  /* 窄屏令牌行只留勾选 + 名称 + 操作。Narrow token rows keep check + name + actions. */
   .listCol[data-mcols='tokens'] :is(.row, .rowHead) {
-    --cols: minmax(0, 1fr) 56px;
+    --cols: 24px minmax(0, 1fr) 56px;
   }
-  .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(2),
   .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(3),
   .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(4),
   .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(5),
-  .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(6) {
+  .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(6),
+  .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(7) {
     display: none;
   }
-  /* 窄屏主机行只留名称 + 操作。Narrow host rows keep name + actions. */
+  /* 窄屏主机行只留勾选 + 名称 + 操作。Narrow host rows keep check + name + actions. */
   .listCol[data-mcols='hosts'] :is(.row, .rowHead) {
-    --cols: minmax(0, 1fr) 108px;
+    --cols: 24px minmax(0, 1fr) 108px;
   }
-  .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(2),
   .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(3),
   .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(4),
   .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(5),
-  .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(6) {
+  .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(6),
+  .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(7) {
     display: none;
   }
 }

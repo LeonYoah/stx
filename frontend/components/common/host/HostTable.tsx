@@ -18,8 +18,10 @@
 'use client';
 
 /**
- * 主机列表行渲染：只负责表头 + 行；加载/空/分页由外层 TableCard 承担。
- * Host list rows: header + rows only; TableCard owns loading/empty/pagination.
+ * 主机列表行渲染：勾选列 + 表头/行；加载/空/分页由外层 TableCard 承担。
+ * 名称挂 data-detail-name，供 DetailHost 飞入（仅点击/回车写入 flyOrigin）。
+ * Host list rows with a checkbox column; TableCard owns loading/empty/pagination.
+ * Names carry data-detail-name for DetailHost fly-in (flyOrigin only on click/Enter).
  */
 
 import {useTranslations} from 'next-intl';
@@ -50,6 +52,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {HostInfo, HostStatus, HostType} from '@/lib/services/host/types';
 import {formatDateTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
@@ -58,7 +61,13 @@ import layout from '@/components/common/layout/list-detail.module.css';
 interface HostTableProps {
   hosts: HostInfo[];
   selectedHostId?: number | null;
-  onViewDetail: (host: HostInfo) => void;
+  selectedIds: ReadonlySet<number>;
+  pageAllSelected: boolean;
+  pageSomeSelected: boolean;
+  onToggleSelect: (id: number, on: boolean) => void;
+  onToggleSelectPage: (on: boolean) => void;
+  /** 行点击/回车打开详情；传入行元素供名称飞入。Click/Enter open; pass the row for name fly-in. */
+  onViewDetail: (host: HostInfo, origin?: HTMLElement | null) => void;
   onEdit: (host: HostInfo) => void;
   onDelete: (host: HostInfo) => void;
   onInstallAgent?: (host: HostInfo) => void;
@@ -124,6 +133,11 @@ function connectionLabel(host: HostInfo): string {
 export function HostTable({
   hosts,
   selectedHostId,
+  selectedIds,
+  pageAllSelected,
+  pageSomeSelected,
+  onToggleSelect,
+  onToggleSelectPage,
   onViewDetail,
   onEdit,
   onDelete,
@@ -149,13 +163,20 @@ export function HostTable({
       rows[i + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      onViewDetail(host);
+      onViewDetail(host, e.currentTarget);
     }
   };
 
   return (
     <>
-      <div className={layout.rowHead} aria-hidden>
+      <div className={layout.rowHead}>
+        <Checkbox
+          checked={
+            pageAllSelected ? true : pageSomeSelected ? 'indeterminate' : false
+          }
+          onCheckedChange={(v) => onToggleSelectPage(v === true)}
+          aria-label={t('host.selectAll')}
+        />
         <span>{t('host.name')}</span>
         <span>{t('host.hostType')}</span>
         <span>{t('host.connectionInfo')}</span>
@@ -172,17 +193,35 @@ export function HostTable({
             data-testid={`host-row-${host.id}`}
             role='button'
             tabIndex={0}
-            onClick={() => onViewDetail(host)}
+            onClick={(e) => {
+              if (
+                (e.target as HTMLElement).closest(
+                  'button, a, input, select, [role="menu"], [role="checkbox"]',
+                )
+              ) {
+                return;
+              }
+              onViewDetail(host, e.currentTarget);
+            }}
             onKeyDown={(e) => onRowKeyDown(e, host)}
             className={cn(
               layout.row,
               selectedHostId === host.id && layout.rowActive,
             )}
           >
+            <Checkbox
+              checked={selectedIds.has(host.id)}
+              onCheckedChange={(v) => onToggleSelect(host.id, v === true)}
+              aria-label={t('host.selectRow', {name: host.name})}
+            />
             <div className={layout.rowName}>
               <div className={layout.rowNameInline}>
                 {getHostTypeIcon(host.host_type)}
-                <span className={layout.name} title={host.name}>
+                <span
+                  className={layout.name}
+                  title={host.name}
+                  data-detail-name
+                >
                   {host.name}
                 </span>
               </div>
@@ -205,7 +244,10 @@ export function HostTable({
             >
               {connectionLabel(host)}
             </span>
-            <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
               {host.host_type === HostType.BARE_METAL &&
               host.status === HostStatus.PENDING &&
               onInstallAgent ? (

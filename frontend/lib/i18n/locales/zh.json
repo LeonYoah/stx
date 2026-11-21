@@ -1149,7 +1149,13 @@
       "k8sUrlRequired": "请输入 Kubernetes API 地址",
       "k8sUrlInvalid": "Kubernetes API 地址格式无效（使用 https:// 或 http://）",
       "k8sCredentialsRequired": "Kubernetes 需要提供 kubeconfig 或 token"
-    }
+    },
+    "selectAll": "全选本页",
+    "selectRow": "选择主机 {name}",
+    "batchDelete": "批量删除",
+    "batchDeleteConfirmTitle": "删除所选主机？",
+    "batchDeleteConfirmDesc": "将删除 {count} 台主机。此操作不可恢复。",
+    "batchResult": "成功 {ok} 个，跳过 {skipped} 个，失败 {failed} 个"
   },
   "cluster": {
     "title": "集群管理",
@@ -2903,7 +2909,17 @@
         "invalidEmail": "请输入有效的邮箱地址",
         "usernameExists": "用户名已存在",
         "cannotDeleteSelf": "不能删除当前登录用户"
-      }
+      },
+      "selectAll": "全选本页",
+      "selectRow": "选择用户 {username}",
+      "batchDelete": "批量删除",
+      "batchDeactivate": "批量停用",
+      "batchDeleteConfirmTitle": "删除所选用户？",
+      "batchDeleteConfirmDesc": "将删除 {count} 个用户。此操作不可恢复。当前登录用户不会被删除。",
+      "batchDeactivateConfirmTitle": "停用所选用户？",
+      "batchDeactivateConfirmDesc": "将停用 {count} 个用户；停用后其会话与 CLI 令牌会被拒绝。当前登录用户不会被停用。",
+      "batchResult": "成功 {ok} 个，跳过 {skipped} 个，失败 {failed} 个",
+      "batchSkipSelf": "已跳过当前登录用户"
     },
     "tokenManagement": {
       "title": "令牌管理",
@@ -2945,7 +2961,13 @@
         "nameRequired": "请填写令牌名称",
         "userRequired": "请选择所属用户",
         "invalidCustomDays": "自定义天数必须是 1 到 3650 的整数"
-      }
+      },
+      "selectAll": "全选本页",
+      "selectRow": "选择令牌 {name}",
+      "batchRevoke": "批量吊销",
+      "batchRevokeConfirmTitle": "吊销所选令牌？",
+      "batchRevokeConfirmDesc": "将吊销 {count} 个令牌。已吊销的会被跳过。此操作不可恢复。",
+      "batchResult": "成功 {ok} 个，跳过 {skipped} 个，失败 {failed} 个"
     }
   },
   "monitor": {

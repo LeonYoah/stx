@@ -18,17 +18,17 @@
 'use client';
 
 /**
- * 主机管理：TableCard + DetailHost；/hosts/[id] 深链打开常驻详情；
- * 状态分段无分桶计数；创建/编辑/安装对话框保持原样。
- * Host management: TableCard + DetailHost; /hosts/[id] deep-links into the
- * persistent detail; status segments have no bucket counts; create/edit/install
- * dialogs stay as they are.
+ * 主机管理：TableCard + DetailHost（#178 联动/飞入）+ 跨页多选 BatchBar；
+ * /hosts/[id] 深链打开常驻详情；状态分段无分桶计数。
+ * Host management: TableCard + DetailHost (#178 linked motion/fly-in) +
+ * cross-page BatchBar; /hosts/[id] deep-links into the persistent detail;
+ * status segments have no bucket counts.
  */
 
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
-import {Layers, Plus, RefreshCw, Server} from 'lucide-react';
+import {Layers, Plus, RefreshCw, Server, Trash2} from 'lucide-react';
 import {toast} from '@/lib/toast';
 import {Button} from '@/components/arc/button/button';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
@@ -37,11 +37,23 @@ import {SearchField} from '@/components/arc/search-field/search-field';
 import {Select} from '@/components/arc/select/select';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  BatchBar,
   DetailHost,
   ModuleNavTabs,
   TableCard,
   WorkspaceHeader,
   useDetailNarrow,
+  usePagedSelection,
 } from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 import {useServerListQuery} from '@/lib/hooks/use-server-list-query';
@@ -99,6 +111,25 @@ export function HostMain({initialHostId = null}: HostMainProps) {
   const [editHost, setEditHost] = useState<HostInfo | null>(null);
   const [guideHost, setGuideHost] = useState<HostInfo | null>(null);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchResult, setBatchResult] = useState<{
+    ok: number;
+    skipped: number;
+    failed: number;
+  } | null>(null);
+  const flyOriginRef = useRef<HTMLElement | null>(null);
+
+  const pageIds = useMemo(() => hosts.map((h) => h.id), [hosts]);
+  const {
+    ids: selectedIds,
+    setIds: setSelectedIds,
+    toggle: toggleSelect,
+    togglePage: toggleSelectPage,
+    clear: clearSelection,
+    pageAllSelected,
+    pageSomeSelected,
+  } = usePagedSelection(pageIds);
 
   const drawerOpen = selectedHostId !== null;
   const drawerHost = useDrawerItem(selectedHost);
@@ -175,7 +206,14 @@ export function HostMain({initialHostId = null}: HostMainProps) {
   }, [initialHostId, loadHostDetail]);
 
   const openHostDetail = useCallback(
-    (host: HostInfo) => {
+    (host: HostInfo, origin?: HTMLElement | null) => {
+      // 仅点击/回车写入 flyOrigin；J/K 与深链不写（#178）。
+      // Only click/Enter write flyOrigin; J/K and deep links do not (#178).
+      if (origin) {
+        flyOriginRef.current = origin;
+      } else {
+        flyOriginRef.current = null;
+      }
       setSelectedHostId(host.id);
       setSelectedHost(host);
       void loadHostDetail(host.id, host);
@@ -216,11 +254,56 @@ export function HostMain({initialHostId = null}: HostMainProps) {
       if (selectedHostId === host.id) {
         handleCloseDetail();
       }
+      {
+        const next = new Set(selectedIds);
+        next.delete(host.id);
+        setSelectedIds(next);
+      }
       void loadHosts();
     } else {
       toast.error(result.error || t('host.deleteError'));
     }
   };
+
+  const runBatchDelete = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      return;
+    }
+    setBatchBusy(true);
+    setBatchResult(null);
+    const outcome = {ok: 0, skipped: 0, failed: 0};
+    for (const id of ids) {
+      const result = await services.host.deleteHostSafe(id);
+      if (result.success) {
+        outcome.ok += 1;
+        if (selectedHostId === id) {
+          handleCloseDetail();
+        }
+      } else {
+        outcome.failed += 1;
+      }
+    }
+    setBatchResult(outcome);
+    setBatchBusy(false);
+    setBatchDeleteOpen(false);
+    clearSelection();
+    void loadHosts();
+    toast.success(
+      t('host.batchResult', {
+        ok: outcome.ok,
+        skipped: outcome.skipped,
+        failed: outcome.failed,
+      }),
+    );
+  }, [
+    selectedIds,
+    selectedHostId,
+    handleCloseDetail,
+    clearSelection,
+    loadHosts,
+    t,
+  ]);
 
   const handleHostCreated = (newHost?: HostInfo) => {
     void loadHosts();
@@ -263,6 +346,7 @@ export function HostMain({initialHostId = null}: HostMainProps) {
       ? {
           index: activeIndex,
           total: hosts.length,
+          // J/K / 头部导航不写 flyOrigin。J/K and header nav never write flyOrigin.
           onPrev: () =>
             activeIndex > 0 && openHostDetail(hosts[activeIndex - 1]),
           onNext: () =>
@@ -393,7 +477,7 @@ export function HostMain({initialHostId = null}: HostMainProps) {
           <TableCard
             loading={loading}
             hasData={hosts.length > 0}
-            skeletonColumns={7}
+            skeletonColumns={8}
             skeletonRows={8}
             error={error}
             onRetry={() => void loadHosts()}
@@ -432,12 +516,46 @@ export function HostMain({initialHostId = null}: HostMainProps) {
             <HostTable
               hosts={hosts}
               selectedHostId={selectedHostId}
+              selectedIds={selectedIds}
+              pageAllSelected={pageAllSelected}
+              pageSomeSelected={pageSomeSelected}
+              onToggleSelect={toggleSelect}
+              onToggleSelectPage={toggleSelectPage}
               onViewDetail={openHostDetail}
               onEdit={handleEdit}
               onDelete={(host) => void handleDelete(host)}
               onInstallAgent={handleOpenInstallGuide}
             />
           </TableCard>
+
+          <BatchBar
+            selectedCount={selectedIds.size}
+            busy={batchBusy}
+            result={
+              batchResult
+                ? t('host.batchResult', {
+                    ok: batchResult.ok,
+                    skipped: batchResult.skipped,
+                    failed: batchResult.failed,
+                  })
+                : null
+            }
+            onClear={() => {
+              clearSelection();
+              setBatchResult(null);
+            }}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy || selectedIds.size === 0}
+              onClick={() => setBatchDeleteOpen(true)}
+            >
+              <Trash2 className='size-3.5' aria-hidden />
+              {t('host.batchDelete')}
+            </Button>
+          </BatchBar>
         </div>
 
         <DetailHost
@@ -452,6 +570,8 @@ export function HostMain({initialHostId = null}: HostMainProps) {
           title={drawerHost?.name || t('host.title')}
           meta={drawerHost?.ip_address || drawerHost?.description}
           nav={detailNav}
+          flyOrigin={flyOriginRef}
+          nameSlot='title'
           wide
           drawerWidth='w-[min(92vw,640px)]'
         >
@@ -493,6 +613,28 @@ export function HostMain({initialHostId = null}: HostMainProps) {
           onSuccess={handleHostUpdated}
         />
       ) : null}
+
+      <AlertDialog open={batchDeleteOpen} onOpenChange={setBatchDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('host.batchDeleteConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('host.batchDeleteConfirmDesc', {count: selectedIds.size})}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={batchBusy}
+              onClick={() => void runBatchDelete()}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

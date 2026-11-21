@@ -18,28 +18,25 @@
 'use client';
 
 /**
- * 令牌管理：TableCard + SegmentedControl（计数来自接口全量 active/expired/revoked）。
- * Token management: TableCard + SegmentedControl (counts from API totals).
+ * 令牌管理：TableCard + SegmentedControl（计数来自接口）+ 跨页多选 BatchBar +
+ * Arc 新建弹窗；吊销确认仍走 AlertDialog。
+ * Token management: TableCard + SegmentedControl (API counts) + cross-page
+ * BatchBar + Arc create dialog; revoke confirms stay on AlertDialog.
  */
 
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Check, Copy, KeyRound, Plus, RefreshCw, ShieldOff} from 'lucide-react';
 import {toast} from '@/lib/toast';
 import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {SearchField} from '@/components/arc/search-field/search-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Badge} from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,7 +55,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
-import {TableCard, WorkspaceHeader} from '@/components/common/layout';
+import {
+  BatchBar,
+  TableCard,
+  WorkspaceHeader,
+  usePagedSelection,
+} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 import {useServerListQuery} from '@/lib/hooks/use-server-list-query';
 import services from '@/lib/services';
@@ -98,6 +100,13 @@ export function TokenManagement() {
   const [error, setError] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isRevokeOpen, setIsRevokeOpen] = useState(false);
+  const [batchRevokeOpen, setBatchRevokeOpen] = useState(false);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchResult, setBatchResult] = useState<{
+    ok: number;
+    skipped: number;
+    failed: number;
+  } | null>(null);
   const [selectedToken, setSelectedToken] = useState<CLITokenInfo | null>(null);
   const [issuedToken, setIssuedToken] = useState<CreateCLITokenResult | null>(
     null,
@@ -107,6 +116,17 @@ export function TokenManagement() {
   const [formUserId, setFormUserId] = useState('');
   const [expiresPreset, setExpiresPreset] = useState<ExpiresPreset>('never');
   const [customDays, setCustomDays] = useState('60');
+
+  const pageIds = useMemo(() => tokens.map((tok) => tok.id), [tokens]);
+  const {
+    ids: selectedIds,
+    setIds: setSelectedIds,
+    toggle: toggleSelect,
+    togglePage: toggleSelectPage,
+    clear: clearSelection,
+    pageAllSelected,
+    pageSomeSelected,
+  } = usePagedSelection(pageIds);
 
   const loadTokens = useCallback(async () => {
     setLoading(true);
@@ -231,6 +251,11 @@ export function TokenManagement() {
       await services.adminToken.revokeToken(selectedToken.id);
       toast.success(t('admin.tokenManagement.revokeSuccess'));
       setIsRevokeOpen(false);
+      {
+        const next = new Set(selectedIds);
+        next.delete(selectedToken.id);
+        setSelectedIds(next);
+      }
       void loadTokens();
     } catch (err) {
       toast.error(
@@ -240,6 +265,42 @@ export function TokenManagement() {
       );
     }
   };
+
+  const runBatchRevoke = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      return;
+    }
+    setBatchBusy(true);
+    setBatchResult(null);
+    const outcome = {ok: 0, skipped: 0, failed: 0};
+    const byId = new Map(tokens.map((tok) => [tok.id, tok]));
+    for (const id of ids) {
+      const known = byId.get(id);
+      if (known?.status === 'revoked') {
+        outcome.skipped += 1;
+        continue;
+      }
+      try {
+        await services.adminToken.revokeToken(id);
+        outcome.ok += 1;
+      } catch {
+        outcome.failed += 1;
+      }
+    }
+    setBatchResult(outcome);
+    setBatchBusy(false);
+    setBatchRevokeOpen(false);
+    clearSelection();
+    void loadTokens();
+    toast.success(
+      t('admin.tokenManagement.batchResult', {
+        ok: outcome.ok,
+        skipped: outcome.skipped,
+        failed: outcome.failed,
+      }),
+    );
+  }, [selectedIds, tokens, clearSelection, loadTokens, t]);
 
   const statusLabel = (status: string) => {
     if (status === 'active') {
@@ -268,8 +329,6 @@ export function TokenManagement() {
   const filtersActive =
     Boolean(filters.name) || filters.status !== ALL_VALUE;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const dialogClass =
-    'border border-border/80 dark:border-border/60 shadow-2xl sm:max-w-lg';
 
   return (
     <div className={cn(layout.page, layout.pageViewport)}>
@@ -369,7 +428,7 @@ export function TokenManagement() {
           <TableCard
             loading={loading}
             hasData={tokens.length > 0}
-            skeletonColumns={7}
+            skeletonColumns={8}
             skeletonRows={8}
             error={error}
             onRetry={() => void loadTokens()}
@@ -408,7 +467,18 @@ export function TokenManagement() {
               />
             }
           >
-            <div className={layout.rowHead} aria-hidden>
+            <div className={layout.rowHead}>
+              <Checkbox
+                checked={
+                  pageAllSelected
+                    ? true
+                    : pageSomeSelected
+                      ? 'indeterminate'
+                      : false
+                }
+                onCheckedChange={(v) => toggleSelectPage(v === true)}
+                aria-label={t('admin.tokenManagement.selectAll')}
+              />
               <span>{t('admin.tokenManagement.name')}</span>
               <span>{t('admin.tokenManagement.owner')}</span>
               <span>{t('admin.tokenManagement.prefix')}</span>
@@ -425,6 +495,13 @@ export function TokenManagement() {
                   style={{cursor: 'default'}}
                   data-testid={`token-row-${token.id}`}
                 >
+                  <Checkbox
+                    checked={selectedIds.has(token.id)}
+                    onCheckedChange={(v) => toggleSelect(token.id, v === true)}
+                    aria-label={t('admin.tokenManagement.selectRow', {
+                      name: token.name || token.token_prefix || String(token.id),
+                    })}
+                  />
                   <div className={layout.rowName}>
                     <span className={layout.name} title={token.name || '-'}>
                       {token.name || '-'}
@@ -480,6 +557,35 @@ export function TokenManagement() {
               ))}
             </div>
           </TableCard>
+
+          <BatchBar
+            selectedCount={selectedIds.size}
+            busy={batchBusy}
+            result={
+              batchResult
+                ? t('admin.tokenManagement.batchResult', {
+                    ok: batchResult.ok,
+                    skipped: batchResult.skipped,
+                    failed: batchResult.failed,
+                  })
+                : null
+            }
+            onClear={() => {
+              clearSelection();
+              setBatchResult(null);
+            }}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy || selectedIds.size === 0}
+              onClick={() => setBatchRevokeOpen(true)}
+            >
+              <ShieldOff className='size-3.5' aria-hidden />
+              {t('admin.tokenManagement.batchRevoke')}
+            </Button>
+          </BatchBar>
         </div>
       </div>
 
@@ -493,16 +599,17 @@ export function TokenManagement() {
           }
         }}
       >
-        <DialogContent className={dialogClass}>
-          <DialogHeader>
-            <DialogTitle>
-              {issuedToken
-                ? t('admin.tokenManagement.plaintextTitle')
-                : t('admin.tokenManagement.createToken')}
-            </DialogTitle>
-          </DialogHeader>
+        <DialogContent
+          title={
+            issuedToken
+              ? t('admin.tokenManagement.plaintextTitle')
+              : t('admin.tokenManagement.createToken')
+          }
+          className='w-[min(calc(100vw-2rem),480px)]!'
+          bodyClassName='max-h-[min(85dvh,640px)] overflow-y-auto'
+        >
           {issuedToken?.token ? (
-            <div className='space-y-4 py-2'>
+            <div className='space-y-4'>
               <p className='text-sm text-muted-foreground'>
                 {t('admin.tokenManagement.plaintextOnce')}
               </p>
@@ -530,7 +637,7 @@ export function TokenManagement() {
               </p>
             </div>
           ) : (
-            <div className='space-y-4 py-2'>
+            <div className='space-y-4'>
               <div className='space-y-2'>
                 <Label htmlFor='token-name'>
                   {t('admin.tokenManagement.name')}
@@ -609,7 +716,7 @@ export function TokenManagement() {
               </div>
             </div>
           )}
-          <DialogFooter>
+          <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
             {issuedToken?.token ? (
               <Button type='button' onClick={() => setIsCreateOpen(false)}>
                 {t('common.close')}
@@ -628,7 +735,7 @@ export function TokenManagement() {
                 </Button>
               </>
             )}
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -648,6 +755,30 @@ export function TokenManagement() {
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={() => void handleRevoke()}>
               {t('admin.tokenManagement.revokeToken')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={batchRevokeOpen} onOpenChange={setBatchRevokeOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('admin.tokenManagement.batchRevokeConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('admin.tokenManagement.batchRevokeConfirmDesc', {
+                count: selectedIds.size,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={batchBusy}
+              onClick={() => void runBatchRevoke()}
+            >
+              {t('admin.tokenManagement.batchRevoke')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

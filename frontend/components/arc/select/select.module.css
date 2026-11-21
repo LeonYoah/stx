@@ -26,7 +26,7 @@
 .viewport { padding: 0; }
 .item { position: relative; display: flex; align-items: center; min-height: 32px; border-radius: calc(var(--radius-popover) - 4px); padding: 0 34px 0 11px; color: var(--foreground); font-size: var(--text-sm); cursor: default; outline: none; user-select: none; transition: background-color var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard); }
 .item[data-highlighted] { background: var(--surface-muted); }
-.item[data-disabled] { opacity: .45; }
+.item[data-disabled] { color: var(--text-muted); opacity: .5; pointer-events: none; }
 .indicator { position: absolute; right: 10px; display: inline-flex; align-items: center; color: var(--foreground); animation: indicator-in var(--duration-standard) var(--ease-enter) 40ms both; }
 .scrollButton { display: grid; height: 28px; place-items: center; color: var(--text-muted); }
 @keyframes select-in { from { opacity: 0; transform: translate(var(--menu-x), var(--menu-y)) scale(.97); } }

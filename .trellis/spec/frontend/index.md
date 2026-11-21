@@ -10,7 +10,7 @@
 
 ### 核心架构与视觉系统
 - **主导航框架**：macOS 风格底部常驻 Dock 栏（`ManagementBar`），配合轻量无阻塞路由进度条（`RouteProgressBar`）与主工作区容器查询（`@container/main`）。
-- **标准工作区结构**：统一使用标准化 `WorkspaceHeader`（内聚标题、描述与主操作），搭配 `StatPillsBar` 状态聚合统计与一键快速过滤。
+- **标准工作区结构**：统一使用标准化 `WorkspaceHeader`（内聚标题、描述与主操作），搭配 Arc `SegmentedControl` / `chip-group` 带计数的状态筛选（`StatPillsBar` 已弃用，见 ui-conventions §3）。
 - **一体化表格与分页**：搜索筛选、状态标签、数据列表、底部总计与分页器整合于统一 `Card` 容器内。
 - **全局多语言与字体**：内置中英文（`zh-CN` / `en`）即时切换；排版采用 `Inter`（西文）+ `Noto Sans SC`（中文）+ `JetBrains Mono`（代码）。
 - **API 通信规范**：统一通过 `lib/services/` 下的领域服务与 `BaseService` 封装，通过共享 `apiClient` 消费 `{ error_msg, data }` 结构。
@@ -57,7 +57,7 @@
 - **布局与导航**：页面放在 `app/(main)/...` 下；底部留出 `pb-28` 避免被 Dock 栏遮挡；新业务组件置于 `components/common/<domain>/`。
 - **页面头部**：统一使用 `<WorkspaceHeader />`，配置语义化图标、标题、说明文案及主操作区，严禁手写样式不一致的 flex 标题栏。
 - **图标**：不要按名字随手挑。先查 Lucide、Tabler，以及 Arc / HeroUI（文档用 Gravity UI）。按实际尺寸（侧栏 16px）列出至少 3 个候选，等开发者确认后再改。详见 [UI 约定](./ui-conventions.md) 的「图标选型先确认，再改代码」。
-- **状态统计与筛选**：列表页存在按状态分类（如 全部 / 在线 / 离线 / 警告）时，优先采用 `<StatPillsBar />` 提供统揽和联动。
+- **状态统计与筛选**：列表页存在按状态分类（如 全部 / 在线 / 离线 / 警告）时，用 Arc `SegmentedControl`（单选）或 `chip-group`（多选）带计数，不再使用已弃用的 `<StatPillsBar />`（见 ui-conventions §3）。
 - **加载态平滑度**：严格执行“零塌陷加载规范”，配备 `TableSkeletonRows` 和 `TableLoadingBar`。
 - **分页设计**：分页组件放置于表格卡片底部 footer，包含页码指示、跳页及每页条数切换器。
 - **弹窗尺寸与边框**：弹窗宽度契合内容复杂度，配置层级边框与内滚动容器。

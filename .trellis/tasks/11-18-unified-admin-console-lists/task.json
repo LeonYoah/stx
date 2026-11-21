@@ -1,0 +1,61 @@
+{
+  "id": "unified-admin-console-lists",
+  "name": "unified-admin-console-lists",
+  "title": "三页列表迁移：审计 / 用户 / 主机（组件复用）",
+  "description": "2026-11-21 选 A：只完整迁移审计、用户中心（含令牌）、主机（含 /hosts/[id] 深链接）。复用 TableCard、DetailHost 等告警中心同款原语，不重建 TableCard；新建 useServerListQuery。告警/错误/巡检/策略、集群、命令记录、大盘布局本期不动。",
+  "status": "planning",
+  "dev_type": "frontend",
+  "scope": "frontend",
+  "package": "frontend/components/common",
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-11-18",
+  "completedAt": null,
+  "branch": "feat/list-ui-unification",
+  "base_branch": "main",
+  "worktree_path": null,
+  "current_phase": 1,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "phase0-inventory-three-pages-on-main"
+    },
+    {
+      "phase": 2,
+      "action": "implement-use-server-list-query-reuse-primitives"
+    }
+  ],
+  "commit": null,
+  "pr_url": "https://github.com/LeonYoah/stx/pull/163",
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/components/common/layout/TableCard.tsx",
+    "frontend/components/common/layout/DetailHost.tsx",
+    "frontend/components/common/layout/DirtyCloseGuard.tsx",
+    "frontend/components/common/layout/UnsavedChangesDialog.tsx",
+    "frontend/components/common/layout/SoftChip.tsx",
+    "frontend/components/common/layout/list-detail.module.css",
+    "frontend/components/common/layout/TableLoadingBar.tsx",
+    "frontend/components/common/layout/TableSkeletonRows.tsx",
+    "frontend/components/common/layout/WorkspaceHeader.tsx",
+    "frontend/components/common/layout/StatPillsBar.tsx",
+    "frontend/components/ui/pagination.tsx",
+    "frontend/components/common/audit/AuditLogMain.tsx",
+    "frontend/components/common/audit/AuditLogTable.tsx",
+    "frontend/components/common/audit/AuditTraceSheet.tsx",
+    "frontend/components/common/admin/UserManagement.tsx",
+    "frontend/components/common/admin/TokenManagement.tsx",
+    "frontend/components/common/host/HostMain.tsx",
+    "frontend/components/common/host/HostTable.tsx",
+    "frontend/components/common/host/HostDetail.tsx",
+    "frontend/components/common/host/HostDetailPage.tsx",
+    "frontend/app/(main)/hosts/page.tsx",
+    "frontend/app/(main)/hosts/[id]/page.tsx",
+    ".trellis/spec/frontend/ui-conventions.md"
+  ],
+  "notes": "2026-11-21 选 A：三页完整迁移；告警/诊断/策略/集群完全不动；主机 DetailHost + /hosts/[id] 深链接；令牌保留接口全量计数；主机分段无假计数；不重建 TableCard。",
+  "meta": {}
+}

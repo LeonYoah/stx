@@ -244,6 +244,34 @@
   --cols: 24px 56px minmax(0, 0.6fr) 84px minmax(0, 1.7fr) 104px 132px;
 }
 
+/* 审计日志：操作人 / 令牌 / 来源 / 动作 / 资源类型 / 资源名 / 命令 / IP / 时间。
+   Audit logs: actor / token / source / action / resource type / name / commands / IP / time. */
+
+.listCol[data-mcols='audit'] :is(.row, .rowHead) {
+  --cols: minmax(0, 0.9fr) minmax(0, 1fr) 88px 88px 96px minmax(0, 1.1fr) 96px 110px 140px;
+}
+
+/* 用户：勾选 / 用户名 / 昵称 / 邮箱 / 角色 / 启用 / 创建时间 / 操作。
+   Users: check / username / nickname / email / role / active / created / actions. */
+
+.listCol[data-mcols='users'] :is(.row, .rowHead) {
+  --cols: 24px minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1.2fr) 72px 56px 132px 48px;
+}
+
+/* 令牌：勾选 / 名称 / 所有者 / 前缀 / 过期 / 最近使用 / 状态 / 操作。
+   Tokens: check / name / owner / prefix / expiry / last used / status / actions. */
+
+.listCol[data-mcols='tokens'] :is(.row, .rowHead) {
+  --cols: 24px minmax(0, 1.1fr) minmax(0, 0.8fr) 120px 132px 132px 80px 56px;
+}
+
+/* 主机：勾选 / 名称 / 类型 / 连接 / 状态 / 资源 / 创建时间 / 操作。
+   Hosts: check / name / type / connection / status / resources / created / actions. */
+
+.listCol[data-mcols='hosts'] :is(.row, .rowHead) {
+  --cols: 24px minmax(0, 1.2fr) 88px minmax(0, 1.1fr) 88px 120px 132px 48px;
+}
+
 /* 悬浮批量条：锚定在 listCol 内、分页脚上方，详情栏打开时也不遮分页。
    Floating batch bar: anchored inside .listCol just above the pagination footer
    so it never covers page buttons or drifts off-center when the rail is open. */
@@ -625,6 +653,60 @@
 .sectionTitle {
   font-size: var(--text-sm);
   font-weight: 500;
+}
+
+/* 单层扁平详情分组：详情栏与弹窗本身已是唯一外框，内部不叠嵌套卡片与阴影，
+   用留白与 0.5px 细线自然分隔各组信息。
+   Flat single-layer detail section: the rail/dialog is the sole frame; avoid
+   nested bordered/shadowed cards and separate groups with whitespace + 0.5px hairlines. */
+
+.detailSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 0.5px solid var(--border);
+}
+
+.detailSectionFirst {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.detailSectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.detailKvGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 24px;
+}
+
+.detailKvItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.detailKvSpan {
+  grid-column: 1 / -1;
+}
+
+.detailKvKey {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.detailKvVal {
+  font-size: var(--text-sm);
+  color: var(--foreground);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* 表单字段：标签在上、控件居中、说明在下（§9.7 字段行）。
@@ -1112,6 +1194,52 @@
   .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(2),
   .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(5),
   .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(6) {
+    display: none;
+  }
+  /* 窄屏审计行只留操作人 + 动作。Narrow audit rows keep actor + action. */
+  .listCol[data-mcols='audit'] :is(.row, .rowHead) {
+    --cols: minmax(0, 1fr) 88px;
+  }
+  .listCol[data-mcols='audit'] :is(.row, .rowHead) > :nth-child(2),
+  .listCol[data-mcols='audit'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='audit'] :is(.row, .rowHead) > :nth-child(5),
+  .listCol[data-mcols='audit'] :is(.row, .rowHead) > :nth-child(6),
+  .listCol[data-mcols='audit'] :is(.row, .rowHead) > :nth-child(7),
+  .listCol[data-mcols='audit'] :is(.row, .rowHead) > :nth-child(8),
+  .listCol[data-mcols='audit'] :is(.row, .rowHead) > :nth-child(9) {
+    display: none;
+  }
+  /* 窄屏用户行只留勾选 + 用户名 + 操作。Narrow user rows keep check + username + actions. */
+  .listCol[data-mcols='users'] :is(.row, .rowHead) {
+    --cols: 24px minmax(0, 1fr) 48px;
+  }
+  .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(4),
+  .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(5),
+  .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(6),
+  .listCol[data-mcols='users'] :is(.row, .rowHead) > :nth-child(7) {
+    display: none;
+  }
+  /* 窄屏令牌行只留勾选 + 名称 + 操作。Narrow token rows keep check + name + actions. */
+  .listCol[data-mcols='tokens'] :is(.row, .rowHead) {
+    --cols: 24px minmax(0, 1fr) 56px;
+  }
+  .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(4),
+  .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(5),
+  .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(6),
+  .listCol[data-mcols='tokens'] :is(.row, .rowHead) > :nth-child(7) {
+    display: none;
+  }
+  /* 窄屏主机行只留勾选 + 名称 + 操作。Narrow host rows keep check + name + actions. */
+  .listCol[data-mcols='hosts'] :is(.row, .rowHead) {
+    --cols: 24px minmax(0, 1fr) 48px;
+  }
+  .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(4),
+  .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(5),
+  .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(6),
+  .listCol[data-mcols='hosts'] :is(.row, .rowHead) > :nth-child(7) {
     display: none;
   }
 }

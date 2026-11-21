@@ -16,13 +16,13 @@
  */
 
 /**
- * Host Detail Page
- * 主机详情页面
+ * 主机深链：复用 HostMain，选中对应主机常驻详情（不再 Sheet-only）。
+ * Host deep link: reuse HostMain with the matching persistent detail (no Sheet-only page).
  */
 
 import {Suspense} from 'react';
 import Link from 'next/link';
-import {HostDetailPage} from '@/components/common/host/HostDetailPage';
+import {HostMain} from '@/components/common/host';
 import {Metadata} from 'next';
 
 export const metadata: Metadata = {
@@ -41,7 +41,7 @@ export default async function HostDetailRoute({params}: HostDetailPageProps) {
     return (
       <div className='space-y-4'>
         <p className='text-destructive'>无效的主机 ID</p>
-        <Link href='/hosts' className='text-primary underline mt-4 inline-block'>
+        <Link href='/hosts' className='mt-4 inline-block text-primary underline'>
           返回主机列表
         </Link>
       </div>
@@ -50,7 +50,7 @@ export default async function HostDetailRoute({params}: HostDetailPageProps) {
 
   return (
     <Suspense>
-      <HostDetailPage hostId={hostId} />
+      <HostMain initialHostId={hostId} />
     </Suspense>
   );
 }

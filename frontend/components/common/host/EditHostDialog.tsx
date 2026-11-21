@@ -27,19 +27,13 @@
 
 import {useState, useEffect} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
+import {Button} from '@/components/arc/button/button';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {Input} from '@/components/arc/input/input';
+import {Switch} from '@/components/arc/switch/switch';
 import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
-import {Switch} from '@/components/ui/switch';
 import {Badge} from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {HostInfo, HostType, UpdateHostRequest} from '@/lib/services/host/types';
@@ -171,29 +165,29 @@ export function EditHostDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='sm:max-w-[500px] max-h-[90vh] overflow-y-auto'>
-        <DialogHeader>
-          <DialogTitle className='flex items-center gap-2'>
+      <DialogContent
+        title={
+          <span className='inline-flex items-center gap-2'>
             {t('host.editHost')}
             <Badge variant='outline'>
-              {t(`host.types.${host.host_type === HostType.BARE_METAL ? 'bareMetal' : host.host_type}`)}
+              {t(
+                `host.types.${host.host_type === HostType.BARE_METAL ? 'bareMetal' : host.host_type}`,
+              )}
             </Badge>
-          </DialogTitle>
-        </DialogHeader>
+          </span>
+        }
+        className='w-[min(calc(100vw-2rem),500px)]!'
+        bodyClassName='max-h-[min(85dvh,720px)] overflow-y-auto'
+      >
+        <div className='space-y-4'>
+          <Input
+            id='edit-name'
+            label={`${t('host.name')} *`}
+            value={formData.name || ''}
+            onChange={(e) => setFormData({...formData, name: e.target.value})}
+            placeholder={t('host.namePlaceholder')}
+          />
 
-        <div className='space-y-4 py-4'>
-          {/* Host Name / 主机名称 */}
-          <div className='space-y-2'>
-            <Label htmlFor='edit-name'>{t('host.name')} *</Label>
-            <Input
-              id='edit-name'
-              value={formData.name || ''}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
-              placeholder={t('host.namePlaceholder')}
-            />
-          </div>
-
-          {/* Description / 描述 */}
           <div className='space-y-2'>
             <Label htmlFor='edit-description'>{t('host.descriptionLabel')}</Label>
             <Textarea
@@ -207,91 +201,75 @@ export function EditHostDialog({
             />
           </div>
 
-          {/* Bare Metal Fields / 物理机字段 */}
-          {host.host_type === HostType.BARE_METAL && (
-            <>
-              <div className='space-y-2'>
-                <Label htmlFor='edit-ip_address'>{t('host.ipAddress')} *</Label>
-                <Input
-                  id='edit-ip_address'
-                  value={formData.ip_address || ''}
-                  onChange={(e) =>
-                    setFormData({...formData, ip_address: e.target.value})
-                  }
-                  placeholder='192.168.1.100'
-                />
-              </div>
-            </>
-          )}
+          {host.host_type === HostType.BARE_METAL ? (
+            <Input
+              id='edit-ip_address'
+              label={`${t('host.ipAddress')} *`}
+              value={formData.ip_address || ''}
+              onChange={(e) =>
+                setFormData({...formData, ip_address: e.target.value})
+              }
+              placeholder='192.168.1.100'
+            />
+          ) : null}
 
-          {/* Docker Fields / Docker 字段 */}
-          {host.host_type === HostType.DOCKER && (
+          {host.host_type === HostType.DOCKER ? (
             <>
-              <div className='space-y-2'>
-                <Label htmlFor='edit-docker_api_url'>{t('host.dockerApiUrl')} *</Label>
+              <Input
+                id='edit-docker_api_url'
+                label={`${t('host.dockerApiUrl')} *`}
+                description={t('host.dockerApiUrlHint')}
+                value={formData.docker_api_url || ''}
+                onChange={(e) =>
+                  setFormData({...formData, docker_api_url: e.target.value})
+                }
+                placeholder='tcp://192.168.1.100:2375'
+              />
+              <Switch
+                id='edit-docker_tls_enabled'
+                label={t('host.tlsEnabled')}
+                checked={formData.docker_tls_enabled || false}
+                onCheckedChange={(checked) =>
+                  setFormData({...formData, docker_tls_enabled: checked})
+                }
+              />
+              {formData.docker_tls_enabled ? (
                 <Input
-                  id='edit-docker_api_url'
-                  value={formData.docker_api_url || ''}
+                  id='edit-docker_cert_path'
+                  label={t('host.certPath')}
+                  value={formData.docker_cert_path || ''}
                   onChange={(e) =>
-                    setFormData({...formData, docker_api_url: e.target.value})
+                    setFormData({
+                      ...formData,
+                      docker_cert_path: e.target.value,
+                    })
                   }
-                  placeholder='tcp://192.168.1.100:2375'
+                  placeholder='/path/to/certs'
                 />
-                <p className='text-xs text-muted-foreground'>
-                  {t('host.dockerApiUrlHint')}
-                </p>
-              </div>
-              <div className='flex items-center space-x-2'>
-                <Switch
-                  id='edit-docker_tls_enabled'
-                  checked={formData.docker_tls_enabled || false}
-                  onCheckedChange={(checked) =>
-                    setFormData({...formData, docker_tls_enabled: checked})
-                  }
-                />
-                <Label htmlFor='edit-docker_tls_enabled'>{t('host.tlsEnabled')}</Label>
-              </div>
-              {formData.docker_tls_enabled && (
-                <div className='space-y-2'>
-                  <Label htmlFor='edit-docker_cert_path'>{t('host.certPath')}</Label>
-                  <Input
-                    id='edit-docker_cert_path'
-                    value={formData.docker_cert_path || ''}
-                    onChange={(e) =>
-                      setFormData({...formData, docker_cert_path: e.target.value})
-                    }
-                    placeholder='/path/to/certs'
-                  />
-                </div>
-              )}
+              ) : null}
             </>
-          )}
+          ) : null}
 
-          {/* Kubernetes Fields / Kubernetes 字段 */}
-          {host.host_type === HostType.KUBERNETES && (
+          {host.host_type === HostType.KUBERNETES ? (
             <>
-              <div className='space-y-2'>
-                <Label htmlFor='edit-k8s_api_url'>{t('host.k8sApiUrl')} *</Label>
-                <Input
-                  id='edit-k8s_api_url'
-                  value={formData.k8s_api_url || ''}
-                  onChange={(e) =>
-                    setFormData({...formData, k8s_api_url: e.target.value})
-                  }
-                  placeholder='https://kubernetes.default.svc:6443'
-                />
-              </div>
-              <div className='space-y-2'>
-                <Label htmlFor='edit-k8s_namespace'>{t('host.namespace')}</Label>
-                <Input
-                  id='edit-k8s_namespace'
-                  value={formData.k8s_namespace || ''}
-                  onChange={(e) =>
-                    setFormData({...formData, k8s_namespace: e.target.value})
-                  }
-                  placeholder='default'
-                />
-              </div>
+              <Input
+                id='edit-k8s_api_url'
+                label={`${t('host.k8sApiUrl')} *`}
+                value={formData.k8s_api_url || ''}
+                onChange={(e) =>
+                  setFormData({...formData, k8s_api_url: e.target.value})
+                }
+                placeholder='https://kubernetes.default.svc:6443'
+              />
+              <Input
+                id='edit-k8s_namespace'
+                label={t('host.namespace')}
+                value={formData.k8s_namespace || ''}
+                onChange={(e) =>
+                  setFormData({...formData, k8s_namespace: e.target.value})
+                }
+                placeholder='default'
+              />
               <div className='space-y-2'>
                 <Label htmlFor='edit-k8s_kubeconfig'>{t('host.kubeconfig')}</Label>
                 <Textarea
@@ -323,17 +301,29 @@ export function EditHostDialog({
                 </p>
               </div>
             </>
-          )}
+          ) : null}
         </div>
 
-        <DialogFooter>
-          <Button variant='outline' onClick={handleClose} disabled={loading}>
+        <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
+          <Button
+            type='button'
+            variant='secondary'
+            size='sm'
+            onClick={handleClose}
+            disabled={loading}
+          >
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
+          <Button
+            type='button'
+            size='sm'
+            loading={loading}
+            onClick={() => void handleSubmit()}
+            disabled={loading}
+          >
             {loading ? t('common.saving') : t('common.save')}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

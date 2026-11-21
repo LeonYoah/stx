@@ -100,7 +100,8 @@
     "detailNav": {
       "prev": "Previous item",
       "next": "Next item"
-    }
+    },
+    "searchClear": "Clear search"
   },
   "dashboard": {
     "title": "Console",
@@ -1126,7 +1127,9 @@
     "types": {
       "bareMetal": "Physical/VM",
       "docker": "Docker",
-      "kubernetes": "Kubernetes"
+      "kubernetes": "Kubernetes",
+      "unsupported": "Not yet supported",
+      "unsupportedOption": "{type} (Not yet supported)"
     },
     "statuses": {
       "pending": "Not Installed",
@@ -1148,7 +1151,13 @@
       "k8sUrlRequired": "Kubernetes API URL is required",
       "k8sUrlInvalid": "Invalid Kubernetes API URL format (use https:// or http://)",
       "k8sCredentialsRequired": "Either kubeconfig or token is required for Kubernetes"
-    }
+    },
+    "selectAll": "Select page",
+    "selectRow": "Select host {name}",
+    "batchDelete": "Delete selected",
+    "batchDeleteConfirmTitle": "Delete selected hosts?",
+    "batchDeleteConfirmDesc": "This deletes {count} hosts and cannot be undone.",
+    "batchResult": "{ok} succeeded, {skipped} skipped, {failed} failed"
   },
   "cluster": {
     "title": "Cluster Management",
@@ -2902,6 +2911,46 @@
         "invalidEmail": "Please enter a valid email address",
         "usernameExists": "Username already exists",
         "cannotDeleteSelf": "Cannot delete current logged in user"
+      },
+      "selectAll": "Select page",
+      "selectRow": "Select user {username}",
+      "batchDelete": "Delete selected",
+      "batchDeactivate": "Deactivate selected",
+      "batchDeleteConfirmTitle": "Delete selected users?",
+      "batchDeleteConfirmDesc": "This deletes {count} users and cannot be undone. The signed-in user is never deleted.",
+      "batchDeactivateConfirmTitle": "Deactivate selected users?",
+      "batchDeactivateConfirmDesc": "This deactivates {count} users; their sessions and CLI tokens are rejected afterwards. The signed-in user is never deactivated.",
+      "batchResult": "{ok} succeeded, {skipped} skipped, {failed} failed",
+      "batchSkipSelf": "Skipped the signed-in user",
+      "createDesc": "Set up sign-in credentials, profile info, and access role.",
+      "sectionCredentials": "Account & Password",
+      "sectionProfile": "Profile",
+      "sectionRole": "Role & Permissions",
+      "usernamePlaceholder": "e.g. ops-admin (at least 3 characters)",
+      "usernameHint": "Used to sign in; cannot be changed after creation.",
+      "nicknamePlaceholder": "Optional display name",
+      "emailPlaceholder": "name@example.com",
+      "roleStandard": "Standard User",
+      "roleStandardDesc": "Access authorized workbench, jobs, and monitoring views",
+      "roleAdmin": "Administrator",
+      "roleAdminDesc": "Manage users, tokens, clusters, hosts, and global settings",
+      "passwordStrength": {
+        "showPassword": "Show password",
+        "hidePassword": "Hide password",
+        "meterLabel": "Password strength",
+        "noPassword": "No password yet",
+        "rulesLabel": "Password requirements",
+        "tooShort": "Too short",
+        "weak": "Weak",
+        "fair": "Fair",
+        "good": "Good",
+        "strong": "Strong",
+        "ruleLength": "At least {min} characters",
+        "ruleCase": "Upper and lowercase letters",
+        "ruleNumber": "At least one number",
+        "ruleSymbol": "At least one symbol",
+        "remainingPrefix": "",
+        "remainingSuffix": "more"
       }
     },
     "tokenManagement": {
@@ -2944,7 +2993,13 @@
         "nameRequired": "Enter a token name",
         "userRequired": "Select an owner",
         "invalidCustomDays": "Custom lifetime must be an integer from 1 to 3650"
-      }
+      },
+      "selectAll": "Select page",
+      "selectRow": "Select token {name}",
+      "batchRevoke": "Revoke selected",
+      "batchRevokeConfirmTitle": "Revoke selected tokens?",
+      "batchRevokeConfirmDesc": "This revokes {count} tokens. Already-revoked tokens are skipped. This cannot be undone.",
+      "batchResult": "{ok} succeeded, {skipped} skipped, {failed} failed"
     }
   },
   "monitor": {

@@ -27,14 +27,7 @@
  */
 
 import {useTranslations} from 'next-intl';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import {Terminal} from 'lucide-react';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {HostInfo} from '@/lib/services/host/types';
 import {HostInstallGuideContent} from './HostInstallGuideContent';
 
@@ -55,34 +48,27 @@ export function HostInstallGuideDialog({
 }: HostInstallGuideDialogProps) {
   const t = useTranslations();
 
-  if (!host) {return null;}
+  if (!host) {
+    return null;
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-[680px] max-h-[90vh] overflow-y-auto p-5 sm:p-6'>
-        <DialogHeader className='pb-3 border-b'>
-          <div className='flex items-center gap-2 text-primary'>
-            <Terminal className='h-5 w-5' />
-            <DialogTitle className='text-base font-semibold'>
-              {t('host.installGuide.title')}
-            </DialogTitle>
-          </div>
-          <DialogDescription className='text-xs text-muted-foreground'>
-            {t('host.installGuide.subtitle')}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className='pt-2'>
-          <HostInstallGuideContent
-            host={host}
-            onConnected={onConnected}
-            onViewDetail={(targetHost) => {
-              onOpenChange(false);
-              onViewDetail?.(targetHost);
-            }}
-            onClose={() => onOpenChange(false)}
-          />
-        </div>
+      <DialogContent
+        title={t('host.installGuide.title')}
+        description={t('host.installGuide.subtitle')}
+        className='w-[min(calc(100vw-2rem),680px)]!'
+        bodyClassName='max-h-[min(85dvh,720px)] overflow-y-auto'
+      >
+        <HostInstallGuideContent
+          host={host}
+          onConnected={onConnected}
+          onViewDetail={(targetHost) => {
+            onOpenChange(false);
+            onViewDetail?.(targetHost);
+          }}
+          onClose={() => onOpenChange(false)}
+        />
       </DialogContent>
     </Dialog>
   );

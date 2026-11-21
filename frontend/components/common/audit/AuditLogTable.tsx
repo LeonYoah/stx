@@ -18,49 +18,27 @@
 'use client';
 
 /**
- * Audit Log Table Component
- * 审计日志表格组件
- *
- * Displays a table of audit logs with filtering and pagination.
- * 显示审计日志表格，支持过滤和分页。
+ * 审计日志行渲染：只负责表头 + 行；加载/空/分页由外层 TableCard 承担。
+ * Audit log row renderer: header + rows only; TableCard owns loading/empty/pagination.
  */
 
-import {useRef} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
-import {Pagination} from '@/components/ui/pagination';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {User, Globe, KeyRound} from 'lucide-react';
-import {useGSAP} from '@gsap/react';
-import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
-import {animateTableRows} from '@/lib/animations/gsap-motion';
+import {Globe, KeyRound, User} from 'lucide-react';
+import {cn} from '@/lib/utils';
 import {AuditLogInfo} from '@/lib/services/audit/types';
 import {lookupAuditLabel, type AuditTranslator} from './audit-i18n';
 import {formatDateTimeTz} from '@/lib/timezone';
+import layout from '@/components/common/layout/list-detail.module.css';
 
 interface AuditLogTableProps {
   logs: AuditLogInfo[];
-  loading: boolean;
-  currentPage: number;
-  totalPages: number;
-  total: number;
-  pageSize?: number;
-  onPageChange: (page: number) => void;
-  onPageSizeChange?: (pageSize: number) => void;
   onOpenTrace?: (log: AuditLogInfo) => void;
 }
 
@@ -139,7 +117,6 @@ function isSystemActor(
   );
 }
 
-/** 取操作的中文/本地化文案，无则回退为原始 action */
 function getActionLabel(
   action: string,
   t: ReturnType<typeof useTranslations>,
@@ -147,7 +124,6 @@ function getActionLabel(
   return lookupAuditLabel('actions', action, action, t);
 }
 
-/** 取资源类型的中文/本地化文案，无则回退为原始 resource_type */
 function getResourceTypeLabel(
   resourceType: string,
   t: ReturnType<typeof useTranslations>,
@@ -155,9 +131,6 @@ function getResourceTypeLabel(
   return lookupAuditLabel('resourceTypes', resourceType, resourceType, t);
 }
 
-/** 操作人列只回答「谁」。没有登录用户时写系统，不把 Agent 这个产品名再塞进这一列。
- * The actor column only answers who. System events say System, not the product name Agent.
- */
 function getActorLabel(
   log: Pick<
     AuditLogInfo,
@@ -181,9 +154,6 @@ function getActorLabel(
   return username || '-';
 }
 
-/** 来源只回答从哪发起：Web、CLI，或没有登录用户的系统事件。
- * Source only answers where it came from: Web, CLI, or a system event with no logged-in user.
- */
 function getTokenLabel(
   log: Pick<AuditLogInfo, 'token_id' | 'token_prefix' | 'token_name' | 'client_type'>,
   t: (key: string) => string,
@@ -260,10 +230,6 @@ function getSourceLabel(
   return '-';
 }
 
-/**
- * Get action badge variant
- * 获取操作徽章变体
- */
 function getActionBadgeVariant(
   action: string,
 ): 'default' | 'secondary' | 'destructive' | 'outline' {
@@ -287,178 +253,98 @@ function getActionBadgeVariant(
  * Audit Log Table Component
  * 审计日志表格组件
  */
-export function AuditLogTable({
-  logs,
-  loading,
-  currentPage,
-  totalPages,
-  total,
-  pageSize = 20,
-  onPageChange,
-  onPageSizeChange,
-  onOpenTrace,
-}: AuditLogTableProps) {
+export function AuditLogTable({logs, onOpenTrace}: AuditLogTableProps) {
   const t = useTranslations();
-  const tableContainerRef = useRef<HTMLDivElement>(null);
-
-  // 审计日志数据更新后执行平滑交错入场动效
-  // Trigger staggered entrance animation when audit logs data updates
-  useGSAP(
-    () => {
-      if (logs.length > 0 && !loading) {
-        animateTableRows('.audit-data-row');
-      }
-    },
-    {dependencies: [logs, loading], scope: tableContainerRef},
-  );
 
   return (
-    <div ref={tableContainerRef} className='space-y-4 flex-1 flex flex-col'>
-      <div className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
-        <TableLoadingBar loading={loading} />
-        <div className='overflow-x-auto flex-1'>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className='w-[50px]'>ID</TableHead>
-                <TableHead>{t('audit.user')}</TableHead>
-                <TableHead>{t('audit.token')}</TableHead>
-                <TableHead>{t('audit.source')}</TableHead>
-                <TableHead>{t('audit.action')}</TableHead>
-                <TableHead>{t('audit.resourceType')}</TableHead>
-                <TableHead>{t('audit.resourceName')}</TableHead>
-                <TableHead className='whitespace-nowrap'>
-                  {t('audit.commandColumn')}
-                </TableHead>
-                <TableHead>{t('audit.ipAddress')}</TableHead>
-                <TableHead>{t('audit.createdAt')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading && logs.length === 0 ? (
-                <TableSkeletonRows columns={10} rows={15} />
-              ) : logs.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={10}
-                    className='text-center py-12 text-muted-foreground'
-                  >
-                    {t('audit.noAuditLogs')}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                logs.map((log) => (
-                  <TableRow
-                    key={log.id}
-                    className={`audit-data-row transition-opacity duration-200 ${
-                      loading ? 'opacity-60 pointer-events-none' : ''
-                    }`}
-                  >
-                    <TableCell>{log.id}</TableCell>
-                    <TableCell>
-                      <div className='flex items-center gap-2 min-w-0'>
-                        <User className='h-4 w-4 shrink-0 text-muted-foreground' />
-                        <span className='truncate'>
-                          {getActorLabel(log, t)}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className='flex items-center gap-2 min-w-0'>
-                        <KeyRound className='h-4 w-4 shrink-0 text-muted-foreground' />
-                        <span className='truncate font-mono text-xs whitespace-nowrap'>
-                          {getTokenLabel(log, t)}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{getSourceLabel(log, t)}</TableCell>
-                    <TableCell>
-                      <Badge variant={getActionBadgeVariant(log.action)}>
-                        {getActionLabel(log.action, t)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant='outline'>
-                        {getResourceTypeLabel(log.resource_type, t)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className='truncate max-w-[150px] block cursor-default'>
-                              {formatResourceDisplay(
-                                log.resource_type,
-                                log.resource_id || '',
-                                log.resource_name || '',
-                                log.details,
-                                t,
-                              )}
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>ID: {log.resource_id || '-'}</p>
-                            <p>Name: {log.resource_name || '-'}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </TableCell>
-                    <TableCell className='whitespace-nowrap'>
-                      {log.command_count && log.request_id && onOpenTrace ? (
-                        <button
-                          type='button'
-                          className='text-xs text-primary hover:underline'
-                          onClick={() => onOpenTrace(log)}
-                        >
-                          {t('audit.serverCommands', {
-                            count: log.command_count,
-                          })}
-                        </button>
-                      ) : Boolean(log.details?.engine_url || log.details?.engine_base_url) && onOpenTrace ? (
-                        <button
-                          type='button'
-                          className='inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium'
-                          onClick={() => onOpenTrace(log)}
-                        >
-                          <span className='inline-block w-1.5 h-1.5 rounded-full bg-emerald-500' />
-                          {t('audit.clusterApiCall')}
-                        </button>
-                      ) : (
-                        <span className='text-muted-foreground'>-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className='flex items-center gap-2'>
-                        <Globe className='h-4 w-4 text-muted-foreground' />
-                        <span className='font-mono text-sm'>
-                          {log.ip_address || '-'}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {formatDateTimeTz(log.created_at)}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-
-        {/* 底部分页栏 / Table Footer Pagination */}
-        <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            pageSize={pageSize}
-            totalItems={total}
-            onPageChange={onPageChange}
-            onPageSizeChange={onPageSizeChange}
-            showPageSizeSelector={Boolean(onPageSizeChange)}
-            pageSizeOptions={[10, 20, 50, 100]}
-          />
-        </div>
+    <>
+      <div className={layout.rowHead} aria-hidden>
+        <span>{t('audit.user')}</span>
+        <span>{t('audit.token')}</span>
+        <span>{t('audit.source')}</span>
+        <span>{t('audit.action')}</span>
+        <span>{t('audit.resourceType')}</span>
+        <span>{t('audit.resourceName')}</span>
+        <span>{t('audit.commandColumn')}</span>
+        <span>{t('audit.ipAddress')}</span>
+        <span>{t('audit.createdAt')}</span>
       </div>
-    </div>
+      <div className={layout.tableScroll}>
+        {logs.map((log) => (
+          <div key={log.id} className={cn(layout.row)} data-testid={`audit-row-${log.id}`}>
+            <div className={layout.rowName}>
+              <div className={layout.rowNameInline}>
+                <User className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
+                <span className={layout.name} title={getActorLabel(log, t)}>
+                  {getActorLabel(log, t)}
+                </span>
+              </div>
+            </div>
+            <div className={cn(layout.sub, 'flex min-w-0 items-center gap-1.5 font-mono text-xs')}>
+              <KeyRound className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
+              <span className='truncate whitespace-nowrap' title={getTokenLabel(log, t)}>
+                {getTokenLabel(log, t)}
+              </span>
+            </div>
+            <span className={layout.sub}>{getSourceLabel(log, t)}</span>
+            <Badge variant={getActionBadgeVariant(log.action)}>
+              {getActionLabel(log.action, t)}
+            </Badge>
+            <Badge variant='outline'>
+              {getResourceTypeLabel(log.resource_type, t)}
+            </Badge>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className={cn(layout.sub, 'truncate')}>
+                    {formatResourceDisplay(
+                      log.resource_type,
+                      log.resource_id || '',
+                      log.resource_name || '',
+                      log.details,
+                      t,
+                    )}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>ID: {log.resource_id || '-'}</p>
+                  <p>Name: {log.resource_name || '-'}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <div>
+              {log.command_count && log.request_id && onOpenTrace ? (
+                <button
+                  type='button'
+                  className='text-xs text-primary hover:underline'
+                  onClick={() => onOpenTrace(log)}
+                >
+                  {t('audit.serverCommands', {count: log.command_count})}
+                </button>
+              ) : Boolean(log.details?.engine_url || log.details?.engine_base_url) &&
+                onOpenTrace ? (
+                <button
+                  type='button'
+                  className='inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline'
+                  onClick={() => onOpenTrace(log)}
+                >
+                  <span className='inline-block size-1.5 rounded-full bg-emerald-500' />
+                  {t('audit.clusterApiCall')}
+                </button>
+              ) : (
+                <span className='text-muted-foreground'>-</span>
+              )}
+            </div>
+            <div className='flex min-w-0 items-center gap-1.5'>
+              <Globe className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
+              <span className='truncate font-mono text-xs'>{log.ip_address || '-'}</span>
+            </div>
+            <span className={cn(layout.sub, 'whitespace-nowrap')}>
+              {formatDateTimeTz(log.created_at)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

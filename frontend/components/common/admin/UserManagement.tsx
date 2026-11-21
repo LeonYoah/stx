@@ -24,17 +24,16 @@
  * destructive confirms stay on AlertDialog; self is never mutated (batch skip).
  */
 
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Pencil, Plus, RefreshCw, Trash2, Users, UserX} from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {Input} from '@/components/arc/input/input';
 import {SearchField} from '@/components/arc/search-field/search-field';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
-import {Switch} from '@/components/ui/switch';
+import {Switch} from '@/components/arc/switch/switch';
 import {Badge} from '@/components/ui/badge';
 import {
   AlertDialog,
@@ -135,7 +134,11 @@ export function UserManagement() {
     pageSomeSelected,
   } = usePagedSelection(pageIds);
 
+  const listRequestIdRef = useRef(0);
+
   const loadUsers = useCallback(async () => {
+    const requestId = listRequestIdRef.current + 1;
+    listRequestIdRef.current = requestId;
     setLoading(true);
     try {
       const response = await services.adminUser.listUsers({
@@ -143,15 +146,21 @@ export function UserManagement() {
         size: pageSize,
         username: filters.username || undefined,
       });
+      if (listRequestIdRef.current !== requestId) {
+        return;
+      }
       setUsers(response.users || []);
       setTotal(response.total || 0);
       setError(null);
     } catch (err) {
+      if (listRequestIdRef.current !== requestId) {
+        return;
+      }
       setError(err instanceof Error ? err.message : t('common.error'));
-      setUsers([]);
-      setTotal(0);
     } finally {
-      setLoading(false);
+      if (listRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [page, pageSize, filters.username, t]);
 
@@ -317,16 +326,19 @@ export function UserManagement() {
   const runBatch = useCallback(
     async (kind: BatchKind) => {
       const ids = Array.from(selectedIds);
-      if (ids.length === 0) {
+      if (ids.length === 0 || batchBusy) {
         return;
       }
       setBatchBusy(true);
       setBatchResult(null);
       const outcome = {ok: 0, skipped: 0, failed: 0};
+      const failedIds: number[] = [];
+      let skippedSelf = false;
       const byId = new Map(users.map((u) => [u.id, u]));
       for (const id of ids) {
         if (currentUser && id === currentUser.id) {
           outcome.skipped += 1;
+          skippedSelf = true;
           continue;
         }
         if (kind === 'deactivate') {
@@ -340,6 +352,7 @@ export function UserManagement() {
             outcome.ok += 1;
           } catch {
             outcome.failed += 1;
+            failedIds.push(id);
           }
         } else {
           try {
@@ -347,26 +360,33 @@ export function UserManagement() {
             outcome.ok += 1;
           } catch {
             outcome.failed += 1;
+            failedIds.push(id);
           }
         }
       }
       setBatchResult(outcome);
       setBatchBusy(false);
       setBatchConfirm(null);
-      clearSelection();
+      // 保留失败项勾选以便直接重试，清除已成功或跳过项。Keep failed items selected for retry; clear succeeded/skipped ones.
+      setSelectedIds(new Set(failedIds));
       void loadUsers();
-      if (outcome.skipped > 0 && currentUser && selectedIds.has(currentUser.id)) {
+      if (skippedSelf) {
         toast.message(t('admin.userManagement.batchSkipSelf'));
       }
-      toast.success(
-        t('admin.userManagement.batchResult', {
-          ok: outcome.ok,
-          skipped: outcome.skipped,
-          failed: outcome.failed,
-        }),
-      );
+      const summary = t('admin.userManagement.batchResult', {
+        ok: outcome.ok,
+        skipped: outcome.skipped,
+        failed: outcome.failed,
+      });
+      if (outcome.failed > 0 && outcome.ok === 0) {
+        toast.error(summary);
+      } else if (outcome.failed > 0 || outcome.skipped > 0) {
+        toast.warning(summary);
+      } else {
+        toast.success(summary);
+      }
     },
-    [selectedIds, users, currentUser, clearSelection, loadUsers, t],
+    [selectedIds, batchBusy, users, currentUser, setSelectedIds, loadUsers, t],
   );
 
   const filtersActive = Boolean(filters.username);
@@ -672,76 +692,59 @@ export function UserManagement() {
           bodyClassName='max-h-[min(85dvh,640px)] overflow-y-auto'
         >
           <div className='space-y-4'>
-            <div className='space-y-2'>
-              <Label htmlFor='username'>
-                {t('admin.userManagement.username')}
-              </Label>
-              <Input
-                id='username'
-                value={formData.username}
-                onChange={(e) =>
-                  setFormData({...formData, username: e.target.value})
-                }
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='password'>
-                {t('admin.userManagement.password')}
-              </Label>
-              <Input
-                id='password'
-                type='password'
-                value={formData.password}
-                onChange={(e) =>
-                  setFormData({...formData, password: e.target.value})
-                }
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='nickname'>
-                {t('admin.userManagement.nickname')}
-              </Label>
-              <Input
-                id='nickname'
-                value={formData.nickname}
-                onChange={(e) =>
-                  setFormData({...formData, nickname: e.target.value})
-                }
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='email'>{t('admin.userManagement.email')}</Label>
-              <Input
-                id='email'
-                type='email'
-                value={formData.email || ''}
-                onChange={(e) =>
-                  setFormData({...formData, email: e.target.value})
-                }
-              />
-            </div>
-            <div className='flex items-center space-x-2'>
-              <Switch
-                id='is_admin'
-                checked={formData.is_admin}
-                onCheckedChange={(checked) =>
-                  setFormData({...formData, is_admin: checked})
-                }
-              />
-              <Label htmlFor='is_admin'>
-                {t('admin.userManagement.isAdmin')}
-              </Label>
-            </div>
+            <Input
+              id='username'
+              label={t('admin.userManagement.username')}
+              value={formData.username}
+              onChange={(e) =>
+                setFormData({...formData, username: e.target.value})
+              }
+            />
+            <Input
+              id='password'
+              type='password'
+              label={t('admin.userManagement.password')}
+              value={formData.password}
+              onChange={(e) =>
+                setFormData({...formData, password: e.target.value})
+              }
+            />
+            <Input
+              id='nickname'
+              label={t('admin.userManagement.nickname')}
+              value={formData.nickname}
+              onChange={(e) =>
+                setFormData({...formData, nickname: e.target.value})
+              }
+            />
+            <Input
+              id='email'
+              type='email'
+              label={t('admin.userManagement.email')}
+              value={formData.email || ''}
+              onChange={(e) =>
+                setFormData({...formData, email: e.target.value})
+              }
+            />
+            <Switch
+              id='is_admin'
+              label={t('admin.userManagement.isAdmin')}
+              checked={formData.is_admin}
+              onCheckedChange={(checked) =>
+                setFormData({...formData, is_admin: checked})
+              }
+            />
           </div>
           <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
             <Button
               type='button'
               variant='secondary'
+              size='sm'
               onClick={() => setIsCreateDialogOpen(false)}
             >
               {t('common.cancel')}
             </Button>
-            <Button type='button' onClick={() => void handleCreate()}>
+            <Button type='button' size='sm' onClick={() => void handleCreate()}>
               {t('common.create')}
             </Button>
           </div>
@@ -755,65 +758,49 @@ export function UserManagement() {
           bodyClassName='max-h-[min(85dvh,640px)] overflow-y-auto'
         >
           <div className='space-y-4'>
-            <div className='space-y-2'>
-              <Label htmlFor='edit-username'>
-                {t('admin.userManagement.username')}
-              </Label>
-              <Input id='edit-username' value={formData.username} disabled />
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='edit-password'>
-                {t('admin.userManagement.password')}
-              </Label>
-              <Input
-                id='edit-password'
-                type='password'
-                placeholder={t('admin.userManagement.passwordPlaceholder')}
-                value={formData.password}
-                onChange={(e) =>
-                  setFormData({...formData, password: e.target.value})
-                }
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='edit-nickname'>
-                {t('admin.userManagement.nickname')}
-              </Label>
-              <Input
-                id='edit-nickname'
-                value={formData.nickname}
-                onChange={(e) =>
-                  setFormData({...formData, nickname: e.target.value})
-                }
-              />
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='edit-email'>
-                {t('admin.userManagement.email')}
-              </Label>
-              <Input
-                id='edit-email'
-                type='email'
-                value={formData.email || ''}
-                onChange={(e) =>
-                  setFormData({...formData, email: e.target.value})
-                }
-              />
-            </div>
+            <Input
+              id='edit-username'
+              label={t('admin.userManagement.username')}
+              value={formData.username}
+              disabled
+            />
+            <Input
+              id='edit-password'
+              type='password'
+              label={t('admin.userManagement.password')}
+              placeholder={t('admin.userManagement.passwordPlaceholder')}
+              value={formData.password}
+              onChange={(e) =>
+                setFormData({...formData, password: e.target.value})
+              }
+            />
+            <Input
+              id='edit-nickname'
+              label={t('admin.userManagement.nickname')}
+              value={formData.nickname}
+              onChange={(e) =>
+                setFormData({...formData, nickname: e.target.value})
+              }
+            />
+            <Input
+              id='edit-email'
+              type='email'
+              label={t('admin.userManagement.email')}
+              value={formData.email || ''}
+              onChange={(e) =>
+                setFormData({...formData, email: e.target.value})
+              }
+            />
             <div className='space-y-1'>
-              <div className='flex items-center space-x-2'>
-                <Switch
-                  id='edit-is_admin'
-                  checked={formData.is_admin}
-                  disabled={isSelf(selectedUser) && Boolean(formData.is_admin)}
-                  onCheckedChange={(checked) =>
-                    setFormData({...formData, is_admin: checked})
-                  }
-                />
-                <Label htmlFor='edit-is_admin'>
-                  {t('admin.userManagement.isAdmin')}
-                </Label>
-              </div>
+              <Switch
+                id='edit-is_admin'
+                label={t('admin.userManagement.isAdmin')}
+                checked={formData.is_admin}
+                disabled={isSelf(selectedUser) && Boolean(formData.is_admin)}
+                onCheckedChange={(checked) =>
+                  setFormData({...formData, is_admin: checked})
+                }
+              />
               {isSelf(selectedUser) && formData.is_admin ? (
                 <p className='text-xs text-muted-foreground'>
                   {t('admin.userManagement.cannotRevokeOwnAdmin')}
@@ -825,11 +812,12 @@ export function UserManagement() {
             <Button
               type='button'
               variant='secondary'
+              size='sm'
               onClick={() => setIsEditDialogOpen(false)}
             >
               {t('common.cancel')}
             </Button>
-            <Button type='button' onClick={() => void handleUpdate()}>
+            <Button type='button' size='sm' onClick={() => void handleUpdate()}>
               {t('common.save')}
             </Button>
           </div>

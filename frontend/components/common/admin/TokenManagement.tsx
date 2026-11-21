@@ -24,7 +24,7 @@
  * BatchBar + Arc create dialog; revoke confirms stay on AlertDialog.
  */
 
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Check, Copy, KeyRound, Plus, RefreshCw, ShieldOff} from 'lucide-react';
 import {toast} from '@/lib/toast';
@@ -32,10 +32,10 @@ import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {Input} from '@/components/arc/input/input';
 import {SearchField} from '@/components/arc/search-field/search-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
+import {Select} from '@/components/arc/select/select';
 import {Badge} from '@/components/ui/badge';
 import {
   AlertDialog,
@@ -47,14 +47,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
 import {
   BatchBar,
   TableCard,
@@ -69,6 +61,7 @@ import type {
   CLITokenInfo,
   CreateCLITokenResult,
 } from '@/lib/services/admin/token.service';
+import {formatDateTimeMinuteTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {AccountsNavTabs} from './AccountsNavTabs';
 
@@ -128,7 +121,11 @@ export function TokenManagement() {
     pageSomeSelected,
   } = usePagedSelection(pageIds);
 
+  const listRequestIdRef = useRef(0);
+
   const loadTokens = useCallback(async () => {
+    const requestId = listRequestIdRef.current + 1;
+    listRequestIdRef.current = requestId;
     setLoading(true);
     try {
       const response = await services.adminToken.listTokens({
@@ -137,6 +134,9 @@ export function TokenManagement() {
         name: filters.name || undefined,
         status: filters.status === ALL_VALUE ? undefined : filters.status,
       });
+      if (listRequestIdRef.current !== requestId) {
+        return;
+      }
       setTokens(response.tokens || []);
       setTotal(response.total || 0);
       setActiveCount(response.active || 0);
@@ -144,15 +144,18 @@ export function TokenManagement() {
       setRevokedCount(response.revoked || 0);
       setError(null);
     } catch (err) {
+      if (listRequestIdRef.current !== requestId) {
+        return;
+      }
       setError(
         err instanceof Error
           ? err.message
           : t('admin.tokenManagement.loadError'),
       );
-      setTokens([]);
-      setTotal(0);
     } finally {
-      setLoading(false);
+      if (listRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [page, pageSize, filters.name, filters.status, t]);
 
@@ -268,12 +271,13 @@ export function TokenManagement() {
 
   const runBatchRevoke = useCallback(async () => {
     const ids = Array.from(selectedIds);
-    if (ids.length === 0) {
+    if (ids.length === 0 || batchBusy) {
       return;
     }
     setBatchBusy(true);
     setBatchResult(null);
     const outcome = {ok: 0, skipped: 0, failed: 0};
+    const failedIds: number[] = [];
     const byId = new Map(tokens.map((tok) => [tok.id, tok]));
     for (const id of ids) {
       const known = byId.get(id);
@@ -286,21 +290,28 @@ export function TokenManagement() {
         outcome.ok += 1;
       } catch {
         outcome.failed += 1;
+        failedIds.push(id);
       }
     }
     setBatchResult(outcome);
     setBatchBusy(false);
     setBatchRevokeOpen(false);
-    clearSelection();
+    // 保留失败项勾选以便直接重试，清除已成功或跳过项。Keep failed items selected for retry; clear succeeded/skipped ones.
+    setSelectedIds(new Set(failedIds));
     void loadTokens();
-    toast.success(
-      t('admin.tokenManagement.batchResult', {
-        ok: outcome.ok,
-        skipped: outcome.skipped,
-        failed: outcome.failed,
-      }),
-    );
-  }, [selectedIds, tokens, clearSelection, loadTokens, t]);
+    const summary = t('admin.tokenManagement.batchResult', {
+      ok: outcome.ok,
+      skipped: outcome.skipped,
+      failed: outcome.failed,
+    });
+    if (outcome.failed > 0 && outcome.ok === 0) {
+      toast.error(summary);
+    } else if (outcome.failed > 0 || outcome.skipped > 0) {
+      toast.warning(summary);
+    } else {
+      toast.success(summary);
+    }
+  }, [selectedIds, batchBusy, tokens, setSelectedIds, loadTokens, t]);
 
   const statusLabel = (status: string) => {
     if (status === 'active') {
@@ -319,7 +330,7 @@ export function TokenManagement() {
     if (token.permanent || !token.expires_at) {
       return t('admin.tokenManagement.permanent');
     }
-    return new Date(token.expires_at).toLocaleString();
+    return formatDateTimeMinuteTz(token.expires_at);
   };
 
   const segCount = (n: number) => (
@@ -517,7 +528,7 @@ export function TokenManagement() {
                   </span>
                   <span className={cn(layout.sub, 'whitespace-nowrap')}>
                     {token.last_used_at
-                      ? new Date(token.last_used_at).toLocaleString()
+                      ? formatDateTimeMinuteTz(token.last_used_at)
                       : '-'}
                   </span>
                   <Badge
@@ -613,15 +624,20 @@ export function TokenManagement() {
               <p className='text-sm text-muted-foreground'>
                 {t('admin.tokenManagement.plaintextOnce')}
               </p>
-              <div className='flex items-center gap-2'>
-                <Input
-                  readOnly
-                  value={issuedToken.token}
-                  className='font-mono'
-                />
+              <div className='flex items-end gap-2'>
+                <div className='min-w-0 flex-1'>
+                  <Input
+                    label={t('admin.tokenManagement.plaintextTitle')}
+                    readOnly
+                    value={issuedToken.token}
+                    className='font-mono'
+                  />
+                </div>
                 <Button
                   type='button'
                   variant='secondary'
+                  size='sm'
+                  iconOnly
                   onClick={() => void handleCopy(issuedToken.token || '')}
                   aria-label={t('common.copy')}
                 >
@@ -638,87 +654,79 @@ export function TokenManagement() {
             </div>
           ) : (
             <div className='space-y-4'>
+              <Input
+                id='token-name'
+                label={t('admin.tokenManagement.name')}
+                value={formName}
+                onChange={(event) => setFormName(event.target.value)}
+                placeholder={t('admin.tokenManagement.namePlaceholder')}
+              />
+              <Select
+                label={t('admin.tokenManagement.owner')}
+                placeholder={t('admin.tokenManagement.ownerPlaceholder')}
+                value={formUserId}
+                onValueChange={setFormUserId}
+                options={users.map((user) => ({
+                  value: String(user.id),
+                  label: user.is_admin
+                    ? `${user.username} · ${t('admin.userManagement.isAdmin')}`
+                    : user.username,
+                }))}
+              />
               <div className='space-y-2'>
-                <Label htmlFor='token-name'>
-                  {t('admin.tokenManagement.name')}
-                </Label>
-                <Input
-                  id='token-name'
-                  value={formName}
-                  onChange={(event) => setFormName(event.target.value)}
-                  placeholder={t('admin.tokenManagement.namePlaceholder')}
-                />
-              </div>
-              <div className='space-y-2'>
-                <Label>{t('admin.tokenManagement.owner')}</Label>
-                <Select value={formUserId} onValueChange={setFormUserId}>
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={t('admin.tokenManagement.ownerPlaceholder')}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {users.map((user) => (
-                      <SelectItem key={user.id} value={String(user.id)}>
-                        {user.username}
-                        {user.is_admin
-                          ? ` · ${t('admin.userManagement.isAdmin')}`
-                          : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className='space-y-2'>
-                <Label>{t('admin.tokenManagement.expires')}</Label>
-                <ToggleGroup
-                  type='single'
-                  variant='outline'
-                  size='sm'
+                <div className='text-xs font-medium text-foreground'>
+                  {t('admin.tokenManagement.expires')}
+                </div>
+                <SegmentedControl
+                  label={t('admin.tokenManagement.expires')}
                   value={expiresPreset}
-                  onValueChange={(value) => {
-                    if (value) {
-                      setExpiresPreset(value as ExpiresPreset);
-                    }
-                  }}
-                  className='flex w-full flex-wrap gap-1'
-                >
-                  <ToggleGroupItem value='7d'>
-                    {t('admin.tokenManagement.expires7d')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value='30d'>
-                    {t('admin.tokenManagement.expires30d')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value='90d'>
-                    {t('admin.tokenManagement.expires90d')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value='never'>
-                    {t('admin.tokenManagement.expiresNever')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value='custom'>
-                    {t('admin.tokenManagement.expiresCustom')}
-                  </ToggleGroupItem>
-                </ToggleGroup>
+                  onValueChange={(value) =>
+                    setExpiresPreset(value as ExpiresPreset)
+                  }
+                  options={[
+                    {
+                      value: '7d',
+                      label: t('admin.tokenManagement.expires7d'),
+                    },
+                    {
+                      value: '30d',
+                      label: t('admin.tokenManagement.expires30d'),
+                    },
+                    {
+                      value: '90d',
+                      label: t('admin.tokenManagement.expires90d'),
+                    },
+                    {
+                      value: 'never',
+                      label: t('admin.tokenManagement.expiresNever'),
+                    },
+                    {
+                      value: 'custom',
+                      label: t('admin.tokenManagement.expiresCustom'),
+                    },
+                  ]}
+                />
                 {expiresPreset === 'custom' ? (
-                  <div className='space-y-1'>
-                    <Input
-                      type='number'
-                      min={1}
-                      max={3650}
-                      value={customDays}
-                      onChange={(event) => setCustomDays(event.target.value)}
-                    />
-                    <p className='text-xs text-muted-foreground'>
-                      {t('admin.tokenManagement.customDaysHint')}
-                    </p>
-                  </div>
+                  <Input
+                    type='number'
+                    label={t('admin.tokenManagement.expiresCustom')}
+                    description={t('admin.tokenManagement.customDaysHint')}
+                    min={1}
+                    max={3650}
+                    value={customDays}
+                    onChange={(event) => setCustomDays(event.target.value)}
+                  />
                 ) : null}
               </div>
             </div>
           )}
           <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
             {issuedToken?.token ? (
-              <Button type='button' onClick={() => setIsCreateOpen(false)}>
+              <Button
+                type='button'
+                size='sm'
+                onClick={() => setIsCreateOpen(false)}
+              >
                 {t('common.close')}
               </Button>
             ) : (
@@ -726,11 +734,16 @@ export function TokenManagement() {
                 <Button
                   type='button'
                   variant='secondary'
+                  size='sm'
                   onClick={() => setIsCreateOpen(false)}
                 >
                   {t('common.cancel')}
                 </Button>
-                <Button type='button' onClick={() => void handleCreate()}>
+                <Button
+                  type='button'
+                  size='sm'
+                  onClick={() => void handleCreate()}
+                >
                   {t('common.create')}
                 </Button>
               </>

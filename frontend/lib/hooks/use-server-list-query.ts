@@ -27,7 +27,7 @@
  * (host deep-links still use the path `/hosts/[id]`).
  */
 
-import {useCallback, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 
 export type ServerListFilters = Record<string, string | number | boolean | undefined | null>;
@@ -139,6 +139,12 @@ function writeSearchParams<F extends ServerListFilters>(
   return next;
 }
 
+interface QueryState<F extends ServerListFilters> {
+  page: number;
+  pageSize: number;
+  filters: F;
+}
+
 export function useServerListQuery<F extends ServerListFilters>(
   options: UseServerListQueryOptions<F>,
 ): ServerListQuery<F> {
@@ -150,8 +156,9 @@ export function useServerListQuery<F extends ServerListFilters>(
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const currentSearch = searchParams.toString();
 
-  const initialFromUrl = useMemo(() => {
+  const initialFromUrl = useMemo<QueryState<F>>(() => {
     if (!urlSync || !filterKeys) {
       return {
         page: 1,
@@ -166,88 +173,159 @@ export function useServerListQuery<F extends ServerListFilters>(
         : defaultPageSize,
       filters: filtersFromSearchParams(searchParams, initialFilters, filterKeys),
     };
-    // 仅挂载时读 URL；后续由 commit 写回。Only read URL on mount; later writes go through commit.
+    // 仅挂载时读 URL；外部路由变更由下方 effect 同步。Only read URL on mount; external route changes sync in the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [page, setPageState] = useState(initialFromUrl.page);
-  const [pageSize, setPageSizeState] = useState(initialFromUrl.pageSize);
-  const [filters, setFiltersState] = useState<F>(initialFromUrl.filters);
+  const [state, setState] = useState<QueryState<F>>(initialFromUrl);
+  // 同步持有最新状态与配置引用，保证同帧连续调用不丢更新、回调引用稳定。
+  // Keep latest state and options in refs so back-to-back calls in one tick never drop updates and callbacks stay stable.
+  const stateRef = useRef<QueryState<F>>(state);
+  stateRef.current = state;
+  const configRef = useRef({
+    initialFilters,
+    defaultPageSize,
+    urlSync,
+    filterKeys,
+    pageKey,
+    pageSizeKey,
+    router,
+    pathname,
+    searchParams,
+  });
+  configRef.current = {
+    initialFilters,
+    defaultPageSize,
+    urlSync,
+    filterKeys,
+    pageKey,
+    pageSizeKey,
+    router,
+    pathname,
+    searchParams,
+  };
 
-  const commit = useCallback(
-    (nextPage: number, nextPageSize: number, nextFilters: F) => {
-      setPageState(nextPage);
-      setPageSizeState(nextPageSize);
-      setFiltersState(nextFilters);
-      if (!urlSync || !filterKeys) {
+  const prevSearchRef = useRef(currentSearch);
+  const lastWrittenSearchRef = useRef<string | null>(null);
+
+  // 启用 urlSync 时，响应浏览器前进/后退等外部 URL 变化。
+  // When urlSync is enabled, resync state on external URL changes such as browser Back/Forward.
+  useEffect(() => {
+    if (currentSearch === prevSearchRef.current) {
+      return;
+    }
+    prevSearchRef.current = currentSearch;
+    if (lastWrittenSearchRef.current === currentSearch) {
+      lastWrittenSearchRef.current = null;
+      return;
+    }
+    const cfg = configRef.current;
+    if (!cfg.urlSync || !cfg.filterKeys) {
+      return;
+    }
+    const next: QueryState<F> = {
+      page: readPositiveInt(cfg.searchParams.get(cfg.pageKey), 1),
+      pageSize: cfg.pageSizeKey
+        ? readPositiveInt(
+            cfg.searchParams.get(cfg.pageSizeKey),
+            cfg.defaultPageSize,
+          )
+        : cfg.defaultPageSize,
+      filters: filtersFromSearchParams(
+        cfg.searchParams,
+        cfg.initialFilters,
+        cfg.filterKeys,
+      ),
+    };
+    stateRef.current = next;
+    setState(next);
+  }, [currentSearch]);
+
+  const applyTransition = useCallback(
+    (updater: (prev: QueryState<F>, cfg: typeof configRef.current) => QueryState<F>) => {
+      const cfg = configRef.current;
+      const next = updater(stateRef.current, cfg);
+      stateRef.current = next;
+      setState(next);
+      if (!cfg.urlSync || !cfg.filterKeys) {
         return;
       }
-      const next = writeSearchParams(searchParams, {
-        page: nextPage,
-        pageSize: nextPageSize,
-        defaultPageSize,
-        filters: nextFilters,
-        filterKeys,
-        pageKey,
-        pageSizeKey,
-        initialFilters,
+      const nextParams = writeSearchParams(cfg.searchParams, {
+        page: next.page,
+        pageSize: next.pageSize,
+        defaultPageSize: cfg.defaultPageSize,
+        filters: next.filters,
+        filterKeys: cfg.filterKeys,
+        pageKey: cfg.pageKey,
+        pageSizeKey: cfg.pageSizeKey,
+        initialFilters: cfg.initialFilters,
       });
-      const qs = next.toString();
-      const href = qs ? `${pathname}?${qs}` : pathname;
-      const current = searchParams.toString();
+      const qs = nextParams.toString();
+      const href = qs ? `${cfg.pathname}?${qs}` : cfg.pathname;
+      const current = cfg.searchParams.toString();
       if (qs !== current) {
-        router.replace(href, {scroll: false});
+        lastWrittenSearchRef.current = qs;
+        cfg.router.replace(href, {scroll: false});
       }
     },
-    [
-      urlSync,
-      filterKeys,
-      searchParams,
-      defaultPageSize,
-      pageKey,
-      pageSizeKey,
-      initialFilters,
-      pathname,
-      router,
-    ],
+    [],
   );
 
   const setPage = useCallback(
     (next: number) => {
-      commit(Math.max(1, next), pageSize, filters);
+      applyTransition((prev) => ({
+        ...prev,
+        page: Math.max(1, next),
+      }));
     },
-    [commit, pageSize, filters],
+    [applyTransition],
   );
 
   const setPageSize = useCallback(
     (next: number) => {
-      commit(1, Math.max(1, next), filters);
+      applyTransition((prev) => ({
+        ...prev,
+        page: 1,
+        pageSize: Math.max(1, next),
+      }));
     },
-    [commit, filters],
+    [applyTransition],
   );
 
   const patchFilters = useCallback(
     (patch: Partial<F>) => {
-      commit(1, pageSize, {...filters, ...patch});
+      applyTransition((prev) => ({
+        ...prev,
+        page: 1,
+        filters: {...prev.filters, ...patch},
+      }));
     },
-    [commit, pageSize, filters],
+    [applyTransition],
   );
 
   const replaceFilters = useCallback(
     (next: F) => {
-      commit(1, pageSize, next);
+      applyTransition((prev) => ({
+        ...prev,
+        page: 1,
+        filters: next,
+      }));
     },
-    [commit, pageSize],
+    [applyTransition],
   );
 
   const resetFilters = useCallback(() => {
-    commit(1, pageSize, initialFilters);
-  }, [commit, pageSize, initialFilters]);
+    applyTransition((prev, cfg) => ({
+      ...prev,
+      page: 1,
+      filters: cfg.initialFilters,
+    }));
+  }, [applyTransition]);
 
   return {
-    page,
-    pageSize,
-    filters,
+    page: state.page,
+    pageSize: state.pageSize,
+    filters: state.filters,
     setPage,
     setPageSize,
     patchFilters,

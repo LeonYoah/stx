@@ -29,6 +29,9 @@ const MemoizedManagementBar = memo(ManagementBar);
 
 export default function ProjectLayout({children}: {children: React.ReactNode}) {
   const pathname = usePathname();
+  // `/hosts/[id]` 复用 `/hosts` 的 HostMain + DetailHost，保持同一 key 避免切行同步地址栏时整页重挂。
+  // `/hosts/[id]` reuses `/hosts`'s HostMain + DetailHost; keep one key so switching rows does not remount the page.
+  const pageKey = pathname.startsWith('/hosts/') ? '/hosts' : pathname;
 
   return (
     <OnboardingProvider>
@@ -53,7 +56,7 @@ export default function ProjectLayout({children}: {children: React.ReactNode}) {
             {/* 统一页面容器与平滑进场淡入动画 */}
             {/* Unified page container with smooth entry fade-in animation */}
             <div
-              key={pathname}
+              key={pageKey}
               className='flex flex-col gap-4 mb-8 pb-28 w-full max-w-none px-3 sm:px-4 lg:px-6 xl:px-8 2xl:px-10 py-6 md:gap-6 animate-in fade-in-50 duration-200'
             >
               {children}

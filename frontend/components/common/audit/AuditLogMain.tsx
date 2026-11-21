@@ -22,7 +22,7 @@
  * Audit log page: TableCard + useServerListQuery; traces stay on AuditTraceSheet.
  */
 
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {RefreshCw, ScrollText} from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
@@ -114,6 +114,7 @@ export function AuditLogMain() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [traceLog, setTraceLog] = useState<AuditLogInfo | null>(null);
+  const listRequestIdRef = useRef(0);
 
   const dateRange = useMemo(
     () => ymdPairToDateRange(filters.startDate, filters.endDate),
@@ -121,6 +122,8 @@ export function AuditLogMain() {
   );
 
   const loadLogs = useCallback(async () => {
+    const requestId = listRequestIdRef.current + 1;
+    listRequestIdRef.current = requestId;
     setLoading(true);
     try {
       let startTime: string | undefined;
@@ -145,21 +148,25 @@ export function AuditLogMain() {
       };
 
       const result = await services.audit.getAuditLogsSafe(params);
+      if (listRequestIdRef.current !== requestId) {
+        return;
+      }
       if (result.success && result.data) {
         setLogs(result.data.logs || []);
         setTotal(result.data.total || 0);
         setError(null);
       } else {
         setError(result.error || t('audit.loadError'));
-        setLogs([]);
-        setTotal(0);
       }
     } catch (err) {
+      if (listRequestIdRef.current !== requestId) {
+        return;
+      }
       setError(err instanceof Error ? err.message : t('audit.loadError'));
-      setLogs([]);
-      setTotal(0);
     } finally {
-      setLoading(false);
+      if (listRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [page, pageSize, filters, t]);
 

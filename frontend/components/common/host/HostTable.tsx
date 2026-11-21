@@ -312,13 +312,16 @@ export function HostTable({
                     <TooltipTrigger asChild>
                       <Button
                         type='button'
-                        variant='secondary'
+                        variant='ghost'
                         size='sm'
-                        className='h-7 gap-1 border-amber-500/40 bg-amber-500/10 px-2 text-xs text-amber-600 hover:bg-amber-500/20 dark:text-amber-400'
+                        iconOnly
+                        aria-label={t('host.installGuide.installAgent')}
                         onClick={() => onInstallAgent(host)}
                       >
-                        <Terminal className='size-3.5' aria-hidden />
-                        <span>{t('host.installGuide.installAgent')}</span>
+                        <Terminal
+                          className='size-3.5 text-amber-600 dark:text-amber-400'
+                          aria-hidden
+                        />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>

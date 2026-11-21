@@ -56,7 +56,7 @@
 - **shadcn 弹窗宽度硬要求**：`ui/dialog` / `ui/alert-dialog` 底座自带 `sm:max-w-lg`，调用处写不带断点前缀的 `max-w-*` 会在宽屏被覆盖导致大弹窗被锁成 512px。宽度一律写 `sm:max-w-*`（`components/ui/__tests__/dialog-width-classes.test.ts` 自动扫描拦截）；重内容弹窗显式放宽至 `sm:max-w-4xl` 以上并采用 `flex flex-col overflow-hidden` + 内部 `overflow-auto min-h-0 flex-1`（长 mono 日志禁止再包 `ScrollArea`）。
 - **详情 vs 临时覆盖**：管理列表的行详情走 `DetailHost`（§3）；`ui/sheet` 仅用于临时覆盖（如审计 `AuditTraceSheet`）。主机详情从 Sheet 迁到 DetailHost 后，不要把常驻详情塞回右侧 Sheet。
 - **Arc 弹窗与共享未保存确认**：
-  - Arc 弹窗走 `@/components/arc/dialog/dialog`（内容节点附带 `.arc-compact`，尺寸显式写 `w-[min(...)]!` / `max-h-[85vh]!`）。
+  - Arc 弹窗走 `@/components/arc/dialog/dialog`（尺寸显式写 `w-[min(...)]!` / `max-h-[85vh]!`；`foundation.css` `:root` 已统一半胶囊紧凑尺度，不再要求每个 Portal 手动补 `.arc-compact`）。
   - 跨模块未保存拦截统一走 `components/common/layout/UnsavedChangesDialog`（支持两/三动作、禁用遮罩误点、默认焦点落在安全留守按钮）；常规两动作场景直接用文案已绑定的 `DirtyCloseDialog`。仅编辑脏态触发、新建取消直接退出，**禁止**在底栏做内联替换条或绝对定位硬盖。
 - **只读长文本**：错误堆栈、运行日志、JSON/配置样本统一用 `components/common/layout/ExpandableTextPanel`（原生双向 `overflow-auto`，放大走 `WorkbenchDialogContent`）。
 - **确认分层**：破坏性 / 影响他人或批量 → `ui/alert-dialog`；单条、不可撤回、只涉及自己且有按钮可锚定 → Arc `ConfirmMorph`（每行最多锚定 1 个）；能撤回的操作可不确认。全站禁止 `window.confirm`。用普通 `Dialog` 承载的纯确认应改为 `AlertDialog`。
@@ -84,12 +84,10 @@
 ## 8. Arc 与 beUI 组件约定
 
 - **安装与许可**：免费 Arc 组件装入 `frontend/components/arc/`（`cd frontend && pnpm dlx shadcn@latest add @uiarc/<name> --yes`），不覆盖 `components/ui/`，不安装 `@uiarc-pro`；beUI 放在 `components/motion/` / `components/charts/`（不覆盖仓库 `lib/i18n/`、`lib/utils.ts`、`lib/ease.ts`）。两类 vendored 文件均须保留 MIT 头、登记 `licenses/third_party_mit_files.txt`；对组件做局部 STX 扩展必须加双语 `Local modification` 注释以便升级 diff 合并。
-- **主题与桌面后台收紧尺度（任务 `11-18-unified-admin-console-lists` 目标）**：`app/layout.tsx` 引入一次 `@/components/arc/foundation.css`，`ThemeProvider` 的 `ArcThemeAttribute` 同步 `html[data-theme]`。控制台外层容器覆盖（不魔改各组件圆角源码；工作台 `studio-chrome.css` 独立）：
-  - `--radius-control: 0.5rem`（**8px**）、`--radius-panel: 0.625rem`（**10px**）、`--control-height-md: 2rem`（**32px**）、`--control-height-sm: 1.75rem`（**28px**）；
-  - 弹层 `--radius-popover: 0.625rem`（**10px**，定义在 `:root`，因 Portal 挂到 `body`），内边距 4px，选项圆角 6px、行高 32px；
+- **主题与全局半胶囊尺度**：`app/layout.tsx` 引入一次 `@/components/arc/foundation.css`，`ThemeProvider` 的 `ArcThemeAttribute` 同步 `html[data-theme]`。`foundation.css` `:root` 与 `app/globals.css` `.arc-compact` 统一桌面控制台半胶囊尺度（不魔改各组件圆角源码；工作台 `studio-chrome.css` 独立）：
+  - `--radius-control: 0.875rem`（**14px**）、`--radius-panel: 1rem`（**16px**）、`--radius-popover: 0.75rem`（**12px**，定义在 `:root`，供挂到 `body` 的 Portal 弹层共享）、`--control-height-sm: 1.875rem`（**30px**）、`--control-height-md: 2.125rem`（**34px**）；
   - `ConfirmMorph` / `Switch` 保持胶囊；不叠 `corner-shape: superellipse`。
-  - Portal 表面（`DrawerContent`、`DialogContent`）内容节点须挂 `.arc-compact`。
-- **同一块区域只用一套组件**：同一行筛选栏、同一个对话框、同一张表里，交互控件要么全是 Arc，要么全是 shadcn（§9 的 `ui/badge` 豁免）。换下拉时，同行搜索框 / 按钮 / 日期一起换。
+- **同一块区域优先统一复用 Arc 组件**：同一行筛选栏、同一个对话框、同一张表里，已有 Arc 封装的交互控件（`Button` / `Input` / `Select` / `Combobox` / `Switch` / `Checkbox` / `SegmentedControl` / `Dialog`）统一走 `@/components/arc/*`；Arc 未封装的控件（如 `Textarea`、`ui/alert-dialog`）以及 §9 的 `ui/badge` 可配合使用。
 - **控件选型**：
 
   | 场景 | 组件 |
@@ -150,7 +148,7 @@
 - [ ] 同一行筛选栏 / 对话框 / 表内是否只用一套控件（`ui/badge` 豁免）？下拉 / 可搜索下拉 / 行内更多 / 行内确认是否按 §8 选型？弹层是否走 `--radius-popover`？
 - [ ] 状态标签是否保留原本 `ui/badge`（或既有 Arc `Badge`），并兼顾 `dark:` 对比度？
 - [ ] 表格/卡片切换用 `ViewToggle` + `useViewMorph`；多选批量条浮于 Dock 上方；互斥挂载的 `SegmentedControl` 传共享 `layoutGroup`。
-- [ ] shadcn 弹窗宽度使用 `sm:max-w-*`；Arc 弹窗/抽屉 Portal 节点挂 `.arc-compact`；无 `window.confirm`。
+- [ ] shadcn 弹窗宽度使用 `sm:max-w-*`；Arc 弹窗显式声明宽度（`w-[min(...)]!`）；无 `window.confirm`。
 - [ ] 敏感凭据不回显明文；异步资源创建后有心跳闭环向导。
 - [ ] 中英文文案完整且单语展示，动态后端值先 `t.has()`；时间走 `lib/timezone`；无底层实现名泄露。
 - [ ] 新增/修改注释遵循「中文在前，英文在后」；vendored 组件保留 MIT 头与本地改动标注。

@@ -113,4 +113,44 @@ describe('useServerListQuery', () => {
     expect(result.current.filters.status).toBe('pending');
     expect(result.current.filters.q).toBe('edge');
   });
+
+  it('同帧连续调用 patchFilters 不丢失前一次更新，且回调引用保持稳定', () => {
+    const {result, rerender} = renderHook(() =>
+      useServerListQuery({
+        initialFilters: {status: 'all', q: ''},
+        defaultPageSize: 10,
+      }),
+    );
+
+    const firstPatch = result.current.patchFilters;
+    const firstSetPage = result.current.setPage;
+
+    act(() => {
+      result.current.patchFilters({status: 'connected'});
+      result.current.patchFilters({q: 'node-1'});
+    });
+    expect(result.current.filters).toEqual({status: 'connected', q: 'node-1'});
+
+    rerender();
+    expect(result.current.patchFilters).toBe(firstPatch);
+    expect(result.current.setPage).toBe(firstSetPage);
+  });
+
+  it('urlSync 响应外部 URL 变化（前进/后退）同步状态', () => {
+    search = 'page=2&status=connected';
+    const {result, rerender} = renderHook(() =>
+      useServerListQuery({
+        initialFilters: {status: 'all', q: ''},
+        defaultPageSize: 10,
+        urlSync: {filterKeys: ['status', 'q']},
+      }),
+    );
+    expect(result.current.page).toBe(2);
+    expect(result.current.filters.status).toBe('connected');
+
+    search = 'status=offline&q=edge';
+    rerender();
+    expect(result.current.page).toBe(1);
+    expect(result.current.filters).toEqual({status: 'offline', q: 'edge'});
+  });
 });

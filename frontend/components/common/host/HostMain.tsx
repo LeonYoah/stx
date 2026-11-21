@@ -119,6 +119,9 @@ export function HostMain({initialHostId = null}: HostMainProps) {
     failed: number;
   } | null>(null);
   const flyOriginRef = useRef<HTMLElement | null>(null);
+  const listRequestIdRef = useRef(0);
+  const detailRequestIdRef = useRef(0);
+  const lastSyncedDeepLinkRef = useRef<number | null>(null);
 
   const pageIds = useMemo(() => hosts.map((h) => h.id), [hosts]);
   const {
@@ -135,6 +138,8 @@ export function HostMain({initialHostId = null}: HostMainProps) {
   const drawerHost = useDrawerItem(selectedHost);
 
   const loadHosts = useCallback(async () => {
+    const requestId = listRequestIdRef.current + 1;
+    listRequestIdRef.current = requestId;
     setLoading(true);
     try {
       const params: ListHostsRequest = {
@@ -151,21 +156,25 @@ export function HostMain({initialHostId = null}: HostMainProps) {
             : undefined,
       };
       const result = await services.host.getHostsSafe(params);
+      if (listRequestIdRef.current !== requestId) {
+        return;
+      }
       if (result.success && result.data) {
         setHosts(result.data.hosts || []);
         setTotal(result.data.total || 0);
         setError(null);
       } else {
         setError(result.error || t('host.loadError'));
-        setHosts([]);
-        setTotal(0);
       }
     } catch (err) {
+      if (listRequestIdRef.current !== requestId) {
+        return;
+      }
       setError(err instanceof Error ? err.message : t('host.loadError'));
-      setHosts([]);
-      setTotal(0);
     } finally {
-      setLoading(false);
+      if (listRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [page, pageSize, filters, t]);
 
@@ -175,31 +184,40 @@ export function HostMain({initialHostId = null}: HostMainProps) {
 
   const loadHostDetail = useCallback(
     async (hostId: number, seed?: HostInfo) => {
+      const requestId = detailRequestIdRef.current + 1;
+      detailRequestIdRef.current = requestId;
       if (seed && seed.id === hostId) {
         setSelectedHost(seed);
       }
       setLoadingDetail(true);
       try {
         const result = await services.host.getHostSafe(hostId);
+        if (detailRequestIdRef.current !== requestId) {
+          return;
+        }
         if (result.success && result.data) {
           setSelectedHost(result.data);
         } else if (!seed) {
           toast.error(result.error || t('host.loadError'));
           setSelectedHostId(null);
           setSelectedHost(null);
+          lastSyncedDeepLinkRef.current = null;
           router.replace('/hosts');
         }
       } finally {
-        setLoadingDetail(false);
+        if (detailRequestIdRef.current === requestId) {
+          setLoadingDetail(false);
+        }
       }
     },
     [router, t],
   );
 
-  // 深链：外部 /hosts/[id] 打开对应常驻详情。
-  // Deep link: /hosts/[id] opens the matching persistent detail.
+  // 深链：外部 /hosts/[id]（含浏览器前进/后退）打开对应常驻详情，跳过行内已触发的同 id。
+  // Deep link: external /hosts/[id] (including Back/Forward) opens the persistent detail; skip ids already opened in-page.
   useEffect(() => {
-    if (initialHostId) {
+    if (initialHostId && initialHostId !== lastSyncedDeepLinkRef.current) {
+      lastSyncedDeepLinkRef.current = initialHostId;
       setSelectedHostId(initialHostId);
       void loadHostDetail(initialHostId);
     }
@@ -217,21 +235,24 @@ export function HostMain({initialHostId = null}: HostMainProps) {
       setSelectedHostId(host.id);
       setSelectedHost(host);
       void loadHostDetail(host.id, host);
-      // 仅在深链路由上同步 path，避免 /hosts 列表选中时整页重挂丢失筛选。
-      // Sync the path only on the deep-link route so selecting from /hosts
-      // does not remount and wipe filters.
+      // 仅在深链路由上同步 path；layout.tsx 对 `/hosts/*` 共用同一 key，不触发整页重挂。
+      // Sync path only on the deep-link route; layout.tsx shares one key for `/hosts/*` so switching rows will not remount.
       if (initialHostId != null) {
-        router.replace(`/hosts/${host.id}`);
+        lastSyncedDeepLinkRef.current = host.id;
+        router.replace(`/hosts/${host.id}`, {scroll: false});
       }
     },
     [initialHostId, loadHostDetail, router],
   );
 
   const handleCloseDetail = useCallback(() => {
+    detailRequestIdRef.current += 1;
+    lastSyncedDeepLinkRef.current = null;
+    setLoadingDetail(false);
     setSelectedHostId(null);
     setSelectedHost(null);
     if (initialHostId != null) {
-      router.replace('/hosts');
+      router.replace('/hosts', {scroll: false});
     }
   }, [initialHostId, router]);
 
@@ -267,12 +288,13 @@ export function HostMain({initialHostId = null}: HostMainProps) {
 
   const runBatchDelete = useCallback(async () => {
     const ids = Array.from(selectedIds);
-    if (ids.length === 0) {
+    if (ids.length === 0 || batchBusy) {
       return;
     }
     setBatchBusy(true);
     setBatchResult(null);
     const outcome = {ok: 0, skipped: 0, failed: 0};
+    const failedIds: number[] = [];
     for (const id of ids) {
       const result = await services.host.deleteHostSafe(id);
       if (result.success) {
@@ -282,25 +304,33 @@ export function HostMain({initialHostId = null}: HostMainProps) {
         }
       } else {
         outcome.failed += 1;
+        failedIds.push(id);
       }
     }
     setBatchResult(outcome);
     setBatchBusy(false);
     setBatchDeleteOpen(false);
-    clearSelection();
+    // 保留失败项勾选以便直接重试，清除已成功项。Keep failed items selected for direct retry; clear succeeded ones.
+    setSelectedIds(new Set(failedIds));
     void loadHosts();
-    toast.success(
-      t('host.batchResult', {
-        ok: outcome.ok,
-        skipped: outcome.skipped,
-        failed: outcome.failed,
-      }),
-    );
+    const summary = t('host.batchResult', {
+      ok: outcome.ok,
+      skipped: outcome.skipped,
+      failed: outcome.failed,
+    });
+    if (outcome.failed > 0 && outcome.ok === 0) {
+      toast.error(summary);
+    } else if (outcome.failed > 0 || outcome.skipped > 0) {
+      toast.warning(summary);
+    } else {
+      toast.success(summary);
+    }
   }, [
     selectedIds,
+    batchBusy,
     selectedHostId,
     handleCloseDetail,
-    clearSelection,
+    setSelectedIds,
     loadHosts,
     t,
   ]);
@@ -309,7 +339,6 @@ export function HostMain({initialHostId = null}: HostMainProps) {
     void loadHosts();
     if (newHost && newHost.host_type !== HostType.BARE_METAL) {
       setIsCreateDialogOpen(false);
-      toast.success(t('host.createSuccess'));
     }
   };
 
@@ -321,8 +350,9 @@ export function HostMain({initialHostId = null}: HostMainProps) {
   const handleHostUpdated = () => {
     setIsEditDialogOpen(false);
     void loadHosts();
-    if (editHost) {
-      void loadHostDetail(editHost.id, editHost);
+    // 仅刷新当前打开的同一台主机详情，不覆写关闭态或其他主机。Only refresh when the edited host is currently open.
+    if (editHost && selectedHostId === editHost.id) {
+      void loadHostDetail(editHost.id);
     }
     toast.success(t('host.updateSuccess'));
   };

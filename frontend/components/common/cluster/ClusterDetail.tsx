@@ -25,28 +25,21 @@
  * 显示集群的详细信息，包括节点和状态。
  */
 
-import {useState, useEffect, useCallback, useRef} from 'react';
-import {useRouter, useSearchParams} from 'next/navigation';
+import {useState, useEffect, useCallback, useMemo, useRef} from 'react';
+import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
-import {Badge} from '@/components/ui/badge';
+import {Button as ArcButton} from '@/components/arc/button/button';
+import {Alert as ArcAlert} from '@/components/arc/alert/alert';
+import {DropdownMenu as ArcDropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {
+  Tabs as ArcTabs,
+  TabsContent as ArcTabsContent,
+  TabsList as ArcTabsList,
+  TabsTrigger as ArcTabsTrigger,
+} from '@/components/arc/tabs/tabs';
 import {Input} from '@/components/ui/input';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {Pagination} from '@/components/ui/pagination';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,14 +60,6 @@ import {
   WorkbenchDialogContent,
 } from '@/components/ui/dialog';
 import {Label} from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {toast} from '@/lib/toast';
 import {
   ArrowLeft,
@@ -83,57 +68,49 @@ import {
   RotateCcw,
   Pencil,
   Trash2,
-  Plus,
   RefreshCw,
-  Server,
   Activity,
   Bug,
-  AlertTriangle,
   Loader2,
   File,
   FileText,
   MonitorSmartphone,
-  FolderOpen,
-  Eye,
-  ChevronUp,
   Database,
-  Search,
   Layers,
   Copy,
-  Check,
   MoreHorizontal,
   Cpu,
   SlidersHorizontal,
   HelpCircle,
-  X,
 } from 'lucide-react';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {Checkbox} from '@/components/ui/checkbox';
-import {motion} from 'motion/react';
 import {
+  DirtyCloseDialog,
   ExpandableTextPanel,
+  NeutralChip,
+  SoftChip,
   WorkspaceHeader,
-  StatPillsBar,
   TableLoadingBar,
-  TableSkeletonRows,
 } from '@/components/common/layout';
+import {ClusterStatusChip} from './ClusterStatusChip';
+import {
+  CLUSTER_DETAIL_TABS,
+  resolveClusterDetailRoute,
+  type ClusterDetailTab,
+  type RuntimeSubView,
+} from './detail/cluster-detail-tabs';
+import {ClusterOverviewTab} from './detail/ClusterOverviewTab';
+import {ClusterNodesTab} from './detail/ClusterNodesTab';
+import {ClusterOpsTab} from './detail/ClusterOpsTab';
 import {CheckpointInspectDialog} from '@/components/common/sync/CheckpointPanels';
 import {Skeleton} from '@/components/ui/skeleton';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import services from '@/lib/services';
 import {
   ClusterInfo,
   ClusterStatus,
   ClusterStatusInfo,
   NodeInfo,
-  NodeStatus,
-  NodeRole,
   RuntimeStorageDetails,
   RuntimeStorageSpec,
   RuntimeStorageValidationResult,
@@ -147,16 +124,9 @@ import {
 import type {UpgradeTaskSummary} from '@/lib/services/st-upgrade';
 import type {DiagnosticsErrorGroup} from '@/lib/services/diagnostics';
 import type {ClusterMonitoringOverviewData} from '@/lib/services/monitoring';
-import {
-  getExecutionStatusLabel,
-  getStatusBadgeVariant as getUpgradeStatusBadgeVariant,
-} from './upgrade/utils';
 import {EditClusterDialog} from './EditClusterDialog';
 import {AddNodeDialog} from './AddNodeDialog';
-import {
-  NodeJavaHomeCell,
-  type NodeJavaRuntimeView,
-} from '@/components/common/java/NodeJavaHomeCell';
+import type {NodeJavaRuntimeView} from '@/components/common/java/NodeJavaHomeCell';
 import {RemoveNodeDialog} from './RemoveNodeDialog';
 import {ScaleOperationProgress} from './scale/ScaleOperationProgress';
 import type {ScaleOperationInfo} from '@/lib/services/cluster/scale.types';
@@ -167,60 +137,15 @@ import {EngineEventChannelCard} from './EngineEventChannelCard';
 import {SeaTunnelObserveMenu} from './SeaTunnelObserveMenu';
 import {RuntimeStorageEditor} from './RuntimeStorageEditor';
 import {RuntimeStorageFileExplorer} from './RuntimeStorageFileExplorer';
-import {MonitorConfigPanel} from './MonitorConfigPanel';
-import {ProcessEventList} from './ProcessEventList';
 import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
-import {formatDateTimeTz} from '@/lib/timezone';
 import {useOnboardingOptional} from '@/components/common/onboarding/OnboardingContext';
 
 interface ClusterDetailProps {
   clusterId: number;
 }
-
-type ClusterDetailTab =
-  | 'nodes'
-  | 'overview'
-  | 'storage'
-  | 'proxy'
-  | 'monitoring'
-  | 'webui'
-  | 'plugins'
-  | 'configs'
-  | 'diagnostics'
-  | 'upgrades';
-
-/**
- * Get status badge variant
- * 获取状态徽章变体
- */
-function getStatusBadgeVariant(
-  status: ClusterStatus | NodeStatus,
-): 'default' | 'secondary' | 'destructive' | 'outline' {
-  switch (status) {
-    case ClusterStatus.RUNNING:
-    case NodeStatus.RUNNING:
-      return 'default';
-    case ClusterStatus.CREATED:
-    case ClusterStatus.STOPPED:
-    case NodeStatus.PENDING:
-    case NodeStatus.STOPPED:
-      return 'secondary';
-    case ClusterStatus.DEPLOYING:
-    case NodeStatus.INSTALLING:
-      return 'outline';
-    case ClusterStatus.ERROR:
-    case NodeStatus.ERROR:
-      return 'destructive';
-    case NodeStatus.OFFLINE:
-      return 'outline';
-    default:
-      return 'secondary';
-  }
-}
-
 
 /**
  * Get role translation key
@@ -256,33 +181,6 @@ function formatBytes(bytes?: number): string {
     index += 1;
   }
   return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
-}
-
-function trimTrailingSlashes(value?: string): string {
-  if (!value) {
-    return '';
-  }
-  return value.replace(/\/+$/, '');
-}
-
-function parentBrowsePath(currentPath?: string, rootPath?: string): string {
-  const current = trimTrailingSlashes(currentPath);
-  const root = trimTrailingSlashes(rootPath);
-  if (!current) {
-    return rootPath || '';
-  }
-  if (!root || current === root) {
-    return rootPath || currentPath || '';
-  }
-  const index = current.lastIndexOf('/');
-  if (index < 0) {
-    return rootPath || '';
-  }
-  const parent = current.slice(0, index);
-  if (!parent || (root && parent.length < root.length)) {
-    return rootPath || '';
-  }
-  return parent;
 }
 
 interface ClusterRuntimeConfigView {
@@ -346,6 +244,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // 复用工作台 Checkpoint 详情弹窗文案 / Reuse workbench Checkpoint dialog copy
   const tCheckpoint = useTranslations('workbenchStudio');
   const router = useRouter();
+  const pathname = usePathname();
   const onboarding = useOnboardingOptional();
   const bindTargetCluster = onboarding?.bindTargetCluster;
   const onboardingReady = onboarding?.ready;
@@ -428,12 +327,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [runtimeStorageBrowsePath, setRuntimeStorageBrowsePath] = useState<
     Partial<Record<'checkpoint' | 'imap', string>>
   >({});
-  const [runtimeStorageSearch, setRuntimeStorageSearch] = useState<
-    Partial<Record<'checkpoint' | 'imap', string>>
-  >({});
-  const [runtimeStoragePage, setRuntimeStoragePage] = useState<
-    Partial<Record<'checkpoint' | 'imap', number>>
-  >({});
   const [runtimeStoragePreviewLoading, setRuntimeStoragePreviewLoading] =
     useState<string | null>(null);
   const [runtimeStoragePreview, setRuntimeStoragePreview] =
@@ -466,27 +359,91 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [forceDelete, setForceDelete] = useState(false);
   const [nodeToRemove, setNodeToRemove] = useState<NodeInfo | null>(null);
-  const [activeTab, setActiveTab] = useState<ClusterDetailTab>('overview');
   const searchParams = useSearchParams();
+  // 守护策略数值表单脏态与待跳转目标（脏态切换 Tab/子视角走 DirtyCloseDialog）
+  // Guard policy numeric dirty state & pending navigation target intercepted by DirtyCloseDialog
+  const [guardDirty, setGuardDirty] = useState(false);
+  const [pendingRoute, setPendingRoute] = useState<{
+    tab: ClusterDetailTab;
+    view?: string | null;
+  } | null>(null);
 
-  // Deep-link ?tab=proxy (onboarding AC8) / 支持 ?tab=proxy 深链（上手 AC8）
+  const rawTabParam = searchParams?.get('tab') ?? null;
+  const rawViewParam = searchParams?.get('view') ?? null;
+
+  const updateRouteQuery = useCallback(
+    (tab: ClusterDetailTab, view?: string | null) => {
+      const next = new URLSearchParams(searchParams?.toString() ?? '');
+      if (tab === 'overview') {
+        next.delete('tab');
+      } else {
+        next.set('tab', tab);
+      }
+      if (view) {
+        next.set('view', view);
+      } else {
+        next.delete('view');
+      }
+      const qs = next.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, {scroll: false});
+    },
+    [pathname, router, searchParams],
+  );
+
+  const runtimeConfig = useMemo(
+    () => extractClusterRuntimeConfig(cluster?.config),
+    [cluster?.config],
+  );
+  const webUINode = useMemo(
+    () => pickWebUINode(nodes, cluster?.version, runtimeConfig.enableHTTP),
+    [cluster?.version, nodes, runtimeConfig.enableHTTP],
+  );
+  const resolvedRoute = useMemo(
+    () =>
+      resolveClusterDetailRoute(rawTabParam, rawViewParam, Boolean(webUINode)),
+    [rawTabParam, rawViewParam, webUINode],
+  );
+  const activeTab = resolvedRoute.tab;
+  const runtimeView = resolvedRoute.runtimeView;
+  const opsView = resolvedRoute.opsView;
+
+  // 旧 ?tab=storage|proxy|webui|monitoring|diagnostics|upgrades 深链无感归一化
+  // Silently normalize legacy tab params onto the 6 canonical tabs + sub-views
   useEffect(() => {
-    const tab = searchParams?.get('tab');
-    if (
-      tab === 'proxy' ||
-      tab === 'overview' ||
-      tab === 'nodes' ||
-      tab === 'storage' ||
-      tab === 'monitoring' ||
-      tab === 'plugins' ||
-      tab === 'configs' ||
-      tab === 'diagnostics' ||
-      tab === 'upgrades' ||
-      tab === 'webui'
-    ) {
-      setActiveTab(tab);
+    if (!resolvedRoute.isLegacy) {
+      return;
     }
-  }, [searchParams]);
+    if (resolvedRoute.tab === 'runtime') {
+      updateRouteQuery('runtime', resolvedRoute.runtimeView);
+    } else if (resolvedRoute.tab === 'ops') {
+      updateRouteQuery('ops', resolvedRoute.opsView);
+    }
+  }, [resolvedRoute, updateRouteQuery]);
+
+  const requestRouteChange = useCallback(
+    (tab: ClusterDetailTab, view?: string | null) => {
+      const leavingGuard =
+        activeTab === 'ops' &&
+        opsView === 'guard' &&
+        guardDirty &&
+        (tab !== 'ops' || (view ?? 'guard') !== 'guard');
+      if (leavingGuard) {
+        setPendingRoute({tab, view});
+        return;
+      }
+      updateRouteQuery(tab, view);
+    },
+    [activeTab, guardDirty, opsView, updateRouteQuery],
+  );
+
+  const commitPendingRoute = useCallback(() => {
+    const target = pendingRoute;
+    setPendingRoute(null);
+    setGuardDirty(false);
+    if (target) {
+      updateRouteQuery(target.tab, target.view);
+    }
+  }, [pendingRoute, updateRouteQuery]);
 
   // Node selection state / 节点选择状态
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<number>>(
@@ -510,15 +467,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [isLogDialogOpen, setIsLogDialogOpen] = useState(false);
   const [logNodeInfo, setLogNodeInfo] = useState<NodeInfo | null>(null);
 
-  // 平滑刷新与节点筛选状态 / Smooth refresh and node filter state
+  // 平滑刷新状态 / Smooth refresh state
   const [refreshing, setRefreshing] = useState(false);
-  const [nodeSearchTerm, setNodeSearchTerm] = useState('');
-  const [nodeStatusFilter, setNodeStatusFilter] = useState<string>('all');
-  // 存储 Tab 内 Checkpoint / IMAP 焦点切换 / Checkpoint vs IMAP focus inside storage tab
-  const [storageFocus, setStorageFocus] = useState<'checkpoint' | 'imap'>(
-    'checkpoint',
-  );
-  const [copiedInstallDir, setCopiedInstallDir] = useState(false);
   // 日志输出模式切换状态 / Job log mode switching state
   const [logModeSwitching, setLogModeSwitching] = useState(false);
 
@@ -706,7 +656,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           if (path !== undefined) {
             setRuntimeStorageBrowsePath((prev) => ({...prev, [kind]: path}));
           }
-          setRuntimeStoragePage((prev) => ({...prev, [kind]: 1}));
           setRuntimeStorageListing((prev) => ({...prev, [kind]: cached}));
           return;
         }
@@ -717,7 +666,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         if (path !== undefined) {
           setRuntimeStorageBrowsePath((prev) => ({...prev, [kind]: path}));
         }
-        setRuntimeStoragePage((prev) => ({...prev, [kind]: 1}));
         const result = await services.cluster.listRuntimeStorageSafe(
           clusterId,
           kind,
@@ -1074,14 +1022,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   }, [loadUpgradeTasks, upgradeTasksPage, upgradeTasksPageSize]);
 
   useEffect(() => {
-    if (activeTab === 'storage') {
+    if (
+      activeTab === 'runtime' &&
+      (runtimeView === 'checkpoint' || runtimeView === 'imap')
+    ) {
       void loadRuntimeStorage();
       return;
     }
-    if (activeTab === 'proxy') {
+    if (activeTab === 'runtime' && runtimeView === 'proxy') {
       void loadStxJavaProxyStatus();
     }
-  }, [activeTab, loadRuntimeStorage, loadStxJavaProxyStatus]);
+  }, [activeTab, runtimeView, loadRuntimeStorage, loadStxJavaProxyStatus]);
 
   const openUpgradeTaskDetail = useCallback(
     (task: UpgradeTaskSummary) => {
@@ -1287,19 +1238,16 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    * Toggle all nodes selection
    * 切换全选
    */
-  const toggleAllNodes = () => {
-    if (
-      filteredNodes.length > 0 &&
-      filteredNodes.every((n) => selectedNodeIds.has(n.id))
-    ) {
-      const next = new Set(selectedNodeIds);
-      filteredNodes.forEach((n) => next.delete(n.id));
-      setSelectedNodeIds(next);
-    } else {
-      const next = new Set(selectedNodeIds);
-      filteredNodes.forEach((n) => next.add(n.id));
-      setSelectedNodeIds(next);
-    }
+  const toggleAllNodes = (targetNodes: NodeInfo[], checked: boolean) => {
+    setSelectedNodeIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        targetNodes.forEach((n) => next.add(n.id));
+      } else {
+        targetNodes.forEach((n) => next.delete(n.id));
+      }
+      return next;
+    });
   };
 
   /**
@@ -1519,33 +1467,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const canDelete =
     cluster.status !== ClusterStatus.RUNNING &&
     cluster.status !== ClusterStatus.DEPLOYING;
-  const runtimeConfig = extractClusterRuntimeConfig(cluster.config);
-  const webUINode = pickWebUINode(
-    nodes,
-    cluster.version,
-    runtimeConfig.enableHTTP,
-  );
   const webUIProxyURL = webUINode ? `/api/v1/clusters/${clusterId}/webui/` : '';
   const webUIMasterAddress = webUINode
     ? `${webUINode.host_ip || webUINode.host_name || '-'}:${webUINode.api_port}`
     : '';
-  const upgradeTaskTotalPages = Math.max(
-    1,
-    Math.ceil(upgradeTasksTotal / upgradeTasksPageSize),
-  );
-
-  const containerVariants = {
-    hidden: {opacity: 0},
-    visible: {
-      opacity: 1,
-      transition: {duration: 0.5, staggerChildren: 0.1},
-    },
-  };
-
-  const itemVariants = {
-    hidden: {opacity: 0, y: 20},
-    visible: {opacity: 1, y: 0, transition: {duration: 0.6}},
-  };
 
   const renderRuntimeStorageSpec = (
     spec: RuntimeStorageSpec | undefined,
@@ -1553,7 +1478,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   ) => {
     if (!spec) {
       return (
-        <div className='rounded-lg border border-dashed p-4 text-sm text-muted-foreground'>
+        <div className='border-t-[0.5px] border-border/80 py-6 text-center text-xs text-muted-foreground'>
           {t('cluster.runtimeStorage.unavailable')}
         </div>
       );
@@ -1561,150 +1486,182 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     const kind = spec.kind as 'checkpoint' | 'imap';
     const listing = runtimeStorageListing[kind];
     return (
-      <Card>
-        <CardHeader className='pb-3'>
-          <CardTitle className='text-base'>{label}</CardTitle>
-          <CardDescription>
-            {spec.enabled
-              ? t('cluster.runtimeStorage.mode', {
-                  type: spec.storage_type || '-',
-                })
-              : t('cluster.runtimeStorage.disabled')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className='space-y-3 text-sm'>
-          <div className='flex justify-end'>
-            <Button
-              variant='outline'
+      <div className='space-y-4 border-t-[0.5px] border-border/80 pt-5 text-sm'>
+        <div className='flex flex-wrap items-start justify-between gap-3'>
+          <div className='min-w-0 space-y-0.5'>
+            <h4 className='text-sm font-semibold text-foreground'>{label}</h4>
+            <p className='text-xs text-muted-foreground'>
+              {spec.enabled
+                ? t('cluster.runtimeStorage.mode', {
+                    type: spec.storage_type || '-',
+                  })
+                : t('cluster.runtimeStorage.disabled')}
+            </p>
+          </div>
+          <div className='flex shrink-0 items-center gap-2'>
+            <ArcButton
+              type='button'
+              variant='secondary'
               size='sm'
               onClick={() => void handleValidateRuntimeStorage(kind)}
-              disabled={runtimeStorageValidationLoading === kind}
+              loading={runtimeStorageValidationLoading === kind}
             >
-              {runtimeStorageValidationLoading === kind ? (
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-              ) : (
-                <Activity className='mr-2 h-4 w-4' />
-              )}
+              <Activity className='size-3.5' aria-hidden />
               {t('cluster.runtimeStorage.validate')}
-            </Button>
+            </ArcButton>
+            {spec.kind === 'imap' && spec.cleanup_supported ? (
+              <ArcButton
+                type='button'
+                variant='secondary'
+                size='sm'
+                onClick={() => setImapCleanupOpen(true)}
+                loading={imapCleanupRunning}
+              >
+                <Trash2 className='size-3.5' aria-hidden />
+                {t('cluster.runtimeStorage.cleanupImap')}
+              </ArcButton>
+            ) : null}
           </div>
-          <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.path')}
-              </div>
-              <div className='font-medium break-all'>
-                {spec.namespace || '-'}
-              </div>
-            </div>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.endpoint')}
-              </div>
-              <div className='font-medium break-all'>
-                {spec.endpoint || '-'}
-              </div>
-            </div>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.bucket')}
-              </div>
-              <div className='font-medium break-all'>{spec.bucket || '-'}</div>
-            </div>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.size')}
-              </div>
-              <div className='font-medium'>
-                {spec.size_available
-                  ? formatBytes(spec.total_size_bytes)
-                  : t('cluster.runtimeStorage.remoteSizeUnavailable')}
-              </div>
-            </div>
+        </div>
+
+        <dl className='grid grid-cols-2 gap-x-6 gap-y-3 text-xs xl:grid-cols-4'>
+          <div className='min-w-0 space-y-1'>
+            <dt className='text-muted-foreground'>
+              {t('cluster.runtimeStorage.path')}
+            </dt>
+            <dd
+              className='truncate font-mono font-medium text-foreground'
+              title={spec.namespace || '-'}
+            >
+              {spec.namespace || '-'}
+            </dd>
           </div>
-          {spec.warning && (
-            <div className='rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100'>
-              {spec.warning}
+          <div className='min-w-0 space-y-1'>
+            <dt className='text-muted-foreground'>
+              {t('cluster.runtimeStorage.endpoint')}
+            </dt>
+            <dd
+              className='truncate font-mono font-medium text-foreground'
+              title={spec.endpoint || '-'}
+            >
+              {spec.endpoint || '-'}
+            </dd>
+          </div>
+          <div className='min-w-0 space-y-1'>
+            <dt className='text-muted-foreground'>
+              {t('cluster.runtimeStorage.bucket')}
+            </dt>
+            <dd
+              className='truncate font-mono font-medium text-foreground'
+              title={spec.bucket || '-'}
+            >
+              {spec.bucket || '-'}
+            </dd>
+          </div>
+          <div className='min-w-0 space-y-1'>
+            <dt className='text-muted-foreground'>
+              {t('cluster.runtimeStorage.size')}
+            </dt>
+            <dd className='font-mono font-medium tabular-nums'>
+              {spec.size_available
+                ? formatBytes(spec.total_size_bytes)
+                : t('cluster.runtimeStorage.remoteSizeUnavailable')}
+            </dd>
+          </div>
+        </dl>
+
+        {spec.warning ? (
+          <ArcAlert tone='warning' title={spec.warning} />
+        ) : null}
+
+        {runtimeStorageValidation[kind] ? (
+          <div className='space-y-2 border-t-[0.5px] border-border/80 pt-4'>
+            <div className='flex items-center justify-between gap-2'>
+              <span className='text-xs font-semibold text-foreground'>
+                {t('cluster.runtimeStorage.validateResult')}
+              </span>
+              <SoftChip
+                tone={
+                  runtimeStorageValidation[kind]?.success ? 'emerald' : 'rose'
+                }
+              >
+                {runtimeStorageValidation[kind]?.success
+                  ? t('cluster.runtimeStorage.passed')
+                  : t('cluster.runtimeStorage.failed')}
+              </SoftChip>
             </div>
-          )}
-          {runtimeStorageValidation[kind] && (
-            <div className='space-y-2 rounded-md border p-3'>
-              <div className='flex items-center justify-between gap-2'>
-                <div className='font-medium'>
-                  {t('cluster.runtimeStorage.validateResult')}
-                </div>
-                <Badge
-                  variant={
-                    runtimeStorageValidation[kind]?.success
-                      ? 'default'
-                      : 'destructive'
-                  }
-                >
-                  {runtimeStorageValidation[kind]?.success
-                    ? t('cluster.runtimeStorage.passed')
-                    : t('cluster.runtimeStorage.failed')}
-                </Badge>
-              </div>
-              {runtimeStorageValidation[kind]?.warning && (
-                <div className='text-xs text-muted-foreground'>
-                  {runtimeStorageValidation[kind]?.warning}
-                </div>
-              )}
-              <div className='space-y-2'>
-                {runtimeStorageValidation[kind]?.hosts?.map((host) => (
-                  <div
-                    key={`${spec.kind}-validate-${host.host_id}`}
-                    className='flex items-start justify-between gap-3 rounded-md border px-3 py-2'
-                  >
-                    <div className='min-w-0'>
-                      <div className='font-medium'>
-                        {host.host_name || host.host_id}
-                      </div>
-                      <div className='text-xs text-muted-foreground break-all'>
-                        {host.message}
-                      </div>
-                    </div>
-                    <Badge variant={host.success ? 'default' : 'destructive'}>
-                      {host.success
-                        ? t('cluster.runtimeStorage.passed')
-                        : t('cluster.runtimeStorage.failed')}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {spec.nodes && spec.nodes.length > 0 && (
-            <div className='space-y-2'>
-              {spec.nodes.map((node) => (
+            {runtimeStorageValidation[kind]?.warning ? (
+              <p className='text-xs text-muted-foreground'>
+                {runtimeStorageValidation[kind]?.warning}
+              </p>
+            ) : null}
+            <div className='divide-y-[0.5px] divide-border/70'>
+              {runtimeStorageValidation[kind]?.hosts?.map((host) => (
                 <div
-                  key={`${spec.kind}-${node.host_id}-${node.node_id}`}
-                  className='flex items-center justify-between rounded-md border px-3 py-2'
+                  key={`${spec.kind}-validate-${host.host_id}`}
+                  className='flex items-start justify-between gap-3 py-2 text-xs'
                 >
                   <div className='min-w-0'>
-                    <div className='font-medium'>{node.host_name}</div>
-                    <div className='text-xs text-muted-foreground break-all'>
-                      {node.path || '-'}
+                    <div className='font-medium text-foreground'>
+                      {host.host_name || host.host_id}
+                    </div>
+                    <div
+                      className='truncate text-muted-foreground'
+                      title={host.message}
+                    >
+                      {host.message}
                     </div>
                   </div>
-                  <div className='text-right'>
-                    <div className='font-medium'>
-                      {formatBytes(node.size_bytes)}
-                    </div>
-                    <div className='text-xs text-muted-foreground'>
-                      {node.message ||
-                        (node.exists
-                          ? t('cluster.runtimeStorage.pathExists')
-                          : t('cluster.runtimeStorage.pathMissing'))}
-                    </div>
-                  </div>
+                  <SoftChip tone={host.success ? 'emerald' : 'rose'}>
+                    {host.success
+                      ? t('cluster.runtimeStorage.passed')
+                      : t('cluster.runtimeStorage.failed')}
+                  </SoftChip>
                 </div>
               ))}
             </div>
-          )}
-          {/* 类似电脑资源管理器的文件与目录浏览器 */}
-          {/* Desktop-like file explorer for runtime storage inspection & navigation */}
+          </div>
+        ) : null}
+
+        {spec.nodes && spec.nodes.length > 0 ? (
+          <div className='divide-y-[0.5px] divide-border/70 border-t-[0.5px] border-border/80 pt-2'>
+            {spec.nodes.map((node) => (
+              <div
+                key={`${spec.kind}-${node.host_id}-${node.node_id}`}
+                className='flex items-center justify-between gap-4 py-2 text-xs'
+              >
+                <div className='min-w-0 flex-1'>
+                  <div className='font-medium text-foreground'>
+                    {node.host_name}
+                  </div>
+                  <div
+                    className='truncate font-mono text-muted-foreground'
+                    title={node.path || '-'}
+                  >
+                    {node.path || '-'}
+                  </div>
+                </div>
+                <div className='shrink-0 text-right tabular-nums'>
+                  <div className='font-mono font-medium'>
+                    {formatBytes(node.size_bytes)}
+                  </div>
+                  <div className='text-muted-foreground'>
+                    {node.message ||
+                      (node.exists
+                        ? t('cluster.runtimeStorage.pathExists')
+                        : t('cluster.runtimeStorage.pathMissing'))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {/* 类似电脑资源管理器的文件与目录浏览器 */}
+        {/* Desktop-like file explorer for runtime storage inspection & navigation */}
+        <div className='border-t-[0.5px] border-border/80 pt-4'>
           <RuntimeStorageFileExplorer
+            flat
             clusterId={clusterId}
             kind={kind}
             spec={spec}
@@ -1719,7 +1676,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 true,
               )
             }
-            onPreviewFile={(path) => void handlePreviewRuntimeStorage(kind, path)}
+            onPreviewFile={(path) =>
+              void handlePreviewRuntimeStorage(kind, path)
+            }
             previewLoadingKey={runtimeStoragePreviewLoading}
             onInspectCheckpoint={
               kind === 'checkpoint'
@@ -1734,1694 +1693,654 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             }
             inspectIMAPWALLoadingPath={imapInspectLoading}
           />
-          {spec.kind === 'imap' && spec.cleanup_supported && (
-            <div className='flex justify-end'>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() => setImapCleanupOpen(true)}
-                disabled={imapCleanupRunning}
-              >
-                {imapCleanupRunning ? (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                ) : (
-                  <Trash2 className='mr-2 h-4 w-4' />
-                )}
-                {t('cluster.runtimeStorage.cleanupImap')}
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   };
 
-  // 节点过滤计算 / Filtered nodes calculation
-  const filteredNodes = nodes.filter((node) => {
-    const matchesSearch =
-      !nodeSearchTerm ||
-      (node.host_name &&
-        node.host_name.toLowerCase().includes(nodeSearchTerm.toLowerCase())) ||
-      (node.host_ip && node.host_ip.includes(nodeSearchTerm)) ||
-      (node.role &&
-        node.role.toLowerCase().includes(nodeSearchTerm.toLowerCase())) ||
-      String(node.id).includes(nodeSearchTerm);
+  const runtimeViewOptions: Array<{value: RuntimeSubView; label: string}> = [
+    {value: 'checkpoint', label: t('cluster.list.runtimeViews.checkpoint')},
+    {value: 'imap', label: t('cluster.list.runtimeViews.imap')},
+    {value: 'proxy', label: t('cluster.list.runtimeViews.proxy')},
+    ...(webUINode
+      ? [{value: 'webui' as const, label: t('cluster.list.runtimeViews.webui')}]
+      : []),
+  ];
 
-    const matchesStatus =
-      nodeStatusFilter === 'all' ||
-      (nodeStatusFilter === 'running' && node.status === NodeStatus.RUNNING) ||
-      (nodeStatusFilter === 'offline' && node.status === NodeStatus.OFFLINE) ||
-      (nodeStatusFilter === 'stopped' && node.status === NodeStatus.STOPPED);
-
-    return matchesSearch && matchesStatus;
-  });
+  const headerMoreItems = [
+    {
+      label: t('cluster.openDiagnostics'),
+      icon: <Bug className='size-3.5' aria-hidden />,
+      onSelect: () =>
+        router.push(
+          `/diagnostics?tab=errors&cluster_id=${clusterId}&source=cluster-detail`,
+        ),
+    },
+    {
+      label: t('stUpgrade.entry'),
+      icon: <Activity className='size-3.5' aria-hidden />,
+      onSelect: () => router.push(`/clusters/${clusterId}/upgrade/prepare`),
+    },
+    {
+      label: t('common.edit'),
+      icon: <Pencil className='size-3.5' aria-hidden />,
+      onSelect: () => setIsEditDialogOpen(true),
+    },
+    {
+      label: t('common.delete'),
+      icon: <Trash2 className='size-3.5' aria-hidden />,
+      disabled: !canDelete,
+      destructive: true,
+      separatorBefore: true,
+      onSelect: () => setIsDeleteDialogOpen(true),
+    },
+  ];
 
   return (
-    <motion.div
-      className='space-y-6'
-      initial='hidden'
-      animate='visible'
-      variants={containerVariants}
-    >
+    <div className='arc-compact space-y-4' data-testid='cluster-detail-page'>
       {/* 顶部平滑加载进度条 / Top smooth loading bar */}
       <TableLoadingBar loading={refreshing} />
 
-      {/* 标准化页面头部 / Standardized Workspace Header */}
-      <motion.div variants={itemVariants}>
-        <WorkspaceHeader
-          breadcrumbs={[
-            {
-              label: t('cluster.title'),
-              href: '/clusters',
-            },
-            {
-              label: cluster.name,
-            },
-          ]}
-          icon={<Layers />}
-          title={cluster.name}
-          badge={
-            <div className='flex items-center gap-1.5 flex-wrap'>
-              <Badge variant={getStatusBadgeVariant(cluster.status)}>
-                {t(`cluster.statuses.${cluster.status}`)}
-              </Badge>
-              {clusterStatus?.health_status && (
-                <Badge
-                  variant={
-                    clusterStatus.health_status === 'healthy'
-                      ? 'default'
-                      : 'destructive'
-                  }
-                  className={`flex items-center gap-1 text-[11px] font-normal ${
-                    clusterStatus.health_status === 'healthy'
-                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                      : 'bg-destructive/15 text-destructive border-destructive/30'
-                  }`}
-                >
-                  <span
-                    className={`size-1.5 rounded-full ${
-                      clusterStatus.health_status === 'healthy'
-                        ? 'bg-emerald-500'
-                        : 'bg-destructive animate-pulse'
-                    }`}
-                  />
-                  {t(`cluster.healthStatuses.${clusterStatus.health_status}`) ||
-                    clusterStatus.health_status}
-                </Badge>
-              )}
-              {cluster.version && (
-                <Badge
-                  variant='outline'
-                  className='font-mono text-xs text-muted-foreground'
-                >
-                  v{cluster.version}
-                </Badge>
-              )}
-              {cluster.cluster_code && (
-                <Badge
-                  variant='outline'
-                  className='font-mono text-xs bg-muted/40 text-muted-foreground'
-                  title={t('cluster.clusterCodeHint')}
-                >
-                  {cluster.cluster_code}
-                </Badge>
-              )}
-            </div>
-          }
-          subtitle={
-            cluster.description ? (
-              <span className='truncate max-w-lg'>{cluster.description}</span>
-            ) : null
-          }
-          actions={
-            <div className='flex items-center gap-2 flex-wrap'>
-              {/* 整集群生命周期操作 / Cluster lifecycle actions */}
-              <ClusterActions
-                cluster={cluster}
-                onOperationComplete={() => void loadClusterData(true)}
+      {/* 标准化页面头部（精简徽章与操作，去除顶部滥用的 StatPillsBar） */}
+      {/* Standardized WorkspaceHeader (concise badges & actions, no multi-purpose StatPillsBar) */}
+      <WorkspaceHeader
+        breadcrumbs={[
+          {label: t('cluster.title'), href: '/clusters'},
+          {label: cluster.name},
+        ]}
+        icon={<Layers />}
+        title={cluster.name}
+        badge={
+          <div className='flex flex-wrap items-center gap-1.5'>
+            <ClusterStatusChip
+              cluster={{
+                status: cluster.status,
+                online_nodes:
+                  clusterStatus?.online_nodes ?? cluster.online_nodes,
+                health_status:
+                  clusterStatus?.health_status ?? cluster.health_status,
+              }}
+            />
+            {cluster.version ? (
+              <NeutralChip className='font-mono tabular-nums'>
+                v{cluster.version}
+              </NeutralChip>
+            ) : null}
+          </div>
+        }
+        actions={
+          <div className='flex flex-wrap items-center gap-1.5'>
+            <ClusterActions
+              cluster={cluster}
+              onOperationComplete={() => void loadClusterData(true)}
+            />
+            <ArcButton
+              type='button'
+              variant='secondary'
+              size='sm'
+              iconOnly
+              onClick={() => void handleRefresh()}
+              disabled={refreshing}
+              aria-label={t('common.refresh')}
+              title={t('common.refresh')}
+            >
+              <RefreshCw
+                className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`}
+                aria-hidden
               />
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className='h-8'
-                title={t('common.refresh')}
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`}
-                />
-                {t('common.refresh')}
-              </Button>
+            </ArcButton>
+            <ArcDropdownMenu
+              items={headerMoreItems}
+              trigger={
+                <ArcButton
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  iconOnly
+                  aria-label={t('common.moreActions')}
+                  title={t('common.moreActions')}
+                >
+                  <MoreHorizontal className='size-4' aria-hidden />
+                </ArcButton>
+              }
+            />
+          </div>
+        }
+      />
 
-              {/* 更多辅助与低频/高危操作收纳进下拉菜单 */}
-              {/* Secondary, low-frequency, and dangerous actions grouped into more dropdown */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    className='h-8 px-2.5'
-                    aria-label={t('common.moreActions')}
-                  >
-                    <MoreHorizontal className='h-4 w-4 mr-1' />
-                    <span className='text-xs'>{t('common.more')}</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align='end' className='w-44'>
-                  <DropdownMenuItem
-                    onClick={() =>
-                      router.push(
-                        `/diagnostics?tab=errors&cluster_id=${clusterId}&source=cluster-detail`,
-                      )
-                    }
-                  >
-                    <Bug className='h-3.5 w-3.5 mr-2 text-muted-foreground' />
-                    {t('cluster.openDiagnostics')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() =>
-                      router.push(`/clusters/${clusterId}/upgrade/prepare`)
-                    }
-                  >
-                    <Activity className='h-3.5 w-3.5 mr-2 text-muted-foreground' />
-                    {t('stUpgrade.entry')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setIsEditDialogOpen(true)}>
-                    <Pencil className='h-3.5 w-3.5 mr-2 text-muted-foreground' />
-                    {t('common.edit')}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    disabled={!canDelete}
-                    onClick={() => setIsDeleteDialogOpen(true)}
-                    className='text-destructive focus:text-destructive'
-                  >
-                    <Trash2 className='h-3.5 w-3.5 mr-2' />
-                    {t('common.delete')}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          }
-        />
-      </motion.div>
-
-      {/* 状态胶囊汇总与快捷切换栏 / Status Pills Summary Bar */}
-      <motion.div variants={itemVariants}>
-        <StatPillsBar
-          items={[
-            {
-              key: 'all',
-              label: t('cluster.statTotalNodes'),
-              count: clusterStatus?.total_nodes ?? nodes.length,
-              icon: <Server className='size-3.5' />,
-            },
-            {
-              key: 'online',
-              label: t('cluster.statOnlineNodes'),
-              count:
-                clusterStatus?.online_nodes ??
-                nodes.filter((n) => n.status === NodeStatus.RUNNING).length,
-              variant: 'success',
-            },
-            {
-              key: 'offline',
-              label: t('cluster.statOfflineNodes'),
-              count:
-                clusterStatus?.offline_nodes ??
-                nodes.filter((n) => n.status === NodeStatus.OFFLINE).length,
-              variant:
-                (clusterStatus?.offline_nodes ?? 0) > 0 ||
-                nodes.some((n) => n.status === NodeStatus.OFFLINE)
-                  ? 'danger'
-                  : 'default',
-              pulse:
-                (clusterStatus?.offline_nodes ?? 0) > 0 ||
-                nodes.some((n) => n.status === NodeStatus.OFFLINE),
-            },
-            {
-              key: 'master',
-              label: t('cluster.statMasterNodes'),
-              count: nodes.filter(
-                (n) =>
-                  n.role === NodeRole.MASTER ||
-                  n.role === NodeRole.MASTER_WORKER,
-              ).length,
-              variant: 'info',
-            },
-            {
-              key: 'worker',
-              label: t('cluster.statWorkerNodes'),
-              count: nodes.filter(
-                (n) =>
-                  n.role === NodeRole.WORKER ||
-                  n.role === NodeRole.MASTER_WORKER,
-              ).length,
-              variant: 'info',
-            },
-            ...(diagnosticsGroupTotal > 0
-              ? [
-                  {
-                    key: 'diagnostics' as const,
-                    label: t('cluster.statDiagnostics'),
-                    count: diagnosticsGroupTotal,
-                    variant: 'warning' as const,
-                  },
-                ]
-              : []),
-            ...((monitoringOverview?.stats.active_alerts_1h ?? 0) > 0
-              ? [
-                  {
-                    key: 'alerts' as const,
-                    label: t('cluster.statAlerts'),
-                    count: monitoringOverview!.stats.active_alerts_1h,
-                    variant: 'danger' as const,
-                    pulse: true,
-                  },
-                ]
-              : []),
-          ]}
-          activeKey={activeTab === 'nodes' ? nodeStatusFilter : activeTab}
-          onChange={(key) => {
-            if (key === 'all') {
-              setActiveTab('nodes');
-              setNodeStatusFilter('all');
-              setNodeSearchTerm('');
-            } else if (key === 'online') {
-              setActiveTab('nodes');
-              setNodeStatusFilter('running');
-              setNodeSearchTerm('');
-            } else if (key === 'offline') {
-              setActiveTab('nodes');
-              setNodeStatusFilter('offline');
-              setNodeSearchTerm('');
-            } else if (key === 'master') {
-              setActiveTab('nodes');
-              setNodeStatusFilter('all');
-              setNodeSearchTerm('master');
-            } else if (key === 'worker') {
-              setActiveTab('nodes');
-              setNodeStatusFilter('all');
-              setNodeSearchTerm('worker');
-            } else if (key === 'diagnostics') {
-              setActiveTab('diagnostics');
-            } else if (key === 'alerts') {
-              router.push(`/monitoring?tab=alerts&cluster_id=${clusterId}`);
-            }
-          }}
-        />
-      </motion.div>
-
+      {/* 可关闭单行活跃告警条（Arc Alert）/ Dismissible single-line active alerts banner */}
       {monitoringOverview &&
-        monitoringOverview.stats.active_alerts_1h > 0 &&
-        dismissedAlertCount !==
-          monitoringOverview.stats.active_alerts_1h && (
-          <motion.div variants={itemVariants}>
-            <Card className='border-destructive/40 bg-destructive/5'>
-              <CardContent className='flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5'>
-                <div className='flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5'>
-                  <span className='flex items-center gap-1.5 text-sm font-medium text-destructive'>
-                    <AlertTriangle className='h-3.5 w-3.5' />
-                    {t('cluster.activeAlertsBanner.title', {
-                      count: monitoringOverview.stats.active_alerts_1h,
-                    })}
-                  </span>
-                  {/* 仅在确有重启失败事件时才展示「无法恢复」的强提示 / Only show the recovery warning when restart failures actually occurred */}
-                  <span className='text-sm text-muted-foreground'>
-                    {monitoringOverview.stats.restart_failed_events_24h > 0
-                      ? t('cluster.activeAlertsBanner.description', {
-                          restartFailed:
-                            monitoringOverview.stats.restart_failed_events_24h,
-                        })
-                      : t('cluster.activeAlertsBanner.descriptionGeneric', {
-                          count: monitoringOverview.stats.active_alerts_1h,
-                        })}
-                  </span>
-                </div>
-                <div className='flex shrink-0 items-center gap-1'>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={() =>
-                      router.push(
-                        `/monitoring?tab=alerts&cluster_id=${clusterId}`,
-                      )
-                    }
-                  >
-                    {t('cluster.activeAlertsBanner.action')}
-                  </Button>
-                  <Button
-                    variant='ghost'
-                    size='icon'
-                    className='h-8 w-8 text-muted-foreground'
-                    aria-label={t('common.close')}
-                    onClick={dismissAlertsBanner}
-                  >
-                    <X className='h-4 w-4' />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-
-      <motion.div variants={itemVariants}>
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as ClusterDetailTab)}
-          className='space-y-4'
+      monitoringOverview.stats.active_alerts_1h > 0 &&
+      dismissedAlertCount !== monitoringOverview.stats.active_alerts_1h ? (
+        <ArcAlert
+          tone='danger'
+          title={t('cluster.activeAlertsBanner.title', {
+            count: monitoringOverview.stats.active_alerts_1h,
+          })}
+          onDismiss={dismissAlertsBanner}
         >
-          <TabsList className='h-auto w-full flex-wrap justify-start gap-1 rounded-xl p-1'>
-            <TabsTrigger
-              value='overview'
-              className='flex-none px-3'
-              data-testid='cluster-detail-tab-overview'
+          <div className='mt-1 flex flex-wrap items-center justify-between gap-2'>
+            <span className='text-xs text-muted-foreground'>
+              {monitoringOverview.stats.restart_failed_events_24h > 0
+                ? t('cluster.activeAlertsBanner.description', {
+                    restartFailed:
+                      monitoringOverview.stats.restart_failed_events_24h,
+                  })
+                : t('cluster.activeAlertsBanner.descriptionGeneric', {
+                    count: monitoringOverview.stats.active_alerts_1h,
+                  })}
+            </span>
+            <ArcButton
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() =>
+                router.push(`/monitoring?tab=alerts&cluster_id=${clusterId}`)
+              }
             >
-              {t('cluster.detailTabs.overview')}
-            </TabsTrigger>
-            <TabsTrigger
-              value='nodes'
-              className='flex-none px-3'
-              data-testid='cluster-detail-tab-nodes'
+              {t('cluster.activeAlertsBanner.action')}
+            </ArcButton>
+          </div>
+        </ArcAlert>
+      ) : null}
+
+      {/* 严格 6 个一级 Arc Tab（概览 / 节点 / 配置 / 插件 / 运行时 / 运维） */}
+      {/* Strictly 6 primary Arc tabs (overview / nodes / configs / plugins / runtime / ops) */}
+      <ArcTabs
+        value={activeTab}
+        onValueChange={(value) => requestRouteChange(value as ClusterDetailTab)}
+        className='space-y-4'
+      >
+        <ArcTabsList>
+          {CLUSTER_DETAIL_TABS.map((tabKey) => (
+            <ArcTabsTrigger
+              key={tabKey}
+              value={tabKey}
+              data-testid={`cluster-detail-tab-${tabKey}`}
             >
-              {t('cluster.detailTabs.nodes')}
-            </TabsTrigger>
-            <TabsTrigger
-              value='storage'
-              className='flex-none px-3'
-              data-testid='cluster-detail-tab-storage'
-            >
-              {t('cluster.detailTabs.storage')}
-            </TabsTrigger>
-            <TabsTrigger
-              value='proxy'
-              className='flex-none px-3'
-              data-testid='cluster-detail-tab-proxy'
-            >
-              {t('cluster.detailTabs.proxy')}
-            </TabsTrigger>
-            <TabsTrigger
-              value='monitoring'
-              className='flex-none px-3'
-              data-testid='cluster-detail-tab-monitoring'
-            >
-              {t('cluster.detailTabs.monitoring')}
-            </TabsTrigger>
-            {webUINode && (
-              <TabsTrigger
-                value='webui'
-                className='flex-none px-3'
-                data-testid='cluster-detail-tab-webui'
-              >
-                {t('cluster.detailTabs.webui')}
-              </TabsTrigger>
-            )}
-            <TabsTrigger
-              value='plugins'
-              className='flex-none px-3'
-              data-testid='cluster-detail-tab-plugins'
-            >
-              {t('cluster.detailTabs.plugins')}
-            </TabsTrigger>
-            <TabsTrigger
-              value='configs'
-              className='flex-none px-3'
-              data-testid='cluster-detail-tab-configs'
-            >
-              {t('cluster.detailTabs.configs')}
-            </TabsTrigger>
-            <TabsTrigger
-              value='diagnostics'
-              className='flex-none px-3'
-              data-testid='cluster-detail-tab-diagnostics'
-            >
-              {t('cluster.detailTabs.diagnostics')}
-            </TabsTrigger>
-            <TabsTrigger
-              value='upgrades'
-              className='flex-none px-3'
-              data-testid='cluster-detail-tab-upgrades'
-            >
-              {t('cluster.detailTabs.upgrades')}
-            </TabsTrigger>
-          </TabsList>
+              {t(`cluster.detailTabs.${tabKey}`)}
+            </ArcTabsTrigger>
+          ))}
+        </ArcTabsList>
 
-          <TabsContent value='overview' className='space-y-6'>
-            {/* Cluster Profile & Service Ports / 集群基本规格与网络端口 */}
-            <Card className='border rounded-xl bg-card/40 shadow-xs'>
-              <CardHeader className='pb-3'>
-                <CardTitle className='text-base font-semibold'>
-                  {t('cluster.clusterInfo')}
-                </CardTitle>
-                <CardDescription className='text-xs'>
-                  {t('cluster.descriptionLabel')}: {cluster.description || '-'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
-                  {/* 安装目录 / Install directory */}
-                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
-                    <div className='flex items-center justify-between'>
-                      <span className='text-xs text-muted-foreground'>
-                        {t('cluster.installDir')}
-                      </span>
-                      {cluster.install_dir && (
-                        <button
-                          type='button'
-                          onClick={async () => {
-                            await navigator.clipboard.writeText(
-                              cluster.install_dir,
-                            );
-                            setCopiedInstallDir(true);
-                            toast.success(t('cluster.logCopied'));
-                            setTimeout(() => setCopiedInstallDir(false), 2000);
-                          }}
-                          className='text-muted-foreground hover:text-foreground transition-colors p-0.5'
-                          title={t('common.copy')}
-                        >
-                          {copiedInstallDir ? (
-                            <Check className='size-3 text-emerald-500' />
-                          ) : (
-                            <Copy className='size-3' />
-                          )}
-                        </button>
-                      )}
-                    </div>
-                    <p className='font-mono text-xs font-medium break-all'>
-                      {cluster.install_dir || '-'}
-                    </p>
-                  </div>
+        <ArcTabsContent value='overview'>
+          {activeTab === 'overview' ? (
+            <ClusterOverviewTab
+              cluster={cluster}
+              nodes={nodes}
+              webUINode={webUINode}
+              enableHTTP={runtimeConfig.enableHTTP}
+              jobLogMode={runtimeConfig.jobLogMode}
+              logModeSwitching={logModeSwitching}
+              runtimeStorage={runtimeStorage}
+              stxJavaProxy={stxJavaProxy}
+              onSwitchJobLogMode={(mode) => void handleSwitchJobLogMode(mode)}
+              onGoNodes={() => requestRouteChange('nodes')}
+              onGoRuntime={(view) => requestRouteChange('runtime', view)}
+            />
+          ) : null}
+        </ArcTabsContent>
 
-                  {/* 版本 / Version */}
-                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
-                    <span className='text-xs text-muted-foreground'>
-                      {t('cluster.version')}
-                    </span>
-                    <p className='font-medium text-sm flex items-center gap-1.5'>
-                      <span className='font-mono font-semibold'>
-                        {cluster.version || '-'}
-                      </span>
-                      <Badge variant='outline' className='text-[10px] uppercase'>
-                        {t(`cluster.modes.${cluster.deployment_mode}`) ||
-                          cluster.deployment_mode}
-                      </Badge>
-                    </p>
-                  </div>
+        <ArcTabsContent value='nodes'>
+          {activeTab === 'nodes' ? (
+            <ClusterNodesTab
+              clusterId={clusterId}
+              nodes={nodes}
+              refreshing={refreshing}
+              isOperating={isOperating}
+              nodeOperating={nodeOperating}
+              selectedNodeIds={selectedNodeIds}
+              nodeJavaRuntimes={nodeJavaRuntimes}
+              runningScaleOperation={runningScaleOperation}
+              onToggleNodeSelection={toggleNodeSelection}
+              onToggleAllNodes={toggleAllNodes}
+              onClearSelection={() => setSelectedNodeIds(new Set())}
+              onAddNode={() => setIsAddNodeDialogOpen(true)}
+              onOpenScaleProgress={() => setScaleProgressOpen(true)}
+              onBatchOp={(op) => setConfirmBatchOp(op)}
+              onNodeOp={(op, node) => setConfirmNodeOp({op, node})}
+              onViewLogs={handleViewLogs}
+              onEditNode={openEditNodeDialog}
+              onRemoveNode={(node) => setNodeToRemove(node)}
+            />
+          ) : null}
+        </ArcTabsContent>
 
-                  {/* Hazelcast 端口 / Hazelcast port */}
-                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
-                    <span className='text-xs text-muted-foreground'>
-                      {t('cluster.hazelcastPort')}
-                    </span>
-                    <p className='font-mono text-sm font-medium'>
-                      {nodes.find((node) => node.hazelcast_port > 0)
-                        ?.hazelcast_port || '-'}
-                    </p>
-                  </div>
+        <ArcTabsContent value='configs' className='space-y-4'>
+          {activeTab === 'configs' ? (
+            <>
+              <EngineEventChannelCard
+                clusterId={clusterId}
+                onConfigChanged={handleConfigChanged}
+              />
+              <ClusterConfigs
+                clusterId={clusterId}
+                deploymentMode={cluster.deployment_mode}
+                onConfigChanged={handleConfigChanged}
+              />
+            </>
+          ) : null}
+        </ArcTabsContent>
 
-                  {/* HTTP API 端口 / HTTP API port */}
-                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
-                    <span className='text-xs text-muted-foreground'>
-                      {t('cluster.httpPort')}
-                    </span>
-                    <p className='font-mono text-sm font-medium'>
-                      {runtimeConfig.enableHTTP === false
-                        ? t('cluster.httpDisabled')
-                        : webUINode?.api_port || '-'}
-                    </p>
-                  </div>
+        <ArcTabsContent value='plugins'>
+          {activeTab === 'plugins' ? (
+            <ClusterPlugins clusterId={clusterId} />
+          ) : null}
+        </ArcTabsContent>
 
-                  {/* 日志输出模式 / Log output mode */}
-                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1.5'>
-                    <div className='flex items-center justify-between gap-1.5'>
-                      <span className='text-xs text-muted-foreground'>
-                        {t('cluster.logOutputMode')}
-                      </span>
-                      {logModeSwitching && (
-                        <Loader2 className='size-3 animate-spin text-muted-foreground' />
-                      )}
-                    </div>
-                    <Select
-                      value={runtimeConfig.jobLogMode || 'mixed'}
-                      disabled={logModeSwitching}
-                      onValueChange={(val: 'per_job' | 'mixed') => {
-                        void handleSwitchJobLogMode(val);
-                      }}
-                    >
-                      <SelectTrigger className='h-7 text-xs font-medium bg-background/80'>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value='per_job' className='text-xs'>
-                          {t('config.jobLogModePerJobBadge')}
-                        </SelectItem>
-                        <SelectItem value='mixed' className='text-xs'>
-                          {t('config.jobLogModeMixedBadge')}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+        <ArcTabsContent value='runtime' className='space-y-4'>
+          {activeTab === 'runtime' ? (
+            <div className='space-y-4' data-testid='cluster-runtime-panel'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
+                <SegmentedControl
+                  label={t('cluster.list.runtimeViews.label')}
+                  value={runtimeView}
+                  onValueChange={(v) =>
+                    requestRouteChange('runtime', v as RuntimeSubView)
+                  }
+                  options={runtimeViewOptions}
+                />
 
-                  {/* Web UI 状态 / Web UI status */}
-                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
-                    <span className='text-xs text-muted-foreground'>
-                      {t('cluster.webUiStatus')}
-                    </span>
-                    <p className='font-medium text-sm'>
-                      {webUINode
-                        ? t('common.enabled')
-                        : isSeatunnelVersionAtLeast(cluster.version, '2.3.9')
-                          ? t('cluster.httpDisabled')
-                          : t('cluster.versionUnsupported')}
-                    </p>
-                  </div>
-
-                  {/* 创建时间 / Created at */}
-                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
-                    <span className='text-xs text-muted-foreground'>
-                      {t('cluster.createdAt')}
-                    </span>
-                    <p className='font-mono text-xs text-muted-foreground'>
-                      {formatDateTimeTz(cluster.created_at)}
-                    </p>
-                  </div>
-
-                  {/* 更新时间 / Updated at */}
-                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
-                    <span className='text-xs text-muted-foreground'>
-                      {t('cluster.updatedAt')}
-                    </span>
-                    <p className='font-mono text-xs text-muted-foreground'>
-                      {formatDateTimeTz(cluster.updated_at)}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Node Topology Snapshot / 节点拓扑速览 */}
-            <Card className='border rounded-xl bg-card/40 shadow-xs'>
-              <CardHeader className='flex flex-row items-center justify-between pb-3'>
-                <div className='space-y-0.5'>
-                  <CardTitle className='flex items-center gap-2 text-base font-semibold'>
-                    <Server className='size-4 text-primary' />
-                    <span>{t('cluster.topologyPreview')}</span>
-                    <Badge variant='secondary' className='text-xs font-mono'>
-                      {nodes.length}
-                    </Badge>
-                  </CardTitle>
-                  <CardDescription className='text-xs'>
-                    {t('cluster.roles.master')}:{' '}
-                    {
-                      nodes.filter(
-                        (n) =>
-                          n.role === NodeRole.MASTER ||
-                          n.role === NodeRole.MASTER_WORKER,
-                      ).length
-                    }{' '}
-                    · {t('cluster.roles.worker')}:{' '}
-                    {
-                      nodes.filter(
-                        (n) =>
-                          n.role === NodeRole.WORKER ||
-                          n.role === NodeRole.MASTER_WORKER,
-                      ).length
-                    }
-                  </CardDescription>
-                </div>
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  onClick={() => setActiveTab('nodes')}
-                  className='text-xs h-8 text-primary hover:text-primary/80'
-                >
-                  {t('cluster.viewAllNodes')} &rarr;
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {nodes.length === 0 ? (
-                  <div className='text-center py-6 text-sm text-muted-foreground'>
-                    {t('cluster.noNodes')}
-                  </div>
-                ) : (
-                  <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
-                    {nodes.map((node) => (
-                      <div
-                        key={node.id}
-                        className='p-3 rounded-lg border bg-background/50 hover:bg-muted/30 transition-colors flex flex-col justify-between gap-2 shadow-2xs'
-                      >
-                        <div className='flex items-start justify-between gap-2'>
-                          <div className='min-w-0 flex-1'>
-                            <div className='font-medium text-sm truncate' title={node.host_name || node.host_ip}>
-                              {node.host_name || `#${node.id}`}
-                            </div>
-                            <div className='font-mono text-xs text-muted-foreground truncate'>
-                              {node.host_ip || '-'}
-                            </div>
-                          </div>
-                          <Badge
-                            variant={getStatusBadgeVariant(node.status)}
-                            className='text-[10px] shrink-0'
-                          >
-                            {t(`cluster.nodeStatuses.${node.status}`)}
-                          </Badge>
-                        </div>
-                        <div className='pt-2 border-t border-border/40 flex items-center justify-between text-xs text-muted-foreground'>
-                          <Badge variant='outline' className='text-[10px]'>
-                            {t(
-                              `cluster.roles.${getRoleTranslationKey(node.role)}`,
-                            )}
-                          </Badge>
-                          <span className='font-mono text-[11px]'>
-                            PID: {node.process_pid || '-'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Runtime Storage & Java Proxy Snapshot / 运行时存储与代理速览 */}
-            <Card className='border rounded-xl bg-card/40 shadow-xs'>
-              <CardHeader className='flex flex-row items-center justify-between pb-3'>
-                <div>
-                  <CardTitle className='flex items-center gap-2 text-base font-semibold'>
-                    <Database className='size-4 text-primary' />
-                    <span>{t('cluster.storageSummary')}</span>
-                  </CardTitle>
-                </div>
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  onClick={() => setActiveTab('storage')}
-                  className='text-xs h-8 text-primary hover:text-primary/80'
-                >
-                  {t('cluster.manageStorage')} &rarr;
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className='grid gap-3 md:grid-cols-3'>
-                  {/* Checkpoint Storage 摘要 / Checkpoint storage summary */}
-                  <div className='p-3.5 rounded-lg border bg-muted/10 space-y-1.5'>
-                    <div className='flex items-center justify-between'>
-                      <span className='text-xs font-semibold'>
-                        {t('installer.checkpointConfig')}
-                      </span>
-                      <Badge variant='outline' className='text-[10px] uppercase font-mono'>
-                        {runtimeStorage?.checkpoint?.storage_type || 'Local'}
-                      </Badge>
-                    </div>
-                    <p className='text-xs text-muted-foreground font-mono break-all truncate' title={runtimeStorage?.checkpoint?.namespace || '-'}>
-                      {runtimeStorage?.checkpoint?.namespace || '-'}
-                    </p>
-                  </div>
-
-                  {/* IMAP Storage 摘要 / IMAP storage summary */}
-                  <div className='p-3.5 rounded-lg border bg-muted/10 space-y-1.5'>
-                    <div className='flex items-center justify-between'>
-                      <span className='text-xs font-semibold'>
-                        {t('installer.runtimeStorage.imapTitle')}
-                      </span>
-                      <Badge variant='outline' className='text-[10px] uppercase font-mono'>
-                        {runtimeStorage?.imap?.storage_type || 'Local'}
-                      </Badge>
-                    </div>
-                    <p className='text-xs text-muted-foreground font-mono break-all truncate' title={runtimeStorage?.imap?.namespace || '-'}>
-                      {runtimeStorage?.imap?.namespace || '-'}
-                    </p>
-                  </div>
-
-                  {/* STX Java Proxy 摘要 / STX Java Proxy summary */}
-                  <button
+                {runtimeView === 'checkpoint' || runtimeView === 'imap' ? (
+                  <ArcButton
                     type='button'
-                    onClick={() => setActiveTab('proxy')}
-                    className='p-3.5 rounded-lg border bg-muted/10 space-y-1.5 text-left hover:bg-muted/20 transition-colors cursor-pointer'
-                    data-testid='cluster-overview-proxy-summary'
+                    variant='secondary'
+                    size='sm'
+                    iconOnly
+                    onClick={() => void loadRuntimeStorage(true)}
+                    disabled={runtimeStorageLoading}
+                    aria-label={t('common.refresh')}
+                    title={t('common.refresh')}
                   >
-                    <div className='flex items-center justify-between'>
-                      <span className='text-xs font-semibold'>
-                        {t('cluster.stxJavaProxy.title')}
-                      </span>
-                      <Badge
-                        variant={
+                    <RefreshCw
+                      className={`size-3.5 ${runtimeStorageLoading ? 'animate-spin' : ''}`}
+                      aria-hidden
+                    />
+                  </ArcButton>
+                ) : runtimeView === 'proxy' ? (
+                  <ArcButton
+                    type='button'
+                    variant='secondary'
+                    size='sm'
+                    iconOnly
+                    onClick={() => void loadStxJavaProxyStatus()}
+                    disabled={stxJavaProxyLoading}
+                    aria-label={t('common.refresh')}
+                    title={t('common.refresh')}
+                    data-testid='stx-java-proxy-refresh'
+                  >
+                    <RefreshCw
+                      className={`size-3.5 ${stxJavaProxyLoading ? 'animate-spin' : ''}`}
+                      aria-hidden
+                    />
+                  </ArcButton>
+                ) : null}
+              </div>
+
+              {/* 运行时存储（Checkpoint / IMAP）：单层扁平画布 + 0.5px 细线 */}
+              {runtimeView === 'checkpoint' || runtimeView === 'imap' ? (
+                <div className='overflow-hidden rounded-(--radius-panel) border border-(--border) bg-card'>
+                  <TableLoadingBar
+                    loading={
+                      runtimeStorageLoading ||
+                      runtimeStorageListingLoading !== null
+                    }
+                  />
+                  <div className='space-y-5 px-6 py-5'>
+                    <div className='space-y-1'>
+                      <h3 className='text-sm font-semibold text-foreground'>
+                        {t('cluster.runtimeStorage.title')}
+                      </h3>
+                      <p className='truncate text-xs text-muted-foreground'>
+                        {t('cluster.runtimeStorage.configSource', {
+                          source: runtimeStorage?.config_source || '-',
+                        })}
+                      </p>
+                    </div>
+
+                    {runtimeStorageLoading && !runtimeStorage ? (
+                      <div className='space-y-3 border-t-[0.5px] border-border/80 pt-5'>
+                        <Skeleton className='h-8 w-full' />
+                        <Skeleton className='h-40 w-full' />
+                      </div>
+                    ) : (
+                      <div className='space-y-5 border-t-[0.5px] border-border/80 pt-5'>
+                        <RuntimeStorageEditor
+                          clusterId={clusterId}
+                          kind={runtimeView}
+                          spec={
+                            runtimeView === 'checkpoint'
+                              ? runtimeStorage?.configured_checkpoint ||
+                                runtimeStorage?.checkpoint
+                              : runtimeStorage?.configured_imap ||
+                                runtimeStorage?.imap
+                          }
+                          onApplied={() => void loadRuntimeStorage()}
+                        />
+                        {runtimeView === 'checkpoint'
+                          ? renderRuntimeStorageSpec(
+                              runtimeStorage?.checkpoint,
+                              t('installer.checkpointConfig'),
+                            )
+                          : renderRuntimeStorageSpec(
+                              runtimeStorage?.imap,
+                              t('installer.runtimeStorage.imapTitle'),
+                            )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* STX Java Proxy：单层扁平画布 + 0.5px 细线 */}
+              {runtimeView === 'proxy' ? (
+                <div
+                  className='overflow-hidden rounded-(--radius-panel) border border-(--border) bg-card'
+                  data-testid='stx-java-proxy-card'
+                >
+                  <TableLoadingBar loading={stxJavaProxyLoading} />
+                  <div className='px-6 py-5'>
+                    <div className='flex flex-wrap items-center justify-between gap-3 pb-4'>
+                      <div className='flex items-center gap-1.5'>
+                        <h3 className='text-sm font-semibold text-foreground'>
+                          {t('cluster.stxJavaProxy.title')}
+                        </h3>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type='button'
+                              className='text-muted-foreground/70 hover:text-foreground'
+                              aria-label={t('cluster.stxJavaProxy.description')}
+                            >
+                              <HelpCircle className='size-3.5' />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side='top'
+                            className='max-w-xs text-xs font-normal leading-relaxed'
+                          >
+                            {t('cluster.stxJavaProxy.description')}
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <SoftChip
+                        tone={
                           stxJavaProxy?.healthy
-                            ? 'default'
+                            ? 'emerald'
                             : stxJavaProxy?.running
-                              ? 'outline'
-                              : 'secondary'
+                              ? 'amber'
+                              : 'muted'
                         }
-                        className='text-[10px]'
                       >
                         {stxJavaProxy?.healthy
                           ? t('cluster.stxJavaProxy.healthy')
                           : stxJavaProxy?.running
                             ? t('cluster.stxJavaProxy.unhealthy')
                             : t('cluster.stxJavaProxy.stopped')}
-                      </Badge>
+                      </SoftChip>
                     </div>
-                    <p className='text-xs text-muted-foreground font-mono break-all truncate' title={stxJavaProxy?.endpoint || '-'}>
-                      {stxJavaProxy?.endpoint || '-'}
-                    </p>
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
-          {webUINode && (
-            <TabsContent value='webui' className='space-y-6'>
-              <Card>
-                <CardHeader className='flex flex-row items-center justify-between gap-3 space-y-0'>
-                  <CardTitle className='flex min-w-0 items-center gap-2'>
-                    <MonitorSmartphone className='h-5 w-5 shrink-0' />
-                    <span className='shrink-0 whitespace-nowrap'>{t('cluster.webUiTitle')}</span>
-                    {/* 外包 button 让地址 Badge 可被键盘聚焦；长主机名截断，完整地址进 Tooltip */}
-                    {/* Button wrapper makes the address badge keyboard-focusable; long hosts truncate and the full address lives in the tooltip */}
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type='button'
-                          className='min-w-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1'
-                          aria-label={t('cluster.webUiMasterAddressTip', {address: webUIMasterAddress})}
-                          data-testid='cluster-webui-master-address-trigger'
-                        >
-                          <Badge
-                            variant='outline'
-                            className='block max-w-[260px] cursor-help truncate font-mono text-[11px] font-normal'
-                            data-testid='cluster-webui-master-address'
-                          >
-                            {webUIMasterAddress}
-                          </Badge>
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side='top' className='max-w-sm break-all text-xs'>
-                        {t('cluster.webUiMasterAddressTip', {address: webUIMasterAddress})}
-                      </TooltipContent>
-                    </Tooltip>
-                  </CardTitle>
-                  {/* 通用观测入口：代理或原生地址（原生地址由后端按 active master 给出）；嵌入方式说明进按钮 Tooltip */}
-                  {/* Shared observation entry: proxy or native address (native picked by the backend, preferring the active master); embedding note lives in the button tooltip */}
-                  <SeaTunnelObserveMenu
-                    clusterId={clusterId}
-                    variant='button'
-                    className='shrink-0'
-                    triggerHint={t('cluster.webUiHint')}
-                  />
-                </CardHeader>
-                <CardContent className='space-y-4'>
-                  <div className='overflow-hidden rounded-xl border bg-background'>
-                    <iframe
-                      key={webUIProxyURL}
-                      title='SeaTunnel Web UI'
-                      src={webUIProxyURL}
-                      className='h-[900px] w-full border-0'
-                      sandbox='allow-scripts allow-same-origin allow-forms allow-popups allow-downloads'
-                      referrerPolicy='strict-origin-when-cross-origin'
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          )}
-
-          <TabsContent value='storage' className='space-y-4'>
-            {/* 存储 Tab：Checkpoint / IMAP 焦点切换 / Storage tab focuses one store at a time */}
-            <Card className='border rounded-xl relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[480px]'>
-              <TableLoadingBar
-                loading={
-                  runtimeStorageLoading ||
-                  runtimeStorageListingLoading !== null
-                }
-              />
-              <CardHeader className='flex flex-row items-center justify-between space-y-0 gap-3'>
-                <div className='min-w-0'>
-                  <CardTitle className='text-base'>
-                    {t('cluster.runtimeStorage.title')}
-                  </CardTitle>
-                  <div className='mt-1 truncate text-xs text-muted-foreground'>
-                    {t('cluster.runtimeStorage.configSource', {
-                      source: runtimeStorage?.config_source || '-',
-                    })}
-                  </div>
-                </div>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() => void loadRuntimeStorage(true)}
-                  disabled={runtimeStorageLoading}
-                >
-                  {runtimeStorageLoading ? (
-                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  ) : (
-                    <RefreshCw className='mr-2 h-4 w-4' />
-                  )}
-                  {t('common.refresh')}
-                </Button>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                {runtimeStorageLoading && !runtimeStorage ? (
-                  <div className='space-y-3 py-2'>
-                    <Skeleton className='h-8 w-full' />
-                    <Skeleton className='h-40 w-full' />
-                  </div>
-                ) : (
-                  <div
-                    className={
-                      runtimeStorageLoading
-                        ? 'pointer-events-none space-y-4 opacity-60 transition-opacity duration-200'
-                        : 'space-y-4'
-                    }
-                  >
-                    <StatPillsBar
-                      activeKey={storageFocus}
-                      onChange={(key) =>
-                        setStorageFocus(key as 'checkpoint' | 'imap')
-                      }
-                      items={[
-                        {
-                          key: 'checkpoint',
-                          label: t('installer.checkpointConfig'),
-                          count:
-                            runtimeStorage?.checkpoint?.storage_type || '-',
-                        },
-                        {
-                          key: 'imap',
-                          label: t('installer.runtimeStorage.imapTitle'),
-                          count: runtimeStorage?.imap?.storage_type || '-',
-                        },
-                      ]}
-                    />
-                    <RuntimeStorageEditor
-                      clusterId={clusterId}
-                      kind={storageFocus}
-                      spec={
-                        storageFocus === 'checkpoint'
-                          ? runtimeStorage?.configured_checkpoint || runtimeStorage?.checkpoint
-                          : runtimeStorage?.configured_imap || runtimeStorage?.imap
-                      }
-                      onApplied={() => void loadRuntimeStorage()}
-                    />
-                    {storageFocus === 'checkpoint' &&
-                      renderRuntimeStorageSpec(
-                        runtimeStorage?.checkpoint,
-                        t('installer.checkpointConfig'),
-                      )}
-                    {storageFocus === 'imap' &&
-                      renderRuntimeStorageSpec(
-                        runtimeStorage?.imap,
-                        t('installer.runtimeStorage.imapTitle'),
-                      )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value='proxy' className='space-y-4'>
-            {/* STX Java Proxy 独立管理页 / Dedicated STX Java Proxy management tab */}
-            <Card
-              className='border rounded-xl relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[360px]'
-              data-testid='stx-java-proxy-card'
-            >
-              <TableLoadingBar loading={stxJavaProxyLoading} />
-              <CardHeader className='flex flex-row items-start justify-between gap-4 space-y-0'>
-                <div className='min-w-0'>
-                  <CardTitle className='flex items-center gap-1.5 text-base'>
-                    <span>{t('cluster.stxJavaProxy.title')}</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type='button'
-                          className='text-muted-foreground/70 hover:text-foreground'
-                          aria-label={t('cluster.stxJavaProxy.description')}
-                        >
-                          <HelpCircle className='size-3.5' />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side='top' className='max-w-xs text-xs font-normal leading-relaxed'>
-                        {t('cluster.stxJavaProxy.description')}
-                      </TooltipContent>
-                    </Tooltip>
-                  </CardTitle>
-                </div>
-                <div className='flex items-center gap-2 shrink-0'>
-                  <Badge
-                    variant={
-                      stxJavaProxy?.healthy
-                        ? 'default'
-                        : stxJavaProxy?.running
-                          ? 'outline'
-                          : 'secondary'
-                    }
-                  >
-                    {stxJavaProxy?.healthy
-                      ? t('cluster.stxJavaProxy.healthy')
-                      : stxJavaProxy?.running
-                        ? t('cluster.stxJavaProxy.unhealthy')
-                        : t('cluster.stxJavaProxy.stopped')}
-                  </Badge>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={() => void loadStxJavaProxyStatus()}
-                    disabled={stxJavaProxyLoading}
-                    data-testid='stx-java-proxy-refresh'
-                  >
-                    {stxJavaProxyLoading ? (
-                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    {stxJavaProxyLoading && !stxJavaProxy ? (
+                      <div className='space-y-3 border-t-[0.5px] border-border/80 pt-4'>
+                        <Skeleton className='h-20 w-full' />
+                        <Skeleton className='h-9 w-64' />
+                      </div>
                     ) : (
-                      <RefreshCw className='mr-2 h-4 w-4' />
-                    )}
-                    {t('common.refresh')}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent
-                className={
-                  stxJavaProxyLoading && stxJavaProxy
-                    ? 'pointer-events-none space-y-4 text-sm opacity-60 transition-opacity duration-200'
-                    : 'space-y-4 text-sm'
-                }
-              >
-                {stxJavaProxyLoading && !stxJavaProxy ? (
-                  <div className='space-y-3 py-2'>
-                    <Skeleton className='h-20 w-full' />
-                    <Skeleton className='h-10 w-64' />
-                  </div>
-                ) : (
-                  <>
-                    <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
-                      <div>
-                        <div className='text-muted-foreground'>
-                          {t('cluster.stxJavaProxy.deploymentNode')}
-                        </div>
-                        <div className='font-medium truncate'>
-                          {stxJavaProxy?.host_name || '-'}
-                          {stxJavaProxy?.role
-                            ? ` (${t(`cluster.roles.${getRoleTranslationKey(stxJavaProxy.role)}`)})`
-                            : ''}
-                        </div>
-                      </div>
-                      <div>
-                        <div className='text-muted-foreground'>
-                          {t('cluster.stxJavaProxy.endpoint')}
-                        </div>
-                        <div className='font-medium truncate'>
-                          {stxJavaProxy?.endpoint || '-'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className='text-muted-foreground'>
-                          {t('cluster.stxJavaProxy.pid')}
-                        </div>
-                        <div className='font-medium'>
-                          {stxJavaProxy?.pid ?? '-'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className='text-muted-foreground'>
-                          {t('cluster.stxJavaProxy.logPath')}
-                        </div>
-                        <div className='font-medium truncate'>
-                          {stxJavaProxy?.log_path &&
-                          stxJavaProxy.log_path.trim() !== ''
-                            ? stxJavaProxy.log_path
-                            : '-'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className='text-muted-foreground'>
-                          {t('cluster.stxJavaProxy.jvmMemoryMax')}
-                        </div>
-                        <div className='font-medium font-mono'>
-                          {stxJavaProxy?.jvm_memory?.maxMemoryMb
-                            ? `${stxJavaProxy.jvm_memory.maxMemoryMb} MB`
-                            : '512 MB (默认)'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className='text-muted-foreground'>
-                          {t('cluster.stxJavaProxy.jvmMemoryUsage')}
-                        </div>
-                        <div className='font-medium font-mono'>
-                          {stxJavaProxy?.jvm_memory?.usedMemoryBytes != null
-                            ? `${Math.round(stxJavaProxy.jvm_memory.usedMemoryBytes / (1024 * 1024))} MB / ${Math.round((stxJavaProxy.jvm_memory.totalMemoryBytes || 0) / (1024 * 1024))} MB`
-                            : '-'}
-                        </div>
-                      </div>
-                      <div className='md:col-span-2'>
-                        <div className='text-muted-foreground'>
-                          {t('cluster.stxJavaProxy.jvmOpts')}
-                        </div>
-                        <div
-                          className='font-medium font-mono truncate'
-                          title={
-                            stxJavaProxy?.jvm_opts ||
-                            t('cluster.stxJavaProxy.jvmOptsDefault')
-                          }
-                        >
-                          {stxJavaProxy?.jvm_opts &&
-                          stxJavaProxy.jvm_opts.trim() !== ''
-                            ? stxJavaProxy.jvm_opts
-                            : t('cluster.stxJavaProxy.jvmOptsDefault')}
-                        </div>
-                      </div>
-                    </div>
-                    <div className='rounded-md border bg-muted/20 p-3 text-sm'>
-                      {stxJavaProxy?.message ||
-                        t('cluster.stxJavaProxy.noStatus')}
-                    </div>
-                    <div className='flex flex-wrap gap-2'>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={handleOpenStxJavaProxyConfig}
-                        disabled={
-                          stxJavaProxyLoading || stxJavaProxyOperating !== null
-                        }
-                        data-testid='stx-java-proxy-config-btn'
-                      >
-                        <SlidersHorizontal className='mr-2 h-4 w-4' />
-                        {t('cluster.stxJavaProxy.configureMemory')}
-                      </Button>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => void handlePreviewStxJavaProxyLog()}
-                        disabled={
-                          stxJavaProxyLoading || stxJavaProxyLogLoading
-                        }
-                        data-testid='stx-java-proxy-view-log'
-                      >
-                        {stxJavaProxyLogLoading ? (
-                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                        ) : (
-                          <FileText className='mr-2 h-4 w-4' />
-                        )}
-                        {t('cluster.stxJavaProxy.viewRuntimeLog')}
-                      </Button>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() =>
-                          void handleStxJavaProxyOperation('start')
-                        }
-                        disabled={stxJavaProxyOperating !== null}
-                        data-testid='stx-java-proxy-start'
-                      >
-                        {stxJavaProxyOperating === 'start' ? (
-                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                        ) : (
-                          <Play className='mr-2 h-4 w-4' />
-                        )}
-                        {t('cluster.stxJavaProxy.start')}
-                      </Button>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() =>
-                          void handleStxJavaProxyOperation('restart')
-                        }
-                        disabled={stxJavaProxyOperating !== null}
-                        data-testid='stx-java-proxy-restart'
-                      >
-                        {stxJavaProxyOperating === 'restart' ? (
-                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                        ) : (
-                          <RotateCcw className='mr-2 h-4 w-4' />
-                        )}
-                        {t('cluster.stxJavaProxy.restart')}
-                      </Button>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() =>
-                          void handleStxJavaProxyOperation('stop')
-                        }
-                        disabled={stxJavaProxyOperating !== null}
-                        data-testid='stx-java-proxy-stop'
-                      >
-                        {stxJavaProxyOperating === 'stop' ? (
-                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                        ) : (
-                          <Square className='mr-2 h-4 w-4' />
-                        )}
-                        {t('cluster.stxJavaProxy.stop')}
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
+                      <>
+                        <dl className='grid grid-cols-2 gap-x-6 gap-y-4 border-t-[0.5px] border-border/80 py-5 text-xs xl:grid-cols-4'>
+                          <div className='min-w-0 space-y-1'>
+                            <dt className='text-muted-foreground'>
+                              {t('cluster.stxJavaProxy.deploymentNode')}
+                            </dt>
+                            <dd className='truncate font-medium text-foreground'>
+                              {stxJavaProxy?.host_name || '-'}
+                              {stxJavaProxy?.role
+                                ? ` (${t(`cluster.roles.${getRoleTranslationKey(stxJavaProxy.role)}`)})`
+                                : ''}
+                            </dd>
+                          </div>
+                          <div className='min-w-0 space-y-1'>
+                            <dt className='text-muted-foreground'>
+                              {t('cluster.stxJavaProxy.endpoint')}
+                            </dt>
+                            <dd
+                              className='truncate font-mono font-medium tabular-nums'
+                              title={stxJavaProxy?.endpoint || '-'}
+                            >
+                              {stxJavaProxy?.endpoint || '-'}
+                            </dd>
+                          </div>
+                          <div className='min-w-0 space-y-1'>
+                            <dt className='text-muted-foreground'>
+                              {t('cluster.stxJavaProxy.pid')}
+                            </dt>
+                            <dd className='font-mono font-medium tabular-nums'>
+                              {stxJavaProxy?.pid ?? '-'}
+                            </dd>
+                          </div>
+                          <div className='min-w-0 space-y-1'>
+                            <dt className='text-muted-foreground'>
+                              {t('cluster.stxJavaProxy.logPath')}
+                            </dt>
+                            <dd
+                              className='truncate font-mono font-medium'
+                              title={stxJavaProxy?.log_path || '-'}
+                            >
+                              {stxJavaProxy?.log_path?.trim()
+                                ? stxJavaProxy.log_path
+                                : '-'}
+                            </dd>
+                          </div>
+                          <div className='min-w-0 space-y-1'>
+                            <dt className='text-muted-foreground'>
+                              {t('cluster.stxJavaProxy.jvmMemoryMax')}
+                            </dt>
+                            <dd className='font-mono font-medium tabular-nums'>
+                              {stxJavaProxy?.jvm_memory?.maxMemoryMb
+                                ? `${stxJavaProxy.jvm_memory.maxMemoryMb} MB`
+                                : '512 MB'}
+                            </dd>
+                          </div>
+                          <div className='min-w-0 space-y-1'>
+                            <dt className='text-muted-foreground'>
+                              {t('cluster.stxJavaProxy.jvmMemoryUsage')}
+                            </dt>
+                            <dd className='font-mono font-medium tabular-nums'>
+                              {stxJavaProxy?.jvm_memory?.usedMemoryBytes != null
+                                ? `${Math.round(stxJavaProxy.jvm_memory.usedMemoryBytes / (1024 * 1024))} MB / ${Math.round((stxJavaProxy.jvm_memory.totalMemoryBytes || 0) / (1024 * 1024))} MB`
+                                : '-'}
+                            </dd>
+                          </div>
+                          <div className='col-span-2 min-w-0 space-y-1'>
+                            <dt className='text-muted-foreground'>
+                              {t('cluster.stxJavaProxy.jvmOpts')}
+                            </dt>
+                            <dd
+                              className='truncate font-mono font-medium'
+                              title={
+                                stxJavaProxy?.jvm_opts ||
+                                t('cluster.stxJavaProxy.jvmOptsDefault')
+                              }
+                            >
+                              {stxJavaProxy?.jvm_opts?.trim()
+                                ? stxJavaProxy.jvm_opts
+                                : t('cluster.stxJavaProxy.jvmOptsDefault')}
+                            </dd>
+                          </div>
+                        </dl>
 
-          <TabsContent value='monitoring' className='space-y-6'>
-            {/* Monitor Config / 监控配置 */}
-            <MonitorConfigPanel
+                        <div className='border-t-[0.5px] border-border/80 py-4 text-xs text-muted-foreground'>
+                          {stxJavaProxy?.message ||
+                            t('cluster.stxJavaProxy.noStatus')}
+                        </div>
+
+                        <div className='flex flex-wrap gap-2 border-t-[0.5px] border-border/80 pt-4'>
+                          <ArcButton
+                            type='button'
+                            variant='secondary'
+                            size='sm'
+                            onClick={handleOpenStxJavaProxyConfig}
+                            disabled={
+                              stxJavaProxyLoading ||
+                              stxJavaProxyOperating !== null
+                            }
+                            data-testid='stx-java-proxy-config-btn'
+                          >
+                            <SlidersHorizontal className='size-3.5' aria-hidden />
+                            {t('cluster.stxJavaProxy.configureMemory')}
+                          </ArcButton>
+                          <ArcButton
+                            type='button'
+                            variant='secondary'
+                            size='sm'
+                            onClick={() => void handlePreviewStxJavaProxyLog()}
+                            disabled={stxJavaProxyLoading}
+                            loading={stxJavaProxyLogLoading}
+                            data-testid='stx-java-proxy-view-log'
+                          >
+                            <FileText className='size-3.5' aria-hidden />
+                            {t('cluster.stxJavaProxy.viewRuntimeLog')}
+                          </ArcButton>
+                          <ArcButton
+                            type='button'
+                            variant='secondary'
+                            size='sm'
+                            onClick={() =>
+                              void handleStxJavaProxyOperation('start')
+                            }
+                            disabled={stxJavaProxyOperating !== null}
+                            loading={stxJavaProxyOperating === 'start'}
+                            data-testid='stx-java-proxy-start'
+                          >
+                            <Play className='size-3.5' aria-hidden />
+                            {t('cluster.stxJavaProxy.start')}
+                          </ArcButton>
+                          <ArcButton
+                            type='button'
+                            variant='secondary'
+                            size='sm'
+                            onClick={() =>
+                              void handleStxJavaProxyOperation('restart')
+                            }
+                            disabled={stxJavaProxyOperating !== null}
+                            loading={stxJavaProxyOperating === 'restart'}
+                            data-testid='stx-java-proxy-restart'
+                          >
+                            <RotateCcw className='size-3.5' aria-hidden />
+                            {t('cluster.stxJavaProxy.restart')}
+                          </ArcButton>
+                          <ArcButton
+                            type='button'
+                            variant='secondary'
+                            size='sm'
+                            onClick={() =>
+                              void handleStxJavaProxyOperation('stop')
+                            }
+                            disabled={stxJavaProxyOperating !== null}
+                            loading={stxJavaProxyOperating === 'stop'}
+                            data-testid='stx-java-proxy-stop'
+                          >
+                            <Square className='size-3.5' aria-hidden />
+                            {t('cluster.stxJavaProxy.stop')}
+                          </ArcButton>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* 内嵌 SeaTunnel Web UI（仅 webUINode 存在时可用） */}
+              {runtimeView === 'webui' && webUINode ? (
+                <div className='overflow-hidden rounded-(--radius-panel) border border-(--border) bg-card'>
+                  <div className='flex flex-wrap items-center justify-between gap-3 border-b-[0.5px] border-border/80 px-5 py-3.5'>
+                    <div className='flex min-w-0 items-center gap-2'>
+                      <MonitorSmartphone
+                        className='size-4 shrink-0 text-primary'
+                        aria-hidden
+                      />
+                      <span className='text-sm font-semibold whitespace-nowrap'>
+                        {t('cluster.webUiTitle')}
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type='button'
+                            className='min-w-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                            aria-label={t('cluster.webUiMasterAddressTip', {
+                              address: webUIMasterAddress,
+                            })}
+                            data-testid='cluster-webui-master-address-trigger'
+                          >
+                            <span
+                              className='block max-w-[260px] cursor-help truncate rounded-md bg-muted/50 px-2 py-0.5 font-mono text-[11px] tabular-nums'
+                              data-testid='cluster-webui-master-address'
+                            >
+                              {webUIMasterAddress}
+                            </span>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side='top'
+                          className='max-w-sm text-xs'
+                        >
+                          {t('cluster.webUiMasterAddressTip', {
+                            address: webUIMasterAddress,
+                          })}
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <SeaTunnelObserveMenu
+                      clusterId={clusterId}
+                      variant='button'
+                      className='shrink-0'
+                      triggerHint={t('cluster.webUiHint')}
+                    />
+                  </div>
+                  <iframe
+                    key={webUIProxyURL}
+                    title='SeaTunnel Web UI'
+                    src={webUIProxyURL}
+                    className='h-[860px] w-full border-0 bg-background'
+                    sandbox='allow-scripts allow-same-origin allow-forms allow-popups allow-downloads'
+                    referrerPolicy='strict-origin-when-cross-origin'
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </ArcTabsContent>
+
+        <ArcTabsContent value='ops'>
+          {activeTab === 'ops' ? (
+            <ClusterOpsTab
               clusterId={clusterId}
               clusterName={cluster.name}
+              view={opsView}
+              onViewChange={(view) => requestRouteChange('ops', view)}
+              onGuardDirtyChange={setGuardDirty}
+              diagnosticsGroups={diagnosticsGroups}
+              diagnosticsGroupTotal={diagnosticsGroupTotal}
+              diagnosticsLoading={diagnosticsLoading}
+              inspectionStarting={inspectionStarting}
+              onStartInspection={() => void handleStartInspection()}
+              upgradeTasks={upgradeTasks}
+              upgradeTasksLoading={upgradeTasksLoading}
+              upgradeTasksPage={upgradeTasksPage}
+              upgradeTasksPageSize={upgradeTasksPageSize}
+              upgradeTasksTotal={upgradeTasksTotal}
+              onUpgradeTasksPageChange={setUpgradeTasksPage}
+              onOpenUpgradeTask={openUpgradeTaskDetail}
             />
-          </TabsContent>
+          ) : null}
+        </ArcTabsContent>
+      </ArcTabs>
 
-          <TabsContent value='nodes' className='space-y-6'>
-            {/* Integrated Node Management Card / 一体化节点管理表格卡片 */}
-            <Card className='border rounded-xl relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[480px]'>
-              <CardHeader className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b bg-muted/10'>
-                <div className='flex items-center gap-2 flex-wrap'>
-                  <CardTitle className='flex items-center gap-2 text-base font-semibold'>
-                    <Server className='h-4 w-4 text-primary' />
-                    <span>{t('cluster.nodeList')}</span>
-                  </CardTitle>
-                  <Badge variant='secondary' className='text-xs font-mono'>
-                    {filteredNodes.length} / {nodes.length}
-                  </Badge>
-                  {selectedNodeIds.size > 0 && (
-                    <Badge variant='outline' className='text-xs font-medium'>
-                      {t('cluster.selectedNodes', {
-                        count: selectedNodeIds.size,
-                      })}
-                    </Badge>
-                  )}
-                </div>
-
-                <div className='flex items-center gap-2 flex-wrap'>
-                  {/* 批量操作工具栏（按需显隐） / Batch operations toolbar (progressive disclosure) */}
-                  {selectedNodeIds.size > 0 && (
-                    <div className='flex items-center gap-1.5 p-1 bg-background/90 rounded-lg border shadow-2xs'>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => setConfirmBatchOp('start')}
-                        disabled={isOperating}
-                        className='h-7 text-xs text-emerald-600 dark:text-emerald-400'
-                      >
-                        {isOperating ? (
-                          <Loader2 className='h-3.5 w-3.5 mr-1 animate-spin' />
-                        ) : (
-                          <Play className='h-3.5 w-3.5 mr-1' />
-                        )}
-                        {t('cluster.start')}
-                      </Button>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => setConfirmBatchOp('stop')}
-                        disabled={isOperating}
-                        className='h-7 text-xs text-amber-600 dark:text-amber-400'
-                      >
-                        {isOperating ? (
-                          <Loader2 className='h-3.5 w-3.5 mr-1 animate-spin' />
-                        ) : (
-                          <Square className='h-3.5 w-3.5 mr-1' />
-                        )}
-                        {t('cluster.stop')}
-                      </Button>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => setConfirmBatchOp('restart')}
-                        disabled={isOperating}
-                        className='h-7 text-xs text-blue-600 dark:text-blue-400'
-                      >
-                        {isOperating ? (
-                          <Loader2 className='h-3.5 w-3.5 mr-1 animate-spin' />
-                        ) : (
-                          <RotateCcw className='h-3.5 w-3.5 mr-1' />
-                        )}
-                        {t('cluster.restart')}
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={() => setSelectedNodeIds(new Set())}
-                        className='h-7 text-xs text-muted-foreground hover:text-foreground'
-                      >
-                        {t('cluster.clearSelection')}
-                      </Button>
-                    </div>
-                  )}
-
-                  {/* 节点搜索过滤框 / Node search input */}
-                  <div className='relative w-48 sm:w-56'>
-                    <Search className='absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground' />
-                    <Input
-                      placeholder={t('cluster.searchNodes')}
-                      value={nodeSearchTerm}
-                      onChange={(e) => setNodeSearchTerm(e.target.value)}
-                      className='pl-8 h-8 text-xs'
-                    />
-                  </div>
-
-                  <Button
-                    size='sm'
-                    onClick={() => setIsAddNodeDialogOpen(true)}
-                    className='h-8'
-                  >
-                    <Plus className='h-3.5 w-3.5 mr-1.5' />
-                    {t('cluster.addNode')}
-                  </Button>
-                </div>
-              </CardHeader>
-              {runningScaleOperation && (
-                <div className='mx-4 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm'>
-                  <span className='flex items-center gap-2'>
-                    {runningScaleOperation.status === 'running' ? (
-                      <Loader2 className='h-4 w-4 animate-spin text-primary' />
-                    ) : (
-                      <AlertTriangle className='h-4 w-4 text-red-600' />
-                    )}
-                    {runningScaleOperation.status === 'running'
-                      ? t('cluster.scale.inProgressBanner', {
-                          kind: t(`cluster.scale.kind.${runningScaleOperation.kind}`),
-                          step: t(`cluster.scale.steps.${runningScaleOperation.current_step}`),
-                        })
-                      : t('cluster.scale.operationFailed', {
-                          error: runningScaleOperation.error || '-',
-                        })}
-                  </span>
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    onClick={() => setScaleProgressOpen(true)}
-                  >
-                    {t('cluster.scale.viewProgress')}
-                  </Button>
-                </div>
-              )}
-              <CardContent className='p-0 flex-1'>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className='w-12 pl-4'>
-                        <Checkbox
-                          checked={
-                            filteredNodes.length > 0 &&
-                            filteredNodes.every((n) =>
-                              selectedNodeIds.has(n.id),
-                            )
-                          }
-                          onCheckedChange={toggleAllNodes}
-                        />
-                      </TableHead>
-                      <TableHead className='w-16'>ID</TableHead>
-                      <TableHead>{t('cluster.hostName')}</TableHead>
-                      <TableHead>{t('cluster.hostIP')}</TableHead>
-                      <TableHead>{t('cluster.nodeRole')}</TableHead>
-                      <TableHead>{t('cluster.installDir')}</TableHead>
-                      <TableHead>{t('javaHome.effectiveTitle')}</TableHead>
-                      <TableHead>{t('cluster.nodeStatus')}</TableHead>
-                      <TableHead>{t('cluster.processPID')}</TableHead>
-                      <TableHead className='text-right pr-4'>
-                        {t('cluster.actions')}
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredNodes.length === 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={10}
-                          className='text-center py-12 text-muted-foreground text-sm'
-                        >
-                          {nodeSearchTerm || nodeStatusFilter !== 'all'
-                            ? t('common.noMatchingData')
-                            : t('cluster.noNodes')}
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredNodes.map((node) => (
-                        <TableRow key={node.id} className='hover:bg-muted/20'>
-                          <TableCell className='pl-4'>
-                            <Checkbox
-                              checked={selectedNodeIds.has(node.id)}
-                              onCheckedChange={() =>
-                                toggleNodeSelection(node.id)
-                              }
-                            />
-                          </TableCell>
-                          <TableCell className='font-mono text-xs whitespace-nowrap text-muted-foreground'>
-                            #{node.id}
-                          </TableCell>
-                          <TableCell className='font-medium whitespace-nowrap'>
-                            {node.host_name || '-'}
-                          </TableCell>
-                          <TableCell className='font-mono text-xs whitespace-nowrap'>
-                            {node.host_ip || '-'}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant='outline' className='text-xs'>
-                              {t(
-                                `cluster.roles.${getRoleTranslationKey(node.role)}`,
-                              )}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className='font-mono text-xs max-w-[180px]'>
-                            <div
-                              className='truncate'
-                              title={node.install_dir || '-'}
-                            >
-                              {node.install_dir || '-'}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <NodeJavaHomeCell
-                              configuredJavaHome={node.java_home}
-                              runtime={nodeJavaRuntimes[node.id]}
-                              data-testid={`node-java-home-${node.id}`}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={getStatusBadgeVariant(node.status)} className='text-xs'>
-                              {t(`cluster.nodeStatuses.${node.status}`)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className='font-mono text-xs whitespace-nowrap'>
-                            {node.process_pid || '-'}
-                          </TableCell>
-                          <TableCell className='text-right pr-4'>
-                            <div className='flex items-center gap-0.5 justify-end'>
-                              <Button
-                                variant='ghost'
-                                size='icon'
-                                className='h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
-                                onClick={() =>
-                                  setConfirmNodeOp({op: 'start', node})
-                                }
-                                disabled={
-                                  nodeOperating === node.id ||
-                                  node.status === NodeStatus.RUNNING ||
-                                  node.status === NodeStatus.OFFLINE
-                                }
-                                title={t('cluster.start')}
-                              >
-                                {nodeOperating === node.id ? (
-                                  <Loader2 className='h-4 w-4 animate-spin' />
-                                ) : (
-                                  <Play className='h-4 w-4' />
-                                )}
-                              </Button>
-                              <Button
-                                variant='ghost'
-                                size='icon'
-                                className='h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30'
-                                onClick={() =>
-                                  setConfirmNodeOp({op: 'stop', node})
-                                }
-                                disabled={
-                                  nodeOperating === node.id ||
-                                  node.status !== NodeStatus.RUNNING
-                                }
-                                title={t('cluster.stop')}
-                              >
-                                <Square className='h-4 w-4' />
-                              </Button>
-                              <Button
-                                variant='ghost'
-                                size='icon'
-                                className='h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30'
-                                onClick={() =>
-                                  setConfirmNodeOp({op: 'restart', node})
-                                }
-                                disabled={
-                                  nodeOperating === node.id ||
-                                  node.status !== NodeStatus.RUNNING
-                                }
-                                title={t('cluster.restart')}
-                              >
-                                <RotateCcw className='h-4 w-4' />
-                              </Button>
-                              <Button
-                                variant='ghost'
-                                size='icon'
-                                className='h-8 w-8 text-muted-foreground hover:text-foreground'
-                                onClick={() => handleViewLogs(node)}
-                                title={t('cluster.viewLogs')}
-                              >
-                                <FileText className='h-4 w-4' />
-                              </Button>
-                              <Button
-                                variant='ghost'
-                                size='icon'
-                                className='h-8 w-8 text-muted-foreground hover:text-foreground'
-                                onClick={() => openEditNodeDialog(node)}
-                                title={t('cluster.editNode')}
-                              >
-                                <Pencil className='h-4 w-4' />
-                              </Button>
-                              <Button
-                                variant='ghost'
-                                size='icon'
-                                className='h-8 w-8 text-destructive/80 hover:text-destructive hover:bg-destructive/10'
-                                onClick={() => setNodeToRemove(node)}
-                                title={t('cluster.removeNode')}
-                              >
-                                <Trash2 className='h-4 w-4' />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-
-            {/* Process Events / 进程事件 */}
-            <ProcessEventList clusterId={clusterId} />
-          </TabsContent>
-
-          <TabsContent value='plugins' className='space-y-4'>
-            {/* Installed Plugins / 已安装插件 */}
-            <ClusterPlugins clusterId={clusterId} />
-          </TabsContent>
-
-          <TabsContent value='configs' className='space-y-4'>
-            {/* SeaTunnel 事件上报通道（改写 seatunnel.yaml）/ SeaTunnel event report channel (rewrites seatunnel.yaml) */}
-            <EngineEventChannelCard clusterId={clusterId} onConfigChanged={handleConfigChanged} />
-            {/* Cluster Configs / 集群配置 */}
-            <ClusterConfigs
-              clusterId={clusterId}
-              deploymentMode={cluster.deployment_mode}
-              onConfigChanged={handleConfigChanged}
-            />
-          </TabsContent>
-
-          <TabsContent value='diagnostics' className='space-y-6'>
-            {/* Diagnostics Summary / 诊断摘要 */}
-            <Card>
-              <CardHeader className='flex flex-row items-center justify-between space-y-0'>
-                <div>
-                  <CardTitle>{t('diagnosticsCenter.errors.title')}</CardTitle>
-                  <CardDescription>
-                    {t('diagnosticsCenter.errors.clusterScopedHint', {
-                      name: cluster.name,
-                    })}
-                  </CardDescription>
-                </div>
-                <div className='flex flex-wrap items-center gap-2'>
-                  <Button
-                    onClick={() => void handleStartInspection()}
-                    disabled={inspectionStarting}
-                  >
-                    {inspectionStarting ? (
-                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                    ) : (
-                      <Activity className='mr-2 h-4 w-4' />
-                    )}
-                    {t('diagnosticsCenter.inspections.startInspection')}
-                  </Button>
-                  <Button
-                    variant='outline'
-                    onClick={() =>
-                      router.push(
-                        `/diagnostics?tab=errors&cluster_id=${clusterId}&source=cluster-detail-summary`,
-                      )
-                    }
-                  >
-                    <Bug className='h-4 w-4 mr-2' />
-                    {t('cluster.openDiagnostics')}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                <div className='flex flex-wrap items-center gap-2'>
-                  <Badge variant='outline'>
-                    {t('diagnosticsCenter.errors.matchedGroups', {
-                      count: diagnosticsGroupTotal,
-                    })}
-                  </Badge>
-                </div>
-                {diagnosticsLoading ? (
-                  <div className='space-y-2'>
-                    <div className='h-10 rounded-md bg-muted/60' />
-                    <div className='h-10 rounded-md bg-muted/60' />
-                    <div className='h-10 rounded-md bg-muted/60' />
-                  </div>
-                ) : diagnosticsGroups.length === 0 ? (
-                  <div className='rounded-lg border border-dashed p-4 text-sm text-muted-foreground'>
-                    {t('diagnosticsCenter.errors.empty')}
-                  </div>
-                ) : (
-                  <div className='space-y-3'>
-                    {diagnosticsGroups.map((group) => (
-                      <button
-                        key={group.id}
-                        type='button'
-                        className='flex w-full items-start justify-between rounded-lg border p-3 text-left transition-colors hover:bg-muted/30'
-                        onClick={() =>
-                          router.push(
-                            `/diagnostics?tab=errors&cluster_id=${clusterId}&group_id=${group.id}&source=cluster-detail-summary`,
-                          )
-                        }
-                      >
-                        <div className='min-w-0 space-y-1'>
-                          <div className='truncate font-medium'>
-                            {group.title ||
-                              group.sample_message ||
-                              group.fingerprint}
-                          </div>
-                          <div className='truncate text-sm text-muted-foreground'>
-                            {group.exception_class ||
-                              group.sample_message ||
-                              '-'}
-                          </div>
-                        </div>
-                        <div className='ml-4 flex shrink-0 items-center gap-2'>
-                          <Badge
-                            variant={
-                              group.occurrence_count >= 10
-                                ? 'destructive'
-                                : group.occurrence_count >= 3
-                                  ? 'secondary'
-                                  : 'outline'
-                            }
-                          >
-                            {group.occurrence_count}
-                          </Badge>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value='upgrades' className='space-y-6'>
-            <Card>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2'>
-                  <Activity className='h-5 w-5' />
-                  {t('stUpgrade.upgradeRecordsTitle')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                {upgradeTasksLoading ? (
-                  <div className='flex items-center justify-center py-10 text-muted-foreground'>
-                    <Loader2 className='h-5 w-5 animate-spin' />
-                  </div>
-                ) : upgradeTasks.length === 0 ? (
-                  <div className='rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground'>
-                    {t('stUpgrade.noUpgradeRecords')}
-                  </div>
-                ) : (
-                  <>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>ID</TableHead>
-                          <TableHead>{t('stUpgrade.sourceVersion')}</TableHead>
-                          <TableHead>{t('stUpgrade.targetVersion')}</TableHead>
-                          <TableHead>{t('stUpgrade.taskStatus')}</TableHead>
-                          <TableHead>{t('stUpgrade.rollbackStatus')}</TableHead>
-                          <TableHead>{t('stUpgrade.currentStep')}</TableHead>
-                          <TableHead>{t('stUpgrade.createdAt')}</TableHead>
-                          <TableHead className='text-right'>
-                            {t('common.actions')}
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {upgradeTasks.map((upgradeTask) => (
-                          <TableRow
-                            key={upgradeTask.id}
-                            className='cursor-pointer'
-                            onClick={() => openUpgradeTaskDetail(upgradeTask)}
-                          >
-                            <TableCell className='font-mono text-xs'>
-                              #{upgradeTask.id}
-                            </TableCell>
-                            <TableCell>
-                              {upgradeTask.source_version || '-'}
-                            </TableCell>
-                            <TableCell>
-                              {upgradeTask.target_version || '-'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={getUpgradeStatusBadgeVariant(
-                                  upgradeTask.status,
-                                )}
-                              >
-                                {getExecutionStatusLabel(upgradeTask.status)}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={getUpgradeStatusBadgeVariant(
-                                  upgradeTask.rollback_status,
-                                )}
-                              >
-                                {getExecutionStatusLabel(
-                                  upgradeTask.rollback_status,
-                                )}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className='font-mono text-xs'>
-                              {upgradeTask.current_step || '-'}
-                            </TableCell>
-                            <TableCell className='text-muted-foreground'>
-                              {formatDateTimeTz(
-                                upgradeTask.created_at,
-                              )}
-                            </TableCell>
-                            <TableCell className='text-right'>
-                              <Button
-                                variant='outline'
-                                size='sm'
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  openUpgradeTaskDetail(upgradeTask);
-                                }}
-                              >
-                                {t('stUpgrade.viewUpgradeDetail')}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-
-                    <Pagination
-                      currentPage={upgradeTasksPage}
-                      totalPages={upgradeTaskTotalPages}
-                      pageSize={upgradeTasksPageSize}
-                      totalItems={upgradeTasksTotal}
-                      onPageChange={setUpgradeTasksPage}
-                      showPageSizeSelector={false}
-                      showTotalItems={true}
-                    />
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </motion.div>
+      <DirtyCloseDialog
+        open={pendingRoute !== null}
+        onDiscard={commitPendingRoute}
+        onKeepEditing={() => setPendingRoute(null)}
+      />
 
       {/* Edit Cluster Dialog / 编辑集群对话框 */}
       <EditClusterDialog
@@ -3680,32 +2599,36 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         open={runtimeStoragePreviewOpen}
         onOpenChange={setRuntimeStoragePreviewOpen}
       >
-        <DialogContent className='sm:max-w-4xl'>
+        <DialogContent className='arc-compact sm:max-w-4xl'>
           <DialogHeader>
             <div className='flex items-center justify-between gap-3 pr-6'>
               <div className='min-w-0'>
                 <DialogTitle className='flex items-center gap-2'>
                   {runtimeStoragePreview?.file_name?.endsWith('.ser') ? (
-                    <Database className='size-5 text-purple-400' />
+                    <Database className='size-4 text-purple-400' />
                   ) : runtimeStoragePreview?.binary ? (
-                    <File className='size-5 text-muted-foreground' />
+                    <File className='size-4 text-muted-foreground' />
                   ) : (
-                    <FileText className='size-5 text-sky-400' />
+                    <FileText className='size-4 text-sky-400' />
                   )}
                   <span className='truncate font-mono'>
                     {runtimeStoragePreview?.file_name ||
                       t('cluster.runtimeStorage.preview')}
                   </span>
                 </DialogTitle>
-                <DialogDescription className='mt-1 break-all font-mono text-xs text-muted-foreground flex items-center gap-1.5'>
-                  <span className='truncate'>
+                <DialogDescription className='mt-1 flex items-center gap-1.5 font-mono text-xs text-muted-foreground'>
+                  <span
+                    className='truncate'
+                    title={runtimeStoragePreview?.path || '-'}
+                  >
                     {runtimeStoragePreview?.path || '-'}
                   </span>
                   {runtimeStoragePreview?.path && (
-                    <Button
+                    <ArcButton
+                      type='button'
                       variant='ghost'
-                      size='icon'
-                      className='size-5 shrink-0 text-muted-foreground hover:text-foreground'
+                      size='sm'
+                      iconOnly
                       onClick={() => {
                         if (runtimeStoragePreview?.path) {
                           void navigator.clipboard.writeText(
@@ -3716,10 +2639,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                           );
                         }
                       }}
+                      aria-label={t('cluster.runtimeStorage.copyPath')}
                       title={t('cluster.runtimeStorage.copyPath')}
                     >
-                      <Copy className='size-3' />
-                    </Button>
+                      <Copy className='size-3' aria-hidden />
+                    </ArcButton>
                   )}
                 </DialogDescription>
               </div>
@@ -3727,10 +2651,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               {/* 若为 Checkpoint 序列化文件，提供一键反序列化直达动作 */}
               {/* If it's a Checkpoint serialization file, provide a quick deserialize action */}
               {runtimeStoragePreview?.path?.endsWith('.ser') && (
-                <Button
+                <ArcButton
+                  type='button'
                   size='sm'
-                  variant='default'
-                  className='bg-purple-600 hover:bg-purple-700 text-white shrink-0 active:scale-95'
                   onClick={() => {
                     const p = runtimeStoragePreview?.path;
                     if (p) {
@@ -3739,50 +2662,53 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                     }
                   }}
                 >
-                  <Database className='mr-1.5 size-3.5' />
+                  <Database className='size-3.5' aria-hidden />
                   {t('cluster.runtimeStorage.deserializeCheckpoint')}
-                </Button>
+                </ArcButton>
               )}
             </div>
           </DialogHeader>
 
-          <div className='grid gap-3 rounded-lg border bg-muted/20 p-3 text-xs md:grid-cols-4'>
-            <div>
-              <div className='text-muted-foreground'>
+          <dl className='grid gap-x-6 gap-y-3 border-y-[0.5px] border-border/80 py-3.5 text-xs md:grid-cols-4'>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.fileName')}
-              </div>
-              <div className='font-mono font-medium break-all text-foreground mt-0.5'>
+              </dt>
+              <dd
+                className='truncate font-mono font-medium text-foreground'
+                title={runtimeStoragePreview?.file_name || '-'}
+              >
                 {runtimeStoragePreview?.file_name || '-'}
-              </div>
+              </dd>
             </div>
-            <div>
-              <div className='text-muted-foreground'>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.size')}
-              </div>
-              <div className='font-mono font-medium text-foreground mt-0.5'>
+              </dt>
+              <dd className='font-mono font-medium tabular-nums text-foreground'>
                 {formatBytes(runtimeStoragePreview?.size_bytes)}
-              </div>
+              </dd>
             </div>
-            <div>
-              <div className='text-muted-foreground'>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.encoding')}
-              </div>
-              <div className='font-mono font-medium text-foreground mt-0.5 flex items-center gap-1.5'>
+              </dt>
+              <dd className='flex items-center gap-1.5 font-mono font-medium text-foreground'>
                 <span>{runtimeStoragePreview?.encoding || '-'}</span>
-                <Badge variant='outline' className='text-[10px] px-1 py-0'>
+                <NeutralChip>
                   {runtimeStoragePreview?.binary ? 'Binary' : 'Text'}
-                </Badge>
-              </div>
+                </NeutralChip>
+              </dd>
             </div>
-            <div>
-              <div className='text-muted-foreground'>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.truncated')}
-              </div>
-              <div className='font-mono font-medium text-foreground mt-0.5'>
+              </dt>
+              <dd className='font-mono font-medium text-foreground'>
                 {runtimeStoragePreview?.truncated ? 'Yes (64KB max)' : 'No'}
-              </div>
+              </dd>
             </div>
-          </div>
+          </dl>
 
           <ExpandableTextPanel
             title={t('cluster.runtimeStorage.fileName')}
@@ -3800,12 +2726,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       </Dialog>
 
       <Dialog open={stxJavaProxyLogOpen} onOpenChange={setStxJavaProxyLogOpen}>
-        <WorkbenchDialogContent className='sm:max-w-[1560px] gap-0 p-0'>
-          <DialogHeader className='shrink-0 space-y-1 border-b px-6 py-4 pr-12 text-left'>
+        <WorkbenchDialogContent className='arc-compact sm:max-w-[1560px] gap-0 p-0'>
+          <DialogHeader className='shrink-0 space-y-1 border-b-[0.5px] border-border/80 px-6 py-4 pr-12 text-left'>
             <DialogTitle>
               {t('cluster.stxJavaProxy.viewRuntimeLog')}
             </DialogTitle>
-            <DialogDescription className='break-all'>
+            <DialogDescription
+              className='truncate font-mono text-xs'
+              title={
+                stxJavaProxyLogResult?.log_path || stxJavaProxy?.log_path || '-'
+              }
+            >
               {stxJavaProxyLogResult?.log_path || stxJavaProxy?.log_path || '-'}
             </DialogDescription>
           </DialogHeader>
@@ -3827,17 +2758,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         onOpenChange={setStxJavaProxyConfigOpen}
       >
         <DialogContent
-          className='max-w-xl sm:max-w-xl'
+          className='arc-compact sm:max-w-xl'
           aria-describedby={undefined}
         >
           <DialogHeader>
             <DialogTitle className='flex items-center gap-2'>
-              <Cpu className='h-5 w-5 text-primary' />
+              <Cpu className='size-4 text-primary' aria-hidden />
               {t('cluster.stxJavaProxy.configDialogTitle')}
             </DialogTitle>
           </DialogHeader>
 
-          <div className='space-y-5 py-3 text-sm'>
+          <div className='space-y-5 py-2 text-sm'>
             <div className='space-y-2'>
               <Label className='font-medium'>
                 {t('cluster.stxJavaProxy.presetLabel')}
@@ -3850,16 +2781,15 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   {id: '4096m', label: t('cluster.stxJavaProxy.preset4g')},
                   {id: 'custom', label: t('cluster.stxJavaProxy.presetCustom')},
                 ].map((preset) => (
-                  <Button
+                  <ArcButton
                     key={preset.id}
                     type='button'
                     variant={
                       stxJavaProxyJvmPreset === preset.id
-                        ? 'default'
-                        : 'outline'
+                        ? 'primary'
+                        : 'secondary'
                     }
                     size='sm'
-                    className='justify-start text-xs font-normal'
                     onClick={() =>
                       handleSelectJvmPreset(
                         preset.id as
@@ -3872,12 +2802,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                     }
                   >
                     {preset.label}
-                  </Button>
+                  </ArcButton>
                 ))}
               </div>
             </div>
 
-            <div className='space-y-2'>
+            <div className='space-y-2 border-t-[0.5px] border-border/80 pt-4'>
               <Label htmlFor='stx-java-proxy-jvm-opts' className='font-medium'>
                 {t('cluster.stxJavaProxy.jvmOptsField')}
               </Label>
@@ -3897,7 +2827,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               </p>
             </div>
 
-            <div className='flex items-center space-x-2 pt-2 border-t'>
+            <div className='flex items-center space-x-2 border-t-[0.5px] border-border/80 pt-4'>
               <Checkbox
                 id='stx-java-proxy-restart-save'
                 checked={stxJavaProxyRestartOnSave}
@@ -3907,37 +2837,34 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               />
               <Label
                 htmlFor='stx-java-proxy-restart-save'
-                className='text-sm font-medium cursor-pointer'
+                className='cursor-pointer text-sm font-medium'
               >
                 {t('cluster.stxJavaProxy.restartImmediately')}
               </Label>
             </div>
           </div>
 
-          <DialogFooter>
-            <Button
+          <DialogFooter className='gap-2'>
+            <ArcButton
               type='button'
-              variant='outline'
+              variant='secondary'
+              size='sm'
               onClick={() => setStxJavaProxyConfigOpen(false)}
               disabled={stxJavaProxySaving}
             >
               {t('common.cancel')}
-            </Button>
-            <Button
+            </ArcButton>
+            <ArcButton
               type='button'
+              size='sm'
               onClick={() => void handleSaveStxJavaProxyConfig()}
-              disabled={stxJavaProxySaving}
+              loading={stxJavaProxySaving}
               data-testid='stx-java-proxy-save-config-btn'
             >
-              {stxJavaProxySaving ? (
-                <>
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  {t('cluster.stxJavaProxy.saving')}
-                </>
-              ) : (
-                t('cluster.stxJavaProxy.saveAndApply')
-              )}
-            </Button>
+              {stxJavaProxySaving
+                ? t('cluster.stxJavaProxy.saving')
+                : t('cluster.stxJavaProxy.saveAndApply')}
+            </ArcButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -3953,55 +2880,61 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       />
 
       <Dialog open={imapInspectOpen} onOpenChange={setImapInspectOpen}>
-        <DialogContent className='sm:max-w-5xl'>
+        <DialogContent className='arc-compact sm:max-w-5xl'>
           <DialogHeader>
             <DialogTitle>{t('cluster.runtimeStorage.inspectWal')}</DialogTitle>
-            <DialogDescription className='break-all'>
+            <DialogDescription
+              className='truncate font-mono text-xs'
+              title={imapInspectResult?.path || '-'}
+            >
               {imapInspectResult?.path || '-'}
             </DialogDescription>
           </DialogHeader>
-          <div className='grid gap-3 text-sm md:grid-cols-5'>
-            <div>
-              <div className='text-muted-foreground'>
+          <dl className='grid gap-x-6 gap-y-3 border-y-[0.5px] border-border/80 py-3.5 text-xs md:grid-cols-5'>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.fileName')}
-              </div>
-              <div className='font-medium break-all'>
+              </dt>
+              <dd
+                className='truncate font-mono font-medium'
+                title={imapInspectResult?.file_name || '-'}
+              >
                 {imapInspectResult?.file_name || '-'}
-              </div>
+              </dd>
             </div>
-            <div>
-              <div className='text-muted-foreground'>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.size')}
-              </div>
-              <div className='font-medium'>
+              </dt>
+              <dd className='font-mono font-medium tabular-nums'>
                 {formatBytes(imapInspectResult?.size_bytes)}
-              </div>
+              </dd>
             </div>
-            <div>
-              <div className='text-muted-foreground'>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.encoding')}
-              </div>
-              <div className='font-medium'>
+              </dt>
+              <dd className='font-mono font-medium'>
                 {imapInspectResult?.encoding || '-'}
-              </div>
+              </dd>
             </div>
-            <div>
-              <div className='text-muted-foreground'>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.storageType')}
-              </div>
-              <div className='font-medium'>
+              </dt>
+              <dd className='font-mono font-medium'>
                 {imapInspectResult?.storage_type || '-'}
-              </div>
+              </dd>
             </div>
-            <div>
-              <div className='text-muted-foreground'>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.entryCount')}
-              </div>
-              <div className='font-medium'>
+              </dt>
+              <dd className='font-mono font-medium tabular-nums'>
                 {imapInspectResult?.entry_count ?? 0}
-              </div>
+              </dd>
             </div>
-          </div>
+          </dl>
           <ExpandableTextPanel
             title={t('cluster.runtimeStorage.inspectWal')}
             subtitle={imapInspectResult?.path || '-'}
@@ -4026,6 +2959,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         node={logNodeInfo}
         clusterId={clusterId}
       />
-    </motion.div>
+    </div>
   );
 }

@@ -1246,7 +1246,9 @@
       "plugins": "Plugins",
       "configs": "Configs",
       "diagnostics": "Diagnostics",
-      "upgrades": "Upgrades"
+      "upgrades": "Upgrades",
+      "runtime": "Runtime",
+      "ops": "Operations"
     },
     "statOverview": "Overview",
     "statTotalNodes": "All Nodes",
@@ -1883,6 +1885,46 @@
         "http_disabled": "The cluster HTTP service (enable-http) is disabled, so the Web UI is unavailable.",
         "no_webui_node": "No master node is available to serve the Web UI.",
         "node_address_missing": "The master node has no host address."
+      }
+    },
+    "list": {
+      "statusFilterLabel": "Filter clusters by status",
+      "modeFilterLabel": "Filter clusters by deployment mode",
+      "searchLabel": "Search clusters",
+      "searchClear": "Clear search",
+      "viewModeLabel": "Switch view",
+      "viewList": "Table view",
+      "viewGrid": "Card view",
+      "onlineNodes": "Online Nodes",
+      "openConsole": "Open Console",
+      "quickSpecs": "Specifications",
+      "quickNodes": "Nodes Overview",
+      "quickLinks": "Quick Links",
+      "emptyFirstTitle": "No clusters yet",
+      "emptyFirstDesc": "Deploy a new SeaTunnel cluster or register an existing one to get started.",
+      "emptyFilteredTitle": "No matching clusters",
+      "emptyFilteredDesc": "No clusters match the current filters. Clear them to view all clusters.",
+      "confirmStartAction": "Start Cluster",
+      "confirmStopAction": "Stop Cluster",
+      "confirmRestartAction": "Restart Cluster",
+      "confirmDeleteAction": "Delete Cluster",
+      "loadingDetail": "Loading cluster overview…",
+      "detailLoadError": "Failed to load cluster overview",
+      "allRoles": "All Roles",
+      "statusFilterNodes": "Filter nodes by status",
+      "roleFilterNodes": "Filter nodes by role",
+      "runtimeViews": {
+        "label": "Switch runtime section",
+        "checkpoint": "Checkpoint Storage",
+        "imap": "IMAP Storage",
+        "proxy": "Java Proxy",
+        "webui": "Web UI"
+      },
+      "opsViews": {
+        "label": "Switch operations section",
+        "guard": "Guard & Auto-Restart",
+        "diagnostics": "Diagnostics",
+        "upgrades": "Upgrade Records"
       }
     }
   },
@@ -2960,6 +3002,8 @@
     "alwaysOn": "Always On",
     "autoRestart": "Auto Restart",
     "autoRestartDesc": "Automatically restart crashed processes",
+    "autoRestartSaving": "Saving…",
+    "autoRestartSaved": "Saved",
     "monitorInterval": "Monitor Interval",
     "monitorIntervalHint": "Check process status every N seconds (1-60)",
     "restartDelay": "Restart Delay",

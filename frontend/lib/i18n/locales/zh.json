@@ -1246,7 +1246,9 @@
       "plugins": "插件",
       "configs": "配置",
       "diagnostics": "诊断",
-      "upgrades": "升级"
+      "upgrades": "升级",
+      "runtime": "运行时",
+      "ops": "运维"
     },
     "statOverview": "总览",
     "statTotalNodes": "全部节点",
@@ -1883,6 +1885,46 @@
         "http_disabled": "集群未开启 HTTP 服务（enable-http），无法打开 Web UI。",
         "no_webui_node": "没有可用的主节点提供 Web UI。",
         "node_address_missing": "主节点缺少主机地址。"
+      }
+    },
+    "list": {
+      "statusFilterLabel": "按状态筛选集群",
+      "modeFilterLabel": "按部署模式筛选集群",
+      "searchLabel": "搜索集群",
+      "searchClear": "清空搜索",
+      "viewModeLabel": "切换视图",
+      "viewList": "表格视图",
+      "viewGrid": "卡片视图",
+      "onlineNodes": "在线节点",
+      "openConsole": "进入控制台",
+      "quickSpecs": "核心规格",
+      "quickNodes": "节点速览",
+      "quickLinks": "快捷入口",
+      "emptyFirstTitle": "还没有纳管集群",
+      "emptyFirstDesc": "部署一套新的 SeaTunnel 集群，或将已有集群注册纳入管理。",
+      "emptyFilteredTitle": "没有匹配的集群",
+      "emptyFilteredDesc": "当前筛选条件下未找到集群，可清空条件查看全部。",
+      "confirmStartAction": "启动集群",
+      "confirmStopAction": "停止集群",
+      "confirmRestartAction": "重启集群",
+      "confirmDeleteAction": "删除集群",
+      "loadingDetail": "正在加载集群速览…",
+      "detailLoadError": "加载集群速览失败",
+      "allRoles": "全部角色",
+      "statusFilterNodes": "按节点状态筛选",
+      "roleFilterNodes": "按节点角色筛选",
+      "runtimeViews": {
+        "label": "切换运行时模块",
+        "checkpoint": "Checkpoint 存储",
+        "imap": "IMAP 存储",
+        "proxy": "Java Proxy",
+        "webui": "Web UI"
+      },
+      "opsViews": {
+        "label": "切换运维模块",
+        "guard": "守护与自愈",
+        "diagnostics": "诊断异常",
+        "upgrades": "升级记录"
       }
     }
   },
@@ -2960,6 +3002,8 @@
     "alwaysOn": "始终开启",
     "autoRestart": "自动拉起",
     "autoRestartDesc": "自动重启崩溃的进程",
+    "autoRestartSaving": "保存中…",
+    "autoRestartSaved": "已保存",
     "monitorInterval": "监控间隔",
     "monitorIntervalHint": "每隔 N 秒检查进程状态（1-60）",
     "restartDelay": "重启延迟",

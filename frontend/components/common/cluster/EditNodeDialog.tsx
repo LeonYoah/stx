@@ -23,7 +23,8 @@ import {toast} from '@/lib/toast';
 import {AlertCircle, CheckCircle2, Loader2, XCircle} from 'lucide-react';
 
 import services from '@/lib/services';
-import {Button} from '@/components/ui/button';
+import {Button} from '@/components/arc/button/button';
+import {Switch} from '@/components/arc/switch/switch';
 import {
   Dialog,
   DialogContent,
@@ -36,7 +37,6 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {HelpHint} from '@/components/common/HelpHint';
 import {JavaHomePicker} from '@/components/common/java/JavaHomePicker';
-import {Switch} from '@/components/ui/switch';
 import {
   ClusterConfig,
   DefaultPorts,
@@ -317,7 +317,7 @@ export function EditNodeDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className='sm:max-w-[680px]'>
+        <DialogContent className='arc-compact sm:max-w-[680px]'>
           <DialogHeader>
             <DialogTitle>{t('cluster.editNode')}</DialogTitle>
             <DialogDescription>
@@ -328,37 +328,35 @@ export function EditNodeDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className='max-h-[70vh] space-y-4 overflow-y-auto py-1 pr-1'>
-            <div className='grid grid-cols-2 gap-4 rounded-md bg-muted p-3'>
-              <div>
-                <Label className='text-xs text-muted-foreground'>
-                  {t('cluster.hostName')}
-                </Label>
-                <p className='text-sm font-medium'>{node.host_name}</p>
+          <div className='max-h-[70vh] space-y-5 overflow-y-auto py-1 pr-1'>
+            <dl className='grid grid-cols-2 gap-x-6 gap-y-3 border-b-[0.5px] border-border/80 pb-4 text-xs sm:grid-cols-4'>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>{t('cluster.hostName')}</dt>
+                <dd className='truncate text-sm font-medium text-foreground'>
+                  {node.host_name}
+                </dd>
               </div>
-              <div>
-                <Label className='text-xs text-muted-foreground'>
-                  {t('cluster.hostIP')}
-                </Label>
-                <p className='text-sm font-medium'>{node.host_ip}</p>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>{t('cluster.hostIP')}</dt>
+                <dd className='truncate font-mono text-sm font-medium tabular-nums text-foreground'>
+                  {node.host_ip}
+                </dd>
               </div>
-              <div>
-                <Label className='text-xs text-muted-foreground'>
-                  {t('cluster.nodeRole')}
-                </Label>
-                <p className='text-sm font-medium'>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>{t('cluster.nodeRole')}</dt>
+                <dd className='truncate text-sm font-medium text-foreground'>
                   {t(`cluster.roles.${getRoleTranslationKey(node.role)}`)}
-                </p>
+                </dd>
               </div>
-              <div>
-                <Label className='text-xs text-muted-foreground'>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>
                   {t('cluster.nodeStatus')}
-                </Label>
-                <p className='text-sm font-medium'>
+                </dt>
+                <dd className='truncate text-sm font-medium text-foreground'>
                   {t(`cluster.nodeStatuses.${node.status}`)}
-                </p>
+                </dd>
               </div>
-            </div>
+            </dl>
 
             <div className='space-y-2'>
               <Label>
@@ -369,6 +367,7 @@ export function EditNodeDialog({
                 value={installDir}
                 onChange={(e) => setInstallDir(e.target.value)}
                 placeholder={t('cluster.installDirPlaceholder')}
+                className='font-mono'
               />
             </div>
 
@@ -379,7 +378,7 @@ export function EditNodeDialog({
               onChange={({javaHome: next}) => setJavaHome(next)}
             />
 
-            <div className='space-y-3 rounded-lg border p-4'>
+            <div className='space-y-3 border-t-[0.5px] border-border/80 pt-4'>
               <div className='flex items-center gap-2'>
                 <Label>{t('cluster.portConfig')}</Label>
                 <HelpHint
@@ -423,7 +422,7 @@ export function EditNodeDialog({
               </div>
             </div>
 
-            <div className='space-y-3 rounded-lg border p-4'>
+            <div className='space-y-3 border-t-[0.5px] border-border/80 pt-4'>
               <div className='flex items-center justify-between gap-4'>
                 <div className='space-y-1'>
                   <Label>{t('cluster.jvmOverrideTitle')}</Label>
@@ -474,12 +473,12 @@ export function EditNodeDialog({
             </div>
 
             {precheckResult && (
-              <div className='space-y-2 rounded-md border bg-muted/50 p-3'>
+              <div className='space-y-2 border-t-[0.5px] border-border/80 pt-4'>
                 <div className='flex items-center gap-2'>
                   {precheckResult.success ? (
-                    <CheckCircle2 className='h-5 w-5 text-green-500' />
+                    <CheckCircle2 className='h-4 w-4 text-emerald-500' />
                   ) : (
-                    <XCircle className='h-5 w-5 text-red-500' />
+                    <XCircle className='h-4 w-4 text-rose-500' />
                   )}
                   <span className='text-sm font-medium'>
                     {precheckResult.success
@@ -501,7 +500,7 @@ export function EditNodeDialog({
                               defaultValue: check.name,
                             })}
                             :
-                          </span>
+                          </span>{' '}
                           <span className='text-muted-foreground'>
                             {check.message}
                           </span>
@@ -514,29 +513,33 @@ export function EditNodeDialog({
             )}
           </div>
 
-          <DialogFooter className='gap-2 sm:gap-0'>
+          <DialogFooter className='gap-2'>
             <Button
-              variant='outline'
+              type='button'
+              variant='secondary'
+              size='sm'
               onClick={() => onOpenChange(false)}
               disabled={loading || precheckLoading}
             >
               {t('common.cancel')}
             </Button>
             <Button
+              type='button'
               variant='secondary'
+              size='sm'
               onClick={handlePrecheck}
-              disabled={loading || precheckLoading}
+              disabled={loading}
+              loading={precheckLoading}
             >
-              {precheckLoading && (
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-              )}
               {t('cluster.precheck')}
             </Button>
             <Button
+              type='button'
+              size='sm'
               onClick={handleSubmit}
-              disabled={loading || precheckLoading}
+              disabled={precheckLoading}
+              loading={loading}
             >
-              {loading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
               {t('common.save')}
             </Button>
           </DialogFooter>

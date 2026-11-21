@@ -18,58 +18,37 @@
 'use client';
 
 /**
- * Cluster Node Log Viewer Dialog
- * 集群节点日志查看弹窗组件
- *
- * Modern dialog for inspecting real-time and historical node logs.
- * 提供现代化工作台级别的日志查看能力，支持过滤、行数选择与一键复制。
+ * 集群节点日志查看弹窗：Arc Dialog（.arc-compact）+ 单层扁平 0.5px 细线 +
+ * SegmentedControl 切 tail/head/all + 原生双向 overflow-auto（禁用 ScrollArea 与 break-all）+
+ * TableLoadingBar 静默刷新与请求竞态保护。
+ * Cluster node log viewer dialog: Arc Dialog (.arc-compact) + flat 0.5px hairlines +
+ * SegmentedControl mode switch + native overflow-auto (no ScrollArea/break-all) + race guard.
  */
-
-import {useState, useEffect, useCallback, type KeyboardEvent} from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import {useTranslations} from 'next-intl';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Badge} from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {ScrollArea} from '@/components/ui/scroll-area';
-import {Loader2, RefreshCw, Copy, Check, FileText} from 'lucide-react';
-import {toast} from '@/lib/toast';
+import {Check, Copy, FileText, RefreshCw} from 'lucide-react';
+import {Button} from '@/components/arc/button/button';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {Input} from '@/components/arc/input/input';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {NeutralChip, TableLoadingBar} from '@/components/common/layout';
 import services from '@/lib/services';
 import type {NodeInfo} from '@/lib/services/cluster/types';
+import {toast} from '@/lib/toast';
 
 interface ClusterNodeLogDialogProps {
-  // 弹窗可见性
-  // Dialog visibility state
   open: boolean;
-  // 弹窗开关控制
-  // Dialog open state setter
   onOpenChange: (open: boolean) => void;
-  // 当前查看日志的节点对象
-  // Target node info for log inspection
   node: NodeInfo | null;
-  // 集群标识
-  // Cluster ID
   clusterId: number;
 }
 
-/**
- * Cluster Node Log Dialog
- * 集群节点日志弹窗
- */
 export function ClusterNodeLogDialog({
   open,
   onOpenChange,
@@ -78,52 +57,65 @@ export function ClusterNodeLogDialog({
 }: ClusterNodeLogDialogProps) {
   const t = useTranslations();
 
-  // 查询参数状态 / Query parameters state
   const [logLines, setLogLines] = useState<number>(200);
   const [logMode, setLogMode] = useState<string>('tail');
   const [logFilter, setLogFilter] = useState<string>('');
   const [logDate, setLogDate] = useState<string>('');
 
-  // 数据与加载状态 / Data and loading state
   const [logContent, setLogContent] = useState<string>('');
   const [logLoading, setLogLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const reqSeqRef = useRef(0);
 
-  // 抓取节点日志 / Fetch node logs
   const fetchLogs = useCallback(async () => {
     if (!node) {
       return;
     }
+    const seq = ++reqSeqRef.current;
     setLogLoading(true);
+    setError(null);
     try {
-      const result = await services.cluster.getNodeLogsSafe(clusterId, node.id, {
-        lines: logLines,
-        mode: logMode,
-        filter: logFilter || undefined,
-        date: logDate || undefined,
-      });
-
-      if (result.success && result.data) {
-        setLogContent(result.data.logs || t('cluster.noLogs'));
-      } else {
-        toast.error(result.error || t('cluster.getLogsError'));
+      const result = await services.cluster.getNodeLogsSafe(
+        clusterId,
+        node.id,
+        {
+          lines: logLines,
+          mode: logMode,
+          filter: logFilter || undefined,
+          date: logDate || undefined,
+        },
+      );
+      if (seq !== reqSeqRef.current) {
+        return;
       }
+      if (result.success && result.data) {
+        setLogContent(result.data.logs || '');
+      } else {
+        setError(result.error || t('cluster.getLogsError'));
+      }
+    } catch (err) {
+      if (seq !== reqSeqRef.current) {
+        return;
+      }
+      setError(err instanceof Error ? err.message : t('cluster.getLogsError'));
     } finally {
-      setLogLoading(false);
+      if (seq === reqSeqRef.current) {
+        setLogLoading(false);
+      }
     }
-  }, [clusterId, node, logLines, logMode, logFilter, logDate, t]);
+  }, [clusterId, logDate, logFilter, logLines, logMode, node, t]);
 
-  // 打开弹窗时自动拉取日志 / Automatically load logs when dialog opens
   useEffect(() => {
     if (open && node) {
       void fetchLogs();
     } else {
       setLogContent('');
+      setError(null);
       setCopied(false);
     }
   }, [open, node, fetchLogs]);
 
-  // 回车键快捷刷新 / Support Enter key to quickly trigger search
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -131,7 +123,6 @@ export function ClusterNodeLogDialog({
     }
   };
 
-  // 一键复制日志 / Copy log contents to clipboard
   const handleCopy = async () => {
     if (!logContent) {
       return;
@@ -140,155 +131,158 @@ export function ClusterNodeLogDialog({
       await navigator.clipboard.writeText(logContent);
       setCopied(true);
       toast.success(t('cluster.logCopied'));
-      setTimeout(() => setCopied(false), 2000);
+      window.setTimeout(() => setCopied(false), 1800);
     } catch {
-      toast.error('Copy failed');
+      // 忽略剪贴板权限错误 / Ignore clipboard errors
     }
   };
 
+  const titleNode = (
+    <span className='flex flex-wrap items-center gap-2'>
+      <FileText className='size-4 shrink-0 text-primary' aria-hidden />
+      <span>{t('cluster.viewLogs')}</span>
+      {node ? (
+        <NeutralChip className='font-mono tabular-nums'>
+          {node.host_name || node.host_ip} (#{node.id})
+        </NeutralChip>
+      ) : null}
+      {node?.role ? <NeutralChip>{node.role.toUpperCase()}</NeutralChip> : null}
+    </span>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-5xl h-[88vh] flex flex-col p-0 overflow-hidden border border-border/80 shadow-2xl'>
-        {/* 弹窗头部 / Dialog Header */}
-        <DialogHeader className='border-b bg-muted/15 px-6 py-4'>
-          <div className='flex items-start justify-between gap-4'>
-            <div className='min-w-0 space-y-1'>
-              <DialogTitle className='flex flex-wrap items-center gap-2 text-base font-semibold'>
-                <FileText className='size-4 shrink-0 text-primary' />
-                <span>{t('cluster.viewLogs')}</span>
-                {node && (
-                  <Badge variant='outline' className='font-mono text-xs'>
-                    {node.host_name || node.host_ip} (#{node.id})
-                  </Badge>
-                )}
-                {node?.role && (
-                  <Badge variant='secondary' className='text-xs'>
-                    {node.role.toUpperCase()}
-                  </Badge>
-                )}
-              </DialogTitle>
-              <DialogDescription className='break-all text-xs text-muted-foreground'>
-                {node?.install_dir ? `${node.install_dir}/logs` : '-'}
-              </DialogDescription>
-            </div>
-            {/* 动作组靠左收口，右侧留给全局关闭按钮 / Keep actions clear of the global close control */}
-            <div className='flex shrink-0 items-center gap-2'>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={handleCopy}
-                disabled={!logContent || logLoading}
-                className='h-8'
-              >
-                {copied ? (
-                  <Check className='mr-1.5 size-3.5 text-emerald-500' />
-                ) : (
-                  <Copy className='mr-1.5 size-3.5' />
-                )}
-                {t('cluster.copyLog')}
-              </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() => void fetchLogs()}
-                disabled={logLoading}
-                className='h-8'
-              >
-                <RefreshCw
-                  className={`mr-1.5 size-3.5 ${logLoading ? 'animate-spin' : ''}`}
-                />
-                {t('common.refresh')}
-              </Button>
-            </div>
-          </div>
-
-          {/* 筛选参数控制条 / Filter query controls */}
-          <div className='pt-3 flex flex-wrap items-center gap-2 text-xs'>
-            {/* 行数 / Lines */}
-            <div className='flex items-center gap-1.5'>
-              <span className='text-muted-foreground whitespace-nowrap'>
-                {t('cluster.logLines')}:
-              </span>
+      <DialogContent
+        title={titleNode}
+        description={
+          node?.install_dir ? (
+            <span
+              className='block truncate font-mono text-xs'
+              title={`${node.install_dir}/logs`}
+            >
+              {node.install_dir}/logs
+            </span>
+          ) : undefined
+        }
+        className='arc-compact flex! h-[min(86vh,760px)]! w-[min(94vw,1040px)]! sm:max-w-none! flex-col! overflow-hidden!'
+        bodyClassName='flex min-h-0 flex-1 flex-col gap-0 overflow-hidden p-0!'
+      >
+        {/* 查询控制条（单行 0.5px 细线分隔）/ Filter toolbar separated by 0.5px hairline */}
+        <div className='flex flex-wrap items-end justify-between gap-2 border-b-[0.5px] border-border/80 px-5 py-3'>
+          <div className='flex flex-wrap items-end gap-2'>
+            <SegmentedControl
+              label={t('cluster.logMode')}
+              value={logMode}
+              onValueChange={setLogMode}
+              options={[
+                {value: 'tail', label: t('cluster.logModeTail')},
+                {value: 'head', label: t('cluster.logModeHead')},
+                {value: 'all', label: t('cluster.logModeAll')},
+              ]}
+            />
+            <div className='w-24'>
               <Input
                 type='number'
-                value={logLines}
+                label={t('cluster.logLines')}
+                value={String(logLines)}
                 onChange={(e) => setLogLines(Number(e.target.value) || 100)}
                 onKeyDown={handleKeyDown}
                 min={10}
                 max={10000}
-                className='h-8 w-20 text-xs'
+                className='tabular-nums'
               />
             </div>
-
-            {/* 模式 / Mode */}
-            <div className='flex items-center gap-1.5'>
-              <span className='text-muted-foreground whitespace-nowrap'>
-                {t('cluster.logMode')}:
-              </span>
-              <Select value={logMode} onValueChange={setLogMode}>
-                <SelectTrigger className='h-8 w-24 text-xs'>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='tail'>{t('cluster.logModeTail')}</SelectItem>
-                  <SelectItem value='head'>{t('cluster.logModeHead')}</SelectItem>
-                  <SelectItem value='all'>{t('cluster.logModeAll')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 关键词过滤 / Grep pattern */}
-            <div className='flex items-center gap-1.5'>
-              <span className='text-muted-foreground whitespace-nowrap'>
-                {t('cluster.logFilter')}:
-              </span>
+            <div className='w-36'>
               <Input
                 type='text'
+                label={t('cluster.logFilter')}
                 value={logFilter}
                 onChange={(e) => setLogFilter(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder='grep pattern'
-                className='h-8 w-36 text-xs'
               />
             </div>
-
-            {/* 日期后缀 / Date suffix */}
-            <div className='flex items-center gap-1.5'>
-              <span className='text-muted-foreground whitespace-nowrap'>
-                {t('cluster.logDate')}:
-              </span>
+            <div className='w-32'>
               <Input
                 type='text'
+                label={t('cluster.logDate')}
                 value={logDate}
                 onChange={(e) => setLogDate(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder='2025-11-12-1'
-                className='h-8 w-32 text-xs'
+                placeholder='2026-11-22-1'
+                className='font-mono tabular-nums'
               />
             </div>
           </div>
-        </DialogHeader>
 
-        {/* 日志内容区域 / Log scroll content area */}
-        <div className='flex-1 min-h-0 bg-background/50 relative'>
-          {logLoading && (
-            <div className='absolute inset-0 bg-background/60 z-10 flex items-center justify-center backdrop-blur-xs'>
-              <Loader2 className='size-6 animate-spin text-primary' />
-            </div>
-          )}
-          <ScrollArea className='h-full p-4'>
-            <pre className='text-xs font-mono whitespace-pre-wrap break-all leading-relaxed select-text text-foreground/90'>
-              {logContent || t('cluster.noLogs')}
-            </pre>
-          </ScrollArea>
+          <div className='flex shrink-0 items-center gap-1.5'>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => void handleCopy()}
+              disabled={!logContent}
+            >
+              {copied ? (
+                <Check className='size-3.5 text-emerald-500' aria-hidden />
+              ) : (
+                <Copy className='size-3.5' aria-hidden />
+              )}
+              {t('cluster.copyLog')}
+            </Button>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              iconOnly
+              aria-label={t('common.refresh')}
+              title={t('common.refresh')}
+              onClick={() => void fetchLogs()}
+            >
+              <RefreshCw
+                className={`size-3.5 ${logLoading ? 'animate-spin' : ''}`}
+                aria-hidden
+              />
+            </Button>
+          </div>
         </div>
 
-        {/* 弹窗底栏 / Dialog Footer */}
-        <DialogFooter className='px-6 py-3 border-t bg-muted/10'>
-          <Button variant='outline' size='sm' onClick={() => onOpenChange(false)}>
+        {/* 顶部静默加载条，保留旧日志不遮灰 / Hairline loading bar preserving old logs */}
+        <TableLoadingBar loading={logLoading} />
+
+        {error ? (
+          <div className='flex items-center justify-between gap-2 border-b-[0.5px] border-border/80 px-5 py-2 text-xs text-destructive'>
+            <span className='min-w-0 truncate' title={error}>
+              {error}
+            </span>
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              onClick={() => void fetchLogs()}
+            >
+              {t('monitoring.retry')}
+            </Button>
+          </div>
+        ) : null}
+
+        {/* 原生双向滚动日志区，禁用 ScrollArea 与 break-all / Native bidirectional scroll, no ScrollArea or break-all */}
+        <div className='min-h-0 flex-1 overflow-auto bg-muted/20 px-5 py-4'>
+          <pre className='font-mono text-xs leading-relaxed whitespace-pre text-foreground/90 select-text'>
+            {logContent || t('cluster.noLogs')}
+          </pre>
+        </div>
+
+        <div className='flex shrink-0 items-center justify-end border-t-[0.5px] border-border/80 px-5 py-3'>
+          <Button
+            type='button'
+            variant='secondary'
+            size='sm'
+            onClick={() => onOpenChange(false)}
+          >
             {t('common.close')}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

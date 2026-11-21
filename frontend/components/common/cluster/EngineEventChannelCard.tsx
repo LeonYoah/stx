@@ -32,12 +32,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {Badge} from '@/components/ui/badge';
-import {Button} from '@/components/ui/button';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Button} from '@/components/arc/button/button';
 import {Skeleton} from '@/components/ui/skeleton';
-import {TableLoadingBar} from '@/components/common/layout';
-import {cn} from '@/lib/utils';
+import {
+  SoftChip,
+  TableLoadingBar,
+  type ChipTone,
+} from '@/components/common/layout';
 import {formatDateTimeTz} from '@/lib/timezone';
 import services from '@/lib/services';
 import type {SyncEventChannelState, SyncEventChannelStatus} from '@/lib/services/sync';
@@ -45,8 +46,8 @@ import type {SyncEventChannelState, SyncEventChannelStatus} from '@/lib/services
 type PendingAction = 'enable' | 'disable' | 'rotate' | null;
 
 /**
- * 事件通道状态配色。
- * Event channel state tone.
+ * 事件通道状态配色（兼容旧导出，实际渲染走 SoftChip 语义 tone）。
+ * Event channel state tone class (kept for existing callers; component uses SoftChip tone).
  */
 export function eventChannelStateClass(state: SyncEventChannelState): string {
   switch (state) {
@@ -58,6 +59,19 @@ export function eventChannelStateClass(state: SyncEventChannelState): string {
       return 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300';
     default:
       return 'border-border/60 bg-muted/40 text-muted-foreground';
+  }
+}
+
+function eventChannelTone(state: SyncEventChannelState): ChipTone {
+  switch (state) {
+    case 'healthy':
+      return 'emerald';
+    case 'degraded':
+      return 'rose';
+    case 'pending_restart':
+      return 'amber';
+    default:
+      return 'muted';
   }
 }
 
@@ -131,11 +145,14 @@ export function EngineEventChannelCard({
   const formatTime = (value?: string) => (value ? formatDateTimeTz(value) : t('never'));
 
   return (
-    <Card className='relative overflow-hidden' data-testid='cluster-event-channel-card'>
+    <div
+      className='relative overflow-hidden rounded-(--radius-panel) border border-(--border) bg-card'
+      data-testid='cluster-event-channel-card'
+    >
       <TableLoadingBar loading={refreshing} />
-      <CardHeader className='flex flex-row flex-wrap items-center gap-2 space-y-0 pb-3'>
-        <Radio className='size-4 text-primary' />
-        <CardTitle className='text-sm'>{t('title')}</CardTitle>
+      <div className='flex flex-wrap items-center gap-2 border-b-[0.5px] border-border/80 px-5 py-3.5'>
+        <Radio className='size-4 text-primary' aria-hidden />
+        <h3 className='text-sm font-semibold text-foreground'>{t('title')}</h3>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -152,33 +169,46 @@ export function EngineEventChannelCard({
           </TooltipContent>
         </Tooltip>
         {status ? (
-          <Badge variant='outline' className={cn('whitespace-nowrap text-[11px]', eventChannelStateClass(status.state))}>
+          <SoftChip tone={eventChannelTone(status.state)}>
             {t(`state.${status.state}`)}
-          </Badge>
+          </SoftChip>
         ) : null}
         <div className='ml-auto flex flex-wrap items-center gap-1.5'>
           <Button
-            size='icon'
+            type='button'
+            size='sm'
             variant='ghost'
-            className='size-7'
+            iconOnly
             aria-label={t('refresh')}
             onClick={() => void load()}
           >
-            <RefreshCw className='size-3.5' />
+            <RefreshCw className='size-3.5' aria-hidden />
           </Button>
           {status?.enabled ? (
             <>
-              <Button size='sm' variant='outline' className='h-7 text-xs' disabled={submitting} onClick={() => setPendingAction('rotate')}>
+              <Button
+                type='button'
+                size='sm'
+                variant='secondary'
+                disabled={submitting}
+                onClick={() => setPendingAction('rotate')}
+              >
                 {t('rotate')}
               </Button>
-              <Button size='sm' variant='outline' className='h-7 text-xs' disabled={submitting} onClick={() => setPendingAction('disable')}>
+              <Button
+                type='button'
+                size='sm'
+                variant='secondary'
+                disabled={submitting}
+                onClick={() => setPendingAction('disable')}
+              >
                 {t('disable')}
               </Button>
             </>
           ) : (
             <Button
+              type='button'
               size='sm'
-              className='h-7 text-xs'
               disabled={submitting || !status?.supported}
               onClick={() => setPendingAction('enable')}
               data-testid='cluster-event-channel-enable'
@@ -187,8 +217,8 @@ export function EngineEventChannelCard({
             </Button>
           )}
         </div>
-      </CardHeader>
-      <CardContent className='space-y-2 text-xs'>
+      </div>
+      <div className='space-y-2 px-5 py-4 text-xs'>
         {loading ? (
           <div className='space-y-2'>
             <Skeleton className='h-4 w-2/3' />
@@ -207,7 +237,7 @@ export function EngineEventChannelCard({
               </p>
             ) : null}
             {status.enabled ? (
-              <div className='flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground'>
+              <div className='flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] tabular-nums text-muted-foreground'>
                 <span className='whitespace-nowrap'>{t('lastEvent', {time: formatTime(status.last_event_at)})}</span>
                 <span className='whitespace-nowrap'>
                   {t('counters', {
@@ -244,10 +274,10 @@ export function EngineEventChannelCard({
             ) : null}
           </>
         )}
-      </CardContent>
+      </div>
 
       <AlertDialog open={pendingAction !== null} onOpenChange={(open) => !open && setPendingAction(null)}>
-        <AlertDialogContent className='border border-border/80 shadow-2xl dark:border-border/60'>
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{pendingAction ? t(`confirm.${pendingAction}.title`) : ''}</AlertDialogTitle>
             <AlertDialogDescription>{pendingAction ? t(`confirm.${pendingAction}.body`) : ''}</AlertDialogDescription>
@@ -266,6 +296,6 @@ export function EngineEventChannelCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </div>
   );
 }

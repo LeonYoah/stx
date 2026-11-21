@@ -244,6 +244,13 @@
   --cols: 24px 56px minmax(0, 0.6fr) 84px minmax(0, 1.7fr) 104px 132px;
 }
 
+/* 集群列表：名称+编码 / 状态 / 部署模式 / 版本 / 在线节点 / 操作。
+   Cluster list: name+code / status / mode / version / online nodes / actions. */
+
+.listCol[data-mcols='clusters'] :is(.row, .rowHead) {
+  --cols: minmax(0, 1.8fr) 96px 88px 92px 96px 84px;
+}
+
 /* 悬浮批量条：锚定在 listCol 内、分页脚上方，详情栏打开时也不遮分页。
    Floating batch bar: anchored inside .listCol just above the pagination footer
    so it never covers page buttons or drifts off-center when the rail is open. */
@@ -1112,6 +1119,15 @@
   .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(2),
   .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(5),
   .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(6) {
+    display: none;
+  }
+  /* 窄屏集群行只留名称 + 状态 + 操作。Narrow cluster rows keep name + status + actions. */
+  .listCol[data-mcols='clusters'] :is(.row, .rowHead) {
+    --cols: minmax(0, 1fr) 88px 40px;
+  }
+  .listCol[data-mcols='clusters'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='clusters'] :is(.row, .rowHead) > :nth-child(4),
+  .listCol[data-mcols='clusters'] :is(.row, .rowHead) > :nth-child(5) {
     display: none;
   }
 }

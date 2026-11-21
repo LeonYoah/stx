@@ -179,6 +179,8 @@ export interface RuntimeStorageFileExplorerProps {
   inspectCheckpointLoadingPath?: string | null;
   onInspectIMAPWAL?: (path: string) => void;
   inspectIMAPWALLoadingPath?: string | null;
+  /** 嵌入单层扁平画布时去掉外框 / Remove outer card border when embedded in a flat single-layer surface */
+  flat?: boolean;
 }
 
 /**
@@ -199,6 +201,7 @@ export function RuntimeStorageFileExplorer({
   inspectCheckpointLoadingPath,
   onInspectIMAPWAL,
   inspectIMAPWALLoadingPath,
+  flat = false,
 }: RuntimeStorageFileExplorerProps) {
   const t = useTranslations('cluster.runtimeStorage');
   const tCommon = useTranslations('common');
@@ -318,12 +321,24 @@ export function RuntimeStorageFileExplorer({
   );
 
   return (
-    <div className='relative overflow-hidden rounded-xl border border-border/60 bg-card/40 shadow-xs'>
+    <div
+      className={cn(
+        'relative overflow-hidden',
+        flat
+          ? 'bg-transparent'
+          : 'rounded-(--radius-panel) border border-(--border) bg-card',
+      )}
+    >
       <TableLoadingBar loading={loading && Boolean(listing)} />
 
       {/* 顶部现代化资源管理器地址栏与工具栏 */}
       {/* Modern OS-style address bar & action toolbar */}
-      <div className='flex flex-col gap-2.5 border-b border-border/50 bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between'>
+      <div
+        className={cn(
+          'flex flex-col gap-2.5 border-b-[0.5px] border-border/80 sm:flex-row sm:items-center sm:justify-between',
+          flat ? 'pb-3' : 'bg-muted/20 p-3',
+        )}
+      >
         {/* 地址栏与快捷层级跳转 */}
         {/* Address bar with clickable breadcrumbs & level navigation */}
         <div className='flex min-w-0 flex-1 items-center gap-1.5'>

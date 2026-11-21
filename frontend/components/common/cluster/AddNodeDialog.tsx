@@ -23,7 +23,10 @@ import {toast} from '@/lib/toast';
 import {Loader2, RefreshCw, Server} from 'lucide-react';
 
 import services from '@/lib/services';
-import {Button} from '@/components/ui/button';
+import {Alert as ArcAlert} from '@/components/arc/alert/alert';
+import {Button} from '@/components/arc/button/button';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {TableLoadingBar} from '@/components/common/layout';
 import {
   Dialog,
   DialogContent,
@@ -43,7 +46,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
 import {AgentStatus, HostInfo} from '@/lib/services/host/types';
 import {
   ClusterConfig,
@@ -444,7 +446,7 @@ export function AddNodeDialog({
     }
     const names = restart.nodes.map((node) => node.host_name).join(', ');
     return (
-      <section className='mt-4 space-y-1.5 rounded-lg border p-3'>
+      <section className='mt-4 space-y-1.5 border-t-[0.5px] border-border/80 pt-4'>
         <div className='flex items-start gap-2'>
           <label className='flex items-start gap-2 text-sm font-medium'>
             <Checkbox
@@ -484,34 +486,30 @@ export function AddNodeDialog({
   const renderPlanStep = () =>
     plan && (
       <div className='space-y-4'>
-        <section className='space-y-3 rounded-lg border p-3'>
+        <TableLoadingBar loading={planLoading} />
+        <section className='space-y-3 border-b-[0.5px] border-border/80 pb-4'>
           <p className='text-sm'>{detectionText()}</p>
           <div className='flex flex-wrap items-center gap-3'>
             <Label className='text-xs text-muted-foreground'>
               {ts('modeLabel')}
             </Label>
-            <ToggleGroup
-              type='single'
-              variant='outline'
-              size='sm'
+            <SegmentedControl
+              label={ts('modeLabel')}
               value={mode}
               onValueChange={(value) => {
-                if (value) {
-                  setMode(value as ScaleMode);
-                  setModeTouched(true);
-                  markDirty();
-                }
+                setMode(value as ScaleMode);
+                setModeTouched(true);
+                markDirty();
               }}
-            >
-              <ToggleGroupItem value='install'>
-                {ts('modeInstall')}
-              </ToggleGroupItem>
-              <ToggleGroupItem value='register'>
-                {ts('modeRegister')}
-              </ToggleGroupItem>
-            </ToggleGroup>
+              options={[
+                {value: 'install', label: ts('modeInstall')},
+                {value: 'register', label: ts('modeRegister')},
+              ]}
+            />
             {modeTouched && mode !== plan.detected_mode && (
-              <span className='text-xs text-amber-600'>{ts('modeManual')}</span>
+              <span className='text-xs text-amber-600 dark:text-amber-400'>
+                {ts('modeManual')}
+              </span>
             )}
           </div>
 
@@ -594,17 +592,10 @@ export function AddNodeDialog({
         </section>
 
         {planError && (
-          <p className='break-words text-sm text-red-600'>
-            {ts('planFailed')}: {planError}
-          </p>
+          <ArcAlert tone='danger' title={`${ts('planFailed')}: ${planError}`} />
         )}
 
-        {/* 配置变更或重新预检期间半透明保留旧结果，避免高度塌陷 / Keep the old result dimmed while stale or reloading */}
-        <div
-          className={
-            dirty || planLoading ? 'pointer-events-none opacity-60' : ''
-          }
-        >
+        <div>
           <ScalePlanView
             plan={plan}
             restartAck={restartAck}
@@ -622,7 +613,10 @@ export function AddNodeDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className='sm:max-w-4xl' aria-describedby={undefined}>
+      <DialogContent
+        className='arc-compact sm:max-w-4xl'
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>{t('cluster.addNode')}</DialogTitle>
         </DialogHeader>
@@ -642,16 +636,24 @@ export function AddNodeDialog({
           )}
         </div>
 
-        <DialogFooter className='gap-2 sm:gap-0'>
+        <DialogFooter className='gap-2'>
           {step === 'host' && (
             <>
-              <Button variant='outline' onClick={() => handleOpenChange(false)}>
+              <Button
+                type='button'
+                variant='secondary'
+                size='sm'
+                onClick={() => handleOpenChange(false)}
+              >
                 {t('common.cancel')}
               </Button>
-              <Button onClick={() => void runPlan(false)} disabled={!canGoNext}>
-                {planLoading && (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                )}
+              <Button
+                type='button'
+                size='sm'
+                onClick={() => void runPlan(false)}
+                disabled={!canGoNext}
+                loading={planLoading}
+              >
                 {ts('next')}
               </Button>
             </>
@@ -659,40 +661,46 @@ export function AddNodeDialog({
           {step === 'plan' && (
             <>
               <Button
-                variant='outline'
+                type='button'
+                variant='secondary'
+                size='sm'
                 onClick={() => setStep('host')}
                 disabled={planLoading || submitting}
               >
                 {ts('back')}
               </Button>
               <Button
+                type='button'
                 variant='secondary'
+                size='sm'
                 onClick={() => void runPlan(true)}
-                disabled={planLoading || submitting}
+                disabled={submitting}
+                loading={planLoading}
               >
-                {planLoading ? (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                ) : (
-                  <RefreshCw className='mr-2 h-4 w-4' />
-                )}
+                <RefreshCw className='size-3.5' aria-hidden />
                 {ts('recheck')}
               </Button>
               <Button
+                type='button'
+                size='sm'
                 onClick={handleSubmit}
                 disabled={!canSubmit}
+                loading={submitting}
                 title={
                   plan && !plan.can_submit ? ts('cannotSubmit') : undefined
                 }
               >
-                {submitting && (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                )}
                 {ts('submitScaleOut')}
               </Button>
             </>
           )}
           {step === 'execute' && (
-            <Button variant='outline' onClick={() => handleOpenChange(false)}>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => handleOpenChange(false)}
+            >
               {ts('close')}
             </Button>
           )}

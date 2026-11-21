@@ -19,13 +19,13 @@
 
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
+import {Alert as ArcAlert} from '@/components/arc/alert/alert';
+import {Button} from '@/components/arc/button/button';
+import {Switch} from '@/components/arc/switch/switch';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
-import {Switch} from '@/components/ui/switch';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select';
-import {Loader2} from 'lucide-react';
 import services from '@/lib/services';
 import type {RuntimeStorageSpec} from '@/lib/services/cluster/types';
 
@@ -136,16 +136,26 @@ export function RuntimeStorageEditor({clusterId, kind, spec, onApplied}: Runtime
   };
 
   return (
-    <div className='space-y-3 rounded-lg border bg-background/60 p-3'>
+    <div className='space-y-4'>
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <div>
-          <div className='text-sm font-medium'>{t('cluster.runtimeStorage.editTitle')}</div>
-          <p className='text-xs text-muted-foreground'>{t('cluster.runtimeStorage.editHint')}</p>
+          <div className='text-sm font-semibold text-foreground'>
+            {t('cluster.runtimeStorage.editTitle')}
+          </div>
+          <p className='text-xs text-muted-foreground'>
+            {t('cluster.runtimeStorage.editHint')}
+          </p>
         </div>
         {kind === 'imap' && (
           <div className='flex items-center gap-2'>
-            <Label htmlFor={`${kind}-enabled`} className='text-xs'>{t('cluster.runtimeStorage.enabled')}</Label>
-            <Switch id={`${kind}-enabled`} checked={enabled} onCheckedChange={setEnabled} />
+            <Label htmlFor={`${kind}-enabled`} className='text-xs'>
+              {t('cluster.runtimeStorage.enabled')}
+            </Label>
+            <Switch
+              id={`${kind}-enabled`}
+              checked={enabled}
+              onCheckedChange={setEnabled}
+            />
           </div>
         )}
       </div>
@@ -231,11 +241,10 @@ export function RuntimeStorageEditor({clusterId, kind, spec, onApplied}: Runtime
           )}
         </div>
       )}
-      {error && <p className='text-xs text-destructive'>{error}</p>}
-      {notice && <p className='text-xs text-amber-700 dark:text-amber-300'>{notice}</p>}
+      {error && <ArcAlert tone='danger' title={error} />}
+      {notice && <ArcAlert tone='warning' title={notice} />}
       <div className='flex justify-end'>
-        <Button size='sm' onClick={() => void handleSave()} disabled={saving}>
-          {saving && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+        <Button size='sm' onClick={() => void handleSave()} loading={saving}>
           {t('cluster.runtimeStorage.saveAndTest')}
         </Button>
       </div>

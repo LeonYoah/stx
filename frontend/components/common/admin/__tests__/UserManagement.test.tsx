@@ -69,6 +69,19 @@ function renderPage() {
 
 describe('UserManagement status switch', () => {
   beforeEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
     listUsers.mockReset();
     updateUser.mockReset();
     updateUser.mockResolvedValue({});
@@ -120,6 +133,30 @@ describe('UserManagement status switch', () => {
     fireEvent.click(await screen.findByRole('switch', {name: '启用 carol'}));
     await waitFor(() =>
       expect(updateUser).toHaveBeenCalledWith(3, {is_active: true}),
+    );
+  });
+
+  it('点击用户行在右侧常驻 DetailHost 中编辑，未保存切行弹出脏态确认', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByTestId('user-row-2'));
+
+    const detail = await screen.findByTestId('user-detail');
+    expect(detail).toBeInTheDocument();
+
+    const nicknameInput = screen.getByLabelText('昵称');
+    fireEvent.change(nicknameInput, {target: {value: 'Bobby'}});
+
+    // 未保存时切到其他行应拦截弹出 DirtyCloseDialog
+    // Switching rows while dirty should open DirtyCloseDialog
+    fireEvent.click(screen.getByTestId('user-row-3'));
+    expect(await screen.findByText('放弃未保存的修改？')).toBeInTheDocument();
+
+    // 选择继续编辑后点击保存提交更新
+    // Keep editing then save submits the update
+    fireEvent.click(screen.getByRole('button', {name: '继续编辑'}));
+    fireEvent.click(await screen.findByRole('button', {name: '保存'}));
+    await waitFor(() =>
+      expect(updateUser).toHaveBeenCalledWith(2, {nickname: 'Bobby'}),
     );
   });
 });

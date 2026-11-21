@@ -18,9 +18,11 @@
 'use client';
 
 /**
- * 用户管理：TableCard + usePagedSelection/BatchBar + Arc 新建/编辑弹窗；
- * 破坏性确认仍走 AlertDialog；不能操作自己（批量跳过）。
- * User management: TableCard + usePagedSelection/BatchBar + Arc create/edit;
+ * 用户管理：TableCard + DetailHost 常驻详情编辑（#178 联动/飞入 + DirtyCloseDialog）+
+ * usePagedSelection/BatchBar；新建用户走居中 Arc 弹窗，破坏性确认走 AlertDialog；
+ * 不能操作自己（批量跳过）。
+ * User management: TableCard + persistent DetailHost editing (#178 linked motion/fly-in +
+ * DirtyCloseDialog) + usePagedSelection/BatchBar; creation uses a centered Arc dialog and
  * destructive confirms stay on AlertDialog; self is never mutated (batch skip).
  */
 
@@ -38,6 +40,7 @@ import {
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {useDrawerItem} from '@/components/arc/drawer/drawer';
 import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {Input} from '@/components/arc/input/input';
@@ -63,8 +66,12 @@ import {
 import {toast} from '@/lib/toast';
 import {
   BatchBar,
+  DetailHost,
+  DirtyCloseDialog,
   TableCard,
   WorkspaceHeader,
+  useBeforeUnload,
+  useDetailNarrow,
   usePagedSelection,
 } from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
@@ -76,7 +83,7 @@ import type {
   UpdateUserRequest,
   UserInfo,
 } from '@/lib/services/admin/user.service';
-import {formatDateTz} from '@/lib/timezone';
+import {formatDateTimeTz, formatDateTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
 import {AccountsNavTabs} from './AccountsNavTabs';
 
@@ -87,15 +94,22 @@ function isValidEmail(value: string): boolean {
 const DEFAULT_PAGE_SIZE = 10;
 
 type BatchKind = 'delete' | 'deactivate';
+type PendingDetailTarget =
+  | {kind: 'close'}
+  | {kind: 'user'; user: UserInfo; origin?: HTMLElement | null};
 
 export function UserManagement() {
   const t = useTranslations();
+  const narrow = useDetailNarrow();
   // 当前登录用户：不能停用自己或取消自己的管理员权限（后端同样拒绝），避免唯一管理员把自己锁在门外。
   // Current user: cannot deactivate themselves or revoke their own admin permission (the backend rejects it too),
   // so a sole admin cannot lock themselves out.
   const {user: currentUser} = useAuth();
-  const isSelf = (user: UserInfo | null) =>
-    Boolean(user && currentUser && user.id === currentUser.id);
+  const isSelf = useCallback(
+    (user: UserInfo | null) =>
+      Boolean(user && currentUser && user.id === currentUser.id),
+    [currentUser],
+  );
 
   const {page, pageSize, filters, setPage, setPageSize, patchFilters, resetFilters} =
     useServerListQuery({
@@ -109,10 +123,38 @@ export function UserManagement() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 新建弹窗独立表单态，避免与右侧常驻详情编辑态互相覆盖。
+  // Separate state for the create dialog so creating a user never clobbers an open detail rail.
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<UserInfo | null>(null);
+  const [createForm, setCreateForm] = useState<CreateUserRequest>({
+    username: '',
+    password: '',
+    nickname: '',
+    email: '',
+    is_admin: false,
+  });
+
+  // 常驻详情栏状态（含脏表单拦截与名称飞入来源行）。
+  // Persistent detail rail state (with dirty-form interception and name fly-in origin).
+  const [activeUserId, setActiveUserId] = useState<number | null>(null);
+  const [activeUser, setActiveUser] = useState<UserInfo | null>(null);
+  const [editForm, setEditForm] = useState<{
+    password: string;
+    nickname: string;
+    email: string;
+    is_admin: boolean;
+  }>({
+    password: '',
+    nickname: '',
+    email: '',
+    is_admin: false,
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [pendingTarget, setPendingTarget] =
+    useState<PendingDetailTarget | null>(null);
+  const flyOriginRef = useRef<HTMLElement | null>(null);
+
+  const [deleteTarget, setDeleteTarget] = useState<UserInfo | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<UserInfo | null>(
     null,
   );
@@ -124,13 +166,22 @@ export function UserManagement() {
     failed: number;
   } | null>(null);
 
-  const [formData, setFormData] = useState<CreateUserRequest & {id?: number}>({
-    username: '',
-    password: '',
-    nickname: '',
-    email: '',
-    is_admin: false,
-  });
+  const editDirty = useMemo(() => {
+    if (!activeUser) {
+      return false;
+    }
+    return (
+      editForm.nickname !== (activeUser.nickname || '') ||
+      (editForm.email || '') !== (activeUser.email || '') ||
+      Boolean(editForm.password) ||
+      editForm.is_admin !== activeUser.is_admin
+    );
+  }, [activeUser, editForm]);
+
+  useBeforeUnload(activeUserId !== null && editDirty);
+
+  const drawerOpen = activeUserId !== null;
+  const drawerUser = useDrawerItem(activeUser);
 
   const pageIds = useMemo(() => users.map((u) => u.id), [users]);
   const {
@@ -144,6 +195,8 @@ export function UserManagement() {
   } = usePagedSelection(pageIds);
 
   const listRequestIdRef = useRef(0);
+  const editDirtyRef = useRef(editDirty);
+  editDirtyRef.current = editDirty;
 
   const loadUsers = useCallback(async () => {
     const requestId = listRequestIdRef.current + 1;
@@ -158,9 +211,30 @@ export function UserManagement() {
       if (listRequestIdRef.current !== requestId) {
         return;
       }
-      setUsers(response.users || []);
+      const nextUsers = response.users || [];
+      setUsers(nextUsers);
       setTotal(response.total || 0);
       setError(null);
+      // 详情未脏时用最新列表记录同步头部与状态（例如表格里切换了启用状态）。
+      // Sync open detail metadata/status from fresh list rows when not dirty.
+      setActiveUser((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        const fresh = nextUsers.find((u) => u.id === prev.id);
+        if (!fresh) {
+          return prev;
+        }
+        if (!editDirtyRef.current) {
+          setEditForm({
+            password: '',
+            nickname: fresh.nickname || '',
+            email: fresh.email || '',
+            is_admin: fresh.is_admin,
+          });
+        }
+        return fresh;
+      });
     } catch (err) {
       if (listRequestIdRef.current !== requestId) {
         return;
@@ -184,8 +258,67 @@ export function UserManagement() {
     }
   }, [usernameDraft, filters.username, patchFilters]);
 
+  const applyUserSelection = useCallback(
+    (user: UserInfo, origin?: HTMLElement | null) => {
+      flyOriginRef.current = origin ?? null;
+      setActiveUserId(user.id);
+      setActiveUser(user);
+      setEditForm({
+        password: '',
+        nickname: user.nickname || '',
+        email: user.email || '',
+        is_admin: user.is_admin,
+      });
+    },
+    [],
+  );
+
+  const closeDetailImmediate = useCallback(() => {
+    flyOriginRef.current = null;
+    setActiveUserId(null);
+    setActiveUser(null);
+    setEditForm({
+      password: '',
+      nickname: '',
+      email: '',
+      is_admin: false,
+    });
+  }, []);
+
+  const requestSelectUser = useCallback(
+    (user: UserInfo, origin?: HTMLElement | null) => {
+      if (activeUserId === user.id) {
+        return;
+      }
+      if (activeUserId !== null && editDirty) {
+        setPendingTarget({kind: 'user', user, origin});
+        return;
+      }
+      applyUserSelection(user, origin);
+    },
+    [activeUserId, editDirty, applyUserSelection],
+  );
+
+  const requestCloseDetail = useCallback(() => {
+    if (activeUserId !== null && editDirty) {
+      setPendingTarget({kind: 'close'});
+      return;
+    }
+    closeDetailImmediate();
+  }, [activeUserId, editDirty, closeDetailImmediate]);
+
+  const discardAndCommit = useCallback(() => {
+    const target = pendingTarget;
+    setPendingTarget(null);
+    if (!target || target.kind === 'close') {
+      closeDetailImmediate();
+      return;
+    }
+    applyUserSelection(target.user, target.origin);
+  }, [pendingTarget, closeDetailImmediate, applyUserSelection]);
+
   const handleOpenCreate = () => {
-    setFormData({
+    setCreateForm({
       username: '',
       password: '',
       nickname: '',
@@ -195,49 +328,35 @@ export function UserManagement() {
     setIsCreateDialogOpen(true);
   };
 
-  const handleOpenEdit = (user: UserInfo) => {
-    setSelectedUser(user);
-    setFormData({
-      id: user.id,
-      username: user.username,
-      password: '',
-      nickname: user.nickname || '',
-      email: user.email || '',
-      is_admin: user.is_admin,
-    });
-    setIsEditDialogOpen(true);
-  };
-
   const handleOpenDelete = (user: UserInfo) => {
     if (isSelf(user)) {
       toast.error(t('admin.userManagement.errors.cannotDeleteSelf'));
       return;
     }
-    setSelectedUser(user);
-    setIsDeleteDialogOpen(true);
+    setDeleteTarget(user);
   };
 
   const handleCreate = async () => {
-    if (!formData.username || formData.username.length < 3) {
+    if (!createForm.username || createForm.username.length < 3) {
       toast.error(t('admin.userManagement.errors.usernameTooShort'));
       return;
     }
-    if (!formData.password || formData.password.length < 6) {
+    if (!createForm.password || createForm.password.length < 6) {
       toast.error(t('admin.userManagement.errors.passwordTooShort'));
       return;
     }
-    if (formData.email && !isValidEmail(formData.email)) {
+    if (createForm.email && !isValidEmail(createForm.email)) {
       toast.error(t('admin.userManagement.errors.invalidEmail'));
       return;
     }
 
     try {
       await services.adminUser.createUser({
-        username: formData.username,
-        password: formData.password,
-        nickname: formData.nickname,
-        email: formData.email?.trim(),
-        is_admin: formData.is_admin,
+        username: createForm.username,
+        password: createForm.password,
+        nickname: createForm.nickname,
+        email: createForm.email?.trim(),
+        is_admin: createForm.is_admin,
       });
       toast.success(t('admin.userManagement.createSuccess'));
       setIsCreateDialogOpen(false);
@@ -248,53 +367,72 @@ export function UserManagement() {
   };
 
   const handleUpdate = async () => {
-    if (!selectedUser) {
+    if (!activeUser || savingEdit) {
       return;
     }
 
     const updateData: UpdateUserRequest = {};
-    if (formData.nickname !== selectedUser.nickname) {
-      updateData.nickname = formData.nickname;
+    if (editForm.nickname !== (activeUser.nickname || '')) {
+      updateData.nickname = editForm.nickname;
     }
-    if ((formData.email || '') !== (selectedUser.email || '')) {
-      if (formData.email && !isValidEmail(formData.email)) {
+    if ((editForm.email || '') !== (activeUser.email || '')) {
+      if (editForm.email && !isValidEmail(editForm.email)) {
         toast.error(t('admin.userManagement.errors.invalidEmail'));
         return;
       }
-      updateData.email = formData.email?.trim() || '';
+      updateData.email = editForm.email?.trim() || '';
     }
-    if (formData.password) {
-      if (formData.password.length < 6) {
+    if (editForm.password) {
+      if (editForm.password.length < 6) {
         toast.error(t('admin.userManagement.errors.passwordTooShort'));
         return;
       }
-      updateData.password = formData.password;
+      updateData.password = editForm.password;
     }
-    if (formData.is_admin !== selectedUser.is_admin) {
-      updateData.is_admin = formData.is_admin;
+    if (editForm.is_admin !== activeUser.is_admin) {
+      updateData.is_admin = editForm.is_admin;
     }
 
+    setSavingEdit(true);
     try {
-      await services.adminUser.updateUser(selectedUser.id, updateData);
+      await services.adminUser.updateUser(activeUser.id, updateData);
       toast.success(t('admin.userManagement.updateSuccess'));
-      setIsEditDialogOpen(false);
+      const updated: UserInfo = {
+        ...activeUser,
+        nickname: editForm.nickname,
+        email: editForm.email?.trim() || '',
+        is_admin: editForm.is_admin,
+      };
+      setActiveUser(updated);
+      setEditForm({
+        password: '',
+        nickname: updated.nickname || '',
+        email: updated.email || '',
+        is_admin: updated.is_admin,
+      });
       void loadUsers();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('common.error'));
+    } finally {
+      setSavingEdit(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!selectedUser || isSelf(selectedUser)) {
+    const target = deleteTarget;
+    if (!target || isSelf(target)) {
       return;
     }
     try {
-      await services.adminUser.deleteUser(selectedUser.id);
+      await services.adminUser.deleteUser(target.id);
       toast.success(t('admin.userManagement.deleteSuccess'));
-      setIsDeleteDialogOpen(false);
+      setDeleteTarget(null);
+      if (activeUserId === target.id) {
+        closeDetailImmediate();
+      }
       {
         const next = new Set(selectedIds);
-        next.delete(selectedUser.id);
+        next.delete(target.id);
         setSelectedIds(next);
       }
       void loadUsers();
@@ -367,6 +505,9 @@ export function UserManagement() {
           try {
             await services.adminUser.deleteUser(id);
             outcome.ok += 1;
+            if (activeUserId === id) {
+              closeDetailImmediate();
+            }
           } catch {
             outcome.failed += 1;
             failedIds.push(id);
@@ -395,11 +536,59 @@ export function UserManagement() {
         toast.success(summary);
       }
     },
-    [selectedIds, batchBusy, users, currentUser, setSelectedIds, loadUsers, t],
+    [
+      selectedIds,
+      batchBusy,
+      users,
+      currentUser,
+      activeUserId,
+      closeDetailImmediate,
+      setSelectedIds,
+      loadUsers,
+      t,
+    ],
   );
 
   const filtersActive = Boolean(filters.username);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const activeIndex = activeUser
+    ? users.findIndex((u) => u.id === activeUser.id)
+    : -1;
+  const detailNav =
+    activeUser && activeIndex >= 0
+      ? {
+          index: activeIndex,
+          total: users.length,
+          // J/K / 头部导航不写 flyOrigin。J/K and header nav never write flyOrigin.
+          onPrev: () =>
+            activeIndex > 0 && requestSelectUser(users[activeIndex - 1]),
+          onNext: () =>
+            activeIndex < users.length - 1 &&
+            requestSelectUser(users[activeIndex + 1]),
+        }
+      : undefined;
+
+  const onRowKeyDown = (
+    e: React.KeyboardEvent<HTMLElement>,
+    user: UserInfo,
+  ) => {
+    if (e.target !== e.currentTarget) {
+      return;
+    }
+    const rows = Array.from(
+      e.currentTarget.parentElement?.querySelectorAll<HTMLElement>(
+        '[data-mrow]',
+      ) ?? [],
+    );
+    const i = rows.indexOf(e.currentTarget);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      rows[i + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      requestSelectUser(user, e.currentTarget);
+    }
+  };
 
   return (
     <div className={cn(layout.page, layout.pageViewport)}>
@@ -534,9 +723,25 @@ export function UserManagement() {
               {users.map((user) => (
                 <div
                   key={user.id}
-                  className={cn(layout.row)}
+                  data-mrow={user.id}
                   data-testid={`user-row-${user.id}`}
-                  style={{cursor: 'default'}}
+                  role='button'
+                  tabIndex={0}
+                  onClick={(e) => {
+                    if (
+                      (e.target as HTMLElement).closest(
+                        'button, a, input, select, [role="menu"], [role="menuitem"], [role="checkbox"], [role="switch"]',
+                      )
+                    ) {
+                      return;
+                    }
+                    requestSelectUser(user, e.currentTarget);
+                  }}
+                  onKeyDown={(e) => onRowKeyDown(e, user)}
+                  className={cn(
+                    layout.row,
+                    activeUserId === user.id && layout.rowActive,
+                  )}
                 >
                   <Checkbox
                     checked={selectedIds.has(user.id)}
@@ -546,7 +751,11 @@ export function UserManagement() {
                     })}
                   />
                   <div className={layout.rowName}>
-                    <span className={layout.name} title={user.username}>
+                    <span
+                      className={layout.name}
+                      title={user.username}
+                      data-detail-name
+                    >
                       {user.username}
                     </span>
                     <span className={layout.sub}>#{user.id}</span>
@@ -565,7 +774,10 @@ export function UserManagement() {
                   ) : (
                     <Badge variant='secondary'>User</Badge>
                   )}
-                  <div>
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  >
                     {isSelf(user) ? (
                       <TooltipProvider>
                         <Tooltip>
@@ -594,7 +806,11 @@ export function UserManagement() {
                   <span className={cn(layout.sub, 'whitespace-nowrap')}>
                     {formatDateTz(user.created_at)}
                   </span>
-                  <div className={layout.rowActions}>
+                  <div
+                    className={layout.rowActions}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  >
                     <DropdownMenu
                       trigger={
                         <Button
@@ -611,7 +827,7 @@ export function UserManagement() {
                         {
                           label: t('common.edit'),
                           icon: <Pencil className='size-4' aria-hidden />,
-                          onSelect: () => handleOpenEdit(user),
+                          onSelect: () => requestSelectUser(user),
                         },
                         {
                           label: t('common.delete'),
@@ -668,7 +884,171 @@ export function UserManagement() {
             </Button>
           </BatchBar>
         </div>
+
+        <DetailHost
+          open={drawerOpen}
+          hasContent={drawerUser != null}
+          onOpenChange={(o) => {
+            if (!o) {
+              requestCloseDetail();
+            }
+          }}
+          narrow={narrow}
+          title={drawerUser?.username || t('admin.userManagement.editUser')}
+          meta={
+            drawerUser
+              ? `#${drawerUser.id}${drawerUser.nickname ? ` · ${drawerUser.nickname}` : ''}`
+              : undefined
+          }
+          nav={detailNav}
+          flyOrigin={flyOriginRef}
+          nameSlot='title'
+          drawerWidth='w-[min(92vw,520px)]'
+        >
+          {drawerUser ? (
+            <div className={layout.detailCol} data-testid='user-detail'>
+              <div className={layout.detailScroll}>
+                <section
+                  className={cn(layout.detailSection, layout.detailSectionFirst)}
+                >
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <Badge
+                      variant={drawerUser.is_active ? 'default' : 'secondary'}
+                    >
+                      {drawerUser.is_active
+                        ? t('common.enabled')
+                        : t('common.disabled')}
+                    </Badge>
+                    <Badge
+                      variant={drawerUser.is_admin ? 'default' : 'outline'}
+                    >
+                      {drawerUser.is_admin
+                        ? t('admin.userManagement.isAdmin')
+                        : 'User'}
+                    </Badge>
+                  </div>
+                  <dl className={layout.detailKvGrid}>
+                    <div className={layout.detailKvItem}>
+                      <dt className={layout.detailKvKey}>ID</dt>
+                      <dd className={cn(layout.detailKvVal, 'font-mono text-xs')}>
+                        #{drawerUser.id}
+                      </dd>
+                    </div>
+                    <div className={layout.detailKvItem}>
+                      <dt className={layout.detailKvKey}>
+                        {t('admin.userManagement.createdAt')}
+                      </dt>
+                      <dd className={cn(layout.detailKvVal, 'font-mono text-xs')}>
+                        {formatDateTimeTz(drawerUser.created_at)}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <section className={layout.detailSection}>
+                  <h3 className={layout.sectionTitle}>
+                    {t('admin.userManagement.editUser')}
+                  </h3>
+                  <div className='space-y-4'>
+                    <Input
+                      id='edit-username'
+                      label={t('admin.userManagement.username')}
+                      value={drawerUser.username}
+                      disabled
+                    />
+                    <Input
+                      id='edit-password'
+                      type='password'
+                      label={t('admin.userManagement.password')}
+                      placeholder={t('admin.userManagement.passwordPlaceholder')}
+                      value={editForm.password}
+                      onChange={(e) =>
+                        setEditForm({...editForm, password: e.target.value})
+                      }
+                    />
+                    <Input
+                      id='edit-nickname'
+                      label={t('admin.userManagement.nickname')}
+                      value={editForm.nickname}
+                      onChange={(e) =>
+                        setEditForm({...editForm, nickname: e.target.value})
+                      }
+                    />
+                    <Input
+                      id='edit-email'
+                      type='email'
+                      label={t('admin.userManagement.email')}
+                      value={editForm.email}
+                      onChange={(e) =>
+                        setEditForm({...editForm, email: e.target.value})
+                      }
+                    />
+                    <div className='space-y-1'>
+                      <Switch
+                        id='edit-is_admin'
+                        label={t('admin.userManagement.isAdmin')}
+                        checked={editForm.is_admin}
+                        disabled={
+                          isSelf(drawerUser) && Boolean(editForm.is_admin)
+                        }
+                        onCheckedChange={(checked) =>
+                          setEditForm({...editForm, is_admin: checked})
+                        }
+                      />
+                      {isSelf(drawerUser) && editForm.is_admin ? (
+                        <p className='text-xs text-muted-foreground'>
+                          {t('admin.userManagement.cannotRevokeOwnAdmin')}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+              </div>
+              <div className={layout.detailFoot}>
+                {!isSelf(drawerUser) ? (
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => handleOpenDelete(drawerUser)}
+                  >
+                    <Trash2
+                      className='size-3.5 text-destructive'
+                      aria-hidden
+                    />
+                    {t('common.delete')}
+                  </Button>
+                ) : null}
+                <span className={layout.detailFootGrow} />
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={requestCloseDetail}
+                  disabled={savingEdit}
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  type='button'
+                  size='sm'
+                  loading={savingEdit}
+                  disabled={!editDirty || savingEdit}
+                  onClick={() => void handleUpdate()}
+                >
+                  {savingEdit ? t('common.saving') : t('common.save')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DetailHost>
       </div>
+
+      <DirtyCloseDialog
+        open={pendingTarget !== null}
+        onDiscard={discardAndCommit}
+        onKeepEditing={() => setPendingTarget(null)}
+      />
 
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
         <DialogContent
@@ -680,43 +1060,43 @@ export function UserManagement() {
             <Input
               id='username'
               label={t('admin.userManagement.username')}
-              value={formData.username}
+              value={createForm.username}
               onChange={(e) =>
-                setFormData({...formData, username: e.target.value})
+                setCreateForm({...createForm, username: e.target.value})
               }
             />
             <Input
               id='password'
               type='password'
               label={t('admin.userManagement.password')}
-              value={formData.password}
+              value={createForm.password}
               onChange={(e) =>
-                setFormData({...formData, password: e.target.value})
+                setCreateForm({...createForm, password: e.target.value})
               }
             />
             <Input
               id='nickname'
               label={t('admin.userManagement.nickname')}
-              value={formData.nickname}
+              value={createForm.nickname}
               onChange={(e) =>
-                setFormData({...formData, nickname: e.target.value})
+                setCreateForm({...createForm, nickname: e.target.value})
               }
             />
             <Input
               id='email'
               type='email'
               label={t('admin.userManagement.email')}
-              value={formData.email || ''}
+              value={createForm.email || ''}
               onChange={(e) =>
-                setFormData({...formData, email: e.target.value})
+                setCreateForm({...createForm, email: e.target.value})
               }
             />
             <Switch
               id='is_admin'
               label={t('admin.userManagement.isAdmin')}
-              checked={formData.is_admin}
+              checked={createForm.is_admin}
               onCheckedChange={(checked) =>
-                setFormData({...formData, is_admin: checked})
+                setCreateForm({...createForm, is_admin: checked})
               }
             />
           </div>
@@ -731,79 +1111,6 @@ export function UserManagement() {
             </Button>
             <Button type='button' size='sm' onClick={() => void handleCreate()}>
               {t('common.create')}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent
-          title={t('admin.userManagement.editUser')}
-          className='w-[min(calc(100vw-2rem),480px)]!'
-          bodyClassName='max-h-[min(85dvh,640px)] overflow-y-auto'
-        >
-          <div className='space-y-4'>
-            <Input
-              id='edit-username'
-              label={t('admin.userManagement.username')}
-              value={formData.username}
-              disabled
-            />
-            <Input
-              id='edit-password'
-              type='password'
-              label={t('admin.userManagement.password')}
-              placeholder={t('admin.userManagement.passwordPlaceholder')}
-              value={formData.password}
-              onChange={(e) =>
-                setFormData({...formData, password: e.target.value})
-              }
-            />
-            <Input
-              id='edit-nickname'
-              label={t('admin.userManagement.nickname')}
-              value={formData.nickname}
-              onChange={(e) =>
-                setFormData({...formData, nickname: e.target.value})
-              }
-            />
-            <Input
-              id='edit-email'
-              type='email'
-              label={t('admin.userManagement.email')}
-              value={formData.email || ''}
-              onChange={(e) =>
-                setFormData({...formData, email: e.target.value})
-              }
-            />
-            <div className='space-y-1'>
-              <Switch
-                id='edit-is_admin'
-                label={t('admin.userManagement.isAdmin')}
-                checked={formData.is_admin}
-                disabled={isSelf(selectedUser) && Boolean(formData.is_admin)}
-                onCheckedChange={(checked) =>
-                  setFormData({...formData, is_admin: checked})
-                }
-              />
-              {isSelf(selectedUser) && formData.is_admin ? (
-                <p className='text-xs text-muted-foreground'>
-                  {t('admin.userManagement.cannotRevokeOwnAdmin')}
-                </p>
-              ) : null}
-            </div>
-          </div>
-          <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
-            <Button
-              type='button'
-              variant='secondary'
-              size='sm'
-              onClick={() => setIsEditDialogOpen(false)}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button type='button' size='sm' onClick={() => void handleUpdate()}>
-              {t('common.save')}
             </Button>
           </div>
         </DialogContent>
@@ -838,8 +1145,12 @@ export function UserManagement() {
       </AlertDialog>
 
       <AlertDialog
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -848,7 +1159,7 @@ export function UserManagement() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t('admin.userManagement.deleteConfirm', {
-                username: selectedUser?.username || '',
+                username: deleteTarget?.username || '',
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>

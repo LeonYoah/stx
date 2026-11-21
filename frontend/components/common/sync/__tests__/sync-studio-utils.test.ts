@@ -16,6 +16,10 @@
  */
 
 import {describe, expect, it} from 'vitest';
+import type {
+  SyncJobInstance,
+  SyncJobListParams,
+} from '@/lib/services/sync';
 import {
   buildInsertedCuratedContent,
   buildStudioGridTemplateColumns,
@@ -44,6 +48,7 @@ import {
   resolveVariableSuggestions,
   studioSaveSegment,
   formatSyncUserFacingError,
+  findSyncJobsByIdInput,
   STUDIO_LAYOUT_STORAGE_KEY,
   writeStudioLayoutPrefs,
 } from '../sync-studio-utils';
@@ -532,16 +537,76 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
       expect(result[0].children).toHaveLength(3);
     });
 
-    it('keeps own private tasks and public tasks, but filters out non-own private tasks when scope is mine_and_public', () => {
+    it('keeps only own tasks when scope is mine_and_public; others public/private stay under all', () => {
       const result = filterTree(sampleTree, '', 'mine_and_public', 4);
       expect(result).toHaveLength(1);
       const childNames = result[0].children?.map((c) => c.name);
-      // Own task kept
       expect(childNames).toContain('my_private_task.conf');
-      // Public task kept ("公开任务也属于自己任务")
-      expect(childNames).toContain('public_shared_task.conf');
-      // Other user's private task filtered out!
+      // Other user's public task is not "mine" — visible only under "all"
+      expect(childNames).not.toContain('public_shared_task.conf');
       expect(childNames).not.toContain('other_user_private_task.conf');
+    });
+
+    it('keeps tasks collaborated on by current user in mine_and_public but not only_mine', () => {
+      const tree = [
+        {
+          ...sampleTree[0],
+          children: [
+            {
+              ...sampleTree[0].children![0],
+              id: 9,
+              name: 'collab_shared_task.conf',
+              created_by: 2,
+              is_owner: false,
+              is_public: false,
+              is_collaborator: true,
+            },
+          ],
+        },
+      ];
+      expect(
+        filterTree(tree, '', 'mine_and_public', 4)[0].children?.map(
+          (c) => c.name,
+        ),
+      ).toEqual(['collab_shared_task.conf']);
+      expect(filterTree(tree, '', 'only_mine', 4)).toHaveLength(0);
+    });
+
+    it('admin is_owner does not leak others tasks into mine scopes', () => {
+      // 管理员视角下后端对全部节点回 is_owner=true（可管理语义），过滤必须看 created_by。
+      // Backend returns is_owner=true on every node for admins (manage semantics);
+      // filtering must trust created_by instead.
+      const tree = [
+        {
+          ...sampleTree[0],
+          children: [
+            {
+              ...sampleTree[0].children![1],
+              id: 8,
+              name: 'lyb_admin_visible.conf',
+              created_by: 1,
+              is_owner: true,
+              is_public: false,
+              is_collaborator: false,
+            },
+            {
+              ...sampleTree[0].children![0],
+              id: 7,
+              name: 'mine_admin_task.conf',
+              created_by: 4,
+              is_owner: true,
+              is_public: false,
+              is_collaborator: false,
+            },
+          ],
+        },
+      ];
+      for (const scope of ['mine_and_public', 'only_mine'] as const) {
+        const names = filterTree(tree, '', scope, 4)[0].children?.map(
+          (c) => c.name,
+        );
+        expect(names).toEqual(['mine_admin_task.conf']);
+      }
     });
 
     it('keeps only tasks created by user when scope is only_mine', () => {
@@ -660,11 +725,9 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
         expect(filterTree(tree, '', 'only_mine', 4)).toHaveLength(0);
       });
 
-      it('keeps other users public empty folder in mine_and_public but not only_mine', () => {
+      it('hides other users public empty folder outside all scope', () => {
         const tree = [otherPublicEmptyFolder];
-        expect(
-          filterTree(tree, '', 'mine_and_public', 4).map((n) => n.name),
-        ).toEqual(['other-public-empty']);
+        expect(filterTree(tree, '', 'mine_and_public', 4)).toHaveLength(0);
         expect(filterTree(tree, '', 'only_mine', 4)).toHaveLength(0);
         expect(filterTree(tree, '', 'all', 4).map((n) => n.name)).toEqual([
           'other-public-empty',
@@ -1057,5 +1120,120 @@ describe('formatSyncUserFacingError', () => {
     const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
     expect(formatted.category).not.toBe('connector');
   });
+
+  it('does not classify API-06 wording with a deeper caused-by as connector-missing', () => {
+    const raw =
+      "Source[0]-MySQL-CDC official tablePath resolution failed: FactoryException: ErrorCode:[API-06], ErrorDescription:[Factory initialize failed] - Unable to create a source for identifier 'MySQL-CDC'. | caused by: CatalogException: ErrorCode:[API-03], ErrorDescription:[Catalog initialize failed] - Failed connecting to the configured JDBC URL via JDBC.";
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.category).not.toBe('connector');
+    expect(formatted.description).toContain('JDBC URL');
+  });
+
+  // 引擎堆栈按最深 caused-by 分类：API-09 中间层的 "Failed connecting" 不能盖过 Access denied
+  // Engine stacktraces classify by deepest caused-by: the intermediate API-09 "Failed connecting"
+  // must not mask the real "Access denied" auth failure.
+  it('classifies engine save-mode failure by deepest caused-by and summarizes the stack', () => {
+    const body = {
+      status: 'fail',
+      message:
+        "CompletionException: org.apache.seatunnel.engine.common.exception.JobException: org.apache.seatunnel.common.exception.SeaTunnelRuntimeException: ErrorCode:[API-09], ErrorDescription:[Handle save mode failed]\n" +
+        '\tat org.apache.seatunnel.engine.server.master.JobMaster.handleSaveMode(JobMaster.java:792)\n' +
+        'Caused by: org.apache.seatunnel.api.table.catalog.exception.CatalogException: ErrorCode:[API-03], ErrorDescription:[Catalog initialize failed] - Failed connecting to the configured JDBC URL via JDBC.\n' +
+        '\tat org.apache.seatunnel.connectors.seatunnel.jdbc.catalog.AbstractJdbcCatalog.getConnection(AbstractJdbcCatalog.java:155)\n' +
+        "Caused by: java.sql.SQLException: Access denied for user 'root'@'172.17.0.1' (using password: YES)",
+    };
+    const raw = `submit job failed: status=500 body=${JSON.stringify(body)}`;
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.category).toBe('auth');
+    expect(formatted.description).toContain('Handle save mode failed');
+    expect(formatted.description).toContain('Access denied');
+    expect(formatted.description).not.toContain('at org.apache');
+    // 堆栈区展示解码后的引擎堆栈：保留状态行 + 真实换行的完整链
+    // Stacktrace view shows the decoded engine stack: status line + real newlines
+    expect(formatted.raw).toContain('status=500');
+    expect(formatted.raw).toContain('Caused by: java.sql.SQLException');
+    expect(formatted.raw).not.toContain('\\n\\tat');
+  });
+
+  it('falls back to whole-message probing when the deepest cause has no signal', () => {
+    const body = {
+      status: 'fail',
+      message:
+        'JobException: something failed\n' +
+        '\tat com.example.Foo.run(Foo.java:1)\n' +
+        'Caused by: java.lang.RuntimeException: connection timed out after 30s',
+    };
+    const raw = `submit job failed: status=500 body=${JSON.stringify(body)}`;
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.category).toBe('network');
+    expect(formatted.description).toContain('timed out');
+  });
+
+  it('still classifies when a caused-by layer reports plugin absent', () => {
+    const raw =
+      "Unable to create a sink for identifier 'Http'. | caused by: RuntimeException: Plugin PluginIdentifier{engineType='seatunnel', pluginType='sink', pluginName='Http'} not found.";
+    const formatted = formatSyncUserFacingError(raw, 'Default Title', t);
+    expect(formatted.category).toBe('connector');
+    expect(formatted.raw).toBe(raw);
+  });
 });
 
+
+describe('findSyncJobsByIdInput', () => {
+  const job = (id: number, platform?: string, engine?: string) =>
+    ({id, platform_job_id: platform, engine_job_id: engine}) as SyncJobInstance;
+
+  const listJobsOf = (
+    hits: Record<string, SyncJobInstance[]>,
+    calls: string[] = [],
+  ) =>
+    (async (params: SyncJobListParams) => {
+      const key = params.job_id
+        ? `id:${params.job_id}`
+        : params.platform_job_id
+          ? `platform:${params.platform_job_id}`
+          : `engine:${params.engine_job_id}`;
+      calls.push(key);
+      return {items: hits[key] ?? []};
+    }) as (params: SyncJobListParams) => Promise<{items?: SyncJobInstance[]}>;
+
+  it('strips # prefixes and matches the internal id first', async () => {
+    const calls: string[] = [];
+    const found = await findSyncJobsByIdInput(
+      listJobsOf({'id:100': [job(100, 'p100')]}, calls),
+      '#100',
+    );
+    expect(found.map((item) => item.id)).toEqual([100]);
+    expect(calls).toContain('id:100');
+  });
+
+  it('collects platform and engine hits deduped by job id', async () => {
+    const target = job(98, '179519364461900000');
+    const found = await findSyncJobsByIdInput(
+      listJobsOf({
+        'platform:179519364461900000': [target],
+        'engine:179519364461900000': [target],
+      }),
+      '179519364461900000',
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].id).toBe(98);
+  });
+
+  it('firstOnly stops after the first hit', async () => {
+    const calls: string[] = [];
+    await findSyncJobsByIdInput(
+      listJobsOf({'id:14': [job(14)]}, calls),
+      '14',
+      {firstOnly: true},
+    );
+    expect(calls).toEqual(['id:14']);
+  });
+
+  it('returns [] for non-numeric input without hitting the backend', async () => {
+    const calls: string[] = [];
+    const found = await findSyncJobsByIdInput(listJobsOf({}, calls), 'abc');
+    expect(found).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+});

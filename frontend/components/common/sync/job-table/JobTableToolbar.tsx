@@ -225,7 +225,8 @@ export function JobTableToolbar({
         items={pills}
         activeKey={query.statusGroup || 'all'}
         onChange={handleStatusGroup}
-        className='h-9 flex-nowrap gap-2 overflow-x-auto overflow-y-hidden border-b border-border/60 px-2 [&>div]:shrink-0 [&>div]:flex-nowrap'
+        label={t('columns.status')}
+        className='h-9 flex-nowrap gap-2 overflow-hidden border-b border-border/60 px-2'
         actions={
           <>
             {typeControl}

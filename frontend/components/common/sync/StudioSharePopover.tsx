@@ -26,7 +26,6 @@ import {
   Shield,
   UserCheck,
   X,
-  ChevronDown,
   Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -123,34 +122,30 @@ export function StudioSharePopover({
           )}
         >
           <Users className='size-3.5 text-primary shrink-0 transition-transform group-hover:scale-110' />
-          {/* 宽屏显示文案；窄宽仅保留图标 + 可见性徽章 / Wide: label; narrow: icon + visibility badge */}
-          <span className='hidden text-[11px] font-medium xl:inline'>{t('shareTask')}</span>
-
-          {/* 可见性徽章 / Visibility badge */}
+          {/* 可见性收成着色小标：绿=公开、琥珀=私有，文案细节进 popover。
+              Visibility collapses to a colored glyph: green=public, amber=private; text details live in the popover. */}
           <span
+            title={isPublic ? t('public') : t('private')}
             className={cn(
-              'inline-flex items-center gap-1 rounded-full px-1.5 py-0.2 text-[10px] font-normal leading-none',
+              'inline-flex size-3.5 shrink-0 items-center justify-center rounded-full',
               isPublic
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                : 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
             )}
           >
             {isPublic ? (
-              <Globe className='size-2.5 shrink-0' />
+              <Globe className='size-2 shrink-0' />
             ) : (
-              <Lock className='size-2.5 shrink-0' />
+              <Lock className='size-2 shrink-0' />
             )}
-            <span>{isPublic ? t('public') : t('private')}</span>
           </span>
 
-          {/* 协作者人数计数（宽屏） / Collaborator count (wide only) */}
+          {/* 协作者人数计数 / Collaborator count */}
           {collaboratorIds.length > 0 ? (
-            <span className='hidden rounded-full bg-primary/15 px-1 py-0.2 font-mono text-[9px] font-medium text-primary leading-none xl:inline'>
+            <span className='rounded-full bg-primary/15 px-1 py-0.2 font-mono text-[9px] font-medium text-primary leading-none'>
               +{collaboratorIds.length}
             </span>
           ) : null}
-
-          <ChevronDown className='hidden size-3 text-muted-foreground/60 transition-transform group-hover:text-foreground xl:block' />
         </Button>
       </PopoverTrigger>
 

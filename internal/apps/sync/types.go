@@ -147,6 +147,9 @@ type JobFilter struct {
 	RunType       RunType
 	PlatformJobID string
 	EngineJobID   string
+	// JobID は内部数値 ID（UI の #N 表示）での完全一致検索用。
+	// JobID filters by the internal numeric id (the UI's #N display).
+	JobID uint
 	OwnerUserID   uint
 	IncludeAll    bool
 	Page          int

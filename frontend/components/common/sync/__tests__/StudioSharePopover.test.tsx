@@ -48,8 +48,11 @@ describe('StudioSharePopover', () => {
       />,
     );
 
-    expect(screen.getByText('shareTask')).toBeInTheDocument();
-    expect(screen.getByText('public')).toBeInTheDocument();
+    // 触发器收成图标 + 着色可见性小标；可见性文案改由 title 承载。
+    // Trigger is icon + colored visibility glyph; the visibility text moved to title.
+    const trigger = screen.getByRole('button', {name: 'shareTask'});
+    expect(trigger).toBeInTheDocument();
+    expect(trigger.querySelector('span[title="public"]')).not.toBeNull();
     expect(screen.getByText('+2')).toBeInTheDocument();
   });
 

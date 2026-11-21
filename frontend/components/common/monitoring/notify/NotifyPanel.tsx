@@ -100,6 +100,10 @@ export function NotifyPanel() {
     number | '__new__' | 'close' | NotifyView | null
   >(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // 名称飞入来源行：仅点击/回车打开时写入，J/K、头部 ↑↓ 与深链不写。
+  // Fly-in origin row: written only on click/Enter open — never by J/K,
+  // header arrows or deep links.
+  const flyOriginRef = useRef<HTMLElement | null>(null);
   useBeforeUnload(channelDirty && editKey !== null);
 
   const editingChannel = channels.find((c) => c.id === editKey) ?? null;
@@ -395,6 +399,9 @@ export function NotifyPanel() {
       rows[i + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
+      if (editKey !== id) {
+        flyOriginRef.current = e.currentTarget;
+      }
       requestEdit(id);
     }
   };
@@ -470,6 +477,8 @@ export function NotifyPanel() {
                 }
                 placeholder={t('notifyChannelsPlaceholder')}
                 emptyMessage={t('selectEmpty')}
+                searchPlaceholder={t('selectSearchPlaceholder')}
+                noMatchMessage={t('comboboxEmpty')}
               />
             </div>
             <div className={layout.field}>
@@ -485,6 +494,8 @@ export function NotifyPanel() {
                 }
                 placeholder={t('notifyReceiversPlaceholder')}
                 emptyMessage={t('selectEmpty')}
+                searchPlaceholder={t('selectSearchPlaceholder')}
+                noMatchMessage={t('comboboxEmpty')}
               />
             </div>
             <div className={layout.field}>
@@ -649,6 +660,9 @@ export function NotifyPanel() {
                       ) {
                         return;
                       }
+                      if (editKey !== c.id) {
+                        flyOriginRef.current = e.currentTarget;
+                      }
                       requestEdit(c.id);
                     }}
                     onKeyDown={(e) => onRowKeyDown(e, c.id)}
@@ -659,7 +673,11 @@ export function NotifyPanel() {
                     )}
                   >
                     <div className={layout.rowName}>
-                      <span className={layout.name} title={c.name}>
+                      <span
+                        className={layout.name}
+                        title={c.name}
+                        data-detail-name
+                      >
                         {c.name}
                       </span>
                     </div>
@@ -749,6 +767,8 @@ export function NotifyPanel() {
               meta={editingChannel?.name}
               nav={detailNav}
               drawerWidth='w-[min(92vw,480px)]'
+              flyOrigin={flyOriginRef}
+              nameSlot='meta'
             >
               {drawerChannel ? (
                 <ChannelDrawerBody

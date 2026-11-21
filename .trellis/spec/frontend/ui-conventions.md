@@ -26,10 +26,13 @@
 ## 3. 列表、筛选、加载与表格卡片（`TableCard`）
 
 - **管理列表详情标准**：常驻详情统一用 `components/common/layout/DetailHost`（≥1080px 常驻 rail、窄屏 Drawer、J/K 导航）+ `common/layout/list-detail.module.css`（`.page` / `.split` / `.listCol[data-mcols]` / `.row` / detail 类）；编辑脏态拦截用 `DirtyCloseDialog` / `UnsavedChangesDialog`（均在 `common/layout/`）。**不要**再为管理列表详情新造一套宿主；`ui/sheet` 只留给审计追踪等临时覆盖层。任务 `11-18-unified-admin-console-lists`（2026-11-21 选 A）本期迁移审计 / 用户（含令牌）/ 主机到此壳；主机 `/hosts/[id]` 应为列表深链接打开常驻详情，不再用 Sheet-only 详情页。告警 / 诊断已是该模式且本期不改；集群列表（卡片网格）与集群详情（多 Tab 整页）不硬套 DetailHost。
+  - **联动外观（克制版，#178）**：`.split` 内存在 `> .rail[data-state='open']` 且本页有 `.rowActive` 时，公共样式自动让列表退为底层色面板（卡片边框透明、行分隔线消失、间距收 0）、选中行浮起贴栏、其余行按距离逐级变淡、同页工具栏降透明；详情栏开合动画由 `DetailHost` 驱动（rail 关闭后保持挂载直到宽度过渡结束，600ms 兜底卸载）。只有栏开着但本页无选中行（翻页离开）时不进入联动。
+  - **接入约束**：行必须是 `.tableScroll` 的**直接子元素**，选中行挂 `.rowActive`；`rowHead`、分页底栏（`[data-slot='table-card-footer']`）与 `.tableScroll` 必须同卡片（分段圆角靠兄弟/`:has()` 推导）。
+  - **名称飞入**：行内名称元素挂 `data-detail-name`，面板持有 `flyOrigin` 引用并只在**行点击/行内 Enter 打开或切换**时写入（J/K、头部 ↑↓、深链恢复不写）；`DetailHost` 配 `nameSlot='title' | 'meta'`（落点文字与行内文字不一致时自动不飞）。窄屏、减少动态效果、来源行已卸载、来源/落点文字不同均降级不飞。主机列表与告警同套接入。
 - **`StatPillsBar` 已弃用**：新代码不得使用。状态筛选改用 Arc `SegmentedControl`（单选，2–5 项或后端只接受单值）或 Arc `chip-group`（多选，如作业 7 态）；立即生效的单个开关条件用 Arc `Switch`。一排控件只表示一个维度。本期在令牌 / 主机退役；其余存量（含集群）随下期页面，最后一处迁走后删除组件。
 - **筛选计数**：只有后端（或客户端已持有的**全集**）能给出与列表总数一致的分桶统计时，才在 `SegmentedControl` / `chip-group` 上显示计数（等宽数字、固定最小宽度；危险类 >0 用 `tone='danger'`）。**禁止**只按当前页行数做分桶计数。例：令牌用接口 `active/expired/revoked` 全量计数；主机分段无可靠全量分桶则**不显示数字**；告警分段可显示服务端轻量全集统计；错误 / 巡检保持无当前页桶计数。
 - **筛选栏**：保持左对齐，搜索框限宽（如 `flex-1 min-w-[200px] max-w-sm`），输入项支持 **Enter** 直接触发主查询且不误触发清空/关闭等次要动作；筛选变化必须重置 `page = 1`。
-- **零塌陷加载与 `TableCard`**：带分页的列表优先复用已有共享原语 **`components/common/layout/TableCard.tsx`**（勿重建）：
+- **零塌陷加载与 `TableCard`**：带分页的列表优先复用已有共享原语 **`components/common/layout/TableCard.tsx`**（勿重建；卡片根挂 `data-slot='table-card'`，分页底栏挂 `data-slot='table-card-footer'`）：
   - 首屏无数据时使用 `TableSkeletonRows`（加载超过 **300ms** 才显现，显现后至少保留 **500ms** 防闪烁）；
   - 刷新/翻页保留旧数据与容器高度，顶部显示 `TableLoadingBar`；
   - 错误留在卡片内提供重试（已有旧数据时降为顶部提示条）。

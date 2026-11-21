@@ -30,7 +30,16 @@
  * The width check uses useSyncExternalStore + matchMedia with a fixed narrow
  * server snapshot so the first render matches on server and client.
  */
-import {useEffect, useSyncExternalStore, type ReactNode} from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import {useTranslations} from 'next-intl';
 import {ChevronDown, ChevronUp, X} from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
@@ -99,6 +108,36 @@ function NavControls({nav}: {nav: DetailNav}) {
   );
 }
 
+/** 名称飞入的头部落点：title=标题，meta=元信息。Fly target slot in the rail header. */
+export type DetailNameSlot = 'title' | 'meta';
+
+/**
+ * 名称飞入前置判定（纯函数）：没有来源行 / 窄屏 / 减少动态效果 /
+ * 未配置 nameSlot / 来源与落点文字不一致 一律不飞。
+ * Pure gate for the name fly-in: no origin row, narrow layout, reduced
+ * motion, missing nameSlot, or mismatched source/target text all skip it.
+ */
+export function canFlyDetailName(params: {
+  origin: HTMLElement | null | undefined;
+  narrow: boolean;
+  reducedMotion: boolean;
+  nameSlot?: DetailNameSlot;
+  sourceText: string;
+  targetText: string;
+}): boolean {
+  const {origin, narrow, reducedMotion, nameSlot, sourceText, targetText} =
+    params;
+  return Boolean(
+    origin &&
+      origin.isConnected &&
+      !narrow &&
+      !reducedMotion &&
+      nameSlot &&
+      sourceText.trim() &&
+      sourceText.trim() === targetText.trim(),
+  );
+}
+
 /**
  * children 约定：接收方渲染 detailCol 结构（metaBand / detailScroll / detailFoot），
  * 宽度自适应宿主（rail 或 drawer）。item 为 useDrawerItem 的返回，drawer 关闭动画
@@ -117,6 +156,8 @@ export function DetailHost({
   nav,
   wide,
   drawerWidth,
+  flyOrigin,
+  nameSlot,
   children,
 }: {
   open: boolean;
@@ -132,8 +173,216 @@ export function DetailHost({
   wide?: boolean;
   /** drawer 形态宽度。Drawer width in narrow mode. */
   drawerWidth?: string;
+  /** 行点击/回车打开时写入的行元素，用于名称飞入；J/K、↑↓、深链不写入。
+      Row element recorded on click/Enter open, for the name fly-in; J/K,
+      header arrows and deep links never write it. */
+  flyOrigin?: RefObject<HTMLElement | null>;
+  /** 行内名称飞入的头部落点。Where the row name lands in the rail header. */
+  nameSlot?: DetailNameSlot;
   children: ReactNode;
 }) {
+  // 常驻栏开合生命周期：打开时先以 closed 态挂载一帧再翻 open（进入过渡从
+  // 收起态起跑）；关闭时翻回 closed，宽度过渡结束（600ms 兜底）后才卸载；
+  // 关闭途中重新打开取消卸载。
+  // Rail open/close lifecycle: on open it mounts one frame as 'closed' then
+  // flips to 'open' so the entrance transition has a start state; on close it
+  // flips back and stays mounted until the width transition ends (600ms
+  // fallback); reopening mid-close cancels the unmount.
+  const [present, setPresent] = useState(open);
+  const [entered, setEntered] = useState(false);
+  const railRef = useRef<HTMLElement | null>(null);
+
+  // 打开帧内同步挂载栏：render 期校正状态，让 open 变 true 的同一个提交里
+  // rail 就进 DOM，名称飞入的 useLayoutEffect 才能量到落点。
+  // Mount the rail within the opening commit via render-phase state
+  // adjustment so the fly-in's useLayoutEffect can measure its target.
+  if (open && !present) {
+    setPresent(true);
+  }
+
+  // 分区入场节奏：打开用 enter，开着时换内容用 switch。
+  // Section entrance pacing: 'enter' on open, 'switch' when content changes
+  // while staying open.
+  const [motion, setMotion] = useState<'enter' | 'switch'>('enter');
+  const prevRef = useRef<{open: boolean; title: string; metaKey: string}>({
+    open: false,
+    title: '',
+    metaKey: '',
+  });
+
+  const flyRef = useRef<{
+    ghost: HTMLElement;
+    target: HTMLElement;
+    anim: Animation;
+  } | null>(null);
+
+  const clearFly = useCallback(() => {
+    const f = flyRef.current;
+    if (!f) {
+      return;
+    }
+    f.anim.cancel();
+    f.ghost.remove();
+    f.target.style.opacity = '';
+    flyRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setEntered(false);
+      if (!present) {
+        return;
+      }
+      const el = railRef.current;
+      if (!el) {
+        setPresent(false);
+        return;
+      }
+      let done = false;
+      const finish = () => {
+        if (!done) {
+          done = true;
+          setPresent(false);
+        }
+      };
+      const onEnd = (e: TransitionEvent) => {
+        if (e.target === el && e.propertyName === 'width') {
+          finish();
+        }
+      };
+      const timer = window.setTimeout(finish, 600);
+      el.addEventListener('transitionend', onEnd);
+      return () => {
+        window.clearTimeout(timer);
+        el.removeEventListener('transitionend', onEnd);
+      };
+    }
+    // present 已在 render 期校正；这里只负责下一帧翻 open 让进入过渡有起点。
+    // `present` is corrected during render; this only flips to 'open' a frame
+    // later so the entrance transition has a start state.
+    const raf =
+      typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame
+        : (cb: FrameRequestCallback) =>
+            window.setTimeout(cb, 0) as unknown as number;
+    const caf =
+      typeof cancelAnimationFrame === 'function'
+        ? cancelAnimationFrame
+        : (id: number) => window.clearTimeout(id);
+    let raf2 = 0;
+    const raf1 = raf(() => {
+      raf2 = raf(() => setEntered(true));
+    });
+    return () => {
+      caf(raf1);
+      if (raf2) {
+        caf(raf2);
+      }
+    };
+  }, [open, present]);
+
+  useEffect(() => {
+    const metaKey =
+      typeof meta === 'string' || typeof meta === 'number' ? String(meta) : '';
+    if (open) {
+      setMotion(
+        prevRef.current.open &&
+          (prevRef.current.title !== title ||
+            prevRef.current.metaKey !== metaKey)
+          ? 'switch'
+          : 'enter',
+      );
+    }
+    prevRef.current = {open, title, metaKey};
+  }, [open, title, meta]);
+
+  // 名称飞入：点击/回车打开或切换时，行内名称的副本从列表飞到头部落点；
+  // 落地后换回真实文字。再次选中、关闭或卸载时取消并清理副本。
+  // Name fly-in: on click/Enter open or row switch, a clone of the row's name
+  // flies to the header slot, then the real text takes over. Reselecting,
+  // closing or unmounting cancels and removes the clone.
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    const origin = flyOrigin?.current;
+    if (flyOrigin) {
+      flyOrigin.current = null;
+    }
+    if (!open || !rail || !origin) {
+      return clearFly;
+    }
+    const src = origin.querySelector<HTMLElement>('[data-detail-name]');
+    const tgt = nameSlot
+      ? rail.querySelector<HTMLElement>(`[data-detail-name-target='${nameSlot}']`)
+      : null;
+    const reduced =
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+    if (
+      !canFlyDetailName({
+        origin,
+        narrow,
+        reducedMotion: reduced,
+        nameSlot,
+        sourceText: src?.textContent ?? '',
+        targetText: tgt?.textContent ?? '',
+      }) ||
+      !src ||
+      !tgt
+    ) {
+      return clearFly;
+    }
+    const srcRect = src.getBoundingClientRect();
+    const tgtRect = tgt.getBoundingClientRect();
+    const railRect = rail.getBoundingClientRect();
+    const splitRect = rail.parentElement?.getBoundingClientRect() ?? railRect;
+    const cs = getComputedStyle(rail);
+    const railW = parseFloat(cs.getPropertyValue('--rail-w')) || railRect.width;
+    const maxPct = parseFloat(cs.maxWidth) / 100 || 1;
+    // 落点取栏的最终位置（分栏右缘 − 栏宽），不受栏正在滑入的位移影响；
+    // 纵向不动画，直接用当前 top。偏移部分用矩形差，等价于 offset 链累加。
+    // The target uses the rail's final position (split right edge − rail
+    // width), unaffected by the slide-in. Vertically nothing animates so the
+    // current top is final; the inner offset is a rect delta, equivalent to
+    // walking the offsetParent chain.
+    const railLeft = splitRect.right - Math.min(railW, maxPct * splitRect.width);
+    const dx = railLeft + (tgtRect.left - railRect.left) - srcRect.left;
+    const dy = tgtRect.top - srcRect.top;
+    const srcFont = parseFloat(getComputedStyle(src).fontSize);
+    const scale = parseFloat(getComputedStyle(tgt).fontSize) / srcFont || 1;
+    const ghost = src.cloneNode(true) as HTMLElement;
+    ghost.removeAttribute('data-detail-name');
+    Object.assign(ghost.style, {
+      position: 'fixed',
+      left: `${srcRect.left}px`,
+      top: `${srcRect.top}px`,
+      width: `${srcRect.width}px`,
+      margin: '0',
+      transformOrigin: '0 0',
+      pointerEvents: 'none',
+      zIndex: '60',
+    });
+    document.body.appendChild(ghost);
+    tgt.style.opacity = '0';
+    if (typeof ghost.animate !== 'function') {
+      tgt.style.opacity = '';
+      ghost.remove();
+      return clearFly;
+    }
+    const anim = ghost.animate(
+      [
+        {transform: 'translate(0, 0) scale(1)'},
+        {transform: `translate(${dx}px, ${dy}px) scale(${scale})`},
+      ],
+      {duration: 520, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'forwards'},
+    );
+    anim.onfinish = () => {
+      tgt.style.opacity = '';
+      ghost.remove();
+      flyRef.current = null;
+    };
+    flyRef.current = {ghost, target: tgt, anim};
+    return clearFly;
+  }, [open, narrow, title, meta, nameSlot, flyOrigin, clearFly]);
+
   // J/K 在列表项间切换；输入控件内不拦截。
   // J/K switch between list items; ignored while typing in a control.
   useEffect(() => {
@@ -188,21 +437,35 @@ export function DetailHost({
     );
   }
 
-  if (!open) {
+  if (!present) {
     return null;
   }
 
   return (
     <aside
+      ref={railRef}
       className={cn(styles.rail, wide && styles.railWide)}
+      data-state={entered && open ? 'open' : 'closed'}
+      data-motion={motion}
       data-testid='detail-rail'
     >
       <header className={styles.railHead}>
         <div className={styles.railTitles}>
-          <div className={styles.railTitle} title={title}>
+          <div
+            className={styles.railTitle}
+            title={title}
+            data-detail-name-target={nameSlot === 'title' ? 'title' : undefined}
+          >
             {title}
           </div>
-          {meta ? <div className={styles.railMeta}>{meta}</div> : null}
+          {meta ? (
+            <div
+              className={styles.railMeta}
+              data-detail-name-target={nameSlot === 'meta' ? 'meta' : undefined}
+            >
+              {meta}
+            </div>
+          ) : null}
         </div>
         {nav ? <NavControls nav={nav} /> : null}
         <Button

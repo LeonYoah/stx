@@ -367,6 +367,8 @@ export type SyncJobListParams = {
   run_type?: string;
   platform_job_id?: string;
   engine_job_id?: string;
+  /** 内部数値 ID（UI の #N 表示）での完全一致検索 / Exact match on the internal numeric id (UI #N). */
+  job_id?: number;
   status_group?: string;
   mode?: SyncTaskMode;
   source?: SyncJobSource;

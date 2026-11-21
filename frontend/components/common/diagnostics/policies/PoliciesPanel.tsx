@@ -119,6 +119,10 @@ export function PoliciesPanel({
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<PolicyStatusFilter>('all');
   const searchRef = useRef<HTMLInputElement>(null);
+  // 名称飞入来源行：仅点击/回车打开时写入，J/K、头部 ↑↓ 与深链不写。
+  // Fly-in origin row: written only on click/Enter open — never by J/K,
+  // header arrows or deep links.
+  const flyOriginRef = useRef<HTMLElement | null>(null);
 
   useBeforeUnload(formDirty && editKey !== null);
   useEffect(() => {
@@ -353,6 +357,9 @@ export function PoliciesPanel({
       rows[i + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
+      if (editKey !== id) {
+        flyOriginRef.current = e.currentTarget;
+      }
       requestEdit(id);
     }
   };
@@ -526,6 +533,9 @@ export function PoliciesPanel({
                     ) {
                       return;
                     }
+                    if (editKey !== p.id) {
+                      flyOriginRef.current = e.currentTarget;
+                    }
                     requestEdit(p.id);
                   }}
                   onKeyDown={(e) => onRowKeyDown(e, p.id)}
@@ -537,7 +547,11 @@ export function PoliciesPanel({
                 >
                   <div className={layout.rowName}>
                     <div className={layout.rowNameInline}>
-                      <span className={layout.name} title={p.name}>
+                      <span
+                        className={layout.name}
+                        title={p.name}
+                        data-detail-name
+                      >
                         {p.name}
                       </span>
                       {/* 失效徽标 + 原因行：后端只回原因码 + 取值，文案由本侧按 i18n 翻译。
@@ -662,6 +676,8 @@ export function PoliciesPanel({
             nav={detailNav}
             wide
             drawerWidth='w-[min(92vw,520px)]'
+            flyOrigin={flyOriginRef}
+            nameSlot='meta'
           >
             {drawerPolicy ? (
               <PolicyFormBody

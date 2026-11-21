@@ -634,6 +634,30 @@ func (s *Service) getPluginInfoWithMirror(ctx context.Context, name string, vers
 	return nil, ErrPluginNotAvailable
 }
 
+// ListInstalledPluginNames returns installed plugin names for a cluster (DB records only,
+// 无 agent/元数据合并，供 sync 提交错误归类交叉验证).
+// ListInstalledPluginNames 返回集群已安装插件的 plugin_name 列表（仅 DB 记录）。
+func (s *Service) ListInstalledPluginNames(ctx context.Context, clusterID uint) ([]string, error) {
+	plugins, err := s.repo.ListByCluster(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(plugins))
+	seen := make(map[string]struct{}, len(plugins))
+	for _, p := range plugins {
+		name := strings.TrimSpace(p.PluginName)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 // ==================== Installed Plugins 已安装插件 ====================
 
 // ListInstalledPlugins returns installed plugins for a cluster.

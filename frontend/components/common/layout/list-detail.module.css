@@ -90,6 +90,19 @@
   gap: 16px;
   flex: 1;
   min-height: 0;
+  /* 联动外观的局部 token：底层色取 --surface 与页面背景中间值，缓动统一。
+     46cqw 给栏宽做 46% 上限，需要 inline-size 容器。
+     Local tokens for the linked look: the recess tone sits between --surface
+     and the page background; one shared easing. 46cqw caps the rail at 46%
+     of the split, which needs inline-size containment. */
+  --detail-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --detail-recess: oklch(97.4% 0 0);
+  container-type: inline-size;
+  transition: gap 300ms var(--detail-ease);
+}
+
+:global(:root[data-theme='dark']) .split {
+  --detail-recess: oklch(19.5% 0 0);
 }
 
 .listCol {
@@ -115,6 +128,7 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  transition: opacity 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .toolbarSearch {
@@ -315,9 +329,14 @@
   border-bottom: 1px solid var(--border);
   font-size: var(--text-xs);
   color: var(--text-muted);
+  transition:
+    background-color 300ms var(--detail-ease),
+    border-color 300ms var(--detail-ease),
+    border-radius 320ms var(--detail-ease);
 }
 
 .row {
+  position: relative;
   display: grid;
   grid-template-columns: var(--cols);
   gap: 16px;
@@ -331,6 +350,11 @@
   color: inherit;
   text-align: left;
   cursor: pointer;
+  transition:
+    background-color 300ms var(--detail-ease),
+    border-color 300ms var(--detail-ease),
+    border-radius 320ms var(--detail-ease),
+    transform 520ms var(--detail-ease);
 }
 
 .row:last-child {
@@ -341,6 +365,33 @@
 
 .row:hover {
   background: var(--surface-muted);
+}
+
+/* 伪元素基态保持空载：阴影/凹圆角等绘制属性只挂在联动激活的行上，
+   普通行不付出栅格化成本。
+   The pseudos stay empty at rest — shadow/recess paint attributes are only
+   attached to the linked-active row so normal rows pay no rasterization. */
+
+.row::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -10px;
+  width: 10px;
+  height: calc(100% + 20px);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 240ms var(--detail-ease);
+}
+
+.row::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 320ms var(--detail-ease);
 }
 
 .row:focus-visible {
@@ -441,7 +492,12 @@
   align-self: flex-start;
   position: sticky;
   top: 16px;
-  width: 440px;
+  --rail-w: 440px;
+  width: var(--rail-w);
+  /* 栏宽上限取 split 的 46%（cqw 相对 .split 的 inline-size 容器）。
+     The rail width is capped at 46% of the split (cqw resolves against the
+     split's inline-size container). */
+  width: min(var(--rail-w), 46cqw);
   max-width: 46%;
   max-height: calc(100dvh - 128px);
   display: flex;
@@ -451,10 +507,51 @@
   border-radius: var(--radius-panel);
   background: var(--surface);
   overflow: hidden;
+  transition:
+    width 520ms var(--detail-ease),
+    transform 520ms var(--detail-ease),
+    opacity 320ms var(--detail-ease),
+    filter 380ms var(--detail-ease),
+    margin-left 300ms var(--detail-ease),
+    border-color 300ms var(--detail-ease),
+    border-width 300ms var(--detail-ease),
+    box-shadow 320ms var(--detail-ease);
 }
 
 .railWide {
-  width: 520px;
+  --rail-w: 520px;
+}
+
+/* 栏宽动画期间内容按最终栏宽排版，不随宽度重排，右端由 overflow:hidden 裁掉。
+   Content is laid out at the final rail width during the width animation so it
+   does not reflow; the right edge is clipped by overflow:hidden. */
+
+.rail > * {
+  box-sizing: border-box;
+  width: var(--rail-w);
+  width: min(var(--rail-w), 46cqw);
+}
+
+/* 开合：关闭态收起 + 右滑淡出；重新打开时给进入过渡 60ms 延迟，
+   过渡属性随 data-state 目标态走，关闭不带延迟。
+   Open/close: the closed state collapses and slides out; reopening delays the
+   entrance by 60ms. Transitions follow the data-state destination, so closing
+   runs without the delay. */
+
+.rail[data-state='closed'] {
+  width: 0;
+  margin-left: 0;
+  border-width: 0;
+  border-color: transparent;
+  box-shadow: none;
+  opacity: 0;
+  transform: translateX(20px);
+  filter: blur(6px);
+  pointer-events: none;
+}
+
+.rail[data-state='open'] {
+  transition-delay: 60ms;
 }
 
 .railHead {
@@ -578,6 +675,402 @@
   font-size: var(--text-xs);
   font-weight: 500;
   color: var(--text-secondary);
+}
+
+/* ============ 列表与常驻详情栏联动外观（克制版） ============
+   进入条件（两条同时满足）：
+     1) .split 内常驻栏处于打开态：> .rail[data-state='open']；
+     2) 本页存在 .rowActive 行。
+   只满足条件 1（例如翻页后选中行不在本页、规则切到网格视图）时，
+   列表保持原有带框卡片外观，仅详情栏自身有开合动画。
+   Linked look condition (both required): the persistent rail inside .split
+   is open AND the current page has a .rowActive row. A rail open without a
+   selected row on the page (e.g. paged away, rules grid view) keeps the
+   original framed card look; only the rail animates. */
+
+/* 分栏间距收为 0；详情栏去掉边框、左移 1px 盖住卡片残缝。
+   Split gap collapses to 0; the rail drops its border and shifts left 1px
+   to cover the seam left by the card's transparent border. */
+
+.split:has(> .rail[data-state='open']):has(.rowActive) {
+  gap: 0;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) > .rail {
+  margin-left: -1px;
+  border-color: transparent;
+  box-shadow: var(--shadow-floating);
+}
+
+/* 列表外框透明：表头、行、分页底栏退为底层色面板。
+   The table card frame goes transparent; head, rows and footer fall back
+   to recess-toned panels. */
+
+.split :global([data-slot='table-card']) {
+  transition:
+    border-color 300ms var(--detail-ease),
+    background-color 300ms var(--detail-ease);
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive)
+  :global([data-slot='table-card']) {
+  border-color: transparent;
+  background-color: transparent;
+}
+
+.split :global([data-slot='table-card-footer']) {
+  transition:
+    background-color 300ms var(--detail-ease),
+    border-color 300ms var(--detail-ease),
+    border-radius 320ms var(--detail-ease);
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .rowHead {
+  background-color: var(--detail-recess);
+  border-bottom-color: transparent;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .rowHead > * {
+  opacity: 0.75;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll {
+  scrollbar-width: none;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive)
+  .tableScroll::-webkit-scrollbar {
+  display: none;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll > .row {
+  border-bottom-color: transparent;
+  background-color: var(--detail-recess);
+}
+
+/* 联动内悬停保持底层色，不闪回普通 hover 填充。
+   Hovering inside the linked list keeps the recess tone — the normal hover
+   fill must not leak back. */
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .row:not(.rowActive):hover {
+  background-color: var(--detail-recess);
+}
+
+/* 选中行浮起：白底 + 阴影 + 左侧圆角，右端直角贴到详情栏。
+   The active row lifts: white fill, shadow, radius on the left, square on
+   the right where it meets the rail. */
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .rowActive {
+  z-index: 2;
+  border-bottom-color: transparent;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background-color: var(--surface);
+  transform: translateY(-1px);
+}
+
+/* 选中行浮起阴影挂 ::after，clip 掉右缘 2px，阴影不渗进详情栏。
+   The lift shadow rides ::after, clipped 2px short on the right so it never
+   bleeds into the rail. */
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .rowActive::after {
+  box-shadow: var(--shadow-floating);
+  clip-path: inset(-80px 2px -80px -80px);
+  opacity: 1;
+}
+
+/* 接口凹圆角等选中行就位后淡入。Recess corners fade in once the row settles. */
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .rowActive::before {
+  background:
+    radial-gradient(circle at 0 0, transparent 9.5px, var(--surface) 10px) top
+      right / 10px 10px no-repeat,
+    radial-gradient(circle at 0 100%, transparent 9.5px, var(--surface) 10px)
+      bottom right / 10px 10px no-repeat;
+  opacity: 1;
+  transition-delay: 280ms;
+}
+
+/* 列表分段：贴着选中行的一侧补 --radius-panel 圆角。
+   List segmentation: the side touching the active row gets --radius-panel. */
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .row:has(+ .rowActive) {
+  border-bottom-left-radius: var(--radius-panel);
+  border-bottom-right-radius: var(--radius-panel);
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .rowActive + .row {
+  border-top-left-radius: var(--radius-panel);
+  border-top-right-radius: var(--radius-panel);
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .listCol:has(
+    .tableScroll > .rowActive:first-child
+  )
+  .rowHead {
+  border-bottom-left-radius: var(--radius-panel);
+  border-bottom-right-radius: var(--radius-panel);
+}
+
+/* 末行仅在没有分页底栏时兜段底圆角。The last row caps the bottom segment
+   only when there is no pagination footer. */
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .listCol:not(
+    :has(:global([data-slot='table-card-footer']))
+  )
+  .tableScroll
+  > .row:last-child:not(.rowActive) {
+  border-bottom-left-radius: var(--radius-panel);
+  border-bottom-right-radius: var(--radius-panel);
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive)
+  :global([data-slot='table-card-footer']) {
+  background-color: var(--detail-recess);
+  border-top-color: transparent;
+  border-bottom-left-radius: var(--radius-panel);
+  border-bottom-right-radius: var(--radius-panel);
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .listCol:has(
+    .rowActive:last-child
+  )
+  :global([data-slot='table-card-footer']) {
+  border-top-left-radius: var(--radius-panel);
+  border-top-right-radius: var(--radius-panel);
+}
+
+/* 其余行按与选中行的距离逐级变淡（只作用内容，底色保持实心）；
+   距离用兄弟选择器表达，悬停立即恢复。
+   Other rows fade by distance from the active one (content only, the panel
+   fill stays solid); distances are sibling selectors, hover restores at once. */
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .row
+  > * {
+  transition: opacity 380ms var(--detail-ease);
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .rowActive
+  ~ .row
+  > * {
+  opacity: 0.5;
+  transition-delay: 144ms;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .rowActive
+  + .row
+  > * {
+  opacity: 0.9;
+  transition-delay: 24ms;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .rowActive
+  + .row
+  + .row
+  > * {
+  opacity: 0.8;
+  transition-delay: 48ms;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .rowActive
+  + .row
+  + .row
+  + .row
+  > * {
+  opacity: 0.7;
+  transition-delay: 72ms;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .rowActive
+  + .row
+  + .row
+  + .row
+  + .row
+  > * {
+  opacity: 0.6;
+  transition-delay: 96ms;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .row:has(~ .rowActive)
+  > * {
+  opacity: 0.5;
+  transition-delay: 144ms;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .row:has(+ .rowActive)
+  > * {
+  opacity: 0.9;
+  transition-delay: 24ms;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .row:has(+ .row + .rowActive)
+  > * {
+  opacity: 0.8;
+  transition-delay: 48ms;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .row:has(+ .row + .row + .rowActive)
+  > * {
+  opacity: 0.7;
+  transition-delay: 72ms;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .row:has(+ .row + .row + .row + .rowActive)
+  > * {
+  opacity: 0.6;
+  transition-delay: 96ms;
+}
+
+.split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+  > .row:not(.rowActive):hover
+  > * {
+  opacity: 1;
+  transition-duration: 160ms;
+  transition-delay: 0ms;
+}
+
+/* 同一页面的筛选工具栏随列表退后，悬停或聚焦立即恢复。
+   The page toolbar recedes with the list and restores on hover/focus. */
+
+.page:has(.rail[data-state='open']):has(.rowActive) .toolbar {
+  opacity: 0.7;
+}
+
+.page:has(.rail[data-state='open']):has(.rowActive)
+  .toolbar:is(:hover, :focus-within) {
+  opacity: 1;
+  transition-duration: 160ms;
+}
+
+/* 栏内分区依次淡入上移：打开 440ms / 45ms 间隔 / 150ms 起步；
+   开着时切换行（data-motion='switch'）缩为 260ms / 26ms。
+   Detail sections fade in one by one: open uses 440ms / 45ms apart starting
+   at 150ms; switching rows while open (data-motion='switch') shortens to
+   260ms / 26ms. */
+
+@keyframes detailSecIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(3px);
+  }
+}
+
+.rail .detailScroll > * {
+  animation: detailSecIn 440ms var(--detail-ease) both;
+}
+
+.rail .detailScroll > *:nth-child(1) {
+  animation-delay: 150ms;
+}
+
+.rail .detailScroll > *:nth-child(2) {
+  animation-delay: 195ms;
+}
+
+.rail .detailScroll > *:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+.rail .detailScroll > *:nth-child(4) {
+  animation-delay: 285ms;
+}
+
+.rail .detailScroll > *:nth-child(5) {
+  animation-delay: 330ms;
+}
+
+.rail .detailScroll > *:nth-child(6) {
+  animation-delay: 375ms;
+}
+
+.rail[data-motion='switch'] .detailScroll > * {
+  animation-duration: 260ms;
+}
+
+.rail[data-motion='switch'] .detailScroll > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.rail[data-motion='switch'] .detailScroll > *:nth-child(2) {
+  animation-delay: 26ms;
+}
+
+.rail[data-motion='switch'] .detailScroll > *:nth-child(3) {
+  animation-delay: 52ms;
+}
+
+.rail[data-motion='switch'] .detailScroll > *:nth-child(4) {
+  animation-delay: 78ms;
+}
+
+.rail[data-motion='switch'] .detailScroll > *:nth-child(5) {
+  animation-delay: 104ms;
+}
+
+.rail[data-motion='switch'] .detailScroll > *:nth-child(6) {
+  animation-delay: 130ms;
+}
+
+/* 减少动态效果：只留不透明度与颜色过渡，位移、模糊、宽度动画、
+   分区错开入场全部取消；名称飞入由 DetailHost 侧跳过。
+   Reduced motion: only opacity and color transitions remain — translation,
+   blur, width animation and the staggered section entrance are dropped;
+   the name fly-in is skipped on the DetailHost side. */
+
+@media (prefers-reduced-motion: reduce) {
+  .split,
+  .rowHead,
+  .row,
+  .split :global([data-slot='table-card']),
+  .split :global([data-slot='table-card-footer']),
+  .toolbar {
+    transition-property:
+      opacity, background-color, border-color, border-radius !important;
+    transition-delay: 0ms !important;
+  }
+
+  .row::before,
+  .row::after {
+    transition-property: opacity !important;
+    transition-delay: 0ms !important;
+  }
+
+  .rail {
+    transition-property: opacity, border-color, box-shadow !important;
+    transition-delay: 0ms !important;
+  }
+
+  .rail[data-state='closed'] {
+    transform: none;
+    filter: none;
+  }
+
+  .rail .detailScroll > * {
+    animation: none !important;
+  }
+
+  .split:has(> .rail[data-state='open']):has(.rowActive) .tableScroll
+    > .rowActive {
+    transform: none;
+  }
 }
 
 /* 窄屏列回退：只保留首列 + 末列交互，其余列隐藏（§9.7 640px 断点）。

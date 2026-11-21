@@ -47,6 +47,18 @@ var (
 		"system.project.name":             {},
 		"system.project.code":             {},
 	}
+	// 与前端 isReservedBuiltinVariableKey 的函数白名单保持一致；未列出的 name(...) 视为普通变量名
+	// Must mirror the function allowlist in frontend isReservedBuiltinVariableKey; unlisted name(...) is an ordinary variable
+	supportedTimeFunctionNameSet = map[string]struct{}{
+		"add_months":      {},
+		"this_day":        {},
+		"last_day":        {},
+		"year_week":       {},
+		"month_first_day": {},
+		"month_last_day":  {},
+		"week_first_day":  {},
+		"week_last_day":   {},
+	}
 )
 
 type taskVariableRuntime struct {
@@ -95,6 +107,11 @@ func isReservedBuiltinVariableKey(key string) bool {
 		return false
 	}
 	if _, ok := supportedBuiltinVariableKeySet[key]; ok {
+		return true
+	}
+	// system.* 整个前缀留给内置变量，避免用户变量遮蔽未来新增的内置项（与前端 startsWith('system.') 对齐）
+	// The whole system.* prefix is reserved so user variables can't shadow future builtins (mirrors frontend startsWith('system.'))
+	if strings.HasPrefix(key, "system.") {
 		return true
 	}
 	if !reservedBuiltinVariablePattern.MatchString(key) {
@@ -232,14 +249,26 @@ func looksLikeTimeExpression(expr string) bool {
 	if expr == "" {
 		return false
 	}
-	if functionCallPattern.MatchString(expr) {
-		return true
+	if matches := functionCallPattern.FindStringSubmatch(expr); len(matches) == 3 {
+		_, ok := supportedTimeFunctionNameSet[strings.ToLower(strings.TrimSpace(matches[1]))]
+		return ok
 	}
 	formatExpr := expr
 	if matches := timeOffsetExpressionPattern.FindStringSubmatch(expr); len(matches) == 4 {
 		formatExpr = strings.TrimSpace(matches[1])
 	}
-	return javaFormatTokenPattern.MatchString(formatExpr) && javaDateFormatToGoLayout(formatExpr) != ""
+	if !javaFormatTokenPattern.MatchString(formatExpr) {
+		return false
+	}
+	// 剔除日期占位符后不得含英文字母，否则是普通变量名（如 pass 中的 ss、class 中的 ss）
+	// Any ASCII letter left after removing date tokens means an ordinary variable name (e.g. ss inside pass/class)
+	stripped := javaFormatTokenPattern.ReplaceAllString(formatExpr, "")
+	for _, r := range stripped {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return false
+		}
+	}
+	return javaDateFormatToGoLayout(formatExpr) != ""
 }
 
 func formatBuiltinTimeExpression(expr string, base time.Time) (string, error) {

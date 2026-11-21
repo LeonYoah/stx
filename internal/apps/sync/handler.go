@@ -640,6 +640,16 @@ func (h *Handler) ListJobs(c *gin.Context) {
 		PlatformJobID: strings.TrimSpace(c.Query("platform_job_id")),
 		EngineJobID:   strings.TrimSpace(c.Query("engine_job_id")),
 	}
+	// job_id は UI の #N 表示＝内部数値 ID の完全一致検索（クイック定位用）。
+	// job_id filters by the internal numeric id (the UI's #N display) for quick locate.
+	if raw := strings.TrimSpace(c.Query("job_id")); raw != "" {
+		parsed, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, JobListResponse{ErrorMsg: "invalid job_id"})
+			return
+		}
+		filter.JobID = uint(parsed)
+	}
 	if taskID := c.Query("task_id"); taskID != "" {
 		parsed, err := strconv.ParseUint(taskID, 10, 64)
 		if err != nil {
@@ -1064,7 +1074,7 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, ErrAttachGenerationMismatch), errors.Is(err, ErrJobCancellingTimeout), errors.Is(err, ErrDolphinVersionConflict), errors.Is(err, ErrSchedulerBindingExists), errors.Is(err, ErrDolphinPushNoNewVersion), errors.Is(err, ErrSubmitOutcomePending):
 		return http.StatusConflict
-	case errors.Is(err, ErrConnectorMissing):
+	case errors.Is(err, ErrConnectorMissing), errors.Is(err, ErrConnectorInitFailed):
 		// 集群状态不满足任务前提，重试不会成功；409 让 CLI 归为冲突而不是可重试的服务端错误。
 		// The cluster does not meet the job's precondition and retrying will not help; 409 keeps the CLI from treating it as a retryable server error.
 		return http.StatusConflict

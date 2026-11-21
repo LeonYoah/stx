@@ -5500,7 +5500,7 @@
     "treeFilterAll": "全部",
     "treeFilterMineAndPublic": "我的",
     "treeFilterOnlyMine": "仅我创建",
-    "treeFilterMineAndPublicTooltip": "自己的任务和公开任务。别人的私有任务不显示。",
+    "treeFilterMineAndPublicTooltip": "自己创建或协作的任务。他人的任务在「全部」查看。",
     "records": "条快照",
     "copy": "复制",
     "locate": "定位",
@@ -5861,6 +5861,8 @@
     "connectorMissingPreviewDescription": "预览需要集群安装 HTTP 连接器。预览会把任务的 Sink 临时换成 HTTP Sink，把样本数据回传到 STX；当前集群还没有安装它。",
     "connectorMissingSuggestion": "到插件市场为该集群安装「{identifier}」对应的连接器，安装完成后重新执行。",
     "connectorMissingAction": "去插件市场安装",
+    "connectorInitFailedTitle": "连接器初始化失败",
+    "connectorInitFailedSuggestion": "连接器已安装，但引擎无法初始化它——通常是数据源连通性、账号或权限问题。引擎 REST 只返回外层错误，真实原因在集群 Master 日志中，请检查数据源连接配置或查看 Master 日志。",
     "connectorType": {
       "source": "Source",
       "sink": "Sink",
@@ -6170,7 +6172,9 @@
     "remindersPaused": "已停止提醒",
     "remindersPausedHint": "无法确认是否恢复已超过 24 小时，已停止提醒；告警保持未恢复，请检查作业和事件通道。",
     "closeReason_recovered": "已自动恢复",
-    "closeReason_closed": "已手动关闭"
+    "closeReason_closed": "已手动关闭",
+    "selectSearchPlaceholder": "搜索选项",
+    "comboboxEmpty": "无匹配项"
   },
   "javaHome": {
     "label": "JDK 路径",
@@ -6571,6 +6575,7 @@
     "diffNotifyDefault": "默认通知",
     "diffNotifyCustom": "自定义通知",
     "switchToGlobalView": "切回全局默认",
-    "globalChannelsSummary": "沿用全局渠道：{targets}"
+    "globalChannelsSummary": "沿用全局渠道：{targets}",
+    "selectSearchPlaceholder": "搜索选项"
   }
 }

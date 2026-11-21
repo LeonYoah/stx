@@ -40,6 +40,13 @@ func TestClassifyEngineSubmitError(t *testing.T) {
 		{name: "http sink", err: errors.New(engineHTTPSinkMissing), wantType: "sink", wantIdent: "Http", wantMissed: true},
 		{name: "source", err: errors.New("body=Unable to create a source for identifier 'MySQL-CDC'."), wantType: "source", wantIdent: "MySQL-CDC", wantMissed: true},
 		{name: "transform mixed case", err: errors.New("unable to create a Transform for identifier 'Sql'"), wantType: "transform", wantIdent: "Sql", wantMissed: true},
+		{name: "caused by plugin not found", err: errors.New("Unable to create a sink for identifier 'Http'. | caused by: RuntimeException: Plugin PluginIdentifier{engineType='seatunnel', pluginType='sink', pluginName='Http'} not found."), wantType: "sink", wantIdent: "Http", wantMissed: true},
+		{name: "caused by factory discovery miss", err: errors.New("Unable to create a source for identifier 'MySQL-CDC'. Caused by: FactoryException: Could not find any factory for identifier 'MySQL-CDC' that implements 'TableSourceFactory' in the classpath."), wantType: "source", wantIdent: "MySQL-CDC", wantMissed: true},
+		// API-06 外层措辞包着深层失败（如 JDBC 连不通）不是缺连接器，必须原样透传。
+		// A deeper failure wrapped in the API-06 wording (e.g. JDBC unreachable) is not a missing
+		// connector and must pass through unchanged.
+		{name: "caused by jdbc unreachable", err: errors.New("Source[0]-MySQL-CDC official tablePath resolution failed: FactoryException: ErrorCode:[API-06], ErrorDescription:[Factory initialize failed] - Unable to create a source for identifier 'MySQL-CDC'. | caused by: CatalogException: ErrorCode:[API-03], ErrorDescription:[Catalog initialize failed] - Failed connecting to the configured JDBC URL via JDBC.")},
+		{name: "caused by catalog table miss", err: errors.New("Unable to create a source for identifier 'MySQL-CDC'. | caused by: SeaTunnelException: Can not find catalog table with factoryId [MySQL]")},
 		{name: "other failure", err: errors.New("sync: submit job failed: status=500 body=plugin not found")},
 	}
 	for _, tc := range cases {
@@ -89,5 +96,66 @@ func TestSubmitConnectorMissingMapsToConflict(t *testing.T) {
 	}
 	if status := (&Handler{}).getStatusCodeForError(err); status != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", status)
+	}
+}
+
+type stubInstalledPlugins struct {
+	names []string
+	err   error
+}
+
+func (s stubInstalledPlugins) ListInstalledPluginNames(context.Context, uint) ([]string, error) {
+	return s.names, s.err
+}
+
+func TestSubmitInstalledConnectorMapsToInitFailed(t *testing.T) {
+	service, engine, task := newOutcomeTestService(t, nil)
+	service.SetInstalledPluginProvider(stubInstalledPlugins{names: []string{"cdc-mysql", "jdbc"}})
+	// 裸 API-06 措辞但插件记录已安装：REST 剥掉了真实 cause，只能判定为初始化失败。
+	// Bare API-06 wording with the plugin recorded as installed: REST stripped the real cause,
+	// so this can only be an init failure.
+	engine.submitErr = errors.New("body=Unable to create a source for identifier 'MySQL-CDC'.")
+	_, err := service.SubmitTaskWithOptions(context.Background(), task.ID, 1, &SubmitOptions{})
+	if !errors.Is(err, ErrConnectorInitFailed) {
+		t.Fatalf("installed connector must surface ErrConnectorInitFailed, got %v", err)
+	}
+	if errors.Is(err, ErrConnectorMissing) {
+		t.Fatal("installed connector must not be reported as missing")
+	}
+	if syncErrorCode(err) != ErrorCodeConnectorInitFailed {
+		t.Fatalf("error code = %q, want %q", syncErrorCode(err), ErrorCodeConnectorInitFailed)
+	}
+	if status := (&Handler{}).getStatusCodeForError(err); status != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", status)
+	}
+}
+
+func TestSubmitUninstalledConnectorStaysMissing(t *testing.T) {
+	service, engine, task := newOutcomeTestService(t, nil)
+	service.SetInstalledPluginProvider(stubInstalledPlugins{names: []string{"jdbc"}})
+	engine.submitErr = errors.New(engineHTTPSinkMissing)
+	_, err := service.SubmitTaskWithOptions(context.Background(), task.ID, 1, &SubmitOptions{})
+	if !errors.Is(err, ErrConnectorMissing) {
+		t.Fatalf("uninstalled connector must stay ErrConnectorMissing, got %v", err)
+	}
+}
+
+func TestConnectorIdentifierInstalled(t *testing.T) {
+	names := []string{"cdc-mysql", "jdbc", "http-feishu"}
+	cases := []struct {
+		identifier string
+		want       bool
+	}{
+		{"MySQL-CDC", true},   // 词序不同也同名 / token order does not matter
+		{"Jdbc", true},
+		{"Http", false},
+		{"feishu", false},     // 子集不同名 / subset is not a match
+		{"Http-Feishu", true}, // 大小写无关 / case-insensitive
+		{"MySQL-CDC-Extra", false},
+	}
+	for _, tc := range cases {
+		if got := connectorIdentifierInstalled(tc.identifier, names); got != tc.want {
+			t.Fatalf("identifier %q installed = %v, want %v", tc.identifier, got, tc.want)
+		}
 	}
 }

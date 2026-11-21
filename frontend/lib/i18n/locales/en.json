@@ -1127,7 +1127,9 @@
     "types": {
       "bareMetal": "Physical/VM",
       "docker": "Docker",
-      "kubernetes": "Kubernetes"
+      "kubernetes": "Kubernetes",
+      "unsupported": "Not yet supported",
+      "unsupportedOption": "{type} (Not yet supported)"
     },
     "statuses": {
       "pending": "Not Installed",

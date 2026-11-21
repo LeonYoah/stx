@@ -1127,7 +1127,9 @@
     "types": {
       "bareMetal": "物理机/虚拟机",
       "docker": "Docker",
-      "kubernetes": "Kubernetes"
+      "kubernetes": "Kubernetes",
+      "unsupported": "暂不支持",
+      "unsupportedOption": "{type}（暂不支持）"
     },
     "statuses": {
       "pending": "未安装",

@@ -17,6 +17,7 @@
 ## 2. 信息密度、渐进式披露与防碎裂
 
 - **拒绝无效横幅**：严禁在列表或卡片顶部堆砌静态说明文字；技术说明优先放在 Placeholder、标签旁 `Tooltip`、`HelpHint` 或极紧凑单行提示条。
+- **单层扁平容器（防「框套框」）**：常驻详情栏（`DetailHost`）、抽屉与弹窗本身已是唯一外框，内部**严禁**再套多层带边框、底色或阴影的嵌套卡片；各组信息之间统一用留白（`16px`）与一条 **`0.5px` 细分隔线**（`list-detail.module.css` 的 `.detailSection` / `.detailKvGrid` 或 `border-t-[0.5px]`）自然分开，指标条、键值网格与提示文案均保持轻盈无框（仅多行代码/日志块允许无阴影浅底色块）。主机详情、错误详情、巡检/告警详情与表单弹窗均须遵守。
 - **渐进式披露**：严禁在单屏内把基础属性、多张重型明细表与复杂表单从上到下全量平铺；重型明细、日志与编辑交互通过二级 Tab、Drawer 或 Dialog 物理分流。
 - **原子信息防被迫换行**：ID / Key / 键值对 / 状态胶囊 / URL / 代码单元不得因窄列挤压在字符中间折断。按场景选用：`flex-wrap` + `inline-flex items-center shrink-0 whitespace-nowrap`、`overflow-x-auto whitespace-nowrap`、或 `truncate` + `title` / `Tooltip`。
 - **Radix `ScrollArea` 内截断坑**：`ScrollArea` 内部默认 `display: table; min-width: 100%`，弹性子项只写 `min-w-0 flex-1` + `truncate` 仍会被撑宽；截断子项须用 `w-0 min-w-0 flex-1`（或固定 `max-w-*`），树视口需覆写为 `display: block; min-width: 0`。
@@ -94,7 +95,7 @@
   |---|---|
   | 少量选项下拉 | Arc `Select`；2–5 个短选项且互斥的筛选用 `SegmentedControl` |
   | 可搜索 / 长列表 / 数量不固定的数据 | Arc `Combobox` |
-  | 行内「更多」 | Arc `Button` ghost + `iconOnly` + Arc `DropdownMenu`；≤2 个动作可直接摆 ghost |
+  | 行内操作 | 统一走 Arc `Button` ghost + `iconOnly`（`MoreHorizontal`）+ Arc `DropdownMenu`（破坏性项 `destructive` + `separatorBefore`，对齐告警中心）；不在表尾手拼零散定制图标按钮组 |
   | 行内轻确认 | Arc `ConfirmMorph`（§5） |
   | 破坏性确认 | `ui/alert-dialog` |
   | 命令面板 | `ui/command`（不要拿它拼可搜索下拉） |
@@ -141,7 +142,7 @@
 ## 11. 提交前检查
 
 - [ ] 页面未使用冲突的外层 `container`，头部使用 `WorkspaceHeader` 且图标与 Dock 对齐；新/改图标已列出候选并经确认。
-- [ ] 无顶部废话横幅与无脑平铺堆叠；原子字段有防被迫换行保护（`ScrollArea` 内截断用 `w-0 min-w-0 flex-1`）。
+- [ ] 无顶部废话横幅与无脑平铺堆叠；详情栏 / 抽屉 / 弹窗内已压平为单层，无多余嵌套边框与阴影，各组信息以留白 + `0.5px` 细线分隔；原子字段有防被迫换行保护（`ScrollArea` 内截断用 `w-0 min-w-0 flex-1`）。
 - [ ] 管理列表详情是否用 `DetailHost`（而非常驻 `ui/sheet`）？脏态离开是否走 `DirtyCloseDialog` / `UnsavedChangesDialog`？
 - [ ] 筛选栏左对齐且支持 Enter 提交；列表使用既有 `TableCard` 零塌陷加载与 `@/components/ui/pagination`；新代码是否未再引入 `StatPillsBar`？筛选计数是否来自全集/服务端而非当前页？
 - [ ] `Select` / `Combobox` / 纯图标按钮是否具备可见标签或 `aria-label`（控件不得无名）？本期迁移页若用 Combobox 是否满足？大盘头部 `sr-only` 清理可选、不阻塞三页。

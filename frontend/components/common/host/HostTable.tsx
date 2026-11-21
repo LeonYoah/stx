@@ -24,6 +24,7 @@
  * Names carry data-detail-name for DetailHost fly-in (flyOrigin only on click/Enter).
  */
 
+import {useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Badge} from '@/components/ui/badge';
 import {
@@ -35,7 +36,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import {
   Tooltip,
@@ -46,6 +46,7 @@ import {
 import {
   Cloud,
   Container,
+  MoreHorizontal,
   Pencil,
   Server,
   Terminal,
@@ -53,6 +54,10 @@ import {
 } from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {
+  DropdownMenu,
+  type DropdownItem,
+} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {HostInfo, HostStatus, HostType} from '@/lib/services/host/types';
 import {formatDateTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
@@ -144,6 +149,7 @@ export function HostTable({
   onInstallAgent,
 }: HostTableProps) {
   const t = useTranslations();
+  const [deleteTarget, setDeleteTarget] = useState<HostInfo | null>(null);
 
   const onRowKeyDown = (
     e: React.KeyboardEvent<HTMLElement>,
@@ -196,7 +202,7 @@ export function HostTable({
             onClick={(e) => {
               if (
                 (e.target as HTMLElement).closest(
-                  'button, a, input, select, [role="menu"], [role="checkbox"]',
+                  'button, a, input, select, [role="menu"], [role="menuitem"], [role="checkbox"]',
                 )
               ) {
                 return;
@@ -300,87 +306,90 @@ export function HostTable({
               {formatDateTz(host.created_at)}
             </span>
             <div
-              className='flex items-center gap-1'
+              className={layout.rowActions}
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => e.stopPropagation()}
             >
-              {host.host_type === HostType.BARE_METAL &&
-              host.status === HostStatus.PENDING &&
-              onInstallAgent ? (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+              {(() => {
+                const items: DropdownItem[] = [];
+                if (
+                  host.host_type === HostType.BARE_METAL &&
+                  host.status === HostStatus.PENDING &&
+                  onInstallAgent
+                ) {
+                  items.push({
+                    label: t('host.installGuide.installAgent'),
+                    icon: <Terminal className='size-4' aria-hidden />,
+                    onSelect: () => onInstallAgent(host),
+                  });
+                }
+                items.push(
+                  {
+                    label: t('common.edit'),
+                    icon: <Pencil className='size-4' aria-hidden />,
+                    onSelect: () => onEdit(host),
+                  },
+                  {
+                    label: t('common.delete'),
+                    icon: <Trash2 className='size-4' aria-hidden />,
+                    destructive: true,
+                    separatorBefore: true,
+                    onSelect: () => setDeleteTarget(host),
+                  },
+                );
+                return (
+                  <DropdownMenu
+                    trigger={
                       <Button
                         type='button'
                         variant='ghost'
                         size='sm'
                         iconOnly
-                        aria-label={t('host.installGuide.installAgent')}
-                        onClick={() => onInstallAgent(host)}
+                        aria-label={t('common.moreActions')}
                       >
-                        <Terminal
-                          className='size-3.5 text-amber-600 dark:text-amber-400'
-                          aria-hidden
-                        />
+                        <MoreHorizontal className='size-4' aria-hidden />
                       </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t('host.installGuide.installAgentTooltip')}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ) : null}
-              <Button
-                type='button'
-                variant='ghost'
-                size='sm'
-                iconOnly
-                aria-label={t('common.edit')}
-                onClick={() => onEdit(host)}
-              >
-                <Pencil className='size-3.5' aria-hidden />
-              </Button>
-              <AlertDialog>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='sm'
-                          iconOnly
-                          aria-label={t('common.delete')}
-                        >
-                          <Trash2
-                            className='size-3.5 text-destructive'
-                            aria-hidden
-                          />
-                        </Button>
-                      </AlertDialogTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('common.delete')}</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>{t('host.deleteHost')}</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {t('host.deleteConfirm', {name: host.name})}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => onDelete(host)}>
-                      {t('common.delete')}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                    }
+                    items={items}
+                  />
+                );
+              })()}
             </div>
           </div>
         ))}
       </div>
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('host.deleteHost')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('host.deleteConfirm', {name: deleteTarget?.name || ''})}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const target = deleteTarget;
+                setDeleteTarget(null);
+                if (target) {
+                  onDelete(target);
+                }
+              }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

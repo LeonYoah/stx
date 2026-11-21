@@ -252,18 +252,31 @@ export function CreateHostDialog({
                 id='host_type'
                 label={`${t('host.hostType')} *`}
                 value={formData.host_type}
-                onValueChange={(value) =>
-                  setFormData({...formData, host_type: value as HostType})
-                }
+                onValueChange={(value) => {
+                  // Docker / Kubernetes 暂不支持，仅允许选择物理机/虚拟机。
+                  // Docker and Kubernetes are not yet supported; only bare metal can be selected.
+                  if (value === HostType.BARE_METAL) {
+                    setFormData({...formData, host_type: value});
+                  }
+                }}
                 options={[
                   {
                     value: HostType.BARE_METAL,
                     label: t('host.types.bareMetal'),
                   },
-                  {value: HostType.DOCKER, label: t('host.types.docker')},
+                  {
+                    value: HostType.DOCKER,
+                    label: t('host.types.unsupportedOption', {
+                      type: t('host.types.docker'),
+                    }),
+                    disabled: true,
+                  },
                   {
                     value: HostType.KUBERNETES,
-                    label: t('host.types.kubernetes'),
+                    label: t('host.types.unsupportedOption', {
+                      type: t('host.types.kubernetes'),
+                    }),
+                    disabled: true,
                   },
                 ]}
               />

@@ -29,25 +29,19 @@ import {Progress} from '@/components/ui/progress';
 import {Skeleton} from '@/components/ui/skeleton';
 import {toast} from '@/lib/toast';
 import {
-  Activity,
   Check,
   Clock,
-  Cloud,
-  Container,
   Copy,
   Cpu,
   HardDrive,
-  Layers,
   MemoryStick,
-  Network,
   Pencil,
-  Server,
-  Terminal,
 } from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
 import services from '@/lib/services';
 import {HostInfo, HostStatus, HostType} from '@/lib/services/host/types';
 import {formatDateTimeTz} from '@/lib/timezone';
+import {cn} from '@/lib/utils';
 import layout from '@/components/common/layout/list-detail.module.css';
 
 interface HostDetailProps {
@@ -75,19 +69,6 @@ function formatDateTime(dateStr: string | null | undefined): string {
     return '-';
   }
   return formatDateTimeTz(dateStr);
-}
-
-function getHostTypeIcon(hostType: HostType) {
-  switch (hostType) {
-    case HostType.BARE_METAL:
-      return <Server className='h-4 w-4' />;
-    case HostType.DOCKER:
-      return <Container className='h-4 w-4' />;
-    case HostType.KUBERNETES:
-      return <Cloud className='h-4 w-4' />;
-    default:
-      return <Server className='h-4 w-4' />;
-  }
 }
 
 function getStatusBadgeVariant(
@@ -190,53 +171,55 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
             <Skeleton className='h-40 w-full' />
           </div>
         ) : host ? (
-          <div className='space-y-4 p-1'>
-            <div className='flex flex-wrap items-center gap-2'>
-              <span className='inline-flex size-8 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary'>
-                {getHostTypeIcon(host.host_type)}
-              </span>
-              <Badge variant={getStatusBadgeVariant(host.status)} className='gap-1.5'>
-                {host.status === HostStatus.CONNECTED ? (
-                  <span className='relative flex size-2'>
-                    <span className='absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75' />
-                    <span className='relative inline-flex size-2 rounded-full bg-emerald-500' />
+          <>
+            {/* 单层扁平布局：DetailHost 已是唯一外框，各组信息仅用留白 + 0.5px 细线分隔。
+                Single-layer flat layout: DetailHost is the only frame; groups use whitespace + 0.5px hairlines. */}
+            <section className={cn(layout.detailSection, layout.detailSectionFirst)}>
+              <div className='flex flex-wrap items-center gap-2'>
+                <Badge
+                  variant={getStatusBadgeVariant(host.status)}
+                  className='gap-1.5'
+                >
+                  {host.status === HostStatus.CONNECTED ? (
+                    <span className='relative flex size-1.5'>
+                      <span className='absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75' />
+                      <span className='relative inline-flex size-1.5 rounded-full bg-emerald-500' />
+                    </span>
+                  ) : null}
+                  {t(`host.statuses.${host.status}`)}
+                </Badge>
+                <Badge
+                  variant='outline'
+                  className='font-mono text-xs text-muted-foreground'
+                >
+                  {t(
+                    `host.types.${host.host_type === HostType.BARE_METAL ? 'bareMetal' : host.host_type}`,
+                  )}
+                </Badge>
+              </div>
+              <p className='text-xs text-muted-foreground'>
+                {host.description || t('host.noDescription')}
+              </p>
+            </section>
+
+            <section className={layout.detailSection}>
+              <div className={layout.detailSectionHead}>
+                <h3 className={layout.sectionTitle}>{t('host.resources')}</h3>
+                {host.last_check ? (
+                  <span className='inline-flex items-center gap-1 text-xs text-muted-foreground'>
+                    <Clock className='size-3' aria-hidden />
+                    {formatDateTime(host.last_check)}
                   </span>
                 ) : null}
-                {t(`host.statuses.${host.status}`)}
-              </Badge>
-              <Badge variant='outline' className='font-mono text-xs text-muted-foreground'>
-                {t(
-                  `host.types.${host.host_type === HostType.BARE_METAL ? 'bareMetal' : host.host_type}`,
-                )}
-              </Badge>
-            </div>
-            <p className='text-xs text-muted-foreground'>
-              {host.description || t('host.noDescription')}
-            </p>
-
-            <div className='space-y-3 rounded-lg border border-border/70 bg-card/60 p-3.5'>
-              <div className='flex items-center justify-between'>
-                <div className='flex items-center gap-2 text-sm font-medium'>
-                  <Activity className='size-4 text-primary' aria-hidden />
-                  <span>{t('host.resources')}</span>
-                </div>
-                {host.last_check ? (
-                  <div className='flex items-center gap-1.5 text-xs text-muted-foreground'>
-                    <Clock className='size-3' aria-hidden />
-                    <span>
-                      {t('host.lastCheck')}: {formatDateTime(host.last_check)}
-                    </span>
-                  </div>
-                ) : null}
               </div>
-              <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
-                <div className='space-y-2 rounded-lg border border-border/60 bg-background/80 p-3'>
+              <div className='grid grid-cols-1 gap-4 sm:grid-cols-3'>
+                <div className='space-y-1.5'>
                   <div className='flex items-center justify-between text-xs'>
-                    <span className='flex items-center gap-1.5 text-muted-foreground'>
+                    <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
                       <Cpu className='size-3.5 text-blue-500' aria-hidden />
                       CPU
                     </span>
-                    <span className='font-mono font-medium'>
+                    <span className='font-mono font-medium tabular-nums'>
                       {host.cpu_usage?.toFixed(1) || 0}%
                     </span>
                   </div>
@@ -245,13 +228,16 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
                     {host.cpu_cores ? `${host.cpu_cores} ${t('host.cores')}` : '-'}
                   </div>
                 </div>
-                <div className='space-y-2 rounded-lg border border-border/60 bg-background/80 p-3'>
+                <div className='space-y-1.5'>
                   <div className='flex items-center justify-between text-xs'>
-                    <span className='flex items-center gap-1.5 text-muted-foreground'>
-                      <MemoryStick className='size-3.5 text-emerald-500' aria-hidden />
+                    <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
+                      <MemoryStick
+                        className='size-3.5 text-emerald-500'
+                        aria-hidden
+                      />
                       {t('host.memory')}
                     </span>
-                    <span className='font-mono font-medium'>
+                    <span className='font-mono font-medium tabular-nums'>
                       {host.memory_usage?.toFixed(1) || 0}%
                     </span>
                   </div>
@@ -262,13 +248,16 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
                       : '-'}
                   </div>
                 </div>
-                <div className='space-y-2 rounded-lg border border-border/60 bg-background/80 p-3'>
+                <div className='space-y-1.5'>
                   <div className='flex items-center justify-between text-xs'>
-                    <span className='flex items-center gap-1.5 text-muted-foreground'>
-                      <HardDrive className='size-3.5 text-purple-500' aria-hidden />
+                    <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
+                      <HardDrive
+                        className='size-3.5 text-purple-500'
+                        aria-hidden
+                      />
                       {t('host.disk')}
                     </span>
-                    <span className='font-mono font-medium'>
+                    <span className='font-mono font-medium tabular-nums'>
                       {host.disk_usage?.toFixed(1) || 0}%
                     </span>
                   </div>
@@ -280,242 +269,208 @@ export function HostDetail({host, loading = false, onEdit}: HostDetailProps) {
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div className='space-y-3 rounded-lg border border-border/70 bg-card/60 p-3.5'>
-              <div className='flex items-center gap-2 text-sm font-medium'>
-                <Layers className='size-4 text-primary' aria-hidden />
-                <span>{t('host.basicInfo')}</span>
-              </div>
-              <div className='grid grid-cols-2 gap-x-6 gap-y-3 text-xs'>
-                <div className='flex justify-between border-b border-border/40 py-1'>
-                  <span className='text-muted-foreground'>{t('host.hostType')}</span>
-                  <span className='font-medium'>
+            <section className={layout.detailSection}>
+              <h3 className={layout.sectionTitle}>{t('host.basicInfo')}</h3>
+              <dl className={layout.detailKvGrid}>
+                <div className={layout.detailKvItem}>
+                  <dt className={layout.detailKvKey}>{t('host.hostType')}</dt>
+                  <dd className={layout.detailKvVal}>
                     {t(
                       `host.types.${host.host_type === HostType.BARE_METAL ? 'bareMetal' : host.host_type}`,
                     )}
-                  </span>
+                  </dd>
                 </div>
-                <div className='flex justify-between border-b border-border/40 py-1'>
-                  <span className='text-muted-foreground'>{t('host.status')}</span>
-                  <span className='font-medium'>
+                <div className={layout.detailKvItem}>
+                  <dt className={layout.detailKvKey}>{t('host.status')}</dt>
+                  <dd className={layout.detailKvVal}>
                     {t(`host.statuses.${host.status}`)}
-                  </span>
+                  </dd>
                 </div>
-                <div className='flex justify-between border-b border-border/40 py-1'>
-                  <span className='text-muted-foreground'>{t('host.createdAt')}</span>
-                  <span className='font-mono text-muted-foreground'>
+                <div className={layout.detailKvItem}>
+                  <dt className={layout.detailKvKey}>{t('host.createdAt')}</dt>
+                  <dd className={cn(layout.detailKvVal, 'font-mono text-xs')}>
                     {formatDateTime(host.created_at)}
-                  </span>
+                  </dd>
                 </div>
-                <div className='flex justify-between border-b border-border/40 py-1'>
-                  <span className='text-muted-foreground'>{t('host.updatedAt')}</span>
-                  <span className='font-mono text-muted-foreground'>
+                <div className={layout.detailKvItem}>
+                  <dt className={layout.detailKvKey}>{t('host.updatedAt')}</dt>
+                  <dd className={cn(layout.detailKvVal, 'font-mono text-xs')}>
                     {formatDateTime(host.updated_at)}
-                  </span>
+                  </dd>
                 </div>
-              </div>
-            </div>
+              </dl>
+            </section>
 
-            <div className='space-y-3 rounded-lg border border-border/70 bg-card/60 p-3.5'>
-              <div className='flex items-center gap-2 text-sm font-medium'>
-                <Network className='size-4 text-primary' aria-hidden />
-                <span>{t('host.connectionInfo')}</span>
-              </div>
+            <section className={layout.detailSection}>
+              <h3 className={layout.sectionTitle}>{t('host.connectionInfo')}</h3>
               {host.host_type === HostType.BARE_METAL ? (
-                <div className='grid grid-cols-2 gap-x-6 gap-y-3 text-xs'>
-                  <div className='flex justify-between border-b border-border/40 py-1'>
-                    <span className='text-muted-foreground'>{t('host.ipAddress')}</span>
-                    <span className='font-mono font-medium'>
+                <dl className={layout.detailKvGrid}>
+                  <div className={layout.detailKvItem}>
+                    <dt className={layout.detailKvKey}>{t('host.ipAddress')}</dt>
+                    <dd className={cn(layout.detailKvVal, 'font-mono')}>
                       {host.ip_address || '-'}
-                    </span>
+                    </dd>
                   </div>
-                  <div className='flex justify-between border-b border-border/40 py-1'>
-                    <span className='text-muted-foreground'>
+                  <div className={layout.detailKvItem}>
+                    <dt className={layout.detailKvKey}>
                       {t('host.agentVersion')}
-                    </span>
-                    <span className='font-mono'>{host.agent_version || '-'}</span>
+                    </dt>
+                    <dd className={cn(layout.detailKvVal, 'font-mono')}>
+                      {host.agent_version || '-'}
+                    </dd>
                   </div>
-                  <div className='flex justify-between border-b border-border/40 py-1'>
-                    <span className='text-muted-foreground'>{t('host.osType')}</span>
-                    <span>
+                  <div className={layout.detailKvItem}>
+                    <dt className={layout.detailKvKey}>{t('host.osType')}</dt>
+                    <dd className={layout.detailKvVal}>
                       {host.os_type
                         ? `${host.os_type} (${host.arch || 'x86_64'})`
                         : '-'}
-                    </span>
+                    </dd>
                   </div>
-                  <div className='flex justify-between border-b border-border/40 py-1'>
-                    <span className='text-muted-foreground'>
+                  <div className={layout.detailKvItem}>
+                    <dt className={layout.detailKvKey}>
                       {t('host.lastHeartbeat')}
-                    </span>
-                    <span className='font-mono text-muted-foreground'>
+                    </dt>
+                    <dd className={cn(layout.detailKvVal, 'font-mono text-xs')}>
                       {formatDateTime(host.last_heartbeat)}
-                    </span>
+                    </dd>
                   </div>
-                </div>
+                </dl>
               ) : null}
               {host.host_type === HostType.DOCKER ? (
-                <div className='grid grid-cols-2 gap-x-6 gap-y-3 text-xs'>
-                  <div className='col-span-2 flex justify-between border-b border-border/40 py-1'>
-                    <span className='text-muted-foreground'>
+                <dl className={layout.detailKvGrid}>
+                  <div className={cn(layout.detailKvItem, layout.detailKvSpan)}>
+                    <dt className={layout.detailKvKey}>
                       {t('host.dockerApiUrl')}
-                    </span>
-                    <span className='max-w-[320px] truncate font-mono font-medium'>
+                    </dt>
+                    <dd className={cn(layout.detailKvVal, 'font-mono text-xs')}>
                       {host.docker_api_url || '-'}
-                    </span>
+                    </dd>
                   </div>
-                  <div className='flex justify-between border-b border-border/40 py-1'>
-                    <span className='text-muted-foreground'>
+                  <div className={layout.detailKvItem}>
+                    <dt className={layout.detailKvKey}>
                       {t('host.tlsEnabled')}
-                    </span>
-                    <span>
+                    </dt>
+                    <dd className={layout.detailKvVal}>
                       {host.docker_tls_enabled ? t('common.yes') : t('common.no')}
-                    </span>
+                    </dd>
                   </div>
-                  <div className='flex justify-between border-b border-border/40 py-1'>
-                    <span className='text-muted-foreground'>
+                  <div className={layout.detailKvItem}>
+                    <dt className={layout.detailKvKey}>
                       {t('host.dockerVersion')}
-                    </span>
-                    <span className='font-mono'>{host.docker_version || '-'}</span>
+                    </dt>
+                    <dd className={cn(layout.detailKvVal, 'font-mono')}>
+                      {host.docker_version || '-'}
+                    </dd>
                   </div>
-                </div>
+                </dl>
               ) : null}
               {host.host_type === HostType.KUBERNETES ? (
-                <div className='grid grid-cols-2 gap-x-6 gap-y-3 text-xs'>
-                  <div className='col-span-2 flex justify-between border-b border-border/40 py-1'>
-                    <span className='text-muted-foreground'>{t('host.k8sApiUrl')}</span>
-                    <span className='max-w-[320px] truncate font-mono font-medium'>
+                <dl className={layout.detailKvGrid}>
+                  <div className={cn(layout.detailKvItem, layout.detailKvSpan)}>
+                    <dt className={layout.detailKvKey}>{t('host.k8sApiUrl')}</dt>
+                    <dd className={cn(layout.detailKvVal, 'font-mono text-xs')}>
                       {host.k8s_api_url || '-'}
-                    </span>
+                    </dd>
                   </div>
-                  <div className='flex justify-between border-b border-border/40 py-1'>
-                    <span className='text-muted-foreground'>{t('host.namespace')}</span>
-                    <span className='font-mono'>
+                  <div className={layout.detailKvItem}>
+                    <dt className={layout.detailKvKey}>{t('host.namespace')}</dt>
+                    <dd className={cn(layout.detailKvVal, 'font-mono')}>
                       {host.k8s_namespace || 'default'}
-                    </span>
+                    </dd>
                   </div>
-                  <div className='flex justify-between border-b border-border/40 py-1'>
-                    <span className='text-muted-foreground'>
+                  <div className={layout.detailKvItem}>
+                    <dt className={layout.detailKvKey}>
                       {t('host.k8sVersion')}
-                    </span>
-                    <span className='font-mono'>{host.k8s_version || '-'}</span>
+                    </dt>
+                    <dd className={cn(layout.detailKvVal, 'font-mono')}>
+                      {host.k8s_version || '-'}
+                    </dd>
                   </div>
-                </div>
+                </dl>
               ) : null}
-            </div>
+            </section>
 
             {host.host_type === HostType.BARE_METAL ? (
-              <div className='space-y-4 rounded-lg border border-border/70 bg-card/60 p-3.5'>
-                <div className='flex items-center gap-2 text-sm font-medium'>
-                  <Terminal className='size-4 text-primary' aria-hidden />
-                  <span>
-                    {t('host.installCommand')} / {t('host.uninstallCommand')}
-                  </span>
-                </div>
+              <section className={layout.detailSection}>
+                <h3 className={layout.sectionTitle}>
+                  {t('host.installCommand')} / {t('host.uninstallCommand')}
+                </h3>
                 {host.status === HostStatus.PENDING ? (
-                  <div className='flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300'>
-                    <span className='mt-1 size-2 shrink-0 animate-pulse rounded-full bg-amber-500' />
-                    <div className='space-y-0.5'>
-                      <span className='block font-semibold'>
-                        {t('host.installGuide.title')}
-                      </span>
-                      <span className='block text-[11px] text-muted-foreground'>
-                        {t('host.installGuide.pendingAlert')}
-                      </span>
-                    </div>
-                  </div>
+                  <p className='flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300'>
+                    <span className='mt-1.5 size-1.5 shrink-0 animate-pulse rounded-full bg-amber-500' />
+                    <span>{t('host.installGuide.pendingAlert')}</span>
+                  </p>
                 ) : null}
                 <div className='space-y-1.5'>
-                  <div className='flex items-center justify-between text-xs font-medium text-muted-foreground'>
+                  <div className='flex items-center justify-between text-xs text-muted-foreground'>
                     <span>{t('host.installCommand')}</span>
-                    <span className='font-mono text-[11px] text-muted-foreground/80'>
-                      bash
-                    </span>
+                    {installCommand ? (
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        onClick={() =>
+                          void handleCopyCommand(installCommand, false)
+                        }
+                      >
+                        {copiedInstall ? (
+                          <Check
+                            className='size-3.5 text-emerald-500'
+                            aria-hidden
+                          />
+                        ) : (
+                          <Copy className='size-3.5' aria-hidden />
+                        )}
+                        {copiedInstall ? t('common.copied') : t('common.copy')}
+                      </Button>
+                    ) : null}
                   </div>
-                  <div className='overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 shadow-sm'>
-                    <div className='flex items-center justify-between border-b border-zinc-800 bg-zinc-900/90 px-3 py-1.5'>
-                      <span className='ml-2 font-mono text-[11px] text-zinc-400'>
-                        seatunnel-agent-install
-                      </span>
-                      {installCommand ? (
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='sm'
-                          className='h-6 gap-1 px-2 text-[11px] text-zinc-300'
-                          onClick={() => void handleCopyCommand(installCommand, false)}
-                        >
-                          {copiedInstall ? (
-                            <>
-                              <Check className='size-3 text-emerald-400' aria-hidden />
-                              <span className='text-emerald-400'>{t('common.copied')}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className='size-3' aria-hidden />
-                              <span>{t('common.copy')}</span>
-                            </>
-                          )}
-                        </Button>
-                      ) : null}
-                    </div>
-                    <div className='select-all overflow-x-auto p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-emerald-400'>
-                      {loadingCommand
-                        ? `${t('common.loading')}...`
-                        : installCommand || t('host.noInstallCommand')}
-                    </div>
-                  </div>
+                  <pre className='m-0 select-all overflow-x-auto rounded-[var(--radius-control)] bg-muted/50 px-3 py-2.5 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-foreground dark:bg-muted/30'>
+                    {loadingCommand
+                      ? `${t('common.loading')}...`
+                      : installCommand || t('host.noInstallCommand')}
+                  </pre>
                 </div>
                 {installCommand ? (
-                  <div className='space-y-1.5 pt-1'>
-                    <div className='flex items-center justify-between text-xs font-medium text-muted-foreground'>
+                  <div className='space-y-1.5'>
+                    <div className='flex items-center justify-between text-xs text-muted-foreground'>
                       <span>{t('host.uninstallCommand')}</span>
-                      <span className='font-mono text-[11px] text-muted-foreground/80'>
-                        bash
-                      </span>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        onClick={() =>
+                          void handleCopyCommand(
+                            getUninstallCommand(installCommand),
+                            true,
+                          )
+                        }
+                      >
+                        {copiedUninstall ? (
+                          <Check
+                            className='size-3.5 text-emerald-500'
+                            aria-hidden
+                          />
+                        ) : (
+                          <Copy className='size-3.5' aria-hidden />
+                        )}
+                        {copiedUninstall ? t('common.copied') : t('common.copy')}
+                      </Button>
                     </div>
-                    <div className='overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 shadow-sm'>
-                      <div className='flex items-center justify-between border-b border-zinc-800 bg-zinc-900/90 px-3 py-1.5'>
-                        <span className='ml-2 font-mono text-[11px] text-zinc-400'>
-                          seatunnel-agent-uninstall
-                        </span>
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='sm'
-                          className='h-6 gap-1 px-2 text-[11px] text-zinc-300'
-                          onClick={() =>
-                            void handleCopyCommand(
-                              getUninstallCommand(installCommand),
-                              true,
-                            )
-                          }
-                        >
-                          {copiedUninstall ? (
-                            <>
-                              <Check className='size-3 text-emerald-400' aria-hidden />
-                              <span className='text-emerald-400'>{t('common.copied')}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className='size-3' aria-hidden />
-                              <span>{t('common.copy')}</span>
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                      <div className='select-all overflow-x-auto p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-amber-300/90'>
-                        {getUninstallCommand(installCommand)}
-                      </div>
-                    </div>
+                    <pre className='m-0 select-all overflow-x-auto rounded-[var(--radius-control)] bg-muted/50 px-3 py-2.5 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-muted-foreground dark:bg-muted/30'>
+                      {getUninstallCommand(installCommand)}
+                    </pre>
                     <p className='text-[11px] text-muted-foreground'>
                       {t('host.uninstallCommandTip')}
                     </p>
                   </div>
                 ) : null}
-              </div>
+              </section>
             ) : null}
-          </div>
+          </>
         ) : (
           <p className='p-4 text-sm text-muted-foreground'>{t('host.loadError')}</p>
         )}

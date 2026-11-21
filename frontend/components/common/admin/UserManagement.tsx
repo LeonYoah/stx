@@ -26,10 +26,19 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Pencil, Plus, RefreshCw, Trash2, Users, UserX} from 'lucide-react';
+import {
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Users,
+  UserX,
+} from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {DropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {Input} from '@/components/arc/input/input';
 import {SearchField} from '@/components/arc/search-field/search-field';
@@ -585,59 +594,35 @@ export function UserManagement() {
                   <span className={cn(layout.sub, 'whitespace-nowrap')}>
                     {formatDateTz(user.created_at)}
                   </span>
-                  <div className='flex items-center gap-1'>
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      size='sm'
-                      iconOnly
-                      aria-label={t('common.edit')}
-                      onClick={() => handleOpenEdit(user)}
-                    >
-                      <Pencil className='size-3.5' aria-hidden />
-                    </Button>
-                    {isSelf(user) ? (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className='inline-flex'>
-                              <Button
-                                type='button'
-                                variant='ghost'
-                                size='sm'
-                                iconOnly
-                                disabled
-                                aria-label={t('common.delete')}
-                              >
-                                <Trash2
-                                  className='size-3.5 text-destructive'
-                                  aria-hidden
-                                />
-                              </Button>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>
-                              {t('admin.userManagement.errors.cannotDeleteSelf')}
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    ) : (
-                      <Button
-                        type='button'
-                        variant='ghost'
-                        size='sm'
-                        iconOnly
-                        aria-label={t('common.delete')}
-                        onClick={() => handleOpenDelete(user)}
-                      >
-                        <Trash2
-                          className='size-3.5 text-destructive'
-                          aria-hidden
-                        />
-                      </Button>
-                    )}
+                  <div className={layout.rowActions}>
+                    <DropdownMenu
+                      trigger={
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          iconOnly
+                          aria-label={t('common.moreActions')}
+                        >
+                          <MoreHorizontal className='size-4' aria-hidden />
+                        </Button>
+                      }
+                      items={[
+                        {
+                          label: t('common.edit'),
+                          icon: <Pencil className='size-4' aria-hidden />,
+                          onSelect: () => handleOpenEdit(user),
+                        },
+                        {
+                          label: t('common.delete'),
+                          icon: <Trash2 className='size-4' aria-hidden />,
+                          destructive: true,
+                          separatorBefore: true,
+                          disabled: isSelf(user),
+                          onSelect: () => handleOpenDelete(user),
+                        },
+                      ]}
+                    />
                   </div>
                 </div>
               ))}

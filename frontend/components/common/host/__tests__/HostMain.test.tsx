@@ -184,7 +184,11 @@ describe('HostMain', () => {
     );
 
     const rowB = screen.getByTestId('host-row-2');
-    fireEvent.click(within(rowB).getByRole('button', {name: '编辑'}));
+    const moreBtn = within(rowB).getByRole('button', {name: '更多操作'});
+    fireEvent.pointerDown(moreBtn, {button: 0, ctrlKey: false});
+    fireEvent.click(moreBtn);
+    const editItem = await screen.findByRole('menuitem', {name: '编辑'});
+    fireEvent.click(editItem);
     const saveBtn = await screen.findByRole('button', {name: '保存'});
     fireEvent.click(saveBtn);
 

@@ -33,6 +33,7 @@ export function AccountsNavTabs({
   const t = useTranslations();
   return (
     <ModuleNavTabs
+      reorderGroupId='users-tokens'
       items={[
         {
           key: 'users',

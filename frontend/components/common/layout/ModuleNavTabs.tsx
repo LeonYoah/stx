@@ -60,10 +60,12 @@ export interface ModuleNavTabsProps {
   /** 当前激活的项 key / Currently active item key */
   activeKey: string;
   /**
-   * 排序分组 ID：传入后启用拖拽排序，并按组写入 localStorage 跨页面共享
-   * Reorder group id: enables drag-reorder and persists order across sibling pages
+   * 排序分组 ID：按组写入 localStorage 跨页面共享；未传时默认按项 key 派生稳定组 ID
+   * Reorder group id: persists tab order across sibling pages; derived from item keys when omitted
    */
   reorderGroupId?: string;
+  /** 是否允许拖拽排序（多于 1 项时默认开启） / Enable drag-to-reorder (defaults to true when items.length > 1) */
+  reorderable?: boolean;
   /** 自定义外层容器类名 / Custom container class name */
   className?: string;
 }
@@ -247,21 +249,29 @@ export function ModuleNavTabs({
   items,
   activeKey,
   reorderGroupId,
+  reorderable: reorderableProp = true,
   className,
 }: ModuleNavTabsProps) {
   const itemKeys = useMemo(() => items.map((item) => item.key), [items]);
   const itemKeysSignature = itemKeys.join('|');
+  // 未显式传 reorderGroupId 时，按排序后的 key 集合派生稳定组 ID，避免调用方漏传导致无法拖拽排序。
+  // Derive a deterministic group id from sorted keys when omitted so callers cannot accidentally drop drag-reorder.
+  const effectiveGroupId = useMemo(
+    () => reorderGroupId ?? [...itemKeys].sort().join('-'),
+    [reorderGroupId, itemKeys],
+  );
+  const reorderable = reorderableProp && items.length > 1;
   const [orderKeys, setOrderKeys] = useState<string[]>(itemKeys);
 
-  // 客户端读取同组持久化顺序，保证 /clusters 与 /hosts 共享先后
-  // Load shared order on the client so sibling pages like /clusters and /hosts stay in sync
+  // 客户端读取同组持久化顺序，保证孪生页面共享先后
+  // Load shared order on the client so sibling pages stay in sync
   useEffect(() => {
-    if (!reorderGroupId) {
+    if (!reorderable) {
       setOrderKeys(itemKeys);
       return;
     }
-    setOrderKeys(loadOrder(reorderGroupId, itemKeys));
-  }, [reorderGroupId, itemKeysSignature, itemKeys]);
+    setOrderKeys(loadOrder(effectiveGroupId, itemKeys));
+  }, [reorderable, effectiveGroupId, itemKeysSignature, itemKeys]);
 
   const orderedItems = useMemo(
     () => sortItemsByKeys(items, orderKeys),
@@ -278,7 +288,7 @@ export function ModuleNavTabs({
 
   const handleDragEnd = (event: DragEndEvent) => {
     const {active, over} = event;
-    if (!over || active.id === over.id || !reorderGroupId) {
+    if (!over || active.id === over.id || !reorderable) {
       return;
     }
     setOrderKeys((prev) => {
@@ -288,12 +298,10 @@ export function ModuleNavTabs({
         return prev;
       }
       const next = arrayMove(prev, oldIndex, newIndex);
-      saveOrder(reorderGroupId, next);
+      saveOrder(effectiveGroupId, next);
       return next;
     });
   };
-
-  const reorderable = Boolean(reorderGroupId);
 
   return (
     <nav
@@ -305,12 +313,12 @@ export function ModuleNavTabs({
     >
       {reorderable ? (
         // dnd-kit 默认每次渲染生成随机 id，SSR/CSR 不一致会让 aria-describedby
-        // 触发 hydration mismatch；用 reorderGroupId 固定下来。
+        // 触发 hydration mismatch；用 effectiveGroupId 固定下来。
         // dnd-kit generates a random id per render, so SSR/CSR disagree on
         // aria-describedby and React reports a hydration mismatch; pin it to
-        // the reorder group.
+        // the effective reorder group id.
         <DndContext
-          id={`module-nav-${reorderGroupId}`}
+          id={`module-nav-${effectiveGroupId}`}
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}

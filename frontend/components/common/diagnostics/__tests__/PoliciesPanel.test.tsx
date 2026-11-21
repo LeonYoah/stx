@@ -228,8 +228,13 @@ describe('PoliciesPanel', () => {
     // Close again and "discard" → the detail closes.
     fireEvent.click(screen.getByRole('button', {name: 'Close'}));
     fireEvent.click(await screen.findByTestId('discard-confirm-action'));
-    await waitFor(() =>
-      expect(screen.queryByTestId('detail-rail')).not.toBeInTheDocument(),
+    // 栏先播放收起动画再卸载，jsdom 无 transitionend 时走 600ms 兜底。
+    // The rail plays its collapse animation before unmounting; without
+    // transitionend in jsdom the 600ms fallback applies.
+    await waitFor(
+      () =>
+        expect(screen.queryByTestId('detail-rail')).not.toBeInTheDocument(),
+      {timeout: 2000},
     );
   });
 
@@ -249,8 +254,10 @@ describe('PoliciesPanel', () => {
     // The API fires only after the second-step confirm.
     fireEvent.click(screen.getByRole('button', {name: '删除'}));
     await waitFor(() => expect(deleteAutoPolicySafe).toHaveBeenCalledWith(2));
-    await waitFor(() =>
-      expect(screen.queryByTestId('detail-rail')).not.toBeInTheDocument(),
+    await waitFor(
+      () =>
+        expect(screen.queryByTestId('detail-rail')).not.toBeInTheDocument(),
+      {timeout: 2000},
     );
   });
 

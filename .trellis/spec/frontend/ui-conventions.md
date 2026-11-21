@@ -27,6 +27,9 @@
 
 - **状态概览与筛选**：有状态分布的列表页可使用 `StatPillsBar` 或 `SegmentedControl` + `Badge` 作一键筛选；筛选变化必须重置 `page = 1`。
 - **列表 + 常驻详情分栏**：统一复用 `components/common/layout/DetailHost`（≥1080px 常驻 rail、窄屏 Drawer、J/K 导航）+ `common/layout/list-detail.module.css`（`.page` / `.split` / `.listCol[data-mcols]` / `.row` / detail 类），编辑脏态拦截用 `common/layout/DirtyCloseDialog`。
+  - **联动外观（克制版）**：`.split` 内存在 `> .rail[data-state='open']` 且本页有 `.rowActive` 时，公共样式自动让列表退为底层色面板（卡片边框透明、行分隔线消失、间距收 0）、选中行浮起贴栏、其余行按距离逐级变淡、同页工具栏降透明；详情栏开合动画由 `DetailHost` 驱动（rail 关闭后保持挂载直到宽度过渡结束，600ms 兜底卸载）。只有栏开着但本页无选中行（翻页离开）时不进入联动。
+  - **接入约束**：行必须是 `.tableScroll` 的**直接子元素**，选中行挂 `.rowActive`；`rowHead`、分页底栏（`[data-slot='table-card-footer']`）与 `.tableScroll` 必须同卡片（分段圆角靠兄弟/`:has()` 推导）。
+  - **名称飞入**：行内名称元素挂 `data-detail-name`，面板持有 `flyOrigin` 引用并只在**行点击/行内 Enter 打开或切换**时写入（J/K、头部 ↑↓、深链恢复不写）；`DetailHost` 配 `nameSlot='title' | 'meta'`（落点文字与行内文字不一致时自动不飞）。窄屏、减少动态效果、来源行已卸载、来源/落点文字不同均降级不飞。
 - **筛选栏**：保持左对齐，搜索框限宽（如 `flex-1 min-w-[200px] max-w-sm`），输入项支持 **Enter** 直接触发主查询且不误触发清空/关闭等次要动作。
 - **零塌陷加载与 `TableCard`**：带分页的列表优先复用共享原语 **`components/common/layout/TableCard.tsx`**（或单层主卡片 + `border-t bg-muted/10` 底栏）：
   - 首屏无数据时使用 `TableSkeletonRows`（加载超过 **300ms** 才显现，显现后至少保留 **500ms** 防闪烁）；

@@ -49,8 +49,12 @@ export function SoftChip({tone, className, children}: {tone: ChipTone; className
 /** 中性小标签（范围、渠道类型、字段名等）：沿用旧版 ui/badge outline。 / Neutral small label — legacy ui/badge outline. */
 export function NeutralChip({children, className, title}: {children: ReactNode; className?: string; title?: string}) {
   return (
-    <Badge variant='outline' title={title} className={cn('shrink-0 px-1.5 py-0 text-[11px] font-normal', className)}>
-      {children}
+    // Badge 默认 w-fit + nowrap：栅格列比文本窄时必须允许收缩省略，
+    // 否则整个 pill 溢出盖住下一列。
+    // Badge defaults to w-fit + nowrap: inside a grid track narrower than
+    // the text it must shrink and ellipsize, or the pill overflows the next column.
+    <Badge variant='outline' title={title} className={cn('min-w-0 max-w-full shrink-0 px-1.5 py-0 text-[11px] font-normal', className)}>
+      <span className='min-w-0 truncate'>{children}</span>
     </Badge>
   );
 }

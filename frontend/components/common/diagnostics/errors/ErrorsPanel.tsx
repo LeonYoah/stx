@@ -99,6 +99,10 @@ export function ErrorsPanel({
   const groupsRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
+  // 名称飞入来源行：仅点击/回车打开时写入，J/K、头部 ↑↓ 与深链不写。
+  // Fly-in origin row: written only on click/Enter open — never by J/K,
+  // header arrows or deep links.
+  const flyOriginRef = useRef<HTMLElement | null>(null);
   const [memoriesVersion, setMemoriesVersion] = useState(0);
 
   const drawerOpen = selectedGroupId !== null;
@@ -276,6 +280,9 @@ export function ErrorsPanel({
       e.preventDefault();
       const target = groups.find((g) => g.id === id);
       if (target) {
+        if (selectedGroupId !== target.id) {
+          flyOriginRef.current = e.currentTarget;
+        }
         openGroupDetail(target);
       }
     }
@@ -412,7 +419,12 @@ export function ErrorsPanel({
                   data-testid={`error-row-${group.id}`}
                   role='button'
                   tabIndex={0}
-                  onClick={() => openGroupDetail(group)}
+                  onClick={(e) => {
+                    if (selectedGroupId !== group.id) {
+                      flyOriginRef.current = e.currentTarget;
+                    }
+                    openGroupDetail(group);
+                  }}
                   onKeyDown={(e) => onRowKeyDown(e, group.id)}
                   className={cn(
                     layout.row,
@@ -421,7 +433,11 @@ export function ErrorsPanel({
                 >
                   <div className={layout.rowName}>
                     <div className={layout.rowNameInline}>
-                      <span className={layout.name} title={group.title}>
+                      <span
+                        className={layout.name}
+                        title={group.title}
+                        data-detail-name
+                      >
                         {group.title || '-'}
                       </span>
                       {groupMemoryMap.get(group.id) ? (
@@ -479,6 +495,8 @@ export function ErrorsPanel({
           nav={detailNav}
           wide
           drawerWidth='w-[min(92vw,560px)]'
+          flyOrigin={flyOriginRef}
+          nameSlot='meta'
         >
           <ErrorGroupDetail
             key={drawerGroup?.id ?? 'pending'}

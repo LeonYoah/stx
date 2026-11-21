@@ -1,0 +1,292 @@
+<!doctype html>
+<!-- 列表与常驻详情栏联动动效原型（克制版）。只用于确认视觉与时序，不是实现代码。
+     Prototype of the linked list/detail motion (restrained variant). For visual and timing reference only. -->
+<html><head><meta charset="utf-8">
+<style>
+  body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--foreground,#171717)}
+  .bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 10px;font-size:12.5px;color:var(--muted-foreground,#777)}
+  .seg{display:inline-flex;padding:2px;border-radius:99px;background:color-mix(in oklab,currentColor 10%,transparent)}
+  .seg button{border:0;background:none;font:inherit;color:inherit;padding:3px 10px;border-radius:99px;cursor:pointer}
+  .seg button[aria-pressed=true]{background:var(--background,#fff);color:var(--foreground,#111);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .btn{border:0;font:inherit;padding:4px 12px;border-radius:99px;cursor:pointer;background:var(--foreground,#111);color:var(--background,#fff)}
+  .hint{margin-left:auto}
+
+  /* ---------- 产品画面（Arc 紧凑 token） ---------- */
+  .app{
+    --surface:#fff;--surface-muted:oklch(97% 0 0);--bg:oklch(98.6% 0 0);--fg:oklch(15% 0 0);--fg2:oklch(46% 0 0);--fg3:oklch(59% 0 0);
+    --border:oklch(93.5% 0 0);--border-subtle:oklch(96.5% 0 0);--radius-panel:16px;--radius-control:14px;
+    --shadow-floating:0 20px 48px oklch(0% 0 0/.10),0 3px 10px oklch(0% 0 0/.045);
+    --danger:oklch(58% .2 15);--warning:oklch(70% .15 70);--success:oklch(62% .15 150);
+    --ease-out:cubic-bezier(.22,1,.36,1);
+    --gap:0px;--jr:0px;--fr:10px;--recess:oklch(97.4% 0 0);--blur-step:1.15px;--fade-step:.15;--chrome-blur:3px;--chrome-fade:.4;
+    position:relative;padding:16px;border-radius:var(--radius,14px);background:var(--bg);color:var(--fg);
+    box-shadow:inset 0 0 0 1px var(--border);overflow:hidden;font-size:13px
+  }
+  .app.calm{--blur-step:0px;--fade-step:.1;--chrome-blur:0px;--chrome-fade:.7}
+  .app.dark{--surface:oklch(21.5% 0 0);--surface-muted:oklch(26% 0 0);--bg:oklch(17% 0 0);--fg:oklch(96% 0 0);--fg2:oklch(77% 0 0);--fg3:oklch(64% 0 0);
+    --border:oklch(29% 0 0);--border-subtle:oklch(25% 0 0);--recess:oklch(19.5% 0 0);--shadow-floating:0 22px 55px oklch(0% 0 0/.55),0 3px 10px oklch(0% 0 0/.3)}
+  .split{display:flex;align-items:stretch}
+  .listCol{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+
+  /* 标题 + 工具栏：打开详情后整体退到背景 */
+  .chrome{transition:filter 420ms var(--ease-out),opacity 420ms var(--ease-out)}
+  .app.open .chrome{filter:blur(var(--chrome-blur));opacity:var(--chrome-fade)}
+  .ptitle{font-size:17px;font-weight:600}
+  .pmeta{font-size:11.5px;color:var(--fg3);margin-top:2px}
+  .tools{display:flex;gap:8px;margin-top:12px}
+  .ctl{height:30px;border-radius:var(--radius-control);box-shadow:inset 0 0 0 1px var(--border);background:var(--surface);display:flex;align-items:center;padding:0 12px;font-size:12px;color:var(--fg3);white-space:nowrap}
+  .ctl.grow{flex:1;min-width:0}
+
+  /* 列表 */
+  .card{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-panel);
+    transition:border-color 280ms var(--ease-out),background-color 280ms var(--ease-out)}
+  .app.open .card{border-color:transparent;background:transparent}
+  /* 段边框：左右竖线 + 段顶线 + 段底线（关闭时为分隔线），数量固定以便过渡插值 */
+  .head,.row{background:var(--surface);
+    --l:transparent;--t:transparent;--b:var(--border-subtle);
+    box-shadow:inset 1px 0 0 var(--l),inset -1px 0 0 var(--l),inset 0 1px 0 var(--t),inset 0 -1px 0 var(--b)}
+  .head{--b:var(--border);border-radius:15px 15px 0 0}
+  .row:last-child{--b:transparent;border-radius:0 0 15px 15px}
+  .app.open .head,.app.open .row{--b:transparent;background:var(--recess)}
+  .app.open .head{border-radius:var(--radius-panel) var(--radius-panel) 0 0}
+  .app.open .segBottom{border-bottom-left-radius:var(--radius-panel);border-bottom-right-radius:var(--radius-panel)}
+  .app.open .segTop{border-top-left-radius:var(--radius-panel);border-top-right-radius:var(--radius-panel)}
+  .app.open .row:last-child{border-radius:0 0 var(--radius-panel) var(--radius-panel)}
+  .cols{display:grid;grid-template-columns:72px minmax(0,1fr) 40px 58px;gap:12px;align-items:center}
+  .head{padding:10px 16px 8px;font-size:11.5px;color:var(--fg3);transition:box-shadow 320ms var(--ease-out),border-radius 320ms var(--ease-out)}
+  .head > *{transition:opacity 420ms var(--ease-out)}
+  .app.open .head > *{opacity:.75}
+  .list{position:relative}
+  .row{position:relative;display:grid;width:100%;box-sizing:border-box;margin:0;padding:9px 16px;border:0;font:inherit;color:inherit;text-align:left;cursor:pointer;
+    border-radius:0;
+    transition:width 520ms var(--ease-out),margin 520ms var(--ease-out),padding 520ms var(--ease-out),transform 520ms var(--ease-out),
+      box-shadow 320ms var(--ease-out),border-radius 320ms var(--ease-out),background-color 200ms}
+  .list:not(.focus) .row:hover{background:var(--surface-muted);transition-duration:0ms}
+  .row:focus-visible{outline:2px solid var(--fg);outline-offset:-2px}
+  /* 选中行：浮起，向左探出 8px，向右一直伸到详情栏边上 */
+  .app .row.lifted{z-index:4;transform:translateY(-1px);margin-left:-9px;padding-left:25px;padding-right:calc(16px + var(--gap) + 1px);
+    width:calc(100% + 9px + var(--gap) + 2px);--l:transparent;--t:transparent;--b:transparent;
+    border-radius:var(--radius-control) 0 0 var(--radius-control);background:var(--surface)}
+  .row::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:0;
+    box-shadow:var(--shadow-floating);
+    clip-path:inset(-80px 2px -80px -80px);transition:opacity 320ms var(--ease-out)}
+  .row.lifted::after{opacity:1}
+  /* 接口凹圆角：选中行右端上下各补一块，圆弧接到详情栏左边 */
+  .row::before{content:"";position:absolute;right:0;top:calc(-1 * var(--fr));width:var(--fr);height:calc(100% + 2 * var(--fr));pointer-events:none;opacity:0;
+    background:radial-gradient(circle at 0 0,transparent calc(var(--fr) - .5px),var(--surface) var(--fr)) top right/var(--fr) var(--fr) no-repeat,
+      radial-gradient(circle at 0 100%,transparent calc(var(--fr) - .5px),var(--surface) var(--fr)) bottom right/var(--fr) var(--fr) no-repeat;
+    transition:opacity 240ms var(--ease-out)}
+  .app.open .row.lifted::before{opacity:1;transition-delay:280ms}
+  /* 其余行按离选中行的距离逐级模糊、变淡 */
+  .list.focus .row:not(.lifted) > *{
+    filter:blur(calc(max(min(var(--d),5) - 1,0) * var(--blur-step)));
+    opacity:calc(1 - min(var(--d),5) * var(--fade-step));
+    transition-delay:calc(min(var(--d),6) * 24ms)}
+  .row > *{transition:filter 380ms var(--ease-out),opacity 380ms var(--ease-out)}
+  .list.focus .row:not(.lifted):hover > *{filter:none;opacity:1;transition-delay:0ms;transition-duration:160ms}
+  .name{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sub{display:block;font-size:11.5px;color:var(--fg3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  .time{font-size:12px;color:var(--fg2);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  .sev{font-size:12px;color:var(--fg2)}
+  .badge{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 8px;border-radius:99px;font-size:11.5px;font-weight:500;white-space:nowrap}
+  .badge i{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .t-danger{color:var(--danger);background:color-mix(in oklab,var(--danger) 11%,transparent)}
+  .t-warning{color:oklch(55% .13 65);background:color-mix(in oklab,var(--warning) 16%,transparent)}
+  .t-success{color:var(--success);background:color-mix(in oklab,var(--success) 12%,transparent)}
+  .t-neutral{color:var(--fg2);background:color-mix(in oklab,var(--fg) 7%,transparent)}
+
+  /* 常驻详情栏：占位停靠；打开时宽度展开把列表挤窄，卡片浮起 */
+  .railSlot{flex:none;width:0;margin-left:0;position:relative;transition:width 520ms var(--ease-out),margin-left 520ms var(--ease-out)}
+  .app.open .railSlot{width:284px;margin-left:var(--gap)}
+  .rail{position:absolute;z-index:2;inset:0 auto 0 0;width:284px;box-sizing:border-box;display:flex;flex-direction:column;background:var(--surface);
+    border-radius:var(--radius-panel);box-shadow:var(--shadow-floating);
+    opacity:0;transform:translateX(20px);filter:blur(6px);
+    transition:opacity 320ms var(--ease-out),transform 520ms var(--ease-out),filter 380ms var(--ease-out)}
+  .app.open .rail{opacity:1;transform:none;filter:none;transition-delay:60ms}
+  .rtop{display:flex;align-items:center;gap:6px;padding:12px 12px 0 16px;font-size:11.5px;color:var(--fg3)}
+  .rtop .ib{margin-left:auto}
+  .ib{display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:50%;background:none;color:var(--fg3);cursor:pointer;padding:0}
+  .ib:hover{background:var(--surface-muted);color:var(--fg)}
+  .rbody{flex:1;min-height:0;overflow:auto;padding:8px 16px 0;display:flex;flex-direction:column;gap:12px}
+  .who{display:flex;align-items:center;gap:10px}
+  .av{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;font-size:11px;font-weight:600;flex:none;color:var(--danger);background:color-mix(in oklab,var(--danger) 12%,transparent)}
+  .who b{display:block;font-size:14px;font-weight:500;line-height:1.35}
+  .who small{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--fg3);margin-top:3px}
+  .ghost{position:absolute;z-index:20;margin:0;pointer-events:none;transform-origin:0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .quote{padding:8px 10px;border-radius:10px;background:var(--surface-muted);font-size:12px;line-height:1.5}
+  .quote small{display:block;color:var(--fg3);font-size:11px;margin-top:2px}
+  .st{font-size:11.5px;color:var(--fg3);margin-bottom:4px}
+  .obj{display:flex;align-items:center;gap:9px;padding:4px 0}
+  .tile{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:var(--surface-muted);color:var(--fg2);flex:none}
+  .tile.dk{background:var(--fg);color:var(--surface)}
+  .obj .tx{flex:1;min-width:0}
+  .obj b{display:block;font-weight:500;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .obj small{display:block;font-size:11px;color:var(--fg3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .num{font-size:12px;font-variant-numeric:tabular-nums;color:var(--fg2)}
+  .obj.off .num{color:var(--fg3);text-decoration:line-through}
+  .ck{width:15px;height:15px;border-radius:4px;box-shadow:inset 0 0 0 1.5px var(--border);flex:none;display:grid;place-items:center;cursor:pointer;transition:background-color 160ms,box-shadow 160ms}
+  .ck svg{width:11px;height:11px;stroke-width:3;opacity:0;transform:scale(.6);transition:opacity 160ms,transform 220ms var(--ease-out)}
+  .obj.on .ck{background:var(--fg);box-shadow:none;color:var(--surface)}
+  .obj.on .ck svg{opacity:1;transform:none}
+  .opt{display:flex;align-items:center;gap:10px;padding:8px 11px;border-radius:12px;box-shadow:inset 0 0 0 1px var(--border);margin-bottom:6px;cursor:pointer;transition:box-shadow 180ms}
+  .opt .radio{width:13px;height:13px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--border);flex:none;transition:box-shadow 220ms var(--ease-out)}
+  .opt.on{box-shadow:inset 0 0 0 1.5px var(--fg)}
+  .opt.on .radio{box-shadow:inset 0 0 0 4.5px var(--fg)}
+  .opt .tx{flex:1;min-width:0}
+  .opt b{display:block;font-weight:500;font-size:12.5px} .opt small{display:block;font-size:11px;color:var(--fg3)}
+  .rfoot{padding:10px 16px 14px;display:flex;flex-direction:column;gap:8px}
+  .sum{display:flex;align-items:baseline;justify-content:space-between;font-size:11.5px;color:var(--fg3)}
+  .sum b{font-size:19px;font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums}
+  .primary{height:34px;border:0;border-radius:var(--radius-control);background:var(--fg);color:var(--surface);font:inherit;font-size:12.5px;font-weight:500;cursor:pointer}
+  svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  /* 详情内容分段依次进入；切换行时更快 */
+  .in{animation:secIn 440ms var(--ease-out) both;animation-delay:calc(var(--i) * 45ms + 150ms)}
+  .switch .in{animation-duration:260ms;animation-delay:calc(var(--i) * 26ms)}
+  @keyframes secIn{from{opacity:0;transform:translateY(6px);filter:blur(3px)}}
+
+  @media (max-width:600px){
+    .railSlot{position:absolute;top:16px;bottom:16px;right:16px;width:auto!important;margin:0!important;z-index:5}
+    .rail{inset:0 0 0 auto;width:min(284px,84vw)}
+    .row.lifted{width:calc(100% + 9px);padding-right:16px;border-radius:var(--radius-control)}
+    .row::after{clip-path:none}
+    .row::before{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .row,.rail,.railSlot,.chrome{transition-property:opacity,background-color!important;transition-delay:0ms!important}
+    .list.focus .row:not(.lifted) > *,.app.open .chrome{filter:none}
+    .rail{transform:none;filter:none}
+    .in{animation:none}
+  }
+</style></head><body>
+<div class="bar">
+  <button class="btn" id="replay">重放演示</button>
+  <span class="seg" id="theme"><button aria-pressed="true" data-v="light">浅色</button><button aria-pressed="false" data-v="dark">深色</button></span>
+  <span class="hint">点击行：名称飞入 · J/K：只换内容 · Esc 关闭</span>
+</div>
+<div class="app calm" id="app">
+  <div class="split">
+    <div class="listCol">
+      <div class="chrome">
+        <div class="ptitle">告警中心</div>
+        <div class="pmeta">近 24 小时 · 23 条 · 5 条待处理</div>
+        <div class="tools"><span class="ctl grow">搜索告警、作业或主机</span><span class="ctl">级别：全部</span><span class="ctl">集群：全部</span></div>
+      </div>
+      <div class="card">
+        <div class="head cols"><span>状态</span><span>告警</span><span>级别</span><span style="text-align:right">时间</span></div>
+        <div class="list" id="list"></div>
+      </div>
+    </div>
+    <div class="railSlot"><aside class="rail" id="rail"></aside></div>
+  </div>
+</div>
+<script>
+const S={danger:['t-danger','告警中'],warning:['t-warning','已确认'],success:['t-success','已恢复'],neutral:['t-neutral','已静默']};
+// 标题, 对象, 状态, 级别, 时间, 集群, 摘要, 影响对象[名称,说明,数值]
+const data=[
+ ['作业失败','mysql_to_pg_orders','danger','严重','2 分钟前','prod-a','Sink 写入 PostgreSQL 超时，已重试 3 次',
+  [['mysql_to_pg_orders','作业 #1024 · 已停止','1.2 GB'],['orders_to_doris','作业 #1031 · 读同一张表','310 MB'],['orders_audit','作业 #1088 · 下游','—']]],
+ ['CDC 延迟超过 5 分钟','cdc_users','warning','警告','6 分钟前','prod-a','延迟 7 分 12 秒，源端 binlog 积压',
+  [['cdc_users','作业 #998 · 运行中','7m12s'],['users_to_es','作业 #1002 · 下游','2m40s'],['users_snapshot','作业 #1003 · 已暂停','—']]],
+ ['节点离线','worker-03','danger','严重','11 分钟前','prod-b','心跳中断 90 秒，节点上的作业已转移',
+  [['worker-03','10.66.0.3 · 离线','90s'],['kafka_sink_logs','作业 #1102 · 已转移','4 个'],['pg_to_doris','作业 #870 · 已转移','2 个']]],
+ ['磁盘使用率 87%','t1 · /data','danger','警告','24 分钟前','prod-a','近 1 小时上涨 6%，预计 9 小时后写满',
+  [['/data','t1 · 500 GB','87%'],['embedded tsdb','监控数据','41 GB'],['checkpoint','作业快照','122 GB']]],
+ ['吞吐下降 50%','kafka_sink_logs','neutral','提示','38 分钟前','prod-b','与 7 天前同时段相比下降 52%',
+  [['kafka_sink_logs','作业 #1102 · 运行中','6.1k/s'],['logs_topic','Kafka · 12 分区','—'],['es_sink','作业 #1031 · 下游','—']]],
+ ['Checkpoint 超时','pg_to_doris','success','警告','1 小时前','prod-a','连续 2 次超过 10 分钟，已恢复',
+  [['pg_to_doris','作业 #870 · 运行中','11m'],['doris-fe','目标库','—'],['pg-primary','源库','—']]],
+ ['作业重启 3 次','es_sink','success','警告','2 小时前','prod-b','30 分钟内重启 3 次，已稳定运行',
+  [['es_sink','作业 #1031 · 运行中','3 次'],['es-cluster','目标库','—'],['logs_topic','Kafka','—']]],
+ ['JVM 堆使用率 92%','master-01','success','严重','3 小时前','prod-a','Full GC 后回落到 61%',
+  [['master-01','10.66.0.1 · 在线','61%'],['coordinator','调度服务','—'],['rest-api','接口服务','—']]],
+];
+const I={
+ x:'<svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+ up:'<svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg>',
+ dn:'<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+ bell:'<svg viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
+ job:'<svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/></svg>',
+ srv:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/></svg>',
+ chk:'<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>'
+};
+const list=document.getElementById('list'),rail=document.getElementById('rail'),app=document.getElementById('app');
+list.innerHTML=data.map((r,i)=>`<button class="row cols" data-i="${i}" aria-pressed="false" style="--d:0">
+  <span><span class="badge ${S[r[2]][0]}"><i></i>${S[r[2]][1]}</span></span>
+  <span style="min-width:0"><span class="name" data-fly="title">${r[0]}</span><span class="sub">${r[1]} · ${r[5]}</span></span>
+  <span class="sev">${r[3]}</span><span class="time">${r[4]}</span></button>`).join('');
+const rows=[...list.children],head=document.querySelector('.head');
+let sel=null,opt=0,checks=[true,false,false];
+function count(){return checks.filter(Boolean).length}
+function renderRail(i,switching){
+  const r=data[i];let k=0;const n=()=>`style="--i:${k++}"`;
+  rail.innerHTML=`<div class="rtop in" ${n()}>${I.bell}<span>告警 · #A-30${21-i}</span>
+     <button class="ib" data-a="prev" aria-label="上一条">${I.up}</button><button class="ib" data-a="next" aria-label="下一条" style="margin-left:0">${I.dn}</button><button class="ib" data-a="close" aria-label="关闭" style="margin-left:0">${I.x}</button></div>
+   <div class="rbody ${switching?'switch':''}">
+    <div class="who in" ${n()}><span class="av">${r[3].slice(0,1)}</span><span style="min-width:0"><b data-target="title">${r[0]}</b><small><span class="badge ${S[r[2]][0]}"><i></i>${S[r[2]][1]}</span>${r[3]} · ${r[5]} · ${r[4]}</small></span></div>
+    <div class="quote in" ${n()}>“${r[6]}”<small>下面勾选的对象会一起处理</small></div>
+    <div class="in" ${n()}><div class="st">影响范围</div>
+     ${r[7].map((o,j)=>`<div class="obj ${checks[j]?'on':'off'}" data-c="${j}"><span class="tile ${j===0?'dk':''}">${j===0?I.job:I.srv}</span><span class="tx"><b>${o[0]}</b><small>${o[1]}</small></span><span class="num">${o[2]}</span><span class="ck">${I.chk}</span></div>`).join('')}</div>
+    <div class="in" ${n()}><div class="st">怎么处理</div>
+     ${['确认并跟进|通知值班人，告警保留','静默 1 小时|期间同类告警不再推送'].map((t,j)=>{const[a,b]=t.split('|');return `<div class="opt ${j===opt?'on':''}" data-o="${j}"><span class="radio"></span><span class="tx"><b>${a}</b><small>${b}</small></span></div>`}).join('')}</div>
+   </div>
+   <div class="rfoot in" ${n()}><div class="sum"><span>将处理 · ${r[5]}</span><b id="cnt">${count()} 个对象</b></div>
+     <button class="primary" id="go">${opt?'静默':'确认'} ${count()} 个对象</button></div>`;
+}
+function syncFoot(){const c=count();rail.querySelector('#cnt').textContent=c+' 个对象';rail.querySelector('#go').textContent=(opt?'静默 ':'确认 ')+c+' 个对象'}
+const reduce=matchMedia('(prefers-reduced-motion: reduce)');
+let ghosts=[];
+function clearGhosts(){ghosts.forEach(([g,t,a])=>{a.cancel();g.remove();t.style.opacity=''});ghosts=[]}
+// 共享元素过渡（FLIP）：从行里的字段复制一个影子，飞到详情头部的同名字段上，落地后换成真实元素
+function fly(row){
+  if(reduce.matches)return;
+  const appR=app.getBoundingClientRect(),split=document.querySelector('.split').getBoundingClientRect();
+  const railLeft=split.right-rail.offsetWidth,railTop=split.top;
+  row.querySelectorAll('[data-fly]').forEach((src,k)=>{
+    const tgt=rail.querySelector(`[data-target="${src.dataset.fly}"]`);if(!tgt)return;
+    const s=src.getBoundingClientRect();
+    let x=0,y=0,e=tgt;while(e&&e!==rail){x+=e.offsetLeft;y+=e.offsetTop;e=e.offsetParent}
+    const sc=parseFloat(getComputedStyle(tgt).fontSize)/parseFloat(getComputedStyle(src).fontSize);
+    const g=src.cloneNode(true);g.classList.add('ghost');g.removeAttribute('data-fly');
+    Object.assign(g.style,{left:(s.left-appR.left)+'px',top:(s.top-appR.top)+'px',width:s.width+'px'});
+    if(src.dataset.fly==='title')g.style.fontWeight='500';
+    app.appendChild(g);tgt.style.opacity='0';
+    const a=g.animate([{transform:'translate(0,0) scale(1)'},{transform:`translate(${railLeft+x-s.left}px,${railTop+y-s.top}px) scale(${sc})`}],
+      {duration:520,delay:k*40,easing:'cubic-bezier(.22,1,.36,1)',fill:'forwards'});
+    a.onfinish=()=>{tgt.style.opacity='';g.remove();ghosts=ghosts.filter(x=>x[0]!==g)};
+    ghosts.push([g,tgt,a]);
+  });
+}
+function select(i,user,withFly){
+  if(user)stopAuto();
+  if(i===sel&&user)return close();
+  clearGhosts();
+  const switching=sel!==null;sel=i;opt=0;checks=[true,false,false];
+  head.classList.toggle('segBottom',i===0);
+  rows.forEach((r,j)=>{r.style.setProperty('--d',Math.abs(j-i));r.classList.toggle('lifted',j===i);r.setAttribute('aria-pressed',j===i);
+    r.classList.toggle('segBottom',j===i-1);r.classList.toggle('segTop',j===i+1)});
+  list.classList.add('focus');app.classList.add('open');renderRail(i,switching);
+  if(withFly)fly(rows[i]);
+}
+function close(){
+  clearGhosts();sel=null;list.classList.remove('focus');app.classList.remove('open');
+  rows.forEach(r=>{r.classList.remove('lifted','segTop','segBottom');r.setAttribute('aria-pressed','false')});head.classList.remove('segBottom');
+}
+list.addEventListener('click',e=>{const b=e.target.closest('.row');if(b)select(+b.dataset.i,true,true)});
+rail.addEventListener('click',e=>{stopAuto();
+  const a=e.target.closest('[data-a]'),o=e.target.closest('.opt'),c=e.target.closest('.obj');
+  if(o){opt=+o.dataset.o;rail.querySelectorAll('.opt').forEach((x,j)=>x.classList.toggle('on',j===opt));syncFoot()}
+  if(c){const j=+c.dataset.c;checks[j]=!checks[j];c.classList.toggle('on',checks[j]);c.classList.toggle('off',!checks[j]);syncFoot()}
+  if(!a)return;if(a.dataset.a==='close')close();if(a.dataset.a==='prev'&&sel>0)select(sel-1);if(a.dataset.a==='next'&&sel<rows.length-1)select(sel+1)});
+document.addEventListener('keydown',e=>{if(sel===null)return;
+  if(e.key==='j'||e.key==='J'){stopAuto();sel<rows.length-1&&select(sel+1)}
+  else if(e.key==='k'||e.key==='K'){stopAuto();sel>0&&select(sel-1)}
+  else if(e.key==='Escape'){stopAuto();close()}});
+const seg=(id,fn)=>document.getElementById(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  [...b.parentNode.children].forEach(x=>x.setAttribute('aria-pressed',x===b));fn(b.dataset.v)});
+seg('theme',v=>app.classList.toggle('dark',v==='dark'));
+let timers=[];function stopAuto(){timers.forEach(clearTimeout);timers=[]}
+function auto(){stopAuto();close();[[700,()=>select(0,false,true)],[2900,()=>select(3,false,true)],[4700,()=>select(4)],[6200,()=>select(5)],[7900,close]].forEach(([t,f])=>timers.push(setTimeout(f,t)))}
+document.getElementById('replay').onclick=auto;
+auto();
+</script>
+</body></html>

@@ -23,7 +23,14 @@
  * 版式遵循 design.md §9.7：状态分段带计数、工具栏一行、边框表格表面、
  * 整行按钮 + 方向键、底部居中批量条（可撤销）、≥1080px 常驻详情栏。
  */
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 import {useLocale, useTranslations} from 'next-intl';
 import {ArrowDownWideNarrow, Check, LayoutGrid, List, Undo2} from 'lucide-react';
@@ -161,6 +168,10 @@ export function RulesPanel({
   } | null>(null);
   const [batchBusy, setBatchBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  // 名称飞入来源行：仅点击/回车打开时写入，J/K、头部 ↑↓ 与深链不写。
+  // Fly-in origin row: written only on click/Enter open — never by J/K,
+  // header arrows or deep links.
+  const flyOriginRef = useRef<HTMLElement | null>(null);
 
   const load = useCallback(async () => {
     const [ruleData, defData, clusterData] = await Promise.all([
@@ -821,6 +832,7 @@ export function RulesPanel({
                         rule={rule}
                         contextClusterId={contextClusterId}
                         active={activeKey === rule.key}
+                        flyOrigin={flyOriginRef}
                         onOpen={() => requestKey(rule.key)}
                         onToggleEnabled={(on) => void toggleEnabled(rule, on)}
                       />
@@ -833,6 +845,7 @@ export function RulesPanel({
                     activeKey={activeKey}
                     selected={selected}
                     toggling={toggling}
+                    flyOrigin={flyOriginRef}
                     onOpen={requestKey}
                     onSelect={toggleSelect}
                     onSelectAll={toggleSelectAllPage}
@@ -907,6 +920,8 @@ export function RulesPanel({
             meta={drawerRule?.key}
             nav={detailNav}
             drawerWidth='w-[min(92vw,480px)]'
+            flyOrigin={flyOriginRef}
+            nameSlot='title'
           >
             {drawerRule ? (
               <RuleDetailPanel
@@ -948,6 +963,7 @@ function RuleListView({
   activeKey,
   selected,
   toggling,
+  flyOrigin,
   onOpen,
   onSelect,
   onSelectAll,
@@ -958,6 +974,8 @@ function RuleListView({
   activeKey: string | null;
   selected: Set<string>;
   toggling: Set<string>;
+  /** 名称飞入来源行容器：点击/回车打开时写入当前行。Fly-in origin ref; the opened row is written on click/Enter. */
+  flyOrigin: RefObject<HTMLElement | null>;
   onOpen: (key: string) => void;
   onSelect: (key: string, on: boolean) => void;
   onSelectAll: (on: boolean) => void;
@@ -988,7 +1006,11 @@ function RuleListView({
       next?.focus();
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      onOpen(e.currentTarget.dataset.mrow!);
+      const key = e.currentTarget.dataset.mrow!;
+      if (activeKey !== key) {
+        flyOrigin.current = e.currentTarget;
+      }
+      onOpen(key);
     }
   };
 
@@ -1032,6 +1054,9 @@ function RuleListView({
                 ) {
                   return;
                 }
+                if (activeKey !== rule.key) {
+                  flyOrigin.current = e.currentTarget;
+                }
                 onOpen(rule.key);
               }}
               onKeyDown={onRowKeyDown}
@@ -1052,6 +1077,7 @@ function RuleListView({
                   transition={morph.transition}
                   className={layout.name}
                   title={name}
+                  data-detail-name
                 >
                   {name}
                 </motion.span>
@@ -1140,12 +1166,15 @@ function RuleCard({
   rule,
   contextClusterId,
   active,
+  flyOrigin,
   onOpen,
   onToggleEnabled,
 }: {
   rule: ClusterRule;
   contextClusterId: number | null;
   active: boolean;
+  /** 名称飞入来源容器：点击/回车打开时写入本卡片。Fly-in origin ref; this card is written on click/Enter. */
+  flyOrigin: RefObject<HTMLElement | null>;
   onOpen: () => void;
   onToggleEnabled: (on: boolean) => void;
 }) {
@@ -1177,6 +1206,9 @@ function RuleCard({
         ) {
           return;
         }
+        if (!active) {
+          flyOrigin.current = e.currentTarget;
+        }
         onOpen();
       }}
       onKeyDown={(e) => {
@@ -1185,6 +1217,9 @@ function RuleCard({
         }
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
+          if (!active) {
+            flyOrigin.current = e.currentTarget;
+          }
           onOpen();
         }
       }}
@@ -1200,6 +1235,7 @@ function RuleCard({
           transition={morph.transition}
           className={cn(layout.name, 'min-w-0 flex-1')}
           title={name}
+          data-detail-name
         >
           {name}
         </motion.span>

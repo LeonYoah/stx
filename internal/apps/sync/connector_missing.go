@@ -28,13 +28,69 @@ import (
 // ErrorCodeConnectorMissing is the error_code returned when the cluster lacks a connector; CLI and UI use it to guide installation.
 const ErrorCodeConnectorMissing = "connector_missing"
 
+// ErrorCodeConnectorInitFailed 是「连接器已安装但引擎初始化失败」时的 error_code：
+// 引擎 REST 只回外层 API-06 措辞，真实 cause（如数据源账号被拒）只在 master 日志里，指引用户去查连接/账号。
+// ErrorCodeConnectorInitFailed is the error_code for "connector installed but engine init failed":
+// the engine REST reply only carries the outer API-06 wording while the real cause (e.g. datasource
+// auth rejection) lives in the master log, so the guidance points at connectivity/credentials.
+const ErrorCodeConnectorInitFailed = "connector_init_failed"
+
 // ErrConnectorMissing 表示引擎找不到任务需要的连接器（集群未安装对应插件）。
 // ErrConnectorMissing reports that the engine cannot find a connector the job needs (plugin not installed on the cluster).
 var ErrConnectorMissing = errors.New("sync: cluster is missing a required connector")
 
+// ErrConnectorInitFailed 表示连接器已安装但引擎初始化失败（数据源连接/配置问题居多）。
+// ErrConnectorInitFailed reports that an installed connector failed to initialize on the engine
+// (most often a datasource connectivity or config problem).
+var ErrConnectorInitFailed = errors.New("sync: connector is installed but the engine failed to initialize it")
+
 // engineConnectorMissingPattern 匹配 SeaTunnel FactoryUtil 在插件缺失时的固定措辞（API-06），2.3.x 与 3.0 一致。
 // engineConnectorMissingPattern matches SeaTunnel FactoryUtil's fixed wording when a plugin is absent (API-06), same in 2.3.x and 3.0.
 var engineConnectorMissingPattern = regexp.MustCompile(`(?i)Unable to create a (source|sink|transform) for identifier '([^']+)'`)
+
+// engineCausedBySplit 把压平的异常文本按 "caused by:" 切分层段：java-proxy 用 " | caused by: " 拼接，
+// 引擎作业失败原因里则是 Java 原生 "Caused by: " 堆栈。
+// engineCausedBySplit splits a flattened exception chain on "caused by:": the java-proxy joins layers
+// with " | caused by: ", while engine job failure reasons use Java's native "Caused by: " stack lines.
+var engineCausedBySplit = regexp.MustCompile(`(?i)\s*\|?\s*caused by:`)
+
+// enginePluginAbsentSignals 是「确实没找到插件」的确定信号，逐层段匹配，
+// 对齐 java-proxy isPluginNotFound 对 Throwable 链的判定（FactoryUtil 工厂发现失败 / PluginIdentifier not found）。
+// enginePluginAbsentSignals are the definitive "plugin genuinely absent" signals, matched per chain
+// segment — mirroring the java-proxy isPluginNotFound check over the Throwable chain (FactoryUtil
+// discovery failure / PluginIdentifier not found).
+var enginePluginAbsentSignals = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)could not find any factor`),
+	regexp.MustCompile(`(?i)no factory found for identifier`),
+	regexp.MustCompile(`(?i)pluginidentifier[^\n]*not found`),
+	regexp.MustCompile(`(?i)not found[^\n]*(?:factor|plugin)|(?:factor|plugin)[^\n]*not found`),
+	regexp.MustCompile(`连接器未安装`),
+}
+
+// engineMessageIndicatesMissingPlugin 只在「确实没找到插件」时返回 true。
+// API-06 外层措辞把所有工厂初始化失败包成同一句：有 caused-by 链时逐段找确定信号，
+// 找不到就透传原始错误（如 JDBC 连不通被包成同一措辞）；裸外层措辞（引擎 REST 只回外层
+// message，无 caused-by）维持既有归类，缺插件是该路径最常见的形态。
+// engineMessageIndicatesMissingPlugin reports true only when the plugin is genuinely absent.
+// The API-06 wrapper folds every factory-init failure into one sentence: when a caused-by chain
+// exists, look for a definitive absent signal per segment — absent that, the raw error passes
+// through (e.g. a JDBC connect failure wrapped in the same wording). A bare wrapper message
+// (engine REST returns only the outer message, no caused-by) keeps the existing classification
+// since a missing plugin is the most common shape on that path.
+func engineMessageIndicatesMissingPlugin(message string) bool {
+	segments := engineCausedBySplit.Split(message, -1)
+	if len(segments) == 1 {
+		return true
+	}
+	for _, segment := range segments {
+		for _, signal := range enginePluginAbsentSignals {
+			if signal.MatchString(segment) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // ConnectorMissingError 携带缺失连接器的类型与标识，原始引擎错误保留在 Cause 里供排查。
 // ConnectorMissingError carries the missing connector's type and identifier; the raw engine error stays in Cause.
@@ -63,6 +119,33 @@ func (e *ConnectorMissingError) Unwrap() error {
 	return e.Cause
 }
 
+// ConnectorInitFailedError 表示连接器已装但引擎初始化失败；Identifier 用于提示与前端识别，
+// Cause 保留原始引擎报文（含 REST 剥掉 cause 的裸 API-06 措辞）。
+// ConnectorInitFailedError reports an installed connector that failed to initialize on the engine;
+// Identifier feeds hints and UI matching, Cause keeps the raw engine message (including the bare
+// API-06 wording whose cause the engine REST layer strips).
+type ConnectorInitFailedError struct {
+	PluginType string
+	Identifier string
+	Cause      error
+}
+
+// Error 明确「已安装但初始化失败」，引导用户查数据源连通性/账号而不是重装插件。
+// Error states "installed but init failed" to steer users to connectivity/credentials instead of reinstalling.
+func (e *ConnectorInitFailedError) Error() string {
+	return fmt.Sprintf("sync: connector %q is installed on the cluster but the engine failed to initialize it (usually a datasource connectivity or credential problem; the real cause is only in the engine master log): %v", e.Identifier, e.Cause)
+}
+
+// Is 让 errors.Is(err, ErrConnectorInitFailed) 命中。 / Is lets errors.Is match ErrConnectorInitFailed.
+func (e *ConnectorInitFailedError) Is(target error) bool {
+	return target == ErrConnectorInitFailed
+}
+
+// Unwrap 保留原始引擎错误链。 / Unwrap keeps the raw engine error chain.
+func (e *ConnectorInitFailedError) Unwrap() error {
+	return e.Cause
+}
+
 // classifyEngineSubmitError 把引擎「找不到连接器」的提交失败归类为 ConnectorMissingError，其余错误原样返回。
 // 结果未知（EngineCallUnknownError）不归类：调用方要按未知结果登记待确认作业。
 // classifyEngineSubmitError turns the engine's "connector not found" submit failure into ConnectorMissingError and
@@ -77,7 +160,7 @@ func classifyEngineSubmitError(err error) error {
 		return err
 	}
 	match := engineConnectorMissingPattern.FindStringSubmatch(err.Error())
-	if match == nil {
+	if match == nil || !engineMessageIndicatesMissingPlugin(err.Error()) {
 		return err
 	}
 	return &ConnectorMissingError{
@@ -87,11 +170,56 @@ func classifyEngineSubmitError(err error) error {
 	}
 }
 
+// connectorIdentifierInstalled 判断引擎标识符（如 MySQL-CDC）是否对应平台已安装插件名
+// （如 cdc-mysql）：两边按连字符/大小写拆成词集比对，词序不同也算同名。
+// connectorIdentifierInstalled tells whether an engine identifier (e.g. MySQL-CDC) refers to an
+// installed platform plugin name (e.g. cdc-mysql): both sides are compared as lowercase word sets,
+// so different token order still counts as the same plugin.
+func connectorIdentifierInstalled(identifier string, pluginNames []string) bool {
+	want := connectorNameTokens(identifier)
+	if len(want) == 0 {
+		return false
+	}
+	for _, name := range pluginNames {
+		got := connectorNameTokens(name)
+		if len(got) != len(want) {
+			continue
+		}
+		match := true
+		for token := range want {
+			if _, ok := got[token]; !ok {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+var connectorTokenSplit = regexp.MustCompile(`[^a-z0-9]+`)
+
+func connectorNameTokens(name string) map[string]struct{} {
+	tokens := make(map[string]struct{})
+	for _, token := range connectorTokenSplit.Split(strings.ToLower(name), -1) {
+		if token != "" {
+			tokens[token] = struct{}{}
+		}
+	}
+	return tokens
+}
+
 // syncErrorCode 返回需要随响应下发的 error_code；没有专门错误码时为空。
 // syncErrorCode returns the error_code to send with the response; empty when no dedicated code applies.
 func syncErrorCode(err error) string {
-	if errors.Is(err, ErrConnectorMissing) {
+	switch {
+	case errors.Is(err, ErrConnectorMissing):
 		return ErrorCodeConnectorMissing
+	case errors.Is(err, ErrConnectorInitFailed):
+		return ErrorCodeConnectorInitFailed
+	default:
+		return ""
 	}
-	return ""
 }

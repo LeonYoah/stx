@@ -391,6 +391,7 @@ import {
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveFolderParent,
+  findSyncJobsByIdInput,
   isCursorAtFinishedEnumValue,
   resolveOptionAssignmentContext,
   resolveOptionKeyFromLine,
@@ -529,8 +530,8 @@ export function DataSyncStudio() {
     useState<TreeFilterScope>('mine_and_public');
   useEffect(() => {
     const saved = localStorage.getItem('stx_studio_tree_filter_scope');
-    // 「可见」三档里的 only_mine 已从界面拿掉；旧值并入「我的」（自己的 + 公开的）。
-    // The old three-way "Visible" filter is gone; only_mine migrates into Mine (own + public).
+    // 「可见」三档里的 only_mine 已从界面拿掉；旧值并入「我的」（自己创建 + 协作）。
+    // The old three-way "Visible" filter is gone; only_mine migrates into Mine (created + collaborated).
     if (saved === 'all') {
       setTreeFilterScope('all');
     } else if (saved === 'only_mine') {
@@ -843,8 +844,39 @@ export function DataSyncStudio() {
     setExpandedFolderIds((prev) => (prev.length > 0 ? [] : allFolderIds));
   }, [allFolderIds]);
 
-  // 顶栏展开搜索只覆盖本地文件和已加载作业。不在列表里的数字 Job ID 仍走 Cmd/Ctrl+P。
-  // The toolbar expanding search covers local files and loaded jobs. Numeric Job IDs outside that list stay on Cmd/Ctrl+P.
+  // 顶栏快速打开的远程命中：数字输入防抖查后端，覆盖未加载作业（全局而非当前任务）。
+  // Remote hits for the top-bar quick open: numeric input queries the backend
+  // debounced so jobs outside the loaded set are found globally, not per task.
+  const [quickOpenQuery, setQuickOpenQuery] = useState('');
+  const [remoteJobs, setRemoteJobs] = useState<SyncJobInstance[]>([]);
+  useEffect(() => {
+    if (!/^\d+$/.test(quickOpenQuery.trim().replace(/^#+/, ''))) {
+      setRemoteJobs([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      findSyncJobsByIdInput(
+        (params) => services.sync.listJobs(params),
+        quickOpenQuery,
+      )
+        .then((items) => {
+          if (!cancelled) {
+            setRemoteJobs(items);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setRemoteJobs([]);
+          }
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [quickOpenQuery]);
+
   const quickOpenItems = useMemo(() => {
     const files = flattenTree(tree)
       .filter((node) => node.node_type === 'file')
@@ -855,15 +887,21 @@ export function DataSyncStudio() {
         group: t('matchingFiles'),
         keywords: [String(node.id)],
       }));
-    const jobItems = jobs.slice(0, 50).map((job) => ({
+    const toJobItem = (job: SyncJobInstance) => ({
       id: `job-${job.id}`,
       title: `#${job.id}`,
       meta: findTreeNode(tree, job.task_id)?.name || job.platform_job_id || '',
       group: t('matchingJobs'),
-      keywords: [String(job.id), job.platform_job_id || ''].filter(Boolean),
-    }));
-    return [...files, ...jobItems];
-  }, [jobs, t, tree]);
+      keywords: [String(job.id), `#${job.id}`, job.platform_job_id || ''].filter(Boolean),
+    });
+    const jobItems = jobs.slice(0, 50).map(toJobItem);
+    // 远端命中与已加载作业按内部 id 去重，避免同一行出现两次。
+    // Remote hits are deduped against loaded jobs by internal id so the same row never appears twice.
+    const remoteItems = remoteJobs
+      .filter((job) => !jobs.some((loaded) => loaded.id === job.id))
+      .map(toJobItem);
+    return [...files, ...jobItems, ...remoteItems];
+  }, [jobs, remoteJobs, t, tree]);
 
   const [customVariableRows, setCustomVariableRows] = useState<VariableRow[]>(
     [],
@@ -4392,12 +4430,30 @@ export function DataSyncStudio() {
       return false;
     }
     try {
-      const result = await services.sync.listJobs({
-        current: 1,
-        size: 1,
-        platform_job_id: trimmed,
-      });
-      const job = result.items?.[0] || null;
+      // 入力は #N・内部 id・platform/engine job id のいずれでも受け付ける。
+      // Accept #N, internal id, and platform/engine job id alike.
+      const raw = trimmed.replace(/^#+/, '');
+      let job = null;
+      if (/^\d+$/.test(raw)) {
+        job =
+          (
+            await findSyncJobsByIdInput(
+              (params) => services.sync.listJobs(params),
+              raw,
+              {firstOnly: true},
+            )
+          )[0] ?? null;
+      }
+      // 非数字入力（タスク名等）の最終手段：キーワード照合。数字は id 系で尽きているので混ぜない。
+      // Last resort for non-numeric input (task names): keyword match; digits already exhausted id forms.
+      if (!job && !/^\d+$/.test(raw)) {
+        const byKeyword = await services.sync.listJobs({
+          current: 1,
+          size: 1,
+          keyword: raw,
+        });
+        job = byKeyword.items?.[0] || null;
+      }
       if (!job) {
         toast.error(t('jobIdNotFound'));
         return false;
@@ -4597,12 +4653,7 @@ export function DataSyncStudio() {
 
                 {editor.id ? (
                   <div className='flex items-center gap-1.5 shrink-0'>
-                    {/* 版本号 / Version */}
-                    <span className='rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground'>
-                      v{editor.currentVersion || 1}
-                    </span>
-
-                    {/* 发布状态微胶囊 / Publish status micro-pill */}
+                    {/* 版本 + 发布状态合并微胶囊 / Merged version + publish status micro-pill */}
                     <span
                       className={cn(
                         'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-normal leading-none',
@@ -4619,6 +4670,10 @@ export function DataSyncStudio() {
                             : 'bg-muted-foreground/50',
                         )}
                       />
+                      <span className='font-mono'>
+                        v{editor.currentVersion || 1}
+                      </span>
+                      ·
                       {editor.status === 'published' ? t('published') : t('draft')}
                     </span>
 
@@ -4690,6 +4745,12 @@ export function DataSyncStudio() {
                   void handleQuickOpenFile(node);
                 }
               }}
+              onSubmit={(query) => {
+                // 候補に載らない入力（未読み込みの Job ID 等）も Enter で定位に回す。
+                // Route input with no matching suggestion (e.g. an unloaded Job ID) to locate on Enter.
+                void handleLocateJobId(query);
+              }}
+              onQueryChange={setQuickOpenQuery}
             />
           </div>
 
@@ -5051,8 +5112,8 @@ export function DataSyncStudio() {
                   clearLabel={t('clearSearch')}
                 />
               </div>
-              {/* 任务过滤：我的=自己的+公开的；全部=不过滤。去掉含糊的「可见」。 */}
-              {/* Mine = own + public. All = unfiltered. The old "Visible" label is gone. */}
+              {/* 任务过滤：我的=自己创建 + 协作的；全部=不过滤（含他人任务）。去掉含糊的「可见」。 */}
+              {/* Mine = created + collaborated. All = unfiltered incl. others'. The old "Visible" label is gone. */}
               <SegmentedControl
                 label={t('treeFilterMineAndPublicTooltip')}
                 value={treeFilterScope}

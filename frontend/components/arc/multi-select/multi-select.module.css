@@ -37,3 +37,8 @@
 @media (prefers-reduced-motion: reduce) { .trigger, .chevron, .option, .clear, .chip, .more { transition: none; } }
 /* 本地修改：空选项时的菜单内说明行。Local: empty-options message row. */
 .empty { padding: 6px 8px; color: var(--text-muted); font-size: var(--text-sm); }
+/* 本地修改：菜单内搜索输入。Local: in-menu search input. */
+.search { box-sizing: border-box; width: 100%; border: 0; border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; background: transparent; padding: 7px 11px; color: var(--foreground); font: inherit; font-size: var(--text-sm); outline: none; }
+.search::placeholder { color: var(--text-muted); }
+/* 本地修改：选项列表限高滚动，长列表不再撑破容器。Local: capped scrollable option list. */
+.list { max-height: 15rem; overflow-y: auto; overscroll-behavior: contain; }

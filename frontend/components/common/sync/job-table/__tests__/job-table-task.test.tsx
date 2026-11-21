@@ -340,18 +340,19 @@ describe('JobTableToolbar task preset', () => {
     expect(screen.getByTestId('studio-job-pill-failed').textContent).toContain(
       '2',
     );
-    // 运行类型筛选已移除：预览与正式运行同列展示，工具栏没有第二个分段控件。
-    // The run-type filter is gone — preview and formal runs share one list, so the
-    // toolbar shows no second segmented control.
-    expect(screen.queryAllByRole('group')).toHaveLength(0);
-    // 关键字默认收成图标按钮；整条工具栏单行不换行（溢出横向滚动）。
-    // The keyword input collapses to an icon button by default; the toolbar is one non-wrapping row that
-    // scrolls horizontally on overflow.
+    // 状态过滤收敛为与顶栏同款的段控件（role=group）；运行类型筛选已移除，
+    // 预览与正式运行同列展示，工具栏只有这一个分段控件。
+    // Status filtering converged to the same segmented control as the top bar
+    // (role=group); the run-type filter is gone, so this is the only one.
+    expect(screen.queryAllByRole('group')).toHaveLength(1);
+    // 关键字默认收成图标按钮；整条工具栏单行不换行（溢出由段控件内部滚动）。
+    // The keyword input collapses to an icon button by default; the toolbar is one non-wrapping row with
+    // the segment track scrolling internally on overflow.
     expect(screen.getByTestId('studio-job-search-toggle')).toBeTruthy();
     expect(screen.queryByTestId('studio-job-search')).toBeNull();
     const bar = container.firstElementChild as HTMLElement;
     expect(bar.className).toContain('flex-nowrap');
-    expect(bar.className).toContain('overflow-x-auto');
+    expect(bar.className).toContain('overflow-hidden');
   });
 
   it('patches statusGroup and resets the page when a pill is clicked', () => {

@@ -25,6 +25,7 @@ import type {
   SyncFormat,
   SyncGlobalVariable,
   SyncJobInstance,
+  SyncJobListParams,
   SyncJSON,
   SyncPluginFactoryInfo,
   SyncPluginType,
@@ -39,6 +40,7 @@ export type DraftSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 import type {CustomVariableItem} from './CustomVariableDialog';
 import type {TaskScheduleValue} from './TaskScheduleSidebarPanel';
 import {formatDateTimeTz} from '@/lib/timezone';
+import {isReservedBuiltinVariableKey} from './builtin-time-variables';
 
 // ==========================================
 // 状态与类型定义
@@ -136,6 +138,20 @@ export interface UserFacingErrorState {
 const ENGINE_CONNECTOR_MISSING_PATTERN =
   /Unable to create a (source|sink|transform) for identifier '([^']+)'/i;
 
+// 压平异常链的分层标记；有链时只认某一层确实报「找不到插件」的确定信号，否则深层原因
+// （如 JDBC 连不通）被 API-06 外层措辞包成同一句，不能算缺连接器。
+// Chain-layer markers for flattened exceptions; with a chain present, only a definitive
+// "plugin absent" signal in some layer counts — otherwise a deeper cause (e.g. JDBC
+// unreachable) wrapped in the same API-06 wording must not read as a missing connector.
+const CAUSED_BY_SPLIT = /\s*\|?\s*caused by:/i;
+const PLUGIN_ABSENT_PATTERNS = [
+  /could not find any factor/i,
+  /no factory found for identifier/i,
+  /pluginidentifier[^\n]*not found/i,
+  /not found[^\n]*(?:factor|plugin)|(?:factor|plugin)[^\n]*not found/i,
+  /连接器未安装/,
+];
+
 export interface ConnectorMissingInfo {
   pluginType: 'source' | 'sink' | 'transform';
   identifier: string;
@@ -151,6 +167,15 @@ export function parseConnectorMissingError(
 ): ConnectorMissingInfo | null {
   const match = ENGINE_CONNECTOR_MISSING_PATTERN.exec(message);
   if (match) {
+    const segments = message.split(CAUSED_BY_SPLIT);
+    if (
+      segments.length > 1 &&
+      !segments.some(segment =>
+        PLUGIN_ABSENT_PATTERNS.some(pattern => pattern.test(segment)),
+      )
+    ) {
+      return null;
+    }
     return {
       pluginType: match[1].toLowerCase() as ConnectorMissingInfo['pluginType'],
       identifier: match[2],
@@ -1851,20 +1876,20 @@ export function isNodeMatchingScope(
     return true;
   }
 
-  const isOwner =
-    Boolean(node.is_owner) ||
-    (Boolean(currentUserId) && node.created_by === currentUserId);
+  // 「我的」按真实创建人判定：后端 is_owner 对管理员恒为 true（可管理语义），不能用作"我创建的"依据。
+  // "Mine" keys off the real creator: backend is_owner is always true for admins (manage semantics), so it can't mean "created by me".
+  const isMine =
+    Boolean(currentUserId) && node.created_by === currentUserId;
   const isCollaborator = Boolean(node.is_collaborator);
-  // 公开任务：若未显式设为 false，则为公开任务
-  const isPublic = node.is_public !== false;
 
   if (scope === 'only_mine') {
-    return isOwner;
+    return isMine;
   }
 
   if (scope === 'mine_and_public') {
-    // 公开任务也属于自己任务
-    return isOwner || isCollaborator || isPublic;
+    // 「我的」= 我创建 + 我协作；他人公开任务不归我，留在「全部」看（保留 scope 值兼容 localStorage 存档）。
+    // "Mine" = created-by-me + collaborated; others' public tasks stay under "All" (scope key kept for localStorage compat).
+    return isMine || isCollaborator;
   }
 
   return true;
@@ -1926,56 +1951,9 @@ export function detectVariables(content: string): string[] {
   ).sort();
 }
 
-export function isReservedBuiltinVariableKey(key: string): boolean {
-  const trimmed = key.trim();
-  if (!trimmed) {
-    return false;
-  }
-  const fixed = new Set([
-    'system.biz.date',
-    'system.biz.curdate',
-    'system.datetime',
-    'system.task.execute.path',
-    'system.task.instance.id',
-    'system.task.definition.name',
-    'system.task.definition.code',
-    'system.workflow.instance.id',
-    'system.workflow.definition.name',
-    'system.workflow.definition.code',
-    'system.project.name',
-    'system.project.code',
-  ]);
-  if (fixed.has(trimmed) || trimmed.startsWith('system.')) {
-    return true;
-  }
-
-  // 内置时间函数调用校验，如 add_months(yyyyMMdd, -1)
-  if (
-    /^(add_months|this_day|last_day|year_week|month_first_day|month_last_day|week_first_day|week_last_day)\s*\(.*\)$/i.test(
-      trimmed,
-    )
-  ) {
-    return true;
-  }
-
-  // 校验是否为时间格式占位模式（如 yyyyMMdd、yyyy-MM-dd、yyyyMMdd-1 等）
-  // 必须包含标准日期占位符（yyyy、MM、dd、HH、mm、ss），且剔除日期占位符和分隔符/偏移量后不得含有普通英文标识符
-  const offsetMatch = trimmed.match(/^(.+?)([+-])([0-9*/. ]+)$/);
-  const formatExpr = offsetMatch ? offsetMatch[1].trim() : trimmed;
-  const dateTokens = ['yyyy', 'MM', 'dd', 'HH', 'mm', 'ss'];
-  const hasDateToken = dateTokens.some((token) => formatExpr.includes(token));
-  if (!hasDateToken) {
-    return false;
-  }
-
-  const stripped = formatExpr.replace(/yyyy|MM|dd|HH|mm|ss/g, '');
-  if (/[a-zA-Z]/.test(stripped)) {
-    // 包含其他英文字符（如 mysqlpass234 中的 pass、password、address 等），为普通变量名
-    return false;
-  }
-
-  return true;
-}
+// 单一实现移至 builtin-time-variables.ts（叶子模块，避免与 CustomVariableDialog 形成环）
+// Canonical implementation moved to builtin-time-variables.ts (leaf module, avoids a cycle with CustomVariableDialog)
+export {isReservedBuiltinVariableKey};
 
 // 校验自定义变量列表的合法性（保留字与重名检查）
 // Validate custom variable rows (check reserved keywords and duplicates)
@@ -2056,6 +2034,84 @@ export function hasDuplicateWorkspaceName(
   return listSiblingNames(tree, parentId, excludeId).includes(normalized);
 }
 
+// 从 "submit job failed: status=NNN body={...}" 的 body JSON 中取出引擎返回的 message 字段
+// Pull the engine-returned "message" field out of a "submit job failed ... body={...}" envelope
+function extractEngineBodyMessage(raw: string): string | null {
+  const match = raw.match(/body=\s*(\{[\s\S]*\})\s*$/);
+  if (!match) {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(match[1]);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as {message?: unknown}).message === 'string'
+    ) {
+      return (parsed as {message: string}).message;
+    }
+  } catch {
+    // 非 JSON body（如纯文本错误）直接返回 null
+    // Non-JSON body (plain-text errors) just returns null
+  }
+  return null;
+}
+
+// FQCN 类名缩写为简单名，提升错误可读性
+// Shorten fully-qualified class names to simple names for readability
+function shortenExceptionNames(text: string): string {
+  return text.replace(/\b(?:[a-zA-Z_$][\w$]*\.){2,}([A-Z][\w$]*)/g, '$1');
+}
+
+// 堆栈区展示解码后的引擎堆栈（真实换行），信封行保留作上下文
+// Stacktrace view shows the decoded engine stack (real newlines); the envelope line stays as context
+function formatRawForDisplay(raw: string, engineMessage: string): string {
+  if (!engineMessage) {
+    return raw;
+  }
+  const head = raw
+    .slice(0, Math.max(0, raw.indexOf('body=')))
+    .replace(/[:=]\s*$/, '')
+    .trim();
+  return head ? `${head}\n\n${engineMessage}` : engineMessage;
+}
+
+// 提取堆栈中最深一层的 Caused by 内容；没有 caused-by 层时返回 null
+// Extract the deepest "Caused by" payload from a stacktrace; null when absent
+function extractDeepestCause(text: string): string | null {
+  // 最后一次 "caused by" 才是最深层；单行 "a | caused by: A | caused by: B" 与 Java 多行堆栈同适用
+  // The last "caused by" is the deepest; covers both single-line pipe form and multi-line Java stacks
+  const idx = text.toLowerCase().lastIndexOf('caused by:');
+  if (idx < 0) {
+    return null;
+  }
+  const value = text
+    .slice(idx + 'caused by:'.length)
+    .split(/\r?\n/, 1)[0]
+    .trim();
+  return value || null;
+}
+
+// 把引擎堆栈压缩成 "外层错误描述 — 最深层原因" 的一句话摘要
+// Condense an engine stacktrace into an "outer error — deepest cause" one-liner
+function summarizeEngineMessage(message: string, fallback: string): string {
+  const lines = message
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('at '));
+  if (lines.length === 0) {
+    return fallback;
+  }
+  const firstLine = shortenExceptionNames(lines[0]);
+  const outer =
+    firstLine.match(/ErrorDescription:\[([^\]]+)\]/)?.[1]?.trim() || firstLine;
+  const deepest = extractDeepestCause(message);
+  const deepestShort = deepest ? shortenExceptionNames(deepest) : '';
+  return deepestShort && deepestShort !== outer
+    ? `${outer} — ${deepestShort}`
+    : outer;
+}
+
 export function formatSyncUserFacingError(
   error: unknown,
   fallbackTitle: string,
@@ -2068,8 +2124,34 @@ export function formatSyncUserFacingError(
       ? String((error as {errorCode?: unknown}).errorCode ?? '')
       : '';
 
-  // 0. 集群缺连接器：预览会注入 Http sink，用户没写过它，需要单独说明是预览本身依赖 HTTP 连接器。
-  // 0. Cluster lacks a connector: preview injects an Http sink the user never wrote, so say preview itself needs it.
+  // 清洗引擎或包装层的套娃前缀
+  // Clean nested wrapper prefixes from engine or RPC layers
+  const cleanMessage = rawMessage
+    .replace(/^sync:\s*/, '')
+    .replace(/^java\.lang\.RuntimeException:\s*/, '')
+    .replace(/^org\.apache\.seatunnel\.common\.exception\.\w+:\s*/, '')
+    .trim();
+
+  // 0. 连接器已安装但引擎初始化失败：必须先于缺连接器判定——消息尾部仍带 "Unable to create"
+  // 措辞，不挡掉会被当成缺插件误报；真实 cause 只在引擎 master 日志里。
+  // 0. Installed-but-init-failed must precede the missing-connector check — the message tail
+  // still carries "Unable to create" wording and would otherwise misread as a missing plugin;
+  // the real cause only exists in the engine master log.
+  if (
+    errorCode === 'connector_init_failed' ||
+    /is installed on the cluster but the engine failed to initialize/i.test(rawMessage)
+  ) {
+    return {
+      title: t('connectorInitFailedTitle'),
+      description: cleanMessage || rawMessage,
+      category: 'runtime',
+      suggestion: t('connectorInitFailedSuggestion'),
+      raw: rawMessage,
+    };
+  }
+
+  // 0.1 集群缺连接器：预览会注入 Http sink，用户没写过它，需要单独说明是预览本身依赖 HTTP 连接器。
+  // 0.1 Cluster lacks a connector: preview injects an Http sink the user never wrote, so say preview itself needs it.
   const missingConnector = parseConnectorMissingError(rawMessage, errorCode);
   if (missingConnector) {
     const previewSink =
@@ -2095,14 +2177,6 @@ export function formatSyncUserFacingError(
       },
     };
   }
-  // 清洗引擎或包装层的套娃前缀
-  // Clean nested wrapper prefixes from engine or RPC layers
-  const cleanMessage = rawMessage
-    .replace(/^sync:\s*/, '')
-    .replace(/^java\.lang\.RuntimeException:\s*/, '')
-    .replace(/^org\.apache\.seatunnel\.common\.exception\.\w+:\s*/, '')
-    .trim();
-
   // 1. 未发布版本检查（运行 / 恢复 / 定时等正式入口要求至少发布一次）
   // Unpublished gate: run / recover / schedule require at least one published version.
   if (rawMessage.includes('sync: task has not been published')) {
@@ -2144,76 +2218,105 @@ export function formatSyncUserFacingError(
     };
   }
 
-  // 2. 库表未找到或 Schema 映射失败
-  if (
-    /table.*(?:doesn't exist|not found|resolution failed)/i.test(cleanMessage) ||
-    /Unknown table/i.test(cleanMessage) ||
-    /schema.*not found/i.test(cleanMessage)
-  ) {
-    return {
-      title: fallbackTitle,
-      description: cleanMessage,
-      category: 'schema',
-      suggestion: '请核对任务配置中的 Source/Sink 库表名（database-names / table-names）是否拼写正确，并确认目标库中该表确实已创建。',
-      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
-    };
-  }
+  // 引擎返回的堆栈解包为 "外层简述 — 最深层 Caused by" 摘要；分类探测先走最深原因，
+  // 中间层包装措辞（如 Failed connecting）不得盖过真实根因，没命中再退回整条消息保持原有匹配宽度。
+  // Engine stacktraces unwrap to an "outer — deepest Caused-by" summary; classification probes
+  // the deepest cause first so intermediate wrappers can't mask the real root cause, then falls
+  // back to the whole message to preserve the original match breadth.
+  const engineBodyMessage = extractEngineBodyMessage(rawMessage) ?? '';
+  const description = summarizeEngineMessage(
+    engineBodyMessage || cleanMessage,
+    cleanMessage,
+  );
+  const raw =
+    rawMessage !== description
+      ? formatRawForDisplay(rawMessage, engineBodyMessage)
+      : undefined;
+  const probes = [
+    engineBodyMessage ? extractDeepestCause(engineBodyMessage) : null,
+    cleanMessage,
+  ].filter((probe): probe is string => Boolean(probe));
 
-  // 3. 网络连通性或超时
-  if (
-    /connection.*(?:refused|timed out|reset)/i.test(cleanMessage) ||
-    /Communications link failure/i.test(cleanMessage) ||
-    /failed to connect/i.test(cleanMessage)
-  ) {
-    return {
-      title: fallbackTitle,
-      description: cleanMessage,
-      category: 'network',
-      suggestion: '请检查目标数据源的主机地址（Host）和端口（Port）是否可正常连接，确认 SeaTunnel 节点与数据源之间未被安全组或防火墙拦截。',
-      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
-    };
-  }
+  for (const probe of probes) {
+    // 2. 库表未找到或 Schema 映射失败（只认明确的表缺失措辞："resolution failed" 会误吞
+    // tablePath 解析里的连接/驱动等深层失败，不再归为库表问题）
+    // Table/schema mismatch — only explicit table-missing wording counts; "resolution failed"
+    // would mislabel deeper tablePath failures (connect/driver) as schema problems.
+    if (
+      /table[^\n]*(?:doesn't exist|does not exist)/i.test(probe) ||
+      /unknown table/i.test(probe) ||
+      /table\s+(?:or\s+view\s+)?not\s+found/i.test(probe) ||
+      /schema.*not found/i.test(probe)
+    ) {
+      return {
+        title: fallbackTitle,
+        description,
+        category: 'schema',
+        suggestion: '请核对任务配置中的 Source/Sink 库表名（database-names / table-names）是否拼写正确，并确认目标库中该表确实已创建。',
+        raw,
+      };
+    }
 
-  // 4. 账号认证或权限
-  if (
-    /access denied/i.test(cleanMessage) ||
-    /authentication failed/i.test(cleanMessage) ||
-    /password/i.test(cleanMessage)
-  ) {
-    return {
-      title: fallbackTitle,
-      description: cleanMessage,
-      category: 'auth',
-      suggestion: '请检查数据源连接配置中的用户名与密码，确认该账号已被授予目标数据库的访问及数据读写权限。',
-      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
-    };
-  }
+    // 3. 网络连通性或超时
+    if (
+      /connection.*(?:refused|timed out|reset)/i.test(probe) ||
+      /Communications link failure/i.test(probe) ||
+      /failed connect/i.test(probe)
+    ) {
+      return {
+        title: fallbackTitle,
+        description,
+        category: 'network',
+        suggestion: '请检查目标数据源的主机地址（Host）和端口（Port）是否可正常连接，确认 SeaTunnel 节点与数据源之间未被安全组或防火墙拦截。',
+        raw,
+      };
+    }
 
-  // 5. HOCON 语法结构错误（含后端 humanize 的「未加双引号的 {{变量}} 或未闭合括号」歧义提示，按语法错误展示）
-  // HOCON syntax/structure errors — including the backend humanized ambiguous hint that mentions
-  // unquoted "{{变量}}" OR unmatched braces; keep those as syntax errors, not undefined variables.
-  if (
-    /configparsefailed/i.test(cleanMessage) ||
-    /配置解析失败/i.test(cleanMessage) ||
-    /ConfigException/i.test(cleanMessage) ||
-    /syntax error/i.test(cleanMessage) ||
-    /expecting/i.test(cleanMessage)
-  ) {
-    return {
-      title: t('configParseFailedTitle'),
-      description: cleanMessage,
-      category: 'syntax',
-      suggestion: '请检查任务配置的语法结构，特别注意大括号、中括号成对匹配以及字符串引号闭合情况。',
-      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
-    };
+    // 4. 账号认证或权限（只认明确的认证失败信号；裸 "password" 会误吞配置/字段类报错）
+    // Auth — only explicit auth-failure signals; a bare "password" would mislabel
+    // config/field errors that merely mention the word.
+    if (
+      /access denied/i.test(probe) ||
+      /authentication failed/i.test(probe) ||
+      /password\s+authentication/i.test(probe) ||
+      /invalid\s+(?:password|credentials?)/i.test(probe) ||
+      /incorrect\s+password/i.test(probe)
+    ) {
+      return {
+        title: fallbackTitle,
+        description,
+        category: 'auth',
+        suggestion: '请检查数据源连接配置中的用户名与密码，确认该账号已被授予目标数据库的访问及数据读写权限。',
+        raw,
+      };
+    }
+
+    // 5. HOCON 语法结构错误（含后端 humanize 的「未加双引号的 {{变量}} 或未闭合括号」歧义提示，按语法错误展示）
+    // HOCON syntax/structure errors — including the backend humanized ambiguous hint that mentions
+    // unquoted "{{变量}}" OR unmatched braces; keep those as syntax errors, not undefined variables.
+    if (
+      /configparsefailed/i.test(probe) ||
+      /配置解析失败/i.test(probe) ||
+      /ConfigException/i.test(probe) ||
+      /syntax error/i.test(probe) ||
+      /expecting/i.test(probe)
+    ) {
+      return {
+        title: t('configParseFailedTitle'),
+        description,
+        category: 'syntax',
+        suggestion: '请检查任务配置的语法结构，特别注意大括号、中括号成对匹配以及字符串引号闭合情况。',
+        raw,
+      };
+    }
   }
 
   // 6. 默认通用/运行时错误
   return {
     title: fallbackTitle,
-    description: cleanMessage || t('unknownError'),
+    description: description || t('unknownError'),
     category: 'runtime',
-    raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
+    raw,
   };
 }
 
@@ -4343,4 +4446,45 @@ function findMatchingBraceOffset(content: string, openIdx: number): number {
     }
   }
   return -1;
+}
+
+/**
+ * 数字输入按 内部 id → platform_job_id → engine_job_id 的顺序精确匹配作业，
+ * 顶栏快速打开的建议列表与 Enter 定位共用同一路由。`#` 前缀在此剥除，
+ * 非数字输入直接返回空；`firstOnly` 时首个命中即短路后续查询。
+ * Matches a numeric input exactly against internal id, platform_job_id, then
+ * engine_job_id — shared by the top-bar quick open for remote suggestions and
+ * Enter-to-locate. '#' prefixes are stripped here; non-numeric input returns
+ * []. With `firstOnly` the first hit short-circuits the remaining lookups.
+ */
+export async function findSyncJobsByIdInput(
+  listJobs: (
+    params: SyncJobListParams,
+  ) => Promise<{items?: SyncJobInstance[] | null}>,
+  input: string,
+  options?: {firstOnly?: boolean},
+): Promise<SyncJobInstance[]> {
+  const raw = input.trim().replace(/^#+/, '');
+  if (!/^\d+$/.test(raw)) {
+    return [];
+  }
+  const found: SyncJobInstance[] = [];
+  const seen = new Set<number>();
+  const push = async (params: SyncJobListParams) => {
+    if (options?.firstOnly && found.length) {
+      return;
+    }
+    const data = await listJobs({current: 1, size: 1, ...params});
+    const job = data.items?.[0];
+    if (job && !seen.has(job.id)) {
+      seen.add(job.id);
+      found.push(job);
+    }
+  };
+  if (raw.length <= 10) {
+    await push({job_id: Number(raw)});
+  }
+  await push({platform_job_id: raw});
+  await push({engine_job_id: raw});
+  return found;
 }

@@ -5499,7 +5499,7 @@
     "treeFilterAll": "All",
     "treeFilterMineAndPublic": "Mine",
     "treeFilterOnlyMine": "Created by me",
-    "treeFilterMineAndPublicTooltip": "Your tasks and public tasks. Other people's private tasks stay hidden.",
+    "treeFilterMineAndPublicTooltip": "Tasks you created or collaborate on. See \"All\" for everyone else's.",
     "records": "records",
     "copy": "Copy",
     "locate": "Locate",
@@ -5860,6 +5860,8 @@
     "connectorMissingPreviewDescription": "Preview needs the HTTP connector on the cluster. Preview temporarily swaps the job's sink for an HTTP sink that sends sample rows back to STX, and this cluster does not have it installed yet.",
     "connectorMissingSuggestion": "Install the connector for \"{identifier}\" on this cluster from the plugin market, then run again.",
     "connectorMissingAction": "Install from plugin market",
+    "connectorInitFailedTitle": "Connector failed to initialize",
+    "connectorInitFailedSuggestion": "The connector is installed, but the engine could not initialize it — usually a datasource connectivity, credential, or permission problem. The engine REST reply only carries the outer error; the real cause lives in the cluster Master log. Check the datasource connection settings or inspect the Master log.",
     "connectorType": {
       "source": "source",
       "sink": "sink",
@@ -6169,7 +6171,9 @@
     "remindersPaused": "Reminders stopped",
     "remindersPausedHint": "Recovery could not be confirmed for over 24 hours, so reminders stopped; the alert stays open. Check the job and the event channel.",
     "closeReason_recovered": "Auto-recovered",
-    "closeReason_closed": "Closed manually"
+    "closeReason_closed": "Closed manually",
+    "selectSearchPlaceholder": "Search options",
+    "comboboxEmpty": "No matches"
   },
   "javaHome": {
     "label": "JDK path",
@@ -6570,6 +6574,7 @@
     "diffNotifyDefault": "Default notify",
     "diffNotifyCustom": "Custom notify",
     "switchToGlobalView": "Global default",
-    "globalChannelsSummary": "Inheriting global channels: {targets}"
+    "globalChannelsSummary": "Inheriting global channels: {targets}",
+    "selectSearchPlaceholder": "Search options"
   }
 }

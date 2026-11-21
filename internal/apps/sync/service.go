@@ -58,6 +58,11 @@ type Service struct {
 	executionTargetResolver ExecutionTargetResolver
 	clusterLogProvider      ClusterLogProvider
 	clusterVersionProvider  ClusterVersionProvider
+	// installedPluginProvider 提供集群已安装插件名（installed_plugins），
+	// 用于区分引擎裸 API-06 措辞是真缺连接器还是已安装但初始化失败。
+	// installedPluginProvider lists a cluster's installed plugin names (installed_plugins),
+	// distinguishing a bare engine API-06 wording as genuinely missing vs installed-but-init-failed.
+	installedPluginProvider InstalledPluginProvider
 	// clusterDiscoveryProvider 提供开启外部作业发现的集群；external 保存发现的内存状态。
 	// clusterDiscoveryProvider lists clusters with external discovery on; external holds the discovery state.
 	clusterDiscoveryProvider ClusterDiscoveryProvider
@@ -95,6 +100,12 @@ type ClusterVersionProvider interface {
 	GetClusterVersion(ctx context.Context, clusterID uint) (string, error)
 }
 
+// InstalledPluginProvider lists the platform's installed plugin names for a cluster.
+// InstalledPluginProvider 返回集群已安装插件的 plugin_name 列表。
+type InstalledPluginProvider interface {
+	ListInstalledPluginNames(ctx context.Context, clusterID uint) ([]string, error)
+}
+
 const (
 	defaultPreviewRowLimit       = 100
 	maxPreviewRowLimit           = 10000
@@ -128,6 +139,33 @@ func (s *Service) SetConfigToolClient(client ConfigToolClient) { s.configToolCli
 
 // SetConfigToolResolver sets the java-proxy endpoint resolver.
 func (s *Service) SetConfigToolResolver(resolver ConfigToolResolver) { s.configToolResolver = resolver }
+
+// SetInstalledPluginProvider sets the installed-plugin lister used by submit error classification.
+func (s *Service) SetInstalledPluginProvider(provider InstalledPluginProvider) {
+	s.installedPluginProvider = provider
+}
+
+// classifySubmitError 在引擎归类之上做一层平台交叉验证：installed_plugins 记录该连接器
+// 已安装时，API-06 只能是初始化失败（REST 会剥掉真实 cause），改写为 ConnectorInitFailedError。
+// classifySubmitError adds a platform cross-check over engine classification: when installed_plugins
+// says the connector is installed, API-06 can only be an init failure (REST strips the real cause),
+// so the error becomes ConnectorInitFailedError instead of "missing".
+func (s *Service) classifySubmitError(ctx context.Context, clusterID uint, err error) error {
+	classified := classifyEngineSubmitError(err)
+	var missing *ConnectorMissingError
+	if !errors.As(classified, &missing) || s.installedPluginProvider == nil {
+		return classified
+	}
+	installed, listErr := s.installedPluginProvider.ListInstalledPluginNames(ctx, clusterID)
+	if listErr != nil || !connectorIdentifierInstalled(missing.Identifier, installed) {
+		return classified
+	}
+	return &ConnectorInitFailedError{
+		PluginType: missing.PluginType,
+		Identifier: missing.Identifier,
+		Cause:      missing.Cause,
+	}
+}
 
 // SetJobIDGenerator sets the platform job id generator.
 func (s *Service) SetJobIDGenerator(generator *JobIDGenerator) { s.jobIDGenerator = generator }
@@ -1239,7 +1277,7 @@ func (s *Service) PreviewTask(ctx context.Context, id uint, createdBy uint, opts
 			defer s.trackInflightSubmit(instance.PlatformJobID)()
 			resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{Endpoint: endpoint, Format: previewFormat, JobID: instance.PlatformJobID, JobName: s.previewJobName(task), Body: previewPayload})
 			if err != nil {
-				return nil, classifyEngineSubmitError(err)
+				return nil, s.classifySubmitError(ctx, task.ClusterID, err)
 			}
 			instance.EngineJobID = strings.TrimSpace(resp.JobID)
 			instance.SubmitSpec["engine_api_mode"] = defaultString(resp.APIMode, "v2")
@@ -1756,7 +1794,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 		}
 		defer s.trackInflightSubmit(platformJobID)()
 		resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{Endpoint: endpoint, Format: submitFormat, JobID: platformJobID, JobName: jobName, StartWithSavepoint: startWithSavepoint, Body: submitBody})
-		err = classifyEngineSubmitError(err)
+		err = s.classifySubmitError(ctx, task.ClusterID, err)
 		if err != nil {
 			// 结果未知：先登记 pending 作业交给对账确认，不当作失败，也不登记事件通道预期。
 			// Unknown outcome: record a pending job for reconcile to confirm; not a failure, and no event expectation.

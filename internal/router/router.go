@@ -1021,6 +1021,9 @@ func Serve() {
 			// 初始化插件仓库、服务和处理器
 			pluginRepo := plugin.NewRepository(db.DB(context.Background()))
 			pluginService := plugin.NewService(pluginRepo)
+			// 供 sync 提交错误归类交叉验证「缺连接器」vs「已安装但初始化失败」。
+			// Lets sync submit-error classification cross-check missing vs installed-but-init-failed.
+			syncService.SetInstalledPluginProvider(pluginService)
 			// Inject cluster service for version validation
 			// 注入集群服务用于版本校验
 			pluginService.SetClusterGetter(clusterService)

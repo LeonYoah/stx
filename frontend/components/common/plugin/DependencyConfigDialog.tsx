@@ -282,18 +282,18 @@ export function PluginDependencyConfigSection({
     setUploadVersion((prev) => prev || inferred.version);
   };
 
-  const containerClassName = compact
-    ? 'space-y-4 rounded-xl border bg-muted/20 p-4'
-    : 'space-y-4';
+  // compact 模式用于弹窗内单层平铺，不再套额外卡片边框，由留白和 0.5px 细线分隔各组。
+  // Compact mode renders flat inside the dialog without nested card borders, separating groups with whitespace and 0.5px hairlines.
+  const containerClassName = compact ? 'space-y-0' : 'space-y-4';
 
   return (
     <div
       className={containerClassName}
       data-testid='plugin-custom-dependencies'
     >
-      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+      <div className='flex flex-col gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between'>
         <div className='min-w-0 flex-1 mr-2 flex items-center gap-2'>
-          <h4 className='font-medium'>{t('plugin.configDependency')}</h4>
+          <h4 className='text-sm font-semibold'>{t('plugin.configDependency')}</h4>
           <HelpHint
             label={t('plugin.configDependency')}
             content={t('plugin.configuredDependenciesTip')}
@@ -345,7 +345,7 @@ export function PluginDependencyConfigSection({
       </div>
 
       {showXmlParse && (
-        <div className='space-y-4 rounded-lg border bg-background p-4'>
+        <div className='space-y-4 border-t-[0.5px] border-border/80 py-5'>
           <h5 className='text-sm font-medium'>{t('plugin.parseMavenXml')}</h5>
           <Textarea
             value={mavenXml}
@@ -373,7 +373,7 @@ export function PluginDependencyConfigSection({
       )}
 
       {showAddForm && (
-        <div className='space-y-4 rounded-lg border bg-background p-4'>
+        <div className='space-y-4 border-t-[0.5px] border-border/80 py-5'>
           <div className='flex items-center gap-2'>
             <h5 className='text-sm font-medium'>{t('plugin.addDependencyDesc')}</h5>
             <HelpHint
@@ -438,7 +438,7 @@ export function PluginDependencyConfigSection({
 
       {showUploadForm && (
         <div
-          className='space-y-4 rounded-lg border bg-background p-4'
+          className='space-y-4 border-t-[0.5px] border-border/80 py-5'
           data-testid='plugin-upload-dependency-form'
         >
           <div className='flex items-center gap-2'>
@@ -492,7 +492,7 @@ export function PluginDependencyConfigSection({
             </div>
           </div>
           {uploadFile && (
-            <div className='rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground'>
+            <div className='rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground'>
               {t('plugin.selectedFile')}: {uploadFile.name}
             </div>
           )}
@@ -521,83 +521,85 @@ export function PluginDependencyConfigSection({
         </div>
       )}
 
-      {loading ? (
-        <div className='flex items-center justify-center py-8'>
-          <RefreshCw className='h-6 w-6 animate-spin text-muted-foreground' />
-        </div>
-      ) : dependencies.length === 0 ? (
-        <div className='rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground'>
-          <Package className='mx-auto mb-3 h-10 w-10 opacity-50' />
-          <p>{t('plugin.noDependencies')}</p>
-        </div>
-      ) : (
-        <div className='overflow-x-auto rounded-lg border bg-background'>
-          <Table className='min-w-[980px]'>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('plugin.source')}</TableHead>
-                <TableHead>{t('plugin.groupId')}</TableHead>
-                <TableHead>{t('plugin.artifactId')}</TableHead>
-                <TableHead>{t('plugin.version')}</TableHead>
-                <TableHead>{t('plugin.targetDir')}</TableHead>
-                <TableHead>{t('plugin.fileName')}</TableHead>
-                <TableHead className='w-[80px]'>
-                  {t('common.actions')}
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {dependencies.map((dep) => (
-                <TableRow
-                  key={dep.id}
-                  data-testid={buildCustomDependencyActionId(
-                    'plugin-custom-dependency',
-                    dep.artifact_id,
-                  )}
-                >
-                  <TableCell>
-                    <Badge variant={getSourceBadgeVariant(dep.source_type)}>
-                      {dep.source_type === 'upload'
-                        ? t('plugin.sourceUpload')
-                        : t('plugin.sourceMaven')}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className='font-mono text-xs whitespace-nowrap'>
-                    {dep.group_id}
-                  </TableCell>
-                  <TableCell className='font-mono text-xs whitespace-nowrap'>
-                    {dep.artifact_id}
-                  </TableCell>
-                  <TableCell className='font-mono text-xs whitespace-nowrap'>
-                    {dep.version}
-                  </TableCell>
-                  <TableCell className='font-mono text-xs break-all'>
-                    {dep.target_dir}
-                  </TableCell>
-                  <TableCell className='text-xs break-all'>
-                    {getDependencyFileName(dep)}
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      aria-label={`${t('common.delete')} ${dep.artifact_id}`}
-                      data-testid={buildCustomDependencyActionId(
-                        'plugin-delete-custom-dependency',
-                        dep.artifact_id,
-                      )}
-                      className='text-destructive hover:text-destructive'
-                      onClick={() => handleDeleteDependency(dep)}
-                    >
-                      <Trash2 className='h-4 w-4' />
-                    </Button>
-                  </TableCell>
+      <div className='border-t-[0.5px] border-border/80 pt-5'>
+        {loading ? (
+          <div className='flex items-center justify-center py-8'>
+            <RefreshCw className='h-6 w-6 animate-spin text-muted-foreground' />
+          </div>
+        ) : dependencies.length === 0 ? (
+          <div className='py-10 text-center text-sm text-muted-foreground'>
+            <Package className='mx-auto mb-3 h-10 w-10 opacity-40' />
+            <p>{t('plugin.noDependencies')}</p>
+          </div>
+        ) : (
+          <div className='overflow-x-auto'>
+            <Table className='min-w-[980px] [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('plugin.source')}</TableHead>
+                  <TableHead>{t('plugin.groupId')}</TableHead>
+                  <TableHead>{t('plugin.artifactId')}</TableHead>
+                  <TableHead>{t('plugin.version')}</TableHead>
+                  <TableHead>{t('plugin.targetDir')}</TableHead>
+                  <TableHead>{t('plugin.fileName')}</TableHead>
+                  <TableHead className='w-[80px]'>
+                    {t('common.actions')}
+                  </TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+              </TableHeader>
+              <TableBody>
+                {dependencies.map((dep) => (
+                  <TableRow
+                    key={dep.id}
+                    data-testid={buildCustomDependencyActionId(
+                      'plugin-custom-dependency',
+                      dep.artifact_id,
+                    )}
+                  >
+                    <TableCell>
+                      <Badge variant={getSourceBadgeVariant(dep.source_type)}>
+                        {dep.source_type === 'upload'
+                          ? t('plugin.sourceUpload')
+                          : t('plugin.sourceMaven')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className='font-mono text-xs whitespace-nowrap'>
+                      {dep.group_id}
+                    </TableCell>
+                    <TableCell className='font-mono text-xs whitespace-nowrap'>
+                      {dep.artifact_id}
+                    </TableCell>
+                    <TableCell className='font-mono text-xs whitespace-nowrap'>
+                      {dep.version}
+                    </TableCell>
+                    <TableCell className='font-mono text-xs break-all'>
+                      {dep.target_dir}
+                    </TableCell>
+                    <TableCell className='text-xs break-all'>
+                      {getDependencyFileName(dep)}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        aria-label={`${t('common.delete')} ${dep.artifact_id}`}
+                        data-testid={buildCustomDependencyActionId(
+                          'plugin-delete-custom-dependency',
+                          dep.artifact_id,
+                        )}
+                        className='text-destructive hover:text-destructive'
+                        onClick={() => handleDeleteDependency(dep)}
+                      >
+                        <Trash2 className='h-4 w-4' />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

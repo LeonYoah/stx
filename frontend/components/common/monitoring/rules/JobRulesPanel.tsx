@@ -23,7 +23,7 @@
  * 作业级规则：sync_job 策略列表 + 常驻详情栏 / 抽屉，承载 TaskAlertForm，
  * 保存契约与任务设置页一致（PUT /sync/tasks/:id/alert）。
  */
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Undo2} from 'lucide-react';
 import {NeutralChip, SoftChip} from '@/components/common/layout';
@@ -123,6 +123,10 @@ export function JobRulesPanel({
   const [discardTarget, setDiscardTarget] = useState<
     AlertPolicy | 'close' | null
   >(null);
+  // 名称飞入来源行：仅点击/回车打开时写入，J/K、头部 ↑↓ 与深链不写。
+  // Fly-in origin row: written only on click/Enter open — never by J/K,
+  // header arrows or deep links.
+  const flyOriginRef = useRef<HTMLElement | null>(null);
   useBeforeUnload(formDirty && editing != null);
 
   // 打开动画期间保留最后一次编辑对象，抽屉滑出时表单不先消失。
@@ -421,6 +425,9 @@ export function JobRulesPanel({
       rows[i + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
+      if (policy.task_id && policy.task_id !== editing?.taskId) {
+        flyOriginRef.current = e.currentTarget;
+      }
       openEditor(policy);
     }
   };
@@ -525,6 +532,9 @@ export function JobRulesPanel({
                   ) {
                     return;
                   }
+                  if (policy.task_id && policy.task_id !== editing?.taskId) {
+                    flyOriginRef.current = e.currentTarget;
+                  }
                   openEditor(policy);
                 }}
                 onKeyDown={(e) => onRowKeyDown(e, policy)}
@@ -542,7 +552,10 @@ export function JobRulesPanel({
                   })}
                 />
                 <div className={layout.rowName}>
-                  <span className={cn(layout.name, styles.mono)}>
+                  <span
+                    className={cn(layout.name, styles.mono)}
+                    data-detail-name
+                  >
                     {policy.task_name ?? `#${policy.task_id}`}
                   </span>
                 </div>
@@ -642,6 +655,8 @@ export function JobRulesPanel({
         nav={detailNav}
         wide
         drawerWidth='w-[min(92vw,560px)]'
+        flyOrigin={flyOriginRef}
+        nameSlot='meta'
       >
         {drawerEditing ? (
           drawerEditing.config ? (

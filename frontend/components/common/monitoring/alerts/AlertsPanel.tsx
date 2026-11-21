@@ -317,6 +317,10 @@ export function AlertsPanel({
   // Memory version bumped after saving so row indicators and detail matches recompute.
   const [memoriesVersion, setMemoriesVersion] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
+  // 名称飞入来源行：仅点击/回车打开时写入，J/K、头部 ↑↓ 与深链不写。
+  // Fly-in origin row: written only on click/Enter open — never by J/K,
+  // header arrows or deep links.
+  const flyOriginRef = useRef<HTMLElement | null>(null);
 
   const writeFilters = useCallback(
     (patch: Partial<AlertFilters>, resetPage: boolean) => {
@@ -667,6 +671,9 @@ export function AlertsPanel({
       rows[i + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
+      if (active?.alert_id !== alert.alert_id) {
+        flyOriginRef.current = e.currentTarget;
+      }
       setActive(alert);
     }
   };
@@ -940,6 +947,9 @@ export function AlertsPanel({
                       ) {
                         return;
                       }
+                      if (active?.alert_id !== alert.alert_id) {
+                        flyOriginRef.current = e.currentTarget;
+                      }
                       setActive(alert);
                     }}
                     onKeyDown={(e) => onRowKeyDown(e, alert)}
@@ -961,6 +971,7 @@ export function AlertsPanel({
                         <span
                           className={layout.name}
                           title={displayName(alert)}
+                          data-detail-name
                         >
                           {displayName(alert)}
                         </span>
@@ -1106,6 +1117,8 @@ export function AlertsPanel({
           title={drawerAlert ? displayName(drawerAlert) : ''}
           meta={drawerAlert?.cluster_name}
           nav={detailNav}
+          flyOrigin={flyOriginRef}
+          nameSlot='title'
         >
           {drawerAlert ? (
             <AlertDetailBody

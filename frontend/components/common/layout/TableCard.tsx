@@ -125,6 +125,7 @@ export function TableCard({
       )}
       style={{borderRadius: 'var(--radius-panel)'}}
       aria-busy={loading || undefined}
+      data-slot='table-card'
     >
       {/* 刷新时旧数据保持可读可点，只亮顶部加载条（§4.4 一次等待只有一种提示）。
           On refresh old data stays interactive; only the hairline bar shows. */}
@@ -191,7 +192,10 @@ export function TableCard({
         </div>
       )}
       {pagination ? (
-        <div className='shrink-0 border-t bg-muted/10 px-3 py-2'>
+        <div
+          className='shrink-0 border-t bg-muted/10 px-3 py-2'
+          data-slot='table-card-footer'
+        >
           <Pagination
             currentPage={pagination.currentPage}
             totalPages={pagination.totalPages}

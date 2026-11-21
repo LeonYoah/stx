@@ -1909,13 +1909,13 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         <ArcTabsContent value='configs' className='space-y-4'>
           {activeTab === 'configs' ? (
             <>
-              <EngineEventChannelCard
-                clusterId={clusterId}
-                onConfigChanged={handleConfigChanged}
-              />
               <ClusterConfigs
                 clusterId={clusterId}
                 deploymentMode={cluster.deployment_mode}
+                onConfigChanged={handleConfigChanged}
+              />
+              <EngineEventChannelCard
+                clusterId={clusterId}
                 onConfigChanged={handleConfigChanged}
               />
             </>

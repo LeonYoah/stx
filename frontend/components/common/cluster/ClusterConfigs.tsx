@@ -18,36 +18,85 @@
 'use client';
 
 /**
- * Cluster Configs Component
- * 集群配置组件
+ * 集群配置工作台：采用左侧配置文件清单 + 右侧单层扁平画布（配置预览 + 同页节点同步状态），
+ * 去掉右上角文件下拉框、内部二级 Tab 嵌套与 StatPillsBar，减少跳转步骤。
+ * Cluster configs workbench: left file rail + right flat single-layer surface (content preview +
+ * inline node sync status) without nested tabs, hidden dropdowns, or StatPillsBar.
  */
 
 import {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
-import {Badge} from '@/components/ui/badge';
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select';
-import {AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle} from '@/components/ui/alert-dialog';
-import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
-import {Textarea} from '@/components/ui/textarea';
+import {
+  AlertTriangle,
+  Check,
+  Download,
+  Edit,
+  FileText,
+  FolderSync,
+  GitCompareArrows,
+  History,
+  MoreHorizontal,
+  RefreshCw,
+  Upload,
+  WandSparkles,
+} from 'lucide-react';
+import {Alert as ArcAlert} from '@/components/arc/alert/alert';
+import {Button} from '@/components/arc/button/button';
+import {DropdownMenu as ArcDropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {
+  DirtyCloseDialog,
+  NeutralChip,
+  SoftChip,
+  TableLoadingBar,
+} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
-import {ScrollArea} from '@/components/ui/scroll-area';
+import {Skeleton} from '@/components/ui/skeleton';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {Textarea} from '@/components/ui/textarea';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {toast} from '@/lib/toast';
-import {Settings, RefreshCw, FileText, Server, Check, AlertTriangle, Edit, History, Upload, Download, Loader2, FolderSync, Eye, GitCompareArrows, WandSparkles, Search, MoreHorizontal} from 'lucide-react';
-import {ConfigService} from '@/lib/services/config';
+import {
+  ConfigService,
+  ConfigType,
+  ConfigTypeNames,
+  getConfigTypesForMode,
+  summarizeSyncResult,
+} from '@/lib/services/config';
 import type {ConfigInfo, ConfigVersionInfo} from '@/lib/services/config';
-import {ConfigType, ConfigTypeNames, getConfigTypesForMode, summarizeSyncResult} from '@/lib/services/config';
 import services from '@/lib/services';
 import type {NodeInfo} from '@/lib/services/cluster/types';
-import {EmptyState, StatPillsBar, TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
-import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/components/ui/table';
-import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '@/components/ui/dropdown-menu';
-import {Skeleton} from '@/components/ui/skeleton';
-import {formatDateTimeTz} from '@/lib/timezone';
+import {formatDateTimeMinuteTz, formatDateTimeTz} from '@/lib/timezone';
+import {cn} from '@/lib/utils';
 
 interface ClusterConfigsProps {
   clusterId: number;
@@ -131,7 +180,11 @@ function extractSeatunnelHTTPPort(content: string): number | null {
       httpIndent = null;
       continue;
     }
-    if (seatunnelIndent !== null && key === 'engine' && indent > seatunnelIndent) {
+    if (
+      seatunnelIndent !== null &&
+      key === 'engine' &&
+      indent > seatunnelIndent
+    ) {
       engineIndent = indent;
       httpIndent = null;
       continue;
@@ -149,7 +202,11 @@ function extractSeatunnelHTTPPort(content: string): number | null {
   return null;
 }
 
-function shouldWarnSeatunnelPortSync(config: ConfigInfo | null, nextContent: string, syncAfterSave: boolean): boolean {
+function shouldWarnSeatunnelPortSync(
+  config: ConfigInfo | null,
+  nextContent: string,
+  syncAfterSave: boolean,
+): boolean {
   if (!config || config.config_type !== ConfigType.SEATUNNEL) {
     return false;
   }
@@ -191,7 +248,11 @@ function extractHazelcastClusterName(content: string): string | null {
       continue;
     }
 
-    if (inHazelcastSection && key === 'cluster-name' && indent > (topSectionIndent ?? 0)) {
+    if (
+      inHazelcastSection &&
+      key === 'cluster-name' &&
+      indent > (topSectionIndent ?? 0)
+    ) {
       const parsed = value.replace(/^['"]|['"]$/g, '').trim();
       return parsed || null;
     }
@@ -200,8 +261,6 @@ function extractHazelcastClusterName(content: string): string | null {
   return null;
 }
 
-// isHazelcastConfigType 判断配置类型是否为 Hazelcast 节点或客户端配置。
-// isHazelcastConfigType checks if config type is a Hazelcast node or client configuration.
 function isHazelcastConfigType(configType?: ConfigType | null): boolean {
   switch (configType) {
     case ConfigType.HAZELCAST:
@@ -214,9 +273,10 @@ function isHazelcastConfigType(configType?: ConfigType | null): boolean {
   }
 }
 
-// shouldWarnHazelcastClusterNameChange 检查本次保存是否修改了 cluster-name 标识。
-// shouldWarnHazelcastClusterNameChange checks if this save modifies the cluster-name identifier.
-function shouldWarnHazelcastClusterNameChange(config: ConfigInfo | null, nextContent: string): boolean {
+function shouldWarnHazelcastClusterNameChange(
+  config: ConfigInfo | null,
+  nextContent: string,
+): boolean {
   if (!config || !isHazelcastConfigType(config.config_type)) {
     return false;
   }
@@ -225,16 +285,28 @@ function shouldWarnHazelcastClusterNameChange(config: ConfigInfo | null, nextCon
   return nextName !== null && currentName !== null && currentName !== nextName;
 }
 
-export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: ClusterConfigsProps) {
+export function ClusterConfigs({
+  clusterId,
+  deploymentMode,
+  onConfigChanged,
+}: ClusterConfigsProps) {
   const t = useTranslations();
   const [configs, setConfigs] = useState<ConfigInfo[]>([]);
   const [nodes, setNodes] = useState<NodeInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Get available config types based on deployment mode
-  const availableConfigTypes = getConfigTypesForMode(deploymentMode);
-  const [selectedConfigType, setSelectedConfigType] = useState<ConfigType>(availableConfigTypes[0]);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  const availableConfigTypes = useMemo(
+    () => getConfigTypesForMode(deploymentMode),
+    [deploymentMode],
+  );
+  const [selectedConfigType, setSelectedConfigType] = useState<ConfigType>(
+    availableConfigTypes[0],
+  );
+
+  // 编辑弹窗状态与脏态拦截 / Edit dialog state & dirty close guard
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [dirtyCloseOpen, setDirtyCloseOpen] = useState(false);
   const [editingConfig, setEditingConfig] = useState<ConfigInfo | null>(null);
   const [editContent, setEditContent] = useState('');
   const [editComment, setEditComment] = useState('');
@@ -244,62 +316,78 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
   const [clusterNameConfirmOpen, setClusterNameConfirmOpen] = useState(false);
   const [pendingSaveSync, setPendingSaveSync] = useState(false);
   const [repairing, setRepairing] = useState(false);
+
+  // 版本历史弹窗状态 / Version history dialog state
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
   const [versionConfig, setVersionConfig] = useState<ConfigInfo | null>(null);
   const [versions, setVersions] = useState<ConfigVersionInfo[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
-  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
-  const [versionViewMode, setVersionViewMode] = useState<'preview' | 'compare'>('preview');
-  
-  // Init config dialog state
+  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(
+    null,
+  );
+  const [versionViewMode, setVersionViewMode] = useState<'preview' | 'compare'>(
+    'preview',
+  );
+
+  // 初始化弹窗状态 / Init from node dialog state
   const [initDialogOpen, setInitDialogOpen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string>('');
   const [initLoading, setInitLoading] = useState(false);
   const [syncAllLoading, setSyncAllLoading] = useState(false);
   const [logModeSwitching, setLogModeSwitching] = useState(false);
-  // 是否已完成首次加载，避免刷新时整块替换
-  // Whether the first load finished, so refresh does not replace the whole panel
-  const [hasLoaded, setHasLoaded] = useState(false);
-  // 节点配置筛选与搜索 / Node config filter and search
-  const [nodeFilter, setNodeFilter] = useState<'all' | 'matched' | 'mismatched'>('all');
+
+  // 节点筛选状态 / Inline node filter state
+  const [nodeFilter, setNodeFilter] = useState<'all' | 'matched' | 'mismatched'>(
+    'all',
+  );
   const [nodeSearch, setNodeSearch] = useState('');
   const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const reqSeqRef = useRef(0);
 
   const selectedVersion = useMemo(
     () => versions.find((version) => version.id === selectedVersionId) || null,
-    [versions, selectedVersionId]
+    [versions, selectedVersionId],
   );
   const diffRows = useMemo(
-    () => buildDiffRows(versionConfig?.content || '', selectedVersion?.content || ''),
-    [versionConfig?.content, selectedVersion?.content]
+    () =>
+      buildDiffRows(
+        versionConfig?.content || '',
+        selectedVersion?.content || '',
+      ),
+    [versionConfig?.content, selectedVersion?.content],
   );
 
-  // 用 ref 持有回调，避免父组件内联函数导致 loadData 身份抖动、配置 Tab 死循环请求
-  // Hold callback in a ref so parent inline lambdas cannot churn loadData and loop-fetch the configs tab
   const onConfigChangedRef = useRef(onConfigChanged);
   onConfigChangedRef.current = onConfigChanged;
 
-  /** 配置真正变更后，通知存储可视化反向刷新 / After real config mutations, refresh storage views */
   const notifyConfigChanged = useCallback(() => {
     onConfigChangedRef.current?.();
   }, []);
 
   const loadData = useCallback(async () => {
+    const seq = ++reqSeqRef.current;
     setLoading(true);
     try {
       const [configsResult, nodesResult] = await Promise.all([
         ConfigService.getClusterConfigs(clusterId),
         services.cluster.getNodesSafe(clusterId),
       ]);
+      if (seq !== reqSeqRef.current) {
+        return;
+      }
       setConfigs(configsResult || []);
       if (nodesResult.success && nodesResult.data) {
         setNodes(nodesResult.data);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('config.loadError'));
+      if (seq === reqSeqRef.current) {
+        toast.error(err instanceof Error ? err.message : t('config.loadError'));
+      }
     } finally {
-      setHasLoaded(true);
-      setLoading(false);
+      if (seq === reqSeqRef.current) {
+        setHasLoaded(true);
+        setLoading(false);
+      }
     }
   }, [clusterId, t]);
 
@@ -307,18 +395,85 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
     void loadData();
   }, [loadData]);
 
-  const templateConfig = configs.find(c => c.config_type === selectedConfigType && c.is_template);
-  const nodeConfigs = configs.filter(c => c.config_type === selectedConfigType && !c.is_template);
+  // 统计每个配置文件的待同步/异常节点数，在左侧文件清单直接透出
+  // Per-file mismatch/pending counts surfaced directly in the left file rail
+  const fileAlertCountByType = useMemo(() => {
+    const map: Partial<Record<ConfigType, number>> = {};
+    for (const cfg of configs) {
+      if (cfg.is_template) {
+        continue;
+      }
+      if (!cfg.match_template || cfg.sync_status === 'pending_push') {
+        map[cfg.config_type] = (map[cfg.config_type] ?? 0) + 1;
+      }
+    }
+    return map;
+  }, [configs]);
+
+  const templateConfig = useMemo(
+    () =>
+      configs.find(
+        (c) => c.config_type === selectedConfigType && c.is_template,
+      ),
+    [configs, selectedConfigType],
+  );
+  const nodeConfigs = useMemo(
+    () =>
+      configs.filter(
+        (c) => c.config_type === selectedConfigType && !c.is_template,
+      ),
+    [configs, selectedConfigType],
+  );
+
   const isLog4j2 = selectedConfigType === ConfigType.LOG4J2;
   const isPerJobLogMode = Boolean(
     templateConfig?.content &&
-      /rootLogger\.appenderRef\.file\.ref\s*=\s*routingAppender/.test(templateConfig.content)
+      /rootLogger\.appenderRef\.file\.ref\s*=\s*routingAppender/.test(
+        templateConfig.content,
+      ),
   );
+
+  const mismatchedNodeCount = useMemo(
+    () => nodeConfigs.filter((config) => !config.match_template).length,
+    [nodeConfigs],
+  );
+  const filteredNodeConfigs = useMemo(() => {
+    const keyword = nodeSearch.trim().toLowerCase();
+    return nodeConfigs.filter((config) => {
+      const matchesFilter =
+        nodeFilter === 'all' ||
+        (nodeFilter === 'matched' && config.match_template) ||
+        (nodeFilter === 'mismatched' && !config.match_template);
+      if (!matchesFilter) {
+        return false;
+      }
+      if (!keyword) {
+        return true;
+      }
+      const haystack =
+        `${config.host_name || ''} ${config.host_ip || ''}`.toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [nodeConfigs, nodeFilter, nodeSearch]);
+
+  const editDirty = Boolean(
+    editingConfig &&
+      (editContent !== editingConfig.content || editComment.trim().length > 0),
+  );
+
+  const handleSelectFile = (type: ConfigType) => {
+    setSelectedConfigType(type);
+    setNodeFilter('all');
+    setNodeSearch('');
+  };
 
   const handleSwitchLogMode = async (targetMode: 'per_job' | 'mixed') => {
     setLogModeSwitching(true);
     try {
-      const res = await services.cluster.switchJobLogModeSafe(clusterId, targetMode);
+      const res = await services.cluster.switchJobLogModeSafe(
+        clusterId,
+        targetMode,
+      );
       if (!res.success) {
         toast.error(res.error || t('config.switchLogModeError'));
         return;
@@ -326,35 +481,18 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
       toast.success(
         targetMode === 'per_job'
           ? t('config.switchToPerJobSuccess')
-          : t('config.switchToMixedSuccess')
+          : t('config.switchToMixedSuccess'),
       );
       await loadData();
-      onConfigChanged?.();
+      notifyConfigChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('config.switchLogModeError'));
+      toast.error(
+        err instanceof Error ? err.message : t('config.switchLogModeError'),
+      );
     } finally {
       setLogModeSwitching(false);
     }
   };
-
-  const mismatchedNodeCount = nodeConfigs.filter((config) => !config.match_template).length;
-  const matchedNodeCount = nodeConfigs.length - mismatchedNodeCount;
-  const keyword = nodeSearch.trim().toLowerCase();
-  // 按对齐状态与主机关键字过滤节点配置 / Filter node configs by alignment and host keyword
-  const filteredNodeConfigs = nodeConfigs.filter((config) => {
-    const matchesFilter =
-      nodeFilter === 'all' ||
-      (nodeFilter === 'matched' && config.match_template) ||
-      (nodeFilter === 'mismatched' && !config.match_template);
-    if (!matchesFilter) {
-      return false;
-    }
-    if (!keyword) {
-      return true;
-    }
-    const haystack = `${config.host_name || ''} ${config.host_ip || ''}`.toLowerCase();
-    return haystack.includes(keyword);
-  });
 
   const handleEdit = (config: ConfigInfo) => {
     setEditingConfig(config);
@@ -363,24 +501,54 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
     setEditDialogOpen(true);
   };
 
+  const requestCloseEditDialog = (nextOpen: boolean) => {
+    if (nextOpen) {
+      setEditDialogOpen(true);
+      return;
+    }
+    if (saving) {
+      return;
+    }
+    if (editDirty) {
+      setDirtyCloseOpen(true);
+      return;
+    }
+    setEditDialogOpen(false);
+  };
+
   const beginSave = async (syncAfterSave = false) => {
-    if (!editingConfig) {return;}
+    if (!editingConfig) {
+      return;
+    }
     setSaveMode(syncAfterSave ? 'save-and-sync' : 'save');
     setSaving(true);
     try {
-      const result = await ConfigService.updateConfig(editingConfig.id, {content: editContent, comment: editComment || undefined});
+      const result = await ConfigService.updateConfig(editingConfig.id, {
+        content: editContent,
+        comment: editComment || undefined,
+      });
       if (syncAfterSave && editingConfig.is_template) {
-        const syncResult = await ConfigService.syncTemplateToAllNodes(clusterId, editingConfig.config_type);
+        const syncResult = await ConfigService.syncTemplateToAllNodes(
+          clusterId,
+          editingConfig.config_type,
+        );
         const summary = summarizeSyncResult(syncResult);
         if (summary.kind === 'partial') {
-          toast.warning(t('config.saveAndSyncSuccessWithPushErrors', {count: summary.count, nodes: summary.nodes}));
+          toast.warning(
+            t('config.saveAndSyncSuccessWithPushErrors', {
+              count: summary.count,
+              nodes: summary.nodes,
+            }),
+          );
         } else if (summary.kind === 'success') {
           toast.success(t('config.saveAndSyncSuccess', {count: summary.count}));
         } else {
           toast.success(t('config.saveAndSyncSuccessNoChanges'));
         }
       } else if (result.push_error) {
-        toast.warning(t('config.saveSuccessWithPushError', {error: result.push_error}));
+        toast.warning(
+          t('config.saveSuccessWithPushError', {error: result.push_error}),
+        );
       } else {
         toast.success(t('config.saveSuccess'));
       }
@@ -402,7 +570,9 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
       setClusterNameConfirmOpen(true);
       return;
     }
-    if (shouldWarnSeatunnelPortSync(editingConfig, editContent, syncAfterSave)) {
+    if (
+      shouldWarnSeatunnelPortSync(editingConfig, editContent, syncAfterSave)
+    ) {
       setPendingSaveSync(syncAfterSave);
       setPortChangeConfirmOpen(true);
       return;
@@ -423,7 +593,9 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
       setEditContent(normalized);
       toast.success(t('config.smartRepairSuccess'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('config.smartRepairFailed'));
+      toast.error(
+        err instanceof Error ? err.message : t('config.smartRepairFailed'),
+      );
     } finally {
       setRepairing(false);
     }
@@ -440,18 +612,27 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
       setVersions(versionList);
       setSelectedVersionId(versionList[0]?.id ?? null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('config.loadVersionsFailed'));
+      toast.error(
+        err instanceof Error ? err.message : t('config.loadVersionsFailed'),
+      );
     } finally {
       setLoadingVersions(false);
     }
   };
 
   const handleRollback = async (version: number) => {
-    if (!versionConfig) {return;}
+    if (!versionConfig) {
+      return;
+    }
     try {
-      const result = await ConfigService.rollbackConfig(versionConfig.id, {version, comment: `Rollback to v${version}`});
+      const result = await ConfigService.rollbackConfig(versionConfig.id, {
+        version,
+        comment: `Rollback to v${version}`,
+      });
       if (result.push_error) {
-        toast.warning(t('config.rollbackSuccessWithPushError', {error: result.push_error}));
+        toast.warning(
+          t('config.rollbackSuccessWithPushError', {error: result.push_error}),
+        );
       } else {
         toast.success(t('config.rollbackSuccess'));
       }
@@ -459,41 +640,46 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
       await loadData();
       notifyConfigChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('config.rollbackFailed'));
+      toast.error(
+        err instanceof Error ? err.message : t('config.rollbackFailed'),
+      );
     }
-  };
-
-  const handlePreviewVersion = (versionId: number) => {
-    setSelectedVersionId(versionId);
-    setVersionViewMode('preview');
-  };
-
-  const handleCompareVersion = (versionId: number) => {
-    setSelectedVersionId(versionId);
-    setVersionViewMode('compare');
   };
 
   const handlePromote = async (config: ConfigInfo) => {
     try {
-      const promoteResult = await ConfigService.promoteConfig(config.id, {comment: t('config.promoteComment')});
+      const promoteResult = await ConfigService.promoteConfig(config.id, {
+        comment: t('config.promoteComment'),
+      });
       const summary = summarizeSyncResult(promoteResult);
       if (summary.kind === 'partial') {
-        toast.warning(t('config.promoteSuccessWithPushErrors', {count: summary.count, nodes: summary.nodes}));
+        toast.warning(
+          t('config.promoteSuccessWithPushErrors', {
+            count: summary.count,
+            nodes: summary.nodes,
+          }),
+        );
       } else {
         toast.success(t('config.promoteSuccess'));
       }
       await loadData();
       notifyConfigChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('config.promoteFailed'));
+      toast.error(
+        err instanceof Error ? err.message : t('config.promoteFailed'),
+      );
     }
   };
 
   const handleSyncFromTemplate = async (config: ConfigInfo) => {
     try {
-      const result = await ConfigService.syncFromTemplate(config.id, {comment: t('config.syncComment')});
+      const result = await ConfigService.syncFromTemplate(config.id, {
+        comment: t('config.syncComment'),
+      });
       if (result.push_error) {
-        toast.warning(t('config.syncSuccessWithPushError', {error: result.push_error}));
+        toast.warning(
+          t('config.syncSuccessWithPushError', {error: result.push_error}),
+        );
       } else {
         toast.success(t('config.syncSuccess'));
       }
@@ -516,14 +702,18 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
       toast.error(t('config.selectNodeFirst'));
       return;
     }
-    const node = nodes.find(n => n.id === Number(selectedNodeId));
+    const node = nodes.find((n) => n.id === Number(selectedNodeId));
     if (!node) {
       toast.error(t('config.nodeNotFound'));
       return;
     }
     setInitLoading(true);
     try {
-      await ConfigService.initClusterConfigs(clusterId, node.host_id, node.install_dir);
+      await ConfigService.initClusterConfigs(
+        clusterId,
+        node.host_id,
+        node.install_dir,
+      );
       toast.success(t('config.initSuccess'));
       setInitDialogOpen(false);
       await loadData();
@@ -536,13 +726,23 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
   };
 
   const handleSyncToAllNodes = async () => {
-    if (!templateConfig) {return;}
+    if (!templateConfig) {
+      return;
+    }
     setSyncAllLoading(true);
     try {
-      const result = await ConfigService.syncTemplateToAllNodes(clusterId, selectedConfigType);
+      const result = await ConfigService.syncTemplateToAllNodes(
+        clusterId,
+        selectedConfigType,
+      );
       const summary = summarizeSyncResult(result);
       if (summary.kind === 'partial') {
-        toast.warning(t('config.syncAllSuccessWithPushErrors', {count: summary.count, nodes: summary.nodes}));
+        toast.warning(
+          t('config.syncAllSuccessWithPushErrors', {
+            count: summary.count,
+            nodes: summary.nodes,
+          }),
+        );
       } else if (summary.kind === 'success') {
         toast.success(t('config.syncAllSuccess', {count: summary.count}));
       } else {
@@ -551,403 +751,564 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
       await loadData();
       notifyConfigChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('config.syncAllFailed'));
+      toast.error(
+        err instanceof Error ? err.message : t('config.syncAllFailed'),
+      );
     } finally {
       setSyncAllLoading(false);
     }
   };
 
   return (
-    <Card data-testid="cluster-configs-root" className="border rounded-xl relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[480px]">
+    <section
+      data-testid='cluster-configs-root'
+      className='relative overflow-hidden rounded-(--radius-panel) border border-(--border) bg-card'
+    >
       <TableLoadingBar loading={loading && hasLoaded} />
-      <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <CardTitle className="flex items-center gap-2">
-          <Settings className="h-5 w-5" />
-          {t('config.title')}
-        </CardTitle>
-        <div className="flex items-center gap-2">
-          <Select value={selectedConfigType} onValueChange={(v) => {
-            setSelectedConfigType(v as ConfigType);
-            setNodeFilter('all');
-            setNodeSearch('');
-          }}>
-            <SelectTrigger className="w-[200px]" data-testid="cluster-configs-type-select"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {availableConfigTypes.map((type) => (
-                <SelectItem key={type} value={type}>{ConfigTypeNames[type]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="sm" onClick={handleOpenInitDialog} disabled={loading || nodes.length === 0} data-testid="cluster-configs-init-button" title={t('config.tipInit')}>
-            <FolderSync className="h-4 w-4 mr-1" />
-            {t('config.initFromNode')}
-          </Button>
-          <Button variant="outline" size="icon" onClick={loadData} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {loading && !hasLoaded ? (
-          <div className="space-y-3 py-2">
-            <Skeleton className="h-8 w-64" />
-            <Table>
-              <TableBody>
-                <TableSkeletonRows columns={5} rows={4} />
-              </TableBody>
-            </Table>
+
+      {loading && !hasLoaded ? (
+        <div className='grid min-h-[480px] lg:grid-cols-[232px_minmax(0,1fr)]'>
+          <div className='space-y-2 border-b-[0.5px] border-border/80 p-4 lg:border-r-[0.5px] lg:border-b-0'>
+            <Skeleton className='h-4 w-24' />
+            <Skeleton className='h-8 w-full' />
+            <Skeleton className='h-8 w-full' />
+            <Skeleton className='h-8 w-full' />
+            <Skeleton className='h-8 w-full' />
           </div>
-        ) : configs.length === 0 ? (
-          <EmptyState icon={FileText} title={t('config.noConfigs')} description={t('config.initHint')}>
-            {nodes.length > 0 && (
-              <Button variant="outline" onClick={handleOpenInitDialog}>
-                <FolderSync className="h-4 w-4 mr-2" />
-                {t('config.initFromNode')}
-              </Button>
-            )}
-          </EmptyState>
-        ) : (
-          <div className={loading ? 'opacity-60 pointer-events-none transition-opacity duration-200' : ''}>
-          <Tabs defaultValue="template" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="template" className="flex items-center gap-2" data-testid="cluster-configs-tab-template">
-                <FileText className="h-4 w-4" />{t('config.clusterTemplate')}
-              </TabsTrigger>
-              <TabsTrigger value="nodes" className="flex items-center gap-2" data-testid="cluster-configs-tab-nodes">
-                <Server className="h-4 w-4" />{t('config.nodeConfigs')}
-                {nodeConfigs.length > 0 && <Badge variant="secondary" className="ml-1">{nodeConfigs.length}</Badge>}
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="template" className="mt-4">
-              {templateConfig && mismatchedNodeCount > 0 && (
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200" data-testid="cluster-configs-pending-sync">
-                  <span className="font-medium">{t('config.pendingSyncTitle', {count: mismatchedNodeCount})}</span>
-                  <Button variant="outline" size="sm" onClick={handleSyncToAllNodes} disabled={syncAllLoading} data-testid="cluster-configs-template-sync-all-banner">
-                    {syncAllLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+          <div className='space-y-4 p-5'>
+            <Skeleton className='h-7 w-64' />
+            <Skeleton className='h-72 w-full' />
+            <Skeleton className='h-24 w-full' />
+          </div>
+        </div>
+      ) : configs.length === 0 ? (
+        <div className='px-6 py-12'>
+          <EmptyState
+            icon={<FileText />}
+            title={t('config.noConfigs')}
+            description={t('config.initHint')}
+            action={
+              nodes.length > 0 ? (
+                <Button
+                  type='button'
+                  size='sm'
+                  onClick={handleOpenInitDialog}
+                  data-testid='cluster-configs-init-button'
+                >
+                  <FolderSync className='size-3.5' aria-hidden />
+                  {t('config.initFromNode')}
+                </Button>
+              ) : undefined
+            }
+          />
+        </div>
+      ) : (
+        <div className='grid min-h-[520px] lg:grid-cols-[232px_minmax(0,1fr)]'>
+          {/* 左侧配置文件清单：平铺全部文件并透出未对齐节点数 / Left file rail with per-file drift indicator */}
+          <aside className='flex flex-col border-b-[0.5px] border-border/80 lg:border-r-[0.5px] lg:border-b-0'>
+            <div className='flex items-center justify-between gap-2 border-b-[0.5px] border-border/80 px-4 py-3'>
+              <span className='text-xs font-semibold text-foreground'>
+                {t('config.title')}
+              </span>
+              <div className='flex items-center gap-1'>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      iconOnly
+                      onClick={handleOpenInitDialog}
+                      disabled={loading || nodes.length === 0}
+                      data-testid='cluster-configs-init-button'
+                      aria-label={t('config.initFromNode')}
+                    >
+                      <FolderSync className='size-3.5' aria-hidden />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side='bottom' className='max-w-xs text-xs'>
+                    {t('config.initFromNode')} — {t('config.tipInit')}
+                  </TooltipContent>
+                </Tooltip>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  size='sm'
+                  iconOnly
+                  onClick={() => void loadData()}
+                  disabled={loading}
+                  aria-label={t('common.refresh')}
+                  title={t('common.refresh')}
+                >
+                  <RefreshCw
+                    className={`size-3.5 ${loading ? 'animate-spin' : ''}`}
+                    aria-hidden
+                  />
+                </Button>
+              </div>
+            </div>
+
+            <nav
+              className='flex gap-1 overflow-x-auto p-2 lg:flex-col lg:overflow-x-visible'
+              aria-label={t('config.title')}
+              data-testid='cluster-configs-file-list'
+            >
+              {availableConfigTypes.map((type) => {
+                const active = type === selectedConfigType;
+                const alertCount = fileAlertCountByType[type] ?? 0;
+                return (
+                  <button
+                    key={type}
+                    type='button'
+                    onClick={() => handleSelectFile(type)}
+                    data-testid={`cluster-configs-file-${type}`}
+                    aria-current={active ? 'page' : undefined}
+                    className={cn(
+                      'flex shrink-0 items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left font-mono text-xs transition-colors lg:w-full',
+                      active
+                        ? 'bg-muted font-semibold text-foreground'
+                        : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                    )}
+                  >
+                    <span className='truncate'>{ConfigTypeNames[type]}</span>
+                    {alertCount > 0 ? (
+                      <SoftChip
+                        tone='amber'
+                        className='shrink-0 px-1.5 text-[10px]'
+                      >
+                        {alertCount}
+                      </SoftChip>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
+
+          {/* 右侧单层工作区：上段配置内容，下段节点同步状态（0.5px 细线分隔，零二级 Tab） */}
+          {/* Right flat single-layer pane: config content above, node sync table below via 0.5px hairline */}
+          <div className='min-w-0 divide-y-[0.5px] divide-border/80'>
+            {/* 顶栏：文件名、版本、更新时间与主次动作 / Top bar */}
+            <div className='flex flex-wrap items-center justify-between gap-3 px-5 py-3.5'>
+              <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                <h3 className='truncate font-mono text-sm font-semibold text-foreground'>
+                  {ConfigTypeNames[selectedConfigType]}
+                </h3>
+                {templateConfig ? (
+                  <>
+                    <NeutralChip className='font-mono tabular-nums'>
+                      v{templateConfig.version}
+                    </NeutralChip>
+                    <span className='font-mono text-xs text-muted-foreground tabular-nums'>
+                      {formatDateTimeMinuteTz(templateConfig.updated_at)}
+                    </span>
+                  </>
+                ) : null}
+              </div>
+
+              {templateConfig ? (
+                <div className='flex flex-wrap items-center gap-1.5'>
+                  <Button
+                    type='button'
+                    variant='secondary'
+                    size='sm'
+                    title={t('config.tipVersions')}
+                    onClick={() => void handleViewVersions(templateConfig)}
+                    data-testid='cluster-configs-template-versions'
+                  >
+                    <History className='size-3.5' aria-hidden />
+                    {t('config.versions')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant={mismatchedNodeCount > 0 ? 'primary' : 'secondary'}
+                    size='sm'
+                    title={t('config.tipSyncAll')}
+                    onClick={() => void handleSyncToAllNodes()}
+                    loading={syncAllLoading}
+                    disabled={nodeConfigs.length === 0}
+                    data-testid='cluster-configs-template-sync-all'
+                  >
+                    <Download className='size-3.5' aria-hidden />
                     {t('config.syncToAllNodes')}
                   </Button>
+                  <Button
+                    type='button'
+                    variant={mismatchedNodeCount > 0 ? 'secondary' : 'primary'}
+                    size='sm'
+                    title={t('config.tipEdit')}
+                    onClick={() => handleEdit(templateConfig)}
+                    data-testid='cluster-configs-template-edit'
+                  >
+                    <Edit className='size-3.5' aria-hidden />
+                    {t('common.edit')}
+                  </Button>
                 </div>
-              )}
-              {templateConfig ? (
-                <div className="space-y-3">
-                  {isLog4j2 && (
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3.5 text-xs">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-foreground">{t('config.jobLogModeTitle')}:</span>
-                          {/* 单 Job 模式的实现说明进 Badge Tooltip，外包 button 让键盘可聚焦；混合模式无补充说明，只显示 Badge */}
-                          {/* Per-job mode details live in the badge tooltip, wrapped in a button so it is keyboard-focusable; mixed mode has no extra note */}
-                          {isPerJobLogMode ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                                  aria-label={`${t('config.jobLogModePerJobBadge')}: ${t('config.jobLogModePerJobTip')}`}
-                                  data-testid="cluster-configs-log-mode-badge-trigger"
-                                >
-                                  <Badge
-                                    variant="outline"
-                                    className="cursor-help border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-700 dark:text-emerald-400"
-                                    data-testid="cluster-configs-log-mode-badge"
-                                  >
-                                    {t('config.jobLogModePerJobBadge')}
-                                  </Badge>
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-xs text-xs">
-                                {t('config.jobLogModePerJobTip')}
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-400"
-                              data-testid="cluster-configs-log-mode-badge"
-                            >
-                              {t('config.jobLogModeMixedBadge')}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-muted-foreground">
-                          {isPerJobLogMode
-                            ? t('config.jobLogModeRestartHint')
-                            : t('config.jobLogModeMixedDesc')}
-                        </p>
-                      </div>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant={isPerJobLogMode ? 'outline' : 'default'}
-                            size="sm"
-                            className="shrink-0"
-                            disabled={logModeSwitching}
-                            onClick={() => handleSwitchLogMode(isPerJobLogMode ? 'mixed' : 'per_job')}
-                          >
-                            {logModeSwitching ? (
-                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                            ) : isPerJobLogMode ? (
-                              <Settings className="mr-1.5 h-3.5 w-3.5" />
-                            ) : (
-                              <WandSparkles className="mr-1.5 h-3.5 w-3.5" />
-                            )}
-                            {isPerJobLogMode
-                              ? t('config.switchToMixedModeBtn')
-                              : t('config.switchToPerJobModeBtn')}
-                          </Button>
-                        </TooltipTrigger>
-                        {!isPerJobLogMode ? (
-                          <TooltipContent side="top" className="max-w-xs text-xs">
-                            {t('config.jobLogModePerJobTip')}
-                          </TooltipContent>
-                        ) : null}
-                      </Tooltip>
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">{t('config.tabTemplateHint')}</p>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">{ConfigTypeNames[selectedConfigType]}</Badge>
-                      <Badge variant="secondary">v{templateConfig.version}</Badge>
-                      <span className="text-sm text-muted-foreground">{formatDateTimeTz(templateConfig.updated_at)}</span>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button variant="outline" size="sm" title={t('config.tipEdit')} onClick={() => handleEdit(templateConfig)} data-testid="cluster-configs-template-edit">
-                        <Edit className="h-4 w-4 mr-1" />{t('common.edit')}
-                      </Button>
-                      <Button variant="outline" size="sm" title={t('config.tipVersions')} onClick={() => handleViewVersions(templateConfig)} data-testid="cluster-configs-template-versions">
-                        <History className="h-4 w-4 mr-1" />{t('config.versions')}
-                      </Button>
-                      <Button variant="outline" size="sm" title={t('config.tipSyncAll')} onClick={handleSyncToAllNodes} disabled={syncAllLoading || nodeConfigs.length === 0} data-testid="cluster-configs-template-sync-all">
-                        {syncAllLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Download className="h-4 w-4 mr-1" />}
+              ) : null}
+            </div>
+
+            {/* 配置内容区 / Config content section */}
+            <div className='space-y-3.5 px-5 py-4'>
+              {templateConfig && mismatchedNodeCount > 0 ? (
+                <div data-testid='cluster-configs-pending-sync'>
+                  <ArcAlert
+                    tone='warning'
+                    title={t('config.pendingSyncTitle', {
+                      count: mismatchedNodeCount,
+                    })}
+                  >
+                    <div className='mt-2'>
+                      <Button
+                        type='button'
+                        variant='secondary'
+                        size='sm'
+                        onClick={() => void handleSyncToAllNodes()}
+                        loading={syncAllLoading}
+                        data-testid='cluster-configs-template-sync-all-banner'
+                      >
+                        <Download className='size-3.5' aria-hidden />
                         {t('config.syncToAllNodes')}
                       </Button>
                     </div>
-                  </div>
-                  <pre className="min-h-[420px] max-h-[70vh] overflow-auto rounded-md border bg-muted/40 p-4 text-xs font-mono whitespace-pre-wrap break-all" data-testid="cluster-configs-template-content">{templateConfig.content}</pre>
+                  </ArcAlert>
                 </div>
+              ) : null}
+
+              {templateConfig && isLog4j2 ? (
+                <div className='flex flex-wrap items-center justify-between gap-3 border-b-[0.5px] border-border/80 pb-3.5 text-xs'>
+                  <div className='space-y-0.5'>
+                    <div className='flex items-center gap-2'>
+                      <span className='font-semibold text-foreground'>
+                        {t('config.jobLogModeTitle')}
+                      </span>
+                      <span data-testid='cluster-configs-log-mode-badge'>
+                        <SoftChip
+                          tone={isPerJobLogMode ? 'emerald' : 'amber'}
+                        >
+                          {isPerJobLogMode
+                            ? t('config.jobLogModePerJobBadge')
+                            : t('config.jobLogModeMixedBadge')}
+                        </SoftChip>
+                      </span>
+                    </div>
+                    <p className='text-muted-foreground'>
+                      {isPerJobLogMode
+                        ? t('config.jobLogModeRestartHint')
+                        : t('config.jobLogModeMixedDesc')}
+                    </p>
+                  </div>
+                  <SegmentedControl
+                    label={t('config.jobLogModeTitle')}
+                    value={isPerJobLogMode ? 'per_job' : 'mixed'}
+                    onValueChange={(next) => {
+                      if (
+                        !logModeSwitching &&
+                        (next === 'per_job' || next === 'mixed')
+                      ) {
+                        void handleSwitchLogMode(next);
+                      }
+                    }}
+                    options={[
+                      {
+                        value: 'per_job',
+                        label: t('config.jobLogModePerJobBadge'),
+                      },
+                      {
+                        value: 'mixed',
+                        label: t('config.jobLogModeMixedBadge'),
+                      },
+                    ]}
+                  />
+                </div>
+              ) : null}
+
+              {templateConfig ? (
+                <pre
+                  className='max-h-[460px] min-h-[240px] overflow-auto rounded-md bg-muted/35 p-4 font-mono text-xs leading-5 whitespace-pre'
+                  data-testid='cluster-configs-template-content'
+                >
+                  {templateConfig.content}
+                </pre>
               ) : (
-                <p className="text-sm text-muted-foreground py-4 text-center">{t('config.noTemplate')}</p>
+                <p className='py-6 text-center text-xs text-muted-foreground'>
+                  {t('config.noTemplate')}
+                </p>
               )}
-            </TabsContent>
-            <TabsContent value="nodes" className="mt-4 space-y-3">
-              <StatPillsBar
-                activeKey={nodeFilter}
-                onChange={(key) => setNodeFilter(key as 'all' | 'matched' | 'mismatched')}
-                items={[
-                  {key: 'all', label: t('config.filterAll'), count: nodeConfigs.length},
-                  {key: 'matched', label: t('config.filterMatched'), count: matchedNodeCount, variant: 'success'},
-                  {key: 'mismatched', label: t('config.filterMismatched'), count: mismatchedNodeCount, variant: mismatchedNodeCount > 0 ? 'warning' : 'default'},
-                ]}
-              />
-              <div className="relative max-w-sm">
-                <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={nodeSearch}
-                  onChange={(event) => setNodeSearch(event.target.value)}
-                  className="pl-9"
-                  placeholder={t('config.searchNodes')}
-                  data-testid="cluster-configs-node-search"
-                />
+            </div>
+
+            {/* 同页节点同步状态区：一眼查看全部节点一致性，无需切 Tab */}
+            {/* Inline node sync status table right below content, no secondary tab switch */}
+            <div className='space-y-3 px-5 py-4'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
+                <div className='flex items-center gap-2'>
+                  <h4 className='text-xs font-semibold text-foreground'>
+                    {t('config.nodeConfigs')}
+                  </h4>
+                  <span className='text-xs text-muted-foreground tabular-nums'>
+                    {nodeConfigs.length}
+                  </span>
+                </div>
+
+                {nodeConfigs.length > 1 || nodeSearch ? (
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <SegmentedControl
+                      label={t('config.nodeConfigs')}
+                      value={nodeFilter}
+                      onValueChange={(v) =>
+                        setNodeFilter(v as 'all' | 'matched' | 'mismatched')
+                      }
+                      options={[
+                        {value: 'all', label: t('config.filterAll')},
+                        {value: 'matched', label: t('config.filterMatched')},
+                        {
+                          value: 'mismatched',
+                          label: t('config.filterMismatched'),
+                        },
+                      ]}
+                    />
+                    <div className={layout.toolbarSearch}>
+                      <SearchField
+                        label={t('config.searchNodes')}
+                        value={nodeSearch}
+                        onValueChange={setNodeSearch}
+                        placeholder={t('config.searchNodes')}
+                        clearLabel={t('common.clearFilters')}
+                        data-testid='cluster-configs-node-search'
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
+
               {nodeConfigs.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">{t('config.noNodeConfigs')}</p>
+                <p className='py-3 text-xs text-muted-foreground'>
+                  {t('config.noNodeConfigs')}
+                </p>
               ) : (
-                <div className="overflow-hidden rounded-lg border">
-                  <Table>
+                <div className='overflow-x-auto'>
+                  <Table className='[&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
                     <TableHeader>
-                      <TableRow>
+                      <TableRow className='hover:bg-transparent'>
                         <TableHead>{t('config.selectNode')}</TableHead>
                         <TableHead>{t('config.version')}</TableHead>
                         <TableHead>{t('config.updatedAt')}</TableHead>
-                        <TableHead className="text-right">{t('common.actions')}</TableHead>
+                        <TableHead className='text-right'>
+                          {t('common.actions')}
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredNodeConfigs.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={4} className="py-8 text-center text-xs text-muted-foreground">
+                          <TableCell
+                            colSpan={4}
+                            className='py-6 text-center text-xs text-muted-foreground'
+                          >
                             {t('config.noMatchingNodes')}
                           </TableCell>
                         </TableRow>
-                      ) : filteredNodeConfigs.map((config) => (
-                        <TableRow key={config.id}>
-                          <TableCell>
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span className="truncate font-medium">{config.host_name || `Node ${config.host_id}`}</span>
-                              {config.host_ip && <span className="truncate font-mono text-xs text-muted-foreground">{config.host_ip}</span>}
-                              {config.sync_status === 'pending_push' && (
-                                <Badge
-                                  variant="outline"
-                                  className="text-orange-600"
-                                  title={t('config.pendingPushTip', {error: config.sync_error || '-'})}
-                                  data-testid={`cluster-configs-node-pending-${config.id}`}
-                                >
-                                  <AlertTriangle className="h-3 w-3 mr-1" />{t('config.pendingPush')}
-                                </Badge>
-                              )}
-                              {config.match_template ? (
-                                <Badge variant="outline" className="text-green-600"><Check className="h-3 w-3 mr-1" />{t('config.matchTemplate')}</Badge>
-                              ) : (
-                                <Badge variant="outline" className="text-yellow-600"><AlertTriangle className="h-3 w-3 mr-1" />{t('config.customized')}</Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">v{config.version}</TableCell>
-                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTimeTz(config.updated_at)}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {!config.match_template ? (
-                                <>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8"
-                                    title={t('config.tipSyncNode')}
-                                    onClick={() => handleSyncFromTemplate(config)}
-                                    data-testid={`cluster-configs-node-sync-${config.id}`}
+                      ) : (
+                        filteredNodeConfigs.map((config) => (
+                          <TableRow key={config.id}>
+                            <TableCell>
+                              <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                                <span className='truncate font-medium'>
+                                  {config.host_name || `Node ${config.host_id}`}
+                                </span>
+                                {config.host_ip ? (
+                                  <span className='font-mono text-xs text-muted-foreground tabular-nums'>
+                                    {config.host_ip}
+                                  </span>
+                                ) : null}
+                                {config.sync_status === 'pending_push' ? (
+                                  <span
+                                    title={t('config.pendingPushTip', {
+                                      error: config.sync_error || '-',
+                                    })}
+                                    data-testid={`cluster-configs-node-pending-${config.id}`}
                                   >
-                                    <Download className="mr-1 size-3.5" />
-                                    {t('config.syncFromTemplate')}
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8"
-                                    title={t('config.tipPromote')}
-                                    onClick={() => handlePromote(config)}
-                                    data-testid={`cluster-configs-node-promote-${config.id}`}
-                                  >
-                                    <Upload className="mr-1 size-3.5" />
-                                    {t('config.promoteToCluster')}
-                                  </Button>
-                                </>
-                              ) : (
-                                // 与模板一致的节点：两个操作禁用，原因进 Tooltip（外包 span 才能触发）
-                                // Nodes matching the template: both actions disabled, reason in a Tooltip (span wrapper so it fires)
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span
-                                      className="inline-flex items-center gap-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      tabIndex={0}
-                                      aria-label={t('config.tabNodeHint')}
-                                      data-testid={`cluster-configs-node-actions-disabled-${config.id}`}
+                                    <SoftChip tone='amber'>
+                                      <AlertTriangle
+                                        className='size-3'
+                                        aria-hidden
+                                      />
+                                      {t('config.pendingPush')}
+                                    </SoftChip>
+                                  </span>
+                                ) : null}
+                                {config.match_template ? (
+                                  <SoftChip tone='emerald'>
+                                    <Check className='size-3' aria-hidden />
+                                    {t('config.matchTemplate')}
+                                  </SoftChip>
+                                ) : (
+                                  <SoftChip tone='amber'>
+                                    <AlertTriangle className='size-3' aria-hidden />
+                                    {t('config.customized')}
+                                  </SoftChip>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className='font-mono text-xs tabular-nums whitespace-nowrap'>
+                              v{config.version}
+                            </TableCell>
+                            <TableCell className='font-mono text-xs text-muted-foreground tabular-nums whitespace-nowrap'>
+                              {formatDateTimeMinuteTz(config.updated_at)}
+                            </TableCell>
+                            <TableCell className='text-right'>
+                              <div className='flex items-center justify-end gap-1.5'>
+                                {!config.match_template ? (
+                                  <>
+                                    <Button
+                                      type='button'
+                                      variant='secondary'
+                                      size='sm'
+                                      title={t('config.tipSyncNode')}
+                                      onClick={() =>
+                                        void handleSyncFromTemplate(config)
+                                      }
+                                      data-testid={`cluster-configs-node-sync-${config.id}`}
                                     >
-                                      <Button variant="outline" size="sm" className="pointer-events-none h-8" disabled>
-                                        <Download className="mr-1 size-3.5" />
-                                        {t('config.syncFromTemplate')}
-                                      </Button>
-                                      <Button variant="outline" size="sm" className="pointer-events-none h-8" disabled>
-                                        <Upload className="mr-1 size-3.5" />
-                                        {t('config.promoteToCluster')}
-                                      </Button>
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" className="max-w-xs text-xs">
-                                    {t('config.tabNodeHint')}
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="size-8" aria-label={t('common.actions')}>
-                                    <MoreHorizontal className="size-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem title={t('config.tipEdit')} onClick={() => handleEdit(config)} data-testid={`cluster-configs-node-edit-${config.id}`}>
-                                    <Edit className="mr-2 size-4" />
-                                    {t('common.edit')}
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem title={t('config.tipVersions')} onClick={() => handleViewVersions(config)} data-testid={`cluster-configs-node-versions-${config.id}`}>
-                                    <History className="mr-2 size-4" />
-                                    {t('config.versions')}
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                                      <Download className='size-3.5' aria-hidden />
+                                      {t('config.syncFromTemplate')}
+                                    </Button>
+                                    <Button
+                                      type='button'
+                                      variant='secondary'
+                                      size='sm'
+                                      title={t('config.tipPromote')}
+                                      onClick={() => void handlePromote(config)}
+                                      data-testid={`cluster-configs-node-promote-${config.id}`}
+                                    >
+                                      <Upload className='size-3.5' aria-hidden />
+                                      {t('config.promoteToCluster')}
+                                    </Button>
+                                  </>
+                                ) : null}
+                                <ArcDropdownMenu
+                                  trigger={
+                                    <Button
+                                      type='button'
+                                      variant='ghost'
+                                      size='sm'
+                                      iconOnly
+                                      aria-label={t('common.actions')}
+                                    >
+                                      <MoreHorizontal
+                                        className='size-4'
+                                        aria-hidden
+                                      />
+                                    </Button>
+                                  }
+                                  items={[
+                                    {
+                                      label: t('common.edit'),
+                                      icon: <Edit className='size-3.5' aria-hidden />,
+                                      onSelect: () => handleEdit(config),
+                                    },
+                                    {
+                                      label: t('config.versions'),
+                                      icon: (
+                                        <History className='size-3.5' aria-hidden />
+                                      ),
+                                      onSelect: () =>
+                                        void handleViewVersions(config),
+                                    },
+                                  ]}
+                                />
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </div>
               )}
-            </TabsContent>
-          </Tabs>
+            </div>
           </div>
-        )}
-      </CardContent>
+        </div>
+      )}
 
-      {/* Init Config Dialog */}
+      {/* 从节点初始化弹窗 / Init from node dialog */}
       <Dialog open={initDialogOpen} onOpenChange={setInitDialogOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className='arc-compact sm:max-w-xl'>
           <DialogHeader>
             <DialogTitle>{t('config.initFromNode')}</DialogTitle>
             <DialogDescription>{t('config.initFromNodeDesc')}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>{t('config.selectNode')}</Label>
-              <ScrollArea className="mt-2 max-h-64 rounded-md border">
-                <div className="space-y-2 p-2">
-                  {nodes.map((node) => {
-                    const selected = selectedNodeId === String(node.id);
-                    return (
-                      <button
-                        key={node.id}
-                        type="button"
-                        onClick={() => setSelectedNodeId(String(node.id))}
-                        data-testid={`cluster-configs-init-node-${node.id}`}
-                        className={`w-full rounded-md border p-3 text-left transition-colors ${
-                          selected ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="truncate font-medium">
-                              {node.host_name || `Node ${node.id}`} ({node.host_ip})
-                            </div>
-                            <div className="mt-1 truncate text-sm text-muted-foreground">
-                              {node.install_dir}
-                            </div>
-                          </div>
-                          <Badge variant={selected ? 'default' : 'outline'}>
-                            {node.role}
-                          </Badge>
+          <div className='space-y-4'>
+            <div className='space-y-2'>
+              <Label className='text-xs'>{t('config.selectNode')}</Label>
+              <div className='max-h-60 divide-y-[0.5px] divide-border/80 overflow-y-auto rounded-md border border-border/80'>
+                {nodes.map((node) => {
+                  const selected = selectedNodeId === String(node.id);
+                  return (
+                    <button
+                      key={node.id}
+                      type='button'
+                      onClick={() => setSelectedNodeId(String(node.id))}
+                      data-testid={`cluster-configs-init-node-${node.id}`}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left transition-colors',
+                        selected ? 'bg-muted' : 'hover:bg-muted/40',
+                      )}
+                    >
+                      <div className='min-w-0'>
+                        <div className='truncate text-sm font-medium text-foreground'>
+                          {node.host_name || `Node ${node.id}`} ({node.host_ip})
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-            </div>
-            {selectedNodeId && (
-              <div className="text-sm text-muted-foreground bg-muted p-3 rounded-md">
-                <p>{t('config.initWillPull')}</p>
-                <ul className="list-disc list-inside mt-2 space-y-1">
-                  {availableConfigTypes.map((type) => (
-                    <li key={type}>{ConfigTypeNames[type]}</li>
-                  ))}
-                </ul>
+                        <div className='mt-0.5 truncate font-mono text-xs text-muted-foreground'>
+                          {node.install_dir}
+                        </div>
+                      </div>
+                      <NeutralChip>{node.role}</NeutralChip>
+                    </button>
+                  );
+                })}
               </div>
-            )}
+            </div>
+            {selectedNodeId ? (
+              <div className='border-t-[0.5px] border-border/80 pt-3 text-xs text-muted-foreground'>
+                <p>{t('config.initWillPull')}</p>
+                <div className='mt-2 flex flex-wrap gap-1.5'>
+                  {availableConfigTypes.map((type) => (
+                    <NeutralChip key={type} className='font-mono'>
+                      {ConfigTypeNames[type]}
+                    </NeutralChip>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setInitDialogOpen(false)}>{t('common.cancel')}</Button>
-            <Button onClick={handleInitConfigs} disabled={initLoading || !selectedNodeId} data-testid="cluster-configs-init-confirm">
-              {initLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+          <DialogFooter className='gap-2'>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => setInitDialogOpen(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              onClick={() => void handleInitConfigs()}
+              loading={initLoading}
+              disabled={!selectedNodeId}
+              data-testid='cluster-configs-init-confirm'
+            >
               {t('config.initConfirm')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Edit Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+      {/* 配置编辑弹窗（含脏态关闭拦截与智能修复）/ Config edit dialog with dirty guard & smart repair */}
+      <Dialog open={editDialogOpen} onOpenChange={requestCloseEditDialog}>
         <DialogContent
-          className="!max-w-5xl max-h-[90vh]"
-          data-testid="cluster-configs-edit-dialog"
+          className='arc-compact w-[min(94vw,1040px)]! sm:max-w-none! max-h-[90vh]'
+          data-testid='cluster-configs-edit-dialog'
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             window.requestAnimationFrame(() => {
@@ -956,66 +1317,109 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
           }}
         >
           <DialogHeader>
-            <DialogTitle>{t('config.editConfig')} - {editingConfig?.is_template ? t('config.clusterTemplate') : editingConfig?.host_name}</DialogTitle>
-            <DialogDescription>{ConfigTypeNames[editingConfig?.config_type as ConfigType]}</DialogDescription>
+            <DialogTitle>
+              {t('config.editConfig')} ·{' '}
+              {editingConfig?.is_template
+                ? t('config.clusterTemplate')
+                : editingConfig?.host_name}
+            </DialogTitle>
+            <DialogDescription className='font-mono text-xs'>
+              {ConfigTypeNames[editingConfig?.config_type as ConfigType]}
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between gap-3">
-                <Label>{t('config.content')}</Label>
-                {isYamlConfigType(editingConfig?.config_type) && (
+          <div className='space-y-4'>
+            <div className='space-y-2'>
+              <div className='flex items-center justify-between gap-3'>
+                <Label className='text-xs'>{t('config.content')}</Label>
+                {isYamlConfigType(editingConfig?.config_type) ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={handleSmartRepair}
-                        disabled={repairing || saving}
-                        data-testid="cluster-configs-smart-repair"
+                        type='button'
+                        variant='secondary'
+                        size='sm'
+                        onClick={() => void handleSmartRepair()}
+                        loading={repairing}
+                        disabled={saving}
+                        data-testid='cluster-configs-smart-repair'
                       >
-                        {repairing ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <WandSparkles className="mr-2 h-4 w-4" />
-                        )}
+                        <WandSparkles className='size-3.5' aria-hidden />
                         {t('config.smartRepair')}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+                    <TooltipContent
+                      side='top'
+                      className='max-w-xs text-xs leading-relaxed'
+                    >
                       {t('config.smartRepairHint')}
                     </TooltipContent>
                   </Tooltip>
-                )}
+                ) : null}
               </div>
               <Textarea
                 ref={editTextareaRef}
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                className="font-mono text-sm h-[500px]"
-                data-testid="cluster-configs-edit-content"
+                className='h-[460px] font-mono text-xs leading-5'
+                data-testid='cluster-configs-edit-content'
               />
             </div>
-            <div>
-              <Label>{t('config.comment')}</Label>
-              <Input value={editComment} onChange={(e) => setEditComment(e.target.value)} placeholder={t('config.commentPlaceholder')} />
+            <div className='space-y-1.5'>
+              <Label className='text-xs'>{t('config.comment')}</Label>
+              <Input
+                value={editComment}
+                onChange={(e) => setEditComment(e.target.value)}
+                placeholder={t('config.commentPlaceholder')}
+              />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>{t('common.cancel')}</Button>
-            {editingConfig?.is_template && (
-              <Button variant="outline" onClick={() => handleSave(false)} disabled={saving} data-testid="cluster-configs-save-only">
-                {saving && saveMode === 'save' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <DialogFooter className='gap-2'>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => requestCloseEditDialog(false)}
+              disabled={saving}
+            >
+              {t('common.cancel')}
+            </Button>
+            {editingConfig?.is_template ? (
+              <Button
+                type='button'
+                variant='secondary'
+                size='sm'
+                onClick={() => void handleSave(false)}
+                loading={saving && saveMode === 'save'}
+                disabled={saving}
+                data-testid='cluster-configs-save-only'
+              >
                 {t('config.saveOnly')}
               </Button>
-            )}
-            <Button onClick={() => handleSave(editingConfig?.is_template)} disabled={saving} data-testid="cluster-configs-save-primary">
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {editingConfig?.is_template ? t('config.saveAndSync') : t('common.save')}
+            ) : null}
+            <Button
+              type='button'
+              size='sm'
+              onClick={() => void handleSave(Boolean(editingConfig?.is_template))}
+              loading={saving && (saveMode === 'save-and-sync' || !editingConfig?.is_template)}
+              disabled={saving}
+              data-testid='cluster-configs-save-primary'
+            >
+              {editingConfig?.is_template
+                ? t('config.saveAndSync')
+                : t('common.save')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DirtyCloseDialog
+        open={dirtyCloseOpen}
+        onDiscard={() => {
+          setDirtyCloseOpen(false);
+          setEditDialogOpen(false);
+        }}
+        onKeepEditing={() => setDirtyCloseOpen(false)}
+      />
 
       {/* 集群标识修改级联风险警示对话框 / Cluster Name Change Cascading Risk Warning Dialog */}
       <AlertDialog
@@ -1029,11 +1433,11 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-500">
-              <AlertTriangle className="h-5 w-5 shrink-0" />
+            <AlertDialogTitle className='flex items-center gap-2 text-amber-600 dark:text-amber-500'>
+              <AlertTriangle className='size-4 shrink-0' aria-hidden />
               {t('cluster.clusterNameChangeWarningTitle')}
             </AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-line text-sm text-foreground/90 pt-2 leading-relaxed">
+            <AlertDialogDescription className='pt-2 text-sm leading-relaxed whitespace-pre-line text-foreground/90'>
               {t('cluster.clusterNameChangeWarningContent')}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1042,10 +1446,15 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
               {t('common.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-amber-600 hover:bg-amber-700 text-white"
               onClick={async () => {
                 setClusterNameConfirmOpen(false);
-                if (shouldWarnSeatunnelPortSync(editingConfig, editContent, pendingSaveSync)) {
+                if (
+                  shouldWarnSeatunnelPortSync(
+                    editingConfig,
+                    editContent,
+                    pendingSaveSync,
+                  )
+                ) {
                   setPortChangeConfirmOpen(true);
                   return;
                 }
@@ -1069,10 +1478,12 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('config.portChangeConfirmTitle')}</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
+            <AlertDialogTitle>
+              {t('config.portChangeConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription className='space-y-2'>
               <p>{t('config.portChangeConfirmDesc')}</p>
-              <ul className="list-disc pl-5">
+              <ul className='list-disc pl-5'>
                 <li>{t('config.portChangeConfirmSyncConfig')}</li>
                 <li>{t('config.portChangeConfirmSyncMetadata')}</li>
                 <li>{t('config.portChangeConfirmImpact')}</li>
@@ -1088,150 +1499,253 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Version History Dialog */}
+      {/* 版本历史弹窗：压平为单层左右分栏，左侧精简列表点击即选，右侧 SegmentedControl 切预览/对比 */}
+      {/* Version history dialog: flat single-layer split, clickable version rail on left, SegmentedControl preview/compare on right */}
       <Dialog open={versionDialogOpen} onOpenChange={setVersionDialogOpen}>
-        <DialogContent className="w-[96vw] sm:max-w-7xl max-h-[90vh]" data-testid="cluster-configs-versions-dialog">
+        <DialogContent
+          className='arc-compact w-[min(95vw,1180px)]! sm:max-w-none! max-h-[88vh]'
+          data-testid='cluster-configs-versions-dialog'
+        >
           <DialogHeader>
             <DialogTitle>{t('config.versionHistory')}</DialogTitle>
-            <DialogDescription>{versionConfig?.is_template ? t('config.clusterTemplate') : versionConfig?.host_name}</DialogDescription>
+            <DialogDescription>
+              {versionConfig?.is_template
+                ? t('config.clusterTemplate')
+                : versionConfig?.host_name}
+              {versionConfig
+                ? ` · ${ConfigTypeNames[versionConfig.config_type]}`
+                : ''}
+            </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-            {loadingVersions ? (
-              <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin" /></div>
-            ) : versions.length === 0 ? (
-              <p className="text-center py-8 text-muted-foreground">{t('config.noVersions')}</p>
-            ) : (
-              <>
-                <ScrollArea className="h-[65vh] rounded-md border">
-                  <div className="space-y-3 p-3">
-                    {versions.map((version) => {
-                      const selected = version.id === selectedVersionId;
-                      const isCurrent = version.version === versionConfig?.version;
-                      return (
-                        <div key={version.id} className={`rounded-lg border p-3 ${selected ? 'border-primary bg-primary/5' : ''}`}>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={selected ? 'default' : 'secondary'}>v{version.version}</Badge>
-                            {isCurrent && <Badge variant="outline">{t('config.current')}</Badge>}
-                          </div>
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {formatDateTimeTz(version.created_at)}
-                          </p>
-                          <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                            {version.comment || t('config.noComment')}
-                          </p>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Button variant="outline" size="sm" onClick={() => handlePreviewVersion(version.id)} data-testid={`cluster-configs-version-preview-${version.id}`}>
-                              <Eye className="h-4 w-4 mr-1" />
-                              {t('config.preview')}
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => handleCompareVersion(version.id)} disabled={isCurrent} data-testid={`cluster-configs-version-compare-${version.id}`}>
-                              <GitCompareArrows className="h-4 w-4 mr-1" />
-                              {t('config.compareWithCurrent')}
-                            </Button>
-                            {!isCurrent && (
-                              <Button variant="outline" size="sm" onClick={() => handleRollback(version.version)} data-testid={`cluster-configs-version-rollback-${version.id}`}>
-                                {t('config.rollback')}
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
-                <div className="min-w-0 rounded-md border">
-                  {selectedVersion ? (
-                    <div className="flex h-[65vh] flex-col">
-                      <div className="border-b px-4 py-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="secondary">v{selectedVersion.version}</Badge>
-                          {selectedVersion.version === versionConfig?.version && (
-                            <Badge variant="outline">{t('config.current')}</Badge>
-                          )}
-                          <span className="text-sm text-muted-foreground">
-                            {formatDateTimeTz(selectedVersion.created_at)}
+
+          {loadingVersions ? (
+            <div className='grid gap-4 border-t-[0.5px] border-border/80 pt-4 lg:grid-cols-[260px_minmax(0,1fr)]'>
+              <div className='space-y-2'>
+                <Skeleton className='h-14 w-full' />
+                <Skeleton className='h-14 w-full' />
+                <Skeleton className='h-14 w-full' />
+              </div>
+              <Skeleton className='h-[55vh] w-full' />
+            </div>
+          ) : versions.length === 0 ? (
+            <div className='border-t-[0.5px] border-border/80 py-10'>
+              <EmptyState
+                icon={<History />}
+                title={t('config.noVersions')}
+                description={t('config.versionHistory')}
+              />
+            </div>
+          ) : (
+            <div className='grid h-[64vh] min-h-0 overflow-hidden border-t-[0.5px] border-border/80 lg:grid-cols-[260px_minmax(0,1fr)]'>
+              {/* 左侧精简版本清单 / Compact version rail */}
+              <div className='min-h-0 divide-y-[0.5px] divide-border/70 overflow-y-auto border-b-[0.5px] border-border/80 lg:border-r-[0.5px] lg:border-b-0'>
+                {versions.map((version) => {
+                  const selected = version.id === selectedVersionId;
+                  const isCurrent = version.version === versionConfig?.version;
+                  return (
+                    <div
+                      key={version.id}
+                      className={cn(
+                        'flex items-start justify-between gap-2 px-3 py-3 transition-colors',
+                        selected ? 'bg-muted/70' : 'hover:bg-muted/35',
+                      )}
+                    >
+                      <button
+                        type='button'
+                        className='min-w-0 flex-1 text-left'
+                        onClick={() => {
+                          setSelectedVersionId(version.id);
+                          setVersionViewMode('preview');
+                        }}
+                        data-testid={`cluster-configs-version-preview-${version.id}`}
+                      >
+                        <div className='flex items-center gap-1.5'>
+                          <span className='font-mono text-xs font-semibold tabular-nums text-foreground'>
+                            v{version.version}
                           </span>
+                          {isCurrent ? (
+                            <SoftChip tone='emerald'>
+                              {t('config.current')}
+                            </SoftChip>
+                          ) : null}
                         </div>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          {selectedVersion.comment || t('config.noComment')}
+                        <div className='mt-1 font-mono text-[11px] text-muted-foreground tabular-nums'>
+                          {formatDateTimeMinuteTz(version.created_at)}
+                        </div>
+                        <p className='mt-1 line-clamp-2 text-xs text-muted-foreground'>
+                          {version.comment || t('config.noComment')}
                         </p>
+                      </button>
+
+                      {!isCurrent ? (
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          iconOnly
+                          title={t('config.compareWithCurrent')}
+                          aria-label={t('config.compareWithCurrent')}
+                          onClick={() => {
+                            setSelectedVersionId(version.id);
+                            setVersionViewMode('compare');
+                          }}
+                          data-testid={`cluster-configs-version-compare-${version.id}`}
+                        >
+                          <GitCompareArrows className='size-3.5' aria-hidden />
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 右侧预览与对比区 / Right preview & diff pane */}
+              <div className='flex min-h-0 min-w-0 flex-col'>
+                {selectedVersion ? (
+                  <>
+                    <div className='flex flex-wrap items-center justify-between gap-2 border-b-[0.5px] border-border/80 px-4 py-3'>
+                      <div className='flex min-w-0 flex-wrap items-center gap-2 text-xs'>
+                        <NeutralChip className='font-mono tabular-nums'>
+                          v{selectedVersion.version}
+                        </NeutralChip>
+                        <span className='font-mono text-muted-foreground tabular-nums'>
+                          {formatDateTimeTz(selectedVersion.created_at)}
+                        </span>
                       </div>
-                      <Tabs value={versionViewMode} onValueChange={(value) => setVersionViewMode(value as 'preview' | 'compare')} className="flex min-h-0 flex-1 flex-col">
-                        <div className="border-b px-4 py-2">
-                          <TabsList>
-                            <TabsTrigger value="preview">{t('config.preview')}</TabsTrigger>
-                            <TabsTrigger value="compare" disabled={selectedVersion.version === versionConfig?.version}>
-                              {t('config.compareWithCurrent')}
-                            </TabsTrigger>
-                          </TabsList>
+
+                      <div className='flex items-center gap-2'>
+                        <SegmentedControl
+                          label={t('config.versionHistory')}
+                          value={versionViewMode}
+                          onValueChange={(value) => {
+                            if (
+                              value === 'compare' &&
+                              selectedVersion.version === versionConfig?.version
+                            ) {
+                              return;
+                            }
+                            setVersionViewMode(value as 'preview' | 'compare');
+                          }}
+                          options={[
+                            {value: 'preview', label: t('config.preview')},
+                            {
+                              value: 'compare',
+                              label: t('config.compareWithCurrent'),
+                            },
+                          ]}
+                        />
+                        {selectedVersion.version !== versionConfig?.version ? (
+                          <Button
+                            type='button'
+                            variant='secondary'
+                            size='sm'
+                            onClick={() =>
+                              void handleRollback(selectedVersion.version)
+                            }
+                            data-testid={`cluster-configs-version-rollback-${selectedVersion.id}`}
+                          >
+                            {t('config.rollback')}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {versionViewMode === 'preview' ? (
+                      <div className='min-h-0 flex-1 overflow-auto'>
+                        <pre
+                          className='min-h-full p-4 font-mono text-xs leading-5 whitespace-pre'
+                          data-testid='cluster-configs-version-preview-content'
+                        >
+                          {selectedVersion.content}
+                        </pre>
+                      </div>
+                    ) : selectedVersion.version === versionConfig?.version ? (
+                      <div className='flex flex-1 items-center justify-center text-xs text-muted-foreground'>
+                        {t('config.currentVersionCompareHint')}
+                      </div>
+                    ) : (
+                      <div className='flex min-h-0 flex-1 flex-col'>
+                        <div className='grid grid-cols-2 border-b-[0.5px] border-border/80 bg-muted/20 text-xs text-muted-foreground'>
+                          <div className='border-r-[0.5px] border-border/70 px-4 py-2 font-mono tabular-nums'>
+                            {t('config.currentVersionLabel', {
+                              version: versionConfig?.version ?? '-',
+                            })}
+                          </div>
+                          <div className='px-4 py-2 font-mono tabular-nums'>
+                            {t('config.versionLabel', {
+                              version: selectedVersion.version,
+                            })}
+                          </div>
                         </div>
-                        <TabsContent value="preview" className="mt-0 min-h-0 flex-1">
-                          <ScrollArea className="h-full">
-                            <pre className="min-h-full whitespace-pre-wrap break-all p-4 text-xs font-mono" data-testid="cluster-configs-version-preview-content">
-                              {selectedVersion.content}
-                            </pre>
-                          </ScrollArea>
-                        </TabsContent>
-                        <TabsContent value="compare" className="mt-0 min-h-0 flex-1">
-                          {selectedVersion.version === versionConfig?.version ? (
-                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                              {t('config.currentVersionCompareHint')}
+                        <div
+                          className='min-h-0 flex-1 overflow-auto'
+                          data-testid='cluster-configs-version-compare-content'
+                        >
+                          <div className='grid min-w-[820px] grid-cols-2 font-mono text-xs'>
+                            <div className='border-r-[0.5px] border-border/70'>
+                              {diffRows.map((row, index) => (
+                                <div
+                                  key={`left-${index}`}
+                                  className={cn(
+                                    'grid grid-cols-[48px_minmax(0,1fr)] px-2 py-0.5',
+                                    row.changed &&
+                                      'bg-amber-500/10 dark:bg-amber-500/15',
+                                  )}
+                                >
+                                  <span className='pr-3 text-right text-muted-foreground tabular-nums'>
+                                    {row.leftLineNumber ?? ''}
+                                  </span>
+                                  <span className='whitespace-pre-wrap break-words'>
+                                    {row.leftText}
+                                  </span>
+                                </div>
+                              ))}
                             </div>
-                          ) : (
-                            <div className="flex h-full min-h-0 flex-col">
-                              <div className="grid grid-cols-2 border-b text-xs text-muted-foreground">
-                                <div className="border-r px-4 py-2">
-                                  {t('config.currentVersionLabel', {version: versionConfig?.version ?? '-'})}
+                            <div>
+                              {diffRows.map((row, index) => (
+                                <div
+                                  key={`right-${index}`}
+                                  className={cn(
+                                    'grid grid-cols-[48px_minmax(0,1fr)] px-2 py-0.5',
+                                    row.changed &&
+                                      'bg-amber-500/10 dark:bg-amber-500/15',
+                                  )}
+                                >
+                                  <span className='pr-3 text-right text-muted-foreground tabular-nums'>
+                                    {row.rightLineNumber ?? ''}
+                                  </span>
+                                  <span className='whitespace-pre-wrap break-words'>
+                                    {row.rightText}
+                                  </span>
                                 </div>
-                                <div className="px-4 py-2">
-                                  {t('config.versionLabel', {version: selectedVersion.version})}
-                                </div>
-                              </div>
-                              <ScrollArea className="h-full" data-testid="cluster-configs-version-compare-content">
-                                <div className="grid min-w-[920px] grid-cols-2 text-xs font-mono">
-                                  <div className="border-r">
-                                    {diffRows.map((row, index) => (
-                                      <div
-                                        key={`left-${index}`}
-                                        className={`grid grid-cols-[56px,minmax(0,1fr)] px-2 py-1 ${row.changed ? 'bg-amber-50 dark:bg-amber-950/20' : ''}`}
-                                      >
-                                        <span className="pr-3 text-right text-muted-foreground">{row.leftLineNumber ?? ''}</span>
-                                        <span className="whitespace-pre-wrap break-all">{row.leftText}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                  <div>
-                                    {diffRows.map((row, index) => (
-                                      <div
-                                        key={`right-${index}`}
-                                        className={`grid grid-cols-[56px,minmax(0,1fr)] px-2 py-1 ${row.changed ? 'bg-amber-50 dark:bg-amber-950/20' : ''}`}
-                                      >
-                                        <span className="pr-3 text-right text-muted-foreground">{row.rightLineNumber ?? ''}</span>
-                                        <span className="whitespace-pre-wrap break-all">{row.rightText}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              </ScrollArea>
+                              ))}
                             </div>
-                          )}
-                        </TabsContent>
-                      </Tabs>
-                    </div>
-                  ) : (
-                    <div className="flex h-[65vh] items-center justify-center text-sm text-muted-foreground">
-                      {t('config.selectVersionToPreview')}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className='flex flex-1 items-center justify-center text-xs text-muted-foreground'>
+                    {t('config.selectVersionToPreview')}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setVersionDialogOpen(false)}>{t('common.close')}</Button>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => setVersionDialogOpen(false)}
+            >
+              {t('common.close')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </section>
   );
 }

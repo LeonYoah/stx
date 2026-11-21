@@ -228,27 +228,25 @@ export function ClusterOverviewTab({
             <dd>
               {/* 仅两个固定短选项，使用 SegmentedControl 即刻切换（Tip 020） */}
               {/* Only 2 short fixed options: use SegmentedControl for immediate switching */}
-              <div className={logModeSwitching ? 'opacity-60' : undefined}>
-                <SegmentedControl
-                  label={t('cluster.logOutputMode')}
-                  value={jobLogMode || 'mixed'}
-                  onValueChange={(val) => {
-                    if (!logModeSwitching) {
-                      onSwitchJobLogMode(val as 'per_job' | 'mixed');
-                    }
-                  }}
-                  options={[
-                    {
-                      value: 'per_job',
-                      label: t('config.jobLogModePerJobBadge'),
-                    },
-                    {
-                      value: 'mixed',
-                      label: t('config.jobLogModeMixedBadge'),
-                    },
-                  ]}
-                />
-              </div>
+              <SegmentedControl
+                label={t('cluster.logOutputMode')}
+                value={jobLogMode || 'mixed'}
+                onValueChange={(val) => {
+                  if (!logModeSwitching) {
+                    onSwitchJobLogMode(val as 'per_job' | 'mixed');
+                  }
+                }}
+                options={[
+                  {
+                    value: 'per_job',
+                    label: t('config.jobLogModePerJobBadge'),
+                  },
+                  {
+                    value: 'mixed',
+                    label: t('config.jobLogModeMixedBadge'),
+                  },
+                ]}
+              />
             </dd>
           </div>
 

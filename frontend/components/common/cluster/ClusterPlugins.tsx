@@ -18,20 +18,24 @@
 'use client';
 
 /**
- * Cluster Plugins Component
- * 集群插件组件
- *
- * Displays installed plugins for a cluster. SeaTunnel plugins are not dynamically
- * loaded, so enable/disable state is not used.
- * 显示集群的已安装插件。SeaTunnel 插件非动态加载，无启用/禁用状态。
+ * 集群已安装插件列表组件：采用 TableCard 零塌陷骨架加载 + SearchField 搜索 + 单层扁平详情弹窗。
+ * Installed cluster plugins panel: TableCard zero-collapse loading, SearchField filter, and flat detail dialog.
  */
 
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
-import {Badge} from '@/components/ui/badge';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
-import {ScrollArea} from '@/components/ui/scroll-area';
+import {useRouter} from 'next/navigation';
+import {Eye, Layers3, Package, Plus, Puzzle, RefreshCw, Trash2} from 'lucide-react';
+import {Button} from '@/components/arc/button/button';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {
+  NeutralChip,
+  SoftChip,
+  TableCard,
+} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
 import {
   Table,
   TableBody,
@@ -58,223 +62,314 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {toast} from '@/lib/toast';
-import {Puzzle, RefreshCw, Trash2, Loader2, Plus, Eye, Layers3, Package} from 'lucide-react';
-import {useRouter} from 'next/navigation';
 import services from '@/lib/services';
-import {InstalledPlugin, PluginDependency, formatPluginNodeStatuses} from '@/lib/services/plugin/types';
-import {formatDateTimeTz} from '@/lib/timezone';
+import {
+  InstalledPlugin,
+  PluginDependency,
+  formatPluginNodeStatuses,
+} from '@/lib/services/plugin/types';
+import {formatDateTimeMinuteTz, formatDateTimeTz} from '@/lib/timezone';
 
 interface ClusterPluginsProps {
   clusterId: number;
 }
 
-/**
- * Cluster Plugins Component
- * 集群插件组件
- */
 export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
   const t = useTranslations();
   const router = useRouter();
 
-  // Data state / 数据状态
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [operating, setOperating] = useState<string | null>(null);
-
-  // Dialog state / 对话框状态
-  const [pluginToUninstall, setPluginToUninstall] = useState<InstalledPlugin | null>(null);
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'partial'>('all');
+  const [pluginToUninstall, setPluginToUninstall] =
+    useState<InstalledPlugin | null>(null);
   const [detailPlugin, setDetailPlugin] = useState<InstalledPlugin | null>(null);
+  const reqSeqRef = useRef(0);
 
-  /**
-   * Load installed plugins
-   * 加载已安装插件
-   */
   const loadPlugins = useCallback(async () => {
+    const seq = ++reqSeqRef.current;
     setLoading(true);
     try {
       const data = await services.plugin.listInstalledPlugins(clusterId);
+      if (seq !== reqSeqRef.current) {
+        return;
+      }
       setPlugins(data || []);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('plugin.loadError'));
+      if (seq === reqSeqRef.current) {
+        toast.error(
+          error instanceof Error ? error.message : t('plugin.loadError'),
+        );
+      }
     } finally {
-      setLoading(false);
+      if (seq === reqSeqRef.current) {
+        setHasLoaded(true);
+        setLoading(false);
+      }
     }
   }, [clusterId, t]);
 
   useEffect(() => {
-    loadPlugins();
+    void loadPlugins();
   }, [loadPlugins]);
 
-  /**
-   * Handle uninstall plugin
-   * 处理卸载插件
-   */
-  const handleUninstall = async () => {
-    if (!pluginToUninstall) {return;}
+  const partialCount = useMemo(
+    () => plugins.filter((item) => item.status === 'partial').length,
+    [plugins],
+  );
 
+  const filteredPlugins = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase();
+    return plugins.filter((item) => {
+      if (statusFilter === 'partial' && item.status !== 'partial') {
+        return false;
+      }
+      if (!kw) {
+        return true;
+      }
+      return (
+        item.plugin_name.toLowerCase().includes(kw) ||
+        (item.category || '').toLowerCase().includes(kw) ||
+        (item.version || '').toLowerCase().includes(kw)
+      );
+    });
+  }, [plugins, searchKeyword, statusFilter]);
+
+  const hasActiveFilter = Boolean(searchKeyword.trim()) || statusFilter !== 'all';
+
+  const handleUninstall = async () => {
+    if (!pluginToUninstall) {
+      return;
+    }
     setOperating(pluginToUninstall.plugin_name);
     try {
-      await services.plugin.uninstallPlugin(clusterId, pluginToUninstall.plugin_name);
+      await services.plugin.uninstallPlugin(
+        clusterId,
+        pluginToUninstall.plugin_name,
+      );
       toast.success(t('plugin.uninstallSuccess'));
-      loadPlugins();
+      void loadPlugins();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('plugin.uninstallError'));
+      toast.error(
+        error instanceof Error ? error.message : t('plugin.uninstallError'),
+      );
     } finally {
       setOperating(null);
       setPluginToUninstall(null);
     }
   };
 
-  /**
-   * Navigate to plugins page
-   * 导航到插件页面
-   */
   const goToPluginsPage = () => {
     router.push('/plugins');
   };
 
-  if (loading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Puzzle className="h-5 w-5" />
-            {t('plugin.installedPlugins')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
-    <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Puzzle className="h-5 w-5" />
-            {t('plugin.installedPlugins')}
-            {plugins.length > 0 && (
-              <Badge variant="secondary" className="ml-2">
-                {plugins.length}
-              </Badge>
-            )}
-          </CardTitle>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={loadPlugins}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              {t('common.refresh')}
-            </Button>
-            <Button size="sm" onClick={goToPluginsPage}>
-              <Plus className="h-4 w-4 mr-2" />
-              {t('plugin.addPlugin')}
-            </Button>
+    <div className='space-y-4'>
+      {/* 顶部单行工具条：搜索、局部异常筛选（条件出现）、刷新与安装入口 */}
+      {/* Single-row toolbar: search, conditional partial-install filter, refresh, and add CTA */}
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <div className={layout.toolbarSearch}>
+            <SearchField
+              label={t('plugin.searchPlaceholder')}
+              value={searchKeyword}
+              onValueChange={setSearchKeyword}
+              placeholder={t('plugin.searchPlaceholder')}
+              clearLabel={t('common.clearFilters')}
+            />
           </div>
-        </CardHeader>
-        <CardContent>
-          {plugins.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Puzzle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>{t('plugin.noInstalledPlugins')}</p>
-              <Button variant="outline" className="mt-4" onClick={goToPluginsPage}>
-                <Plus className="h-4 w-4 mr-2" />
-                {t('plugin.browsePlugins')}
-              </Button>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('plugin.name')}</TableHead>
-                  <TableHead>{t('plugin.category.label')}</TableHead>
-                  <TableHead>{t('plugin.version')}</TableHead>
-                  <TableHead>{t('plugin.installedAt')}</TableHead>
-                  <TableHead className="w-[260px] text-right">{t('plugin.actions')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {plugins.map((plugin) => {
-                  const isOperating = operating === plugin.plugin_name;
-                  return (
-                    <TableRow
-                      key={plugin.id}
-                      data-testid={`cluster-plugin-row-${plugin.plugin_name}-${plugin.version}`}
-                    >
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <span>{plugin.plugin_name}</span>
-                          {plugin.bundled && (
-                            <Badge
-                              variant="outline"
-                              data-testid={`cluster-plugin-bundled-${plugin.plugin_name}`}
-                            >
-                              {t('plugin.bundled')}
-                            </Badge>
-                          )}
-                          {plugin.status === 'partial' && (
-                            <Badge
-                              variant="destructive"
-                              title={`${t('plugin.partialInstallTip')} ${formatPluginNodeStatuses(plugin, t)}`}
-                              data-testid={`cluster-plugin-partial-${plugin.plugin_name}`}
-                            >
-                              {t('plugin.partialInstalled')}
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {plugin.category ? (
-                          <Badge variant="outline">
-                            {t(`plugin.category.${plugin.category}`)}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>{plugin.version}</TableCell>
-                      <TableCell>
-                        {formatDateTimeTz(plugin.installed_at)}
-                      </TableCell>
-                      <TableCell className="w-[260px]">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            data-testid={`cluster-plugin-view-${plugin.plugin_name}-${plugin.version}`}
-                            onClick={() => setDetailPlugin(plugin)}
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            {t('plugin.viewDetails')}
-                          </Button>
-                          {!plugin.bundled && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setPluginToUninstall(plugin)}
-                              disabled={isOperating}
-                              title={t('plugin.uninstall')}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive mr-1" />
-                              <span className="text-destructive">{t('plugin.uninstall')}</span>
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+          {partialCount > 0 ? (
+            <SegmentedControl
+              label={t('plugin.installedPlugins')}
+              value={statusFilter}
+              onValueChange={(v) => setStatusFilter(v as 'all' | 'partial')}
+              options={[
+                {value: 'all', label: t('config.filterAll')},
+                {value: 'partial', label: t('plugin.partialInstalled')},
+              ]}
+            />
+          ) : null}
+          {hasLoaded ? (
+            <span className='text-xs text-muted-foreground tabular-nums'>
+              {filteredPlugins.length} / {plugins.length}
+            </span>
+          ) : null}
+        </div>
 
-      {/* Uninstall Confirmation Dialog / 卸载确认对话框 */}
-      <AlertDialog open={!!pluginToUninstall} onOpenChange={() => setPluginToUninstall(null)}>
+        <div className='flex items-center gap-2'>
+          <Button
+            type='button'
+            variant='secondary'
+            size='sm'
+            iconOnly
+            onClick={() => void loadPlugins()}
+            disabled={loading}
+            aria-label={t('common.refresh')}
+            title={t('common.refresh')}
+          >
+            <RefreshCw
+              className={`size-3.5 ${loading ? 'animate-spin' : ''}`}
+              aria-hidden
+            />
+          </Button>
+          <Button type='button' size='sm' onClick={goToPluginsPage}>
+            <Plus className='size-3.5' aria-hidden />
+            {t('plugin.addPlugin')}
+          </Button>
+        </div>
+      </div>
+
+      {/* 统一 TableCard：零塌陷骨架、顶部细进度条、0.5px 行细线与双情景空态 */}
+      {/* Unified TableCard with zero-collapse skeleton, hairline rows, and dual empty states */}
+      <TableCard
+        loading={loading}
+        hasData={filteredPlugins.length > 0}
+        skeletonColumns={5}
+        skeletonRows={5}
+        empty={
+          hasActiveFilter ? (
+            <EmptyState
+              icon={<Puzzle />}
+              title={t('plugin.noMatchingPlugins')}
+              description={t('plugin.noMatchingPluginsDesc')}
+              action={
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={() => {
+                    setSearchKeyword('');
+                    setStatusFilter('all');
+                  }}
+                >
+                  {t('common.clearFilters')}
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={<Puzzle />}
+              title={t('plugin.noInstalledPlugins')}
+              description={t('plugin.browsePlugins')}
+              action={
+                <Button type='button' size='sm' onClick={goToPluginsPage}>
+                  <Plus className='size-3.5' aria-hidden />
+                  {t('plugin.browsePlugins')}
+                </Button>
+              }
+            />
+          )
+        }
+      >
+        <Table className='[&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
+          <TableHeader>
+            <TableRow className='hover:bg-transparent'>
+              <TableHead>{t('plugin.name')}</TableHead>
+              <TableHead>{t('plugin.category.label')}</TableHead>
+              <TableHead>{t('plugin.version')}</TableHead>
+              <TableHead>{t('plugin.installedAt')}</TableHead>
+              <TableHead className='w-[180px] text-right'>
+                {t('plugin.actions')}
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredPlugins.map((plugin) => {
+              const isOperating = operating === plugin.plugin_name;
+              return (
+                <TableRow
+                  key={`${plugin.id}-${plugin.plugin_name}-${plugin.version}`}
+                  data-testid={`cluster-plugin-row-${plugin.plugin_name}-${plugin.version}`}
+                >
+                  <TableCell className='font-medium'>
+                    <div className='flex flex-wrap items-center gap-1.5'>
+                      <span className='font-mono text-sm'>
+                        {plugin.plugin_name}
+                      </span>
+                      {plugin.bundled ? (
+                        <NeutralChip
+                          data-testid={`cluster-plugin-bundled-${plugin.plugin_name}`}
+                        >
+                          {t('plugin.bundled')}
+                        </NeutralChip>
+                      ) : null}
+                      {plugin.status === 'partial' ? (
+                        <span
+                          title={`${t('plugin.partialInstallTip')} ${formatPluginNodeStatuses(plugin, t)}`}
+                          data-testid={`cluster-plugin-partial-${plugin.plugin_name}`}
+                        >
+                          <SoftChip tone='rose'>
+                            {t('plugin.partialInstalled')}
+                          </SoftChip>
+                        </span>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {plugin.category ? (
+                      <NeutralChip>
+                        {t(`plugin.category.${plugin.category}`)}
+                      </NeutralChip>
+                    ) : (
+                      <span className='text-muted-foreground'>—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className='font-mono text-xs tabular-nums whitespace-nowrap'>
+                    {plugin.version}
+                  </TableCell>
+                  <TableCell className='font-mono text-xs text-muted-foreground tabular-nums whitespace-nowrap'>
+                    {formatDateTimeMinuteTz(plugin.installed_at)}
+                  </TableCell>
+                  <TableCell className='text-right'>
+                    <div className='flex items-center justify-end gap-1.5'>
+                      <Button
+                        type='button'
+                        variant='secondary'
+                        size='sm'
+                        data-testid={`cluster-plugin-view-${plugin.plugin_name}-${plugin.version}`}
+                        onClick={() => setDetailPlugin(plugin)}
+                      >
+                        <Eye className='size-3.5' aria-hidden />
+                        {t('plugin.viewDetails')}
+                      </Button>
+                      {!plugin.bundled ? (
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          iconOnly
+                          onClick={() => setPluginToUninstall(plugin)}
+                          disabled={isOperating}
+                          aria-label={t('plugin.uninstall')}
+                          title={t('plugin.uninstall')}
+                        >
+                          <Trash2
+                            className='size-3.5 text-destructive'
+                            aria-hidden
+                          />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </TableCard>
+
+      {/* 卸载二次确认：具名动词按钮 / Uninstall confirmation with named action verb */}
+      <AlertDialog
+        open={Boolean(pluginToUninstall)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPluginToUninstall(null);
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('plugin.uninstallPlugin')}</AlertDialogTitle>
@@ -286,15 +381,15 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleUninstall}>
-              {t('common.delete')}
+            <AlertDialogAction onClick={() => void handleUninstall()}>
+              {t('plugin.uninstall')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       <InstalledPluginDetailDialog
-        open={!!detailPlugin}
+        open={Boolean(detailPlugin)}
         onOpenChange={(open) => {
           if (!open) {
             setDetailPlugin(null);
@@ -302,7 +397,7 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
         }}
         plugin={detailPlugin}
       />
-    </>
+    </div>
   );
 }
 
@@ -320,10 +415,14 @@ function getDependencyFileName(dep: PluginDependency): string {
 }
 
 function splitDependencies(items: PluginDependency[]) {
-  const attachedConnectors = dedupeStrings([
-    ...items.filter((item) => item.target_dir === 'connectors').map((item) => item.artifact_id),
-  ]);
-  const extraDependencies = items.filter((item) => item.target_dir !== 'connectors');
+  const attachedConnectors = dedupeStrings(
+    items
+      .filter((item) => item.target_dir === 'connectors')
+      .map((item) => item.artifact_id),
+  );
+  const extraDependencies = items.filter(
+    (item) => item.target_dir !== 'connectors',
+  );
   return {attachedConnectors, extraDependencies};
 }
 
@@ -333,6 +432,10 @@ interface InstalledPluginDetailDialogProps {
   plugin: InstalledPlugin | null;
 }
 
+/**
+ * 已安装插件详情弹窗：压平为单层画布，以留白与 0.5px 细线分隔各组信息，去掉嵌套卡片与 ScrollArea。
+ * Installed plugin detail dialog flattened into a single-layer surface separated by 0.5px hairlines.
+ */
 function InstalledPluginDetailDialog({
   open,
   onOpenChange,
@@ -354,14 +457,14 @@ function InstalledPluginDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid={`cluster-plugin-detail-dialog-${plugin?.plugin_name || 'empty'}`}
-        className="w-[96vw] sm:max-w-[980px] lg:max-w-[1100px] max-h-[90vh]"
+        className='arc-compact w-[min(94vw,960px)]! sm:max-w-none! max-h-[86vh]'
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Puzzle className="h-5 w-5" />
+          <DialogTitle className='flex items-center gap-2 font-mono'>
+            <Puzzle className='size-4 text-primary' aria-hidden />
             {plugin?.plugin_name || t('plugin.viewDetails')}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className='tabular-nums'>
             {plugin
               ? t('plugin.clusterPluginDetailDesc', {
                   version: plugin.version,
@@ -371,128 +474,144 @@ function InstalledPluginDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {plugin && (
-          <ScrollArea className="max-h-[70vh] pr-3">
-            <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Card>
-                  <CardContent className="pt-4">
-                    <div className="text-xs text-muted-foreground">{t('plugin.version')}</div>
-                    <div className="mt-2 font-medium">{plugin.version}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <div className="text-xs text-muted-foreground">{t('plugin.category.label')}</div>
-                    <div className="mt-2">
-                      {plugin.category ? (
-                        <Badge variant="outline">{t(`plugin.category.${plugin.category}`)}</Badge>
-                      ) : (
-                        '—'
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <div className="text-xs text-muted-foreground">{t('plugin.installPath')}</div>
-                    <div className="mt-2 break-all text-sm">{plugin.install_path || '—'}</div>
-                  </CardContent>
-                </Card>
+        {plugin ? (
+          <div className='max-h-[68vh] overflow-y-auto pr-1'>
+            {/* 基础元信息 / Metadata */}
+            <dl className='grid grid-cols-1 gap-x-6 gap-y-3 border-t-[0.5px] border-border/80 py-4 text-xs sm:grid-cols-3'>
+              <div className='min-w-0 space-y-1'>
+                <dt className='text-muted-foreground'>{t('plugin.version')}</dt>
+                <dd className='font-mono text-sm font-medium tabular-nums'>
+                  {plugin.version}
+                </dd>
               </div>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Layers3 className="h-4 w-4" />
-                    {t('plugin.selectedProfiles')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {selectedProfiles.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {t('plugin.noSelectedProfiles')}
-                    </p>
+              <div className='min-w-0 space-y-1'>
+                <dt className='text-muted-foreground'>
+                  {t('plugin.category.label')}
+                </dt>
+                <dd>
+                  {plugin.category ? (
+                    <NeutralChip>
+                      {t(`plugin.category.${plugin.category}`)}
+                    </NeutralChip>
                   ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {selectedProfiles.map((profileKey) => (
-                        <Badge key={profileKey} variant="secondary">
-                          {profileKey}
-                        </Badge>
-                      ))}
-                    </div>
+                    '—'
                   )}
-                </CardContent>
-              </Card>
+                </dd>
+              </div>
+              <div className='min-w-0 space-y-1'>
+                <dt className='text-muted-foreground'>
+                  {t('plugin.installPath')}
+                </dt>
+                <dd
+                  className='truncate font-mono text-xs text-foreground'
+                  title={plugin.install_path || '—'}
+                >
+                  {plugin.install_path || '—'}
+                </dd>
+              </div>
+            </dl>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Package className="h-4 w-4" />
-                    {t('plugin.attachedConnectors')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {attachedConnectors.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {t('plugin.noAttachedConnectors')}
-                    </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {attachedConnectors.map((artifactId) => (
-                        <Badge key={artifactId} variant="outline">
-                          {artifactId}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+            {/* 已选 Profile / Selected profiles */}
+            <section className='space-y-2.5 border-t-[0.5px] border-border/80 py-4'>
+              <h4 className='flex items-center gap-1.5 text-xs font-semibold text-foreground'>
+                <Layers3 className='size-3.5 text-muted-foreground' aria-hidden />
+                {t('plugin.selectedProfiles')}
+              </h4>
+              {selectedProfiles.length === 0 ? (
+                <p className='text-xs text-muted-foreground'>
+                  {t('plugin.noSelectedProfiles')}
+                </p>
+              ) : (
+                <div className='flex flex-wrap gap-1.5'>
+                  {selectedProfiles.map((profileKey) => (
+                    <NeutralChip key={profileKey} className='font-mono'>
+                      {profileKey}
+                    </NeutralChip>
+                  ))}
+                </div>
+              )}
+            </section>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t('plugin.extraDependencies')}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {extraDependencies.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {t('plugin.noExtraDependencies')}
-                    </p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table className="min-w-[760px]">
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>{t('plugin.groupId')}</TableHead>
-                            <TableHead>{t('plugin.artifactId')}</TableHead>
-                            <TableHead>{t('plugin.version')}</TableHead>
-                            <TableHead>{t('plugin.fileName')}</TableHead>
-                            <TableHead>{t('plugin.targetDir')}</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {extraDependencies.map((dep) => (
-                            <TableRow
-                              key={`${dep.group_id}:${dep.artifact_id}:${dep.version}:${dep.target_dir}`}
+            {/* 附带连接器 / Attached connectors */}
+            <section className='space-y-2.5 border-t-[0.5px] border-border/80 py-4'>
+              <h4 className='flex items-center gap-1.5 text-xs font-semibold text-foreground'>
+                <Package className='size-3.5 text-muted-foreground' aria-hidden />
+                {t('plugin.attachedConnectors')}
+              </h4>
+              {attachedConnectors.length === 0 ? (
+                <p className='text-xs text-muted-foreground'>
+                  {t('plugin.noAttachedConnectors')}
+                </p>
+              ) : (
+                <div className='flex flex-wrap gap-1.5'>
+                  {attachedConnectors.map((artifactId) => (
+                    <NeutralChip key={artifactId} className='font-mono'>
+                      {artifactId}
+                    </NeutralChip>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* 额外依赖表 / Extra dependencies */}
+            <section className='space-y-2.5 border-t-[0.5px] border-border/80 pt-4'>
+              <h4 className='text-xs font-semibold text-foreground'>
+                {t('plugin.extraDependencies')}
+              </h4>
+              {extraDependencies.length === 0 ? (
+                <p className='text-xs text-muted-foreground'>
+                  {t('plugin.noExtraDependencies')}
+                </p>
+              ) : (
+                <div className='overflow-x-auto'>
+                  <Table className='min-w-[700px] [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
+                    <TableHeader>
+                      <TableRow className='hover:bg-transparent'>
+                        <TableHead>{t('plugin.groupId')}</TableHead>
+                        <TableHead>{t('plugin.artifactId')}</TableHead>
+                        <TableHead>{t('plugin.version')}</TableHead>
+                        <TableHead>{t('plugin.fileName')}</TableHead>
+                        <TableHead>{t('plugin.targetDir')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {extraDependencies.map((dep, idx) => {
+                        const fileName = getDependencyFileName(dep);
+                        return (
+                          <TableRow
+                            key={`${dep.group_id}:${dep.artifact_id}:${dep.version}:${dep.target_dir}:${idx}`}
+                          >
+                            <TableCell className='font-mono text-xs text-muted-foreground'>
+                              {dep.group_id}
+                            </TableCell>
+                            <TableCell className='font-mono text-xs font-medium'>
+                              {dep.artifact_id}
+                            </TableCell>
+                            <TableCell className='font-mono text-xs tabular-nums whitespace-nowrap'>
+                              {dep.version}
+                            </TableCell>
+                            <TableCell
+                              className='max-w-[220px] truncate font-mono text-xs'
+                              title={fileName}
                             >
-                              <TableCell className="font-mono text-xs">{dep.group_id}</TableCell>
-                              <TableCell className="font-medium">{dep.artifact_id}</TableCell>
-                              <TableCell>{dep.version}</TableCell>
-                              <TableCell className="break-all text-xs">
-                                {getDependencyFileName(dep)}
-                              </TableCell>
-                              <TableCell className="break-all text-xs">{dep.target_dir}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </ScrollArea>
-        )}
+                              {fileName}
+                            </TableCell>
+                            <TableCell
+                              className='max-w-[160px] truncate font-mono text-xs text-muted-foreground'
+                              title={dep.target_dir}
+                            >
+                              {dep.target_dir}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </section>
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

@@ -492,13 +492,7 @@ export function RuntimeStorageFileExplorer({
           </TableRow>
         </TableHeader>
 
-        <TableBody
-          className={
-            loading && listing
-              ? 'pointer-events-none opacity-60 transition-opacity duration-200'
-              : undefined
-          }
-        >
+        <TableBody className='[&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
           {loading && !listing ? (
             <TableSkeletonRows columns={4} rows={5} />
           ) : filteredAndSortedItems.length === 0 ? (

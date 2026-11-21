@@ -20,11 +20,11 @@
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {toast} from '@/lib/toast';
-import {AlertCircle, CheckCircle2, Loader2, XCircle} from 'lucide-react';
+import {AlertCircle, CheckCircle2, XCircle} from 'lucide-react';
 
 import services from '@/lib/services';
 import {Button} from '@/components/arc/button/button';
-import {Switch} from '@/components/arc/switch/switch';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {
   Dialog,
   DialogContent,
@@ -423,27 +423,39 @@ export function EditNodeDialog({
             </div>
 
             <div className='space-y-3 border-t-[0.5px] border-border/80 pt-4'>
-              <div className='flex items-center justify-between gap-4'>
-                <div className='space-y-1'>
-                  <Label>{t('cluster.jvmOverrideTitle')}</Label>
-                  {!jvmOverrideEnabled && (
+              <div className='flex flex-wrap items-center justify-between gap-3'>
+                <div className='space-y-0.5'>
+                  <Label>{t('cluster.jvmHeapTitle')}</Label>
+                  {!jvmOverrideEnabled && !clusterDefaultHeap && (
                     <p className='text-xs text-muted-foreground'>
-                      {clusterDefaultHeap
-                        ? t('cluster.jvmInheritDefault', {
-                            value: clusterDefaultHeap,
-                          })
-                        : t('cluster.jvmNoClusterDefault')}
+                      {t('cluster.jvmNoClusterDefault')}
                     </p>
                   )}
                 </div>
-                <Switch
-                  checked={jvmOverrideEnabled}
-                  onCheckedChange={(checked) => {
-                    setJvmOverrideEnabled(checked);
-                    if (checked && jvmHeapSize <= 0) {
+                <SegmentedControl
+                  label={t('cluster.jvmHeapTitle')}
+                  value={jvmOverrideEnabled ? 'custom' : 'cluster'}
+                  onValueChange={(value) => {
+                    const nextCustom = value === 'custom';
+                    setJvmOverrideEnabled(nextCustom);
+                    if (nextCustom && jvmHeapSize <= 0) {
                       setJvmHeapSize(clusterDefaultHeap ?? 0);
                     }
                   }}
+                  options={[
+                    {
+                      value: 'cluster',
+                      label: clusterDefaultHeap
+                        ? t('cluster.jvmFollowClusterWithValue', {
+                            value: clusterDefaultHeap,
+                          })
+                        : t('cluster.jvmFollowCluster'),
+                    },
+                    {
+                      value: 'custom',
+                      label: t('cluster.jvmCustomOption'),
+                    },
+                  ]}
                 />
               </div>
 

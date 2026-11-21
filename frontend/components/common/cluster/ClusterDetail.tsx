@@ -28,10 +28,11 @@
 import {useState, useEffect, useCallback, useMemo, useRef} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
 import {Button as ArcButton} from '@/components/arc/button/button';
 import {Alert as ArcAlert} from '@/components/arc/alert/alert';
+import {Checkbox as ArcCheckbox} from '@/components/arc/checkbox/checkbox';
 import {DropdownMenu as ArcDropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
+import {Input as ArcInput} from '@/components/arc/input/input';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {
   Tabs as ArcTabs,
@@ -39,7 +40,6 @@ import {
   TabsList as ArcTabsList,
   TabsTrigger as ArcTabsTrigger,
 } from '@/components/arc/tabs/tabs';
-import {Input} from '@/components/ui/input';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,7 +59,6 @@ import {
   DialogTitle,
   WorkbenchDialogContent,
 } from '@/components/ui/dialog';
-import {Label} from '@/components/ui/label';
 import {toast} from '@/lib/toast';
 import {
   ArrowLeft,
@@ -84,7 +83,6 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import {Checkbox} from '@/components/ui/checkbox';
 import {
   DirtyCloseDialog,
   ExpandableTextPanel,
@@ -1450,16 +1448,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
 
   if (!cluster) {
     return (
-      <div className='text-center py-12'>
-        <p className='text-muted-foreground'>{t('cluster.notFound')}</p>
-        <Button
-          variant='outline'
-          className='mt-4'
+      <div className='arc-compact flex flex-col items-center gap-4 py-12 text-center'>
+        <p className='text-sm text-muted-foreground'>{t('cluster.notFound')}</p>
+        <ArcButton
+          type='button'
+          variant='secondary'
+          size='sm'
           onClick={() => router.push('/clusters')}
         >
-          <ArrowLeft className='h-4 w-4 mr-2' />
+          <ArrowLeft className='size-3.5' aria-hidden />
           {t('cluster.backToList')}
-        </Button>
+        </ArcButton>
       </div>
     );
   }
@@ -2398,15 +2397,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 <p className='text-sm text-muted-foreground'>
                   {t('cluster.deleteConfirmWarning')}
                 </p>
-                <label className='flex items-center gap-2 cursor-pointer'>
-                  <Checkbox
-                    checked={forceDelete}
-                    onCheckedChange={(v) => setForceDelete(v === true)}
-                  />
-                  <span className='text-sm'>
-                    {t('cluster.forceDeleteOption')}
-                  </span>
-                </label>
+                <ArcCheckbox
+                  checked={forceDelete}
+                  onCheckedChange={(v) => setForceDelete(v === true)}
+                  label={t('cluster.forceDeleteOption')}
+                />
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -2770,9 +2765,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
 
           <div className='space-y-5 py-2 text-sm'>
             <div className='space-y-2'>
-              <Label className='font-medium'>
+              <div className='text-xs font-medium text-foreground'>
                 {t('cluster.stxJavaProxy.presetLabel')}
-              </Label>
+              </div>
               <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
                 {[
                   {id: '512m', label: t('cluster.stxJavaProxy.preset512m')},
@@ -2807,12 +2802,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               </div>
             </div>
 
-            <div className='space-y-2 border-t-[0.5px] border-border/80 pt-4'>
-              <Label htmlFor='stx-java-proxy-jvm-opts' className='font-medium'>
-                {t('cluster.stxJavaProxy.jvmOptsField')}
-              </Label>
-              <Input
+            <div className='border-t-[0.5px] border-border/80 pt-4'>
+              <ArcInput
                 id='stx-java-proxy-jvm-opts'
+                label={t('cluster.stxJavaProxy.jvmOptsField')}
+                description={t('cluster.stxJavaProxy.jvmOptsHelp')}
                 value={stxJavaProxyJvmOptsInput}
                 onChange={(e) => {
                   setStxJavaProxyJvmOptsInput(e.target.value);
@@ -2822,25 +2816,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 className='font-mono text-xs'
                 data-testid='stx-java-proxy-jvm-opts-input'
               />
-              <p className='text-xs text-muted-foreground'>
-                {t('cluster.stxJavaProxy.jvmOptsHelp')}
-              </p>
             </div>
 
-            <div className='flex items-center space-x-2 border-t-[0.5px] border-border/80 pt-4'>
-              <Checkbox
+            <div className='border-t-[0.5px] border-border/80 pt-4'>
+              <ArcCheckbox
                 id='stx-java-proxy-restart-save'
+                label={t('cluster.stxJavaProxy.restartImmediately')}
                 checked={stxJavaProxyRestartOnSave}
                 onCheckedChange={(checked) =>
-                  setStxJavaProxyRestartOnSave(Boolean(checked))
+                  setStxJavaProxyRestartOnSave(checked === true)
                 }
               />
-              <Label
-                htmlFor='stx-java-proxy-restart-save'
-                className='cursor-pointer text-sm font-medium'
-              >
-                {t('cluster.stxJavaProxy.restartImmediately')}
-              </Label>
             </div>
           </div>
 

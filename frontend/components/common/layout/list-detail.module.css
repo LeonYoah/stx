@@ -251,6 +251,13 @@
   --cols: minmax(0, 1.8fr) 96px 88px 92px 96px 84px;
 }
 
+/* 集群已安装插件：勾选 / 插件名称+标签 / 分类 / 版本 / 安装时间 / 操作。
+   Cluster installed plugins: checkbox / name+chips / category / version / installed at / actions. */
+
+.listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) {
+  --cols: 24px minmax(0, 1.8fr) 108px 92px 136px 36px;
+}
+
 /* 悬浮批量条：锚定在 listCol 内、分页脚上方，详情栏打开时也不遮分页。
    Floating batch bar: anchored inside .listCol just above the pagination footer
    so it never covers page buttons or drifts off-center when the rail is open. */
@@ -1128,6 +1135,14 @@
   .listCol[data-mcols='clusters'] :is(.row, .rowHead) > :nth-child(3),
   .listCol[data-mcols='clusters'] :is(.row, .rowHead) > :nth-child(4),
   .listCol[data-mcols='clusters'] :is(.row, .rowHead) > :nth-child(5) {
+    display: none;
+  }
+  /* 窄屏集群插件行只留勾选 + 名称 + 版本 + 操作。Narrow plugin rows keep checkbox + name + version + actions. */
+  .listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) {
+    --cols: 24px minmax(0, 1fr) 72px 36px;
+  }
+  .listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) > :nth-child(5) {
     display: none;
   }
 }

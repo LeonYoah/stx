@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Alert as ArcAlert} from '@/components/arc/alert/alert';
 import {Button} from '@/components/arc/button/button';
@@ -25,6 +25,7 @@ import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Input} from '@/components/arc/input/input';
 import {Select} from '@/components/arc/select/select';
 import {Switch} from '@/components/arc/switch/switch';
+import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import type {RuntimeStorageSpec} from '@/lib/services/cluster/types';
 
@@ -77,6 +78,9 @@ export function RuntimeStorageEditor({
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  // 保存后 onApplied 会刷新 spec；保留当次保存成功提示不被 spec 刷新误清。
+  // onApplied refreshes spec after save; preserve the save notice instead of wiping it immediately.
+  const preserveNoticeRef = useRef(false);
 
   useEffect(() => {
     const type = (
@@ -108,9 +112,20 @@ export function RuntimeStorageEditor({
     setKeytab(spec?.kerberos_keytab_file_path || '');
     setHdfsSitePath(spec?.hdfs_site_path || '');
     setS3Provider(spec?.s3_credentials_provider || S3_SIMPLE);
-    setNotice('');
+    if (preserveNoticeRef.current) {
+      preserveNoticeRef.current = false;
+    } else {
+      setNotice('');
+    }
     setError('');
   }, [kind, spec]);
+
+  // 切换存储种类（checkpoint ↔ imap）时清空提示 / Clear feedback when switching kind
+  useEffect(() => {
+    preserveNoticeRef.current = false;
+    setNotice('');
+    setError('');
+  }, [kind]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -155,26 +170,32 @@ export function RuntimeStorageEditor({
     );
     setSaving(false);
     if (!result.success || !result.data) {
-      setError(result.error || t('cluster.runtimeStorage.saveFailed'));
+      const msg = result.error || t('cluster.runtimeStorage.saveFailed');
+      setError(msg);
+      toast.error(msg);
       return;
     }
     if (!result.data.saved) {
       const hostMessage = result.data.validation?.hosts?.find(
         (host) => !host.success,
       )?.message;
-      setError(
+      const msg =
         hostMessage ||
-          result.data.message ||
-          t('cluster.runtimeStorage.testFailed'),
-      );
+        result.data.message ||
+        t('cluster.runtimeStorage.testFailed');
+      setError(msg);
+      toast.error(msg);
       return;
     }
     const versions = (result.data.versions || [])
       .map((item) => `${item.config_type} v${item.version}`)
       .join(', ');
-    setNotice(
-      t('cluster.runtimeStorage.savedRestart', {versions: versions || '-'}),
-    );
+    const successMessage = t('cluster.runtimeStorage.savedRestart', {
+      versions: versions || '-',
+    });
+    preserveNoticeRef.current = true;
+    setNotice(successMessage);
+    toast.success(successMessage);
     setAccessKey('');
     setSecretKey('');
     onApplied?.();
@@ -374,9 +395,14 @@ export function RuntimeStorageEditor({
       ) : null}
 
       {error ? <ArcAlert tone='danger' title={error} /> : null}
-      {notice ? <ArcAlert tone='warning' title={notice} /> : null}
+      {notice ? <ArcAlert tone='success' title={notice} /> : null}
       <div className='flex justify-end'>
-        <Button size='sm' onClick={() => void handleSave()} loading={saving}>
+        <Button
+          type='button'
+          size='sm'
+          onClick={() => void handleSave()}
+          loading={saving}
+        >
           {t('cluster.runtimeStorage.saveAndTest')}
         </Button>
       </div>

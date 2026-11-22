@@ -79,11 +79,22 @@ func (s *Service) GetNodeJavaRuntime(ctx context.Context, clusterID, nodeID uint
 	if success && result.Status != javaruntime.StatusFailed {
 		result.Status = javaruntime.StatusForTarget(result.Version, clusterVersion)
 		if result.Status == javaruntime.StatusFailed && result.Version > 0 {
-			result.Reason = "below_required_java"
-			result.Message = fmt.Sprintf(
-				"Java %d 低于集群 SeaTunnel %s 要求的 Java %d+ / Java %d is below the Java %d+ required by this cluster's SeaTunnel %s",
-				result.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion),
-				result.Version, javaruntime.MinSupportedMajor(clusterVersion), clusterVersion)
+			if result.Version > javaruntime.MaxSupportedMajor(clusterVersion) {
+				// 高于支持上限（JDK 24+，JEP 486）是另一方向的不可用，不能与低于下限共用文案。
+				// Above the supported ceiling (JDK 24+, JEP 486) is unusable in the other direction
+				// and cannot share the "below minimum" wording.
+				result.Reason = "above_supported_java"
+				result.Message = fmt.Sprintf(
+					"Java %d 超过最高支持版本 %d（JDK 24+ 移除 Subject.getSubject / JEP 486，SeaTunnel 无法启动）/ Java %d exceeds the maximum supported Java %d (JDK 24+ removed Subject.getSubject / JEP 486; SeaTunnel cannot start)",
+					result.Version, javaruntime.MaxSupportedMajor(clusterVersion),
+					result.Version, javaruntime.MaxSupportedMajor(clusterVersion))
+			} else {
+				result.Reason = "below_required_java"
+				result.Message = fmt.Sprintf(
+					"Java %d 低于集群 SeaTunnel %s 要求的 Java %d+ / Java %d is below the Java %d+ required by this cluster's SeaTunnel %s",
+					result.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion),
+					result.Version, javaruntime.MinSupportedMajor(clusterVersion), clusterVersion)
+			}
 		}
 	}
 	return &NodeJavaRuntime{NodeID: node.ID, HostID: node.HostID, Configured: configured, Result: *result}, nil

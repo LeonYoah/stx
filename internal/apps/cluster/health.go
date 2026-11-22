@@ -63,6 +63,43 @@ func (c *memberProbeCache) put(nodeID uint, result memberProbeResult) {
 	c.entries[nodeID] = result
 }
 
+// engineProbeResult 是一次引擎业务就绪探测的结论（check_engine_health）。
+// known=false 表示不可判定（旧 Agent、网络隔离、REST 不存在），绝不判为不健康。
+// engineProbeResult is one engine readiness probe outcome (check_engine_health).
+// known=false means undecidable (old Agent, isolated network, missing REST) and never marks unhealthy.
+type engineProbeResult struct {
+	at      time.Time
+	known   bool
+	healthy bool
+	reason  string
+}
+
+// engineProbeCache 按节点缓存引擎就绪探测结果，复用 memberProbeTTL，避免每次刷新打爆 Agent。
+// engineProbeCache caches engine readiness per node, reusing memberProbeTTL so refreshes do not hammer Agents.
+type engineProbeCache struct {
+	mu      sync.Mutex
+	entries map[uint]engineProbeResult
+}
+
+func (c *engineProbeCache) get(nodeID uint, now time.Time) (engineProbeResult, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[nodeID]
+	if !ok || now.Sub(entry.at) > memberProbeTTL {
+		return engineProbeResult{}, false
+	}
+	return entry, true
+}
+
+func (c *engineProbeCache) put(nodeID uint, result engineProbeResult) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = make(map[uint]engineProbeResult)
+	}
+	c.entries[nodeID] = result
+}
+
 // clusterExpectsRunning 判断集群当前是否应处于运行态（停止/新建的集群不要求进程运行）。
 // clusterExpectsRunning reports whether the cluster is expected to be running
 // (stopped or newly created clusters do not require running processes).
@@ -112,6 +149,15 @@ func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, s
 
 	if expectRunning && len(runningNodes) >= 2 {
 		reasons = append(reasons, s.checkMemberAgreement(ctx, cluster, runningNodes)...)
+	}
+
+	// 进程存活但引擎半初始化（coordinatorService == null 等）时 maps/overview 明确返回失败；
+	// 单节点集群也要检测，只有明确判定不健康才计为不健康。
+	// A live process can still host a half-initialized engine (e.g. coordinatorService == null) where
+	// maps/overview fails explicitly; single-node clusters are probed too, and only a definitive
+	// unhealthy answer counts.
+	if expectRunning && len(runningNodes) >= 1 {
+		reasons = append(reasons, s.checkEngineReadiness(ctx, cluster, runningNodes)...)
 	}
 
 	statusInfo.HealthReasons = reasons
@@ -186,6 +232,83 @@ func (s *Service) probeNodeMembers(ctx context.Context, node *ClusterNode, hostI
 		}
 	}
 	s.memberProbes.put(node.ID, result)
+	return result
+}
+
+// checkEngineReadiness 对运行中的 master / master_worker 节点调用引擎就绪探测；
+// 明确回答 known=true 且 unhealthy 时把原因并入健康检查，未知结果一律跳过。
+// checkEngineReadiness probes running master / master_worker nodes for engine readiness;
+// only a definitive known=true + unhealthy answer adds a health reason, unknown results are skipped.
+func (s *Service) checkEngineReadiness(ctx context.Context, cluster *Cluster, runningNodes []*NodeStatusInfo) []string {
+	if s.agentSender == nil || s.hostProvider == nil || cluster == nil {
+		return nil
+	}
+	nodesByID := make(map[uint]*ClusterNode, len(cluster.Nodes))
+	for i := range cluster.Nodes {
+		nodesByID[cluster.Nodes[i].ID] = &cluster.Nodes[i]
+	}
+	reasons := make([]string, 0)
+	for _, info := range runningNodes {
+		node := nodesByID[info.NodeID]
+		if node == nil {
+			continue
+		}
+		if node.Role != NodeRoleMaster && node.Role != NodeRoleMasterWorker {
+			continue
+		}
+		probe := s.probeNodeEngine(ctx, node, info.HostIP)
+		if !probe.known || probe.healthy {
+			continue
+		}
+		reasons = append(reasons, fmt.Sprintf("SeaTunnel engine on node %s is not ready: %s / 节点 %s 的 SeaTunnel 引擎未就绪：%s",
+			nodeLabel(info), probe.reason, nodeLabel(info), probe.reason))
+	}
+	return reasons
+}
+
+func (s *Service) probeNodeEngine(ctx context.Context, node *ClusterNode, hostIP string) engineProbeResult {
+	now := time.Now()
+	if cached, ok := s.engineProbes.get(node.ID, now); ok {
+		return cached
+	}
+	result := engineProbeResult{at: now}
+	port := node.HazelcastPort
+	if port <= 0 {
+		port = node.WorkerPort
+	}
+	if port <= 0 {
+		s.engineProbes.put(node.ID, result)
+		return result
+	}
+	hostInfo, err := s.hostProvider.GetHostByID(ctx, node.HostID)
+	if err != nil || hostInfo == nil || hostInfo.AgentID == "" {
+		s.engineProbes.put(node.ID, result)
+		return result
+	}
+	_, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_engine_health", map[string]string{
+		"port": strconv.Itoa(port),
+		"host": hostIP,
+	})
+	if err == nil {
+		result = parseEngineProbe(message, now)
+	}
+	s.engineProbes.put(node.ID, result)
+	return result
+}
+
+// parseEngineProbe 解析 check_engine_health 输出中的 known / healthy / reason 字段。
+// parseEngineProbe parses known / healthy / reason from a check_engine_health result payload.
+func parseEngineProbe(message string, now time.Time) engineProbeResult {
+	result := engineProbeResult{at: now}
+	var payload struct {
+		Details map[string]string `json:"details"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(message)), &payload); err != nil {
+		return result
+	}
+	result.known = payload.Details["known"] == "true"
+	result.healthy = payload.Details["healthy"] == "true"
+	result.reason = strings.TrimSpace(payload.Details["reason"])
 	return result
 }
 

@@ -631,6 +631,7 @@ export interface SyncJobEventList {
 export type SyncEventChannelState =
   | 'disabled'
   | 'pending_restart'
+  | 'waiting_events'
   | 'healthy'
   | 'degraded';
 

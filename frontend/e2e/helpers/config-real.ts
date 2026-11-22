@@ -16,7 +16,6 @@
  */
 
 import {expect, type APIRequestContext, type Page} from '@playwright/test';
-import {chooseSelectOption} from './install-wizard-real';
 import fs from 'node:fs/promises';
 import {ConfigType} from '@/lib/services/config';
 
@@ -79,7 +78,13 @@ export async function selectClusterConfigType(
   page: Page,
   optionName: RegExp | string,
 ): Promise<void> {
-  await chooseSelectOption(page, 'cluster-configs-type-select', optionName);
+  const fileList = page.getByTestId('cluster-configs-file-list');
+  await expect(fileList).toBeVisible({timeout: 30000});
+  const target = fileList
+    .getByRole('button', {name: optionName})
+    .first();
+  await expect(target).toBeVisible({timeout: 30000});
+  await target.click();
 }
 
 export async function initClusterConfigsFromNode(page: Page): Promise<void> {

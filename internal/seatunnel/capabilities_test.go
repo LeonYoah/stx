@@ -148,6 +148,11 @@ func TestJavaRequirementForVersion(t *testing.T) {
 		if req.MaxRecommended != tc.recommended[len(tc.recommended)-1] {
 			t.Fatalf("%s: MaxRecommended = %d", tc.version, req.MaxRecommended)
 		}
+		// JDK 24+ 移除 Subject.getSubject（JEP 486），所有目标版本共享同一硬上限。
+		// JDK 24+ removed Subject.getSubject (JEP 486); every target shares the same hard ceiling.
+		if req.MaxSupported != 23 {
+			t.Fatalf("%s: MaxSupported = %d, want 23", tc.version, req.MaxSupported)
+		}
 	}
 
 	for _, version := range []string{"2.3.13", "3.1.0", ""} {

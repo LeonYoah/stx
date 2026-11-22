@@ -20,7 +20,7 @@
 import {useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {ChevronDown, Telescope} from 'lucide-react';
-import {Button} from '@/components/ui/button';
+import {Button} from '@/components/arc/button/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -127,26 +127,29 @@ export function SeaTunnelObserveMenu({
   const trigger =
     variant === 'icon' ? (
       <Button
-        size='icon'
+        type='button'
+        size='sm'
         variant='ghost'
-        className={cn('size-7 text-muted-foreground hover:text-foreground', className)}
+        iconOnly
+        className={cn('text-muted-foreground hover:text-foreground', className)}
         aria-label={t('open')}
         data-testid='seatunnel-observe-trigger'
         onClick={(event) => event.stopPropagation()}
       >
-        <Telescope className='size-3.5' />
+        <Telescope className='size-3.5' aria-hidden />
       </Button>
     ) : (
       <Button
+        type='button'
         size='sm'
-        variant='outline'
-        className={cn('h-7 gap-1.5 px-2 text-xs', className)}
+        variant='secondary'
+        className={className}
         data-testid='seatunnel-observe-trigger'
         onClick={(event) => event.stopPropagation()}
       >
-        <Telescope className='size-3.5' />
+        <Telescope className='size-3.5' aria-hidden />
         {t('open')}
-        <ChevronDown className='size-3.5 opacity-70' />
+        <ChevronDown className='size-3.5 opacity-70' aria-hidden />
       </Button>
     );
 

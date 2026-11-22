@@ -19,16 +19,16 @@
  * Cluster Wizard Stepper Component
  * 集群部署向导步进器组件
  *
- * High-density, elegant horizontal step indicator for cluster wizard.
- * 集群向导高密度、现代感横向步骤指示器。
+ * Thin wrapper around Arc Stepper that supplies localized labels,
+ * error states, and completed-step navigation for the cluster wizard.
+ * Arc Stepper 的薄封装：注入本地化文案、错误态与已完成步骤回跳。
  */
 
 'use client';
 
-import React from 'react';
 import {useTranslations} from 'next-intl';
-import {Check} from 'lucide-react';
-import {cn} from '@/lib/utils';
+import {Stepper} from '@/components/arc/stepper/stepper';
+import type {StepperStep} from '@/components/arc/stepper/stepper';
 import {StepConfig} from './types';
 
 interface ClusterWizardStepperProps {
@@ -40,6 +40,15 @@ interface ClusterWizardStepperProps {
   onStepClick?: (index: number) => void;
   /** Whether deployment is currently in progress / 是否正在部署中 */
   deploying?: boolean;
+  /** Per-step error text shown under the label / 按步骤 id 展示在标签下的错误文案 */
+  stepErrors?: Partial<Record<string, string>>;
+  /** All steps done (complete page) / 到达完成步后点亮全部步骤 */
+  allComplete?: boolean;
+  /**
+   * Read-only phase (deploy/complete step): completed steps are not reachable.
+   * 只读阶段（部署中、部署步、完成步）：不允许回跳已完成步骤。
+   */
+  readOnly?: boolean;
 }
 
 export function ClusterWizardStepper({
@@ -47,79 +56,37 @@ export function ClusterWizardStepper({
   currentStepIndex,
   onStepClick,
   deploying = false,
+  stepErrors,
+  allComplete = false,
+  readOnly = false,
 }: ClusterWizardStepperProps) {
   const t = useTranslations();
 
+  const arcSteps: StepperStep[] = steps.map((step) => ({
+    id: step.id,
+    label: t(step.titleKey),
+    error: stepErrors?.[step.id],
+  }));
+
+  const interactive = !deploying && !readOnly && Boolean(onStepClick);
+
   return (
-    <div className='w-full px-6 py-3 border-b bg-muted/10'>
-      <div className='flex items-center justify-between'>
-        {steps.map((step, index) => {
-          const isCompleted = index < currentStepIndex;
-          const isCurrent = index === currentStepIndex;
-          const isPending = index > currentStepIndex;
-          const canClick = isCompleted && !deploying && onStepClick;
-
-          return (
-            <React.Fragment key={step.id}>
-              {/* Step Item / 单个步骤 */}
-              <button
-                type='button'
-                disabled={!canClick}
-                onClick={() => canClick && onStepClick(index)}
-                className={cn(
-                  'group flex items-center gap-2.5 transition-all text-left outline-none rounded-md px-2 py-1',
-                  canClick && 'cursor-pointer hover:bg-background/80',
-                  !canClick && 'cursor-default',
-                )}
-              >
-                {/* Step Circle / 步骤圆圈 */}
-                <div
-                  className={cn(
-                    'w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold transition-all shrink-0',
-                    isCompleted &&
-                      'bg-primary/15 text-primary border border-primary/30 group-hover:bg-primary/25',
-                    isCurrent &&
-                      'bg-primary text-primary-foreground shadow-xs ring-2 ring-primary/20',
-                    isPending &&
-                      'bg-muted/60 text-muted-foreground/60 border border-muted-foreground/20',
-                  )}
-                >
-                  {isCompleted ? (
-                    <Check className='w-3.5 h-3.5 stroke-[2.5]' />
-                  ) : (
-                    <span>{index + 1}</span>
-                  )}
-                </div>
-
-                {/* Step Label / 步骤文本 */}
-                <div className='hidden sm:block min-w-0'>
-                  <p
-                    className={cn(
-                      'text-xs font-medium truncate transition-colors',
-                      isCurrent && 'text-foreground font-semibold',
-                      isCompleted &&
-                        'text-foreground/80 group-hover:text-primary',
-                      isPending && 'text-muted-foreground/50',
-                    )}
-                  >
-                    {t(step.titleKey)}
-                  </p>
-                </div>
-              </button>
-
-              {/* Connecting line / 连接线 */}
-              {index < steps.length - 1 && (
-                <div
-                  className={cn(
-                    'flex-1 h-px mx-2 transition-colors',
-                    index < currentStepIndex ? 'bg-primary/40' : 'bg-border/60',
-                  )}
-                />
-              )}
-            </React.Fragment>
-          );
-        })}
-      </div>
+    <div className='w-full px-6 py-2.5 border-b-[0.5px] border-border/80'>
+      <Stepper
+        steps={arcSteps}
+        current={allComplete ? steps.length : currentStepIndex}
+        onStepSelect={interactive ? onStepClick : undefined}
+        label={t('cluster.wizard.stepperLabel')}
+        completeLabel={t('cluster.wizard.allStepsComplete')}
+        statusLabels={{
+          complete: t('cluster.wizard.stepStatusComplete'),
+          upcoming: t('cluster.wizard.stepStatusUpcoming'),
+          error: t('cluster.wizard.stepStatusError'),
+        }}
+        formatStepAnnouncement={(active, count, label) =>
+          t('cluster.wizard.stepAnnouncement', {active, count, label})
+        }
+      />
     </div>
   );
 }

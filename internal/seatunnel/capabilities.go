@@ -57,14 +57,20 @@ const (
 // JavaRequirement describes the JDK range a SeaTunnel release can run on.
 // MinSupported is a hard floor (below it the engine cannot start); Recommended
 // lists the versions treated as passed; anything above MaxRecommended is a
-// compatibility warning rather than a failure.
+// compatibility warning; anything above MaxSupported is a hard failure because
+// JDK 24+ removed javax.security.auth.Subject.getSubject (JEP 486), which the
+// embedded Hadoop 3 calls during startup.
 // JavaRequirement 描述某个 SeaTunnel 版本可用的 JDK 范围。MinSupported 是硬下限
 // （低于它引擎无法启动）；Recommended 是判定为通过的版本；高于 MaxRecommended
-// 属于兼容性警告而非失败。
+// 属于兼容性警告；高于 MaxSupported 是硬失败，因为 JDK 24+ 已移除
+// javax.security.auth.Subject.getSubject（JEP 486），内嵌 Hadoop 3 启动期必崩。
 type JavaRequirement struct {
 	MinSupported   int   `json:"min_supported"`
 	Recommended    []int `json:"recommended"`
 	MaxRecommended int   `json:"max_recommended"`
+	// MaxSupported 是可启动 SeaTunnel 的最高 JDK 主版本（硬上限，与目标版本无关）。
+	// MaxSupported is the highest JDK major that can start SeaTunnel (hard ceiling, version-independent).
+	MaxSupported int `json:"max_supported"`
 }
 
 // JavaRequirementForVersion returns the JDK requirement of a SeaTunnel release.
@@ -76,9 +82,9 @@ type JavaRequirement struct {
 // 未知或空版本沿用 8/11 要求，避免存量流程被新增阻断。
 func JavaRequirementForVersion(seatunnelVersion string) JavaRequirement {
 	if strings.TrimSpace(seatunnelVersion) != "" && CompareVersions(seatunnelVersion, "3.1.0") >= 0 {
-		return JavaRequirement{MinSupported: 11, Recommended: []int{11, 17}, MaxRecommended: 17}
+		return JavaRequirement{MinSupported: 11, Recommended: []int{11, 17}, MaxRecommended: 17, MaxSupported: 23}
 	}
-	return JavaRequirement{MinSupported: 8, Recommended: []int{8, 11}, MaxRecommended: 11}
+	return JavaRequirement{MinSupported: 8, Recommended: []int{8, 11}, MaxRecommended: 11, MaxSupported: 23}
 }
 
 // RecommendedText joins Recommended with the caller-provided separator (e.g.

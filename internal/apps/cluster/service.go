@@ -202,7 +202,11 @@ type Service struct {
 	// onNodeRecordRemoved 「仅移除记录」删除节点记录后的清理钩子（修补成员列表、删主机配置、刷新监控），尽力而为。
 	// onNodeRecordRemoved cleans up after "remove record only" deleted a node record (members, host configs, monitor); best effort.
 	onNodeRecordRemoved func(context.Context, uint, *ClusterNode)
-	memberProbes        memberProbeCache
+	// monitorPusher 向主机 Agent 下发该集群的监控跟踪配置；可选，未注入时静默跳过。
+	// monitorPusher pushes this cluster's monitor tracking config to host Agents; optional and skipped when unset.
+	monitorPusher ClusterMonitorPusher
+	memberProbes  memberProbeCache
+	engineProbes  engineProbeCache
 }
 
 // ServiceConfig holds configuration for the Cluster Service.
@@ -264,6 +268,32 @@ func (s *Service) SetOnNodeRecordRemoved(fn func(context.Context, uint, *Cluster
 // SetOnClusterTopologyChanged 设置集群拓扑变更回调（创建/更新/加减节点/删除），通常用于可观测目标同步。
 func (s *Service) SetOnClusterTopologyChanged(fn func(context.Context, uint)) {
 	s.onClusterTopologyChanged = fn
+}
+
+// SetMonitorPusher 注入按集群向主机 Agent 下发监控配置的能力（可选，尽力而为）。
+// SetMonitorPusher injects the optional cluster-scoped monitor config pusher (best effort).
+func (s *Service) SetMonitorPusher(pusher ClusterMonitorPusher) {
+	s.monitorPusher = pusher
+}
+
+// pushMonitorConfigToHost 尽力而为地向主机 Agent 推送该集群最新的监控跟踪配置：节点登记或
+// 元数据（安装目录、JDK、端口）变化后立刻下发，Agent 才会跟踪进程并纳入错误诊断。
+// 异步执行不阻塞调用方，失败只记 Warn。
+// pushMonitorConfigToHost best-effort pushes the cluster's latest monitor tracking config to the host Agent
+// right after node registration or metadata (install dir, JDK, ports) changes so the Agent tracks the process
+// and feeds error diagnostics. It runs asynchronously and only warns on failure.
+func (s *Service) pushMonitorConfigToHost(ctx context.Context, clusterID uint, hostID uint) {
+	if s.monitorPusher == nil || clusterID == 0 || hostID == 0 {
+		return
+	}
+	go func() {
+		pushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if err := s.monitorPusher.PushClusterMonitorConfigToHost(pushCtx, clusterID, hostID); err != nil {
+			logger.WarnF(pushCtx, "[Cluster] 推送节点监控配置失败 / Failed to push node monitor config: cluster=%d, host=%d, error=%v",
+				clusterID, hostID, err)
+		}
+	}()
 }
 
 func (s *Service) notifyClusterTopologyChanged(ctx context.Context, clusterID uint) {
@@ -1278,6 +1308,7 @@ func (s *Service) AddNode(ctx context.Context, clusterID uint, req *AddNodeReque
 	// 根据所有节点状态更新集群状态
 	s.updateClusterStatusFromNodes(ctx, clusterID)
 
+	s.pushMonitorConfigToHost(ctx, clusterID, req.HostID)
 	s.notifyClusterTopologyChanged(ctx, clusterID)
 
 	return node, nil
@@ -1344,6 +1375,7 @@ func (s *Service) AddNodes(ctx context.Context, clusterID uint, req *AddNodesReq
 		s.detectAndUpdateNodeProcess(ctx, node, req.HostID)
 	}
 	s.updateClusterStatusFromNodes(ctx, clusterID)
+	s.pushMonitorConfigToHost(ctx, clusterID, req.HostID)
 	s.notifyClusterTopologyChanged(ctx, clusterID)
 
 	return createdNodes, nil
@@ -1664,6 +1696,7 @@ func (s *Service) UpdateNode(ctx context.Context, clusterID uint, nodeID uint, r
 	// 根据所有节点状态更新集群状态
 	s.updateClusterStatusFromNodes(ctx, clusterID)
 
+	s.pushMonitorConfigToHost(ctx, clusterID, node.HostID)
 	s.notifyClusterTopologyChanged(ctx, clusterID)
 
 	return node, nil
@@ -2439,6 +2472,8 @@ func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint,
 			return err
 		}
 		s.updateClusterStatusFromNodes(ctx, clusterID)
+		// 新建节点处于 pending 且尚未启动，由调用方在启动完成后再推送监控配置，避免异步推送空列表与 StartNode 竞态。
+		// Newly registered pending nodes are not started yet; callers push monitor config after startup so an async empty list never races with StartNode.
 		s.notifyClusterTopologyChanged(ctx, clusterID)
 		return nil
 	}
@@ -2450,6 +2485,11 @@ func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint,
 	existing.JavaHome = desired.JavaHome
 	if err := s.repo.UpdateNode(ctx, existing); err != nil {
 		return err
+	}
+	// 仅节点已在运行时才刷新监控配置，避免安装启动前异步推送空列表与随后的 StartNode 竞态。
+	// Push monitor config only if the node is already running so a pre-start async push never races with StartNode.
+	if existing.Status == NodeStatusRunning || existing.ProcessPID > 0 {
+		s.pushMonitorConfigToHost(ctx, clusterID, hostID)
 	}
 	s.notifyClusterTopologyChanged(ctx, clusterID)
 	return nil

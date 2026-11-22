@@ -160,6 +160,8 @@ func HandlePrecheckCommand(ctx context.Context, cmd *pb.CommandRequest, reporter
 		result, err = handleCheckProcess(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckClusterMembers:
 		result, err = handleCheckClusterMembers(ctx, cmd.Parameters)
+	case PrecheckSubCommandCheckEngineHealth:
+		result, err = handleCheckEngineHealth(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckJava:
 		result, err = handleCheckJava(ctx, cmd.Parameters)
 	case PrecheckSubCommandListJavaHomes:

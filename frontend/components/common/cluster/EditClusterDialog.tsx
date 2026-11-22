@@ -18,31 +18,22 @@
 'use client';
 
 /**
- * Edit Cluster Dialog Component
- * 编辑集群对话框组件
- *
- * Dialog for editing an existing SeaTunnel cluster.
- * 用于编辑现有 SeaTunnel 集群的对话框。
+ * 编辑集群弹窗：迁移至 Arc Dialog（.arc-compact）+ 单层画布 0.5px 细线 + 脏态拦截。
+ * Edit cluster dialog: Arc Dialog (.arc-compact) + flat single-layer 0.5px dividers + DirtyCloseDialog.
  */
-
-import {useState, useEffect} from 'react';
+import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
+import {Button} from '@/components/arc/button/button';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {Input} from '@/components/arc/input/input';
+import {DirtyCloseDialog, NeutralChip} from '@/components/common/layout';
 import {Textarea} from '@/components/ui/textarea';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {Loader2} from 'lucide-react';
-import {toast} from '@/lib/toast';
 import services from '@/lib/services';
-import {ClusterInfo, UpdateClusterRequest} from '@/lib/services/cluster/types';
+import type {
+  ClusterInfo,
+  UpdateClusterRequest,
+} from '@/lib/services/cluster/types';
+import {toast} from '@/lib/toast';
 
 interface EditClusterDialogProps {
   open: boolean;
@@ -51,10 +42,6 @@ interface EditClusterDialogProps {
   onSuccess: () => void;
 }
 
-/**
- * Edit Cluster Dialog Component
- * 编辑集群对话框组件
- */
 export function EditClusterDialog({
   open,
   onOpenChange,
@@ -63,32 +50,39 @@ export function EditClusterDialog({
 }: EditClusterDialogProps) {
   const t = useTranslations();
   const [loading, setLoading] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
 
-  // Form state / 表单状态
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [version, setVersion] = useState('');
+  const [nameError, setNameError] = useState<string | undefined>(undefined);
 
-  /**
-   * Initialize form with cluster data
-   * 使用集群数据初始化表单
-   */
   useEffect(() => {
     if (open && cluster) {
       setName(cluster.name);
       setDescription(cluster.description || '');
       setVersion(cluster.version || '');
+      setNameError(undefined);
+      setConfirmClose(false);
     }
   }, [open, cluster]);
 
-  /**
-   * Handle submit
-   * 处理提交
-   */
+  const isDirty =
+    name !== cluster.name ||
+    description !== (cluster.description || '') ||
+    version !== (cluster.version || '');
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next && isDirty && !loading) {
+      setConfirmClose(true);
+      return;
+    }
+    onOpenChange(next);
+  };
+
   const handleSubmit = async () => {
-    // Validate required fields / 验证必填字段
     if (!name.trim()) {
-      toast.error(t('cluster.nameRequired'));
+      setNameError(t('cluster.nameRequired'));
       return;
     }
 
@@ -99,9 +93,7 @@ export function EditClusterDialog({
         description: description.trim() || undefined,
         version: version.trim() || undefined,
       };
-
       const result = await services.cluster.updateClusterSafe(cluster.id, data);
-
       if (result.success) {
         toast.success(t('cluster.updateSuccess'));
         onSuccess();
@@ -113,83 +105,110 @@ export function EditClusterDialog({
     }
   };
 
+  const modeKey = `cluster.modes.${cluster.deployment_mode}`;
+  const modeLabel = t.has(modeKey) ? t(modeKey) : cluster.deployment_mode;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-[500px]'>
-        <DialogHeader>
-          <DialogTitle>{t('cluster.editCluster')}</DialogTitle>
-          <DialogDescription>{t('cluster.editClusterDescription')}</DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          title={t('cluster.editCluster')}
+          description={t('cluster.editClusterDescription')}
+          className='arc-compact w-[min(92vw,520px)]!'
+        >
+          <div className='space-y-4'>
+            {/* 只读标识信息条，替代置灰不可编辑输入框 / Read-only metadata strip instead of disabled inputs */}
+            <div className='flex flex-wrap items-center gap-x-4 gap-y-2 border-b-[0.5px] border-border/80 pb-4 text-xs'>
+              <div className='flex items-center gap-1.5'>
+                <span className='text-muted-foreground'>
+                  {t('cluster.clusterCode')}:
+                </span>
+                <span className='font-mono font-medium text-foreground'>
+                  {cluster.cluster_code || '-'}
+                </span>
+              </div>
+              <div className='flex items-center gap-1.5'>
+                <span className='text-muted-foreground'>
+                  {t('cluster.deploymentMode')}:
+                </span>
+                <NeutralChip>{modeLabel}</NeutralChip>
+              </div>
+            </div>
 
-        <div className='space-y-4 py-4'>
-          <div className='space-y-2'>
-            <Label htmlFor='edit-name'>
-              {t('cluster.name')} <span className='text-destructive'>*</span>
-            </Label>
-            <Input
-              id='edit-name'
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('cluster.namePlaceholder')}
-            />
+            <div className='space-y-4'>
+              <Input
+                id='edit-name'
+                label={t('cluster.name')}
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (nameError) {
+                    setNameError(undefined);
+                  }
+                }}
+                placeholder={t('cluster.namePlaceholder')}
+                error={nameError}
+                required
+              />
+
+              <div className='space-y-1.5'>
+                <label
+                  htmlFor='edit-description'
+                  className='block text-xs font-medium text-foreground'
+                >
+                  {t('cluster.descriptionLabel')}
+                </label>
+                <Textarea
+                  id='edit-description'
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={t('cluster.descriptionPlaceholder')}
+                  rows={2}
+                />
+              </div>
+
+              <Input
+                id='edit-version'
+                label={t('cluster.version')}
+                value={version}
+                onChange={(e) => setVersion(e.target.value)}
+                placeholder={t('cluster.versionPlaceholder')}
+                className='font-mono tabular-nums'
+              />
+            </div>
+
+            <div className='flex items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>
+              <Button
+                type='button'
+                variant='secondary'
+                size='sm'
+                onClick={() => handleOpenChange(false)}
+                disabled={loading}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type='button'
+                size='sm'
+                onClick={() => void handleSubmit()}
+                disabled={loading}
+                loading={loading}
+              >
+                {t('common.save')}
+              </Button>
+            </div>
           </div>
+        </DialogContent>
+      </Dialog>
 
-          <div className='space-y-2'>
-            <Label>{t('cluster.clusterCode')}</Label>
-            <Input
-              value={cluster.cluster_code || '-'}
-              disabled
-              className='bg-muted font-mono text-xs'
-            />
-            <p className='text-xs text-muted-foreground'>
-              {t('cluster.clusterCodeHint')}
-            </p>
-          </div>
-
-          <div className='space-y-2'>
-            <Label htmlFor='edit-description'>{t('cluster.descriptionLabel')}</Label>
-            <Textarea
-              id='edit-description'
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('cluster.descriptionPlaceholder')}
-              rows={2}
-            />
-          </div>
-
-          <div className='space-y-2'>
-            <Label>{t('cluster.deploymentMode')}</Label>
-            <Input
-              value={t(`cluster.modes.${cluster.deployment_mode}`)}
-              disabled
-              className='bg-muted'
-            />
-            <p className='text-xs text-muted-foreground'>
-              {t('cluster.deploymentModeCannotChange')}
-            </p>
-          </div>
-
-          <div className='space-y-2'>
-            <Label htmlFor='edit-version'>{t('cluster.version')}</Label>
-            <Input
-              id='edit-version'
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              placeholder={t('cluster.versionPlaceholder')}
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant='outline' onClick={() => onOpenChange(false)} disabled={loading}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading && <Loader2 className='h-4 w-4 mr-2 animate-spin' />}
-            {t('common.save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <DirtyCloseDialog
+        open={confirmClose}
+        onDiscard={() => {
+          setConfirmClose(false);
+          onOpenChange(false);
+        }}
+        onKeepEditing={() => setConfirmClose(false)}
+      />
+    </>
   );
 }

@@ -89,6 +89,8 @@ interface PluginDetailDialogProps {
   selectedProfileKeys?: string[];
   onSelectedProfileKeysChange?: (keys: string[]) => void;
   onDownload?: (plugin: Plugin, profileKeys: string[]) => void;
+  /** 打开时默认定位的标签页（例如 JDBC 需选场景时直达 dependencies）/ Initial tab when opened (e.g. jump straight to dependencies for JDBC profile selection) */
+  initialTab?: 'overview' | 'dependencies' | 'custom';
 }
 
 /**
@@ -143,6 +145,7 @@ export function PluginDetailDialog({
   selectedProfileKeys = [],
   onSelectedProfileKeysChange,
   onDownload,
+  initialTab = 'overview',
 }: PluginDetailDialogProps) {
   const t = useTranslations();
   const {locale} = useLocale();
@@ -156,7 +159,7 @@ export function PluginDetailDialog({
   >(null);
   const [activeTab, setActiveTab] = useState<
     'overview' | 'dependencies' | 'custom'
-  >('overview');
+  >(initialTab);
   const [profileFilter, setProfileFilter] = useState('');
   const [copiedCoord, setCopiedCoord] = useState(false);
   const [copiedXml, setCopiedXml] = useState(false);
@@ -205,13 +208,14 @@ export function PluginDetailDialog({
     if (!open || !plugin?.name) {
       return;
     }
+    setActiveTab(initialTab);
     // 插件或版本切换时清掉旧画像，避免短暂展示错误依赖。
     // Clear stale profiles when plugin/version changes to avoid briefly showing wrong deps.
     if (loadedOfficialDepsKeyRef.current !== officialDepsKey) {
       setOfficialDeps(null);
     }
     void loadOfficialDeps();
-  }, [loadOfficialDeps, officialDepsKey, open, plugin?.name]);
+  }, [initialTab, loadOfficialDeps, officialDepsKey, open, plugin?.name]);
 
   // Profiles resolution / 画像列表与过滤
   const availableProfiles = useMemo(
@@ -428,9 +432,12 @@ export function PluginDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid={`plugin-detail-dialog-${plugin.name}`}
+        // 抬高遮罩与内容层级至 z-[60]，避免在 Arc Dialog（z-51，如集群部署向导）内打开时被遮挡。
+        // Bump overlay and content to z-[60] so opening inside an Arc Dialog (z-51, e.g. deploy wizard) stays on top.
+        overlayClassName='z-[60]'
         // #129 AC8：固定高度，切 Tab 尺寸不变；头/Tab/底栏固定，仅内容区滚动。
         // #129 AC8: fixed height so tab switches do not resize; header/tabs/footer stick, body scrolls.
-        className='flex h-[min(85vh,720px)] max-h-[min(85vh,720px)] w-[94vw] max-w-[94vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px] lg:max-w-[820px]'
+        className='z-[60] flex h-[min(85vh,720px)] max-h-[min(85vh,720px)] w-[94vw] max-w-[94vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px] lg:max-w-[820px]'
       >
         {/* Header with high-density visual hierarchy / 高辨识度强化头部 */}
         <DialogHeader className='px-6 pt-5 pb-4 border-b-[0.5px] border-border/80 shrink-0 bg-muted/10'>

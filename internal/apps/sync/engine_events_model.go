@@ -32,6 +32,12 @@ type EngineEventChannel struct {
 	ConfigApplyError  string     `json:"config_apply_error,omitempty" gorm:"type:text"`
 	LastEventAt       *time.Time `json:"last_event_at,omitempty"`
 	LastBatchAt       *time.Time `json:"last_batch_at,omitempty"`
+	// RestartRequired 记录通道配置是否要等集群重启后才生效：安装期在节点启动前写入为 false，
+	// 运行中开启或轮换 token 为 true；收到首批事件后清回 false。
+	// RestartRequired records whether the channel config only takes effect after a cluster restart:
+	// false when written during install before nodes start, true for enable/rotate while running;
+	// cleared back to false once the first event batch arrives.
+	RestartRequired   bool       `json:"restart_required" gorm:"not null;default:false"`
 	ReceivedCount     int64      `json:"received_count" gorm:"not null;default:0"`
 	DuplicateCount    int64      `json:"duplicate_count" gorm:"not null;default:0"`
 	DroppedCount      int64      `json:"dropped_count" gorm:"not null;default:0"`

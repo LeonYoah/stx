@@ -358,13 +358,21 @@ describe('JobTable column registry', () => {
     expect(
       within(ext).getByText('外部').parentElement!.textContent,
     ).toContain('-');
-    // 悬浮提示不再出现「任务 #0」。/ The hover title no longer says "Task #0".
-    expect(within(ext).getByText('#7 · e7').title).toBe('#7 · e7');
+    // 悬浮提示不再出现「任务 #0」。/ The hover tooltip no longer says "Task #0".
+    const extSub = within(ext).getByText('#7 · e7');
+    Object.defineProperty(extSub, 'scrollWidth', {configurable: true, value: 200});
+    Object.defineProperty(extSub, 'clientWidth', {configurable: true, value: 80});
+    fireEvent.focus(extSub);
+    expect(screen.getByRole('tooltip').textContent).toBe('#7 · e7');
+    fireEvent.blur(extSub);
 
     const stx = screen.getByTestId('job-row-8');
     expect(within(stx).getByText('STX')).toBeTruthy();
     expect(within(stx).getByText('手动')).toBeTruthy();
-    expect(within(stx).getByText('#8 · e8').title).toBe('任务 #18 · e8');
+    const stxSub = within(stx).getByText('#8 · e8');
+    fireEvent.focus(stxSub);
+    expect(screen.getByRole('tooltip').textContent).toBe('任务 #18 · e8');
+    fireEvent.blur(stxSub);
 
     // 「在工作台打开」对外部作业隐藏。/ "Open in workbench" is hidden for external jobs.
     const extTrigger = within(ext).getByRole('button', {name: '更多操作'});

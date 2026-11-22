@@ -18,31 +18,29 @@
 'use client';
 
 /**
- * 全局截断文本与路径展示原语：仅在实际溢出（或显式指定）时在悬停后即时弹出
- * 主题化 Radix Tooltip 显示完整原文（避免原生 title 延迟过长或在 WebView 中不弹）；
- * 支持 `mode='path'` 中间省略保留尾部关键路径段，以及可选的悬停一键复制。
- * Global truncated text / path display primitive: lazily detects DOM overflow on hover
- * and shows a themed Radix Tooltip with the full unwrapped content (avoiding slow or
- * suppressed native HTML title tooltips). Supports `mode='path'` middle-truncation to
- * keep trailing path segments visible, plus optional hover copy-to-clipboard.
+ * 全局截断文本与路径展示原语：基于 useOverflowTooltip 实现静止态零浮层实例开销，
+ * 仅在实际溢出（或显式指定 alwaysTooltip）时在悬停 180ms 后弹出主题化浮层显示完整原文；
+ * 支持 `mode='path'` 路径中间省略保留末尾关键段，以及可选的悬停一键复制（仅开启时订阅 i18n）。
+ * Global truncated text / path primitive: built on useOverflowTooltip for zero rest-state
+ * overlay overhead, lazily revealing full content in a themed portal only on actual overflow
+ * (or alwaysTooltip). Supports `mode='path'` middle-truncation and opt-in hover copy.
  */
 import {
   useCallback,
   useMemo,
   useRef,
   useState,
+  type MouseEvent,
   type ReactNode,
 } from 'react';
 import {useTranslations} from 'next-intl';
 import {Check, Copy} from 'lucide-react';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
+import {
+  useOverflowTooltip,
+  type OverflowTooltipSide,
+} from './OverflowTooltip';
 
 export interface TruncatedTextProps {
   /** 完整原文；为空时回退展示 fallback / Full raw text; renders fallback when empty */
@@ -59,8 +57,10 @@ export interface TruncatedTextProps {
   mono?: boolean;
   /** 悬停时在右侧浮现一键复制按钮（复制完整原文）/ Reveal a subtle copy button on hover */
   copyable?: boolean;
+  /** 挂 data-detail-name 供 DetailHost 飞入动画定位 / Attach data-detail-name for DetailHost fly-in */
+  detailName?: boolean;
   /** Tooltip 弹出方向 / Tooltip placement */
-  side?: 'top' | 'bottom' | 'left' | 'right';
+  side?: OverflowTooltipSide;
   className?: string;
   textClassName?: string;
   'data-testid'?: string;
@@ -102,6 +102,49 @@ export function splitPathForMiddleEllipsis(
   return [prefix, tail];
 }
 
+/** 仅在开启 copyable 时挂载，避免普通列表单元格普遍订阅 useTranslations。
+    Mounted only when copyable is enabled so regular table cells skip subscribing to next-intl. */
+function CopyTextButton({value}: {value: string}) {
+  const t = useTranslations('common');
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(
+    async (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      event.preventDefault();
+      try {
+        await navigator.clipboard.writeText(value);
+        setCopied(true);
+        toast.success(t('copied'));
+        window.setTimeout(() => setCopied(false), 1600);
+      } catch {
+        // 剪贴板不可用时静默忽略 / Ignore clipboard errors
+      }
+    },
+    [t, value],
+  );
+
+  return (
+    <button
+      type='button'
+      onClick={(e) => void handleCopy(e)}
+      aria-label={t('copy')}
+      className={cn(
+        'shrink-0 rounded p-0.5 text-muted-foreground transition-opacity hover:text-foreground focus-visible:opacity-100',
+        copied
+          ? 'opacity-100 text-emerald-500'
+          : 'opacity-0 group-hover/trunc:opacity-100',
+      )}
+    >
+      {copied ? (
+        <Check className='size-3 text-emerald-500' aria-hidden />
+      ) : (
+        <Copy className='size-3' aria-hidden />
+      )}
+    </button>
+  );
+}
+
 export function TruncatedText({
   text,
   fallback = '-',
@@ -110,71 +153,42 @@ export function TruncatedText({
   mode = 'end',
   mono = false,
   copyable = false,
+  detailName = false,
   side = 'top',
   className,
   textClassName,
   'data-testid': testId,
 }: TruncatedTextProps) {
-  const t = useTranslations('common');
   const raw = text?.trim() ?? '';
   const hasValue = raw.length > 0;
 
   const prefixRef = useRef<HTMLSpanElement>(null);
   const fullRef = useRef<HTMLSpanElement>(null);
-  const [overflowing, setOverflowing] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const anchorRef = useRef<HTMLSpanElement>(null);
 
   const pathParts = useMemo(
     () => (mode === 'path' && hasValue ? splitPathForMiddleEllipsis(raw) : null),
     [mode, hasValue, raw],
   );
 
-  const measureOverflow = useCallback(() => {
-    const el = pathParts ? prefixRef.current : fullRef.current;
-    if (!el) {
-      return false;
-    }
-    const next = el.scrollWidth > el.clientWidth + 1;
-    setOverflowing(next);
-    return next;
-  }, [pathParts]);
-
-  const handleOpenChange = useCallback(
-    (nextOpen: boolean) => {
-      if (!nextOpen) {
-        setOpen(false);
-        return;
-      }
-      if (!hasValue) {
-        return;
-      }
-      const isTruncated = measureOverflow();
-      if (alwaysTooltip || isTruncated) {
-        setOpen(true);
-      }
-    },
-    [alwaysTooltip, hasValue, measureOverflow],
+  const tooltipBody = useMemo(
+    () =>
+      !hasValue
+        ? null
+        : (tooltip ?? (
+            <span className={cn('block', mono && 'font-mono')}>{raw}</span>
+          )),
+    [hasValue, mono, raw, tooltip],
   );
 
-  const handleCopy = useCallback(
-    async (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.stopPropagation();
-      event.preventDefault();
-      if (!hasValue) {
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(raw);
-        setCopied(true);
-        toast.success(t('copied'));
-        window.setTimeout(() => setCopied(false), 1600);
-      } catch {
-        // 剪贴板不可用时静默忽略 / Ignore clipboard errors
-      }
-    },
-    [hasValue, raw, t],
-  );
+  const {triggerProps, portal} = useOverflowTooltip({
+    targetRef: pathParts ? prefixRef : fullRef,
+    anchorRef: pathParts ? anchorRef : fullRef,
+    content: tooltipBody,
+    alwaysShow: alwaysTooltip,
+    side,
+    disabled: !hasValue,
+  });
 
   if (!hasValue) {
     return (
@@ -185,21 +199,23 @@ export function TruncatedText({
           className,
         )}
         data-testid={testId}
+        data-detail-name={detailName ? '' : undefined}
       >
         {fallback}
       </span>
     );
   }
 
-  const tooltipBody = tooltip ?? (
-    <span className={cn('block', mono && 'font-mono')}>{raw}</span>
-  );
-
-  const contentNode = pathParts ? (
+  const textElement = pathParts ? (
     <span
+      ref={anchorRef}
+      {...triggerProps}
+      data-testid={copyable ? undefined : testId}
+      data-detail-name={detailName ? '' : undefined}
       className={cn(
         'inline-flex min-w-0 max-w-full items-baseline overflow-hidden whitespace-nowrap align-bottom',
         mono && 'font-mono',
+        !copyable && className,
         textClassName,
       )}
     >
@@ -211,15 +227,28 @@ export function TruncatedText({
   ) : (
     <span
       ref={fullRef}
+      {...triggerProps}
+      data-testid={copyable ? undefined : testId}
+      data-detail-name={detailName ? '' : undefined}
       className={cn(
         'block min-w-0 max-w-full truncate',
         mono && 'font-mono',
+        !copyable && className,
         textClassName,
       )}
     >
       {raw}
     </span>
   );
+
+  if (!copyable) {
+    return (
+      <>
+        {textElement}
+        {portal}
+      </>
+    );
+  }
 
   return (
     <div
@@ -229,49 +258,9 @@ export function TruncatedText({
       )}
       data-testid={testId}
     >
-      <TooltipProvider delayDuration={180}>
-        <Tooltip open={open} onOpenChange={handleOpenChange}>
-          <TooltipTrigger asChild>
-            <span
-              className={cn(
-                'block min-w-0 flex-1 overflow-hidden',
-                (alwaysTooltip || overflowing) && 'cursor-default',
-              )}
-              onPointerEnter={measureOverflow}
-              onFocus={measureOverflow}
-            >
-              {contentNode}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent
-            side={side}
-            sideOffset={6}
-            className='max-w-[min(90vw,480px)] whitespace-pre-wrap [overflow-wrap:anywhere] text-left leading-relaxed'
-          >
-            {tooltipBody}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-
-      {copyable ? (
-        <button
-          type='button'
-          onClick={(e) => void handleCopy(e)}
-          aria-label={t('copy')}
-          className={cn(
-            'shrink-0 rounded p-0.5 text-muted-foreground transition-opacity hover:text-foreground focus-visible:opacity-100',
-            copied
-              ? 'opacity-100 text-emerald-500'
-              : 'opacity-0 group-hover/trunc:opacity-100',
-          )}
-        >
-          {copied ? (
-            <Check className='size-3 text-emerald-500' aria-hidden />
-          ) : (
-            <Copy className='size-3' aria-hidden />
-          )}
-        </button>
-      ) : null}
+      <span className='block min-w-0 flex-1 overflow-hidden'>{textElement}</span>
+      {portal}
+      <CopyTextButton value={raw} />
     </div>
   );
 }

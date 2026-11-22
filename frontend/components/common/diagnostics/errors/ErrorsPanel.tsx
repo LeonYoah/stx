@@ -51,7 +51,7 @@ import {
   type ErrorHeatFilter,
 } from './error-utils';
 import {DetailHost, useDetailNarrow} from '@/components/common/layout';
-import {SoftChip, NeutralChip} from '@/components/common/layout';
+import {SoftChip, NeutralChip, TruncatedText} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 
 const PAGE_SIZE = 20;
@@ -433,13 +433,11 @@ export function ErrorsPanel({
                 >
                   <div className={layout.rowName}>
                     <div className={layout.rowNameInline}>
-                      <span
+                      <TruncatedText
+                        text={group.title}
                         className={layout.name}
-                        title={group.title}
-                        data-detail-name
-                      >
-                        {group.title || '-'}
-                      </span>
+                        detailName
+                      />
                       {groupMemoryMap.get(group.id) ? (
                         <SoftChip tone='emerald'>
                           <Lightbulb className='size-3' aria-hidden />
@@ -447,32 +445,21 @@ export function ErrorsPanel({
                         </SoftChip>
                       ) : null}
                     </div>
-                    <span
+                    <TruncatedText
+                      text={group.sample_message || group.fingerprint}
                       className={layout.sub}
-                      title={group.sample_message || group.fingerprint}
-                    >
-                      {group.sample_message || group.fingerprint}
-                    </span>
+                    />
                   </div>
-                  <NeutralChip title={group.exception_class || '-'}>
-                    {group.exception_class || '-'}
-                  </NeutralChip>
-                  <span
+                  <NeutralChip>{group.exception_class || '-'}</NeutralChip>
+                  <TruncatedText
+                    text={formatNodeOrigin({
+                      nodeId: group.last_node_id,
+                      hostId: group.last_host_id,
+                      hostName: group.last_host_name,
+                      hostIp: group.last_host_ip,
+                    })}
                     className={layout.sub}
-                    title={formatNodeOrigin({
-                      nodeId: group.last_node_id,
-                      hostId: group.last_host_id,
-                      hostName: group.last_host_name,
-                      hostIp: group.last_host_ip,
-                    })}
-                  >
-                    {formatNodeOrigin({
-                      nodeId: group.last_node_id,
-                      hostId: group.last_host_id,
-                      hostName: group.last_host_name,
-                      hostIp: group.last_host_ip,
-                    })}
-                  </span>
+                  />
                   <SoftChip tone={occurrenceHeatTone(group.occurrence_count)}>
                     {t('occurrencesShort', {count: group.occurrence_count})}
                   </SoftChip>

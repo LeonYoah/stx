@@ -48,7 +48,7 @@ import type {
 } from '@/lib/services/monitoring';
 import {cn} from '@/lib/utils';
 import {DeliveryChip} from '../status-chips';
-import {NeutralChip} from '@/components/common/layout';
+import {NeutralChip, TruncatedText} from '@/components/common/layout';
 import {formatAgo, minutesAgo} from '../monitoring-utils';
 import styles from '../monitoring.module.css';
 import layout from '@/components/common/layout/list-detail.module.css';
@@ -260,19 +260,22 @@ export function DeliveriesPanel({
               {items.map((d) => (
                 <div key={d.id} className={cn(layout.row, styles.rowStatic)}>
                   <div className={layout.rowName}>
-                    <span className={layout.name} title={d.alert_name || d.alert_id}>
-                      {d.alert_name || d.alert_id}
-                    </span>
+                    <TruncatedText
+                      text={d.alert_name || d.alert_id}
+                      className={layout.name}
+                    />
                     {d.cluster_name ? (
-                      <span className={layout.sub}>{d.cluster_name}</span>
+                      <TruncatedText
+                        text={d.cluster_name}
+                        className={layout.sub}
+                      />
                     ) : null}
                   </div>
-                  <span
-                    className={cn(layout.sub, styles.truncate)}
-                    title={d.channel_name ?? ''}
-                  >
-                    {d.channel_name || '—'}
-                  </span>
+                  <TruncatedText
+                    text={d.channel_name}
+                    fallback='—'
+                    className={layout.sub}
+                  />
                   <NeutralChip>
                     {DELIVERY_EVENTS.includes(d.event_type)
                       ? t(`deliveryEvent.${d.event_type}`)

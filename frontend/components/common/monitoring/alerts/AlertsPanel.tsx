@@ -43,7 +43,7 @@ import {
   Zap,
 } from 'lucide-react';
 import {AlertStatusChip, DeliveryChip, SeverityChip} from '../status-chips';
-import {NeutralChip} from '@/components/common/layout';
+import {NeutralChip, TruncatedText} from '@/components/common/layout';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Combobox} from '@/components/arc/combobox/combobox';
@@ -968,13 +968,11 @@ export function AlertsPanel({
                     <StatusCell status={rowStatus} t={t} />
                     <div className={layout.rowName}>
                       <span className={layout.rowNameInline}>
-                        <span
+                        <TruncatedText
+                          text={displayName(alert)}
                           className={layout.name}
-                          title={displayName(alert)}
-                          data-detail-name
-                        >
-                          {displayName(alert)}
-                        </span>
+                          detailName
+                        />
                         {alertMemoryMap.get(alert.alert_id) ? (
                           <Lightbulb
                             className={cn(
@@ -985,9 +983,10 @@ export function AlertsPanel({
                           />
                         ) : null}
                       </span>
-                      <span className={cn(layout.sub, styles.mono)}>
-                        {alert.rule_key}
-                      </span>
+                      <TruncatedText
+                        text={alert.rule_key}
+                        className={cn(layout.sub, styles.mono)}
+                      />
                     </div>
                     <SeverityChip
                       severity={alert.severity}
@@ -1002,9 +1001,10 @@ export function AlertsPanel({
                         ? t('scopeCluster')
                         : t('scopeJob')}
                     </NeutralChip>
-                    <span className={layout.sub} title={alert.cluster_name}>
-                      {alert.cluster_name}
-                    </span>
+                    <TruncatedText
+                      text={alert.cluster_name}
+                      className={layout.sub}
+                    />
                     <span className={cn(layout.sub, styles.num, styles.nowrap)}>
                       {ago(alert.firing_at || alert.created_at)}
                     </span>

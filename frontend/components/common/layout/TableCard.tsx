@@ -38,6 +38,7 @@ import {Pagination} from '@/components/ui/pagination';
 import {cn} from '@/lib/utils';
 import {TableLoadingBar} from './TableLoadingBar';
 import {TableSkeletonRows} from './TableSkeletonRows';
+import {TruncatedText} from './TruncatedText';
 
 /** 骨架屏延迟规则：加载超过 300ms 才显示骨架，出现后至少保留 500ms。Skeleton delay rule. */
 const SKELETON_DELAY_MS = 300;
@@ -149,9 +150,7 @@ export function TableCard({
               className='flex items-center gap-2 border-b border-(--border) px-4 py-2 text-xs text-destructive'
               role='alert'
             >
-              <span className='min-w-0 flex-1 truncate' title={error}>
-                {error}
-              </span>
+              <TruncatedText text={error} className='min-w-0 flex-1' />
               {onRetry ? (
                 <Button
                   type='button'

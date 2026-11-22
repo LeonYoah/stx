@@ -110,6 +110,38 @@ func TestDedupeDiscoveredProcesses_ShellWithoutChildStillDroppedWhenJavaSiblingE
 	}
 }
 
+func TestDedupeDiscoveredProcesses_KeepsIndependentJavaInSameInstallDir(t *testing.T) {
+	// 不得仅因同安装目录就把两个独立 Java 实例合并/误删。
+	// Must not merge/drop two independent Java instances solely because install dirs match.
+	input := []*discoveredProcessCandidate{
+		{
+			PID:        501,
+			PPID:       1,
+			InstallDir: "/opt/seatunnel-shared",
+			Role:       "hybrid",
+			CommandLine: "java -Dhazelcast.config=/opt/seatunnel-shared/config/hazelcast-a.yaml " +
+				SeaTunnelMainClass + " -d",
+		},
+		{
+			PID:        502,
+			PPID:       1,
+			InstallDir: "/opt/seatunnel-shared",
+			Role:       "hybrid",
+			CommandLine: "java -Dhazelcast.config=/opt/seatunnel-shared/config/hazelcast-b.yaml " +
+				SeaTunnelMainClass + " -d",
+		},
+	}
+	got := dedupeDiscoveredProcesses(input)
+	if len(got) != 2 {
+		t.Fatalf("got %d processes, want both independent Java PIDs retained", len(got))
+	}
+	pids := summarizeCandidates(got)
+	sort.Ints(pids)
+	if pids[0] != 501 || pids[1] != 502 {
+		t.Fatalf("kept PIDs=%v, want [501 502]", pids)
+	}
+}
+
 func summarizeCandidates(items []*discoveredProcessCandidate) []int {
 	pids := make([]int, 0, len(items))
 	for _, item := range items {

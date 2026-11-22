@@ -105,3 +105,54 @@ hazelcast:
 		t.Fatalf("absent port section: got %d, want default 5801", got)
 	}
 }
+
+func TestReadHazelcastPort_ReproductionShapesTwoActiveConfigs(t *testing.T) {
+	// 测试真实形状：实例 A hazelcast 17601 / API 17180；实例 B hazelcast 17501 / API 17080。
+	// Real reproduction shapes: instance A 17601/17180; instance B 17501/17080.
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	cfgA := writeHazelcastFixture(t, dirA, "hazelcast.yaml", `
+network:
+  port:
+    auto-increment: false
+    port: 17601
+`)
+	cfgB := writeHazelcastFixture(t, dirB, "hazelcast.yaml", `
+network:
+  port:
+    auto-increment: false
+    port: 17501
+`)
+	if err := os.WriteFile(filepath.Join(dirA, "config", "seatunnel.yaml"), []byte(`
+seatunnel:
+  engine:
+    http:
+      enable: true
+      port: 17180
+`), 0o644); err != nil {
+		t.Fatalf("write seatunnel.yaml A: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dirB, "config", "seatunnel.yaml"), []byte(`
+seatunnel:
+  engine:
+    http:
+      enable: true
+      port: 17080
+`), 0o644); err != nil {
+		t.Fatalf("write seatunnel.yaml B: %v", err)
+	}
+
+	reader := NewConfigReader()
+	if got := reader.ReadHazelcastPortPrefer(dirA, "hybrid", cfgA); got != 17601 {
+		t.Fatalf("instance A HazelcastPort=%d, want 17601", got)
+	}
+	if got := reader.ReadAPIPort(dirA); got != 17180 {
+		t.Fatalf("instance A APIPort=%d, want 17180", got)
+	}
+	if got := reader.ReadHazelcastPortPrefer(dirB, "hybrid", cfgB); got != 17501 {
+		t.Fatalf("instance B HazelcastPort=%d, want 17501", got)
+	}
+	if got := reader.ReadAPIPort(dirB); got != 17080 {
+		t.Fatalf("instance B APIPort=%d, want 17080", got)
+	}
+}

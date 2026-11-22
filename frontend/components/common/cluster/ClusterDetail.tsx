@@ -80,6 +80,7 @@ import {ClusterStatusChip} from './ClusterStatusChip';
 import type {SyncEventChannelStatus} from '@/lib/services/sync/types';
 import {
   CLUSTER_DETAIL_TABS,
+  getLegacyClusterRouteRewrite,
   resolveClusterDetailRoute,
   type ClusterDetailTab,
   type RuntimeSubView,
@@ -393,18 +394,18 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const runtimeView = resolvedRoute.runtimeView;
   const opsView = resolvedRoute.opsView;
 
-  // 旧 ?tab=storage|proxy|webui|monitoring|diagnostics|upgrades 深链无感归一化
-  // Silently normalize legacy tab params onto the 6 canonical tabs + sub-views
+  // 旧 ?tab=storage|proxy|webui|monitoring|diagnostics|upgrades 深链无感归一化。
+  // ?tab=webui 须等集群/节点首次加载完成，避免未知可用性被写成 checkpoint。
+  // Silently normalize legacy tabs; defer ?tab=webui until cluster/nodes first load finishes.
   useEffect(() => {
-    if (!resolvedRoute.isLegacy) {
+    const rewrite = getLegacyClusterRouteRewrite(rawTabParam, resolvedRoute, {
+      clusterDataReady: !loading,
+    });
+    if (!rewrite) {
       return;
     }
-    if (resolvedRoute.tab === 'runtime') {
-      updateRouteQuery('runtime', resolvedRoute.runtimeView);
-    } else if (resolvedRoute.tab === 'ops') {
-      updateRouteQuery('ops', resolvedRoute.opsView);
-    }
-  }, [resolvedRoute, updateRouteQuery]);
+    updateRouteQuery(rewrite.tab, rewrite.view);
+  }, [loading, rawTabParam, resolvedRoute, updateRouteQuery]);
 
   const requestRouteChange = useCallback(
     (tab: ClusterDetailTab, view?: string | null) => {

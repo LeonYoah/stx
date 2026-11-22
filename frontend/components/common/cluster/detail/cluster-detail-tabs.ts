@@ -156,3 +156,38 @@ export function resolveClusterDetailRoute(
       };
   }
 }
+
+export interface LegacyClusterRouteRewrite {
+  tab: ClusterDetailTab;
+  view: string;
+}
+
+/**
+ * 决定是否将旧深链写回规范 URL。
+ * Decide whether to rewrite a legacy deep link into the canonical URL.
+ *
+ * 旧 ?tab=webui 依赖集群版本/节点是否已加载；数据未就绪时不得把未知态写成 checkpoint，
+ * 否则冷开会永久丢失 Web UI 意图。其它旧 tab 不依赖节点，可立即归一化。
+ * Legacy ?tab=webui needs loaded cluster/nodes; never rewrite unknown availability to
+ * checkpoint or a cold open permanently loses Web UI intent. Other legacy tabs do not
+ * depend on nodes and may normalize immediately.
+ */
+export function getLegacyClusterRouteRewrite(
+  rawTab: string | null,
+  resolved: ResolvedClusterDetailRoute,
+  options: {clusterDataReady: boolean},
+): LegacyClusterRouteRewrite | null {
+  if (!resolved.isLegacy) {
+    return null;
+  }
+  if (rawTab === 'webui' && !options.clusterDataReady) {
+    return null;
+  }
+  if (resolved.tab === 'runtime') {
+    return {tab: 'runtime', view: resolved.runtimeView};
+  }
+  if (resolved.tab === 'ops') {
+    return {tab: 'ops', view: resolved.opsView};
+  }
+  return null;
+}

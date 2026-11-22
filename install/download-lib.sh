@@ -470,6 +470,14 @@ stx_setup_log() {
   fi
   export STX_INSTALL_LOG
   export STX_LOG_TEED=1
+  # tee 之后 stderr 恒为管道；先记下原始输出通道是不是终端，供进度条判断 \r 能否被渲染。
+  # 导出使嵌套调用的 install.sh（其 stderr 必然是管道）也能拿到原始判断。
+  # stderr is always a pipe after the tee; record whether the original channel was a terminal
+  # so progress bars can tell if \r redraw is renderable. Exported so a nested install.sh
+  # (whose stderr is necessarily the pipe) still inherits the original answer.
+  if [[ -z "${STX_PROGRESS_TTY:-}" && -t 2 ]]; then
+    export STX_PROGRESS_TTY=1
+  fi
   exec > >(tee -a "$STX_INSTALL_LOG") 2>&1
 }
 
@@ -757,12 +765,33 @@ stx_choose_mirror() {
   export STX_SELECTED_MIRROR_PREFIX
 }
 
+# 当前输出通道能否用 \r 单行重绘进度条：输出是终端才行（未 tee 时看 stderr 本身；
+# tee 之后看 stx_setup_log 记录下的原始 stderr）。TERM=dumb 与 STX_PROGRESS=off 一律禁用。
+# Whether output can redraw a single line with \r: only when the channel is a terminal
+# (live stderr when not tee'd; the pre-tee stderr recorded by stx_setup_log otherwise).
+# TERM=dumb and STX_PROGRESS=off always disable it.
+stx_progress_capable() {
+  [[ "${STX_PROGRESS:-auto}" == "off" || "${TERM:-dumb}" == "dumb" ]] && return 1
+  if [[ -n "${STX_LOG_TEED:-}" ]]; then
+    [[ "${STX_PROGRESS_TTY:-}" == "1" ]]
+  else
+    [[ -t 2 ]]
+  fi
+}
+
 # 带进度条下载（单条线路）。/ Download with a progress bar (one line).
+# 输出通道不是终端时，curl 的 \r 进度帧会被渲染成逐行 # 刷屏，改为静默下载只占一行。
+# When the output channel is not a terminal, curl's \r progress frames render as a screenful
+# of '#' lines; download quietly instead so output stays a single line.
 stx_download_progress() {
   local url="$1" dest="$2"
   mkdir -p "$(dirname "$dest")"
-  curl -fL --retry 2 --retry-delay 2 --connect-timeout 10 --speed-limit 1024 --speed-time 60 \
-    --progress-bar -o "$dest" "$url"
+  local -a args=(-fL --retry 2 --retry-delay 2 --connect-timeout 10 --speed-limit 1024 --speed-time 60 -o "$dest")
+  if stx_progress_capable && { : >/dev/tty; } 2>/dev/null; then
+    curl "${args[@]}" --progress-bar "$url" 2>/dev/tty
+  else
+    curl -fsSL "${args[@]}" "$url"
+  fi
 }
 
 # 按 STX_MIRROR_ORDER 依次尝试下载，失败自动换下一条线路。/ Try lines in STX_MIRROR_ORDER, falling back on failure.

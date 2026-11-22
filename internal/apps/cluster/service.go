@@ -2472,7 +2472,8 @@ func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint,
 			return err
 		}
 		s.updateClusterStatusFromNodes(ctx, clusterID)
-		s.pushMonitorConfigToHost(ctx, clusterID, hostID)
+		// 新建节点处于 pending 且尚未启动，由调用方在启动完成后再推送监控配置，避免异步推送空列表与 StartNode 竞态。
+		// Newly registered pending nodes are not started yet; callers push monitor config after startup so an async empty list never races with StartNode.
 		s.notifyClusterTopologyChanged(ctx, clusterID)
 		return nil
 	}
@@ -2485,7 +2486,11 @@ func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint,
 	if err := s.repo.UpdateNode(ctx, existing); err != nil {
 		return err
 	}
-	s.pushMonitorConfigToHost(ctx, clusterID, hostID)
+	// 仅节点已在运行时才刷新监控配置，避免安装启动前异步推送空列表与随后的 StartNode 竞态。
+	// Push monitor config only if the node is already running so a pre-start async push never races with StartNode.
+	if existing.Status == NodeStatusRunning || existing.ProcessPID > 0 {
+		s.pushMonitorConfigToHost(ctx, clusterID, hostID)
+	}
 	s.notifyClusterTopologyChanged(ctx, clusterID)
 	return nil
 }

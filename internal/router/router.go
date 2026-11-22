@@ -2609,6 +2609,7 @@ func (a *grpcClusterNodeProviderAdapter) GetNodesByHostID(ctx context.Context, h
 			InstallDir:    node.InstallDir,
 			Role:          string(node.Role),
 			ProcessPID:    node.ProcessPID,
+			Status:        string(node.Status),
 			MonitorConfig: config,
 			JavaHome:      node.JavaHome,
 		})

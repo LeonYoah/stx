@@ -208,18 +208,36 @@ func TestEnsureNodeForInstallationPushesMonitorConfig(t *testing.T) {
 		t.Fatalf("create cluster: %v", err)
 	}
 
-	// 新登记与刷新既有节点两条路径都要推送。
-	// Both the register-new and refresh-existing paths must push.
+	// 新登记（pending）和刷新未运行节点都不会提前推送监控配置，避免安装启动前与 StartNode 竞态。
+	// Newly registered (pending) and refreshed non-running nodes do not push monitor config before startup, avoiding races with StartNode.
 	if err := svc.EnsureNodeForInstallation(ctx, cluster.ID, 3, "master/worker", "/opt/seatunnel", 5801, 8080, 5802, "/opt/jdk17"); err != nil {
 		t.Fatalf("EnsureNodeForInstallation (new): %v", err)
 	}
 	if err := svc.EnsureNodeForInstallation(ctx, cluster.ID, 3, "master/worker", "/opt/seatunnel", 5801, 8080, 5802, "/opt/jdk21"); err != nil {
-		t.Fatalf("EnsureNodeForInstallation (existing): %v", err)
+		t.Fatalf("EnsureNodeForInstallation (existing non-running): %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if pushes := pusher.waitFor(t, 0); len(pushes) != 0 {
+		t.Fatalf("expected no monitor push for non-running node during installation, got %v", pushes)
 	}
 
-	pushes := pusher.waitFor(t, 2)
+	node, err := repo.GetNodeByClusterAndHostAndRole(ctx, cluster.ID, 3, string(NodeRoleMasterWorker))
+	if err != nil || node == nil {
+		t.Fatalf("get registered node: node=%v err=%v", node, err)
+	}
+	if err := repo.UpdateNodeProcess(ctx, node.ID, 4321, "running"); err != nil {
+		t.Fatalf("mark node running: %v", err)
+	}
+
+	// 节点已在运行时刷新元数据（如重装切换 JDK），应当推送最新监控配置。
+	// Refreshing an already-running node must push the updated monitor config.
+	if err := svc.EnsureNodeForInstallation(ctx, cluster.ID, 3, "master/worker", "/opt/seatunnel", 5801, 8080, 5802, "/opt/jdk17"); err != nil {
+		t.Fatalf("EnsureNodeForInstallation (existing running): %v", err)
+	}
+
+	pushes := pusher.waitFor(t, 1)
 	want := fmt.Sprintf("%d/3", cluster.ID)
-	if len(pushes) != 2 || pushes[0] != want || pushes[1] != want {
-		t.Fatalf("monitor pushes = %v, want [%s %s]", pushes, want, want)
+	if len(pushes) != 1 || pushes[0] != want {
+		t.Fatalf("monitor pushes = %v, want [%s]", pushes, want)
 	}
 }

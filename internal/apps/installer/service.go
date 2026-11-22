@@ -3148,11 +3148,6 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 		return
 	}
 
-	// 节点登记后立即下发监控跟踪配置，覆盖直接启动与延迟启动（编排器还会再推）两种路径。
-	// Push the monitor tracking config right after node registration; covers both direct and deferred startup
-	// (the orchestrator pushes again later).
-	s.pushMonitorConfigToHost(ctx, clusterID, hostID)
-
 	// 扩容编排器接管后续步骤：节点已登记，但不启动、不登记配置，由编排器先下发模板配置与插件再启动。
 	// The scale-out orchestrator owns the remaining steps: the node is registered but neither started nor
 	// config-registered, so the orchestrator can apply template configs and plugins before starting it.
@@ -3190,6 +3185,12 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 
 	logger.InfoF(ctx, "[Installer] 节点启动成功 / Node started successfully: cluster=%d, host=%d, role=%s",
 		clusterID, hostID, nodeRole)
+
+	// 节点启动成功后再推送集群监控配置，确保 AutoRestarter 不会与首次启动竞态，并让 Agent 拿到集群监控策略与真实 PID；
+	// 延迟启动的扩容路径由 scale_executor 在启动节点后负责推送。
+	// Push cluster monitor config only after startup succeeds so AutoRestarter never races with first-time launch
+	// and the Agent receives the cluster's monitor policy with the real PID; deferred-start scale-out pushes in scale_executor after starting the node.
+	s.pushMonitorConfigToHost(ctx, clusterID, hostID)
 
 	// Note: Plugin recording is handled at cluster level, not per-node
 	// 注意：插件记录在集群级别处理，不是每个节点

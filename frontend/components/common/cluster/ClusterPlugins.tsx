@@ -31,7 +31,6 @@ import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
-import {ScrollArea} from '@/components/ui/scroll-area';
 import {
   Table,
   TableBody,
@@ -354,9 +353,9 @@ function InstalledPluginDetailDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid={`cluster-plugin-detail-dialog-${plugin?.plugin_name || 'empty'}`}
-        className="w-[96vw] sm:max-w-[980px] lg:max-w-[1100px] max-h-[90vh]"
+        className="flex max-h-[88vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[920px] lg:max-w-[1000px]"
       >
-        <DialogHeader>
+        <DialogHeader className="shrink-0 border-b-[0.5px] border-border/80 bg-muted/10 px-6 pt-5 pb-4">
           <DialogTitle className="flex items-center gap-2">
             <Puzzle className="h-5 w-5" />
             {plugin?.plugin_name || t('plugin.viewDetails')}
@@ -372,126 +371,116 @@ function InstalledPluginDetailDialog({
         </DialogHeader>
 
         {plugin && (
-          <ScrollArea className="max-h-[70vh] pr-3">
-            <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Card>
-                  <CardContent className="pt-4">
-                    <div className="text-xs text-muted-foreground">{t('plugin.version')}</div>
-                    <div className="mt-2 font-medium">{plugin.version}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <div className="text-xs text-muted-foreground">{t('plugin.category.label')}</div>
-                    <div className="mt-2">
-                      {plugin.category ? (
-                        <Badge variant="outline">{t(`plugin.category.${plugin.category}`)}</Badge>
-                      ) : (
-                        '—'
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4">
-                    <div className="text-xs text-muted-foreground">{t('plugin.installPath')}</div>
-                    <div className="mt-2 break-all text-sm">{plugin.install_path || '—'}</div>
-                  </CardContent>
-                </Card>
+          /* 单层扁平内容画布：去掉弹窗内 6 张嵌套 Card，用留白和 0.5px 细线分隔各组。
+             Single-layer flat surface without nested Cards; groups are separated by whitespace and 0.5px hairlines. */
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="px-6 py-5">
+              {/* 基础元信息 / Basic metadata */}
+              <div className="grid gap-4 pb-5 sm:grid-cols-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">{t('plugin.version')}</div>
+                  <div className="mt-1.5 font-mono text-sm font-medium">{plugin.version}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">{t('plugin.category.label')}</div>
+                  <div className="mt-1.5">
+                    {plugin.category ? (
+                      <Badge variant="outline">{t(`plugin.category.${plugin.category}`)}</Badge>
+                    ) : (
+                      '—'
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">{t('plugin.installPath')}</div>
+                  <div className="mt-1.5 break-all font-mono text-xs text-foreground">
+                    {plugin.install_path || '—'}
+                  </div>
+                </div>
               </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Layers3 className="h-4 w-4" />
-                    {t('plugin.selectedProfiles')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {selectedProfiles.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {t('plugin.noSelectedProfiles')}
-                    </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {selectedProfiles.map((profileKey) => (
-                        <Badge key={profileKey} variant="secondary">
-                          {profileKey}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              {/* 已选场景画像 / Selected profiles */}
+              <div className="space-y-2.5 border-t-[0.5px] border-border/80 py-5">
+                <h4 className="flex items-center gap-2 text-sm font-semibold">
+                  <Layers3 className="h-4 w-4 text-primary" />
+                  {t('plugin.selectedProfiles')}
+                </h4>
+                {selectedProfiles.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {t('plugin.noSelectedProfiles')}
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedProfiles.map((profileKey) => (
+                      <Badge key={profileKey} variant="secondary">
+                        {profileKey}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Package className="h-4 w-4" />
-                    {t('plugin.attachedConnectors')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {attachedConnectors.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {t('plugin.noAttachedConnectors')}
-                    </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {attachedConnectors.map((artifactId) => (
-                        <Badge key={artifactId} variant="outline">
-                          {artifactId}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              {/* 附属连接器 / Attached connectors */}
+              <div className="space-y-2.5 border-t-[0.5px] border-border/80 py-5">
+                <h4 className="flex items-center gap-2 text-sm font-semibold">
+                  <Package className="h-4 w-4 text-primary" />
+                  {t('plugin.attachedConnectors')}
+                </h4>
+                {attachedConnectors.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {t('plugin.noAttachedConnectors')}
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {attachedConnectors.map((artifactId) => (
+                      <Badge key={artifactId} variant="outline">
+                        {artifactId}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">{t('plugin.extraDependencies')}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {extraDependencies.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {t('plugin.noExtraDependencies')}
-                    </p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table className="min-w-[760px]">
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>{t('plugin.groupId')}</TableHead>
-                            <TableHead>{t('plugin.artifactId')}</TableHead>
-                            <TableHead>{t('plugin.version')}</TableHead>
-                            <TableHead>{t('plugin.fileName')}</TableHead>
-                            <TableHead>{t('plugin.targetDir')}</TableHead>
+              {/* 额外依赖 / Extra dependencies */}
+              <div className="space-y-3 border-t-[0.5px] border-border/80 pt-5">
+                <h4 className="text-sm font-semibold">{t('plugin.extraDependencies')}</h4>
+                {extraDependencies.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {t('plugin.noExtraDependencies')}
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[760px] [&_tr]:border-b-[0.5px] [&_tr]:border-border/70">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t('plugin.groupId')}</TableHead>
+                          <TableHead>{t('plugin.artifactId')}</TableHead>
+                          <TableHead>{t('plugin.version')}</TableHead>
+                          <TableHead>{t('plugin.fileName')}</TableHead>
+                          <TableHead>{t('plugin.targetDir')}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {extraDependencies.map((dep) => (
+                          <TableRow
+                            key={`${dep.group_id}:${dep.artifact_id}:${dep.version}:${dep.target_dir}`}
+                          >
+                            <TableCell className="font-mono text-xs">{dep.group_id}</TableCell>
+                            <TableCell className="font-medium">{dep.artifact_id}</TableCell>
+                            <TableCell>{dep.version}</TableCell>
+                            <TableCell className="break-all text-xs">
+                              {getDependencyFileName(dep)}
+                            </TableCell>
+                            <TableCell className="break-all text-xs">{dep.target_dir}</TableCell>
                           </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {extraDependencies.map((dep) => (
-                            <TableRow
-                              key={`${dep.group_id}:${dep.artifact_id}:${dep.version}:${dep.target_dir}`}
-                            >
-                              <TableCell className="font-mono text-xs">{dep.group_id}</TableCell>
-                              <TableCell className="font-medium">{dep.artifact_id}</TableCell>
-                              <TableCell>{dep.version}</TableCell>
-                              <TableCell className="break-all text-xs">
-                                {getDependencyFileName(dep)}
-                              </TableCell>
-                              <TableCell className="break-all text-xs">{dep.target_dir}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
             </div>
-          </ScrollArea>
+          </div>
         )}
       </DialogContent>
     </Dialog>

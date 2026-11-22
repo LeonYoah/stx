@@ -433,7 +433,7 @@ export function PluginDetailDialog({
         className='flex h-[min(85vh,720px)] max-h-[min(85vh,720px)] w-[94vw] max-w-[94vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px] lg:max-w-[820px]'
       >
         {/* Header with high-density visual hierarchy / 高辨识度强化头部 */}
-        <DialogHeader className='px-6 pt-5 pb-4 border-b shrink-0 bg-muted/10'>
+        <DialogHeader className='px-6 pt-5 pb-4 border-b-[0.5px] border-border/80 shrink-0 bg-muted/10'>
           <div className='flex items-start justify-between gap-4'>
             <div className='flex items-center gap-3.5 min-w-0'>
               <div
@@ -516,7 +516,7 @@ export function PluginDetailDialog({
         </DialogHeader>
 
         {/* Tab switcher bar / 顶层 Tab 分组控制栏 */}
-        <div className='flex shrink-0 items-center justify-between gap-2 border-b bg-muted/20 px-6 py-2.5'>
+        <div className='flex shrink-0 items-center justify-between gap-2 border-b-[0.5px] border-border/80 bg-muted/15 px-6 py-2.5'>
           <Tabs value={activeTab} onValueChange={handleTabChange}>
             <TabsList className='h-8'>
               <TabsTrigger
@@ -556,16 +556,18 @@ export function PluginDetailDialog({
           data-testid='plugin-detail-body-scroll'
           className='min-h-0 flex-1 overflow-y-auto'
         >
-            <div className='space-y-6 p-6'>
-            {/* Section 1: Overview — top-aligned; sparse content fills with install / dependency summary, no centered void.
-                概览顶部对齐；内容少时用安装说明/依赖摘要填位，不居中留白。 */}
+          {/* 单层扁平内容画布：直接承接各 Tab 分组，避免弹窗内再套卡片边框与阴影。
+              Single-layer flat content surface directly inside the dialog, avoiding nested card borders and shadows. */}
+          <div className='min-h-full px-6 py-5'>
+            {/* Section 1: Overview — top-aligned; flat groups separated by whitespace and 0.5px hairlines.
+                概览顶部对齐；各组信息压平为单层，以留白与 0.5px 细线自然分隔。 */}
             {shouldRenderOverview && (
               <div
                 data-testid='plugin-detail-overview-panel'
-                className='flex min-h-full flex-col justify-start space-y-5 rounded-lg border bg-card p-5 shadow-xs'
+                className='flex min-h-full flex-col justify-start'
               >
                 {/* Plugin description / 插件描述 */}
-                <div className='space-y-1.5'>
+                <div className='space-y-1.5 pb-5'>
                   <h4 className='text-sm font-semibold flex items-center gap-2'>
                     <Package className='h-4 w-4 text-primary' />
                     {plugin.display_name || plugin.name}
@@ -576,7 +578,7 @@ export function PluginDetailDialog({
                 </div>
 
                 {/* Maven coordinates with 1-click copy / Maven 坐标与一键复制 */}
-                <div className='rounded-md border bg-muted/30 p-3.5 space-y-2.5'>
+                <div className='space-y-2.5 border-t-[0.5px] border-border/80 py-5'>
                   <div className='flex items-center justify-between gap-2 flex-wrap'>
                     <span className='text-xs font-medium flex items-center gap-1.5 text-muted-foreground'>
                       <Package className='h-3.5 w-3.5' />
@@ -612,7 +614,7 @@ export function PluginDetailDialog({
                     </div>
                   </div>
                   {/* 单行横向 GAV 坐标条，彻底避免折行 / Single-row GAV bar preventing line breaks */}
-                  <div className='flex items-center gap-2 overflow-x-auto rounded bg-background/90 px-3 py-2 border font-mono text-xs whitespace-nowrap scrollbar-none'>
+                  <div className='flex items-center gap-2 overflow-x-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-xs whitespace-nowrap scrollbar-none'>
                     <span className='text-muted-foreground select-none shrink-0'>Maven</span>
                     <span className='text-muted-foreground/40 select-none shrink-0'>|</span>
                     <span className='text-muted-foreground select-none shrink-0'>groupId:</span>
@@ -627,13 +629,13 @@ export function PluginDetailDialog({
                 </div>
 
                 {/* 官方配置文档与样例直达 / Official documentation & configuration samples */}
-                <div className='rounded-lg border bg-muted/20 p-4 space-y-3'>
+                <div className='space-y-3 border-t-[0.5px] border-border/80 py-5'>
                   <h4 className='text-sm font-semibold flex items-center gap-2'>
                     <BookOpen className='h-4 w-4 text-primary' />
                     {t('plugin.officialDocGuide')}
                   </h4>
 
-                  <div className='flex items-center gap-2.5 flex-wrap pt-1'>
+                  <div className='flex items-center gap-2.5 flex-wrap pt-0.5'>
                     {docUrls.sourceDocUrl && (
                       <Button
                         variant='outline'
@@ -683,9 +685,9 @@ export function PluginDetailDialog({
                   </div>
                 </div>
 
-                {/* 官方附属依赖速览卡片（提供直接跳转） / Official dependencies snapshot summary */}
+                {/* 官方附属依赖速览行（提供直接跳转） / Official dependencies snapshot summary */}
                 {effectiveDependencies.length > 0 && (
-                  <div className='flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-xs'>
+                  <div className='flex items-center justify-between gap-3 border-t-[0.5px] border-border/80 py-4 text-xs'>
                     <div className='flex items-center gap-2 text-foreground min-w-0'>
                       <Layers3 className='h-4 w-4 text-primary shrink-0' />
                       <span className='font-medium'>
@@ -713,9 +715,8 @@ export function PluginDetailDialog({
                   </div>
                 )}
 
-                {/* Installation paths explanation — anchors the overview bottom when content is short.
-                    安装路径说明：概览内容少时顶对齐后自然占住下方，避免空洞留白。 */}
-                <div className='mt-auto space-y-2 border-t pt-4'>
+                {/* Installation paths explanation / 安装路径说明 */}
+                <div className='space-y-2 border-t-[0.5px] border-border/80 pt-5'>
                   <div className='flex items-center gap-2'>
                     <h5 className='text-xs font-medium text-muted-foreground flex items-center gap-1.5'>
                       <FolderOpen className='h-3.5 w-3.5' />
@@ -751,28 +752,28 @@ export function PluginDetailDialog({
             {/* Section 2: Official Dependencies & Profiles / 第二部分：官方依赖画像与消除重复的统一表格 */}
             {shouldRenderDependencies && (
               <div
-                className='space-y-5 rounded-lg border bg-card p-5 shadow-xs'
+                className='space-y-0'
                 data-testid='plugin-official-dependencies'
               >
-                <h4 className='font-medium text-sm flex items-center gap-2'>
+                <h4 className='flex items-center gap-2 pb-4 text-sm font-semibold'>
                   <Layers3 className='h-4 w-4 text-primary' />
                   {t('plugin.officialDependencies')}
                 </h4>
 
                 {loadingOfficialDeps ? (
-                  <div className='text-sm text-muted-foreground py-6 text-center'>
+                  <div className='border-t-[0.5px] border-border/80 py-10 text-center text-sm text-muted-foreground'>
                     <RefreshCw className='h-4 w-4 animate-spin inline mr-2' />
                     {t('common.loading')}
                   </div>
                 ) : !officialDeps ? (
-                  <div className='text-sm text-muted-foreground py-4 text-center bg-muted/30 rounded-md'>
+                  <div className='border-t-[0.5px] border-border/80 py-8 text-center text-sm text-muted-foreground'>
                     {t('plugin.officialDependenciesUnavailable')}
                   </div>
                 ) : (
-                  <div className='space-y-5'>
+                  <div>
                     {/* Scenario profiles selection / 场景画像勾选器 */}
                     {hasMultiProfiles && (
-                      <div className='space-y-2.5 rounded-lg border bg-muted/20 p-4'>
+                      <div className='space-y-3 border-t-[0.5px] border-border/80 py-5'>
                         <div className='flex items-center justify-between gap-2 flex-wrap'>
                           <div className='text-sm font-medium'>
                             {t('plugin.profileSelection')}
@@ -825,10 +826,10 @@ export function PluginDetailDialog({
                                 <label
                                   key={profile.id}
                                   data-testid={`plugin-profile-${profile.profile_key}`}
-                                  className={`flex items-start gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors ${
+                                  className={`flex items-start gap-2.5 rounded-md border-[0.5px] px-3 py-2 cursor-pointer transition-colors ${
                                     isChecked
-                                      ? 'bg-primary/5 border-primary/40'
-                                      : 'bg-background hover:bg-muted/40'
+                                      ? 'bg-primary/8 border-primary/35'
+                                      : 'border-transparent bg-muted/40 hover:bg-muted/70'
                                   }`}
                                 >
                                   <Checkbox
@@ -865,7 +866,7 @@ export function PluginDetailDialog({
                     {/* Consolidated Active Official Dependencies Table / 消除重复的单张统一依赖表格 */}
                     {effectiveDependencies.length > 0 ? (
                       <div
-                        className='space-y-3'
+                        className='space-y-3 border-t-[0.5px] border-border/80 py-5'
                         data-testid='plugin-active-official-dependencies'
                       >
                         <div className='flex items-center justify-between gap-2 flex-wrap'>
@@ -888,8 +889,8 @@ export function PluginDetailDialog({
                           )}
                         </div>
 
-                        <div className='overflow-x-auto rounded-lg border'>
-                          <Table className='min-w-[760px]'>
+                        <div className='overflow-x-auto'>
+                          <Table className='min-w-[760px] [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
                             <TableHeader>
                               <TableRow>
                                 <TableHead className='w-[110px]'>
@@ -984,15 +985,15 @@ export function PluginDetailDialog({
                         </div>
                       </div>
                     ) : officialDeps.dependency_status === 'not_required' ? (
-                      <div className='text-sm text-muted-foreground py-4 text-center bg-muted/30 rounded-md'>
+                      <div className='border-t-[0.5px] border-border/80 py-8 text-center text-sm text-muted-foreground'>
                         {t('plugin.officialDependenciesNotRequired')}
                       </div>
                     ) : hasMultiProfiles && selectedProfileKeys.length === 0 ? (
-                      <div className='text-sm text-muted-foreground py-4 text-center bg-muted/30 rounded-md'>
+                      <div className='border-t-[0.5px] border-border/80 py-8 text-center text-sm text-muted-foreground'>
                         {t('plugin.selectProfilesToPreview')}
                       </div>
                     ) : (
-                      <div className='text-sm text-muted-foreground py-4 text-center bg-muted/30 rounded-md'>
+                      <div className='border-t-[0.5px] border-border/80 py-8 text-center text-sm text-muted-foreground'>
                         {t('plugin.officialDependenciesUnknown')}
                       </div>
                     )}
@@ -1000,7 +1001,7 @@ export function PluginDetailDialog({
                     {/* Disabled Official Dependencies / 已禁用的官方依赖列表 */}
                     {disabledDependencies.length > 0 && (
                       <div
-                        className='space-y-3'
+                        className='space-y-3 border-t-[0.5px] border-border/80 pt-5'
                         data-testid='plugin-disabled-official-dependencies'
                       >
                         <div>
@@ -1012,8 +1013,8 @@ export function PluginDetailDialog({
                             {t('plugin.disabledOfficialDependenciesDesc')}
                           </p>
                         </div>
-                        <div className='overflow-x-auto rounded-lg border border-dashed'>
-                          <Table className='min-w-[760px]'>
+                        <div className='overflow-x-auto'>
+                          <Table className='min-w-[760px] [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
                             <TableHeader>
                               <TableRow>
                                 <TableHead>{t('plugin.groupId')}</TableHead>
@@ -1085,21 +1086,19 @@ export function PluginDetailDialog({
 
             {/* Section 3: Custom Dependencies / 第三部分：自定义补丁与驱动扩展 */}
             {shouldRenderCustom && (
-              <div className='rounded-lg border bg-card p-5 shadow-xs'>
-                <PluginDependencyConfigSection
-                  pluginName={plugin.name}
-                  seatunnelVersion={effectiveVersion}
-                  compact
-                  onChanged={loadOfficialDeps}
-                />
-              </div>
+              <PluginDependencyConfigSection
+                pluginName={plugin.name}
+                seatunnelVersion={effectiveVersion}
+                compact
+                onChanged={loadOfficialDeps}
+              />
             )}
           </div>
         </div>
 
         {/* Footer actions / 底部操作栏 */}
         {onDownload && (
-          <div className='px-6 py-3.5 border-t bg-muted/10 shrink-0 flex items-center justify-between gap-3'>
+          <div className='px-6 py-3.5 border-t-[0.5px] border-border/80 bg-muted/10 shrink-0 flex items-center justify-between gap-3'>
             <div className='text-xs text-muted-foreground'>
               {downloadDisabled && t('plugin.selectScenarioFirst')}
             </div>

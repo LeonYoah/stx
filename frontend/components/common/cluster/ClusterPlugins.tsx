@@ -53,6 +53,7 @@ import {
   NeutralChip,
   SoftChip,
   TableCard,
+  TruncatedText,
   useDetailNarrow,
   type DetailNav,
 } from '@/components/common/layout';
@@ -740,11 +741,14 @@ function InstalledPluginRailDetail({
         </div>
         <div className='min-w-0 space-y-0.5'>
           <dt className='text-muted-foreground'>{t('plugin.installPath')}</dt>
-          <dd
-            className='truncate font-mono text-foreground'
-            title={plugin.install_path || '—'}
-          >
-            {plugin.install_path || '—'}
+          <dd className='text-foreground'>
+            <TruncatedText
+              text={plugin.install_path}
+              fallback='—'
+              mode='path'
+              mono
+              copyable
+            />
           </dd>
         </div>
       </dl>
@@ -817,18 +821,17 @@ function InstalledPluginRailDetail({
                       {dep.version}
                     </span>
                   </div>
-                  <div
-                    className='truncate font-mono text-[11px] text-muted-foreground'
-                    title={`${dep.group_id} · ${fileName}`}
-                  >
-                    {dep.group_id} · {fileName}
-                  </div>
-                  <div
-                    className='truncate font-mono text-[11px] text-muted-foreground'
-                    title={dep.target_dir}
-                  >
-                    {dep.target_dir}
-                  </div>
+                  <TruncatedText
+                    text={`${dep.group_id} · ${fileName}`}
+                    mono
+                    textClassName='text-[11px] text-muted-foreground'
+                  />
+                  <TruncatedText
+                    text={dep.target_dir}
+                    mode='path'
+                    mono
+                    textClassName='text-[11px] text-muted-foreground'
+                  />
                 </li>
               );
             })}

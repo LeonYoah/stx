@@ -45,6 +45,7 @@ import {
   BatchBar,
   NeutralChip,
   TableCard,
+  TruncatedText,
 } from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 import {
@@ -339,10 +340,13 @@ export function ClusterNodesTab({
                     <TableCell>
                       <NeutralChip>{roleLabel}</NeutralChip>
                     </TableCell>
-                    <TableCell className='max-w-[180px] font-mono text-xs'>
-                      <div className='truncate' title={node.install_dir || '-'}>
-                        {node.install_dir || '-'}
-                      </div>
+                    <TableCell className='max-w-[220px] font-mono text-xs'>
+                      <TruncatedText
+                        text={node.install_dir}
+                        mode='path'
+                        mono
+                        copyable
+                      />
                     </TableCell>
                     <TableCell>
                       <NodeJavaHomeCell

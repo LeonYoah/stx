@@ -25,7 +25,7 @@
   - 容器与控件消费 `--radius-panel`（16px）/ `--radius-control`（14px）/ `--radius-popover`（12px），内层嵌套容器遵循 `inner = outer - padding`（不低于 4px）；状态表达统一用语义 Token 与 `SoftChip` / `NeutralChip`，禁止业务组件硬编码 `bg-green-500` / `bg-yellow-500` / 散落色值。
 - **排版与原子信息防碎裂**：
   - 计数、版本号、端口、PID、内存、进度、时间等数字字段一律加 `tabular-nums`，防止更新时列宽跳动。
-  - ID / Key / 路径 / URL / 命令 / 状态胶囊等原子信息**禁止** `break-all` 硬折断；按场景选用 `truncate` + `Tooltip` + 一键复制、`overflow-x-auto whitespace-nowrap`，或弹性流整体换行（`flex-wrap` + `shrink-0 whitespace-nowrap`）。
+  - ID / Key / 路径 / URL / 命令 / 状态胶囊等原子信息**禁止** `break-all` 硬折断；表格列与紧凑详情中的截断文本/路径统一复用 `components/common/layout/TruncatedText`（仅在溢出时于悬停 180ms 内弹出主题化 Radix `Tooltip` 显示完整原文，禁止仅靠原生 HTML `title` 属性兜底；长路径使用 `mode='path'` 中间省略保留尾部关键段，并按需开启 `copyable` 一键复制）。单行长文本也可按场景选用 `overflow-x-auto whitespace-nowrap`，或弹性流整体换行（`flex-wrap` + `shrink-0 whitespace-nowrap`）。
   - **Radix `ScrollArea` 内截断坑**：`ScrollArea` 内部默认 `display: table; min-width: 100%`，弹性子项只写 `min-w-0 flex-1` + `truncate` 仍会被撑宽；截断子项须用 `w-0 min-w-0 flex-1`（或固定 `max-w-*`），树视口需覆写为 `display: block; min-width: 0`。
 - **反噪音与渐进式披露**：
   - 严禁在列表或卡片顶部堆砌静态长说明；解释性文案收进 `Tooltip`、`HelpHint` 或 `EmptyState`。

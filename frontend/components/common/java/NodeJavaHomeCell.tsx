@@ -21,6 +21,7 @@ import type {ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {Loader2} from 'lucide-react';
 
+import {TruncatedText} from '@/components/common/layout';
 import {cn} from '@/lib/utils';
 
 /** Per-node JDK runtime fetch state for AC7 / 节点 JDK 运行时拉取状态（AC7） */
@@ -90,26 +91,36 @@ export function NodeJavaHomeCell({
     );
   }
 
-  let titleText = t('javaHome.titlePathOnly', {path: pathLabel});
-  if (runtime?.status === 'ok') {
-    const titleVer =
-      (runtime.version_string && runtime.version_string.trim()) ||
-      (runtime.version && runtime.version > 0 ? String(runtime.version) : '');
-    if (titleVer) {
-      titleText = t('javaHome.titleWithVersion', {
-        path: pathLabel,
-        version: titleVer,
-      });
-    }
-  }
+  const runtimeVer =
+    runtime?.status === 'ok'
+      ? (runtime.version_string && runtime.version_string.trim()) ||
+        (runtime.version && runtime.version > 0 ? String(runtime.version) : '')
+      : '';
+  const tooltipVersionText = runtimeVer
+    ? t('javaHome.effectiveVersionValue', {version: runtimeVer})
+    : '';
+  const hasExplicitPath = Boolean(configuredJavaHome?.trim());
 
   return (
     <div
-      className={cn('space-y-0.5 font-mono text-xs max-w-[180px]', className)}
-      title={titleText}
+      className={cn('space-y-0.5 font-mono text-xs max-w-[260px]', className)}
       data-testid={testId}
     >
-      <div className='truncate'>{pathLabel}</div>
+      <TruncatedText
+        text={pathLabel}
+        mode={hasExplicitPath ? 'path' : 'end'}
+        mono
+        copyable={hasExplicitPath}
+        alwaysTooltip
+        tooltip={
+          <div className='space-y-0.5'>
+            <div className='font-mono text-xs'>{pathLabel}</div>
+            {tooltipVersionText ? (
+              <div className='text-[11px] opacity-80'>{tooltipVersionText}</div>
+            ) : null}
+          </div>
+        }
+      />
       <div className='truncate text-[10px] leading-tight'>{versionLine}</div>
     </div>
   );

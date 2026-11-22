@@ -57,6 +57,7 @@ import {
   SoftChip,
   TableLoadingBar,
   TableSkeletonRows,
+  TruncatedText,
 } from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 import {Pagination} from '@/components/ui/pagination';
@@ -533,17 +534,21 @@ export function RuntimeStorageFileExplorer({
                         <File className='size-4 text-muted-foreground shrink-0' />
                       )}
 
-                      <span
-                        className={cn(
-                          'truncate text-xs',
+                      <TruncatedText
+                        text={itemName}
+                        tooltip={
+                          <span className='font-mono text-xs'>{itemPath}</span>
+                        }
+                        alwaysTooltip={itemPath !== itemName}
+                        mono={!item.directory}
+                        className='min-w-0 flex-1'
+                        textClassName={cn(
+                          'text-xs',
                           item.directory
                             ? 'font-medium text-foreground group-hover:text-primary transition-colors'
-                            : 'font-mono text-foreground/90',
+                            : 'text-foreground/90',
                         )}
-                        title={itemPath}
-                      >
-                        {itemName}
-                      </span>
+                      />
 
                       {/* 专属类型小胶囊 / Exclusive type badge */}
                       {isSerCheckpoint ? (

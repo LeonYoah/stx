@@ -35,4 +35,5 @@ export * from './UnsavedChangesDialog';
 export * from './DetailHost';
 export * from './DirtyCloseGuard';
 export * from './SoftChip';
+export * from './TruncatedText';
 export * from './batch-bar';

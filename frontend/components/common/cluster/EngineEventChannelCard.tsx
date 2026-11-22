@@ -22,19 +22,10 @@ import {useTranslations} from 'next-intl';
 import {toast} from '@/lib/toast';
 import {HelpCircle, Radio, RefreshCw} from 'lucide-react';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import {Button} from '@/components/arc/button/button';
 import {Skeleton} from '@/components/ui/skeleton';
 import {
+  ConfirmDialog,
   SoftChip,
   TableLoadingBar,
   type ChipTone,
@@ -276,26 +267,21 @@ export function EngineEventChannelCard({
         )}
       </div>
 
-      <AlertDialog open={pendingAction !== null} onOpenChange={(open) => !open && setPendingAction(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{pendingAction ? t(`confirm.${pendingAction}.title`) : ''}</AlertDialogTitle>
-            <AlertDialogDescription>{pendingAction ? t(`confirm.${pendingAction}.body`) : ''}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={submitting}>{t('cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={submitting}
-              onClick={(event) => {
-                event.preventDefault();
-                void confirmAction();
-              }}
-            >
-              {t('confirmAction')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={pendingAction !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingAction(null);
+          }
+        }}
+        title={pendingAction ? t(`confirm.${pendingAction}.title`) : ''}
+        description={pendingAction ? t(`confirm.${pendingAction}.body`) : ''}
+        cancelLabel={t('cancel')}
+        confirmLabel={t('confirmAction')}
+        confirmVariant={pendingAction === 'disable' ? 'danger' : 'primary'}
+        loading={submitting}
+        onConfirm={confirmAction}
+      />
     </div>
   );
 }

@@ -39,17 +39,10 @@ import {Button} from '@/components/arc/button/button';
 import {Badge} from '@/components/arc/badge/badge';
 import {ButtonGroup} from '@/components/arc/button-group/button-group';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {Input} from '@/components/arc/input/input';
+import {Select} from '@/components/arc/select/select';
 import {TableLoadingBar, WorkspaceHeader} from '@/components/common/layout';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
 import {Skeleton} from '@/components/ui/skeleton';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -550,50 +543,32 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
           </div>
 
           <div className='space-y-4 border-t-[0.5px] border-border/80 px-5 py-4'>
-            <div className='space-y-1.5'>
-              <Label htmlFor='target-version' className='text-xs'>
-                {t('targetVersion')}
-              </Label>
-              <Select value={targetVersion} onValueChange={setTargetVersion}>
-                <SelectTrigger
-                  id='target-version'
-                  data-testid='upgrade-prepare-target-version'
-                >
-                  <SelectValue placeholder={t('targetVersionPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {(availableVersions?.versions || []).map((version) => (
-                    <SelectItem key={version} value={version}>
-                      {version}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <Select
+              id='target-version'
+              data-testid='upgrade-prepare-target-version'
+              label={t('targetVersion')}
+              value={targetVersion}
+              onValueChange={setTargetVersion}
+              placeholder={t('targetVersionPlaceholder')}
+              options={(availableVersions?.versions || []).map((version) => ({
+                value: version,
+                label: version,
+              }))}
+            />
 
-            <div className='space-y-1.5'>
-              <div className='flex items-center gap-1.5'>
-                <Label htmlFor='target-install-dir' className='text-xs'>
-                  {t('targetInstallDir')}
-                </Label>
-                <HelpHint
-                  label={t('targetInstallDir')}
-                  content={t('targetInstallDirDescription')}
-                  data-testid='upgrade-prepare-target-install-dir-hint'
-                />
-              </div>
-              <Input
-                id='target-install-dir'
-                data-testid='upgrade-prepare-target-install-dir'
-                className='font-mono text-xs'
-                value={targetInstallDir}
-                onChange={(event) => {
-                  setTargetInstallDir(event.target.value);
-                  setTargetInstallDirTouched(true);
-                }}
-                placeholder={t('targetInstallDirPlaceholder')}
-              />
-            </div>
+            <Input
+              id='target-install-dir'
+              label={t('targetInstallDir')}
+              description={t('targetInstallDirDescription')}
+              data-testid='upgrade-prepare-target-install-dir'
+              className='font-mono text-xs'
+              value={targetInstallDir}
+              onChange={(event) => {
+                setTargetInstallDir(event.target.value);
+                setTargetInstallDirTouched(true);
+              }}
+              placeholder={t('targetInstallDirPlaceholder')}
+            />
 
             {/* 高级选项折叠：用 0.5px 细线自然分隔，不套子框 / Advanced options collapsible separated by 0.5px hairline */}
             <div className='border-t-[0.5px] border-border/80 pt-3'>
@@ -615,34 +590,26 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
               </button>
               {advancedExpanded ? (
                 <div className='mt-3 space-y-3'>
-                  <div className='space-y-1.5'>
-                    <Label htmlFor='package-checksum' className='text-xs'>
-                      {t('packageChecksum')}
-                    </Label>
-                    <Input
-                      id='package-checksum'
-                      className='font-mono text-xs'
-                      value={packageChecksum}
-                      onChange={(event) =>
-                        setPackageChecksum(event.target.value)
-                      }
-                      placeholder={t('packageChecksumPlaceholder')}
-                    />
-                  </div>
-                  <div className='space-y-1.5'>
-                    <Label htmlFor='connector-names' className='text-xs'>
-                      {t('connectorNames')}
-                    </Label>
-                    <Input
-                      id='connector-names'
-                      className='font-mono text-xs'
-                      value={connectorNamesText}
-                      onChange={(event) =>
-                        setConnectorNamesText(event.target.value)
-                      }
-                      placeholder={t('connectorNamesPlaceholder')}
-                    />
-                  </div>
+                  <Input
+                    id='package-checksum'
+                    label={t('packageChecksum')}
+                    className='font-mono text-xs'
+                    value={packageChecksum}
+                    onChange={(event) =>
+                      setPackageChecksum(event.target.value)
+                    }
+                    placeholder={t('packageChecksumPlaceholder')}
+                  />
+                  <Input
+                    id='connector-names'
+                    label={t('connectorNames')}
+                    className='font-mono text-xs'
+                    value={connectorNamesText}
+                    onChange={(event) =>
+                      setConnectorNamesText(event.target.value)
+                    }
+                    placeholder={t('connectorNamesPlaceholder')}
+                  />
                 </div>
               ) : null}
             </div>

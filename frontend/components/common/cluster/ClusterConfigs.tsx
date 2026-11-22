@@ -42,37 +42,20 @@ import {
 } from 'lucide-react';
 import {Alert as ArcAlert} from '@/components/arc/alert/alert';
 import {Button} from '@/components/arc/button/button';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {DropdownMenu as ArcDropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {Input} from '@/components/arc/input/input';
 import {SearchField} from '@/components/arc/search-field/search-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {
+  ConfirmDialog,
   DirtyCloseDialog,
   NeutralChip,
   SoftChip,
   TableLoadingBar,
 } from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
 import {Skeleton} from '@/components/ui/skeleton';
 import {
   Table,
@@ -1232,14 +1215,16 @@ export function ClusterConfigs({
 
       {/* 从节点初始化弹窗 / Init from node dialog */}
       <Dialog open={initDialogOpen} onOpenChange={setInitDialogOpen}>
-        <DialogContent className='arc-compact sm:max-w-xl'>
-          <DialogHeader>
-            <DialogTitle>{t('config.initFromNode')}</DialogTitle>
-            <DialogDescription>{t('config.initFromNodeDesc')}</DialogDescription>
-          </DialogHeader>
+        <DialogContent
+          className='arc-compact w-[min(92vw,580px)]!'
+          title={t('config.initFromNode')}
+          description={t('config.initFromNodeDesc')}
+        >
           <div className='space-y-4'>
             <div className='space-y-2'>
-              <Label className='text-xs'>{t('config.selectNode')}</Label>
+              <span className='block text-xs font-medium text-foreground'>
+                {t('config.selectNode')}
+              </span>
               <div className='max-h-60 divide-y-[0.5px] divide-border/80 overflow-y-auto rounded-md border border-border/80'>
                 {nodes.map((node) => {
                   const selected = selectedNodeId === String(node.id);
@@ -1280,34 +1265,44 @@ export function ClusterConfigs({
                 </div>
               </div>
             ) : null}
+            <div className='flex items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>
+              <Button
+                type='button'
+                variant='secondary'
+                size='sm'
+                onClick={() => setInitDialogOpen(false)}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type='button'
+                size='sm'
+                onClick={() => void handleInitConfigs()}
+                loading={initLoading}
+                disabled={!selectedNodeId}
+                data-testid='cluster-configs-init-confirm'
+              >
+                {t('config.initConfirm')}
+              </Button>
+            </div>
           </div>
-          <DialogFooter className='gap-2'>
-            <Button
-              type='button'
-              variant='secondary'
-              size='sm'
-              onClick={() => setInitDialogOpen(false)}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              type='button'
-              size='sm'
-              onClick={() => void handleInitConfigs()}
-              loading={initLoading}
-              disabled={!selectedNodeId}
-              data-testid='cluster-configs-init-confirm'
-            >
-              {t('config.initConfirm')}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* 配置编辑弹窗（含脏态关闭拦截与智能修复）/ Config edit dialog with dirty guard & smart repair */}
       <Dialog open={editDialogOpen} onOpenChange={requestCloseEditDialog}>
         <DialogContent
-          className='arc-compact w-[min(94vw,1040px)]! sm:max-w-none! max-h-[90vh]'
+          className='arc-compact w-[min(94vw,1040px)]!'
+          title={`${t('config.editConfig')} · ${
+            editingConfig?.is_template
+              ? t('config.clusterTemplate')
+              : editingConfig?.host_name || ''
+          }`}
+          description={
+            <span className='font-mono text-xs'>
+              {ConfigTypeNames[editingConfig?.config_type as ConfigType]}
+            </span>
+          }
           data-testid='cluster-configs-edit-dialog'
           onOpenAutoFocus={(event) => {
             event.preventDefault();
@@ -1316,21 +1311,15 @@ export function ClusterConfigs({
             });
           }}
         >
-          <DialogHeader>
-            <DialogTitle>
-              {t('config.editConfig')} ·{' '}
-              {editingConfig?.is_template
-                ? t('config.clusterTemplate')
-                : editingConfig?.host_name}
-            </DialogTitle>
-            <DialogDescription className='font-mono text-xs'>
-              {ConfigTypeNames[editingConfig?.config_type as ConfigType]}
-            </DialogDescription>
-          </DialogHeader>
           <div className='space-y-4'>
             <div className='space-y-2'>
               <div className='flex items-center justify-between gap-3'>
-                <Label className='text-xs'>{t('config.content')}</Label>
+                <label
+                  htmlFor='cluster-config-edit-content'
+                  className='text-xs font-medium text-foreground'
+                >
+                  {t('config.content')}
+                </label>
                 {isYamlConfigType(editingConfig?.config_type) ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1357,6 +1346,7 @@ export function ClusterConfigs({
                 ) : null}
               </div>
               <Textarea
+                id='cluster-config-edit-content'
                 ref={editTextareaRef}
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
@@ -1364,51 +1354,54 @@ export function ClusterConfigs({
                 data-testid='cluster-configs-edit-content'
               />
             </div>
-            <div className='space-y-1.5'>
-              <Label className='text-xs'>{t('config.comment')}</Label>
-              <Input
-                value={editComment}
-                onChange={(e) => setEditComment(e.target.value)}
-                placeholder={t('config.commentPlaceholder')}
-              />
-            </div>
-          </div>
-          <DialogFooter className='gap-2'>
-            <Button
-              type='button'
-              variant='secondary'
-              size='sm'
-              onClick={() => requestCloseEditDialog(false)}
-              disabled={saving}
-            >
-              {t('common.cancel')}
-            </Button>
-            {editingConfig?.is_template ? (
+            <Input
+              label={t('config.comment')}
+              value={editComment}
+              onChange={(e) => setEditComment(e.target.value)}
+              placeholder={t('config.commentPlaceholder')}
+            />
+            <div className='flex items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>
               <Button
                 type='button'
                 variant='secondary'
                 size='sm'
-                onClick={() => void handleSave(false)}
-                loading={saving && saveMode === 'save'}
+                onClick={() => requestCloseEditDialog(false)}
                 disabled={saving}
-                data-testid='cluster-configs-save-only'
               >
-                {t('config.saveOnly')}
+                {t('common.cancel')}
               </Button>
-            ) : null}
-            <Button
-              type='button'
-              size='sm'
-              onClick={() => void handleSave(Boolean(editingConfig?.is_template))}
-              loading={saving && (saveMode === 'save-and-sync' || !editingConfig?.is_template)}
-              disabled={saving}
-              data-testid='cluster-configs-save-primary'
-            >
-              {editingConfig?.is_template
-                ? t('config.saveAndSync')
-                : t('common.save')}
-            </Button>
-          </DialogFooter>
+              {editingConfig?.is_template ? (
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={() => void handleSave(false)}
+                  loading={saving && saveMode === 'save'}
+                  disabled={saving}
+                  data-testid='cluster-configs-save-only'
+                >
+                  {t('config.saveOnly')}
+                </Button>
+              ) : null}
+              <Button
+                type='button'
+                size='sm'
+                onClick={() =>
+                  void handleSave(Boolean(editingConfig?.is_template))
+                }
+                loading={
+                  saving &&
+                  (saveMode === 'save-and-sync' || !editingConfig?.is_template)
+                }
+                disabled={saving}
+                data-testid='cluster-configs-save-primary'
+              >
+                {editingConfig?.is_template
+                  ? t('config.saveAndSync')
+                  : t('common.save')}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1422,7 +1415,7 @@ export function ClusterConfigs({
       />
 
       {/* 集群标识修改级联风险警示对话框 / Cluster Name Change Cascading Risk Warning Dialog */}
-      <AlertDialog
+      <ConfirmDialog
         open={clusterNameConfirmOpen}
         onOpenChange={(open) => {
           setClusterNameConfirmOpen(open);
@@ -1430,44 +1423,36 @@ export function ClusterConfigs({
             setPendingSaveSync(false);
           }
         }}
+        title={
+          <span className='flex items-center gap-2 text-amber-600 dark:text-amber-500'>
+            <AlertTriangle className='size-4 shrink-0' aria-hidden />
+            {t('cluster.clusterNameChangeWarningTitle')}
+          </span>
+        }
+        cancelLabel={t('common.cancel')}
+        confirmLabel={t('common.confirm')}
+        confirmVariant='danger'
+        onConfirm={async () => {
+          setClusterNameConfirmOpen(false);
+          if (
+            shouldWarnSeatunnelPortSync(
+              editingConfig,
+              editContent,
+              pendingSaveSync,
+            )
+          ) {
+            setPortChangeConfirmOpen(true);
+            return;
+          }
+          await beginSave(pendingSaveSync);
+        }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className='flex items-center gap-2 text-amber-600 dark:text-amber-500'>
-              <AlertTriangle className='size-4 shrink-0' aria-hidden />
-              {t('cluster.clusterNameChangeWarningTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription className='pt-2 text-sm leading-relaxed whitespace-pre-line text-foreground/90'>
-              {t('cluster.clusterNameChangeWarningContent')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setClusterNameConfirmOpen(false)}>
-              {t('common.cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                setClusterNameConfirmOpen(false);
-                if (
-                  shouldWarnSeatunnelPortSync(
-                    editingConfig,
-                    editContent,
-                    pendingSaveSync,
-                  )
-                ) {
-                  setPortChangeConfirmOpen(true);
-                  return;
-                }
-                await beginSave(pendingSaveSync);
-              }}
-            >
-              {t('common.confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <p className='text-sm leading-relaxed whitespace-pre-line text-foreground/90'>
+          {t('cluster.clusterNameChangeWarningContent')}
+        </p>
+      </ConfirmDialog>
 
-      <AlertDialog
+      <ConfirmDialog
         open={portChangeConfirmOpen}
         onOpenChange={(open) => {
           setPortChangeConfirmOpen(open);
@@ -1475,51 +1460,42 @@ export function ClusterConfigs({
             setPendingSaveSync(false);
           }
         }}
+        title={t('config.portChangeConfirmTitle')}
+        description={t('config.portChangeConfirmDesc')}
+        cancelLabel={t('common.cancel')}
+        confirmLabel={t('common.confirm')}
+        onConfirm={async () => {
+          setPortChangeConfirmOpen(false);
+          await beginSave(pendingSaveSync);
+        }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('config.portChangeConfirmTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription className='space-y-2'>
-              <p>{t('config.portChangeConfirmDesc')}</p>
-              <ul className='list-disc pl-5'>
-                <li>{t('config.portChangeConfirmSyncConfig')}</li>
-                <li>{t('config.portChangeConfirmSyncMetadata')}</li>
-                <li>{t('config.portChangeConfirmImpact')}</li>
-              </ul>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void beginSave(pendingSaveSync)}>
-              {t('common.confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <ul className='list-disc space-y-1 pl-5 text-sm text-muted-foreground'>
+          <li>{t('config.portChangeConfirmSyncConfig')}</li>
+          <li>{t('config.portChangeConfirmSyncMetadata')}</li>
+          <li>{t('config.portChangeConfirmImpact')}</li>
+        </ul>
+      </ConfirmDialog>
 
       {/* 版本历史弹窗：压平为单层左右分栏，左侧精简列表点击即选，右侧 SegmentedControl 切预览/对比 */}
       {/* Version history dialog: flat single-layer split, clickable version rail on left, SegmentedControl preview/compare on right */}
       <Dialog open={versionDialogOpen} onOpenChange={setVersionDialogOpen}>
         <DialogContent
-          className='arc-compact w-[min(95vw,1180px)]! sm:max-w-none! max-h-[88vh]'
+          className='arc-compact w-[min(95vw,1180px)]!'
+          bodyClassName='p-0! flex flex-col overflow-hidden'
+          title={t('config.versionHistory')}
+          description={`${
+            versionConfig?.is_template
+              ? t('config.clusterTemplate')
+              : versionConfig?.host_name || ''
+          }${
+            versionConfig
+              ? ` · ${ConfigTypeNames[versionConfig.config_type]}`
+              : ''
+          }`}
           data-testid='cluster-configs-versions-dialog'
         >
-          <DialogHeader>
-            <DialogTitle>{t('config.versionHistory')}</DialogTitle>
-            <DialogDescription>
-              {versionConfig?.is_template
-                ? t('config.clusterTemplate')
-                : versionConfig?.host_name}
-              {versionConfig
-                ? ` · ${ConfigTypeNames[versionConfig.config_type]}`
-                : ''}
-            </DialogDescription>
-          </DialogHeader>
-
           {loadingVersions ? (
-            <div className='grid gap-4 border-t-[0.5px] border-border/80 pt-4 lg:grid-cols-[260px_minmax(0,1fr)]'>
+            <div className='grid gap-4 p-5 lg:grid-cols-[260px_minmax(0,1fr)]'>
               <div className='space-y-2'>
                 <Skeleton className='h-14 w-full' />
                 <Skeleton className='h-14 w-full' />
@@ -1528,7 +1504,7 @@ export function ClusterConfigs({
               <Skeleton className='h-[55vh] w-full' />
             </div>
           ) : versions.length === 0 ? (
-            <div className='border-t-[0.5px] border-border/80 py-10'>
+            <div className='py-10'>
               <EmptyState
                 icon={<History />}
                 title={t('config.noVersions')}
@@ -1536,7 +1512,7 @@ export function ClusterConfigs({
               />
             </div>
           ) : (
-            <div className='grid h-[64vh] min-h-0 overflow-hidden border-t-[0.5px] border-border/80 lg:grid-cols-[260px_minmax(0,1fr)]'>
+            <div className='grid h-[64vh] min-h-0 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]'>
               {/* 左侧精简版本清单 / Compact version rail */}
               <div className='min-h-0 divide-y-[0.5px] divide-border/70 overflow-y-auto border-b-[0.5px] border-border/80 lg:border-r-[0.5px] lg:border-b-0'>
                 {versions.map((version) => {
@@ -1734,7 +1710,7 @@ export function ClusterConfigs({
             </div>
           )}
 
-          <DialogFooter>
+          <div className='flex items-center justify-end border-t-[0.5px] border-border/80 px-5 py-3'>
             <Button
               type='button'
               variant='secondary'
@@ -1743,7 +1719,7 @@ export function ClusterConfigs({
             >
               {t('common.close')}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </section>

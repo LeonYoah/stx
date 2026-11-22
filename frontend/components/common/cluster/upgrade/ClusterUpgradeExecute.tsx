@@ -38,18 +38,12 @@ import {Button} from '@/components/arc/button/button';
 import {Badge} from '@/components/arc/badge/badge';
 import {ButtonGroup} from '@/components/arc/button-group/button-group';
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {Select} from '@/components/arc/select/select';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {TableLoadingBar, WorkspaceHeader} from '@/components/common/layout';
 import {Pagination} from '@/components/ui/pagination';
 import {HELP_HINT_DELAY_MS, HelpHint} from '@/components/common/HelpHint';
 import {Progress} from '@/components/ui/progress';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {Skeleton} from '@/components/ui/skeleton';
 import {
   Table,
@@ -1029,6 +1023,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
 
               <div className='grid gap-2 sm:grid-cols-2'>
                 <Select
+                  aria-label={t('allSteps')}
                   value={logsQuery.step_code || 'all'}
                   onValueChange={(value) =>
                     setLogsQuery((current) => ({
@@ -1038,21 +1033,18 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                         value === 'all' ? undefined : (value as StepCode),
                     }))
                   }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('allSteps')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>{t('allSteps')}</SelectItem>
-                    {(stepsData?.steps || task?.steps || []).map((step) => (
-                      <SelectItem key={step.id} value={step.code}>
-                        {step.code}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder={t('allSteps')}
+                  options={[
+                    {value: 'all', label: t('allSteps')},
+                    ...(stepsData?.steps || task?.steps || []).map((step) => ({
+                      value: step.code,
+                      label: step.code,
+                    })),
+                  ]}
+                />
 
                 <Select
+                  aria-label={t('allNodes')}
                   value={
                     logsQuery.node_execution_id
                       ? String(logsQuery.node_execution_id)
@@ -1066,19 +1058,15 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                         value === 'all' ? undefined : Number(value),
                     }))
                   }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('allNodes')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>{t('allNodes')}</SelectItem>
-                    {nodeOptions.map((node) => (
-                      <SelectItem key={node.id} value={String(node.id)}>
-                        {node.host_name} · {node.role}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder={t('allNodes')}
+                  options={[
+                    {value: 'all', label: t('allNodes')},
+                    ...nodeOptions.map((node) => ({
+                      value: String(node.id),
+                      label: `${node.host_name} · ${node.role}`,
+                    })),
+                  ]}
+                />
               </div>
 
               {canLoadEarlierLogs || logsTotalPages > 1 ? (

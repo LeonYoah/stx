@@ -26,16 +26,7 @@
 import {useCallback, useState, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import {ConfirmDialog} from '@/components/common/layout';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {
@@ -222,43 +213,29 @@ export function useClusterLifecycle(
 
   const dialogs = (
     <>
-      <AlertDialog
+      <ConfirmDialog
         open={pendingLifecycle !== null}
         onOpenChange={(open) => {
           if (!open) {
             setPendingLifecycle(null);
           }
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{lifecycleTitle}</AlertDialogTitle>
-            <AlertDialogDescription>{lifecycleMessage}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className={
-                isDestructiveLifecycle
-                  ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                  : undefined
-              }
-              onClick={() => {
-                if (pendingLifecycle) {
-                  void executeLifecycle(
-                    pendingLifecycle.cluster,
-                    pendingLifecycle.operation,
-                  );
-                }
-              }}
-            >
-              {lifecycleActionLabel}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={lifecycleTitle}
+        description={lifecycleMessage}
+        cancelLabel={t('common.cancel')}
+        confirmLabel={lifecycleActionLabel}
+        confirmVariant={isDestructiveLifecycle ? 'danger' : 'primary'}
+        onConfirm={() => {
+          if (pendingLifecycle) {
+            void executeLifecycle(
+              pendingLifecycle.cluster,
+              pendingLifecycle.operation,
+            );
+          }
+        }}
+      />
 
-      <AlertDialog
+      <ConfirmDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -266,45 +243,32 @@ export function useClusterLifecycle(
             setForceDelete(false);
           }
         }}
+        title={t('cluster.deleteCluster')}
+        description={
+          pendingDelete
+            ? t('cluster.deleteConfirm', {name: pendingDelete.name})
+            : ''
+        }
+        cancelLabel={t('common.cancel')}
+        confirmLabel={t('cluster.list.confirmDeleteAction')}
+        confirmVariant='danger'
+        onConfirm={() => {
+          if (pendingDelete) {
+            void executeDelete(pendingDelete, forceDelete);
+          }
+        }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('cluster.deleteCluster')}</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className='space-y-3'>
-                <p>
-                  {pendingDelete
-                    ? t('cluster.deleteConfirm', {name: pendingDelete.name})
-                    : ''}
-                </p>
-                <p className='text-sm text-muted-foreground'>
-                  {t('cluster.deleteConfirmWarning')}
-                </p>
-                <div className='arc-compact pt-1'>
-                  <Checkbox
-                    checked={forceDelete}
-                    onCheckedChange={(v) => setForceDelete(v === true)}
-                    label={t('cluster.forceDeleteOption')}
-                  />
-                </div>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-              onClick={() => {
-                if (pendingDelete) {
-                  void executeDelete(pendingDelete, forceDelete);
-                }
-              }}
-            >
-              {t('cluster.list.confirmDeleteAction')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <p className='text-sm text-muted-foreground'>
+          {t('cluster.deleteConfirmWarning')}
+        </p>
+        <div className='pt-1'>
+          <Checkbox
+            checked={forceDelete}
+            onCheckedChange={(v) => setForceDelete(v === true)}
+            label={t('cluster.forceDeleteOption')}
+          />
+        </div>
+      </ConfirmDialog>
     </>
   );
 

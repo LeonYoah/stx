@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 
 import services from '@/lib/services';
-import {Button} from '@/components/ui/button';
+import {Button} from '@/components/arc/button/button';
 import type {
   ScaleOperationInfo,
   ScaleStepState,
@@ -175,16 +175,13 @@ export function ScaleOperationProgress({
         <h4 className='text-sm font-semibold'>{t('progressTitle')}</h4>
         {status === 'failed' && operation?.retryable && (
           <Button
+            type='button'
             size='sm'
-            variant='outline'
+            variant='secondary'
             onClick={handleRetry}
-            disabled={retrying}
+            loading={retrying}
           >
-            {retrying ? (
-              <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
-            ) : (
-              <RotateCcw className='mr-1.5 h-3.5 w-3.5' />
-            )}
+            <RotateCcw className='size-3.5' aria-hidden />
             {t('retry')}
           </Button>
         )}

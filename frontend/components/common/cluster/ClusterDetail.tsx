@@ -31,6 +31,10 @@ import {useTranslations} from 'next-intl';
 import {Button as ArcButton} from '@/components/arc/button/button';
 import {Alert as ArcAlert} from '@/components/arc/alert/alert';
 import {Checkbox as ArcCheckbox} from '@/components/arc/checkbox/checkbox';
+import {
+  Dialog as ArcDialog,
+  DialogContent as ArcDialogContent,
+} from '@/components/arc/dialog/dialog';
 import {DropdownMenu as ArcDropdownMenu} from '@/components/arc/dropdown-menu/dropdown-menu';
 import {Input as ArcInput} from '@/components/arc/input/input';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
@@ -40,25 +44,6 @@ import {
   TabsList as ArcTabsList,
   TabsTrigger as ArcTabsTrigger,
 } from '@/components/arc/tabs/tabs';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  WorkbenchDialogContent,
-} from '@/components/ui/dialog';
 import {toast} from '@/lib/toast';
 import {
   ArrowLeft,
@@ -70,7 +55,6 @@ import {
   RefreshCw,
   Activity,
   Bug,
-  Loader2,
   File,
   FileText,
   MonitorSmartphone,
@@ -84,6 +68,7 @@ import {
 } from 'lucide-react';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {
+  ConfirmDialog,
   DirtyCloseDialog,
   ExpandableTextPanel,
   NeutralChip,
@@ -2379,7 +2364,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       />
 
       {/* Delete Cluster Dialog / 删除集群对话框 */}
-      <AlertDialog
+      <ConfirmDialog
         open={isDeleteDialogOpen}
         onOpenChange={(open) => {
           setIsDeleteDialogOpen(open);
@@ -2387,32 +2372,22 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             setForceDelete(false);
           }
         }}
+        title={t('cluster.deleteCluster')}
+        description={t('cluster.deleteConfirm', {name: cluster.name})}
+        cancelLabel={t('common.cancel')}
+        confirmLabel={t('common.delete')}
+        confirmVariant='danger'
+        onConfirm={handleDelete}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('cluster.deleteCluster')}</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className='space-y-3'>
-                <p>{t('cluster.deleteConfirm', {name: cluster.name})}</p>
-                <p className='text-sm text-muted-foreground'>
-                  {t('cluster.deleteConfirmWarning')}
-                </p>
-                <ArcCheckbox
-                  checked={forceDelete}
-                  onCheckedChange={(v) => setForceDelete(v === true)}
-                  label={t('cluster.forceDeleteOption')}
-                />
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>
-              {t('common.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <p className='text-sm text-muted-foreground'>
+          {t('cluster.deleteConfirmWarning')}
+        </p>
+        <ArcCheckbox
+          checked={forceDelete}
+          onCheckedChange={(v) => setForceDelete(v === true)}
+          label={t('cluster.forceDeleteOption')}
+        />
+      </ConfirmDialog>
 
       {/* Remove Node (scale-in) Dialog / 移除节点（缩容）对话框 */}
       <RemoveNodeDialog
@@ -2428,19 +2403,19 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       />
 
       {/* Running scaling operation progress / 进行中的伸缩操作进度 */}
-      <Dialog
+      <ArcDialog
         open={scaleProgressOpen && runningScaleOperation !== null}
         onOpenChange={setScaleProgressOpen}
       >
-        <DialogContent className='sm:max-w-2xl'>
-          <DialogHeader>
-            <DialogTitle>
-              {runningScaleOperation
-                ? t(`cluster.scale.kind.${runningScaleOperation.kind}`)
-                : ''}
-            </DialogTitle>
-          </DialogHeader>
-          {runningScaleOperation && (
+        <ArcDialogContent
+          title={
+            runningScaleOperation
+              ? t(`cluster.scale.kind.${runningScaleOperation.kind}`)
+              : ''
+          }
+          className='arc-compact w-[min(92vw,680px)]!'
+        >
+          {runningScaleOperation ? (
             <div className='max-h-[64vh] overflow-y-auto pr-1'>
               <ScaleOperationProgress
                 clusterId={clusterId}
@@ -2449,203 +2424,199 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 onFinished={handleRunningScaleFinished}
               />
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+          ) : null}
+        </ArcDialogContent>
+      </ArcDialog>
 
       {/* Batch start/stop/restart confirmation / 批量启动/停止/重启二次确认 */}
-      <AlertDialog
+      <ConfirmDialog
         open={!!confirmBatchOp}
-        onOpenChange={() => setConfirmBatchOp(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmBatchOp === 'start' &&
-                t('cluster.batchStartConfirmTitle')}
-              {confirmBatchOp === 'stop' && t('cluster.batchStopConfirmTitle')}
-              {confirmBatchOp === 'restart' &&
-                t('cluster.batchRestartConfirmTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmBatchOp === 'start' &&
-                t('cluster.batchStartConfirmMessage', {
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmBatchOp(null);
+          }
+        }}
+        title={
+          confirmBatchOp === 'start'
+            ? t('cluster.batchStartConfirmTitle')
+            : confirmBatchOp === 'stop'
+              ? t('cluster.batchStopConfirmTitle')
+              : confirmBatchOp === 'restart'
+                ? t('cluster.batchRestartConfirmTitle')
+                : ''
+        }
+        description={
+          confirmBatchOp === 'start'
+            ? t('cluster.batchStartConfirmMessage', {
+                count: selectedNodeIds.size,
+              })
+            : confirmBatchOp === 'stop'
+              ? t('cluster.batchStopConfirmMessage', {
                   count: selectedNodeIds.size,
-                })}
-              {confirmBatchOp === 'stop' &&
-                t('cluster.batchStopConfirmMessage', {
-                  count: selectedNodeIds.size,
-                })}
-              {confirmBatchOp === 'restart' &&
-                t('cluster.batchRestartConfirmMessage', {
-                  count: selectedNodeIds.size,
-                })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                if (confirmBatchOp === 'start') {
-                  await handleBatchStart();
-                } else if (confirmBatchOp === 'stop') {
-                  await handleBatchStop();
-                } else if (confirmBatchOp === 'restart') {
-                  await handleBatchRestart();
-                }
-                setConfirmBatchOp(null);
-              }}
-            >
-              {confirmBatchOp === 'start' && t('cluster.start')}
-              {confirmBatchOp === 'stop' && t('cluster.stop')}
-              {confirmBatchOp === 'restart' && t('cluster.restart')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+                })
+              : confirmBatchOp === 'restart'
+                ? t('cluster.batchRestartConfirmMessage', {
+                    count: selectedNodeIds.size,
+                  })
+                : ''
+        }
+        cancelLabel={t('common.cancel')}
+        confirmLabel={
+          confirmBatchOp === 'start'
+            ? t('cluster.start')
+            : confirmBatchOp === 'stop'
+              ? t('cluster.stop')
+              : t('cluster.restart')
+        }
+        confirmVariant={confirmBatchOp === 'stop' ? 'danger' : 'primary'}
+        onConfirm={async () => {
+          if (confirmBatchOp === 'start') {
+            await handleBatchStart();
+          } else if (confirmBatchOp === 'stop') {
+            await handleBatchStop();
+          } else if (confirmBatchOp === 'restart') {
+            await handleBatchRestart();
+          }
+          setConfirmBatchOp(null);
+        }}
+      />
 
       {/* Single node start/stop/restart confirmation / 单节点启动/停止/重启二次确认 */}
-      <AlertDialog
+      <ConfirmDialog
         open={!!confirmNodeOp}
-        onOpenChange={() => setConfirmNodeOp(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmNodeOp?.op === 'start' &&
-                t('cluster.nodeStartConfirmTitle')}
-              {confirmNodeOp?.op === 'stop' &&
-                t('cluster.nodeStopConfirmTitle')}
-              {confirmNodeOp?.op === 'restart' &&
-                t('cluster.nodeRestartConfirmTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmNodeOp &&
-                (confirmNodeOp.op === 'start'
-                  ? t('cluster.nodeStartConfirmMessage', {
-                      name:
-                        confirmNodeOp.node.host_name ||
-                        confirmNodeOp.node.host_ip ||
-                        `#${confirmNodeOp.node.id}`,
-                    })
-                  : confirmNodeOp.op === 'stop'
-                    ? t('cluster.nodeStopConfirmMessage', {
-                        name:
-                          confirmNodeOp.node.host_name ||
-                          confirmNodeOp.node.host_ip ||
-                          `#${confirmNodeOp.node.id}`,
-                      })
-                    : t('cluster.nodeRestartConfirmMessage', {
-                        name:
-                          confirmNodeOp.node.host_name ||
-                          confirmNodeOp.node.host_ip ||
-                          `#${confirmNodeOp.node.id}`,
-                      }))}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                if (!confirmNodeOp) {
-                  return;
-                }
-                if (confirmNodeOp.op === 'start') {
-                  await handleNodeStart(confirmNodeOp.node);
-                } else if (confirmNodeOp.op === 'stop') {
-                  await handleNodeStop(confirmNodeOp.node);
-                } else {
-                  await handleNodeRestart(confirmNodeOp.node);
-                }
-                setConfirmNodeOp(null);
-              }}
-            >
-              {confirmNodeOp?.op === 'start' && t('cluster.start')}
-              {confirmNodeOp?.op === 'stop' && t('cluster.stop')}
-              {confirmNodeOp?.op === 'restart' && t('cluster.restart')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmNodeOp(null);
+          }
+        }}
+        title={
+          confirmNodeOp?.op === 'start'
+            ? t('cluster.nodeStartConfirmTitle')
+            : confirmNodeOp?.op === 'stop'
+              ? t('cluster.nodeStopConfirmTitle')
+              : confirmNodeOp?.op === 'restart'
+                ? t('cluster.nodeRestartConfirmTitle')
+                : ''
+        }
+        description={
+          confirmNodeOp
+            ? confirmNodeOp.op === 'start'
+              ? t('cluster.nodeStartConfirmMessage', {
+                  name:
+                    confirmNodeOp.node.host_name ||
+                    confirmNodeOp.node.host_ip ||
+                    `#${confirmNodeOp.node.id}`,
+                })
+              : confirmNodeOp.op === 'stop'
+                ? t('cluster.nodeStopConfirmMessage', {
+                    name:
+                      confirmNodeOp.node.host_name ||
+                      confirmNodeOp.node.host_ip ||
+                      `#${confirmNodeOp.node.id}`,
+                  })
+                : t('cluster.nodeRestartConfirmMessage', {
+                    name:
+                      confirmNodeOp.node.host_name ||
+                      confirmNodeOp.node.host_ip ||
+                      `#${confirmNodeOp.node.id}`,
+                  })
+            : ''
+        }
+        cancelLabel={t('common.cancel')}
+        confirmLabel={
+          confirmNodeOp?.op === 'start'
+            ? t('cluster.start')
+            : confirmNodeOp?.op === 'stop'
+              ? t('cluster.stop')
+              : t('cluster.restart')
+        }
+        confirmVariant={confirmNodeOp?.op === 'stop' ? 'danger' : 'primary'}
+        onConfirm={async () => {
+          if (!confirmNodeOp) {
+            return;
+          }
+          if (confirmNodeOp.op === 'start') {
+            await handleNodeStart(confirmNodeOp.node);
+          } else if (confirmNodeOp.op === 'stop') {
+            await handleNodeStop(confirmNodeOp.node);
+          } else {
+            await handleNodeRestart(confirmNodeOp.node);
+          }
+          setConfirmNodeOp(null);
+        }}
+      />
 
-      <AlertDialog open={imapCleanupOpen} onOpenChange={setImapCleanupOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('cluster.runtimeStorage.cleanupConfirmTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('cluster.runtimeStorage.cleanupConfirmDesc')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void handleCleanupIMAP()}>
-              {imapCleanupRunning && (
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-              )}
-              {t('cluster.runtimeStorage.cleanupImap')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={imapCleanupOpen}
+        onOpenChange={setImapCleanupOpen}
+        title={t('cluster.runtimeStorage.cleanupConfirmTitle')}
+        description={t('cluster.runtimeStorage.cleanupConfirmDesc')}
+        cancelLabel={t('common.cancel')}
+        confirmLabel={t('cluster.runtimeStorage.cleanupImap')}
+        confirmVariant='danger'
+        loading={imapCleanupRunning}
+        onConfirm={handleCleanupIMAP}
+      />
 
-      <Dialog
+      <ArcDialog
         open={runtimeStoragePreviewOpen}
         onOpenChange={setRuntimeStoragePreviewOpen}
       >
-        <DialogContent className='arc-compact sm:max-w-4xl'>
-          <DialogHeader>
-            <div className='flex items-center justify-between gap-3 pr-6'>
-              <div className='min-w-0'>
-                <DialogTitle className='flex items-center gap-2'>
-                  {runtimeStoragePreview?.file_name?.endsWith('.ser') ? (
-                    <Database className='size-4 text-purple-400' />
-                  ) : runtimeStoragePreview?.binary ? (
-                    <File className='size-4 text-muted-foreground' />
-                  ) : (
-                    <FileText className='size-4 text-sky-400' />
-                  )}
-                  <span className='truncate font-mono'>
-                    {runtimeStoragePreview?.file_name ||
-                      t('cluster.runtimeStorage.preview')}
-                  </span>
-                </DialogTitle>
-                <DialogDescription className='mt-1 flex items-center gap-1.5 font-mono text-xs text-muted-foreground'>
-                  <span
-                    className='truncate'
-                    title={runtimeStoragePreview?.path || '-'}
-                  >
-                    {runtimeStoragePreview?.path || '-'}
-                  </span>
-                  {runtimeStoragePreview?.path && (
-                    <ArcButton
-                      type='button'
-                      variant='ghost'
-                      size='sm'
-                      iconOnly
-                      onClick={() => {
-                        if (runtimeStoragePreview?.path) {
-                          void navigator.clipboard.writeText(
-                            runtimeStoragePreview.path,
-                          );
-                          toast.success(
-                            t('cluster.runtimeStorage.copyPathSuccess'),
-                          );
-                        }
-                      }}
-                      aria-label={t('cluster.runtimeStorage.copyPath')}
-                      title={t('cluster.runtimeStorage.copyPath')}
-                    >
-                      <Copy className='size-3' aria-hidden />
-                    </ArcButton>
-                  )}
-                </DialogDescription>
-              </div>
-
-              {/* 若为 Checkpoint 序列化文件，提供一键反序列化直达动作 */}
-              {/* If it's a Checkpoint serialization file, provide a quick deserialize action */}
-              {runtimeStoragePreview?.path?.endsWith('.ser') && (
+        <ArcDialogContent
+          className='arc-compact w-[min(94vw,960px)]!'
+          title={
+            <span className='flex items-center gap-2'>
+              {runtimeStoragePreview?.file_name?.endsWith('.ser') ? (
+                <Database className='size-4 shrink-0 text-purple-400' />
+              ) : runtimeStoragePreview?.binary ? (
+                <File className='size-4 shrink-0 text-muted-foreground' />
+              ) : (
+                <FileText className='size-4 shrink-0 text-sky-400' />
+              )}
+              <span className='truncate font-mono'>
+                {runtimeStoragePreview?.file_name ||
+                  t('cluster.runtimeStorage.preview')}
+              </span>
+            </span>
+          }
+          description={
+            <span className='flex items-center gap-1.5 font-mono text-xs'>
+              <span
+                className='truncate'
+                title={runtimeStoragePreview?.path || '-'}
+              >
+                {runtimeStoragePreview?.path || '-'}
+              </span>
+              {runtimeStoragePreview?.path ? (
+                <ArcButton
+                  type='button'
+                  variant='ghost'
+                  size='sm'
+                  iconOnly
+                  onClick={() => {
+                    if (runtimeStoragePreview?.path) {
+                      void navigator.clipboard.writeText(
+                        runtimeStoragePreview.path,
+                      );
+                      toast.success(
+                        t('cluster.runtimeStorage.copyPathSuccess'),
+                      );
+                    }
+                  }}
+                  aria-label={t('cluster.runtimeStorage.copyPath')}
+                  title={t('cluster.runtimeStorage.copyPath')}
+                >
+                  <Copy className='size-3' aria-hidden />
+                </ArcButton>
+              ) : null}
+            </span>
+          }
+        >
+          <div className='space-y-4'>
+            {/* 若为 Checkpoint 序列化文件，提供一键反序列化直达动作 */}
+            {/* If it's a Checkpoint serialization file, provide a quick deserialize action */}
+            {runtimeStoragePreview?.path?.endsWith('.ser') ? (
+              <div className='flex justify-end'>
                 <ArcButton
                   type='button'
                   size='sm'
@@ -2660,110 +2631,110 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   <Database className='size-3.5' aria-hidden />
                   {t('cluster.runtimeStorage.deserializeCheckpoint')}
                 </ArcButton>
-              )}
-            </div>
-          </DialogHeader>
+              </div>
+            ) : null}
 
-          <dl className='grid gap-x-6 gap-y-3 border-y-[0.5px] border-border/80 py-3.5 text-xs md:grid-cols-4'>
-            <div className='min-w-0 space-y-0.5'>
-              <dt className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.fileName')}
-              </dt>
-              <dd
-                className='truncate font-mono font-medium text-foreground'
-                title={runtimeStoragePreview?.file_name || '-'}
-              >
-                {runtimeStoragePreview?.file_name || '-'}
-              </dd>
-            </div>
-            <div className='min-w-0 space-y-0.5'>
-              <dt className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.size')}
-              </dt>
-              <dd className='font-mono font-medium tabular-nums text-foreground'>
-                {formatBytes(runtimeStoragePreview?.size_bytes)}
-              </dd>
-            </div>
-            <div className='min-w-0 space-y-0.5'>
-              <dt className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.encoding')}
-              </dt>
-              <dd className='flex items-center gap-1.5 font-mono font-medium text-foreground'>
-                <span>{runtimeStoragePreview?.encoding || '-'}</span>
-                <NeutralChip>
-                  {runtimeStoragePreview?.binary ? 'Binary' : 'Text'}
-                </NeutralChip>
-              </dd>
-            </div>
-            <div className='min-w-0 space-y-0.5'>
-              <dt className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.truncated')}
-              </dt>
-              <dd className='font-mono font-medium text-foreground'>
-                {runtimeStoragePreview?.truncated ? 'Yes (64KB max)' : 'No'}
-              </dd>
-            </div>
-          </dl>
+            <dl className='grid gap-x-6 gap-y-3 border-b-[0.5px] border-border/80 pb-3.5 text-xs md:grid-cols-4'>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>
+                  {t('cluster.runtimeStorage.fileName')}
+                </dt>
+                <dd
+                  className='truncate font-mono font-medium text-foreground'
+                  title={runtimeStoragePreview?.file_name || '-'}
+                >
+                  {runtimeStoragePreview?.file_name || '-'}
+                </dd>
+              </div>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>
+                  {t('cluster.runtimeStorage.size')}
+                </dt>
+                <dd className='font-mono font-medium tabular-nums text-foreground'>
+                  {formatBytes(runtimeStoragePreview?.size_bytes)}
+                </dd>
+              </div>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>
+                  {t('cluster.runtimeStorage.encoding')}
+                </dt>
+                <dd className='flex items-center gap-1.5 font-mono font-medium text-foreground'>
+                  <span>{runtimeStoragePreview?.encoding || '-'}</span>
+                  <NeutralChip>
+                    {runtimeStoragePreview?.binary ? 'Binary' : 'Text'}
+                  </NeutralChip>
+                </dd>
+              </div>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>
+                  {t('cluster.runtimeStorage.truncated')}
+                </dt>
+                <dd className='font-mono font-medium text-foreground'>
+                  {runtimeStoragePreview?.truncated ? 'Yes (64KB max)' : 'No'}
+                </dd>
+              </div>
+            </dl>
 
-          <ExpandableTextPanel
-            title={t('cluster.runtimeStorage.fileName')}
-            subtitle={runtimeStoragePreview?.file_name || '-'}
-            content={
-              runtimeStoragePreview?.binary
-                ? runtimeStoragePreview?.hex_preview || '-'
-                : runtimeStoragePreview?.text_preview || '-'
-            }
-            height='50vh'
-            tone='plain'
-            wrap
-          />
-        </DialogContent>
-      </Dialog>
+            <ExpandableTextPanel
+              title={t('cluster.runtimeStorage.fileName')}
+              subtitle={runtimeStoragePreview?.file_name || '-'}
+              content={
+                runtimeStoragePreview?.binary
+                  ? runtimeStoragePreview?.hex_preview || '-'
+                  : runtimeStoragePreview?.text_preview || '-'
+              }
+              height='50vh'
+              tone='plain'
+              wrap
+            />
+          </div>
+        </ArcDialogContent>
+      </ArcDialog>
 
-      <Dialog open={stxJavaProxyLogOpen} onOpenChange={setStxJavaProxyLogOpen}>
-        <WorkbenchDialogContent className='arc-compact sm:max-w-[1560px] gap-0 p-0'>
-          <DialogHeader className='shrink-0 space-y-1 border-b-[0.5px] border-border/80 px-6 py-4 pr-12 text-left'>
-            <DialogTitle>
-              {t('cluster.stxJavaProxy.viewRuntimeLog')}
-            </DialogTitle>
-            <DialogDescription
-              className='truncate font-mono text-xs'
+      <ArcDialog
+        open={stxJavaProxyLogOpen}
+        onOpenChange={setStxJavaProxyLogOpen}
+      >
+        <ArcDialogContent
+          className='arc-compact w-[min(96vw,1480px)]! h-[86vh]!'
+          bodyClassName='flex min-h-0 flex-1 flex-col overflow-hidden p-4!'
+          title={t('cluster.stxJavaProxy.viewRuntimeLog')}
+          description={
+            <span
+              className='block truncate font-mono text-xs'
               title={
                 stxJavaProxyLogResult?.log_path || stxJavaProxy?.log_path || '-'
               }
             >
               {stxJavaProxyLogResult?.log_path || stxJavaProxy?.log_path || '-'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className='flex min-h-0 flex-1 flex-col p-4'>
-            <ExpandableTextPanel
-              content={stxJavaProxyLogResult?.logs || '-'}
-              height='flex'
-              className='h-full min-h-0'
-              tone='plain'
-              wrap
-              showExpand={false}
-            />
-          </div>
-        </WorkbenchDialogContent>
-      </Dialog>
+            </span>
+          }
+        >
+          <ExpandableTextPanel
+            content={stxJavaProxyLogResult?.logs || '-'}
+            height='flex'
+            className='h-full min-h-0'
+            tone='plain'
+            wrap
+            showExpand={false}
+          />
+        </ArcDialogContent>
+      </ArcDialog>
 
-      <Dialog
+      <ArcDialog
         open={stxJavaProxyConfigOpen}
         onOpenChange={setStxJavaProxyConfigOpen}
       >
-        <DialogContent
-          className='arc-compact sm:max-w-xl'
-          aria-describedby={undefined}
-        >
-          <DialogHeader>
-            <DialogTitle className='flex items-center gap-2'>
+        <ArcDialogContent
+          className='arc-compact w-[min(92vw,580px)]!'
+          title={
+            <span className='flex items-center gap-2'>
               <Cpu className='size-4 text-primary' aria-hidden />
               {t('cluster.stxJavaProxy.configDialogTitle')}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className='space-y-5 py-2 text-sm'>
+            </span>
+          }
+        >
+          <div className='space-y-5 text-sm'>
             <div className='space-y-2'>
               <div className='text-xs font-medium text-foreground'>
                 {t('cluster.stxJavaProxy.presetLabel')}
@@ -2828,32 +2799,32 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 }
               />
             </div>
-          </div>
 
-          <DialogFooter className='gap-2'>
-            <ArcButton
-              type='button'
-              variant='secondary'
-              size='sm'
-              onClick={() => setStxJavaProxyConfigOpen(false)}
-              disabled={stxJavaProxySaving}
-            >
-              {t('common.cancel')}
-            </ArcButton>
-            <ArcButton
-              type='button'
-              size='sm'
-              onClick={() => void handleSaveStxJavaProxyConfig()}
-              loading={stxJavaProxySaving}
-              data-testid='stx-java-proxy-save-config-btn'
-            >
-              {stxJavaProxySaving
-                ? t('cluster.stxJavaProxy.saving')
-                : t('cluster.stxJavaProxy.saveAndApply')}
-            </ArcButton>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <div className='flex items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>
+              <ArcButton
+                type='button'
+                variant='secondary'
+                size='sm'
+                onClick={() => setStxJavaProxyConfigOpen(false)}
+                disabled={stxJavaProxySaving}
+              >
+                {t('common.cancel')}
+              </ArcButton>
+              <ArcButton
+                type='button'
+                size='sm'
+                onClick={() => void handleSaveStxJavaProxyConfig()}
+                loading={stxJavaProxySaving}
+                data-testid='stx-java-proxy-save-config-btn'
+              >
+                {stxJavaProxySaving
+                  ? t('cluster.stxJavaProxy.saving')
+                  : t('cluster.stxJavaProxy.saveAndApply')}
+              </ArcButton>
+            </div>
+          </div>
+        </ArcDialogContent>
+      </ArcDialog>
 
       {/* 与工作台共用 Checkpoint 双看板；支持自动关联作业或手动指定连接器解析位点。
           Reuse workbench Checkpoint dual-pane dialog; supports auto job config association and manual connector decode. */}
@@ -2865,78 +2836,82 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         onResultUpdate={setCheckpointInspectResult}
       />
 
-      <Dialog open={imapInspectOpen} onOpenChange={setImapInspectOpen}>
-        <DialogContent className='arc-compact sm:max-w-5xl'>
-          <DialogHeader>
-            <DialogTitle>{t('cluster.runtimeStorage.inspectWal')}</DialogTitle>
-            <DialogDescription
-              className='truncate font-mono text-xs'
+      <ArcDialog open={imapInspectOpen} onOpenChange={setImapInspectOpen}>
+        <ArcDialogContent
+          className='arc-compact w-[min(94vw,1080px)]!'
+          title={t('cluster.runtimeStorage.inspectWal')}
+          description={
+            <span
+              className='block truncate font-mono text-xs'
               title={imapInspectResult?.path || '-'}
             >
               {imapInspectResult?.path || '-'}
-            </DialogDescription>
-          </DialogHeader>
-          <dl className='grid gap-x-6 gap-y-3 border-y-[0.5px] border-border/80 py-3.5 text-xs md:grid-cols-5'>
-            <div className='min-w-0 space-y-0.5'>
-              <dt className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.fileName')}
-              </dt>
-              <dd
-                className='truncate font-mono font-medium'
-                title={imapInspectResult?.file_name || '-'}
-              >
-                {imapInspectResult?.file_name || '-'}
-              </dd>
-            </div>
-            <div className='min-w-0 space-y-0.5'>
-              <dt className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.size')}
-              </dt>
-              <dd className='font-mono font-medium tabular-nums'>
-                {formatBytes(imapInspectResult?.size_bytes)}
-              </dd>
-            </div>
-            <div className='min-w-0 space-y-0.5'>
-              <dt className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.encoding')}
-              </dt>
-              <dd className='font-mono font-medium'>
-                {imapInspectResult?.encoding || '-'}
-              </dd>
-            </div>
-            <div className='min-w-0 space-y-0.5'>
-              <dt className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.storageType')}
-              </dt>
-              <dd className='font-mono font-medium'>
-                {imapInspectResult?.storage_type || '-'}
-              </dd>
-            </div>
-            <div className='min-w-0 space-y-0.5'>
-              <dt className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.entryCount')}
-              </dt>
-              <dd className='font-mono font-medium tabular-nums'>
-                {imapInspectResult?.entry_count ?? 0}
-              </dd>
-            </div>
-          </dl>
-          <ExpandableTextPanel
-            title={t('cluster.runtimeStorage.inspectWal')}
-            subtitle={imapInspectResult?.path || '-'}
-            content={JSON.stringify(
-              {
-                entries: imapInspectResult?.entries,
-              },
-              null,
-              2,
-            )}
-            height='55vh'
-            tone='plain'
-            wrap
-          />
-        </DialogContent>
-      </Dialog>
+            </span>
+          }
+        >
+          <div className='space-y-4'>
+            <dl className='grid gap-x-6 gap-y-3 border-b-[0.5px] border-border/80 pb-3.5 text-xs md:grid-cols-5'>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>
+                  {t('cluster.runtimeStorage.fileName')}
+                </dt>
+                <dd
+                  className='truncate font-mono font-medium'
+                  title={imapInspectResult?.file_name || '-'}
+                >
+                  {imapInspectResult?.file_name || '-'}
+                </dd>
+              </div>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>
+                  {t('cluster.runtimeStorage.size')}
+                </dt>
+                <dd className='font-mono font-medium tabular-nums'>
+                  {formatBytes(imapInspectResult?.size_bytes)}
+                </dd>
+              </div>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>
+                  {t('cluster.runtimeStorage.encoding')}
+                </dt>
+                <dd className='font-mono font-medium'>
+                  {imapInspectResult?.encoding || '-'}
+                </dd>
+              </div>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>
+                  {t('cluster.runtimeStorage.storageType')}
+                </dt>
+                <dd className='font-mono font-medium'>
+                  {imapInspectResult?.storage_type || '-'}
+                </dd>
+              </div>
+              <div className='min-w-0 space-y-0.5'>
+                <dt className='text-muted-foreground'>
+                  {t('cluster.runtimeStorage.entryCount')}
+                </dt>
+                <dd className='font-mono font-medium tabular-nums'>
+                  {imapInspectResult?.entry_count ?? 0}
+                </dd>
+              </div>
+            </dl>
+            <ExpandableTextPanel
+              title={t('cluster.runtimeStorage.inspectWal')}
+              subtitle={imapInspectResult?.path || '-'}
+              content={JSON.stringify(
+                {
+                  entries: imapInspectResult?.entries,
+                },
+                null,
+                2,
+              )}
+              height='55vh'
+              tone='plain'
+              wrap
+            />
+          </div>
+        </ArcDialogContent>
+      </ArcDialog>
 
       {/* View Logs Dialog / 查看日志对话框 */}
       <ClusterNodeLogDialog

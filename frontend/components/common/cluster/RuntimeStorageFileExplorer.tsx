@@ -29,20 +29,17 @@ import {
   ChevronUp,
   Home,
   RefreshCw,
-  Search,
-  X,
   Copy,
   Check,
   Eye,
-  Loader2,
   HardDrive,
   MoreHorizontal,
 } from 'lucide-react';
 import {toast} from '@/lib/toast';
 
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/arc/button/button';
+import {DropdownMenu, type DropdownItem} from '@/components/arc/dropdown-menu/dropdown-menu';
+import {SearchField} from '@/components/arc/search-field/search-field';
 import {
   Table,
   TableBody,
@@ -52,19 +49,16 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {TableLoadingBar} from '@/components/common/layout/TableLoadingBar';
-import {TableSkeletonRows} from '@/components/common/layout/TableSkeletonRows';
+import {
+  SoftChip,
+  TableLoadingBar,
+  TableSkeletonRows,
+} from '@/components/common/layout';
+import layout from '@/components/common/layout/list-detail.module.css';
 import {Pagination} from '@/components/ui/pagination';
 import {cn} from '@/lib/utils';
 import type {
@@ -222,13 +216,13 @@ export function RuntimeStorageFileExplorer({
 
   // 上一级路径 / Parent path
   const parentPath = useMemo(() => {
-    if (isAtRoot) return spec.namespace || '';
+    if (isAtRoot) {return spec.namespace || '';}
     return breadcrumbs[breadcrumbs.length - 2]?.path || spec.namespace || '';
   }, [breadcrumbs, isAtRoot, spec.namespace]);
 
   // 复制当前完整路径 / Copy current full path
   const handleCopyCurrentPath = useCallback(() => {
-    if (!effectiveCurrentPath) return;
+    if (!effectiveCurrentPath) {return;}
     void navigator.clipboard.writeText(effectiveCurrentPath);
     setCopied(true);
     toast.success(t('copyPathSuccess'));
@@ -261,15 +255,15 @@ export function RuntimeStorageFileExplorer({
   const filteredAndSortedItems = useMemo(() => {
     const trimmed = searchKeyword.trim().toLowerCase();
     const filtered = rawItems.filter((item) => {
-      if (!trimmed) return true;
+      if (!trimmed) {return true;}
       const haystack = `${item.name || ''} ${item.path || ''}`.toLowerCase();
       return haystack.includes(trimmed);
     });
 
     return [...filtered].sort((a, b) => {
       // 1. 文件夹置顶 / Directories first
-      if (a.directory && !b.directory) return -1;
-      if (!a.directory && b.directory) return 1;
+      if (a.directory && !b.directory) {return -1;}
+      if (!a.directory && b.directory) {return 1;}
 
       // 2. 按名称自然数排序 / Natural alphanumeric order by name
       const nameA = a.name || a.path || '';
@@ -346,14 +340,15 @@ export function RuntimeStorageFileExplorer({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant='outline'
-                size='icon'
-                className='size-8 shrink-0 active:scale-95'
+                type='button'
+                variant='secondary'
+                size='sm'
+                iconOnly
                 disabled={loading || isAtRoot}
                 onClick={() => onNavigate(parentPath)}
                 aria-label={t('upLevel')}
               >
-                <ChevronUp className='size-4' />
+                <ChevronUp className='size-4' aria-hidden />
               </Button>
             </TooltipTrigger>
             <TooltipContent side='bottom'>{t('upLevel')}</TooltipContent>
@@ -363,21 +358,22 @@ export function RuntimeStorageFileExplorer({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant='outline'
-                size='icon'
-                className='size-8 shrink-0 active:scale-95'
+                type='button'
+                variant='secondary'
+                size='sm'
+                iconOnly
                 disabled={loading || isAtRoot}
                 onClick={() => onNavigate(spec.namespace || '')}
                 aria-label={t('rootDir')}
               >
-                <Home className='size-3.5' />
+                <Home className='size-3.5' aria-hidden />
               </Button>
             </TooltipTrigger>
             <TooltipContent side='bottom'>{t('rootDir')}</TooltipContent>
           </Tooltip>
 
           {/* 可点击面包屑路径条 / Interactive breadcrumb bar */}
-          <div className='flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-lg border border-border/60 bg-background/80 px-2.5 py-1 text-xs shadow-xs'>
+          <div className='flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-lg border border-border/60 bg-background/80 px-2.5 py-1 text-xs'>
             <HardDrive className='size-3.5 shrink-0 text-muted-foreground mr-0.5' />
             {breadcrumbs.map((seg, idx) => (
               <React.Fragment key={`crumb-${seg.path || idx}`}>
@@ -408,16 +404,18 @@ export function RuntimeStorageFileExplorer({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  type='button'
                   variant='ghost'
-                  size='icon'
-                  className='ml-auto size-6 shrink-0 text-muted-foreground hover:text-foreground'
+                  size='sm'
+                  iconOnly
+                  className='ml-auto shrink-0'
                   onClick={handleCopyCurrentPath}
                   aria-label={t('copyPath')}
                 >
                   {copied ? (
-                    <Check className='size-3.5 text-emerald-500' />
+                    <Check className='size-3.5 text-emerald-500' aria-hidden />
                   ) : (
-                    <Copy className='size-3.5' />
+                    <Copy className='size-3.5' aria-hidden />
                   )}
                 </Button>
               </TooltipTrigger>
@@ -428,43 +426,33 @@ export function RuntimeStorageFileExplorer({
 
         {/* 右侧搜索与刷新 / Search & Refresh controls */}
         <div className='flex items-center gap-2 shrink-0'>
-          <div className='relative w-full sm:w-56'>
-            <Search className='pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground' />
-            <Input
+          <div className={cn(layout.toolbarSearch, 'w-full sm:w-56')}>
+            <SearchField
+              label={t('searchEntries')}
               value={searchKeyword}
-              onChange={(e) => {
-                setSearchKeyword(e.target.value);
+              onValueChange={(next) => {
+                setSearchKeyword(next);
                 setCurrentPage(1);
               }}
-              className='h-8 pl-8 pr-7 text-xs bg-background/80'
               placeholder={t('searchEntries')}
+              clearLabel={tCommon('clearFilters')}
             />
-            {searchKeyword && (
-              <button
-                type='button'
-                className='absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
-                onClick={() => {
-                  setSearchKeyword('');
-                  setCurrentPage(1);
-                }}
-              >
-                <X className='size-3' />
-              </button>
-            )}
           </div>
 
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant='outline'
-                size='icon'
-                className='size-8 shrink-0 active:scale-95'
+                type='button'
+                variant='secondary'
+                size='sm'
+                iconOnly
                 disabled={loading}
                 onClick={onRefresh}
                 aria-label={tCommon('refresh')}
               >
                 <RefreshCw
                   className={cn('size-3.5', loading && 'animate-spin')}
+                  aria-hidden
                 />
               </Button>
             </TooltipTrigger>
@@ -559,25 +547,19 @@ export function RuntimeStorageFileExplorer({
 
                       {/* 专属类型小胶囊 / Exclusive type badge */}
                       {isSerCheckpoint ? (
-                        <Badge
-                          variant='outline'
-                          className='h-4 px-1 text-[9px] font-mono border-purple-500/30 text-purple-400 bg-purple-500/10 shrink-0'
-                        >
+                        <SoftChip tone='blue' className='font-mono'>
                           CKPT
-                        </Badge>
+                        </SoftChip>
                       ) : isImapWal ? (
-                        <Badge
-                          variant='outline'
-                          className='h-4 px-1 text-[9px] font-mono border-emerald-500/30 text-emerald-400 bg-emerald-500/10 shrink-0'
-                        >
+                        <SoftChip tone='emerald' className='font-mono'>
                           WAL
-                        </Badge>
+                        </SoftChip>
                       ) : null}
                     </div>
                   </TableCell>
 
                   {/* 大小列 / Size */}
-                  <TableCell className='py-2 px-3 whitespace-nowrap text-xs text-muted-foreground font-mono'>
+                  <TableCell className='py-2 px-3 whitespace-nowrap text-xs text-muted-foreground font-mono tabular-nums'>
                     {item.directory
                       ? item.size_bytes && item.size_bytes > 0
                         ? `${t('directory')} · ${formatBytes(item.size_bytes)}`
@@ -586,7 +568,7 @@ export function RuntimeStorageFileExplorer({
                   </TableCell>
 
                   {/* 修改时间列 / Modified At */}
-                  <TableCell className='py-2 px-3 whitespace-nowrap text-xs text-muted-foreground font-mono'>
+                  <TableCell className='py-2 px-3 whitespace-nowrap text-xs text-muted-foreground font-mono tabular-nums'>
                     {item.modified_at || '-'}
                   </TableCell>
 
@@ -599,45 +581,38 @@ export function RuntimeStorageFileExplorer({
                     >
                       {item.directory ? (
                         <Button
+                          type='button'
                           variant='ghost'
                           size='sm'
-                          className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground active:scale-95'
                           onClick={() => onNavigate(itemPath)}
                         >
                           {t('open')}
-                          <ChevronRight className='size-3.5 ml-0.5' />
+                          <ChevronRight className='size-3.5' aria-hidden />
                         </Button>
                       ) : isSerCheckpoint ? (
                         <>
                           <Button
-                            variant='outline'
+                            type='button'
+                            variant='secondary'
                             size='sm'
-                            className='h-7 px-2 text-xs border-purple-500/30 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 active:scale-95'
-                            disabled={isInspecting}
+                            loading={isInspecting}
                             onClick={() => onInspectCheckpoint?.(itemPath)}
                           >
-                            {isInspecting ? (
-                              <Loader2 className='mr-1 size-3 animate-spin' />
-                            ) : (
-                              <Database className='mr-1 size-3' />
-                            )}
+                            <Database className='size-3.5' aria-hidden />
                             {t('deserializeCheckpoint')}
                           </Button>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
+                                type='button'
                                 variant='ghost'
-                                size='icon'
-                                className='size-7 text-muted-foreground hover:text-foreground active:scale-95'
-                                disabled={isPreviewing}
+                                size='sm'
+                                iconOnly
+                                loading={isPreviewing}
                                 onClick={() => onPreviewFile(itemPath)}
                                 aria-label={t('preview')}
                               >
-                                {isPreviewing ? (
-                                  <Loader2 className='size-3.5 animate-spin' />
-                                ) : (
-                                  <Eye className='size-3.5' />
-                                )}
+                                <Eye className='size-3.5' aria-hidden />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent side='top'>{t('preview')}</TooltipContent>
@@ -646,34 +621,27 @@ export function RuntimeStorageFileExplorer({
                       ) : isImapWal ? (
                         <>
                           <Button
-                            variant='outline'
+                            type='button'
+                            variant='secondary'
                             size='sm'
-                            className='h-7 px-2 text-xs border-emerald-500/30 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 active:scale-95'
-                            disabled={isInspectingWal}
+                            loading={isInspectingWal}
                             onClick={() => onInspectIMAPWAL?.(itemPath)}
                           >
-                            {isInspectingWal ? (
-                              <Loader2 className='mr-1 size-3 animate-spin' />
-                            ) : (
-                              <Database className='mr-1 size-3' />
-                            )}
+                            <Database className='size-3.5' aria-hidden />
                             {t('inspectWal')}
                           </Button>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
+                                type='button'
                                 variant='ghost'
-                                size='icon'
-                                className='size-7 text-muted-foreground hover:text-foreground active:scale-95'
-                                disabled={isPreviewing}
+                                size='sm'
+                                iconOnly
+                                loading={isPreviewing}
                                 onClick={() => onPreviewFile(itemPath)}
                                 aria-label={t('preview')}
                               >
-                                {isPreviewing ? (
-                                  <Loader2 className='size-3.5 animate-spin' />
-                                ) : (
-                                  <Eye className='size-3.5' />
-                                )}
+                                <Eye className='size-3.5' aria-hidden />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent side='top'>{t('preview')}</TooltipContent>
@@ -681,60 +649,56 @@ export function RuntimeStorageFileExplorer({
                         </>
                       ) : (
                         <Button
+                          type='button'
                           variant='ghost'
                           size='sm'
-                          className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground active:scale-95'
-                          disabled={isPreviewing}
+                          loading={isPreviewing}
                           onClick={() => onPreviewFile(itemPath)}
                         >
-                          {isPreviewing ? (
-                            <Loader2 className='mr-1 size-3.5 animate-spin' />
-                          ) : (
-                            <Eye className='mr-1 size-3.5' />
-                          )}
+                          <Eye className='size-3.5' aria-hidden />
                           {t('preview')}
                         </Button>
                       )}
 
                       {/* 更多功能下拉菜单 / More options dropdown */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                      <DropdownMenu
+                        trigger={
                           <Button
+                            type='button'
                             variant='ghost'
-                            size='icon'
-                            className='size-7 text-muted-foreground hover:text-foreground'
+                            size='sm'
+                            iconOnly
                             aria-label={tCommon('actions')}
                           >
-                            <MoreHorizontal className='size-3.5' />
+                            <MoreHorizontal className='size-3.5' aria-hidden />
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align='end' className='w-44'>
-                          <DropdownMenuItem
-                            onClick={(e) => handleCopyItemPath(itemPath, e)}
-                          >
-                            <Copy className='mr-2 size-3.5' />
-                            {t('copyPath')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => handleCopyItemName(itemName, e)}
-                          >
-                            <Copy className='mr-2 size-3.5' />
-                            {t('copyName')}
-                          </DropdownMenuItem>
-                          {!item.directory && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                disabled={isPreviewing}
-                                onClick={() => onPreviewFile(itemPath)}
-                              >
-                                <Eye className='mr-2 size-3.5' />
-                                {t('rawHexPreview')}
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        }
+                        items={
+                          [
+                            {
+                              label: t('copyPath'),
+                              icon: <Copy className='size-3.5' />,
+                              onSelect: () => handleCopyItemPath(itemPath),
+                            },
+                            {
+                              label: t('copyName'),
+                              icon: <Copy className='size-3.5' />,
+                              onSelect: () => handleCopyItemName(itemName),
+                            },
+                            ...(!item.directory
+                              ? [
+                                  {
+                                    label: t('rawHexPreview'),
+                                    icon: <Eye className='size-3.5' />,
+                                    disabled: isPreviewing,
+                                    separatorBefore: true,
+                                    onSelect: () => onPreviewFile(itemPath),
+                                  },
+                                ]
+                              : []),
+                          ] satisfies DropdownItem[]
+                        }
+                      />
                     </div>
                   </TableCell>
                 </TableRow>

@@ -24,17 +24,9 @@ import {AlertCircle, CheckCircle2, XCircle} from 'lucide-react';
 
 import services from '@/lib/services';
 import {Button} from '@/components/arc/button/button';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {Input} from '@/components/arc/input/input';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
 import {HelpHint} from '@/components/common/HelpHint';
 import {JavaHomePicker} from '@/components/common/java/JavaHomePicker';
 import {
@@ -315,217 +307,196 @@ export function EditNodeDialog({
   );
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className='arc-compact sm:max-w-[680px]'>
-          <DialogHeader>
-            <DialogTitle>{t('cluster.editNode')}</DialogTitle>
-            <DialogDescription>
-              {t('cluster.editNodeDescription', {
-                host: node.host_name,
-                ip: node.host_ip,
-              })}
-            </DialogDescription>
-          </DialogHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className='arc-compact w-[min(92vw,680px)]!'
+        title={t('cluster.editNode')}
+        description={t('cluster.editNodeDescription', {
+          host: node.host_name,
+          ip: node.host_ip,
+        })}
+      >
+        <div className='space-y-5'>
+          <dl className='grid grid-cols-2 gap-x-6 gap-y-3 border-b-[0.5px] border-border/80 pb-4 text-xs sm:grid-cols-4'>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>{t('cluster.hostName')}</dt>
+              <dd className='truncate text-sm font-medium text-foreground'>
+                {node.host_name}
+              </dd>
+            </div>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>{t('cluster.hostIP')}</dt>
+              <dd className='truncate font-mono text-sm font-medium tabular-nums text-foreground'>
+                {node.host_ip}
+              </dd>
+            </div>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>{t('cluster.nodeRole')}</dt>
+              <dd className='truncate text-sm font-medium text-foreground'>
+                {t(`cluster.roles.${getRoleTranslationKey(node.role)}`)}
+              </dd>
+            </div>
+            <div className='min-w-0 space-y-0.5'>
+              <dt className='text-muted-foreground'>
+                {t('cluster.nodeStatus')}
+              </dt>
+              <dd className='truncate text-sm font-medium text-foreground'>
+                {t(`cluster.nodeStatuses.${node.status}`)}
+              </dd>
+            </div>
+          </dl>
 
-          <div className='max-h-[70vh] space-y-5 overflow-y-auto py-1 pr-1'>
-            <dl className='grid grid-cols-2 gap-x-6 gap-y-3 border-b-[0.5px] border-border/80 pb-4 text-xs sm:grid-cols-4'>
-              <div className='min-w-0 space-y-0.5'>
-                <dt className='text-muted-foreground'>{t('cluster.hostName')}</dt>
-                <dd className='truncate text-sm font-medium text-foreground'>
-                  {node.host_name}
-                </dd>
-              </div>
-              <div className='min-w-0 space-y-0.5'>
-                <dt className='text-muted-foreground'>{t('cluster.hostIP')}</dt>
-                <dd className='truncate font-mono text-sm font-medium tabular-nums text-foreground'>
-                  {node.host_ip}
-                </dd>
-              </div>
-              <div className='min-w-0 space-y-0.5'>
-                <dt className='text-muted-foreground'>{t('cluster.nodeRole')}</dt>
-                <dd className='truncate text-sm font-medium text-foreground'>
-                  {t(`cluster.roles.${getRoleTranslationKey(node.role)}`)}
-                </dd>
-              </div>
-              <div className='min-w-0 space-y-0.5'>
-                <dt className='text-muted-foreground'>
-                  {t('cluster.nodeStatus')}
-                </dt>
-                <dd className='truncate text-sm font-medium text-foreground'>
-                  {t(`cluster.nodeStatuses.${node.status}`)}
-                </dd>
-              </div>
-            </dl>
+          <Input
+            label={t('cluster.installDir')}
+            required
+            value={installDir}
+            onChange={(e) => setInstallDir(e.target.value)}
+            placeholder={t('cluster.installDirPlaceholder')}
+            className='font-mono'
+          />
 
-            <div className='space-y-2'>
-              <Label>
-                {t('cluster.installDir')}{' '}
-                <span className='text-destructive'>*</span>
-              </Label>
+          {/* 节点 JDK 可编辑：升级为需要更高 JDK 的版本（≥3.1.0）时的换 JDK 出口。/ Editable node JDK: the remediation path when upgrading to a version needing a newer JDK (≥3.1.0). */}
+          <JavaHomePicker
+            hostId={node.host_id}
+            value={javaHome}
+            onChange={({javaHome: next}) => setJavaHome(next)}
+          />
+
+          <div className='space-y-3 border-t-[0.5px] border-border/80 pt-4'>
+            <div className='flex items-center gap-2'>
+              <span className='text-xs font-medium text-foreground'>
+                {t('cluster.portConfig')}
+              </span>
+              <HelpHint
+                label={t('cluster.portConfig')}
+                content={t('cluster.portConfigDescription')}
+                data-testid='edit-node-port-config-hint'
+              />
+            </div>
+            <div className='grid gap-4 md:grid-cols-2'>
               <Input
-                value={installDir}
-                onChange={(e) => setInstallDir(e.target.value)}
-                placeholder={t('cluster.installDirPlaceholder')}
-                className='font-mono'
+                type='number'
+                label={t(`cluster.${getPrimaryPortLabelKey(node.role)}`)}
+                required
+                value={hazelcastPort}
+                onChange={(e) =>
+                  setHazelcastPort(parseInt(e.target.value, 10) || 0)
+                }
+                className='font-mono tabular-nums'
+              />
+
+              {node.role !== NodeRole.WORKER && (
+                <Input
+                  type='number'
+                  label={`${t('cluster.apiPort')} (${t('common.optional')})`}
+                  value={apiPort || ''}
+                  onChange={(e) =>
+                    setApiPort(parseInt(e.target.value, 10) || 0)
+                  }
+                  className='font-mono tabular-nums'
+                />
+              )}
+            </div>
+          </div>
+
+          <div className='space-y-3 border-t-[0.5px] border-border/80 pt-4'>
+            <div className='flex flex-wrap items-center justify-between gap-3'>
+              <div className='space-y-0.5'>
+                <span className='block text-xs font-medium text-foreground'>
+                  {t('cluster.jvmHeapTitle')}
+                </span>
+                {!jvmOverrideEnabled && !clusterDefaultHeap && (
+                  <p className='text-xs text-muted-foreground'>
+                    {t('cluster.jvmNoClusterDefault')}
+                  </p>
+                )}
+              </div>
+              <SegmentedControl
+                label={t('cluster.jvmHeapTitle')}
+                value={jvmOverrideEnabled ? 'custom' : 'cluster'}
+                onValueChange={(value) => {
+                  const nextCustom = value === 'custom';
+                  setJvmOverrideEnabled(nextCustom);
+                  if (nextCustom && jvmHeapSize <= 0) {
+                    setJvmHeapSize(clusterDefaultHeap ?? 0);
+                  }
+                }}
+                options={[
+                  {
+                    value: 'cluster',
+                    label: clusterDefaultHeap
+                      ? t('cluster.jvmFollowClusterWithValue', {
+                          value: clusterDefaultHeap,
+                        })
+                      : t('cluster.jvmFollowCluster'),
+                  },
+                  {
+                    value: 'custom',
+                    label: t('cluster.jvmCustomOption'),
+                  },
+                ]}
               />
             </div>
 
-            {/* 节点 JDK 可编辑：升级为需要更高 JDK 的版本（≥3.1.0）时的换 JDK 出口。/ Editable node JDK: the remediation path when upgrading to a version needing a newer JDK (≥3.1.0). */}
-            <JavaHomePicker
-              hostId={node.host_id}
-              value={javaHome}
-              onChange={({javaHome: next}) => setJavaHome(next)}
-            />
-
-            <div className='space-y-3 border-t-[0.5px] border-border/80 pt-4'>
-              <div className='flex items-center gap-2'>
-                <Label>{t('cluster.portConfig')}</Label>
-                <HelpHint
-                  label={t('cluster.portConfig')}
-                  content={t('cluster.portConfigDescription')}
-                  data-testid='edit-node-port-config-hint'
+            {jvmOverrideEnabled && (
+              <div className='max-w-xs space-y-1.5'>
+                <Input
+                  type='number'
+                  min={1}
+                  label={t('cluster.jvmHeapSize')}
+                  description={t('cluster.jvmHeapSizeHint')}
+                  required
+                  value={jvmHeapSize || ''}
+                  onChange={(e) =>
+                    setJvmHeapSize(parseInt(e.target.value, 10) || 0)
+                  }
+                  className='font-mono tabular-nums'
                 />
-              </div>
-              <div className='grid gap-4 md:grid-cols-3'>
-                <div className='space-y-1'>
-                  <Label className='text-xs'>
-                    {t(`cluster.${getPrimaryPortLabelKey(node.role)}`)}{' '}
-                    <span className='text-destructive'>*</span>
-                  </Label>
-                  <Input
-                    type='number'
-                    value={hazelcastPort}
-                    onChange={(e) =>
-                      setHazelcastPort(parseInt(e.target.value, 10) || 0)
-                    }
-                  />
-                </div>
-
-                {node.role !== NodeRole.WORKER && (
-                  <div className='space-y-1'>
-                    <Label className='text-xs'>
-                      {t('cluster.apiPort')}{' '}
-                      <span className='text-muted-foreground'>
-                        ({t('common.optional')})
-                      </span>
-                    </Label>
-                    <Input
-                      type='number'
-                      value={apiPort || ''}
-                      onChange={(e) =>
-                        setApiPort(parseInt(e.target.value, 10) || 0)
-                      }
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className='space-y-3 border-t-[0.5px] border-border/80 pt-4'>
-              <div className='flex flex-wrap items-center justify-between gap-3'>
-                <div className='space-y-0.5'>
-                  <Label>{t('cluster.jvmHeapTitle')}</Label>
-                  {!jvmOverrideEnabled && !clusterDefaultHeap && (
-                    <p className='text-xs text-muted-foreground'>
-                      {t('cluster.jvmNoClusterDefault')}
-                    </p>
-                  )}
-                </div>
-                <SegmentedControl
-                  label={t('cluster.jvmHeapTitle')}
-                  value={jvmOverrideEnabled ? 'custom' : 'cluster'}
-                  onValueChange={(value) => {
-                    const nextCustom = value === 'custom';
-                    setJvmOverrideEnabled(nextCustom);
-                    if (nextCustom && jvmHeapSize <= 0) {
-                      setJvmHeapSize(clusterDefaultHeap ?? 0);
-                    }
-                  }}
-                  options={[
-                    {
-                      value: 'cluster',
-                      label: clusterDefaultHeap
-                        ? t('cluster.jvmFollowClusterWithValue', {
-                            value: clusterDefaultHeap,
-                          })
-                        : t('cluster.jvmFollowCluster'),
-                    },
-                    {
-                      value: 'custom',
-                      label: t('cluster.jvmCustomOption'),
-                    },
-                  ]}
-                />
-              </div>
-
-              {jvmOverrideEnabled && (
-                <div className='max-w-xs space-y-2'>
-                  <div className='flex items-center gap-2'>
-                    <Label className='text-xs'>
-                      {t('cluster.jvmHeapSize')}{' '}
-                      <span className='text-destructive'>*</span>
-                    </Label>
-                    <HelpHint
-                      label={t('cluster.jvmHeapSize')}
-                      content={t('cluster.jvmHeapSizeHint')}
-                      data-testid='edit-node-jvm-heap-hint'
-                    />
-                  </div>
-                  <Input
-                    type='number'
-                    min={1}
-                    value={jvmHeapSize || ''}
-                    onChange={(e) =>
-                      setJvmHeapSize(parseInt(e.target.value, 10) || 0)
-                    }
-                  />
-                </div>
-              )}
-            </div>
-
-            {precheckResult && (
-              <div className='space-y-2 border-t-[0.5px] border-border/80 pt-4'>
-                <div className='flex items-center gap-2'>
-                  {precheckResult.success ? (
-                    <CheckCircle2 className='h-4 w-4 text-emerald-500' />
-                  ) : (
-                    <XCircle className='h-4 w-4 text-rose-500' />
-                  )}
-                  <span className='text-sm font-medium'>
-                    {precheckResult.success
-                      ? t('cluster.precheckPassed')
-                      : t('cluster.precheckFailed')}
-                  </span>
-                </div>
-                <div className='space-y-1'>
-                  {precheckResult.checks.map(
-                    (check: PrecheckCheckItem, index: number) => (
-                      <div
-                        key={index}
-                        className='flex items-start gap-2 text-xs'
-                      >
-                        {getStatusIcon(check.status)}
-                        <div>
-                          <span className='font-medium'>
-                            {t(`cluster.precheckItems.${check.name}`, {
-                              defaultValue: check.name,
-                            })}
-                            :
-                          </span>{' '}
-                          <span className='text-muted-foreground'>
-                            {check.message}
-                          </span>
-                        </div>
-                      </div>
-                    ),
-                  )}
-                </div>
               </div>
             )}
           </div>
 
-          <DialogFooter className='gap-2'>
+          {precheckResult && (
+            <div className='space-y-2 border-t-[0.5px] border-border/80 pt-4'>
+              <div className='flex items-center gap-2'>
+                {precheckResult.success ? (
+                  <CheckCircle2 className='h-4 w-4 text-emerald-500' />
+                ) : (
+                  <XCircle className='h-4 w-4 text-rose-500' />
+                )}
+                <span className='text-sm font-medium'>
+                  {precheckResult.success
+                    ? t('cluster.precheckPassed')
+                    : t('cluster.precheckFailed')}
+                </span>
+              </div>
+              <div className='space-y-1'>
+                {precheckResult.checks.map(
+                  (check: PrecheckCheckItem, index: number) => (
+                    <div
+                      key={index}
+                      className='flex items-start gap-2 text-xs'
+                    >
+                      {getStatusIcon(check.status)}
+                      <div>
+                        <span className='font-medium'>
+                          {t(`cluster.precheckItems.${check.name}`, {
+                            defaultValue: check.name,
+                          })}
+                          :
+                        </span>{' '}
+                        <span className='text-muted-foreground'>
+                          {check.message}
+                        </span>
+                      </div>
+                    </div>
+                  ),
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className='flex items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>
             <Button
               type='button'
               variant='secondary'
@@ -554,9 +525,9 @@ export function EditNodeDialog({
             >
               {t('common.save')}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

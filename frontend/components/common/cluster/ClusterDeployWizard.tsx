@@ -29,15 +29,9 @@
 
 import React, {useState, useCallback, useEffect, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import {Button} from '@/components/ui/button';
-import {Badge} from '@/components/ui/badge';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {Button} from '@/components/arc/button/button';
+import {NeutralChip} from '@/components/common/layout';
 import {ChevronLeft, ChevronRight, X, PlayCircle, Layers} from 'lucide-react';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
@@ -964,29 +958,20 @@ export function ClusterDeployWizard({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='w-full sm:max-w-4xl lg:max-w-5xl h-[86vh] max-h-[850px] p-0 gap-0 overflow-hidden flex flex-col border shadow-2xl rounded-xl bg-background'>
-        {/* Header / 弹窗头部 */}
-        <DialogHeader className='px-6 py-3.5 border-b bg-muted/20 flex flex-row items-center justify-between space-y-0'>
-          <div className='flex items-center gap-2.5'>
-            <div className='p-1.5 rounded-md bg-primary/10 text-primary'>
-              <Layers className='h-4 w-4' />
-            </div>
-            <div>
-              <DialogTitle className='text-sm font-semibold'>
-                {t('cluster.wizard.title')}
-              </DialogTitle>
-              <DialogDescription className='sr-only'>
-                {t(currentStep.descKey)}
-              </DialogDescription>
-            </div>
-          </div>
-          <div className='flex items-center gap-2'>
-            <Badge variant='outline' className='text-[11px] font-mono h-5 px-2'>
-              步骤 {currentStepIndex + 1} / {WIZARD_STEPS.length}
-            </Badge>
-          </div>
-        </DialogHeader>
-
+      <DialogContent
+        className='arc-compact w-[min(95vw,1040px)]! h-[86vh]! max-h-[850px]!'
+        bodyClassName='p-0! flex min-h-0 flex-1 flex-col overflow-hidden'
+        title={
+          <span className='flex items-center gap-2.5'>
+            <Layers className='size-4 shrink-0 text-primary' aria-hidden />
+            <span>{t('cluster.wizard.title')}</span>
+            <NeutralChip className='font-mono tabular-nums'>
+              {currentStepIndex + 1} / {WIZARD_STEPS.length}
+            </NeutralChip>
+          </span>
+        }
+        description={t(currentStep.descKey)}
+      >
         {/* Stepper bar / 现代化步骤条 */}
         <ClusterWizardStepper
           steps={WIZARD_STEPS}
@@ -996,52 +981,52 @@ export function ClusterDeployWizard({
         />
 
         {/* Step Content / 步骤主体内容区 */}
-        <div className='flex-1 overflow-hidden min-h-0 px-6 py-4'>
+        <div className='min-h-0 flex-1 overflow-hidden px-6 py-4'>
           {renderStepContent()}
         </div>
 
         {/* Footer / 底部操作栏 */}
         {currentStep.id !== 'complete' && (
-          <div className='border-t px-6 py-3 bg-muted/10 flex items-center justify-between shrink-0'>
+          <div className='flex shrink-0 items-center justify-between border-t-[0.5px] border-border/80 px-6 py-3'>
             <Button
-              variant='outline'
+              type='button'
+              variant='secondary'
               size='sm'
               onClick={handlePrevious}
               disabled={currentStepIndex === 0 || currentStep.id === 'deploy'}
-              className='h-8 text-xs'
             >
-              <ChevronLeft className='h-3.5 w-3.5 mr-1' />
+              <ChevronLeft className='size-3.5' aria-hidden />
               {t('common.previous')}
             </Button>
 
             <div className='flex items-center gap-2'>
               <Button
+                type='button'
                 variant='ghost'
                 size='sm'
                 onClick={handleClose}
                 disabled={deploying}
-                className='h-8 text-xs'
               >
-                <X className='h-3.5 w-3.5 mr-1' />
+                <X className='size-3.5' aria-hidden />
                 {t('common.cancel')}
               </Button>
 
               {currentStep.id !== 'deploy' && (
                 <Button
+                  type='button'
                   size='sm'
                   onClick={handleNext}
                   disabled={!canProceed() || deploying}
-                  className='h-8 text-xs'
                 >
                   {currentStep.id === 'plugins' ? (
                     <>
                       {t('cluster.wizard.startDeploy')}
-                      <PlayCircle className='h-3.5 w-3.5 ml-1.5' />
+                      <PlayCircle className='size-3.5' aria-hidden />
                     </>
                   ) : (
                     <>
                       {t('common.next')}
-                      <ChevronRight className='h-3.5 w-3.5 ml-1.5' />
+                      <ChevronRight className='size-3.5' aria-hidden />
                     </>
                   )}
                 </Button>

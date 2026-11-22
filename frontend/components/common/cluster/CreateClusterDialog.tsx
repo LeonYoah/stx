@@ -29,27 +29,14 @@
 
 import {useState, useEffect} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
+import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {Input} from '@/components/arc/input/input';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {JavaHomePicker} from '@/components/common/java/JavaHomePicker';
-import {Label} from '@/components/ui/label';
 import {HelpHint} from '@/components/common/HelpHint';
 import {Textarea} from '@/components/ui/textarea';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {Checkbox} from '@/components/ui/checkbox';
 import {
   Loader2,
   Search,
@@ -587,352 +574,365 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className='sm:max-w-4xl max-h-[90vh] flex flex-col'
-        aria-describedby={undefined}
+        className='arc-compact w-[min(94vw,860px)]!'
+        title={t('cluster.registerCluster')}
       >
-        <DialogHeader>
-          <DialogTitle>{t('cluster.registerCluster')}</DialogTitle>
-        </DialogHeader>
-
-        <div className='flex-1 overflow-y-auto space-y-4 py-4 pr-2'>
-          {/* Cluster Name / 集群名称 */}
-          <div className='space-y-2'>
-            <Label htmlFor='name'>
-              {t('cluster.name')} <span className='text-destructive'>*</span>
-            </Label>
+        <div className='space-y-4'>
+          <div className='max-h-[68vh] space-y-4 overflow-y-auto pr-1'>
+            {/* Cluster Name / 集群名称 */}
             <Input
               id='name'
+              label={t('cluster.name')}
+              required
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t('cluster.namePlaceholder')}
             />
-          </div>
 
-          {/* Description / 描述 */}
-          <div className='space-y-2'>
-            <Label htmlFor='description'>{t('cluster.descriptionLabel')}</Label>
-            <Textarea
-              id='description'
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('cluster.descriptionPlaceholder')}
-              rows={2}
-            />
-          </div>
+            {/* Description / 描述 */}
+            <div className='space-y-1.5'>
+              <label
+                htmlFor='description'
+                className='block text-xs font-medium text-foreground'
+              >
+                {t('cluster.descriptionLabel')}
+              </label>
+              <Textarea
+                id='description'
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={t('cluster.descriptionPlaceholder')}
+                rows={2}
+              />
+            </div>
 
-          {/* Deployment Mode / 部署模式 */}
-          <div className='space-y-2'>
-            <Label htmlFor='deploymentMode'>
-              {t('cluster.deploymentMode')} <span className='text-destructive'>*</span>
-            </Label>
-            <Select
-              value={deploymentMode}
-              onValueChange={(value) => setDeploymentMode(value as DeploymentMode)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={DeploymentMode.HYBRID}>{t('cluster.modes.hybrid')}</SelectItem>
-                <SelectItem value={DeploymentMode.SEPARATED}>
-                  {t('cluster.modes.separated')}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <p className='text-xs text-muted-foreground'>
-              {deploymentMode === DeploymentMode.HYBRID
-                ? t('cluster.hybridDescription')
-                : t('cluster.separatedDescription')}
-            </p>
-          </div>
+            {/* Deployment Mode / 部署模式 */}
+            <div className='space-y-2'>
+              <span className='block text-xs font-medium text-foreground'>
+                {t('cluster.deploymentMode')}{' '}
+                <span className='text-destructive'>*</span>
+              </span>
+              <SegmentedControl
+                label={t('cluster.deploymentMode')}
+                value={deploymentMode}
+                onValueChange={(value) =>
+                  setDeploymentMode(value as DeploymentMode)
+                }
+                options={[
+                  {
+                    value: DeploymentMode.HYBRID,
+                    label: t('cluster.modes.hybrid'),
+                  },
+                  {
+                    value: DeploymentMode.SEPARATED,
+                    label: t('cluster.modes.separated'),
+                  },
+                ]}
+              />
+              <p className='text-xs text-muted-foreground'>
+                {deploymentMode === DeploymentMode.HYBRID
+                  ? t('cluster.hybridDescription')
+                  : t('cluster.separatedDescription')}
+              </p>
+            </div>
 
-          {/* Version / 版本 */}
-          <div className='space-y-2'>
-            <Label htmlFor='version'>
-              {t('cluster.version')} <span className='text-destructive'>*</span>
-            </Label>
+            {/* Version / 版本 */}
             <Input
               id='version'
+              label={t('cluster.version')}
+              required
               value={version}
               onChange={(e) => setVersion(e.target.value)}
               placeholder={t('cluster.versionPlaceholder')}
+              className='font-mono tabular-nums'
             />
-          </div>
 
-          {/* Divider / 分隔线 */}
-          <div className='relative py-2'>
-            <div className='absolute inset-0 flex items-center'>
-              <span className='w-full border-t' />
-            </div>
-            <div className='relative flex justify-center text-xs uppercase'>
-              <span className='bg-background px-2 text-muted-foreground'>
+            {/* Divider / 分隔线 */}
+            <div className='border-t-[0.5px] border-border/80 pt-3'>
+              <span className='text-xs font-semibold text-muted-foreground'>
                 {t('discovery.discoverFromHost')}
               </span>
             </div>
-          </div>
 
-          {/* Host Selection for Discovery / 用于发现的主机选择 */}
-          <div className='space-y-2'>
-            <div className='flex items-center justify-between'>
-              <Label>{t('discovery.selectHostsToDiscover')}</Label>
-              {availableHosts.length > 0 && (
-                <div className='flex items-center gap-1'>
-                  <Button
-                    type='button'
-                    variant='ghost'
-                    size='sm'
-                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
-                    onClick={selectAllHosts}
-                  >
-                    {t('discovery.selectAllHosts')}
-                  </Button>
-                  <Button
-                    type='button'
-                    variant='ghost'
-                    size='sm'
-                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
-                    onClick={deselectAllHosts}
-                  >
-                    {t('discovery.deselectAllHosts')}
-                  </Button>
-                </div>
-              )}
-            </div>
-            {loadingHosts ? (
-              <div className='flex items-center gap-2 text-muted-foreground'>
-                <Loader2 className='h-4 w-4 animate-spin' />
-                {t('common.loading')}
-              </div>
-            ) : availableHosts.length === 0 ? (
-              <div className='text-sm text-muted-foreground p-3 border rounded-md bg-muted/30'>
-                {t('cluster.noAvailableHosts')}
-              </div>
-            ) : (
-              <div className='space-y-2'>
-                {/* Host list with checkboxes / 带复选框的主机列表 */}
-                <div className='border rounded-md divide-y max-h-[150px] overflow-y-auto'>
-                  {availableHosts.map((host) => {
-                    const isSelected = selectedHostIds.has(host.id);
-                    return (
-                      <div
-                        key={host.id}
-                        className={`flex items-center gap-3 p-2 cursor-pointer hover:bg-muted/50 transition-colors ${
-                          isSelected ? 'bg-primary/10' : ''
-                        }`}
-                        onClick={() => toggleHostSelection(host.id)}
-                      >
-                        <div
-                          className={`w-4 h-4 rounded border flex items-center justify-center ${
-                            isSelected ? 'bg-primary border-primary' : 'border-muted-foreground'
-                          }`}
-                        >
-                          {isSelected && (
-                            <CheckCircle2 className='h-3 w-3 text-primary-foreground' />
-                          )}
-                        </div>
-                        <Server className='h-4 w-4 text-muted-foreground' />
-                        <span className='font-medium'>{host.name}</span>
-                        {host.ip_address && (
-                          <span className='text-muted-foreground text-sm'>({host.ip_address})</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {/* Discover button / 发现按钮 */}
-                <Button
-                  variant='outline'
-                  onClick={handleDiscoverProcesses}
-                  disabled={selectedHostIds.size === 0 || discoveryLoading}
-                  className='w-full'
-                >
-                  {discoveryLoading ? (
-                    <Loader2 className='h-4 w-4 mr-2 animate-spin' />
-                  ) : (
-                    <Search className='h-4 w-4 mr-2' />
-                  )}
-                  {t('discovery.discoverProcessesOnHosts', {count: selectedHostIds.size})}
-                </Button>
-              </div>
-            )}
-          </div>
-
-          {/* Discovered Processes by Host / 按主机分组的发现进程 */}
-          {discoveredProcessesByHost.size > 0 && (
+            {/* Host Selection for Discovery / 用于发现的主机选择 */}
             <div className='space-y-2'>
               <div className='flex items-center justify-between'>
-                <Label>{t('discovery.discoveredProcesses')}</Label>
-                <div className='flex items-center gap-1'>
+                <span className='text-xs font-medium text-foreground'>
+                  {t('discovery.selectHostsToDiscover')}
+                </span>
+                {availableHosts.length > 0 && (
+                  <div className='flex items-center gap-1'>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      onClick={selectAllHosts}
+                    >
+                      {t('discovery.selectAllHosts')}
+                    </Button>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      onClick={deselectAllHosts}
+                    >
+                      {t('discovery.deselectAllHosts')}
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {loadingHosts ? (
+                <div className='flex items-center gap-2 text-muted-foreground'>
+                  <Loader2 className='h-4 w-4 animate-spin' />
+                  {t('common.loading')}
+                </div>
+              ) : availableHosts.length === 0 ? (
+                <div className='rounded-md border border-border/80 bg-muted/30 p-3 text-sm text-muted-foreground'>
+                  {t('cluster.noAvailableHosts')}
+                </div>
+              ) : (
+                <div className='space-y-2'>
+                  {/* Host list with checkboxes / 带复选框的主机列表 */}
+                  <div className='max-h-[150px] divide-y-[0.5px] divide-border/80 overflow-y-auto rounded-md border border-border/80'>
+                    {availableHosts.map((host) => {
+                      const isSelected = selectedHostIds.has(host.id);
+                      return (
+                        <div
+                          key={host.id}
+                          className={`flex cursor-pointer items-center gap-3 p-2 transition-colors hover:bg-muted/50 ${
+                            isSelected ? 'bg-primary/10' : ''
+                          }`}
+                          onClick={() => toggleHostSelection(host.id)}
+                        >
+                          <div
+                            className={`flex h-4 w-4 items-center justify-center rounded border ${
+                              isSelected
+                                ? 'border-primary bg-primary'
+                                : 'border-muted-foreground'
+                            }`}
+                          >
+                            {isSelected && (
+                              <CheckCircle2 className='h-3 w-3 text-primary-foreground' />
+                            )}
+                          </div>
+                          <Server className='h-4 w-4 text-muted-foreground' />
+                          <span className='font-medium'>{host.name}</span>
+                          {host.ip_address && (
+                            <span className='font-mono text-sm text-muted-foreground tabular-nums'>
+                              ({host.ip_address})
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Discover button / 发现按钮 */}
                   <Button
                     type='button'
-                    variant='ghost'
+                    variant='secondary'
                     size='sm'
-                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
-                    onClick={selectAllProcesses}
+                    onClick={handleDiscoverProcesses}
+                    disabled={selectedHostIds.size === 0 || discoveryLoading}
+                    loading={discoveryLoading}
+                    className='w-full'
                   >
-                    {t('discovery.selectAllProcesses')}
-                  </Button>
-                  <Button
-                    type='button'
-                    variant='ghost'
-                    size='sm'
-                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
-                    onClick={deselectAllProcesses}
-                  >
-                    {t('discovery.deselectAllProcesses')}
+                    <Search className='size-3.5' aria-hidden />
+                    {t('discovery.discoverProcessesOnHosts', {
+                      count: selectedHostIds.size,
+                    })}
                   </Button>
                 </div>
-              </div>
-              <div className='border rounded-md max-h-[250px] overflow-y-auto'>
-                {Array.from(discoveredProcessesByHost.entries()).map(([hostId, processes]) => (
-                  <div key={hostId} className='border-b last:border-b-0'>
-                    {/* Host header / 主机标题 */}
-                    <div className='bg-muted/50 px-3 py-2 flex items-center justify-between sticky top-0 z-10'>
-                      <div className='flex items-center gap-2'>
-                        <Server className='h-4 w-4 text-muted-foreground' />
-                        <span className='font-medium text-sm'>{getHostName(hostId)}</span>
-                        <span className='text-xs text-muted-foreground'>
-                          ({processes.length} {t('discovery.processes')})
-                        </span>
-                      </div>
-                      <Button
-                        type='button'
-                        variant='ghost'
-                        size='sm'
-                        className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleHostProcesses(hostId);
-                        }}
-                      >
-                        {t('discovery.selectAllOnHost')}
-                      </Button>
-                    </div>
-                    {/* Processes / 进程列表 */}
-                    <div className='divide-y'>
-                      {processes.map((proc) => {
-                        const key = getProcessKey(hostId, proc);
-                        const isSelected = selectedProcesses.has(key);
-                        return (
-                          <div
-                            key={key}
-                            className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-muted/50 transition-colors ${
-                              isSelected ? 'bg-primary/10' : ''
-                            }`}
-                            onClick={() => toggleProcessSelection(key)}
+              )}
+            </div>
+
+            {/* Discovered Processes by Host / 按主机分组的发现进程 */}
+            {discoveredProcessesByHost.size > 0 && (
+              <div className='space-y-2'>
+                <div className='flex items-center justify-between'>
+                  <span className='text-xs font-medium text-foreground'>
+                    {t('discovery.discoveredProcesses')}
+                  </span>
+                  <div className='flex items-center gap-1'>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      onClick={selectAllProcesses}
+                    >
+                      {t('discovery.selectAllProcesses')}
+                    </Button>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='sm'
+                      onClick={deselectAllProcesses}
+                    >
+                      {t('discovery.deselectAllProcesses')}
+                    </Button>
+                  </div>
+                </div>
+                <div className='max-h-[250px] overflow-y-auto rounded-md border border-border/80'>
+                  {Array.from(discoveredProcessesByHost.entries()).map(
+                    ([hostId, processes]) => (
+                      <div key={hostId} className='border-b last:border-b-0'>
+                        {/* Host header / 主机标题 */}
+                        <div className='sticky top-0 z-10 flex items-center justify-between bg-muted/50 px-3 py-2'>
+                          <div className='flex items-center gap-2'>
+                            <Server className='h-4 w-4 text-muted-foreground' />
+                            <span className='text-sm font-medium'>
+                              {getHostName(hostId)}
+                            </span>
+                            <span className='text-xs text-muted-foreground tabular-nums'>
+                              ({processes.length} {t('discovery.processes')})
+                            </span>
+                          </div>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleHostProcesses(hostId);
+                            }}
                           >
-                            <div
-                              className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
-                                isSelected ? 'bg-primary border-primary' : 'border-muted-foreground'
-                              }`}
-                            >
-                              {isSelected && (
-                                <CheckCircle2 className='h-3 w-3 text-primary-foreground' />
-                              )}
-                            </div>
-                            <Cpu className='h-4 w-4 text-muted-foreground flex-shrink-0' />
-                            <div className='flex-1 min-w-0'>
-                              <div className='flex items-center gap-2 flex-wrap'>
-                                <span className='font-medium'>PID: {proc.pid}</span>
-                                <span
-                                  className={`text-xs px-2 py-0.5 rounded-full ${
-                                    proc.role === 'master'
-                                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-                                      : proc.role === 'worker'
-                                        ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                                        : 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+                            {t('discovery.selectAllOnHost')}
+                          </Button>
+                        </div>
+                        {/* Processes / 进程列表 */}
+                        <div className='divide-y-[0.5px] divide-border/80'>
+                          {processes.map((proc) => {
+                            const key = getProcessKey(hostId, proc);
+                            const isSelected = selectedProcesses.has(key);
+                            return (
+                              <div
+                                key={key}
+                                className={`flex cursor-pointer items-center gap-3 p-3 transition-colors hover:bg-muted/50 ${
+                                  isSelected ? 'bg-primary/10' : ''
+                                }`}
+                                onClick={() => toggleProcessSelection(key)}
+                              >
+                                <div
+                                  className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border ${
+                                    isSelected
+                                      ? 'border-primary bg-primary'
+                                      : 'border-muted-foreground'
                                   }`}
                                 >
-                                  {proc.role}
-                                </span>
-                                {proc.version && proc.version !== 'unknown' && (
-                                  <span className='text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300'>
-                                    v{proc.version}
-                                  </span>
-                                )}
-                              </div>
-                              <p className='text-xs text-muted-foreground truncate mt-1'>
-                                📁 {proc.install_dir}
-                              </p>
-                              {/* Port info / 端口信息 */}
-                              <div className='flex items-center gap-3 mt-1 text-xs text-muted-foreground'>
-                                {proc.hazelcast_port > 0 && (
-                                  <span className='flex items-center gap-1'>
-                                    <span className='w-2 h-2 rounded-full bg-blue-500'></span>
-                                    Hazelcast: {proc.hazelcast_port}
-                                  </span>
-                                )}
-                                {proc.role !== 'worker' && proc.api_port > 0 && (
-                                  <span className='flex items-center gap-1'>
-                                    <span className='w-2 h-2 rounded-full bg-green-500'></span>
-                                    API: {proc.api_port}
-                                  </span>
-                                )}
-                              </div>
-                              {isSelected && (
-                                <div
-                                  className='mt-2'
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <JavaHomePicker
-                                    hostId={hostId}
-                                    value={javaHomesByKey[key] || proc.java_home || ''}
-                                    preferredJavaHome={proc.java_home}
-                                    onChange={({javaHome}) =>
-                                      setJavaHomesByKey((prev) => ({
-                                        ...prev,
-                                        [key]: javaHome,
-                                      }))
-                                    }
-                                  />
+                                  {isSelected && (
+                                    <CheckCircle2 className='h-3 w-3 text-primary-foreground' />
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                                <Cpu className='h-4 w-4 flex-shrink-0 text-muted-foreground' />
+                                <div className='min-w-0 flex-1'>
+                                  <div className='flex flex-wrap items-center gap-2'>
+                                    <span className='font-mono font-medium tabular-nums'>
+                                      PID: {proc.pid}
+                                    </span>
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 text-xs ${
+                                        proc.role === 'master'
+                                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+                                          : proc.role === 'worker'
+                                            ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                                            : 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+                                      }`}
+                                    >
+                                      {proc.role}
+                                    </span>
+                                    {proc.version &&
+                                      proc.version !== 'unknown' && (
+                                        <span className='rounded-full bg-orange-100 px-2 py-0.5 font-mono text-xs text-orange-700 tabular-nums dark:bg-orange-900 dark:text-orange-300'>
+                                          v{proc.version}
+                                        </span>
+                                      )}
+                                  </div>
+                                  <p className='mt-1 truncate font-mono text-xs text-muted-foreground'>
+                                    {proc.install_dir}
+                                  </p>
+                                  {/* Port info / 端口信息 */}
+                                  <div className='mt-1 flex items-center gap-3 font-mono text-xs text-muted-foreground tabular-nums'>
+                                    {proc.hazelcast_port > 0 && (
+                                      <span className='flex items-center gap-1'>
+                                        <span className='h-2 w-2 rounded-full bg-blue-500'></span>
+                                        Hazelcast: {proc.hazelcast_port}
+                                      </span>
+                                    )}
+                                    {proc.role !== 'worker' &&
+                                      proc.api_port > 0 && (
+                                        <span className='flex items-center gap-1'>
+                                          <span className='h-2 w-2 rounded-full bg-green-500'></span>
+                                          API: {proc.api_port}
+                                        </span>
+                                      )}
+                                  </div>
+                                  {isSelected && (
+                                    <div
+                                      className='mt-2'
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <JavaHomePicker
+                                        hostId={hostId}
+                                        value={
+                                          javaHomesByKey[key] ||
+                                          proc.java_home ||
+                                          ''
+                                        }
+                                        preferredJavaHome={proc.java_home}
+                                        onChange={({javaHome}) =>
+                                          setJavaHomesByKey((prev) => ({
+                                            ...prev,
+                                            [key]: javaHome,
+                                          }))
+                                        }
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+                <p className='text-xs text-muted-foreground tabular-nums'>
+                  {t('discovery.selectedCount', {
+                    count: selectedProcesses.size,
+                  })}
+                </p>
               </div>
-              <p className='text-xs text-muted-foreground'>
-                {t('discovery.selectedCount', {count: selectedProcesses.size})}
-              </p>
-            </div>
-          )}
+            )}
 
-          {/* Advanced Settings Section / 高级配置部分 */}
-          <div className='border rounded-lg overflow-hidden'>
-            <Button
-              type='button'
-              variant='ghost'
-              size='sm'
-              className='w-full flex items-center justify-between px-3 py-2.5 h-auto text-xs font-medium bg-muted/30 hover:bg-muted/50 rounded-none'
-              onClick={() => setShowAdvanced(!showAdvanced)}
-            >
-              <div className='flex items-center gap-2'>
-                <SlidersHorizontal className='h-3.5 w-3.5 text-muted-foreground' />
-                <span>{t('cluster.advancedSettings')}</span>
-                <span className='text-[10px] text-muted-foreground font-mono'>
-                  (STX Java Proxy)
-                </span>
-              </div>
-              {showAdvanced ? (
-                <ChevronDown className='h-3.5 w-3.5 text-muted-foreground' />
-              ) : (
-                <ChevronRight className='h-3.5 w-3.5 text-muted-foreground' />
-              )}
-            </Button>
+            {/* Advanced Settings Section / 高级配置部分 */}
+            <div className='border-t-[0.5px] border-border/80 pt-3'>
+              <button
+                type='button'
+                className='flex w-full items-center justify-between py-1.5 text-left text-xs font-medium text-foreground hover:text-primary'
+                onClick={() => setShowAdvanced(!showAdvanced)}
+              >
+                <div className='flex items-center gap-2'>
+                  <SlidersHorizontal className='h-3.5 w-3.5 text-muted-foreground' />
+                  <span>{t('cluster.advancedSettings')}</span>
+                  <span className='font-mono text-[10px] text-muted-foreground'>
+                    (STX Java Proxy)
+                  </span>
+                </div>
+                {showAdvanced ? (
+                  <ChevronDown className='h-3.5 w-3.5 text-muted-foreground' />
+                ) : (
+                  <ChevronRight className='h-3.5 w-3.5 text-muted-foreground' />
+                )}
+              </button>
 
-            {showAdvanced && (
-              <div className='p-3.5 space-y-4 border-t bg-card/60'>
-                {/* Proxy Service Description & Toggle / 代理服务说明与开关 */}
-                <div className='space-y-2'>
-                  <div className='flex items-center justify-between'>
+              {showAdvanced && (
+                <div className='space-y-4 pt-3'>
+                  {/* Proxy Service Description & Toggle / 代理服务说明与开关 */}
+                  <div className='space-y-2'>
                     <div className='flex items-center gap-2'>
-                      <Label className='text-xs font-semibold'>
+                      <span className='text-xs font-semibold text-foreground'>
                         {t('cluster.stxJavaProxy.title')}
-                      </Label>
+                      </span>
                       <HelpHint
                         label={t('cluster.stxJavaProxy.title')}
                         content={t('cluster.stxJavaProxyDesc')}
@@ -943,20 +943,15 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                         {t('cluster.wizard.modeBadgeProduction')}
                       </span>
                     </div>
-                  </div>
-                  <div className='flex items-start gap-2 pt-1'>
-                    <Checkbox
-                      id='auto-start-proxy'
-                      checked={autoStartProxy}
-                      onCheckedChange={(checked) => setAutoStartProxy(Boolean(checked))}
-                    />
-                    <div className='flex items-center gap-2 leading-none'>
-                      <Label
-                        htmlFor='auto-start-proxy'
-                        className='text-xs font-medium cursor-pointer'
-                      >
-                        {t('cluster.autoStartProxy')}
-                      </Label>
+                    <div className='flex items-center gap-2 pt-1'>
+                      <Checkbox
+                        id='auto-start-proxy'
+                        checked={autoStartProxy}
+                        onCheckedChange={(checked) =>
+                          setAutoStartProxy(checked === true)
+                        }
+                        label={t('cluster.autoStartProxy')}
+                      />
                       <HelpHint
                         label={t('cluster.autoStartProxy')}
                         content={t('cluster.autoStartProxyHelp')}
@@ -964,92 +959,108 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                       />
                     </div>
                   </div>
-                </div>
 
-                {/* Proxy Port / 代理端口 */}
-                <div className='space-y-1.5'>
-                  <div className='flex items-center gap-2'>
-                    <Label htmlFor='proxy-port' className='text-xs font-medium'>
-                      {t('cluster.proxyPort')}
-                    </Label>
-                    <HelpHint
-                      label={t('cluster.proxyPort')}
-                      content={t('cluster.proxyPortHelp')}
-                      data-testid='register-cluster-proxy-port-hint'
-                    />
-                  </div>
+                  {/* Proxy Port / 代理端口 */}
                   <Input
                     id='proxy-port'
                     type='number'
+                    label={t('cluster.proxyPort')}
+                    description={t('cluster.proxyPortHelp')}
                     value={proxyPort}
-                    onChange={(e) => setProxyPort(parseInt(e.target.value) || 0)}
+                    onChange={(e) =>
+                      setProxyPort(parseInt(e.target.value, 10) || 0)
+                    }
                     min={1024}
                     max={65535}
                     placeholder={t('cluster.proxyPortPlaceholder') || '18080'}
-                    className='h-8 text-xs font-mono'
+                    className='font-mono tabular-nums'
                   />
-                </div>
 
-                {/* JVM Options / JVM 参数与预设 */}
-                <div className='space-y-1.5'>
-                  <Label htmlFor='proxy-jvm-opts' className='text-xs font-medium'>
-                    {t('cluster.proxyJvmOpts')}
-                  </Label>
-                  <div className='flex flex-wrap gap-1.5 mb-1.5'>
-                    {[
-                      {id: '512m', label: '512M', value: '-Xms128m -Xmx512m'},
-                      {id: '1024m', label: '1024M', value: '-Xms256m -Xmx1024m'},
-                      {id: '2048m', label: '2048M', value: '-Xms512m -Xmx2048m'},
-                    ].map((preset) => (
+                  {/* JVM Options / JVM 参数与预设 */}
+                  <div className='space-y-2'>
+                    <div className='flex flex-wrap gap-1.5'>
+                      {[
+                        {
+                          id: '512m',
+                          label: '512M',
+                          value: '-Xms128m -Xmx512m',
+                        },
+                        {
+                          id: '1024m',
+                          label: '1024M',
+                          value: '-Xms256m -Xmx1024m',
+                        },
+                        {
+                          id: '2048m',
+                          label: '2048M',
+                          value: '-Xms512m -Xmx2048m',
+                        },
+                      ].map((preset) => (
+                        <Button
+                          key={preset.id}
+                          type='button'
+                          variant={
+                            proxyJvmPreset === preset.id
+                              ? 'primary'
+                              : 'secondary'
+                          }
+                          size='sm'
+                          onClick={() => {
+                            setProxyJvmPreset(preset.id);
+                            setProxyJvmOpts(preset.value);
+                          }}
+                        >
+                          {preset.label}
+                        </Button>
+                      ))}
                       <Button
-                        key={preset.id}
                         type='button'
-                        variant={proxyJvmPreset === preset.id ? 'default' : 'outline'}
+                        variant={
+                          proxyJvmPreset === 'custom' ? 'primary' : 'secondary'
+                        }
                         size='sm'
-                        className='h-6 px-2 text-[11px]'
-                        onClick={() => {
-                          setProxyJvmPreset(preset.id);
-                          setProxyJvmOpts(preset.value);
-                        }}
+                        onClick={() => setProxyJvmPreset('custom')}
                       >
-                        {preset.label}
+                        {t('cluster.stxJavaProxy.presetCustom')}
                       </Button>
-                    ))}
-                    <Button
-                      type='button'
-                      variant={proxyJvmPreset === 'custom' ? 'default' : 'outline'}
-                      size='sm'
-                      className='h-6 px-2 text-[11px]'
-                      onClick={() => setProxyJvmPreset('custom')}
-                    >
-                      {t('cluster.stxJavaProxy.presetCustom')}
-                    </Button>
+                    </div>
+                    <Input
+                      id='proxy-jvm-opts'
+                      label={t('cluster.proxyJvmOpts')}
+                      value={proxyJvmOpts}
+                      onChange={(e) => {
+                        setProxyJvmOpts(e.target.value);
+                        setProxyJvmPreset('custom');
+                      }}
+                      placeholder='-Xms128m -Xmx512m'
+                      className='font-mono text-xs'
+                    />
                   </div>
-                  <Input
-                    id='proxy-jvm-opts'
-                    value={proxyJvmOpts}
-                    onChange={(e) => {
-                      setProxyJvmOpts(e.target.value);
-                      setProxyJvmPreset('custom');
-                    }}
-                    placeholder='-Xms128m -Xmx512m'
-                    className='h-8 text-xs font-mono'
-                  />
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+          </div>
+
+          <div className='flex items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => handleClose(false)}
+              disabled={loading}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              onClick={handleSubmit}
+              loading={loading}
+            >
+              {t('common.create')}
+            </Button>
           </div>
         </div>
-
-        <DialogFooter>
-          <Button variant='outline' onClick={() => handleClose(false)} disabled={loading}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading && <Loader2 className='h-4 w-4 mr-2 animate-spin' />}
-            {t('common.create')}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

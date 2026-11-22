@@ -48,6 +48,7 @@ import {SearchField} from '@/components/arc/search-field/search-field';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {
   BatchBar,
+  ConfirmDialog,
   DetailHost,
   NeutralChip,
   SoftChip,
@@ -56,16 +57,6 @@ import {
   type DetailNav,
 } from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import {toast} from '@/lib/toast';
 import {cn} from '@/lib/utils';
 import services from '@/lib/services';
@@ -633,36 +624,23 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
       </div>
 
       {/* 单项 / 批量卸载二次确认（具名动词）/ Single or batch uninstall confirmation */}
-      <AlertDialog
+      <ConfirmDialog
         open={pendingUninstallNames.length > 0}
         onOpenChange={(open) => {
           if (!open && !operating) {
             setPendingUninstallNames([]);
           }
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('plugin.uninstallPlugin')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('plugin.uninstallConfirm', {
-                name: pendingUninstallNames.join(', '),
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={operating}>
-              {t('common.cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={operating}
-              onClick={() => void handleConfirmUninstall()}
-            >
-              {t('plugin.uninstall')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title={t('plugin.uninstallPlugin')}
+        description={t('plugin.uninstallConfirm', {
+          name: pendingUninstallNames.join(', '),
+        })}
+        cancelLabel={t('common.cancel')}
+        confirmLabel={t('plugin.uninstall')}
+        confirmVariant='danger'
+        loading={operating}
+        onConfirm={handleConfirmUninstall}
+      />
     </div>
   );
 }

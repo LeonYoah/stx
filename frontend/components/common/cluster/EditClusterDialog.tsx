@@ -27,7 +27,6 @@ import {Button} from '@/components/arc/button/button';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Input} from '@/components/arc/input/input';
 import {DirtyCloseDialog, NeutralChip} from '@/components/common/layout';
-import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
 import services from '@/lib/services';
 import type {
@@ -153,12 +152,12 @@ export function EditClusterDialog({
               />
 
               <div className='space-y-1.5'>
-                <Label
+                <label
                   htmlFor='edit-description'
-                  className='text-xs font-medium text-foreground'
+                  className='block text-xs font-medium text-foreground'
                 >
                   {t('cluster.descriptionLabel')}
-                </Label>
+                </label>
                 <Textarea
                   id='edit-description'
                   value={description}

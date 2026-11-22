@@ -1858,7 +1858,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               logModeSwitching={logModeSwitching}
               runtimeStorage={runtimeStorage}
               stxJavaProxy={stxJavaProxy}
-              onSwitchJobLogMode={(mode) => void handleSwitchJobLogMode(mode)}
+              onSwitchJobLogMode={handleSwitchJobLogMode}
               onGoNodes={() => requestRouteChange('nodes')}
               onGoRuntime={(view) => requestRouteChange('runtime', view)}
             />

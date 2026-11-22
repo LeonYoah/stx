@@ -26,8 +26,8 @@ import {useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {ArrowRight, Check, Copy} from 'lucide-react';
 import {Button} from '@/components/arc/button/button';
-import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
-import {NeutralChip, SoftChip} from '@/components/common/layout';
+import {Select} from '@/components/arc/select/select';
+import {ConfirmDialog, NeutralChip, SoftChip} from '@/components/common/layout';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
 import {
   NodeRole,
@@ -50,7 +50,7 @@ export interface ClusterOverviewTabProps {
   logModeSwitching: boolean;
   runtimeStorage: RuntimeStorageDetails | null;
   stxJavaProxy: StxJavaProxyStatus | null;
-  onSwitchJobLogMode: (mode: 'per_job' | 'mixed') => void;
+  onSwitchJobLogMode: (mode: 'per_job' | 'mixed') => Promise<void> | void;
   onGoNodes: () => void;
   onGoRuntime: (view: RuntimeSubView) => void;
 }
@@ -74,6 +74,11 @@ export function ClusterOverviewTab({
 }: ClusterOverviewTabProps) {
   const t = useTranslations();
   const [copiedField, setCopiedField] = useState<'dir' | 'code' | null>(null);
+  const [pendingLogMode, setPendingLogMode] = useState<
+    'per_job' | 'mixed' | null
+  >(null);
+  const currentLogMode: 'per_job' | 'mixed' =
+    jobLogMode === 'per_job' ? 'per_job' : 'mixed';
 
   const handleCopy = async (value: string, field: 'dir' | 'code') => {
     try {
@@ -225,15 +230,21 @@ export function ClusterOverviewTab({
             <dt className='text-muted-foreground'>
               {t('cluster.logOutputMode')}
             </dt>
-            <dd>
-              {/* 仅两个固定短选项，使用 SegmentedControl 即刻切换（Tip 020） */}
-              {/* Only 2 short fixed options: use SegmentedControl for immediate switching */}
-              <SegmentedControl
-                label={t('cluster.logOutputMode')}
-                value={jobLogMode || 'mixed'}
+            <dd className='max-w-[280px]'>
+              {/* 切换日志模式会改写全集群 log4j2.properties 并需重启生效，使用下拉框配合二次确认防误触。
+                  Switching log mode rewrites log4j2.properties cluster-wide and requires a restart; use Select + ConfirmDialog to prevent accidental clicks. */}
+              <Select
+                aria-label={t('cluster.logOutputMode')}
+                data-testid='cluster-overview-log-mode-select'
+                value={currentLogMode}
+                disabled={logModeSwitching}
                 onValueChange={(val) => {
-                  if (!logModeSwitching) {
-                    onSwitchJobLogMode(val as 'per_job' | 'mixed');
+                  if (
+                    !logModeSwitching &&
+                    (val === 'per_job' || val === 'mixed') &&
+                    val !== currentLogMode
+                  ) {
+                    setPendingLogMode(val);
                   }
                 }}
                 options={[
@@ -421,6 +432,36 @@ export function ClusterOverviewTab({
           </button>
         </div>
       </section>
+
+      <ConfirmDialog
+        open={pendingLogMode !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingLogMode(null);
+          }
+        }}
+        title={t('config.switchLogModeConfirmTitle')}
+        description={
+          pendingLogMode
+            ? t('config.switchLogModeConfirmDesc', {
+                mode:
+                  pendingLogMode === 'per_job'
+                    ? t('config.jobLogModePerJobBadge')
+                    : t('config.jobLogModeMixedBadge'),
+              })
+            : ''
+        }
+        cancelLabel={t('common.cancel')}
+        confirmLabel={t('config.switchLogModeConfirmAction')}
+        loading={logModeSwitching}
+        onConfirm={async () => {
+          if (!pendingLogMode) {
+            return;
+          }
+          await onSwitchJobLogMode(pendingLogMode);
+          setPendingLogMode(null);
+        }}
+      />
     </div>
   );
 }

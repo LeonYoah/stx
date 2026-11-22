@@ -47,6 +47,7 @@ import {DropdownMenu as ArcDropdownMenu} from '@/components/arc/dropdown-menu/dr
 import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {Input} from '@/components/arc/input/input';
 import {SearchField} from '@/components/arc/search-field/search-field';
+import {Select} from '@/components/arc/select/select';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
 import {
   ConfirmDialog,
@@ -277,6 +278,9 @@ export function ClusterConfigs({
   const [configs, setConfigs] = useState<ConfigInfo[]>([]);
   const [nodes, setNodes] = useState<NodeInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingLogMode, setPendingLogMode] = useState<
+    'per_job' | 'mixed' | null
+  >(null);
   const [hasLoaded, setHasLoaded] = useState(false);
 
   const availableConfigTypes = useMemo(
@@ -980,28 +984,34 @@ export function ClusterConfigs({
                         : t('config.jobLogModeMixedDesc')}
                     </p>
                   </div>
-                  <SegmentedControl
-                    label={t('config.jobLogModeTitle')}
-                    value={isPerJobLogMode ? 'per_job' : 'mixed'}
-                    onValueChange={(next) => {
-                      if (
-                        !logModeSwitching &&
-                        (next === 'per_job' || next === 'mixed')
-                      ) {
-                        void handleSwitchLogMode(next);
-                      }
-                    }}
-                    options={[
-                      {
-                        value: 'per_job',
-                        label: t('config.jobLogModePerJobBadge'),
-                      },
-                      {
-                        value: 'mixed',
-                        label: t('config.jobLogModeMixedBadge'),
-                      },
-                    ]}
-                  />
+                  <div className='w-full shrink-0 sm:w-[260px]'>
+                    <Select
+                      aria-label={t('config.jobLogModeTitle')}
+                      data-testid='cluster-configs-log-mode-select'
+                      value={isPerJobLogMode ? 'per_job' : 'mixed'}
+                      disabled={logModeSwitching}
+                      onValueChange={(next) => {
+                        const current = isPerJobLogMode ? 'per_job' : 'mixed';
+                        if (
+                          !logModeSwitching &&
+                          (next === 'per_job' || next === 'mixed') &&
+                          next !== current
+                        ) {
+                          setPendingLogMode(next);
+                        }
+                      }}
+                      options={[
+                        {
+                          value: 'per_job',
+                          label: t('config.jobLogModePerJobBadge'),
+                        },
+                        {
+                          value: 'mixed',
+                          label: t('config.jobLogModeMixedBadge'),
+                        },
+                      ]}
+                    />
+                  </div>
                 </div>
               ) : null}
 
@@ -1722,6 +1732,36 @@ export function ClusterConfigs({
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={pendingLogMode !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingLogMode(null);
+          }
+        }}
+        title={t('config.switchLogModeConfirmTitle')}
+        description={
+          pendingLogMode
+            ? t('config.switchLogModeConfirmDesc', {
+                mode:
+                  pendingLogMode === 'per_job'
+                    ? t('config.jobLogModePerJobBadge')
+                    : t('config.jobLogModeMixedBadge'),
+              })
+            : ''
+        }
+        cancelLabel={t('common.cancel')}
+        confirmLabel={t('config.switchLogModeConfirmAction')}
+        loading={logModeSwitching}
+        onConfirm={async () => {
+          if (!pendingLogMode) {
+            return;
+          }
+          await handleSwitchLogMode(pendingLogMode);
+          setPendingLogMode(null);
+        }}
+      />
     </section>
   );
 }

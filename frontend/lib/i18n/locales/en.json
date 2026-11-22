@@ -2225,6 +2225,9 @@
     "switchToMixedModeBtn": "Switch to Shared Mixed Log Mode",
     "switchToPerJobSuccess": "Updated to Per-Job Log Mode (version created and synced). Takes effect after cluster restart!",
     "switchToMixedSuccess": "Updated to Shared Mixed Log Mode (version created and synced). Takes effect after cluster restart!",
+    "switchLogModeConfirmTitle": "Switch Job Log Output Mode?",
+    "switchLogModeConfirmDesc": "Switch job log output mode to \"{mode}\"? This rewrites and syncs log4j2.properties across all cluster nodes and takes effect after a cluster restart.",
+    "switchLogModeConfirmAction": "Switch Mode",
     "switchLogModeError": "Failed to switch log output mode"
   },
   "plugin": {

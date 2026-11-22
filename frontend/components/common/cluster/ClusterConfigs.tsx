@@ -847,6 +847,8 @@ export function ClusterConfigs({
                   <button
                     key={type}
                     type='button'
+                    // 固定按钮无障碍名称，避免待同步角标数字拼入 getByRole 匹配串 / Keep button accessible name stable when alert count badge renders
+                    aria-label={ConfigTypeNames[type]}
                     onClick={() => handleSelectFile(type)}
                     data-testid={`cluster-configs-file-${type}`}
                     aria-current={active ? 'page' : undefined}

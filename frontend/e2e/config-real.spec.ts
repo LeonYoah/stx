@@ -55,7 +55,8 @@ const clusterPort = Number(
 const httpPort = Number(
   process.env.E2E_INSTALLER_REAL_HTTP_PORT_PRIMARY || '38080',
 );
-const seatunnelConfigOption = /^(SeaTunnel 配置|SeaTunnel Config)$/i;
+const seatunnelConfigOption =
+  /^(SeaTunnel 配置|SeaTunnel Config)(?:\s+\d+)?$/i;
 
 test.describe.serial('config real e2e', () => {
   test('manages global cluster configs with smart repair, sync, history and live import', async ({

@@ -157,6 +157,22 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# 安装目录在交互时可改；必须在安装前检查之前定下来：端口默认值、磁盘检查与已有安装探测都依赖它。
+# The install dir is changeable when interactive; it must settle before pre-flight checks since
+# port defaults, the disk check and the existing-install probe all depend on it.
+if [[ "$INSTALL_DIR_EXPLICIT" != "true" ]] && stx_is_interactive; then
+  while true; do
+    ans="$(stx_prompt "安装目录 / install directory [默认 ${INSTALL_DIR}]:" "$INSTALL_DIR")"
+    ans="${ans%/}"
+    if [[ "$ans" == /* && "$ans" != "/" ]]; then
+      INSTALL_DIR="$ans"
+      break
+    fi
+    stx_is_interactive || break
+    echo "    需要绝对路径，且不能是 / 本身 / must be an absolute path other than /" >/dev/tty
+  done
+fi
+
 echo "${STX_C_BOLD}STX 安装程序 / installer${STX_C_RESET}  安装目录 / install dir: $INSTALL_DIR"
 [[ -n "${STX_INSTALL_LOG:-}" ]] && echo "安装日志 / install log: $STX_INSTALL_LOG"
 

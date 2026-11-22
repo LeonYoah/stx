@@ -987,6 +987,18 @@ func (s *Service) checkJavaRuntimeForTarget(ctx context.Context, node *clusterap
 	case javaruntime.StatusPassed:
 		return nil
 	case javaruntime.StatusFailed:
+		if rt.Version > javaruntime.MaxSupportedMajor(target.TargetVersion) {
+			// 高于支持上限（JDK 24+，JEP 486）与低于下限一样阻断，但文案与 reason 需要区分。
+			// Exceeding the supported ceiling (JDK 24+, JEP 486) blocks just like being below the
+			// floor, but needs distinct wording and reason code.
+			issue := blockingIssue(
+				CheckCategoryNode,
+				"jdk_above_supported",
+				fmt.Sprintf("node %s runs Java %d, above the maximum supported Java %d (JDK 24+ removed Subject.getSubject / JEP 486); choose JDK 8, 11, 17 or 21 on the upgrade prepare page / 节点 %s 的 Java %d 超过最高支持版本 %d（JDK 24+ 移除 Subject.getSubject / JEP 486）；请在升级准备页为目标节点选择 JDK 8 / 11 / 17 / 21", target.HostName, rt.Version, javaruntime.MaxSupportedMajor(target.TargetVersion), target.HostName, rt.Version, javaruntime.MaxSupportedMajor(target.TargetVersion)),
+				metadata,
+			)
+			return &issue
+		}
 		issue := blockingIssue(
 			CheckCategoryNode,
 			"jdk_below_required",

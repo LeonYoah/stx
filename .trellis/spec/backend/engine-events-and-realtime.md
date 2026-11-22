@@ -131,7 +131,7 @@ GET  /api/v1/sync/jobs/:id/events?types=&page=&page_size= (R0, CLI: stx sync job
   - **引擎没有事件时不发空批**，通道安静不能证明通道正常，也不能证明延迟为 0；B4 在没有样本时改看读取条数（`SourceReceivedCount`）是否增长，见[同步作业告警 · B4](./sync-alerts.md)。
   - 作业按 `engine_job_id` 找最新实例，并校验属于该集群，属于别的集群视为未知作业。
 - **健康**：
-  - 状态取值 `disabled | pending_restart | healthy | degraded`。
+  - 状态取值 `disabled | pending_restart | waiting_events | healthy | degraded`。`LastEventAt` 为空且 `restart_required`（运行中开启/轮换写入）时是 `pending_restart`；安装期在节点启动前写入、配置随启动生效、只等首个事件时是 `waiting_events`；首批事件落库会把 `restart_required` 清回 false。
   - 3.x 集群在通道已收到过事件的前提下，作业提交后 45 秒内没收到状态事件，就记 `expect_missed_at`，判定为降级。
   - 状态从非降级变为 `degraded` 时发作业告警 D2（`sync_event_channel_degraded`，集群级默认规则），离开降级（恢复健康或关闭通道）时解除；写预期字段统一走 `updateEventChannelStatsWithAlert`，见[同步作业告警](./sync-alerts.md)。
   - 提交**结果未知**（`submit_outcome=unknown`，见 [作业状态对账器 · 写操作结果未知](./job-status-reconciler.md)）的作业不登记这个预期：引擎可能根本没有这个作业，登记了会把健康的通道误判为降级。

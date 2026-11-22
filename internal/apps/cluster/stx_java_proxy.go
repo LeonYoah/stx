@@ -164,6 +164,11 @@ func (s *Service) executeSTXJavaProxyCommand(ctx context.Context, clusterID uint
 		"install_dir": node.InstallDir,
 		"version":     clusterInfo.Version,
 	}
+	// 透传承载节点配置的 JDK，保证 stx-java-proxy 与同节点 SeaTunnel 使用同一个 Java 运行时。
+	// Forward the hosting node's configured JDK so stx-java-proxy runs on the same Java runtime as SeaTunnel.
+	if javaHome := strings.TrimSpace(node.JavaHome); javaHome != "" {
+		params["java_home"] = javaHome
+	}
 	// 启动/重启时带上资产基址，Agent 本地缺脚本/jar 时可从控制面拉取（DEF-R2-1）。
 	// On start/restart, pass asset base so Agents can pull missing script/jar from Control Plane (DEF-R2-1).
 	if (commandType == "start" || commandType == "restart") && strings.TrimSpace(s.assetBaseURL) != "" {

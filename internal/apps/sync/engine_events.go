@@ -65,8 +65,12 @@ const (
 
 	EventChannelStateDisabled       = "disabled"
 	EventChannelStatePendingRestart = "pending_restart"
-	EventChannelStateHealthy        = "healthy"
-	EventChannelStateDegraded       = "degraded"
+	// EventChannelStateWaitingEvents 表示配置已随启动生效、只等首个事件上报（安装期写入，无需重启）。
+	// EventChannelStateWaitingEvents means the config is already live (written at install time) and
+	// the channel is only waiting for its first event batch.
+	EventChannelStateWaitingEvents = "waiting_events"
+	EventChannelStateHealthy       = "healthy"
+	EventChannelStateDegraded      = "degraded"
 )
 
 // EngineEventReportSettings 是要写入 seatunnel.yaml 的 event-report-http 内容（sync 侧定义，router 适配到 config 应用）。
@@ -239,7 +243,10 @@ func eventChannelState(channel *EngineEventChannel) string {
 	case channel == nil || !channel.Enabled:
 		return EventChannelStateDisabled
 	case channel.LastEventAt == nil:
-		return EventChannelStatePendingRestart
+		if channel.RestartRequired {
+			return EventChannelStatePendingRestart
+		}
+		return EventChannelStateWaitingEvents
 	case channel.ExpectMissedAt != nil && (channel.ExpectSatisfiedAt == nil || channel.ExpectMissedAt.After(*channel.ExpectSatisfiedAt)):
 		return EventChannelStateDegraded
 	default:
@@ -386,6 +393,11 @@ func (s *Service) updateEventChannel(ctx context.Context, actor executionapp.Act
 			channel.ExpectMissedAt = nil
 			channel.ExpectSatisfiedAt = nil
 		}
+		// 安装路径（versionOverride 非空）在节点启动前写入，配置随启动生效不需要重启；
+		// 运行中开启/轮换写入已运行的集群，必须滚动重启后引擎才会加载新配置。
+		// The install path (non-empty versionOverride) writes before nodes start, so the config is live
+		// at startup; enabling or rotating on a running cluster needs a rolling restart to take effect.
+		channel.RestartRequired = versionOverride == ""
 	}
 
 	results, applyErr := s.eventConfigApplier.ApplyEventReportConfig(ctx, clusterID, settings, userID)
@@ -398,6 +410,7 @@ func (s *Service) updateEventChannel(ctx context.Context, actor executionapp.Act
 	}
 	if !enable {
 		channel.TokenNonce = ""
+		channel.RestartRequired = false
 	}
 	if err := s.repo.SaveEngineEventChannel(ctx, channel); err != nil {
 		return nil, err
@@ -409,7 +422,6 @@ func (s *Service) updateEventChannel(ctx context.Context, actor executionapp.Act
 		return nil, applyErr
 	}
 	status := s.toEventChannelStatus(ctx, clusterID, channel)
-	status.RestartRequired = true
 	status.Configs = results
 	return status, nil
 }
@@ -570,7 +582,10 @@ func (s *Service) IngestEngineEvents(ctx context.Context, clusterID uint, author
 
 	fields := map[string]any{"last_batch_at": now}
 	if len(raw) > 0 {
+		// 首批有效事件证明配置已生效，清掉待重启标记。
+		// The first valid batch proves the config is live, so clear the restart flag.
 		fields["last_event_at"] = now
+		fields["restart_required"] = false
 	}
 	if satisfied {
 		fields["expect_satisfied_at"] = now

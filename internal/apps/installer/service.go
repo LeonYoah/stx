@@ -181,6 +181,12 @@ type ConfigInitializer interface {
 	EnsureClusterConfigsForHost(ctx context.Context, clusterID uint, hostID uint, installDir string, userID uint) error
 }
 
+// MonitorConfigPusher 按集群向主机 Agent 下发监控跟踪配置（由 gRPC Server 实现）。
+// MonitorConfigPusher pushes a cluster-scoped monitor tracking config to a host Agent (implemented by the gRPC server).
+type MonitorConfigPusher interface {
+	PushClusterMonitorConfigToHost(ctx context.Context, clusterID uint, hostID uint) error
+}
+
 // HostInfo contains host information for precheck
 // HostInfo 包含预检查所需的主机信息
 type HostInfo struct {
@@ -278,6 +284,10 @@ type Service struct {
 	// eventChannelEnabler 在 3.0+ 一键安装时写入事件通道。
 	// eventChannelEnabler writes the event channel during a 3.0+ one-click install.
 	eventChannelEnabler EventChannelEnabler
+
+	// monitorPusher 在安装节点登记后下发该集群的监控跟踪配置；可选，未注入时跳过。
+	// monitorPusher pushes the cluster's monitor tracking config after an installed node registers; optional and skipped when unset.
+	monitorPusher MonitorConfigPusher
 
 	// heartbeatTimeout is the timeout for agent heartbeat
 	// heartbeatTimeout 是 Agent 心跳超时时间
@@ -439,6 +449,31 @@ func (s *Service) SetConfigInitializer(initializer ConfigInitializer) {
 // SetEventChannelEnabler injects the event-channel writer used by one-click install.
 func (s *Service) SetEventChannelEnabler(enabler EventChannelEnabler) {
 	s.eventChannelEnabler = enabler
+}
+
+// SetMonitorPusher 注入按集群下发监控配置的能力（可选，尽力而为）。
+// SetMonitorPusher injects the optional cluster-scoped monitor config pusher (best effort).
+func (s *Service) SetMonitorPusher(pusher MonitorConfigPusher) {
+	s.monitorPusher = pusher
+}
+
+// pushMonitorConfigToHost 尽力而为地向主机 Agent 推送该集群最新的监控跟踪配置，
+// 使安装登记的节点立即进入进程监控与错误诊断；异步执行不阻塞安装流程，失败只记 Warn。
+// pushMonitorConfigToHost best-effort pushes the cluster's latest monitor tracking config to the host Agent
+// so a freshly registered install node enters process monitoring and error diagnostics immediately.
+// It runs asynchronously and only warns on failure.
+func (s *Service) pushMonitorConfigToHost(ctx context.Context, clusterID uint, hostID uint) {
+	if s.monitorPusher == nil || clusterID == 0 || hostID == 0 {
+		return
+	}
+	go func() {
+		pushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if err := s.monitorPusher.PushClusterMonitorConfigToHost(pushCtx, clusterID, hostID); err != nil {
+			logger.WarnF(pushCtx, "[Installer] 推送节点监控配置失败 / Failed to push node monitor config: cluster=%d, host=%d, error=%v",
+				clusterID, hostID, err)
+		}
+	}()
 }
 
 // SetExecutionService sets the shared execution service used by package operations.
@@ -1953,10 +1988,16 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 		javaItem.Status = CheckStatusWarning
 		javaItem.Message = fmt.Sprintf("Failed to check Java: %v / 检查 Java 失败: %v", err, err)
 	} else if !success {
-		// Java not installed
-		// Java 未安装
 		javaItem.Status = CheckStatusFailed
 		javaItem.Message = fmt.Sprintf("Java is not installed. Please install Java %d+. / Java 未安装。请安装 Java %d+。", minJavaMajor, minJavaMajor)
+		// Agent 检出具体版本但判失败（过低或 JDK 24+ 超上限）时采用其原始原因，
+		// 避免把"版本不可用"误报成"未安装"。
+		// When the Agent detected a concrete version but still failed (too old, or JDK 24+
+		// above the ceiling), surface its reason instead of misreporting "not installed".
+		if rt := javaruntime.Interpret("", success, output); rt != nil && rt.Version > 0 && rt.Message != "" {
+			javaItem.Message = rt.Message
+			javaItem.Details["detected_version"] = rt.Version
+		}
 		if output != "" {
 			javaItem.Details["output"] = output
 		}
@@ -1987,10 +2028,17 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 			javaItem.Status = CheckStatusPassed
 			javaItem.Message = fmt.Sprintf("Java %d is installed (supported) / Java %d 已安装（支持）", javaVersion, javaVersion)
 		case javaruntime.StatusFailed:
-			// 目标版本要求更高 JDK（如 ≥3.1.0 要求 11+），低于下限必失败。
-			// The target requires a newer JDK (≥3.1.0 needs 11+); anything below must block.
 			javaItem.Status = CheckStatusFailed
-			javaItem.Message = fmt.Sprintf("Java %d is installed but SeaTunnel %s requires Java %d+. / Java %d 已安装，但 SeaTunnel %s 要求 Java %d+。", javaVersion, targetVersion, minJavaMajor, javaVersion, targetVersion, minJavaMajor)
+			if javaVersion > javaRequirement.MaxSupported {
+				// JDK 24+ 移除 Subject.getSubject（JEP 486），SeaTunnel 内嵌 Hadoop 启动必崩，必须阻断。
+				// JDK 24+ removed Subject.getSubject (JEP 486), so SeaTunnel's embedded Hadoop always
+				// crashes at startup and this must block.
+				javaItem.Message = fmt.Sprintf("Java %d is installed but exceeds the maximum supported Java %d (JDK 24+ removed Subject.getSubject / JEP 486). Please use JDK 8, 11, 17 or 21. / Java %d 已安装，但超过最高支持版本 Java %d（JDK 24+ 移除 Subject.getSubject / JEP 486）。请改用 JDK 8 / 11 / 17 / 21。", javaVersion, javaRequirement.MaxSupported, javaVersion, javaRequirement.MaxSupported)
+			} else {
+				// 目标版本要求更高 JDK（如 ≥3.1.0 要求 11+），低于下限必失败。
+				// The target requires a newer JDK (≥3.1.0 needs 11+); anything below must block.
+				javaItem.Message = fmt.Sprintf("Java %d is installed but SeaTunnel %s requires Java %d+. / Java %d 已安装，但 SeaTunnel %s 要求 Java %d+。", javaVersion, targetVersion, minJavaMajor, javaVersion, targetVersion, minJavaMajor)
+			}
 			result.OverallStatus = CheckStatusFailed
 		case javaruntime.StatusWarning:
 			javaItem.Status = CheckStatusWarning
@@ -2108,7 +2156,14 @@ func (s *Service) runCustomJavaPrecheck(ctx context.Context, hostInfo *HostInfo,
 		item.Message = fmt.Sprintf("节点 %s 使用 JDK %s，Java %d（支持）/ Node %s uses JDK %s, Java %d (supported)", nodeName, rt.JavaBin, rt.Version, nodeName, rt.JavaBin, rt.Version)
 	case javaruntime.StatusFailed:
 		item.Status = CheckStatusFailed
-		item.Message = fmt.Sprintf("节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+ / Node %s runs Java %d but SeaTunnel %s requires Java %d+", nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion), nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion))
+		if rt.Version > javaruntime.MaxSupportedMajor(targetVersion) {
+			// 高于支持上限（JDK 24+）与低于下限一样必须阻断，但文案方向不同。
+			// Exceeding the supported ceiling (JDK 24+) blocks just like being below the floor,
+			// but the wording differs.
+			item.Message = fmt.Sprintf("节点 %s 的 Java %d 超过最高支持版本 %d（JDK 24+ 移除 Subject.getSubject / JEP 486，SeaTunnel 无法启动），请改用 JDK 8 / 11 / 17 / 21 / Node %s runs Java %d, above the maximum supported Java %d (JDK 24+ removed Subject.getSubject / JEP 486; SeaTunnel cannot start). Use JDK 8, 11, 17 or 21", nodeName, rt.Version, javaruntime.MaxSupportedMajor(targetVersion), nodeName, rt.Version, javaruntime.MaxSupportedMajor(targetVersion))
+		} else {
+			item.Message = fmt.Sprintf("节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+ / Node %s runs Java %d but SeaTunnel %s requires Java %d+", nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion), nodeName, rt.Version, targetVersion, javaruntime.MinSupportedMajor(targetVersion))
+		}
 	default:
 		recommended := seatunnel.JavaRequirementForVersion(targetVersion)
 		item.Status = CheckStatusWarning
@@ -3092,6 +3147,11 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to register node (%s): %v / 安装完成但登记节点 (%s) 失败: %v", nodeRole, err, nodeRole, err))
 		return
 	}
+
+	// 节点登记后立即下发监控跟踪配置，覆盖直接启动与延迟启动（编排器还会再推）两种路径。
+	// Push the monitor tracking config right after node registration; covers both direct and deferred startup
+	// (the orchestrator pushes again later).
+	s.pushMonitorConfigToHost(ctx, clusterID, hostID)
 
 	// 扩容编排器接管后续步骤：节点已登记，但不启动、不登记配置，由编排器先下发模板配置与插件再启动。
 	// The scale-out orchestrator owns the remaining steps: the node is registered but neither started nor

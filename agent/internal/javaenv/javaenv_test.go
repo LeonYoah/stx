@@ -258,3 +258,15 @@ func TestListDedupesSymlinkHomes(t *testing.T) {
 		t.Fatalf("want 1 scan candidate after symlink dedupe, got %+v", list)
 	}
 }
+
+func TestParseLsofTxtExecutable(t *testing.T) {
+	sample := "p1904\nftxt\nn/Library/Java/JavaVirtualMachines/jdk-26.jdk/Contents/Home/bin/java\nftxt\nn/usr/lib/dyld\n"
+	got := parseLsofTxtExecutable(sample)
+	want := "/Library/Java/JavaVirtualMachines/jdk-26.jdk/Contents/Home/bin/java"
+	if got != want {
+		t.Fatalf("parseLsofTxtExecutable = %q, want %q", got, want)
+	}
+	if parseLsofTxtExecutable("p1904\n") != "" {
+		t.Fatal("missing ftxt entry must return empty string")
+	}
+}

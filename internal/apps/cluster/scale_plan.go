@@ -909,9 +909,15 @@ func (s *ScaleService) detectedJavaCheck(ctx context.Context, host *HostInfo, cl
 	// version's minimum (e.g. Java 8 on a 3.1.0 cluster).
 	if javaruntime.StatusForTarget(rt.Version, clusterVersion) == javaruntime.StatusFailed {
 		javaCheck.Status = ScaleCheckFailed
-		javaCheck.Message = scaleText(lang,
-			fmt.Sprintf("Java %d 低于集群 SeaTunnel %s 要求的 Java %d+（STX 不负责安装 JDK）", rt.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion)),
-			fmt.Sprintf("Java %d is below the Java %d+ required by this cluster's SeaTunnel %s (STX does not install a JDK)", rt.Version, javaruntime.MinSupportedMajor(clusterVersion), clusterVersion))
+		if rt.Version > javaruntime.MaxSupportedMajor(clusterVersion) {
+			javaCheck.Message = scaleText(lang,
+				fmt.Sprintf("Java %d 超过最高支持版本 %d（JDK 24+ 移除 Subject.getSubject / JEP 486，STX 不负责安装 JDK）", rt.Version, javaruntime.MaxSupportedMajor(clusterVersion)),
+				fmt.Sprintf("Java %d exceeds the maximum supported Java %d (JDK 24+ removed Subject.getSubject / JEP 486; STX does not install a JDK)", rt.Version, javaruntime.MaxSupportedMajor(clusterVersion)))
+		} else {
+			javaCheck.Message = scaleText(lang,
+				fmt.Sprintf("Java %d 低于集群 SeaTunnel %s 要求的 Java %d+（STX 不负责安装 JDK）", rt.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion)),
+				fmt.Sprintf("Java %d is below the Java %d+ required by this cluster's SeaTunnel %s (STX does not install a JDK)", rt.Version, javaruntime.MinSupportedMajor(clusterVersion), clusterVersion))
+		}
 		return javaCheck
 	}
 	javaCheck.Status = ScaleCheckPassed
@@ -960,6 +966,12 @@ func (s *ScaleService) customJavaCheck(ctx context.Context, host *HostInfo, java
 			fmt.Sprintf("uses JDK %s, Java %d (%s); Java %s is recommended", rt.JavaBin, rt.Version, rt.VersionString, recommended.RecommendedText(" or ")))
 	default:
 		check.Status = ScaleCheckFailed
+		if rt.Version > javaruntime.MaxSupportedMajor(clusterVersion) {
+			check.Message = scaleText(lang,
+				fmt.Sprintf("节点 %s 的 Java %d 超过最高支持版本 %d（JDK 24+ 移除 Subject.getSubject / JEP 486，SeaTunnel 无法启动），请改用 JDK 8 / 11 / 17 / 21", nodeName, rt.Version, javaruntime.MaxSupportedMajor(clusterVersion)),
+				fmt.Sprintf("Java %d on node %s exceeds the maximum supported Java %d (JDK 24+ removed Subject.getSubject / JEP 486; SeaTunnel cannot start). Use JDK 8, 11, 17 or 21", rt.Version, nodeName, javaruntime.MaxSupportedMajor(clusterVersion)))
+			break
+		}
 		if rt.Version > 0 && rt.Version < javaruntime.MinSupportedMajor(clusterVersion) {
 			check.Message = scaleText(lang,
 				fmt.Sprintf("节点 %s 的 Java %d 低于 SeaTunnel %s 要求的 Java %d+", nodeName, rt.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion)),

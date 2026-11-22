@@ -82,6 +82,27 @@ func TestHandleCheckJavaCustomHomeWarnsOnUnrecommendedVersion(t *testing.T) {
 	}
 }
 
+// JDK 24+ 移除 Subject.getSubject（JEP 486），指定 JDK 为 24/25/26 时必须硬拦截（Success=false）。
+// JDK 24+ removed Subject.getSubject (JEP 486); a specified JDK 24/25/26 must hard-fail (Success=false).
+func TestHandleCheckJavaCustomHomeFailsAboveSupported(t *testing.T) {
+	for _, version := range []string{"24.0.1", "25.0.0", "26"} {
+		jdk := writeFakeJDKForPrecheck(t, filepath.Join(t.TempDir(), "jdk"), version)
+		result, err := handleCheckJava(context.Background(), map[string]string{"java_home": jdk})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Success || result.Details["check_status"] != "failed" {
+			t.Fatalf("Java %s should hard-fail, got %+v", version, result)
+		}
+		if result.Details["max_supported_version"] != "23" {
+			t.Fatalf("Java %s: max_supported_version = %q", version, result.Details["max_supported_version"])
+		}
+		if !strings.Contains(result.Message, "JEP 486") {
+			t.Fatalf("Java %s: message should explain JEP 486, got %q", version, result.Message)
+		}
+	}
+}
+
 // AC2/AC9：路径不存在时失败，并在信息中带上路径与原因。
 // AC2/AC9: a missing path fails with the path and reason in the message.
 func TestHandleCheckJavaCustomHomeMissing(t *testing.T) {
@@ -113,7 +134,14 @@ func TestHandleCheckJavaEmptyKeepsDetection(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := result.Details
-	if d["java_home_source"] != "detected" || d["java_bin"] != filepath.Join(jdk11, "bin", "java") || d["java_home"] != jdk11 {
+	// JAVA_HOME 由软链解析后的 bin 推导（macOS 上 /var -> /private/var），比较前先解析。
+	// JAVA_HOME is derived from the symlink-resolved bin (/var -> /private/var on macOS),
+	// so resolve before comparing.
+	wantHome := jdk11
+	if resolved, resolveErr := filepath.EvalSymlinks(jdk11); resolveErr == nil {
+		wantHome = resolved
+	}
+	if d["java_home_source"] != "detected" || d["java_bin"] != filepath.Join(jdk11, "bin", "java") || d["java_home"] != wantHome {
 		t.Fatalf("unexpected details: %+v", d)
 	}
 }

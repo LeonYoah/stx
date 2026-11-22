@@ -816,6 +816,11 @@ func (a *Agent) startBackgroundServices() {
 	// Start diagnostics error collector / 启动诊断错误采集器
 	if a.errorCollector != nil {
 		a.errorCollector.Start(a.ctx)
+		// 启动时先按当前已跟踪进程同步一次扫描目标（通常为空调用也安全），
+		// 之后的目标增量由 START/RESTART/UPDATE_MONITOR_CONFIG 负责刷新。
+		// Seed scan targets from already-tracked processes once at startup (a safe no-op when
+		// empty); later target changes are refreshed by START/RESTART/UPDATE_MONITOR_CONFIG.
+		a.updateDiagnosticsTargets(a.ctx)
 	}
 }
 
@@ -1431,6 +1436,13 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 		params.Mirror = installer.MirrorSource(mirror)
 	}
 
+	// 将控制面下发的节点 JDK 写入安装上下文，确保安装期间拉起的 stx-java-proxy / 存储探测与 SeaTunnel 使用同一个 JDK。
+	// Attach the Control Plane's node JDK to the install context so stx-java-proxy and storage probes started during
+	// installation use the exact same JDK as SeaTunnel.
+	if javaHome := javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")); javaHome != "" {
+		ctx = javaenv.WithHome(ctx, javaHome)
+	}
+
 	// Create progress adapter / 创建进度适配器
 	installReporter := &installerProgressAdapter{
 		reporter:  reporter,
@@ -1523,6 +1535,12 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		if a.autoRestarter.IsEnabled() {
 			a.autoRestarter.ResetRestartCount(processName)
 		}
+		// START 不一定伴随 UPDATE_MONITOR_CONFIG 推送（新建/注册集群直接下发 START），
+		// 需要在这里同步诊断扫描目标，否则新集群进程进不了错误中心。
+		// START is not always followed by an UPDATE_MONITOR_CONFIG push (cluster create/register
+		// issues START directly), so sync diagnostics targets here or the new process never
+		// reaches the error center.
+		a.updateDiagnosticsTargets(ctx)
 		logger.InfoF(ctx, "[Agent] Process started and tracked: %s (PID: %d) / 进程已启动并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}
@@ -1642,6 +1660,10 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
 		a.autoRestarter.ResetRestartCount(processName)
+		// 新增/替换跟踪后同步诊断目标，与 START 同理，保证错误中心覆盖重启中的进程。
+		// Sync diagnostics targets after tracking changes, same as START, so the error center
+		// keeps covering the process being restarted.
+		a.updateDiagnosticsTargets(ctx)
 		logger.InfoF(ctx, "[Agent] Process stopped, registered for auto-restart: %s / 进程已停止，已注册等待自动重启：%s",
 			processName, processName)
 		reporter.Report(100, "Process stopped, auto-restart will start it / 进程已停止，自动重启将启动它")
@@ -1660,6 +1682,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 		a.processMonitor.TrackProcess(processName, info.PID, installDir, role, startParams)
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
+		a.updateDiagnosticsTargets(ctx)
 		logger.InfoF(ctx, "[Agent] Process restarted and tracked: %s (PID: %d) / 进程已重启并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}

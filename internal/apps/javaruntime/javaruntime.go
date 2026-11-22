@@ -181,6 +181,14 @@ func Interpret(configured string, success bool, output string) *Result {
 		// Interpret has no target-version context, so it keeps the legacy {8,11} matrix;
 		// target-aware verdicts live in StatusForTarget (JDK 11+ required since 3.1.0).
 		result.Status = StatusForTarget(result.Version, "")
+		// 旧版 Agent 对 JDK 24+ 只报警告（success=true），这里按版本矩阵翻案为失败，
+		// 并用 reason 让调用方区分"过高"与"过低"，避免误用"低于最低要求"的文案。
+		// Old Agents only warn on JDK 24+ (success=true); the version matrix overturns that to
+		// failed here, and the reason lets callers tell "too new" from "too old" instead of
+		// reusing the "below minimum" wording.
+		if result.Status == StatusFailed && result.Version > MaxSupportedMajor("") {
+			result.Reason = "above_supported_java"
+		}
 	}
 	return result
 }
@@ -197,14 +205,24 @@ func MinSupportedMajor(targetVersion string) int {
 	return seatunnel.JavaRequirementForVersion(targetVersion).MinSupported
 }
 
+// MaxSupportedMajor 返回可启动 SeaTunnel 的最高 JDK 主版本号（JDK 24+ 因 JEP 486 移除
+// Subject.getSubject，内嵌 Hadoop 启动必崩，与目标版本无关）。
+// MaxSupportedMajor returns the highest JDK major that can still start SeaTunnel (JDK 24+
+// removed Subject.getSubject via JEP 486, so the embedded Hadoop always crashes at startup,
+// regardless of the target version).
+func MaxSupportedMajor(targetVersion string) int {
+	return seatunnel.JavaRequirementForVersion(targetVersion).MaxSupported
+}
+
 // StatusForTarget 按目标 SeaTunnel 版本评估已探测到的 JDK 主版本号，矩阵来自
-// seatunnel.JavaRequirementForVersion：推荐集合判通过；低于 MinSupported 判失败
-// （升级/安装后引擎必然无法启动）；高于推荐上限或非推荐的其余版本判警告；
-// 版本未知（≤0）保守警告不阻断。
+// seatunnel.JavaRequirementForVersion：推荐集合判通过；低于 MinSupported 或高于
+// MaxSupported（JDK 24+，JEP 486）判失败（引擎必然无法启动）；高于推荐上限或非推荐
+// 的其余版本判警告；版本未知（≤0）保守警告不阻断。
 // StatusForTarget evaluates a detected JDK major version against the SeaTunnel target,
 // using the matrix from seatunnel.JavaRequirementForVersion: a recommended major passes;
-// anything below MinSupported fails outright (the engine cannot start); anything above
-// MaxRecommended or otherwise unrecommended warns; an unknown version (≤0) degrades to warning.
+// anything below MinSupported or above MaxSupported (JDK 24+, JEP 486) fails outright
+// (the engine cannot start); anything above MaxRecommended or otherwise unrecommended
+// warns; an unknown version (≤0) degrades to warning.
 func StatusForTarget(version int, targetVersion string) string {
 	if version <= 0 {
 		return StatusWarning
@@ -213,7 +231,7 @@ func StatusForTarget(version int, targetVersion string) string {
 	switch {
 	case requirement.Contains(version):
 		return StatusPassed
-	case version < requirement.MinSupported:
+	case version < requirement.MinSupported || version > requirement.MaxSupported:
 		return StatusFailed
 	default:
 		return StatusWarning

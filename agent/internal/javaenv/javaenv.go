@@ -32,6 +32,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ParamJavaHome 是控制面下发节点 JDK 路径的命令参数名。
@@ -342,18 +343,48 @@ func SameExecutable(a, b string) bool {
 	return ra == rb
 }
 
-// ProcessExecutable 返回运行中进程的可执行文件（Linux 读取 /proc/<pid>/exe）；无法读取时返回空字符串。
-// ProcessExecutable returns a running process's executable (via /proc/<pid>/exe on Linux); it is empty when it
-// cannot be read.
+// ProcessExecutable 返回运行中进程的可执行文件（Linux 读取 /proc/<pid>/exe，macOS 通过 lsof 解析 txt 段）；无法读取时返回空字符串。
+// ProcessExecutable returns a running process's executable (via /proc/<pid>/exe on Linux, lsof txt entry on macOS);
+// it is empty when it cannot be read.
 func ProcessExecutable(pid int) string {
-	if pid <= 0 || runtime.GOOS != "linux" {
+	if pid <= 0 {
 		return ""
 	}
-	exe, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(pid), "exe"))
-	if err != nil {
+	switch runtime.GOOS {
+	case "linux":
+		exe, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(pid), "exe"))
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSuffix(exe, " (deleted)")
+	case "darwin":
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "lsof", "-Fn", "-a", "-d", "txt", "-p", strconv.Itoa(pid)).Output()
+		if err != nil {
+			return ""
+		}
+		return parseLsofTxtExecutable(string(out))
+	default:
 		return ""
 	}
-	return strings.TrimSuffix(exe, " (deleted)")
+}
+
+// parseLsofTxtExecutable 从 `lsof -Fn -a -d txt -p <pid>` 输出中提取首个可执行文件路径（ftxt 后的首个 n/ 行）。
+// parseLsofTxtExecutable extracts the main executable path (first n/ line after ftxt) from `lsof -Fn -a -d txt`.
+func parseLsofTxtExecutable(output string) string {
+	seenTxt := false
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "ftxt" {
+			seenTxt = true
+			continue
+		}
+		if seenTxt && strings.HasPrefix(line, "n/") {
+			return strings.TrimPrefix(line, "n")
+		}
+	}
+	return ""
 }
 
 // ShellExportPrefix 返回在 `bash -lc` 命令最前面使用的导出语句，使 profile 加载之后仍以节点 JDK 为准；home 为空时返回空字符串。

@@ -59,7 +59,7 @@ func healthTestCluster(status ClusterStatus, ids ...uint) (*Cluster, *ClusterSta
 	return cluster, info
 }
 
-func newHealthTestService(sender *healthMemberSender) *Service {
+func newHealthTestService(sender AgentCommandSender) *Service {
 	s := &Service{hostProvider: healthHostProvider{}}
 	if sender != nil {
 		s.agentSender = sender
@@ -131,6 +131,86 @@ func TestEvaluateClusterHealth_StoppedClusterDoesNotRequireProcesses(t *testing.
 	newHealthTestService(nil).evaluateClusterHealth(context.Background(), cluster, info)
 	if info.HealthStatus != HealthStatusUnhealthy {
 		t.Fatalf("an offline host is always unhealthy, got %s", info.HealthStatus)
+	}
+}
+
+// healthEngineSender 按 Agent 返回 check_engine_health 的原始 JSON；空串模拟旧 Agent 不支持。
+// healthEngineSender returns a check_engine_health JSON payload per agent; an empty string
+// simulates an old Agent that does not support the command.
+type healthEngineSender struct {
+	payloads    map[string]string
+	engineCalls int
+}
+
+func (s *healthEngineSender) SendCommand(_ context.Context, agentID, commandType string, _ map[string]string) (bool, string, error) {
+	if commandType != "check_engine_health" {
+		return false, "unexpected", nil
+	}
+	s.engineCalls++
+	payload := s.payloads[agentID]
+	if payload == "" {
+		return false, `{"success":false,"message":"unsupported sub_command"}`, nil
+	}
+	return true, payload, nil
+}
+
+// TestEvaluateClusterHealth_EngineNotReadyIsUnhealthy 半初始化引擎（known+unhealthy）在
+// 单节点集群也要被判为不健康，原因透传。
+// TestEvaluateClusterHealth_EngineNotReadyIsUnhealthy: a half-initialized engine (known+unhealthy)
+// makes even a single-node cluster unhealthy and propagates the reason.
+func TestEvaluateClusterHealth_EngineNotReadyIsUnhealthy(t *testing.T) {
+	sender := &healthEngineSender{payloads: map[string]string{
+		"agent-1": `{"success":false,"details":{"known":"true","healthy":"false","reason":"coordinatorService is null"}}`,
+	}}
+	cluster, info := healthTestCluster(ClusterStatusRunning, 1)
+	cluster.Nodes[0].Role = NodeRoleMasterWorker
+	newHealthTestService(sender).evaluateClusterHealth(context.Background(), cluster, info)
+	if info.HealthStatus != HealthStatusUnhealthy {
+		t.Fatalf("expected unhealthy, got %s %v", info.HealthStatus, info.HealthReasons)
+	}
+	if len(info.HealthReasons) != 1 || !strings.Contains(info.HealthReasons[0], "coordinatorService is null") {
+		t.Fatalf("expected engine reason, got %v", info.HealthReasons)
+	}
+}
+
+// TestEvaluateClusterHealth_EngineHealthyStaysHealthy 引擎就绪（known+healthy）不产生原因。
+// TestEvaluateClusterHealth_EngineHealthyStaysHealthy: a ready engine adds no reasons.
+func TestEvaluateClusterHealth_EngineHealthyStaysHealthy(t *testing.T) {
+	sender := &healthEngineSender{payloads: map[string]string{
+		"agent-1": `{"success":true,"details":{"known":"true","healthy":"true"}}`,
+	}}
+	cluster, info := healthTestCluster(ClusterStatusRunning, 1)
+	cluster.Nodes[0].Role = NodeRoleMasterWorker
+	newHealthTestService(sender).evaluateClusterHealth(context.Background(), cluster, info)
+	if info.HealthStatus != HealthStatusHealthy || len(info.HealthReasons) != 0 {
+		t.Fatalf("expected healthy, got %s %v", info.HealthStatus, info.HealthReasons)
+	}
+}
+
+// TestEvaluateClusterHealth_UnknownEngineStateDoesNotAlarm 未知状态（旧 Agent、REST 不可达）
+// 绝不误报；纯 worker 角色不探测。
+// TestEvaluateClusterHealth_UnknownEngineStateDoesNotAlarm: unknown states (old Agent,
+// unreachable REST) never alarm; worker-only roles are not probed.
+func TestEvaluateClusterHealth_UnknownEngineStateDoesNotAlarm(t *testing.T) {
+	sender := &healthEngineSender{payloads: map[string]string{
+		"agent-1": `{"success":false,"details":{"known":"false","healthy":"false","reason":"connection refused"}}`,
+	}}
+	cluster, info := healthTestCluster(ClusterStatusRunning, 1, 2)
+	cluster.Nodes[0].Role = NodeRoleMasterWorker
+	cluster.Nodes[1].Role = NodeRoleWorker
+	svc := newHealthTestService(sender)
+	svc.evaluateClusterHealth(context.Background(), cluster, info)
+	if info.HealthStatus != HealthStatusHealthy {
+		t.Fatalf("unknown engine state must not mark unhealthy, got %s %v", info.HealthStatus, info.HealthReasons)
+	}
+	if sender.engineCalls != 1 {
+		t.Fatalf("worker-only node must not be probed, got %d calls", sender.engineCalls)
+	}
+	// 缓存：TTL 内不重复探测。Cache: no re-probe within the TTL.
+	_, info = healthTestCluster(ClusterStatusRunning, 1, 2)
+	svc.evaluateClusterHealth(context.Background(), cluster, info)
+	if sender.engineCalls != 1 {
+		t.Fatalf("expected cached probe, calls %d -> %d", 1, sender.engineCalls)
 	}
 }
 

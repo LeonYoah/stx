@@ -27,9 +27,9 @@
 
 import React from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
-import {Badge} from '@/components/ui/badge';
-import {Card, CardContent} from '@/components/ui/card';
+import {Button} from '@/components/arc/button/button';
+import {Alert} from '@/components/arc/alert/alert';
+import {NeutralChip} from '@/components/common/layout';
 import {
   CheckCircle2,
   Layers,
@@ -55,10 +55,16 @@ interface ClusterCompleteStepProps {
 export function ClusterCompleteStep({
   config,
   selectedHosts,
+  deployWarnings,
   onClose,
   onComplete,
 }: ClusterCompleteStepProps) {
   const t = useTranslations();
+  const warningsList = Array.isArray(deployWarnings)
+    ? deployWarnings
+    : typeof deployWarnings === 'string' && deployWarnings.trim()
+      ? [deployWarnings]
+      : [];
 
   const masterCount =
     config.deploymentMode === DeploymentMode.HYBRID
@@ -71,30 +77,45 @@ export function ClusterCompleteStep({
       : selectedHosts.filter((h) => h.roles.includes(NodeRole.WORKER)).length;
 
   return (
-    <div className='h-full flex flex-col items-center justify-center max-w-xl mx-auto py-4 text-center'>
-      {/* Success Hero / 成功光环 */}
-      <div className='w-12 h-12 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 flex items-center justify-center mb-3 shadow-sm'>
-        <CheckCircle2 className='w-6 h-6 stroke-[2.5]' />
-      </div>
+    <div className='h-full overflow-y-auto'>
+      <div className='flex flex-col items-center max-w-xl mx-auto py-4 text-center'>
+        {/* Success Hero / 成功标识 */}
+        <div className='w-12 h-12 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 flex items-center justify-center mb-3'>
+          <CheckCircle2 className='w-6 h-6 stroke-[2.5]' />
+        </div>
 
-      <h2 className='text-lg font-bold text-foreground'>
-        {t('cluster.wizard.completeTitle')}
-      </h2>
+        <h2 className='text-lg font-bold text-foreground'>
+          {t('cluster.wizard.completeTitle')}
+        </h2>
 
-      {/* Cluster Summary Card / 集群规格摘要卡片 */}
-      <Card className='w-full mt-5 text-left border-border/70 shadow-none bg-muted/20'>
-        <CardContent className='p-4 space-y-3 text-xs'>
-          <div className='flex items-center justify-between pb-2.5 border-b border-border/50'>
-            <div className='flex items-center gap-2'>
-              <Layers className='h-4 w-4 text-primary' />
-              <span className='font-semibold text-sm'>{config.name}</span>
+        {/* Deploy Warnings / 部署告警（完成页同样展示） */}
+        {warningsList.length > 0 && (
+          <div className='w-full mt-4 text-left'>
+            <Alert tone='warning' title={t('cluster.wizard.deployWarnings')}>
+              <div className='space-y-1'>
+                {warningsList.map((warning, idx) => (
+                  <p key={idx} className='font-mono text-[11px] break-words'>
+                    {warning}
+                  </p>
+                ))}
+              </div>
+            </Alert>
+          </div>
+        )}
+
+        {/* Cluster Summary / 集群规格摘要（单层画布 + 0.5px 细线） */}
+        <div className='w-full mt-5 text-left'>
+          <div className='flex items-center justify-between pb-2.5 border-b-[0.5px] border-border/80'>
+            <div className='flex items-center gap-2 min-w-0'>
+              <Layers className='h-4 w-4 shrink-0 text-primary' />
+              <span className='font-semibold text-sm truncate'>{config.name}</span>
             </div>
-            <Badge variant='outline' className='font-mono text-[11px]'>
+            <NeutralChip className='font-mono tabular-nums'>
               v{config.version}
-            </Badge>
+            </NeutralChip>
           </div>
 
-          <div className='grid grid-cols-2 gap-3 pt-0.5'>
+          <div className='grid grid-cols-2 gap-3 pt-3 text-xs'>
             <div>
               <span className='text-muted-foreground block text-[11px]'>
                 {t('cluster.wizard.summaryMode')}
@@ -110,7 +131,7 @@ export function ClusterCompleteStep({
               <span className='text-muted-foreground block text-[11px]'>
                 {t('cluster.wizard.summaryScale')}
               </span>
-              <span className='font-medium text-foreground mt-0.5 block'>
+              <span className='font-medium text-foreground mt-0.5 block tabular-nums'>
                 {t('cluster.wizard.summaryHosts', {
                   count: selectedHosts.length,
                   master: masterCount,
@@ -123,7 +144,7 @@ export function ClusterCompleteStep({
               <span className='text-muted-foreground block text-[11px]'>
                 {t('cluster.wizard.summaryPorts')}
               </span>
-              <span className='font-mono text-foreground mt-0.5 block'>
+              <span className='font-mono text-foreground mt-0.5 block tabular-nums'>
                 Hazelcast: {config.clusterPort}
                 {config.deploymentMode === DeploymentMode.SEPARATED &&
                   ` | Worker: ${config.workerPort}`}
@@ -135,7 +156,7 @@ export function ClusterCompleteStep({
               <span className='text-muted-foreground block text-[11px]'>
                 {t('cluster.wizard.summaryHttp')}
               </span>
-              <span className='font-mono text-foreground mt-0.5 block'>
+              <span className='font-mono text-foreground mt-0.5 block tabular-nums'>
                 {config.runtime.enable_http
                   ? t('cluster.wizard.httpEnabled', {port: config.httpPort})
                   : t('cluster.wizard.httpDisabled')}
@@ -155,18 +176,18 @@ export function ClusterCompleteStep({
               </div>
             )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Action Buttons / 底部快捷按钮 */}
-      <div className='flex items-center gap-3 mt-6'>
-        <Button variant='outline' onClick={onClose} className='h-9 text-xs'>
-          {t('cluster.wizard.finishAndClose')}
-        </Button>
-        <Button onClick={onComplete} className='h-9 text-xs'>
-          {t('cluster.wizard.enterConsole')}
-          <ArrowRight className='h-3.5 w-3.5 ml-1.5' />
-        </Button>
+        {/* Action Buttons / 底部快捷按钮 */}
+        <div className='flex items-center gap-3 mt-6'>
+          <Button type='button' variant='secondary' size='sm' onClick={onClose}>
+            {t('cluster.wizard.finishAndClose')}
+          </Button>
+          <Button type='button' size='sm' onClick={onComplete}>
+            {t('cluster.wizard.enterConsole')}
+            <ArrowRight className='size-3.5' aria-hidden />
+          </Button>
+        </div>
       </div>
     </div>
   );

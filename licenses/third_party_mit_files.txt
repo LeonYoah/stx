@@ -59,6 +59,7 @@ frontend/components/arc/pagination/pagination.tsx
 frontend/components/arc/select/select.tsx
 frontend/components/arc/skeleton/skeleton.tsx
 frontend/components/arc/sortable-data-table/sortable-data-table.tsx
+frontend/components/arc/stepper/stepper.tsx
 frontend/components/arc/timeline/timeline.tsx
 frontend/components/arc/tooltip/tooltip.tsx
 

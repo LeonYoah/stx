@@ -73,6 +73,11 @@ func EnsureSTXJavaProxySupportAssets(ctx context.Context, installDir, seatunnelV
 		base = strings.TrimRight(strings.TrimSpace(os.Getenv(stxJavaProxyAssetBaseEnvVar)), "/")
 	}
 
+	// 脚本是可选资产：默认 Go 直启不再使用它；有本地副本或资产基址时顺带保留（兼容旧 Agent 与人工使用），
+	// 缺失或下载失败只记告警，不阻塞启动。
+	// The script is an optional asset: the default direct-Java launch no longer uses it; when a local copy
+	// or asset base exists it is still staged (legacy agents / manual use), but a missing script or a failed
+	// download only logs a warning and never blocks startup.
 	if !fileExists(scriptDest) {
 		if copied := copyFirstExistingFile([]string{
 			filepath.Join(stxJavaProxyControlPlaneScriptsDir, scriptName),
@@ -83,10 +88,11 @@ func EnsureSTXJavaProxySupportAssets(ctx context.Context, installDir, seatunnelV
 			logger.InfoF(ctx, "[stx-java-proxy] staged launcher script from local path to %s / 已从本机路径暂存启动脚本到 %s", scriptDest, scriptDest)
 		} else if base != "" {
 			if err := downloadSTXJavaProxyAsset(ctx, base+"/"+scriptName, scriptDest); err != nil {
-				return fmt.Errorf("download stx-java-proxy script: %w", err)
+				logger.WarnF(ctx, "[stx-java-proxy] download optional launcher script failed (direct Java launch unaffected): %v / 下载可选启动脚本失败（直启不受影响）: %v", err, err)
+			} else {
+				_ = os.Chmod(scriptDest, 0o755)
+				logger.InfoF(ctx, "[stx-java-proxy] downloaded launcher script to %s / 已下载启动脚本到 %s", scriptDest, scriptDest)
 			}
-			_ = os.Chmod(scriptDest, 0o755)
-			logger.InfoF(ctx, "[stx-java-proxy] downloaded launcher script to %s / 已下载启动脚本到 %s", scriptDest, scriptDest)
 		}
 	}
 
@@ -122,6 +128,12 @@ func EnsureSTXJavaProxySupportAssets(ctx context.Context, installDir, seatunnelV
 		}
 	}
 
+	// jar 是直启的核心必需项：所有来源都拿不到时必须报错（调用方会降级为告警，真正的阻塞在解析阶段）。
+	// The jar is the core requirement for direct launch: when every source misses it this is an error
+	// (callers degrade it to a warning; the real block happens at jar resolution).
+	if !fileExists(jarDest) {
+		return fmt.Errorf("stx-java-proxy jar %s is unavailable under %s", jarName, filepath.Dir(jarDest))
+	}
 	return nil
 }
 

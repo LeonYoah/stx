@@ -27,8 +27,8 @@ import {
   XCircle,
 } from 'lucide-react';
 
-import {Badge} from '@/components/ui/badge';
-import {Checkbox} from '@/components/ui/checkbox';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {NeutralChip} from '@/components/common/layout';
 import type {
   ScaleCheck,
   ScalePlan,
@@ -167,23 +167,21 @@ export function ScalePlanView({
           <ul className='flex flex-wrap gap-2'>
             {plan.loopback_nodes.map((node) => (
               <li key={node.node_id}>
-                <Badge variant='outline' className='gap-1.5 font-normal'>
+                <NeutralChip className='gap-1.5 font-normal'>
                   <span>{node.host_name}</span>
                   <code className='font-mono text-xs'>{node.address}</code>
-                </Badge>
+                </NeutralChip>
               </li>
             ))}
           </ul>
           {onRestartAckChange && (
-            <label className='flex items-center gap-2 text-sm font-medium'>
-              <Checkbox
-                checked={restartAck}
-                onCheckedChange={(checked) =>
-                  onRestartAckChange(checked === true)
-                }
-              />
-              {t('loopbackAck', {count: plan.loopback_nodes.length})}
-            </label>
+            <Checkbox
+              checked={restartAck}
+              onCheckedChange={(checked) =>
+                onRestartAckChange(checked === true)
+              }
+              label={t('loopbackAck', {count: plan.loopback_nodes.length})}
+            />
           )}
         </section>
       )}
@@ -197,9 +195,9 @@ export function ScalePlanView({
             <ul className='flex flex-wrap gap-1.5'>
               {plan.running_jobs.map((job) => (
                 <li key={job.job_id}>
-                  <Badge variant='secondary' className='font-normal'>
+                  <NeutralChip className='font-normal'>
                     {job.job_name || job.job_id}
-                  </Badge>
+                  </NeutralChip>
                 </li>
               ))}
             </ul>
@@ -214,13 +212,11 @@ export function ScalePlanView({
             </p>
           )}
           {onJobsAckChange && (
-            <label className='flex items-center gap-2 text-sm font-medium'>
-              <Checkbox
-                checked={jobsAck}
-                onCheckedChange={(checked) => onJobsAckChange(checked === true)}
-              />
-              {t('jobsRiskAck')}
-            </label>
+            <Checkbox
+              checked={jobsAck}
+              onCheckedChange={(checked) => onJobsAckChange(checked === true)}
+              label={t('jobsRiskAck')}
+            />
           )}
         </section>
       )}
@@ -301,18 +297,17 @@ export function ScalePlanView({
           ) : (
             <ul className='flex flex-wrap gap-1.5'>
               {plan.plugins_to_replay.map((plugin) => (
-                <li key={`${plugin.name}@${plugin.version}`}>
-                  <Badge
-                    variant='outline'
-                    className='gap-1 font-normal'
-                    title={
-                      plugin.profile_unknown
-                        ? t('profileUnknown')
-                        : plugin.profile_inferred
-                          ? t('profileInferred')
-                          : undefined
-                    }
-                  >
+                <li
+                  key={`${plugin.name}@${plugin.version}`}
+                  title={
+                    plugin.profile_unknown
+                      ? t('profileUnknown')
+                      : plugin.profile_inferred
+                        ? t('profileInferred')
+                        : undefined
+                  }
+                >
+                  <NeutralChip className='gap-1 font-normal'>
                     <span>
                       {plugin.name}@{plugin.version}
                     </span>
@@ -324,7 +319,7 @@ export function ScalePlanView({
                     {plugin.profile_unknown && (
                       <AlertTriangle className='h-3 w-3 text-amber-500' />
                     )}
-                  </Badge>
+                  </NeutralChip>
                 </li>
               ))}
             </ul>

@@ -17,45 +17,36 @@
 
 'use client';
 
+/**
+ * 移除节点（缩容）弹窗：迁移至 Arc Dialog（.arc-compact）+ 单层画布 0.5px 细线 + Arc Alert/Button。
+ * Remove-node (scale-in) dialog: Arc Dialog (.arc-compact) + flat 0.5px hairlines + Arc Alert/Button.
+ */
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {toast} from '@/lib/toast';
-import {Loader2, RefreshCw} from 'lucide-react';
-
-import services from '@/lib/services';
-import {Button} from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import {RefreshCw} from 'lucide-react';
+import {Alert} from '@/components/arc/alert/alert';
+import {Button} from '@/components/arc/button/button';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {TableLoadingBar} from '@/components/common/layout';
 import {Skeleton} from '@/components/ui/skeleton';
+import services from '@/lib/services';
 import {
-  NodeInfo,
-  ScaleOperationInfo,
-  ScalePlan,
   getScaleInProgressDetail,
+  type NodeInfo,
+  type ScaleOperationInfo,
+  type ScalePlan,
 } from '@/lib/services/cluster';
-import {ScalePlanView} from './scale/ScalePlanView';
+import {toast} from '@/lib/toast';
 import {ScaleOperationProgress} from './scale/ScaleOperationProgress';
+import {ScalePlanView} from './scale/ScalePlanView';
 
 export interface RemoveNodeDialogProps {
   clusterId: number;
-  /** 待移除节点；为空时关闭 / Node to remove; the dialog is closed when null */
   node: NodeInfo | null;
   onOpenChange: (open: boolean) => void;
-  /** 节点被移除（缩容成功或强制移除记录）后回调 / Called after the node is removed (scale-in or forced record removal) */
   onRemoved: () => void;
 }
 
-/**
- * 移除节点（缩容）：展示缩容计划与护栏，运行中作业需强确认；主机离线时提供「仅移除记录」降级入口。
- * Remove-node (scale-in) dialog: shows the scale-in plan and guardrails, requires a strong acknowledgement for
- * running jobs, and offers a "remove record only" fallback when the host is offline.
- */
 export function RemoveNodeDialog({
   clusterId,
   node,
@@ -112,19 +103,16 @@ export function RemoveNodeDialog({
     plan?.checks.some(
       (check) => check.name === name && check.status === 'failed',
     ) ?? false;
-  // 主机离线（无法停进程）或进程被其他集群共用（不应停进程）时，提供「仅移除记录」。
-  // Offer "remove record only" when the host is offline (cannot stop the process) or the process is shared with
-  // another cluster (must not be stopped).
   const targetOffline = failedCheck('target_agent_online');
   const sharedProcess = failedCheck('shared_process');
   const forceAvailable = targetOffline || sharedProcess;
 
   const canSubmit =
-    !!plan &&
-    plan.can_submit &&
+    Boolean(plan) &&
+    Boolean(plan?.can_submit) &&
     !loading &&
     !submitting &&
-    (!plan.requires_jobs_ack || jobsAck);
+    (!plan?.requires_jobs_ack || jobsAck);
 
   const handleSubmit = async () => {
     if (!plan || !node) {
@@ -163,10 +151,6 @@ export function RemoveNodeDialog({
     }
   };
 
-  /**
-   * 强制仅删除节点记录（沿用旧接口），需二次点击确认。
-   * Force-delete only the node record (legacy endpoint); requires a second click to confirm.
-   */
   const handleForceRemove = async () => {
     if (!node) {
       return;
@@ -197,106 +181,113 @@ export function RemoveNodeDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-3xl'>
-        <DialogHeader>
-          <DialogTitle>{ts('removeTitle', {name: nodeName})}</DialogTitle>
-          <DialogDescription>{ts('removeDescription')}</DialogDescription>
-        </DialogHeader>
+      <DialogContent
+        title={ts('removeTitle', {name: nodeName})}
+        description={ts('removeDescription')}
+        className='arc-compact w-[min(92vw,760px)]! sm:max-w-none!'
+      >
+        <div className='space-y-4'>
+          <TableLoadingBar loading={loading && Boolean(plan)} />
 
-        <div className='max-h-[64vh] overflow-y-auto pr-1'>
-          {operationId !== null ? (
-            <ScaleOperationProgress
-              clusterId={clusterId}
-              operationId={operationId}
-              initial={initialOperation}
-              onFinished={handleFinished}
-            />
-          ) : loading && !plan ? (
-            <div className='space-y-3'>
-              <p className='flex items-center gap-2 text-sm text-muted-foreground'>
-                <Loader2 className='h-4 w-4 animate-spin' />
-                {ts('planLoading')}
-              </p>
-              <Skeleton className='h-20 w-full' />
-              <Skeleton className='h-14 w-full' />
-            </div>
-          ) : (
-            <div className='space-y-3'>
-              {error && (
-                <p className='break-words text-sm text-red-600'>
-                  {ts('planFailed')}: {error}
-                </p>
-              )}
-              {plan && (
-                <div
-                  className={loading ? 'pointer-events-none opacity-60' : ''}
-                >
+          <div className='max-h-[60vh] overflow-y-auto'>
+            {operationId !== null ? (
+              <ScaleOperationProgress
+                clusterId={clusterId}
+                operationId={operationId}
+                initial={initialOperation}
+                onFinished={handleFinished}
+              />
+            ) : loading && !plan ? (
+              <div className='space-y-3 py-1'>
+                <Skeleton className='h-5 w-44' />
+                <Skeleton className='h-20 w-full' />
+                <Skeleton className='h-14 w-full' />
+              </div>
+            ) : (
+              <div className='space-y-4'>
+                {error ? (
+                  <Alert tone='danger' title={`${ts('planFailed')}: ${error}`} />
+                ) : null}
+                {plan ? (
                   <ScalePlanView
                     plan={plan}
                     jobsAck={jobsAck}
                     onJobsAckChange={setJobsAck}
                   />
-                </div>
-              )}
-              {forceAvailable && (
-                <p className='rounded-md border border-amber-300 bg-amber-50/60 px-3 py-2 text-xs dark:border-amber-800/60 dark:bg-amber-950/30'>
-                  {sharedProcess
-                    ? ts('forceRemoveSharedHint')
-                    : ts('forceRemoveHint')}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
+                ) : null}
+                {forceAvailable ? (
+                  <Alert
+                    tone='warning'
+                    title={
+                      sharedProcess
+                        ? ts('forceRemoveSharedHint')
+                        : ts('forceRemoveHint')
+                    }
+                  />
+                ) : null}
+              </div>
+            )}
+          </div>
 
-        <DialogFooter className='gap-2 sm:gap-0'>
-          {operationId !== null ? (
-            <Button variant='outline' onClick={() => onOpenChange(false)}>
-              {ts('close')}
-            </Button>
-          ) : (
-            <>
-              <Button variant='outline' onClick={() => onOpenChange(false)}>
-                {t('common.cancel')}
-              </Button>
-              {forceAvailable && (
-                <Button
-                  variant='destructive'
-                  onClick={handleForceRemove}
-                  disabled={forcing}
-                >
-                  {forcing && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-                  {forceArmed ? ts('forceRemoveConfirm') : ts('forceRemove')}
-                </Button>
-              )}
+          <div className='flex flex-wrap items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>
+            {operationId !== null ? (
               <Button
+                type='button'
                 variant='secondary'
-                onClick={() => node && void loadPlan(node)}
-                disabled={loading || submitting}
+                size='sm'
+                onClick={() => onOpenChange(false)}
               >
-                {loading ? (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                ) : (
-                  <RefreshCw className='mr-2 h-4 w-4' />
-                )}
-                {ts('recheck')}
+                {ts('close')}
               </Button>
-              <Button
-                variant='destructive'
-                onClick={handleSubmit}
-                disabled={!canSubmit}
-                title={
-                  plan && !plan.can_submit ? ts('cannotSubmit') : undefined
-                }
-              >
-                {submitting && (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                )}
-                {ts('submitScaleIn')}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
+            ) : (
+              <>
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={() => onOpenChange(false)}
+                >
+                  {t('common.cancel')}
+                </Button>
+                {forceAvailable ? (
+                  <Button
+                    type='button'
+                    variant='danger'
+                    size='sm'
+                    onClick={() => void handleForceRemove()}
+                    loading={forcing}
+                  >
+                    {forceArmed ? ts('forceRemoveConfirm') : ts('forceRemove')}
+                  </Button>
+                ) : null}
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={() => node && void loadPlan(node)}
+                  disabled={submitting}
+                  loading={loading}
+                >
+                  <RefreshCw className='size-3.5' aria-hidden />
+                  {ts('recheck')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='danger'
+                  size='sm'
+                  onClick={() => void handleSubmit()}
+                  disabled={!canSubmit}
+                  loading={submitting}
+                  title={
+                    plan && !plan.can_submit ? ts('cannotSubmit') : undefined
+                  }
+                >
+                  {ts('submitScaleIn')}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

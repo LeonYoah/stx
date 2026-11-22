@@ -278,6 +278,10 @@ export interface ClusterStatusInfo {
   online_nodes: number;
   /** Number of offline nodes / 离线节点数 */
   offline_nodes: number;
+  /** Number of running nodes / 运行中节点数 */
+  running_nodes?: number;
+  /** Unhealthy reasons / 不健康原因列表 */
+  health_reasons?: string[];
   /** Node status list / 节点状态列表 */
   nodes: NodeStatusInfo[];
 }

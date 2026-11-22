@@ -63,6 +63,13 @@ describe('splitPathForMiddleEllipsis', () => {
     expect(splitPathForMiddleEllipsis('/usr/lib/jvm/java-8')).toBeNull();
     expect(splitPathForMiddleEllipsis('/opt/jdk11')).toBeNull();
     expect(splitPathForMiddleEllipsis('plain-text-value')).toBeNull();
+    expect(splitPathForMiddleEllipsis('Auto detect')).toBeNull();
+  });
+
+  it('splits standard install paths with prefix and tail', () => {
+    expect(
+      splitPathForMiddleEllipsis('/Users/mac/opt/seatunnel-3.0.0'),
+    ).toEqual(['/Users/mac', '/opt/seatunnel-3.0.0']);
   });
 });
 
@@ -142,5 +149,18 @@ describe('TruncatedText', () => {
 
     rerender(<TruncatedText text='/opt/seatunnel/bin' copyable />);
     expect(screen.getByRole('button', {name: 'copy'})).toBeInTheDocument();
+  });
+
+  it('keeps full textContent intact in path mode', () => {
+    const full = '/Library/Java/JavaVirtualMachines/jdk-26.jdk/Contents/Home';
+    render(
+      <TruncatedText
+        text={full}
+        mode='path'
+        mono
+        data-testid='jdk-path-trunc'
+      />,
+    );
+    expect(screen.getByTestId('jdk-path-trunc')).toHaveTextContent(full);
   });
 });

@@ -21,6 +21,10 @@ import {NextIntlClientProvider} from 'next-intl';
 import {NodeJavaHomeCell} from '../NodeJavaHomeCell';
 
 const messages = {
+  common: {
+    copy: 'Copy',
+    copied: 'Copied',
+  },
   javaHome: {
     badgeAuto: 'Auto detect',
     versionLoading: 'Fetching version…',
@@ -51,7 +55,7 @@ describe('NodeJavaHomeCell', () => {
     );
     expect(screen.getByText('/opt/jdk11')).toBeInTheDocument();
     expect(screen.getByText('Java 11.0.2')).toBeInTheDocument();
-    expect(screen.getByTitle('/opt/jdk11 · Java 11.0.2')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Copy'})).toBeInTheDocument();
   });
 
   it('shows auto label and version-unavailable when fetch fails (AC7)', () => {
@@ -75,5 +79,24 @@ describe('NodeJavaHomeCell', () => {
     );
     expect(screen.getByText('/usr/lib/jvm/java-8')).toBeInTheDocument();
     expect(screen.getByText('Fetching version…')).toBeInTheDocument();
+  });
+
+  it('shows resolved runtime java_home when configured path is empty', () => {
+    render(
+      wrap(
+        <NodeJavaHomeCell
+          configuredJavaHome=''
+          runtime={{
+            status: 'ok',
+            version: 21,
+            version_string: '21.0.5',
+            java_home: '/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home',
+          }}
+        />,
+      ),
+    );
+    expect(screen.queryByText('Auto detect')).not.toBeInTheDocument();
+    expect(screen.getByText('Java 21.0.5')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Copy'})).toBeInTheDocument();
   });
 });

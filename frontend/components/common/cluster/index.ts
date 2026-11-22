@@ -25,6 +25,12 @@
 
 export {ClusterMain} from './ClusterMain';
 export {ClusterCard} from './ClusterCard';
+export {ClusterQuickDetail} from './ClusterQuickDetail';
+export {
+  ClusterStatusChip,
+  NodeStatusChip,
+  isClusterRunningUnhealthy,
+} from './ClusterStatusChip';
 export {ClusterDetail} from './ClusterDetail';
 export {ClusterPlugins} from './ClusterPlugins';
 export {ClusterConfigs} from './ClusterConfigs';

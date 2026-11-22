@@ -24,6 +24,7 @@ import {toast} from '@/lib/toast';
 import {
   AlertTriangle,
   ArrowLeft,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   FileSearch,
@@ -33,22 +34,15 @@ import {
   ServerCog,
   ShieldAlert,
 } from 'lucide-react';
+import {Alert as ArcAlert} from '@/components/arc/alert/alert';
 import {Button} from '@/components/arc/button/button';
 import {Badge} from '@/components/arc/badge/badge';
 import {ButtonGroup} from '@/components/arc/button-group/button-group';
-import {WorkspaceHeader} from '@/components/common/layout';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
-import {Separator} from '@/components/ui/separator';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {Input} from '@/components/arc/input/input';
+import {Select} from '@/components/arc/select/select';
+import {TableLoadingBar, WorkspaceHeader} from '@/components/common/layout';
 import {Skeleton} from '@/components/ui/skeleton';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -412,7 +406,10 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
   // 零塌陷加载：首屏骨架屏占位 / Zero-collapse loading skeleton
   if (loading && !cluster) {
     return (
-      <div className='upgrade-page' data-testid='upgrade-prepare-page'>
+      <div
+        className='upgrade-page arc-compact'
+        data-testid='upgrade-prepare-page'
+      >
         <WorkspaceHeader
           breadcrumbs={[
             {
@@ -428,44 +425,36 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
           subtitle={<span>{t('prepareDescription')}</span>}
         />
         <UpgradeSteps current='prepare' clusterId={clusterId} />
-        <div className='grid gap-3 xl:grid-cols-[420px_minmax(0,1fr)]'>
-          <Card>
-            <CardHeader>
-              <Skeleton className='h-6 w-48' />
-              <Skeleton className='mt-2 h-4 w-full' />
-            </CardHeader>
-            <CardContent className='space-y-4'>
-              <div className='space-y-2'>
-                <Skeleton className='h-4 w-32' />
-                <Skeleton className='h-10 w-full' />
-              </div>
-              <div className='space-y-2'>
-                <Skeleton className='h-4 w-32' />
-                <Skeleton className='h-10 w-full' />
-              </div>
-              <Skeleton className='h-10 w-full' />
-              <div className='flex gap-2'>
-                <Skeleton className='h-10 w-32' />
-                <Skeleton className='h-10 flex-1' />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <Skeleton className='h-6 w-40' />
-              <Skeleton className='mt-2 h-4 w-3/4' />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className='h-32 w-full' />
-            </CardContent>
-          </Card>
+        <div className='grid gap-4 xl:grid-cols-[400px_minmax(0,1fr)]'>
+          <div className='rounded-(--radius-panel) border border-(--border) bg-card p-5 space-y-4'>
+            <Skeleton className='h-5 w-40' />
+            <div className='space-y-3 border-t-[0.5px] border-border/80 pt-4'>
+              <Skeleton className='h-4 w-28' />
+              <Skeleton className='h-9 w-full' />
+              <Skeleton className='h-4 w-28' />
+              <Skeleton className='h-9 w-full' />
+            </div>
+            <div className='flex gap-2 border-t-[0.5px] border-border/80 pt-4'>
+              <Skeleton className='h-8 w-24' />
+              <Skeleton className='h-8 w-32' />
+            </div>
+          </div>
+          <div className='rounded-(--radius-panel) border border-(--border) bg-card p-5 space-y-4'>
+            <Skeleton className='h-5 w-40' />
+            <div className='border-t-[0.5px] border-border/80 pt-4'>
+              <Skeleton className='h-36 w-full' />
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className='upgrade-page' data-testid='upgrade-prepare-page'>
+    <div
+      className='upgrade-page arc-compact'
+      data-testid='upgrade-prepare-page'
+    >
       <WorkspaceHeader
         breadcrumbs={[
           {
@@ -480,7 +469,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
         title={t('prepareTitle')}
         subtitle={
           <span className='inline-flex flex-wrap items-center gap-1.5'>
-            <span>
+            <span className='tabular-nums'>
               {cluster
                 ? `${cluster.name} · ${t('currentVersion')}: ${cluster.version || '-'}`
                 : t('prepareStage')}
@@ -535,130 +524,104 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
       <UpgradeSteps current='prepare' clusterId={clusterId} />
 
       {isPrecheckStale ? (
-        <div className='rounded-lg border border-amber-500/30 bg-amber-500/5 p-4'>
-          <div className='text-sm font-medium text-amber-700 dark:text-amber-300'>
-            {t('draftChangedNoticeTitle')}
-          </div>
-          <div className='mt-1 text-sm text-muted-foreground'>
-            {t('draftChangedNoticeDescription')}
-          </div>
-        </div>
+        <ArcAlert tone='warning' title={t('draftChangedNoticeTitle')}>
+          {t('draftChangedNoticeDescription')}
+        </ArcAlert>
       ) : null}
 
-      <div className='grid gap-3 xl:grid-cols-[420px_minmax(0,1fr)]'>
-        <Card>
-          <CardHeader>
-            <CardTitle className='flex items-center gap-1.5'>
+      <div className='grid items-start gap-4 xl:grid-cols-[400px_minmax(0,1fr)]'>
+        {/* 左侧参数输入单层扁平画布 / Left parameter input flat single-layer surface */}
+        <section className='overflow-hidden rounded-(--radius-panel) border border-(--border) bg-card'>
+          <div className='px-5 py-4'>
+            <h2 className='flex items-center gap-1.5 text-sm font-semibold text-foreground'>
               {t('upgradeInput')}
               <HelpHint
                 label={t('upgradeInput')}
                 content={t('upgradeInputDescription')}
               />
-            </CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='space-y-2'>
-              <Label htmlFor='target-version'>{t('targetVersion')}</Label>
-              <Select value={targetVersion} onValueChange={setTargetVersion}>
-                <SelectTrigger
-                  id='target-version'
-                  data-testid='upgrade-prepare-target-version'
-                >
-                  <SelectValue placeholder={t('targetVersionPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {(availableVersions?.versions || []).map((version) => (
-                    <SelectItem key={version} value={version}>
-                      {version}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            </h2>
+          </div>
 
-            <div className='space-y-2'>
-              <div className='flex items-center gap-2'>
-                <Label htmlFor='target-install-dir'>
-                  {t('targetInstallDir')}
-                </Label>
-                <HelpHint
-                  label={t('targetInstallDir')}
-                  content={t('targetInstallDirDescription')}
-                  data-testid='upgrade-prepare-target-install-dir-hint'
-                />
-              </div>
-              <Input
-                id='target-install-dir'
-                data-testid='upgrade-prepare-target-install-dir'
-                value={targetInstallDir}
-                onChange={(event) => {
-                  setTargetInstallDir(event.target.value);
-                  setTargetInstallDirTouched(true);
-                }}
-                placeholder={t('targetInstallDirPlaceholder')}
-              />
-            </div>
+          <div className='space-y-4 border-t-[0.5px] border-border/80 px-5 py-4'>
+            <Select
+              id='target-version'
+              data-testid='upgrade-prepare-target-version'
+              label={t('targetVersion')}
+              value={targetVersion}
+              onValueChange={setTargetVersion}
+              placeholder={t('targetVersionPlaceholder')}
+              options={(availableVersions?.versions || []).map((version) => ({
+                value: version,
+                label: version,
+              }))}
+            />
 
-            {/* 高级选项折叠：checksum / connector 非首屏必填 / Advanced options collapsible */}
-            <div className='rounded-lg border'>
+            <Input
+              id='target-install-dir'
+              label={t('targetInstallDir')}
+              description={t('targetInstallDirDescription')}
+              data-testid='upgrade-prepare-target-install-dir'
+              className='font-mono text-xs'
+              value={targetInstallDir}
+              onChange={(event) => {
+                setTargetInstallDir(event.target.value);
+                setTargetInstallDirTouched(true);
+              }}
+              placeholder={t('targetInstallDirPlaceholder')}
+            />
+
+            {/* 高级选项折叠：用 0.5px 细线自然分隔，不套子框 / Advanced options collapsible separated by 0.5px hairline */}
+            <div className='border-t-[0.5px] border-border/80 pt-3'>
               <button
                 type='button'
-                className='flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-medium hover:bg-muted/40'
+                className='flex w-full items-center justify-between gap-2 py-1 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground'
                 onClick={() => setAdvancedExpanded((prev) => !prev)}
                 aria-expanded={advancedExpanded}
                 data-testid='upgrade-prepare-advanced-toggle'
               >
-                <span className='inline-flex items-center gap-2'>
+                <span className='inline-flex items-center gap-1.5'>
                   {advancedExpanded ? (
-                    <ChevronDown className='h-4 w-4' />
+                    <ChevronDown className='size-3.5' aria-hidden />
                   ) : (
-                    <ChevronRight className='h-4 w-4' />
+                    <ChevronRight className='size-3.5' aria-hidden />
                   )}
                   {t('advancedOptions')}
                 </span>
               </button>
               {advancedExpanded ? (
-                <div className='space-y-4 border-t px-3 py-3'>
-                  <div className='space-y-2'>
-                    <Label htmlFor='package-checksum'>
-                      {t('packageChecksum')}
-                    </Label>
-                    <Input
-                      id='package-checksum'
-                      value={packageChecksum}
-                      onChange={(event) =>
-                        setPackageChecksum(event.target.value)
-                      }
-                      placeholder={t('packageChecksumPlaceholder')}
-                    />
-                  </div>
-                  <div className='space-y-2'>
-                    <Label htmlFor='connector-names'>
-                      {t('connectorNames')}
-                    </Label>
-                    <Input
-                      id='connector-names'
-                      value={connectorNamesText}
-                      onChange={(event) =>
-                        setConnectorNamesText(event.target.value)
-                      }
-                      placeholder={t('connectorNamesPlaceholder')}
-                    />
-                  </div>
+                <div className='mt-3 space-y-3'>
+                  <Input
+                    id='package-checksum'
+                    label={t('packageChecksum')}
+                    className='font-mono text-xs'
+                    value={packageChecksum}
+                    onChange={(event) =>
+                      setPackageChecksum(event.target.value)
+                    }
+                    placeholder={t('packageChecksumPlaceholder')}
+                  />
+                  <Input
+                    id='connector-names'
+                    label={t('connectorNames')}
+                    className='font-mono text-xs'
+                    value={connectorNamesText}
+                    onChange={(event) =>
+                      setConnectorNamesText(event.target.value)
+                    }
+                    placeholder={t('connectorNamesPlaceholder')}
+                  />
                 </div>
               ) : null}
             </div>
 
-            <Separator />
-
-            <div className='flex flex-wrap items-center gap-2'>
+            <div className='flex flex-wrap items-center gap-2 border-t-[0.5px] border-border/80 pt-4'>
               <Button
                 variant='secondary'
                 size='sm'
                 onClick={() => void loadInitialData()}
                 disabled={loading}
               >
-                <RefreshCw className='size-3.5' />
+                <RefreshCw className='size-3.5' aria-hidden />
                 {commonT('refresh')}
               </Button>
               <Button
@@ -668,7 +631,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                 loading={runningPrecheck}
                 disabled={loading}
               >
-                <ShieldAlert className='size-3.5' />
+                <ShieldAlert className='size-3.5' aria-hidden />
                 {runningPrecheck
                   ? t('runningPrecheck')
                   : precheck
@@ -676,65 +639,80 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                     : t('runPrecheck')}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <div className='space-y-3'>
-          <Card data-testid='upgrade-prepare-summary'>
-            <CardHeader>
-              <CardTitle>{t('precheckSummary')}</CardTitle>
-            </CardHeader>
-            <CardContent className='space-y-4'>
-              {!precheck ? (
-                <div className='rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-                  {loading ? t('loadingPrepare') : t('runPrecheckFirst')}
+        {/* 右侧结果区压平为单层扁平画布，以 0.5px 细线分隔摘要 / 阻断项 / 节点目标 */}
+        {/* Right results flattened into one single-layer card divided by 0.5px hairlines */}
+        <section className='relative overflow-hidden rounded-(--radius-panel) border border-(--border) bg-card'>
+          <TableLoadingBar loading={runningPrecheck} />
+
+          {/* 1. 预检摘要 / Precheck summary */}
+          <div className='px-6 py-5' data-testid='upgrade-prepare-summary'>
+            <div className='flex flex-wrap items-center justify-between gap-2 pb-4'>
+              <h2 className='text-sm font-semibold text-foreground'>
+                {t('precheckSummary')}
+              </h2>
+              {precheck ? (
+                <div className='flex flex-wrap items-center gap-3 text-xs text-muted-foreground tabular-nums'>
+                  <Badge
+                    data-testid='upgrade-prepare-ready-badge'
+                    tone={precheck.ready ? 'success' : 'danger'}
+                    outline
+                    dot
+                    size='sm'
+                  >
+                    {precheck.ready ? t('readyToPlan') : t('blocked')}
+                  </Badge>
+                  <span>
+                    {t('issueCount')}: {precheck.issues.length}
+                  </span>
+                  <span>
+                    {t('nodeTargetCount')}: {precheck.node_targets.length}
+                  </span>
                 </div>
-              ) : (
-                <>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <Badge
-                      data-testid='upgrade-prepare-ready-badge'
-                      tone={precheck.ready ? 'success' : 'danger'}
-                      outline
-                      dot
-                      size='sm'
-                    >
-                      {precheck.ready ? t('readyToPlan') : t('blocked')}
-                    </Badge>
-                    <span className='text-sm text-muted-foreground'>
-                      {t('issueCount')}: {precheck.issues.length}
-                    </span>
-                    <span className='text-sm text-muted-foreground'>
-                      {t('nodeTargetCount')}: {precheck.node_targets.length}
-                    </span>
-                  </div>
+              ) : null}
+            </div>
 
-                  <div className='grid gap-4 xl:grid-cols-2'>
-                    <SummaryCard
-                      icon={<Package className='h-4 w-4 text-primary' />}
-                      title={t('packageInfo')}
-                      description={precheck.package_manifest?.file_name || '-'}
-                      lines={[
-                        `${t('targetVersion')}: ${precheck.target_version}`,
-                        `${t('checksum')}: ${precheck.package_manifest?.checksum || '-'}`,
-                        `${t('packageArch')}: ${precheck.package_manifest?.arch || '-'}`,
-                      ]}
-                    />
-                    <SummaryCard
-                      icon={<PlugZap className='h-4 w-4 text-primary' />}
-                      title={t('connectorInfo')}
-                      description={`${precheck.connector_manifest?.connectors.length || 0} / ${precheck.connector_manifest?.libraries.length || 0} / ${precheck.connector_manifest?.plugin_dependencies.length || 0}`}
-                      lines={[
-                        `${t('connectorCount')}: ${precheck.connector_manifest?.connectors.length || 0}`,
-                        `${t('libraryCount')}: ${precheck.connector_manifest?.libraries.length || 0}`,
-                        `${t('pluginDependencyCount')}: ${precheck.connector_manifest?.plugin_dependencies.length || 0}`,
-                        `${t('configConflicts')}: ${precheck.config_merge_plan?.conflict_count || 0}`,
-                      ]}
-                    />
-                  </div>
+            {!precheck ? (
+              <div className='border-t-[0.5px] border-border/80 pt-4'>
+                <EmptyState
+                  icon={<FileSearch />}
+                  title={loading ? t('loadingPrepare') : t('runPrecheckFirst')}
+                  description={t('prepareDescription')}
+                />
+              </div>
+            ) : (
+              <div className='space-y-5 border-t-[0.5px] border-border/80 pt-5'>
+                <div className='grid gap-6 xl:grid-cols-2 xl:gap-0 xl:divide-x-[0.5px] xl:divide-border/80'>
+                  <SummarySection
+                    icon={<Package className='size-4 text-primary' aria-hidden />}
+                    title={t('packageInfo')}
+                    description={precheck.package_manifest?.file_name || '-'}
+                    lines={[
+                      `${t('targetVersion')}: ${precheck.target_version}`,
+                      `${t('checksum')}: ${precheck.package_manifest?.checksum || '-'}`,
+                      `${t('packageArch')}: ${precheck.package_manifest?.arch || '-'}`,
+                    ]}
+                    className='xl:pr-6'
+                  />
+                  <SummarySection
+                    icon={<PlugZap className='size-4 text-primary' aria-hidden />}
+                    title={t('connectorInfo')}
+                    description={`${precheck.connector_manifest?.connectors.length || 0} / ${precheck.connector_manifest?.libraries.length || 0} / ${precheck.connector_manifest?.plugin_dependencies.length || 0}`}
+                    lines={[
+                      `${t('connectorCount')}: ${precheck.connector_manifest?.connectors.length || 0}`,
+                      `${t('libraryCount')}: ${precheck.connector_manifest?.libraries.length || 0}`,
+                      `${t('pluginDependencyCount')}: ${precheck.connector_manifest?.plugin_dependencies.length || 0}`,
+                      `${t('configConflicts')}: ${precheck.config_merge_plan?.conflict_count || 0}`,
+                    ]}
+                    className='xl:pl-6'
+                  />
+                </div>
 
-                  <div className='space-y-2 rounded-lg border border-dashed bg-muted/30 p-4 text-sm'>
-                    <div className='flex items-center gap-2 font-medium text-foreground'>
+                <div className='space-y-2 border-t-[0.5px] border-border/80 pt-4 text-xs'>
+                  <div className='flex flex-wrap items-center gap-x-5 gap-y-1.5'>
+                    <div className='inline-flex items-center gap-1.5 font-medium text-foreground'>
                       {t('pluginUpgradeBehaviorTitle')}
                       <HelpHint
                         label={t('pluginUpgradeBehaviorTitle')}
@@ -742,16 +720,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                         data-testid='upgrade-prepare-plugin-behavior-hint'
                       />
                     </div>
-                    {issuesByCategory.connector ? (
-                      <p
-                        className='flex items-center gap-1.5 text-amber-700 dark:text-amber-300'
-                        data-testid='upgrade-prepare-plugin-missing-warning'
-                      >
-                        <AlertTriangle className='h-3.5 w-3.5 shrink-0' />
-                        {t('pluginPackageMissingWarning')}
-                      </p>
-                    ) : null}
-                    <div className='flex items-center gap-2 font-medium text-foreground'>
+                    <div className='inline-flex items-center gap-1.5 font-medium text-foreground'>
                       {t('upgradeSmokeCheckTitle')}
                       <HelpHint
                         label={t('upgradeSmokeCheckTitle')}
@@ -760,144 +729,158 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                       />
                     </div>
                   </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+                  {issuesByCategory.connector ? (
+                    <p
+                      className='flex items-center gap-1.5 text-amber-700 dark:text-amber-300'
+                      data-testid='upgrade-prepare-plugin-missing-warning'
+                    >
+                      <AlertTriangle className='size-3.5 shrink-0' aria-hidden />
+                      {t('pluginPackageMissingWarning')}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            )}
+          </div>
 
+          {/* 2. 预检问题 / Precheck issues */}
           {precheck ? (
-            <Card data-testid='upgrade-prepare-issues'>
-              <CardHeader>
-                <CardTitle>{t('issuesTitle')}</CardTitle>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                {precheck.issues.length === 0 ? (
-                  <div className='rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-                    {t('noIssues')}
-                  </div>
-                ) : (
-                  <div className='space-y-4'>
-                    {Object.entries(issuesByCategory).map(
-                      ([category, issues]) => (
-                        <div
-                          key={category}
-                          className='space-y-3 rounded-lg border p-4'
-                        >
-                          <div className='flex items-center justify-between gap-3'>
-                            <div className='font-medium'>
-                              {getIssueCategoryLabel(
-                                category as BlockingIssue['category'],
-                              )}
-                            </div>
-                            <Badge tone='danger' outline size='sm'>
-                              {issues.length}
-                            </Badge>
-                          </div>
-                          <ul className='space-y-2 text-sm text-muted-foreground'>
-                            {issues.map((issue) => (
-                              <li
-                                key={`${issue.category}-${issue.code}`}
-                                className='rounded-md bg-muted/40 p-3'
-                              >
-                                <div className='font-medium text-foreground'>
-                                  {issue.code}
-                                </div>
-                                <div>{issue.message}</div>
-                              </li>
-                            ))}
-                          </ul>
+            <div
+              className='border-t-[0.5px] border-border/80 px-6 py-5'
+              data-testid='upgrade-prepare-issues'
+            >
+              <h2 className='pb-3 text-sm font-semibold text-foreground'>
+                {t('issuesTitle')}
+              </h2>
+
+              {precheck.issues.length === 0 ? (
+                <div className='flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300'>
+                  <CheckCircle2 className='size-4 shrink-0' aria-hidden />
+                  <span>{t('noIssues')}</span>
+                </div>
+              ) : (
+                <div className='divide-y-[0.5px] divide-border/80'>
+                  {Object.entries(issuesByCategory).map(
+                    ([category, issues]) => (
+                      <div key={category} className='py-3 first:pt-0 last:pb-0'>
+                        <div className='flex items-center justify-between gap-3 pb-2'>
+                          <span className='text-xs font-semibold text-foreground'>
+                            {getIssueCategoryLabel(
+                              category as BlockingIssue['category'],
+                            )}
+                          </span>
+                          <Badge tone='danger' outline size='sm'>
+                            {issues.length}
+                          </Badge>
                         </div>
-                      ),
-                    )}
-                  </div>
-                )}
+                        <ul className='divide-y-[0.5px] divide-border/70 text-xs text-muted-foreground'>
+                          {issues.map((issue, idx) => (
+                            <li
+                              key={`${issue.category}-${issue.code}-${idx}`}
+                              className='py-2 first:pt-0 last:pb-0'
+                            >
+                              <div className='font-mono font-medium text-foreground'>
+                                {issue.code}
+                              </div>
+                              <div className='mt-0.5 leading-relaxed'>
+                                {issue.message}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
 
-                {hasJdkNodeIssues ? (
-                  <p
-                    className='text-sm text-muted-foreground'
-                    data-testid='upgrade-prepare-jdk-issue-hint'
-                  >
-                    {t('jdkIssueHint')}
-                  </p>
-                ) : null}
+              {hasJdkNodeIssues ? (
+                <p
+                  className='mt-3 text-xs text-muted-foreground'
+                  data-testid='upgrade-prepare-jdk-issue-hint'
+                >
+                  {t('jdkIssueHint')}
+                </p>
+              ) : null}
 
-                {!precheck.ready ? (
-                  <div className='flex flex-wrap gap-2'>
-                    {issuesByCategory.package ? (
-                      <Button
-                        variant='secondary'
-                        size='sm'
-                        onClick={() => router.push('/packages')}
-                        data-testid='upgrade-prepare-go-packages'
-                      >
-                        <Package className='size-3.5' />
-                        {t('goPackages')}
-                      </Button>
-                    ) : null}
-                    {issuesByCategory.connector ? (
-                      <Button
-                        variant='secondary'
-                        size='sm'
-                        onClick={() => router.push('/plugins')}
-                        data-testid='upgrade-prepare-go-plugins'
-                      >
-                        <PlugZap className='size-3.5' />
-                        {t('goPlugins')}
-                      </Button>
-                    ) : null}
-                    {hasNonJdkNodeIssues ? (
-                      <Button
-                        variant='secondary'
-                        size='sm'
-                        onClick={() => router.push(`/clusters/${clusterId}`)}
-                        data-testid='upgrade-prepare-resolve-node-issues'
-                      >
-                        <ServerCog className='size-3.5' />
-                        {t('resolveNodeIssues')}
-                      </Button>
-                    ) : null}
-                    {issuesByCategory.config && hasConfigMissingIssue ? (
-                      <Button
-                        variant='secondary'
-                        size='sm'
-                        onClick={() => void handleInitClusterConfigs()}
-                        data-testid='upgrade-prepare-init-configs'
-                        loading={initializingConfigs}
-                        disabled={
-                          runningPrecheck ||
-                          !precheck?.node_targets?.[0]?.source_install_dir
-                        }
-                      >
-                        {initializingConfigs
-                          ? t('initializingClusterConfigs')
-                          : t('initClusterConfigs')}
-                      </Button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
+              {!precheck.ready ? (
+                <div className='mt-4 flex flex-wrap gap-2'>
+                  {issuesByCategory.package ? (
+                    <Button
+                      variant='secondary'
+                      size='sm'
+                      onClick={() => router.push('/packages')}
+                      data-testid='upgrade-prepare-go-packages'
+                    >
+                      <Package className='size-3.5' aria-hidden />
+                      {t('goPackages')}
+                    </Button>
+                  ) : null}
+                  {issuesByCategory.connector ? (
+                    <Button
+                      variant='secondary'
+                      size='sm'
+                      onClick={() => router.push('/plugins')}
+                      data-testid='upgrade-prepare-go-plugins'
+                    >
+                      <PlugZap className='size-3.5' aria-hidden />
+                      {t('goPlugins')}
+                    </Button>
+                  ) : null}
+                  {hasNonJdkNodeIssues ? (
+                    <Button
+                      variant='secondary'
+                      size='sm'
+                      onClick={() => router.push(`/clusters/${clusterId}`)}
+                      data-testid='upgrade-prepare-resolve-node-issues'
+                    >
+                      <ServerCog className='size-3.5' aria-hidden />
+                      {t('resolveNodeIssues')}
+                    </Button>
+                  ) : null}
+                  {issuesByCategory.config && hasConfigMissingIssue ? (
+                    <Button
+                      variant='secondary'
+                      size='sm'
+                      onClick={() => void handleInitClusterConfigs()}
+                      data-testid='upgrade-prepare-init-configs'
+                      loading={initializingConfigs}
+                      disabled={
+                        runningPrecheck ||
+                        !precheck?.node_targets?.[0]?.source_install_dir
+                      }
+                    >
+                      {initializingConfigs
+                        ? t('initializingClusterConfigs')
+                        : t('initClusterConfigs')}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
+          {/* 3. 节点目标矩阵 / Node target matrix */}
           {precheck?.node_targets?.length ? (
-            <Card data-testid='upgrade-prepare-node-targets'>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-1.5'>
-                  {t('nodeTargets')}
-                  <HelpHint
-                    label={t('nodeTargets')}
-                    content={
-                      isPrecheckStale
-                        ? t('nodeTargetsPreviewDescription')
-                        : t('nodeTargetsDescription')
-                    }
-                  />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className='overflow-x-auto'>
-                <Table>
+            <div
+              className='border-t-[0.5px] border-border/80 px-6 py-5'
+              data-testid='upgrade-prepare-node-targets'
+            >
+              <h2 className='flex items-center gap-1.5 pb-3 text-sm font-semibold text-foreground'>
+                {t('nodeTargets')}
+                <HelpHint
+                  label={t('nodeTargets')}
+                  content={
+                    isPrecheckStale
+                      ? t('nodeTargetsPreviewDescription')
+                      : t('nodeTargetsDescription')
+                  }
+                />
+              </h2>
+              <div className='overflow-x-auto'>
+                <Table className='[&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className='hover:bg-transparent'>
                       <TableHead>{t('host')}</TableHead>
                       <TableHead>{t('role')}</TableHead>
                       <TableHead>{t('sourceVersion')}</TableHead>
@@ -915,82 +898,111 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {precheck.node_targets.map((target) => (
-                      <TableRow key={`${target.host_id}-${target.role}`}>
-                        <TableCell>{target.host_name}</TableCell>
-                        <TableCell>{target.role}</TableCell>
-                        <TableCell>{target.source_version}</TableCell>
-                        <TableCell
-                          className={
-                            isPrecheckStale
-                              ? 'text-amber-700 dark:text-amber-300'
-                              : ''
-                          }
-                        >
-                          {isPrecheckStale
-                            ? currentDraftRequest.target_version
-                            : target.target_version}
-                        </TableCell>
-                        <TableCell
-                          className={`font-mono text-xs ${isPrecheckStale ? 'text-amber-700 dark:text-amber-300' : ''}`}
-                        >
-                          {isPrecheckStale
-                            ? draftTargetInstallDirPreview
-                            : target.target_install_dir}
-                        </TableCell>
-                        <TableCell className='min-w-[18rem] align-top'>
-                          <div
-                            data-testid={`upgrade-prepare-node-jdk-${target.cluster_node_id}`}
+                    {precheck.node_targets.map((target) => {
+                      const displayTargetDir = isPrecheckStale
+                        ? draftTargetInstallDirPreview
+                        : target.target_install_dir;
+                      return (
+                        <TableRow key={`${target.host_id}-${target.role}`}>
+                          <TableCell className='font-medium whitespace-nowrap'>
+                            {target.host_name}
+                          </TableCell>
+                          <TableCell className='whitespace-nowrap'>
+                            {target.role}
+                          </TableCell>
+                          <TableCell className='font-mono text-xs tabular-nums whitespace-nowrap'>
+                            {target.source_version}
+                          </TableCell>
+                          <TableCell
+                            className={`font-mono text-xs tabular-nums whitespace-nowrap ${
+                              isPrecheckStale
+                                ? 'text-amber-700 dark:text-amber-300'
+                                : ''
+                            }`}
                           >
-                            <JavaHomePicker
-                              id={`upgrade-target-jdk-${target.cluster_node_id}`}
-                              hostId={target.host_id}
-                              hideLabel
-                              hideAuto
-                              value={
-                                nodeJavaHomes[String(target.cluster_node_id)] ??
-                                ''
-                              }
-                              onChange={({javaHome}) =>
-                                setNodeJavaHomes((prev) => ({
-                                  ...prev,
-                                  [String(target.cluster_node_id)]: javaHome,
-                                }))
-                              }
-                            />
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                            {isPrecheckStale
+                              ? currentDraftRequest.target_version
+                              : target.target_version}
+                          </TableCell>
+                          <TableCell
+                            className={`max-w-[220px] truncate font-mono text-xs ${
+                              isPrecheckStale
+                                ? 'text-amber-700 dark:text-amber-300'
+                                : ''
+                            }`}
+                            title={displayTargetDir}
+                          >
+                            {displayTargetDir}
+                          </TableCell>
+                          <TableCell className='min-w-[18rem] align-top'>
+                            <div
+                              data-testid={`upgrade-prepare-node-jdk-${target.cluster_node_id}`}
+                            >
+                              <JavaHomePicker
+                                id={`upgrade-target-jdk-${target.cluster_node_id}`}
+                                hostId={target.host_id}
+                                hideLabel
+                                autoSelectFirst={false}
+                                value={
+                                  nodeJavaHomes[
+                                    String(target.cluster_node_id)
+                                  ] ?? ''
+                                }
+                                onChange={({javaHome}) =>
+                                  setNodeJavaHomes((prev) => ({
+                                    ...prev,
+                                    [String(target.cluster_node_id)]: javaHome,
+                                  }))
+                                }
+                              />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           ) : null}
-        </div>
+        </section>
       </div>
     </div>
   );
 }
 
-interface SummaryCardProps {
+interface SummarySectionProps {
   icon: React.ReactNode;
   title: string;
   description: string;
   lines: string[];
+  className?: string;
 }
 
-function SummaryCard({icon, title, description, lines}: SummaryCardProps) {
+function SummarySection({
+  icon,
+  title,
+  description,
+  lines,
+  className,
+}: SummarySectionProps) {
   return (
-    <div className='rounded-lg border p-4'>
-      <div className='flex items-center gap-2 text-sm font-medium'>
+    <div className={className}>
+      <div className='flex items-center gap-2 text-xs font-semibold text-foreground'>
         {icon}
         {title}
       </div>
-      <div className='mt-2 text-sm text-foreground'>{description}</div>
-      <div className='mt-3 space-y-1 text-xs text-muted-foreground'>
+      <div
+        className='mt-1.5 truncate font-mono text-sm font-medium text-foreground tabular-nums'
+        title={description}
+      >
+        {description}
+      </div>
+      <div className='mt-2.5 space-y-1 text-xs text-muted-foreground tabular-nums'>
         {lines.map((line) => (
-          <div key={line}>{line}</div>
+          <div key={line} className='truncate' title={line}>
+            {line}
+          </div>
         ))}
       </div>
     </div>

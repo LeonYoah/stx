@@ -20,30 +20,19 @@
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {toast} from '@/lib/toast';
-import {Loader2, RefreshCw, Server} from 'lucide-react';
+import {Loader2, RefreshCw} from 'lucide-react';
 
 import services from '@/lib/services';
-import {Button} from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {Checkbox} from '@/components/ui/checkbox';
-import {Input} from '@/components/ui/input';
+import {Alert as ArcAlert} from '@/components/arc/alert/alert';
+import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {Input} from '@/components/arc/input/input';
+import {Select} from '@/components/arc/select/select';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {TableLoadingBar} from '@/components/common/layout';
 import {JavaHomePicker} from '@/components/common/java/JavaHomePicker';
-import {Label} from '@/components/ui/label';
 import {HelpHint} from '@/components/common/HelpHint';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
 import {AgentStatus, HostInfo} from '@/lib/services/host/types';
 import {
   ClusterConfig,
@@ -346,13 +335,18 @@ export function AddNodeDialog({
     </ol>
   );
 
+  const hostOptions = hosts.map((host) => ({
+    value: host.id.toString(),
+    label: host.ip_address ? `${host.name} (${host.ip_address})` : host.name,
+  }));
+
   const renderHostStep = () => (
     <div className='space-y-4'>
       <div className='space-y-2'>
         <div className='flex items-center gap-2'>
-          <Label>
+          <span className='text-xs font-medium text-foreground'>
             {t('cluster.selectHost')} <span className='text-destructive'>*</span>
-          </Label>
+          </span>
           <HelpHint
             label={t('cluster.selectHost')}
             content={t('cluster.onlyAgentInstalledHosts')}
@@ -365,56 +359,38 @@ export function AddNodeDialog({
             {t('common.loading')}
           </div>
         ) : hosts.length === 0 ? (
-          <div className='rounded-md border p-4 text-sm text-muted-foreground'>
+          <div className='rounded-md border border-border/80 p-4 text-sm text-muted-foreground'>
             {t('cluster.noAvailableHosts')}
           </div>
         ) : (
-          <Select value={hostId} onValueChange={setHostId}>
-            <SelectTrigger>
-              <SelectValue placeholder={t('cluster.selectHostPlaceholder')} />
-            </SelectTrigger>
-            <SelectContent>
-              {hosts.map((host) => (
-                <SelectItem key={host.id} value={host.id.toString()}>
-                  <div className='flex items-center gap-2'>
-                    <Server className='h-4 w-4' />
-                    <span>{host.name}</span>
-                    {host.ip_address && (
-                      <code className='font-mono text-xs text-muted-foreground'>
-                        {host.ip_address}
-                      </code>
-                    )}
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Select
+            aria-label={t('cluster.selectHost')}
+            value={hostId}
+            onValueChange={setHostId}
+            placeholder={t('cluster.selectHostPlaceholder')}
+            options={hostOptions}
+          />
         )}
       </div>
 
       <div className='space-y-2'>
-        <Label>{ts('roleLabel')}</Label>
+        <span className='block text-xs font-medium text-foreground'>
+          {ts('roleLabel')}
+        </span>
         {isHybrid ? (
           <p className='rounded-md bg-muted/50 px-3 py-2 text-sm'>
             {ts('roleHybridFixed')}
           </p>
         ) : (
-          <Select
+          <SegmentedControl
+            label={ts('roleLabel')}
             value={role}
             onValueChange={(value) => setRole(value as NodeRole)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder={ts('roleSeparatedHint')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NodeRole.MASTER}>
-                {t('cluster.roles.master')}
-              </SelectItem>
-              <SelectItem value={NodeRole.WORKER}>
-                {t('cluster.roles.worker')}
-              </SelectItem>
-            </SelectContent>
-          </Select>
+            options={[
+              {value: NodeRole.MASTER, label: t('cluster.roles.master')},
+              {value: NodeRole.WORKER, label: t('cluster.roles.worker')},
+            ]}
+          />
         )}
       </div>
 
@@ -425,9 +401,7 @@ export function AddNodeDialog({
         </p>
       )}
       {planError && (
-        <p className='break-words text-sm text-red-600'>
-          {ts('planFailed')}: {planError}
-        </p>
+        <ArcAlert tone='danger' title={`${ts('planFailed')}: ${planError}`} />
       )}
     </div>
   );
@@ -444,29 +418,25 @@ export function AddNodeDialog({
     }
     const names = restart.nodes.map((node) => node.host_name).join(', ');
     return (
-      <section className='mt-4 space-y-1.5 rounded-lg border p-3'>
+      <section className='mt-4 space-y-1.5 border-t-[0.5px] border-border/80 pt-4'>
         <div className='flex items-start gap-2'>
-          <label className='flex items-start gap-2 text-sm font-medium'>
-            <Checkbox
-              className='mt-0.5'
-              checked={rollingRestart && restart.available}
-              disabled={!restart.available}
-              onCheckedChange={(checked) => setRollingRestart(checked === true)}
-            />
-            <span>
-              {ts('rollingRestartLabel', {count: restart.nodes.length, names})}
-            </span>
-          </label>
+          <Checkbox
+            checked={rollingRestart && restart.available}
+            disabled={!restart.available}
+            onCheckedChange={(checked) => setRollingRestart(checked === true)}
+            label={ts('rollingRestartLabel', {
+              count: restart.nodes.length,
+              names,
+            })}
+            description={ts('rollingRestartDesc')}
+          />
           <HelpHint
-            className='mt-0.5'
+            className='mt-0.5 shrink-0'
             label={ts('rollingRestartHintLabel')}
             content={ts('rollingRestartWhyHint')}
             data-testid='add-node-rolling-restart-hint'
           />
         </div>
-        <p className='pl-6 text-xs text-muted-foreground'>
-          {ts('rollingRestartDesc')}
-        </p>
         {!restart.available && restart.blocked_reason && (
           <p className='pl-6 text-xs text-amber-700 dark:text-amber-400'>
             {restart.blocked_reason}
@@ -484,94 +454,85 @@ export function AddNodeDialog({
   const renderPlanStep = () =>
     plan && (
       <div className='space-y-4'>
-        <section className='space-y-3 rounded-lg border p-3'>
+        <TableLoadingBar loading={planLoading} />
+        <section className='space-y-3 border-b-[0.5px] border-border/80 pb-4'>
           <p className='text-sm'>{detectionText()}</p>
           <div className='flex flex-wrap items-center gap-3'>
-            <Label className='text-xs text-muted-foreground'>
+            <span className='text-xs font-medium text-muted-foreground'>
               {ts('modeLabel')}
-            </Label>
-            <ToggleGroup
-              type='single'
-              variant='outline'
-              size='sm'
+            </span>
+            <SegmentedControl
+              label={ts('modeLabel')}
               value={mode}
               onValueChange={(value) => {
-                if (value) {
-                  setMode(value as ScaleMode);
-                  setModeTouched(true);
-                  markDirty();
-                }
+                setMode(value as ScaleMode);
+                setModeTouched(true);
+                markDirty();
               }}
-            >
-              <ToggleGroupItem value='install'>
-                {ts('modeInstall')}
-              </ToggleGroupItem>
-              <ToggleGroupItem value='register'>
-                {ts('modeRegister')}
-              </ToggleGroupItem>
-            </ToggleGroup>
+              options={[
+                {value: 'install', label: ts('modeInstall')},
+                {value: 'register', label: ts('modeRegister')},
+              ]}
+            />
             {modeTouched && mode !== plan.detected_mode && (
-              <span className='text-xs text-amber-600'>{ts('modeManual')}</span>
+              <span className='text-xs text-amber-600 dark:text-amber-400'>
+                {ts('modeManual')}
+              </span>
             )}
           </div>
 
           <div className='grid gap-3 md:grid-cols-[2fr_1fr_1fr_1fr]'>
-            <div className='space-y-1'>
-              <Label className='text-xs'>{ts('installDir')}</Label>
-              <Input
-                className='font-mono'
-                value={installDir}
-                onChange={(e) => {
-                  setInstallDir(e.target.value);
-                  markDirty();
-                }}
-              />
-            </div>
-            <div className='space-y-1'>
-              <Label className='text-xs'>{ts('hazelcastPort')}</Label>
+            <Input
+              label={ts('installDir')}
+              className='font-mono'
+              value={installDir}
+              onChange={(e) => {
+                setInstallDir(e.target.value);
+                markDirty();
+              }}
+            />
+            <Input
+              type='number'
+              label={ts('hazelcastPort')}
+              className='font-mono tabular-nums'
+              value={ports.hazelcast_port || ''}
+              onChange={(e) => {
+                setPorts((prev) => ({
+                  ...prev,
+                  hazelcast_port: parsePort(e.target.value),
+                }));
+                markDirty();
+              }}
+            />
+            {plan.target.role !== NodeRole.WORKER && (
               <Input
                 type='number'
-                value={ports.hazelcast_port || ''}
+                label={ts('apiPort')}
+                className='font-mono tabular-nums'
+                value={ports.api_port || ''}
                 onChange={(e) => {
                   setPorts((prev) => ({
                     ...prev,
-                    hazelcast_port: parsePort(e.target.value),
+                    api_port: parsePort(e.target.value),
                   }));
                   markDirty();
                 }}
               />
-            </div>
-            {plan.target.role !== NodeRole.WORKER && (
-              <div className='space-y-1'>
-                <Label className='text-xs'>{ts('apiPort')}</Label>
-                <Input
-                  type='number'
-                  value={ports.api_port || ''}
-                  onChange={(e) => {
-                    setPorts((prev) => ({
-                      ...prev,
-                      api_port: parsePort(e.target.value),
-                    }));
-                    markDirty();
-                  }}
-                />
-              </div>
             )}
             {plan.target.role === NodeRole.MASTER_WORKER && (
-              <div className='space-y-1'>
-                <Label className='text-xs'>{ts('workerPort')}</Label>
-                <Input
-                  type='number'
-                  value={ports.worker_port || ''}
-                  onChange={(e) => {
-                    setPorts((prev) => ({
-                      ...prev,
-                      worker_port: parsePort(e.target.value),
-                    }));
-                    markDirty();
-                  }}
-                />
-              </div>
+              <Input
+                type='number'
+                label={ts('workerPort')}
+                className='font-mono tabular-nums'
+                value={ports.worker_port || ''}
+                onChange={(e) => {
+                  setPorts((prev) => ({
+                    ...prev,
+                    worker_port: parsePort(e.target.value),
+                  }));
+                  markDirty();
+                }}
+              />
             )}
           </div>
           <JavaHomePicker
@@ -582,9 +543,13 @@ export function AddNodeDialog({
                 ? plan.target.java_home || undefined
                 : undefined
             }
-            onChange={({javaHome: next}) => {
+            onChange={({javaHome: next, isAutoPrefill}) => {
               setJavaHome(next);
-              markDirty();
+              // 底层探测自动预填默认 JDK 时不误判计划脏态，仅用户主动切换时触发重新预演。
+              // Automatic probe prefill does not mark the plan dirty; only explicit user changes do.
+              if (!isAutoPrefill) {
+                markDirty();
+              }
             }}
           />
           <div className='space-y-0.5 text-xs text-muted-foreground'>
@@ -594,17 +559,10 @@ export function AddNodeDialog({
         </section>
 
         {planError && (
-          <p className='break-words text-sm text-red-600'>
-            {ts('planFailed')}: {planError}
-          </p>
+          <ArcAlert tone='danger' title={`${ts('planFailed')}: ${planError}`} />
         )}
 
-        {/* 配置变更或重新预检期间半透明保留旧结果，避免高度塌陷 / Keep the old result dimmed while stale or reloading */}
-        <div
-          className={
-            dirty || planLoading ? 'pointer-events-none opacity-60' : ''
-          }
-        >
+        <div>
           <ScalePlanView
             plan={plan}
             restartAck={restartAck}
@@ -622,81 +580,96 @@ export function AddNodeDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className='sm:max-w-4xl' aria-describedby={undefined}>
-        <DialogHeader>
-          <DialogTitle>{t('cluster.addNode')}</DialogTitle>
-        </DialogHeader>
+      <DialogContent
+        className='arc-compact w-[min(94vw,920px)]!'
+        title={t('cluster.addNode')}
+      >
+        <div className='space-y-4'>
+          {renderStepIndicator()}
 
-        {renderStepIndicator()}
+          <div className='max-h-[60vh] overflow-y-auto pr-1'>
+            {step === 'host' && renderHostStep()}
+            {step === 'plan' && renderPlanStep()}
+            {step === 'execute' && operationId !== null && (
+              <ScaleOperationProgress
+                clusterId={clusterId}
+                operationId={operationId}
+                initial={initialOperation}
+                onFinished={handleFinished}
+              />
+            )}
+          </div>
 
-        <div className='max-h-[64vh] overflow-y-auto pr-1'>
-          {step === 'host' && renderHostStep()}
-          {step === 'plan' && renderPlanStep()}
-          {step === 'execute' && operationId !== null && (
-            <ScaleOperationProgress
-              clusterId={clusterId}
-              operationId={operationId}
-              initial={initialOperation}
-              onFinished={handleFinished}
-            />
-          )}
-        </div>
-
-        <DialogFooter className='gap-2 sm:gap-0'>
-          {step === 'host' && (
-            <>
-              <Button variant='outline' onClick={() => handleOpenChange(false)}>
-                {t('common.cancel')}
-              </Button>
-              <Button onClick={() => void runPlan(false)} disabled={!canGoNext}>
-                {planLoading && (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                )}
-                {ts('next')}
-              </Button>
-            </>
-          )}
-          {step === 'plan' && (
-            <>
+          <div className='flex items-center justify-end gap-2 border-t-[0.5px] border-border/80 pt-4'>
+            {step === 'host' && (
+              <>
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={() => handleOpenChange(false)}
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  type='button'
+                  size='sm'
+                  onClick={() => void runPlan(false)}
+                  disabled={!canGoNext}
+                  loading={planLoading}
+                >
+                  {ts('next')}
+                </Button>
+              </>
+            )}
+            {step === 'plan' && (
+              <>
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={() => setStep('host')}
+                  disabled={planLoading || submitting}
+                >
+                  {ts('back')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={() => void runPlan(true)}
+                  disabled={submitting}
+                  loading={planLoading}
+                >
+                  <RefreshCw className='size-3.5' aria-hidden />
+                  {ts('recheck')}
+                </Button>
+                <Button
+                  type='button'
+                  size='sm'
+                  onClick={handleSubmit}
+                  disabled={!canSubmit}
+                  loading={submitting}
+                  title={
+                    plan && !plan.can_submit ? ts('cannotSubmit') : undefined
+                  }
+                >
+                  {ts('submitScaleOut')}
+                </Button>
+              </>
+            )}
+            {step === 'execute' && (
               <Button
-                variant='outline'
-                onClick={() => setStep('host')}
-                disabled={planLoading || submitting}
-              >
-                {ts('back')}
-              </Button>
-              <Button
+                type='button'
                 variant='secondary'
-                onClick={() => void runPlan(true)}
-                disabled={planLoading || submitting}
+                size='sm'
+                onClick={() => handleOpenChange(false)}
               >
-                {planLoading ? (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                ) : (
-                  <RefreshCw className='mr-2 h-4 w-4' />
-                )}
-                {ts('recheck')}
+                {ts('close')}
               </Button>
-              <Button
-                onClick={handleSubmit}
-                disabled={!canSubmit}
-                title={
-                  plan && !plan.can_submit ? ts('cannotSubmit') : undefined
-                }
-              >
-                {submitting && (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                )}
-                {ts('submitScaleOut')}
-              </Button>
-            </>
-          )}
-          {step === 'execute' && (
-            <Button variant='outline' onClick={() => handleOpenChange(false)}>
-              {ts('close')}
-            </Button>
-          )}
-        </DialogFooter>
+            )}
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

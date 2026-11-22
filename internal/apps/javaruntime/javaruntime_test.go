@@ -112,6 +112,12 @@ func TestStatusForTarget(t *testing.T) {
 		{7, "3.0.0", StatusFailed},
 		{8, "2.3.12", StatusPassed},
 		{17, "2.3.12", StatusWarning},
+		// JDK 24+ 移除 Subject.getSubject（JEP 486），任何目标版本都硬失败。
+		// JDK 24+ removed Subject.getSubject (JEP 486); every target hard-fails.
+		{24, "3.0.0", StatusFailed},
+		{25, "3.1.0", StatusFailed},
+		{26, "", StatusFailed},
+		{24, "2.3.12", StatusFailed},
 		// 版本未知（0/-1）保守警告，不阻断。/ Unknown versions degrade to warning, never block.
 		{0, "3.1.0", StatusWarning},
 		{-1, "3.1.0", StatusWarning},
@@ -137,6 +143,24 @@ func TestMinSupportedMajor(t *testing.T) {
 		if got := MinSupportedMajor(tc.target); got != tc.want {
 			t.Fatalf("MinSupportedMajor(%q) = %d, want %d", tc.target, got, tc.want)
 		}
+	}
+	for _, target := range []string{"3.1.0", "3.0.0", "2.3.12", ""} {
+		if got := MaxSupportedMajor(target); got != 23 {
+			t.Fatalf("MaxSupportedMajor(%q) = %d, want 23", target, got)
+		}
+	}
+}
+
+// 旧版 Agent 对 JDK 24+ 只报警告（success=true），Interpret 必须按版本矩阵翻案为失败。
+// An old Agent only warns on JDK 24+ (success=true); Interpret must overturn it to failed.
+func TestInterpretOldAgentFailsAboveSupported(t *testing.T) {
+	out := agentOutput(t, true, "Java version 24 > recommended max 11", map[string]string{
+		"java_home_source": "detected", "java_home": "/opt/jdk24", "java_bin": "/opt/jdk24/bin/java",
+		"installed_version": "24", "version_string": "24.0.1",
+	})
+	r := Interpret("", true, out)
+	if r.Status != StatusFailed || r.Reason != "above_supported_java" || r.Version != 24 {
+		t.Fatalf("JDK 24 via old agent: %+v", r)
 	}
 }
 

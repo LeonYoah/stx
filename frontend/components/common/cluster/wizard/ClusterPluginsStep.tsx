@@ -26,8 +26,6 @@
 'use client';
 
 import React from 'react';
-import {useTranslations} from 'next-intl';
-import {Badge} from '@/components/ui/badge';
 import {PluginSelectStep} from '@/components/common/installer/PluginSelectStep';
 import {ClusterDeployConfig} from './types';
 
@@ -42,64 +40,39 @@ export function ClusterPluginsStep({
   config,
   updateConfig,
 }: ClusterPluginsStepProps) {
-  const t = useTranslations();
-
+  // 紧凑 + 隐藏镜像源（已在配置步统一设置），避免双层标题与卡片嵌套
+  // compact + hideMirror (mirror is set once in the config step); no nested titles/cards
   return (
-    <div className='h-full flex flex-col overflow-hidden'>
-      {/* Top Header / 顶部摘要栏 */}
-      <div className='flex items-center justify-between pb-3 border-b mb-3'>
-        <div className='flex items-center gap-2'>
-          <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
-            {t('cluster.wizard.pluginsLibrary')}
-          </span>
-          <Badge
-            variant='outline'
-            className='text-[10px] h-4 text-muted-foreground'
-          >
-            {t('cluster.wizard.optionalConfig')}
-          </Badge>
-        </div>
-
-        <Badge
-          variant={config.selectedPlugins.length > 0 ? 'default' : 'outline'}
-          className='text-xs h-5 px-2 font-mono'
-        >
-          {t('cluster.wizard.pluginsSelectedCount', {
-            count: config.selectedPlugins.length,
-          })}
-        </Badge>
-      </div>
-
-      {/* Plugin Selector Container / 插件选择器容器 */}
-      <div className='flex-1 min-h-0 overflow-hidden'>
-        <PluginSelectStep
-          version={config.version}
-          mirror={config.mirror}
-          onMirrorChange={(mirror) => updateConfig({mirror})}
-          selectedPlugins={config.selectedPlugins}
-          selectedPluginProfiles={config.selectedPluginProfiles}
-          onPluginsChange={(plugins) => {
-            const selectedPluginSet = new Set(plugins);
-            const nextProfiles = Object.fromEntries(
-              Object.entries(config.selectedPluginProfiles).filter(
-                ([pluginName]) => selectedPluginSet.has(pluginName),
-              ),
-            );
-            updateConfig({
-              selectedPlugins: plugins,
-              selectedPluginProfiles: nextProfiles,
-            });
-          }}
-          onPluginProfilesChange={(pluginName, profileKeys) =>
-            updateConfig({
-              selectedPluginProfiles: {
-                ...config.selectedPluginProfiles,
-                [pluginName]: profileKeys,
-              },
-            })
-          }
-        />
-      </div>
+    <div className='h-full min-h-0'>
+      <PluginSelectStep
+        compact
+        hideMirror
+        version={config.version}
+        mirror={config.mirror}
+        onMirrorChange={(mirror) => updateConfig({mirror})}
+        selectedPlugins={config.selectedPlugins}
+        selectedPluginProfiles={config.selectedPluginProfiles}
+        onPluginsChange={(plugins) => {
+          const selectedPluginSet = new Set(plugins);
+          const nextProfiles = Object.fromEntries(
+            Object.entries(config.selectedPluginProfiles).filter(
+              ([pluginName]) => selectedPluginSet.has(pluginName),
+            ),
+          );
+          updateConfig({
+            selectedPlugins: plugins,
+            selectedPluginProfiles: nextProfiles,
+          });
+        }}
+        onPluginProfilesChange={(pluginName, profileKeys) =>
+          updateConfig({
+            selectedPluginProfiles: {
+              ...config.selectedPluginProfiles,
+              [pluginName]: profileKeys,
+            },
+          })
+        }
+      />
     </div>
   );
 }

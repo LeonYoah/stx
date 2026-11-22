@@ -207,3 +207,38 @@ func TestBuildClusterMonitorParamsCarriesNodeJavaHome(t *testing.T) {
 		t.Fatalf("tracked java_home = %+v", tracked)
 	}
 }
+
+func TestBuildClusterMonitorParamsSkipsUnstartedAndStoppedNodes(t *testing.T) {
+	cfg := &monitor.MonitorConfig{ClusterID: 6, AutoMonitor: true, AutoRestart: true, MonitorInterval: 11, ConfigVersion: 4}
+	nodes := []*NodeWithMonitorConfig{
+		{ClusterID: 6, NodeID: 1, InstallDir: "/opt/st-pending", Role: "master/worker", ProcessPID: 0, Status: "pending", MonitorConfig: cfg},
+		{ClusterID: 6, NodeID: 2, InstallDir: "/opt/st-installing", Role: "master/worker", ProcessPID: 0, Status: "installing"},
+		{ClusterID: 6, NodeID: 3, InstallDir: "/opt/st-stopped", Role: "master/worker", ProcessPID: 0, Status: "stopped"},
+	}
+
+	params, count, err := buildClusterMonitorParams(6, nodes, nil)
+	if err != nil {
+		t.Fatalf("buildClusterMonitorParams (only unstarted/stopped): %v", err)
+	}
+	if count != 0 || params["tracked_processes"] != "[]" {
+		t.Fatalf("unstarted/stopped nodes with pid=0 must not be tracked, got count=%d tracked=%s", count, params["tracked_processes"])
+	}
+	if params["monitor_interval"] != "11" || params["config_version"] != "4" {
+		t.Fatalf("monitor config from cluster nodes should still be preserved, got %+v", params)
+	}
+
+	trackableNodes := []*NodeWithMonitorConfig{
+		{ClusterID: 6, NodeID: 4, InstallDir: "/opt/st-running-0", Role: "master", ProcessPID: 0, Status: "running"},
+		{ClusterID: 6, NodeID: 5, InstallDir: "/opt/st-running-pid", Role: "worker", ProcessPID: 505, Status: "running"},
+		{ClusterID: 6, NodeID: 6, InstallDir: "/opt/st-error", Role: "master", ProcessPID: 0, Status: "error"},
+		{ClusterID: 6, NodeID: 7, InstallDir: "/opt/st-stopped-pid", Role: "worker", ProcessPID: 707, Status: "stopped"},
+	}
+	params, count, err = buildClusterMonitorParams(6, trackableNodes, nil)
+	if err != nil {
+		t.Fatalf("buildClusterMonitorParams (trackable nodes): %v", err)
+	}
+	tracked := decodeTracked(t, params)
+	if count != 4 || len(tracked) != 4 {
+		t.Fatalf("expected 4 trackable nodes (running/error/live pid), got count=%d tracked=%+v", count, tracked)
+	}
+}

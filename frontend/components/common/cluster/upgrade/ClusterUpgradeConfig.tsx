@@ -21,17 +21,12 @@ import {type ReactNode, useEffect, useMemo, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {toast} from '@/lib/toast';
-import {AlertTriangle, ArrowLeft, FileDiff, Save} from 'lucide-react';
+import {AlertTriangle, ArrowLeft, CheckCircle2, FileDiff, Save} from 'lucide-react';
+import {Alert as ArcAlert} from '@/components/arc/alert/alert';
 import {Button} from '@/components/arc/button/button';
 import {Badge} from '@/components/arc/badge/badge';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
 import {WorkspaceHeader} from '@/components/common/layout';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import {Textarea} from '@/components/ui/textarea';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Tabs, TabsList, TabsTrigger} from '@/components/arc/tabs/tabs';
@@ -342,7 +337,10 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
 
   if (!hydrated) {
     return (
-      <div className='upgrade-page' data-testid='upgrade-config-page'>
+      <div
+        className='upgrade-page arc-compact'
+        data-testid='upgrade-config-page'
+      >
         <WorkspaceHeader
           breadcrumbs={[
             {
@@ -362,22 +360,13 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
           subtitle={<span>{t('configDescription')}</span>}
         />
         <UpgradeSteps current='config' clusterId={clusterId} />
-        <div className='space-y-6'>
-          <Skeleton className='h-12 w-full' />
-          <Card>
-            <CardHeader>
-              <Skeleton className='h-6 w-48' />
-              <Skeleton className='mt-2 h-4 w-full' />
-            </CardHeader>
-            <CardContent>
-              <div className='grid grid-cols-1 gap-4 xl:grid-cols-3'>
-                <Skeleton className='h-96 w-full' />
-                <Skeleton className='h-96 w-full' />
-                <Skeleton className='h-96 w-full' />
-              </div>
-            </CardContent>
-          </Card>
-          <Skeleton className='h-10 w-32' />
+        <div className='rounded-(--radius-panel) border border-(--border) bg-card p-5 space-y-4'>
+          <Skeleton className='h-9 w-80' />
+          <div className='grid grid-cols-1 gap-4 border-t-[0.5px] border-border/80 pt-4 xl:grid-cols-3'>
+            <Skeleton className='h-80 w-full' />
+            <Skeleton className='h-80 w-full' />
+            <Skeleton className='h-80 w-full' />
+          </div>
         </div>
       </div>
     );
@@ -385,28 +374,56 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
 
   if (!request || !mergePlan) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('configTitle')}</CardTitle>
-          <CardDescription>{t('missingDraft')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button
-            size='sm'
-            onClick={() =>
-              router.push(`/clusters/${clusterId}/upgrade/prepare`)
+      <div
+        className='upgrade-page arc-compact'
+        data-testid='upgrade-config-page'
+      >
+        <WorkspaceHeader
+          breadcrumbs={[
+            {
+              label: t('clusterDetailBreadcrumb'),
+              href: `/clusters/${clusterId}`,
+            },
+            {
+              label: t('prepareTitle'),
+              href: `/clusters/${clusterId}/upgrade/prepare`,
+            },
+            {
+              label: t('configTitle'),
+            },
+          ]}
+          icon={<FileDiff />}
+          title={t('configTitle')}
+          subtitle={<span>{t('configDescription')}</span>}
+        />
+        <UpgradeSteps current='config' clusterId={clusterId} />
+        <div className='rounded-(--radius-panel) border border-(--border) bg-card px-6 py-10'>
+          <EmptyState
+            icon={<FileDiff />}
+            title={t('configTitle')}
+            description={t('missingDraft')}
+            action={
+              <Button
+                size='sm'
+                onClick={() =>
+                  router.push(`/clusters/${clusterId}/upgrade/prepare`)
+                }
+              >
+                <ArrowLeft className='size-3.5' aria-hidden />
+                {t('startFromPrepare')}
+              </Button>
             }
-          >
-            <ArrowLeft className='size-3.5' />
-            {t('startFromPrepare')}
-          </Button>
-        </CardContent>
-      </Card>
+          />
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className='upgrade-page' data-testid='upgrade-config-page'>
+    <div
+      className='upgrade-page arc-compact'
+      data-testid='upgrade-config-page'
+    >
       <WorkspaceHeader
         breadcrumbs={[
           {
@@ -424,7 +441,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
         icon={<FileDiff />}
         title={t('configTitle')}
         subtitle={
-          <span className='inline-flex flex-wrap items-center gap-1.5'>
+          <span className='inline-flex flex-wrap items-center gap-1.5 tabular-nums'>
             <span>
               {t('targetVersion')}: {request.target_version}
             </span>
@@ -454,7 +471,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
                 router.push(`/clusters/${clusterId}/upgrade/prepare`)
               }
             >
-              <ArrowLeft className='size-3.5' />
+              <ArrowLeft className='size-3.5' aria-hidden />
               {t('backToPrepare')}
             </Button>
             {/* 只渲染一个 Button：有未处理差异时用 aria-disabled + Tooltip，状态变化不重新挂载 */}
@@ -473,7 +490,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
                   void handleCreatePlan();
                 }}
               >
-                <Save className='size-3.5' />
+                <Save className='size-3.5' aria-hidden />
                 {creatingPlan ? t('creatingPlan') : t('createPlan')}
               </Button>
             </DisabledReasonTooltip>
@@ -484,87 +501,100 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
       <UpgradeSteps current='config' clusterId={clusterId} />
 
       {blockedIssues.length > 0 ? (
-        <Card
-          className='border-amber-500/40 bg-amber-500/5'
+        <section
+          className='overflow-hidden rounded-(--radius-panel) border border-amber-500/40 bg-card px-5 py-4'
           data-testid='upgrade-config-blocked-issues'
         >
-          <CardHeader>
-            <CardTitle className='flex items-center gap-2 text-base'>
-              <AlertTriangle className='h-4 w-4 text-amber-600' />
-              {t('planBlockedIssuesTitle')}
-            </CardTitle>
-            <CardDescription>{t('planBlockedIssuesDescription')}</CardDescription>
-          </CardHeader>
-          <CardContent className='space-y-3'>
+          <div className='flex flex-wrap items-start justify-between gap-3 pb-3'>
+            <div className='space-y-0.5'>
+              <h2 className='flex items-center gap-2 text-sm font-semibold text-foreground'>
+                <AlertTriangle className='size-4 text-amber-600' aria-hidden />
+                {t('planBlockedIssuesTitle')}
+              </h2>
+              <p className='text-xs text-muted-foreground'>
+                {t('planBlockedIssuesDescription')}
+              </p>
+            </div>
+            <Button
+              variant='secondary'
+              size='sm'
+              onClick={() =>
+                router.push(`/clusters/${clusterId}/upgrade/prepare`)
+              }
+            >
+              <ArrowLeft className='size-3.5' aria-hidden />
+              {t('backToPrepare')}
+            </Button>
+          </div>
+          <div className='divide-y-[0.5px] divide-border/70 border-t-[0.5px] border-border/80'>
             {blockedIssues.map((issue) => (
               <div
                 key={`${issue.category}-${issue.code}-${issue.message}`}
-                className='rounded-md border bg-background/70 p-3 text-sm'
+                className='py-2.5 text-xs'
               >
                 <div className='flex flex-wrap items-center gap-2'>
                   <Badge tone='danger' outline size='sm'>
                     {getIssueCategoryLabel(issue.category)}
                   </Badge>
-                  <span className='font-medium text-foreground'>{issue.code}</span>
+                  <span className='font-mono font-medium text-foreground'>
+                    {issue.code}
+                  </span>
                 </div>
-                <div className='mt-2 text-muted-foreground'>{issue.message}</div>
+                <div className='mt-1 text-muted-foreground'>{issue.message}</div>
               </div>
             ))}
-            <div className='flex flex-wrap gap-2 pt-1'>
-              <Button
-                variant='secondary'
-                size='sm'
-                onClick={() =>
-                  router.push(`/clusters/${clusterId}/upgrade/prepare`)
-                }
-              >
-                <ArrowLeft className='size-3.5' />
-                {t('backToPrepare')}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       ) : null}
 
-      <div
-        className={cn(
-          'rounded-lg border p-4',
+      <ArcAlert
+        tone={unresolvedCount === 0 ? 'success' : 'warning'}
+        title={
           unresolvedCount === 0
-            ? 'border-emerald-500/30 bg-emerald-500/5'
-            : 'border-amber-500/30 bg-amber-500/5',
-        )}
-      >
-        <div className='flex items-start gap-3'>
-          <AlertTriangle
-            className={cn(
-              'mt-0.5 h-4 w-4 shrink-0',
-              unresolvedCount === 0 ? 'text-emerald-600' : 'text-amber-600',
-            )}
-          />
-          <div className='text-sm font-medium'>
-            {unresolvedCount === 0
-              ? t('configReadyToPlan')
-              : t('configManualResolutionNotice')}
-          </div>
-        </div>
-      </div>
+            ? t('configReadyToPlan')
+            : t('configManualResolutionNotice')
+        }
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className='flex items-center gap-2'>
-            {t('mergePlanFiles')}
-            <HelpHint
-              label={t('mergePlanFiles')}
-              content={t('mergeGuide')}
-              data-testid='upgrade-config-merge-guide-hint'
-            />
-          </CardTitle>
-        </CardHeader>
-        <CardContent className='space-y-4'>
+      {/* 文件 Tab 与三栏合并器收敛到同一张通栏单层扁平画布，以 0.5px 细线分隔 */}
+      {/* File tabs and 3-column merge editor unified in one full-width flat single-layer surface */}
+      <section className='overflow-hidden rounded-(--radius-panel) border border-(--border) bg-card'>
+        <div className='space-y-3 px-5 py-4'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <h2 className='flex items-center gap-1.5 text-sm font-semibold text-foreground'>
+              {t('mergePlanFiles')}
+              <HelpHint
+                label={t('mergePlanFiles')}
+                content={t('mergeGuide')}
+                data-testid='upgrade-config-merge-guide-hint'
+              />
+            </h2>
+            {selectedFile ? (
+              <div className='flex items-center gap-2 text-xs text-muted-foreground'>
+                <span
+                  className='max-w-[360px] truncate font-mono'
+                  title={selectedFile.target_path}
+                >
+                  {selectedFile.target_path}
+                </span>
+                <Badge
+                  tone={selectedFile.conflict_count > 0 ? 'danger' : 'success'}
+                  outline
+                  dot
+                  size='sm'
+                >
+                  {getFileBadgeLabel(selectedFile, t)}
+                </Badge>
+              </div>
+            ) : null}
+          </div>
+
           {mergePlan.files.length === 0 ? (
-            <div className='rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-              {t('noConfigFiles')}
-            </div>
+            <EmptyState
+              icon={<FileDiff />}
+              title={t('noConfigFiles')}
+              description={t('mergeGuide')}
+            />
           ) : (
             <Tabs
               value={selectedConfigType}
@@ -572,10 +602,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
             >
               <TabsList aria-label={t('mergePlanFiles')}>
                 {mergePlan.files.map((file) => (
-                  <TabsTrigger
-                    key={file.config_type}
-                    value={file.config_type}
-                  >
+                  <TabsTrigger key={file.config_type} value={file.config_type}>
                     <span>{file.config_type}</span>
                     {/* 冲突文件用红色数字角标，无冲突用状态文案 / Conflict count badge vs status label */}
                     {file.conflict_count > 0 ? (
@@ -597,80 +624,61 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
               </TabsList>
             </Tabs>
           )}
-        </CardContent>
-      </Card>
+        </div>
 
-      {selectedFile ? (
-        <Card className='mx-auto max-w-[1800px]'>
-          <CardHeader>
-            <div className='flex flex-wrap items-center justify-between gap-2'>
-              <div>
-                <CardTitle>{selectedFile.config_type}</CardTitle>
-                <CardDescription>{selectedFile.target_path}</CardDescription>
-              </div>
-              <Badge
-                tone={selectedFile.conflict_count > 0 ? 'danger' : 'success'}
-                outline
-                dot
-                size='sm'
-              >
-                {getFileBadgeLabel(selectedFile, t)}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className='space-y-6'>
+        {selectedFile ? (
+          <div className='border-t-[0.5px] border-border/80'>
             {selectedFileSummary &&
             selectedFileSummary.state !== 'manual_pending' ? (
-              <div className='rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm font-medium text-foreground'>
-                {t(selectedFileSummary.titleKey)}
+              <div className='flex items-center gap-2 border-b-[0.5px] border-border/80 bg-emerald-500/5 px-5 py-2.5 text-xs font-medium text-emerald-700 dark:text-emerald-300'>
+                <CheckCircle2 className='size-3.5 shrink-0' aria-hidden />
+                <span>{t(selectedFileSummary.titleKey)}</span>
               </div>
             ) : null}
 
-            <div className='grid gap-3 xl:grid-cols-[minmax(0,1fr)_7.5rem_minmax(0,1fr)_7.5rem_minmax(0,1fr)]'>
-              <PaneHeader
-                title={t('localConfig')}
-                action={
-                  <Button
-                    size='sm'
-                    variant='secondary'
-                    onClick={() => handleApplyFileSource('old')}
-                  >
-                    {t('applyOldFile')}
-                  </Button>
-                }
-              />
-              <div />
-              <PaneHeader
-                title={t('mergedResult')}
-                hint={t('mergedResultDescription')}
-              />
-              <div />
-              <PaneHeader
-                title={t('targetConfig')}
-                action={
-                  <Button
-                    size='sm'
-                    variant='secondary'
-                    onClick={() => handleApplyFileSource('new')}
-                  >
-                    {t('applyNewFile')}
-                  </Button>
-                }
-              />
-            </div>
-
             {selectedRows.length === 0 ? (
-              <div className='space-y-3 rounded-lg border border-dashed p-4 text-sm'>
-                <div className='font-medium text-foreground'>
-                  {t('noConflicts')}
-                </div>
-                <div className='text-muted-foreground'>
-                  {t('noConfigFiles')}
-                </div>
+              <div className='px-6 py-8'>
+                <EmptyState
+                  icon={<FileDiff />}
+                  title={t('noConflicts')}
+                  description={t('noConfigFiles')}
+                />
               </div>
             ) : (
-              <div className='overflow-auto rounded-lg border'>
+              <div className='overflow-x-auto'>
                 <div className='min-w-[1180px]'>
+                  <div className='grid grid-cols-[minmax(0,1fr)_7.5rem_minmax(0,1fr)_7.5rem_minmax(0,1fr)] border-b-[0.5px] border-border/80 bg-muted/20'>
+                    <PaneHeader
+                      title={t('localConfig')}
+                      action={
+                        <Button
+                          size='sm'
+                          variant='secondary'
+                          onClick={() => handleApplyFileSource('old')}
+                        >
+                          {t('applyOldFile')}
+                        </Button>
+                      }
+                    />
+                    <div className='border-x-[0.5px] border-border/70' />
+                    <PaneHeader
+                      title={t('mergedResult')}
+                      hint={t('mergedResultDescription')}
+                    />
+                    <div className='border-x-[0.5px] border-border/70' />
+                    <PaneHeader
+                      title={t('targetConfig')}
+                      action={
+                        <Button
+                          size='sm'
+                          variant='secondary'
+                          onClick={() => handleApplyFileSource('new')}
+                        >
+                          {t('applyNewFile')}
+                        </Button>
+                      }
+                    />
+                  </div>
                   {selectedRows.map((row) => (
                     <MergeEditorRowItem
                       key={row.id}
@@ -687,9 +695,9 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
-      ) : null}
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }
@@ -702,8 +710,8 @@ interface PaneHeaderProps {
 
 function PaneHeader({title, hint, action}: PaneHeaderProps) {
   return (
-    <div className='flex min-h-12 items-start justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2'>
-      <div className='flex items-center gap-2 text-sm font-medium'>
+    <div className='flex min-h-11 items-center justify-between gap-2 px-3 py-2'>
+      <div className='flex items-center gap-1.5 text-xs font-semibold text-foreground'>
         {title}
         {hint ? (
           <HelpHint
@@ -738,7 +746,7 @@ function MergeEditorRowItem({
   return (
     <div
       className={cn(
-        'grid grid-cols-[minmax(0,1fr)_7.5rem_minmax(0,1fr)_7.5rem_minmax(0,1fr)] items-stretch border-b last:border-b-0',
+        'grid grid-cols-[minmax(0,1fr)_7.5rem_minmax(0,1fr)_7.5rem_minmax(0,1fr)] items-stretch border-b-[0.5px] border-border/70 last:border-b-0',
         row.changed ? 'bg-amber-500/[0.03]' : 'bg-background',
       )}
     >
@@ -781,7 +789,7 @@ interface RowActionCellProps {
 
 function RowActionCell({visible, label, onClick}: RowActionCellProps) {
   return (
-    <div className='flex items-stretch justify-center border-x bg-muted/20 p-2'>
+    <div className='flex items-stretch justify-center border-x-[0.5px] border-border/70 bg-muted/15 p-2'>
       {visible ? (
         <Button size='sm' variant='secondary' onClick={onClick}>
           {label}
@@ -808,10 +816,10 @@ function CodeLineCell({lineNumber, value, variant}: CodeLineCellProps) {
         variant === 'new' && 'bg-emerald-500/10',
       )}
     >
-      <div className='border-r px-2 py-2 text-right text-[11px] leading-5 text-muted-foreground'>
+      <div className='border-r-[0.5px] border-border/70 px-2 py-2 text-right text-[11px] leading-5 text-muted-foreground tabular-nums'>
         {lineNumber || ''}
       </div>
-      <div className='px-3 py-2 whitespace-pre-wrap break-all leading-5'>
+      <div className='overflow-x-auto px-3 py-2 whitespace-pre-wrap break-words leading-5'>
         {value || ' '}
       </div>
     </div>
@@ -836,18 +844,18 @@ function ResultLineCell({
   return (
     <div
       className={cn(
-        'grid grid-cols-[52px_minmax(0,1fr)] border-x font-mono text-xs',
+        'grid grid-cols-[52px_minmax(0,1fr)] font-mono text-xs',
         !row.changed && 'bg-muted/10',
         row.changed && !row.resolved && 'bg-amber-500/10',
         highlighted && 'bg-primary/10 transition-colors',
       )}
     >
-      <div className='border-r px-2 py-2 text-right text-[11px] leading-5 text-muted-foreground'>
+      <div className='border-r-[0.5px] border-border/70 px-2 py-2 text-right text-[11px] leading-5 text-muted-foreground tabular-nums'>
         {row.resultLineNumber}
       </div>
       <div className='px-3 py-1.5'>
         {!row.resultPresent && row.resolved ? (
-          <div className='rounded border border-dashed border-muted-foreground/40 px-2 py-1.5 text-xs text-muted-foreground'>
+          <div className='py-1 text-xs italic text-muted-foreground'>
             {removedLabel}
           </div>
         ) : (

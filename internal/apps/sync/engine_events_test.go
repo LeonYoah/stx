@@ -136,6 +136,61 @@ func TestEnableEventChannelForInstallUsesPackageVersion(t *testing.T) {
 	})
 }
 
+// TestEventChannelWaitingEventsLifecycle 覆盖 waiting_events ↔ pending_restart 语义：
+// 安装期写入不标记重启（waiting_events），首批事件落库清除 restart_required 并转 healthy。
+// TestEventChannelWaitingEventsLifecycle covers waiting_events vs pending_restart semantics:
+// install-time writes need no restart (waiting_events), and the first event batch clears
+// restart_required and turns the channel healthy.
+func TestEventChannelWaitingEventsLifecycle(t *testing.T) {
+	withEventConfig(t, "secret", "http://stx")
+	ctx := context.Background()
+
+	t.Run("install enable waits for events without restart", func(t *testing.T) {
+		service, _ := newEventTestService(t, "3.0.0")
+		if err := service.EnableEventChannelForInstall(ctx, 8, "3.0.0"); err != nil {
+			t.Fatalf("enable for install: %v", err)
+		}
+		channel, err := service.repo.GetEngineEventChannel(ctx, 8)
+		if err != nil {
+			t.Fatalf("load channel: %v", err)
+		}
+		if channel.RestartRequired || eventChannelState(channel) != EventChannelStateWaitingEvents {
+			t.Fatalf("install path must be waiting_events without restart, got %+v", channel)
+		}
+		status, err := service.GetEventChannel(ctx, 8)
+		if err != nil || status.RestartRequired || status.State != EventChannelStateWaitingEvents {
+			t.Fatalf("unexpected status: %+v err=%v", status, err)
+		}
+
+		// 首批事件落库：restart_required 清回 false，通道转 healthy。
+		// First event batch: restart_required clears and the channel turns healthy.
+		auth := "Bearer " + buildEngineEventToken(8, channel.TokenNonce)
+		if _, err := service.IngestEngineEvents(ctx, 8, auth, []byte(`[{"jobId":"9","jobStatus":"RUNNING","createdTime":1,"eventType":"JOB_STATUS"}]`)); err != nil {
+			t.Fatalf("ingest: %v", err)
+		}
+		channel, err = service.repo.GetEngineEventChannel(ctx, 8)
+		if err != nil || channel.RestartRequired || eventChannelState(channel) != EventChannelStateHealthy {
+			t.Fatalf("first event must clear restart flag and turn healthy, got %+v", channel)
+		}
+	})
+
+	t.Run("actor enable then disable clears restart flag", func(t *testing.T) {
+		service, _ := newEventTestService(t, "3.0.0")
+		enabled, disabled := true, false
+		status, err := service.UpdateEventChannelForActor(ctx, adminActor, 9, &UpdateEventChannelRequest{Enabled: &enabled})
+		if err != nil || status.State != EventChannelStatePendingRestart || !status.RestartRequired {
+			t.Fatalf("actor enable must be pending_restart, got %+v err=%v", status, err)
+		}
+		if _, err := service.UpdateEventChannelForActor(ctx, adminActor, 9, &UpdateEventChannelRequest{Enabled: &disabled}); err != nil {
+			t.Fatalf("disable: %v", err)
+		}
+		channel, err := service.repo.GetEngineEventChannel(ctx, 9)
+		if err != nil || channel.RestartRequired {
+			t.Fatalf("disable must clear restart_required, got %+v", channel)
+		}
+	})
+}
+
 func TestUpdateEventChannel(t *testing.T) {
 	withEventConfig(t, "secret", "http://stx.example.com:17800/")
 	ctx := context.Background()
@@ -408,7 +463,8 @@ func TestEventChannelState(t *testing.T) {
 	}{
 		{name: "nil", channel: nil, want: EventChannelStateDisabled},
 		{name: "disabled", channel: &EngineEventChannel{}, want: EventChannelStateDisabled},
-		{name: "waiting for restart", channel: &EngineEventChannel{Enabled: true}, want: EventChannelStatePendingRestart},
+		{name: "waiting for restart", channel: &EngineEventChannel{Enabled: true, RestartRequired: true}, want: EventChannelStatePendingRestart},
+		{name: "waiting for first event", channel: &EngineEventChannel{Enabled: true}, want: EventChannelStateWaitingEvents},
 		{name: "healthy", channel: &EngineEventChannel{Enabled: true, LastEventAt: &now}, want: EventChannelStateHealthy},
 		{name: "missed expectation", channel: &EngineEventChannel{Enabled: true, LastEventAt: &now, ExpectMissedAt: &now}, want: EventChannelStateDegraded},
 		{name: "recovered", channel: &EngineEventChannel{Enabled: true, LastEventAt: &now, ExpectMissedAt: &earlier, ExpectSatisfiedAt: &now}, want: EventChannelStateHealthy},

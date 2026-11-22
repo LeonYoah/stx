@@ -92,11 +92,11 @@ func (s *Server) PushClusterMonitorConfigToHost(ctx context.Context, clusterID u
 	return nil
 }
 
-// buildClusterMonitorParams 构建按 cluster_id 限定的 UPDATE_MONITOR_CONFIG 参数：只纳入该集群且有安装目录的节点，
-// tracked_processes 始终存在（无节点时为 "[]"），使 Agent 进入“按集群替换”分支而不是跳过。
-// buildClusterMonitorParams builds cluster-scoped UPDATE_MONITOR_CONFIG params: only this cluster's nodes
-// with an install directory are included, and tracked_processes is always present ("[]" when empty) so the
-// Agent takes the "replace by cluster" branch instead of skipping.
+// buildClusterMonitorParams 构建按 cluster_id 限定的 UPDATE_MONITOR_CONFIG 参数：只纳入该集群中已运行或可监控的节点，
+// tracked_processes 始终存在（无可跟踪节点时为 "[]"），使 Agent 进入“按集群替换”分支而不是跳过。
+// buildClusterMonitorParams builds cluster-scoped UPDATE_MONITOR_CONFIG params: only this cluster's running or
+// monitorable nodes are included, and tracked_processes is always present ("[]" when empty) so the Agent takes the
+// "replace by cluster" branch instead of skipping.
 func buildClusterMonitorParams(clusterID uint, nodes []*NodeWithMonitorConfig, fallback *monitor.MonitorConfig) (map[string]string, int, error) {
 	tracked := make([]map[string]interface{}, 0)
 	var config *monitor.MonitorConfig
@@ -107,7 +107,7 @@ func buildClusterMonitorParams(clusterID uint, nodes []*NodeWithMonitorConfig, f
 		if config == nil && node.MonitorConfig != nil {
 			config = node.MonitorConfig
 		}
-		if strings.TrimSpace(node.InstallDir) == "" {
+		if !shouldTrackNodeForMonitor(node) {
 			continue
 		}
 		tracked = append(tracked, map[string]interface{}{
@@ -143,4 +143,27 @@ func buildClusterMonitorParams(clusterID uint, nodes []*NodeWithMonitorConfig, f
 		"tracked_processes": string(processesJSON),
 	}
 	return params, len(tracked), nil
+}
+
+// shouldTrackNodeForMonitor 判断节点是否应纳入 Agent 进程监控跟踪列表。
+// 尚未完成安装启动（pending / installing）或已停止且无存活 PID（stopped）的节点不能以 PID=0 下发，
+// 否则 Agent 在 auto_restart=true 时会把未安装、安装中或手动停止的节点误当崩溃进程自动拉起，
+// 甚至与安装器的首次启动竞态导致 "process is already running"。
+// shouldTrackNodeForMonitor reports whether a node belongs in the Agent's tracked process list.
+// Unstarted (pending / installing) or stopped nodes without a live PID must not be pushed with PID=0,
+// or the Agent treats them as crashed when auto_restart=true and auto-starts uninstalled, installing,
+// or manually stopped nodes — racing with the installer's first start ("process is already running").
+func shouldTrackNodeForMonitor(node *NodeWithMonitorConfig) bool {
+	if node == nil || strings.TrimSpace(node.InstallDir) == "" {
+		return false
+	}
+	if node.ProcessPID > 0 {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(node.Status)) {
+	case "pending", "installing", "stopped":
+		return false
+	default:
+		return true
+	}
 }

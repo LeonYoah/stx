@@ -445,3 +445,53 @@ func TestAdvertiseSTXJavaProxyEndpoint(t *testing.T) {
 		})
 	}
 }
+
+// TestStartSTXJavaProxyForwardsNodeJavaHome 校验启动/重启 stx-java-proxy 时会透传承载节点的 java_home。
+// TestStartSTXJavaProxyForwardsNodeJavaHome verifies that start/restart commands forward the hosting node's java_home.
+func TestStartSTXJavaProxyForwardsNodeJavaHome(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	hostProvider := NewMockHostProvider()
+	service := NewService(repo, hostProvider, nil)
+	lastHeartbeat := time.Now()
+	hostProvider.AddHost(&HostInfo{
+		ID:            1,
+		Name:          "master-1",
+		IPAddress:     "10.0.0.1",
+		AgentID:       "agent-master-1",
+		AgentStatus:   "installed",
+		LastHeartbeat: &lastHeartbeat,
+	})
+	sender := &stxJavaProxyAgentSender{
+		success:  true,
+		response: `{"service":"stx_java_proxy","managed":true,"running":true,"healthy":true,"port":18080}`,
+	}
+	service.SetAgentCommandSender(sender)
+
+	clusterInfo, err := service.Create(context.Background(), &CreateClusterRequest{
+		Name:           "cluster-jdk",
+		Version:        "3.1.0",
+		InstallDir:     "/tmp/seatunnel-3.1.0",
+		DeploymentMode: DeploymentModeHybrid,
+	})
+	if err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+	if _, err := service.AddNode(context.Background(), clusterInfo.ID, &AddNodeRequest{
+		HostID:     1,
+		Role:       NodeRoleMasterWorker,
+		InstallDir: "/tmp/seatunnel-3.1.0",
+		JavaHome:   "/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home",
+	}); err != nil {
+		t.Fatalf("add node: %v", err)
+	}
+
+	if _, err := service.StartSTXJavaProxy(context.Background(), clusterInfo.ID); err != nil {
+		t.Fatalf("StartSTXJavaProxy: %v", err)
+	}
+	if got := sender.lastParams["java_home"]; got != "/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home" {
+		t.Fatalf("expected java_home param to match node JDK, got %q (params=%#v)", got, sender.lastParams)
+	}
+}

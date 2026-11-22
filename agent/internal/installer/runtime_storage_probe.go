@@ -629,9 +629,16 @@ func ensureSTXJavaProxyService(
 		logger.WarnF(ctx, "[stx-java-proxy] ensure support assets before resolve failed: %v", err)
 	}
 
-	scriptPath, err := resolveSTXJavaProxyScriptPath(installDir)
-	if err != nil {
-		return "", err
+	// 默认 Go 直启不依赖脚本；只有显式设置 STX_JAVA_PROXY_SCRIPT 时才强制走脚本路径（兼容旧测试与人工脚本）。
+	// The default direct-Java launch needs no script; only an explicit STX_JAVA_PROXY_SCRIPT forces
+	// the script path (keeps mock-script tests and manual launches working).
+	scriptPath := ""
+	if strings.TrimSpace(os.Getenv(stxJavaProxyScriptEnvVar)) != "" {
+		var err error
+		scriptPath, err = resolveSTXJavaProxyScriptPath(installDir)
+		if err != nil {
+			return "", err
+		}
 	}
 	jarPath, err := resolveSTXJavaProxyJarPath(installDir, seatunnelVersion)
 	if err != nil {
@@ -735,24 +742,8 @@ func startSTXJavaProxyService(
 		}
 	}
 
-	command := fmt.Sprintf(
-		"nohup bash %q -Dstx.java.proxy.port=%d >> %q 2>&1 < /dev/null & echo $!",
-		scriptPath,
-		port,
-		logPath,
-	)
-	startCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(startCtx, "bash", "-lc", command)
-	env := append(
-		os.Environ(),
-		fmt.Sprintf("SEATUNNEL_HOME=%s", installDir),
-		fmt.Sprintf("%s=%s", stxJavaProxyHomeEnvVar, resolveSTXJavaProxyHome(installDir)),
-		fmt.Sprintf("%s=%s", stxJavaProxyJarEnvVar, jarPath),
-		fmt.Sprintf("%s=%d", stxJavaProxyPortEnvVar, port),
-		fmt.Sprintf("%s=%s", stxJavaProxyVersionEnvVar, defaultSTXJavaProxyVersion(seatunnelVersion)),
-	)
+	// 生效 JVM 参数解析：调用方 > 落盘 > 环境变量；直启与脚本路径共用。
+	// Effective JVM opts resolution: caller arg > persisted file > env var; shared by both launch paths.
 	effectiveJvmOpts := ""
 	if len(optionalJvmOpts) > 0 && strings.TrimSpace(optionalJvmOpts[0]) != "" {
 		effectiveJvmOpts = strings.TrimSpace(optionalJvmOpts[0])
@@ -761,9 +752,39 @@ func startSTXJavaProxyService(
 	} else if envVal := strings.TrimSpace(os.Getenv(stxJavaProxyJvmOptsEnvVar)); envVal != "" {
 		effectiveJvmOpts = envVal
 	}
-	if effectiveJvmOpts != "" {
-		env = append(env, fmt.Sprintf("%s=%s", stxJavaProxyJvmOptsEnvVar, effectiveJvmOpts))
+
+	// scriptPath 为空说明未显式指定 STX_JAVA_PROXY_SCRIPT：Go 直接用 java 二进制拉起。
+	// An empty scriptPath means STX_JAVA_PROXY_SCRIPT was not set: launch java directly from Go.
+	if scriptPath == "" {
+		return startSTXJavaProxyServiceDirect(ctx, installDir, jarPath, stateDir, port, effectiveJvmOpts, seatunnelVersion)
 	}
+
+	// 当配置了节点 JDK 时，在 bash -lc 读取完 login profile 后再将 <java_home>/bin 置入 PATH 最前并导出 STX_JAVA_BIN，
+	// 确保即使旧版 stx-java-proxy.sh 直接 exec java，也会严格命中指定 JDK 而非 /usr/bin/java。
+	// When a node JDK is configured, prepend <java_home>/bin to PATH after bash -lc loads login profiles and export
+	// STX_JAVA_BIN so even legacy stx-java-proxy.sh scripts that run `exec java` still launch the specified JDK.
+	javaPrefix := ""
+	if resolved, resolveErr := javaenv.Resolve(javaenv.HomeFromContext(ctx)); resolveErr == nil && resolved != nil && resolved.Source == javaenv.SourceCustom && strings.TrimSpace(resolved.JavaBin) != "" {
+		javaBinDir := filepath.Dir(resolved.JavaBin)
+		javaPrefix = fmt.Sprintf(
+			"export JAVA_HOME=%q STX_JAVA_BIN=%q PATH=%q:\"$PATH\"; ",
+			resolved.JavaHome,
+			resolved.JavaBin,
+			javaBinDir,
+		)
+	}
+	command := fmt.Sprintf(
+		"%snohup bash %q -Dstx.java.proxy.port=%d >> %q 2>&1 < /dev/null & echo $!",
+		javaPrefix,
+		scriptPath,
+		port,
+		logPath,
+	)
+	startCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(startCtx, "bash", "-lc", command)
+	env := stxJavaProxyServiceEnv(installDir, jarPath, port, seatunnelVersion, effectiveJvmOpts)
 	env = appendSTXJavaProxyJavaEnv(ctx, env)
 	cmd.Env = env
 	output, err := cmd.CombinedOutput()

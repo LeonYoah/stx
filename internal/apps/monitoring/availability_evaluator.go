@@ -52,6 +52,11 @@ const (
 	availabilityReasonHostVisibilityLost  = "host_visibility_lost"
 	availabilityReasonMetricsEndpointDown = "metrics_endpoint_down"
 	availabilityReasonNodeStateDown       = "node_state_down"
+	// availabilityReasonEngineNotReady 引擎半初始化/僵尸 JVM：up==1 且拿到了真实 JVM
+	// 指标，但 node_state 样本完全缺失（不是 0 而是缺失）。
+	// availabilityReasonEngineNotReady marks a half-initialized / zombie JVM: up==1 with real JVM
+	// metrics present while node_state samples are entirely missing (absent, not zero).
+	availabilityReasonEngineNotReady = "engine_not_ready"
 )
 
 const (
@@ -176,12 +181,15 @@ func (s *Service) ensureAvailabilityEvaluator() *availabilityEvaluator {
 	return s.availabilityEvaluator
 }
 
-// availabilityMetricSignals 是本轮评估的内嵌 TSDB 即时快照：clusterID|instance → down 标记。
+// availabilityMetricSignals 是本轮评估的内嵌 TSDB 即时快照：clusterID|instance → down/存在标记。
 // availabilityMetricSignals is the per-tick embedded-TSDB instant snapshot:
-// clusterID|instance → down markers.
+// clusterID|instance → down/presence markers.
 type availabilityMetricSignals struct {
-	endpointDown  map[string]struct{}
-	nodeStateDown map[string]struct{}
+	endpointDown     map[string]struct{}
+	endpointUp       map[string]struct{}
+	nodeStateDown    map[string]struct{}
+	nodeStatePresent map[string]struct{}
+	jvmMetricsSeen   map[string]struct{}
 }
 
 func availabilitySignalKey(clusterID uint, instance string) string {
@@ -195,11 +203,25 @@ func availabilitySignalKey(clusterID uint, instance string) string {
 // still evaluate (missing metric evidence never raises a false positive).
 func (s *Service) collectAvailabilityMetricSignals(ctx context.Context, now time.Time) *availabilityMetricSignals {
 	signals := &availabilityMetricSignals{
-		endpointDown:  map[string]struct{}{},
-		nodeStateDown: map[string]struct{}{},
+		endpointDown:     map[string]struct{}{},
+		endpointUp:       map[string]struct{}{},
+		nodeStateDown:    map[string]struct{}{},
+		nodeStatePresent: map[string]struct{}{},
+		jvmMetricsSeen:   map[string]struct{}{},
 	}
 	if promquery.UnavailableReason() != "" {
 		return signals
+	}
+	signalKey := func(sample *promquery.Sample) (string, bool) {
+		clusterID, err := strconv.ParseUint(strings.TrimSpace(sample.Metric["cluster_id"]), 10, 32)
+		if err != nil || clusterID == 0 {
+			return "", false
+		}
+		instance := strings.TrimSpace(sample.Metric["instance"])
+		if instance == "" {
+			return "", false
+		}
+		return availabilitySignalKey(uint(clusterID), instance), true
 	}
 	collect := func(expr string, dst map[string]struct{}) {
 		samples, err := promquery.Instant(ctx, expr, now)
@@ -212,19 +234,33 @@ func (s *Service) collectAvailabilityMetricSignals(ctx context.Context, now time
 			if sample.Value != 0 {
 				continue
 			}
-			clusterID, err := strconv.ParseUint(strings.TrimSpace(sample.Metric["cluster_id"]), 10, 32)
-			if err != nil || clusterID == 0 {
-				continue
+			if key, ok := signalKey(&sample); ok {
+				dst[key] = struct{}{}
 			}
-			instance := strings.TrimSpace(sample.Metric["instance"])
-			if instance == "" {
-				continue
-			}
-			dst[availabilitySignalKey(uint(clusterID), instance)] = struct{}{}
 		}
 	}
 	collect(`up{job="seatunnel_engine_http"}`, signals.endpointDown)
 	collect(`node_state{job="seatunnel_engine_http"}`, signals.nodeStateDown)
+	// 存在性采集：up==1、node_state 任意样本、jvm_threads_current 任意样本分别入位，
+	// 供「引擎半初始化（up=1 + JVM 指标在 + node_state 缺失）」判定，缺失指标绝不误报。
+	// Presence collection: up==1, any node_state sample and any jvm_threads_current sample are
+	// recorded separately for the "half-initialized engine" rule (up=1 + JVM metrics + node_state
+	// missing); absent metrics never raise a false positive.
+	collectPresence := func(expr string, dst map[string]struct{}) {
+		samples, err := promquery.Instant(ctx, expr, now)
+		if err != nil {
+			log.Printf("[Monitoring] availability instant query failed (%s): %v / 可用性即时查询失败（%s）: %v", expr, err, expr, err)
+			return
+		}
+		for i := range samples {
+			if key, ok := signalKey(&samples[i]); ok {
+				dst[key] = struct{}{}
+			}
+		}
+	}
+	collectPresence(`up{job="seatunnel_engine_http"} == 1`, signals.endpointUp)
+	collectPresence(`node_state{job="seatunnel_engine_http"}`, signals.nodeStatePresent)
+	collectPresence(`jvm_threads_current{job="seatunnel_engine_http"}`, signals.jvmMetricsSeen)
 	return signals
 }
 
@@ -269,6 +305,17 @@ func availabilityNodeOfflineReasons(node *cluster.NodeInfo, signals *availabilit
 	}
 	if _, down := signals.nodeStateDown[key]; down {
 		reasons = append(reasons, availabilityReasonNodeStateDown)
+	}
+	// 引擎半初始化/僵尸 JVM：抓取端点活着且确实拿到了 JVM 指标，但 node_state 样本完全缺失。
+	// 只有 up==1 而没有 jvm_threads_current 时不触发，避免普通 up=1 用例误报。
+	// Half-initialized / zombie JVM: the scrape endpoint is alive and real JVM metrics arrive, yet
+	// node_state samples are entirely missing. Never fires on bare up==1 without jvm_threads_current.
+	if _, up := signals.endpointUp[key]; up {
+		if _, hasJVM := signals.jvmMetricsSeen[key]; hasJVM {
+			if _, hasState := signals.nodeStatePresent[key]; !hasState {
+				reasons = append(reasons, availabilityReasonEngineNotReady)
+			}
+		}
 	}
 	return reasons
 }

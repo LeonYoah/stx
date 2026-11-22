@@ -741,6 +741,9 @@ type NodeWithMonitorConfig struct {
 	InstallDir    string                 `json:"install_dir"`
 	Role          string                 `json:"role"`
 	ProcessPID    int                    `json:"process_pid"`
+	// Status 是节点在控制面记录的生命周期状态，用于过滤尚未启动或已停止的节点。
+	// Status is the node's lifecycle status recorded in the Control Plane, used to filter unstarted or stopped nodes.
+	Status        string                 `json:"status"`
 	MonitorConfig *monitor.MonitorConfig `json:"monitor_config"`
 	// JavaHome 是节点指定的 JDK（cluster_nodes.java_home），Agent 自动拉起时使用；为空表示自动探测。
 	// JavaHome is the node JDK (cluster_nodes.java_home) used by Agent auto-restart; empty means auto detection.
@@ -1249,11 +1252,11 @@ func (s *Server) pushMonitorConfigToAgent(ctx context.Context, agentID string, h
 	var firstConfig *monitor.MonitorConfig
 
 	for _, node := range nodes {
-		// Include all nodes with install_dir, not just running ones
-		// 包含所有有安装目录的节点，不仅仅是运行中的
-		if node.InstallDir != "" {
+		// 仅包含运行中或可监控的节点；跳过未启动（pending/installing）或已停止且 PID=0 的节点，避免 Agent 自动拉起提前误启动进程。
+		// Include only running/monitorable nodes; skip unstarted (pending/installing) or stopped PID=0 nodes so Agent auto-restart won't prematurely launch them.
+		if shouldTrackNodeForMonitor(node) {
 			trackedProcesses = append(trackedProcesses, map[string]interface{}{
-				"pid":         node.ProcessPID, // Can be 0 for stopped processes / 已停止的进程可以为 0
+				"pid":         node.ProcessPID, // Can be 0 for running/error nodes / running 或 error 节点可能为 0
 				"name":        processidentity.ManagedName(node.InstallDir, node.Role),
 				"cluster_id":  node.ClusterID,
 				"install_dir": node.InstallDir,

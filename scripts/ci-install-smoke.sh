@@ -251,10 +251,11 @@ case "$mode" in
       login_ok() { curl -s -m 10 -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"$1\"}" \
         "http://127.0.0.1:$(api_port)/api/v1/auth/login" | grep -q "\"username\":\"admin\""; }
       check "util-linux script (pseudo-terminal) available" "command -v script >/dev/null"
-      # 1) 交互安装（不带 -y）：数据库菜单选 3，依次回答 地址/端口(回车=5432)/用户/密码/库名(回车=stx)/管理员密码×2。
-      #    Interactive install (no -y): menu choice 3, then host / port (Enter=5432) / user / password / db (Enter=stx)
-      #    / admin password twice.
-      printf "3\n%s\n\npostgres\nrootpw\n\nPg-One-111\nPg-One-111\n" "'"$db_ip"'" >/tmp/pg-menu.in
+      # 1) 交互安装（不带 -y）：先回车确认安装目录，数据库菜单再选 3，
+      #    依次回答 地址/端口(回车=5432)/用户/密码/库名(回车=stx)/管理员密码×2。
+      #    Interactive install (no -y): Enter for the install dir first, menu choice 3, then
+      #    host / port (Enter=5432) / user / password / db (Enter=stx) / admin password twice.
+      printf "\n3\n%s\n\npostgres\nrootpw\n\nPg-One-111\nPg-One-111\n" "'"$db_ip"'" >/tmp/pg-menu.in
       script -qec "bash /src/install/install-online.sh --bundle-file /bundle/'"$bundle"' --without-observability --no-systemd \
         --frontend-port 17880 --http-port 17800 --grpc-port 17890 --external-ip 127.0.0.1" /dev/null </tmp/pg-menu.in >/tmp/i1.log 2>&1; rc=$?
       check "install #1 (interactive menu 3) exit 0 (rc=$rc)" "[[ $rc -eq 0 ]]"

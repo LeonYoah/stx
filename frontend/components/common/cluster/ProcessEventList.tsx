@@ -15,27 +15,31 @@
  * limitations under the License.
  */
 
-/**
- * ProcessEventList - 进程事件列表组件
- * Displays process lifecycle events for a cluster.
- * 显示集群的进程生命周期事件。
- * Requirements: 6.4
- */
-
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useTranslations } from 'next-intl';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+/**
+ * 进程事件列表组件：接入 TableCard 零塌陷加载 + Arc Select + SoftChip + 0.5px 细线表格。
+ * Process lifecycle event list using TableCard zero-collapse loading, Arc Select, SoftChip, and 0.5px table dividers.
+ */
+import {useCallback, useEffect, useRef, useState} from 'react';
+import {useTranslations} from 'next-intl';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  Activity,
+  AlertTriangle,
+  Play,
+  RefreshCw,
+  Square,
+  XCircle,
+} from 'lucide-react';
+import {Button} from '@/components/arc/button/button';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {Select} from '@/components/arc/select/select';
+import {
+  NeutralChip,
+  SoftChip,
+  TableCard,
+  type ChipTone,
+} from '@/components/common/layout';
 import {
   Table,
   TableBody,
@@ -44,56 +48,102 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Pagination } from '@/components/ui/pagination';
-import { Loader2, RefreshCw, Activity, AlertTriangle, XCircle, Play, Square } from 'lucide-react';
-import { toast } from '@/lib/toast';
 import {
-  ProcessEvent,
-  ProcessEventType,
-  ProcessEventFilter,
   listProcessEvents,
+  type ProcessEvent,
+  type ProcessEventFilter,
+  type ProcessEventType,
 } from '@/lib/services/monitor';
-import {formatDateTimeTz} from '@/lib/timezone';
+import {formatDateTimeMinuteTz} from '@/lib/timezone';
 
 interface ProcessEventListProps {
   clusterId: number;
   nodeId?: number;
 }
 
-// Event type badge config / 事件类型徽章配置
-const eventTypeBadgeConfig: Record<
+const EVENT_TYPE_META: Record<
   ProcessEventType,
-  { variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: React.ReactNode; label: string }
+  {tone: ChipTone; icon: React.ReactNode; labelKey: string}
 > = {
-  started: { variant: 'default', icon: <Play className="h-3 w-3" />, label: 'monitor.events.started' },
-  stopped: { variant: 'secondary', icon: <Square className="h-3 w-3" />, label: 'monitor.events.stopped' },
-  crashed: { variant: 'destructive', icon: <XCircle className="h-3 w-3" />, label: 'monitor.events.crashed' },
-  restarted: { variant: 'default', icon: <RefreshCw className="h-3 w-3" />, label: 'monitor.events.restarted' },
-  restart_failed: { variant: 'destructive', icon: <AlertTriangle className="h-3 w-3" />, label: 'monitor.events.restartFailed' },
-  restart_limit_reached: { variant: 'destructive', icon: <AlertTriangle className="h-3 w-3" />, label: 'monitor.events.restartLimitReached' },
-  cluster_restart_requested: { variant: 'outline', icon: <RefreshCw className="h-3 w-3" />, label: 'monitor.events.clusterRestartRequested' },
-  node_restart_requested: { variant: 'outline', icon: <RefreshCw className="h-3 w-3" />, label: 'monitor.events.nodeRestartRequested' },
-  node_stop_requested: { variant: 'secondary', icon: <Square className="h-3 w-3" />, label: 'monitor.events.nodeStopRequested' },
-  node_offline: { variant: 'destructive', icon: <AlertTriangle className="h-3 w-3" />, label: 'monitor.events.nodeOffline' },
-  node_recovered: { variant: 'default', icon: <Activity className="h-3 w-3" />, label: 'monitor.events.nodeRecovered' },
+  started: {
+    tone: 'emerald',
+    icon: <Play className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.started',
+  },
+  stopped: {
+    tone: 'muted',
+    icon: <Square className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.stopped',
+  },
+  crashed: {
+    tone: 'rose',
+    icon: <XCircle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.crashed',
+  },
+  restarted: {
+    tone: 'emerald',
+    icon: <RefreshCw className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.restarted',
+  },
+  restart_failed: {
+    tone: 'rose',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.restartFailed',
+  },
+  restart_limit_reached: {
+    tone: 'rose',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.restartLimitReached',
+  },
+  cluster_restart_requested: {
+    tone: 'blue',
+    icon: <RefreshCw className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.clusterRestartRequested',
+  },
+  node_restart_requested: {
+    tone: 'blue',
+    icon: <RefreshCw className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.nodeRestartRequested',
+  },
+  node_stop_requested: {
+    tone: 'amber',
+    icon: <Square className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.nodeStopRequested',
+  },
+  node_offline: {
+    tone: 'rose',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.nodeOffline',
+  },
+  node_recovered: {
+    tone: 'emerald',
+    icon: <Activity className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.nodeRecovered',
+  },
 };
 
-export function ProcessEventList({ clusterId, nodeId }: ProcessEventListProps) {
+const PAGE_SIZE = 20;
+
+export function ProcessEventList({clusterId, nodeId}: ProcessEventListProps) {
   const t = useTranslations();
   const [events, setEvents] = useState<ProcessEvent[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
-  const [eventTypeFilter, setEventTypeFilter] = useState<ProcessEventType | 'all'>('all');
+  const [eventTypeFilter, setEventTypeFilter] = useState<
+    ProcessEventType | 'all'
+  >('all');
+  const reqSeqRef = useRef(0);
 
-  // Load events / 加载事件
   const loadEvents = useCallback(async () => {
+    const seq = ++reqSeqRef.current;
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
       const filter: ProcessEventFilter = {
         page,
-        page_size: pageSize,
+        page_size: PAGE_SIZE,
       };
       if (nodeId) {
         filter.node_id = nodeId;
@@ -103,140 +153,160 @@ export function ProcessEventList({ clusterId, nodeId }: ProcessEventListProps) {
       }
 
       const response = await listProcessEvents(clusterId, filter);
-      setEvents(response.events || []);
-      setTotal(response.total);
-    } catch (error) {
-      console.error('Failed to load process events:', error);
-      toast.error(t('monitor.loadEventsError'));
+      if (seq !== reqSeqRef.current) {
+        return;
+      }
+      setEvents(response.events ?? []);
+      setTotal(response.total ?? 0);
+    } catch (err) {
+      if (seq !== reqSeqRef.current) {
+        return;
+      }
+      setError(
+        err instanceof Error ? err.message : t('monitor.loadEventsError'),
+      );
     } finally {
-      setLoading(false);
+      if (seq === reqSeqRef.current) {
+        setLoading(false);
+      }
     }
-  }, [clusterId, nodeId, page, pageSize, eventTypeFilter, t]);
+  }, [clusterId, eventTypeFilter, nodeId, page, t]);
 
   useEffect(() => {
-    loadEvents();
+    void loadEvents();
   }, [loadEvents]);
 
-  // Render event type badge / 渲染事件类型徽章
-  const renderEventTypeBadge = (eventType: ProcessEventType) => {
-    const config = eventTypeBadgeConfig[eventType];
-    if (!config) {
-      return <Badge variant="outline">{eventType}</Badge>;
-    }
-    return (
-      <Badge variant={config.variant} className="flex items-center gap-1">
-        {config.icon}
-        {t(config.label)}
-      </Badge>
-    );
-  };
+  const filterOptions = [
+    {value: 'all', label: t('monitor.allEvents')},
+    ...(Object.keys(EVENT_TYPE_META) as ProcessEventType[]).map((key) => ({
+      value: key,
+      label: t(EVENT_TYPE_META[key].labelKey),
+    })),
+  ];
 
-  // Format time / 格式化时间
-  const formatTime = (timeStr: string) => {
-    return formatDateTimeTz(timeStr);
-  };
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5" />
-            <CardTitle>{t('monitor.eventsTitle')}</CardTitle>
-          </div>
-          <div className="flex items-center gap-2">
+    <section className='space-y-3'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <div className='flex items-baseline gap-2'>
+          <h3 className='text-sm font-semibold text-foreground'>
+            {t('monitor.eventsTitle')}
+          </h3>
+          <span className='text-xs text-muted-foreground tabular-nums'>
+            {t('monitor.eventsDescription', {total})}
+          </span>
+        </div>
+        <div className='flex items-center gap-2'>
+          <div className='w-44'>
             <Select
+              aria-label={t('monitor.filterByType')}
               value={eventTypeFilter}
               onValueChange={(value) => {
                 setEventTypeFilter(value as ProcessEventType | 'all');
                 setPage(1);
               }}
-            >
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder={t('monitor.filterByType')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('monitor.allEvents')}</SelectItem>
-                <SelectItem value="started">{t('monitor.events.started')}</SelectItem>
-                <SelectItem value="stopped">{t('monitor.events.stopped')}</SelectItem>
-                <SelectItem value="crashed">{t('monitor.events.crashed')}</SelectItem>
-                <SelectItem value="restarted">{t('monitor.events.restarted')}</SelectItem>
-                <SelectItem value="restart_failed">{t('monitor.events.restartFailed')}</SelectItem>
-                <SelectItem value="restart_limit_reached">{t('monitor.events.restartLimitReached')}</SelectItem>
-                <SelectItem value="cluster_restart_requested">{t('monitor.events.clusterRestartRequested')}</SelectItem>
-                <SelectItem value="node_restart_requested">{t('monitor.events.nodeRestartRequested')}</SelectItem>
-                <SelectItem value="node_stop_requested">{t('monitor.events.nodeStopRequested')}</SelectItem>
-                <SelectItem value="node_offline">{t('monitor.events.nodeOffline')}</SelectItem>
-                <SelectItem value="node_recovered">{t('monitor.events.nodeRecovered')}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="icon" onClick={loadEvents} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            </Button>
+              options={filterOptions}
+            />
           </div>
+          <Button
+            type='button'
+            variant='secondary'
+            size='sm'
+            iconOnly
+            aria-label={t('common.refresh')}
+            title={t('common.refresh')}
+            onClick={() => void loadEvents()}
+          >
+            <RefreshCw
+              className={`size-3.5 ${loading ? 'animate-spin' : ''}`}
+              aria-hidden
+            />
+          </Button>
         </div>
-        <CardDescription>
-          {t('monitor.eventsDescription', { total })}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loading && events.length === 0 ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : events.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-            <Activity className="h-12 w-12 mb-2 opacity-50" />
-            <p>{t('monitor.noEvents')}</p>
-          </div>
-        ) : (
-          <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('monitor.eventType')}</TableHead>
-                  <TableHead>{t('monitor.hostname')}</TableHead>
-                  <TableHead>{t('monitor.ip')}</TableHead>
-                  <TableHead>{t('monitor.processName')}</TableHead>
-                  <TableHead>{t('monitor.pid')}</TableHead>
-                  <TableHead>{t('monitor.role')}</TableHead>
-                  <TableHead>{t('monitor.eventTime')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {events.map((event) => (
+      </div>
+
+      <TableCard
+        loading={loading}
+        hasData={events.length > 0}
+        skeletonColumns={7}
+        skeletonRows={5}
+        error={error}
+        onRetry={() => void loadEvents()}
+        pagination={
+          total > 0
+            ? {
+                currentPage: page,
+                totalPages,
+                pageSize: PAGE_SIZE,
+                totalItems: total,
+                onPageChange: setPage,
+              }
+            : undefined
+        }
+        empty={
+          <EmptyState
+            icon={<Activity className='size-6' aria-hidden />}
+            title={t('monitor.noEvents')}
+            description={t('monitor.eventsDescription', {total: 0})}
+          />
+        }
+      >
+        <div className='overflow-x-auto'>
+          <Table className='[&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('monitor.eventType')}</TableHead>
+                <TableHead>{t('monitor.hostname')}</TableHead>
+                <TableHead>{t('monitor.ip')}</TableHead>
+                <TableHead>{t('monitor.processName')}</TableHead>
+                <TableHead>{t('monitor.pid')}</TableHead>
+                <TableHead>{t('monitor.role')}</TableHead>
+                <TableHead>{t('monitor.eventTime')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {events.map((event) => {
+                const meta = EVENT_TYPE_META[event.event_type];
+                return (
                   <TableRow key={event.id}>
-                    <TableCell>{renderEventTypeBadge(event.event_type)}</TableCell>
-                    <TableCell className="text-sm">{event.hostname || '-'}</TableCell>
-                    <TableCell className="font-mono text-sm">{event.ip || '-'}</TableCell>
-                    <TableCell className="font-mono text-sm">{event.process_name || '-'}</TableCell>
-                    <TableCell className="font-mono">{event.pid || '-'}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{event.role || '-'}</Badge>
+                      {meta ? (
+                        <SoftChip tone={meta.tone} className='font-medium'>
+                          {meta.icon}
+                          <span className='whitespace-nowrap'>
+                            {t(meta.labelKey)}
+                          </span>
+                        </SoftChip>
+                      ) : (
+                        <NeutralChip>{event.event_type}</NeutralChip>
+                      )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatTime(event.created_at)}
+                    <TableCell className='text-sm'>
+                      {event.hostname || '-'}
+                    </TableCell>
+                    <TableCell className='font-mono text-xs tabular-nums'>
+                      {event.ip || '-'}
+                    </TableCell>
+                    <TableCell className='font-mono text-xs'>
+                      {event.process_name || '-'}
+                    </TableCell>
+                    <TableCell className='font-mono text-xs tabular-nums'>
+                      {event.pid || '-'}
+                    </TableCell>
+                    <TableCell>
+                      <NeutralChip>{event.role || '-'}</NeutralChip>
+                    </TableCell>
+                    <TableCell className='text-xs text-muted-foreground tabular-nums'>
+                      {formatDateTimeMinuteTz(event.created_at)}
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-
-            {/* Pagination / 分页 */}
-            <div className="mt-4 pt-4 border-t">
-              <Pagination
-                currentPage={page}
-                totalPages={Math.ceil(total / pageSize)}
-                pageSize={pageSize}
-                totalItems={total}
-                onPageChange={setPage}
-                showPageSizeSelector={false}
-                showTotalItems={true}
-              />
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </TableCard>
+    </section>
   );
 }

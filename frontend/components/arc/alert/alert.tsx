@@ -111,9 +111,11 @@ function AlertBox({ tone = "info", title, children, className, reduce, onDismiss
     {/* The copy column follows its content height, so longer or shorter messages never snap the alert. */}
     <HeightFrame className={styles.copy} reduce={reduce} morphKey={`${title}\n${hasDetails}\n${text ?? ""}`}>
       <strong className={styles.title}><AnimatePresence mode="popLayout" initial={false}><Swap key={title} className={styles.line} {...swap}>{title}</Swap></AnimatePresence></strong>
-      <AnimatePresence mode="popLayout" initial={false}>{hasDetails && <motion.p key="details" className={styles.description} {...swap}>
+      {/* 本地修改：children 允许传入包含按钮组等块级节点的 ReactNode，用 motion.div 避免 HTML 中 <p> 嵌套 <div> 触发水合报错。
+          Local modification: children may contain block-level nodes (e.g. action buttons); use motion.div to avoid invalid <div> inside <p> hydration errors. */}
+      <AnimatePresence mode="popLayout" initial={false}>{hasDetails && <motion.div key="details" className={styles.description} {...swap}>
         {text === null ? children : <AnimatePresence mode="popLayout" initial={false}><Swap key={text} className={styles.line} {...swap}>{text}</Swap></AnimatePresence>}
-      </motion.p>}</AnimatePresence>
+      </motion.div>}</AnimatePresence>
     </HeightFrame>
     {onDismiss && <button type="button" className={styles.dismiss} aria-label={`Dismiss: ${title}`} onClick={onDismiss}><X width={16} height={16} strokeWidth={1.75} aria-hidden="true"/></button>}
   </div>;

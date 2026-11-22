@@ -60,6 +60,9 @@ export interface SelectProps extends Omit<ComponentPropsWithoutRef<typeof Select
   displayValue?: string;
   id?: string;
   className?: string;
+  // 本地修改：透传 data-testid 到触发按钮，兼容 E2E 定位。
+  // Local modification: forward data-testid onto the trigger button for E2E selectors.
+  "data-testid"?: string;
   options: { value: string; label: string; disabled?: boolean }[];
 }
 
@@ -73,7 +76,7 @@ const valueRoll: Variants = {
 const valueFade: Variants = { enter: { opacity: 0 }, center: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: motionTokens.duration.instant } }, exit: { opacity: 0, transition: { duration: motionTokens.duration.instant } } };
 
 export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select(
-  { label, "aria-label": ariaLabel, description, placeholder = "Select an option", displayValue, options, id, className, disabled, onValueChange, ...rootProps },
+  { label, "aria-label": ariaLabel, description, placeholder = "Select an option", displayValue, options, id, className, "data-testid": dataTestId, disabled, onValueChange, ...rootProps },
   ref,
 ) {
   const generatedId = useId();
@@ -104,6 +107,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
         <SelectPrimitive.Trigger
           ref={ref}
           id={controlId}
+          data-testid={dataTestId}
           aria-label={label ? undefined : ariaLabel}
           aria-describedby={hintId}
           className={[styles.trigger, className].filter(Boolean).join(" ")}

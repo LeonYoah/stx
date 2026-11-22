@@ -244,6 +244,20 @@
   --cols: 24px 56px minmax(108px, 0.9fr) 84px minmax(0, 1.5fr) 104px 132px;
 }
 
+/* 集群列表：名称+编码 / 状态 / 部署模式 / 版本 / 在线节点 / 操作。
+   Cluster list: name+code / status / mode / version / online nodes / actions. */
+
+.listCol[data-mcols='clusters'] :is(.row, .rowHead) {
+  --cols: minmax(0, 1.8fr) 96px 88px 92px 96px 84px;
+}
+
+/* 集群已安装插件：勾选 / 插件名称+标签 / 分类 / 版本 / 安装时间 / 操作。
+   Cluster installed plugins: checkbox / name+chips / category / version / installed at / actions. */
+
+.listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) {
+  --cols: 24px minmax(0, 1.8fr) 108px 92px 136px 36px;
+}
+
 /* 审计日志：操作人 / 令牌 / 来源 / 动作 / 资源类型 / 资源名 / 命令 / IP / 时间。
    Audit logs: actor / token / source / action / resource type / name / commands / IP / time. */
 
@@ -1194,6 +1208,23 @@
   .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(2),
   .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(5),
   .listCol[data-mcols='inspections'] :is(.row, .rowHead) > :nth-child(6) {
+    display: none;
+  }
+  /* 窄屏集群行只留名称 + 状态 + 操作。Narrow cluster rows keep name + status + actions. */
+  .listCol[data-mcols='clusters'] :is(.row, .rowHead) {
+    --cols: minmax(0, 1fr) 88px 40px;
+  }
+  .listCol[data-mcols='clusters'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='clusters'] :is(.row, .rowHead) > :nth-child(4),
+  .listCol[data-mcols='clusters'] :is(.row, .rowHead) > :nth-child(5) {
+    display: none;
+  }
+  /* 窄屏集群插件行只留勾选 + 名称 + 版本 + 操作。Narrow plugin rows keep checkbox + name + version + actions. */
+  .listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) {
+    --cols: 24px minmax(0, 1fr) 72px 36px;
+  }
+  .listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) > :nth-child(3),
+  .listCol[data-mcols='cluster-plugins'] :is(.row, .rowHead) > :nth-child(5) {
     display: none;
   }
   /* 窄屏审计行只留操作人 + 动作。Narrow audit rows keep actor + action. */

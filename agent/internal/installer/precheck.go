@@ -440,6 +440,15 @@ const (
 	// JavaMaxRecommendedVersion is the maximum recommended Java version
 	// JavaMaxRecommendedVersion 是最高推荐的 Java 版本
 	JavaMaxRecommendedVersion = 11
+
+	// JavaMaxSupportedVersion 是可启动 SeaTunnel 的最高 JDK 主版本。JDK 24 起
+	// JEP 486 移除了 javax.security.auth.Subject.getSubject，SeaTunnel 3.x 内嵌的
+	// Hadoop 3 启动期调用该 API 必然失败，必须硬拦截而非警告放行。
+	// JavaMaxSupportedVersion is the highest JDK major that can still run SeaTunnel.
+	// Since JDK 24, JEP 486 removed javax.security.auth.Subject.getSubject, which the
+	// embedded Hadoop 3 in SeaTunnel 3.x calls during startup, so it must hard-fail
+	// instead of passing with a warning.
+	JavaMaxSupportedVersion = 23
 )
 
 // JavaDownloadInfo contains download information for Java
@@ -486,9 +495,11 @@ func GetJavaDownloadInfo(version int, arch string) *JavaDownloadInfo {
 // CheckJava checks if Java is installed and meets the version requirements
 // CheckJava 检查 Java 是否已安装并满足版本要求
 // Supported versions: 8, 11 (recommended)
-// Versions > 11 will show a warning as they may have compatibility issues
+// Versions > 11 show a warning as they may have compatibility issues;
+// versions > 23 hard-fail because JDK 24+ removed Subject.getSubject (JEP 486)
 // 支持的版本：8、11（推荐）
-// 版本 > 11 将显示警告，因为可能存在兼容性问题
+// 版本 > 11 显示警告（可能存在兼容性问题）；版本 > 23 直接失败，
+// 因为 JDK 24+ 已移除 Subject.getSubject（JEP 486）
 func (p *Prechecker) CheckJava(ctx context.Context) PrecheckItem {
 	return p.checkJavaWith(p.systemInfoProvider.GetJavaVersion)
 }
@@ -525,6 +536,7 @@ func (p *Prechecker) checkJavaWith(getVersion func() (int, string, error)) Prech
 
 	item.Details["min_version"] = JavaMinVersion
 	item.Details["max_recommended_version"] = JavaMaxRecommendedVersion
+	item.Details["max_supported_version"] = JavaMaxSupportedVersion
 	item.Details["recommended_versions"] = []int{8, 11}
 
 	version, versionStr, err := getVersion()
@@ -567,6 +579,16 @@ yum install java-11-openjdk-devel  # CentOS/RHEL`
 			"huaweicloud_java8":  "https://repo.huaweicloud.com/java/jdk/8u202-b08/",
 			"huaweicloud_java11": "https://repo.huaweicloud.com/java/jdk/11.0.2+9/",
 		}
+	} else if version > JavaMaxSupportedVersion {
+		// 超过支持上限（JDK 24+）- 失败硬拦截：JEP 486 移除 Subject.getSubject，SeaTunnel 3.x 内嵌 Hadoop 启动即崩。
+		// Above the supported ceiling (JDK 24+) - hard failure: JEP 486 removed Subject.getSubject, so the
+		// embedded Hadoop in SeaTunnel 3.x crashes during startup.
+		item.Status = CheckStatusFailed
+		item.Message = fmt.Sprintf(
+			"Java version %d (%s) > maximum supported %d. JDK 24+ removed javax.security.auth.Subject.getSubject (JEP 486) and is incompatible with SeaTunnel / embedded Hadoop. Please use JDK 8, 11, 17 or 21. / Java 版本 %d (%s) > 最高支持版本 %d。JDK 24+ 已移除 javax.security.auth.Subject.getSubject（JEP 486），与 SeaTunnel / 内嵌 Hadoop 不兼容。请改用 JDK 8 / 11 / 17 / 21。",
+			version, versionStr, JavaMaxSupportedVersion,
+			version, versionStr, JavaMaxSupportedVersion,
+		)
 	} else if version > JavaMaxRecommendedVersion {
 		// Version higher than recommended - warning / 版本高于推荐 - 警告
 		item.Status = CheckStatusWarning

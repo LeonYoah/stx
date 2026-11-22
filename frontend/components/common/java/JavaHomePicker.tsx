@@ -22,16 +22,9 @@ import {useTranslations} from 'next-intl';
 import {Loader2} from 'lucide-react';
 
 import {HelpHint} from '@/components/common/HelpHint';
-import {Badge} from '@/components/ui/badge';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import {Input} from '@/components/arc/input/input';
+import {Select} from '@/components/arc/select/select';
+import {NeutralChip, SoftChip} from '@/components/common/layout';
 import services from '@/lib/services';
 import type {JavaRuntimeCandidate} from '@/lib/services/installer/types';
 import {cn} from '@/lib/utils';
@@ -176,38 +169,70 @@ export function JavaHomePicker({
         ? ''
         : t('javaHome.badgeAuto');
 
+  const selectOptions = useMemo(
+    () => [
+      ...(hideAuto
+        ? []
+        : [{value: AUTO_VALUE, label: t('javaHome.optionAuto')}]),
+      ...candidates.map((c) => ({
+        value: c.java_home,
+        label: t('javaHome.optionDetected', {
+          path: c.java_home,
+          version: c.version || t('javaHome.versionUnknown'),
+        }),
+      })),
+      {value: CUSTOM_VALUE, label: t('javaHome.optionCustom')},
+    ],
+    [hideAuto, candidates, t],
+  );
+
+  const renderBadge = () => {
+    if (!badgeLabel) {
+      return null;
+    }
+    if (customMode) {
+      return <SoftChip tone='blue'>{badgeLabel}</SoftChip>;
+    }
+    if (value) {
+      return <SoftChip tone='emerald'>{badgeLabel}</SoftChip>;
+    }
+    return <NeutralChip>{badgeLabel}</NeutralChip>;
+  };
+
   return (
     <div className={cn('space-y-2', className)}>
       {hideLabel ? (
-        <div className='flex items-center gap-2'>
-          {badgeLabel ? (
-            <Badge variant='outline' className='h-5 text-[10px]'>
-              {badgeLabel}
-            </Badge>
-          ) : null}
-          {loading && (
-            <Loader2 className='h-3 w-3 animate-spin text-muted-foreground' />
-          )}
-        </div>
+        badgeLabel || loading ? (
+          <div className='flex items-center gap-2'>
+            {renderBadge()}
+            {loading && (
+              <Loader2 className='h-3 w-3 animate-spin text-muted-foreground' />
+            )}
+          </div>
+        ) : null
       ) : (
         <div className='flex items-center gap-2'>
-          <Label htmlFor={id} className='text-xs'>
+          <label
+            htmlFor={id}
+            className='text-xs font-medium text-foreground'
+          >
             {t('javaHome.label')}
-          </Label>
+          </label>
           <HelpHint label={t('javaHome.label')} content={t('javaHome.help')} />
-          {badgeLabel ? (
-            <Badge variant='outline' className='h-5 text-[10px]'>
-              {badgeLabel}
-            </Badge>
-          ) : null}
+          {renderBadge()}
           {loading && (
             <Loader2 className='h-3 w-3 animate-spin text-muted-foreground' />
           )}
         </div>
       )}
       <Select
+        id={id}
+        aria-label={t('javaHome.label')}
+        className='font-mono text-xs'
         disabled={disabled || loading}
         value={selectValue || undefined}
+        placeholder={t('javaHome.placeholder')}
+        options={selectOptions}
         onValueChange={(next) => {
           if (next === CUSTOM_VALUE) {
             setCustomMode(true);
@@ -221,31 +246,10 @@ export function JavaHomePicker({
           }
           onChange({javaHome: next, isCustom: false});
         }}
-      >
-        <SelectTrigger id={id} className='font-mono text-xs'>
-          <SelectValue placeholder={t('javaHome.placeholder')} />
-        </SelectTrigger>
-        <SelectContent>
-          {hideAuto ? null : (
-            <SelectItem value={AUTO_VALUE}>
-              {t('javaHome.optionAuto')}
-            </SelectItem>
-          )}
-          {candidates.map((c) => (
-            <SelectItem key={c.java_home} value={c.java_home}>
-              {t('javaHome.optionDetected', {
-                path: c.java_home,
-                version: c.version || t('javaHome.versionUnknown'),
-              })}
-            </SelectItem>
-          ))}
-          <SelectItem value={CUSTOM_VALUE}>
-            {t('javaHome.optionCustom')}
-          </SelectItem>
-        </SelectContent>
-      </Select>
+      />
       {customMode && (
         <Input
+          label={t('javaHome.optionCustom')}
           className='font-mono text-xs'
           value={value}
           disabled={disabled}

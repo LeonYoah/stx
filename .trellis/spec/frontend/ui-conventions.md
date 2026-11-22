@@ -19,7 +19,7 @@
 - **拒绝无效横幅**：严禁在列表或卡片顶部堆砌静态说明文字；技术说明优先放在 Placeholder、标签旁 `Tooltip`、`HelpHint` 或极紧凑单行提示条。
 - **单层扁平容器（防「框套框」）**：常驻详情栏（`DetailHost`）、抽屉与弹窗本身已是唯一外框，内部**严禁**再套多层带边框、底色或阴影的嵌套卡片；各组信息之间统一用留白（`16px`）与一条 **`0.5px` 细分隔线**（`list-detail.module.css` 的 `.detailSection` / `.detailKvGrid` 或 `border-t-[0.5px]`）自然分开，指标条、键值网格与提示文案均保持轻盈无框（仅多行代码/日志块允许无阴影浅底色块）。主机详情、错误详情、巡检/告警详情与表单弹窗均须遵守。
 - **渐进式披露**：严禁在单屏内把基础属性、多张重型明细表与复杂表单从上到下全量平铺；重型明细、日志与编辑交互通过二级 Tab、Drawer 或 Dialog 物理分流。
-- **原子信息防被迫换行**：ID / Key / 键值对 / 状态胶囊 / URL / 代码单元不得因窄列挤压在字符中间折断。按场景选用：`flex-wrap` + `inline-flex items-center shrink-0 whitespace-nowrap`、`overflow-x-auto whitespace-nowrap`、或 `truncate` + `title` / `Tooltip`。
+- **原子信息防被迫换行**：ID / Key / 键值对 / 状态胶囊 / URL / 路径 / 代码单元不得因窄列挤压在字符中间折断。表格列与紧凑详情中的截断文本统一复用 `components/common/layout/TruncatedText`（长路径支持 `mode='path'` 中间省略与 `copyable` 一键复制），截断胶囊统一复用 `SoftChip`（传 `truncate`）/ `NeutralChip`；三者共享零静止开销的 `useOverflowTooltip`（静止态零 Radix/Portal 实例，仅在溢出后悬停 180ms 弹出主题化浮层），禁止仅靠原生 HTML `title` 属性兜底。单行长文本也可按场景选用 `overflow-x-auto whitespace-nowrap` 或 `flex-wrap` + `shrink-0 whitespace-nowrap`。
 - **Radix `ScrollArea` 内截断坑**：`ScrollArea` 内部默认 `display: table; min-width: 100%`，弹性子项只写 `min-w-0 flex-1` + `truncate` 仍会被撑宽；截断子项须用 `w-0 min-w-0 flex-1`（或固定 `max-w-*`），树视口需覆写为 `display: block; min-width: 0`。
 
 ---

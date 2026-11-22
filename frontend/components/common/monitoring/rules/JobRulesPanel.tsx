@@ -26,7 +26,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Undo2} from 'lucide-react';
-import {NeutralChip, SoftChip} from '@/components/common/layout';
+import {NeutralChip, SoftChip, TruncatedText} from '@/components/common/layout';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {useDrawerItem} from '@/components/arc/drawer/drawer';
@@ -552,12 +552,11 @@ export function JobRulesPanel({
                   })}
                 />
                 <div className={layout.rowName}>
-                  <span
+                  <TruncatedText
+                    text={policy.task_name ?? `#${policy.task_id}`}
                     className={cn(layout.name, styles.mono)}
-                    data-detail-name
-                  >
-                    {policy.task_name ?? `#${policy.task_id}`}
-                  </span>
+                    detailName
+                  />
                 </div>
                 <span className={cn(styles.inlineBadgeRow, 'min-w-0')}>
                   {(policy.conditions ?? []).slice(0, 3).map((c, i) => (

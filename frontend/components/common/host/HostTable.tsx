@@ -61,6 +61,7 @@ import {
 import {HostInfo, HostStatus, HostType} from '@/lib/services/host/types';
 import {formatDateTz} from '@/lib/timezone';
 import {cn} from '@/lib/utils';
+import {TruncatedText} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 
 interface HostTableProps {
@@ -223,18 +224,14 @@ export function HostTable({
             <div className={layout.rowName}>
               <div className={layout.rowNameInline}>
                 {getHostTypeIcon(host.host_type)}
-                <span
+                <TruncatedText
+                  text={host.name}
                   className={layout.name}
-                  title={host.name}
-                  data-detail-name
-                >
-                  {host.name}
-                </span>
+                  detailName
+                />
               </div>
               {host.description ? (
-                <span className={layout.sub} title={host.description}>
-                  {host.description}
-                </span>
+                <TruncatedText text={host.description} className={layout.sub} />
               ) : (
                 <span className={layout.sub}>#{host.id}</span>
               )}
@@ -244,12 +241,10 @@ export function HostTable({
                 `host.types.${host.host_type === HostType.BARE_METAL ? 'bareMetal' : host.host_type}`,
               )}
             </Badge>
-            <span
-              className={cn(layout.sub, 'truncate')}
-              title={connectionLabel(host)}
-            >
-              {connectionLabel(host)}
-            </span>
+            <TruncatedText
+              text={connectionLabel(host)}
+              className={layout.sub}
+            />
             <div
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => e.stopPropagation()}

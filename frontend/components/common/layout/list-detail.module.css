@@ -241,7 +241,7 @@
    Diagnostics inspections: checkbox / id / trigger / status / findings+summary / window / finished. */
 
 .listCol[data-mcols='inspections'] :is(.row, .rowHead) {
-  --cols: 24px 56px minmax(0, 0.6fr) 84px minmax(0, 1.7fr) 104px 132px;
+  --cols: 24px 56px minmax(108px, 0.9fr) 84px minmax(0, 1.5fr) 104px 132px;
 }
 
 /* 审计日志：操作人 / 令牌 / 来源 / 动作 / 资源类型 / 资源名 / 命令 / IP / 时间。

@@ -62,7 +62,7 @@ import {describePolicySentence} from './policy-describe';
 import {minutesAgo, formatAgo} from '../../monitoring/monitoring-utils';
 import {DirtyCloseDialog, useBeforeUnload} from '@/components/common/layout';
 import {DetailHost, useDetailNarrow} from '@/components/common/layout';
-import {NeutralChip} from '@/components/common/layout';
+import {NeutralChip, TruncatedText} from '@/components/common/layout';
 import layout from '@/components/common/layout/list-detail.module.css';
 
 const PAGE_SIZE = 10;
@@ -547,13 +547,11 @@ export function PoliciesPanel({
                 >
                   <div className={layout.rowName}>
                     <div className={layout.rowNameInline}>
-                      <span
+                      <TruncatedText
+                        text={p.name}
                         className={layout.name}
-                        title={p.name}
-                        data-detail-name
-                      >
-                        {p.name}
-                      </span>
+                        detailName
+                      />
                       {/* 失效徽标 + 原因行：后端只回原因码 + 取值，文案由本侧按 i18n 翻译。
                           Invalid badge + reason line: the backend returns a code + value; the message is rendered via i18n here. */}
                       {p.invalid_reason ? (
@@ -566,34 +564,23 @@ export function PoliciesPanel({
                         The invalid reason outranks the behavior sentence —
                         explain why it won't run before the conditions. */}
                     {p.invalid_reason ? (
-                      <span
+                      <TruncatedText
+                        text={invalidReasonText(p)}
                         className={cn(layout.sub, layout.dangerText)}
-                        title={invalidReasonText(p)}
-                      >
-                        {invalidReasonText(p)}
-                      </span>
+                      />
                     ) : (
-                      <span
+                      <TruncatedText
+                        text={describePolicySentence(p, {
+                          templates,
+                          ruleCatalog,
+                          clusterOptions,
+                          t,
+                        })}
                         className={layout.sub}
-                        title={describePolicySentence(p, {
-                          templates,
-                          ruleCatalog,
-                          clusterOptions,
-                          t,
-                        })}
-                      >
-                        {describePolicySentence(p, {
-                          templates,
-                          ruleCatalog,
-                          clusterOptions,
-                          t,
-                        })}
-                      </span>
+                      />
                     )}
                   </div>
-                  <NeutralChip title={scopeLabel(p)}>
-                    {scopeLabel(p)}
-                  </NeutralChip>
+                  <NeutralChip>{scopeLabel(p)}</NeutralChip>
                   {/* 触发统计来自后端聚合（最近一次 + 7 天计数），未触发显示 —。
                       Trigger stats come from backend aggregates (latest + 7d
                       count); untriggered policies show —. */}

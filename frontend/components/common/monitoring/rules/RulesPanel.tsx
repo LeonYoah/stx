@@ -37,7 +37,11 @@ import {ArrowDownWideNarrow, Check, LayoutGrid, List, Undo2} from 'lucide-react'
 import {LayoutGroup, motion} from 'motion/react';
 import {Alert} from '@/components/arc/alert/alert';
 import {SeverityChip} from '../status-chips';
-import {NeutralChip} from '@/components/common/layout';
+import {
+  NeutralChip,
+  TruncatedText,
+  useOverflowTooltip,
+} from '@/components/common/layout';
 import {Button} from '@/components/arc/button/button';
 import {Checkbox} from '@/components/arc/checkbox/checkbox';
 import {Combobox} from '@/components/arc/combobox/combobox';
@@ -1075,21 +1079,22 @@ function RuleListView({
                 <motion.span
                   layoutId={morph.id(rule.key, 'title')}
                   transition={morph.transition}
-                  className={layout.name}
-                  title={name}
+                  className='min-w-0 max-w-full'
                   data-detail-name
                 >
-                  {name}
+                  <TruncatedText text={name} className={layout.name} />
                 </motion.span>
                 <motion.span
                   layoutId={morph.id(rule.key, 'desc')}
                   transition={morph.transition}
-                  className={layout.sub}
-                  title={description}
+                  className='min-w-0 max-w-full'
                 >
-                  {description}
+                  <TruncatedText text={description} className={layout.sub} />
                 </motion.span>
-                <span className={cn(layout.sub, styles.mono)}>{rule.key}</span>
+                <TruncatedText
+                  text={rule.key}
+                  className={cn(layout.sub, styles.mono)}
+                />
               </div>
               <motion.span
                 layoutId={morph.id(rule.key, 'sev')}
@@ -1187,6 +1192,12 @@ function RuleCard({
     locale === 'en'
       ? rule.description_en || rule.description
       : rule.description;
+  const descRef = useRef<HTMLParagraphElement>(null);
+  const {triggerProps: descTooltipProps, portal: descTooltipPortal} =
+    useOverflowTooltip({
+      targetRef: descRef,
+      content: description,
+    });
   const metaSuffix =
     contextClusterId != null
       ? resolved.isOverridden
@@ -1233,11 +1244,10 @@ function RuleCard({
         <motion.span
           layoutId={morph.id(rule.key, 'title')}
           transition={morph.transition}
-          className={cn(layout.name, 'min-w-0 flex-1')}
-          title={name}
+          className='min-w-0 flex-1'
           data-detail-name
         >
-          {name}
+          <TruncatedText text={name} className={layout.name} />
         </motion.span>
         <motion.span
           layoutId={morph.id(rule.key, 'sev')}
@@ -1255,13 +1265,15 @@ function RuleCard({
         </motion.span>
       </div>
       <motion.p
+        ref={descRef}
         layoutId={morph.id(rule.key, 'desc')}
         transition={morph.transition}
         className={cn(layout.sub, styles.clamp2)}
-        title={description}
+        {...descTooltipProps}
       >
         {description}
       </motion.p>
+      {descTooltipPortal}
       <div className={styles.cardRow} style={{alignItems: 'center'}}>
         <span className={cn(layout.sub, styles.num, 'min-w-0 truncate')}>
           {formatRuleThreshold(

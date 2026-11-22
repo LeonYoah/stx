@@ -942,7 +942,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                                 id={`upgrade-target-jdk-${target.cluster_node_id}`}
                                 hostId={target.host_id}
                                 hideLabel
-                                hideAuto
+                                autoSelectFirst={false}
                                 value={
                                   nodeJavaHomes[
                                     String(target.cluster_node_id)

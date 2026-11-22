@@ -543,9 +543,13 @@ export function AddNodeDialog({
                 ? plan.target.java_home || undefined
                 : undefined
             }
-            onChange={({javaHome: next}) => {
+            onChange={({javaHome: next, isAutoPrefill}) => {
               setJavaHome(next);
-              markDirty();
+              // 底层探测自动预填默认 JDK 时不误判计划脏态，仅用户主动切换时触发重新预演。
+              // Automatic probe prefill does not mark the plan dirty; only explicit user changes do.
+              if (!isAutoPrefill) {
+                markDirty();
+              }
             }}
           />
           <div className='space-y-0.5 text-xs text-muted-foreground'>

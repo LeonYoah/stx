@@ -26,11 +26,14 @@
 'use client';
 
 import React from 'react';
+import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
-import {Checkbox} from '@/components/ui/checkbox';
-import {Badge} from '@/components/ui/badge';
-import {ScrollArea} from '@/components/ui/scroll-area';
-import {Server, Crown, Wrench, Loader2, Cpu, HardDrive} from 'lucide-react';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Button} from '@/components/arc/button/button';
+import {Skeleton} from '@/components/arc/skeleton/skeleton';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {NeutralChip, SoftChip} from '@/components/common/layout';
+import {Server, Crown, Wrench, Cpu, HardDrive} from 'lucide-react';
 import {cn} from '@/lib/utils';
 import {DeploymentMode, NodeRole} from '@/lib/services/cluster/types';
 import {HostWithRole} from './types';
@@ -59,6 +62,7 @@ export function ClusterHostsStep({
   selectedHosts,
 }: ClusterHostsStepProps) {
   const t = useTranslations();
+  const router = useRouter();
 
   // Calculate master and worker counts in separated mode / 计算分离模式下 Master 和 Worker 数量
   const masterCount = selectedHosts.filter((h) =>
@@ -71,69 +75,71 @@ export function ClusterHostsStep({
   return (
     <div className='h-full flex flex-col overflow-hidden'>
       {/* Top Status Bar / 顶部状态栏 */}
-      <div className='flex items-center justify-between pb-3 border-b'>
+      <div className='flex items-center justify-between pb-3 border-b-[0.5px] border-border/80'>
         <div className='flex items-center gap-2'>
-          <span className='text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+          <span className='text-sm font-medium text-foreground'>
             {t('cluster.wizard.hostsPool')}
           </span>
-          <Badge variant='outline' className='text-xs h-5 px-2 font-mono'>
+          <NeutralChip className='font-mono tabular-nums'>
             {t('cluster.wizard.hostsSelectedShort', {
               selected: selectedHosts.length,
               total: hostsWithRole.length,
             })}
-          </Badge>
+          </NeutralChip>
         </div>
 
         {/* Separated Mode Role Summary / 分离模式角色摘要 */}
         {deploymentMode === DeploymentMode.SEPARATED && (
           <div className='flex items-center gap-2 text-xs'>
-            <Badge
-              variant='outline'
-              className={cn(
-                'h-5 gap-1 font-mono transition-colors',
-                masterCount > 0
-                  ? 'border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10'
-                  : 'text-muted-foreground border-dashed',
-              )}
-            >
-              <Crown className='h-3 w-3 text-amber-500' />
-              Master: {masterCount}
-            </Badge>
-            <Badge
-              variant='outline'
-              className={cn(
-                'h-5 gap-1 font-mono transition-colors',
-                workerCount > 0
-                  ? 'border-blue-500/40 text-blue-700 dark:text-blue-300 bg-blue-500/10'
-                  : 'text-muted-foreground border-dashed',
-              )}
-            >
-              <Wrench className='h-3 w-3 text-blue-500' />
-              Worker: {workerCount}
-            </Badge>
+            {masterCount > 0 ? (
+              <SoftChip tone='amber' className='font-mono tabular-nums'>
+                <Crown className='h-3 w-3' aria-hidden />
+                Master: {masterCount}
+              </SoftChip>
+            ) : (
+              <NeutralChip className='font-mono tabular-nums border-dashed'>
+                <Crown className='h-3 w-3' aria-hidden />
+                Master: 0
+              </NeutralChip>
+            )}
+            {workerCount > 0 ? (
+              <SoftChip tone='blue' className='font-mono tabular-nums'>
+                <Wrench className='h-3 w-3' aria-hidden />
+                Worker: {workerCount}
+              </SoftChip>
+            ) : (
+              <NeutralChip className='font-mono tabular-nums border-dashed'>
+                <Wrench className='h-3 w-3' aria-hidden />
+                Worker: 0
+              </NeutralChip>
+            )}
           </div>
         )}
       </div>
 
-      {/* Host Cards List / 主机卡片列表 */}
-      <ScrollArea className='flex-1 min-h-0 pr-4 mt-3'>
+      {/* Host List / 主机列表 */}
+      <div className='flex-1 min-h-0 overflow-y-auto pr-4 mt-3'>
         {loadingHosts ? (
-          <div className='flex items-center justify-center py-16 text-muted-foreground'>
-            <Loader2 className='h-6 w-6 animate-spin mr-2' />
-            <span className='text-sm'>{t('cluster.wizard.loadingHosts')}</span>
-          </div>
+          <Skeleton lines={5} label={t('cluster.wizard.loadingHosts')} />
         ) : hostsWithRole.length === 0 ? (
-          <div className='text-center py-16 text-muted-foreground'>
-            <Server className='h-10 w-10 mx-auto mb-3 opacity-40' />
-            <p className='text-sm font-medium'>
-              {t('cluster.wizard.noAvailableHosts')}
-            </p>
-            <p className='text-xs text-muted-foreground/70 mt-1'>
-              {t('cluster.wizard.noAvailableHostsDesc')}
-            </p>
-          </div>
+          <EmptyState
+            icon={<Server className='size-5' aria-hidden />}
+            title={t('cluster.wizard.noAvailableHosts')}
+            description={t('cluster.wizard.noAvailableHostsDesc')}
+            className='py-12'
+            action={
+              <Button
+                type='button'
+                variant='secondary'
+                size='sm'
+                onClick={() => router.push('/hosts')}
+              >
+                {t('cluster.goToHostsManagement')}
+              </Button>
+            }
+          />
         ) : (
-          <div className='space-y-2'>
+          <div className='divide-y-[0.5px] divide-border/80 border-[0.5px] border-border/80 rounded-md'>
             {hostsWithRole.map((item) => {
               const memoryGb = (
                 (item.host.total_memory || 0) /
@@ -149,16 +155,17 @@ export function ClusterHostsStep({
                   key={item.host.id}
                   onClick={() => toggleHostSelection(item.host.id)}
                   className={cn(
-                    'group cursor-pointer rounded-lg border p-3 transition-all flex items-center gap-3.5',
+                    'group cursor-pointer p-3 transition-colors flex items-center gap-3.5',
                     item.selected
-                      ? 'border-primary/60 bg-primary/[0.03] shadow-2xs ring-1 ring-primary/20'
-                      : 'border-border/60 hover:border-border hover:bg-muted/30',
+                      ? 'bg-primary/[0.04]'
+                      : 'hover:bg-muted/30',
                   )}
                 >
                   <Checkbox
                     checked={item.selected}
                     onCheckedChange={() => toggleHostSelection(item.host.id)}
                     onClick={(e) => e.stopPropagation()}
+                    aria-label={item.host.name}
                     className='shrink-0'
                   />
 
@@ -169,16 +176,13 @@ export function ClusterHostsStep({
                         <span className='text-sm font-semibold truncate'>
                           {item.host.name}
                         </span>
-                        <Badge
-                          variant='secondary'
-                          className='font-mono text-[11px] px-1.5 py-0 h-4 bg-muted text-muted-foreground'
-                        >
+                        <NeutralChip className='font-mono tabular-nums'>
                           {item.host.ip_address}
-                        </Badge>
+                        </NeutralChip>
                       </div>
 
-                      {/* Hardware Specs Pills / 硬件规格胶囊 */}
-                      <div className='flex items-center gap-2.5 text-[11px] text-muted-foreground mt-1'>
+                      {/* Hardware Specs / 硬件规格 */}
+                      <div className='flex items-center gap-2.5 text-[11px] text-muted-foreground mt-1 tabular-nums'>
                         <span className='flex items-center gap-1'>
                           <Cpu className='h-3 w-3 opacity-70' />
                           {t('cluster.wizard.cpuCores', {
@@ -193,43 +197,27 @@ export function ClusterHostsStep({
                       </div>
                     </div>
 
-                    {/* Role Toggles (Separated Mode) / 分离模式角色微切换按钮 */}
+                    {/* Role Toggles (Separated Mode) / 分离模式角色勾选 */}
                     {item.selected &&
                       deploymentMode === DeploymentMode.SEPARATED && (
                         <div
-                          className='flex items-center gap-1.5 shrink-0'
+                          className='flex items-center gap-3 shrink-0'
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <button
-                            type='button'
-                            onClick={() =>
+                          <Checkbox
+                            checked={isMaster}
+                            onCheckedChange={() =>
                               toggleHostRole(item.host.id, NodeRole.MASTER)
                             }
-                            className={cn(
-                              'px-2.5 py-1 rounded-md text-xs font-medium border flex items-center gap-1 transition-all',
-                              isMaster
-                                ? 'bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-300 font-semibold shadow-2xs'
-                                : 'bg-background border-border/70 text-muted-foreground hover:bg-muted/50',
-                            )}
-                          >
-                            <Crown className='h-3 w-3 text-amber-500' />
-                            Master
-                          </button>
-                          <button
-                            type='button'
-                            onClick={() =>
+                            label='Master'
+                          />
+                          <Checkbox
+                            checked={isWorker}
+                            onCheckedChange={() =>
                               toggleHostRole(item.host.id, NodeRole.WORKER)
                             }
-                            className={cn(
-                              'px-2.5 py-1 rounded-md text-xs font-medium border flex items-center gap-1 transition-all',
-                              isWorker
-                                ? 'bg-blue-500/15 border-blue-500/40 text-blue-700 dark:text-blue-300 font-semibold shadow-2xs'
-                                : 'bg-background border-border/70 text-muted-foreground hover:bg-muted/50',
-                            )}
-                          >
-                            <Wrench className='h-3 w-3 text-blue-500' />
-                            Worker
-                          </button>
+                            label='Worker'
+                          />
                         </div>
                       )}
                   </div>
@@ -238,7 +226,7 @@ export function ClusterHostsStep({
             })}
           </div>
         )}
-      </ScrollArea>
+      </div>
     </div>
   );
 }

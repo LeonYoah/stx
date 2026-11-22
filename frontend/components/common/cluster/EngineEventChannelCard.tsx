@@ -48,6 +48,8 @@ export function eventChannelStateClass(state: SyncEventChannelState): string {
       return 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300';
     case 'pending_restart':
       return 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+    case 'waiting_events':
+      return 'border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300';
     default:
       return 'border-border/60 bg-muted/40 text-muted-foreground';
   }
@@ -61,6 +63,8 @@ function eventChannelTone(state: SyncEventChannelState): ChipTone {
       return 'rose';
     case 'pending_restart':
       return 'amber';
+    case 'waiting_events':
+      return 'blue';
     default:
       return 'muted';
   }
@@ -254,6 +258,9 @@ export function EngineEventChannelCard({
             ) : null}
             {status.state === 'pending_restart' ? (
               <p className='text-amber-700 dark:text-amber-300'>{t('restartHint')}</p>
+            ) : null}
+            {status.state === 'waiting_events' ? (
+              <p className='text-blue-700 dark:text-blue-300'>{t('waitingHint')}</p>
             ) : null}
             {status.state === 'degraded' ? (
               <p className='text-red-700 dark:text-red-300'>{t('degradedHint')}</p>

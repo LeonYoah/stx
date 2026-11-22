@@ -31,7 +31,14 @@ import React, {useState, useCallback, useEffect, useMemo, useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
 import {Button} from '@/components/arc/button/button';
-import {NeutralChip} from '@/components/common/layout';
+import {
+  ConfirmDialog,
+  DirtyCloseDialog,
+  NeutralChip,
+  useBeforeUnload,
+} from '@/components/common/layout';
+import {DisabledReasonTooltip} from '@/components/common/DisabledReasonTooltip';
+import {motion, useReducedMotion} from 'motion/react';
 import {ChevronLeft, ChevronRight, X, PlayCircle, Layers} from 'lucide-react';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
@@ -43,6 +50,7 @@ import {
   resolveSeatunnelVersionCapabilities,
 } from '@/lib/seatunnel-version';
 import {mapCheckpointNamespaceToImap} from '@/lib/runtime-storage-namespace';
+import {isValidClusterCode} from '@/lib/cluster-code';
 import {HostType, HostStatus} from '@/lib/services/host/types';
 import {DeploymentMode, NodeRole} from '@/lib/services/cluster/types';
 
@@ -78,7 +86,14 @@ export function ClusterDeployWizard({
   onComplete,
 }: ClusterDeployWizardProps) {
   const t = useTranslations();
+  const reducedMotion = useReducedMotion() ?? false;
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  // 记录上一步索引以决定过渡方向 / Track the previous index for the slide direction
+  const prevStepRef = useRef(0);
+  const stepDirection = currentStepIndex < prevStepRef.current ? 'back' : 'forward';
+  useEffect(() => {
+    prevStepRef.current = currentStepIndex;
+  }, [currentStepIndex]);
   const [config, setConfig] = useState<ClusterDeployConfig>(
     defaultClusterDeployConfig,
   );
@@ -92,6 +107,10 @@ export function ClusterDeployWizard({
   const [deployError, setDeployError] = useState<string | null>(null);
   const [deployWarnings, setDeployWarnings] = useState<string[]>([]);
   const [createdClusterId, setCreatedClusterId] = useState<number | null>(null);
+
+  // Controlled close-confirmation state / 受控关闭确认状态
+  const [deployCancelOpen, setDeployCancelOpen] = useState(false);
+  const [dirtyCloseOpen, setDirtyCloseOpen] = useState(false);
 
   // Detailed deploy steps state / 详细部署步骤状态
   const [deploySteps, setDeploySteps] = useState<DeployStepItem[]>([]);
@@ -453,8 +472,13 @@ export function ClusterDeployWizard({
     );
   }, []);
 
-  // Validation check before proceeding / 步骤推进前置条件校验
-  const canProceed = useCallback(() => {
+  /**
+   * Reason the Next/Deploy button is blocked, or null when the step can proceed.
+   * The same predicate drives DisabledReasonTooltip so the button never just sits dead.
+   * 「下一步/开始部署」被禁用的原因；为 null 表示可继续。
+   * 与 DisabledReasonTooltip 共用同一谓词，让按钮始终说明不可推进的原因。
+   */
+  const proceedBlockReason = useCallback((): string | null => {
     const hasPluginProfileSelectionIssue = config.selectedPlugins.some(
       (pluginName) =>
         pluginName === 'jdbc' &&
@@ -463,10 +487,18 @@ export function ClusterDeployWizard({
 
     switch (currentStep.id) {
       case 'basic':
-        return config.name.trim().length > 0 && config.version.length > 0;
+        if (
+          config.clusterCode.length > 0 &&
+          !isValidClusterCode(config.clusterCode)
+        ) {
+          return t('cluster.clusterCodeInvalid');
+        }
+        return config.name.trim().length > 0 && config.version.length > 0
+          ? null
+          : t('cluster.wizard.nextDisabledBasic');
       case 'hosts':
         if (selectedHosts.length === 0) {
-          return false;
+          return t('cluster.wizard.nextDisabledHosts');
         }
         if (config.deploymentMode === DeploymentMode.SEPARATED) {
           const hasMaster = selectedHosts.some((h) =>
@@ -475,25 +507,31 @@ export function ClusterDeployWizard({
           const hasWorker = selectedHosts.some((h) =>
             h.roles.includes(NodeRole.WORKER),
           );
-          return hasMaster && hasWorker;
+          return hasMaster && hasWorker
+            ? null
+            : t('cluster.wizard.nextDisabledRoles');
         }
-        return true;
+        return null;
       case 'config':
-        return (
-          config.version.length > 0 &&
+        return config.version.length > 0 &&
           config.installDir.trim().length > 0 &&
           Boolean(config.checkpoint.namespace?.trim())
-        );
+          ? null
+          : t('cluster.wizard.nextDisabledConfig');
       case 'precheck':
-        return allPrechecksPassed;
+        return allPrechecksPassed
+          ? null
+          : t('cluster.wizard.nextDisabledPrecheck');
       case 'plugins':
-        return !hasPluginProfileSelectionIssue;
+        return hasPluginProfileSelectionIssue
+          ? t('cluster.wizard.nextDisabledJdbc')
+          : null;
       case 'deploy':
-        return deployStatus === 'success';
+        return deployStatus === 'success' ? null : '';
       case 'complete':
-        return true;
+        return null;
       default:
-        return false;
+        return '';
     }
   }, [
     currentStep.id,
@@ -501,7 +539,10 @@ export function ClusterDeployWizard({
     selectedHosts,
     deployStatus,
     allPrechecksPassed,
+    t,
   ]);
+
+  const canProceed = useCallback(() => proceedBlockReason() === null, [proceedBlockReason]);
 
   // Handle deploy execution / 处理部署执行
   const handleDeploy = useCallback(async () => {
@@ -835,13 +876,33 @@ export function ClusterDeployWizard({
     }
   }, [currentStepIndex, currentStep.id]);
 
-  // Handle close dialog / 处理关闭弹窗
-  const handleClose = useCallback(() => {
-    if (deploying) {
-      if (!confirm(t('cluster.wizard.confirmCancel'))) {
-        return;
-      }
-    }
+  /**
+   * Whether the user has entered anything worth protecting.
+   * 用户是否已有需要保护的输入（用于脏态关闭确认）。
+   */
+  const hasUserInput = useMemo(
+    () =>
+      config.name.trim().length > 0 ||
+      config.description.trim().length > 0 ||
+      selectedHosts.length > 0 ||
+      config.selectedPlugins.length > 0,
+    [
+      config.name,
+      config.description,
+      selectedHosts.length,
+      config.selectedPlugins.length,
+    ],
+  );
+  const dirtyGuardActive =
+    open &&
+    hasUserInput &&
+    currentStep.id !== 'deploy' &&
+    currentStep.id !== 'complete' &&
+    !deploying;
+  useBeforeUnload(dirtyGuardActive);
+
+  /** Reset everything and actually close / 复位全部状态并真正关闭弹窗 */
+  const closeNow = useCallback(() => {
     setCurrentStepIndex(0);
     setConfig(defaultClusterDeployConfig);
     setHostsWithRole([]);
@@ -852,8 +913,26 @@ export function ClusterDeployWizard({
     setCreatedClusterId(null);
     setPrecheckResults([]);
     setPrecheckRunning(false);
+    setDeployCancelOpen(false);
+    setDirtyCloseOpen(false);
     onOpenChange(false);
-  }, [deploying, t, onOpenChange]);
+  }, [onOpenChange]);
+
+  /**
+   * Close requests route through the right confirmation instead of a native confirm().
+   * 关闭请求先走对应确认弹窗，替代浏览器原生 confirm()。
+   */
+  const handleClose = useCallback(() => {
+    if (deploying) {
+      setDeployCancelOpen(true);
+      return;
+    }
+    if (dirtyGuardActive) {
+      setDirtyCloseOpen(true);
+      return;
+    }
+    closeNow();
+  }, [deploying, dirtyGuardActive, closeNow]);
 
   // Handle complete callback / 处理完成并查看集群
   const handleComplete = useCallback(() => {
@@ -915,6 +994,7 @@ export function ClusterDeployWizard({
             allPrechecksPassed={allPrechecksPassed}
             runPrecheck={runPrecheck}
             selectedHosts={selectedHosts}
+            onBackToConfig={() => setCurrentStepIndex(2)}
           />
         );
       case 'plugins':
@@ -957,7 +1037,15 @@ export function ClusterDeployWizard({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            handleClose();
+          }
+        }}
+      >
       <DialogContent
         className='arc-compact w-[min(95vw,1040px)]! h-[86vh]! max-h-[850px]!'
         bodyClassName='p-0! flex min-h-0 flex-1 flex-col overflow-hidden'
@@ -978,11 +1066,40 @@ export function ClusterDeployWizard({
           currentStepIndex={currentStepIndex}
           onStepClick={(index) => setCurrentStepIndex(index)}
           deploying={deploying}
+          stepErrors={{
+            ...(precheckHasRun && !allPrechecksPassed
+              ? {precheck: t('cluster.wizard.precheckFailed')}
+              : {}),
+            ...(deployStatus === 'failed'
+              ? {deploy: t('cluster.wizard.deployFailed')}
+              : {}),
+          }}
+          allComplete={currentStep.id === 'complete'}
+          readOnly={
+            deploying ||
+            currentStep.id === 'deploy' ||
+            currentStep.id === 'complete'
+          }
         />
 
-        {/* Step Content / 步骤主体内容区 */}
+        {/* Step Content / 步骤主体内容区（轻量方向性过渡） */}
         <div className='min-h-0 flex-1 overflow-hidden px-6 py-4'>
-          {renderStepContent()}
+          <motion.div
+            key={currentStepIndex}
+            className='h-full min-h-0'
+            initial={
+              reducedMotion
+                ? {opacity: 0}
+                : {opacity: 0, x: stepDirection === 'back' ? -12 : 12}
+            }
+            animate={{opacity: 1, x: 0}}
+            transition={{
+              duration: reducedMotion ? 0 : 0.15,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+          >
+            {renderStepContent()}
+          </motion.div>
         </div>
 
         {/* Footer / 底部操作栏 */}
@@ -1005,37 +1122,67 @@ export function ClusterDeployWizard({
                 variant='ghost'
                 size='sm'
                 onClick={handleClose}
-                disabled={deploying}
               >
                 <X className='size-3.5' aria-hidden />
                 {t('common.cancel')}
               </Button>
 
               {currentStep.id !== 'deploy' && (
-                <Button
-                  type='button'
-                  size='sm'
-                  onClick={handleNext}
-                  disabled={!canProceed() || deploying}
-                >
-                  {currentStep.id === 'plugins' ? (
-                    <>
-                      {t('cluster.wizard.startDeploy')}
-                      <PlayCircle className='size-3.5' aria-hidden />
-                    </>
-                  ) : (
-                    <>
-                      {t('common.next')}
-                      <ChevronRight className='size-3.5' aria-hidden />
-                    </>
-                  )}
-                </Button>
+                <DisabledReasonTooltip reason={proceedBlockReason()}>
+                  <Button
+                    type='button'
+                    size='sm'
+                    onClick={() => {
+                      if (!canProceed() || deploying) {
+                        return;
+                      }
+                      handleNext();
+                    }}
+                    aria-disabled={!canProceed() || deploying ? 'true' : undefined}
+                    className={
+                      !canProceed() || deploying ? 'opacity-60' : undefined
+                    }
+                  >
+                    {currentStep.id === 'plugins' ? (
+                      <>
+                        {t('cluster.wizard.startDeploy')}
+                        <PlayCircle className='size-3.5' aria-hidden />
+                      </>
+                    ) : (
+                      <>
+                        {t('common.next')}
+                        <ChevronRight className='size-3.5' aria-hidden />
+                      </>
+                    )}
+                  </Button>
+                </DisabledReasonTooltip>
               )}
             </div>
           </div>
         )}
+
       </DialogContent>
     </Dialog>
+
+    {/* 部署中关闭确认（替代原生 confirm）/ Deploy-cancel confirm replacing native confirm() */}
+    <ConfirmDialog
+      open={deployCancelOpen}
+      onOpenChange={setDeployCancelOpen}
+      title={t('cluster.wizard.confirmCancelTitle')}
+      description={t('cluster.wizard.confirmCancelDesc')}
+      cancelLabel={t('cluster.wizard.continueDeploy')}
+      confirmLabel={t('cluster.wizard.abortAndClose')}
+      confirmVariant='danger'
+      onConfirm={closeNow}
+    />
+
+    {/* 脏态关闭保护 / Dirty-close guard for entered-but-undeployed config */}
+    <DirtyCloseDialog
+      open={dirtyCloseOpen}
+      onDiscard={closeNow}
+      onKeepEditing={() => setDirtyCloseOpen(false)}
+    />
+    </>
   );
 }
 

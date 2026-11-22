@@ -54,9 +54,10 @@ export function NodeJavaHomeCell({
   'data-testid': testId,
 }: NodeJavaHomeCellProps) {
   const t = useTranslations();
-  const pathLabel = configuredJavaHome?.trim()
-    ? configuredJavaHome.trim()
-    : t('javaHome.badgeAuto');
+  const resolvedRuntimePath =
+    runtime?.status === 'ok' ? runtime.java_home?.trim() || '' : '';
+  const effectivePath = configuredJavaHome?.trim() || resolvedRuntimePath;
+  const pathLabel = effectivePath || t('javaHome.badgeAuto');
 
   let versionLine: ReactNode = null;
   if (!runtime || runtime.status === 'loading') {
@@ -99,7 +100,7 @@ export function NodeJavaHomeCell({
   const tooltipVersionText = runtimeVer
     ? t('javaHome.effectiveVersionValue', {version: runtimeVer})
     : '';
-  const hasExplicitPath = Boolean(configuredJavaHome?.trim());
+  const hasExplicitPath = Boolean(effectivePath);
 
   return (
     <div

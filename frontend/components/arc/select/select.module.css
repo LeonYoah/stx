@@ -2,7 +2,7 @@
    32px 行高（design §3.6）；升级 Arc 时 diff 合并。
    Local modification: popup tightened to --radius-popover (10px) with 4px padding,
    6px option corners and 32px rows (design §3.6); diff-merge on Arc upgrades. */
-.field { display: grid; gap: var(--space-2); min-width: 0; }
+.field { display: grid; align-content: start; gap: var(--space-2); min-width: 0; }
 .field label { font-size: var(--text-sm); font-weight: 500; }
 /* The trigger anchors the floating menu. Radix opens on pointerdown and measures this box, so it never scales: press feedback is color only. */
 .trigger { position: relative; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); width: 100%; min-height: var(--control-height-md); border: 1px solid var(--border); border-radius: var(--radius-control); padding: 0 var(--space-3); background: var(--surface); color: var(--foreground); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; transition: border-color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }

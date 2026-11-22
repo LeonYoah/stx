@@ -24,19 +24,20 @@ import {Loader2} from 'lucide-react';
 import {HelpHint} from '@/components/common/HelpHint';
 import {Input} from '@/components/arc/input/input';
 import {Select} from '@/components/arc/select/select';
-import {NeutralChip, SoftChip} from '@/components/common/layout';
+import {SoftChip} from '@/components/common/layout';
 import services from '@/lib/services';
 import type {JavaRuntimeCandidate} from '@/lib/services/installer/types';
 import {cn} from '@/lib/utils';
 
 const CUSTOM_VALUE = '__custom__';
-const AUTO_VALUE = '__auto__';
 
 export interface JavaHomePickerValue {
-  /** Path submitted to the API; empty means auto detection / 提交给 API 的路径，空表示自动探测 */
+  /** Path submitted to the API / 提交给 API 的具体 JDK 路径 */
   javaHome: string;
   /** Whether the current value is a custom typed path / 当前值是否为用户自填路径 */
   isCustom: boolean;
+  /** True when populated automatically from probe/process rather than a manual user click / 是否由底层探测自动预选（非用户手动切换） */
+  isAutoPrefill?: boolean;
 }
 
 interface JavaHomePickerProps {
@@ -50,13 +51,18 @@ interface JavaHomePickerProps {
   id?: string;
   /** Hide the field label when the parent already names the control / 父级已有标题时隐藏字段标签 */
   hideLabel?: boolean;
-  /** Hide auto-detect; the parent requires an explicit JDK path / 隐藏自动探测，由父级要求必须显式选择 JDK */
+  /** Deprecated: auto-detect is no longer offered as an option globally / 已废弃：全局不再将「自动探测」作为下拉选项 */
   hideAuto?: boolean;
+  /**
+   * 列表探测完成且当前无值时，是否自动预选首个探测到的具体 JDK 供用户确认（默认 true）。
+   * When true (default), auto-select the first probed concrete JDK for user confirmation if value is empty.
+   */
+  autoSelectFirst?: boolean;
 }
 
 /**
- * JDK path picker: loads detectable JDKs for a host as a select list, always offers custom entry (AC1b).
- * JDK 路径选择器：加载主机可探测 JDK 作下拉，并始终提供自定义入口（AC1b）。
+ * JDK 路径选择器：底层自动探测主机可用 JDK 列表供用户确认与选择，不再提供模糊的「自动探测」选项，并始终保留自定义路径入口。
+ * JDK path picker: probes available host JDKs internally for explicit user confirmation/selection (no ambiguous "auto" option) and always offers custom path entry.
  */
 export function JavaHomePicker({
   hostId,
@@ -67,18 +73,18 @@ export function JavaHomePicker({
   className,
   id,
   hideLabel,
-  hideAuto,
+  autoSelectFirst = true,
 }: JavaHomePickerProps) {
   const t = useTranslations();
   const [candidates, setCandidates] = useState<JavaRuntimeCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [customMode, setCustomMode] = useState(false);
-  const [appliedPreferred, setAppliedPreferred] = useState(false);
+  const [appliedInitial, setAppliedInitial] = useState(false);
   const [listLoaded, setListLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    setAppliedPreferred(false);
+    setAppliedInitial(false);
     setCustomMode(false);
     setCandidates([]);
     setListLoaded(false);
@@ -113,67 +119,76 @@ export function JavaHomePicker({
     };
   }, [hostId]);
 
+  // 探测列表就绪后按优先级预填具体 JDK 路径（进程实测 JDK > 已有值 > 首个探测候选），让用户明确确认或切换。
+  // Once probed, prefill a concrete JDK path in priority order (process JDK > existing value > first detected candidate) for explicit confirmation.
   useEffect(() => {
-    if (appliedPreferred || loading) {
+    if (appliedInitial || !listLoaded || loading) {
       return;
     }
     const preferred = (preferredJavaHome || '').trim();
-    if (!preferred) {
-      setAppliedPreferred(true);
+    if (preferred) {
+      const inList = candidates.some((c) => c.java_home === preferred);
+      setCustomMode(!inList);
+      if (value.trim() !== preferred) {
+        onChange({javaHome: preferred, isCustom: !inList, isAutoPrefill: true});
+      }
+      setAppliedInitial(true);
       return;
     }
-    const inList = candidates.some((c) => c.java_home === preferred);
-    setCustomMode(!inList);
-    onChange({javaHome: preferred, isCustom: !inList});
-    setAppliedPreferred(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- apply preferred once per host/list load
-  }, [appliedPreferred, loading, preferredJavaHome, candidates]);
+    if (value.trim()) {
+      const inList = candidates.some((c) => c.java_home === value.trim());
+      setCustomMode(!inList);
+      setAppliedInitial(true);
+      return;
+    }
+    if (autoSelectFirst && candidates.length > 0) {
+      setCustomMode(false);
+      onChange({
+        javaHome: candidates[0].java_home,
+        isCustom: false,
+        isAutoPrefill: true,
+      });
+      setAppliedInitial(true);
+      return;
+    }
+    if (candidates.length === 0) {
+      // 探测列表为空时进入自定义填写，不阻塞（AC1b）/ Empty list → custom entry without blocking (AC1b)
+      setCustomMode(true);
+    }
+    setAppliedInitial(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apply initial selection once per host/list load
+  }, [appliedInitial, listLoaded, loading, preferredJavaHome, candidates, autoSelectFirst]);
 
   useEffect(() => {
-    if (!value) {
+    if (!value || !listLoaded) {
       return;
     }
     // Sync custom vs detected after the list loads / 列表加载后同步自定义与探测选中状态
     const inList = candidates.some((c) => c.java_home === value);
     setCustomMode(!inList);
-  }, [value, candidates]);
-
-  // 探测列表为空时进入自定义填写，不阻塞（AC1b）/ Empty list → custom entry without blocking (AC1b)
-  useEffect(() => {
-    if (!listLoaded || !hostId) {
-      return;
-    }
-    if (candidates.length === 0 && !value) {
-      setCustomMode(true);
-    }
-  }, [listLoaded, hostId, candidates.length, value]);
+  }, [value, candidates, listLoaded]);
 
   const selectValue = useMemo(() => {
     if (customMode) {
       return CUSTOM_VALUE;
     }
     if (!value) {
-      return hideAuto ? '' : AUTO_VALUE;
+      return '';
     }
     if (candidates.some((c) => c.java_home === value)) {
       return value;
     }
     return CUSTOM_VALUE;
-  }, [customMode, hideAuto, value, candidates]);
+  }, [customMode, value, candidates]);
 
   const badgeLabel = customMode
     ? t('javaHome.badgeCustom')
     : value
       ? t('javaHome.badgeDetected')
-      : hideAuto
-        ? ''
-        : t('javaHome.badgeAuto');
+      : '';
 
   const selectOptions = useMemo(
     () => [
-      ...(hideAuto
-        ? []
-        : [{value: AUTO_VALUE, label: t('javaHome.optionAuto')}]),
       ...candidates.map((c) => ({
         value: c.java_home,
         label: t('javaHome.optionDetected', {
@@ -183,7 +198,7 @@ export function JavaHomePicker({
       })),
       {value: CUSTOM_VALUE, label: t('javaHome.optionCustom')},
     ],
-    [hideAuto, candidates, t],
+    [candidates, t],
   );
 
   const renderBadge = () => {
@@ -193,10 +208,7 @@ export function JavaHomePicker({
     if (customMode) {
       return <SoftChip tone='blue'>{badgeLabel}</SoftChip>;
     }
-    if (value) {
-      return <SoftChip tone='emerald'>{badgeLabel}</SoftChip>;
-    }
-    return <NeutralChip>{badgeLabel}</NeutralChip>;
+    return <SoftChip tone='emerald'>{badgeLabel}</SoftChip>;
   };
 
   return (
@@ -230,7 +242,7 @@ export function JavaHomePicker({
         aria-label={t('javaHome.label')}
         className='font-mono text-xs'
         disabled={disabled || loading}
-        value={selectValue || undefined}
+        value={selectValue}
         placeholder={t('javaHome.placeholder')}
         options={selectOptions}
         onValueChange={(next) => {
@@ -240,10 +252,6 @@ export function JavaHomePicker({
             return;
           }
           setCustomMode(false);
-          if (next === AUTO_VALUE) {
-            onChange({javaHome: '', isCustom: false});
-            return;
-          }
           onChange({javaHome: next, isCustom: false});
         }}
       />

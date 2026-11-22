@@ -693,7 +693,6 @@ export function ClusterMain() {
         onSuccess={() => {
           setIsCreateDialogOpen(false);
           void loadClusters();
-          toast.success(t('cluster.createSuccess'));
         }}
       />
 
@@ -703,7 +702,6 @@ export function ClusterMain() {
         onOpenChange={setIsDeployWizardOpen}
         onComplete={() => {
           void loadClusters();
-          toast.success(t('cluster.wizard.deploySuccess'));
         }}
       />
 

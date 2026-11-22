@@ -77,6 +77,7 @@ import {
   TableLoadingBar,
 } from '@/components/common/layout';
 import {ClusterStatusChip} from './ClusterStatusChip';
+import type {SyncEventChannelStatus} from '@/lib/services/sync/types';
 import {
   CLUSTER_DETAIL_TABS,
   resolveClusterDetailRoute,
@@ -275,6 +276,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [stxJavaProxy, setStxJavaProxy] = useState<StxJavaProxyStatus | null>(
     null,
   );
+  const [eventChannel, setEventChannel] =
+    useState<SyncEventChannelStatus | null>(null);
   const [stxJavaProxyLoading, setStxJavaProxyLoading] = useState(false);
   const [stxJavaProxyLogLoading, setStxJavaProxyLogLoading] = useState(false);
   const [stxJavaProxyLogOpen, setStxJavaProxyLogOpen] = useState(false);
@@ -608,6 +611,16 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       return;
     }
     setMonitoringOverview(result.data);
+  }, [clusterId]);
+
+  const loadEventChannel = useCallback(async () => {
+    try {
+      const data = await services.sync.getEventChannel(clusterId);
+      setEventChannel(data);
+    } catch {
+      // 概览速览失败不阻塞主视图 / Non-blocking overview snapshot failure
+      setEventChannel(null);
+    }
   }, [clusterId]);
 
   // localStorage 键按集群隔离；挂载后恢复已关闭的告警数
@@ -992,12 +1005,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     void loadMonitoringOverview();
     void loadRuntimeStorage();
     void loadStxJavaProxyStatus();
+    void loadEventChannel();
   }, [
     loadClusterData,
     loadDiagnosticsSummary,
     loadMonitoringOverview,
     loadRuntimeStorage,
     loadStxJavaProxyStatus,
+    loadEventChannel,
   ]);
 
   useEffect(() => {
@@ -1035,6 +1050,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         loadMonitoringOverview(),
         loadRuntimeStorage(),
         loadStxJavaProxyStatus(),
+        loadEventChannel(),
         loadUpgradeTasks(upgradeTasksPage, upgradeTasksPageSize),
       ]);
     } finally {
@@ -1046,6 +1062,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     loadMonitoringOverview,
     loadRuntimeStorage,
     loadStxJavaProxyStatus,
+    loadEventChannel,
     loadUpgradeTasks,
     upgradeTasksPage,
     upgradeTasksPageSize,
@@ -1055,7 +1072,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   // After config save/sync, refresh storage views; stable ref avoids configs-tab fetch loops
   const handleConfigChanged = useCallback(() => {
     void loadRuntimeStorage();
-  }, [loadRuntimeStorage]);
+    void loadEventChannel();
+  }, [loadRuntimeStorage, loadEventChannel]);
 
   const handleCleanupIMAP = useCallback(async () => {
     setImapCleanupRunning(true);
@@ -1851,16 +1869,31 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           {activeTab === 'overview' ? (
             <ClusterOverviewTab
               cluster={cluster}
+              clusterStatus={clusterStatus}
               nodes={nodes}
+              nodeJavaRuntimes={nodeJavaRuntimes}
               webUINode={webUINode}
               enableHTTP={runtimeConfig.enableHTTP}
               jobLogMode={runtimeConfig.jobLogMode}
               logModeSwitching={logModeSwitching}
               runtimeStorage={runtimeStorage}
               stxJavaProxy={stxJavaProxy}
+              eventChannel={eventChannel}
+              monitoringOverview={monitoringOverview}
+              diagnosticsGroupTotal={diagnosticsGroupTotal}
+              inspectionStarting={inspectionStarting}
               onSwitchJobLogMode={handleSwitchJobLogMode}
               onGoNodes={() => requestRouteChange('nodes')}
+              onGoConfigs={() => requestRouteChange('configs')}
               onGoRuntime={(view) => requestRouteChange('runtime', view)}
+              onGoOps={() => requestRouteChange('ops')}
+              onOpenMonitoring={() =>
+                router.push(`/monitoring?tab=alerts&cluster_id=${clusterId}`)
+              }
+              onOpenDiagnostics={() =>
+                router.push(`/diagnostics?tab=errors&cluster_id=${clusterId}`)
+              }
+              onStartInspection={() => void handleStartInspection()}
             />
           ) : null}
         </ArcTabsContent>

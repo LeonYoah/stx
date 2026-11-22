@@ -28,31 +28,18 @@
 import {useState, useMemo, useCallback} from 'react';
 import {useTranslations} from 'next-intl';
 import {useAvailablePlugins} from '@/hooks/use-plugin';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {Input} from '@/components/ui/input';
-import {Button} from '@/components/ui/button';
-import {Badge} from '@/components/ui/badge';
-import {Checkbox} from '@/components/ui/checkbox';
-import {ScrollArea} from '@/components/ui/scroll-area';
-import {Label} from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import {Select} from '@/components/arc/select/select';
+import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Skeleton} from '@/components/arc/skeleton/skeleton';
+import {Alert} from '@/components/arc/alert/alert';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {NeutralChip, SoftChip} from '@/components/common/layout';
 import {cn} from '@/lib/utils';
 import {
-  Search,
   Package,
   Info,
-  Loader2,
   CheckCircle2,
   Layers3,
 } from 'lucide-react';
@@ -63,7 +50,7 @@ import {getPluginDependencyStatusMeta} from '@/components/common/plugin/dependen
 
 function normalizePluginDescription(description: string): string {
   return description
-    .replace(/connector/gi, 'plugin')
+    .replace(/\bconnector\b/gi, 'plugin')
     .replace(/连接器/g, '插件');
 }
 
@@ -82,6 +69,13 @@ interface PluginSelectStepProps {
   selectedPluginProfiles?: Record<string, string[]>;
   /** Callback when plugin profile selection changes / 插件画像选择变化回调 */
   onPluginProfilesChange?: (pluginName: string, profileKeys: string[]) => void;
+  /**
+   * 紧凑模式：去双层卡片与重复标题，仅保留一行工具栏 + 原生滚动列表
+   * Compact: drop the nested cards/titles, keep one toolbar row + native scroll list
+   */
+  compact?: boolean;
+  /** 隐藏镜像源选择（集群向导中已在配置步统一设置）/ Hide mirror picker when configured centrally */
+  hideMirror?: boolean;
 }
 
 export function PluginSelectStep({
@@ -92,10 +86,15 @@ export function PluginSelectStep({
   onPluginsChange,
   selectedPluginProfiles = {},
   onPluginProfilesChange,
+  compact = false,
+  hideMirror = false,
 }: PluginSelectStepProps) {
   const t = useTranslations();
   const [searchQuery, setSearchQuery] = useState('');
   const [detailPlugin, setDetailPlugin] = useState<Plugin | null>(null);
+  const [detailInitialTab, setDetailInitialTab] = useState<
+    'overview' | 'dependencies'
+  >('overview');
 
   const getSelectedProfileKeys = useCallback(
     (pluginName: string) => selectedPluginProfiles[pluginName] || [],
@@ -140,6 +139,9 @@ export function PluginSelectStep({
       if (nextSelected) {
         onPluginsChange([...selectedPlugins, plugin.name]);
         if (profileMissing) {
+          // 需选场景时直接定位到官方依赖/场景 Tab，一步勾选无需手动切 Tab。
+          // Jump straight to the dependencies/profiles tab when scenario selection is required.
+          setDetailInitialTab('dependencies');
           setDetailPlugin(plugin);
           toast.info(t('plugin.selectScenarioFirst'));
         }
@@ -164,6 +166,8 @@ export function PluginSelectStep({
         <Checkbox
           checked={isSelected}
           onCheckedChange={() => handleToggle()}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={plugin.display_name || plugin.name}
           className='mt-1'
         />
 
@@ -182,17 +186,14 @@ export function PluginSelectStep({
           </p>
 
           <div className='mt-2 flex flex-wrap items-center gap-2'>
-            <Badge
-              variant='outline'
-              className={cn('text-xs', dependencyMeta.className)}
-            >
+            <NeutralChip className={cn(dependencyMeta.className)}>
               {dependencyMeta.label}
-            </Badge>
+            </NeutralChip>
             {selectedProfileKeys.length > 0 && (
-              <Badge variant='secondary' className='text-xs'>
-                <Layers3 className='mr-1 h-3 w-3' />
+              <SoftChip tone='blue' className='tabular-nums'>
+                <Layers3 className='h-3 w-3' aria-hidden />
                 {t('plugin.selectedProfiles')}: {selectedProfileKeys.length}
-              </Badge>
+              </SoftChip>
             )}
           </div>
           {profileMissing && isSelected ? (
@@ -209,121 +210,161 @@ export function PluginSelectStep({
         {/* Info button / 信息按钮 */}
         <Button
           variant='ghost'
-          size='icon'
+          size='sm'
           data-testid={`install-plugin-details-${plugin.name}`}
-          className='h-6 w-6 flex-shrink-0'
+          aria-label={plugin.display_name || plugin.name}
+          className='flex-shrink-0'
           onClick={(e) => {
             e.stopPropagation();
+            setDetailInitialTab(profileRequired ? 'dependencies' : 'overview');
             setDetailPlugin(plugin);
           }}
         >
-          <Info className='h-4 w-4' />
+          <Info className='size-3.5' />
         </Button>
       </div>
     );
   };
 
+  const listBody = loading ? (
+    <div className={cn(!compact && 'py-6')}>
+      <Skeleton lines={6} label={t('common.loading')} />
+    </div>
+  ) : error ? (
+    <Alert tone='danger' title={t('plugin.loadError')}>
+      {error}
+    </Alert>
+  ) : filteredPlugins.length === 0 ? (
+    <EmptyState
+      icon={<Package className='size-5' aria-hidden />}
+      title={t('plugin.noPluginsFound')}
+      description={
+        searchQuery.trim()
+          ? t('plugin.filteredEmptyDesc')
+          : t('plugin.noDescription')
+      }
+      className='py-10'
+      action={
+        searchQuery.trim() ? (
+          <Button
+            type='button'
+            variant='secondary'
+            size='sm'
+            onClick={() => setSearchQuery('')}
+          >
+            {t('plugin.clearSearch')}
+          </Button>
+        ) : undefined
+      }
+    />
+  ) : (
+    <div
+      className={cn(
+        'overflow-y-auto pr-4',
+        compact ? 'flex-1 min-h-0' : 'h-[350px]',
+      )}
+    >
+      <div className='grid grid-cols-1 gap-2 md:grid-cols-2'>
+        {filteredPlugins.map(renderPluginCard)}
+      </div>
+    </div>
+  );
+
+  const mirrorSelect = hideMirror ? null : (
+    <div className={cn(compact && 'shrink-0')}>
+      <Select
+        label={t('installer.mirrorSource')}
+        aria-label={t('installer.mirrorSource')}
+        value={mirror}
+        onValueChange={(value) => onMirrorChange?.(value as MirrorSource)}
+        options={[
+          {value: 'aliyun', label: t('installer.mirrors.aliyun')},
+          {value: 'huaweicloud', label: t('installer.mirrors.huaweicloud')},
+          {value: 'apache', label: t('installer.mirrors.apache')},
+        ]}
+      />
+    </div>
+  );
+
+  const detailDialog = detailPlugin ? (
+    <PluginDetailDialog
+      open={!!detailPlugin}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setDetailPlugin(null);
+        }
+      }}
+      plugin={detailPlugin}
+      seatunnelVersion={version}
+      initialTab={detailInitialTab}
+      selectedProfileKeys={getSelectedProfileKeys(detailPlugin.name)}
+      onSelectedProfileKeysChange={(keys) =>
+        onPluginProfilesChange?.(detailPlugin.name, keys)
+      }
+    />
+  ) : null;
+
+  // 紧凑布局：一行工具栏 + 充满剩余高度的原生滚动列表
+  // Compact: single toolbar row + native scroll list filling the rest
+  if (compact) {
+    return (
+      <div className='h-full min-h-0 flex flex-col gap-3'>
+        <div className='flex items-center gap-3 shrink-0'>
+          <div className='flex-1 min-w-0'>
+            <SearchField
+              label={t('common.search')}
+              placeholder={t('plugin.searchPlaceholder')}
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+            />
+          </div>
+          {mirrorSelect}
+          <NeutralChip className='shrink-0 font-mono tabular-nums'>
+            <CheckCircle2 className='h-3 w-3' aria-hidden />
+            {t('cluster.wizard.pluginsSelectedCount', {
+              count: selectedPlugins.length,
+            })}
+          </NeutralChip>
+        </div>
+        {listBody}
+        {detailDialog}
+      </div>
+    );
+  }
+
   return (
     <div className='space-y-4'>
       {/* Header / 头部 */}
-      <Card>
-        <CardHeader className='pb-3'>
-          <div className='flex items-center justify-between'>
-            <div>
-              <CardTitle className='text-lg flex items-center gap-2'>
-                <Package className='h-5 w-5' />
-                {t('installer.pluginSelection') || 'Plugin Selection'}
-              </CardTitle>
-            </div>
-            <div className='flex flex-wrap items-center gap-2'>
-              <Badge variant='outline' className='gap-1'>
-                <CheckCircle2 className='h-3 w-3' />
-                {selectedPlugins.length}{' '}
-                {t('plugin.selectedCount') || 'selected'}
-              </Badge>
-            </div>
+      <div className='space-y-3'>
+        <div className='flex items-center justify-between'>
+          <h3 className='text-sm font-semibold flex items-center gap-2'>
+            <Package className='h-4 w-4' aria-hidden />
+            {t('installer.pluginSelection')}
+          </h3>
+          <NeutralChip className='font-mono tabular-nums'>
+            <CheckCircle2 className='h-3 w-3' aria-hidden />
+            {selectedPlugins.length} {t('plugin.selectedCount')}
+          </NeutralChip>
+        </div>
+
+        {/* Search and mirror selection / 搜索与镜像源选择 */}
+        <div className='flex flex-col gap-4 lg:flex-row lg:items-end'>
+          <div className='relative flex-1'>
+            <SearchField
+              label={t('common.search')}
+              placeholder={t('plugin.searchPlaceholder')}
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+            />
           </div>
-        </CardHeader>
-        <CardContent>
-          {/* Search and mirror selection / 搜索与镜像源选择 */}
-          <div className='flex flex-col gap-4 lg:flex-row lg:items-end'>
-            <div className='relative flex-1'>
-              <Search className='absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground' />
-              <Input
-                placeholder={t('plugin.searchPlaceholder')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className='pl-9'
-              />
-            </div>
-            <div className='space-y-2 lg:w-[220px]'>
-              <Label>{t('installer.mirrorSource')}</Label>
-              <Select
-                value={mirror}
-                onValueChange={(value: MirrorSource) => onMirrorChange?.(value)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='aliyun'>
-                    {t('installer.mirrors.aliyun')}
-                  </SelectItem>
-                  <SelectItem value='huaweicloud'>
-                    {t('installer.mirrors.huaweicloud')}
-                  </SelectItem>
-                  <SelectItem value='apache'>
-                    {t('installer.mirrors.apache')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          <div className='lg:w-[220px]'>{mirrorSelect}</div>
+        </div>
+      </div>
 
       {/* Plugin list / 插件列表 */}
-      <Card>
-        <CardContent className='pt-6'>
-          {loading ? (
-            <div className='flex items-center justify-center py-12'>
-              <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
-            </div>
-          ) : error ? (
-            <div className='text-center py-12 text-destructive'>
-              <p>{error}</p>
-            </div>
-          ) : filteredPlugins.length === 0 ? (
-            <div className='text-center py-12 text-muted-foreground'>
-              <Package className='h-12 w-12 mx-auto mb-4 opacity-50' />
-              <p>{t('plugin.noPluginsFound')}</p>
-            </div>
-          ) : (
-            <ScrollArea className='h-[350px] pr-4'>
-              <div className='grid grid-cols-1 gap-2 md:grid-cols-2'>
-                {filteredPlugins.map(renderPluginCard)}
-              </div>
-            </ScrollArea>
-          )}
-        </CardContent>
-      </Card>
+      {listBody}
 
-      {detailPlugin && (
-        <PluginDetailDialog
-          open={!!detailPlugin}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) {
-              setDetailPlugin(null);
-            }
-          }}
-          plugin={detailPlugin}
-          seatunnelVersion={version}
-          selectedProfileKeys={getSelectedProfileKeys(detailPlugin.name)}
-          onSelectedProfileKeysChange={(keys) =>
-            onPluginProfilesChange?.(detailPlugin.name, keys)
-          }
-        />
-      )}
+      {detailDialog}
     </div>
   );
 }

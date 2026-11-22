@@ -72,15 +72,25 @@ describe('JavaHomePicker', () => {
     ]);
   });
 
-  it('probes host JDK list on mount (AC1b / AC1b2)', async () => {
+  it('probes host JDK list on mount and preselects the first concrete JDK (no auto option)', async () => {
     const onChange = vi.fn();
     render(
       wrap(<JavaHomePicker hostId={1} value='' onChange={onChange} id='jdk' />),
     );
     await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalledWith(1));
     expect(screen.getByText('JDK path')).toBeInTheDocument();
-    expect(screen.getByText('Auto')).toBeInTheDocument();
-    expect(screen.queryByText('hint')).not.toBeInTheDocument();
+    expect(screen.queryByText('Auto')).not.toBeInTheDocument();
+    expect(screen.queryByText('Auto detect')).not.toBeInTheDocument();
+    expect(onChange).toHaveBeenCalledWith({
+      javaHome: '/usr/lib/jvm/java-11',
+      isCustom: false,
+      isAutoPrefill: true,
+    });
+    fireEvent.click(screen.getByRole('combobox'));
+    expect(screen.queryByText('Auto detect')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('/usr/lib/jvm/java-11 (Java 11)'),
+    ).toBeInTheDocument();
   });
 
   it('hides the field label when hideLabel is set', async () => {
@@ -89,7 +99,7 @@ describe('JavaHomePicker', () => {
       wrap(
         <JavaHomePicker
           hostId={1}
-          value=''
+          value='/usr/lib/jvm/java-11'
           onChange={onChange}
           hideLabel
           id='jdk-compact'
@@ -98,10 +108,10 @@ describe('JavaHomePicker', () => {
     );
     await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalledWith(1));
     expect(screen.queryByText('JDK path')).not.toBeInTheDocument();
-    expect(screen.getByText('Auto')).toBeInTheDocument();
+    expect(await screen.findByText('Detected')).toBeInTheDocument();
   });
 
-  it('hides auto detection when hideAuto is set', async () => {
+  it('keeps placeholder without auto-selecting when autoSelectFirst is false', async () => {
     const onChange = vi.fn();
     render(
       wrap(
@@ -110,14 +120,14 @@ describe('JavaHomePicker', () => {
           value=''
           onChange={onChange}
           hideLabel
-          hideAuto
-          id='jdk-required'
+          autoSelectFirst={false}
+          id='jdk-upgrade'
         />,
       ),
     );
     await waitFor(() => expect(listJavaRuntimes).toHaveBeenCalledWith(1));
+    expect(onChange).not.toHaveBeenCalled();
     expect(screen.queryByText('Auto')).not.toBeInTheDocument();
-    expect(screen.queryByText('Auto detect')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('combobox'));
     expect(screen.queryByText('Auto detect')).not.toBeInTheDocument();
     expect(
@@ -141,6 +151,7 @@ describe('JavaHomePicker', () => {
       expect(onChange).toHaveBeenCalledWith({
         javaHome: '/proc/special/jdk',
         isCustom: true,
+        isAutoPrefill: true,
       }),
     );
     expect(await screen.findByText('Custom')).toBeInTheDocument();

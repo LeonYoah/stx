@@ -272,7 +272,17 @@ export async function chooseSelectOption(
   testId: string,
   optionName: RegExp | string,
 ): Promise<void> {
-  await page.getByTestId(testId).click();
+  const container = page.getByTestId(testId);
+  // 兼容已迁移为 Arc SegmentedControl 的短枚举控件（role="group" 内直接点选项按钮）
+  // Support short-enum controls migrated to Arc SegmentedControl (buttons inside role="group")
+  const segmentButton = container
+    .getByRole('group')
+    .getByRole('button', {name: optionName});
+  if ((await segmentButton.count()) > 0) {
+    await segmentButton.first().click();
+    return;
+  }
+  await container.click();
   await page.getByRole('option', {name: optionName}).click();
 }
 

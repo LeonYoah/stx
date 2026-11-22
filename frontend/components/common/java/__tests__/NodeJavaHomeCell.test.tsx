@@ -80,4 +80,23 @@ describe('NodeJavaHomeCell', () => {
     expect(screen.getByText('/usr/lib/jvm/java-8')).toBeInTheDocument();
     expect(screen.getByText('Fetching version…')).toBeInTheDocument();
   });
+
+  it('shows resolved runtime java_home when configured path is empty', () => {
+    render(
+      wrap(
+        <NodeJavaHomeCell
+          configuredJavaHome=''
+          runtime={{
+            status: 'ok',
+            version: 21,
+            version_string: '21.0.5',
+            java_home: '/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home',
+          }}
+        />,
+      ),
+    );
+    expect(screen.queryByText('Auto detect')).not.toBeInTheDocument();
+    expect(screen.getByText('Java 21.0.5')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Copy'})).toBeInTheDocument();
+  });
 });

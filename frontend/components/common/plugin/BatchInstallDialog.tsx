@@ -231,17 +231,17 @@ export function BatchInstallDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-[500px]">
+        <DialogHeader className="border-b-[0.5px] border-border/80 bg-muted/10 px-6 pt-5 pb-4">
           <DialogTitle>{t('plugin.batchInstall')}</DialogTitle>
           <DialogDescription>
             {t('plugin.batchInstallDesc', { count: plugins.length })}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="px-6 py-5">
           {/* Cluster selector / 集群选择器 */}
-          <div className="space-y-2">
+          <div className="space-y-2 pb-5">
             <label className="text-sm font-medium">
               {t('plugin.selectCluster')}
             </label>
@@ -280,12 +280,12 @@ export function BatchInstallDialog({
           </div>
 
           {/* Plugin list / 插件列表 */}
-          <div className="space-y-2">
+          <div className="space-y-2.5 border-t-[0.5px] border-border/80 pt-5">
             <label className="text-sm font-medium">
               {t('plugin.pluginsToInstall')}
             </label>
-            <ScrollArea className="h-[200px] rounded-md border p-2">
-              <div className="space-y-2">
+            <ScrollArea className="h-[200px] pr-2">
+              <div className="space-y-1.5">
                 {plugins.map((plugin) => {
                   const status = installStatuses.find(
                     (s) => s.pluginName === plugin.name
@@ -293,7 +293,7 @@ export function BatchInstallDialog({
                   return (
                     <div
                       key={plugin.name}
-                      className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                      className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2"
                     >
                       <div className="flex items-center gap-2">
                         {status && getStatusIcon(status.status)}
@@ -318,7 +318,7 @@ export function BatchInstallDialog({
 
           {/* Progress bar / 进度条 */}
           {installing && (
-            <div className="space-y-2">
+            <div className="mt-5 space-y-2 border-t-[0.5px] border-border/80 pt-4">
               <div className="flex items-center justify-between text-sm">
                 <span>{t('plugin.installing')}</span>
                 <span>
@@ -330,7 +330,7 @@ export function BatchInstallDialog({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t-[0.5px] border-border/80 bg-muted/10 px-6 py-3.5">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

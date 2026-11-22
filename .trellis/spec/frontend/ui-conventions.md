@@ -17,19 +17,19 @@
 ## 2. 单层画布、圆角、排版与信息密度
 
 - **单层扁平画布 + `0.5px` 细线（核心视觉约束）**：
-  - 详情页、右侧详情栏、Tab 主面板与管理类弹窗一律**压平为单层卡片/画布**，去掉内部多余的嵌套 `<Card>`、`rounded-lg border bg-card shadow-xs`、多余阴影及虚线占位盒。
-  - 各信息分组通过统一留白（如首组 `pb-5`、后续各组 `py-5`、末组 `pt-5`）配合一条 **`0.5px` 细线**（`border-t-[0.5px] border-border/80` / `border-b-[0.5px] border-border/80`）自然分隔。
+  - 详情页、右侧详情栏（`DetailHost`）、Tab 主面板与管理类弹窗一律**压平为单层卡片/画布**，去掉内部多余的嵌套 `<Card>`、`rounded-lg border bg-card shadow-xs`、多余阴影及虚线占位盒。
+  - 各信息分组通过统一留白（如 `16px` / 首组 `pb-5`、后续各组 `py-5`、末组 `pt-5`）配合一条 **`0.5px` 细线**（`list-detail.module.css` 的 `.detailSection` / `.detailKvGrid` 或 `border-t-[0.5px] border-border/80` / `border-b-[0.5px] border-border/80`）自然分隔。
   - 画布内嵌表格不额外包一层 `rounded-lg border` 或虚线外框，直接落在画布上并使用 `[&_tr]:border-b-[0.5px] [&_tr]:border-border/70` 分行。
-  - 单行路径、Maven 坐标、命令摘要等只读条用轻底色承托（如 `rounded-md bg-muted/50 px-3 py-2`），不额外套描边。
+  - 指标条、键值网格与提示文案均保持轻盈无框；单行路径、Maven 坐标、命令摘要、多行日志/代码块用轻底色承托（如 `rounded-md bg-muted/50 px-3 py-2`），不额外套描边或阴影。
 - **递进圆角与 Token 一致性**：
-  - 容器与控件消费 `--radius-panel`（16px）/ `--radius-control`（14px）/ `--radius-popover`（12px），内层嵌套容器遵循 `inner = outer - padding`（不低于 4px）；状态表达统一用语义 Token 与 `SoftChip` / `NeutralChip`，禁止业务组件硬编码 `bg-green-500` / `bg-yellow-500` / 散落色值。
+  - 容器与控件消费 `--radius-panel`（16px）/ `--radius-control`（14px）/ `--radius-popover`（12px），内层嵌套容器遵循 `inner = outer - padding`（不低于 4px）；状态表达统一用语义 Token 与 `SoftChip` / `NeutralChip` / §9 的 `Badge`，禁止业务组件硬编码 `bg-green-500` / `bg-yellow-500` / 散落色值。
 - **排版与原子信息防碎裂**：
   - 计数、版本号、端口、PID、内存、进度、时间等数字字段一律加 `tabular-nums`，防止更新时列宽跳动。
-  - ID / Key / 路径 / URL / 命令 / 状态胶囊等原子信息**禁止** `break-all` 硬折断；表格列与紧凑详情中的截断文本/路径统一复用 `components/common/layout/TruncatedText`（仅在溢出时于悬停 180ms 内弹出主题化 Radix `Tooltip` 显示完整原文，禁止仅靠原生 HTML `title` 属性兜底；长路径使用 `mode='path'` 中间省略保留尾部关键段，并按需开启 `copyable` 一键复制）。单行长文本也可按场景选用 `overflow-x-auto whitespace-nowrap`，或弹性流整体换行（`flex-wrap` + `shrink-0 whitespace-nowrap`）。
+  - ID / Key / 路径 / URL / 命令 / 状态胶囊等原子信息**禁止** `break-all` 硬折断；表格列与紧凑详情中的截断文本/路径统一复用 `components/common/layout/TruncatedText`（仅在溢出时于悬停 180ms 内弹出主题化 Radix `Tooltip` 显示完整原文，禁止仅靠原生 HTML `title` 属性兜底；长路径使用 `mode='path'` 中间省略保留尾部关键段，并按需开启 `copyable` 一键复制）。单行长文本也可按场景选用 `overflow-x-auto whitespace-nowrap`，或弹性流整体换行（`inline-flex items-center flex-wrap` + `shrink-0 whitespace-nowrap`）。
   - **Radix `ScrollArea` 内截断坑**：`ScrollArea` 内部默认 `display: table; min-width: 100%`，弹性子项只写 `min-w-0 flex-1` + `truncate` 仍会被撑宽；截断子项须用 `w-0 min-w-0 flex-1`（或固定 `max-w-*`），树视口需覆写为 `display: block; min-width: 0`。
 - **反噪音与渐进式披露**：
-  - 严禁在列表或卡片顶部堆砌静态长说明；解释性文案收进 `Tooltip`、`HelpHint` 或 `EmptyState`。
-  - 严禁在单屏内平铺过多同级 Tab（一般 ≤6 个）或把基础属性、重型明细表与表单全量堆叠；关联子视角通过内部 Arc `SegmentedControl` 折叠分流。
+  - 严禁在列表或卡片顶部堆砌静态长说明；解释性文案收进 `Tooltip`、`HelpHint`、Placeholder 或 `EmptyState`。
+  - 严禁在单屏内平铺过多同级 Tab（一般 ≤6 个）或把基础属性、重型明细表与表单全量堆叠；关联子视角通过内部 Arc `SegmentedControl`、Drawer 或 Dialog 折叠分流。
 
 ---
 
@@ -39,27 +39,28 @@
   - **即时开关 vs 表单勾选**：`Switch` 仅用于**拨动后立即持久化生效**的设置项（旁置轻量保存态，失败回滚）；需要点底部「保存 / 提交」才生效的布尔选项一律用 `Checkbox`。禁止用两个 Radio 表示开/关。
   - **单选数量规则**：2–5 个固定短选项一律用 Arc `SegmentedControl`（一目了然、一次点击，禁止藏进 `Select`）；≥6 项或选项会动态增长（如集群列表、版本号、主机）用 Arc `Select` / 可搜索 `Combobox`；带说明行的 2–5 个选项用竖排 Radio。
   - **值选择 vs 动作菜单**：选值用 `Select` / `Combobox`（选中后回显当前值）；执行动作（编辑、重启、升级、删除）用 Arc `DropdownMenu`（触发按钮保持原名，不放进表单字段区）。
-  - **历史组件限制**：`StatPillsBar` 仅为历史兼容组件；新页面与重构页面筛选统一走 Arc `SegmentedControl`，严禁将 `StatPillsBar` 用作跨 Tab 跳转或往搜索框写字符串的混杂控件。
-- **浮层组件选型**：
+  - **`StatPillsBar` 已弃用**：新代码严禁使用（仅历史未迁页面暂留，最后一处迁走后删除）。状态筛选统一走 Arc `SegmentedControl`（单选，2–5 项或后端仅接单值）或 Arc `chip-group`（多选，如作业 7 态），严禁将 `StatPillsBar` 用作跨 Tab 跳转或往搜索框写字符串的混杂控件。
+- **浮层与确认分级**：
   - `Tooltip`：纯文本补充（图标按钮说明、截断全文、禁用原因），严禁在 `Tooltip` 内放可点击操作。
-  - `AlertDialog`：高危、不可逆或跨节点/跨人影响的二次确认（如启停/重启/删除集群、批量节点操作）；必须写清受影响对象与不可逆后果，确认按钮使用**具名动作**（如「停止集群」「删除集群」），禁止泛化的「确定」。
+  - `AlertDialog`（`ui/alert-dialog`）：高危、不可逆、批量或跨节点/跨人影响的二次确认（如启停/重启/删除集群、批量节点操作）；必须写清受影响对象与不可逆后果，确认按钮使用**具名动作**（如「停止集群」「删除集群」），禁止泛化的「确定」；用普通 `Dialog` 承载的纯确认应改为 `AlertDialog`。
+  - Arc `ConfirmMorph`：单条、不可撤回、只涉及自身且有按钮可锚定的轻量行内确认（每行最多锚定 1 个）；能撤回的操作可不确认。**全站禁止 `window.confirm`**。
   - Arc `Dialog`（`@/components/arc/dialog/dialog`）：短表单、独立配置或聚焦查看；内容节点必挂 `.arc-compact`，尺寸显式写 `w-[min(...)]!` / `max-h-[85vh]!`。
-  - `DetailHost`（≥1080px 常驻栏 / <1080px 贴边 Arc `Drawer`）：列表项速览、长表单或需对照列表切换浏览的详情；严禁用抽屉做确认弹窗。
+  - `DetailHost`（≥1080px 常驻栏 / <1080px 贴边 Arc `Drawer`）：管理列表行详情与长表单标准宿主（禁止新造宿主；`ui/sheet` 只留给审计 `AuditTraceSheet` 等临时覆盖层，主机 `/hosts/[id]` 走列表深链接打开常驻栏，不再用 Sheet-only 详情页；集群列表卡片网格与多 Tab 整页集群详情不硬套 `DetailHost`）。严禁用抽屉做确认弹窗。
   - 独立整页路由：多域重型工作台或需独立分享 URL 的主流程（如单集群深度控制台、三阶段升级流）。
-- **未保存脏态拦截**：所有含编辑态的 `Dialog`、`Drawer`、常驻详情栏及 Tab / 子视角切换，统一走 `components/common/layout/DirtyCloseDialog`（或 `UnsavedChangesDialog`）；仅编辑脏态触发，新建取消直接退出，禁止底栏内联替换条或遮罩硬盖。
-- **shadcn 弹窗兜底要求**：存量未迁至 Arc 的 `ui/dialog` / `ui/alert-dialog` 底座自带 `sm:max-w-lg`，宽弹窗宽度一律写 `sm:max-w-*`（受 `components/ui/__tests__/dialog-width-classes.test.ts` 门禁保护）。
-- **只读长文本与日志**：错误堆栈、节点/升级日志、JSON 样本使用 `ExpandableTextPanel` 或原生双向 `overflow-auto` 容器，**严禁**对长 mono 日志再包 Radix `ScrollArea`。
+- **未保存脏态拦截**：所有含编辑态的 `Dialog`、`Drawer`、常驻详情栏及 Tab / 子视角切换，统一走 `components/common/layout/UnsavedChangesDialog` / `DirtyCloseDialog`（支持两/三动作、禁用遮罩误点、默认焦点落在安全留守按钮）；仅编辑脏态触发，新建取消直接退出，禁止底栏内联替换条或遮罩硬盖。
+- **shadcn 弹窗兜底要求**：存量未迁至 Arc 的 `ui/dialog` / `ui/alert-dialog` 底座自带 `sm:max-w-lg`，宽弹窗宽度一律写 `sm:max-w-*`（受 `components/ui/__tests__/dialog-width-classes.test.ts` 门禁保护）；重内容弹窗显式放宽至 `sm:max-w-4xl` 以上并采用 `flex flex-col overflow-hidden` + 内部 `overflow-auto min-h-0 flex-1`。
+- **只读长文本与日志**：错误堆栈、节点/升级日志、JSON 样本使用 `components/common/layout/ExpandableTextPanel`（原生双向 `overflow-auto`，放大走 `WorkbenchDialogContent`）或原生双向 `overflow-auto` 容器，**严禁**对长 mono 日志再包 Radix `ScrollArea`。
 
 ---
 
 ## 4. 列表、筛选、加载、空态与详情分栏
 
 - **单行工具栏（`layout.toolbar`）**：
-  - 状态/短枚举筛选用 Arc `SegmentedControl`，搜索用 Arc `SearchField`（支持 `/` 快捷键聚焦、`Esc` 清空、Enter 或防抖触发查询，**不再配冗余的独立「搜索」按钮**），排序与视图切换放右侧 `layout.toolbarRight`。
+  - 保持左对齐，状态/短枚举筛选用 Arc `SegmentedControl`（或 Arc `chip-group`），搜索用 Arc `SearchField`（支持 `/` 快捷键聚焦、`Esc` 清空、Enter 或防抖触发查询且不误触发清空/关闭等次要动作，**不再配冗余的独立「搜索」按钮**），排序与视图切换放右侧 `layout.toolbarRight`。
   - 筛选与页码支持 URL 查询参数双向同步；任意筛选变化重置 `page = 1`；异步拉取必须带请求序号竞态保护（忽略过期响应）。
-  - 禁止仅按当前页条目统计并展示与总数矛盾的状态数字（无后端全量分桶计数时直接展示纯文字分段）。
+  - **筛选计数约束**：只有后端（或客户端已持有的**全集**）能给出与列表总数一致的分桶统计时，才在 `SegmentedControl` / `chip-group` 上显示计数（等宽数字、固定最小宽度；危险类 >0 用 `tone='danger'`）；**禁止**仅按当前页条目拼凑与总数矛盾的假状态数字（无全集分桶时展示纯文字分段，如主机分段；令牌用全量计数）。
 - **唯一主卡片与零塌陷加载（`TableCard`）**：
-  - 带分页或独立加载态的列表统一复用 **`components/common/layout/TableCard.tsx`**：
+  - 带分页或独立加载态的列表统一复用 **`components/common/layout/TableCard.tsx`**（卡片根挂 `data-slot='table-card'`，分页底栏挂 `data-slot='table-card-footer'`）：
     - 首屏无数据时走 `TableSkeletonRows`（加载超过 **300ms** 才显现，显现后至少驻留 **500ms** 防闪烁）；
     - 刷新/翻页保留旧数据与可交互性，只亮顶部 `TableLoadingBar`（一次等待只留一种指示，**禁止**整表加 `opacity-60 pointer-events-none` 压暗禁点）；
     - 请求失败保留已有旧数据，在卡片顶部或卡片内展示错误与「重试」按钮（仅无旧数据时占满卡片）；
@@ -82,10 +83,10 @@
   - 禁止给整页或列表套用 500–600ms 的慢级联入场动画（不再新增整页 GSAP / Motion stagger 入场）；动效优先服务于状态连续性（`useViewMorph`、#178 联动与名称飞入、按钮图标就地反馈）。
   - 统一时长与曲线：小组件/悬浮/按压 100–200ms、面板/分栏/弹窗 150–300ms；入场与快速落位用 `cubic-bezier(0.22, 1, 0.36, 1)`（`--detail-ease`），退场用 `ease-in` 且短于入场，屏幕内位移/分段滑块用 `ease-in-out`，`linear` 仅用于旋转加载图标与进度条。必须尊重 `prefers-reduced-motion`。
 - **表卡切换与共享形变（`ViewToggle` + `useViewMorph`）**：
-  - 列表在表格与卡片网格间切换统一用 `components/common/ViewToggle.tsx`（16px 图标 + `ariaLabel`），并入工具栏右侧。
+  - 列表在表格与卡片网格间切换统一用 `components/common/ViewToggle.tsx`（16px 图标 + `ariaLabel`），直接并入卡片头或工具栏右侧。
   - 共享元素形变调用 `lib/animations/view-morph.ts` 的 `useViewMorph(scope)`：同一 item 在双视图使用相同 `part` 锚点生成 `layoutId`，Motion 以 200ms tween 做 FLIP 形变，外层包 `LayoutGroup`，`useReducedMotion` 自动退化。
 - **底部浮动批量操作条（`BatchBar`）**：
-  - 多选批量操作统一复用 `components/common/layout/batch-bar.tsx`（搭配 `usePagedSelection`），浮于底部 Dock 上方（`bottom-24`）且仅在 `selectedCount > 0` 时出现；**禁止**在表格头部或上方插入占位横条顶高表格；分栏页面与底部分页共存时避让分页栏。
+  - 多选批量操作统一复用 `components/common/layout/batch-bar.tsx`（搭配 `usePagedSelection`），浮于底部 Dock 上方（`bottom-24`）且仅在 `selectedCount > 0` 时出现（清除收敛为紧凑 X 图标按钮）；**禁止**在表格头部或上方插入占位横条顶高表格；分栏页面与底部分页共存时定位在分页栏上方，不遮挡页码。
 
 ---
 
@@ -110,8 +111,24 @@
 ## 8. Arc 与 beUI 组件约定
 
 - **安装与许可**：免费 Arc 组件装入 `frontend/components/arc/`（`cd frontend && pnpm dlx shadcn@latest add @uiarc/<name> --yes`），不覆盖 `components/ui/`，不安装 `@uiarc-pro`；beUI 放在 `components/motion/` / `components/charts/`（不覆盖仓库 `lib/i18n/`、`lib/utils.ts`、`lib/ease.ts`）。两类 vendored 文件均须保留 MIT 头、登记 `licenses/third_party_mit_files.txt`；对组件做局部 STX 扩展必须加双语 `Local modification` 注释以便升级 diff 合并。
-- **主题与全局紧凑尺度**：`app/layout.tsx` 引入一次 `@/components/arc/foundation.css`，`ThemeProvider` 的 `ArcThemeAttribute` 同步 `html[data-theme]`。`foundation.css` 与 `app/globals.css` `.arc-compact` 统一半胶囊控制台尺度（`--radius-control: 0.875rem` / 14px、`--radius-panel: 1rem` / 16px、`--radius-popover: 0.75rem` / 12px、`--control-height-sm: 1.875rem` / 30px、`--control-height-md: 2.125rem` / 34px）；挂到 `<body>` 下的 Portal 表面（`DrawerContent`、`DialogContent`）必须在内容节点显式附带 `.arc-compact`。
-- **`SegmentedControl` 跨挂载点共享 `layoutGroup`**：同一逻辑分段开关渲染在两个互斥挂载点时，两处必须传相同的 `layoutGroup` 字符串，确保选中胶囊跨实例平滑形变而非瞬移。
+- **主题与全局半胶囊尺度**：`app/layout.tsx` 引入一次 `@/components/arc/foundation.css`，`ThemeProvider` 的 `ArcThemeAttribute` 同步 `html[data-theme]`。`foundation.css` `:root` 与 `app/globals.css` `.arc-compact` 统一半胶囊控制台尺度（`ConfirmMorph` / `Switch` 保持胶囊；不叠 `corner-shape: superellipse`）：
+  - `--radius-control: 0.875rem`（**14px**）、`--radius-panel: 1rem`（**16px**）、`--radius-popover: 0.75rem`（**12px**）、`--control-height-sm: 1.875rem`（**30px**）、`--control-height-md: 2.125rem`（**34px**）；
+  - 挂到 `<body>` 下的独立 Portal 表面（如自定义内容节点或抽屉/弹窗内容区）仍推荐显式附带 `.arc-compact` 以保证紧凑密度一致。
+- **同一块区域优先统一复用 Arc 组件**：同一行筛选栏、同一个对话框、同一张表里，已有 Arc 封装的交互控件（`Button` / `Input` / `Select` / `Combobox` / `Switch` / `Checkbox` / `SegmentedControl` / `Dialog`）统一走 `@/components/arc/*`；Arc 未封装的控件（如 `Textarea`、`ui/alert-dialog`）以及 §9 的 `ui/badge` 可配合使用。
+- **控件选型**：
+
+  | 场景 | 组件 |
+  |---|---|
+  | 少量选项下拉 | Arc `Select`；2–5 个短选项且互斥的筛选用 `SegmentedControl` |
+  | 可搜索 / 长列表 / 数量不固定的数据 | Arc `Combobox` |
+  | 行内操作 | 统一走 Arc `Button` ghost + `iconOnly`（`MoreHorizontal`）+ Arc `DropdownMenu`（破坏性项 `destructive` + `separatorBefore`，对齐告警中心）；不在表尾手拼零散定制图标按钮组 |
+  | 行内轻确认 | Arc `ConfirmMorph`（§3） |
+  | 破坏性确认 | `ui/alert-dialog` |
+  | 命令面板 | `ui/command`（不要拿它拼可搜索下拉） |
+  | 状态标签 | 见 §9 |
+
+- **可访问名称（强制）**：`Select` / `Combobox` 的可见 `label` 可为可选，但**去掉可见标签后必须仍有可见标签或 `aria-label` 之一**，控件不得缺少可访问名称；纯图标按钮同理必须传 `aria-label`（含大盘头部范围选择）。
+- **`SegmentedControl` 跨挂载点共享 `layoutGroup`**：同一逻辑分段开关渲染在两个互斥挂载点时（如「通知渠道 | 投递记录」「巡检记录 | 自动」），两处必须传相同的 `layoutGroup` 字符串，确保选中胶囊跨实例平滑形变而非瞬移。
 - **日期范围选择**：全局起止日期走 `components/common/layout/ArcDateRangePicker`（默认 `months={1}`、`maxDate` 用 `useToday()` 避免首帧水合差异、Apply 闭区间写到 `:59.999`）；需分钟精度时开 `withTime`（内置 24h `ClockField`，不用原生 `<input type="time">`）。
 - **技术防坑**：
   - `localStorage` 状态首帧必须使用服务端一致的默认值，挂载后再同步，避免水合报错。
@@ -122,14 +139,42 @@
 
 ---
 
-## 9. 提交前检查
+## 9. 状态标签（Badge）
+
+- **保留原本 shadcn `ui/badge` 不动**：列表、详情与卡片里的状态标签及中性标签继续沿用 `@/components/ui/badge`，不做向 Arc `Badge` 的批量替换，也不修改 `components/ui/badge.tsx` 本身。
+- **已有 Arc `Badge` 维持现状**：工作台定时侧栏、作业详情、升级向导以及 `SegmentedControl` / `chip-group` 计数处已使用的 Arc `Badge` 保持不动。
+- **一致性与深色可读性**：同一域内配色与尺寸保持统一；新增或顺手修改时必须同时带好浅色与 `dark:` 对比度变体。
+- **文案走 next-intl**：未知后端状态值用 `t.has()` 兜底。
+
+---
+
+## 10. 控制台首页（监控大盘 + 全局作业列表）
+
+> 布局与视觉由 PR #168 落地；任务 `11-18-unified-admin-console-lists` **不改大盘布局**。`HomeDashboard` 头部 Combobox 的 `[&_label]:sr-only` 清理仅为可选小遗留（须保留可见 label 或 `aria-label`），不阻塞审计 / 用户 / 主机三页迁移。
+
+- **结构**：`app/(main)/dashboard/page.tsx` 只装配 `HomeDashboard`（`components/common/dashboard/`）。顶部 `WorkspaceHeader`（操作区放范围选择与刷新）→ `KpiStrip` 指标条 → 「需要处理」横条 → Arc `Tabs`（集群 / 作业 / 主机 / 平台 / 作业列表）。页签、范围（`cluster`）与列表筛选写在 URL（`useDashboardQuery`）。区块页签按内容宽度：Arc `listShell` 是 `inline-flex`，在 `flex-col` 父级里外包 `<div className='flex'>`。
+- **头部集群范围**：Arc `Combobox`（集群名不固定，需搜索）。`label` 可选；去掉历史 `[&_label]:sr-only` 后必须保留可见标签或 `aria-label`（§8）。`data-testid='home-scope'` 透传到输入框；`all` → `clusterId: undefined`；当前 `cluster` 不在已加载列表时保留 `clusterFallback`。
+- **指标条（`KpiStrip`）**：一底板 7 格，格间「右 + 下」1px inset 分隔（`DASHBOARD_CELL_DIVIDER`）；数字 24px 量级；`tone` 只染数字：失败 / CDC 超阈 / 严重告警 / 集群异常 → danger，仅降级 → warning。涨跌符号只给「越大越好」的写入速率。首屏用 `KpiStripSkeleton`。
+- **面板层级（`DashboardPanel`）**：`primary` / `secondary` 两档；`empty` 收成 `h-11` 矮条；`flush` 去内边距用于指标页签行与表格。
+- **吞吐页签（`ThroughputTabs`）**：读 / 写 × 行 / 字节 4 格驱动 `BrushChart`，**不再**使用分段控件；与 `ClusterScopeStrip` 共用 `use-roving-keys.ts`。
+- **集群范围条（`ClusterScopeStrip`）**：替代大圆角 `RadioCards`；底板 + 分隔线格子，`radiogroup` + roving tabindex，选中格顶部 accent 色条；保留健康徽标与节点 / 运行 / 堆 / 告警说明。
+- **作业列表**：**不要**恢复已删除的「全部 / 正式 / 预览」运行类型分段控件；状态筛选仍为工具栏现状（`StatPillsBar`，计数来自 `with_counts`）；`chip-group` 多选替换不在本期三页迁移范围内。详情就地走 `JobDetailHost`，不复刻工作台整页。
+- **需要处理**：无事项时只渲染无框单行文字，不留空边框。
+- **图表选型 / 配色 / 时间窗 / 轮询 / 空态 / 产品文案**：延续既有大盘约定（一个指标一种图；`colorForLabels` / `SERIES_PALETTE`；自定义窗口写 URL `start`/`end`，前端截取 366 天；`usePolledResource` 30s；`TrendEmptyState` 按 `reason` 区分；界面不出现底层实现名）。
+- **平台页签**：`tab=platform`，主体 `PlatformTab`；快照 `getPlatformSnapshotSafe()`；降级用 `TrendEmptyState`；Agent 表用 `StudioTable`。
+
+---
+
+## 11. 提交前检查
 
 - [ ] 业务页根容器挂 `.arc-compact`，未使用冲突的外层 `max-w-*` 容器；头部用 `WorkspaceHeader` 且图标与 Dock 对齐；新/改图标已列出候选并经确认。
-- [ ] 详情页、右侧详情栏与管理类弹窗均压平为单层画布 + `0.5px` 细线分隔，无嵌套 `<Card>`、无冗余阴影与虚线占位盒。
-- [ ] 控件与浮层语义准确：`Switch` 即时生效、表单布尔用 `Checkbox`、2–5 短选项用 `SegmentedControl`、高危确认用具名动作 `AlertDialog`；编辑态离开走 `DirtyCloseDialog`。
-- [ ] 列表页采用单行工具栏（Arc `SearchField`、无冗余「搜索」按钮）+ `TableCard`（300/500ms 骨架、刷新保留旧数据可交互只亮 `TableLoadingBar`、卡片内错条重试、区分场景的 Arc `EmptyState`、底部分页）；无按当前页拼凑的假状态计数；筛选/页码同步 URL 并具竞态保护。
+- [ ] 详情页、右侧详情栏与管理类弹窗均压平为单层画布 + `0.5px` 细线分隔，无嵌套 `<Card>`、无冗余阴影与虚线占位盒；原子字段有防被迫换行保护（`ScrollArea` 内截断用 `w-0 min-w-0 flex-1`）。
+- [ ] 控件与浮层语义准确：`Switch` 即时生效、表单布尔用 `Checkbox`、2–5 短选项用 `SegmentedControl`、`Select`/`Combobox`/纯图标按钮具备可见标签或 `aria-label`、同一区域控件统一（`ui/badge` 豁免）、弹层走 `--radius-popover`；高危确认用具名动作 `AlertDialog`（无 `window.confirm`）；编辑态离开走 `UnsavedChangesDialog` / `DirtyCloseDialog`。
+- [ ] 列表页采用单行左对齐工具栏（Arc `SearchField` 支持 Enter、无冗余「搜索」按钮）+ `TableCard`（300/500ms 骨架、刷新保留旧数据可交互只亮 `TableLoadingBar`、卡片内错条重试、区分场景的 Arc `EmptyState`、底部分页）；不新引入 `StatPillsBar`，无按当前页拼凑的假状态计数；筛选/页码同步 URL 并具竞态保护。
 - [ ] 列表 + 详情分栏复用 `DetailHost` 与 #178 联动约束；表/卡切换用 `ViewToggle` + `useViewMorph`；多选批量条用底部浮动 `BatchBar`；互斥挂载的 `SegmentedControl` 传共享 `layoutGroup`。
-- [ ] 数值统一 `tabular-nums`，路径/标识符/日志无 `break-all` 硬折；长 mono 日志不包 Radix `ScrollArea`；Arc 弹窗/抽屉 Portal 节点挂 `.arc-compact`（存量 shadcn 弹窗宽度写 `sm:max-w-*`）。
+- [ ] 状态标签保留原本 `@/components/ui/badge`（或既有 Arc `Badge`），兼顾浅/深色对比度。
+- [ ] 数值统一 `tabular-nums`，路径/标识符/日志无 `break-all` 硬折；长 mono 日志不包 Radix `ScrollArea`；Arc 弹窗显式声明宽度（`w-[min(...)]!`）且 Portal 节点挂 `.arc-compact`（存量 shadcn 弹窗宽度写 `sm:max-w-*`）。
 - [ ] 敏感凭据不回显明文、编辑留空保留原值；异步资源创建后有心跳闭环向导。
 - [ ] 中英文文案完整且单语展示，动态后端值先 `t.has()` 检查，`translation-coverage.test.ts` 通过；时间走 `lib/timezone`；无底层实现名泄露。
 - [ ] 新增/修改注释遵循「中文在前，英文在后」双语规范；vendored 组件保留 MIT 头与本地改动标注。
+- [ ] 大盘保持 `KpiStrip` / `ThroughputTabs` / `DashboardPanel` / `ClusterScopeStrip`，且未恢复「全部/正式/预览」分段；指标条涨跌符号仅用于「越大越好」的写入速率。

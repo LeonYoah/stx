@@ -17,31 +17,26 @@
 
 'use client';
 
-import {useCallback, useEffect, useRef, useState} from 'react';
+/**
+ * 令牌管理：TableCard + SegmentedControl（计数来自接口）+ 跨页多选 BatchBar +
+ * Arc 新建弹窗；吊销确认仍走 AlertDialog。
+ * Token management: TableCard + SegmentedControl (API counts) + cross-page
+ * BatchBar + Arc create dialog; revoke confirms stay on AlertDialog.
+ */
+
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Check, Copy, KeyRound, Plus, RefreshCw, Search, ShieldOff} from 'lucide-react';
+import {Check, Copy, KeyRound, Plus, RefreshCw, ShieldOff} from 'lucide-react';
 import {toast} from '@/lib/toast';
-import {useGSAP} from '@gsap/react';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
-import {Pagination} from '@/components/ui/pagination';
+import {Button} from '@/components/arc/button/button';
+import {Checkbox} from '@/components/arc/checkbox/checkbox';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {EmptyState} from '@/components/arc/empty-state/empty-state';
+import {Input} from '@/components/arc/input/input';
+import {SearchField} from '@/components/arc/search-field/search-field';
+import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {Select} from '@/components/arc/select/select';
 import {Badge} from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,29 +48,27 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
-import {
-  StatPillsBar,
-  TableLoadingBar,
-  TableSkeletonRows,
+  BatchBar,
+  TableCard,
   WorkspaceHeader,
+  usePagedSelection,
 } from '@/components/common/layout';
-import {animateTableRows} from '@/lib/animations/gsap-motion';
+import layout from '@/components/common/layout/list-detail.module.css';
+import {useServerListQuery} from '@/lib/hooks/use-server-list-query';
 import services from '@/lib/services';
 import type {UserInfo} from '@/lib/services/admin/user.service';
 import type {
   CLITokenInfo,
   CreateCLITokenResult,
 } from '@/lib/services/admin/token.service';
+import {formatDateTimeMinuteTz} from '@/lib/timezone';
+import {cn} from '@/lib/utils';
 import {AccountsNavTabs} from './AccountsNavTabs';
 
 type ExpiresPreset = '7d' | '30d' | '90d' | 'never' | 'custom';
+
+const DEFAULT_PAGE_SIZE = 10;
+const ALL_VALUE = 'all';
 
 /**
  * 管理员令牌管理页：签发永久或定期 CLI 令牌，原文只展示一次。
@@ -83,6 +76,13 @@ type ExpiresPreset = '7d' | '30d' | '90d' | 'never' | 'custom';
  */
 export function TokenManagement() {
   const t = useTranslations();
+  const {page, pageSize, filters, setPage, setPageSize, patchFilters, resetFilters} =
+    useServerListQuery({
+      initialFilters: {name: '', status: ALL_VALUE},
+      defaultPageSize: DEFAULT_PAGE_SIZE,
+    });
+
+  const [nameDraft, setNameDraft] = useState(filters.name);
   const [tokens, setTokens] = useState<CLITokenInfo[]>([]);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [total, setTotal] = useState(0);
@@ -90,12 +90,16 @@ export function TokenManagement() {
   const [expiredCount, setExpiredCount] = useState(0);
   const [revokedCount, setRevokedCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [searchName, setSearchName] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [error, setError] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isRevokeOpen, setIsRevokeOpen] = useState(false);
+  const [batchRevokeOpen, setBatchRevokeOpen] = useState(false);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchResult, setBatchResult] = useState<{
+    ok: number;
+    skipped: number;
+    failed: number;
+  } | null>(null);
   const [selectedToken, setSelectedToken] = useState<CLITokenInfo | null>(null);
   const [issuedToken, setIssuedToken] = useState<CreateCLITokenResult | null>(
     null,
@@ -105,45 +109,66 @@ export function TokenManagement() {
   const [formUserId, setFormUserId] = useState('');
   const [expiresPreset, setExpiresPreset] = useState<ExpiresPreset>('never');
   const [customDays, setCustomDays] = useState('60');
-  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  const pageIds = useMemo(() => tokens.map((tok) => tok.id), [tokens]);
+  const {
+    ids: selectedIds,
+    setIds: setSelectedIds,
+    toggle: toggleSelect,
+    togglePage: toggleSelectPage,
+    clear: clearSelection,
+    pageAllSelected,
+    pageSomeSelected,
+  } = usePagedSelection(pageIds);
+
+  const listRequestIdRef = useRef(0);
 
   const loadTokens = useCallback(async () => {
+    const requestId = listRequestIdRef.current + 1;
+    listRequestIdRef.current = requestId;
     setLoading(true);
     try {
       const response = await services.adminToken.listTokens({
-        current: currentPage,
+        current: page,
         size: pageSize,
-        name: searchName || undefined,
-        status: statusFilter === 'all' ? undefined : statusFilter,
+        name: filters.name || undefined,
+        status: filters.status === ALL_VALUE ? undefined : filters.status,
       });
+      if (listRequestIdRef.current !== requestId) {
+        return;
+      }
       setTokens(response.tokens || []);
       setTotal(response.total || 0);
       setActiveCount(response.active || 0);
       setExpiredCount(response.expired || 0);
       setRevokedCount(response.revoked || 0);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
+      setError(null);
+    } catch (err) {
+      if (listRequestIdRef.current !== requestId) {
+        return;
+      }
+      setError(
+        err instanceof Error
+          ? err.message
           : t('admin.tokenManagement.loadError'),
       );
     } finally {
-      setLoading(false);
+      if (listRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
-  }, [currentPage, pageSize, searchName, statusFilter, t]);
+  }, [page, pageSize, filters.name, filters.status, t]);
 
   useEffect(() => {
     void loadTokens();
   }, [loadTokens]);
 
-  useGSAP(
-    () => {
-      if (tokens.length > 0 && !loading) {
-        animateTableRows('.token-data-row');
-      }
-    },
-    {dependencies: [tokens, loading], scope: tableContainerRef},
-  );
+  const commitName = useCallback(() => {
+    const next = nameDraft.trim();
+    if (next !== filters.name) {
+      patchFilters({name: next});
+    }
+  }, [nameDraft, filters.name, patchFilters]);
 
   const openCreate = async () => {
     setFormName('');
@@ -202,10 +227,10 @@ export function TokenManagement() {
       setIssuedToken(issued);
       toast.success(t('admin.tokenManagement.createSuccess'));
       void loadTokens();
-    } catch (error) {
+    } catch (err) {
       toast.error(
-        error instanceof Error
-          ? error.message
+        err instanceof Error
+          ? err.message
           : t('admin.tokenManagement.createError'),
       );
     }
@@ -229,15 +254,64 @@ export function TokenManagement() {
       await services.adminToken.revokeToken(selectedToken.id);
       toast.success(t('admin.tokenManagement.revokeSuccess'));
       setIsRevokeOpen(false);
+      {
+        const next = new Set(selectedIds);
+        next.delete(selectedToken.id);
+        setSelectedIds(next);
+      }
       void loadTokens();
-    } catch (error) {
+    } catch (err) {
       toast.error(
-        error instanceof Error
-          ? error.message
+        err instanceof Error
+          ? err.message
           : t('admin.tokenManagement.revokeError'),
       );
     }
   };
+
+  const runBatchRevoke = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0 || batchBusy) {
+      return;
+    }
+    setBatchBusy(true);
+    setBatchResult(null);
+    const outcome = {ok: 0, skipped: 0, failed: 0};
+    const failedIds: number[] = [];
+    const byId = new Map(tokens.map((tok) => [tok.id, tok]));
+    for (const id of ids) {
+      const known = byId.get(id);
+      if (known?.status === 'revoked') {
+        outcome.skipped += 1;
+        continue;
+      }
+      try {
+        await services.adminToken.revokeToken(id);
+        outcome.ok += 1;
+      } catch {
+        outcome.failed += 1;
+        failedIds.push(id);
+      }
+    }
+    setBatchResult(outcome);
+    setBatchBusy(false);
+    setBatchRevokeOpen(false);
+    // 保留失败项勾选以便直接重试，清除已成功或跳过项。Keep failed items selected for retry; clear succeeded/skipped ones.
+    setSelectedIds(new Set(failedIds));
+    void loadTokens();
+    const summary = t('admin.tokenManagement.batchResult', {
+      ok: outcome.ok,
+      skipped: outcome.skipped,
+      failed: outcome.failed,
+    });
+    if (outcome.failed > 0 && outcome.ok === 0) {
+      toast.error(summary);
+    } else if (outcome.failed > 0 || outcome.skipped > 0) {
+      toast.warning(summary);
+    } else {
+      toast.success(summary);
+    }
+  }, [selectedIds, batchBusy, tokens, setSelectedIds, loadTokens, t]);
 
   const statusLabel = (status: string) => {
     if (status === 'active') {
@@ -256,15 +330,19 @@ export function TokenManagement() {
     if (token.permanent || !token.expires_at) {
       return t('admin.tokenManagement.permanent');
     }
-    return new Date(token.expires_at).toLocaleString();
+    return formatDateTimeMinuteTz(token.expires_at);
   };
 
+  const segCount = (n: number) => (
+    <span className={layout.count}>{n}</span>
+  );
+
+  const filtersActive =
+    Boolean(filters.name) || filters.status !== ALL_VALUE;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const dialogClass =
-    'border border-border/80 dark:border-border/60 shadow-2xl sm:max-w-lg';
 
   return (
-    <div className='space-y-6'>
+    <div className={cn(layout.page, layout.pageViewport)}>
       <WorkspaceHeader
         icon={<KeyRound />}
         title={t('admin.tokenManagement.title')}
@@ -272,183 +350,253 @@ export function TokenManagement() {
         tabs={<AccountsNavTabs activeKey='tokens' />}
         actions={
           <div className='flex gap-2'>
-            <Button variant='outline' onClick={() => void loadTokens()} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            <Button
+              type='button'
+              variant='secondary'
+              size='sm'
+              onClick={() => void loadTokens()}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={cn('size-3.5', loading && 'animate-spin')}
+                aria-hidden
+              />
               {t('common.refresh')}
             </Button>
-            <Button onClick={() => void openCreate()}>
-              <Plus className='h-4 w-4 mr-2' />
+            <Button type='button' size='sm' onClick={() => void openCreate()}>
+              <Plus className='size-3.5' aria-hidden />
               {t('admin.tokenManagement.createToken')}
             </Button>
           </div>
         }
       />
 
-      <StatPillsBar
-        activeKey={statusFilter}
-        onChange={(key) => {
-          setStatusFilter(key);
-          setCurrentPage(1);
-        }}
-        items={[
-          {
-            key: 'all',
-            label: t('admin.tokenManagement.filterAll'),
-            count: activeCount + expiredCount + revokedCount,
-          },
-          {
-            key: 'active',
-            label: t('admin.tokenManagement.statusActive'),
-            count: activeCount,
-            variant: 'success',
-          },
-          {
-            key: 'expired',
-            label: t('admin.tokenManagement.statusExpired'),
-            count: expiredCount,
-            variant: 'warning',
-          },
-          {
-            key: 'revoked',
-            label: t('admin.tokenManagement.statusRevoked'),
-            count: revokedCount,
-            variant: 'danger',
-          },
-        ]}
-      />
-
-      <div className='flex gap-3'>
-        <div className='flex-1 max-w-sm'>
-          <Input
+      <div className={layout.toolbar}>
+        <SegmentedControl
+          label={t('admin.tokenManagement.status')}
+          value={filters.status}
+          onValueChange={(v) => patchFilters({status: v})}
+          options={[
+            {
+              value: ALL_VALUE,
+              label: t('admin.tokenManagement.filterAll'),
+              accessory: segCount(activeCount + expiredCount + revokedCount),
+            },
+            {
+              value: 'active',
+              label: t('admin.tokenManagement.statusActive'),
+              accessory: segCount(activeCount),
+            },
+            {
+              value: 'expired',
+              label: t('admin.tokenManagement.statusExpired'),
+              accessory: segCount(expiredCount),
+            },
+            {
+              value: 'revoked',
+              label: t('admin.tokenManagement.statusRevoked'),
+              accessory: segCount(revokedCount),
+            },
+          ]}
+        />
+        <div className={layout.toolbarSearch}>
+          <SearchField
+            label={t('admin.tokenManagement.searchName')}
+            value={nameDraft}
+            onValueChange={(v) => {
+              setNameDraft(v);
+              if (v === '' && filters.name !== '') {
+                patchFilters({name: ''});
+              }
+            }}
             placeholder={t('admin.tokenManagement.searchName')}
-            value={searchName}
-            onChange={(event) => setSearchName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                setCurrentPage(1);
-                void loadTokens();
+            clearLabel={t('common.searchClear')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitName();
               }
             }}
           />
         </div>
-        <Button
-          variant='outline'
-          onClick={() => {
-            setCurrentPage(1);
-            void loadTokens();
-          }}
-          className='active:scale-[0.98]'
-        >
-          <Search className='h-4 w-4 mr-2' />
-          {t('common.search')}
-        </Button>
+        {filtersActive ? (
+          <Button
+            type='button'
+            size='sm'
+            variant='ghost'
+            onClick={() => {
+              setNameDraft('');
+              resetFilters();
+            }}
+          >
+            {t('common.clearFilters')}
+          </Button>
+        ) : null}
       </div>
 
-      <div
-        ref={tableContainerRef}
-        className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'
-      >
-        <TableLoadingBar loading={loading} />
-        <div className='overflow-x-auto flex-1'>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>{t('admin.tokenManagement.name')}</TableHead>
-                <TableHead>{t('admin.tokenManagement.owner')}</TableHead>
-                <TableHead>{t('admin.tokenManagement.prefix')}</TableHead>
-                <TableHead>{t('admin.tokenManagement.expires')}</TableHead>
-                <TableHead>{t('admin.tokenManagement.lastUsedAt')}</TableHead>
-                <TableHead>{t('admin.tokenManagement.status')}</TableHead>
-                <TableHead>{t('admin.userManagement.actions')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading && tokens.length === 0 ? (
-                <TableSkeletonRows columns={8} rows={10} />
-              ) : tokens.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={8}
-                    className='text-center py-12 text-muted-foreground'
-                  >
-                    {t('admin.tokenManagement.noTokens')}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                tokens.map((token) => (
-                  <TableRow
-                    key={token.id}
-                    className={`token-data-row transition-opacity duration-200 ${
-                      loading ? 'opacity-60 pointer-events-none' : ''
-                    }`}
-                  >
-                    <TableCell>{token.id}</TableCell>
-                    <TableCell className='font-medium'>
-                      {token.name || '-'}
-                    </TableCell>
-                    <TableCell>{token.username || '-'}</TableCell>
-                    <TableCell>
-                      <span className='font-mono whitespace-nowrap'>
-                        {token.token_prefix}******
-                      </span>
-                    </TableCell>
-                    <TableCell className='whitespace-nowrap'>
-                      {expiryLabel(token)}
-                    </TableCell>
-                    <TableCell className='whitespace-nowrap'>
-                      {token.last_used_at
-                        ? new Date(token.last_used_at).toLocaleString()
-                        : '-'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          token.status === 'active'
-                            ? 'default'
-                            : token.status === 'expired'
-                              ? 'secondary'
-                              : 'destructive'
-                        }
-                      >
-                        {statusLabel(token.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {token.status === 'revoked' ? (
-                        <span className='text-muted-foreground'>-</span>
-                      ) : (
-                        <Button
-                          variant='ghost'
-                          size='icon'
-                          onClick={() => {
-                            setSelectedToken(token);
-                            setIsRevokeOpen(true);
-                          }}
-                        >
-                          <ShieldOff className='h-4 w-4 text-destructive' />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-        <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            pageSize={pageSize}
-            totalItems={total}
-            onPageChange={setCurrentPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setCurrentPage(1);
+      <div className={layout.split}>
+        <div className={layout.listCol} data-mcols='tokens'>
+          <TableCard
+            loading={loading}
+            hasData={tokens.length > 0}
+            skeletonColumns={8}
+            skeletonRows={8}
+            error={error}
+            onRetry={() => void loadTokens()}
+            pagination={{
+              currentPage: page,
+              totalPages,
+              pageSize,
+              totalItems: total,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+              pageSizeOptions: [10, 20, 50, 100],
             }}
-            pageSizeOptions={[10, 20, 50, 100]}
-          />
+            empty={
+              <EmptyState
+                title={t('admin.tokenManagement.noTokens')}
+                description={
+                  filtersActive
+                    ? t('common.noMatchingData')
+                    : t('admin.tokenManagement.subtitle')
+                }
+                action={
+                  filtersActive ? (
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='secondary'
+                      onClick={() => {
+                        setNameDraft('');
+                        resetFilters();
+                      }}
+                    >
+                      {t('common.clearFilters')}
+                    </Button>
+                  ) : undefined
+                }
+              />
+            }
+          >
+            <div className={layout.rowHead}>
+              <Checkbox
+                checked={
+                  pageAllSelected
+                    ? true
+                    : pageSomeSelected
+                      ? 'indeterminate'
+                      : false
+                }
+                onCheckedChange={(v) => toggleSelectPage(v === true)}
+                aria-label={t('admin.tokenManagement.selectAll')}
+              />
+              <span>{t('admin.tokenManagement.name')}</span>
+              <span>{t('admin.tokenManagement.owner')}</span>
+              <span>{t('admin.tokenManagement.prefix')}</span>
+              <span>{t('admin.tokenManagement.expires')}</span>
+              <span>{t('admin.tokenManagement.lastUsedAt')}</span>
+              <span>{t('admin.tokenManagement.status')}</span>
+              <span>{t('admin.userManagement.actions')}</span>
+            </div>
+            <div className={layout.tableScroll}>
+              {tokens.map((token) => (
+                <div
+                  key={token.id}
+                  className={cn(layout.row)}
+                  style={{cursor: 'default'}}
+                  data-testid={`token-row-${token.id}`}
+                >
+                  <Checkbox
+                    checked={selectedIds.has(token.id)}
+                    onCheckedChange={(v) => toggleSelect(token.id, v === true)}
+                    aria-label={t('admin.tokenManagement.selectRow', {
+                      name: token.name || token.token_prefix || String(token.id),
+                    })}
+                  />
+                  <div className={layout.rowName}>
+                    <span className={layout.name} title={token.name || '-'}>
+                      {token.name || '-'}
+                    </span>
+                    <span className={layout.sub}>#{token.id}</span>
+                  </div>
+                  <span className={layout.sub}>{token.username || '-'}</span>
+                  <span className='font-mono text-xs whitespace-nowrap'>
+                    {token.token_prefix}******
+                  </span>
+                  <span className={cn(layout.sub, 'whitespace-nowrap')}>
+                    {expiryLabel(token)}
+                  </span>
+                  <span className={cn(layout.sub, 'whitespace-nowrap')}>
+                    {token.last_used_at
+                      ? formatDateTimeMinuteTz(token.last_used_at)
+                      : '-'}
+                  </span>
+                  <Badge
+                    variant={
+                      token.status === 'active'
+                        ? 'default'
+                        : token.status === 'expired'
+                          ? 'secondary'
+                          : 'destructive'
+                    }
+                  >
+                    {statusLabel(token.status)}
+                  </Badge>
+                  <div>
+                    {token.status === 'revoked' ? (
+                      <span className='text-muted-foreground'>-</span>
+                    ) : (
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        iconOnly
+                        aria-label={t('admin.tokenManagement.revokeToken')}
+                        onClick={() => {
+                          setSelectedToken(token);
+                          setIsRevokeOpen(true);
+                        }}
+                      >
+                        <ShieldOff
+                          className='size-3.5 text-destructive'
+                          aria-hidden
+                        />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </TableCard>
+
+          <BatchBar
+            selectedCount={selectedIds.size}
+            busy={batchBusy}
+            result={
+              batchResult
+                ? t('admin.tokenManagement.batchResult', {
+                    ok: batchResult.ok,
+                    skipped: batchResult.skipped,
+                    failed: batchResult.failed,
+                  })
+                : null
+            }
+            onClear={() => {
+              clearSelection();
+              setBatchResult(null);
+            }}
+          >
+            <Button
+              type='button'
+              size='sm'
+              variant='secondary'
+              disabled={batchBusy || selectedIds.size === 0}
+              onClick={() => setBatchRevokeOpen(true)}
+            >
+              <ShieldOff className='size-3.5' aria-hidden />
+              {t('admin.tokenManagement.batchRevoke')}
+            </Button>
+          </BatchBar>
         </div>
       </div>
 
@@ -462,137 +610,145 @@ export function TokenManagement() {
           }
         }}
       >
-        <DialogContent className={dialogClass}>
-          <DialogHeader>
-            <DialogTitle>
-              {issuedToken
-                ? t('admin.tokenManagement.plaintextTitle')
-                : t('admin.tokenManagement.createToken')}
-            </DialogTitle>
-          </DialogHeader>
+        <DialogContent
+          title={
+            issuedToken
+              ? t('admin.tokenManagement.plaintextTitle')
+              : t('admin.tokenManagement.createToken')
+          }
+          className='w-[min(calc(100vw-2rem),480px)]!'
+          bodyClassName='max-h-[min(85dvh,640px)] overflow-y-auto'
+        >
           {issuedToken?.token ? (
-            <div className='space-y-4 py-2'>
+            <div className='space-y-4'>
               <p className='text-sm text-muted-foreground'>
                 {t('admin.tokenManagement.plaintextOnce')}
               </p>
-              <div className='flex items-center gap-2'>
-                <Input
-                  readOnly
-                  value={issuedToken.token}
-                  className='font-mono'
-                />
+              <div className='flex items-end gap-2'>
+                <div className='min-w-0 flex-1'>
+                  <Input
+                    label={t('admin.tokenManagement.plaintextTitle')}
+                    readOnly
+                    value={issuedToken.token}
+                    className='font-mono'
+                  />
+                </div>
                 <Button
                   type='button'
-                  variant='outline'
+                  variant='secondary'
+                  size='sm'
+                  iconOnly
                   onClick={() => void handleCopy(issuedToken.token || '')}
+                  aria-label={t('common.copy')}
                 >
                   {copied ? (
-                    <Check className='h-4 w-4' />
+                    <Check className='size-4' aria-hidden />
                   ) : (
-                    <Copy className='h-4 w-4' />
+                    <Copy className='size-4' aria-hidden />
                   )}
                 </Button>
               </div>
-              <p className='text-xs text-muted-foreground font-mono whitespace-nowrap overflow-x-auto'>
+              <p className='overflow-x-auto text-xs font-mono text-muted-foreground whitespace-nowrap'>
                 stx login --server &lt;url&gt; --token-stdin
               </p>
             </div>
           ) : (
-            <div className='space-y-4 py-2'>
+            <div className='space-y-4'>
+              <Input
+                id='token-name'
+                label={t('admin.tokenManagement.name')}
+                value={formName}
+                onChange={(event) => setFormName(event.target.value)}
+                placeholder={t('admin.tokenManagement.namePlaceholder')}
+              />
+              <Select
+                label={t('admin.tokenManagement.owner')}
+                placeholder={t('admin.tokenManagement.ownerPlaceholder')}
+                value={formUserId}
+                onValueChange={setFormUserId}
+                options={users.map((user) => ({
+                  value: String(user.id),
+                  label: user.is_admin
+                    ? `${user.username} · ${t('admin.userManagement.isAdmin')}`
+                    : user.username,
+                }))}
+              />
               <div className='space-y-2'>
-                <Label htmlFor='token-name'>
-                  {t('admin.tokenManagement.name')}
-                </Label>
-                <Input
-                  id='token-name'
-                  value={formName}
-                  onChange={(event) => setFormName(event.target.value)}
-                  placeholder={t('admin.tokenManagement.namePlaceholder')}
-                />
-              </div>
-              <div className='space-y-2'>
-                <Label>{t('admin.tokenManagement.owner')}</Label>
-                <Select value={formUserId} onValueChange={setFormUserId}>
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={t('admin.tokenManagement.ownerPlaceholder')}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {users.map((user) => (
-                      <SelectItem key={user.id} value={String(user.id)}>
-                        {user.username}
-                        {user.is_admin
-                          ? ` · ${t('admin.userManagement.isAdmin')}`
-                          : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className='space-y-2'>
-                <Label>{t('admin.tokenManagement.expires')}</Label>
-                <ToggleGroup
-                  type='single'
-                  variant='outline'
-                  size='sm'
+                <div className='text-xs font-medium text-foreground'>
+                  {t('admin.tokenManagement.expires')}
+                </div>
+                <SegmentedControl
+                  label={t('admin.tokenManagement.expires')}
                   value={expiresPreset}
-                  onValueChange={(value) => {
-                    if (value) {
-                      setExpiresPreset(value as ExpiresPreset);
-                    }
-                  }}
-                  className='flex w-full flex-wrap gap-1'
-                >
-                  <ToggleGroupItem value='7d'>
-                    {t('admin.tokenManagement.expires7d')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value='30d'>
-                    {t('admin.tokenManagement.expires30d')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value='90d'>
-                    {t('admin.tokenManagement.expires90d')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value='never'>
-                    {t('admin.tokenManagement.expiresNever')}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value='custom'>
-                    {t('admin.tokenManagement.expiresCustom')}
-                  </ToggleGroupItem>
-                </ToggleGroup>
+                  onValueChange={(value) =>
+                    setExpiresPreset(value as ExpiresPreset)
+                  }
+                  options={[
+                    {
+                      value: '7d',
+                      label: t('admin.tokenManagement.expires7d'),
+                    },
+                    {
+                      value: '30d',
+                      label: t('admin.tokenManagement.expires30d'),
+                    },
+                    {
+                      value: '90d',
+                      label: t('admin.tokenManagement.expires90d'),
+                    },
+                    {
+                      value: 'never',
+                      label: t('admin.tokenManagement.expiresNever'),
+                    },
+                    {
+                      value: 'custom',
+                      label: t('admin.tokenManagement.expiresCustom'),
+                    },
+                  ]}
+                />
                 {expiresPreset === 'custom' ? (
-                  <div className='space-y-1'>
-                    <Input
-                      type='number'
-                      min={1}
-                      max={3650}
-                      value={customDays}
-                      onChange={(event) => setCustomDays(event.target.value)}
-                    />
-                    <p className='text-xs text-muted-foreground'>
-                      {t('admin.tokenManagement.customDaysHint')}
-                    </p>
-                  </div>
+                  <Input
+                    type='number'
+                    label={t('admin.tokenManagement.expiresCustom')}
+                    description={t('admin.tokenManagement.customDaysHint')}
+                    min={1}
+                    max={3650}
+                    value={customDays}
+                    onChange={(event) => setCustomDays(event.target.value)}
+                  />
                 ) : null}
               </div>
             </div>
           )}
-          <DialogFooter>
+          <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
             {issuedToken?.token ? (
-              <Button onClick={() => setIsCreateOpen(false)}>
+              <Button
+                type='button'
+                size='sm'
+                onClick={() => setIsCreateOpen(false)}
+              >
                 {t('common.close')}
               </Button>
             ) : (
               <>
-                <Button variant='outline' onClick={() => setIsCreateOpen(false)}>
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  onClick={() => setIsCreateOpen(false)}
+                >
                   {t('common.cancel')}
                 </Button>
-                <Button onClick={() => void handleCreate()}>
+                <Button
+                  type='button'
+                  size='sm'
+                  onClick={() => void handleCreate()}
+                >
                   {t('common.create')}
                 </Button>
               </>
             )}
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -612,6 +768,30 @@ export function TokenManagement() {
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={() => void handleRevoke()}>
               {t('admin.tokenManagement.revokeToken')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={batchRevokeOpen} onOpenChange={setBatchRevokeOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('admin.tokenManagement.batchRevokeConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('admin.tokenManagement.batchRevokeConfirmDesc', {
+                count: selectedIds.size,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={batchBusy}
+              onClick={() => void runBatchRevoke()}
+            >
+              {t('admin.tokenManagement.batchRevoke')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

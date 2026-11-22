@@ -27,10 +27,8 @@ import {
 } from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
-import {Card, CardContent} from '@/components/ui/card';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Progress} from '@/components/ui/progress';
-import {ScrollArea} from '@/components/ui/scroll-area';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -741,156 +739,159 @@ export function InstallPluginDialog({
     <>
       <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent
-          className='w-[96vw] max-w-[96vw] sm:max-w-[920px] max-h-[88vh] overflow-hidden p-0 gap-0'
+          className='flex max-h-[88vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-[920px]'
           aria-describedby={undefined}
         >
-          <DialogHeader className='px-6 pt-6 pb-4 shrink-0'>
+          <DialogHeader className='shrink-0 border-b-[0.5px] border-border/80 bg-muted/10 px-6 pt-5 pb-4'>
             <DialogTitle className='flex items-center gap-2'>
               <Download className='h-5 w-5' />
               {t('plugin.managePlugin')}
             </DialogTitle>
           </DialogHeader>
 
-          <ScrollArea className='max-h-[calc(88vh-92px)]'>
-            <div className='space-y-4 px-6 pb-6'>
-              <Card className='bg-muted/50'>
-                <CardContent className='pt-4 pb-4 space-y-3'>
-                  <div className='flex items-center justify-between gap-4'>
-                    <div>
-                      <div className='font-medium'>
-                        {plugin.display_name || plugin.name}
+          {/* 单层扁平内容画布：去掉多层嵌套 Card 边框与阴影，用留白与 0.5px 细线分隔各组。
+              Single-layer flat surface without nested Cards; groups are separated by whitespace and 0.5px hairlines. */}
+          <div className='min-h-0 flex-1 overflow-y-auto'>
+            <div className='px-6 py-5'>
+              {/* 插件概要 / Plugin summary */}
+              <div className='flex items-center justify-between gap-4 pb-5'>
+                <div className='min-w-0'>
+                  <div className='text-sm font-semibold'>
+                    {plugin.display_name || plugin.name}
+                  </div>
+                  <p className='mt-0.5 font-mono text-xs text-muted-foreground'>
+                    {plugin.name}
+                  </p>
+                </div>
+                <Badge variant='secondary' className='shrink-0 font-mono text-xs'>
+                  v{version}
+                </Badge>
+              </div>
+
+              {/* 场景画像确认 / Profile confirmation */}
+              {requiresProfiles && (
+                <div
+                  className='space-y-3 border-t-[0.5px] border-border/80 py-5'
+                  data-testid='install-profile-confirm'
+                >
+                  <div className='flex items-start justify-between gap-2 flex-wrap'>
+                    <div className='min-w-0 space-y-0.5'>
+                      <div className='text-sm font-medium'>
+                        {t('plugin.confirmProfilesTitle')}
                       </div>
-                      <p className='text-sm text-muted-foreground'>
-                        {plugin.name}
+                      <p className='text-xs text-muted-foreground'>
+                        {t('plugin.confirmProfilesDesc')}
                       </p>
                     </div>
-                    <Badge variant='secondary'>v{version}</Badge>
+                    {hasMultiProfiles && (
+                      <div className='flex items-center gap-1.5'>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          className='h-6 text-xs px-2'
+                          onClick={() =>
+                            setConfirmedProfileKeys(
+                              normalizeProfileKeys(
+                                availableProfiles.map((p) => p.profile_key),
+                              ),
+                            )
+                          }
+                        >
+                          {t('plugin.selectAllProfiles')}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          className='h-6 text-xs px-2 text-muted-foreground'
+                          onClick={() => setConfirmedProfileKeys([])}
+                        >
+                          {t('plugin.clearAllProfiles')}
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  {requiresProfiles && (
-                    <div
-                      className='space-y-2.5 rounded-lg border bg-background/60 p-3'
-                      data-testid='install-profile-confirm'
-                    >
-                      <div className='flex items-start justify-between gap-2 flex-wrap'>
-                        <div className='min-w-0 space-y-0.5'>
-                          <div className='text-sm font-medium'>
-                            {t('plugin.confirmProfilesTitle')}
-                          </div>
-                          <p className='text-xs text-muted-foreground'>
-                            {t('plugin.confirmProfilesDesc')}
-                          </p>
-                        </div>
-                        {hasMultiProfiles && (
-                          <div className='flex items-center gap-1.5'>
-                            <Button
-                              type='button'
-                              variant='ghost'
-                              size='sm'
-                              className='h-6 text-xs px-2'
-                              onClick={() =>
-                                setConfirmedProfileKeys(
-                                  normalizeProfileKeys(
-                                    availableProfiles.map((p) => p.profile_key),
-                                  ),
+
+                  {officialDepsLoading ? (
+                    <div className='flex items-center gap-2 text-xs text-muted-foreground'>
+                      <Loader2 className='h-3.5 w-3.5 animate-spin' />
+                      {t('plugin.downloadAllProfileLoading')}
+                    </div>
+                  ) : availableProfiles.length === 0 ? (
+                    <p className='text-xs text-muted-foreground'>
+                      {confirmedProfileKeys.length > 0
+                        ? t('plugin.selectedProfilesFromDownload')
+                        : t('plugin.noSelectedProfiles')}
+                      {confirmedProfileKeys.length > 0 && (
+                        <span className='mt-1.5 flex flex-wrap gap-1.5'>
+                          {confirmedProfileKeys.map((key) => (
+                            <Badge key={key} variant='outline'>
+                              {key}
+                            </Badge>
+                          ))}
+                        </span>
+                      )}
+                    </p>
+                  ) : (
+                    <div className='grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[180px] overflow-y-auto pr-1'>
+                      {availableProfiles.map((profile) => {
+                        const isChecked = confirmedProfileKeys.includes(
+                          profile.profile_key,
+                        );
+                        return (
+                          <label
+                            key={profile.profile_key}
+                            data-testid={`install-profile-${profile.profile_key}`}
+                            className={`flex items-start gap-2.5 rounded-md border-[0.5px] px-3 py-2 cursor-pointer transition-colors ${
+                              isChecked
+                                ? 'border-primary/35 bg-primary/8'
+                                : 'border-transparent bg-muted/40 hover:bg-muted/70'
+                            }`}
+                          >
+                            <Checkbox
+                              checked={isChecked}
+                              onCheckedChange={(checked) =>
+                                handleToggleConfirmedProfile(
+                                  profile.profile_key,
+                                  checked === true,
                                 )
                               }
-                            >
-                              {t('plugin.selectAllProfiles')}
-                            </Button>
-                            <Button
-                              type='button'
-                              variant='ghost'
-                              size='sm'
-                              className='h-6 text-xs px-2 text-muted-foreground'
-                              onClick={() => setConfirmedProfileKeys([])}
-                            >
-                              {t('plugin.clearAllProfiles')}
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-
-                      {officialDepsLoading ? (
-                        <div className='flex items-center gap-2 text-xs text-muted-foreground'>
-                          <Loader2 className='h-3.5 w-3.5 animate-spin' />
-                          {t('plugin.downloadAllProfileLoading')}
-                        </div>
-                      ) : availableProfiles.length === 0 ? (
-                        <p className='text-xs text-muted-foreground'>
-                          {confirmedProfileKeys.length > 0
-                            ? t('plugin.selectedProfilesFromDownload')
-                            : t('plugin.noSelectedProfiles')}
-                          {confirmedProfileKeys.length > 0 && (
-                            <span className='mt-1.5 flex flex-wrap gap-1.5'>
-                              {confirmedProfileKeys.map((key) => (
-                                <Badge key={key} variant='outline'>
-                                  {key}
-                                </Badge>
-                              ))}
+                              className='mt-0.5'
+                            />
+                            <span className='min-w-0 space-y-0.5'>
+                              <span className='block text-sm font-medium leading-tight'>
+                                {profile.profile_name || profile.profile_key}
+                              </span>
+                              <span className='block text-[11px] text-muted-foreground'>
+                                {profile.profile_key}
+                                {(profile.items || []).length > 0
+                                  ? ` · ${t('plugin.profileDependencyCount', {
+                                      count: (profile.items || []).length,
+                                    })}`
+                                  : ''}
+                              </span>
                             </span>
-                          )}
-                        </p>
-                      ) : (
-                        <div className='grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[180px] overflow-y-auto pr-1'>
-                          {availableProfiles.map((profile) => {
-                            const isChecked = confirmedProfileKeys.includes(
-                              profile.profile_key,
-                            );
-                            return (
-                              <label
-                                key={profile.profile_key}
-                                data-testid={`install-profile-${profile.profile_key}`}
-                                className={`flex items-start gap-2.5 rounded-md border px-3 py-2 cursor-pointer transition-colors ${
-                                  isChecked
-                                    ? 'border-primary/40 bg-primary/5'
-                                    : 'border-border/70 bg-muted/20'
-                                }`}
-                              >
-                                <Checkbox
-                                  checked={isChecked}
-                                  onCheckedChange={(checked) =>
-                                    handleToggleConfirmedProfile(
-                                      profile.profile_key,
-                                      checked === true,
-                                    )
-                                  }
-                                  className='mt-0.5'
-                                />
-                                <span className='min-w-0 space-y-0.5'>
-                                  <span className='block text-sm font-medium leading-tight'>
-                                    {profile.profile_name || profile.profile_key}
-                                  </span>
-                                  <span className='block text-[11px] text-muted-foreground'>
-                                    {profile.profile_key}
-                                    {(profile.items || []).length > 0
-                                      ? ` · ${t('plugin.profileDependencyCount', {
-                                          count: (profile.items || []).length,
-                                        })}`
-                                      : ''}
-                                  </span>
-                                </span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {profilesMissingForInstall && (
-                        <p className='text-xs text-amber-700 dark:text-amber-300'>
-                          {t('plugin.confirmProfilesBeforeInstall')}
-                        </p>
-                      )}
+                          </label>
+                        );
+                      })}
                     </div>
                   )}
-                </CardContent>
-              </Card>
+
+                  {profilesMissingForInstall && (
+                    <p className='text-xs text-amber-700 dark:text-amber-300'>
+                      {t('plugin.confirmProfilesBeforeInstall')}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {!isDownloaded && (
-                <Card className='border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950'>
-                  <CardContent className='pt-4 pb-4 space-y-3'>
+                <div className='border-t-[0.5px] border-border/80 py-5'>
+                  <div className='space-y-3 rounded-md bg-amber-50/80 px-4 py-3 dark:bg-amber-950/40'>
                     <div className='flex items-center justify-between gap-4'>
                       <div className='flex items-center gap-2 text-amber-800 dark:text-amber-200'>
-                        <AlertCircle className='h-4 w-4' />
+                        <AlertCircle className='h-4 w-4 shrink-0' />
                         <span className='text-sm'>
                           {t('plugin.downloadFirst')}
                         </span>
@@ -948,133 +949,131 @@ export function InstallPluginDialog({
                         </div>
                       </div>
                     )}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               )}
 
               {error && (
-                <Card className='border-destructive bg-destructive/10'>
-                  <CardContent className='pt-4 pb-4'>
-                    <div className='flex items-center gap-2 text-destructive'>
-                      <AlertCircle className='h-4 w-4' />
-                      <span className='text-sm'>{error}</span>
-                    </div>
-                  </CardContent>
-                </Card>
+                <div className='border-t-[0.5px] border-border/80 py-4'>
+                  <div className='flex items-center gap-2 rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive'>
+                    <AlertCircle className='h-4 w-4 shrink-0' />
+                    <span>{error}</span>
+                  </div>
+                </div>
               )}
 
-              <Card>
-                <CardContent className='pt-4 pb-4 space-y-4'>
-                  <div className='flex items-center gap-2 text-sm font-medium'>
-                    <Layers3 className='h-4 w-4' />
-                    {t('plugin.automaticInstallContent')}
-                  </div>
+              {/* 自动安装内容 / Automatic install contents */}
+              <div className='space-y-4 border-t-[0.5px] border-border/80 py-5'>
+                <div className='flex items-center gap-2 text-sm font-semibold'>
+                  <Layers3 className='h-4 w-4 text-primary' />
+                  {t('plugin.automaticInstallContent')}
+                </div>
 
-                  <div className='space-y-2'>
-                    <div className='text-sm font-medium'>
-                      {t('plugin.attachedConnectors')}
+                <div className='space-y-2'>
+                  <div className='text-xs font-medium text-muted-foreground'>
+                    {t('plugin.attachedConnectors')}
+                  </div>
+                  {combinedAttachedConnectors.length === 0 ? (
+                    <p className='text-sm text-muted-foreground'>
+                      {t('plugin.noAttachedConnectors')}
+                    </p>
+                  ) : (
+                    <div className='flex flex-wrap gap-2'>
+                      {combinedAttachedConnectors.map((artifact) => (
+                        <Badge key={artifact} variant='secondary'>
+                          {artifact}
+                        </Badge>
+                      ))}
                     </div>
-                    {combinedAttachedConnectors.length === 0 ? (
-                      <p className='text-sm text-muted-foreground'>
-                        {t('plugin.noAttachedConnectors')}
-                      </p>
-                    ) : (
-                      <div className='flex flex-wrap gap-2'>
-                        {combinedAttachedConnectors.map((artifact) => (
-                          <Badge key={artifact} variant='secondary'>
-                            {artifact}
+                  )}
+                </div>
+
+                <div className='space-y-2'>
+                  <div className='flex items-center justify-between gap-3 flex-wrap'>
+                    <div className='text-xs font-medium text-muted-foreground'>
+                      {t('plugin.extraDependencies')}
+                    </div>
+                    {dependencyTargetDirs.length > 0 && (
+                      <div className='flex flex-wrap gap-1.5'>
+                        {dependencyTargetDirs.map((targetDir) => (
+                          <Badge
+                            key={targetDir}
+                            variant='outline'
+                            className='max-w-[240px] whitespace-normal break-all text-[10px]'
+                          >
+                            {targetDir}
                           </Badge>
                         ))}
                       </div>
                     )}
                   </div>
-
-                  <div className='space-y-2'>
-                    <div className='flex items-center justify-between gap-3'>
-                      <div className='text-sm font-medium'>
-                        {t('plugin.extraDependencies')}
-                      </div>
-                      {dependencyTargetDirs.length > 0 && (
-                        <div className='flex flex-wrap gap-2'>
-                          {dependencyTargetDirs.map((targetDir) => (
-                            <Badge
-                              key={targetDir}
-                              variant='outline'
-                              className='max-w-[240px] whitespace-normal break-all'
+                  {extraDependencies.length === 0 ? (
+                    <p className='text-sm text-muted-foreground'>
+                      {t('plugin.noExtraDependencies')}
+                    </p>
+                  ) : (
+                    <div className='overflow-x-auto'>
+                      <Table className='min-w-[760px] [&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{t('plugin.source')}</TableHead>
+                            <TableHead>{t('plugin.groupId')}</TableHead>
+                            <TableHead>{t('plugin.artifactId')}</TableHead>
+                            <TableHead>{t('plugin.version')}</TableHead>
+                            <TableHead>{t('plugin.targetDir')}</TableHead>
+                            <TableHead>{t('plugin.fileName')}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {extraDependencies.map((dep, index) => (
+                            <TableRow
+                              key={`${dep.group_id}:${dep.artifact_id}:${index}`}
                             >
-                              {targetDir}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    {extraDependencies.length === 0 ? (
-                      <p className='text-sm text-muted-foreground'>
-                        {t('plugin.noExtraDependencies')}
-                      </p>
-                    ) : (
-                      <div className='overflow-x-auto rounded-lg border'>
-                        <Table className='min-w-[760px]'>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>{t('plugin.source')}</TableHead>
-                              <TableHead>{t('plugin.groupId')}</TableHead>
-                              <TableHead>{t('plugin.artifactId')}</TableHead>
-                              <TableHead>{t('plugin.version')}</TableHead>
-                              <TableHead>{t('plugin.targetDir')}</TableHead>
-                              <TableHead>{t('plugin.fileName')}</TableHead>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    dep.source_type === 'upload'
+                                      ? 'default'
+                                      : 'secondary'
+                                  }
+                                >
+                                  {dep.source_type === 'upload'
+                                    ? t('plugin.sourceUpload')
+                                    : t('plugin.sourceMaven')}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className='font-mono text-xs whitespace-nowrap'>
+                                {dep.group_id}
+                              </TableCell>
+                              <TableCell className='font-mono text-xs whitespace-nowrap'>
+                                {dep.artifact_id}
+                              </TableCell>
+                              <TableCell className='font-mono text-xs whitespace-nowrap'>
+                                {dep.version}
+                              </TableCell>
+                              <TableCell className='min-w-[220px] align-top'>
+                                <Badge
+                                  variant='outline'
+                                  className='text-xs whitespace-normal break-all text-left'
+                                >
+                                  {dep.target_dir}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className='text-xs break-all'>
+                                {getDependencyFileName(dep)}
+                              </TableCell>
                             </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {extraDependencies.map((dep, index) => (
-                              <TableRow
-                                key={`${dep.group_id}:${dep.artifact_id}:${index}`}
-                              >
-                                <TableCell>
-                                  <Badge
-                                    variant={
-                                      dep.source_type === 'upload'
-                                        ? 'default'
-                                        : 'secondary'
-                                    }
-                                  >
-                                    {dep.source_type === 'upload'
-                                      ? t('plugin.sourceUpload')
-                                      : t('plugin.sourceMaven')}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className='font-mono text-xs whitespace-nowrap'>
-                                  {dep.group_id}
-                                </TableCell>
-                                <TableCell className='font-mono text-xs whitespace-nowrap'>
-                                  {dep.artifact_id}
-                                </TableCell>
-                                <TableCell className='font-mono text-xs whitespace-nowrap'>
-                                  {dep.version}
-                                </TableCell>
-                                <TableCell className='min-w-[220px] align-top'>
-                                  <Badge
-                                    variant='outline'
-                                    className='text-xs whitespace-normal break-all text-left'
-                                  >
-                                    {dep.target_dir}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className='text-xs break-all'>
-                                  {getDependencyFileName(dep)}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-              <div className='space-y-2'>
-                <div className='text-sm font-medium'>
+              {/* 集群列表 / Cluster list */}
+              <div className='space-y-3 border-t-[0.5px] border-border/80 py-5'>
+                <div className='text-sm font-semibold'>
                   {t('plugin.clusterList')}
                 </div>
                 {loadingClusters ? (
@@ -1082,18 +1081,12 @@ export function InstallPluginDialog({
                     <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
                   </div>
                 ) : clusterStatuses.length === 0 ? (
-                  <Card className='border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950'>
-                    <CardContent className='pt-4 pb-4'>
-                      <div className='flex items-center gap-2 text-amber-800 dark:text-amber-200'>
-                        <AlertCircle className='h-4 w-4' />
-                        <span className='text-sm'>
-                          {t('plugin.noClustersAvailable')}
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <div className='flex items-center gap-2 rounded-md bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200'>
+                    <AlertCircle className='h-4 w-4 shrink-0' />
+                    <span>{t('plugin.noClustersAvailable')}</span>
+                  </div>
                 ) : (
-                  <Table>
+                  <Table className='[&_tr]:border-b-[0.5px] [&_tr]:border-border/70'>
                     <TableHeader>
                       <TableRow>
                         <TableHead>{t('cluster.name')}</TableHead>
@@ -1250,21 +1243,18 @@ export function InstallPluginDialog({
                 )}
               </div>
 
-              <Card className='bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800'>
-                <CardContent className='pt-4 pb-4'>
-                  <div className='flex items-start gap-2'>
-                    <Info className='h-4 w-4 text-blue-600 mt-0.5' />
-                    <p className='text-xs text-blue-800 dark:text-blue-200'>
-                      {t('plugin.installNoteDynamic', {
-                        connectorDir: 'connectors/',
-                        dependencyMessage: dependencyNote,
-                      })}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* 安装路径说明 / Installation path note */}
+              <div className='flex items-start gap-2 border-t-[0.5px] border-border/80 pt-4 text-xs text-muted-foreground'>
+                <Info className='mt-0.5 h-4 w-4 shrink-0 text-primary/80' />
+                <p className='leading-relaxed'>
+                  {t('plugin.installNoteDynamic', {
+                    connectorDir: 'connectors/',
+                    dependencyMessage: dependencyNote,
+                  })}
+                </p>
+              </div>
             </div>
-          </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
 

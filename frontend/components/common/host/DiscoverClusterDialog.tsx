@@ -26,14 +26,7 @@
 
 import { useState, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/arc/dialog/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -258,19 +251,13 @@ export function DiscoverClusterDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-4xl max-h-[90vh]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Search className="h-5 w-5" />
-            {t('discovery.title')}
-          </DialogTitle>
-          <DialogDescription>
-            {t('discovery.description', { host: hostName })}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="py-4">
-          {/* Idle state / 空闲状态 */}
+      <DialogContent
+        title={t('discovery.title')}
+        description={t('discovery.description', { host: hostName })}
+        className="w-[min(calc(100vw-2rem),896px)]!"
+        bodyClassName="max-h-[min(85dvh,720px)] overflow-y-auto"
+      >
+        <div>
           {state === 'idle' && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Search className="h-12 w-12 text-muted-foreground mb-4" />
@@ -281,7 +268,6 @@ export function DiscoverClusterDialog({
             </div>
           )}
 
-          {/* Discovering state / 发现中状态 */}
           {state === 'discovering' && (
             <div className="flex flex-col items-center justify-center py-8">
               <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
@@ -289,7 +275,6 @@ export function DiscoverClusterDialog({
             </div>
           )}
 
-          {/* Discovered state / 已发现状态 */}
           {state === 'discovered' && result && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -322,7 +307,6 @@ export function DiscoverClusterDialog({
             </div>
           )}
 
-          {/* Confirming state / 确认中状态 */}
           {state === 'confirming' && (
             <div className="flex flex-col items-center justify-center py-8">
               <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
@@ -330,7 +314,6 @@ export function DiscoverClusterDialog({
             </div>
           )}
 
-          {/* Confirmed state / 已确认状态 */}
           {state === 'confirmed' && (
             <div className="flex flex-col items-center justify-center py-8">
               <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
@@ -338,7 +321,6 @@ export function DiscoverClusterDialog({
             </div>
           )}
 
-          {/* Error state / 错误状态 */}
           {state === 'error' && (
             <div className="flex flex-col items-center justify-center py-8">
               <AlertCircle className="h-12 w-12 text-destructive mb-4" />
@@ -350,7 +332,7 @@ export function DiscoverClusterDialog({
           )}
         </div>
 
-        <DialogFooter>
+        <div className="mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4">
           {state === 'discovered' && result && result.new_count > 0 && (
             <>
               <Button variant="outline" onClick={() => handleOpenChange(false)}>
@@ -361,12 +343,14 @@ export function DiscoverClusterDialog({
               </Button>
             </>
           )}
-          {(state === 'idle' || state === 'error' || (state === 'discovered' && result?.new_count === 0)) && (
+          {(state === 'idle' ||
+            state === 'error' ||
+            (state === 'discovered' && result?.new_count === 0)) && (
             <Button variant="outline" onClick={() => handleOpenChange(false)}>
               {t('common.close')}
             </Button>
           )}
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

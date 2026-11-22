@@ -27,29 +27,17 @@
 
 import {useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
+import {Button} from '@/components/arc/button/button';
+import {Dialog, DialogContent} from '@/components/arc/dialog/dialog';
+import {Input} from '@/components/arc/input/input';
+import {Select} from '@/components/arc/select/select';
+import {Switch} from '@/components/arc/switch/switch';
 import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
-import {Switch} from '@/components/ui/switch';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {Terminal} from 'lucide-react';
 import {toast} from '@/lib/toast';
 import services from '@/lib/services';
 import {HostType, CreateHostRequest, HostInfo} from '@/lib/services/host/types';
+import {cn} from '@/lib/utils';
 import {HostInstallGuideContent} from './HostInstallGuideContent';
 
 interface CreateHostDialogProps {
@@ -215,257 +203,265 @@ export function CreateHostDialog({
     }
   };
 
+  const dialogTitle =
+    step === 2 ? t('host.installGuide.title') : t('host.createHost');
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className={`${
-          step === 2 ? 'max-w-[700px]' : 'max-w-[540px]'
-        } max-h-[90vh] overflow-y-auto p-5 sm:p-6 transition-all duration-200`}
+        title={dialogTitle}
+        className={cn(
+          step === 2
+            ? 'w-[min(calc(100vw-2rem),700px)]!'
+            : 'w-[min(calc(100vw-2rem),540px)]!',
+        )}
+        bodyClassName='max-h-[min(85dvh,720px)] overflow-y-auto'
       >
         {step === 1 ? (
           <>
-            <DialogHeader className='pb-3 border-b'>
-              <DialogTitle>{t('host.createHost')}</DialogTitle>
-              {formData.host_type === HostType.BARE_METAL && (
-                <div className='flex items-center gap-2 pt-2 text-xs'>
-                  <span className='inline-flex items-center gap-1.5 font-medium text-primary'>
-                    <span className='flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[11px] font-bold'>
-                      1
-                    </span>
-                    {t('host.installGuide.step1')}
+            {formData.host_type === HostType.BARE_METAL ? (
+              <div className='mb-4 flex items-center gap-2 text-xs'>
+                <span className='inline-flex items-center gap-1.5 font-medium text-primary'>
+                  <span className='flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground'>
+                    1
                   </span>
-                  <span className='h-px w-6 bg-border' />
-                  <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
-                    <span className='flex h-5 w-5 items-center justify-center rounded-full border border-muted-foreground/30 text-[11px]'>
-                      2
-                    </span>
-                    {t('host.installGuide.step2')}
+                  {t('host.installGuide.step1')}
+                </span>
+                <span className='h-px w-6 bg-border' />
+                <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
+                  <span className='flex h-5 w-5 items-center justify-center rounded-full border border-muted-foreground/30 text-[11px]'>
+                    2
                   </span>
-                </div>
-              )}
-            </DialogHeader>
+                  {t('host.installGuide.step2')}
+                </span>
+              </div>
+            ) : null}
 
-        <div className='space-y-4 py-4'>
-          {/* Host Name / 主机名称 */}
-          <div className='space-y-2'>
-            <Label htmlFor='name'>{t('host.name')} *</Label>
-            <Input
-              id='name'
-              value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
-              placeholder={t('host.namePlaceholder')}
-            />
-          </div>
+            <div className='space-y-4'>
+              <Input
+                id='name'
+                label={`${t('host.name')} *`}
+                value={formData.name}
+                onChange={(e) =>
+                  setFormData({...formData, name: e.target.value})
+                }
+                placeholder={t('host.namePlaceholder')}
+              />
 
-          {/* Host Type / 主机类型 */}
-          <div className='space-y-2'>
-            <Label htmlFor='host_type'>{t('host.hostType')} *</Label>
-            <Select
-              value={formData.host_type}
-              onValueChange={(value) =>
-                setFormData({...formData, host_type: value as HostType})
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={HostType.BARE_METAL}>
-                  {t('host.types.bareMetal')}
-                </SelectItem>
-                <SelectItem value={HostType.DOCKER}>
-                  {t('host.types.docker')}
-                </SelectItem>
-                <SelectItem value={HostType.KUBERNETES}>
-                  {t('host.types.kubernetes')}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+              <Select
+                id='host_type'
+                label={`${t('host.hostType')} *`}
+                value={formData.host_type}
+                onValueChange={(value) => {
+                  // Docker / Kubernetes 暂不支持，仅允许选择物理机/虚拟机。
+                  // Docker and Kubernetes are not yet supported; only bare metal can be selected.
+                  if (value === HostType.BARE_METAL) {
+                    setFormData({...formData, host_type: value});
+                  }
+                }}
+                options={[
+                  {
+                    value: HostType.BARE_METAL,
+                    label: t('host.types.bareMetal'),
+                  },
+                  {
+                    value: HostType.DOCKER,
+                    label: t('host.types.unsupportedOption', {
+                      type: t('host.types.docker'),
+                    }),
+                    disabled: true,
+                  },
+                  {
+                    value: HostType.KUBERNETES,
+                    label: t('host.types.unsupportedOption', {
+                      type: t('host.types.kubernetes'),
+                    }),
+                    disabled: true,
+                  },
+                ]}
+              />
 
-          {/* Description / 描述 */}
-          <div className='space-y-2'>
-            <Label htmlFor='description'>{t('host.descriptionLabel')}</Label>
-            <Textarea
-              id='description'
-              value={formData.description}
-              onChange={(e) =>
-                setFormData({...formData, description: e.target.value})
-              }
-              placeholder={t('host.descriptionPlaceholder')}
-              rows={2}
-            />
-          </div>
-
-          {/* Bare Metal Fields / 物理机字段 */}
-          {formData.host_type === HostType.BARE_METAL && (
-            <>
               <div className='space-y-2'>
-                <Label htmlFor='ip_address'>{t('host.ipAddress')} *</Label>
+                <Label htmlFor='description'>{t('host.descriptionLabel')}</Label>
+                <Textarea
+                  id='description'
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({...formData, description: e.target.value})
+                  }
+                  placeholder={t('host.descriptionPlaceholder')}
+                  rows={2}
+                />
+              </div>
+
+              {formData.host_type === HostType.BARE_METAL ? (
                 <Input
                   id='ip_address'
+                  label={`${t('host.ipAddress')} *`}
                   value={formData.ip_address}
                   onChange={(e) =>
                     setFormData({...formData, ip_address: e.target.value})
                   }
                   placeholder='192.168.1.100'
                 />
-              </div>
-            </>
-          )}
+              ) : null}
 
-          {/* Docker Fields / Docker 字段 */}
-          {formData.host_type === HostType.DOCKER && (
-            <>
-              <div className='space-y-2'>
-                <Label htmlFor='docker_api_url'>{t('host.dockerApiUrl')} *</Label>
-                <Input
-                  id='docker_api_url'
-                  value={formData.docker_api_url}
-                  onChange={(e) =>
-                    setFormData({...formData, docker_api_url: e.target.value})
-                  }
-                  placeholder='tcp://192.168.1.100:2375'
-                />
-                <p className='text-xs text-muted-foreground'>
-                  {t('host.dockerApiUrlHint')}
-                </p>
-              </div>
-              <div className='flex items-center space-x-2'>
-                <Switch
-                  id='docker_tls_enabled'
-                  checked={formData.docker_tls_enabled}
-                  onCheckedChange={(checked) =>
-                    setFormData({...formData, docker_tls_enabled: checked})
-                  }
-                />
-                <Label htmlFor='docker_tls_enabled'>{t('host.tlsEnabled')}</Label>
-              </div>
-              {formData.docker_tls_enabled && (
-                <div className='space-y-2'>
-                  <Label htmlFor='docker_cert_path'>{t('host.certPath')}</Label>
+              {formData.host_type === HostType.DOCKER ? (
+                <>
                   <Input
-                    id='docker_cert_path'
-                    value={formData.docker_cert_path}
+                    id='docker_api_url'
+                    label={`${t('host.dockerApiUrl')} *`}
+                    description={t('host.dockerApiUrlHint')}
+                    value={formData.docker_api_url}
                     onChange={(e) =>
-                      setFormData({...formData, docker_cert_path: e.target.value})
+                      setFormData({
+                        ...formData,
+                        docker_api_url: e.target.value,
+                      })
                     }
-                    placeholder='/path/to/certs'
+                    placeholder='tcp://192.168.1.100:2375'
                   />
-                </div>
-              )}
-            </>
-          )}
+                  <Switch
+                    id='docker_tls_enabled'
+                    label={t('host.tlsEnabled')}
+                    checked={formData.docker_tls_enabled}
+                    onCheckedChange={(checked) =>
+                      setFormData({
+                        ...formData,
+                        docker_tls_enabled: checked,
+                      })
+                    }
+                  />
+                  {formData.docker_tls_enabled ? (
+                    <Input
+                      id='docker_cert_path'
+                      label={t('host.certPath')}
+                      value={formData.docker_cert_path}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          docker_cert_path: e.target.value,
+                        })
+                      }
+                      placeholder='/path/to/certs'
+                    />
+                  ) : null}
+                </>
+              ) : null}
 
-          {/* Kubernetes Fields / Kubernetes 字段 */}
-          {formData.host_type === HostType.KUBERNETES && (
-            <>
-              <div className='space-y-2'>
-                <Label htmlFor='k8s_api_url'>{t('host.k8sApiUrl')} *</Label>
-                <Input
-                  id='k8s_api_url'
-                  value={formData.k8s_api_url}
-                  onChange={(e) =>
-                    setFormData({...formData, k8s_api_url: e.target.value})
-                  }
-                  placeholder='https://kubernetes.default.svc:6443'
-                />
-              </div>
-              <div className='space-y-2'>
-                <Label htmlFor='k8s_namespace'>{t('host.namespace')}</Label>
-                <Input
-                  id='k8s_namespace'
-                  value={formData.k8s_namespace}
-                  onChange={(e) =>
-                    setFormData({...formData, k8s_namespace: e.target.value})
-                  }
-                  placeholder='default'
-                />
-              </div>
-              <div className='space-y-2'>
-                <Label htmlFor='k8s_kubeconfig'>{t('host.kubeconfig')}</Label>
-                <Textarea
-                  id='k8s_kubeconfig'
-                  value={formData.k8s_kubeconfig}
-                  onChange={(e) =>
-                    setFormData({...formData, k8s_kubeconfig: e.target.value})
-                  }
-                  placeholder={t('host.kubeconfigPlaceholder')}
-                  rows={3}
-                />
-              </div>
-              <div className='space-y-2'>
-                <Label htmlFor='k8s_token'>{t('host.token')}</Label>
-                <Textarea
-                  id='k8s_token'
-                  value={formData.k8s_token}
-                  onChange={(e) =>
-                    setFormData({...formData, k8s_token: e.target.value})
-                  }
-                  placeholder={t('host.tokenPlaceholder')}
-                  rows={2}
-                />
-                <p className='text-xs text-muted-foreground'>
-                  {t('host.k8sCredentialsHint')}
-                </p>
-              </div>
-            </>
-          )}
-        </div>
+              {formData.host_type === HostType.KUBERNETES ? (
+                <>
+                  <Input
+                    id='k8s_api_url'
+                    label={`${t('host.k8sApiUrl')} *`}
+                    value={formData.k8s_api_url}
+                    onChange={(e) =>
+                      setFormData({...formData, k8s_api_url: e.target.value})
+                    }
+                    placeholder='https://kubernetes.default.svc:6443'
+                  />
+                  <Input
+                    id='k8s_namespace'
+                    label={t('host.namespace')}
+                    value={formData.k8s_namespace}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        k8s_namespace: e.target.value,
+                      })
+                    }
+                    placeholder='default'
+                  />
+                  <div className='space-y-2'>
+                    <Label htmlFor='k8s_kubeconfig'>
+                      {t('host.kubeconfig')}
+                    </Label>
+                    <Textarea
+                      id='k8s_kubeconfig'
+                      value={formData.k8s_kubeconfig}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          k8s_kubeconfig: e.target.value,
+                        })
+                      }
+                      placeholder={t('host.kubeconfigPlaceholder')}
+                      rows={3}
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label htmlFor='k8s_token'>{t('host.token')}</Label>
+                    <Textarea
+                      id='k8s_token'
+                      value={formData.k8s_token}
+                      onChange={(e) =>
+                        setFormData({...formData, k8s_token: e.target.value})
+                      }
+                      placeholder={t('host.tokenPlaceholder')}
+                      rows={2}
+                    />
+                    <p className='text-xs text-muted-foreground'>
+                      {t('host.k8sCredentialsHint')}
+                    </p>
+                  </div>
+                </>
+              ) : null}
+            </div>
 
-            <DialogFooter>
-              <Button variant='outline' onClick={handleClose} disabled={loading}>
+            <div className='mt-5 flex items-center justify-end gap-2 border-t border-border/70 pt-4'>
+              <Button
+                type='button'
+                variant='secondary'
+                size='sm'
+                onClick={handleClose}
+                disabled={loading}
+              >
                 {t('common.cancel')}
               </Button>
-              <Button onClick={handleSubmit} disabled={loading}>
+              <Button
+                type='button'
+                size='sm'
+                loading={loading}
+                onClick={() => void handleSubmit()}
+                disabled={loading}
+              >
                 {loading
                   ? t('common.creating')
                   : formData.host_type === HostType.BARE_METAL
                     ? t('host.installGuide.nextStepAgent')
                     : t('common.create')}
               </Button>
-            </DialogFooter>
+            </div>
           </>
         ) : createdHost ? (
           <>
-            <DialogHeader className='pb-3 border-b'>
-              <div className='flex items-center gap-2 text-primary'>
-                <Terminal className='h-5 w-5' />
-                <DialogTitle className='text-base font-semibold'>
-                  {t('host.installGuide.title')}
-                </DialogTitle>
-              </div>
-              <div className='flex items-center gap-2 pt-1.5 text-xs'>
-                <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
-                  <span className='flex h-5 w-5 items-center justify-center rounded-full bg-muted text-muted-foreground text-[11px]'>
-                    ✓
-                  </span>
-                  {t('host.installGuide.step1')}
+            <div className='mb-3 flex items-center gap-2 text-xs'>
+              <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
+                <span className='flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[11px] text-muted-foreground'>
+                  ✓
                 </span>
-                <span className='h-px w-6 bg-border' />
-                <span className='inline-flex items-center gap-1.5 font-medium text-primary'>
-                  <span className='flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[11px] font-bold'>
-                    2
-                  </span>
-                  {t('host.installGuide.step2')}
+                {t('host.installGuide.step1')}
+              </span>
+              <span className='h-px w-6 bg-border' />
+              <span className='inline-flex items-center gap-1.5 font-medium text-primary'>
+                <span className='flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground'>
+                  2
                 </span>
-              </div>
-            </DialogHeader>
-
-            <div className='pt-2'>
-              <HostInstallGuideContent
-                host={createdHost}
-                onConnected={(updated) => {
-                  setCreatedHost(updated);
-                  onSuccess(updated);
-                }}
-                onViewDetail={(targetHost) => {
-                  handleClose();
-                  onViewDetail?.(targetHost);
-                }}
-                onClose={handleClose}
-              />
+                {t('host.installGuide.step2')}
+              </span>
             </div>
+            <HostInstallGuideContent
+              host={createdHost}
+              onConnected={(updated) => {
+                setCreatedHost(updated);
+                onSuccess(updated);
+              }}
+              onViewDetail={(targetHost) => {
+                handleClose();
+                onViewDetail?.(targetHost);
+              }}
+              onClose={handleClose}
+            />
           </>
         ) : null}
       </DialogContent>

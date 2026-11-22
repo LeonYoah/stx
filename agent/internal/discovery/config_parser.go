@@ -132,6 +132,18 @@ func NewConfigReader() *ConfigReader {
 // Worker -> hazelcast-worker.yaml
 // Hybrid/Unknown -> hazelcast.yaml
 func (r *ConfigReader) ReadHazelcastPort(installDir, role string) int {
+	return r.ReadHazelcastPortPrefer(installDir, role, "")
+}
+
+// ReadHazelcastPortPrefer 优先从进程活动配置路径（如 -Dhazelcast.config）读取端口，再回退角色默认文件。
+// ReadHazelcastPortPrefer prefers the process active config path (e.g. -Dhazelcast.config), then role defaults.
+func (r *ConfigReader) ReadHazelcastPortPrefer(installDir, role, activeConfigPath string) int {
+	if path := strings.TrimSpace(activeConfigPath); path != "" {
+		if port := r.parseHazelcastPort(path); port > 0 {
+			return port
+		}
+	}
+
 	configDir := filepath.Join(installDir, "config")
 
 	// Determine which config file to read based on role
@@ -226,67 +238,75 @@ func (r *ConfigReader) parseHazelcastClusterName(filePath string) string {
 	return ""
 }
 
-// parseHazelcastPort parses hazelcast port from YAML file
-// parseHazelcastPort 从 YAML 文件解析 hazelcast 端口
-// Looks for: network.port.port or port.port
-// 查找：network.port.port 或 port.port
+// parseHazelcastPort 从 YAML 解析 Hazelcast 监听端口。
+// parseHazelcastPort parses the Hazelcast listen port from YAML.
+//
+// 兼容活动配置形态（含复现夹具）/ Compatible with active config shapes (incl. reproduction fixture):
+//
+//	hazelcast.network.port.port
+//	network.port.port
+//	network.port: <int>
 func (r *ConfigReader) parseHazelcastPort(filePath string) int {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return 0
 	}
 
-	// Simple YAML parsing for port value
-	// 简单的 YAML 解析获取端口值
-	// Looking for pattern like:
-	//   port:
-	//     port: 5801
-	// or
-	//   port: 5801
-	lines := strings.Split(string(content), "\n")
-	inPortSection := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Check if we're entering port section / 检查是否进入 port 部分
-		if strings.HasPrefix(trimmed, "port:") && !strings.Contains(trimmed, "port:") {
-			// "port:" alone means we're entering a section
-			// 单独的 "port:" 表示进入一个部分
-			if trimmed == "port:" {
-				inPortSection = true
-				continue
-			}
-			// "port: 5801" inline format / 内联格式
-			parts := strings.SplitN(trimmed, ":", 2)
-			if len(parts) == 2 {
-				portStr := strings.TrimSpace(parts[1])
-				if port, err := strconv.Atoi(portStr); err == nil && port > 0 {
-					return port
-				}
-			}
-		}
-
-		// If in port section, look for nested port value
-		// 如果在 port 部分，查找嵌套的 port 值
-		if inPortSection && strings.HasPrefix(trimmed, "port:") {
-			parts := strings.SplitN(trimmed, ":", 2)
-			if len(parts) == 2 {
-				portStr := strings.TrimSpace(parts[1])
-				if port, err := strconv.Atoi(portStr); err == nil && port > 0 {
-					return port
-				}
-			}
-		}
-
-		// Exit port section if we hit another top-level key
-		// 如果遇到另一个顶级键，退出 port 部分
-		if inPortSection && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && trimmed != "" {
-			inPortSection = false
-		}
+	var root yaml.Node
+	if err := yaml.Unmarshal(content, &root); err != nil || len(root.Content) == 0 {
+		return 0
+	}
+	doc := root.Content[0]
+	if doc.Kind != yaml.MappingNode {
+		return 0
 	}
 
+	if hazelcast := findYAMLMappingChild(doc, "hazelcast"); hazelcast != nil {
+		if port := hazelcastNetworkPort(hazelcast); port > 0 {
+			return port
+		}
+	}
+	return hazelcastNetworkPort(doc)
+}
+
+func hazelcastNetworkPort(root *yaml.Node) int {
+	network := findYAMLMappingChild(root, "network")
+	if network == nil {
+		return 0
+	}
+	portNode := findYAMLMappingChild(network, "port")
+	if portNode == nil {
+		return 0
+	}
+	if portNode.Kind == yaml.ScalarNode {
+		return positivePortValue(portNode.Value)
+	}
+	if portNode.Kind == yaml.MappingNode {
+		if nested := findYAMLMappingChild(portNode, "port"); nested != nil {
+			return positivePortValue(nested.Value)
+		}
+	}
 	return 0
+}
+
+func findYAMLMappingChild(parent *yaml.Node, key string) *yaml.Node {
+	if parent == nil || parent.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(parent.Content); i += 2 {
+		if parent.Content[i].Value == key {
+			return parent.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func positivePortValue(raw string) int {
+	port, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || port <= 0 {
+		return 0
+	}
+	return port
 }
 
 // ReadAPIPort reads REST API port from seatunnel.yaml

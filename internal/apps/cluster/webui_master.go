@@ -30,9 +30,10 @@ import (
 )
 
 const (
-	webUIMasterCacheTTL     = 60 * time.Second
-	webUIMasterProbeTimeout = 1500 * time.Millisecond
-	webUIMasterProbePath    = "/metrics/realtime/jobs"
+	webUIMasterCacheTTL         = 60 * time.Second
+	webUIMasterNegativeCacheTTL = 5 * time.Second
+	webUIMasterProbeTimeout     = 1500 * time.Millisecond
+	webUIMasterProbePath        = "/metrics/realtime/jobs"
 )
 
 type webUIMasterSelector struct {
@@ -44,6 +45,7 @@ type webUIMasterSelector struct {
 
 type webUIMasterEntry struct {
 	nodeID    uint
+	confirmed bool
 	expiresAt time.Time
 }
 
@@ -101,6 +103,10 @@ func (s *webUIMasterSelector) activeMasterNodeID(ctx context.Context, clusterID 
 
 	s.mu.Lock()
 	if entry, ok := s.entries[clusterID]; ok && s.clock().Before(entry.expiresAt) {
+		if !entry.confirmed {
+			s.mu.Unlock()
+			return 0, false
+		}
 		for _, node := range online {
 			if node.ID == entry.nodeID {
 				s.mu.Unlock()
@@ -116,11 +122,17 @@ func (s *webUIMasterSelector) activeMasterNodeID(ctx context.Context, clusterID 
 			if s.entries == nil {
 				s.entries = map[uint]webUIMasterEntry{}
 			}
-			s.entries[clusterID] = webUIMasterEntry{nodeID: node.ID, expiresAt: s.clock().Add(webUIMasterCacheTTL)}
+			s.entries[clusterID] = webUIMasterEntry{nodeID: node.ID, confirmed: true, expiresAt: s.clock().Add(webUIMasterCacheTTL)}
 			s.mu.Unlock()
 			return node.ID, true
 		}
 	}
+	s.mu.Lock()
+	if s.entries == nil {
+		s.entries = map[uint]webUIMasterEntry{}
+	}
+	s.entries[clusterID] = webUIMasterEntry{nodeID: online[0].ID, expiresAt: s.clock().Add(webUIMasterNegativeCacheTTL)}
+	s.mu.Unlock()
 	return 0, false
 }
 

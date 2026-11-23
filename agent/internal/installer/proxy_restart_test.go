@@ -296,6 +296,23 @@ func TestManagedSTXJavaProxyRejectsLegacyPidOfPrefixSiblingDir(t *testing.T) {
 	}
 }
 
+// 安装路径含空格的集群：归属校验按真实 argv 比较（/proc cmdline 的 NUL 分隔），本集群
+// 进程仍可被认领，且 /opt/SeaTunnel 这样的前缀目录不会误认领它。
+// An installDir containing spaces: ownership is checked on real argv (NUL-separated
+// /proc cmdline), so the cluster's own proxy is still claimable while a shorter prefix
+// path like /opt/SeaTunnel never claims it.
+func TestSTXJavaProxyOwnershipMatchesInstallDirWithSpaces(t *testing.T) {
+	skipUnlessLinux(t)
+	spaced := "/opt/SeaTunnel Production"
+	pid := startFakeProcess(t, "stx-java-proxy", "-DSEATUNNEL_HOME="+spaced)
+	if stxJavaProxyPIDForeignForInstallDir(pid, spaced) {
+		t.Fatalf("proxy with spaced installDir must be owned by %q", spaced)
+	}
+	if !stxJavaProxyPIDForeignForInstallDir(pid, "/opt/SeaTunnel") {
+		t.Fatal("a shorter prefix path must not claim the spaced-dir proxy")
+	}
+}
+
 func TestIsSeaTunnelEngineCommandLine(t *testing.T) {
 	if !IsSeaTunnelEngineCommandLine("java -cp x org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer -c conf") {
 		t.Fatal("SeaTunnel server must be recognised")

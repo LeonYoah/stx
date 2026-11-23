@@ -588,11 +588,11 @@ func stxJavaProxyPIDForeignForInstallDir(pid int, installDir string) bool {
 	if installDir == "" || installDir == "." || pid <= 0 {
 		return false
 	}
-	cmdline := stxJavaProxyProcessCommandLine(pid)
-	if cmdline == "" {
+	argv := stxJavaProxyProcessArgv(pid)
+	if len(argv) == 0 {
 		return false
 	}
-	return !stxJavaProxyCommandLineMatchesDesired(cmdline, installDir, "")
+	return !stxJavaProxyArgvMatchesDesired(argv, installDir, "")
 }
 
 // stxJavaProxyLegacyOwnedPID 在共享的旧状态目录中找出可证实属于本 installDir 的存活
@@ -615,29 +615,57 @@ func stxJavaProxyLegacyOwnedPID(legacyDir, installDir string) int {
 	if err != nil || pid <= 0 || !stxJavaProxyPIDAlive(pid) {
 		return 0
 	}
-	cmdline := stxJavaProxyProcessCommandLine(pid)
-	if cmdline == "" || !stxJavaProxyCommandLineMatchesDesired(cmdline, installDir, "") {
+	argv := stxJavaProxyProcessArgv(pid)
+	if len(argv) == 0 || !stxJavaProxyArgvMatchesDesired(argv, installDir, "") {
 		return 0
 	}
 	return pid
 }
 
-// stxJavaProxyCmdlineHomeMatches 逐个参数校验命令行里的安装目录标记与目标目录完全一致
-// （按 token 比较而非子串），否则 -DSEATUNNEL_HOME=/opt/seatunnel-blue 会被误判为
+// stxJavaProxyProcessArgv 跨平台读取进程真实 argv：Linux 按 /proc/<pid>/cmdline 的 NUL
+// 分隔还原，路径含空格的参数不会被拆碎；其他平台 ps 无法还原 argv 边界，退回空白切分。
+// stxJavaProxyProcessArgv reads the real process argv cross-platform: on Linux the
+// NUL-separated /proc/<pid>/cmdline is split faithfully so arguments containing spaces
+// survive; other platforms cannot recover argv boundaries via ps and fall back to
+// whitespace splitting.
+func stxJavaProxyProcessArgv(pid int) []string {
+	if pid <= 0 {
+		return nil
+	}
+	if runtime.GOOS == "linux" {
+		content, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+		if err != nil {
+			return nil
+		}
+		raw := strings.TrimRight(string(content), "\x00")
+		if raw == "" {
+			return nil
+		}
+		return strings.Split(raw, "\x00")
+	}
+	cmdline := stxJavaProxyProcessCommandLine(pid)
+	if cmdline == "" {
+		return nil
+	}
+	return strings.Fields(cmdline)
+}
+
+// stxJavaProxyArgvHomeMatches 逐个真实参数校验安装目录标记与目标目录完全一致（按 argv
+// 元素比较而非子串），否则 -DSEATUNNEL_HOME=/opt/seatunnel-blue 会被误判为
 // /opt/seatunnel 的进程并被 Stop/Restart 停掉。
-// stxJavaProxyCmdlineHomeMatches compares the home marker argument-by-argument for an
-// exact installDir value (token compare, not substring) — otherwise
+// stxJavaProxyArgvHomeMatches compares the home marker element-by-element for an exact
+// installDir value (argv compare, not substring) — otherwise
 // -DSEATUNNEL_HOME=/opt/seatunnel-blue is mistaken for /opt/seatunnel's process and gets
 // killed by Stop/Restart.
-func stxJavaProxyCmdlineHomeMatches(cmdline, installDir string) bool {
+func stxJavaProxyArgvHomeMatches(argv []string, installDir string) bool {
 	want := filepath.Clean(strings.TrimSpace(installDir))
 	if want == "" || want == "." {
 		return false
 	}
-	for _, token := range strings.Fields(cmdline) {
-		token = strings.Trim(token, `"'`)
+	for _, arg := range argv {
+		arg = strings.Trim(arg, `"'`)
 		for _, prefix := range []string{"-DSEATUNNEL_HOME=", "-Dstx.java.proxy.seatunnel.home="} {
-			if strings.HasPrefix(token, prefix) && filepath.Clean(token[len(prefix):]) == want {
+			if strings.HasPrefix(arg, prefix) && filepath.Clean(arg[len(prefix):]) == want {
 				return true
 			}
 		}
@@ -651,22 +679,34 @@ func stxJavaProxyStatusMatchesDesired(status *STXJavaProxyServiceStatus, install
 	if status == nil {
 		return false
 	}
-	cmdline := stxJavaProxyProcessCommandLine(status.PID)
-	if cmdline == "" && status.Port > 0 {
-		cmdline = stxJavaProxyProcessCommandLine(stxJavaProxyPIDByPort(context.Background(), status.Port))
+	argv := stxJavaProxyProcessArgv(status.PID)
+	if len(argv) == 0 && status.Port > 0 {
+		argv = stxJavaProxyProcessArgv(stxJavaProxyPIDByPort(context.Background(), status.Port))
 	}
-	return stxJavaProxyCommandLineMatchesDesired(cmdline, installDir, seatunnelVersion)
+	return stxJavaProxyArgvMatchesDesired(argv, installDir, seatunnelVersion)
 }
 
 // stxJavaProxyCommandLineMatchesDesired 校验命令行是否指向目标 SEATUNNEL_HOME 与代际 jar。
 // stxJavaProxyCommandLineMatchesDesired checks whether cmdline points at the desired SEATUNNEL_HOME and epoch jar.
 func stxJavaProxyCommandLineMatchesDesired(cmdline, installDir, seatunnelVersion string) bool {
+	return stxJavaProxyArgvMatchesDesired(strings.Fields(cmdline), installDir, seatunnelVersion)
+}
+
+// stxJavaProxyArgvMatchesDesired 与上同，但按真实 argv 元素判定：安装目录标记必须作为
+// 完整参数值相等，支持含空格的安装路径。
+// stxJavaProxyArgvMatchesDesired does the same check on real argv elements: the home
+// marker must equal the installDir as a whole argument, so paths with spaces work.
+func stxJavaProxyArgvMatchesDesired(argv []string, installDir, seatunnelVersion string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	cmdline := strings.Join(argv, " ")
 	if !isSTXJavaProxyCommandLine(cmdline) {
 		return false
 	}
 	installDir = filepath.Clean(strings.TrimSpace(installDir))
 	if installDir != "" && installDir != "." {
-		if !stxJavaProxyCmdlineHomeMatches(cmdline, installDir) {
+		if !stxJavaProxyArgvHomeMatches(argv, installDir) {
 			return false
 		}
 	}

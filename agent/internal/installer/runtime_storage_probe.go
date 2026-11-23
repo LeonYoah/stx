@@ -724,7 +724,7 @@ func ensureSTXJavaProxyService(
 			}
 			continue
 		}
-		if pid > 0 && (!stxJavaProxyCommandLineMatchesDesired(stxJavaProxyProcessCommandLine(pid), installDir, seatunnelVersion) ||
+		if pid > 0 && (!stxJavaProxyArgvMatchesDesired(stxJavaProxyProcessArgv(pid), installDir, seatunnelVersion) ||
 			!stxJavaProxyJavaMatchesDesired(pid, javaenv.HomeFromContext(ctx))) {
 			logger.WarnF(ctx, "[stx-java-proxy] healthy listener mismatches desired runtime, restarting: port=%d, pid=%d, installDir=%s, version=%s", port, pid, installDir, seatunnelVersion)
 			// 已验证归属本 installDir 的 pid/port 先落盘，确保 Stop 只在本集群 stateDir 内定位目标进程。

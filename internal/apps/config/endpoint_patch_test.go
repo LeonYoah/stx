@@ -74,6 +74,59 @@ func TestPatchHazelcastEndpointNoop(t *testing.T) {
 	}
 }
 
+func TestApplyHazelcastEndpointReroutesForeignAddress(t *testing.T) {
+	promoted := strings.Replace(endpointSample, "port: 5811", "port: 5811\n    public-address: 10.88.0.11:5811", 1)
+	ports := []NodePortInfo{{Role: "master", HazelcastPort: 5833}}
+	out, err := applyHazelcastEndpoint(promoted, ConfigTypeHazelcastMaster, "separated", "10.88.0.12", ports)
+	if err != nil {
+		t.Fatalf("derive failed: %v", err)
+	}
+	if !strings.Contains(out, "public-address: 10.88.0.12:5833") {
+		t.Fatalf("foreign public-address kept: %s", out)
+	}
+	if !strings.Contains(out, "port: 5833") {
+		t.Fatalf("port not rewritten: %s", out)
+	}
+}
+
+func TestApplyHazelcastEndpointKeepsOwnHostAddress(t *testing.T) {
+	promoted := strings.Replace(endpointSample, "port: 5811", "port: 5811\n    public-address: 10.88.0.11:5999", 1)
+	ports := []NodePortInfo{{Role: "master", HazelcastPort: 5811}}
+	out, err := applyHazelcastEndpoint(promoted, ConfigTypeHazelcastMaster, "separated", "10.88.0.11", ports)
+	if err != nil {
+		t.Fatalf("derive failed: %v", err)
+	}
+	if !strings.Contains(out, "public-address: 10.88.0.11:5999") {
+		t.Fatalf("own-host custom address clobbered: %s", out)
+	}
+}
+
+func TestApplyHazelcastEndpointIPv6(t *testing.T) {
+	ports := []NodePortInfo{{Role: "master", HazelcastPort: 5811}}
+	out, err := applyHazelcastEndpoint(endpointSample, ConfigTypeHazelcastMaster, "separated", "fd00::12", ports)
+	if err != nil {
+		t.Fatalf("derive failed: %v", err)
+	}
+	if !strings.Contains(out, "public-address: '[fd00::12]:5811'") && !strings.Contains(out, "public-address: \"[fd00::12]:5811\"") && !strings.Contains(out, "public-address: [fd00::12]:5811") {
+		t.Fatalf("ipv6 address not bracketed: %s", out)
+	}
+}
+
+func TestPatchHazelcastEndpointCreatesMissingPortBlock(t *testing.T) {
+	content := strings.Replace(endpointSample, `    port:
+      auto-increment: true
+      port-count: 100
+      port: 5811
+`, "", 1)
+	patched, changed, err := PatchHazelcastEndpoint(content, "10.88.0.12:5833", 5833)
+	if err != nil {
+		t.Fatalf("patch failed: %v", err)
+	}
+	if !changed || !strings.Contains(patched, "port: 5833") {
+		t.Fatalf("port block not created: %s", patched)
+	}
+}
+
 func TestHazelcastEndpointPort(t *testing.T) {
 	ports := []NodePortInfo{
 		{Role: "worker", HazelcastPort: 5800, WorkerPort: 5822},

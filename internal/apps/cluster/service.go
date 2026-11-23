@@ -1710,6 +1710,14 @@ func (s *Service) GetNodePorts(ctx context.Context, clusterID uint, hostID uint)
 	return ports, nil
 }
 
+func (s *Service) GetDeploymentMode(ctx context.Context, clusterID uint) (string, error) {
+	cluster, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return "", err
+	}
+	return string(cluster.DeploymentMode), nil
+}
+
 // ResolveNodeJVMByClusterAndHostAndRole resolves effective JVM config for one logical node.
 // ResolveNodeJVMByClusterAndHostAndRole 解析一个逻辑节点的生效 JVM 配置。
 func (s *Service) ResolveNodeJVMByClusterAndHostAndRole(ctx context.Context, clusterID uint, hostID uint, role string) (*installerapp.JVMConfig, error) {

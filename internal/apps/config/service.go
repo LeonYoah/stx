@@ -45,6 +45,7 @@ type NodeInfoProvider interface {
 	GetNodeInstallDir(ctx context.Context, clusterID uint, hostID uint) (string, error)
 	GetNodeInstallDirs(ctx context.Context, clusterID uint, hostID uint) ([]string, error)
 	GetNodePorts(ctx context.Context, clusterID uint, hostID uint) ([]NodePortInfo, error)
+	GetDeploymentMode(ctx context.Context, clusterID uint) (string, error)
 }
 
 type NodePortInfo struct {

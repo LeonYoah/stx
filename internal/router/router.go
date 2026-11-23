@@ -2239,6 +2239,10 @@ func (a *configNodeInfoProviderAdapter) GetNodePorts(ctx context.Context, cluste
 	return a.clusterService.GetNodePorts(ctx, clusterID, hostID)
 }
 
+func (a *configNodeInfoProviderAdapter) GetDeploymentMode(ctx context.Context, clusterID uint) (string, error) {
+	return a.clusterService.GetDeploymentMode(ctx, clusterID)
+}
+
 // configPortMetadataUpdaterAdapter adapts cluster.Repository to appconfig.PortMetadataUpdater interface.
 // configPortMetadataUpdaterAdapter 将 cluster.Repository 适配到 appconfig.PortMetadataUpdater 接口。
 type configPortMetadataUpdaterAdapter struct {

@@ -26,9 +26,10 @@ import (
 )
 
 type testNodeInfoProvider struct {
-	installDir  string
-	installDirs []string
-	ports       []NodePortInfo
+	installDir     string
+	installDirs    []string
+	ports          []NodePortInfo
+	deploymentMode string
 }
 
 func (p *testNodeInfoProvider) GetNodeInstallDir(_ context.Context, _ uint, _ uint) (string, error) {
@@ -47,6 +48,10 @@ func (p *testNodeInfoProvider) GetNodeInstallDirs(_ context.Context, _ uint, _ u
 
 func (p *testNodeInfoProvider) GetNodePorts(_ context.Context, _ uint, _ uint) ([]NodePortInfo, error) {
 	return p.ports, nil
+}
+
+func (p *testNodeInfoProvider) GetDeploymentMode(_ context.Context, _ uint) (string, error) {
+	return p.deploymentMode, nil
 }
 
 type testAgentClient struct {

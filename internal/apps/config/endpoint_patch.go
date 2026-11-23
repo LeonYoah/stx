@@ -20,7 +20,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"reflect"
+	"strconv"
 	"strings"
 
 	yaml "gopkg.in/yaml.v3"
@@ -73,11 +75,33 @@ func applyHazelcastEndpoint(content string, configType ConfigType, deploymentMod
 		return content, nil
 	}
 	publicAddress := ""
-	if ip := strings.TrimSpace(hostIP); ip != "" {
-		publicAddress = fmt.Sprintf("%s:%d", ip, port)
+	if ip := strings.TrimSpace(hostIP); ip != "" && !publicAddressTargetsHost(content, ip) {
+		publicAddress = net.JoinHostPort(ip, strconv.Itoa(port))
 	}
 	patched, _, err := PatchHazelcastEndpoint(content, publicAddress, port)
 	return patched, err
+}
+
+func ReadHazelcastPublicAddress(content string) string {
+	var root any
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+		return ""
+	}
+	value, _ := readDecodedPath(root, append(append([]string{}, hazelcastNetworkPath...), "public-address")).(string)
+	return value
+}
+
+func publicAddressTargetsHost(content string, hostIP string) bool {
+	existing := strings.TrimSpace(ReadHazelcastPublicAddress(content))
+	if existing == "" {
+		return false
+	}
+	host := existing
+	if parsed, _, err := net.SplitHostPort(existing); err == nil {
+		host = parsed
+	}
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	return host == strings.Trim(strings.TrimSpace(hostIP), "[]")
 }
 
 func PatchHazelcastEndpoint(content string, publicAddress string, port int) (string, bool, error) {
@@ -208,6 +232,8 @@ func verifyEndpointPatch(original, patched, publicAddress string, port int) erro
 	deleteDecodedPath(next, append(append([]string{}, hazelcastNetworkPath...), "port", "port"))
 	deleteDecodedPath(orig, append(append([]string{}, hazelcastNetworkPath...), "public-address"))
 	deleteDecodedPath(next, append(append([]string{}, hazelcastNetworkPath...), "public-address"))
+	pruneEmptyDecodedPath(next, append(append([]string{}, hazelcastNetworkPath...), "port"))
+	pruneEmptyDecodedPath(orig, append(append([]string{}, hazelcastNetworkPath...), "port"))
 	if !reflect.DeepEqual(orig, next) {
 		return fmt.Errorf("endpoint patch changed content outside network.port.port / public-address / 端点修补改动了 port 与 public-address 之外的内容")
 	}
@@ -230,6 +256,29 @@ func readDecodedPath(root any, path []string) any {
 		current = next
 	}
 	return nil
+}
+
+func pruneEmptyDecodedPath(root any, path []string) {
+	parent, ok := root.(map[string]any)
+	if !ok || len(path) == 0 {
+		return
+	}
+	if len(path) == 1 {
+		if value, ok := parent[path[0]]; ok {
+			if mapping, isMap := value.(map[string]any); isMap && len(mapping) == 0 {
+				delete(parent, path[0])
+			}
+		}
+		return
+	}
+	next, ok := parent[path[0]].(map[string]any)
+	if !ok {
+		return
+	}
+	pruneEmptyDecodedPath(next, path[1:])
+	if len(next) == 0 {
+		delete(parent, path[0])
+	}
 }
 
 func deleteDecodedPath(root any, path []string) {

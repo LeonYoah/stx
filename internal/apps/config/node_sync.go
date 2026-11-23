@@ -58,6 +58,14 @@ func (s *Service) applyNodeConfigContent(ctx context.Context, config *Config, co
 		return &nodeApplyOutcome{Applied: true}, nil
 	}
 
+	if IsMemberListConfigType(config.ConfigType) {
+		if derived, err := s.deriveHostEndpoint(ctx, config, content); err != nil {
+			return nil, err
+		} else {
+			content = derived
+		}
+	}
+
 	installDirs, dirErr := s.nodeInfoProvider.GetNodeInstallDirs(ctx, config.ClusterID, *config.HostID)
 	if dirErr != nil {
 		pushErr := "获取节点安装目录失败 / failed to resolve node install dir: " + dirErr.Error()
@@ -87,6 +95,22 @@ func (s *Service) applyNodeConfigContent(ctx context.Context, config *Config, co
 	}
 	s.syncDerivedRuntimeMetadata(ctx, config.ClusterID, config.HostID, config.ConfigType, content)
 	return &nodeApplyOutcome{Applied: true}, nil
+}
+
+func (s *Service) deriveHostEndpoint(ctx context.Context, config *Config, content string) (string, error) {
+	hostIP := ""
+	if s.hostProvider != nil {
+		if host, err := s.hostProvider.GetHostByID(ctx, *config.HostID); err == nil && host != nil {
+			hostIP = host.IPAddress
+		}
+	}
+	mode := ""
+	ports := []NodePortInfo(nil)
+	if s.nodeInfoProvider != nil {
+		mode, _ = s.nodeInfoProvider.GetDeploymentMode(ctx, config.ClusterID)
+		ports, _ = s.nodeInfoProvider.GetNodePorts(ctx, config.ClusterID, *config.HostID)
+	}
+	return applyHazelcastEndpoint(content, config.ConfigType, mode, hostIP, ports)
 }
 
 // commitConfigVersion 提交新内容为新版本，并清除待推送标记。

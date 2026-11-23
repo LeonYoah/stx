@@ -23,8 +23,8 @@ export const MIN_HEAP_MB = 512;
 export const MAX_HEAP_MB = 128 * 1024;
 
 /**
- * 把历史 GB 或新 MB 堆值规范为 MB。
- * Normalize a legacy-GB or new-MB heap value to MB.
+ * 把历史 GB 或新 MB 堆值规范为 MB。仅用于回填历史值或后端存量数据，勿对用户已按 MB 输入的值调用。
+ * Normalize a legacy-GB or new-MB heap value to MB. Use only when hydrating legacy/backend values — not on user MB input.
  */
 export function coerceHeapSizeToMB(value: number): number {
   if (!Number.isFinite(value) || value <= 0) {
@@ -42,26 +42,59 @@ export type HeapValidationCode =
   | 'exceeds_host_memory';
 
 /**
- * 校验堆大小（输入可为遗留 GB 或 MB）；hostMemoryBytes 有值时不得 ≥ 主机总内存。
- * Validate heap size (legacy GB or MB); when hostMemoryBytes is set it must stay below host RAM.
+ * 校验已是 MB 的堆大小；hostMemoryBytes 有值时不得 ≥ 主机总内存。
+ * Validate a heap size that is already in MB; when hostMemoryBytes is set it must stay below host RAM.
  */
 export function validateHeapSizeMB(
   value: number,
   hostMemoryBytes?: number,
 ): HeapValidationCode | null {
-  const mb = coerceHeapSizeToMB(value);
-  if (!Number.isFinite(mb) || mb < MIN_HEAP_MB) {
+  if (!Number.isFinite(value) || value < MIN_HEAP_MB) {
     return 'below_min';
   }
-  if (mb > MAX_HEAP_MB) {
+  if (value > MAX_HEAP_MB) {
     return 'above_max';
   }
   if (
     typeof hostMemoryBytes === 'number' &&
     hostMemoryBytes > 0 &&
-    mb >= Math.floor(hostMemoryBytes / (1024 * 1024))
+    value >= Math.floor(hostMemoryBytes / (1024 * 1024))
   ) {
     return 'exceeds_host_memory';
   }
   return null;
+}
+
+/** 字段级错误文案键（cluster.*）。/ Field-level message keys under cluster.*. */
+export function heapFieldErrorKey(
+  code: HeapValidationCode,
+):
+  | 'cluster.jvmHeapSizeRequired'
+  | 'cluster.jvmHeapSizeInvalid'
+  | 'cluster.jvmHeapSizeExceedsHost' {
+  switch (code) {
+    case 'below_min':
+      return 'cluster.jvmHeapSizeRequired';
+    case 'above_max':
+      return 'cluster.jvmHeapSizeInvalid';
+    case 'exceeds_host_memory':
+      return 'cluster.jvmHeapSizeExceedsHost';
+  }
+}
+
+/** 向导「下一步」禁用原因文案键（cluster.wizard.*）。/ Wizard next-button block reason keys under cluster.wizard.*. */
+export function heapNextDisabledKey(
+  code: HeapValidationCode,
+):
+  | 'cluster.wizard.nextDisabledHeapBelowMin'
+  | 'cluster.wizard.nextDisabledHeapAboveMax'
+  | 'cluster.wizard.nextDisabledHeapExceedsHost' {
+  switch (code) {
+    case 'below_min':
+      return 'cluster.wizard.nextDisabledHeapBelowMin';
+    case 'above_max':
+      return 'cluster.wizard.nextDisabledHeapAboveMax';
+    case 'exceeds_host_memory':
+      return 'cluster.wizard.nextDisabledHeapExceedsHost';
+  }
 }

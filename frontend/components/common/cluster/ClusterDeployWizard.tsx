@@ -53,7 +53,10 @@ import {mapCheckpointNamespaceToImap} from '@/lib/runtime-storage-namespace';
 import {isValidClusterCode} from '@/lib/cluster-code';
 import {HostType, HostStatus} from '@/lib/services/host/types';
 import {DeploymentMode, NodeRole} from '@/lib/services/cluster/types';
-import {validateHeapSizeMB} from '@/lib/services/installer/heap';
+import {
+  heapNextDisabledKey,
+  validateHeapSizeMB,
+} from '@/lib/services/installer/heap';
 
 import {
   WIZARD_STEPS,
@@ -532,12 +535,11 @@ export function ClusterDeployWizard({
           .filter((v): v is number => typeof v === 'number' && v > 0);
         const minHostMemory =
           hostMemoryBytes.length > 0 ? Math.min(...hostMemoryBytes) : undefined;
-        if (
-          heapValues.some(
-            (value) => validateHeapSizeMB(value, minHostMemory) !== null,
-          )
-        ) {
-          return t('cluster.wizard.nextDisabledHeap');
+        for (const value of heapValues) {
+          const heapCode = validateHeapSizeMB(value, minHostMemory);
+          if (heapCode) {
+            return t(heapNextDisabledKey(heapCode));
+          }
         }
         return null;
       }

@@ -20,6 +20,8 @@ import {
   MAX_HEAP_MB,
   MIN_HEAP_MB,
   coerceHeapSizeToMB,
+  heapFieldErrorKey,
+  heapNextDisabledKey,
   validateHeapSizeMB,
 } from '../heap';
 
@@ -51,8 +53,27 @@ describe('validateHeapSizeMB', () => {
     expect(validateHeapSizeMB(512, hostBytes)).toBeNull();
   });
 
-  it('treats legacy 2 as 2048MB for host checks', () => {
-    const hostBytes = 1024 * 1024 * 1024; // 1 GiB — 2GB legacy would exceed
-    expect(validateHeapSizeMB(2, hostBytes)).toBe('exceeds_host_memory');
+  it('treats small inputs as MB already (no legacy GB coerce)', () => {
+    expect(validateHeapSizeMB(2)).toBe('below_min');
+    expect(validateHeapSizeMB(128)).toBe('below_min');
+  });
+});
+
+describe('heap message keys', () => {
+  it('maps validation codes to field and wizard keys', () => {
+    expect(heapFieldErrorKey('below_min')).toBe('cluster.jvmHeapSizeRequired');
+    expect(heapFieldErrorKey('above_max')).toBe('cluster.jvmHeapSizeInvalid');
+    expect(heapFieldErrorKey('exceeds_host_memory')).toBe(
+      'cluster.jvmHeapSizeExceedsHost',
+    );
+    expect(heapNextDisabledKey('below_min')).toBe(
+      'cluster.wizard.nextDisabledHeapBelowMin',
+    );
+    expect(heapNextDisabledKey('above_max')).toBe(
+      'cluster.wizard.nextDisabledHeapAboveMax',
+    );
+    expect(heapNextDisabledKey('exceeds_host_memory')).toBe(
+      'cluster.wizard.nextDisabledHeapExceedsHost',
+    );
   });
 });

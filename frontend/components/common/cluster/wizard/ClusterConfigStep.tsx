@@ -53,6 +53,12 @@ import type {
   PackageInfo,
   SeaTunnelVersionCapabilities,
 } from '@/lib/services/installer/types';
+import {
+  MAX_HEAP_MB,
+  MIN_HEAP_MB,
+  heapFieldErrorKey,
+  validateHeapSizeMB,
+} from '@/lib/services/installer/heap';
 import {ClusterDeployConfig, HostWithRole} from './types';
 
 /** IMAP 外部存储开启时的默认后端 / Default IMAP backend when external storage is enabled */
@@ -106,6 +112,17 @@ export function ClusterConfigStep({
     (pkg) => pkg.version === config.version,
   );
   const isPackageLocal = !!currentPackage;
+
+  const hostMemoryBytes = selectedHosts
+    .map((h) => h.host.total_memory)
+    .filter((v): v is number => typeof v === 'number' && v > 0);
+  const minHostMemory =
+    hostMemoryBytes.length > 0 ? Math.min(...hostMemoryBytes) : undefined;
+
+  const heapFieldError = (value: number) => {
+    const code = validateHeapSizeMB(value, minHostMemory);
+    return code ? t(heapFieldErrorKey(code)) : undefined;
+  };
 
   const checkpointNeedsSharedWarning =
     selectedHosts.length > 1 &&
@@ -633,56 +650,59 @@ export function ClusterConfigStep({
               </h3>
               {config.deploymentMode === DeploymentMode.HYBRID ? (
                 <Input
-                  label={`${t('cluster.wizard.hybridNodeHeap')} (MB)`}
+                  label={t('cluster.wizard.hybridNodeHeap')}
                   type='number'
-                  value={config.jvm.hybrid_heap_size}
+                  value={config.jvm.hybrid_heap_size || ''}
                   onChange={(e) =>
                     updateConfig({
                       jvm: {
                         ...config.jvm,
-                        hybrid_heap_size: parseInt(e.target.value) || 2048,
+                        hybrid_heap_size: parseInt(e.target.value, 10) || 0,
                       },
                     })
                   }
-                  min={512}
-                  max={131072}
+                  min={MIN_HEAP_MB}
+                  max={MAX_HEAP_MB}
                   step={64}
+                  error={heapFieldError(config.jvm.hybrid_heap_size)}
                   className='font-mono text-xs tabular-nums'
                 />
               ) : (
                 <div className='grid grid-cols-2 gap-2.5'>
                   <Input
-                    label={`${t('cluster.wizard.masterHeap')} (MB)`}
+                    label={t('cluster.wizard.masterHeap')}
                     type='number'
-                    value={config.jvm.master_heap_size}
+                    value={config.jvm.master_heap_size || ''}
                     onChange={(e) =>
                       updateConfig({
                         jvm: {
                           ...config.jvm,
-                          master_heap_size: parseInt(e.target.value) || 2048,
+                          master_heap_size: parseInt(e.target.value, 10) || 0,
                         },
                       })
                     }
-                    min={512}
-                    max={131072}
+                    min={MIN_HEAP_MB}
+                    max={MAX_HEAP_MB}
                     step={64}
+                    error={heapFieldError(config.jvm.master_heap_size)}
                     className='font-mono text-xs tabular-nums'
                   />
                   <Input
-                    label={`${t('cluster.wizard.workerHeap')} (MB)`}
+                    label={t('cluster.wizard.workerHeap')}
                     type='number'
-                    value={config.jvm.worker_heap_size}
+                    value={config.jvm.worker_heap_size || ''}
                     onChange={(e) =>
                       updateConfig({
                         jvm: {
                           ...config.jvm,
-                          worker_heap_size: parseInt(e.target.value) || 2048,
+                          worker_heap_size: parseInt(e.target.value, 10) || 0,
                         },
                       })
                     }
-                    min={512}
-                    max={131072}
+                    min={MIN_HEAP_MB}
+                    max={MAX_HEAP_MB}
                     step={64}
+                    error={heapFieldError(config.jvm.worker_heap_size)}
                     className='font-mono text-xs tabular-nums'
                   />
                 </div>

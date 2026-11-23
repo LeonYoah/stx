@@ -44,8 +44,10 @@ import {
   getNodeJVMOverrideValue,
 } from '@/lib/services/cluster/types';
 import {
+  MAX_HEAP_MB,
   MIN_HEAP_MB,
   coerceHeapSizeToMB,
+  heapFieldErrorKey,
   validateHeapSizeMB,
 } from '@/lib/services/installer/heap';
 import {buildResolvedClusterConfigFromConfigs} from './nodeConfigDefaults';
@@ -129,6 +131,7 @@ export function EditNodeDialog({
   const [apiPort, setApiPort] = useState(0);
   const [jvmOverrideEnabled, setJvmOverrideEnabled] = useState(false);
   const [jvmHeapSize, setJvmHeapSize] = useState(0);
+  const [hostMemoryBytes, setHostMemoryBytes] = useState<number | undefined>();
 
   useEffect(() => {
     if (!node || !open) {
@@ -149,6 +152,13 @@ export function EditNodeDialog({
             configsResult.data,
           );
         }
+      }
+
+      const hostResult = await services.host.getHostSafe(node.host_id);
+      if (!cancelled && hostResult.success && hostResult.data?.total_memory) {
+        setHostMemoryBytes(hostResult.data.total_memory);
+      } else if (!cancelled) {
+        setHostMemoryBytes(undefined);
       }
 
       if (cancelled) {
@@ -252,13 +262,9 @@ export function EditNodeDialog({
       return;
     }
     if (jvmOverrideEnabled) {
-      const heapError = validateHeapSizeMB(jvmHeapSize);
-      if (heapError === 'below_min' || !jvmHeapSize) {
-        toast.error(t('cluster.jvmHeapSizeRequired'));
-        return;
-      }
+      const heapError = validateHeapSizeMB(jvmHeapSize, hostMemoryBytes);
       if (heapError) {
-        toast.error(t('cluster.jvmHeapSizeInvalid'));
+        toast.error(t(heapFieldErrorKey(heapError)));
         return;
       }
     }
@@ -326,6 +332,13 @@ export function EditNodeDialog({
     clusterDefaultHeapRaw !== undefined
       ? coerceHeapSizeToMB(clusterDefaultHeapRaw)
       : undefined;
+
+  const jvmHeapCode = jvmOverrideEnabled
+    ? validateHeapSizeMB(jvmHeapSize, hostMemoryBytes)
+    : null;
+  const jvmHeapFieldError = jvmHeapCode
+    ? t(heapFieldErrorKey(jvmHeapCode))
+    : undefined;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -464,7 +477,7 @@ export function EditNodeDialog({
                 <Input
                   type='number'
                   min={MIN_HEAP_MB}
-                  max={131072}
+                  max={MAX_HEAP_MB}
                   step={64}
                   label={t('cluster.jvmHeapSize')}
                   description={t('cluster.jvmHeapSizeHint')}
@@ -473,6 +486,7 @@ export function EditNodeDialog({
                   onChange={(e) =>
                     setJvmHeapSize(parseInt(e.target.value, 10) || 0)
                   }
+                  error={jvmHeapFieldError}
                   className='font-mono tabular-nums'
                 />
               </div>

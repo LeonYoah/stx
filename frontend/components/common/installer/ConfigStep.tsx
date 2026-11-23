@@ -37,6 +37,13 @@ import {
 } from '@/components/ui/card';
 import {Label} from '@/components/ui/label';
 import {Input} from '@/components/ui/input';
+import {Input as ArcInput} from '@/components/arc/input/input';
+import {
+  MAX_HEAP_MB,
+  MIN_HEAP_MB,
+  heapFieldErrorKey,
+  validateHeapSizeMB,
+} from '@/lib/services/installer/heap';
 import {
   Select,
   SelectContent,
@@ -122,12 +129,15 @@ interface ConfigStepProps {
   onConfigChange: (updates: Partial<InstallWizardConfig>) => void;
   /** Host IDs used for connectivity validation / 用于联通性校验的主机 ID 列表 */
   hostIds?: Array<number | string>;
+  /** 主机总内存（字节），有值时参与堆上限校验 / Host total memory in bytes when available for heap checks */
+  hostMemoryBytes?: number;
 }
 
 export function ConfigStep({
   config,
   onConfigChange,
   hostIds = [],
+  hostMemoryBytes,
 }: ConfigStepProps) {
   const t = useTranslations();
   const {packages, loading: packagesLoading} = usePackages();
@@ -196,6 +206,11 @@ export function ConfigStep({
     onConfigChange({
       jvm: {...config.jvm, [key]: value},
     });
+  };
+
+  const heapFieldError = (value: number) => {
+    const code = validateHeapSizeMB(value, hostMemoryBytes);
+    return code ? t(heapFieldErrorKey(code)) : undefined;
   };
 
   // Handle checkpoint config change / 处理检查点配置变化
@@ -672,59 +687,59 @@ export function ConfigStep({
           <CardContent>
             <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
               {config.deploymentMode === 'hybrid' ? (
-                <div className='space-y-2'>
-                  <Label>{t('installer.hybridHeapSize')}</Label>
-                  <Input
-                    data-testid='install-jvm-hybrid-heap'
-                    type='number'
-                    value={config.jvm.hybrid_heap_size}
-                    onChange={(e) =>
-                      handleJvmChange(
-                        'hybrid_heap_size',
-                        parseInt(e.target.value) || 0,
-                      )
-                    }
-                    min={512}
-                    max={131072}
-                    step={64}
-                  />
-                </div>
+                <ArcInput
+                  data-testid='install-jvm-hybrid-heap'
+                  label={t('installer.hybridHeapSize')}
+                  type='number'
+                  value={config.jvm.hybrid_heap_size || ''}
+                  onChange={(e) =>
+                    handleJvmChange(
+                      'hybrid_heap_size',
+                      parseInt(e.target.value, 10) || 0,
+                    )
+                  }
+                  min={MIN_HEAP_MB}
+                  max={MAX_HEAP_MB}
+                  step={64}
+                  error={heapFieldError(config.jvm.hybrid_heap_size)}
+                  className='font-mono tabular-nums'
+                />
               ) : (
                 <>
-                  <div className='space-y-2'>
-                    <Label>{t('installer.masterHeapSize')}</Label>
-                    <Input
-                      data-testid='install-jvm-master-heap'
-                      type='number'
-                      value={config.jvm.master_heap_size}
-                      onChange={(e) =>
-                        handleJvmChange(
-                          'master_heap_size',
-                          parseInt(e.target.value) || 0,
-                        )
-                      }
-                      min={512}
-                      max={131072}
-                      step={64}
-                    />
-                  </div>
-                  <div className='space-y-2'>
-                    <Label>{t('installer.workerHeapSize')}</Label>
-                    <Input
-                      data-testid='install-jvm-worker-heap'
-                      type='number'
-                      value={config.jvm.worker_heap_size}
-                      onChange={(e) =>
-                        handleJvmChange(
-                          'worker_heap_size',
-                          parseInt(e.target.value) || 0,
-                        )
-                      }
-                      min={512}
-                      max={131072}
-                      step={64}
-                    />
-                  </div>
+                  <ArcInput
+                    data-testid='install-jvm-master-heap'
+                    label={t('installer.masterHeapSize')}
+                    type='number'
+                    value={config.jvm.master_heap_size || ''}
+                    onChange={(e) =>
+                      handleJvmChange(
+                        'master_heap_size',
+                        parseInt(e.target.value, 10) || 0,
+                      )
+                    }
+                    min={MIN_HEAP_MB}
+                    max={MAX_HEAP_MB}
+                    step={64}
+                    error={heapFieldError(config.jvm.master_heap_size)}
+                    className='font-mono tabular-nums'
+                  />
+                  <ArcInput
+                    data-testid='install-jvm-worker-heap'
+                    label={t('installer.workerHeapSize')}
+                    type='number'
+                    value={config.jvm.worker_heap_size || ''}
+                    onChange={(e) =>
+                      handleJvmChange(
+                        'worker_heap_size',
+                        parseInt(e.target.value, 10) || 0,
+                      )
+                    }
+                    min={MIN_HEAP_MB}
+                    max={MAX_HEAP_MB}
+                    step={64}
+                    error={heapFieldError(config.jvm.worker_heap_size)}
+                    className='font-mono tabular-nums'
+                  />
                 </>
               )}
             </div>

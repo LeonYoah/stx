@@ -34,6 +34,7 @@ EN_WORD_RE = re.compile(r"[A-Za-z]{2,}")
 TAG_TOKEN_RE = re.compile(r"[A-Za-z0-9.+_:/-]+")
 PLACEHOLDER_RE = re.compile(r"\{[A-Za-z_][A-Za-z0-9_.]*\}")
 PATH_TOKEN_RE = re.compile(r"[a-z0-9._/-]+")
+LOWER_WORD_RE = re.compile(r"[a-z]{3,}")
 RULE_B_RE = re.compile(
     r'\.Query\(\s*"(?:lang|language|locale)"\s*\)'
     r'|\.GetHeader\(\s*"Accept-Language"\s*\)'
@@ -59,6 +60,8 @@ class Violation:
     line: int
     rule: str
     detail: str
+    start: int = 0
+    end: int = 0
 
     def render(self) -> str:
         return f"{self.path}:{self.line}: {self.rule}: {self.detail}"
@@ -174,12 +177,14 @@ def _is_en_segment(segment: str) -> bool:
     words = EN_WORD_RE.findall(segment)
     if not words:
         return False
-    if len(words) <= 1:
-        tokens = segment.split()
-        if all(TAG_TOKEN_RE.fullmatch(t) for t in tokens) and any(
-            any(ch.isdigit() for ch in t) for t in tokens
-        ):
-            return False
+    tokens = segment.split()
+    if (
+        tokens
+        and all(TAG_TOKEN_RE.fullmatch(t) for t in tokens)
+        and any(any(ch.isdigit() for ch in t) for t in tokens)
+        and not any(LOWER_WORD_RE.fullmatch(t) for t in tokens)
+    ):
+        return False
     return True
 
 
@@ -216,12 +221,24 @@ def bilingual_slash_positions(literal: str):
         en_left, en_right = _is_en_segment(left_seg), _is_en_segment(right_seg)
         if zh_left and en_right:
             boundary = left_seg.split()[-1] if left_seg.split() else ""
-            if _is_path_token(right_seg) and PATH_TOKEN_RE.fullmatch(boundary):
+            nxt = parts[idx + 2].split() if idx + 2 < len(parts) else []
+            if (
+                _is_path_token(right_seg)
+                and PATH_TOKEN_RE.fullmatch(boundary)
+                and nxt
+                and PATH_TOKEN_RE.fullmatch(nxt[0])
+            ):
                 continue
             hits.append(slash_pos)
         elif en_left and zh_right:
             boundary = right_seg.split()[0] if right_seg.split() else ""
-            if _is_path_token(left_seg) and PATH_TOKEN_RE.fullmatch(boundary):
+            prv = parts[idx - 1].split() if idx > 0 else []
+            if (
+                _is_path_token(left_seg)
+                and PATH_TOKEN_RE.fullmatch(boundary)
+                and prv
+                and PATH_TOKEN_RE.fullmatch(prv[-1])
+            ):
                 continue
             hits.append(slash_pos)
     return hits
@@ -231,6 +248,18 @@ def line_has_ignore(source_lines, line_no: int) -> bool:
     if 1 <= line_no <= len(source_lines):
         return IGNORE_MARK in source_lines[line_no - 1]
     return False
+
+
+def line_has_standalone_ignore(source_lines, line_no: int) -> bool:
+    if not line_has_ignore(source_lines, line_no):
+        return False
+    line = source_lines[line_no - 1]
+    idx = line.find("//")
+    if idx == -1:
+        idx = line.find("#")
+    if idx == -1:
+        idx = line.find("/*")
+    return idx != -1 and not line[:idx].strip()
 
 
 def scan_go_source(path: str, text: str) -> list[Violation]:
@@ -249,7 +278,7 @@ def scan_go_source(path: str, text: str) -> list[Violation]:
             if (
                 line_has_ignore(source_lines, line_no)
                 or line_has_ignore(source_lines, start_line)
-                or line_has_ignore(source_lines, start_line - 1)
+                or line_has_standalone_ignore(source_lines, start_line - 1)
             ):
                 continue
             violations.append(
@@ -258,6 +287,8 @@ def scan_go_source(path: str, text: str) -> list[Violation]:
                     line_no,
                     RULE_BILINGUAL,
                     literal.splitlines()[0][:80],
+                    start_line,
+                    start_line + literal.count("\n"),
                 )
             )
             break
@@ -273,7 +304,7 @@ def scan_ts_source(path: str, text: str) -> list[Violation]:
             if (
                 line_has_ignore(source_lines, line_no)
                 or line_has_ignore(source_lines, start_line)
-                or line_has_ignore(source_lines, start_line - 1)
+                or line_has_standalone_ignore(source_lines, start_line - 1)
             ):
                 continue
             violations.append(
@@ -282,6 +313,8 @@ def scan_ts_source(path: str, text: str) -> list[Violation]:
                     line_no,
                     RULE_BILINGUAL,
                     literal.splitlines()[0][:80],
+                    start_line,
+                    start_line + literal.count("\n"),
                 )
             )
             break
@@ -350,7 +383,7 @@ def scan_diff(repo_root: Path, base_ref: str, head_ref: str) -> list[Violation]:
         text=True,
         check=True,
     )
-    violations = []
+    changed = {}
     current_path = None
     new_line_no = 0
     for raw in proc.stdout.splitlines():
@@ -368,13 +401,21 @@ def scan_diff(repo_root: Path, base_ref: str, head_ref: str) -> list[Violation]:
             continue
         if raw.startswith("+"):
             new_line_no += 1
-            violations.extend(
-                scan_line(current_path, raw[1:], new_line_no)
-            )
+            changed.setdefault(current_path, set()).add(new_line_no)
         elif raw.startswith("-"):
             continue
         else:
             new_line_no += 1
+    violations = []
+    for rel_path, lines in changed.items():
+        target = repo_root / rel_path
+        if not target.is_file():
+            continue
+        for v in scan_file(repo_root, rel_path):
+            lo = v.start or v.line
+            hi = v.end or v.line
+            if any(lo <= ln <= hi for ln in lines) or v.line in lines:
+                violations.append(v)
     return violations
 
 

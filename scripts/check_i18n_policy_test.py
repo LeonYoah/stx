@@ -82,6 +82,22 @@ class TestBilingualRule(unittest.TestCase):
         self.assertPass('{{ $labels.cluster_name }} / {{ $labels.instance }} 触发指标告警')
         self.assertPass('{{pair "打印 / 导出 PDF" "Print / Export PDF"}}')
 
+    def test_lowercase_translation_not_path(self):
+        self.assertHit("已连接 localhost / connected")
+
+    def test_versioned_name_list_passes(self):
+        self.assertPass("支持的运行时：OpenJDK 17 / Oracle JDK 21")
+
+    def test_adjacent_line_ignore_does_not_leak(self):
+        src = 'x := "ok" // i18n-lint:ignore\ny := "中文 / English"\n'
+        hits = pol.scan_go_source("internal/apps/x/a.go", src)
+        self.assertEqual(len(hits), 1)
+
+    def test_standalone_comment_ignore_exempts_next_literal(self):
+        src = '// i18n-lint:ignore\nconst s = `#!/bin/bash\nSTX Agent / 启动包装\n`\n'
+        hits = pol.scan_go_source("internal/apps/x/a.go", src)
+        self.assertEqual(len(hits), 0)
+
 
 class TestIterLiterals(unittest.TestCase):
     def test_skips_comments(self):

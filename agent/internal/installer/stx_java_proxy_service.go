@@ -662,8 +662,11 @@ func stxJavaProxyArgvHomeMatches(argv []string, installDir string) bool {
 	if want == "" || want == "." {
 		return false
 	}
+	// 不剥引号：真实 argv 里引号就是路径字符本身（如 …Production'），剥掉会把不同目录
+	// 判成同一进程。
+	// No quote stripping: in real argv a quote is part of the path itself (e.g.
+	// …Production'); stripping would conflate distinct directories.
 	for _, arg := range argv {
-		arg = strings.Trim(arg, `"'`)
 		for _, prefix := range []string{"-DSEATUNNEL_HOME=", "-Dstx.java.proxy.seatunnel.home="} {
 			if strings.HasPrefix(arg, prefix) && filepath.Clean(arg[len(prefix):]) == want {
 				return true

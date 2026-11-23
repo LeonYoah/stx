@@ -313,6 +313,22 @@ func TestSTXJavaProxyOwnershipMatchesInstallDirWithSpaces(t *testing.T) {
 	}
 }
 
+// 路径以引号字符结尾的目录：引号是目录名的一部分，剥掉后会把不带引号的兄弟目录误判为
+// 同一进程。
+// A directory ending in a literal quote: the quote is part of the name, so stripping it
+// would conflate it with the unquoted sibling.
+func TestSTXJavaProxyOwnershipKeepsTrailingQuoteInDir(t *testing.T) {
+	skipUnlessLinux(t)
+	quoted := "/opt/SeaTunnel Production'"
+	pid := startFakeProcess(t, "stx-java-proxy", "-DSEATUNNEL_HOME="+quoted)
+	if stxJavaProxyPIDForeignForInstallDir(pid, quoted) {
+		t.Fatalf("proxy must be owned by its quoted dir %q", quoted)
+	}
+	if !stxJavaProxyPIDForeignForInstallDir(pid, "/opt/SeaTunnel Production") {
+		t.Fatal("the unquoted sibling path must not claim the quoted-dir proxy")
+	}
+}
+
 func TestIsSeaTunnelEngineCommandLine(t *testing.T) {
 	if !IsSeaTunnelEngineCommandLine("java -cp x org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer -c conf") {
 		t.Fatal("SeaTunnel server must be recognised")

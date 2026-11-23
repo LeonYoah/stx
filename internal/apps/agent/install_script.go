@@ -413,6 +413,7 @@ func NormalizeOS(os string) string {
 // installScriptTemplateContent is the template for the Agent install script.
 // installScriptTemplateContent 是 Agent 安装脚本的模板。
 // Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6 - Implements one-click Agent installation.
+// i18n-lint:ignore
 const installScriptTemplateContent = `#!/bin/bash
 # ============================================================================
 # STX Agent Install Script

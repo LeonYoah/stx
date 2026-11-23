@@ -19,6 +19,7 @@ package plugin
 
 import (
 	"errors"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"io"
 	"net/http"
 	"strconv"
@@ -91,7 +92,7 @@ type RefreshAvailablePluginsRequest struct {
 func (h *Handler) RefreshAvailablePlugins(c *gin.Context) {
 	var req RefreshAvailablePluginsRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
-		c.JSON(http.StatusBadRequest, ListPluginsResponse{ErrorMsg: "无效的请求参数 / Invalid request payload"})
+		c.JSON(http.StatusBadRequest, ListPluginsResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的请求参数", "Invalid request payload")})
 		return
 	}
 
@@ -133,7 +134,7 @@ type GetPluginInfoResponse struct {
 func (h *Handler) GetPluginInfo(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, GetPluginInfoResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, GetPluginInfoResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 
@@ -167,7 +168,7 @@ type ListInstalledPluginsResponse struct {
 func (h *Handler) ListInstalledPlugins(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ListInstalledPluginsResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, ListInstalledPluginsResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -203,7 +204,7 @@ type InstallPluginResponse struct {
 func (h *Handler) InstallPlugin(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, InstallPluginResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, InstallPluginResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -246,13 +247,13 @@ type UninstallPluginResponse struct {
 func (h *Handler) UninstallPlugin(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, UninstallPluginResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, UninstallPluginResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
 	pluginName := c.Param("name")
 	if pluginName == "" {
-		c.JSON(http.StatusBadRequest, UninstallPluginResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, UninstallPluginResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 
@@ -286,13 +287,13 @@ type EnableDisablePluginResponse struct {
 func (h *Handler) EnablePlugin(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, EnableDisablePluginResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, EnableDisablePluginResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
 	pluginName := c.Param("name")
 	if pluginName == "" {
-		c.JSON(http.StatusBadRequest, EnableDisablePluginResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, EnableDisablePluginResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 
@@ -320,13 +321,13 @@ func (h *Handler) EnablePlugin(c *gin.Context) {
 func (h *Handler) DisablePlugin(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, EnableDisablePluginResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, EnableDisablePluginResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
 	pluginName := c.Param("name")
 	if pluginName == "" {
-		c.JSON(http.StatusBadRequest, EnableDisablePluginResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, EnableDisablePluginResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 
@@ -372,7 +373,7 @@ type DownloadPluginResponse struct {
 func (h *Handler) DownloadPlugin(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, DownloadPluginResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, DownloadPluginResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 
@@ -454,13 +455,13 @@ type GetDownloadStatusResponse struct {
 func (h *Handler) GetDownloadStatus(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, GetDownloadStatusResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, GetDownloadStatusResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 
 	version := c.Query("version")
 	if version == "" {
-		c.JSON(http.StatusBadRequest, GetDownloadStatusResponse{ErrorMsg: "版本号不能为空 / Version is required"})
+		c.JSON(http.StatusBadRequest, GetDownloadStatusResponse{ErrorMsg: locale.Pick(c.Request.Context(), "版本号不能为空", "Version is required")})
 		return
 	}
 
@@ -528,13 +529,13 @@ type DeleteLocalPluginResponse struct {
 func (h *Handler) DeleteLocalPlugin(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, DeleteLocalPluginResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, DeleteLocalPluginResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 
 	version := c.Query("version")
 	if version == "" {
-		c.JSON(http.StatusBadRequest, DeleteLocalPluginResponse{ErrorMsg: "版本号不能为空 / Version is required"})
+		c.JSON(http.StatusBadRequest, DeleteLocalPluginResponse{ErrorMsg: locale.Pick(c.Request.Context(), "版本号不能为空", "Version is required")})
 		return
 	}
 
@@ -569,13 +570,13 @@ type GetInstallProgressResponse struct {
 func (h *Handler) GetInstallProgress(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetInstallProgressResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, GetInstallProgressResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
 	pluginName := c.Param("name")
 	if pluginName == "" {
-		c.JSON(http.StatusBadRequest, GetInstallProgressResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, GetInstallProgressResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 
@@ -602,7 +603,7 @@ type ListDependenciesResponse struct {
 func (h *Handler) ListDependencies(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, ListDependenciesResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, ListDependenciesResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 
@@ -635,7 +636,7 @@ type AddDependencyResponse struct {
 func (h *Handler) AddDependency(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, AddDependencyResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, AddDependencyResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 
@@ -663,12 +664,12 @@ func (h *Handler) AddDependency(c *gin.Context) {
 func (h *Handler) UploadDependency(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, AddDependencyResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, AddDependencyResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 	file, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, AddDependencyResponse{ErrorMsg: "必须上传 jar 文件 / jar file is required"})
+		c.JSON(http.StatusBadRequest, AddDependencyResponse{ErrorMsg: locale.Pick(c.Request.Context(), "必须上传 jar 文件", "jar file is required")})
 		return
 	}
 	req := &UploadDependencyRequest{
@@ -709,7 +710,7 @@ func (h *Handler) DeleteDependency(c *gin.Context) {
 	name := c.Param("name")
 	depID, err := strconv.ParseUint(c.Param("depId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, DeleteDependencyResponse{ErrorMsg: "无效的依赖 ID / Invalid dependency ID"})
+		c.JSON(http.StatusBadRequest, DeleteDependencyResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的依赖 ID", "Invalid dependency ID")})
 		return
 	}
 
@@ -736,7 +737,7 @@ type DisableDependencyResponse struct {
 func (h *Handler) DisableDependency(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, DisableDependencyResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, DisableDependencyResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 	var req DisableDependencyRequest
@@ -762,7 +763,7 @@ func (h *Handler) EnableDependency(c *gin.Context) {
 	name := c.Param("name")
 	disableID, err := strconv.ParseUint(c.Param("disableId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, DeleteDependencyResponse{ErrorMsg: "无效的禁用依赖 ID / Invalid disable ID"})
+		c.JSON(http.StatusBadRequest, DeleteDependencyResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的禁用依赖 ID", "Invalid disable ID")})
 		return
 	}
 	if err := h.service.EnableDependency(c.Request.Context(), uint(disableID)); err != nil {
@@ -795,7 +796,7 @@ type AnalyzeOfficialDependenciesRequest struct {
 func (h *Handler) GetOfficialDependencies(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, GetOfficialDependenciesResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, GetOfficialDependenciesResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 	version := c.Query("version")
@@ -813,7 +814,7 @@ func (h *Handler) GetOfficialDependencies(c *gin.Context) {
 func (h *Handler) AnalyzeOfficialDependencies(c *gin.Context) {
 	name := c.Param("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, GetOfficialDependenciesResponse{ErrorMsg: "插件名称不能为空 / Plugin name is required"})
+		c.JSON(http.StatusBadRequest, GetOfficialDependenciesResponse{ErrorMsg: locale.Pick(c.Request.Context(), "插件名称不能为空", "Plugin name is required")})
 		return
 	}
 	var req AnalyzeOfficialDependenciesRequest

@@ -138,7 +138,7 @@ func Start(ctx context.Context, opts Options) error {
 		return listenFail
 	}
 	if host, _, splitErr := net.SplitHostPort(ln.Addr().String()); splitErr == nil && !isLoopbackHost(host) {
-		logger.WarnF(ctx, "[pprof] 监听 %s 不是 loopback，剖析端点会暴露给网卡可达的客户端 / listening on %s is not loopback; the profile endpoint is reachable beyond this host", ln.Addr().String(), ln.Addr().String())
+		logger.WarnF(ctx, "listening on %s is not loopback; the profile endpoint is reachable beyond this host", ln.Addr().String())
 	}
 	srv := &http.Server{Handler: NewMux(), ReadHeaderTimeout: 5 * time.Second}
 	actual := ln.Addr().String()
@@ -155,7 +155,7 @@ func Start(ctx context.Context, opts Options) error {
 	runtime.SetMutexProfileFraction(mutexProfileFraction)
 	go func() {
 		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
-			logger.ErrorF(context.Background(), "[pprof] 本机剖析服务退出: %v / local pprof server exited: %v", serveErr, serveErr)
+			logger.ErrorF(context.Background(), "local pprof server exited: %v", serveErr)
 		}
 	}()
 	logger.InfoF(ctx, "[pprof] 本机剖析已监听 %s （go tool pprof http://%s/debug/pprof/heap） / local pprof listening on %s (go tool pprof http://%s/debug/pprof/heap)", ln.Addr().String(), ln.Addr().String(), ln.Addr().String(), ln.Addr().String())

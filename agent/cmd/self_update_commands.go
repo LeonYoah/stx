@@ -90,7 +90,7 @@ func (a *Agent) handleAgentSelfUpgradeCommand(ctx context.Context, subCommand st
 
 func (a *Agent) handleAgentSelfUpdate(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if !a.selfUpdateMu.TryLock() {
-		err := fmt.Errorf("another agent self-update is in progress / 另一个 Agent 自升级正在进行")
+		err := fmt.Errorf("another agent self-update is in progress")
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 	target := selfupdate.NormalizeVersion(cmd.Parameters["target_version"])
@@ -100,7 +100,7 @@ func (a *Agent) handleAgentSelfUpdate(ctx context.Context, cmd *pb.CommandReques
 		return executor.CreateSuccessResponse(cmd.CommandId, string(out)), nil
 	}
 	if reporter != nil {
-		reporter.Report(30, "Verifying new agent binary / 校验新 Agent 二进制")
+		reporter.Report(30, "Verifying new agent binary")
 	}
 	res, err := selfUpdateApply(ctx, selfupdate.ApplyRequest{
 		PackagePath:   cmd.Parameters["package_path"],
@@ -111,16 +111,15 @@ func (a *Agent) handleAgentSelfUpdate(ctx context.Context, cmd *pb.CommandReques
 		a.selfUpdateMu.Unlock()
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
-	logger.InfoF(ctx, "[SelfUpdate] Binary replaced %s -> %s (backup %s), restarting in %s / 二进制已替换，即将重启",
-		res.FromVersion, res.ToVersion, res.Backup, selfUpdateRestartDelay)
+	logger.InfoF(ctx, "[SelfUpdate] Binary replaced %s -> %s (backup %s), restarting in %s", res.FromVersion, res.ToVersion, res.Backup, selfUpdateRestartDelay)
 	scheduleAfter(selfUpdateRestartDelay, func() {
 		defer a.selfUpdateMu.Unlock()
 		if err := selfUpdateRestart(res); err != nil {
 			// exec 失败：恢复旧二进制文件，继续以旧版本运行，CP 会看到版本未变化。
 			// exec failed: restore the old binary file and keep running as the old version; the CP sees no version change.
-			logger.ErrorF(context.Background(), "[SelfUpdate] exec new binary failed: %v; restoring backup / exec 新二进制失败，恢复备份", err)
+			logger.ErrorF(context.Background(), "[SelfUpdate] exec new binary failed: %v; restoring backup", err)
 			if _, rerr := selfUpdateRestore(res.Backup); rerr != nil {
-				logger.ErrorF(context.Background(), "[SelfUpdate] restore backup failed: %v / 恢复备份失败", rerr)
+				logger.ErrorF(context.Background(), "[SelfUpdate] restore backup failed: %v", rerr)
 			}
 		}
 	})
@@ -134,14 +133,14 @@ func (a *Agent) handleAgentSelfRollback(ctx context.Context, cmd *pb.CommandRequ
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 	if !a.selfUpdateMu.TryLock() {
-		err := fmt.Errorf("another agent self-update is in progress / 另一个 Agent 自升级正在进行")
+		err := fmt.Errorf("another agent self-update is in progress")
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
-	logger.InfoF(ctx, "[SelfUpdate] Rolling back to backup binary in %s / 即将回滚到备份二进制", selfUpdateRestartDelay)
+	logger.InfoF(ctx, "[SelfUpdate] Rolling back to backup binary in %s", selfUpdateRestartDelay)
 	scheduleAfter(selfUpdateRestartDelay, func() {
 		defer a.selfUpdateMu.Unlock()
 		if err := selfUpdateRollback(""); err != nil {
-			logger.ErrorF(context.Background(), "[SelfUpdate] rollback failed: %v / 回滚失败", err)
+			logger.ErrorF(context.Background(), "[SelfUpdate] rollback failed: %v", err)
 		}
 	})
 	out, _ := json.Marshal(map[string]any{"from_version": stxversion.Version, "rolling_back": true})
@@ -211,7 +210,7 @@ func proxyJarDestinations(targetDir, base string, running []string) []string {
 func (a *Agent) handleAgentUpdateProxyJars(ctx context.Context, cmd *pb.CommandRequest) (*pb.CommandResponse, error) {
 	jars := splitCSV(cmd.Parameters["jar_paths"])
 	if len(jars) == 0 {
-		err := fmt.Errorf("jar_paths is required / jar_paths 必填")
+		err := fmt.Errorf("jar_paths is required")
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 	installDirs := a.proxyInstallDirs(cmd)
@@ -219,7 +218,7 @@ func (a *Agent) handleAgentUpdateProxyJars(ctx context.Context, cmd *pb.CommandR
 	result := proxyJarUpdateResult{TargetDir: resolveProxyJarDir()}
 	if result.TargetDir == "" && len(running) == 0 {
 		result.Skipped = true
-		result.Reason = "no stx-java-proxy installation found on this node / 本节点未安装 stx-java-proxy"
+		result.Reason = "no stx-java-proxy installation found on this node"
 		out, _ := json.Marshal(result)
 		return executor.CreateSuccessResponse(cmd.CommandId, string(out)), nil
 	}
@@ -242,19 +241,19 @@ func (a *Agent) handleAgentUpdateProxyJars(ctx context.Context, cmd *pb.CommandR
 		base := filepath.Base(src)
 		if !strings.HasPrefix(base, "stx-java-proxy-") || !strings.HasSuffix(base, ".jar") {
 			_ = undo()
-			err := fmt.Errorf("unexpected proxy jar name %q / 非法 proxy jar 文件名", base)
+			err := fmt.Errorf("unexpected proxy jar name %q", base)
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
 		if _, err := os.Stat(src); err != nil {
 			_ = undo()
-			err = fmt.Errorf("proxy jar not found: %s / 未找到 proxy jar", src)
+			err = fmt.Errorf("proxy jar not found: %s", src)
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
 		for _, dst := range proxyJarDestinations(result.TargetDir, base, running) {
 			backedUp, err := selfupdate.ReplaceFileWithBackup(src, dst, 0o644)
 			if err != nil {
 				_ = undo()
-				err = fmt.Errorf("update %s: %v / 更新 proxy jar 失败", dst, err)
+				err = fmt.Errorf("update %s: %v", dst, err)
 				return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 			}
 			changes = append(changes, change{dst: dst, backedUp: backedUp})
@@ -264,7 +263,7 @@ func (a *Agent) handleAgentUpdateProxyJars(ctx context.Context, cmd *pb.CommandR
 			}
 		}
 	}
-	logger.InfoF(ctx, "[SelfUpdate] Updated %d stx-java-proxy jar(s) in %s / 已更新 proxy jar", len(result.Updated), result.TargetDir)
+	logger.InfoF(ctx, "[SelfUpdate] Updated %d stx-java-proxy jar(s) in %s", len(result.Updated), result.TargetDir)
 	if cmd.Parameters["restart_running"] == "true" {
 		// 只重启 stx-java-proxy 进程；SeaTunnel/Hazelcast 进程不在处理范围内。
 		// Only stx-java-proxy processes are restarted; SeaTunnel/Hazelcast processes are out of scope.
@@ -309,14 +308,14 @@ func (a *Agent) handleAgentRollbackProxyJars(ctx context.Context, cmd *pb.Comman
 			continue
 		}
 		if err := restoreProxyJar(jar, true); err != nil {
-			err = fmt.Errorf("restore %s: %v / 恢复 proxy jar 失败", jar, err)
+			err = fmt.Errorf("restore %s: %v", jar, err)
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
 		result.Restored = append(result.Restored, jar)
 	}
 	if len(result.Restored) == 0 {
 		result.Skipped = true
-		result.Reason = "no proxy jar backup on this node / 本节点没有 proxy jar 备份"
+		result.Reason = "no proxy jar backup on this node"
 	} else {
 		result.Restarts = proxyRestartFn(ctx, installDirs, nil)
 	}

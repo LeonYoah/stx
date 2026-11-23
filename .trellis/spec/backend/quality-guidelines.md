@@ -52,6 +52,9 @@
 - **语言切换由前端驱动。** 语言偏好来源于个人中心 / 用户资料，前端在请求 diagnostics 等需要本地化输出的接口时负责透传 `lang`，后端负责按该语言返回结果。
 - **内部标识与用户文案分离。** 状态码、step code、template code 等内部字段保持稳定常量；展示名称、说明、推荐动作等用户文案再做本地化转换。
 - **“支持中英文”不等于“同屏双语拼接”。** 例如 diagnostics / 巡检中心 / 诊断报告这类模块，要求是支持 `zh` / `en` 自由切换，并按当前语言返回单语言结果；不要回退到 `中文 / English` 并排或斜杠拼接输出。
+- **请求语言统一从 `internal/pkg/locale` 读取。** 全局 `localeMiddleware` 已按 `?lang=` → `?language=` → `?locale=` → `Accept-Language` 归一化为 `zh` / `en`（缺省 `zh`）并注入 `context.Context`；handler 及下游一律用 `locale.FromContext(ctx)` 或 `locale.Pick(ctx, zh, en)`，禁止在 `internal/apps/` 手写 `c.Query("lang"|"language"|"locale")` 或 `c.GetHeader("Accept-Language")`（规则 B 硬阻断）。
+- **新增用户可见文案与错误必须单语化。** 禁止新增 `中文 / English` 拼接字面量（规则 A 硬阻断，含日志调用；确需保留的历史兼容串加 `// i18n-lint:ignore` 并注明原因）。进 UI 的错误走 `error_code` + 单语 `error_msg` 契约；整句输出按 `locale.FromContext` 选一种语言；内部运行日志与 `agent/` 日志统一纯英文。
+- **存量双语由基线棘轮收紧。** `scripts/i18n_baseline.json` 记录每文件违规数，CI 与 `make check_i18n` 只减不增；改写存量后运行 `python3 scripts/check_i18n_policy.py --update-baseline scripts/i18n_baseline.json` 收紧基线。
 - **版本敏感安装配置由后端统一裁决。** 对一键安装 / 创建集群这类会下发 `seatunnel.yaml` / `hazelcast*.yaml` 的流程，Control Plane 应返回显式 capability（如 `version_capabilities`），Agent 在最终写配置时也必须二次 gate，避免把旧版本不支持的 key（如 `history-job-expire-minutes`、`scheduled-deletion-enable`、`job-schedule-strategy`）误写进去。
 
 ### 敏感凭证与密码/Secret 字段安全契约

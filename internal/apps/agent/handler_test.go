@@ -290,17 +290,17 @@ func TestDownloadAgentMissingParams(t *testing.T) {
 		{
 			name:     "Missing both parameters",
 			url:      "/api/v1/agent/download",
-			expected: "Missing required parameters",
+			expected: "缺少必需参数",
 		},
 		{
 			name:     "Missing arch parameter",
 			url:      "/api/v1/agent/download?os=linux",
-			expected: "Missing required parameters",
+			expected: "缺少必需参数",
 		},
 		{
 			name:     "Missing os parameter",
 			url:      "/api/v1/agent/download?arch=amd64",
-			expected: "Missing required parameters",
+			expected: "缺少必需参数",
 		},
 	}
 
@@ -347,7 +347,7 @@ func TestDownloadAgentUnsupportedOS(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	if !strings.Contains(resp.ErrorMsg, "Unsupported operating system") {
+	if !strings.Contains(resp.ErrorMsg, "不支持的操作系统") {
 		t.Errorf("Expected error about unsupported OS, got '%s'", resp.ErrorMsg)
 	}
 }
@@ -373,7 +373,7 @@ func TestDownloadAgentUnsupportedArch(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	if !strings.Contains(resp.ErrorMsg, "Unsupported architecture") {
+	if !strings.Contains(resp.ErrorMsg, "不支持的架构") {
 		t.Errorf("Expected error about unsupported architecture, got '%s'", resp.ErrorMsg)
 	}
 }

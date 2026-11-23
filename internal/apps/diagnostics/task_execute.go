@@ -3841,7 +3841,7 @@ func buildDiagnosticBundleHTMLCategoryCards(task *DiagnosticTask, state *diagnos
 	}
 	cards := []diagnosticBundleHTMLCategoryCard{
 		{Key: "dependency", Label: bilingualText("外部依赖", "Dependency"), Count: counts["dependency"], Note: bilingualText("连接超时、依赖不可达、DNS / 网络链路异常。", "Timeouts, dependency reachability and network resolution issues.")},
-		{Key: "configuration", Label: bilingualText("运行配置", "Configuration"), Count: counts["configuration"], Note: bilingualText("catalog / connector / 运行配置偏差。", "Catalog, connector and runtime configuration drift.")},
+		{Key: "configuration", Label: bilingualText("运行配置", "Configuration"), Count: counts["configuration"], Note: bilingualText("catalog / connector", "Catalog, connector and runtime configuration drift.")},
 		{Key: "resource", Label: bilingualText("资源信号", "Resource"), Count: counts["resource"], Note: bilingualText("CPU、Heap、Old Gen、GC、FD 等资源压力。", "CPU, Heap, Old Gen, GC, FD and related pressure.")},
 		{Key: "process", Label: bilingualText("进程恢复", "Process"), Count: counts["process"], Note: bilingualText("crashed、restart_failed、节点短暂离线。", "crashed, restart_failed and brief node offline events.")},
 		{Key: "unknown", Label: bilingualText("待确认", "Unknown"), Count: counts["unknown"], Note: bilingualText("证据不足或需要进一步补充采集。", "Evidence is still insufficient and needs more collection.")},
@@ -4303,7 +4303,7 @@ func buildDiagnosticResourceFinding(state *diagnosticBundleExecutionState) diagn
 		Category: "resource",
 		Title:    bilingualText("资源侧信号总结", "Resource Signal Summary"),
 		Summary:  summary,
-		Impact:   bilingualText("覆盖 CPU / Heap / Old Gen / GC 等核心运行指标。", "Covers CPU, Heap, Old Gen and GC signals."),
+		Impact:   bilingualText("Heap / Old Gen", "Covers CPU, Heap, Old Gen and GC signals."),
 		Action:   buildDiagnosticSignalInterpretation(resourceSignals[0]),
 	}
 }

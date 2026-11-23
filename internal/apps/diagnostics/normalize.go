@@ -38,16 +38,16 @@ var (
 	// topLevelExceptionLinePattern matches a line consisting solely of a Java exception
 	// (optionally followed by ": message"); outer log lines never match.
 	topLevelExceptionLinePattern = regexp.MustCompile(`^([A-Za-z0-9_$.]+(?:Exception|Error|Throwable))(?::\s*.*)?$`)
-	seatunnelLogHeaderPattern = regexp.MustCompile(`^(?:\[[^\]]*\]\s+)?\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[\.,]\d{3})?\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+(?:\[[^\]]*\]\s+){0,2}-\s*`)
-	timestampPattern        = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[\.,]\d{3})?`)
-	uuidPattern             = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
-	ipPattern               = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}\b`)
-	hexPattern              = regexp.MustCompile(`0x[0-9a-fA-F]+`)
-	durationPattern         = regexp.MustCompile(`\b\d+(?:\.\d+)?\s*(?:ns|us|µs|ms|s|m|h|sec|secs|second|seconds|minute|minutes|hour|hours)\b`)
-	numberPattern           = regexp.MustCompile(`\b\d+\b`)
-	statusSuffixPattern     = regexp.MustCompile(`\b([A-Z][A-Z0-9_]{2,}:\s+.+)$`)
-	separatorOnlyPattern    = regexp.MustCompile(`^[=\-_*#~\s]+$`)
-	whitespacePattern       = regexp.MustCompile(`\s+`)
+	seatunnelLogHeaderPattern    = regexp.MustCompile(`^(?:\[[^\]]*\]\s+)?\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[\.,]\d{3})?\s+(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+(?:\[[^\]]*\]\s+){0,2}-\s*`)
+	timestampPattern             = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[\.,]\d{3})?`)
+	uuidPattern                  = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	ipPattern                    = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}\b`)
+	hexPattern                   = regexp.MustCompile(`0x[0-9a-fA-F]+`)
+	durationPattern              = regexp.MustCompile(`\b\d+(?:\.\d+)?\s*(?:ns|us|µs|ms|s|m|h|sec|secs|second|seconds|minute|minutes|hour|hours)\b`)
+	numberPattern                = regexp.MustCompile(`\b\d+\b`)
+	statusSuffixPattern          = regexp.MustCompile(`\b([A-Z][A-Z0-9_]{2,}:\s+.+)$`)
+	separatorOnlyPattern         = regexp.MustCompile(`^[=\-_*#~\s]+$`)
+	whitespacePattern            = regexp.MustCompile(`\s+`)
 )
 
 var diagnosticNoiseExactLines = map[string]struct{}{

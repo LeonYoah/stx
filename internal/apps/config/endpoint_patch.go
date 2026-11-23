@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	ErrHazelcastNetworkNotFound = errors.New("hazelcast.network not found / 未找到 hazelcast.network")
+	ErrHazelcastNetworkNotFound = errors.New("hazelcast.network not found")
 )
 
 var hazelcastNetworkPath = []string{"hazelcast", "network"}
@@ -262,7 +262,7 @@ func verifyEndpointPatch(original, patched, publicAddress string, port int) erro
 	pruneEmptyDecodedPath(next, append(append([]string{}, hazelcastNetworkPath...), "port"))
 	pruneEmptyDecodedPath(orig, append(append([]string{}, hazelcastNetworkPath...), "port"))
 	if !reflect.DeepEqual(orig, next) {
-		return fmt.Errorf("endpoint patch changed content outside network.port.port / public-address / 端点修补改动了 port 与 public-address 之外的内容")
+		return fmt.Errorf("endpoint patch changed content outside network.port.port / public-address")
 	}
 	return nil
 }

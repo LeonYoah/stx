@@ -493,7 +493,7 @@ func lifecycleBusinessFailure(spec operation.OperationSpec, data any, requestID 
 	}
 	message, _ := payload["message"].(string)
 	if strings.TrimSpace(message) == "" {
-		message = "lifecycle operation failed / 生命周期操作失败"
+		message = "lifecycle operation failed"
 	}
 	failed := make([]string, 0)
 	if rawNodes, ok := payload["node_results"].([]any); ok {

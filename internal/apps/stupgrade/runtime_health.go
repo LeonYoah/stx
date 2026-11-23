@@ -20,6 +20,7 @@ package stupgrade
 import (
 	"context"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"strings"
 	"time"
 
@@ -93,7 +94,7 @@ func (s *Service) waitForNodeProcessRunning(ctx context.Context, hostID uint, in
 	for attempt := 1; attempt <= attempts; attempt++ {
 		agentID, connected := s.agentCommandSender.GetAgentByHostID(hostID)
 		if !connected || agentID == "" {
-			lastReason = fmt.Sprintf("agent of host %d is not connected / 主机 %d 的 Agent 未连接", hostID, hostID)
+			lastReason = locale.Pick(ctx, fmt.Sprintf("主机 %d 的 Agent 未连接", hostID), fmt.Sprintf("agent of host %d is not connected", hostID))
 		} else {
 			success, output, err := s.agentCommandSender.SendCommand(ctx, agentID, "check_process", map[string]string{
 				"sub_command": "check_process",
@@ -115,7 +116,7 @@ func (s *Service) waitForNodeProcessRunning(ctx context.Context, hostID uint, in
 			}
 		}
 	}
-	return fmt.Errorf("SeaTunnel process in %s is not running: %s / %s 下的 SeaTunnel 进程未运行：%s", installDir, lastReason, installDir, lastReason)
+	return fmt.Errorf("SeaTunnel process in %s is not running: %s", installDir, lastReason)
 }
 
 // waitForClusterHealthy 在集群操作器支持时，轮询聚合健康状态直到 healthy（进程全部运行且成员一致）。
@@ -146,5 +147,5 @@ func (s *Service) waitForClusterHealthy(ctx context.Context, clusterID uint) err
 			}
 		}
 	}
-	return fmt.Errorf("cluster %d did not become healthy: %s / 集群 %d 未恢复健康：%s", clusterID, lastReason, clusterID, lastReason)
+	return fmt.Errorf("cluster %d did not become healthy: %s", clusterID, lastReason)
 }

@@ -61,7 +61,7 @@ const ReasonAgentUnsupported = "agent_unsupported"
 
 // ErrInvalidJavaHome 表示用户填写的 JDK 路径格式不合法。
 // ErrInvalidJavaHome means the user-entered JDK path is malformed.
-var ErrInvalidJavaHome = errors.New("invalid java_home / JDK 路径不合法")
+var ErrInvalidJavaHome = errors.New("invalid java_home")
 
 // Normalize 去掉首尾空白并清理路径（去掉末尾斜杠等）；空字符串表示未配置，沿用自动探测。
 // Normalize trims whitespace and cleans the path (dropping trailing slashes and such); empty means not configured,
@@ -85,14 +85,14 @@ func Validate(home string) (string, error) {
 		return "", nil
 	}
 	if len(normalized) > MaxJavaHomeLength {
-		return "", fmt.Errorf("%w: 长度超过 %d / longer than %d", ErrInvalidJavaHome, MaxJavaHomeLength, MaxJavaHomeLength)
+		return "", fmt.Errorf("longer than %d: %w", MaxJavaHomeLength, ErrInvalidJavaHome)
 	}
 	if !strings.HasPrefix(normalized, "/") {
-		return "", fmt.Errorf("%w: 必须是绝对路径 %s / must be an absolute path %s", ErrInvalidJavaHome, normalized, normalized)
+		return "", fmt.Errorf("must be an absolute path %s: %w", normalized, ErrInvalidJavaHome)
 	}
 	for _, r := range normalized {
 		if unicode.IsControl(r) {
-			return "", fmt.Errorf("%w: 包含控制字符 / contains control characters", ErrInvalidJavaHome)
+			return "", fmt.Errorf("contains control characters: %w", ErrInvalidJavaHome)
 		}
 	}
 	return normalized, nil
@@ -168,7 +168,7 @@ func Interpret(configured string, success bool, output string) *Result {
 		result.JavaHome = configured
 		result.Status = StatusFailed
 		result.Reason = ReasonAgentUnsupported
-		result.Message = "Agent 版本不支持自定义 JDK 路径，请先升级 Agent / The Agent version does not support a custom JDK path; upgrade the Agent first"
+		result.Message = "The Agent version does not support a custom JDK path; upgrade the Agent first"
 		return result
 	}
 
@@ -244,7 +244,7 @@ func StatusForTarget(version int, targetVersion string) string {
 func (r *Result) FailureMessage(node string) string {
 	target := firstNonBlank(r.JavaBin, r.JavaHome, "java")
 	reason := firstNonBlank(r.Message, r.Reason, "unknown")
-	return fmt.Sprintf("节点 %s 的 JDK 不可用（%s）：%s / JDK on node %s is not usable (%s): %s", node, target, reason, node, target, reason)
+	return fmt.Sprintf("JDK on node %s is not usable (%s): %s", node, target, reason)
 }
 
 func firstNonBlank(values ...string) string {

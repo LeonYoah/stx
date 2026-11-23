@@ -36,13 +36,13 @@ import (
 )
 
 type auditAttributionFixture struct {
-	handler    *Handler
-	auditRepo  *audit.Repository
-	service    *Service
-	execSvc    *executionapp.Service
-	db         *gorm.DB
-	user       *auth.User
-	cliToken   *auth.CLIToken
+	handler   *Handler
+	auditRepo *audit.Repository
+	service   *Service
+	execSvc   *executionapp.Service
+	db        *gorm.DB
+	user      *auth.User
+	cliToken  *auth.CLIToken
 }
 
 func newAuditAttributionFixture(t *testing.T) *auditAttributionFixture {

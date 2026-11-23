@@ -170,7 +170,7 @@ func (c *Collector) Start(ctx context.Context) {
 				return
 			case <-ticker.C:
 				if err := c.CollectOnce(ctx); err != nil {
-					logger.WarnF(ctx, "[Diagnostics] Seatunnel error collection failed: %v / Seatunnel 错误采集失败：%v", err, err)
+					logger.WarnF(ctx, "[Diagnostics] Seatunnel error collection failed: %v", err)
 				}
 			}
 		}
@@ -195,8 +195,7 @@ func (c *Collector) CollectOnce(ctx context.Context) error {
 	for _, target := range targets {
 		targetEntries, updates, err := c.collectTargetEntries(ctx, target)
 		if err != nil {
-			logger.WarnF(ctx, "[Diagnostics] Failed to scan target %s:%s: %v / 扫描目标 %s:%s 失败：%v",
-				target.InstallDir, target.Role, err, target.InstallDir, target.Role, err)
+			logger.WarnF(ctx, "[Diagnostics] Failed to scan target %s:%s: %v", target.InstallDir, target.Role, err)
 			continue
 		}
 		for key, offset := range updates {
@@ -213,8 +212,7 @@ func (c *Collector) CollectOnce(ctx context.Context) error {
 		if err := c.sender.SendLogEntries(ctx, entries); err != nil {
 			return err
 		}
-		logger.InfoF(ctx, "[Diagnostics] Reported %d Seatunnel error entries from %d targets / 已从 %d 个目标上报 %d 条 Seatunnel 错误日志",
-			len(entries), len(targets), len(targets), len(entries))
+		logger.InfoF(ctx, "[Diagnostics] Reported %d Seatunnel error entries from %d targets", len(entries), len(targets))
 	}
 
 	c.commitCursors(pendingCursors)
@@ -262,12 +260,10 @@ func (c *Collector) collectTargetEntries(ctx context.Context, target *ScanTarget
 		forceFromStart := false
 
 		if info, statErr := os.Stat(filePath); statErr == nil && !info.IsDir() && cursor != nil && cursor.Initialized && info.Size() < cursor.Offset {
-			logger.InfoF(ctx, "[Diagnostics] Detected log reset/rotation for %s (old_offset=%d, new_size=%d) / 检测到日志重置或滚动：%s（旧偏移=%d，新大小=%d）",
-				filePath, cursor.Offset, info.Size(), filePath, cursor.Offset, info.Size())
+			logger.InfoF(ctx, "[Diagnostics] Detected log reset/rotation for %s (old_offset=%d, new_size=%d)", filePath, cursor.Offset, info.Size())
 			rotatedEntries, rotatedUpdates, rotatedErr := c.collectRotatedGapEntries(ctx, target, filePath, cursor.Offset)
 			if rotatedErr != nil {
-				logger.WarnF(ctx, "[Diagnostics] Failed to scan rotated gap for %s: %v / 扫描滚动日志缺口失败：%s：%v",
-					filePath, rotatedErr, filePath, rotatedErr)
+				logger.WarnF(ctx, "[Diagnostics] Failed to scan rotated gap for %s: %v", filePath, rotatedErr)
 			} else {
 				entries = append(entries, rotatedEntries...)
 				for key, offset := range rotatedUpdates {
@@ -280,7 +276,7 @@ func (c *Collector) collectTargetEntries(ctx context.Context, target *ScanTarget
 
 		parsedEntries, nextOffset, err := c.scanFile(target, filePath, cursor, forceFromStart)
 		if err != nil {
-			logger.WarnF(ctx, "[Diagnostics] Failed to scan file %s: %v / 扫描文件 %s 失败：%v", filePath, err, filePath, err)
+			logger.WarnF(ctx, "[Diagnostics] Failed to scan file %s: %v", filePath, err)
 			continue
 		}
 		updates[cursorKey] = nextOffset
@@ -432,8 +428,7 @@ func (c *Collector) collectRotatedGapEntries(ctx context.Context, target *ScanTa
 	}
 
 	if len(entries) > 0 {
-		logger.InfoF(ctx, "[Diagnostics] Recovered %d Seatunnel error entries from rotated file %s / 已从滚动日志 %s 补采 %d 条 Seatunnel 错误",
-			len(entries), rotatedFilePath, rotatedFilePath, len(entries))
+		logger.InfoF(ctx, "[Diagnostics] Recovered %d Seatunnel error entries from rotated file %s", len(entries), rotatedFilePath)
 	}
 
 	return entries, map[string]int64{rotatedCursorKey: nextOffset}, nil

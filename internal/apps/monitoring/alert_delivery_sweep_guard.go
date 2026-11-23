@@ -70,7 +70,7 @@ const (
 	alertSweepSkipBudget
 )
 
-const alertSweepChannelFailedError = "skipped: notification channel already failed in this sweep / 渠道本轮巡检已失败，跳过"
+const alertSweepChannelFailedError = "skipped: notification channel already failed in this sweep"
 
 // withAlertSweepGuard 给一轮巡检挂上预算守卫。
 // withAlertSweepGuard attaches a budget guard to one sweep.

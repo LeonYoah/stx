@@ -44,31 +44,31 @@ import (
 var (
 	// ErrPluginNotFound indicates the plugin was not found
 	// ErrPluginNotFound 表示未找到插件
-	ErrPluginNotFound = errors.New("plugin not found / 插件未找到")
+	ErrPluginNotFound = errors.New("plugin not found")
 
 	// ErrPluginAlreadyExists indicates the plugin already exists
 	// ErrPluginAlreadyExists 表示插件已存在
-	ErrPluginAlreadyExists = errors.New("plugin already exists / 插件已存在")
+	ErrPluginAlreadyExists = errors.New("plugin already exists")
 
 	// ErrInvalidChecksum indicates checksum verification failed
 	// ErrInvalidChecksum 表示校验和验证失败
-	ErrInvalidChecksum = errors.New("checksum verification failed / 校验和验证失败")
+	ErrInvalidChecksum = errors.New("checksum verification failed")
 
 	// ErrTransferIncomplete indicates file transfer is incomplete
 	// ErrTransferIncomplete 表示文件传输不完整
-	ErrTransferIncomplete = errors.New("file transfer incomplete / 文件传输不完整")
+	ErrTransferIncomplete = errors.New("file transfer incomplete")
 
 	// ErrInstallPathNotSet indicates SeaTunnel install path is not set
 	// ErrInstallPathNotSet 表示 SeaTunnel 安装路径未设置
-	ErrInstallPathNotSet = errors.New("SeaTunnel install path not set / SeaTunnel 安装路径未设置")
+	ErrInstallPathNotSet = errors.New("SeaTunnel install path not set")
 
 	// ErrDependencyInUse indicates the dependency is used by other plugins
 	// ErrDependencyInUse 表示依赖被其他插件使用
-	ErrDependencyInUse = errors.New("dependency is used by other plugins / 依赖被其他插件使用")
+	ErrDependencyInUse = errors.New("dependency is used by other plugins")
 
 	// ErrInvalidPluginIdentifier indicates plugin metadata contains unsafe path characters
 	// ErrInvalidPluginIdentifier 表示插件元数据包含不安全的路径字符
-	ErrInvalidPluginIdentifier = errors.New("invalid plugin identifier / 无效的插件标识")
+	ErrInvalidPluginIdentifier = errors.New("invalid plugin identifier")
 )
 
 // InstalledPluginInfo represents information about an installed plugin.

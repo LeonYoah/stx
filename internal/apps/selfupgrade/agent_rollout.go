@@ -23,6 +23,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"io"
 	"os"
 	"path/filepath"
@@ -231,7 +232,7 @@ func (s *Service) agentBinaryFor(target, goos, goarch string) (string, error) {
 			return c, nil
 		}
 	}
-	return "", fmt.Errorf("upgrade package has no agent binary for %s/%s (%s) / 升级包中没有 %s/%s 的 Agent 二进制", goos, goarch, name, goos, goarch)
+	return "", fmt.Errorf("upgrade package has no agent binary for %s/%s (%s)", goos, goarch, name)
 }
 
 func (s *Service) cpAgentLibDir() string {
@@ -317,11 +318,11 @@ func (s *Service) rolloutAgents(ctx context.Context, taskID, target string, flee
 		switch {
 		case !n.Online:
 			st.Status = NodeUpgradeOffline
-			st.Message = "agent offline; it will be upgraded automatically when it reconnects / Agent 离线，重连后自动补升级"
+			st.Message = locale.Pick(ctx, "Agent 离线，重连后自动补升级", "agent offline; it will be upgraded automatically when it reconnects")
 			offline = append(offline, n.HostID)
 		case sameVersion(n.Version, target):
 			st.Status = NodeUpgradeSucceeded
-			st.Message = "already on target version / 已是目标版本"
+			st.Message = locale.Pick(ctx, "已是目标版本", "already on target version")
 		default:
 			st.Status = NodeUpgradePending
 			todo = append(todo, n)
@@ -358,7 +359,7 @@ func summarizeAgentNodes(nodes []AgentNodeUpgrade) (string, bool) {
 	}
 	total := len(nodes)
 	if total == 0 {
-		return "no agent nodes registered / 未发现已安装 Agent 的节点", false
+		return "no agent nodes registered", false
 	}
 	partial := counts[NodeUpgradeSucceeded] != total
 	msg := fmt.Sprintf("%d/%d agents on target version", counts[NodeUpgradeSucceeded], total)
@@ -377,7 +378,7 @@ func (s *Service) upgradeAgentNode(ctx context.Context, taskID, target string, n
 			st.Status, st.Message = status, msg
 		})
 	}
-	set(NodeUpgradeRunning, "transferring agent binary / 正在传输 Agent 二进制")
+	set(NodeUpgradeRunning, locale.Pick(ctx, "正在传输 Agent 二进制", "transferring agent binary"))
 	bin, err := s.agentBinaryFor(target, n.OS, n.Arch)
 	if err != nil {
 		set(NodeUpgradeFailed, err.Error())
@@ -393,7 +394,7 @@ func (s *Service) upgradeAgentNode(ctx context.Context, taskID, target string, n
 		set(NodeUpgradeFailed, "transfer failed, node unchanged: "+err.Error()+" / 传输失败，节点未变更")
 		return NodeUpgradeFailed
 	}
-	set(NodeUpgradeRunning, "replacing and restarting agent / 正在替换并重启 Agent")
+	set(NodeUpgradeRunning, locale.Pick(ctx, "正在替换并重启 Agent", "replacing and restarting agent"))
 	sentAt := time.Now()
 	out, err := fleet.SendUpgradeCommand(ctx, n.AgentID, map[string]string{
 		"sub_command":    subCommandAgentSelfUpdate,
@@ -407,7 +408,7 @@ func (s *Service) upgradeAgentNode(ctx context.Context, taskID, target string, n
 	}
 	if strings.Contains(out, `"already_current":true`) {
 		s.updateAgentNode(taskID, n.HostID, func(st *AgentNodeUpgrade) {
-			st.Status, st.Message, st.CurrentVersion = NodeUpgradeSucceeded, "already on target version / 已是目标版本", target
+			st.Status, st.Message, st.CurrentVersion = NodeUpgradeSucceeded, locale.Pick(ctx, "已是目标版本", "already on target version"), target
 		})
 		return NodeUpgradeSucceeded
 	}
@@ -431,12 +432,12 @@ func waitAgentReconnect(ctx context.Context, fleet AgentFleet, hostID uint, targ
 	for {
 		if n, ok := fleet.Node(ctx, hostID); ok && n.Online && n.ConnectedAt.After(sentAt) {
 			if sameVersion(n.Version, target) {
-				return NodeUpgradeSucceeded, n.Version, "agent restarted on the new version / Agent 已以新版本重连"
+				return NodeUpgradeSucceeded, n.Version, locale.Pick(ctx, "Agent 已以新版本重连", "agent restarted on the new version")
 			}
 			// 新进程在注册前回滚会以旧版本重连；给新版本一点时间避免误判中间态。
 			// A trial rollback reconnects on the old version; only conclude after a grace period to avoid racing.
 			if time.Since(n.ConnectedAt) > 3*opts.PollInterval {
-				return NodeUpgradeRolledBack, n.Version, fmt.Sprintf("new agent failed its trial run and restored version %s / 新 Agent 试运行失败，已自动恢复 %s", n.Version, n.Version)
+				return NodeUpgradeRolledBack, n.Version, locale.Pick(ctx, fmt.Sprintf("新 Agent 试运行失败，已自动恢复 %s", n.Version), fmt.Sprintf("new agent failed its trial run and restored version %s", n.Version))
 			}
 		}
 		if time.Now().After(deadline) {
@@ -444,11 +445,11 @@ func waitAgentReconnect(ctx context.Context, fleet AgentFleet, hostID uint, targ
 			if n, ok := fleet.Node(ctx, hostID); ok {
 				cur = n.Version
 			}
-			return NodeUpgradeFailed, cur, fmt.Sprintf("agent did not reconnect on %s within %s; the node restores its backup automatically if the new binary cannot register / Agent 未在 %s 内以新版本重连，新二进制无法注册时节点会自动恢复备份", target, opts.ReconnectTimeout, opts.ReconnectTimeout)
+			return NodeUpgradeFailed, cur, locale.Pick(ctx, fmt.Sprintf("Agent 未在 %s 内以新版本重连，新二进制无法注册时节点会自动恢复备份", opts.ReconnectTimeout), fmt.Sprintf("agent did not reconnect on %s within %s; the node restores its backup automatically if the new binary cannot register", target, opts.ReconnectTimeout))
 		}
 		select {
 		case <-ctx.Done():
-			return NodeUpgradeFailed, "", "cancelled while waiting for agent / 等待 Agent 时被取消"
+			return NodeUpgradeFailed, "", locale.Pick(ctx, "等待 Agent 时被取消", "cancelled while waiting for agent")
 		case <-ticker.C:
 		}
 	}
@@ -493,7 +494,7 @@ func (s *Service) rollbackUpgradedAgents(ctx context.Context, taskID, target str
 				}
 				if status == NodeUpgradeSucceeded {
 					n.Status = NodeUpgradeRolledBack
-					n.Message = "rolled back together with the control plane / 已随控制面回滚"
+					n.Message = locale.Pick(ctx, "已随控制面回滚", "rolled back together with the control plane")
 				} else {
 					n.Status = NodeUpgradeFailed
 					n.Message = "control plane rolled back but agent did not come back on " + st.FromVersion + " / 控制面已回滚，Agent 未恢复到旧版本"
@@ -534,7 +535,7 @@ func (s *Service) rollbackProxyJarsOnNode(ctx context.Context, taskID string, st
 			return
 		}
 		n.ProxyStatus = ProxyRolledBack
-		n.ProxyMessage = "proxy jars restored from backup / proxy jar 已从备份恢复"
+		n.ProxyMessage = locale.Pick(ctx, "proxy jar 已从备份恢复", "proxy jars restored from backup")
 		n.ProxyRestart, n.ProxyRestartMessage = summarizeProxyRollbackRestarts(parseProxyRestarts(out))
 	})
 }
@@ -545,7 +546,7 @@ func (s *Service) rollbackProxyJarsOnNode(ctx context.Context, taskID string, st
 func summarizeProxyRollbackRestarts(list []proxyRestartEntry) (string, string) {
 	for i := range list {
 		if list[i].Status == ProxyRestartRestarted {
-			list[i].Message = fmt.Sprintf("restarted on the restored jars (pid %d → %d) / 已以恢复的 jar 重启", list[i].OldPID, list[i].NewPID)
+			list[i].Message = fmt.Sprintf("restarted on the restored jars (pid %d → %d)", list[i].OldPID, list[i].NewPID)
 		}
 	}
 	return summarizeProxyRestarts(list)
@@ -573,7 +574,7 @@ func parseProxyRestarts(out string) []proxyRestartEntry {
 // summarizeProxyRestarts folds several proxy restart results of a node into one status (worst wins).
 func summarizeProxyRestarts(list []proxyRestartEntry) (string, string) {
 	if len(list) == 0 {
-		return ProxyRestartNotRunning, "no running stx-java-proxy on this node / 该节点没有运行中的 stx-java-proxy"
+		return ProxyRestartNotRunning, "no running stx-java-proxy on this node"
 	}
 	rank := map[string]int{ProxyRestartFailed: 4, ProxyRestartRolledBack: 3, ProxyRestartRestarted: 2, ProxyRestartSkipped: 1, ProxyRestartNotRunning: 0}
 	worst := ""
@@ -615,7 +616,7 @@ func (s *Service) rolloutProxyJars(ctx context.Context, taskID, target string, f
 	if len(jars) == 0 {
 		for _, n := range nodes {
 			s.updateAgentNode(taskID, n.HostID, func(st *AgentNodeUpgrade) {
-				st.ProxyStatus, st.ProxyMessage = ProxySkipped, "no proxy jar in upgrade package / 升级包中没有 proxy jar"
+				st.ProxyStatus, st.ProxyMessage = ProxySkipped, locale.Pick(ctx, "升级包中没有 proxy jar", "no proxy jar in upgrade package")
 			})
 		}
 		return "no proxy jar in upgrade package", false
@@ -625,7 +626,7 @@ func (s *Service) rolloutProxyJars(ctx context.Context, taskID, target string, f
 		if n.Status != NodeUpgradeSucceeded {
 			skipped++
 			s.updateAgentNode(taskID, n.HostID, func(st *AgentNodeUpgrade) {
-				st.ProxyStatus, st.ProxyMessage = ProxySkipped, "agent not upgraded / Agent 未升级"
+				st.ProxyStatus, st.ProxyMessage = ProxySkipped, locale.Pick(ctx, "Agent 未升级", "agent not upgraded")
 			})
 			continue
 		}
@@ -661,7 +662,7 @@ func (r proxyPushResult) apply(st *AgentNodeUpgrade) {
 
 func (s *Service) pushProxyJars(ctx context.Context, n AgentNodeUpgrade, target string, jars []string, fleet AgentFleet, opts RolloutOptions) proxyPushResult {
 	fail := func(msg string) proxyPushResult {
-		return proxyPushResult{status: ProxyFailed, msg: msg, restart: ProxyRestartSkipped, restartMsg: "jars not updated / jar 未更新"}
+		return proxyPushResult{status: ProxyFailed, msg: msg, restart: ProxyRestartSkipped, restartMsg: locale.Pick(ctx, "jar 未更新", "jars not updated")}
 	}
 	remotes := make([]string, 0, len(jars))
 	for _, jar := range jars {
@@ -701,7 +702,7 @@ func (s *Service) pushProxyJars(ctx context.Context, n AgentNodeUpgrade, target 
 	if res.Skipped {
 		return proxyPushResult{status: ProxySkipped, msg: res.Reason, restart: restart, restartMsg: restartMsg}
 	}
-	msg := fmt.Sprintf("%d jar(s) updated in %s (backups kept as .bak) / 已更新 %d 个 jar（备份为 .bak）", len(res.Updated), res.TargetDir, len(res.Updated))
+	msg := locale.Pick(ctx, fmt.Sprintf("已更新 %d 个 jar（备份为 .bak）", len(res.Updated)), fmt.Sprintf("%d jar(s) updated in %s (backups kept as .bak)", len(res.Updated), res.TargetDir))
 	return proxyPushResult{status: ProxyUpdated, msg: msg, restart: restart, restartMsg: restartMsg}
 }
 
@@ -820,7 +821,7 @@ func (s *Service) HandleAgentReady(ctx context.Context, hostID uint) {
 		s.removePendingAgent(hostID)
 		if sameVersion(n.Version, entry.TargetVersion) {
 			s.updateAgentNode(entry.TaskID, hostID, func(st *AgentNodeUpgrade) {
-				st.Status, st.CurrentVersion, st.Message = NodeUpgradeSucceeded, n.Version, "already on target version after reconnect / 重连时已是目标版本"
+				st.Status, st.CurrentVersion, st.Message = NodeUpgradeSucceeded, n.Version, locale.Pick(ctx, "重连时已是目标版本", "already on target version after reconnect")
 			})
 			return
 		}
@@ -849,11 +850,11 @@ func (s *Service) HandleAgentReady(ctx context.Context, hostID uint) {
 func (s *Service) planAgentsDryRun(ctx context.Context, taskID, target string) string {
 	fleet, _ := s.fleetAndOptions()
 	if fleet == nil {
-		return "dry-run: nothing applied / 演练模式：未实际应用"
+		return locale.Pick(ctx, "演练模式：未实际应用", "dry-run: nothing applied")
 	}
 	nodes, err := fleet.ListNodes(ctx)
 	if err != nil {
-		return "dry-run: nothing applied / 演练模式：未实际应用"
+		return locale.Pick(ctx, "演练模式：未实际应用", "dry-run: nothing applied")
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].HostID < nodes[j].HostID })
 	now := time.Now().UTC()
@@ -864,12 +865,12 @@ func (s *Service) planAgentsDryRun(ctx context.Context, taskID, target string) s
 			FromVersion: n.Version, CurrentVersion: n.Version, TargetVersion: target, Status: NodeUpgradeSkipped, UpdatedAt: &now}
 		switch {
 		case sameVersion(n.Version, target):
-			st.Message = "dry-run: already on target version / 演练：已是目标版本"
+			st.Message = locale.Pick(ctx, "演练：已是目标版本", "dry-run: already on target version")
 		case !n.Online:
-			st.Message = "dry-run: offline, would be upgraded on reconnect / 演练：离线，重连后才会升级"
+			st.Message = locale.Pick(ctx, "演练：离线，重连后才会升级", "dry-run: offline, would be upgraded on reconnect")
 		default:
 			would++
-			st.Message = "dry-run: would be upgraded / 演练：将会升级"
+			st.Message = locale.Pick(ctx, "演练：将会升级", "dry-run: would be upgraded")
 		}
 		states = append(states, st)
 	}
@@ -878,5 +879,5 @@ func (s *Service) planAgentsDryRun(ctx context.Context, taskID, target string) s
 		s.task.AgentNodes = states
 	}
 	s.mu.Unlock()
-	return fmt.Sprintf("dry-run: nothing applied; %d/%d agent(s) would be upgraded / 演练模式：未实际应用，%d/%d 个 Agent 将会升级", would, len(nodes), would, len(nodes))
+	return locale.Pick(ctx, fmt.Sprintf("演练模式：未实际应用，%d/%d 个 Agent 将会升级", would, len(nodes)), fmt.Sprintf("dry-run: nothing applied; %d/%d agent(s) would be upgraded", would, len(nodes)))
 }

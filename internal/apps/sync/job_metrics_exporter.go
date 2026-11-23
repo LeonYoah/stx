@@ -74,7 +74,7 @@ func StartJobMetricsExporter(ctx context.Context) {
 	opts, err := embedts.ScrapeOptionsFromObservability(config.Config.Observability)
 	interval := embedts.DefaultScrapeInterval
 	if err != nil {
-		logger.WarnF(ctx, "[Observability] scrape_interval 解析失败，作业指标导出回退默认 %s: %v / failed to parse scrape_interval for job metrics export, falling back to %s: %v", interval, err, interval, err)
+		logger.WarnF(ctx, "failed to parse scrape_interval for job metrics export, falling back to %s: %v", interval, err)
 	} else {
 		interval = opts.Interval
 	}
@@ -130,7 +130,7 @@ func (e *jobMetricsGatherExporter) exportOnce(ctx context.Context) {
 	tsMs := e.ts.NextNow()
 	mfs, err := e.gather()
 	if err != nil {
-		logger.ErrorF(ctx, "[Observability] 作业指标 gather 失败: %v / job metrics gather failed: %v", err, err)
+		logger.ErrorF(ctx, "job metrics gather failed: %v", err)
 		return
 	}
 	samples := embedts.FlattenMetricFamilies(mfs, jobMetricsInjectedLabels)
@@ -159,7 +159,7 @@ func (e *jobMetricsGatherExporter) exportOnce(ctx context.Context) {
 		}
 	}
 	if err := app.Commit(); err != nil {
-		logger.ErrorF(ctx, "[Observability] 作业指标导出提交失败: %v / job metrics export commit failed: %v", err, err)
+		logger.ErrorF(ctx, "job metrics export commit failed: %v", err)
 	} else if appendErr {
 		logger.WarnF(ctx, "[Observability] 作业指标导出部分样本写入失败（已提交其余样本）/ job metrics export had partial append failures (remaining samples committed)")
 	}

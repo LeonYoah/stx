@@ -85,13 +85,13 @@ func EnsureSTXJavaProxySupportAssets(ctx context.Context, installDir, seatunnelV
 			filepath.Join(installDir, "bin", scriptName),
 		}, scriptDest); copied {
 			_ = os.Chmod(scriptDest, 0o755)
-			logger.InfoF(ctx, "[stx-java-proxy] staged launcher script from local path to %s / 已从本机路径暂存启动脚本到 %s", scriptDest, scriptDest)
+			logger.InfoF(ctx, "[stx-java-proxy] staged launcher script from local path to %s", scriptDest)
 		} else if base != "" {
 			if err := downloadSTXJavaProxyAsset(ctx, base+"/"+scriptName, scriptDest); err != nil {
-				logger.WarnF(ctx, "[stx-java-proxy] download optional launcher script failed (direct Java launch unaffected): %v / 下载可选启动脚本失败（直启不受影响）: %v", err, err)
+				logger.WarnF(ctx, "[stx-java-proxy] download optional launcher script failed (direct Java launch unaffected): %v", err)
 			} else {
 				_ = os.Chmod(scriptDest, 0o755)
-				logger.InfoF(ctx, "[stx-java-proxy] downloaded launcher script to %s / 已下载启动脚本到 %s", scriptDest, scriptDest)
+				logger.InfoF(ctx, "[stx-java-proxy] downloaded launcher script to %s", scriptDest)
 			}
 		}
 	}
@@ -103,7 +103,7 @@ func EnsureSTXJavaProxySupportAssets(ctx context.Context, installDir, seatunnelV
 			filepath.Join(installDir, "lib", jarName),
 		}
 		if copied := copyFirstExistingFile(localJarCandidates, jarDest); copied {
-			logger.InfoF(ctx, "[stx-java-proxy] staged jar from local path to %s / 已从本机路径暂存 jar 到 %s", jarDest, jarDest)
+			logger.InfoF(ctx, "[stx-java-proxy] staged jar from local path to %s", jarDest)
 		} else if base != "" {
 			// Prefer filename-style URL (same shape as .sh); fall back to ?version= for older control planes.
 			// 优先文件名路径（与 .sh 一致）；旧控制面再回退 ?version=。
@@ -124,7 +124,7 @@ func EnsureSTXJavaProxySupportAssets(ctx context.Context, installDir, seatunnelV
 			if lastErr != nil {
 				return fmt.Errorf("download stx-java-proxy jar: %w", lastErr)
 			}
-			logger.InfoF(ctx, "[stx-java-proxy] downloaded jar to %s / 已下载 jar 到 %s", jarDest, jarDest)
+			logger.InfoF(ctx, "[stx-java-proxy] downloaded jar to %s", jarDest)
 		}
 	}
 

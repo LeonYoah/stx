@@ -27,7 +27,7 @@ import (
 // ErrClusterEngineUnavailable 无法解析集群引擎地址或未配置引擎客户端，运行中作业未知。
 // ErrClusterEngineUnavailable means the cluster engine endpoint cannot be resolved or no engine client is
 // configured, so running jobs are unknown.
-var ErrClusterEngineUnavailable = errors.New("sync: cluster engine is unavailable / 集群引擎不可用")
+var ErrClusterEngineUnavailable = errors.New("sync: cluster engine is unavailable")
 
 // ListClusterRunningJobs 按集群维度读取 SeaTunnel 引擎当前运行中的作业（/running-jobs），供集群扩缩容护栏使用。
 // 结果按作业编号排序且永不为 nil；引擎不可达时返回错误，调用方据此把运行中作业视为未知。

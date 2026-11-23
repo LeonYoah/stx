@@ -22,6 +22,7 @@ package discovery
 import (
 	"context"
 	"errors"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"log"
 	"time"
 )
@@ -29,23 +30,23 @@ import (
 // Error definitions for discovery package.
 // 发现包的错误定义。
 var (
-	ErrAgentOffline      = errors.New("agent is offline / Agent 离线")
-	ErrAgentNotInstalled = errors.New("agent not installed / Agent 未安装")
-	ErrDiscoveryFailed   = errors.New("cluster discovery failed / 集群发现失败")
-	ErrClusterConflict   = errors.New("cluster already exists / 集群已存在")
-	ErrHostNotFound      = errors.New("host not found / 主机未找到")
+	ErrAgentOffline      = errors.New("agent is offline")
+	ErrAgentNotInstalled = errors.New("agent not installed")
+	ErrDiscoveryFailed   = errors.New("cluster discovery failed")
+	ErrClusterConflict   = errors.New("cluster already exists")
+	ErrHostNotFound      = errors.New("host not found")
 )
 
 // DiscoveredProcess represents a discovered SeaTunnel process (simplified).
 // DiscoveredProcess 表示发现的 SeaTunnel 进程（简化版）。
 type DiscoveredProcess struct {
 	PID           int    `json:"pid"`
-	Role          string `json:"role"`                     // master, worker, or hybrid
-	InstallDir    string `json:"install_dir"`              // SeaTunnel installation directory / SeaTunnel 安装目录
-	Version       string `json:"version"`                  // SeaTunnel version / SeaTunnel 版本
-	HazelcastPort int    `json:"hazelcast_port"`           // Hazelcast cluster port / Hazelcast 集群端口
-	APIPort       int    `json:"api_port"`                 // REST API port / REST API 端口
-	ClusterName   string `json:"cluster_name,omitempty"`   // Hazelcast cluster-name / Hazelcast 集群标识
+	Role          string `json:"role"`                   // master, worker, or hybrid
+	InstallDir    string `json:"install_dir"`            // SeaTunnel installation directory / SeaTunnel 安装目录
+	Version       string `json:"version"`                // SeaTunnel version / SeaTunnel 版本
+	HazelcastPort int    `json:"hazelcast_port"`         // Hazelcast cluster port / Hazelcast 集群端口
+	APIPort       int    `json:"api_port"`               // REST API port / REST API 端口
+	ClusterName   string `json:"cluster_name,omitempty"` // Hazelcast cluster-name / Hazelcast 集群标识
 	// JavaHome 是进程实际使用的 JDK（由 Agent 从 /proc/<pid>/exe 解析）；解析不到为空（AC1f）。
 	// JavaHome is the JDK the process actually uses (resolved by the Agent from /proc/<pid>/exe); empty when unresolved (AC1f).
 	JavaHome string `json:"java_home,omitempty"`
@@ -69,8 +70,8 @@ type DiscoveredCluster struct {
 	Nodes          []*DiscoveredNode      `json:"nodes"`
 	Config         map[string]interface{} `json:"config"`
 	DiscoveredAt   time.Time              `json:"discovered_at"`
-	IsNew          bool                   `json:"is_new"`           // 是否为新发现的集群 / Whether it's a newly discovered cluster
-	ExistingID     uint                   `json:"existing_id"`      // 如果已存在，关联的集群 ID / If exists, the associated cluster ID
+	IsNew          bool                   `json:"is_new"`      // 是否为新发现的集群 / Whether it's a newly discovered cluster
+	ExistingID     uint                   `json:"existing_id"` // 如果已存在，关联的集群 ID / If exists, the associated cluster ID
 	// JavaHome 是纳管时用户选定的节点 JDK；空表示自动探测（AC1e）。实现 CreateClusterFromDiscovery 时应写入节点。
 	// JavaHome is the node JDK chosen at import; empty means auto detection (AC1e). CreateClusterFromDiscovery should persist it.
 	JavaHome string `json:"java_home,omitempty"`
@@ -179,10 +180,10 @@ func (s *Service) SetClusterMatcher(matcher ClusterMatcher) {
 // 只返回 PID、角色和安装目录 - 不解析配置。
 func (s *Service) DiscoverProcesses(ctx context.Context, hostID uint) (*ProcessDiscoveryResult, error) {
 	if s.hostProvider == nil {
-		return nil, errors.New("host provider not configured / 主机提供者未配置")
+		return nil, errors.New(locale.Pick(ctx, "主机提供者未配置", "host provider not configured"))
 	}
 	if s.agentDiscoverer == nil {
-		return nil, errors.New("agent discoverer not configured / Agent 发现器未配置")
+		return nil, errors.New(locale.Pick(ctx, "Agent 发现器未配置", "agent discoverer not configured"))
 	}
 
 	// Get host info / 获取主机信息
@@ -199,25 +200,22 @@ func (s *Service) DiscoverProcesses(ctx context.Context, hostID uint) (*ProcessD
 		return nil, ErrAgentOffline
 	}
 
-	log.Printf("[Discovery] Discovering processes on host %d (%s) / 在主机 %d (%s) 上发现进程",
-		hostID, host.Name, hostID, host.Name)
+	log.Printf("[Discovery] Discovering processes on host %d (%s)", hostID, host.Name)
 
 	// Discover processes via agent / 通过 Agent 发现进程
 	processes, err := s.agentDiscoverer.DiscoverProcesses(ctx, host.AgentID)
 	if err != nil {
-		log.Printf("[Discovery] Process discovery failed on host %d: %v / 主机 %d 进程发现失败: %v",
-			hostID, err, hostID, err)
+		log.Printf("[Discovery] Process discovery failed on host %d: %v", hostID, err)
 		return nil, ErrDiscoveryFailed
 	}
 
 	result := &ProcessDiscoveryResult{
 		Success:   true,
-		Message:   "process discovery completed / 进程发现完成",
+		Message:   locale.Pick(ctx, "进程发现完成", "process discovery completed"),
 		Processes: processes,
 	}
 
-	log.Printf("[Discovery] Found %d processes on host %d / 在主机 %d 上发现 %d 个进程",
-		len(processes), hostID, hostID, len(processes))
+	log.Printf("[Discovery] Found %d processes on host %d", len(processes), hostID)
 
 	return result, nil
 }
@@ -227,10 +225,10 @@ func (s *Service) DiscoverProcesses(ctx context.Context, hostID uint) (*ProcessD
 // Requirements: 1.3, 1.7 - Trigger agent discovery
 func (s *Service) TriggerDiscovery(ctx context.Context, hostID uint) (*DiscoveryResult, error) {
 	if s.hostProvider == nil {
-		return nil, errors.New("host provider not configured / 主机提供者未配置")
+		return nil, errors.New(locale.Pick(ctx, "主机提供者未配置", "host provider not configured"))
 	}
 	if s.agentDiscoverer == nil {
-		return nil, errors.New("agent discoverer not configured / Agent 发现器未配置")
+		return nil, errors.New(locale.Pick(ctx, "Agent 发现器未配置", "agent discoverer not configured"))
 	}
 
 	// Get host info / 获取主机信息
@@ -247,21 +245,19 @@ func (s *Service) TriggerDiscovery(ctx context.Context, hostID uint) (*Discovery
 		return nil, ErrAgentOffline
 	}
 
-	log.Printf("[Discovery] Triggering discovery on host %d (%s) / 在主机 %d (%s) 上触发发现",
-		hostID, host.Name, hostID, host.Name)
+	log.Printf("[Discovery] Triggering discovery on host %d (%s)", hostID, host.Name)
 
 	// Trigger discovery via agent / 通过 Agent 触发发现
 	clusters, err := s.agentDiscoverer.TriggerDiscovery(ctx, host.AgentID)
 	if err != nil {
-		log.Printf("[Discovery] Discovery failed on host %d: %v / 主机 %d 发现失败: %v",
-			hostID, err, hostID, err)
+		log.Printf("[Discovery] Discovery failed on host %d: %v", hostID, err)
 		return nil, ErrDiscoveryFailed
 	}
 
 	// Process discovery results / 处理发现结果
 	result := &DiscoveryResult{
 		Success:  true,
-		Message:  "discovery completed / 发现完成",
+		Message:  locale.Pick(ctx, "发现完成", "discovery completed"),
 		Clusters: clusters,
 	}
 
@@ -270,7 +266,7 @@ func (s *Service) TriggerDiscovery(ctx context.Context, hostID uint) (*Discovery
 		for _, cluster := range clusters {
 			clusterID, _, found, err := s.clusterMatcher.FindClusterByInstallDir(ctx, hostID, cluster.InstallDir)
 			if err != nil {
-				log.Printf("[Discovery] Error matching cluster: %v / 匹配集群出错: %v", err, err)
+				log.Printf("[Discovery] Error matching cluster: %v", err)
 				continue
 			}
 			if found {
@@ -291,9 +287,7 @@ func (s *Service) TriggerDiscovery(ctx context.Context, hostID uint) (*Discovery
 		result.NewCount = len(clusters)
 	}
 
-	log.Printf("[Discovery] Found %d clusters on host %d: %d new, %d existing / 在主机 %d 上发现 %d 个集群：%d 个新的，%d 个已存在",
-		len(clusters), hostID, result.NewCount, result.ExistCount,
-		hostID, len(clusters), result.NewCount, result.ExistCount)
+	log.Printf("[Discovery] Found %d clusters on host %d: %d new, %d existing", len(clusters), hostID, result.NewCount, result.ExistCount)
 
 	return result, nil
 }
@@ -303,7 +297,7 @@ func (s *Service) TriggerDiscovery(ctx context.Context, hostID uint) (*Discovery
 // Requirements: 1.9, 9.4 - Confirm cluster import
 func (s *Service) ConfirmDiscovery(ctx context.Context, req *ConfirmDiscoveryRequest) ([]uint, error) {
 	if s.hostProvider == nil || s.clusterMatcher == nil {
-		return nil, errors.New("service not fully configured / 服务未完全配置")
+		return nil, errors.New(locale.Pick(ctx, "服务未完全配置", "service not fully configured"))
 	}
 
 	// Get host info / 获取主机信息
@@ -334,8 +328,7 @@ func (s *Service) ConfirmDiscovery(ctx context.Context, req *ConfirmDiscoveryReq
 
 		// Skip if already exists / 如果已存在则跳过
 		if !cluster.IsNew {
-			log.Printf("[Discovery] Cluster at %s already exists (ID: %d) / 集群 %s 已存在 (ID: %d)",
-				cluster.InstallDir, cluster.ExistingID, cluster.InstallDir, cluster.ExistingID)
+			log.Printf("[Discovery] Cluster at %s already exists (ID: %d)", cluster.InstallDir, cluster.ExistingID)
 			continue
 		}
 
@@ -355,14 +348,12 @@ func (s *Service) ConfirmDiscovery(ctx context.Context, req *ConfirmDiscoveryReq
 		// Create cluster / 创建集群
 		clusterID, err := s.clusterMatcher.CreateClusterFromDiscovery(ctx, host.ID, cluster)
 		if err != nil {
-			log.Printf("[Discovery] Failed to create cluster from %s: %v / 从 %s 创建集群失败: %v",
-				cluster.InstallDir, err, cluster.InstallDir, err)
+			log.Printf("[Discovery] Failed to create cluster from %s: %v", cluster.InstallDir, err)
 			continue
 		}
 
 		createdIDs = append(createdIDs, clusterID)
-		log.Printf("[Discovery] Created cluster %d from %s / 从 %s 创建集群 %d",
-			clusterID, cluster.InstallDir, cluster.InstallDir, clusterID)
+		log.Printf("[Discovery] Created cluster %d from %s", clusterID, cluster.InstallDir)
 	}
 
 	return createdIDs, nil
@@ -382,7 +373,7 @@ func (s *Service) ProcessDiscoveryResult(ctx context.Context, hostID uint, clust
 		// Find matching cluster/node / 查找匹配的集群/节点
 		_, nodeID, found, err := s.clusterMatcher.FindClusterByInstallDir(ctx, hostID, cluster.InstallDir)
 		if err != nil {
-			log.Printf("[Discovery] Error finding cluster: %v / 查找集群出错: %v", err, err)
+			log.Printf("[Discovery] Error finding cluster: %v", err)
 			continue
 		}
 
@@ -393,8 +384,7 @@ func (s *Service) ProcessDiscoveryResult(ctx context.Context, hostID uint, clust
 		// Update node status from discovered nodes / 从发现的节点更新节点状态
 		for _, node := range cluster.Nodes {
 			if err := s.clusterMatcher.UpdateNodeFromDiscovery(ctx, nodeID, node); err != nil {
-				log.Printf("[Discovery] Error updating node %d: %v / 更新节点 %d 出错: %v",
-					nodeID, err, nodeID, err)
+				log.Printf("[Discovery] Error updating node %d: %v", nodeID, err)
 			}
 		}
 	}

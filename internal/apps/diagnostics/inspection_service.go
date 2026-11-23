@@ -251,11 +251,11 @@ func (s *Service) evaluateActiveAlertFindings(ctx context.Context, clusterID uin
 			severity = InspectionFindingSeverityCritical
 		}
 		finding := &ClusterInspectionFinding{
-			ClusterID:       clusterID,
-			Severity:        severity,
-			Category:        "alert",
-			CheckCode:       inspectionCheckActiveAlert,
-			CheckName:       bilingualText("活动告警", "Active Alert"),
+			ClusterID: clusterID,
+			Severity:  severity,
+			Category:  "alert",
+			CheckCode: inspectionCheckActiveAlert,
+			CheckName: bilingualText("活动告警", "Active Alert"),
 			// Summary 只承载告警名；检查名与严重度由各自字段在展示层单独呈现，复述会读出重复。
 			// Summary carries only the alert name; check name and severity render from their own fields and would read duplicated.
 			Summary:         strings.TrimSpace(alert.AlertName),

@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"strconv"
 	"strings"
 	"time"
@@ -476,7 +477,7 @@ func (s *Service) PushConfigToNode(ctx context.Context, id uint, installDir stri
 	for _, dir := range installDirs {
 		if err := s.agentClient.PushConfig(ctx, *config.HostID, dir, config.ConfigType, content); err != nil {
 			if config.HasPendingPush() {
-				config.SyncError = truncateSyncError("推送配置到节点失败 / failed to push config to node: " + err.Error())
+				config.SyncError = truncateSyncError(locale.Pick(ctx, "推送配置到节点失败", "failed to push config to node: ") + err.Error())
 				_ = s.repo.Update(ctx, config)
 			}
 			return err
@@ -485,7 +486,7 @@ func (s *Service) PushConfigToNode(ctx context.Context, id uint, installDir stri
 	if config.HasPendingPush() {
 		comment := config.PendingComment
 		if comment == "" {
-			comment = "Re-pushed pending change / 重推待推送变更"
+			comment = locale.Pick(ctx, "重推待推送变更", "Re-pushed pending change")
 		}
 		if content == config.Content.String() {
 			clearPendingPush(config)

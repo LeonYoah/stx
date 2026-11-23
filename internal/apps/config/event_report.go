@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"sort"
 	"strings"
 
@@ -192,9 +193,9 @@ func (s *Service) ApplyEventReportConfig(ctx context.Context, clusterID uint, se
 	if err != nil {
 		return nil, err
 	}
-	comment := "Enable SeaTunnel event reporting to STX / 开启 SeaTunnel 事件上报"
+	comment := locale.Pick(ctx, "开启 SeaTunnel 事件上报", "Enable SeaTunnel event reporting to STX")
 	if settings == nil {
-		comment = "Disable SeaTunnel event reporting to STX / 关闭 SeaTunnel 事件上报"
+		comment = locale.Pick(ctx, "关闭 SeaTunnel 事件上报", "Disable SeaTunnel event reporting to STX")
 	}
 	result := &EventReportApplyResult{Configs: []EventReportNodeResult{}}
 	for _, item := range configs {

@@ -25,12 +25,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 )
 
 // GetAlertRuleCatalog handles GET /api/v1/monitoring/alert-rules/catalog.
 // GetAlertRuleCatalog 处理告警规则目录查询接口，巡检条件、通知路由与 CLI 从这里取可选规则键。
 func (h *Handler) GetAlertRuleCatalog(c *gin.Context) {
-	c.JSON(http.StatusOK, Response{Data: AlertRuleCatalog(c.Query("lang"))})
+	c.JSON(http.StatusOK, Response{Data: AlertRuleCatalog(string(locale.FromContext(c.Request.Context())))})
 }
 
 // ListAlertPolicies handles GET /api/v1/monitoring/alert-policies.

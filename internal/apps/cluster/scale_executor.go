@@ -64,12 +64,12 @@ func stepFailed(err error, result any) scaleStepOutcome {
 func (s *ScaleService) runOperation(ctx context.Context, operationID uint) {
 	op, err := s.repo.GetByID(ctx, operationID)
 	if err != nil {
-		logger.ErrorF(ctx, "[ClusterScale] 读取伸缩操作失败 / Failed to load scaling operation: op=%d, err=%v", operationID, err)
+		logger.ErrorF(ctx, "Failed to load scaling operation: op=%d, err=%v", operationID, err)
 		return
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			logger.ErrorF(ctx, "[ClusterScale] 伸缩操作执行异常 / Scaling operation panicked: op=%d, panic=%v", op.ID, recovered)
+			logger.ErrorF(ctx, "Scaling operation panicked: op=%d, panic=%v", op.ID, recovered)
 			s.finishOperation(ctx, op, fmt.Errorf("internal error: %v", recovered))
 		}
 	}()
@@ -100,7 +100,7 @@ func (s *ScaleService) runOperation(ctx context.Context, operationID uint) {
 			runErr = err
 			break
 		}
-		logger.InfoF(ctx, "[ClusterScale] 开始步骤 / Step started: op=%d, step=%s, attempt=%d", op.ID, steps[i].Name, steps[i].Attempts)
+		logger.InfoF(ctx, "Step started: op=%d, step=%s, attempt=%d", op.ID, steps[i].Name, steps[i].Attempts)
 
 		outcome := s.runStep(ctx, op, plan, steps[i].Name, lang)
 
@@ -121,8 +121,7 @@ func (s *ScaleService) runOperation(ctx context.Context, operationID uint) {
 			runErr = err
 			break
 		}
-		logger.InfoF(ctx, "[ClusterScale] 步骤结束 / Step finished: op=%d, step=%s, status=%s, message=%s, err=%v",
-			op.ID, steps[i].Name, outcome.status, steps[i].Message, outcome.err)
+		logger.InfoF(ctx, "Step finished: op=%d, step=%s, status=%s, message=%s, err=%v", op.ID, steps[i].Name, outcome.status, steps[i].Message, outcome.err)
 		if outcome.status == ScaleStepFailed {
 			runErr = outcome.err
 			if runErr == nil {
@@ -148,14 +147,14 @@ func (s *ScaleService) finishOperation(ctx context.Context, op *ClusterScaleOper
 		op.Error = ""
 	}
 	if err := s.repo.Save(ctx, op); err != nil {
-		logger.ErrorF(ctx, "[ClusterScale] 保存伸缩操作终态失败 / Failed to save scaling operation result: op=%d, err=%v", op.ID, err)
+		logger.ErrorF(ctx, "Failed to save scaling operation result: op=%d, err=%v", op.ID, err)
 	}
 	s.finishExecution(ctx, op, runErr)
 	if runErr != nil {
-		logger.WarnF(ctx, "[ClusterScale] 伸缩操作失败，可从失败步骤重试 / Scaling operation failed and can be retried: op=%d, err=%v", op.ID, runErr)
+		logger.WarnF(ctx, "Scaling operation failed and can be retried: op=%d, err=%v", op.ID, runErr)
 		return
 	}
-	logger.InfoF(ctx, "[ClusterScale] 伸缩操作完成 / Scaling operation succeeded: cluster=%d, op=%d, kind=%s", op.ClusterID, op.ID, op.Kind)
+	logger.InfoF(ctx, "Scaling operation succeeded: cluster=%d, op=%d, kind=%s", op.ClusterID, op.ID, op.Kind)
 }
 
 // runStep 分派单个步骤。每个步骤都按“可重复执行、结果一致”的原则实现。
@@ -453,8 +452,7 @@ func (s *ScaleService) stepRollingRestart(ctx context.Context, op *ClusterScaleO
 		}
 		if s.jobs != nil {
 			if jobs, jobsErr := s.jobs.ListClusterRunningJobs(ctx, op.ClusterID); jobsErr == nil && len(jobs) > 0 {
-				return stepFailed(fmt.Errorf("集群出现 %d 个运行中作业，已停止滚动重启（已重启 %d 个节点） / %d running job(s) appeared; rolling restart stopped after %d node(s)",
-					len(jobs), restartedCount, len(jobs), restartedCount), map[string]any{"nodes": results})
+				return stepFailed(fmt.Errorf("%d running job(s) appeared; rolling restart stopped after %d node(s)", len(jobs), restartedCount), map[string]any{"nodes": results})
 			}
 		}
 		result, err := s.svc.RestartNode(ctx, op.ClusterID, node.ID)

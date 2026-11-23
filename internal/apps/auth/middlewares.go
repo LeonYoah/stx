@@ -326,6 +326,7 @@ func CLITokenFromContext(ctx context.Context) *CLIToken {
 	token, _ := ctx.Value(cliTokenContextKey{}).(*CLIToken)
 	return token
 }
+
 // ContextWithCLITokenForTest 仅供单测把 CLI 令牌写入 context。
 // ContextWithCLITokenForTest is a test helper that stores a CLI token on a plain context.
 func ContextWithCLITokenForTest(ctx context.Context, token *CLIToken) context.Context {
@@ -337,4 +338,3 @@ func ContextWithCLITokenForTest(ctx context.Context, token *CLIToken) context.Co
 	}
 	return context.WithValue(ctx, cliTokenContextKey{}, token)
 }
-

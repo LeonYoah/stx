@@ -193,14 +193,12 @@ var fsTotalBytes = defaultFsTotalBytes
 // disk total) floored at 1GiB; an uncreatable dir or a statfs failure falls back to 30GiB with a WARN.
 func autoMaxBytes(ctx context.Context, dir string, statfs func(string) (int64, error)) (int64, string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		logger.WarnF(ctx, "[Observability] 无法创建 tsdb 目录 %s，容量上限退回 30GiB: %v / cannot create tsdb dir %s, size cap falls back to 30GiB: %v",
-			dir, err, dir, err)
+		logger.WarnF(ctx, "cannot create tsdb dir %s, size cap falls back to 30GiB: %v", dir, err)
 		return DefaultMaxBytesCap, MaxBytesSourceFallback
 	}
 	total, err := statfs(dir)
 	if err != nil || total <= 0 {
-		logger.WarnF(ctx, "[Observability] 读取 %s 磁盘容量失败或不支持，容量上限退回 30GiB: %v / statfs on %s failed or unsupported, size cap falls back to 30GiB: %v",
-			dir, err, dir, err)
+		logger.WarnF(ctx, "statfs on %s failed or unsupported, size cap falls back to 30GiB: %v", dir, err)
 		return DefaultMaxBytesCap, MaxBytesSourceFallback
 	}
 	auto := int64(float64(total) * maxSizeDiskFraction)
@@ -270,15 +268,15 @@ func OptionsFromObservability(ctx context.Context, obs config.ObservabilityConfi
 // instance 持有一份已打开的内嵌存储与查询引擎。
 // instance holds one opened embedded storage + query engine pair.
 type instance struct {
-	opts      Options
-	db        *tsdb.DB
-	engine    *promql.Engine
+	opts   Options
+	db     *tsdb.DB
+	engine *promql.Engine
 	// engineLong 与 engine 同一存储，但超时放宽到 query_timeout ×4，专供跨度 >31d 的长窗口查询。
 	// engineLong shares the store with engine but relaxes the timeout to query_timeout ×4,
 	// reserved for spans beyond 31d.
 	engineLong *promql.Engine
-	queryable storage.Queryable
-	registry  *prometheus.Registry
+	queryable  storage.Queryable
+	registry   *prometheus.Registry
 	// scraper 是挂在实例上的抓取循环；Close 时先停它再关 db。
 	// scraper is the scrape loop attached to the instance; Close stops it before closing the db.
 	scraper *scraper

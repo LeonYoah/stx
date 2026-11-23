@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"strconv"
 	"strings"
 	"sync"
@@ -136,7 +137,7 @@ func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, s
 			continue
 		}
 		if !node.IsOnline {
-			reasons = append(reasons, fmt.Sprintf("node %s is offline / 节点 %s 离线", nodeLabel(node), nodeLabel(node)))
+			reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("节点 %s 离线", nodeLabel(node)), fmt.Sprintf("node %s is offline", nodeLabel(node))))
 			details = append(details, ClusterHealthReason{Code: ClusterHealthReasonNodeOffline, Node: nodeLabel(node)})
 		}
 	}
@@ -152,7 +153,7 @@ func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, s
 			continue
 		}
 		if expectRunning {
-			reasons = append(reasons, fmt.Sprintf("SeaTunnel process on node %s is not running (status: %s) / 节点 %s 的 SeaTunnel 进程未运行（状态：%s）", nodeLabel(node), node.Status, nodeLabel(node), node.Status))
+			reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("节点 %s 的 SeaTunnel 进程未运行（状态：%s）", nodeLabel(node), node.Status), fmt.Sprintf("SeaTunnel process on node %s is not running (status: %s)", nodeLabel(node), node.Status)))
 			details = append(details, ClusterHealthReason{Code: ClusterHealthReasonProcessNotRunning, Node: nodeLabel(node), Status: string(node.Status)})
 		}
 	}
@@ -232,7 +233,7 @@ func (s *Service) checkMemberAgreement(ctx context.Context, cluster *Cluster, ru
 		count := probe.count
 		info.MemberCount = &count
 		if count < expected {
-			reasons = append(reasons, fmt.Sprintf("node %s sees only %d/%d cluster members (possible split brain) / 节点 %s 只看到 %d/%d 个集群成员（可能脑裂）", nodeLabel(info), count, expected, nodeLabel(info), count, expected))
+			reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("节点 %s 只看到 %d/%d 个集群成员（可能脑裂）", nodeLabel(info), count, expected), fmt.Sprintf("node %s sees only %d/%d cluster members (possible split brain)", nodeLabel(info), count, expected)))
 			details = append(details, ClusterHealthReason{Code: ClusterHealthReasonMemberSplitBrain, Node: nodeLabel(info), ObservedMembers: count, ExpectedMembers: expected})
 		}
 	}
@@ -299,8 +300,7 @@ func (s *Service) checkEngineReadiness(ctx context.Context, cluster *Cluster, ru
 		if !probe.known || probe.healthy {
 			continue
 		}
-		reasons = append(reasons, fmt.Sprintf("SeaTunnel engine on node %s is not ready: %s / 节点 %s 的 SeaTunnel 引擎未就绪：%s",
-			nodeLabel(info), probe.reason, nodeLabel(info), probe.reason))
+		reasons = append(reasons, locale.Pick(ctx, fmt.Sprintf("节点 %s 的 SeaTunnel 引擎未就绪：%s", nodeLabel(info), probe.reason), fmt.Sprintf("SeaTunnel engine on node %s is not ready: %s", nodeLabel(info), probe.reason)))
 		details = append(details, ClusterHealthReason{Code: ClusterHealthReasonEngineNotReady, Node: nodeLabel(info), Detail: probe.reason})
 	}
 	return reasons, details

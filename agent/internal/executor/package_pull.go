@@ -112,13 +112,13 @@ func isRetryablePullError(err error) bool {
 // 完成后移动到 packageDir。
 func (m *PackageTransferManager) Pull(ctx context.Context, open PackageStreamOpener, req PullRequest, opts PullOptions, progress func(received, total int64)) (string, error) {
 	if open == nil {
-		return "", errors.New("package stream not available / 安装包下载流不可用")
+		return "", errors.New("package stream not available")
 	}
 	if req.TransferID == "" || req.FileName == "" {
 		return "", errors.New("transfer_id and file_name are required / transfer_id 和 file_name 为必填")
 	}
 	if filepath.Base(req.FileName) != req.FileName {
-		return "", fmt.Errorf("invalid file name: %s / 文件名非法: %s", req.FileName, req.FileName)
+		return "", fmt.Errorf("invalid file name: %s", req.FileName)
 	}
 	if opts.IdleTimeout <= 0 {
 		opts.IdleTimeout = defaultPullOptions.IdleTimeout
@@ -134,16 +134,16 @@ func (m *PackageTransferManager) Pull(ctx context.Context, open PackageStreamOpe
 	tempDir, packageDir := m.tempDir, m.packageDir
 	m.mu.RUnlock()
 	if err := os.MkdirAll(tempDir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create temp dir: %w / 创建临时目录失败: %w", err, err)
+		return "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
 	if err := os.MkdirAll(packageDir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create package dir: %w / 创建安装包目录失败: %w", err, err)
+		return "", fmt.Errorf("failed to create package dir: %w", err)
 	}
 
 	tempPath := filepath.Join(tempDir, req.FileName+"."+req.TransferID+".part")
 	file, err := os.Create(tempPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp file: %w / 创建临时文件失败: %w", err, err)
+		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
 	ok := false
 	defer func() {
@@ -171,7 +171,7 @@ func (m *PackageTransferManager) Pull(ctx context.Context, open PackageStreamOpe
 		}
 		lastErr = err
 		if !isRetryablePullError(err) {
-			return "", fmt.Errorf("package pull failed: %w / 安装包拉取失败: %w", err, err)
+			return "", fmt.Errorf("package pull failed: %w", err)
 		}
 		if received > before {
 			// Progress made: reset retry budget. / 有进展：重置重试预算。
@@ -181,8 +181,7 @@ func (m *PackageTransferManager) Pull(ctx context.Context, open PackageStreamOpe
 			failures++
 		}
 		if failures >= opts.MaxAttempts {
-			return "", fmt.Errorf("package pull failed after %d attempts at offset %d/%d: %v / 安装包拉取在偏移量 %d/%d 处重试 %d 次后失败: %v",
-				failures, received, total, lastErr, received, total, failures, lastErr)
+			return "", fmt.Errorf("package pull failed after %d attempts at offset %d/%d: %v", failures, received, total, lastErr)
 		}
 		select {
 		case <-ctx.Done():
@@ -195,21 +194,21 @@ func (m *PackageTransferManager) Pull(ctx context.Context, open PackageStreamOpe
 	}
 
 	if total > 0 && received != total {
-		return "", fmt.Errorf("size mismatch: expected %d, got %d / 大小不匹配：期望 %d，实际 %d", total, received, total, received)
+		return "", fmt.Errorf("size mismatch: expected %d, got %d", total, received)
 	}
 	actual := hex.EncodeToString(hasher.Sum(nil))
 	if req.Checksum != "" && actual != req.Checksum {
-		return "", fmt.Errorf("checksum mismatch: expected %s, got %s / 校验和不匹配：期望 %s，实际 %s", req.Checksum, actual, req.Checksum, actual)
+		return "", fmt.Errorf("checksum mismatch: expected %s, got %s", req.Checksum, actual)
 	}
 	if err := file.Sync(); err != nil {
-		return "", fmt.Errorf("failed to sync package: %w / 同步安装包失败: %w", err, err)
+		return "", fmt.Errorf("failed to sync package: %w", err)
 	}
 	file.Close()
 
 	finalPath := filepath.Join(packageDir, req.FileName)
 	if err := os.Rename(tempPath, finalPath); err != nil {
 		if err := copyFile(tempPath, finalPath); err != nil {
-			return "", fmt.Errorf("failed to move package: %w / 移动安装包失败: %w", err, err)
+			return "", fmt.Errorf("failed to move package: %w", err)
 		}
 		os.Remove(tempPath)
 	}
@@ -237,13 +236,13 @@ func (m *PackageTransferManager) pullOnce(ctx context.Context, open PackageStrea
 		chunk, err := stream.Recv()
 		if err == io.EOF {
 			if *total > 0 && *received < *total {
-				return false, fmt.Errorf("stream ended early at %d/%d / 流提前结束于 %d/%d", *received, *total, *received, *total)
+				return false, fmt.Errorf("stream ended early at %d/%d", *received, *total)
 			}
 			return true, nil
 		}
 		if err != nil {
 			if idleFired.Load() {
-				return false, fmt.Errorf("no data for %s, stream aborted / %s 内未收到数据，已中止流", idle, idle)
+				return false, fmt.Errorf("no data for %s, stream aborted", idle)
 			}
 			return false, err
 		}
@@ -255,10 +254,10 @@ func (m *PackageTransferManager) pullOnce(ctx context.Context, open PackageStrea
 			continue
 		}
 		if chunk.GetOffset() != *received {
-			return false, fmt.Errorf("offset mismatch: expected %d, got %d / 偏移量不匹配：期望 %d，实际 %d", *received, chunk.GetOffset(), *received, chunk.GetOffset())
+			return false, fmt.Errorf("offset mismatch: expected %d, got %d", *received, chunk.GetOffset())
 		}
 		if _, err := file.Write(chunk.GetData()); err != nil {
-			return false, status.Errorf(codes.InvalidArgument, "failed to write package: %v / 写入安装包失败: %v", err, err)
+			return false, status.Errorf(codes.InvalidArgument, "failed to write package: %v", err)
 		}
 		hasher.Write(chunk.GetData())
 		*received += int64(len(chunk.GetData()))
@@ -294,14 +293,14 @@ func handlePullTransfer(ctx context.Context, cmd *pb.CommandRequest, reporter Pr
 			return
 		}
 		lastPct = pct
-		reporter.Report(pct, fmt.Sprintf("Package received: %d/%d bytes / 安装包已接收：%d/%d 字节", received, total, received, total))
+		reporter.Report(pct, fmt.Sprintf("Package received: %d/%d bytes", received, total))
 	}
 
 	mgr := GetPackageTransferManager()
 	if path, ok := mgr.FindMatchingPackage(req, p["cached_path"]); ok {
 		out, _ := json.Marshal(map[string]any{
 			"success":        true,
-			"message":        "Package already present with matching checksum, download skipped / 安装包已存在且校验和一致，跳过下载",
+			"message":        "Package already present with matching checksum, download skipped",
 			"received_bytes": req.TotalSize,
 			"local_path":     path,
 			"reused":         true,
@@ -319,7 +318,7 @@ func handlePullTransfer(ctx context.Context, cmd *pb.CommandRequest, reporter Pr
 	}
 	out, _ := json.Marshal(&TransferPackageResponse{
 		Success:       true,
-		Message:       "Package transfer completed / 安装包传输完成",
+		Message:       "Package transfer completed",
 		ReceivedBytes: req.TotalSize,
 		LocalPath:     path,
 	})

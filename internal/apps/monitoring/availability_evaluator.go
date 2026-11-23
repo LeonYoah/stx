@@ -226,7 +226,7 @@ func (s *Service) collectAvailabilityMetricSignals(ctx context.Context, now time
 	collect := func(expr string, dst map[string]struct{}) {
 		samples, err := promquery.Instant(ctx, expr, now)
 		if err != nil {
-			log.Printf("[Monitoring] availability instant query failed (%s): %v / 可用性即时查询失败（%s）: %v", expr, err, expr, err)
+			log.Printf("[Monitoring] availability instant query failed (%s): %v", expr, err)
 			return
 		}
 		for i := range samples {
@@ -249,7 +249,7 @@ func (s *Service) collectAvailabilityMetricSignals(ctx context.Context, now time
 	collectPresence := func(expr string, dst map[string]struct{}) {
 		samples, err := promquery.Instant(ctx, expr, now)
 		if err != nil {
-			log.Printf("[Monitoring] availability instant query failed (%s): %v / 可用性即时查询失败（%s）: %v", expr, err, expr, err)
+			log.Printf("[Monitoring] availability instant query failed (%s): %v", expr, err)
 			return
 		}
 		for i := range samples {

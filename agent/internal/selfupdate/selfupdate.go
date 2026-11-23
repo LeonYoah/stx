@@ -59,7 +59,7 @@ const (
 var (
 	// ErrNoBackup 表示没有可回滚的备份二进制。
 	// ErrNoBackup means there is no backup binary to roll back to.
-	ErrNoBackup = errors.New("agent backup binary not found / 未找到 Agent 备份二进制")
+	ErrNoBackup = errors.New("agent backup binary not found")
 
 	versionLine = regexp.MustCompile(`(?m)Version:\s*v?(\S+)`)
 
@@ -90,11 +90,11 @@ func defaultVersionProbe(ctx context.Context, binary string) (string, error) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("new agent binary failed to run: %v (%s) / 新 Agent 二进制无法运行: %v", err, strings.TrimSpace(out.String()), err)
+		return "", fmt.Errorf("new agent binary failed to run: %v (%s)", err, strings.TrimSpace(out.String()))
 	}
 	m := versionLine.FindStringSubmatch(out.String())
 	if len(m) < 2 {
-		return "", fmt.Errorf("cannot parse version output of new agent binary / 无法解析新 Agent 二进制的版本输出")
+		return "", fmt.Errorf("cannot parse version output of new agent binary")
 	}
 	return m[1], nil
 }
@@ -129,23 +129,23 @@ func Apply(ctx context.Context, req ApplyRequest, currentVersion string) (*Apply
 		return nil, fmt.Errorf("package_path and target_version are required / package_path 与 target_version 必填")
 	}
 	if strings.TrimSpace(req.Checksum) == "" {
-		return nil, fmt.Errorf("checksum is required / checksum 必填")
+		return nil, fmt.Errorf("checksum is required")
 	}
 	sum, err := fileSHA256(req.PackagePath)
 	if err != nil {
-		return nil, fmt.Errorf("read new agent binary: %w / 读取新 Agent 二进制失败: %w", err, err)
+		return nil, fmt.Errorf("read new agent binary: %w", err)
 	}
 	if !strings.EqualFold(sum, strings.TrimSpace(req.Checksum)) {
-		return nil, fmt.Errorf("checksum mismatch: got %s want %s / 校验和不一致", sum, req.Checksum)
+		return nil, fmt.Errorf("checksum mismatch: got %s want %s", sum, req.Checksum)
 	}
 	exe, err := executablePath()
 	if err != nil {
-		return nil, fmt.Errorf("resolve agent executable: %w / 无法定位 Agent 可执行文件: %w", err, err)
+		return nil, fmt.Errorf("resolve agent executable: %w", err)
 	}
 
 	staging := exe + stagingSuffix
 	if err := copyFile(req.PackagePath, staging, 0o755); err != nil {
-		return nil, fmt.Errorf("stage new agent binary next to %s: %w / 预置新 Agent 二进制失败: %w", exe, err, err)
+		return nil, fmt.Errorf("stage new agent binary next to %s: %w", exe, err)
 	}
 	cleanupStaging := true
 	defer func() {
@@ -159,19 +159,19 @@ func Apply(ctx context.Context, req ApplyRequest, currentVersion string) (*Apply
 		return nil, err
 	}
 	if NormalizeVersion(got) != target {
-		return nil, fmt.Errorf("new agent binary reports version %s, expected %s / 新 Agent 二进制版本为 %s，期望 %s", got, target, got, target)
+		return nil, fmt.Errorf("new agent binary reports version %s, expected %s", got, target)
 	}
 
 	backup := exe + backupSuffix
 	if err := copyFile(exe, backup+".tmp", 0o755); err != nil {
-		return nil, fmt.Errorf("back up current agent binary: %w / 备份当前 Agent 二进制失败: %w", err, err)
+		return nil, fmt.Errorf("back up current agent binary: %w", err)
 	}
 	if err := os.Rename(backup+".tmp", backup); err != nil {
 		_ = os.Remove(backup + ".tmp")
-		return nil, fmt.Errorf("back up current agent binary: %w / 备份当前 Agent 二进制失败: %w", err, err)
+		return nil, fmt.Errorf("back up current agent binary: %w", err)
 	}
 	if err := os.Rename(staging, exe); err != nil {
-		return nil, fmt.Errorf("replace agent binary: %w / 替换 Agent 二进制失败: %w", err, err)
+		return nil, fmt.Errorf("replace agent binary: %w", err)
 	}
 	cleanupStaging = false
 	return &ApplyResult{Executable: exe, Backup: backup, FromVersion: NormalizeVersion(currentVersion), ToVersion: target}, nil
@@ -276,9 +276,9 @@ func (t *Trial) Watch(confirmed, failed <-chan struct{}, onRollback func(reason 
 		t.Confirm()
 		return true
 	case <-failed:
-		reason = "agent failed to start / Agent 启动失败"
+		reason = "agent failed to start"
 	case <-timer.C:
-		reason = fmt.Sprintf("agent did not register within %s / Agent 未在 %s 内完成注册", t.Timeout, t.Timeout)
+		reason = fmt.Sprintf("agent did not register within %s", t.Timeout)
 	}
 	err := t.Rollback()
 	if onRollback != nil {

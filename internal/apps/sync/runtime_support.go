@@ -192,9 +192,9 @@ type precheckJSONEnvelope struct {
 }
 
 type JobLogsResult struct {
-	Mode              string `json:"mode"`
-	Source            string `json:"source"`
-	Logs              string `json:"logs"`
+	Mode   string `json:"mode"`
+	Source string `json:"source"`
+	Logs   string `json:"logs"`
 	// MetricsLog 为基于 result_preview.metrics 的最新可读快照，不计入 offset。
 	// MetricsLog is the latest human-readable metrics snapshot from result_preview; not covered by offset.
 	MetricsLog        string `json:"metrics_log,omitempty"`
@@ -663,7 +663,6 @@ func parseInt64OrZero(raw string) int64 {
 	value, _ := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 	return value
 }
-
 
 func attachJobMetricsLog(result *JobLogsResult, instance *JobInstance) *JobLogsResult {
 	if result == nil || instance == nil {

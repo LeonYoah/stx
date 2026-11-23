@@ -36,12 +36,12 @@ const (
 // TroubleshootingMemory stores one verified troubleshooting solution and knowledge entry.
 // TroubleshootingMemory 存储一条已验证的排障解决方案与经验沉淀条目。
 type TroubleshootingMemory struct {
-	ID             uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	TargetType     string    `json:"target_type" gorm:"size:32;index;not null;default:'error'"`
-	Fingerprint    string    `json:"fingerprint" gorm:"size:255;index;not null"`
+	ID          uint   `json:"id" gorm:"primaryKey;autoIncrement"`
+	TargetType  string `json:"target_type" gorm:"size:32;index;not null;default:'error'"`
+	Fingerprint string `json:"fingerprint" gorm:"size:255;index;not null"`
 	// PresetKey 标识预置类型（单一字段区分类型，文案跟随全局语言切分）
 	// PresetKey identifies preset solution type, text resolves according to global language
-	PresetKey      string    `json:"preset_key,omitempty" gorm:"size:64;index"`
+	PresetKey string `json:"preset_key,omitempty" gorm:"size:64;index"`
 	// Language 语言标识（zh 或 en，官方经典方案以整行 SQL 中英文记录持久化，用户自定义经验保持原样不设限）
 	// Language identifies record language (zh or en; preset classic cases are stored as full rows for zh/en, user memories remain unconstrained)
 	Language       string    `json:"language" gorm:"size:16;index;default:'zh'"`
@@ -69,10 +69,10 @@ func (TroubleshootingMemory) TableName() string {
 // TroubleshootingMemoryItem 是返回给前端的完整数据视图
 // TroubleshootingMemoryItem is the full view payload returned to client
 type TroubleshootingMemoryItem struct {
-	ID             string    `json:"id"`
-	TargetType     string    `json:"target_type"`
-	Fingerprint    string    `json:"fingerprint"`
-	PresetKey      string    `json:"preset_key,omitempty"`
+	ID          string `json:"id"`
+	TargetType  string `json:"target_type"`
+	Fingerprint string `json:"fingerprint"`
+	PresetKey   string `json:"preset_key,omitempty"`
 	// Language 语言标识（zh 或 en）
 	// Language identifier (zh or en)
 	Language       string    `json:"language,omitempty"`
@@ -131,7 +131,7 @@ type TroubleshootingMemoryQuery struct {
 	Keyword     string
 	// Language 过滤语言（zh 或 en；官方预置方案严格切分，用户自定义经验全量展示）
 	// Language filters memories (zh or en; presets strictly partition, user memories display across languages)
-	Language    string
-	Page        int
-	PageSize    int
+	Language string
+	Page     int
+	PageSize int
 }

@@ -49,7 +49,7 @@ func (s *Service) ListDependencies(ctx context.Context, pluginName, seatunnelVer
 // AddDependency 添加一条基于 Maven 坐标的用户依赖。
 func (s *Service) AddDependency(ctx context.Context, req *AddDependencyRequest) (*PluginDependencyConfig, error) {
 	if req == nil {
-		return nil, fmt.Errorf("request is required / 请求不能为空")
+		return nil, fmt.Errorf("request is required")
 	}
 	version := strings.TrimSpace(req.SeatunnelVersion)
 	if version == "" {
@@ -80,13 +80,13 @@ func (s *Service) AddDependency(ctx context.Context, req *AddDependencyRequest) 
 // UploadDependency 上传一个自定义 jar，并登记为用户新增依赖。
 func (s *Service) UploadDependency(ctx context.Context, req *UploadDependencyRequest, file *multipart.FileHeader) (*PluginDependencyConfig, error) {
 	if req == nil {
-		return nil, fmt.Errorf("request is required / 请求不能为空")
+		return nil, fmt.Errorf("request is required")
 	}
 	if file == nil {
-		return nil, fmt.Errorf("file is required / 必须上传文件")
+		return nil, fmt.Errorf("file is required")
 	}
 	if !strings.HasSuffix(strings.ToLower(file.Filename), ".jar") {
-		return nil, fmt.Errorf("only .jar files are supported / 仅支持上传 .jar 文件")
+		return nil, fmt.Errorf("only .jar files are supported")
 	}
 
 	seatunnelVersion := strings.TrimSpace(req.SeatunnelVersion)
@@ -98,10 +98,10 @@ func (s *Service) UploadDependency(ctx context.Context, req *UploadDependencyReq
 	artifactID := firstNonEmpty(req.ArtifactID, inferredArtifact)
 	depVersion := firstNonEmpty(req.Version, inferredVersion)
 	if strings.TrimSpace(artifactID) == "" {
-		return nil, fmt.Errorf("artifact_id is required / artifact_id 不能为空")
+		return nil, fmt.Errorf("artifact_id is required")
 	}
 	if strings.TrimSpace(depVersion) == "" {
-		return nil, fmt.Errorf("version is required / version 不能为空")
+		return nil, fmt.Errorf("version is required")
 	}
 
 	targetDir, err := s.resolveUserDependencyTargetDir(ctx, req.PluginName, seatunnelVersion, strings.TrimSpace(req.TargetDir))
@@ -163,7 +163,7 @@ func (s *Service) DeleteDependency(ctx context.Context, depID uint) error {
 // DisableDependency 禁用插件某个版本下的一条官方依赖。
 func (s *Service) DisableDependency(ctx context.Context, req *DisableDependencyRequest) (*PluginDependencyDisable, error) {
 	if req == nil {
-		return nil, fmt.Errorf("request is required / 请求不能为空")
+		return nil, fmt.Errorf("request is required")
 	}
 	seatunnelVersion := strings.TrimSpace(req.SeatunnelVersion)
 	if seatunnelVersion == "" {
@@ -201,7 +201,7 @@ func (s *Service) resolveUserDependencyTargetDir(ctx context.Context, pluginName
 			return "", err
 		}
 		if normalized == "connectors" {
-			return "", fmt.Errorf("custom dependencies cannot target connectors / 自定义依赖不能放到 connectors 目录")
+			return "", fmt.Errorf("custom dependencies cannot target connectors")
 		}
 		return normalized, nil
 	}
@@ -212,7 +212,7 @@ func (s *Service) resolveUserDependencyTargetDir(ctx context.Context, pluginName
 	}
 	resolved := defaultPluginDependencyTargetDir(seatunnelVersion, artifactID)
 	if resolved == "connectors" {
-		return "", fmt.Errorf("custom dependencies cannot target connectors / 自定义依赖不能放到 connectors 目录")
+		return "", fmt.Errorf("custom dependencies cannot target connectors")
 	}
 	return resolved, nil
 }

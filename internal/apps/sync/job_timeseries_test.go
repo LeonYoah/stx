@@ -149,11 +149,11 @@ func TestParseJobTimeseriesWindow(t *testing.T) {
 func TestAutoTimeseriesStep(t *testing.T) {
 	t.Parallel()
 	cases := map[time.Duration]int{
-		25 * time.Minute:    10,
-		2 * time.Hour:       30,
-		24 * time.Hour:      600,
-		31 * 24 * time.Hour: 14400,
-		90 * 24 * time.Hour: 43200,
+		25 * time.Minute:     10,
+		2 * time.Hour:        30,
+		24 * time.Hour:       600,
+		31 * 24 * time.Hour:  14400,
+		90 * 24 * time.Hour:  43200,
 		366 * 24 * time.Hour: 172800,
 	}
 	for span, want := range cases {

@@ -138,7 +138,7 @@ func HandleTransferPackageCommand(ctx context.Context, cmd *pb.CommandRequest, r
 		return &pb.CommandResponse{
 			CommandId: cmd.CommandId,
 			Status:    pb.CommandStatus_FAILED,
-			Error:     fmt.Sprintf("Failed to parse request: %v / 解析请求失败: %v", err, err),
+			Error:     fmt.Sprintf("Failed to parse request: %v", err),
 		}, nil
 	}
 
@@ -149,7 +149,7 @@ func HandleTransferPackageCommand(ctx context.Context, cmd *pb.CommandRequest, r
 		return &pb.CommandResponse{
 			CommandId: cmd.CommandId,
 			Status:    pb.CommandStatus_FAILED,
-			Error:     fmt.Sprintf("Failed to receive chunk: %v / 接收数据块失败: %v", err, err),
+			Error:     fmt.Sprintf("Failed to receive chunk: %v", err),
 		}, nil
 	}
 
@@ -192,7 +192,7 @@ func parseTransferPackageRequest(params map[string]string) (*TransferPackageRequ
 	// Required fields / 必需字段
 	req.Version = params["version"]
 	if req.Version == "" {
-		return nil, fmt.Errorf("version is required / version 是必需的")
+		return nil, fmt.Errorf("version is required")
 	}
 
 	req.FileName = params["file_name"]
@@ -205,7 +205,7 @@ func parseTransferPackageRequest(params map[string]string) (*TransferPackageRequ
 	if chunkStr != "" {
 		chunk, err := base64.StdEncoding.DecodeString(chunkStr)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode chunk: %w / 解码数据块失败: %w", err, err)
+			return nil, fmt.Errorf("failed to decode chunk: %w", err)
 		}
 		req.Chunk = chunk
 	}
@@ -241,7 +241,7 @@ func (m *PackageTransferManager) ReceiveChunk(ctx context.Context, req *Transfer
 		tempPath := filepath.Join(m.tempDir, req.FileName+".tmp")
 		file, err := os.Create(tempPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create temp file: %w / 创建临时文件失败: %w", err, err)
+			return nil, fmt.Errorf("failed to create temp file: %w", err)
 		}
 
 		state = &packageTransferState{
@@ -258,7 +258,7 @@ func (m *PackageTransferManager) ReceiveChunk(ctx context.Context, req *Transfer
 	if req.Offset != state.receivedBytes {
 		return &TransferPackageResponse{
 			Success:       false,
-			Message:       fmt.Sprintf("Offset mismatch: expected %d, got %d / 偏移量不匹配：期望 %d，实际 %d", state.receivedBytes, req.Offset, state.receivedBytes, req.Offset),
+			Message:       fmt.Sprintf("Offset mismatch: expected %d, got %d", state.receivedBytes, req.Offset),
 			ReceivedBytes: state.receivedBytes,
 		}, nil
 	}
@@ -267,7 +267,7 @@ func (m *PackageTransferManager) ReceiveChunk(ctx context.Context, req *Transfer
 	if len(req.Chunk) > 0 {
 		n, err := state.file.Write(req.Chunk)
 		if err != nil {
-			return nil, fmt.Errorf("failed to write chunk: %w / 写入数据块失败: %w", err, err)
+			return nil, fmt.Errorf("failed to write chunk: %w", err)
 		}
 		state.receivedBytes += int64(n)
 	}
@@ -282,13 +282,13 @@ func (m *PackageTransferManager) ReceiveChunk(ctx context.Context, req *Transfer
 			actualChecksum, err := calculateFileChecksum(state.tempPath)
 			if err != nil {
 				m.cleanupTransfer(req.Version)
-				return nil, fmt.Errorf("failed to calculate checksum: %w / 计算校验和失败: %w", err, err)
+				return nil, fmt.Errorf("failed to calculate checksum: %w", err)
 			}
 			if actualChecksum != req.Checksum {
 				m.cleanupTransfer(req.Version)
 				return &TransferPackageResponse{
 					Success:       false,
-					Message:       fmt.Sprintf("Checksum mismatch: expected %s, got %s / 校验和不匹配：期望 %s，实际 %s", req.Checksum, actualChecksum, req.Checksum, actualChecksum),
+					Message:       fmt.Sprintf("Checksum mismatch: expected %s, got %s", req.Checksum, actualChecksum),
 					ReceivedBytes: state.receivedBytes,
 				}, nil
 			}
@@ -300,7 +300,7 @@ func (m *PackageTransferManager) ReceiveChunk(ctx context.Context, req *Transfer
 			// Try copy if rename fails (cross-device) / 如果重命名失败则尝试复制（跨设备）
 			if err := copyFile(state.tempPath, finalPath); err != nil {
 				m.cleanupTransfer(req.Version)
-				return nil, fmt.Errorf("failed to move package: %w / 移动安装包失败: %w", err, err)
+				return nil, fmt.Errorf("failed to move package: %w", err)
 			}
 			os.Remove(state.tempPath)
 		}
@@ -310,7 +310,7 @@ func (m *PackageTransferManager) ReceiveChunk(ctx context.Context, req *Transfer
 
 		return &TransferPackageResponse{
 			Success:       true,
-			Message:       "Package transfer completed / 安装包传输完成",
+			Message:       "Package transfer completed",
 			ReceivedBytes: state.receivedBytes,
 			LocalPath:     finalPath,
 		}, nil
@@ -318,7 +318,7 @@ func (m *PackageTransferManager) ReceiveChunk(ctx context.Context, req *Transfer
 
 	return &TransferPackageResponse{
 		Success:       true,
-		Message:       fmt.Sprintf("Chunk received: %d/%d bytes / 数据块已接收：%d/%d 字节", state.receivedBytes, state.totalSize, state.receivedBytes, state.totalSize),
+		Message:       fmt.Sprintf("Chunk received: %d/%d bytes", state.receivedBytes, state.totalSize),
 		ReceivedBytes: state.receivedBytes,
 	}, nil
 }

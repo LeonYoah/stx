@@ -228,7 +228,7 @@ func logWarnings(ctx context.Context, promQL string, warnings annotations.Annota
 	if len(warnings) == 0 {
 		return
 	}
-	logger.WarnF(ctx, "[promquery] 查询警告 expr=%q warnings=%v / query warnings expr=%q warnings=%v", promQL, warnings.AsErrors(), promQL, warnings.AsErrors())
+	logger.WarnF(ctx, "query warnings expr=%q warnings=%v", promQL, warnings.AsErrors())
 }
 
 // valueTypeName 安全地返回结果值类型名，供错误信息使用。

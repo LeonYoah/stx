@@ -276,7 +276,7 @@ func (s *Service) EnsureSTXJavaProxyOnHost(ctx context.Context, hostID uint) {
 	}
 	clusters, err := s.repo.GetClustersWithHostID(ctx, hostID)
 	if err != nil {
-		logger.WarnF(ctx, "[Cluster] list clusters of host %d for stx-java-proxy failed: %v / 查询主机 %d 的集群失败: %v", hostID, err, hostID, err)
+		logger.WarnF(ctx, "[Cluster] list clusters of host %d for stx-java-proxy failed: %v", hostID, err)
 		return
 	}
 	for _, clusterInfo := range clusters {

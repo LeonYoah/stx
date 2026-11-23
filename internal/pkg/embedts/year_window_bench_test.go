@@ -87,9 +87,9 @@ func TestCapacity_YearWindow(t *testing.T) {
 			// query, TopWrite's window-level instant query, and the volume daily-increment
 			// range query.
 			for _, qc := range []struct {
-				name  string
-				expr  string
-				step  time.Duration // 0 表示即时查询 / 0 for instant query
+				name string
+				expr string
+				step time.Duration // 0 表示即时查询 / 0 for instant query
 			}{
 				{"jobs_rate_range", `sum(rate(stx_job_sink_write_rows_total[2d]))`, 48 * time.Hour},
 				{"jobs_increase_instant", `sum by (job_id) (increase(stx_job_sink_write_rows_total[1y]))`, 0},
@@ -168,5 +168,3 @@ func seedYearJobBlocks(t *testing.T, dir string, seriesCount int, start, end tim
 	}
 	t.Logf("seeded %d counter series over %s into %d weekly blocks", seriesCount, end.Sub(start), blocks)
 }
-
-

@@ -600,7 +600,7 @@ func (s *Service) StartMetricEvaluator(ctx context.Context) error {
 		evaluator.Stop()
 		return nil
 	}
-	logger.InfoF(ctx, "[Observability] 内嵌告警评估器已启动: eval_interval=%s / embedded alert evaluator started: eval_interval=%s", evaluator.opts.Interval, evaluator.opts.Interval)
+	logger.InfoF(ctx, "embedded alert evaluator started: eval_interval=%s", evaluator.opts.Interval)
 	return nil
 }
 
@@ -753,7 +753,7 @@ func (s *Service) StartNodeHealthEvaluator(ctx context.Context) {
 
 		for {
 			if err := s.EvaluateAvailabilityAlerts(ctx); err != nil {
-				log.Printf("[Monitoring] evaluate availability alerts failed: %v / 评估可用性告警失败: %v", err, err)
+				log.Printf("[Monitoring] evaluate availability alerts failed: %v", err)
 			}
 
 			select {

@@ -704,7 +704,7 @@ export function CheckpointWorkspacePanel({
                         >
                           #{item.checkpoint?.checkpointId || '-'} · {dur}ms ·{' '}
                           {item.checkpoint?.status || 'UNKNOWN'}
-                          {canInspect && ' (点击查看 / Click to inspect)'}
+                          {canInspect && ` (${t('clickToInspect')})`}
                         </TooltipContent>
                       </Tooltip>
                     );
@@ -971,7 +971,7 @@ export const PRESET_STREAMING_CONNECTORS = [
   { value: 'MongoDB-CDC', label: 'MongoDB-CDC (MongoDB Change Streams)' },
   { value: 'TiDB-CDC', label: 'TiDB-CDC (TiDB CDC 实时捕获)' },
   { value: 'Kafka', label: 'Kafka (Kafka 流式消息消费)' },
-  { value: 'custom', label: '其他自定义连接器 / Custom' },
+  { value: 'custom', label: 'custom' },
 ] as const;
 
 function CheckpointInspectSectionShell({
@@ -2520,7 +2520,9 @@ export function CheckpointInspectDialog({
                             value={c.value}
                             className='text-xs'
                           >
-                            {c.label}
+                            {c.value === 'custom'
+                              ? t('presetCustomConnector')
+                              : c.label}
                           </SelectItem>
                         ))}
                       </SelectContent>

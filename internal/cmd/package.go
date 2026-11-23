@@ -379,11 +379,11 @@ func newPackageOfflineBundleCreateCommand(storeProvider authStoreProvider) *cobr
 	var options packageWriteOptions
 	var includePlugins, includeSource bool
 	command := &cobra.Command{
-		Use:   "create <version>",
-		Short: "Create an offline asset bundle from local package/plugins",
-		Long:  "Requires the SeaTunnel package (and optionally plugins) to already exist in STX local storage. Does not download from the internet.",
+		Use:     "create <version>",
+		Short:   "Create an offline asset bundle from local package/plugins",
+		Long:    "Requires the SeaTunnel package (and optionally plugins) to already exist in STX local storage. Does not download from the internet.",
 		Example: "stx package offline-bundle create 2.3.13 --include-plugins --confirm",
-		Args:  usageArgs(cobra.ExactArgs(1)),
+		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			client, headers, err := preparePackageWrite(command, storeProvider, "package.offline-bundle.create", &options,
 				"create reads local package/plugins and writes a new offline bundle archive")

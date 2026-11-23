@@ -77,7 +77,7 @@ func (s *Server) runAgentReadyHooks(ctx context.Context, agentID string, hostID 
 		time.Sleep(agentStreamWaitInterval)
 	}
 	if !ready {
-		s.logger.Warn("Agent command stream not ready, skipping agent-ready hooks / Agent 命令流未就绪，跳过就绪回调",
+		s.logger.Warn("Agent command stream not ready, skipping agent-ready hooks",
 			zap.String("agent_id", agentID), zap.Uint("host_id", hostID))
 		return
 	}
@@ -85,7 +85,7 @@ func (s *Server) runAgentReadyHooks(ctx context.Context, agentID string, hostID 
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					s.logger.Warn("agent-ready hook panic recovered / Agent 就绪回调 panic 已恢复",
+					s.logger.Warn("agent-ready hook panic recovered",
 						zap.String("agent_id", agentID), zap.Any("panic", r))
 				}
 			}()

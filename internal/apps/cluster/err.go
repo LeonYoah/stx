@@ -32,12 +32,12 @@ var (
 	// ErrNodeStillRunning 节点进程仍在运行（或安装中），移除/删除前必须先停止，避免留下孤儿 SeaTunnel 进程。
 	// ErrNodeStillRunning means the node process is still running (or installing); stop it before
 	// remove/delete so an orphan SeaTunnel process is not left behind.
-	ErrNodeStillRunning = errors.New("cluster: node is still running; stop it before remove or delete / 节点仍在运行，请先停止后再移除或删除")
+	ErrNodeStillRunning = errors.New("cluster: node is still running; stop it before remove or delete")
 	// ErrNodeNotFound indicates the requested cluster node does not exist.
 	ErrNodeNotFound = errors.New("cluster: node not found")
 	// ErrNodeAlreadyExists indicates the host already has a node with the same role in the cluster.
 	// ErrNodeAlreadyExists 表示主机在集群中已有相同角色的节点。
-	ErrNodeAlreadyExists = errors.New("cluster: host already has a node with this role in the cluster / 主机在此集群中已有相同角色的节点")
+	ErrNodeAlreadyExists = errors.New("cluster: host already has a node with this role in the cluster")
 	// ErrNodeAgentNotInstalled indicates the host's agent is not installed.
 	ErrNodeAgentNotInstalled = errors.New("cluster: host agent is not installed")
 	// ErrInvalidDeploymentMode indicates an invalid deployment mode was specified.
@@ -64,7 +64,7 @@ var (
 	ErrPrecheckFailed = errors.New("cluster: node precheck failed")
 	// ErrSeparatedClusterRequiresMasterAndWorker indicates separated mode cluster must have at least one master and one worker node.
 	// ErrSeparatedClusterRequiresMasterAndWorker 表示分离模式集群必须至少包含一个 master 节点和一个 worker 节点。
-	ErrSeparatedClusterRequiresMasterAndWorker = errors.New("cluster: separated deployment mode requires at least one master and one worker node / 分离模式集群必须至少包含一个 master 节点和一个 worker 节点")
+	ErrSeparatedClusterRequiresMasterAndWorker = errors.New("cluster: separated deployment mode requires at least one master and one worker node")
 
 	// ErrClusterScaleInProgress 集群已有进行中的伸缩操作（409 cluster_scale_in_progress）。
 	// ErrClusterScaleInProgress means the cluster already has a running scaling operation (409 cluster_scale_in_progress).

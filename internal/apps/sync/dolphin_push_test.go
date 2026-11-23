@@ -234,9 +234,9 @@ func TestPushDolphinNewWorkflowOn31And32UsesProcessPaths(t *testing.T) {
 			if err != nil {
 				t.Fatalf("push %s: %v", version, err)
 			}
-	if result.TaskCode == 0 || result.Binding == nil || result.Binding.TaskVersion != task.CurrentVersion {
-		t.Fatalf("result = %+v", result)
-	}
+			if result.TaskCode == 0 || result.Binding == nil || result.Binding.TaskVersion != task.CurrentVersion {
+				t.Fatalf("result = %+v", result)
+			}
 			if fake.saw("workflow-definition") {
 				t.Fatalf("%s push used 3.3 paths: %v", version, fake.paths)
 			}
@@ -828,10 +828,10 @@ func TestDolphinCrontab(t *testing.T) {
 			t.Fatalf("dolphinCrontab(%q) = %q, want %q", in, got, want)
 		}
 	}
-	if w := domDowWarning("0 9 1 * 3"); w == "" {
+	if w := domDowWarning(context.Background(), "0 9 1 * 3"); w == "" {
 		t.Fatal("expected dom+dow restricted warning")
 	}
-	if w := domDowWarning("0 9 * * 3"); w != "" {
+	if w := domDowWarning(context.Background(), "0 9 * * 3"); w != "" {
 		t.Fatalf("unexpected warning %q", w)
 	}
 }

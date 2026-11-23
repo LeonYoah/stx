@@ -91,7 +91,7 @@ func StartManagedSTXJavaProxyService(
 		assetBase = strings.TrimSpace(assetBaseURL[0])
 	}
 	if err := EnsureSTXJavaProxySupportAssets(ctx, installDir, seatunnelVersion, assetBase); err != nil {
-		logger.WarnF(ctx, "[stx-java-proxy] ensure support assets failed (will still try local candidates): %v / 补齐辅助资产失败（仍尝试本地候选）: %v", err, err)
+		logger.WarnF(ctx, "[stx-java-proxy] ensure support assets failed (will still try local candidates): %v", err)
 	}
 
 	status, _ := GetManagedSTXJavaProxyServiceStatus(ctx, installDir)

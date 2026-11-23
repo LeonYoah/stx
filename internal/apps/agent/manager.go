@@ -782,7 +782,7 @@ func (m *Manager) SendCommandAsync(agentID string, cmdType pb.CommandType, param
 		CreatedAt:    time.Now(),
 		LastStatus:   pb.CommandStatus_RUNNING, // Initialize as running / 初始化为运行中
 		LastProgress: 0,
-		LastOutput:   "Command sent, waiting for response / 命令已发送，等待响应",
+		LastOutput:   "Command sent, waiting for response",
 	}
 
 	// Store command context

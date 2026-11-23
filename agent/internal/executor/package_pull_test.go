@@ -142,7 +142,7 @@ func TestPullChecksumMismatch(t *testing.T) {
 		return &fakeChunkStream{ctx: ctx, data: data, offset: off, chunk: 512, failAfter: -1}, nil
 	}
 	_, err := m.Pull(context.Background(), open, PullRequest{TransferID: "t", FileName: "p.tgz", Checksum: strings.Repeat("0", 64)}, fastOpts, nil)
-	if err == nil || !strings.Contains(err.Error(), "校验和不匹配") {
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("expected checksum error, got %v", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(m.packageDir, "p.tgz")); !os.IsNotExist(statErr) {

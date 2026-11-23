@@ -146,7 +146,7 @@ func TestConnectorIdentifierInstalled(t *testing.T) {
 		identifier string
 		want       bool
 	}{
-		{"MySQL-CDC", true},   // 词序不同也同名 / token order does not matter
+		{"MySQL-CDC", true}, // 词序不同也同名 / token order does not matter
 		{"Jdbc", true},
 		{"Http", false},
 		{"feishu", false},     // 子集不同名 / subset is not a match

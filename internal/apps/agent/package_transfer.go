@@ -50,11 +50,11 @@ const (
 var (
 	// ErrPackageServeNotFound is returned when a transfer id is unknown or expired.
 	// ErrPackageServeNotFound 表示传输标识不存在或已过期。
-	ErrPackageServeNotFound = errors.New("package transfer not found or expired / 安装包传输不存在或已过期")
+	ErrPackageServeNotFound = errors.New("package transfer not found or expired")
 
 	// ErrPackageTransferStalled is returned when the Agent stops pulling data.
 	// ErrPackageTransferStalled 表示 Agent 停止拉取数据。
-	ErrPackageTransferStalled = errors.New("package transfer stalled / 安装包传输停滞")
+	ErrPackageTransferStalled = errors.New("package transfer stalled")
 )
 
 // PackageServe describes one package file an Agent is allowed to pull.
@@ -87,10 +87,10 @@ func (p *PackageServe) IdleFor() time.Duration {
 func (m *Manager) RegisterPackageServe(agentID, localPath, checksum string) (*PackageServe, error) {
 	info, err := os.Stat(localPath)
 	if err != nil {
-		return nil, fmt.Errorf("package not found: %s / 安装包未找到: %s", localPath, localPath)
+		return nil, fmt.Errorf("package not found: %s", localPath)
 	}
 	if info.IsDir() {
-		return nil, fmt.Errorf("package path is a directory: %s / 安装包路径是目录: %s", localPath, localPath)
+		return nil, fmt.Errorf("package path is a directory: %s", localPath)
 	}
 	ps := &PackageServe{
 		ID:       uuid.New().String(),
@@ -123,16 +123,16 @@ func (m *Manager) StreamPackage(ctx context.Context, req *pb.DownloadPackageRequ
 	}
 	offset := req.GetOffset()
 	if offset < 0 || offset > ps.Size {
-		return fmt.Errorf("invalid offset %d (size %d) / 偏移量非法 %d（大小 %d）", offset, ps.Size, offset, ps.Size)
+		return fmt.Errorf("invalid offset %d (size %d)", offset, ps.Size)
 	}
 
 	f, err := os.Open(ps.Path)
 	if err != nil {
-		return fmt.Errorf("failed to open package: %w / 打开安装包失败: %w", err, err)
+		return fmt.Errorf("failed to open package: %w", err)
 	}
 	defer f.Close()
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return fmt.Errorf("failed to seek package: %w / 定位安装包失败: %w", err, err)
+		return fmt.Errorf("failed to seek package: %w", err)
 	}
 
 	ps.touch()
@@ -166,7 +166,7 @@ func (m *Manager) StreamPackage(ctx context.Context, req *pb.DownloadPackageRequ
 			return nil
 		}
 		if rerr != nil {
-			return fmt.Errorf("failed to read package: %w / 读取安装包失败: %w", rerr, rerr)
+			return fmt.Errorf("failed to read package: %w", rerr)
 		}
 	}
 }
@@ -245,7 +245,7 @@ func (m *Manager) TransferPackage(ctx context.Context, agentID, version, localPa
 
 		cmdCtx, ok := m.GetCommand(commandID)
 		if !ok {
-			return PackagePullResult{}, fmt.Errorf("transfer command lost / 传输命令丢失")
+			return PackagePullResult{}, fmt.Errorf("transfer command lost")
 		}
 		cmdCtx.mu.RLock()
 		status, output, cmdErr := cmdCtx.LastStatus, cmdCtx.LastOutput, cmdCtx.LastError
@@ -260,19 +260,18 @@ func (m *Manager) TransferPackage(ctx context.Context, agentID, version, localPa
 				Reused    bool   `json:"reused"`
 			}
 			if err := json.Unmarshal([]byte(output), &out); err != nil || !out.Success || out.LocalPath == "" {
-				return PackagePullResult{}, fmt.Errorf("invalid transfer result: %s / 传输结果无效: %s", output, output)
+				return PackagePullResult{}, fmt.Errorf("invalid transfer result: %s", output)
 			}
 			return PackagePullResult{LocalPath: out.LocalPath, Reused: out.Reused}, nil
 		case pb.CommandStatus_FAILED, pb.CommandStatus_CANCELLED:
 			if cmdErr == "" {
 				cmdErr = output
 			}
-			return PackagePullResult{}, fmt.Errorf("agent failed to pull package: %s / Agent 拉取安装包失败: %s", cmdErr, cmdErr)
+			return PackagePullResult{}, fmt.Errorf("agent failed to pull package: %s", cmdErr)
 		}
 
 		if ps.IdleFor() > opts.StallTimeout {
-			return PackagePullResult{}, fmt.Errorf("%w: no data pulled for %s (served %d/%d bytes) / %s 内无数据拉取（已发送 %d/%d 字节）",
-				ErrPackageTransferStalled, opts.StallTimeout, ps.Served(), ps.Size, opts.StallTimeout, ps.Served(), ps.Size)
+			return PackagePullResult{}, fmt.Errorf("%w: no data pulled for %s (served %d/%d bytes)", ErrPackageTransferStalled, opts.StallTimeout, ps.Served(), ps.Size)
 		}
 		if time.Now().After(deadline) {
 			return PackagePullResult{}, ErrCommandTimeout

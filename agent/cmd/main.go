@@ -241,7 +241,7 @@ func (a *Agent) Run() error {
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()
-		return fmt.Errorf("agent is already running / Agent 已在运行")
+		return fmt.Errorf("agent is already running")
 	}
 	a.running = true
 	a.mu.Unlock()
@@ -258,51 +258,51 @@ func (a *Agent) Run() error {
 
 	// Step 1: Start process manager for monitoring
 	// 步骤 1：启动进程管理器进行监控
-	logger.InfoF(ctx, "[1/8] Starting process manager... / 启动进程管理器...")
+	logger.InfoF(ctx, "[1/8] Starting process manager...")
 	if err := a.processManager.Start(a.ctx); err != nil {
-		return fmt.Errorf("failed to start process manager: %w / 启动进程管理器失败：%w", err, err)
+		return fmt.Errorf("failed to start process manager: %w", err)
 	}
 
 	// Set up process event handler / 设置进程事件处理器
 	a.processManager.SetEventHandler(a.handleProcessEvent)
 
 	// Step 2: Start process monitor / 启动进程监控器
-	logger.InfoF(ctx, "[2/8] Starting process monitor... / 启动进程监控器...")
+	logger.InfoF(ctx, "[2/8] Starting process monitor...")
 	a.setupProcessMonitor()
 	if err := a.processMonitor.Start(a.ctx); err != nil {
-		logger.WarnF(ctx, "Warning: failed to start process monitor: %v / 警告：启动进程监控器失败：%v", err, err)
+		logger.WarnF(ctx, "Warning: failed to start process monitor: %v", err)
 	}
 
 	// Step 3: Initialize process discovery (simplified, no auto-scan)
 	// 步骤 3：初始化进程发现（简化版，无自动扫描）
-	logger.InfoF(ctx, "[3/8] Initializing process discovery... / 初始化进程发现...")
+	logger.InfoF(ctx, "[3/8] Initializing process discovery...")
 
 	// Step 4: Start event reporter / 启动事件上报器
-	logger.InfoF(ctx, "[4/8] Starting event reporter... / 启动事件上报器...")
+	logger.InfoF(ctx, "[4/8] Starting event reporter...")
 	a.eventReporter.Start()
 
 	// Step 5: Register command handlers
 	// 步骤 5：注册命令处理器
-	logger.InfoF(ctx, "[5/8] Registering command handlers... / 注册命令处理器...")
+	logger.InfoF(ctx, "[5/8] Registering command handlers...")
 	a.registerCommandHandlers()
 
 	// Step 6: Connect to Control Plane
 	// 步骤 6：连接到 Control Plane
-	logger.InfoF(ctx, "[6/8] Connecting to Control Plane... / 连接到 Control Plane...")
+	logger.InfoF(ctx, "[6/8] Connecting to Control Plane...")
 	if err := a.connectToControlPlane(); err != nil {
-		return fmt.Errorf("failed to connect to Control Plane: %w / 连接 Control Plane 失败：%w", err, err)
+		return fmt.Errorf("failed to connect to Control Plane: %w", err)
 	}
 
 	// Step 7: Register with Control Plane
 	// 步骤 7：向 Control Plane 注册
-	logger.InfoF(ctx, "[7/8] Registering with Control Plane... / 向 Control Plane 注册...")
+	logger.InfoF(ctx, "[7/8] Registering with Control Plane...")
 	if err := a.registerWithControlPlane(); err != nil {
-		return fmt.Errorf("failed to register with Control Plane: %w / 向 Control Plane 注册失败：%w", err, err)
+		return fmt.Errorf("failed to register with Control Plane: %w", err)
 	}
 
 	// Step 8: Start background services
 	// 步骤 8：启动后台服务
-	logger.InfoF(ctx, "[8/8] Starting background services... / 启动后台服务...")
+	logger.InfoF(ctx, "[8/8] Starting background services...")
 	a.startBackgroundServices()
 
 	logger.InfoF(ctx, "========================================")
@@ -323,8 +323,7 @@ func (a *Agent) setupProcessMonitor() {
 	// Set event handler / 设置事件处理器
 	a.processMonitor.SetEventHandler(func(event *monitor.ProcessEvent) {
 		ctx := context.Background()
-		logger.InfoF(ctx, "[Agent] Process event: type=%s, name=%s, pid=%d / 进程事件：类型=%s，名称=%s，PID=%d",
-			event.Type, event.Name, event.PID, event.Type, event.Name, event.PID)
+		logger.InfoF(ctx, "[Agent] Process event: type=%s, name=%s, pid=%d", event.Type, event.Name, event.PID)
 
 		// Report event to Control Plane via gRPC / 通过 gRPC 向 Control Plane 上报事件
 		go a.reportProcessEvent(event)
@@ -333,10 +332,9 @@ func (a *Agent) setupProcessMonitor() {
 	// Set crash handler to trigger auto restart / 设置崩溃处理器以触发自动重启
 	a.processMonitor.SetCrashHandler(func(proc *monitor.TrackedProcess) {
 		ctx := context.Background()
-		logger.ErrorF(ctx, "[Agent] Process crashed: %s (PID: %d), triggering auto restart / 进程崩溃：%s（PID：%d），触发自动重启",
-			proc.Name, proc.PID, proc.Name, proc.PID)
+		logger.ErrorF(ctx, "[Agent] Process crashed: %s (PID: %d), triggering auto restart", proc.Name, proc.PID)
 		if err := a.autoRestarter.OnProcessCrashed(proc); err != nil {
-			logger.ErrorF(ctx, "[Agent] Auto restart failed: %v / 自动重启失败：%v", err, err)
+			logger.ErrorF(ctx, "[Agent] Auto restart failed: %v", err)
 		}
 	})
 
@@ -366,7 +364,7 @@ func (a *Agent) setupProcessMonitor() {
 		// Get new PID from process manager / 从进程管理器获取新 PID
 		info, err := a.processManager.GetStatus(a.ctx, processName)
 		if err != nil || info.PID <= 0 {
-			logger.ErrorF(ctx, "[Agent] Failed to get new PID after restart: %v / 重启后获取新 PID 失败：%v", err, err)
+			logger.ErrorF(ctx, "[Agent] Failed to get new PID after restart: %v", err)
 			return
 		}
 
@@ -405,8 +403,7 @@ func (a *Agent) setupProcessMonitor() {
 		}
 		go a.reportProcessEvent(event)
 
-		logger.InfoF(ctx, "[Agent] Process restarted: %s (new PID: %d) / 进程已重启：%s（新 PID：%d）",
-			processName, info.PID, processName, info.PID)
+		logger.InfoF(ctx, "[Agent] Process restarted: %s (new PID: %d)", processName, info.PID)
 	})
 }
 
@@ -415,7 +412,7 @@ func (a *Agent) setupProcessMonitor() {
 func (a *Agent) reportProcessEvent(event *monitor.ProcessEvent) {
 	ctx := a.ctx
 	if !a.grpcClient.IsConnected() {
-		logger.WarnF(ctx, "[Agent] Not connected, caching event / 未连接，缓存事件")
+		logger.WarnF(ctx, "[Agent] Not connected, caching event")
 		a.eventReporter.ReportEvent(event)
 		return
 	}
@@ -450,13 +447,12 @@ func (a *Agent) reportProcessEvent(event *monitor.ProcessEvent) {
 	}
 
 	if err := a.grpcClient.ReportProcessEvent(a.ctx, report); err != nil {
-		logger.ErrorF(ctx, "[Agent] Failed to report event, caching: %v / 上报事件失败，缓存：%v", err, err)
+		logger.ErrorF(ctx, "[Agent] Failed to report event, caching: %v", err)
 		a.eventReporter.ReportEvent(event)
 		return
 	}
 
-	logger.InfoF(ctx, "[Agent] Event reported to Control Plane: type=%s, name=%s, pid=%d / 事件已上报到 Control Plane：类型=%s，名称=%s，PID=%d",
-		event.Type, event.Name, event.PID, event.Type, event.Name, event.PID)
+	logger.InfoF(ctx, "[Agent] Event reported to Control Plane: type=%s, name=%s, pid=%d", event.Type, event.Name, event.PID)
 }
 
 func extractProcessEventReportFields(event *monitor.ProcessEvent) (installDir, role string, details map[string]string) {
@@ -498,17 +494,17 @@ func (a *Agent) connectToControlPlane() error {
 				if errors.Is(err, agentgrpc.ErrReconnectInProgress) {
 					return
 				}
-				logger.ErrorF(ctx, "Reconnection failed: %v / 重连失败：%v", err, err)
+				logger.ErrorF(ctx, "Reconnection failed: %v", err)
 				return
 			}
 			if err := a.registerWithControlPlane(); err != nil {
-				logger.ErrorF(ctx, "Re-registration failed: %v / 重新注册失败：%v", err, err)
+				logger.ErrorF(ctx, "Re-registration failed: %v", err)
 			}
 		}()
 		return nil // Don't fail startup, let reconnection handle it
 	}
 
-	logger.InfoF(ctx, "Connected to Control Plane / 已连接到 Control Plane")
+	logger.InfoF(ctx, "Connected to Control Plane")
 	return nil
 }
 
@@ -520,7 +516,7 @@ func (a *Agent) registerWithControlPlane() error {
 
 	ctx := a.ctx
 	if !a.grpcClient.IsConnected() {
-		logger.WarnF(ctx, "Not connected yet, registration will happen after connection / 尚未连接，将在连接后注册")
+		logger.WarnF(ctx, "Not connected yet, registration will happen after connection")
 		return nil
 	}
 
@@ -544,24 +540,24 @@ func (a *Agent) registerWithControlPlane() error {
 
 	resp, err := a.grpcClient.Register(a.ctx, req)
 	if err != nil {
-		return fmt.Errorf("registration failed: %w / 注册失败：%w", err, err)
+		return fmt.Errorf("registration failed: %w", err)
 	}
 
 	if !resp.Success {
-		return fmt.Errorf("registration rejected: %s / 注册被拒绝：%s", resp.Message, resp.Message)
+		return fmt.Errorf("registration rejected: %s", resp.Message)
 	}
 
 	// Save the assigned agent ID / 保存分配的 Agent ID
 	a.grpcClient.SetAgentID(resp.AssignedId)
 	a.markRegistered()
 
-	logger.InfoF(ctx, "Registered successfully with ID: %s / 注册成功，ID：%s", resp.AssignedId, resp.AssignedId)
+	logger.InfoF(ctx, "Registered successfully with ID: %s", resp.AssignedId)
 
 	// Align diagnostics collector cursor with server-side persisted cursor.
 	// 对齐诊断采集器游标，避免 Agent 重启后按 initialTail 回采导致重复上报。
 	if a.errorCollector != nil {
 		if cursors, err := a.grpcClient.GetDiagnosticsLogCursors(ctx); err != nil {
-			logger.WarnF(ctx, "[Diagnostics] Failed to load diagnostics cursors: %v / 拉取诊断游标失败：%v", err, err)
+			logger.WarnF(ctx, "[Diagnostics] Failed to load diagnostics cursors: %v", err)
 		} else if cursors != nil {
 			loaded := 0
 			for _, item := range cursors.Cursors {
@@ -576,7 +572,7 @@ func (a *Agent) registerWithControlPlane() error {
 				loaded++
 			}
 			if loaded > 0 {
-				logger.InfoF(ctx, "[Diagnostics] Loaded %d diagnostics cursors / 已加载 %d 条诊断游标", loaded, loaded)
+				logger.InfoF(ctx, "[Diagnostics] Loaded %d diagnostics cursors", loaded)
 			}
 		}
 	}
@@ -601,7 +597,7 @@ func (a *Agent) resolveAgentIP() string {
 	// 1. 配置文件中手动指定的 IP
 	// 1. Manually specified IP in config
 	if configuredIP := strings.TrimSpace(a.config.Agent.IP); configuredIP != "" {
-		logger.InfoF(a.ctx, "Using manually configured Agent IP: %s / 使用手动配置的 Agent IP：%s", configuredIP, configuredIP)
+		logger.InfoF(a.ctx, "Using manually configured Agent IP: %s", configuredIP)
 		return configuredIP
 	}
 
@@ -612,7 +608,7 @@ func (a *Agent) resolveAgentIP() string {
 			// 如果出口 IP 不是回环地址，说明是真正的物理/局域网接口
 			// If outbound IP is not loopback, it is the real network interface
 			if outbound != "127.0.0.1" && outbound != "::1" {
-				logger.InfoF(a.ctx, "Detected outbound IP towards Control Plane (%s): %s / 探测到通往 Control Plane (%s) 的出口 IP：%s", addr, outbound, addr, outbound)
+				logger.InfoF(a.ctx, "Detected outbound IP towards Control Plane (%s): %s", addr, outbound)
 				return outbound
 			}
 		}
@@ -686,25 +682,24 @@ func (a *Agent) setupEventReporter() {
 			}
 
 			if err := a.grpcClient.ReportProcessEvent(a.ctx, report); err != nil {
-				logger.ErrorF(ctx, "[Agent] Failed to report event: %v / 上报事件失败：%v", err, err)
+				logger.ErrorF(ctx, "[Agent] Failed to report event: %v", err)
 				return err
 			}
-			logger.InfoF(ctx, "[Agent] Event reported: type=%s, name=%s, pid=%d / 事件已上报：类型=%s，名称=%s，PID=%d",
-				event.Type, event.Name, event.PID, event.Type, event.Name, event.PID)
+			logger.InfoF(ctx, "[Agent] Event reported: type=%s, name=%s, pid=%d", event.Type, event.Name, event.PID)
 		}
 		return nil
 	}
 
 	a.eventReporter.SetReportFunc(reportFunc)
-	logger.InfoF(ctx, "[Agent] Event reporter configured / 事件上报器已配置")
+	logger.InfoF(ctx, "[Agent] Event reporter configured")
 }
 
 // applyRemoteConfig applies configuration received from Control Plane
 // applyRemoteConfig 应用从 Control Plane 接收的配置
 func (a *Agent) applyRemoteConfig(cfg *pb.AgentConfig) {
 	ctx := a.ctx
-	logger.InfoF(ctx, "Received remote config from Control Plane: HeartbeatInterval=%d seconds / 收到来自 Control Plane 的远程配置：HeartbeatInterval=%d 秒", cfg.HeartbeatInterval, cfg.HeartbeatInterval)
-	logger.InfoF(ctx, "Current local heartbeat interval: %v / 当前本地心跳间隔：%v", a.config.Heartbeat.Interval, a.config.Heartbeat.Interval)
+	logger.InfoF(ctx, "Received remote config from Control Plane: HeartbeatInterval=%d seconds", cfg.HeartbeatInterval)
+	logger.InfoF(ctx, "Current local heartbeat interval: %v", a.config.Heartbeat.Interval)
 
 	configChanged := false
 
@@ -717,18 +712,18 @@ func (a *Agent) applyRemoteConfig(cfg *pb.AgentConfig) {
 			// new interval on their next tick.
 			a.heartbeatIntervalNs.Store(int64(newInterval))
 			configChanged = true
-			logger.InfoF(ctx, "Applied heartbeat interval from Control Plane: %v / 已应用来自 Control Plane 的心跳间隔：%v", newInterval, newInterval)
+			logger.InfoF(ctx, "Applied heartbeat interval from Control Plane: %v", newInterval)
 		}
 	} else {
-		logger.WarnF(ctx, "Remote HeartbeatInterval is 0 or negative, keeping local config / 远程 HeartbeatInterval 为 0 或负数，保持本地配置")
+		logger.WarnF(ctx, "Remote HeartbeatInterval is 0 or negative, keeping local config")
 	}
 
 	// Persist config changes to local file / 将配置变更持久化到本地文件
 	if configChanged {
 		if err := a.persistConfigToFile(); err != nil {
-			logger.WarnF(ctx, "Warning: Failed to persist config to file: %v / 警告：持久化配置到文件失败：%v", err, err)
+			logger.WarnF(ctx, "Warning: Failed to persist config to file: %v", err)
 		} else {
-			logger.InfoF(ctx, "Config persisted to local file / 配置已持久化到本地文件")
+			logger.InfoF(ctx, "Config persisted to local file")
 		}
 	}
 }
@@ -848,19 +843,19 @@ func (a *Agent) runHeartbeatLoop() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	logger.InfoF(ctx, "Heartbeat loop started with interval: %v / 心跳循环已启动，间隔：%v", interval, interval)
+	logger.InfoF(ctx, "Heartbeat loop started with interval: %v", interval)
 
 	for {
 		select {
 		case <-a.ctx.Done():
-			logger.InfoF(ctx, "Heartbeat loop stopped / 心跳循环已停止")
+			logger.InfoF(ctx, "Heartbeat loop stopped")
 			return
 		case <-ticker.C:
 			// 远程下发了新间隔就换挡。/ Shift when the control plane pushed a new interval.
 			if next := a.currentHeartbeatInterval(); next != interval {
 				interval = next
 				ticker.Reset(interval)
-				logger.InfoF(ctx, "Heartbeat interval updated to: %v / 心跳间隔已更新为：%v", interval, interval)
+				logger.InfoF(ctx, "Heartbeat interval updated to: %v", interval)
 			}
 			a.sendHeartbeat()
 		}
@@ -913,7 +908,7 @@ func (a *Agent) sendHeartbeat() {
 
 	_, err := a.grpcClient.SendHeartbeat(a.ctx, usage, processes)
 	if err != nil {
-		logger.ErrorF(ctx, "Heartbeat failed: %v / 心跳失败：%v", err, err)
+		logger.ErrorF(ctx, "Heartbeat failed: %v", err)
 		// 平台自监控：累计心跳失败，下一轮主机指标上报时带出去。
 		// Platform self-monitoring: count the failure so the next host-metrics report carries it.
 		if a.metricsCollector != nil {
@@ -923,11 +918,11 @@ func (a *Agent) sendHeartbeat() {
 		// Check if agent needs to re-register (Control Plane restarted)
 		// 检查是否需要重新注册（Control Plane 重启了）
 		if isNotFoundError(err) {
-			logger.WarnF(ctx, "Agent not found on Control Plane, re-registering... / Agent 在 Control Plane 上未找到，重新注册...")
+			logger.WarnF(ctx, "Agent not found on Control Plane, re-registering...")
 			go func() {
 				ctx := context.Background()
 				if regErr := a.registerWithControlPlane(); regErr != nil {
-					logger.ErrorF(ctx, "Re-registration failed: %v / 重新注册失败：%v", regErr, regErr)
+					logger.ErrorF(ctx, "Re-registration failed: %v", regErr)
 				}
 			}()
 			return
@@ -936,7 +931,7 @@ func (a *Agent) sendHeartbeat() {
 		// 传输错误：立刻清掉假在线并单飞快速重连 + 注册。
 		// Transport error: clear sticky online and single-flight fast reconnect + register.
 		if agentgrpc.IsTransportError(err) {
-			logger.WarnF(ctx, "Heartbeat transport error, triggering fast reconnect... / 心跳传输错误，触发快速重连...")
+			logger.WarnF(ctx, "Heartbeat transport error, triggering fast reconnect...")
 			a.grpcClient.MarkDisconnected()
 			a.triggerReconnectAndRegister()
 		}
@@ -968,12 +963,12 @@ func (a *Agent) runHostMetricsLoop() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	logger.InfoF(ctx, "Host metrics loop started with interval: %v / 主机指标循环已启动，间隔：%v", interval, interval)
+	logger.InfoF(ctx, "Host metrics loop started with interval: %v", interval)
 
 	for {
 		select {
 		case <-a.ctx.Done():
-			logger.InfoF(ctx, "Host metrics loop stopped / 主机指标循环已停止")
+			logger.InfoF(ctx, "Host metrics loop stopped")
 			return
 		case <-ticker.C:
 			// 跟随心跳间隔的远程变更，两条循环不脱节。/ Follow remote heartbeat
@@ -981,7 +976,7 @@ func (a *Agent) runHostMetricsLoop() {
 			if next := a.currentHeartbeatInterval(); next != interval {
 				interval = next
 				ticker.Reset(interval)
-				logger.InfoF(ctx, "Host metrics interval updated to: %v / 主机指标间隔已更新为：%v", interval, interval)
+				logger.InfoF(ctx, "Host metrics interval updated to: %v", interval)
 			}
 			if !a.grpcClient.IsConnected() {
 				continue
@@ -996,7 +991,7 @@ func (a *Agent) runHostMetricsLoop() {
 			_, err := a.grpcClient.ReportHostMetrics(reportCtx, samples)
 			reportCancel()
 			if err != nil && !isUnimplementedError(err) && !isNotFoundError(err) {
-				logger.WarnF(ctx, "Host metrics report failed: %v / 主机指标上报失败：%v", err, err)
+				logger.WarnF(ctx, "Host metrics report failed: %v", err)
 			}
 		}
 	}
@@ -1013,11 +1008,11 @@ func (a *Agent) triggerReconnectAndRegister() {
 			if errors.Is(err, agentgrpc.ErrReconnectInProgress) {
 				return
 			}
-			logger.ErrorF(ctx, "Reconnection failed: %v / 重连失败：%v", err, err)
+			logger.ErrorF(ctx, "Reconnection failed: %v", err)
 			return
 		}
 		if err := a.registerWithControlPlane(); err != nil {
-			logger.ErrorF(ctx, "Re-registration failed: %v / 重新注册失败：%v", err, err)
+			logger.ErrorF(ctx, "Re-registration failed: %v", err)
 		}
 	}()
 }
@@ -1030,12 +1025,12 @@ func (a *Agent) triggerReconnectAndRegister() {
 // 需求 1.5：接收命令、验证、执行并上报结果
 func (a *Agent) runCommandStreamLoop() {
 	ctx := a.ctx
-	logger.InfoF(ctx, "Command stream loop started / 命令流循环已启动")
+	logger.InfoF(ctx, "Command stream loop started")
 
 	for {
 		select {
 		case <-a.ctx.Done():
-			logger.InfoF(ctx, "Command stream loop stopped / 命令流循环已停止")
+			logger.InfoF(ctx, "Command stream loop stopped")
 			return
 		default:
 		}
@@ -1048,14 +1043,14 @@ func (a *Agent) runCommandStreamLoop() {
 		// Start command stream / 启动命令流
 		err := a.grpcClient.StartCommandStream(a.ctx, a.handleCommand)
 		if err != nil {
-			logger.ErrorF(ctx, "Command stream error: %v, will retry... / 命令流错误：%v，将重试...", err, err)
+			logger.ErrorF(ctx, "Command stream error: %v, will retry...", err)
 
 			// Check if agent needs to re-register (Control Plane restarted)
 			// 检查是否需要重新注册（Control Plane 重启了）
 			if isNotFoundError(err) {
-				logger.WarnF(ctx, "Agent not found on Control Plane, re-registering... / Agent 在 Control Plane 上未找到，重新注册...")
+				logger.WarnF(ctx, "Agent not found on Control Plane, re-registering...")
 				if regErr := a.registerWithControlPlane(); regErr != nil {
-					logger.ErrorF(ctx, "Re-registration failed: %v / 重新注册失败：%v", regErr, regErr)
+					logger.ErrorF(ctx, "Re-registration failed: %v", regErr)
 				}
 				time.Sleep(1 * time.Second)
 				continue
@@ -1064,7 +1059,7 @@ func (a *Agent) runCommandStreamLoop() {
 			// 传输错误：清假在线并快速重连，短等待后由循环看 IsConnected。
 			// Transport error: clear sticky online and fast-reconnect; short wait then re-check IsConnected.
 			if agentgrpc.IsTransportError(err) {
-				logger.WarnF(ctx, "Command stream transport error, triggering fast reconnect... / 命令流传输错误，触发快速重连...")
+				logger.WarnF(ctx, "Command stream transport error, triggering fast reconnect...")
 				a.grpcClient.MarkDisconnected()
 				a.triggerReconnectAndRegister()
 				time.Sleep(1 * time.Second)
@@ -1079,8 +1074,7 @@ func (a *Agent) runCommandStreamLoop() {
 // handleCommand handles a command received from Control Plane
 // handleCommand 处理从 Control Plane 接收的命令
 func (a *Agent) handleCommand(ctx context.Context, cmd *pb.CommandRequest) (*pb.CommandResponse, error) {
-	logger.InfoF(ctx, "Received command: %s (type: %s) / 收到命令：%s（类型：%s）",
-		cmd.CommandId, cmd.Type.String(), cmd.CommandId, cmd.Type.String())
+	logger.InfoF(ctx, "Received command: %s (type: %s)", cmd.CommandId, cmd.Type.String())
 
 	// Create a progress reporter that sends updates via gRPC
 	// 创建通过 gRPC 发送更新的进度上报器
@@ -1105,17 +1099,15 @@ func (a *Agent) handleCommand(ctx context.Context, cmd *pb.CommandRequest) (*pb.
 		a.metricsCollector.RecordCommandResult(cmd.Type.String(), result)
 	}
 	if err != nil {
-		logger.ErrorF(ctx, "Command %s failed: %v / 命令 %s 失败：%v", cmd.CommandId, err, cmd.CommandId, err)
+		logger.ErrorF(ctx, "Command %s failed: %v", cmd.CommandId, err)
 	} else if resp.Status == pb.CommandStatus_FAILED {
 		reason := resp.Error
 		if reason == "" {
 			reason = "unknown"
 		}
-		logger.WarnF(ctx, "Command %s (type: %s) completed: FAILED, reason: %s / 命令 %s（类型：%s）完成：失败，原因：%s",
-			cmd.CommandId, cmd.Type.String(), reason, cmd.CommandId, cmd.Type.String(), reason)
+		logger.WarnF(ctx, "Command %s (type: %s) completed: FAILED, reason: %s", cmd.CommandId, cmd.Type.String(), reason)
 	} else {
-		logger.InfoF(ctx, "Command %s (type: %s) completed: %s / 命令 %s（类型：%s）完成：%s",
-			cmd.CommandId, cmd.Type.String(), resp.Status.String(), cmd.CommandId, cmd.Type.String(), resp.Status.String())
+		logger.InfoF(ctx, "Command %s (type: %s) completed: %s", cmd.CommandId, cmd.Type.String(), resp.Status.String())
 	}
 
 	return resp, err
@@ -1130,16 +1122,16 @@ func (a *Agent) runConnectionMonitor() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	logger.InfoF(ctx, "Connection monitor started / 连接监控已启动")
+	logger.InfoF(ctx, "Connection monitor started")
 
 	for {
 		select {
 		case <-a.ctx.Done():
-			logger.InfoF(ctx, "Connection monitor stopped / 连接监控已停止")
+			logger.InfoF(ctx, "Connection monitor stopped")
 			return
 		case <-ticker.C:
 			if !a.grpcClient.IsConnected() {
-				logger.WarnF(ctx, "Connection lost, attempting reconnection... / 连接丢失，尝试重连...")
+				logger.WarnF(ctx, "Connection lost, attempting reconnection...")
 				// 走单飞重连，避免每 5s 叠多个 Reconnect 协程。
 				// Use single-flight reconnect to avoid stacking Reconnect goroutines every 5s.
 				a.triggerReconnectAndRegister()
@@ -1152,8 +1144,7 @@ func (a *Agent) runConnectionMonitor() {
 // handleProcessEvent 处理进程生命周期事件
 func (a *Agent) handleProcessEvent(name string, event process.ProcessEvent, info *process.ProcessInfo) {
 	ctx := a.ctx
-	logger.InfoF(ctx, "Process event: %s - %s (PID: %d, Status: %s) / 进程事件：%s - %s（PID：%d，状态：%s）",
-		name, event, info.PID, info.Status, name, event, info.PID, info.Status)
+	logger.InfoF(ctx, "Process event: %s - %s (PID: %d, Status: %s)", name, event, info.PID, info.Status)
 
 	// TODO: Report process events to Control Plane
 	// TODO: 向 Control Plane 上报进程事件
@@ -1198,8 +1189,7 @@ func (a *Agent) registerCommandHandlers() {
 	configHandlers := executor.NewConfigHandlers()
 	configHandlers.RegisterHandlers(a.executor)
 
-	logger.InfoF(ctx, "Registered %d command handlers / 已注册 %d 个命令处理器",
-		len(a.executor.GetRegisteredTypes()), len(a.executor.GetRegisteredTypes()))
+	logger.InfoF(ctx, "Registered %d command handlers", len(a.executor.GetRegisteredTypes()))
 }
 
 // Command handler implementations / 命令处理器实现
@@ -1214,7 +1204,7 @@ func (a *Agent) handlePrecheckCommand(ctx context.Context, cmd *pb.CommandReques
 		return executor.HandlePrecheckCommand(ctx, cmd, reporter)
 	}
 
-	reporter.Report(10, "Starting precheck... / 开始预检查...")
+	reporter.Report(10, "Starting precheck...")
 
 	// Create precheck params from command parameters
 	// 从命令参数创建预检查参数
@@ -1232,7 +1222,7 @@ func (a *Agent) handlePrecheckCommand(ctx context.Context, cmd *pb.CommandReques
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
-	reporter.Report(100, "Precheck completed / 预检查完成")
+	reporter.Report(100, "Precheck completed")
 
 	// Format result as output / 将结果格式化为输出
 	output := formatPrecheckResult(result)
@@ -1240,7 +1230,7 @@ func (a *Agent) handlePrecheckCommand(ctx context.Context, cmd *pb.CommandReques
 }
 
 func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	reporter.Report(5, "Preparing installation... / 准备安装...")
+	reporter.Report(5, "Preparing installation...")
 
 	// Create install params from command parameters
 	// 从命令参数创建安装参数
@@ -1460,11 +1450,11 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 		return executor.CreateErrorResponse(cmd.CommandId, result.Message), fmt.Errorf("%s", result.Message)
 	}
 
-	return executor.CreateSuccessResponse(cmd.CommandId, "Installation completed / 安装完成"), nil
+	return executor.CreateSuccessResponse(cmd.CommandId, "Installation completed"), nil
 }
 
 func (a *Agent) handleUninstallCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	reporter.Report(10, "Starting uninstallation... / 开始卸载...")
+	reporter.Report(10, "Starting uninstallation...")
 
 	installDir := getParamString(cmd.Parameters, "install_dir", "/opt/seatunnel")
 
@@ -1473,7 +1463,7 @@ func (a *Agent) handleUninstallCommand(ctx context.Context, cmd *pb.CommandReque
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
-	return executor.CreateSuccessResponse(cmd.CommandId, "Uninstallation completed / 卸载完成"), nil
+	return executor.CreateSuccessResponse(cmd.CommandId, "Uninstallation completed"), nil
 }
 
 func (a *Agent) handleUpgradeCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
@@ -1483,7 +1473,7 @@ func (a *Agent) handleUpgradeCommand(ctx context.Context, cmd *pb.CommandRequest
 func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
 		ctx = stxJavaProxyCommandContext(ctx, cmd.Parameters)
-		reporter.Report(10, "Starting managed stx-java-proxy service... / 启动托管 stx-java-proxy 服务...")
+		reporter.Report(10, "Starting managed stx-java-proxy service...")
 		status, err := installer.StartManagedSTXJavaProxyService(
 			ctx,
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
@@ -1498,11 +1488,11 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		reporter.Report(100, "Managed stx-java-proxy service started / 托管 stx-java-proxy 服务已启动")
+		reporter.Report(100, "Managed stx-java-proxy service started")
 		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
-	reporter.Report(10, "Starting SeaTunnel process... / 启动 SeaTunnel 进程...")
+	reporter.Report(10, "Starting SeaTunnel process...")
 
 	role := getParamString(cmd.Parameters, "role", "")
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
@@ -1529,14 +1519,14 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		// 已在运行视为启动成功（幂等），避免批量 start 把健康节点打成失败。
 		// Treat already-running as a successful start (idempotent) so batch start does not fail healthy nodes.
 		if errors.Is(err, process.ErrProcessAlreadyRunning) {
-			logger.InfoF(ctx, "[Agent] Process already running, treating start as success: %s / 进程已在运行，启动视为成功：%s", processName, processName)
+			logger.InfoF(ctx, "[Agent] Process already running, treating start as success: %s", processName)
 			if info, statusErr := a.processManager.GetStatus(ctx, processName); statusErr == nil && info.PID > 0 {
 				a.processMonitor.TrackProcessSilent(processName, info.PID, installDir, role, params)
 				a.processMonitor.SetProcessClusterID(processName, clusterID)
 				a.processMonitor.ClearManuallyStopped(processName)
 			}
-			reporter.Report(100, "Process already running / 进程已在运行")
-			return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("process is already running (role: %s) / 进程已在运行（角色：%s）", role, role)), nil
+			reporter.Report(100, "Process already running")
+			return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("process is already running (role: %s)", role)), nil
 		}
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
@@ -1554,18 +1544,17 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		// issues START directly), so sync diagnostics targets here or the new process never
 		// reaches the error center.
 		a.updateDiagnosticsTargets(ctx)
-		logger.InfoF(ctx, "[Agent] Process started and tracked: %s (PID: %d) / 进程已启动并跟踪：%s（PID：%d）",
-			processName, info.PID, processName, info.PID)
+		logger.InfoF(ctx, "[Agent] Process started and tracked: %s (PID: %d)", processName, info.PID)
 	}
 
-	reporter.Report(100, "Process started / 进程已启动")
-	return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process started successfully (role: %s) / 进程启动成功（角色：%s）", role, role)), nil
+	reporter.Report(100, "Process started")
+	return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process started successfully (role: %s)", role)), nil
 }
 
 func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
 		ctx = stxJavaProxyCommandContext(ctx, cmd.Parameters)
-		reporter.Report(10, "Stopping managed stx-java-proxy service... / 停止托管 stx-java-proxy 服务...")
+		reporter.Report(10, "Stopping managed stx-java-proxy service...")
 		status, err := installer.StopManagedSTXJavaProxyService(
 			ctx,
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
@@ -1573,11 +1562,11 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		reporter.Report(100, "Managed stx-java-proxy service stopped / 托管 stx-java-proxy 服务已停止")
+		reporter.Report(100, "Managed stx-java-proxy service stopped")
 		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
-	reporter.Report(10, "Stopping SeaTunnel process... / 停止 SeaTunnel 进程...")
+	reporter.Report(10, "Stopping SeaTunnel process...")
 
 	role := getParamString(cmd.Parameters, "role", "")
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
@@ -1605,14 +1594,14 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 	// Untrack the process / 取消跟踪进程
 	a.processMonitor.UntrackProcess(processName)
 
-	reporter.Report(100, "Process stopped / 进程已停止")
-	return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process stopped successfully (role: %s) / 进程停止成功（角色：%s）", role, role)), nil
+	reporter.Report(100, "Process stopped")
+	return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process stopped successfully (role: %s)", role)), nil
 }
 
 func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
 		ctx = stxJavaProxyCommandContext(ctx, cmd.Parameters)
-		reporter.Report(10, "Restarting managed stx-java-proxy service... / 重启托管 stx-java-proxy 服务...")
+		reporter.Report(10, "Restarting managed stx-java-proxy service...")
 		installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
 		if _, err := installer.StopManagedSTXJavaProxyService(ctx, installDir); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already stopped") {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
@@ -1629,11 +1618,11 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		reporter.Report(100, "Managed stx-java-proxy service restarted / 托管 stx-java-proxy 服务已重启")
+		reporter.Report(100, "Managed stx-java-proxy service restarted")
 		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
-	reporter.Report(10, "Restarting SeaTunnel process... / 重启 SeaTunnel 进程...")
+	reporter.Report(10, "Restarting SeaTunnel process...")
 
 	role := getParamString(cmd.Parameters, "role", "")
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
@@ -1678,10 +1667,9 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 		// Sync diagnostics targets after tracking changes, same as START, so the error center
 		// keeps covering the process being restarted.
 		a.updateDiagnosticsTargets(ctx)
-		logger.InfoF(ctx, "[Agent] Process stopped, registered for auto-restart: %s / 进程已停止，已注册等待自动重启：%s",
-			processName, processName)
-		reporter.Report(100, "Process stopped, auto-restart will start it / 进程已停止，自动重启将启动它")
-		return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process stopped, auto-restart will start it (role: %s) / 进程已停止，自动重启将启动它（角色：%s）", role, role)), nil
+		logger.InfoF(ctx, "[Agent] Process stopped, registered for auto-restart: %s", processName)
+		reporter.Report(100, "Process stopped, auto-restart will start it")
+		return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process stopped, auto-restart will start it (role: %s)", role)), nil
 	}
 
 	// Auto-restart disabled: restart process directly
@@ -1697,12 +1685,11 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
 		a.updateDiagnosticsTargets(ctx)
-		logger.InfoF(ctx, "[Agent] Process restarted and tracked: %s (PID: %d) / 进程已重启并跟踪：%s（PID：%d）",
-			processName, info.PID, processName, info.PID)
+		logger.InfoF(ctx, "[Agent] Process restarted and tracked: %s (PID: %d)", processName, info.PID)
 	}
 
-	reporter.Report(100, "Process restarted / 进程已重启")
-	return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process restarted successfully (role: %s) / 进程重启成功（角色：%s）", role, role)), nil
+	reporter.Report(100, "Process restarted")
+	return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process restarted successfully (role: %s)", role)), nil
 }
 
 func (a *Agent) handleStatusCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
@@ -1726,7 +1713,7 @@ func (a *Agent) handleStatusCommand(ctx context.Context, cmd *pb.CommandRequest,
 	if err != nil {
 		// Process not found is not an error, just return status
 		// 进程未找到不是错误，只返回状态
-		return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process not found: %s / 进程未找到：%s", processName, processName)), nil
+		return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process not found: %s", processName)), nil
 	}
 
 	output := fmt.Sprintf("Process: %s\nPID: %d\nStatus: %s\nUptime: %v\nCPU: %.2f%%\nMemory: %d bytes",
@@ -1762,11 +1749,11 @@ func createSTXJavaProxyCommandResponse(commandID string, status *installer.STXJa
 }
 
 func (a *Agent) handleCollectLogsCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	reporter.Report(10, "Collecting logs... / 收集日志...")
+	reporter.Report(10, "Collecting logs...")
 
 	logFile := getParamString(cmd.Parameters, "log_file", "")
 	if logFile == "" {
-		return executor.CreateErrorResponse(cmd.CommandId, "log_file parameter is required / 需要 log_file 参数"), nil
+		return executor.CreateErrorResponse(cmd.CommandId, "log_file parameter is required"), nil
 	}
 
 	// Parameters / 参数
@@ -1829,15 +1816,15 @@ func (a *Agent) handleCollectLogsCommand(ctx context.Context, cmd *pb.CommandReq
 		base := filepath.Base(logFile)
 		files, _ := filepath.Glob(filepath.Join(dir, base+"*"))
 		availableFiles := strings.Join(files, ", ")
-		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Log file not found: %s. Available files: %s / 日志文件不存在: %s。可用文件: %s", actualLogFile, availableFiles, actualLogFile, availableFiles)), nil
+		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Log file not found: %s. Available files: %s", actualLogFile, availableFiles)), nil
 	}
 	if statErr != nil {
-		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to stat file: %v / 文件状态获取失败: %v", statErr, statErr)), nil
+		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to stat file: %v", statErr)), nil
 	}
 
 	if mode == "list" {
 		if !fileInfo.IsDir() {
-			return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Path is not a directory: %s / 路径不是目录: %s", actualLogFile, actualLogFile)), nil
+			return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Path is not a directory: %s", actualLogFile)), nil
 		}
 		type directoryEntry struct {
 			Name    string    `json:"name"`
@@ -1853,7 +1840,7 @@ func (a *Agent) handleCollectLogsCommand(ctx context.Context, cmd *pb.CommandReq
 		}
 		entries, err := os.ReadDir(actualLogFile)
 		if err != nil {
-			return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to list directory: %v / 目录读取失败: %v", err, err)), nil
+			return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to list directory: %v", err)), nil
 		}
 		items := make([]directoryEntry, 0, len(entries))
 		for _, entry := range entries {
@@ -1881,9 +1868,9 @@ func (a *Agent) handleCollectLogsCommand(ctx context.Context, cmd *pb.CommandReq
 			Entries: items,
 		})
 		if err != nil {
-			return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to encode directory listing: %v / 目录列表编码失败: %v", err, err)), nil
+			return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to encode directory listing: %v", err)), nil
 		}
-		reporter.Report(100, "Directory listed successfully / 目录读取成功")
+		reporter.Report(100, "Directory listed successfully")
 		return executor.CreateSuccessResponse(cmd.CommandId, string(payload)), nil
 	}
 
@@ -1905,14 +1892,14 @@ func (a *Agent) handleCollectLogsCommand(ctx context.Context, cmd *pb.CommandReq
 			startTime, parseStartErr := parseAgentLogWindowTime(startTimeRaw)
 			endTime, parseEndErr := parseAgentLogWindowTime(endTimeRaw)
 			if parseStartErr != nil || parseEndErr != nil {
-				return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to parse time window: start=%v end=%v / 解析时间窗失败: start=%v end=%v", parseStartErr, parseEndErr, parseStartErr, parseEndErr)), nil
+				return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to parse time window: start=%v end=%v", parseStartErr, parseEndErr)), nil
 			}
 			filtered := filterAgentLogWindowContent(string(output), startTime, endTime)
 			output = []byte(filtered)
 		} else if err == nil && len(output) > 500*1024 {
 			// Limit to 500KB / 限制为 500KB
 			output = output[:500*1024]
-			output = append(output, []byte("\n... [truncated / 已截断] ...")...)
+			output = append(output, []byte("\n... [truncated")...)
 		}
 	default: // tail
 		// Read last N lines / 读取最后 N 行
@@ -1924,7 +1911,7 @@ func (a *Agent) handleCollectLogsCommand(ctx context.Context, cmd *pb.CommandReq
 	}
 
 	if err != nil {
-		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to read log file: %v / 读取日志文件失败: %v", err, err)), nil
+		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to read log file: %v", err)), nil
 	}
 
 	// Apply filter if specified / 如果指定了过滤器则应用
@@ -1938,12 +1925,12 @@ func (a *Agent) handleCollectLogsCommand(ctx context.Context, cmd *pb.CommandReq
 		output = []byte(strings.Join(filteredLines, "\n"))
 	}
 
-	reporter.Report(100, "Logs collected / 日志收集完成")
+	reporter.Report(100, "Logs collected")
 	return executor.CreateSuccessResponse(cmd.CommandId, string(output)), nil
 }
 
 func (a *Agent) handleThreadDumpCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	reporter.Report(10, "Collecting thread dump... / 正在采集线程栈...")
+	reporter.Report(10, "Collecting thread dump...")
 
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
 	role := getParamString(cmd.Parameters, "role", "")
@@ -1951,14 +1938,14 @@ func (a *Agent) handleThreadDumpCommand(ctx context.Context, cmd *pb.CommandRequ
 
 	result, err := agentdiagnostics.CollectThreadDump(ctx, installDir, role, outputDir, javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")))
 	if err != nil {
-		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to collect thread dump: %v / 采集线程栈失败：%v", err, err)), nil
+		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to collect thread dump: %v", err)), nil
 	}
 	payload, err := agentdiagnostics.MarshalThreadDumpResult(result)
 	if err != nil {
-		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to encode thread dump result: %v / 编码线程栈结果失败：%v", err, err)), nil
+		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to encode thread dump result: %v", err)), nil
 	}
 
-	reporter.Report(100, "Thread dump collected / 线程栈采集完成")
+	reporter.Report(100, "Thread dump collected")
 	return executor.CreateSuccessResponse(cmd.CommandId, payload), nil
 }
 
@@ -2038,7 +2025,7 @@ func parseAgentLogTimestamp(line string) (time.Time, bool) {
 }
 
 func (a *Agent) handleJVMDumpCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	reporter.Report(10, "Preparing JVM dump... / 准备采集 JVM Dump...")
+	reporter.Report(10, "Preparing JVM dump...")
 
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
 	role := getParamString(cmd.Parameters, "role", "")
@@ -2047,17 +2034,17 @@ func (a *Agent) handleJVMDumpCommand(ctx context.Context, cmd *pb.CommandRequest
 
 	result, err := agentdiagnostics.CollectJVMDump(ctx, installDir, role, outputDir, int64(minFreeMB)*1024*1024, javaenv.NormalizeHome(getParamString(cmd.Parameters, javaenv.ParamJavaHome, "")))
 	if err != nil {
-		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to create JVM dump: %v / 生成 JVM Dump 失败：%v", err, err)), nil
+		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to create JVM dump: %v", err)), nil
 	}
 	payload, err := agentdiagnostics.MarshalJVMDumpResult(result)
 	if err != nil {
-		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to encode JVM dump result: %v / 编码 JVM Dump 结果失败：%v", err, err)), nil
+		return executor.CreateErrorResponse(cmd.CommandId, fmt.Sprintf("Failed to encode JVM dump result: %v", err)), nil
 	}
 
 	if result.Status == agentdiagnostics.DumpStatusSkipped {
-		reporter.Report(100, "JVM dump skipped due to disk policy / JVM Dump 因磁盘策略被跳过")
+		reporter.Report(100, "JVM dump skipped due to disk policy")
 	} else {
-		reporter.Report(100, "JVM dump created / JVM Dump 采集完成")
+		reporter.Report(100, "JVM dump created")
 	}
 	return executor.CreateSuccessResponse(cmd.CommandId, payload), nil
 }
@@ -2112,21 +2099,21 @@ func (a *Agent) Shutdown() {
 
 	// Step 1: Stop accepting new commands
 	// 步骤 1：停止接受新命令
-	logger.InfoF(ctx, "[1/6] Stopping command acceptance... / 停止接受命令...")
+	logger.InfoF(ctx, "[1/6] Stopping command acceptance...")
 
 	// Step 2: Stop process monitor / 停止进程监控器
-	logger.InfoF(ctx, "[2/6] Stopping process monitor... / 停止进程监控器...")
+	logger.InfoF(ctx, "[2/6] Stopping process monitor...")
 	if err := a.processMonitor.Stop(); err != nil {
-		logger.WarnF(ctx, "Warning: Error stopping process monitor: %v / 警告：停止进程监控器时出错：%v", err, err)
+		logger.WarnF(ctx, "Warning: Error stopping process monitor: %v", err)
 	}
 
 	// Step 3: Stop event reporter / 停止事件上报器
-	logger.InfoF(ctx, "[3/6] Stopping event reporter... / 停止事件上报器...")
+	logger.InfoF(ctx, "[3/6] Stopping event reporter...")
 	a.eventReporter.Stop()
 
 	// Step 4: Wait for running tasks to complete (with timeout)
 	// 步骤 4：等待运行中的任务完成（带超时）
-	logger.InfoF(ctx, "[4/6] Waiting for running tasks... / 等待运行中的任务...")
+	logger.InfoF(ctx, "[4/6] Waiting for running tasks...")
 	// Note: The executor handles task completion internally
 	// 注意：执行器内部处理任务完成
 
@@ -2134,21 +2121,21 @@ func (a *Agent) Shutdown() {
 	// 步骤 5：保持 SeaTunnel 进程运行（不停止它们）
 	// Agent restart should not affect running SeaTunnel processes
 	// Agent 重启不应影响正在运行的 SeaTunnel 进程
-	logger.InfoF(ctx, "[5/6] Keeping SeaTunnel processes running... / 保持 SeaTunnel 进程运行...")
+	logger.InfoF(ctx, "[5/6] Keeping SeaTunnel processes running...")
 	// Note: We intentionally do NOT call processManager.StopAll() here
 	// 注意：我们故意不在这里调用 processManager.StopAll()
 
 	// Stop process manager (just cleanup internal state, not the processes)
 	// 停止进程管理器（只清理内部状态，不停止进程）
 	if err := a.processManager.Stop(); err != nil {
-		logger.WarnF(ctx, "Warning: Error stopping process manager: %v / 警告：停止进程管理器时出错：%v", err, err)
+		logger.WarnF(ctx, "Warning: Error stopping process manager: %v", err)
 	}
 
 	// Step 6: Close gRPC connection
 	// 步骤 6：关闭 gRPC 连接
-	logger.InfoF(ctx, "[6/6] Closing connections... / 关闭连接...")
+	logger.InfoF(ctx, "[6/6] Closing connections...")
 	if err := a.grpcClient.Disconnect(); err != nil {
-		logger.WarnF(ctx, "Warning: Error disconnecting: %v / 警告：断开连接时出错：%v", err, err)
+		logger.WarnF(ctx, "Warning: Error disconnecting: %v", err)
 	}
 
 	// Cancel main context to stop all goroutines
@@ -2165,9 +2152,9 @@ func (a *Agent) Shutdown() {
 
 	select {
 	case <-done:
-		logger.InfoF(ctx, "All goroutines stopped / 所有 goroutine 已停止")
+		logger.InfoF(ctx, "All goroutines stopped")
 	case <-time.After(10 * time.Second):
-		logger.WarnF(ctx, "Timeout waiting for goroutines / 等待 goroutine 超时")
+		logger.WarnF(ctx, "Timeout waiting for goroutines")
 	}
 
 	logger.InfoF(ctx, "========================================")
@@ -2222,7 +2209,7 @@ func getParamIntSlice(params map[string]string, key string, defaultValue []int) 
 // formatPrecheckResult 将预检查结果格式化为字符串
 func formatPrecheckResult(result *installer.PrecheckResult) string {
 	var sb string
-	sb = "Precheck Results / 预检查结果:\n"
+	sb = "Precheck Results"
 	sb += "================================\n"
 
 	for _, item := range result.Items {
@@ -2237,11 +2224,11 @@ func formatPrecheckResult(result *installer.PrecheckResult) string {
 
 	sb += "================================\n"
 	if result.OverallStatus == installer.CheckStatusPassed {
-		sb += "Overall: PASSED / 总体：通过"
+		sb += "Overall: PASSED"
 	} else if result.OverallStatus == installer.CheckStatusWarning {
-		sb += "Overall: PASSED WITH WARNINGS / 总体：通过（有警告）"
+		sb += "Overall: PASSED WITH WARNINGS"
 	} else {
-		sb += "Overall: FAILED / 总体：失败"
+		sb += "Overall: FAILED"
 	}
 
 	return sb
@@ -2259,19 +2246,19 @@ func (a *installerProgressAdapter) Report(step installer.InstallStep, progress i
 }
 
 func (a *installerProgressAdapter) ReportStepStart(step installer.InstallStep) error {
-	return a.reporter.Report(0, fmt.Sprintf("Starting step: %s / 开始步骤：%s", step, step))
+	return a.reporter.Report(0, fmt.Sprintf("Starting step: %s", step))
 }
 
 func (a *installerProgressAdapter) ReportStepComplete(step installer.InstallStep) error {
-	return a.reporter.Report(100, fmt.Sprintf("Completed step: %s / 完成步骤：%s", step, step))
+	return a.reporter.Report(100, fmt.Sprintf("Completed step: %s", step))
 }
 
 func (a *installerProgressAdapter) ReportStepFailed(step installer.InstallStep, err error) error {
-	return a.reporter.Report(0, fmt.Sprintf("Failed step: %s - %v / 失败步骤：%s - %v", step, err, step, err))
+	return a.reporter.Report(0, fmt.Sprintf("Failed step: %s - %v", step, err))
 }
 
 func (a *installerProgressAdapter) ReportStepSkipped(step installer.InstallStep, reason string) error {
-	return a.reporter.Report(0, fmt.Sprintf("Skipped step: %s - %s / 跳过步骤：%s - %s", step, reason, step, reason))
+	return a.reporter.Report(0, fmt.Sprintf("Skipped step: %s - %s", step, reason))
 }
 
 // rootCmd is the root command for the Agent CLI
@@ -2295,7 +2282,7 @@ It communicates with the Control Plane via gRPC to:
 // versionCmd 显示版本信息
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print version information / 打印版本信息",
+	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx := context.Background()
 		msg := fmt.Sprintf(
@@ -2320,8 +2307,8 @@ func init() {
 	// Add flags to root command
 	// 向根命令添加标志
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "config file path (default: /etc/stx-agent/config.yaml)")
-	rootCmd.PersistentFlags().Uint64Var(&hostIDFlag, "host-id", 0, "pre-assigned host ID from Control Plane / 来自 Control Plane 的预分配主机 ID")
-	rootCmd.PersistentFlags().StringVar(&ipFlag, "ip", "", "manually override outbound IP / 手动覆盖出口 IP")
+	rootCmd.PersistentFlags().Uint64Var(&hostIDFlag, "host-id", 0, "pre-assigned host ID from Control Plane")
+	rootCmd.PersistentFlags().StringVar(&ipFlag, "ip", "", "manually override outbound IP")
 
 	// Add subcommands
 	// 添加子命令
@@ -2335,7 +2322,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// 加载配置
 	cfg, err := config.Load(configFile)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w / 加载配置失败：%w", err, err)
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Apply CLI overrides if provided
@@ -2350,12 +2337,12 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Validate configuration
 	// 验证配置
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid config: %w / 无效配置：%w", err, err)
+		return fmt.Errorf("invalid config: %w", err)
 	}
 
 	// 初始化 Agent 日志（同时输出到控制台和文件）
 	if err := logger.Init(cfg); err != nil {
-		return fmt.Errorf("failed to init logger: %w / 初始化日志失败：%w", err, err)
+		return fmt.Errorf("failed to init logger: %w", err)
 	}
 
 	// Create agent
@@ -2383,11 +2370,11 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Trial after a self-upgrade: restore the backup and restart as the old version when
 	// registration times out or startup fails.
 	if trial := selfupdate.TrialFromEnv(); trial != nil {
-		logger.InfoF(context.Background(), "[SelfUpdate] Trial run after upgrade from %s (timeout %s) / 自升级试运行（原版本 %s，超时 %s）", trial.FromVersion, trial.Timeout, trial.FromVersion, trial.Timeout)
+		logger.InfoF(context.Background(), "[SelfUpdate] Trial run after upgrade from %s (timeout %s)", trial.FromVersion, trial.Timeout)
 		trialDone := make(chan bool, 1)
 		go func() {
 			trialDone <- trial.Watch(agent.registeredCh, startFailed, func(reason string, err error) {
-				logger.ErrorF(context.Background(), "[SelfUpdate] Rolling back to previous binary: %s, rollback error: %v / 回滚到旧版本：%s，错误：%v", reason, err, reason, err)
+				logger.ErrorF(context.Background(), "[SelfUpdate] Rolling back to previous binary: %s, rollback error: %v", reason, err)
 			})
 		}()
 		// 启动失败时等待回滚 exec 完成（成功 exec 不会返回）。
@@ -2406,7 +2393,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	select {
 	case sig := <-sigChan:
 		ctx := context.Background()
-		logger.InfoF(ctx, "Received signal: %v / 收到信号：%v", sig, sig)
+		logger.InfoF(ctx, "Received signal: %v", sig)
 		agent.Shutdown()
 	case err := <-errChan:
 		if err != nil {
@@ -2451,7 +2438,7 @@ func isUnimplementedError(err error) bool {
 // Only scans for running SeaTunnel processes, returns PID, role, install_dir
 // 只扫描运行中的 SeaTunnel 进程，返回 PID、角色、安装目录
 func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	reporter.Report(10, "Scanning for SeaTunnel processes... / 正在扫描 SeaTunnel 进程...")
+	reporter.Report(10, "Scanning for SeaTunnel processes...")
 
 	// Use simplified process discovery / 使用简化的进程发现
 	processDiscovery := discovery.NewProcessDiscovery()
@@ -2460,7 +2447,7 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
-	reporter.Report(80, fmt.Sprintf("Found %d process(es) / 发现 %d 个进程", len(processes), len(processes)))
+	reporter.Report(80, fmt.Sprintf("Found %d process(es)", len(processes)))
 
 	// Format output as JSON for easier parsing / 格式化输出为 JSON 以便于解析
 	// 包含所有发现的字段：PID、角色、安装目录、版本、hazelcast端口、api端口、集群标识 / Include all discovered fields: PID, role, install_dir, version, hazelcast_port, api_port, cluster_name
@@ -2482,7 +2469,7 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 
 	result := DiscoveryResult{
 		Success:   true,
-		Message:   fmt.Sprintf("Discovered %d SeaTunnel process(es) / 发现 %d 个 SeaTunnel 进程", len(processes), len(processes)),
+		Message:   fmt.Sprintf("Discovered %d SeaTunnel process(es)", len(processes)),
 		Processes: make([]ProcessInfo, 0, len(processes)),
 	}
 	for _, p := range processes {
@@ -2503,7 +2490,7 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
-	reporter.Report(100, "Process discovery completed / 进程发现完成")
+	reporter.Report(100, "Process discovery completed")
 	return executor.CreateSuccessResponse(cmd.CommandId, string(jsonOutput)), nil
 }
 
@@ -2523,7 +2510,7 @@ func (a *Agent) updateDiagnosticsTargets(ctx context.Context) {
 	}
 
 	a.errorCollector.ReplaceTargets(targets)
-	logger.InfoF(ctx, "[Diagnostics] Updated %d scan targets / 已更新 %d 个诊断扫描目标", len(targets), len(targets))
+	logger.InfoF(ctx, "[Diagnostics] Updated %d scan targets", len(targets))
 }
 
 // handleUpdateMonitorConfigCommand handles the UPDATE_MONITOR_CONFIG command
@@ -2531,7 +2518,7 @@ func (a *Agent) updateDiagnosticsTargets(ctx context.Context) {
 // Requirements 5.5: Apply new config immediately without restart
 // 需求 5.5：立即应用新配置，无需重启
 func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	reporter.Report(10, "Updating monitor config... / 更新监控配置...")
+	reporter.Report(10, "Updating monitor config...")
 
 	// Parse config from parameters / 从参数解析配置
 	autoMonitorEnabled := getParamBool(cmd.Parameters, "auto_monitor", true)
@@ -2563,12 +2550,11 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 				continue
 			}
 			a.processMonitor.UntrackProcessSilent(proc.Name)
-			logger.InfoF(ctx, "[Agent] Auto-monitor disabled, stopped monitoring process: %s / 自动监控已禁用，停止监控进程：%s",
-				proc.Name, proc.Name)
+			logger.InfoF(ctx, "[Agent] Auto-monitor disabled, stopped monitoring process: %s", proc.Name)
 		}
 		a.updateDiagnosticsTargets(ctx)
-		reporter.Report(100, "Monitor config updated (auto-monitor disabled, stopped monitoring) / 监控配置已更新（自动监控已禁用，停止监控）")
-		return executor.CreateSuccessResponse(cmd.CommandId, "Monitor config updated, auto-monitor disabled / 监控配置已更新，自动监控已禁用"), nil
+		reporter.Report(100, "Monitor config updated (auto-monitor disabled, stopped monitoring)")
+		return executor.CreateSuccessResponse(cmd.CommandId, "Monitor config updated, auto-monitor disabled"), nil
 	}
 
 	// Parse and track processes from Control Plane.
@@ -2584,10 +2570,9 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 			JavaHome string `json:"java_home"`
 		}
 		if err := json.Unmarshal([]byte(trackedProcessesJSON), &trackedProcesses); err != nil {
-			logger.ErrorF(ctx, "[Agent] Failed to parse tracked_processes: %v / 解析 tracked_processes 失败：%v", err, err)
+			logger.ErrorF(ctx, "[Agent] Failed to parse tracked_processes: %v", err)
 		} else {
-			logger.InfoF(ctx, "[Agent] Received %d processes to track (auto_monitor=%t, auto_restart=%t) / 收到 %d 个需要跟踪的进程（自动监控=%t，自动拉起=%t）",
-				len(trackedProcesses), autoMonitorEnabled, autoRestartEnabled, len(trackedProcesses), autoMonitorEnabled, autoRestartEnabled)
+			logger.InfoF(ctx, "[Agent] Received %d processes to track (auto_monitor=%t, auto_restart=%t)", len(trackedProcesses), autoMonitorEnabled, autoRestartEnabled)
 
 			expected := make(map[string]struct{}, len(trackedProcesses))
 			for _, proc := range trackedProcesses {
@@ -2601,7 +2586,7 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 					continue
 				}
 				a.processMonitor.UntrackProcessSilent(existing.Name)
-				logger.InfoF(ctx, "[Agent] Untracked stale monitored process: %s / 已移除过期受监控进程：%s", existing.Name, existing.Name)
+				logger.InfoF(ctx, "[Agent] Untracked stale monitored process: %s", existing.Name)
 			}
 
 			for _, proc := range trackedProcesses {
@@ -2624,24 +2609,21 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 				if resolvedPID > 0 {
 					a.processMonitor.TrackProcessSilent(processName, resolvedPID, proc.InstallDir, proc.Role, startParams)
 					a.processMonitor.SetProcessClusterID(processName, processClusterID)
-					logger.InfoF(ctx, "[Agent] Tracking running process (silent): %s (PID: %d, Role: %s, Dir: %s) / 静默跟踪运行中的进程：%s（PID：%d，角色：%s，目录：%s）",
-						processName, resolvedPID, proc.Role, proc.InstallDir, processName, resolvedPID, proc.Role, proc.InstallDir)
+					logger.InfoF(ctx, "[Agent] Tracking running process (silent): %s (PID: %d, Role: %s, Dir: %s)", processName, resolvedPID, proc.Role, proc.InstallDir)
 				} else if autoRestartEnabled {
 					a.processMonitor.TrackProcessSilent(processName, 0, proc.InstallDir, proc.Role, startParams)
 					a.processMonitor.SetProcessClusterID(processName, processClusterID)
-					logger.InfoF(ctx, "[Agent] Registered stopped process (will auto-restart): %s (Role: %s, Dir: %s) / 注册已停止的进程（将自动重启）：%s（角色：%s，目录：%s）",
-						processName, proc.Role, proc.InstallDir, processName, proc.Role, proc.InstallDir)
+					logger.InfoF(ctx, "[Agent] Registered stopped process (will auto-restart): %s (Role: %s, Dir: %s)", processName, proc.Role, proc.InstallDir)
 				} else {
-					logger.InfoF(ctx, "[Agent] Skip stopped process without auto-restart: %s (Role: %s, Dir: %s) / 自动拉起已禁用，跳过已停止进程：%s（角色：%s，目录：%s）",
-						processName, proc.Role, proc.InstallDir, processName, proc.Role, proc.InstallDir)
+					logger.InfoF(ctx, "[Agent] Skip stopped process without auto-restart: %s (Role: %s, Dir: %s)", processName, proc.Role, proc.InstallDir)
 				}
 			}
 		}
 	}
 	a.updateDiagnosticsTargets(ctx)
 
-	reporter.Report(100, "Monitor config updated / 监控配置已更新")
-	return executor.CreateSuccessResponse(cmd.CommandId, "Monitor config updated successfully / 监控配置更新成功"), nil
+	reporter.Report(100, "Monitor config updated")
+	return executor.CreateSuccessResponse(cmd.CommandId, "Monitor config updated successfully"), nil
 }
 
 // resolveMonitorProcessPID 核对控制面下发的 PID，并优先保留 Agent 已确认的本地 PID。
@@ -2660,24 +2642,22 @@ func (a *Agent) resolveMonitorProcessPID(ctx context.Context, processName string
 		if err != nil {
 			// 无法读取系统进程时保留候选 PID，避免监控抖动触发重复启动。
 			// Keep the candidate PID when process inspection fails to avoid a duplicate start caused by monitoring jitter.
-			logger.WarnF(ctx, "[Agent] Failed to verify monitored PID %d for %s: %v / 校验受监控 PID %d（%s）失败：%v", pid, processName, err, pid, processName, err)
+			logger.WarnF(ctx, "[Agent] Failed to verify monitored PID %d for %s: %v", pid, processName, err)
 			return pid
 		}
 		if matched {
 			return pid
 		}
-		logger.WarnF(ctx, "[Agent] Ignoring stale monitored PID %d for %s (Role: %s, Dir: %s) / 忽略过期的受监控 PID %d（进程：%s，角色：%s，目录：%s）",
-			pid, processName, role, installDir, pid, processName, role, installDir)
+		logger.WarnF(ctx, "[Agent] Ignoring stale monitored PID %d for %s (Role: %s, Dir: %s)", pid, processName, role, installDir)
 	}
 
 	discoveredPID, _, err := a.findSeaTunnelProcess(ctx, installDir, role)
 	if err == nil {
-		logger.InfoF(ctx, "[Agent] Discovered monitored process %s with PID %d (Role: %s, Dir: %s) / 已发现受监控进程 %s，PID 为 %d（角色：%s，目录：%s）",
-			processName, discoveredPID, role, installDir, processName, discoveredPID, role, installDir)
+		logger.InfoF(ctx, "[Agent] Discovered monitored process %s with PID %d (Role: %s, Dir: %s)", processName, discoveredPID, role, installDir)
 		return discoveredPID
 	}
 	if err != process.ErrProcessNotFound {
-		logger.WarnF(ctx, "[Agent] Failed to discover monitored process %s: %v / 查找受监控进程 %s 失败：%v", processName, err, processName, err)
+		logger.WarnF(ctx, "[Agent] Failed to discover monitored process %s: %v", processName, err)
 	}
 	return 0
 }
@@ -2685,11 +2665,11 @@ func (a *Agent) resolveMonitorProcessPID(ctx context.Context, processName string
 // handleRemoveInstallDirCommand handles the REMOVE_INSTALL_DIR command (force delete: remove install directory on host).
 // handleRemoveInstallDirCommand 处理 REMOVE_INSTALL_DIR 命令（强制删除：删除主机上的安装目录）。
 func (a *Agent) handleRemoveInstallDirCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	reporter.Report(10, "Removing install directory... / 正在删除安装目录...")
+	reporter.Report(10, "Removing install directory...")
 
 	installDir := getParamString(cmd.Parameters, "install_dir", "")
 	if installDir == "" {
-		msg := "install_dir is required / install_dir 为必填"
+		msg := "install_dir is required"
 		return executor.CreateErrorResponse(cmd.CommandId, msg), fmt.Errorf("%s", msg)
 	}
 
@@ -2698,9 +2678,9 @@ func (a *Agent) handleRemoveInstallDirCommand(ctx context.Context, cmd *pb.Comma
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
-	logger.InfoF(ctx, "[Agent] Removed install directory: %s / 已删除安装目录：%s", removedDir, removedDir)
-	reporter.Report(100, "Install directory removed / 安装目录已删除")
-	return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Install directory removed: %s / 安装目录已删除：%s", removedDir, removedDir)), nil
+	logger.InfoF(ctx, "[Agent] Removed install directory: %s", removedDir)
+	reporter.Report(100, "Install directory removed")
+	return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Install directory removed: %s", removedDir)), nil
 }
 
 // isProcessAlive checks if a process with the given PID is alive

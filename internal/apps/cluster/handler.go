@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -475,7 +476,7 @@ func (h *Handler) ListClusters(c *gin.Context) {
 func (h *Handler) GetCluster(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetClusterResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, GetClusterResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -501,7 +502,7 @@ func (h *Handler) GetCluster(c *gin.Context) {
 func (h *Handler) UpdateCluster(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, UpdateClusterResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, UpdateClusterResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -534,7 +535,7 @@ func (h *Handler) UpdateCluster(c *gin.Context) {
 func (h *Handler) DeleteCluster(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, DeleteClusterResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, DeleteClusterResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -593,7 +594,7 @@ func (h *Handler) DeleteCluster(c *gin.Context) {
 func (h *Handler) AddNode(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, AddNodeResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, AddNodeResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -623,7 +624,7 @@ func (h *Handler) AddNode(c *gin.Context) {
 func (h *Handler) AddNodes(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, AddNodesResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, AddNodesResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -672,13 +673,13 @@ func (h *Handler) AddNodes(c *gin.Context) {
 func (h *Handler) RemoveNode(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, RemoveNodeResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, RemoveNodeResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
 	nodeID, err := strconv.ParseUint(c.Param("nodeId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, RemoveNodeResponse{ErrorMsg: "无效的节点 ID / Invalid node ID"})
+		c.JSON(http.StatusBadRequest, RemoveNodeResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的节点 ID", "Invalid node ID")})
 		return
 	}
 
@@ -727,13 +728,13 @@ func (h *Handler) RemoveNode(c *gin.Context) {
 func (h *Handler) UpdateNode(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, AddNodeResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, AddNodeResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
 	nodeID, err := strconv.ParseUint(c.Param("nodeId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, AddNodeResponse{ErrorMsg: "无效的节点 ID / Invalid node ID"})
+		c.JSON(http.StatusBadRequest, AddNodeResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的节点 ID", "Invalid node ID")})
 		return
 	}
 
@@ -766,7 +767,7 @@ func (h *Handler) UpdateNode(c *gin.Context) {
 func (h *Handler) GetNodes(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetNodesResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, GetNodesResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -813,7 +814,7 @@ func (h *Handler) annotateMasterStates(ctx context.Context, clusterID uint, node
 func (h *Handler) StartCluster(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -840,7 +841,7 @@ func (h *Handler) StartCluster(c *gin.Context) {
 func (h *Handler) StopCluster(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -867,7 +868,7 @@ func (h *Handler) StopCluster(c *gin.Context) {
 func (h *Handler) RestartCluster(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -876,7 +877,7 @@ func (h *Handler) RestartCluster(c *gin.Context) {
 		ClusterID: uint(clusterID),
 		Operation: OperationRestart,
 		Success:   true,
-		Message:   "restart accepted / 重启已受理",
+		Message:   locale.Pick(c.Request.Context(), "重启已受理", "restart accepted"),
 	}
 	// 与单节点一致：先记 cluster_restart_requested 并立刻 2xx，避免多节点串行等 Agent 超时拖成错误结果。
 	// Same as single-node: record cluster_restart_requested and return 2xx before multi-node Agent waits.
@@ -900,8 +901,7 @@ func (h *Handler) RestartCluster(c *gin.Context) {
 	go func() {
 		result, err := h.service.Restart(bgCtx, uint(clusterID))
 		if err != nil {
-			logger.WarnF(bgCtx, "[Cluster] 异步重启集群失败 / async Restart failed: cluster_id=%d, err=%v",
-				clusterID, err)
+			logger.WarnF(bgCtx, "async Restart failed: cluster_id=%d, err=%v", clusterID, err)
 			// 后台失败除日志外再写 restart_failed，供进程事件列表展示。
 			// On background failure also persist restart_failed for the process-event list.
 			h.notifyOperationExecuted(bgCtx, &OperationEvent{
@@ -916,8 +916,7 @@ func (h *Handler) RestartCluster(c *gin.Context) {
 			return
 		}
 		if result != nil && !result.Success {
-			logger.WarnF(bgCtx, "[Cluster] 异步重启集群未成功 / async Restart unsuccessful: cluster_id=%d, msg=%s",
-				clusterID, result.Message)
+			logger.WarnF(bgCtx, "async Restart unsuccessful: cluster_id=%d, msg=%s", clusterID, result.Message)
 			h.notifyOperationExecuted(bgCtx, &OperationEvent{
 				ClusterID:   uint(clusterID),
 				ClusterName: clusterName,
@@ -947,7 +946,7 @@ func (h *Handler) RestartCluster(c *gin.Context) {
 func (h *Handler) GetClusterStatus(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetClusterStatusResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, GetClusterStatusResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -966,7 +965,7 @@ func (h *Handler) GetClusterStatus(c *gin.Context) {
 func (h *Handler) GetRuntimeStorage(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetRuntimeStorageResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, GetRuntimeStorageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	result, err := h.service.GetRuntimeStorageDetails(c.Request.Context(), uint(clusterID))
@@ -982,7 +981,7 @@ func (h *Handler) GetRuntimeStorage(c *gin.Context) {
 func (h *Handler) ValidateRuntimeStorage(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ValidateRuntimeStorageResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, ValidateRuntimeStorageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	kind := installerapp.RuntimeStorageValidationKind(strings.ToLower(strings.TrimSpace(c.Param("kind"))))
@@ -999,7 +998,7 @@ func (h *Handler) ValidateRuntimeStorage(c *gin.Context) {
 func (h *Handler) ApplyRuntimeStorage(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ApplyRuntimeStorageResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, ApplyRuntimeStorageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	kind := installerapp.RuntimeStorageValidationKind(strings.ToLower(strings.TrimSpace(c.Param("kind"))))
@@ -1020,7 +1019,7 @@ func (h *Handler) ApplyRuntimeStorage(c *gin.Context) {
 func (h *Handler) SwitchJobLogMode(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, SwitchJobLogModeResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, SwitchJobLogModeResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	var req SwitchJobLogModeRequest
@@ -1040,7 +1039,7 @@ func (h *Handler) SwitchJobLogMode(c *gin.Context) {
 func (h *Handler) ListRuntimeStorage(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ListRuntimeStorageResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, ListRuntimeStorageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	kind := installerapp.RuntimeStorageValidationKind(strings.ToLower(strings.TrimSpace(c.Param("kind"))))
@@ -1067,7 +1066,7 @@ func (h *Handler) ListRuntimeStorage(c *gin.Context) {
 func (h *Handler) PreviewRuntimeStorage(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, PreviewRuntimeStorageResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, PreviewRuntimeStorageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	kind := installerapp.RuntimeStorageValidationKind(strings.ToLower(strings.TrimSpace(c.Param("kind"))))
@@ -1090,7 +1089,7 @@ func (h *Handler) PreviewRuntimeStorage(c *gin.Context) {
 func (h *Handler) InspectCheckpointRuntimeStorage(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, InspectCheckpointRuntimeStorageResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, InspectCheckpointRuntimeStorageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	var req struct {
@@ -1121,7 +1120,7 @@ func (h *Handler) InspectCheckpointRuntimeStorage(c *gin.Context) {
 func (h *Handler) InspectIMAPRuntimeStorage(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, InspectIMAPRuntimeStorageResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, InspectIMAPRuntimeStorageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	var req struct {
@@ -1143,7 +1142,7 @@ func (h *Handler) InspectIMAPRuntimeStorage(c *gin.Context) {
 func (h *Handler) ProxyWebUI(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error_msg": "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -1158,7 +1157,7 @@ func (h *Handler) ProxyWebUI(c *gin.Context) {
 	targetNode := h.webUIMaster.pick(c.Request.Context(), uint(clusterID), nodes)
 
 	if targetNode == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error_msg": "当前集群未找到可用的 SeaTunnel Web UI 节点 / No available SeaTunnel Web UI node found"})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": locale.Pick(c.Request.Context(), "当前集群未找到可用的 SeaTunnel Web UI 节点", "No available SeaTunnel Web UI node found")})
 		return
 	}
 
@@ -1167,7 +1166,7 @@ func (h *Handler) ProxyWebUI(c *gin.Context) {
 		upstreamHost = strings.TrimSpace(targetNode.HostName)
 	}
 	if upstreamHost == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error_msg": "目标节点缺少主机地址，无法代理 Web UI / Target node has no host address for Web UI proxy"})
+		c.JSON(http.StatusBadRequest, gin.H{"error_msg": locale.Pick(c.Request.Context(), "目标节点缺少主机地址，无法代理 Web UI", "Target node has no host address for Web UI proxy")})
 		return
 	}
 
@@ -1238,7 +1237,7 @@ func (h *Handler) ProxyWebUI(c *gin.Context) {
 func (h *Handler) CleanupIMAPStorage(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, CleanupRuntimeStorageResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, CleanupRuntimeStorageResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	result, err := h.service.CleanupIMAPStorage(c.Request.Context(), uint(clusterID))
@@ -1263,7 +1262,7 @@ func (h *Handler) CleanupIMAPStorage(c *gin.Context) {
 func (h *Handler) PrecheckNode(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, PrecheckNodeResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, PrecheckNodeResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
@@ -1350,13 +1349,13 @@ func (h *Handler) getStatusCodeForError(err error) int {
 func (h *Handler) StartNode(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
 	nodeID, err := strconv.ParseUint(c.Param("nodeId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: "无效的节点 ID / Invalid node ID"})
+		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的节点 ID", "Invalid node ID")})
 		return
 	}
 
@@ -1384,13 +1383,13 @@ func (h *Handler) StartNode(c *gin.Context) {
 func (h *Handler) StopNode(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
 	nodeID, err := strconv.ParseUint(c.Param("nodeId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: "无效的节点 ID / Invalid node ID"})
+		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的节点 ID", "Invalid node ID")})
 		return
 	}
 
@@ -1426,13 +1425,13 @@ func (h *Handler) StopNode(c *gin.Context) {
 func (h *Handler) RestartNode(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
 	nodeID, err := strconv.ParseUint(c.Param("nodeId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: "无效的节点 ID / Invalid node ID"})
+		c.JSON(http.StatusBadRequest, ClusterOperationResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的节点 ID", "Invalid node ID")})
 		return
 	}
 
@@ -1440,7 +1439,7 @@ func (h *Handler) RestartNode(c *gin.Context) {
 		ClusterID: uint(clusterID),
 		Operation: OperationRestart,
 		Success:   true,
-		Message:   "restart accepted / 重启已受理",
+		Message:   locale.Pick(c.Request.Context(), "重启已受理", "restart accepted"),
 	}
 
 	// 先落 node_restart_requested，并立刻 2xx 受理返回：Agent 同步等待可达 30s+，
@@ -1466,8 +1465,7 @@ func (h *Handler) RestartNode(c *gin.Context) {
 	go func() {
 		result, err := h.service.RestartNode(bgCtx, uint(clusterID), uint(nodeID))
 		if err != nil {
-			logger.WarnF(bgCtx, "[Cluster] 异步重启节点失败 / async RestartNode failed: cluster_id=%d, node_id=%d, err=%v",
-				clusterID, nodeID, err)
+			logger.WarnF(bgCtx, "async RestartNode failed: cluster_id=%d, node_id=%d, err=%v", clusterID, nodeID, err)
 			// 后台失败除日志外再写 restart_failed，供进程事件列表展示。
 			// On background failure also persist restart_failed for the process-event list.
 			failResult := &OperationResult{
@@ -1482,8 +1480,7 @@ func (h *Handler) RestartNode(c *gin.Context) {
 			return
 		}
 		if result != nil && !result.Success {
-			logger.WarnF(bgCtx, "[Cluster] 异步重启节点未成功 / async RestartNode unsuccessful: cluster_id=%d, node_id=%d, msg=%s",
-				clusterID, nodeID, result.Message)
+			logger.WarnF(bgCtx, "async RestartNode unsuccessful: cluster_id=%d, node_id=%d, msg=%s", clusterID, nodeID, result.Message)
 			h.notifyOperationExecuted(bgCtx, h.buildNodeOperationEvent(
 				bgCtx, uint(clusterID), uint(nodeID), OperationRestart, result, username,
 			))
@@ -1522,13 +1519,13 @@ type GetNodeLogsResponse struct {
 func (h *Handler) GetNodeLogs(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetNodeLogsResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, GetNodeLogsResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 
 	nodeID, err := strconv.ParseUint(c.Param("nodeId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetNodeLogsResponse{ErrorMsg: "无效的节点 ID / Invalid node ID"})
+		c.JSON(http.StatusBadRequest, GetNodeLogsResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的节点 ID", "Invalid node ID")})
 		return
 	}
 
@@ -1574,12 +1571,12 @@ type GetNodeJavaRuntimeResponse struct {
 func (h *Handler) GetNodeJavaRuntime(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetNodeJavaRuntimeResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, GetNodeJavaRuntimeResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的集群 ID", "Invalid cluster ID")})
 		return
 	}
 	nodeID, err := strconv.ParseUint(c.Param("nodeId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, GetNodeJavaRuntimeResponse{ErrorMsg: "无效的节点 ID / Invalid node ID"})
+		c.JSON(http.StatusBadRequest, GetNodeJavaRuntimeResponse{ErrorMsg: locale.Pick(c.Request.Context(), "无效的节点 ID", "Invalid node ID")})
 		return
 	}
 	runtimeInfo, err := h.service.GetNodeJavaRuntime(c.Request.Context(), uint(clusterID), uint(nodeID))

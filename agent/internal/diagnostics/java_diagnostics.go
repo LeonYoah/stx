@@ -107,7 +107,7 @@ func CollectThreadDump(ctx context.Context, installDir, role, outputDir, javaHom
 		Tool:        tool,
 		OutputPath:  filePath,
 		SizeBytes:   int64(len(content)),
-		Message:     "线程栈采集完成 / thread dump collected",
+		Message:     "thread dump collected",
 		Content:     string(content),
 		CollectedAt: time.Now().UTC(),
 	}, nil
@@ -156,7 +156,7 @@ func CollectJVMDump(ctx context.Context, installDir, role, outputDir string, min
 	}
 	if freeBytes < requiredBytes {
 		result.Status = DumpStatusSkipped
-		result.Message = fmt.Sprintf("磁盘空间不足：free=%d required=%d / insufficient disk space: free=%d required=%d", freeBytes, requiredBytes, freeBytes, requiredBytes)
+		result.Message = fmt.Sprintf("insufficient disk space: free=%d required=%d", freeBytes, requiredBytes)
 		return result, nil
 	}
 
@@ -174,7 +174,7 @@ func CollectJVMDump(ctx context.Context, installDir, role, outputDir string, min
 	result.Tool = tool
 	result.OutputPath = filePath
 	result.SizeBytes = stat.Size()
-	result.Message = "JVM Dump 采集完成 / jvm dump created"
+	result.Message = "jvm dump created"
 	return result, nil
 }
 
@@ -204,9 +204,9 @@ var lookupJDKTool = javaenv.LookupTool
 func jdkToolHint(javaHome, first, second string) error {
 	if strings.TrimSpace(javaHome) != "" {
 		binDir := filepath.Join(javaenv.NormalizeHome(javaHome), "bin")
-		return fmt.Errorf("节点 JDK 目录 %s 下未找到 %s 或 %s，请确认该路径是完整 JDK / %s or %s not found under the node JDK directory %s; make sure the path is a full JDK", binDir, first, second, first, second, binDir)
+		return fmt.Errorf("%s or %s not found under the node JDK directory %s; make sure the path is a full JDK", first, second, binDir)
 	}
-	return fmt.Errorf("未检测到 %s 或 %s，请安装 JDK 并确保命令在 PATH 中 / %s or %s not found; install a JDK and ensure the tools are in PATH", first, second, first, second)
+	return fmt.Errorf("%s or %s not found; install a JDK and ensure the tools are in PATH", first, second)
 }
 
 func runThreadDumpCommand(ctx context.Context, pid int, javaHome string) ([]byte, string, error) {
@@ -228,7 +228,7 @@ func runThreadDumpCommand(ctx context.Context, pid int, javaHome string) ([]byte
 	if len(failures) == 0 {
 		return nil, "", jdkToolHint(javaHome, "jcmd", "jstack")
 	}
-	return nil, "", fmt.Errorf("线程栈采集失败 / failed to collect thread dump: %s", strings.Join(failures, "; "))
+	return nil, "", fmt.Errorf("failed to collect thread dump: %s", strings.Join(failures, "; "))
 }
 
 func runJVMDumpCommand(ctx context.Context, pid int, outputPath, javaHome string) (string, error) {
@@ -250,7 +250,7 @@ func runJVMDumpCommand(ctx context.Context, pid int, outputPath, javaHome string
 	if len(failures) == 0 {
 		return "", jdkToolHint(javaHome, "jcmd", "jmap")
 	}
-	return "", fmt.Errorf("JVM Dump 采集失败 / failed to create jvm dump: %s", strings.Join(failures, "; "))
+	return "", fmt.Errorf("failed to create jvm dump: %s", strings.Join(failures, "; "))
 }
 
 func formatCommandFailure(command string, err error, output []byte) string {

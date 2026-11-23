@@ -26,6 +26,7 @@ import (
 	"time"
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 )
 
@@ -288,7 +289,7 @@ func (s *Service) PushDolphin(ctx context.Context, actor executionapp.Actor, tas
 	// Carrying over the STX cron only applies to new workflows: an existing workflow's schedule is workflow-wide and
 	// overwriting it would change when every other node runs.
 	if req.UseBuiltinSchedule && mode != "new" {
-		result.Warning = joinWarning(result.Warning, "use_builtin_schedule 仅对新建工作流生效；已有工作流沿用其自身定时，STX 内置定时将关闭 / use_builtin_schedule only applies to new workflows; an existing workflow keeps its own schedule and the STX built-in schedule is turned off")
+		result.Warning = joinWarning(result.Warning, locale.Pick(ctx, "use_builtin_schedule 仅对新建工作流生效；已有工作流沿用其自身定时，STX 内置定时将关闭", "use_builtin_schedule only applies to new workflows; an existing workflow keeps its own schedule and the STX built-in schedule is turned off"))
 	}
 	switch mode {
 	case "new":
@@ -370,7 +371,7 @@ func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor,
 	if req.UseBuiltinSchedule {
 		cronExpr, timezone := builtinScheduleForDolphin(task)
 		if cronExpr != "" {
-			result.Warning = joinWarning(result.Warning, domDowWarning(cronExpr))
+			result.Warning = joinWarning(result.Warning, domDowWarning(ctx, cronExpr))
 			if err := client.CreateSchedule(ctx, projectCode, graph.Code, dolphinCrontab(cronExpr), timezone); err != nil {
 				result.Warning = joinWarning(result.Warning, err.Error())
 			}
@@ -613,9 +614,9 @@ func readSchedulesForPush(ctx context.Context, client *DolphinClient, projectCod
 	schedules, err := client.ListSchedules(ctx, projectCode, workflowCode)
 	if err != nil {
 		if wasOnline && !dryRun {
-			return nil, fmt.Errorf("读取工作流定时失败，未做任何修改 / failed to read the workflow schedules, nothing was changed: %w", err)
+			return nil, fmt.Errorf("failed to read the workflow schedules, nothing was changed: %w", err)
 		}
-		result.Warning = joinWarning(result.Warning, "读取工作流定时失败 / failed to read the workflow schedules: "+err.Error())
+		result.Warning = joinWarning(result.Warning, "failed to read the workflow schedules: "+err.Error())
 		return []DolphinScheduleInfo{}, nil
 	}
 	result.Schedules = schedules
@@ -650,7 +651,7 @@ func restoreOnlineSchedules(ctx context.Context, client *DolphinClient, projectC
 	}
 	current, err := client.ListSchedules(ctx, projectCode, workflowCode)
 	if err != nil {
-		return restored, fmt.Errorf("工作流已重新上线，但恢复定时失败，请在 DolphinScheduler 中手动上线 / the workflow is back online but its schedules could not be restored; bring them online in DolphinScheduler: %w", err)
+		return restored, fmt.Errorf("the workflow is back online but its schedules could not be restored; bring them online in DolphinScheduler: %w", err)
 	}
 	for _, item := range current {
 		if _, ok := want[item.ID]; !ok {
@@ -658,7 +659,7 @@ func restoreOnlineSchedules(ctx context.Context, client *DolphinClient, projectC
 		}
 		if !strings.EqualFold(item.ReleaseState, dolphinReleaseOnline) {
 			if err := client.OnlineSchedule(ctx, projectCode, item.ID); err != nil {
-				return restored, fmt.Errorf("工作流已重新上线，但定时 %d 上线失败，请在 DolphinScheduler 中手动上线 / the workflow is back online but schedule %d could not be brought online; do it in DolphinScheduler: %w", item.ID, item.ID, err)
+				return restored, fmt.Errorf("the workflow is back online but schedule %d could not be brought online; do it in DolphinScheduler: %w", item.ID, err)
 			}
 		}
 		restored = append(restored, item.ID)
@@ -811,10 +812,10 @@ func dolphinCrontab(cronExpr string) string {
 	}
 }
 
-func domDowWarning(cronExpr string) string {
+func domDowWarning(ctx context.Context, cronExpr string) string {
 	fields := strings.Fields(strings.TrimSpace(cronExpr))
 	if len(fields) == 5 && fields[2] != "*" && fields[4] != "*" {
-		return "cron 同时限制日期与星期：DolphinScheduler 无法表达“或”语义，已按日期保留，星期规则被丢弃 / both day-of-month and day-of-week restricted; Quartz cannot express OR semantics, the day-of-week rule was dropped"
+		return locale.Pick(ctx, "cron 同时限制日期与星期：DolphinScheduler 无法表达“或”语义，已按日期保留，星期规则被丢弃", "both day-of-month and day-of-week restricted; Quartz cannot express OR semantics, the day-of-week rule was dropped")
 	}
 	return ""
 }

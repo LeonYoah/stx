@@ -23,6 +23,7 @@
 import apiClient from '../core/api-client';
 import {createWebExecutionHeaders} from '../core/execution-headers';
 import {localizeBackendText} from '@/lib/i18n/localize-text';
+import {translateApiError} from '@/lib/i18n/api-error-text';
 import type {
   AvailableVersions,
   PackageInfo,
@@ -95,7 +96,7 @@ export async function uploadPackage(
   onProgress?: (percent: number) => void,
 ): Promise<PackageInfo> {
   if (!file || file.size <= 0) {
-    throw new Error('上传文件不能为空 / Upload file is empty');
+    throw new Error(translateApiError('upload.fileEmpty', '上传文件不能为空'));
   }
 
   const totalSize = file.size;
@@ -137,7 +138,7 @@ export async function uploadPackage(
 
     const result = response.data.data;
     if (!result) {
-      throw new Error('分片上传返回为空 / Empty chunk upload response');
+      throw new Error(translateApiError('upload.chunkEmpty', '分片上传返回为空'));
     }
 
     const isLastChunk = chunkIndex === totalChunks - 1;
@@ -152,7 +153,7 @@ export async function uploadPackage(
   }
 
   if (!finalPackage) {
-    throw new Error('分片上传未完成，请重试 / Chunk upload did not complete');
+    throw new Error(translateApiError('upload.chunkIncomplete', '分片上传未完成，请重试'));
   }
 
   if (sourceFile) {
@@ -205,7 +206,7 @@ export async function uploadSourcePackage(
   if (response.data.error_msg || !response.data.data) {
     throw new Error(
       response.data.error_msg ||
-        '源码包上传返回为空 / Empty source upload response',
+        translateApiError('upload.sourceEmpty', '源码包上传返回为空'),
     );
   }
   return response.data.data;
@@ -225,7 +226,7 @@ export async function fetchSourcePackage(
   if (response.data.error_msg || !response.data.data) {
     throw new Error(
       response.data.error_msg ||
-        '源码包下载返回为空 / Empty source fetch response',
+        translateApiError('upload.sourceFetchEmpty', '源码包下载返回为空'),
     );
   }
   return response.data.data;

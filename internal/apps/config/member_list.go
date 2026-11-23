@@ -33,7 +33,7 @@ var (
 	ErrMemberListNotFound = errors.New("hazelcast.network.join.tcp-ip.member-list not found / 未找到 hazelcast.network.join.tcp-ip.member-list")
 	// ErrEmptyMemberList 拒绝写入空成员列表。
 	// ErrEmptyMemberList refuses to write an empty member list.
-	ErrEmptyMemberList = errors.New("member list must not be empty / 成员列表不能为空")
+	ErrEmptyMemberList = errors.New("member list must not be empty")
 )
 
 // memberListPath 是 Hazelcast 成员列表在 YAML 中的路径。
@@ -157,13 +157,13 @@ func memberListValues(value *yaml.Node) ([]string, error) {
 		result := make([]string, 0, len(value.Content))
 		for _, item := range value.Content {
 			if item.Kind != yaml.ScalarNode {
-				return nil, fmt.Errorf("member-list item is not a scalar / member-list 条目不是标量")
+				return nil, fmt.Errorf("member-list item is not a scalar")
 			}
 			result = append(result, item.Value)
 		}
 		return result, nil
 	default:
-		return nil, fmt.Errorf("member-list is not a list / member-list 不是列表")
+		return nil, fmt.Errorf("member-list is not a list")
 	}
 }
 
@@ -347,7 +347,7 @@ func verifyMemberListPatch(original, patched string, members []string) error {
 		return ErrMemberListNotFound
 	}
 	if !reflect.DeepEqual(before, after) {
-		return errors.New("member-list patch changed other content / 修补 member-list 时意外改动了其他内容")
+		return errors.New("member-list patch changed other content")
 	}
 	return nil
 }

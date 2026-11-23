@@ -162,7 +162,7 @@ func TestSchedulerE2EWaitFailurePlainTextAndFinalMetrics(t *testing.T) {
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"data": map[string]any{
 					"id": 202, "status": status, "sync_state": "ok",
-					"error_message": "job ended with status failed",
+					"error_message":  "job ended with status failed",
 					"result_preview": preview,
 				},
 			})

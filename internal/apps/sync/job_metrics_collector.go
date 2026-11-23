@@ -141,4 +141,3 @@ func (s *Service) collectOneJobRealtime(ctx context.Context, job *JobInstance, e
 	}
 	exporter.observeRealtime(job, result.Vertices, result.Edges)
 }
-

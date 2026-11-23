@@ -57,7 +57,7 @@ func (s *Service) ingestRemoteAlertRecord(ctx context.Context, record *RemoteAle
 	// alert is re-reported with a new starts_at, so fold older instances into resolved silently (no
 	// recovery notification — this is bookkeeping, not a real recovery).
 	if staleErr := s.repo.ResolveStaleRemoteAlertsByFingerprint(ctx, record.Fingerprint, record.StartsAt, remoteAlertSupersedeTime(record)); staleErr != nil {
-		logger.WarnF(ctx, "远程告警收编同指纹旧实例失败，继续投递: %v / superseding stale instances of remote alert fingerprint failed, still delivering: %v", staleErr, staleErr)
+		logger.WarnF(ctx, "superseding stale instances of remote alert fingerprint failed, still delivering: %v", staleErr)
 	}
 	return s.deliverRemoteAlertRecord(ctx, record, previousRecord)
 }
@@ -258,7 +258,7 @@ func (s *Service) loadClustersHealth(ctx context.Context, clusterID uint) (*Clus
 		now := timex.Now()
 		remoteStats, statsErr := s.activeRemoteAlertStats(ctx, clusterIDs, now)
 		if statsErr != nil {
-			logger.WarnF(ctx, "集群健康远程告警计数失败，继续合并本地/同步告警: %v / clusters health remote alert stats failed, still merging local/sync alerts: %v", statsErr, statsErr)
+			logger.WarnF(ctx, "clusters health remote alert stats failed, still merging local/sync alerts: %v", statsErr)
 		} else {
 			statsMap = remoteStats
 		}
@@ -267,7 +267,7 @@ func (s *Service) loadClustersHealth(ctx context.Context, clusterID uint) (*Clus
 		// Cluster health / home KPIs match the alert center: remote metric alerts + sync job alerts + local process events.
 		// If merging local/sync alerts fails, keep remote counts so the page still has KPIs.
 		if err := s.mergeFiringAlertInstanceStats(ctx, statsMap, now, clusterID); err != nil {
-			logger.WarnF(ctx, "集群健康合并本地/同步告警失败，仅保留远程告警计数: %v / clusters health merge of local/sync alerts failed, keeping remote counts: %v", err, err)
+			logger.WarnF(ctx, "clusters health merge of local/sync alerts failed, keeping remote counts: %v", err)
 		}
 	}
 

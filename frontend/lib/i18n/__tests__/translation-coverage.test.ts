@@ -483,6 +483,34 @@ describe('translation coverage', () => {
     expect(mismatches).toEqual([]);
   });
 
+  it('语言包文案不允许出现「中文 / English」式双语拼接', () => {
+    const CJK = /[一-鿿]/;
+    const ENGLISH_WORD = /[A-Za-z]*[a-z][A-Za-z]{2,}/g;
+    const PLACEHOLDER = /\{[^}]*\}/g;
+    const offenders = (messages: MessageTree, locale: string) =>
+      collectLeafKeys(messages).flatMap((key) => {
+        const value = getMessage(messages, key);
+        if (typeof value !== 'string') {
+          return [];
+        }
+        const segments = value.replace(PLACEHOLDER, '').split(' / ');
+        if (segments.length < 2) {
+          return [];
+        }
+        const hasCjk = segments.some((segment) => CJK.test(segment));
+        const hasEnglish = segments.some(
+          (segment) =>
+            !CJK.test(segment) && (segment.match(ENGLISH_WORD) ?? []).length >= 2,
+        );
+        return hasCjk && hasEnglish ? [`${locale} ${key}: ${value}`] : [];
+      });
+
+    expect([
+      ...offenders(zhMessages, 'zh'),
+      ...offenders(enMessages, 'en'),
+    ]).toEqual([]);
+  });
+
   it('所有文案能够被 next-intl 成功解析且无 MALFORMED_ARGUMENT 等语法错误', () => {
     // 验证所有消息都能被 next-intl 成功解析
     // Verify all messages can be successfully parsed by next-intl

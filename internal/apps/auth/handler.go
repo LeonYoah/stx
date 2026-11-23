@@ -19,6 +19,7 @@
 package auth
 
 import (
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -231,23 +232,23 @@ func UpdateProfile(c *gin.Context) {
 	if hasTimezone {
 		normalized, ok := NormalizeTimezone(*req.Timezone)
 		if !ok {
-			c.JSON(http.StatusBadRequest, UpdateProfileResponse{ErrorMsg: "时区不合法 / Invalid timezone"})
+			c.JSON(http.StatusBadRequest, UpdateProfileResponse{ErrorMsg: locale.Pick(c.Request.Context(), "时区不合法", "Invalid timezone")})
 			return
 		}
 		timezone = normalized
 	}
 	if !hasEmail && !hasLanguage && !hasTimezone {
-		c.JSON(http.StatusBadRequest, UpdateProfileResponse{ErrorMsg: "至少提供一个可更新字段 / At least one field is required"})
+		c.JSON(http.StatusBadRequest, UpdateProfileResponse{ErrorMsg: locale.Pick(c.Request.Context(), "至少提供一个可更新字段", "At least one field is required")})
 		return
 	}
 	if hasEmail {
 		if _, err := mail.ParseAddress(email); err != nil {
-			c.JSON(http.StatusBadRequest, UpdateProfileResponse{ErrorMsg: "邮箱格式不正确 / Invalid email format"})
+			c.JSON(http.StatusBadRequest, UpdateProfileResponse{ErrorMsg: locale.Pick(c.Request.Context(), "邮箱格式不正确", "Invalid email format")})
 			return
 		}
 	}
 	if hasLanguage && language == "" {
-		c.JSON(http.StatusBadRequest, UpdateProfileResponse{ErrorMsg: "语言不合法 / Invalid language"})
+		c.JSON(http.StatusBadRequest, UpdateProfileResponse{ErrorMsg: locale.Pick(c.Request.Context(), "语言不合法", "Invalid language")})
 		return
 	}
 

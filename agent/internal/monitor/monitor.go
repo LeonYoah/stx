@@ -224,7 +224,7 @@ func (m *ProcessMonitor) Start(ctx context.Context) error {
 	m.running = true
 	m.mu.Unlock()
 
-	logger.InfoF(ctx, "[ProcessMonitor] Starting with interval: %v / 启动，间隔：%v", m.monitorInterval, m.monitorInterval)
+	logger.InfoF(ctx, "[ProcessMonitor] Starting with interval: %v", m.monitorInterval)
 
 	go m.monitorLoop()
 
@@ -247,7 +247,7 @@ func (m *ProcessMonitor) Stop() error {
 	m.running = false
 
 	ctx := context.Background()
-	logger.InfoF(ctx, "[ProcessMonitor] Stopped / 已停止")
+	logger.InfoF(ctx, "[ProcessMonitor] Stopped")
 	return nil
 }
 
@@ -291,8 +291,7 @@ func (m *ProcessMonitor) checkAllProcesses() {
 			// Only trigger if we have start params (meaning we can restart it)
 			// 只有在有启动参数时才触发（意味着我们可以重启它）
 			if proc.StartParams != nil {
-				logger.InfoF(ctx, "[ProcessMonitor] Process %s has PID=0, triggering auto-start / 进程 %s 的 PID=0，触发自动启动",
-					name, name)
+				logger.InfoF(ctx, "[ProcessMonitor] Process %s has PID=0, triggering auto-start", name)
 				proc.Restarting = true // Mark as restarting to prevent duplicate triggers / 标记为正在重启以防止重复触发
 
 				// Notify crash handler to start the process / 通知崩溃处理器启动进程
@@ -326,8 +325,7 @@ func (m *ProcessMonitor) checkAllProcesses() {
 		} else {
 			// Process is not running / 进程未运行
 			proc.ConsecutiveFails++
-			logger.WarnF(ctx, "[ProcessMonitor] Process %s (PID: %d) not alive, consecutive fails: %d / 进程 %s（PID：%d）不存活，连续失败：%d",
-				name, proc.PID, proc.ConsecutiveFails, name, proc.PID, proc.ConsecutiveFails)
+			logger.WarnF(ctx, "[ProcessMonitor] Process %s (PID: %d) not alive, consecutive fails: %d", name, proc.PID, proc.ConsecutiveFails)
 
 			// Check if threshold reached / 检查是否达到阈值
 			if proc.ConsecutiveFails >= m.consecutiveFailThreshold {
@@ -401,7 +399,7 @@ func (m *ProcessMonitor) TrackProcessWithEvent(name string, pid int, installDir,
 
 	m.trackedProcesses[name] = proc
 	ctx := context.Background()
-	logger.InfoF(ctx, "[ProcessMonitor] Tracking process: %s (PID: %d) / 跟踪进程：%s（PID：%d）", name, pid, name, pid)
+	logger.InfoF(ctx, "[ProcessMonitor] Tracking process: %s (PID: %d)", name, pid)
 
 	// Generate started event only if requested / 仅在需要时生成启动事件
 	if sendEvent {
@@ -438,7 +436,7 @@ func (m *ProcessMonitor) UntrackProcess(name string) {
 
 		delete(m.trackedProcesses, name)
 		ctx := context.Background()
-		logger.InfoF(ctx, "[ProcessMonitor] Untracked process: %s / 取消跟踪进程：%s", name, name)
+		logger.InfoF(ctx, "[ProcessMonitor] Untracked process: %s", name)
 	}
 }
 
@@ -453,7 +451,7 @@ func (m *ProcessMonitor) UntrackProcessSilent(name string) {
 	if _, exists := m.trackedProcesses[name]; exists {
 		delete(m.trackedProcesses, name)
 		ctx := context.Background()
-		logger.InfoF(ctx, "[ProcessMonitor] Silently untracked process (still running): %s / 静默取消跟踪进程（仍在运行）：%s", name, name)
+		logger.InfoF(ctx, "[ProcessMonitor] Silently untracked process (still running): %s", name)
 	}
 }
 
@@ -473,7 +471,7 @@ func (m *ProcessMonitor) UpdateProcessPID(name string, newPID int) {
 		}
 		proc.Restarting = false // Clear restarting flag / 清除重启标记
 		ctx := context.Background()
-		logger.InfoF(ctx, "[ProcessMonitor] Updated process PID: %s -> %d / 更新进程 PID：%s -> %d", name, newPID, name, newPID)
+		logger.InfoF(ctx, "[ProcessMonitor] Updated process PID: %s -> %d", name, newPID)
 	}
 }
 

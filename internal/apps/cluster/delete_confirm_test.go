@@ -36,14 +36,14 @@ import (
 )
 
 type deleteConfirmEnv struct {
-	db       *gorm.DB
-	svc      *Service
-	handler  *Handler
-	user     *auth.User
-	execSvc  *executionapp.Service
-	cluster  *Cluster
-	node     *ClusterNode
-	router   *gin.Engine
+	db      *gorm.DB
+	svc     *Service
+	handler *Handler
+	user    *auth.User
+	execSvc *executionapp.Service
+	cluster *Cluster
+	node    *ClusterNode
+	router  *gin.Engine
 }
 
 func newDeleteConfirmEnv(t *testing.T) *deleteConfirmEnv {

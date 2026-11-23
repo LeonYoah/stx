@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"sort"
 	"strings"
 	"time"
@@ -31,7 +32,7 @@ import (
 // ErrNodeConfigAccessUnavailable 未配置 Agent 客户端或节点信息提供者，无法读写节点文件。
 // ErrNodeConfigAccessUnavailable means no Agent client or node info provider is configured, so node files
 // cannot be read or written.
-var ErrNodeConfigAccessUnavailable = errors.New("node config access is not configured / 未配置节点配置读写能力")
+var ErrNodeConfigAccessUnavailable = errors.New("node config access is not configured")
 
 // ConfigChangeStatus 是扩缩容配置操作中单个配置的处理结果。
 // ConfigChangeStatus is the outcome of one config in a scaling config operation.
@@ -337,10 +338,10 @@ func (s *Service) ApplyTemplatesToHost(ctx context.Context, clusterID uint, host
 	}
 	installDir, err := s.nodeInfoProvider.GetNodeInstallDir(ctx, clusterID, hostID)
 	if err != nil {
-		return result, fmt.Errorf("resolve node install dir / 解析节点安装目录: %w", err)
+		return result, fmt.Errorf("resolve node install dir: %w", err)
 	}
 	if strings.TrimSpace(installDir) == "" {
-		return result, fmt.Errorf("node install dir is empty for cluster %d host %d / 集群 %d 主机 %d 的安装目录为空", clusterID, hostID, clusterID, hostID)
+		return result, fmt.Errorf("node install dir is empty for cluster %d host %d", clusterID, hostID)
 	}
 
 	templates, err := s.repo.List(ctx, &ConfigFilter{ClusterID: clusterID, OnlyTemplate: true})
@@ -360,7 +361,7 @@ func (s *Service) ApplyTemplatesToHost(ctx context.Context, clusterID uint, host
 		}
 	}
 	nodePorts, _ := s.nodeInfoProvider.GetNodePorts(ctx, clusterID, hostID)
-	comment := scalingComment("Applied cluster template / 应用集群模板", opRef)
+	comment := scalingComment(locale.Pick(ctx, "应用集群模板", "Applied cluster template"), opRef)
 	for _, template := range templates {
 		hostRef := hostID
 		item := &ConfigChangeItem{ConfigType: template.ConfigType, HostID: &hostRef}
@@ -401,7 +402,7 @@ func (s *Service) ApplyTemplatesToHost(ctx context.Context, clusterID uint, host
 			record = nil
 			pulled, pullErr := s.agentClient.PullConfig(ctx, hostID, installDir, template.ConfigType)
 			if pullErr == nil && strings.TrimSpace(pulled) != "" && validateConfigContent(template.ConfigType, pulled) == nil {
-				created, createErr := s.createNodeConfigRecord(ctx, clusterID, hostID, template.ConfigType, pulled, scalingComment("Imported from node before applying template / 应用模板前导入节点现有配置", opRef), userID)
+				created, createErr := s.createNodeConfigRecord(ctx, clusterID, hostID, template.ConfigType, pulled, scalingComment(locale.Pick(ctx, "应用模板前导入节点现有配置", "Imported from node before applying template"), opRef), userID)
 				if createErr != nil {
 					return result, createErr
 				}
@@ -412,7 +413,7 @@ func (s *Service) ApplyTemplatesToHost(ctx context.Context, clusterID uint, host
 				// success so the record never disagrees with the node.
 				if pushErr := s.agentClient.PushConfig(ctx, hostID, installDir, template.ConfigType, target); pushErr != nil {
 					item.Status = ConfigChangeFailed
-					item.Message = "推送配置到节点失败 / failed to push config to node: " + pushErr.Error()
+					item.Message = locale.Pick(ctx, "推送配置到节点失败", "failed to push config to node: ") + pushErr.Error()
 					result.add(item)
 					continue
 				}
@@ -469,7 +470,7 @@ func (s *Service) PatchMemberList(ctx context.Context, clusterID uint, deploymen
 	sortConfigsForScaling(targets)
 
 	endpointCache := make(map[uint]*endpointContextEntry)
-	comment := scalingComment("Patched member-list / 修补成员列表", opRef)
+	comment := scalingComment(locale.Pick(ctx, "修补成员列表", "Patched member-list"), opRef)
 	for _, config := range targets {
 		item := &ConfigChangeItem{ConfigID: config.ID, ConfigType: config.ConfigType, HostID: config.HostID, IsTemplate: config.IsTemplate(), Version: config.Version}
 
@@ -617,7 +618,7 @@ func truncateComment(comment string) string {
 // returns how many config records were deleted, 0 when the host had none.
 func (s *Service) DeleteHostConfigs(ctx context.Context, clusterID uint, hostID uint) (int, error) {
 	if clusterID == 0 || hostID == 0 {
-		return 0, fmt.Errorf("cluster id and host id are required / 集群 ID 与主机 ID 必填")
+		return 0, fmt.Errorf("cluster id and host id are required")
 	}
 	hostRef := hostID
 	return s.deleteHostRecords(ctx, &ConfigFilter{ClusterID: clusterID, HostID: &hostRef})
@@ -630,7 +631,7 @@ func (s *Service) DeleteHostConfigs(ctx context.Context, clusterID uint, hostID 
 // would otherwise keep marking as pending push). Templates are untouched.
 func (s *Service) DeleteConfigsByHost(ctx context.Context, hostID uint) (int, error) {
 	if hostID == 0 {
-		return 0, fmt.Errorf("host id is required / 主机 ID 必填")
+		return 0, fmt.Errorf("host id is required")
 	}
 	hostRef := hostID
 	return s.deleteHostRecords(ctx, &ConfigFilter{HostID: &hostRef})

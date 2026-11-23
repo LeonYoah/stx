@@ -37,6 +37,7 @@ import (
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -879,7 +880,7 @@ func diagnosticsLanguageFromRequest(c *gin.Context) DiagnosticLanguage {
 	if c == nil {
 		return DiagnosticLanguageZH
 	}
-	return normalizeDiagnosticLanguage(c.Query("lang"))
+	return normalizeDiagnosticLanguage(string(locale.FromContext(c.Request.Context())))
 }
 
 func parseErrorGroupFilter(c *gin.Context) (*SeatunnelErrorGroupFilter, error) {

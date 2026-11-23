@@ -77,7 +77,7 @@ func handleCheckClusterMembers(ctx context.Context, params map[string]string) (*
 		}
 		return &PrecheckResult{
 			Success: true,
-			Message: fmt.Sprintf("Hazelcast cluster has %d members / Hazelcast 集群有 %d 个成员", len(view.Members), len(view.Members)),
+			Message: fmt.Sprintf("Hazelcast cluster has %d members", len(view.Members)),
 			Details: map[string]string{
 				"member_count":      strconv.Itoa(len(view.Members)),
 				"data_member_count": strconv.Itoa(dataMembers),
@@ -87,7 +87,7 @@ func handleCheckClusterMembers(ctx context.Context, params map[string]string) (*
 	}
 	return &PrecheckResult{
 		Success: false,
-		Message: fmt.Sprintf("failed to read Hazelcast members / 读取 Hazelcast 成员失败: %v", lastErr),
+		Message: fmt.Sprintf("failed to read Hazelcast members: %v", lastErr),
 	}, nil
 }
 

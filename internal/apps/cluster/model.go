@@ -187,8 +187,8 @@ type Cluster struct {
 	DeploymentMode DeploymentMode `json:"deployment_mode" gorm:"size:20;not null"`
 	Version        string         `json:"version" gorm:"size:20"`
 	Status         ClusterStatus  `json:"status" gorm:"size:20;default:created;index"`
-	InstallDir string        `json:"install_dir" gorm:"size:255"`
-	Config     ClusterConfig `json:"config" gorm:"type:json"`
+	InstallDir     string         `json:"install_dir" gorm:"size:255"`
+	Config         ClusterConfig  `json:"config" gorm:"type:json"`
 	// ConfigScanError 仅内存字段：列表软加载 config 失败时保留原因，不落库。
 	// ConfigScanError is in-memory only: set when list soft-load of config fails; not persisted.
 	ConfigScanError string        `json:"-" gorm:"-"`

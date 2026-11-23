@@ -48,12 +48,12 @@ func (s *processEventMonitorStub) RecordEventFromReport(
 }
 
 type processEventNodeProviderStub struct {
-	clusterID      uint
-	nodeID         uint
-	updatedPID     int
-	updatedStatus  string
-	refreshCalls   []uint
-	updateErr      error
+	clusterID     uint
+	nodeID        uint
+	updatedPID    int
+	updatedStatus string
+	refreshCalls  []uint
+	updateErr     error
 }
 
 func (p *processEventNodeProviderStub) GetNodeByHostAndInstallDirAndRole(

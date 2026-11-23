@@ -21,13 +21,14 @@ import (
 	"context"
 	"errors"
 
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 // Common errors / 常见错误
 var (
-	ErrPluginNotFound = errors.New("plugin not found / 插件未找到")
+	ErrPluginNotFound = errors.New("plugin not found")
 )
 
 // Repository provides data access for installed plugins.
@@ -258,7 +259,7 @@ func (r *Repository) DeleteDependency(ctx context.Context, id uint) error {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return errors.New("dependency not found / 依赖未找到")
+		return errors.New(locale.Pick(ctx, "依赖未找到", "dependency not found"))
 	}
 	return nil
 }
@@ -269,7 +270,7 @@ func (r *Repository) GetDependencyByID(ctx context.Context, id uint) (*PluginDep
 	var dep PluginDependencyConfig
 	if err := r.db.WithContext(ctx).First(&dep, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("dependency not found / 依赖未找到")
+			return nil, errors.New(locale.Pick(ctx, "依赖未找到", "dependency not found"))
 		}
 		return nil, err
 	}
@@ -336,7 +337,7 @@ func (r *Repository) DeleteDependencyDisable(ctx context.Context, id uint) error
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return errors.New("disabled dependency not found / 禁用依赖未找到")
+		return errors.New(locale.Pick(ctx, "禁用依赖未找到", "disabled dependency not found"))
 	}
 	return nil
 }
@@ -347,7 +348,7 @@ func (r *Repository) GetDependencyDisableByID(ctx context.Context, id uint) (*Pl
 	var item PluginDependencyDisable
 	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("disabled dependency not found / 禁用依赖未找到")
+			return nil, errors.New(locale.Pick(ctx, "禁用依赖未找到", "disabled dependency not found"))
 		}
 		return nil, err
 	}

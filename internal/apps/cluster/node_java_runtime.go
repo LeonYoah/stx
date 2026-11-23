@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/LeonYoah/stx/internal/apps/javaruntime"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 )
 
 // NodeJavaRuntime 是节点实际生效的 JDK：配置值来自 cluster_nodes.java_home，路径与版本由 Agent 现场检查得出（AC7）。
@@ -47,17 +48,17 @@ func (s *Service) GetNodeJavaRuntime(ctx context.Context, clusterID, nodeID uint
 		return nil, ErrNodeNotFound
 	}
 	if s.hostProvider == nil {
-		return nil, fmt.Errorf("host provider not configured / 主机提供者未配置")
+		return nil, fmt.Errorf("host provider not configured")
 	}
 	hostInfo, err := s.hostProvider.GetHostByID(ctx, node.HostID)
 	if err != nil {
 		return nil, err
 	}
 	if hostInfo == nil || !hostInfo.IsOnline(s.heartbeatTimeout) {
-		return nil, fmt.Errorf("host is offline / 主机离线")
+		return nil, fmt.Errorf("host is offline")
 	}
 	if s.agentSender == nil || hostInfo.AgentID == "" {
-		return nil, fmt.Errorf("agent sender not configured / Agent 发送器未配置")
+		return nil, fmt.Errorf("agent sender not configured")
 	}
 	// JDK 判定按该节点所属集群的 SeaTunnel 版本分档（读取失败时回退到版本未知，不阻断详情展示）。
 	// The JDK verdict follows the cluster's SeaTunnel version (a read failure falls back to unknown instead of
@@ -69,7 +70,7 @@ func (s *Service) GetNodeJavaRuntime(ctx context.Context, clusterID, nodeID uint
 	configured := javaruntime.Normalize(node.JavaHome)
 	success, output, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_java", javaruntime.CheckParams(configured))
 	if err != nil {
-		return nil, fmt.Errorf("check node JDK / 检查节点 JDK: %w", err)
+		return nil, fmt.Errorf("check node JDK: %w", err)
 	}
 	result := javaruntime.Interpret(configured, success, output)
 	// Interpret 已判失败的结果（如旧 Agent 忽略自定义 java_home）不能被版本矩阵翻案，
@@ -90,10 +91,7 @@ func (s *Service) GetNodeJavaRuntime(ctx context.Context, clusterID, nodeID uint
 					result.Version, javaruntime.MaxSupportedMajor(clusterVersion))
 			} else {
 				result.Reason = "below_required_java"
-				result.Message = fmt.Sprintf(
-					"Java %d 低于集群 SeaTunnel %s 要求的 Java %d+ / Java %d is below the Java %d+ required by this cluster's SeaTunnel %s",
-					result.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion),
-					result.Version, javaruntime.MinSupportedMajor(clusterVersion), clusterVersion)
+				result.Message = locale.Pick(ctx, fmt.Sprintf("Java %d 低于集群 SeaTunnel %s 要求的 Java %d+", result.Version, clusterVersion, javaruntime.MinSupportedMajor(clusterVersion)), fmt.Sprintf("Java %d is below the Java %d+ required by this cluster's SeaTunnel %s", result.Version, javaruntime.MinSupportedMajor(clusterVersion), clusterVersion))
 			}
 		}
 	}

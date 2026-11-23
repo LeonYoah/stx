@@ -80,7 +80,7 @@ func RegisterPluginHandlers(executor *CommandExecutor) {
 // 此命令从 Control Plane 接收插件文件块。
 func HandleTransferPluginCommand(ctx context.Context, cmd *pb.CommandRequest, reporter ProgressReporter) (*pb.CommandResponse, error) {
 	if pluginManager == nil {
-		return CreateErrorResponse(cmd.CommandId, "plugin manager not initialized / 插件管理器未初始化"), nil
+		return CreateErrorResponse(cmd.CommandId, "plugin manager not initialized"), nil
 	}
 
 	// Extract parameters / 提取参数
@@ -99,7 +99,7 @@ func HandleTransferPluginCommand(ctx context.Context, cmd *pb.CommandRequest, re
 	// install_path is required for plugin installation
 	// install_path 是插件安装的必需参数
 	if installPath == "" {
-		return CreateErrorResponse(cmd.CommandId, "install_path is required for plugin transfer / 插件传输需要 install_path 参数"), nil
+		return CreateErrorResponse(cmd.CommandId, "install_path is required for plugin transfer"), nil
 	}
 
 	// Set install path / 设置安装路径
@@ -141,7 +141,7 @@ func HandleTransferPluginCommand(ctx context.Context, cmd *pb.CommandRequest, re
 
 		result := &PluginResult{
 			Success:       true,
-			Message:       fmt.Sprintf("File transfer completed: %s / 文件传输完成: %s", fileName, fileName),
+			Message:       fmt.Sprintf("File transfer completed: %s", fileName),
 			ConnectorPath: targetPath,
 		}
 		output, _ := json.Marshal(result)
@@ -156,7 +156,7 @@ func HandleTransferPluginCommand(ctx context.Context, cmd *pb.CommandRequest, re
 	// Each chunk is its own command, so the reply must be terminal: the Control Plane treats
 	// RUNNING as intermediate progress and would keep waiting until the command timeout.
 	// 每个数据块是独立命令，回复必须为终态：Control Plane 将 RUNNING 视为中间进度，会一直等到命令超时。
-	resp := CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Received %d/%d bytes / 已接收 %d/%d 字节", receivedBytes, totalSize, receivedBytes, totalSize))
+	resp := CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Received %d/%d bytes", receivedBytes, totalSize))
 	resp.Progress = progress
 	return resp, nil
 }
@@ -167,7 +167,7 @@ func HandleTransferPluginCommand(ctx context.Context, cmd *pb.CommandRequest, re
 // 此命令将插件从临时目录安装到 SeaTunnel 目录。
 func HandleInstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, reporter ProgressReporter) (*pb.CommandResponse, error) {
 	if pluginManager == nil {
-		return CreateErrorResponse(cmd.CommandId, "plugin manager not initialized / 插件管理器未初始化"), nil
+		return CreateErrorResponse(cmd.CommandId, "plugin manager not initialized"), nil
 	}
 
 	// Extract parameters / 提取参数
@@ -184,7 +184,7 @@ func HandleInstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, rep
 	// install_path is required for plugin installation
 	// install_path 是插件安装的必需参数
 	if installPath == "" {
-		return CreateErrorResponse(cmd.CommandId, "install_path is required for plugin installation / 插件安装需要 install_path 参数"), nil
+		return CreateErrorResponse(cmd.CommandId, "install_path is required for plugin installation"), nil
 	}
 
 	// Parse dependencies / 解析依赖
@@ -194,7 +194,7 @@ func HandleInstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, rep
 	}
 
 	if reporter != nil {
-		reporter.Report(10, fmt.Sprintf("Installing plugin %s v%s / 正在安装插件 %s v%s", pluginName, version, pluginName, version))
+		reporter.Report(10, fmt.Sprintf("Installing plugin %s v%s", pluginName, version))
 	}
 
 	// Install plugin using artifact_id if provided, otherwise use plugin_name
@@ -207,7 +207,7 @@ func HandleInstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, rep
 	if err != nil {
 		result := &PluginResult{
 			Success: false,
-			Message: "Plugin installation failed / 插件安装失败",
+			Message: "Plugin installation failed",
 			Error:   err.Error(),
 		}
 		output, _ := json.Marshal(result)
@@ -215,12 +215,12 @@ func HandleInstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, rep
 	}
 
 	if reporter != nil {
-		reporter.Report(100, fmt.Sprintf("Plugin %s installed successfully / 插件 %s 安装成功", pluginName, pluginName))
+		reporter.Report(100, fmt.Sprintf("Plugin %s installed successfully", pluginName))
 	}
 
 	result := &PluginResult{
 		Success:       true,
-		Message:       fmt.Sprintf("Plugin %s v%s installed successfully / 插件 %s v%s 安装成功", pluginName, version, pluginName, version),
+		Message:       fmt.Sprintf("Plugin %s v%s installed successfully", pluginName, version),
 		ConnectorPath: connectorPath,
 		LibPaths:      libPaths,
 	}
@@ -234,7 +234,7 @@ func HandleInstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, rep
 // 此命令从 SeaTunnel 目录卸载插件。
 func HandleUninstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, reporter ProgressReporter) (*pb.CommandResponse, error) {
 	if pluginManager == nil {
-		return CreateErrorResponse(cmd.CommandId, "plugin manager not initialized / 插件管理器未初始化"), nil
+		return CreateErrorResponse(cmd.CommandId, "plugin manager not initialized"), nil
 	}
 
 	// Extract parameters / 提取参数
@@ -250,14 +250,14 @@ func HandleUninstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, r
 	removeDeps := removeDepsStr == "true"
 
 	if reporter != nil {
-		reporter.Report(10, fmt.Sprintf("Uninstalling plugin %s v%s / 正在卸载插件 %s v%s", pluginName, version, pluginName, version))
+		reporter.Report(10, fmt.Sprintf("Uninstalling plugin %s v%s", pluginName, version))
 	}
 
 	// Uninstall plugin / 卸载插件
 	if err := pluginManager.UninstallPlugin(pluginName, version, installPath, removeDeps); err != nil {
 		result := &PluginResult{
 			Success: false,
-			Message: "Plugin uninstallation failed / 插件卸载失败",
+			Message: "Plugin uninstallation failed",
 			Error:   err.Error(),
 		}
 		output, _ := json.Marshal(result)
@@ -265,12 +265,12 @@ func HandleUninstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, r
 	}
 
 	if reporter != nil {
-		reporter.Report(100, fmt.Sprintf("Plugin %s uninstalled successfully / 插件 %s 卸载成功", pluginName, pluginName))
+		reporter.Report(100, fmt.Sprintf("Plugin %s uninstalled successfully", pluginName))
 	}
 
 	result := &PluginResult{
 		Success: true,
-		Message: fmt.Sprintf("Plugin %s v%s uninstalled successfully / 插件 %s v%s 卸载成功", pluginName, version, pluginName, version),
+		Message: fmt.Sprintf("Plugin %s v%s uninstalled successfully", pluginName, version),
 	}
 	output, _ := json.Marshal(result)
 	return CreateSuccessResponse(cmd.CommandId, string(output)), nil
@@ -282,7 +282,7 @@ func HandleUninstallPluginCommand(ctx context.Context, cmd *pb.CommandRequest, r
 // 此命令列出所有已安装的插件。
 func HandleListPluginsCommand(ctx context.Context, cmd *pb.CommandRequest, reporter ProgressReporter) (*pb.CommandResponse, error) {
 	if pluginManager == nil {
-		return CreateErrorResponse(cmd.CommandId, "plugin manager not initialized / 插件管理器未初始化"), nil
+		return CreateErrorResponse(cmd.CommandId, "plugin manager not initialized"), nil
 	}
 
 	// Extract parameters / 提取参数
@@ -293,7 +293,7 @@ func HandleListPluginsCommand(ctx context.Context, cmd *pb.CommandRequest, repor
 	if err != nil {
 		result := &PluginListResult{
 			Success: false,
-			Message: fmt.Sprintf("Failed to list plugins: %v / 列出插件失败: %v", err, err),
+			Message: fmt.Sprintf("Failed to list plugins: %v", err),
 			Plugins: []plugin.InstalledPluginInfo{},
 		}
 		output, _ := json.Marshal(result)
@@ -302,7 +302,7 @@ func HandleListPluginsCommand(ctx context.Context, cmd *pb.CommandRequest, repor
 
 	result := &PluginListResult{
 		Success: true,
-		Message: fmt.Sprintf("Found %d installed plugins / 找到 %d 个已安装插件", len(plugins), len(plugins)),
+		Message: fmt.Sprintf("Found %d installed plugins", len(plugins)),
 		Plugins: plugins,
 	}
 	output, _ := json.Marshal(result)

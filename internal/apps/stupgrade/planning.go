@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"os"
 	"path/filepath"
 	"sort"
@@ -105,7 +106,7 @@ func (s *Service) RunPrecheck(ctx context.Context, req *PrecheckRequest) (*Prech
 		result.Issues = append(result.Issues, blockingIssue(
 			CheckCategoryPackage,
 			"same_version",
-			fmt.Sprintf("target version %s is the same as current cluster version / 目标版本 %s 与当前集群版本相同", targetVersion, targetVersion),
+			locale.Pick(ctx, fmt.Sprintf("目标版本 %s 与当前集群版本相同", targetVersion), fmt.Sprintf("target version %s is the same as current cluster version", targetVersion)),
 			nil,
 		))
 	}
@@ -183,14 +184,14 @@ func (s *Service) CreatePlanFromRequest(ctx context.Context, req *CreatePlanRequ
 		precheck.Issues = append(precheck.Issues, blockingIssue(
 			CheckCategoryConfig,
 			"config_merge_plan_missing",
-			"config merge plan is required before plan creation / 生成升级计划前必须提供配置合并计划",
+			locale.Pick(ctx, "生成升级计划前必须提供配置合并计划", "config merge plan is required before plan creation"),
 			nil,
 		))
 	} else if !mergePlan.Ready || mergePlan.HasConflicts {
 		precheck.Issues = append(precheck.Issues, blockingIssue(
 			CheckCategoryConfig,
 			"config_merge_plan_unresolved",
-			"config merge plan still contains unresolved conflicts / 配置合并计划仍包含未解决冲突",
+			locale.Pick(ctx, "配置合并计划仍包含未解决冲突", "config merge plan still contains unresolved conflicts"),
 			map[string]string{"conflict_count": fmt.Sprintf("%d", mergePlan.ConflictCount)},
 		))
 	}
@@ -266,7 +267,7 @@ func validatePackageManifest(info *installerapp.PackageInfo, manifest PackageMan
 		issues = append(issues, blockingIssue(
 			CheckCategoryPackage,
 			"package_missing",
-			fmt.Sprintf("target package %s is not available locally / 目标安装包 %s 尚未在本地就绪", manifest.Version, manifest.Version),
+			fmt.Sprintf("target package %s is not available locally", manifest.Version),
 			map[string]string{"version": manifest.Version},
 		))
 		return issues
@@ -275,7 +276,7 @@ func validatePackageManifest(info *installerapp.PackageInfo, manifest PackageMan
 		issues = append(issues, blockingIssue(
 			CheckCategoryPackage,
 			"checksum_missing",
-			fmt.Sprintf("package checksum is missing for %s / 安装包 %s 缺少 checksum", manifest.Version, manifest.Version),
+			fmt.Sprintf("package checksum is missing for %s", manifest.Version),
 			map[string]string{"version": manifest.Version},
 		))
 	}
@@ -283,7 +284,7 @@ func validatePackageManifest(info *installerapp.PackageInfo, manifest PackageMan
 		issues = append(issues, blockingIssue(
 			CheckCategoryPackage,
 			"checksum_mismatch",
-			fmt.Sprintf("package checksum mismatch for %s / 安装包 %s checksum 不匹配", manifest.Version, manifest.Version),
+			fmt.Sprintf("package checksum mismatch for %s", manifest.Version),
 			map[string]string{"expected_checksum": expected, "actual_checksum": manifest.Checksum},
 		))
 	}
@@ -326,7 +327,7 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			issues = append(issues, blockingIssue(
 				CheckCategoryNode,
 				"jdk_path_invalid",
-				fmt.Sprintf("node %s target JDK path is invalid: %v / 节点 %s 的目标 JDK 路径不合法：%v", node.HostName, javaHomeErr, node.HostName, javaHomeErr),
+				locale.Pick(ctx, fmt.Sprintf("节点 %s 的目标 JDK 路径不合法：%v", node.HostName, javaHomeErr), fmt.Sprintf("node %s target JDK path is invalid: %v", node.HostName, javaHomeErr)),
 				map[string]string{
 					"host_id":   fmt.Sprintf("%d", node.HostID),
 					"java_home": firstNonEmptyStr(targetJavaHome, node.JavaHome),
@@ -338,7 +339,7 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			issues = append(issues, blockingIssue(
 				CheckCategoryNode,
 				"node_offline",
-				fmt.Sprintf("node %s is offline / 节点 %s 当前离线", node.HostName, node.HostName),
+				locale.Pick(ctx, fmt.Sprintf("节点 %s 当前离线", node.HostName), fmt.Sprintf("node %s is offline", node.HostName)),
 				map[string]string{"host_id": fmt.Sprintf("%d", node.HostID)},
 			))
 		}
@@ -346,7 +347,7 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			issues = append(issues, blockingIssue(
 				CheckCategoryNode,
 				"node_error",
-				fmt.Sprintf("node %s is in error state / 节点 %s 当前处于错误状态", node.HostName, node.HostName),
+				locale.Pick(ctx, fmt.Sprintf("节点 %s 当前处于错误状态", node.HostName), fmt.Sprintf("node %s is in error state", node.HostName)),
 				map[string]string{"host_id": fmt.Sprintf("%d", node.HostID)},
 			))
 		}
@@ -354,7 +355,7 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			issues = append(issues, blockingIssue(
 				CheckCategoryPackage,
 				"arch_mismatch",
-				fmt.Sprintf("package arch %s does not match node %s arch %s / 安装包架构 %s 与节点 %s 架构 %s 不匹配", packageArch, node.HostName, hostInfo.Arch, packageArch, node.HostName, hostInfo.Arch),
+				locale.Pick(ctx, fmt.Sprintf("安装包架构 %s 与节点 %s 架构 %s 不匹配", packageArch, node.HostName, hostInfo.Arch), fmt.Sprintf("package arch %s does not match node %s arch %s", packageArch, node.HostName, hostInfo.Arch)),
 				map[string]string{"package_arch": packageArch, "host_arch": hostInfo.Arch, "host_id": fmt.Sprintf("%d", node.HostID)},
 			))
 		}
@@ -370,7 +371,7 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 			issues = append(issues, blockingIssue(
 				CheckCategoryNode,
 				"disk_insufficient",
-				fmt.Sprintf("node %s does not have enough disk space for package distribution / 节点 %s 可用磁盘不足，无法分发安装包", node.HostName, node.HostName),
+				locale.Pick(ctx, fmt.Sprintf("节点 %s 可用磁盘不足，无法分发安装包", node.HostName), fmt.Sprintf("node %s does not have enough disk space for package distribution", node.HostName)),
 				map[string]string{
 					"host_id":         fmt.Sprintf("%d", node.HostID),
 					"required_bytes":  fmt.Sprintf("%d", packageSize),
@@ -418,7 +419,7 @@ func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, ta
 			issues = append(issues, blockingIssue(
 				CheckCategoryConnector,
 				"connector_missing",
-				fmt.Sprintf("connector %s for version %s is not downloaded locally / 版本 %s 的连接器 %s 尚未下载到本地", connectorName, targetVersion, targetVersion, connectorName),
+				locale.Pick(ctx, fmt.Sprintf("版本 %s 的连接器 %s 尚未下载到本地", targetVersion, connectorName), fmt.Sprintf("connector %s for version %s is not downloaded locally", connectorName, targetVersion)),
 				map[string]string{"connector": connectorName, "version": targetVersion},
 			))
 			continue
@@ -449,7 +450,7 @@ func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, ta
 			issues = append(issues, blockingIssue(
 				CheckCategoryConnector,
 				"profiles_missing",
-				fmt.Sprintf("connector %s (%s) requires dependency profiles but none were resolved; set connector_profiles / 连接器 %s (%s) 需要依赖画像但未能解析，请设置 connector_profiles", connectorName, targetVersion, connectorName, targetVersion),
+				locale.Pick(ctx, fmt.Sprintf("连接器 %s (%s) 需要依赖画像但未能解析，请设置 connector_profiles", connectorName, targetVersion), fmt.Sprintf("connector %s (%s) requires dependency profiles but none were resolved; set connector_profiles", connectorName, targetVersion)),
 				map[string]string{"connector": connectorName, "version": targetVersion},
 			))
 			continue
@@ -485,7 +486,7 @@ func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, ta
 				issues = append(issues, blockingIssue(
 					CheckCategoryConnector,
 					"dependency_missing",
-					fmt.Sprintf("dependency %s-%s for connector %s (%s) is not downloaded locally / 连接器 %s (%s) 的依赖 %s-%s 尚未下载到本地", dependency.ArtifactID, version, connectorName, targetVersion, connectorName, targetVersion, dependency.ArtifactID, version),
+					locale.Pick(ctx, fmt.Sprintf("连接器 %s (%s) 的依赖 %s-%s 尚未下载到本地", connectorName, targetVersion, dependency.ArtifactID, version), fmt.Sprintf("dependency %s-%s for connector %s (%s) is not downloaded locally", dependency.ArtifactID, version, connectorName, targetVersion)),
 					map[string]string{"connector": connectorName, "dependency": dependency.ArtifactID, "version": version, "target_dir": targetDir},
 				))
 			}
@@ -568,7 +569,7 @@ func (s *Service) buildConfigMergePlan(
 		issues = append(issues, blockingIssue(
 			CheckCategoryConfig,
 			"config_missing",
-			"cluster configs are not initialized / 集群配置尚未初始化，无法生成升级配置合并计划",
+			locale.Pick(ctx, "集群配置尚未初始化，无法生成升级配置合并计划", "cluster configs are not initialized"),
 			map[string]string{"cluster_id": fmt.Sprintf("%d", clusterID)},
 		))
 		return plan, issues, nil
@@ -759,7 +760,7 @@ func filterNodeScope(nodes []*clusterapp.NodeInfo, requestedNodeIDs []uint) ([]*
 		issues = append(issues, blockingIssue(
 			CheckCategoryNode,
 			"node_not_found",
-			fmt.Sprintf("node %d is not part of the cluster / 节点 %d 不属于当前集群", nodeID, nodeID),
+			fmt.Sprintf("node %d is not part of the cluster", nodeID),
 			map[string]string{"node_id": fmt.Sprintf("%d", nodeID)},
 		))
 	}
@@ -932,7 +933,7 @@ func (s *Service) checkTargetInstallDirWritable(ctx context.Context, node *clust
 	issue := blockingIssue(
 		CheckCategoryNode,
 		"target_dir_not_writable",
-		fmt.Sprintf("target install dir %s on node %s is not writable: %s / 节点 %s 上的目标安装目录 %s 不可写：%s", targetDir, target.HostName, reason, target.HostName, targetDir, reason),
+		locale.Pick(ctx, fmt.Sprintf("节点 %s 上的目标安装目录 %s 不可写：%s", target.HostName, targetDir, reason), fmt.Sprintf("target install dir %s on node %s is not writable: %s", targetDir, target.HostName, reason)),
 		map[string]string{
 			"host_id":            fmt.Sprintf("%d", target.HostID),
 			"target_install_dir": targetDir,
@@ -963,7 +964,7 @@ func (s *Service) checkJavaRuntimeForTarget(ctx context.Context, node *clusterap
 		issue := blockingIssue(
 			CheckCategoryNode,
 			"java_check_failed",
-			fmt.Sprintf("cannot check Java on node %s: %v / 无法检查节点 %s 的 Java 环境：%v", target.HostName, err, target.HostName, err),
+			locale.Pick(ctx, fmt.Sprintf("无法检查节点 %s 的 Java 环境：%v", target.HostName, err), fmt.Sprintf("cannot check Java on node %s: %v", target.HostName, err)),
 			map[string]string{"host_id": fmt.Sprintf("%d", target.HostID)},
 		)
 		return &issue
@@ -980,7 +981,7 @@ func (s *Service) checkJavaRuntimeForTarget(ctx context.Context, node *clusterap
 		issue := blockingIssue(
 			CheckCategoryNode,
 			"java_unusable",
-			fmt.Sprintf("node %s has no usable JDK for SeaTunnel %s: %s / 节点 %s 的 JDK 不可用于 SeaTunnel %s：%s", target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName), target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName)),
+			locale.Pick(ctx, fmt.Sprintf("节点 %s 的 JDK 不可用于 SeaTunnel %s：%s", target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName)), fmt.Sprintf("node %s has no usable JDK for SeaTunnel %s: %s", target.HostName, target.TargetVersion, rt.FailureMessage(target.HostName))),
 			metadata,
 		)
 		return &issue
@@ -1013,7 +1014,7 @@ func (s *Service) checkJavaRuntimeForTarget(ctx context.Context, node *clusterap
 		issue := warningIssue(
 			CheckCategoryNode,
 			"jdk_unusual_version",
-			fmt.Sprintf("node %s runs Java %d; SeaTunnel %s recommends Java %s / 节点 %s 运行 Java %d；SeaTunnel %s 推荐 Java %s", target.HostName, rt.Version, target.TargetVersion, recommended.RecommendedText(" or "), target.HostName, rt.Version, target.TargetVersion, recommended.RecommendedText(" 或 ")),
+			locale.Pick(ctx, fmt.Sprintf("节点 %s 运行 Java %d；SeaTunnel %s 推荐 Java %s", target.HostName, rt.Version, target.TargetVersion, recommended.RecommendedText(" 或 ")), fmt.Sprintf("node %s runs Java %d; SeaTunnel %s recommends Java %s", target.HostName, rt.Version, target.TargetVersion, recommended.RecommendedText(" or "))),
 			metadata,
 		)
 		return &issue

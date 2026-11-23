@@ -489,16 +489,16 @@ type StepInfo struct {
 // Note: Precheck is done separately via Prechecker, not part of installation steps
 // 注意：预检通过 Prechecker 单独完成，不是安装步骤的一部分
 var InstallationSteps = []StepInfo{
-	{Step: InstallStepDownload, Name: "download", Description: "Download package / 下载安装包", Retryable: true},
-	{Step: InstallStepVerify, Name: "verify", Description: "Verify checksum / 验证校验和", Retryable: true},
-	{Step: InstallStepExtract, Name: "extract", Description: "Extract package / 解压安装包", Retryable: true},
-	{Step: InstallStepConfigureCluster, Name: "configure_cluster", Description: "Configure cluster / 配置集群", Retryable: true},
-	{Step: InstallStepConfigureCheckpoint, Name: "configure_checkpoint", Description: "Configure checkpoint / 配置检查点", Retryable: true},
-	{Step: InstallStepConfigureIMAP, Name: "configure_imap", Description: "Configure IMAP / 配置 IMAP", Retryable: true},
-	{Step: InstallStepConfigureJVM, Name: "configure_jvm", Description: "Configure JVM / 配置 JVM", Retryable: true},
-	{Step: InstallStepInstallPlugins, Name: "install_plugins", Description: "Install plugins / 安装插件", Retryable: true},
-	{Step: InstallStepRegisterCluster, Name: "register_cluster", Description: "Register to cluster / 注册到集群", Retryable: true},
-	{Step: InstallStepComplete, Name: "complete", Description: "Complete / 完成", Retryable: false},
+	{Step: InstallStepDownload, Name: "download", Description: "Download package", Retryable: true},
+	{Step: InstallStepVerify, Name: "verify", Description: "Verify checksum", Retryable: true},
+	{Step: InstallStepExtract, Name: "extract", Description: "Extract package", Retryable: true},
+	{Step: InstallStepConfigureCluster, Name: "configure_cluster", Description: "Configure cluster", Retryable: true},
+	{Step: InstallStepConfigureCheckpoint, Name: "configure_checkpoint", Description: "Configure checkpoint", Retryable: true},
+	{Step: InstallStepConfigureIMAP, Name: "configure_imap", Description: "Configure IMAP", Retryable: true},
+	{Step: InstallStepConfigureJVM, Name: "configure_jvm", Description: "Configure JVM", Retryable: true},
+	{Step: InstallStepInstallPlugins, Name: "install_plugins", Description: "Install plugins", Retryable: true},
+	{Step: InstallStepRegisterCluster, Name: "register_cluster", Description: "Register to cluster", Retryable: true},
+	{Step: InstallStepComplete, Name: "complete", Description: "Complete", Retryable: false},
 }
 
 // ============================================================================
@@ -1462,7 +1462,7 @@ func (m *InstallerManager) InstallStepByStep(ctx context.Context, params *Instal
 	if err := params.Validate(); err != nil {
 		return &InstallResult{
 			Success:    false,
-			Message:    fmt.Sprintf("Invalid parameters: %v / 无效参数：%v", err, err),
+			Message:    fmt.Sprintf("Invalid parameters: %v", err),
 			FailedStep: InstallStepDownload,
 			Error:      err.Error(),
 		}, err
@@ -1506,7 +1506,7 @@ func (m *InstallerManager) InstallStepByStep(ctx context.Context, params *Instal
 			result.Success = false
 			result.FailedStep = s.step
 			result.Error = err.Error()
-			result.Message = fmt.Sprintf("Step %s failed: %v / 步骤 %s 失败：%v", s.step, err, s.step, err)
+			result.Message = fmt.Sprintf("Step %s failed: %v", s.step, err)
 			return result, err
 		}
 		logger.InfoF(ctx, "[InstallStepByStep] Step %s completed", s.step)
@@ -1518,7 +1518,7 @@ func (m *InstallerManager) InstallStepByStep(ctx context.Context, params *Instal
 	reporter.ReportStepComplete(InstallStepComplete)
 
 	result.Success = true
-	result.Message = "Installation completed successfully / 安装成功完成"
+	result.Message = "Installation completed successfully"
 	result.ConfigPath = filepath.Join(params.InstallDir, "config", "seatunnel.yaml")
 	return result, nil
 }
@@ -1553,7 +1553,7 @@ func (m *InstallerManager) ExecuteStep(ctx context.Context, step InstallStep, pa
 	case InstallStepRegisterCluster:
 		err = m.executeStepRegisterCluster(params, reporter)
 	default:
-		err = fmt.Errorf("unknown step: %s / 未知步骤：%s", step, step)
+		err = fmt.Errorf("unknown step: %s", step)
 	}
 
 	if err != nil {
@@ -1588,9 +1588,9 @@ func (m *InstallerManager) executeStepDownload(ctx context.Context, params *Inst
 	// If package path is already set, check if it exists
 	// 如果安装包路径已设置，检查是否存在
 	if params.PackagePath != "" {
-		reporter.Report(InstallStepDownload, 0, "Checking local package... / 检查本地安装包...")
+		reporter.Report(InstallStepDownload, 0, "Checking local package...")
 		if _, err := os.Stat(params.PackagePath); err == nil {
-			reporter.Report(InstallStepDownload, 100, "Local package found / 本地安装包已找到")
+			reporter.Report(InstallStepDownload, 100, "Local package found")
 			return nil
 		}
 	}
@@ -1599,7 +1599,7 @@ func (m *InstallerManager) executeStepDownload(ctx context.Context, params *Inst
 	// Agent-local package (never download from the internet here).
 	// 根据来源处理安装包传输；没有传输信息时回退到 Agent 本地安装包（此处绝不从互联网下载）。
 	if params.PackageTransfer == nil {
-		reporter.Report(InstallStepDownload, 0, "Looking for Agent-local package... / 查找 Agent 本地安装包...")
+		reporter.Report(InstallStepDownload, 0, "Looking for Agent-local package...")
 		localPath, err := m.resolveAgentLocalPackage(params)
 		if err != nil {
 			return err
@@ -1610,14 +1610,14 @@ func (m *InstallerManager) executeStepDownload(ctx context.Context, params *Inst
 			params.ExpectedChecksum = ""
 		}
 		params.PackagePath = localPath
-		reporter.Report(InstallStepDownload, 100, fmt.Sprintf("Using Agent-local package: %s / 使用 Agent 本地安装包: %s", localPath, localPath))
+		reporter.Report(InstallStepDownload, 100, fmt.Sprintf("Using Agent-local package: %s", localPath))
 		return nil
 	}
 
 	transfer := params.PackageTransfer
 	switch transfer.Source {
 	case PackageTransferFromControlPlane:
-		reporter.Report(InstallStepDownload, 0, "Receiving package from Control Plane... / 从 Control Plane 接收安装包...")
+		reporter.Report(InstallStepDownload, 0, "Receiving package from Control Plane...")
 		// Package will be received via gRPC stream, set the expected path
 		// 安装包将通过 gRPC 流接收，设置预期路径
 		params.PackagePath = filepath.Join(m.tempDir, transfer.FileName)
@@ -1626,29 +1626,29 @@ func (m *InstallerManager) executeStepDownload(ctx context.Context, params *Inst
 		// 注意：实际传输由 gRPC 客户端处理，此步骤只是准备
 		// The gRPC client should call ReceivePackage method
 		// gRPC 客户端应调用 ReceivePackage 方法
-		reporter.Report(InstallStepDownload, 100, "Package transfer prepared / 安装包传输已准备")
+		reporter.Report(InstallStepDownload, 100, "Package transfer prepared")
 
 	case PackageTransferFromURL:
-		reporter.Report(InstallStepDownload, 0, "Downloading package from URL... / 从 URL 下载安装包...")
+		reporter.Report(InstallStepDownload, 0, "Downloading package from URL...")
 		packagePath, err := m.downloadPackage(ctx, transfer.DownloadURL, reporter)
 		if err != nil {
 			return err
 		}
 		params.PackagePath = packagePath
 		params.ExpectedChecksum = transfer.Checksum
-		reporter.Report(InstallStepDownload, 100, "Download completed / 下载完成")
+		reporter.Report(InstallStepDownload, 100, "Download completed")
 
 	case PackageTransferLocal:
-		reporter.Report(InstallStepDownload, 0, "Checking local package... / 检查本地安装包...")
+		reporter.Report(InstallStepDownload, 0, "Checking local package...")
 		if _, err := os.Stat(transfer.LocalPath); os.IsNotExist(err) {
 			return fmt.Errorf("%w: %s", ErrPackageNotFound, transfer.LocalPath)
 		}
 		params.PackagePath = transfer.LocalPath
 		params.ExpectedChecksum = transfer.Checksum
-		reporter.Report(InstallStepDownload, 100, "Local package found / 本地安装包已找到")
+		reporter.Report(InstallStepDownload, 100, "Local package found")
 
 	default:
-		return fmt.Errorf("unsupported package transfer source: %s / 不支持的安装包传输源：%s", transfer.Source, transfer.Source)
+		return fmt.Errorf("unsupported package transfer source: %s", transfer.Source)
 	}
 
 	return nil
@@ -1663,7 +1663,7 @@ func (m *InstallerManager) ReceivePackage(ctx context.Context, transfer *Package
 		return "", errors.New("transfer info is required")
 	}
 
-	reporter.Report(InstallStepDownload, 0, "Receiving package from Control Plane... / 从 Control Plane 接收安装包...")
+	reporter.Report(InstallStepDownload, 0, "Receiving package from Control Plane...")
 
 	// Create temp file for the package
 	// 为安装包创建临时文件
@@ -1699,7 +1699,7 @@ func (m *InstallerManager) ReceivePackage(ctx context.Context, transfer *Package
 			if transfer.FileSize > 0 {
 				progress := int(float64(received) / float64(transfer.FileSize) * 100)
 				reporter.Report(InstallStepDownload, progress,
-					fmt.Sprintf("Received %d/%d bytes / 已接收 %d/%d 字节", received, transfer.FileSize, received, transfer.FileSize))
+					fmt.Sprintf("Received %d/%d bytes", received, transfer.FileSize))
 			}
 		}
 
@@ -1712,7 +1712,7 @@ func (m *InstallerManager) ReceivePackage(ctx context.Context, transfer *Package
 		}
 	}
 
-	reporter.Report(InstallStepDownload, 100, "Package received / 安装包已接收")
+	reporter.Report(InstallStepDownload, 100, "Package received")
 	return packagePath, nil
 }
 
@@ -1720,37 +1720,37 @@ func (m *InstallerManager) ReceivePackage(ctx context.Context, transfer *Package
 // executeStepVerify 验证安装包校验和
 func (m *InstallerManager) executeStepVerify(params *InstallParams, reporter ProgressReporter) error {
 	if params.ExpectedChecksum == "" {
-		reporter.Report(InstallStepVerify, 100, "Checksum verification skipped (no checksum provided) / 跳过校验和验证（未提供校验和）")
+		reporter.Report(InstallStepVerify, 100, "Checksum verification skipped (no checksum provided)")
 		return nil
 	}
 
-	reporter.Report(InstallStepVerify, 0, "Verifying checksum... / 验证校验和...")
+	reporter.Report(InstallStepVerify, 0, "Verifying checksum...")
 	if err := m.VerifyChecksum(params.PackagePath, params.ExpectedChecksum); err != nil {
 		return err
 	}
-	reporter.Report(InstallStepVerify, 100, "Checksum verified / 校验和验证通过")
+	reporter.Report(InstallStepVerify, 100, "Checksum verified")
 	return nil
 }
 
 // executeStepExtract extracts the installation package
 // executeStepExtract 解压安装包
 func (m *InstallerManager) executeStepExtract(ctx context.Context, params *InstallParams, reporter ProgressReporter) error {
-	reporter.Report(InstallStepExtract, 0, "Extracting package... / 解压安装包...")
+	reporter.Report(InstallStepExtract, 0, "Extracting package...")
 	if err := m.extractPackage(ctx, params.PackagePath, params.InstallDir, reporter); err != nil {
 		return err
 	}
-	reporter.Report(InstallStepExtract, 100, "Extraction completed / 解压完成")
+	reporter.Report(InstallStepExtract, 100, "Extraction completed")
 	return nil
 }
 
 // executeStepConfigureCluster configures cluster settings
 // executeStepConfigureCluster 配置集群设置
 func (m *InstallerManager) executeStepConfigureCluster(params *InstallParams, reporter ProgressReporter) error {
-	reporter.Report(InstallStepConfigureCluster, 0, "Configuring cluster... / 配置集群...")
+	reporter.Report(InstallStepConfigureCluster, 0, "Configuring cluster...")
 	if _, err := m.ConfigureCluster(params); err != nil {
 		return err
 	}
-	reporter.Report(InstallStepConfigureCluster, 100, "Cluster configured / 集群配置完成")
+	reporter.Report(InstallStepConfigureCluster, 100, "Cluster configured")
 	return nil
 }
 
@@ -1758,11 +1758,11 @@ func (m *InstallerManager) executeStepConfigureCluster(params *InstallParams, re
 // executeStepConfigureCheckpoint 配置检查点存储
 func (m *InstallerManager) executeStepConfigureCheckpoint(ctx context.Context, params *InstallParams, reporter ProgressReporter) error {
 	if params.Checkpoint == nil {
-		reporter.Report(InstallStepConfigureCheckpoint, 100, "Checkpoint configuration skipped (using defaults) / 跳过检查点配置（使用默认值）")
+		reporter.Report(InstallStepConfigureCheckpoint, 100, "Checkpoint configuration skipped (using defaults)")
 		return nil
 	}
 
-	reporter.Report(InstallStepConfigureCheckpoint, 0, "Configuring checkpoint storage... / 配置检查点存储...")
+	reporter.Report(InstallStepConfigureCheckpoint, 0, "Configuring checkpoint storage...")
 	warningMessage := m.maybeProbeCheckpointRuntimeStorage(ctx, params)
 	if err := m.configureCheckpointStorage(params); err != nil {
 		return err
@@ -1771,15 +1771,11 @@ func (m *InstallerManager) executeStepConfigureCheckpoint(ctx context.Context, p
 		reporter.Report(
 			InstallStepConfigureCheckpoint,
 			100,
-			fmt.Sprintf(
-				"Warning: checkpoint runtime probe issue: %s; configuration applied / 警告：checkpoint 运行时探测存在问题：%s；配置已应用",
-				warningMessage,
-				warningMessage,
-			),
+			fmt.Sprintf("Warning: checkpoint runtime probe issue: %s; configuration applied", warningMessage),
 		)
 		return nil
 	}
-	reporter.Report(InstallStepConfigureCheckpoint, 100, "Checkpoint storage configured / 检查点存储配置完成")
+	reporter.Report(InstallStepConfigureCheckpoint, 100, "Checkpoint storage configured")
 	return nil
 }
 
@@ -1787,11 +1783,11 @@ func (m *InstallerManager) executeStepConfigureCheckpoint(ctx context.Context, p
 // executeStepConfigureIMAP 配置 IMAP 持久化存储
 func (m *InstallerManager) executeStepConfigureIMAP(ctx context.Context, params *InstallParams, reporter ProgressReporter) error {
 	if params.IMAP == nil {
-		reporter.Report(InstallStepConfigureIMAP, 100, "IMAP configuration skipped (using defaults) / 跳过 IMAP 配置（使用默认值）")
+		reporter.Report(InstallStepConfigureIMAP, 100, "IMAP configuration skipped (using defaults)")
 		return nil
 	}
 
-	reporter.Report(InstallStepConfigureIMAP, 0, "Configuring IMAP persistence... / 配置 IMAP 持久化...")
+	reporter.Report(InstallStepConfigureIMAP, 0, "Configuring IMAP persistence...")
 	warningMessage := m.maybeProbeIMAPRuntimeStorage(ctx, params)
 	if err := m.configureIMAPStorage(params); err != nil {
 		return err
@@ -1800,15 +1796,11 @@ func (m *InstallerManager) executeStepConfigureIMAP(ctx context.Context, params 
 		reporter.Report(
 			InstallStepConfigureIMAP,
 			100,
-			fmt.Sprintf(
-				"Warning: IMAP runtime probe issue: %s; configuration applied / 警告：IMAP 运行时探测存在问题：%s；配置已应用",
-				warningMessage,
-				warningMessage,
-			),
+			fmt.Sprintf("Warning: IMAP runtime probe issue: %s; configuration applied", warningMessage),
 		)
 		return nil
 	}
-	reporter.Report(InstallStepConfigureIMAP, 100, "IMAP persistence configured / IMAP 持久化配置完成")
+	reporter.Report(InstallStepConfigureIMAP, 100, "IMAP persistence configured")
 	return nil
 }
 
@@ -1818,19 +1810,19 @@ func (m *InstallerManager) executeStepConfigureJVM(params *InstallParams, report
 	ctx := context.Background()
 	if params.JVM == nil {
 		logger.InfoF(ctx, "[JVM] JVM config is nil, skipping configuration")
-		reporter.Report(InstallStepConfigureJVM, 100, "JVM configuration skipped (using defaults) / 跳过 JVM 配置（使用默认值）")
+		reporter.Report(InstallStepConfigureJVM, 100, "JVM configuration skipped (using defaults)")
 		return nil
 	}
 
 	logger.InfoF(ctx, "[JVM] Configuring JVM with: hybrid=%d, master=%d, worker=%d, mode=%s",
 		params.JVM.HybridHeapSize, params.JVM.MasterHeapSize, params.JVM.WorkerHeapSize, params.DeploymentMode)
-	reporter.Report(InstallStepConfigureJVM, 0, "Configuring JVM... / 配置 JVM...")
+	reporter.Report(InstallStepConfigureJVM, 0, "Configuring JVM...")
 	if err := m.configureJVM(params); err != nil {
 		logger.ErrorF(ctx, "[JVM] Configuration failed: %v", err)
 		return err
 	}
 	logger.InfoF(ctx, "[JVM] Configuration completed successfully")
-	reporter.Report(InstallStepConfigureJVM, 100, "JVM configured / JVM 配置完成")
+	reporter.Report(InstallStepConfigureJVM, 100, "JVM configured")
 	return nil
 }
 
@@ -1838,11 +1830,11 @@ func (m *InstallerManager) executeStepConfigureJVM(params *InstallParams, report
 // executeStepInstallPlugins 验证选中的插件是否已安装
 func (m *InstallerManager) executeStepInstallPlugins(ctx context.Context, params *InstallParams, reporter ProgressReporter) error {
 	if params.Connector == nil || !params.Connector.InstallConnectors {
-		reporter.Report(InstallStepInstallPlugins, 100, "Plugin installation skipped / 跳过插件安装")
+		reporter.Report(InstallStepInstallPlugins, 100, "Plugin installation skipped")
 		return nil
 	}
 
-	reporter.Report(InstallStepInstallPlugins, 0, "Verifying installed plugins... / 验证已安装的插件...")
+	reporter.Report(InstallStepInstallPlugins, 0, "Verifying installed plugins...")
 
 	// Get connectors directory / 获取连接器目录
 	connectorsDir := filepath.Join(params.InstallDir, "connectors")
@@ -1852,17 +1844,17 @@ func (m *InstallerManager) executeStepInstallPlugins(ctx context.Context, params
 		// No connectors directory, but that's OK if no plugins were selected
 		// 没有连接器目录，但如果没有选择插件则没问题
 		if len(params.Connector.Connectors) == 0 {
-			reporter.Report(InstallStepInstallPlugins, 100, "No plugins to verify / 没有需要验证的插件")
+			reporter.Report(InstallStepInstallPlugins, 100, "No plugins to verify")
 			return nil
 		}
-		reporter.Report(InstallStepInstallPlugins, 100, "Connectors directory not found, plugins may not be installed / 连接器目录不存在，插件可能未安装")
+		reporter.Report(InstallStepInstallPlugins, 100, "Connectors directory not found, plugins may not be installed")
 		return nil
 	}
 
 	// List installed plugins / 列出已安装的插件
 	entries, err := os.ReadDir(connectorsDir)
 	if err != nil {
-		reporter.Report(InstallStepInstallPlugins, 100, fmt.Sprintf("Warning: failed to read connectors directory: %v / 警告：读取连接器目录失败: %v", err, err))
+		reporter.Report(InstallStepInstallPlugins, 100, fmt.Sprintf("Warning: failed to read connectors directory: %v", err))
 		return nil
 	}
 
@@ -1877,7 +1869,7 @@ func (m *InstallerManager) executeStepInstallPlugins(ctx context.Context, params
 	// Verify selected plugins are installed / 验证选中的插件是否已安装
 	selectedPlugins := params.Connector.Connectors
 	if len(selectedPlugins) == 0 {
-		reporter.Report(InstallStepInstallPlugins, 100, fmt.Sprintf("Found %d connector files / 发现 %d 个连接器文件", len(installedFiles), len(installedFiles)))
+		reporter.Report(InstallStepInstallPlugins, 100, fmt.Sprintf("Found %d connector files", len(installedFiles)))
 		return nil
 	}
 
@@ -1887,7 +1879,7 @@ func (m *InstallerManager) executeStepInstallPlugins(ctx context.Context, params
 
 	for i, pluginName := range selectedPlugins {
 		progress := (i + 1) * 100 / len(selectedPlugins)
-		reporter.Report(InstallStepInstallPlugins, progress, fmt.Sprintf("Checking plugin %s... / 检查插件 %s...", pluginName, pluginName))
+		reporter.Report(InstallStepInstallPlugins, progress, fmt.Sprintf("Checking plugin %s...", pluginName))
 
 		// Check if plugin file exists (try multiple naming patterns)
 		// 检查插件文件是否存在（尝试多种命名模式）
@@ -1909,11 +1901,9 @@ func (m *InstallerManager) executeStepInstallPlugins(ctx context.Context, params
 
 	// Report result / 报告结果
 	if len(missingPlugins) > 0 {
-		reporter.Report(InstallStepInstallPlugins, 100, fmt.Sprintf("Plugins verified: %d/%d installed, missing: %v / 插件验证: %d/%d 已安装, 缺失: %v",
-			installedCount, len(selectedPlugins), missingPlugins,
-			installedCount, len(selectedPlugins), missingPlugins))
+		reporter.Report(InstallStepInstallPlugins, 100, fmt.Sprintf("Plugins verified: %d/%d installed, missing: %v", installedCount, len(selectedPlugins), missingPlugins))
 	} else {
-		reporter.Report(InstallStepInstallPlugins, 100, fmt.Sprintf("All %d plugins verified / 全部 %d 个插件验证通过", installedCount, installedCount))
+		reporter.Report(InstallStepInstallPlugins, 100, fmt.Sprintf("All %d plugins verified", installedCount))
 	}
 
 	return nil
@@ -1925,28 +1915,28 @@ func (m *InstallerManager) executeStepInstallPlugins(ctx context.Context, params
 // 注意：Agent 管理 SeaTunnel 进程生命周期，Control Plane 会在安装后发送 START 命令
 func (m *InstallerManager) executeStepRegisterCluster(params *InstallParams, reporter ProgressReporter) error {
 	if params.ClusterID == "" {
-		reporter.Report(InstallStepRegisterCluster, 100, "Cluster registration skipped (no cluster ID provided) / 跳过集群注册（未提供集群 ID）")
+		reporter.Report(InstallStepRegisterCluster, 100, "Cluster registration skipped (no cluster ID provided)")
 		return nil
 	}
 
-	reporter.Report(InstallStepRegisterCluster, 0, "Preparing for cluster registration... / 准备集群注册...")
+	reporter.Report(InstallStepRegisterCluster, 0, "Preparing for cluster registration...")
 
 	// Verify installation directory exists / 验证安装目录存在
 	if _, err := os.Stat(params.InstallDir); os.IsNotExist(err) {
-		return fmt.Errorf("installation directory not found: %s / 安装目录不存在: %s", params.InstallDir, params.InstallDir)
+		return fmt.Errorf("installation directory not found: %s", params.InstallDir)
 	}
 
 	// Verify start script exists / 验证启动脚本存在
 	startScript := filepath.Join(params.InstallDir, "bin", "seatunnel-cluster.sh")
 	if _, err := os.Stat(startScript); os.IsNotExist(err) {
-		reporter.Report(InstallStepRegisterCluster, 50, "Warning: start script not found, cluster may not start properly / 警告：启动脚本不存在，集群可能无法正常启动")
+		reporter.Report(InstallStepRegisterCluster, 50, "Warning: start script not found, cluster may not start properly")
 	}
 
-	reporter.Report(InstallStepRegisterCluster, 80, "Installation verified, ready for cluster startup / 安装已验证，准备启动集群")
+	reporter.Report(InstallStepRegisterCluster, 80, "Installation verified, ready for cluster startup")
 
 	// Note: Actual cluster startup is handled by Control Plane sending START command
 	// 注意：实际的集群启动由 Control Plane 发送 START 命令处理
-	reporter.Report(InstallStepRegisterCluster, 100, "Cluster registration completed, waiting for startup command / 集群注册完成，等待启动命令")
+	reporter.Report(InstallStepRegisterCluster, 100, "Cluster registration completed, waiting for startup command")
 	return nil
 }
 
@@ -2516,7 +2506,7 @@ func (m *InstallerManager) downloadPackage(ctx context.Context, url string, repo
 			// Report progress / 上报进度
 			if totalSize > 0 {
 				progress := int(float64(downloaded) / float64(totalSize) * 100)
-				reporter.Report(InstallStepDownload, progress, fmt.Sprintf("Downloaded %d/%d bytes / 已下载 %d/%d 字节", downloaded, totalSize, downloaded, totalSize))
+				reporter.Report(InstallStepDownload, progress, fmt.Sprintf("Downloaded %d/%d bytes", downloaded, totalSize))
 			}
 		}
 
@@ -2647,7 +2637,7 @@ func (m *InstallerManager) extractPackage(ctx context.Context, packagePath, dest
 
 			fileCount++
 			if fileCount%100 == 0 {
-				reporter.Report(InstallStepExtract, 50, fmt.Sprintf("Extracted %d files... / 已解压 %d 个文件...", fileCount, fileCount))
+				reporter.Report(InstallStepExtract, 50, fmt.Sprintf("Extracted %d files...", fileCount))
 			}
 		case tar.TypeSymlink:
 			// Create symlink / 创建符号链接

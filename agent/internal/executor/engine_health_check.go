@@ -93,19 +93,19 @@ func handleCheckEngineHealth(ctx context.Context, params map[string]string) (*Pr
 	case result.known && result.healthy:
 		return &PrecheckResult{
 			Success: true,
-			Message: "SeaTunnel engine is ready / SeaTunnel 引擎已就绪",
+			Message: "SeaTunnel engine is ready",
 			Details: details,
 		}, nil
 	case result.known:
 		return &PrecheckResult{
 			Success: false,
-			Message: fmt.Sprintf("SeaTunnel engine is not ready: %s / SeaTunnel 引擎未就绪：%s", result.reason, result.reason),
+			Message: fmt.Sprintf("SeaTunnel engine is not ready: %s", result.reason),
 			Details: details,
 		}, nil
 	default:
 		return &PrecheckResult{
 			Success: false,
-			Message: fmt.Sprintf("engine readiness unknown: %s / 引擎就绪状态未知：%s", result.reason, result.reason),
+			Message: fmt.Sprintf("engine readiness unknown: %s", result.reason),
 			Details: details,
 		}, nil
 	}

@@ -264,7 +264,7 @@ func (r ExecuteRequest) ResolveMode() (string, error) {
 		}
 		return ExecModeDryRun, nil
 	default:
-		return "", fmt.Errorf("invalid mode %q: must be %q or %q / mode 只能是 %q 或 %q", r.Mode, ExecModeApply, ExecModeDryRun, ExecModeApply, ExecModeDryRun)
+		return "", fmt.Errorf("invalid mode %q: must be %q or %q", r.Mode, ExecModeApply, ExecModeDryRun)
 	}
 }
 

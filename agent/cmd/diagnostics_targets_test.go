@@ -38,8 +38,8 @@ type captureLogSender struct {
 	entries []*pb.LogEntry
 }
 
-func (s *captureLogSender) IsConnected() bool     { return true }
-func (s *captureLogSender) GetAgentID() string    { return "agent-test" }
+func (s *captureLogSender) IsConnected() bool  { return true }
+func (s *captureLogSender) GetAgentID() string { return "agent-test" }
 func (s *captureLogSender) SendLogEntries(_ context.Context, entries []*pb.LogEntry) error {
 	s.entries = append(s.entries, entries...)
 	return nil

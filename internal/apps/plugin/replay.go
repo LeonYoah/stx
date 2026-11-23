@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"sort"
 	"strings"
 
@@ -31,7 +32,7 @@ import (
 // ErrPluginReplayUnavailable 未配置 Agent 命令发送器或主机信息获取器，无法向节点补齐插件。
 // ErrPluginReplayUnavailable means no Agent command sender or host info getter is configured, so plugins
 // cannot be replayed to a node.
-var ErrPluginReplayUnavailable = errors.New("plugin replay is not configured / 未配置插件补齐能力")
+var ErrPluginReplayUnavailable = errors.New("plugin replay is not configured")
 
 // 插件补齐的逐插件结果状态。
 // Per-plugin outcome of a plugin replay.
@@ -138,14 +139,14 @@ func (s *Service) ReplayClusterPluginsToHost(ctx context.Context, clusterID uint
 		return report, ErrPluginReplayUnavailable
 	}
 	if strings.TrimSpace(installDir) == "" {
-		return report, fmt.Errorf("install dir is required / 安装目录不能为空")
+		return report, fmt.Errorf("install dir is required")
 	}
 	agentID, err := s.hostInfoGetter.GetHostAgentID(ctx, hostID)
 	if err != nil {
-		return report, fmt.Errorf("resolve agent of host %d / 解析主机 %d 的 Agent: %w", hostID, hostID, err)
+		return report, fmt.Errorf("resolve agent of host %d: %w", hostID, err)
 	}
 	if strings.TrimSpace(agentID) == "" {
-		return report, fmt.Errorf("agent not installed on host %d / 主机 %d 未安装 Agent", hostID, hostID)
+		return report, fmt.Errorf("agent not installed on host %d", hostID)
 	}
 
 	plugins, err := s.ListInstalledPlugins(ctx, clusterID)
@@ -157,7 +158,7 @@ func (s *Service) ReplayClusterPluginsToHost(ctx context.Context, clusterID uint
 	if listErr != nil {
 		report.NodeListError = listErr.Error()
 		present = make(map[string]struct{})
-		logger.WarnF(ctx, "[Plugin] 读取节点插件失败，按全部缺失补齐 / Failed to list node plugins, replaying all: cluster=%d, host=%d, err=%v", clusterID, hostID, listErr)
+		logger.WarnF(ctx, "Failed to list node plugins, replaying all: cluster=%d, host=%d, err=%v", clusterID, hostID, listErr)
 	}
 
 	// 伴生连接器（由主插件依赖带出）排在主插件之后，主插件下发后它们通常已存在，避免重复传输。
@@ -183,8 +184,7 @@ func (s *Service) ReplayClusterPluginsToHost(ctx context.Context, clusterID uint
 		report.add(result)
 	}
 
-	logger.InfoF(ctx, "[Plugin] 插件补齐完成 / Plugin replay finished: cluster=%d, host=%d, installed=%d, present=%d, skipped=%d, failed=%d",
-		clusterID, hostID, report.InstalledCount, report.PresentCount, report.SkippedCount, report.FailedCount)
+	logger.InfoF(ctx, "Plugin replay finished: cluster=%d, host=%d, installed=%d, present=%d, skipped=%d, failed=%d", clusterID, hostID, report.InstalledCount, report.PresentCount, report.SkippedCount, report.FailedCount)
 	return report, nil
 }
 
@@ -273,7 +273,7 @@ func (s *Service) replayOnePlugin(ctx context.Context, agentID, installDir strin
 
 	if !isReplayablePluginStatus(installed.Status) {
 		result.Status = PluginReplaySkipped
-		result.Message = fmt.Sprintf("plugin status %s is not replayed / 插件状态 %s 不补齐", installed.Status, installed.Status)
+		result.Message = locale.Pick(ctx, fmt.Sprintf("插件状态 %s 不补齐", installed.Status), fmt.Sprintf("plugin status %s is not replayed", installed.Status))
 		return result
 	}
 	_, connectorPresent := present[connectorKey(artifactID, version)]
@@ -295,7 +295,7 @@ func (s *Service) replayOnePlugin(ctx context.Context, agentID, installDir strin
 	deps, depErr := s.GetPluginDependenciesForVersionAndProfiles(ctx, installed.PluginName, version, result.ProfileKeys)
 	if depErr != nil {
 		result.Status = PluginReplayFailed
-		result.Message = fmt.Sprintf("resolve dependencies / 解析依赖失败: %v", depErr)
+		result.Message = locale.Pick(ctx, fmt.Sprintf("解析依赖失败: %v", depErr), fmt.Sprintf("resolve dependencies: %v", depErr))
 		return result
 	}
 
@@ -318,7 +318,7 @@ func (s *Service) replayOnePlugin(ctx context.Context, agentID, installDir strin
 		if !s.arePluginDependenciesDownloaded(&Plugin{Version: version, Dependencies: extraDeps}) {
 			if err := s.DownloadPluginSync(ctx, installed.PluginName, version, "", result.ProfileKeys); err != nil {
 				result.Status = PluginReplayFailed
-				result.Message = fmt.Sprintf("prepare local plugin files / 准备本地插件文件失败: %v", err)
+				result.Message = locale.Pick(ctx, fmt.Sprintf("准备本地插件文件失败: %v", err), fmt.Sprintf("prepare local plugin files: %v", err))
 				return result
 			}
 		}
@@ -328,7 +328,7 @@ func (s *Service) replayOnePlugin(ctx context.Context, agentID, installDir strin
 			return result
 		}
 		result.Status = PluginReplayInstalled
-		result.Message = fmt.Sprintf("connector present; %d dependency file(s) synced / 连接器已存在，已补传 %d 个依赖", len(extraDeps), len(extraDeps))
+		result.Message = locale.Pick(ctx, fmt.Sprintf("连接器已存在，已补传 %d 个依赖", len(extraDeps)), fmt.Sprintf("connector present; %d dependency file(s) synced", len(extraDeps)))
 		return result
 	}
 
@@ -338,7 +338,7 @@ func (s *Service) replayOnePlugin(ctx context.Context, agentID, installDir strin
 	if !s.downloader.IsConnectorDownloadedByArtifactID(artifactID, version) || !s.arePluginDependenciesDownloaded(&Plugin{Version: version, Dependencies: deps}) {
 		if err := s.DownloadPluginSync(ctx, installed.PluginName, version, "", result.ProfileKeys); err != nil {
 			result.Status = PluginReplayFailed
-			result.Message = fmt.Sprintf("prepare local plugin files / 准备本地插件文件失败: %v", err)
+			result.Message = locale.Pick(ctx, fmt.Sprintf("准备本地插件文件失败: %v", err), fmt.Sprintf("prepare local plugin files: %v", err))
 			return result
 		}
 	}
@@ -346,7 +346,7 @@ func (s *Service) replayOnePlugin(ctx context.Context, agentID, installDir strin
 	if err := s.transferPluginToAgent(ctx, agentID, artifactID, installed.PluginName, version, installDir, deps, result.ProfileKeys); err != nil {
 		result.Status = PluginReplayFailed
 		result.Message = err.Error()
-		logger.WarnF(ctx, "[Plugin] 插件补齐失败 / Plugin replay failed: plugin=%s, version=%s, err=%v", installed.PluginName, version, err)
+		logger.WarnF(ctx, "Plugin replay failed: plugin=%s, version=%s, err=%v", installed.PluginName, version, err)
 		return result
 	}
 
@@ -372,19 +372,19 @@ func (s *Service) replayOnePlugin(ctx context.Context, agentID, installDir strin
 // never looks complete while a driver is missing.
 func (s *Service) transferDependenciesToAgent(ctx context.Context, agentID, pluginName, version, installDir string, deps []PluginDependency) error {
 	if s.agentCommandSender == nil {
-		return fmt.Errorf("agent command sender not configured / Agent 命令发送器未配置")
+		return fmt.Errorf("agent command sender not configured")
 	}
 	for _, dep := range deps {
 		if !s.downloader.IsDependencyDownloaded(dep.ArtifactID, dep.Version, version, dep.TargetDir) {
-			return fmt.Errorf("dependency %s-%s is not cached / 依赖 %s-%s 未缓存", dep.ArtifactID, dep.Version, dep.ArtifactID, dep.Version)
+			return fmt.Errorf("dependency %s-%s is not cached", dep.ArtifactID, dep.Version)
 		}
 		depData, err := s.readFile(s.downloader.GetDependencyPath(dep.ArtifactID, dep.Version, version, dep.TargetDir))
 		if err != nil {
-			return fmt.Errorf("read dependency %s / 读取依赖 %s 失败: %w", dep.ArtifactID, dep.ArtifactID, err)
+			return fmt.Errorf("read dependency %s: %w", dep.ArtifactID, err)
 		}
 		depFileName := fmt.Sprintf("%s-%s.jar", dep.ArtifactID, dep.Version)
 		if err := s.transferFileToAgent(ctx, agentID, pluginName, version, "dependency", dep.TargetDir, depFileName, depData, installDir); err != nil {
-			return fmt.Errorf("transfer dependency %s / 传输依赖 %s 失败: %w", dep.ArtifactID, dep.ArtifactID, err)
+			return fmt.Errorf("transfer dependency %s: %w", dep.ArtifactID, err)
 		}
 	}
 	return nil
@@ -485,12 +485,12 @@ func (s *Service) listNodeConnectorDetails(ctx context.Context, agentID, install
 	var parsed nodePluginListResult
 	if parseErr := json.Unmarshal([]byte(output), &parsed); parseErr != nil {
 		if !success {
-			return nil, fmt.Errorf("list plugins failed / 列出插件失败: %s", output)
+			return nil, fmt.Errorf("list plugins failed: %s", output)
 		}
-		return nil, fmt.Errorf("parse plugin list / 解析插件列表失败: %w", parseErr)
+		return nil, fmt.Errorf("parse plugin list: %w", parseErr)
 	}
 	if !success || !parsed.Success {
-		return nil, fmt.Errorf("list plugins failed / 列出插件失败: %s", output)
+		return nil, fmt.Errorf("list plugins failed: %s", output)
 	}
 	details := make([]nodeConnectorDetail, 0, len(parsed.Plugins))
 	for _, item := range parsed.Plugins {

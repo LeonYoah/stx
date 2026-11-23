@@ -40,7 +40,7 @@ var (
 	// ErrHostHasRunningNode 主机上仍有运行中的集群节点，删除前须先停止并移出集群，避免孤儿进程。
 	// ErrHostHasRunningNode means the host still has a running cluster node; stop and remove it
 	// from the cluster before deleting the host so orphan processes are not left behind.
-	ErrHostHasRunningNode = errors.New("host: host has running cluster nodes; stop them before delete / 主机上仍有运行中的集群节点，请先停止后再删除")
+	ErrHostHasRunningNode = errors.New("host: host has running cluster nodes; stop them before delete")
 	// ErrHostNameEmpty indicates the host name is empty.
 	// ErrHostNameEmpty 表示主机名为空。
 	ErrHostNameEmpty = errors.New("host: host name cannot be empty")

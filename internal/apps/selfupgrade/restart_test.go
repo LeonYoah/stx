@@ -193,7 +193,7 @@ func TestDryRunChangesNothingAndCanBeFollowedByApply(t *testing.T) {
 	if after.ActiveTask == nil || !after.ActiveTask.DryRun {
 		t.Fatal("dry-run task should stay visible")
 	}
-	if !strings.Contains(after.Stage.Message, "nothing was applied") {
+	if !strings.Contains(after.Stage.Message, "未实际应用任何变更") {
 		t.Fatalf("stage message = %q", after.Stage.Message)
 	}
 	hist := s.ListHistory()

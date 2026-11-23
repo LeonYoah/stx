@@ -35,7 +35,7 @@ const (
 	clusterDeleteOperationID     = "cluster.delete"
 	clusterNodeRemoveOperationID = "cluster.node.remove"
 
-	clusterDeleteImpact = "删除集群会移除集群定义和节点记录；集群必须先停止，force_delete 还会请求 Agent 删除节点安装目录。"
+	clusterDeleteImpact     = "删除集群会移除集群定义和节点记录；集群必须先停止，force_delete 还会请求 Agent 删除节点安装目录。"
 	clusterNodeRemoveImpact = "移除节点会删除节点定义；如果节点仍在运行，应先停止节点。"
 )
 

@@ -36,11 +36,11 @@ type syncJobLogsPayload struct {
 }
 
 type jobLogFollowState struct {
-	offset           string
-	lastPoll         time.Time
-	notices          map[string]struct{}
-	lastFailure      time.Time
-	failureBackoff   time.Duration
+	offset         string
+	lastPoll       time.Time
+	notices        map[string]struct{}
+	lastFailure    time.Time
+	failureBackoff time.Duration
 }
 
 func newJobLogFollowState() *jobLogFollowState {

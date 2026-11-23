@@ -39,7 +39,7 @@ func readTargetConfigContentsFromPackage(packagePath, targetVersion string, targ
 		return result, []BlockingIssue{blockingIssue(
 			CheckCategoryPackage,
 			"package_read_failed",
-			fmt.Sprintf("cannot read target package %s for config merge / 无法读取目标版本 %s 的安装包以生成配置合并结果", targetVersion, targetVersion),
+			fmt.Sprintf("cannot read target package %s for config merge", targetVersion),
 			map[string]string{
 				"package_path": packagePath,
 				"version":      targetVersion,
@@ -53,7 +53,7 @@ func readTargetConfigContentsFromPackage(packagePath, targetVersion string, targ
 		return result, []BlockingIssue{blockingIssue(
 			CheckCategoryPackage,
 			"package_invalid_archive",
-			fmt.Sprintf("target package %s is not a valid tar.gz archive / 目标版本 %s 的安装包不是有效的 tar.gz 归档", targetVersion, targetVersion),
+			fmt.Sprintf("target package %s is not a valid tar.gz archive", targetVersion),
 			map[string]string{
 				"package_path": packagePath,
 				"version":      targetVersion,
@@ -77,7 +77,7 @@ func readTargetConfigContentsFromPackage(packagePath, targetVersion string, targ
 			return result, []BlockingIssue{blockingIssue(
 				CheckCategoryPackage,
 				"package_invalid_archive",
-				fmt.Sprintf("target package %s cannot be read completely / 目标版本 %s 的安装包读取过程中失败", targetVersion, targetVersion),
+				fmt.Sprintf("target package %s cannot be read completely", targetVersion),
 				map[string]string{
 					"package_path": packagePath,
 					"version":      targetVersion,
@@ -98,7 +98,7 @@ func readTargetConfigContentsFromPackage(packagePath, targetVersion string, targ
 			return result, []BlockingIssue{blockingIssue(
 				CheckCategoryPackage,
 				"package_invalid_archive",
-				fmt.Sprintf("target config %s cannot be extracted from package %s / 无法从安装包 %s 中提取目标配置 %s", matchedPath, targetVersion, targetVersion, matchedPath),
+				fmt.Sprintf("target config %s cannot be extracted from package %s", matchedPath, targetVersion),
 				map[string]string{
 					"package_path": packagePath,
 					"target_path":  matchedPath,
@@ -115,7 +115,7 @@ func readTargetConfigContentsFromPackage(packagePath, targetVersion string, targ
 		issues = append(issues, blockingIssue(
 			CheckCategoryPackage,
 			"package_config_missing",
-			fmt.Sprintf("target package %s does not contain config file %s / 目标版本 %s 的安装包缺少配置文件 %s", targetVersion, targetPath, targetVersion, targetPath),
+			fmt.Sprintf("target package %s does not contain config file %s", targetVersion, targetPath),
 			map[string]string{
 				"package_path": packagePath,
 				"target_path":  targetPath,

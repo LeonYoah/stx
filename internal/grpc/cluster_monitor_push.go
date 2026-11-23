@@ -34,7 +34,7 @@ import (
 // ErrClusterMonitorPushUnavailable 缺少主机服务、节点提供者或 Agent 管理器，无法按集群下发监控配置。
 // ErrClusterMonitorPushUnavailable means the host service, node provider or Agent manager is missing, so a
 // cluster-scoped monitor config cannot be pushed.
-var ErrClusterMonitorPushUnavailable = errors.New("cluster monitor config push is not configured / 未配置按集群下发监控配置的能力")
+var ErrClusterMonitorPushUnavailable = errors.New("cluster monitor config push is not configured")
 
 // clusterMonitorPushTimeout 是单次 UPDATE_MONITOR_CONFIG 命令的超时。
 // clusterMonitorPushTimeout is the timeout of one UPDATE_MONITOR_CONFIG command.
@@ -48,7 +48,7 @@ const clusterMonitorPushTimeout = 30 * time.Second
 // (called after scale-in).
 func (s *Server) PushClusterMonitorConfigToHost(ctx context.Context, clusterID uint, hostID uint) error {
 	if clusterID == 0 || hostID == 0 {
-		return fmt.Errorf("cluster id and host id are required / 集群 ID 与主机 ID 必填")
+		return fmt.Errorf("cluster id and host id are required")
 	}
 	if s == nil || s.hostService == nil || s.agentManager == nil || clusterNodeProvider == nil {
 		return ErrClusterMonitorPushUnavailable
@@ -56,16 +56,16 @@ func (s *Server) PushClusterMonitorConfigToHost(ctx context.Context, clusterID u
 
 	host, err := s.hostService.Get(ctx, hostID)
 	if err != nil {
-		return fmt.Errorf("get host %d / 获取主机 %d: %w", hostID, hostID, err)
+		return fmt.Errorf("get host %d: %w", hostID, err)
 	}
 	agentID := strings.TrimSpace(host.AgentID)
 	if agentID == "" {
-		return fmt.Errorf("agent not installed on host %d / 主机 %d 未安装 Agent", hostID, hostID)
+		return fmt.Errorf("agent not installed on host %d", hostID)
 	}
 
 	nodes, err := clusterNodeProvider.GetNodesByHostID(ctx, hostID)
 	if err != nil {
-		return fmt.Errorf("get nodes of host %d / 获取主机 %d 的节点: %w", hostID, hostID, err)
+		return fmt.Errorf("get nodes of host %d: %w", hostID, err)
 	}
 
 	// 集群在此主机已无节点时，节点里拿不到监控配置，使用该集群自身的配置。
@@ -83,11 +83,11 @@ func (s *Server) PushClusterMonitorConfigToHost(ctx context.Context, clusterID u
 		return err
 	}
 	if _, err := s.agentManager.SendCommand(ctx, agentID, pb.CommandType_UPDATE_MONITOR_CONFIG, params, clusterMonitorPushTimeout); err != nil {
-		s.logger.Warn("Failed to push cluster-scoped monitor config / 按集群下发监控配置失败",
+		s.logger.Warn("Failed to push cluster-scoped monitor config",
 			zap.Uint("cluster_id", clusterID), zap.Uint("host_id", hostID), zap.String("agent_id", agentID), zap.Error(err))
-		return fmt.Errorf("push monitor config to agent %s / 向 Agent %s 下发监控配置: %w", agentID, agentID, err)
+		return fmt.Errorf("push monitor config to agent %s: %w", agentID, err)
 	}
-	s.logger.Info("Cluster-scoped monitor config pushed / 已按集群下发监控配置",
+	s.logger.Info("Cluster-scoped monitor config pushed",
 		zap.Uint("cluster_id", clusterID), zap.Uint("host_id", hostID), zap.String("agent_id", agentID), zap.Int("process_count", trackedCount))
 	return nil
 }
@@ -128,7 +128,7 @@ func buildClusterMonitorParams(clusterID uint, nodes []*NodeWithMonitorConfig, f
 
 	processesJSON, err := json.Marshal(tracked)
 	if err != nil {
-		return nil, 0, fmt.Errorf("marshal tracked processes / 序列化跟踪进程列表: %w", err)
+		return nil, 0, fmt.Errorf("marshal tracked processes: %w", err)
 	}
 	params := map[string]string{
 		"cluster_id":        fmt.Sprintf("%d", clusterID),

@@ -251,6 +251,6 @@ func (h *Handler) finishSyncSynchronousWrite(c *gin.Context, item *executionapp.
 	}
 	finishContext := context.WithoutCancel(c.Request.Context())
 	if err := h.service.executionService.FinishSynchronous(finishContext, item, resultRef, runErr); err != nil {
-		logger.WarnF(finishContext, "[Sync] 更新公共执行记录失败 / failed to finish execution: execution_id=%s err=%v", item.ExecutionID, err)
+		logger.WarnF(finishContext, "failed to finish execution: execution_id=%s err=%v", item.ExecutionID, err)
 	}
 }

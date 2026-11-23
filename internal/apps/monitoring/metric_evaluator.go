@@ -295,13 +295,13 @@ func (e *MetricEvaluator) updateRuleGroups(ctx context.Context) {
 	if slices.Contains(e.sources, managedMetricRulesSource) {
 		groups, err := e.buildManagedRuleGroups(ctx)
 		if err != nil {
-			logger.WarnF(ctx, "[Observability] 指标策略规则组重建失败，沿用上一轮规则集: %v / managed metric rule group rebuild failed, keeping previous set: %v", err, err)
+			logger.WarnF(ctx, "managed metric rule group rebuild failed, keeping previous set: %v", err)
 			return
 		}
 		e.loader.setGroups(managedMetricRulesSource, groups)
 	}
 	if err := e.manager.Update(e.opts.Interval, e.sources, labels.EmptyLabels(), "", nil); err != nil {
-		logger.WarnF(ctx, "[Observability] 规则组更新失败: %v / rule group update failed: %v", err, err)
+		logger.WarnF(ctx, "rule group update failed: %v", err)
 	}
 }
 
@@ -431,7 +431,7 @@ func (e *MetricEvaluator) onRuleAlerts(_ context.Context, _ string, alerts ...*r
 			dropped := e.droppedDispatches.Add(1)
 			now := time.Now().UnixNano()
 			if last := e.lastDropWarnAt.Load(); now-last >= int64(metricEvaluatorDropWarnInterval) && e.lastDropWarnAt.CompareAndSwap(last, now) {
-				logger.WarnF(e.ctx, "[Observability] 告警投递队列已满，累计丢弃 %d 条；firing 告警按重推节奏自愈 / alert dispatch queue is full, %d records dropped so far; firing alerts self-heal on resend", dropped, dropped)
+				logger.WarnF(e.ctx, "alert dispatch queue is full, %d records dropped so far; firing alerts self-heal on resend", dropped)
 			}
 		}
 	}
@@ -452,7 +452,7 @@ func (e *MetricEvaluator) dispatchLoop() {
 				continue
 			}
 			if err := e.service.ingestRemoteAlertRecord(e.ctx, record); err != nil {
-				logger.WarnF(e.ctx, "[Observability] 内置告警投递失败: %v / builtin alert delivery failed: %v", err, err)
+				logger.WarnF(e.ctx, "builtin alert delivery failed: %v", err)
 			}
 		}
 	}

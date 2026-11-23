@@ -20,6 +20,7 @@ package stupgrade
 import (
 	"context"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"strconv"
 	"strings"
 	"time"
@@ -180,7 +181,7 @@ func (s *Service) StartPlanExecutionWithExecution(ctx context.Context, planID, c
 	}
 
 	go func(taskID uint) {
-		_, _ = s.executeTask(context.Background(), taskID)
+		_, _ = s.executeTask(locale.WithLocale(context.Background(), locale.FromContext(ctx)), taskID)
 	}(task.ID)
 	return s.GetTaskDetail(ctx, task.ID)
 }
@@ -265,7 +266,7 @@ func (s *Service) skipPendingUpgradeSteps(ctx context.Context, taskID uint, comp
 			continue
 		}
 		step.Status = ExecutionStatusSkipped
-		step.Message = "任务在升级开始前取消。 / Task cancelled before upgrade execution started."
+		step.Message = locale.Pick(ctx, "任务在升级开始前取消。", "Task cancelled before upgrade execution started.")
 		step.CompletedAt = &completedAt
 		if err := s.UpdateTaskStep(ctx, step); err != nil {
 			return err
@@ -280,7 +281,7 @@ func (s *Service) skipPendingUpgradeSteps(ctx context.Context, taskID uint, comp
 			continue
 		}
 		node.Status = ExecutionStatusSkipped
-		node.Message = "任务在升级开始前取消。 / Task cancelled before upgrade execution started."
+		node.Message = locale.Pick(ctx, "任务在升级开始前取消。", "Task cancelled before upgrade execution started.")
 		node.CompletedAt = &completedAt
 		if err := s.UpdateNodeExecution(ctx, node); err != nil {
 			return err

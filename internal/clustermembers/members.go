@@ -237,7 +237,7 @@ func Validate(members []Member) []Issue {
 				reported[key] = struct{}{}
 				issues = append(issues, Issue{
 					Code: IssueEmptyIP, HostIDs: []uint{member.HostID}, HostName: member.HostName,
-					Message: fmt.Sprintf("node %s has no address / 节点 %s 没有地址", label, label),
+					Message: fmt.Sprintf("node %s has no address", label),
 				})
 			}
 			continue
@@ -247,7 +247,7 @@ func Validate(members []Member) []Issue {
 				reported[key] = struct{}{}
 				issues = append(issues, Issue{
 					Code: IssueLoopbackIP, HostIP: ip, HostIDs: []uint{member.HostID}, HostName: member.HostName,
-					Message: fmt.Sprintf("node %s uses loopback address %s, which other hosts cannot reach / 节点 %s 使用回环地址 %s，其他主机无法连接", label, ip, label, ip),
+					Message: fmt.Sprintf("node %s uses loopback address %s, which other hosts cannot reach", label, ip),
 				})
 			}
 			continue
@@ -257,7 +257,7 @@ func Validate(members []Member) []Issue {
 				reported[key] = struct{}{}
 				issues = append(issues, Issue{
 					Code: IssueUnspecifiedIP, HostIP: ip, HostIDs: []uint{member.HostID}, HostName: member.HostName,
-					Message: fmt.Sprintf("node %s uses unroutable address %s / 节点 %s 使用不可路由地址 %s", label, ip, label, ip),
+					Message: fmt.Sprintf("node %s uses unroutable address %s", label, ip),
 				})
 			}
 			continue

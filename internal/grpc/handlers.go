@@ -122,7 +122,7 @@ func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Reg
 
 	// Build response with configuration
 	// 构建带配置的响应
-	s.logger.Info("Sending heartbeat interval to Agent / 向 Agent 发送心跳间隔",
+	s.logger.Info("Sending heartbeat interval to Agent",
 		zap.Int("heartbeat_interval", s.config.HeartbeatInterval),
 		zap.String("agent_id", req.AgentId),
 	)
@@ -358,7 +358,7 @@ func (s *Server) handleCommandResponse(agentID string, resp *pb.CommandResponse)
 
 	// Handle special command IDs / 处理特殊命令 ID
 	if resp.CommandId == "PROCESS_EVENT_REPORT" {
-		s.logger.Info("Received PROCESS_EVENT_REPORT / 收到 PROCESS_EVENT_REPORT",
+		s.logger.Info("Received PROCESS_EVENT_REPORT",
 			zap.String("agent_id", agentID),
 			zap.String("output_preview", truncateString(resp.Output, 200)),
 		)
@@ -366,7 +366,7 @@ func (s *Server) handleCommandResponse(agentID string, resp *pb.CommandResponse)
 		// Parse process event from output / 从输出解析进程事件
 		report, err := parseProcessEventFromResponse(resp.Output)
 		if err != nil {
-			s.logger.Error("Failed to parse process event report / 解析进程事件报告失败",
+			s.logger.Error("Failed to parse process event report",
 				zap.String("agent_id", agentID),
 				zap.String("output", resp.Output),
 				zap.Error(err),
@@ -374,7 +374,7 @@ func (s *Server) handleCommandResponse(agentID string, resp *pb.CommandResponse)
 			return
 		}
 
-		s.logger.Info("Parsed process event report / 解析进程事件报告成功",
+		s.logger.Info("Parsed process event report",
 			zap.String("agent_id", agentID),
 			zap.String("event_type", report.EventType.String()),
 			zap.Int32("pid", report.Pid),
@@ -385,7 +385,7 @@ func (s *Server) handleCommandResponse(agentID string, resp *pb.CommandResponse)
 
 		// Handle the process event / 处理进程事件
 		if err := s.HandleProcessEventReport(context.Background(), agentID, report); err != nil {
-			s.logger.Error("Failed to handle process event report / 处理进程事件报告失败",
+			s.logger.Error("Failed to handle process event report",
 				zap.String("agent_id", agentID),
 				zap.Error(err),
 			)
@@ -736,11 +736,11 @@ type ClusterNodeProvider interface {
 // NodeWithMonitorConfig represents a node with its cluster's monitor config.
 // NodeWithMonitorConfig 表示带有集群监控配置的节点。
 type NodeWithMonitorConfig struct {
-	ClusterID     uint                   `json:"cluster_id"`
-	NodeID        uint                   `json:"node_id"`
-	InstallDir    string                 `json:"install_dir"`
-	Role          string                 `json:"role"`
-	ProcessPID    int                    `json:"process_pid"`
+	ClusterID  uint   `json:"cluster_id"`
+	NodeID     uint   `json:"node_id"`
+	InstallDir string `json:"install_dir"`
+	Role       string `json:"role"`
+	ProcessPID int    `json:"process_pid"`
 	// Status 是节点在控制面记录的生命周期状态，用于过滤尚未启动或已停止的节点。
 	// Status is the node's lifecycle status recorded in the Control Plane, used to filter unstarted or stopped nodes.
 	Status        string                 `json:"status"`
@@ -785,7 +785,7 @@ func SetDiagnosticsService(svc *diagnostics.Service) {
 // Requirements: 1.3, 1.7 - Trigger agent discovery
 // Task 11.1
 func (s *Server) HandleDiscoverClusters(ctx context.Context, agentID string, params map[string]string) (*pb.CommandResponse, error) {
-	s.logger.Info("Handling DISCOVER_CLUSTERS command / 处理 DISCOVER_CLUSTERS 命令",
+	s.logger.Info("Handling DISCOVER_CLUSTERS command",
 		zap.String("agent_id", agentID),
 	)
 
@@ -798,14 +798,14 @@ func (s *Server) HandleDiscoverClusters(ctx context.Context, agentID string, par
 	// Send DISCOVER_CLUSTERS command to agent / 向 Agent 发送 DISCOVER_CLUSTERS 命令
 	cmdResp, err := s.agentManager.SendCommand(ctx, agentID, pb.CommandType_DISCOVER_CLUSTERS, params, 60*time.Second)
 	if err != nil {
-		s.logger.Error("Failed to send DISCOVER_CLUSTERS command / 发送 DISCOVER_CLUSTERS 命令失败",
+		s.logger.Error("Failed to send DISCOVER_CLUSTERS command",
 			zap.String("agent_id", agentID),
 			zap.Error(err),
 		)
 		return nil, err
 	}
 
-	s.logger.Info("DISCOVER_CLUSTERS command completed / DISCOVER_CLUSTERS 命令完成",
+	s.logger.Info("DISCOVER_CLUSTERS command completed",
 		zap.String("agent_id", agentID),
 		zap.Uint("host_id", conn.HostID),
 		zap.String("status", cmdResp.Status.String()),
@@ -819,7 +819,7 @@ func (s *Server) HandleDiscoverClusters(ctx context.Context, agentID string, par
 // Requirements: 5.4, 7.5 - Push monitor config to agent
 // Task 11.2
 func (s *Server) HandleUpdateMonitorConfig(ctx context.Context, agentID string, config *monitor.MonitorConfig, processes []*monitor.TrackedProcessInfo) error {
-	s.logger.Info("Handling UPDATE_MONITOR_CONFIG command / 处理 UPDATE_MONITOR_CONFIG 命令",
+	s.logger.Info("Handling UPDATE_MONITOR_CONFIG command",
 		zap.String("agent_id", agentID),
 		zap.Uint("cluster_id", config.ClusterID),
 		zap.Int("config_version", config.ConfigVersion),
@@ -843,7 +843,7 @@ func (s *Server) HandleUpdateMonitorConfig(ctx context.Context, agentID string, 
 	if len(processes) > 0 {
 		processesJSON, err := json.Marshal(processes)
 		if err != nil {
-			s.logger.Error("Failed to marshal processes / 序列化进程列表失败", zap.Error(err))
+			s.logger.Error("Failed to marshal processes", zap.Error(err))
 		} else {
 			params["tracked_processes"] = string(processesJSON)
 		}
@@ -852,14 +852,14 @@ func (s *Server) HandleUpdateMonitorConfig(ctx context.Context, agentID string, 
 	// Send UPDATE_MONITOR_CONFIG command to agent / 向 Agent 发送 UPDATE_MONITOR_CONFIG 命令
 	_, err := s.agentManager.SendCommand(ctx, agentID, pb.CommandType_UPDATE_MONITOR_CONFIG, params, 30*time.Second)
 	if err != nil {
-		s.logger.Error("Failed to send UPDATE_MONITOR_CONFIG command / 发送 UPDATE_MONITOR_CONFIG 命令失败",
+		s.logger.Error("Failed to send UPDATE_MONITOR_CONFIG command",
 			zap.String("agent_id", agentID),
 			zap.Error(err),
 		)
 		return err
 	}
 
-	s.logger.Info("UPDATE_MONITOR_CONFIG command sent / UPDATE_MONITOR_CONFIG 命令已发送",
+	s.logger.Info("UPDATE_MONITOR_CONFIG command sent",
 		zap.String("agent_id", agentID),
 		zap.Uint("cluster_id", config.ClusterID),
 		zap.Int("process_count", len(processes)),
@@ -873,7 +873,7 @@ func (s *Server) HandleUpdateMonitorConfig(ctx context.Context, agentID string, 
 // Requirements: 3.4, 3.5 - Receive and process process events
 // Task 11.3
 func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, report *pb.ProcessEventReport) error {
-	s.logger.Info("[ProcessEvent] Received event report / 收到事件上报",
+	s.logger.Info("[ProcessEvent] Received event report",
 		zap.String("agent_id", agentID),
 		zap.String("event_type", report.EventType.String()),
 		zap.Int32("pid", report.Pid),
@@ -883,24 +883,24 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 	)
 
 	if monitorService == nil {
-		s.logger.Error("[ProcessEvent] monitorService is nil / monitorService 为空")
+		s.logger.Error("[ProcessEvent] monitorService is nil")
 		return nil
 	}
 	if clusterNodeProvider == nil {
-		s.logger.Error("[ProcessEvent] clusterNodeProvider is nil / clusterNodeProvider 为空")
+		s.logger.Error("[ProcessEvent] clusterNodeProvider is nil")
 		return nil
 	}
 
 	// Get agent connection to find host ID / 获取 Agent 连接以查找主机 ID
 	conn, ok := s.agentManager.GetAgent(agentID)
 	if !ok {
-		s.logger.Warn("[ProcessEvent] Agent not found / 未找到 Agent",
+		s.logger.Warn("[ProcessEvent] Agent not found",
 			zap.String("agent_id", agentID),
 		)
 		return agent.ErrAgentNotFound
 	}
 
-	s.logger.Info("[ProcessEvent] Found agent connection / 找到 Agent 连接",
+	s.logger.Info("[ProcessEvent] Found agent connection",
 		zap.String("agent_id", agentID),
 		zap.Uint("host_id", conn.HostID),
 	)
@@ -908,7 +908,7 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 	// Find cluster and node by host ID, install dir and role / 根据主机 ID、安装目录和角色查找集群和节点
 	clusterID, nodeID, found, err := clusterNodeProvider.GetNodeByHostAndInstallDirAndRole(ctx, conn.HostID, report.InstallDir, report.Role)
 	if err != nil {
-		s.logger.Error("[ProcessEvent] Failed to find cluster node / 查找集群节点失败",
+		s.logger.Error("[ProcessEvent] Failed to find cluster node",
 			zap.Uint("host_id", conn.HostID),
 			zap.String("install_dir", report.InstallDir),
 			zap.String("role", report.Role),
@@ -918,7 +918,7 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 	}
 
 	if !found {
-		s.logger.Warn("[ProcessEvent] Cluster node not found / 未找到集群节点",
+		s.logger.Warn("[ProcessEvent] Cluster node not found",
 			zap.Uint("host_id", conn.HostID),
 			zap.String("install_dir", report.InstallDir),
 			zap.String("role", report.Role),
@@ -926,7 +926,7 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 		return nil
 	}
 
-	s.logger.Info("[ProcessEvent] Found cluster node / 找到集群节点",
+	s.logger.Info("[ProcessEvent] Found cluster node",
 		zap.Uint("cluster_id", clusterID),
 		zap.Uint("node_id", nodeID),
 	)
@@ -945,7 +945,7 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 	case pb.ProcessEventType_PROCESS_RESTART_FAILED:
 		eventType = monitor.EventTypeRestartFailed
 	default:
-		s.logger.Warn("Unknown process event type / 未知的进程事件类型",
+		s.logger.Warn("Unknown process event type",
 			zap.String("event_type", report.EventType.String()),
 		)
 		return nil
@@ -965,7 +965,7 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 		report.Details,
 	)
 	if err != nil {
-		s.logger.Error("Failed to record process event / 记录进程事件失败",
+		s.logger.Error("Failed to record process event",
 			zap.Error(err),
 		)
 		return err
@@ -982,7 +982,7 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 		processStatus = "crashed"
 	}
 
-	s.logger.Info("Updating node process status / 更新节点进程状态",
+	s.logger.Info("Updating node process status",
 		zap.Uint("node_id", nodeID),
 		zap.Int32("pid", report.Pid),
 		zap.String("status", processStatus),
@@ -991,14 +991,14 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 
 	if processStatus != "" {
 		if err := clusterNodeProvider.UpdateNodeProcessStatus(ctx, nodeID, int(report.Pid), processStatus); err != nil {
-			s.logger.Error("Failed to update node process status / 更新节点进程状态失败",
+			s.logger.Error("Failed to update node process status",
 				zap.Uint("node_id", nodeID),
 				zap.Int32("pid", report.Pid),
 				zap.String("status", processStatus),
 				zap.Error(err),
 			)
 		} else {
-			s.logger.Info("Node process status updated successfully / 节点进程状态更新成功",
+			s.logger.Info("Node process status updated successfully",
 				zap.Uint("node_id", nodeID),
 				zap.Int32("pid", report.Pid),
 				zap.String("status", processStatus),
@@ -1009,7 +1009,7 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 		}
 	}
 
-	s.logger.Info("Process event recorded / 进程事件已记录",
+	s.logger.Info("Process event recorded",
 		zap.Uint("cluster_id", clusterID),
 		zap.Uint("node_id", nodeID),
 		zap.String("event_type", string(eventType)),
@@ -1058,7 +1058,7 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 			}
 			applyManualFollowupAttribution(ctx, s.auditRepo, auditLog, report)
 			if err := s.auditRepo.CreateAuditLog(ctx, auditLog); err != nil {
-				s.logger.Warn("Failed to create audit log for process event / 进程事件写审计失败", zap.Error(err))
+				s.logger.Warn("Failed to create audit log for process event", zap.Error(err))
 			}
 		}
 	}
@@ -1216,7 +1216,7 @@ func (s *Server) pushMonitorConfigToAgent(ctx context.Context, agentID string, h
 		}
 
 		if i == maxRetries-1 {
-			s.logger.Warn("Agent command stream not ready after retries, skipping config push / Agent 命令流重试后仍未就绪，跳过配置推送",
+			s.logger.Warn("Agent command stream not ready after retries, skipping config push",
 				zap.String("agent_id", agentID),
 				zap.Int("retries", maxRetries),
 			)
@@ -1225,14 +1225,14 @@ func (s *Server) pushMonitorConfigToAgent(ctx context.Context, agentID string, h
 	}
 
 	if clusterNodeProvider == nil {
-		s.logger.Debug("Cluster node provider not configured, skipping monitor config push / 集群节点提供者未配置，跳过监控配置推送")
+		s.logger.Debug("Cluster node provider not configured, skipping monitor config push")
 		return
 	}
 
 	// Get all nodes on this host / 获取此主机上的所有节点
 	nodes, err := clusterNodeProvider.GetNodesByHostID(ctx, hostID)
 	if err != nil {
-		s.logger.Warn("Failed to get nodes for host / 获取主机节点失败",
+		s.logger.Warn("Failed to get nodes for host",
 			zap.Uint("host_id", hostID),
 			zap.Error(err),
 		)
@@ -1240,7 +1240,7 @@ func (s *Server) pushMonitorConfigToAgent(ctx context.Context, agentID string, h
 	}
 
 	if len(nodes) == 0 {
-		s.logger.Debug("No nodes found on host, skipping monitor config push / 主机上没有节点，跳过监控配置推送",
+		s.logger.Debug("No nodes found on host, skipping monitor config push",
 			zap.Uint("host_id", hostID),
 		)
 		return
@@ -1273,7 +1273,7 @@ func (s *Server) pushMonitorConfigToAgent(ctx context.Context, agentID string, h
 	}
 
 	if len(trackedProcesses) == 0 {
-		s.logger.Debug("No nodes to track on host / 主机上没有需要跟踪的节点",
+		s.logger.Debug("No nodes to track on host",
 			zap.Uint("host_id", hostID),
 		)
 		return
@@ -1300,7 +1300,7 @@ func (s *Server) pushMonitorConfigToAgent(ctx context.Context, agentID string, h
 	// Add tracked processes as JSON / 添加跟踪进程列表（JSON 格式）
 	processesJSON, err := json.Marshal(trackedProcesses)
 	if err != nil {
-		s.logger.Error("Failed to marshal tracked processes / 序列化跟踪进程列表失败", zap.Error(err))
+		s.logger.Error("Failed to marshal tracked processes", zap.Error(err))
 		return
 	}
 	params["tracked_processes"] = string(processesJSON)
@@ -1308,14 +1308,14 @@ func (s *Server) pushMonitorConfigToAgent(ctx context.Context, agentID string, h
 	// Send UPDATE_MONITOR_CONFIG command / 发送 UPDATE_MONITOR_CONFIG 命令
 	_, err = s.agentManager.SendCommand(ctx, agentID, pb.CommandType_UPDATE_MONITOR_CONFIG, params, 30*time.Second)
 	if err != nil {
-		s.logger.Warn("Failed to push monitor config to agent / 向 Agent 推送监控配置失败",
+		s.logger.Warn("Failed to push monitor config to agent",
 			zap.String("agent_id", agentID),
 			zap.Error(err),
 		)
 		return
 	}
 
-	s.logger.Info("Monitor config pushed to agent after registration / 注册后已向 Agent 推送监控配置",
+	s.logger.Info("Monitor config pushed to agent after registration",
 		zap.String("agent_id", agentID),
 		zap.Uint("host_id", hostID),
 		zap.Int("process_count", len(trackedProcesses)),
@@ -1335,7 +1335,7 @@ func (s *Server) updateProcessStatusFromHeartbeat(ctx context.Context, hostID ui
 	// Get all nodes on this host / 获取此主机上的所有节点
 	nodes, err := clusterNodeProvider.GetNodesByHostID(ctx, hostID)
 	if err != nil {
-		s.logger.Warn("Failed to get nodes for heartbeat update / 获取节点用于心跳更新失败",
+		s.logger.Warn("Failed to get nodes for heartbeat update",
 			zap.Uint("host_id", hostID),
 			zap.Error(err),
 		)
@@ -1361,7 +1361,7 @@ func (s *Server) updateProcessStatusFromHeartbeat(ctx context.Context, hostID ui
 
 		// Update node process status / 更新节点进程状态
 		if err := clusterNodeProvider.UpdateNodeProcessStatus(ctx, node.NodeID, int(proc.Pid), proc.Status); err != nil {
-			s.logger.Warn("Failed to update node process status from heartbeat / 从心跳更新节点进程状态失败",
+			s.logger.Warn("Failed to update node process status from heartbeat",
 				zap.Uint("node_id", node.NodeID),
 				zap.Error(err),
 			)

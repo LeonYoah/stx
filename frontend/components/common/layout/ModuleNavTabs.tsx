@@ -35,6 +35,7 @@ import {
 } from '@dnd-kit/sortable';
 import {CSS} from '@dnd-kit/utilities';
 import {GripVertical} from 'lucide-react';
+import {useTranslations} from 'next-intl';
 import {cn} from '@/lib/utils';
 
 /**
@@ -191,6 +192,7 @@ function SortableModuleNavTab({
   item: ModuleNavTabItem;
   isActive: boolean;
 }) {
+  const t = useTranslations('common');
   const {
     attributes,
     listeners,
@@ -222,8 +224,8 @@ function SortableModuleNavTab({
           isActive && 'opacity-70',
           isDragging && 'opacity-100',
         )}
-        aria-label='拖动排序 / Drag to reorder'
-        title='拖动排序 / Drag to reorder'
+        aria-label={t('dragToReorder')}
+        title={t('dragToReorder')}
         {...attributes}
         {...listeners}
         onClick={(event) => {

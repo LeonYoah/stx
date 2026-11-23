@@ -152,8 +152,7 @@ func (h *SyncAlertHub) TryReportSyncAlert(signal syncalert.Signal) bool {
 		dropped := h.dropped.Add(1)
 		minute := h.clock().Unix() / 60
 		if h.lastDropLogMinute.Swap(minute) != minute {
-			log.Printf("[Monitoring] sync alert buffer full, signal dropped: rule=%s task=%d cluster=%d dropped_total=%d / 同步告警缓冲区已满，信号被丢弃",
-				signal.RuleKey, signal.TaskID, signal.ClusterID, dropped)
+			log.Printf("[Monitoring] sync alert buffer full, signal dropped: rule=%s task=%d cluster=%d dropped_total=%d", signal.RuleKey, signal.TaskID, signal.ClusterID, dropped)
 		}
 		return false
 	}
@@ -175,8 +174,7 @@ func (h *SyncAlertHub) Start(ctx context.Context) {
 				return
 			case signal := <-h.queue:
 				if err := h.handle(ctx, signal); err != nil {
-					log.Printf("[Monitoring] handle sync alert failed: rule=%s task=%d cluster=%d err=%v / 处理同步告警失败",
-						signal.RuleKey, signal.TaskID, signal.ClusterID, err)
+					log.Printf("[Monitoring] handle sync alert failed: rule=%s task=%d cluster=%d err=%v", signal.RuleKey, signal.TaskID, signal.ClusterID, err)
 				}
 			case <-ticker.C:
 				// 先处理已经排队的信号（例如同一时刻的 B4 Refresh / 静默关闭），提醒用的是最新内容。
@@ -184,7 +182,7 @@ func (h *SyncAlertHub) Start(ctx context.Context) {
 				// reminders use the latest content.
 				h.drainQueued(ctx)
 				if err := h.sweep(ctx); err != nil {
-					log.Printf("[Monitoring] sweep sync alert reminders failed: %v / 同步告警提醒巡检失败", err)
+					log.Printf("[Monitoring] sweep sync alert reminders failed: %v", err)
 				}
 			}
 		}
@@ -198,8 +196,7 @@ func (h *SyncAlertHub) drainQueued(ctx context.Context) {
 		select {
 		case signal := <-h.queue:
 			if err := h.handle(ctx, signal); err != nil {
-				log.Printf("[Monitoring] handle sync alert failed: rule=%s task=%d cluster=%d err=%v / 处理同步告警失败",
-					signal.RuleKey, signal.TaskID, signal.ClusterID, err)
+				log.Printf("[Monitoring] handle sync alert failed: rule=%s task=%d cluster=%d err=%v", signal.RuleKey, signal.TaskID, signal.ClusterID, err)
 			}
 		default:
 			return

@@ -480,7 +480,9 @@ export function TroubleshootingMemoryCenter({
                       {entry.fingerprint && (
                         <span
                           className='inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded border border-border/60 max-w-[200px] truncate'
-                          title={`故障指纹: ${entry.fingerprint}`}
+                          title={t('fingerprintTooltip', {
+                            fingerprint: entry.fingerprint,
+                          })}
                         >
                           <Fingerprint className='size-2.5 shrink-0 text-primary' />
                           <span className='truncate'>{entry.fingerprint}</span>

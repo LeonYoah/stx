@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/LeonYoah/stx/internal/pkg/locale"
 	"io"
 	"net/http"
 	"os"
@@ -39,11 +40,11 @@ import (
 
 // Downloader errors / 下载器错误
 var (
-	ErrDownloadFailed     = errors.New("download failed / 下载失败")
-	ErrChecksumMismatch   = errors.New("checksum mismatch / 校验和不匹配")
-	ErrFileNotFound       = errors.New("file not found on server / 服务器上未找到文件")
-	ErrDownloadCancelled  = errors.New("download cancelled / 下载已取消")
-	ErrDownloadInProgress = errors.New("download already in progress / 下载正在进行中")
+	ErrDownloadFailed     = errors.New("download failed")
+	ErrChecksumMismatch   = errors.New("checksum mismatch")
+	ErrFileNotFound       = errors.New("file not found on server")
+	ErrDownloadCancelled  = errors.New("download cancelled")
+	ErrDownloadInProgress = errors.New("download already in progress")
 
 	// errTransportFailed 标记传输层失败（连接重置、超时等），换源重试有成功率。
 	// errTransportFailed marks transport-layer failures (reset, timeout); switching mirrors may succeed.
@@ -420,7 +421,7 @@ func (d *Downloader) ReadPluginFile(name, version string) ([]byte, error) {
 	path := d.GetConnectorPathByName(name, version)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read plugin file %s: %w / 读取插件文件 %s 失败: %w", path, err, path, err)
+		return nil, fmt.Errorf("failed to read plugin file %s: %w", path, err)
 	}
 	return data, nil
 }
@@ -431,7 +432,7 @@ func (d *Downloader) ReadPluginFileByArtifactID(artifactID, version string) ([]b
 	path := d.GetConnectorPath(artifactID, version)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read plugin file %s: %w / 读取插件文件 %s 失败: %w", path, err, path, err)
+		return nil, fmt.Errorf("failed to read plugin file %s: %w", path, err)
 	}
 	return data, nil
 }
@@ -547,7 +548,7 @@ func (d *Downloader) DownloadConnector(ctx context.Context, plugin *Plugin, mirr
 		Version:             plugin.Version,
 		Status:              "downloading",
 		Progress:            0,
-		CurrentStep:         "Downloading connector / 下载连接器",
+		CurrentStep:         locale.Pick(ctx, "下载连接器", "Downloading connector"),
 		CurrentArtifact:     artifactID,
 		CurrentArtifactKind: "connector",
 		StartTime:           time.Now(),
@@ -612,7 +613,7 @@ func (d *Downloader) DownloadConnector(ctx context.Context, plugin *Plugin, mirr
 	}
 
 	// Verify checksum / 验证校验和
-	progress.CurrentStep = "Verifying checksum / 验证校验和"
+	progress.CurrentStep = locale.Pick(ctx, "验证校验和", "Verifying checksum")
 	progress.CurrentArtifact = artifactID
 	progress.CurrentArtifactKind = "connector"
 	if callback != nil {
@@ -635,7 +636,7 @@ func (d *Downloader) DownloadConnector(ctx context.Context, plugin *Plugin, mirr
 	// Mark as completed / 标记为完成
 	progress.Status = "completed"
 	progress.Progress = 100
-	progress.CurrentStep = "Completed / 完成"
+	progress.CurrentStep = locale.Pick(ctx, "完成", "Completed")
 	progress.CurrentArtifact = artifactID
 	progress.CurrentArtifactKind = "connector"
 	progress.ConnectorCompleted = 1
@@ -685,13 +686,11 @@ func (d *Downloader) DownloadDependencies(ctx context.Context, plugin *Plugin, m
 
 		// Create progress for this dependency / 为此依赖创建进度
 		progress := &DownloadProgress{
-			PluginName: plugin.Name,
-			Version:    plugin.Version,
-			Status:     "downloading",
-			Progress:   (i * 100) / len(plugin.Dependencies),
-			CurrentStep: fmt.Sprintf("Downloading dependency %d/%d: %s / 下载依赖 %d/%d: %s",
-				i+1, len(plugin.Dependencies), dep.ArtifactID,
-				i+1, len(plugin.Dependencies), dep.ArtifactID),
+			PluginName:          plugin.Name,
+			Version:             plugin.Version,
+			Status:              "downloading",
+			Progress:            (i * 100) / len(plugin.Dependencies),
+			CurrentStep:         locale.Pick(ctx, fmt.Sprintf("下载依赖 %d/%d: %s", i+1, len(plugin.Dependencies), dep.ArtifactID), fmt.Sprintf("Downloading dependency %d/%d: %s", i+1, len(plugin.Dependencies), dep.ArtifactID)),
 			StartTime:           time.Now(),
 			ConnectorCount:      1,
 			ConnectorCompleted:  1,
@@ -743,9 +742,7 @@ func (d *Downloader) DownloadDependencies(ctx context.Context, plugin *Plugin, m
 
 		progress.DependencyCompleted = i + 1
 		progress.Progress = ((i + 1) * 100) / len(plugin.Dependencies)
-		progress.CurrentStep = fmt.Sprintf("Dependency %d/%d completed: %s / 依赖 %d/%d 已完成: %s",
-			i+1, len(plugin.Dependencies), dep.ArtifactID,
-			i+1, len(plugin.Dependencies), dep.ArtifactID)
+		progress.CurrentStep = locale.Pick(ctx, fmt.Sprintf("依赖 %d/%d 已完成: %s", i+1, len(plugin.Dependencies), dep.ArtifactID), fmt.Sprintf("Dependency %d/%d completed: %s", i+1, len(plugin.Dependencies), dep.ArtifactID))
 		progress.CurrentArtifact = dep.ArtifactID
 		progress.CurrentArtifactKind = "dependency"
 		if callback != nil {
@@ -759,7 +756,7 @@ func (d *Downloader) DownloadDependencies(ctx context.Context, plugin *Plugin, m
 func (d *Downloader) copyUploadedDependency(targetPath, storedPath string) error {
 	storedPath = strings.TrimSpace(storedPath)
 	if storedPath == "" {
-		return fmt.Errorf("stored path is empty / 上传依赖的存储路径为空")
+		return fmt.Errorf("stored path is empty")
 	}
 	src, err := os.Open(storedPath)
 	if err != nil {
@@ -826,7 +823,7 @@ func (d *Downloader) downloadArtifactWithFallback(ctx context.Context, urls []st
 // DownloadPlugin 下载插件及其所有依赖。
 func (d *Downloader) DownloadPlugin(ctx context.Context, plugin *Plugin, mirror MirrorSource, selectedProfileKeys []string, connectorReady, dependenciesReady bool, callback ProgressCallback) error {
 	if plugin == nil {
-		return fmt.Errorf("plugin is nil / 插件为空")
+		return fmt.Errorf("plugin is nil")
 	}
 
 	if !connectorReady {
@@ -841,7 +838,7 @@ func (d *Downloader) DownloadPlugin(ctx context.Context, plugin *Plugin, mirror 
 			Version:             plugin.Version,
 			Status:              "downloading",
 			Progress:            50,
-			CurrentStep:         "Preparing dependency download / 准备下载依赖",
+			CurrentStep:         locale.Pick(ctx, "准备下载依赖", "Preparing dependency download"),
 			CurrentArtifactKind: "dependency",
 			StartTime:           time.Now(),
 			ConnectorCount:      1,

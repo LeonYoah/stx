@@ -146,8 +146,7 @@ func reapOnce(installDir string, proc legacyProc) bool {
 	if err != nil {
 		// 读不到身份宁可等下一轮，也不误发信号。
 		// Fail-safe: when the identity cannot be read, wait for the next sweep instead of signaling.
-		reapLogf("WARN", "读取 %s(pid=%d) 进程身份失败，下轮重试 / failed to read process identity for %s (pid=%d), retrying: %v",
-			proc.pidFile, pid, proc.pidFile, pid, err)
+		reapLogf("WARN", "failed to read process identity for %s (pid=%d), retrying: %v", proc.pidFile, pid, err)
 		return false
 	}
 	if !nameAllowed(name, proc.names) {
@@ -156,14 +155,12 @@ func reapOnce(installDir string, proc legacyProc) bool {
 		// On a name mismatch: no signal, no pid-file removal, not done — the setsid
 		// fork->exec window may still show bash as exe and the next sweep can match;
 		// a truly reused pid only costs the remaining window.
-		reapLogf("WARN", "%s 里的 pid=%d 实际是 %s（可能 pid 复用或进程尚未 exec），不发信号、下轮重核 / %s holds pid=%d which is %s (pid reuse or pre-exec); not signaling, rechecking next sweep",
-			proc.pidFile, pid, name, proc.pidFile, pid, name)
+		reapLogf("WARN", "%s holds pid=%d which is %s (pid reuse or pre-exec); not signaling, rechecking next sweep", proc.pidFile, pid, name)
 		return false
 	}
 
 	if err := signalProc(pid, syscall.SIGTERM); err != nil {
-		reapLogf("WARN", "SIGTERM %s(pid=%d) 失败 / SIGTERM %s (pid=%d) failed: %v",
-			proc.pidFile, pid, proc.pidFile, pid, err)
+		reapLogf("WARN", "SIGTERM %s (pid=%d) failed: %v", proc.pidFile, pid, err)
 		removePidFile(pidPath, "发信号失败")
 		return true
 	}
@@ -176,13 +173,11 @@ func reapOnce(installDir string, proc legacyProc) bool {
 	}
 	if processAlive(pid) {
 		if err := signalProc(pid, syscall.SIGKILL); err != nil {
-			reapLogf("WARN", "SIGKILL %s(pid=%d) 失败 / SIGKILL %s (pid=%d) failed: %v",
-				proc.pidFile, pid, proc.pidFile, pid, err)
+			reapLogf("WARN", "SIGKILL %s (pid=%d) failed: %v", proc.pidFile, pid, err)
 		}
 	}
 	removePidFile(pidPath, "已停止")
-	reapLogf("INFO", "已停止旧监控进程 %s(pid=%d, name=%s) / stopped legacy monitoring process %s (pid=%d, name=%s)",
-		proc.pidFile, pid, name, proc.pidFile, pid, name)
+	reapLogf("INFO", "stopped legacy monitoring process %s (pid=%d, name=%s)", proc.pidFile, pid, name)
 	return true
 }
 

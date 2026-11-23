@@ -127,6 +127,12 @@ import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {lifecycleTargetForOperation} from './lifecycle-status-poll';
+import {
+  mergeJavaRuntimeViews,
+  normalizeLoadClusterDataOptions,
+  selectNodesNeedingJavaRuntime,
+  type LoadClusterDataOptions,
+} from './node-java-runtime-refresh';
 import {useLifecycleStatusPoll} from './useLifecycleStatusPoll';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
 import {useOnboardingOptional} from '@/components/common/onboarding/OnboardingContext';
@@ -463,44 +469,78 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [logModeSwitching, setLogModeSwitching] = useState(false);
 
 
+  const nodesRef = useRef<NodeInfo[]>([]);
+  const nodeJavaRuntimesRef = useRef<Record<number, NodeJavaRuntimeView>>({});
+  const clusterLoadSeqRef = useRef(0);
+
   /**
-   * Fetch effective JDK version for each node once detail opens (AC7). Failures only mark version unavailable.
-   * 详情打开时为每个节点拉一次生效 JDK 版本（AC7）；失败只标记版本未取到。
+   * Fetch effective JDK version for nodes (AC7). Failures only mark version unavailable.
+   * mode=full 全量；incremental 保留 PID 未变的 ok，避免轮询/联动整列闪 spinner。
+   * mode=full refreshes all; incremental keeps unchanged ok rows to avoid column flicker.
    */
   const loadNodeJavaRuntimes = useCallback(
-    async (nodeList: NodeInfo[]) => {
+    async (
+      nodeList: NodeInfo[],
+      mode: 'full' | 'incremental' = 'full',
+    ) => {
       if (nodeList.length === 0) {
         setNodeJavaRuntimes({});
+        nodeJavaRuntimesRef.current = {};
         return;
       }
-      setNodeJavaRuntimes((prev) => {
-        const next: Record<number, NodeJavaRuntimeView> = {...prev};
-        for (const n of nodeList) {
-          next[n.id] = {status: 'loading'};
-        }
-        return next;
-      });
+      const previousNodes = nodesRef.current;
+      const previousRuntimes = nodeJavaRuntimesRef.current;
+      const merged = mergeJavaRuntimeViews(
+        nodeList,
+        previousNodes,
+        previousRuntimes,
+        mode,
+      );
+      setNodeJavaRuntimes(merged);
+      nodeJavaRuntimesRef.current = merged;
+
+      const needIds = new Set(
+        selectNodesNeedingJavaRuntime(
+          nodeList,
+          previousNodes,
+          previousRuntimes,
+          mode,
+        ),
+      );
+      const toFetch = nodeList.filter((n) => needIds.has(n.id));
+      if (toFetch.length === 0) {
+        return;
+      }
+
       await Promise.all(
-        nodeList.map(async (n) => {
+        toFetch.map(async (n) => {
           try {
             const rt = await services.cluster.getNodeJavaRuntime(
               clusterId,
               n.id,
             );
-            setNodeJavaRuntimes((prev) => ({
-              ...prev,
-              [n.id]: {
-                status: 'ok',
-                version: rt.version,
-                version_string: rt.version_string,
-                java_home: rt.java_home,
-              },
-            }));
+            setNodeJavaRuntimes((prev) => {
+              const next = {
+                ...prev,
+                [n.id]: {
+                  status: 'ok' as const,
+                  version: rt.version,
+                  version_string: rt.version_string,
+                  java_home: rt.java_home,
+                },
+              };
+              nodeJavaRuntimesRef.current = next;
+              return next;
+            });
           } catch {
-            setNodeJavaRuntimes((prev) => ({
-              ...prev,
-              [n.id]: {status: 'error'},
-            }));
+            setNodeJavaRuntimes((prev) => {
+              const next = {
+                ...prev,
+                [n.id]: {status: 'error' as const},
+              };
+              nodeJavaRuntimesRef.current = next;
+              return next;
+            });
           }
         }),
       );
@@ -515,8 +555,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    *          On success returns a main-status snapshot for bounded post-lifecycle polling.
    */
   const loadClusterData = useCallback(
-    async (isSilent = false) => {
-      if (!isSilent) {
+    async (options?: LoadClusterDataOptions) => {
+      const {silent, notifyError, javaRuntimeMode} =
+        normalizeLoadClusterDataOptions(options);
+      const seq = ++clusterLoadSeqRef.current;
+      if (!silent) {
         setLoading(true);
       }
       try {
@@ -525,6 +568,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           services.cluster.getNodesSafe(clusterId),
           services.cluster.getClusterStatusSafe(clusterId),
         ]);
+        if (seq !== clusterLoadSeqRef.current) {
+          return null;
+        }
 
         let nextCluster: ClusterInfo | null = null;
         let nextNodes: NodeInfo[] | null = null;
@@ -532,14 +578,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         if (clusterResult.success && clusterResult.data) {
           nextCluster = clusterResult.data;
           setCluster(clusterResult.data);
-        } else if (!isSilent) {
+        } else if (notifyError) {
           toast.error(clusterResult.error || t('cluster.loadError'));
         }
 
         if (nodesResult.success && nodesResult.data) {
           nextNodes = nodesResult.data;
           setNodes(nodesResult.data);
-          void loadNodeJavaRuntimes(nodesResult.data);
+          if (javaRuntimeMode !== 'skip') {
+            void loadNodeJavaRuntimes(nodesResult.data, javaRuntimeMode);
+          }
+          nodesRef.current = nodesResult.data;
         }
 
         if (statusResult.success && statusResult.data) {
@@ -554,14 +603,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         }
         return null;
       } catch (error) {
-        if (!isSilent) {
+        if (seq !== clusterLoadSeqRef.current) {
+          return null;
+        }
+        if (notifyError) {
           toast.error(
             error instanceof Error ? error.message : t('cluster.loadError'),
           );
         }
         return null;
       } finally {
-        if (!isSilent) {
+        if (!silent && seq === clusterLoadSeqRef.current) {
           setLoading(false);
         }
       }
@@ -569,16 +621,36 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     [clusterId, t, loadNodeJavaRuntimes],
   );
 
-  const {startLifecyclePoll} = useLifecycleStatusPoll({
-    loadSnapshot: () => loadClusterData(true),
+  const {startLifecyclePoll, stopLifecyclePoll} = useLifecycleStatusPoll({
+    loadSnapshot: () =>
+      loadClusterData({
+        silent: true,
+        notifyError: false,
+        // 轮询跳过 JDK，避免每 2.5s 整列 loading 闪烁；达标后再补一次。
+        // Skip JDK during poll to avoid 2.5s column flicker; refresh once when satisfied.
+        javaRuntimeMode: 'skip',
+      }),
+    onSatisfied: () => {
+      void loadNodeJavaRuntimes(nodesRef.current, 'incremental');
+    },
   });
+
+  // 切换集群时停止上一集群的轮询，避免串扰。
+  // Stop the previous cluster's poll when switching clusters.
+  useEffect(() => {
+    stopLifecyclePoll();
+  }, [clusterId, stopLifecyclePoll]);
 
   const refreshMainStatusAfterLifecycle = useCallback(
     async (
       operation: OperationType | 'start' | 'stop' | 'restart',
       scopeNodeIds?: number[],
     ) => {
-      await loadClusterData(true);
+      await loadClusterData({
+        silent: true,
+        notifyError: false,
+        javaRuntimeMode: 'skip',
+      });
       startLifecyclePoll(lifecycleTargetForOperation(operation), {
         scopeNodeIds,
       });
@@ -587,7 +659,13 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   );
 
   const refreshMainStatusFromEvents = useCallback(() => {
-    void loadClusterData(true);
+    void loadClusterData({
+      silent: true,
+      notifyError: false,
+      // 事件联动用增量：保留 ok，仅新节点/PID 变化才拉，避免 spinner 闪。
+      // Event linkage uses incremental refresh: keep ok rows, refetch only new/PID-changed nodes.
+      javaRuntimeMode: 'incremental',
+    });
   }, [loadClusterData]);
 
   // 进行中的伸缩操作（页面刷新后恢复）/ Scaling operation in progress (restored after a page refresh)
@@ -621,7 +699,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    * The banner's operation finished: refresh cluster data and hide the banner.
    */
   const handleRunningScaleFinished = (operation: ScaleOperationInfo) => {
-    loadClusterData(true);
+    void loadClusterData({
+      silent: true,
+      notifyError: true,
+      javaRuntimeMode: 'incremental',
+    });
     if (operation.status !== 'running') {
       setRunningScaleOperation(operation.status === 'failed' ? operation : null);
     }
@@ -1088,7 +1170,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     setRefreshing(true);
     try {
       await Promise.all([
-        loadClusterData(true),
+        loadClusterData({
+          silent: true,
+          notifyError: true,
+          javaRuntimeMode: 'full',
+        }),
         loadDiagnosticsSummary(),
         loadMonitoringOverview(),
         loadRuntimeStorage(),
@@ -1243,7 +1329,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           ? t('config.switchToPerJobSuccess')
           : t('config.switchToMixedSuccess'),
       );
-      await loadClusterData(true);
+      await loadClusterData({
+        silent: true,
+        notifyError: true,
+        javaRuntimeMode: 'full',
+      });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t('config.switchLogModeError'),

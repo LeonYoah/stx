@@ -138,6 +138,79 @@ describe('useLifecycleStatusPoll', () => {
     expect(loadSnapshot).not.toHaveBeenCalled();
   });
 
+  it('does not issue further requests after unmount even if an in-flight tick resolves', async () => {
+    let resolveLoad:
+      | ((value: {
+          clusterStatus: ClusterStatus;
+          nodes: Array<{id: number; status: NodeStatus; process_pid: number}>;
+        }) => void)
+      | undefined;
+    const loadSnapshot = vi.fn(
+      () =>
+        new Promise<{
+          clusterStatus: ClusterStatus;
+          nodes: Array<{id: number; status: NodeStatus; process_pid: number}>;
+        }>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+
+    const {result, unmount} = renderHook(() =>
+      useLifecycleStatusPoll({
+        loadSnapshot,
+        intervalMs: 2500,
+        timeoutMs: 90_000,
+      }),
+    );
+
+    act(() => {
+      result.current.startLifecyclePoll('running');
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(loadSnapshot).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await act(async () => {
+      resolveLoad?.({
+        clusterStatus: ClusterStatus.STOPPED,
+        nodes: [{id: 2, status: NodeStatus.STOPPED, process_pid: 0}],
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(loadSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('stopLifecyclePoll stops further requests (cluster switch)', async () => {
+    const loadSnapshot = vi.fn().mockResolvedValue({
+      clusterStatus: ClusterStatus.STOPPED,
+      nodes: [{id: 2, status: NodeStatus.STOPPED, process_pid: 0}],
+    });
+
+    const {result} = renderHook(() =>
+      useLifecycleStatusPoll({
+        loadSnapshot,
+        intervalMs: 2500,
+        timeoutMs: 90_000,
+      }),
+    );
+
+    act(() => {
+      result.current.startLifecyclePoll('running');
+    });
+    act(() => {
+      result.current.stopLifecyclePoll();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(loadSnapshot).not.toHaveBeenCalled();
+  });
+
   it('replacing a poll session cancels the previous one', async () => {
     const loadSnapshot = vi.fn().mockResolvedValue({
       clusterStatus: ClusterStatus.STOPPED,
@@ -163,5 +236,30 @@ describe('useLifecycleStatusPoll', () => {
       await vi.advanceTimersByTimeAsync(2500);
     });
     expect(loadSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('invokes onSatisfied once when the running target is met', async () => {
+    const onSatisfied = vi.fn();
+    const loadSnapshot = vi.fn().mockResolvedValue({
+      clusterStatus: ClusterStatus.RUNNING,
+      nodes: [{id: 2, status: NodeStatus.RUNNING, process_pid: 3143723}],
+    });
+
+    const {result} = renderHook(() =>
+      useLifecycleStatusPoll({
+        loadSnapshot,
+        intervalMs: 2500,
+        timeoutMs: 90_000,
+        onSatisfied,
+      }),
+    );
+
+    act(() => {
+      result.current.startLifecyclePoll('running');
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(onSatisfied).toHaveBeenCalledTimes(1);
   });
 });

@@ -31,6 +31,8 @@ export interface UseLifecycleStatusPollOptions {
   loadSnapshot: () => Promise<LifecyclePollSnapshot | null>;
   intervalMs?: number;
   timeoutMs?: number;
+  /** 达标时回调（例如补拉一次 JDK runtime）。 / Called when the target is satisfied (e.g. one JDK runtime refresh). */
+  onSatisfied?: (snapshot: LifecyclePollSnapshot) => void;
 }
 
 export interface StartLifecyclePollOptions {
@@ -58,12 +60,16 @@ export function useLifecycleStatusPoll(
     loadSnapshot,
     intervalMs = LIFECYCLE_POLL_INTERVAL_MS,
     timeoutMs = LIFECYCLE_POLL_TIMEOUT_MS,
+    onSatisfied,
   } = options;
 
+  const mountedRef = useRef(true);
   const sessionRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadSnapshotRef = useRef(loadSnapshot);
   loadSnapshotRef.current = loadSnapshot;
+  const onSatisfiedRef = useRef(onSatisfied);
+  onSatisfiedRef.current = onSatisfied;
   const intervalRef = useRef(intervalMs);
   intervalRef.current = intervalMs;
   const timeoutRef = useRef(timeoutMs);
@@ -81,16 +87,33 @@ export function useLifecycleStatusPoll(
     clearTimer();
   }, [clearTimer]);
 
-  useEffect(() => () => stopLifecyclePoll(), [stopLifecyclePoll]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      stopLifecyclePoll();
+    };
+  }, [stopLifecyclePoll]);
 
   const startLifecyclePoll = useCallback(
     (target: LifecyclePollTarget, options?: StartLifecyclePollOptions) => {
+      // 卸载后拒绝启动，避免 await 刷新返回后再开一轮。
+      // Refuse to start after unmount so a late await cannot reopen polling.
+      if (!mountedRef.current) {
+        return;
+      }
       stopLifecyclePoll();
+      if (!mountedRef.current) {
+        return;
+      }
       const session = sessionRef.current;
       const startedAt = Date.now();
       const scopeNodeIds = options?.scopeNodeIds;
 
       const schedule = (delayMs: number) => {
+        if (!mountedRef.current || session !== sessionRef.current) {
+          return;
+        }
         clearTimer();
         timerRef.current = setTimeout(() => {
           void tick();
@@ -98,11 +121,11 @@ export function useLifecycleStatusPoll(
       };
 
       const tick = async () => {
-        if (session !== sessionRef.current) {
+        if (!mountedRef.current || session !== sessionRef.current) {
           return;
         }
         const snapshot = await loadSnapshotRef.current();
-        if (session !== sessionRef.current) {
+        if (!mountedRef.current || session !== sessionRef.current) {
           return;
         }
         if (
@@ -110,6 +133,7 @@ export function useLifecycleStatusPoll(
           isLifecyclePollSatisfied(snapshot, target, scopeNodeIds)
         ) {
           clearTimer();
+          onSatisfiedRef.current?.(snapshot);
           return;
         }
         if (Date.now() - startedAt >= timeoutRef.current) {

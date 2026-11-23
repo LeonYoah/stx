@@ -1156,7 +1156,7 @@
     "selectRow": "选择主机 {name}",
     "batchDelete": "批量删除",
     "batchDeleteConfirmTitle": "删除所选主机？",
-    "batchDeleteConfirmDesc": "将删除 {count} 台主机。此操作不可恢复。",
+    "batchDeleteConfirmDesc": "将从控制面移除 {count} 台主机的登记，不会卸载这些主机上的 Agent 或节点安装文件，且不可撤销。",
     "batchResult": "成功 {ok} 个，跳过 {skipped} 个，失败 {failed} 个"
   },
   "cluster": {
@@ -1167,7 +1167,7 @@
     "editCluster": "编辑集群",
     "editClusterDescription": "修改集群的基础元数据信息。",
     "deleteCluster": "删除集群",
-    "deleteConfirm": "确定要删除集群 {name} 吗？此操作不可撤销。",
+    "deleteConfirm": "确定要删除集群 {name} 吗？此操作将从控制面移除集群与节点登记（默认不卸载节点上的 Agent 与安装文件），且不可撤销。",
     "deleteConfirmWarning": "删除后将从控制面移除该集群及节点记录，并会通知各主机上的 Agent 停止进程；默认不会卸载节点上的 Agent，也不会删除安装目录与其它文件。若勾选「强制删除」，才会通知 Agent 删除主机上的安装目录（如 /opt/seatunnel-xxx），数据将无法恢复。",
     "forceDeleteOption": "强制删除（同时删除主机上的安装目录）",
     "name": "集群名称",

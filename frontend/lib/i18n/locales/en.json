@@ -1156,7 +1156,7 @@
     "selectRow": "Select host {name}",
     "batchDelete": "Delete selected",
     "batchDeleteConfirmTitle": "Delete selected hosts?",
-    "batchDeleteConfirmDesc": "This deletes {count} hosts and cannot be undone.",
+    "batchDeleteConfirmDesc": "{count, plural, one {This only removes the control-plane record for # host; it does not uninstall the Agent or node files on that host. This cannot be undone.} other {This only removes the control-plane records for # hosts; it does not uninstall the Agent or node files on those hosts. This cannot be undone.}}",
     "batchResult": "{ok} succeeded, {skipped} skipped, {failed} failed"
   },
   "cluster": {
@@ -1167,7 +1167,7 @@
     "editCluster": "Edit Cluster",
     "editClusterDescription": "Update the cluster's basic metadata.",
     "deleteCluster": "Delete Cluster",
-    "deleteConfirm": "Are you sure you want to delete cluster {name}? This action cannot be undone.",
+    "deleteConfirm": "Are you sure you want to delete cluster {name}? This removes the control-plane cluster and node records (by default it does not uninstall the Agent or install files on nodes). This cannot be undone.",
     "deleteConfirmWarning": "After deletion, the cluster and node records will be removed from the control plane, and agents on each host will be notified to stop processes. By default this does not uninstall the Agent on nodes and does not remove install directories or other files. If \"Force delete\" is checked, agents will also be told to remove the install directory on the host (e.g. /opt/seatunnel-xxx); data cannot be recovered.",
     "forceDeleteOption": "Force delete (also remove install directory on hosts)",
     "name": "Cluster Name",

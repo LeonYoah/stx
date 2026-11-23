@@ -31,6 +31,13 @@ import (
 // memberProbeTTL controls how long member probe results are cached so status reads do not hit every Agent.
 const memberProbeTTL = 10 * time.Second
 
+// memberGracePeriod 是启动/重启受理后的成员一致性宽限期：进程刚起时 Hazelcast 合并需要数十秒，
+// 期间看到的 1/N 成员数属正常过渡态，直接报脑裂是误报。
+// memberGracePeriod is the member-agreement grace window after a start/restart is accepted:
+// Hazelcast merge takes tens of seconds after processes boot, so 1/N members in that window
+// is normal convergence and must not be reported as split brain.
+const memberGracePeriod = 3 * time.Minute
+
 type memberProbeResult struct {
 	at    time.Time
 	known bool
@@ -147,7 +154,7 @@ func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, s
 	}
 	statusInfo.RunningNodes = len(runningNodes)
 
-	if expectRunning && len(runningNodes) >= 2 {
+	if expectRunning && len(runningNodes) >= 2 && !s.inMemberGrace(cluster.ID) {
 		reasons = append(reasons, s.checkMemberAgreement(ctx, cluster, runningNodes)...)
 	}
 
@@ -166,6 +173,26 @@ func (s *Service) evaluateClusterHealth(ctx context.Context, cluster *Cluster, s
 		return
 	}
 	statusInfo.HealthStatus = HealthStatusHealthy
+}
+
+// beginMemberGrace 在启动/重启受理后开启成员一致性宽限期。
+// beginMemberGrace opens the member-agreement grace window after a start/restart is accepted.
+func (s *Service) beginMemberGrace(clusterID uint) {
+	s.memberGraceUntil.Store(clusterID, time.Now().Add(memberGracePeriod))
+}
+
+// inMemberGrace 判断集群是否仍在启动/重启后的成员收敛宽限期内。
+// inMemberGrace reports whether the cluster is still inside the post-start/restart convergence window.
+func (s *Service) inMemberGrace(clusterID uint) bool {
+	v, ok := s.memberGraceUntil.Load(clusterID)
+	if !ok {
+		return false
+	}
+	deadline, ok := v.(time.Time)
+	if !ok {
+		return false
+	}
+	return time.Now().Before(deadline)
 }
 
 // checkMemberAgreement 询问每个运行中节点看到的 Hazelcast 成员数，少于运行节点数即视为成员缺失/分裂。

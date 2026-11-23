@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
@@ -207,6 +208,9 @@ type Service struct {
 	monitorPusher ClusterMonitorPusher
 	memberProbes  memberProbeCache
 	engineProbes  engineProbeCache
+	// memberGraceUntil 记录每个集群最近一次启动/重启受理后的成员一致性宽限截止（clusterID -> time.Time）。
+	// memberGraceUntil stores each cluster's member-agreement grace deadline after an accepted start/restart (clusterID -> time.Time).
+	memberGraceUntil sync.Map
 }
 
 // ServiceConfig holds configuration for the Cluster Service.
@@ -2086,6 +2090,7 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 		if err := s.repo.UpdateStatus(ctx, clusterID, ClusterStatusDeploying); err != nil {
 			return nil, err
 		}
+		s.beginMemberGrace(clusterID)
 	}
 
 	// Execute operation on each node
@@ -2786,6 +2791,7 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 	if nodeResult.Success && (operation == OperationStart || operation == OperationRestart) {
 		// 单节点启/重启：稍等再探测 PID，避免进程尚未起来。
 		// Single-node start/restart: wait briefly before PID detection so the process can come up.
+		s.beginMemberGrace(cluster.ID)
 		time.Sleep(2 * time.Second)
 	}
 	applyNodeLifecycleStatus(ctx, s, node, operation, nodeResult.Success)

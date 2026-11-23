@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 type healthHostProvider struct{}
@@ -222,5 +223,30 @@ func TestParseMemberCount(t *testing.T) {
 		if _, ok := parseMemberCount(raw); ok {
 			t.Fatalf("expected unknown for %q", raw)
 		}
+	}
+}
+
+// 启动/重启受理后的宽限期内不做成员一致性告警（Hazelcast 合并需数十秒），
+// 宽限期结束后再看到成员缺失才报脑裂。
+// Within the grace window after an accepted start/restart, member-agreement alarms are
+// skipped (Hazelcast merge takes tens of seconds); missing members alarm only after it ends.
+func TestEvaluateClusterHealth_MemberGraceSuppressesSplitBrain(t *testing.T) {
+	sender := &healthMemberSender{counts: map[string]int{"agent-1": 1, "agent-2": 1, "agent-3": 1}}
+	svc := newHealthTestService(sender)
+	svc.beginMemberGrace(1)
+
+	cluster, info := healthTestCluster(ClusterStatusRunning, 1, 2, 3)
+	svc.evaluateClusterHealth(context.Background(), cluster, info)
+	if info.HealthStatus != HealthStatusHealthy || len(info.HealthReasons) != 0 {
+		t.Fatalf("grace window must suppress split-brain alarms, got %s %v", info.HealthStatus, info.HealthReasons)
+	}
+
+	// 宽限期过期：同样的成员缺失必须告警。/ Expired grace: the same missing members must alarm.
+	svc.memberGraceUntil.Store(uint(1), time.Now().Add(-time.Second))
+	svc.memberProbes = memberProbeCache{} // 清缓存，强制重新探测 / clear the cache to force a re-probe
+	_, info = healthTestCluster(ClusterStatusRunning, 1, 2, 3)
+	svc.evaluateClusterHealth(context.Background(), cluster, info)
+	if info.HealthStatus != HealthStatusUnhealthy || len(info.HealthReasons) != 3 {
+		t.Fatalf("expired grace must report split brain again, got %s %v", info.HealthStatus, info.HealthReasons)
 	}
 }

@@ -363,17 +363,18 @@ func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor,
 			graph.Version = created.Version
 		}
 	}
+	if err := client.Release(ctx, projectCode, graph.Code, dolphinReleaseOnline); err != nil {
+		result.Warning = joinWarning(result.Warning, err.Error())
+	}
 	if req.UseBuiltinSchedule {
 		cronExpr, timezone := builtinScheduleForDolphin(task)
 		if cronExpr != "" {
 			if err := client.CreateSchedule(ctx, projectCode, graph.Code, dolphinCrontab(cronExpr), timezone); err != nil {
-				result.Warning = err.Error()
+				result.Warning = joinWarning(result.Warning, err.Error())
 			}
 		}
 	}
-	if err := client.Release(ctx, projectCode, graph.Code, dolphinReleaseOnline); err != nil {
-		result.Warning = joinWarning(result.Warning, err.Error())
-	} else if err := client.OnlineSchedules(ctx, projectCode, graph.Code); err != nil {
+	if err := client.OnlineSchedules(ctx, projectCode, graph.Code); err != nil {
 		result.Warning = joinWarning(result.Warning, err.Error())
 	}
 	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, projectCode, graph.Code, shell.Code, name, uint(actor.UserID), client.style, task.CurrentVersion)

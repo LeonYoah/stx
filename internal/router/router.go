@@ -2313,11 +2313,11 @@ func (a *configPortMetadataUpdaterAdapter) UpdateHazelcastPortByHost(ctx context
 		portsMap := ensureClusterConfigPath(clusterObj.Config, "ports")
 		switch configType {
 		case appconfig.ConfigTypeHazelcast, appconfig.ConfigTypeHazelcastMaster:
-			if !positiveNumber(portsMap["master_hazelcast_port"]) {
+			if !validPort(portsMap["master_hazelcast_port"]) {
 				portsMap["master_hazelcast_port"] = port
 			}
 		case appconfig.ConfigTypeHazelcastWorker:
-			if !positiveNumber(portsMap["worker_port"]) {
+			if !validPort(portsMap["worker_port"]) {
 				portsMap["worker_port"] = port
 			}
 		}
@@ -2345,16 +2345,19 @@ func (a *configPortMetadataUpdaterAdapter) UpdateClusterJobLogMode(ctx context.C
 	return a.clusterRepo.Update(ctx, clusterObj)
 }
 
-func positiveNumber(v interface{}) bool {
-	switch n := v.(type) {
+func validPort(v interface{}) bool {
+	var n float64
+	switch t := v.(type) {
 	case float64:
-		return n > 0
+		n = t
 	case int:
-		return n > 0
+		n = float64(t)
 	case int64:
-		return n > 0
+		n = float64(t)
+	default:
+		return false
 	}
-	return false
+	return n >= 1 && n <= 65535
 }
 
 func ensureClusterConfigPath(cfg cluster.ClusterConfig, key string) map[string]interface{} {

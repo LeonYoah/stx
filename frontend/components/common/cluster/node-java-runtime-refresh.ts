@@ -50,27 +50,45 @@ export function normalizeLoadClusterDataOptions(
 }
 
 /**
- * 增量模式下：保留已有 ok 且 PID 未变的节点，其余需要重新拉取。
- * Incremental mode: keep existing ok runtimes when PID is unchanged; refetch the rest.
+ * 序号只决定是否提交数据；loading 复位不看序号。
+ * Seq only gates committing data; loading reset ignores seq.
+ */
+export function shouldCommitClusterLoadResult(
+  seq: number,
+  currentSeq: number,
+): boolean {
+  return seq === currentSeq;
+}
+
+/**
+ * 非静默加载在 finally 中无条件清除 loading（即使序号已被更新请求抢走）。
+ * Non-silent loads always clear loading in finally, even when seq was superseded.
+ */
+export function shouldClearClusterLoading(silent: boolean): boolean {
+  return !silent;
+}
+
+/**
+ * 增量模式用「上次成功拉 runtime 时记录的 PID」作基准，而不是当前 nodes 列表。
+ * Incremental mode compares against the PID recorded when runtime was last fetched, not the live nodes list.
  */
 export function selectNodesNeedingJavaRuntime(
   nodeList: Array<Pick<NodeInfo, 'id' | 'process_pid'>>,
-  previousNodes: Array<Pick<NodeInfo, 'id' | 'process_pid'>>,
+  runtimePidByNodeId: Record<number, number | undefined>,
   previousRuntimes: Record<number, NodeJavaRuntimeView | undefined>,
   mode: Exclude<JavaRuntimeRefreshMode, 'skip'>,
 ): number[] {
   if (mode === 'full') {
     return nodeList.map((node) => node.id);
   }
-  const prevById = new Map(previousNodes.map((node) => [node.id, node]));
   const need: number[] = [];
   for (const node of nodeList) {
     const existing = previousRuntimes[node.id];
-    const prevNode = prevById.get(node.id);
+    const runtimePid = runtimePidByNodeId[node.id];
     if (
       existing?.status === 'ok' &&
-      prevNode &&
-      Number(prevNode.process_pid) === Number(node.process_pid)
+      runtimePid !== undefined &&
+      Number(runtimePid) === Number(node.process_pid)
     ) {
       continue;
     }
@@ -80,33 +98,122 @@ export function selectNodesNeedingJavaRuntime(
 }
 
 /**
- * 合并 runtime 视图：保留未改动的 ok，其余标 loading；去掉已删除节点。
- * Merge runtime views: keep unchanged ok entries, mark others loading, drop removed nodes.
+ * 合并 runtime 视图：PID 变化时先保留旧 ok（不闪 spinner），新值返回后再替换。
+ * Merge runtime views: on PID change keep the old ok until the new fetch resolves (no spinner flash).
  */
 export function mergeJavaRuntimeViews(
   nodeList: Array<Pick<NodeInfo, 'id' | 'process_pid'>>,
-  previousNodes: Array<Pick<NodeInfo, 'id' | 'process_pid'>>,
+  runtimePidByNodeId: Record<number, number | undefined>,
   previousRuntimes: Record<number, NodeJavaRuntimeView | undefined>,
   mode: Exclude<JavaRuntimeRefreshMode, 'skip'>,
 ): Record<number, NodeJavaRuntimeView> {
   const need = new Set(
     selectNodesNeedingJavaRuntime(
       nodeList,
-      previousNodes,
+      runtimePidByNodeId,
       previousRuntimes,
       mode,
     ),
   );
   const next: Record<number, NodeJavaRuntimeView> = {};
   for (const node of nodeList) {
+    const existing = previousRuntimes[node.id];
     if (need.has(node.id)) {
-      next[node.id] = {status: 'loading'};
+      if (mode === 'incremental' && existing?.status === 'ok') {
+        next[node.id] = existing;
+      } else {
+        next[node.id] = {status: 'loading'};
+      }
       continue;
     }
-    const existing = previousRuntimes[node.id];
     if (existing) {
       next[node.id] = existing;
     }
   }
   return next;
+}
+
+export interface JavaRuntimeFetchResult {
+  version?: number;
+  version_string?: string;
+  java_home?: string;
+}
+
+export interface RefreshNodeJavaRuntimesResult {
+  views: Record<number, NodeJavaRuntimeView>;
+  runtimePidByNodeId: Record<number, number>;
+  fetchedNodeIds: number[];
+}
+
+/**
+ * 按 full/incremental 计划并拉取节点 JDK runtime；更新 runtimePid 基准。
+ * Plan and fetch node JDK runtimes; update the runtimePid baseline.
+ */
+export async function refreshNodeJavaRuntimes(args: {
+  nodeList: Array<Pick<NodeInfo, 'id' | 'process_pid'>>;
+  mode: Exclude<JavaRuntimeRefreshMode, 'skip'>;
+  previousRuntimes: Record<number, NodeJavaRuntimeView | undefined>;
+  runtimePidByNodeId: Record<number, number | undefined>;
+  fetchRuntime: (nodeId: number) => Promise<JavaRuntimeFetchResult>;
+}): Promise<RefreshNodeJavaRuntimesResult> {
+  const {
+    nodeList,
+    mode,
+    previousRuntimes,
+    runtimePidByNodeId,
+    fetchRuntime,
+  } = args;
+
+  if (nodeList.length === 0) {
+    return {views: {}, runtimePidByNodeId: {}, fetchedNodeIds: []};
+  }
+
+  const needIds = selectNodesNeedingJavaRuntime(
+    nodeList,
+    runtimePidByNodeId,
+    previousRuntimes,
+    mode,
+  );
+  const views = mergeJavaRuntimeViews(
+    nodeList,
+    runtimePidByNodeId,
+    previousRuntimes,
+    mode,
+  );
+  const nextPid: Record<number, number> = {};
+  for (const node of nodeList) {
+    if (!needIds.includes(node.id) && runtimePidByNodeId[node.id] !== undefined) {
+      nextPid[node.id] = Number(runtimePidByNodeId[node.id]);
+    }
+  }
+
+  if (needIds.length === 0) {
+    return {views, runtimePidByNodeId: nextPid, fetchedNodeIds: []};
+  }
+
+  const needSet = new Set(needIds);
+  const toFetch = nodeList.filter((node) => needSet.has(node.id));
+  await Promise.all(
+    toFetch.map(async (node) => {
+      try {
+        const rt = await fetchRuntime(node.id);
+        views[node.id] = {
+          status: 'ok',
+          version: rt.version,
+          version_string: rt.version_string,
+          java_home: rt.java_home,
+        };
+        nextPid[node.id] = Number(node.process_pid);
+      } catch {
+        views[node.id] = {status: 'error'};
+        // 失败不更新 pid 基准，下次仍会重试。 / Keep pid baseline unchanged on failure so the next pass retries.
+      }
+    }),
+  );
+
+  return {
+    views,
+    runtimePidByNodeId: nextPid,
+    fetchedNodeIds: needIds,
+  };
 }

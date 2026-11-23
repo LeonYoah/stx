@@ -128,9 +128,10 @@ import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {lifecycleTargetForOperation} from './lifecycle-status-poll';
 import {
-  mergeJavaRuntimeViews,
   normalizeLoadClusterDataOptions,
-  selectNodesNeedingJavaRuntime,
+  refreshNodeJavaRuntimes,
+  shouldClearClusterLoading,
+  shouldCommitClusterLoadResult,
   type LoadClusterDataOptions,
 } from './node-java-runtime-refresh';
 import {useLifecycleStatusPoll} from './useLifecycleStatusPoll';
@@ -471,79 +472,32 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
 
   const nodesRef = useRef<NodeInfo[]>([]);
   const nodeJavaRuntimesRef = useRef<Record<number, NodeJavaRuntimeView>>({});
+  // 上次成功拉 JDK runtime 时对应的进程 PID；增量比较必须用它，不能用已被轮询更新的 nodesRef。
+  // PID recorded when JDK runtime was last fetched; incremental compare must use this, not nodesRef (updated every poll).
+  const runtimePidRef = useRef<Record<number, number>>({});
   const clusterLoadSeqRef = useRef(0);
 
   /**
    * Fetch effective JDK version for nodes (AC7). Failures only mark version unavailable.
-   * mode=full 全量；incremental 保留 PID 未变的 ok，避免轮询/联动整列闪 spinner。
-   * mode=full refreshes all; incremental keeps unchanged ok rows to avoid column flicker.
+   * mode=full 全量；incremental 用 runtimePidRef 判断 PID 是否变化，变化时先保留旧 ok。
+   * mode=full refreshes all; incremental uses runtimePidRef and keeps old ok while PID changes.
    */
   const loadNodeJavaRuntimes = useCallback(
     async (
       nodeList: NodeInfo[],
       mode: 'full' | 'incremental' = 'full',
     ) => {
-      if (nodeList.length === 0) {
-        setNodeJavaRuntimes({});
-        nodeJavaRuntimesRef.current = {};
-        return;
-      }
-      const previousNodes = nodesRef.current;
-      const previousRuntimes = nodeJavaRuntimesRef.current;
-      const merged = mergeJavaRuntimeViews(
+      const result = await refreshNodeJavaRuntimes({
         nodeList,
-        previousNodes,
-        previousRuntimes,
         mode,
-      );
-      setNodeJavaRuntimes(merged);
-      nodeJavaRuntimesRef.current = merged;
-
-      const needIds = new Set(
-        selectNodesNeedingJavaRuntime(
-          nodeList,
-          previousNodes,
-          previousRuntimes,
-          mode,
-        ),
-      );
-      const toFetch = nodeList.filter((n) => needIds.has(n.id));
-      if (toFetch.length === 0) {
-        return;
-      }
-
-      await Promise.all(
-        toFetch.map(async (n) => {
-          try {
-            const rt = await services.cluster.getNodeJavaRuntime(
-              clusterId,
-              n.id,
-            );
-            setNodeJavaRuntimes((prev) => {
-              const next = {
-                ...prev,
-                [n.id]: {
-                  status: 'ok' as const,
-                  version: rt.version,
-                  version_string: rt.version_string,
-                  java_home: rt.java_home,
-                },
-              };
-              nodeJavaRuntimesRef.current = next;
-              return next;
-            });
-          } catch {
-            setNodeJavaRuntimes((prev) => {
-              const next = {
-                ...prev,
-                [n.id]: {status: 'error' as const},
-              };
-              nodeJavaRuntimesRef.current = next;
-              return next;
-            });
-          }
-        }),
-      );
+        previousRuntimes: nodeJavaRuntimesRef.current,
+        runtimePidByNodeId: runtimePidRef.current,
+        fetchRuntime: (nodeId) =>
+          services.cluster.getNodeJavaRuntime(clusterId, nodeId),
+      });
+      nodeJavaRuntimesRef.current = result.views;
+      runtimePidRef.current = result.runtimePidByNodeId;
+      setNodeJavaRuntimes(result.views);
     },
     [clusterId],
   );
@@ -568,7 +522,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           services.cluster.getNodesSafe(clusterId),
           services.cluster.getClusterStatusSafe(clusterId),
         ]);
-        if (seq !== clusterLoadSeqRef.current) {
+        if (!shouldCommitClusterLoadResult(seq, clusterLoadSeqRef.current)) {
           return null;
         }
 
@@ -585,10 +539,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         if (nodesResult.success && nodesResult.data) {
           nextNodes = nodesResult.data;
           setNodes(nodesResult.data);
+          nodesRef.current = nodesResult.data;
           if (javaRuntimeMode !== 'skip') {
             void loadNodeJavaRuntimes(nodesResult.data, javaRuntimeMode);
           }
-          nodesRef.current = nodesResult.data;
         }
 
         if (statusResult.success && statusResult.data) {
@@ -603,7 +557,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         }
         return null;
       } catch (error) {
-        if (seq !== clusterLoadSeqRef.current) {
+        if (!shouldCommitClusterLoadResult(seq, clusterLoadSeqRef.current)) {
           return null;
         }
         if (notifyError) {
@@ -613,7 +567,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         }
         return null;
       } finally {
-        if (!silent && seq === clusterLoadSeqRef.current) {
+        // 序号只挡数据写入；非静默加载必须复位 loading，否则深链 rewrite 一直等 clusterDataReady。
+        // Seq only gates writes; non-silent loads must clear loading or deep-link rewrite stalls.
+        if (shouldClearClusterLoading(silent)) {
           setLoading(false);
         }
       }

@@ -75,7 +75,17 @@ func buildConfigMergeInputs(configs []*appconfig.ConfigInfo) ([]configMergeInput
 			if targetPath == "" {
 				targetPath = normalizeConfigArchivePath(nodes[0].FilePath)
 			}
-			uniqueNodeContents := uniqueConfigContents(nodes)
+			nodeContents := make([]*appconfig.ConfigInfo, 0, len(nodes))
+			if appconfig.IsMemberListConfigType(appconfig.ConfigType(configType)) {
+				for _, node := range nodes {
+					normalized := *node
+					normalized.Content = appconfig.NormalizeHazelcastEndpoint(node.Content)
+					nodeContents = append(nodeContents, &normalized)
+				}
+			} else {
+				nodeContents = nodes
+			}
+			uniqueNodeContents := uniqueConfigContents(nodeContents)
 			if len(uniqueNodeContents) > 1 {
 				hostIDs := make([]string, 0, len(nodes))
 				for _, node := range nodes {

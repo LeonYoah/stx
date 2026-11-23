@@ -77,7 +77,7 @@ func TestPatchHazelcastEndpointNoop(t *testing.T) {
 func TestApplyHazelcastEndpointReroutesForeignAddress(t *testing.T) {
 	promoted := strings.Replace(endpointSample, "port: 5811", "port: 5811\n    public-address: 10.88.0.11:5811", 1)
 	ports := []NodePortInfo{{Role: "master", HazelcastPort: 5833}}
-	out, err := applyHazelcastEndpoint(promoted, ConfigTypeHazelcastMaster, "separated", "10.88.0.12", ports)
+	out, err := ApplyHazelcastEndpoint(promoted, ConfigTypeHazelcastMaster, "separated", "10.88.0.12", ports)
 	if err != nil {
 		t.Fatalf("derive failed: %v", err)
 	}
@@ -89,21 +89,49 @@ func TestApplyHazelcastEndpointReroutesForeignAddress(t *testing.T) {
 	}
 }
 
-func TestApplyHazelcastEndpointKeepsOwnHostAddress(t *testing.T) {
+func TestApplyHazelcastEndpointCorrectsStaleOwnPort(t *testing.T) {
 	promoted := strings.Replace(endpointSample, "port: 5811", "port: 5811\n    public-address: 10.88.0.11:5999", 1)
 	ports := []NodePortInfo{{Role: "master", HazelcastPort: 5811}}
-	out, err := applyHazelcastEndpoint(promoted, ConfigTypeHazelcastMaster, "separated", "10.88.0.11", ports)
+	out, err := ApplyHazelcastEndpoint(promoted, ConfigTypeHazelcastMaster, "separated", "10.88.0.11", ports)
 	if err != nil {
 		t.Fatalf("derive failed: %v", err)
 	}
-	if !strings.Contains(out, "public-address: 10.88.0.11:5999") {
-		t.Fatalf("own-host custom address clobbered: %s", out)
+	if !strings.Contains(out, "public-address: 10.88.0.11:5811") {
+		t.Fatalf("stale advertised port kept: %s", out)
+	}
+}
+
+func TestApplyHazelcastEndpointKeepsOwnHostAddressWithoutPort(t *testing.T) {
+	promoted := strings.Replace(endpointSample, "port: 5811", "port: 5811\n    public-address: 10.88.0.11", 1)
+	ports := []NodePortInfo{{Role: "master", HazelcastPort: 5811}}
+	out, err := ApplyHazelcastEndpoint(promoted, ConfigTypeHazelcastMaster, "separated", "10.88.0.11", ports)
+	if err != nil {
+		t.Fatalf("derive failed: %v", err)
+	}
+	if !strings.Contains(out, "public-address: 10.88.0.11") || strings.Contains(out, "public-address: 10.88.0.11:") {
+		t.Fatalf("own-host address without port rewritten: %s", out)
+	}
+}
+
+func TestPatchHazelcastEndpointCreatesMissingNetwork(t *testing.T) {
+	content := `hazelcast:
+  cluster-name: stx
+`
+	patched, changed, err := PatchHazelcastEndpoint(content, "10.88.0.12:5833", 5833)
+	if err != nil {
+		t.Fatalf("patch failed: %v", err)
+	}
+	if !changed || !strings.Contains(patched, "port: 5833") || !strings.Contains(patched, "public-address: 10.88.0.12:5833") {
+		t.Fatalf("network block not created: %s", patched)
+	}
+	if !strings.Contains(patched, "cluster-name: stx") {
+		t.Fatalf("existing content lost: %s", patched)
 	}
 }
 
 func TestApplyHazelcastEndpointIPv6(t *testing.T) {
 	ports := []NodePortInfo{{Role: "master", HazelcastPort: 5811}}
-	out, err := applyHazelcastEndpoint(endpointSample, ConfigTypeHazelcastMaster, "separated", "fd00::12", ports)
+	out, err := ApplyHazelcastEndpoint(endpointSample, ConfigTypeHazelcastMaster, "separated", "fd00::12", ports)
 	if err != nil {
 		t.Fatalf("derive failed: %v", err)
 	}

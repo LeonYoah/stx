@@ -377,7 +377,7 @@ func (s *Service) ApplyTemplatesToHost(ctx context.Context, clusterID uint, host
 			target = patched
 		}
 		if _, isMemberType := memberTypes[template.ConfigType]; isMemberType {
-			patched, patchErr := applyHazelcastEndpoint(target, template.ConfigType, deploymentMode, hostIP, nodePorts)
+			patched, patchErr := ApplyHazelcastEndpoint(target, template.ConfigType, deploymentMode, hostIP, nodePorts)
 			if patchErr != nil {
 				item.Status = ConfigChangeFailed
 				item.Message = patchErr.Error()
@@ -504,7 +504,7 @@ func (s *Service) PatchMemberList(ctx context.Context, clusterID uint, deploymen
 		if config.HostID != nil {
 			hostIP, nodePorts := s.endpointContext(ctx, clusterID, *config.HostID, endpointCache)
 			var endpointErr error
-			patched, endpointErr = applyHazelcastEndpoint(patched, config.ConfigType, deploymentMode, hostIP, nodePorts)
+			patched, endpointErr = ApplyHazelcastEndpoint(patched, config.ConfigType, deploymentMode, hostIP, nodePorts)
 			if endpointErr != nil {
 				item.Status = ConfigChangeFailed
 				item.Message = endpointErr.Error()

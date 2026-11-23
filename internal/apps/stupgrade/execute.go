@@ -26,6 +26,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -635,6 +636,20 @@ func (s *Service) executeMergeConfigStep(ctx context.Context, task *UpgradeTask,
 	for _, target := range plan.NodeTargets {
 		node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
 		for _, file := range plan.ConfigMergePlan.Files {
+			content := file.MergedContent
+			configType := appconfig.ConfigType(file.ConfigType)
+			if appconfig.IsMemberListConfigType(configType) {
+				derived, err := appconfig.ApplyHazelcastEndpoint(content, configType, plan.DeploymentMode, target.HostIP, []appconfig.NodePortInfo{{
+					Role:          target.Role,
+					HazelcastPort: target.HazelcastPort,
+					WorkerPort:    target.WorkerPort,
+				}})
+				if err != nil {
+					_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, "upgrade derive node endpoint")
+					return err
+				}
+				content = derived
+			}
 			commandSummary := fmt.Sprintf("upgrade apply_merged_config install_dir=%s config_type=%s", target.TargetInstallDir, file.ConfigType)
 			if err := s.beginNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("applying merged config %s / 正在应用合并配置 %s", file.ConfigType, file.ConfigType), commandSummary); err != nil {
 				return err
@@ -643,7 +658,7 @@ func (s *Service) executeMergeConfigStep(ctx context.Context, task *UpgradeTask,
 				"sub_command": "apply_merged_config",
 				"install_dir": target.TargetInstallDir,
 				"config_type": file.ConfigType,
-				"content":     file.MergedContent,
+				"content":     content,
 				"backup":      "true",
 			}); err != nil {
 				_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, commandSummary)

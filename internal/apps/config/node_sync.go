@@ -110,7 +110,7 @@ func (s *Service) deriveHostEndpoint(ctx context.Context, config *Config, conten
 		mode, _ = s.nodeInfoProvider.GetDeploymentMode(ctx, config.ClusterID)
 		ports, _ = s.nodeInfoProvider.GetNodePorts(ctx, config.ClusterID, *config.HostID)
 	}
-	return applyHazelcastEndpoint(content, config.ConfigType, mode, hostIP, ports)
+	return ApplyHazelcastEndpoint(content, config.ConfigType, mode, hostIP, ports)
 }
 
 // commitConfigVersion 提交新内容为新版本，并清除待推送标记。

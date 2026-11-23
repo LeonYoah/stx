@@ -69,17 +69,51 @@ func HazelcastEndpointPort(configType ConfigType, deploymentMode string, ports [
 	return 0
 }
 
-func applyHazelcastEndpoint(content string, configType ConfigType, deploymentMode string, hostIP string, ports []NodePortInfo) (string, error) {
+func ApplyHazelcastEndpoint(content string, configType ConfigType, deploymentMode string, hostIP string, ports []NodePortInfo) (string, error) {
 	port := HazelcastEndpointPort(configType, deploymentMode, ports)
 	if port <= 0 {
 		return content, nil
 	}
-	publicAddress := ""
-	if ip := strings.TrimSpace(hostIP); ip != "" && !publicAddressTargetsHost(content, ip) {
-		publicAddress = net.JoinHostPort(ip, strconv.Itoa(port))
-	}
-	patched, _, err := PatchHazelcastEndpoint(content, publicAddress, port)
+	patched, _, err := PatchHazelcastEndpoint(content, derivePublicAddress(content, hostIP, port), port)
 	return patched, err
+}
+
+func derivePublicAddress(content, hostIP string, port int) string {
+	ip := strings.Trim(strings.TrimSpace(hostIP), "[]")
+	if ip == "" || port <= 0 {
+		return ""
+	}
+	existing := strings.TrimSpace(ReadHazelcastPublicAddress(content))
+	if existing == "" {
+		return net.JoinHostPort(ip, strconv.Itoa(port))
+	}
+	host, existingPort := existing, ""
+	if h, p, err := net.SplitHostPort(existing); err == nil {
+		host, existingPort = h, p
+	}
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if host != ip {
+		return net.JoinHostPort(ip, strconv.Itoa(port))
+	}
+	if existingPort != "" && existingPort != strconv.Itoa(port) {
+		return net.JoinHostPort(host, strconv.Itoa(port))
+	}
+	return ""
+}
+
+func NormalizeHazelcastEndpoint(content string) string {
+	var root any
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+		return content
+	}
+	deleteDecodedPath(root, append(append([]string{}, hazelcastNetworkPath...), "port", "port"))
+	deleteDecodedPath(root, append(append([]string{}, hazelcastNetworkPath...), "public-address"))
+	pruneEmptyDecodedPath(root, append(append([]string{}, hazelcastNetworkPath...), "port"))
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return content
+	}
+	return string(out)
 }
 
 func ReadHazelcastPublicAddress(content string) string {
@@ -91,19 +125,6 @@ func ReadHazelcastPublicAddress(content string) string {
 	return value
 }
 
-func publicAddressTargetsHost(content string, hostIP string) bool {
-	existing := strings.TrimSpace(ReadHazelcastPublicAddress(content))
-	if existing == "" {
-		return false
-	}
-	host := existing
-	if parsed, _, err := net.SplitHostPort(existing); err == nil {
-		host = parsed
-	}
-	host = strings.Trim(strings.TrimSpace(host), "[]")
-	return host == strings.Trim(strings.TrimSpace(hostIP), "[]")
-}
-
 func PatchHazelcastEndpoint(content string, publicAddress string, port int) (string, bool, error) {
 	if port <= 0 && strings.TrimSpace(publicAddress) == "" {
 		return content, false, nil
@@ -112,7 +133,7 @@ func PatchHazelcastEndpoint(content string, publicAddress string, port int) (str
 	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
 		return "", false, fmt.Errorf("invalid hazelcast yaml: %w", err)
 	}
-	network, err := findYAMLMap(&doc, hazelcastNetworkPath)
+	network, err := ensureYAMLMap(&doc, hazelcastNetworkPath)
 	if err != nil {
 		return "", false, err
 	}
@@ -140,15 +161,15 @@ func PatchHazelcastEndpoint(content string, publicAddress string, port int) (str
 	return out, true, nil
 }
 
-func findYAMLMap(doc *yaml.Node, path []string) (*yaml.Node, error) {
+func ensureYAMLMap(doc *yaml.Node, path []string) (*yaml.Node, error) {
 	if doc == nil || len(doc.Content) == 0 {
 		return nil, ErrHazelcastNetworkNotFound
 	}
 	current := doc.Content[0]
+	if current == nil || current.Kind != yaml.MappingNode {
+		return nil, ErrHazelcastNetworkNotFound
+	}
 	for _, segment := range path {
-		if current == nil || current.Kind != yaml.MappingNode {
-			return nil, ErrHazelcastNetworkNotFound
-		}
 		var next *yaml.Node
 		for i := 0; i+1 < len(current.Content); i += 2 {
 			if current.Content[i].Value == segment {
@@ -156,10 +177,16 @@ func findYAMLMap(doc *yaml.Node, path []string) (*yaml.Node, error) {
 				break
 			}
 		}
+		if next == nil {
+			next = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			current.Content = append(current.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: segment},
+				next)
+		}
+		if next.Kind != yaml.MappingNode {
+			return nil, ErrHazelcastNetworkNotFound
+		}
 		current = next
-	}
-	if current == nil || current.Kind != yaml.MappingNode {
-		return nil, ErrHazelcastNetworkNotFound
 	}
 	return current, nil
 }

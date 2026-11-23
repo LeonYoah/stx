@@ -2078,9 +2078,16 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 
 					success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(operation), params)
 					if err != nil {
-						nodeResult.Success = false
-						nodeResult.Message = "Failed to send command: " + err.Error()
-						result.Success = false
+						// 页头集群重启同一超时陷阱：单节点等待超时会把整次标成 Operation completed with errors（#186）。
+						// Same wait-timeout trap on header cluster restart marks the whole op as errors (#186).
+						if operation == OperationRestart && isAgentCommandTimeout(err) {
+							nodeResult.Success = true
+							nodeResult.Message = "restart accepted; agent response timed out / 已受理，Agent 响应超时"
+						} else {
+							nodeResult.Success = false
+							nodeResult.Message = "Failed to send command: " + err.Error()
+							result.Success = false
+						}
 					} else {
 						nodeResult.Success = success
 						nodeResult.Message = message
@@ -2358,6 +2365,43 @@ func (s *Service) PrecheckNode(ctx context.Context, clusterID uint, req *Prechec
 	}
 
 	return result, nil
+}
+
+// isAgentCommandTimeout 识别 Agent 命令等待超时（命令往往已下发）。
+// isAgentCommandTimeout detects Agent command wait timeouts (command usually already dispatched).
+func isAgentCommandTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "command execution timeout") ||
+		strings.Contains(msg, "context deadline exceeded")
+}
+
+// ClearNodeProcessForRestart 受理重启时立刻清旧 PID/标停止，供 handler 在异步执行前返回。
+// ClearNodeProcessForRestart clears the old PID/marks stopped on accept so handlers can return before async work.
+func (s *Service) ClearNodeProcessForRestart(ctx context.Context, nodeID uint) error {
+	if err := s.repo.UpdateNodeProcess(ctx, nodeID, 0, "stopped"); err != nil {
+		return err
+	}
+	return s.repo.UpdateNodeStatus(ctx, nodeID, NodeStatusStopped)
+}
+
+// ClearClusterProcessesForRestart 页头重启受理时清集群内节点旧 PID。
+// ClearClusterProcessesForRestart clears old PIDs for all nodes when a header restart is accepted.
+func (s *Service) ClearClusterProcessesForRestart(ctx context.Context, clusterID uint) error {
+	nodes, err := s.repo.GetNodesByClusterID(ctx, clusterID)
+	if err != nil {
+		return err
+	}
+	for _, node := range nodes {
+		_ = s.repo.UpdateNodeProcess(ctx, node.ID, 0, "stopped")
+		_ = s.repo.UpdateNodeStatus(ctx, node.ID, NodeStatusStopped)
+	}
+	return nil
 }
 
 // detectAndUpdateNodeProcess detects SeaTunnel process status via Agent and updates node.
@@ -2677,13 +2721,22 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 
 		success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(operation), params)
 		if err != nil {
-			return nil, fmt.Errorf("failed to send command to agent: %w / 向 Agent 发送命令失败: %w", err, err)
-		}
-
-		nodeResult.Success = success
-		nodeResult.Message = message
-		if !success {
-			result.Success = false
+			// 命令已下发后 Agent 等待超时：进程侧重启常仍会完成（t4：30s 后 HTTP 500，但随后有 restarted）。
+			// 重启不得把「等待超时」升级成硬失败 500；改为已受理，进度交给事件/轮询（#186）。
+			// After dispatch, Agent wait timeout often still finishes the restart (t4: HTTP 500 at 30s, then restarted).
+			// Do not elevate restart wait-timeout to a hard 500; accept and let events/poll converge (#186).
+			if operation == OperationRestart && isAgentCommandTimeout(err) {
+				nodeResult.Success = true
+				nodeResult.Message = "restart accepted; agent response timed out / 已受理，Agent 响应超时"
+			} else {
+				return nil, fmt.Errorf("failed to send command to agent: %w / 向 Agent 发送命令失败: %w", err, err)
+			}
+		} else {
+			nodeResult.Success = success
+			nodeResult.Message = message
+			if !success {
+				result.Success = false
+			}
 		}
 	} else {
 		return nil, fmt.Errorf("host provider not configured / 主机提供者未配置")

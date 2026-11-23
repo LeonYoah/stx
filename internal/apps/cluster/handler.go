@@ -814,26 +814,45 @@ func (h *Handler) RestartCluster(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.Restart(c.Request.Context(), uint(clusterID))
-	if err != nil {
-		statusCode := h.getStatusCodeForError(err)
-		c.JSON(statusCode, ClusterOperationResponse{ErrorMsg: err.Error()})
-		return
-	}
 	clusterName := h.getClusterNameForAudit(c.Request.Context(), uint(clusterID))
-	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
-		"restart", "cluster", audit.UintID(uint(clusterID)), clusterName, audit.AuditDetails{"trigger": "manual"})
-	logger.InfoF(c.Request.Context(), "[Cluster] 重启集群: cluster_id=%d, success=%v", clusterID, result.Success)
+	accepted := &OperationResult{
+		ClusterID: uint(clusterID),
+		Operation: OperationRestart,
+		Success:   true,
+		Message:   "restart accepted / 重启已受理",
+	}
+	// 与单节点一致：先记 cluster_restart_requested 并立刻 2xx，避免多节点串行等 Agent 超时拖成错误结果。
+	// Same as single-node: record cluster_restart_requested and return 2xx before multi-node Agent waits.
 	h.notifyOperationExecuted(c.Request.Context(), &OperationEvent{
 		ClusterID:   uint(clusterID),
 		ClusterName: clusterName,
 		Operation:   OperationRestart,
-		Success:     result.Success,
-		Message:     result.Message,
+		Success:     true,
+		Message:     accepted.Message,
 		Operator:    auth.GetUsernameFromContext(c),
 		Trigger:     "manual_api",
 	})
-	c.JSON(http.StatusOK, ClusterOperationResponse{Data: result})
+	if h.service != nil {
+		_ = h.service.ClearClusterProcessesForRestart(c.Request.Context(), uint(clusterID))
+	}
+
+	bgCtx := context.WithoutCancel(c.Request.Context())
+	userID := auth.GetUserIDFromContext(c)
+	username := auth.GetUsernameFromContext(c)
+	reqCopy := c.Request.Clone(bgCtx)
+	go func() {
+		result, err := h.service.Restart(bgCtx, uint(clusterID))
+		if err != nil {
+			logger.WarnF(bgCtx, "[Cluster] 异步重启集群失败 / async Restart failed: cluster_id=%d, err=%v",
+				clusterID, err)
+			return
+		}
+		_ = audit.RecordFromGinNoUser(h.auditRepo, reqCopy, userID, username,
+			"restart", "cluster", audit.UintID(uint(clusterID)), clusterName, audit.AuditDetails{"trigger": "manual"})
+		logger.InfoF(bgCtx, "[Cluster] 重启集群: cluster_id=%d, success=%v", clusterID, result.Success)
+	}()
+
+	c.JSON(http.StatusOK, ClusterOperationResponse{Data: accepted})
 }
 
 // GetClusterStatus handles GET /api/v1/clusters/:id/status - gets the status of a cluster.
@@ -1334,41 +1353,52 @@ func (h *Handler) RestartNode(c *gin.Context) {
 		return
 	}
 
-	// 先落 node_restart_requested：RestartNode 内含 sleep/detect，若等返回后再记，
-	// 请求取消或中间失败时库中会缺「节点重启已发起」（实机 AC1）。
-	// Persist node_restart_requested first: RestartNode sleeps/detects; waiting until return
-	// dropped the "requested" row on cancel/mid-flight failure (real AC1 gap).
+	accepted := &OperationResult{
+		ClusterID: uint(clusterID),
+		Operation: OperationRestart,
+		Success:   true,
+		Message:   "restart accepted / 重启已受理",
+	}
+
+	// 先落 node_restart_requested，并立刻 2xx 受理返回：Agent 同步等待可达 30s+，
+	// 阻塞 HTTP 会让前端在返回前无法轮询，且超时被误报 500（t4 #186）。
+	// Persist node_restart_requested and return 2xx accepted immediately: Agent sync wait can
+	// exceed 30s, blocking HTTP prevents pre-return poll and timeouts were misreported as 500 (t4 #186).
 	h.notifyOperationExecuted(c.Request.Context(), h.buildNodeOperationEvent(
 		c.Request.Context(),
 		uint(clusterID),
 		uint(nodeID),
 		OperationRestart,
-		&OperationResult{
-			ClusterID: uint(clusterID),
-			Operation: OperationRestart,
-			Success:   true,
-			Message:   "restart accepted / 重启已受理",
-		},
+		accepted,
 		auth.GetUsernameFromContext(c),
 	))
-
-	result, err := h.service.RestartNode(c.Request.Context(), uint(clusterID), uint(nodeID))
-	if err != nil {
-		statusCode := h.getStatusCodeForError(err)
-		c.JSON(statusCode, ClusterOperationResponse{ErrorMsg: err.Error()})
-		return
+	if h.service != nil {
+		_ = h.service.ClearNodeProcessForRestart(c.Request.Context(), uint(nodeID))
 	}
 
-	clusterName, nodeDisplay := h.service.GetClusterNodeDisplayInfo(c.Request.Context(), uint(clusterID), uint(nodeID))
-	resourceName := clusterName
-	if nodeDisplay != "" {
-		resourceName = clusterName + "（" + nodeDisplay + "）"
-	}
-	resID := audit.UintID(uint(clusterID)) + "/" + audit.UintID(uint(nodeID))
-	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
-		"restart_node", "cluster_node", resID, resourceName, audit.AuditDetails{"trigger": "manual"})
-	logger.InfoF(c.Request.Context(), "[Cluster] 重启节点: cluster_id=%d, node_id=%d, success=%v", clusterID, nodeID, result.Success)
-	c.JSON(http.StatusOK, ClusterOperationResponse{Data: result})
+	bgCtx := context.WithoutCancel(c.Request.Context())
+	userID := auth.GetUserIDFromContext(c)
+	username := auth.GetUsernameFromContext(c)
+	reqCopy := c.Request.Clone(bgCtx)
+	go func() {
+		result, err := h.service.RestartNode(bgCtx, uint(clusterID), uint(nodeID))
+		if err != nil {
+			logger.WarnF(bgCtx, "[Cluster] 异步重启节点失败 / async RestartNode failed: cluster_id=%d, node_id=%d, err=%v",
+				clusterID, nodeID, err)
+			return
+		}
+		clusterName, nodeDisplay := h.service.GetClusterNodeDisplayInfo(bgCtx, uint(clusterID), uint(nodeID))
+		resourceName := clusterName
+		if nodeDisplay != "" {
+			resourceName = clusterName + "（" + nodeDisplay + "）"
+		}
+		resID := audit.UintID(uint(clusterID)) + "/" + audit.UintID(uint(nodeID))
+		_ = audit.RecordFromGinNoUser(h.auditRepo, reqCopy, userID, username,
+			"restart_node", "cluster_node", resID, resourceName, audit.AuditDetails{"trigger": "manual"})
+		logger.InfoF(bgCtx, "[Cluster] 重启节点: cluster_id=%d, node_id=%d, success=%v", clusterID, nodeID, result.Success)
+	}()
+
+	c.JSON(http.StatusOK, ClusterOperationResponse{Data: accepted})
 }
 
 // GetNodeLogsResponse represents the response for getting node logs.

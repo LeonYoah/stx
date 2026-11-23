@@ -1415,6 +1415,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    */
   const handleNodeRestart = async (node: NodeInfo) => {
     setNodeOperating(node.id);
+    // t4：POST /restart 可阻塞 ~30s 后 HTTP 500，但 requested/新 PID 已异步落库。
+    // 确认后立刻开轮询；不把 refresh 挂在 POST 成功之后，失败/超时也不取消。
+    // t4: POST /restart can block ~30s then HTTP 500 while events/new PID land async.
+    // Start poll on confirm; never gate refresh on POST success, and never cancel on failure.
+    void refreshMainStatusAfterLifecycle(OperationType.RESTART, [node.id]);
     try {
       const result = await services.cluster.restartNodeSafe(clusterId, node.id);
       if (result.success) {
@@ -1433,16 +1438,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             ? t('cluster.nodeRestartSuccessAutoRestart')
             : t('cluster.nodeRestartSuccess'),
         );
-        await refreshMainStatusAfterLifecycle(OperationType.RESTART, [
-          node.id,
-        ]);
       } else {
         toast.error(result.error || t('cluster.nodeRestartError'));
-        // 与页头一致：data.success=false 不表示「无需刷新」；requested/新 PID 仍可能异步到达。
-        // Same as header: data.success=false does not mean skip refresh; requested/new PID may still arrive.
-        await refreshMainStatusAfterLifecycle(OperationType.RESTART, [
-          node.id,
-        ]);
       }
     } finally {
       setNodeOperating(null);
@@ -1531,13 +1528,21 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       return;
     }
     setIsOperating(true);
+    const scopeNodeIds = Array.from(selectedNodeIds);
+    // 批量重启同样先开轮询，避免被任一节点 POST 阻塞/500 卡住停留页。
+    // Batch restart also starts poll first so one blocked/500 POST cannot freeze stay-on-page.
+    void refreshMainStatusAfterLifecycle(OperationType.RESTART, scopeNodeIds);
     try {
       let hasAutoRestart = false;
-      for (const nodeId of selectedNodeIds) {
+      let anyFailed = false;
+      for (const nodeId of scopeNodeIds) {
         const result = await services.cluster.restartNodeSafe(
           clusterId,
           nodeId,
         );
+        if (!result.success) {
+          anyFailed = true;
+        }
         // Check both message and node_results / 检查 message 和 node_results
         if (
           result.data?.message?.includes('auto-restart') ||
@@ -1551,15 +1556,15 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           hasAutoRestart = true;
         }
       }
-      toast.success(
-        hasAutoRestart
-          ? t('cluster.batchRestartSuccessAutoRestart')
-          : t('cluster.batchRestartSuccess'),
-      );
-      await refreshMainStatusAfterLifecycle(
-        OperationType.RESTART,
-        Array.from(selectedNodeIds),
-      );
+      if (anyFailed) {
+        toast.error(t('cluster.nodeRestartError'));
+      } else {
+        toast.success(
+          hasAutoRestart
+            ? t('cluster.batchRestartSuccessAutoRestart')
+            : t('cluster.batchRestartSuccess'),
+        );
+      }
     } finally {
       setIsOperating(false);
     }

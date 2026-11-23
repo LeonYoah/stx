@@ -1538,6 +1538,10 @@ func (a *agentCommandSenderAdapter) SendCommand(ctx context.Context, agentID str
 		timeout = 10 * time.Minute
 	case "pull_config":
 		timeout = 1 * time.Minute
+	case "start", "stop", "restart":
+		// SeaTunnel 优雅停止本身可到 30s；同步等 Agent 必须大于该值，否则已下发的重启被误报 500（#186）。
+		// SeaTunnel graceful stop alone can take 30s; sync wait must exceed that or a dispatched restart is reported as HTTP 500 (#186).
+		timeout = 90 * time.Second
 	}
 
 	// Send command with command-specific timeout

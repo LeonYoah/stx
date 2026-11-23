@@ -97,6 +97,14 @@ export function useClusterLifecycle(
       setOperatingAction(operation);
       setPendingLifecycle(null);
 
+      // 重启：POST 可能阻塞数十秒后 500/超时，但事件与新 PID 已异步到达。
+      // 确认后立刻 onComplete 开轮询；稍后不再二次 onComplete，避免重采 baseline。
+      // Restart: POST may block tens of seconds then 500/timeout while events/new PID land async.
+      // Fire onComplete immediately; do not call it again later (would recapture baseline).
+      if (operation === OperationType.RESTART) {
+        onComplete?.(cluster, operation);
+      }
+
       try {
         const result =
           operation === OperationType.START
@@ -124,7 +132,9 @@ export function useClusterLifecycle(
               : t('cluster.restartSuccess'),
           }[operation];
           toast.success(successMessage);
-          onComplete?.(cluster, operation);
+          if (operation !== OperationType.RESTART) {
+            onComplete?.(cluster, operation);
+          }
         } else {
           const fallbackError = {
             [OperationType.START]: t('cluster.startError'),
@@ -132,13 +142,6 @@ export function useClusterLifecycle(
             [OperationType.RESTART]: t('cluster.restartError'),
           }[operation];
           toast.error(result.error || fallbackError);
-          // 重启 HTTP 200 但 data.success=false（如 Operation completed with errors）时，
-          // 进程事件/新 PID 仍可能异步落库；仍要启动停留页轮询，否则 UI 冻到重新进入（#186 AC2）。
-          // Restart may return HTTP 200 with data.success=false while events/new PID still land async;
-          // still start stay-on-page poll or the UI freezes until remount (#186 AC2).
-          if (operation === OperationType.RESTART) {
-            onComplete?.(cluster, operation);
-          }
         }
       } finally {
         setOperatingClusterId(null);

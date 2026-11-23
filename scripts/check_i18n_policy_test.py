@@ -69,6 +69,19 @@ class TestBilingualRule(unittest.TestCase):
         self.assertHit("主机名 / IP")
         self.assertHit("Downloaded / 已下载")
 
+    def test_version_required_sentence(self):
+        self.assertHit("Java 17 required / 需要 Java 17")
+
+    def test_path_list_inside_zh(self):
+        self.assertPass("插件位于 connector / lib / plugins 目录下")
+
+    def test_literal_brace_block_not_placeholder(self):
+        self.assertHit('{"error": "Invalid version / 版本无效"}')
+
+    def test_go_template_blocks_stripped(self):
+        self.assertPass('{{ $labels.cluster_name }} / {{ $labels.instance }} 触发指标告警')
+        self.assertPass('{{pair "打印 / 导出 PDF" "Print / Export PDF"}}')
+
 
 class TestIterLiterals(unittest.TestCase):
     def test_skips_comments(self):

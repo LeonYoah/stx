@@ -103,7 +103,7 @@ func (h *Handler) RefreshVersions(c *gin.Context) {
 		// Return fallback versions with warning / 返回备用版本并带警告
 		logger.WarnF(c.Request.Context(), "[Installer] 刷新版本列表失败，使用备用列表: %v", err)
 		c.JSON(http.StatusOK, RefreshVersionsResponse{
-			ErrorMsg: "Failed to fetch from Apache Archive, using fallback list",
+			ErrorMsg: locale.Pick(c.Request.Context(), "无法从 Apache Archive 获取版本列表，使用备用列表", "Failed to fetch from Apache Archive, using fallback list"),
 			Data:     versions,
 		})
 		return

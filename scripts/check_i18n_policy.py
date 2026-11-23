@@ -32,6 +32,8 @@ IGNORE_MARK = "i18n-lint:ignore"
 CJK_RE = re.compile(r"[一-鿿]")
 EN_WORD_RE = re.compile(r"[A-Za-z]{2,}")
 TAG_TOKEN_RE = re.compile(r"[A-Za-z0-9.+_:/-]+")
+PLACEHOLDER_RE = re.compile(r"\{[A-Za-z_][A-Za-z0-9_.]*\}")
+PATH_TOKEN_RE = re.compile(r"[a-z0-9._/-]+")
 RULE_B_RE = re.compile(
     r'\.Query\(\s*"(?:lang|language|locale)"\s*\)'
     r'|\.GetHeader\(\s*"Accept-Language"\s*\)'
@@ -66,20 +68,17 @@ def _strip_interpolation(text: str) -> str:
     out = []
     i, n = 0, len(text)
     while i < n:
-        if text[i] == "{":
-            depth, j = 0, i
-            while j < n:
-                if text[j] == "{":
-                    depth += 1
-                elif text[j] == "}":
-                    depth -= 1
-                    if depth == 0:
-                        j += 1
-                        break
-                j += 1
-            if j <= n and depth == 0:
+        if text[i] == "{" and i + 1 < n and text[i + 1] == "{":
+            end = text.find("}}", i + 2)
+            if end != -1:
                 out.append(" ")
-                i = j
+                i = end + 2
+                continue
+        if text[i] == "{":
+            m = PLACEHOLDER_RE.match(text, i)
+            if m:
+                out.append(" ")
+                i = m.end()
                 continue
         if text[i] == "$" and i + 1 < n and text[i + 1] == "{":
             depth, j = 0, i + 1
@@ -175,13 +174,18 @@ def _is_en_segment(segment: str) -> bool:
     words = EN_WORD_RE.findall(segment)
     if not words:
         return False
-    if len(words) <= 2:
+    if len(words) <= 1:
         tokens = segment.split()
         if all(TAG_TOKEN_RE.fullmatch(t) for t in tokens) and any(
             any(ch.isdigit() for ch in t) for t in tokens
         ):
             return False
     return True
+
+
+def _is_path_token(segment: str) -> bool:
+    tokens = segment.split()
+    return len(tokens) == 1 and PATH_TOKEN_RE.fullmatch(tokens[0]) is not None
 
 
 def _paren_depth(text: str, pos: int) -> int:
@@ -208,9 +212,17 @@ def bilingual_slash_positions(literal: str):
         offset = slash_pos + 3
         if _paren_depth(cleaned, slash_pos) > 0:
             continue
-        if (_is_zh_segment(left_seg) and _is_en_segment(right_seg)) or (
-            _is_en_segment(left_seg) and _is_zh_segment(right_seg)
-        ):
+        zh_left, zh_right = _is_zh_segment(left_seg), _is_zh_segment(right_seg)
+        en_left, en_right = _is_en_segment(left_seg), _is_en_segment(right_seg)
+        if zh_left and en_right:
+            boundary = left_seg.split()[-1] if left_seg.split() else ""
+            if _is_path_token(right_seg) and PATH_TOKEN_RE.fullmatch(boundary):
+                continue
+            hits.append(slash_pos)
+        elif en_left and zh_right:
+            boundary = right_seg.split()[0] if right_seg.split() else ""
+            if _is_path_token(left_seg) and PATH_TOKEN_RE.fullmatch(boundary):
+                continue
             hits.append(slash_pos)
     return hits
 
@@ -234,8 +246,10 @@ def scan_go_source(path: str, text: str) -> list[Violation]:
     for start_line, literal, _, _ in iter_literals(text, allow_single_quote=False):
         for pos in bilingual_slash_positions(literal):
             line_no = start_line + literal.count("\n", 0, pos)
-            if line_has_ignore(source_lines, line_no) or line_has_ignore(
-                source_lines, start_line
+            if (
+                line_has_ignore(source_lines, line_no)
+                or line_has_ignore(source_lines, start_line)
+                or line_has_ignore(source_lines, start_line - 1)
             ):
                 continue
             violations.append(
@@ -256,8 +270,10 @@ def scan_ts_source(path: str, text: str) -> list[Violation]:
     for start_line, literal, _, _ in iter_literals(text, allow_single_quote=True):
         for pos in bilingual_slash_positions(literal):
             line_no = start_line + literal.count("\n", 0, pos)
-            if line_has_ignore(source_lines, line_no) or line_has_ignore(
-                source_lines, start_line
+            if (
+                line_has_ignore(source_lines, line_no)
+                or line_has_ignore(source_lines, start_line)
+                or line_has_ignore(source_lines, start_line - 1)
             ):
                 continue
             violations.append(

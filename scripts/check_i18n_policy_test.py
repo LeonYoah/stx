@@ -85,6 +85,12 @@ class TestBilingualRule(unittest.TestCase):
     def test_lowercase_translation_not_path(self):
         self.assertHit("已连接 localhost / connected")
 
+    def test_lead_word_version_sentence(self):
+        self.assertHit("Requires Java 17 / 需要 Java 17")
+
+    def test_two_path_list_passes(self):
+        self.assertPass("可选目录 /opt/seatunnel / /opt/stx")
+
     def test_versioned_name_list_passes(self):
         self.assertPass("支持的运行时：OpenJDK 17 / Oracle JDK 21")
 
@@ -151,6 +157,17 @@ class TestSourceScan(unittest.TestCase):
         vs = pol.scan_ts_source("frontend/lib/x.ts", src)
         self.assertEqual(len(vs), 1)
         self.assertEqual(vs[0].rule, pol.RULE_BILINGUAL)
+
+    def test_ts_nested_template_expression(self):
+        src = 'const m = `x ${ok ? "中文 / English" : "y"}`;\n'
+        vs = pol.scan_ts_source("frontend/lib/x.ts", src)
+        self.assertEqual(len(vs), 1)
+
+    def test_multiline_interpolation_span(self):
+        src = 'const m = `a ${one +\n two +\n three} b 中文 / English`;\n'
+        vs = pol.scan_ts_source("frontend/lib/x.ts", src)
+        self.assertEqual(len(vs), 1)
+        self.assertEqual(vs[0].end, 3)
 
 
 class TestScanLine(unittest.TestCase):
@@ -249,6 +266,40 @@ class TestDiffMode(unittest.TestCase):
             rules = sorted(v.rule for v in vs)
             self.assertEqual(
                 rules, [pol.RULE_BILINGUAL, pol.RULE_RAW_LOCALE]
+            )
+
+    def test_scan_diff_reads_head_not_worktree(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "t@t"], cwd=root, check=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "t"], cwd=root, check=True
+            )
+            d = root / "internal" / "apps" / "x"
+            d.mkdir(parents=True)
+            (d / "x.go").write_text("package x\n", encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "init"], cwd=root, check=True
+            )
+            (d / "x.go").write_text(
+                'package x\nvar a = "上传失败 / Upload failed"\n',
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "bad"], cwd=root, check=True
+            )
+            (d / "x.go").write_text(
+                'package x\nvar a = "Upload failed"\n',
+                encoding="utf-8",
+            )
+            vs = pol.scan_diff(root, "HEAD~1", "HEAD")
+            self.assertEqual(
+                [v.rule for v in vs], [pol.RULE_BILINGUAL]
             )
 
 

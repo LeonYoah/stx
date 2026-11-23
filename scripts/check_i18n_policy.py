@@ -35,6 +35,15 @@ TAG_TOKEN_RE = re.compile(r"[A-Za-z0-9.+_:/-]+")
 PLACEHOLDER_RE = re.compile(r"\{[A-Za-z_][A-Za-z0-9_.]*\}")
 PATH_TOKEN_RE = re.compile(r"[a-z0-9._/-]+")
 LOWER_WORD_RE = re.compile(r"[a-z]{3,}")
+TAG_LEAD_WORDS = frozenset(
+    "a an the requires required need needs use uses using must should can cannot "
+    "unable failed expected missing invalid unknown unsupported supported only "
+    "please not no found running stopped installed enabled disabled available "
+    "unavailable version see set get add remove delete create update select "
+    "choose run start stop restart install uninstall download upload open close "
+    "save load check test try retry skip ignore warn warning error current "
+    "latest new old".split()
+)
 RULE_B_RE = re.compile(
     r'\.Query\(\s*"(?:lang|language|locale)"\s*\)'
     r'|\.GetHeader\(\s*"Accept-Language"\s*\)'
@@ -146,6 +155,16 @@ def iter_literals(text: str, allow_single_quote: bool):
                                 j += 1
                                 break
                         j += 1
+                    if allow_single_quote:
+                        expr = text[i + 2 : j - 1] if j <= n else text[i + 2 :]
+                        expr_base = line
+                        for sub in iter_literals(expr, allow_single_quote):
+                            yield (
+                                expr_base + sub[0] - 1,
+                                sub[1],
+                                i + 2 + sub[2],
+                                i + 2 + sub[3],
+                            )
                     line += text.count("\n", i, min(j, n))
                     buf.append(" ")
                     i = j
@@ -182,7 +201,8 @@ def _is_en_segment(segment: str) -> bool:
         tokens
         and all(TAG_TOKEN_RE.fullmatch(t) for t in tokens)
         and any(any(ch.isdigit() for ch in t) for t in tokens)
-        and not any(LOWER_WORD_RE.fullmatch(t) for t in tokens)
+        and not any(LOWER_WORD_RE.fullmatch(t) for t in tokens[1:])
+        and tokens[0].lower() not in TAG_LEAD_WORDS
     ):
         return False
     return True
@@ -191,6 +211,12 @@ def _is_en_segment(segment: str) -> bool:
 def _is_path_token(segment: str) -> bool:
     tokens = segment.split()
     return len(tokens) == 1 and PATH_TOKEN_RE.fullmatch(tokens[0]) is not None
+
+
+def _looks_like_path(segment: str) -> bool:
+    return _is_path_token(segment) and bool(
+        re.search(r"[/.]", segment.split()[0])
+    )
 
 
 def _paren_depth(text: str, pos: int) -> int:
@@ -220,24 +246,30 @@ def bilingual_slash_positions(literal: str):
         zh_left, zh_right = _is_zh_segment(left_seg), _is_zh_segment(right_seg)
         en_left, en_right = _is_en_segment(left_seg), _is_en_segment(right_seg)
         if zh_left and en_right:
-            boundary = left_seg.split()[-1] if left_seg.split() else ""
+            left_words = left_seg.split()
+            boundary = left_words[-1] if left_words else ""
             nxt = parts[idx + 2].split() if idx + 2 < len(parts) else []
-            if (
-                _is_path_token(right_seg)
-                and PATH_TOKEN_RE.fullmatch(boundary)
-                and nxt
-                and PATH_TOKEN_RE.fullmatch(nxt[0])
+            chain_start = (
+                PATH_TOKEN_RE.fullmatch(boundary) is not None
+                or not EN_WORD_RE.findall(left_seg)
+            )
+            if _is_path_token(right_seg) and chain_start and (
+                (nxt and PATH_TOKEN_RE.fullmatch(nxt[0]))
+                or _looks_like_path(right_seg)
             ):
                 continue
             hits.append(slash_pos)
         elif en_left and zh_right:
-            boundary = right_seg.split()[0] if right_seg.split() else ""
+            right_words = right_seg.split()
+            boundary = right_words[0] if right_words else ""
             prv = parts[idx - 1].split() if idx > 0 else []
-            if (
-                _is_path_token(left_seg)
-                and PATH_TOKEN_RE.fullmatch(boundary)
-                and prv
-                and PATH_TOKEN_RE.fullmatch(prv[-1])
+            chain_start = (
+                PATH_TOKEN_RE.fullmatch(boundary) is not None
+                or not EN_WORD_RE.findall(right_seg)
+            )
+            if _is_path_token(left_seg) and chain_start and (
+                (prv and PATH_TOKEN_RE.fullmatch(prv[-1]))
+                or _looks_like_path(left_seg)
             ):
                 continue
             hits.append(slash_pos)
@@ -272,7 +304,9 @@ def scan_go_source(path: str, text: str) -> list[Violation]:
                 violations.append(
                     Violation(path, line_no, RULE_RAW_LOCALE, m.group(0))
                 )
-    for start_line, literal, _, _ in iter_literals(text, allow_single_quote=False):
+    for start_line, literal, span_start, span_end in iter_literals(
+        text, allow_single_quote=False
+    ):
         for pos in bilingual_slash_positions(literal):
             line_no = start_line + literal.count("\n", 0, pos)
             if (
@@ -288,7 +322,7 @@ def scan_go_source(path: str, text: str) -> list[Violation]:
                     RULE_BILINGUAL,
                     literal.splitlines()[0][:80],
                     start_line,
-                    start_line + literal.count("\n"),
+                    start_line + text.count("\n", span_start, span_end),
                 )
             )
             break
@@ -298,7 +332,9 @@ def scan_go_source(path: str, text: str) -> list[Violation]:
 def scan_ts_source(path: str, text: str) -> list[Violation]:
     violations = []
     source_lines = text.splitlines()
-    for start_line, literal, _, _ in iter_literals(text, allow_single_quote=True):
+    for start_line, literal, span_start, span_end in iter_literals(
+        text, allow_single_quote=True
+    ):
         for pos in bilingual_slash_positions(literal):
             line_no = start_line + literal.count("\n", 0, pos)
             if (
@@ -314,7 +350,7 @@ def scan_ts_source(path: str, text: str) -> list[Violation]:
                     RULE_BILINGUAL,
                     literal.splitlines()[0][:80],
                     start_line,
-                    start_line + literal.count("\n"),
+                    start_line + text.count("\n", span_start, span_end),
                 )
             )
             break
@@ -408,10 +444,21 @@ def scan_diff(repo_root: Path, base_ref: str, head_ref: str) -> list[Violation]:
             new_line_no += 1
     violations = []
     for rel_path, lines in changed.items():
-        target = repo_root / rel_path
-        if not target.is_file():
+        blob = subprocess.run(
+            ["git", "show", f"{head_ref}:{rel_path}"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if blob.returncode != 0:
             continue
-        for v in scan_file(repo_root, rel_path):
+        if _is_go_file(rel_path):
+            found = scan_go_source(rel_path, blob.stdout)
+        elif _is_frontend_file(rel_path):
+            found = scan_ts_source(rel_path, blob.stdout)
+        else:
+            continue
+        for v in found:
             lo = v.start or v.line
             hi = v.end or v.line
             if any(lo <= ln <= hi for ln in lines) or v.line in lines:

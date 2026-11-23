@@ -471,8 +471,10 @@ func (d *Downloader) DownloadConnector(ctx context.Context, plugin *Plugin, mirr
 	key := fmt.Sprintf("%s:%s", plugin.Name, plugin.Version)
 
 	// Check if already downloading / 检查是否正在下载
+	// 终态（failed/completed）条目不拦截重试，仅在进行中时报冲突。
+	// Terminal entries (failed/completed) do not block retries; only in-flight ones conflict.
 	d.downloadsMu.RLock()
-	if _, exists := d.activeDownloads[key]; exists {
+	if p, exists := d.activeDownloads[key]; exists && p.Status == "downloading" {
 		d.downloadsMu.RUnlock()
 		return ErrDownloadInProgress
 	}
@@ -521,7 +523,11 @@ func (d *Downloader) DownloadConnector(ctx context.Context, plugin *Plugin, mirr
 
 	defer func() {
 		d.downloadsMu.Lock()
-		delete(d.activeDownloads, key)
+		// 失败态保留，供状态接口返回 failed 与错误信息；成功态由磁盘文件判定。
+		// Keep failed entries so the status API can report the error; success is derived from files on disk.
+		if progress.Status != "failed" {
+			delete(d.activeDownloads, key)
+		}
 		d.downloadsMu.Unlock()
 	}()
 
@@ -798,7 +804,13 @@ func (d *Downloader) DownloadPlugin(ctx context.Context, plugin *Plugin, mirror 
 			SelectedProfileKeys: append([]string(nil), selectedProfileKeys...),
 		}
 		d.UpsertActiveDownload(progress)
-		defer d.ClearActiveDownload(plugin.Name, plugin.Version)
+		defer func() {
+			// 失败态保留，供状态接口返回 failed 与错误信息。
+			// Keep failed entries so the status API can report the error.
+			if progress.Status != "failed" {
+				d.ClearActiveDownload(plugin.Name, plugin.Version)
+			}
+		}()
 		dependencyCallback := func(depProgress *DownloadProgress) {
 			if depProgress == nil {
 				return

@@ -44,7 +44,47 @@ var (
 	ErrFileNotFound       = errors.New("file not found on server / 服务器上未找到文件")
 	ErrDownloadCancelled  = errors.New("download cancelled / 下载已取消")
 	ErrDownloadInProgress = errors.New("download already in progress / 下载正在进行中")
+
+	// errTransportFailed 标记传输层失败（连接重置、超时等），换源重试有成功率。
+	// errTransportFailed marks transport-layer failures (reset, timeout); switching mirrors may succeed.
+	errTransportFailed = errors.New("transport failure")
 )
+
+// httpStatusError 携带 HTTP 状态码，兜底逻辑据此判断是否换源。
+// httpStatusError carries the HTTP status so the fallback can decide whether to switch mirrors.
+type httpStatusError struct {
+	code int
+}
+
+func (e httpStatusError) Error() string {
+	return fmt.Sprintf("%s: HTTP %d", ErrDownloadFailed, e.code)
+}
+
+func (e httpStatusError) Unwrap() error { return ErrDownloadFailed }
+
+// transportError 保留原始错误，同时暴露传输失败标记供兜底判断。
+// transportError keeps the original error while exposing the transport-failure marker.
+type transportError struct{ err error }
+
+func (e transportError) Error() string { return fmt.Sprintf("failed to download: %s", e.err) }
+func (e transportError) Unwrap() []error {
+	return []error{errTransportFailed, e.err}
+}
+
+// shouldTryNextMirror 判断失败是否值得换下一个镜像源重试。
+// shouldTryNextMirror reports whether the failure is worth retrying on the next mirror.
+func shouldTryNextMirror(err error) bool {
+	if errors.Is(err, ErrFileNotFound) {
+		return true
+	}
+	var hs httpStatusError
+	if errors.As(err, &hs) {
+		// 限流与服务端错误属临时性，换源可能成功；其余 4xx 视为永久错误。
+		// Rate limiting and server errors are transient; other 4xx are permanent.
+		return hs.code == http.StatusTooManyRequests || hs.code >= http.StatusInternalServerError
+	}
+	return errors.Is(err, errTransportFailed)
+}
 
 // DownloadProgress represents the progress of a download task.
 // DownloadProgress 表示下载任务的进度。
@@ -746,12 +786,19 @@ func (d *Downloader) copyUploadedDependency(targetPath, storedPath string) error
 func (d *Downloader) buildArtifactURLs(baseURL, groupPath, artifactID, version, jarName string, mirror MirrorSource) []string {
 	primary := fmt.Sprintf("%s/%s/%s/%s/%s", baseURL, groupPath, artifactID, version, jarName)
 	urls := []string{primary}
-	if mirror != MirrorSourceApache {
-		if apacheBase := MirrorURLs[MirrorSourceApache]; apacheBase != "" {
-			apacheURL := fmt.Sprintf("%s/%s/%s/%s/%s", apacheBase, groupPath, artifactID, version, jarName)
-			if apacheURL != primary {
-				urls = append(urls, apacheURL)
-			}
+	// 其余镜像按固定顺序兜底：默认 Apache 源被限流/宕机时也有 aliyun、华为云可切。
+	// Remaining mirrors are fallbacks in fixed order: a rate-limited or down Apache still has aliyun/huaweicloud to try.
+	for _, m := range []MirrorSource{MirrorSourceApache, MirrorSourceAliyun, MirrorSourceHuaweiCloud} {
+		if m == mirror {
+			continue
+		}
+		base := MirrorURLs[m]
+		if base == "" {
+			continue
+		}
+		u := fmt.Sprintf("%s/%s/%s/%s/%s", base, groupPath, artifactID, version, jarName)
+		if u != primary {
+			urls = append(urls, u)
 		}
 	}
 	return urls
@@ -762,7 +809,7 @@ func (d *Downloader) downloadArtifactWithFallback(ctx context.Context, urls []st
 	for _, jarURL := range urls {
 		if err := d.downloadFile(ctx, jarURL, targetPath, progress, callback); err != nil {
 			lastErr = err
-			if !errors.Is(err, ErrFileNotFound) {
+			if !shouldTryNextMirror(err) {
 				return "", "", err
 			}
 			continue
@@ -867,7 +914,7 @@ func (d *Downloader) downloadFile(ctx context.Context, url, targetPath string, p
 		if errors.Is(err, context.Canceled) {
 			return ErrDownloadCancelled
 		}
-		return fmt.Errorf("failed to download: %w", err)
+		return transportError{err: err}
 	}
 	defer resp.Body.Close()
 
@@ -876,7 +923,7 @@ func (d *Downloader) downloadFile(ctx context.Context, url, targetPath string, p
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: HTTP %d", ErrDownloadFailed, resp.StatusCode)
+		return httpStatusError{code: resp.StatusCode}
 	}
 
 	// Get content length / 获取内容长度

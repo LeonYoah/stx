@@ -81,7 +81,7 @@ func TestResolveMemberAddresses_separatedSplitsRoles(t *testing.T) {
 		hostProvider: &fakeHostProvider{host: &HostInfo{ID: 9, IPAddress: "10.0.0.9"}},
 		nodeAddressesResolver: &fakeNodeAddressesResolver{nodes: []ClusterNodeAddress{
 			{HostIP: "10.0.0.2", Role: "master", HazelcastPort: 5811},
-			{HostIP: "10.0.0.3", Role: "worker", WorkerPort: 5822},
+			{HostIP: "10.0.0.3", Role: "worker", HazelcastPort: 5822},
 		}},
 	}
 	req := &InstallationRequest{

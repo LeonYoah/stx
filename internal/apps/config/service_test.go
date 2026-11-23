@@ -26,11 +26,22 @@ import (
 )
 
 type testNodeInfoProvider struct {
-	installDir string
+	installDir  string
+	installDirs []string
 }
 
 func (p *testNodeInfoProvider) GetNodeInstallDir(_ context.Context, _ uint, _ uint) (string, error) {
 	return p.installDir, nil
+}
+
+func (p *testNodeInfoProvider) GetNodeInstallDirs(_ context.Context, _ uint, _ uint) ([]string, error) {
+	if p.installDirs != nil {
+		return p.installDirs, nil
+	}
+	if p.installDir == "" {
+		return nil, nil
+	}
+	return []string{p.installDir}, nil
 }
 
 type testAgentClient struct {

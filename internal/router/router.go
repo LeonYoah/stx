@@ -2230,6 +2230,10 @@ func (a *configNodeInfoProviderAdapter) GetNodeInstallDir(ctx context.Context, c
 	return a.clusterService.GetNodeInstallDir(ctx, clusterID, hostID)
 }
 
+func (a *configNodeInfoProviderAdapter) GetNodeInstallDirs(ctx context.Context, clusterID uint, hostID uint) ([]string, error) {
+	return a.clusterService.GetNodeInstallDirs(ctx, clusterID, hostID)
+}
+
 // configPortMetadataUpdaterAdapter adapts cluster.Repository to appconfig.PortMetadataUpdater interface.
 // configPortMetadataUpdaterAdapter 将 cluster.Repository 适配到 appconfig.PortMetadataUpdater 接口。
 type configPortMetadataUpdaterAdapter struct {

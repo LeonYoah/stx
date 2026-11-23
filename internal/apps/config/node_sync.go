@@ -58,7 +58,7 @@ func (s *Service) applyNodeConfigContent(ctx context.Context, config *Config, co
 		return &nodeApplyOutcome{Applied: true}, nil
 	}
 
-	installDir, dirErr := s.nodeInfoProvider.GetNodeInstallDir(ctx, config.ClusterID, *config.HostID)
+	installDirs, dirErr := s.nodeInfoProvider.GetNodeInstallDirs(ctx, config.ClusterID, *config.HostID)
 	if dirErr != nil {
 		pushErr := "获取节点安装目录失败 / failed to resolve node install dir: " + dirErr.Error()
 		if err := s.markPendingPush(ctx, config, content, comment, userID, pushErr); err != nil {
@@ -66,19 +66,21 @@ func (s *Service) applyNodeConfigContent(ctx context.Context, config *Config, co
 		}
 		return &nodeApplyOutcome{Pending: true, PushError: pushErr}, nil
 	}
-	if installDir == "" {
+	if len(installDirs) == 0 {
 		if err := s.commitConfigVersion(ctx, config, content, comment, userID); err != nil {
 			return nil, err
 		}
 		return &nodeApplyOutcome{Applied: true}, nil
 	}
 
-	if err := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, content); err != nil {
-		pushErr := "推送配置到节点失败 / failed to push config to node: " + err.Error()
-		if markErr := s.markPendingPush(ctx, config, content, comment, userID, pushErr); markErr != nil {
-			return nil, markErr
+	for _, installDir := range installDirs {
+		if err := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, content); err != nil {
+			pushErr := "推送配置到节点失败 / failed to push config to node: " + err.Error()
+			if markErr := s.markPendingPush(ctx, config, content, comment, userID, pushErr); markErr != nil {
+				return nil, markErr
+			}
+			return &nodeApplyOutcome{Pending: true, PushError: pushErr}, nil
 		}
-		return &nodeApplyOutcome{Pending: true, PushError: pushErr}, nil
 	}
 	if err := s.commitConfigVersion(ctx, config, content, comment, userID); err != nil {
 		return nil, err

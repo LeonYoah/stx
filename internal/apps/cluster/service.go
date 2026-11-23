@@ -1646,6 +1646,33 @@ func (s *Service) GetNodeInstallDir(ctx context.Context, clusterID uint, hostID 
 	return node.InstallDir, nil
 }
 
+func (s *Service) GetNodeInstallDirs(ctx context.Context, clusterID uint, hostID uint) ([]string, error) {
+	nodes, err := s.repo.GetNodesByClusterID(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	dirs := make([]string, 0, len(nodes))
+	seen := make(map[string]struct{}, len(nodes))
+	for _, node := range nodes {
+		if node == nil || node.HostID != hostID {
+			continue
+		}
+		dir := strings.TrimSpace(node.InstallDir)
+		if dir == "" {
+			continue
+		}
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		dirs = append(dirs, dir)
+	}
+	if len(dirs) == 0 {
+		return nil, fmt.Errorf("node not found for cluster %d and host %d / 未找到集群 %d 主机 %d 对应的节点", clusterID, hostID, clusterID, hostID)
+	}
+	return dirs, nil
+}
+
 // ResolveNodeJVMByClusterAndHostAndRole resolves effective JVM config for one logical node.
 // ResolveNodeJVMByClusterAndHostAndRole 解析一个逻辑节点的生效 JVM 配置。
 func (s *Service) ResolveNodeJVMByClusterAndHostAndRole(ctx context.Context, clusterID uint, hostID uint, role string) (*installerapp.JVMConfig, error) {

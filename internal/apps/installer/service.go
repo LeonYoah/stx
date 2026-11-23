@@ -2679,11 +2679,7 @@ func (s *Service) resolveMemberAddresses(ctx context.Context, req *InstallationR
 		}
 	}
 	for _, node := range nodes {
-		port := node.HazelcastPort
-		if separated && node.Role == string(NodeRoleWorker) {
-			port = node.WorkerPort
-		}
-		add(node.Role, node.HostIP, port)
+		add(node.Role, node.HostIP, node.HazelcastPort)
 	}
 	if len(req.MasterAddresses) == 0 {
 		clustermembers.SortAddresses(masters)
@@ -3256,7 +3252,11 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 
 	// Agent 安装完成后，先登记或刷新控制面的节点元数据，再使用统一的集群启动逻辑。
 	// After the Agent installation completes, register or refresh control-plane node metadata before using the shared startup logic.
-	if err := s.nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, nodeRole, req.InstallDir, req.ClusterPort, req.HTTPPort, req.WorkerPort, req.JavaHome); err != nil {
+	nodeHazelcastPort := req.ClusterPort
+	if req.DeploymentMode == DeploymentModeSeparated && nodeRole == string(NodeRoleWorker) {
+		nodeHazelcastPort = req.WorkerPort
+	}
+	if err := s.nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, nodeRole, req.InstallDir, nodeHazelcastPort, req.HTTPPort, req.WorkerPort, req.JavaHome); err != nil {
 		logger.ErrorF(ctx, "[Installer] 登记安装节点失败 / Failed to register installed node: cluster=%d, host=%d, role=%s, error=%v",
 			clusterID, hostID, nodeRole, err)
 		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to register node (%s): %v / 安装完成但登记节点 (%s) 失败: %v", nodeRole, err, nodeRole, err))

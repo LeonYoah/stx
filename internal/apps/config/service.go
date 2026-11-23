@@ -43,6 +43,7 @@ type HostProvider interface {
 // NodeInfoProvider 节点信息提供者接口
 type NodeInfoProvider interface {
 	GetNodeInstallDir(ctx context.Context, clusterID uint, hostID uint) (string, error)
+	GetNodeInstallDirs(ctx context.Context, clusterID uint, hostID uint) ([]string, error)
 }
 
 // HostInfo 主机信息

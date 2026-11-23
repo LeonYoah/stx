@@ -828,10 +828,10 @@ func TestDolphinCrontab(t *testing.T) {
 			t.Fatalf("dolphinCrontab(%q) = %q, want %q", in, got, want)
 		}
 	}
-	if w := domDowWarning("0 9 1 * 3"); w == "" {
+	if w := domDowWarning(context.Background(), "0 9 1 * 3"); w == "" {
 		t.Fatal("expected dom+dow restricted warning")
 	}
-	if w := domDowWarning("0 9 * * 3"); w != "" {
+	if w := domDowWarning(context.Background(), "0 9 * * 3"); w != "" {
 		t.Fatalf("unexpected warning %q", w)
 	}
 }

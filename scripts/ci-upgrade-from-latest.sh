@@ -290,6 +290,16 @@ resolve_target_version() {
   log "TARGET = $TARGET"
 }
 
+# same_version_release：重发同版本 tag 时 latest release 恰等于 TARGET（例如强推
+# v1.5.0 重新发版），self-upgrade 会拒绝「不比当前版本新」的同版本升级（execute 400
+# ErrNotStaged），这条腿测不到任何东西，直接跳过。
+# same_version_release: when re-releasing the same tag, the latest release equals the
+# TARGET (e.g. force-pushed v1.5.0), and self-upgrade correctly refuses a same-version
+# upgrade (execute 400 ErrNotStaged) — there is nothing to exercise, so skip the leg.
+same_version_release() {
+  [[ "$FROM_TAG" == "v$TARGET" ]]
+}
+
 # ── 2. 用当前代码构建一键升级包 ──────────────────────────────────────────────
 
 build_upgrade_package() {
@@ -938,6 +948,10 @@ main() {
   mkdir -p "$COLLECT_DIR"
   resolve_from_version
   resolve_target_version
+  if same_version_release; then
+    notice "FROM ($FROM_TAG) == TARGET (v$TARGET): same-version re-release, upgrade leg skipped"
+    exit 0
+  fi
   build_upgrade_package
   install_from
   wait_for_version "$FROM_VER"

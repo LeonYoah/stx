@@ -18,6 +18,7 @@
 import type {ComponentProps} from 'react';
 import {
   act,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -31,6 +32,12 @@ import {
   LIFECYCLE_POLL_INTERVAL_MS,
   LIFECYCLE_POLL_TIMEOUT_MS,
 } from '../lifecycle-status-poll';
+
+function refreshIconSpinning(): boolean {
+  const btn = screen.getByRole('button', {name: zh.common.refresh});
+  const icon = btn.querySelector('svg');
+  return Boolean(icon?.classList.contains('animate-spin'));
+}
 
 const listProcessEvents = vi.hoisted(() => vi.fn());
 
@@ -359,5 +366,110 @@ describe('ProcessEventList lifecycle event poll', () => {
       expect(silentCall?.[1]).toMatchObject({page: 2});
     });
     expect(screen.getByText(zh.monitor.events.stopped)).toBeTruthy();
+  });
+
+  it('WARN: silent poll must not leave refresh-icon loading after superseding a visible refresh', async () => {
+    let resolveVisible!: (value: unknown) => void;
+    const visible = new Promise((resolve) => {
+      resolveVisible = resolve;
+    });
+
+    listProcessEvents
+      .mockResolvedValueOnce({
+        events: [eventRow({id: 1, event_type: 'started'})],
+        total: 1,
+      })
+      .mockReturnValueOnce(visible)
+      .mockResolvedValueOnce({
+        events: [
+          eventRow({id: 2, event_type: 'node_restart_requested'}),
+        ],
+        total: 1,
+      });
+
+    const {rerender} = renderList({lifecyclePollEpoch: 0});
+    await waitFor(() => {
+      expect(screen.getByText(zh.monitor.events.started)).toBeTruthy();
+    });
+    expect(refreshIconSpinning()).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', {name: zh.common.refresh}));
+    await waitFor(() => {
+      expect(refreshIconSpinning()).toBe(true);
+      expect(listProcessEvents).toHaveBeenCalledTimes(2);
+    });
+
+    // 静默轮询抢占序号时立即丢掉可见 loading；即使可见请求仍挂起也不能继续转。
+    // Silent seq bump must drop visible loading immediately, even while the visible request hangs.
+    rerender(
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <ProcessEventList clusterId={2} lifecyclePollEpoch={1} />
+      </NextIntlClientProvider>,
+    );
+    await waitFor(() => {
+      expect(listProcessEvents).toHaveBeenCalledTimes(3);
+      expect(
+        screen.getByText(zh.monitor.events.nodeRestartRequested),
+      ).toBeTruthy();
+      expect(refreshIconSpinning()).toBe(false);
+    });
+    const card = document.querySelector('[data-slot="table-card"]');
+    expect(card?.getAttribute('aria-busy')).toBeNull();
+
+    await act(async () => {
+      resolveVisible({
+        events: [eventRow({id: 1, event_type: 'started'})],
+        total: 1,
+      });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(refreshIconSpinning()).toBe(false);
+    expect(
+      screen.getByText(zh.monitor.events.nodeRestartRequested),
+    ).toBeTruthy();
+  });
+
+  it('WARN: silent poll success clears a prior error card', async () => {
+    listProcessEvents
+      .mockResolvedValueOnce({
+        events: [eventRow({id: 1, event_type: 'started'})],
+        total: 1,
+      })
+      .mockRejectedValueOnce(new Error('boom-load-failed'))
+      .mockResolvedValueOnce({
+        events: [
+          eventRow({id: 3, event_type: 'node_restart_requested'}),
+        ],
+        total: 1,
+      });
+
+    const {rerender} = renderList({lifecyclePollEpoch: 0});
+    await waitFor(() => {
+      expect(screen.getByText(zh.monitor.events.started)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', {name: zh.common.refresh}));
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeTruthy();
+      expect(screen.getByText('boom-load-failed')).toBeTruthy();
+    });
+
+    rerender(
+      <NextIntlClientProvider locale='zh' messages={zh}>
+        <ProcessEventList clusterId={2} lifecyclePollEpoch={1} />
+      </NextIntlClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(zh.monitor.events.nodeRestartRequested),
+      ).toBeTruthy();
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByText('boom-load-failed')).toBeNull();
+    expect(refreshIconSpinning()).toBe(false);
   });
 });

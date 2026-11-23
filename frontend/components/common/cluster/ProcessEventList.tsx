@@ -151,6 +151,8 @@ export function ProcessEventList({
     ProcessEventType | 'all'
   >('all');
   const reqSeqRef = useRef(0);
+  /** 当前持有可见 loading 的请求序号；静默轮询不得写入。 / Seq that owns visible loading; silent polls must not claim it. */
+  const loadingOwnerSeqRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const pollSessionRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -199,8 +201,28 @@ export function ProcessEventList({
       const seq = ++reqSeqRef.current;
       if (!silent) {
         setLoading(true);
+        loadingOwnerSeqRef.current = seq;
         setError(null);
+      } else if (
+        // 静默抢占序号后立刻丢掉过期可见 loading，避免被挂起的非静默请求拖住转圈。
+        // Silent seq bump drops stale visible loading so a hung non-silent cannot keep spinning.
+        loadingOwnerSeqRef.current !== null &&
+        loadingOwnerSeqRef.current < seq
+      ) {
+        loadingOwnerSeqRef.current = null;
+        setLoading(false);
       }
+      // 成功/失败/被序号丢弃/卸载时：若本请求持有可见 loading，必须释放，避免刷新图标一直转。
+      // On success/fail/stale-discard/unmount: release visible loading if this request owns it.
+      const releaseLoadingIfOwned = () => {
+        if (loadingOwnerSeqRef.current !== seq) {
+          return;
+        }
+        loadingOwnerSeqRef.current = null;
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+      };
       try {
         const filter: ProcessEventFilter = {
           page: pageRef.current,
@@ -219,15 +241,20 @@ export function ProcessEventList({
           filter,
         );
         if (!mountedRef.current || seq !== reqSeqRef.current) {
+          releaseLoadingIfOwned();
           return;
         }
         setEvents(response.events ?? []);
         setTotal(response.total ?? 0);
+        // 静默成功也要清掉错误卡，否则旧 error 会一直挡着新数据。
+        // Silent success must clear a prior error card so it does not cover fresh rows.
+        setError(null);
         if (!skipMainStatusRefresh) {
           onMainStatusRefreshRef.current?.();
         }
       } catch (err) {
         if (!mountedRef.current || seq !== reqSeqRef.current) {
+          releaseLoadingIfOwned();
           return;
         }
         if (!silent) {
@@ -236,9 +263,7 @@ export function ProcessEventList({
           );
         }
       } finally {
-        if (!silent && mountedRef.current && seq === reqSeqRef.current) {
-          setLoading(false);
-        }
+        releaseLoadingIfOwned();
       }
     },
     [t],

@@ -250,6 +250,52 @@ func TestManagedSTXJavaProxyAdoptsLegacyStateDirProcess(t *testing.T) {
 	waitFor(t, func() bool { return !alive(pid) })
 }
 
+// 共享旧目录里的记录属于「路径是请求前缀」的另一集群时绝不能采用：/opt/seatunnel-blue
+// 不是 /opt/seatunnel，GetManaged 不认领、Stop 也不杀错进程。
+// A shared legacy record belonging to a cluster whose path merely has the requested path
+// as a prefix must never be adopted: /opt/seatunnel-blue is not /opt/seatunnel — GetManaged
+// must not claim it and Stop must not kill it.
+func TestManagedSTXJavaProxyRejectsLegacyPidOfPrefixSiblingDir(t *testing.T) {
+	skipUnlessLinux(t)
+	agentHome := t.TempDir()
+	t.Setenv(stxJavaProxyHomeEnvVar, agentHome)
+	otherDir := "/opt/seatunnel-blue"
+	requestedDir := "/opt/seatunnel"
+	legacyDir := stxJavaProxyServiceLegacyStateDir(requestedDir)
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatalf("create legacy state dir: %v", err)
+	}
+	pid := startFakeProcess(t, "stx-java-proxy", "-DSEATUNNEL_HOME="+otherDir)
+	if err := os.WriteFile(filepath.Join(legacyDir, "service.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
+		t.Fatalf("write legacy service.pid: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "service.jvm_opts"), []byte("-Xmx4g\n"), 0o644); err != nil {
+		t.Fatalf("write legacy service.jvm_opts: %v", err)
+	}
+
+	status, err := GetManagedSTXJavaProxyServiceStatus(context.Background(), requestedDir)
+	if err != nil {
+		t.Fatalf("GetManagedSTXJavaProxyServiceStatus: %v", err)
+	}
+	if status.PID == pid || status.Running {
+		t.Fatalf("must not adopt the sibling cluster's legacy proxy, got %+v", status)
+	}
+	if status.JvmOpts == "-Xmx4g" {
+		t.Fatalf("must not borrow the sibling cluster's jvm_opts, got %+v", status)
+	}
+
+	stopped, err := StopManagedSTXJavaProxyService(context.Background(), requestedDir)
+	if err != nil {
+		t.Fatalf("stop on an absent proxy should not error: %v", err)
+	}
+	if stopped.Running {
+		t.Fatalf("unexpected stop status %+v", stopped)
+	}
+	if !alive(pid) {
+		t.Fatal("the sibling cluster's proxy must stay running")
+	}
+}
+
 func TestIsSeaTunnelEngineCommandLine(t *testing.T) {
 	if !IsSeaTunnelEngineCommandLine("java -cp x org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer -c conf") {
 		t.Fatal("SeaTunnel server must be recognised")

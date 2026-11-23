@@ -1206,6 +1206,7 @@ func Serve() {
 			scaleService.SetPluginReplayer(pluginService)
 			scaleService.SetRunningJobsProvider(&clusterRunningJobsAdapter{syncService: syncService})
 			scaleService.SetProcessDiscoverer(&clusterProcessDiscovererAdapter{discoveryService: discoveryService})
+			installerService.SetClusterMemberListReconciler(scaleService)
 			if grpcSrv != nil {
 				scaleService.SetMonitorPusher(grpcSrv)
 				clusterService.SetMonitorPusher(grpcSrv)

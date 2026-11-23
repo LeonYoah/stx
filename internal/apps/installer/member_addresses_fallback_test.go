@@ -47,7 +47,7 @@ func TestResolveMemberAddresses_fillsFromClusterNodes(t *testing.T) {
 	s := &Service{
 		hostProvider: &fakeHostProvider{host: &HostInfo{ID: 9, IPAddress: "10.0.0.9"}},
 		nodeAddressesResolver: &fakeNodeAddressesResolver{nodes: []ClusterNodeAddress{
-			{HostIP: "10.0.0.2", Role: "master/worker"},
+			{HostIP: "10.0.0.2", Role: "master/worker", HazelcastPort: 5803},
 			{HostIP: "10.0.0.3", Role: "master/worker"},
 			{HostIP: "", Role: "master/worker"},
 		}},
@@ -61,7 +61,7 @@ func TestResolveMemberAddresses_fillsFromClusterNodes(t *testing.T) {
 
 	s.resolveMemberAddresses(context.Background(), req)
 
-	want := []string{"10.0.0.2", "10.0.0.3", "10.0.0.9"}
+	want := []string{"10.0.0.2:5803", "10.0.0.3:5801", "10.0.0.9:5801"}
 	if len(req.MasterAddresses) != len(want) {
 		t.Fatalf("masters = %v, want %v", req.MasterAddresses, want)
 	}
@@ -80,9 +80,8 @@ func TestResolveMemberAddresses_separatedSplitsRoles(t *testing.T) {
 	s := &Service{
 		hostProvider: &fakeHostProvider{host: &HostInfo{ID: 9, IPAddress: "10.0.0.9"}},
 		nodeAddressesResolver: &fakeNodeAddressesResolver{nodes: []ClusterNodeAddress{
-			{HostIP: "10.0.0.2", Role: "master"},
-			{HostIP: "10.0.0.3", Role: "worker"},
-			{HostIP: "10.0.0.9", Role: "worker"},
+			{HostIP: "10.0.0.2", Role: "master", HazelcastPort: 5811},
+			{HostIP: "10.0.0.3", Role: "worker", WorkerPort: 5822},
 		}},
 	}
 	req := &InstallationRequest{
@@ -90,15 +89,16 @@ func TestResolveMemberAddresses_separatedSplitsRoles(t *testing.T) {
 		ClusterID:      "5",
 		DeploymentMode: DeploymentModeSeparated,
 		NodeRole:       NodeRoleWorker,
+		WorkerPort:     5829,
 	}
 
 	s.resolveMemberAddresses(context.Background(), req)
 
-	if len(req.MasterAddresses) != 1 || req.MasterAddresses[0] != "10.0.0.2" {
-		t.Fatalf("masters = %v, want [10.0.0.2]", req.MasterAddresses)
+	if len(req.MasterAddresses) != 1 || req.MasterAddresses[0] != "10.0.0.2:5811" {
+		t.Fatalf("masters = %v, want [10.0.0.2:5811]", req.MasterAddresses)
 	}
-	if len(req.WorkerAddresses) != 2 {
-		t.Fatalf("workers = %v, want [10.0.0.3 10.0.0.9]", req.WorkerAddresses)
+	if len(req.WorkerAddresses) != 2 || req.WorkerAddresses[0] != "10.0.0.3:5822" || req.WorkerAddresses[1] != "10.0.0.9:5829" {
+		t.Fatalf("workers = %v, want [10.0.0.3:5822 10.0.0.9:5829]", req.WorkerAddresses)
 	}
 }
 

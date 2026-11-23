@@ -398,7 +398,8 @@ export function buildRealtimeOverlay(realtime: SyncJobRealtime | null | undefine
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       continue;
     }
-    byTarget.set(edge.target_vertex_id, Math.max(byTarget.get(edge.target_vertex_id) ?? 0, value));
+    const clamped = Math.min(1, Math.max(0, value));
+    byTarget.set(edge.target_vertex_id, Math.max(byTarget.get(edge.target_vertex_id) ?? 0, clamped));
   }
   for (const edge of edges) {
     const value = byTarget.get(edge.target);

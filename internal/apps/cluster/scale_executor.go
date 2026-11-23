@@ -861,6 +861,22 @@ func (s *ScaleService) stepPatchMembers(ctx context.Context, op *ClusterScaleOpe
 		fmt.Sprintf("member lists set to %d address(es) (%d updated, %d unchanged)", len(members), patched.UpdatedCount, patched.UnchangedCount)), patched)
 }
 
+func (s *ScaleService) ReconcileClusterMemberList(ctx context.Context, clusterID uint) error {
+	if s.config == nil {
+		return fmt.Errorf("%w: config service is missing", ErrScaleNotConfigured)
+	}
+	view, err := s.loadScaleView(ctx, clusterID, false)
+	if err != nil {
+		return err
+	}
+	members := clusterMemberList(view, 0)
+	if len(members) == 0 {
+		return errors.New("no routable member address left")
+	}
+	_, err = s.config.PatchMemberList(ctx, clusterID, string(view.cluster.DeploymentMode), members, "install-reconcile", 0)
+	return err
+}
+
 // refreshNodeStatuses 刷新所有节点的进程状态并返回最新节点列表。
 // refreshNodeStatuses refreshes every node's process status and returns the latest view.
 func (s *ScaleService) refreshNodeStatuses(ctx context.Context, clusterID uint) (*scaleView, error) {

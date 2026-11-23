@@ -552,7 +552,7 @@ func (s *Service) StartDownload(ctx context.Context, req StageDownloadRequest) (
 		Cancellable:   true,
 		Message:       "downloading release assets",
 	}
-	runCtx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(locale.WithLocale(context.Background(), locale.FromContext(ctx)))
 	s.cancelF = cancel
 	// 在释放锁前复制快照，避免与后台 goroutine 数据竞争 / snapshot before unlocking to avoid racing the worker
 	cp := *task
@@ -1333,7 +1333,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, 
 		StartedAt:     &now,
 	}
 	s.task = task
-	runCtx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(locale.WithLocale(context.Background(), locale.FromContext(ctx)))
 	s.cancelF = cancel
 	// 在释放锁前复制快照，避免与后台 goroutine 数据竞争 / snapshot before unlocking to avoid racing the worker
 	cp := *task

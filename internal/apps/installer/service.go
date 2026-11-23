@@ -1305,7 +1305,7 @@ func (s *Service) startDownload(ctx context.Context, req *DownloadRequest, execu
 	}
 	// Keep cancellation tied to the HTTP request so cancelling a task closes the network body.
 	// 将取消信号绑定到 HTTP 请求，确保取消任务时同时关闭网络请求。
-	downloadCtx, cancel := context.WithCancel(context.Background())
+	downloadCtx, cancel := context.WithCancel(locale.WithLocale(context.Background(), locale.FromContext(ctx)))
 	task.cancel = cancel
 	task.done = make(chan struct{})
 
@@ -1452,7 +1452,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	// 创建可取消的 HTTP 请求，确保取消时能停止当前网络操作。
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, task.DownloadURL, nil)
 	if err != nil {
-		s.markDownloadFailed(task, locale.Pick(ctx, "创建请求失败", fmt.Sprintf("Failed to create request: %v", err)), tempPath)
+		s.markDownloadFailed(task, locale.Pick(ctx, fmt.Sprintf("创建请求失败: %v", err), fmt.Sprintf("Failed to create request: %v", err)), tempPath)
 		return
 	}
 	resp, err := http.DefaultClient.Do(request)
@@ -1489,7 +1489,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		s.downloadsMu.Lock()
 		now := time.Now()
 		task.Status = DownloadStatusFailed
-		task.Error = locale.Pick(ctx, "创建文件失败", fmt.Sprintf("Failed to create file: %v", err))
+		task.Error = locale.Pick(ctx, fmt.Sprintf("创建文件失败: %v", err), fmt.Sprintf("Failed to create file: %v", err))
 		task.EndTime = &now
 		s.downloadsMu.Unlock()
 		return
@@ -1525,7 +1525,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 				s.downloadsMu.Lock()
 				now := time.Now()
 				task.Status = DownloadStatusFailed
-				task.Error = locale.Pick(ctx, "写入文件失败", fmt.Sprintf("Failed to write file: %v", writeErr))
+				task.Error = locale.Pick(ctx, fmt.Sprintf("写入文件失败: %v", writeErr), fmt.Sprintf("Failed to write file: %v", writeErr))
 				task.EndTime = &now
 				s.downloadsMu.Unlock()
 				os.Remove(tempPath)
@@ -1561,7 +1561,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 				s.markDownloadCancelled(task, tempPath)
 				return
 			}
-			s.markDownloadFailed(task, locale.Pick(ctx, "下载失败", fmt.Sprintf("Download failed: %v", err)), tempPath)
+			s.markDownloadFailed(task, locale.Pick(ctx, fmt.Sprintf("下载失败: %v", err), fmt.Sprintf("Download failed: %v", err)), tempPath)
 			return
 		}
 	}
@@ -1578,7 +1578,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		return
 	}
 	if err := os.Rename(tempPath, finalPath); err != nil {
-		s.markDownloadFailed(task, locale.Pick(ctx, "移动文件失败", fmt.Sprintf("Failed to move file: %v", err)), tempPath)
+		s.markDownloadFailed(task, locale.Pick(ctx, fmt.Sprintf("移动文件失败: %v", err), fmt.Sprintf("Failed to move file: %v", err)), tempPath)
 		return
 	}
 
@@ -2569,7 +2569,7 @@ func (s *Service) StartInstallation(ctx context.Context, req *InstallationReques
 	s.installations[req.HostID] = status
 
 	// Start installation in background / 在后台开始安装
-	go s.runInstallation(context.Background(), req, status)
+	go s.runInstallation(locale.WithLocale(context.Background(), locale.FromContext(ctx)), req, status)
 
 	return status, nil
 }

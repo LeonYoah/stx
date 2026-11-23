@@ -117,12 +117,12 @@ func (s *Service) removePluginFromNode(ctx context.Context, agentID, artifactID,
 		"version":      version,
 		"install_path": installDir,
 	}
-	success, _, err := s.agentCommandSender.SendCommand(ctx, agentID, "uninstall_plugin", params)
+	success, message, err := s.agentCommandSender.SendCommand(ctx, agentID, "uninstall_plugin", params)
 	if err != nil {
 		return fmt.Errorf("rollback failed: %w", err)
 	}
 	if !success {
-		return fmt.Errorf("rollback failed")
+		return fmt.Errorf("rollback failed: %s", message)
 	}
 	return nil
 }

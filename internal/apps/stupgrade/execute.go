@@ -79,7 +79,7 @@ func (s *Service) StartPlanExecution(ctx context.Context, planID uint, createdBy
 	}
 
 	go func(taskID uint) {
-		_, _ = s.executeTask(context.Background(), taskID)
+		_, _ = s.executeTask(locale.WithLocale(context.Background(), locale.FromContext(ctx)), taskID)
 	}(task.ID)
 
 	return s.GetTaskDetail(ctx, task.ID)

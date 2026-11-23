@@ -1904,12 +1904,12 @@ func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID
 		"install_path": installDir,
 	}
 
-	success, _, err := s.agentCommandSender.SendCommand(ctx, agentID, "install_plugin", installParams)
+	success, message, err := s.agentCommandSender.SendCommand(ctx, agentID, "install_plugin", installParams)
 	if err != nil {
 		return fmt.Errorf("failed to send install command: %w", err)
 	}
 	if !success {
-		return fmt.Errorf("plugin installation failed")
+		return fmt.Errorf("plugin installation failed: %s", message)
 	}
 
 	return nil
@@ -1957,12 +1957,12 @@ func (s *Service) transferFileToAgent(ctx context.Context, agentID, pluginName, 
 				time.Sleep(time.Duration(ms) * time.Millisecond)
 			}
 		}
-		success, _, err := s.agentCommandSender.SendCommand(ctx, agentID, "transfer_plugin", params)
+		success, message, err := s.agentCommandSender.SendCommand(ctx, agentID, "transfer_plugin", params)
 		if err != nil {
 			return fmt.Errorf("failed to transfer chunk at offset %d: %w", offset, err)
 		}
 		if !success {
-			return fmt.Errorf("transfer chunk failed")
+			return fmt.Errorf("transfer chunk failed: %s", message)
 		}
 
 		offset = end

@@ -485,12 +485,12 @@ func (s *Service) listNodeConnectorDetails(ctx context.Context, agentID, install
 	var parsed nodePluginListResult
 	if parseErr := json.Unmarshal([]byte(output), &parsed); parseErr != nil {
 		if !success {
-			return nil, fmt.Errorf("list plugins failed")
+			return nil, fmt.Errorf("list plugins failed: %s", output)
 		}
 		return nil, fmt.Errorf("parse plugin list: %w", parseErr)
 	}
 	if !success || !parsed.Success {
-		return nil, fmt.Errorf("list plugins failed")
+		return nil, fmt.Errorf("list plugins failed: %s", output)
 	}
 	details := make([]nodeConnectorDetail, 0, len(parsed.Plugins))
 	for _, item := range parsed.Plugins {

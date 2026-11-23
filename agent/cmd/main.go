@@ -1482,6 +1482,7 @@ func (a *Agent) handleUpgradeCommand(ctx context.Context, cmd *pb.CommandRequest
 
 func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
+		ctx = stxJavaProxyCommandContext(ctx, cmd.Parameters)
 		reporter.Report(10, "Starting managed stx-java-proxy service... / 启动托管 stx-java-proxy 服务...")
 		status, err := installer.StartManagedSTXJavaProxyService(
 			ctx,
@@ -1551,6 +1552,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 
 func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
+		ctx = stxJavaProxyCommandContext(ctx, cmd.Parameters)
 		reporter.Report(10, "Stopping managed stx-java-proxy service... / 停止托管 stx-java-proxy 服务...")
 		status, err := installer.StopManagedSTXJavaProxyService(
 			ctx,
@@ -1601,6 +1603,7 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 
 func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
+		ctx = stxJavaProxyCommandContext(ctx, cmd.Parameters)
 		reporter.Report(10, "Restarting managed stx-java-proxy service... / 重启托管 stx-java-proxy 服务...")
 		installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
 		if _, err := installer.StopManagedSTXJavaProxyService(ctx, installDir); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already stopped") {
@@ -1693,6 +1696,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 
 func (a *Agent) handleStatusCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
 	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
+		ctx = stxJavaProxyCommandContext(ctx, cmd.Parameters)
 		status, err := installer.GetManagedSTXJavaProxyServiceStatus(
 			ctx,
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
@@ -1724,6 +1728,18 @@ func isSTXJavaProxyServiceCommand(params map[string]string) bool {
 	service := strings.TrimSpace(getParamString(params, "service", ""))
 	target := strings.TrimSpace(getParamString(params, "target", ""))
 	return service == "stx_java_proxy" || target == "stx_java_proxy"
+}
+
+// stxJavaProxyCommandContext 把命令里的 port 参数放进 ctx：Start/Restart 已用作 preferredPort，
+// Stop/Status 同样按集群配置端口精确探测，避免落到默认端口串到其他集群实例。
+// stxJavaProxyCommandContext injects the command's port into ctx: Start/Restart already use it
+// as preferredPort; Stop/Status probe the cluster-configured port too so they never fall back
+// to the default port and cross into another cluster's instance.
+func stxJavaProxyCommandContext(ctx context.Context, params map[string]string) context.Context {
+	if port := getParamInt(params, "port", 0); port > 0 {
+		return installer.ContextWithSTXJavaProxyPort(ctx, port)
+	}
+	return ctx
 }
 
 func createSTXJavaProxyCommandResponse(commandID string, status *installer.STXJavaProxyServiceStatus) *pb.CommandResponse {

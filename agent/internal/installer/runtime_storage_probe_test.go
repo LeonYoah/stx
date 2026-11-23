@@ -467,9 +467,18 @@ func TestSTXJavaProxyServiceStateDirUsesAgentHome(t *testing.T) {
 	t.Setenv(stxJavaProxyHomeEnvVar, agentHome)
 
 	stateDir := stxJavaProxyServiceStateDir("/opt/seatunnel")
-	want := filepath.Join(agentHome, "logs", stxJavaProxyServiceDirName)
+	want := filepath.Join(agentHome, "logs", stxJavaProxyServiceDirName, "instances", stxJavaProxyInstallDirInstanceID("/opt/seatunnel"))
 	if stateDir != want {
 		t.Fatalf("expected state dir %s, got %s", want, stateDir)
+	}
+	// 不同 installDir 必须派生不同实例目录；空 installDir 保持旧共享目录兼容。
+	// Different installDirs must derive distinct instance dirs; an empty installDir keeps
+	// the legacy shared dir for compatibility.
+	if other := stxJavaProxyServiceStateDir("/opt/seatunnel-b"); other == stateDir {
+		t.Fatalf("distinct install dirs must not share a state dir: %s", other)
+	}
+	if legacy := stxJavaProxyServiceStateDir(""); legacy != filepath.Join(agentHome, "logs", stxJavaProxyServiceDirName) {
+		t.Fatalf("empty install dir must keep the legacy shared dir, got %s", legacy)
 	}
 }
 

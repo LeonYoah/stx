@@ -943,6 +943,7 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                                 hostId={target.host_id}
                                 hideLabel
                                 autoSelectFirst={false}
+                                seatunnelVersion={targetVersion}
                                 value={
                                   nodeJavaHomes[
                                     String(target.cluster_node_id)

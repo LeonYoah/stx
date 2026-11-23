@@ -120,6 +120,36 @@ const EVENT_TYPE_META: Record<
     icon: <Activity className='size-3' aria-hidden />,
     labelKey: 'monitor.events.nodeRecovered',
   },
+  agent_offline: {
+    tone: 'rose',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.agentOffline',
+  },
+  agent_recovered: {
+    tone: 'emerald',
+    icon: <Activity className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.agentRecovered',
+  },
+  master_unavailable: {
+    tone: 'rose',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.masterUnavailable',
+  },
+  master_recovered: {
+    tone: 'emerald',
+    icon: <Activity className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.masterRecovered',
+  },
+  worker_insufficient: {
+    tone: 'amber',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.workerInsufficient',
+  },
+  worker_recovered: {
+    tone: 'emerald',
+    icon: <Activity className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.workerRecovered',
+  },
 };
 
 const PAGE_SIZE = 20;
@@ -180,7 +210,9 @@ export function ProcessEventList({clusterId, nodeId}: ProcessEventListProps) {
     {value: 'all', label: t('monitor.allEvents')},
     ...(Object.keys(EVENT_TYPE_META) as ProcessEventType[]).map((key) => ({
       value: key,
-      label: t(EVENT_TYPE_META[key].labelKey),
+      label: t.has(EVENT_TYPE_META[key].labelKey)
+        ? t(EVENT_TYPE_META[key].labelKey)
+        : key,
     })),
   ];
 
@@ -275,7 +307,9 @@ export function ProcessEventList({clusterId, nodeId}: ProcessEventListProps) {
                         <SoftChip tone={meta.tone} className='font-medium'>
                           {meta.icon}
                           <span className='whitespace-nowrap'>
-                            {t(meta.labelKey)}
+                            {t.has(meta.labelKey)
+                              ? t(meta.labelKey)
+                              : event.event_type}
                           </span>
                         </SoftChip>
                       ) : (

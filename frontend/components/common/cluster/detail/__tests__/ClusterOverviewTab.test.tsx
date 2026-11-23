@@ -19,6 +19,7 @@ import {render, screen, fireEvent} from '@testing-library/react';
 import {NextIntlClientProvider} from 'next-intl';
 import {describe, expect, it, vi} from 'vitest';
 import zhMessages from '@/lib/i18n/locales/zh.json';
+import enMessages from '@/lib/i18n/locales/en.json';
 import {
   ClusterStatus,
   DeploymentMode,
@@ -65,6 +66,33 @@ const baseNode: NodeInfo = {
   created_at: '2026-11-22T08:24:00Z',
   updated_at: '2026-11-22T09:03:00Z',
 };
+
+const baseTabProps = {
+  nodes: [baseNode],
+  webUINode: baseNode,
+  logModeSwitching: false,
+  runtimeStorage: null,
+  stxJavaProxy: null,
+  onSwitchJobLogMode: vi.fn(),
+  onGoNodes: vi.fn(),
+  onGoRuntime: vi.fn(),
+};
+
+const baseStatus = {
+  cluster_id: 12,
+  cluster_name: 'stx22',
+  status: ClusterStatus.RUNNING,
+  health_status: HealthStatus.UNHEALTHY,
+  total_nodes: 1,
+  online_nodes: 1,
+  offline_nodes: 0,
+  running_nodes: 1,
+  nodes: [],
+};
+
+// CJK 检测：断言英文环境下不出现中文字符（无中英混排）。
+// CJK detector: asserts the English locale shows no Chinese characters (no mixed-language output).
+const CJK_RE = /[\u3400-\u9fff\uf900-\ufaff]/;
 
 describe('ClusterOverviewTab', () => {
   it('展示健康异常原因、节点端口与 JDK、事件通道状态及运维态势', () => {
@@ -226,5 +254,111 @@ describe('ClusterOverviewTab', () => {
     expect(
       screen.queryByTestId('cluster-overview-health-alert'),
     ).not.toBeInTheDocument();
+  });
+
+  it('结构化健康原因在中文环境渲染纯中文', () => {
+    render(
+      <NextIntlClientProvider locale='zh' messages={zhMessages}>
+        <ClusterOverviewTab
+          cluster={baseCluster}
+          clusterStatus={{
+            ...baseStatus,
+            health_reasons: [
+              'SeaTunnel engine on node ada is not ready: coordinatorService is null / 节点 ada 的 SeaTunnel 引擎未就绪：coordinatorService is null',
+              'node worker-b is offline / 节点 worker-b 离线',
+            ],
+            health_reason_details: [
+              {
+                code: 'engine_not_ready',
+                node: 'ada',
+                detail: 'coordinatorService is null',
+              },
+              {code: 'node_offline', node: 'worker-b'},
+            ],
+          }}
+          {...baseTabProps}
+        />
+      </NextIntlClientProvider>,
+    );
+
+    const alert = screen.getByTestId('cluster-overview-health-alert');
+    expect(alert).toHaveTextContent(
+      '节点 ada 的 SeaTunnel 引擎未就绪：coordinatorService is null',
+    );
+    expect(alert).toHaveTextContent('节点 worker-b 离线');
+    // 中文环境不得出现英文半句（无中英混排）。
+    // The zh locale must not surface the English half (no mixed-language output).
+    expect(alert.textContent).not.toContain('engine on node');
+    expect(alert.textContent).not.toContain('is offline');
+  });
+
+  it('结构化健康原因在英文环境渲染纯英文', () => {
+    render(
+      <NextIntlClientProvider locale='en' messages={enMessages}>
+        <ClusterOverviewTab
+          cluster={baseCluster}
+          clusterStatus={{
+            ...baseStatus,
+            health_reasons: [
+              'node worker-b is offline / 节点 worker-b 离线',
+              'node ada sees only 1/2 cluster members (possible split brain) / 节点 ada 只看到 1/2 个集群成员（可能脑裂）',
+            ],
+            health_reason_details: [
+              {code: 'node_offline', node: 'worker-b'},
+              {
+                code: 'member_split_brain',
+                node: 'ada',
+                observed_members: 1,
+                expected_members: 2,
+              },
+            ],
+          }}
+          {...baseTabProps}
+        />
+      </NextIntlClientProvider>,
+    );
+
+    const alert = screen.getByTestId('cluster-overview-health-alert');
+    expect(alert).toHaveTextContent('Node worker-b is offline');
+    expect(alert).toHaveTextContent(
+      'Node ada sees only 1/2 cluster members (possible split brain)',
+    );
+    expect(alert.textContent ?? '').not.toMatch(CJK_RE);
+  });
+
+  it('无结构化明细时历史双语原因按当前语言裁剪', () => {
+    const bilingual =
+      'SeaTunnel process on node ada is not running (status: stopped) / 节点 ada 的 SeaTunnel 进程未运行（状态：stopped）';
+
+    const {unmount} = render(
+      <NextIntlClientProvider locale='zh' messages={zhMessages}>
+        <ClusterOverviewTab
+          cluster={baseCluster}
+          clusterStatus={{...baseStatus, health_reasons: [bilingual]}}
+          {...baseTabProps}
+        />
+      </NextIntlClientProvider>,
+    );
+    let alert = screen.getByTestId('cluster-overview-health-alert');
+    expect(alert).toHaveTextContent(
+      '节点 ada 的 SeaTunnel 进程未运行（状态：stopped）',
+    );
+    expect(alert.textContent).not.toContain('SeaTunnel process on node');
+    unmount();
+
+    render(
+      <NextIntlClientProvider locale='en' messages={enMessages}>
+        <ClusterOverviewTab
+          cluster={baseCluster}
+          clusterStatus={{...baseStatus, health_reasons: [bilingual]}}
+          {...baseTabProps}
+        />
+      </NextIntlClientProvider>,
+    );
+    alert = screen.getByTestId('cluster-overview-health-alert');
+    expect(alert).toHaveTextContent(
+      'SeaTunnel process on node ada is not running (status: stopped)',
+    );
+    expect(alert.textContent ?? '').not.toMatch(CJK_RE);
   });
 });

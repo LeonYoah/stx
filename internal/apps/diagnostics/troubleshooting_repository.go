@@ -302,13 +302,55 @@ func (r *TroubleshootingRepository) SeedPresetMemories(ctx context.Context) erro
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		},
+		// 5. JDK 24+ Subject.getSubject 移除 - 中文
+		// 5. JDK 24+ Subject.getSubject removal - Chinese
+		{
+			TargetType:     "error",
+			Fingerprint:    "getSubject is not supported",
+			PresetKey:      "jdk24_subject_getsubject_unsupported",
+			Language:       "zh",
+			Title:          "JDK 24+ 环境 Subject.getSubject 被移除排障方案",
+			ErrorSummary:   "java.lang.UnsupportedOperationException: getSubject is not supported",
+			RootCause:      "JDK 24 起 JEP 486 永久禁用 SecurityManager，javax.security.auth.Subject.getSubject 随之失效并直接抛出 UnsupportedOperationException；SeaTunnel 内嵌 Hadoop 的 UserGroupInformation 依赖该 API，在 JDK 24+ 上初始化 IMap 存储（engine_checkpoint-id-map、engine_runningJobInfo 等）时全部失败。",
+			Solution:       "1. 将集群节点的 JDK 切回 LTS 版本（JDK 8/11/17/21），修改集群或节点的 java_home 配置并重启 SeaTunnel 进程。\n2. 主机上存在多个 JDK 时，通过「节点管理 -> 编辑 JDK 路径」显式指向 JDK 21 及以下安装目录，避免误用 JDK 24+。\n3. 重启后确认 engine 日志不再出现 getSubject is not supported，且 IMap 存储初始化成功、集群恢复健康。",
+			ActionsTaken:   `["将节点 JDK 切换为 JDK 21 LTS","更新节点 java_home 配置并重启集群"]`,
+			PreventiveTips: "SeaTunnel 内嵌 Hadoop 尚未适配 JDK 24+ 的 SecurityManager 移除（JEP 486），升级节点 JDK 前请确认目标版本在 8~21 之间。",
+			Tags:           `["jdk24","jep486","subject","hadoop","unsupportedoperationexception"]`,
+			Author:         "STX预置经验库",
+			IsPreset:       true,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+		// 5. JDK 24+ Subject.getSubject removal - English
+		// 5. JDK 24+ Subject.getSubject 移除 - 英文
+		{
+			TargetType:     "error",
+			Fingerprint:    "getSubject is not supported",
+			PresetKey:      "jdk24_subject_getsubject_unsupported",
+			Language:       "en",
+			Title:          "JDK 24+ Subject.getSubject Removed Remediation",
+			ErrorSummary:   "java.lang.UnsupportedOperationException: getSubject is not supported",
+			RootCause:      "Since JDK 24, JEP 486 permanently disables the SecurityManager, so javax.security.auth.Subject.getSubject now throws UnsupportedOperationException unconditionally. The Hadoop UserGroupInformation embedded in SeaTunnel relies on this API, so on JDK 24+ every IMap storage initialization (engine_checkpoint-id-map, engine_runningJobInfo, etc.) fails.",
+			Solution:       "1. Switch the cluster node JDK back to an LTS release (JDK 8/11/17/21): update the cluster or node java_home configuration and restart the SeaTunnel process.\n2. When multiple JDKs coexist on the host, point the node explicitly at a JDK 21-or-lower installation via \"Node Management -> Edit JDK Path\" to avoid accidentally picking JDK 24+.\n3. After restart, verify the engine log no longer shows \"getSubject is not supported\" and that IMap storage initializes successfully.",
+			ActionsTaken:   `["Switch node JDK to JDK 21 LTS","Update node java_home and restart the cluster"]`,
+			PreventiveTips: "The Hadoop runtime embedded in SeaTunnel is not yet adapted to the SecurityManager removal in JDK 24+ (JEP 486); confirm the target node JDK stays within 8~21 before upgrading.",
+			Tags:           `["jdk24","jep486","subject","hadoop","unsupportedoperationexception"]`,
+			Author:         "STX Preset Knowledge Base",
+			IsPreset:       true,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
 	}
 
-	// 逐条插入或更新预置条目（按 fingerprint + language 唯一定位更新）
-	// Upsert each preset entry (uniquely identified by fingerprint + language)
+	// 逐条插入或更新预置条目（按 preset_key + language 幂等定位；preset_key 缺失的历史行回退 fingerprint 匹配）
+	// Upsert each preset entry (idempotent by preset_key + language; legacy rows without preset_key
+	// fall back to fingerprint matching)
 	for _, p := range presets {
 		var existing TroubleshootingMemory
-		err := r.db.WithContext(ctx).Where("is_preset = ? AND fingerprint = ? AND (language = ? OR (language = '' AND ? = 'zh'))", true, p.Fingerprint, p.Language, p.Language).First(&existing).Error
+		err := r.db.WithContext(ctx).Where(
+			"is_preset = ? AND (preset_key = ? OR (preset_key = '' AND fingerprint = ?)) AND (language = ? OR (language = '' AND ? = 'zh'))",
+			true, p.PresetKey, p.Fingerprint, p.Language, p.Language,
+		).First(&existing).Error
 		if err != nil && errors.Is(err, gorm.ErrRecordNotFound) {
 			if createErr := r.db.WithContext(ctx).Create(&p).Error; createErr != nil {
 				return createErr

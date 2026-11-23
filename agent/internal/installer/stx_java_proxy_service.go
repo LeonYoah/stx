@@ -152,6 +152,7 @@ func stxJavaProxyJavaMatchesDesired(pid int, javaHome string) bool {
 
 // GetManagedSTXJavaProxyServiceStatus returns the current stx-java-proxy state.
 func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string) (*STXJavaProxyServiceStatus, error) {
+	preferredPort := stxJavaProxyPortFromContext(ctx)
 	status := &STXJavaProxyServiceStatus{
 		Service:  "stx_java_proxy",
 		Managed:  true,
@@ -200,10 +201,30 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 	if status.PID > 0 && !stxJavaProxyPIDAlive(status.PID) {
 		status.PID = 0
 	}
+	// 归属校验：PID 复用到其他 installDir 的 proxy 时不能认领为本集群进程。
+	// Ownership check: a PID reused by another installDir's proxy must not be claimed as ours.
+	if status.PID > 0 && stxJavaProxyPIDForeignForInstallDir(status.PID, installDir) {
+		status.PID = 0
+		_ = os.Remove(filepath.Join(status.StateDir, "service.pid"))
+	}
 
 	if status.Endpoint == "" {
-		for _, port := range stxJavaProxyPortCandidates(status.StateDir, 0) {
+		checkPorts := stxJavaProxyPortCandidates(status.StateDir, preferredPort)
+		// 显式指定端口时只探测该端口，不扫默认 18080 串到其他集群实例。
+		// With an explicit port, probe only that port instead of scanning the default
+		// 18080, which could belong to another cluster's instance.
+		if preferredPort > 0 {
+			checkPorts = []int{preferredPort}
+		}
+		for _, port := range checkPorts {
 			if port <= 0 {
+				continue
+			}
+			// 归属预检：监听者可确认属于其他 installDir 时直接跳过，不认领端点也不写 stateDir。
+			// Ownership pre-check: a listener provably owned by another installDir is skipped
+			// entirely — its endpoint is never claimed nor written into our stateDir.
+			listenerPID := stxJavaProxyPIDByPort(ctx, port)
+			if listenerPID > 0 && stxJavaProxyPIDForeignForInstallDir(listenerPID, installDir) {
 				continue
 			}
 			endpoint := stxJavaProxyServiceBaseURL(port)
@@ -224,9 +245,21 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 
 	if status.PID <= 0 && status.Port > 0 {
 		if pid := stxJavaProxyPIDByPort(ctx, status.Port); pid > 0 {
-			status.PID = pid
-			_ = os.MkdirAll(status.StateDir, 0o755)
-			_ = os.WriteFile(filepath.Join(status.StateDir, "service.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644)
+			if stxJavaProxyPIDForeignForInstallDir(pid, installDir) {
+				// 落盘端口实际被他集群 proxy 占用：端点/端口清零并清掉陈旧 port 文件。
+				// The persisted port is actually held by another cluster's proxy: clear
+				// endpoint/port and drop the stale port file.
+				status.Endpoint = ""
+				status.Port = 0
+				status.Healthy = false
+				status.Running = false
+				status.JvmMemory = nil
+				_ = os.Remove(filepath.Join(status.StateDir, "service.port"))
+			} else {
+				status.PID = pid
+				_ = os.MkdirAll(status.StateDir, 0o755)
+				_ = os.WriteFile(filepath.Join(status.StateDir, "service.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644)
+			}
 		}
 	}
 	if status.PID > 0 {
@@ -308,7 +341,7 @@ func StopManagedSTXJavaProxyService(ctx context.Context, installDir string) (*ST
 	}
 	if waitErr := waitForSTXJavaProxyShutdown(ctx, status.Endpoint, status.PID, stxJavaProxyStopTimeout); waitErr != nil {
 		logger.WarnF(ctx, "[stx-java-proxy] graceful stop timed out, force killing managed process: pid=%d, port=%d, error=%v", status.PID, status.Port, waitErr)
-		if killErr := forceKillSTXJavaProxyProcesses(ctx, status); killErr != nil {
+		if killErr := forceKillSTXJavaProxyProcesses(ctx, status, installDir); killErr != nil {
 			status.Message = "failed to stop stx-java-proxy service"
 			return status, fmt.Errorf("%w; force kill failed: %v", waitErr, killErr)
 		}
@@ -335,7 +368,7 @@ func StopManagedSTXJavaProxyService(ctx context.Context, installDir string) (*ST
 
 // forceKillSTXJavaProxyProcesses 在优雅停止超时后强制终止已知的 proxy 进程。
 // forceKillSTXJavaProxyProcesses forcefully terminates known proxy processes after graceful shutdown times out.
-func forceKillSTXJavaProxyProcesses(ctx context.Context, status *STXJavaProxyServiceStatus) error {
+func forceKillSTXJavaProxyProcesses(ctx context.Context, status *STXJavaProxyServiceStatus, installDir string) error {
 	if status == nil {
 		return fmt.Errorf("stx-java-proxy service status is unavailable")
 	}
@@ -361,6 +394,13 @@ func forceKillSTXJavaProxyProcesses(ctx context.Context, status *STXJavaProxySer
 		// PIDs discovered from the port are validated by cmdline to avoid killing an unrelated listener.
 		if pid != status.PID && !stxJavaProxyPIDMatches(pid) {
 			logger.WarnF(ctx, "[stx-java-proxy] skip force killing non-proxy listener: pid=%d, port=%d", pid, status.Port)
+			continue
+		}
+		// 归属校验：即便命令行确为 proxy，属于其他 installDir 的实例也绝不强杀。
+		// Ownership check: even a genuine proxy process is never killed when it provably
+		// belongs to another installDir's instance.
+		if stxJavaProxyPIDForeignForInstallDir(pid, installDir) {
+			logger.WarnF(ctx, "[stx-java-proxy] skip force killing proxy of another install dir: pid=%d, port=%d, installDir=%s", pid, status.Port, installDir)
 			continue
 		}
 		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
@@ -477,6 +517,24 @@ func isSTXJavaProxyCommandLine(cmdline string) bool {
 	}
 	return strings.Contains(cmdline, "StxJavaProxyApplication") ||
 		strings.Contains(cmdline, "stx-java-proxy")
+}
+
+// stxJavaProxyPIDForeignForInstallDir 判断进程是否可确认不属于当前 installDir 的托管 proxy：
+// 命令行可读且不携带本目录标记（-DSEATUNNEL_HOME/-Dstx.java.proxy.seatunnel.home）即视为他集群进程；
+// installDir 为空或命令行不可读时不判外，保持旧行为兼容。
+// stxJavaProxyPIDForeignForInstallDir reports whether a process provably belongs to another
+// installDir's proxy: a readable cmdline missing this dir's markers counts as foreign; an empty
+// installDir or unreadable cmdline stays non-foreign for backward compatibility.
+func stxJavaProxyPIDForeignForInstallDir(pid int, installDir string) bool {
+	installDir = filepath.Clean(strings.TrimSpace(installDir))
+	if installDir == "" || installDir == "." || pid <= 0 {
+		return false
+	}
+	cmdline := stxJavaProxyProcessCommandLine(pid)
+	if cmdline == "" {
+		return false
+	}
+	return !stxJavaProxyCommandLineMatchesDesired(cmdline, installDir, "")
 }
 
 // stxJavaProxyStatusMatchesDesired 判断当前托管状态是否已对齐目标安装目录与代际 jar。

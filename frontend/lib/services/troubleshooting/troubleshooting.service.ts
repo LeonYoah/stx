@@ -29,6 +29,39 @@ const STORAGE_KEY = 'stx_troubleshooting_memories';
 // Preset troubleshooting memories are seeded during backend DB migration and served via API; frontend does not hardcode static entries
 const PRESET_MEMORIES: TroubleshootingMemoryEntry[] = [];
 
+// 强特征最小长度：低于该长度的片段（如 "oom"、"npe"）容易误撞，不作强特征参与匹配
+// Minimum strong-feature length; shorter fragments (e.g. "oom", "npe") are too prone to false hits
+const MIN_STRONG_FEATURE_LENGTH = 6;
+
+// 高置信包含匹配的最小长度：双方均需达到该长度才允许标题/指纹互相包含命中
+// Minimum length for high-confidence containment between title/fingerprint pairs
+const MIN_HIGH_CONFIDENCE_LENGTH = 8;
+
+// 命中门槛：强特征得分达到该值才算命中；tag 只在此之上追加排序分，绝不独立命中
+// Match threshold: an entry is a match only when its strong-feature score reaches this;
+// tag hits only add ordering bonus on top, never match alone
+const MIN_MATCH_SCORE = 50;
+
+// 过于宽泛的通用词永远不算强特征，避免 checkpoint/storage/worker 等词造成荒谬误命中
+// Overly generic words never count as strong features, preventing absurd hits on words
+// like checkpoint/storage/worker
+const GENERIC_MATCH_WORDS = new Set([
+  'exception',
+  'error',
+  'failed',
+  'failure',
+  'timeout',
+  'storage',
+  'checkpoint',
+  'worker',
+  'master',
+  'server',
+  'connection',
+  'unknown',
+  'fatal',
+  'warning',
+]);
+
 
 /**
  * 排障经验记忆库服务类
@@ -204,8 +237,11 @@ export class TroubleshootingService extends BaseService {
   }
 
   /**
-   * 根据指纹与关键字匹配相关排障经验
-   * Match relevant troubleshooting memories based on fingerprint and keywords
+   * 根据指纹与关键字匹配相关排障经验（强特征命中制：指纹/异常类/高置信包含命中才可入选，
+   * tag 仅在已命中条目之间追加排序分，宁缺毋滥）
+   * Match relevant troubleshooting memories (strong-feature gating: only fingerprint,
+   * exception-class or high-confidence containment hits qualify; tags only add ordering
+   * bonus on already-matched entries so weak matches are dropped)
    */
   public findMatchingMemories(
     query: TroubleshootingMemoryQuery,
@@ -217,12 +253,17 @@ export class TroubleshootingService extends BaseService {
     const normalizedException = exception_class?.trim().toLowerCase();
     const normalizedTitle = title?.trim().toLowerCase();
 
-    // 计算匹配相关度打分
-    // Calculate match relevance score
+    // 强特征判定：非空、足够长且非通用词，防止空串/宽泛词把 includes 打成恒真
+    // Strong-feature gate: non-empty, long enough and non-generic, so empty or broad
+    // fragments can never turn String.includes into an always-true hit
+    const isStrongFeature = (value?: string): value is string =>
+      Boolean(value) &&
+      value!.length >= MIN_STRONG_FEATURE_LENGTH &&
+      !GENERIC_MATCH_WORDS.has(value!);
+
     const scored = all.map((entry) => {
-      let score = 0;
-      const entryFp = entry.fingerprint.toLowerCase();
-      const entryTitle = entry.title.toLowerCase();
+      const entryFp = (entry.fingerprint || '').trim().toLowerCase();
+      const entryTitle = (entry.title || '').toLowerCase();
       const entrySummary = (entry.error_summary || '').toLowerCase();
       const entryTags = (entry.tags || []).map((t) => t.toLowerCase());
 
@@ -232,48 +273,80 @@ export class TroubleshootingService extends BaseService {
         return {entry, score: 0};
       }
 
-      // 1. 精确或包含指纹匹配 (最高权重)
-      // 1. Exact or substring fingerprint match (highest weight)
-      if (normalizedFingerprint) {
-        if (entryFp === normalizedFingerprint) {
-          score += 100;
-        } else if (
-          normalizedFingerprint.includes(entryFp) ||
-          entryFp.includes(normalizedFingerprint)
-        ) {
-          score += 60;
-        }
+      let score = 0;
+
+      // 强特征 1（+100）：完整指纹精确命中（覆盖用户沉淀的 SHA256 指纹）
+      // Strong 1 (+100): exact fingerprint hit (covers user-deposited SHA256 fingerprints)
+      if (normalizedFingerprint && entryFp === normalizedFingerprint) {
+        score += 100;
       }
 
-      // 2. 异常类名匹配
-      // 2. Exception class match
-      if (normalizedException) {
-        if (entryFp.includes(normalizedException) || entrySummary.includes(normalizedException)) {
-          score += 40;
-        }
-        if (entryTags.some((tag) => normalizedException.includes(tag))) {
-          score += 20;
-        }
+      // 强特征 2（+80）：特征签名/异常类命中——条目指纹作为完整特征短语出现在
+      // 查询侧任一字段，或查询异常类完整出现在条目指纹/标题/摘要中
+      // Strong 2 (+80): feature/exception-class hit — the entry fingerprint appears as a
+      // whole signature inside any query field, or the query exception class appears
+      // verbatim inside the entry fingerprint/title/summary
+      if (
+        isStrongFeature(entryFp) &&
+        ((normalizedFingerprint && normalizedFingerprint.includes(entryFp)) ||
+          (normalizedException && normalizedException.includes(entryFp)) ||
+          (normalizedTitle && normalizedTitle.includes(entryFp)))
+      ) {
+        score += 80;
+      }
+      if (
+        isStrongFeature(normalizedException) &&
+        (entryFp.includes(normalizedException!) ||
+          entryTitle.includes(normalizedException!) ||
+          entrySummary.includes(normalizedException!))
+      ) {
+        score += 80;
       }
 
-      // 3. 标题或文本匹配
-      // 3. Title or text keyword match
-      if (normalizedTitle) {
-        if (entryTitle.includes(normalizedTitle) || entryFp.includes(normalizedTitle)) {
-          score += 30;
-        }
-        if (entryTags.some((tag) => normalizedTitle.includes(tag))) {
-          score += 15;
+      // 强特征 3（+50）：高置信标题/指纹包含（双方 >= 8 字符且非通用词）
+      // Strong 3 (+50): high-confidence title/fingerprint containment (both sides >= 8
+      // chars and non-generic)
+      if (
+        normalizedTitle &&
+        normalizedTitle.length >= MIN_HIGH_CONFIDENCE_LENGTH &&
+        !GENERIC_MATCH_WORDS.has(normalizedTitle) &&
+        (entryTitle.includes(normalizedTitle) || entryFp.includes(normalizedTitle))
+      ) {
+        score += 50;
+      }
+      if (
+        normalizedFingerprint &&
+        normalizedFingerprint.length >= MIN_HIGH_CONFIDENCE_LENGTH &&
+        !GENERIC_MATCH_WORDS.has(normalizedFingerprint) &&
+        (entryFp.includes(normalizedFingerprint) ||
+          entryTitle.includes(normalizedFingerprint))
+      ) {
+        score += 50;
+      }
+
+      // 弱特征：tag 仅在强特征已达标的条目上追加排序分，绝不独立命中
+      // Weak signal: tags only add ordering bonus when the strong-feature threshold is
+      // already met; they can never produce a match on their own
+      if (score >= MIN_MATCH_SCORE) {
+        for (const tag of entryTags) {
+          if (
+            tag &&
+            ((normalizedTitle && normalizedTitle.includes(tag)) ||
+              (normalizedFingerprint && normalizedFingerprint.includes(tag)) ||
+              (normalizedException && normalizedException.includes(tag)))
+          ) {
+            score += 5;
+          }
         }
       }
 
       return {entry, score};
     });
 
-    // 过滤出有匹配度（score > 0）的记录，并按得分与更新时间倒序排序
-    // Filter out matched records (score > 0) and sort by score & updated time descending
+    // 仅保留达到强特征门槛的记录，并按得分与更新时间倒序排序
+    // Keep only entries reaching the strong-feature threshold, sorted by score and recency
     return scored
-      .filter((item) => item.score > 0)
+      .filter((item) => item.score >= MIN_MATCH_SCORE)
       .sort((a, b) => {
         if (b.score !== a.score) {
           return b.score - a.score;

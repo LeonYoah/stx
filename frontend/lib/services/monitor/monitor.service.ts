@@ -67,7 +67,13 @@ export type ProcessEventType =
   | 'node_restart_requested'
   | 'node_stop_requested'
   | 'node_offline'
-  | 'node_recovered';
+  | 'node_recovered'
+  | 'agent_offline'
+  | 'agent_recovered'
+  | 'master_unavailable'
+  | 'master_recovered'
+  | 'worker_insufficient'
+  | 'worker_recovered';
 
 // ProcessEvent represents a process lifecycle event.
 // ProcessEvent 表示进程生命周期事件。

@@ -1,20 +1,32 @@
-.figure { display: grid; min-width: 0; gap: var(--space-4); margin: 0; color: var(--foreground); font-family: var(--font-body); letter-spacing: var(--tracking-body); }
+/* STX：收紧网格间距，避免底部图例与 X 轴之间留白过大。/ STX: tighten gap between plot/x-axis and bottom legend. */
+.figure { display: grid; min-width: 0; gap: var(--space-3); margin: 0; color: var(--foreground); font-family: var(--font-body); letter-spacing: var(--tracking-body); }
 
 /* Series toggles: a plain line swatch beside each name. A hidden series keeps its place, its swatch empties and its name steps back. */
-.legend { display: flex; flex-wrap: wrap; gap: 2px 4px; min-width: 0; margin-inline: -8px; }
-.toggle { display: inline-flex; min-height: 32px; align-items: center; gap: 8px; padding: 0 10px 0 8px; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-sm); line-height: var(--leading-body); -webkit-tap-highlight-color: transparent; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; margin-inline: 0; }
+.toggle { display: inline-flex; min-height: 26px; max-width: 100%; min-width: 0; align-items: center; gap: 6px; padding: 0 8px 0 6px; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs); line-height: var(--leading-body); -webkit-tap-highlight-color: transparent; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), transform var(--duration-instant) var(--ease-standard); }
 .toggle:active { transform: scale(.97); }
 .toggle[aria-pressed="false"] { color: var(--text-muted); }
-.toggleLabel { white-space: nowrap; transition: opacity var(--duration-fast) var(--ease-standard); }
+.toggleLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: opacity var(--duration-fast) var(--ease-standard); }
 .toggle[aria-pressed="false"] .toggleLabel { opacity: .72; text-decoration: line-through; text-decoration-color: color-mix(in oklab, currentColor 55%, transparent); }
 .swatch { position: relative; width: 14px; height: 10px; flex: none; }
 .swatch::before { position: absolute; top: 50%; left: 0; width: 100%; height: 2.5px; border-radius: 2px; background: var(--series); content: ""; transform: translateY(-50%) scaleX(1); transform-origin: left; transition: transform var(--duration-standard) var(--ease-spring), opacity var(--duration-fast) var(--ease-standard); }
 .swatch[data-dashed]::before { background: repeating-linear-gradient(to right, var(--series) 0 4px, transparent 4px 7px); }
 .toggle[aria-pressed="false"] .swatch::before { opacity: .45; transform: translateY(-50%) scaleX(.35); }
-/* STX：清空选中的还原按钮，虚线胶囊区别于序列开关。 / STX: the clear-selection restore button, a dashed pill so it does not read as a series. */
-.reset { display: inline-flex; min-height: 32px; align-items: center; padding: 0 10px; border: 1px dashed var(--border-strong); border-radius: var(--radius-pill); background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: var(--text-sm); -webkit-tap-highlight-color: transparent; transition: color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard); }
+/* STX：清空选中的还原按钮与超限折叠按钮，胶囊高度统一为 26px 防折行孤立。
+   STX: clear-selection restore pill & overflow "+N" pill share compact 26px height without wrapping overflow. */
+.reset { display: inline-flex; flex: none; min-height: 26px; align-items: center; padding: 0 8px; border: 1px dashed var(--border-strong); border-radius: var(--radius-pill); background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: var(--text-xs); white-space: nowrap; -webkit-tap-highlight-color: transparent; transition: color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard); }
 .reset:active { transform: scale(.97); }
-@media (hover: hover) and (pointer: fine) { .toggle:hover { background: color-mix(in oklab, var(--foreground) 5%, transparent); color: var(--foreground); } .reset:hover { border-color: var(--foreground); color: var(--foreground); } }
+.moreBtn { display: inline-flex; flex: none; min-height: 26px; align-items: center; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs); white-space: nowrap; font-variant-numeric: tabular-nums; -webkit-tap-highlight-color: transparent; transition: color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard); }
+.moreBtn:active { transform: scale(.97); }
+.legendPopover { width: 280px; max-width: calc(100vw - 32px); padding: 8px; }
+.legendPopoverHeader { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px 8px; margin-bottom: 6px; border-bottom: 1px solid var(--border); font-size: var(--text-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.legendPopoverList { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; }
+.legendPopoverItem { display: flex; width: 100%; min-width: 0; min-height: 28px; align-items: center; gap: 8px; padding: 4px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-xs); text-align: left; cursor: pointer; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard); }
+.legendPopoverItem[aria-pressed="false"] { color: var(--text-muted); }
+.legendPopoverItem[aria-pressed="false"] .swatch::before { opacity: .45; transform: translateY(-50%) scaleX(.35); }
+.legendPopoverLabel { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legendPopoverItem[aria-pressed="false"] .legendPopoverLabel { opacity: .72; text-decoration: line-through; text-decoration-color: color-mix(in oklab, currentColor 55%, transparent); }
+@media (hover: hover) and (pointer: fine) { .toggle:hover { background: color-mix(in oklab, var(--foreground) 5%, transparent); color: var(--foreground); } .reset:hover { border-color: var(--foreground); color: var(--foreground); } .moreBtn:hover { border-color: var(--foreground); background: color-mix(in oklab, var(--foreground) 5%, transparent); color: var(--foreground); } .legendPopoverItem:hover { background: color-mix(in oklab, var(--foreground) 6%, transparent); color: var(--foreground); } }
 
 /* Plot, right-hand value axis, and the date axis beneath. */
 .chart { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 48px; grid-template-rows: auto 26px; min-width: 0; }

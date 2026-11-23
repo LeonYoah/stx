@@ -31,6 +31,12 @@ export interface EventStats {
   restart_limit_reached: number;
   node_offline?: number;
   node_recovered?: number;
+  agent_offline?: number;
+  agent_recovered?: number;
+  master_unavailable?: number;
+  master_recovered?: number;
+  worker_insufficient?: number;
+  worker_recovered?: number;
 }
 
 export interface MonitoringOverviewStats {

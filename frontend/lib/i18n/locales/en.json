@@ -523,6 +523,10 @@
           "emptyPanel": "No data in this window",
           "legendClear": "Clear",
           "legendAll": "Show all",
+          "legendMore": "+{count} more",
+          "legendEmptySelection": "Choose a series to show",
+          "nodeFilter": "Filter node",
+          "allNodes": "All nodes ({count})",
           "time": "Time",
           "groups": {
             "jvm": "JVM memory",
@@ -566,7 +570,10 @@
           },
           "legendOwned": "owned",
           "legendBackup": "backup",
-          "other": "Other"
+          "other": "Other",
+          "signalClear": "Clear",
+          "signalAlert": "Detected",
+          "signalPeak": "Window peak {value}"
         }
       },
       "hostsTab": {
@@ -1294,7 +1301,13 @@
       "nodeJdk": "JDK",
       "jdkMajor": "JDK {version}",
       "eventChannelNotConfigured": "Not configured",
-      "eventChannelUnsupportedShort": "Unsupported version"
+      "eventChannelUnsupportedShort": "Unsupported version",
+      "healthReasons": {
+        "nodeOffline": "Node {node} is offline",
+        "processNotRunning": "SeaTunnel process on node {node} is not running (status: {status})",
+        "memberSplitBrain": "Node {node} sees only {observed}/{expected} cluster members (possible split brain)",
+        "engineNotReady": "SeaTunnel engine on node {node} is not ready: {detail}"
+      }
     },
     "copyLog": "Copy Log",
     "logCopied": "Logs copied to clipboard",
@@ -3149,7 +3162,13 @@
       "nodeRestartRequested": "Node Restart Requested",
       "nodeStopRequested": "Node Stop Requested",
       "nodeOffline": "Node Offline",
-      "nodeRecovered": "Node Recovered"
+      "nodeRecovered": "Node Recovered",
+      "agentOffline": "Agent Offline",
+      "agentRecovered": "Agent Recovered",
+      "masterUnavailable": "Master Unavailable",
+      "masterRecovered": "Master Recovered",
+      "workerInsufficient": "Workers Insufficient",
+      "workerRecovered": "Worker Recovered"
     }
   },
   "monitoringCenter": {

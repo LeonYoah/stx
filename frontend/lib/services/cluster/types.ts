@@ -260,6 +260,29 @@ export interface NodeStatusInfo {
 }
 
 /**
+ * Structured cluster health reason code
+ * 结构化集群健康异常原因编码
+ */
+export type ClusterHealthReasonCode =
+  | 'node_offline'
+  | 'process_not_running'
+  | 'member_split_brain'
+  | 'engine_not_ready';
+
+/**
+ * Structured cluster health reason entry (aligned with health_reasons 1:1)
+ * 结构化集群健康异常原因（与 health_reasons 一一对应）
+ */
+export interface ClusterHealthReason {
+  code: ClusterHealthReasonCode | string;
+  node?: string;
+  status?: string;
+  observed_members?: number;
+  expected_members?: number;
+  detail?: string;
+}
+
+/**
  * Cluster status information (detailed)
  * 集群状态信息（详细）
  */
@@ -282,6 +305,8 @@ export interface ClusterStatusInfo {
   running_nodes?: number;
   /** Unhealthy reasons / 不健康原因列表 */
   health_reasons?: string[];
+  /** Structured unhealthy reasons for localized rendering / 供前端单语渲染的结构化不健康原因 */
+  health_reason_details?: ClusterHealthReason[];
   /** Node status list / 节点状态列表 */
   nodes: NodeStatusInfo[];
 }

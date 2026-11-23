@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {Loader2} from 'lucide-react';
 
@@ -27,6 +27,12 @@ import {Select} from '@/components/arc/select/select';
 import {SoftChip} from '@/components/common/layout';
 import services from '@/lib/services';
 import type {JavaRuntimeCandidate} from '@/lib/services/installer/types';
+import {
+  pickDefaultJavaCandidate,
+  resolveSeatunnelJavaRequirement,
+  sortJavaCandidatesForVersion,
+  type SeatunnelJavaCapabilitiesHint,
+} from '@/lib/seatunnel-version';
 import {cn} from '@/lib/utils';
 
 const CUSTOM_VALUE = '__custom__';
@@ -54,10 +60,14 @@ interface JavaHomePickerProps {
   /** Deprecated: auto-detect is no longer offered as an option globally / 已废弃：全局不再将「自动探测」作为下拉选项 */
   hideAuto?: boolean;
   /**
-   * 列表探测完成且当前无值时，是否自动预选首个探测到的具体 JDK 供用户确认（默认 true）。
-   * When true (default), auto-select the first probed concrete JDK for user confirmation if value is empty.
+   * 列表探测完成且当前无值时，是否自动预选首个兼容的探测 JDK 供用户确认（默认 true）。
+   * When true (default), auto-select the first compatible probed JDK for user confirmation if value is empty.
    */
   autoSelectFirst?: boolean;
+  /** Target SeaTunnel version used to prefer compatible JDKs / 目标 SeaTunnel 版本，用于按版本匹配优先推荐兼容 JDK */
+  seatunnelVersion?: string;
+  /** Optional server capability metadata for target version / 可选的版本能力元数据 */
+  versionCapabilities?: SeatunnelJavaCapabilitiesHint | null;
 }
 
 /**
@@ -74,6 +84,8 @@ export function JavaHomePicker({
   id,
   hideLabel,
   autoSelectFirst = true,
+  seatunnelVersion,
+  versionCapabilities,
 }: JavaHomePickerProps) {
   const t = useTranslations();
   const [candidates, setCandidates] = useState<JavaRuntimeCandidate[]>([]);
@@ -82,6 +94,18 @@ export function JavaHomePicker({
   const [appliedInitial, setAppliedInitial] = useState(false);
   const [listLoaded, setListLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  // 记录由探测器自动预填的 JDK 路径，避免目标版本切换时误覆盖用户手动选择。
+  // Track the auto-prefilled JDK path so version switches refresh defaults without overwriting manual choices.
+  const autoPrefilledValueRef = useRef<string | null>(null);
+
+  const javaRequirement = useMemo(
+    () => resolveSeatunnelJavaRequirement(seatunnelVersion, versionCapabilities),
+    [seatunnelVersion, versionCapabilities],
+  );
+  const orderedCandidates = useMemo(
+    () => sortJavaCandidatesForVersion(candidates, javaRequirement),
+    [candidates, javaRequirement],
+  );
 
   useEffect(() => {
     setAppliedInitial(false);
@@ -89,6 +113,7 @@ export function JavaHomePicker({
     setCandidates([]);
     setListLoaded(false);
     setLoadError(false);
+    autoPrefilledValueRef.current = null;
     if (!hostId) {
       return;
     }
@@ -119,8 +144,8 @@ export function JavaHomePicker({
     };
   }, [hostId]);
 
-  // 探测列表就绪后按优先级预填具体 JDK 路径（进程实测 JDK > 已有值 > 首个探测候选），让用户明确确认或切换。
-  // Once probed, prefill a concrete JDK path in priority order (process JDK > existing value > first detected candidate) for explicit confirmation.
+  // 探测列表就绪后按优先级预填具体 JDK 路径（进程实测 JDK > 已有值 > 按版本匹配的兼容探测候选），让用户明确确认或切换。
+  // Once probed, prefill a concrete JDK path in priority order (process JDK > existing value > version-compatible detected candidate) for explicit confirmation.
   useEffect(() => {
     if (appliedInitial || !listLoaded || loading) {
       return;
@@ -128,6 +153,7 @@ export function JavaHomePicker({
     const preferred = (preferredJavaHome || '').trim();
     if (preferred) {
       const inList = candidates.some((c) => c.java_home === preferred);
+      autoPrefilledValueRef.current = null;
       setCustomMode(!inList);
       if (value.trim() !== preferred) {
         onChange({javaHome: preferred, isCustom: !inList, isAutoPrefill: true});
@@ -137,17 +163,24 @@ export function JavaHomePicker({
     }
     if (value.trim()) {
       const inList = candidates.some((c) => c.java_home === value.trim());
+      autoPrefilledValueRef.current = null;
       setCustomMode(!inList);
       setAppliedInitial(true);
       return;
     }
-    if (autoSelectFirst && candidates.length > 0) {
-      setCustomMode(false);
-      onChange({
-        javaHome: candidates[0].java_home,
-        isCustom: false,
-        isAutoPrefill: true,
-      });
+    if (autoSelectFirst && orderedCandidates.length > 0) {
+      const best = pickDefaultJavaCandidate(orderedCandidates, javaRequirement);
+      if (best) {
+        setCustomMode(false);
+        autoPrefilledValueRef.current = best.java_home;
+        onChange({
+          javaHome: best.java_home,
+          isCustom: false,
+          isAutoPrefill: true,
+        });
+      } else {
+        autoPrefilledValueRef.current = null;
+      }
       setAppliedInitial(true);
       return;
     }
@@ -157,7 +190,48 @@ export function JavaHomePicker({
     }
     setAppliedInitial(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- apply initial selection once per host/list load
-  }, [appliedInitial, listLoaded, loading, preferredJavaHome, candidates, autoSelectFirst]);
+  }, [appliedInitial, listLoaded, loading, preferredJavaHome, candidates, orderedCandidates, javaRequirement, autoSelectFirst]);
+
+  // 当已挂载选择器上的目标 SeaTunnel 版本切换时，仅刷新之前自动预填的值，绝不覆盖用户手动选择。
+  // Refresh the auto-prefilled JDK when target SeaTunnel version changes on a mounted picker without touching manual selections.
+  useEffect(() => {
+    if (
+      !appliedInitial ||
+      !listLoaded ||
+      loading ||
+      !autoSelectFirst ||
+      preferredJavaHome?.trim()
+    ) {
+      return;
+    }
+    if (
+      autoPrefilledValueRef.current === null ||
+      value.trim() !== autoPrefilledValueRef.current
+    ) {
+      return;
+    }
+    const best = pickDefaultJavaCandidate(orderedCandidates, javaRequirement);
+    const nextHome = best?.java_home ?? '';
+    if (nextHome !== value.trim()) {
+      autoPrefilledValueRef.current = nextHome || null;
+      setCustomMode(false);
+      onChange({
+        javaHome: nextHome,
+        isCustom: false,
+        isAutoPrefill: true,
+      });
+    }
+  }, [
+    appliedInitial,
+    listLoaded,
+    loading,
+    autoSelectFirst,
+    preferredJavaHome,
+    orderedCandidates,
+    javaRequirement,
+    value,
+    onChange,
+  ]);
 
   useEffect(() => {
     if (!value || !listLoaded) {
@@ -189,7 +263,7 @@ export function JavaHomePicker({
 
   const selectOptions = useMemo(
     () => [
-      ...candidates.map((c) => ({
+      ...orderedCandidates.map((c) => ({
         value: c.java_home,
         label: t('javaHome.optionDetected', {
           path: c.java_home,
@@ -198,7 +272,7 @@ export function JavaHomePicker({
       })),
       {value: CUSTOM_VALUE, label: t('javaHome.optionCustom')},
     ],
-    [candidates, t],
+    [orderedCandidates, t],
   );
 
   const renderBadge = () => {
@@ -246,6 +320,7 @@ export function JavaHomePicker({
         placeholder={t('javaHome.placeholder')}
         options={selectOptions}
         onValueChange={(next) => {
+          autoPrefilledValueRef.current = null;
           if (next === CUSTOM_VALUE) {
             setCustomMode(true);
             onChange({javaHome: value || '', isCustom: true});
@@ -262,9 +337,10 @@ export function JavaHomePicker({
           value={value}
           disabled={disabled}
           placeholder={t('javaHome.customPlaceholder')}
-          onChange={(e) =>
-            onChange({javaHome: e.target.value.trim(), isCustom: true})
-          }
+          onChange={(e) => {
+            autoPrefilledValueRef.current = null;
+            onChange({javaHome: e.target.value.trim(), isCustom: true});
+          }}
         />
       )}
       {loadError && (

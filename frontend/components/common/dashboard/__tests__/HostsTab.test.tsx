@@ -166,14 +166,18 @@ describe('HostsTab', () => {
     expect(within(net).getByTestId('line-chart').textContent).toBe(
       '网络吞吐:rx eth0,tx eth0',
     );
-    // fs_used/fs_inodes 合成一格 Progress 列表；tcp/fds 合成一格指标卡。/ fs_used +
-    // fs_inodes fold into one progress cell; tcp + fds into one metric-card cell.
+    // fs_used/fs_inodes 合成一格 Progress 列表；tcp/fds 合成一格分行列表。/ fs_used +
+    // fs_inodes fold into one progress cell; tcp + fds into one flat row cell.
     const fs = screen.getByTestId('host-panel-1-fs');
     expect(fs.textContent).toContain('92%');
     expect(fs.textContent).toContain('45%');
     expect(screen.queryByTestId('host-panel-1-fs_inodes')).toBeNull();
     const conn = screen.getByTestId('host-panel-1-conn');
     expect(conn.textContent).toContain('12');
+    expect(conn.textContent).toContain('640');
+    // conn 格内是单层行，不再嵌 MetricCard（<article>）。
+    // The conn cell is flat rows — no nested MetricCard (<article>).
+    expect(conn.querySelector('article')).toBeNull();
     expect(screen.queryByTestId('host-panel-1-fds')).toBeNull();
     // 开机时间换算成「已运行 N 天」进卡头。/ Boot time becomes an "up N days" note in the header.
     expect(screen.getByText(/已运行/)).toBeTruthy();

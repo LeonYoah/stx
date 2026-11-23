@@ -17,15 +17,21 @@
 
 'use client';
 
-import {useMemo, useState, type CSSProperties} from 'react';
+import {useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {LineChart} from '@/components/arc/line-chart/line-chart';
-import {MetricCard} from '@/components/arc/metric-card/metric-card';
 import {DonutChart} from '@/components/arc/donut-chart/donut-chart';
 import SegmentedControl from '@/components/arc/segmented-control/segmented-control';
+import {Select} from '@/components/arc/select/select';
 import {BarChart} from '@/components/charts/bar-chart';
-import {Sparkline} from '@/components/charts/sparkline';
+import {
+  StatusBar,
+  StatusBarPlot,
+  StatusBarTooltip,
+} from '@/components/charts/status-bar';
+import {SoftChip} from '@/components/common/layout';
 import {Progress} from '@/components/ui/progress';
+import {cn} from '@/lib/utils';
 import {
   latestValue,
   toLineChartData,
@@ -50,6 +56,9 @@ const DETAIL_POLL_MS = 30_000;
 
 const DETAIL_GROUPS = ['jvm', 'gc', 'sched', 'store', 'proc'] as const;
 type DetailGroup = (typeof DETAIL_GROUPS)[number];
+
+/** 节点选择器「全部节点」标识。/ Sentinel value for showing all node instances together. */
+const ALL_INSTANCES = '__all__';
 
 /** 提示里用完整时间，坐标轴只留 HH:mm。/ Full time in tooltips, HH:mm on axes. */
 const formatLabel = (ts: number) => formatDateTimeMinuteTz(ts);
@@ -90,16 +99,59 @@ const fdTone = (percent: number) =>
   percent >= 80 ? 'bg-[var(--warning)]' : undefined;
 
 /**
+ * 恒零信号序列降采样为 ≤maxBuckets 桶：桶内取峰值（尖刺不能被平均抹掉）；
+ * StatusBar 对重复 datum id 直接抛错，id 携带桶序号保证唯一。
+ * Downsample a usually-zero signal series into ≤maxBuckets buckets pooled by
+ * peak (a spike must never average away); StatusBar throws on duplicate datum
+ * ids, so ids carry the bucket index to stay unique.
+ */
+export function bucketSignalPoints(
+  points: [number, number][],
+  maxBuckets = 24,
+): {id: string; startTs: number; endTs: number; peak: number}[] {
+  if (points.length === 0) {
+    return [];
+  }
+  if (points.length <= maxBuckets) {
+    return points.map(([ts, value], index) => ({
+      id: `b-${index}-${ts}`,
+      startTs: ts,
+      endTs: ts,
+      peak: value,
+    }));
+  }
+  const buckets: {id: string; startTs: number; endTs: number; peak: number}[] =
+    [];
+  for (let index = 0; index < maxBuckets; index += 1) {
+    const start = Math.floor((index * points.length) / maxBuckets);
+    const end = Math.floor(((index + 1) * points.length) / maxBuckets);
+    const slice = points.slice(start, end);
+    const startTs = slice[0]?.[0];
+    const endTs = slice[slice.length - 1]?.[0];
+    if (startTs === undefined || endTs === undefined) {
+      continue;
+    }
+    buckets.push({
+      id: `b-${index}-${startTs}`,
+      startTs,
+      endTs,
+      peak: slice.reduce((max, point) => Math.max(max, point[1]), 0),
+    });
+  }
+  return buckets;
+}
+
+/**
  * 集群页签尾部的「节点指标细节」区：按组懒加载，只请求当前分组。
  * 一个指标一种图：趋势用折线（维度语义色，同维度跨节点同色、节点间可分辨）；
- * 恒零类「有没有」指标（死锁 / 线程池拒绝）换成指标卡；分区分布用 Donut；
+ * 恒零类「有没有」指标（死锁 / 线程池拒绝）换成单行信号条；分区分布用 Donut；
  * 本地持有 / 备份条目用横向分组柱；fd 用量用 Progress。
  * The "node metric details" section at the bottom of the cluster tab, lazily loading one
  * group at a time. One chart shape per metric: trends stay lines (semantic dimension
  * colors — one dim keeps one color across nodes while staying distinguishable);
- * usually-zero "is it happening" metrics (deadlocks, pool rejections) become metric
- * cards; partition distribution goes to a donut; owned/backup entries to a grouped
- * horizontal bar; fd usage to progress bars.
+ * usually-zero "is it happening" metrics (deadlocks, pool rejections) become flat
+ * signal rows; partition distribution goes to a donut; owned/backup entries to a
+ * grouped horizontal bar; fd usage to progress bars.
  */
 export function ClusterDetailGroups({
   query,
@@ -110,6 +162,7 @@ export function ClusterDetailGroups({
 }) {
   const t = useTranslations('dashboard.home.clusterTab.detail');
   const [group, setGroup] = useState<DetailGroup>('jvm');
+  const [selectedInstance, setSelectedInstance] = useState<string>('');
 
   const resource = usePolledResource<HomeClusterDetail>(
     JSON.stringify([
@@ -133,6 +186,35 @@ export function ClusterDetailGroups({
   );
   const data = resource.data;
 
+  // 提取当前分组全部节点实例并排序，多节点默认聚焦首节点防止图例笛卡尔积爆炸。
+  // Collect sorted instances across panels; multi-node defaults to the first node to prevent legend explosion.
+  const instances = useMemo(() => {
+    const set = new Set<string>();
+    for (const panel of data?.panels ?? []) {
+      // members 序列的 instance 是集群名而非节点端点，不能混进节点选择器。
+      // members carries cluster names as instance, not node endpoints — keep it
+      // out of the node selector.
+      if (panel.key === 'members') {
+        continue;
+      }
+      for (const entry of panel.series) {
+        if (entry.instance) {
+          set.add(entry.instance);
+        }
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [data]);
+
+  const effectiveInstance =
+    instances.length <= 1
+      ? (instances[0] ?? ALL_INSTANCES)
+      : selectedInstance === ALL_INSTANCES
+        ? ALL_INSTANCES
+        : selectedInstance && instances.includes(selectedInstance)
+          ? selectedInstance
+          : instances[0];
+
   const panelsByKey = useMemo(() => {
     const map = new Map<string, HomeDetailPanel>();
     for (const item of data?.panels ?? []) {
@@ -144,7 +226,7 @@ export function ClusterDetailGroups({
   const charts = useMemo(() => {
     const map = new Map<string, ReturnType<typeof toLineChartData>>();
     for (const item of data?.panels ?? []) {
-      const series =
+      const baseSeries =
         // 全 0 的 Hazelcast 队列类型不画；类加载只画已加载类数（速率是同一条线的斜率）。
         // All-zero Hazelcast queue types are skipped; class loading draws the loaded
         // count only — the rate is the same line's slope.
@@ -153,25 +235,44 @@ export function ClusterDetailGroups({
           : item.key === 'classes'
             ? item.series.filter((entry) => entry.label === 'loaded')
             : item.series;
+      // 聚焦单节点时仅保留所选实例的序列；选"全部节点"时全量对比。
+      // members 的 instance 是集群名，按节点过滤会把它筛空，跳过过滤。
+      // Filter to the focused instance when a single node is chosen; keep all when
+      // comparing all nodes. members carries cluster names as instance — node
+      // filtering would empty it, so it skips the filter.
+      const series =
+        effectiveInstance !== ALL_INSTANCES && item.key !== 'members'
+          ? baseSeries.filter((entry) => entry.instance === effectiveInstance)
+          : baseSeries;
       // 同维度标签只有一类（members / total 等）时按实例着色；多维度面板按
       // 维度语义色（同一维度跨节点同色）。/ Panels whose series all share one label
       // (members / total / …) color by instance; multi-dim panels take semantic
       // colors so one dimension keeps one color across nodes.
       const singleLabel = new Set(series.map((entry) => entry.label)).size <= 1;
+      const singleInstanceView =
+        new Set(series.map((entry) => entry.instance)).size <= 1;
       const dimColors = colorForLabels(series.map((entry) => entry.label));
       const instColors = colorForLabels(
         series.map((entry) => entry.instance),
       );
       const dashed = new Set(DASHED_DIMS[item.key] ?? []);
-      const named = series.map((entry) => ({
-        key: `${entry.instance} · ${entry.label}`,
-        name: `${entry.instance} · ${entry.label}`,
-        points: entry.points,
-        color: singleLabel
-          ? (nodeColors.get(entry.instance) ?? instColors.get(entry.instance))
-          : dimColors.get(entry.label),
-        dashed: dashed.has(entry.label) || undefined,
-      }));
+      const named = series.map((entry) => {
+        // 单节点视角下多维面板去掉冗余 IP:port 前缀；跨节点对比时保留节点前缀以便分辨。
+        // Strip redundant IP:port prefix in single-node multi-dim view; keep it when comparing nodes.
+        const seriesName =
+          singleInstanceView && !singleLabel
+            ? entry.label
+            : `${entry.instance} · ${entry.label}`;
+        return {
+          key: seriesName,
+          name: seriesName,
+          points: entry.points,
+          color: singleLabel
+            ? (nodeColors.get(entry.instance) ?? instColors.get(entry.instance))
+            : dimColors.get(entry.label),
+          dashed: dashed.has(entry.label) || undefined,
+        };
+      });
       const chart = toLineChartData(named, formatLabel, formatAxis);
       const refValue = item.reference ?? REF_LINES[item.key];
       const refLabel =
@@ -193,7 +294,7 @@ export function ClusterDetailGroups({
       map.set(item.key, chart);
     }
     return map;
-  }, [data, nodeColors, t]);
+  }, [data, effectiveInstance, nodeColors, t]);
 
   const panelTitle = (item: HomeDetailPanel) =>
     t.has(`panels.${item.key}`) ? t(`panels.${item.key}`) : item.key;
@@ -226,31 +327,51 @@ export function ClusterDetailGroups({
     return {categories, ownedValues, backupValues};
   }, [panelsByKey]);
 
-  // 死锁线程 / 线程池拒绝：正常恒 0，折线是平的，换指标卡看「有没有」。
-  // Deadlocks / pool rejections sit at zero — flat lines say nothing, metric cards
-  // answer "is it happening".
-  const metricCards = useMemo(() => {
+  // 死锁线程 / 线程池拒绝：正常恒 0，折线是平的，换单行信号条看「有没有」。
+  // Deadlocks / pool rejections sit at zero — flat lines say nothing, flat signal
+  // rows answer "is it happening".
+  const metricRows = useMemo(() => {
     const build = (key: string, preferred: string[]) => {
       const item = panelsByKey.get(key);
       if (!item) {
-        return [] as {instance: string; value: number; points: [number, number][]}[];
+        return [] as {
+          instance: string;
+          value: number;
+          peak: number;
+          points: [number, number][];
+        }[];
       }
-      const byInstance = new Map<string, {value: number; points: [number, number][]}>();
+      const byInstance = new Map<
+        string,
+        {value: number; peak: number; points: [number, number][]}
+      >();
       for (const entry of item.series) {
         if (!preferred.includes(entry.label)) {
           continue;
         }
-        const slot = byInstance.get(entry.instance) ?? {value: 0, points: []};
         const value = latestValue(entry.points);
-        if (value > slot.value || slot.points.length === 0) {
-          slot.value = value;
-          slot.points = entry.points;
+        const peak = entry.points.reduce(
+          (max, point) => Math.max(max, point[1]),
+          0,
+        );
+        const slot = byInstance.get(entry.instance);
+        // 同节点多条候选维度（deadlocked / monitor）取窗口峰值最高的一条；峰值
+        // 并列比最新值，再并列比有点者。/ With several candidate dims on one node
+        // keep the series with the highest window peak; ties compare latest
+        // value, then non-empty points.
+        if (
+          !slot ||
+          peak > slot.peak ||
+          (peak === slot.peak &&
+            (value > slot.value || slot.points.length === 0))
+        ) {
+          byInstance.set(entry.instance, {value, peak, points: entry.points});
         }
-        byInstance.set(entry.instance, slot);
       }
       return Array.from(byInstance, ([instance, slot]) => ({
         instance,
         value: slot.value,
+        peak: slot.peak,
         points: slot.points,
       })).sort((a, b) => a.instance.localeCompare(b.instance));
     };
@@ -348,7 +469,24 @@ export function ClusterDetailGroups({
         // Dynamic sibling expressions land in a children array and must carry
         // explicit keys — React 19's "unique key" warning otherwise fires
         // (array children skip static-children validation).
-        <>
+        <div className='flex flex-wrap items-center gap-2'>
+          {instances.length >= 2 ? (
+            <Select
+              key='node-select'
+              aria-label={t('nodeFilter')}
+              data-testid='detail-node-select'
+              className='w-[196px]'
+              value={effectiveInstance}
+              onValueChange={setSelectedInstance}
+              options={[
+                ...instances.map((inst) => ({value: inst, label: inst})),
+                {
+                  value: ALL_INSTANCES,
+                  label: t('allNodes', {count: instances.length}),
+                },
+              ]}
+            />
+          ) : null}
           <SegmentedControl
             key='groups'
             label={t('title')}
@@ -362,12 +500,12 @@ export function ClusterDetailGroups({
           {resource.refreshing ? (
             <span
               key='refreshing'
-              className='ml-2 text-xs text-muted-foreground'
+              className='ml-1 text-xs text-muted-foreground'
             >
               {t('refreshing')}
             </span>
           ) : null}
-        </>
+        </div>
       }
       testId='home-cluster-detail'
     >
@@ -438,11 +576,13 @@ export function ClusterDetailGroups({
             const props = cellProps(key);
 
             if (key === 'deadlocked' || key === 'reject') {
-              const cards =
-                key === 'deadlocked' ? metricCards.deadlocked : metricCards.reject;
-              // 恒零「有没有」指标：每节点一张指标卡（>0 标红），拒绝带迷你趋势。
-              // Usually-zero "is it happening" metrics: one card per node (red when
-              // >0); rejections carry a mini trend.
+              const rows =
+                key === 'deadlocked' ? metricRows.deadlocked : metricRows.reject;
+              const suffix = unitSuffix(item.unit);
+              // 恒零「有没有」指标：每节点一行（最新值 + 状态徽标 + 峰值信号条），
+              // 单层排布不嵌卡片。/ Usually-zero "is it happening" metrics: one flat
+              // row per node (latest value + status chip + peak signal bar), single
+              // layer with no nested card.
               return (
                 <div key={key} {...props}>
                   <div className='mb-2 flex items-baseline gap-2'>
@@ -451,7 +591,7 @@ export function ClusterDetailGroups({
                       {t.has(`units.${item.unit}`) ? t(`units.${item.unit}`) : ''}
                     </span>
                   </div>
-                  {cards.length === 0 ? (
+                  {rows.length === 0 ? (
                     <p
                       key='body'
                       className='py-6 text-center text-xs text-muted-foreground'
@@ -459,37 +599,91 @@ export function ClusterDetailGroups({
                       {t('emptyPanel')}
                     </p>
                   ) : (
-                    <div key='body' className='flex flex-col gap-3'>
-                      {cards.map((card) => (
-                        <div
-                          key={card.instance}
-                          // 大于 0 时用 danger 色渲染数值（--foreground 局部覆盖）。
-                          // Values >0 render in danger via a scoped --foreground.
-                          style={
-                            card.value > 0
-                              ? ({'--foreground': 'var(--danger)'} as CSSProperties)
-                              : undefined
-                          }
-                        >
-                          <MetricCard
-                            key='metric'
-                            label={card.instance}
-                            value={card.value}
-                            context={title}
-                          />
-                          {key === 'reject' ? (
-                            <Sparkline
-                              key='spark'
-                              data={card.points.map((point) => point[1])}
-                              label={`${card.instance} ${title}`}
-                              variant='area'
-                              height={28}
-                              className='mt-1 text-[var(--series-1)]'
-                            />
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
+                    <ul
+                      key='body'
+                      className='divide-y-[0.5px] divide-border/70'
+                    >
+                      {rows.map((row) => {
+                        const buckets = bucketSignalPoints(row.points);
+                        const hasAnomaly = row.value > 0 || row.peak > 0;
+                        return (
+                          <li
+                            key={row.instance}
+                            className='py-2 first:pt-0.5 last:pb-0'
+                          >
+                            <div className='flex items-center justify-between gap-2'>
+                              <span
+                                className='min-w-0 truncate font-mono text-xs text-muted-foreground'
+                                title={row.instance}
+                              >
+                                {row.instance}
+                              </span>
+                              <span className='flex shrink-0 items-center gap-2'>
+                                {row.peak > 0 && row.value === 0 ? (
+                                  <span className='text-[11px] tabular-nums text-[var(--danger)]'>
+                                    {t('signalPeak', {
+                                      value: formatCompactNumber(row.peak),
+                                    })}
+                                  </span>
+                                ) : null}
+                                <span
+                                  className={cn(
+                                    'font-mono text-sm font-semibold tabular-nums',
+                                    row.value > 0
+                                      ? 'text-[var(--danger)]'
+                                      : 'text-foreground',
+                                  )}
+                                >
+                                  {formatCompactNumber(row.value)}
+                                </span>
+                                <SoftChip
+                                  tone={hasAnomaly ? 'rose' : 'emerald'}
+                                  className='px-1.5 py-0 text-[10px] font-medium'
+                                >
+                                  {hasAnomaly
+                                    ? t('signalAlert')
+                                    : t('signalClear')}
+                                </SoftChip>
+                              </span>
+                            </div>
+                            {buckets.length > 0 ? (
+                              <StatusBar
+                                className='mt-1 space-y-0'
+                                label={`${row.instance} ${title}`}
+                                statuses={[
+                                  {
+                                    id: 'ok',
+                                    label: t('signalClear'),
+                                    color:
+                                      'color-mix(in oklab, var(--success) 42%, transparent)',
+                                  },
+                                  {
+                                    id: 'alert',
+                                    label: t('signalAlert'),
+                                    color: 'var(--danger)',
+                                  },
+                                ]}
+                                data={buckets.map((bucket) => ({
+                                  id: bucket.id,
+                                  label:
+                                    bucket.startTs === bucket.endTs
+                                      ? formatDateTimeMinuteTz(bucket.startTs)
+                                      : `${formatDateTimeMinuteTz(bucket.startTs)}–${formatDateTimeMinuteTz(bucket.endTs).slice(-5)}`,
+                                  status: bucket.peak > 0 ? 'alert' : 'ok',
+                                  description: `${title}: ${formatCompactNumber(bucket.peak)}${suffix}`,
+                                }))}
+                              >
+                                <StatusBarPlot
+                                  barClassName='h-3.5 rounded-[3px]'
+                                  showLabels={false}
+                                />
+                                <StatusBarTooltip />
+                              </StatusBar>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                 </div>
               );
@@ -622,6 +816,10 @@ export function ClusterDetailGroups({
                   data={chart?.data ?? []}
                   series={chart?.series ?? []}
                   height={170}
+                  legendPosition='bottom'
+                  maxLegendItems={4}
+                  moreLabel={(count) => t('legendMore', {count})}
+                  emptySelectionLabel={t('legendEmptySelection')}
                   emptyLabel={t('emptyPanel')}
                   clearLabel={t('legendClear')}
                   resetLabel={t('legendAll')}

@@ -44,14 +44,14 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 	ctx := context.Background()
 	svc := newTroubleshootingTestService(t)
 
-	// 1. 初始列表查询会自动播种中英文 8 条预置案例
-	// 1. Initial list query should auto-seed 8 preset troubleshooting cases (4 zh, 4 en)
+	// 1. 初始列表查询会自动播种中英文 10 条预置案例
+	// 1. Initial list query should auto-seed 10 preset troubleshooting cases (5 zh, 5 en)
 	allPresets, total, err := svc.ListMemories(ctx, nil)
 	if err != nil {
 		t.Fatalf("list memories failed: %v", err)
 	}
-	if total != 8 || len(allPresets) != 8 {
-		t.Fatalf("expected 8 preset memories (4 zh, 4 en), got total %d, len %d", total, len(allPresets))
+	if total != 10 || len(allPresets) != 10 {
+		t.Fatalf("expected 10 preset memories (5 zh, 5 en), got total %d, len %d", total, len(allPresets))
 	}
 	for _, p := range allPresets {
 		if p.IsPreset {
@@ -70,8 +70,8 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list zh memories failed: %v", err)
 	}
-	if zhTotal != 4 || len(zhList) != 4 {
-		t.Fatalf("expected 4 zh preset memories, got total %d, len %d", zhTotal, len(zhList))
+	if zhTotal != 5 || len(zhList) != 5 {
+		t.Fatalf("expected 5 zh preset memories, got total %d, len %d", zhTotal, len(zhList))
 	}
 	for _, item := range zhList {
 		if item.Language != "zh" {
@@ -85,8 +85,8 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list en memories failed: %v", err)
 	}
-	if enTotal != 4 || len(enList) != 4 {
-		t.Fatalf("expected 4 en preset memories, got total %d, len %d", enTotal, len(enList))
+	if enTotal != 5 || len(enList) != 5 {
+		t.Fatalf("expected 5 en preset memories, got total %d, len %d", enTotal, len(enList))
 	}
 	for _, item := range enList {
 		if item.Language != "en" {
@@ -134,8 +134,8 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list zh with custom failed: %v", err)
 	}
-	if zhCountWithCustom != 5 || len(zhWithCustom) != 5 { // 4 zh presets + 1 custom
-		t.Fatalf("expected 5 items in zh list, got total %d, len %d", zhCountWithCustom, len(zhWithCustom))
+	if zhCountWithCustom != 6 || len(zhWithCustom) != 6 { // 5 条中文预置 + 1 条自定义 / 5 zh presets + 1 custom
+		t.Fatalf("expected 6 items in zh list, got total %d, len %d", zhCountWithCustom, len(zhWithCustom))
 	}
 	hasCustomInZh := false
 	for _, m := range zhWithCustom {
@@ -152,8 +152,8 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list en with custom failed: %v", err)
 	}
-	if enCountWithCustom != 5 || len(enWithCustom) != 5 { // 4 en presets + 1 custom
-		t.Fatalf("expected 5 items in en list, got total %d, len %d", enCountWithCustom, len(enWithCustom))
+	if enCountWithCustom != 6 || len(enWithCustom) != 6 { // 5 条英文预置 + 1 条自定义 / 5 en presets + 1 custom
+		t.Fatalf("expected 6 items in en list, got total %d, len %d", enCountWithCustom, len(enWithCustom))
 	}
 	hasCustomInEn := false
 	for _, m := range enWithCustom {
@@ -199,5 +199,54 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 	_, err = svc.GetMemory(ctx, uint(1))
 	if err == nil {
 		t.Fatalf("expected not found after deletion, got nil error")
+	}
+}
+
+// TestSeedPresetMemoriesIdempotentTopUp 验证预置播种对已有库幂等：重复播种不产生重复行，
+// 新增的预置条目（如 jdk24）也能补齐进旧库。
+// TestSeedPresetMemoriesIdempotentTopUp verifies seeding is idempotent on an existing
+// database: re-seeding creates no duplicates, and newly added presets (e.g. jdk24) are
+// back-filled into databases that already hold the older presets.
+func TestSeedPresetMemoriesIdempotentTopUp(t *testing.T) {
+	ctx := context.Background()
+	svc := newTroubleshootingTestService(t)
+	repo := svc.repo
+
+	// 模拟旧库：只播种过一次，再重复播种一次
+	// Simulate an existing database: seed once, then seed again
+	if err := repo.SeedPresetMemories(ctx); err != nil {
+		t.Fatalf("first seed failed: %v", err)
+	}
+	if err := repo.SeedPresetMemories(ctx); err != nil {
+		t.Fatalf("second seed failed: %v", err)
+	}
+
+	_, total, err := svc.ListMemories(ctx, nil)
+	if err != nil {
+		t.Fatalf("list memories failed: %v", err)
+	}
+	if total != 10 {
+		t.Fatalf("expected exactly 10 presets after repeated seeding, got %d", total)
+	}
+
+	// 逐语言校验 jdk24 预置条目存在且无重复
+	// Verify the jdk24 preset exists exactly once per language
+	for _, lang := range []string{"zh", "en"} {
+		items, count, err := svc.ListMemories(ctx, &TroubleshootingMemoryQuery{Language: lang})
+		if err != nil {
+			t.Fatalf("list %s memories failed: %v", lang, err)
+		}
+		found := 0
+		for _, item := range items {
+			if item.PresetKey == "jdk24_subject_getsubject_unsupported" {
+				found++
+				if item.Fingerprint != "getSubject is not supported" {
+					t.Fatalf("lang %s: unexpected fingerprint %q", lang, item.Fingerprint)
+				}
+			}
+		}
+		if found != 1 || count != 5 {
+			t.Fatalf("lang %s: expected exactly 1 jdk24 preset among 5 presets, got %d/%d", lang, found, count)
+		}
 	}
 }

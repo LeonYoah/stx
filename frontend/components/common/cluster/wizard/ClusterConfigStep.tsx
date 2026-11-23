@@ -81,7 +81,11 @@ interface ClusterConfigStepProps {
   /** Apply checkpoint config to IMAP / 同步检查点配置到 IMAP */
   applyCheckpointToImap: () => void;
   /** Update one host JDK (AC1) / 更新单个主机 JDK（AC1） */
-  setHostJavaHome: (hostId: number, javaHome: string) => void;
+  setHostJavaHome: (
+    hostId: number,
+    javaHome: string,
+    isAutoPrefill?: boolean,
+  ) => void;
   /** Fill all selected hosts with one JDK (AC1a) / 一键填到全部已选主机（AC1a） */
   fillAllJavaHome: (javaHome: string) => void;
 }
@@ -500,7 +504,11 @@ export function ClusterConfigStep({
                       id={`jdk-host-${h.host.id}`}
                       hostId={h.host.id}
                       value={h.javaHome || ''}
-                      onChange={({javaHome}) => setHostJavaHome(h.host.id, javaHome)}
+                      seatunnelVersion={config.version}
+                      versionCapabilities={versionCapabilities}
+                      onChange={({javaHome, isAutoPrefill}) =>
+                        setHostJavaHome(h.host.id, javaHome, isAutoPrefill)
+                      }
                     />
                   </div>
                 ))}

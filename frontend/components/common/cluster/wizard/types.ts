@@ -126,6 +126,8 @@ export interface HostWithRole {
   roles: NodeRole[];
   /** Per-host JDK path; empty means auto detection (AC1) / 每主机 JDK 路径，空表示自动探测（AC1） */
   javaHome?: string;
+  /** True when javaHome was auto-prefilled rather than explicitly chosen / 标识当前 javaHome 是否由探测器自动预填而非手动选择 */
+  javaHomeAutoPrefilled?: boolean;
 }
 
 /**

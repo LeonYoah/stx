@@ -89,6 +89,11 @@ func TestEvaluateClusterHealth_StoppedProcessOnOnlineHostIsUnhealthy(t *testing.
 	if len(info.HealthReasons) != 1 || !strings.Contains(info.HealthReasons[0], "n2") {
 		t.Fatalf("expected one reason naming n2, got %v", info.HealthReasons)
 	}
+	if len(info.HealthReasonDetails) != 1 ||
+		info.HealthReasonDetails[0].Code != ClusterHealthReasonProcessNotRunning ||
+		info.HealthReasonDetails[0].Status != string(NodeStatusStopped) {
+		t.Fatalf("expected process_not_running detail, got %+v", info.HealthReasonDetails)
+	}
 }
 
 func TestEvaluateClusterHealth_SplitMembersIsUnhealthy(t *testing.T) {
@@ -97,6 +102,12 @@ func TestEvaluateClusterHealth_SplitMembersIsUnhealthy(t *testing.T) {
 	newHealthTestService(sender).evaluateClusterHealth(context.Background(), cluster, info)
 	if info.HealthStatus != HealthStatusUnhealthy || len(info.HealthReasons) != 3 {
 		t.Fatalf("expected 3 split-brain reasons, got %s %v", info.HealthStatus, info.HealthReasons)
+	}
+	for i, detail := range info.HealthReasonDetails {
+		if detail.Code != ClusterHealthReasonMemberSplitBrain ||
+			detail.ExpectedMembers != 3 || detail.ObservedMembers != []int{2, 2, 1}[i] {
+			t.Fatalf("expected member_split_brain detail at %d, got %+v", i, detail)
+		}
 	}
 }
 
@@ -171,6 +182,11 @@ func TestEvaluateClusterHealth_EngineNotReadyIsUnhealthy(t *testing.T) {
 	if len(info.HealthReasons) != 1 || !strings.Contains(info.HealthReasons[0], "coordinatorService is null") {
 		t.Fatalf("expected engine reason, got %v", info.HealthReasons)
 	}
+	if len(info.HealthReasonDetails) != 1 ||
+		info.HealthReasonDetails[0].Code != ClusterHealthReasonEngineNotReady ||
+		info.HealthReasonDetails[0].Detail != "coordinatorService is null" {
+		t.Fatalf("expected engine_not_ready detail, got %+v", info.HealthReasonDetails)
+	}
 }
 
 // TestEvaluateClusterHealth_EngineHealthyStaysHealthy 引擎就绪（known+healthy）不产生原因。
@@ -211,6 +227,44 @@ func TestEvaluateClusterHealth_UnknownEngineStateDoesNotAlarm(t *testing.T) {
 	svc.evaluateClusterHealth(context.Background(), cluster, info)
 	if sender.engineCalls != 1 {
 		t.Fatalf("expected cached probe, calls %d -> %d", 1, sender.engineCalls)
+	}
+}
+
+// TestEvaluateClusterHealth_HealthReasonDetailsAligned 结构化明细与文案一一对应，
+// 覆盖全部 4 类 code，供前端按 code 单语渲染。
+// TestEvaluateClusterHealth_HealthReasonDetailsAligned: structured details align 1:1
+// with the flat reasons and cover all four codes for locale-aware frontend rendering.
+func TestEvaluateClusterHealth_HealthReasonDetailsAligned(t *testing.T) {
+	sender := &healthMemberSender{counts: map[string]int{"agent-2": 1}}
+	cluster, info := healthTestCluster(ClusterStatusRunning, 1, 2, 3, 4)
+	// 节点 1 离线（node_offline）、节点 4 进程停止（process_not_running）、
+	// 节点 2/3 运行且节点 2 只看到 1/2 成员（member_split_brain）。
+	// Node 1 offline (node_offline), node 4 process stopped (process_not_running),
+	// nodes 2/3 running while node 2 sees only 1/2 members (member_split_brain).
+	info.Nodes[0].IsOnline = false
+	info.Nodes[3].Status = NodeStatusStopped
+	newHealthTestService(sender).evaluateClusterHealth(context.Background(), cluster, info)
+
+	if info.HealthStatus != HealthStatusUnhealthy {
+		t.Fatalf("expected unhealthy, got %s", info.HealthStatus)
+	}
+	if len(info.HealthReasonDetails) != len(info.HealthReasons) {
+		t.Fatalf("details must align 1:1 with reasons, got %d details vs %d reasons",
+			len(info.HealthReasonDetails), len(info.HealthReasons))
+	}
+	wantCodes := []ClusterHealthReasonCode{
+		ClusterHealthReasonNodeOffline,
+		ClusterHealthReasonProcessNotRunning,
+		ClusterHealthReasonMemberSplitBrain,
+	}
+	gotCodes := make([]ClusterHealthReasonCode, 0, len(info.HealthReasonDetails))
+	for _, detail := range info.HealthReasonDetails {
+		gotCodes = append(gotCodes, detail.Code)
+	}
+	for i, want := range wantCodes {
+		if i >= len(gotCodes) || gotCodes[i] != want {
+			t.Fatalf("expected codes %v, got %v", wantCodes, gotCodes)
+		}
 	}
 }
 

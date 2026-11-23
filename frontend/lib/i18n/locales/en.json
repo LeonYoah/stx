@@ -3161,7 +3161,13 @@
       "nodeRestartRequested": "Node Restart Requested",
       "nodeStopRequested": "Node Stop Requested",
       "nodeOffline": "Node Offline",
-      "nodeRecovered": "Node Recovered"
+      "nodeRecovered": "Node Recovered",
+      "agentOffline": "Agent offline",
+      "agentRecovered": "Agent recovered",
+      "masterUnavailable": "Master unavailable",
+      "masterRecovered": "Master recovered",
+      "workerInsufficient": "Insufficient workers",
+      "workerRecovered": "Workers recovered"
     }
   },
   "monitoringCenter": {
@@ -3794,7 +3800,13 @@
       "nodeRestartRequested": "Node Restart Requested",
       "nodeStopRequested": "Node Stop Requested",
       "nodeOffline": "Node Offline",
-      "nodeRecovered": "Node Recovered"
+      "nodeRecovered": "Node Recovered",
+      "agentOffline": "Agent offline",
+      "agentRecovered": "Agent recovered",
+      "masterUnavailable": "Master unavailable",
+      "masterRecovered": "Master recovered",
+      "workerInsufficient": "Insufficient workers",
+      "workerRecovered": "Workers recovered"
     },
     "tabs": {
       "dashboard": "Dashboard",

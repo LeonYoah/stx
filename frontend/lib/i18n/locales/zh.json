@@ -3161,7 +3161,13 @@
       "nodeRestartRequested": "节点重启已发起",
       "nodeStopRequested": "节点停止已发起",
       "nodeOffline": "节点离线",
-      "nodeRecovered": "节点已恢复"
+      "nodeRecovered": "节点已恢复",
+      "agentOffline": "Agent 离线",
+      "agentRecovered": "Agent 已恢复",
+      "masterUnavailable": "Master 不可用",
+      "masterRecovered": "Master 已恢复",
+      "workerInsufficient": "Worker 不足",
+      "workerRecovered": "Worker 已恢复"
     }
   },
   "monitoringCenter": {
@@ -3794,7 +3800,13 @@
       "nodeRestartRequested": "节点重启已发起",
       "nodeStopRequested": "节点停止已发起",
       "nodeOffline": "节点离线",
-      "nodeRecovered": "节点已恢复"
+      "nodeRecovered": "节点已恢复",
+      "agentOffline": "Agent 离线",
+      "agentRecovered": "Agent 已恢复",
+      "masterUnavailable": "Master 不可用",
+      "masterRecovered": "Master 已恢复",
+      "workerInsufficient": "Worker 不足",
+      "workerRecovered": "Worker 已恢复"
     },
     "tabs": {
       "dashboard": "监控看板",

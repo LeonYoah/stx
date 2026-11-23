@@ -131,6 +131,36 @@ const EVENT_TYPE_META: Record<
     icon: <Activity className='size-3' aria-hidden />,
     labelKey: 'monitor.events.nodeRecovered',
   },
+  agent_offline: {
+    tone: 'rose',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.agentOffline',
+  },
+  agent_recovered: {
+    tone: 'emerald',
+    icon: <Activity className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.agentRecovered',
+  },
+  master_unavailable: {
+    tone: 'rose',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.masterUnavailable',
+  },
+  master_recovered: {
+    tone: 'emerald',
+    icon: <Activity className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.masterRecovered',
+  },
+  worker_insufficient: {
+    tone: 'amber',
+    icon: <AlertTriangle className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.workerInsufficient',
+  },
+  worker_recovered: {
+    tone: 'emerald',
+    icon: <Activity className='size-3' aria-hidden />,
+    labelKey: 'monitor.events.workerRecovered',
+  },
 };
 
 const PAGE_SIZE = 20;

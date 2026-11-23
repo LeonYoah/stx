@@ -109,6 +109,9 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
     page_size: 100,
   });
   const [loading, setLoading] = useState(true);
+  // planLoadError：读取失败（非 404）；missingPlan 仅用于「确实没有计划」。
+  // planLoadError covers read failures (not 404); missingPlan is only for true absence.
+  const [planLoadError, setPlanLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [starting, setStarting] = useState(false);
   // 步骤 / 节点视图切换，释放横向空间 / Toggle steps vs nodes for horizontal space
@@ -140,18 +143,34 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
         setTask(taskResult);
         setStepsData(stepsResult);
         setLogsData(logsResult);
+        setPlanLoadError(null);
         patchStUpgradeSession(clusterId, {
           clusterId,
           plan: taskResult.plan,
           task: taskResult,
         });
+      } catch (error) {
+        if (seq !== reqSeqRef.current) {
+          return;
+        }
+        const message =
+          error instanceof Error ? error.message : t('loadExecuteFailed');
+        const status = (error as Error & {status?: number}).status;
+        if (status === 404) {
+          setPlan(null);
+          setTask(null);
+          setPlanLoadError(null);
+        } else {
+          setPlanLoadError(message);
+        }
+        toast.error(message);
       } finally {
         if (seq === reqSeqRef.current) {
           setRefreshing(false);
         }
       }
     },
-    [clusterId],
+    [clusterId, t],
   );
 
   const loadInitialState = useCallback(async () => {
@@ -185,6 +204,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
         setTask(null);
         setStepsData(null);
         setLogsData(null);
+        setPlanLoadError(null);
         return;
       }
 
@@ -198,6 +218,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
       setTask(null);
       setStepsData(null);
       setLogsData(null);
+      setPlanLoadError(null);
       patchStUpgradeSession(clusterId, {
         clusterId,
         request: session?.request,
@@ -206,9 +227,18 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
         task: undefined,
       });
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('loadExecuteFailed'),
-      );
+      const message =
+        error instanceof Error ? error.message : t('loadExecuteFailed');
+      const status = (error as Error & {status?: number}).status;
+      // 404 → 计划不存在；其它（含 snapshot 扫描失败的 500）→ 读取失败错误态。
+      // 404 → plan missing; other errors (incl. snapshot scan 500) → read-failure state.
+      if (status === 404) {
+        setPlan(null);
+        setPlanLoadError(null);
+      } else {
+        setPlanLoadError(message);
+      }
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -475,22 +505,46 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
         />
         <UpgradeSteps current='execute' clusterId={clusterId} />
         <div className='rounded-(--radius-panel) border border-(--border) bg-card px-6 py-10'>
-          <EmptyState
-            icon={<PlayCircle />}
-            title={t('executeTitle')}
-            description={t('missingPlan')}
-            action={
-              <Button
-                size='sm'
-                onClick={() =>
-                  router.push(`/clusters/${clusterId}/upgrade/prepare`)
+          {planLoadError ? (
+            <div
+              className='flex flex-col items-center justify-center gap-3'
+              role='alert'
+              data-testid='upgrade-plan-load-error'
+            >
+              <EmptyState
+                icon={<PlayCircle />}
+                title={t('loadPlanFailed')}
+                description={planLoadError || t('loadPlanFailedDesc')}
+                action={
+                  <Button
+                    size='sm'
+                    variant='secondary'
+                    onClick={() => void loadInitialState()}
+                  >
+                    <RefreshCw className='size-3.5' aria-hidden />
+                    {commonT('retry')}
+                  </Button>
                 }
-              >
-                <ArrowLeft className='size-3.5' aria-hidden />
-                {t('startFromPrepare')}
-              </Button>
-            }
-          />
+              />
+            </div>
+          ) : (
+            <EmptyState
+              icon={<PlayCircle />}
+              title={t('executeTitle')}
+              description={t('missingPlan')}
+              action={
+                <Button
+                  size='sm'
+                  onClick={() =>
+                    router.push(`/clusters/${clusterId}/upgrade/prepare`)
+                  }
+                >
+                  <ArrowLeft className='size-3.5' aria-hidden />
+                  {t('startFromPrepare')}
+                </Button>
+              }
+            />
+          )}
         </div>
       </div>
     );

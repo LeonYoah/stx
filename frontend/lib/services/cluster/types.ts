@@ -179,6 +179,8 @@ export interface ClusterInfo {
   install_dir: string;
   /** Cluster configuration / 集群配置 */
   config: ClusterConfig;
+  /** Config column load/parse error; other fields remain usable / config 列读取失败时其余字段仍可用 */
+  config_error?: string;
   /** Number of nodes / 节点数量 */
   node_count: number;
   /** Number of nodes whose host is online / 主机在线的节点数 */
@@ -946,6 +948,8 @@ export interface ClusterListData {
   total: number;
   /** Cluster list / 集群列表 */
   clusters: ClusterInfo[];
+  /** Soft-load warnings for degraded config rows / config 软加载降级提示 */
+  warnings?: string[];
 }
 
 /**

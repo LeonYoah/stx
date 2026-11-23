@@ -172,7 +172,6 @@ export function useCluster(initialPageSize: number = DEFAULT_PAGE_SIZE): UseClus
       }
 
       setIsLoading(true);
-      setError(null);
 
       try {
         const result = await services.cluster.getClustersSafe(params);
@@ -180,6 +179,7 @@ export function useCluster(initialPageSize: number = DEFAULT_PAGE_SIZE): UseClus
         if (result.success && result.data) {
           setClusters(result.data.clusters);
           setTotal(result.data.total);
+          setError(null);
 
           // Update cache / 更新缓存
           clusterCache.set(cacheKey, {
@@ -187,15 +187,12 @@ export function useCluster(initialPageSize: number = DEFAULT_PAGE_SIZE): UseClus
             timestamp: Date.now(),
           });
         } else {
+          // 失败时保留旧列表，避免重试落到空态。Keep prior rows so retries do not become an empty state.
           setError(result.error || '获取集群列表失败');
-          setClusters([]);
-          setTotal(0);
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : '获取集群列表失败';
         setError(errorMessage);
-        setClusters([]);
-        setTotal(0);
       } finally {
         setIsLoading(false);
       }

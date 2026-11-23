@@ -143,6 +143,9 @@ type ListClustersResponse struct {
 	Data     *struct {
 		Total    int64          `json:"total"`
 		Clusters []*ClusterInfo `json:"clusters"`
+		// Warnings 汇总本页 config 软加载失败提示（行内另有 config_error）。
+		// Warnings summarizes config soft-load failures on this page (rows also carry config_error).
+		Warnings []string `json:"warnings,omitempty"`
 	} `json:"data"`
 }
 
@@ -435,7 +438,7 @@ func (h *Handler) ListClusters(c *gin.Context) {
 		PageSize:       req.Size,
 	}
 
-	clusters, total, err := h.service.ListWithInfo(c.Request.Context(), filter)
+	clusters, total, warnings, err := h.service.ListWithInfoAndWarnings(c.Request.Context(), filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ListClustersResponse{ErrorMsg: err.Error()})
 		return
@@ -445,9 +448,11 @@ func (h *Handler) ListClusters(c *gin.Context) {
 		Data: &struct {
 			Total    int64          `json:"total"`
 			Clusters []*ClusterInfo `json:"clusters"`
+			Warnings []string       `json:"warnings,omitempty"`
 		}{
 			Total:    total,
 			Clusters: clusters,
+			Warnings: warnings,
 		},
 	})
 }

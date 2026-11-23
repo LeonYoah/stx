@@ -106,7 +106,7 @@ test.describe.serial('install wizard real installer', () => {
 
     await chooseSelectOption(page, 'install-config-mirror', /Apache/i);
     await page.getByTestId('install-config-install-dir').fill(installDir);
-    await page.getByTestId('install-jvm-hybrid-heap').fill('1');
+    await page.getByTestId('install-jvm-hybrid-heap').fill('1024');
     await page.getByTestId('install-runtime-http-port').fill(String(httpPort));
     await chooseSelectOption(
       page,
@@ -191,7 +191,7 @@ test.describe.serial('install wizard real installer', () => {
 
     await chooseSelectOption(page, 'install-config-mirror', /Apache/i);
     await page.getByTestId('install-config-install-dir').fill(installDir);
-    await page.getByTestId('install-jvm-hybrid-heap').fill('1');
+    await page.getByTestId('install-jvm-hybrid-heap').fill('1024');
 
     await chooseSelectOption(
       page,

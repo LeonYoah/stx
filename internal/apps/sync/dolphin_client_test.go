@@ -164,11 +164,14 @@ func TestDolphinClientProcessFamily31And32RoundTrip(t *testing.T) {
 			if err := client.Release(ctx, 7, created.Code, dolphinReleaseOnline); err != nil {
 				t.Fatalf("release: %v", err)
 			}
-			if err := client.CreateSchedule(ctx, 7, created.Code, "0 0 * * * ?", "Asia/Shanghai"); err != nil {
+			if err := client.CreateSchedule(ctx, 7, created.Code, "0 0 * * * ?", "Asia/Shanghai", 12345); err != nil {
 				t.Fatalf("create schedule: %v", err)
 			}
 			if fake.lastForm.Get("processDefinitionCode") == "" || fake.lastForm.Get("workflowDefinitionCode") != "" {
 				t.Fatalf("%s schedule form = %v", version, fake.lastForm)
+			}
+			if fake.lastForm.Get("environmentCode") != "12345" {
+				t.Fatalf("%s schedule env form = %v", version, fake.lastForm)
 			}
 			if err := client.OnlineSchedules(ctx, 7, created.Code); err != nil {
 				t.Fatalf("online schedules: %v", err)
@@ -205,7 +208,7 @@ func TestDolphinClientWorkflowFamily33RoundTrip(t *testing.T) {
 	if _, err := client.CreateDefinition(ctx, 7, graph); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := client.CreateSchedule(ctx, 7, 9, "0 0 * * * ?", "Asia/Shanghai"); err != nil {
+	if err := client.CreateSchedule(ctx, 7, 9, "0 0 * * * ?", "Asia/Shanghai", 0); err != nil {
 		t.Fatalf("create schedule: %v", err)
 	}
 	if fake.lastForm.Get("workflowDefinitionCode") == "" || fake.lastForm.Get("processDefinitionCode") != "" {

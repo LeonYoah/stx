@@ -110,6 +110,12 @@ export function useClusterLifecycle(
       if (operation === OperationType.RESTART) {
         onRestartConfirmed?.(cluster);
         toast.info(t('cluster.restartAccepted'));
+      } else {
+        toast.info(
+          operation === OperationType.START
+            ? t('cluster.startAccepted')
+            : t('cluster.stopAccepted'),
+        );
       }
 
       try {

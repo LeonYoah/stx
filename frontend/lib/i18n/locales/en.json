@@ -1214,6 +1214,8 @@
     "stopSuccess": "Cluster stopped successfully",
     "restartSuccess": "Cluster restarted successfully",
     "restartAccepted": "Restart request accepted; waiting for nodes to become ready",
+    "startAccepted": "Start request accepted; waiting for nodes to become ready",
+    "stopAccepted": "Stop request accepted; waiting for nodes to stop",
     "restartPollTimeout": "No new process detected within {seconds} seconds; check process events",
     "restartSuccessAutoRestart": "Restart request submitted, auto-restart will manage the startup process",
     "startError": "Failed to start cluster",

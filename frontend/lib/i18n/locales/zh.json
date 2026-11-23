@@ -1214,6 +1214,8 @@
     "stopSuccess": "集群停止成功",
     "restartSuccess": "集群重启成功",
     "restartAccepted": "重启请求已受理，正在等待节点就绪",
+    "startAccepted": "启动请求已受理，正在等待节点就绪",
+    "stopAccepted": "停止请求已受理，正在等待节点停止",
     "restartPollTimeout": "{seconds} 秒内未检测到新进程，请查看进程事件",
     "restartSuccessAutoRestart": "重启请求已提交，自动重启将托管启动过程",
     "startError": "启动集群失败",

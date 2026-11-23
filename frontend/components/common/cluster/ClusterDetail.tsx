@@ -1400,6 +1400,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    */
   const handleNodeStart = async (node: NodeInfo) => {
     setNodeOperating(node.id);
+    // 与重启一致的受理语义：先提示受理并起轮询，不阻塞确认弹窗关闭。
+    // Same accept-async semantics as restart: toast acceptance and start polling up front so the confirm dialog can close immediately.
+    toast.info(t('cluster.startAccepted'));
+    void refreshMainStatusAfterLifecycle(OperationType.START, [node.id]);
     try {
       const result = await services.cluster.startNodeSafe(clusterId, node.id);
       if (result.success) {
@@ -1418,7 +1422,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             ? t('cluster.nodeStartSuccessAutoRestart')
             : t('cluster.nodeStartSuccess'),
         );
-        await refreshMainStatusAfterLifecycle(OperationType.START, [node.id]);
       } else {
         toast.error(result.error || t('cluster.nodeStartError'));
       }
@@ -1433,11 +1436,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    */
   const handleNodeStop = async (node: NodeInfo) => {
     setNodeOperating(node.id);
+    toast.info(t('cluster.stopAccepted'));
+    void refreshMainStatusAfterLifecycle(OperationType.STOP, [node.id]);
     try {
       const result = await services.cluster.stopNodeSafe(clusterId, node.id);
       if (result.success) {
         toast.success(t('cluster.nodeStopSuccess'));
-        await refreshMainStatusAfterLifecycle(OperationType.STOP, [node.id]);
       } else {
         toast.error(result.error || t('cluster.nodeStopError'));
       }
@@ -1504,9 +1508,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       return;
     }
     setIsOperating(true);
+    const scopeNodeIds = Array.from(selectedNodeIds);
+    toast.info(t('cluster.startAccepted'));
+    void refreshMainStatusAfterLifecycle(OperationType.START, scopeNodeIds);
     try {
       let hasAutoRestart = false;
-      for (const nodeId of selectedNodeIds) {
+      for (const nodeId of scopeNodeIds) {
         const result = await services.cluster.startNodeSafe(clusterId, nodeId);
         // Check both message and node_results / 检查 message 和 node_results
         if (
@@ -1526,10 +1533,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           ? t('cluster.batchStartSuccessAutoRestart')
           : t('cluster.batchStartSuccess'),
       );
-      await refreshMainStatusAfterLifecycle(
-        OperationType.START,
-        Array.from(selectedNodeIds),
-      );
     } finally {
       setIsOperating(false);
     }
@@ -1545,13 +1548,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       return;
     }
     setIsOperating(true);
+    const scopeNodeIds = Array.from(selectedNodeIds);
+    toast.info(t('cluster.stopAccepted'));
+    void refreshMainStatusAfterLifecycle(OperationType.STOP, scopeNodeIds);
     try {
-      const scopeNodeIds = Array.from(selectedNodeIds);
       for (const nodeId of scopeNodeIds) {
         await services.cluster.stopNodeSafe(clusterId, nodeId);
       }
       toast.success(t('cluster.batchStopSuccess'));
-      await refreshMainStatusAfterLifecycle(OperationType.STOP, scopeNodeIds);
     } finally {
       setIsOperating(false);
     }
@@ -2690,15 +2694,18 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               : t('cluster.restart')
         }
         confirmVariant={confirmBatchOp === 'stop' ? 'danger' : 'primary'}
-        onConfirm={async () => {
-          if (confirmBatchOp === 'start') {
-            await handleBatchStart();
-          } else if (confirmBatchOp === 'stop') {
-            await handleBatchStop();
-          } else if (confirmBatchOp === 'restart') {
-            await handleBatchRestart();
-          }
+        onConfirm={() => {
+          // 先关弹窗后台执行，避免等待节点接口时弹窗滞留。
+          // Close the dialog first and run in the background so it never lingers while waiting on node APIs.
+          const op = confirmBatchOp;
           setConfirmBatchOp(null);
+          if (op === 'start') {
+            void handleBatchStart();
+          } else if (op === 'stop') {
+            void handleBatchStop();
+          } else if (op === 'restart') {
+            void handleBatchRestart();
+          }
         }}
       />
 
@@ -2752,18 +2759,19 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               : t('cluster.restart')
         }
         confirmVariant={confirmNodeOp?.op === 'stop' ? 'danger' : 'primary'}
-        onConfirm={async () => {
+        onConfirm={() => {
           if (!confirmNodeOp) {
             return;
           }
-          if (confirmNodeOp.op === 'start') {
-            await handleNodeStart(confirmNodeOp.node);
-          } else if (confirmNodeOp.op === 'stop') {
-            await handleNodeStop(confirmNodeOp.node);
-          } else {
-            await handleNodeRestart(confirmNodeOp.node);
-          }
+          const {op, node} = confirmNodeOp;
           setConfirmNodeOp(null);
+          if (op === 'start') {
+            void handleNodeStart(node);
+          } else if (op === 'stop') {
+            void handleNodeStop(node);
+          } else {
+            void handleNodeRestart(node);
+          }
         }}
       />
 

@@ -91,6 +91,10 @@ class TestBilingualRule(unittest.TestCase):
     def test_two_path_list_passes(self):
         self.assertPass("可选目录 /opt/seatunnel / /opt/stx")
 
+    def test_status_words_not_paths(self):
+        self.assertHit("检查失败 / failed.")
+        self.assertHit("就绪 / ready / retry")
+
     def test_versioned_name_list_passes(self):
         self.assertPass("支持的运行时：OpenJDK 17 / Oracle JDK 21")
 

@@ -215,7 +215,7 @@ def _is_path_token(segment: str) -> bool:
 
 def _looks_like_path(segment: str) -> bool:
     return _is_path_token(segment) and bool(
-        re.search(r"[/.]", segment.split()[0])
+        re.search(r"/|\.(?!$)", segment.split()[0])
     )
 
 
@@ -249,10 +249,7 @@ def bilingual_slash_positions(literal: str):
             left_words = left_seg.split()
             boundary = left_words[-1] if left_words else ""
             nxt = parts[idx + 2].split() if idx + 2 < len(parts) else []
-            chain_start = (
-                PATH_TOKEN_RE.fullmatch(boundary) is not None
-                or not EN_WORD_RE.findall(left_seg)
-            )
+            chain_start = PATH_TOKEN_RE.fullmatch(boundary) is not None
             if _is_path_token(right_seg) and chain_start and (
                 (nxt and PATH_TOKEN_RE.fullmatch(nxt[0]))
                 or _looks_like_path(right_seg)
@@ -263,10 +260,7 @@ def bilingual_slash_positions(literal: str):
             right_words = right_seg.split()
             boundary = right_words[0] if right_words else ""
             prv = parts[idx - 1].split() if idx > 0 else []
-            chain_start = (
-                PATH_TOKEN_RE.fullmatch(boundary) is not None
-                or not EN_WORD_RE.findall(right_seg)
-            )
+            chain_start = PATH_TOKEN_RE.fullmatch(boundary) is not None
             if _is_path_token(left_seg) and chain_start and (
                 (prv and PATH_TOKEN_RE.fullmatch(prv[-1]))
                 or _looks_like_path(left_seg)

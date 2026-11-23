@@ -7,13 +7,17 @@ tidy:
 check_license:
 	scripts/license.sh
 
+check_i18n:
+	python3 -m unittest scripts/check_i18n_policy_test.py
+	python3 scripts/check_i18n_policy.py --baseline scripts/i18n_baseline.json
+
 add_apache_license:
 	python3 scripts/add_apache_license.py --git-added --staged
 
 proto:
 	scripts/proto.sh
 
-pre_commit: tidy swagger check_license
+pre_commit: tidy swagger check_license check_i18n
 
 # 先打包发版产物（dist/releases/），再构建只消费产物的 Docker 镜像。
 # Package release artifacts (dist/releases/) first, then build images that only consume them.

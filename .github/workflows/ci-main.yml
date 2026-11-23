@@ -64,6 +64,20 @@ jobs:
       - name: Check database dialect compatibility
         run: python3 scripts/check_db_compatibility.py
 
+      - name: i18n policy script unit tests
+        run: python3 -m unittest scripts/check_i18n_policy_test.py
+
+      - name: i18n policy gate for pull request changes
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/check_i18n_policy.py --base-ref "origin/${{ github.base_ref }}" --head-ref "${{ github.sha }}"
+
+      - name: i18n policy gate for push changes
+        if: github.event_name == 'push'
+        run: python3 scripts/check_i18n_policy.py --base-ref "${{ github.event.before }}" --head-ref "${{ github.sha }}"
+
+      - name: i18n policy baseline ratchet
+        run: python3 scripts/check_i18n_policy.py --baseline scripts/i18n_baseline.json
+
   # 安装脚本轻量门禁：语法 / shellcheck、安装链路不依赖 python3、download-lib / install-core 单测。
   # Lightweight installer gate: syntax / shellcheck, no python3 in the install path, download-lib / install-core tests.
   install-scripts-test:
@@ -357,7 +371,7 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [changes, install-scripts-test, backend-core-test, agent-test, proxy-test, frontend-unit, frontend-build]
+    needs: [changes, install-scripts-test, license-check, backend-core-test, agent-test, proxy-test, frontend-unit, frontend-build]
     if: always()
 
     steps:
@@ -375,6 +389,11 @@ jobs:
 
           if [ "${{ needs.install-scripts-test.result }}" != "success" ]; then
             echo "::error::Install Scripts Tests did not succeed."
+            exit 1
+          fi
+
+          if [ "${{ needs.license-check.result }}" != "success" ]; then
+            echo "::error::License & Policy Checks did not succeed."
             exit 1
           fi
 

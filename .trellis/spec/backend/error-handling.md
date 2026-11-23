@@ -54,6 +54,8 @@ c.JSON(http.StatusOK, CreateClusterResponse{Data: cluster.ToClusterInfo()})
   - `409 Conflict`：重复或冲突状态（如集群名已存在、节点已存在）、需要用户先处理环境问题的失败（如集群缺连接器）。
   - `500 Internal Server Error`：未预期错误（如 DB 失败）；若敏感则避免在 `error_msg` 中暴露内部细节。
 - **`error_code`**：响应可选字段（`omitempty`），只给有专门处理路径的失败下发，CLI 与前端按它给可执行指引，而不是解析 `error_msg`。目前取值：sync 的 `connector_missing` 与 `connector_init_failed`（均 HTTP 409）：service 在引擎提交调用点用 `classifyEngineSubmitError` 把 SeaTunnel `Unable to create a (source|sink|transform) for identifier 'X'` 归类为 `ConnectorMissingError`，handler 经 `errors.Is(err, ErrConnectorMissing)` 映射 409 并用 `syncErrorCode` 填码；`error_msg` 冒号后保留引擎原文，已存作业的失败消息也靠这段原文识别归类。结果未知（`EngineCallUnknownError`）不参与归类。API-06 措辞是所有工厂初始化失败的共同外壳：消息带 `caused by:` 链时按层段找「确实没找到插件」的确定信号（`could not find any factor*` / `no factory found for identifier` / `PluginIdentifier*not found` / `not found`+`factory|plugin` 同段 / `连接器未安装`，与 java-proxy `isPluginNotFound` 一致），链里没有确定信号就透传原始错误，不归类；裸措辞（无 caused-by）维持归类。归类为缺失前还会用 `installed_plugins` 交叉验证（`classifySubmitError` + `InstalledPluginProvider` + `connectorIdentifierInstalled` 词集匹配 identifier↔plugin_name）：已安装则改写为 `ConnectorInitFailedError`（`connector_init_failed`），因为引擎 REST 只回外层措辞、真实 cause 只在 master 日志里。
+- **`error_msg` 语言**：面向 UI 的 `error_msg` 必须单语输出，禁止 `中文 / English` 拼接（`scripts/check_i18n_policy.py` 规则 A 硬阻断）。需要按请求语言生成整句时用 `locale.FromContext(c.Request.Context())` / `locale.Pick(ctx, zh, en)`（`internal/pkg/locale`），不要手写 `c.Query("lang")`（规则 B 硬阻断）。
+- **UI 本地化的推荐路径**：新增需要前端翻译的错误优先下发稳定 `error_code`（snake_case）+ 单语兜底 `error_msg`，前端在 `apiErrors.<code>` 词条翻译、未知码回退 `error_msg`；`error_msg` 仅作兜底与 CLI 展示，不要依赖其措辞做 UI 判定。
 - **映射**：应用可以共用 `getStatusCodeForError(err)` 一类辅助函数，也可以在简单 handler 中直接判断；都应使用 `errors.Is(err, ErrXxx)`，未识别错误默认返回 500。
 
 ---

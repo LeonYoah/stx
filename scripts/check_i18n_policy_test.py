@@ -95,6 +95,9 @@ class TestBilingualRule(unittest.TestCase):
         self.assertHit("检查失败 / failed.")
         self.assertHit("就绪 / ready / retry")
 
+    def test_path_tail_after_zh_label(self):
+        self.assertPass("日志输出：标准输出 / ./logs/stx.log")
+
     def test_versioned_name_list_passes(self):
         self.assertPass("支持的运行时：OpenJDK 17 / Oracle JDK 21")
 

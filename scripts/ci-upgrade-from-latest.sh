@@ -612,6 +612,22 @@ EOF
 
 # ── 5. 一键升级到 TARGET（CLI 优先，逐命令探测回退） ─────────────────────────
 
+# probe_script_replace：给 status.sh 追加一行注释，强制升级时的脚本替换路径一定走
+# InstallScriptIfChanged——否则当 FROM 与当前版本的 bin 脚本逐字节一致时（例如最新
+# 发布与 main 同步后），没有任何 .bak-* 产生，"backup exists" 断言就退化为运气。
+# probe_script_replace: appends a comment to status.sh so the upgrade's script-replace
+# path through InstallScriptIfChanged is exercised deterministically — without it, a
+# FROM whose bin scripts are byte-identical to the target (e.g. the latest release cut
+# from current main) produces no .bak-* and the "backup exists" assert is luck.
+probe_script_replace() {
+  if sudo -n test -f "$INSTALL_DIR/bin/status.sh"; then
+    sudo -n bash -c "printf '# ci-upgrade-probe\n' >> '$INSTALL_DIR/bin/status.sh'" \
+      || notice "could not touch status.sh; backup-exists assert may be vacuous"
+  else
+    notice "no bin/status.sh in FROM layout; backup-exists assert may be vacuous"
+  fi
+}
+
 run_self_upgrade() {
   local out
 
@@ -751,6 +767,9 @@ assert_generic() {
   assert_true "bin/stop.sh identical" sudo -n cmp -s "$INSTALL_DIR/bin/stop.sh" "$ROOT_DIR/install/bin/stop.sh"
   assert_true "bin/status.sh identical" sudo -n cmp -s "$INSTALL_DIR/bin/status.sh" "$ROOT_DIR/install/bin/status.sh"
   assert_true "observability.sh moved" bash -c "! sudo -n test -f '$INSTALL_DIR/bin/lib/observability.sh'"
+  # probe_script_replace 在升级前改动了 status.sh，升级必须替换它并留下 .bak-* 备份。
+  # probe_script_replace modified status.sh pre-upgrade; the upgrade must replace
+  # it and leave a .bak-* backup.
   assert_true "backup exists" bash -c "sudo -n find '$INSTALL_DIR/bin' -name '*.bak-*' -print -quit | grep -q ."
 
   assert_true "no panic in backend.log" bash -c "! sudo -n grep -qE 'panic|fatal error' '$INSTALL_DIR/logs/backend.log' 2>/dev/null"
@@ -925,6 +944,7 @@ main() {
   open_install_dir_for_cli
   cli_login
   seed_data
+  probe_script_replace
   run_self_upgrade
   assert_generic
   assert_legacy_stack

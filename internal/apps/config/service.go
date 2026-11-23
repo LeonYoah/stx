@@ -447,17 +447,21 @@ func (s *Service) PushConfigToNode(ctx context.Context, id uint, installDir stri
 			norm := func(dir string) string {
 				return strings.TrimRight(strings.TrimSpace(dir), "/")
 			}
-			seen := map[string]struct{}{norm(installDir): {}}
-			for _, dir := range dirs {
-				dir = strings.TrimSpace(dir)
+			installDirs = []string{}
+			seen := map[string]struct{}{}
+			for _, dir := range append([]string{installDir}, dirs...) {
+				dir = norm(dir)
 				if dir == "" {
 					continue
 				}
-				if _, ok := seen[norm(dir)]; ok {
+				if _, ok := seen[dir]; ok {
 					continue
 				}
-				seen[norm(dir)] = struct{}{}
+				seen[dir] = struct{}{}
 				installDirs = append(installDirs, dir)
+			}
+			if len(installDirs) == 0 {
+				installDirs = []string{installDir}
 			}
 		}
 	}

@@ -359,7 +359,9 @@ export function ProcessEventList({
     {value: 'all', label: t('monitor.allEvents')},
     ...(Object.keys(EVENT_TYPE_META) as ProcessEventType[]).map((key) => ({
       value: key,
-      label: t(EVENT_TYPE_META[key].labelKey),
+      label: t.has(EVENT_TYPE_META[key].labelKey)
+        ? t(EVENT_TYPE_META[key].labelKey)
+        : key,
     })),
   ];
 
@@ -454,7 +456,9 @@ export function ProcessEventList({
                         <SoftChip tone={meta.tone} className='font-medium'>
                           {meta.icon}
                           <span className='whitespace-nowrap'>
-                            {t(meta.labelKey)}
+                            {t.has(meta.labelKey)
+                              ? t(meta.labelKey)
+                              : event.event_type}
                           </span>
                         </SoftChip>
                       ) : (

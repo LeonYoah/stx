@@ -3166,7 +3166,7 @@
       "agentRecovered": "Agent 已恢复",
       "masterUnavailable": "Master 不可用",
       "masterRecovered": "Master 已恢复",
-      "workerInsufficient": "Worker 不足",
+      "workerInsufficient": "健康 Worker 不足",
       "workerRecovered": "Worker 已恢复"
     }
   },
@@ -3805,7 +3805,7 @@
       "agentRecovered": "Agent 已恢复",
       "masterUnavailable": "Master 不可用",
       "masterRecovered": "Master 已恢复",
-      "workerInsufficient": "Worker 不足",
+      "workerInsufficient": "健康 Worker 不足",
       "workerRecovered": "Worker 已恢复"
     },
     "tabs": {

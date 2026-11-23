@@ -485,7 +485,7 @@
           "master": "master",
           "scrapeDown": "Scrape failed",
           "nodeDown": "Node down",
-          "agentOffline": "Agent offline",
+          "agentOffline": "Agent Offline",
           "empty": "No nodes",
           "cores": "{value} cores"
         },
@@ -3162,12 +3162,12 @@
       "nodeStopRequested": "Node Stop Requested",
       "nodeOffline": "Node Offline",
       "nodeRecovered": "Node Recovered",
-      "agentOffline": "Agent offline",
-      "agentRecovered": "Agent recovered",
-      "masterUnavailable": "Master unavailable",
-      "masterRecovered": "Master recovered",
-      "workerInsufficient": "Insufficient workers",
-      "workerRecovered": "Workers recovered"
+      "agentOffline": "Agent Offline",
+      "agentRecovered": "Agent Recovered",
+      "masterUnavailable": "Master Unavailable",
+      "masterRecovered": "Master Recovered",
+      "workerInsufficient": "Workers Insufficient",
+      "workerRecovered": "Worker Recovered"
     }
   },
   "monitoringCenter": {
@@ -3801,12 +3801,12 @@
       "nodeStopRequested": "Node Stop Requested",
       "nodeOffline": "Node Offline",
       "nodeRecovered": "Node Recovered",
-      "agentOffline": "Agent offline",
-      "agentRecovered": "Agent recovered",
-      "masterUnavailable": "Master unavailable",
-      "masterRecovered": "Master recovered",
-      "workerInsufficient": "Insufficient workers",
-      "workerRecovered": "Workers recovered"
+      "agentOffline": "Agent Offline",
+      "agentRecovered": "Agent Recovered",
+      "masterUnavailable": "Master Unavailable",
+      "masterRecovered": "Master Recovered",
+      "workerInsufficient": "Workers Insufficient",
+      "workerRecovered": "Worker Recovered"
     },
     "tabs": {
       "dashboard": "Dashboard",

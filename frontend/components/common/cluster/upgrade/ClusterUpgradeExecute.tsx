@@ -22,6 +22,7 @@ import {useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {toast} from '@/lib/toast';
 import {
+  AlertTriangle,
   ArrowLeft,
   Clock3,
   History,
@@ -112,6 +113,9 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
   // planLoadError：读取失败（非 404）；missingPlan 仅用于「确实没有计划」。
   // planLoadError covers read failures (not 404); missingPlan is only for true absence.
   const [planLoadError, setPlanLoadError] = useState<string | null>(null);
+  // 错误卡上重试：保留错误卡，不整页骨架；防连点。
+  // Error-card retry keeps the card (no full-page skeleton) and blocks double clicks.
+  const [retrying, setRetrying] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [starting, setStarting] = useState(false);
   // 步骤 / 节点视图切换，释放横向空间 / Toggle steps vs nodes for horizontal space
@@ -127,7 +131,12 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
   const taskIdFromQuery = Number(searchParams.get('taskId') || 0);
 
   const loadTaskState = useCallback(
-    async (taskId: number, query: TaskLogsQuery) => {
+    async (
+      taskId: number,
+      query: TaskLogsQuery,
+      options?: {silent?: boolean},
+    ) => {
+      const silent = options?.silent === true;
       const seq = ++reqSeqRef.current;
       setRefreshing(true);
       try {
@@ -153,6 +162,11 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
         if (seq !== reqSeqRef.current) {
           return;
         }
+        // 轮询 / settle 静默：不 toast、不清空 plan/task，避免运行中每 3s 弹窗或误跳空态。
+        // Silent poll/settle: no toast and no plan/task clear, so a mid-run blip cannot spam or empty the page.
+        if (silent) {
+          return;
+        }
         const message =
           error instanceof Error ? error.message : t('loadExecuteFailed');
         const status = (error as Error & {status?: number}).status;
@@ -173,83 +187,105 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
     [clusterId, t],
   );
 
-  const loadInitialState = useCallback(async () => {
-    setLoading(true);
-    try {
-      const session = loadStUpgradeSession(clusterId);
-      const sessionPlanId = session?.plan?.id || 0;
-      const sessionTask = session?.task;
-
-      let initialPlanId = 0;
-      let initialTaskId = 0;
-
-      if (taskIdFromQuery) {
-        initialTaskId = taskIdFromQuery;
-        initialPlanId =
-          planIdFromQuery || sessionTask?.plan_id || sessionPlanId || 0;
-      } else if (planIdFromQuery) {
-        initialPlanId = planIdFromQuery;
-        if (sessionTask?.plan_id === planIdFromQuery) {
-          initialTaskId = sessionTask.id;
-        }
-      } else if (sessionTask?.id) {
-        initialTaskId = sessionTask.id;
-        initialPlanId = sessionTask.plan_id || sessionPlanId || 0;
-      } else if (sessionPlanId) {
-        initialPlanId = sessionPlanId;
+  const loadInitialState = useCallback(
+    async (options?: {skipLoading?: boolean}) => {
+      const skipLoading = options?.skipLoading === true;
+      if (!skipLoading) {
+        setLoading(true);
       }
+      try {
+        const session = loadStUpgradeSession(clusterId);
+        const sessionPlanId = session?.plan?.id || 0;
+        const sessionTask = session?.task;
 
-      if (!initialPlanId && !initialTaskId) {
-        setPlan(null);
+        let initialPlanId = 0;
+        let initialTaskId = 0;
+
+        if (taskIdFromQuery) {
+          initialTaskId = taskIdFromQuery;
+          initialPlanId =
+            planIdFromQuery || sessionTask?.plan_id || sessionPlanId || 0;
+        } else if (planIdFromQuery) {
+          initialPlanId = planIdFromQuery;
+          if (sessionTask?.plan_id === planIdFromQuery) {
+            initialTaskId = sessionTask.id;
+          }
+        } else if (sessionTask?.id) {
+          initialTaskId = sessionTask.id;
+          initialPlanId = sessionTask.plan_id || sessionPlanId || 0;
+        } else if (sessionPlanId) {
+          initialPlanId = sessionPlanId;
+        }
+
+        if (!initialPlanId && !initialTaskId) {
+          setPlan(null);
+          setTask(null);
+          setStepsData(null);
+          setLogsData(null);
+          setPlanLoadError(null);
+          return;
+        }
+
+        if (initialTaskId) {
+          await loadTaskState(initialTaskId, logsQuery);
+          return;
+        }
+
+        const planResult = await services.stUpgrade.getPlan(initialPlanId);
+        setPlan(planResult);
         setTask(null);
         setStepsData(null);
         setLogsData(null);
         setPlanLoadError(null);
-        return;
+        patchStUpgradeSession(clusterId, {
+          clusterId,
+          request: session?.request,
+          precheck: session?.precheck,
+          plan: planResult,
+          task: undefined,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : t('loadExecuteFailed');
+        const status = (error as Error & {status?: number}).status;
+        // 404 → 计划不存在；其它（含 snapshot 扫描失败的 500）→ 读取失败错误态。
+        // 404 → plan missing; other errors (incl. snapshot scan 500) → read-failure state.
+        if (status === 404) {
+          setPlan(null);
+          setPlanLoadError(null);
+        } else {
+          setPlanLoadError(message);
+        }
+        // 原始后端错误只走 toast；卡片用本地化说明，避免整页暴露 Go 错误串。
+        // Raw backend errors stay in toast; the card uses localized copy only.
+        toast.error(message);
+      } finally {
+        if (!skipLoading) {
+          setLoading(false);
+        }
       }
+    },
+    [
+      clusterId,
+      loadTaskState,
+      logsQuery,
+      planIdFromQuery,
+      taskIdFromQuery,
+      t,
+    ],
+  );
 
-      if (initialTaskId) {
-        await loadTaskState(initialTaskId, logsQuery);
-        return;
-      }
-
-      const planResult = await services.stUpgrade.getPlan(initialPlanId);
-      setPlan(planResult);
-      setTask(null);
-      setStepsData(null);
-      setLogsData(null);
-      setPlanLoadError(null);
-      patchStUpgradeSession(clusterId, {
-        clusterId,
-        request: session?.request,
-        precheck: session?.precheck,
-        plan: planResult,
-        task: undefined,
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : t('loadExecuteFailed');
-      const status = (error as Error & {status?: number}).status;
-      // 404 → 计划不存在；其它（含 snapshot 扫描失败的 500）→ 读取失败错误态。
-      // 404 → plan missing; other errors (incl. snapshot scan 500) → read-failure state.
-      if (status === 404) {
-        setPlan(null);
-        setPlanLoadError(null);
-      } else {
-        setPlanLoadError(message);
-      }
-      toast.error(message);
-    } finally {
-      setLoading(false);
+  const handleRetryPlanLoad = useCallback(async () => {
+    if (retrying) {
+      return;
     }
-  }, [
-    clusterId,
-    loadTaskState,
-    logsQuery,
-    planIdFromQuery,
-    taskIdFromQuery,
-    t,
-  ]);
+    setRetrying(true);
+    try {
+      await loadInitialState({skipLoading: true});
+    } finally {
+      setRetrying(false);
+    }
+  }, [loadInitialState, retrying]);
 
   useEffect(() => {
     void loadInitialState();
@@ -284,7 +320,9 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
     }
 
     const timer = setInterval(() => {
-      void loadTaskState(task.id, logsQuery).catch(() => undefined);
+      void loadTaskState(task.id, logsQuery, {silent: true}).catch(
+        () => undefined,
+      );
     }, 3000);
 
     return () => {
@@ -296,7 +334,9 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
   // Refresh once more when the task settles so the page never freezes on an intermediate snapshot.
   useRefreshOnSettle(hasActiveTask, () => {
     if (task?.id) {
-      void loadTaskState(task.id, logsQuery).catch(() => undefined);
+      void loadTaskState(task.id, logsQuery, {silent: true}).catch(
+        () => undefined,
+      );
     }
   });
 
@@ -508,18 +548,19 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
           {planLoadError ? (
             <div
               className='flex flex-col items-center justify-center gap-3'
-              role='alert'
               data-testid='upgrade-plan-load-error'
             >
               <EmptyState
-                icon={<PlayCircle />}
+                icon={<AlertTriangle />}
                 title={t('loadPlanFailed')}
-                description={planLoadError || t('loadPlanFailedDesc')}
+                description={t('loadPlanFailedDesc')}
                 action={
                   <Button
                     size='sm'
                     variant='secondary'
-                    onClick={() => void loadInitialState()}
+                    loading={retrying}
+                    disabled={retrying}
+                    onClick={() => void handleRetryPlanLoad()}
                   >
                     <RefreshCw className='size-3.5' aria-hidden />
                     {commonT('retry')}

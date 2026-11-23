@@ -65,6 +65,7 @@ import {
   DetailHost,
   ModuleNavTabs,
   NeutralChip,
+  SoftChip,
   TableCard,
   WorkspaceHeader,
   useDetailNarrow,
@@ -613,7 +614,7 @@ export function ClusterMain() {
               )
             }
           >
-            {warnings.length > 0 ? (
+            {!error && warnings.length > 0 ? (
               <div
                 className='border-b border-(--border) bg-amber-500/5 px-4 py-2 text-xs text-amber-800 dark:text-amber-200'
                 role='status'
@@ -875,9 +876,9 @@ function ClusterListTable({
                   ) : null}
                   {cluster.config_error ? (
                     <span data-testid={`cluster-config-error-${cluster.id}`}>
-                      <NeutralChip title={cluster.config_error}>
+                      <SoftChip tone='amber'>
                         {t('cluster.list.configReadFailed')}
-                      </NeutralChip>
+                      </SoftChip>
                     </span>
                   ) : null}
                 </div>

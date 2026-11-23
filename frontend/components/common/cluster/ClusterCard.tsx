@@ -43,7 +43,7 @@ import {
   DropdownMenu,
   type DropdownItem,
 } from '@/components/arc/dropdown-menu/dropdown-menu';
-import {NeutralChip} from '@/components/common/layout';
+import {NeutralChip, SoftChip} from '@/components/common/layout';
 import {useViewMorph} from '@/lib/animations/view-morph';
 import {
   OperationType,
@@ -176,6 +176,13 @@ export function ClusterCard({
               </motion.span>
               {isDefault ? (
                 <NeutralChip>{t('cluster.defaultBadge')}</NeutralChip>
+              ) : null}
+              {cluster.config_error ? (
+                <span data-testid={`cluster-config-error-${cluster.id}`}>
+                  <SoftChip tone='amber'>
+                    {t('cluster.list.configReadFailed')}
+                  </SoftChip>
+                </span>
               ) : null}
             </div>
             <p

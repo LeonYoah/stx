@@ -1960,7 +1960,7 @@
       "emptyFirstDesc": "部署一套新的 SeaTunnel 集群，或将已有集群注册纳入管理。",
       "emptyFilteredTitle": "没有匹配的集群",
       "emptyFilteredDesc": "当前筛选条件下未找到集群，可清空条件查看全部。",
-      "configWarnings": "{count} 个集群的配置读取失败，列表已降级展示其余字段。",
+      "configWarnings": "{count, plural, other {# 个集群的配置读取失败，列表已降级展示其余字段。}}",
       "configReadFailed": "配置读取失败",
       "confirmStartAction": "启动集群",
       "confirmStopAction": "停止集群",

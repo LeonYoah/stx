@@ -1960,7 +1960,7 @@
       "emptyFirstDesc": "Deploy a new SeaTunnel cluster or register an existing one to get started.",
       "emptyFilteredTitle": "No matching clusters",
       "emptyFilteredDesc": "No clusters match the current filters. Clear them to view all clusters.",
-      "configWarnings": "{count} cluster(s) failed to load config; other fields are still shown.",
+      "configWarnings": "{count, plural, one {# cluster failed to load config; other fields are still shown.} other {# clusters failed to load config; other fields are still shown.}}",
       "configReadFailed": "Config read failed",
       "confirmStartAction": "Start Cluster",
       "confirmStopAction": "Stop Cluster",
